@@ -57,7 +57,7 @@ Plan 模式下的协作流程包含以下阶段：
 | `list_agents` | 列出可用 Agent |
 | `tool_search` | 工具搜索 |
 | `plan` | 提交结构化计划 |
-| `supervisor` | 主管调度 |
+| `supervisor` | 超级总控智能体调度 |
 | `scenario` | 场景切换 |
 | `task` | 委派子任务 |
 

@@ -13,7 +13,7 @@
 | 5 | [定时任务](scheduled-tasks.md) | 设置自动执行的定时任务和消息推送 |
 | 6 | [搜索汇总并输出分析 HTML](search-html-report.md) | 深度搜索 + 结构化报告生成的全流程 |
 | 7 | [Claude Code 持续对话](claude-code-continuous.md) | 调用 Claude Code 实现 AI 辅助编码 |
-| 8 | [Supervisor 模式](supervisor-mode.md) | 多智能体协作完成复杂任务 |
+| 8 | [Supervisor 模式（超级总控智能体）](supervisor-mode.md) | 多智能体协作完成复杂任务 |
 
 ## 推荐阅读顺序
 
@@ -26,7 +26,7 @@
 5. **定时任务** → 让智能体自动工作
 6. **搜索汇总并输出分析 HTML** → 进阶：研究分析场景
 7. **Claude Code 持续对话** → 进阶：AI 辅助开发
-8. **Supervisor 模式** → 进阶：多智能体协同
+8. **Supervisor 模式（超级总控智能体）** → 进阶：多智能体协同
 
 ## 截图说明
 
