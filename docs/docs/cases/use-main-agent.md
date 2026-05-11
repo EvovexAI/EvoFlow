@@ -16,7 +16,7 @@
 
 在 EvoPanel 左侧导航栏中，点击 **「对话」** 图标，进入对话页面。
 
-![打开对话页面](../assets/cases/use-main-agent-step1.png)
+<!-- 截图占位：use-main-agent-step1.png — 打开对话页面 -->
 
 > **截图说明**：展示 EvoPanel 左侧导航栏，标注"对话"图标的位置。
 
@@ -33,7 +33,7 @@
 
 选择一个适合你当前需求的模式。
 
-![选择对话模式](../assets/cases/use-main-agent-step2.png)
+<!-- 截图占位：use-main-agent-step2.png — 选择对话模式 -->
 
 > **截图说明**：展示对话模式选择区域，标注四种模式的切换按钮。
 
@@ -48,7 +48,7 @@
 有哪些主流方案？各自的优缺点是什么？
 ```
 
-![输入问题](../assets/cases/use-main-agent-step3.png)
+<!-- 截图占位：use-main-agent-step3.png — 输入问题 -->
 
 > **截图说明**：展示输入框输入问题的界面，标注发送按钮。
 
@@ -56,7 +56,7 @@
 
 主智能体会以流式方式输出回答，支持 Markdown 渲染。如果智能体调用了工具（如搜索、文件读取），你可以在对话中看到工具调用的过程。
 
-![查看流式响应](../assets/cases/use-main-agent-step4.png)
+<!-- 截图占位：use-main-agent-step4.png — 查看流式响应 -->
 
 > **截图说明**：展示智能体流式输出回答的界面，标注工具调用可视化区域。
 
@@ -71,7 +71,7 @@
 并推荐一个最适合中型团队的选择。
 ```
 
-![多轮对话](../assets/cases/use-main-agent-step5.png)
+<!-- 截图占位：use-main-agent-step5.png — 多轮对话 -->
 
 > **截图说明**：展示多轮对话的完整界面，标注上下文保持的效果。
 
@@ -79,7 +79,7 @@
 
 你可以粘贴截图或拖拽图片到对话中，主智能体会进行图片识别和分析。
 
-![上传图片](../assets/cases/use-main-agent-step6.png)
+<!-- 截图占位：use-main-agent-step6.png — 上传图片 -->
 
 > **截图说明**：展示上传图片后智能体识别和分析的界面。
 

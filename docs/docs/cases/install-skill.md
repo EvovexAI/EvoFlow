@@ -15,7 +15,7 @@ EvoFlow 提供了丰富的预置技能，你也可以从技能市场或社区安
 
 在 EvoPanel 左侧导航栏中，点击 **「技能」** 图标，进入技能管理页面。
 
-![进入技能管理](../assets/cases/install-skill-step1.png)
+<!-- 截图占位：install-skill-step1.png — 进入技能管理 -->
 
 > **截图说明**：展示左侧导航栏，标注"技能"图标位置。
 
@@ -28,7 +28,7 @@ EvoFlow 提供了丰富的预置技能，你也可以从技能市场或社区安
 
 点击 **「技能市场」** 或 **「浏览更多」** 查看可安装的额外技能。
 
-![浏览技能列表](../assets/cases/install-skill-step2.png)
+<!-- 截图占位：install-skill-step2.png — 浏览技能列表 -->
 
 > **截图说明**：展示技能列表页面，标注内置技能和自定义技能区域。
 
@@ -48,7 +48,7 @@ EvoFlow 提供了丰富的预置技能，你也可以从技能市场或社区安
 | `pptx` | 创建和编辑 PowerPoint 演示文稿 |
 | `pdf` | PDF 文件处理 |
 
-![选择技能](../assets/cases/install-skill-step3.png)
+<!-- 截图占位：install-skill-step3.png — 选择技能 -->
 
 > **截图说明**：展示技能市场或安装界面，标注安装按钮。
 
@@ -56,7 +56,7 @@ EvoFlow 提供了丰富的预置技能，你也可以从技能市场或社区安
 
 安装过程中，系统会将技能文件解压到 `skills/custom/` 目录下。安装完成后，技能会出现在你的技能列表中。
 
-![安装完成](../assets/cases/install-skill-step4.png)
+<!-- 截图占位：install-skill-step4.png — 安装完成 -->
 
 > **截图说明**：展示安装成功提示和技能列表中新增的技能。
 
@@ -64,7 +64,7 @@ EvoFlow 提供了丰富的预置技能，你也可以从技能市场或社区安
 
 在技能列表中，你可以通过开关控制每个技能的启用/禁用状态。禁用的技能不会被智能体加载。
 
-![管理技能开关](../assets/cases/install-skill-step5.png)
+<!-- 截图占位：install-skill-step5.png — 管理技能开关 -->
 
 > **截图说明**：展示技能列表中的启用/禁用开关。
 
@@ -79,7 +79,7 @@ EvoFlow 提供了丰富的预置技能，你也可以从技能市场或社区安
 对比主流方案的技术特点和适用场景。
 ```
 
-![测试安装的技能](../assets/cases/install-skill-step6.png)
+<!-- 截图占位：install-skill-step6.png — 测试安装的技能 -->
 
 > **截图说明**：展示对话中调用已安装技能的过程和输出结果。
 

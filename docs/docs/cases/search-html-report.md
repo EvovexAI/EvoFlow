@@ -16,7 +16,7 @@
 
 在 EvoPanel 左侧导航栏中，点击 **「对话」** 图标。
 
-![打开对话](../assets/cases/search-html-report-step1.png)
+<!-- 截图占位：search-html-report-step1.png — 打开对话 -->
 
 > **截图说明**：展示左侧导航栏，标注"对话"图标。
 
@@ -24,7 +24,7 @@
 
 在对话模式中选择 **「执行」** 或 **「无限」** 模式，因为深度搜索需要调用搜索工具和文件写入能力。
 
-![选择执行模式](../assets/cases/search-html-report-step2.png)
+<!-- 截图占位：search-html-report-step2.png — 选择执行模式 -->
 
 > **截图说明**：展示对话模式选择，标注"执行"模式。
 
@@ -44,7 +44,7 @@
 4. 生成一份 HTML 格式的分析报告，包含图表和数据对比
 ```
 
-![输入研究指令](../assets/cases/search-html-report-step3.png)
+<!-- 截图占位：search-html-report-step3.png — 输入研究指令 -->
 
 > **截图说明**：展示输入框中输入完整研究指令的界面。
 
@@ -52,7 +52,7 @@
 
 智能体会自动调用搜索引擎，从多个来源获取信息。你会看到搜索过程的实时展示。
 
-![搜索过程](../assets/cases/search-html-report-step4.png)
+<!-- 截图占位：search-html-report-step4.png — 搜索过程 -->
 
 > **截图说明**：展示智能体调用搜索工具、获取搜索结果的实时过程。
 
@@ -60,7 +60,7 @@
 
 智能体会对搜索结果进行阅读、筛选和交叉验证，提取有价值的信息。
 
-![信息汇总](../assets/cases/search-html-report-step5.png)
+<!-- 截图占位：search-html-report-step5.png — 信息汇总 -->
 
 > **截图说明**：展示智能体筛选和整理信息的对话过程。
 
@@ -75,7 +75,7 @@
 - 典型案例
 - 结论与建议
 
-![HTML 报告](../assets/cases/search-html-report-step6.png)
+<!-- 截图占位：search-html-report-step6.png — HTML 报告 -->
 
 > **截图说明**：展示生成的 HTML 报告预览或下载入口。
 
@@ -83,7 +83,7 @@
 
 你可以在对话中找到报告的下载链接，或在项目的工作区目录中找到生成的 HTML 文件。
 
-![下载报告](../assets/cases/search-html-report-step7.png)
+<!-- 截图占位：search-html-report-step7.png — 下载报告 -->
 
 > **截图说明**：展示报告文件在工作区中的位置和下载方式。
 

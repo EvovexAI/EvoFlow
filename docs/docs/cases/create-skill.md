@@ -26,7 +26,7 @@ my-skill/
 
 其中 `SKILL.md` 是最核心的文件，包含 YAML 元信息和技能描述。
 
-![技能结构示意](../assets/cases/create-skill-step1.png)
+<!-- 截图占位：create-skill-step1.png — 技能结构示意 -->
 
 > **截图说明**：展示技能文件夹的目录结构截图。
 
@@ -34,7 +34,7 @@ my-skill/
 
 在 EvoPanel 左侧导航栏中，点击 **「技能」** 图标，进入技能管理页面。
 
-![进入技能管理](../assets/cases/create-skill-step2.png)
+<!-- 截图占位：create-skill-step2.png — 进入技能管理 -->
 
 > **截图说明**：展示左侧导航栏，标注"技能"图标位置。
 
@@ -42,7 +42,7 @@ my-skill/
 
 在技能管理页面，点击 **「+ 新建技能」** 按钮。
 
-![点击新建技能](../assets/cases/create-skill-step3.png)
+<!-- 截图占位：create-skill-step3.png — 点击新建技能 -->
 
 > **截图说明**：展示技能管理页面，标注"新建技能"按钮。
 
@@ -60,7 +60,7 @@ my-skill/
 支持 Markdown、HTML 和纯文本格式输出。
 ```
 
-![填写技能信息](../assets/cases/create-skill-step4.png)
+<!-- 截图占位：create-skill-step4.png — 填写技能信息 -->
 
 > **截图说明**：展示技能信息填写表单，标注名称和描述输入框。
 
@@ -92,7 +92,7 @@ SKILL.md 正文部分用自然语言描述：
 - 结论和建议
 ```
 
-![编写 SKILL.md](../assets/cases/create-skill-step5.png)
+<!-- 截图占位：create-skill-step5.png — 编写 SKILL.md -->
 
 > **截图说明**：展示 SKILL.md 编辑器界面，标注正文内容区域。
 
@@ -112,7 +112,7 @@ SKILL.md 正文部分用自然语言描述：
 
 如果智能体正确识别并调用了你的技能，说明创建成功。
 
-![测试技能](../assets/cases/create-skill-step7.png)
+<!-- 截图占位：create-skill-step7.png — 测试技能 -->
 
 > **截图说明**：展示对话中技能被触发和执行的界面。
 

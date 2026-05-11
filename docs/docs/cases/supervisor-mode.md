@@ -16,7 +16,7 @@
 
 在 EvoPanel 中打开对话页面，选择 **「规划」** 模式。Supervisor 模式通常在处理复杂任务时自动激活。
 
-![选择规划模式](../assets/cases/supervisor-step1.png)
+<!-- 截图占位：supervisor-step1.png — 选择规划模式 -->
 
 > **截图说明**：展示对话模式选择，标注"规划"模式。
 
@@ -37,7 +37,7 @@
 请帮我规划实现方案。
 ```
 
-![输入复杂任务](../assets/cases/supervisor-step2.png)
+<!-- 截图占位：supervisor-step2.png — 输入复杂任务 -->
 
 > **截图说明**：展示输入框中输入复杂任务的界面。
 
@@ -52,7 +52,7 @@ Supervisor 会进入澄清阶段，通过提问确认任务范围、非目标和
 - 历史日报需要保留多久？
 - 是否需要支持多个团队的不同日报？
 
-![澄清需求](../assets/cases/supervisor-step3.png)
+<!-- 截图占位：supervisor-step3.png — 澄清需求 -->
 
 > **截图说明**：展示 Supervisor 提问澄清需求的对话界面。
 
@@ -70,7 +70,7 @@ Supervisor 会进入澄清阶段，通过提问确认任务范围、非目标和
 | 飞书推送配置 | 运维工程师 | HTML 模板 |
 | 定时任务编排 | 系统集成 | 以上全部 |
 
-![任务分解](../assets/cases/supervisor-step4.png)
+<!-- 截图占位：supervisor-step4.png — 任务分解 -->
 
 > **截图说明**：展示 Supervisor 分解的子任务列表和依赖关系图。
 
@@ -82,7 +82,7 @@ Supervisor 会根据子任务的性质，选择合适的智能体来执行：
 - 自定义智能体（如"数据分析助手"）处理专业任务
 - Claude Code 处理编码任务
 
-![分配子智能体](../assets/cases/supervisor-step5.png)
+<!-- 截图占位：supervisor-step5.png — 分配子智能体 -->
 
 > **截图说明**：展示 Supervisor 分配子任务给不同智能体的界面。
 
@@ -90,7 +90,7 @@ Supervisor 会根据子任务的性质，选择合适的智能体来执行：
 
 Supervisor 会实时监控各子任务的执行进度，处理错误和重试。你可以在对话中看到整体进度和各子任务的状态。
 
-![监督执行](../assets/cases/supervisor-step6.png)
+<!-- 截图占位：supervisor-step6.png — 监督执行 -->
 
 > **截图说明**：展示 Supervisor 监督界面，标注各子任务的执行状态（进行中/已完成/失败）。
 
@@ -106,7 +106,7 @@ Supervisor 会实时监控各子任务的执行进度，处理错误和重试。
   处理：重新调整分类规则，再次执行
 ```
 
-![处理异常](../assets/cases/supervisor-step7.png)
+<!-- 截图占位：supervisor-step7.png — 处理异常 -->
 
 > **截图说明**：展示 Supervisor 处理子任务失败的界面，标注自动重试的过程。
 
@@ -114,7 +114,7 @@ Supervisor 会实时监控各子任务的执行进度，处理错误和重试。
 
 所有子任务完成后，Supervisor 会汇总结果，向你报告整体完成情况。
 
-![任务完成](../assets/cases/supervisor-step8.png)
+<!-- 截图占位：supervisor-step8.png — 任务完成 -->
 
 > **截图说明**：展示 Supervisor 汇总报告界面，标注所有子任务的完成状态。
 

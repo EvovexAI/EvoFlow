@@ -16,7 +16,7 @@
 
 在 EvoPanel 左侧导航栏中，点击 **「定时任务」** 图标，进入定时任务管理页面。
 
-![进入定时任务](../assets/cases/scheduled-tasks-step1.png)
+<!-- 截图占位：scheduled-tasks-step1.png — 进入定时任务 -->
 
 > **截图说明**：展示左侧导航栏，标注"定时任务"图标位置。
 
@@ -24,7 +24,7 @@
 
 在定时任务管理页面，点击 **「+ 新建任务」** 按钮。
 
-![点击新建任务](../assets/cases/scheduled-tasks-step2.png)
+<!-- 截图占位：scheduled-tasks-step2.png — 点击新建任务 -->
 
 > **截图说明**：展示定时任务列表页面，标注"新建任务"按钮。
 
@@ -40,7 +40,7 @@
 整理成一份简报，包含标题、摘要和原文链接。
 ```
 
-![填写任务信息](../assets/cases/scheduled-tasks-step3.png)
+<!-- 截图占位：scheduled-tasks-step3.png — 填写任务信息 -->
 
 > **截图说明**：展示任务名称和执行指令输入框。
 
@@ -65,7 +65,7 @@
 
 如果你熟悉 Cron 语法，可以直接输入表达式，如 `0 9 * * 1-5`（工作日每天 9 点）。
 
-![设置执行时间](../assets/cases/scheduled-tasks-step4.png)
+<!-- 截图占位：scheduled-tasks-step4.png — 设置执行时间 -->
 
 > **截图说明**：展示时间选择器界面，标注快捷预设和可视化时钟。
 
@@ -77,7 +77,7 @@
 - 选择目标渠道（飞书、Slack、Telegram、Discord、QQ）
 - 填写对应的聊天 ID 或 Webhook 地址
 
-![配置推送渠道](../assets/cases/scheduled-tasks-step5.png)
+<!-- 截图占位：scheduled-tasks-step5.png — 配置推送渠道 -->
 
 > **截图说明**：展示推送渠道选择界面，标注已勾选的渠道。
 
@@ -92,7 +92,7 @@
 
 点击 **「保存」**。创建完成后，你可以点击 **「立即执行」** 按钮测试任务是否正常工作。
 
-![保存并测试](../assets/cases/scheduled-tasks-step6.png)
+<!-- 截图占位：scheduled-tasks-step6.png — 保存并测试 -->
 
 > **截图说明**：展示保存后的任务详情页面，标注"立即执行"按钮。
 
@@ -100,7 +100,7 @@
 
 在任务详情页面，你可以查看每次执行的结果、耗时和输出内容。
 
-![查看执行历史](../assets/cases/scheduled-tasks-step7.png)
+<!-- 截图占位：scheduled-tasks-step7.png — 查看执行历史 -->
 
 > **截图说明**：展示执行历史记录列表，标注每次执行的状态和结果摘要。
 

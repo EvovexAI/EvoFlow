@@ -16,7 +16,7 @@
 
 在 EvoPanel 左侧导航栏中，点击 **「角色」** 图标，进入智能体管理页面。
 
-![进入角色管理](../assets/cases/create-agent-step1.png)
+<!-- 截图占位：create-agent-step1.png — 进入角色管理 -->
 
 > **截图说明**：展示左侧导航栏，标注"角色"图标位置。
 
@@ -24,7 +24,7 @@
 
 在角色管理页面右上角，点击 **「+ 新建智能体」** 按钮。
 
-![点击新建](../assets/cases/create-agent-step2.png)
+<!-- 截图占位：create-agent-step2.png — 点击新建 -->
 
 > **截图说明**：展示角色管理页面，标注"新建智能体"按钮。
 
@@ -35,7 +35,7 @@
 - **名称**：给智能体起一个名字（如"数据分析助手"）
 - **描述**：简要说明这个智能体的用途
 
-![填写基本信息](../assets/cases/create-agent-step3.png)
+<!-- 截图占位：create-agent-step3.png — 填写基本信息 -->
 
 > **截图说明**：展示新建智能体表单，标注名称和描述输入框。
 
@@ -63,7 +63,7 @@ SOUL.md 是智能体的核心身份文件，用自然语言描述这个智能体
 
 主智能体会生成一份 SOUL.md 内容，你复制粘贴到智能体编辑页面的 SOUL.md 区域。
 
-![编写 SOUL.md](../assets/cases/create-agent-step4.png)
+<!-- 截图占位：create-agent-step4.png — 编写 SOUL.md -->
 
 > **截图说明**：展示 SOUL.md 编辑区域，标注输入框和内容示例。
 
@@ -72,7 +72,7 @@ SOUL.md 是智能体的核心身份文件，用自然语言描述这个智能体
 - **模型**：为该智能体选择一个专用的 AI 模型（可以与主智能体不同）
 - **工作区**：选择或创建一个文件夹作为该智能体的工作目录
 
-![配置模型和工作区](../assets/cases/create-agent-step5.png)
+<!-- 截图占位：create-agent-step5.png — 配置模型和工作区 -->
 
 > **截图说明**：展示模型选择下拉框和工作区路径选择界面。
 
@@ -83,7 +83,7 @@ SOUL.md 是智能体的核心身份文件，用自然语言描述这个智能体
 - 工具：文件读写、命令执行、端口检测
 - 技能：data-analysis、summarize
 
-![添加工具和技能](../assets/cases/create-agent-step6.png)
+<!-- 截图占位：create-agent-step6.png — 添加工具和技能 -->
 
 > **截图说明**：展示工具和技能选择列表，标注已勾选的项目。
 
@@ -97,7 +97,7 @@ SOUL.md 是智能体的核心身份文件，用自然语言描述这个智能体
 你好，请帮我分析这个 CSV 文件中的数据趋势。
 ```
 
-![保存并测试](../assets/cases/create-agent-step7.png)
+<!-- 截图占位：create-agent-step7.png — 保存并测试 -->
 
 > **截图说明**：展示保存后的智能体列表，标注对话入口。
 
