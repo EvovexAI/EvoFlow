@@ -61,7 +61,6 @@ EvoFlow 技能位于 `skills/` 目录，分为 `public/`（公开技能，提交
 name: skill-name
 description: 技能描述
 license: MIT
----
 
 # Skill Name
 
@@ -91,7 +90,3 @@ curl -X PUT http://localhost:8001/api/skills/{name} \
 
 - [skill-system.md](../explanation/skill-system.md) - 技能系统设计原理
 - [api-reference.md](./api-reference.md) - Skills API 端点
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

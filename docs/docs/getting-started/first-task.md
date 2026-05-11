@@ -59,7 +59,3 @@ Agent 会先列出 TODO 清单，规划步骤后再执行。
 - [配置你的第一个模型](../tutorials/configure-models.md) — 学习更多模型配置选项
 - [创建自定义 Agent](../tutorials/create-agent.md) — 定制专属 Agent
 - [多智能体协作](../tutorials/multi-agent-collab.md) — 体验项目级任务编排
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

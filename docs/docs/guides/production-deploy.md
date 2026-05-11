@@ -139,7 +139,3 @@ export EVOFLOW_HOME=/var/lib/evoflow
 ## 相关文档
 - [Docker 开发部署](./docker-deployment.md)
 - [沙箱模式配置](./sandbox-config.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

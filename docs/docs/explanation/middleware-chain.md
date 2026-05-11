@@ -92,7 +92,3 @@ def after_model(self, state: ThreadState, config: RunnableConfig) -> ThreadState
 
 - [agent-system.md](./agent-system.md) - Agent 系统架构
 - [context-engineering.md](./context-engineering.md) - 上下文工程（与 SummarizationMiddleware 相关）
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

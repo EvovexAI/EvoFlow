@@ -17,7 +17,6 @@
 - Channels
 - Health
 
----
 
 ## 1) Models
 
@@ -44,7 +43,6 @@
   - `model_name: string`
 - **出参**：`ModelResponse`（结构同上）
 
----
 
 ## 2) MCP
 
@@ -64,7 +62,6 @@
   - `mcp_servers: Record<string, McpServerConfigResponse>`
 - **出参**：`McpConfigResponse`
 
----
 
 ## 3) Memory
 
@@ -110,7 +107,6 @@
   - `config: MemoryConfigResponse`
   - `data: MemoryResponse`
 
----
 
 ## 4) Skills
 
@@ -155,7 +151,6 @@
   - `installed_name: string`
   - `message: string`
 
----
 
 ## 5) Artifacts
 
@@ -170,7 +165,6 @@
   - `path: string`
 - **出参**：文件内容（文本或二进制；根据文件类型 inline 或下载）
 
----
 
 ## 6) Uploads
 
@@ -205,7 +199,6 @@
 - **出参**：`object`
   - 常见字段：`success`、`message`
 
----
 
 ## 7) Threads
 
@@ -221,7 +214,6 @@
   - `success: boolean`
   - `message: string`
 
----
 
 ## 8) Agents
 
@@ -299,7 +291,6 @@
   - `content: string`
 - **出参**：`UserProfileResponse`
 
----
 
 ## 9) Suggestions
 
@@ -316,7 +307,6 @@
 - **出参**：`SuggestionsResponse`
   - `suggestions: string[]`
 
----
 
 ## 10) Channels
 
@@ -339,7 +329,6 @@
   - `success: boolean`
   - `message: string`
 
----
 
 ## 11) Health
 
@@ -353,7 +342,6 @@
   - `status: "healthy"`
   - `service: "evo-flow-gateway"`
 
----
 
 ## 备注
 

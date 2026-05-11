@@ -116,7 +116,3 @@ subagents:
 
 - [agent-system.md](./agent-system.md) - Agent 系统架构
 - [middleware-chain.md](./middleware-chain.md) - 中间件执行链（SubagentLimitMiddleware）
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

@@ -34,7 +34,6 @@ flowchart TB
     R --> M
 ```
 
----
 
 ## 二、核心端点
 
@@ -65,7 +64,6 @@ flowchart TB
 | `/api/config` | PUT | 更新配置 |
 | `/api/models` | GET | 列出可用模型 |
 
----
 
 ## 三、API 实现
 
@@ -202,7 +200,6 @@ async def upload_file(
     )
 ```
 
----
 
 ## 四、流式响应
 
@@ -230,7 +227,6 @@ data: [DONE]
 | `error` | 错误信息 |
 | `done` | 完成标记 |
 
----
 
 ## 导航
 

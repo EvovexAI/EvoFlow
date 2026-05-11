@@ -38,9 +38,6 @@
 
 
 
----
-
-
 
 ## 1. 文件操作类工具
 
@@ -160,9 +157,6 @@
 
 
 
----
-
-
 
 ### 1.2 `search_file` - 文件搜索（通配符）
 
@@ -262,9 +256,6 @@
 
 ```
 
-
-
----
 
 
 
@@ -396,9 +387,6 @@
 
 
 
----
-
-
 
 ### 1.4 `write_to_file` - 写入文件
 
@@ -472,9 +460,6 @@
 
 
 
----
-
-
 
 ### 1.5 `delete_file` - 删除文件
 
@@ -546,9 +531,6 @@
 
 **失败场景**: 文件不存在、权限不足、安全策略阻止
 
-
-
----
 
 
 
@@ -720,9 +702,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 3. 代码编辑工具
 
@@ -874,9 +853,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 > - 在最近5条消息内未读过的文件，编辑前必须先 read_file
 
-
-
----
 
 
 
@@ -1050,9 +1026,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 5. 网络与搜索工具
 
@@ -1172,9 +1145,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ### 5.2 `web_fetch` - 抓取网页内容
 
@@ -1266,9 +1236,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 ```
 
-
-
----
 
 
 
@@ -1422,9 +1389,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ### 6.2 `team_create` - 创建团队
 
@@ -1498,9 +1462,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ### 6.3 `team_delete` - 删除团队
 
@@ -1532,9 +1493,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 **前置条件**: 所有团队成员必须处于idle或completed状态
 
-
-
----
 
 
 
@@ -1686,9 +1644,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 7. 任务管理工具
 
@@ -1818,9 +1773,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 > - 不要将linting/testing/codebase搜索作为独立todo
 
-
-
----
 
 
 
@@ -2036,9 +1988,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 9. 知识管理与RAG工具
 
@@ -2170,9 +2119,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ### 9.2 `RAG_search` - 知识库检索
 
@@ -2282,9 +2228,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 ```
 
-
-
----
 
 
 
@@ -2416,9 +2359,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 ```
 
-
-
----
 
 
 
@@ -2570,9 +2510,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 12. 交互与辅助工具
 
@@ -2662,9 +2599,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 > ⚠️ **使用原则**: 仅在高度不确定且必须澄清时使用，优先尝试推理和其他工具解决。
 
-
-
----
 
 
 
@@ -2770,9 +2704,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 13. 运行时安装工具
 
@@ -2874,9 +2805,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 14. 预览与网页工具
 
@@ -2960,9 +2888,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 ## 附录A: 工具快速索引表
 
@@ -3020,9 +2945,6 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 | **预览** | `preview_url` | 浏览器预览 | ⭐⭐ |
 
-
-
----
 
 
 
@@ -3102,11 +3024,7 @@ backend/app/gateway/routers/agents.py:18:from fastapi import APIRouter
 
 
 
----
-
-
 
 *本文档由CodeBuddy AI助手自动生成*  
 
 *最后更新: 2026-04-10 10:23*
-

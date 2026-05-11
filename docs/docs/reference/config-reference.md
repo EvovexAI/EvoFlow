@@ -194,7 +194,3 @@ channels:
 
 - [.env 环境变量参考](env-reference.md)
 - [Makefile 命令参考](makefile-reference.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

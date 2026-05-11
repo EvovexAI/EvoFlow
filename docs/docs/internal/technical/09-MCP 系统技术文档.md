@@ -43,7 +43,6 @@ flowchart TB
 - **Tool Interceptors**：OAuth 等拦截器
 - **Sync Wrapper**：异步工具同步化
 
----
 
 ## 二、核心概念
 
@@ -95,7 +94,6 @@ sequenceDiagram
     DF->>Cache: 缓存工具
 ```
 
----
 
 ## 三、MCP 配置
 
@@ -238,7 +236,6 @@ def resolve_config_path(cls, config_path: str | None = None) -> Path | None:
         return None
 ```
 
----
 
 ## 四、MCP 客户端实现
 
@@ -416,7 +413,6 @@ async def get_mcp_tools() -> list[BaseTool]:
         return []
 ```
 
----
 
 ## 五、OAuth 认证
 
@@ -479,7 +475,6 @@ sequenceDiagram
 }
 ```
 
----
 
 ## 六、工具命名空间
 
@@ -510,7 +505,6 @@ client = MultiServerMCPClient(
 3. **MCP 工具** - 动态加载
 4. **技能工具**（skills）
 
----
 
 ## 七、最佳实践
 
@@ -563,7 +557,6 @@ client = MultiServerMCPClient(
 | OAuth 失败 | 凭证错误 | 检查 client_id/secret |
 | 工具调用超时 | 服务器响应慢 | 增加超时配置 |
 
----
 
 ## 导航
 

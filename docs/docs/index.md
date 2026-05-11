@@ -17,13 +17,13 @@ mkdocs serve
 make docs-build
 ```
 
-站点导航由仓库根目录 [`mkdocs.yml`](https://github.com/aiyintai/evoflow/blob/main/mkdocs.yml) 维护；**内部设计稿**位于 `docs/internal/`，不包含在站点内。
+站点导航由仓库根目录 [`mkdocs.yml`](https://github.com/EvovexAI/EvoFlow/blob/main/mkdocs.yml) 维护。
 
 ## 快速导航
 
 | 你是？ | 从这里开始 |
 |--------|-----------|
-| 想下载安装包 / 看 CI 构建产物 | [下载与构建](getting-started/downloads.md) |
+| 想下载安装包 | [下载与构建](getting-started/downloads.md) |
 | 第一次听说 EvoFlow | [项目介绍](getting-started/introduction.md) |
 | 想快速上手 | [5 分钟快速上手](getting-started/quick-start.md) |
 | 刚装好，想试试 | [完成第一个任务](getting-started/first-task.md) |
@@ -44,12 +44,6 @@ make docs-build
 | **参考 References** | 完整的技术参考，查配置项和 API |
 | **解释 Explanations** | 理解设计理念和架构原理 |
 
-单一事实来源索引见仓库内 `docs/internal/meta-ssot.md`。
-
 ## 常见问题
 
 - [常见问题 FAQ](faq.md)
-
----
-
-**最后验证**：2026-05-09。

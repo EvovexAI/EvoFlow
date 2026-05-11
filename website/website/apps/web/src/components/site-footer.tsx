@@ -6,35 +6,14 @@ import { type LocalizedValue, siteCopyByLocale, siteIdentity, siteUrlForDisplay 
 import { useLocalizedValue } from "./locale-provider";
 
 const footerExtraByLocale: LocalizedValue<{
-  internalLinks: Array<{ href: string; label: string }>;
   copyright: string;
   siteLineLead: string;
 }> = {
   zh: {
-    internalLinks: [
-      { href: "/", label: "首页" },
-      { href: "/#capabilities", label: "能力说明" },
-      { href: "/#scenarios", label: "典型场景" },
-      { href: "/evolution", label: "演进日志" },
-      { href: "/lab", label: "实验" },
-      { href: "/about", label: "关于" },
-      { href: "/resume", label: "项目履历" },
-      { href: "/terminal", label: "终端" },
-    ],
     copyright: `© ${new Date().getFullYear()} ${siteIdentity.publisherName}。保留所有权利。`,
     siteLineLead: "软件官网：",
   },
   en: {
-    internalLinks: [
-      { href: "/", label: "Home" },
-      { href: "/#capabilities", label: "Capabilities" },
-      { href: "/#scenarios", label: "Scenarios" },
-      { href: "/evolution", label: "Evolution log" },
-      { href: "/lab", label: "Lab" },
-      { href: "/about", label: "About" },
-      { href: "/resume", label: "Resume" },
-      { href: "/terminal", label: "Terminal" },
-    ],
     copyright: `© ${new Date().getFullYear()} ${siteIdentity.publisherName}. All rights reserved.`,
     siteLineLead: "Site:",
   },
@@ -65,13 +44,6 @@ export function SiteFooter() {
           </div>
 
           <div className="flex flex-wrap gap-x-10 gap-y-4">
-            <div className="flex flex-col gap-1">
-              {extra.internalLinks.map((item) => (
-                <Link key={item.href} className={navLinkClass} href={item.href}>
-                  {item.label}
-                </Link>
-              ))}
-            </div>
             <div className="flex flex-col gap-1">
               {copy.footer.links.map((item) => {
                 const linkKey = `${item.label}:${item.href}`;

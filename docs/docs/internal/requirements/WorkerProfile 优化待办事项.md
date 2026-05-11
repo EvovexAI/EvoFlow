@@ -40,7 +40,6 @@ class WorkerProfile(BaseModel):
 - 优点：简单直接，性能最好
 - 缺点：数据冗余，一致性风险
 
----
 
 ## ✅ 推荐方案：方案 A（完全引用）
 
@@ -104,7 +103,6 @@ def task_tool(...):
         system_prompt = agent_config.system_prompt
 ```
 
----
 
 ## 📝 待办事项清单
 
@@ -218,7 +216,6 @@ def task_tool(...):
   - 确保旧项目仍能正常加载
   - 确保数据迁移不破坏现有功能
 
----
 
 ## 🎯 优化后的数据结构
 
@@ -262,7 +259,6 @@ tools: ["read_file", "write_file", "bash"]
 skills: ["react", "typescript"]
 ```
 
----
 
 ## 📊 影响评估
 
@@ -286,7 +282,6 @@ skills: ["react", "typescript"]
 2. 性能影响可忽略（1-2ms）
 3. 如需灵活性，可在未来采用方案 B（混合模式）
 
----
 
 ## 🚀 实施优先级
 
@@ -308,7 +303,6 @@ skills: ["react", "typescript"]
 8. ✅ 性能优化
 9. ✅ 混合模式支持（方案 B）
 
----
 
 **文档版本**: 1.0  
 **创建时间**: 2026-04-04  

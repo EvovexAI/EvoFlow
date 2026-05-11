@@ -80,7 +80,3 @@ DeerFlow                    EvoFlow
 
 - [architecture.md](../reference/architecture.md) - 技术架构参考
 - [agent-system.md](./agent-system.md) - Agent 系统架构
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

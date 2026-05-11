@@ -18,7 +18,6 @@
 - 重点是 `supervisor` 内的统一路由、会话复用、状态观测、流式协议。
 - 保留现有对外 API 语义，内部逐步迁移到 ACP-only。
 
----
 
 ## 二、ACP-Only 目标架构
 
@@ -49,7 +48,6 @@ flowchart LR
 3. **会话可复用**：同 `thread_id/task_id/subtask_id/provider` 绑定复用会话。
 4. **流式统一**：所有 provider 输出统一事件，前端统一消费。
 
----
 
 ## 三、现状与迁移目标
 
@@ -65,7 +63,6 @@ flowchart LR
 - Router 只调用 `AcpProviderFactory + ApcSessionRegistry`。
 - Provider 不暴露差异给 Supervisor，仅暴露统一 ACP 会话语义。
 
----
 
 ## 四、统一抽象定义（ACP Domain）
 
@@ -106,7 +103,6 @@ flowchart LR
 | 流式 chunk | 协议支持 | 协议支持 | 协议支持 |
 | 状态查询 | 需统一投影 | 需统一投影 | 需统一投影 |
 
----
 
 ## 五、Supervisor 编排模型（核心）
 
@@ -191,7 +187,6 @@ sequenceDiagram
   S-->>U: taskProgressSnapshot
 ```
 
----
 
 ## 六、状态机设计
 
@@ -230,7 +225,6 @@ stateDiagram-v2
 - `acp_stream_done` 不直接等于主任务完成，仍需依赖/子任务收敛判定。
 - `monitor_execution_step` 返回 task 与 session 双视角。
 
----
 
 ## 七、统一流式事件协议（ACP）
 
@@ -256,7 +250,6 @@ stateDiagram-v2
 - 迁移期保留 `task_running/task_completed/task_failed`。
 - 原 `trae_stream_*`、`claude` 专有事件逐步映射为 `acp_*`，最终退场。
 
----
 
 ## 八、工厂与注册中心
 
@@ -284,7 +277,6 @@ stateDiagram-v2
 - 统一执行策略（会话复用、流式输出、异常兜底）。
 - 对 Supervisor 输出一致的执行结果结构。
 
----
 
 ## 九、分阶段落地路线（只描述，不实施）
 
@@ -308,7 +300,6 @@ stateDiagram-v2
 - 下线 provider 专线逻辑（非 ACP）。
 - 前端默认消费 `acp_*` 事件。
 
----
 
 ## 十、风险与约束
 
@@ -317,7 +308,6 @@ stateDiagram-v2
 3. 会话复用必须与任务绑定一致，避免跨任务串会话。
 4. 迁移期必须双写事件，避免前端一次性断层。
 
----
 
 ## 十一、验收标准（文档阶段）
 
@@ -326,7 +316,6 @@ stateDiagram-v2
 3. 明确抽象接口、事件协议、迁移策略与风险控制。
 4. 不包含代码改动说明，不引入行为变更。
 
----
 
 ## 十二、术语
 
@@ -337,4 +326,3 @@ stateDiagram-v2
 | AcpSessionRegistry | 会话绑定与复用注册中心 |
 | AcpEventBus | ACP 流式与状态事件总线 |
 | TaskStateProjector | 会话事件到任务状态的投影模块 |
-

@@ -22,7 +22,6 @@ name: skill-name
 description: 技能描述
 license: MIT
 allowed-tools: ["bash", "read_file", "write_file"]
----
 
 # Skill Name
 
@@ -138,7 +137,3 @@ SKILL.md 格式的优势是：
 - [skills-reference.md](../reference/skills-reference.md) - 技能列表
 - [add-skill.md](../tutorials/add-skill.md) - 添加自定义技能教程
 - [skills-reference.md](../reference/skills-reference.md) — 技能参考；实操见 [add-skill.md](../tutorials/add-skill.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

@@ -10,7 +10,7 @@ edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: site
 
-# 内部设计稿、需求与第三方参考资料 — 不参与站点构建（仓库内仍可阅读）
+# exclude_docs：未纳入 MkDocs 导航的 Markdown（如 internal/**）
 exclude_docs: |
   internal/**
 
@@ -74,7 +74,6 @@ nav:
       - guides/docker-deployment.md
       - guides/production-deploy.md
       - guides/operations-handbook.md
-      - guides/code-signing-and-releases.md
       - guides/mcp-server.md
       - guides/im-channels.md
       - guides/memory-management.md

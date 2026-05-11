@@ -131,7 +131,3 @@ backend/.evo-flow/memory.json
 
 - [api-reference.md](./api-reference.md) - Gateway API 参考
 - [config-reference.md](./config-reference.md) - 配置参考
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

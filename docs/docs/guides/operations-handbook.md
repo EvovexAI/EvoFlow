@@ -52,7 +52,7 @@
 
 ## EvoPanel
 
-- 源码位于仓库 [`evopanel/`](https://github.com/aiyintai/evoflow/tree/main/evopanel)。
+- 源码位于仓库 [`evopanel/`](https://github.com/EvovexAI/EvoFlow/tree/main/evopanel)。
 - 开发与打包流程见 [evopanel-guide.md](evopanel-guide.md) 及 `evopanel/README.md`。
 - 面板需能访问上述 Gateway / LangGraph 地址（按你的部署填写）。
 
@@ -61,7 +61,3 @@
 - HTTP 路由以 **`docs/reference/generated/openapi-gateway.json`** 为准；更新路由后运行  
   `cd backend && PYTHONPATH=. uv run python ../scripts/docs/export_gateway_openapi.py`  
   并提交 JSON。
-
----
-
-**最后验证**：2026-05-09；若脚本或 Compose 变更，请同步更新本节表格。

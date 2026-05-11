@@ -144,7 +144,3 @@ curl -X POST http://localhost:2024/api/langgraph/threads/{thread_id}/runs/stream
 
 ## 相关文档
 - [记忆管理](./memory-management.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

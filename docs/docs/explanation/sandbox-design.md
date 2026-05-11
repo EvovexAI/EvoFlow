@@ -127,7 +127,3 @@ release(sandbox_id) → 释放沙箱资源
 
 - [sandbox-config.md](../guides/sandbox-config.md) - 沙箱配置指南
 - [tool-reference.md](../reference/tool-reference.md) - 内置工具参考
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

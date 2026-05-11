@@ -29,7 +29,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/aiyintai/evoflow.git
+git clone https://github.com/EvovexAI/EvoFlow.git
 cd deerflow-agent
 ```
 
@@ -83,7 +83,3 @@ npm install -g pnpm
 
 - [5 分钟快速上手](quick-start.md)
 - [配置参考](../reference/config-reference.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

@@ -240,10 +240,6 @@ Supervisor 会根据任务间的依赖关系自动选择最优执行策略。
 ## 下一步
 
 - [子代理系统详解](../explanation/subagent-system.md) -- 深入了解子代理的生命周期、权限控制和并行执行机制
-- [Supervisor 架构设计（内部设计稿）](https://github.com/aiyintai/evoflow/blob/main/docs/internal/technical/15-Supervisor统一外部执行器架构设计.md) — 统一外部执行器细节，不参与在线文档站构建
+- [Supervisor 架构设计](https://github.com/EvovexAI/EvoFlow/blob/main/docs/internal/technical/15-Supervisor统一外部执行器架构设计.md) — 统一外部执行器细节
 - [创建自定义 Agent](create-agent.md) -- 为项目配置更专业的 Agent
 - [自动化任务调度](automation-task.md) -- 让项目定期自动执行
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

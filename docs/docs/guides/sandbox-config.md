@@ -136,7 +136,3 @@ kubectl get pods -n evo-flow
 ## 相关文档
 - [Docker 开发部署](./docker-deployment.md)
 - [生产环境部署](./production-deploy.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

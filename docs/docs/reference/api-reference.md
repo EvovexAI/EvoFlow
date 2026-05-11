@@ -18,7 +18,7 @@ EvoFlow **Gateway** 基于 FastAPI，与 **LangGraph Server**（默认 `2024` �
 
 与当前代码一致的路由、方法、参数模型见：
 
-- **[openapi-gateway.json](generated/openapi-gateway.json)** — 由 [`scripts/docs/export_gateway_openapi.py`](https://github.com/aiyintai/evoflow/blob/main/scripts/docs/export_gateway_openapi.py) 从 `app.gateway.app:create_app()` 导出；CI 要求与仓库中已提交文件一致。
+- **[openapi-gateway.json](generated/openapi-gateway.json)** — 由 [`scripts/docs/export_gateway_openapi.py`](https://github.com/EvovexAI/EvoFlow/blob/main/scripts/docs/export_gateway_openapi.py) 从 `app.gateway.app:create_app()` 导出；须与仓库中已提交文件一致。
 
 若你修改了 `backend/app/gateway/routers/` 下的路由，请在 `backend` 目录执行：
 
@@ -85,7 +85,3 @@ curl -X POST "http://localhost:8012/api/threads/{thread_id}/uploads" \
 - [config-reference.md](config-reference.md) — `config.yaml` 配置项
 - [env-reference.md](env-reference.md) — 环境变量
 - [术语表](../meta/glossary.md) — 统一术语
-
----
-
-**最后验证**：与仓库内 `docs/reference/generated/openapi-gateway.json` 及 `backend/app/gateway/app.py` 路由注册一致；适用默认分支开发流程。

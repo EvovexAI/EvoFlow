@@ -1,6 +1,6 @@
 # 参与贡献
 
-本文档是仓库根目录 [CONTRIBUTING.md](https://github.com/aiyintai/evoflow/blob/main/CONTRIBUTING.md) 的站内入口与摘要。完整的开发环境搭建、Docker 工作流、测试要求等内容请参阅原文（英文）。
+本文档是仓库根目录 [CONTRIBUTING.md](https://github.com/EvovexAI/EvoFlow/blob/main/CONTRIBUTING.md) 的站内入口与摘要。完整的开发环境搭建、Docker 工作流、测试要求等内容请参阅原文（英文）。
 
 ## 快速导航
 
@@ -30,7 +30,3 @@ Nginx (port 2026) ← 统一入口
 - [术语表](../meta/glossary.md) — 统一术语
 - SSOT 索引：`docs/internal/meta-ssot.md`
 - 写作规范：`docs/internal/meta-writing-style.md`
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

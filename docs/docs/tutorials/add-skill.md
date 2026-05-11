@@ -24,7 +24,6 @@
 name: my-skill
 description: 我的自定义技能
 allowed-tools: bash, read_file, write_file
----
 
 ## 工作流程
 
@@ -67,7 +66,3 @@ Agent 在执行相关任务时会自动加载和使用该技能。
 
 - [配置你的第一个模型](configure-models.md)
 - [创建自定义 Agent](create-agent.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

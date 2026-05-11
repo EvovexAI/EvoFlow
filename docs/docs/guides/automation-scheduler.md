@@ -115,7 +115,3 @@ curl -X POST http://localhost:8001/api/automation/{id}/run
 
 - [创建定时自动化任务](../tutorials/automation-task.md)
 - [IM 消息渠道配置](im-channels.md) — 飞书推送需要
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

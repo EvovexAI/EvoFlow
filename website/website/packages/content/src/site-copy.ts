@@ -1,3 +1,4 @@
+import { evoVexBrand } from "./site-identity";
 import { siteLinks } from "./site-links";
 import {
   defaultLocale,
@@ -78,7 +79,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     footer: {
       brand: "EvoFlow",
       tagline:
-        "超级智能体编排栈：Supervisor 总控、沙箱工具执行、可恢复状态与 Skills/MCP 集成。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。",
+        `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh} 超级智能体编排栈：Supervisor 总控、沙箱工具执行、可恢复状态与 Skills/MCP 集成。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。`,
       links: [
         { href: siteLinks.docsSite, label: "项目文档" },
         { href: siteLinks.github, label: "GitHub 仓库" },
@@ -204,7 +205,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     footer: {
       brand: "EvoFlow",
       tagline:
-        "Super-agent orchestration: Supervisor control, sandboxed tools, durable state, and Skills/MCP integrations. This site summarizes capabilities, scenarios, and roadmap—downloadable builds and docs are linked below; star us on GitHub for updates, with full source opening tied to community traction.",
+        `"${evoVexBrand.sloganEn}" — ${evoVexBrand.blurbEn} Super-agent orchestration: Supervisor control, sandboxed tools, durable state, and Skills/MCP integrations. This site summarizes capabilities, scenarios, and roadmap—downloadable builds and docs are linked below; star us on GitHub for updates, with full source opening tied to community traction.`,
       links: [
         { href: siteLinks.docsSite, label: "Documentation" },
         { href: siteLinks.github, label: "GitHub" },

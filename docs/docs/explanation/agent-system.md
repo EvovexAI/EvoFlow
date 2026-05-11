@@ -121,7 +121,3 @@ agents/
 - [middleware-chain.md](./middleware-chain.md) - 中间件执行链
 - [subagent-system.md](./subagent-system.md) - 子 Agent 委派机制
 - [context-engineering.md](./context-engineering.md) - 上下文工程
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

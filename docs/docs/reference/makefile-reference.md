@@ -54,7 +54,3 @@
 
 - [config.yaml 配置参考](config-reference.md)
 - [安装指南](../getting-started/installation.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

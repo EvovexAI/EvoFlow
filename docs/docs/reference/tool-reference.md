@@ -58,7 +58,3 @@ get_available_tools()
 
 - [配置参考](config-reference.md)
 - [API 参考](api-reference.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

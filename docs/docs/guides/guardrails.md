@@ -190,7 +190,3 @@ Provider 的 `request.tool_name` 会收到以下值：
 ## 相关文档
 - [沙箱模式配置](./sandbox-config.md)
 - [Plan 模式使用](./plan-mode.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

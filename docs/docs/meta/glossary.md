@@ -12,7 +12,3 @@
 | **MCP** | Model Context Protocol，通过 Gateway 配置并供 Agent 侧加载的外部工具协议。 |
 | **ACP** | Agent Communication Protocol；通过配置的外部 ACP 适配进程与主 Agent 协作。 |
 | **EvoPanel** | 本仓库中的 Tauri 桌面管理端（`evopanel/`），用于聊天、模型、任务等 UI。 |
-
----
-
-**最后验证**：2026-05-09。

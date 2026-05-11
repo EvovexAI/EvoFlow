@@ -47,9 +47,9 @@ const pages: DocPage[] = [
 
 ## 1. 下载安装包
 
-打开 [EvoPanel 发行版](https://github.com/YT/evopanel/releases/latest)，按你的系统选择安装包，下载后按向导安装。
+打开 [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases/latest)，按你的系统选择与本仓库一并发布的桌面安装包（若有），下载后按向导安装。
 
-也可从本站顶栏 **下载** 或 [本仓库 Releases](https://github.com/EvovexAI/EvoFlow/releases) 获取与本项目一并发布的安装包（若有）。
+也可从本站顶栏 **下载** 进入同一发行页。
 
 ## 2. 首次打开
 
@@ -79,9 +79,9 @@ This page is about the **EvoPanel** desktop app: install it, then finish model s
 
 ## 1. Download and install
 
-Open [EvoPanel Releases](https://github.com/YT/evopanel/releases/latest), pick your platform, download, and run the installer.
+Open [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases/latest), pick the desktop installer for your platform when published, download, and run it.
 
-You can also use **Download** in the site header or [this project’s Releases](https://github.com/EvovexAI/EvoFlow/releases) when a bundled installer is published.
+You can also use **Download** in the site header to reach the same releases page.
 
 ## 2. First launch
 

@@ -216,7 +216,3 @@ curl http://localhost:8001/api/mcp/config
 ## 相关文档
 - [MCP 官方文档](https://modelcontextprotocol.io)
 - [沙箱模式配置](./sandbox-config.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

@@ -1,6 +1,5 @@
 # 04-Agent 核心机制
 
----
 
 ## 目录
 
@@ -11,7 +10,6 @@
 - [五、提示词组装](#五提示词组装)
 - [六、工具集成](#六工具集成)
 
----
 
 ## 一、Agent 架构概述
 
@@ -50,7 +48,6 @@ flowchart TB
 | **状态维护** | 管理对话状态和历史 |
 | **中间件执行** | 按顺序执行前置/后置处理 |
 
----
 
 ## 二、Agent 创建流程
 
@@ -164,7 +161,6 @@ def make_lead_agent(config: RunnableConfig):
     )
 ```
 
----
 
 ## 三、中间件链机制
 
@@ -278,7 +274,6 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
 | 11 | LoopDetectionMiddleware | 后置 | 检测循环调用 |
 | 12 | ClarificationMiddleware | 后置 | 拦截澄清请求 |
 
----
 
 ## 四、状态管理
 
@@ -313,7 +308,6 @@ Agent 通过状态机管理对话生命周期：
 4. **完成** - 模型返回最终结果
 5. **错误** - 处理异常情况
 
----
 
 ## 五、提示词组装
 
@@ -531,7 +525,6 @@ You are running with subagent capabilities enabled. Your role is to be a **task 
 
 <current_date>2026-03-30, Monday</current_date>
 ```
----
 
 ## 六、工具集成
 
@@ -1641,7 +1634,6 @@ print(result)
 
 详细技能加载机制请参阅 [03-技能系统技术文档](03-技能系统技术文档.md)。
 
----
 
 ## 导航
 

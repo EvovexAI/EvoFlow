@@ -66,7 +66,3 @@ Agent 会流式返回响应。
 - [完成第一个任务](first-task.md) — 让 Agent 执行一个实际任务
 - [配置你的第一个模型](../tutorials/configure-models.md) — 学习更多模型配置选项
 - [EvoPanel 使用指南](../guides/evopanel-guide.md) — 了解桌面端的全部功能
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

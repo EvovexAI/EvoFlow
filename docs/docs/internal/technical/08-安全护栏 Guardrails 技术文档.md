@@ -32,7 +32,6 @@ flowchart LR
 4. 允许则执行工具，拒绝则返回错误消息
 5. 模型根据结果继续处理
 
----
 
 ## 二、核心概念
 
@@ -134,7 +133,6 @@ sequenceDiagram
     end
 ```
 
----
 
 ## 三、护栏配置
 
@@ -238,7 +236,6 @@ guardrails:
       allowed_tools: []  # 空列表表示允许所有
 ```
 
----
 
 ## 四、GuardrailMiddleware 实现
 
@@ -366,7 +363,6 @@ class GuardrailMiddleware(AgentMiddleware[AgentState]):
 | **失败模式** | `fail_closed` 参数 | 出错时拒绝或允许 |
 | **错误反馈** | `status="error"` | 模型可感知被拒绝 |
 
----
 
 ## 五、内置提供者
 
@@ -519,7 +515,6 @@ guardrails:
       endpoint: "https://guardrails.example.com"
 ```
 
----
 
 ## 六、最佳实践
 
@@ -547,7 +542,6 @@ A: 模型会收到错误消息，可以：
 2. 向用户解释无法执行
 3. 请求更多信息
 
----
 
 ## 导航
 

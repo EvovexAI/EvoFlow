@@ -88,9 +88,6 @@ flowchart TB
 
 
 
----
-
-
 
 ## 二、核心概念
 
@@ -182,9 +179,6 @@ flowchart LR
 
 ```
 
-
-
----
 
 
 
@@ -466,9 +460,6 @@ def read_file_tool(
 
 ```
 
-
-
----
 
 
 
@@ -1092,9 +1083,6 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
 
 
 
----
-
-
 
 ## 五、安全机制
 
@@ -1428,9 +1416,6 @@ def _reject_path_traversal(path: str) -> None:
 
 
 
----
-
-
 
 ## 六、路径虚拟化与映射
 
@@ -1761,4 +1746,3 @@ sequenceDiagram
 
 
 📚 返回总览：[EvoFlow技术总览](01-EvoFlow技术总览.md)
-

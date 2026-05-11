@@ -172,7 +172,3 @@ curl -X PUT http://localhost:8001/api/channels/feishu/config \
 ## 相关文档
 - [EvoPanel 桌面端使用指南](./evopanel-guide.md)
 - [Docker 开发部署](./docker-deployment.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

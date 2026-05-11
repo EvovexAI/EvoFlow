@@ -7,7 +7,6 @@
 [![主体](https://img.shields.io/badge/主体-Evovex%20AI-0f172a?style=flat-square)](https://www.evovexai.com)
 [![仓库](https://img.shields.io/badge/仓库-EvovexAI%2FEvoFlow-181717?style=flat-square&logo=github)](https://github.com/EvovexAI/EvoFlow)
 
-https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 
 > [!NOTE]
 > **EvoFlow** 定位为**超级智能体编排框架**（产品口径见官网与下文「功能说明」）。公开仓库当前以**发行版与文档**为主，便于体验与反馈；工程理念与能力继承自 [DeerFlow](https://github.com/bytedance/deerflow) **2.0** 技术路线之上的**深度改造与持续演进**，并非换名发行版。上游原始深度研究框架（v1）在 [`1.x` 分支](https://github.com/bytedance/deerflow/tree/main-1.x) 维护。
@@ -15,8 +14,6 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 **构建与发行**
 
 [![EvoFlow Releases](https://img.shields.io/github/v/release/EvovexAI/EvoFlow?label=EvoFlow%20Releases&logo=github)](https://github.com/EvovexAI/EvoFlow/releases)
-[![Windows desktop CI](https://img.shields.io/github/actions/workflow/status/EvovexAI/EvoFlow/evopanel-windows-package.yml?label=Windows%20desktop%20CI&logo=github)](https://github.com/EvovexAI/EvoFlow/actions/workflows/evopanel-windows-package.yml)
-[![EvoPanel Releases](https://img.shields.io/github/v/release/YT/evopanel?label=EvoPanel&logo=github)](https://github.com/YT/evopanel/releases/latest)
 
 **合规与文档**
 
@@ -54,10 +51,8 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 
 | 你需要 | 入口 |
 |--------|------|
-| 本仓库发行版 | [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases) |
-| Windows 安装包（CI 产物） | [EvoPanel Windows Package](https://github.com/EvovexAI/EvoFlow/actions/workflows/evopanel-windows-package.yml) → 最近一次成功运行 → **Artifacts** → `evopanel-windows-nsis` |
-| EvoPanel 官方安装包 | [EvoPanel Releases](https://github.com/YT/evopanel/releases/latest) |
-| 下载说明与版本差异 | [downloads.md](docs/getting-started/downloads.md) |
+| 发行版与桌面安装包 | [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases) |
+| 下载说明 | [downloads.md](docs/getting-started/downloads.md) |
 
 自托管、从源码运行与部署细节见 [文档与开发者索引](#文档与开发者索引) 及 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
@@ -65,9 +60,9 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 
 ## 🖥️ EvoPanel 桌面端
 
-[EvoPanel](https://github.com/YT/evopanel)（**Tauri v2**）是面向使用者的桌面客户端，连接本仓库 **Gateway** 完成对话、任务与编排相关操作；技能与 MCP 与后端配置联动（以当前版本为准）。
+**EvoPanel**（**Tauri v2**）源码在本仓库 [`evopanel/`](evopanel/)，是面向使用者的桌面客户端，连接本仓库 **Gateway** 完成对话、任务与编排相关操作；技能与 MCP 与后端配置联动（以当前版本为准）。
 
-维护者与进阶说明：[evopanel/README.md](evopanel/README.md)。终端用户安装包：[EvoPanel Releases](https://github.com/YT/evopanel/releases/latest)。
+维护与构建说明：[evopanel/README.md](evopanel/README.md)。安装包：[EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases)。
 
 ---
 

@@ -119,7 +119,3 @@ models:
 - [完成第一个任务](../getting-started/first-task.md)
 - [创建自定义 Agent](create-agent.md)
 - [配置参考](../reference/config-reference.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

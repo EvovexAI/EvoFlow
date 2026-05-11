@@ -10,7 +10,6 @@
 
 目标是作为 `supervisor` 与 ACP-only 架构的实施补充文档，明确“能否做、怎么做、改哪些边界”。
 
----
 
 ## 二、协议与产品事实基线
 
@@ -37,7 +36,6 @@ CodeBuddy `codebuddy --acp` 已明确支持 ACP，且有以下增强：
 
 这意味着 CodeBuddy 并不阻碍“同会话复用与状态观测”；关键仍在 EvoFlow 的会话管理与事件总线。
 
----
 
 ## 三、EvoFlow 当前实现评估
 
@@ -64,7 +62,6 @@ CodeBuddy `codebuddy --acp` 已明确支持 ACP，且有以下增强：
 4. **缺少会话生命周期控制动作**  
    工具接口只有 `agent + prompt`，没有 `start/send/status/close/cancel` 动作语义。
 
----
 
 ## 四、目标能力定义（ACP 会话控制面）
 
@@ -88,7 +85,6 @@ supervisor_session_id -> acp_session_id
 
 同一个 `binding_key` 的后续对话应优先走同一 `acp_session_id`。
 
----
 
 ## 五、数据模型与状态机
 
@@ -134,7 +130,6 @@ stateDiagram-v2
 - Task 状态用于“编排收敛语义”
 - `acp_stream_done` 不等于主任务完成，仍需依赖图收敛判定
 
----
 
 ## 六、流式返回设计
 
@@ -182,7 +177,6 @@ sequenceDiagram
 
 说明：ACP 协议层“turn complete”语义在不同实现中细节可能不同，EvoFlow 需以“prompt 响应完成 + update 队列清空策略”做稳态收敛。
 
----
 
 ## 七、同会话多轮对话设计
 
@@ -221,7 +215,6 @@ sequenceDiagram
   C-->>S: turn2 completed
 ```
 
----
 
 ## 八、状态查询设计
 
@@ -258,7 +251,6 @@ sequenceDiagram
   - Task 状态（编排层）
   - ACP Session 状态（执行层）
 
----
 
 ## 九、与当前代码对照（落地锚点）
 
@@ -275,7 +267,6 @@ sequenceDiagram
 3. `session_update -> SSE` 实时转发
 4. 会话状态存储与查询 API
 
----
 
 ## 十、风险与注意事项
 
@@ -291,7 +282,6 @@ sequenceDiagram
 4. **状态一致性风险**  
    进程重启后会话注册恢复策略需明确，否则会话“存在但不可寻址”。
 
----
 
 ## 十一、建议实施顺序（最小可行）
 
@@ -315,7 +305,6 @@ sequenceDiagram
 - 将 Trae/Claude 统一迁移为 ACP provider
 - Supervisor 仅保留 ACP 执行路径
 
----
 
 ## 十二、结论
 
@@ -324,4 +313,3 @@ sequenceDiagram
 - “同会话多轮 + 流式返回 + 状态查询”在架构上完全可达成；
 - 当前缺口主要在 EvoFlow 客户端控制面，而不是 ACP 协议本身；
 - 建议按“先流式可见、再会话复用、后状态查询”的顺序迭代，风险最小。
-

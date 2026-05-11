@@ -95,7 +95,3 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 
 - [IM 消息渠道配置指南](../guides/im-channels.md) — 钉钉 / Slack / Discord / QQ
 - [自动化任务调度](../guides/automation-scheduler.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

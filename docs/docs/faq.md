@@ -156,7 +156,3 @@ curl -X POST http://localhost:8001/api/agents \
 ### 许可证是什么？
 
 MIT 许可证。版权由 ByteDance 和 EvoFlow Authors 共同持有。
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

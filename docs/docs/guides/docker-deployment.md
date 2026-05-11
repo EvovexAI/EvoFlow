@@ -115,7 +115,3 @@ curl http://localhost:2024/health
 ## 相关文档
 - [生产环境部署](./production-deploy.md)
 - [沙箱模式配置](./sandbox-config.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。

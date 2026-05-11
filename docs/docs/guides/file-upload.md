@@ -140,7 +140,3 @@ curl http://localhost:2026/api/threads/test-thread/uploads/list
 ## 相关文档
 - [沙箱模式配置](./sandbox-config.md)
 - [MCP 服务器配置](./mcp-server.md)
-
----
-
-**最后验证**：2026-05-10；适用范围：默认分支。
