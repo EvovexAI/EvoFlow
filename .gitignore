@@ -185,3 +185,4 @@ website/.turbo/
 website/**/.turbo/
 website/out/
 website/**/dist/
+.workbuddy/
