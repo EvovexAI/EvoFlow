@@ -1,0 +1,22 @@
+{
+  "name": "ai-site",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.22.0",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "dev:web": "pnpm --filter @ai-site/web dev",
+    "build": "turbo run build",
+    "build:static": "pnpm --filter @ai-site/web build:static",
+    "deploy:tos": "pnpm --filter @ai-site/web deploy:tos",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean",
+    "format": "pnpm --filter @ai-site/web exec prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.8"
+  }
+}

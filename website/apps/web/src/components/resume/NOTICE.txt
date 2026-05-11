@@ -1,0 +1,13 @@
+Third-party notice — resume page layout
+
+This site’s `/resume` page UI structure is adapted from:
+
+  react-resume-template
+  Copyright (c) 2021 Tim Baker
+  SPDX-License-Identifier: MIT
+  https://github.com/tbakerx/react-resume-template
+
+The upstream project is licensed under the MIT License. A copy of the MIT
+License text is included in the upstream repository. EvoFlow’s implementation
+uses original Tailwind markup and content tailored to this monorepo; it does not
+vendor the upstream package as a dependency.

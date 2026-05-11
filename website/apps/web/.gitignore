@@ -1,0 +1,7 @@
+# Next.js specific — root .gitignore handles the rest
+/.next/
+/out/
+next-env.d.ts
+/.static-export-stash-api/
+/.static-export-stash-middleware.ts
+/.static-export-stash-login-actions.ts

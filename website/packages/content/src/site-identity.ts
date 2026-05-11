@@ -1,0 +1,14 @@
+/**
+ * 官网对外标识：正式域名、联系邮箱、发布主体（与开源仓库名 EvoFlow 区分）。
+ */
+export const siteIdentity = {
+  /** 规范域名（无末尾斜杠） */
+  siteUrl: "https://www.evovexai.com",
+  contactEmail: "cloud@evovexai.com",
+  publisherName: "Evovex AI",
+} as const;
+
+/** 用于文案展示，例如 `www.evovexai.com` */
+export function siteUrlForDisplay(): string {
+  return siteIdentity.siteUrl.replace(/^https:\/\//, "");
+}
