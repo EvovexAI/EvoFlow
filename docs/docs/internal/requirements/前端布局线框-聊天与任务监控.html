@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EvoPanel 布局线框 — 实时聊天 / 任务监控</title>
+  <style>
+    :root {
+      --bg: #1a1b1e;
+      --panel: #25262b;
+      --border: #3f4046;
+      --text: #e9e9ec;
+      --muted: #8b8c92;
+      --accent: #4c6ef5;
+      --ok: #37b24d;
+      --warn: #fab005;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding: 24px;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0 0 8px;
+    }
+    .intro {
+      color: var(--muted);
+      font-size: 0.9rem;
+      max-width: 720px;
+      margin-bottom: 32px;
+    }
+    .screen {
+      margin-bottom: 48px;
+      max-width: 1100px;
+    }
+    .screen-title {
+      font-size: 1rem;
+      color: var(--accent);
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    /* —— 聊天页 —— */
+    .chat-shell {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      grid-template-rows: auto 1fr auto;
+      grid-template-areas:
+        "top top"
+        "main side"
+        "input input";
+      min-height: 520px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .chat-top {
+      grid-area: top;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .chat-top .tag {
+      background: var(--border);
+      padding: 2px 8px;
+      border-radius: 4px;
+      color: var(--muted);
+    }
+    .chat-main {
+      grid-area: main;
+      padding: 14px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 360px;
+    }
+    .bubble-user {
+      align-self: flex-end;
+      max-width: 78%;
+      background: #2c3e66;
+      padding: 10px 12px;
+      border-radius: 12px 12px 4px 12px;
+      font-size: 0.85rem;
+    }
+    .bubble-ai {
+      align-self: flex-start;
+      max-width: 85%;
+      background: #2a2b30;
+      padding: 10px 12px;
+      border-radius: 12px 12px 12px 4px;
+      font-size: 0.85rem;
+      border: 1px solid var(--border);
+    }
+    .bubble-ai .tool {
+      margin-top: 8px;
+      padding: 8px;
+      background: rgba(0,0,0,.25);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .chat-side {
+      grid-area: side;
+      padding: 12px;
+      font-size: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .side-block {
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+      padding: 10px;
+    }
+    .side-block h4 {
+      margin: 0 0 8px;
+      font-size: 0.7rem;
+      color: var(--warn);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .side-block label { display: block; margin-bottom: 6px; color: var(--muted); }
+    .fake-input {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+    .chat-input {
+      grid-area: input;
+      display: flex;
+      gap: 10px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,.2);
+      align-items: flex-end;
+    }
+    .chat-input .ta {
+      flex: 1;
+      min-height: 56px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .chat-input .send {
+      padding: 10px 18px;
+      background: var(--accent);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.85rem;
+      cursor: default;
+    }
+    /* —— 任务监控页 —— */
+    .task-shell {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      grid-template-rows: auto auto 1fr;
+      gap: 0;
+      min-height: 560px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .task-hero {
+      grid-column: 1 / -1;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: start;
+    }
+    .task-hero h2 { margin: 0 0 6px; font-size: 1.05rem; }
+    .task-hero .meta { font-size: 0.75rem; color: var(--muted); }
+    .progress-bar {
+      height: 8px;
+      background: var(--border);
+      border-radius: 4px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+    .progress-bar i {
+      display: block;
+      width: 42%;
+      height: 100%;
+      background: var(--ok);
+      border-radius: 4px;
+    }
+    .task-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+    .btn.primary { background: var(--accent); border-color: transparent; }
+    .subtasks {
+      padding: 14px 18px;
+      overflow: auto;
+    }
+    .subtasks h3 {
+      margin: 0 0 12px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .sub-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.78rem;
+    }
+    .sub-card .title { font-weight: 600; margin-bottom: 6px; }
+    .sub-card .row { color: var(--muted); margin: 4px 0; }
+    .sub-card .badge {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 2px 6px;
+      background: #2d3748;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      color: var(--warn);
+    }
+    .task-rail {
+      border-left: 1px solid var(--border);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-size: 0.75rem;
+    }
+    .rail-block {
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      flex: 1;
+      min-height: 120px;
+    }
+    .rail-block h4 {
+      margin: 0 0 8px;
+      font-size: 0.7rem;
+      color: var(--accent);
+    }
+    .rail-line {
+      height: 6px;
+      background: var(--border);
+      margin: 6px 0;
+      border-radius: 3px;
+    }
+    .legend {
+      margin-top: 24px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-width: 1100px;
+    }
+    .legend strong { color: var(--text); }
+    @media (max-width: 800px) {
+      .chat-shell {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "top"
+          "main"
+          "side"
+          "input";
+      }
+      .chat-main { border-right: none; }
+      .task-shell { grid-template-columns: 1fr; }
+      .task-rail { border-left: none; border-top: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+  <h1>EvoPanel · 布局线框（仅结构示意，非最终视觉）</h1>
+  <p class="intro">用线框标出「实时聊天」与「任务进度监控」两屏的信息分区。可直接用浏览器打开本文件查看。实现时可对齐 <code>chat.js</code>、<code>task-detail.js</code> 等页面。</p>
+
+  <!-- ========== 屏一：实时聊天 ========== -->
+  <section class="screen">
+    <div class="screen-title">屏一 · 实时聊天页</div>
+    <div class="chat-shell">
+      <header class="chat-top">
+        <span>会话标题 / 模型 <span class="tag">thread_id</span></span>
+        <span class="tag">流式中…</span>
+      </header>
+
+      <main class="chat-main">
+        <div class="bubble-user">用户：帮我做竞品分析，分步骤执行。</div>
+        <div class="bubble-ai">
+          助手：已创建主任务并拆分子任务…
+          <div class="tool">工具 supervisor · list_subtasks / create_subtask（示意）</div>
+        </div>
+        <div class="bubble-ai" style="opacity:.85">（此处为多条消息滚动区域）</div>
+      </main>
+
+      <aside class="chat-side">
+        <div class="side-block">
+          <h4>复杂任务协作</h4>
+          <label><input type="checkbox" checked disabled /> 开启复杂任务</label>
+          <label>主任务 ID</label>
+          <div class="fake-input">0fd9d43b（绑定后 task 带 collab_*）</div>
+          <p style="margin:8px 0 0;color:var(--muted);font-size:.7rem;">→ 跳转「任务监控」深链</p>
+        </div>
+        <div class="side-block">
+          <h4>快捷</h4>
+          <div class="fake-input" style="margin-bottom:6px">📋 打开任务进度页</div>
+          <div class="fake-input">📎 上传（如有）</div>
+        </div>
+      </aside>
+
+      <footer class="chat-input">
+        <div class="ta">输入消息… Enter 发送</div>
+        <button type="button" class="send">发送</button>
+      </footer>
+    </div>
+    <p style="font-size:.8rem;color:var(--muted);margin-top:10px;">
+      <strong>栅格：</strong>顶栏全宽 · 左主列=对话区 · 右列=协作绑定与快捷入口（窄屏可改为对话下方折叠）· 底栏全宽=输入框+发送。
+    </p>
+  </section>
+
+  <!-- ========== 屏二：任务监控 ========== -->
+  <section class="screen">
+    <div class="screen-title">屏二 · 智能体任务进度监控（任务详情 / 看板）</div>
+    <div class="task-shell">
+      <div class="task-hero">
+        <div>
+          <h2>主任务名称 · E2E-XXX</h2>
+          <div class="meta">task_id · project_id · 绑定 thread · 状态：执行中</div>
+          <div class="progress-bar"><i></i></div>
+        </div>
+        <div class="task-actions">
+          <button type="button" class="btn primary">开始执行 / 授权</button>
+          <button type="button" class="btn">刷新</button>
+          <button type="button" class="btn">回聊天继续</button>
+        </div>
+      </div>
+
+      <div class="subtasks" style="grid-column:1;">
+        <h3>子任务看板（卡片 = 一行子任务）</h3>
+        <div class="card-grid">
+          <div class="sub-card">
+            <div class="title">Subtask-A</div>
+            <div class="row">状态 · 进度 60% · 模板 general-purpose</div>
+            <div class="row">profile：tools / skills / depends_on</div>
+            <span class="badge">🧩 含 worker_profile</span>
+          </div>
+          <div class="sub-card">
+            <div class="title">Subtask-B</div>
+            <div class="row">待开始 · 模板 bash</div>
+            <div class="row">依赖：Subtask-A</div>
+            <span class="badge">🧩 含 worker_profile</span>
+          </div>
+          <div class="sub-card" style="opacity:.6">
+            <div class="title">（更多子任务卡片…）</div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="task-rail">
+        <div class="rail-block">
+          <h4>任务记忆 / 事实</h4>
+          <div class="rail-line"></div>
+          <div class="rail-line" style="width:80%"></div>
+          <p style="color:var(--muted);margin:8px 0 0;">搜索过滤 · facts 列表</p>
+        </div>
+        <div class="rail-block" style="min-height:80px;">
+          <h4>SSE 实时</h4>
+          <p style="color:var(--muted);margin:0;">task:progress / completed / memory:updated</p>
+        </div>
+      </aside>
+    </div>
+    <p style="font-size:.8rem;color:var(--muted);margin-top:10px;">
+      <strong>栅格：</strong>顶栏全宽=主任务摘要+进度条+操作 · 左下=子任务卡片网格（可改列表）· 右栏=记忆+事件（窄屏右栏沉底）。
+    </p>
+  </section>
+
+  <div class="legend">
+    <strong>图例：</strong>虚线外框 = 整屏边界；<strong>复杂任务</strong>侧栏仅聊天页需要；<strong>任务监控</strong>以主任务为轴，子任务用卡片展示模板与 worker_profile，与 API / SSE 字段一一对应。
+  </div>
+</body>
+</html>
