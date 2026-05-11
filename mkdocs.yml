@@ -69,6 +69,16 @@ nav:
       - tutorials/multi-agent-collab.md
       - tutorials/automation-task.md
       - tutorials/setup-im-channel.md
+  - 最佳实践案例:
+      - cases/index.md
+      - cases/use-main-agent.md
+      - cases/create-agent.md
+      - cases/create-skill.md
+      - cases/install-skill.md
+      - cases/scheduled-tasks.md
+      - cases/search-html-report.md
+      - cases/claude-code-continuous.md
+      - cases/supervisor-mode.md
   - 操作指南:
       - guides/evopanel-guide.md
       - guides/docker-deployment.md
