@@ -65,8 +65,8 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
   zh: {
     shell: {
       status: "",
-      githubLabel: "开源",
-      initializeAi: "源码与协作",
+      githubLabel: "GitHub",
+      initializeAi: "仓库与协作",
       themeLabel: "主题",
       navigation: [
         { href: siteLinks.docsSite, label: "文档" },
@@ -78,10 +78,10 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     footer: {
       brand: "EvoFlow",
       tagline:
-        "开源的超级智能体编排栈：Supervisor 总控、沙箱工具执行、可恢复状态与 Skills/MCP 集成。本站概述能力矩阵、典型场景与演进节奏；完整说明、源码与安装包见下方链接。",
+        "超级智能体编排栈：Supervisor 总控、沙箱工具执行、可恢复状态与 Skills/MCP 集成。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。",
       links: [
         { href: siteLinks.docsSite, label: "项目文档" },
-        { href: siteLinks.github, label: "源码与协作" },
+        { href: siteLinks.github, label: "GitHub 仓库" },
         { href: siteLinks.blog, label: "下载与发行版" },
         { href: siteLinks.source, label: "快速上手" },
       ],
@@ -141,7 +141,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         eyebrow: "关于",
         title: "关于 EvoFlow",
         description:
-          "设计原则、模块职责、入口矩阵与开源协作方式——帮助架构师与采购在「编排 / 沙箱 / 记忆 / 集成」上对齐口径。",
+          "设计原则、模块职责、入口矩阵与 GitHub / 文档入口——帮助架构师与采购在「编排 / 沙箱 / 记忆 / 集成」上对齐口径。",
       },
       evolution: {
         eyebrow: "演进",
@@ -184,15 +184,15 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         eyebrow: "文档",
         title: "项目履历页",
         description:
-          "以履历版式呈现 EvoFlow 的模块路线图、能力快照与站内/开源入口，便于对外转发 PDF 或链接。",
+          "以履历版式呈现 EvoFlow 的模块路线图、能力快照与站内 / GitHub 入口，便于对外转发 PDF 或链接。",
       },
     },
   },
   en: {
     shell: {
       status: "",
-      githubLabel: "Open source",
-      initializeAi: "Source & collab",
+      githubLabel: "GitHub",
+      initializeAi: "Repo & collab",
       themeLabel: "Theme",
       navigation: [
         { href: siteLinks.docsSite, label: "Docs" },
@@ -204,10 +204,10 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     footer: {
       brand: "EvoFlow",
       tagline:
-        "Open super-agent orchestration: Supervisor control, sandboxed tools, durable state, and Skills/MCP integrations. This site summarizes capabilities, scenarios, and roadmap—full docs, source, and binaries are linked below.",
+        "Super-agent orchestration: Supervisor control, sandboxed tools, durable state, and Skills/MCP integrations. This site summarizes capabilities, scenarios, and roadmap—downloadable builds and docs are linked below; star us on GitHub for updates, with full source opening tied to community traction.",
       links: [
         { href: siteLinks.docsSite, label: "Documentation" },
-        { href: siteLinks.github, label: "Source & issues" },
+        { href: siteLinks.github, label: "GitHub" },
         { href: siteLinks.blog, label: "Downloads & releases" },
         { href: siteLinks.source, label: "Quickstart" },
       ],
@@ -275,7 +275,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         eyebrow: "About",
         title: "About EvoFlow",
         description:
-          "Principles, module responsibilities, entry matrix, and open collaboration—so architecture and procurement align on orchestration, sandboxing, memory, and integrations.",
+          "Principles, module responsibilities, entry matrix, and GitHub entry points—so architecture and procurement align on orchestration, sandboxing, memory, and integrations.",
       },
       evolution: {
         eyebrow: "Evolution",
@@ -318,7 +318,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         eyebrow: "Doc",
         title: "Project resume page",
         description:
-          "Resume-shaped view of EvoFlow module roadmap, capability snapshot, and on-site plus open-source entry points for easy PDF or link sharing.",
+          "Resume-shaped view of EvoFlow module roadmap, capability snapshot, and on-site plus GitHub entry points for easy PDF or link sharing.",
       },
     },
   },

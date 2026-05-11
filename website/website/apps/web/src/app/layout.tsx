@@ -64,7 +64,7 @@ const jsonLd = {
   name: "EvoFlow",
   url: SITE_URL,
   description:
-    "EvoFlow open-source super-agent stack: orchestration, sandboxed tools, durable memory, Skills and MCP—scenarios include tickets, ops, copilots, and enterprise RAG.",
+    "EvoFlow super-agent stack: orchestration, sandboxed tools, durable memory, Skills and MCP—downloadable builds and docs; star on GitHub for updates. Scenarios include tickets, ops, copilots, and enterprise RAG.",
   author: {
     "@type": "Organization",
     name: siteIdentity.publisherName,

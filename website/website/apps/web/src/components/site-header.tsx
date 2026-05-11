@@ -5,6 +5,7 @@ import { type LocalizedValue, siteCopyByLocale, siteLinks } from "@ai-site/conte
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalizedValue, useSiteLocale } from "./locale-provider";
+import { useGithubRepoStarsDisplay } from "@/hooks/use-github-repo-stars";
 import { useSoundOnNavigate } from "@/hooks/use-sound";
 import { Menu, X } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -31,13 +32,13 @@ function MobileDrawer({
   open,
   onClose,
   pathname,
-  githubLabel,
+  githubCtaText,
 }: {
   items: Array<{ href: string; label: string }>;
   open: boolean;
   onClose: () => void;
   pathname: string;
-  githubLabel: string;
+  githubCtaText: string;
 }) {
   const { locale, locales, setLocale } = useSiteLocale();
 
@@ -112,7 +113,7 @@ function MobileDrawer({
             target="_blank"
             onClick={onClose}
           >
-            {githubLabel}
+            {githubCtaText}
           </a>
           <div className="mt-4 flex justify-center gap-6 text-sm text-foreground-muted">
             {locales.map((value) => (
@@ -212,6 +213,12 @@ function HeaderLocaleText() {
 
 export function SiteHeader() {
   const copy = useLocalizedValue(siteCopyByLocale);
+  const { locale } = useSiteLocale();
+  const githubStarsDisplay = useGithubRepoStarsDisplay(locale);
+  const githubCtaText =
+    githubStarsDisplay != null
+      ? `${copy.shell.githubLabel} · ${githubStarsDisplay}`
+      : copy.shell.githubLabel;
   const pathname = usePathname();
 
   const clickCountRef = useRef(0);
@@ -282,8 +289,9 @@ export function SiteHeader() {
               href={siteLinks.github}
               rel="noreferrer"
               target="_blank"
+              title={siteLinks.github}
             >
-              {copy.shell.githubLabel}
+              {githubCtaText}
             </Link>
             <HeaderLocaleText />
             <ThemeToggle />
@@ -291,8 +299,14 @@ export function SiteHeader() {
 
           <div className="flex items-center gap-2 md:hidden">
             <ThemeToggle />
-            <a className={ctaClassName} href={siteLinks.github} rel="noreferrer" target="_blank">
-              {copy.shell.githubLabel}
+            <a
+              className={ctaClassName}
+              href={siteLinks.github}
+              rel="noreferrer"
+              target="_blank"
+              title={siteLinks.github}
+            >
+              {githubCtaText}
             </a>
             <button
               className="flex min-h-10 min-w-10 items-center justify-center rounded-md text-foreground"
@@ -307,7 +321,7 @@ export function SiteHeader() {
       </header>
       <MobileDrawer
         items={copy.shell.navigation}
-        githubLabel={copy.shell.githubLabel}
+        githubCtaText={githubCtaText}
         open={mobileOpen}
         onClose={closeMobile}
         pathname={pathname}

@@ -98,13 +98,13 @@ export const resumeDocByLocale: LocalizedValue<ResumeDoc> = {
       { id: "contact", label: "联系" },
     ],
     name: "EvoFlow",
-    role: "开源超级 Agent 驾驭框架",
+    role: "超级 Agent 驾驭框架",
     tagline:
       "编排子 Agent、DAG 汇合、记忆与上下文治理、沙箱执行与 Skills/MCP 集成——面向工单、运维、Copilot 与企业 RAG 等可观测交付。",
     heroActions: [
       { href: "/#capabilities", text: "能力矩阵", primary: true },
       { href: "/evolution", text: "演进日志" },
-      { href: siteLinks.github, text: "源码协作" },
+      { href: siteLinks.github, text: "GitHub" },
     ],
     aboutTitle: "关于",
     aboutLead:
@@ -116,7 +116,7 @@ export const resumeDocByLocale: LocalizedValue<ResumeDoc> = {
     aboutHighlights: [
       { label: "编排面", text: "Plan · DAG · 子 Agent 委派 / 汇合 · 可回放轨迹" },
       { label: "集成面", text: "Skills · MCP · HTTP / 业务 API · 可插拔工具" },
-      { label: "开源", text: "源码与版本说明见顶栏「开源」入口" },
+      { label: "GitHub", text: "Issue、发行说明见顶栏「GitHub」入口" },
     ],
     resumeBlockTitle: "履历与技能",
     educationTitle: "路线图",
@@ -219,7 +219,7 @@ export const resumeDocByLocale: LocalizedValue<ResumeDoc> = {
         stack: "MCP · Skills · Extensions",
       },
     ],
-    contactTitle: "开源与联系",
+    contactTitle: "联系与仓库",
     contactItems: [
       {
         title: "能力矩阵（站内）",
@@ -234,7 +234,7 @@ export const resumeDocByLocale: LocalizedValue<ResumeDoc> = {
         linkText: "打开演进日志",
       },
       {
-        title: "源码与协作",
+        title: "GitHub 仓库",
         body: "需要 Issue、讨论区或发行说明时，从仓库入口进入。",
         href: siteLinks.github,
         linkText: "在 GitHub 打开仓库",
@@ -252,7 +252,7 @@ export const resumeDocByLocale: LocalizedValue<ResumeDoc> = {
       { id: "contact", label: "Contact" },
     ],
     name: "EvoFlow",
-    role: "Open-source super-agent orchestration framework",
+    role: "Super-agent orchestration framework",
     tagline:
       "Coordinate sub-agents, DAG merges, memory and context, sandboxed execution, and Skills/MCP integrations—observable delivery for tickets, ops, copilots, and enterprise RAG.",
     heroActions: [
@@ -269,7 +269,7 @@ export const resumeDocByLocale: LocalizedValue<ResumeDoc> = {
     aboutHighlights: [
       { label: "Orchestration", text: "Plan · DAG · delegate/merge · replayable traces" },
       { label: "Integration", text: "Skills · MCP · HTTP / business APIs · pluggable tools" },
-      { label: "Open source", text: "Source and release notes via the header Open Source entry" },
+      { label: "GitHub", text: "Issues and releases via the header GitHub entry" },
     ],
     resumeBlockTitle: "Resume & skills",
     educationTitle: "Roadmap",

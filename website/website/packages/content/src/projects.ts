@@ -6,7 +6,7 @@ export const projects = [
     title: "EvoFlow Core",
     summary:
       "多智能体编排、Plan 模式、任务调度与安全护栏，连接模型与真实工作流。",
-    tags: ["agents", "orchestration", "open-source"],
+    tags: ["agents", "orchestration", "github"],
   }),
   projectSchema.parse({
     slug: "evopanel",

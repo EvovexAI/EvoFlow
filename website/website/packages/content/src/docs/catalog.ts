@@ -548,7 +548,7 @@ These docs follow **Start → Chat → Tasks & schedules → Configuration & pan
 | 记忆与上下文 | 长任务里哪些该记住、怎样避免把整段聊天反复塞给模型 |
 | 技能与外部工具 | 额外能力包、外部服务怎么接进来、怎么授权 |
 
-更细的说明见开源仓库里的说明文档。
+更细的说明见 GitHub 仓库中的文档。
 
 ## 接下来建议读什么
 
@@ -565,7 +565,7 @@ After [Getting started](/docs/getting-started), use this table to read the homep
 | Memory & context | What to remember across long work without pasting entire chats |
 | Skills & external tools | How optional packs and services connect and get permission |
 
-Details also live in the open-source repo docs.
+Details also live in the GitHub repository docs.
 
 ## What to read next
 

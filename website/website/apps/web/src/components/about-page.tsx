@@ -24,11 +24,11 @@ const aboutContentByLocale: LocalizedValue<{
   zh: {
     eyebrow: "关于",
     title: "关于 EvoFlow",
-    subtitle: "开源超级 Agent 驾驭框架 · 编排、记忆、沙箱、Skills/MCP 与 EvoPanel 一体化",
+    subtitle: "超级 Agent 驾驭框架 · 编排、记忆、沙箱、Skills/MCP 与 EvoPanel 一体化（可下载体验）",
     bio: [
       "EvoFlow 面向「认真落地」的多智能体场景：把子 Agent、DAG 式分支汇合、长期记忆、沙箱执行与可扩展技能放在同一条可观测链路上，使「谁做了什么决策、调用了哪条工具链、依据哪些上下文」可被复盘，而不是停留在单次对话演示。",
       "项目继承 DeerFlow 2.0 的工程基线，并持续扩展 EvoPanel 桌面端、技能与 MCP 生态、任务队列与失败重试、以及面向企业的护栏与审计挂钩点，方便团队把模型能力接入工单、运维、内部 Copilot 与企业 RAG 等真实工作流。",
-      "本站点是 EvoFlow 的官网壳层：首页提供能力矩阵、典型场景、架构剖面与路线图脉冲；演进日志与 Lab 承载版本叙事与实验骨架。站内不提供面向访客的对话产品。需要源码、Issue 与发行说明时，请使用顶栏「开源」。",
+      "本站点是 EvoFlow 的官网壳层：首页提供能力矩阵、典型场景、架构剖面与路线图脉冲；演进日志与 Lab 承载版本叙事与实验骨架。站内不提供面向访客的对话产品。需要 Issue、讨论区与发行说明时，请使用顶栏「GitHub」。",
     ],
     philosophyTitle: "设计原则",
     philosophyItems: [
@@ -59,7 +59,7 @@ const aboutContentByLocale: LocalizedValue<{
       { name: "MCP / Skills", level: 86, color: "#38bdf8" },
     ],
     siteTitle: "入口矩阵",
-    siteDescription: "从能力、场景、架构到路线与实验，再到开源协作——按角色跳转时保持同一套术语。",
+    siteDescription: "从能力、场景、架构到路线与实验，再到 GitHub 与文档——按角色跳转时保持同一套术语。",
     sites: [
       { label: "项目官网", href: "/", description: "Hero、能力矩阵、典型场景、架构剖面与路线图脉冲的总览" },
       { label: "能力矩阵", href: "/#capabilities", description: "编排、沙箱、记忆、Skills、MCP 与 EvoPanel 职责对齐" },
@@ -73,17 +73,17 @@ const aboutContentByLocale: LocalizedValue<{
       { label: "能力矩阵", href: "/#capabilities" },
       { label: "典型场景", href: "/#scenarios" },
       { label: "演进", href: "/evolution" },
-      { label: "开源协作", href: siteLinks.github },
+      { label: "GitHub", href: siteLinks.github },
     ],
   },
   en: {
     eyebrow: "About",
     title: "About EvoFlow",
-    subtitle: "Open-source super-agent stack — orchestration, memory, sandbox, Skills/MCP, and EvoPanel",
+    subtitle: "Super-agent stack — orchestration, memory, sandbox, Skills/MCP, and EvoPanel (downloadable builds)",
     bio: [
       "EvoFlow targets serious multi-agent workloads: sub-agents, DAG-style branching and merges, durable memory, sandboxed execution, and extensible skills on one observable pipeline so you can answer what decision was made, which tool chain ran, and under which context—not a one-off chat demo.",
       "The project builds on DeerFlow 2.0 and keeps evolving EvoPanel, the skills and MCP ecosystem, queues and retries, and enterprise-ready guardrails and audit hooks so teams can wire models into tickets, ops, copilots, and enterprise RAG.",
-      "This marketing site surfaces the capability matrix, concrete scenarios, architecture slices, and roadmap pulse; the evolution log and Lab carry release narrative and experiment scaffolds. There is no visitor chat product—use Open Source in the header for code, issues, and releases.",
+      "This marketing site surfaces the capability matrix, concrete scenarios, architecture slices, and roadmap pulse; the evolution log and Lab carry release narrative and experiment scaffolds. There is no visitor chat product—use GitHub in the header for issues, discussions, and releases.",
     ],
     philosophyTitle: "Principles",
     philosophyItems: [
@@ -114,7 +114,7 @@ const aboutContentByLocale: LocalizedValue<{
       { name: "MCP / skills", level: 86, color: "#38bdf8" },
     ],
     siteTitle: "Entry points",
-    siteDescription: "Capabilities, scenarios, architecture, roadmap, experiments, then open collaboration—with consistent vocabulary per role.",
+    siteDescription: "Capabilities, scenarios, architecture, roadmap, experiments, then GitHub and docs—with consistent vocabulary per role.",
     sites: [
       { label: "Project site", href: "/", description: "Hero, capability matrix, scenarios, architecture slices, and roadmap pulse" },
       { label: "Capability matrix", href: "/#capabilities", description: "Orchestration, sandbox, memory, Skills, MCP, and EvoPanel alignment" },
@@ -128,7 +128,7 @@ const aboutContentByLocale: LocalizedValue<{
       { label: "Capabilities", href: "/#capabilities" },
       { label: "Scenarios", href: "/#scenarios" },
       { label: "Evolution", href: "/evolution" },
-      { label: "Open source", href: siteLinks.github },
+      { label: "GitHub", href: siteLinks.github },
     ],
   },
 };

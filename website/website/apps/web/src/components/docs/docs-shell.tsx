@@ -75,7 +75,7 @@ export function DocsShell({
         <p className="mt-8 border-t border-outline-variant/15 pt-6 font-body-ui text-xs leading-relaxed text-foreground-muted">
           {locale === "zh" ? (
             <>
-              补充说明见开源仓库{" "}
+              补充说明见 GitHub 仓库{" "}
               <a className="text-primary underline underline-offset-2" href={siteLinks.readme} rel="noreferrer" target="_blank">
                 README
               </a>
@@ -83,7 +83,7 @@ export function DocsShell({
             </>
           ) : (
             <>
-              More detail in the open-source{" "}
+              More detail in the GitHub{" "}
               <a className="text-primary underline underline-offset-2" href={siteLinks.readme} rel="noreferrer" target="_blank">
                 README
               </a>

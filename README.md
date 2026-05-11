@@ -1,6 +1,6 @@
 # ⚡ EvoFlow
 
-> EvoFlow 是一个开源的**超级 Agent 驾驭框架**：通过编排**子 Agent**、**记忆系统**与**沙箱执行**完成任务，由**可扩展技能**驱动。
+> EvoFlow 是 **Evovex AI** 旗下的**超级 Agent 驾驭框架**：通过编排**子 Agent**、**记忆系统**与**沙箱执行**完成任务，由**可扩展技能**驱动。当前提供**安装包与文档**供下载体验；欢迎在 GitHub **Star** 关注进展，**完整源码开放**将在社区成熟后另行公布。
 
 [![官网](https://img.shields.io/badge/官网-evovexai.com-6366f1?style=flat-square)](https://www.evovexai.com)
 [![联系](https://img.shields.io/badge/联系-cloud%40evovexai.com-64748b?style=flat-square&logo=gmail&logoColor=white)](mailto:cloud@evovexai.com)
@@ -10,7 +10,7 @@
 https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 
 > [!NOTE]
-> **EvoFlow** 定位为开源的**超级智能体编排框架**（产品口径见官网与下文「功能说明」）。工程基于 [DeerFlow](https://github.com/bytedance/deerflow) **2.0** 代码基线**深度改造并持续演进**，并非换名发行版；上游深度研究框架（v1）在 [`1.x` 分支](https://github.com/bytedance/deerflow/tree/main-1.x) 维护。
+> **EvoFlow** 定位为**超级智能体编排框架**（产品口径见官网与下文「功能说明」）。公开仓库当前以**发行版与文档**为主，便于体验与反馈；工程理念与能力继承自 [DeerFlow](https://github.com/bytedance/deerflow) **2.0** 技术路线之上的**深度改造与持续演进**，并非换名发行版。上游原始深度研究框架（v1）在 [`1.x` 分支](https://github.com/bytedance/deerflow/tree/main-1.x) 维护。
 
 **构建与发行**
 
@@ -36,7 +36,7 @@ https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
 - [📖 功能说明](#功能说明)
 - [🏗️ 架构概览](#架构概览)
 
-**开源仓库与文档**
+**仓库与文档**
 
 - [📂 仓库目录说明](#仓库目录说明)
 - [📚 文档与开发者索引](#文档与开发者索引)

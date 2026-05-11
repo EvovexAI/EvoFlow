@@ -88,7 +88,7 @@ export const guidedTourContentByLocale: LocalizedValue<GuidedTourContent> = {
         title: "浏览路线图脉冲",
       },
       {
-        description: "首页正文在此收尾；源码协作、Issue 与版本发布仍可通过顶栏「开源」进入。",
+        description: "首页正文在此收尾；Issue、讨论区与版本发布仍可通过顶栏「GitHub」进入。",
         id: "portals",
         targetId: "portals",
         title: "致谢与后续入口",
@@ -155,7 +155,7 @@ export const guidedTourContentByLocale: LocalizedValue<GuidedTourContent> = {
       },
       {
         description:
-          "The narrative wraps here; source, issues, and releases remain one click away under Open Source in the header.",
+          "The narrative wraps here; issues, discussions, and releases remain one click away under GitHub in the header.",
         id: "portals",
         targetId: "portals",
         title: "Thanks and next steps",
