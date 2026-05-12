@@ -1918,6 +1918,246 @@
         }
       }
     },
+    "/api/channels/feishu/registration/begin": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Feishu Registration Begin",
+        "description": "Begin Feishu QR registration. Returns a QR URL to scan with the Feishu app.\n\nAfter scanning and authorizing in the Feishu app, poll the ``/poll`` endpoint\nuntil ``status == \"completed\"``, then call ``/apply`` to save credentials\nand start the channel automatically.",
+        "operationId": "feishu_registration_begin_api_channels_feishu_registration_begin_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeishuRegistrationBeginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/channels/feishu/registration/{session_id}/poll": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Feishu Registration Poll",
+        "description": "Poll Feishu registration status.\n\nCall this every 2-3 seconds after ``/begin``.  When ``status == \"completed\"``,\nthe response contains ``app_id`` and ``app_secret``.",
+        "operationId": "feishu_registration_poll_api_channels_feishu_registration__session_id__poll_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeishuRegistrationPollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/channels/feishu/registration/{session_id}/apply": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Feishu Registration Apply",
+        "description": "Apply Feishu registration credentials.\n\nSaves ``app_id`` / ``app_secret`` to ``config.yaml`` and automatically starts\n(or restarts) the Feishu channel.  Intended to be called after ``/poll``\nreturns ``status == \"completed\"``.",
+        "operationId": "feishu_registration_apply_api_channels_feishu_registration__session_id__apply_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeishuRegistrationApplyRequest",
+                "default": {
+                  "enabled": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeishuRegistrationApplyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/channels/weixin/registration/begin": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Weixin Registration Begin",
+        "description": "Begin Weixin (personal WeChat) iLink QR login. Returns ``qr_url`` to render as a QR image.",
+        "operationId": "weixin_registration_begin_api_channels_weixin_registration_begin_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeixinRegistrationBeginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/channels/weixin/registration/{session_id}/poll": {
+      "get": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Weixin Registration Poll",
+        "description": "Poll Weixin iLink QR status (call every ~2s after ``/begin``).",
+        "operationId": "weixin_registration_poll_api_channels_weixin_registration__session_id__poll_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeixinRegistrationPollResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/channels/weixin/registration/{session_id}/apply": {
+      "post": {
+        "tags": [
+          "channels"
+        ],
+        "summary": "Weixin Registration Apply",
+        "description": "Save Weixin credentials to disk and ``config.yaml``, then start or restart the channel.",
+        "operationId": "weixin_registration_apply_api_channels_weixin_registration__session_id__apply_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeixinRegistrationApplyRequest",
+                "default": {
+                  "enabled": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeixinRegistrationApplyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/automation/scheduler/status": {
       "get": {
         "tags": [
@@ -5508,8 +5748,20 @@
           "external_cli_available": {
             "type": "boolean",
             "title": "External Cli Available",
-            "description": "False when this host does not appear to have the required CLI/SDK (probe done server-side)",
+            "description": "False when the **Gateway API** process cannot import the SDK / find the CLI on PATH. Does not probe the LangGraph runtime; chat runs in LangGraph and may need the same venv.",
             "default": true
+          },
+          "external_cli_probe_process": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Cli Probe Process",
+            "description": "If set, names the process that ran the probe (e.g. gateway). Claude Code chat runs in LangGraph."
           }
         },
         "type": "object",
@@ -6002,6 +6254,106 @@
           "message"
         ],
         "title": "FeishuPushResponse"
+      },
+      "FeishuRegistrationApplyRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether to enable the Feishu channel after applying credentials",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "FeishuRegistrationApplyRequest"
+      },
+      "FeishuRegistrationApplyResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "channel_running": {
+            "type": "boolean",
+            "title": "Channel Running",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "FeishuRegistrationApplyResponse"
+      },
+      "FeishuRegistrationBeginResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "qr_url": {
+            "type": "string",
+            "title": "Qr Url",
+            "description": "Scan this URL with Feishu app to create and authorize the bot"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "qr_url"
+        ],
+        "title": "FeishuRegistrationBeginResponse"
+      },
+      "FeishuRegistrationPollResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "pending | scanning | completed | failed | expired"
+          },
+          "app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Id"
+          },
+          "app_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "status"
+        ],
+        "title": "FeishuRegistrationPollResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -8280,6 +8632,151 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WeixinRegistrationApplyRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether to enable the Weixin channel after applying credentials",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "WeixinRegistrationApplyRequest"
+      },
+      "WeixinRegistrationApplyResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "channel_running": {
+            "type": "boolean",
+            "title": "Channel Running",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "WeixinRegistrationApplyResponse"
+      },
+      "WeixinRegistrationBeginResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "qr_url": {
+            "type": "string",
+            "title": "Qr Url",
+            "description": "URL or payload to render as QR (iLink get_bot_qrcode response)"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "qr_url"
+        ],
+        "title": "WeixinRegistrationBeginResponse"
+      },
+      "WeixinRegistrationPollResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "pending | scanning | completed | failed | expired"
+          },
+          "qr_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qr Url",
+            "description": "Present while pending/scanning so the UI can refresh the image after server-side QR refresh"
+          },
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "status"
+        ],
+        "title": "WeixinRegistrationPollResponse"
       },
       "WorkerProfile": {
         "properties": {
