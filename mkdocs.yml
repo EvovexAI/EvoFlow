@@ -71,6 +71,10 @@ nav:
       - tutorials/setup-im-channel.md
   - 最佳实践案例:
       - cases/index.md
+      - 流式对话验收方法: cases/manual-acceptance-test-playbook.md
+      - 流式 E2E 运行登记: cases/e2e-stream-run-registry.md
+      - 流式验收案例目录（能力向）: cases/stream-acceptance-catalog.md
+      - 验收报告模板: cases/templates/scenario-acceptance-report.template.md
       - cases/use-main-agent.md
       - cases/create-agent.md
       - cases/create-skill.md

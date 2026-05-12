@@ -2,6 +2,12 @@
 
 本系列文档通过真实场景案例，展示 EvoFlow 各项功能的最佳实践。每个案例都包含分步操作指南、用户视角的提示词示例和截图占位，方便你快速上手。
 
+若要通过**与 EvoPanel 相同的流式对话接口**模拟用户、观测输出，并在**各案例文档中记录每轮输入/输出**以便回溯，请使用：[流式对话验收方法说明](manual-acceptance-test-playbook.md)。（文档中含本机 **Gateway 8070 / LangGraph 2070** 示例；子集与参数以各脚本 **`--help`** 为准，**用户消息原文**见 [流式验收案例目录（能力向）](stream-acceptance-catalog.md) §1.3。）  
+代理或 CI 跑 `e2e_scenarios_api_test.py` 后，可将**汇总登记**写入 [流式 E2E 运行登记](e2e-stream-run-registry.md)（轻量）；**正式验收**请按 [验收报告模板](templates/scenario-acceptance-report.template.md) **每场景单独成文**。  
+若要将流式结果**按模板写入上表各案例 Markdown 末尾**（`<!-- ACCEPTANCE_RECORD_BEGIN -->` 块内，可重复运行替换），在 `backend` 目录执行：`uv run python scripts/case_doc_acceptance_append.py --gateway http://127.0.0.1:8070 --all`（或 `--case N` 仅跑第 N 条；参数见 `python scripts/case_doc_acceptance_append.py --help`）。
+
+若你的验收清单按**能力**组织（创建/管理智能体与技能、定时任务、Plan、联网出稿等），与下表「故事线」编号不完全一致时，请以 **[流式验收案例目录（能力向）](stream-acceptance-catalog.md)** 为主索引，再回链本页对应文档作补充阅读。
+
 ## 案例列表
 
 | 序号 | 案例 | 说明 |

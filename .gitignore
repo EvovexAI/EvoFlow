@@ -186,3 +186,7 @@ website/**/.turbo/
 website/out/
 website/**/dist/
 .workbuddy/
+
+# Local stream/E2E acceptance machine output (JSON + generated reports)
+backend/scripts/_e2e_output/
+docs/cases/reports/
