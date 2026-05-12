@@ -225,7 +225,6 @@
 | [evopanel/](evopanel/) | `Tauri` · `桌面` | EvoPanel 客户端 |
 | [website/](website/) | `Next.js` · `营销` | 官网与展示站点 |
 | [skills/](skills/) | `Skills` | 技能包（公开示例见 [skills/public/](skills/public/)） |
-| [docs/](docs/) | `MkDocs` | 文档源码 |
 
 ---
 
