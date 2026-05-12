@@ -38,7 +38,9 @@ channels:
     config:
       recursion_limit: 100
     context:
-      thinking_enabled: true
+      session_mode: flash
+      thinking_enabled: false
+      reasoning_effort: minimum
       is_plan_mode: false
       subagent_enabled: false
 ```

@@ -27,8 +27,7 @@
 
 **产品与体验**
 
-- [📦 获取产品](#获取产品)
-- [🖥️ EvoPanel 桌面端](#evopanel-桌面端)
+- [📦 获取产品与桌面端](#获取产品与桌面端)
 - [✨ 功能总览](#功能总览)
 - [📖 功能说明](#功能说明)
 - [🏗️ 架构概览](#架构概览)
@@ -47,22 +46,16 @@
 
 ---
 
-## 📦 获取产品
+## 📦 获取产品与桌面端
 
 | 你需要 | 入口 |
 |--------|------|
 | 发行版与桌面安装包 | [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases) |
 | 下载说明 | [downloads.md](docs/getting-started/downloads.md) |
 
+**EvoPanel** 是面向使用者的桌面客户端（基于 Tauri v2），连接 Gateway 完成对话、任务与编排操作。源码见 [`evopanel/`](evopanel/)，维护说明见 [evopanel/README.md](evopanel/README.md)。
+
 自托管、从源码运行与部署细节见 [文档与开发者索引](#文档与开发者索引) 及 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
----
-
-## 🖥️ EvoPanel 桌面端
-
-**EvoPanel**（**Tauri v2**）源码在本仓库 [`evopanel/`](evopanel/)，是面向使用者的桌面客户端，连接本仓库 **Gateway** 完成对话、任务与编排相关操作；技能与 MCP 与后端配置联动（以当前版本为准）。
-
-维护与构建说明：[evopanel/README.md](evopanel/README.md)。安装包：[EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases)。
 
 ---
 
