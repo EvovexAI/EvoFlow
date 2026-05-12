@@ -174,6 +174,12 @@ export const homeContentByLocale: LocalizedValue<{
             "抓住当前核心目标；仅在你明确多线事项时列出带子问题的进度，并把验收与边界写进快照回注后续回合。目标含糊或你转向时会再对齐，减少跑偏。",
           accent: "secondary" as Accent,
         },
+        {
+          title: "Claude Code 多会话协同",
+          description:
+            "支持与 Claude Code 实时对话交互，也可在超级总控模式下作为子代理承接编码、调试等专项任务；支持多 Claude Code 会话并行分工与结果汇总，兼顾自主交互与编排管控能力。",
+          accent: "primary" as Accent,
+        },
       ],
       productArchitecture: {
         eyebrow: "",
@@ -218,7 +224,7 @@ export const homeContentByLocale: LocalizedValue<{
             modules: [
               {
                 title: "IM 渠道",
-                description: "飞书、Slack、Telegram 等与同一运行时对接，统一线程与投递。",
+                description: "飞书、Slack、Telegram 等与同一运行时对接，统一线程与投递；支持 `/claude`（直连 Claude Code，可选会话ID续接）、`/new`（新建会话线程）、`/lead`（切回主智能体）、`/status`（查看会话状态）等快捷命令。",
                 accent: "primary" as Accent,
               },
               {
@@ -629,6 +635,12 @@ export const homeContentByLocale: LocalizedValue<{
             "Distill the primary goal; track sub-problems with statuses only when parallel work is explicit. Fold acceptance and boundaries into a snapshot fed back into guidance—realign on fuzzy intent or when you pivot.",
           accent: "secondary" as Accent,
         },
+        {
+          title: "Claude Code Multi-session Collaboration",
+          description:
+            "Supports real-time interactive conversations with Claude Code, or operating as a sub-agent under the Supervisor to undertake specialized tasks such as coding and debugging; enables parallel task division across multiple Claude Code sessions and result aggregation, balancing both autonomous interaction and orchestration control capabilities.",
+          accent: "primary" as Accent,
+        },
       ],
       productArchitecture: {
         eyebrow: "",
@@ -673,7 +685,7 @@ export const homeContentByLocale: LocalizedValue<{
             modules: [
               {
                 title: "Messaging channels",
-                description: "Feishu, Slack, Telegram, and similar bridges onto the same threads and delivery.",
+                description: "Feishu, Slack, Telegram, and similar bridges onto the same threads and delivery; supports slash commands: `/claude` (direct connection to Claude Code with optional session ID resumption), `/new` (new conversation thread), `/lead` (switch back to lead agent), `/status` (view session state).",
                 accent: "primary" as Accent,
               },
               {
