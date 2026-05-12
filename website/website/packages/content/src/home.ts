@@ -153,7 +153,7 @@ export const homeContentByLocale: LocalizedValue<{
         {
           title: "多智能体与超级总控智能体（Supervisor）协作",
           description:
-            "由超级总控智能体（Supervisor）统筹目标与节奏，子智能体分工执行；「谁规划、谁执行、何时汇合」在编排层可复述、可对外讲解。",
+            "由超级总控智能体（Supervisor）统筹全局目标与进度，基于子智能体能力画像实现任务精准分发，达到任务与能力最优匹配；子智能体支持并行执行，子任务间结构化上下文自动传递；总控全链路感知子智能体运行状态，支持全局进度调控、异常纠错与局部重编排；全流程可解释、可追溯。",
           accent: "secondary" as Accent,
         },
         {
@@ -180,6 +180,12 @@ export const homeContentByLocale: LocalizedValue<{
             "支持与 Claude Code 实时对话交互，也可在超级总控模式下作为子代理承接编码、调试等专项任务；支持多 Claude Code 会话并行分工与结果汇总，兼顾自主交互与编排管控能力。",
           accent: "primary" as Accent,
         },
+        {
+          title: "托管智能体与长期任务托管",
+          description:
+            "针对持续运行的后台任务：独立沙箱隔离执行，支持7×24小时后台托管运行，实时监控运行状态与输出日志，支持暂停、恢复与终止操作，运行结果与日志持久化可追溯，适合巡检、监控、自动化运维等需要长期驻留的任务场景。",
+          accent: "secondary" as Accent,
+        },
       ],
       productArchitecture: {
         eyebrow: "",
@@ -192,8 +198,13 @@ export const homeContentByLocale: LocalizedValue<{
               {
                 title: "编排运行时",
                 description:
-                  "超级总控与子智能体、中间件与工具装配；长任务执行中仍可在对话里继续编排，并流式查看子任务产出。",
+                  "超级总控与子智能体、中间件与工具装配；支持基于子智能体能力画像的任务精准分发，任务与能力最优匹配；子智能体支持并行执行，子任务间结构化上下文自动传递；长任务执行中仍可在对话侧实时干预编排，并流式同步子任务产出与进度。",
                 accent: "primary" as Accent,
+              },
+              {
+                title: "托管智能体运行时",
+                description: "长期运行智能体的独立托管环境，沙箱隔离执行，支持全生命周期管控与状态观测。",
+                accent: "secondary" as Accent,
               },
               {
                 title: "沙箱执行",
