@@ -101,3 +101,178 @@
 
 深度搜索 + HTML 报告生成是 EvoFlow 智能体的强大能力之一。从信息搜集到结构化输出，全流程自动化，大幅提升研究效率。
 
+<!-- ACCEPTANCE_RECORD_BEGIN -->
+
+# 《案例六：搜索汇总并输出分析 HTML》流式验收报告
+
+| 元数据项 | 填写 |
+|----------|------|
+| **报告 ID** | `20260512-084637-case6-v1` |
+| **关联案例 / 场景** | [案例六：搜索汇总并输出分析 HTML](search-html-report.md) |
+| **关联仓库文档** | 本页正文上方「案例」章节 |
+| **执行人** | 自动化 `case_doc_acceptance_append.py` |
+| **执行时间（本地）** | `2026-05-12T08:57:18.738445+00:00` |
+| **代码版本** | `a877c3b3` |
+| **Gateway 基址** | `http://127.0.0.1:8070` |
+| **LangGraph 端口（若已知）** | 2070（由 Gateway 代理） |
+| **session_key** | `agent:main:case-doc-20260512-084637` |
+| **默认 assistant_id** | `lead_agent` |
+
+---
+
+## 1. 测试范围与通过准则
+
+**本报告覆盖：**与本案例文档对应的流式/API 验收（共 **1** 次用户发起）。
+
+**功能通过准则：**以本案例文档操作步骤中「可经流式接口验证」的子目标为准；无未处理 SSE error；主答复可读。
+
+**性能与可观测性准则：**记录 `request_total_ms`、TTFT（`first_ai_visible_ms`）及侧载耗时，供与历史 JSON 对比。
+
+---
+
+## 2. 环境与前置条件
+
+| 检查项 | 状态（是/否/不适用） | 说明 |
+|--------|----------------------|------|
+| 模型与 API Key | 是 | 以本机已配置为准 |
+| 技能 / MCP / 渠道 | 未逐项核对 | 见案例前置说明 |
+| 沙箱与写盘范围 | 未逐项核对 | 见网关配置 |
+| 与本场景相关的配置项 | 未逐项核对 |  |
+
+**原始机器产物：** `docs/cases/reports/raw/case-doc-6-20260512-084637.json`
+
+---
+
+## 3. 交互总览
+
+| 指标 | 值 |
+|------|-----|
+| **用户发起流式交互总次数** | 1 |
+| **涉及 thread_id 数量** | 1 |
+| **是否出现 SSE error / HTTP 非 2xx** | 否 |
+| **工具调用总次数（含重复 tool_call_id 刷新）** | 21 |
+
+**thread 与时间线：**
+
+| 序号 | thread_id | 用途说明 |
+|------|-----------|----------|
+| 1 | `163bb275-beaa-4256-8ef0-64bb808061e6` | 见下节分轮 |
+
+---
+
+## 4. 分轮交互记录
+
+### 4.1 轮次 1
+
+#### 4.1.1 请求与用户输入
+
+| 字段 | 内容 |
+|------|------|
+| **thread_id** | `163bb275-beaa-4256-8ef0-64bb808061e6` |
+| **本轮在用户界面的序号** | 1 / 1 |
+| **activated_scenarios** | `["web"]` |
+| **collab_phase** | `idle` |
+| **is_plan_mode / subagent_enabled / thinking_enabled** | `False` / `False` / `True` |
+| **recursion_limit** | `720` |
+| **用户输入（原文，完整）** | `请帮我做一份关于"Rust 在 Web 后端开发中的应用现状"的深度研究报告。
+
+要求：
+1. 搜索近一年的技术资料、博客和论文
+2. 对比主流 Web 框架（Actix-web、Axum、Rocket 等）
+3. 分析性能数据和典型案例
+4. 生成一份 HTML 格式的分析报告，包含图表和数据对比
+若无法生成可下载的 HTML，请说明原因并给出可复制的 HTML 片段。` |
+
+#### 4.1.2 流式与模型侧时序（本轮）
+
+| 指标 | 值（ms） | 说明 |
+|------|----------|------|
+| **request_total_ms** | 640474.739 | 自 POST 起至流读完 |
+| **first_sse_payload_ms** | 1918.11 | 至首条有效 data: |
+| **first_ai_visible_ms（TTFT）** | 8547.058 | 至首段可见助手正文 |
+| **assistant_visible_stream_ms** | 631924.55 | 首末次可见正文时间差 |
+| **本轮是否出现 error 事件** | 否 |  |
+
+#### 4.1.3 工具调用明细（本轮，按发生顺序）
+
+| # | tool 名称 | tool_call_id | duration_ms | 结果摘要 | 备注 |
+|---|-----------|----------------|-------------|----------|------|
+| 1 | scenario | `functions.scenario:0` | 2206.348 | 成功 |  |
+| 2 | read_file | `functions.read_file:1` | 1444.903 | 成功 |  |
+| 3 | search_content | `functions.search_content:2` | 755.582 | 成功 |  |
+| 4 | list_dir | `functions.list_dir:3` | 609.507 | 成功 |  |
+| 5 | read_file | `functions.read_file:4` | 784.45 | 成功 |  |
+| 6 | web_search | `functions.web_search:5` | 6719.438 | 成功 |  |
+| 7 | web_search | `functions.web_search:6` | 6081.807 | 成功 |  |
+| 8 | web_search | `functions.web_search:7` | 5519.201 | 成功 |  |
+| 9 | web_search | `functions.web_search:9` | 3442.724 | 成功 |  |
+| 10 | web_search | `functions.web_search:8` | 5137.479 | 成功 |  |
+| 11 | web_search | `functions.web_search:10` | 4106.005 | 成功 |  |
+| 12 | web_fetch | `functions.web_fetch:11` | 2468.315 | 成功 |  |
+| 13 | web_search | `functions.web_search:12` | 2098.436 | 成功 |  |
+| 14 | web_fetch | `functions.web_fetch:8` | 21800.375 | 成功 |  |
+| 15 | web_fetch | `functions.web_fetch:9` | 21059.645 | 成功 |  |
+| 16 | web_fetch | `functions.web_fetch:10` | 20195.925 | 成功 |  |
+| 17 | tool_search | `functions.tool_search:10` | 342.931 | 成功 |  |
+| 18 | read_file | `functions.read_file:7` | 985.306 | 成功 |  |
+| 19 | scenario | `functions.scenario:8` | 961.565 | 成功 |  |
+| 20 | write_to_file | `functions.write_to_file:6` | 280757.077 | 成功 |  |
+| 21 | present_files | `functions.present_files:5` | 586.356 | 成功 |  |
+
+#### 4.1.4 模型输出（本轮）
+
+- [x] **正文粘贴**（完整或截断说明见上）
+
+```text
+用户想要生成一份关于"Rust 在 Web 后端开发中的应用现状"的深度研究报告，包含框架对比、性能分析和 HTML 报告。
+
+根据 deep-research 技能的要求：
+1. 用户已经明确了主题：Rust Web 后端开发应用现状
+2. 研究角度：框架对比、性能分析
+3. 产出：HTML 报告
+4. 用户没有要求我进行界定确认，而是直接要求生成报告
+
+根据技能文档，"可跳过阶段 0 的情况"：
+> 若用户首轮已明确给出：**主题 + 研究角度 + 深度 + 必要边界**（以及一句话核心问题），则视为界定已完成，直接整理为《研究界定书》（写明默认 HTML 产出与模板倾向），**无需再问**。
+
+用户已明确：
+- 主题：Rust 在 Web 后端开发中的应用现状
+- 研究角度：框架对比、性能分析
+- 产出：HTML 报告
+
+我应该：
+1. 整理《研究界定书》
+2. 选择模板（T03-竞品对比决策模板，因为涉及框架对比）
+3. 执行研究并生成 HTML 报告
+
+现在让我激活 file 场景以便写入 HTML 文件，然后生成报告。</think>根据已收集的信息，我现在可以生成报告。让我先激活文件操作场景来写入 HTML：
+```
+
+#### 4.1.5 本轮结论（非总评）
+
+| 项 | 内容 |
+|----|------|
+| **对照准则条目** | 案例六 §步骤 3～6：检索 + 成稿（HTML 尽力） |
+| **子目标是否达成** | 符合 |
+| **证据** | `ai_text_seen=True`；侧载种类数 `0` |
+
+---
+
+## 5. 测试意见（文档末尾总评）
+
+### 5.1 结论摘要
+
+- **总体结果：**通过
+- **阻塞项：**无
+- **非阻塞问题：**是否产出独立 HTML 文件取决于环境与写盘策略。
+
+
+### 5.2 风险与影响
+
+无额外结论；以本案例业务风险为准。
+
+### 5.3 后续建议
+
+若发布前 gate：可对比 `docs/cases/reports/raw` 中历史 JSON 做基线回归。
+
+<!-- ACCEPTANCE_RECORD_END -->
