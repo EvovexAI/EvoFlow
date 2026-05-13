@@ -139,9 +139,9 @@ export const homeContentByLocale: LocalizedValue<{
         "多步任务常卡在「做到一半就断、难以续跑」，一大原因是闲聊式界面缺乏总控与状态；同时工具与长提示一把塞进上下文，Token 消耗和费用会快速上去。EvoFlow 面向需要多日推进、跨系统协作的智能体长任务：由超级总控智能体（Supervisor）把规划、依赖与监督串成可恢复的闭环，并以分阶段协作加上「工具渐进暴露」（首轮不摊开大清单、按需挂载扩展）把上下文压在必要范围内。本站介绍产品能力与演进路线。",
       featureSummary: {
         eyebrow: "产品概览",
-        title: "核心差异化 · 五条支柱",
+        title: "核心差异化 · 八大支柱",
         description:
-          "优先解决「任务跑不完、易中断」与「上下文膨胀、Token 消耗大」；下面五条为应对思路，再向下可见总控拆解与能力矩阵。",
+          "优先解决「任务跑不完、易中断」与「上下文膨胀、Token 消耗大」；下面八条为差异化支柱摘要，再向下可见总控拆解与能力矩阵。",
       },
       featureCards: [
         {
@@ -185,6 +185,12 @@ export const homeContentByLocale: LocalizedValue<{
           description:
             "针对持续运行的后台任务：独立沙箱隔离执行，支持7×24小时后台托管运行，实时监控运行状态与输出日志，支持暂停、恢复与终止操作，运行结果与日志持久化可追溯，适合巡检、监控、自动化运维等需要长期驻留的任务场景。",
           accent: "secondary" as Accent,
+        },
+        {
+          title: "智能体进化",
+          description:
+            "把智能体配置治理与技能包生命周期放在同一能力面：创建与维护智能体（模型、工具分组与白名单、外部扩展与技能说明注入等），并行管理技能的启用、说明与资源更新；二者协同迭代、持续优化，变更可被运行侧重新读取，总控对话里出现的技能名与当前启用及允许范围一致。",
+          accent: "tertiary" as Accent,
         },
       ],
       productArchitecture: {
@@ -281,7 +287,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "能力矩阵",
       title: "从编排到交付的完整闭环",
       description:
-        "阅读顺序：控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、定时任务、智能体进化等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
+        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、定时任务、智能体进化等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
       focusBand: {
         supervisorCaption: "控制面",
         supervisorTitle: "超级总控智能体（Supervisor）",
@@ -613,7 +619,7 @@ export const homeContentByLocale: LocalizedValue<{
         eyebrow: "Product pillars",
         title: "What makes EvoFlow different",
         description:
-          "We focus first on stalled long tasks and heavy context/token use—five pillars below; scroll on for the Supervisor breakdown and the full capability matrix.",
+          "We focus first on stalled long tasks and heavy context/token use—eight differentiation pillars summarized below; scroll on for the Supervisor breakdown and the full capability matrix.",
       },
       featureCards: [
         {
@@ -651,6 +657,18 @@ export const homeContentByLocale: LocalizedValue<{
           description:
             "Supports real-time interactive conversations with Claude Code, or operating as a sub-agent under the Supervisor to undertake specialized tasks such as coding and debugging; enables parallel task division across multiple Claude Code sessions and result aggregation, balancing both autonomous interaction and orchestration control capabilities.",
           accent: "primary" as Accent,
+        },
+        {
+          title: "Hosted agents for long-running workloads",
+          description:
+            "For always-on background work: sandbox-isolated execution, 24/7 hosted runs with live status and logs, pause/resume/terminate controls, and durable outcomes—suited to patrol jobs, monitoring, and automation that must stay resident without babysitting a chat window.",
+          accent: "secondary" as Accent,
+        },
+        {
+          title: "Agent evolution",
+          description:
+            "Keeps agent governance and skill-pack lifecycle on one surface: maintain agent definitions (models, tool groups and allowlists, external extensions, optional skill-injection), while enabling, revising, and optimizing skills in lockstep; changes can be reloaded at runtime so the Supervisor sees skill names that match what is enabled and permitted.",
+          accent: "tertiary" as Accent,
         },
       ],
       productArchitecture: {
@@ -743,7 +761,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "Capabilities",
       title: "From orchestration to delivery",
       description:
-        "Recommended order: control plane and Plan mode, then the five-step journey, followed by the orchestration and execution cards; the Runtime capabilities section below lists EvoPanel, coding delegation, scenarios, progressive tool exposure plus skill/MCP marketplaces, memory, workspace, schedules, and agent evolution. Only the EvoPanel panel links to on-site getting-started docs; the rest are explained in copy.",
+        "Recommended order: the eight hero pillars, then control plane and Plan mode, then the five-step journey, followed by the orchestration and execution cards; the Runtime capabilities section below lists EvoPanel, coding delegation, scenarios, progressive tool exposure plus skill/MCP marketplaces, memory, workspace, schedules, and agent evolution. Only the EvoPanel panel links to on-site getting-started docs; the rest are explained in copy.",
       focusBand: {
         supervisorCaption: "Control plane",
         supervisorTitle: "Lead Supervisor",

@@ -138,13 +138,13 @@ function HomeAccentCardGrid({
   gridClassName,
 }: {
   cards: HomeAccentCard[];
-  /** 默认用于五条支柱；架构模块等可传入自定义列数 */
+  /** 默认用于 Hero 区八大支柱等；架构模块等可传入自定义列数 */
   gridClassName?: string;
 }) {
   return (
     <div
       className={
-        gridClassName ?? "mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+        gridClassName ?? "mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4"
       }
     >
       {cards.map((card) => (

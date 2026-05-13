@@ -23,6 +23,9 @@ venv/
 # Environment variables
 .env
 
+# Local publish secrets (copy from scripts/windows/local-publish.env.example)
+scripts/windows/local-publish.env
+
 # Configuration files
 config.yaml
 mcp_config.json
