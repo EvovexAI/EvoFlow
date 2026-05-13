@@ -1,11 +1,14 @@
 import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
 import { siteLinks } from "./site-links";
+import { staticPageHref } from "./static-page-href";
 
 type Accent = "primary" | "secondary" | "tertiary";
 
 /** 站内文档路径，与 packages/content/src/docs/catalog.ts 一致 */
 function siteDocHref(...segments: string[]): string {
-  return `${siteLinks.docsSite}/${segments.join("/")}`;
+  const base = siteLinks.docsSite.replace(/\/+$/, "");
+  const path = segments.length === 0 ? `${base}/` : `${base}/${segments.join("/")}/`;
+  return staticPageHref(path);
 }
 
 export const homeContentByLocale: LocalizedValue<{

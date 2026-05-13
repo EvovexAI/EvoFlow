@@ -4,6 +4,7 @@ export * from "./personal";
 export * from "./projects";
 export * from "./timeline";
 export * from "./site-links";
+export * from "./static-page-href";
 export * from "./site-identity";
 export * from "./site-stats";
 export * from "./home";

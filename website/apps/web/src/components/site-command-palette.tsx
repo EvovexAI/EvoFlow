@@ -1,6 +1,6 @@
 "use client";
 
-import { type LocalizedValue, siteIdentity, siteLinks } from "@ai-site/content";
+import { type LocalizedValue, siteIdentity, siteLinks, staticPageHref } from "@ai-site/content";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
@@ -421,7 +421,7 @@ export function SiteCommandPalette({
       return;
     }
 
-    router.push(item.url);
+    router.push(staticPageHref(item.url));
   }
 
   function handleJumpFirstMatch() {

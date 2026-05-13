@@ -239,6 +239,7 @@
 |------|------|
 | 文档总目录 | [docs/index.md](docs/index.md) |
 | 下载与版本 | [docs/getting-started/downloads.md](docs/getting-started/downloads.md) |
+| EvoPanel 版本变更记录 | [evopanel/CHANGELOG.md](evopanel/CHANGELOG.md)
 | 配置与模型 | [docs/reference/config-reference.md](docs/reference/config-reference.md) |
 | Gateway API | [docs/reference/api-reference.md](docs/reference/api-reference.md) |
 | 运维与拓扑 | [docs/guides/operations-handbook.md](docs/guides/operations-handbook.md) |

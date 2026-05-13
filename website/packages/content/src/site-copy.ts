@@ -79,7 +79,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     footer: {
       brand: "EvoFlow",
       tagline:
-        `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh} 超级智能体编排栈：Supervisor 总控、沙箱工具执行、可恢复状态与 Skills/MCP 集成。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。`,
+        `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh}-超级智能体编排栈。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。`,
       links: [
         { href: siteLinks.docsSite, label: "项目文档" },
         { href: siteLinks.github, label: "GitHub 仓库" },

@@ -2,7 +2,7 @@
 
 > EvoFlow 是 **Evovex AI** 旗下的**超级 Agent 驾驭框架**——通过编排子 Agent、记忆系统和沙箱执行来完成几乎所有任务，由可扩展技能驱动。当前以**发行版与文档**便于体验为主；完整源码开放节奏见 GitHub 仓库说明。
 >
-> **EvoVex** 品牌定名（简）：**Evo**（Evolve，进化迭代）+ **Vex**（解构复杂）+ **AI**（推理与编排）。Slogan：**EvoVex · AI 进化破局**；英文：*EvoVex, AI Evolve Beyond Complexity*。
+> **Evovex** 迭代进化 重塑 AI 新范式。英文：*EvoVex, AI Evolve Beyond Complexity*。
 
 ## 一句话了解 EvoFlow
 

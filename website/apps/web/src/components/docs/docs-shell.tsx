@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { docsNavSections, siteLinks, type SiteLocale } from "@ai-site/content";
+import { docsNavSections, siteLinks, staticPageHref, type SiteLocale } from "@ai-site/content";
 
 function slugPath(slug: string[]): string {
-  return slug.length ? `/docs/${slug.join("/")}` : "/docs";
+  const raw = slug.length ? `/docs/${slug.join("/")}/` : "/docs/";
+  return staticPageHref(raw);
 }
 
 function isActive(current: string[], target: string[]): boolean {
@@ -34,7 +35,7 @@ export function DocsShell({
         </p>
         <nav className="mt-4 space-y-6" aria-label={locale === "zh" ? "文档目录" : "Documentation contents"}>
           <Link
-            href="/docs"
+            href={staticPageHref("/docs/")}
             className={[
               "block rounded-md px-2 py-1.5 text-sm transition-colors",
               currentSlug.length === 0

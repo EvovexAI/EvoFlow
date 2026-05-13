@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type LocalizedValue, siteCopyByLocale, siteLinks } from "@ai-site/content";
+import { type LocalizedValue, siteCopyByLocale, siteLinks, staticPageHref } from "@ai-site/content";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalizedValue, useSiteLocale } from "./locale-provider";
@@ -15,6 +15,15 @@ const navLinkClass =
 
 const ctaClassName =
   "inline-flex items-center justify-center rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90";
+
+function isInternalNavActive(pathname: string, href: string): boolean {
+  if (href.startsWith("http")) return false;
+  if (href.includes("#")) return pathname === href;
+  const target = staticPageHref(href);
+  const p = pathname.replace(/\/+$/, "") || "/";
+  const t = target.replace(/\/+$/, "") || "/";
+  return p === t || (t !== "/" && p.startsWith(`${t}/`));
+}
 
 function HamburgerIcon({ open }: { open: boolean }) {
   const Icon = open ? X : Menu;
@@ -74,12 +83,7 @@ function MobileDrawer({
         <div className="flex-1 overflow-y-auto px-2 py-3">
           {items.map((item) => {
             const isExternal = item.href.startsWith("http");
-            const isActive =
-              !isExternal &&
-              (pathname === item.href ||
-                (item.href !== "/" &&
-                  !item.href.includes("#") &&
-                  pathname.startsWith(item.href)));
+            const isActive = !isExternal && isInternalNavActive(pathname, item.href);
             const linkClass = [
               "flex items-center rounded-md px-3 py-3 text-[15px] font-normal transition-colors",
               isActive ? "bg-surface-high text-foreground" : "text-foreground hover:bg-surface-high/60",
@@ -99,7 +103,7 @@ function MobileDrawer({
               );
             }
             return (
-              <Link key={item.href} className={linkClass} href={item.href} onClick={onClose}>
+              <Link key={item.href} className={linkClass} href={staticPageHref(item.href)} onClick={onClose}>
                 {item.label}
               </Link>
             );
@@ -278,7 +282,7 @@ export function SiteHeader() {
                     {item.label}
                   </a>
                 ) : (
-                  <Link key={item.href} className={navLinkClass} href={item.href}>
+                  <Link key={item.href} className={navLinkClass} href={staticPageHref(item.href)}>
                     {item.label}
                   </Link>
                 ),

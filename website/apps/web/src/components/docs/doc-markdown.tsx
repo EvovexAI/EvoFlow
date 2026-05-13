@@ -3,13 +3,14 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import { staticPageHref } from "@ai-site/content";
 
 const markdownComponents: Partial<Components> = {
   a({ href, children, ...props }) {
     if (href?.startsWith("/")) {
       return (
         <Link
-          href={href}
+          href={staticPageHref(href)}
           className="font-medium text-primary underline decoration-primary/30 underline-offset-2 transition-colors hover:decoration-primary"
         >
           {children}

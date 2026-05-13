@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { getAllDocSlugs, platformPagesByLocale, siteIdentity } from "@ai-site/content";
+import { getAllDocSlugs, platformPagesByLocale, siteIdentity, staticPageHref } from "@ai-site/content";
 
 const SITE_URL = siteIdentity.siteUrl;
 
@@ -32,7 +32,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   ];
 
   return staticPages.map((page) => ({
-    url: `${SITE_URL}${page.path}`,
+    url: `${SITE_URL}${staticPageHref(page.path)}`,
     lastModified: now,
     changeFrequency: page.changeFrequency,
     priority: page.priority,

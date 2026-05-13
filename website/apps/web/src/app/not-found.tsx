@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { staticPageHref } from "@ai-site/content";
 import { useSiteLocale } from "@/components/locale-provider";
 
 const copy = {
@@ -51,7 +52,7 @@ export default function NotFound() {
             </Link>
             <Link
               className="rounded-full border border-outline-variant/30 bg-surface-low/50 px-5 py-2.5 font-label-ui text-[11px] uppercase tracking-[0.15em] text-foreground-muted transition-colors hover:bg-surface-high/40"
-              href="/about"
+              href={staticPageHref("/about")}
             >
               {t.about}
             </Link>

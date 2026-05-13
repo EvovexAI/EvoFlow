@@ -11,14 +11,14 @@ export const siteIdentity = {
 /** EvoVex 品牌定名（简版，供 README / 站尾等复用） */
 export const evoVexBrand = {
   name: "EvoVex",
-  sloganZh: "EvoVex · AI 进化破局",
-  sloganEn: "EvoVex, AI Evolve Beyond Complexity",
+  sloganZh: "Evovex · AI",
+  sloganEn: "Evovex, AI",
   /** 词源 + 一句核心（中文） */
   blurbZh:
-    "Evo（Evolve，进化迭代）+ Vex（解构难题）+ AI（推理与编排）；AI 持续进化，智能解构复杂。",
+    "迭代进化 重塑 AI 新范式",
   blurbEn:
-    "Evolve + break complexity + AI core: autonomous reasoning and adaptive orchestration beyond complex workloads.",
-} as const;
+    "Iterative Evolution Reshape the New AI Paradigm",
+} as const; 
 
 /** 用于文案展示，例如 `www.evovexai.com` */
 export function siteUrlForDisplay(): string {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type LocalizedValue, siteCopyByLocale, siteIdentity, siteUrlForDisplay } from "@ai-site/content";
+import { type LocalizedValue, siteCopyByLocale, siteIdentity, siteUrlForDisplay, staticPageHref } from "@ai-site/content";
 import { useLocalizedValue } from "./locale-provider";
 
 const footerExtraByLocale: LocalizedValue<{
@@ -49,7 +49,7 @@ export function SiteFooter() {
                 const linkKey = `${item.label}:${item.href}`;
                 if (item.href.startsWith("/")) {
                   return (
-                    <Link key={linkKey} className={navLinkClass} href={item.href}>
+                    <Link key={linkKey} className={navLinkClass} href={staticPageHref(item.href)}>
                       {item.label}
                     </Link>
                   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { type LocalizedValue, platformPagesByLocale } from "@ai-site/content";
+import { type LocalizedValue, platformPagesByLocale, staticPageHref } from "@ai-site/content";
 import { MetricTile, SignalPill, SurfaceCard, accentTextClassNames } from "@ai-site/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -59,7 +59,7 @@ export function ExperimentLabPage() {
 
       <section className="mt-20 grid gap-6 lg:grid-cols-3">
         {content.experiments.map((experiment) => (
-          <Link className="group block" href={`/lab/${experiment.slug}`} key={experiment.slug}>
+          <Link className="group block" href={staticPageHref(`/lab/${experiment.slug}/`)} key={experiment.slug}>
             <SurfaceCard
               className={[
                 "h-full transition-all duration-300 group-hover:-translate-y-1",
@@ -105,7 +105,7 @@ export function ExperimentLabDetailPage({ slug }: { slug: string }) {
   const experiment = content.experiments.find((item) => item.slug === slug);
 
   useEffect(() => {
-    if (!experiment) router.replace("/lab");
+    if (!experiment) router.replace(staticPageHref("/lab/"));
   }, [experiment, router]);
 
   if (!experiment) return null;
@@ -159,7 +159,7 @@ export function ExperimentLabDetailPage({ slug }: { slug: string }) {
         <aside>
           <AccentEyebrow accent="secondary">{copy.backToLabLabel}</AccentEyebrow>
           <div className="mt-8">
-            <Link className="group block" href="/lab">
+            <Link className="group block" href={staticPageHref("/lab/")}>
               <SurfaceCard padding="xl" radius="lg">
                 <p className="font-label-ui text-[10px] uppercase tracking-[0.22em] text-foreground-muted">
                   {copy.experimentIndexLabel}

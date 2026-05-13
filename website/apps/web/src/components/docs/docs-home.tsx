@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { docsIndexCopy, docsNavSections, type SiteLocale } from "@ai-site/content";
+import { docsIndexCopy, docsNavSections, staticPageHref, type SiteLocale } from "@ai-site/content";
 
 export function DocsHome({ locale }: { locale: SiteLocale }) {
   const copy = docsIndexCopy(locale);
@@ -31,7 +31,7 @@ export function DocsHome({ locale }: { locale: SiteLocale }) {
               {section.items.map((item) => (
                 <li key={item.slug.join("/")}>
                   <Link
-                    href={`/docs/${item.slug.join("/")}`}
+                    href={staticPageHref(`/docs/${item.slug.join("/")}/`)}
                     className="group block rounded-xl border border-outline-variant/20 bg-surface-low/30 px-4 py-3 transition-colors hover:border-outline-variant/40 hover:bg-surface-high/30"
                   >
                     <span className="font-display-ui text-base font-semibold text-foreground group-hover:text-primary">
