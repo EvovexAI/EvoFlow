@@ -20,7 +20,7 @@ Agent 是 EvoFlow 的核心。每个 Agent 拥有：
 
 ### 技能（Skills）
 
-技能是结构化的能力模块（`SKILL.md` 格式），让 Agent 能做特定类型的工作。EvoFlow 内置 100+ 公开技能，覆盖内容创作、媒体处理、开发工具等领域。
+技能是结构化的能力模块（`SKILL.md` 格式），让 Agent 能做特定类型的工作。EvoFlow 内置 100+ 公开技能，覆盖内容创作、媒体处理、开发工具等领域。另有一组 **`superpowers-*` 开发流程技能**（源自 Superpowers，MIT），与长任务规格/计划/子代理执行纪律配套；结构化产出路径约定见 `docs/evoflow/artifacts/README.md`。
 
 ### 沙箱（Sandbox）
 

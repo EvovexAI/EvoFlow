@@ -96,8 +96,9 @@ _nodecheck.txt
 target/
 
 
-# EvoPanel Tauri binaries (large build outputs)
-**/src-tauri/binaries/
+# EvoPanel Tauri sidecar exes under binaries/ (large); keep empty dir + .gitkeep for Tauri resource path
+**/src-tauri/binaries/**
+!**/src-tauri/binaries/.gitkeep
 
 # Backend evopanel (contains only built binaries)
 backend/evopanel/
