@@ -129,6 +129,22 @@ sandbox:
 | `trigger` | object | — | 触发条件（tokens/messages/fraction） |
 | `keep_policy` | string | — | 保留策略 |
 
+## agent_orchestration
+
+Lead Agent 编排模式（`config_version` ≥ 11）。默认 **hybrid**：绑定本地工作区时在首轮 `before_model` 并行预取索引命中文件；写/终端仍走模型 `tool_calls`。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `default` | string | `hybrid` | `react` \| `hybrid` \| `local_scheduler` |
+| `hybrid.prefetch_enabled` | bool | `true` | 是否注入 `<prefetch_context>` |
+| `hybrid.prefetch_max_files` | int | `8` | 预取最多文件数 |
+| `hybrid.read_search_via_scheduler` | bool | `true` | 读/搜经调度器批处理（预留） |
+| `local_scheduler.max_io_concurrency` | int | `8` | 并行 IO 上限 |
+| `local_scheduler.tier0_paths` | list | 见 example | Tier0 串行配置文件名 |
+| `file_read_cache.enabled` | bool | `true` | `read_file` LRU 缓存 |
+| `file_read_cache.ttl_seconds` | int | `90` | 缓存 TTL |
+| `file_read_cache.max_entries` | int | `256` | LRU 上限 |
+
 ## channels
 
 详见 [IM 消息渠道配置指南](../guides/im-channels.md)。
