@@ -1,0 +1,89 @@
+Evovex AI Non-Commercial License 1.0
+====================================
+
+Copyright (c) 2026 Evovex AI. All rights reserved.
+https://www.evovexai.com
+
+IMPORTANT: This is not an OSI-approved open-source license. You may use the
+Software under the terms below. Commercial use requires a separate written
+agreement with Evovex AI.
+
+---
+
+1. Definitions
+
+   "Software" means the EvoFlow project source code, documentation, assets,
+   and binary distributions made available by Evovex AI under this file,
+   excluding Third-Party Components described in the NOTICE file.
+
+   "Commercial Use" means any use of the Software (directly or indirectly) for
+   or in connection with revenue generation, paid products or services,
+   internal business operations of a for-profit entity (beyond reasonable
+   evaluation), providing the Software to third parties as a hosted or managed
+   service (SaaS), or sublicensing the Software for a fee.
+
+   "Non-Commercial Use" means personal, educational, or research use that does
+   not constitute Commercial Use.
+
+2. Grant for Non-Commercial Use
+
+   Subject to this License, Evovex AI grants you a worldwide, non-exclusive,
+   non-transferable, royalty-free license to:
+
+   (a) use, reproduce, and modify the Software for Non-Commercial Use;
+   (b) distribute unmodified or modified copies of the Software for
+       Non-Commercial Use only;
+
+   provided that you:
+
+   (i)   retain this License and all copyright notices in distributions;
+   (ii)  state clearly that modifications, if any, are not endorsed by
+         Evovex AI;
+   (iii) do not remove or alter license or attribution notices.
+
+3. Commercial Use
+
+   Commercial Use is not permitted under this License. To obtain commercial
+   rights (including proprietary deployment, OEM, resale, or SaaS), contact:
+
+       cloud@evovexai.com
+
+4. Restrictions
+
+   You may not, without prior written permission from Evovex AI:
+
+   (a) use the Software for Commercial Use;
+   (b) sublicense the Software for Commercial Use;
+   (c) use the trademarks "EvoFlow", "EvoPanel", "Evovex AI", or related logos
+       in a way that suggests endorsement or affiliation.
+
+5. Third-Party Components
+
+   Portions of this project may be subject to separate licenses (including the
+   MIT License for DeerFlow-derived components). See the NOTICE file and the
+   licenses/ directory. Where a Third-Party Component applies, your use of
+   that component is governed by that component's license in addition to this
+   License, to the extent required by applicable law.
+
+6. No Warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+   EVOVEX AI BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. Termination
+
+   This License terminates automatically if you breach its terms. Sections 4–6
+   survive termination.
+
+---
+
+中文摘要（仅供参考；如有冲突，以英文正文为准）
+
+- 允许：个人学习、研究、非商业使用及在此范围内的修改与分发。
+- 禁止：未经书面授权的商业使用（含收费产品/服务、营利性企业内部使用超出合理评估、SaaS 托管、收费再许可等）。
+- 商用授权请联系：cloud@evovexai.com
+- 第三方/上游组件（如 DeerFlow）适用其各自许可证，见 NOTICE。

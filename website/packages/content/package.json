@@ -1,0 +1,20 @@
+{
+  "name": "@ai-site/content",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "echo content package build placeholder",
+    "lint": "echo content package lint placeholder",
+    "typecheck": "tsc -p tsconfig.json",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.3"
+  }
+}

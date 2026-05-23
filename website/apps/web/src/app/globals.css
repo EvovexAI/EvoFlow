@@ -1,0 +1,557 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  /*
+   * Latin UI first (no generic sans-serif here): avoids Windows UA picking a thin
+   * default sans before named CJK faces — Chinese then resolves to 雅黑 / 苹方 等。
+   */
+  --font-apple:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI",
+    Roboto, "Helvetica Neue", Helvetica, Arial;
+  --font-cjk:
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Heiti SC";
+  --font-display-ui: var(--font-apple), var(--font-cjk), system-ui, sans-serif;
+  --font-body-ui: var(--font-apple), var(--font-cjk), system-ui, sans-serif;
+  --font-label-ui: var(--font-apple), var(--font-cjk), system-ui, sans-serif;
+  --background: #131313;
+  --foreground: #e5e2e1;
+  --surface-lowest: #0e0e0e;
+  --surface-low: #1c1b1b;
+  --surface-high: #2a2a2a;
+  --surface-bright: #3a3939;
+  --foreground-muted: #c7c4d7;
+  --primary: #d0bcff;
+  --primary-container: #a078ff;
+  --secondary: #5de6ff;
+  --tertiary: #ffb95f;
+  --outline-variant: #464554;
+  --glass-bg: rgba(53, 53, 52, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: 20px;
+  --shadow-ambient: 0 20px 40px rgba(0, 0, 0, 0.4);
+  --glow-blur-primary: rgba(208, 188, 255, 0.1);
+  --glow-blur-secondary: rgba(93, 230, 255, 0.07);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface-lowest: var(--surface-lowest);
+  --color-surface-low: var(--surface-low);
+  --color-surface-high: var(--surface-high);
+  --color-surface-bright: var(--surface-bright);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-primary: var(--primary);
+  --color-primary-container: var(--primary-container);
+  --color-secondary: var(--secondary);
+  --color-tertiary: var(--tertiary);
+  --color-outline-variant: var(--outline-variant);
+  --font-sans: var(--font-body-ui);
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.light {
+  color-scheme: light;
+  --background: #fafaf9;
+  --foreground: #1c1917;
+  --surface-lowest: #ffffff;
+  --surface-low: #f5f5f4;
+  --surface-high: #e7e5e4;
+  --surface-bright: #fafaf9;
+  --foreground-muted: #78716c;
+  --primary: #6d28d9;
+  --primary-container: #7c3aed;
+  --secondary: #0e7490;
+  --tertiary: #b45309;
+  --outline-variant: #d6d3d1;
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-blur: 16px;
+  --shadow-ambient: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --glow-blur-primary: rgba(109, 40, 217, 0.05);
+  --glow-blur-secondary: rgba(14, 116, 144, 0.04);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body-ui);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+* {
+  border-color: var(--outline-variant);
+}
+
+.aurora-gradient {
+  background:
+    radial-gradient(ellipse 160% 60% at 50% -30%, rgba(99, 102, 241, 0.35) 0%, rgba(34, 211, 238, 0.12) 40%, transparent 70%),
+    radial-gradient(ellipse 120% 50% at 90% 100%, rgba(208, 188, 255, 0.15) 0%, rgba(160, 120, 255, 0.05) 40%, transparent 65%),
+    radial-gradient(ellipse 100% 40% at 5% 70%, rgba(93, 230, 255, 0.08) 0%, transparent 50%),
+    var(--background);
+}
+
+.light .aurora-gradient {
+  background:
+    radial-gradient(ellipse 160% 60% at 50% -30%, rgba(109, 40, 217, 0.08) 0%, rgba(14, 116, 144, 0.05) 40%, transparent 70%),
+    radial-gradient(ellipse 120% 50% at 90% 100%, rgba(109, 40, 217, 0.04) 0%, transparent 65%),
+    var(--background);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-ambient);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.outline-display-text {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(208, 188, 255, 0.3);
+}
+
+.light .outline-display-text {
+  -webkit-text-stroke: 1px rgba(109, 40, 217, 0.15);
+}
+
+.text-glow-primary {
+  text-shadow: 0 0 15px rgba(208, 188, 255, 0.55);
+}
+
+.text-glow-secondary {
+  text-shadow: 0 0 15px rgba(93, 230, 255, 0.55);
+}
+
+.light .text-glow-primary,
+.light .text-glow-secondary {
+  text-shadow: none;
+}
+
+.canvas-grid-dense {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.08) 1px,
+    transparent 1px
+  );
+  background-size: 30px 30px;
+}
+
+.light .canvas-grid-dense {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(0, 0, 0, 0.04) 1px,
+    transparent 1px
+  );
+}
+
+.split-glow-line {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(208, 188, 255, 0.8),
+    rgba(93, 230, 255, 0.8),
+    transparent
+  );
+}
+
+.light .split-glow-line {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(109, 40, 217, 0.25),
+    rgba(14, 116, 144, 0.25),
+    transparent
+  );
+}
+
+.neural-grid {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.08) 1px,
+    transparent 1px
+  );
+  background-size: 40px 40px;
+}
+
+.light .neural-grid {
+  background-image: radial-gradient(
+    circle at center,
+    rgba(0, 0, 0, 0.04) 1px,
+    transparent 1px
+  );
+}
+
+.font-display-ui {
+  font-family: var(--font-display-ui);
+}
+
+.font-body-ui {
+  font-family: var(--font-body-ui);
+}
+
+.font-label-ui {
+  font-family: var(--font-label-ui);
+}
+
+/* 中文文档页：侧栏、卡片与正文优先微软雅黑（避免继承拉丁优先字栈时中文观感偏细） */
+.docs-typography-zh {
+  font-family:
+    "Microsoft YaHei",
+    "微软雅黑",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    var(--font-apple),
+    system-ui,
+    sans-serif;
+}
+
+/* 覆盖 Tailwind 字类，保证雅黑生效（与 .font-display-ui 等同或更高优先级） */
+.docs-typography-zh :where(.font-display-ui, .font-label-ui, .font-body-ui) {
+  font-family:
+    "Microsoft YaHei",
+    "微软雅黑",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    var(--font-apple),
+    system-ui,
+    sans-serif !important;
+}
+
+/* 侧栏目录链接多为纯 text-sm，与字类组合时一并压成雅黑 */
+.docs-typography-zh aside,
+.docs-typography-zh aside * {
+  font-family:
+    "Microsoft YaHei",
+    "微软雅黑",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    sans-serif !important;
+}
+
+/* 文档正文 Markdown：正文用雅黑，代码块保持等宽 */
+.docs-typography-zh .docs-markdown {
+  font-family:
+    "Microsoft YaHei",
+    "微软雅黑",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    sans-serif !important;
+}
+
+.docs-typography-zh .docs-markdown :where(code, kbd, samp) {
+  font-family: var(--font-mono) !important;
+}
+
+.docs-typography-zh .docs-markdown :where(pre, pre code) {
+  font-family: var(--font-mono) !important;
+}
+
+/*
+ * 文档首页（/docs）：卡片内标题用了 font-display-ui，且 Next Link 等可能打断继承，
+ * 对整棵子树强制雅黑（该页无代码块，不影响等宽）。
+ */
+.docs-home-typography-zh,
+.docs-home-typography-zh *,
+.docs-home-typography-zh *::before,
+.docs-home-typography-zh *::after {
+  font-family:
+    "Microsoft YaHei",
+    "微软雅黑",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    sans-serif !important;
+}
+
+/*
+ * 中文站整页：header / 营销页 / admin / 文档等与 font-display-ui 组合时优先雅黑；
+ * body 挂载以便覆盖 Dialog/Command 等 portal。
+ */
+.site-typography-zh,
+.site-typography-zh *,
+.site-typography-zh *::before,
+.site-typography-zh *::after {
+  font-family:
+    "Microsoft YaHei",
+    "微软雅黑",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    sans-serif !important;
+}
+
+.site-typography-zh :where(code, kbd, samp) {
+  font-family: var(--font-mono) !important;
+}
+
+.site-typography-zh :where(pre, pre code) {
+  font-family: var(--font-mono) !important;
+}
+
+[cmdk-group-heading] {
+  padding: 0.75rem 1rem 0.5rem;
+  font-family: var(--font-label-ui);
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+
+.streaming-cursor::after {
+  content: "";
+  display: inline-block;
+  width: 0.55rem;
+  height: 1.1em;
+  margin-left: 0.2rem;
+  border-radius: 999px;
+  vertical-align: -0.15em;
+  background: linear-gradient(180deg, var(--primary), var(--primary-container));
+  animation: cursor-blink 1s ease-in-out infinite;
+}
+
+.pulse-dot {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes konami-glitch {
+  0%, 100% { transform: translate(0); filter: none; }
+  20% { transform: translate(-3px, 2px); filter: hue-rotate(90deg) brightness(1.8); }
+  40% { transform: translate(3px, -2px); filter: hue-rotate(-90deg) brightness(0.7); }
+  60% { transform: translate(-2px, -1px); filter: brightness(2.5) saturate(0); }
+  80% { transform: translate(2px, 1px); filter: hue-rotate(45deg) brightness(1.3); }
+}
+
+@keyframes hire-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes slide-up {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* ─── Homepage & global entrance animations ─── */
+@keyframes fade-up {
+  from { transform: translateY(28px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { transform: scale(0.94); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* CodingDNA strand pulse */
+@keyframes strand-travel {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+/* Traveling dot — legacy fallback；首页演进时间轴由 evolution-rail-sync 按 events.offset 注入 */
+@keyframes rail-travel {
+  0%   { left: 8%; }
+  8%   { left: 8%; }
+  22%  { left: 30%; }
+  32%  { left: 30%; }
+  46%  { left: 55%; }
+  56%  { left: 55%; }
+  70%  { left: 76%; }
+  80%  { left: 76%; }
+  93%  { left: 91%; }
+  100% { left: 91%; }
+}
+
+/* Event node pulse — multi-layer halo glow when traveling dot arrives */
+@keyframes node-activate {
+  0%   { scale: 1.2; box-shadow: 0 0 6px currentColor, 0 0 16px currentColor, 0 0 32px currentColor, 0 0 56px rgba(208,188,255,0.15); }
+  5%   { scale: 1.15; box-shadow: 0 0 4px currentColor, 0 0 12px currentColor, 0 0 28px currentColor, 0 0 48px rgba(208,188,255,0.1); }
+  12%  { scale: 1; box-shadow: 0 0 2px currentColor, 0 0 6px rgba(208,188,255,0.08); }
+  20%  { scale: 1; box-shadow: none; }
+  100% { scale: 1; box-shadow: none; }
+}
+
+/* Live counter shimmer */
+@keyframes number-glow {
+  0%, 100% { text-shadow: 0 0 0px transparent; }
+  50%       { text-shadow: 0 0 18px rgba(208,188,255,0.5); }
+}
+
+/* Dot heartbeat */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1);    opacity: 0.9; }
+  40%       { transform: scale(1.5); opacity: 1;   }
+  60%       { transform: scale(1.2); opacity: 0.95;}
+}
+
+.animate-fade-up   { animation: fade-up  0.55s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-fade-in   { animation: fade-in  0.45s ease both; }
+.animate-scale-in  { animation: scale-in 0.5s  cubic-bezier(0.22,1,0.36,1) both; }
+.animate-heartbeat { animation: heartbeat 2.4s ease-in-out infinite; }
+.animate-number-glow { animation: number-glow 3s ease-in-out infinite; }
+
+/* ─── Light mode adjustments ──────────────────────────────────────────────── */
+
+.light .site-bg-orb {
+  opacity: 0.5;
+}
+
+.light .animate-number-glow {
+  animation: none;
+}
+
+/* Node activate in light mode — subtler glow */
+.light .glass-panel {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+/* ─── View Transitions API ─────────────────────────────────────────────── */
+::view-transition-old(root) {
+  animation: vt-fade-out 200ms ease-out both;
+}
+
+::view-transition-new(root) {
+  animation: vt-fade-in 250ms ease-in 50ms both;
+}
+
+@keyframes vt-fade-out {
+  to { opacity: 0; filter: blur(2px); }
+}
+
+@keyframes vt-fade-in {
+  from { opacity: 0; filter: blur(2px); }
+}
+
+/* ─── CSS Scroll-Driven Animations (progressive enhancement) ───────────── */
+/* Browsers that support animation-timeline: view() get native scroll reveals. */
+/* The JS useInView hook remains as fallback for unsupported browsers. */
+
+@supports (animation-timeline: view()) {
+  .scroll-reveal {
+    animation: scroll-fade-up linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 30%;
+  }
+
+  .scroll-reveal-slow {
+    animation: scroll-fade-up linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 45%;
+  }
+
+  @keyframes scroll-fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* ─── Floating background orbs ────────────────────────────────────────── */
+@keyframes float-orb-1 {
+  0%   { transform: translate(0, 0) scale(1); }
+  25%  { transform: translate(6vw, -8vh) scale(1.08); }
+  50%  { transform: translate(-3vw, 5vh) scale(0.95); }
+  75%  { transform: translate(4vw, 3vh) scale(1.04); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes float-orb-2 {
+  0%   { transform: translate(0, 0) scale(1); }
+  30%  { transform: translate(-5vw, 6vh) scale(1.06); }
+  60%  { transform: translate(4vw, -4vh) scale(0.92); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes float-orb-3 {
+  0%   { transform: translate(0, 0) scale(1); }
+  20%  { transform: translate(3vw, 7vh) scale(0.96); }
+  55%  { transform: translate(-6vw, -3vh) scale(1.1); }
+  80%  { transform: translate(2vw, -5vh) scale(1.02); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

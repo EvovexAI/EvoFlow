@@ -1,0 +1,10 @@
+## EvoPanel（Windows 64 位）
+
+EvoFlow 桌面客户端：安装后打开即可使用；首次使用请在应用内配置模型 API。
+
+校验：请使用 SHA256SUMS.txt，或与安装包同名的 .sha256 文件核对 SHA256。
+反馈：https://github.com/EvovexAI/EvoFlow/issues
+
+未做代码签名时，系统可能提示未知发布者，请仅在确认来源可靠后继续安装。
+
+当前安装包仅支持 Windows x64。

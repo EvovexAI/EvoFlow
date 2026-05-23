@@ -1,0 +1,10 @@
+{
+  "version": "0.2.1",
+  "minAppVersion": "0.2.1",
+  "assetKind": "installer",
+  "hash": "sha256:baa8ec01cd1fb2739ec8513cecad5c42042fb7cf8c1ff8f18db677f4b3bc1a9f",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.2.1/EvoFlow_0.2.1_x64-setup.exe",
+  "size": 366477674,
+  "changelog": "稳定版 v0.2.1：实时对话、任务中心、计划模式、多智能体协作、托管、定时任务、渠道与模型配置等核心能力。",
+  "releasedAt": "2026-05-20T07:25:52Z"
+}

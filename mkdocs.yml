@@ -1,0 +1,140 @@
+# EvoFlow 官方文档站点 — 源文件位于 docs/，构建：make docs-build
+site_name: EvoFlow 文档
+site_description: EvoFlow 教程、操作指南、参考手册与架构说明
+site_author: EvoFlow contributors
+
+repo_url: https://github.com/EvovexAI/EvoFlow
+repo_name: EvoFlow
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+# exclude_docs：未纳入 MkDocs 导航的 Markdown（如 internal/**）
+exclude_docs: |
+  internal/**
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换深色模式
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换浅色模式
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+      - getting-started/introduction.md
+      - getting-started/downloads.md
+      - getting-started/installation.md
+      - getting-started/quick-start.md
+      - getting-started/first-task.md
+  - 教程:
+      - tutorials/configure-models.md
+      - tutorials/create-agent.md
+      - tutorials/add-skill.md
+      - tutorials/multi-agent-collab.md
+      - tutorials/automation-task.md
+      - tutorials/setup-im-channel.md
+  - 最佳实践案例:
+      - cases/index.md
+      - 流式对话验收方法: cases/manual-acceptance-test-playbook.md
+      - 流式 E2E 运行登记: cases/e2e-stream-run-registry.md
+      - 流式验收案例目录（能力向）: cases/stream-acceptance-catalog.md
+      - 验收报告模板: cases/templates/scenario-acceptance-report.template.md
+      - cases/use-main-agent.md
+      - cases/create-agent.md
+      - cases/create-skill.md
+      - cases/install-skill.md
+      - cases/scheduled-tasks.md
+      - cases/search-html-report.md
+      - cases/claude-code-continuous.md
+      - cases/supervisor-mode.md
+  - 操作指南:
+      - 实时对话:
+        - 模型与场景: guides/basic-functions.md
+        - 会话模式: guides/chat-mode.md
+        - Plan（任务协作）: guides/plan-mode.md
+        - 记忆: guides/memory-management.md
+        - 托管: guides/hosted-agent.md
+        - 工作空间: guides/workspace.md
+      - 任务与调度:
+        - 任务中心: guides/task-center.md
+        - 定时任务: guides/scheduled-tasks.md
+      - 配置与面板:
+        - 模型配置: guides/settings.md
+        - 智能体管理: guides/agent-management.md
+        - 消息渠道: guides/feishu-integration.md
+        - 记忆文件: guides/memory-management.md
+        - 技能: guides/skill-management.md
+        - 任务产出目录约定（Superpowers 衍生）: evoflow/artifacts/README.md
+        - 编码助手（Claude Code）: guides/claude-code.md
+        - 工具管理（含 MCP）: guides/tools-mcp.md
+        - 面板设置 · 通用: guides/settings.md
+        - 面板设置 · IM 通信: guides/feishu-integration.md
+        - 面板设置 · 记忆: guides/memory-management.md
+  - 快捷指令: guides/shortcut-commands.md
+  - 常见问题: guides/faq.md
+  - 核心概念:
+      - explanation/why-evoflow.md
+      - explanation/agent-system.md
+      - explanation/subagent-system.md
+      - explanation/skill-system.md
+      - explanation/memory-system.md
+      - explanation/middleware-chain.md
+      - explanation/context-engineering.md
+      - explanation/sandbox-design.md
+  - 参考:
+      - reference/api-reference.md
+      - reference/config-reference.md
+      - reference/env-reference.md
+      - reference/architecture.md
+      - reference/agent-reference.md
+      - reference/skills-reference.md
+      - reference/tool-reference.md
+      - reference/makefile-reference.md
+  - 贡献:
+      - developer/contributing.md
+      - meta/glossary.md
+
+extra:
+  # 顶部轻量入口：与「下载与构建」页互为补充（发布页在 GitHub，非站内路径）
+  social:
+    - icon: fontawesome/solid/download
+      link: https://github.com/EvovexAI/EvoFlow/releases
+      name: 本仓库 Releases 下载
+    - icon: fontawesome/brands/github
+      link: https://github.com/EvovexAI/EvoFlow
