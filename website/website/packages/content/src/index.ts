@@ -11,5 +11,7 @@ export * from "./home";
 export * from "./ai-pages";
 export * from "./platform-pages";
 export * from "./site-copy";
+export * from "./resume";
+export * from "./resume-markdown";
 export * from "./tour";
 export * from "./docs/catalog";

@@ -180,7 +180,9 @@ temp_langgraph.py
 package-lock.json
 package.json
 /package.json
-# Track website/ monorepo manifests (exception to package.json rule above)
+# Track evopanel + website manifests (exception to rules above)
+!evopanel/package.json
+!evopanel/package-lock.json
 !website/package.json
 !website/**/package.json
 CLAUDE.md
@@ -197,3 +199,7 @@ website/**/dist/
 # Local stream/E2E acceptance machine output (JSON + generated reports)
 backend/scripts/_e2e_output/
 docs/cases/reports/
+
+# Local eval / investigation reports (generated scratch, not for version control)
+reports/
+tmp_media_analysis.txt

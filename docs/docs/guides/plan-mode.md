@@ -30,7 +30,32 @@ config = RunnableConfig(
 )
 ```
 
-在 EvoPanel 中，通过界面切换 Plan 模式开关。
+在 EvoPanel 中：
+
+- 顶栏场景选 **「任务规划」**（推荐，会与 Plan 协作联动）
+- 或底部模式菜单开启 **Plan（任务协作）**（`collabOn` + `is_plan_mode`）
+
+计划正文持久化在 **主任务表**（`plan` 工具写入 `plan_goal` / `plan_steps` 等），**不**使用工作区 `plan.md` 文件。
+
+### 界面：计划落库后看什么
+
+1. **plan 工具块**：成功时展示目标与步骤数摘要（非空 body）
+2. **输入框上方确认条**：「查看计划」「开始执行」「修改计划」及子任务摘要
+3. **协作侧栏**：`plan` 成功落库后即可出现子任务列表（状态多为 `planned`）；点击「开始执行」并授权后才真正派发执行
+4. **「查看计划」弹窗**：从 `GET /api/tasks/:id` 读表；工具 output 作 fallback
+
+勿依赖助手气泡里的「计划已就绪，请点击开始执行」——执行确认由确认条承担。
+
+### 子任务何时创建、何时算完成
+
+| 时机 | 行为 |
+|------|------|
+| **`plan` 成功** | 后端 `sync_subtasks_from_plan_steps` 一次性创建/更新子任务（**无需**再 `create_subtasks`） |
+| **侧栏展示** | plan 定稿后即可列出子任务；非「点开始执行才创建」 |
+| **开始跑** | 用户授权 + `start_execution`（或网关自动 dispatch）→ 子任务 `executing`，worker 委派 |
+| **算完成** | Worker 调用 `subtask_outcome_report` 后后端标 `completed`；侧栏以 API/WS 快照为准，不因委派返回 `ok` 即显示已完成 |
+
+依赖链（`depends_on`）在上游 `completed` 后由后端 **auto follow-up** 启动下一波，通常无需对每个 Step 再调 `start_execution`。
 
 ## 执行阶段
 
@@ -126,6 +151,17 @@ curl -X POST http://localhost:2024/api/langgraph/threads/{thread_id}/runs/stream
 2. 观察 Agent 是否先调用 `write_todos` 创建任务列表
 3. 检查 Agent 是否在执行前完成了规划阶段
 4. 在 `planning` 阶段尝试让 Agent 执行写操作，应被 PlanGuard 拦截
+
+### Smoke：三步链子任务传递（plan → supervisor）
+
+在**已迁移**的 dev 环境（`plan_goal` 等列存在）下：
+
+1. **plan 后**：消息区 plan 摘要 + 底部确认条；侧栏 3 个子任务（`planned`）；`PlanDetailView` 可见步骤与依赖。
+2. **开始执行**：仅 Step1 进入 `executing`；勿在委派返回 `ok` 时期望侧栏已 `completed`。
+3. **Step1 `subtask_outcome_report` 后**：Step2 应自动 follow-up；`get_status` 的 `blocked` 不应含 `invalid_dep:1`；DB 中 `worker_profile.depends_on` 为 `Subtask_*` id 而非 `"1"`。
+4. **刷新页面**：侧栏与确认条应从历史工具 + `task-progress` 快照恢复。
+
+后端回归：`uv run pytest tests/test_plan_subtask_depends_on_chain.py -q`（harness 包目录）。
 
 ## 常见问题
 

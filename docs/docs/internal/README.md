@@ -7,8 +7,9 @@
 
 子目录说明：
 
-| 目录 | 内容 |
+| 目录 / 文件 | 内容 |
 |------|------|
+| [public-private-push-guide.md](public-private-push-guide.md) | **私有仓 / 公共仓推送流程**（日常必读） |
 | `requirements/` | 原 `docs/需求文档` |
 | `technical/` | 原 `docs/技术文档` |
 | `third-party-references/` | 原 `docs/references`（第三方提示词等，非 EvoFlow 行为说明） |

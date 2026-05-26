@@ -47,6 +47,16 @@ EvoFlow 技能位于 `skills/` 目录，分为 `public/`（公开技能，提交
 | `media-production` | 既梦/可灵/万相生图生视频、配音与字幕 |
 | `ppt-generation` | PPT 演示文稿生成 |
 
+### 产品与入门
+
+| 技能名 | 说明 |
+|--------|------|
+| `evoflow-intro` | EvoFlow 能力自介绍：技能、MCP、角色、记忆、托管、模型、渠道等 |
+| `preset-role-assistant` | 快速创建预设 Agent 角色 |
+| `bootstrap` | 对话式生成个性化 SOUL.md |
+| `find-skills` | 发现与安装技能 |
+| `skill-creator` | 创建与迭代改进技能 |
+
 ### 自定义技能
 
 | 技能名 | 说明 |
