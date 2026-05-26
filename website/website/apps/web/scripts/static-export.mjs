@@ -85,9 +85,17 @@ stashApi();
 stashMiddleware();
 stashLoginActions();
 
+// Stale/corrupt .next (e.g. from `next dev`) breaks production typecheck during export.
+const nextDir = path.join(root, ".next");
+if (fs.existsSync(nextDir)) {
+  fs.rmSync(nextDir, { recursive: true, force: true });
+}
+
 let exitCode = 1;
 try {
-  const r = spawnSync("npx", ["next", "build"], {
+  // Webpack chunks use URL-safe names; Turbopack 16.2+ emits "~" (e.g. 0mkqu0ms~6lkc.js)
+  // which some CDN/WAF rules block or mishandle on static hosts (ChunkLoadError in browser).
+  const r = spawnSync("npx", ["next", "build", "--webpack"], {
     cwd: root,
     stdio: "inherit",
     shell: true,

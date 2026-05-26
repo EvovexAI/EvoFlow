@@ -215,6 +215,12 @@ cd apps/web && node scripts/deploy-tos.mjs
 
 若曾用旧脚本上传过对象，请重新执行一次上传（或等价覆盖对象）并视情况刷新 CDN 缓存，以便新的 `Content-Disposition` 生效。
 
+**`Failed to load chunk /_next/static/chunks/...`（各页点进去报错）：**
+
+1. **部署版本不一致**：HTML 引用了某次构建的 JS，但 CDN/桶里已是另一次构建（或只上传了一半）。处理：完整执行 `pnpm build:static` + `deploy-tos.mjs`，在火山 CDN 控制台 **刷新全站或 `/_next/static/*`**，用户 **硬刷新**（Ctrl+F5）。
+2. **chunk 文件名含 `~`**：Next 16.2 默认 Turbopack 会生成如 `0mkqu0ms~6lkc.js`，部分 WAF/CDN 会拦截。本站静态构建已改为 **`next build --webpack`**（见 `apps/web/scripts/static-export.mjs`），重新构建并上传后 chunk 名一般为纯 hash，无 `~`。
+3. **勿用桶默认域名测站**：务必用已绑定自定义域名访问（见上文），否则异常响应也可能表现为 chunk 加载失败。
+
 **路径与 404：** 静态导出默认会生成 `docs.html` 这类「扁平」文件名；在仅按对象键访问的 TOS/静态桶上，浏览器访问 **`/docs`** 往往拿不到 **`docs.html`**，会落到桶的 **404 页**（本站文案即「页面未找到」）。本仓库在 **`apps/web/next.config.ts`** 里对静态导出启用了 **`trailingSlash: true`**，使路由落在 **`docs/index.html`** 等形式，与「目录 + 默认首页」的静态站行为一致；**重新执行 `pnpm build:static` 并上传 `out/`** 后，`/docs/` 与站内链接即可正常访问。
 
 ### Vercel (Recommended)

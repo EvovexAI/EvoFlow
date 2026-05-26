@@ -62,7 +62,7 @@ PYTHONPATH=. uv run python ../scripts/docs/export_gateway_openapi.py
 
 - 前缀 **`/api/debug/agent-trace`**（如 `/data`、`/export`、`/analysis`、`/recent-threads`）
 - 需设置环境变量 **`EVOFLOW_DEBUG_TRACE_UI=1`** 才可用，仅建议本地排障
-- 前缀 **`/api/observability`**（如 `/report`、`/overview`、`/insights`、`/errors/summary`、`/trends`、`/tools`、`/models`）；需 `config.yaml` → `observability.enabled: true`
+- 前缀 **`/api/observability`**（如 `/report`、`/overview`、`/insights`、`/errors/summary`、`/trends`、`/tools`、`/models`）；SQLite 观测默认开启
 - AI 巡检技能：`skills/custom/evoflow-observability-analysis/SKILL.md`
 
 排查手册（工具报错、慢调用、Token/耗时 Top N、AI 定期分析）：[backend/docs/AGENT_TRACE_DEBUG_PLAYBOOK.md](../../backend/docs/AGENT_TRACE_DEBUG_PLAYBOOK.md)

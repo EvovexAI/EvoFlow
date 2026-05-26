@@ -94,9 +94,17 @@ function cacheControlFor(relPosix) {
     return "public, max-age=31536000, immutable";
   }
   if (relPosix.endsWith(".html")) {
-    return "public, max-age=300";
+    // HTML must revalidate after each deploy so it never references deleted chunk hashes.
+    return "public, max-age=0, must-revalidate";
   }
   return "public, max-age=3600";
+}
+
+/** Upload hashed assets before HTML so a partial deploy never serves new HTML + missing chunks. */
+function uploadSortKey(relPosix) {
+  if (relPosix.includes("/_next/static/")) return `0/${relPosix}`;
+  if (relPosix.endsWith(".html")) return `2/${relPosix}`;
+  return `1/${relPosix}`;
 }
 
 /** 对象元数据：HTML 显式 inline，避免部分访问链路按「附件」处理（仍需绑定自定义域名，见 website/README.md）。 */
@@ -125,8 +133,12 @@ async function main() {
   const accessKeySecret = process.env.TOS_SECRET_ACCESS_KEY ?? process.env.VOLC_SECRET_ACCESS_KEY;
   const prefix = normalizePrefix(process.env.TOS_PREFIX ?? "");
 
-  const files = [...walkFiles(OUT)];
-  console.log(`[deploy-tos] ${files.length} files under out/`);
+  const files = [...walkFiles(OUT)].sort((a, b) => {
+    const ra = path.relative(OUT, a).split(path.sep).join("/");
+    const rb = path.relative(OUT, b).split(path.sep).join("/");
+    return uploadSortKey(ra).localeCompare(uploadSortKey(rb));
+  });
+  console.log(`[deploy-tos] ${files.length} files under out/ (static first, html last)`);
 
   if (dry) {
     console.log("[deploy-tos] DRY RUN — set secrets and omit TOS_DRY_RUN to upload.");

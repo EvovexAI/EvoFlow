@@ -171,7 +171,7 @@ backend/run_comprehensive_tests.py
 backend/tests/test_*.py
 
 # Root-level temporary/development files
-loop_*.py
+/loop_*.py
 temp_*.py
 temp_*.js
 temp_langgraph.py

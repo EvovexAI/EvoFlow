@@ -42,8 +42,10 @@ npm run build:desktop:win
 
 | Secret | 说明 |
 |--------|------|
-| `TAURI_SIGNING_PRIVATE_KEY` | 私钥文件**全文**（minisign 格式） |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 可选；生成时若设了密码则填写 |
+| `TAURI_SIGNING_PRIVATE_KEY` | 私钥文件**全文**（`updater-signing.key` 整文件复制到 Secret） |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | **仅当**生成密钥时设置了密码才填；无密码密钥请**不要创建**此 Secret |
+
+常见 CI 报错 `incorrect updater private key password`：Secret 里私钥与密码不匹配，或私钥粘贴不完整。重新生成无密码密钥后，只配 `TAURI_SIGNING_PRIVATE_KEY` 即可。
 
 `Release EvoFlow Desktop`（或子工作流 `Release EvoPanel desktop (Windows)`）已注入上述变量。
 
