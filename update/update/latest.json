@@ -1,10 +1,10 @@
 {
-  "version": "0.2.5",
-  "minAppVersion": "0.2.5",
+  "version": "0.2.6",
+  "minAppVersion": "0.2.6",
   "assetKind": "installer",
   "hash": "sha256:b0c387825c186524e515bc6c55c59b9767b40f1ce2880702a8ccdc4473e9bf44",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.2.5/EvoFlow_0.2.5_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.2.6/EvoFlow_0.2.6_x64-setup.exe",
   "size": 375742235,
-  "changelog": "稳定版 v0.2.5：Windows 一键更新、Gateway 打包修复与 tag 发版流水线（Win/macOS + 公共仓同步）。",
+  "changelog": "稳定版 v0.2.6：协作任务执行与界面体验优化。",
   "releasedAt": "2026-05-25T17:16:21Z"
 }
