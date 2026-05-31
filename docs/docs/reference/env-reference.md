@@ -56,6 +56,10 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
+| `EVOFLOW_LONG_RUN_WALL_SECONDS` | `14400` | Plan/主会话/子智能体长跑墙钟（4h） |
+| `EVOFLOW_LONG_RUN_STREAM_READ_SECONDS` | 同墙钟 | Gateway→LangGraph `runs/stream` HTTP 读超时 |
+| `EVOFLOW_LONG_RUN_RECURSION_LIMIT` | `2500` | 主图 `recursion_limit` 上限 |
+| `EVOFLOW_SUBAGENT_RECURSION_LIMIT_MAX` | `3000` | 子智能体 `recursion_limit` 推导封顶 |
 | `BG_JOB_ISOLATED_LOOPS` | — | 设为 `true` 启用事件循环隔离 |
 | `N_JOBS_PER_WORKER` | `10` | 每个 worker 的并发 job 数 |
 | `DEER_FLOW_CONFIG_PATH` | — | 自定义 config.yaml 路径 |
