@@ -146,6 +146,9 @@ backend/debug.py
 # Per-thread harness runtime (mission state, local agent copies)
 backend/.evoflow/threads/
 
+# EvoFlow runtime data (SQLite DBs, state, etc.)
+backend/.evoflow/data/
+
 # Local one-off helper scripts
 skills/public/jira_logger/scripts/*_temp.py
 backend/.evoflow/checkpoints.db
