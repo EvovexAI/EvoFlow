@@ -11,6 +11,7 @@
 ---
 ## 📑 目录
 - [📦 获取产品与桌面端](#获取产品与桌面端)
+- [🎬 Plan 模式 · Agent Teams 从 0 到 1](#-plan-模式--agent-teams-从-0-到-1)
 - [🖼️ 界面预览](#界面预览)
 - [🎯 核心价值亮点](#核心价值亮点)
 - [✨ 功能总览](#功能总览)
@@ -23,6 +24,65 @@
 |--------|------|
 | 📥 官方发行版与桌面安装包 | [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases) |
 | 📚 使用教程 | [桌面端使用指南](https://www.evovexai.com/docs/chat/evopanel) |
+| 🎬 产品演示（视频与截图） | [官网产品演示](https://www.evovexai.com/showcase/) |
+
+---
+
+## 🎬 Plan 模式 · Agent Teams 从 0 到 1
+
+在 **Plan 模式** 下，**Supervisor 超级智能体** 不会「一口气干到底」，而是按 **先澄清 → 再规划 → 确认后执行** 的节奏推进：自动拆解目标与子任务依赖，并通过 **Agent Teams** 把每一步派给最合适的子 Agent（通用智能体、终端执行、Claude Code 等），全程可在桌面端观察、干预与验收。
+
+下面用 **2 段演示视频** 与 **5 张过程截图** 展示一次典型的 **从 0 到 1 项目开发** 协作闭环：视频一呈现 Plan 与 Agent Teams 协作过程，视频二呈现 **项目跑通后的运行结果**（素材路径：[docs/assets/plan-supervisor/](docs/assets/plan-supervisor/)）。官网可播放版本见 [产品演示](https://www.evovexai.com/showcase/)。
+
+### 视频演示
+
+<p align="center">
+  <a href="docs/assets/plan-supervisor/video-01-plan-clarify-to-ready.mp4">
+    <img src="docs/assets/plan-supervisor/video-01-plan-clarify-to-ready-poster.png" width="92%" alt="Plan 模式演示：从需求澄清到计划定稿">
+  </a>
+</p>
+<p align="center"><sub>▶ <a href="docs/assets/plan-supervisor/video-01-plan-clarify-to-ready.mp4">视频一 · Plan 协作全过程</a>（澄清 → 结构化计划 → Agent Teams 分工执行至交付物产出）</sub></p>
+
+<p align="center">
+  <a href="docs/assets/plan-supervisor/video-02-plan-project-running-result.mp4">
+    <img src="docs/assets/plan-supervisor/video-02-plan-project-running-result-poster.png" width="92%" alt="Plan 模式演示：项目运行结果展示">
+  </a>
+</p>
+<p align="center"><sub>▶ <a href="docs/assets/plan-supervisor/video-02-plan-project-running-result.mp4">视频二 · 项目运行结果展示</a>（Plan 协作交付完成后，启动并演示可运行产物：页面交互、接口调用或核心功能验收）</sub></p>
+
+### 协作过程一览
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/plan-supervisor/plan-02-structured-plan-modal.png" width="100%" alt="Plan 模式：任务分析图（Mermaid）">
+      <br><sub>② 计划 · 任务分析图（模块结构、调用链与数据流）</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/plan-supervisor/plan-02-structured-plan-modal-2.png" width="100%" alt="Plan 模式：执行步骤与各智能体目标与任务信息">
+      <br><sub>② 计划 · 执行步骤与各智能体目标、输入/输出物、验收标准</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/plan-supervisor/plan-04-exec-confirm-dock.png" width="100%" alt="Plan 模式：用户确认开始执行">
+      <br><sub>④ 执行闸口 · 用户确认后再进入执行阶段</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/plan-supervisor/plan-05-supervisor-workflow-panel.png" width="100%" alt="Supervisor 子任务工作流面板">
+      <br><sub>⑤ Supervisor · 子任务工作流与依赖进度</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="docs/assets/plan-supervisor/video-02-plan-project-running-result-poster.png" width="92%" alt="多 Agent 子任务并行执行">
+      <br><sub>⑥ 多 Agent 协作 · 子任务执行中 / 完成回传</sub>
+    </td>
+  </tr>
+</table>
+
+> **流程摘要：** 用户描述目标 → Supervisor 澄清 → `plan()` 生成可修订计划（含 `boundTaskId`）→ 用户 **开始执行** → Supervisor 创建子任务并按 **Agent Teams** 派发 → 子 Agent 在隔离上下文中完成各 Step → 主会话汇总验收。  
+> 素材清单与录制建议见 [docs/assets/plan-supervisor/README.md](docs/assets/plan-supervisor/README.md)。
 
 ---
 ## 🖼️ 界面预览
@@ -36,9 +96,13 @@
 
 <table>
   <tr>
-    <td align="center" colspan="2">
-      <img src="docs/assets/screenshots/agents.png" width="92%" alt="Agent 角色与人设配置">
-      <br><sub>Agent 管理 · 人设与工具白名单</sub>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/agents-preset-teams.png" width="100%" alt="预设角色 · Agent Teams 团队总览">
+      <br><sub>预设角色（一）· 团队总览（全局 / 核心执行 / 项目 / 媒体等）</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/agents-preset-roles.png" width="100%" alt="预设角色 · 团队内子智能体角色">
+      <br><sub>预设角色（二）· 团队内角色（以项目团队为例：方案 / 计划 / 开发 / 审查…）</sub>
     </td>
   </tr>
   <tr>
@@ -116,7 +180,7 @@ IM侧即可完成全流程操作，不用开客户端：飞书侧可直接下达
 | **模型配置** | 多提供商模型切换、thinking/vision能力开关、自定义网关地址配置 |
 | **任务中心** | 任务创建/监控、批量操作、历史记录追溯 |
 | **多代理与项目管理** | 项目维度隔离、Supervisor协调、上下文/记忆相互隔离 |
-| **Agent 管理** | 人设身份配置、按Agent分配模型与工具白名单 |
+| **Agent 管理** | **Agent Teams 团队** + 团队内预设角色；人设、模型与工具白名单按角色配置 |
 | **工具与技能市场** | 技能浏览/启停、归档安装、MCP扩展状态管理 |
 | **IM 渠道** | 支持飞书/Slack/Telegram等渠道接入，消息双向同步 |
 | **定时任务** | Cron周期任务配置，支持结果推送、周期编排运行 |

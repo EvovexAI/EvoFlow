@@ -51,6 +51,7 @@ const articleClassName = [
   "[&_td]:border-b [&_td]:border-outline-variant/15 [&_td]:px-3 [&_td]:py-2 [&_td]:text-foreground-muted",
   "[&_blockquote]:mt-4 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/40 [&_blockquote]:pl-4 [&_blockquote]:text-foreground-muted [&_blockquote]:italic",
   "[&_hr]:my-10 [&_hr]:border-outline-variant/20",
+  "[&_img]:mt-4 [&_img]:max-w-full [&_img]:rounded-xl [&_img]:border [&_img]:border-outline-variant/20 [&_img]:shadow-sm",
 ].join(" ");
 
 export function DocMarkdown({ markdown }: { markdown: string }) {

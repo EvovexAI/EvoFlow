@@ -71,6 +71,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       themeLabel: "主题",
       navigation: [
         { href: siteLinks.docsSite, label: "文档" },
+        { href: "/showcase/", label: "演示" },
         { href: "/#capabilities", label: "功能说明" },
         { href: siteLinks.blog, label: "下载" },
         { href: "/about", label: "关于" },
@@ -82,6 +83,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh}-超级智能体编排栈。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。`,
       links: [
         { href: siteLinks.docsSite, label: "项目文档" },
+        { href: "/showcase/", label: "产品演示" },
         { href: siteLinks.github, label: "GitHub 仓库" },
         { href: siteLinks.blog, label: "下载与发行版" },
         { href: siteLinks.source, label: "快速上手" },
@@ -197,6 +199,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       themeLabel: "Theme",
       navigation: [
         { href: siteLinks.docsSite, label: "Docs" },
+        { href: "/showcase/", label: "Showcase" },
         { href: "/#capabilities", label: "Product" },
         { href: siteLinks.blog, label: "Download" },
         { href: "/about", label: "About" },
@@ -208,6 +211,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         `"${evoVexBrand.sloganEn}" — ${evoVexBrand.blurbEn} Super-agent orchestration: Supervisor control, sandboxed tools, durable state, and Skills/MCP integrations. This site summarizes capabilities, scenarios, and roadmap—downloadable builds and docs are linked below; star us on GitHub for updates, with full source opening tied to community traction.`,
       links: [
         { href: siteLinks.docsSite, label: "Documentation" },
+        { href: "/showcase/", label: "Product showcase" },
         { href: siteLinks.github, label: "GitHub" },
         { href: siteLinks.blog, label: "Downloads & releases" },
         { href: siteLinks.source, label: "Quickstart" },

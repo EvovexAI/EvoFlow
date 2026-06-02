@@ -15,3 +15,4 @@ export * from "./resume";
 export * from "./resume-markdown";
 export * from "./tour";
 export * from "./docs/catalog";
+export * from "./showcase-media";

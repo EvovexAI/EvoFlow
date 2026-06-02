@@ -34,6 +34,8 @@ pnpm dev
 
 浏览器打开：**http://localhost:3000**
 
+产品演示页（Plan 视频/截图、界面预览，素材来自仓库 `docs/assets/`）：**http://localhost:3000/showcase/**（`pnpm dev` 会自动执行 `pnpm sync:media` 同步媒体文件）。
+
 若只想启动 Web 应用（等价于在 monorepo 里只跑 `@ai-site/web`）：
 
 ```bash

@@ -7,7 +7,8 @@
 | 文件名 | 用途 | 建议 |
 |--------|------|------|
 | `main-chat.png` | 主界面（对话、流式输出、工具调用） | 宽 1400–1600px，横图 |
-| `agents.png` | Agent / 角色管理 | 与主界面同主题（明/暗） |
+| `agents-preset-teams.png` | 预设角色 · **团队总览**（团队与角色入口） | 展示全局 / 核心执行 / 项目 / 媒体等 Agent Teams |
+| `agents-preset-roles.png` | 预设角色 · **团队内角色**（进入某团队后） | 如项目团队：方案 / 计划 / 开发 / 审查 / 调试 / 验收 |
 | `scheduled-tasks-1.png` | 定时任务（第一张） | 与主界面同主题（明/暗） |
 | `scheduled-tasks-2.png` | 定时任务（第二张） | 如列表页 + 编辑页各一张 |
 | `hosted-1.png` | 托管任务（第一张） | 如配置面板 / 确认条 |
@@ -21,3 +22,7 @@
 - 内容：脱敏路径、密钥、私人聊天内容。
 - 二维码过期后替换 `wechat-group-qr.png` 并提交即可。
 - 若某张暂未就绪，可先不上传；README 中对应位置会显示占位图裂链，补图后自动生效。
+
+## Plan 模式 / Supervisor 协作
+
+视频与 Plan 流程截图见 **[plan-supervisor/](../plan-supervisor/README.md)**（与本文档分开存放，避免混淆通用 GUI 截图）。

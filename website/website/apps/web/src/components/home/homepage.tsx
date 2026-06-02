@@ -13,6 +13,7 @@ import {
 import { Fragment, useMemo, type CSSProperties } from "react";
 import { useLocalizedValue } from "../locale-provider";
 import { useHomeTour } from "../tour/home-tour";
+import { HomeVisualShowcase } from "./home-visual-showcase";
 import { ProductArchitectureDiagram } from "./product-architecture-diagram";
 import { useInView } from "@/hooks/use-in-view";
 import { StaggerGroup, StaggerItem } from "../motion-primitives";
@@ -300,6 +301,8 @@ function HeroSection({
             {hero.description}
           </p>
         </div>
+
+        <HomeVisualShowcase className="relative mt-10 md:mt-14" />
 
         {/* 第二块：功能汇总 — 每项一张小卡片 */}
         <div

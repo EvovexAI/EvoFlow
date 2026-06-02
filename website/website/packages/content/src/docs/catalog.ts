@@ -1109,13 +1109,13 @@ export function docsIndexCopy(locale: SiteLocale): {
       title: "文档",
       description: "说明 EvoPanel 里常用功能在什么位置、适合干什么。",
       intro:
-        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/定时任务的说明）→ **实时对话**（**输入栏与选项**、**托管**）→ **侧栏菜单** → **设置**。",
+        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/定时任务的说明）→ **实时对话**（**输入栏与选项**、**托管**）→ **侧栏菜单** → **设置**。Plan 模式演示视频与界面截图见站内 [**产品演示**](/showcase/)。",
     };
   }
   return {
     title: "Documentation",
     description: "Where EvoPanel features live and what they are for.",
     intro:
-      "Sections mirror EvoPanel: **Getting started** (onboarding with model setup, shortcuts, coding assistants, plus chat-first quick create for roles/skills/schedules) → **Live chat** (**Composer & options**, then **Hosted**) → **Shell sidebar** → **Settings**.",
+      "Sections mirror EvoPanel: **Getting started** (onboarding with model setup, shortcuts, coding assistants, plus chat-first quick create for roles/skills/schedules) → **Live chat** (**Composer & options**, then **Hosted**) → **Shell sidebar** → **Settings**. Plan-mode videos and GUI screenshots: [**Product showcase**](/showcase/).",
   };
 }
