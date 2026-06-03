@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="EvoFlow Plan 模式 · Agent Teams 协作流程说明 · Evovex AI" />
+  <title>EvoFlow Plan 模式 · Agent Teams 协作流程说明</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <div class="brand-mark">⚡</div>
+      <span>EvoFlow Plan 模式 · Agent Teams</span>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost nav-toggle" id="navToggle" aria-label="打开导航">☰ 导航</button>
+      <button type="button" class="btn btn-primary" id="presentBtn">专注阅读</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="sidebar-label">目录</p>
+      <ul class="nav-list">
+        <li><a href="#intro" data-section="intro">开篇</a></li>
+        <li class="nav-part">一 · 概述</li>
+        <li><a href="#pain-points" data-section="pain-points">核心痛点</a></li>
+        <li><a href="#definition" data-section="definition">模式定义</a></li>
+        <li class="nav-part">二 · 全流程</li>
+        <li><a href="#six-phases" data-section="six-phases">六阶段总览</a></li>
+        <li><a href="#state-machine" data-section="state-machine">协作状态机</a></li>
+        <li class="nav-part">三 · 规划阶段</li>
+        <li><a href="#user-input" data-section="user-input">用户输入</a></li>
+        <li><a href="#clarification" data-section="clarification">需求澄清</a></li>
+        <li><a href="#research" data-section="research">需求调研</a></li>
+        <li><a href="#capability" data-section="capability">能力摸排</a></li>
+        <li><a href="#agent-create" data-section="agent-create">能力缺口与角色创建</a></li>
+        <li><a href="#gates" data-section="gates">三项门禁</a></li>
+        <li class="nav-part">四 · 计划阶段</li>
+        <li><a href="#plan-structure" data-section="plan-structure">结构化计划</a></li>
+        <li><a href="#plan-steps" data-section="plan-steps">步骤与分工</a></li>
+        <li><a href="#confirm-dock" data-section="confirm-dock">确认闸口</a></li>
+        <li><a href="#exec-rights" data-section="exec-rights">执行权设计</a></li>
+        <li class="nav-part">五 · 执行阶段</li>
+        <li><a href="#supervisor" data-section="supervisor">主控职责</a></li>
+        <li><a href="#agent-teams" data-section="agent-teams">智能体团队协作</a></li>
+        <li><a href="#monitoring" data-section="monitoring">进度可视化</a></li>
+        <li><a href="#intervention" data-section="intervention">主控干预</a></li>
+        <li><a href="#peer-collab" data-section="peer-collab">子任务协作问询</a></li>
+        <li><a href="#user-correction" data-section="user-correction">用户方向修正</a></li>
+        <li><a href="#compare" data-section="compare">Plan 与普通对话</a></li>
+        <li class="nav-part">六 · 验收交付</li>
+        <li><a href="#delivery" data-section="delivery">验收与交付</a></li>
+        <li><a href="#value" data-section="value">模式价值</a></li>
+        <li><a href="#resources" data-section="resources">资源链接</a></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <!-- Hero -->
+      <section class="hero" id="intro" data-section-id="intro">
+        <div class="hero-inner">
+          <span class="hero-badge">Evovex AI · EvoFlow</span>
+          <h1>EvoFlow Plan 模式 · Agent Teams 协作流程说明</h1>
+          <p class="hero-sub">从需求输入、规划确认到智能体团队分工执行与验收交付</p>
+          <div class="hero-meta">
+            <span>先澄清 → 再规划 → 确认后执行</span>
+            <span>主控智能体全局编排 · 智能体团队分工协作</span>
+            <span>点击图片可放大查看界面截图</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 第一章 -->
+      <div class="section-part" data-section-id="part0">
+        <h2>一、模式概述</h2>
+        <p>Plan 模式要解决的核心问题，以及 EvoFlow 的整体协作范式</p>
+      </div>
+
+      <section class="section section-alt" id="pain-points" data-section-id="pain-points">
+        <div class="section-header">
+          <span class="section-tag">痛点</span>
+          <h2>传统 Agent 对话的核心痛点</h2>
+          <p>Plan 模式与 Agent Teams 针对以下问题，提供可分工、可协作、可验收的解决路径。</p>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <div class="card-icon">⏸</div>
+            <h3>长任务易中断</h3>
+            <p>多步任务中途上下文漂移、会话断开，难以自动推进到验收。</p>
+            <p class="impact">→ 交付不可预期，需人工值守</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">⚠</div>
+            <h3>误执行风险</h3>
+            <p>需求未澄清就开始改代码、跑命令，结果偏离预期。</p>
+            <p class="impact">→ 返工成本高</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">👤</div>
+            <h3>缺少专业分工</h3>
+            <p>往往由单一通用 Agent 包办全流程，没有「专门的角色做专业的事」——架构、开发、测试、审查各用所长难以落地。</p>
+            <p class="impact">→ 复杂任务质量不稳，专业环节做不深</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">💸</div>
+            <h3>无效消耗偏高</h3>
+            <p>工具全开、重复推理，使用成本持续上升。</p>
+            <p class="impact">→ 难以规模化使用</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">📋</div>
+            <h3>人工调度负担</h3>
+            <p>用户手动分配子任务、盯进度，无法形成稳定协作流程。</p>
+            <p class="impact">→ 难以无人值守</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="definition" data-section-id="definition">
+        <div class="section-header">
+          <span class="section-tag">定义</span>
+          <h2>一句话定义 EvoFlow Plan 模式</h2>
+        </div>
+        <div class="quote-block">
+          <p>Supervisor 超级智能体负责全局主控，<strong>Agent Teams 智能体团队</strong>按专业角色分工——让专门的角色做专业的事，用户在整个过程中可见、可确认、可干预。</p>
+          <ul>
+            <li>核心节奏：<strong>先澄清 → 再规划 → 用户确认后才执行</strong></li>
+            <li>计划持久化存储，而非停留在对话中的口头约定</li>
+            <li>执行前须通过「开始执行」正式授权</li>
+            <li>子任务按步骤依赖关系自动推进，主控智能体持续跟进整体进度</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Part 1 -->
+      <div class="section-part">
+        <h2>二、全流程概览</h2>
+        <p>从用户提出目标到最终交付的六个阶段与协作状态</p>
+      </div>
+
+      <section class="section section-alt" id="six-phases" data-section-id="six-phases">
+        <div class="section-header">
+          <span class="section-tag">流程</span>
+          <h2>六阶段总览</h2>
+          <p>从用户提出目标，到多智能体协作完成交付的完整过程。</p>
+        </div>
+        <div class="pipeline">
+          <div class="pipeline-step">
+            <div class="pipeline-num">1</div>
+            <h4>启动</h4>
+            <p>选场景 · 绑工作区 · 描述目标</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">2</div>
+            <h4>澄清</h4>
+            <p>主控智能体结构化追问 · 侧栏确认</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">3</div>
+            <h4>摸底</h4>
+            <p>只读调研 · 能力对照</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">4</div>
+            <h4>计划</h4>
+            <p>结构化计划 · 查看/修改</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">5</div>
+            <h4>执行</h4>
+            <p>用户授权 · 主控调度派发</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">6</div>
+            <h4>收尾</h4>
+            <p>监控干预 · 验收交付</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>阶段</th><th>关键角色</th><th>用户动作</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>启动</td><td>用户</td><td>选场景、绑工作区、描述目标</td></tr>
+              <tr><td>澄清</td><td>主控智能体</td><td>回答侧栏问卷</td></tr>
+              <tr><td>摸底</td><td>主控智能体 + 只读子任务</td><td>等待调研与能力对照</td></tr>
+              <tr><td>计划</td><td>主控智能体</td><td>查看计划、提出修改</td></tr>
+              <tr><td>执行</td><td>主控调度 + 智能体团队</td><td><strong>点击「开始执行」</strong></td></tr>
+              <tr><td>收尾</td><td>主控智能体监工</td><td>验收结果、领取交付物</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="state-machine" data-section-id="state-machine">
+        <div class="section-header">
+          <span class="section-tag">状态机</span>
+          <h2>协作状态机（用户视角）</h2>
+          <p>规划期 → 确认条 → 执行 → 验收 → 完成</p>
+        </div>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>启动</h4>
+            <div class="phase-en">idle / req_confirm</div>
+            <p>输入需求；可能出现澄清问卷</p>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>规划中</h4>
+            <div class="phase-en">planning</div>
+            <p>调研、摸排、撰写计划；规划期禁止产生副作用操作</p>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>计划已定稿</h4>
+            <div class="phase-en">plan_ready</div>
+            <p>「查看计划」「开始执行」「修改计划」</p>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>等待授权</h4>
+            <div class="phase-en">awaiting_exec</div>
+            <p>已点「开始执行」，系统准备派发</p>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>执行中</h4>
+            <div class="phase-en">executing</div>
+            <p>子任务工作流；多智能体可并行或按依赖串行执行</p>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>验收 / 总结</h4>
+            <div class="phase-en">verifying / reflecting</div>
+            <p>主控智能体对照验收清单执行测试与核对</p>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <h4>已完成</h4>
+            <div class="phase-en">done</div>
+            <p>交付物链接 + 结果小结</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Part 2 -->
+      <div class="section-part">
+        <h2>三、规划阶段</h2>
+        <p>需求澄清、调研摸底、能力匹配与计划前置条件</p>
+      </div>
+
+      <section class="section section-wide section-alt" id="user-input" data-section-id="user-input">
+        <div class="section-header">
+          <span class="section-tag">阶段一</span>
+          <h2>用户输入</h2>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <h3>入口</h3>
+            <ul>
+              <li>EvoPanel 桌面端（主通道）</li>
+              <li>飞书 / Slack / Telegram 等 IM 渠道</li>
+            </ul>
+            <h3>用户操作</h3>
+            <ol class="steps-list">
+              <li>顶栏选择「任务规划」场景</li>
+              <li>绑定本地工作区（代码/文档类任务）</li>
+              <li>用自然语言描述目标</li>
+            </ol>
+            <p><strong>系统响应：</strong>自动进入规划中，主控智能体接管后续流程。</p>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">协作过程示意</span>
+            <img src="../../assets/plan-supervisor/video-01-plan-clarify-to-ready-poster.png" alt="Plan 模式：从需求澄清到计划定稿" loading="lazy" />
+            <figcaption>澄清 → 结构化计划 → 智能体团队分工执行</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="clarification" data-section-id="clarification">
+        <div class="section-header">
+          <span class="section-tag">阶段二</span>
+          <h2>需求澄清</h2>
+          <p>主控智能体发起结构化澄清问卷（侧栏展示，单次最多 3 问）</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>澄清类型</th><th>典型场景</th></tr></thead>
+            <tbody>
+              <tr><td>信息缺失</td><td>缺目标、范围、交付物、验收标准</td></tr>
+              <tr><td>需求歧义</td><td>「优化一下」——优化什么、做到什么程度？</td></tr>
+              <tr><td>方案选择</td><td>技术栈、架构路线 A/B</td></tr>
+              <tr><td>风险确认</td><td>删数据、改生产配置等</td></tr>
+              <tr><td>建议确认</td><td>主控建议方案，请用户拍板</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:1.25rem"><strong>规划期保护机制：</strong>澄清与规划完成前，禁止写文件、跑命令等产生副作用的操作。</p>
+      </section>
+
+      <section class="section section-alt" id="research" data-section-id="research">
+        <div class="section-header">
+          <span class="section-tag">阶段三</span>
+          <h2>需求调研</h2>
+        </div>
+        <div class="split">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>谁</th><th>做什么</th></tr></thead>
+              <tbody>
+                <tr><td><strong>主控智能体</strong></td><td>拆解调研范围、综合结论、判断是否满足写计划条件</td></tr>
+                <tr><td><strong>只读子任务</strong></td><td>读仓库结构、文档、现有能力；只调研、不改动</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="quote-block">
+            <p>分工原则：主控智能体不亲自承担大篇幅读代码、跑命令、产出交付物等工作</p>
+            <ul><li>产出：调研结论清晰 — 边界、约束、关键路径、现有资产</li></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-wide" id="capability" data-section-id="capability">
+        <div class="section-header">
+          <span class="section-tag">阶段三</span>
+          <h2>智能体能力摸排</h2>
+          <p>为每一步选「做得成这件事」的执行人</p>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <ol class="steps-list">
+              <li><strong>快速列队</strong> — 查看可用智能体团队与预设角色</li>
+              <li><strong>深度摸底</strong> — 委派只读子任务，核对工具、技能、并发限制等</li>
+              <li><strong>能力对照表</strong> — 将每个步骤与执行人及其能力逐一对应</li>
+            </ol>
+            <p>典型团队包括：方案、计划、开发、审查、质量保障等角色。</p>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">智能体团队</span>
+            <img src="../../assets/screenshots/agents-preset-teams.png" alt="预设角色 · 智能体团队总览" loading="lazy" />
+            <figcaption>智能体团队总览：全局 / 核心执行 / 项目 / 媒体等</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="agent-create" data-section-id="agent-create">
+        <div class="section-header">
+          <span class="section-tag">能力扩展</span>
+          <h2>能力缺口与智能体角色创建</h2>
+          <p>当现有智能体无法满足任务需求时，可在用户确认后补充对应能力的执行角色</p>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <div class="card-icon">①</div>
+            <h3>发现缺口</h3>
+            <p>能力摸排后，主控智能体向用户说明：缺少哪类能力、将影响哪些步骤，现有团队中没有「做得成这件事」的角色。</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">②</div>
+            <h3>征得同意</h3>
+            <p>通过澄清问卷或对话确认，询问用户是否同意新建智能体角色；未经用户同意，不擅自创建或写入计划。</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">③</div>
+            <h3>配置能力</h3>
+            <p>用户同意后，委派只读子任务协助设计并创建角色：从<strong>技能列表</strong>挂载所需技能，从<strong>工具列表</strong>配置可调用工具，形成与该步骤匹配的执行能力。</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">④</div>
+            <h3>写入计划</h3>
+            <p>新角色可用后，将其指定为对应步骤的执行人，再生成或更新结构化计划，确保「人岗匹配」门禁成立。</p>
+          </article>
+        </div>
+        <div class="quote-block" style="margin-top:1.5rem">
+          <p>主控智能体负责判断缺口与协调创建，不亲自搭建角色配置；创建过程本身也通过只读/设计类子任务完成，保持规划阶段职责清晰。</p>
+        </div>
+      </section>
+
+      <section class="section" id="gates" data-section-id="gates">
+        <div class="section-header">
+          <span class="section-tag">门禁</span>
+          <h2>三项门禁：不齐不写 Plan</h2>
+          <p>Plan 落库前，必须同时满足以下三项。</p>
+        </div>
+        <div class="gates">
+          <article class="gate">
+            <div class="gate-num">①</div>
+            <h3>需求清晰</h3>
+            <p>目标、范围、交付物、验收标准明确</p>
+          </article>
+          <article class="gate">
+            <div class="gate-num">②</div>
+            <h3>调研清晰</h3>
+            <p>只读调研子任务已有可支撑规划的结论</p>
+          </article>
+          <article class="gate">
+            <div class="gate-num">③</div>
+            <h3>人岗匹配</h3>
+            <p>每步执行人与能力对照表一致</p>
+          </article>
+        </div>
+        <p style="margin-top:1.5rem;text-align:center;color:var(--slate-500)">任一未满足 → 继续澄清、调研或能力配置，<strong>不生成正式计划</strong></p>
+      </section>
+
+      <!-- 第四章 -->
+      <div class="section-part">
+        <h2>四、计划阶段</h2>
+        <p>结构化计划的组成、确认机制与执行授权</p>
+      </div>
+
+      <section class="section section-wide section-alt" id="plan-structure" data-section-id="plan-structure">
+        <div class="section-header">
+          <span class="section-tag">计划</span>
+          <h2>结构化计划包含什么</h2>
+        </div>
+        <div class="split">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>组成部分</th><th>说明</th></tr></thead>
+              <tbody>
+                <tr><td><strong>目标</strong></td><td>本次协作要达成的总目标</td></tr>
+                <tr><td><strong>执行步骤</strong></td><td>带前后依赖关系的步骤列表</td></tr>
+                <tr><td><strong>任务分析图</strong></td><td>模块结构、调用链、数据流等分析结果（非简单步骤顺序图）</td></tr>
+                <tr><td><strong>每步详情</strong></td><td>执行人、目标、输入物、输出物、验收标准</td></tr>
+                <tr><td><strong>整体验收清单</strong></td><td>任务收尾时逐项核对的验收项</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">任务分析图</span>
+            <img src="../../assets/plan-supervisor/plan-02-structured-plan-modal.png" alt="结构化计划：任务分析图" loading="lazy" />
+            <figcaption>「查看计划」弹窗 · 可视化任务分析图</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-wide" id="plan-steps" data-section-id="plan-steps">
+        <div class="section-header">
+          <span class="section-tag">计划</span>
+          <h2>执行步骤与智能体分工</h2>
+        </div>
+        <figure class="figure figure-full">
+          <span class="figure-badge">步骤详情</span>
+          <img src="../../assets/plan-supervisor/plan-02-structured-plan-modal-2.png" alt="执行步骤与各智能体目标、输入输出物、验收标准" loading="lazy" />
+          <figcaption>每步指定执行智能体 · 输入物/输出物 · 验收标准 · 依赖关系决定串行或可并行</figcaption>
+        </figure>
+      </section>
+
+      <section class="section section-wide section-alt" id="confirm-dock" data-section-id="confirm-dock">
+        <div class="section-header">
+          <span class="section-tag">闸口</span>
+          <h2>用户确认闸口</h2>
+          <p>计划定稿后，输入框上方出现确认条 — 不是聊天里口头说「开始吧」</p>
+        </div>
+        <div class="split">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>按钮</th><th>作用</th></tr></thead>
+              <tbody>
+                <tr><td><strong>查看计划</strong></td><td>打开结构化计划弹窗（分析图 + 步骤详情）</td></tr>
+                <tr><td><strong>修改计划</strong></td><td>在对话中说明修改意见，主控智能体重新生成计划</td></tr>
+                <tr><td><strong>开始执行</strong></td><td><strong>唯一正式授权入口</strong> — 进入执行阶段</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">执行确认</span>
+            <img src="../../assets/plan-supervisor/plan-04-exec-confirm-dock.png" alt="Plan 模式：用户确认开始执行" loading="lazy" />
+            <figcaption>「开始执行」确认条 + 计划摘要 · 侧栏同步子任务列表</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="exec-rights" data-section-id="exec-rights">
+        <div class="section-header">
+          <span class="section-tag">设计</span>
+          <h2>关键设计：执行权在用户</h2>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <h3>计划定稿后</h3>
+            <p>主控智能体不再追问「是否开始执行」；界面已提供授权按钮，等待用户主动确认。</p>
+          </article>
+          <article class="card">
+            <h3>修改计划后</h3>
+            <p>若计划内容变更，执行授权自动撤销，用户需重新点击「开始执行」。</p>
+          </article>
+        </div>
+        <p style="margin-top:1.25rem">→ 降低误触、避免「计划改了却还在跑旧版」</p>
+      </section>
+
+      <!-- 第五章 -->
+      <div class="section-part">
+        <h2>五、执行阶段</h2>
+        <p>主控调度、团队协作、进度监控、干预修正与跨子任务协作</p>
+      </div>
+
+      <section class="section section-alt" id="supervisor" data-section-id="supervisor">
+        <div class="section-header">
+          <span class="section-tag">主控</span>
+          <h2>主控智能体职责</h2>
+        </div>
+        <div class="flow-bar">
+          用户授权 <span>→</span> 主控触发调度 <span>→</span> 派发首波子任务 <span>→</span> 持续跟进 <span>→</span> 异常处理 <span>→</span> 验收收敛
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>环节</th><th>主控智能体做什么</th></tr></thead>
+            <tbody>
+              <tr><td><strong>派发</strong></td><td>按步骤依赖关系，启动当前可执行的子任务</td></tr>
+              <tr><td><strong>跟进</strong></td><td>持续查看各子任务进度、状态与阻塞原因</td></tr>
+              <tr><td><strong>推进</strong></td><td>上游步骤完成后，自动启动下一批（通常无需逐步手动触发）</td></tr>
+              <tr><td><strong>异常</strong></td><td>失败重试、续接会话、更换执行策略（同一步骤最多重试 3 次）</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:1rem"><strong>角色定位：监工</strong> — 负责拆解、选人、跟进与验收；不替代子智能体完成专项交付工作。</p>
+      </section>
+
+      <section class="section section-wide" id="agent-teams" data-section-id="agent-teams">
+        <div class="section-header">
+          <span class="section-tag">协作</span>
+          <h2>智能体团队协作</h2>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <ul>
+              <li><strong>步骤依赖</strong> — 后续步骤须等待前置步骤完成；未完成时保持等待，完成后自动接续</li>
+              <li><strong>并行执行</strong> — 无依赖关系的步骤可同时运行（例如前端与后端）</li>
+              <li><strong>上下文隔离</strong> — 每个子任务在独立上下文中执行，结果汇总回主会话</li>
+              <li><strong>完成标准</strong> — 以正式完成回报为准，不以口头「做完了」作为依据</li>
+            </ul>
+            <p><strong>典型分工：</strong>架构设计 → 实现计划 → 编码 → 代码审查 → 质量测试</p>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">工作流面板</span>
+            <img src="../../assets/plan-supervisor/plan-05-supervisor-workflow-panel.png" alt="子任务工作流面板" loading="lazy" />
+            <figcaption>子任务列表、依赖、状态标签</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="monitoring" data-section-id="monitoring">
+        <div class="section-header">
+          <span class="section-tag">监控</span>
+          <h2>进度与状态可视化</h2>
+          <p>主控智能体与用户均可实时掌握智能体团队与各子任务的执行情况</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>界面</th><th>可见信息</th></tr></thead>
+            <tbody>
+              <tr><td><strong>主会话</strong></td><td>流式对话及各子任务执行过程回传</td></tr>
+              <tr><td><strong>协作侧栏 / 工作流面板</strong></td><td>子任务列表、步骤依赖关系、运行状态、进度百分比</td></tr>
+              <tr><td><strong>任务中心</strong></td><td>历史任务、批量操作、暂停 / 恢复 / 终止</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="quote-block" style="margin-top:1.5rem">
+          <p>主控智能体在执行阶段持续读取各团队智能体的<strong>运行状态</strong>与<strong>任务进度</strong>，据此决定下一步调度；用户在同一界面同步可见，全程透明可观测。</p>
+        </div>
+      </section>
+
+      <section class="section" id="intervention" data-section-id="intervention">
+        <div class="section-header">
+          <span class="section-tag">干预</span>
+          <h2>主控智能体干预机制</h2>
+          <p>当某个步骤出现问题时，主控智能体可采取多种手段纠正，而非等待任务自然失败</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>干预方式</th><th>适用场景</th><th>效果</th></tr></thead>
+            <tbody>
+              <tr><td><strong>发出修正指令</strong></td><td>子任务方向偏差、理解有误、需补充约束</td><td>向该子任务注入新的执行说明，在原有步骤内继续修正</td></tr>
+              <tr><td><strong>重新执行</strong></td><td>该步骤产出不可用、需从零重做</td><td>重置并重新运行该子任务（同一步骤最多重试 3 次）</td></tr>
+              <tr><td><strong>委派其他智能体</strong></td><td>当前执行人不具备所需能力，或多次修正仍无法完成</td><td>更换执行人或新增子任务，由更合适的智能体承接</td></tr>
+              <tr><td><strong>续接会话</strong></td><td>编码类长任务需在同一会话中继续</td><td>接续既有工作上下文，避免重复劳动</td></tr>
+              <tr><td><strong>中断子任务</strong></td><td>需立即停止当前步骤</td><td>终止该子任务运行，等待主控重新决策</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:1.25rem"><strong>任务级控制：</strong>暂停 / 恢复 / 终止整项协作任务；敏感工具操作须经用户审批后执行。</p>
+      </section>
+
+      <section class="section section-alt" id="peer-collab" data-section-id="peer-collab">
+        <div class="section-header">
+          <span class="section-tag">协作</span>
+          <h2>子任务之间的协作问询</h2>
+          <p>执行过程中，尚未完成的子智能体可向已完成的子智能体询问必要信息</p>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <h3>典型场景</h3>
+            <ul>
+              <li>测试步骤需要开发步骤中的接口约定或配置细节</li>
+              <li>下游步骤缺少上游步骤产出中的某项关键参数</li>
+              <li>并行步骤之间需就接口或数据格式临时对齐</li>
+            </ul>
+            <h3>机制说明</h3>
+            <ul>
+              <li>进行中的子智能体 → 进行中的子智能体：可发起私线问询</li>
+              <li>进行中的子智能体 → 已完成的子智能体：可咨询已完成步骤中的信息</li>
+              <li>已完成的子智能体不再主动发问；对其回复仅为咨询，不改变其已完成状态</li>
+              <li>正式交付与步骤解锁仍由完成回报与步骤依赖关系负责，私线问询不替代正式交接</li>
+            </ul>
+          </div>
+          <div class="quote-block">
+            <p>这一机制减少了「因缺信息而阻塞 → 主控中转 → 重试」的往返，让子智能体在必要时直接获取上下文，同时保持各步骤边界清晰、审计可追溯。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="user-correction" data-section-id="user-correction">
+        <div class="section-header">
+          <span class="section-tag">用户</span>
+          <h2>用户方向修正</h2>
+          <p>当整体任务出现跑偏时，用户可随时介入并发出修正指示</p>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <h3>向主控智能体修正</h3>
+            <p>在主会话中说明整体方向偏差、优先级变化或新的约束。主控智能体据此调整后续调度，并对相关子任务发出修正指令、重新执行或改派其他智能体。</p>
+          </article>
+          <article class="card">
+            <h3>向子智能体修正</h3>
+            <p>用户也可针对某个具体步骤，直接向对应子智能体发出修正提示（或通过主控定向转达）。适用于局部实现偏离预期、需即时纠正的场景。</p>
+          </article>
+        </div>
+        <p style="margin-top:1.25rem">Plan 模式并非「提交后不可更改」的自动运行：用户在执行全程保留对方向与节奏的主动权，与主控智能体的监工机制形成互补。</p>
+      </section>
+
+      <section class="section section-alt" id="compare" data-section-id="compare">
+        <div class="section-header">
+          <span class="section-tag">对比</span>
+          <h2>Plan 模式与普通对话</h2>
+        </div>
+        <div class="table-wrap">
+          <table class="compare-plan">
+            <thead><tr><th>维度</th><th>普通对话</th><th>Plan 模式</th></tr></thead>
+            <tbody>
+              <tr><td>计划</td><td>口头 / 临时</td><td>持久化结构化计划</td></tr>
+              <tr><td>执行</td><td>随时可能产生副作用</td><td>用户授权后才开始执行</td></tr>
+              <tr><td>分工</td><td>单一智能体或临时安排</td><td>智能体团队 + 步骤依赖</td></tr>
+              <tr><td>进度</td><td>难以追踪</td><td>子任务列表 + 工作流面板</td></tr>
+              <tr><td>验收</td><td>主观判断</td><td>逐步验收标准 + 整体验收清单</td></tr>
+              <tr><td>干预</td><td>只能发送新消息</td><td>修正指令 / 重新执行 / 改派 / 暂停等</td></tr>
+              <tr><td>协作</td><td>无正式子任务边界</td><td>子任务可相互问询、主控可统一干预</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 第六章 -->
+      <div class="section-part">
+        <h2>六、验收与交付</h2>
+        <p>分层验收、成果交付与模式价值</p>
+      </div>
+
+      <section class="section section-wide section-alt" id="delivery" data-section-id="delivery">
+        <div class="section-header">
+          <span class="section-tag">交付</span>
+          <h2>验收与交付</h2>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <h3>两层验收</h3>
+            <ol class="steps-list">
+              <li><strong>逐步验收</strong> — 每个步骤的验收标准</li>
+              <li><strong>整体验收</strong> — 验收清单（测试、构建、冒烟验证等）</li>
+            </ol>
+            <p><strong>协作阶段：</strong>执行中 → 验收中 → 总结 → 已完成</p>
+            <h3>交付形式</h3>
+            <ul>
+              <li>文件写入工作区 outputs/ 目录</li>
+              <li>对话中提供可点击链接，支持预览与下载</li>
+              <li>可选：向飞书等渠道推送 Markdown 结果小结</li>
+            </ul>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">运行结果</span>
+            <img src="../../assets/plan-supervisor/video-02-plan-project-running-result-poster.png" alt="Plan 模式：项目运行结果展示" loading="lazy" />
+            <figcaption>Plan 协作交付完成后，启动并演示可运行产物</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="value" data-section-id="value">
+        <div class="section-header">
+          <span class="section-tag">价值</span>
+          <h2>模式价值</h2>
+        </div>
+        <div class="value-grid">
+          <article class="value-card">
+            <h3>降本增效</h3>
+            <p>工具按需加载、减少无效消耗；长任务自动推进，降低人工值守成本。</p>
+          </article>
+          <article class="value-card">
+            <h3>全程可控</h3>
+            <p>澄清确认、计划授权、执行监控、主控干预与用户方向修正形成完整控制链。</p>
+          </article>
+          <article class="value-card">
+            <h3>结果可交付</h3>
+            <p>结构化输入输出、逐步验收标准与整体验收清单，保障交付质量可核对。</p>
+          </article>
+          <article class="value-card">
+            <h3>能力可扩展</h3>
+            <p>智能体团队、技能与工具可按需配置；缺能力时经用户同意即可补充角色。</p>
+          </article>
+        </div>
+        <div class="quote-block" style="margin-top:2rem">
+          <p>EvoFlow Plan 模式将「一句话需求」转化为可观测、可确认、可验收、可修正的协作闭环。</p>
+        </div>
+      </section>
+
+      <footer class="footer-cta" id="resources" data-section-id="resources">
+        <h2>相关资源</h2>
+        <p>Evovex AI · EvoFlow Plan 模式 · Agent Teams</p>
+        <div class="link-grid">
+          <a href="https://www.evovexai.com/showcase/" target="_blank" rel="noopener">官网演示</a>
+          <a href="https://www.evovexai.com/docs/chat/evopanel" target="_blank" rel="noopener">桌面端指南</a>
+          <a href="https://github.com/EvovexAI/EvoFlow" target="_blank" rel="noopener">GitHub</a>
+          <a href="mailto:cloud@evovexai.com">cloud@evovexai.com</a>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-label="图片预览">
+    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="关闭">×</button>
+    <img src="" alt="" id="lightboxImg" />
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm sync:media && turbo run dev --parallel",
     "dev:web": "pnpm sync:media && pnpm --filter @ai-site/web dev",
-    "sync:media": "node scripts/sync-docs-media.mjs",
+    "sync:media": "node scripts/sync-docs-media.mjs && node scripts/sync-presentations.mjs",
     "build": "pnpm sync:media && turbo run build",
     "build:static": "pnpm sync:media && pnpm --filter @ai-site/web build:static",
     "deploy:tos": "pnpm --filter @ai-site/web deploy:tos",

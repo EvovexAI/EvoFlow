@@ -16,6 +16,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const staticPages = [
     { path: "/", priority: 1.0, changeFrequency: "weekly" as const },
     { path: "/about", priority: 0.8, changeFrequency: "monthly" as const },
+    { path: "/presentations/plan-workflow", priority: 0.85, changeFrequency: "monthly" as const },
+    { path: "/showcase", priority: 0.85, changeFrequency: "monthly" as const },
     { path: "/evolution", priority: 0.7, changeFrequency: "weekly" as const },
     { path: "/lab", priority: 0.5, changeFrequency: "monthly" as const },
     ...platformPagesByLocale.zh.lab.experiments.map((e) => ({

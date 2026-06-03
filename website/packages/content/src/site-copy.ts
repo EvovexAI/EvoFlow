@@ -72,6 +72,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       navigation: [
         { href: siteLinks.docsSite, label: "文档" },
         { href: "/showcase/", label: "演示" },
+        { href: "/presentations/plan-workflow/", label: "Plan 流程" },
         { href: "/#capabilities", label: "功能说明" },
         { href: siteLinks.blog, label: "下载" },
         { href: "/about", label: "关于" },
@@ -84,6 +85,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       links: [
         { href: siteLinks.docsSite, label: "项目文档" },
         { href: "/showcase/", label: "产品演示" },
+        { href: "/presentations/plan-workflow/", label: "Plan 协作流程" },
         { href: siteLinks.github, label: "GitHub 仓库" },
         { href: siteLinks.blog, label: "下载与发行版" },
         { href: siteLinks.source, label: "快速上手" },
@@ -200,6 +202,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       navigation: [
         { href: siteLinks.docsSite, label: "Docs" },
         { href: "/showcase/", label: "Showcase" },
+        { href: "/presentations/plan-workflow/", label: "Plan workflow" },
         { href: "/#capabilities", label: "Product" },
         { href: siteLinks.blog, label: "Download" },
         { href: "/about", label: "About" },
@@ -212,6 +215,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       links: [
         { href: siteLinks.docsSite, label: "Documentation" },
         { href: "/showcase/", label: "Product showcase" },
+        { href: "/presentations/plan-workflow/", label: "Plan workflow" },
         { href: siteLinks.github, label: "GitHub" },
         { href: siteLinks.blog, label: "Downloads & releases" },
         { href: siteLinks.source, label: "Quickstart" },

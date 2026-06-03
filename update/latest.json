@@ -1,12 +1,10 @@
 {
-  "assetKind": "installer",
-  "releasedAt": "2026-06-02T17:00:27Z",
   "version": "0.2.6",
-  "pub_date": "2026-06-02T17:00:27Z",
   "minAppVersion": "0.2.6",
-  "hash": "sha256:738e9c8dc71e3fd0aed5929591409ac74ce990e7953fc625c7d4768e6e22265e",
+  "assetKind": "installer",
+  "hash": "sha256:b0c387825c186524e515bc6c55c59b9767b40f1ce2880702a8ccdc4473e9bf44",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.2.6/EvoFlow_0.2.6_x64-setup.exe",
-  "changelog": "**EvoFlow v0.2.6**",
-  "size": 376297792,
-  "notes": "**EvoFlow v0.2.6**"
+  "size": 375742235,
+  "changelog": "稳定版 v0.2.6：协作任务执行与界面体验优化。",
+  "releasedAt": "2026-05-25T17:16:21Z"
 }
