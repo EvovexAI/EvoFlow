@@ -42,9 +42,13 @@ EvoFlow 技能位于 `skills/` 目录，分为 `public/`（公开技能，提交
 
 | 技能名 | 说明 |
 |--------|------|
-| `video-generation` | 视频生成（占位；推荐 `media-production` + creative 场景工具） |
-| `image-generation` | 图片生成（占位；推荐 `media-production`） |
-| `media-production` | 既梦/可灵/万相生图生视频、配音与字幕 |
+| `media-generation` | **总览**：生图/生视频能力类型、支持厂商、路由到子技能 |
+| `media-generation-volcengine` | 火山方舟 Seedream / Seedance 脚本与参数 |
+| `media-generation-agnes` | Agnes AI 生图/生视频（[官方文档](https://agnes-ai.com/doc/overview)） |
+| `media-production` | 多 Agent 短片制片流水线（默认 volcengine 脚本） |
+| `plan-video-production` | Plan 模式视频步骤规划 |
+| `video-generation` | 视频生成（占位；推荐 `media-generation`） |
+| `image-generation` | 图片生成（占位；推荐 `media-generation`） |
 | `ppt-generation` | PPT 演示文稿生成 |
 
 ### 产品与入门
