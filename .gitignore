@@ -175,9 +175,17 @@ backend/tests/test_*.py
 
 # Root-level temporary/development files
 /loop_*.py
+/_tmp_*
 temp_*.py
 temp_*.js
 temp_langgraph.py
+
+# Harness manual smoke fixtures (pytest uses tmp_path)
+backend/packages/harness/tests/_tmp_*
+backend/packages/harness/tests/_tmp_*.py.bak
+
+# Ad-hoc backend TypeScript probes
+backend/test-*.ts
 
 # Package files (should use package-lock.json from evopanel/)
 package-lock.json
