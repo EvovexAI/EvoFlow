@@ -207,6 +207,11 @@ website/out/
 website/**/dist/
 .workbuddy/
 
+# Browser packaging caches (rebuilt by make setup-agent-browser / gateway build)
+backend/packaging/agent-browser-bundle/
+# Legacy Playwright bundle (no longer used by gateway builds)
+backend/packaging/windows/.playwright-browsers/
+
 # Local stream/E2E acceptance machine output (JSON + generated reports)
 backend/scripts/_e2e_output/
 docs/cases/reports/
