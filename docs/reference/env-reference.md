@@ -16,7 +16,9 @@
 | `MOONSHOT_API_KEY` | Moonshot (Kimi) API 密钥 | `sk-...` |
 | `NOVITA_API_KEY` | Novita AI API 密钥 | `nv-...` |
 | `MINIMAX_API_KEY` | MiniMax API 密钥 | `eyJ...` |
-| `VOLCENGINE_API_KEY` | 火山引擎 API 密钥 | — |
+| `VOLCENGINE_API_KEY` | 火山引擎 / 既梦 生图生视频 | — |
+| `ARK_API_KEY` | 火山方舟（与 VOLCENGINE 二选一） | — |
+| `AGNES_API_KEY` | Agnes AI 生图/生视频（或 `AGNES_API_TOKEN` / `APIHUB_AGNES_API_KEY`） | — |
 | `GITHUB_TOKEN` | GitHub API Token | `ghp_...` |
 
 ## 搜索与工具
