@@ -69,6 +69,22 @@
 | `DEER_FLOW_CHANNELS_LANGGRAPH_URL` | `http://localhost:2024` | IM 渠道 LangGraph URL |
 | `DEER_FLOW_CHANNELS_GATEWAY_URL` | `http://localhost:8001` | IM 渠道 Gateway URL |
 
+## 对话流恢复（Stream Resume，规划中）
+
+详见 [stream-resume-design.md](./stream-resume-design.md)。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `EVOFLOW_STREAM_MIRROR_BACKEND` | `sqlite` | 镜像后端：`sqlite`（单机）或 `redis`（多 Gateway） |
+| `EVOFLOW_STREAM_RESUME_TTL_SECONDS` | `300` | 生成中 mirror 续期 TTL（秒） |
+| `EVOFLOW_STREAM_RESUME_POST_COMPLETE_TTL_SECONDS` | `30` | run 结束后 mirror 缩短 TTL（秒） |
+| `EVOFLOW_STREAM_RESUME_INACTIVE_MS` | `120000` | mirror 无活动且 LangGraph 不跑时，判定 stale running（毫秒） |
+| `EVOFLOW_STREAM_MIRROR_MAX_FRAMES` | `50000` | 单 run 最大 SSE 帧数，超限写 unavailable |
+| `EVOFLOW_STREAM_MIRROR_MAX_BYTES` | `52428800` | 单 run 镜像体积上限（字节） |
+| `EVOFLOW_LIVE_RUN_FLUSH_MS` | `3000` | 现有 live_run 快照刷盘间隔（毫秒，已实现） |
+
+Gateway 启动时还会清扫 `expires_at_ms` 已过期且 `run_status` 非 running/pending 的 mirror（每批最多 500 条 session），避免长期闲置会话残留占库。
+
 ## 日志
 
 | 变量 | 默认值 | 说明 |

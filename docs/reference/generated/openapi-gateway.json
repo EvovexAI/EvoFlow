@@ -4321,6 +4321,131 @@
         }
       }
     },
+    "/api/chat/sessions/{session_key}/stream-resume": {
+      "get": {
+        "tags": [
+          "chat-stream-resume"
+        ],
+        "summary": "Resume in-progress chat SSE from stream mirror",
+        "description": "FastGPT-style stream resume: catchup replay from SQLite mirror, then live tail while run is active. Requires `Accept: text/event-stream`. Emits `resumePhase`, wire-format LangGraph/evf SSE frames, `resumeUnavailable`, `runCompleted`, and `done`.",
+        "operationId": "get_stream_resume_api_chat_sessions__session_key__stream_resume_get",
+        "parameters": [
+          {
+            "name": "session_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Key"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "threadId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream (catchup + live tail)",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "406": {
+            "description": "Accept: text/event-stream required"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/sessions/{session_key}/runtime-status": {
+      "get": {
+        "tags": [
+          "chat-sessions"
+        ],
+        "summary": "Aggregated session runtime recovery status",
+        "description": "Single endpoint for attach/snapshot/stream-resume recovery decisions.",
+        "operationId": "get_session_runtime_status_api_chat_sessions__session_key__runtime_status_get",
+        "parameters": [
+          {
+            "name": "session_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "sessionKey": { "type": "string" },
+                    "threadId": { "type": "string", "nullable": true },
+                    "runId": { "type": "string", "nullable": true },
+                    "runStatus": { "type": "string" },
+                    "attachRecommended": { "type": "boolean" },
+                    "streamResumeRecommended": { "type": "boolean" },
+                    "langgraphActive": { "type": "boolean", "nullable": true },
+                    "snapshotAvailable": { "type": "boolean" },
+                    "latestPartialText": { "type": "string" },
+                    "latestToolSummary": { "type": "string" },
+                    "lastEventAtMs": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/collab/threads/{thread_id}": {
       "get": {
         "tags": [
