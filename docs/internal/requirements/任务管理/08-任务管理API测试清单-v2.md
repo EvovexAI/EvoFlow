@@ -48,12 +48,11 @@
 状态码: 200
 ```
 
-**存储层验证:**
+**存储层验证（SQLite）:**
 ```
-检查点1 - 项目存储:
-- [ ] 新 project 目录是否创建: `storage/projects/{project_id}/`
-- [ ] project.json 是否包含新任务
-- [ ] task.metadata.json 是否正确生成
+检查点1 - 任务落库:
+- [ ] evoflow_collab_tasks 存在 main_task_id = task_id 的根行
+- [ ] evoflow_collab_subtasks 初始为空或符合预期
 
 检查点2 - 任务数据完整性:
 - [ ] id: 非空且唯一
@@ -165,16 +164,19 @@
 响应: 包含更新后数据的完整对象
 ```
 
-**存储层验证:**
+**存储层验证（SQLite `evoflow.db`）:**
 ```
 检查点1 - 更新落库:
-- [ ] storage/projects/{project_id}/project.json 中任务名称已变更
-- [ ] updated_at 字段已更新为当前时间
-- [ ] 其他字段未被意外修改
+- [ ] evoflow_collab_tasks 中对应 main_task_id 的 name 已变更
+- [ ] updated_at（extra_json 或 bundle 头字段）已更新
+- [ ] 其他列未被意外修改
 
 检查点2 - 数据一致性:
-- [ ] API返回的updated_at与存储文件一致
-- [ ] API返回的name与存储文件一致
+- [ ] API 返回的 updated_at 与 DB 一致
+- [ ] API 返回的 name 与 evoflow_collab_tasks.name 一致
+
+示例查询:
+sqlite3 data/app/evoflow.db "SELECT name, status, updated_at FROM evoflow_collab_tasks WHERE main_task_id='{task_id}' AND task_id='{task_id}'"
 ```
 
 
@@ -247,11 +249,11 @@
 状态码: 200
 ```
 
-**存储层验证:**
+**存储层验证（SQLite）:**
 ```
 检查点1 - 任务数据:
-- [ ] project.json 中该任务已移除
-- [ ] 项目目录下任务相关文件已清理
+- [ ] evoflow_collab_tasks / evoflow_collab_subtasks 中对应行已删除
+- [ ] evoflow_task_details 关联行已清理（如有）
 
 检查点2 - 子任务处理:
 - [ ] 如任务有子任务，子任务记录是否一并清理
@@ -603,44 +605,48 @@
 
 ## 七、存储格式检查
 
-### 7.1 项目存储结构
+### 7.1 任务存储（SQLite）
 
-#### 7.1.1 文件结构验证
+#### 7.1.1 库与表验证
 - [ ] 未测试
 
 **检查路径:**
 ```
-storage/
-└── projects/
-    └── {project_id}/
-        ├── project.json          [ ] 存在且格式正确
-        ├── task.metadata.json    [ ] 存在且格式正确
-        └── tasks/                [ ] 目录存在
-            └── 如有单独存储
+{EVOFLOW_HOME}/data/app/evoflow.db
+├── evoflow_collab_tasks          [ ] 主任务行存在
+├── evoflow_collab_subtasks       [ ] 子任务行与 API 一致
+├── evoflow_collab_task_execution_history  [ ] restart 历史（如有）
+└── evoflow_task_details          [ ] 记忆行（启用 task_memory 时）
 ```
 
-#### 7.1.2 project.json 格式
+#### 7.1.2 evoflow_collab_tasks 必填列
 - [ ] 未测试
 
-**必填字段:**
+**根任务行（main_task_id = task_id）:**
 ```
-- [ ] id
+- [ ] main_task_id / task_id
 - [ ] name
-- [ ] tasks: 数组，包含完整任务对象
+- [ ] status
 - [ ] created_at
-- [ ] updated_at
+- [ ] thread_id（绑定后）
 ```
 
-#### 7.1.3 task.metadata.json 格式
+#### 7.1.3 evoflow_collab_subtasks 必填列
 - [ ] 未测试
 
-**必填字段:**
+**子任务行:**
 ```
-- [ ] task_id
-- [ ] project_id
-- [ ] subtasks: 数组
-- [ ] status
-- [ ] progress
+- [ ] main_task_id / parent_task_id / subtask_id
+- [ ] name / status / progress
+- [ ] assigned_to（派发后）
+- [ ] extra_json（含 subtask_thread_id 等运行时字段）
+```
+
+#### 7.1.4 可观测库（可选）
+```
+{EVOFLOW_HOME}/data/observability/evoflow_observability.db
+- [ ] evoflow_obs_model_invocations 按 thread_id 可查 token
+- [ ] evoflow_obs_tool_invocations 按 thread_id 可查工具次数
 ```
 
 
@@ -716,7 +722,8 @@ storage/
 
 **存储层验证:**
 ```
-检查文件: storage/projects/proj_xxx/project.json
+查询 evoflow.db:
+sqlite3 data/app/evoflow.db "SELECT * FROM evoflow_collab_tasks WHERE main_task_id='task_xxx'"
 - [x] 字段A: 值正确
 - [x] 字段B: 值正确
 - [ ] 字段C: 期望xxx，实际yyy ❌
@@ -745,14 +752,14 @@ storage/
 ### 快速验证存储
 
 ```bash
-# 查看项目存储内容
-cat storage/projects/{project_id}/project.json | python -m json.tool
+# 查看主任务行
+sqlite3 data/app/evoflow.db "SELECT main_task_id, task_id, name, status, thread_id FROM evoflow_collab_tasks WHERE main_task_id='{task_id}'"
 
-# 查看所有项目
-ls -la storage/projects/
+# 查看子任务
+sqlite3 data/app/evoflow.db "SELECT subtask_id, name, status, progress FROM evoflow_collab_subtasks WHERE main_task_id='{task_id}'"
 
-# 实时监控文件变化
-watch -n 1 'cat storage/projects/{project_id}/project.json'
+# 观测库：模型调用次数（按 Lead thread）
+sqlite3 data/observability/evoflow_observability.db "SELECT COUNT(*) FROM evoflow_obs_model_invocations WHERE thread_id='{thread_id}'"
 
 # 搜索特定任务
 find storage/projects -name "*.json" -exec grep -l "task_id" {} \;

@@ -209,6 +209,7 @@ website/**/dist/
 
 # Browser packaging caches (rebuilt by make setup-agent-browser / gateway build)
 backend/packaging/agent-browser-bundle/
+backend/packaging/ripgrep-bundle/
 # Legacy Playwright bundle (no longer used by gateway builds)
 backend/packaging/windows/.playwright-browsers/
 
