@@ -65,7 +65,8 @@ allowed-tools: ["bash", "read_file", "write_file"]
   "skills": {
     "data-analysis": { "enabled": true },
     "pdf": { "enabled": true },
-    "video-generation": { "enabled": false }
+    "byted-ark-seedream-skill": { "enabled": true },
+    "media-production": { "enabled": false }
   }
 }
 ```
@@ -116,7 +117,7 @@ EvoFlow 内置 100+ 公开技能，覆盖以下领域：
 | 数据与分析 | 5+ | data-analysis, chart-visualization, deep-research |
 | 文档处理 | 4+ | pdf, docx, pptx, xlsx |
 | 开发与编码 | 4+ | coding-agent, frontend-design, browser, playwright |
-| 媒体生成 | 3+ | video-generation, image-generation, ppt-generation |
+| 媒体生成 | 6+ | byted-ark-seedream-skill, media-production, agnes-media-generation, wan-media-generation, kling-media-generation, ppt-generation |
 | 自定义 | 可扩展 | 用户自行添加 |
 
 ## 与其他方案的比较
