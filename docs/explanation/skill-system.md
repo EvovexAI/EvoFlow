@@ -110,7 +110,7 @@ curl -X POST http://localhost:8001/api/skills/install \
 
 ## 技能规模
 
-EvoFlow 内置 100+ 公开技能，覆盖以下领域：
+EvoFlow 内置 50+ 个公开技能，覆盖以下领域：
 
 | 领域 | 技能数量 | 示例 |
 |------|----------|------|

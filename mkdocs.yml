@@ -76,8 +76,10 @@ nav:
       - 总览: guides/README.md
       - 实时对话:
         - 模型与场景: guides/chat/basic-functions.md
+        - 预设角色与团队: guides/chat/preset-roles.md
         - Plan（任务协作）: guides/chat/plan-mode.md
         - 项目级 Plan 流程: guides/chat/project-team-plan-workflow.md
+        - 知识/逻辑思维导图: guides/chat/knowledge-map.md
         - 托管 Agent: guides/chat/hosted-agent.md
         - 工作空间: guides/chat/workspace.md
         - 编码助手（Claude Code）: guides/chat/claude-code.md

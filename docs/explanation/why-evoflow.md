@@ -1,82 +1,133 @@
-# 设计哲学：从 DeerFlow 到 EvoFlow
+# EvoFlow 核心架构与设计原则
 
-## 背景
+本文不是教程，也不是 API 参考——而是回答**"EvoFlow 为什么这样设计"**：四层架构的边界、五条核心原则，以及它们对你日常使用与扩展开发的影响。
 
-EvoFlow 脱胎于 DeerFlow 项目。DeerFlow 是一个基于 LangGraph 的研究导向 Agent 系统，具备基础的 Agent 编排能力。然而在实际使用中，DeerFlow 暴露出若干架构局限，促使我们进行了系统性重构，诞生了 EvoFlow。
+---
 
-## 核心设计问题
+## 四层架构
 
-### 问题一：缺少生产级 API 网关
-
-DeerFlow 的 Agent 能力直接通过 LangGraph Server 暴露，缺少业务逻辑层。这导致：
-- 无法进行统一的模型管理、MCP 配置
-- 记忆系统、技能管理没有独立的 API
-- 文件上传、制品服务等基础设施缺失
-
-**EvoFlow 方案**：引入 FastAPI Gateway 作为业务层，LangGraph Server 专注 Agent 运行时。Gateway 承载所有 REST API（模型、MCP、记忆、技能、文件上传等），LangGraph 通过独立的进程运行 Agent。
-
-### 问题二：缺少企业级消息渠道集成
-
-DeerFlow 仅支持 Web 界面交互。企业场景中需要对接飞书、Slack、Telegram 等 IM 平台。
-
-**EvoFlow 方案**：在 App 层引入 Channels 模块，实现消息总线、线程映射、多平台适配器架构。所有渠道通过 outbound 连接（WebSocket 或轮询），无需公网 IP。
-
-### 问题三：沙箱隔离不足
-
-DeerFlow 的沙箱机制简单，缺乏虚拟路径系统和容器化支持。
-
-**EvoFlow 方案**：
-- 虚拟路径系统：Agent 看到统一的 `/mnt/user-data/`、`/mnt/skills/` 路径
-- 本地沙箱：`LocalSandboxProvider` 直接执行
-- 容器沙箱：`AioSandboxProvider` 基于 Docker/Apple Container 隔离
-- Provisioner 模式：生产环境通过 k3s 管理沙箱 Pod
-
-### 问题四：缺少可组合的 Agent 系统
-
-DeerFlow 只有一个固定的 Agent。无法创建自定义 Agent、无法配置不同 Agent 的工具和模型。
-
-**EvoFlow 方案**：
-- 自定义 Agent CRUD：通过 `agents/{code}/` 目录管理
-- SOUL.md 机制：每个 Agent 有独立的人格文件
-- 子 Agent 委派：主 Agent 可将任务委派给 specialized subagents
-- ACP 集成：支持外部 Agent（Claude Code、Codex）通过 ACP 协议调用
-
-## 架构演进
+EvoFlow 在物理上由四层组成，依赖方向严格单向（上层依赖下层，下层不感知上层）：
 
 ```
-DeerFlow                    EvoFlow
-┌──────────────┐            ┌────────────────────────────────┐
-│ LangGraph    │            │ Nginx (2026)                    │
-│   Agent      │     →      │   ├──→ LangGraph (2024)         │
-│              │            │   ├──→ Gateway (8001)           │
-└──────────────┘            │   └──→ EvoPanel (1420)          │
-                            └────────────────────────────────┘
-                            Harness (evoflow.*) ── 可发布框架
-                            App (app.*)         ── 业务逻辑
+┌──────────────────────────────────────┐
+│  EvoPanel（桌面端 / Web）             │   Tauri v2 + 原生 JS + React
+└──────────────────────────────────────┘
+                ▲ REST / SSE / WebSocket
+┌──────────────────────────────────────┐
+│  Gateway（FastAPI · 8001）           │   业务网关：模型、记忆、技能、MCP、文件、渠道
+└──────────────────────────────────────┘
+        ▲                       ▲
+        │ HTTP                  │ inbound 调用
+┌──────────────────┐   ┌───────────────────┐
+│  LangGraph 运行时 │   │  Channels         │
+│  （Agent 主循环）│   │  飞书/Slack/微信   │
+└──────────────────┘   └───────────────────┘
+                ▲
+┌──────────────────────────────────────┐
+│  Harness（evoflow.* 可发布框架）      │   工具、技能、记忆、子代理、沙箱、Supervisor
+└──────────────────────────────────────┘
 ```
 
-## 设计原则
+| 层 | 角色 | 关键模块 |
+|----|------|----------|
+| **EvoPanel** | 桌面 GUI，承载交互与可视化 | `evopanel/src/` |
+| **Gateway** | REST/SSE 业务网关，挂载所有产品级 API | `backend/app/gateway/` |
+| **App** | 渠道、自动化、网关周边业务 | `backend/app/channels/`、`backend/app/gateway/` |
+| **Harness（evoflow.*）** | 与产品解耦的 Agent 框架，可独立发布 | `backend/packages/harness/evoflow/` |
 
-1. **Harness/App 分离**：框架与应用解耦，依赖方向严格单向
-2. **线程隔离**：每个会话拥有独立的数据目录和环境
-3. **懒初始化**：MCP、沙箱等资源按需创建，减少启动时间
-4. **原子操作**：记忆写入、配置更新使用临时文件 + rename 保证一致性
-5. **配置热更新**：通过 mtime 检测文件变更，无需重启进程
+**关键的边界**：Harness 不引用 App，App 不引用 EvoPanel。任何业务定制（渠道扩展、Gateway 路由）只在上层添加，**框架内核保持稳定**。
 
-## 与其他方案的比较
+---
 
-| 特性 | DeerFlow | EvoFlow |
-|------|----------|---------|
-| API 网关 | 无 | FastAPI Gateway |
-| 消息渠道 | 无 | 飞书/Slack/Telegram |
-| 沙箱 | 简单 | 本地+容器+Provisioner |
-| 自定义 Agent | 不支持 | 完整 CRUD |
-| 子 Agent | 不支持 | 双线程池委派 |
-| 记忆系统 | 基础 | 防抖队列 + 事实提取 |
-| 技能系统 | 基础 | SKILL.md + 启用状态管理 |
-| 嵌入式客户端 | 无 | EvoFlowClient |
+## 五条设计原则
+
+### 1. Harness / App 分离
+
+`evoflow.*` 包是可发布的 Agent 框架，包含：工具系统、技能系统、子代理、Supervisor、沙箱、记忆、上下文工程、护栏。
+
+`app.*` 是产品业务层，挂载渠道、自动化任务、文件存储、用户偏好。
+
+> **对你的影响**：嵌入式集成可直接 `pip install evoflow`，不带 FastAPI / 渠道相关重依赖；想做行业定制时改 App 层，框架内核不动。
+
+### 2. 线程隔离与原子写入
+
+每个会话拥有独立的数据目录（`~/.evoflow/threads/<thread_id>/`），记忆、artifacts、子任务状态都按线程切分。
+
+写入采用**临时文件 + rename** 原子操作：
+
+- 读者要么看到旧版本、要么看到新版本，不会看到半写入状态
+- 即使写入过程中崩溃，原文件保持完整
+- 适用于 `memory.json`、`config.toml`、`todo.json` 等并发读写场景
+
+### 3. 懒初始化
+
+资源按需创建，避免冷启动膨胀：
+
+| 资源 | 何时初始化 |
+|------|----------|
+| MCP 服务器 | 首次被某个 Agent 调用时 |
+| 沙箱 Provider | 首次接到代码执行请求时 |
+| 模型客户端 | 首次创建该模型的会话时 |
+| 技能加载 | Agent 启动时按白名单按需注入 |
+
+> **对你的影响**：EvoFlow 启动时间稳定在秒级；未使用的能力不占资源、不报错。
+
+### 4. 配置热更新
+
+通过文件 `mtime` 检测变更，无需重启进程：
+
+- 改 Agent TOML → 立即生效
+- 改技能 `SKILL.md` → 立即生效
+- 改 MCP 配置 → 立即重连
+- 改定时任务 TOML → 调度器下一轮加载
+
+> **对你的影响**：调试调参时几乎没有"重启—等待—验证"循环；生产部署也可零停机更新配置。
+
+### 5. 工具按场景渐进暴露
+
+主智能体的工具集**不是固定的**，由当前**场景**决定：
+
+| 场景 | 工具画像 |
+|------|----------|
+| 日常对话 | 仅核心工具（`scenario`、`tool_search`、`ask_clarification`） |
+| 工作空间 | + 文件读写、终端、检索、并行 worker |
+| Plan 协作 | + `plan`、`supervisor`、`subagent` |
+| 创意媒体 | + 生图 / 生视频 / TTS 相关工具 |
+
+> **对你的影响**：模型上下文里不会塞几百个工具描述，Token 成本可控；高风险工具只在用户明确进入对应场景后才暴露。
+
+---
+
+## 关键能力矩阵
+
+EvoFlow 围绕"让 Agent 真正可用于生产"打磨了一套配套能力，按维度看：
+
+| 维度 | 能力 |
+|------|------|
+| **生产网关** | FastAPI Gateway，提供模型 / 记忆 / 技能 / MCP / 文件 / 渠道的统一 REST API |
+| **多端触达** | EvoPanel 桌面端 + 飞书 / Slack / Telegram / 微信渠道，统一会话线程 |
+| **沙箱体系** | 虚拟路径 `/mnt/user-data/...` + 本地 Provider + 容器 Provider（Docker / Apple Container）+ Provisioner（k3s Pod） |
+| **角色编排** | 自定义 Agent CRUD + SOUL 人设 + 工具/技能/MCP 白名单 + 项目团队 |
+| **子代理与监督** | 主代理 → 子代理双线程池委派；Supervisor 模式跨会话调度 |
+| **记忆系统** | 防抖队列异步提取事实 + 原子写入 + 按需注入 |
+| **技能系统** | `SKILL.md` 标准化能力包；50+ 个内置公开技能；启用状态独立管理 |
+| **嵌入式客户端** | `EvoFlowClient` SDK，可在第三方应用内集成 Agent |
+| **外部 Agent 接入** | ACP 协议接 Claude Code、Codex 等外部代理 |
+| **可观测性** | 调用链 / Token 用量 / 慢调用 / 错误聚类一站式面板 |
+
+---
 
 ## 延伸阅读
 
-- [architecture.md](../reference/architecture.md) - 技术架构参考
-- [agent-system.md](./agent-system.md) - Agent 系统架构
+- [Agent 系统](./agent-system.md) — Agent 主循环、中间件、工具调用细节
+- [子 Agent 系统](./subagent-system.md) — 双线程池委派与隔离
+- [技能系统](./skill-system.md) — `SKILL.md` 格式与加载机制
+- [记忆系统](./memory-system.md) — 防抖、原子写入、按需注入
+- [中间件链](./middleware-chain.md) — 主循环中各中间件的顺序与职责
+- [沙箱设计](./sandbox-design.md) — 虚拟路径与 Provider 体系
+- [上下文工程](./context-engineering.md) — 渐进暴露与 Token 控制策略
+- [架构参考](../reference/architecture.md) — 部署拓扑与端口分配
+
+---
+
+*致谢：EvoFlow 早期实现参考并复用了 DeerFlow（基于 LangGraph 的研究导向 Agent 系统，MIT）的部分思想与代码，在此致谢；当前版本已围绕生产场景做了系统性重构。*

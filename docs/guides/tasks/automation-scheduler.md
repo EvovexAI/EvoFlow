@@ -34,7 +34,7 @@ Gateway 内置的 `AutomationScheduler` 运行在 asyncio 事件循环中，按 
 | `langgraph_timeout_seconds` | int | 否 | 600 | LangGraph 调用超时 |
 | `feishu_push_enabled` | bool | 否 | `false` | 是否推送飞书 |
 | `feishu_chat_id` | string | 否 | — | 飞书聊天 ID |
-| `memory_enabled` | bool | 否 | `true` | 是否使用记忆 |
+| `memory_enabled` | bool | 否 | `false` | 是否使用记忆 |
 | `valid_from` | string | 否 | — | 有效起始时间 |
 | `valid_until` | string | 否 | — | 有效截止时间 |
 | `once_fired` | bool | 否 | `false` | 一次性任务是否已触发 |
