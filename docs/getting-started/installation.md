@@ -30,7 +30,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 
 ```bash
 git clone https://github.com/EvovexAI/EvoFlow.git
-cd deerflow-agent
+cd EvoFlow
 ```
 
 ### 2. 生成配置文件

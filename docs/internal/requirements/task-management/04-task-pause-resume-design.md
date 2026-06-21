@@ -1,0 +1,187 @@
+# 04 - 任务暂停/恢复机制详细设计
+
+## 目录
+
+- [1. 问题定义](#1-问题定义)
+- [2. 现有机制分析](#2-现有机制分析)
+- [3. 设计方案](#3-设计方案)
+- [4. 开发事项与进度](#4-开发事项与进度)
+
+
+## 1. 问题定义
+
+### 1.1 当前问题
+
+当前系统没有暂停/恢复功能：
+- 任务一旦开始执行，只能等待完成或取消
+- 用户无法临时暂停任务
+- 无法暂停后继续执行
+
+### 1.2 目标定义
+
+用户可以暂停正在执行的任务，并在需要时恢复执行。
+
+
+## 2. 现有机制分析
+
+### 2.1 关键代码
+
+```python
+# CollabPhase 模型（models.py）
+class CollabPhase(str, Enum):
+    IDLE = "idle"
+    PLANNING = "planning"
+    PLAN_READY = "plan_ready"
+    AWAITING_EXEC = "awaiting_exec"
+    EXECUTING = "executing"
+    # 【缺失】PAUSED = "paused"
+    DONE = "done"
+
+# TaskStatus 模型（models.py）
+class TaskStatus(str, Enum):
+    # ...
+    PAUSED = "paused"  # 【存在但未使用】
+    # ...
+```
+
+### 2.2 问题根因
+
+- `CollabPhase` 没有 `PAUSED` 阶段
+- 只有前进机制，没有回退机制
+- 门控逻辑缺失
+
+
+## 3. 设计方案
+
+### 3.1 推荐方案：软暂停 + 阶段门控
+
+**软暂停**: 暂停时停止新子任务派发，运行中的继续
+
+```
+暂停流程:
+    用户点击"暂停"
+        ↓
+    API 设置任务状态: paused
+        ↓
+    回退协作阶段: executing → paused
+        ↓
+    中间件阻止新的 task 调用
+        ↓
+    运行中的子任务继续
+
+恢复流程:
+    用户点击"恢复"
+        ↓
+    API 设置任务状态: executing
+        ↓
+    推进协作阶段: paused → executing
+        ↓
+    继续派发未完成的子任务
+```
+
+### 3.2 核心修改
+
+#### 3.2.1 新增 PAUSED 阶段
+
+```python
+class CollabPhase(str, Enum):
+    # ...
+    PAUSED = "paused"  # 【新增】
+```
+
+#### 3.2.2 新增阶段回退函数
+
+```python
+# thread_collab.py
+def revert_collab_phase_to_paused(paths, task_id, runtime_thread_id=None):
+    """回退协作阶段到 paused"""
+    state = load_thread_collab_state(paths, task_id)
+    if state.collab_phase == CollabPhase.EXECUTING:
+        state.collab_phase = CollabPhase.PAUSED
+        save_thread_collab_state(paths, task_id, state)
+        return True
+    return False
+```
+
+#### 3.2.3 新增 API
+
+```python
+# tasks.py
+
+@router.post("/{task_id}/pause")
+async def pause_task(task_id: str):
+    """暂停任务"""
+    # 1. 检查状态
+    # 2. 设置状态: paused
+    # 3. 回退协作阶段
+    # 4. 返回成功
+
+@router.post("/{task_id}/resume")
+async def resume_task(task_id: str):
+    """恢复任务"""
+    # 1. 检查状态
+    # 2. 设置状态: executing
+    # 3. 推进协作阶段
+    # 4. 触发继续执行
+    # 5. 返回成功
+```
+
+
+## 4. 开发事项与进度
+
+### 4.1 开发进度总览
+
+| 阶段 | 内容 | 工时 | 进度 | 状态 |
+|------|------|------|------|------|
+| Phase 1 | 阶段模型 | 4h | 100% | **已完成** |
+| Phase 2 | API 开发 | 8h | 100% | **已完成** |
+| Phase 3 | 中间件 | 6h | 100% | **已完成** |
+| Phase 4 | 前端 | 4h | 100% | **已完成** |
+| Phase 5 | 调试 | 6h | 100% | **已完成** |
+| **总计** | - | **28h** | **100%** | **全部完成** |
+
+### 4.2 详细任务
+
+#### Phase 1: 阶段模型 (4h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 1.1 | 添加 PAUSED 到 CollabPhase | models.py | 0.5h | **已完成** |
+| 1.2 | 实现 revert_collab_phase_to_paused | thread_collab.py | 2h | **已完成** |
+| 1.3 | 实现 advance_collab_phase_from_paused | thread_collab.py | 1.5h | **已完成** |
+
+#### Phase 2: API 开发 (8h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 2.1 | 实现 pause_task | tasks.py | 3h | **已完成** |
+| 2.2 | 实现 resume_task | tasks.py | 3h | **已完成** |
+| 2.3 | 前端 api-client 添加方法 | api-client.js | 2h | **已完成** |
+
+#### Phase 3: 中间件 (6h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 3.1 | 添加 PAUSED 阶段处理 | collab_phase_middleware.py | 3h | **已完成** |
+| 3.2 | 阻止 task 工具调用 | collab_phase_middleware.py | 3h | **已完成** |
+
+#### Phase 4: 前端 (4h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 4.1 | 添加暂停/恢复按钮 | RunManager.tsx | 2h | **已完成** |
+| 4.2 | 实现暂停/恢复逻辑 | RunManager.tsx | 2h | **已完成** |
+| 4.3 | 添加 CSS 样式 | react-chat.css | 1h | **已完成** |
+
+#### Phase 5: 调试 (6h)
+
+| 序号 | 任务 | 工时 | 状态 |
+|------|------|------|------|
+| 5.1 | 暂停流程测试 | 2h | **已完成** |
+| 5.2 | 恢复流程测试 | 2h | **已完成** |
+| 5.3 | 边界情况测试 | 2h | **已完成** |
+
+
+**设计完成日期**: 2025-04-17
+**开发完成日期**: 2025-04-17
+**状态**: **已完成** ✅

@@ -93,5 +93,5 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 
 ## 下一步
 
-- [IM 消息渠道配置指南](../guides/im-channels.md) — 钉钉 / Slack / Discord
-- [自动化任务调度](../guides/automation-scheduler.md)
+- [IM 消息渠道配置指南](../guides/integration/im-channels.md) — 钉钉 / Slack / Discord
+- [自动化任务调度](../guides/tasks/automation-scheduler.md)

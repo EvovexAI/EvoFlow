@@ -65,7 +65,7 @@ PYTHONPATH=. uv run python ../scripts/docs/export_gateway_openapi.py
 - 前缀 **`/api/observability`**（如 `/report`、`/overview`、`/insights`、`/errors/summary`、`/trends`、`/tools`、`/models`）；SQLite 观测默认开启
 - AI 巡检技能：`skills/custom/evoflow-observability-analysis/SKILL.md`
 
-排查手册（工具报错、慢调用、Token/耗时 Top N、AI 定期分析）：[backend/docs/AGENT_TRACE_DEBUG_PLAYBOOK.md](../../backend/docs/AGENT_TRACE_DEBUG_PLAYBOOK.md)
+排查手册（工具报错、慢调用、Token/耗时 Top N、AI 定期分析）：[backend/docs/AGENT_TRACE_DEBUG_PLAYBOOK.md](https://github.com/EvovexAI/EvoFlow/blob/main/backend/docs/AGENT_TRACE_DEBUG_PLAYBOOK.md)
 
 详见 `backend/app/gateway/routers/debug_agent_trace.py`、`backend/app/gateway/routers/observability.py`。
 

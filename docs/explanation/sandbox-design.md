@@ -125,5 +125,5 @@ release(sandbox_id) → 释放沙箱资源
 
 ## 延伸阅读
 
-- [sandbox-config.md](../guides/sandbox-config.md) - 沙箱配置指南
+- [sandbox-config.md](../guides/configuration/sandbox-config.md) - 沙箱配置指南
 - [tool-reference.md](../reference/tool-reference.md) - 内置工具参考

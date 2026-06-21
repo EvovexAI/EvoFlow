@@ -185,6 +185,6 @@ thread_mode = "isolated"
 
 ## 下一步
 
-- [自动化任务调度详解](../guides/automation-scheduler.md) -- 深入了解调度器原理、高级配置和故障排查
+- [自动化任务调度详解](../guides/tasks/automation-scheduler.md) -- 深入了解调度器原理、高级配置和故障排查
 - [接入飞书消息渠道](setup-im-channel.md) -- 配置飞书渠道和获取凭证
 - [创建自定义 Agent](create-agent.md) -- 为自动化任务配置专用 Agent

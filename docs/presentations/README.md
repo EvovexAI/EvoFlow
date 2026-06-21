@@ -53,4 +53,4 @@ python -m http.server 8765 --directory docs
 - 主控干预：`supervisor_tool.py`（修正指令、重新执行、改派、续接会话）
 - 用户方向修正：主会话 → 主控智能体；亦可针对子任务定向修正
 
-详细技术说明见 [../guides/plan-mode.md](../guides/plan-mode.md)。
+详细技术说明见 [../guides/chat/plan-mode.md](../guides/chat/plan-mode.md)。

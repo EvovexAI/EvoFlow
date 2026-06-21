@@ -1,0 +1,901 @@
+# 05 - 输出流持久化机制详细设计
+
+## 目录
+
+- [1. 问题定义](#1-问题定义)
+- [2. 现有机制分析](#2-现有机制分析)
+- [3. 设计方案](#3-设计方案)
+- [4. 开发事项与进度](#4-开发事项与进度)
+
+
+## 1. 问题定义
+
+### 1.1 当前问题
+
+当前输出流只通过 WebSocket/SSE 实时推送：
+- 页面关闭后，输出流丢失
+- 用户重新打开无法查看历史输出
+- 无法回看任务执行过程
+- 没有持久化存储
+
+**影响场景:**
+1. 用户关闭浏览器，任务在后台执行，回来无法看到执行过程
+2. 用户想看之前完成任务的详细输出，只能看到结果，没有过程
+3. 调试时需要查看完整执行日志，但没有保存
+
+### 1.2 目标定义
+
+- 输出流持久化存储
+- 支持历史输出回放
+- 页面重连后可加载历史
+- 支持大输出分块加载
+
+
+## 2. 现有机制分析
+
+### 2.1 当前输出流机制
+
+```python
+# 当前流程:
+
+子任务执行
+    ↓
+get_stream_writer()  # 获取流写入器
+    ↓
+writer({"type": "task_started", ...})  # 发送事件
+    ↓
+WebSocket/SSE 推送到前端
+    ↓
+前端实时显示
+
+# 问题: 只推送，不存储
+```
+
+### 2.2 事件类型
+
+```python
+# events.py 中的事件类型
+- task_started      # 任务开始
+- task_progress     # 进度更新
+- task_completed    # 任务完成
+- task_failed       # 任务失败
+
+# 其他输出:
+- AI 消息
+- 工具调用结果
+- 错误信息
+```
+
+### 2.3 问题根因
+
+- 流写入器只负责推送，不负责存储
+- 没有统一的输出收集和存储机制
+- 前端关闭后无法重新获取历史
+
+
+## 3. 设计方案
+
+### 3.1 推荐方案：双写模式（推送 + 持久化）
+
+```
+执行流程:
+
+子任务执行
+    ↓
+get_stream_writer()  # 获取流写入器
+    ↓
+writer({"type": "...", ...})
+    ↓
+    ├─► WebSocket/SSE 推送到前端（实时）
+    └─► 写入文件存储（持久化）
+```
+
+### 3.2 核心组件
+
+#### 3.2.1 方案：复用会话存储机制
+
+**核心思路：**
+复用现有的会话（Session/Thread）存储机制，将任务执行输出作为会话消息存储。
+
+```
+现有机制：
+Thread (会话)
+├── messages: [...]     # 对话消息
+├── checkpoints         # 检查点
+└── metadata
+
+新机制（复用）：
+Thread (任务绑定会话)
+├── messages: [         # 包含任务执行消息
+│   {"role": "user", "content": "帮我写爬虫"},
+│   {"role": "assistant", "content": "好的..."},  # AI 创建任务
+│   {"role": "task_event", "task_id": "xxx", "event": "created"},  # 【新增】任务创建
+│   {"role": "task_event", "task_id": "xxx", "event": "subtask_started", "subtask_id": "..."},
+│   {"role": "task_event", "task_id": "xxx", "event": "ai_message", "content": "..."},
+│   {"role": "task_event", "task_id": "xxx", "event": "tool_call", "tool": "bash", ...},
+│   ...
+│ ]
+├── checkpoints
+└── metadata: {
+    "bound_task_id": "task-xxx",     # 【新增】绑定的任务
+    "task_execution_mode": true,      # 【新增】任务执行模式
+    ...
+}
+```
+
+**优点：**
+1. **结构统一** - 复用现有的 message 存储结构
+2. **流式回放** - 已有成熟的会话回放机制
+3. **代码复用** - 无需新建存储层
+4. **查询方便** - 可通过现有会话 API 查询
+
+#### 3.2.2 保存任务事件到会话
+
+```python
+# backend/packages/harness/evoflow/agents/thread_state.py
+
+# 添加任务事件到会话消息
+
+from evoflow.agents.thread_state import ThreadState, append_message
+
+def add_task_event_to_thread(
+    thread_id: str,
+    task_id: str,
+    event_type: str,
+    content: dict,
+):
+    """
+    添加任务事件到会话
+    
+    复用现有的消息存储机制
+    """
+    event_message = {
+        "role": "task_event",           # 【新增】任务事件角色
+        "task_id": task_id,
+        "event_type": event_type,
+        "content": content,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+    
+    # 复用现有方法添加到会话
+    append_message(thread_id, event_message)
+
+
+# backend/packages/harness/evoflow/tools/builtins/supervisor_tool.py
+
+# 创建任务时保存事件
+
+def create_task_with_events(
+    runtime,
+    task_name: str,
+    task_description: str,
+    ...
+) -> dict:
+    """创建任务并保存事件到会话"""
+    
+    thread_id = runtime.context.get("thread_id")
+    
+    # 1. 创建任务
+    project_data, task_data = new_project_bundle_root_task(
+        task_name,
+        task_description,
+        thread_id=thread_id,
+    )
+    
+    task_id = task_data["id"]
+    
+    # 2. 【关键】绑定任务到会话
+    bind_task_to_thread(thread_id, task_id)
+    
+    # 3. 保存任务创建事件
+    add_task_event_to_thread(
+        thread_id=thread_id,
+        task_id=task_id,
+        event_type=TaskEventType.TASK_CREATED,
+        content={
+            "task_name": task_name,
+            "task_description": task_description,
+            "subtasks_count": len(task_data.get("subtasks", [])),
+        }
+    )
+    
+    # 4. 保存任务开始事件
+    add_task_event_to_thread(
+        thread_id=thread_id,
+        task_id=task_id,
+        event_type=TaskEventType.TASK_STARTED,
+        content={"started_by": "supervisor"}
+    )
+    
+    # 5. 保存子任务创建事件
+    for subtask in task_data.get("subtasks", []):
+        add_task_event_to_thread(
+            thread_id=thread_id,
+            task_id=task_id,
+            event_type=TaskEventType.SUBTASK_CREATED,
+            content={
+                "subtask_id": subtask["id"],
+                "subtask_name": subtask["name"],
+                "assigned_agent": subtask.get("assigned_to"),
+            }
+        )
+    
+    # 6. 保存任务
+    storage = get_project_storage()
+    storage.save_project(project_data)
+    
+    return task_data
+
+
+def bind_task_to_thread(thread_id: str, task_id: str):
+    """绑定任务到会话"""
+    # 在会话 metadata 中记录绑定的任务
+    thread_state = load_thread_state(thread_id)
+    if "bound_tasks" not in thread_state.metadata:
+        thread_state.metadata["bound_tasks"] = []
+    thread_state.metadata["bound_tasks"].append(task_id)
+    thread_state.metadata["task_execution_mode"] = True
+    save_thread_state(thread_id, thread_state)
+```
+
+#### 3.2.3 修改子任务执行事件保存
+
+```python
+# backend/packages/harness/evoflow/tools/builtins/task_tool.py
+
+# 在子任务执行中，使用持久化写入器替换原始写入器
+
+from app.gateway.streaming.persistent_writer import get_persistent_stream_writer
+
+# 在执行函数中
+def execute_with_persistent_stream(task_id: str, description: str, ...):
+    # 获取原始写入器
+    original_writer = get_stream_writer()
+    
+    # 创建持久化写入器（包装原始写入器）
+    writer = get_persistent_stream_writer(task_id, original_writer)
+    
+    try:
+        # 使用持久化写入器执行任务
+        result = execute_task(description, writer=writer, ...)
+    finally:
+        writer.close()
+    
+    return result
+```
+
+#### 3.2.4 修改子任务执行事件保存
+
+```python
+# backend/packages/harness/evoflow/tools/builtins/task_tool.py
+
+# 修改流写入器，同时保存事件到会话
+
+from evoflow.agents.thread_state import add_task_event_to_thread
+
+def create_task_stream_writer(task_id: str, subtask_id: str, thread_id: str):
+    """
+    创建任务流写入器
+    
+    双写：WebSocket 推送 + 会话消息保存
+    """
+    original_writer = get_stream_writer()
+    
+    def combined_writer(message: dict):
+        # 1. WebSocket 推送（实时）
+        if original_writer:
+            original_writer(message)
+        
+        # 2. 转换为事件并保存到会话
+        event_type, content = convert_message_to_event(message, subtask_id)
+        if event_type:
+            add_task_event_to_thread(
+                thread_id=thread_id,
+                task_id=task_id,
+                event_type=event_type,
+                content=content,
+            )
+    
+    return combined_writer
+
+
+def convert_message_to_event(message: dict, subtask_id: str) -> tuple:
+    """将流消息转换为任务事件"""
+    msg_type = message.get("type")
+    
+    if msg_type == "ai_message":
+        return TaskEventType.AI_MESSAGE, {
+            "subtask_id": subtask_id,
+            "message": message.get("content"),
+        }
+    
+    elif msg_type == "tool_call":
+        return TaskEventType.TOOL_CALL, {
+            "subtask_id": subtask_id,
+            "tool": message.get("tool"),
+            "input": message.get("input"),
+        }
+    
+    elif msg_type == "tool_result":
+        return TaskEventType.TOOL_RESULT, {
+            "subtask_id": subtask_id,
+            "tool": message.get("tool"),
+            "output": message.get("output"),
+        }
+    
+    elif msg_type == "progress":
+        return TaskEventType.PROGRESS_UPDATE, {
+            "subtask_id": subtask_id,
+            "progress": message.get("progress"),
+        }
+    
+    # ... 其他类型转换
+    
+    return None, None
+```
+
+#### 3.2.5 历史输出查询 API（复用会话查询）
+
+```python
+# backend/app/gateway/routers/tasks.py
+
+@router.get("/{task_id}/output")
+async def get_task_output(
+    task_id: str,
+    offset: int = 0,      # 起始位置
+    limit: int = 100,     # 每页数量
+    from_timestamp: str = None,  # 从某个时间开始
+) -> dict:
+    """获取任务历史输出流"""
+    
+    # 1. 检查日志文件是否存在
+    log_file = get_task_log_file_path(task_id)
+    if not log_file.exists():
+        return {
+            "success": True,
+            "task_id": task_id,
+            "entries": [],
+            "total": 0,
+            "has_more": False,
+        }
+    
+    # 2. 读取日志文件（JSONL 格式）
+    entries = []
+    with open(log_file, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            if i < offset:
+                continue
+            if len(entries) >= limit:
+                break
+            
+            try:
+                entry = json.loads(line.strip())
+                
+                # 时间过滤
+                if from_timestamp and entry.get("timestamp") < from_timestamp:
+                    continue
+                
+                entries.append(entry)
+            except json.JSONDecodeError:
+                continue
+    
+    # 3. 统计总数
+    total = sum(1 for _ in open(log_file, "r", encoding="utf-8"))
+    
+    # 4. 分离不同类型的消息
+    conversation_messages = [e for e in entries if e.get("role") in ("user", "assistant", "system")]
+    task_events = [e for e in entries if e.get("role") == "task_event"]
+    
+    # 5. 按任务 ID 分组事件
+    task_events_by_task = {}
+    for event in task_events:
+        tid = event.get("task_id")
+        if tid not in task_events_by_task:
+            task_events_by_task[tid] = []
+        task_events_by_task[tid].append(event)
+    
+    # 构建响应（复用现有会话结构）
+    response = {
+        "success": True,
+        "task_id": task_id,
+        "thread_id": thread_id,
+        "messages": entries,  # 所有消息（复用现有格式）
+        "conversation": conversation_messages,  # 对话消息
+        "task_events": task_events_by_task.get(task_id, []),  # 任务事件
+        "pagination": {
+            "offset": offset,
+            "limit": limit,
+            "total": total,
+            "has_more": offset + len(entries) < total,
+        }
+    }
+    
+    return response
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(entries) < total,
+    }
+```
+
+### 3.3 存储格式
+
+#### 3.3.1 复用会话消息格式
+
+**消息结构（复用现有）：**
+
+```python
+# 标准对话消息（已有）
+{
+  "role": "user",           # user | assistant | system
+  "content": "...",
+  "timestamp": "2025-01-17T08:29:50Z",
+  ...
+}
+
+# 任务事件消息（新增）
+{
+  "role": "task_event",     # 【新增】标识为任务事件
+  "task_id": "task-xxx",    # 关联的任务 ID
+  "event_type": "...",      # 事件类型
+  "content": {...},         # 事件内容
+  "timestamp": "2025-01-17T08:30:00Z",
+}
+```
+
+**事件类型定义：**
+
+```python
+# backend/packages/harness/evoflow/agents/thread_state.py
+
+class TaskEventType(str, Enum):
+    # === 任务生命周期 ===
+    TASK_CREATED = "task_created"         # 任务创建
+    TASK_STARTED = "task_started"         # 任务开始
+    TASK_PAUSED = "task_paused"           # 任务暂停
+    TASK_RESUMED = "task_resumed"         # 任务恢复
+    TASK_COMPLETED = "task_completed"     # 任务完成
+    TASK_FAILED = "task_failed"           # 任务失败
+    TASK_CANCELLED = "task_cancelled"     # 任务取消
+    
+    # === 子任务事件 ===
+    SUBTASK_CREATED = "subtask_created"   # 子任务创建
+    SUBTASK_STARTED = "subtask_started"   # 子任务开始
+    SUBTASK_COMPLETED = "subtask_completed" # 子任务完成
+    SUBTASK_FAILED = "subtask_failed"     # 子任务失败
+    
+    # === 执行过程 ===
+    AI_MESSAGE = "ai_message"             # AI 消息
+    TOOL_CALL = "tool_call"               # 工具调用
+    TOOL_RESULT = "tool_result"           # 工具结果
+    PROGRESS_UPDATE = "progress_update"   # 进度更新
+```
+
+**消息示例：**
+
+```json
+[
+  # === 对话上下文（已有） ===
+  {"role": "user", "content": "帮我写一个 Python 爬虫", "timestamp": "08:29:50"},
+  {"role": "assistant", "content": "好的，我来帮你开发爬虫...", "timestamp": "08:29:55"},
+  
+  # === 任务事件（新增） ===
+  {
+    "role": "task_event",
+    "task_id": "task-xxx",
+    "event_type": "task_created",
+    "content": {
+      "task_name": "Python 爬虫开发",
+      "description": "...",
+      "subtasks_count": 5
+    },
+    "timestamp": "08:30:00"
+  },
+  {
+    "role": "task_event",
+    "task_id": "task-xxx",
+    "event_type": "subtask_started",
+    "content": {
+      "subtask_id": "sub-001",
+      "subtask_name": "分析需求",
+      "assigned_agent": "general-purpose"
+    },
+    "timestamp": "08:30:01"
+  },
+  {
+    "role": "task_event",
+    "task_id": "task-xxx",
+    "event_type": "ai_message",
+    "content": {
+      "subtask_id": "sub-001",
+      "message": "开始分析需求..."
+    },
+    "timestamp": "08:30:02"
+  },
+  {
+    "role": "task_event",
+    "task_id": "task-xxx",
+    "event_type": "tool_call",
+    "content": {
+      "subtask_id": "sub-001",
+      "tool": "bash",
+      "input": "ls -la"
+    },
+    "timestamp": "08:30:05"
+  },
+  {
+    "role": "task_event",
+    "task_id": "task-xxx",
+    "event_type": "tool_result",
+    "content": {
+      "subtask_id": "sub-001",
+      "tool": "bash",
+      "output": "..."
+    },
+    "timestamp": "08:30:06"
+  }
+]
+```
+
+### 3.4 前端适配 - 复用 ChatApp 会话页面
+
+#### 3.4.1 方案：RunManager 跳转 ChatApp
+
+**核心思路：**
+- **RunManager** → 只显示任务列表和控制按钮
+- **ChatApp** → 复用现有会话页面显示实时流
+- **点击查看** → 从 RunManager 跳转到 ChatApp 对应会话
+
+```
+RunManager                    ChatApp
+┌─────────────┐              ┌─────────────┐
+│ 任务列表     │              │ 会话页面     │
+│ ┌─────────┐ │   点击跳转    │ ┌─────────┐ │
+│ │ 任务A   │ │ ───────────► │ │ 用户:...│ │
+│ │ [启动]  │ │              │ │ AI: ... │ │
+│ └─────────┘ │              │ │ 工具:...│ │
+│             │              │ └─────────┘ │
+│ ┌─────────┐ │              │             │
+│ │ 任务B   │ │              │ 实时流显示   │
+│ │ [暂停]  │ │              │ (复用现有)  │
+│ └─────────┘ │              └─────────────┘
+└─────────────┘
+```
+
+#### 3.4.2 RunManager 添加"查看会话"按钮
+
+```typescript
+// RunManager.tsx
+
+const TaskListItem = ({ task, onViewThread }: { task: Task, onViewThread: (threadId: string) => void }) => {
+  return (
+    <div className="task-item">
+      <div className="task-info">
+        <span className="task-name">{task.name}</span>
+        <span className="task-status">{task.status}</span>
+      </div>
+      
+      <div className="task-actions">
+        {/* 控制按钮：启动/暂停/取消等 */}
+        <ActionButtons task={task} />
+        
+        {/* 【新增】查看会话按钮 */}
+        <button 
+          className="view-thread-btn"
+          onClick={() => onViewThread(task.thread_id)}
+          disabled={!task.thread_id}
+        >
+          <Icon name="message-circle" size={14} />
+          查看会话
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// 跳转处理
+const handleViewThread = (threadId: string) => {
+  // 方式 1: 跳转到 ChatApp 对应会话
+  window.location.href = `/chat?thread_id=${threadId}`
+  
+  // 方式 2: 如果是单页应用，使用路由
+  // navigate(`/chat/${threadId}`)
+  
+  // 方式 3: 打开新标签页
+  // window.open(`/chat?thread_id=${threadId}`, '_blank')
+}
+```
+
+#### 3.4.3 ChatApp 支持任务事件显示
+
+```typescript
+// ChatApp.tsx - 复用现有消息渲染
+
+const ChatMessage = ({ message }: { message: Message }) => {
+  // 标准消息（已有）
+  if (message.role === 'user') {
+    return <UserMessage content={message.content} />
+  }
+  
+  if (message.role === 'assistant') {
+    return <AssistantMessage content={message.content} />
+  }
+  
+  // 【新增】任务事件消息
+  if (message.role === 'task_event') {
+    return <TaskEventMessage message={message} />
+  }
+  
+  return null
+}
+
+// 任务事件消息组件
+const TaskEventMessage = ({ message }: { message: TaskEventMessage }) => {
+  const { event_type, content } = message
+  
+  switch (event_type) {
+    case 'subtask_started':
+      return (
+        <div className="task-event-message subtask-started">
+          <Icon name="play-circle" size={14} />
+          <span>开始执行子任务: {content.subtask_name}</span>
+        </div>
+      )
+    
+    case 'ai_message':
+      return (
+        <div className="task-event-message ai-message">
+          <Icon name="bot" size={14} />
+          <div className="message-content">{content.message}</div>
+        </div>
+      )
+    
+    case 'tool_call':
+      return (
+        <div className="task-event-message tool-call">
+          <Icon name="terminal" size={14} />
+          <div className="tool-info">
+            <span>调用工具: {content.tool}</span>
+            <pre className="tool-input">{JSON.stringify(content.input, null, 2)}</pre>
+          </div>
+        </div>
+      )
+    
+    case 'tool_result':
+      return (
+        <div className="task-event-message tool-result">
+          <Icon name="check" size={14} />
+          <pre className="tool-output">{content.output}</pre>
+        </div>
+      )
+    
+    case 'task_completed':
+      return (
+        <div className="task-event-message task-completed">
+          <Icon name="check-circle" size={14} />
+          <span>任务执行完成</span>
+        </div>
+      )
+    
+    default:
+      return null
+  }
+}
+```
+
+#### 3.4.4 CSS 样式（任务事件）
+
+```css
+/* react-chat.css - 任务事件消息样式 */
+
+.task-event-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* 子任务开始 */
+.task-event-message.subtask-started {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+/* AI 消息（任务执行中） */
+.task-event-message.ai-message {
+  background: #f3f4f6;
+  border-left: 3px solid #3b82f6;
+}
+
+.task-event-message.ai-message .message-content {
+  flex: 1;
+}
+
+/* 工具调用 */
+.task-event-message.tool-call {
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+}
+
+.task-event-message.tool-call .tool-input {
+  background: #1f2937;
+  color: #e5e7eb;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-top: 4px;
+  overflow-x: auto;
+}
+
+/* 工具结果 */
+.task-event-message.tool-result {
+  background: #d1fae5;
+  border-left: 3px solid #22c55e;
+}
+
+.task-event-message.tool-result .tool-output {
+  background: #f0fdf4;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-top: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* 任务完成 */
+.task-event-message.task-completed {
+  background: #dcfce7;
+  color: #16a34a;
+  font-weight: 500;
+}
+```
+
+#### 3.4.5 API 查询（复用会话查询）
+
+```typescript
+// 复用现有会话查询
+
+const loadThreadMessages = async (threadId: string) => {
+  // 复用现有 API
+  const response = await fetch(`/api/threads/${threadId}/messages`)
+  const data = await response.json()
+  
+  // 返回所有消息（包含 task_event）
+  return data.messages
+}
+
+// 过滤任务相关事件（可选）
+const filterTaskEvents = (messages: Message[], taskId: string) => {
+  return messages.filter(msg => 
+    msg.role === 'task_event' && msg.task_id === taskId
+  )
+}
+```
+
+
+## 4. 开发事项与进度
+
+### 4.1 开发进度总览
+
+| 阶段 | 内容 | 工时 | 进度 | 状态 |
+|------|------|------|------|------|
+| Phase 1 | 持久化写入器 | 8h | 8h | 100% | 已完成 |
+| Phase 2 | 执行器集成 | 6h | 6h | 100% | 已完成 |
+| Phase 3 | API 开发 | 4h | 4h | 100% | 已完成 |
+| Phase 4 | 前端适配 | 6h | 6h | 100% | 已完成 |
+| Phase 5 | 清理策略 | 4h | 0% | 未开始 |
+| Phase 6 | 调试 | 6h | 0% | 未开始 |
+| **总计** | - | **34h** | **24h** | **71%** | **进行中** |
+
+### 4.2 详细任务
+
+#### Phase 1: 持久化写入器 (8h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 1.1 | 创建 PersistentStreamWriter 类 | persistent_writer.py | 3h | 已完成 |
+| 1.2 | 实现双写逻辑（推送+文件） | persistent_writer.py | 2h | 已完成 |
+| 1.3 | 添加错误处理和日志 | persistent_writer.py | 1h | 已完成 |
+| 1.4 | 编写单元测试 | test_persistent_writer.py | 2h | 待开发 |
+
+#### Phase 2: 执行器集成 (6h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 2.1 | 修改 task_tool 导入持久化写入器 | task_tool.py | 1h | 已完成 |
+| 2.2 | 在 execute 函数中创建持久化 writer | task_tool.py | 3h | 已完成 |
+| 2.3 | 确保 writer 正确关闭 | task_tool.py | 1h | 已完成 |
+| 2.4 | 添加集成日志 | task_tool.py | 1h | 已完成 |
+
+#### Phase 3: API 开发 (4h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 3.1 | 实现 get_task_output API | tasks.py | 2h | 已完成 |
+| 3.2 | 实现分页和过滤参数 | tasks.py | 1h | 已完成 |
+| 3.3 | 添加 api-client 方法 | api-client.js | 1h | 已完成 |
+
+#### Phase 4: 前端适配 (6h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 4.1 | 实现 loadHistoricalOutput 函数 | RunManager.tsx | 2h | 已完成 |
+| 4.2 | 页面加载时调用历史加载 | RunManager.tsx | 1h | 已完成 |
+| 4.3 | 实现 syncNewOutput 同步新输出 | RunManager.tsx | 2h | 已完成 |
+| 4.4 | WebSocket 重连后同步 | RunManager.tsx | 1h | 已完成 |
+
+#### Phase 5: 清理策略 (4h)
+
+| 序号 | 任务 | 文件 | 工时 | 状态 |
+|------|------|------|------|------|
+| 5.1 | 设计日志保留策略 | cleanup.py | 1h | 待开发 |
+| 5.2 | 实现定时清理任务 | cleanup.py | 2h | 待开发 |
+| 5.3 | 添加手动清理 API | tasks.py | 1h | 待开发 |
+
+**清理策略:**
+- 已完成任务保留 7 天
+- 已取消/失败任务保留 3 天
+- 手动清理接口
+
+#### Phase 6: 调试 (6h)
+
+| 序号 | 任务 | 工时 | 状态 |
+|------|------|------|------|
+| 6.1 | 正常输出持久化测试 | 2h | 待调试 |
+| 6.2 | 大输出分块加载测试 | 2h | 待调试 |
+| 6.3 | 页面重连同步测试 | 2h | 待调试 |
+
+
+## 实现进度总结
+
+### 已完成
+
+#### Phase 1: 持久化写入器 ✅
+创建了 `backend/app/gateway/streaming/` 模块:
+- `__init__.py` - 模块导出
+- `persistent_writer.py` - PersistentStreamWriter 类，支持双写（实时推送 + 文件持久化）
+  - JSONL 格式存储
+  - 自动文件轮转
+  - 线程安全
+  - 上下文管理器支持
+
+#### Phase 2: 执行器集成 ✅
+修改了 `backend/packages/harness/evoflow/tools/builtins/task_tool.py`:
+- 导入持久化写入器
+- 创建持久化 writer 包装原始 writer
+- 任务完成/失败/超时时关闭 writer
+
+#### Phase 3: API 开发 ✅
+- `GET /api/tasks/{task_id}/output` - 获取任务输出历史
+  - 支持 offset/limit 分页
+  - 支持 from_timestamp 过滤
+  - 返回 entries, lifecycle_events, running_messages
+- `api-client.js` - 添加 `getTaskOutput` 方法
+
+### 已完成
+
+#### Phase 4: 前端适配 ✅
+- RunManager 添加"查看输出"按钮和功能
+- 输出面板 UI（显示在 RunManager 左侧）
+- 历史输出加载（分页）
+- 实时轮询同步新输出（2秒间隔）
+- 添加 CSS 样式
+
+### 待完成
+
+#### Phase 5: 清理策略 ⏳
+- 日志保留策略（已完成任务 7 天，失败/取消 3 天）
+- 定时清理任务
+
+#### Phase 6: 调试 ⏳
+- 正常输出持久化测试
+- 大输出分块加载测试
+- 页面重连同步测试
+
+
+**设计完成日期**: 2025-04-17
+**实现完成日期**: 2025-04-17
+**状态**: 核心功能已实现，待前端适配和调试

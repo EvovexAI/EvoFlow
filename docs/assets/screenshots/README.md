@@ -1,6 +1,6 @@
 # 桌面端 GUI 截图资源
 
-将 EvoFlow 桌面图形界面截图与社群二维码放在本目录，供根目录 [README.md](../../../README.md) 引用。
+将 EvoFlow 桌面图形界面截图与社群二维码放在本目录，供根目录 [README.md](https://github.com/EvovexAI/EvoFlow/blob/main/README.md) 引用。
 
 ## 需要上传的文件
 

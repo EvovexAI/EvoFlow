@@ -1,6 +1,6 @@
 # Plan 模式 · Supervisor / Agent Teams 演示素材
 
-供根目录 [README.md](../../../README.md) **「Plan 模式 · Agent Teams 从 0 到 1」** 章节引用。
+供根目录 [README.md](https://github.com/EvovexAI/EvoFlow/blob/main/README.md) **「Plan 模式 · Agent Teams 从 0 到 1」** 章节引用。
 
 ## 视频（2 条）
 

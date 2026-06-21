@@ -71,7 +71,7 @@
 
 ## 对话流恢复（Stream Resume，规划中）
 
-详见 [stream-resume-design.md](./stream-resume-design.md)。
+详见 [stream-resume-design.md](../internal/technical/stream-resume-design.md)。
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|

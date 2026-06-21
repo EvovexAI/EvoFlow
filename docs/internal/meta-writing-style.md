@@ -26,4 +26,4 @@
 - 已存在的**中文文件名**可逐步保留，新增文件优先英文 slug。
 
 
-更完整的写作模板见 [`technical/00-写作规范.md`](technical/00-写作规范.md)。
+更完整的写作模板见 [`technical/00-writing-style.md`](technical/00-writing-style.md)。

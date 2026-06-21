@@ -28,10 +28,10 @@ make docs-build
 | 想快速上手 | [5 分钟快速上手](getting-started/quick-start.md) |
 | 刚装好，想试试 | [完成第一个任务](getting-started/first-task.md) |
 | 知道基础用法，想深入 | [教程系列](tutorials/configure-models.md) |
-| 遇到具体问题要解决 | [操作指南](guides/evopanel-guide.md) |
+| 遇到具体问题要解决 | [操作指南](guides/configuration/evopanel-guide.md) |
 | 查配置项或 API | [参考文档](reference/api-reference.md) |
 | 想了解设计理念 | [概念解释](explanation/why-evoflow.md) |
-| 运维与自托管 | [运维手册](guides/operations-handbook.md) |
+| 运维与自托管 | [运维手册](guides/deployment/operations-handbook.md) |
 
 ## 文档分类
 
@@ -46,4 +46,5 @@ make docs-build
 
 ## 常见问题
 
-- [常见问题 FAQ](faq.md)
+- [常见问题 FAQ](guides/faq.md)
+)
