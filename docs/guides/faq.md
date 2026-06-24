@@ -211,7 +211,7 @@ EvoFlow 使用以下端口（开发脚本 / 桌面内置 sidecar 默认；Docker
 
 ### 支持哪些模型？
 
-EvoFlow 支持 OpenAI、Anthropic Claude、Google Gemini、DeepSeek、阿里 DashScope、Moonshot (Kimi)、MiniMax、火山引擎等主流模型。在 `config.yaml` 的 `models` 列表中配置。
+EvoFlow 支持 OpenAI、Anthropic Claude、Google Gemini、DeepSeek、阿里 DashScope、Moonshot (Kimi)、MiniMax、火山引擎等主流模型。在 **EvoPanel → 设置 → 模型**（或 Gateway `/api/models`）中配置，存于 SQLite，**不要**再写进 `config.yaml` 的 `models` 段。
 
 ### 如何切换模型？
 

@@ -2,120 +2,68 @@
 
 ## 你将学到什么
 
-- 理解模型配置的基本结构
-- 配置一个 OpenAI 兼容的模型
-- 配置一个 CLI 后端（Codex / Claude Code）
-- 多模型切换
+- 在 EvoPanel 中添加对话模型
+- 配置 OpenAI 兼容服务商
+- 设置主模型与 `max_tokens`
 
 ## 前置条件
 
 - 已完成 [安装](../getting-started/installation.md)
+- Gateway 已启动（模型写入 SQLite `evoflow.db`）
 
 ## 预计用时
 
 10 分钟
 
+## 说明
+
+**对话模型不再写在 `config.yaml`。** 运行时只从 SQLite（`evoflow_models` 表）读取；`config.yaml` 里的 `models:` 会被忽略。
+
 ## 步骤
 
-### 1. 打开配置文件
+### 1. 打开模型设置
 
-编辑项目根目录的 `config.yaml`。
+EvoPanel → **设置 → 模型**（或访问 Gateway `GET /api/models` 查看当前列表）。
 
-### 2. 添加一个 OpenAI 兼容模型
+### 2. 添加服务商与模型
 
-在 `models` 下添加：
+按界面添加：
 
-```yaml
-models:
-  - name: gpt-4
-    display_name: GPT-4
-    use: langchain_openai:ChatOpenAI
-    model: gpt-4
-    api_key: $OPENAI_API_KEY
-    max_tokens: 4096
-    temperature: 0.7
-```
-
-各字段含义：
-- `name`：内部标识符，代码中引用
-- `display_name`：UI 中显示的名称
-- `use`：LangChain 类路径，决定用哪个 SDK
-- `model`：API 端的模型名
-- `api_key`：以 `$` 开头表示读取环境变量
+- **接口地址**（`base_url`，通常以 `/v1` 结尾）
+- **API Key**
+- **模型 ID**（须与供应商文档一致）
+- **上下文长度**（`context_length`，用于压缩阈值）
+- 单次输出 token 固定 **64K（65536）**，保存模型时自动写入，无需单独配置
 
 ### 3. 设置 API 密钥
 
-在 `.env` 文件中：
+可在模型行填写，或使用环境变量（部分部署会从 `$ENV` 解析）。
+
+### 4. 设为主模型
+
+在模型页选择 **主模型**（写入 `evoflow_app_settings.primary_model`）。
+
+### 5. 验证
 
 ```bash
-OPENAI_API_KEY=your-api-key
+curl http://127.0.0.1:8013/api/models
 ```
 
-### 4. 添加一个 CLI 后端（可选）
+确认列表中有你的模型且 `max_tokens` 符合预期。
 
-```yaml
-models:
-  - name: codex
-    display_name: Codex CLI
-    use: evoflow.models.openai_codex_provider:CodexChatModel
-    model: gpt-5.4
-    supports_thinking: true
+## 多模型切换
 
-  - name: claude
-    display_name: Claude Code
-    use: evoflow.models.claude_provider:ClaudeChatModel
-    model: claude-sonnet-4-6
-    supports_thinking: true
-```
-
-CLI 后端的认证通过本地凭证文件完成：
-- Codex CLI：`~/.codex/auth.json`
-- Claude Code：`~/.claude/.credentials.json` 或环境变量
-
-### 5. 启用思考模式
-
-```yaml
-models:
-  - name: claude-thinking
-    display_name: Claude (Thinking)
-    use: langchain_anthropic:ChatAnthropic
-    model: claude-sonnet-4-6
-    api_key: $ANTHROPIC_API_KEY
-    supports_thinking: true
-    max_tokens: 8192
-    when_thinking_enabled:
-      thinking:
-        type: enabled
-```
-
-### 6. 启用视觉理解
-
-```yaml
-models:
-  - name: gpt-4-vision
-    display_name: GPT-4 Vision
-    use: langchain_openai:ChatOpenAI
-    model: gpt-4-turbo
-    api_key: $OPENAI_API_KEY
-    supports_vision: true
-```
-
-## 验证是否生效
-
-在 EvoPanel 的模型列表中能看到你配置的模型，点击测试按钮能连通。
+在聊天会话侧栏或会话设置中选择模型；底层通过模型 `name` 解析到 SQLite 中的配置行。
 
 ## 常见问题
 
-### 如何切换模型？
+**回复写到一半停了、`output_tokens` 正好 8192？**  
+把该模型的 **`max_tokens` 调大**（思考模式会占用输出预算）。
 
-在 EvoPanel 聊天界面的模型选择器中切换，或通过 `/models` 命令。
-
-### 支持哪些厂商？
-
-任何提供 OpenAI 兼容 API 的厂商：OpenAI、DeepSeek、Kimi、Gemini（通过网关）、Claude（通过 Anthropic SDK）等。
+**旧版 `config.yaml` 里还有 models 块？**  
+可删除；保留也会被启动逻辑忽略。一次性迁移可用 `sync_models_from_yaml_to_db`（见 `evoflow.persistence.bootstrap`）。
 
 ## 下一步
 
-- [完成第一个任务](../getting-started/first-task.md)
-- [创建自定义 Agent](create-agent.md)
-- [配置参考](../reference/config-reference.md)
+- [配置工具](configure-tools.md)
+- [第一次对话](first-conversation.md)

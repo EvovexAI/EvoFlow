@@ -18,8 +18,7 @@
 | `config_version` | int | 否 | 0 | 配置 schema 版本号 |
 | `log_level` | string | 否 | `info` | 日志级别（debug/info/warning/error） |
 | `token_usage` | object | 否 | `{enabled: true}` | Token 用量追踪配置 |
-| `models` | list/object | 是 | — | LLM 模型配置 |
-| `tools` | list | 否 | — | 自定义工具配置 |
+| `tools` | list | 否 | — | 自定义工具配置（运行时以 SQLite 为准） |
 | `tool_groups` | list | 否 | — | 工具逻辑分组 |
 | `sandbox` | object | 否 | — | 沙箱执行配置 |
 | `skills` | object | 否 | — | 技能路径配置 |
@@ -31,38 +30,15 @@
 | `guardrails` | object | 否 | — | 安全护栏配置 |
 | `acp_agents` | object | 否 | — | ACP 外部 Agent |
 
-## models
+## models（SQLite，不在 config.yaml）
 
-支持两种格式：
+对话模型与 `primary_model` **不再写入** `config.yaml`。运行时从 SQLite 加载：
 
-### 扁平列表格式（兼容旧版）
+- 表：`evoflow_models`（模型行）、`evoflow_app_settings`（`primary_model` 等）
+- 管理：EvoPanel → **设置 → 模型**，或 Gateway **`/api/models`**
+- 若 `config.yaml` 仍含 `models:` / `primary_model:`，启动时会 **忽略并打 warning**
 
-```yaml
-models:
-  - name: gpt-4
-    display_name: GPT-4
-    use: langchain_openai:ChatOpenAI
-    model: gpt-4
-    api_key: $OPENAI_API_KEY
-```
-
-### 嵌套格式（推荐）
-
-```yaml
-models:
-  providers:
-    aliyun-coding:
-      vendor: aliyun
-      use: langchain_openai:ChatOpenAI
-      base_url: https://coding.dashscope.aliyuncs.com/v1
-      api_key: $DASHSCOPE_API_KEY
-      models:
-        - name: kimi-k2.5
-          display_name: Kimi K2.5
-          model: kimi-k2.5
-```
-
-### 模型字段
+字段参考（与 API / 数据库行一致）：
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
@@ -72,7 +48,8 @@ models:
 | `model` | string | 是 | — | API 模型标识符 |
 | `api_key` | string | 否 | — | API 密钥（支持 `$ENV_VAR`） |
 | `base_url` | string | 否 | — | 自定义 API 端点 |
-| `max_tokens` | int | 否 | — | 最大输出 token 数 |
+| `max_tokens` | int | 否 | **65536** | 最大**输出** token（固定默认，无需在 UI 单独设置） |
+| `context_length` | int | 否 | — | 输入上下文窗口（用于压缩阈值） |
 | `temperature` | float | 否 | — | 采样温度（0-1） |
 | `supports_thinking` | bool | 否 | `false` | 是否支持思考模式 |
 | `supports_vision` | bool | 否 | `false` | 是否支持视觉理解 |

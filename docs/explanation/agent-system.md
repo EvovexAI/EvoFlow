@@ -22,7 +22,7 @@ from evoflow.agents.lead_agent.agent import make_lead_agent
 
 `make_lead_agent(config: RunnableConfig)` 是 LangGraph 注册的入口点。整个创建过程：
 
-1. **模型选择**：通过 `create_chat_model()` 从 `config.yaml` 中的 models 列表选取模型
+1. **模型选择**：通过 `create_chat_model()` 从 SQLite **`evoflow_models`**（EvoPanel 设置 → 模型）选取模型
 2. **工具组装**：通过 `get_available_tools()` 组合所有可用工具
 3. **中间件配置**：按固定顺序构建 13 个中间件
 4. **系统提示生成**：通过 `apply_prompt_template()` 注入技能、记忆、子 Agent 指令
