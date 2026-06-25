@@ -38,16 +38,16 @@ const pages: DocPage[] = [
     slug: ["getting-started"],
     title: { zh: "快速开始", en: "Getting started" },
     description: {
-      zh: "下载安装 EvoPanel，在软件里配好模型即可开始用。",
-      en: "Install EvoPanel, add your models in the app, and start using it.",
+      zh: "下载安装 EvoFlow，在软件里配好模型即可开始用。",
+      en: "Install EvoFlow, add your models in the app, and start using it.",
     },
     body: {
       zh: `
-下文说明 **EvoPanel 桌面客户端**：装好以后，在软件里完成模型相关设置即可。
+下文说明 **EvoFlow 桌面客户端**：装好以后，在软件里完成模型相关设置即可。
 
 ## 1. 下载安装包
 
-打开 [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases/latest)，按你的系统选择 **EvoPanel 桌面安装包**（若有），下载后按向导安装。
+打开 [EvovexAI/EvoFlow Releases](https://github.com/EvovexAI/EvoFlow/releases/latest)，按你的系统选择 **EvoFlow 桌面安装包**（若有），下载后按向导安装。
 
 也可从本站顶栏 **下载** 进入同一发行页。
 
@@ -75,14 +75,14 @@ const pages: DocPage[] = [
 
 侧栏从上到下与 **任务中心、定时任务、技能、MCP、预设角色** 等入口一致；底部 **设置** 见对应分区。
 
-本站产品文档按 **快速开始 → 实时对话（输入栏与选项、托管）→ 侧栏菜单（任务中心、定时任务、技能、MCP、预设角色）→ 设置** 分区，与 EvoPanel 主界面一致。
+本站产品文档按 **快速开始 → 实时对话（输入栏与选项、托管）→ 侧栏菜单（任务中心、定时任务、技能、MCP、预设角色）→ 设置** 分区，与 EvoFlow 主界面一致。
 
 ## 延伸阅读
 
 - [功能说明](/#capabilities)、[典型场景](/#scenarios)
 `.trim(),
       en: `
-This page is about the **EvoPanel** desktop app: install it, then finish model setup inside the app.
+This page is about the **EvoFlow** desktop app: install it, then finish model setup inside the app.
 
 ## 1. Download and install
 
@@ -114,7 +114,7 @@ Open **New chat** in the shell (or the main chat surface), pick a **model** unde
 
 The shell lists **Task center**, **Scheduled jobs**, **Skills**, **MCP**, and **Preset roles** in the same order as the app; **Settings** lives in the footer section of this doc set.
 
-These product docs follow **Getting started → Live chat (composer & options, then Hosted) → Shell entries (tasks, schedules, skills, MCP, preset roles) → Settings**, aligned with the EvoPanel shell.
+These product docs follow **Getting started → Live chat (composer & options, then Hosted) → Shell entries (tasks, schedules, skills, MCP, preset roles) → Settings**, aligned with the EvoFlow shell.
 
 ## Read next
 

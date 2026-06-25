@@ -1,4 +1,4 @@
-## EvoPanel（Windows 64 位）
+## EvoFlow（Windows 64 位）
 
 EvoFlow 桌面客户端：安装后打开即可使用；首次使用请在应用内配置模型 API。
 
