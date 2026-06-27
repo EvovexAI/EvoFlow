@@ -68,7 +68,7 @@ config.yaml.bak
 # MkDocs output
 site/
 
-# Temp directory
+# Temp directory (covers temp/ and all contents)
 temp/
 
 # Node modules
@@ -108,9 +108,6 @@ backend/evopanel/
 
 # LangGraph API runtime state
 .langgraph_api/
-
-# Temp directory (ensure all contents)
-temp/**
 
 evopanel/.build-temp/
 
@@ -179,6 +176,9 @@ backend/tests/test_*.py
 temp_*.py
 temp_*.js
 temp_langgraph.py
+/pdf_pages/
+/task*.txt
+/test-output.txt
 
 # Harness manual smoke fixtures (pytest uses tmp_path)
 backend/packages/harness/tests/_tmp_*
@@ -196,6 +196,9 @@ package.json
 !evopanel/package-lock.json
 !website/package.json
 !website/**/package.json
+!clawdevoflow/package.json
+!clawdevoflow/package-lock.json
+clawdevoflow/dist/
 CLAUDE.md
 
 # Next.js marketing site (website/)

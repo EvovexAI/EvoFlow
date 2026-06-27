@@ -34,6 +34,9 @@ Makefile text eol=lf
 *.tar binary
 *.gz binary
 *.mp4 filter=lfs diff=lfs merge=lfs -text
-*.mov binary
+*.mov filter=lfs diff=lfs merge=lfs -text
+*.pptx filter=lfs diff=lfs merge=lfs -text
+*.ppt filter=lfs diff=lfs merge=lfs -text
+*.key filter=lfs diff=lfs merge=lfs -text
 *.woff binary
 *.woff2 binary

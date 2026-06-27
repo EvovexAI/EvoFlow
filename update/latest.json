@@ -1,12 +1,10 @@
 {
-  "pub_date": "2026-06-25T15:41:22Z",
-  "assetKind": "installer",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.2.7/EvoFlow_0.2.7_x64-setup.exe",
-  "changelog": "**EvoFlow v0.2.7**",
-  "size": 335966797,
-  "minAppVersion": "0.2.7",
   "version": "0.2.7",
-  "notes": "**EvoFlow v0.2.7**",
-  "hash": "sha256:81c4743255caae8ce29850159881cab4a35be61a3a887c155caf9baf87e4c138",
-  "releasedAt": "2026-06-25T15:41:22Z"
+  "minAppVersion": "0.2.7",
+  "assetKind": "installer",
+  "hash": "sha256:b0c387825c186524e515bc6c55c59b9767b40f1ce2880702a8ccdc4473e9bf44",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.2.7/EvoFlow_0.2.7_x64-setup.exe",
+  "size": 375742235,
+  "changelog": "稳定版 v0.2.7：多文件编辑、终端与媒体生成体验优化。",
+  "releasedAt": "2026-06-10T00:00:00Z"
 }
