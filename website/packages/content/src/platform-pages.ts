@@ -480,7 +480,7 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
           description:
             "持续类与定时类任务可由智能体托管：按 Cron 触发巡检、报表或同步作业，运行结果与摘要推送到飞书（Lark）群或机器人，便于值班与业务方第一时间获知。",
           eyebrow: "自动化协同",
-          title: "持续运行 · 定时任务 · 飞书汇报",
+          title: "持续运行 · 自动化 · 飞书汇报",
         },
       ],
       timeline: [

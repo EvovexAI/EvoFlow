@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { homeContentByLocale } from "@ai-site/content";
+import { homeContentByLocale, siteLinks } from "@ai-site/content";
 import {
   SectionHeading,
   SignalLine,
@@ -300,6 +300,28 @@ function HeroSection({
           >
             {hero.description}
           </p>
+
+          <div
+            className="animate-fade-up mt-8 flex flex-wrap items-center gap-3"
+            style={{ animationDelay: "150ms" } as CSSProperties}
+          >
+            <a
+              className="inline-flex items-center justify-center rounded-lg bg-foreground px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-90"
+              href={siteLinks.blog}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {hero.cta.primaryLabel}
+            </a>
+            <a
+              className="inline-flex items-center justify-center rounded-lg border border-outline-variant/30 px-5 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-high/60"
+              href={siteLinks.github}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {hero.cta.secondaryLabel}
+            </a>
+          </div>
         </div>
 
         <HomeVisualShowcase className="relative mt-10 md:mt-14" />

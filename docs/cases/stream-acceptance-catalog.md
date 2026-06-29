@@ -1,6 +1,6 @@
 # 流式验收案例目录（能力向）
 
-> **定位**：本页与 [案例索引](index.md) 中的「故事型最佳实践（一至八）」**并列**：索引偏**用户旅程与截图步骤**；本目录偏**产品能力 / 管理面 + 执行面**，与你在 EvoPanel 里常做的「创建 / 管理智能体、技能、定时任务、Plan、联网出稿、主对话里持续改需求」等对齐，便于**逐项跑验收、逐项写正式报告**（模板见 [scenario-acceptance-report.template.md](templates/scenario-acceptance-report.template.md)）。
+> **定位**：本页与 [案例索引](index.md) 中的「故事型最佳实践（一至八）」**并列**：索引偏**用户旅程与截图步骤**；本目录偏**产品能力 / 管理面 + 执行面**，与你在 EvoPanel 里常做的「创建 / 管理智能体、技能、自动化、Plan、联网出稿、主对话里持续改需求」等对齐，便于**逐项跑验收、逐项写正式报告**（模板见 [scenario-acceptance-report.template.md](templates/scenario-acceptance-report.template.md)）。
 
 ---
 
@@ -38,8 +38,8 @@
 | **acc-02** | **管理智能体**（列表 / 摘要） | 同上 → `run_scenario_manage` | 同上 |
 | **acc-03** | **创建技能** | 同上 → `run_scenario_create_skill` | 同上 |
 | **acc-04** | **管理技能**（只了解现状，不要求新建） | **自然用户**：§1.1 提示词，自行发起流式；**弱替代**：同上 → `run_scenario_evolve` | 回答覆盖「现有技能与用途」；附件 JSON 可查侧载；无安全违规 |
-| **acc-05** | **创建定时任务** | REST：`POST /api/automation/tasks`（无 LangGraph 流） | 见 [§1.2](#12-acc-05-示例-rest-创建一次性定时任务)；HTTP 200；可 GET 到任务 |
-| **acc-06** | **管理定时任务** | REST：`/api/automation/...` | 列表 / 快照 / 暂停 / 恢复 / 删除结果符合预期 |
+| **acc-05** | **创建自动化** | REST：`POST /api/automation/tasks`（无 LangGraph 流） | 见 [§1.2](#12-acc-05-示例-rest-创建一次性自动化)；HTTP 200；可 GET 到任务 |
+| **acc-06** | **管理自动化** | REST：`/api/automation/...` | 列表 / 快照 / 暂停 / 恢复 / 删除结果符合预期 |
 | **acc-07** | **创建 Plan**（澄清 → 确认执行） | `e2e_plan_mode_api_test.py` → `run_e2e` | `summary.ok`；用户消息原文见 [§1.3](#13-脚本内用户消息与发送文本一致以源码为准) |
 | **acc-08** | **外联信息并成稿**（短文 / 报告感） | `e2e_scenarios_api_test.py` → `run_scenario_web`（CI）；日常更推荐 §6 | 无 `error_events`；`ai_text_seen`；意图达成即可 |
 | **acc-09** | **主对话持续追问**（同 thread 多轮） | `stream_natural_acceptance_smoke.py` → `natural_execute_continue` | 第二轮承接上文；无未处理 `error_events` |
@@ -52,14 +52,14 @@
 
 验收在报告**附件**中保留流式 JSON；**正文**用业务语言概括：是否只做了「了解现状」、是否出现与意图不符的写操作。
 
-### 1.2 acc-05 示例：REST 创建一次性定时任务
+### 1.2 acc-05 示例：REST 创建一次性自动化
 
 将 `GATEWAY` 换成你的基址（如 `http://127.0.0.1:8070`）：
 
 ```bash
 curl -sS -X POST "%GATEWAY%/api/automation/tasks" ^
   -H "Content-Type: application/json" ^
-  -d "{\"name\":\"验收-一次性\",\"prompt\":\"用中文回复：定时任务冒烟成功。\",\"schedule_type\":\"once\",\"scheduled_at\":\"2099-12-31T09:00:00\"}"
+  -d "{\"name\":\"验收-一次性\",\"prompt\":\"用中文回复：自动化冒烟成功。\",\"schedule_type\":\"once\",\"scheduled_at\":\"2099-12-31T09:00:00\"}"
 ```
 
 （Linux/macOS 请将 `^` 换为 `\`。）

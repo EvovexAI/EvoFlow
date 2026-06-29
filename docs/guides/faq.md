@@ -64,7 +64,7 @@
 
 ---
 
-## 3. 托管/定时任务问题
+## 3. 托管/自动化问题
 
 ### 问题：托管任务运行失败
 
@@ -85,15 +85,15 @@
 3. 检查是否连续执行失败超过了重试阈值，自动暂停
 4. 确认 EvoFlow 客户端是否处于运行状态，没有被关闭
 
-### 问题：定时任务没触发
+### 问题：自动化没触发
 
 排查：
 
-1. 进入「定时任务」页面，确认定时任务状态是「已启用」
+1. 进入「自动化」页面，确认自动化状态是「已启用」
 2. 检查 Cron 表达式是否正确，可以使用在线 Cron 表达式验证工具确认
 3. 确认 EvoFlow 客户端处于运行状态，没有被关闭，电脑没有休眠
-4. 查看定时任务的执行历史，是否有执行失败记录
-5. 查看 `logs/automation.log` 中的定时任务相关日志
+4. 查看自动化的执行历史，是否有执行失败记录
+5. 查看 `logs/automation.log` 中的自动化相关日志
 6. 如果是飞书推送任务，确认飞书渠道配置正确，机器人有发送消息权限
 
 ---
@@ -304,7 +304,7 @@ curl -X POST http://localhost:8001/api/agents \
 
 ## 自动化调度
 
-### 如何创建定时任务？
+### 如何创建自动化？
 
 在自动化调度器中配置 cron 或 rrule 表达式，指定触发时间和任务内容。支持飞书推送通知。
 
@@ -340,5 +340,5 @@ curl -X POST http://localhost:8001/api/agents \
 
 ### 许可证是什么？
 
-Evovex AI 非商业许可证 1.0：允许学习与非商业使用；商业使用须联系 Evovex AI 取得书面授权。部分组件源自 DeerFlow（MIT），详见 [NOTICE](https://github.com/EvovexAI/EvoFlow/blob/main/NOTICE)。
+EvovexAI 非商业许可证 1.0：允许学习与非商业使用；商业使用须联系 EvovexAI 取得书面授权。部分组件源自 DeerFlow（MIT），详见 [NOTICE](https://github.com/EvovexAI/EvoFlow/blob/main/NOTICE)。
 

@@ -87,7 +87,7 @@ nav:
         - 文件上传: guides/chat/file-upload.md
       - 任务与调度:
         - 任务中心: guides/tasks/task-center.md
-        - 定时任务: guides/tasks/scheduled-tasks.md
+        - 自动化: guides/tasks/scheduled-tasks.md
         - 自动化调度: guides/tasks/automation-scheduler.md
         - 任务产出目录约定: evoflow/artifacts/README.md
       - 配置与面板:
@@ -118,7 +118,7 @@ nav:
       - 创建 Agent: cases/create-agent.md
       - 创建技能: cases/create-skill.md
       - 安装技能: cases/install-skill.md
-      - 定时任务: cases/scheduled-tasks.md
+      - 自动化: cases/scheduled-tasks.md
       - 搜索 + HTML 报告: cases/search-html-report.md
       - Claude Code 持续协作: cases/claude-code-continuous.md
       - Supervisor 模式: cases/supervisor-mode.md

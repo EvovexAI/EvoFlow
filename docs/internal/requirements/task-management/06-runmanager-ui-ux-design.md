@@ -153,7 +153,7 @@ const TaskSourceBadge = ({ source }: { source: string }) => {
       icon: 'message-circle' 
     },
     automation: { 
-      label: '定时任务', 
+      label: '自动化', 
       color: '#8b5cf6', 
       icon: 'clock' 
     },
@@ -295,7 +295,7 @@ const TaskFilterBar = ({ onFilterChange }: { onFilterChange: (filters) => void }
       >
         <option value="all">全部来源</option>
         <option value="conversation">对话创建</option>
-        <option value="automation">定时任务</option>
+        <option value="automation">自动化</option>
         <option value="manual">手动创建</option>
       </select>
       

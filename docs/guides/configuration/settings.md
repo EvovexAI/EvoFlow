@@ -53,7 +53,7 @@ EvoPanel 左下角「设置」按钮（或快捷键唤起）打开**设置弹窗
 | 目录 | 用途 |
 |------|------|
 | `~/.evoflow/` | 主数据目录（会话、记忆、自动化任务、配置） |
-| `~/.evoflow/tasks/automations/` | 定时任务 TOML 配置 |
+| `~/.evoflow/tasks/automations/` | 自动化 TOML 配置 |
 | `/mnt/user-data/` | 虚拟沙箱路径（`uploads/` 与 `outputs/`） |
 
 通用 Tab 提供「打开数据目录」「清理缓存」入口。

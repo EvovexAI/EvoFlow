@@ -57,7 +57,7 @@ docs/
 │   ├── hosted-agent.md                         # 托管智能体
 │   ├── workspace.md                            # 工作空间
 │   ├── task-center.md                          # 任务中心
-│   ├── scheduled-tasks.md                      # 定时任务
+│   ├── scheduled-tasks.md                      # 自动化
 │   ├── settings.md                             # 面板设置
 │   ├── agent-management.md                     # Agent 管理
 │   ├── feishu-integration.md                   # 飞书集成

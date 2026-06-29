@@ -50,8 +50,8 @@ const evolutionLogCopyByLocale: LocalizedValue<{
       { name: "持续任务 / 长周期运行（可暂停、续跑）", category: "LongRunning", level: 91, color: "#06b6d4" },
       { name: "超级总控智能体（Supervisor）看进度、纠错、重试与重新编排", category: "Observability", level: 94, color: "#94e2d5" },
       { name: "与 Claude Code 等编码工具链协同（研发类长任务）", category: "Integration", level: 88, color: "#fbbf24" },
-      { name: "智能体控制的定时任务（巡检 / 报表触发）", category: "Integration", level: 89, color: "#f59e0b" },
-      { name: "定时任务结果汇总与飞书（Lark）汇报", category: "Integration", level: 87, color: "#ea580c" },
+      { name: "智能体控制的自动化（巡检 / 报表触发）", category: "Integration", level: 89, color: "#f59e0b" },
+      { name: "自动化结果汇总与飞书（Lark）汇报", category: "Integration", level: 87, color: "#ea580c" },
     ],
   },
   en: {

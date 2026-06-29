@@ -34,6 +34,8 @@ Makefile text eol=lf
 *.tar binary
 *.gz binary
 *.mp4 filter=lfs diff=lfs merge=lfs -text
+# Skills example assets: keep in git blob (avoids LFS S3 upload on restricted networks).
+skills/public/hyperframes-animation/examples/assets/*.mp4 -filter -diff -merge binary
 *.mov filter=lfs diff=lfs merge=lfs -text
 *.pptx filter=lfs diff=lfs merge=lfs -text
 *.ppt filter=lfs diff=lfs merge=lfs -text

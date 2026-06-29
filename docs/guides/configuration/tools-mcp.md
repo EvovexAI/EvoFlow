@@ -115,12 +115,12 @@ EvoFlow 支持三种 MCP 传输类型：
 
 #### 方式一：从市场安装
 
-1. 切到「市场」Tab，自动加载推荐 MCP 服务器
+1. 切到「市场」Tab，自动加载 **Glama MCP 目录**（空关键词时同时展示 EvoFlow 精选）
 2. 搜索框输入关键词（如 `github`、`filesystem`、`postgres`）
-3. 卡片右下角「安装」按钮 → 自动完成配置并启用
-4. 已安装的卡片按钮变为「已安装 ✓」
+3. 卡片右下角「安装」→ Gateway 从 **官方 MCP Registry** 解析安装配置并写入本地
+4. 已安装的可在「已安装」Tab 启用并分配给 Agent
 
-> **市场来源**：当前展示的是 EvoFlow 团队整理的常用 MCP 列表（多数来自 [@modelcontextprotocol](https://github.com/modelcontextprotocol) 官方仓库）。第三方 MCP 自行评估安全性，**特别注意 stdio MCP 会在你本机起子进程**。
+> **市场来源**：搜索来自 [Glama](https://glama.ai/mcp/servers)；一键安装配置优先解析 [官方 MCP Registry](https://registry.modelcontextprotocol.io)。Glama 不可用时回退到 EvoFlow 精选列表。第三方 MCP 请自行评估安全性，**stdio 类会在本机起子进程**。
 
 #### 方式二：手动添加自定义 MCP
 

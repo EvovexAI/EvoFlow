@@ -27,13 +27,13 @@
 |------|------|----------|----------|
 | `/hosted [任务目标]` | `/hd` | 直接创建后台托管任务，自动解析运行周期和执行内容 | `/hosted 每小时检查服务器磁盘占用，超过90%告警`<br>`/hd 每天早上9点生成昨日业务报表` |
 | `/task [任务描述]` | `/tk` | 创建编排任务，智能体自动拆解成多步骤执行 | `/task 开发一个Python的TODO管理工具，支持增删改查功能` |
-| `/status` | `/st` | 查看当前会话的任务状态、运行进度、托管任务列表、定时任务列表 | `/status` |
-| `/automation [操作]` | `/cron`、`/schedule` | 定时任务操作，支持创建、查看、暂停、删除定时任务 | `/automation create 每周五下午6点执行代码安全扫描`<br>`/cron list`<br>`/schedule pause task_123` |
-| `/automation pause [任务ID]` | `/cron pause` | 暂停指定的定时任务 | `/automation pause task_123` |
-| `/automation resume [任务ID]` | `/cron resume` | 恢复指定的定时任务 | `/automation resume task_123` |
-| `/automation delete [任务ID]` | `/cron delete` | 删除指定的定时任务 | `/automation delete task_123` |
-| `/automation list` | `/cron list` | 查看所有定时任务列表 | `/automation list` |
-| `/automation history [任务ID]` | `/cron history` | 查看指定定时任务的执行历史 | `/automation history task_123` |
+| `/status` | `/st` | 查看当前会话的任务状态、运行进度、托管任务列表、自动化列表 | `/status` |
+| `/automation [操作]` | `/cron`、`/schedule` | 自动化操作，支持创建、查看、暂停、删除自动化 | `/automation create 每周五下午6点执行代码安全扫描`<br>`/cron list`<br>`/schedule pause task_123` |
+| `/automation pause [任务ID]` | `/cron pause` | 暂停指定的自动化 | `/automation pause task_123` |
+| `/automation resume [任务ID]` | `/cron resume` | 恢复指定的自动化 | `/automation resume task_123` |
+| `/automation delete [任务ID]` | `/cron delete` | 删除指定的自动化 | `/automation delete task_123` |
+| `/automation list` | `/cron list` | 查看所有自动化列表 | `/automation list` |
+| `/automation history [任务ID]` | `/cron history` | 查看指定自动化的执行历史 | `/automation history task_123` |
 
 ---
 ## 四、系统查询类

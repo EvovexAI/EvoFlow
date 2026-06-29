@@ -164,13 +164,13 @@ export const guiShowcaseImages: ShowcaseImage[] = [
   },
   {
     src: p("screenshots", "scheduled-tasks-1.png"),
-    alt: { zh: "定时任务（一）", en: "Scheduled tasks (1)" },
-    caption: { zh: "定时任务（一）", en: "Scheduled (1)" },
+    alt: { zh: "自动化（一）", en: "Scheduled tasks (1)" },
+    caption: { zh: "自动化（一）", en: "Scheduled (1)" },
   },
   {
     src: p("screenshots", "scheduled-tasks-2.png"),
-    alt: { zh: "定时任务（二）", en: "Scheduled tasks (2)" },
-    caption: { zh: "定时任务（二）", en: "Scheduled (2)" },
+    alt: { zh: "自动化（二）", en: "Scheduled tasks (2)" },
+    caption: { zh: "自动化（二）", en: "Scheduled (2)" },
   },
   {
     src: p("screenshots", "hosted-1.png"),

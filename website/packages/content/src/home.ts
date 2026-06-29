@@ -15,6 +15,11 @@ export const homeContentByLocale: LocalizedValue<{
   hero: {
     title: string;
     description: string;
+    /** Hero CTA 按钮 */
+    cta: {
+      primaryLabel: string;
+      secondaryLabel: string;
+    };
     /** 第二块：功能汇总区标题与导语 */
     featureSummary: {
       eyebrow: string;
@@ -140,6 +145,10 @@ export const homeContentByLocale: LocalizedValue<{
       title: "驾驭超级 Agent 的编排框架",
       description:
         "多步任务常卡在「做到一半就断、难以续跑」，一大原因是闲聊式界面缺乏总控与状态；同时工具与长提示一把塞进上下文，Token 消耗和费用会快速上去。EvoFlow 面向需要多日推进、跨系统协作的智能体长任务：由超级总控智能体（Supervisor）把规划、依赖与监督串成可恢复的闭环，并以分阶段协作加上「工具渐进暴露」（首轮不摊开大清单、按需挂载扩展）把上下文压在必要范围内。本站介绍产品能力与演进路线。",
+      cta: {
+        primaryLabel: "下载 EvoFlow",
+        secondaryLabel: "GitHub",
+      },
       featureSummary: {
         eyebrow: "产品概览",
         title: "核心差异化 · 八大支柱",
@@ -290,7 +299,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "能力矩阵",
       title: "从编排到交付的完整闭环",
       description:
-        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、定时任务、智能体进化等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
+        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、自动化、智能体进化等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
       focusBand: {
         supervisorCaption: "控制面",
         supervisorTitle: "超级总控智能体（Supervisor）",
@@ -453,12 +462,12 @@ export const homeContentByLocale: LocalizedValue<{
           },
           {
             anchorId: "capability-scheduled-jobs",
-            title: "定时任务",
+            title: "自动化",
             accent: "tertiary" as Accent,
             lead:
               "网关在后台按固定周期扫描自动化任务目录中的任务描述文件，到达约定时间即触发执行；可配置周期规则、提示词内容，以及是否在触发时调用编排运行时、是否向飞书推送摘要等。每次触发是独立的自动化运行，与当前聊天窗里的人工编排任务不同；如需要，也可配置是否在多次触发之间复用同一会话。",
             highlights: [
-              "在侧栏「定时任务」里创建与管理规则；支持按周期或重复方式触发（以界面为准）",
+              "在侧栏「自动化」里创建与管理规则；支持按周期或重复方式触发（以界面为准）",
               "可选在触发时走编排运行时，并可设置超时等保护",
               "若部署方提供诊断入口，可确认后台调度是否在正常运行",
             ],
@@ -502,7 +511,7 @@ export const homeContentByLocale: LocalizedValue<{
           accent: "primary" as Accent,
         },
         {
-          title: "定时任务与飞书汇报",
+          title: "自动化与飞书汇报",
           context:
             "巡检、日报、指标汇总等希望按固定节奏自动跑，跑完要把结果摘要推到飞书群或相关负责人，而不是靠人肉盯窗口。",
           flow:
@@ -618,6 +627,10 @@ export const homeContentByLocale: LocalizedValue<{
       title: "Orchestration for serious agent workloads",
       description:
         "Multi-step work often stalls halfway—chat-style UIs lack durable control and state—while stuffing every tool and wall of text into context drives token use and cost up fast. EvoFlow targets agent workloads that span days and systems: a lead Supervisor ties planning, dependencies, and oversight into recoverable runs, with phased collaboration plus progressive tool exposure (small cold-start toolsets, mount extensions on demand) so context stays as small as practical. This site explains product capabilities and roadmap.",
+      cta: {
+        primaryLabel: "Download EvoFlow",
+        secondaryLabel: "GitHub",
+      },
       featureSummary: {
         eyebrow: "Product pillars",
         title: "What makes EvoFlow different",

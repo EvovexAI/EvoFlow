@@ -325,7 +325,7 @@ stream_mirror.clear_unavailable(session_key)
 
 ### 7.3 Stale 修正（扩展 reconcile）
 
-在 `run_status_reconcile.py` / 定时任务中增加：
+在 `run_status_reconcile.py` / 自动化中增加：
 
 ```python
 if mirror_meta.updated_at_ms older than STREAM_RESUME_INACTIVE_MS:

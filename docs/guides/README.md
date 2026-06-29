@@ -20,7 +20,7 @@
 | 主题 | 文档 |
 |------|------|
 | 任务中心（多智能体协作） | [task-center.md](tasks/task-center.md) |
-| 定时任务与通知推送 | [scheduled-tasks.md](tasks/scheduled-tasks.md) |
+| 自动化与通知推送 | [scheduled-tasks.md](tasks/scheduled-tasks.md) |
 | 自动化调度（Automation） | [tasks/automation-scheduler.md](tasks/automation-scheduler.md) |
 
 ## 配置与面板（configuration/）
@@ -58,7 +58,7 @@
 
 ## 常见问题
 
-- [faq.md](faq.md)：模型连接 / 工具技能 / 托管定时任务 / 客户端运行 / 飞书渠道排查
+- [faq.md](faq.md)：模型连接 / 工具技能 / 托管自动化 / 客户端运行 / 飞书渠道排查
 
 ---
 

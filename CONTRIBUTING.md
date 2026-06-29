@@ -313,4 +313,4 @@ Every pull request runs the backend regression workflow at [.github/workflows/ba
 
 ## License
 
-By contributing to EvoFlow, you agree that your contributions will be licensed under the [Evovex AI Non-Commercial License](./LICENSE) and that Evovex AI may use your contributions for commercial offerings under separate terms.
+By contributing to EvoFlow, you agree that your contributions will be licensed under the [EvovexAI Non-Commercial License](./LICENSE) and that EvovexAI may use your contributions for commercial offerings under separate terms.

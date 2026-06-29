@@ -1,5 +1,5 @@
 # ⚡ EvoFlow
-> EvoFlow 是 **Evovex AI** 旗下的**超级 Agent 编排框架**：采用 **Supervisor 超级智能体全局主控模式**，从源头解决长任务易中断、Token 无效消耗等核心痛点，支持用户随时下达任务指令、执行过程全程透明可干预、自动交付最终结果，由可扩展技能生态驱动能力边界。
+> EvoFlow 是 **EvovexAI** 旗下的**超级 Agent 编排框架**：采用 **Supervisor 超级智能体全局主控模式**，从源头解决长任务易中断、Token 无效消耗等核心痛点，支持用户随时下达任务指令、执行过程全程透明可干预、自动交付最终结果，由可扩展技能生态驱动能力边界。
 
 [![官网](https://img.shields.io/badge/官网-evovexai.com-6366f1?style=flat-square)](https://www.evovexai.com)
 [![联系](https://img.shields.io/badge/联系-cloud%40evovexai.com-64748b?style=flat-square&logo=gmail&logoColor=white)](mailto:cloud@evovexai.com)
@@ -107,12 +107,12 @@
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/assets/screenshots/scheduled-tasks-1.png" width="100%" alt="定时任务配置与列表（一）">
-      <br><sub>定时任务（一）</sub>
+      <img src="docs/assets/screenshots/scheduled-tasks-1.png" width="100%" alt="自动化配置与列表（一）">
+      <br><sub>自动化（一）</sub>
     </td>
     <td align="center" width="50%">
-      <img src="docs/assets/screenshots/scheduled-tasks-2.png" width="100%" alt="定时任务配置与列表（二）">
-      <br><sub>定时任务（二）</sub>
+      <img src="docs/assets/screenshots/scheduled-tasks-2.png" width="100%" alt="自动化配置与列表（二）">
+      <br><sub>自动化（二）</sub>
     </td>
   </tr>
   <tr>
@@ -153,7 +153,7 @@ IM侧即可完成全流程操作，不用开客户端：飞书侧可直接下达
 编码类任务效率提升神器：既支持直接和Claude Code实时交互完成编码/调试，也可在Supervisor模式中作为编码子代理承接开发专项任务，支持多Claude Code会话并行分工，大幅提升研发效率
 
 - ✅ **零门槛自然语言操作**  
-所有能力自然语言触发，不用复杂配置：托管任务、定时任务直接在对话中即可创建，用自然语言就能下达指令，无需学习复杂配置
+所有能力自然语言触发，不用复杂配置：托管任务、自动化直接在对话中即可创建，用自然语言就能下达指令，无需学习复杂配置
 
 - ✅ **降本增效控Token消耗**  
 从源头控制Token无效消耗：工具渐进暴露机制，仅加载当前场景所需工具，大幅减少无效Token占用，降低使用成本
@@ -183,7 +183,7 @@ IM侧即可完成全流程操作，不用开客户端：飞书侧可直接下达
 | **Agent 管理** | **Agent Teams 团队** + 团队内预设角色；人设、模型与工具白名单按角色配置 |
 | **工具与技能市场** | 技能浏览/启停、归档安装、MCP扩展状态管理 |
 | **IM 渠道** | 支持飞书/Slack/Telegram等渠道接入，消息双向同步 |
-| **定时任务** | Cron周期任务配置，支持结果推送、周期编排运行 |
+| **自动化** | Cron周期任务配置，支持结果推送、周期编排运行 |
 | **托管任务** | 托管任务启停/参数配置，支持模型提议→用户确认执行流程 |
 | **记忆管理** | 全局/Agent级记忆导入导出，外部记忆插件接入 |
 | **观测与调用日志** | Agent Trace 页面展示模型、工具与 Gateway 调用日志；Gateway 请求以异步方式写入观测 SQLite，并对敏感 headers/body 字段脱敏；Gateway 内置卡顿诊断会在事件循环 lag/卡死时输出线程栈、asyncio task 与活跃 stream 快照 |
@@ -191,7 +191,7 @@ IM侧即可完成全流程操作，不用开客户端：飞书侧可直接下达
 
 ---
 ## ⚖️ 许可证
-本项目以 [Evovex AI 非商业许可证 1.0](LICENSE) 发布：**允许学习与非商业使用；商业使用须书面授权**（[cloud@evovexai.com](mailto:cloud@evovexai.com)）。上游与第三方组件见 [NOTICE](NOTICE)。
+本项目以 [EvovexAI 非商业许可证 1.0](LICENSE) 发布：**允许学习与非商业使用；商业使用须书面授权**（[cloud@evovexai.com](mailto:cloud@evovexai.com)）。上游与第三方组件见 [NOTICE](NOTICE)。
 
 ---
 ## 💬 社区与交流

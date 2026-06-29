@@ -73,9 +73,9 @@ const pages: DocPage[] = [
 
 点侧栏 **新建对话** 或进入聊天主区，在输入框下方选好 **模型** 后即可对话。**输入栏上模型、模式、记忆、创意、工作空间** 等说明见 [输入栏与选项](/docs/chat/composer)；**托管** 见 [托管](/docs/chat/hosted)。
 
-侧栏从上到下与 **任务中心、定时任务、技能、MCP、预设角色** 等入口一致；底部 **设置** 见对应分区。
+侧栏从上到下与 **任务中心、自动化、技能、MCP、预设角色** 等入口一致；底部 **设置** 见对应分区。
 
-本站产品文档按 **快速开始 → 实时对话（输入栏与选项、托管）→ 侧栏菜单（任务中心、定时任务、技能、MCP、预设角色）→ 设置** 分区，与 EvoFlow 主界面一致。
+本站产品文档按 **快速开始 → 实时对话（输入栏与选项、托管）→ 侧栏菜单（任务中心、自动化、技能、MCP、预设角色）→ 设置** 分区，与 EvoFlow 主界面一致。
 
 ## 延伸阅读
 
@@ -156,7 +156,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- `/models`、`/memory` — 查看模型列表、记忆摘要等简要信息",
         "- `/help` — 帮助",
         "",
-        "下面这类在营销文案里常见、**在机器人指令里通常没有**：`/clear`、`/reset`、`/model`、`/mode`、`/task`、`/cron`、`/web`、`/file` 等。**任务中心、定时任务**请在 EvoPanel **侧栏**对应页面里操作。",
+        "下面这类在营销文案里常见、**在机器人指令里通常没有**：`/clear`、`/reset`、`/model`、`/mode`、`/task`、`/cron`、`/web`、`/file` 等。**任务中心、自动化**请在 EvoPanel **侧栏**对应页面里操作。",
         "",
         "## 小提示",
         "1. 指令里若有一大段话带空格，建议用英文引号包起来再发。",
@@ -402,7 +402,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
   },
   {
     slug: ["tasks", "cron"],
-    title: { zh: "定时任务", en: "Scheduled jobs" },
+    title: { zh: "自动化", en: "Scheduled jobs" },
     description: {
       zh: "按时间表自动跑检查或任务。",
       en: "Run checks or jobs on a schedule.",
@@ -410,7 +410,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
     body: desktopStub(
       [
         "## 入口",
-        "侧栏点 **定时任务**。",
+        "侧栏点 **自动化**。",
         "",
         "## 页面上有什么",
         "- **新建任务**：打开创建/编辑向导，按步骤填写任务名称、要执行的说明（给模型看的 **Prompt**）、计划方式（页面内有 **预设快捷**：如每小时、每天 9 点、工作日 9 点等，也有 Cron / 一次性等选项，以向导为准）。",
@@ -636,7 +636,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "## 使用前提与注意",
         "- 运行环境需已按安装说明能 **正常拉起 Claude Code**（本机 SDK）；若直连失败，请看界面或日志里的提示。",
         "- 确认当前会话的 **工作空间** 指向你要改的项目目录，否则编码会在错误根目录下执行。",
-        "- 更多斜杠差异（例如 **`/cron` 不会当建定时任务**）见 [快捷指令](/docs/quick-commands)；输入栏与 **Plan** 菜单状态见 [输入栏与选项](/docs/chat/composer)。",
+        "- 更多斜杠差异（例如 **`/cron` 不会当建自动化**）见 [快捷指令](/docs/quick-commands)；输入栏与 **Plan** 菜单状态见 [输入栏与选项](/docs/chat/composer)。",
         "",
         "## 延伸阅读",
         "- [Claude Code 官方文档](https://docs.anthropic.com/en/docs/claude-code)",
@@ -755,9 +755,9 @@ These product docs follow **Getting started → Live chat (composer & options, t
   },
   {
     slug: ["chat", "quick-create-cron"],
-    title: { zh: "快速创建定时任务", en: "Quick create: scheduled job" },
+    title: { zh: "快速创建自动化", en: "Quick create: scheduled job" },
     description: {
-      zh: "在实时对话里用自然话创建自动化定时任务，与侧栏定时任务同一套数据。",
+      zh: "在实时对话里用自然话创建自动化自动化，与侧栏自动化同一套数据。",
       en: "Create scheduled automations from live chat—same jobs as the Scheduled jobs sidebar.",
     },
     body: desktopStub(
@@ -765,12 +765,12 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "## 操作说明",
         "在 **实时对话** 里说清三件事：**多久执行一次**、**任务标题怎么叫**、**到点要让助手帮你做什么**（可以带工作空间、输出格式等要求）。例如：「每个工作日早上 9 点，根据当前工作空间写一段昨日工作总结」。",
         "",
-        "助手会整理成与侧栏 **[定时任务](/docs/tasks/cron)** **同一条数据**；你之后在那页里启用/暂停、改时间或手动跑一次都可以。",
+        "助手会整理成与侧栏 **[自动化](/docs/tasks/cron)** **同一条数据**；你之后在那页里启用/暂停、改时间或手动跑一次都可以。",
         "",
         "若你熟悉 cron，也可以直接说「用 `0 9 * * 1-5` 触发，名字叫…，执行时让模型…」。",
         "",
         "## 不要用错成「斜杠指令」",
-        "在 EvoPanel 里输入 `/cron …` **通常只会当普通聊天文字**，不会变成建任务按钮。**建计划靠自然话说明**，或打开侧栏定时任务页操作；机器人里的指令规则也不完全一样，详见 [快捷指令](/docs/quick-commands)。",
+        "在 EvoPanel 里输入 `/cron …` **通常只会当普通聊天文字**，不会变成建任务按钮。**建计划靠自然话说明**，或打开侧栏自动化页操作；机器人里的指令规则也不完全一样，详见 [快捷指令](/docs/quick-commands)。",
       ],
       [
         "## How it works",
@@ -1047,7 +1047,7 @@ export const docsNavSections: DocNavSection[] = [
       { slug: ["ext", "coding-assistants"], title: { zh: "编码助手（Claude Code）", en: "Coding assistants" } },
       { slug: ["chat", "quick-create-role"], title: { zh: "快速创建角色", en: "Quick create: role" } },
       { slug: ["chat", "quick-create-skill"], title: { zh: "快速创建技能", en: "Quick create: skill" } },
-      { slug: ["chat", "quick-create-cron"], title: { zh: "快速创建定时任务", en: "Quick create: schedule" } },
+      { slug: ["chat", "quick-create-cron"], title: { zh: "快速创建自动化", en: "Quick create: schedule" } },
     ],
   },
   {
@@ -1061,7 +1061,7 @@ export const docsNavSections: DocNavSection[] = [
     title: { zh: "侧栏菜单", en: "Shell sidebar" },
     items: [
       { slug: ["tasks", "center"], title: { zh: "任务中心", en: "Task center" } },
-      { slug: ["tasks", "cron"], title: { zh: "定时任务", en: "Scheduled jobs" } },
+      { slug: ["tasks", "cron"], title: { zh: "自动化", en: "Scheduled jobs" } },
       { slug: ["ext", "skills"], title: { zh: "技能", en: "Skills" } },
       { slug: ["ext", "tools"], title: { zh: "MCP", en: "MCP" } },
       { slug: ["config", "agents"], title: { zh: "预设角色", en: "Preset roles" } },
@@ -1109,7 +1109,7 @@ export function docsIndexCopy(locale: SiteLocale): {
       title: "文档",
       description: "说明 EvoPanel 里常用功能在什么位置、适合干什么。",
       intro:
-        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/定时任务的说明）→ **实时对话**（**输入栏与选项**、**托管**）→ **侧栏菜单** → **设置**。Plan 模式演示视频与界面截图见站内 [**产品演示**](/showcase/)。",
+        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/自动化的说明）→ **实时对话**（**输入栏与选项**、**托管**）→ **侧栏菜单** → **设置**。Plan 模式演示视频与界面截图见站内 [**产品演示**](/showcase/)。",
     };
   }
   return {
