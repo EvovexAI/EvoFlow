@@ -54,7 +54,7 @@ docs/
 │   ├── chat-mode.md                            # 会话模式
 │   ├── plan-mode.md                            # Plan 模式
 │   ├── memory-management.md                    # 记忆管理
-│   ├── hosted-agent.md                         # 托管智能体
+│   ├── hosted-agent.md                         # 目标智能体
 │   ├── workspace.md                            # 工作空间
 │   ├── task-center.md                          # 任务中心
 │   ├── scheduled-tasks.md                      # 自动化
@@ -351,7 +351,7 @@ docs/
 | `introduction.md` | ✅ 保留 | 内容准确，但「100+ 公开技能」与 `产品说明书.md` 的「55 个」不一致 |
 | `downloads.md` | ✅ 保留 | 内容简洁，但指向 GitHub Releases 链接 |
 | `installation.md` | ⚠️ 需更新 | `git clone` 后 `cd deerflow-agent` 是旧仓库名（应为 `EvoFlow`）；`make config` 流程与当前代码可能不一致 |
-| `quick-start.md` | ✅ 保留 | 内容合理，但「右上角 + → 新建托管」与当前 UI 可能不一致 |
+| `quick-start.md` | ✅ 保留 | 内容合理，但「聊天输入栏目标药丸」与当前 UI 需保持同步 |
 | `first-task.md` | ✅ 保留 | 内容合理，但 `/config set is_plan_mode true` 指令可能已过时 |
 
 #### tutorials/

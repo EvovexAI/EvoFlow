@@ -478,7 +478,7 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
         {
           accent: "tertiary",
           description:
-            "持续类与定时类任务可由智能体托管：按 Cron 触发巡检、报表或同步作业，运行结果与摘要推送到飞书（Lark）群或机器人，便于值班与业务方第一时间获知。",
+            "持续类与定时类任务可由智能体自动执行：按 Cron 触发巡检、报表或同步作业，运行结果与摘要推送到飞书（Lark）群或机器人，便于值班与业务方第一时间获知。",
           eyebrow: "自动化协同",
           title: "持续运行 · 自动化 · 飞书汇报",
         },
@@ -572,7 +572,7 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
       ],
       hero: {
         description:
-          "实验页用于验证编排、MCP、EvoPanel 与观测相关交互稿，与首页「典型场景」互为补充；不承诺已上线的托管对话或模型竞技场能力。",
+          "实验页用于验证编排、MCP、EvoPanel 与观测相关交互稿，与首页「典型场景」互为补充；不承诺已上线的目标对话或模型竞技场能力。",
         eyebrow: "Lab",
         title: "面向集成与编排的高方差试验场",
       },

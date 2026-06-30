@@ -187,7 +187,7 @@ class GuardrailsConfig(BaseModel):
 |--------|------|--------|------|
 | `enabled` | bool | `false` | 是否启用护栏中间件 |
 | `fail_closed` | bool | `true` | 提供者出错时是否拒绝调用 |
-| `passport` | str \| null | `null` | OAP passport 路径或托管 Agent ID |
+| `passport` | str \| null | `null` | OAP passport 路径或目标 Agent ID |
 | `provider.use` | str | - | 提供者类路径 |
 | `provider.config` | dict | `{}` | 提供者特定配置 |
 

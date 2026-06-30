@@ -71,11 +71,11 @@ const pages: DocPage[] = [
 
 ## 4. 开始用
 
-点侧栏 **新建对话** 或进入聊天主区，在输入框下方选好 **模型** 后即可对话。**输入栏上模型、模式、记忆、创意、工作空间** 等说明见 [输入栏与选项](/docs/chat/composer)；**托管** 见 [托管](/docs/chat/hosted)。
+点侧栏 **新建对话** 或进入聊天主区，在输入框下方选好 **模型** 后即可对话。**输入栏上模型、模式、记忆、创意、工作空间** 等说明见 [输入栏与选项](/docs/chat/composer)；**目标** 见 [目标](/docs/chat/goal)。
 
 侧栏从上到下与 **任务中心、自动化、技能、MCP、预设角色** 等入口一致；底部 **设置** 见对应分区。
 
-本站产品文档按 **快速开始 → 实时对话（输入栏与选项、托管）→ 侧栏菜单（任务中心、自动化、技能、MCP、预设角色）→ 设置** 分区，与 EvoFlow 主界面一致。
+本站产品文档按 **快速开始 → 实时对话（输入栏与选项、目标）→ 侧栏菜单（任务中心、自动化、技能、MCP、预设角色）→ 设置** 分区，与 EvoFlow 主界面一致。
 
 ## 延伸阅读
 
@@ -110,11 +110,11 @@ Keys stay on your machine—do not share them.
 
 ## 4. Start using the app
 
-Open **New chat** in the shell (or the main chat surface), pick a **model** under the composer, and send a message. Composer controls (**Mode**, **Memory**, **Creativity**, **Workspace**) are in [Composer & options](/docs/chat/composer); **Hosted** has its own page: [Hosted](/docs/chat/hosted).
+Open **New chat** in the shell (or the main chat surface), pick a **model** under the composer, and send a message. Composer controls (**Mode**, **Memory**, **Creativity**, **Workspace**) are in [Composer & options](/docs/chat/composer); **Goal** has its own page: [Goal](/docs/chat/goal).
 
 The shell lists **Task center**, **Scheduled jobs**, **Skills**, **MCP**, and **Preset roles** in the same order as the app; **Settings** lives in the footer section of this doc set.
 
-These product docs follow **Getting started → Live chat (composer & options, then Hosted) → Shell entries (tasks, schedules, skills, MCP, preset roles) → Settings**, aligned with the EvoFlow shell.
+These product docs follow **Getting started → Live chat (composer & options, then Goal) → Shell entries (tasks, schedules, skills, MCP, preset roles) → Settings**, aligned with the EvoFlow shell.
 
 ## Read next
 
@@ -139,10 +139,12 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "发送前软件会**单独识别**的整行文字只有：",
         "- `/claude` 或 `/claude-code`：当前会话开启 **Claude Code 直连**",
         "- `/lead` 或 `/main`：当前会话切回 **主智能体**",
+        "- `/goal <目标内容>`：直接启动当前会话的 **目标模式**（后台自动执行，不会当作普通聊天发出）",
+        "- `/goal start` 或发 **「开始」「确认」**：应用对话里已有的 **目标方案** 并启动（需先有 `propose_goal` 确认条）",
         "",
         "以上几条发出去后会有提示，**不会**当作普通问题去聊天。",
         "",
-        "**其它**以 `/` 开头的句子，多数会**照常当作你说的话**发给助手；助手会不会按「指令」去理解，**不能保证**。**托管**请用输入栏的 **[托管](/docs/chat/hosted)** 面板完成启停与设置。",
+        "**其它**以 `/` 开头的句子，多数会**照常当作你说的话**发给助手；助手会不会按「指令」去理解，**不能保证**。**目标**请用输入栏的 **[目标](/docs/chat/goal)** 面板完成启停与设置。",
         "",
         "## 飞书、Slack、Telegram 等机器人里",
         "在飞书里，若**第一条有效文字以 `/` 开头**，一般会走「指令」通道（不是普通一问一答）。机器人不认识的指令会提示你发 **`/help`**。",
@@ -151,8 +153,8 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- `/bootstrap` — 引导式会话",
         "- `/claude`（可带会话编号续用）、`/lead`、`/main` — 在本话题内 **Claude Code 直连** 与 **主智能体** 切换；**复用当前助手线程**，便于直连后 **连续多轮** 改需求（详见 [编码助手（Claude Code）](/docs/ext/coding-assistants)）。",
         "- `/new` — 换一条新的助手会话线（飞书里的聊天记录还在，变的是背后的会话）",
+        "- `/goal <目标>` — 直接启动当前会话的目标任务（别名 `/hosted`、`/hd`）",
         "- `/status` — 看当前模式、会话等摘要",
-        "- `/hosted start …`、`/hosted help` — 服务端托管命令（与 EvoPanel 内嵌托管面板不同）；飞书里也可用 **「开始」「确认」** 等短词触发 **通知桌面 EvoPanel 启动**（见 [托管](/docs/chat/hosted)）。日常启停仍推荐 **[托管](/docs/chat/hosted)** 面板。",
         "- `/models`、`/memory` — 查看模型列表、记忆摘要等简要信息",
         "- `/help` — 帮助",
         "",
@@ -170,10 +172,12 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "Only these **full-line** messages are handled specially before send:",
         "- `/claude` or `/claude-code` — turn on **Claude Code** for this thread",
         "- `/lead` or `/main` — switch back to the **lead** assistant",
+        "- `/goal <task goal>` — **start goal mode** on this thread immediately (not sent as normal chat)",
+        "- `/goal start` or phrases like **Start** / **确认** — apply an existing **goal proposal** from `propose_goal`",
         "",
         "They show a toast and are **not** sent as a normal prompt.",
         "",
-        "Other lines starting with `/` are usually sent **as normal chat text**; the assistant may or may not treat them like commands. For hosted work use the composer **[Hosted](/docs/chat/hosted)** panel.",
+        "Other lines starting with `/` are usually sent **as normal chat text**; the assistant may or may not treat them like commands. For goal mode use the composer **[Goal](/docs/chat/goal)** panel.",
         "",
         "## On Feishu / Slack / Telegram bots",
         "In Feishu, when the **first non-empty line starts with `/`**, the message is usually handled as a **command**. Unknown commands ask you to run **`/help`**.",
@@ -183,14 +187,14 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- `/claude` (optional session id), `/lead`, `/main` — switch between **Claude Code direct** and the **lead** on the **same assistant thread** so you can **iterate many turns** (see [Coding assistants](/docs/ext/coding-assistants)).",
         "- `/new` — start a fresh assistant thread (IM chat history stays; the backend thread changes)",
         "- `/status`",
-        "- `/hosted start …`, `/hosted help` — server-side hosted commands (different from EvoPanel’s embedded Hosted drawer). In Feishu, short phrases like **Start** / **OK** can **signal desktop EvoPanel** to apply & start—see **[Hosted](/docs/chat/hosted)**. Prefer the **[Hosted](/docs/chat/hosted)** panel for day-to-day control.",
+        "- `/goal <goal text>` — start a background goal on this thread (aliases `/hosted`, `/hd`)",
         "- `/models`, `/memory`",
         "- `/help`",
         "",
         "Marketing-style lists often mention `/clear`, `/reset`, `/model`, `/task`, `/cron`, `/web`, etc.—those are **usually not IM commands**. Use EvoPanel sidebar pages for **Task center** and **Scheduled jobs**.",
         "",
         "## Tips",
-        "1. Wrap long goals with spaces in quotes when the bot asks for text after `/hosted start`.",
+        "1. Wrap long goals with spaces in quotes when needed, e.g. `/goal \"check disk every hour\"`.",
         "2. Commands change after updates—**trust the live `/help` output**.",
       ],
     ),
@@ -200,14 +204,14 @@ These product docs follow **Getting started → Live chat (composer & options, t
     slug: ["chat", "composer"],
     title: { zh: "输入栏与选项", en: "Composer & options" },
     description: {
-      zh: "与 EvoPanel 输入框下方控件一致：模型、模式、预设角色、记忆、创意、工作空间；不含托管。",
-      en: "Matches EvoPanel composer controls: model, mode, preset role, memory, creativity, workspace (not Hosted).",
+      zh: "与 EvoPanel 输入框下方控件一致：模型、模式、预设角色、记忆、创意、工作空间；不含目标。",
+      en: "Matches EvoPanel composer controls: model, mode, preset role, memory, creativity, workspace (not Goal).",
     },
     body: desktopStub(
       [
         "## 控件在哪",
-        "在 **EvoPanel** 打开聊天并**选中一个会话**后，**输入框下方第一行**从左到右依次为：**模型**、**模式:**（带当前档位名）、**预设角色**（显示当前角色名）、**记忆:**（开/关）、**创意**、**托管**、右侧 **回形针**（图片附件）、再靠右 **工作空间:**。",
-        "**托管** 有单独说明，见 [托管](/docs/chat/hosted)。本页只讲其余与输入栏直接相关的选项。",
+        "在 **EvoPanel** 打开聊天并**选中一个会话**后，**输入框下方第一行**从左到右依次为：**模型**、**模式:**（带当前档位名）、**预设角色**（显示当前角色名）、**记忆:**（开/关）、**创意**、**目标**、右侧 **回形针**（图片附件）、再靠右 **工作空间:**。",
+        "**目标** 有单独说明，见 [目标](/docs/chat/goal)。本页只讲其余与输入栏直接相关的选项。",
         "",
         "## 模型",
         "按钮上显示**当前模型名**；未配置或未选时可能显示 **未选择模型**。点开后为下拉列表，点选即切换**本会话**使用的模型。若某模型在配置里声明支持视觉，列表中会带 **视觉** 标签；**回形针** 是否可点取决于当前模型是否支持图片。",
@@ -239,8 +243,8 @@ These product docs follow **Getting started → Live chat (composer & options, t
       ],
       [
         "## Where the controls are",
-        "In **EvoPanel** chat, after you **select a session**, the **row under the composer** shows, left to right: **model**, **Mode:** (with the current preset name), **preset role** label, **Memory:** on/off, **Creativity**, **Hosted**, the **paperclip** for images, then **Workspace:**.",
-        "**Hosted** is documented separately: [Hosted](/docs/chat/hosted). This page covers the other composer controls.",
+        "In **EvoPanel** chat, after you **select a session**, the **row under the composer** shows, left to right: **model**, **Mode:** (with the current preset name), **preset role** label, **Memory:** on/off, **Creativity**, **Goal**, the **paperclip** for images, then **Workspace:**.",
+        "**Goal** is documented separately: [Goal](/docs/chat/goal). This page covers the other composer controls.",
         "",
         "## Model",
         "The pill shows the **active model name**; if nothing is chosen you may see **未选择模型**. Open the dropdown to pick a model for **this thread**. Models flagged for vision show a **视觉** tag; the **paperclip** stays disabled when the current model does not support images.",
@@ -273,28 +277,28 @@ These product docs follow **Getting started → Live chat (composer & options, t
     ),
   },
   {
-    slug: ["chat", "hosted"],
-    title: { zh: "托管", en: "Hosted" },
+    slug: ["chat", "goal"],
+    title: { zh: "目标", en: "Goal" },
     description: {
-      zh: "输入栏「托管」：可手写目标，也可由模型生成托管方案后确认再跑；支持结束汇总推送到飞书（需网关侧配置）。",
-      en: "Composer **Hosted**: manual goals, or model-proposed plans you confirm before run; optional Feishu summary on completion (Gateway + Feishu configured).",
+      zh: "输入栏「目标」：可手写任务目标，也可由模型调用 propose_goal 生成目标方案后确认再跑；支持结束汇总推送到飞书（需网关侧配置）。",
+      en: "Composer **Goal**: manual goals, or model-proposed plans via **propose_goal** you confirm before run; optional Feishu summary on completion (Gateway + Feishu configured).",
     },
     body: desktopStub(
       [
-        "## 托管适合做什么",
-        "当你希望助手**在同一轮对话里连续推进多步**（改代码、查资料、写文档等），又不想每一步都手动发「继续」时，使用 **托管**。主聊天区照常显示助手回复与工具结果；**托管面板**负责写目标、启停、看轮次与状态。**托管**与输入栏 **记忆** 不同：记忆决定是否沿用历史上下文；托管决定是否由调度侧**自动发下一轮指令**驱动主助手。",
+        "## 目标适合做什么",
+        "当你希望助手**在同一轮对话里连续推进多步**（改代码、查资料、写文档等），又不想每一步都手动发「继续」时，使用 **目标**。主聊天区照常显示助手回复与工具结果；**目标面板**负责写任务目标、启停、看轮次与状态。**目标**与输入栏 **记忆** 不同：记忆决定是否沿用历史上下文；目标模式决定是否由调度侧**自动发下一轮指令**驱动主助手。",
         "",
-        "## 打开托管面板",
-        "1. **先选中一个会话**（未选中时「托管」可能不可用）。",
-        "2. 点输入栏下方的 **「托管」**，右侧滑出 **「托管 Agent」** 面板。",
-        "3. 再点 **「托管」** 或面板 **关闭** 可收起；运行中也可先看聊天区，需要停止时再打开面板点 **「停止托管」**。",
+        "## 打开目标面板",
+        "1. **先选中一个会话**（未选中时「目标」可能不可用）。",
+        "2. 点输入栏下方的 **「目标」**，右侧滑出 **「目标模式」** 面板。",
+        "3. 再点 **「目标」** 或面板 **关闭** 可收起；运行中也可先看聊天区，需要停止时再打开面板点 **「停止目标」**。",
         "",
         "## 两种启动方式",
         "### 1）在面板里手写并启动",
-        "在 **任务目标** 中写清验收口径 → 设 **最大轮次**、可选 **定时自动停止**、**人格风格** 等 → 点 **「启动托管」**。运行中目标栏会锁定，需先停止再改。",
+        "在 **任务目标** 中写清验收口径 → 设 **最大轮次**、可选 **定时自动停止**、**人格风格** 等 → 点 **「启动目标」**。运行中目标栏会锁定，需先停止再改。",
         "### 2）由模型生成方案，确认后再执行（推荐）",
-        "对话中模型可调用 **`propose_hosted_agent`** 给出托管参数（目标、轮次、定时、飞书汇报开关等）。此时输入区上方会出现 **「托管方案」确认条**：",
-        "- **填入并开始**：把方案写入面板并**立即启动**托管。",
+        "对话中模型可调用 **`propose_goal`** 给出目标参数（任务目标、轮次、定时、飞书汇报开关等）。此时输入区上方会出现 **「目标方案」确认条**：",
+        "- **填入并开始**：把方案写入面板并**立即启动**目标。",
         "- **填入面板**：只写入配置，不自动开跑。",
         "- **关闭**：放弃本条方案。",
         "默认需你**手动点确认**才会跑，避免误触。进阶：可在本机浏览器存储键 **`evopanel_hosted_propose_action`** 设为 `auto_fill`（仅写入面板）或 `auto_start`（写入并自动启动），供自动化或飞书衔接等场景使用。",
@@ -304,34 +308,36 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "",
         "## 飞书：结束汇总与远程「开始」",
         "### 结果汇总通知",
-        "在托管方案或面板中打开 **「飞书汇报」**（或等价选项）后，若 **Gateway 已配置默认可推送的飞书会话**（与自动化飞书推送同源探测），托管**正常结束或达到停止条件**时，可向飞书推送 **Markdown 小结**（含结论、步数、摘要等，具体以当前客户端为准）。",
-        "### 从飞书触发「开始」",
-        "在已绑定 EvoFlow 线程的飞书会话中，发送 **「开始」「确认」「启动托管」** 等短词（或 `/hosted start`），网关会通知 **本机 EvoPanel**：在**客户端在线且已连接网关**的前提下，自动尝试切换到对应桌面会话并执行 **「填入并开始」**（需该对话里已有可识别的托管方案）。无需事先手动点开那条对话；若未执行，请确认 EvoPanel 已登录同一网关、且该线程在本地会话映射中已存在。",
+        "在目标方案或面板中打开 **「飞书汇报」**（或等价选项）后，若 **Gateway 已配置默认可推送的飞书会话**（与自动化飞书推送同源探测），目标运行**正常结束或达到停止条件**时，可向飞书推送 **Markdown 小结**（含结论、步数、摘要等，具体以当前客户端为准）。",
+        "### 从飞书直接启动目标",
+        "在已绑定 EvoFlow 线程的飞书会话中，发送 **`/goal 任务目标描述`**（别名 `/hosted`、`/hd`），网关会在**当前会话**后台自动启动目标模式。",
+        "### 从飞书确认已有方案",
+        "若对话里已有 **`propose_goal`** 生成的目标方案，可在 **EvoPanel** 输入框发 **「开始」「确认」** 或 **`/goal start`** 一键填入并启动；飞书 IM 侧请优先用 **`/goal <目标>`** 直接创建。",
         "### 结构化询问在飞书里的展示",
         "若主助手发起 **`ask_clarification`**，网关侧会对飞书出站文案做可读化（列表化选项与说明），避免整段 JSON 直接出现在群里；**在桌面 EvoPanel 侧栏点选**仍是最稳妥的提交方式。",
         "",
         "## 运行期间的配合",
-        "- 主会话里若出现澄清/确认，请按气泡或侧栏提示作答；紧急停止用面板 **「停止托管」**。",
-        "- 也可在输入框发 **「开始」「确认」** 等短指令（与飞书侧语义对齐）以应用当前确认条上的托管方案（以当前版本为准）。",
+        "- 主会话里若出现澄清/确认，请按气泡或侧栏提示作答；紧急停止用面板 **「停止目标」**。",
+        "- 也可在输入框发 **「开始」「确认」** 等短指令（与飞书侧语义对齐）以应用当前确认条上的目标方案（以当前版本为准）。",
         "",
         "## 与快捷指令的关系",
         "详见 [快捷指令](/docs/quick-commands)。**面板与快捷指令二选一习惯即可**；IM 里能用的 `/` 指令以机器人 **`/help`** 为准，与 EvoPanel 本地输入框不一定相同。",
       ],
       [
-        "## When Hosted helps",
-        "Use **Hosted** when you want the assistant to **keep driving multi-step work in the same chat** (edits, research, writing) without you sending “continue” every turn. Progress stays in the main thread; the **Hosted** drawer is for goals, start/stop, and status. **Hosted ≠ Memory**: memory keeps thread context; hosted decides whether a **planner loop** keeps issuing the next instruction to the main assistant.",
+        "## When Goal mode helps",
+        "Use **Goal** when you want the assistant to **keep driving multi-step work in the same chat** (edits, research, writing) without you sending “continue” every turn. Progress stays in the main thread; the **Goal** drawer is for task goals, start/stop, and status. **Goal ≠ Memory**: memory keeps thread context; goal mode decides whether a **planner loop** keeps issuing the next instruction to the main assistant.",
         "",
-        "## Open the Hosted drawer",
+        "## Open the Goal drawer",
         "1. **Select a thread** first.",
-        "2. Tap **Hosted** under the composer to open **Hosted agent**.",
-        "3. Tap **Hosted** again or **Close** to hide it; use **Stop hosted** when you need to abort.",
+        "2. Tap **Goal** under the composer to open **Goal mode**.",
+        "3. Tap **Goal** again or **Close** to hide it; use **Stop goal** when you need to abort.",
         "",
         "## Two ways to start",
         "### 1) Type goals in the panel",
-        "Fill **Task goal**, set **Max rounds**, optional **Timed auto-stop**, **Persona**, then **Start hosted**. The goal field locks while running—stop first to edit.",
+        "Fill **Task goal**, set **Max rounds**, optional **Timed auto-stop**, **Persona**, then **Start goal**. The goal field locks while running—stop first to edit.",
         "### 2) Model-proposed plan, then you confirm (recommended)",
-        "The model may call **`propose_hosted_agent`** with parameters (goal, rounds, timer, Feishu summary toggle, etc.). A **Hosted plan** strip appears above the composer:",
-        "- **Apply & start** — writes the plan and **starts** hosted immediately.",
+        "The model may call **`propose_goal`** with parameters (goal, rounds, timer, Feishu summary toggle, etc.). A **Goal plan** strip appears above the composer:",
+        "- **Apply & start** — writes the plan and **starts** goal mode immediately.",
         "- **Apply to panel** — writes settings without auto-start.",
         "- **Dismiss** — discard this proposal.",
         "By default nothing runs until you confirm (safer). Power users can set browser storage key **`evopanel_hosted_propose_action`** to `auto_fill` or `auto_start` for automation/Feishu flows.",
@@ -341,14 +347,16 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "",
         "## Feishu: completion summary & remote start",
         "### Completion summary",
-        "When **Feishu notify on completion** (or equivalent) is enabled **and** the Gateway has a **default Feishu chat** configured (same discovery path as automation Feishu push), a **Markdown wrap-up** can be sent when hosted ends normally or hits a stop condition (wording/layout depends on your build).",
-        "### Start from Feishu",
-        "In a Feishu thread already bound to EvoFlow, short phrases like **Start**, **OK**, **确认**, **`/hosted start`** tell the Gateway to signal **EvoPanel** to **apply & start** the latest hosted proposal for that thread. **EvoPanel must be online on a desktop connected to the same Gateway**; the client auto-subscribes to panel events and can **switch to the matching session**—you do not have to pre-select that chat. If nothing happens, verify the thread exists in the local session map and that a proposal is present in that thread.",
+        "When **Feishu notify on completion** (or equivalent) is enabled **and** the Gateway has a **default Feishu chat** configured (same discovery path as automation Feishu push), a **Markdown wrap-up** can be sent when goal mode ends normally or hits a stop condition (wording/layout depends on your build).",
+        "### Start a goal from Feishu",
+        "In a Feishu thread bound to EvoFlow, send **`/goal <task goal>`** (aliases `/hosted`, `/hd`) to **start goal mode on that thread** in the background.",
+        "### Confirm an existing proposal",
+        "If the thread already has a **`propose_goal`** plan strip in **EvoPanel**, send **Start** / **确认** or **`/goal start`** in the desktop composer to apply & start. On Feishu IM, prefer **`/goal <goal>`** to create directly.",
         "### ask_clarification on Feishu",
         "Outbound text for **`ask_clarification`** is formatted for IM readability (options as a short list). **Answering in EvoPanel’s clarification sidebar** remains the most reliable path.",
         "",
         "## While it runs",
-        "Answer in-thread questions; use **Stop hosted** for an emergency stop.",
+        "Answer in-thread questions; use **Stop goal** for an emergency stop.",
         "",
         "## Slash commands",
         "See [Shortcuts](/docs/quick-commands). Prefer **either** the drawer **or** slash habits; IM slash sets follow the bot **`/help`**, which may differ from EvoPanel’s local composer.",
@@ -500,7 +508,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "桌面端请在 **设置 → IM 通信**（或侧栏 **IM Channels**）里选 **飞书**，按右侧说明填 **App ID / App Secret**，需要时用 **扫码绑定**，再点 **测试连通性**；左侧开关用于启用或停用该渠道。详见 [设置 · IM 通信](/docs/panel/feishu-tab)。",
         "",
         "## 飞书中的使用",
-        "单聊直接找机器人；群聊一般需 **@机器人** 再发。能用的 **`/` 指令**以机器人返回的 **`/help`** 为准，与 EvoPanel 聊天不完全相同，见 [快捷指令](/docs/quick-commands)。托管若在 IM 里不好操作，用 **[托管](/docs/chat/hosted)** 面板。",
+        "单聊直接找机器人；群聊一般需 **@机器人** 再发。能用的 **`/` 指令**以机器人返回的 **`/help`** 为准，与 EvoPanel 聊天不完全相同，见 [快捷指令](/docs/quick-commands)。目标若在 IM 里不好操作，用 **[目标](/docs/chat/goal)** 面板。",
         "",
         "## 服务端还要做什么",
         "开放平台里需创建应用、开权限、配事件订阅 URL（形如 `…/api/feishu/webhook`）等，与具体部署方式有关。",
@@ -513,7 +521,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "In EvoPanel open **Settings → IM** (or shell **IM Channels**), pick **Feishu**, fill **App ID / App Secret**, use **Scan to bind** when offered, then **Test connectivity**; the left toggle enables or disables the channel. Details: [Settings · IM](/docs/panel/feishu-tab).",
         "",
         "## Usage in Feishu",
-        "DM the bot directly; in groups **@mention** first. Slash commands follow **`/help`** from the bot—see [Shortcuts](/docs/quick-commands). Prefer the **[Hosted](/docs/chat/hosted)** panel when IM controls are unclear.",
+        "DM the bot directly; in groups **@mention** first. Slash commands follow **`/help`** from the bot—see [Shortcuts](/docs/quick-commands). Prefer the **[Goal](/docs/chat/goal)** panel when IM controls are unclear.",
         "",
         "## Server-side setup",
         "You still need a Feishu Open Platform app, permissions, and a reachable webhook URL (e.g. `…/api/feishu/webhook`)—depends on your deployment.",
@@ -961,7 +969,10 @@ These product docs follow **Getting started → Live chat (composer & options, t
 | 你在首页看到的 | 可以理解为 |
 |----------------|------------|
 | 编排 · 总控 | 谁负责定目标、拆步骤、把多路工作收束到一起 |
+| 子任务工作流 | Plan 执行后，子任务依赖与进度在面板里摊开，不用在聊天里翻 |
 | 沙箱与工具 | 命令和工具在哪里跑、出错了怎么重试、怎么看到日志 |
+| Prompt 缓存 | 长对话里稳定提示前缀，典型命中率约 90%，显著省 API 费用 |
+| 思维导图 | Agent 自动维护思路图，多轮里看清排查链路与问题怎么被解决 |
 | 记忆与上下文 | 长任务里哪些该记住、怎样避免把整段聊天反复塞给模型 |
 | 技能与外部工具 | 额外能力包、外部服务怎么接进来、怎么授权 |
 
@@ -978,7 +989,10 @@ After [Getting started](/docs/getting-started), use this table to read the homep
 | Homepage area | In plain terms |
 |---------------|----------------|
 | Orchestration | Who owns the goal, how work splits and merges |
+| Subtask workflow | After Plan runs, dependencies and progress on a panel—not buried in chat |
 | Sandbox & tools | Where commands run, how retries and logs help |
+| Prompt caching | Stable prefixes on long threads; ~90% hit rates typical; lower API spend |
+| Mind map | Auto-maintained reasoning graph for triage and multi-turn retrospectives |
 | Memory & context | What to remember across long work without pasting entire chats |
 | Skills & external tools | How optional packs and services connect and get permission |
 
@@ -1054,7 +1068,7 @@ export const docsNavSections: DocNavSection[] = [
     title: { zh: "实时对话", en: "Live chat" },
     items: [
       { slug: ["chat", "composer"], title: { zh: "输入栏与选项", en: "Composer & options" } },
-      { slug: ["chat", "hosted"], title: { zh: "托管", en: "Hosted" } },
+      { slug: ["chat", "goal"], title: { zh: "目标", en: "Goal" } },
     ],
   },
   {
@@ -1086,6 +1100,19 @@ export function getAllDocSlugs(): DocSlug[] {
   return pages.map((p) => p.slug);
 }
 
+/** Legacy doc paths → current slug (static export + dev redirects). */
+export const DOC_SLUG_REDIRECTS: Record<string, DocSlug> = {
+  "chat/hosted": ["chat", "goal"],
+};
+
+export function getDocSlugRedirect(slug: DocSlug): DocSlug | undefined {
+  return DOC_SLUG_REDIRECTS[slugKey(slug)];
+}
+
+export function getLegacyDocRedirectSlugs(): DocSlug[] {
+  return Object.keys(DOC_SLUG_REDIRECTS).map((k) => k.split("/").filter(Boolean));
+}
+
 export function flattenDocsNav(): { href: string; title: Record<SiteLocale, string> }[] {
   const out: { href: string; title: Record<SiteLocale, string> }[] = [];
   for (const section of docsNavSections) {
@@ -1109,13 +1136,13 @@ export function docsIndexCopy(locale: SiteLocale): {
       title: "文档",
       description: "说明 EvoPanel 里常用功能在什么位置、适合干什么。",
       intro:
-        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/自动化的说明）→ **实时对话**（**输入栏与选项**、**托管**）→ **侧栏菜单** → **设置**。Plan 模式演示视频与界面截图见站内 [**产品演示**](/showcase/)。",
+        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/自动化的说明）→ **实时对话**（**输入栏与选项**、**目标**）→ **侧栏菜单** → **设置**。Plan 模式演示视频与界面截图见站内 [**产品演示**](/showcase/)。",
     };
   }
   return {
     title: "Documentation",
     description: "Where EvoPanel features live and what they are for.",
     intro:
-      "Sections mirror EvoPanel: **Getting started** (onboarding with model setup, shortcuts, coding assistants, plus chat-first quick create for roles/skills/schedules) → **Live chat** (**Composer & options**, then **Hosted**) → **Shell sidebar** → **Settings**. Plan-mode videos and GUI screenshots: [**Product showcase**](/showcase/).",
+      "Sections mirror EvoPanel: **Getting started** (onboarding with model setup, shortcuts, coding assistants, plus chat-first quick create for roles/skills/schedules) → **Live chat** (**Composer & options**, then **Goal**) → **Shell sidebar** → **Settings**. Plan-mode videos and GUI screenshots: [**Product showcase**](/showcase/).",
   };
 }

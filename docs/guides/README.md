@@ -9,7 +9,7 @@
 | 模型与场景、对话基础 | [basic-functions.md](chat/basic-functions.md) |
 | Plan 任务协作 | [plan-mode.md](chat/plan-mode.md) |
 | 项目级 Plan 流程（project-* 团队） | [project-team-plan-workflow.md](chat/project-team-plan-workflow.md) |
-| 托管 Agent | [hosted-agent.md](chat/hosted-agent.md) |
+| 目标 Agent | [goal-agent.md](chat/goal-agent.md) |
 | 工作空间（workspace 场景） | [workspace.md](chat/workspace.md) |
 | Claude Code 编码助手 | [claude-code.md](chat/claude-code.md) |
 | 快捷指令 / 斜杠命令 | [shortcut-commands.md](chat/shortcut-commands.md) |
@@ -58,7 +58,7 @@
 
 ## 常见问题
 
-- [faq.md](faq.md)：模型连接 / 工具技能 / 托管自动化 / 客户端运行 / 飞书渠道排查
+- [faq.md](faq.md)：模型连接 / 工具技能 / 目标自动化 / 客户端运行 / 飞书渠道排查
 
 ---
 

@@ -193,9 +193,9 @@ export const homeContentByLocale: LocalizedValue<{
           accent: "primary" as Accent,
         },
         {
-          title: "托管智能体与长期任务托管",
+          title: "目标智能体与长期任务",
           description:
-            "针对持续运行的后台任务：独立沙箱隔离执行，支持7×24小时后台托管运行，实时监控运行状态与输出日志，支持暂停、恢复与终止操作，运行结果与日志持久化可追溯，适合巡检、监控、自动化运维等需要长期驻留的任务场景。",
+            "针对持续运行的后台任务：独立沙箱隔离执行，支持7×24小时后台目标运行，实时监控运行状态与输出日志，支持暂停、恢复与终止操作，运行结果与日志持久化可追溯，适合巡检、监控、自动化运维等需要长期驻留的任务场景。",
           accent: "secondary" as Accent,
         },
         {
@@ -220,8 +220,8 @@ export const homeContentByLocale: LocalizedValue<{
                 accent: "primary" as Accent,
               },
               {
-                title: "托管智能体运行时",
-                description: "长期运行智能体的独立托管环境，沙箱隔离执行，支持全生命周期管控与状态观测。",
+                title: "目标智能体运行时",
+                description: "长期运行智能体的独立目标环境，沙箱隔离执行，支持全生命周期管控与状态观测。",
                 accent: "secondary" as Accent,
               },
               {
@@ -276,7 +276,7 @@ export const homeContentByLocale: LocalizedValue<{
               {
                 title: "护栏与自动化",
                 description:
-                  "工具调用策略、执行轨迹与观测；定时/持续类任务可托管，并可与飞书等渠道做结果投递。",
+                  "工具调用策略、执行轨迹与观测；定时/持续类任务可设目标模式运行，并可与飞书等渠道做结果投递。",
                 accent: "secondary" as Accent,
               },
               {
@@ -299,7 +299,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "能力矩阵",
       title: "从编排到交付的完整闭环",
       description:
-        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、自动化、智能体进化等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
+        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、自动化、智能体进化、子任务工作流、Prompt 缓存降本、思维导图等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
       focusBand: {
         supervisorCaption: "控制面",
         supervisorTitle: "超级总控智能体（Supervisor）",
@@ -362,6 +362,7 @@ export const homeContentByLocale: LocalizedValue<{
           "异步与同步闸口：在风险可控范围内并行；业务要求对齐处设置同步汇合",
           "监督：全局与子任务状态可视；支持纠错、重试与局部重编排",
           "主线快照：核心目标及子问题（按需）回注；发生方向变更时触发再对齐",
+          "工作流面板：子任务 DAG、依赖与进度在桌面端实时可视，复杂链路不用在聊天记录里翻找",
         ],
       },
       secondaryCard: {
@@ -482,6 +483,42 @@ export const homeContentByLocale: LocalizedValue<{
               "智能体管理：创建、更新与列出智能体；配置工具分组与工具白名单；声明允许的外部扩展连接；技能说明可选注入，不填则减少提示噪声。",
               "技能管理：技能以说明与目录资源形式存在；可控制启用与停用；配置变更后运行侧可重新读取；总控对话里出现的技能名与当前启用及允许范围一致。",
               "二者协同：在同一治理语境下迭代「智能体定义」与「技能包」，使运行时表现与运维脚本、界面配置同步。",
+            ],
+          },
+          {
+            anchorId: "capability-subtask-workflow",
+            title: "子任务工作流",
+            accent: "secondary" as Accent,
+            lead:
+              "Plan 审定并进入执行后，Supervisor 把目标展开为具依赖关系的子任务图。EvoPanel 工作流 / 协作侧栏实时展示各步状态、上下游依赖与进度，让你不用在长篇聊天记录里翻找——复杂研发、运维、跨日项目都能一眼看到「谁在跑、谁被阻塞、谁已完成」，便于介入、重试或局部重编排。",
+            highlights: [
+              "DAG 可视化：上游完成才解锁下游，分支与汇合点清晰",
+              "与 Plan 闸口衔接：先对齐验收口径，再在工作流里跟踪落地",
+              "监督与纠错：全局进度、单步失败与重试在同一面板对照",
+            ],
+          },
+          {
+            anchorId: "capability-prompt-cache",
+            title: "Prompt 缓存 · 降本",
+            accent: "tertiary" as Accent,
+            lead:
+              "长任务与多轮工具调用中，系统提示前缀、技能说明块、冻结记忆快照等刻意保持稳定，以配合支持 Prompt Caching 的模型网关。典型多轮会话里缓存命中率可达约 90%，命中的输入 Token 往往按更低费率计费，显著节省 API 费用；观测 / 调用日志中可查看缓存命中与写入缓存分项。",
+            highlights: [
+              "与工具渐进暴露协同：首轮不摊开大清单，稳定前缀更易命中缓存",
+              "长会话越跑越省：重复输入的固定块不再按全价计费",
+              "费用可核对：桌面观测页展示缓存相关 Token 统计",
+            ],
+          },
+          {
+            anchorId: "capability-mind-map",
+            title: "思维导图",
+            accent: "primary" as Accent,
+            lead:
+              "聊天页右侧思维导图由 Agent 在干活过程中自动维护——与消息流互补：聊天看「说了什么」，导图看「在想什么、追哪条线」。多轮对话里可快速看清问题链路（假设 → 验证 → 分支 → 结论），排查卡点、排除已证伪路径、复盘从哪一步开始偏了；Plan 与长目标运行中维护最勤。",
+            highlights: [
+              "排障：对照假设与已排除分支，避免在多轮里迷路",
+              "复盘：根因到结论的链路一眼可见",
+              "与工作流面板配合：步骤看面板，思路看导图",
             ],
           },
         ],
@@ -777,7 +814,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "Capabilities",
       title: "From orchestration to delivery",
       description:
-        "Recommended order: the eight hero pillars, then control plane and Plan mode, then the five-step journey, followed by the orchestration and execution cards; the Runtime capabilities section below lists EvoPanel, coding delegation, scenarios, progressive tool exposure plus skill/MCP marketplaces, memory, workspace, schedules, and agent evolution. Only the EvoPanel panel links to on-site getting-started docs; the rest are explained in copy.",
+        "Recommended order: the eight hero pillars, then control plane and Plan mode, then the five-step journey, followed by the orchestration and execution cards; the Runtime capabilities section below lists EvoPanel, coding delegation, scenarios, progressive tool exposure plus skill/MCP marketplaces, memory, workspace, schedules, agent evolution, subtask workflow, prompt caching, and mind maps. Only the EvoPanel panel links to on-site getting-started docs; the rest are explained in copy.",
       focusBand: {
         supervisorCaption: "Control plane",
         supervisorTitle: "Lead Supervisor",
@@ -840,6 +877,7 @@ export const homeContentByLocale: LocalizedValue<{
           "Asynchronous and synchronous gates: parallelize within risk bounds; enforce alignment where the business requires it",
           "Supervision: global and per-subtask visibility; correction, retry, and partial re-orchestration",
           "Mission snapshot: feed back primary goals and optional sub-problems; trigger re-alignment on directional change",
+          "Workflow panel: subtask DAG, dependencies, and progress on the desktop without scrolling the chat log",
         ],
       },
       secondaryCard: {
@@ -960,6 +998,42 @@ export const homeContentByLocale: LocalizedValue<{
               "Agent management: create and update agents, tune tool exposure, attach permitted external tools, and optionally inject skill narratives.",
               "Skill management: enable or disable packs and revise their instructions; configuration reloads pick up changes so the lead only advertises allowed names.",
               "Together: iterate agents and skills in one governance loop so runtime behavior matches what your team maintains in the product UI.",
+            ],
+          },
+          {
+            anchorId: "capability-subtask-workflow",
+            title: "Subtask workflow",
+            accent: "secondary" as Accent,
+            lead:
+              "After Plan is approved, the Supervisor expands goals into a dependent subtask graph. EvoPanel’s workflow / collaboration sidebar shows live status, upstream/downstream links, and progress—so multi-day engineering or ops work does not require hunting through chat. See at a glance what is running, blocked, or done; intervene, retry, or partially re-orchestrate from one place.",
+            highlights: [
+              "DAG view: downstream unlocks only after upstream completes; branches and merge points stay visible.",
+              "Tied to Plan gates: acceptance criteria first, then track execution on the panel.",
+              "Supervision: global progress, failed steps, and retries in one surface.",
+            ],
+          },
+          {
+            anchorId: "capability-prompt-cache",
+            title: "Prompt caching · cost control",
+            accent: "tertiary" as Accent,
+            lead:
+              "On long runs with many tool rounds, stable system prefixes, skill blocks, and frozen memory snapshots are kept steady to cooperate with provider-side Prompt Caching. In typical multi-turn sessions hit rates around 90% are achievable; cached input tokens are often billed at lower rates, materially reducing API spend. Observability / call logs expose cache read and cache write token lines.",
+            highlights: [
+              "Works with progressive tool exposure: shorter first turns and stable prefixes improve cache hits.",
+              "Longer threads tend to cost less per turn as fixed blocks stop re-pricing at full input rates.",
+              "Verify savings in desktop observability with cache token breakdowns.",
+            ],
+          },
+          {
+            anchorId: "capability-mind-map",
+            title: "Mind map",
+            accent: "primary" as Accent,
+            lead:
+              "The chat sidebar mind map is maintained automatically while the agent works—a complement to the message stream: chat shows what was said; the map shows what is being pursued. In multi-turn troubleshooting you see hypothesis → check → branch → conclusion chains, rule out dead ends, and spot where the thread drifted. Plan mode and long goal runs tend to populate it most actively.",
+            highlights: [
+              "Triage: compare active hypotheses with ruled-out branches without getting lost in scrollback.",
+              "Retrospective: root cause through resolution in one glance.",
+              "Pairs with the workflow panel: steps on the panel, reasoning on the map.",
             ],
           },
         ],

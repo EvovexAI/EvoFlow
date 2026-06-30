@@ -15,7 +15,9 @@ const nextConfig: NextConfig = {
     ? {
         async redirects() {
           return [
-            { source: "/docs/hosted/overview", destination: "/docs/chat/hosted", permanent: false },
+            { source: "/docs/hosted/overview", destination: "/docs/chat/goal", permanent: true },
+            { source: "/docs/chat/hosted", destination: "/docs/chat/goal", permanent: true },
+            { source: "/docs/chat/hosted/", destination: "/docs/chat/goal/", permanent: true },
             { source: "/docs/chat/session", destination: "/docs/chat/composer", permanent: false },
             { source: "/docs/chat/memory-hosted-workspace", destination: "/docs/chat/composer", permanent: false },
             { source: "/docs/chat/models-scenes", destination: "/docs/chat/composer", permanent: false },

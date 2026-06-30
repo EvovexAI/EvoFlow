@@ -14,7 +14,7 @@ EvoFlow 技能位于 `skills/` 目录，分为 `public/`（公开技能，提交
 
 | 技能名 | 说明 |
 |--------|------|
-| `evoflow-intro` | EvoFlow 产品与能力自介绍：技能、MCP、角色、记忆、托管、模型、渠道等 |
+| `evoflow-intro` | EvoFlow 产品与能力自介绍：技能、MCP、角色、记忆、目标、模型、渠道等 |
 | `evoflow-admin` | EvoFlow 系统治理 CLI，管理模型、技能、Agent、MCP、长期记忆、知识库、经验库等 |
 | `evoflow-debugging` | EvoFlow 项目内 Bug / 行为不符 / 数据展示错误排查 |
 | `evoflow-plan-workflow` | Plan 场景协作流程：需求澄清、写 plan 落库、supervisor 派发与验收 |
