@@ -223,3 +223,6 @@ docs/cases/reports/
 # Local eval / investigation reports (generated scratch, not for version control)
 reports/
 tmp_media_analysis.txt
+
+# Local-only custom skill (not for version control)
+skills/devops/commit-push-release/
