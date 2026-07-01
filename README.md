@@ -213,7 +213,7 @@ Plan / Supervisor 执行时，桌面端**工作流面板**展示子任务 DAG、
 | 微信交流群 | 扫码加入中文用户群（讨论请脱敏，禁止广告） |
 
 <p align="center">
-  <img src="docs/assets/screenshots/wechat-group-qr.png" width="200" alt="EvoFlow 微信交流群二维码">
+  <img src="docs/assets/screenshots/wechat-group-qr.jpg" width="200" alt="EvoFlow 微信交流群二维码">
 </p>
 
 ---

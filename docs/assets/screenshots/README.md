@@ -14,13 +14,13 @@
 | `hosted-1.png` | 目标任务（第一张） | 如配置面板 / 确认条 |
 | `hosted-2.png` | 目标任务（第二张） | 如运行状态 / 结果小结 |
 | `browser.png` | 浏览器操作 | 展示自动化浏览、页面操作或工具调用过程 |
-| `wechat-group-qr.png` | 微信群二维码 | 约 400×400px，PNG |
+| `wechat-group-qr.jpg` | 微信群二维码 | 约 400×400px，JPG 或 PNG（扩展名须与真实格式一致） |
 
 ## 注意事项
 
 - 格式：PNG 或 WebP；单张尽量 &lt; 500KB（可用 TinyPNG 等压缩）。
 - 内容：脱敏路径、密钥、私人聊天内容。
-- 二维码过期后替换 `wechat-group-qr.png` 并提交即可。
+- 二维码过期后替换 `wechat-group-qr.jpg` 并提交即可。
 - 若某张暂未就绪，可先不上传；README 中对应位置会显示占位图裂链，补图后自动生效。
 
 ## Plan 模式 / Supervisor 协作

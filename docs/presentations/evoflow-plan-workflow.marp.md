@@ -529,5 +529,5 @@ Part 5：收尾流程 + 四条业务价值 + Q&A 资源。
 - 联系：cloud@evovexai.com
 
 <!-- note -->
-附录页。可展示微信交流群二维码（docs/assets/screenshots/wechat-group-qr.png）若现场需要。演示视频见 docs/assets/plan-supervisor/。
+附录页。可展示微信交流群二维码（docs/assets/screenshots/wechat-group-qr.jpg）若现场需要。演示视频见 docs/assets/plan-supervisor/。
 -->
