@@ -1,10 +1,12 @@
 {
-  "version": "0.3.0",
   "minAppVersion": "0.3.0",
-  "assetKind": "installer",
-  "hash": "sha256:b0c387825c186524e515bc6c55c59b9767b40f1ce2880702a8ccdc4473e9bf44",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.0/EvoFlow_0.3.0_x64-setup.exe",
-  "size": 375742235,
-  "changelog": "正式版 v0.3.0：思维导图与内置视频创意团队 Agent。",
-  "releasedAt": "2026-06-10T00:00:00Z"
+  "releasedAt": "2026-07-01T10:03:43Z",
+  "hash": "sha256:b60d4919c2edb8d3dc8cd3a0b7987ed58367161a963a196bb2843c835fd81a9a",
+  "size": 388051025,
+  "assetKind": "installer",
+  "changelog": "**EvoFlow v0.3.0 — 正式版发布**",
+  "notes": "**EvoFlow v0.3.0 — 正式版发布**",
+  "version": "0.3.0",
+  "pub_date": "2026-07-01T10:03:43Z"
 }
