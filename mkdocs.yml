@@ -128,6 +128,7 @@ nav:
       - 子 Agent 系统: explanation/subagent-system.md
       - 技能系统: explanation/skill-system.md
       - 记忆系统: explanation/memory-system.md
+      - 思维导图系统: explanation/mind-map-system.md
       - 中间件链: explanation/middleware-chain.md
       - 上下文工程: explanation/context-engineering.md
       - 沙箱设计: explanation/sandbox-design.md
