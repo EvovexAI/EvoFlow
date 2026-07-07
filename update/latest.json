@@ -1,10 +1,12 @@
 {
-  "version": "0.3.2",
-  "minAppVersion": "0.3.2",
-  "assetKind": "installer",
-  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.2/EvoFlow_0.3.2_x64-setup.exe",
-  "size": 388129251,
-  "changelog": "正式版 v0.3.2：思维导图图表视图、节点状态管理、技能选择器、会话工具绑定，流式输出与界面交互全面优化。",
-  "releasedAt": "2026-07-01T11:07:04Z"
+  "size": 400839396,
+  "changelog": "**EvoFlow v0.3.2 — 正式版更新**",
+  "version": "0.3.2",
+  "hash": "sha256:a155317678ff633ca320b3e505167c2be4ab037473ea2c527dd12672be375cde",
+  "releasedAt": "2026-07-07T18:22:25Z",
+  "minAppVersion": "0.3.2",
+  "pub_date": "2026-07-07T18:22:25Z",
+  "notes": "**EvoFlow v0.3.2 — 正式版更新**",
+  "assetKind": "installer"
 }
