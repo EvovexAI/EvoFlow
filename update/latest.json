@@ -1,10 +1,12 @@
 {
   "version": "0.3.3",
-  "minAppVersion": "0.3.3",
   "assetKind": "installer",
-  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
+  "minAppVersion": "0.3.3",
+  "hash": "sha256:233e2dfa4d10622dda6c5a43070e6257d0bc225b3d5d4f96ec14721ffc23bb10",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.3/EvoFlow_0.3.3_x64-setup.exe",
-  "size": 388129251,
-  "changelog": "正式版 v0.3.3：官网实操教程专栏、模型名称可选、对话流式体验与模型配置优化。",
-  "releasedAt": "2026-07-09T15:30:00Z"
+  "notes": "**EvoFlow v0.3.3 — 正式版更新**",
+  "changelog": "**EvoFlow v0.3.3 — 正式版更新**",
+  "pub_date": "2026-07-10T02:52:24Z",
+  "releasedAt": "2026-07-10T02:52:24Z",
+  "size": 400643324
 }
