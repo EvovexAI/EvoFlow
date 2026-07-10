@@ -89,6 +89,11 @@ function normalizePrefix(p) {
     .replace(/\\/g, "/");
 }
 
+/** SDK expects host only (e.g. tos-cn-beijing.volces.com), not https://… */
+function normalizeEndpoint(endpoint) {
+  return endpoint.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+}
+
 function cacheControlFor(relPosix) {
   if (relPosix.includes("/_next/static/")) {
     return "public, max-age=31536000, immutable";
@@ -153,7 +158,7 @@ async function main() {
   const client = new TosClientCtor({
     accessKeyId: requireEnv("TOS_ACCESS_KEY_ID", accessKeyId),
     accessKeySecret: requireEnv("TOS_SECRET_ACCESS_KEY", accessKeySecret),
-    endpoint: requireEnv("TOS_ENDPOINT"),
+    endpoint: normalizeEndpoint(requireEnv("TOS_ENDPOINT")),
     region: requireEnv("TOS_REGION"),
   });
 

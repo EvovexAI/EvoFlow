@@ -1133,6 +1133,62 @@ body.present-mode .section-part {
   color: var(--slate-600);
 }
 
+.learn-outcomes {
+  padding-top: 2.5rem;
+  padding-bottom: 2.5rem;
+}
+
+.learn-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.learn-outcome-card {
+  background: var(--white);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem 1.6rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.learn-outcome-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.learn-outcome-card h3 a {
+  color: var(--indigo-900);
+  text-decoration: none;
+}
+
+.learn-outcome-card h3 a:hover {
+  color: var(--indigo-600);
+  text-decoration: underline;
+}
+
+.learn-outcome-card p {
+  margin: 0;
+  flex: 1;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--slate-600);
+}
+
+.learn-outcome-link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--indigo-600);
+  text-decoration: none;
+}
+
+.learn-outcome-link:hover {
+  text-decoration: underline;
+}
+
 .guide-hub-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -1260,6 +1316,96 @@ body.present-mode .section-part {
   margin-top: 0.5rem;
   font-size: 0.72rem;
   color: var(--slate-500);
+}
+
+/* ── Client download ── */
+.download-banner {
+  background: linear-gradient(135deg, var(--indigo-900) 0%, var(--indigo-700) 100%);
+  color: white;
+  border-radius: var(--radius-lg);
+  padding: 1.75rem 2rem;
+  box-shadow: var(--shadow-md);
+}
+
+.download-banner h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  color: white;
+}
+
+.download-banner p {
+  margin: 0 0 1.1rem;
+  font-size: 0.92rem;
+  opacity: 0.92;
+  line-height: 1.55;
+}
+
+.download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.download-actions a {
+  text-decoration: none;
+}
+
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  background: white;
+  color: var(--indigo-900);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.btn-download:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+  text-decoration: none;
+}
+
+.btn-download-secondary {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.btn-download-secondary:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.download-platforms {
+  margin: 0;
+  font-size: 0.8rem;
+  opacity: 0.88;
+  line-height: 1.6;
+}
+
+.download-banner code {
+  background: rgba(255, 255, 255, 0.14);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
+.hero-download {
+  margin-top: 1.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.hero-download a {
+  text-decoration: none;
 }
 
 .tip-box,
