@@ -42,7 +42,7 @@ function formatStars(count: number, locale: string): string {
  * Not truly push-realtime; good enough for marketing header without a backend token.
  */
 export function useGithubRepoStarsDisplay(locale: string): string | null {
-  const [count, setCount] = useState<number | null>(() => readCache()?.count ?? null);
+  const [count, setCount] = useState<number | null>(null);
 
   const fetchStars = useCallback(async () => {
     try {

@@ -1,4 +1,4 @@
-import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
+﻿import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
 
 export interface GuidedTourStep {
   description: string;
@@ -61,7 +61,7 @@ export const guidedTourContentByLocale: LocalizedValue<GuidedTourContent> = {
     steps: [
       {
         description:
-          "首屏说明 EvoFlow 的定位：多智能体编排、沙箱执行、记忆与 Skills/MCP 集成，以及 EvoPanel 交付面；副卡补充当前工程重心与适合的业务类型。",
+          "首屏说明 EvoFlow 的定位：多智能体编排、沙箱执行、记忆与 Skills/MCP 集成，以及 EvoFlow 交付面；副卡补充当前工程重心与适合的业务类型。",
         id: "hero",
         targetId: "hero",
         title: "从 Hero 了解产品与边界",
@@ -127,7 +127,7 @@ export const guidedTourContentByLocale: LocalizedValue<GuidedTourContent> = {
     steps: [
       {
         description:
-          "The hero states positioning: multi-agent orchestration, sandboxed execution, memory, Skills and MCP integrations, plus EvoPanel for delivery—side cards spell current engineering focus and fit.",
+          "The hero states positioning: multi-agent orchestration, sandboxed execution, memory, Skills and MCP integrations, plus EvoFlow for delivery—side cards spell current engineering focus and fit.",
         id: "hero",
         targetId: "hero",
         title: "Start with the hero narrative",

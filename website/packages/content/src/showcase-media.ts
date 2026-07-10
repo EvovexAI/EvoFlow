@@ -1,4 +1,4 @@
-import type { LocalizedValue } from "./locales";
+﻿import type { LocalizedValue } from "./locales";
 
 /** Public URL prefix (files synced from repo `docs/assets/` via `pnpm sync:media`). */
 export const showcaseMediaBase = "/media";
@@ -58,7 +58,7 @@ export const showcasePageCopyByLocale: LocalizedValue<ShowcasePageCopy> = {
   zh: {
     title: "产品演示",
     description:
-      "Plan 模式 Agent Teams 从 0 到 1 协作，以及 EvoPanel 桌面端界面截图与演示视频（与 GitHub README 素材同源）。",
+      "Plan 模式 Agent Teams 从 0 到 1 协作，以及 EvoFlow 桌面端界面截图与演示视频（与 GitHub README 素材同源）。",
     planSection: {
       title: "Plan 模式 · Agent Teams 从 0 到 1",
       lead:
@@ -68,13 +68,13 @@ export const showcasePageCopyByLocale: LocalizedValue<ShowcasePageCopy> = {
     },
     guiSection: {
       title: "界面预览",
-      lead: "EvoPanel 桌面端主界面、预设角色（团队 + 角色）与其它能力示意。",
+      lead: "EvoFlow 桌面端主界面、预设角色（团队 + 角色）与其它能力示意。",
     },
   },
   en: {
     title: "Product showcase",
     description:
-      "Plan-mode Agent Teams from zero to delivery, plus EvoPanel GUI screenshots and demo videos (same assets as the GitHub README).",
+      "Plan-mode Agent Teams from zero to delivery, plus EvoFlow GUI screenshots and demo videos (same assets as the GitHub README).",
     planSection: {
       title: "Plan mode · Agent Teams · 0 → 1",
       lead:
@@ -84,7 +84,7 @@ export const showcasePageCopyByLocale: LocalizedValue<ShowcasePageCopy> = {
     },
     guiSection: {
       title: "GUI preview",
-      lead: "EvoPanel main chat, preset roles (teams + roles), and other capability screenshots.",
+      lead: "EvoFlow main chat, preset roles (teams + roles), and other capability screenshots.",
     },
   },
 };

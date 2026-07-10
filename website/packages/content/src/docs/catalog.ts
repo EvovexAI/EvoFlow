@@ -1,6 +1,6 @@
-import type { SiteLocale } from "../locales";
+﻿import type { SiteLocale } from "../locales";
 
-/** 维护说明：正文与 EvoPanel 客户端菜单、按钮文案对齐；改版时以实际软件界面为准。 */
+/** 维护说明：正文与 EvoFlow 客户端菜单、按钮文案对齐；改版时以实际软件界面为准。 */
 /** URL 段，如 ["chat","composer"] → /docs/chat/composer */
 export type DocSlug = string[];
 
@@ -127,15 +127,15 @@ These product docs follow **Getting started → Live chat (composer & options, t
     slug: ["quick-commands"],
     title: { zh: "快捷指令", en: "Shortcuts" },
     description: {
-      zh: "斜杠指令因客户端而异：EvoPanel 与飞书等 IM 不完全相同；以 /help 与界面为准。",
-      en: "Slash commands differ by client (EvoPanel vs IM). Trust `/help` and the UI.",
+      zh: "斜杠指令因客户端而异：EvoFlow 与飞书等 IM 不完全相同；以 /help 与界面为准。",
+      en: "Slash commands differ by client (EvoFlow vs IM). Trust `/help` and the UI.",
     },
     body: desktopStub(
       [
         "## 斜杠指令说明",
-        "在 **EvoPanel 实时聊天** 和 **飞书等机器人聊天** 里，以 `/` 开头的消息是否会被当成「指令」，**规则不一样**。下面按常用场景说明；**最稳妥**的做法是：在机器人里发一条 **`/help`**，看当前版本返回的说明。",
+        "在 **EvoFlow 实时聊天** 和 **飞书等机器人聊天** 里，以 `/` 开头的消息是否会被当成「指令」，**规则不一样**。下面按常用场景说明；**最稳妥**的做法是：在机器人里发一条 **`/help`**，看当前版本返回的说明。",
         "",
-        "## EvoPanel 里（桌面端）",
+        "## EvoFlow 里（桌面端）",
         "发送前软件会**单独识别**的整行文字只有：",
         "- `/claude` 或 `/claude-code`：当前会话开启 **Claude Code 直连**",
         "- `/lead` 或 `/main`：当前会话切回 **主智能体**",
@@ -158,7 +158,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- `/models`、`/memory` — 查看模型列表、记忆摘要等简要信息",
         "- `/help` — 帮助",
         "",
-        "下面这类在营销文案里常见、**在机器人指令里通常没有**：`/clear`、`/reset`、`/model`、`/mode`、`/task`、`/cron`、`/web`、`/file` 等。**任务中心、自动化**请在 EvoPanel **侧栏**对应页面里操作。",
+        "下面这类在营销文案里常见、**在机器人指令里通常没有**：`/clear`、`/reset`、`/model`、`/mode`、`/task`、`/cron`、`/web`、`/file` 等。**任务中心、自动化**请在 EvoFlow **侧栏**对应页面里操作。",
         "",
         "## 小提示",
         "1. 指令里若有一大段话带空格，建议用英文引号包起来再发。",
@@ -166,9 +166,9 @@ These product docs follow **Getting started → Live chat (composer & options, t
       ],
       [
         "## How slash messages work",
-        "Whether a `/…` line is treated as a **command** differs between **EvoPanel chat** and **IM bots** (Feishu, Slack, Telegram, …). The safest habit is to send **`/help`** on the bot and read what **your build** lists.",
+        "Whether a `/…` line is treated as a **command** differs between **EvoFlow chat** and **IM bots** (Feishu, Slack, Telegram, …). The safest habit is to send **`/help`** on the bot and read what **your build** lists.",
         "",
-        "## Inside EvoPanel (desktop)",
+        "## Inside EvoFlow (desktop)",
         "Only these **full-line** messages are handled specially before send:",
         "- `/claude` or `/claude-code` — turn on **Claude Code** for this thread",
         "- `/lead` or `/main` — switch back to the **lead** assistant",
@@ -191,7 +191,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- `/models`, `/memory`",
         "- `/help`",
         "",
-        "Marketing-style lists often mention `/clear`, `/reset`, `/model`, `/task`, `/cron`, `/web`, etc.—those are **usually not IM commands**. Use EvoPanel sidebar pages for **Task center** and **Scheduled jobs**.",
+        "Marketing-style lists often mention `/clear`, `/reset`, `/model`, `/task`, `/cron`, `/web`, etc.—those are **usually not IM commands**. Use EvoFlow sidebar pages for **Task center** and **Scheduled jobs**.",
         "",
         "## Tips",
         "1. Wrap long goals with spaces in quotes when needed, e.g. `/goal \"check disk every hour\"`.",
@@ -204,13 +204,13 @@ These product docs follow **Getting started → Live chat (composer & options, t
     slug: ["chat", "composer"],
     title: { zh: "输入栏与选项", en: "Composer & options" },
     description: {
-      zh: "与 EvoPanel 输入框下方控件一致：模型、模式、预设角色、记忆、创意、工作空间；不含目标。",
-      en: "Matches EvoPanel composer controls: model, mode, preset role, memory, creativity, workspace (not Goal).",
+      zh: "与 EvoFlow 输入框下方控件一致：模型、模式、预设角色、记忆、创意、工作空间；不含目标。",
+      en: "Matches EvoFlow composer controls: model, mode, preset role, memory, creativity, workspace (not Goal).",
     },
     body: desktopStub(
       [
         "## 控件在哪",
-        "在 **EvoPanel** 打开聊天并**选中一个会话**后，**输入框下方第一行**从左到右依次为：**模型**、**模式:**（带当前档位名）、**预设角色**（显示当前角色名）、**记忆:**（开/关）、**创意**、**目标**、右侧 **回形针**（图片附件）、再靠右 **工作空间:**。",
+        "在 **EvoFlow** 打开聊天并**选中一个会话**后，**输入框下方第一行**从左到右依次为：**模型**、**模式:**（带当前档位名）、**预设角色**（显示当前角色名）、**记忆:**（开/关）、**创意**、**目标**、右侧 **回形针**（图片附件）、再靠右 **工作空间:**。",
         "**目标** 有单独说明，见 [目标](/docs/chat/goal)。本页只讲其余与输入栏直接相关的选项。",
         "",
         "## 模型",
@@ -238,12 +238,12 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "这里管的是「工具默认在哪个目录读写文件」，与 **记忆: 开/关** 无关。",
         "",
         "## Plan（任务协作）",
-        "与 **闪速 / 思考 / Pro / Ultra** 并列的 **「Plan（任务协作）」** 入口，在**当前公开发布的 EvoPanel 里不会出现在「模式」菜单中**（界面未开放该项；后端协作逻辑仍可能随会话演进，但你不能在输入栏从这里打开或关闭）。若你使用的定制版本重新打开了该菜单，才会看到 **Plan（任务协作）** 以及「回到 Plan / Authorize 执行」等按钮。",
+        "与 **闪速 / 思考 / Pro / Ultra** 并列的 **「Plan（任务协作）」** 入口，在**当前公开发布的 EvoFlow 里不会出现在「模式」菜单中**（界面未开放该项；后端协作逻辑仍可能随会话演进，但你不能在输入栏从这里打开或关闭）。若你使用的定制版本重新打开了该菜单，才会看到 **Plan（任务协作）** 以及「回到 Plan / Authorize 执行」等按钮。",
         "需要把编码活交给 Claude Code 时，另见 [编码助手（Claude Code）](/docs/ext/coding-assistants)。",
       ],
       [
         "## Where the controls are",
-        "In **EvoPanel** chat, after you **select a session**, the **row under the composer** shows, left to right: **model**, **Mode:** (with the current preset name), **preset role** label, **Memory:** on/off, **Creativity**, **Goal**, the **paperclip** for images, then **Workspace:**.",
+        "In **EvoFlow** chat, after you **select a session**, the **row under the composer** shows, left to right: **model**, **Mode:** (with the current preset name), **preset role** label, **Memory:** on/off, **Creativity**, **Goal**, the **paperclip** for images, then **Workspace:**.",
         "**Goal** is documented separately: [Goal](/docs/chat/goal). This page covers the other composer controls.",
         "",
         "## Model",
@@ -271,7 +271,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "This is about **where file tools run**, not the memory toggle.",
         "",
         "## Plan (task collaboration)",
-        "A **Plan (task collaboration)** row next to the four modes is **not shown in the public EvoPanel build**—the menu flag is off, so you cannot turn Plan on/off from the composer even if collaboration state exists server-side. Custom builds that re-enable the flag will show **Plan（任务协作）** plus actions like **Back to plan** / **Authorize 执行**.",
+        "A **Plan (task collaboration)** row next to the four modes is **not shown in the public EvoFlow build**—the menu flag is off, so you cannot turn Plan on/off from the composer even if collaboration state exists server-side. Custom builds that re-enable the flag will show **Plan（任务协作）** plus actions like **Back to plan** / **Authorize 执行**.",
         "For delegating coding work to Claude Code, see [Coding assistants](/docs/ext/coding-assistants).",
       ],
     ),
@@ -301,7 +301,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- **填入并开始**：把方案写入面板并**立即启动**目标。",
         "- **填入面板**：只写入配置，不自动开跑。",
         "- **关闭**：放弃本条方案。",
-        "默认需你**手动点确认**才会跑，避免误触。进阶：可在本机浏览器存储键 **`evopanel_hosted_propose_action`** 设为 `auto_fill`（仅写入面板）或 `auto_start`（写入并自动启动），供自动化或飞书衔接等场景使用。",
+        "默认需你**手动点确认**才会跑，避免误触。进阶：可在本机浏览器存储键 **`EvoFlow_hosted_propose_action`** 设为 `auto_fill`（仅写入面板）或 `auto_start`（写入并自动启动），供自动化或飞书衔接等场景使用。",
         "",
         "## 结束条件（「先到先停」）",
         "**最大轮次** 与 **定时自动停止** 彼此独立，**满足任一即停止**。可搭配使用：怕跑太久可开定时；希望多给助手几步可调大轮次。",
@@ -312,16 +312,16 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "### 从飞书直接启动目标",
         "在已绑定 EvoFlow 线程的飞书会话中，发送 **`/goal 任务目标描述`**（别名 `/hosted`、`/hd`），网关会在**当前会话**后台自动启动目标模式。",
         "### 从飞书确认已有方案",
-        "若对话里已有 **`propose_goal`** 生成的目标方案，可在 **EvoPanel** 输入框发 **「开始」「确认」** 或 **`/goal start`** 一键填入并启动；飞书 IM 侧请优先用 **`/goal <目标>`** 直接创建。",
+        "若对话里已有 **`propose_goal`** 生成的目标方案，可在 **EvoFlow** 输入框发 **「开始」「确认」** 或 **`/goal start`** 一键填入并启动；飞书 IM 侧请优先用 **`/goal <目标>`** 直接创建。",
         "### 结构化询问在飞书里的展示",
-        "若主助手发起 **`ask_clarification`**，网关侧会对飞书出站文案做可读化（列表化选项与说明），避免整段 JSON 直接出现在群里；**在桌面 EvoPanel 侧栏点选**仍是最稳妥的提交方式。",
+        "若主助手发起 **`ask_clarification`**，网关侧会对飞书出站文案做可读化（列表化选项与说明），避免整段 JSON 直接出现在群里；**在桌面 EvoFlow 侧栏点选**仍是最稳妥的提交方式。",
         "",
         "## 运行期间的配合",
         "- 主会话里若出现澄清/确认，请按气泡或侧栏提示作答；紧急停止用面板 **「停止目标」**。",
         "- 也可在输入框发 **「开始」「确认」** 等短指令（与飞书侧语义对齐）以应用当前确认条上的目标方案（以当前版本为准）。",
         "",
         "## 与快捷指令的关系",
-        "详见 [快捷指令](/docs/quick-commands)。**面板与快捷指令二选一习惯即可**；IM 里能用的 `/` 指令以机器人 **`/help`** 为准，与 EvoPanel 本地输入框不一定相同。",
+        "详见 [快捷指令](/docs/quick-commands)。**面板与快捷指令二选一习惯即可**；IM 里能用的 `/` 指令以机器人 **`/help`** 为准，与 EvoFlow 本地输入框不一定相同。",
       ],
       [
         "## When Goal mode helps",
@@ -340,7 +340,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- **Apply & start** — writes the plan and **starts** goal mode immediately.",
         "- **Apply to panel** — writes settings without auto-start.",
         "- **Dismiss** — discard this proposal.",
-        "By default nothing runs until you confirm (safer). Power users can set browser storage key **`evopanel_hosted_propose_action`** to `auto_fill` or `auto_start` for automation/Feishu flows.",
+        "By default nothing runs until you confirm (safer). Power users can set browser storage key **`EvoFlow_hosted_propose_action`** to `auto_fill` or `auto_start` for automation/Feishu flows.",
         "",
         "## Stop conditions (“first signal wins”)",
         "**Max rounds** and **Timed auto-stop** are independent—**whichever hits first stops the run**.",
@@ -351,15 +351,15 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "### Start a goal from Feishu",
         "In a Feishu thread bound to EvoFlow, send **`/goal <task goal>`** (aliases `/hosted`, `/hd`) to **start goal mode on that thread** in the background.",
         "### Confirm an existing proposal",
-        "If the thread already has a **`propose_goal`** plan strip in **EvoPanel**, send **Start** / **确认** or **`/goal start`** in the desktop composer to apply & start. On Feishu IM, prefer **`/goal <goal>`** to create directly.",
+        "If the thread already has a **`propose_goal`** plan strip in **EvoFlow**, send **Start** / **确认** or **`/goal start`** in the desktop composer to apply & start. On Feishu IM, prefer **`/goal <goal>`** to create directly.",
         "### ask_clarification on Feishu",
-        "Outbound text for **`ask_clarification`** is formatted for IM readability (options as a short list). **Answering in EvoPanel’s clarification sidebar** remains the most reliable path.",
+        "Outbound text for **`ask_clarification`** is formatted for IM readability (options as a short list). **Answering in EvoFlow’s clarification sidebar** remains the most reliable path.",
         "",
         "## While it runs",
         "Answer in-thread questions; use **Stop goal** for an emergency stop.",
         "",
         "## Slash commands",
-        "See [Shortcuts](/docs/quick-commands). Prefer **either** the drawer **or** slash habits; IM slash sets follow the bot **`/help`**, which may differ from EvoPanel’s local composer.",
+        "See [Shortcuts](/docs/quick-commands). Prefer **either** the drawer **or** slash habits; IM slash sets follow the bot **`/help`**, which may differ from EvoFlow’s local composer.",
       ],
     ),
   },
@@ -384,7 +384,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- **批量选择**：进入勾选模式后，底部工具条可 **批量启动**（规划启动）、**批量暂停**、**批量删除** 或 **取消选择**；删除前会二次确认。",
         "",
         "## 注意",
-        "不要用聊天里的 `/task …` 当「建任务」入口——在 EvoPanel 里会当普通文字发出。请在本页与 **任务详情** 管理。详见 [快捷指令](/docs/quick-commands)。",
+        "不要用聊天里的 `/task …` 当「建任务」入口——在 EvoFlow 里会当普通文字发出。请在本页与 **任务详情** 管理。详见 [快捷指令](/docs/quick-commands)。",
         "",
         "## 补充说明",
         "接口与排障见 GitHub 仓库：[EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow)。",
@@ -401,7 +401,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- **Batch select**: enables checkboxes and a bottom bar for **batch start**, **batch pause**, **batch delete**, or **cancel selection**.",
         "",
         "## Heads-up",
-        "Do not use `/task …` in chat as a task creator—EvoPanel sends it as normal text. Use this page and the task detail route. See [Shortcuts](/docs/quick-commands).",
+        "Do not use `/task …` in chat as a task creator—EvoFlow sends it as normal text. Use this page and the task detail route. See [Shortcuts](/docs/quick-commands).",
         "",
         "## Supplementary docs",
         "APIs and troubleshooting: [EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow).",
@@ -426,7 +426,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- **任务列表**：每条可 **编辑**、**删除**、**立即运行**、**暂停 / 恢复**、查看 **历史**（以卡片上按钮为准）。",
         "",
         "## 注意",
-        "聊天里的 `/cron …` **不会**在本页替你建任务；在 EvoPanel 聊天里也会当普通文字。请在本页或 [快捷指令](/docs/quick-commands) 了解机器人侧差异。",
+        "聊天里的 `/cron …` **不会**在本页替你建任务；在 EvoFlow 聊天里也会当普通文字。请在本页或 [快捷指令](/docs/quick-commands) 了解机器人侧差异。",
         "",
         "## 补充说明",
         "TOML 存储、Gateway 自动化等见 GitHub：[EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow)。",
@@ -441,7 +441,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "- **List actions** (per row): **edit**, **delete**, **run now**, **pause/resume**, **history**—labels match the buttons on your card.",
         "",
         "## Heads-up",
-        "`/cron …` in chat does **not** create jobs here; EvoPanel treats it as plain text. See [Shortcuts](/docs/quick-commands) for IM differences.",
+        "`/cron …` in chat does **not** create jobs here; EvoFlow treats it as plain text. See [Shortcuts](/docs/quick-commands) for IM differences.",
         "",
         "## Supplementary docs",
         "TOML layout and Gateway automation: [EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow).",
@@ -499,16 +499,16 @@ These product docs follow **Getting started → Live chat (composer & options, t
     slug: ["config", "feishu"],
     title: { zh: "飞书集成", en: "Feishu integration" },
     description: {
-      zh: "飞书机器人与 EvoPanel「IM 通信」配套说明；开放平台与网关部署见 Git。",
-      en: "Feishu bot notes alongside EvoPanel **IM** settings; open platform + Gateway on Git.",
+      zh: "飞书机器人与 EvoFlow「IM 通信」配套说明；开放平台与网关部署见 Git。",
+      en: "Feishu bot notes alongside EvoFlow **IM** settings; open platform + Gateway on Git.",
     },
     body: desktopStub(
       [
-        "## EvoPanel 中的配置",
+        "## EvoFlow 中的配置",
         "桌面端请在 **设置 → IM 通信**（或侧栏 **IM Channels**）里选 **飞书**，按右侧说明填 **App ID / App Secret**，需要时用 **扫码绑定**，再点 **测试连通性**；左侧开关用于启用或停用该渠道。详见 [设置 · IM 通信](/docs/panel/feishu-tab)。",
         "",
         "## 飞书中的使用",
-        "单聊直接找机器人；群聊一般需 **@机器人** 再发。能用的 **`/` 指令**以机器人返回的 **`/help`** 为准，与 EvoPanel 聊天不完全相同，见 [快捷指令](/docs/quick-commands)。目标若在 IM 里不好操作，用 **[目标](/docs/chat/goal)** 面板。",
+        "单聊直接找机器人；群聊一般需 **@机器人** 再发。能用的 **`/` 指令**以机器人返回的 **`/help`** 为准，与 EvoFlow 聊天不完全相同，见 [快捷指令](/docs/quick-commands)。目标若在 IM 里不好操作，用 **[目标](/docs/chat/goal)** 面板。",
         "",
         "## 服务端还要做什么",
         "开放平台里需创建应用、开权限、配事件订阅 URL（形如 `…/api/feishu/webhook`）等，与具体部署方式有关。",
@@ -517,8 +517,8 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "完整清单与排障见 GitHub：[EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow)。",
       ],
       [
-        "## Configuration in EvoPanel",
-        "In EvoPanel open **Settings → IM** (or shell **IM Channels**), pick **Feishu**, fill **App ID / App Secret**, use **Scan to bind** when offered, then **Test connectivity**; the left toggle enables or disables the channel. Details: [Settings · IM](/docs/panel/feishu-tab).",
+        "## Configuration in EvoFlow",
+        "In EvoFlow open **Settings → IM** (or shell **IM Channels**), pick **Feishu**, fill **App ID / App Secret**, use **Scan to bind** when offered, then **Test connectivity**; the left toggle enables or disables the channel. Details: [Settings · IM](/docs/panel/feishu-tab).",
         "",
         "## Usage in Feishu",
         "DM the bot directly; in groups **@mention** first. Slash commands follow **`/help`** from the bot—see [Shortcuts](/docs/quick-commands). Prefer the **[Goal](/docs/chat/goal)** panel when IM controls are unclear.",
@@ -617,7 +617,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
     body: desktopStub(
       [
         "## 概览",
-        "在本产品里，**Claude Code**（本机编码环境）可以出现在三种用法里：你在 **飞书等 IM 里先切到直连再连续聊**；你在 **总控（主智能体）会话里** 让它当 **子代理** 干活；在 **协作 / 子任务** 流程里由某一格指派给它执行。三种方式共用同一套 Claude Code 能力，差别只在 **谁在控场、消息从哪条入口进来**。**桌面端 EvoPanel** 与飞书的斜杠切换是对齐的。",
+        "在本产品里，**Claude Code**（本机编码环境）可以出现在三种用法里：你在 **飞书等 IM 里先切到直连再连续聊**；你在 **总控（主智能体）会话里** 让它当 **子代理** 干活；在 **协作 / 子任务** 流程里由某一格指派给它执行。三种方式共用同一套 Claude Code 能力，差别只在 **谁在控场、消息从哪条入口进来**。**桌面端 EvoFlow** 与飞书的斜杠切换是对齐的。",
         "",
         "## 用法一：飞书里先切到 Claude Code，再连续对话",
         "在飞书（或其它已接入的 IM）里发 **`/claude`**（或 **`/claude-code`**），机器人会切到 **Claude Code 直连模式**：**后面你在这个话题里发的普通消息**，都会交给 Claude Code 处理，可以 **多轮追问、改需求、接着改代码**，会话会在后台 **续接积累**，不是「一句一断」。",
@@ -631,12 +631,12 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "## 用法二：总控模式下，让 Claude Code 当子代理",
         "当你 **没有** 用 `/claude` 把整条会话切成「全程直连」时，你对话的对象是 **总控（主智能体）**。这时你只要用 **自然话** 说明要写什么、改哪里、有什么约束，总控会在需要时把 **编码类步骤** 派给 **Claude Code 子代理** 执行，再把结果收回对话里。",
         "",
-        "在 **EvoPanel** 里，这类执行过程往往会 **流式出现在控制台一类区域**，便于你和主对话对照。**同一条主会话里**，系统通常会 **默认复用同一条 Claude Code 外部会话**，方便你接着喊「再改一下」「加个单测」而不用从零重开；若你希望完全隔离一条新的编码会话，在对话里跟总控说清楚即可。",
+        "在 **EvoFlow** 里，这类执行过程往往会 **流式出现在控制台一类区域**，便于你和主对话对照。**同一条主会话里**，系统通常会 **默认复用同一条 Claude Code 外部会话**，方便你接着喊「再改一下」「加个单测」而不用从零重开；若你希望完全隔离一条新的编码会话，在对话里跟总控说清楚即可。",
         "",
         "## 用法三：任务协作（子任务）里由 Claude Code 执行",
-        "当会话处于 **协作 / 子任务** 流程、且某一步指派给 **编码子代理** 时，**Claude Code** 可以执行该步；与总控里口头委派是 **同一类子代理机制**，只是任务落在子任务格里，便于并行与追溯。**当前公开 EvoPanel 不会在输入栏「模式」菜单里展示 Plan 开关**，是否进入协作流以你界面与流式输出为准。见 [输入栏与选项](/docs/chat/composer) 中的 Plan 说明。",
+        "当会话处于 **协作 / 子任务** 流程、且某一步指派给 **编码子代理** 时，**Claude Code** 可以执行该步；与总控里口头委派是 **同一类子代理机制**，只是任务落在子任务格里，便于并行与追溯。**当前公开 EvoFlow 不会在输入栏「模式」菜单里展示 Plan 开关**，是否进入协作流以你界面与流式输出为准。见 [输入栏与选项](/docs/chat/composer) 中的 Plan 说明。",
         "",
-        "## EvoPanel 操作（与飞书一致）",
+        "## EvoFlow 操作（与飞书一致）",
         "- 发 **`/claude`** 或 **`/claude-code`**：当前会话进入 **Claude Code 直连**（与飞书 `/claude` 同款语义）。",
         "- 发 **`/lead`** 或 **`/main`**：切回 **主智能体**。",
         "- 或在角色/预设里选用 **Claude Code 直连** 入口（若你的版本提供），效果与上述斜杠一致。",
@@ -651,7 +651,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
       ],
       [
         "## Overview",
-        "**Claude Code** (the coding runtime on your machine) shows up in **three patterns**: switch IM or EvoPanel to **direct Claude Code chat** and keep talking; stay on the **lead** and let it **delegate** coding steps to Claude Code as a **sub-agent**; or run **collaboration / subtask** flows where a row is assigned to the coding worker. Same engine, different **who owns the conversation**. EvoPanel slash commands align with IM where supported.",
+        "**Claude Code** (the coding runtime on your machine) shows up in **three patterns**: switch IM or EvoFlow to **direct Claude Code chat** and keep talking; stay on the **lead** and let it **delegate** coding steps to Claude Code as a **sub-agent**; or run **collaboration / subtask** flows where a row is assigned to the coding worker. Same engine, different **who owns the conversation**. EvoFlow slash commands align with IM where supported.",
         "",
         "## Pattern A — IM: switch to Claude Code, then chat continuously",
         "In Feishu (or another connected IM), send **`/claude`** (or **`/claude-code`**). The bot enters **Claude Code direct mode**: **your next normal messages in that topic** go to Claude Code, so you can **iterate, refine requirements, and keep coding across many turns** in one **continuous** Claude session.",
@@ -665,12 +665,12 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "## Pattern B — Lead mode: Claude Code as a sub-agent",
         "When you **have not** switched the whole thread to direct mode, you talk to the **lead**. Describe goals, files, and constraints in **plain language**; the lead **delegates coding work** to the **Claude Code sub-agent** when needed and folds results back into the thread.",
         "",
-        "In **EvoPanel**, watch the **console-style stream** alongside the main chat. On the **same main thread**, Claude Code sessions are **usually reused** so follow-ups like “add tests” or “fix the error” continue in one external session unless you ask for a clean break.",
+        "In **EvoFlow**, watch the **console-style stream** alongside the main chat. On the **same main thread**, Claude Code sessions are **usually reused** so follow-ups like “add tests” or “fix the error” continue in one external session unless you ask for a clean break.",
         "",
         "## Pattern C — Collaboration subtasks",
-        "When a **collaboration / subtask** flow assigns a step to the **coding worker**, **Claude Code** can run that step—same delegation mechanism as Pattern B, but **structured on a subtask row** for parallelism and traceability. The public EvoPanel build **does not show a Plan toggle in the Mode menu**; follow your UI and stream panels. See **Plan** under [Composer & options](/docs/chat/composer).",
+        "When a **collaboration / subtask** flow assigns a step to the **coding worker**, **Claude Code** can run that step—same delegation mechanism as Pattern B, but **structured on a subtask row** for parallelism and traceability. The public EvoFlow build **does not show a Plan toggle in the Mode menu**; follow your UI and stream panels. See **Plan** under [Composer & options](/docs/chat/composer).",
         "",
-        "## EvoPanel usage (same as IM)",
+        "## EvoFlow usage (same as IM)",
         "- **`/claude`** or **`/claude-code`**: enable **Claude Code direct** for this session.",
         "- **`/lead`** or **`/main`**: return to the **lead** assistant.",
         "- Or pick a **Claude Code direct** preset/entry if your build exposes one.",
@@ -778,7 +778,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "若你熟悉 cron，也可以直接说「用 `0 9 * * 1-5` 触发，名字叫…，执行时让模型…」。",
         "",
         "## 不要用错成「斜杠指令」",
-        "在 EvoPanel 里输入 `/cron …` **通常只会当普通聊天文字**，不会变成建任务按钮。**建计划靠自然话说明**，或打开侧栏自动化页操作；机器人里的指令规则也不完全一样，详见 [快捷指令](/docs/quick-commands)。",
+        "在 EvoFlow 里输入 `/cron …` **通常只会当普通聊天文字**，不会变成建任务按钮。**建计划靠自然话说明**，或打开侧栏自动化页操作；机器人里的指令规则也不完全一样，详见 [快捷指令](/docs/quick-commands)。",
       ],
       [
         "## How it works",
@@ -789,7 +789,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
         "If you know cron, you can say: “Use `0 9 * * 1-5`, title …, prompt …”.",
         "",
         "## Not a slash command",
-        "Typing `/cron …` in EvoPanel is **usually plain chat**, not a magic create shortcut. Create jobs **in natural language** or from the sidebar page; IM bots differ—see [Shortcuts](/docs/quick-commands).",
+        "Typing `/cron …` in EvoFlow is **usually plain chat**, not a magic create shortcut. Create jobs **in natural language** or from the sidebar page; IM bots differ—see [Shortcuts](/docs/quick-commands).",
       ],
     ),
   },
@@ -976,7 +976,7 @@ These product docs follow **Getting started → Live chat (composer & options, t
 | 记忆与上下文 | 长任务里哪些该记住、怎样避免把整段聊天反复塞给模型 |
 | 技能与外部工具 | 额外能力包、外部服务怎么接进来、怎么授权 |
 
-具体怎么用在 EvoPanel 里，可按左侧目录从 [快速开始](/docs/getting-started) 或 [输入栏与选项](/docs/chat/composer) 往下看。
+具体怎么用在 EvoFlow 里，可按左侧目录从 [快速开始](/docs/getting-started) 或 [输入栏与选项](/docs/chat/composer) 往下看。
 
 ## 接下来建议读什么
 
@@ -996,7 +996,7 @@ After [Getting started](/docs/getting-started), use this table to read the homep
 | Memory & context | What to remember across long work without pasting entire chats |
 | Skills & external tools | How optional packs and services connect and get permission |
 
-For how to use these in EvoPanel, follow the left-hand doc tree from [Getting started](/docs/getting-started) or [Composer & options](/docs/chat/composer).
+For how to use these in EvoFlow, follow the left-hand doc tree from [Getting started](/docs/getting-started) or [Composer & options](/docs/chat/composer).
 
 ## What to read next
 
@@ -1019,7 +1019,7 @@ For how to use these in EvoPanel, follow the left-hand doc tree from [Getting st
 1. **编排**：把目标说清楚、拆成任务、盯住依赖和进度。  
 2. **执行**：真正去跑命令、调工具、连外部系统；这一层强调日志可读、失败可重试。  
 3. **记忆与状态**：在长对话、长任务里留下该留的摘要和产物，而不是把全部聊天记录反复交给模型。  
-4. **使用与集成**：EvoPanel、技能、外部工具等是你日常点得到的地方；它们调用下面几层的能力。
+4. **使用与集成**：EvoFlow、技能、外部工具等是你日常点得到的地方；它们调用下面几层的能力。
 
 聊天是一种用法；任务、定时流程等也可以共用同一套能力。
 
@@ -1034,7 +1034,7 @@ Think of EvoFlow in four layers (bottom to top):
 1. **Orchestration**: clarify goals, split work, track dependencies.  
 2. **Execution**: run tools and integrations with logs and retries you can trust.  
 3. **Memory & state**: keep useful summaries without stuffing entire chats into the model.  
-4. **Surfaces**: EvoPanel, skills, and external tools—the places you click; they call into the layers below.
+4. **Surfaces**: EvoFlow, skills, and external tools—the places you click; they call into the layers below.
 
 Chat is one surface; tasks and schedules use the same stack.
 
@@ -1103,6 +1103,7 @@ export function getAllDocSlugs(): DocSlug[] {
 /** Legacy doc paths → current slug (static export + dev redirects). */
 export const DOC_SLUG_REDIRECTS: Record<string, DocSlug> = {
   "chat/hosted": ["chat", "goal"],
+  "chat/evopanel": ["getting-started"],
 };
 
 export function getDocSlugRedirect(slug: DocSlug): DocSlug | undefined {
@@ -1134,15 +1135,15 @@ export function docsIndexCopy(locale: SiteLocale): {
   if (locale === "zh") {
     return {
       title: "文档",
-      description: "说明 EvoPanel 里常用功能在什么位置、适合干什么。",
+      description: "说明 EvoFlow 里常用功能在什么位置、适合干什么。",
       intro:
-        "下方分区与 EvoPanel 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/自动化的说明）→ **实时对话**（**输入栏与选项**、**目标**）→ **侧栏菜单** → **设置**。Plan 模式演示视频与界面截图见站内 [**产品演示**](/showcase/)。",
+        "下方分区与 EvoFlow 主界面一致：**快速开始**（含入门与模型说明、快捷指令、编码助手，以及在对话里快速创建角色/技能/自动化的说明）→ **实时对话**（**输入栏与选项**、**目标**）→ **侧栏菜单** → **设置**。入门实操见 [**实操教程**](/presentations/guides/)；Plan 演示见 [**产品演示**](/showcase/)。",
     };
   }
   return {
     title: "Documentation",
-    description: "Where EvoPanel features live and what they are for.",
+    description: "Where EvoFlow features live and what they are for.",
     intro:
-      "Sections mirror EvoPanel: **Getting started** (onboarding with model setup, shortcuts, coding assistants, plus chat-first quick create for roles/skills/schedules) → **Live chat** (**Composer & options**, then **Goal**) → **Shell sidebar** → **Settings**. Plan-mode videos and GUI screenshots: [**Product showcase**](/showcase/).",
+      "Sections mirror EvoFlow: **Getting started** (onboarding with model setup, shortcuts, coding assistants, plus chat-first quick create for roles/skills/schedules) → **Live chat** (**Composer & options**, then **Goal**) → **Shell sidebar** → **Settings**. Hands-on guides: [**Guides**](/presentations/guides/); Plan demos: [**Product showcase**](/showcase/).",
   };
 }

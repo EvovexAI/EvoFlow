@@ -5,14 +5,24 @@ const isStaticExport = process.env.EVOFLOW_STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
   ...(isStaticExport ? { output: "export" as const } : {}),
-  /** TOS / S3-style static buckets resolve `/docs/` → `docs/index.html`; without this Next emits `docs.html` and `/docs` 404s. */
-  ...(isStaticExport ? { trailingSlash: true } : {}),
+  /** Static HTML in public/ (presentations, export) and TOS buckets expect directory index URLs. */
+  trailingSlash: true,
   ...(isStaticExport ? { images: { unoptimized: true } } : {}),
   env: {
     NEXT_PUBLIC_STATIC_EXPORT: isStaticExport ? "1" : "",
   },
   ...(!isStaticExport
     ? {
+        async rewrites() {
+          return {
+            beforeFiles: [
+              {
+                source: "/presentations/:path*/",
+                destination: "/presentations/:path*/index.html",
+              },
+            ],
+          };
+        },
         async redirects() {
           return [
             { source: "/docs/hosted/overview", destination: "/docs/chat/goal", permanent: true },
@@ -24,6 +34,8 @@ const nextConfig: NextConfig = {
             { source: "/docs/chat/memory", destination: "/docs/chat/composer", permanent: false },
             { source: "/docs/chat/session-modes", destination: "/docs/chat/composer", permanent: false },
             { source: "/docs/chat/creativity", destination: "/docs/chat/composer", permanent: false },
+            { source: "/docs/chat/evopanel", destination: "/docs/getting-started", permanent: true },
+            { source: "/docs/chat/evopanel/", destination: "/docs/getting-started/", permanent: true },
             { source: "/docs/chat/plan-collab", destination: "/docs/chat/composer", permanent: false },
             { source: "/docs/chat/workspace", destination: "/docs/chat/composer", permanent: false },
             { source: "/docs/tasks/execution", destination: "/docs/tasks/center", permanent: false },

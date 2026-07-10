@@ -9,9 +9,9 @@ export const projects = [
     tags: ["agents", "orchestration", "github"],
   }),
   projectSchema.parse({
-    slug: "evopanel",
-    title: "EvoPanel",
-    summary: "桌面端体验，将 EvoFlow 能力带到本地开发与日常使用场景。",
+    slug: "evoflow-desktop",
+    title: "EvoFlow 桌面端",
+    summary: "EvoFlow 桌面客户端，连接 Gateway，服务本地开发与日常使用。",
     tags: ["desktop", "tauri", "devtools"],
   }),
   projectSchema.parse({

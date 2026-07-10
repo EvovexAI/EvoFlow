@@ -76,7 +76,7 @@ const PROJECTS_TEXT = [
   { type: "system" as LineType, content: "HIGHLIGHTS" },
   { type: "system" as LineType, content: "─────────────────────────────────────────────────" },
   { type: "output" as LineType, content: "  [1] evoflow-core     Multi-agent orchestration" },
-  { type: "output" as LineType, content: "  [2] evopanel         Desktop developer surface" },
+  { type: "output" as LineType, content: "  [2] evoflow         Desktop client surface" },
   { type: "output" as LineType, content: "  [3] skills-ecosystem MCP + pluggable skills" },
   { type: "blank" as LineType, content: "" },
   { type: "output" as LineType, content: '  Run "goto home", "goto scenarios", or "goto about" from this shell.' },
@@ -88,7 +88,7 @@ const SKILLS_TEXT = [
   { type: "system" as LineType, content: "─────────────────────────────────────────────────" },
   { type: "output" as LineType, content: "  Site       Next.js 16 · React 19 · Tailwind 4" },
   { type: "output" as LineType, content: "  Product    Python agent runtime · TS tooling" },
-  { type: "output" as LineType, content: "  Desktop    EvoPanel (Tauri) where applicable" },
+  { type: "output" as LineType, content: "  Desktop    EvoFlow (Tauri) where applicable" },
   { type: "output" as LineType, content: "  Ops        Docker · CI · 可观测流水线" },
   { type: "blank" as LineType, content: "" },
 ];

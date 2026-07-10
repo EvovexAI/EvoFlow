@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  next-themes@0.4.6:
+    hash: 73478c20fb87207168b5c0fa9ccabf0c042408da2bc5a36131ed1c8bb57bf5a3
+    path: patches/next-themes@0.4.6.patch
+
 importers:
 
   .:
@@ -61,7 +66,7 @@ importers:
         version: 16.2.3(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       next-themes:
         specifier: ^0.4.6
-        version: 0.4.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 0.4.6(patch_hash=73478c20fb87207168b5c0fa9ccabf0c042408da2bc5a36131ed1c8bb57bf5a3)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react:
         specifier: 19.2.4
         version: 19.2.4
@@ -5579,7 +5584,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next-themes@0.4.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+  next-themes@0.4.6(patch_hash=73478c20fb87207168b5c0fa9ccabf0c042408da2bc5a36131ed1c8bb57bf5a3)(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)

@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="EvoFlow 实操教程 · 按场景分专栏，手把手配置模型、协作、媒体与自动化" />
+  <title>EvoFlow 实操教程</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <div class="brand-mark">📘</div>
+      <span>EvoFlow 实操教程</span>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost nav-toggle" id="navToggle" aria-label="打开导航">☰ 导航</button>
+      <button type="button" class="btn btn-primary" id="presentBtn">专注阅读</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="sidebar-label">专栏</p>
+      <ul class="nav-list">
+        <li><a href="#intro" data-section="intro" class="active">专栏首页</a></li>
+        <li class="nav-part">场景专栏</li>
+        <li><a href="#col-learn" data-section="col-learn">学习</a></li>
+        <li><a href="#col-office" data-section="col-office">办公</a></li>
+        <li><a href="#col-media" data-section="col-media">媒体</a></li>
+        <li><a href="#col-agents" data-section="col-agents">多智能体协作</a></li>
+        <li><a href="#col-auto" data-section="col-auto">自动化任务</a></li>
+        <li><a href="#col-goal" data-section="col-goal">目标</a></li>
+        <li><a href="#resources" data-section="resources" class="nav-back">相关资源</a></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <section class="hero" id="intro" data-section-id="intro">
+        <div class="hero-inner">
+          <span class="hero-badge">EvoFlow · 实操教程</span>
+          <h1>在这里，跟着做就能上手 EvoFlow</h1>
+          <p class="hero-sub">按场景分专栏的图文教程：从配模型、开对话，到 Plan 协作、做视频与自动化任务。每篇都可逐步跟做。</p>
+          <div class="hero-meta">
+            <span>分步截图</span>
+            <span>按场景选读</span>
+            <span>持续更新</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt hub-intro">
+        <div class="hub-intro-grid">
+          <article class="hub-intro-card">
+            <h3>能学到什么</h3>
+            <p>EvoFlow 桌面端怎么配、怎么用：模型与对话、Plan 多 Agent、媒体流水线、定时任务与目标模式等。</p>
+          </article>
+          <article class="hub-intro-card">
+            <h3>适合怎么用</h3>
+            <p>先选和你工作最接近的专栏；有「已发布」的直接点开跟做，标注「筹备中」的可以稍后再来。</p>
+          </article>
+          <article class="hub-intro-card">
+            <h3>和文档的区别</h3>
+            <p>官网文档讲能力全貌；本专栏侧重<strong>动手路径</strong>，用截图和步骤把一件事从头到尾走通。</p>
+          </article>
+        </div>
+      </section>
+
+      <div class="section-part">
+        <h2>按场景选专栏</h2>
+        <p>下列分类与 EvoFlow 常见用法对齐，教程会陆续补齐</p>
+      </div>
+
+      <section class="section" id="col-learn" data-section-id="col-learn">
+        <div class="section-header">
+          <span class="section-tag">学习</span>
+          <h2>入门与基础操作</h2>
+          <p>第一次用 EvoFlow：配好模型、认识界面、发出第一条消息。</p>
+        </div>
+        <div class="guide-hub-grid">
+          <article class="guide-category">
+            <h3>模型与对话</h3>
+            <p class="cat-desc">连接 API、添加模型、设主模型并完成首次聊天。</p>
+            <ul class="guide-lesson-list">
+              <li>
+                <a href="./getting-started/models-and-chat/">
+                  配置模型并开启第一次对话
+                  <span class="lesson-badge">已发布</span>
+                </a>
+              </li>
+            </ul>
+          </article>
+          <article class="guide-category guide-category--empty">
+            <h3>界面导览</h3>
+            <p class="cat-desc">工作区、侧栏菜单、模型选择与常用设置入口。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="col-office" data-section-id="col-office">
+        <div class="section-header">
+          <span class="section-tag">办公</span>
+          <h2>文档、邮件与日常事务</h2>
+          <p>用对话和技能处理办公场景：整理材料、写邮件、会议纪要等。</p>
+        </div>
+        <div class="guide-hub-grid">
+          <article class="guide-category guide-category--empty">
+            <h3>文档与写作</h3>
+            <p class="cat-desc">长文起草、改写、结构化输出与附件协作。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+          <article class="guide-category guide-category--empty">
+            <h3>邮件与日程</h3>
+            <p class="cat-desc">结合技能或集成，辅助邮件回复与事务跟进。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="col-media" data-section-id="col-media">
+        <div class="section-header">
+          <span class="section-tag">媒体</span>
+          <h2>图片、视频与创意产出</h2>
+          <p>Plan 模式 + 媒体技能，从创意到成片的多 Agent 流水线。</p>
+        </div>
+        <div class="guide-hub-grid">
+          <article class="guide-category">
+            <h3>短视频制作</h3>
+            <p class="cat-desc">用 Plan 组织编剧、视觉、导演等工种，交付一支短片。</p>
+            <ul class="guide-lesson-list">
+              <li>
+                <a href="./creation/short-video/">
+                  用 Plan 模式制作一支短视频
+                  <span class="lesson-badge">大纲篇</span>
+                </a>
+              </li>
+            </ul>
+          </article>
+          <article class="guide-category guide-category--empty">
+            <h3>生图与生视频</h3>
+            <p class="cat-desc">Provider 脚本、分镜图与镜头生成的入门路径。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="col-agents" data-section-id="col-agents">
+        <div class="section-header">
+          <span class="section-tag">多智能体协作</span>
+          <h2>Plan、团队与角色分工</h2>
+          <p>复杂任务先规划再执行：Supervisor 协调多个子 Agent 按步骤推进。</p>
+        </div>
+        <div class="guide-hub-grid">
+          <article class="guide-category">
+            <h3>Plan 协作流程</h3>
+            <p class="cat-desc">澄清需求 → 生成计划 → 确认执行 → 跟进验收。</p>
+            <ul class="guide-lesson-list">
+              <li>
+                <a href="../plan-workflow/">
+                  Plan 模式完整流程说明
+                  <span class="lesson-badge">概念篇</span>
+                </a>
+              </li>
+            </ul>
+          </article>
+          <article class="guide-category guide-category--empty">
+            <h3>Agent Teams 与预设角色</h3>
+            <p class="cat-desc">配置团队分工、预设角色与任务中心联动。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="col-auto" data-section-id="col-auto">
+        <div class="section-header">
+          <span class="section-tag">自动化任务</span>
+          <h2>定时、调度与重复执行</h2>
+          <p>把重复性工作交给调度器，按 cron 或规则自动跑。</p>
+        </div>
+        <div class="guide-hub-grid">
+          <article class="guide-category guide-category--empty">
+            <h3>定时任务</h3>
+            <p class="cat-desc">创建 cron、查看执行记录与失败重试。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+          <article class="guide-category guide-category--empty">
+            <h3>自动化编排</h3>
+            <p class="cat-desc">多步骤自动化与外部触发（筹备中）。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="col-goal" data-section-id="col-goal">
+        <div class="section-header">
+          <span class="section-tag">目标</span>
+          <h2>Goal 模式与长任务推进</h2>
+          <p>同一对话里持续推进多步目标，减少反复催「继续」。</p>
+        </div>
+        <div class="guide-hub-grid">
+          <article class="guide-category guide-category--empty">
+            <h3>Goal 模式入门</h3>
+            <p class="cat-desc">开启目标、确认方案与查看执行状态。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+          <article class="guide-category guide-category--empty">
+            <h3>与记忆、Plan 的配合</h3>
+            <p class="cat-desc">长任务下 Goal、记忆与 Plan 如何分工（筹备中）。</p>
+            <p class="column-empty">教程筹备中</p>
+          </article>
+        </div>
+      </section>
+
+      <footer class="footer-cta" id="resources" data-section-id="resources">
+        <h2>延伸阅读</h2>
+        <p>需要查 API、配置项或架构说明时，可配合下列资源使用</p>
+        <div class="link-grid">
+          <a href="/docs/getting-started/">EvoFlow 文档</a>
+          <a href="../plan-workflow/">Plan 协作流程</a>
+          <a href="https://www.evovexai.com/showcase/" target="_blank" rel="noopener noreferrer">产品演示</a>
+          <a href="https://github.com/EvovexAI/EvoFlow" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-label="图片预览">
+    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="关闭">×</button>
+    <img src="" alt="" id="lightboxImg" />
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

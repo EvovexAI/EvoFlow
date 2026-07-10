@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="EvoFlow 实操：用 Plan 模式 + Agent Teams 在本平台制作一支短视频" />
+  <title>用 Plan 模式制作一支短视频 · EvoFlow 实操教程</title>
+  <link rel="stylesheet" href="../../styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <div class="brand-mark">🎬</div>
+      <span>Plan 模式 · 短视频制作</span>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost nav-toggle" id="navToggle" aria-label="打开导航">☰ 导航</button>
+      <button type="button" class="btn btn-primary" id="presentBtn">专注阅读</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="sidebar-label">本教程</p>
+      <ul class="nav-list">
+        <li><a href="../../index.html" class="nav-back">← 返回实操专栏</a></li>
+        <li><a href="#intro" data-section="intro">开篇</a></li>
+        <li class="nav-part">一 · 准备</li>
+        <li><a href="#prereq" data-section="prereq">前置条件</a></li>
+        <li><a href="#pipeline" data-section="pipeline">五工种流水线</a></li>
+        <li class="nav-part">二 · 实操</li>
+        <li><a href="#step-start" data-section="step-start">启动 Plan</a></li>
+        <li><a href="#step-clarify" data-section="step-clarify">澄清需求</a></li>
+        <li><a href="#step-plan" data-section="step-plan">生成计划</a></li>
+        <li><a href="#step-exec" data-section="step-exec">确认执行</a></li>
+        <li><a href="#step-monitor" data-section="step-monitor">跟进与验收</a></li>
+        <li class="nav-part">三 · 交付</li>
+        <li><a href="#deliver" data-section="deliver">成片与 outputs</a></li>
+        <li><a href="#faq" data-section="faq">常见问题</a></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <section class="hero" id="intro" data-section-id="intro">
+        <div class="hero-inner">
+          <nav class="breadcrumb" aria-label="面包屑">
+            <a href="../../index.html">实操教程</a>
+            <span>/</span>
+            <a href="../../index.html#col-media">媒体</a>
+            <span>/</span>
+            <span>Plan 模式制作短视频</span>
+          </nav>
+          <span class="hero-badge">创作实操 · 大纲篇</span>
+          <h1>用 Plan 模式在本平台制作一支短视频</h1>
+          <p class="hero-sub">Supervisor 当制片：澄清需求 → 结构化计划 → 五工种串行协作 → 交付 MP4</p>
+          <div class="hero-meta">
+            <span>需 Plan 协作 + 火山/Ark 媒体 Key</span>
+            <span>预计 30–60 分钟（含生成等待）</span>
+            <span>截图路径已预留</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-part">
+        <h2>一、开始之前</h2>
+        <p>确认环境就绪，并理解媒体工种如何分工</p>
+      </div>
+
+      <section class="section section-alt" id="prereq" data-section-id="prereq">
+        <div class="section-header">
+          <span class="section-tag">前置</span>
+          <h2>你需要先具备什么</h2>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <div class="card-icon">✓</div>
+            <h3>已完成模型配置</h3>
+            <p>主模型可用（见 <a href="../../getting-started/models-and-chat/">配置模型与第一次对话</a>）。复杂制片建议用推理能力较强的模型当 Supervisor。</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">🔑</div>
+            <h3>媒体 API 凭据</h3>
+            <p>生图/生视频走火山方舟（Seedream + Seedance）。在 <strong>设置 → 环境变量</strong> 配置 <code>VOLCENGINE_API_KEY</code> 或 <code>ARK_API_KEY</code>；或在 <strong>设置 → 模型 → 创意媒体</strong> 填写。</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">📁</div>
+            <h3>工作区</h3>
+            <p>绑定本地项目目录，产物默认写入 <code>outputs/</code>（剧本、关键帧、MP4、字幕成片）。</p>
+          </article>
+          <article class="card">
+            <div class="card-icon">🧩</div>
+            <h3>技能</h3>
+            <p>启用 <code>media-production</code>、<code>byted-ark-seedream-skill</code>；Plan 视频流程可读 <code>plan-video-production</code> 技能说明。</p>
+          </article>
+        </div>
+        <figure class="figure figure-full" style="margin-top:2rem">
+          <span class="figure-badge">截图 ①</span>
+          <div class="screenshot-slot" data-slot="prereq-env">
+            <img src="/assets/guides/creation/short-video/01-prereq-env.png" alt="环境变量与创意媒体 Key 配置" loading="lazy" />
+            <div class="slot-fallback">
+              <div class="slot-icon">🖼</div>
+              <p>设置 → 环境变量 / 创意媒体 Key</p>
+              <p class="slot-hint"><code>docs/assets/guides/creation/short-video/01-prereq-env.png</code></p>
+            </div>
+          </div>
+          <figcaption>媒体生成凭据配置位置</figcaption>
+        </figure>
+        <div class="warn-box">
+          <strong>和「普通聊天生视频」的区别：</strong>本教程走 <strong>Plan 协作</strong>——先出完整计划、你点「开始执行」后才跑脚本；各工种写在 plan 步骤里，而不是主会话随手 terminal。
+        </div>
+      </section>
+
+      <section class="section" id="pipeline" data-section-id="pipeline">
+        <div class="section-header">
+          <span class="section-tag">流水线</span>
+          <h2>五工种 · 串行制片</h2>
+          <p>一支 15–30 秒宣传片的典型步骤（可按需求删减，例如不要硬字幕可去掉第 5 步）</p>
+        </div>
+        <div class="pipeline">
+          <div class="pipeline-step">
+            <div class="pipeline-num">1</div>
+            <h4>编剧</h4>
+            <p>剧本 · 分镜 · 口播</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">2</div>
+            <h4>视觉策划</h4>
+            <p>分镜 → 生图 prompt</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">3</div>
+            <h4>美术</h4>
+            <p>Seedream 关键帧</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">4</div>
+            <h4>视频导演</h4>
+            <p>Seedance 图生视频 + 配音</p>
+          </div>
+          <div class="pipeline-step">
+            <div class="pipeline-num">5</div>
+            <h4>后期</h4>
+            <p>硬字幕 · 交付 MP4</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>工种（assigned_agent）</th><th>产出物</th><th>执行方式</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>media-screenwriter</code></td><td><code>outputs/production-brief.md</code></td><td>写剧本与分镜</td></tr>
+              <tr><td><code>media-visual-planner</code></td><td><code>outputs/shot-prompts.json</code></td><td>生图 prompt 清单</td></tr>
+              <tr><td><code>media-artist</code></td><td><code>outputs/*.png</code></td><td>terminal → <code>image_generate.py</code></td></tr>
+              <tr><td><code>media-video-director</code></td><td><code>outputs/*.mp4</code></td><td>terminal → <code>video_generate.py</code> + <code>task_wait.py</code></td></tr>
+              <tr><td><code>media-post</code></td><td><code>outputs/*-subtitled.mp4</code></td><td>字幕生成 + ffmpeg 烧录</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="tip-box">
+          Seedance 默认带原生配音，一般<strong>不需要</strong>单独的「配音导演」步骤；需要硬字幕时再加 <code>media-post</code>。
+        </div>
+      </section>
+
+      <div class="section-part">
+        <h2>二、跟着做一遍</h2>
+        <p>从打开 Plan 到拿到成片的关键操作（细节可对照 <a href="../../../plan-workflow/">Plan 协作流程</a>）</p>
+      </div>
+
+      <section class="section section-alt section-wide" id="step-start" data-section-id="step-start">
+        <div class="section-header">
+          <span class="section-tag">步骤 1</span>
+          <h2>启动 Plan 协作</h2>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <ol class="steps-list">
+              <li>打开 EvoFlow，绑定工作区（含 <code>outputs/</code> 目录的项目文件夹）。</li>
+              <li>顶栏激活 <strong>任务规划</strong> 场景（Plan 协作）。</li>
+              <li>用自然语言描述目标，例如：「做一支 15 秒竖屏产品短片，科技风，主题：[你的产品]。」</li>
+              <li>也可使用快捷提示 <strong>「文生视频」</strong> / <strong>「配音字幕短片」</strong> 再改主题占位符。</li>
+            </ol>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">截图 ②</span>
+            <div class="screenshot-slot" data-slot="plan-scenario">
+              <img src="/assets/guides/creation/short-video/02-plan-scenario.png" alt="开启 Plan 与任务规划场景" loading="lazy" />
+              <div class="slot-fallback">
+                <div class="slot-icon">🖼</div>
+                <p>场景切换 + 输入制片需求</p>
+                <p class="slot-hint"><code>docs/assets/guides/creation/short-video/02-plan-scenario.png</code></p>
+              </div>
+            </div>
+            <figcaption>进入 Plan 并描述视频目标</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-wide" id="step-clarify" data-section-id="step-clarify">
+        <div class="section-header">
+          <span class="section-tag">步骤 2</span>
+          <h2>澄清需求（侧栏问卷）</h2>
+          <p>Supervisor 会追问：时长、画幅、风格、口播方向、参考素材等——回答越具体，计划越稳</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>建议确认项</th><th>示例</th></tr></thead>
+            <tbody>
+              <tr><td>主题 / 产品</td><td>新款智能手表</td></tr>
+              <tr><td>时长</td><td>15 秒 / 30 秒</td></tr>
+              <tr><td>画幅</td><td>9:16 竖屏（抖音）或 16:9</td></tr>
+              <tr><td>视觉风格</td><td>科技感 / 温暖 / 国风</td></tr>
+              <tr><td>口播</td><td>功能三点 + slogan</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure class="figure figure-full" style="margin-top:2rem">
+          <span class="figure-badge">截图 ③</span>
+          <div class="screenshot-slot" data-slot="requirements">
+            <img src="/assets/guides/creation/short-video/03-requirements.png" alt="需求澄清侧栏" loading="lazy" />
+            <div class="slot-fallback">
+              <div class="slot-icon">🖼</div>
+              <p>侧栏澄清问卷填写示例</p>
+              <p class="slot-hint"><code>docs/assets/guides/creation/short-video/03-requirements.png</code></p>
+            </div>
+          </div>
+          <figcaption>规划期只读对齐，尚未执行生图/生视频</figcaption>
+        </figure>
+      </section>
+
+      <section class="section section-alt section-wide" id="step-plan" data-section-id="step-plan">
+        <div class="section-header">
+          <span class="section-tag">步骤 3</span>
+          <h2>查看结构化计划</h2>
+          <p>计划定稿后应看到 5 个（或你要求的）步骤，每步指定媒体工种与验收标准</p>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <ul>
+              <li>点击 <strong>查看计划</strong>，检查步骤依赖是否：编剧 → 视觉 → 美术 → 导演 → 后期。</li>
+              <li>每步应有 <strong>执行人</strong>、<strong>输出物路径</strong>、<strong>验收标准</strong>。</li>
+              <li>不满意则在对话中说明修改意见，Supervisor 会重新生成计划。</li>
+            </ul>
+            <div class="tip-box">
+              快速单图/海报（不要分工）可走普通聊天 + terminal，<strong>不</strong>在本 Plan 流程内；本教程专注多工种短片。
+            </div>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">截图 ④</span>
+            <div class="screenshot-slot" data-slot="plan-modal">
+              <img src="/assets/guides/creation/short-video/04-plan-modal.png" alt="结构化计划弹窗" loading="lazy" />
+              <div class="slot-fallback">
+                <div class="slot-icon">🖼</div>
+                <p>计划弹窗 · 五工种步骤与依赖</p>
+                <p class="slot-hint"><code>docs/assets/guides/creation/short-video/04-plan-modal.png</code></p>
+              </div>
+            </div>
+            <figcaption>确认 plan 里已包含全部媒体工种</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-wide" id="step-exec" data-section-id="step-exec">
+        <div class="section-header">
+          <span class="section-tag">步骤 4</span>
+          <h2>点击「开始执行」</h2>
+          <p>唯一正式授权入口 — 此后各工种按依赖串行跑脚本，主会话监工验收</p>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <ol class="steps-list">
+              <li>输入框上方出现确认条：<strong>查看计划</strong> · <strong>修改计划</strong> · <strong>开始执行</strong>。</li>
+              <li>确认无误后点击 <strong>开始执行</strong>。</li>
+              <li>若之后改了计划内容，授权会撤销，需再次点击。</li>
+            </ol>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">截图 ⑤</span>
+            <div class="screenshot-slot" data-slot="exec-confirm">
+              <img src="/assets/guides/creation/short-video/05-exec-confirm.png" alt="开始执行确认条" loading="lazy" />
+              <div class="slot-fallback">
+                <div class="slot-icon">🖼</div>
+                <p>执行确认条 + 计划摘要</p>
+                <p class="slot-hint"><code>docs/assets/guides/creation/short-video/05-exec-confirm.png</code></p>
+              </div>
+            </div>
+            <figcaption>用户授权后进入 executing</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-alt section-wide" id="step-monitor" data-section-id="step-monitor">
+        <div class="section-header">
+          <span class="section-tag">步骤 5</span>
+          <h2>跟进执行与分步验收</h2>
+        </div>
+        <div class="split">
+          <div class="split-content">
+            <ul>
+              <li><strong>协作侧栏 / 工作流面板</strong>：看子任务状态、依赖、进度。</li>
+              <li>每步完成后 Supervisor 对照验收标准检查 <code>outputs/</code> 再解锁下一步。</li>
+              <li>视频生成需等待异步任务 — 工种应跑 <code>task_wait.py</code>，不要未完成就交付。</li>
+              <li>某步失败可修正、重试或改派（同一步最多重试 3 次）。</li>
+            </ul>
+          </div>
+          <figure class="figure">
+            <span class="figure-badge">截图 ⑥</span>
+            <div class="screenshot-slot" data-slot="crew-running">
+              <img src="/assets/guides/creation/short-video/06-crew-running.png" alt="子任务工作流执行中" loading="lazy" />
+              <div class="slot-fallback">
+                <div class="slot-icon">🖼</div>
+                <p>工作流面板 · 多工种执行中</p>
+                <p class="slot-hint"><code>docs/assets/guides/creation/short-video/06-crew-running.png</code></p>
+              </div>
+            </div>
+            <figcaption>执行期可观察各工种进度</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <div class="section-part">
+        <h2>三、拿到成片</h2>
+        <p>验收、预览与后续迭代</p>
+      </div>
+
+      <section class="section" id="deliver" data-section-id="deliver">
+        <div class="section-header">
+          <span class="section-tag">交付</span>
+          <h2>outputs/ 里的产物</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>文件类型</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>production-brief.md</code></td><td>剧本、分镜、口播稿</td></tr>
+              <tr><td><code>shot-prompts.json</code></td><td>各镜头生图 prompt</td></tr>
+              <tr><td><code>*.png</code></td><td>关键帧静图</td></tr>
+              <tr><td><code>*.mp4</code></td><td>图生视频（含原生配音）</td></tr>
+              <tr><td><code>*-subtitled.mp4</code></td><td>烧录硬字幕的最终成片</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure class="figure figure-full" style="margin-top:2rem">
+          <span class="figure-badge">截图 ⑦</span>
+          <div class="screenshot-slot" data-slot="deliverable">
+            <img src="/assets/guides/creation/short-video/07-deliverable.png" alt="成片预览与 outputs 目录" loading="lazy" />
+            <div class="slot-fallback">
+              <div class="slot-icon">🖼</div>
+              <p>对话内预览链接 + 工作区 outputs 文件列表</p>
+              <p class="slot-hint"><code>docs/assets/guides/creation/short-video/07-deliverable.png</code></p>
+            </div>
+          </div>
+          <figcaption>验收通过后的可播放 MP4</figcaption>
+        </figure>
+        <div class="quote-block">
+          <p>想改口播或重出某一镜：在对话中说明，Supervisor 可回到对应步骤重跑；大改则建议走「修改计划」再授权执行。</p>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="faq" data-section-id="faq">
+        <div class="section-header">
+          <span class="section-tag">FAQ</span>
+          <h2>常见问题</h2>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <h3>主会话自己跑 image_generate.py？</h3>
+            <p>Plan 模式下应由 plan 步骤里的 <code>media-artist</code> 等工种执行，主会话负责监工与验收。</p>
+          </article>
+          <article class="card">
+            <h3>视频一直 generating</h3>
+            <p>确认工种调用了 <code>task_wait.py</code> 等待 Ark 任务完成；不要跳过等待。</p>
+          </article>
+          <article class="card">
+            <h3>jimeng 失败换 wan/kling？</h3>
+            <p>默认流水线<strong>不要</strong>自动换厂商；检查 Ark 接入点与 Key，同参数最多重试 1 次。</p>
+          </article>
+          <article class="card">
+            <h3>不要字幕可以吗？</h3>
+            <p>可以。plan 里去掉 <code>media-post</code> 步骤，第 4 步 MP4 即为交付物。</p>
+          </article>
+          <article class="card">
+            <h3>和「配音字幕短片」快捷提示的关系？</h3>
+            <p>快捷提示是起手话术；实际仍须走 Plan 澄清 → 计划 → 授权，并把工种写进步骤。</p>
+          </article>
+          <article class="card">
+            <h3>下一篇写什么？</h3>
+            <p>可补充：单镜重跑、竖屏模板、多版本 A/B、或 Agnes/Kling 等其它 provider 专题。</p>
+          </article>
+        </div>
+      </section>
+
+      <footer class="footer-cta">
+        <h2>大纲篇 · 待你补全截图</h2>
+        <p>按 README 文件名放入 <code>docs/assets/guides/creation/short-video/</code> 即可自动显示</p>
+        <div class="link-grid">
+          <a href="../../index.html">返回实操专栏</a>
+          <a href="../../../plan-workflow/">Plan 协作流程</a>
+          <a href="../../getting-started/models-and-chat/">模型配置教程</a>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-label="图片预览">
+    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="关闭">×</button>
+    <img src="" alt="" id="lightboxImg" />
+  </div>
+
+  <script src="../../main.js"></script>
+</body>
+</html>

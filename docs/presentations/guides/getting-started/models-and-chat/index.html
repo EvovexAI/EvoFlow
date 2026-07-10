@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="EvoFlow 实操：配置模型连接、理解模型参数，并开启第一次对话" />
+  <title>配置模型并开启第一次对话 · EvoFlow 实操教程</title>
+  <link rel="stylesheet" href="../../styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <div class="brand-mark">📘</div>
+      <span>配置模型 · 第一次对话</span>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost nav-toggle" id="navToggle" aria-label="打开导航">☰ 导航</button>
+      <button type="button" class="btn btn-primary" id="presentBtn">专注阅读</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="sidebar-label">本教程</p>
+      <ul class="nav-list">
+        <li><a href="../../index.html" class="nav-back">← 返回实操专栏</a></li>
+        <li><a href="#intro" data-section="intro">开篇</a></li>
+        <li class="nav-part">一 · 概念</li>
+        <li><a href="#concepts" data-section="concepts">名词解释</a></li>
+        <li class="nav-part">二 · 配置模型</li>
+        <li><a href="#open-models" data-section="open-models">进入模型页</a></li>
+        <li><a href="#add-connection" data-section="add-connection">添加连接</a></li>
+        <li><a href="#add-model" data-section="add-model">添加模型</a></li>
+        <li><a href="#advanced" data-section="advanced">模型详情</a></li>
+        <li><a href="#primary-test" data-section="primary-test">测试与主模型</a></li>
+        <li class="nav-part">三 · 第一次对话</li>
+        <li><a href="#first-chat" data-section="first-chat">发送首条消息</a></li>
+        <li><a href="#faq" data-section="faq">常见问题</a></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <section class="hero" id="intro" data-section-id="intro">
+        <div class="hero-inner">
+          <nav class="breadcrumb" aria-label="面包屑">
+            <a href="../../index.html">实操教程</a>
+            <span>/</span>
+            <a href="../../index.html#col-learn">学习</a>
+            <span>/</span>
+            <span>配置模型与第一次对话</span>
+          </nav>
+          <span class="hero-badge">快速开始 · 第 1 课</span>
+          <h1>配置模型并开启第一次对话</h1>
+          <p class="hero-sub">连上模型服务商、添加可用模型，发出第一条消息</p>
+          <div class="hero-meta">
+            <span>需要：EvoFlow + API Key</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-part" data-section-id="part-concepts">
+        <h2>一、先搞懂这些名词</h2>
+        <p>动手前快速过一遍，遇到不懂的字段再回来查</p>
+      </div>
+
+      <section class="section section-alt" id="concepts" data-section-id="concepts">
+        <div class="section-header">
+          <span class="section-tag">概念</span>
+          <h2>模型页常见字段</h2>
+        </div>
+        <div class="concept-grid">
+          <article class="concept-card">
+            <h3>连接</h3>
+            <p>对接哪一家 API：<strong>Base URL</strong> + <strong>API Key</strong>。同一厂商可建多条连接备用。</p>
+          </article>
+          <article class="concept-card">
+            <h3>模型 ID</h3>
+            <p>发给 API 的型号名（如 <code>gpt-4o-mini</code>），须与厂商文档一致。<strong>必填。</strong></p>
+          </article>
+          <article class="concept-card">
+            <h3>模型名称</h3>
+            <p>界面展示用，<strong>可选</strong>；留空则显示模型 ID。</p>
+          </article>
+          <article class="concept-card">
+            <h3>主模型</h3>
+            <p>对话时默认使用的那一条。建议先只设一个，避免聊天时选错。</p>
+          </article>
+          <article class="concept-card">
+            <h3>思考 / 识图</h3>
+            <p>推理模型可开「思考」；能看图的模型勾选「图片输入」。不懂可先保持默认。</p>
+          </article>
+        </div>
+        <div class="tip-box">
+          <strong>流程：</strong>添加连接 → 添加模型 → 按需改详情 → 设主模型并测试 → 回对话页开聊。
+        </div>
+      </section>
+
+      <div class="section-part">
+        <h2>二、动手配置</h2>
+        <p>按下面 6 步操作；小图在步骤旁，整页截图在步骤下方通栏展示</p>
+      </div>
+
+      <section class="section section-wide" id="open-models" data-section-id="open-models">
+        <div class="section-header section-header--step">
+          <div class="step-heading">
+            <span class="step-tag">步骤 1</span>
+            <h2>进入模型设置页</h2>
+          </div>
+        </div>
+        <div class="guide-stack">
+          <div class="guide-text">
+            <ol class="steps-list">
+              <li>打开 <strong>EvoFlow</strong> 桌面端。</li>
+              <li>左侧点 <strong>设置</strong>（见下图 ①）。</li>
+              <li>进入 <strong>模型</strong> 页，可见连接区、模型列表与主模型栏（见下图 ②）。</li>
+            </ol>
+          </div>
+          <div class="figure-gallery--stack">
+            <figure class="figure figure-wide">
+              <div class="screenshot-slot has-image" data-slot="open-settings">
+                <img src="/assets/guides/getting-started/00-settings-nav.png" alt="主界面左侧设置入口" loading="eager" />
+              </div>
+              <figcaption>① 设置入口</figcaption>
+            </figure>
+            <figure class="figure figure-wide">
+              <div class="screenshot-slot has-image" data-slot="open-models">
+                <img src="/assets/guides/getting-started/01-models-page.png" alt="模型设置页面" loading="eager" />
+              </div>
+              <figcaption>② 模型设置页全貌</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt section-wide" id="add-connection" data-section-id="add-connection">
+        <div class="section-header section-header--step">
+          <div class="step-heading">
+            <span class="step-tag">步骤 2</span>
+            <h2>添加服务商连接</h2>
+          </div>
+        </div>
+        <div class="split split--thumb">
+          <div class="split-content">
+            <ol class="steps-list">
+              <li>在<strong>连接</strong>区点 <strong>+ 添加连接</strong>。</li>
+              <li>选厂商预设或手动填写 <strong>Base URL</strong>、<strong>API Key</strong>。</li>
+              <li>保存。Key 会脱敏显示，Base URL 须与服务商文档完全一致。</li>
+            </ol>
+            <div class="warn-box">
+              <strong>连不上时：</strong>先核对 Key 是否有效、Base URL 是否抄完整（含 <code>/v1</code> 等路径）。
+            </div>
+            <div class="vendor-links">
+              <p class="vendor-links-title">常见服务商 · 注册与获取 API Key</p>
+              <ul class="vendor-link-list">
+                <li><a href="https://www.aliyun.com/benefit/ai/aistar?userCode=keahn2zr&amp;clubBiz=subTask..12435175..10263.." target="_blank" rel="noopener noreferrer">阿里云百炼</a></li>
+                <li><a href="https://volcengine.com/L/Ph1OP5I3_GY" target="_blank" rel="noopener noreferrer">火山引擎</a></li>
+                <li><a href="https://www.bigmodel.cn/glm-coding?ic=3F6F9XYKTS" target="_blank" rel="noopener noreferrer">智谱 AI</a></li>
+                <li><a href="https://www.shengsuanyun.com/?from=CH_4BVI0BM2" target="_blank" rel="noopener noreferrer">胜算云</a></li>
+                <li><a href="https://cloud.siliconflow.cn/i/PFrw2an5" target="_blank" rel="noopener noreferrer">硅基流动</a></li>
+                <li><a href="https://platform.minimaxi.com/subscribe/coding-plan?code=7pUc5oLo4K&amp;source=link" target="_blank" rel="noopener noreferrer">MiniMax</a></li>
+                <li><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI 官方</a></li>
+                <li><a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic 官方</a></li>
+                <li><a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek</a></li>
+                <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a></li>
+                <li><a href="https://build.nvidia.com/" target="_blank" rel="noopener noreferrer">NVIDIA NIM</a></li>
+                <li><a href="https://ollama.com/" target="_blank" rel="noopener noreferrer">Ollama（本地）</a></li>
+              </ul>
+              <p class="vendor-links-note">列表与 EvoFlow 模型页厂商预设一致；选预设后会自动填入 Base URL，你只需粘贴 API Key。</p>
+            </div>
+          </div>
+          <figure class="figure">
+            <div class="screenshot-slot has-image" data-slot="add-connection">
+              <img src="/assets/guides/getting-started/02-add-connection.png" alt="模型厂商连接配置" loading="eager" />
+            </div>
+            <figcaption>填写连接与密钥</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-wide" id="add-model" data-section-id="add-model">
+        <div class="section-header section-header--step">
+          <div class="step-heading">
+            <span class="step-tag">步骤 3</span>
+            <h2>添加模型</h2>
+          </div>
+        </div>
+        <div class="split split--thumb">
+          <div class="split-content">
+            <ol class="steps-list">
+              <li>选中刚建好的连接，点 <strong>+ 添加模型</strong>（右图箭头处）。</li>
+              <li>填 <strong>模型 ID</strong>（必填），名称可选。</li>
+              <li>有预设快捷按钮时可一键填入，保存后出现在模型列表。</li>
+            </ol>
+            <div class="tip-box">
+              模型 ID 不确定？到 API 服务商文档的模型列表里复制，不要自己猜。
+            </div>
+          </div>
+          <figure class="figure">
+            <div class="screenshot-slot has-image" data-slot="add-model">
+              <img src="/assets/guides/getting-started/03-add-model.png" alt="添加模型按钮位置" loading="eager" />
+            </div>
+            <figcaption>添加模型入口</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-alt section-wide" id="advanced" data-section-id="advanced">
+        <div class="section-header section-header--step">
+          <div class="step-heading">
+            <span class="step-tag">步骤 4</span>
+            <h2>模型详情（按需）</h2>
+            <p>新手可跳过，保持默认；需要识图、深度推理或长上下文时再改</p>
+          </div>
+        </div>
+        <div class="guide-stack">
+          <div class="guide-text">
+            <ul class="detail-list">
+              <li><strong>图片输入</strong> — 多模态模型才开，纯文本模型勿开。</li>
+              <li><strong>支持思考</strong> — 复杂任务可开；日常闲聊可关，响应更快。</li>
+              <li><strong>输入上下文 / 输出上限</strong> — 按厂商标称填写，一般默认即可。</li>
+            </ul>
+          </div>
+          <figure class="figure figure-wide">
+            <div class="screenshot-slot has-image" data-slot="advanced-options">
+              <img src="/assets/guides/getting-started/04-model-details.png" alt="模型详细配置" loading="eager" />
+            </div>
+            <figcaption>模型详情与高级项</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-wide" id="primary-test" data-section-id="primary-test">
+        <div class="section-header section-header--step">
+          <div class="step-heading">
+            <span class="step-tag">步骤 5</span>
+            <h2>测试连通性并设主模型</h2>
+          </div>
+        </div>
+        <div class="guide-stack">
+          <div class="guide-text">
+            <ol class="steps-list">
+              <li>点模型卡片上的 <strong>测试</strong>，确认能收到回复。</li>
+              <li>将该模型设为 <strong>主模型</strong>。</li>
+              <li>失败时检查 Key、Base URL、模型 ID 与账户余额。</li>
+            </ol>
+          </div>
+          <figure class="figure figure-wide">
+            <div class="screenshot-slot has-image" data-slot="primary-test">
+              <img src="/assets/guides/getting-started/05-primary-test.png" alt="模型验证及设置主模型" loading="eager" />
+            </div>
+            <figcaption>测试通过并设为主模型</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <div class="section-part">
+        <h2>三、开启第一次对话</h2>
+      </div>
+
+      <section class="section section-alt section-wide" id="first-chat" data-section-id="first-chat">
+        <div class="section-header section-header--step">
+          <div class="step-heading">
+            <span class="step-tag">步骤 6</span>
+            <h2>发送首条消息</h2>
+          </div>
+        </div>
+        <div class="guide-stack">
+          <div class="guide-text">
+            <ol class="steps-list">
+              <li>左侧进入 <strong>对话</strong>。</li>
+              <li>确认已选中刚设的主模型。</li>
+              <li>输入简单问题并发送，看到流式回复即表示配置成功。</li>
+            </ol>
+            <div class="tip-box">
+              聊天列表里没有模型？回模型页确认测试通过，刷新页面后再试。
+            </div>
+          </div>
+          <figure class="figure figure-wide">
+            <div class="screenshot-slot has-image" data-slot="first-chat">
+              <img src="/assets/guides/getting-started/06-first-chat.png" alt="对话页首条消息" loading="eager" />
+            </div>
+            <figcaption>第一次成功对话</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="faq" data-section-id="faq">
+        <div class="section-header">
+          <span class="section-tag">FAQ</span>
+          <h2>常见问题</h2>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <h3>测试失败 / 401 / 404</h3>
+            <p>检查 API Key、Base URL、模型 ID 是否与服务商文档一致。</p>
+          </article>
+          <article class="card">
+            <h3>聊天里没有刚加的模型</h3>
+            <p>确认已设主模型，保存后刷新对话页。</p>
+          </article>
+          <article class="card">
+            <h3>发图片没反应</h3>
+            <p>该模型须勾选「图片输入」，且厂商本身支持 vision。</p>
+          </article>
+          <article class="card">
+            <h3>下一步学什么？</h3>
+            <p>多步协作看 <a href="../../../plan-workflow/">Plan 流程</a>；做短片看 <a href="../../creation/short-video/">Plan 制作短视频</a>。</p>
+          </article>
+        </div>
+      </section>
+
+      <footer class="footer-cta">
+        <h2>本课完成 ✓</h2>
+        <p>模型已就绪，可以开始日常使用或继续 Plan 实操教程</p>
+        <div class="link-grid">
+          <a href="../../index.html">返回实操专栏</a>
+          <a href="../../../plan-workflow/">Plan 协作流程</a>
+          <a href="../../creation/short-video/">Plan 制作短视频</a>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-label="图片预览">
+    <button type="button" class="lightbox-close" id="lightboxClose" aria-label="关闭">×</button>
+    <img src="" alt="" id="lightboxImg" />
+  </div>
+
+  <script src="../../main.js"></script>
+</body>
+</html>

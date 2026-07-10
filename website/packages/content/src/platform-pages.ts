@@ -1,4 +1,4 @@
-import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
+﻿import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
 
 type Accent = "primary" | "secondary" | "tertiary";
 
@@ -532,15 +532,15 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
         {
           accent: "secondary",
           description:
-            "探索 EvoPanel 与网关/任务 API 的本地联调故事：技能热重载、护栏开关、模拟 MCP 延迟等桌面侧体验。",
-          eyebrow: "EvoPanel",
+            "探索 EvoFlow 与网关/任务 API 的本地联调故事：技能热重载、护栏开关、模拟 MCP 延迟等桌面侧体验。",
+          eyebrow: "EvoFlow",
           insights: [
             "桌面与线上共享同一技能清单",
             "离线 mock MCP Server",
             "排障路径与首页能力矩阵对齐",
           ],
           metrics: [
-            { label: "Track", value: "EvoPanel" },
+            { label: "Track", value: "EvoFlow" },
             { label: "State", value: "规划中" },
             { label: "Priority", value: "P2" },
           ],
@@ -572,7 +572,7 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
       ],
       hero: {
         description:
-          "实验页用于验证编排、MCP、EvoPanel 与观测相关交互稿，与首页「典型场景」互为补充；不承诺已上线的目标对话或模型竞技场能力。",
+          "实验页用于验证编排、MCP、EvoFlow 与观测相关交互稿，与首页「典型场景」互为补充；不承诺已上线的目标对话或模型竞技场能力。",
         eyebrow: "Lab",
         title: "面向集成与编排的高方差试验场",
       },
@@ -1043,15 +1043,15 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
         {
           accent: "secondary",
           description:
-            "Explore EvoPanel stories against gateway and job APIs: skill hot reload, guardrail toggles, simulated MCP latency for desktop-first debugging.",
-          eyebrow: "EvoPanel",
+            "Explore EvoFlow stories against gateway and job APIs: skill hot reload, guardrail toggles, simulated MCP latency for desktop-first debugging.",
+          eyebrow: "EvoFlow",
           insights: [
             "Desktop shares the same skill manifest as online",
             "Offline mock MCP servers",
             "Triage paths aligned with homepage architecture slices",
           ],
           metrics: [
-            { label: "Track", value: "EvoPanel" },
+            { label: "Track", value: "EvoFlow" },
             { label: "State", value: "Planned" },
             { label: "Priority", value: "P2" },
           ],
@@ -1083,7 +1083,7 @@ export const platformPagesByLocale: LocalizedValue<PlatformPagesContent> = {
       ],
       hero: {
         description:
-          "Lab pages validate UX for orchestration, MCP, EvoPanel, and telemetry—complementing homepage scenarios without promising hosted chat or model arenas.",
+          "Lab pages validate UX for orchestration, MCP, EvoFlow, and telemetry—complementing homepage scenarios without promising hosted chat or model arenas.",
         eyebrow: "Lab",
         title: "High-variance experiments for integration stories",
       },

@@ -94,10 +94,6 @@ export default async function RootLayout({
       <body
         className={`min-h-full bg-background font-sans text-foreground${locale === "zh" ? " site-typography-zh" : ""}`}
       >
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
         <Providers initialLocale={locale}>
           <SiteBackground />
           <div className="relative flex min-h-full flex-col overflow-x-clip">
@@ -107,6 +103,14 @@ export default async function RootLayout({
           </div>
           <LiveCursors />
         </Providers>
+        <script
+          id="site-json-ld"
+          type="application/ld+json"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
+          }}
+        />
       </body>
     </html>
   );

@@ -1,4 +1,4 @@
-import { evoVexBrand } from "./site-identity";
+﻿import { evoVexBrand } from "./site-identity";
 import { siteLinks } from "./site-links";
 import {
   defaultLocale,
@@ -72,6 +72,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       navigation: [
         { href: siteLinks.docsSite, label: "文档" },
         { href: "/showcase/", label: "演示" },
+        { href: "/presentations/guides/", label: "实操教程" },
         { href: "/presentations/plan-workflow/", label: "Plan 流程" },
         { href: "/#capabilities", label: "功能说明" },
         { href: siteLinks.blog, label: "下载" },
@@ -84,6 +85,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh}-超级智能体编排栈。本站概述能力矩阵、典型场景与演进节奏；安装包与文档可下载体验，欢迎在 GitHub Star；完整源码开放将结合社区反馈推进。`,
       links: [
         { href: siteLinks.docsSite, label: "项目文档" },
+        { href: "/presentations/guides/", label: "实操教程" },
         { href: "/showcase/", label: "产品演示" },
         { href: "/presentations/plan-workflow/", label: "Plan 协作流程" },
         { href: siteLinks.github, label: "GitHub 仓库" },
@@ -158,7 +160,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         eyebrow: "实验",
         title: "Lab",
         description:
-          "围绕编排、MCP、EvoPanel 与观测的实验页与演示骨架，用于验证集成故事与交互稿（非生产服务）。",
+          "围绕编排、MCP、EvoFlow 与观测的实验页与演示骨架，用于验证集成故事与交互稿（非生产服务）。",
       },
       labDetail: {
         eyebrow: "实验",
@@ -202,6 +204,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
       navigation: [
         { href: siteLinks.docsSite, label: "Docs" },
         { href: "/showcase/", label: "Showcase" },
+        { href: "/presentations/guides/", label: "Guides" },
         { href: "/presentations/plan-workflow/", label: "Plan workflow" },
         { href: "/#capabilities", label: "Product" },
         { href: siteLinks.blog, label: "Download" },
@@ -214,6 +217,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         `"${evoVexBrand.sloganEn}" — ${evoVexBrand.blurbEn} Super-agent orchestration: Supervisor control, sandboxed tools, durable state, and Skills/MCP integrations. This site summarizes capabilities, scenarios, and roadmap—downloadable builds and docs are linked below; star us on GitHub for updates, with full source opening tied to community traction.`,
       links: [
         { href: siteLinks.docsSite, label: "Documentation" },
+        { href: "/presentations/guides/", label: "Hands-on guides" },
         { href: "/showcase/", label: "Product showcase" },
         { href: "/presentations/plan-workflow/", label: "Plan workflow" },
         { href: siteLinks.github, label: "GitHub" },
@@ -296,7 +300,7 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
         eyebrow: "Lab",
         title: "Experiment lab",
         description:
-          "Experiment pages for orchestration, MCP, EvoPanel, and telemetry narratives—scaffold demos without pretending they are production services.",
+          "Experiment pages for orchestration, MCP, EvoFlow, and telemetry narratives—scaffold demos without pretending they are production services.",
       },
       labDetail: {
         eyebrow: "Lab",

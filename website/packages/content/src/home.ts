@@ -1,4 +1,4 @@
-import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
+﻿import { defaultLocale, type LocalizedValue, type SiteLocale } from "./locales";
 import { siteLinks } from "./site-links";
 import { staticPageHref } from "./static-page-href";
 
@@ -257,7 +257,7 @@ export const homeContentByLocale: LocalizedValue<{
                 accent: "primary" as Accent,
               },
               {
-                title: "EvoPanel 桌面端",
+                title: "EvoFlow 桌面端",
                 description:
                   "装在开发者电脑上的客户端：技能包与 MCP 与部署环境对齐，便于本地调试工具调用、跟进任务进度与执行轨迹。",
                 accent: "tertiary" as Accent,
@@ -299,7 +299,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "能力矩阵",
       title: "从编排到交付的完整闭环",
       description:
-        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoPanel、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、自动化、智能体进化、子任务工作流、Prompt 缓存降本、思维导图等；仅 EvoPanel 条目提供站内文档入口，其余以正文为主。",
+        "阅读顺序：Hero 区八大差异化支柱摘要 → 控制面与 Plan 模式、五步闭环；随后为编排与执行两项主说明；下方「运行能力说明」分条介绍 EvoFlow 桌面端、编码委派、工作场景、工具渐进暴露与技能/MCP 市场、记忆、工作目录、自动化、智能体进化、子任务工作流、Prompt 缓存降本、思维导图等；仅 EvoFlow 桌面端条目提供站内文档入口，其余以正文为主。",
       focusBand: {
         supervisorCaption: "控制面",
         supervisorTitle: "超级总控智能体（Supervisor）",
@@ -384,17 +384,20 @@ export const homeContentByLocale: LocalizedValue<{
         intro: "",
         panels: [
           {
-            anchorId: "capability-evopanel",
-            title: "EvoPanel",
+            anchorId: "capability-evoflow-desktop",
+            title: "EvoFlow 桌面端",
             accent: "primary" as Accent,
             lead:
-              "EvoPanel 是 EvoFlow 的核心桌面客户端：与网关直连，承载你与智能体的实时对话、线程与任务操作、协作阶段与场景切换，以及自动化、观测等高频入口。多数日常编排、追问与验收都在此完成；服务端负责执行策略与编排语义，桌面端负责呈现、交互与控制台视图（含委派给外部编码助手时的输出流）。",
+              "EvoFlow 桌面端与网关直连，承载你与智能体的实时对话、线程与任务操作、协作阶段与场景切换，以及自动化、观测等高频入口。多数日常编排、追问与验收都在此完成；服务端负责执行策略与编排语义，客户端负责呈现、交互与控制台视图（含委派给外部编码助手时的输出流）。",
             highlights: [
               "主工作台：对话、工具调用与流式回复与后端一致，适合作为值班与业务侧的主要操作面。",
               "与编排协同：总控在服务端推进子任务与依赖时，可在桌面侧并行查看进度、切换工作场景、对照轨迹。",
               "可扩展入口：任务中心、定时规则、联调与排障相关能力集中可达，减少在多个工具间来回切换。",
             ],
-            links: [{ href: siteDocHref("getting-started"), label: "详细文档：快速开始" }],
+            links: [
+              { href: siteDocHref("getting-started"), label: "详细文档：快速开始" },
+              { href: "/presentations/guides/", label: "实操教程" },
+            ],
           },
           {
             anchorId: "capability-claude-code-orchestration",
@@ -490,7 +493,7 @@ export const homeContentByLocale: LocalizedValue<{
             title: "子任务工作流",
             accent: "secondary" as Accent,
             lead:
-              "Plan 审定并进入执行后，Supervisor 把目标展开为具依赖关系的子任务图。EvoPanel 工作流 / 协作侧栏实时展示各步状态、上下游依赖与进度，让你不用在长篇聊天记录里翻找——复杂研发、运维、跨日项目都能一眼看到「谁在跑、谁被阻塞、谁已完成」，便于介入、重试或局部重编排。",
+              "Plan 审定并进入执行后，Supervisor 把目标展开为具依赖关系的子任务图。EvoFlow 工作流 / 协作侧栏实时展示各步状态、上下游依赖与进度，让你不用在长篇聊天记录里翻找——复杂研发、运维、跨日项目都能一眼看到「谁在跑、谁被阻塞、谁已完成」，便于介入、重试或局部重编排。",
             highlights: [
               "DAG 可视化：上游完成才解锁下游，分支与汇合点清晰",
               "与 Plan 闸口衔接：先对齐验收口径，再在工作流里跟踪落地",
@@ -651,7 +654,7 @@ export const homeContentByLocale: LocalizedValue<{
         },
         {
           date: "交付",
-          title: "EvoPanel 桌面端",
+          title: "EvoFlow 桌面端",
           accent: "tertiary" as Accent,
           offset: "88%",
         },
@@ -771,7 +774,7 @@ export const homeContentByLocale: LocalizedValue<{
                 accent: "primary" as Accent,
               },
               {
-                title: "EvoPanel desktop",
+                title: "EvoFlow desktop",
                 description:
                   "Desktop client with the same skill packs and MCP wiring as your deployment—debug tool runs locally and follow job progress and traces.",
                 accent: "tertiary" as Accent,
@@ -814,7 +817,7 @@ export const homeContentByLocale: LocalizedValue<{
       eyebrow: "Capabilities",
       title: "From orchestration to delivery",
       description:
-        "Recommended order: the eight hero pillars, then control plane and Plan mode, then the five-step journey, followed by the orchestration and execution cards; the Runtime capabilities section below lists EvoPanel, coding delegation, scenarios, progressive tool exposure plus skill/MCP marketplaces, memory, workspace, schedules, agent evolution, subtask workflow, prompt caching, and mind maps. Only the EvoPanel panel links to on-site getting-started docs; the rest are explained in copy.",
+        "Recommended order: the eight hero pillars, then control plane and Plan mode, then the five-step journey, followed by the orchestration and execution cards; the Runtime capabilities section below lists EvoFlow desktop, coding delegation, scenarios, progressive tool exposure plus skill/MCP marketplaces, memory, workspace, schedules, agent evolution, subtask workflow, prompt caching, and mind maps. Only the EvoFlow desktop entry links to on-site getting-started docs; the rest are explained in copy.",
       focusBand: {
         supervisorCaption: "Control plane",
         supervisorTitle: "Lead Supervisor",
@@ -899,17 +902,20 @@ export const homeContentByLocale: LocalizedValue<{
         intro: "",
         panels: [
           {
-            anchorId: "capability-evopanel",
-            title: "EvoPanel",
+            anchorId: "capability-evoflow-desktop",
+            title: "EvoFlow desktop",
             accent: "primary" as Accent,
             lead:
-              "EvoPanel is the flagship EvoFlow desktop client: it connects directly to the Gateway and hosts streaming conversations, thread and task navigation, collaboration phases, scenario presets, and common entry points for automation and observability. Most day-to-day orchestration, follow-ups, and acceptance checks happen here; the server enforces policy and graph semantics while the desktop focuses on interaction, telemetry, and consoles—including streamed output from delegated coding agents.",
+              "EvoFlow desktop connects directly to the Gateway and hosts streaming conversations, thread and task navigation, collaboration phases, scenario presets, and common entry points for automation and observability. Most day-to-day orchestration, follow-ups, and acceptance checks happen here; the server enforces policy and graph semantics while the client focuses on interaction, telemetry, and consoles—including streamed output from delegated coding agents.",
             highlights: [
               "Primary workspace: chat, tool calls, and streaming responses stay consistent with backend behavior for operators and business users.",
               "Works with orchestration: follow subtasks and dependencies on the desktop while the lead advances the graph on the server.",
               "Single surface for task center, schedules, and triage-style workflows without constantly switching tools.",
             ],
-            links: [{ href: siteDocHref("getting-started"), label: "Docs: Getting started" }],
+            links: [
+              { href: siteDocHref("getting-started"), label: "Docs: Getting started" },
+              { href: "/presentations/guides/", label: "Hands-on guides" },
+            ],
           },
           {
             anchorId: "capability-claude-code-orchestration",
@@ -1005,7 +1011,7 @@ export const homeContentByLocale: LocalizedValue<{
             title: "Subtask workflow",
             accent: "secondary" as Accent,
             lead:
-              "After Plan is approved, the Supervisor expands goals into a dependent subtask graph. EvoPanel’s workflow / collaboration sidebar shows live status, upstream/downstream links, and progress—so multi-day engineering or ops work does not require hunting through chat. See at a glance what is running, blocked, or done; intervene, retry, or partially re-orchestrate from one place.",
+              "After Plan is approved, the Supervisor expands goals into a dependent subtask graph. EvoFlow’s workflow / collaboration sidebar shows live status, upstream/downstream links, and progress—so multi-day engineering or ops work does not require hunting through chat. See at a glance what is running, blocked, or done; intervene, retry, or partially re-orchestrate from one place.",
             highlights: [
               "DAG view: downstream unlocks only after upstream completes; branches and merge points stay visible.",
               "Tied to Plan gates: acceptance criteria first, then track execution on the panel.",
@@ -1055,7 +1061,7 @@ export const homeContentByLocale: LocalizedValue<{
           context:
             "Design-to-integration spans weeks and many stakeholders: you need Plan to freeze goals, dependencies, and acceptance before the repo moves—and you still want parallel execution lanes instead of everyone queuing in one chat.",
           flow:
-            "Phase one stays in a planning-style scenario with Plan: the lead materializes milestones, risks, and acceptance into a subtask graph so long chains have explicit gates. During implementation the lead can fan out multiple subagents at once—for example one track for product code, another for tests/contracts, another for docs or scaffolding—while optional external coding workers (such as Claude Code) handle deeper refactors. EvoPanel surfaces each lane’s streaming output for comparison before the lead merges and closes. Switch scenarios or tighten permissions when broad writes or privileged commands are intentional.",
+            "Phase one stays in a planning-style scenario with Plan: the lead materializes milestones, risks, and acceptance into a subtask graph so long chains have explicit gates. During implementation the lead can fan out multiple subagents at once—for example one track for product code, another for tests/contracts, another for docs or scaffolding—while optional external coding workers (such as Claude Code) handle deeper refactors. EvoFlow surfaces each lane’s streaming output for comparison before the lead merges and closes. Switch scenarios or tighten permissions when broad writes or privileged commands are intentional.",
           outcomes: [
             "Plan keeps long-horizon intent ordered so you do not thrash mid-flight",
             "Parallel child agents shorten wall-clock time across dev, test, and docs tracks",
@@ -1098,7 +1104,7 @@ export const homeContentByLocale: LocalizedValue<{
           outcomes: [
             "Grounding quality follows your retrieval stack, extensions, and prompts",
             "Memory and hosted knowledge stay in separate lanes to avoid contradictions",
-            "EvoPanel makes it easy to compare UI state with Gateway behavior",
+            "EvoFlow makes it easy to compare UI state with Gateway behavior",
           ],
           accent: "primary" as Accent,
         },
@@ -1166,7 +1172,7 @@ export const homeContentByLocale: LocalizedValue<{
         },
         {
           date: "SHIP",
-          title: "EvoPanel desktop client",
+          title: "EvoFlow desktop client",
           accent: "tertiary" as Accent,
           offset: "88%",
         },
