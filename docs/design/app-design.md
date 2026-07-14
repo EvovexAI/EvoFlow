@@ -137,7 +137,13 @@ class AppStep(BaseModel):
     project_path: str = ""
 ```
 
-**双轨落库**：`steps` 存 `assigned_agent` / `tools` / `skills` / `depends_on` 等执行字段；`canvas`（表字段 `canvas_json`）存 FastGPT 形状的 `nodes[{nodeId,type,position}]` + `edges[{source,target,sourceHandle,targetHandle}]` + 可选 `viewport`。保存时由画布边推导 `depends_on`；运行时只读 `steps`。
+**双轨落库**：`steps` 存 `assigned_agent` / `tools` / `skills` / `depends_on` 等执行字段；`canvas`（表字段 `canvas_json`）存 FastGPT 形状的 `nodes[{nodeId,type,position}]` + `edges[{source,target,sourceHandle,targetHandle}]` + 可选 `viewport`（含 `__answer__` 对外答案出口）。保存时由画布边推导 `depends_on`；运行时只读 `steps`。
+
+**参数 vs 上下游（与 FastGPT 字段绑定不同）**：
+
+- `parameters` + `{{name}}`：应用级运行参数，由运行页 / OpenAPI `variables` 填写；画布步骤里用「插入运行参数」芯片写入文案，不要当成节点端口。
+- 画布边 `depends_on`：既负责调度，也会在下游开始时**自动注入上游 `task_report` 摘要**（约 1200 字）；步骤「输入说明 / 期望产出」是给 Agent 看的提示，不是字段绑定。
+- 「对外答案」节点：`answer_from_ref` 指定哪一步结果成为 OpenAPI / 运行页公开答案。
 
 **JSON 契约与归一化**：所有读写经 `evoflow.collab.app_schema.normalize_app_document`：
 - `tools` / `skills` 统一为 `string[]`（兼容历史 CSV）
@@ -170,7 +176,8 @@ evoflow_apps                 ← 唯一定义真相（SOP 模板）
 
 **运行主路径**：
 
-- **编辑器调试（主路径）**：画布「运行」同页填参后 `runApp`，不跳转；轮询 AppRun 刷新画布节点执行态；悬浮条仅作总进度与暂停/取消。点节点打开与主对话协作工作流同款的子任务会话弹窗（`SubtaskExecutionDrawer`），不嵌任务中心整页。
+- **编辑器调试（主路径）**：点应用卡片进入 `#/apps/:id` 时切 `evopanel-app-studio-mode`，隐藏全局侧栏，整端即画布；画布内「返回」到 `/apps` 才退出。**左侧唯一编排面板**（添加节点 / 编辑本步）；右侧留给运行结果坞，不再叠第二套节点配置。画布「运行」同页填参后 `runApp`，不跳转；轮询 AppRun。运行结果坞（FastGPT 风格）：节点轨 + 字段行 + 只读执行记录。
+- **运行历史**：`#/apps/:id/history` 独立分页页（`GET /api/apps/{id}/runs?page=&page_size=`）。点「查看结果」在同页右侧打开结果（节点轨 + 字段 + 执行记录），换行即切换；可选「在画布打开」。
 - **填参页（外部入口）**：`#/apps/{id}/run` 留给列表「运行」、任务「再跑一次」等；进度也在本页轮询，无需先进任务中心。
 
 纯工作流在显式 `run()` 时始终 `auto_authorize=True`。Lead 模式若未传 `thread_id`，后端自动创建 LangGraph 线程。终态 toast + 桌面通知（Tauri）。
@@ -583,6 +590,9 @@ def render_plan(app: dict, parameters: dict[str, str]) -> dict:
 | `PUT` | `/api/apps/{id}` | 更新应用定义 |
 | `DELETE` | `/api/apps/{id}` | 删除应用 |
 | `POST` | `/api/apps/{id}/publish` | 发布应用（draft → published） |
+| `GET` | `/api/apps/{id}/keys` | 列出应用 API Key（无明文） |
+| `POST` | `/api/apps/{id}/keys` | 创建应用 API Key（明文仅返回一次，前缀 `ef-`） |
+| `DELETE` | `/api/apps/{id}/keys/{token_hash}` | 撤销应用 API Key |
 
 ### 8.2 应用运行 API
 
@@ -594,6 +604,20 @@ def render_plan(app: dict, parameters: dict[str, str]) -> dict:
 | `POST` | `/api/apps/runs/{run_id}/pause` | 暂停运行 |
 | `POST` | `/api/apps/runs/{run_id}/resume` | 恢复运行 |
 | `POST` | `/api/apps/runs/{run_id}/cancel` | 取消运行 |
+
+### 8.2.1 发布与 OpenAPI（对齐 FastGPT）
+
+发布后可在画布「API 访问」创建 **应用绑定** API Key（复用 `evoflow_api_tokens`，`identity_type=app`）。外部调用方只需改 OpenAI SDK 的 `base_url`（指向网关 `/v1`）与 `api_key`：
+
+- `POST /v1/chat/completions` + `Authorization: Bearer ef-…`
+- `variables` → 运行参数；最后一条 user 文本可映射到 `query`/`input`/`prompt`
+- **发布 = 对外可调用闸门**：仅 `published` 可创建 Key / OpenAPI / 填参页 `#/apps/:id/run`；画布内仍可调试草稿。已发布后「保存」不降级为 draft（钉版本的旧 Key 不受影响）
+- `lead_supervised` OpenAPI 显式 400
+- Key `pinned_version` 钉 revision；`async=true` 先返 run_id，轮询 `GET /v1/runs/{id}`
+- `GET /v1/models` 暴露 parameters 契约
+- 答案契约：画布「对外答案」节点指定 `answer_from_ref`（步骤结果）优先；否则 run.`result_summary` / 最后成功步
+- `stream=true` 按 ref 有序推步（与 async 互斥）；无启动闲聊；答案与末步重复时不追加；`detail=true` 才推 progress
+- 应用中心：卡片徽章 + 已发布「运行」；app Key 不可访问 `/v1/tools` / `/mcp`
 
 ### 8.3 请求/响应
 
