@@ -226,3 +226,10 @@ tmp_media_analysis.txt
 
 # Local-only custom skill (not for version control)
 skills/devops/commit-push-release/
+
+# Cursor editor config.cursor/
+.cursor/
+# Debug scratch scripts
+_debug_install_skillset.py
+# ESLint report output
+evopanel/eslint-report.json
