@@ -222,15 +222,16 @@ A：内容来自白名单拷贝，**commit hash 一定不同**；也不应在公
 | `scripts/windows/local-publish.ps1` | 同步与发布主脚本 |
 | `scripts/windows/local-publish.env.example` | 凭据模板 |
 | `.github/workflows/release-desktop.yml` | 推送 `v*` 标签：公共仓同步 → Win/macOS 构建发布 |
-| `.github/workflows/sync-public.yml` | 被 release-desktop 调用；凭据 **`PUBLIC_REPO_GH_TOKEN`**（与发 Release 相同） |
+| `.github/workflows/sync-public.yml` | 被 release-desktop 调用；凭据 **`PUBLIC_REPO_GH_TOKEN`** + 可选 **`GITEE_REPO_TOKEN`** |
 
 **CI 发版 Secrets（私有仓）**
 
 | Secret | 用途 |
 |--------|------|
-| `PUBLIC_REPO_GH_TOKEN` | 同步公共镜像 `main`、创建/上传 Release、`latest.json` |
+| `PUBLIC_REPO_GH_TOKEN` | 同步公共镜像 `main`（GitHub）、创建/上传 Release、`latest.json` |
+| `GITEE_REPO_TOKEN` | 同步同一白名单到 [gitee.com/evovexai/EvoFlow](https://gitee.com/evovexai/EvoFlow)；缺则跳过 |
 | `TAURI_SIGNING_PRIVATE_KEY` | Windows 一键更新签名（`.nsis.zip`） |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥有密码时必填 |
 
 本地 `-SyncPublic` 仍可用 SSH（`PUBLIC_REPO_SSH_KEY` / `EVOFLOW_PUBLIC_REPO_SSH_KEY`），与 CI 无关。
-| `docs/explanation/public-repo-github-setup.md` | GitHub Deploy key / Token 配置 |
+| `docs/explanation/public-repo-github-setup.md` | GitHub / Gitee 公共仓与 Secrets 配置 |

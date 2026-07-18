@@ -37,11 +37,18 @@
 
 | Secret | 说明 |
 |--------|------|
-| `PUBLIC_REPO_SSH_KEY` | Deploy key 私钥（base64 或 PEM，与本地一致） |
+| `PUBLIC_REPO_GH_TOKEN` | GitHub PAT：对 `EvovexAI/EvoFlow` Contents（及发版时 Releases）写权限 |
+| `GITEE_REPO_TOKEN` | Gitee 私人令牌：对 [evovexai/EvoFlow](https://gitee.com/evovexai/EvoFlow) 仓库写权限；缺则只同步 GitHub |
 | `EVOFLOW_PUBLIC_GIT_USER_NAME` | 可选，默认 `EvovexAI` |
 | `EVOFLOW_PUBLIC_GIT_USER_EMAIL` | 可选 |
 
-手动运行 **Actions → Sync to Public Repository**。
+手动运行 **Actions → Sync to Public Repository**（会推 GitHub；配了 `GITEE_REPO_TOKEN` 时再推 Gitee）。
+
+### 3.1 Gitee 私人令牌
+
+1. [Gitee 私人令牌](https://gitee.com/profile/personal_access_tokens) → 新建，勾选 **projects**（仓库读写）
+2. 私有仓 Secrets 增加 `GITEE_REPO_TOKEN` = 该令牌
+3. 目标仓：[gitee.com/evovexai/EvoFlow](https://gitee.com/evovexai/EvoFlow)（可空仓；首次同步会 init 后 push `main`）
 
 ## 4. 初始化公共提交历史（本地）
 

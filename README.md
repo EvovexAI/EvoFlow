@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/assets/EvoFlow-LOGO.png" width="220" alt="EvoFlow">
-
 # EvoFlow
 
 **A native Agent Runtime and Control Plane for long-running autonomous software work.**
