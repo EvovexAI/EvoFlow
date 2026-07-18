@@ -49,6 +49,7 @@
 1. [Gitee 私人令牌](https://gitee.com/profile/personal_access_tokens) → 新建，勾选 **projects**（仓库读写）
 2. 私有仓 Secrets 增加 `GITEE_REPO_TOKEN` = 该令牌
 3. 目标仓：[gitee.com/evovexai/EvoFlow](https://gitee.com/evovexai/EvoFlow)（可空仓；首次同步会 init 后 push `main`）
+4. **Gitee 免费仓不支持 Git LFS**：同步时会去掉 LFS 规则；超过约 90MB 的演示视频（如大体积 `.mp4`）不会推到 Gitee，GitHub 公仓仍保留 LFS 完整文件
 
 ## 4. 初始化公共提交历史（本地）
 
