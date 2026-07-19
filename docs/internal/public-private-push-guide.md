@@ -229,7 +229,7 @@ A：内容来自白名单拷贝，**commit hash 一定不同**；也不应在公
 | Secret | 用途 |
 |--------|------|
 | `PUBLIC_REPO_GH_TOKEN` | 同步公共镜像 `main`（GitHub）、创建/上传 Release、`latest.json` |
-| `GITEE_REPO_TOKEN` | 同步同一白名单到 [gitee.com/evovexai/EvoFlow](https://gitee.com/evovexai/EvoFlow)；缺则跳过 |
+| `GITEE_REPO_TOKEN` | 同步白名单到 Gitee；发版时再镜像安装包到 Gitee Releases（非 LFS）；缺则跳过 Gitee |
 | `TAURI_SIGNING_PRIVATE_KEY` | Windows 一键更新签名（`.nsis.zip`） |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 私钥有密码时必填 |
 
