@@ -50,7 +50,7 @@
 2. 私有仓 Secrets 增加 `GITEE_REPO_TOKEN` = 该令牌
 3. 目标仓：[gitee.com/evovexai/EvoFlow](https://gitee.com/evovexai/EvoFlow)（可空仓；首次同步会 init 后 push `main`）
 4. **Gitee 免费仓不支持 Git LFS**：同步时会去掉 LFS 规则；超过约 90MB 的演示视频（如大体积 `.mp4`）不会推到 Gitee，GitHub 公仓仍保留 LFS 完整文件
-5. **正式包（安装包）**：走 Gitee **Releases 附件 API**（`attach_files`），**不是** git LFS，因此不会再出现「LFS only supported … enterprise」那种失败。需同一 Secret `GITEE_REPO_TOKEN`；由 Windows/macOS 发版 Action 在上传 GitHub Release 后再镜像到 Gitee。注意：免费仓单个附件常约 **100MB** 上限，安装包过大时会明确报错（与 LFS 无关）
+5. **正式包（安装包）**：走 Gitee **Releases 附件 API**（`attach_files`），**不是** git LFS。需同一 Secret `GITEE_REPO_TOKEN`。免费仓单个附件常约 **100MB**；安装包更大时会**跳过该附件**并在 Gitee Release 说明里写 GitHub 下载链接，**不导致** GitHub 发版失败
 
 ## 4. 初始化公共提交历史（本地）
 

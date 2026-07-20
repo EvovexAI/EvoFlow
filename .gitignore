@@ -23,6 +23,10 @@ venv/
 # Environment variables
 .env
 
+# License signing private key (ops only — never ship)
+**/.evoflow-license-private.key
+backend/.evoflow-license-private.key
+
 # Local runtime / scratch
 backend/daily.json
 

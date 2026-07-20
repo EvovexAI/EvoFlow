@@ -1,12 +1,10 @@
 {
-  "changelog": "**EvoFlow v0.3.4 — 正式版更新**",
   "version": "0.3.4",
-  "assetKind": "installer",
   "minAppVersion": "0.3.4",
+  "assetKind": "installer",
+  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.4/EvoFlow_0.3.4_x64-setup.exe",
-  "size": 439209301,
-  "hash": "sha256:c9d1e7960b68469cc5a3fe6b5b407d3450ae24bde075c670b6958283426064c1",
-  "releasedAt": "2026-07-19T01:41:46Z",
-  "notes": "**EvoFlow v0.3.4 — 正式版更新**",
-  "pub_date": "2026-07-19T01:41:46Z"
+  "size": 388129251,
+  "changelog": "正式版 v0.3.4：应用工作流编排、会话通知中心、对话流式与内容块渲染优化、Android 自动化技能。",
+  "releasedAt": "2026-07-12T12:00:00Z"
 }
