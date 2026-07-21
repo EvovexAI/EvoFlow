@@ -44,6 +44,21 @@ Where DeerFlow MIT applies to specific files, those files may be used under MIT
 terms for those portions, in addition to any obligations under this project's
 primary LICENSE.
 
+Optional Runtime Dependencies (npm, not vendored)
+-------------------------------------------------
+
+EvoFlow may launch the following packages via ``npx`` when the user enables
+Obsidian Knowledge Vault and clicks install/initialize. Source code of these
+packages is **not** distributed as part of EvoFlow; licenses are determined by
+their upstream repositories:
+
+* obsidian-hybrid-search@0.13.22
+  https://github.com/flowing-abyss/obsidian-hybrid-search
+* obsidian-mcp-server@3.2.9
+  https://github.com/cyanheads/obsidian-mcp-server
+
+See docs/guides/integrations/obsidian-knowledge-vault.md.
+
 Trademarks
 ----------
 

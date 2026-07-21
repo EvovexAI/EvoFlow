@@ -38,6 +38,8 @@ PYTHONPATH=. uv run python ../scripts/docs/export_gateway_openapi.py
 | `/api/models` | 模型列表、详情、主模型、调用、探测等 |
 | `/api/mcp` | MCP 服务器配置读写 |
 | `/api/memory` | 全局记忆数据与配置 |
+| `/api/knowledge` | 上传文档 RAG 知识库 |
+| `/api/knowledge/vaults` | Obsidian Knowledge Vault（检索/读写/索引；与 RAG、memory 分离） |
 | `/api/skills` | 技能列表、启用状态、安装 |
 | `/api/agents` | 自定义 Agent 与 `USER.md` 配置等 |
 | `/api/user-profile`、`/api/tools/metadata` | 用户配置与工具元数据 |

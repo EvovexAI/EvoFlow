@@ -202,6 +202,9 @@ package.json
 !website/**/package.json
 !clawdevoflow/package.json
 !clawdevoflow/package-lock.json
+# Knowledge Vault MCP pins (in-repo source of truth; node_modules gitignored)
+!backend/packaging/kb-mcp/package.json
+!backend/packaging/kb-mcp/package-lock.json
 clawdevoflow/dist/
 CLAUDE.md
 
@@ -217,6 +220,7 @@ website/**/dist/
 # Browser packaging caches (rebuilt by make setup-agent-browser / gateway build)
 backend/packaging/agent-browser-bundle/
 backend/packaging/ripgrep-bundle/
+# kb-mcp node_modules is ignored via backend/packaging/kb-mcp/.gitignore
 # Legacy Playwright bundle (no longer used by gateway builds)
 backend/packaging/windows/.playwright-browsers/
 
