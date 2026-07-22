@@ -141,7 +141,7 @@ Logs / Artifacts / Delivery
 
 </details>
 
-Full design rationale: [docs/explanation/why-evoflow.md](docs/explanation/why-evoflow.md) · [docs/reference/architecture.md](docs/reference/architecture.md)
+Full design rationale: [docs/user/explanation/why-evoflow.md](docs/user/explanation/why-evoflow.md) · [docs/system/reference/architecture.md](docs/system/reference/architecture.md)
 
 ---
 
@@ -161,7 +161,7 @@ EvoFlow runs its own agents by default. The built-in subagent system delegates w
 
 > External coding agents (Claude Code, Codex, Trae, CodeBuddy) may also be attached as workers through the ACP protocol - see the next section. This is *experimental* today; native subagents handle core tasks on their own.
 
-Details: [docs/explanation/subagent-system.md](docs/explanation/subagent-system.md) · [docs/guides/chat/preset-roles.md](docs/guides/chat/preset-roles.md)
+Details: [docs/user/explanation/subagent-system.md](docs/user/explanation/subagent-system.md) · [docs/user/guides/chat/preset-roles.md](docs/user/guides/chat/preset-roles.md)
 
 ---
 
@@ -208,7 +208,7 @@ EvoFlow is currently distributed as desktop installers and documentation. Source
 
 4. **Observe.** Track subtasks in the workflow panel, inspect tool calls and token usage in Agent Trace, and accept the result.
 
-More: [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
+More: [docs/user/getting-started/quick-start.md](docs/user/getting-started/quick-start.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
@@ -243,7 +243,7 @@ Analyze this repository, identify three maintainability issues, create a plan,
 and execute the first approved improvement. Run it as a Goal so I can check back later.
 ```
 
-> **Goal mode** runs a task in an independent thread with pause/resume/cancel and can push a Markdown summary to an IM channel (e.g. Feishu or WeChat) when finished. See [docs/guides/chat/goal-agent.md](docs/guides/chat/goal-agent.md).
+> **Goal mode** runs a task in an independent thread with pause/resume/cancel and can push a Markdown summary to an IM channel (e.g. Feishu or WeChat) when finished. See [docs/user/guides/chat/goal-agent.md](docs/user/guides/chat/goal-agent.md).
 
 ---
 

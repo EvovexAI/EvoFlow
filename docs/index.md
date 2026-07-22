@@ -1,50 +1,28 @@
-# 文档中心
+# EvoFlow 文档
 
-欢迎来到 EvoFlow 文档中心。
+本仓库文档分为三个知识库根：
 
-## 在线阅读（MkDocs）
+| 库 | 入口 |
+|----|------|
+| **用户指南** `user/` | [文档中心](user/index.md) · [**产品总览**](user/getting-started/product-overview.md) · [快速上手](user/getting-started/quick-start.md) · [操作指南](user/guides/README.md) |
+| **系统内部** `system/` | [API 参考](system/reference/api-reference.md) · [架构](system/reference/architecture.md) · [贡献指南](system/developer/contributing.md) |
+| **智能体产出** `roles/` | 路径约定 `docs/roles/<agent_code>/<YYYYMMDD-HH>/`（运行时产物，不进本站导航） |
 
-本地构建静态站点（需 Python 与依赖）：
+### 三知识库约定（摘要）
+
+| 知识库根 | 读者 | 内容 |
+|----------|------|------|
+| `user/` | 终端用户 | 产品总览、操作指南、教程、上手、FAQ、概念说明、用法案例 |
+| `system/` | 开发 / 运维 / 系统 Agent | 技术设计、需求、API/配置参考、接口与内部约定 |
+| `roles/` | 智能体员工产出 | 值班岗位按小时写入的方案/报告/纪要 |
+
+判定：用户跟着面板点一遍 → `user/`；接口/表结构/中间件/需求 → `system/`；值班写出的方案报告 → `roles/`。
+
+## 本地构建 MkDocs
 
 ```bash
 pip install -r requirements-docs.txt
 mkdocs serve
 ```
 
-生产构建（断链即失败）：
-
-```bash
-make docs-build
-```
-
-站点导航由仓库根目录 [`mkdocs.yml`](https://github.com/EvovexAI/EvoFlow/blob/main/mkdocs.yml) 维护。
-
-## 快速导航
-
-| 你是？ | 从这里开始 |
-|--------|-----------|
-| 想下载安装包 | [下载与构建](getting-started/downloads.md) |
-| 第一次听说 EvoFlow | [项目介绍](getting-started/introduction.md) |
-| 想快速上手 | [5 分钟快速上手](getting-started/quick-start.md) |
-| 刚装好，想试试 | [完成第一个任务](getting-started/first-task.md) |
-| 知道基础用法，想深入 | [教程系列](tutorials/configure-models.md) |
-| 遇到具体问题要解决 | [操作指南](guides/configuration/evopanel-guide.md) |
-| 查配置项或 API | [参考文档](reference/api-reference.md) |
-| 想了解设计理念 | [概念解释](explanation/why-evoflow.md) |
-| 运维与自托管 | [运维手册](guides/deployment/operations-handbook.md) |
-
-## 文档分类
-
-本项目的对外文档遵循 [Diátaxis](https://diataxis.fr/) 框架：
-
-| 分类 | 说明 |
-|------|------|
-| **教程 Tutorials** | 手把手教学，适合学习新功能 |
-| **指南 Guides** | 解决具体问题，直奔主题 |
-| **参考 References** | 完整的技术参考，查配置项和 API |
-| **解释 Explanations** | 理解设计理念和架构原理 |
-
-## 常见问题
-
-- [常见问题 FAQ](guides/faq.md)
-)
+生产构建（断链即失败）：`make docs-build`

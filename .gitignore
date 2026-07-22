@@ -241,3 +241,8 @@ skills/devops/commit-push-release/
 _debug_install_skillset.py
 # ESLint report output
 evopanel/eslint-report.json
+
+# Obsidian Hybrid Search local index caches (do not commit)
+**/.obsidian-hybrid-search.db
+**/.obsidian-hybrid-search.db-*
+docs/.obsidian/

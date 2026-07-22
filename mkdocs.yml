@@ -1,4 +1,5 @@
 # EvoFlow 官方文档站点 — 源文件位于 docs/，构建：make docs-build
+# 三知识库：docs/user（用户指南）、docs/system（系统内部）、docs/roles（智能体产出）
 site_name: EvoFlow 文档
 site_description: EvoFlow 教程、操作指南、参考手册与架构说明
 site_author: EvoFlow contributors
@@ -10,12 +11,24 @@ edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: site
 
-# exclude_docs：未纳入 MkDocs 导航的 Markdown
+# exclude_docs：未纳入 MkDocs 导航 / 站点的 Markdown（gitignore 风格；无斜杠会匹配任意目录）
 exclude_docs: |
-  internal/**
+  /README.md
+  user/README.md
+  system/README.md
+  system/internal/**
+  system/presentations/**
+  system/proposals/**
+  system/reports/**
+  system/design/**
+  system/api/**
+  system/CHANGELOG-*.md
+  system/team-artifact-flow-sop.md
+  roles/**
   assets/plan-supervisor/README.md
   assets/screenshots/README.md
-  presentations/**
+  assets/README-GUIDE.md
+  assets/guides/**
 
 theme:
   name: material
@@ -59,93 +72,88 @@ markdown_extensions:
 
 nav:
   - 首页: index.md
-  - 快速开始:
-      - 项目介绍: getting-started/introduction.md
-      - 下载与安装包: getting-started/downloads.md
-      - 开发者安装: getting-started/installation.md
-      - 5 分钟快速上手: getting-started/quick-start.md
-      - 第一个任务: getting-started/first-task.md
-  - 教程:
-      - 配置模型: tutorials/configure-models.md
-      - 创建 Agent: tutorials/create-agent.md
-      - 添加技能: tutorials/add-skill.md
-      - 多 Agent 协作: tutorials/multi-agent-collab.md
-      - 自动化任务: tutorials/automation-task.md
-      - 配置 IM 渠道: tutorials/setup-im-channel.md
-  - 操作指南:
-      - 总览: guides/README.md
-      - 实时对话:
-        - 模型与场景: guides/chat/basic-functions.md
-        - 预设角色与团队: guides/chat/preset-roles.md
-        - Plan（任务协作）: guides/chat/plan-mode.md
-        - 项目级 Plan 流程: guides/chat/project-team-plan-workflow.md
-        - 思维导图: guides/chat/knowledge-map.md
-        - 目标 Agent: guides/chat/goal-agent.md
-        - 工作空间: guides/chat/workspace.md
-        - 编码助手（Claude Code）: guides/chat/claude-code.md
-        - 快捷指令: guides/chat/shortcut-commands.md
-        - 文件上传: guides/chat/file-upload.md
-      - 任务与调度:
-        - 任务中心: guides/tasks/task-center.md
-        - 自动化: guides/tasks/scheduled-tasks.md
-        - 自动化调度: guides/tasks/automation-scheduler.md
-        - 任务产出目录约定: evoflow/artifacts/README.md
-      - 配置与面板:
-        - 面板设置: guides/configuration/settings.md
-        - 面板使用指南: guides/configuration/evopanel-guide.md
-        - 智能体管理: guides/configuration/agent-management.md
-        - 技能管理: guides/configuration/skill-management.md
-        - 工具与 MCP: guides/configuration/tools-mcp.md
-        - 记忆管理: guides/configuration/memory-management.md
-        - 沙箱配置: guides/configuration/sandbox-config.md
-      - IM 与渠道:
-        - 飞书集成: guides/integration/feishu-integration.md
-        - IM 渠道总览: guides/integration/im-channels.md
-      - 部署与运维:
-        - Docker 部署: guides/deployment/docker-deployment.md
-        - 生产部署: guides/deployment/production-deploy.md
-        - 运维手册: guides/deployment/operations-handbook.md
-      - 安全:
-        - 安全护栏: guides/security/guardrails.md
-      - 常见问题: guides/faq.md
-  - 最佳实践案例:
-      - cases/index.md
-      - 流式对话验收方法: cases/manual-acceptance-test-playbook.md
-      - 流式 E2E 运行登记: cases/e2e-stream-run-registry.md
-      - 流式验收案例目录: cases/stream-acceptance-catalog.md
-      - 验收报告模板: cases/templates/scenario-acceptance-report.template.md
-      - 使用主智能体: cases/use-main-agent.md
-      - 创建 Agent: cases/create-agent.md
-      - 创建技能: cases/create-skill.md
-      - 安装技能: cases/install-skill.md
-      - 自动化: cases/scheduled-tasks.md
-      - 搜索 + HTML 报告: cases/search-html-report.md
-      - Claude Code 持续协作: cases/claude-code-continuous.md
-      - Supervisor 模式: cases/supervisor-mode.md
-  - 核心概念:
-      - 为什么是 EvoFlow: explanation/why-evoflow.md
-      - Agent 系统: explanation/agent-system.md
-      - 子 Agent 系统: explanation/subagent-system.md
-      - 技能系统: explanation/skill-system.md
-      - 记忆系统: explanation/memory-system.md
-      - 思维导图系统: explanation/mind-map-system.md
-      - 中间件链: explanation/middleware-chain.md
-      - 上下文工程: explanation/context-engineering.md
-      - 沙箱设计: explanation/sandbox-design.md
-      - 公共仓库与 GitHub 设置: explanation/public-repo-github-setup.md
-  - 参考:
-      - API 参考: reference/api-reference.md
-      - 配置参考: reference/config-reference.md
-      - 环境变量: reference/env-reference.md
-      - 架构: reference/architecture.md
-      - Agent 参考: reference/agent-reference.md
-      - 技能参考: reference/skills-reference.md
-      - 工具参考: reference/tool-reference.md
-      - Makefile 参考: reference/makefile-reference.md
-  - 贡献与术语:
-      - 贡献指南: developer/contributing.md
-      - Git 提交规范: developer/git-commit-steps.md
-      - 术语表: meta/glossary.md
+  - 用户指南:
+      - 文档中心: user/index.md
+      - 快速开始:
+          - 产品总览（人群·问题·功能地图）: user/getting-started/product-overview.md
+          - 项目介绍: user/getting-started/introduction.md
+          - 下载与安装包: user/getting-started/downloads.md
+          - 开发者安装: user/getting-started/installation.md
+          - 5 分钟快速上手: user/getting-started/quick-start.md
+          - 第一个任务: user/getting-started/first-task.md
+      - 教程:
+          - 配置模型: user/tutorials/configure-models.md
+          - 创建 Agent: user/tutorials/create-agent.md
+          - 添加技能: user/tutorials/add-skill.md
+          - 多 Agent 协作: user/tutorials/multi-agent-collab.md
+          - 自动化任务: user/tutorials/automation-task.md
+          - 配置 IM 渠道: user/tutorials/setup-im-channel.md
+      - 操作指南:
+          - 总览: user/guides/README.md
+          - 实时对话:
+            - 模型与场景: user/guides/chat/basic-functions.md
+            - 预设角色与团队: user/guides/chat/preset-roles.md
+            - Plan（任务协作）: user/guides/chat/plan-mode.md
+            - 项目级 Plan 流程: user/guides/chat/project-team-plan-workflow.md
+            - 思维导图: user/guides/chat/knowledge-map.md
+            - 目标 Agent: user/guides/chat/goal-agent.md
+            - 工作空间: user/guides/chat/workspace.md
+            - 编码助手（Claude Code）: user/guides/chat/claude-code.md
+            - 快捷指令: user/guides/chat/shortcut-commands.md
+            - 文件上传: user/guides/chat/file-upload.md
+          - 任务与调度:
+            - 任务中心: user/guides/tasks/task-center.md
+            - 自动化: user/guides/tasks/scheduled-tasks.md
+            - 自动化调度: user/guides/tasks/automation-scheduler.md
+            
+          - 配置与面板:
+            - 面板设置: user/guides/configuration/settings.md
+            - EvoFlow 桌面端指南: user/guides/configuration/evopanel-guide.md
+            - 智能体管理: user/guides/configuration/agent-management.md
+            - 智能体员工: user/guides/configuration/smart-employees.md
+            - 技能管理: user/guides/configuration/skill-management.md
+            - 工具与 MCP: user/guides/configuration/tools-mcp.md
+            - 记忆管理: user/guides/configuration/memory-management.md
+            - 上传文档（RAG）: user/guides/configuration/document-knowledge-base.md
+            - 知识库（Vault）: user/guides/configuration/knowledge-vault.md
+            - 应用中心: user/guides/configuration/app-center.md
+            - 沙箱配置: user/guides/configuration/sandbox-config.md
+            - Obsidian 知识库集成: user/guides/integrations/obsidian-knowledge-vault.md
+          - IM 与渠道:
+            - 飞书集成: user/guides/integration/feishu-integration.md
+            - IM 渠道总览: user/guides/integration/im-channels.md
+          - 安全:
+            - 安全护栏: user/guides/security/guardrails.md
+          - 常见问题: user/guides/faq.md
+      - 最佳实践案例:
+          - user/cases/index.md
+          - 使用主智能体: user/cases/use-main-agent.md
+          - 创建 Agent: user/cases/create-agent.md
+          - 创建技能: user/cases/create-skill.md
+          - 安装技能: user/cases/install-skill.md
+          - 自动化: user/cases/scheduled-tasks.md
+          - 搜索 + HTML 报告: user/cases/search-html-report.md
+          - Claude Code 持续协作: user/cases/claude-code-continuous.md
+          - Supervisor 模式: user/cases/supervisor-mode.md
+      - 核心概念:
+          - 为什么是 EvoFlow: user/explanation/why-evoflow.md
+          - Agent 系统: user/explanation/agent-system.md
+          - 子 Agent 系统: user/explanation/subagent-system.md
+          - 技能系统: user/explanation/skill-system.md
+          - 记忆系统: user/explanation/memory-system.md
+          - 思维导图系统: user/explanation/mind-map-system.md
+  - 系统参考:
+      - API 参考: system/reference/api-reference.md
+      - 配置参考: system/reference/config-reference.md
+      - 环境变量: system/reference/env-reference.md
+      - 架构: system/reference/architecture.md
+      - Agent 参考: system/reference/agent-reference.md
+      - 技能参考: system/reference/skills-reference.md
+      - 工具参考: system/reference/tool-reference.md
+      - Makefile 参考: system/reference/makefile-reference.md
+      - 贡献指南: system/developer/contributing.md
+      - Git 提交规范: system/developer/git-commit-steps.md
+      - 术语表: user/meta/glossary.md
 
 extra:
   # 顶部轻量入口：与「下载与构建」页互为补充（发布页在 GitHub，非站内路径）
