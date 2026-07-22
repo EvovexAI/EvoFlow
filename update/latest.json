@@ -1,10 +1,12 @@
 {
   "version": "0.3.5",
+  "size": 481806413,
   "minAppVersion": "0.3.5",
+  "pub_date": "2026-07-22T10:41:09Z",
+  "releasedAt": "2026-07-22T10:41:09Z",
+  "notes": "**EvoFlow v0.3.5 — 正式版更新**",
+  "hash": "sha256:f8e65d7dbe884ce1065613ce44d3df3cd8de3750725191fd26e97f05882f71a5",
+  "changelog": "**EvoFlow v0.3.5 — 正式版更新**",
   "assetKind": "installer",
-  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.5/EvoFlow_0.3.5_x64-setup.exe",
-  "size": 388129251,
-  "changelog": "正式版 v0.3.5：智能体员工交工支持「任务总结」；任务列表与详情可直接查看交付说明，便于上级快速验收。",
-  "releasedAt": "2026-07-22T00:00:00Z"
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.5/EvoFlow_0.3.5_x64-setup.exe"
 }
