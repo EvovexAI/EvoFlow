@@ -230,7 +230,7 @@
 - Chip：**主控** · **工作流**
 - 点击节点查看对话与执行详情
 - 可返回 `#/task/:id`
-- 与 Plan / Supervisor 协作关系见 [Plan 模式](../chat/plan-mode.md)、[Supervisor 案例](../../cases/supervisor-mode.md)
+- 与 Plan / 总控智能体协作关系见 [Plan 模式](../chat/plan-mode.md)、[总控智能体案例](../../cases/total-agent-mode.md)
 
 ---
 
@@ -314,5 +314,5 @@ flowchart LR
 - [应用中心](../configuration/app-center.md)
 - [智能体员工](../configuration/smart-employees.md)
 - [自动化](scheduled-tasks.md)
-- [Supervisor 模式案例](../../cases/supervisor-mode.md)
+- [总控智能体模式案例](../../cases/total-agent-mode.md)
 - [EvoFlow 桌面端使用指南](../configuration/evopanel-guide.md)

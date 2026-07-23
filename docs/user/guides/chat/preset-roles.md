@@ -2,7 +2,7 @@
 
 > **比如你可以这样用预设角色**：
 >
-> - **代码审查**：在 Plan 模式里指定"方案让 project-architect 出，代码让 project-implementer 写，测试让 project-tester 跑，最后让 project-reviewer 审查"——相当于你有一个完整的开发团队
+> - **代码审查**：在 Plan 模式里指定"方案让 project-architect 出，代码让 project-implementer 写，测试让 project-qa 跑，最后让 project-reviewer 审查"——相当于你有一个完整的开发团队
 > - **快速切换写手**：让"媒体文案"角色帮写一段小红书文案，再切回"技术文档"角色写 API 说明——不用每次重新调教
 > - **自己造角色**：在聊天里说"帮我创建一个专门写 Vue3 代码的智能体，注释详细，用 DeepSeek V4"——AI 自动生成
 >

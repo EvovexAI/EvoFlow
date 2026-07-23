@@ -4,9 +4,9 @@
 >
 > 1. **方案设计**让 `project-architect` 出架构方案
 > 2. **代码实现**让 `project-implementer` 写代码
-> 3. **测试**让 `project-tester` 跑测试
+> 3. **测试**让 `project-qa` 跑测试
 > 4. **审查**让 `project-reviewer` 审查代码
-> 5. **验收**让 `project-owner` 确认交付
+> 5. **验收**让 `project-qa` 确认交付
 >
 > 每个角色按依赖关系串行或并行执行，最终汇总产出。这就是多智能体协作——一个完整的软件工程流水线，AI 自己分工干活。
 >

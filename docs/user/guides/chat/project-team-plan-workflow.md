@@ -3,7 +3,7 @@
 > **比如你要做一个"Todo 全栈应用"**：
 >
 > 1. 主智能会先出 Plan：方案设计→数据库设计→后端开发→前端开发→测试→部署
-> 2. 每一步指定执行角色：`project-architect` 出方案，`project-implementer` 写代码，`project-tester` 跑测试
+> 2. 每一步指定执行角色：`project-architect` 出方案，`project-implementer` 写代码，`project-qa` 跑测试
 > 3. 你确认计划后，Supervisor 按依赖图分发：先跑方案，方案通过后再跑开发……
 > 4. 中间有问题，主智能体自动调整；你随时可以暂停查进度
 >

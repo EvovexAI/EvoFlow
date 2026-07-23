@@ -116,4 +116,4 @@ Claude Code 支持**同一 EvoFlow 内并行多个会话**：
 - [工作空间场景](workspace.md)
 - [Plan 模式](plan-mode.md)
 - [工具与 MCP](../configuration/tools-mcp.md)
-- [Claude Code 持续协作（案例）](../../cases/claude-code-continuous.md)
+- [总控智能体模式（案例）](../../cases/total-agent-mode.md)

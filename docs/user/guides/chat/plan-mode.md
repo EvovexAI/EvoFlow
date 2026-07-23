@@ -149,5 +149,5 @@
 - [任务中心](../tasks/task-center.md)
 - [应用中心](../configuration/app-center.md)
 - [预设角色与团队](preset-roles.md)
-- [Supervisor 模式案例](../../cases/supervisor-mode.md)
+- [总控智能体模式案例](../../cases/total-agent-mode.md)
 - [基础功能 · Plan 简述](basic-functions.md)
