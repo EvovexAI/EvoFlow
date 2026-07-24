@@ -6,7 +6,7 @@
 > 2. 在聊天里问"我之前关于 API 设计的那篇笔记里写了什么？"——AI 直接搜索你的笔记并回答
 > 3. 支持双链关系：AI 能顺着笔记的 `[[链接]]` 找到相关内容
 >
-> 跟[上传文档（RAG）](document-knowledge-base.md)的区别：Vault 连接本地笔记目录，保留原文件与双链；上传文档做向量 RAG，适合零散 PDF/Word。
+> 笔记放在本机目录，保留原文件与双链；EvoFlow 连接后做检索与预览。
 
 连接本机 **Obsidian Vault** 或任意 Markdown 文件夹，做全文 / 语义检索、预览与局部链接图。侧栏入口：**知识库**（`#/knowledge/vaults`）。页眉英文副标题为 Knowledge Vault。
 
@@ -22,7 +22,7 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 ```
 
 > **边界**  
-> - 本页 ≠ 侧栏「上传文档」RAG（`#/knowledge`，工具 `search_knowledge_base`）  
+> - 旧「上传文档」RAG（`#/knowledge` / `search_knowledge_base`）已下线，请只用本页  
 > - 本页 ≠ 「记忆文件」`memory.json`  
 > - 笔记文件仍在你选的本地目录；EvoFlow 只存连接配置与索引缓存  
 > 架构与 MCP / API 细节见 [Obsidian Knowledge Vault 集成](../integrations/obsidian-knowledge-vault.md)。
@@ -122,8 +122,8 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 
 ## 常见问题
 
-**Q：和「上传文档」选哪个？**  
-已有 Obsidian / 本地笔记库、要保留双链与原文件 → **知识库**。零散 PDF/Word 要做成企业 RAG → **上传文档**。
+**Q：零散 PDF / Word 怎么办？**  
+放进 Obsidian 或任意 Markdown 目录后，用本页「连接知识库」即可（旧「上传文档」RAG 已下线）。
 
 **Q：添加并初始化失败？**  
 看是否缺 Node、或需 `make setup-kb-mcp` / 面板重试初始化。错误码如 `node_runtime_missing` 时按提示安装，勿静默忽略。
@@ -139,6 +139,5 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 ## 相关阅读
 
 - [Obsidian Knowledge Vault 集成](../integrations/obsidian-knowledge-vault.md) — MCP、读写、安全
-- [上传文档（RAG）](document-knowledge-base.md)
 - [记忆管理](memory-management.md)
 - [面板使用指南](evopanel-guide.md)

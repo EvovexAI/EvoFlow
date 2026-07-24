@@ -119,7 +119,7 @@
 
 | 触点 | 说明 |
 |------|------|
-| EvoPanel 智能体员工 | 名册卡片带「系统前台」；能力标签为「前台工具 / 无 MCP / 无技能」 |
+| EvoPanel 智能体员工 | 名册卡片带「系统前台」；能力标签为「前台工具 / 无 MCP / 无技能」；默认头像为女性预设 `preset:analyst`（不与 `main` 男立绘共用） |
 | 员工页工作轨迹 | `employee_brief` 的 `watch_path` 指向 `/proactive/{code}?live=1`，可口头指引用户点进去看 |
 | 全局助手 / 桌面唤醒 | 「小V小V」本地 KWS（见 `evopanel/public/kws/`） |
 | 角色配置 API | 更新时强制清空普通 tools/mcp/skills；列表响应同样归一化 |
