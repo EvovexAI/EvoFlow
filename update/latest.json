@@ -1,10 +1,12 @@
 {
+  "hash": "sha256:51a06f97e74babc1736d2c66eeca7e140fe4afd30ea9402b7863b91da3b1a984",
   "version": "0.3.6",
   "minAppVersion": "0.3.6",
-  "assetKind": "installer",
-  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
+  "pub_date": "2026-07-24T05:58:25Z",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.6/EvoFlow_0.3.6_x64-setup.exe",
-  "size": 388129251,
-  "changelog": "正式版 v0.3.6：智能体员工可扫码绑定专属飞书；支持多人群会议协作；交工可指定下游处理人；Windows 安装可选将 evoflow CLI 加入 PATH。",
-  "releasedAt": "2026-07-24T00:00:00Z"
+  "size": 648948930,
+  "changelog": "**EvoFlow v0.3.6 — 正式版更新**",
+  "notes": "**EvoFlow v0.3.6 — 正式版更新**",
+  "assetKind": "installer",
+  "releasedAt": "2026-07-24T05:58:25Z"
 }
