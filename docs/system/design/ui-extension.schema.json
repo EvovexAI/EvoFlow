@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://evoflow.local/schemas/ui-extension.schema.json",
+  "title": "EvoFlow UI Extension Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "name", "version", "ui"],
+  "properties": {
+    "schema": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "description": "Stable extension id (kebab-case)"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "description": { "type": "string", "maxLength": 500 },
+    "icon": { "type": "string" },
+    "nav": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "maxLength": 40 },
+        "group": { "type": "string", "const": "extensions" },
+        "order": { "type": "integer" }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "entry"],
+      "properties": {
+        "kind": { "const": "webview" },
+        "entry": { "type": "string", "minLength": 1 },
+        "path_prefix": { "type": "string" },
+        "sandbox": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["embed", "context.read", "tasks.dispatch", "tasks.open"]
+      },
+      "uniqueItems": true
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["none", "managed", "external"] },
+        "cwd": { "type": "string" },
+        "hint": { "type": "string" },
+        "start": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        },
+        "healthcheck": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string" },
+            "timeout_ms": { "type": "integer", "minimum": 1000 }
+          }
+        },
+        "stop": { "type": "string", "enum": ["port", "process"] },
+        "ports": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "link": {
+          "type": "boolean",
+          "description": "true = 安装时不复制目录，install_path 指向所选文件夹（适合 monorepo 多扩展共享仓库根）"
+        }
+      }
+    },
+    "bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origin_allowlist": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
