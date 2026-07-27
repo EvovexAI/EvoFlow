@@ -65,14 +65,15 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 ```text
 聊天壳
 ├── 新建对话 ── Ask / Agent / Plan / Goal（目标）
-├── 任务中心 ── 多任务看板、详情、工作流 DAG
-├── 应用中心 ── 画布编排 → 发布 → 填参再跑
+├── 任务中心 ── 多任务看板、详情、工作流 DAG、任务总结验收
+├── 应用中心 ── 画布编排 → 发布 → ▶ 填参再跑
 ├── 自动化   ── 到点 / 一次性固定 Prompt
-├── 智能体员工 ── 雇佣岗位、值班、待审批、交班
+├── 智能体员工 ── 雇佣岗位、值班、待审批、交班；小V 可临时委派
 ├── 智能体   ── 角色 / 技能 / 连接器（MCP）
 ├── 知识库   ── Obsidian / 本地 Markdown Vault
 └── 设置     ── 模型、IM、记忆等
      （上传文档 RAG 默认可隐藏，直达 #/knowledge）
+全局助手小V ── 一员工一会话委派、进度与汇报、按需工作轨迹
 ```
 
 | 能力 | 一句话 | 操作指南 |
@@ -83,7 +84,7 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 | 任务中心 | 观测与验收任务 | [任务中心](../guides/tasks/task-center.md) |
 | 应用中心 | 工作流产品化 | [应用中心](../guides/configuration/app-center.md) |
 | 自动化 | 定时触发 | [自动化](../guides/tasks/scheduled-tasks.md) |
-| 智能体员工 | 编内值班岗 | [智能体员工](../guides/configuration/smart-employees.md) |
+| 智能体员工 | 编内值班岗；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) · [教程](../tutorials/hire-first-smart-employee.md) · [概念](../explanation/smart-employees.md) |
 | 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) |
 | 知识库 / 上传文档 / 记忆 | 三类「知道」 | [知识库](../guides/configuration/knowledge-vault.md) · [上传文档](../guides/configuration/document-knowledge-base.md) · [记忆](../guides/configuration/memory-management.md) |
 
@@ -118,7 +119,8 @@ flowchart TD
 | **聊天 Plan → 任务中心** | 底部选 Plan → 定稿 →「开始执行」→ 右侧工作流；需要看板时打开任务中心「对话」 |
 | **Plan → 另存为应用** | 确认条「另存为应用」或任务详情沉淀 → 以后填参再跑 |
 | **智能体 → 智能体员工** | 先在「智能体」配好人设/工具 →「智能体员工」雇佣并绑工作区 → 开值班 |
-| **员工交工 → 任务中心待确认** | 员工看板「待确认」与任务中心验收相关；待审批是开工前拍板，别混 |
+| **小V → 员工委派** | 打开小V → 左侧选员工 → 输入目标；进度与汇报在会话内，细节按需打开工作轨迹 |
+| **员工交工 → 任务中心待确认** | 交工带 **任务总结**；看板「待确认」与任务中心验收相关；待审批是开工前拍板，别混 |
 | **知识库 / 上传文档 → 聊天** | 先连库或建 RAG → 对话里让 Agent 检索（工具权限要勾上） |
 | **自动化 → IM** | 配好渠道 → 自动化开「完成后推送」→ 到点结果进飞书等 |
 | **目标 → IM** | 聊天 Goal 跑完可推送小结（需渠道允许） |
@@ -151,9 +153,10 @@ flowchart TD
 ### 路径 C · 小团队：岗位盯仓库
 
 1. 「智能体」准备好角色（或复制预设）  
-2. 「智能体员工」雇佣、绑仓库工作区、自主权先「谨慎型」  
-3. 开值班 → 处理待审批 → 交班文档在 `docs/roles/…`  
-4. 大工程仍走 Plan / 任务中心，不要全塞给值班岗  
+2. 「智能体员工」雇佣、绑仓库工作区、交接审批策略先「谨慎型」（可跟教程 [雇佣第一个员工](../tutorials/hire-first-smart-employee.md)）  
+3. 开值班 → 处理待审批 → 交班文档在 `docs/roles/…`；交工后在任务中心看 **任务总结** 再验收  
+4. 临时目标可用 **小V** 委派该员工，不必改职责  
+5. 大工程仍走 Plan / 任务中心，不要全塞给值班岗  
 
 ---
 

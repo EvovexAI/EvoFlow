@@ -84,6 +84,7 @@ nav:
       - 教程:
           - 配置模型: user/tutorials/configure-models.md
           - 创建 Agent: user/tutorials/create-agent.md
+          - 雇佣第一个智能体员工: user/tutorials/hire-first-smart-employee.md
           - 添加技能: user/tutorials/add-skill.md
           - 多 Agent 协作: user/tutorials/multi-agent-collab.md
           - 自动化任务: user/tutorials/automation-task.md
@@ -138,6 +139,7 @@ nav:
       - 核心概念:
           - 为什么是 EvoFlow: user/explanation/why-evoflow.md
           - Agent 系统: user/explanation/agent-system.md
+          - 智能体员工: user/explanation/smart-employees.md
           - 子 Agent 系统: user/explanation/subagent-system.md
           - 技能系统: user/explanation/skill-system.md
           - 记忆系统: user/explanation/memory-system.md

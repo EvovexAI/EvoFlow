@@ -250,11 +250,41 @@ and execute the first approved improvement. Run it as a Goal so I can check back
 ## Screenshots
 
 <p align="center">
-  <img src="docs/assets/screenshots/main-chat.png" width="90%" alt="EvoPanel main interface: streaming chat with tool-call visualization">
+  <img src="docs/assets/screenshots/main-chat.png" width="90%" alt="EvoPanel home: quick starts and chat bar">
 </p>
-<p align="center"><sub>Main interface - streaming chat and tool-call visualization</sub></p>
+<p align="center"><sub>Main interface - quick starts and chat bar (Ask / Agent / Plan / Goal)</sub></p>
 
 <table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/task-center.png" width="100%" alt="Task Center: cross-source board and review">
+      <br><sub>Task Center - chat / smart employees / workflows & review</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/app-center-canvas.png" width="100%" alt="App Center: canvas editor">
+      <br><sub>App Center - canvas after opening an app (nodes / publish / debug)</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/app-center.png" width="100%" alt="App Center: app list">
+      <br><sub>App Center - list (active / published / draft)</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/smart-employees.png" width="100%" alt="Smart employees: duty desk and roster">
+      <br><sub>Smart employees - duty desk, approvals, roster</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/agents-preset-teams.png" width="100%" alt="Agents: roles / skills / connectors">
+      <br><sub>Agents - role config and hire entry</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/assets/screenshots/agents-preset-roles.png" width="100%" alt="Project team roles">
+      <br><sub>Project team - architect / plan / implement / review / QA</sub>
+    </td>
+  </tr>
   <tr>
     <td align="center" width="50%">
       <img src="docs/assets/plan-supervisor/plan-02-structured-plan-modal.png" width="100%" alt="Plan mode: task analysis graph (Mermaid)">
@@ -265,29 +295,10 @@ and execute the first approved improvement. Run it as a Goal so I can check back
       <br><sub>Supervisor - subtask workflow & dependencies</sub>
     </td>
   </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/agents-preset-teams.png" width="100%" alt="Preset Agent Teams overview">
-      <br><sub>Preset Agent Teams - team overview</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/agents-preset-roles.png" width="100%" alt="Roles within a team">
-      <br><sub>Roles within a team (plan / develop / review …)</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/hosted-1.png" width="100%" alt="Goal task run & config">
-      <br><sub>Goal task - run & config</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/assets/screenshots/browser.png" width="100%" alt="Browser automation">
-      <br><sub>Browser - agent-driven browsing & interaction</sub>
-    </td>
-  </tr>
 </table>
 
 > More in [docs/assets/screenshots/](docs/assets/screenshots/) and [docs/assets/plan-supervisor/](docs/assets/plan-supervisor/).
+> Guides: [Task Center](docs/user/guides/tasks/task-center.md) · [App Center](docs/user/guides/configuration/app-center.md) · [Smart employees](docs/user/guides/configuration/smart-employees.md)
 
 ---
 

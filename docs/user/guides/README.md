@@ -37,7 +37,7 @@
 | 面板设置 | [settings.md](configuration/settings.md) |
 | EvoFlow 桌面端使用指南 | [evopanel-guide.md](configuration/evopanel-guide.md) |
 | 智能体（角色）管理 | [agent-management.md](configuration/agent-management.md) |
-| 智能体员工（值班岗） | [smart-employees.md](configuration/smart-employees.md) |
+| 智能体员工（值班岗） | [smart-employees.md](configuration/smart-employees.md) · 教程 [雇佣第一个员工](../tutorials/hire-first-smart-employee.md) · 概念 [是什么](../explanation/smart-employees.md) |
 | 技能管理 | [skill-management.md](configuration/skill-management.md) |
 | 工具与 MCP | [tools-mcp.md](configuration/tools-mcp.md) |
 | 记忆管理 | [memory-management.md](configuration/memory-management.md) |
