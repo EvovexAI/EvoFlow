@@ -1,10 +1,12 @@
 {
   "version": "0.3.7",
-  "minAppVersion": "0.3.7",
+  "hash": "sha256:cff43bca473e1afa57376dcdc79a97c1f44039c3b21e4c334dab8914b4292ac8",
   "assetKind": "installer",
-  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
+  "releasedAt": "2026-07-27T01:14:19Z",
+  "changelog": "**EvoFlow v0.3.7 — 正式版更新**",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.7/EvoFlow_0.3.7_x64-setup.exe",
-  "size": 388129251,
-  "changelog": "正式版 v0.3.7：小V 支持微信式一员工一会话委派；工作轨迹工具详情可正常加载；任务「已完成」状态标识更清晰。",
-  "releasedAt": "2026-07-26T00:00:00Z"
+  "size": 574072552,
+  "notes": "**EvoFlow v0.3.7 — 正式版更新**",
+  "pub_date": "2026-07-27T01:14:19Z",
+  "minAppVersion": "0.3.7"
 }
