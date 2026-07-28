@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvoFlow · 智能体员工是什么</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/animations/_shared/ef-anim.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/TextPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+    <style>
+      .tpl-row {
+        position: absolute; left: 120px; right: 120px; top: 220px;
+        display: flex; gap: 14px; justify-content: space-between;
+      }
+      .tpl {
+        flex: 1; background: #fff; border: 1px solid var(--line); border-radius: 22px;
+        padding: 20px 14px; text-align: center; box-shadow: var(--shadow); opacity: 0;
+      }
+      .tpl img {
+        width: 96px; height: 96px; border-radius: 24px; object-fit: cover; background: #111;
+        display: block; margin: 0 auto 12px; border: 3px solid #fff;
+      }
+      .tpl .n { font-size: 22px; font-weight: 700; }
+      .tpl .b { margin-top: 6px; font-size: 15px; color: var(--muted); font-weight: 600; line-height: 1.35; }
+      .contract {
+        position: absolute; left: 180px; right: 180px; top: 220px;
+        display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+      }
+      .c-card {
+        background: #fff; border: 1px solid var(--line); border-radius: 24px;
+        padding: 28px; box-shadow: var(--shadow); opacity: 0;
+      }
+      .c-card .k { font-size: 16px; font-weight: 700; color: var(--accent); margin-bottom: 10px; }
+      .c-card .v { font-size: 26px; font-weight: 700; line-height: 1.35; }
+      .c-card .h { margin-top: 10px; font-size: 18px; color: var(--muted); font-weight: 600; }
+      .switch-row {
+        position: absolute; left: 200px; top: 200px; display: flex; align-items: center; gap: 18px;
+      }
+      .switch {
+        width: 88px; height: 48px; border-radius: 999px; background: #e2e8f0; position: relative;
+      }
+      .switch.on { background: var(--accent); }
+      .switch i {
+        position: absolute; top: 4px; left: 4px; width: 40px; height: 40px; border-radius: 50%;
+        background: #fff; box-shadow: var(--shadow);
+      }
+      .switch.on i { left: 44px; }
+      .switch-lab { font-size: 28px; font-weight: 700; }
+      #dev { left: 200px; top: 320px; }
+      #report {
+        position: absolute; left: 480px; top: 280px; width: 1000px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 32px; box-shadow: var(--shadow-lg); opacity: 0;
+      }
+      #report .body { min-height: 120px; font-size: 26px; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080" data-duration="55">
+        <div class="dotgrid"></div>
+        <div class="journey" id="journey">
+          <div class="j-node" id="j1">① 开箱岗位</div>
+          <div class="j-sep" id="js1"></div>
+          <div class="j-node" id="j2">② 岗位合同</div>
+          <div class="j-sep" id="js2"></div>
+          <div class="j-node" id="j3">③ 自动上班写汇报</div>
+        </div>
+
+        <section class="slate" id="open">
+          <div>
+            <p class="who">把已有智能体编成「岗位合同」</p>
+            <p class="goal">规定职责、文件夹、上班频率、审批策略——到点主动干，写工作汇报</p>
+          </div>
+        </section>
+
+        <section class="scene" id="s1">
+          <div class="tpl-row" id="tpls">
+            <div class="tpl"><img data-av="engineer" alt="" /><div class="n">研发助理</div><div class="b">盯仓库脏文件与临时垃圾</div></div>
+            <div class="tpl"><img data-av="ops" alt="" /><div class="n">运维值班</div><div class="b">探活服务，异常写值班报告</div></div>
+            <div class="tpl"><img data-av="intern" alt="" /><div class="n">学习助理</div><div class="b">对照计划提醒缺项</div></div>
+            <div class="tpl"><img data-av="creator" alt="" /><div class="n">内容策划</div><div class="b">盯选题日历与素材缺口</div></div>
+            <div class="tpl"><img data-av="researcher" alt="" /><div class="n">文档管理员</div><div class="b">断链、重复、过期页</div></div>
+          </div>
+          <div class="caption">
+            <div class="line">雇佣时可选模板预填——岗位名就是现实职称</div>
+            <div class="sub">这些都在「智能体员工 → 雇佣员工」里</div>
+          </div>
+        </section>
+
+        <section class="scene" id="s2">
+          <div class="contract" id="contract">
+            <div class="c-card" id="c1"><div class="k">职责</div><div class="v">每行一条、可验收</div><div class="h">例如：每轮检查未提交的调试日志并报告</div></div>
+            <div class="c-card" id="c2"><div class="k">管辖工作空间</div><div class="v">本机项目文件夹</div><div class="h">须先在聊天侧栏加过目录</div></div>
+            <div class="c-card" id="c3"><div class="k">上班频率</div><div class="v">如每 30 分钟 / 每小时</div><div class="h">到点自动上班（须开总开关）</div></div>
+            <div class="c-card" id="c4"><div class="k">交接审批策略</div><div class="v">谨慎型 / 平衡型 / 全自动</div><div class="h">上手建议「谨慎型」：交工下游几乎都要同意派发</div></div>
+          </div>
+          <div class="caption">
+            <div class="line">岗位合同四件事——不是开个聊天框就完了</div>
+            <div class="sub">人设和工具在「智能体」页配；员工页只管何时上班、盯哪块盘</div>
+          </div>
+        </section>
+
+        <section class="scene" id="s3">
+          <div class="switch-row" id="sw-row">
+            <div class="switch" id="sw"><i></i></div>
+            <div class="switch-lab" id="sw-lab">自动上班 · 已关闭</div>
+          </div>
+          <div class="person" id="dev" style="opacity:0">
+            <div class="avatar"><img data-av="engineer" alt="" /></div>
+            <div class="name">研发助理</div>
+            <div class="role">本轮工作中</div>
+          </div>
+          <div class="card" id="report">
+            <div class="label">工作汇报 · 本轮小结</div>
+            <div class="body" id="rep-text"></div>
+            <div style="margin-top:16px"><span class="chip ok">已写完</span> <span class="chip" style="margin-left:8px">清单已落盘工作区</span></div>
+          </div>
+          <div class="caption" id="s3-cap">
+            <div class="line">开自动上班后，到点他自己干；你看汇报</div>
+            <div class="sub">也可卡片 ⋯「现在开始工作」立刻跑一轮</div>
+          </div>
+          <div class="end-line" id="end-line" style="opacity:0">
+            <div class="line">雇岗位 · 开自动上班 · 看工作汇报 · 有交工再点同意派发</div>
+            <div class="sub">下一步看「怎么用」：飞书派活与双端审核</div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/animations/_shared/ef-anim.js"></script>
+    <script>
+      document.querySelectorAll("[data-av]").forEach((img) => {
+        img.src = EFAnim.avatar(img.getAttribute("data-av"));
+      });
+      const lit = (ids) => ids.forEach((id) => document.getElementById(id).classList.add("on"));
+      const clearJ = () => ["j1","j2","j3","js1","js2"].forEach((id) => document.getElementById(id).classList.remove("on"));
+
+      const tl = gsap.timeline({ paused: true });
+      tl.set("#open", { opacity: 1 }, 0);
+      tl.from("#open .who, #open .goal", { y: 20, opacity: 0, duration: 0.5, stagger: 0.12 }, 0.2);
+      tl.to("#open", { opacity: 0, duration: 0.35 }, 3.2);
+
+      tl.set("#s1", { opacity: 1 }, 3.5);
+      EFAnim.voIn(tl, "#s1 .caption", 3.6);
+      tl.to("#tpls .tpl", { opacity: 1, y: 0, duration: 0.45, stagger: 0.12, ease: "back.out(1.3)" }, 4.0);
+      tl.from("#tpls .tpl", { y: 28, duration: 0.45, stagger: 0.12 }, 4.0);
+      tl.call(() => lit(["j1"]), null, 6.5);
+      tl.to({}, { duration: 5.0 }, 7.0);
+      tl.to("#s1", { opacity: 0, duration: 0.4 }, 14.5);
+
+      tl.set("#s2", { opacity: 1 }, 14.9);
+      EFAnim.voIn(tl, "#s2 .caption", 15.0);
+      tl.to(["#c1","#c2","#c3","#c4"], { opacity: 1, duration: 0.45, stagger: 0.2 }, 15.5);
+      tl.from(["#c1","#c2","#c3","#c4"], { y: 24, duration: 0.45, stagger: 0.2 }, 15.5);
+      tl.call(() => lit(["js1","j2"]), null, 18.5);
+      tl.to({}, { duration: 6.0 }, 19.0);
+      tl.to("#s2", { opacity: 0, duration: 0.4 }, 28.0);
+
+      tl.set("#s3", { opacity: 1 }, 28.4);
+      EFAnim.voIn(tl, "#s3-cap", 28.5, { key: true });
+      tl.from("#sw-row", { opacity: 0, y: 12, duration: 0.4 }, 28.8);
+      tl.to({}, { duration: 0.8 }, 29.4);
+      tl.call(() => {
+        document.getElementById("sw").classList.add("on");
+        document.getElementById("sw-lab").textContent = "员工自动上班中";
+      }, null, 30.4);
+      tl.to("#sw i", { left: 44, duration: 0.35 }, 30.4);
+      tl.fromTo("#dev", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.5 }, 31.2);
+      tl.to("#dev .avatar", { y: -8, duration: 0.28, yoyo: true, repeat: 8, ease: "sine.inOut" }, 31.8);
+      EFAnim.popIn(tl, "#report", 34.0);
+      tl.to("#rep-text", {
+        duration: 4.0,
+        text: "扫了工作区三处：发现 tmp/debug.log（过大）、.cache 残留。建议你删 debug.log；未擅自批量删除。清单已写入工作区 reports/scan.md。",
+        ease: "none",
+      }, 34.5);
+      tl.call(() => lit(["js2","j3"]), null, 39.5);
+      tl.to("#s3-cap", { opacity: 0, duration: 0.35 }, 42.0);
+      EFAnim.voIn(tl, "#end-line", 42.5, { key: true });
+      tl.to({}, { duration: 10.0 }, 43.5);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines.main = tl;
+      if (!window.HyperFrames && !window.__HYPERFRAMES_RUNTIME__) {
+        tl.play(0);
+        tl.eventCallback("onComplete", () => {
+          clearJ();
+          document.getElementById("sw").classList.remove("on");
+          document.getElementById("sw-lab").textContent = "自动上班 · 已关闭";
+          gsap.set("#sw i", { left: 4 });
+          document.getElementById("rep-text").textContent = "";
+          gsap.set("#tpls .tpl", { opacity: 0 });
+          gsap.set(["#c1","#c2","#c3","#c4"], { opacity: 0 });
+          tl.restart();
+        });
+      }
+    </script>
+  </body>
+</html>

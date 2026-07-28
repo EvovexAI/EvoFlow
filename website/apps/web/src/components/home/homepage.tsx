@@ -295,6 +295,13 @@ function HeroSection({
             {hero.title}
           </h1>
           <p
+            className="animate-fade-up mt-3 font-display-ui text-xl font-semibold tracking-[-0.03em] text-foreground md:text-3xl"
+            style={{ animationDelay: "40ms" }}
+            aria-hidden={false}
+          >
+            {hero.featureSummary.eyebrow}
+          </p>
+          <p
             className="animate-fade-up mt-6 max-w-2xl text-base leading-8 text-foreground-muted md:text-lg"
             style={{ animationDelay: "100ms" }}
           >
@@ -313,13 +320,19 @@ function HeroSection({
             >
               {hero.cta.primaryLabel}
             </a>
-            <a
+            <Link
               className="inline-flex items-center justify-center rounded-lg border border-outline-variant/30 px-5 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-high/60"
+              href="/employees"
+            >
+              {hero.cta.secondaryLabel}
+            </Link>
+            <a
+              className="inline-flex items-center justify-center rounded-lg px-3 py-3 text-sm font-medium text-foreground-muted transition-colors hover:text-foreground"
               href={siteLinks.github}
               rel="noreferrer"
               target="_blank"
             >
-              {hero.cta.secondaryLabel}
+              GitHub
             </a>
           </div>
         </div>

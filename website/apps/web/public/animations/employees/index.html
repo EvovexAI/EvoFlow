@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvoFlow · 智能员工动画合集</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --accent: #0d9488;
+        --bg: #f5f7fb; --warm: #ea580c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; color: var(--ink);
+        font-family: "DM Sans", system-ui, sans-serif;
+        background:
+          radial-gradient(ellipse at 50% 0%, rgba(13,148,136,.08), transparent 45%),
+          linear-gradient(180deg, #fff, var(--bg));
+      }
+      main { max-width: 1120px; margin: 0 auto; padding: 48px 24px 80px; }
+      .brand {
+        font-family: "IBM Plex Mono", monospace; font-size: 13px; letter-spacing: .2em;
+        text-transform: uppercase; color: var(--muted);
+      }
+      h1 { margin: 14px 0 0; font-size: clamp(36px,5vw,56px); letter-spacing: -.04em; line-height: 1.05; }
+      .lead { margin: 18px 0 0; max-width: 760px; font-size: 18px; line-height: 1.55; color: var(--muted); }
+      .grid { margin-top: 40px; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); }
+      a.card {
+        display: block; text-decoration: none; color: inherit; background: #fff;
+        border: 1px solid var(--line); border-radius: 22px; padding: 22px;
+        box-shadow: 0 14px 40px rgba(15,23,42,.06); transition: transform .2s, border-color .2s;
+      }
+      a.card:hover { transform: translateY(-3px); border-color: rgba(13,148,136,.45); }
+      .faces { display: flex; gap: 8px; margin-bottom: 14px; }
+      .faces img {
+        width: 48px; height: 48px; border-radius: 14px; object-fit: cover; object-position: center top;
+        background: #111; border: 2px solid #fff; box-shadow: 0 6px 16px rgba(15,23,42,.1);
+      }
+      .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+      .who { font-size: 13px; font-weight: 700; color: var(--accent); }
+      .dur {
+        font-family: "IBM Plex Mono", monospace; font-size: 12px; color: var(--muted);
+        background: #f1f5f9; padding: 4px 8px; border-radius: 999px;
+      }
+      a.card h2 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+      a.card .pos { margin: 8px 0 0; font-size: 15px; line-height: 1.45; color: var(--muted); }
+      a.card .about {
+        margin: 14px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); padding-top: 14px;
+      }
+      a.card .about li {
+        font-size: 14px; line-height: 1.45; color: var(--ink); font-weight: 600; margin: 6px 0;
+      }
+      .back { display: inline-block; margin-top: 36px; color: var(--muted); text-decoration: none; font-size: 15px; }
+      .back:hover { color: var(--ink); }
+      .note {
+        margin-top: 28px; padding: 16px 18px; border-radius: 16px; background: rgba(13,148,136,.08);
+        color: #0f766e; font-size: 14px; line-height: 1.5;
+      }
+      .note a { color: #0f766e; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="brand">Director pack · ≈55s</p>
+      <h1>智能员工 · 动画合集</h1>
+      <p class="lead">每条 ≈55 秒，全程动画讲清楚——有短开场、有长剧情、终场画面停住收束。无敷衍片尾文字卡，看完能复述「能干嘛」。</p>
+      <div class="grid">
+        <a class="card" href="/animations/smart-employees/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/intern.png" alt="" />
+            <img src="/animations/_assets/avatars/ops.png" alt="" />
+            <img src="/animations/_assets/avatars/creator.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：第一次听说</span><span class="dur">≈55s</span></div>
+          <h2>概念片 · 岗位合同</h2>
+          <p class="pos">定位：把智能体编成岗位——职责、文件夹、频率、审批</p>
+          <ul class="about">
+            <li>五个开箱模板：研发助理 / 运维值班 / 学习 / 内容 / 文档</li>
+            <li>岗位合同四要素 + 开启自动上班</li>
+            <li>研发助理真实汇报文案（清单落盘、建议人处理）</li>
+          </ul>
+        </a>
+        <a class="card" href="/animations/smart-employees-howto/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/lead.png" alt="" />
+            <img src="/animations/_assets/avatars/intern.png" alt="" />
+            <img src="/animations/_assets/avatars/xiaomi.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：想动手试试</span><span class="dur">≈70s</span></div>
+          <h2>怎么用 · 派活 · 审核 · 看报告</h2>
+          <p class="pos">定位：日常怎么用、怎么审</p>
+          <ul class="about">
+            <li>雇人上班，绑上飞书</li>
+            <li>飞书里点名员工派任务</li>
+            <li>飞书或客户端都能审核；日志里看进度和报告</li>
+          </ul>
+        </a>
+        <a class="card" href="/animations/smart-employees-collab/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/engineer.png" alt="" />
+            <img src="/animations/_assets/avatars/analyst.png" alt="" />
+            <img src="/animations/_assets/avatars/creator.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：雇了 ≥2 人</span><span class="dur">≈60s</span></div>
+          <h2>互相帮忙 · 两条通道</h2>
+          <p class="pos">定位：正式交工 vs 派发 / wake，别混</p>
+          <ul class="about">
+            <li>对照表：正式交工仅直属下级 +「同意派发」</li>
+            <li>研发助理结案 → 客户端待审批 + 飞书通知 → 点同意派发</li>
+            <li>内容策划「派发任务」叫醒文档管理员（同级，无同意派发）</li>
+          </ul>
+        </a>
+        <a class="card" href="/animations/smart-employees-indie/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/engineer.png" alt="" />
+            <img src="/animations/_assets/avatars/xiaomi.png" alt="" />
+            <img src="/animations/_assets/avatars/lead.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：独立开发者</span><span class="dur">≈60s</span></div>
+          <h2>一个人用 · 研发助理</h2>
+          <p class="pos">定位：雇岗绑目录 · 手动或自动上班 · 工作日志看汇报</p>
+          <ul class="about">
+            <li>雇佣员工：研发助理模板、管辖工作空间、谨慎型、确认上班</li>
+            <li>卡片 ⋯「现在开始工作」→ 扫脏文件清单（不擅自批量删除）</li>
+            <li>工作日志近 2 天 + 小V 派发；终场停在工作日志</li>
+          </ul>
+        </a>
+        <a class="card" href="/animations/smart-employees-team/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/engineer.png" alt="" />
+            <img src="/animations/_assets/avatars/ops.png" alt="" />
+            <img src="/animations/_assets/avatars/creator.png" alt="" />
+            <img src="/animations/_assets/avatars/researcher.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：2–5 人小团队</span><span class="dur">≈60s</span></div>
+          <h2>小团队 · 日志与待审批</h2>
+          <p class="pos">定位：四岗名册 · 左日志右待审批 · 同意派发</p>
+          <ul class="about">
+            <li>研发助理 / 运维值班 / 内容策划 / 文档管理员（部分飞书已绑定）</li>
+            <li>工作日志近 2 天各岗真实汇报 · 待审批「同意派发」</li>
+            <li>点同意派发下游开干；旁路小V 同级派发</li>
+          </ul>
+        </a>
+        <a class="card" href="/animations/smart-employees-org/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/pm.png" alt="" />
+            <img src="/animations/_assets/avatars/lead.png" alt="" />
+            <img src="/animations/_assets/avatars/engineer.png" alt="" />
+            <img src="/animations/_assets/avatars/scientist.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：产品交付编制</span><span class="dur">≈70s</span></div>
+          <h2>产品交付线 · 真实需求拆活</h2>
+          <p class="pos">定位：小V「一员工一会话」方案 → 技术拆活 → 同意派发</p>
+          <ul class="about">
+            <li>组织：产品经理 → 技术总监 → 前 / 后 / 测</li>
+            <li>真实需求四条验收（联系人 / 委派 / 轨迹 / 续跑）</li>
+            <li>工作项看板链 + 待审批；不含视频拆解</li>
+          </ul>
+        </a>
+        <a class="card" href="/animations/smart-employees-video/">
+          <div class="faces">
+            <img src="/animations/_assets/avatars/xiaomi.png" alt="" />
+            <img src="/animations/_assets/avatars/researcher.png" alt="" />
+            <img src="/animations/_assets/avatars/creator.png" alt="" />
+          </div>
+          <div class="meta"><span class="who">给谁：飞书拆抖音</span><span class="dur">≈70s</span></div>
+          <h2>视频拆解 · 真实交互案例</h2>
+          <p class="pos">定位：抖音刷到 → 飞书小V派活 → 再问搞定了吗 → 网页报告</p>
+          <ul class="about">
+            <li>真实案例：游戏方式打开制造型企业</li>
+            <li>复用飞书派发 / 追问截图</li>
+            <li>复用网页报告截图与落盘路径</li>
+          </ul>
+        </a>
+      </div>
+      <div class="note">导演手册（镜头表 / 时长 / 自检）：<a href="/animations/DIRECTOR.md">/animations/DIRECTOR.md</a>。硬刷新后再看；每条都有旅程条和终场画面停住，不靠片尾清单补课。</div>
+      <a class="back" href="/employees">← 返回智能员工页</a>
+    </main>
+  </body>
+</html>

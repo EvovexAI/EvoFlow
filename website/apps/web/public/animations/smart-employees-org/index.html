@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvoFlow · 产品交付线：真实需求怎么拆</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@600;700&amp;family=IBM+Plex+Mono:wght@500&amp;display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/animations/_shared/ef-anim.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/TextPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+    <style>
+      .tabbar {
+        position: absolute; left: 160px; top: 148px;
+        display: flex; gap: 8px; font-size: 18px; font-weight: 700;
+      }
+      .tabbar .tab {
+        padding: 10px 18px; border-radius: 12px; background: #f1f5f9; color: var(--muted);
+      }
+      .tabbar .tab.on { background: var(--accent); color: #fff; }
+
+      .org-panel {
+        position: absolute; left: 160px; right: 160px; top: 210px; bottom: 200px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        box-shadow: var(--shadow); padding: 28px 40px; overflow: hidden;
+      }
+      .org-panel .head {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+      }
+      .org-panel h3 { font-size: 26px; }
+      .org-panel .hint { font-size: 16px; color: var(--muted); font-weight: 600; }
+      .tree { max-width: 920px; position: relative; margin: 0 auto; }
+      .branch {
+        position: absolute; left: 34px; top: 70px; bottom: 24px; width: 2px;
+        background: linear-gradient(180deg, rgba(13,148,136,.55), #e2e8f0); opacity: 0;
+      }
+      .node {
+        display: flex; align-items: center; gap: 14px;
+        background: #f8fafc; border: 1px solid var(--line); border-radius: 16px;
+        padding: 12px 16px; margin: 10px 0; opacity: 0; transform: translateY(12px);
+      }
+      .node img {
+        width: 52px; height: 52px; border-radius: 14px; object-fit: cover;
+        object-position: center top; background: #111; flex-shrink: 0;
+      }
+      .node .n { font-size: 20px; font-weight: 700; }
+      .node .d { font-size: 14px; color: var(--muted); font-weight: 600; margin-top: 3px; }
+      .node.root { background: var(--accent-soft); border-color: rgba(13,148,136,.4); }
+      .node.lit { outline: 3px solid var(--warm); outline-offset: 2px; background: var(--warm-soft); }
+      .indent-1 { margin-left: 44px; }
+      .indent-2 { margin-left: 88px; }
+      .dept {
+        display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px;
+        font-size: 12px; font-weight: 700; background: #e2e8f0; color: #475569;
+      }
+
+      /* PRD */
+      .prd-wrap {
+        position: absolute; left: 120px; right: 120px; top: 155px; bottom: 185px;
+        display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 22px;
+      }
+      .prd, .split {
+        background: #fff; border: 1px solid var(--line); border-radius: 26px;
+        box-shadow: var(--shadow); padding: 26px 28px; opacity: 0;
+      }
+      .prd .eyebrow {
+        font-family: var(--mono); font-size: 13px; letter-spacing: .12em;
+        text-transform: uppercase; color: var(--accent); font-weight: 700;
+      }
+      .prd h3 { margin-top: 10px; font-size: 28px; letter-spacing: -.02em; line-height: 1.25; }
+      .prd .meta {
+        margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;
+      }
+      .prd .body { margin-top: 18px; }
+      .prd .body p {
+        font-size: 17px; font-weight: 600; color: var(--muted); line-height: 1.5; margin-bottom: 12px;
+      }
+      .prd ul { list-style: none; margin: 0; padding: 0; }
+      .prd li {
+        display: flex; gap: 12px; align-items: flex-start;
+        padding: 12px 0; border-top: 1px solid var(--line);
+        font-size: 17px; font-weight: 700; line-height: 1.4; opacity: 0;
+      }
+      .prd li .num {
+        flex: 0 0 28px; height: 28px; border-radius: 8px; background: var(--accent-soft);
+        color: var(--accent); display: grid; place-items: center; font-size: 14px;
+      }
+      .split h4 { font-size: 22px; margin-bottom: 6px; }
+      .split .subh { font-size: 15px; color: var(--muted); font-weight: 600; margin-bottom: 16px; }
+      .task {
+        display: flex; gap: 12px; align-items: flex-start;
+        padding: 14px; border-radius: 16px; background: #f8fafc; margin-bottom: 12px;
+        opacity: 0; transform: translateY(10px);
+      }
+      .task img {
+        width: 42px; height: 42px; border-radius: 12px; object-fit: cover; background: #111;
+      }
+      .task .who { font-size: 16px; font-weight: 700; }
+      .task .what { font-size: 14px; color: var(--muted); font-weight: 600; margin-top: 4px; line-height: 1.4; }
+      .task.on { outline: 2px solid var(--accent); background: var(--accent-soft); }
+
+      #approve-btn { position: absolute; left: 780px; top: 780px; opacity: 0; z-index: 25; }
+
+      /* board */
+      .board {
+        position: absolute; left: 140px; right: 140px; top: 170px; bottom: 200px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        box-shadow: var(--shadow); padding: 24px 28px; opacity: 0;
+      }
+      .board .bh {
+        display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;
+      }
+      .board h3 { font-size: 24px; }
+      .cols {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; height: calc(100% - 50px);
+      }
+      .col-h {
+        font-size: 14px; font-weight: 700; color: var(--muted); margin-bottom: 10px;
+        letter-spacing: .04em;
+      }
+      .card-t {
+        background: #f8fafc; border: 1px solid var(--line); border-radius: 14px;
+        padding: 14px; margin-bottom: 10px; font-size: 15px; font-weight: 700; line-height: 1.35;
+        opacity: 0; transform: translateY(8px);
+      }
+      .card-t .sm { margin-top: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+      .card-t.pulse {
+        outline: 2px solid var(--warm);
+        animation: pulse-wait 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse-wait {
+        0%, 100% { outline-color: rgba(234,88,12,.9); }
+        50% { outline-color: rgba(234,88,12,.25); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080" data-duration="72">
+        <div class="dotgrid"></div>
+
+        <div class="journey" id="journey">
+          <div class="j-node" id="j1">① 组织汇报线</div>
+          <div class="j-sep" id="js1"></div>
+          <div class="j-node" id="j2">② 真实需求拆活</div>
+          <div class="j-sep" id="js2"></div>
+          <div class="j-node" id="j3">③ 同意派发 · 看板</div>
+        </div>
+
+        <section class="slate" id="open">
+          <div>
+            <p class="who">只讲 EvoFlow 产品交付线</p>
+            <p class="goal">真实需求：小V「一员工一会话」——产品方案 → 技术拆活 → 前/后/测</p>
+          </div>
+        </section>
+
+        <!-- 场1 组织 -->
+        <section class="scene" id="s1">
+          <div class="tabbar" id="tabs">
+            <div class="tab">智能体员工</div>
+            <div class="tab on">组织架构</div>
+            <div class="tab">工作项看板</div>
+          </div>
+          <div class="org-panel" id="org-panel">
+            <div class="head">
+              <h3>产品交付线</h3>
+              <div class="hint">正式交工只能填直属下级 · 部门只展示</div>
+            </div>
+            <div class="tree">
+              <div class="branch" id="branch"></div>
+              <div class="node root" id="n-pm">
+                <img data-av="pm" alt="" />
+                <div>
+                  <div class="n">产品经理 <span class="dept">产品</span></div>
+                  <div class="d">写可验收方案 · 批准前不派实现岗</div>
+                </div>
+              </div>
+              <div class="node indent-1" id="n-arch">
+                <img data-av="lead" alt="" />
+                <div>
+                  <div class="n">技术总监 <span class="dept">技术部</span></div>
+                  <div class="d">审方案 · 拆技术边界 · 派前 / 后 / 测</div>
+                </div>
+              </div>
+              <div class="node indent-2" id="n-fe">
+                <img data-av="engineer" alt="" />
+                <div>
+                  <div class="n">前端工程师</div>
+                  <div class="d">小V 面板 / 员工页 / 组织与看板 UI</div>
+                </div>
+              </div>
+              <div class="node indent-2" id="n-be">
+                <img data-av="scientist" alt="" />
+                <div>
+                  <div class="n">后端工程师</div>
+                  <div class="d">会话状态 · 派发续跑轨迹 · 审批协议</div>
+                </div>
+              </div>
+              <div class="node indent-2" id="n-qa">
+                <img data-av="analyst" alt="" />
+                <div>
+                  <div class="n">测试工程师</div>
+                  <div class="d">按验收表核对 · 不通过叫醒返工</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="caption" id="s1-cap">
+            <div class="line">组织架构决定：谁能正式交工给谁</div>
+            <div class="sub">产品经理 → 技术总监 → 前 / 后 / 测（同级帮忙另走派发）</div>
+          </div>
+        </section>
+
+        <!-- 场2 PRD + 拆活 -->
+        <section class="scene" id="s2">
+          <div class="prd-wrap">
+            <div class="prd" id="prd">
+              <div class="eyebrow">产品方案 · docs/roles/product-manager/</div>
+              <h3>小V「一员工一会话」：微信式委派</h3>
+              <div class="meta">
+                <span class="chip warm">真实需求 · 非演示玩具</span>
+                <span class="chip">工作区 EvoFlow</span>
+                <span class="chip blue">谨慎型交工</span>
+              </div>
+              <div class="body">
+                <p>目标：打开小V，像微信一样左侧点员工、右侧直接委派；能看进行中进度与最新汇报，工作轨迹按需展开。</p>
+                <ul>
+                  <li id="ac1"><span class="num">1</span>左侧联系人列表：在岗员工可点选；小V 本人会话保留</li>
+                  <li id="ac2"><span class="num">2</span>右侧对员工输入目标即可派发；展示进行中 Task + 最新汇报</li>
+                  <li id="ac3"><span class="num">3</span>工作轨迹默认折叠；打开工具详情不得报「缺少会话标识」</li>
+                  <li id="ac4"><span class="num">4</span>值班派发可续用同一轮工作轨迹，不另起空会话</li>
+                </ul>
+              </div>
+            </div>
+            <div class="split" id="split">
+              <h4>技术总监 · 拆技术任务</h4>
+              <div class="subh">审完方案后，结案 handlers = 直属下级</div>
+              <div class="task" id="t1">
+                <img data-av="engineer" alt="" />
+                <div>
+                  <div class="who">前端 · code-agent</div>
+                  <div class="what">GlobalAssistant 联系人轨、会话切换、进度/汇报区、轨迹抽屉</div>
+                </div>
+              </div>
+              <div class="task" id="t2">
+                <img data-av="scientist" alt="" />
+                <div>
+                  <div class="who">后端 · project-implementer</div>
+                  <div class="what">员工会话标识、派发 resume round、工具详情 session_key</div>
+                </div>
+              </div>
+              <div class="task" id="t3">
+                <img data-av="analyst" alt="" />
+                <div>
+                  <div class="who">测试 · project-debugger</div>
+                  <div class="what">验收表 1–4 逐条证据；失败叫醒前端返工再复验</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="btn" id="approve-btn" type="button">同意派发</button>
+          <div class="caption" id="s2-cap">
+            <div class="line">产品写清验收 · 技术总监拆成可交工子单</div>
+            <div class="sub">不是「改个按钮」——是面板交互 + 会话协议 + 轨迹续跑</div>
+          </div>
+        </section>
+
+        <!-- 场3 看板 -->
+        <section class="scene" id="s3">
+          <div class="board" id="board">
+            <div class="bh">
+              <h3>工作项看板 · 本需求链</h3>
+              <span class="chip ok">待闭环可见</span>
+            </div>
+            <div class="cols">
+              <div>
+                <div class="col-h">方案 / 拆活</div>
+                <div class="card-t" id="b1">产品：小V 一员工一会话方案<div class="sm">已交工 → 技术总监</div></div>
+                <div class="card-t" id="b2">技术总监：拆前 / 后 / 测<div class="sm">等待同意派发</div></div>
+              </div>
+              <div>
+                <div class="col-h">实现中</div>
+                <div class="card-t" id="b3">前端：联系人 + 会话 UI<div class="sm">子单已叫醒</div></div>
+                <div class="card-t" id="b4">后端：session / resume round<div class="sm">子单已叫醒</div></div>
+              </div>
+              <div>
+                <div class="col-h">验收</div>
+                <div class="card-t" id="b5">测试：验收表 1–4<div class="sm">等实现结案</div></div>
+              </div>
+              <div>
+                <div class="col-h">你（人）</div>
+                <div class="card-t pulse" id="b6">待审批 · 同意派发<div class="sm">飞书或客户端同一条</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="caption" id="s3-cap">
+            <div class="line">你盯待审批与看板 · 员工按汇报线交工</div>
+            <div class="sub">同级要帮忙：派发 / wake，不要硬塞进同意派发</div>
+          </div>
+          <div class="end-line" id="end-line" style="opacity:0">
+            <div class="line">真实需求进组织树 · 产品方案 · 技术拆活 · 同意派发开干</div>
+            <div class="sub">产品交付线就干这一件事</div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/animations/_shared/ef-anim.js"></script>
+    <script>
+      document.querySelectorAll("[data-av]").forEach((img) => {
+        img.src = EFAnim.avatar(img.getAttribute("data-av"));
+      });
+
+      function lit(ids) {
+        ids.forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.classList.add("on");
+        });
+      }
+      function clearJourney() {
+        ["j1", "j2", "j3", "js1", "js2"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.classList.remove("on");
+        });
+      }
+
+      const tl = gsap.timeline({ paused: true });
+
+      tl.set("#open", { opacity: 1 }, 0);
+      tl.from("#open .who, #open .goal", { y: 22, opacity: 0, duration: 0.5, stagger: 0.12 }, 0.2);
+      tl.to("#open", { opacity: 0, duration: 0.4 }, 3.5);
+
+      // 场1
+      tl.set("#s1", { opacity: 1 }, 3.7);
+      tl.from("#tabs", { y: -14, opacity: 0, duration: 0.35 }, 3.8);
+      tl.from("#org-panel", { y: 22, opacity: 0, duration: 0.5 }, 4.0);
+      EFAnim.voIn(tl, "#s1-cap", 4.1);
+      tl.to("#branch", { opacity: 1, duration: 0.35 }, 4.5);
+      ["#n-pm", "#n-arch", "#n-fe", "#n-be", "#n-qa"].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, y: 0, duration: 0.35 }, 4.7 + i * 0.38);
+      });
+      tl.call(() => {
+        document.getElementById("n-pm").classList.add("lit");
+        document.getElementById("n-arch").classList.add("lit");
+      }, null, 7.2);
+      tl.call(() => lit(["j1"]), null, 7.8);
+      tl.to({}, { duration: 6.5 }, 8.5);
+      tl.to("#s1", { opacity: 0, duration: 0.4 }, 18.8);
+
+      // 场2
+      tl.set("#s2", { opacity: 1 }, 19.2);
+      EFAnim.voIn(tl, "#s2-cap", 19.3, { key: true });
+      tl.to("#prd", { opacity: 1, duration: 0.45 }, 19.6);
+      ["#ac1", "#ac2", "#ac3", "#ac4"].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, duration: 0.35 }, 20.4 + i * 0.55);
+      });
+      tl.to("#split", { opacity: 1, duration: 0.4 }, 23.2);
+      ["#t1", "#t2", "#t3"].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, y: 0, duration: 0.35 }, 23.8 + i * 0.4);
+      });
+      EFAnim.popIn(tl, "#approve-btn", 25.4);
+      tl.to({}, { duration: 1.8 }, 25.8);
+      EFAnim.press(tl, "#approve-btn", 27.8);
+      tl.call(() => {
+        ["t1", "t2", "t3"].forEach((id) => document.getElementById(id).classList.add("on"));
+      }, null, 28.1);
+      tl.call(() => lit(["js1", "j2"]), null, 29.0);
+      tl.to({}, { duration: 8.0 }, 29.5);
+      tl.to("#s2", { opacity: 0, duration: 0.4 }, 40.8);
+
+      // 场3
+      tl.set("#s3", { opacity: 1 }, 41.2);
+      tl.to("#board", { opacity: 1, duration: 0.45 }, 41.4);
+      EFAnim.voIn(tl, "#s3-cap", 41.5, { key: true });
+      ["#b1", "#b2", "#b3", "#b4", "#b5", "#b6"].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, y: 0, duration: 0.3 }, 42.0 + i * 0.28);
+      });
+      EFAnim.popIn(tl, "#approve-btn", 44.2);
+      tl.set("#approve-btn", { left: 1480, top: 620 }, 44.2);
+      tl.to({}, { duration: 1.5 }, 44.6);
+      EFAnim.press(tl, "#approve-btn", 46.2);
+      tl.to("#b2 .sm", { duration: 0.8, text: "已同意 · 子单已建", ease: "none" }, 46.4);
+      tl.to("#b6", { opacity: 0.45, duration: 0.35 }, 46.6);
+      tl.call(() => document.getElementById("b6").classList.remove("pulse"), null, 46.6);
+      tl.call(() => lit(["js2", "j3"]), null, 48.0);
+      EFAnim.voIn(tl, "#end-line", 50.0, { key: true });
+      tl.to("#s3-cap", { opacity: 0, duration: 0.3 }, 50.2);
+      tl.to("#approve-btn", { opacity: 0, duration: 0.3 }, 50.2);
+      tl.to({}, { duration: 18.0 }, 51.0);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines.main = tl;
+      if (!window.HyperFrames && !window.__HYPERFRAMES_RUNTIME__) {
+        tl.play(0);
+        tl.eventCallback("onComplete", () => {
+          clearJourney();
+          document.querySelectorAll(".node.lit, .task.on").forEach((el) => {
+            el.classList.remove("lit", "on");
+          });
+          document.getElementById("b6").classList.add("pulse");
+          document.querySelectorAll(".prd li").forEach((el) => {
+            el.style.opacity = "0";
+          });
+          tl.restart();
+        });
+      }
+    </script>
+  </body>
+</html>

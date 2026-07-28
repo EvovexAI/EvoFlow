@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
                 source: "/presentations/:path*/",
                 destination: "/presentations/:path*/index.html",
               },
+              {
+                source: "/animations/:path*/",
+                destination: "/animations/:path*/index.html",
+              },
             ],
           };
         },

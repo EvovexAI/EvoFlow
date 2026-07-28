@@ -1,135 +1,127 @@
-# AI Site — 系统架构与开发手册
+# EvoFlow 官网 — 技术架构与开发手册
 
-> 本文档面向开发者，详细说明系统架构、技术实现方案、各模块设计细节与开发规范。
-> 与 [CUSTOMIZATION.md](./CUSTOMIZATION.md)（个性化指南）互补。
-
----
-
-## 目录
-
-1. [系统架构总览](#1-系统架构总览)
-2. [Monorepo 结构](#2-monorepo-结构)
-3. [核心技术栈](#3-核心技术栈)
-4. [AI 系统架构](#4-ai-系统架构)
-5. [数据层架构](#5-数据层架构)
-6. [前端架构](#6-前端架构)
-7. [设计系统](#7-设计系统)
-8. [实时交互系统](#8-实时交互系统)
-9. [WebGPU 粒子系统](#9-webgpu-粒子系统)
-10. [安全体系](#10-安全体系)
-11. [可观测性](#11-可观测性)
-12. [后台任务系统](#12-后台任务系统)
-13. [国际化](#13-国际化)
-14. [性能优化](#14-性能优化)
-15. [开发规范](#15-开发规范)
+> 本文档面向开发者，说明 **EvoFlow 官网**（`website/`）的系统架构、技术栈、目录结构、开发流程与部署方式。
+> 与 [CUSTOMIZATION.md](./CUSTOMIZATION.md)（内容与风格定制指南）及 [README.md](./README.md)（用户快速上手）互补。
 
 ---
 
-## 1. 系统架构总览
+## 1. 项目定位
+
+本目录是 **EvoFlow 产品官网**，不是个人 AI 模板网站。官网的目标是：
+
+- 展示 EvoFlow 产品能力矩阵、典型场景与演进路线
+- 提供产品文档（侧栏 `/docs/` 导航）
+- 提供产品演示（`/showcase/`）
+- 集成 AI 交互 Demo（Arena、Chat、Workflow 等页面的骨架与模拟数据）
+- 引导用户下载、安装与部署
+
+官网采用 **静态导出（Static Export）**，部署到 **火山引擎 TOS** 对象存储，通过 CDN 分发。
+
+---
+
+## 2. 系统架构总览
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Client (Browser)                             │
-│  React 19 CSR Islands  │  WebGPU / Canvas 2D  │  SSE Streams       │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │ HTTPS
-┌────────────────────────────▼────────────────────────────────────────┐
-│                     Nginx (SSL Termination)                         │
-│  yoursite.example.com:443 → localhost:3002  │  SSE proxy_buffering off     │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                     Next.js 16 (App Router)                         │
-│                                                                     │
-│  ┌─── Presentation ───┐  ┌─── API / BFF ───┐  ┌─── AI Runtime ──┐ │
-│  │ RSC + Client Islands│  │ Route Handlers  │  │ AI SDK 6       │ │
-│  │ Layouts / Pages     │  │ Server Actions  │  │ Tool Calling   │ │
-│  │ View Transitions    │  │ Rate Limiting   │  │ Streaming      │ │
-│  └─────────────────────┘  └─────────────────┘  └────────────────┘ │
-│                                                                     │
-│  ┌─── Design System ──┐  ┌─── Content ─────┐  ┌─── Observability┐ │
-│  │ Tokens/Primitives   │  │ Typed schemas   │  │ LLM runs       │ │
-│  │ Composites/Motion   │  │ i18n (zh/en)    │  │ Tool calls     │ │
-│  │ Glass/Glow/Signal   │  │ Projects/TL     │  │ Visitor tracks │ │
-│  └─────────────────────┘  └─────────────────┘  └────────────────┘ │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        ▼                    ▼                    ▼
-┌──────────────┐  ┌──────────────────┐  ┌─────────────────────┐
-│  PostgreSQL  │  │  Worker Process  │  │  External APIs      │
-│  + pgvector  │  │  (PM2 managed)   │  │  OpenAI GPT-5       │
-│              │  │  GitHub Sync     │  │  Anthropic Claude    │
-│  knowledge   │  │  Blog Sync       │  │  GitHub API         │
-│  observ.     │  │  Coding DNA      │  │  text-embedding-3   │
-│  evolution   │  │  Weekly Digest   │  │                     │
-└──────────────┘  └──────────────────┘  └─────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     Client (Browser)                          │
+│  React 19 CSR Islands  │  Canvas 2D  │  Motion Animations   │
+└──────────────────────────────┬────────────────────────────────┘
+                               │ HTTPS (CDN)
+┌──────────────────────────────▼────────────────────────────────┐
+│             火山引擎 TOS (对象存储 + CDN)                       │
+│  静态文件: HTML, JS, CSS, 图片, 字体                           │
+│  Content-Disposition: inline  (保证 HTML 不触发下载)           │
+└──────────────────────────────┬────────────────────────────────┘
+                               │
+┌──────────────────────────────▼────────────────────────────────┐
+│                     Next.js 16 (Static Export)                 │
+│                                                               │
+│  ┌─── Presentation ───┐  ┌─── Content ─────┐  ┌─── AI Demo ─┐│
+│  │ RSC + Client Islands│  │ Typed schemas   │  │ Chat warp   ││
+│  │ Pages / Layouts     │  │ i18n (zh/en)    │  │ Arena mock  ││
+│  │ View Transitions    │  │ Docs catalog    │  │ Artifacts   ││
+│  └─────────────────────┘  └────────────────┘  └─────────────┘│
+│                                                               │
+│  ┌─── Design System ──┐  ┌─── Platform ────┐                  │
+│  │ Tokens/Primitives   │  │ Admin pages     │                  │
+│  │ Composites/Motion   │  │ Lab pages       │                  │
+│  │ Glass/Glow/Signal   │  │ Showcase pages  │                  │
+│  └─────────────────────┘  └────────────────┘                  │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 **核心设计原则：**
 
-- **AI-first**：AI 不是附加功能，是整站的核心驱动力
-- **自部署**：不依赖 Vercel 平台，全部运行在自有 ECS
-- **类型安全**：端到端 TypeScript strict，Zod schema 校验所有 I/O 边界
-- **渐进降级**：WebGPU → Canvas 2D fallback；DB → JSON file fallback；Desktop → Mobile 降级
+- **静态导出**：`next build` 输出纯静态 HTML + JS + CSS，无运行时服务端依赖
+- **类型安全**：端到端 TypeScript strict，Zod schema 校验数据边界
+- **渐进降级**：Canvas 2D fallback（WebGPU 粒子仅用于演示）、Desktop → Mobile 降级
+- **i18n 内置**：Cookie 驱动的中/英双语，内容层统一管理
+- **演示数据与真实数据分离**：`packages/ai/` 中的 demo 数据仅用于骨架页面展示
 
 ---
 
-## 2. Monorepo 结构
+## 3. Monorepo 结构
 
-使用 **pnpm workspaces + Turborepo** 管理，严格划分职责边界：
+使用 **pnpm workspaces + Turborepo** 管理：
 
 ```
-ai-site/
+website/
 ├── apps/
-│   ├── web/                     # Next.js 16 主应用
-│   │   ├── src/
-│   │   │   ├── app/             # App Router (pages, layouts, API routes)
-│   │   │   ├── components/      # UI 组件
-│   │   │   ├── hooks/           # 自定义 Hooks
-│   │   │   ├── lib/             # 工具库 (auth, rate-limit, AI runtime)
-│   │   │   ├── middleware.ts    # Auth middleware
-│   │   │   └── instrumentation.ts  # 全局 fetch proxy 设置
-│   │   ├── next.config.ts
-│   │   └── package.json
-│   └── worker/                  # 后台任务进程
+│   └── web/                     # Next.js 16 主应用
 │       ├── src/
-│       │   ├── index.ts         # 入口，cron 调度
-│       │   └── jobs/            # 各任务实现
-│       └── tsup.config.ts       # 构建配置
+│       │   ├── app/             # App Router (pages, layouts)
+│       │   │   ├── (marketing)/ # 营销页分组 (about, docs, evolution, showcase)
+│       │   │   ├── admin/       # 管理后台 (client-side only)
+│       │   │   ├── lab/         # 实验页
+│       │   │   ├── resume/      # 简历页
+│       │   │   ├── terminal/    # 终端模拟页
+│       │   │   └── r/           # 重定向页面
+│       │   ├── components/      # UI 组件 (home, docs, ai-ui, showcase, etc.)
+│       │   ├── hooks/           # 自定义 Hooks
+│       │   ├── lib/             # 工具库 (auth, rate-limit, i18n, shiki)
+│       │   └── instrumentation.ts
+│       ├── next.config.ts
+│       ├── scripts/             # 构建脚本
+│       └── package.json
 ├── packages/
-│   ├── ai/                      # @ai-site/ai — AI 核心层
-│   │   ├── agents/              # Agent 定义 (site-agent, mission)
-│   │   ├── ai-ui/               # UI Actions + Artifacts 注册与 schema
-│   │   ├── arena/               # 模型竞技场逻辑
-│   │   ├── chat/                # Chat schema, demo-chat 构建器
-│   │   ├── evolution/           # 进化系统
-│   │   ├── jobs/                # Job schema 与 runner
-│   │   ├── knowledge/           # 知识库 ingestion
-│   │   ├── memory/              # Session memory
-│   │   ├── prompts/             # Persona prompt
-│   │   ├── providers/           # 模型 provider 配置
-│   │   ├── sources/             # GitHub / Blog 数据源
-│   │   ├── tools/               # Tool registry
-│   │   └── workflows/           # Workflow schema + demo
-│   ├── db/                      # @ai-site/db — 数据访问层
-│   │   ├── client.ts            # PostgreSQL 连接 + 自动 schema 迁移
-│   │   ├── schema/              # DDL (CREATE IF NOT EXISTS)
-│   │   └── repos/               # Repository 抽象 (DB + File 双后端)
+│   ├── ai/                      # @ai-site/ai — AI Demo 层
+│   │   ├── src/agents/          # Agent 定义 (site-agent, mission)
+│   │   ├── src/ai-ui/           # UI Actions + Artifacts
+│   │   ├── src/arena/           # 模型竞技场逻辑
+│   │   ├── src/chat/            # Chat schema, demo-chat 构建器
+│   │   ├── src/evolution/       # 进化系统
+│   │   ├── src/jobs/            # Job schema 与 runner
+│   │   ├── src/knowledge/       # 知识库 ingestion
+│   │   ├── src/memory/          # Session memory
+│   │   ├── src/prompts/         # Persona prompt
+│   │   ├── src/providers/       # 模型 provider 配置
+│   │   ├── src/sources/         # GitHub / Blog 数据源
+│   │   ├── src/tools/           # Tool registry
+│   │   └── src/workflows/       # Workflow schema + demo
+│   ├── content/                 # @ai-site/content — 站点内容数据层
+│   │   ├── src/home.ts          # 首页内容 (zh/en)
+│   │   ├── src/personal.ts      # 站点个人信息
+│   │   ├── src/projects.ts      # 项目数据
+│   │   ├── src/timeline.ts      # 时间轴数据
+│   │   ├── src/site-copy.ts     # 品牌文案
+│   │   ├── src/site-identity.ts # 域名、邮箱、发布主体
+│   │   ├── src/site-links.ts    # 外部链接
+│   │   ├── src/site-stats.ts    # 站点统计
+│   │   ├── src/platform-pages.ts # 管理后台页面数据
+│   │   ├── src/docs/catalog.ts  # 产品文档正文（zh/en 双语）
+│   │   ├── src/locales.ts       # 多语言 schema
+│   │   └── src/index.ts         # 统一导出
 │   ├── ui/                      # @ai-site/ui — 设计系统
-│   │   ├── tokens/              # 色彩 / accent 定义
-│   │   ├── primitives/          # GlassPanel, GlowButton, HeroTitle, SignalLine
-│   │   └── composites/          # PortalCard, FeatureCard, TimelineRail, etc.
-│   ├── content/                 # @ai-site/content — 内容数据层
-│   │   ├── home.ts              # 首页内容 (zh/en)
-│   │   ├── about.ts             # About 页内容
-│   │   ├── projects.ts          # 项目数据
-│   │   ├── timeline.ts          # 时间轴数据
-│   │   └── locale.ts            # 多语言 schema
-│   ├── observability/           # @ai-site/observability — 可观测性
-│   │   └── types + logic        # LLM runs, tool calls, sessions
-│   └── config/                  # @ai-site/config — 共享配置
-│       └── tsconfig/base.json   # TypeScript strict base
+│   │   ├── src/tokens/          # 色彩 / accent 定义
+│   │   ├── src/primitives/      # GlassPanel, GlowButton, HeroTitle, SignalLine
+│   │   └── src/composites/      # FeatureCard, SectionHeading, TimelineRail, etc.
+│   ├── observability/           # @ai-site/observability — 可观测性 Demo 数据
+│   │   └── src/                 # LLM runs, tool calls, visitor sessions
+│   ├── db/                      # @ai-site/db — 数据访问层 Demo
+│   │   └── src/                 # Repository 模式, 文件持久化降级
+│   └── config/                  # @ai-site/config — 共享 TypeScript 配置
+│       └── tsconfig/base.json
+├── scripts/                     # 根级脚本 (sync-docs-media, sync-presentations)
 ├── turbo.json                   # Pipeline: dev/build/lint/typecheck
 ├── pnpm-workspace.yaml
 └── package.json                 # Root scripts
@@ -143,11 +135,6 @@ apps/web ──→ @ai-site/ai ──→ @ai-site/content
          ──→ @ai-site/ui
          ──→ @ai-site/content
          ──→ @ai-site/observability
-
-apps/worker ──→ @ai-site/ai
-            ──→ @ai-site/db
-            ──→ @ai-site/content
-            ──→ @ai-site/observability
 ```
 
 ### Turborepo Pipeline
@@ -164,282 +151,78 @@ apps/worker ──→ @ai-site/ai
 
 ---
 
-## 3. 核心技术栈
+## 4. 核心技术栈
 
-### 3.1 Framework 层
+### 4.1 Framework 层
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **Next.js** | 16.2 | App Router, RSC, Server Actions, Route Handlers |
+| **Next.js** | 16.2 | App Router, RSC, Server Components, Static Export |
 | **React** | 19.2 | Server Components, `use()`, Suspense |
 | **TypeScript** | 5.x | strict mode, 端到端类型安全 |
-| **Tailwind CSS** | 4.x | CSS-first 配置，原生 CSS 变量，`@theme inline` |
-| **Motion** | 12.38+ | 页面转场、磁性效果、stagger 动画 |
+| **Tailwind CSS** | 4.x | CSS-first 配置，`@theme inline` |
+| **Motion (Framer)** | 12.38+ | 页面转场、磁性效果、stagger 动画 |
 
-### 3.2 AI 层
+### 4.2 AI Demo 层
 
 | 技术 | 版本 | 用途 |
 |------|------|------|
-| **AI SDK** | 6.0+ | `streamText`, `tool()`, `stepCountIs`, `generateText` |
-| **@ai-sdk/openai** | 3.0+ | OpenAI provider (GPT-5, GPT-5-mini) |
-| **@ai-sdk/anthropic** | 3.0+ | Anthropic provider (Claude Sonnet) |
-| **Zod** | 4.x | Tool schema, request/response 校验 |
-| **pgvector** | — | 1536 维向量索引，RAG 知识检索 |
-| **text-embedding-3-large** | — | OpenAI Embedding 模型 |
+| **AI SDK** | 6.0+ | `streamText`, `tool()`, `generateText` |
+| **@ai-sdk/openai** | 3.0+ | OpenAI provider |
+| **@ai-sdk/anthropic** | 3.0+ | Anthropic provider |
+| **Zod** | 4.x | Tool schema, 数据校验 |
+| **Shiki** | 4.x | 代码语法高亮 |
 
-### 3.3 UI 层
+### 4.3 UI 层
 
 | 技术 | 用途 |
 |------|------|
-| **@xyflow/react** | Workflow Studio 可视化编辑器 |
 | **cmdk** | 全局 AI 命令面板 (⌘K) |
-| **Shiki** | 代码语法高亮 |
 | **Lucide React** | 一致的图标体系 |
 | **react-markdown + remark-gfm** | Markdown 渲染 |
 | **@radix-ui/react-dialog** | 无障碍弹窗 |
 | **next-themes** | 暗/亮/系统主题切换 |
+| **html2canvas + jspdf** | 简历导出 |
+| **docx** | 简历 Word 导出 |
 
-### 3.4 基础设施
+### 4.4 基础设施
 
 | 组件 | 方案 |
 |------|------|
-| 服务器 | 阿里云 ECS |
-| 进程管理 | PM2 (web + worker) |
-| 反向代理 | Nginx + SSL (Let's Encrypt) |
-| 数据库 | PostgreSQL 16 + pgvector |
+| 部署目标 | 火山引擎 TOS（对象存储 + CDN） |
 | 包管理 | pnpm 10 + Turborepo |
 | Node.js | 22 LTS |
 
 ---
 
-## 4. AI 系统架构
-
-### 4.1 分层架构
-
-```
-Layer 1: Model Layer
-├── OpenAI GPT-5 / GPT-5-mini
-├── Anthropic Claude Sonnet
-└── text-embedding-3-large
-
-Layer 2: Agent Core (AI SDK 6)
-├── streamText — 流式文本生成
-├── tool() — 工具定义与调用
-├── stepCountIs — 多步推理控制
-└── generateText — 单次生成
-
-Layer 3: Application Agents
-├── Site Agent — 核心人格，融合知识库
-├── Intent Agent — 意图分类路由
-├── Arena Agent — 模型对比
-└── Workflow Agent — 流程编排
-
-Layer 4: Capabilities
-├── RAG Pipeline — 向量检索 + 生成
-├── Tool Calling — 导航 / 主题 / 展示
-├── Artifacts — 结构化富 UI 输出
-├── UI Actions — AI 控 UI 协议
-└── Generative UI — AI 触发前端交互
-```
-
-### 4.2 Chat 流程详解
-
-```
-用户输入 (text/image)
-       │
-       ▼
-┌──────────────┐
-│ /api/chat    │  Zod 校验 → 速率限制 → 消息清洗
-│ route.ts     │
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ 意图检测      │  CAREER_KEYWORDS → 注入时间线/项目数据
-│              │  latestUserMessage → resolveTopic
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ RAG 检索      │  retrieveKnowledge()
-│ pgvector     │  → text-embedding-3-large → 向量相似度 → top-k snippets
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ System Prompt│  personaPrompt + 知识上下文 + 工具指引 + 安全规则
-│ 构建         │
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ streamText() │  AI SDK 流式生成
-│ + tools      │  4 个 tool: navigateTo, toggleTheme, showSkills, showProjects
-│              │  stopWhen: stepCountIs(2)
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ NDJSON Stream│  text-delta / tool-result / ui_action / artifacts / meta
-│ 输出         │
-└──────┬───────┘
-       │
-       ▼
-┌──────────────┐
-│ 前端消费      │  ReactMarkdown 渲染 + UiActionCards + CollapsibleArtifacts
-│ chat-page    │
-└──────────────┘
-```
-
-### 4.3 Tool Calling 实现
-
-在 `/api/chat/route.ts` 中定义 4 个 AI SDK tools：
-
-| Tool | Schema (Zod) | 行为 |
-|------|-------------|------|
-| `navigateTo` | `{ route: enum(13 routes) }` | 前端自动 `router.push`，1.5s 延迟 |
-| `toggleTheme` | `{ theme: "light" \| "dark" \| "system" }` | 前端调用 `setTheme()` |
-| `showSkills` | `{ filter?: "Frontend" \| "Backend" \| ... }` | 渲染技术栈进度条卡片 |
-| `showProjects` | `{ keyword?: string }` | 渲染项目卡片网格 |
-
-工具结果通过 NDJSON `ui_action` 事件传输到前端，由 `UiActionCards` 组件渲染。
-
-### 4.4 Artifacts 系统
-
-AI 可生成结构化富内容，前端通过 `artifact-renderer.tsx` 渲染：
-
-- **Execution Review** — 代码审查面板
-- **Knowledge Signal Radar** — 知识信号雷达图
-- **Project Timeline** — 项目时间线
-- **Tech Radar** — 技术雷达
-
-Artifacts 由 `@ai-site/ai` 的 `createArtifact()` + `buildChatArtifacts()` 构建，schema 驱动。
-
-### 4.5 Model Arena
-
-`/api/arena` 同时向 GPT-5 和 Claude 发送同一问题，流式并排输出：
-
-```typescript
-// 伪代码
-const [gptStream, claudeStream] = await Promise.all([
-  streamText({ model: openai("gpt-5"), ... }),
-  streamText({ model: anthropic("claude-sonnet"), ... }),
-]);
-// 合并为交替 NDJSON 输出
-```
-
-前端左右分栏展示，实时对比响应速度和内容质量。
-
-### 4.6 RAG Knowledge Pipeline
-
-```
-数据源                    处理                    存储
-┌────────────────┐   ┌───────────────┐   ┌──────────────────┐
-│ GitHub repos   │──→│ 分块 (chunk)   │──→│ PostgreSQL       │
-│ Blog articles  │   │ Embedding      │   │ + pgvector       │
-│ Personal data  │   │ text-embed-3   │   │ 1536d IVFFlat    │
-│ Timeline       │   │ -large         │   │ knowledge_chunks │
-└────────────────┘   └───────────────┘   └──────────────────┘
-                                                │
-                                                ▼
-                                         cosine similarity
-                                         top-k retrieval
-                                                │
-                                                ▼
-                                         注入 system prompt
-                                         → LLM 生成回答
-```
-
-Knowledge ingestion 通过 `/api/knowledge/ingest` 触发，需 `x-admin-secret` 鉴权。
-Worker 进程定时同步 GitHub 和 Blog 内容。
-
----
-
-## 5. 数据层架构
-
-### 5.1 双后端策略
-
-`@ai-site/db` 采用 Repository 模式 + 接口抽象，每个 repo 有 DB 和 File 两种实现：
-
-```
-repos/
-├── knowledge-chunks.ts          # pgvector 知识库 (DB only)
-├── observability-runtime.ts     # 统一入口
-│   ├── runtime-observability-db.ts
-│   └── runtime-observability-file.ts
-├── source-records.ts            # 数据源记录
-│   ├── source-records-db.ts
-│   └── source-records-file.ts
-├── job-runs.ts                  # 任务执行记录
-│   ├── job-runs-db.ts
-│   └── job-runs-file.ts
-└── evolution-runs.ts            # 进化记录
-    ├── evolution-runs-db.ts
-    └── evolution-runs-file.ts
-```
-
-当 `DATABASE_URL` 为空时，自动降级到 `.runtime/*.json` 文件持久化。
-
-### 5.2 数据库 Schema
-
-Schema 在应用启动时通过 `ensureDatabaseSchema()` 自动迁移（`CREATE TABLE IF NOT EXISTS`），无需手动建表。
-
-主要表：
-
-| 表名 | 用途 |
-|------|------|
-| `knowledge_chunks` | RAG 知识块，含 `embedding vector(1536)` |
-| `observability_runs` | LLM 调用记录 |
-| `source_sync_state` | 数据源同步状态 |
-| `source_records` | 同步的数据源内容 |
-| `job_runs` | Worker 任务执行记录 |
-| `evolution_runs` | 进化系统运行记录 |
-
-### 5.3 数据库连接管理
-
-```typescript
-// packages/db/src/client.ts
-const sql = postgres(config.url, {
-  connect_timeout: 5,
-  idle_timeout: 5,
-  max: 1,           // 单连接，适合个人站点
-  prepare: false,    // 兼容 pgBouncer
-});
-```
-
-使用 `withDatabase()` 包装器，自动处理连接不可用的降级。
-
----
-
-## 6. 前端架构
-
-### 6.1 路由设计
+## 5. 路由设计
 
 ```
 /                           首页 (homepage.tsx)
 ├── /(marketing)/
 │   ├── /about              关于页面
-│   └── /evolution          进化时间线
-├── /ai/
-│   ├── /ai/chat            AI 对话 (chat-page.tsx)
-│   ├── /ai/agent           Agent 任务控制台
-│   ├── /ai/workflow        Workflow Studio (React Flow)
-│   ├── /ai/knowledge       RAG 知识库浏览器
-│   ├── /ai/arena           模型竞技场
-│   ├── /ai/mcp             MCP 工具编排
-│   └── /ai/os              Agent OS 控制台
-├── /lab/                   实验室
+│   ├── /docs               文档首页
+│   ├── /docs/[...slug]     文档正文（从 catalog.ts 渲染）
+│   ├── /evolution          演进时间线
+│   └── /showcase           产品演示
+├── /admin                  管理后台 (需认证)
+│   ├── /admin/login        Admin 登录
+│   ├── /admin/evolution    演进管理
+│   ├── /admin/jobs         任务管理
+│   └── /admin/observability 可观测性
+├── /lab                    实验室
 │   └── /lab/[slug]         动态实验页面
+├── /r/[slug]               重定向页面
+├── /resume                 简历
 ├── /terminal               终端界面
-├── /admin/                 管理后台 (需认证)
-│   ├── /admin/login
-│   ├── /admin/evolution
-│   ├── /admin/jobs
-│   └── /admin/observability
-└── /api/                   15 个 API 端点
+└── /api/                   无 API 路由（静态导出，不使用运行时 API）
 ```
 
-### 6.2 全局 Layout
+**注意**：`/api/*` 路由**不存在**。页面数据全部来自 `packages/content/` 的静态 TypeScript 模块，在构建时或客户端直接读取。演示性 AI 对话（Arena、Chat）使用客户端模拟数据，不调用远程 API。
+
+---
+
+## 6. 全局 Layout
 
 ```
 RootLayout (layout.tsx)
@@ -449,45 +232,10 @@ RootLayout (layout.tsx)
 │   ├── Providers (ThemeProvider, LocaleProvider, CommandPaletteProvider)
 │   ├── SiteBackground (固定层: aurora + grid + orbs + particles + constellation)
 │   ├── <div.relative> (主内容)
-│   │   ├── SiteHeader (glass morphism, 沉浸式/默认两种变体)
+│   │   ├── SiteHeader (glass morphism)
 │   │   ├── {children} (页面内容)
 │   │   └── SiteFooter
 │   └── LiveCursors (z-9999, pointer-events-none)
-```
-
-### 6.3 页面转场
-
-使用 Next.js `experimental.viewTransition` + `template.tsx` 中的 `AnimatePresence` (Motion)：
-
-```typescript
-// app/template.tsx
-<AnimatePresence mode="wait">
-  <motion.div
-    initial={{ opacity: 0, y: 8 }}
-    animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: -8 }}
-  >
-    {children}
-  </motion.div>
-</AnimatePresence>
-```
-
-### 6.4 Command Palette
-
-`⌘K` / `Ctrl+K` 触发，基于 cmdk 构建，支持三种模式：
-
-| 模式 | 触发 | 功能 |
-|------|------|------|
-| **Default** | 直接打开 | 页面导航、快捷操作、外部链接 |
-| **AI Chat** | 输入 `>` 或点击 AI 按钮 | 内联 AI 对话，支持 Generative UI |
-| **Terminal** | 输入 `$` | 终端风格交互 |
-
-```
-site-command-palette.tsx
-├── 响应式高度 h-[min(480px, calc(100vh-4rem))]
-├── 三模式切换 (default / ai / terminal)
-├── AI 模式: 复用 demo-chat API
-└── 结果渲染: 页面/操作/链接/AI 回复
 ```
 
 ---
@@ -499,51 +247,38 @@ site-command-palette.tsx
 ```
 @ai-site/ui
 ├── tokens/           Design Tokens
-│   └── accents.ts    AccentTone 类型 (primary / secondary / tertiary)
+│   ├── accents.ts    AccentTone 类型 (primary / secondary / tertiary)
+│   └── colors.ts     色彩定义
 ├── primitives/       原语组件
 │   ├── glass-panel.tsx    毛玻璃面板
-│   ├── glow-button.tsx    发光按钮 (primary / ghost 变体)
-│   ├── hero-title.tsx     Hero 标题 (clamp 响应式)
+│   ├── glow-button.tsx    发光按钮
+│   ├── hero-title.tsx     Hero 标题
 │   ├── signal-line.tsx    信号线装饰
+│   ├── signal-pill.tsx    信号标签
 │   ├── surface-card.tsx   表面卡片
 │   └── status-chip.tsx    状态标签
 └── composites/       复合组件
-    ├── portal-card.tsx       门户卡片 (背景图 + 渐变叠加)
     ├── feature-card.tsx      功能卡片
-    ├── timeline-rail.tsx     时间线轨道
-    ├── terminal-panel.tsx    终端面板
+    ├── metric-tile.tsx       指标磁贴
+    ├── page-intro.tsx        页面介绍区
+    ├── prompt-panel.tsx      提示面板
     ├── section-heading.tsx   章节标题
-    └── prompt-panel.tsx      提示面板
+    ├── signal-bar.tsx        信号条
+    ├── terminal-panel.tsx    终端面板
+    └── timeline-rail.tsx     时间线轨道
 ```
 
 ### 7.2 主题系统
 
-基于 `next-themes` + CSS 变量，支持 `dark` / `light` / `system`：
-
-```css
-/* globals.css */
-@theme inline {
-  --color-background: oklch(0.13 0.02 280);
-  --color-foreground: oklch(0.95 0.01 280);
-  --color-primary: oklch(0.78 0.13 295);
-  /* ... 完整 token 体系 */
-}
-
-.light {
-  --color-background: oklch(0.98 0.005 280);
-  --color-foreground: oklch(0.15 0.02 280);
-  --color-primary: oklch(0.55 0.22 295);
-}
-```
+基于 `next-themes` + CSS 变量，支持 `dark` / `light` / `system`。
 
 ### 7.3 动画系统
 
 | 技术 | 场景 |
 |------|------|
-| **Motion (Framer)** | 磁性效果 (`MagneticWrap`)、stagger 动画 (`StaggerGroup/Item`)、页面转场 (`AnimatePresence`) |
-| **CSS Scroll-Driven** | `.scroll-reveal` / `.scroll-reveal-slow` — `animation-timeline: view()` 渐进增强 |
-| **CSS @keyframes** | 背景 orb 浮动、粒子脉冲、时间线动画 |
-| **Web Audio API** | UI 交互音效 (OscillatorNode + GainNode)，`useSound` hook |
+| **Motion (Framer)** | 磁性效果、stagger 动画、页面转场 |
+| **CSS Scroll-Driven** | `.scroll-reveal` — 渐进增强 |
+| **CSS @keyframes** | 背景 orb 浮动、粒子脉冲 |
 
 ### 7.4 全站背景系统
 
@@ -551,216 +286,19 @@ site-command-palette.tsx
 
 ```
 Layer 0: Aurora gradient wash      — CSS radial-gradient
-Layer 1: Neural dot grid           — CSS repeating pattern, opacity 0.07
-Layer 2: Floating gradient orbs    — 3 个 CSS 动画 orb (35s/42s/50s cycles)
+Layer 1: Neural dot grid           — CSS repeating pattern
+Layer 2: Floating gradient orbs    — 3 个 CSS 动画 orb
 Layer 3: WebGPU particle field     — GPU 加速粒子流体 (桌面 1200 / 移动 300 粒子)
-Layer 4: Constellation canvas      — Canvas 2D 星座连线 + 鼠标拖尾 (仅桌面)
+Layer 4: Constellation canvas      — Canvas 2D 星座连线 (仅桌面)
 ```
 
 ---
 
-## 8. 实时交互系统
+## 8. 内容与文档系统
 
-### 8.1 匿名多人光标 (Live Cursors)
+### 8.1 内容层
 
-Figma 风格的实时协作光标：
-
-```
-浏览器 A                    服务器                    浏览器 B
-    │                         │                         │
-    ├── mousemove ──POST──→  │  in-memory Map           │
-    │   (throttle 60ms)      │  max 500 cursors         │
-    │                         │                         │
-    │  ←──── SSE stream ─────┤──── SSE stream ────→    │
-    │   (JSON 数组, 1s间隔)    │                         │
-    │                         │                         │
-    └── LERP 插值渲染 ────────│────── LERP 插值渲染 ──→ │
-        (rAF, factor 0.18)   │                         │
-```
-
-**移动端降级**：触摸设备 (`pointer: coarse`) 跳过 SSE 连接和 rAF 循环。
-
-### 8.2 访客实时计数
-
-```
-/api/visitors (GET)  → SSE stream (每秒推送在线人数 + AI 对话次数)
-/api/visitors (POST) → heartbeat (visitorId + 60s 过期)
-                     → chat 计数 (action: "chat")
-```
-
-内存存储，最多 5000 活跃访客，自动清理过期记录。
-
----
-
-## 9. WebGPU 粒子系统
-
-### 9.1 架构
-
-```
-particle-field.tsx
-├── WebGPU 路径 (优先)
-│   ├── WGSL Compute Shader — 粒子物理更新 (流场 + 鼠标交互)
-│   ├── WGSL Vertex/Fragment Shader — 渲染 (instanced quads, additive blend)
-│   └── GPU Buffers — particle buffer (32 bytes/particle), uniform buffers
-└── Canvas 2D Fallback
-    ├── JavaScript 粒子物理
-    ├── 连线绘制 (距离阈值)
-    └── 鼠标排斥力
-```
-
-### 9.2 WGSL Compute Shader 核心逻辑
-
-```wgsl
-// 有机流场 (curl noise 近似)
-let angle = sin(px) * cos(py) * 3.14159 + sin(px * 0.7 + py * 1.3) * 1.5;
-let flowForce = vec2f(cos(angle), sin(angle)) * 0.00015;
-
-// 鼠标排斥交互
-if (params.mouseActive > 0.5) {
-    let toMouse = p.pos - vec2f(params.mouseX, params.mouseY);
-    let dist = length(toMouse);
-    if (dist < params.mouseRadius) {
-        let repel = normalize(toMouse) * params.mouseStrength / max(dist * dist, 0.001);
-        p.vel += repel;
-    }
-}
-```
-
-### 9.3 性能考量
-
-| 平台 | 粒子数 | 渲染方式 |
-|------|--------|---------|
-| 桌面 (WebGPU) | 1200 | GPU compute + render pipeline |
-| 桌面 (fallback) | 1200 | Canvas 2D |
-| 移动端 | 300 | Canvas 2D (WebGPU 通常不支持) |
-| `prefers-reduced-motion` | — | 跳过动画 |
-
----
-
-## 10. 安全体系
-
-### 10.1 认证
-
-**Admin 面板认证流程：**
-
-```
-/admin/login → Server Action → HMAC-SHA256 签名 → HTTP-only Cookie → Middleware 校验
-```
-
-- 密码比较使用 **constant-time comparison** 防止 timing attack
-- Cookie 使用 Web Crypto API 的 HMAC-SHA256 签名
-- Middleware 拦截所有 `/admin` 路由（`/admin/login` 除外）
-
-### 10.2 速率限制
-
-所有 API 路由均应用内存级 IP 速率限制：
-
-```typescript
-// lib/rate-limit.ts
-checkRateLimit(request, routeKey, { windowMs, maxRequests })
-```
-
-| 路由 | 窗口 | 最大请求 |
-|------|------|---------|
-| `/api/chat` | 60s | 20 |
-| `/api/cursors` | 10s | 200 |
-| `/api/visitors` | 60s | 60 |
-| `/api/observability` | 60s | 30 (GET), 10 (POST, admin only) |
-| `/api/coding-dna` | 60s | 10 |
-| `/api/agent/sessions` | 60s | 20 |
-
-### 10.3 内存容量限制
-
-| 存储 | 上限 | 清理策略 |
-|------|------|---------|
-| Cursors Map | 500 | 60s 过期 + 超容清理 |
-| Visitors Map | 5000 | 自动过期 |
-| Rate Limit Map | — | 60s 定期清理 |
-
-### 10.4 输入清洗
-
-`/lib/input-sanitize.ts` 对所有用户输入执行：
-
-- XSS 标签过滤
-- 长度限制 (8000 字符 / 消息)
-- 图片 Base64 大小限制 (10MB)
-- 消息数量限制 (50 条/请求)
-
-### 10.5 知识库 Ingestion 鉴权
-
-`/api/knowledge/ingest` 使用 `x-admin-secret` header + constant-time XOR 比较：
-
-```typescript
-let mismatch = 0;
-for (let i = 0; i < secret.length; i++) {
-  mismatch |= header.charCodeAt(i) ^ secret.charCodeAt(i);
-}
-return mismatch === 0;
-```
-
----
-
-## 11. 可观测性
-
-### 11.1 追踪维度
-
-| 维度 | 数据 |
-|------|------|
-| **LLM Runs** | 模型名、输入/输出摘要、token 用量、延迟、状态 |
-| **Tool Calls** | 工具名、参数、执行结果 |
-| **UI Actions** | AI 触发的 UI 操作类型和参数 |
-| **Visitor Sessions** | 在线人数、AI 对话次数、页面路径 |
-| **Job Runs** | Worker 任务执行历史、状态、耗时 |
-| **Evolution Runs** | 进化系统运行记录 |
-
-### 11.2 Admin 面板
-
-`/admin/observability` — 查看 LLM 调用记录、工具调用、性能指标。
-
-`/admin/jobs` — 查看和触发后台任务。
-
-`/admin/evolution` — 查看进化系统运行历史。
-
----
-
-## 12. 后台任务系统
-
-### 12.1 Worker 架构
-
-`apps/worker` 作为独立进程运行，通过 cron 调度任务：
-
-| 任务 | Cron | 功能 |
-|------|------|------|
-| GitHub Sync | `*/30 * * * *` | 同步 GitHub repos、commits、stars |
-| Blog Sync | `0 */6 * * *` | 扫描博客目录，更新知识库 |
-| Weekly Digest | `0 9 * * 1` | 生成周报摘要 |
-| Coding DNA | 随 GitHub Sync | 更新语言分布、活跃度统计 |
-| Knowledge Ingest | 手动/API 触发 | 全量重建知识库向量 |
-
-### 12.2 设计原则
-
-- **生成与展示分离**：Worker 写入 DB/文件，Web 只读取
-- **幂等性**：每个任务可安全重复执行
-- **独立进程**：不阻塞用户请求链路
-
----
-
-## 13. 国际化
-
-### 13.1 实现方案
-
-使用 cookie-based locale 切换，不走 URL 路径分段：
-
-```
-Cookie: site-locale=zh|en
-```
-
-- `@ai-site/content` 每个模块导出双语内容 (`zh` / `en`)
-- `useLocalizedValue(zhContent, enContent)` hook 根据当前 locale 返回
-- `data-locale` 属性挂在 `<html>` 上
-- 404 / Error 页面独立双语
-
-### 13.2 内容层
+所有页面级内容集中在 `@ai-site/content` 管理，前端组件只消费 typed data：
 
 ```typescript
 // packages/content/src/home.ts
@@ -769,53 +307,112 @@ export function getHomeContent(locale: "zh" | "en"): HomeContent {
 }
 ```
 
-所有页面级内容集中在 `@ai-site/content` 管理，前端组件只消费 typed data。
+### 8.2 文档系统
+
+产品文档正文存储在 `packages/content/src/docs/catalog.ts`，中英双语，TypeScript 静态类型。文档导航结构在 `docsNavSections` 中定义，与 EvoFlow 桌面端菜单结构对齐：
+
+- **快速开始**：入门、快捷指令、编码助手、快速创建角色/技能/自动化
+- **实时对话**：输入栏与选项、右侧 Stage、目标
+- **侧栏菜单**：任务中心、自动化、技能、MCP、预设角色
+- **设置**：通用、模型、IM 通信、记忆
+
+文档页面由 `apps/web/src/app/(marketing)/docs/[...slug]/page.tsx` 路由渲染，从 catalog.ts 按 slug 查找正文。
+
+### 8.3 国际化
+
+Cookie-based locale 切换（`site-locale=zh|en`），不走 URL 路径分段：
+
+- `@ai-site/content` 每个模块导出双语内容
+- `useLocalizedValue(zhContent, enContent)` hook 根据 locale 返回
+- `data-locale` 属性挂在 `<html>` 上
 
 ---
 
-## 14. 性能优化
+## 9. 实时交互系统（Demo）
 
-### 14.1 前端
+### 9.1 匿名多人光标 (Live Cursors)
+
+Figma 风格的实时协作光标，**仅用于演示**：
+
+- 内存存储，最多 500 光标
+- SSE 推送（1s 间隔），LERP 插值渲染
+- 移动端 (`pointer: coarse`) 跳过
+
+### 9.2 访客实时计数
+
+**仅用于演示**，使用内存存储 + 模拟数据，最多 5000 活跃访客。
+
+---
+
+## 10. 静态导出与部署
+
+### 10.1 构建流程
+
+```bash
+pnpm build:static      # 构建静态导出
+pnpm deploy:tos        # 上传到火山引擎 TOS
+```
+
+构建脚本 `apps/web/scripts/static-export.mjs`：
+1. 设置 `EVOFLOW_STATIC_EXPORT=1` 环境变量
+2. 使用 `next build --webpack`（避免 Turbopack 的 `~` 文件名导致 WAF 拦截）
+3. 输出到 `apps/web/out/`
+
+### 10.2 部署配置
+
+部署脚本 `apps/web/scripts/deploy-tos.mjs` 环境变量：
+
+| 变量 | 说明 |
+|------|------|
+| `TOS_ACCESS_KEY_ID` | TOS 访问密钥 |
+| `TOS_SECRET_ACCESS_KEY` | TOS 秘密密钥 |
+| `TOS_ENDPOINT` | TOS 端点 |
+| `TOS_REGION` | 区域 |
+| `TOS_BUCKET` | 桶名 |
+| `TOS_PREFIX` | (可选) 前缀 |
+| `TOS_DRY_RUN` | (可选) 1=试运行 |
+
+### 10.3 注意事项
+
+- 必须为桶绑定自定义域名，设置**静态网站**默认首页
+- HTML 文件需设置 `Content-Disposition: inline`（否则浏览器触发下载）
+- 部署后需在 CDN 控制台刷新缓存
+
+---
+
+## 11. 性能优化
+
+### 11.1 前端
 
 | 优化 | 实现 |
 |------|------|
 | **动态导入** | `react-markdown`, `shiki`, `ConstellationCanvas`, `ParticleField` 均 `dynamic()` |
 | **SSR/RSC** | 页面级数据获取走 Server Components |
-| **移动端降级** | `useIsMobile()` hook → 减少粒子数、跳过星座连线、禁用 Live Cursors |
+| **移动端降级** | `useIsMobile()` → 减少粒子数、跳过星座连线、禁用 Live Cursors |
 | **prefers-reduced-motion** | CSS 动画减弱、跳过粒子效果 |
 | **字体优化** | `next/font/google` 预加载 4 种字体 |
 | **图片** | Next.js `Image` 组件自动优化 |
 
-### 14.2 网络
+### 11.2 网络
 
 | 优化 | 实现 |
 |------|------|
-| **Nginx Gzip** | 文本资源压缩 |
+| **CDN 缓存** | 所有静态资源通过 CDN 分发 |
 | **静态资源长缓存** | `/_next/static/` immutable, 1 year |
-| **SSE 禁缓冲** | `/api/*` 路由 `proxy_buffering off` |
-
-### 14.3 服务端
-
-| 优化 | 实现 |
-|------|------|
-| **代理加速** | `instrumentation.ts` 全局 `undici ProxyAgent` (中国服务器访问 OpenAI) |
-| **DB 连接池** | 单连接 + idle timeout 5s |
-| **内存限制** | 各 in-memory store 设容量上限 |
+| **Gzip** | CDN 层文本压缩 |
 
 ---
 
-## 15. 开发规范
+## 12. 开发规范
 
-### 15.1 代码风格
+### 12.1 代码风格
 
 - **TypeScript strict**：所有 package 继承 `@ai-site/config` base config
 - **ESLint**：`eslint-config-next` (core-web-vitals + TypeScript)
 - **Prettier**：统一格式化
 - **无冗余注释**：不写 `// 导入模块` 类注释，仅注释非显而易见的逻辑
 
-### 15.2 Git 规范
-
-提交消息格式：
+### 12.2 Git 规范
 
 ```
 <type>: <description>
@@ -823,39 +420,41 @@ export function getHomeContent(locale: "zh" | "en"): HomeContent {
 type = feat | fix | refactor | style | perf | docs | chore | test
 ```
 
-### 15.3 新增功能流程
+### 12.3 新增功能流程
 
-1. 在 `@ai-site/content` 添加双语内容
-2. 在 `@ai-site/ai` (如需) 添加 AI 相关 schema / agent / tool
-3. 在 `@ai-site/ui` (如需) 创建设计系统组件
-4. 在 `apps/web` 实现页面和 API 路由
-5. 添加速率限制和输入校验
-6. 更新 `MEMORY.md`
+1. 在 `@ai-site/content` 添加双语内容（或更新文档 catalog）
+2. 在 `@ai-site/ui` (如需) 创建设计系统组件
+3. 在 `apps/web` 实现页面和路由
+4. 需要时更新 `packages/content/src/docs/catalog.ts` 中的产品文档
+5. 运行 `pnpm build:static` 验证构建无误
 
-### 15.4 常用命令
+### 12.4 常用命令
 
 ```bash
-pnpm dev              # 启动所有应用
+pnpm dev              # 启动开发服务器
 pnpm dev:web          # 仅启动 web
-pnpm dev:worker       # 仅启动 worker
-pnpm build            # 构建所有包 + 应用
+pnpm build            # 构建所有包
+pnpm build:static     # 静态导出构建
 pnpm typecheck        # TypeScript 类型检查
 pnpm lint             # ESLint 检查
 pnpm clean            # 清理构建产物
 pnpm format           # Prettier 格式化
+pnpm deploy:tos       # 部署到 TOS
 ```
 
-### 15.5 环境变量
+### 12.5 环境变量
 
 详见 [`.env.example`](./.env.example)，核心变量：
 
 | 变量 | 说明 |
 |------|------|
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `OPENAI_CHAT_MODEL` | 主模型 (默认 gpt-5) |
-| `DATABASE_URL` | PostgreSQL 连接串 (空 = JSON 文件降级) |
+| `OPENAI_API_KEY` | OpenAI API 密钥（Demo 功能可选） |
+| `OPENAI_CHAT_MODEL` | 主模型 |
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥（Demo 可选） |
+| `DATABASE_URL` | PostgreSQL 连接串（静态导出不使用） |
 | `ADMIN_BASIC_AUTH_PASSWORD` | Admin 面板密码 |
-| `GITHUB_ACCOUNT_USERNAME` | GitHub 用户名 (Coding DNA) |
+| `GITHUB_ACCOUNT_USERNAME` | GitHub 用户名（Coding DNA） |
+| `NEXT_PUBLIC_SITE_URL` | 生产域名 |
 
 ---
 

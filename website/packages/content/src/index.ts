@@ -8,6 +8,7 @@ export * from "./static-page-href";
 export * from "./site-identity";
 export * from "./site-stats";
 export * from "./home";
+export * from "./employees-page";
 export * from "./ai-pages";
 export * from "./platform-pages";
 export * from "./site-copy";

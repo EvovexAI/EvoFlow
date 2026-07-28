@@ -12,7 +12,7 @@
 
 EvoFlow 内置一套**预设角色（Agent）**——开箱即用、按场景调好 SOUL / 工具 / 技能 / MCP 的智能体。预设角色按职责聚合成「Agent Teams（团队）」，让你在不同工作场景一键挑到合适的执行者，或在 Plan 模式 / 任务中心把多个角色组合起来跑大工程。
 
-本文讲：四大预设团队的定位、怎么用、与自定义角色和 Plan 模式的关系。新建自己角色的细节流程见 [智能体管理](../configuration/agent-management.md)；若要定时主动巡检，见 [智能体员工](../configuration/smart-employees.md)。
+本文讲：四大预设团队的定位、怎么用、与自定义角色和 Plan 模式的关系。新建自己角色的细节流程见 [智能体管理](../configuration/agent-management.md)；若要定时主动上班，见 [智能体员工](../configuration/smart-employees.md)。
 
 ---
 

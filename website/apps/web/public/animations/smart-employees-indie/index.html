@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvoFlow · 一个人用：研发助理闭环</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/animations/_shared/ef-anim.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/MotionPathPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/TextPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+    <style>
+      .page-hdr {
+        position: absolute; left: 160px; top: 120px; display: flex; align-items: center; gap: 16px;
+      }
+      .page-hdr .t { font-size: 28px; font-weight: 700; }
+      .auto-pill {
+        padding: 10px 18px; border-radius: 999px; font-size: 18px; font-weight: 700;
+        background: #f1f5f9; color: var(--muted);
+      }
+      .auto-pill.on { background: var(--accent-soft); color: var(--accent); }
+      .hire-panel {
+        position: absolute; left: 180px; top: 200px; width: 720px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 32px; box-shadow: var(--shadow-lg);
+      }
+      .hire-panel h3 { font-size: 26px; margin-bottom: 6px; }
+      .hire-panel .subh { font-size: 17px; color: var(--muted); font-weight: 600; margin-bottom: 22px; }
+      .field { margin-bottom: 18px; opacity: 0; transform: translateY(10px); }
+      .field .k { font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 8px; letter-spacing: 0.08em; }
+      .field .v {
+        padding: 14px 18px; border-radius: 14px; background: #f8fafc; border: 1px solid var(--line);
+        font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 14px;
+      }
+      .field .v img { width: 52px; height: 52px; border-radius: 14px; object-fit: cover; background: #111; }
+      .field .h { margin-top: 8px; font-size: 16px; color: var(--muted); font-weight: 600; }
+      .confirm-btn { margin-top: 8px; width: 100%; }
+      #s1-emp { left: 1080px; top: 260px; opacity: 0; }
+      .emp-card {
+        position: absolute; left: 980px; top: 200px; width: 520px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 28px; box-shadow: var(--shadow); opacity: 0;
+      }
+      .emp-card .head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+      .emp-card .head img { width: 72px; height: 72px; border-radius: 18px; object-fit: cover; background: #111; }
+      .emp-card .head .n { font-size: 28px; font-weight: 700; }
+      .emp-card .head .s { font-size: 16px; color: var(--muted); margin-top: 4px; }
+      .menu-row {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 16px; border-radius: 14px; background: #f8fafc; margin-top: 12px;
+        font-size: 20px; font-weight: 700;
+      }
+      .menu-row.on { outline: 3px solid var(--accent); outline-offset: 2px; background: var(--accent-soft); }
+      #work-report {
+        position: absolute; left: 480px; top: 240px; width: 880px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 32px; box-shadow: var(--shadow-lg); opacity: 0;
+      }
+      #work-report .body { min-height: 100px; font-size: 24px; line-height: 1.45; }
+      .log-panel {
+        position: absolute; left: 200px; top: 180px; width: 960px;
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 28px; box-shadow: var(--shadow-lg);
+      }
+      .log-panel h3 { font-size: 28px; margin-bottom: 6px; display: flex; align-items: center; gap: 12px; }
+      .log-panel .sub { font-size: 17px; color: var(--muted); font-weight: 600; margin-bottom: 20px; }
+      .log-entry {
+        padding: 18px; border-radius: 16px; background: #f8fafc; margin-bottom: 14px;
+        opacity: 0; transform: translateY(12px);
+      }
+      .log-entry .meta { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 18px; font-weight: 700; }
+      .log-entry .meta img { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; background: #111; }
+      .log-entry .txt { font-size: 22px; font-weight: 700; line-height: 1.4; }
+      #xiaov-panel {
+        position: absolute; left: 1220px; top: 220px; width: 420px;
+        background: #fff; border: 1px solid var(--line); border-radius: 24px;
+        padding: 24px; box-shadow: var(--shadow); opacity: 0;
+      }
+      #xiaov-panel .head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+      #xiaov-panel .head img { width: 52px; height: 52px; border-radius: 14px; object-fit: cover; background: #111; }
+      #xiaov-panel .head .n { font-size: 22px; font-weight: 700; }
+      .fs-chip {
+        position: absolute; right: 240px; top: 200px; opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080" data-duration="62">
+        <div class="dotgrid"></div>
+
+        <div class="journey" id="journey">
+          <div class="j-node" id="j1">① 雇研发助理</div>
+          <div class="j-sep" id="js1"></div>
+          <div class="j-node" id="j2">② 现在开始工作</div>
+          <div class="j-sep" id="js2"></div>
+          <div class="j-node" id="j3">③ 小V / 日志看结果</div>
+        </div>
+
+        <section class="slate" id="open">
+          <div>
+            <p class="who">独立开发者起步</p>
+            <p class="goal">雇研发助理盯项目目录 · 手动或自动上班 · 工作日志看汇报</p>
+          </div>
+        </section>
+
+        <!-- 场1 雇佣 -->
+        <section class="scene" id="s1">
+          <div class="stage-frame"></div>
+          <div class="page-hdr" id="s1-hdr">
+            <div class="t">智能体员工</div>
+            <div class="auto-pill" id="auto-pill">开启自动上班</div>
+          </div>
+          <div class="hire-panel" id="hire">
+            <h3>雇佣员工</h3>
+            <p class="subh">智能体员工 → 雇佣员工 · 从模板开始</p>
+            <div class="field" id="f1">
+              <div class="k">模板</div>
+              <div class="v"><img data-av="engineer" alt="" />研发助理</div>
+              <div class="h">盯仓库脏文件、临时垃圾与异常目录</div>
+            </div>
+            <div class="field" id="f2">
+              <div class="k">管辖工作空间</div>
+              <div class="v">D:/projects/my-app</div>
+              <div class="h">本机项目文件夹 · 须先在聊天侧栏加过目录</div>
+            </div>
+            <div class="field" id="f3">
+              <div class="k">交接审批策略</div>
+              <div class="v">谨慎型</div>
+              <div class="h">交工下游几乎都要「同意派发」</div>
+            </div>
+            <button class="btn confirm-btn" id="hire-btn" type="button" style="opacity:0">确认上班</button>
+          </div>
+          <div class="person" id="s1-emp">
+            <div class="avatar"><img data-av="engineer" alt="" /></div>
+            <div class="name">研发助理</div>
+            <div class="role">已上岗 · 可接任务</div>
+          </div>
+          <div class="caption">
+            <div class="line">智能体员工 → 雇佣员工：选模板、绑目录、确认上班</div>
+            <div class="sub">页头打开「开启自动上班」后，到点也会自己跑一轮</div>
+          </div>
+        </section>
+
+        <!-- 场2 手动开工 -->
+        <section class="scene" id="s2">
+          <div class="stage-frame"></div>
+          <div class="page-hdr">
+            <div class="t">智能体员工</div>
+            <div class="auto-pill on">员工自动上班中</div>
+          </div>
+          <div class="emp-card" id="emp-card">
+            <div class="head">
+              <img data-av="engineer" alt="" />
+              <div><div class="n">研发助理</div><div class="s">管辖 · D:/projects/my-app</div></div>
+            </div>
+            <div class="menu-row" id="menu-now">⋯ 现在开始工作</div>
+            <div class="menu-row" id="menu-dispatch" style="opacity:0.5">派发任务</div>
+          </div>
+          <div class="person" id="s2-emp" style="left:720px;top:280px;opacity:0">
+            <div class="avatar"><img data-av="engineer" alt="" /></div>
+            <div class="name">研发助理</div>
+            <div class="role">本轮工作中</div>
+          </div>
+          <div class="card" id="work-report">
+            <div class="label">工作汇报 · 本轮小结</div>
+            <div class="body" id="rep-text"></div>
+            <div style="margin-top:16px">
+              <span class="chip ok">已写完</span>
+              <span class="chip" style="margin-left:8px">清单已落盘工作区</span>
+            </div>
+          </div>
+          <div class="caption" id="s2-cap">
+            <div class="line">卡片 ⋯「现在开始工作」——不等频率，立刻跑一轮</div>
+            <div class="sub">职责对齐模板：扫脏文件、写清单、建议人处理，不擅自批量删除</div>
+          </div>
+        </section>
+
+        <!-- 场3 看结果 -->
+        <section class="scene" id="s3">
+          <div class="stage-frame"></div>
+          <span class="chip blue fs-chip" id="fs-chip">飞书 · 工作汇报已推送</span>
+          <div class="log-panel" id="log-panel">
+            <h3>工作日志 <span class="chip">近 2 天</span></h3>
+            <p class="sub">任务总结 · 工作轨迹 · 本轮汇报正文</p>
+            <div class="log-entry" id="le1">
+              <div class="meta"><img data-av="engineer" alt="" />研发助理 · 今天 09:42</div>
+              <div class="txt" id="le1-txt"></div>
+            </div>
+            <div class="log-entry" id="le2">
+              <div class="meta"><img data-av="engineer" alt="" />研发助理 · 昨天 18:10</div>
+              <div class="txt">自动上班：工作区无新增异常，清单 reports/scan-prev.md 仍有效。</div>
+            </div>
+          </div>
+          <div id="xiaov-panel">
+            <div class="head"><img data-av="xiaomi" alt="" /><div class="n">小V · 派发任务</div></div>
+            <div class="body" id="xv-text" style="font-size:20px;font-weight:700;line-height:1.4"></div>
+            <div style="margin-top:12px"><span class="chip blue">已发给研发助理</span></div>
+          </div>
+          <div class="caption" id="s3-cap">
+            <div class="line">工作日志看汇报；小V 选员工也能临时派一句</div>
+            <div class="sub">绑飞书后，汇报与审批可推到飞书</div>
+          </div>
+          <div class="end-line" id="end-line" style="opacity:0">
+            <div class="line">雇研发助理 · 现在开始工作 · 工作日志看清单与建议</div>
+            <div class="sub">一个人也能把项目目录盯起来</div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/animations/_shared/ef-anim.js"></script>
+    <script>
+      document.querySelectorAll("[data-av]").forEach((img) => {
+        img.src = EFAnim.avatar(img.getAttribute("data-av"));
+      });
+
+      function lit(ids) {
+        ids.forEach((id) => document.getElementById(id).classList.add("on"));
+      }
+      function clearJourney() {
+        ["j1","j2","j3","js1","js2"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.classList.remove("on");
+        });
+      }
+
+      const tl = gsap.timeline({ paused: true });
+
+      // 开场 0–3.2
+      tl.set("#open", { opacity: 1 }, 0);
+      tl.from("#open .who, #open .goal", { y: 20, opacity: 0, duration: 0.5, stagger: 0.12 }, 0.2);
+      tl.to("#open", { opacity: 0, duration: 0.4 }, 3.0);
+
+      // —— 场1 雇佣 3.4–18 ——
+      tl.set("#s1", { opacity: 1 }, 3.4);
+      EFAnim.voIn(tl, "#s1 .caption", 3.5);
+      tl.from("#s1-hdr", { y: -12, opacity: 0, duration: 0.4 }, 3.7);
+      tl.from("#hire", { y: 14, opacity: 0, duration: 0.4 }, 4.0);
+      tl.to("#f1", { opacity: 1, y: 0, duration: 0.35 }, 4.6);
+      tl.to("#f2", { opacity: 1, y: 0, duration: 0.35 }, 5.2);
+      tl.to("#f3", { opacity: 1, y: 0, duration: 0.35 }, 5.8);
+      EFAnim.popIn(tl, "#hire-btn", 6.5);
+      tl.to({}, { duration: 1.0 }, 7.0);
+      EFAnim.press(tl, "#hire-btn", 8.2);
+      tl.fromTo("#s1-emp", { opacity: 0, scale: 0.75, x: 40 }, { opacity: 1, scale: 1, x: 0, duration: 0.65, ease: "back.out(1.6)" }, 8.5);
+      tl.call(() => {
+        document.getElementById("auto-pill").classList.add("on");
+        document.getElementById("auto-pill").textContent = "员工自动上班中";
+      }, null, 9.2);
+      tl.call(() => lit(["j1"]), null, 10.0);
+      tl.to({}, { duration: 4.0 }, 10.2);
+      tl.to("#s1", { opacity: 0, duration: 0.4 }, 17.8);
+
+      // —— 场2 手动开工 18–38 ——
+      tl.set("#s2", { opacity: 1 }, 18.2);
+      EFAnim.voIn(tl, "#s2-cap", 18.3);
+      tl.from("#emp-card", { x: -30, opacity: 0, duration: 0.5 }, 18.7);
+      tl.to("#menu-now", { className: "menu-row on" }, 19.8);
+      tl.to({}, { duration: 0.8 }, 20.0);
+      EFAnim.press(tl, "#menu-now", 21.0);
+      tl.to("#menu-now", { className: "menu-row" }, 21.3);
+      tl.fromTo("#s2-emp", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.45 }, 21.5);
+      tl.to("#s2-emp .avatar", { y: -8, duration: 0.28, yoyo: true, repeat: 10, ease: "sine.inOut" }, 22.0);
+      EFAnim.popIn(tl, "#work-report", 24.0);
+      tl.to("#rep-text", {
+        duration: 4.5,
+        text: "扫了管辖工作区三处：发现 tmp/debug.log（未提交、过大）、.cache 残留、build/ 临时垃圾。清单已写入 reports/scan.md。建议你先删 debug.log；未擅自批量删除。",
+        ease: "none",
+      }, 24.5);
+      tl.call(() => lit(["js1","j2"]), null, 30.0);
+      tl.to({}, { duration: 4.0 }, 30.2);
+      tl.to("#s2", { opacity: 0, duration: 0.4 }, 37.8);
+
+      // —— 场3 看结果 38–62 ——
+      tl.set("#s3", { opacity: 1 }, 38.2);
+      EFAnim.voIn(tl, "#s3-cap", 38.3, { key: true });
+      tl.from("#log-panel", { y: 14, opacity: 0, duration: 0.4 }, 38.7);
+      tl.to("#le1", { opacity: 1, y: 0, duration: 0.4 }, 39.4);
+      tl.to("#le1-txt", {
+        duration: 3.0,
+        text: "手动上班：未提交调试日志 tmp/debug.log、.cache 残留已列入清单；建议人处理，未批量删除。",
+        ease: "none",
+      }, 39.8);
+      tl.to("#le2", { opacity: 1, y: 0, duration: 0.4 }, 43.2);
+      tl.to("#fs-chip", { opacity: 1, duration: 0.35 }, 44.0);
+      EFAnim.popIn(tl, "#xiaov-panel", 44.8);
+      tl.to("#xv-text", {
+        duration: 2.0,
+        text: "「帮我把 scan.md 里 P0 项标红发我」→ 已派给研发助理",
+        ease: "none",
+      }, 45.2);
+      tl.call(() => lit(["js2","j3"]), null, 48.0);
+      tl.to("#s3-cap", { opacity: 0, duration: 0.35 }, 50.0);
+      EFAnim.voIn(tl, "#end-line", 50.5, { key: true });
+      tl.to({}, { duration: 10.0 }, 51.2);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines.main = tl;
+      if (!window.HyperFrames && !window.__HYPERFRAMES_RUNTIME__) {
+        tl.play(0);
+        tl.eventCallback("onComplete", () => {
+          clearJourney();
+          document.getElementById("auto-pill").classList.remove("on");
+          document.getElementById("auto-pill").textContent = "开启自动上班";
+          gsap.set(["#f1","#f2","#f3"], { opacity: 0, y: 10 });
+          gsap.set("#hire-btn", { opacity: 0 });
+          gsap.set("#s1-emp", { opacity: 0 });
+          gsap.set("#menu-now", { className: "menu-row" });
+          gsap.set("#s2-emp", { opacity: 0 });
+          gsap.set("#work-report", { opacity: 0 });
+          document.getElementById("rep-text").textContent = "";
+          gsap.set(["#le1","#le2"], { opacity: 0, y: 12 });
+          document.getElementById("le1-txt").textContent = "";
+          gsap.set("#fs-chip", { opacity: 0 });
+          gsap.set("#xiaov-panel", { opacity: 0 });
+          document.getElementById("xv-text").textContent = "";
+          gsap.set("#end-line", { opacity: 0 });
+          gsap.set("#s3-cap", { opacity: 1 });
+          tl.restart();
+        });
+      }
+    </script>
+  </body>
+</html>

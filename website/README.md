@@ -1,10 +1,10 @@
-# AI Site
+# EvoFlow 官网
 
-An open-source, AI-native personal website template with cinematic design, intelligent interactions, and a self-evolving knowledge base.
+EvoFlow 产品官网：展示超级 Agent 编排框架的能力矩阵、典型场景、演进路线与产品文档。
 
-Built with **Next.js 16**, **React 19**, **AI SDK 6**, **WebGPU**, and a custom design system.
+Built with **Next.js 16**, **React 19**, **Tailwind CSS 4**, **Motion 12**, and a custom design system.
 
-**Live Demo → [conorliu.com](https://conorliu.com)**
+**官网 → [www.evovexai.com](https://www.evovexai.com)**
 
 ---
 
@@ -55,20 +55,17 @@ pnpm --filter @ai-site/web start
 
 ## Features
 
-- **AI Chat with Tool Calling** — conversational AI agent that can navigate the site, switch themes, render rich UI artifacts
-- **Generative UI** — AI-driven UI actions via tool calls (navigation, theme switching, skill visualization, project cards)
-- **RAG Knowledge Base** — pgvector-powered retrieval-augmented generation with auto-ingestion
-- **WebGPU Particle System** — GPU-accelerated particle flow field with Canvas 2D fallback and mouse interaction
-- **Anonymous Live Cursors** — Figma-style real-time multi-cursor via Server-Sent Events
-- **Model Arena** — side-by-side GPT vs Claude streaming comparison
-- **Workflow Studio** — visual workflow editor built with React Flow
-- **Agent OS Console** — session management, run tracing, tool call inspection
-- **Coding DNA** — live GitHub stats and language distribution visualization
-- **Cinematic Design System** — glass morphism, glow effects, scroll-driven animations, sound design
+- **Product Documentation** — full EvoFlow product docs with bilingual (zh/en) support, navigable sidebar
+- **Design System** — glass morphism, glow effects, scroll-driven animations, 5-layer background system
 - **Command Palette** — ⌘K global command palette with AI chat, navigation, and terminal modes
 - **i18n** — built-in Chinese / English support
 - **Dark / Light Theme** — full theme support with system preference detection
 - **Mobile Responsive** — adaptive layout, touch-friendly, performance degradation on mobile
+- **AI Demo Pages** — Chat, Agent, Workflow, Arena, MCP surfaces with demo/simulation data
+- **WebGPU Particles** — GPU-accelerated particle field with Canvas 2D fallback
+- **Anonymous Live Cursors** — Figma-style demo cursor via SSE
+- **Product Showcase** — guided product tour and media showcase
+- **Cinematic Animations** — Motion (Framer) 12, CSS scroll-driven, View Transitions API
 
 ---
 
@@ -76,15 +73,14 @@ pnpm --filter @ai-site/web start
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 16 (App Router, RSC, Server Actions) |
+| Framework | Next.js 16 (App Router, RSC, Static Export) |
 | Runtime | React 19, TypeScript 5 (strict) |
 | Styling | Tailwind CSS 4, CSS variables, next-themes |
 | Animation | Motion (Framer Motion) 12, CSS scroll-driven animations, View Transitions API |
-| AI | Vercel AI SDK 6, OpenAI, Anthropic, pgvector RAG |
+| AI | Vercel AI SDK 6 (demo data), OpenAI, Anthropic |
 | Graphics | WebGPU (WGSL shaders), Canvas 2D fallback |
-| Workflow | @xyflow/react (React Flow) |
 | Command Palette | cmdk |
-| Database | PostgreSQL 16 + pgvector |
+| Data | Static TypeScript modules (no runtime DB) |
 | Monorepo | pnpm workspaces + Turborepo |
 
 ---
@@ -92,23 +88,22 @@ pnpm --filter @ai-site/web start
 ## Project Structure
 
 ```
-ai-site/
+website/
 ├── apps/
-│   ├── web/                  # Next.js 16 main application
-│   │   ├── src/app/          # App Router pages, layouts, API routes
-│   │   ├── src/components/   # UI components
-│   │   ├── src/hooks/        # Custom hooks
-│   │   └── src/lib/          # Utilities (auth, AI runtime, rate limiting)
-│   └── worker/               # Background job runner
+│   └── web/                  # Next.js 16 main application
+│       ├── src/app/          # App Router pages, layouts
+│       ├── src/components/   # UI components
+│       ├── src/hooks/        # Custom hooks
+│       └── src/lib/          # Utilities (auth, i18n, rate limiting, shiki)
 ├── packages/
-│   ├── ai/                   # AI runtime: agents, chat, arena, workflows, artifacts
-│   ├── db/                   # PostgreSQL client, repositories, schema
+│   ├── ai/                   # AI demo: agents, chat, arena, workflows, artifacts
+│   ├── db/                   # Data access layer demo (repository pattern)
 │   ├── ui/                   # Design system: tokens, primitives, composites
-│   ├── content/              # Site copy, locales, projects, timeline data
-│   ├── observability/        # LLM run tracking, tool calls, visitor sessions
+│   ├── content/              # Site copy, locales, projects, timeline, docs catalog
+│   ├── observability/        # Observability demo data
 │   └── config/               # Shared TypeScript config
 ├── ARCHITECTURE.md           # System architecture & development manual
-├── CUSTOMIZATION.md          # How to personalize the template
+├── CUSTOMIZATION.md          # How to personalize the website
 └── turbo.json                # Turborepo pipeline config
 ```
 
@@ -120,13 +115,12 @@ ai-site/
 
 - **Node.js** 22+
 - **pnpm** 10+
-- **PostgreSQL** 16 with pgvector (optional — falls back to JSON files)
 
 ### Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ai-site.git
-cd ai-site
+git clone https://github.com/EvovexAI/EvoFlow.git
+cd EvoFlow/website
 pnpm install
 ```
 
@@ -140,11 +134,10 @@ Edit `apps/web/.env.local`:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key |
-| `OPENAI_CHAT_MODEL` | Yes | Primary model (e.g. `gpt-4o`) |
-| `ANTHROPIC_API_KEY` | For Arena | Anthropic API key |
-| `DATABASE_URL` | Optional | PostgreSQL connection string |
-| `GITHUB_ACCOUNT_USERNAME` | Yes | Your GitHub username |
+| `OPENAI_API_KEY` | No | OpenAI API key (for demo features) |
+| `OPENAI_CHAT_MODEL` | No | Primary model (e.g. `gpt-4o`) |
+| `ANTHROPIC_API_KEY` | No | Anthropic API key (for demo features) |
+| `GITHUB_ACCOUNT_USERNAME` | No | Your GitHub username |
 | `ADMIN_BASIC_AUTH_PASSWORD` | Yes | Admin panel password |
 
 ### Run
@@ -167,9 +160,10 @@ pnpm build
 
 See **[CUSTOMIZATION.md](./CUSTOMIZATION.md)** for a complete guide on how to:
 
-- Replace the placeholder name and bio with your own
-- Add your projects and career timeline
-- Configure AI persona and behavior
+- Customize brand identity, site URL, contact info
+- Replace homepage content, feature cards, and scenarios
+- Customize the product documentation
+- Configure AI demo data and persona
 - Customize the design system (colors, fonts, effects)
 - Set up your own domain and deployment
 
@@ -179,19 +173,21 @@ See **[CUSTOMIZATION.md](./CUSTOMIZATION.md)** for a complete guide on how to:
 
 | Route | Description |
 |-------|-------------|
-| `/` | Homepage — hero, capabilities, Coding DNA, Evolution Pulse |
-| `/about` | About page with career timeline |
-| `/ai/chat` | AI chat with multimodal input |
-| `/ai/agent` | Agent mission control |
-| `/ai/workflow` | Visual workflow editor |
-| `/ai/knowledge` | RAG knowledge base |
-| `/ai/arena` | Model Arena (GPT vs Claude) |
-| `/ai/mcp` | MCP tool orchestration |
-| `/ai/os` | Agent OS console |
+| `/` | Homepage — hero, capabilities, Evolution Pulse |
+| `/about` | About page |
+| `/docs` | Product documentation hub |
+| `/docs/[...slug]` | Product docs (composer, goal, tasks, skills, MCP, settings, etc.) |
 | `/evolution` | Evolution timeline |
-| `/lab` | Experiment lab |
-| `/terminal` | Terminal interface |
+| `/showcase` | Product showcase (Plan demos, videos, screenshots) |
 | `/admin` | Admin dashboard (protected) |
+| `/admin/observability` | Observability trace viewer |
+| `/admin/jobs` | Job history viewer |
+| `/admin/evolution` | Evolution controls |
+| `/lab` | Experiment lab |
+| `/lab/[slug]` | Individual experiment |
+| `/resume` | Resume page |
+| `/terminal` | Terminal interface |
+| `/r/[slug]` | Redirect page |
 
 ---
 
@@ -238,7 +234,7 @@ npx vercel
 pnpm build
 
 # On your server
-pm2 start node_modules/next/dist/bin/next --name ai-site-web -- start -p 3000
+pm2 start node_modules/next/dist/bin/next --name evoflow-website -- start -p 3000
 ```
 
 ### Docker (Coming Soon)

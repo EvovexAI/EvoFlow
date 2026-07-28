@@ -1,0 +1,549 @@
+/* EvoFlow smart-employee animation design system — white studio */
+:root {
+  --bg0: #f5f7fb;
+  --bg1: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --accent: #0d9488;
+  --accent-soft: rgba(13, 148, 136, 0.12);
+  --blue: #2563eb;
+  --blue-soft: rgba(37, 99, 235, 0.12);
+  --warm: #ea580c;
+  --warm-soft: rgba(234, 88, 12, 0.12);
+  --ok: #16a34a;
+  --ok-soft: rgba(22, 163, 74, 0.12);
+  --shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 28px 80px rgba(15, 23, 42, 0.12);
+  --radius: 28px;
+  --font: "DM Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: #e8edf5;
+  font-family: var(--font);
+  color: var(--ink);
+}
+
+#stage {
+  width: 100vw;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+#root {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  transform-origin: center center;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(13, 148, 136, 0.06), transparent 50%),
+    radial-gradient(ellipse at 80% 100%, rgba(37, 99, 235, 0.05), transparent 45%),
+    linear-gradient(180deg, var(--bg1) 0%, var(--bg0) 100%);
+}
+
+.dotgrid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.45;
+  background-image: radial-gradient(rgba(15, 23, 42, 0.07) 1.2px, transparent 1.2px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+
+.scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stage-frame {
+  position: absolute;
+  left: 120px;
+  right: 120px;
+  top: 90px;
+  bottom: 180px;
+  border-radius: 40px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+/* ========== 动画字幕（轻量字标，不挡画面） ========== */
+.caption {
+  position: absolute;
+  left: 50%;
+  top: 48px;
+  bottom: auto;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: 90%;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  text-align: center;
+  z-index: 40;
+  pointer-events: none;
+  transform-origin: center top;
+  opacity: 0;
+  writing-mode: horizontal-tb;
+  backdrop-filter: none;
+}
+
+.caption .line {
+  display: block;
+  color: #fff;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  -webkit-text-stroke: 3px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+}
+
+.caption .sub {
+  display: block;
+  margin-top: 8px;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+  -webkit-text-stroke: 2.5px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  opacity: 0.95;
+}
+
+.caption.is-key {
+  background: none;
+  border: none;
+}
+.caption.is-key .line { font-size: 36px; }
+.caption.is-key .sub { font-size: 26px; color: #fff; }
+
+.caption.is-enter {
+  animation: caption-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes caption-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ========== 口播字幕（底部单句口语，给配音） ========== */
+.vo {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  width: 94%;
+  max-width: 1680px;
+  padding: 0 16px;
+  text-align: center;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  writing-mode: horizontal-tb;
+}
+
+.vo .text {
+  display: inline-block;
+  max-width: 100%;
+  color: #fff;
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  -webkit-text-stroke: 5px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 4px 22px rgba(0, 0, 0, 0.38);
+  word-break: keep-all;
+}
+
+.vo.is-enter {
+  animation: vo-enter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.vo.is-exit {
+  animation: vo-exit 0.28s ease-in both;
+}
+
+@keyframes vo-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+@keyframes vo-exit {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+}
+
+/* 兼容旧 end-line：默认当口播收束句 */
+.end-line {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  width: 94%;
+  max-width: 1680px;
+  padding: 0 16px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  text-align: center;
+  z-index: 55;
+  pointer-events: none;
+  opacity: 0;
+  writing-mode: horizontal-tb;
+}
+.end-line .line {
+  display: block;
+  color: #fff;
+  font-size: 72px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  -webkit-text-stroke: 5px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 4px 22px rgba(0, 0, 0, 0.38);
+  word-break: keep-all;
+}
+.end-line .sub {
+  display: none; /* 口播不要上下两行 */
+}
+.end-line.is-enter {
+  animation: vo-enter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 片头定位 / 片尾带走 */
+.slate {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 64px 140px;
+  background: rgba(245, 247, 251, 0.96);
+  z-index: 40;
+}
+.slate .brand {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin-bottom: 18px;
+}
+.slate .who {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.slate .goal {
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  max-width: 1200px;
+}
+.slate .hint {
+  margin-top: 18px;
+  font-size: 26px;
+  color: var(--muted);
+  font-weight: 600;
+  max-width: 980px;
+  line-height: 1.45;
+}
+.slate.takeaway {
+  background: rgba(255, 255, 255, 0.98);
+}
+.slate.takeaway .who {
+  color: var(--warm);
+}
+.can-do {
+  margin: 28px auto 0;
+  max-width: 820px;
+  text-align: left;
+  list-style: none;
+}
+.can-do li {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 14px 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+.can-do .n {
+  flex: 0 0 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 20px;
+}
+
+/* 顶栏旅程：默认隐藏（圆角彩条易挡内容、减分）；需要时在片子上加 .journey-on */
+.journey {
+  display: none;
+}
+.journey.journey-on {
+  display: flex;
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 35;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.journey.journey-on .j-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-radius: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted);
+  background: none;
+  opacity: 0.45;
+}
+.journey.journey-on .j-node.on {
+  opacity: 1;
+  color: var(--ink);
+  background: none;
+}
+.journey.journey-on .j-sep {
+  width: 18px;
+  height: 1px;
+  border-radius: 0;
+  background: #cbd5e1;
+}
+.journey.journey-on .j-sep.on {
+  background: var(--ink);
+}
+
+.person {
+  position: absolute;
+  width: 200px;
+  text-align: center;
+}
+
+.person .avatar {
+  width: 168px;
+  height: 168px;
+  margin: 0 auto 14px;
+  border-radius: 36px;
+  overflow: hidden;
+  background: #0b0b0b;
+  box-shadow: var(--shadow);
+  border: 3px solid #fff;
+}
+
+.person .avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
+}
+
+.person .avatar.sm {
+  width: 120px;
+  height: 120px;
+  border-radius: 28px;
+}
+
+.person .name {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.person .role {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chip.blue { background: var(--blue-soft); color: var(--blue); }
+.chip.warm { background: var(--warm-soft); color: var(--warm); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px 32px;
+  border-radius: 18px;
+  border: none;
+  font-family: var(--font);
+  font-size: 26px;
+  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(13, 148, 136, 0.28);
+}
+
+.btn.warm {
+  background: var(--warm);
+  box-shadow: 0 14px 32px rgba(234, 88, 12, 0.28);
+}
+
+.btn.blue {
+  background: var(--blue);
+  box-shadow: 0 14px 32px rgba(37, 99, 235, 0.28);
+}
+
+.card {
+  position: absolute;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 22px 24px;
+  box-shadow: var(--shadow);
+  min-width: 280px;
+}
+
+.card .label {
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.card .body {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.bar {
+  margin-top: 16px;
+  height: 12px;
+  border-radius: 999px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #2dd4bf);
+}
+
+.packet {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px 12px 12px;
+  border-radius: 18px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  box-shadow: var(--shadow-lg);
+}
+
+.packet img {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #111;
+}
+
+.float-icon {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.node-pill {
+  position: absolute;
+  min-width: 200px;
+  text-align: center;
+  padding: 18px 16px;
+  border-radius: 20px;
+  background: #fff;
+  border: 2px solid var(--line);
+  font-size: 24px;
+  font-weight: 700;
+  opacity: 0.4;
+  transform: scale(0.96);
+}
+
+.node-pill.on {
+  opacity: 1;
+  transform: scale(1);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 6px var(--accent-soft);
+}
+
+/* 开场禁止角落小字抢戏；系列名写进居中 slate，不要 .brand-mark */

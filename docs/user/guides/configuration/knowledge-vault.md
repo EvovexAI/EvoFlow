@@ -10,7 +10,7 @@
 
 连接本机 **Obsidian Vault** 或任意 Markdown 文件夹，做全文 / 语义检索、预览与局部链接图。侧栏入口：**知识库**（`#/knowledge/vaults`）。页眉英文副标题为 Knowledge Vault。
 
-系统会自动注册只读内置库 **「EvoFlow 用户指南」**（内容来自产品文档 `docs/user`），供小V与 Agent 检索用法/概念；你仍可继续连接自己的 Vault。内置库卡片带「内置」标记，不可删除（可停用）。
+系统会自动注册只读内置库 **「EvoFlow 用户指南」**（`docs/user`），以及可写内置库 **「运营知识库」**（文档真相源在同级 ContentOS：`ContentOS/docs/智能内容运营平台/知识库/`；EvoFlow 只挂载读取，可用 `EVOFLOW_OPS_KNOWLEDGE_ROOT` 覆盖路径）。侧栏 **知识库** 可见「内置」标记。
 
 CLI（检索内置 / 已连接 Vault，默认全文）：
 

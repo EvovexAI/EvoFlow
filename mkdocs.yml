@@ -128,6 +128,7 @@ nav:
           - 常见问题: user/guides/faq.md
       - 最佳实践案例:
           - user/cases/index.md
+          - 智能体员工组织与协作: user/cases/smart-employee-playbooks.md
           - 使用主智能体: user/cases/use-main-agent.md
           - 创建 Agent: user/cases/create-agent.md
           - 创建技能: user/cases/create-skill.md
@@ -149,6 +150,7 @@ nav:
       - 配置参考: system/reference/config-reference.md
       - 环境变量: system/reference/env-reference.md
       - 架构: system/reference/architecture.md
+      - 智能体员工缺口与补齐: system/design/smart-employee-gaps-roadmap.md
       - Agent 参考: system/reference/agent-reference.md
       - 技能参考: system/reference/skills-reference.md
       - 工具参考: system/reference/tool-reference.md
@@ -156,6 +158,7 @@ nav:
       - 贡献指南: system/developer/contributing.md
       - Git 提交规范: system/developer/git-commit-steps.md
       - 术语表: user/meta/glossary.md
+      - 飞书落地页文稿（智能体员工）: user/meta/feishu-landing-smart-employees.md
 
 extra:
   # 顶部轻量入口：与「下载与构建」页互为补充（发布页在 GitHub，非站内路径）

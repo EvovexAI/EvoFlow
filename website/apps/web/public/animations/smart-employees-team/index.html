@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EvoFlow · 小团队：日志与待审批</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/animations/_shared/ef-anim.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/MotionPathPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/TextPlugin.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+    <style>
+      .roles {
+        position: absolute; left: 120px; right: 120px; top: 190px;
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px;
+      }
+      .role-card {
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 26px 16px 22px; text-align: center; box-shadow: var(--shadow); opacity: 0;
+      }
+      .role-card .avatar {
+        width: 130px; height: 130px; margin: 0 auto 14px; border-radius: 30px;
+        overflow: hidden; background: #0b0b0b; border: 3px solid #fff; box-shadow: var(--shadow);
+      }
+      .role-card .avatar img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+      .role-card .n { font-size: 26px; font-weight: 700; }
+      .role-card .s { margin-top: 6px; font-size: 16px; color: var(--muted); font-weight: 600; line-height: 1.35; }
+      .role-card .badges { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+      .board {
+        position: absolute; left: 120px; right: 120px; top: 150px; bottom: 190px;
+        display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 22px;
+      }
+      .col {
+        background: #fff; border: 1px solid var(--line); border-radius: 28px;
+        padding: 26px; box-shadow: var(--shadow);
+      }
+      .col h3 {
+        margin: 0 0 6px; font-size: 26px; display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      }
+      .col .subh { font-size: 16px; color: var(--muted); font-weight: 600; margin-bottom: 18px; }
+      .item {
+        display: flex; align-items: flex-start; gap: 12px; padding: 14px;
+        border-radius: 16px; background: #f8fafc; margin-bottom: 12px;
+        font-size: 19px; font-weight: 700; opacity: 0; transform: translateY(12px);
+      }
+      .item img { width: 46px; height: 46px; border-radius: 12px; object-fit: cover; background: #111; flex-shrink: 0; }
+      .item .txt { flex: 1; line-height: 1.35; }
+      .item .badge { margin-left: auto; flex-shrink: 0; }
+      .item.pulse-wait {
+        outline: 3px solid #ea580c; outline-offset: 2px;
+        animation: pulse-wait 1.2s ease-in-out infinite;
+      }
+      @keyframes pulse-wait {
+        0%, 100% { outline-color: rgba(234,88,12,.9); }
+        50% { outline-color: rgba(234,88,12,.25); }
+      }
+      .approve-row {
+        display: flex; align-items: center; gap: 12px; margin-top: 10px;
+      }
+      .approve-btn-sm {
+        padding: 12px 20px; border-radius: 12px; background: var(--accent); color: #fff;
+        font-size: 20px; font-weight: 700; border: none; font-family: var(--font);
+        box-shadow: 0 8px 20px rgba(13,148,136,.25);
+      }
+      .side-dispatch {
+        position: absolute; right: 140px; bottom: 220px; width: 380px;
+        background: #fff; border: 1px solid var(--line); border-radius: 22px;
+        padding: 20px; box-shadow: var(--shadow); opacity: 0;
+      }
+      .side-dispatch .head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 18px; font-weight: 700; }
+      .side-dispatch .head img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; background: #111; }
+      #btn-approve { position: absolute; left: 1180px; top: 520px; opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="root" data-composition-id="main" data-width="1920" data-height="1080" data-duration="64">
+        <div class="dotgrid"></div>
+
+        <div class="journey" id="journey">
+          <div class="j-node" id="j1">① 名册四岗</div>
+          <div class="j-sep" id="js1"></div>
+          <div class="j-node" id="j2">② 日志 + 待审批</div>
+          <div class="j-sep" id="js2"></div>
+          <div class="j-node" id="j3">③ 同意派发</div>
+        </div>
+
+        <section class="slate" id="open">
+          <div>
+            <p class="who">早上打开智能体员工页</p>
+            <p class="goal">左看工作日志近 2 天 · 右点待审批「同意派发」</p>
+          </div>
+        </section>
+
+        <!-- 场1 名册 -->
+        <section class="scene" id="s1">
+          <div class="stage-frame"></div>
+          <div class="roles" id="roles">
+            <div class="role-card" id="rc1">
+              <div class="avatar"><img data-av="engineer" alt="" /></div>
+              <div class="n">研发助理</div>
+              <div class="s">脏文件 · 临时垃圾清单</div>
+              <div class="badges"><span class="chip blue">飞书已绑定</span></div>
+            </div>
+            <div class="role-card" id="rc2">
+              <div class="avatar"><img data-av="ops" alt="" /></div>
+              <div class="n">运维值班</div>
+              <div class="s">探活 · 值班报告</div>
+              <div class="badges"><span class="chip blue">飞书已绑定</span></div>
+            </div>
+            <div class="role-card" id="rc3">
+              <div class="avatar"><img data-av="creator" alt="" /></div>
+              <div class="n">内容策划</div>
+              <div class="s">选题日历 · 脚本草稿</div>
+            </div>
+            <div class="role-card" id="rc4">
+              <div class="avatar"><img data-av="researcher" alt="" /></div>
+              <div class="n">文档管理员</div>
+              <div class="s">断链 · 重复 · 过期页</div>
+            </div>
+          </div>
+          <div class="caption">
+            <div class="line">智能体员工页：四岗名册 · 页头「员工自动上班中」</div>
+            <div class="sub">绑飞书后，汇报与「同意派发」可推到飞书</div>
+          </div>
+        </section>
+
+        <!-- 场2 双栏看板 -->
+        <section class="scene" id="s2">
+          <div class="stage-frame"></div>
+          <div class="board" id="board">
+            <div class="col">
+              <h3>工作日志 <span class="chip">近 2 天</span></h3>
+              <p class="subh">任务总结 · 工作轨迹 · 汇报正文</p>
+              <div class="item" id="i1">
+                <img data-av="engineer" alt="" />
+                <div class="txt">研发 · 09:42 扫工作区：debug.log 过大、.cache 残留；清单 reports/scan.md，建议人处理</div>
+                <span class="badge chip ok">已完成</span>
+              </div>
+              <div class="item" id="i2">
+                <img data-av="ops" alt="" />
+                <div class="txt">运维 · 08:30 gateway/DB 可达；无异常，值班报告 oncall.md</div>
+                <span class="badge chip ok">已完成</span>
+              </div>
+              <div class="item" id="i3">
+                <img data-av="creator" alt="" />
+                <div class="txt">内容 · 选题日历差 2 条脚本草稿；汇报路径 content/gap.md</div>
+                <span class="badge chip blue">进行中</span>
+              </div>
+              <div class="item" id="i4">
+                <img data-av="researcher" alt="" />
+                <div class="txt">文档 · 断链 3 处、重复页 1 处；优先修 landing 三条</div>
+                <span class="badge chip ok">已完成</span>
+              </div>
+            </div>
+            <div class="col">
+              <h3>待审批 <span class="chip warm">同意派发</span></h3>
+              <p class="subh">正式交工 · 仅直属下级</p>
+              <div class="item" id="w1">
+                <img data-av="engineer" alt="" />
+                <div class="txt">研发助理 → 测试同事<br /><span style="font-size:16px;color:var(--muted);font-weight:600">scan.md 已落盘，请求跑冒烟</span></div>
+                <span class="badge chip warm">待批</span>
+              </div>
+              <div class="item" id="w2" style="opacity:0.5">
+                <img data-av="creator" alt="" />
+                <div class="txt">内容策划 → 对外发布<br /><span style="font-size:16px;color:var(--muted);font-weight:600">草稿待你确认后发布</span></div>
+                <span class="badge chip">排队</span>
+              </div>
+            </div>
+          </div>
+          <div class="caption" id="s2-cap">
+            <div class="line">左栏工作日志看各岗汇报 · 右栏待审批点「同意派发」</div>
+            <div class="sub">飞书已绑定的岗，通知会同步推到飞书</div>
+          </div>
+        </section>
+
+        <!-- 场3 审批 + 旁路派发 -->
+        <section class="scene" id="s3">
+          <div class="stage-frame"></div>
+          <div class="board" id="board2">
+            <div class="col">
+              <h3>工作日志 <span class="chip">近 2 天</span></h3>
+              <p class="subh">任务总结 · 工作轨迹</p>
+              <div class="item" id="i1b" style="opacity:1;transform:none">
+                <img data-av="engineer" alt="" />
+                <div class="txt">研发 · 09:42 scan.md 已交测试范围</div>
+                <span class="badge chip ok">已完成</span>
+              </div>
+              <div class="item" id="i-new" style="opacity:0">
+                <img data-av="analyst" alt="" />
+                <div class="txt">测试同事 · 刚被叫醒 · 冒烟用例进行中 40%</div>
+                <span class="badge chip blue">进行中</span>
+              </div>
+              <div class="item" id="i3b" style="opacity:1;transform:none">
+                <img data-av="creator" alt="" />
+                <div class="txt">内容 · 选题缺口清单 content/gap.md</div>
+                <span class="badge chip blue">进行中</span>
+              </div>
+            </div>
+            <div class="col">
+              <h3>待审批</h3>
+              <p class="subh">点「同意派发」后下游开干</p>
+              <div class="item pulse-wait" id="w1b" style="opacity:1;transform:none">
+                <img data-av="engineer" alt="" />
+                <div class="txt">研发助理 → 测试同事 · scan.md</div>
+                <div class="approve-row"><button class="approve-btn-sm" id="approve-sm" type="button">同意派发</button></div>
+              </div>
+              <div class="item" id="w-empty" style="opacity:0;font-size:17px;color:var(--muted);justify-content:center">
+                其余待办已清空
+              </div>
+            </div>
+          </div>
+          <div class="side-dispatch" id="side-dispatch">
+            <div class="head"><img data-av="xiaomi" alt="" />小V · 派发任务</div>
+            <div style="font-size:17px;font-weight:700;line-height:1.4">内容策划 → 文档管理员：帮查 docs/ 断链（同级 · 无同意派发）</div>
+            <div style="margin-top:10px"><span class="chip warm">同事跨岗派发</span></div>
+          </div>
+          <button class="btn" id="btn-approve" type="button">同意派发</button>
+          <div class="caption" id="s3-cap">
+            <div class="line">点「同意派发」→ 测试同事开干；旁路小V/派发同级帮忙</div>
+            <div class="sub">两条通道：交工要批 · 派发直接叫醒</div>
+          </div>
+          <div class="end-line" id="end-line" style="opacity:0">
+            <div class="line">工作日志 + 待审批 · 早上扫一遍就够</div>
+            <div class="sub">四岗名册 · 飞书可选 · 同意派发管交工</div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/animations/_shared/ef-anim.js"></script>
+    <script>
+      document.querySelectorAll("[data-av]").forEach((img) => {
+        img.src = EFAnim.avatar(img.getAttribute("data-av"));
+      });
+
+      function lit(ids) {
+        ids.forEach((id) => document.getElementById(id).classList.add("on"));
+      }
+      function clearJourney() {
+        ["j1","j2","j3","js1","js2"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el) el.classList.remove("on");
+        });
+      }
+
+      const tl = gsap.timeline({ paused: true });
+
+      // 开场
+      tl.set("#open", { opacity: 1 }, 0);
+      tl.from("#open .who, #open .goal", { y: 20, opacity: 0, duration: 0.5, stagger: 0.12 }, 0.2);
+      tl.to("#open", { opacity: 0, duration: 0.4 }, 3.0);
+
+      // —— 场1 名册 3.4–17 ——
+      tl.set("#s1", { opacity: 1 }, 3.4);
+      EFAnim.voIn(tl, "#s1 .caption", 3.5);
+      tl.to("#rc1", { opacity: 1, duration: 0.5, ease: "back.out(1.4)" }, 3.9);
+      tl.from("#rc1", { y: 36, duration: 0.5 }, 3.9);
+      tl.to("#rc2", { opacity: 1, duration: 0.5 }, 4.7);
+      tl.fromTo("#rc2", { y: 36 }, { y: 0, duration: 0.5 }, 4.7);
+      tl.to("#rc3", { opacity: 1, duration: 0.5 }, 5.5);
+      tl.fromTo("#rc3", { y: 36 }, { y: 0, duration: 0.5 }, 5.5);
+      tl.to("#rc4", { opacity: 1, duration: 0.5 }, 6.3);
+      tl.fromTo("#rc4", { y: 36 }, { y: 0, duration: 0.5 }, 6.3);
+      tl.call(() => {
+        if (window.anime) anime({ targets: "#roles .avatar", translateY: [-6, 6], direction: "alternate", easing: "easeInOutSine", duration: 700, delay: anime.stagger(60), loop: 3 });
+      }, null, 7.2);
+      tl.call(() => lit(["j1"]), null, 10.0);
+      tl.to({}, { duration: 4.5 }, 10.2);
+      tl.to("#s1", { opacity: 0, duration: 0.4 }, 17.8);
+
+      // —— 场2 双栏 18–36 ——
+      tl.set("#s2", { opacity: 1 }, 18.2);
+      EFAnim.voIn(tl, "#s2-cap", 18.3);
+      tl.from("#board .col", { y: 24, opacity: 0, duration: 0.5, stagger: 0.12 }, 18.7);
+      tl.to(["#i1","#i2","#i3","#i4"], { opacity: 1, y: 0, duration: 0.4, stagger: 0.15 }, 19.5);
+      tl.to({}, { duration: 2.0 }, 21.0);
+      tl.to(["#w1","#w2"], { opacity: 1, y: 0, duration: 0.4, stagger: 0.15 }, 23.2);
+      tl.call(() => document.getElementById("w1").classList.add("pulse-wait"), null, 24.5);
+      tl.call(() => lit(["js1","j2"]), null, 25.0);
+      tl.to({}, { duration: 4.5 }, 25.2);
+      tl.call(() => document.getElementById("w1").classList.remove("pulse-wait"), null, 29.7);
+      tl.to({}, { duration: 3.0 }, 29.9);
+      tl.to("#s2", { opacity: 0, duration: 0.4 }, 36.8);
+
+      // —— 场3 审批 37–64 ——
+      tl.set("#s3", { opacity: 1 }, 37.2);
+      EFAnim.voIn(tl, "#s3-cap", 37.3, { key: true });
+      tl.from("#board2", { y: 14, opacity: 0, duration: 0.4 }, 37.7);
+      tl.to({}, { duration: 1.5 }, 38.4);
+      EFAnim.popIn(tl, "#btn-approve", 40.0);
+      EFAnim.press(tl, "#approve-sm", 41.2);
+      EFAnim.press(tl, "#btn-approve", 41.4);
+      tl.to("#w1b", { opacity: 0, height: 0, padding: 0, margin: 0, duration: 0.35 }, 41.8);
+      tl.to("#w-empty", { opacity: 1, duration: 0.35 }, 42.2);
+      tl.to("#i-new", { opacity: 1, y: 0, duration: 0.4 }, 42.4);
+      tl.to("#btn-approve", { opacity: 0, duration: 0.25 }, 41.8);
+      EFAnim.popIn(tl, "#side-dispatch", 43.5);
+      tl.call(() => lit(["js2","j3"]), null, 45.5);
+      tl.to("#s3-cap", { opacity: 0, duration: 0.35 }, 47.0);
+      EFAnim.voIn(tl, "#end-line", 47.5, { key: true });
+      tl.to({}, { duration: 14.0 }, 48.2);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines.main = tl;
+      if (!window.HyperFrames && !window.__HYPERFRAMES_RUNTIME__) {
+        tl.play(0);
+        tl.eventCallback("onComplete", () => {
+          clearJourney();
+          gsap.set(["#rc1","#rc2","#rc3","#rc4"], { opacity: 0 });
+          gsap.set(["#i1","#i2","#i3","#i4","#w1","#w2"], { opacity: 0, y: 12 });
+          document.getElementById("w1").classList.remove("pulse-wait");
+          gsap.set("#w1b", { opacity: 1, height: "auto", padding: 14, marginBottom: 12 });
+          gsap.set("#w-empty", { opacity: 0 });
+          gsap.set("#i-new", { opacity: 0, y: 12 });
+          gsap.set("#btn-approve", { opacity: 0 });
+          gsap.set("#side-dispatch", { opacity: 0 });
+          gsap.set("#end-line", { opacity: 0 });
+          gsap.set("#s3-cap", { opacity: 1 });
+          tl.restart();
+        });
+      }
+    </script>
+  </body>
+</html>

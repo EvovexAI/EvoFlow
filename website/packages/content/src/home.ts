@@ -142,66 +142,66 @@ export const homeContentByLocale: LocalizedValue<{
 }> = {
   zh: {
     hero: {
-      title: "驾驭超级 Agent 的编排框架",
+      title: "EvoFlow",
       description:
-        "多步任务常卡在「做到一半就断、难以续跑」，一大原因是闲聊式界面缺乏总控与状态；同时工具与长提示一把塞进上下文，Token 消耗和费用会快速上去。EvoFlow 面向需要多日推进、跨系统协作的智能体长任务：由超级总控智能体（Supervisor）把规划、依赖与监督串成可恢复的闭环，并以分阶段协作加上「工具渐进暴露」（首轮不摊开大清单、按需挂载扩展）把上下文压在必要范围内。本站介绍产品能力与演进路线。",
+        "智能体员工：把 AI 雇成真实岗位——研发助理、运维值班、内容策划……按职责自动上班、写工作汇报；你只需看结果，偶尔点一下审批。",
       cta: {
         primaryLabel: "下载 EvoFlow",
-        secondaryLabel: "GitHub",
+        secondaryLabel: "了解智能体员工",
       },
       featureSummary: {
-        eyebrow: "产品概览",
-        title: "核心差异化 · 八大支柱",
+        eyebrow: "智能体员工",
+        title: "像雇同事一样雇 AI",
         description:
-          "优先解决「任务跑不完、易中断」与「上下文膨胀、Token 消耗大」；下面八条为差异化支柱摘要，再向下可见总控拆解与能力矩阵。",
+          "先定岗位与职责，再开自动上班。下面是你立刻能用上的几件事；更完整的能力矩阵仍在页面下方。",
       },
       featureCards: [
         {
-          title: "长任务与可恢复编排",
+          title: "真实岗位名",
           description:
-            "针对多步任务易中断、难闭环：跨系统与跨会话仍可监督、排队与重试，必要时局部重编排，尽量把事情跑到验收，而不是停在半截对话里。",
+            "研发助理、运维值班、学习助理、内容策划、文档管理员……模板预填职责与上班频率，不是「巡检机器人」黑话。",
           accent: "primary" as Accent,
         },
         {
-          title: "多智能体与超级总控智能体（Supervisor）协作",
+          title: "自动上班 + 工作汇报",
           description:
-            "由超级总控智能体（Supervisor）统筹全局目标与进度，基于子智能体能力画像实现任务精准分发，达到任务与能力最优匹配；子智能体支持并行执行，子任务间结构化上下文自动传递；总控全链路感知子智能体运行状态，支持全局进度调控、异常纠错与局部重编排；全流程可解释、可追溯。",
+            "按上班频率自动干活；每轮写出工作汇报。汇报没写完、近期没干活、卡住执行——卡片上一句话说明 + 可点动作。",
           accent: "secondary" as Accent,
         },
         {
-          title: "场景与工作阶段",
+          title: "派活与转交",
           description:
-            "按任务类型（对话、规划、改文件、检索等）进入不同工作形态，并与「先规划、再确认、后执行」等阶段配合：规划阶段侧重对齐目标与约束，确认后再放开实施类操作，降低误触风险。",
+            "小V / 派发可叫醒任意在岗同事；正式交工只给直属下级，你可改派。转交前常见「同意派发」，验收看任务总结。",
           accent: "tertiary" as Accent,
         },
         {
-          title: "工具渐进暴露与技能 / MCP 市场",
+          title: "本岗工作日志",
           description:
-            "工具侧强调渐进暴露：冷启动只挂核心与检索类能力，扩展工具按需挂载，减轻上下文与 Token。技能执行沿用「先读说明、再按步骤落地」等既有模式；在此基础上新增技能市场、MCP 市场，可从市场安装并统一管理已接入的技能与 MCP。",
+            "默认近 2 天日记，可切列表按状态筛；更早记录进任务中心。过程细节打开「工作过程」。",
           accent: "primary" as Accent,
         },
         {
-          title: "核心问题与子问题状态",
+          title: "长任务与总控编排",
           description:
-            "抓住当前核心目标；仅在你明确多线事项时列出带子问题的进度，并把验收与边界写进快照回注后续回合。目标含糊或你转向时会再对齐，减少跑偏。",
+            "需要多日推进的复杂目标，仍由超级总控（Supervisor）拆解、恢复与监督——智能体员工与长任务编排是同一栈上的两种用法。",
           accent: "secondary" as Accent,
         },
         {
-          title: "Claude Code 多会话协同",
+          title: "飞书 / IM 到岗",
           description:
-            "支持与 Claude Code 实时对话交互，也可在超级总控模式下作为子代理承接编码、调试等专项任务；支持多 Claude Code 会话并行分工与结果汇总，兼顾自主交互与编排管控能力。",
+            "可为岗位绑定专属飞书机器人；审批与工作汇报可推到对应账号，适合一个人也能跑通获客与值班。",
           accent: "primary" as Accent,
         },
         {
-          title: "目标智能体与长期任务",
+          title: "技能与 MCP",
           description:
-            "针对持续运行的后台任务：独立沙箱隔离执行，支持7×24小时后台目标运行，实时监控运行状态与输出日志，支持暂停、恢复与终止操作，运行结果与日志持久化可追溯，适合巡检、监控、自动化运维等需要长期驻留的任务场景。",
+            "底层智能体仍配工具、技能与 MCP；员工岗位只管「何时上班、盯哪块盘」，人设与能力在智能体页改。",
           accent: "secondary" as Accent,
         },
         {
-          title: "智能体进化",
+          title: "成本与健康",
           description:
-            "把智能体配置治理与技能包生命周期放在同一能力面：创建与维护智能体（模型、工具分组与白名单、外部扩展与技能说明注入等），并行管理技能的启用、说明与资源更新；二者协同迭代、持续优化，变更可被运行侧重新读取，总控对话里出现的技能名与当前启用及允许范围一致。",
+            "健康页看今日/近 7 日花费、空转与卡住执行；预算告警与诊断条帮你少烧冤枉钱。",
           accent: "tertiary" as Accent,
         },
       ],
@@ -664,66 +664,66 @@ export const homeContentByLocale: LocalizedValue<{
   },
   en: {
     hero: {
-      title: "Orchestration for serious agent workloads",
+      title: "EvoFlow",
       description:
-        "Multi-step work often stalls halfway—chat-style UIs lack durable control and state—while stuffing every tool and wall of text into context drives token use and cost up fast. EvoFlow targets agent workloads that span days and systems: a lead Supervisor ties planning, dependencies, and oversight into recoverable runs, with phased collaboration plus progressive tool exposure (small cold-start toolsets, mount extensions on demand) so context stays as small as practical. This site explains product capabilities and roadmap.",
+        "Smart Employees: hire AI into real job roles—dev assistant, ops on-call, content planner—and let them work on a schedule with written reports. You review outcomes and approve when needed.",
       cta: {
         primaryLabel: "Download EvoFlow",
-        secondaryLabel: "GitHub",
+        secondaryLabel: "Meet Smart Employees",
       },
       featureSummary: {
-        eyebrow: "Product pillars",
-        title: "What makes EvoFlow different",
+        eyebrow: "Smart Employees",
+        title: "Hire AI like you hire teammates",
         description:
-          "We focus first on stalled long tasks and heavy context/token use—eight differentiation pillars summarized below; scroll on for the Supervisor breakdown and the full capability matrix.",
+          "Define the role and duties, then turn on auto-work. Here is what you get first; the full capability matrix still lives below.",
       },
       featureCards: [
         {
-          title: "Long-running, recoverable orchestration",
+          title: "Real job titles",
           description:
-            "For work that too often stops mid-flight: supervised queues, retries, and partial re-orchestration across systems and sessions aim to reach acceptance—not stall in ad-hoc chat turns.",
+            "Dev assistant, ops on-call, study coach, content planner, docs admin—templates fill duties and cadence. No jargon job names.",
           accent: "primary" as Accent,
         },
         {
-          title: "Multi-agent collaboration",
+          title: "Auto-work + written reports",
           description:
-            "A lead Supervisor owns goals and pacing while specialist agents execute—who plans, who runs work, and when branches merge is explicit in the runtime story.",
+            "Roles work on a schedule and leave a short report each round. Incomplete reports, idle stretches, and stuck runs show as plain-language chips with next actions.",
           accent: "secondary" as Accent,
         },
         {
-          title: "Scenarios & collaboration phases",
+          title: "Dispatch & handoff",
           description:
-            "Switch posture by task type—conversation, planning, file work, web research, and more—and run it alongside phased collaboration: align goals under planning, confirm, then execute so risky actions stay gated until you proceed.",
+            "Wake any active peer via Xiao-V / dispatch; formal handoff only to direct reports (you can reassign). Approve downstream wake when needed; accept work via task summaries.",
           accent: "tertiary" as Accent,
         },
         {
-          title: "Progressive tool exposure & skill / MCP marketplace",
+          title: "Role work log",
           description:
-            "Tools stay progressively exposed: a tight cold-start surface plus on-demand mounting for optional tools to curb context and tokens. Skill execution keeps the established read-the-pack-then-act pattern; EvoFlow adds skill and MCP marketplaces to install, enable, and manage bundled skills and MCP servers from one place.",
+            "Diary defaults to the last two days; switch to a status list for recent board items; older history opens in Task Center.",
           accent: "primary" as Accent,
         },
         {
-          title: "Core objective & sub-problem state",
+          title: "Long tasks & Supervisor",
           description:
-            "Distill the primary goal; track sub-problems with statuses only when parallel work is explicit. Fold acceptance and boundaries into a snapshot fed back into guidance—realign on fuzzy intent or when you pivot.",
+            "Multi-day goals still run through the Supervisor—recoverable planning and oversight. Smart Employees and long-run orchestration share one stack.",
           accent: "secondary" as Accent,
         },
         {
-          title: "Claude Code Multi-session Collaboration",
+          title: "Feishu / IM on duty",
           description:
-            "Supports real-time interactive conversations with Claude Code, or operating as a sub-agent under the Supervisor to undertake specialized tasks such as coding and debugging; enables parallel task division across multiple Claude Code sessions and result aggregation, balancing both autonomous interaction and orchestration control capabilities.",
+            "Bind a dedicated Feishu bot per role so approvals and reports land where you already work—even as a solo builder.",
           accent: "primary" as Accent,
         },
         {
-          title: "Hosted agents for long-running workloads",
+          title: "Skills & MCP",
           description:
-            "For always-on background work: sandbox-isolated execution, 24/7 hosted runs with live status and logs, pause/resume/terminate controls, and durable outcomes—suited to patrol jobs, monitoring, and automation that must stay resident without babysitting a chat window.",
+            "Underlying agents still own tools, skills, and MCP. The employee contract only sets when they work and which folder they watch.",
           accent: "secondary" as Accent,
         },
         {
-          title: "Agent evolution",
+          title: "Cost & health",
           description:
-            "Keeps agent governance and skill-pack lifecycle on one surface: maintain agent definitions (models, tool groups and allowlists, external extensions, optional skill-injection), while enabling, revising, and optimizing skills in lockstep; changes can be reloaded at runtime so the Supervisor sees skill names that match what is enabled and permitted.",
+            "See spend, idle signals, and stuck executions on the health view—diagnosis chips help you stop burning tokens blindly.",
           accent: "tertiary" as Accent,
         },
       ],

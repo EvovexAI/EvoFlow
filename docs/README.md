@@ -25,13 +25,14 @@ EvoFlow 仓库文档按 **三个独立知识库根** 划分，便于分别挂载
 | 能力 | 建议挂载 |
 |------|----------|
 | **系统内置用户指南**（启动自动注册，只读） | `docs/user/` → Vault id `evoflow-user-guide` |
+| **系统内置运营知识库**（启动自动注册，可写） | ContentOS `docs/智能内容运营平台/知识库/` → Vault id `evoflow-ops-knowledge`（见 [`docs/knowledge/README.md`](knowledge/README.md) 指针） |
 | 用户自建指南知识库 | 自选本地 Obsidian 目录 |
 | 系统内部知识库（预置 / 自建 Vault） | `docs/system/`（尚未内置，可手动挂载） |
 | 智能体产出库（按工作空间） | `docs/roles/` |
 | 上传文档 RAG | 另一套能力，勿与上述 Vault 混用 |
 | `memory.json` | 会话记忆，不是文档库 |
 
-内置库运行时落在 `{EVOFLOW_HOME}/knowledge/vaults/evoflow-user-guide/`，由 Gateway 启动时从包内 `docs/user` 同步；小V的 `xiaomi_knowledge_search` 会检索所有已启用 Vault（含该内置库）。
+用户指南运行时落在 `{EVOFLOW_HOME}/knowledge/vaults/evoflow-user-guide/`；运营知识库开发态直接指向同级 ContentOS 知识库目录（可用 `EVOFLOW_OPS_KNOWLEDGE_ROOT` 覆盖），打包态可带快照到 `{EVOFLOW_HOME}/knowledge/vaults/evoflow-ops-knowledge/`。小V 检索覆盖所有已启用 Vault。
 
 Vault 建议 ignore：`.obsidian/**`、`*.db`、`*.db-*`、大体量媒体（按需）。
 
