@@ -520,3 +520,11 @@ iframe 加载后，宿主需要知道你的页面已就绪才能管理 Bridge �
 | 带本地服务（Python） | [extensions/ai-canvas/evoflow.extension.json](/extensions/ai-canvas/evoflow.extension.json) | `python main.py` |
 | 带本地服务（Node.js） | [extensions/contentos/evoflow.extension.json](/extensions/contentos/evoflow.extension.json) | `pnpm dev`，共享端口 |
 | 套件（多扩展打包） | [extensions/content-creator/evoflow.suite.json](/extensions/content-creator/evoflow.suite.json) | 一次安装 6 个扩展 |
+---
+
+## 相关阅读
+
+- [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 侧栏与扩展入口
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 扩展可用的 Bridge 协议
+- [[guides/configuration/settings|面板设置]] — 扩展管理与配置
+- [[tutorials/create-agent|创建智能体教程]] — 扩展与角色协作

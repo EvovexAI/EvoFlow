@@ -2,7 +2,7 @@
 
 > **目标**：从零雇佣一个「值班岗」，开启自动上班，手动开工一轮，并知道待审批 / 工作日志在哪看。
 >
-> 适合第一次接触「智能体员工」的用户。概念背景见 [智能体员工是什么](../explanation/smart-employees.md)；字段与排障见完整指南 [智能体员工](../guides/configuration/smart-employees.md)。
+> 适合第一次接触「智能体员工」的用户。概念背景见 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]；字段与排障见完整指南 [智能体员工](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。
 
 ## 你将学到什么
 
@@ -14,7 +14,7 @@
 
 - 已安装并打开 EvoFlow 桌面端 / Web
 - 已配置至少一个可用对话模型
-- 「智能体」页里已有可用角色（可用预设，或先走 [创建自定义 Agent](create-agent.md)）
+- 「智能体」页里已有可用角色（可用预设，或先走 [创建自定义 Agent](create-agent.md) [[tutorials/create-agent|创建自定义 Agent]]）
 - 聊天侧栏已添加至少一个本机**工作空间**目录
 
 预计用时：**10～15 分钟**。
@@ -89,7 +89,7 @@
 1. 打开对应 **工作项详情**（状态可能是「待你验收」）
 2. 阅读 **任务总结** / 本岗交付物
 3. **确认完成** 或 **打回重做**
-4. 也可到 [任务中心](../guides/tasks/task-center.md)「智能体员工」来源里统一验收
+4. 也可到 [任务中心](../guides/tasks/task-center.md) [[guides/tasks/task-center|任务中心]]「智能体员工」来源里统一验收
 
 ## 验收清单
 
@@ -103,16 +103,26 @@
 
 | 你想… | 去看 |
 |------|------|
-| 把职责写得更像真实岗位 | [案例：运维值班](../cases/use-main-agent.md) · [代码审查员](../cases/create-agent.md) |
-| 临时委派、绑飞书 | [智能体员工 · 小V](../guides/configuration/smart-employees.md#用小v-委派) |
-| 入口 / 状态 / 下游 / 何时审核 | [概念说明](../explanation/smart-employees.md#入口什么会让员工开始干活) |
-| 交工下游、任务总结 | [交工与下游接力](../guides/configuration/smart-employees.md#交工任务总结与下游接力) |
-| 搞清和自动化 / Plan 的边界 | [概念说明](../explanation/smart-employees.md) |
-| 谁适合用、组织怎么配、怎么协作 | [组织与协作玩法（专文）](../cases/smart-employee-playbooks.md) |
+| 把职责写得更像真实岗位 | [案例：运维值班](../cases/use-main-agent.md) [[cases/use-main-agent|案例：运维值班]] · [代码审查员](../cases/create-agent.md) [[cases/create-agent|代码审查员]] |
+| 临时委派、绑飞书 | [智能体员工 · 小V](../guides/configuration/smart-employees.md#用小v-委派) [[guides/configuration/smart-employees|智能体员工 · 小V]] |
+| 入口 / 状态 / 下游 / 何时审核 | [概念说明](../explanation/smart-employees.md#入口什么会让员工开始干活) [[explanation/smart-employees|概念说明]] |
+| 交工下游、任务总结 | [交工与下游接力](../guides/configuration/smart-employees.md#交工任务总结与下游接力) [[guides/configuration/smart-employees|交工与下游接力]] |
+| 搞清和自动化 / Plan 的边界 | [概念说明](../explanation/smart-employees.md) [[explanation/smart-employees|概念说明]] |
+| 谁适合用、组织怎么配、怎么协作 | [组织与协作玩法（专文）](../cases/smart-employee-playbooks.md) [[cases/smart-employee-playbooks|组织与协作玩法（专文）]] |
 
 ## 相关阅读
 
-- [智能体员工（完整指南）](../guides/configuration/smart-employees.md)
-- [智能体管理](../guides/configuration/agent-management.md)
-- [工作空间](../guides/chat/workspace.md)
-- [FAQ：员工没产出](../guides/faq.md#问题智能体员工没产出--汇报未写完)
+- [智能体员工（完整指南）](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工（完整指南）]]
+- [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]]
+- [工作空间](../guides/chat/workspace.md) [[guides/chat/workspace|工作空间]]
+- [FAQ：员工没产出](../guides/faq.md#问题智能体员工没产出--汇报未写完) [[guides/faq|FAQ：员工没产出]]
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[guides/configuration/smart-employees|智能体员工指南]] — 配置与操作
+- [[guides/configuration/agent-management|智能体管理指南]] — 配置与操作
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 角色配置

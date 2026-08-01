@@ -9,9 +9,9 @@
 >
 > 读完本文你会掌握"主控编排 + 角色分工"的完整协作流程，以及可直接复用的提示词模板。
 >
-> **功能关系**：本文是 [Plan 模式](plan-mode.md) 与[预设角色与团队](preset-roles.md) 的深度结合文档——Plan 模式提供编排机制，项目团队提供专业执行角色，两者配合形成完整的工程协作流水线；与[任务中心](../tasks/task-center.md)共享同一套任务系统。
+> **功能关系**：本文是 [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] 与[预设角色与团队](preset-roles.md) [[preset-roles|预设角色与团队]] 的深度结合文档——Plan 模式提供编排机制，项目团队提供专业执行角色，两者配合形成完整的工程协作流水线；与[任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]共享同一套任务系统。
 
-本文说明：**EvoFlow Plan 模式**（主控 `plan` 工具）与**项目团队**（`project-*` 内置角色）如何配合，从 0 到 1 完成软件类任务。可与 [Plan 模式使用](plan-mode.md)、[Agent 管理](../configuration/agent-management.md) 对照阅读。
+本文说明：**EvoFlow Plan 模式**（主控 `plan` 工具）与**项目团队**（`project-*` 内置角色）如何配合，从 0 到 1 完成软件类任务。可与 [Plan 模式使用](plan-mode.md) [[plan-mode|Plan 模式使用]]、[Agent 管理](../configuration/agent-management.md) [[guides/configuration/agent-management|Agent 管理]] 对照阅读。
 
 ---
 
@@ -167,7 +167,7 @@ flowchart LR
 | **场景** | 短视频 / 媒体流水线 | 软件从 0 到 1 |
 | **串联方式** | 主控 Plan 里按顺序派编剧→策划→美术→… | 主控 Plan 里按顺序派方案→计划→开发→… |
 | **外层编排** | 同样是 Plan + supervisor | 同样是 Plan + supervisor |
-| **参考案例** | [多 Agent 协作教程](../../tutorials/multi-agent-collab.md) | 本文 |
+| **参考案例** | [多 Agent 协作教程](../../tutorials/multi-agent-collab.md) [[tutorials/multi-agent-collab|多 Agent 协作教程]] | 本文 |
 
 两套团队**共用同一套 Plan 模式机制**；区别只在 Step 里填的 `assigned_agent` 和验收标准。
 
@@ -221,9 +221,9 @@ Plan 模式可配合 TodoList 中间件做会话内勾选；**持久化协作计
 
 ## 11. 相关文档
 
-- [Plan 模式使用](plan-mode.md)
-- [Agent 管理](../configuration/agent-management.md)
-- [多 Agent 协作教程](../../tutorials/multi-agent-collab.md)
+- [Plan 模式使用](plan-mode.md) [[plan-mode|Plan 模式使用]]
+- [Agent 管理](../configuration/agent-management.md) [[guides/configuration/agent-management|Agent 管理]]
+- [多 Agent 协作教程](../../tutorials/multi-agent-collab.md) [[tutorials/multi-agent-collab|多 Agent 协作教程]]
 - [技能参考](../../../system/reference/skills-reference.md)（superpowers-* 技能说明）
 
 ---
@@ -439,4 +439,13 @@ architect → planner → implementer（多步串行）→ reviewer → qa
 ---
 
 *文档版本：与内置项目团队（`project-architect` … `project-qa`）及 schema v36 团队划分一致。*
+
+---
+
+## 相关阅读
+
+- [[guides/chat/plan-mode|Plan 模式]] — 多步骤任务先对齐方案再执行
+- [[guides/chat/preset-roles|预设角色与团队]] — 项目团队角色详解
+- [[guides/tasks/task-center|任务中心]] — 跨会话多角色任务调度
+- [[tutorials/multi-agent-collab|多 Agent 协作教程]] — 媒体团队与项目团队协作参考
 

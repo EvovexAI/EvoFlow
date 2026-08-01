@@ -32,7 +32,7 @@ EvoFlow 桌面端是 EvoFlow 的图形界面。**所有功能都在这里**：�
 | **Agent** | 直接让 AI 干活：写代码、跑命令、改文件 | 完整工具集，AI 自动调用工具完成任务（默认模式） |
 | **Plan** | 复杂多步任务：先出方案→你确认→再执行 | 适合"先对齐再开工"的工程类任务 |
 
-**三种模式的关系**：Ask 和 Agent 是"边聊边干"，Plan 是"先规划再干"。日常简单问答用 Ask，需要 AI 动手用 Agent，复杂工程用 Plan。详见 [Plan 模式](../chat/plan-mode.md)。
+**三种模式的关系**：Ask 和 Agent 是"边聊边干"，Plan 是"先规划再干"。日常简单问答用 Ask，需要 AI 动手用 Agent，复杂工程用 Plan。详见 [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]。
 
 ### 实时聊天的能力
 
@@ -68,17 +68,17 @@ EvoFlow 桌面端的左侧边栏是功能总入口。从上到下依次是：
 ### 智能体员工（`#/proactive`）
 **你能做什么**：让智能体像员工一样定时上班——盯工作区、建工作项、交工后按策略「同意派发」或验收、工作汇报写报告；也可用全局助手 **小V** 左侧选员工直接委派临时目标。
 **何时用**：需要长期盯仓库、主动值班、跨岗流水线或临时把事派给某岗并看进度/汇报。
-**功能关系**：先在「智能体」页创建角色，再到「智能体员工」页雇佣员工。小V 一员工一会话；需要细节时再打开工作轨迹。入口/状态/下游见 [智能体员工是什么](../../explanation/smart-employees.md)，操作见 [智能体员工](smart-employees.md)。
+**功能关系**：先在「智能体」页创建角色，再到「智能体员工」页雇佣员工。小V 一员工一会话；需要细节时再打开工作轨迹。入口/状态/下游见 [智能体员工是什么](../../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]，操作见 [智能体员工](smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。
 
 ### 智能体（`#/expert`）
 **你能做什么**：创建和管理智能体角色。每个角色有自己的 SOUL（人设）、工具白名单、技能和 MCP 配置。
 **何时用**：需要自定义角色时，或管理已有角色、技能、MCP 连接器。
-**功能关系**：智能体页有三个 Tab——智能体（角色管理）、技能（安装/管理技能）、连接器（MCP 配置）。详见 [智能体管理](agent-management.md)、[技能管理](skill-management.md)、[工具与 MCP](tools-mcp.md)。
+**功能关系**：智能体页有三个 Tab——智能体（角色管理）、技能（安装/管理技能）、连接器（MCP 配置）。详见 [智能体管理](agent-management.md) [[guides/configuration/agent-management|智能体管理]]、[技能管理](skill-management.md) [[guides/configuration/skill-management|技能管理]]、[工具与 MCP](tools-mcp.md) [[guides/configuration/tools-mcp|工具与 MCP]]。
 
 ### 上传文档（`#/knowledge`）
 **你能做什么**：把 PDF/Word/Markdown 做成可向量检索的知识库，对话里 AI 自动引用。
 **何时用**：零散文档要做成企业级 RAG 知识库，多会话可检索。
-**功能关系**：上传文档（RAG）vs 知识库（Vault）vs 会话文件上传：三者按「存什么+怎么用」区分，详见 [上传文档（RAG）](document-knowledge-base.md)。
+**功能关系**：上传文档（RAG）vs 知识库（Vault）vs 会话文件上传：三者按「存什么+怎么用」区分，详见 [上传文档（RAG）](document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档 RAG]]。
 
 ### 知识库（`#/knowledge/vaults`）
 **你能做什么**：连接本机 Obsidian Vault 或 Markdown 文件夹，做全文/语义检索。
@@ -165,16 +165,15 @@ EvoFlow 桌面端的左侧边栏是功能总入口。从上到下依次是：
 **Q: 如何备份 EvoFlow 数据？**
 EvoFlow 数据存储在 `~/.evoflow/` 目录下。备份该目录即可保留所有任务配置和本地设置。
 
-## 相关文档
-- [目标（Goal）](../chat/goal-agent.md)
-- [任务中心](../tasks/task-center.md)
-- [应用中心](app-center.md)
-- [智能体员工](smart-employees.md)
-- [自动化任务调度](../tasks/automation-scheduler.md)
-- [IM 消息渠道配置](../integration/im-channels.md)
-- [记忆管理](memory-management.md)
-- [知识库](knowledge-vault.md)
-- [上传文档（RAG）](document-knowledge-base.md)
+---
+
+## 相关阅读
+
+- [[guides/configuration/agent-management|智能体管理]] — 角色创建与配置详解
+- [[guides/configuration/smart-employees|智能体员工]] — 值班岗位配置
+- [[guides/chat/plan-mode|Plan 模式]] — 多步协作流程
+- [[guides/tasks/task-center|任务中心]] — 任务驾驶舱与看板
+- [[explanation/agent-system|Agent 系统]] — 设计理念与核心概念
 
 
 ---

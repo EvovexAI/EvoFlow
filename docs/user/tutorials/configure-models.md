@@ -17,7 +17,7 @@
 
 ## 前置条件
 
-- 已完成 [安装](../getting-started/installation.md)
+- 已完成 [安装](../getting-started/installation.md) [[getting-started/installation|安装]]
 - Gateway 已启动（模型写入 SQLite `evoflow.db`）
 
 ## 预计用时
@@ -74,5 +74,16 @@ curl http://127.0.0.1:8013/api/models
 
 ## 下一步
 
-- [工具与 MCP](../guides/configuration/tools-mcp.md)
-- [完成第一个任务](../getting-started/first-task.md)
+- [工具与 MCP](../guides/configuration/tools-mcp.md) [[guides/configuration/tools-mcp|工具与 MCP]]
+- [完成第一个任务](../getting-started/first-task.md) [[getting-started/first-task|完成第一个任务]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[getting-started/installation|安装指南]] — 环境准备
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[tutorials/add-skill|添加自定义技能教程]] — 扩展能力
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 角色配置

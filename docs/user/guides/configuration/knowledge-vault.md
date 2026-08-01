@@ -25,7 +25,7 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 > - 旧「上传文档」RAG（`#/knowledge` / `search_knowledge_base`）已下线，请只用本页  
 > - 本页 ≠ 「记忆文件」`memory.json`  
 > - 笔记文件仍在你选的本地目录；EvoFlow 只存连接配置与索引缓存  
-> 架构与 MCP / API 细节见 [Obsidian Knowledge Vault 集成](../integrations/obsidian-knowledge-vault.md)。
+> 架构与 MCP / API 细节见 [Obsidian Knowledge Vault 集成](../integrations/obsidian-knowledge-vault.md) [[guides/integrations/obsidian-knowledge-vault|Obsidian Knowledge Vault 集成]]。
 
 ---
 
@@ -72,7 +72,7 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 | **名称** | 是 | 如：我的知识库 |
 | **Vault 目录** | 是 | Obsidian 库根或 Markdown 文件夹 |
 
-创建后默认走本地检索管线（常见为本地 embedding）。读写模式、Local REST API Key、远程 MCP URL 等高级项见 [集成说明](../integrations/obsidian-knowledge-vault.md)；写入相关 UI 可能默认关闭（可用本地开关打开，见集成文档 / 面板设置）。
+创建后默认走本地检索管线（常见为本地 embedding）。读写模式、Local REST API Key、远程 MCP URL 等高级项见 [集成说明](../integrations/obsidian-knowledge-vault.md) [[guides/integrations/obsidian-knowledge-vault|Obsidian Knowledge Vault 集成]]；写入相关 UI 可能默认关闭（可用本地开关打开，见集成文档 / 面板设置）。
 
 ---
 
@@ -120,6 +120,68 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 
 ---
 
+## 知识图谱探索（Knowledge Explorer）
+
+> v0.3.8+ 知识库从「文件浏览」升级为**可探索的知识图谱**。进入 Vault 卡片后，左上角切换至**图谱**视图。
+
+知识库不再是静态的文件树——EvoFlow 将笔记中的关联关系（`[[双链]]`、标签、文件夹结构）映射为**力导向知识图谱**，支持三栏交互探索。
+
+### 三栏布局
+
+| 区域 | 组件 | 说明 |
+|------|------|------|
+| **左侧导航** | KnowledgeNavExplorer | 按簇/类别分组显示知识节点，内置搜索定位、收藏/历史、节点过滤（按度/簇/标签密度），可切换路径查找模式 |
+| **中央图谱** | KnowledgeForceGraph | 基于 D3-force 的力导向布局，节点可拖拽/点击聚焦，支持最短路径高亮、邻居环、凸包（Convex Hull）可视化 |
+| **右侧详情** | 详情面板 | 点击节点后显示笔记内容预览（Markdown），支持双击打开完整笔记，查看关联关系 |
+
+### 入口与切换
+
+1. 侧栏进入 **知识库** → 点击 Vault 卡片进入全屏工作区
+2. 左上角工具栏切换 **浏览** / **图谱** 视图
+3. 图谱视图中，**左侧导航**搜索/过滤节点，**中央图谱**查看关系，**右侧面板**阅读内容
+
+### 力导向图谱操作
+
+| 操作 | 说明 |
+|------|------|
+| **拖拽节点** | 手动调整布局，节点自动回弹 |
+| **点击节点** | 聚焦该节点，高亮邻居和关联边 |
+| **滚轮缩放** | 缩放图谱视图 |
+| **双击节点** | 打开完整笔记 |
+| **最短路径** | 选中两个节点后，自动计算并高亮 BFS 最短路径 |
+| **全路径** | 切换 DFS 全路径枚举模式，查看知识溯源路径 |
+| **凸包** | 自动绘制节点簇的边界轮廓，同一簇节点一目了然 |
+
+### 左侧导航功能
+
+| 功能 | 说明 |
+|------|------|
+| **簇分组** | 按类别/簇折叠展开节点树 |
+| **搜索定位** | 按文件名/路径搜索定位节点 |
+| **收藏/历史** | 标记常用节点为收藏，查看浏览历史 |
+| **节点过滤** | 按度、簇、标签密度过滤显示的节点 |
+| **路径查找** | 切换路径查找模式，快速定位节点间关联路径 |
+
+### 搜索与路径查找
+
+Knowledge Explorer 内置搜索支持四种模式，与知识库搜索一致：
+
+| 模式 | 说明 |
+|------|------|
+| **文件名** | 按笔记标题/路径匹配 |
+| **全文** | 全文检索笔记内容 |
+| **语义** | 向量语义搜索（需索引就绪含语义） |
+| **混合** | 全文 + 语义加权 |
+
+路径查找支持 BFS 最短路径和 DFS 全路径枚举，适合知识溯源和关联发现。
+
+### 已知限制
+
+- 图谱节点数 > 500 时力导向渲染可能卡顿，建议使用簇过滤和度过滤缩小范围
+- 第三方知识库图谱依赖索引状态，新建笔记后需重建索引或增量更新才能在图谱中体现
+
+---
+
 ## 常见问题
 
 **Q：零散 PDF / Word 怎么办？**  
@@ -138,6 +200,7 @@ evoflow knowledge get guides/configuration/knowledge-vault.md
 
 ## 相关阅读
 
-- [Obsidian Knowledge Vault 集成](../integrations/obsidian-knowledge-vault.md) — MCP、读写、安全
-- [记忆管理](memory-management.md)
-- [面板使用指南](evopanel-guide.md)
+- [[guides/integrations/obsidian-knowledge-vault|Obsidian Knowledge Vault 集成]] — 底层架构与 MCP 细节
+- [[guides/configuration/memory-management|记忆管理]] — 用户偏好记忆 vs 知识库笔记的区别
+- [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 知识库入口与操作
+- [[explanation/memory-system|记忆系统]] — 系统间数据分工

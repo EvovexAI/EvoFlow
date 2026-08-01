@@ -68,6 +68,16 @@
 
 ## 关联文档
 
-- [应用中心](../guides/configuration/app-center.md)
-- [自动化](../guides/tasks/scheduled-tasks.md)
-- [飞书集成](../guides/integration/feishu-integration.md)
+- [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]
+- [自动化](../guides/tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]]
+- [飞书集成](../guides/integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[guides/tasks/automation-scheduler|自动化调度指南]] — 配置与排障
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[tutorials/automation-task|自动化任务教程]] — 定时触发

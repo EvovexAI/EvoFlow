@@ -8,7 +8,7 @@
 >
 > AI 会自动生成这个角色的 SOUL（人设）、系统提示词、工具白名单，保存即用。之后随时在顶栏切换到它，让它专门干活。
 >
-> 每个角色就像你请的一个"专家"——有自己的性格、擅长的工具、能调用的技能。角色可以被[智能体员工](smart-employees.md)雇佣员工，实现定时上班与主动工作。
+> 每个角色就像你请的一个"专家"——有自己的性格、擅长的工具、能调用的技能。角色可以被[智能体员工](smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]雇佣员工，实现定时上班与主动工作。
 >
 > 读完本文你会学会三种创建角色的方式（对话、表单、TOML）、配置项含义、以及切换和管理方法。
 
@@ -108,7 +108,7 @@
 
 ### 项目团队（可选）
 
-将多个 `project-*` 角色组合成**项目团队**，可被 Plan 模式作为一个调度单元派发。详见 [项目级 Plan 流程](../chat/project-team-plan-workflow.md)。
+将多个 `project-*` 角色组合成**项目团队**，可被 Plan 模式作为一个调度单元派发。详见 [项目级 Plan 流程](../chat/project-team-plan-workflow.md) [[guides/chat/project-team-plan-workflow|项目级 Plan 流程]]。
 
 ---
 
@@ -131,7 +131,7 @@
 
 - **编辑**：修改 SOUL、提示词、模型、白名单；保存后**热重载，无需重启**
 - **复制**：基于现有角色快速派生变体（适合做 A/B 调参）
-- **雇佣 / 值班台**：把该角色编入 [智能体员工](smart-employees.md) 岗位（定时上班、看板与审批）
+- **雇佣 / 值班台**：把该角色编入 [智能体员工](smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] 岗位（定时上班、看板与审批）
 - **导出**：下载该角色的 TOML，便于跨实例同步或备份
 - **删除**：移除不再用的角色（**内置 `project-*` 系列角色不可删除**，只能禁用）
 
@@ -145,7 +145,7 @@
 | 本质 | 能力包（SOUL / 工具 / 技能） | 岗位合同（职责 / 工作区 / 心跳 / 审批） |
 | 触发 | 聊天里 @ 或切换角色 | 定时心跳、派发、现在开始工作 |
 
-要让某个角色「像员工一样主动上班」，先按本文建好 Agent，再去 [智能体员工](smart-employees.md) **雇佣**，或按教程 [雇佣第一个员工](../../tutorials/hire-first-smart-employee.md) 走一遍。
+要让某个角色「像员工一样主动上班」，先按本文建好 Agent，再去 [智能体员工](smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] **雇佣**，或按教程 [雇佣第一个员工](../../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个员工]] 走一遍。
 
 ---
 
@@ -161,9 +161,8 @@
 
 ## 相关阅读
 
-- [智能体员工](smart-employees.md)
-- [项目级 Plan 流程](../chat/project-team-plan-workflow.md)
-- [技能管理](skill-management.md)
-- [工具与 MCP](tools-mcp.md)
-- [记忆管理](memory-management.md)
-- [创建 Agent（案例）](../../cases/create-agent.md)
+- [[guides/configuration/smart-employees|智能体员工]] — 给角色加岗位合同，定时上班与审批
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 三种能力层配置详解
+- [[explanation/agent-system|Agent 系统]] — 设计理念与核心概念
+- [[tutorials/create-agent|创建智能体教程]] — 逐步创建第一个角色
+- [[guides/chat/project-team-plan-workflow|项目级 Plan 流程]] — 多角色团队协作调度

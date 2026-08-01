@@ -9,7 +9,7 @@
 >
 > 读完本页你会搞清三个问题：**这个产品适合谁？我的问题该用哪条能力？几条能力怎么配合，而不是互相当成同一功能？**
 >
-> 操作细节见各指南；设计理念见 [为什么是 EvoFlow](../explanation/why-evoflow.md)；安装上手见 [快速上手](quick-start.md)。
+> 操作细节见各指南；设计理念见 [为什么是 EvoFlow](../explanation/why-evoflow.md) [[explanation/why-evoflow|为什么是 EvoFlow]]；安装上手见 [快速上手](quick-start.md) [[quick-start|快速上手]]。
 
 ---
 
@@ -35,7 +35,7 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 **主战场**：个人与小团队（约 1～30 人），没有专职 AI 平台组，但需要长任务 + 多角色 + 桌面/IM。  
 **暂不主打**：仅单次问答；要重度企业权限/审计的大型组织（需商用与专项集成）。
 
-更细的人群表见 [项目介绍](introduction.md)。
+更细的人群表见 [项目介绍](introduction.md) [[introduction|项目介绍]]。
 
 ---
 
@@ -78,17 +78,17 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 
 | 能力 | 一句话 | 操作指南 |
 |------|--------|----------|
-| 实时聊天 | 主入口；模式决定怎么干 | [基础功能](../guides/chat/basic-functions.md) |
-| Plan | 先定稿再「开始执行」 | [Plan 模式](../guides/chat/plan-mode.md) |
-| 目标 | 聊天里长程自驱 | [目标 Agent](../guides/chat/goal-agent.md) |
-| 任务中心 | 观测与验收任务 | [任务中心](../guides/tasks/task-center.md) |
-| 应用中心 | 工作流产品化 | [应用中心](../guides/configuration/app-center.md) |
-| 自动化 | 定时触发 | [自动化](../guides/tasks/scheduled-tasks.md) |
-| 智能体员工 | 编内值班岗；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) · [教程](../tutorials/hire-first-smart-employee.md) · [概念](../explanation/smart-employees.md) |
-| 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) |
-| 知识库 / 上传文档 / 记忆 | 三类「知道」 | [知识库](../guides/configuration/knowledge-vault.md) · [上传文档](../guides/configuration/document-knowledge-base.md) · [记忆](../guides/configuration/memory-management.md) |
+| 实时聊天 | 主入口；模式决定怎么干 | [基础功能](../guides/chat/basic-functions.md) [[guides/chat/basic-functions|基础功能]] |
+| Plan | 先定稿再「开始执行」 | [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] |
+| 目标 | 聊天里长程自驱 | [目标 Agent](../guides/chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] |
+| 任务中心 | 观测与验收任务 | [任务中心](../guides/tasks/task-center.md) [[guides/tasks/task-center|任务中心]] |
+| 应用中心 | 工作流产品化 | [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
+| 自动化 | 定时触发 | [自动化](../guides/tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
+| 智能体员工 | 编内值班岗；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|指南]] · [教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|教程]] · [概念](../explanation/smart-employees.md) [[explanation/smart-employees|概念]] |
+| 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] |
+| 知识库 / 上传文档 / 记忆 | 三类「知道」 | [知识库](../guides/configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]] · [上传文档](../guides/configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档]] · [记忆](../guides/configuration/memory-management.md) [[guides/configuration/memory-management|记忆]] |
 
-面板入口总表：[EvoPanel 指南](../guides/configuration/evopanel-guide.md)。
+面板入口总表：[EvoPanel 指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoPanel 指南]]。
 
 ---
 
@@ -164,9 +164,19 @@ flowchart TD
 
 | 目的 | 文档 |
 |------|------|
-| 安装与第一次对话 | [下载](downloads.md) · [快速上手](quick-start.md) · [第一个任务](first-task.md) |
-| 功能怎么点 | [操作指南总目录](../guides/README.md) |
-| 面板有哪些入口 | [EvoPanel 指南](../guides/configuration/evopanel-guide.md) |
-| 产品定义与能力清单 | [项目介绍](introduction.md) |
-| 设计为什么这样 | [为什么是 EvoFlow](../explanation/why-evoflow.md) |
-| 踩坑 | [FAQ](../guides/faq.md) |
+| 安装与第一次对话 | [下载](downloads.md) [[downloads|下载]] · [快速上手](quick-start.md) [[quick-start|快速上手]] · [第一个任务](first-task.md) [[first-task|第一个任务]] |
+| 功能怎么点 | [操作指南总目录](../guides/README.md) [[guides/README|操作指南总目录]] |
+| 面板有哪些入口 | [EvoPanel 指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoPanel 指南]] |
+| 产品定义与能力清单 | [项目介绍](introduction.md) [[introduction|项目介绍]] |
+| 设计为什么这样 | [为什么是 EvoFlow](../explanation/why-evoflow.md) [[explanation/why-evoflow|为什么是 EvoFlow]] |
+| 踩坑 | [FAQ](../guides/faq.md) [[guides/faq|FAQ]] |
+
+---
+
+## 相关阅读
+
+- [[getting-started/introduction|项目介绍]] — 产品定义、能力清单与目标人群
+- [[getting-started/quick-start|5 分钟快速上手]] — 从安装到第一次对话
+- [[explanation/why-evoflow|为什么是 EvoFlow]] — 设计理念与核心差异
+- [[guides/configuration/smart-employees|智能体员工]] — 编排值班岗与职责分配
+- [[tutorials/hire-first-smart-employee|雇佣第一个员工]] — 教程：从角色到值班

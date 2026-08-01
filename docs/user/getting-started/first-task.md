@@ -6,7 +6,7 @@
 >
 > 你会看到 AI 自动拆解步骤→搜索资料→整理对比→输出文档，中间还会派子 AI 并行查不同框架，最后汇总给你。
 >
-> 请先完成[5 分钟快速上手](quick-start.md)再开始。完成后建议阅读[最佳实践案例](../cases/index.md)学习更多场景。
+> 请先完成[5 分钟快速上手](quick-start.md)再开始。 [[quick-start|5 分钟快速上手]]完成后建议阅读[最佳实践案例](../cases/index.md) [[cases/index|最佳实践案例]]学习更多场景。
 
 ## 你将学到什么
 
@@ -58,7 +58,7 @@ Agent 会：
 4. 你看完方案觉得没问题，点输入框上方的 **「开始执行」** 按钮，AI 就按方案一步步干活
 5. 如果想改方案，直接在输入框说修改意见就行
 
-Plan 模式的完整说明见 [Plan 模式](../guides/chat/plan-mode.md)。
+Plan 模式的完整说明见 [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]。
 
 ## 你完成了！
 
@@ -66,6 +66,15 @@ Plan 模式的完整说明见 [Plan 模式](../guides/chat/plan-mode.md)。
 
 ## 下一步
 
-- [配置你的第一个模型](../tutorials/configure-models.md) — 学习更多模型配置选项
-- [创建自定义 Agent](../tutorials/create-agent.md) — 定制专属 Agent
-- [多智能体协作](../tutorials/multi-agent-collab.md) — 体验项目级任务编排
+- [配置你的第一个模型](../tutorials/configure-models.md) — 学习更多模型配置选项 [[tutorials/configure-models|配置你的第一个模型]]
+- [创建自定义 Agent](../tutorials/create-agent.md) — 定制专属 Agent [[tutorials/create-agent|创建自定义 Agent]]
+- [多智能体协作](../tutorials/multi-agent-collab.md) — 体验项目级任务编排 [[tutorials/multi-agent-collab|多智能体协作]]
+
+---
+
+## 相关阅读
+
+- [[getting-started/quick-start|5 分钟快速上手]] — 前置条件，快速开始
+- [[guides/chat/plan-mode|Plan 模式]] — 先对齐方案再执行复杂任务
+- [[cases/index|最佳实践案例]] — 更多场景与实战经验
+- [[tutorials/create-agent|创建自定义 Agent]] — 定制专属智能体角色

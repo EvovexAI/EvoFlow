@@ -57,6 +57,16 @@ AI 会先出计划（搜资 → 筛选 → 对比 → 出报告），你确认�
 
 ## 关联文档
 
-- [应用中心完整指南](../guides/configuration/app-center.md)
-- [Plan 模式](../guides/chat/plan-mode.md)
-- [任务中心](../guides/tasks/task-center.md)
+- [应用中心完整指南](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心完整指南]]
+- [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]
+- [任务中心](../guides/tasks/task-center.md) [[guides/tasks/task-center|任务中心]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[guides/configuration/app-center|应用中心指南]] — 配置与操作
+- [[tutorials/automation-task|自动化任务教程]] — 定时触发

@@ -61,5 +61,15 @@
 
 ## 关联文档
 
-- [智能体员工](../guides/configuration/smart-employees.md)
-- [预设角色与团队](../guides/chat/preset-roles.md)（内置 `project-software-reviewer` 可直接复用）
+- [智能体员工](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]
+- [预设角色与团队](../guides/chat/preset-roles.md) [[guides/chat/preset-roles|预设角色与团队]]（内置 `project-software-reviewer` 可直接复用）
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手

@@ -101,5 +101,16 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 
 ## 下一步
 
-- [IM 消息渠道配置指南](../guides/integration/im-channels.md) — 钉钉 / Slack / Discord
-- [自动化任务调度](../guides/tasks/automation-scheduler.md)
+- [IM 消息渠道配置指南](../guides/integration/im-channels.md) [[guides/integration/im-channels|IM 消息渠道配置指南]] — 钉钉 / Slack / Discord
+- [自动化任务调度](../guides/tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[guides/integration/im-channels|IM 渠道指南]] — 配置与操作
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[tutorials/automation-task|自动化任务教程]] — 定时触发
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 角色配置

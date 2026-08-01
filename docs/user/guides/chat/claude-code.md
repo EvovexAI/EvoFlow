@@ -9,7 +9,7 @@
 >
 > 适合大段代码重构、多文件改造、依赖升级、调试 bug 等需要长时间交互的编码场景。
 >
-> **功能关系**：Claude Code 是 EvoFlow 主智能体的编码增强模式——它不加载 EvoFlow 的技能/MCP/记忆生态，专注于代码操作；可与[Plan 模式](plan-mode.md)组合使用（Plan 模式的子任务可调用 Claude Code）；与[工作空间场景](workspace.md)共享同一套工作目录沙箱机制。
+> **功能关系**：Claude Code 是 EvoFlow 主智能体的编码增强模式——它不加载 EvoFlow 的技能/MCP/记忆生态，专注于代码操作；可与[Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]]组合使用（Plan 模式的子任务可调用 Claude Code）；与[工作空间场景](workspace.md) [[workspace|工作空间场景]]共享同一套工作目录沙箱机制。
 
 EvoFlow 内置 **Claude Code 直连模式**：让 Anthropic Claude 的原生工具链直接接管当前会话，专门处理代码编辑、命令执行、多文件操作、架构设计等软件开发任务。与 EvoFlow 主智能体相比，Claude Code 模式更专注、更少中间层，适合**长时间、重交互的编码场景**。
 
@@ -27,7 +27,7 @@ EvoFlow 内置 **Claude Code 直连模式**：让 Anthropic Claude 的原生工�
 不建议使用 Claude Code 的场景：
 
 - 纯聊天、知识问答 → 用主智能体的「日常对话」
-- 需要多角色协作的项目交付 → 用 [Plan 模式](plan-mode.md) 调度项目团队
+- 需要多角色协作的项目交付 → 用 [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] 调度项目团队
 - 需要 EvoFlow 的技能/MCP/记忆生态 → 用主智能体，Claude Code **不会自动加载 EvoFlow 技能与 MCP**
 
 ---
@@ -113,7 +113,7 @@ Claude Code 支持**同一 EvoFlow 内并行多个会话**：
 
 ## 相关阅读
 
-- [工作空间场景](workspace.md)
-- [Plan 模式](plan-mode.md)
-- [工具与 MCP](../configuration/tools-mcp.md)
-- [总控智能体模式（案例）](../../cases/total-agent-mode.md)
+- [[guides/chat/workspace|工作空间场景]] — 工作空间场景提供代码操作基础环境
+- [[guides/chat/plan-mode|Plan 模式]] — 多步骤协作可与 Claude Code 组合使用
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 工具白名单与权限配置
+- [[cases/total-agent-mode|总控智能体模式（案例）]] — 主智能体编排 Claude Code 的实战案例

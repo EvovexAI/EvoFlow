@@ -8,7 +8,7 @@
 >
 > 技能 vs 工具 vs MCP 的区别：技能是"领域知识包"，工具是"内置能力"（read/write/terminal），MCP 是"外部服务"（GitHub API、Notion 等）。
 >
-> **功能关系**：技能是 Agent 能力的"领域知识层"——工具（Tool）提供通用能力，技能（Skill）提供领域特定的指令和指导。技能通过 [Agent 系统](agent-system.md) 的 `apply_prompt_template()` 注入到系统提示中，与[记忆系统](memory-system.md) 的 `<memory>` 注入、子 Agent 指令共同构成系统提示的完整内容。技能与工具的关系是：技能可以声明 `allowed-tools` 白名单，约束该技能范围内允许使用的工具。
+> **功能关系**：技能是 Agent 能力的"领域知识层"——工具（Tool）提供通用能力，技能（Skill）提供领域特定的指令和指导。技能通过 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 的 `apply_prompt_template()` 注入到系统提示中，与[记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]] 的 `<memory>` 注入、子 Agent 指令共同构成系统提示的完整内容。技能与工具的关系是：技能可以声明 `allowed-tools` 白名单，约束该技能范围内允许使用的工具。
 
 ## 背景
 
@@ -146,4 +146,14 @@ SKILL.md 格式的优势是：
 ## 延伸阅读
 
 - [skills-reference.md](../../system/reference/skills-reference.md) — 技能列表
-- [add-skill.md](../tutorials/add-skill.md) — 添加自定义技能教程
+- [add-skill.md](../tutorials/add-skill.md) [[tutorials/add-skill|添加自定义技能教程]] — 添加自定义技能教程
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[explanation/memory-system|记忆系统原理]] — 跨会话记忆
+- [[tutorials/add-skill|添加自定义技能教程]] — 手把手操作

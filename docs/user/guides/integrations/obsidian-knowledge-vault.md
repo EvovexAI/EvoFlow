@@ -1,6 +1,6 @@
 # Obsidian Knowledge Vault 集成（参考）
 
-> **本文是技术参考文档，面向想了解 Vault 底层机制的开发者**。日常使用请直接看侧栏「知识库」面板，或阅读[知识库（用户指南）](../guides/configuration/knowledge-vault.md)。
+> **本文是技术参考文档，面向想了解 Vault 底层机制的开发者**。日常使用请直接看侧栏「知识库」面板，或阅读[知识库（用户指南）](../guides/configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库用户指南]]。
 >
 > **比如你一直用 Obsidian 记笔记，想知道 EvoFlow 怎么查你的笔记**：
 > - 支持只读（查笔记）和读写（改笔记）两种模式
@@ -10,11 +10,11 @@
 > 本文讲的是底层技术架构（Obsidian → MCP → Provider → Agent），日常使用不需要看这些。
 
 > **本文是技术参考文档**，面向希望了解 Knowledge Vault 底层架构、MCP 集成细节和 API 接口的开发者/高级用户。  
-> **日常使用**请直接看侧栏「知识库」面板，或阅读 [知识库（用户指南）](knowledge-vault.md) 的逐步操作。
+> **日常使用**请直接看侧栏「知识库」面板，或阅读 [知识库（用户指南）](knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库用户指南]] 的逐步操作。
 
 EvoFlow 将 **Obsidian Vault** 作为一等 Knowledge Vault：笔记仍以普通 Markdown、YAML Frontmatter 与 `[[wikilinks]]` 保存在本地 Vault 中；Obsidian 仅作人工编辑界面；智能体通过单一高层工具 `knowledge(action=…)` 访问，底层复用成熟开源 MCP 服务。
 
-> **面板入口**：侧栏 **知识库**（`#/knowledge/vaults`）。逐步操作见 [知识库（用户指南）](../configuration/knowledge-vault.md)。  
+> **面板入口**：侧栏 **知识库**（`#/knowledge/vaults`）。逐步操作见 [知识库（用户指南）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库用户指南]]。  
 > **边界**：Knowledge Vault ≠ `memory.json` 用户记忆，也 ≠ 侧栏「上传文档」RAG（`#/knowledge`，工具 `search_knowledge_base`）。
 
 ## 架构
@@ -167,3 +167,11 @@ Obsidian (Markdown / YAML / wikilinks)
   "obsidianApiKeySecretRef": "vault_personal_obsidian_api_key"
 }
 ```
+---
+
+## 相关阅读
+
+- [[guides/configuration/knowledge-vault|知识库（Obsidian Vault）]] — 用户指南与逐步操作
+- [[guides/configuration/memory-management|记忆管理]] — 知识库与记忆的分工
+- [[guides/configuration/tools-mcp|工具与 MCP]] — MCP 协议集成
+- [[explanation/agent-system|Agent 系统]] — 智能体工具调用架构

@@ -109,10 +109,10 @@
 2. 岗位是否绑定了**管辖工作空间**；无工作区时难以落盘交付
 3. 打开该员工工作日志 → **工作过程**，看本轮是否中断或「本轮汇报未写完」；也可在全局助手 **小V** 的员工会话里按需打开
 4. 「待审批」是否堆着未处理项（常见是交接 **同意派发** 卡住下游；少数是事项「同意」）
-5. 交工后应在 [任务中心](tasks/task-center.md) 或工作项详情看 **任务总结** 再验收；有下游时还看是否 **待闭环**
+5. 交工后应在 [任务中心](tasks/task-center.md) [[guides/tasks/task-center|任务中心]] 或工作项详情看 **任务总结** 再验收；有下游时还看是否 **待闭环**
 6. 同级要对齐用派发/叫醒，不要指望正式交工指同级
 7. 卡片若提示「近期没干活」，先看健康 Tab 与工作过程，再改职责
-8. 完整说明见 [智能体员工](configuration/smart-employees.md)；概念流转见 [智能体员工是什么](../explanation/smart-employees.md)；首次上手见 [雇佣第一个员工](../tutorials/hire-first-smart-employee.md)
+8. 完整说明见 [智能体员工](configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]；概念流转见 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]；首次上手见 [雇佣第一个员工](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个员工]]
 
 ---
 
@@ -187,8 +187,17 @@
 
 部署安装、Docker 沙箱、端口占用等开发相关的问题，请移步：
 
-- [安装指南](../getting-started/installation.md) — 从源码部署
+- [安装指南](../getting-started/installation.md) [[getting-started/installation|安装指南]] — 从源码部署
 - [Docker 开发部署](deployment/docker-deployment.md) — Docker 环境
 - [生产环境部署](deployment/production-deploy.md) — 生产部署
 - [运维手册](deployment/operations-handbook.md) — 日常运维排查
+
+---
+
+## 相关阅读
+
+- [[guides/configuration/smart-employees|智能体员工]] — 员工问题完整排查
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 工具调用问题排查
+- [[getting-started/installation|安装指南]] — 部署与安装问题
+- [[guides/integration/feishu-integration|飞书集成]] — 飞书渠道问题排查
 

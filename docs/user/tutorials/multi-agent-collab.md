@@ -23,10 +23,10 @@
 
 ## 前置条件
 
-- 已完成 [安装](../getting-started/installation.md)
+- 已完成 [安装](../getting-started/installation.md) [[getting-started/installation|安装]]
 - EvoFlow 服务正在运行
-- 已了解 [Agent 的基本概念](create-agent.md)
-- 建议先了解 [子代理系统](../explanation/subagent-system.md)
+- 已了解 [Agent 的基本概念](create-agent.md) [[tutorials/create-agent|Agent 的基本概念]]
+- 建议先了解 [子代理系统](../explanation/subagent-system.md) [[explanation/subagent-system|子代理系统]]
 
 ## 预计用时
 
@@ -251,6 +251,17 @@ Supervisor（超级总控智能体）
 
 ## 下一步
 
-- [子代理系统详解](../explanation/subagent-system.md) -- 深入了解子代理的生命周期、权限控制和并行执行机制
-- [创建自定义 Agent](create-agent.md) -- 为项目配置更专业的 Agent
-- [自动化任务调度](automation-task.md) -- 让项目定期自动执行
+- [子代理系统详解](../explanation/subagent-system.md) [[explanation/subagent-system|子代理系统详解]] -- 深入了解子代理的生命周期、权限控制和并行执行机制
+- [创建自定义 Agent](create-agent.md) [[tutorials/create-agent|创建自定义 Agent]] -- 为项目配置更专业的 Agent
+- [自动化任务调度](automation-task.md) [[tutorials/automation-task|自动化任务调度]] -- 让项目定期自动执行
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/subagent-system|子 Agent 系统]] — 并行委派机制
+- [[guides/chat/plan-mode|Plan 模式]] — 任务编排
+- [[guides/tasks/task-center|任务中心指南]] — 看板与工作流
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 角色配置

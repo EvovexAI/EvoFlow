@@ -1,10 +1,10 @@
 # 自动化任务调度
 
-> **本文偏运维参考。日常操作以[自动化操作指南](scheduled-tasks.md)为准。**
+> **本文偏运维参考。日常操作以[自动化操作指南](scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化操作指南]]为准。**
 >
 > **比如你有这样的需求**：自动化任务跑完后，下次还想接着上次的上下文继续（sticky 线程模式）。或者想直接编辑 TOML 文件来管理大量任务。这些在本文讲。
 
-> **读法**：日常在面板怎么点，以 [自动化操作指南](scheduled-tasks.md) 为准。本文偏运维 / TOML / API。  
+> **读法**：日常在面板怎么点，以 [自动化操作指南](scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化操作指南]] 为准。本文偏运维 / TOML / API。  
 > **存储**：当前以 Gateway 库表为主（如 `evoflow.db` 中的 automations / runs）；`~/.evoflow/tasks/automations/*.toml` 多为遗留或导入路径。推送字段以 `push_channel` + `push_target_id` 为主，旧 `feishu_chat_id` 可能仍兼容。触发时刻以五字段 **`schedule` cron** 为准。
 
 ## 适用场景
@@ -120,5 +120,14 @@ curl -X POST http://localhost:8001/api/automation/{id}/run
 
 ## 相关文档
 
-- [创建定时自动化任务](../../tutorials/automation-task.md)
-- [IM 消息渠道配置](../integration/im-channels.md) — 飞书推送需要
+- [创建定时自动化任务](../../tutorials/automation-task.md) [[tutorials/automation-task|创建定时自动化任务]]
+- [IM 消息渠道配置](../integration/im-channels.md) [[guides/integration/im-channels|IM 消息渠道配置]] — 飞书推送需要
+
+---
+
+## 相关阅读
+
+- [[guides/tasks/scheduled-tasks|自动化操作指南]] — 日常操作面板的上层入口
+- [[guides/tasks/task-center|任务中心]] — 多步骤协作任务看板
+- [[guides/chat/goal-agent|目标智能体]] — 长程自驱任务
+- [[tutorials/automation-task|自动化任务教程]] — 动手创建第一个自动化任务

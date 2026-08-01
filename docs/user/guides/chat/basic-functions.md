@@ -21,7 +21,7 @@ EvoFlow 的核心交互方式就是聊天。你可以在输入框中发消息，
 - 管理历史会话：侧栏看所有历史对话，搜索、切换、删除
 - 一个会话可以开多个线程（独立上下文），适合同时处理多个相关子任务
 
-**相关文档：** [模型与场景详解](basic-functions.md) · [Plan 模式](plan-mode.md) · [文件上传](file-upload.md)
+**相关文档：** [模型与场景详解](basic-functions.md) · [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] · [文件上传](file-upload.md) [[file-upload|文件上传]]
 
 ---
 
@@ -37,7 +37,7 @@ EvoFlow 的核心交互方式就是聊天。你可以在输入框中发消息，
 
 **切换方法：** 点击输入框底部的模式药丸，切换后 placeholder 文字会改变提示当前模式适合发什么。
 
-**相关文档：** [Plan 模式完整说明](plan-mode.md)
+**相关文档：** [Plan 模式完整说明](plan-mode.md) [[plan-mode|Plan 模式完整说明]]
 
 ---
 
@@ -51,9 +51,9 @@ EvoFlow 的核心交互方式就是聊天。你可以在输入框中发消息，
 - **图片类**：JPG、PNG、GIF 等，视觉模型可理解图片内容（截图直接粘贴也可）
 - 上传后 AI 自动识别文件内容，你可直接针对文件提问、要求分析、修改等
 
-> 上传的文件只服务于**当前会话**，不是长期知识库。需长期保存可检索的，用 [上传文档（RAG）](../configuration/document-knowledge-base.md) 或 [知识库（Vault）](../configuration/knowledge-vault.md)。
+> 上传的文件只服务于**当前会话**，不是长期知识库。需长期保存可检索的，用 [上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]] 或 [知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]。
 
-**相关文档：** [文件上传详细说明](file-upload.md) · [上传文档（RAG）](../configuration/document-knowledge-base.md) · [知识库（Vault）](../configuration/knowledge-vault.md)
+**相关文档：** [文件上传详细说明](file-upload.md) [[file-upload|文件上传详细说明]] · [上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]] · [知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]
 
 ---
 
@@ -71,7 +71,7 @@ AI 能记住你之前说过的事情——你的偏好、工作背景、项目�
 - **记忆** ≠ 知识库（Vault）：记忆存的是"关于你的事实"，知识库存的是"文档"。
 - **记忆** ≠ 上传文档：上传文档只服务当前会话，记忆跨会话持续。
 
-**相关文档：** [记忆管理完整说明](../configuration/memory-management.md)
+**相关文档：** [记忆管理完整说明](../configuration/memory-management.md) [[guides/configuration/memory-management|记忆管理完整说明]]
 
 ---
 
@@ -86,7 +86,7 @@ AI 能记住你之前说过的事情——你的偏好、工作背景、项目�
 - **快捷键**：自定义常用操作快捷键（新建会话、发送消息等）
 - **通知**：配置任务完成、异常告警等通知的触发方式和渠道
 
-**相关文档：** [设置详解](../configuration/settings.md) · [模型配置](../../tutorials/configure-models.md)
+**相关文档：** [设置详解](../configuration/settings.md) [[guides/configuration/settings|设置详解]] · [模型配置](../../tutorials/configure-models.md) [[tutorials/configure-models|模型配置]]
 
 ---
 
@@ -116,9 +116,19 @@ AI 能记住你之前说过的事情——你的偏好、工作背景、项目�
 
 **想要更系统的学习路径？** 建议按以下顺序阅读：
 
-1. [项目介绍](../getting-started/introduction.md) → 了解 EvoFlow 是什么
-2. [5 分钟快速上手](../getting-started/quick-start.md) → 马上用起来
+1. [项目介绍](../getting-started/introduction.md) [[getting-started/introduction|项目介绍]] → 了解 EvoFlow 是什么
+2. [5 分钟快速上手](../getting-started/quick-start.md) [[getting-started/quick-start|5 分钟快速上手]] → 马上用起来
 3. 本文 → 了解基础功能全局
-4. [Plan 模式](plan-mode.md) → 学会多步协作
-5. [预设角色与团队](preset-roles.md) → 了解专业角色分工
-6. 按需阅读 [配置指南](../configuration/agent-management.md) 或 [教程系列](../../tutorials/configure-models.md)
+4. [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] → 学会多步协作
+5. [预设角色与团队](preset-roles.md) [[preset-roles|预设角色与团队]] → 了解专业角色分工
+6. 按需阅读 [配置指南](../configuration/agent-management.md) [[guides/configuration/agent-management|配置指南]] 或 [教程系列](../../tutorials/configure-models.md) [[tutorials/configure-models|教程系列]]
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 了解 EvoFlow 功能全貌
+- [[guides/chat/plan-mode|Plan 模式]] — 多步骤任务先对齐方案再执行
+- [[guides/chat/file-upload|文件上传]] — 上传文档让 AI 分析
+- [[guides/configuration/agent-management|智能体管理]] — 自定义角色配置详解
+- [[tutorials/configure-models|模型配置教程]] — 配置默认模型与参数

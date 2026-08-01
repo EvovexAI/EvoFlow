@@ -72,7 +72,7 @@ skills/custom/my-skill/
 └── refs/             # 可选：参考资料
 ```
 
-`SKILL.md` 结构详见 [技能系统原理](../../explanation/skill-system.md) 与 [创建技能（案例）](../../cases/create-skill.md)。
+`SKILL.md` 结构详见 [技能系统原理](../../explanation/skill-system.md) [[explanation/skill-system|技能系统原理]] 与 [创建技能（案例）](../../cases/create-skill.md) [[cases/create-skill|创建技能案例]]。
 
 ---
 
@@ -102,7 +102,7 @@ skills/custom/my-skill/
 | **交互** | `agent-browser`（浏览器自动化） |
 | **EvoFlow 自身** | `evoflow-intro`、`evoflow-admin`、`evoflow-debugging`、`evoflow-plan-workflow` |
 
-完整清单见 [技能参考](../../../system/reference/skills-reference.md)。
+完整清单见 [技能参考](../../../system/reference/skills-reference.md) [[system/reference/skills-reference|技能参考]]。
 
 ---
 
@@ -133,7 +133,7 @@ skills/custom/my-skill/
 
 ## 相关阅读
 
-- [技能系统原理](../../explanation/skill-system.md)
-- [创建技能（案例）](../../cases/create-skill.md)
-- [安装技能（案例）](../../cases/install-skill.md)
-- [技能参考](../../../system/reference/skills-reference.md)
+- [[explanation/skill-system|技能系统原理]] — 设计理念与配置格式
+- [[guides/configuration/agent-management|智能体管理]] — 给角色配置技能权限
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 技能与工具、MCP 的差异
+- [[cases/create-skill|创建技能案例]] — 手写 SKILL.md 实操

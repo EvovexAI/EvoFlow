@@ -39,7 +39,7 @@
 > - **职责**：每 2 小时检查一次项目仓库的新提交，执行代码审查，输出审查意见
 > - **交接审批策略**：选「平衡型」——交工带下游时中风险以上才「同意派发」
 >
-> 它会在后台自动审查代码，审查结果写到工作空间；交工后你在工作项详情或 [任务中心](../tasks/task-center.md) 看 **任务总结** 再验收。
+> 它会在后台自动审查代码，审查结果写到工作空间；交工后你在工作项详情或 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] 看 **任务总结** 再验收。
 >
 > ---
 >
@@ -62,19 +62,19 @@
 > **一句话总结**：自动化是「到点跑固定脚本」，员工是「雇了个 AI 员工上班」。
 >
 > 侧栏入口：**智能体员工**（`#/proactive`）。  
-> 概念说明见 [智能体员工是什么](../../explanation/smart-employees.md)；逐步上手见 [雇佣第一个员工](../../tutorials/hire-first-smart-employee.md)。
+> 概念说明见 [智能体员工是什么](../../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]；逐步上手见 [雇佣第一个员工](../../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个员工]]。
 
 让已有**智能体**按岗位定时上班：盯工作区、建工作项、按需审批与验收、下班写工作汇报。侧栏入口：**智能体员工**（`#/proactive`）。
 
 > **和「智能体」页不是一回事**  
 > - **智能体**（`#/expert`）：配置人设、工具、技能——「会什么」  
 > - **智能体员工**：给智能体加岗位合同（职责、工作区、心跳、审批）——「什么时候主动干、干到哪」  
-> 雇佣前须先在「智能体」页有对应 Agent（可用 [预设角色](../chat/preset-roles.md) 或 [自行创建](agent-management.md)）。
+> 雇佣前须先在「智能体」页有对应 Agent（可用 [预设角色](../chat/preset-roles.md) [[guides/chat/preset-roles|预设角色]] 或 [自行创建](agent-management.md) [[guides/configuration/agent-management|智能体管理]]）。
 
 帮助面板：雇佣岗位 → 配置职责 → 开值班 / 用小V 委派 → 审批与验收。
 
-> **怎么工作？多岗什么关系？入口与状态？** 见概念文 [智能体员工是什么](../../explanation/smart-employees.md)（两条通道、入口一览、状态流转、下游形式、何时审核）。  
-> **谁在用？组织怎么配？怎么协作？** 见专文 [组织与协作玩法](../../cases/smart-employee-playbooks.md)（八类画像，含组织树与一天故事）。
+> **怎么工作？多岗什么关系？入口与状态？** 见概念文 [智能体员工是什么](../../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]（两条通道、入口一览、状态流转、下游形式、何时审核）。  
+> **谁在用？组织怎么配？怎么协作？** 见专文 [组织与协作玩法](../../cases/smart-employee-playbooks.md) [[cases/smart-employee-playbooks|组织与协作玩法]]（八类画像，含组织树与一天故事）。
 
 ---
 
@@ -83,7 +83,7 @@
 1. 已配置可用对话模型（侧栏「模型配置」）
 2. 「智能体」页已有目标 Agent（工具权限要够：读写工作区、需要时 terminal / 飞书等）
 3. 对话侧栏已添加本机**工作空间**目录（雇佣时要从历史里选「管辖工作空间」）
-4. （可选）[飞书集成](../integration/feishu-integration.md)：扫码绑定专属飞书后，审批与工作汇报可推到对应账号
+4. （可选）[飞书集成](../integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]]：扫码绑定专属飞书后，审批与工作汇报可推到对应账号
 5. （可选）Premium / 授权：侧栏无入口或提示授权时，按许可证说明处理
 
 全局值班由面板「值班台」开关控制；若引擎被环境关闭（如 `EVOFLOW_PROACTIVE_SCHEDULER=0`），页面会提示无法连接值班服务。
@@ -108,7 +108,7 @@
 
 临时委派不必等心跳：打开全局助手 **小V**，左侧点选该员工后输入目标即可（见 [用小V 委派](#用小v-委派)）。
 
-更细的逐步教程：[雇佣第一个智能体员工](../../tutorials/hire-first-smart-employee.md)。
+更细的逐步教程：[雇佣第一个智能体员工](../../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]]。
 
 ---
 
@@ -284,7 +284,7 @@
 
 ### 飞书
 
-员工页或小V 内 **扫码绑定飞书** / 解绑；渠道页可查看岗位绑定关系。详见 [飞书集成](../integration/feishu-integration.md)。
+员工页或小V 内 **扫码绑定飞书** / 解绑；渠道页可查看岗位绑定关系。详见 [飞书集成](../integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]]。
 
 ---
 
@@ -302,7 +302,7 @@
 可按员工筛选、**隐藏已完成**。卡片可删除；标「有上游」表示来自下游接力链。待闭环时去待审批看是否卡在「同意派发」，或任务中心看下游进度。
 
 > **验收不在看板列上单独叫「待确认」**  
-> 交工后的验收主要在：**工作项详情**（状态如「待你验收 / 交工待验收」）以及 [任务中心](../tasks/task-center.md) 的「待确认」与 **任务总结**。看板用来扫进度与失败项。
+> 交工后的验收主要在：**工作项详情**（状态如「待你验收 / 交工待验收」）以及 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] 的「待确认」与 **任务总结**。看板用来扫进度与失败项。
 
 ### 待审批 vs 交工验收
 
@@ -327,7 +327,7 @@
 - 若有上游：**上游参考产物**
 - **查看完整总结** / **任务总结**（做了什么、交付了什么、如何验收）
 
-你在此 **确认完成** 或 **打回重做**；也可用 **工作轨迹**、**继续本轮**，或从 ⋯ 打开 [任务中心](../tasks/task-center.md) 详情。
+你在此 **确认完成** 或 **打回重做**；也可用 **工作轨迹**、**继续本轮**，或从 ⋯ 打开 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] 详情。
 
 任务中心「智能体员工」来源 Tab 的列表与详情也会展示任务总结，便于跨岗统一验收。
 
@@ -414,9 +414,9 @@ docs/roles/<agent_code>/<YYYYMMDD-HH>/…
 |------|--------|
 | 跟人多轮聊、临时探索 | 实时聊天 + 切换智能体 |
 | 临时把目标派给某岗、看进度汇报 | **小V 委派**（本文） |
-| 一次大型多角色软件交付 | [Plan 模式](../chat/plan-mode.md) / [任务中心](../tasks/task-center.md) |
-| 到点重复跑固定 prompt | [自动化](../tasks/scheduled-tasks.md) |
-| 流程已固定、只换参数再跑 | [应用中心](app-center.md) |
+| 一次大型多角色软件交付 | [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] / [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] |
+| 到点重复跑固定 prompt | [自动化](../tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
+| 流程已固定、只换参数再跑 | [应用中心](app-center.md) [[guides/configuration/app-center|应用中心]] |
 | 长期盯仓库/项目、主动值班与工作汇报 | **智能体员工**（本文） |
 
 值班路径默认不走聊天里的 Supervisor 大图拆派；员工在自己的岗位会话里干活（`proactive:{agent_code}`）。小V 对员工的会话与岗位会话对齐，便于委派与跟进。
@@ -438,7 +438,7 @@ docs/roles/<agent_code>/<YYYYMMDD-HH>/…
 看健康 Tab 与近几轮工作轨迹：是否无工具调用、是否一直在等审批、职责是否无法落地。试一次「现在开始工作」并收紧职责表述。
 
 **Q：交工后去哪验收？**  
-工作项详情的交工待验收，或 [任务中心](../tasks/task-center.md) 打开该任务，先看 **任务总结**，再确认完成或打回。
+工作项详情的交工待验收，或 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] 打开该任务，先看 **任务总结**，再确认完成或打回。
 
 **Q：交接审批和普通同意有何区别？**  
 普通 **同意** 放行本岗事项（少见/遗留）；**同意派发** 放行跨岗下游交接（主路径人闸）。待审批列表里有「交接审批」芯片时用后者。
@@ -457,16 +457,12 @@ docs/roles/<agent_code>/<YYYYMMDD-HH>/…
 
 ---
 
+---
+
 ## 相关阅读
 
-- [雇佣第一个智能体员工（教程）](../../tutorials/hire-first-smart-employee.md)
-- [飞书落地页文稿（复制用）](../../meta/feishu-landing-smart-employees.md)
-- [智能体员工是什么（概念）](../../explanation/smart-employees.md)
-- [智能体（角色）管理](agent-management.md) — 创建/编辑底层 Agent
-- [预设角色与团队](../chat/preset-roles.md) — 开箱 Agent，雇佣前可先复制
-- [工作空间](../chat/workspace.md) — 管辖目录从哪来
-- [飞书集成](../integration/feishu-integration.md) — 专属绑定与审批/工作汇报推送
-- [任务中心](../tasks/task-center.md) — 任务总结与交工验收
-- [EvoPanel 指南](evopanel-guide.md) — 侧栏与小V 入口
-- [案例：运维值班](../../cases/use-main-agent.md) · [代码审查员](../../cases/create-agent.md)
-- 产出路径：工作空间下 `docs/roles/<agent_code>/<YYYYMMDD-HH>/`（见仓库 `docs/roles/README.md`）
+- [[guides/configuration/agent-management|智能体管理]] — 创建/编辑底层 Agent
+- [[explanation/smart-employees|智能体员工是什么]] — 概念详解与状态流转
+- [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] — 逐步上手教程
+- [[guides/tasks/task-center|任务中心]] — 任务总结与交工验收
+- [[guides/integration/feishu-integration|飞书集成]] — 专属绑定与审批推送

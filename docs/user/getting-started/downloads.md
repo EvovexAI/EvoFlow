@@ -5,7 +5,7 @@
 > - **桌面客户端**（推荐）：去 GitHub Releases 下载安装包，Windows/macOS/Linux 都支持，双击安装即可
 > - **开发者自托管**：有 Python 3.12+ 和 Node.js 22+？用 `make config && make install && make dev` 启动
 >
-> 下载完推荐先看[5 分钟快速上手](quick-start.md)开始体验。
+> 下载完推荐先看[5 分钟快速上手](quick-start.md)开始体验。 [[quick-start|5 分钟快速上手]]
 
 ## 桌面客户端
 
@@ -25,8 +25,17 @@
 
 ### 安装后做什么
 
-打开应用，在 **设置 → 模型** 中配置 API 密钥即可开始使用。详细界面说明见 [桌面端使用指南](../guides/configuration/evopanel-guide.md)。
+打开应用，在 **设置 → 模型** 中配置 API 密钥即可开始使用。详细界面说明见 [桌面端使用指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|桌面端使用指南]]。
 
 ## 开发者自托管
 
-如果需要从源码部署后端，请参考 [安装说明](installation.md)。
+如果需要从源码部署后端，请参考 [安装说明](installation.md) [[installation|安装说明]]。
+
+---
+
+## 相关阅读
+
+- [[getting-started/quick-start|5 分钟快速上手]] — 安装后开始体验
+- [[getting-started/installation|安装指南]] — 开发者自托管部署
+- [[tutorials/configure-models|配置模型]] — 配置 API 密钥与模型
+- [[guides/configuration/evopanel-guide|EvoPanel 指南]] — 桌面端各面板入口

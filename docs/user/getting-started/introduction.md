@@ -9,7 +9,7 @@
 >
 > EvoFlow 跟传统 AI 聊天工具最大的区别是：**它不止聊天，而是真的帮你把事情做完**——从规划到执行到交付，全程可看可干预。
 >
-> 读完本文你会了解 EvoFlow 是什么、跟其他工具有什么区别。建议接着读[产品总览](product-overview.md)看看具体功能怎么串，或者直接[下载与安装](downloads.md)上手体验。
+> 读完本文你会了解 EvoFlow 是什么、跟其他工具有什么区别。建议接着读[产品总览](product-overview.md) [[product-overview|产品总览]]看看具体功能怎么串，或者直接[下载与安装](downloads.md) [[downloads|下载与安装]]上手体验。
 
 > EvoFlow 是 **EvovexAI** 旗下的**超级 Agent 编排框架**——采用 Supervisor 总控模式：用户给出目标后，系统基于 LangGraph 自主规划、调用工具、委派子 Agent、在隔离沙箱中执行，过程可观测、可干预，直至交付可验收的结果。
 >
@@ -48,7 +48,7 @@ EvoFlow 面向**希望用 Agent 真正把事情做完、而不是只聊几句**�
 
 ## 4. 核心能力一览
 
-EvoFlow 的核心能力可归纳为以下几个维度。详细功能和操作指南见 [产品总览](product-overview.md) 和各功能指南。
+EvoFlow 的核心能力可归纳为以下几个维度。详细功能和操作指南见 [产品总览](product-overview.md) [[product-overview|产品总览]] 和各功能指南。
 
 ### 长任务编排
 
@@ -160,12 +160,12 @@ EvoFlow 由四层组成，从上到下依次是：
 
 ## 9. 下一步
 
-- [产品总览](product-overview.md) — 给谁用、解决什么、功能怎么串
-- [下载与安装包说明](downloads.md) — 获取适配你系统的发行版
-- [开发者安装指南](installation.md) — 在本地完成自托管部署
-- [5 分钟快速上手](quick-start.md) — 完成第一个对话
-- [完成你的第一个任务](first-task.md) — 体验 Agent 自主完成一项工作
-- [操作指南目录](../guides/README.md) — 深入各功能的细节
+- [产品总览](product-overview.md) — 给谁用、解决什么、功能怎么串 [[product-overview|产品总览]]
+- [下载与安装包说明](downloads.md) — 获取适配你系统的发行版 [[downloads|下载与安装包说明]]
+- [开发者安装指南](installation.md) — 在本地完成自托管部署 [[installation|开发者安装指南]]
+- [5 分钟快速上手](quick-start.md) — 完成第一个对话 [[quick-start|5 分钟快速上手]]
+- [完成你的第一个任务](first-task.md) — 体验 Agent 自主完成一项工作 [[first-task|完成你的第一个任务]]
+- [操作指南目录](../guides/README.md) — 深入各功能的细节 [[guides/README|操作指南目录]]
 
 ## 10. 支持
 
@@ -173,6 +173,15 @@ EvoFlow 由四层组成，从上到下依次是：
 |------|------|
 | [GitHub Issues](https://github.com/EvovexAI/EvoFlow/issues) | Bug 反馈、功能建议 |
 | [cloud@evovexai.com](mailto:cloud@evovexai.com) | 商务与合作咨询 |
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径，了解各功能怎么串
+- [[explanation/why-evoflow|为什么是 EvoFlow]] — 设计理念与产品定位
+- [[guides/chat/plan-mode|Plan 模式]] — 先对齐方案再执行，适合复杂多步任务
+- [[guides/configuration/agent-management|智能体管理]] — 角色配置详解
 
 ---
 

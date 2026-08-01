@@ -11,7 +11,7 @@
 >
 > 每轮最多 3 个子 AI 同时跑，默认超时 15 分钟。读完本文你会了解子 AI 的调度机制、并发限制和超时配置。
 >
-> **功能关系**：子 Agent 是 [Agent 系统](agent-system.md) 的扩展能力——Lead Agent 通过 `task` 工具委派子任务，子 Agent 共享主 Agent 的线程上下文但拥有独立的执行环境。与 [外部 ACP Agent](agent-system.md) 不同，子 Agent 运行在内置 LangGraph 线程中，通过 SSE 事件实时反馈进度。并发控制机制（`SubagentLimitMiddleware`）是 Lead Agent 中间件链的一部分。
+> **功能关系**：子 Agent 是 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 的扩展能力——Lead Agent 通过 `task` 工具委派子任务，子 Agent 共享主 Agent 的线程上下文但拥有独立的执行环境。与 [外部 ACP Agent](agent-system.md) [[explanation/agent-system|外部 ACP Agent]] 不同，子 Agent 运行在内置 LangGraph 线程中，通过 SSE 事件实时反馈进度。并发控制机制（`SubagentLimitMiddleware`）是 Lead Agent 中间件链的一部分。
 
 ## 背景
 
@@ -127,5 +127,15 @@ subagents:
 
 ## 延伸阅读
 
-- [Agent 系统架构](agent-system.md) — Agent 主循环与中间件
-- [技能系统](skill-system.md) — 技能加载与注入
+- [Agent 系统架构](agent-system.md) [[explanation/agent-system|Agent 系统架构]] — Agent 主循环与中间件
+- [技能系统](skill-system.md) [[explanation/skill-system|技能系统]] — 技能加载与注入
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[explanation/why-evoflow|核心架构与设计原则]] — 四层架构
+- [[tutorials/multi-agent-collab|多智能体协作教程]] — 团队协作

@@ -12,7 +12,7 @@
 >
 > 读完本文你会了解 Agent 从创建到执行的完整生命周期，包括模型选择、工具组装、中间件编排等机制。
 >
-> **功能关系**：Agent 是 EvoFlow 的核心执行单元，它整合了[技能系统](skill-system.md)（通过系统提示注入 SKILL.md 内容）、[记忆系统](memory-system.md)（通过 `<memory>` 标签注入事实）、[子 Agent 系统](subagent-system.md)（通过 `task` 工具委派并行任务）以及模型、沙箱、MCP 等模块。理解 Agent 系统是理解其他所有子系统如何协作的前提。
+> **功能关系**：Agent 是 EvoFlow 的核心执行单元，它整合了[技能系统](skill-system.md) [[explanation/skill-system|技能系统]]（通过系统提示注入 SKILL.md 内容）、[记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]]（通过 `<memory>` 标签注入事实）、[子 Agent 系统](subagent-system.md) [[explanation/subagent-system|子 Agent 系统]]（通过 `task` 工具委派并行任务）以及模型、沙箱、MCP 等模块。理解 Agent 系统是理解其他所有子系统如何协作的前提。
 
 ## 背景
 
@@ -132,5 +132,16 @@ agents/
 
 ## 延伸阅读
 
-- [子 Agent 系统](subagent-system.md) — 子 Agent 委派机制
-- [技能系统](skill-system.md) — 技能加载与注入
+- [子 Agent 系统](subagent-system.md) [[explanation/subagent-system|子 Agent 系统]] — 子 Agent 委派机制
+- [技能系统](skill-system.md) [[explanation/skill-system|技能系统]] — 技能加载与注入
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/memory-system|记忆系统原理]] — 跨会话记忆
+- [[explanation/mind-map-system|思维导图系统]] — 单会话追溯
+- [[explanation/why-evoflow|核心架构与设计原则]] — 四层架构
+- [[explanation/skill-system|技能系统原理]] — 领域知识包

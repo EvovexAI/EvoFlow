@@ -21,11 +21,11 @@
 | 你想做的事 | 推荐路径 |
 |----------|---------|
 | **到点重复**固定指令（每天 9 点出日报） | **自动化**（本文） |
-| 复杂多角色、要看板观测的一次性工程 | [任务中心](task-center.md) |
-| 流程已固定、只换参数再跑 | [应用中心](../configuration/app-center.md) |
-| 岗位定时上班、审批与工作汇报 | [智能体员工](../configuration/smart-employees.md) |
-| 单会话边聊边拆步 | [Plan 模式](../chat/plan-mode.md)（聊天顶栏） |
-| 开放长任务、聊天里自驱多轮 | [目标 Agent](../chat/goal-agent.md)（**实时聊天 Goal 模式**，不是任务中心，也不是本页） |
+| 复杂多角色、要看板观测的一次性工程 | [任务中心](task-center.md) [[guides/tasks/task-center|任务中心]] |
+| 流程已固定、只换参数再跑 | [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
+| 岗位定时上班、审批与工作汇报 | [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] |
+| 单会话边聊边拆步 | [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]（聊天顶栏） |
+| 开放长任务、聊天里自驱多轮 | [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]]（**实时聊天 Goal 模式**，不是任务中心，也不是本页） |
 
 自动化特征：**频率固定、内容相对稳定、不需要人盯**。
 
@@ -113,7 +113,7 @@ Prompt 宜具体，少寒暄。例：「汇总昨日本仓库 PR 与 Issue 变�
 
 ## 五、推送结果
 
-1. 先在设置 / 消息渠道配好飞书等（见 [飞书集成](../integration/feishu-integration.md)、[IM 渠道](../integration/im-channels.md)）
+1. 先在设置 / 消息渠道配好飞书等（见 [飞书集成](../integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]]、[IM 渠道](../integration/im-channels.md) [[guides/integration/im-channels|IM 渠道]]）
 2. 编辑自动化 → **完成后推送结果** → 选 **推送渠道**
 3. 跑一次（或等下次到点）验证渠道能收到
 
@@ -130,7 +130,7 @@ Prompt 宜具体，少寒暄。例：「汇总昨日本仓库 PR 与 Issue 变�
 
 **记忆开关 ≠ 自动 sticky。** 多数日报类任务保持记忆关闭、每次独立更干净。
 
-深读：[自动化调度参考](automation-scheduler.md)。
+深读：[自动化调度参考](automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化调度参考]]。
 
 ---
 
@@ -152,15 +152,15 @@ Prompt 宜具体，少寒暄。例：「汇总昨日本仓库 PR 与 Issue 变�
 自动化 = 定时跑固定 Prompt；任务中心 = 多步骤协作任务的看板与观测。二者入口、数据模型都不同。
 
 **Q：目标 Agent 在哪？**  
-实时聊天的 **Goal** 模式，见 [目标 Agent](../chat/goal-agent.md)。不在任务中心，也不在本页。
+实时聊天的 **Goal** 模式，见 [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]]。不在任务中心，也不在本页。
 
 ---
 
 ## 相关阅读
 
-- [自动化调度参考](automation-scheduler.md) — 环境变量、API、sticky/fresh、存储
-- [任务中心](task-center.md)
-- [目标 Agent](../chat/goal-agent.md)
-- [智能体员工](../configuration/smart-employees.md)
-- [应用中心](../configuration/app-center.md)
-- [教程：自动化任务](../../tutorials/automation-task.md)
+- [自动化调度参考](automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化调度参考]] — 环境变量、API、sticky/fresh、存储
+- [任务中心](task-center.md) [[guides/tasks/task-center|任务中心]] — 多步骤协作任务看板
+- [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] — 长程自驱任务
+- [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] — 定时值班与审批
+- [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] — 固定流程填参再跑
+- [教程：自动化任务](../../tutorials/automation-task.md) [[tutorials/automation-task|自动化任务教程]]

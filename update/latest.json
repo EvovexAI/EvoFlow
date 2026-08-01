@@ -1,12 +1,10 @@
 {
-  "assetKind": "installer",
   "version": "0.3.8",
-  "notes": "**EvoFlow v0.3.8 — 正式版更新**",
-  "hash": "sha256:8bb0cd6d1d262e23c45088b42ae06f73de2eebb71405aeabccc858022b00cb1b",
-  "pub_date": "2026-07-31T04:34:19Z",
-  "changelog": "**EvoFlow v0.3.8 — 正式版更新**",
-  "size": 574368320,
-  "releasedAt": "2026-07-31T04:34:19Z",
+  "minAppVersion": "0.3.8",
+  "assetKind": "installer",
+  "hash": "sha256:fc15617517781f71ace465dee4ed5cd06588750554583152abafd42a674ce36f",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.8/EvoFlow_0.3.8_x64-setup.exe",
-  "minAppVersion": "0.3.8"
+  "size": 388129251,
+  "changelog": "正式版 v0.3.8：写入文件可实时预览进度与正文；侧栏品牌与扩展入口更清晰。",
+  "releasedAt": "2026-07-28T00:00:00Z"
 }

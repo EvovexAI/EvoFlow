@@ -75,7 +75,7 @@ EvoFlow 内置一组工具，**按场景渐进暴露**给 Agent——避免一�
 | **可观测性** | `mind_map` | 实时落知识图谱，便于排障与回放 |
 | **澄清** | `ask_clarification` | 结构化向用户提问 |
 
-完整工具清单见 [工具参考](../../../system/reference/tool-reference.md)。
+完整工具清单见 [工具参考](../../../system/reference/tool-reference.md) [[system/reference/tool-reference|工具参考]]。
 
 ### 场景与工具集
 
@@ -88,7 +88,7 @@ EvoFlow 内置一组工具，**按场景渐进暴露**给 Agent——避免一�
 | **plan（Plan 模式）** | + `plan`、`supervisor`、`subagent` |
 | **创意媒体** | + 各厂商生图 / 生视频 / TTS 相关工具 |
 
-详细映射见 [工作空间](../chat/workspace.md) 与各场景文档。
+详细映射见 [工作空间](../chat/workspace.md) [[guides/chat/workspace|工作空间]] 与各场景文档。
 
 ### 给 Agent 精细授权工具
 
@@ -181,7 +181,7 @@ EvoFlow 支持三种 MCP 传输类型：
 | **puppeteer** | stdio | 浏览器自动化 | `npx -y @modelcontextprotocol/server-puppeteer` |
 | **memory** | stdio | 持久化键值存储 | `npx -y @modelcontextprotocol/server-memory` |
 | **sequential-thinking** | stdio | 复杂推理辅助 | `npx -y @modelcontextprotocol/server-sequential-thinking` |
-| **lark / 飞书** | stdio | 飞书消息、文档、日历 | 见 [飞书集成](../integration/feishu-integration.md) |
+| **lark / 飞书** | stdio | 飞书消息、文档、日历 | 见 [飞书集成](../integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]] |
 | **自建 HTTP MCP** | streamable-http | 公司内部系统接入 | 自定义 URL + OAuth |
 
 > 列表会随 MCP 生态更新；最新清单见 [MCP 官方目录](https://modelcontextprotocol.io/clients) 与「市场」Tab。
@@ -404,9 +404,8 @@ MCP 服务器自己暴露的工具粒度由其实现决定，EvoFlow 当前**不
 
 ## 相关阅读
 
-- [MCP 官方文档](https://modelcontextprotocol.io)
-- [智能体管理](agent-management.md) — 给角色配权限
-- [技能管理](skill-management.md) — Skill 与 MCP 的差异
-- [会话调试](../../../system/reference/architecture.md) — 工具调用排查
-- [沙箱模式配置](sandbox-config.md)
-- [飞书集成](../integration/feishu-integration.md)
+- [[guides/configuration/agent-management|智能体管理]] — 给角色配权限
+- [[guides/configuration/skill-management|技能管理]] — Skill 与 MCP 的差异
+- [[guides/configuration/sandbox-config|沙箱模式配置]] — 执行环境安全
+- [[guides/configuration/settings|面板设置]] — 环境变量与工具审批策略
+- [[guides/integration/feishu-integration|飞书集成]] — MCP 集成示例

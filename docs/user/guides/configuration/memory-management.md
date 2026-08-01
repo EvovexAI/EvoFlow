@@ -17,11 +17,11 @@
 
 简单说，记忆就是 AI 记住的"关于你的事实"——比如你的名字、工作背景、偏好。每个自定义角色有独立的记忆文件，互不污染。
 
-> 记忆存的是"偏好和事实"，跟[上传文档（RAG）](document-knowledge-base.md)（存文档内容）和[知识库（Vault）](knowledge-vault.md)（存笔记）不同。三者分工见文末的表格。
+> 记忆存的是"偏好和事实"，跟[上传文档（RAG）](document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档 RAG]]（存文档内容）和[知识库（Vault）](knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]]（存笔记）不同。三者分工见文末的表格。
 
 工作原理：每次对话结束后，AI 自动从对话中提取有用信息，异步写入记忆文件。整个过程不需要你手动操作——你只需要在面板里查看、编辑或删除记忆就行。
 
-> 底层机制（更新队列、防抖、原子写入）见[记忆系统原理](../../explanation/memory-system.md)。
+> 底层机制（更新队列、防抖、原子写入）见[记忆系统原理](../../explanation/memory-system.md) [[explanation/memory-system|记忆系统原理]]。
 
 ## 在面板中管理记忆
 
@@ -79,7 +79,16 @@ curl http://localhost:8001/api/memory/status
 系统会自动过滤包含文件上传描述的事实，避免跨会话残留临时文件引用。
 
 ## 相关文档
-- [EvoFlow 桌面端使用指南](evopanel-guide.md)
-- [上传文档（RAG）](document-knowledge-base.md) — 向量知识库，不是 memory.json
-- [知识库（Vault）](knowledge-vault.md) — Obsidian / Markdown 本地库
-- [会话文件上传](../chat/file-upload.md) — 仅当前线程
+- [EvoFlow 桌面端使用指南](evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]]
+- [上传文档（RAG）](document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档 RAG]] — 向量知识库，不是 memory.json
+- [知识库（Vault）](knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]] — Obsidian / Markdown 本地库
+- [会话文件上传](../chat/file-upload.md) [[guides/chat/file-upload|文件上传]] — 仅当前线程
+
+---
+
+## 相关阅读
+
+- [[guides/configuration/knowledge-vault|知识库（Obsidian Vault）]] — 笔记库 vs 记忆的分工
+- [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 记忆面板操作
+- [[explanation/memory-system|记忆系统原理]] — 底层机制详述
+- [[guides/chat/file-upload|文件上传]] — 会话级文件解析

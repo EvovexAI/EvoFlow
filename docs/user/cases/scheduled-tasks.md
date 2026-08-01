@@ -77,7 +77,17 @@ AI 收到后，会调用 `plan` 工具生成多步骤任务，每个步骤自动
 
 ## 关联文档
 
-- [任务中心](../guides/tasks/task-center.md)
-- [Plan 模式](../guides/chat/plan-mode.md)
-- [预设角色与项目团队](../guides/chat/preset-roles.md)
-- [应用中心](../guides/configuration/app-center.md)
+- [任务中心](../guides/tasks/task-center.md) [[guides/tasks/task-center|任务中心]]
+- [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]
+- [预设角色与项目团队](../guides/chat/preset-roles.md) [[guides/chat/preset-roles|预设角色与项目团队]]
+- [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[guides/tasks/task-center|任务中心指南]] — 看板与工作流
+- [[explanation/subagent-system|子 Agent 系统]] — 并行委派机制
+- [[tutorials/multi-agent-collab|多智能体协作教程]] — 团队协作

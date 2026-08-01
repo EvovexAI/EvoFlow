@@ -19,7 +19,7 @@
 
 ## 前置条件
 
-- 已完成 [安装](../getting-started/installation.md)
+- 已完成 [安装](../getting-started/installation.md) [[getting-started/installation|安装]]
 - EvoFlow 服务正在运行
 - （可选）已接入消息渠道（飞书、Slack 等）用于推送结果
 
@@ -134,7 +134,7 @@ AI 会帮你确认配置并创建，和 GUI 创建效果一样。
 
 如果你**习惯编辑配置文件**，或者需要批量管理多个自动化任务，也可以使用 TOML 方式。
 
-> 以下内容为**替代方案**，对大多数用户来说直接用 GUI 面板更简单。需要了解 TOML 完整字段和运维配置的，参考 [自动化任务调度指南](../guides/tasks/automation-scheduler.md)。
+> 以下内容为**替代方案**，对大多数用户来说直接用 GUI 面板更简单。需要了解 TOML 完整字段和运维配置的，参考 [自动化任务调度指南](../guides/tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度指南]]。
 
 ### 创建任务目录
 
@@ -171,7 +171,7 @@ memory_enabled = false
 | `workspace` | 否 | Agent 执行时的工作目录 |
 | `memory_enabled` | 否 | 是否使用记忆，默认 `false` |
 
-完整字段参考见 [自动化任务调度指南](../guides/tasks/automation-scheduler.md)。
+完整字段参考见 [自动化任务调度指南](../guides/tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度指南]]。
 
 ---
 
@@ -181,6 +181,17 @@ memory_enabled = false
 
 ## 下一步
 
-- [自动化任务调度详解](../guides/tasks/automation-scheduler.md) -- 深入了解调度器原理、高级配置和故障排查
-- [接入飞书消息渠道](setup-im-channel.md) -- 配置飞书渠道和获取凭证
-- [创建自定义 Agent](create-agent.md) -- 为自动化任务配置专用 Agent
+- [自动化任务调度详解](../guides/tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度详解]] -- 深入了解调度器原理、高级配置和故障排查
+- [接入飞书消息渠道](setup-im-channel.md) [[tutorials/setup-im-channel|接入飞书消息渠道]] -- 配置飞书渠道和获取凭证
+- [创建自定义 Agent](create-agent.md) [[tutorials/create-agent|创建自定义 Agent]] -- 为自动化任务配置专用 Agent
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[guides/tasks/automation-scheduler|自动化调度指南]] — 配置与排障
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[tutorials/setup-im-channel|接入消息渠道教程]] — 飞书/Telegram
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 为自动化配置专用角色

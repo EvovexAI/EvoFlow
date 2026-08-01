@@ -6,8 +6,8 @@
 >
 > **应用中心**——把跑通的工作流固化下来，以后填参数就能再跑。不用每次从零跟 AI 说一遍。
 >
-> 第一次接触员工模块：先看教程 [雇佣第一个智能体员工](../tutorials/hire-first-smart-employee.md) 与概念 [智能体员工是什么](../explanation/smart-employees.md)。  
-> **按行业组队、看组织树与协作故事**：优先读 [智能体员工：谁在用、组织怎么配、怎么协作](smart-employee-playbooks.md)。
+> 第一次接触员工模块：先看教程 [雇佣第一个智能体员工](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] 与概念 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]。  
+> **按行业组队、看组织树与协作故事**：优先读 [智能体员工：谁在用、组织怎么配、怎么协作](smart-employee-playbooks.md) [[cases/smart-employee-playbooks|智能体员工：谁在用、组织怎么配、怎么协作]]。
 
 ## 案例列表
 
@@ -33,3 +33,13 @@
 6. **全栈项目交付** → 任务中心驾驶舱 + 项目团队协作  
 7. **数据分析师每周出报表** → 员工 + 应用中心的组合拳  
 8. **总控智能体模式** → 多智能体协同的终极形态
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[cases/smart-employee-playbooks|组织与协作玩法]] — 画像与协作全景
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手

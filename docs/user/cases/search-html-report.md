@@ -66,6 +66,17 @@
 
 ## 关联文档
 
-- [智能体员工](../guides/configuration/smart-employees.md)
-- [应用中心](../guides/configuration/app-center.md)
-- [深度研究技能](../guides/configuration/skills.md)
+- [智能体员工](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]
+- [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]
+- [深度研究技能](../guides/configuration/skills.md) [[guides/configuration/skills|深度研究技能]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[guides/configuration/app-center|应用中心指南]] — 配置与操作
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元

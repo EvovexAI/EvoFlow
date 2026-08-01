@@ -11,6 +11,15 @@
 | `explanation/` | 概念说明（为何这样设计、Agent/技能/记忆等） |
 | `meta/` | 术语表 |
 
-**推荐阅读顺序**：[产品总览](getting-started/product-overview.md)（给谁用 · 解决什么 · 功能怎么串）→ 安装上手 → 重要模块可先看 [雇佣第一个智能体员工](tutorials/hire-first-smart-employee.md) → 按需打开 `guides/`。
+**推荐阅读顺序**：[产品总览](getting-started/product-overview.md) [[getting-started/product-overview|产品总览]]（给谁用 · 解决什么 · 功能怎么串）→ 安装上手 → 重要模块可先看 [雇佣第一个智能体员工](tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] → 按需打开 `guides/`。
 
 > 内部架构文档见 `docs/system/`，不要将需求稿、接口字段说明、内部设计文档放入本库。
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[getting-started/quick-start|快速上手]] — 5 分钟开始
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手
+- [[tutorials/configure-models|配置模型教程]] — 模型配置

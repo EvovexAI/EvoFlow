@@ -8,11 +8,11 @@
 >
 > 预设角色就是"开箱即用的专家"——系统已经帮你调好了 SOUL（人设）、工具白名单、技能绑定，你直接选人干活就行。
 >
-> 预设角色是[Plan 模式](plan-mode.md)和[任务中心](../tasks/task-center.md)多角色协作的执行单元；自定义角色通过[智能体管理](../configuration/agent-management.md)创建；定时值班用[智能体员工](../configuration/smart-employees.md)。
+> 预设角色是[Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]]和[任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]多角色协作的执行单元；自定义角色通过[智能体管理](../configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]]创建；定时值班用[智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。
 
 EvoFlow 内置一套**预设角色（Agent）**——开箱即用、按场景调好 SOUL / 工具 / 技能 / MCP 的智能体。预设角色按职责聚合成「Agent Teams（团队）」，让你在不同工作场景一键挑到合适的执行者，或在 Plan 模式 / 任务中心把多个角色组合起来跑大工程。
 
-本文讲：四大预设团队的定位、怎么用、与自定义角色和 Plan 模式的关系。新建自己角色的细节流程见 [智能体管理](../configuration/agent-management.md)；若要定时主动上班，见 [智能体员工](../configuration/smart-employees.md)。
+本文讲：四大预设团队的定位、怎么用、与自定义角色和 Plan 模式的关系。新建自己角色的细节流程见 [智能体管理](../configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]]；若要定时主动上班，见 [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。
 
 ---
 
@@ -118,7 +118,7 @@ EvoFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent 管
 
 审查角色只读、不写、不删，比给主智能体临时加一堆约束省事。
 
-详见 [Plan 模式](plan-mode.md) 与 [项目级 Plan 流程](project-team-plan-workflow.md)。
+详见 [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] 与 [项目级 Plan 流程](project-team-plan-workflow.md) [[project-team-plan-workflow|项目级 Plan 流程]]。
 
 
 ---
@@ -188,10 +188,10 @@ EvoFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent 管
 
 ## 相关阅读
 
-- [智能体管理](../configuration/agent-management.md) — 自定义角色完整创建流程
-- [智能体员工](../configuration/smart-employees.md) — 雇佣为定时值班岗
-- [Plan 模式](plan-mode.md) — 单会话内多步骤协作
-- [项目级 Plan 流程](project-team-plan-workflow.md) — 项目团队 6 角色协作详解
-- [任务中心](../tasks/task-center.md) — 跨会话多角色任务调度
-- [工具与 MCP](../configuration/tools-mcp.md) — 工具白名单原理
-- [基础功能](basic-functions.md) — 项目 / 工作空间 / 角色 三者关系
+- [智能体管理](../configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] — 自定义角色完整创建流程
+- [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] — 雇佣为定时值班岗
+- [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] — 单会话内多步骤协作
+- [项目级 Plan 流程](project-team-plan-workflow.md) [[project-team-plan-workflow|项目级 Plan 流程]] — 项目团队 6 角色协作详解
+- [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] — 跨会话多角色任务调度
+- [工具与 MCP](../configuration/tools-mcp.md) [[guides/configuration/tools-mcp|工具与 MCP]] — 工具白名单原理
+- [基础功能](basic-functions.md) [[basic-functions|基础功能]] — 项目 / 工作空间 / 角色 三者关系

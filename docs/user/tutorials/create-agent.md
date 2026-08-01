@@ -17,7 +17,7 @@
 
 ## 前置条件
 
-- 已完成 [安装](../getting-started/installation.md)
+- 已完成 [安装](../getting-started/installation.md) [[getting-started/installation|安装]]
 - 已配置至少一个模型
 
 ## 预计用时
@@ -60,5 +60,16 @@ Agent 是 EvoFlow 中具有特定角色和能力的智能体。每个 Agent 可�
 
 ## 下一步
 
-- [添加自定义技能](add-skill.md) — 扩展 Agent 的能力
-- [多智能体协作](multi-agent-collab.md) — 让多个 Agent 协同工作
+- [添加自定义技能](add-skill.md) [[tutorials/add-skill|添加自定义技能]] — 扩展 Agent 的能力
+- [多智能体协作](multi-agent-collab.md) [[tutorials/multi-agent-collab|多智能体协作]] — 让多个 Agent 协同工作
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[guides/configuration/agent-management|智能体管理指南]] — 配置与操作
+- [[tutorials/configure-models|配置模型教程]] — 模型配置
+- [[tutorials/multi-agent-collab|多智能体协作教程]] — 团队协作

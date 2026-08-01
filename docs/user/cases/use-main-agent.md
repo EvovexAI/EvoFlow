@@ -61,7 +61,18 @@
 
 ## 关联文档
 
-- [雇佣第一个智能体员工（教程）](../tutorials/hire-first-smart-employee.md)
-- [智能体员工是什么（概念）](../explanation/smart-employees.md)
-- [智能体员工完整指南](../guides/configuration/smart-employees.md)
-- [智能体（角色）管理](../guides/configuration/agent-management.md)
+- [雇佣第一个智能体员工（教程）](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工（教程）]]
+- [智能体员工是什么（概念）](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么（概念）]]
+- [智能体员工完整指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工完整指南]]
+- [智能体（角色）管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体（角色）管理]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[guides/configuration/smart-employees|智能体员工指南]] — 配置与操作
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手
+- [[guides/tasks/task-center|任务中心]] — 跨来源任务驾驶舱

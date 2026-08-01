@@ -8,9 +8,9 @@
 > - **写竞品报告**：说"帮我调研 8 家国产 AI Agent 平台，对比产品定位、定价、最近 3 个月动态，什么时候觉得够了就停"
 > - **长期工程改造**：说"把 backend/app/channels/ 下的消息格式化重构为独立模块，拆文件、补类型注解、加单测，跑通过才算完"
 >
-> 设定后 AI 会在后台自己规划、执行、自检、调整，你可以去干别的事。跑的时候随时暂停看看进度，或者补充指令。跟[Plan 模式](plan-mode.md)的区别是：目标不用你每一步确认，自己跑完为止。
+> 设定后 AI 会在后台自己规划、执行、自检、调整，你可以去干别的事。跑的时候随时暂停看看进度，或者补充指令。跟[Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]]的区别是：目标不用你每一步确认，自己跑完为止。
 >
-> 与[自动化](../tasks/scheduled-tasks.md)组合使用效果更好——自动化到点启动目标；目标也可以在[任务中心](../tasks/task-center.md)查看运行记录。
+> 与[自动化](../tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]]组合使用效果更好——自动化到点启动目标；目标也可以在[任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]查看运行记录。
 
 目标智能体是 EvoFlow 的**长程自驱能力**——你下达一个目标，主智能体自行规划、执行、自检、调整，按步数或时长边界自动停止；中途可暂停、补充指令、终止，结束后可推送结果到飞书等渠道。
 
@@ -28,8 +28,8 @@
 | 定期检查 / 监控 / 数据汇总 | ✅ 设小时级或天级步数 |
 | 长任务的迭代式推进（写论文、做调研、改造工程） | ✅ 让它自驱多轮推进 |
 | 一次性问答 / 简短代码改造 | ❌ 普通对话即可 |
-| 严格按时间触发的周期任务 | ❌ 用 [自动化](../tasks/scheduled-tasks.md) 更合适 |
-| 多角色协作的工程交付 | ❌ 用 [任务中心](../tasks/task-center.md) + 项目团队 |
+| 严格按时间触发的周期任务 | ❌ 用 [自动化](../tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] 更合适 |
+| 多角色协作的工程交付 | ❌ 用 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] + 项目团队 |
 
 **目标 vs 自动化**：目标是"持续推进一件事直到完成或边界"，定时是"到点跑一次"。
 
@@ -196,7 +196,7 @@ idle ──启动──▶ running ──需补充信息──▶ waiting ──
 如果配置了 `feishu_push_on_complete=true` 且飞书渠道已就绪：
 
 - 目标自然结束 / 被终止 / 异常停止 → **自动推送 Markdown 总结**到默认会话（与自动化同源：config 配置或入站学习的 chat_id）
-- 飞书群内发送 `开始` / `确认` / `继续` 等指令，可在 EvoFlow 在线且已连接网关时**触发桌面侧应用目标方案并启动**（联动详情见 [飞书集成](../integration/feishu-integration.md)）
+- 飞书群内发送 `开始` / `确认` / `继续` 等指令，可在 EvoFlow 在线且已连接网关时**触发桌面侧应用目标方案并启动**（联动详情见 [飞书集成](../integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]]）
 
 **推送内容包含**：
 
@@ -229,7 +229,7 @@ idle ──启动──▶ running ──需补充信息──▶ waiting ──
 打开"运行日志"看最近一轮：常见是模型连接失败 → 检查模型配置；或主控转 `waiting` 等待人工答复 → 在聊天框补一句即可继续；或达到 `auto_stop_minutes` 自然结束。
 
 **Q：能不能让多个目标并行？**
-当前**一个会话同时只允许 1 个活跃目标**；要并行多个任务请开多个会话或拆 Plan 子任务。多会话并行运行时模型并发受 Gateway 配置限制（详见 [自动化任务调度](../tasks/automation-scheduler.md)）。
+当前**一个会话同时只允许 1 个活跃目标**；要并行多个任务请开多个会话或拆 Plan 子任务。多会话并行运行时模型并发受 Gateway 配置限制（详见 [自动化任务调度](../tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度]]）。
 
 **Q：目标会改自己的提示词 / 加技能吗？**
 普通模式**不会**——主智能体只在用户授权的工具集内工作。启用「持续进化」后才会允许 `self-evolution` 类操作，建议仅在受控实验场景启用。
@@ -262,9 +262,9 @@ idle ──启动──▶ running ──需补充信息──▶ waiting ──
 
 ## 相关阅读
 
-- [自动化](../tasks/scheduled-tasks.md) — 到点触发的搭档
-- [Plan 模式](plan-mode.md) — 单会话多步执行
-- [任务中心](../tasks/task-center.md) — 多角色协作大工程
-- [飞书集成](../integration/feishu-integration.md) — IM 推送配置
-- [自动化任务调度](../tasks/automation-scheduler.md) — Gateway 并发与超时
-- [预设角色与团队](preset-roles.md) — 选择合适的执行角色
+- [自动化](../tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] — 到点触发的搭档
+- [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] — 单会话多步执行
+- [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] — 多角色协作大工程
+- [飞书集成](../integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]] — IM 推送配置
+- [自动化任务调度](../tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度]] — Gateway 并发与超时
+- [预设角色与团队](preset-roles.md) [[preset-roles|预设角色与团队]] — 选择合适的执行角色

@@ -11,7 +11,7 @@
 >
 > 聊天记录看"说了什么"，思维导图看"在想什么、追哪条线"。适合排查长任务卡顿、回看决策链。
 >
-> **功能关系**：思维导图与[记忆系统](memory-system.md) 互补——记忆系统解决跨会话的用户偏好记忆，思维导图解决单会话的调查链路可追溯性。思维导图由 AI 在排查、读代码、改文件的过程中自动构建，是 [Agent 系统](agent-system.md) 工作过程中的辅助记录层，帮助 AI 在长会话中不丢失上下文和证据链。
+> **功能关系**：思维导图与[记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]] 互补——记忆系统解决跨会话的用户偏好记忆，思维导图解决单会话的调查链路可追溯性。思维导图由 AI 在排查、读代码、改文件的过程中自动构建，是 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 工作过程中的辅助记录层，帮助 AI 在长会话中不丢失上下文和证据链。
 
 ## 背景
 
@@ -214,3 +214,12 @@ AI 在排查过程中——读文件、搜索代码、跑命令——每一步�
 2. **关注分支状态**：如果 AI 说"已解决"但对应 `flow:` 还是 `active`，说明可能还没真正验证完。
 3. **善用图表节点**：遇到调用链复杂的情况，可以让 AI 生成 `diagram:` 节点可视化。
 4. **不要手动维护**：思维导图是 AI 自动构建的，手动编辑容易破坏图的一致性约束。
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/memory-system|记忆系统原理]] — 跨会话记忆
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[explanation/skill-system|技能系统原理]] — 领域知识包
+- [[guides/configuration/knowledge-vault|知识库 Vault]] — 笔记管理

@@ -8,14 +8,14 @@
 > - **写一份带数据图表的周报**：先让 AI 列出"搜集数据→做图表→写报告"三步计划，每步出结果你确认
 > - **部署一个服务到服务器**：先规划"环境检查→配置→部署→验证"四步，每一步你验收完再走下一步
 >
-> Plan 模式的核心是：**先定稿计划再授权执行**，避免 AI 一上来就瞎干。跟[目标智能体](goal-agent.md)的区别是：Plan 是"你说好再做"，目标是"你说了它自己跑"。
+> Plan 模式的核心是：**先定稿计划再授权执行**，避免 AI 一上来就瞎干。跟[目标智能体](goal-agent.md) [[goal-agent|目标智能体]]的区别是：Plan 是"你说好再做"，目标是"你说了它自己跑"。
 >
-> 计划落库后可以在[任务中心](../tasks/task-center.md)跨会话查看和管理；步骤可指定[项目团队](preset-roles.md)角色（如 `project-architect`、`project-implementer`）作为执行人。
+> 计划落库后可以在[任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]跨会话查看和管理；步骤可指定[项目团队](preset-roles.md) [[preset-roles|项目团队]]角色（如 `project-architect`、`project-implementer`）作为执行人。
 
 复杂多步骤任务：先澄清并调用 `plan` **落库** → 输入框上方确认条授权 → Supervisor 按步骤图执行。计划正文在**主任务表**，不是工作区里的 `plan.md`。
 
 > **入口**：聊天输入框底部模式药丸选 **Plan**（Ask / Agent / Plan）。  
-> **不是**顶栏「任务规划」场景名；也**不是** [目标 Agent](goal-agent.md)（Goal 是另一套长程自驱）。
+> **不是**顶栏「任务规划」场景名；也**不是** [目标 Agent](goal-agent.md) [[goal-agent|目标 Agent]]（Goal 是另一套长程自驱）。
 
 ---
 
@@ -24,12 +24,12 @@
 | 你想做的事 | 用 |
 |----------|-----|
 | 单会话多步、先对齐再授权执行 | **Plan**（本文） |
-| 跨会话看板、暂停/验收多任务 | [任务中心](../tasks/task-center.md)（Plan 落库后会出现在来源「对话」） |
-| 固定流程填参再跑 | [应用中心](../configuration/app-center.md)（确认条可「另存为应用」） |
-| 到点重复固定 Prompt | [自动化](../tasks/scheduled-tasks.md) |
-| 开放长任务自驱 | [目标 Agent](goal-agent.md)（聊天 Goal，与 Plan 无关） |
+| 跨会话看板、暂停/验收多任务 | [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]（Plan 落库后会出现在来源「对话」） |
+| 固定流程填参再跑 | [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]]（确认条可「另存为应用」） |
+| 到点重复固定 Prompt | [自动化](../tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
+| 开放长任务自驱 | [目标 Agent](goal-agent.md) [[goal-agent|目标 Agent]]（聊天 Goal，与 Plan 无关） |
 
-项目团队（`project-*`）是 Plan 步骤上的**执行人**，不是第二套 Plan，见 [项目级 Plan 流程](project-team-plan-workflow.md)。
+项目团队（`project-*`）是 Plan 步骤上的**执行人**，不是第二套 Plan，见 [项目级 Plan 流程](project-team-plan-workflow.md) [[project-team-plan-workflow|项目级 Plan 流程]]。
 
 ---
 
@@ -84,7 +84,7 @@
 | **开始执行**之后 | 自动打开右侧 **工作流**；顶栏可「显示/隐藏子任务工作流」 |
 | 点击节点 | 查看子任务对话与执行详情 |
 
-全屏同款 DAG：任务详情里 **查看工作流** → `#/workflow/:id`（见 [任务中心](../tasks/task-center.md)）。
+全屏同款 DAG：任务详情里 **查看工作流** → `#/workflow/:id`（见 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]）。
 
 授权后**不会**自动跳转任务中心；需要时可手动打开 `#/tasks`，来源 Tab 选 **对话**。
 
@@ -139,15 +139,15 @@
 强刷后应从任务快照恢复；若 plan 未成功落库则不会出现确认条。
 
 **Q：项目团队怎么配合？**  
-见 [项目级 Plan 流程](project-team-plan-workflow.md)；步骤上指定 `project-*` 执行人。
+见 [项目级 Plan 流程](project-team-plan-workflow.md) [[project-team-plan-workflow|项目级 Plan 流程]]；步骤上指定 `project-*` 执行人。
 
 ---
 
 ## 相关阅读
 
-- [项目级 Plan 流程](project-team-plan-workflow.md)
-- [任务中心](../tasks/task-center.md)
-- [应用中心](../configuration/app-center.md)
-- [预设角色与团队](preset-roles.md)
-- [总控智能体模式案例](../../cases/total-agent-mode.md)
-- [基础功能 · Plan 简述](basic-functions.md)
+- [项目级 Plan 流程](project-team-plan-workflow.md) [[project-team-plan-workflow|项目级 Plan 流程]] — 项目团队 6 角色协作详解
+- [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] — 跨会话多角色任务调度
+- [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] — 将流程沉淀为可复用应用
+- [预设角色与团队](preset-roles.md) [[preset-roles|预设角色与团队]] — 开箱即用的专业角色
+- [总控智能体模式案例](../../cases/total-agent-mode.md) [[cases/total-agent-mode|总控智能体模式案例]] — Plan 模式的高级编排实战
+- [基础功能 · Plan 简述](basic-functions.md) [[basic-functions|基础功能]] — Plan 模式在聊天界面中的入口描述

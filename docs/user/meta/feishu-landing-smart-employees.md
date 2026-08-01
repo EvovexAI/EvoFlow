@@ -43,7 +43,7 @@
 6. 员工卡片 ⋯ → **现在开始工作**  
 7. 等一轮结束：在工作日志（默认近 2 天）或任务总结里看清单  
 
-更细步骤：[雇佣第一个智能体员工](../../user/tutorials/hire-first-smart-employee.md)（仓库文档；飞书里可改成你的站点链接）。
+更细步骤：[雇佣第一个智能体员工](../../user/tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]]（仓库文档；飞书里可改成你的站点链接）。
 
 ---
 
@@ -80,3 +80,14 @@
 ## 关于作者
 
 个人开发者维护。能力边界：本机岗位自动上班与交活验收；不替代你的签字、对外承诺与考试/诊疗等终审。
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[guides/configuration/smart-employees|智能体员工指南]] — 配置与操作
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 角色配置

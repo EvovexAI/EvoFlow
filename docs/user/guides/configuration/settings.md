@@ -106,7 +106,7 @@ GIT_COMMITTER_NAME=Alice
 
 > **不配的话**：自动化任务跑完了，结果只能留在 EvoFlow 面板里看，不会主动推送到你的飞书或 Slack。智能体员工的待审批事项也需要你打开 EvoFlow 才能看到。
 >
-> 具体每个渠道的配置步骤，见 [IM 消息渠道配置](../integration/im-channels.md)。
+> 具体每个渠道的配置步骤，见 [IM 消息渠道配置](../integration/im-channels.md) [[guides/integration/im-channels|IM 消息渠道配置]]。
 
 ---
 
@@ -122,7 +122,7 @@ GIT_COMMITTER_NAME=Alice
 
 > **不配也行**：默认自动记忆，AI 会在对话中自动学习你的偏好。但如果你发现 AI 记住了不该记的东西（比如你随口说了一句不想被记住的），可以来这里删掉。
 >
-> 每个自定义角色有独立的记忆文件，互不污染。记忆的详细机制见 [记忆管理](memory-management.md)。
+> 每个自定义角色有独立的记忆文件，互不污染。记忆的详细机制见 [记忆管理](memory-management.md) [[guides/configuration/memory-management|记忆管理]]。
 
 ---
 
@@ -170,7 +170,7 @@ EvoFlow 支持同时管理**本机**、**Docker**、**远程**三类实例。
 |------|------|
 | **设置独立存储** | 本机配的快捷键、环境变量、主题等，和远程实例互不冲突 |
 | **实例切换** | 左侧菜单顶部切换器，随时切到另一个实例 |
-| **远程实例添加** | 见 [EvoFlow 桌面端使用指南](evopanel-guide.md) |
+| **远程实例添加** | 见 [EvoFlow 桌面端使用指南](evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] |
 
 > 比如你在公司电脑上配了深色主题 + 一组快捷键，回到家连远程服务器，远程实例有自己的设置，互不影响。
 
@@ -178,7 +178,7 @@ EvoFlow 支持同时管理**本机**、**Docker**、**远程**三类实例。
 
 ## 相关阅读
 
-- [EvoFlow 桌面端使用指南](evopanel-guide.md) — 桌面端全部功能详解
-- [工具与 MCP](tools-mcp.md) — 工具审批策略涉及的具体工具说明
-- [记忆管理](memory-management.md) — 记忆系统的详细机制
-- [IM 消息渠道配置](../integration/im-channels.md) — 各渠道的具体配置步骤
+- [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 桌面端全部功能详解
+- [[guides/configuration/memory-management|记忆管理]] — 记忆系统的详细机制
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 工具审批策略说明
+- [[guides/integration/im-channels|IM 消息渠道配置]] — 各渠道具体配置步骤

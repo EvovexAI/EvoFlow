@@ -64,13 +64,13 @@
 
 | 你想做的事 | 推荐路径 |
 |----------|---------|
-| 单会话多步骤、边聊边确认 | [Plan 模式](../chat/plan-mode.md)（聊天顶栏，不是任务中心） |
+| 单会话多步骤、边聊边确认 | [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]（聊天顶栏，不是任务中心） |
 | 复杂多角色协作、要看板与观测 | **任务中心**（本文） |
-| 到点重复固定指令 | [自动化](scheduled-tasks.md) |
-| 流程已固定、只换参数再跑 | [应用中心](../configuration/app-center.md) |
-| 岗位定时上班与工作汇报 | [智能体员工](../configuration/smart-employees.md) |
+| 到点重复固定指令 | [自动化](scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
+| 流程已固定、只换参数再跑 | [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
+| 岗位定时上班与工作汇报 | [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] |
 
-> **目标 Agent** 在实时聊天输入栏（Goal 模式），与任务中心无关，见 [目标 Agent](../chat/goal-agent.md)。
+> **目标 Agent** 在实时聊天输入栏（Goal 模式），与任务中心无关，见 [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]]。
 
 典型特征：**一次性、复杂、要看进度与验收**——例如完整竞品报告、模块重构（方案 + 代码 + 测试 + 文档）。
 
@@ -189,7 +189,7 @@
 - **待闭环**：本岗已交、下游或整单未关  
 - **待确认 / 交工待验收**：人认不认结果（确认完成 / 打回）  
 
-分工详见 [智能体员工](../configuration/smart-employees.md) 与 [概念说明](../../explanation/smart-employees.md#干完以后怎么处理什么时候要你审核)。
+分工详见 [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] 与 [概念说明](../../explanation/smart-employees.md#干完以后怎么处理什么时候要你审核) [[explanation/smart-employees|智能体员工概念说明]]。
 
 ---
 
@@ -201,7 +201,7 @@
 |------|------|
 | ← 返回列表 | 回 `#/tasks` |
 | **查看计划** | 仅主对话任务，且有计划时 |
-| **另存为应用** | 仅主对话任务，有计划时 → 沉淀到 [应用中心](../configuration/app-center.md) |
+| **另存为应用** | 仅主对话任务，有计划时 → 沉淀到 [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
 | **再跑一次** | 来自应用运行时常见 |
 | **查看工作流** | 仅主对话任务 → `#/workflow/:id` |
 | **暂停** / **继续** | 按状态切换 |
@@ -240,7 +240,7 @@
 - Chip：**主控** · **工作流**
 - 点击节点查看对话与执行详情
 - 可返回 `#/task/:id`
-- 与 Plan / 总控智能体协作关系见 [Plan 模式](../chat/plan-mode.md)、[总控智能体案例](../../cases/total-agent-mode.md)
+- 与 Plan / 总控智能体协作关系见 [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]、[总控智能体案例](../../cases/total-agent-mode.md) [[cases/total-agent-mode|总控智能体案例]]
 
 ---
 
@@ -262,7 +262,7 @@
 | 智能体员工派发 / 交工 | 「智能体员工」；列表与详情可见 **任务总结**，在此验收 |
 | 应用填参运行（工作流） | 来源 Tab「工作流」；可再跑一次、另存为应用 |
 
-智能体员工侧的「待审批」与任务中心「待确认」分工见 [智能体员工](../configuration/smart-employees.md)。临时委派可用全局助手小V，交工后仍回到任务中心验收。
+智能体员工侧的「待审批」与任务中心「待确认」分工见 [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。临时委派可用全局助手小V，交工后仍回到任务中心验收。
 
 ---
 
@@ -323,9 +323,9 @@ flowchart LR
 
 ## 相关阅读
 
-- [Plan 模式](../chat/plan-mode.md)
-- [应用中心](../configuration/app-center.md)
-- [智能体员工](../configuration/smart-employees.md)
-- [自动化](scheduled-tasks.md)
-- [总控智能体模式案例](../../cases/total-agent-mode.md)
-- [EvoFlow 桌面端使用指南](../configuration/evopanel-guide.md)
+- [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] — 单会话多步骤先对齐再执行
+- [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] — 将流程沉淀为可复用应用
+- [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] — 定时值班岗与工作汇报
+- [自动化](scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] — 定时跑固定指令
+- [总控智能体模式案例](../../cases/total-agent-mode.md) [[cases/total-agent-mode|总控智能体模式案例]] — Plan 与任务中心的高级编排
+- [EvoFlow 桌面端使用指南](../configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]]

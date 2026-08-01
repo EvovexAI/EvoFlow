@@ -183,5 +183,14 @@ curl -X PUT http://localhost:8001/api/channels/feishu/config \
 在渠道配置中设置 `allowed_users: ["user_id1", "user_id2"]`，空数组表示允许所有人。
 
 ## 相关文档
-- [EvoFlow 桌面端使用指南](../configuration/evopanel-guide.md)
-- [飞书配置指南](feishu-integration.md)
+- [EvoFlow 桌面端使用指南](../configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]]
+- [飞书配置指南](feishu-integration.md) [[guides/integration/feishu-integration|飞书配置指南]]
+
+---
+
+## 相关阅读
+
+- [[guides/integration/feishu-integration|飞书配置指南]] — 飞书渠道详细配置
+- [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 设置弹窗 IM 通信 Tab
+- [[guides/configuration/smart-employees|智能体员工]] — IM 渠道审批推送
+- [[guides/configuration/settings|面板设置]] — 各渠道凭证管理

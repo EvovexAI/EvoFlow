@@ -8,7 +8,7 @@
 
 ### 1. 创建子智能体
 
-先准备好你要调度的角色（参考[案例二](create-agent.md)）：
+先准备好你要调度的角色（参考[案例二](create-agent.md) [[cases/create-agent|案例二]]）：
 
 | 角色 | 职责 | 模型 |
 |------|------|------|
@@ -73,8 +73,18 @@ tester 写测试，reviewer 最后审查代码质量。
 
 ## 关联文档
 
-- [Plan 模式](../guides/chat/plan-mode.md)
-- [预设角色与团队](../guides/chat/preset-roles.md)
-- [任务中心](../guides/tasks/task-center.md)
-- [应用中心](../guides/configuration/app-center.md)
-- [智能体员工](../guides/configuration/smart-employees.md)
+- [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]
+- [预设角色与团队](../guides/chat/preset-roles.md) [[guides/chat/preset-roles|预设角色与团队]]
+- [任务中心](../guides/tasks/task-center.md) [[guides/tasks/task-center|任务中心]]
+- [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]
+- [智能体员工](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[guides/chat/preset-roles|预设角色与团队]] — 项目团队配置
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手

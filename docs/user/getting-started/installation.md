@@ -5,7 +5,7 @@
 > - **桌面客户端**（推荐）：下载安装包，双击安装，跟装微信/QQ 一样简单。Windows/macOS/Linux 都支持
 > - **自托管**：适合开发者，需要 Python 3.12+、Node.js 22+、uv，然后 `make config && make install && make dev`
 >
-> 安装完成后，下一步是[配置模型](../tutorials/configure-models.md)让 AI 能聊天。
+> 安装完成后，下一步是[配置模型](../tutorials/configure-models.md)让 AI 能聊天。 [[tutorials/configure-models|配置模型]]
 
 ## 适用场景
 
@@ -109,5 +109,14 @@ npm install -g pnpm
 
 ## 相关文档
 
-- [5 分钟快速上手](quick-start.md)
+- [5 分钟快速上手](quick-start.md) [[quick-start|5 分钟快速上手]]
 - [配置参考](../../system/reference/config-reference.md)
+
+---
+
+## 相关阅读
+
+- [[getting-started/downloads|下载与安装]] — 桌面客户端安装包说明
+- [[getting-started/quick-start|5 分钟快速上手]] — 安装后快速体验
+- [[tutorials/configure-models|配置模型]] — 配置 API 密钥与模型
+- [[guides/configuration/evopanel-guide|EvoPanel 指南]] — 桌面端各面板入口

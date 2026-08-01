@@ -2,7 +2,7 @@
 
 > **一句话**：智能体员工 = 把已有「智能体」编成**岗位合同**——规定职责、工作文件夹、上班频率与审批策略，让它在上班时间主动干活、建项、写工作汇报，而不是等你每句点名。
 >
-> 操作步骤见 [智能体员工指南](../guides/configuration/smart-employees.md) 与 [雇佣第一个员工](../tutorials/hire-first-smart-employee.md)。本文按**当前实现**讲怎么流转、多岗怎么协作。
+> 操作步骤见 [智能体员工指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工指南]] 与 [雇佣第一个员工](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个员工]]。本文按**当前实现**讲怎么流转、多岗怎么协作。
 
 ---
 
@@ -19,7 +19,7 @@
 
 **不太适合**：一次性深度探索（聊天 / Plan）、流程已定只换参数（应用中心）、到点跑同一句 Prompt（自动化）。
 
-**谁适合用、各行各业怎么组队协作（带组织树与一天故事）** → 单独成文：[智能体员工：谁在用、组织怎么配、怎么协作](../cases/smart-employee-playbooks.md)。
+**谁适合用、各行各业怎么组队协作（带组织树与一天故事）** → 单独成文：[智能体员工：谁在用、组织怎么配、怎么协作](../cases/smart-employee-playbooks.md) [[cases/smart-employee-playbooks|智能体员工：谁在用、组织怎么配、怎么协作]]。
 
 ---
 
@@ -408,10 +408,9 @@ sequenceDiagram
 
 ## 相关阅读
 
-- [智能体员工（操作指南）](../guides/configuration/smart-employees.md)
-- [雇佣第一个智能体员工](../tutorials/hire-first-smart-employee.md)
-- [谁在用、组织怎么配、怎么协作](../cases/smart-employee-playbooks.md)
-- [缺口与补齐方案（产品路线）](../../system/design/smart-employee-gaps-roadmap.md)
-- [任务中心](../guides/tasks/task-center.md)
-- [智能体管理](../guides/configuration/agent-management.md)
-- [最佳实践案例](../cases/index.md)
+- [[guides/configuration/smart-employees|智能体员工（操作指南）]] — 配置与操作
+- [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] — 10 分钟上手
+- [[cases/smart-employee-playbooks|谁在用、组织怎么配、怎么协作]] — 落地画像
+- [[guides/tasks/task-center|任务中心]] — 跨来源任务驾驶舱
+- [[guides/configuration/agent-management|智能体管理]] — 角色配置
+- [[cases/index|最佳实践案例]] — 真实场景

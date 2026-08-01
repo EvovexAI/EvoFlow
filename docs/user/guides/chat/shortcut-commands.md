@@ -11,7 +11,7 @@
 >
 > 所有指令在桌面端和 IM 渠道（飞书、Slack、Telegram）通用，不用记功能页面路径。
 >
-> **功能关系**：快捷指令是 EvoFlow 所有功能的快捷入口——覆盖了[Plan 模式](plan-mode.md)、[目标智能体](goal-agent.md)、[Claude Code](claude-code.md)、[自动化](../tasks/scheduled-tasks.md)等核心功能的快速调用，让用户在不同渠道获得一致的操作体验。
+> **功能关系**：快捷指令是 EvoFlow 所有功能的快捷入口——覆盖了[Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]]、[目标智能体](goal-agent.md) [[goal-agent|目标智能体]]、[Claude Code](claude-code.md) [[claude-code|Claude Code]]、[自动化](../tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]]等核心功能的快速调用，让用户在不同渠道获得一致的操作体验。
 
 所有斜杠指令在**所有渠道通用**，包括：桌面端聊天窗口、飞书、Slack、Telegram 等 IM 渠道，直接在对话中输入即可执行，无需打开对应功能页面。
 
@@ -66,3 +66,12 @@
 4. **参数可选**：部分指令的参数是可选的，如果没有带参数会提示正确的使用方法
 5. **权限控制**：部分操作需要对应权限，没有权限的话会提示无法操作
 6. **错误提示**：如果输入了不存在的指令或格式错误，系统会自动提示支持的指令列表和正确用法
+
+---
+
+## 相关阅读
+
+- [[guides/chat/plan-mode|Plan 模式]] — 多步骤任务先对齐方案再执行
+- [[guides/chat/goal-agent|目标智能体]] — 后台长程自驱任务
+- [[guides/chat/claude-code|Claude Code]] — 编码增强模式
+- [[guides/tasks/scheduled-tasks|自动化操作指南]] — 定时任务调度

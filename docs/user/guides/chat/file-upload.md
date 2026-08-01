@@ -8,14 +8,14 @@
 >
 > 支持 PDF、PowerPoint、Excel、Word 格式，单文件最大 100MB。上传后自动转成 Markdown，AI 就能读。文件不会长期保存，适合一次性分析。
 >
-> **功能关系**：文件上传是**当前会话的附件**，不是长期知识库——如果需要可反复检索的向量库，使用[上传文档（RAG）](../configuration/document-knowledge-base.md)；如果要连接 Obsidian/Markdown 笔记，使用[知识库（Vault）](../configuration/knowledge-vault.md)。三者覆盖不同粒度的知识管理需求。
+> **功能关系**：文件上传是**当前会话的附件**，不是长期知识库——如果需要可反复检索的向量库，使用[上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]]；如果要连接 Obsidian/Markdown 笔记，使用[知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]。三者覆盖不同粒度的知识管理需求。
 
 ## 适用场景
 向 EvoFlow **会话**上传文档文件（PDF、PPT、Excel、Word），让 Agent 基于文件内容回答问题或执行分析。
 
 > 这是**当前线程**的附件，不是长期知识库。  
-> - 要做成可反复检索的向量库 → [上传文档（RAG）](../configuration/document-knowledge-base.md)  
-> - 要连接 Obsidian / Markdown 笔记 → [知识库（Vault）](../configuration/knowledge-vault.md)
+> - 要做成可反复检索的向量库 → [上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]]  
+> - 要连接 Obsidian / Markdown 笔记 → [知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]
 
 ## 前置条件
 - EvoFlow 已运行
@@ -116,5 +116,14 @@ backend/.evo-flow/threads/
 确认 thread_id 正确。检查 UploadsMiddleware 是否已注册（默认已注册）。
 
 ## 相关文档
-- [沙箱模式配置](../configuration/sandbox-config.md)
-- [工具与 MCP 配置](../configuration/tools-mcp.md)
+- [沙箱模式配置](../configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱模式配置]]
+- [工具与 MCP 配置](../configuration/tools-mcp.md) [[guides/configuration/tools-mcp|工具与 MCP 配置]]
+
+---
+
+## 相关阅读
+
+- [[guides/chat/basic-functions|基础功能使用指南]] — 文件上传在聊天界面中的入口
+- [[guides/configuration/document-knowledge-base|上传文档（RAG）]] — 可反复检索的向量知识库
+- [[guides/configuration/knowledge-vault|知识库（Vault）]] — 连接 Obsidian/Markdown 笔记
+- [[guides/configuration/sandbox-config|沙箱模式配置]] — 文件操作的安全边界

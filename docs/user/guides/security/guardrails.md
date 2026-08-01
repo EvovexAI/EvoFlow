@@ -196,5 +196,14 @@ Provider 的 `request.tool_name` 会收到以下值：
 当前配置是全局的。如需差异化，可通过自定义 Provider 根据 `request.thread_id` 或 `request.agent_id` 实现不同策略。
 
 ## 相关文档
-- [沙箱模式配置](../configuration/sandbox-config.md)
-- [Plan 模式使用](../chat/plan-mode.md)
+- [沙箱模式配置](../configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱模式配置]]
+- [Plan 模式使用](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]
+
+---
+
+## 相关阅读
+
+- [[guides/configuration/sandbox-config|沙箱模式配置]] — 执行环境安全体系
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 工具审批策略详解
+- [[guides/chat/plan-mode|Plan 模式]] — 安全护栏在 Plan 中的作用
+- [[explanation/agent-system|Agent 系统]] — 安全设计理念

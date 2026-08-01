@@ -1,7 +1,7 @@
 ﻿# 智能体员工：谁在用、组织怎么配、怎么协作
 
 > **这篇单独讲「落地画像」**：什么人、什么行业、组织树长什么样、每岗是什么员工、一天里他们怎么互相叫醒/交工。覆盖研发运维，也覆盖教师、学生、白领、销售、电商、财务法务辅助、科研、医护行政、机关材料岗等。  
-> 机制细则（状态、同意派发、两条通道）见 [智能体员工是什么](../explanation/smart-employees.md)；逐步点哪里见 [操作指南](../guides/configuration/smart-employees.md) 与 [雇佣教程](../tutorials/hire-first-smart-employee.md)。
+> 机制细则（状态、同意派发、两条通道）见 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]；逐步点哪里见 [操作指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|操作指南]] 与 [雇佣教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣教程]]。
 
 **读之前先记住两句：**
 
@@ -188,7 +188,7 @@ sequenceDiagram
 
 开/关值班、清待审批、读工作汇报；不把「自动改生产」写进职责。
 
-逐步配置：[运维值班案例](use-main-agent.md)。
+逐步配置：[运维值班案例](use-main-agent.md) [[cases/use-main-agent|运维值班案例]]。
 
 ---
 
@@ -246,7 +246,7 @@ sequenceDiagram
 | **取数与表** | 按固定口径拉表/更新 CSV 或 Markdown 表 | 每周一 10:00 更新「核心指标表」到工作区 |
 | **解读与简报** | 读表写「本周发生了什么」 | 只读表、写简报；不改口径定义 |
 
-复杂「填参大报告」可另存 [应用中心](../guides/configuration/app-center.md)；员工负责「到点盯、交工」。
+复杂「填参大报告」可另存 [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]；员工负责「到点盯、交工」。
 
 ### 怎么协作干活（举例）
 
@@ -254,7 +254,7 @@ sequenceDiagram
 2. 你点 **同意派发**（谨慎/平衡时）→ 解读岗被叫醒。  
 3. 解读岗写出任务总结：「GMV ↑12%，退款率异常见第 3 节」+ 文件路径。  
 4. 你 **确认完成** 或打回：「退款率请对比大盘」。  
-5. 若只要一张固定 HTML 报告，可让取数岗职责里「调用已存应用」或人在应用中心填参——员工与应用组合见 [数据分析案例](search-html-report.md)。
+5. 若只要一张固定 HTML 报告，可让取数岗职责里「调用已存应用」或人在应用中心填参——员工与应用组合见 [数据分析案例](search-html-report.md) [[cases/search-html-report|数据分析案例]]。
 
 ### 你干什么
 
@@ -712,7 +712,7 @@ sequenceDiagram
 | 医院科室文书（非看病） | [§17](#17-医护行政非诊疗) |
 | 写材料办文办会 | [§18](#18-机关事业单位材料岗) |
 
-选错能力时：到点同一句 Prompt → [自动化](../guides/tasks/scheduled-tasks.md)；流程已跑通只换参 → [应用中心](../guides/configuration/app-center.md)；要值班交工叫醒 → **智能体员工**。
+选错能力时：到点同一句 Prompt → [自动化](../guides/tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]]；流程已跑通只换参 → [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]；要值班交工叫醒 → **智能体员工**。
 
 **共性边界（各行各业都适用）：** 员工擅长「盯目录、出清单、写草稿、交下一岗」；签字、对外承诺、考试作答、诊疗、做账终审、发文套红——留在人手里。
 
@@ -720,9 +720,8 @@ sequenceDiagram
 
 ## 相关阅读
 
-- [智能体员工是什么（机制）](../explanation/smart-employees.md)
-- [智能体员工操作指南](../guides/configuration/smart-employees.md)
-- [雇佣第一个智能体员工](../tutorials/hire-first-smart-employee.md)
-- [缺口与补齐方案（产品路线）](../../system/design/smart-employee-gaps-roadmap.md)
-- [运维值班案例](use-main-agent.md) · [代码审查案例](create-agent.md) · [数据报表案例](search-html-report.md)
-- [任务中心](../guides/tasks/task-center.md)
+- [[explanation/smart-employees|智能体员工是什么（机制）]] — 概念与设计理念
+- [[guides/configuration/smart-employees|智能体员工操作指南]] — 配置与操作
+- [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] — 10 分钟上手
+- [[cases/use-main-agent|运维值班案例]] · [[cases/create-agent|代码审查案例]] · [[cases/search-html-report|数据报表案例]]
+- [[guides/tasks/task-center|任务中心]] — 跨来源任务驾驶舱

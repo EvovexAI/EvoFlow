@@ -15,8 +15,8 @@
 
 | 术语 | 含义 |
 |------|------|
-| **智能体** | 「会什么」：人设、工具、技能、MCP。侧栏 `#/expert`。见 [智能体管理](../guides/configuration/agent-management.md)。 |
-| **智能体员工** | 「何时主动干」：把智能体雇成岗位（职责、工作文件夹、上班频率、审批、工作汇报）。侧栏 `#/proactive`。见 [智能体员工](../guides/configuration/smart-employees.md)。 |
+| **智能体** | 「会什么」：人设、工具、技能、MCP。侧栏 `#/expert`。见 [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]]。 |
+| **智能体员工** | 「何时主动干」：把智能体雇成岗位（职责、工作文件夹、上班频率、审批、工作汇报）。侧栏 `#/proactive`。见 [智能体员工](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。 |
 | **自动上班（总开关）** | 页头开关：开启后，在岗员工按上班频率自动干活。 |
 | **上班频率** | 多久自动来一轮（如每 30 分钟、每小时）。 |
 | **交接审批策略** | 岗位档位：全自动 / 平衡型 / 谨慎型；主要决定正式转交同事前要不要你点「同意派发」。 |
@@ -34,7 +34,7 @@
 | **系统前台** | 安装自带岗，偏催办全局待办。 |
 | **小V** | 全局助手：一员工一会话委派、工作台、飞书绑定。 |
 | **任务中心** | 跨来源任务驾驶舱（对话 / 智能体员工 / 工作流）。侧栏 `#/tasks`。 |
-| **应用 / 应用中心** | 已跑通的可填参再跑工作流产品。侧栏 `#/apps`。见 [应用中心](../guides/configuration/app-center.md)。 |
+| **应用 / 应用中心** | 已跑通的可填参再跑工作流产品。侧栏 `#/apps`。见 [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]。 |
 | **自动化** | 到点跑固定 Prompt（Cron），不是岗位合同。侧栏 `#/cron`。 |
 
 ## 技术与运行时
@@ -46,8 +46,17 @@
 | **Harness** | 可发布的 `evoflow` Python 包，含 Agent、工具、沙箱、MCP、技能等（`backend/packages/harness/evoflow/`）。 |
 | **App** | 应用层代码，含 Gateway 与 IM 渠道（`backend/app/`）；**禁止**被 harness 反向依赖。与面板「应用中心」的「应用」不是同一概念。 |
 | **Thread** | LangGraph 会话线程标识；本地文件与上传目录常按 `thread_id` 隔离。 |
-| **Sandbox** | Agent 命令与文件操作的执行环境（本地 / Docker / K8s 等），见 [沙箱模式配置](../guides/configuration/sandbox-config.md)。 |
-| **Skill** | `SKILL.md`（含 YAML 头信息）描述的可选能力包，见 [skill-system.md](../explanation/skill-system.md)。 |
+| **Sandbox** | Agent 命令与文件操作的执行环境（本地 / Docker / K8s 等），见 [沙箱模式配置](../guides/configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱模式配置]]。 |
+| **Skill** | `SKILL.md`（含 YAML 头信息）描述的可选能力包，见 [skill-system.md](../explanation/skill-system.md) [[explanation/skill-system|skill-system.md]]。 |
 | **MCP** | Model Context Protocol，通过 Gateway 配置并供 Agent 侧加载的外部工具协议。 |
 | **ACP** | Agent Communication Protocol；通过配置的外部 ACP 适配进程与主 Agent 协作。 |
 | **EvoFlow（桌面/Web）** | 面向用户的桌面与 Web 界面；仓库源码目录为 `evopanel/`。 |
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[explanation/smart-employees|智能体员工概念]] — 岗位协作
+- [[guides/configuration/agent-management|智能体管理指南]] — 配置与操作
+- [[tutorials/configure-models|配置模型教程]] — 模型配置

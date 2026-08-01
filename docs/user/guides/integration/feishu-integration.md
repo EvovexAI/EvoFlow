@@ -33,7 +33,7 @@
 
 ### 智能体员工 / 小V 专属绑定
 
-除会话映射外，还可在 **智能体员工** 页或全局助手 **小V** 中扫码，为岗位或助手绑定**专属飞书机器人**：按岗位独立对话与通知，审批与工作汇报推送到对应飞书账号。飞书渠道页可查看各岗位绑定关系。岗位值班与委派详见 [智能体员工](../configuration/smart-employees.md)。
+除会话映射外，还可在 **智能体员工** 页或全局助手 **小V** 中扫码，为岗位或助手绑定**专属飞书机器人**：按岗位独立对话与通知，审批与工作汇报推送到对应飞书账号。飞书渠道页可查看各岗位绑定关系。岗位值班与委派详见 [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]]。
 
 ---
 
@@ -103,3 +103,11 @@
 - 代码块、列表、链接等内容会自动美化渲染
 - 长内容自动折叠，支持展开查看完整内容
 - 异常错误会用红色卡片标识，方便快速识别问题
+---
+
+## 相关阅读
+
+- [[guides/integration/im-channels|IM 消息渠道配置]] — 全渠道配置总览
+- [[guides/configuration/smart-employees|智能体员工]] — 飞书专属绑定与审批推送
+- [[guides/configuration/settings|面板设置]] — IM 通信 Tab 配置
+- [[guides/chat/shortcut-commands|快捷指令]] — 飞书端可用指令列表

@@ -142,5 +142,14 @@ kubectl get pods -n evo-flow
 生产/开发 compose 中将宿主 Docker Socket 挂载到容器内，使 AioSandboxProvider 能通过宿主 Docker 创建沙箱容器。这不是真正的 Docker-in-Docker，而是 "Docker-outside-of-Docker"。
 
 ## 相关文档
-- [沙箱配置（本文）](sandbox-config.md)
-- [工具与 MCP](tools-mcp.md)
+- [沙箱配置（本文）](sandbox-config.md) [[guides/configuration/sandbox-config|沙箱配置]]
+- [工具与 MCP](tools-mcp.md) [[guides/configuration/tools-mcp|工具与 MCP]]
+
+---
+
+## 相关阅读
+
+- [[guides/configuration/tools-mcp|工具与 MCP]] — 安全体系配套
+- [[guides/security/guardrails|安全护栏配置]] — 工具调用策略授权
+- [[getting-started/installation|安装指南]] — 沙箱模式依赖安装
+- [[explanation/agent-system|Agent 系统]] — 执行环境设计理念

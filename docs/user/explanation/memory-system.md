@@ -9,9 +9,9 @@
 >
 > 每个自定义角色有独立的记忆，互不污染。你可以在"记忆管理"面板里查看、编辑、删除 AI 记住的事情。
 >
-> 记忆存的是"用户偏好和事实"，跟[知识库](../guides/configuration/document-knowledge-base.md)（存文档内容）和[知识库 Vault](../guides/configuration/knowledge-vault.md)（存笔记）是不同的。
+> 记忆存的是"用户偏好和事实"，跟[知识库](../guides/configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|知识库]]（存文档内容）和[知识库 Vault](../guides/configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库 Vault]]（存笔记）是不同的。
 >
-> **功能关系**：记忆系统是 [Agent 系统](agent-system.md) 中间件链的一部分——`MemoryMiddleware` 在每次对话完成后触发记忆更新。记忆通过 `<memory>` 标签注入到系统提示中，与[技能系统](skill-system.md) 的 SKILL.md 内容、子 Agent 指令共同构成系统提示。与[思维导图系统](mind-map-system.md) 互补：记忆解决"跨会话连续性"（记住你是谁、你喜欢什么），思维导图解决"单会话可追溯性"（记住这次排查查了什么）。
+> **功能关系**：记忆系统是 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 中间件链的一部分——`MemoryMiddleware` 在每次对话完成后触发记忆更新。记忆通过 `<memory>` 标签注入到系统提示中，与[技能系统](skill-system.md) [[explanation/skill-system|技能系统]] 的 SKILL.md 内容、子 Agent 指令共同构成系统提示。与[思维导图系统](mind-map-system.md) [[explanation/mind-map-system|思维导图系统]] 互补：记忆解决"跨会话连续性"（记住你是谁、你喜欢什么），思维导图解决"单会话可追溯性"（记住这次排查查了什么）。
 
 ## 背景
 
@@ -142,5 +142,15 @@ EvoFlow 支持可选的外部记忆插件（`external_provider`），扩展记�
 
 ## 延伸阅读
 
-- [记忆管理指南](../guides/configuration/memory-management.md) — 面板操作、API 与常见问题
-- [Agent 系统架构](agent-system.md) — 中间件执行链
+- [记忆管理指南](../guides/configuration/memory-management.md) [[guides/configuration/memory-management|记忆管理指南]] — 面板操作、API 与常见问题
+- [Agent 系统架构](agent-system.md) [[explanation/agent-system|Agent 系统架构]] — 中间件执行链
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/mind-map-system|思维导图系统]] — 单会话追溯
+- [[explanation/skill-system|技能系统原理]] — 领域知识包
+- [[guides/configuration/memory-management|记忆管理指南]] — 面板操作

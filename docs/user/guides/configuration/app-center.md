@@ -44,7 +44,7 @@
 
 把已经跑通的多步工作流存成**应用**：以后填参数就能再跑，不必每次从零对话。侧栏入口：**应用中心**（`#/apps`）。
 
-推荐路径：新建 → 画布编排 → **发布** → 卡片 **▶ 运行**（或「填参运行」）→ 在 [任务中心](../tasks/task-center.md) 看执行。
+推荐路径：新建 → 画布编排 → **发布** → 卡片 **▶ 运行**（或「填参运行」）→ 在 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]] 看执行。
 
 ---
 
@@ -134,7 +134,7 @@
 | ← 应用列表 | 返回 |
 | **编辑流程** | 回画布 |
 | 参数表单 | 按应用定义的运行参数填写 |
-| **运行** | 启动；运行会出现在 [任务中心](../tasks/task-center.md)「应用中心」来源 |
+| **运行** | 启动；运行会出现在 [任务中心](../tasks/task-center.md) [[guides/tasks/task-center|任务中心]]「应用中心」来源 |
 | **执行中** / **暂停** / **继续** / **取消** | 运行态控制 |
 
 跑完可在 **历史** 页回看同一次结果；任务侧也可「再跑一次」跳到填参页。
@@ -155,7 +155,7 @@
 3. 配好 **运行参数** → **保存** → **发布**  
 4. 日常点卡片 **▶ 运行** 填参即可，少改画布  
 
-与 [智能体员工](smart-employees.md) 的区别：员工是定时岗位上班；应用是「可重复的工作流产品」。
+与 [智能体员工](smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] 的区别：员工是定时岗位上班；应用是「可重复的工作流产品」。
 
 ---
 
@@ -177,8 +177,7 @@
 
 ## 相关阅读
 
-- [任务中心](../tasks/task-center.md)
-- [Plan 模式](../chat/plan-mode.md)
-- [自动化](../tasks/scheduled-tasks.md)
-- [智能体员工](smart-employees.md)
-- [面板使用指南](evopanel-guide.md)
+- [[guides/configuration/smart-employees|智能体员工]] — 定时岗位 vs 可复用流程的区别
+- [[guides/chat/plan-mode|Plan 模式]] — 创建应用的入口流程
+- [[guides/tasks/task-center|任务中心]] — 应用运行的任务驾驶舱
+- [[explanation/agent-system|Agent 系统]] — 设计理念与核心概念

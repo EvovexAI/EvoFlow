@@ -129,11 +129,21 @@ EvoFlow 围绕"让 Agent 真正可用于生产"打磨了一套配套能力，按
 
 ## 延伸阅读
 
-- [Agent 系统](agent-system.md) — Agent 主循环、中间件、工具调用细节
-- [子 Agent 系统](subagent-system.md) — 双线程池委派与隔离
-- [技能系统](skill-system.md) — `SKILL.md` 格式与加载机制
-- [记忆系统](memory-system.md) — 防抖、原子写入、按需注入
+- [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] — Agent 主循环、中间件、工具调用细节
+- [子 Agent 系统](subagent-system.md) [[explanation/subagent-system|子 Agent 系统]] — 双线程池委派与隔离
+- [技能系统](skill-system.md) [[explanation/skill-system|技能系统]] — `SKILL.md` 格式与加载机制
+- [记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]] — 防抖、原子写入、按需注入
 - [架构参考](../../system/reference/architecture.md) — 部署拓扑与端口分配
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[explanation/mind-map-system|思维导图系统]] — 单会话追溯
+- [[explanation/smart-employees|智能体员工概念]] — 岗位协作
 
 ---
 

@@ -72,5 +72,16 @@ Agent 在执行相关任务时会自动加载和使用该技能。
 
 ## 下一步
 
-- [配置你的第一个模型](configure-models.md)
-- [创建自定义 Agent](create-agent.md)
+- [配置你的第一个模型](configure-models.md) [[tutorials/configure-models|配置你的第一个模型]]
+- [创建自定义 Agent](create-agent.md) [[tutorials/create-agent|创建自定义 Agent]]
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[explanation/skill-system|技能系统原理]] — 领域知识包
+- [[guides/configuration/skill-management|技能管理指南]] — 配置与操作
+- [[tutorials/configure-models|配置模型教程]] — 模型配置
+- [[tutorials/create-agent|创建自定义 Agent 教程]] — 为技能配置专用角色
