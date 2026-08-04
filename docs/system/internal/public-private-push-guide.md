@@ -108,7 +108,6 @@ scripts\windows\local-publish.bat -SyncPublic
 ```text
 website/
 docs/
-update/
 README.md
 CLAUDE.md
 CONTRIBUTING.md
@@ -121,6 +120,8 @@ requirements-docs.txt
 .gitignore
 scripts/windows/public-release-body.txt
 ```
+
+**不含 `update/`**：客户端更新清单 `update/latest.json` 不走 sync-public，以免在安装包上传前就提示更新；由 Windows 发版完成后的 `-UpdateLatestJson` 单独推送。
 
 同步时会自动：
 

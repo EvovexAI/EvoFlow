@@ -202,6 +202,25 @@ EvoFlow is currently distributed as desktop installers and documentation. Source
 
    > Installers are published for Windows, macOS, and Linux. Windows is the most tested; macOS and Linux builds are available but less tested. See [Releases](https://github.com/EvovexAI/EvoFlow/releases) for the current assets.
 
+<details>
+<summary>🍎 macOS says "damaged" or "can't be verified"?</summary>
+
+EvoFlow is not yet Apple code-signed, so macOS Gatekeeper will block the app. The file is **not actually corrupted** — here's how to fix it:
+
+**Option 1 (recommended):** Open Terminal and run:
+
+```bash
+xattr -cr /Applications/EvoFlow.app
+```
+
+Then relaunch EvoFlow.
+
+**Option 2:** Go to **System Settings → Privacy & Security**, scroll to the bottom, find the "EvoFlow was blocked" message, and click **Open Anyway**.
+
+> Once we obtain an Apple Developer account, the app will be properly signed and notarized, and this step will no longer be necessary.
+
+</details>
+
 2. **Configure a model.** On first launch, EvoPanel guides you to add a provider and API key.
 
 3. **Start a task.** Open the chat page, choose a model, and describe what you want. For complex multi-step work, the system enters **Plan mode** automatically - review the plan, confirm, and watch the Agent Teams execute.
@@ -383,9 +402,9 @@ EvoFlow builds on and is inspired by excellent open work:
 | [evovexai.com](https://www.evovexai.com) | Product, docs, and showcases |
 
 <p align="center">
-  <img src="docs/assets/screenshots/wechat-group-qr.jpg" width="180" alt="EvoFlow WeChat group (Chinese)">
+  <img src="docs/assets/screenshots/wechat-group-qr.png" width="180" alt="EvoFlow WeChat contact QR">
 </p>
-<p align="center"><sub>WeChat group (Chinese users - please keep discussions desensitized, no ads)</sub></p>
+<p align="center"><sub>Scan to add on WeChat — we will invite you to the community group (please keep discussions desensitized, no ads)</sub></p>
 
 ---
 

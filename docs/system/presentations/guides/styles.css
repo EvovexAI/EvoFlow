@@ -1101,6 +1101,69 @@ body.present-mode .section-part {
 }
 
 /* ── Guides hub & tutorial extras ── */
+.wechat-group-section {
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+}
+
+.wechat-group-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem 2rem;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.5rem 1.75rem;
+  background: var(--white);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.wechat-group-copy {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.wechat-group-copy .section-tag {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.wechat-group-copy h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.25rem;
+  color: var(--indigo-900);
+}
+
+.wechat-group-copy p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--slate-600);
+}
+
+.wechat-group-qr {
+  flex: 0 0 auto;
+  margin: 0;
+  text-align: center;
+}
+
+.wechat-group-qr img {
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+  border-radius: 12px;
+  border: 1px solid var(--slate-200);
+  background: var(--white);
+}
+
+.wechat-group-qr figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--slate-500);
+}
+
 .hub-intro {
   padding-top: 2.5rem;
   padding-bottom: 2.5rem;

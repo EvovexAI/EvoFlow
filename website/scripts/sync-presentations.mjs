@@ -1,7 +1,7 @@
 /**
  * Copy static presentation pages + doc assets into Next.js public/.
  * Sources:
- *   docs/presentations/**  (each folder with index.html, plus shared styles/main.js)
+ *   docs/system/presentations/**  (each folder with index.html, plus shared styles/main.js)
  *   docs/assets/{screenshots,plan-supervisor,guides}
  * Targets:
  *   apps/web/public/presentations/**
@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const websiteRoot = path.join(__dirname, "..");
 const repoRoot = path.join(websiteRoot, "..");
-const presentationsSrc = path.join(repoRoot, "docs", "presentations");
+const presentationsSrc = path.join(repoRoot, "docs", "system", "presentations");
 const assetsSrc = path.join(repoRoot, "docs", "assets");
 const publicRoot = path.join(websiteRoot, "apps", "web", "public");
 const presentationsDest = path.join(publicRoot, "presentations");
@@ -38,7 +38,7 @@ function copyFile(src, dest) {
   fs.copyFileSync(src, dest);
 }
 
-/** Recursively copy presentation HTML/CSS/JS under docs/presentations/ */
+/** Recursively copy presentation HTML/CSS/JS under docs/system/presentations/ */
 function syncPresentationTree(srcDir, destDir) {
   if (!fs.existsSync(srcDir)) return 0;
   let n = 0;

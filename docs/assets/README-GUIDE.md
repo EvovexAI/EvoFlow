@@ -28,7 +28,7 @@ docs/assets/
     ├── browser.png                               # browser automation
     ├── hosted-1.png / hosted-2.png               # goal task run & config
     ├── scheduled-tasks-1.png / scheduled-tasks-2.png  # automation
-    ├── wechat-group-qr.jpg                       # wechat group QR
+    ├── wechat-group-qr.png                       # WeChat contact QR
     └── 微信图片_20260607215240_23_495.png          # (spare)
 ```
 
@@ -46,7 +46,7 @@ docs/assets/
 | Screenshots / Roles | `docs/assets/screenshots/agents-preset-roles.png` | exists |
 | Screenshots / Goal | `docs/assets/screenshots/hosted-1.png` | exists |
 | Screenshots / Browser | `docs/assets/screenshots/browser.png` | exists |
-| Contact / WeChat | `docs/assets/screenshots/wechat-group-qr.jpg` | exists |
+| Contact / WeChat | `docs/assets/screenshots/wechat-group-qr.png` | exists |
 
 All referenced assets already exist, so the READMEs render today with no broken images.
 

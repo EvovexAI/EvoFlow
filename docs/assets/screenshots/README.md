@@ -16,7 +16,7 @@
 | `agents-preset-teams.png` | 智能体页角色总览 | `#/expert` 全部角色 |
 | `agents-preset-roles.png` | 项目团队等筛选后的角色 | 如「项目」分类 |
 | `scheduled-tasks-1.png` | 自动化调度页 | `#/cron` |
-| `wechat-group-qr.jpg` | 微信群二维码 | 约 400×400px |
+| `wechat-group-qr.png` | 微信联系二维码（加好友后拉群） | 约 400×400px |
 
 ## 可选 / 历史资源
 
@@ -31,7 +31,7 @@
 
 - 格式：PNG 或 WebP；单张尽量 &lt; 600KB（可用 TinyPNG 等压缩）。
 - 内容：脱敏路径、密钥、私人聊天内容。
-- 二维码过期后替换 `wechat-group-qr.jpg` 并提交即可。
+- 二维码过期后替换 `wechat-group-qr.png` 并提交即可。
 - 若某张暂未就绪，可先不上传；README 中对应位置会显示占位图裂链，补图后自动生效。
 
 ## Plan 模式 / Supervisor 协作

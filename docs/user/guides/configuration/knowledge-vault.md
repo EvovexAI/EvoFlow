@@ -12,6 +12,8 @@
 
 系统会自动注册只读内置库 **「EvoFlow 用户指南」**（`docs/user`），以及可写内置库 **「运营知识库」**（文档真相源在同级 ContentOS：`ContentOS/docs/智能内容运营平台/知识库/`；EvoFlow 只挂载读取，可用 `EVOFLOW_OPS_KNOWLEDGE_ROOT` 覆盖路径）。侧栏 **知识库** 可见「内置」标记。
 
+**升级后如何更新内置用户指南**：发新版时会带上最新的 `docs/user`。别人装完新版并启动后，Gateway 会对比内容指纹——有变化就自动把 Markdown 同步到本机 `{EVOFLOW_HOME}/knowledge/vaults/evoflow-user-guide/`，并在后台重建索引。一般无需手动操作；若检索仍像旧版，可在知识库详情里点一次「重建索引」。
+
 CLI（检索内置 / 已连接 Vault，默认全文）：
 
 ```bash

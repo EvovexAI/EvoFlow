@@ -31,6 +31,21 @@ const markdownComponents: Partial<Components> = {
       </a>
     );
   },
+  img({ src, alt }) {
+    const isWechatQr = typeof src === "string" && src.includes("wechat-group-qr");
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={alt || ""}
+        className={
+          isWechatQr
+            ? "mx-auto mt-4 block w-[200px] max-w-full rounded-xl border border-outline-variant/20 shadow-sm"
+            : undefined
+        }
+      />
+    );
+  },
 };
 
 const articleClassName = [

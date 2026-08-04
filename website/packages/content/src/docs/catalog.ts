@@ -77,6 +77,12 @@ const pages: DocPage[] = [
 
 本站产品文档按 **快速开始 → 实时对话（输入栏与选项、目标）→ 侧栏菜单（任务中心、自动化、技能、MCP、预设角色）→ 设置** 分区，与 EvoFlow 主界面一致。
 
+## 交流群
+
+扫码添加微信，通过后拉入交流群（讨论请脱敏，禁止广告）：
+
+![微信交流群二维码](/media/screenshots/wechat-group-qr.png)
+
 ## 延伸阅读
 
 - [功能说明](/#capabilities)、[典型场景](/#scenarios)
@@ -115,6 +121,12 @@ Open **New chat** in the shell (or the main chat surface), pick a **model** unde
 The shell lists **Task center**, **Scheduled jobs**, **Skills**, **MCP**, and **Preset roles** in the same order as the app; **Settings** lives in the footer section of this doc set.
 
 These product docs follow **Getting started → Live chat (composer & options, then Goal) → Shell entries (tasks, schedules, skills, MCP, preset roles) → Settings**, aligned with the EvoFlow shell.
+
+## Community group
+
+Scan to add on WeChat — we will invite you to the group (please keep discussions desensitized, no ads):
+
+![WeChat group QR](/media/screenshots/wechat-group-qr.png)
 
 ## Read next
 

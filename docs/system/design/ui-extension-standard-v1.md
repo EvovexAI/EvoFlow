@@ -15,7 +15,7 @@
 
 v1 **不做**：扩展商店、代码签名、自动更新。
 
-同一本机服务可挂多个扩展（不同 `id` / `ui.entry`，共享 `healthcheck` 端口）；`service.link=true` 时安装不复制目录，适合 monorepo 拆产品。
+内容类能力按**独立插件**交付（各进程、各数据目录），见 [`contentos-plugin-modules.md`](./contentos-plugin-modules.md)。同一本机**可以**有多个扩展共享端口（healthcheck 复用），但内容类产品**刻意不这么做**。
 
 ## 2. Manifest
 
@@ -44,11 +44,14 @@ v1 **不做**：扩展商店、代码签名、自动更新。
 - **`ui.entry`**：绝对 URL，或包内相对路径（如 `./ui/index.html`）。
 - **`service.mode`**：`none` | `managed` | `external`。
 - **`service.link`**：`true` 时安装**不复制**目录，`install_path` 即所选文件夹；配合 `service.cwd` 指向 monorepo 根。
+- **`service.sharedKey`**：相同 key 的扩展共享侧车（healthcheck 已通则复用）。
+- **`runtime`**：可选；声明共享后端模块 id / MCP server 名（如 `contentos-runtime`）。
+- **`suite`**：可选；表示也可被某套件一并安装，**不强制**走套件。
 - **`service.cwd`**：相对 `install_path` 的启动工作目录（默认 `.`）。
 - **`permissions`**：未声明的 Bridge API 一律拒绝。
 - **`bridge.origin_allowlist`**：仅这些 origin 可 `postMessage`。
 
-官方多产品示例：[`extensions/contentos*`](../../../extensions/contentos/README.md)（运营中台 / 素材中心 / 爆款洞察，共享 `:3001`）。产品边界见 [`contentos-extension-suites.md`](./contentos-extension-suites.md)。
+官方多产品示例：[`extensions/contentos*`](../../../extensions/contentos/README.md)（各自可独立安装，共享 [`contentos-runtime`](../../../extensions/contentos-runtime/)）。产品边界见 [`contentos-plugin-modules.md`](./contentos-plugin-modules.md)。
 
 ## 3. 用户如何添加
 

@@ -78,6 +78,10 @@
         "link": {
           "type": "boolean",
           "description": "true = 安装时不复制目录，install_path 指向所选文件夹（适合 monorepo 多扩展共享仓库根）"
+        },
+        "sharedKey": {
+          "type": "string",
+          "description": "Extensions with the same sharedKey share one sidecar; host reuses process when healthcheck is already up"
         }
       }
     },
@@ -88,6 +92,30 @@
         "origin_allowlist": {
           "type": "array",
           "items": { "type": "string" }
+        }
+      }
+    },
+    "suite": {
+      "type": "string",
+      "description": "Optional suite id that may also install this plugin as a member (e.g. content-creator). Does not require installing via suite."
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Shared backend module (API/MCP/DB). See contentos-plugin-modules.md.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,63}$",
+          "description": "Runtime module id, e.g. contentos-runtime"
+        },
+        "sharedKey": {
+          "type": "string",
+          "description": "Same key → reuse sidecar via healthcheck (must match service.sharedKey when set)"
+        },
+        "mcpServer": {
+          "type": "string",
+          "description": "EvoFlow MCP server id agents/skills bind to (ABI), e.g. contentos"
         }
       }
     }
