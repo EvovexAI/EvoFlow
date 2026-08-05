@@ -1,0 +1,12 @@
+{
+  "assetKind": "installer",
+  "minAppVersion": "0.3.9",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.3.9/EvoFlow_0.3.9_x64-setup.exe",
+  "releasedAt": "2026-08-05T17:44:56Z",
+  "pub_date": "2026-08-05T17:44:56Z",
+  "size": 550198262,
+  "version": "0.3.9",
+  "changelog": "**EvoFlow v0.3.9 — 正式版更新**",
+  "notes": "**EvoFlow v0.3.9 — 正式版更新**",
+  "hash": "sha256:0247be837b11cd278b56f53f90987e211eb4432e33c608d6fef55be4a3745441"
+}
