@@ -11,6 +11,6 @@
 | 目录 / 文件 | 内容 |
 |------|------|
 | [public-private-push-guide.md](public-private-push-guide.md) | **私有仓 / 公共仓推送流程**（日常必读） |
-| `requirements/` | 需求文档 |
+| `requirements/` | 需求文档（含 [组织包需求](requirements/organization-pack-requirements.md)） |
 | `technical/` | 技术设计长文 |
 | `third-party-references/` | 第三方参考资料（非 EvoFlow 行为说明） |

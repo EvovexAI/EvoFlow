@@ -6,7 +6,7 @@
 |-------------|------|
 | `reference/` | API、配置、环境变量、架构、工具/技能参考（MkDocs「参考」） |
 | `developer/` | 贡献指南、提交规范 |
-| `design/` | 产品/架构设计草案与专项报告 |
+| `design/` | 产品/架构设计草案与专项报告（含 [组织包设计](design/organization-pack-design.md)） |
 | `api/` | 专题接口说明（如 Apps API） |
 | `internal/` | 需求、技术长文、Bug 分析、第三方参考（**默认不进 MkDocs**） |
 | `presentations/` | 演示稿（**默认不进 MkDocs**） |

@@ -77,13 +77,13 @@ Obsidian (Markdown / YAML / wikilinks)
 - 写入：`obsidian-mcp-server@3.2.9` → `dist/index.js`
 - 工具前缀：`OBSIDIAN_PREFIX=evo_kb_`（实际工具名：`evo_kb_search` / `evo_kb_read` / `evo_kb_reindex` / `evo_kb_status`）
 
-**Node 运行时**：当前安装包尚未捆绑 Node sidecar。生产模式按序查找：
+**Node 运行时**：正式安装包默认不捆绑 Node。生产模式按序查找：
 
 1. `EVOFLOW_KB_NODE`
 2. `{EVOFLOW_HOME}/runtime/node`（Windows: `node.exe`；macOS/Linux: `bin/node`）
 3. 系统 PATH 中的 `node`（仅用于执行**已安装的私有包**，不会在启动时联网安装）
 
-缺少 Node 或私有包时，面板显示明确错误（`node_runtime_missing` / 需 `make setup-kb-mcp` 或点击「安装并初始化」），**不会静默失败**。
+首次在面板「安装检索组件」时，若以上均未找到 Node，会自动从镜像下载便携 Node 到 `{EVOFLOW_HOME}/runtime/node`（可用 `EVOFLOW_KB_NODE_DIST_URL` / `EVOFLOW_KB_NODE_VERSION` 覆盖）。缺少 Node 或私有包时面板显示明确错误，**不会静默失败**。
 
 同一 Vault 复用长期运行实例；删除配置或禁用时释放子进程。应用升级时需重新 `make setup-kb-mcp` /「安装并初始化」以对齐固定版本；卸载安装包**不会**删除用户 Vault 目录（Vault 在用户自选路径）。OHS 索引缓存在 OS 用户缓存目录 / 运行时目录，可随数据目录清理。
 
