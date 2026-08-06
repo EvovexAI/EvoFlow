@@ -7,7 +7,7 @@
 > - **已经装好了**：从[快速上手](getting-started/quick-start.md) [[getting-started/quick-start|快速上手]]开始发第一条消息
 > - **想查某个功能**：直接看[操作指南总目录](guides/README.md) [[guides/README|操作指南总目录]]
 >
-> 本指南面向**终端用户**——怎么装、怎么选能力、怎么点面板。技术设计 / API 在 `docs/system/`。智能体值班产出在 `docs/roles/`（不进本站导航）。
+> 本指南面向**终端用户**——怎么装、怎么选能力、怎么点面板。
 
 ## 先读这一页（推荐）
 

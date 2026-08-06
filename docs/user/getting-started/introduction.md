@@ -125,7 +125,7 @@ EvoFlow 由四层组成，从上到下依次是：
 | **LangGraph 运行时** | Agent 主循环，负责对话执行和工具调度 | 开发者 |
 | **Harness 框架** | 可发布的 Agent 框架（工具、沙箱、记忆、子代理等） | 开发者 |
 
-> 技术细节（端口分配、部署拓扑、容器编排）见[架构参考](../../system/reference/architecture.md)和[安装说明](installation.md)。
+> 更细的安装与本地运行见[安装说明](installation.md)。
 
 ## 7. 安全与隔离
 

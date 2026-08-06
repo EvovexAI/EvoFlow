@@ -145,7 +145,6 @@ SKILL.md 格式的优势是：
 
 ## 延伸阅读
 
-- [skills-reference.md](../../system/reference/skills-reference.md) — 技能列表
 - [add-skill.md](../tutorials/add-skill.md) [[tutorials/add-skill|添加自定义技能教程]] — 添加自定义技能教程
 
 

@@ -75,7 +75,7 @@ EvoFlow 内置一组工具，**按场景渐进暴露**给 Agent——避免一�
 | **可观测性** | `mind_map` | 实时落知识图谱，便于排障与回放 |
 | **澄清** | `ask_clarification` | 结构化向用户提问 |
 
-完整工具清单见 [工具参考](../../../system/reference/tool-reference.md) [[system/reference/tool-reference|工具参考]]。
+完整工具清单见面板「工具与 MCP」中的内置工具列表。
 
 ### 场景与工具集
 

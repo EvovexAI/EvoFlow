@@ -102,7 +102,7 @@ skills/custom/my-skill/
 | **交互** | `agent-browser`（浏览器自动化） |
 | **EvoFlow 自身** | `evoflow-intro`、`evoflow-admin`、`evoflow-debugging`、`evoflow-plan-workflow` |
 
-完整清单见 [技能参考](../../../system/reference/skills-reference.md) [[system/reference/skills-reference|技能参考]]。
+完整清单见面板「技能管理」，或仓库内 `skills/public/`。
 
 ---
 

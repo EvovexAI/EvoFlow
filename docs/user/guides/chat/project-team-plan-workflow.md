@@ -224,7 +224,6 @@ Plan 模式可配合 TodoList 中间件做会话内勾选；**持久化协作计
 - [Plan 模式使用](plan-mode.md) [[plan-mode|Plan 模式使用]]
 - [Agent 管理](../configuration/agent-management.md) [[guides/configuration/agent-management|Agent 管理]]
 - [多 Agent 协作教程](../../tutorials/multi-agent-collab.md) [[tutorials/multi-agent-collab|多 Agent 协作教程]]
-- [技能参考](../../../system/reference/skills-reference.md)（superpowers-* 技能说明）
 
 ---
 

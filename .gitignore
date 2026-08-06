@@ -256,3 +256,6 @@ evopanel/eslint-report.json
 **/.obsidian-hybrid-search.db
 **/.obsidian-hybrid-search.db-*
 docs/.obsidian/
+
+# Business strategy docs stay outside the repo
+docs/system/战略方向.md

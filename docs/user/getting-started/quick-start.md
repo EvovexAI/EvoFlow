@@ -24,6 +24,8 @@
 3. 填入你从服务商官网获取的 API 密钥
 4. 点击「测试连接」成功后，勾选「设为默认模型」保存即可
 
+> **💡 提示**：v0.3.9 起已内置「月之暗面 Kimi」厂商预设，选择「月之暗面 Kimi」→ 填入 Moonshot API Key → 即可使用 Kimi K2.5（图片理解，256K 上下文）/ K2.6 / K3 等模型，无需手动配置接口地址。API Key 在 [platform.moonshot.cn](https://platform.moonshot.cn) 获取。
+
 ---
 ## 3. 先聊一句试试
 

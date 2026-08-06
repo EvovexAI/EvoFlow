@@ -110,7 +110,6 @@ npm install -g pnpm
 ## 相关文档
 
 - [5 分钟快速上手](quick-start.md) [[quick-start|5 分钟快速上手]]
-- [配置参考](../../system/reference/config-reference.md)
 
 ---
 

@@ -141,7 +141,7 @@ Logs / Artifacts / Delivery
 
 </details>
 
-Full design rationale: [docs/user/explanation/why-evoflow.md](docs/user/explanation/why-evoflow.md) · [docs/system/reference/architecture.md](docs/system/reference/architecture.md)
+Full design rationale: [docs/user/explanation/why-evoflow.md](docs/user/explanation/why-evoflow.md)
 
 ---
 

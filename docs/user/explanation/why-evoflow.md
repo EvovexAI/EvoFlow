@@ -133,7 +133,6 @@ EvoFlow 围绕"让 Agent 真正可用于生产"打磨了一套配套能力，按
 - [子 Agent 系统](subagent-system.md) [[explanation/subagent-system|子 Agent 系统]] — 双线程池委派与隔离
 - [技能系统](skill-system.md) [[explanation/skill-system|技能系统]] — `SKILL.md` 格式与加载机制
 - [记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]] — 防抖、原子写入、按需注入
-- [架构参考](../../system/reference/architecture.md) — 部署拓扑与端口分配
 
 
 ---
