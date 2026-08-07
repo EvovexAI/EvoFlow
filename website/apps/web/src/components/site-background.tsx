@@ -24,7 +24,7 @@ export function SiteBackground() {
   const isMobile = useIsMobile();
   const pathname = usePathname();
 
-  if (pathname.startsWith("/r/") || pathname === "/resume") {
+  if (pathname.startsWith("/r/") || pathname === "/resume" || pathname === "/") {
     return null;
   }
 

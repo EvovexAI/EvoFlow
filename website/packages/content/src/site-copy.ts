@@ -10,6 +10,7 @@ export interface SiteCopy {
   shell: {
     status: string;
     githubLabel: string;
+    downloadLabel: string;
     initializeAi: string;
     themeLabel: string;
     navigation: Array<{
@@ -20,10 +21,12 @@ export interface SiteCopy {
   footer: {
     brand: string;
     tagline: string;
-    links: Array<{
-      href: string;
-      label: string;
+    columns: Array<{
+      title: string;
+      links: Array<{ href: string; label: string }>;
     }>;
+    contactTitle: string;
+    communityLabel: string;
   };
   aiLayout: {
     eyebrow: string;
@@ -67,31 +70,48 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     shell: {
       status: "",
       githubLabel: "GitHub",
+      downloadLabel: "下载桌面端",
       initializeAi: "仓库与协作",
       themeLabel: "主题",
       navigation: [
+        { href: "/", label: "首页" },
         { href: "/employees", label: "智能体员工" },
         { href: siteLinks.docsSite, label: "文档" },
         { href: "/showcase/", label: "演示" },
-        { href: "/presentations/guides/", label: "实操教程" },
-        { href: "/#capabilities", label: "功能说明" },
-        { href: siteLinks.blog, label: "下载" },
+        { href: "/presentations/guides/", label: "学习中心" },
         { href: "/about", label: "关于" },
       ],
     },
     footer: {
       brand: "EvoFlow",
-      tagline:
-        `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh}。EvoFlow 让你雇「智能体员工」按岗位自动上班、写工作汇报；本站也介绍长任务编排与能力矩阵。`,
-      links: [
-        { href: "/employees", label: "智能体员工" },
-        { href: siteLinks.docsSite, label: "项目文档" },
-        { href: "/presentations/guides/", label: "实操教程" },
-        { href: "/showcase/", label: "产品演示" },
-        { href: siteLinks.github, label: "GitHub 仓库" },
-        { href: siteLinks.blog, label: "下载与发行版" },
-        { href: siteLinks.source, label: "快速上手" },
+      tagline: `「${evoVexBrand.sloganZh}」${evoVexBrand.blurbZh}`,
+      columns: [
+        {
+          title: "产品",
+          links: [
+            { href: "/employees", label: "智能体员工" },
+            { href: "/showcase/", label: "产品演示" },
+            { href: siteLinks.blog, label: "下载发行版" },
+          ],
+        },
+        {
+          title: "资源",
+          links: [
+            { href: siteLinks.docsSite, label: "项目文档" },
+            { href: "/presentations/guides/", label: "实操教程" },
+            { href: siteLinks.github, label: "GitHub" },
+          ],
+        },
+        {
+          title: "公司",
+          links: [
+            { href: "/about", label: "关于我们" },
+            { href: siteLinks.source, label: "快速上手" },
+          ],
+        },
       ],
+      contactTitle: "联系我们",
+      communityLabel: "加入交流与反馈",
     },
     aiLayout: {
       eyebrow: "规划中",
@@ -199,31 +219,48 @@ export const siteCopyByLocale: LocalizedValue<SiteCopy> = {
     shell: {
       status: "",
       githubLabel: "GitHub",
+      downloadLabel: "Download",
       initializeAi: "Repo & collab",
       themeLabel: "Theme",
       navigation: [
+        { href: "/", label: "Home" },
         { href: "/employees", label: "Smart Employees" },
         { href: siteLinks.docsSite, label: "Docs" },
         { href: "/showcase/", label: "Showcase" },
         { href: "/presentations/guides/", label: "Guides" },
-        { href: "/#capabilities", label: "Product" },
-        { href: siteLinks.blog, label: "Download" },
         { href: "/about", label: "About" },
       ],
     },
     footer: {
       brand: "EvoFlow",
-      tagline:
-        `"${evoVexBrand.sloganEn}" — ${evoVexBrand.blurbEn}. Hire Smart Employees to work on a schedule and leave reports; this site also covers long-run orchestration.`,
-      links: [
-        { href: "/employees", label: "Smart Employees" },
-        { href: siteLinks.docsSite, label: "Documentation" },
-        { href: "/presentations/guides/", label: "Hands-on guides" },
-        { href: "/showcase/", label: "Product showcase" },
-        { href: siteLinks.github, label: "GitHub" },
-        { href: siteLinks.blog, label: "Downloads & releases" },
-        { href: siteLinks.source, label: "Quickstart" },
+      tagline: `"${evoVexBrand.sloganEn}" — ${evoVexBrand.blurbEn}`,
+      columns: [
+        {
+          title: "Product",
+          links: [
+            { href: "/employees", label: "Smart Employees" },
+            { href: "/showcase/", label: "Showcase" },
+            { href: siteLinks.blog, label: "Downloads" },
+          ],
+        },
+        {
+          title: "Resources",
+          links: [
+            { href: siteLinks.docsSite, label: "Docs" },
+            { href: "/presentations/guides/", label: "Guides" },
+            { href: siteLinks.github, label: "GitHub" },
+          ],
+        },
+        {
+          title: "Company",
+          links: [
+            { href: "/about", label: "About" },
+            { href: siteLinks.source, label: "Quickstart" },
+          ],
+        },
       ],
+      contactTitle: "Contact",
+      communityLabel: "Feedback & community",
     },
     aiLayout: {
       eyebrow: "Planned",
