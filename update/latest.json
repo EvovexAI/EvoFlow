@@ -1,0 +1,12 @@
+{
+  "changelog": "**EvoFlow v0.4.0 — 正式版更新**",
+  "version": "0.4.0",
+  "hash": "sha256:030de883850aa47ef3f65c9b70143fef9457a302afc462d8cefdcecf398bb25c",
+  "pub_date": "2026-08-08T11:58:03Z",
+  "releasedAt": "2026-08-08T11:58:03Z",
+  "minAppVersion": "0.4.0",
+  "size": 569870160,
+  "notes": "**EvoFlow v0.4.0 — 正式版更新**",
+  "assetKind": "installer",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.4.0/EvoFlow_0.4.0_x64-setup.exe"
+}
