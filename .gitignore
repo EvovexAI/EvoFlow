@@ -259,3 +259,6 @@ docs/.obsidian/
 
 # Business strategy docs stay outside the repo
 docs/system/战略方向.md
+
+# Temporary migration/check scripts and logs
+.tmp/
