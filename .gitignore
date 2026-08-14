@@ -245,8 +245,10 @@ tmp_media_analysis.txt
 # Local-only custom skill (not for version control)
 skills/devops/commit-push-release/
 
-# Cursor editor config.cursor/
+# Cursor editor config — keep shared Agent skills in VCS
 .cursor/
+!.cursor/skills/
+!.cursor/skills/**
 # Debug scratch scripts
 _debug_install_skillset.py
 # ESLint report output
