@@ -9,16 +9,16 @@
 | 能力 | 入口 | Agent 工具 |
 |------|------|------------|
 | **知识库**（Vault） | `#/knowledge/vaults` | `knowledge(action=…)` |
-| **记忆文件** | `#/memory` | 对话自动注入 / 回忆 |
+| **资产中心**（偏好/经验/反思） | `#/assets` | 对话自动整理 / `assets` 工具 |
 | **会话文件上传** | 聊天 Composer | 单次会话解析 |
 
-详见 [知识库](knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]]、[记忆管理](memory-management.md) [[guides/configuration/memory-management|记忆管理]]。
+详见 [知识库](knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]]、[资产中心](asset-center.md) [[guides/configuration/asset-center|资产中心]]。
 
 ---
 
 ## 相关阅读
 
 - [[guides/configuration/knowledge-vault|知识库（Obsidian Vault）]] — 连接本机笔记库的全新方案
-- [[guides/configuration/memory-management|记忆管理]] — 用户偏好与事实记忆
+- [[guides/configuration/asset-center|资产中心]] — 偏好、经验与反思
 - [[guides/integrations/obsidian-knowledge-vault|Obsidian Vault 集成]] — 底层架构与 MCP 细节
 - [[guides/chat/file-upload|文件上传]] — 会话级附件解析

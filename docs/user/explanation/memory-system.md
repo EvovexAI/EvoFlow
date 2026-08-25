@@ -7,7 +7,7 @@
 > - 下次你再跟它聊天，它知道你的名字和工作背景
 > - 你问"帮我写个 API"，它知道你是后端开发，会写 Python 而不是 Java
 >
-> 每个自定义角色有独立的记忆，互不污染。你可以在"记忆管理"面板里查看、编辑、删除 AI 记住的事情。
+> 每个自定义角色有独立的记忆，互不污染。请到侧栏「资产中心」查看与校对；概念见 [资产中心](asset-center.md) [[explanation/asset-center|资产中心]]。
 >
 > 记忆存的是"用户偏好和事实"，跟[知识库](../guides/configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|知识库]]（存文档内容）和[知识库 Vault](../guides/configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库 Vault]]（存笔记）是不同的。
 >
@@ -142,7 +142,8 @@ EvoFlow 支持可选的外部记忆插件（`external_provider`），扩展记�
 
 ## 延伸阅读
 
-- [记忆管理指南](../guides/configuration/memory-management.md) [[guides/configuration/memory-management|记忆管理指南]] — 面板操作、API 与常见问题
+- [资产中心](asset-center.md) [[explanation/asset-center|资产中心]] — 产品入口与用户心智
+- [记忆管理指南](../guides/configuration/memory-management.md) [[guides/configuration/memory-management|记忆管理指南]] — 面板操作入口（已指向资产中心）
 - [Agent 系统架构](agent-system.md) [[explanation/agent-system|Agent 系统架构]] — 中间件执行链
 
 

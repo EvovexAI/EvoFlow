@@ -51,7 +51,7 @@
 | **检索** | `rg`、`find`、`search_code_index` |
 | **命令** | `terminal`、`process`（启动后台任务） |
 | **并行执行** | `worker`（同时跑多个 search / write / replace / delete） |
-| **联网** | `web_search`、`web_fetch_enhanced` |
+| **联网** | `web_search`、`fetch_url` |
 | **图像** | `view_image`（截图后让模型看像素） |
 | **任务** | `todo`（轻量待办，对话内可见） |
 | **协作** | `subagent`（派发只读探索任务） |

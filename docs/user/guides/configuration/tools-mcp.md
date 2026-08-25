@@ -63,7 +63,7 @@ EvoFlow 内置一组工具，**按场景渐进暴露**给 Agent——避免一�
 | **命令** | `terminal` | 同步执行 shell 命令 |
 | | `process` | 启动 / 监控 / 终止后台进程 |
 | **联网** | `web_search` | 网页搜索（AI 日报 / 53AI / 通用搜索） |
-| | `web_fetch_enhanced` | 抓单页转 Markdown |
+| | `fetch_url` | 抓单页转 Markdown |
 | **并行执行** | `worker` | 一次跑多个 search / write / replace / delete |
 | **图像** | `view_image` | 加载本地图片让模型看像素 |
 | **任务** | `todo` | 轻量待办，对话内可见 |
@@ -84,7 +84,7 @@ EvoFlow 内置一组工具，**按场景渐进暴露**给 Agent——避免一�
 | 场景 | 解锁的核心工具 |
 |------|---------------|
 | **日常对话** | 仅 `scenario`、`tool_search`、`ask_clarification` 等编排工具 |
-| **workspace（工作空间）** | + `read`、`write`、`replace`、`delete`、`terminal`、`process`、`rg`、`find`、`search_code_index`、`worker`、`view_image`、`mind_map`、`web_search`、`web_fetch_enhanced` |
+| **workspace（工作空间）** | + `read`、`write`、`replace`、`delete`、`terminal`、`process`、`rg`、`find`、`search_code_index`、`worker`、`view_image`、`mind_map`、`web_search`、`fetch_url` |
 | **plan（Plan 模式）** | + `plan`、`supervisor`、`subagent` |
 | **创意媒体** | + 各厂商生图 / 生视频 / TTS 相关工具 |
 

@@ -51,8 +51,8 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 | 每天/每周到点跑固定指令 | **自动化** | 智能体员工、任务中心 |
 | 流程已跑通，以后只换参数再跑 | **应用中心** | 每次从零 Plan |
 | 岗位定时上班、审批、工作汇报写报告 | **智能体员工** | 自动化（无岗位合同/看板） |
-| 记得用户偏好与事实 | **记忆文件** | 知识库、上传文档 |
-| 本地 Obsidian / Markdown 笔记可搜 | **知识库（Vault）** | 上传文档 RAG、记忆 |
+| 记得用户偏好、过程与经验 | **资产中心**（对话里说「记住 / 沉淀 / 反思」） | 知识库、上传文档 |
+| 本地 Obsidian / Markdown 笔记可搜 | **知识库（Vault）** | 上传文档 RAG、资产中心 |
 | PDF/Word 等做成长期可检索库 | **上传文档（RAG）** | 会话里拖文件、Vault |
 | 当前这一轮附带几个文件 | **会话文件上传** | 长期知识库 |
 | 给角色配人设/工具/技能 | **智能体** | 智能体员工（雇佣才是岗位） |
@@ -70,8 +70,9 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 ├── 自动化   ── 到点 / 一次性固定 Prompt
 ├── 智能体员工 ── 雇佣岗位、值班、待审批、工作汇报；小V 可临时委派
 ├── 智能体   ── 角色 / 技能 / 连接器（MCP）
+├── 资产中心 ── 画像 / 记忆 / 经验 / 反思 / 专长（`#/assets`）
 ├── 知识库   ── Obsidian / 本地 Markdown Vault
-└── 设置     ── 模型、IM、记忆等
+└── 设置     ── 模型、IM、外观等
      （上传文档 RAG 默认可隐藏，直达 #/knowledge）
 全局助手小V ── 一员工一会话委派、进度与汇报、按需工作轨迹
 ```
@@ -86,7 +87,8 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 | 自动化 | 定时触发 | [自动化](../guides/tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
 | 智能体员工 | 编内值班岗；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|指南]] · [教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|教程]] · [概念](../explanation/smart-employees.md) [[explanation/smart-employees|概念]] |
 | 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] |
-| 知识库 / 上传文档 / 记忆 | 三类「知道」 | [知识库](../guides/configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]] · [上传文档](../guides/configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档]] · [记忆](../guides/configuration/memory-management.md) [[guides/configuration/memory-management|记忆]] |
+| 资产中心 | 画像 / 记忆 / 经验 / 反思 / 专长 | [概念](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] · [操作](../guides/configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] |
+| 知识库 / 上传文档 | 文档型「知道」 | [知识库](../guides/configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]] · [上传文档](../guides/configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档]] |
 
 面板入口总表：[EvoPanel 指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoPanel 指南]]。
 
@@ -131,7 +133,7 @@ flowchart TD
 |----|------------|
 | **Plan vs 目标 vs 自动化 vs 任务中心** | Plan=先计划再授权；目标=聊天长跑；自动化=到点固定 Prompt；任务中心=看板观测层 |
 | **智能体 vs 智能体员工** | 智能体=会什么；员工=何时主动干、职责与审批 |
-| **记忆 vs 知识库 vs 上传文档 vs 会话上传** | 记忆=关于你的事实；Vault=本地笔记；RAG=上传向量库；会话上传=仅本轮附件 |
+| **资产中心 vs 知识库 vs 上传文档 vs 会话上传** | 资产=关于你的偏好/经验/反思；Vault=本地笔记；RAG=上传向量库；会话上传=仅本轮附件 |
 
 ---
 

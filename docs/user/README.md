@@ -20,5 +20,6 @@
 - [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
 - [[getting-started/quick-start|快速上手]] — 5 分钟开始
 - [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[explanation/asset-center|资产中心]] — 画像 / 记忆 / 经验 / 反思
 - [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手
 - [[tutorials/configure-models|配置模型教程]] — 模型配置

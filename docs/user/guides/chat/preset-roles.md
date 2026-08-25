@@ -59,7 +59,7 @@ EvoFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent 管
 
 **为什么按 SDLC 拆**：每个阶段需要的工具白名单 / 风格 / 思考深度都不同。例如：
 
-- **方案角色**侧重思考与外部资料检索 → 高思考预算 + `web_search` / `web_fetch_enhanced`，**不给** `terminal` / `delete`
+- **方案角色**侧重思考与外部资料检索 → 高思考预算 + `web_search` / `fetch_url`，**不给** `terminal` / `delete`
 - **开发角色**侧重写代码 + 跑命令 → 全套工作空间工具，**有** `terminal` / `write` / `replace`
 - **审查角色**只读 → 只给 `read` / `rg` / `search_code_index`，**不给**任何写工具
 - **调试角色**需要看日志、跑测试 → 含 `terminal` 但**不给** `delete`
