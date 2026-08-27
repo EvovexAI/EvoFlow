@@ -104,7 +104,12 @@
 
 ## 三、待修复项（3 项关键缺口）
 
-### R0-3-FIX：修复 reattach 状态查询盲区（★ 最高优先级）
+### R0-3-FIX：修复 reattach 状态查询盲区（★ 最高优先级）→ ✅ 已完成
+
+> **状态**：已落地。`queries.py` 的 `build_session_execution_state` 已返回
+> `recently_completed` / `recently_completed_run_id` / `recently_completed_status`（60s 窗口）；
+> `ws-client.js` `getSessionRunStatus` 已透传三字段；`ChatApp.tsx` visibility reattach 已消费并刷新消息。
+> 测试 `test_session_execution.py` 已同步 schemaVersion=4 并补回归断言（8 passed）。
 
 **问题**：`recently_completed` 加在了前端不调的 `/stream-status` 上，是死代码。
 前端实际调的是 `/execution/state`（`queries.py` L51 `build_session_execution_state()`）。
@@ -270,7 +275,7 @@ def _check_db_run_completed(thread_id: str) -> bool:
 |------|--------|----------|------|------|
 | R0-1 | zombie 阈值 600→180 + 90s 快通道 | `run_status_reconcile.py` | ✅ 已完成 | - |
 | R0-2 | proactive 写操作批量提交 | `repositories.py` ✅骨架 + `engine.py` ❌待接 | **部分完成** | 2h |
-| **R0-3-FIX** | **修复 reattach 状态查询盲区** | `queries.py` + `ws-client.js` | **❌ 待修复** | 1h |
+| **R0-3-FIX** | **修复 reattach 状态查询盲区** | `queries.py` + `ws-client.js` | **✅ 已完成** | 1h |
 
 ### R1 - 短期优化
 
