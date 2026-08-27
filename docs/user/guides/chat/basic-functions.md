@@ -23,6 +23,8 @@ EvoFlow 的核心交互方式就是聊天。你可以在输入框中发消息，
 
 **相关文档：** [模型与场景详解](basic-functions.md) · [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] · [文件上传](file-upload.md) [[file-upload|文件上传]]
 
+**右侧信息栏：** 对话区右侧可展开信息栏，常见 Tab 包括 **Agent**（本轮上下文与工具）、**产物**（本轮生成的文件）、**平台**（运行与任务状态）。开启运维观测后还会出现 **调试**（按轮次查看模型调用与完整 JSON，与运维「会话调试」同源）。
+
 ---
 
 ## 2. 三种对话模式
@@ -49,6 +51,7 @@ EvoFlow 的核心交互方式就是聊天。你可以在输入框中发消息，
 - **文档类**：PDF、Word、Excel、PPT、Markdown 等，自动解析文本内容
 - **代码类**：所有常见编程语言的代码文件、压缩包，AI 可直接读代码结构和内容
 - **图片类**：JPG、PNG、GIF 等，视觉模型可理解图片内容（截图直接粘贴也可）
+- **发送前预览**：图片会以缩略图显示在输入框上方，可点开全屏核查、删除后再发送
 - 上传后 AI 自动识别文件内容，你可直接针对文件提问、要求分析、修改等
 
 > 上传的文件只服务于**当前会话**，不是长期知识库。需长期保存可检索的，用 [上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]] 或 [知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]。
