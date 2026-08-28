@@ -53,7 +53,7 @@ allowed-tools: ["bash", "read_file", "write_file"]
 技能发现流程：
 1. 扫描 skills/public/ 目录 → 所有公开技能
 2. 扫描 skills/custom/ 目录 → 所有自定义技能
-3. 读取 extensions_config.json → 确定启用/禁用状态
+3. 读取 SQLite / EvoPanel 技能状态（历史：`extensions_config.json` 引导）→ 确定启用/禁用
 4. 加载已启用技能的 SKILL.md 内容
 5. 通过 apply_prompt_template() 注入系统提示
 ```
@@ -63,12 +63,12 @@ allowed-tools: ["bash", "read_file", "write_file"]
 技能列表通过 mtime 检测配置文件变更：
 
 - 首次扫描后缓存技能列表
-- `extensions_config.json` 修改后自动失效
+- EvoPanel / SQLite 技能状态变更后自动失效；`extensions_config.json` mtime 仍作兼容检测
 - 无需重启进程即可启用/禁用技能
 
 ## 技能启用/禁用
 
-技能的启用状态由 `extensions_config.json` 中的 `skills` 字段控制：
+技能的启用状态由 EvoPanel 技能管理或 SQLite 写入；`extensions_config.json` 的 `skills` 字段仅作旧版兼容：
 
 ```json
 {

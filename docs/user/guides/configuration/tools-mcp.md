@@ -112,6 +112,18 @@ EvoFlow 支持三种 MCP 传输类型：
 | **SSE** | 远程 Server-Sent Events 流 | 跨机器订阅式服务 |
 | **streamable-http** | 远程 HTTP 流式服务 | 标准 REST 风格的远程 MCP |
 
+### 调用方式（Codex 对齐 · 原生工具）
+
+EvoFlow 与 Codex 一样，把 MCP 工具**直接注册为 Agent 的 function 工具**，模型按名称调用，**不需要** `terminal`、`mcp-terminal` 或手写 JSON-RPC。
+
+| 概念 | 说明 |
+|------|------|
+| **工具命名** | ``mcp__<服务器>__<工具>``，例如 ``mcp__github__list_issues`` |
+| **角色绑定** | 角色「能力 → MCP 模块」勾选的服务器才会挂载对应工具 |
+| **与 Skill 分离** | Skill 管流程/文档/脚本；MCP 管外部连接器，二者不要混用 |
+| **CLI 诊断** | ``evoflow mcp list`` / ``evoflow mcp test [服务器]`` / ``evoflow mcp login <服务器>``（OAuth） |
+
+> 环境变量 ``EVOFLOW_MCP_TOOL_BINDING=skill`` 已废弃并被忽略；始终使用原生绑定。
 
 ---
 
@@ -214,7 +226,16 @@ EvoFlow 支持三种 MCP 传输类型：
 
 ### 配置文件位置
 
-项目根目录的 `extensions_config.json`：
+**运行时权威来源**（与 Codex 对齐的原生 MCP 绑定）：
+
+| 优先级 | 位置 | 用途 |
+|--------|------|------|
+| 1 | SQLite `evoflow_mcp_servers` | EvoPanel **连接器**、Gateway `PUT /api/mcp/config`、`evoflow mcp add/remove` |
+| 2 | `~/.evoflow/mcp.json` | 首次导入 / 手工编辑（自动 sync 进 SQLite） |
+| 3 | `~/.cursor/mcp.json` | Cursor 配置导入（DB 为空时） |
+| 4 | 项目根 `extensions_config.json` | **仅引导种子**（旧安装兼容，非运行时主存储） |
+
+JSON **格式**（上述文件/API 通用，键名支持 `mcpServers` 或 `mcp_servers`）：
 
 ```json
 {
@@ -313,16 +334,22 @@ EvoFlow 支持三种 MCP 传输类型：
 
 ### 运行时热重载
 
-修改 `extensions_config.json` 后无需重启——LangGraph 通过 mtime 检测变更，几秒内自动加载新配置。也可走 Gateway API：
+通过 EvoPanel 保存、Gateway API 或 CLI 修改 MCP 后会 **reset 工具缓存** 并在后台重连（通常数秒内生效）。也可走 Gateway API：
 
 ```bash
-# 更新配置
+# 整包替换（body 为 { "mcp_servers": { ... } } 或 Cursor 风格 mcpServers）
 curl -X PUT http://localhost:8001/api/mcp/config \
   -H "Content-Type: application/json" \
-  -d @extensions_config.json
+  -d @mcp-servers.json
 
-# 获取当前配置
+# 获取当前配置与连接状态
 curl http://localhost:8001/api/mcp/config
+
+# CLI（Codex 对齐）
+evoflow mcp list
+evoflow mcp add github -- npx -y @modelcontextprotocol/server-github
+evoflow mcp remove github
+```
 ```
 
 ---
@@ -382,8 +409,11 @@ stdio MCP 启动失败时，Gateway 启动日志会带具体报错（如 npx 找
 **Q：OAuth 令牌刷新失败？**
 检查 `token_url`、`client_id`、`client_secret` 是否有效。日志会打印 OAuth 错误码（401 / 403 / invalid_grant 等）。
 
-**Q：修改 `extensions_config.json` 没生效？**
-文件须保存到项目根目录，Gateway 通过 mtime 检测，等几秒。或直接 `curl PUT /api/mcp/config` 强制热更。
+**Q：修改 MCP 配置没生效？**
+确认已通过 EvoPanel / `PUT /api/mcp/config` / `evoflow mcp add` 写入 SQLite；看 Gateway 日志或 `evoflow mcp list` 的 `load_status`。改完仍异常时可重启 Gateway。
+
+**Q：Agent 工具白名单里要写 MCP 工具名吗？**
+一般不用 — 用「能力 → MCP 模块」勾选服务器即可。若硬编码 `tools` / `disallowed_tools`，须用 Codex 名 ``mcp__<服务器>__<工具>``（不是旧的 ``server__tool``）。
 
 **Q：怎么限制单个 MCP 的并发？**
 当前框架对 MCP 调用并发没有专门节流，但**模型层**的并发由场景与 Agent 配置控制。若某 MCP 容易被高频调用拖慢，建议在该 MCP 服务端自己加速率限制。
@@ -391,14 +421,14 @@ stdio MCP 启动失败时，Gateway 启动日志会带具体报错（如 npx 找
 **Q：能不能让自己写的 MCP 出现在「市场」？**
 当前市场是 EvoFlow 团队整理的精选清单，**不对外开放自助提交**。你可以：
 - 用「方式二：手动添加」配进面板
-- 把 `extensions_config.json` 加进团队仓库的 git，让队友 clone 后直接生效
+- 把 `~/.evoflow/mcp.json` 或 MCP 片段加进团队仓库，队友 clone 后导入或 `evoflow mcp set` 即可
 - 联系 EvoFlow 团队提交收录建议
 
 **Q：MCP 报警敏感数据会被发到第三方吗？**
 本地 stdio MCP **完全在你本机运行**，不会出网（除非该 MCP 自己访问网络）。远程 SSE / HTTP MCP 会按其 URL 出网，配置前请确认服务可信。
 
 **Q：怎么彻底禁用某个 MCP 的某些工具？**
-MCP 服务器自己暴露的工具粒度由其实现决定，EvoFlow 当前**不能屏蔽单个 MCP 的子工具**。若有强需求，可用 `mcp-terminal` 技能转发，在脚本里过滤后再喂给 Agent。
+MCP 服务器自己暴露的工具粒度由其实现决定，EvoFlow 当前**不能屏蔽单个 MCP 的子工具**。可在角色「能力 → MCP 模块」里只勾选需要的服务器，未勾选的服务器工具不会挂载到该 Agent。
 
 ---
 
