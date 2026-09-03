@@ -264,3 +264,29 @@ docs/system/战略方向.md
 
 # Temporary migration/check scripts and logs
 .tmp/
+
+# Local session/data artifacts (never commit)
+/sess.json
+/wsg.json
+/_meeting_roles.json
+/_meeting_smoke_result.json
+/tank-battle.html
+backend/finance.db
+/config.yaml.corrupt-bak
+
+# Local backups / build temp / test output
+/_stash_backup/
+backend/.build-temp/
+evopanel/test-results/
+
+# Video production workspace (large media, not for repo)
+/videos/
+
+# Local prompt/profile debug dumps
+scripts/_preview_employee_prompt.txt
+scripts/_preview_employee_prompt_full.txt
+scripts/_preview_soul.txt
+scripts/_preview_user_profile.txt
+
+# Agent role work logs (local, not for version control)
+backend/docs/roles/
