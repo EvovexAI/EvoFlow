@@ -1,0 +1,19 @@
+{
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTQjVQNE1KaDJkM3FvYUJaRTRqTGIwWTdhdFhPVi9LZzhySHpZZjJyZHZVT1ppamhIS0hldDVJQ2E4cEZZemVha2tyRktGNHdhdWJEa0NtRFAvK1FMTnVaQ0dUeTRGQmdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg4NDEzNTEwCWZpbGU6RXZvRmxvd18wLjUuN194NjQtc2V0dXAubnNpcy56aXAKb0dVSDE0YW1OaU9UaGJiRkp1N0NzNWRXbzRGRmVrQ3dxQnQ2bmYyd1dlekFoTWV6TkU2d2VkZ3F0ZkcvdVZYVDhnK1d3YWxTN0FoOTgzZHc1UUFuQmc9PQo=",
+      "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.5.7/EvoFlow_0.5.7_x64-setup.nsis.zip"
+    }
+  },
+  "changelog": "**EvoFlow v0.5.7 — 更新说明**",
+  "hash": "sha256:be0f9f97e5b7c2ad463c0a88ec5b8c2d307ea50b5d7cd650b5842f550baa531e",
+  "updateKind": "full",
+  "pub_date": "2026-09-03T05:32:19Z",
+  "assetKind": "installer",
+  "minAppVersion": "0.5.7",
+  "size": 287369754,
+  "notes": "**EvoFlow v0.5.7 — 更新说明**",
+  "releasedAt": "2026-09-03T05:32:19Z",
+  "version": "0.5.7",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v0.5.7/EvoFlow_0.5.7_x64-setup.exe"
+}
