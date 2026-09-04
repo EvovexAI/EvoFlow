@@ -43,6 +43,8 @@
 | **统计** | 哪些文件常被用到、哪些久未使用、有多少草稿待整理；可「整合 inbox」或「全库扫描」 |
 | **导出** | 打包备份、把资产**应用到**某个员工/Agent |
 
+> 这里的「导出 Pack」是 **实体资产**备份。若要把整套「员工 + 工作流 + 扩展」分享给别人，见 [资源包与资源市场](../guides/configuration/resource-packs.md)。
+
 回复气泡下若出现**引用标签**，点一下可跳到对应资产文件（表示这次回答参考了哪条记录）。
 
 ## 系统还会自动做什么
@@ -72,4 +74,5 @@
 - [记忆管理](../guides/configuration/memory-management.md) — 旧文入口，已指向资产中心  
 - [技能管理](../guides/configuration/skill-management.md) — 专长晋升后的自定义技能  
 - [知识库](../guides/configuration/knowledge-vault.md) — 文档型知识  
+- [资源包与资源市场](../guides/configuration/resource-packs.md) — 场景整包（不是资产 Pack）  
 - 系统设计（研发）：`docs/system/design/entity-asset-hub.md`

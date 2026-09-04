@@ -160,6 +160,20 @@ GIT_COMMITTER_NAME=Alice
 
 ---
 
+## 附：资源中心
+
+在左侧「数据与资源」分组打开 **资源中心**（`#/settings?tab=resources`）：
+
+| 分区 | 作用 |
+|------|------|
+| **我的** | 搜选本机员工 / Agent / 工作流 / 技能 / 知识库 / 扩展，右侧草稿导出为资源包 |
+| **已装** | 已装资源包实例与卸载 |
+| **市场** | 导入本地 zip/文件夹，或浏览 catalog 安装 |
+
+完整说明见 [资源包与资源市场](resource-packs.md)。
+
+---
+
 ## 多实例支持
 
 EvoFlow 支持同时管理**本机**、**Docker**、**远程**三类实例。
@@ -176,6 +190,8 @@ EvoFlow 支持同时管理**本机**、**Docker**、**远程**三类实例。
 
 ## 相关阅读
 
+- [[guides/configuration/resource-packs|资源包与资源市场]] — 资源中心、资源包导出与安装
+- [[guides/configuration/asset-center|资产中心]] — 画像 / 记忆 / 专长
 - [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 桌面端全部功能详解
 - [[guides/configuration/memory-management|记忆管理]] — 记忆系统的详细机制
 - [[guides/configuration/tools-mcp|工具与 MCP]] — 工具审批策略说明

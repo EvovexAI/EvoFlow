@@ -34,11 +34,14 @@
 
 在 **导出** Tab：
 
-- **Pack 导出**：备份当前实体资产目录  
+- **Pack 导出**：备份当前实体资产目录（画像/记忆/专长；即 `.evoflow-pack` 一类）  
 - **应用到…**：勾选范围后复制到目标员工或 Agent（不会静默共享）
+
+若要分发「员工 + 工作流 + 扩展」整套场景，那是 **资源包**，不是资产中心 Pack：见 [[guides/configuration/resource-packs|资源包与资源市场]]。
 
 ## 相关阅读
 
 - [[explanation/asset-center|资产中心概念]]  
 - [[guides/configuration/memory-management|记忆管理]]  
-- [[guides/configuration/skill-management|技能管理]]
+- [[guides/configuration/skill-management|技能管理]]  
+- [[guides/configuration/resource-packs|资源包与资源市场]]

@@ -42,6 +42,7 @@
 | 工具与 MCP | [tools-mcp.md](configuration/tools-mcp.md) [[guides/configuration/tools-mcp|工具与 MCP]] |
 | 记忆管理 | [memory-management.md](configuration/memory-management.md) [[guides/configuration/memory-management|记忆管理]] |
 | **资产中心** | [asset-center.md](configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] · 概念 [是什么](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] |
+| **资源中心 / 资源包** | [resource-packs.md](configuration/resource-packs.md) [[guides/configuration/resource-packs|资源包与资源市场]] |
 | 上传文档（RAG） | [document-knowledge-base.md](configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档 RAG]] |
 | 知识库（Obsidian Vault） | [knowledge-vault.md](configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库]] |
 | 应用中心 | [app-center.md](configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
