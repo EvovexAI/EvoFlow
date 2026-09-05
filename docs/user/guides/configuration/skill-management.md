@@ -105,7 +105,7 @@ skills/custom/my-skill/
 | **媒体** | `byted-ark-seedream-skill`（生图）、`agnes-media-generation`（多模态） |
 | **开发流程** | `superpowers-*` 系列（spec / plan / execute / debug） |
 | **交互** | `agent-browser`（浏览器自动化） |
-| **EvoFlow 自身** | `evoflow-intro`、`evoflow-admin`、`evoflow-debugging`、`evoflow-plan-workflow` |
+| **EvoFlow 自身** | `evoflow-intro`、`evoflow-admin`、`evoflow-admin-external`（可下载 zip，见 `skills/dist/`）、`evoflow-system-verification`、`evoflow-debugging`、`evoflow-plan-workflow` |
 
 完整清单见面板「技能管理」，或仓库内 `skills/public/`。
 

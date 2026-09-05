@@ -158,10 +158,10 @@ EvoFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent 管
 主智能体会按 [preset-role-assistant 技能](https://github.com/EvovexAI/EvoFlow/blob/main/skills/public/preset-role-assistant/SKILL.md) 的流程：
 
 1. 澄清每个角色的职责、典型任务、绝对不做的事
-2. 检查 `agent_code` 不冲突
+2. 检查 `agent_code` 不冲突（`evoflow agents check` / `platform agents.list`）
 3. 列出实际可用的工具 / 技能，做最小权限授权
 4. 起草配置让你确认
-5. 用户确认后才 `create_agent` 落盘
+5. 用户确认后才 `evoflow agents create`（或 `platform agents.create`）落盘
 
 落盘后的角色与"在 GUI 手填"完全等价，立即出现在「Agent 管理」页面。
 
@@ -170,7 +170,7 @@ EvoFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent 管
 ## 八、常见问题
 
 **Q：预设角色里看不到 `project-*` 系列？**
-检查 Agent 管理页面是否按团队分类筛选；如确实缺失，可能是你的 EvoFlow 版本过旧或 `~/.evoflow/agents/` 被清理，可尝试运行 `evoflow agents seed`（详见 [evoflow-admin 技能](https://github.com/EvovexAI/EvoFlow/blob/main/skills/public/evoflow-admin/SKILL.md)）。
+检查 Agent 管理页面是否按团队分类筛选；再用 `evoflow agents list` 确认库里是否已有。内置 `project-*` 会在 Gateway / 主对话启动时自动物化（`ensure_builtin_agents_materialized`），**没有** `evoflow agents seed` 命令。若列表仍空：重启 Gateway 并开一轮新对话；仍缺失则升级/重装 EvoFlow，或用 [evoflow-admin](https://github.com/EvovexAI/EvoFlow/blob/main/skills/public/evoflow-admin/SKILL.md) / [preset-role-assistant](https://github.com/EvovexAI/EvoFlow/blob/main/skills/public/preset-role-assistant/SKILL.md) 按需重建自定义角色。
 
 **Q：项目团队 6 个角色一定要全用吗？**
 不需要。你完全可以只用 `project-software-developer` 写代码，跳过方案 / 审查等阶段。整团队调度只在 Plan 模式 / 任务中心**显式指定时**才走全流程。
