@@ -112,9 +112,9 @@ EvoFlow 支持三种 MCP 传输类型：
 | **SSE** | 远程 Server-Sent Events 流 | 跨机器订阅式服务 |
 | **streamable-http** | 远程 HTTP 流式服务 | 标准 REST 风格的远程 MCP |
 
-### 调用方式（Codex 对齐 · 原生工具）
+### 调用方式（原生工具）
 
-EvoFlow 与 Codex 一样，把 MCP 工具**直接注册为 Agent 的 function 工具**，模型按名称调用，**不需要** `terminal`、`mcp-terminal` 或手写 JSON-RPC。
+EvoFlow 把 MCP 工具**直接注册为 Agent 的 function 工具**，模型按名称调用，**不需要** `terminal`、`mcp-terminal` 或手写 JSON-RPC。
 
 | 概念 | 说明 |
 |------|------|
@@ -226,13 +226,13 @@ EvoFlow 与 Codex 一样，把 MCP 工具**直接注册为 Agent 的 function �
 
 ### 配置文件位置
 
-**运行时权威来源**（与 Codex 对齐的原生 MCP 绑定）：
+**运行时权威来源**（原生 MCP 绑定）：
 
 | 优先级 | 位置 | 用途 |
 |--------|------|------|
 | 1 | SQLite `evoflow_mcp_servers` | EvoPanel **连接器**、Gateway `PUT /api/mcp/config`、`evoflow mcp add/remove` |
 | 2 | `~/.evoflow/mcp.json` | 首次导入 / 手工编辑（自动 sync 进 SQLite） |
-| 3 | `~/.cursor/mcp.json` | Cursor 配置导入（DB 为空时） |
+| 3 | 本机常见 IDE 的 `mcp.json`（若存在） | 空库时可选导入（兼容路径含 `~/.cursor/mcp.json` 等） |
 | 4 | 项目根 `extensions_config.json` | **仅引导种子**（旧安装兼容，非运行时主存储） |
 
 JSON **格式**（上述文件/API 通用，键名支持 `mcpServers` 或 `mcp_servers`）：
@@ -337,7 +337,7 @@ JSON **格式**（上述文件/API 通用，键名支持 `mcpServers` 或 `mcp_s
 通过 EvoPanel 保存、Gateway API 或 CLI 修改 MCP 后会 **reset 工具缓存** 并在后台重连（通常数秒内生效）。也可走 Gateway API：
 
 ```bash
-# 整包替换（body 为 { "mcp_servers": { ... } } 或 Cursor 风格 mcpServers）
+# 整包替换（body 为 { "mcp_servers": { ... } } 或标准 mcpServers 对象）
 curl -X PUT http://localhost:8001/api/mcp/config \
   -H "Content-Type: application/json" \
   -d @mcp-servers.json
@@ -345,11 +345,10 @@ curl -X PUT http://localhost:8001/api/mcp/config \
 # 获取当前配置与连接状态
 curl http://localhost:8001/api/mcp/config
 
-# CLI（Codex 对齐）
+# CLI
 evoflow mcp list
 evoflow mcp add github -- npx -y @modelcontextprotocol/server-github
 evoflow mcp remove github
-```
 ```
 
 ---
@@ -413,7 +412,7 @@ stdio MCP 启动失败时，Gateway 启动日志会带具体报错（如 npx 找
 确认已通过 EvoPanel / `PUT /api/mcp/config` / `evoflow mcp add` 写入 SQLite；看 Gateway 日志或 `evoflow mcp list` 的 `load_status`。改完仍异常时可重启 Gateway。
 
 **Q：Agent 工具白名单里要写 MCP 工具名吗？**
-一般不用 — 用「能力 → MCP 模块」勾选服务器即可。若硬编码 `tools` / `disallowed_tools`，须用 Codex 名 ``mcp__<服务器>__<工具>``（不是旧的 ``server__tool``）。
+一般不用 — 用「能力 → MCP 模块」勾选服务器即可。若硬编码 `tools` / `disallowed_tools`，须用标准名 ``mcp__<服务器>__<工具>``（不是旧的 ``server__tool``）。
 
 **Q：怎么限制单个 MCP 的并发？**
 当前框架对 MCP 调用并发没有专门节流，但**模型层**的并发由场景与 Agent 配置控制。若某 MCP 容易被高频调用拖慢，建议在该 MCP 服务端自己加速率限制。
