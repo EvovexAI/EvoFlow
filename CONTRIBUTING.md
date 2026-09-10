@@ -1,5 +1,7 @@
 # Contributing to EvoFlow
 
+> **Public repository note:** The public [EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow) repo currently publishes **documentation, license, and desktop release artifacts**. Full application source is not yet in this public mirror. The best ways to help today are: report bugs, improve docs under `docs/user/`, and share feedback. When source access is granted, contributions follow the workflow below and the [Evovex AI Non-Commercial License](LICENSE).
+
 Thank you for your interest in contributing to EvoFlow! This guide will help you set up your development environment and understand our development workflow.
 
 ## Development Environment Setup

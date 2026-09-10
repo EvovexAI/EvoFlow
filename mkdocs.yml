@@ -12,12 +12,16 @@ docs_dir: docs
 site_dir: site
 
 # exclude_docs：未纳入 MkDocs 导航 / 站点的 Markdown（gitignore 风格；无斜杠会匹配任意目录）
-# 私仓若仍保留 docs/system，整树排除，避免本机构建误把内部稿进站点
+# 开源门面：站点只编用户文档；system/roles 及内部稿整树排除
 exclude_docs: |
   /README.md
   user/README.md
   system/**
   roles/**
+  prd/**
+  dev/**
+  verification/**
+  knowledge/**
   assets/plan-supervisor/README.md
   assets/screenshots/README.md
   assets/README-GUIDE.md

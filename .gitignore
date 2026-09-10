@@ -240,7 +240,14 @@ reports/
 
 # Smart employee runtime artifacts (deliverables, not product docs)
 docs/roles/
+backend/docs/roles/
 tmp_media_analysis.txt
+
+# Legacy doc buckets (content moved under docs/system/internal; keep ignore as safety net)
+docs/prd/
+docs/dev/
+docs/verification/
+docs/knowledge/
 
 # Local-only custom skill (not for version control)
 skills/devops/commit-push-release/
@@ -259,7 +266,7 @@ evopanel/eslint-report.json
 **/.obsidian-hybrid-search.db-*
 docs/.obsidian/
 
-# Business strategy docs stay outside the repo
+# Business strategy docs (also under docs/system/internal when present)
 docs/system/战略方向.md
 
 # Temporary migration/check scripts and logs
@@ -290,3 +297,50 @@ scripts/_preview_user_profile.txt
 
 # Agent role work logs (local, not for version control)
 backend/docs/roles/
+
+# ============================================================
+# Open-source hygiene: runtime data & scratch (added 2026-09-10)
+# ============================================================
+
+# Runtime SQLite databases (never commit user data)
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+*.sqlite
+*.sqlite3
+
+# Scratch / tmp workspace (was mistakenly tracked under .tmp/)
+.tmp/
+tmp/
+/temp/
+
+# Local diagnostic logs & gateway scratch
+.gw-*
+.smoke-*
+smoke-*.log
+*.err
+*.out
+logs/
+log/
+
+# One-off local debug scripts
+backend/scripts/_tmp_*.py
+/tmp_fix_*.py
+/tmp_*.py
+create_*_app.py
+step*_failures.txt
+
+# Editor/file backups
+*.bak
+*~
+
+# Personal session artifacts
+/sess.json
+/wsg.json
+/_meeting_roles.json
+/_meeting_smoke_result.json
+/tank-battle.html
+
+# Extracted to standalone repos under ../evo/ (local junctions may remain)
+/website/
+/clawdevoflow/

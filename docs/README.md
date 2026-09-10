@@ -1,41 +1,28 @@
-# docs/ — 三知识库约定
+# docs/ — 文档分层（开源门面）
 
-EvoFlow 仓库文档按 **三个独立知识库根** 划分，便于分别挂载为 Obsidian Knowledge Vault（或内置预置库），互不混检。
+EvoFlow 文档按读者与是否可公开划分。**公共镜像只同步用户可见文档**；内部设计与值班产物留在私仓。
 
-| 知识库根 | 读者 | 内容 |
-|----------|------|------|
-| [`user/`](user/) | 终端用户 | 操作指南、教程、上手、FAQ、概念说明、用法案例 |
-| [`system/`](system/) | 开发 / 运维 / 系统 Agent | 技术设计、需求、API/配置参考、接口与内部约定 |
-| [`roles/`](roles/) | 智能体员工产出 | 值班岗位按小时写入的方案/报告/纪要（运行时产物，非 SSOT） |
+| 目录 | 读者 | 公仓 |
+|------|------|------|
+| [`user/`](user/) | 终端用户 | ✅ 同步 |
+| [`assets/`](assets/) | 用户文档配图/演示媒体 | ✅ 同步（随 user 引用） |
+| [`system/`](system/) | 开发 / 运维 / 内部设计 | ❌ 仅私仓（含 `internal/`、`developer/`、`reference` 等） |
+| [`roles/`](roles/) | 智能体值班产出（运行时） | ❌ 不同步；目录可空，由运行时写入 |
 
-共享资源（不单独成库）：
-
-- [`assets/`](assets/) — 截图与媒体，供 `user/` / `system/` 引用
-- 本文件与 [`index.md`](index.md) — 总览入口（MkDocs 首页）
+本文件与 [`index.md`](index.md) 为文档总览入口。
 
 ## 判定规则
 
-1. **用户会跟着面板点一遍** → `user/`
-2. **接口字段、表结构、中间件、需求验收、架构实现** → `system/`
-3. **智能体值班写出的方案/报告** → `roles/<agent_code>/<YYYYMMDD-HH>/`（路径由运行时约定，勿手改目录名）
-4. 同一主题可有用户操作版 + 系统实现版，用链接互指；SSOT 见 [`system/internal/meta-ssot.md`](system/internal/meta-ssot.md)
+1. **用户会跟着产品点一遍** → `user/`
+2. **接口、架构、需求、验收、内部 SOP** → `system/`（默认不公开）
+3. **智能体值班写出的方案/报告** → `roles/<agent_code>/<YYYYMMDD-HH>/`（非 SSOT，勿手改目录名）
 
-## 与产品能力对应
-
-| 能力 | 建议挂载 |
-|------|----------|
-| **系统内置用户指南**（启动自动注册，只读） | `docs/user/` → Vault id `evoflow-user-guide` |
-| **系统内置运营知识库**（启动自动注册，可写） | ContentOS `docs/智能内容运营平台/知识库/` → Vault id `evoflow-ops-knowledge`（见 [`docs/knowledge/README.md`](knowledge/README.md) 指针） |
-| 用户自建指南知识库 | 自选本地 Obsidian 目录 |
-| 系统内部知识库（预置 / 自建 Vault） | `docs/system/`（尚未内置，可手动挂载） |
-| 智能体产出库（按工作空间） | `docs/roles/` |
-| 上传文档 RAG | 另一套能力，勿与上述 Vault 混用 |
-| `memory.json` | 会话记忆，不是文档库 |
-
-用户指南运行时落在 `{EVOFLOW_HOME}/knowledge/vaults/evoflow-user-guide/`；运营知识库开发态直接指向同级 ContentOS 知识库目录（可用 `EVOFLOW_OPS_KNOWLEDGE_ROOT` 覆盖），打包态可带快照到 `{EVOFLOW_HOME}/knowledge/vaults/evoflow-ops-knowledge/`。小V 检索覆盖所有已启用 Vault。
-
-Vault 建议 ignore：`.obsidian/**`、`*.db`、`*.db-*`、大体量媒体（按需）。
+运营知识库 Markdown SSOT 在 ContentOS，不在本仓；指针见 [`system/internal/contentos-ops-knowledge-pointer.md`](system/internal/contentos-ops-knowledge-pointer.md)。
 
 ## MkDocs
 
-站点仍从仓库根 `mkdocs.yml` 构建，`docs_dir: docs`；导航同时收录 `user/` 与 `system/` 中对外可读页，**排除** `system/internal/**`、`system/presentations/**`、`roles/**`。
+根目录 `mkdocs.yml`：`docs_dir: docs`。导航只收录 `user/`（及站点首页）。整树排除 `system/**`、`roles/**`。
+
+## 公共同步
+
+`sync-public` / `local-publish -SyncPublic` 拷贝 `docs/` 后会剥离所有非公开子树（见 workflow 注释），保证公仓文档面干净。
