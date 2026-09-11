@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/EvovexAI/EvoFlow/blob/main/docs/index.md
+    about: Quick links for install, Plan mode, skills, MCP, FAQ
+  - name: Discussions
+    url: https://github.com/EvovexAI/EvoFlow/discussions
+    about: Questions, ideas, and show-and-tell (not bug trackers)
+  - name: Security vulnerability
+    url: https://github.com/EvovexAI/EvoFlow/security/advisories/new
+    about: Private vulnerability reporting only — do not file a public issue
+  - name: Support guide
+    url: https://github.com/EvovexAI/EvoFlow/blob/main/SUPPORT.md
+    about: Which channel to use for help

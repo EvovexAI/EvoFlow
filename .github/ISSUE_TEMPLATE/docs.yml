@@ -1,0 +1,22 @@
+name: Documentation
+description: Typo, missing page, or unclear docs
+title: "[docs] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Page / path
+      description: e.g. docs/user/guides/chat/plan-mode.md or a site URL
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix (optional)

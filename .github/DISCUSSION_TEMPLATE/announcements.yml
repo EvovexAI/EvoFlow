@@ -1,0 +1,13 @@
+title: "[announce] "
+labels: ["announcement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainer announcements (releases, policy). Prefer staff posts in this category.
+  - type: textarea
+    id: body
+    attributes:
+      label: Announcement
+    validations:
+      required: true

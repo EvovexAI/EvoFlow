@@ -1,0 +1,21 @@
+title: "[show] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Show a workflow, Skill, or screenshot built with EvoFlow. Keep customer data and API keys out.
+  - type: textarea
+    id: story
+    attributes:
+      label: What you built
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How others can try it
+      description: Skills used, prompts, links (no secrets).
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots / links (optional)

@@ -74,5 +74,4 @@
 - [记忆管理](../guides/configuration/memory-management.md) — 旧文入口，已指向资产中心  
 - [技能管理](../guides/configuration/skill-management.md) — 专长晋升后的自定义技能  
 - [知识库](../guides/configuration/knowledge-vault.md) — 文档型知识  
-- [资源包与资源市场](../guides/configuration/resource-packs.md) — 场景整包（不是资产 Pack）  
-- 系统设计（研发）：`docs/system/design/entity-asset-hub.md`
+- [资源包与资源市场](../guides/configuration/resource-packs.md) — 场景整包（不是资产 Pack）

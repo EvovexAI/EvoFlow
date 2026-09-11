@@ -1,8 +1,7 @@
 # 资源包与资源市场
 
 > 想一次装好「员工 + 工作流 + 技能/扩展」整套场景，用 **资源包**。  
-> 技术上资源包就是组织包（根文件 `evoflow.organization.json`）。  
-> 设计细节：[资源市场契约](../../../system/design/resource-marketplace.md) · [组织包设计 / API](../../../system/design/organization-pack-design.md)
+> 技术上资源包就是组织包（根文件 `evoflow.organization.json`）。
 
 ---
 
@@ -73,7 +72,7 @@ packs/<你的包-id>/
 3. 改 `catalog.json` 加一行。  
 4. 开 PR；合并后别人刷新市场即可看到。
 
-字段见 [catalog schema](../../../system/design/resource-marketplace-catalog.schema.json)。
+字段见资源市场 catalog schema（私有设计文档，不在本仓）。
 
 ---
 

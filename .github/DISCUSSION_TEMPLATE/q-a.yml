@@ -1,0 +1,27 @@
+title: "[q&a] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask how to install, configure, or use EvoFlow. For reproducible bugs, open a **Bug** issue instead.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried
+      description: Docs pages you read, error text (redact secrets).
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other / unknown

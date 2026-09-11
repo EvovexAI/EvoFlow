@@ -34,7 +34,7 @@
 | **风格与成长** | 沟通风格可慢慢贴近你，且有据可查 | 有界漂移 + 变更记录，不是偷偷改人设 |
 | **上班节律** | 上班干活；收工写日记 / Lessons；重要收工触发反思巩固 | 不替代值班与 Task 账本 |
 
-当前实现仍以**岗位合同 + SOUL 注入 + 用户/工作区记忆**为主；人格层的完整设计与分阶段落地见系统设计：[Person Kernel：把智能体员工当「人」](../../system/design/person-kernel-agi.md)。产品补齐优先级见 [智能体员工缺口路线图](../../system/design/smart-employee-gaps-roadmap.md)。
+当前实现仍以**岗位合同 + SOUL 注入 + 用户/工作区记忆**为主；人格层会按产品节奏逐步补齐。
 
 ---
 
@@ -429,5 +429,3 @@ sequenceDiagram
 - [[guides/tasks/task-center|任务中心]] — 跨来源任务驾驶舱
 - [[guides/configuration/agent-management|智能体管理]] — 角色配置
 - [[cases/index|最佳实践案例]] — 真实场景
-- [Person Kernel（系统设计）](../../system/design/person-kernel-agi.md) — 把员工当人的人格层 OS
-- [智能体员工缺口与补齐](../../system/design/smart-employee-gaps-roadmap.md) — 体验与人格层优先级
