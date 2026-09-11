@@ -1,6 +1,6 @@
 # 桌面端 GUI 截图资源
 
-将 EvoFlow 桌面图形界面截图与社群二维码放在本目录，供根目录 [README.md](https://github.com/EvovexAI/EvoFlow/blob/main/README.md) / [README.zh-CN.md](https://github.com/EvovexAI/EvoFlow/blob/main/README.zh-CN.md) 引用。
+将 EvoFlow 桌面图形界面截图与社群二维码放在本目录，供根目录 [README.md](https://github.com/EvovexAI/EvoFlow/blob/main/README.md)（中文主页）/ [README.en.md](https://github.com/EvovexAI/EvoFlow/blob/main/README.en.md) 引用。
 
 本地面板默认：`http://localhost:1521`。可用仓库 `temp/capture-readme-screenshots.mjs`（需 Playwright）批量刷新。
 

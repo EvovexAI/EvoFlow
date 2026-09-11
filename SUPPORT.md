@@ -12,7 +12,7 @@ Where to ask for help with EvoFlow.
 | Docs typo / missing page | Issue with **Documentation** template, or a docs PR |
 | Security vulnerability | **Private only** — [SECURITY.md](SECURITY.md). Never a public issue. |
 | Commercial license / partnership | [cloud@evovexai.com](mailto:cloud@evovexai.com) |
-| Community chat (CN) | WeChat group QR on the [README](README.zh-CN.md) (desensitized talk only; no ads) |
+| Community chat (CN) | WeChat group QR on the [README](README.md) (desensitized talk only; no ads) |
 
 ## Before opening an issue
 
