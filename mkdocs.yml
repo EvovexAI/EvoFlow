@@ -1,5 +1,5 @@
 # EvoFlow 官方文档站点 — 源文件位于 docs/，构建：make docs-build
-# 公共镜像只同步 docs/user（及 assets 等）；docs/system 仅私仓，不同步公共仓
+# 本仓 docs 仅用户文档；非公开设计稿在 evo/EvoFlow-private-docs/
 site_name: EvoFlow 文档
 site_description: EvoFlow 教程、操作指南、参考手册与架构说明
 site_author: EvoFlow contributors
@@ -12,7 +12,7 @@ docs_dir: docs
 site_dir: site
 
 # exclude_docs：未纳入 MkDocs 导航 / 站点的 Markdown（gitignore 风格；无斜杠会匹配任意目录）
-# 开源门面：站点只编用户文档；system/roles 及内部稿整树排除
+# 开源门面：站点只编用户文档；roles / 历史内部树 / generated OpenAPI 排除
 exclude_docs: |
   /README.md
   user/README.md
@@ -22,6 +22,7 @@ exclude_docs: |
   dev/**
   verification/**
   knowledge/**
+  generated/**
   assets/plan-supervisor/README.md
   assets/screenshots/README.md
   assets/README-GUIDE.md
@@ -69,6 +70,15 @@ markdown_extensions:
 
 nav:
   - 首页: index.md
+  - 贡献:
+      - 贡献者指南: contribute/index.md
+      - 仓库地图: contribute/repo-map.md
+      - 分支与检查: contribute/branching-and-checks.md
+      - 添加 Skill: contribute/add-skill.md
+      - 添加 IM 渠道: contribute/add-channel.md
+      - RFC: contribute/rfc.md
+      - Discussions 与 Good First Issue: contribute/discussions-and-good-first-issues.md
+      - 社区闭环: contribute/community-ops.md
   - 用户指南:
       - 文档中心: user/index.md
       - 快速开始:

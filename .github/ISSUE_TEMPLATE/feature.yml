@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an enhancement
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem first, then the proposal. Large designs may start as a Discussion.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain does this address? Who is affected?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should EvoFlow do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Runtime / planning
+        - EvoPanel UI
+        - Skills
+        - MCP / tools
+        - Channels (IM)
+        - Docs
+        - Other
+    validations:
+      required: true

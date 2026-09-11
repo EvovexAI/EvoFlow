@@ -1,318 +1,214 @@
 # Contributing to EvoFlow
 
-> **Public repository note:** The public [EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow) repo currently publishes **documentation, license, and desktop release artifacts**. Full application source is not yet in this public mirror. The best ways to help today are: report bugs, improve docs under `docs/user/`, and share feedback. When source access is granted, contributions follow the workflow below and the [Evovex AI Non-Commercial License](LICENSE).
+Thank you for contributing. This guide is the **source-of-truth** for: environment setup, branch workflow, required checks, and how PRs get merged.
 
-Thank you for your interest in contributing to EvoFlow! This guide will help you set up your development environment and understand our development workflow.
+> **Public mirror note:** [EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow) currently emphasizes documentation and desktop releases. Full application source lives in the development tree used for builds. When you have access to this tree, follow the workflow below. Contributions are under the [Evovex AI Non-Commercial License](LICENSE).
 
-## Development Environment Setup
+Also read: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [SUPPORT.md](SUPPORT.md) · [SECURITY.md](SECURITY.md)
 
-We offer two development environments. **Docker is recommended** for the most consistent and hassle-free experience.
+---
 
-### Option 1: Docker Development (Recommended)
+## What we want most
 
-Docker provides a consistent, isolated environment with all dependencies pre-configured. No need to install Node.js, Python, or nginx on your local machine.
+1. Bug fixes (crashes, wrong behavior, data loss)
+2. Docs and translations under `docs/user/`
+3. Skills (`skills/public/…`) that are broadly useful
+4. Cross-platform fixes (Windows / macOS / Linux / WSL)
+5. Security hardening
+6. Core runtime / gateway changes — only with clear design and tests
 
-#### Prerequisites
+Prefer a **Skill** or MCP adapter over growing core tools when possible.
 
-- Docker Desktop or Docker Engine
-- pnpm (for caching optimization)
+---
 
-#### Setup Steps
-
-1. **Configure the application**:
-   ```bash
-   # Copy example configuration
-   cp config.example.yaml config.yaml
-
-   # Set your API keys
-   export OPENAI_API_KEY="your-key-here"
-   # or edit config.yaml directly
-   ```
-
-2. **Initialize Docker environment** (first time only):
-   ```bash
-   make docker-init
-   ```
-   This will:
-   - Build Docker images
-   - Install EvoPanel dependencies (pnpm, under `evopanel/`)
-   - Install backend dependencies (uv)
-   - Share pnpm cache with host for faster builds
-
-3. **Start development services**:
-   ```bash
-   make docker-start
-   ```
-   `make docker-start` reads `config.yaml` and starts `provisioner` only for provisioner/Kubernetes sandbox mode.
-
-   All services will start with hot-reload enabled:
-   - Web UI / EvoPanel-related services reload per Compose setup
-   - Backend changes trigger automatic restart
-   - LangGraph server supports hot-reload
-
-4. **Access the application**:
-   - Web Interface: http://localhost:2026
-   - API Gateway: http://localhost:2026/api/*
-   - LangGraph: http://localhost:2026/api/langgraph/*
-
-#### Docker Commands
+## Branch & pull workflow
 
 ```bash
-# Build the custom k3s image (with pre-cached sandbox image)
-make docker-init
-# Start Docker services (mode-aware, localhost:2026)
-make docker-start
-# Stop Docker development services
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git checkout -b feat/short-description    # or fix/… docs/…
+```
+
+| Branch | Use |
+| --- | --- |
+| `main` | Protected release line — PR only |
+| `feat/*` | Features |
+| `fix/*` | Bug fixes |
+| `docs/*` | Documentation only |
+
+**Keep PRs focused:** one logical change per PR. Rebase (or merge) onto latest `main` before requesting review.
+
+```bash
+git fetch origin
+git rebase origin/main
+# fix conflicts, then:
+git push -u origin HEAD
+```
+
+Open a Pull Request against `main`. Fill the PR template. Wait for CI (below) to go green.
+
+**Commit messages:** Conventional Commits — `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
+
+---
+
+## Required checks before you push
+
+Mirror what CI runs. Prefer the umbrella script when possible:
+
+```bash
+# From repo root (Git Bash / WSL / macOS / Linux)
+make ci-local
+# or: bash scripts/ci-local.sh
+```
+
+Minimum by area:
+
+| Area | Command |
+| --- | --- |
+| Backend format / lint | `cd backend && make format` (ruff) |
+| Backend unit tests | `cd backend && uv run pytest` |
+| EvoPanel | `cd evopanel && pnpm typecheck` (and `pnpm test` if you touched UI logic) |
+| Docs | `make docs-build` if you changed `docs/` or `mkdocs.yml` |
+
+CI workflows (must stay green on the PR):
+
+- [.github/workflows/lint-check.yml](.github/workflows/lint-check.yml)
+- [.github/workflows/backend-unit-tests.yml](.github/workflows/backend-unit-tests.yml)
+- [.github/workflows/docs.yml](.github/workflows/docs.yml) when docs change
+
+Do **not** commit: `.evoflow/`, secrets, `local-publish.env`, smoke leftovers, or `backend/outputs/`.
+
+---
+
+## Development environment
+
+Two options. **Docker is recommended.**
+
+### Option 1: Docker (recommended)
+
+**Prerequisites:** Docker Desktop / Engine; pnpm optional (cache).
+
+```bash
+cp config.example.yaml config.yaml
+# set model API keys in config or env
+
+make docker-init    # first time: images + deps
+make docker-start   # http://localhost:2026
+```
+
+| URL | Service |
+| --- | --- |
+| http://localhost:2026 | Unified nginx entry |
+| Gateway / LangGraph | Proxied under `/api/*` |
+
+```bash
 make docker-stop
-# View Docker development logs
 make docker-logs
-# View Docker frontend logs
-make docker-logs-frontend
-# View Docker gateway logs
 make docker-logs-gateway
 ```
 
-#### Linux: Docker daemon permission denied
+<details>
+<summary>Linux: Docker permission denied</summary>
 
-If `make docker-init`, `make docker-start`, or `make docker-stop` fails on Linux with an error like below, your current user likely does not have permission to access the Docker daemon socket:
+Add your user to the `docker` group, then re-login:
+
+```bash
+sudo usermod -aG docker $USER
+# log out / in, then:
+docker ps
+make docker-start
+```
+
+</details>
+
+### Option 2: Local processes
+
+```bash
+make check      # Node 22+, pnpm, uv, nginx
+make install
+make dev        # nginx on :2026
+```
+
+Or start pieces manually:
+
+```bash
+# Terminal 1 — LangGraph :2024
+cd backend && make dev
+
+# Terminal 2 — Gateway :8001
+cd backend && make gateway
+
+# Terminal 3 — EvoPanel (often :1420)
+cd evopanel && pnpm dev
+
+# Terminal 4 — nginx
+make nginx
+```
+
+Windows helpers: `scripts/windows/start-dev-stack.ps1` (see [scripts/windows/README.md](scripts/windows/README.md)).
+
+---
+
+## Project map (where to change things)
 
 ```text
-unable to get image 'evo-flow-dev-langgraph': permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
-```
-
-Recommended fix: add your current user to the `docker` group so Docker commands work without `sudo`.
-
-1. Confirm the `docker` group exists:
-   ```bash
-   getent group docker
-   ```
-2. Add your current user to the `docker` group:
-   ```bash
-   sudo usermod -aG docker $USER
-   ```
-3. Apply the new group membership. The most reliable option is to log out completely and then log back in. If you want to refresh the current shell session instead, run:
-   ```bash
-   newgrp docker
-   ```
-4. Verify Docker access:
-   ```bash
-   docker ps
-   ```
-5. Retry the EvoFlow command:
-   ```bash
-   make docker-stop
-   make docker-start
-   ```
-
-If `docker ps` still reports a permission error after `usermod`, fully log out and log back in before retrying.
-
-#### Docker Architecture
-
-```
-Host Machine
-  ↓
-Docker Compose (evo-flow-dev)
-  ├→ nginx (port 2026) ← Reverse proxy
-  ├→ web (port 3000) ← Frontend with hot-reload
-  ├→ api (port 8001) ← Gateway API with hot-reload
-   ├→ langgraph (port 2024) ← LangGraph server with hot-reload
-   └→ provisioner (optional, port 8002) ← Started only in provisioner/K8s sandbox mode
-```
-
-**Benefits of Docker Development**:
-- ✅ Consistent environment across different machines
-- ✅ No need to install Node.js, Python, or nginx locally
-- ✅ Isolated dependencies and services
-- ✅ Easy cleanup and reset
-- ✅ Hot-reload for all services
-- ✅ Production-like environment
-
-### Option 2: Local Development
-
-If you prefer to run services directly on your machine:
-
-#### Prerequisites
-
-Check that you have all required tools installed:
-
-```bash
-make check
-```
-
-Required tools:
-- Node.js 22+
-- pnpm
-- uv (Python package manager)
-- nginx
-
-#### Setup Steps
-
-1. **Configure the application** (same as Docker setup above)
-
-2. **Install dependencies**:
-   ```bash
-   make install
-   ```
-
-3. **Run development server** (starts all services with nginx):
-   ```bash
-   make dev
-   ```
-
-4. **Access the application**:
-   - Web Interface: http://localhost:2026
-   - All API requests are automatically proxied through nginx
-
-#### Manual Service Control
-
-If you need to start services individually:
-
-1. **Start backend services**:
-   ```bash
-   # Terminal 1: Start LangGraph Server (port 2024)
-   cd backend
-   make dev
-
-   # Terminal 2: Start Gateway API (port 8001)
-   cd backend
-   make gateway
-
-   # Terminal 3: Start EvoPanel Vite dev server (port from terminal output, often 1420)
-   cd evopanel
-   pnpm dev
-   ```
-
-2. **Start nginx**:
-   ```bash
-   make nginx
-   # or directly: nginx -c $(pwd)/docker/nginx/nginx.local.conf -g 'daemon off;'
-   ```
-
-3. **Access the application**:
-   - Web Interface: http://localhost:2026
-
-#### Nginx Configuration
-
-The nginx configuration provides:
-- Unified entry point on port 2026
-- Routes `/api/langgraph/*` to LangGraph Server (2024)
-- Routes other `/api/*` endpoints to Gateway API (8001)
-- Routes non-API requests to Frontend (3000)
-- Centralized CORS handling
-- SSE/streaming support for real-time agent responses
-- Optimized timeouts for long-running operations
-
-## Project Structure
-
-```
 EvoFlow/
-├── config.example.yaml      # Configuration template
-├── extensions_config.example.json  # MCP and Skills configuration template
-├── Makefile                 # Build and development commands
-├── scripts/
-│   └── docker.sh           # Docker management script
-├── docker/
-│   ├── docker-compose-dev.yaml  # Docker Compose configuration
-│   └── nginx/
-│       ├── nginx.conf      # Nginx config for Docker
-│       └── nginx.local.conf # Nginx config for local dev
-├── backend/                 # Backend application
-│   ├── src/
-│   │   ├── gateway/        # Gateway API (port 8001)
-│   │   ├── agents/         # LangGraph agents (port 2024)
-│   │   ├── mcp/            # Model Context Protocol integration
-│   │   ├── skills/         # Skills system
-│   │   └── sandbox/        # Sandbox execution
-│   ├── docs/               # Backend documentation
-│   └── Makefile            # Backend commands
-├── evopanel/               # Tauri + Vite desktop UI
-└── skills/                 # Agent skills
-    ├── public/             # Public skills
-    └── custom/             # Custom skills
+├── backend/app/           # Gateway, channels, product routes
+├── backend/packages/harness/evoflow/   # Runtime / tools / memory / sandbox
+├── evopanel/              # Desktop control plane (Tauri + React)
+├── skills/public/         # Bundled SKILL.md packages
+├── docs/user/             # Public user documentation (MkDocs)
+├── scripts/               # Contributor check / docker / serve
+└── scripts/maintainer/    # Upstream release / mirror (maintainers only)
 ```
 
-## Architecture
+**Boundary:** `evoflow.*` must not import `app.*`. App may import `evoflow`.
 
-```
-Browser
-  ↓
-Nginx (port 2026) ← Unified entry point
-  ├→ Web UI / EvoPanel dev server (when used) ← / (non-API requests)
-  ├→ Gateway API (port 8001) ← /api/models, /api/mcp, /api/skills, /api/threads/*/artifacts
-  └→ LangGraph Server (port 2024) ← /api/langgraph/* (agent interactions)
-```
+Chinese contributor guide: [docs/contribute/](docs/contribute/index.md) (repo map, branching, add-skill). Harness tips: [backend/AGENTS.md](backend/AGENTS.md). Maintainers: [MAINTAINERS.md](MAINTAINERS.md).
 
-## Development Workflow
+---
 
-1. **Create a feature branch**:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
+## Documentation PRs
 
-2. **Make your changes** with hot-reload enabled
+- Edit files under `docs/user/` (and `docs/index.md` / `mkdocs.yml` if navigation changes).
+- Run `make docs-build` locally.
+- Prefer Chinese for user-facing docs unless the page is already English-first.
 
-3. **Format and lint your code** (CI will reject unformatted code):
-   ```bash
-   # Backend
-   cd backend
-   make format   # ruff check --fix + ruff format
+---
 
-   # EvoPanel
-   cd evopanel
-   pnpm typecheck
-   ```
+## Skills PRs
 
-4. **Test your changes** thoroughly
+- Add under `skills/public/<name>/` with a valid `SKILL.md`.
+- Keep secrets out of skill files; document required env vars instead.
+- See user docs: [添加技能](docs/user/tutorials/add-skill.md).
 
-5. **Commit your changes**:
-   ```bash
-   git add .
-   git commit -m "feat: description of your changes"
-   ```
+---
 
-6. **Push and create a Pull Request**:
-   ```bash
-   git push origin feature/your-feature-name
-   ```
+## Code style
 
-## Testing
+- **Python:** `ruff` via `cd backend && make format`
+- **TypeScript (EvoPanel):** `pnpm typecheck`; tests when UI logic changes
+- CI rejects unformatted Python
 
-```bash
-# Backend tests
-cd backend
-uv run pytest
+---
 
-# EvoPanel checks
-cd evopanel
-pnpm typecheck
-pnpm test
-```
+## Review & merge
 
-### PR Regression Checks
+- At least one maintainer review for `main`
+- Squash merge preferred for feature branches
+- Do not force-push `main`
+- Release packaging / public-mirror sync is **maintainer-only** (`scripts/maintainer/`)
 
-Every pull request runs the backend regression workflow at [.github/workflows/backend-unit-tests.yml](.github/workflows/backend-unit-tests.yml), including:
+---
 
-- `tests/test_provisioner_kubeconfig.py`
-- `tests/test_docker_sandbox_mode_detection.py`
+## Need help?
 
-## Code Style
-
-- **Backend (Python)**: We use `ruff` for linting and formatting. Run `make format` before committing.
-- **EvoPanel (TypeScript)**: Run `pnpm typecheck` (and `pnpm test` when touching UI logic) before committing.
-- CI enforces formatting — PRs with unformatted code will fail the lint check.
-
-## Documentation
-
-- [Configuration Guide](backend/docs/CONFIGURATION.md) - Setup and configuration
-- [Architecture Overview](backend/CLAUDE.md) - Technical architecture
-- [MCP Setup Guide](MCP_SETUP.md) - Model Context Protocol configuration
-
-## Need Help?
-
-- Check existing [Issues](https://github.com/EvovexAI/EvoFlow/issues)
-- Read the [Documentation](backend/docs/)
-- Ask questions in [Discussions](https://github.com/EvovexAI/EvoFlow/discussions)
+- [SUPPORT.md](SUPPORT.md) — where to ask
+- [GitHub Issues](https://github.com/EvovexAI/EvoFlow/issues)
+- [GitHub Discussions](https://github.com/EvovexAI/EvoFlow/discussions)
+- User docs: [docs/index.md](docs/index.md)
 
 ## License
 
-By contributing to EvoFlow, you agree that your contributions will be licensed under the [EvovexAI Non-Commercial License](./LICENSE) and that EvovexAI may use your contributions for commercial offerings under separate terms.
+By contributing, you agree your contributions are licensed under the [Evovex AI Non-Commercial License](LICENSE), and that Evovex AI may use them in commercial offerings under separate terms.
