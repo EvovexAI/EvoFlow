@@ -14,6 +14,8 @@ Built by [EvovexAI](https://www.evovexai.com): plan, decompose, execute, recover
 
 [Download](https://github.com/EvovexAI/EvoFlow/releases) · [Quick Start](#quick-start) · [Docs](docs/index.md) · [Contributing](CONTRIBUTING.md) · [中文](README.md)
 
+<sub>License: source-available (PolyForm Noncommercial) · personal / research / non-commercial use · commercial use needs written authorization · <strong>not</strong> an OSI open-source license. See [License](#license).</sub>
+
 </div>
 
 ---
