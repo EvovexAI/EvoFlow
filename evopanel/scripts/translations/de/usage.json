@@ -1,0 +1,17 @@
+{
+  "title": "Nutzung",
+  "desc": "Modell- und Token-Nutzungsstatistiken anzeigen",
+  "totalTokens": "Gesamte Tokens",
+  "totalRequests": "Gesamte Anfragen",
+  "totalCost": "Gesamtkosten",
+  "today": "Heute",
+  "week": "Diese Woche",
+  "month": "Dieser Monat",
+  "all": "Alle",
+  "noData": "Keine Daten",
+  "model": "Modell",
+  "tokens": "Tokens",
+  "loadFailed": "Laden fehlgeschlagen",
+  "chart": "Diagramm",
+  "table": "Tabelle"
+}

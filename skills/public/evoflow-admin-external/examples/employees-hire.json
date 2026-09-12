@@ -1,0 +1,27 @@
+{
+  "agent_code": "code-reviewer",
+  "role_name": "代码巡检员",
+  "department": "工程部",
+  "reports_to": "tech-lead",
+  "responsibilities": [
+    "巡检近期提交与 lint/构建健康度",
+    "对可自动修复的小问题提出 code_change 事项"
+  ],
+  "workspace_path": "D:/path/to/workspace",
+  "domain_scope": ["frontend/", "backend/"],
+  "kpis": [
+    "ESLint 无新增 error",
+    {"name": "构建可用", "target": "pass", "probe": "build_ok"}
+  ],
+  "autonomy_level": "approval_for_all",
+  "risk_threshold": "medium",
+  "heartbeat_rrule": "FREQ=HOURLY;INTERVAL=2",
+  "status": "active",
+  "max_turns": 12,
+  "timeout_seconds": 400,
+  "work_schedule_enabled": true,
+  "work_start_hour": 9,
+  "work_end_hour": 20,
+  "daily_budget_usd": 0,
+  "approval_timeout_minutes": 30
+}

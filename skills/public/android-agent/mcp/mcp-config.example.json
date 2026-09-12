@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "android-agent": {
+      "url": "http://127.0.0.1:8002/mcp",
+      "transport": "http",
+      "enabled": true
+    }
+  }
+}

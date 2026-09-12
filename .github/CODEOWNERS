@@ -1,0 +1,19 @@
+# CODEOWNERS — review routing for this repository
+#
+# GitHub only auto-requests review when entries are valid users or teams
+# that have access to the repo. Until public maintainer teams are published,
+# leave path owners commented and assign reviewers manually (see MAINTAINERS.md).
+#
+# When ready, uncomment and replace with real handles, for example:
+#   * @EvovexAI/maintainers
+#   /docs/ @EvovexAI/docs
+#   /backend/ @EvovexAI/runtime
+#   /evopanel/ @EvovexAI/desktop
+#   /scripts/maintainer/ @EvovexAI/maintainers
+
+# Sensitive release / mirror paths — prefer explicit maintainer review
+# /scripts/maintainer/ @EvovexAI/maintainers
+# /.github/workflows/sync-public.yml @EvovexAI/maintainers
+# /.github/workflows/release-desktop.yml @EvovexAI/maintainers
+# /.github/workflows/evopanel-windows-package.yml @EvovexAI/maintainers
+# /.github/workflows/release-macos-desktop.yml @EvovexAI/maintainers

@@ -1,0 +1,64 @@
+/* Shared hover bubble — used by HoverBubble.tsx across chat header, subtasks, pills, etc. */
+
+.ev-hover-bubble-content {
+  z-index: 10050;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+  animation: ev-hover-bubble-in 120ms ease;
+}
+
+@keyframes ev-hover-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ev-hover-bubble {
+  pointer-events: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 85%, transparent);
+  background: color-mix(in srgb, var(--bg-primary, #fff) 96%, #111827 4%);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+  color: var(--text-primary, #111827);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+html[data-theme='dark'] .ev-hover-bubble,
+html.dark .ev-hover-bubble {
+  background: color-mix(in srgb, var(--bg-primary, #1f2937) 94%, #fff 6%);
+  border-color: color-mix(in srgb, var(--border, #374151) 90%, transparent);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.ev-hover-bubble--simple .ev-hover-bubble__body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ev-hover-bubble--rich .ev-hover-bubble__title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.ev-hover-bubble--rich .ev-hover-bubble__body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

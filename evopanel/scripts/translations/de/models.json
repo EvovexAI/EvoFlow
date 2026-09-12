@@ -1,0 +1,21 @@
+{
+  "title": "Modell-Konfiguration",
+  "desc": "KI-Anbieter und Modelle verwalten",
+  "addProvider": "+ Anbieter hinzufügen",
+  "noProviders": "Keine Anbieter",
+  "providerName": "Anbietername",
+  "baseUrl": "Base URL",
+  "apiKey": "API Key",
+  "models": "Modelle",
+  "addModel": "Modell hinzufügen",
+  "saveProvider": "Speichern",
+  "testConnection": "Verbindung testen",
+  "testing": "Test läuft...",
+  "testSuccess": "Verbindung erfolgreich",
+  "testFailed": "Verbindung fehlgeschlagen",
+  "fetchModels": "Modellliste abrufen",
+  "primaryModel": "Primäres Modell",
+  "enabled": "Aktiviert",
+  "disabled": "Deaktiviert",
+  "loadFailed": "Konfiguration laden fehlgeschlagen"
+}

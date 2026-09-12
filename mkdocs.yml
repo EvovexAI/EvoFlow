@@ -1,0 +1,167 @@
+# EvoFlow 官方文档站点 — 源文件位于 docs/，构建：make docs-build
+# 本仓 docs 仅用户文档；非公开设计稿在 internal design docs (not published in this repository). See: 
+site_name: EvoFlow 文档
+site_description: EvoFlow 教程、操作指南、参考手册与架构说明
+site_author: EvoFlow contributors
+
+repo_url: https://github.com/EvovexAI/EvoFlow
+repo_name: EvoFlow
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+# exclude_docs：未纳入 MkDocs 导航 / 站点的 Markdown（gitignore 风格；无斜杠会匹配任意目录）
+# 公开门面：站点只编用户文档；roles / 历史内部树 / generated OpenAPI 排除
+exclude_docs: |
+  /README.md
+  user/README.md
+  system/**
+  roles/**
+  prd/**
+  dev/**
+  verification/**
+  knowledge/**
+  generated/**
+  assets/plan-supervisor/README.md
+  assets/screenshots/README.md
+  assets/README-GUIDE.md
+  assets/guides/**
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换深色模式
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换浅色模式
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+
+nav:
+  - 首页: index.md
+  - 贡献:
+      - 贡献者指南: contribute/index.md
+      - 仓库地图: contribute/repo-map.md
+      - 代码知识库 Wiki: contribute/codebase-wiki.md
+      - 分支与检查: contribute/branching-and-checks.md
+      - 添加 Skill: contribute/add-skill.md
+      - 添加 IM 渠道: contribute/add-channel.md
+      - RFC: contribute/rfc.md
+      - Discussions 与 Good First Issue: contribute/discussions-and-good-first-issues.md
+  - 用户指南:
+      - 文档中心: user/index.md
+      - 快速开始:
+          - 产品总览（人群·问题·功能地图）: user/getting-started/product-overview.md
+          - 项目介绍: user/getting-started/introduction.md
+          - 下载与安装包: user/getting-started/downloads.md
+          - 开发者安装: user/getting-started/installation.md
+          - 5 分钟快速上手: user/getting-started/quick-start.md
+          - 第一个任务: user/getting-started/first-task.md
+      - 教程:
+          - 配置模型: user/tutorials/configure-models.md
+          - 创建 Agent: user/tutorials/create-agent.md
+          - 雇佣第一个智能体员工: user/tutorials/hire-first-smart-employee.md
+          - 添加技能: user/tutorials/add-skill.md
+          - 多 Agent 协作: user/tutorials/multi-agent-collab.md
+          - 自动化任务: user/tutorials/automation-task.md
+          - 配置 IM 渠道: user/tutorials/setup-im-channel.md
+      - 操作指南:
+          - 总览: user/guides/README.md
+          - 实时对话:
+            - 模型与场景: user/guides/chat/basic-functions.md
+            - 预设角色与团队: user/guides/chat/preset-roles.md
+            - Plan（任务协作）: user/guides/chat/plan-mode.md
+            - 项目级 Plan 流程: user/guides/chat/project-team-plan-workflow.md
+            - 思维导图: user/guides/chat/knowledge-map.md
+            - 目标 Agent: user/guides/chat/goal-agent.md
+            - 工作空间: user/guides/chat/workspace.md
+            - 编码助手（Claude Code）: user/guides/chat/claude-code.md
+            - 快捷指令: user/guides/chat/shortcut-commands.md
+            - 文件上传: user/guides/chat/file-upload.md
+          - 任务与调度:
+            - 任务中心: user/guides/tasks/task-center.md
+            - 自动化: user/guides/tasks/scheduled-tasks.md
+            - 自动化调度: user/guides/tasks/automation-scheduler.md
+            
+          - 配置与面板:
+            - 面板设置: user/guides/configuration/settings.md
+            - EvoFlow 桌面端指南: user/guides/configuration/evopanel-guide.md
+            - 智能体管理: user/guides/configuration/agent-management.md
+            - 智能体员工: user/guides/configuration/smart-employees.md
+            - 技能管理: user/guides/configuration/skill-management.md
+            - 工具与 MCP: user/guides/configuration/tools-mcp.md
+            - 记忆管理: user/guides/configuration/memory-management.md
+            - 上传文档（RAG）: user/guides/configuration/document-knowledge-base.md
+            - 知识库（Vault）: user/guides/configuration/knowledge-vault.md
+            - 应用中心: user/guides/configuration/app-center.md
+            - 沙箱配置: user/guides/configuration/sandbox-config.md
+            - Obsidian 知识库集成: user/guides/integrations/obsidian-knowledge-vault.md
+          - IM 与渠道:
+            - 飞书集成: user/guides/integration/feishu-integration.md
+            - IM 渠道总览: user/guides/integration/im-channels.md
+          - 安全:
+            - 安全护栏: user/guides/security/guardrails.md
+          - 常见问题: user/guides/faq.md
+      - 最佳实践案例:
+          - user/cases/index.md
+          - 智能体员工组织与协作: user/cases/smart-employee-playbooks.md
+          - 使用主智能体: user/cases/use-main-agent.md
+          - 创建 Agent: user/cases/create-agent.md
+          - 创建技能: user/cases/create-skill.md
+          - 安装技能: user/cases/install-skill.md
+          - 自动化: user/cases/scheduled-tasks.md
+          - 搜索 + HTML 报告: user/cases/search-html-report.md
+          - Claude Code 持续协作: user/cases/claude-code-continuous.md
+          - Supervisor 模式: user/cases/supervisor-mode.md
+      - 核心概念:
+          - 为什么是 EvoFlow: user/explanation/why-evoflow.md
+          - 生态对照（DF / 爱马仕 / Codex / 小龙虾）: user/explanation/ecosystem-comparison.md
+          - Agent 系统: user/explanation/agent-system.md
+          - 智能体员工: user/explanation/smart-employees.md
+          - 子 Agent 系统: user/explanation/subagent-system.md
+          - 技能系统: user/explanation/skill-system.md
+          - 记忆系统: user/explanation/memory-system.md
+          - 思维导图系统: user/explanation/mind-map-system.md
+      - 术语与文稿:
+          - 术语表: user/meta/glossary.md
+          - 飞书落地页文稿（智能体员工）: user/meta/feishu-landing-smart-employees.md
+
+extra:
+  # 顶部轻量入口：与「下载与构建」页互为补充（发布页在 GitHub，非站内路径）
+  social:
+    - icon: fontawesome/solid/download
+      link: https://github.com/EvovexAI/EvoFlow/releases
+      name: 本仓库 Releases 下载
+    - icon: fontawesome/brands/github
+      link: https://github.com/EvovexAI/EvoFlow

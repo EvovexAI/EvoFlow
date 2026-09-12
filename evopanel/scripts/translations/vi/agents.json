@@ -1,0 +1,23 @@
+{
+  "title": "Quáº£n lÃ½ Agent",
+  "desc": "Táº¡o vÃ  quáº£n lÃ½ EvoPanel Agent",
+  "addAgent": "+ Agent má»i",
+  "noAgents": "KhÃ´ng cÃ³ Agent",
+  "loadFailed": "Táº£i tháº¥t báº¡i",
+  "default": "Máº·c Äá»nh",
+  "backup": "Sao lÆ°u",
+  "edit": "Sá»­a",
+  "delete": "XÃ³a",
+  "notSet": "ChÆ°a Äáº·t",
+  "addTitle": "Agent má»i",
+  "agentId": "Agent ID",
+  "agentName": "TÃªn",
+  "agentModel": "MÃ´ hÃ¬nh",
+  "created": "Agent ÄÃ£ táº¡o",
+  "createFailed": "Táº¡o tháº¥t báº¡i",
+  "editTitle": "Sá»­a Agent â?{id}",
+  "updated": "ÄÃ£ cáº­p nháº­t",
+  "updateFailed": "Cáº­p nháº­t tháº¥t báº¡i",
+  "deleted": "ÄÃ£ xÃ³a",
+  "deleteFailed": "XÃ³a tháº¥t báº¡i"
+}

@@ -1,0 +1,333 @@
+/**
+ * 平台侧栏皮肤（跟随外观色卡 / --accent）
+ * 用法：根节点加 class="ef-side-drawer"，可选再叠业务类（如 tasks-drawer / role-drawer）
+ */
+.ef-side-drawer-root {
+  --ef-d-blue: var(--accent, #4f6ef7);
+  --ef-d-indigo: var(--accent, #6366f1);
+  --ef-d-violet: color-mix(in srgb, var(--accent, #8b5cf6) 78%, white);
+  --ef-d-grad: linear-gradient(
+    135deg,
+    var(--accent, #4f6ef7) 0%,
+    var(--accent-hover, #6366f1) 55%,
+    color-mix(in srgb, var(--accent, #8b5cf6) 78%, white) 100%
+  );
+  --ef-d-grad-soft: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent, #4f6ef7) 16%, transparent) 0%,
+    color-mix(in srgb, var(--accent, #8b5cf6) 10%, transparent) 55%,
+    transparent 100%
+  );
+  --ef-d-ink: var(--text-primary, #1e1b4b);
+  --ef-d-ink-2: var(--accent-hover, #4338ca);
+  --ef-d-muted: var(--text-secondary, #64748b);
+  --ef-d-faint: var(--text-tertiary, #94a3b8);
+  --ef-d-line: color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
+  --ef-d-line-strong: color-mix(in srgb, var(--accent, #6366f1) 28%, transparent);
+  --ef-d-fill: color-mix(in srgb, var(--accent, #6366f1) 7%, #ffffff);
+  --ef-d-fill-2: color-mix(in srgb, var(--accent, #8b5cf6) 9%, #f8fafc);
+  --ef-d-fill-hover: color-mix(in srgb, var(--accent, #6366f1) 12%, #ffffff);
+  --ef-d-surface: color-mix(in srgb, #ffffff 94%, var(--accent-muted, #eef2ff));
+  --ef-d-glow: 0 12px 40px color-mix(in srgb, var(--accent, #6366f1) 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent, #8b5cf6) 20%, transparent);
+}
+
+[data-theme='dark'] .ef-side-drawer-root {
+  --ef-d-ink: var(--text-primary, #eef2ff);
+  --ef-d-ink-2: var(--accent, #c7d2fe);
+  --ef-d-muted: var(--text-secondary, #a5b4fc);
+  --ef-d-faint: var(--text-tertiary, #818cf8);
+  --ef-d-line: color-mix(in srgb, var(--accent, #a78bfa) 22%, transparent);
+  --ef-d-line-strong: color-mix(in srgb, var(--accent, #a78bfa) 36%, transparent);
+  --ef-d-fill: color-mix(in srgb, var(--accent, #6366f1) 14%, #12121a);
+  --ef-d-fill-2: color-mix(in srgb, var(--accent, #8b5cf6) 12%, #1a1a26);
+  --ef-d-fill-hover: color-mix(in srgb, var(--accent, #8b5cf6) 18%, #1a1a26);
+  --ef-d-surface: color-mix(in srgb, #12121a 90%, var(--accent, #1e1b4b));
+  --ef-d-glow: 0 14px 48px color-mix(in srgb, var(--accent, #6366f1) 36%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent, #a78bfa) 28%, transparent);
+}
+
+.ef-side-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.ef-side-drawer-mask {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent, #1e1b4b) 28%, rgba(15, 23, 42, 0.42));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.ef-side-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100vw);
+  height: 100%;
+  background: var(--ef-d-surface);
+  border-left: 1px solid var(--ef-d-line-strong);
+  box-shadow: var(--ef-d-glow);
+  color: var(--ef-d-ink);
+  overflow: hidden;
+  animation: ef-side-drawer-in 180ms ease-out;
+}
+
+.ef-side-drawer::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 140px;
+  background: var(--ef-d-grad-soft);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ef-side-drawer > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes ef-side-drawer-in {
+  from {
+    opacity: 0.6;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.ef-side-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--ef-d-line);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent, #6366f1) 10%, transparent) 0%,
+    transparent 100%
+  );
+  flex-shrink: 0;
+}
+
+.ef-side-drawer__brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ef-side-drawer__mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--ef-d-grad);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent, #6366f1) 36%, transparent);
+}
+
+.ef-side-drawer__heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.ef-side-drawer__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--ef-d-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ef-side-drawer__meta {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ef-side-drawer__close {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 8%, transparent);
+  color: var(--ef-d-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ef-side-drawer__close:hover {
+  background: color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
+  color: var(--ef-d-ink-2);
+}
+
+.ef-side-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 18px;
+}
+
+.ef-side-drawer__foot {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--ef-d-line);
+  background: color-mix(in srgb, var(--accent, #6366f1) 4%, var(--ef-d-surface));
+  flex-shrink: 0;
+}
+
+/* 内容积木 */
+.ef-side-drawer__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ef-side-drawer__chip {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ef-d-fill);
+  border: 1px solid var(--ef-d-line);
+}
+
+.ef-side-drawer__chip span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ef-d-faint);
+}
+
+.ef-side-drawer__chip strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ef-d-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ef-side-drawer__section {
+  margin-bottom: 12px;
+  padding: 12px 12px 10px;
+  border-radius: 14px;
+  background: var(--ef-d-fill-2);
+  border: 1px solid var(--ef-d-line);
+}
+
+.ef-side-drawer__section h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  color: var(--ef-d-ink-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ef-side-drawer__section h4::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--ef-d-grad);
+  flex-shrink: 0;
+}
+
+.ef-side-drawer__hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ef-d-muted);
+  line-height: 1.45;
+}
+
+.ef-side-drawer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ef-side-drawer__actions .btn-primary,
+.ef-side-drawer__actions .btn.btn-primary {
+  border: 0;
+  background: var(--ef-d-grad);
+  color: #fff;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent, #6366f1) 32%, transparent);
+}
+
+.ef-side-drawer__actions .btn-primary:hover,
+.ef-side-drawer__actions .btn.btn-primary:hover {
+  filter: brightness(1.05);
+}
+
+.ef-side-drawer__actions .btn-secondary,
+.ef-side-drawer__actions .btn.btn-secondary {
+  border-color: var(--ef-d-line-strong);
+  background: color-mix(in srgb, #ffffff 80%, var(--accent-muted, #eef2ff));
+  color: var(--ef-d-ink-2);
+}
+
+.ef-side-drawer__actions .btn-secondary:hover,
+.ef-side-drawer__actions .btn.btn-secondary:hover {
+  background: var(--ef-d-fill-hover);
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 40%, transparent);
+}
+
+.ef-side-drawer .tl-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ef-d-ink-2);
+}
+
+.ef-side-drawer .tl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ef-d-indigo);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6366f1) 18%, transparent);
+}
+
+.ef-side-drawer .tl-status--cancelled .tl-dot,
+.ef-side-drawer .tl-status--failed .tl-dot {
+  background: #f43f5e;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #f43f5e 18%, transparent);
+}
+
+.ef-side-drawer .tl-status--completed .tl-dot,
+.ef-side-drawer .tl-status--reviewed .tl-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 18%, transparent);
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{COMPANY_NAME}} 公司速览</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { font-family: "Inter", system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; }
+        .card { background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 16px; backdrop-filter: blur(8px); }
+        .chip { border-radius: 9999px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="max-w-7xl mx-auto p-4 md:p-8">
+        <section class="card p-8 mb-6 bg-gradient-to-r from-slate-900 to-sky-900">
+            <div class="flex flex-wrap gap-2 mb-3">
+                <span class="chip bg-sky-900 text-sky-300">公司研究展示</span>
+                <span class="chip bg-indigo-900 text-indigo-300">{{REPORT_DATE}}</span>
+            </div>
+            <h1 class="text-3xl md:text-5xl font-bold text-white">{{COMPANY_NAME}} 公司速览</h1>
+            <p class="text-slate-300 mt-3">{{COMPANY_ONE_LINER}}</p>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="card p-5"><p class="text-xs text-slate-400">成立时间</p><p class="text-2xl font-bold text-sky-300">{{FOUNDED_YEAR}}</p></div>
+            <div class="card p-5"><p class="text-xs text-slate-400">员工规模</p><p class="text-2xl font-bold text-emerald-300">{{EMPLOYEE_SIZE}}</p></div>
+            <div class="card p-5"><p class="text-xs text-slate-400">营收规模</p><p class="text-2xl font-bold text-violet-300">{{REVENUE_SCALE}}</p></div>
+            <div class="card p-5"><p class="text-xs text-slate-400">融资/市值</p><p class="text-2xl font-bold text-amber-300">{{FUNDING_OR_MKT_CAP}}</p></div>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div class="card p-6 md:col-span-2">
+                <h2 class="text-xl font-bold mb-4 text-white"><i class="fa-solid fa-chart-line mr-2 text-sky-300"></i>业务增长趋势</h2>
+                <div class="h-72"><canvas id="growthChart"></canvas></div>
+            </div>
+            <div class="card p-6">
+                <h2 class="text-xl font-bold mb-3 text-white"><i class="fa-solid fa-bullseye mr-2 text-emerald-300"></i>核心亮点</h2>
+                <ul class="space-y-2 text-sm text-slate-200 list-disc pl-5">
+                    <li>{{HIGHLIGHT_1}}</li>
+                    <li>{{HIGHLIGHT_2}}</li>
+                    <li>{{HIGHLIGHT_3}}</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="card p-6">
+                <h3 class="text-lg font-bold mb-3 text-white">产品与业务版图</h3>
+                <div class="space-y-3 text-sm text-slate-200">
+                    <div class="p-3 rounded-lg bg-slate-800 border border-slate-700">{{BUSINESS_AREA_1}}</div>
+                    <div class="p-3 rounded-lg bg-slate-800 border border-slate-700">{{BUSINESS_AREA_2}}</div>
+                    <div class="p-3 rounded-lg bg-slate-800 border border-slate-700">{{BUSINESS_AREA_3}}</div>
+                </div>
+            </div>
+            <div class="card p-6">
+                <h3 class="text-lg font-bold mb-3 text-white">相关区域展示（竞争与风险）</h3>
+                <ul class="space-y-2 text-sm text-slate-200 list-disc pl-5">
+                    <li>主要竞品：{{COMPETITOR_1}} / {{COMPETITOR_2}}</li>
+                    <li>核心风险：{{RISK_1}}</li>
+                    <li>监管/政策：{{POLICY_NOTE}}</li>
+                    <li>近期事件：{{RECENT_EVENT}}</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="card p-6">
+            <h3 class="text-lg font-bold mb-2 text-white">结论与讲解要点</h3>
+            <p class="text-slate-200">{{PRESENTATION_TALK_TRACK}}</p>
+            <p class="text-xs text-slate-400 mt-4">数据来源：{{SOURCE_1}} | {{SOURCE_2}} | {{SOURCE_3}}</p>
+        </section>
+    </div>
+
+    <script>
+        const gctx = document.getElementById("growthChart");
+        new Chart(gctx, {
+            type: "bar",
+            data: {
+                labels: ["2023", "2024", "2025", "2026E"],
+                datasets: [{
+                    label: "{{GROWTH_METRIC_LABEL}}",
+                    data: [24, 39, 55, 71],
+                    backgroundColor: "rgba(56, 189, 248, 0.6)",
+                    borderColor: "rgba(56, 189, 248, 1)",
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: "#cbd5e1" }, grid: { color: "rgba(148, 163, 184, .2)" } },
+                    x: { ticks: { color: "#cbd5e1" }, grid: { color: "rgba(148, 163, 184, .08)" } }
+                },
+                plugins: { legend: { labels: { color: "#e2e8f0" } } }
+            }
+        });
+    </script>
+</body>
+</html>

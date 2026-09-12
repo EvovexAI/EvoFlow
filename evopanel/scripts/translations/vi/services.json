@@ -1,0 +1,21 @@
+﻿{
+  "title": "Quáº£n lÃ½ dá»ch vá»?,
+  "desc": "Khá»i Äá»ng, dá»«ng vÃ  giÃ¡m sÃ¡t dá»ch vá»?EvoPanel",
+  "gatewayTitle": "Dá»ch vá»?Gateway",
+  "guardianTitle": "Dá»ch vá»?Guardian",
+  "status": "Tráº¡ng thÃ¡i",
+  "pid": "PID",
+  "uptime": "Thá»i gian hoáº¡t Äá»ng",
+  "host": "MÃ¡y chá»?,
+  "start": "Khá»i Äá»ng",
+  "stop": "Dá»«ng",
+  "restart": "Khá»i Äá»ng láº¡i",
+  "forceKill": "Buá»c dá»«ng",
+  "starting": "Äang khá»i Äá»ng...",
+  "stopping": "Äang dá»«ng...",
+  "restarting": "Äang khá»i Äá»ng láº¡i...",
+  "loadFail": "Táº£i tráº¡ng thÃ¡i tháº¥t báº¡i",
+  "healthCheck": "Kiá»m tra sá»©c khá»e",
+  "healthOk": "Hoáº¡t Äá»ng bÃ¬nh thÆ°á»ng",
+  "healthFail": "KhÃ´ng pháº£n há»i"
+}

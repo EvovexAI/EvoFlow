@@ -1,0 +1,45 @@
+# 最佳实践案例
+
+> **本系列围绕两大生产力工具展开**：
+>
+> **智能体员工**——把 AI 从"你问它答"变成"主动上班干活"。配岗位、定职责、设审批，它自己值班检查、审查、写报告；你处理「同意派发」/事项同意，并在任务中心验收交工。
+>
+> **应用中心**——把跑通的工作流固化下来，以后填参数就能再跑。不用每次从零跟 AI 说一遍。
+>
+> 第一次接触员工模块：先看教程 [雇佣第一个智能体员工](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣第一个智能体员工]] 与概念 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]。  
+> **按行业组队、看组织树与协作故事**：优先读 [智能体员工：谁在用、组织怎么配、怎么协作](smart-employee-playbooks.md) [[cases/smart-employee-playbooks|智能体员工：谁在用、组织怎么配、怎么协作]]。
+
+## 案例列表
+
+| 序号 | 案例 | 核心能力 |
+|------|------|----------|
+| 0 | [智能体员工：谁在用、组织怎么配、怎么协作](smart-employee-playbooks.md) | 画像 · 组织树 · 岗位 · 协作举例（重要） |
+| 1 | [雇佣运维员工：运维值班](use-main-agent.md) | 智能体员工 · 岗位配置 · 审批流 |
+| 2 | [雇佣代码审查员：自动 PR 审查](create-agent.md) | 智能体员工 · 角色创建 · 交接审批策略 |
+| 3 | [从 Plan 到应用：竞品调研流水线](create-skill.md) | 应用中心 · Plan 模式 · 参数化 |
+| 4 | [周报自动生成：填参即出报告](install-skill.md) | 应用中心 · 自动化 · 飞书推送 |
+| 5 | [全栈项目交付：Plan + 任务中心看板](scheduled-tasks.md) | 任务中心 · 项目团队 · 工作流 DAG |
+| 6 | [数据分析师每周出报表](search-html-report.md) | 智能体员工 · 应用中心 · 深度研究 |
+| 7 | [总控智能体模式：多角色自动编排](total-agent-mode.md) | 总控智能体 · 多角色协作 · 自动编排 |
+
+## 推荐阅读顺序
+
+0. **（强烈建议）** [组织与协作玩法](smart-employee-playbooks.md) → 对号入座你的团队  
+1. **（可选）** [雇佣第一个智能体员工](../tutorials/hire-first-smart-employee.md) → 10 分钟跑通雇佣与值班  
+2. **雇佣运维员工** → 理解智能体员工的核心玩法  
+3. **雇佣代码审查员** → 加深角色创建 + 交接审批策略  
+4. **从 Plan 到应用** → 理解应用中心"流程固化"的价值  
+5. **周报自动生成** → 应用 + 自动化 + 推送的完整闭环  
+6. **全栈项目交付** → 任务中心驾驶舱 + 项目团队协作  
+7. **数据分析师每周出报表** → 员工 + 应用中心的组合拳  
+8. **总控智能体模式** → 多智能体协同的终极形态
+
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
+- [[cases/smart-employee-playbooks|组织与协作玩法]] — 画像与协作全景
+- [[explanation/smart-employees|智能体员工概念]] — 设计理念
+- [[tutorials/hire-first-smart-employee|雇佣教程]] — 10 分钟上手

@@ -1,0 +1,281 @@
+/**
+ * Tauri 无边框：窗口控制嵌在内容区（聊天顶栏或 #tauri-main-chrome），无单独「系统顶栏」。
+ */
+
+/* 合并进内容后不再需要预留整条外部标题栏高度 */
+html.evopanel-tauri-frameless #app {
+  box-sizing: border-box;
+  height: 100vh;
+  min-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+html.evopanel-tauri-frameless #main-col {
+  height: 100%;
+  min-height: 0;
+}
+
+html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
+  height: 100%;
+  max-height: 100%;
+}
+
+/* 非 /chat 路由：主列顶部拖拽条（与左侧壳同色） */
+.tauri-main-chrome {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: 38px;
+  position: relative;
+  z-index: 20;
+  background: var(--chrome-bg, #e8edf2);
+  border-bottom: none;
+  box-shadow: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+}
+
+/* 右侧内容下滚超过 8px 时，标题栏极轻底影分隔 */
+.tauri-main-chrome--scrolled {
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.06);
+}
+
+.tauri-main-chrome--hidden {
+  display: none !important;
+}
+
+.tauri-main-chrome-drag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  gap: 8px;
+}
+
+.tauri-main-chrome-status {
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--text-secondary, #52525b);
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+html[data-theme='dark'] .tauri-main-chrome,
+html.dark .tauri-main-chrome {
+  background: var(--chrome-bg, #141414);
+  border-bottom: none;
+}
+
+html[data-theme='dark'] .tauri-main-chrome--scrolled,
+html.dark .tauri-main-chrome--scrolled {
+  box-shadow: 0 1px 0 var(--border-primary);
+}
+
+/* 自定义背景：默认透出；液态玻璃下在 liquid-glass.css 补磨砂 */
+html[data-custom-bg='1'] .tauri-main-chrome {
+  background: transparent !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-primary) 55%, transparent) !important;
+  box-shadow: none;
+}
+
+html[data-custom-bg='1'] .tauri-main-chrome--scrolled {
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.06);
+}
+
+html[data-theme='dark'][data-custom-bg='1'] .tauri-main-chrome,
+html.dark[data-custom-bg='1'] .tauri-main-chrome {
+  background: transparent !important;
+}
+
+/*
+ * 任务详情：顶栏与内容同用中性底，不再叠 accent 色。
+ */
+#main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
+  background: var(--chrome-bg, #e8edf2);
+}
+
+#content:has(> .task-detail-page) {
+  background: var(--bg-secondary, #f7f8fa);
+}
+
+html[data-theme='dark'] #main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden),
+html.dark #main-col:has(#content > .task-detail-page) > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
+  background: var(--chrome-bg, #141414);
+}
+
+html[data-theme='dark'] #content:has(> .task-detail-page),
+html.dark #content:has(> .task-detail-page) {
+  background: var(--bg-secondary, #1e1e1e);
+}
+
+/* 自定义壁纸时仍透出 */
+html[data-custom-bg='1'] #content:has(> .task-detail-page) {
+  background: transparent;
+}
+
+/* 顶栏右侧操作区（指南按钮 + 窗口控制） */
+.tauri-main-chrome-actions {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.tauri-chrome-guide-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 100%;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.tauri-chrome-guide-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.tauri-chrome-guide-btn svg {
+  opacity: 0.9;
+}
+
+html[data-theme='dark'] .tauri-chrome-guide-btn,
+html.dark .tauri-chrome-guide-btn {
+  color: var(--text-secondary);
+}
+
+html[data-theme='dark'] .tauri-chrome-guide-btn:hover,
+html.dark .tauri-chrome-guide-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* 聊天顶栏内 & 主列细栏 共用的窗口按钮 */
+.ep-window-controls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  height: 100%;
+}
+
+.ep-window-controls-btn {
+  width: 46px;
+  min-width: 46px;
+  height: 100%;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.ep-window-controls-btn:hover {
+  color: var(--text-primary);
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.ep-window-controls-btn:active {
+  background: rgba(15, 23, 42, 0.12);
+  transform: none;
+}
+
+.ep-window-controls-btn--min:hover,
+.ep-window-controls-btn--max:hover {
+  background: rgba(15, 23, 42, 0.1);
+  color: var(--text-primary, #1d1d1f);
+  box-shadow: none;
+}
+
+.ep-window-controls-btn--min:active,
+.ep-window-controls-btn--max:active {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.ep-window-controls-btn--close:hover {
+  background: #e81123;
+  color: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.ep-window-controls-btn--close:active {
+  background: #c50f1f;
+  color: #ffffff;
+  transform: none;
+}
+
+html[data-theme='dark'] .ep-window-controls-btn,
+html.dark .ep-window-controls-btn {
+  color: var(--text-secondary);
+}
+
+html[data-theme='dark'] .ep-window-controls-btn--min:hover,
+html[data-theme='dark'] .ep-window-controls-btn--max:hover,
+html.dark .ep-window-controls-btn--min:hover,
+html.dark .ep-window-controls-btn--max:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .ep-window-controls-btn--close:hover,
+html.dark .ep-window-controls-btn--close:hover {
+  background: #e81123;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+/* 桌面端自定义右键菜单（屏蔽浏览器原生菜单） */
+.ep-desktop-ctx-menu {
+  position: fixed;
+  z-index: 100000;
+  min-width: 140px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));
+  background: color-mix(in srgb, var(--bg-secondary, #fff) 92%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.ep-desktop-ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary, #18181b);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ep-desktop-ctx-item:hover {
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+  color: var(--accent, #6366f1);
+}

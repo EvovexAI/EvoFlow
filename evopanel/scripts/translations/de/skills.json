@@ -1,0 +1,16 @@
+﻿{
+  "title": "Skills",
+  "desc": "EvoPanel Skills verwalten und installieren",
+  "installed": "Installiert",
+  "available": "Verfügbar",
+  "noSkills": "Keine Skills",
+  "install": "Installieren",
+  "uninstall": "Deinstallieren",
+  "update": "Aktualisieren",
+  "search": "Skills suchen...",
+  "loadFailed": "Laden fehlgeschlagen",
+  "noResults": "Keine Ergebnisse",
+  "refreshList": "Liste aktualisieren",
+  "checkUpdates": "Nach Updates suchen",
+  "noUpdates": "Alles aktuell"
+}

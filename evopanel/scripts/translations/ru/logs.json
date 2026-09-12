@@ -1,0 +1,16 @@
+﻿{
+  "title": "Журналы",
+  "desc": "Просмотр журналов EvoPanel",
+  "tabGateway": "Gateway",
+  "tabGatewayErr": "Ошибки Gateway",
+  "tabGuardian": "Guardian",
+  "tabBackup": "Резервное копирование",
+  "tabAudit": "Аудит",
+  "searchPlaceholder": "Поиск...",
+  "autoScroll": "Автопрокрутка",
+  "loading": "Загрузка...",
+  "empty": "Нет записей",
+  "loadFailed": "Ошибка загрузки",
+  "noResults": "Ничего не найдено",
+  "searchFailed": "Ошибка поиска"
+}

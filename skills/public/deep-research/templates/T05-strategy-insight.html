@@ -1,0 +1,352 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITLE}} | 旗舰战略洞察</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root {
+            --bg-1: #020617;
+            --bg-2: #0f172a;
+            --card: rgba(15, 23, 42, 0.72);
+            --line: rgba(148, 163, 184, 0.22);
+            --txt: #e2e8f0;
+            --muted: #94a3b8;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, -apple-system, sans-serif;
+            background:
+                radial-gradient(circle at 12% 8%, rgba(56, 189, 248, 0.18), transparent 35%),
+                radial-gradient(circle at 85% 20%, rgba(168, 85, 247, 0.15), transparent 32%),
+                radial-gradient(circle at 72% 85%, rgba(16, 185, 129, 0.14), transparent 30%),
+                linear-gradient(140deg, var(--bg-1), var(--bg-2));
+            color: var(--txt);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+        body::before,
+        body::after {
+            content: "";
+            position: fixed;
+            inset: -20%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::before {
+            background:
+                radial-gradient(circle at 20% 30%, rgba(34, 211, 238, 0.2), transparent 26%),
+                radial-gradient(circle at 75% 28%, rgba(167, 139, 250, 0.2), transparent 28%),
+                radial-gradient(circle at 58% 76%, rgba(16, 185, 129, 0.16), transparent 24%);
+            filter: blur(16px);
+            animation: nebulaDrift 12s ease-in-out infinite alternate;
+        }
+        body::after {
+            background-image:
+                linear-gradient(rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px);
+            background-size: 40px 40px, 40px 40px;
+            mask-image: radial-gradient(circle at center, black 38%, transparent 78%);
+            opacity: 0.42;
+            animation: gridFloat 14s linear infinite;
+        }
+        .shell { max-width: 1320px; margin: 0 auto; padding: 28px; }
+        .shell { position: relative; z-index: 1; }
+        .glass {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 20px 50px rgba(2, 6, 23, 0.35);
+        }
+        .metric {
+            background: linear-gradient(160deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.55));
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 14px;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 4px 12px;
+            font-size: 12px;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            color: #cbd5e1;
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .title-glow {
+            background: linear-gradient(90deg, #67e8f9, #a78bfa 45%, #34d399);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, rgba(56, 189, 248, 0), rgba(56, 189, 248, 0.7), rgba(52, 211, 153, 0));
+        }
+        .timeline-item {
+            position: relative;
+            padding-left: 20px;
+            margin-left: 8px;
+            border-left: 2px solid rgba(56, 189, 248, 0.5);
+        }
+        .timeline-item::before {
+            content: "";
+            position: absolute;
+            left: -7px;
+            top: 6px;
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #67e8f9;
+            box-shadow: 0 0 0 6px rgba(103, 232, 249, 0.14);
+        }
+        .hero-glow {
+            animation: heroGlow 4s ease-in-out infinite;
+        }
+        .reveal {
+            opacity: 0;
+            transform: translateY(18px) scale(0.99);
+            animation: revealUp .9s cubic-bezier(.22,.61,.36,1) forwards;
+            animation-delay: var(--delay, 0ms);
+        }
+        .float-in {
+            opacity: 0;
+            transform: translateY(12px);
+            animation: revealUp .7s ease forwards;
+            animation-delay: var(--delay, 0ms);
+        }
+        @keyframes revealUp {
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes heroGlow {
+            0%, 100% { text-shadow: 0 0 0 rgba(103, 232, 249, 0); filter: brightness(1); }
+            50% { text-shadow: 0 0 24px rgba(103, 232, 249, 0.28), 0 0 40px rgba(167, 139, 250, 0.18); filter: brightness(1.08); }
+        }
+        @keyframes nebulaDrift {
+            0% { transform: translate3d(-6%, -3%, 0) scale(1); }
+            50% { transform: translate3d(5%, 5%, 0) scale(1.08); }
+            100% { transform: translate3d(-4%, 7%, 0) scale(1.04); }
+        }
+        @keyframes gridFloat {
+            0% { transform: translate3d(0, 0, 0); }
+            100% { transform: translate3d(80px, 48px, 0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .hero-glow, .reveal, .float-in, body::before, body::after { animation: none !important; opacity: 1 !important; transform: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <section class="glass p-7 md:p-10 mb-6 reveal" style="--delay: 80ms">
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+                <span class="pill float-in" style="--delay: 120ms"><i class="fa-solid fa-sparkles"></i> 旗舰展示页</span>
+                <span class="pill float-in" style="--delay: 220ms"><i class="fa-regular fa-calendar"></i> {{REPORT_DATE}}</span>
+                <span class="pill float-in" style="--delay: 320ms"><i class="fa-solid fa-shield-check"></i> 可信度 {{CONFIDENCE_SCORE}}</span>
+            </div>
+            <h1 class="text-3xl md:text-6xl font-bold tracking-tight mb-3 title-glow hero-glow">{{TITLE}}</h1>
+            <p class="text-slate-300 text-base md:text-xl max-w-5xl">{{SUBTITLE}}</p>
+            <div class="divider mt-6"></div>
+            <p class="text-slate-400 mt-4 text-sm md:text-base">{{EXEC_SUMMARY}}</p>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 reveal" style="--delay: 220ms">
+            <div class="metric p-5 float-in" style="--delay: 260ms">
+                <p class="text-xs text-slate-400">{{KPI_1_LABEL}}</p>
+                <p class="text-3xl font-bold text-cyan-300">{{KPI_1_VALUE}}</p>
+                <p class="text-xs text-slate-500 mt-1">{{KPI_1_NOTE}}</p>
+            </div>
+            <div class="metric p-5 float-in" style="--delay: 340ms">
+                <p class="text-xs text-slate-400">{{KPI_2_LABEL}}</p>
+                <p class="text-3xl font-bold text-violet-300">{{KPI_2_VALUE}}</p>
+                <p class="text-xs text-slate-500 mt-1">{{KPI_2_NOTE}}</p>
+            </div>
+            <div class="metric p-5 float-in" style="--delay: 420ms">
+                <p class="text-xs text-slate-400">{{KPI_3_LABEL}}</p>
+                <p class="text-3xl font-bold text-emerald-300">{{KPI_3_VALUE}}</p>
+                <p class="text-xs text-slate-500 mt-1">{{KPI_3_NOTE}}</p>
+            </div>
+            <div class="metric p-5 float-in" style="--delay: 500ms">
+                <p class="text-xs text-slate-400">{{KPI_4_LABEL}}</p>
+                <p class="text-3xl font-bold text-amber-300">{{KPI_4_VALUE}}</p>
+                <p class="text-xs text-slate-500 mt-1">{{KPI_4_NOTE}}</p>
+            </div>
+        </section>
+
+        <section class="glass p-6 mb-6 reveal" style="--delay: 380ms">
+            <h2 class="text-xl font-semibold mb-4"><i class="fa-solid fa-gauge-high text-cyan-300 mr-2"></i>关键变化信号（自动判色）</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="metric p-4">
+                    <p class="text-xs text-slate-400">{{CHANGE_1_LABEL}}</p>
+                    <p class="text-lg font-semibold text-slate-100">{{CHANGE_1_VALUE}}</p>
+                    <span class="delta-badge inline-flex mt-2 text-xs px-2 py-1 rounded-full border" data-delta="{{CHANGE_1_DELTA}}">{{CHANGE_1_DELTA}}</span>
+                </div>
+                <div class="metric p-4">
+                    <p class="text-xs text-slate-400">{{CHANGE_2_LABEL}}</p>
+                    <p class="text-lg font-semibold text-slate-100">{{CHANGE_2_VALUE}}</p>
+                    <span class="delta-badge inline-flex mt-2 text-xs px-2 py-1 rounded-full border" data-delta="{{CHANGE_2_DELTA}}">{{CHANGE_2_DELTA}}</span>
+                </div>
+                <div class="metric p-4">
+                    <p class="text-xs text-slate-400">{{CHANGE_3_LABEL}}</p>
+                    <p class="text-lg font-semibold text-slate-100">{{CHANGE_3_VALUE}}</p>
+                    <span class="delta-badge inline-flex mt-2 text-xs px-2 py-1 rounded-full border" data-delta="{{CHANGE_3_DELTA}}">{{CHANGE_3_DELTA}}</span>
+                </div>
+                <div class="metric p-4">
+                    <p class="text-xs text-slate-400">{{CHANGE_4_LABEL}}</p>
+                    <p class="text-lg font-semibold text-slate-100">{{CHANGE_4_VALUE}}</p>
+                    <span class="delta-badge inline-flex mt-2 text-xs px-2 py-1 rounded-full border" data-delta="{{CHANGE_4_DELTA}}">{{CHANGE_4_DELTA}}</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 reveal" style="--delay: 520ms">
+            <div class="glass p-6 md:col-span-2 float-in" style="--delay: 580ms">
+                <h2 class="text-xl font-semibold mb-4"><i class="fa-solid fa-chart-line text-cyan-300 mr-2"></i>战略趋势与增速</h2>
+                <div class="h-80"><canvas id="trendChart"></canvas></div>
+            </div>
+            <div class="glass p-6 float-in" style="--delay: 660ms">
+                <h2 class="text-xl font-semibold mb-4"><i class="fa-solid fa-compass-drafting text-violet-300 mr-2"></i>战略判断</h2>
+                <ul class="list-disc pl-5 space-y-2 text-slate-300 text-sm">
+                    <li>{{JUDGMENT_1}}</li>
+                    <li>{{JUDGMENT_2}}</li>
+                    <li>{{JUDGMENT_3}}</li>
+                </ul>
+                <div class="divider my-4"></div>
+                <p class="text-xs text-slate-400">数据来源：{{SOURCE_1}} | {{SOURCE_2}} | {{SOURCE_3}}</p>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 reveal" style="--delay: 720ms">
+            <div class="glass p-6 float-in" style="--delay: 760ms">
+                <h3 class="text-lg font-semibold mb-4"><i class="fa-solid fa-layer-group text-emerald-300 mr-2"></i>相关区域展示（联动版图）</h3>
+                <div class="space-y-3 text-sm">
+                    <div class="p-3 rounded-lg border border-slate-700 bg-slate-900/50">{{RELATED_ZONE_1}}</div>
+                    <div class="p-3 rounded-lg border border-slate-700 bg-slate-900/50">{{RELATED_ZONE_2}}</div>
+                    <div class="p-3 rounded-lg border border-slate-700 bg-slate-900/50">{{RELATED_ZONE_3}}</div>
+                    <div class="p-3 rounded-lg border border-slate-700 bg-slate-900/50">{{RELATED_ZONE_4}}</div>
+                </div>
+            </div>
+            <div class="glass p-6 float-in" style="--delay: 820ms">
+                <h3 class="text-lg font-semibold mb-4"><i class="fa-solid fa-clock-rotate-left text-cyan-300 mr-2"></i>关键里程碑</h3>
+                <div class="space-y-4 text-sm text-slate-300">
+                    <div class="timeline-item"><p class="font-semibold">{{MILESTONE_TIME_1}}</p><p>{{MILESTONE_EVENT_1}}</p></div>
+                    <div class="timeline-item"><p class="font-semibold">{{MILESTONE_TIME_2}}</p><p>{{MILESTONE_EVENT_2}}</p></div>
+                    <div class="timeline-item"><p class="font-semibold">{{MILESTONE_TIME_3}}</p><p>{{MILESTONE_EVENT_3}}</p></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 reveal" style="--delay: 900ms">
+            <div class="glass p-6 float-in" style="--delay: 960ms">
+                <h3 class="text-lg font-semibold mb-4"><i class="fa-solid fa-triangle-exclamation text-amber-300 mr-2"></i>风险与约束</h3>
+                <ul class="list-disc pl-5 space-y-2 text-slate-300 text-sm">
+                    <li>{{RISK_1}} <span class="risk-level ml-2 text-xs px-2 py-0.5 rounded-full border" data-risk="{{RISK_1_LEVEL}}">{{RISK_1_LEVEL}}</span></li>
+                    <li>{{RISK_2}} <span class="risk-level ml-2 text-xs px-2 py-0.5 rounded-full border" data-risk="{{RISK_2_LEVEL}}">{{RISK_2_LEVEL}}</span></li>
+                    <li>{{RISK_3}} <span class="risk-level ml-2 text-xs px-2 py-0.5 rounded-full border" data-risk="{{RISK_3_LEVEL}}">{{RISK_3_LEVEL}}</span></li>
+                </ul>
+            </div>
+            <div class="glass p-6 float-in" style="--delay: 1040ms">
+                <h3 class="text-lg font-semibold mb-4"><i class="fa-solid fa-rocket text-emerald-300 mr-2"></i>最终建议（可执行）</h3>
+                <p class="text-slate-200 leading-7">{{FINAL_RECOMMENDATION}}</p>
+                <div class="mt-4 p-4 rounded-lg border border-emerald-400/55 bg-emerald-400/18 text-sm text-emerald-100 shadow-[0_0_0_1px_rgba(74,222,128,0.08)]">
+                    <strong>下一步动作：</strong> {{NEXT_ACTION}}
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const trendCtx = document.getElementById("trendChart");
+        const chartConfig = {
+            type: "line",
+            data: {
+                labels: ["Q1", "Q2", "Q3", "Q4", "Q5"],
+                datasets: [
+                    {
+                        label: "{{METRIC_MAIN}}",
+                        data: [26, 34, 49, 61, 78],
+                        borderColor: "rgba(103, 232, 249, 1)",
+                        backgroundColor: "rgba(103, 232, 249, 0.14)",
+                        fill: true,
+                        tension: 0.35
+                    },
+                    {
+                        label: "{{METRIC_BASELINE}}",
+                        data: [20, 27, 35, 42, 50],
+                        borderColor: "rgba(167, 139, 250, 1)",
+                        backgroundColor: "rgba(167, 139, 250, 0.08)",
+                        fill: false,
+                        tension: 0.35
+                    }
+                ]
+            },
+            options: {
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 2200,
+                    easing: "easeOutQuart",
+                    delay: (ctx) => (ctx.type === "data" ? ctx.dataIndex * 180 : 0)
+                },
+                plugins: { legend: { labels: { color: "#cbd5e1" } } },
+                scales: {
+                    y: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148, 163, 184, 0.18)" } },
+                    x: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148, 163, 184, 0.08)" } }
+                }
+            }
+        };
+
+        function parseDelta(raw) {
+            const text = String(raw || "").trim();
+            const match = text.match(/-?\d+(\.\d+)?/);
+            if (!match) return 0;
+            const num = parseFloat(match[0]);
+            return text.startsWith("-") ? -Math.abs(num) : num;
+        }
+
+        function styleDeltaBadges() {
+            const badges = document.querySelectorAll(".delta-badge");
+            badges.forEach((badge) => {
+                const raw = badge.getAttribute("data-delta") || badge.textContent || "";
+                const val = parseDelta(raw);
+                if (val > 0) {
+                    badge.classList.add("text-emerald-200", "border-emerald-500/40", "bg-emerald-500/15");
+                    badge.innerHTML = '<i class="fa-solid fa-arrow-trend-up mr-1"></i>' + raw;
+                } else if (val < 0) {
+                    badge.classList.add("text-rose-200", "border-rose-500/40", "bg-rose-500/15");
+                    badge.innerHTML = '<i class="fa-solid fa-arrow-trend-down mr-1"></i>' + raw;
+                } else {
+                    badge.classList.add("text-slate-200", "border-slate-500/40", "bg-slate-500/15");
+                    badge.innerHTML = '<i class="fa-solid fa-minus mr-1"></i>' + raw;
+                }
+            });
+        }
+
+        function styleRiskLevels() {
+            const tags = document.querySelectorAll(".risk-level");
+            tags.forEach((tag) => {
+                const level = String(tag.getAttribute("data-risk") || tag.textContent || "").toLowerCase();
+                if (level.includes("high") || level.includes("高")) {
+                    tag.classList.add("text-rose-200", "border-rose-500/40", "bg-rose-500/15");
+                } else if (level.includes("medium") || level.includes("中")) {
+                    tag.classList.add("text-amber-200", "border-amber-500/40", "bg-amber-500/15");
+                } else {
+                    tag.classList.add("text-emerald-200", "border-emerald-500/40", "bg-emerald-500/15");
+                }
+            });
+        }
+
+        styleDeltaBadges();
+        styleRiskLevels();
+        setTimeout(() => new Chart(trendCtx, chartConfig), 1450);
+    </script>
+</body>
+</html>

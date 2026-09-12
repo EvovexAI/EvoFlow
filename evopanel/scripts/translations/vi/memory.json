@@ -1,0 +1,17 @@
+{
+  "title": "Bộ nhớ",
+  "desc": "Quản lý tệp bộ nhớ Agent",
+  "noFiles": "Không có tệp",
+  "view": "Xem",
+  "download": "Tải xuống",
+  "delete": "Xóa",
+  "upload": "Tải lên",
+  "uploading": "Đang tải...",
+  "uploaded": "Đã tải lên",
+  "uploadFailed": "Tải lên thất bại",
+  "deleted": "Đã xóa",
+  "deleteFailed": "Xóa thất bại",
+  "loadFailed": "Tải thất bại",
+  "selectAgent": "Chọn Agent",
+  "searchPlaceholder": "Tìm kiếm..."
+}

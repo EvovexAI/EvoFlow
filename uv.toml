@@ -1,0 +1,3 @@
+# setup-uv@v7 pins uv version via workflow inputs (version: "0.6.x"), so no
+# required-version is needed here — a constraint would only conflict with
+# the latest 0.6.x patch that setup-uv resolves at runtime.

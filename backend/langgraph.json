@@ -1,0 +1,16 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "python_version": "3.12",
+  "dependencies": [
+    "."
+  ],
+  "env": ".env",
+  "graphs": {
+    "lead_agent": "evoflow.agents.lead_agent.agent:make_lead_agent",
+    "claude_code_chat": "evoflow.agents.claude_code_chat_graph:make_claude_code_chat_graph",
+    "goal_agent": "evoflow.agents.goal.goal_graph:make_goal_graph"
+  },
+  "checkpointer": {
+    "path": "./packages/harness/evoflow/agents/checkpointer/async_provider.py:make_checkpointer"
+  }
+}

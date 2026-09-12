@@ -1,0 +1,74 @@
+/**
+ * 平台左/右侧面板分区标题 — 知识库目录 / 工作流节点库 / 知识导航等统一规范
+ */
+:root {
+  --ef-panel-head-pad: 12px 14px 8px;
+  --ef-panel-title-size: 12px;
+  --ef-panel-title-weight: 600;
+  --ef-panel-title-tracking: 0.01em;
+  --ef-panel-head-border: var(--border-primary);
+  --ef-panel-head-bg: inherit;
+}
+
+.ef-panel-head,
+.ko-catalog__head,
+.app-wf-sidebar-head,
+.kv-nav-explorer__head,
+.react-chat-task-sidebar-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--ef-panel-head-pad);
+  border-bottom: 1px solid var(--ef-panel-head-border);
+  background: var(--ef-panel-head-bg);
+}
+
+.ko-catalog__head {
+  border-bottom-color: var(--ko-line-soft, var(--ef-panel-head-border));
+}
+
+.kv-nav-explorer__head {
+  flex-direction: column;
+  align-items: stretch;
+  border-bottom-color: var(--kv-border, var(--ef-panel-head-border));
+  background: var(--kv-panel, var(--ef-panel-head-bg));
+}
+
+.app-wf-sidebar-head--stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.ef-panel-head__title,
+.ko-catalog__head-title,
+.app-wf-sidebar-head h3,
+.kv-nav-explorer__head h2,
+.react-chat-task-sidebar-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ef-panel-title-size);
+  font-weight: var(--ef-panel-title-weight);
+  letter-spacing: var(--ef-panel-title-tracking);
+  color: var(--text-primary);
+  text-transform: none;
+  font-family: var(--font-sans);
+  line-height: 1.3;
+}
+
+.kv-nav-explorer__head h2 {
+  margin: 0 0 6px;
+}
+
+.react-chat-task-sidebar-header {
+  justify-content: space-between;
+  border-bottom-color: var(--border, var(--ef-panel-head-border));
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.02), rgba(255, 255, 255, 0));
+}
+
+.ef-panel-head--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}

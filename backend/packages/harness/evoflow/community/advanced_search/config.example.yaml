@@ -1,0 +1,103 @@
+# advanced_search_config.example.yaml
+# 高级搜索工具配置示例
+
+tools:
+  # 高级搜索引擎 - 推荐配置
+  - name: advanced_search
+    group: web
+    use: evoflow.community.advanced_search.tools:advanced_search_tool
+    # 搜索深度：quick(1-2s) / standard(3-5s) / deep(10-15s)
+    level: standard
+    # 最大结果数
+    max_results: 10
+    # 是否启用缓存
+    use_cache: true
+    # 缓存有效期 (天)
+    cache_ttl_days: 7
+    # 是否启用结果多样性
+    diversity: true
+    # 每个域名最多显示的结果数
+    max_per_domain: 3
+  
+  # 快速搜索工具 (用于实时交互)
+  - name: quick_search
+    group: web
+    use: evoflow.community.advanced_search.tools:quick_search_tool
+    max_results: 5
+  
+  # 深度搜索工具 (用于研究任务)
+  - name: deep_search
+    group: web
+    use: evoflow.community.advanced_search.tools:deep_search_tool
+    max_results: 15
+    # 深度提取内容
+    extract_content: true
+    # 提取字符数上限
+    max_content_chars: 4096
+
+# 搜索引擎优先级配置
+search_engines:
+  # 主搜索引擎
+  primary: baidu
+  # 备选搜索引擎
+  fallback:
+    - bing
+    - duckduckgo
+  # 并行执行
+  parallel: true
+  # 超时时间 (秒)
+  timeout: 30
+
+# 质量评分权重配置
+scoring:
+  # 相关性权重
+  relevance: 0.4
+  # 权威性权重
+  authority: 0.3
+  # 时效性权重
+  freshness: 0.2
+  # 完整性权重
+  completeness: 0.1
+  
+  # 域名权重
+  domain_weights:
+    gov.cn: 1.0
+    edu.cn: 0.95
+    ac.cn: 0.9
+    org.cn: 0.85
+    wikipedia.org: 0.95
+    baike.baidu.com: 0.8
+    zhihu.com: 0.7
+    github.com: 0.75
+
+# 缓存配置
+cache:
+  # 内存缓存大小 (条数)
+  memory_max_size: 1000
+  # 文件缓存目录
+  directory: .cache/search
+  # 缓存有效期 (天)
+  ttl_days: 7
+
+# 查询优化配置
+query_optimization:
+  # 是否启用查询扩展
+  expand: true
+  # 是否添加时间限定
+  add_time_filter: true
+  # 是否添加权威站点限定
+  add_authoritative_filter: false
+
+# 速率限制配置
+rate_limiting:
+  # 每个域名每秒最大请求数
+  baidu.com: 10
+  bing.com: 10
+  duckduckgo.com: 10
+
+# 日志配置
+logging:
+  # 日志级别
+  level: INFO
+  # 是否记录详细调试信息
+  verbose: false

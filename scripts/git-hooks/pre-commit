@@ -1,0 +1,8 @@
+#!/bin/sh
+# Git runs this when core.hooksPath points at scripts/git-hooks (see make setup-git-hooks).
+# Alternative: cp to .git/hooks/pre-commit && chmod +x
+# If you previously used scripts/git-hooks/pre-push, remove it: rm -f .git/hooks/pre-push
+# If you want full CI (incl. MkDocs + OpenAPI) on every commit, change to: exec "$ROOT/scripts/ci-local.sh"
+# Or tests on every commit: exec "$ROOT/scripts/ci-local.sh" --no-docs
+ROOT="$(git rev-parse --show-toplevel)"
+exec "$ROOT/scripts/ci-local.sh" --quick

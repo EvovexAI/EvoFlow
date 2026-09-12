@@ -1,0 +1,21 @@
+{
+  "title": "Cấu hình mô hình",
+  "desc": "Quản lý nhà cung cấp và mô hình AI",
+  "addProvider": "+ Thêm nhà cung cấp",
+  "noProviders": "Không có nhà cung cấp",
+  "providerName": "Tên nhà cung cấp",
+  "baseUrl": "Base URL",
+  "apiKey": "API Key",
+  "models": "Mô hình",
+  "addModel": "Thêm mô hình",
+  "saveProvider": "Lưu",
+  "testConnection": "Kiểm tra kết nối",
+  "testing": "Đang kiểm tra...",
+  "testSuccess": "Kết nối thành công",
+  "testFailed": "Kết nối thất bại",
+  "fetchModels": "Lấy danh sách mô hình",
+  "primaryModel": "Mô hình chính",
+  "enabled": "Đã bật",
+  "disabled": "Đã tắt",
+  "loadFailed": "Tải cấu hình thất bại"
+}

@@ -1,0 +1,77 @@
+﻿{
+  "title": "ëìë³´ë?,
+  "desc": "EvoPanel ì¤í ìí ê°ì",
+  "gateway": "Gateway",
+  "portDetect": "í¬í¸ ê°ì§",
+  "notStarted": "ë¯¸ìì?,
+  "versionLabel": "ë²ì ",
+  "versionOfficial": "ê³µì",
+  "versionChinese": "ì¤êµ­ì´í",
+  "versionUnknown": "ë²ì  ì ë³´ ìì",
+  "versionAhead": "íì¬ ë²ì ì?ê¶ì¥ ìì  ë²ì  {version}ë³´ë¤ ëì ë¶ìì í  ì?ììµëë¤",
+  "versionStable": "ìì  ë²ì  {version}",
+  "versionRecommend": "ê¶ì¥ ìì  ë²ì  {version}",
+  "versionLatest": "ìµì  ìì¤í¸ë¦¼ {version}",
+  "agentFleet": "Agent í¨ë",
+  "defaultAgent": "ê¸°ë³¸",
+  "modelPool": "ëª¨ë¸ í",
+  "basedOnProviders": "{count}ê°?íë¡ë°ì´ë?ê¸°ë°",
+  "baseServices": "ê¸°ë³¸ ìë¹ì?,
+  "controlUI": "Control UI",
+  "controlUIDesc": "EvoPanel ë¤ì´í°ë¸ í¨ë",
+  "controlUIClick": "ë¸ë¼ì°ì ìì ì´ê¸°",
+  "controlUINotRunning": "Gateway ë¯¸ì¤í?,
+  "restartGw": "Gateway ì¬ìì?,
+  "checkUpdate": "ìë°ì´í¸ íì¸",
+  "createBackup": "ë°±ì ìì±",
+  "cliPath": "CLI ê²½ë¡",
+  "cliSource": "ì¤ì¹ ì¶ì²",
+  "cliSourceStandalone": "ëë¦½ ì¤ì¹í?,
+  "cliSourceNpmZh": "npm ì¤êµ­ì´í",
+  "cliSourceNpmOfficial": "npm ê³µìí?,
+  "cliSourceNpmGlobal": "npm ì ì­",
+  "cliSourceUnknown": "ì?ì?ìì",
+  "multiInstall": "ì¬ë¬ ì¤ì¹ê° ê°ì§ë?,
+  "multiInstallHint": "ì¤ì ìì ì¬ì©í?ì¤ì¹ë¥?ì íí?ì?ììµëë¤",
+  "installCount": "{count}ê°?ì¤ì¹",
+  "retry": "ì¬ìë?,
+  "servicesLoadFail": "ìë¹ì?ìí ë¡ë ì¤í¨",
+  "versionLoadFail": "ë²ì  ì ë³´ ë¡ë ì¤í¨",
+  "notSet": "ë¯¸ì¤ì ?,
+  "startBtn": "ìì",
+  "stopBtn": "ì¤ì§",
+  "restartBtn": "ì¬ìì?,
+  "primaryModel": "ê¸°ë³¸ ëª¨ë¸",
+  "maxConcurrent": "ìµë ëì ì¤í",
+  "mcpTools": "MCP ëêµ¬",
+  "mountedExtensions": "ë§ì´í¸ë íì¥",
+  "recentBackup": "ìµê·¼ ë°±ì",
+  "noBackup": "ë°±ì ìì",
+  "backupCount": "{count}ê°?ë°±ì íì¼",
+  "workspaceCount": "{count}ê°?ìí¬ì¤íì´ì¤",
+  "runtimeVersion": "ë°íì?ë²ì ",
+  "remaining": "ë¨ì",
+  "activeSessions": "íì± ì¸ì",
+  "defaultModel": "ê¸°ë³¸ ëª¨ë¸",
+  "context": "ì»¨íì¤í¸",
+  "openControlUIFail": "Control UI ì´ê¸° ì¤í¨",
+  "starting": "ìì ì¤?..",
+  "gwStartSent": "Gateway ìì ëªë ¹ ì ì¡ë?,
+  "startFail": "ìì ì¤í¨",
+  "stopping": "ì¤ì§ ì¤?..",
+  "gwStopped": "Gateway ì¤ì§ë?,
+  "stopFail": "ì¤ì§ ì¤í¨",
+  "restarting": "ì¬ìì?ì¤?..",
+  "gwRestartSent": "Gateway ì¬ìì?ëªë ¹ ì ì¡ë?,
+  "restartFail": "ì¬ìì?ì¤í¨",
+  "gwRestarted": "Gateway ì¬ììë¨ (PID: {pid})",
+  "restartTimeout": "ì¬ìì?íììì? Gatewayê° ìì§ ìì ì¤ì¼ ì?ììµëë¤",
+  "checking": "íì¸ ì¤?..",
+  "versionAheadWarn": "ë¡ì»¬ ë²ì  {current}ì?ê¶ì¥ ìì  ë²ì  {recommended}ë³´ë¤ ëì í¸íì?ìíì?ìì ì?ììµëë¤",
+  "updateAvailable": "ê¶ì¥ ìì  ë²ì  ì¬ì© ê°ë? {version}",
+  "upToDate": "ê¶ì¥ ìì  ë²ì ê³?ì¼ì¹",
+  "checkUpdateFail": "ìë°ì´í¸ íì¸ ì¤í¨",
+  "backingUp": "ë°±ì ì¤?..",
+  "backupDone": "ë°±ì ìë£: {name}",
+  "backupFail": "ë°±ì ì¤í¨"
+}

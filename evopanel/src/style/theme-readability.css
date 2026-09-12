@@ -1,0 +1,1342 @@
+﻿/**
+ * 暗色 / 液态玻璃：全局文字可读性
+ * 统一抬高 secondary/tertiary，避免流体背景下发灰看不清
+ * （加载于 theme-surfaces.css 之后）
+ */
+
+[data-theme='dark'] {
+  --text-secondary: #e4e4e7;
+  --text-tertiary: #d0d0d8;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] {
+  --text-secondary: var(--text-primary);
+  --text-tertiary: var(--text-primary);
+}
+
+/* 聊天 redesign tokens（覆盖浅色默认值） */
+html[data-theme='dark'] body #react-chat-root,
+html[data-theme='dark'] body .react-chat-full,
+html[data-theme='dark'] body .chat-react-full {
+  --rd-text-primary: var(--text-primary);
+  --rd-text-secondary: var(--text-secondary);
+  --rd-text-tertiary: var(--text-secondary);
+  --rd-text-muted: var(--text-tertiary);
+  --rd-bg: var(--bg-primary);
+  --rd-bg-secondary: var(--bg-secondary);
+  --rd-bg-tertiary: var(--bg-tertiary);
+  --rd-surface: var(--bg-card);
+  --rd-border: var(--border-primary);
+  --rd-border-light: var(--border-secondary);
+}
+
+/* 侧栏 shell 变量 */
+html[data-theme='dark'] .react-chat-session-aside,
+html[data-theme='dark'] #app-shell-aside.shell-aside-host,
+html[data-theme='dark'] .shell-aside-host {
+  --shell-text: var(--text-primary);
+  --shell-text-body: var(--text-primary);
+  --shell-text-muted: var(--text-primary);
+  --shell-text-weak: var(--text-primary);
+}
+
+html[data-theme='dark'] .react-chat-root,
+html[data-theme='dark'] .react-chat-workspace,
+html[data-theme='dark'] .react-chat-conversation-col {
+  --chat-text-2: var(--text-secondary);
+  --chat-text-3: var(--text-secondary);
+}
+
+/* 液态玻璃：元信息也用亮字 */
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-session-aside,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-conversation-col,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-root,
+html[data-theme='dark'][data-translucent-ui='1'] #app-shell-aside.shell-aside-host {
+  --shell-text-muted: var(--text-primary);
+  --shell-text-weak: var(--text-primary);
+  --chat-text-2: var(--text-primary);
+  --chat-text-3: var(--text-primary);
+}
+
+/* 对话：时间戳、思考、工具过程等 */
+html[data-theme='dark'] .react-chat-history-item-time,
+html[data-theme='dark'] .react-chat-history-item-meta,
+html[data-theme='dark'] .react-chat-history-item-meta.is-live,
+html[data-theme='dark'] .react-chat-history-item.active .react-chat-history-item-meta,
+html[data-theme='dark'] .react-chat-history-item.active .react-chat-history-item-meta.is-live,
+html[data-theme='dark'] .msg-ai-head-time,
+html[data-theme='dark'] .msg-ai .msg-time,
+html[data-theme='dark'] .msg-turn-meta,
+html[data-theme='dark'] .msg-thinking-label,
+html[data-theme='dark'] .msg-thinking-summary,
+html[data-theme='dark'] .msg-tool-header,
+html[data-theme='dark'] .msg-run-progress-label,
+html[data-theme='dark'] .react-chat-aside-nav-ic,
+html[data-theme='dark'] .react-chat-aside-nav-item,
+html[data-theme='dark'] .react-chat-aside-nav-label,
+html[data-theme='dark'] .react-chat-session-type-ic,
+html[data-theme='dark'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-meta,
+html[data-theme='dark'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-tools,
+html[data-theme='dark'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-toggle {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .react-chat-session-type-ic.is-active,
+html[data-theme='dark'] .react-chat-session-status--loading .react-chat-session-spinner-ic,
+html[data-theme='dark'] .react-chat-session-type-ic.is-running .react-chat-session-spinner-ic {
+  color: var(--accent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-history-item-time,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-history-item-meta,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-ai-head-time,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-ai .msg-time,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-turn-meta,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-thinking-label,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-thinking-summary,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-tool-header,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-meta,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-tools,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-toggle {
+  color: var(--text-primary) !important;
+}
+
+/* chat-redesign 深色时间戳 */
+html[data-theme='dark'] body .msg-ai-head-time,
+html[data-theme='dark'] body .msg-ai .msg-time {
+  color: var(--text-secondary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] body .msg-ai-head-time,
+html[data-theme='dark'][data-translucent-ui='1'] body .msg-ai .msg-time {
+  color: var(--text-primary) !important;
+}
+
+/* 全局页面与按钮 */
+html[data-theme='dark'] .page-desc {
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] .btn-outline,
+html[data-theme='dark'] .btn-ghost {
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .page-desc,
+html[data-theme='dark'][data-translucent-ui='1'] .form-hint,
+html[data-theme='dark'][data-translucent-ui='1'] .text-muted {
+  color: var(--text-primary);
+}
+
+/* 液态玻璃：侧栏与顶栏控件默认亮字 */
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-compact-btn,
+html[data-theme='dark'][data-translucent-ui='1'] .tauri-chrome-guide-btn,
+html[data-theme='dark'][data-translucent-ui='1'] .ep-window-controls-btn {
+  color: var(--text-primary) !important;
+}
+
+/* 普通对话 / 员工对话：亮字、暗底（不要发白底） */
+html[data-theme='dark'] .react-chat-aside-segment-btn:not(.is-active),
+[data-theme='dark'] .react-chat-aside-segment-btn:not(.is-active),
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-aside-segment-btn:not(.is-active) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+  font-weight: 550 !important;
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .react-chat-aside-segment,
+[data-theme='dark'] .react-chat-aside-segment,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-aside-segment {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent) !important;
+}
+
+html[data-theme='dark'] .react-chat-aside-segment-btn:hover,
+[data-theme='dark'] .react-chat-aside-segment-btn:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-theme='dark'] .react-chat-aside-segment-btn.is-active,
+[data-theme='dark'] .react-chat-aside-segment-btn.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  font-weight: 600 !important;
+}
+
+/* agent rail / 侧栏：抬高 mute 色 */
+html[data-theme='dark'] .react-chat-root,
+html[data-theme='dark'] .react-chat-agent-rail,
+html[data-theme='dark'] .react-chat-session-aside {
+  --agent-mute: var(--text-secondary);
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-root,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-agent-rail,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-session-aside {
+  --agent-mute: var(--text-primary);
+}
+
+/* 运行进度 / token 统计（react-chat 硬编码灰字） */
+html[data-theme='dark'] .msg-run-progress-step,
+html[data-theme='dark'] .msg-run-progress-stats-row,
+html[data-theme='dark'] .msg-run-progress-tokens,
+html[data-theme='dark'] .msg-run-progress-tokens-label,
+html[data-theme='dark'] .msg-run-progress-tokens-value,
+html[data-theme='dark'] .msg-run-progress-tip,
+html[data-theme='dark'] .msg-run-progress-trace-btn,
+html[data-theme='dark'] .msg-run-progress-mark.is-pending {
+  color: var(--text-secondary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-step,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-stats-row,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-tokens,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-tokens-label,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-tokens-value,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-tip,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-trace-btn,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-run-progress-mark.is-pending {
+  color: var(--text-primary) !important;
+}
+
+/* 上下文用量条 */
+html[data-theme='dark'] .react-chat-ctx-meter-headline,
+html[data-theme='dark'] .react-chat-ctx-meter-counts,
+html[data-theme='dark'] .react-chat-ctx-meter-count {
+  color: var(--text-secondary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-headline,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-counts,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-count {
+  color: var(--text-primary) !important;
+}
+
+/* 侧栏会话列表 */
+html[data-theme='dark'] .react-chat-history-item-title,
+html[data-theme='dark'] .react-chat-history-item-preview,
+html[data-theme='dark'] .react-chat-aside-section-label,
+html[data-theme='dark'] .react-chat-session-type-label {
+  color: var(--text-primary) !important;
+}
+
+/* 输入框 placeholder */
+html[data-theme='dark'] .react-chat-composer textarea::placeholder,
+html[data-theme='dark'] .react-chat-composer input::placeholder,
+html[data-theme='dark'] .react-chat-input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 55%, transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-composer textarea::placeholder,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-composer input::placeholder,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 68%, transparent) !important;
+}
+
+/* 工作流画布描述文字 */
+html[data-theme='dark'][data-translucent-ui='1'] .wf-drawer-lib-row .wf-drawer-lib-desc,
+html[data-theme='dark'][data-translucent-ui='1'] .wf-drawer-agent-item .wf-drawer-lib-desc,
+html[data-theme='dark'][data-translucent-ui='1'] .wf-node-intro,
+html[data-theme='dark'][data-translucent-ui='1'] .wf-drawer-search::placeholder,
+html[data-theme='dark'][data-translucent-ui='1'] .wf-drawer-agent-search::placeholder,
+html[data-theme='dark'][data-translucent-ui='1'] .wf-palette-search::placeholder {
+  color: var(--text-primary) !important;
+}
+
+/* 首页工作台：输入 placeholder */
+html[data-theme='dark'] .evo-home-composer__input::placeholder,
+html[data-theme='dark'][data-translucent-ui='1'] .evo-home-composer__input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 62%, transparent) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   主对话区：思考 / 工具 / 底部输入 / 右栏
+   ══════════════════════════════════════════════════════════ */
+
+/* 作用域变量：灰阶 token 全部映射为主色 */
+html[data-theme='dark'] .react-chat-conversation-col,
+html[data-theme='dark'] .react-chat-info-rail,
+html[data-theme='dark'] .react-chat-bottom-dock,
+html[data-theme='dark'] .react-chat-agent-pane,
+html[data-theme='dark'] .react-chat-platform-feedback-panel,
+html[data-translucent-ui='1'] .react-chat-conversation-col,
+html[data-translucent-ui='1'] .react-chat-info-rail,
+html[data-translucent-ui='1'] .react-chat-bottom-dock,
+html[data-translucent-ui='1'] .react-chat-agent-pane {
+  --text-secondary: var(--text-primary);
+  --text-tertiary: var(--text-primary);
+  --agent-mute: var(--text-primary);
+  --chat-text-2: var(--text-primary);
+  --chat-text-3: var(--text-primary);
+}
+
+/* 暗色：保留外层输入框，文字区无内框 */
+html[data-theme='dark']:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area {
+  padding: 10px 12px 8px !important;
+  background: var(--chat-canvas, #212121) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .react-chat-bottom-dock .react-chat-input,
+html[data-theme='dark'] .react-chat-bottom-dock .react-chat-composer,
+html[data-theme='dark'] .react-chat-bottom-pill-text,
+html[data-theme='dark'] .react-chat-bottom-model-pill,
+html[data-theme='dark'] .react-chat-creative-title,
+html[data-theme='dark'] .react-chat-mode-label,
+html[data-theme='dark'] .react-chat-context-pills-label,
+html[data-theme='dark'] .react-chat-file-chip,
+html[data-theme='dark'] .react-chat-file-chip-x {
+  color: var(--text-primary) !important;
+}
+
+/* 思考 / 工具折叠 / 运行进度 */
+html[data-theme='dark'] .react-chat-conversation-col :is(
+  .react-chat-inline-reasoning-toggle,
+  .react-chat-inline-reasoning-toggle.is-static,
+  .react-chat-inline-reasoning-preview,
+  .react-chat-inline-reasoning-md,
+  .react-chat-inline-reasoning-text,
+  .react-chat-inline-reasoning-toggle-label,
+  .msg-tool-activity-fold-toggle,
+  .msg-tool-activity-fold-meta,
+  .msg-tool-activity-fold-tools,
+  .msg-tool-activity-fold-steps,
+  .msg-tool-activity-fold-tech-head,
+  .msg-tool-activity-fold-tech-head .msg-tool-activity-fold-tools,
+  .msg-run-progress-headline,
+  .msg-run-progress-step,
+  .msg-run-progress-stats-row,
+  .msg-run-progress-tokens,
+  .msg-run-progress-tokens-label,
+  .msg-run-progress-tokens-value,
+  .msg-run-progress-tip,
+  .msg-run-progress-trace-btn,
+  .msg-run-progress-mark.is-pending,
+  .react-msg-tool .msg-tool-elapsed,
+  .msg-thinking-label,
+  .msg-thinking-summary,
+  .msg-tool-header,
+  .react-chat-processing-text
+) {
+  color: var(--text-primary) !important;
+}
+
+/* 右栏：Agent 产出 / 平台 / 上下文 */
+html[data-theme='dark'] .react-chat-info-rail :is(
+  .react-chat-info-rail-row-label,
+  .react-chat-info-rail-empty,
+  .react-chat-info-rail-ref-list li,
+  .react-chat-ctx-meter-headline,
+  .react-chat-ctx-meter-counts,
+  .react-chat-ctx-meter-count,
+  .react-chat-ctx-meter-row dt,
+  .react-chat-ctx-meter-hint,
+  .react-chat-ctx-meter-compact-note,
+  .react-chat-ctx-meter-compact-btn,
+  .react-chat-platform-feedback-domain,
+  .react-chat-platform-feedback-hint,
+  .react-chat-platform-feedback-details li,
+  .react-chat-platform-run-list,
+  .react-chat-info-rail-tab:not(.is-active)
+) {
+  color: var(--text-primary) !important;
+}
+
+/* 液态玻璃：再强制一遍（覆盖 react-chat.css 末尾 dark 块的 text-secondary） */
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-toggle,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-label,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-turn--normal .msg-tool-activity-fold-toggle,
+html[data-theme='dark'][data-translucent-ui='1'] .msg-turn--delivery .msg-tool-activity-fold-toggle,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-info-rail-row-label,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-info-rail-empty,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-domain,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-hint,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-details li,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-headline,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-counts,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-ctx-meter-compact-btn,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-agent-cap-tok {
+  color: var(--text-primary) !important;
+}
+
+/* 思考折叠按钮保留 accent，但「生成中」静态行用主色 */
+html[data-theme='dark'] .react-chat-inline-reasoning-toggle:not(.is-static) {
+  color: var(--accent) !important;
+}
+
+html[data-theme='dark'] .react-chat-inline-reasoning-toggle.is-static,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-inline-reasoning-toggle.is-static {
+  color: var(--text-primary) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   左侧栏 / 顶栏 / 智能体简介
+   ══════════════════════════════════════════════════════════ */
+
+/* 版本号 */
+html[data-theme='dark'] .react-chat-aside-version,
+html[data-theme='dark'] .sidebar-version,
+html[data-translucent-ui='1'] .react-chat-aside-version {
+  color: var(--text-primary) !important;
+  opacity: 0.92;
+}
+
+/* 左侧：员工对话 / 图标 / 时间 / 底栏 */
+html[data-theme='dark'] .react-chat-aside-footer-btn,
+html[data-theme='dark'] .react-chat-aside-footer-btn .react-chat-aside-nav-ic,
+html[data-theme='dark'] .shell-aside-notify-mount,
+html[data-theme='dark'] .shell-aside-notify-mount .session-notify-bell,
+html[data-theme='dark'] .shell-aside-notify-mount .react-chat-toggle-sidebar-btn,
+html[data-theme='dark'] .react-chat-aside-icon-btn,
+html[data-theme='dark'] .react-chat-toggle-sidebar-btn,
+html[data-theme='dark'] .react-chat-muted,
+html[data-theme='dark'] .react-chat-history-item--employee .react-chat-history-item-title,
+html[data-theme='dark'] .react-chat-session-employee-group .react-chat-session-workspace-type-ic,
+html[data-theme='dark'] .shell-aside-nav-more-chevron {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .react-chat-aside-nav-item.active,
+html[data-theme='dark'] .react-chat-aside-nav-item.active .react-chat-aside-nav-ic {
+  color: var(--accent) !important;
+}
+
+/* 历史列表加载转圈 */
+html[data-theme='dark'] .react-chat-history-rAF-spinner,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-history-rAF-spinner {
+  border-color: color-mix(in srgb, var(--text-primary) 22%, transparent) !important;
+  border-top-color: var(--accent) !important;
+}
+
+html[data-theme='dark'] .react-chat-session-workspace-loading,
+html[data-theme='dark'] .react-chat-history-older-loading {
+  color: var(--text-primary) !important;
+}
+
+/* 顶栏：分享 / 侧栏开关 / Token 等 */
+html[data-theme='dark'] .react-chat-header-share-btn,
+html[data-theme='dark'] .react-chat-header-panel-btn,
+html[data-theme='dark'] .react-chat-header-metrics,
+html[data-theme='dark'] .react-chat-header-metrics .react-chat-tokens,
+html[data-theme='dark'] .react-chat-tokens,
+html[data-theme='dark'] .react-chat-header-run-badge.is-idle,
+html[data-translucent-ui='1'] .react-chat-header-share-btn,
+html[data-translucent-ui='1'] .react-chat-header-panel-btn,
+html[data-translucent-ui='1'] .react-chat-header-metrics {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .react-chat-header-panel-btn.is-active {
+  color: var(--accent) !important;
+}
+
+/* 智能体简单描述 / 员工职责 */
+html[data-theme='dark'] .react-chat-agent-profile-bio,
+html[data-theme='dark'] .react-chat-agent-profile-meta,
+html[data-theme='dark'] .react-chat-employee-responsibilities,
+html[data-theme='dark'] .react-chat-employee-responsibilities ul,
+html[data-theme='dark'] .react-chat-employee-responsibilities li,
+html[data-theme='dark'] .react-chat-employee-duty-more,
+html[data-theme='dark'] .react-chat-employee-extra-meta,
+html[data-theme='dark'] .react-chat-employee-duty-toggle,
+html[data-translucent-ui='1'] .react-chat-agent-profile-bio,
+html[data-translucent-ui='1'] .react-chat-agent-profile-meta,
+html[data-translucent-ui='1'] .react-chat-employee-responsibilities ul {
+  color: var(--text-primary) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   无分层半透明 UI：恢复经典输入框；AI 回复跟 DeepSeek/ChatGPT 一样
+   贴对话区背景（不铺实色卡），只保证正文对比度。
+   ══════════════════════════════════════════════════════════ */
+
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area {
+  padding: 10px 12px 8px !important;
+  background: var(--chat-canvas, #ffffff) !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area:hover {
+  border-color: rgba(15, 23, 42, 0.14) !important;
+  box-shadow: none !important;
+}
+
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area:focus-within {
+  border-color: rgba(15, 23, 42, 0.18) !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* 文字输入本身不要再套一层框 */
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-composer,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-input-wrap,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-composer-top-row {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-input,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-input-wrap .react-chat-input {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-input,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-composer,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-pill-text,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-model-pill,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-creative-title,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-mode-label,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-context-pills-label,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-file-chip,
+html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-file-chip-x {
+  color: var(--text-primary) !important;
+}
+
+/* AI 回复：无框贴底（覆盖 chat.css 实底；与对话区同层，避免卡片浮在背景上） */
+html:not([data-translucent-ui='1']) body .msg-ai .msg-bubble,
+html:not([data-translucent-ui='1']) body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html:not([data-translucent-ui='1']) body .msg-turn-assistant-content,
+html:not([data-translucent-ui='1']) .react-chat-conversation-col .msg-turn--assistant .msg-bubble {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html:not([data-translucent-ui='1']) body .msg-ai .msg-text,
+html:not([data-translucent-ui='1']) body .msg.msg-turn.msg-turn--assistant .msg-text,
+html:not([data-translucent-ui='1']) body .msg-turn-assistant-content .msg-text,
+html:not([data-translucent-ui='1']) .react-chat-conversation-col .msg-turn--assistant .msg-text,
+html:not([data-translucent-ui='1']) .react-chat-conversation-col .msg-turn--assistant .msg-ai-final-reply,
+html:not([data-translucent-ui='1']) .react-chat-conversation-col .msg-turn--assistant .msg-ai-plan-text {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+/* ── 原皮 + 自定义墙纸（非液态玻璃）：中间对话区与 AI 气泡透出墙纸 ── */
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-conversation-col,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-conversation-col {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) body .msg-ai .msg-bubble,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) body .msg-turn-assistant-content,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-conversation-col .msg-turn--assistant .msg-bubble,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) body .msg-ai .msg-bubble,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) body .msg-turn-assistant-content,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-conversation-col .msg-turn--assistant .msg-bubble {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── 原皮 + 自定义墙纸：询问确认 Dock / 澄清选项（仅描边，不铺白底） ── */
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-clarify-confirm-dock .react-chat-subtask-card.react-chat-clarify-card,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-bottom-dock .react-chat-clarify-card,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-clarify-confirm-dock .react-chat-subtask-card,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-clarify-confirm-dock .react-chat-subtask-card.react-chat-clarify-card,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-bottom-dock .react-chat-clarify-card,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-clarify-confirm-dock .react-chat-subtask-card,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-clarify-card,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-clarify-card {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-clarify-confirm-dock .react-chat-clarify-input-row,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-clarify-confirm-dock .react-chat-clarify-input-row {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-question--tile,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-question--tile,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-question--tile,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-question--tile {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 36%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option:hover,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option:hover,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option:hover,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary)) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option.is-selected,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option.is-selected,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option.is-selected,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-option.is-selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border-primary)) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-extra,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-extra,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-extra,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-thread-clarify-extra {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-task-sidebar,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-task-sidebar {
+  background: color-mix(in srgb, var(--bg-secondary) 22%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 42%, transparent) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   应用壳层：工作流 / 设置 / 弹窗 / 侧栏抽屉（原皮 + 自定义墙纸）
+   ══════════════════════════════════════════════════════════ */
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']),
+html[data-custom-bg='1']:not([data-liquid-glass='1']) {
+  --wf-studio-bg: transparent;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-studio,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-studio-body,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-studio-center,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-studio-center .app-rf-flow-wrap,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-canvas-host,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-page-body,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) #app.evopanel-app-studio-mode #content,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-wf-studio,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-wf-studio-center .app-rf-flow-wrap,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-wf-canvas-host,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) #app.evopanel-app-studio-mode #content {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-wf-sidebar,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--library.is-open,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--config.is-open,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-status-bar,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-wf-sidebar,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--library.is-open,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--config.is-open,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-status-bar {
+  background: color-mix(in srgb, var(--bg-secondary) 24%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-studio-toolbar,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-studio-toolbar {
+  background: color-mix(in srgb, var(--bg-card) 28%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-node-card,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-agent-caps--panel,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-cap-tag,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-inspector-control,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-palette-row,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-palette-search,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-search,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-agent-search,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-node-card,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-agent-caps--panel,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-cap-tag,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-inspector-control,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-palette-row {
+  background: color-mix(in srgb, var(--bg-card) 26%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 42%, transparent) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .modal,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .react-chat-modal-overlay .react-chat-modal-card,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root .settings-layout--hub .settings-nav,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root .settings-layout--hub .settings-hub-main,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-panels,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .modal,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-modal-overlay .react-chat-modal-card,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .settings-modal-root,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .settings-panels,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .modal,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .modal {
+  background: color-mix(in srgb, var(--bg-secondary) 36%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 45%, transparent) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root .config-section,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .settings-modal-root .config-section {
+  background: color-mix(in srgb, var(--bg-tertiary) 22%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .ef-side-drawer-root,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .ef-side-drawer-root {
+  --ef-d-surface: color-mix(in srgb, var(--bg-secondary) 26%, transparent);
+  --ef-d-fill: color-mix(in srgb, var(--accent) 5%, transparent);
+  --ef-d-fill-2: color-mix(in srgb, var(--accent) 7%, transparent);
+  --ef-d-fill-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .ef-side-drawer,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .ef-side-drawer {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-left-color: color-mix(in srgb, var(--border-primary) 42%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .ef-side-drawer-header,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .ef-side-drawer-footer,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .ef-side-drawer-header,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .ef-side-drawer-footer {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--border-primary) 38%, transparent) !important;
+}
+
+/* ── 工作流：React Flow 画布 + 左侧节点库（补强白底来源） ── */
+html[data-translucent-ui='1']:not([data-liquid-glass='1']),
+html[data-custom-bg='1']:not([data-liquid-glass='1']) {
+  --wf-control-bg: color-mix(in srgb, var(--bg-card) 14%, transparent);
+  --wf-sidebar-hover: color-mix(in srgb, var(--accent) 5%, transparent);
+  --wf-minimap-mask: color-mix(in srgb, var(--bg-primary) 30%, transparent);
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-rf-root--fullscreen .app-rf-flow-wrap,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap .react-flow,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap .react-flow {
+  --xy-background-color: transparent !important;
+  --xy-background-pattern-color-props: color-mix(in srgb, var(--text-tertiary) 26%, transparent) !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap .react-flow__pane,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap .react-flow__viewport,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap .react-flow__renderer,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .app-rf-flow-wrap .react-flow__pane {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer--library,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--library.is-open,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-body,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-top,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-section--agents,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer--library,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--library.is-open,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-body {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-lib-card,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-lib-tile,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-agent-item,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-lib-row,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-palette-row,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-lib-card,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-lib-tile,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-agent-item,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-lib-row {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 36%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-lib-row:hover,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-agent-item:hover,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-palette-row:hover,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-lib-row:hover,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-lib-row:hover,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-lib-row:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-segment,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-collapse,
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-expand,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-segment {
+  background: color-mix(in srgb, var(--bg-card) 16%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 36%, transparent) !important;
+}
+
+html[data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer-seg.is-active,
+html[data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-seg.is-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-studio-toolbar,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .wf-studio-toolbar,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--config.is-open,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-drawer.wf-drawer--library.is-open,
+html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .wf-node-card,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer,
+html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .wf-drawer-agent-item {
+  background: color-mix(in srgb, var(--bg-secondary) 20%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border-primary) 40%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   Reminders 风：冷灰蓝 chrome + 白色大圆角浮层（顶/左/右/下均留缝）
+   ══════════════════════════════════════════════════════════ */
+
+html:not([data-translucent-ui='1']) body .react-chat-session-aside,
+html:not([data-translucent-ui='1']) body #app-shell-aside.shell-aside-host,
+html:not([data-translucent-ui='1']) body .shell-aside-host {
+  background: var(--chrome-bg, #e8edf2) !important;
+  border-right-color: transparent !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-session-aside,
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app-shell-aside.shell-aside-host,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .shell-aside-host {
+  background: var(--chrome-bg, #141414) !important;
+}
+
+/* 顶栏固定在窗口最上（含 - □ ×）；白浮层只在顶栏下方 */
+html:not([data-translucent-ui='1']) body #app:has(#chat-persistent-host:not([hidden])) #main-col,
+html:not([data-translucent-ui='1']) body #app:has(.chat-react-outlet) #main-col {
+  background: var(--chrome-bg, #e8edf2) !important;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html:not([data-translucent-ui='1']) body #chat-persistent-host:has(.chat-react-full),
+html:not([data-translucent-ui='1']) body #content:has(.chat-react-outlet) {
+  border-radius: 0;
+  overflow: hidden;
+  background: var(--chrome-bg, #e8edf2) !important;
+  box-shadow: none;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body #chat-persistent-host:has(.chat-react-full),
+html[data-theme='dark']:not([data-translucent-ui='1']) body #content:has(.chat-react-outlet) {
+  background: var(--chrome-bg, #141414) !important;
+  box-shadow: none;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-main-col {
+  background: var(--chrome-bg, #e8edf2) !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-header,
+html:not([data-translucent-ui='1']) body .react-chat-header.react-chat-header--tauri-chrome {
+  flex-shrink: 0 !important;
+  position: relative;
+  z-index: 40;
+  background: var(--chrome-bg, #e8edf2) !important;
+  border-bottom: none !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-col,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-header.react-chat-header--tauri-chrome {
+  background: var(--chrome-bg, #141414) !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-main-body {
+  margin: 0 var(--chat-sheet-gap, 8px) var(--chat-sheet-gap, 8px);
+  border-radius: var(--chat-sheet-radius, 16px);
+  overflow: hidden;
+  background: var(--chat-canvas, #ffffff) !important;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.04),
+    0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-info-rail {
+  background: var(--chat-canvas, #ffffff) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-main-body {
+  background: var(--chat-canvas, #212121) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-info-rail {
+  background: var(--chat-canvas, #212121) !important;
+}
+
+@media (max-width: 768px) {
+  html:not([data-translucent-ui='1']) body .react-chat-main-body {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
+/* 侧栏：更小更精致；列表标题多露字 */
+html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item,
+html:not([data-translucent-ui='1']) body .shell-aside-nav-item,
+html:not([data-translucent-ui='1']) body .shell-aside-new-chat-btn {
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  height: 30px !important;
+  gap: 8px !important;
+  padding: 0 8px !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-toolbar-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-nav-ic {
+  width: 15px !important;
+  height: 15px !important;
+  opacity: 0.82;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-nav-ic svg {
+  width: 15px !important;
+  height: 15px !important;
+  stroke-width: 1.5 !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item-title {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item {
+  --history-fade-bg: var(--chrome-bg, #e8edf2);
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item:hover {
+  --history-fade-bg: color-mix(in srgb, rgba(15, 23, 42, 0.05) 100%, var(--chrome-bg, #e8edf2));
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item.active {
+  --history-fade-bg: color-mix(in srgb, rgba(15, 23, 42, 0.08) 100%, var(--chrome-bg, #e8edf2));
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-history-item {
+  --history-fade-bg: var(--chrome-bg, #141414);
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item {
+  height: 30px !important;
+  min-height: 30px !important;
+  max-height: 30px !important;
+  border-radius: 8px !important;
+  font-size: 11px !important;
+  gap: 6px !important;
+  padding: 0 6px !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item-trailing {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: min(52%, 140px) !important;
+  flex: 0 0 auto !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item-trailing .react-chat-history-item-meta {
+  width: auto !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item-primary-row .react-chat-history-item-meta:not(.is-live) {
+  max-width: none !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-history-item-meta,
+html:not([data-translucent-ui='1']) body .react-chat-history-item-time {
+  font-size: 10px !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item:hover,
+html:not([data-translucent-ui='1']) body .shell-aside-nav-item:hover {
+  background: rgba(15, 23, 42, 0.05) !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item.active,
+html:not([data-translucent-ui='1']) body .shell-aside-nav-item.active {
+  background: rgba(15, 23, 42, 0.08) !important;
+  font-weight: 500 !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item.active::before {
+  display: none !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-session-list-item,
+html:not([data-translucent-ui='1']) body .shell-aside-recent .session-row,
+html:not([data-translucent-ui='1']) body .shell-aside-recent [class*='session-item'] {
+  border-radius: 8px !important;
+}
+
+@media (max-width: 768px) {
+  html:not([data-translucent-ui='1']) body #app:has(#chat-persistent-host:not([hidden])) #main-col,
+  html:not([data-translucent-ui='1']) body #app:has(.chat-react-outlet) #main-col {
+    padding: 0 !important;
+  }
+
+  html:not([data-translucent-ui='1']) body #chat-persistent-host:has(.chat-react-full),
+  html:not([data-translucent-ui='1']) body #content:has(.chat-react-outlet) {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
+html:not([data-translucent-ui='1']) body .chat-react-outlet,
+html:not([data-translucent-ui='1']) body .react-chat-conversation-col,
+html:not([data-translucent-ui='1']) body .react-chat-surface,
+html:not([data-translucent-ui='1']) body .react-chat-messages-wrap,
+html:not([data-translucent-ui='1']) body .react-chat-messages {
+  background: var(--chat-canvas, #ffffff) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .chat-react-outlet,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-conversation-col,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-surface,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-messages-wrap,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-messages {
+  background: var(--chat-canvas, #212121) !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-conversation-col > .react-chat-bottom-dock {
+  background: var(--chat-canvas, #ffffff) !important;
+  border-top-color: transparent !important;
+  padding-left: var(--chat-column-gutter, 24px) !important;
+  padding-right: var(--chat-column-gutter, 24px) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-conversation-col > .react-chat-bottom-dock {
+  background: var(--chat-canvas, #212121) !important;
+}
+
+/* 侧栏滚动条接近透明 */
+html:not([data-translucent-ui='1']) body .react-chat-aside-primary:hover,
+html:not([data-translucent-ui='1']) body .react-chat-aside-history:hover .react-chat-session-list,
+html:not([data-translucent-ui='1']) body #shell-chat-panel:hover,
+html:not([data-translucent-ui='1']) body .shell-aside-recent:hover {
+  scrollbar-color: rgba(15, 23, 42, 0.06) transparent !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-primary::-webkit-scrollbar,
+html:not([data-translucent-ui='1']) body .react-chat-session-list::-webkit-scrollbar,
+html:not([data-translucent-ui='1']) body #shell-chat-panel::-webkit-scrollbar,
+html:not([data-translucent-ui='1']) body .shell-aside-recent::-webkit-scrollbar {
+  width: 2px !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-aside-primary:hover::-webkit-scrollbar-thumb,
+html:not([data-translucent-ui='1']) body .react-chat-aside-history:hover .react-chat-session-list::-webkit-scrollbar-thumb,
+html:not([data-translucent-ui='1']) body #shell-chat-panel:hover::-webkit-scrollbar-thumb,
+html:not([data-translucent-ui='1']) body .shell-aside-recent:hover::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-radius: 999px !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-aside-primary:hover,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-aside-history:hover .react-chat-session-list {
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-aside-primary:hover::-webkit-scrollbar-thumb,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-aside-history:hover .react-chat-session-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-main-col {
+  --chat-composer-max: 840px;
+  --chat-content-max: 840px;
+  --chat-wide-max: 840px;
+  --chat-column-gutter: 24px;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-conversation-col .react-chat-messages-wrap {
+  padding-left: var(--chat-column-gutter, 24px) !important;
+  padding-right: var(--chat-column-gutter, 24px) !important;
+  box-sizing: border-box !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-conversation-col .react-vlist-content {
+  max-width: var(--chat-composer-max, 840px) !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  box-sizing: border-box !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-bottom-area,
+html:not([data-translucent-ui='1']) body .react-chat-composer-stack .react-chat-bottom-area {
+  background: var(--chat-canvas, #ffffff) !important;
+  border: 1px solid rgba(15, 23, 42, 0.1) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  padding: 10px 12px 8px !important;
+  max-width: var(--chat-composer-max, 840px) !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-sizing: border-box !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-composer,
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-input-wrap,
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-input,
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-input-wrap .react-chat-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-input,
+html:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-input-wrap .react-chat-input {
+  border-radius: 0 !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-bottom-dock .react-chat-bottom-area,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-composer-stack .react-chat-bottom-area {
+  background: var(--chat-canvas, #212121) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+.react-chat-conversation-col .msg-turn--user .msg-turn-user-bubble,
+.react-chat-conversation-col .msg-turn--user .msg-bubble {
+  max-width: 100% !important;
+  width: 100% !important;
+  background: var(--chat-user-bubble, #f4f4f4) !important;
+  color: var(--chat-user-fg, #0d0d0d) !important;
+  border: 1px solid var(--chat-user-border, rgba(0, 0, 0, 0.06)) !important;
+  border-radius: 18px !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+html[data-theme='dark'] .react-chat-conversation-col .msg-turn--user .msg-bubble {
+  background: var(--chat-user-bubble, #2f3033) !important;
+  color: var(--chat-user-fg, #e6e6e8) !important;
+  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.06)) !important;
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble * {
+  color: var(--chat-user-fg, #1f2329) !important;
+}
+
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble * {
+  color: var(--chat-user-fg, #e6e6e8) !important;
+}
+
+body .msg-ai .msg-bubble,
+body .msg-turn-assistant-content,
+.react-chat-conversation-col .msg-turn--assistant .msg-bubble {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--chat-ai-fg, #1f2329) !important;
+}
+
+.react-chat-conversation-col .msg-turn--assistant .msg-text,
+.react-chat-conversation-col .msg-turn--assistant .msg-ai-final-reply {
+  color: var(--chat-ai-fg, #1f2329) !important;
+  line-height: 1.7 !important;
+}
+
+html[data-theme='dark'] .react-chat-conversation-col .msg-turn--assistant .msg-text,
+html[data-theme='dark'] .react-chat-conversation-col .msg-turn--assistant .msg-ai-final-reply {
+  color: var(--chat-ai-fg, #e6e6e8) !important;
+}
+
+/* ══════════════════════════════════════════════════════════
+   全局模块页：冷灰蓝 chrome + 白色圆角内容面（与对话页一致）
+   ══════════════════════════════════════════════════════════ */
+
+/* Tauri 顶栏与左侧壳同色；窗口钮加宽 */
+html:not([data-translucent-ui='1']) body .tauri-main-chrome,
+html:not([data-translucent-ui='1']) body #tauri-main-chrome {
+  background: var(--chrome-bg, #e8edf2) !important;
+  border-bottom: none !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .tauri-main-chrome,
+html[data-theme='dark']:not([data-translucent-ui='1']) body #tauri-main-chrome {
+  background: var(--chrome-bg, #141414) !important;
+}
+
+html:not([data-translucent-ui='1']) body .ep-window-controls-btn {
+  width: 46px !important;
+  min-width: 46px !important;
+  font-size: 13px !important;
+}
+
+html:not([data-translucent-ui='1']) body .ep-window-controls-btn--min:hover,
+html:not([data-translucent-ui='1']) body .ep-window-controls-btn--max:hover,
+html:not([data-translucent-ui='1']) body .ep-window-controls-btn:hover:not(.ep-window-controls-btn--close) {
+  background: rgba(15, 23, 42, 0.1) !important;
+  color: var(--text-primary, #1d1d1f) !important;
+}
+
+html:not([data-translucent-ui='1']) body .ep-window-controls-btn--close:hover {
+  background: #e81123 !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .ep-window-controls-btn--min:hover,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .ep-window-controls-btn--max:hover,
+html[data-theme='dark']:not([data-translucent-ui='1']) body .ep-window-controls-btn:hover:not(.ep-window-controls-btn--close) {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body .ep-window-controls-btn--close:hover {
+  background: #e81123 !important;
+  color: #ffffff !important;
+}
+
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content {
+  background: var(--chrome-bg, #e8edf2) !important;
+  padding: var(--page-sheet-gap, 8px) !important;
+  box-sizing: border-box !important;
+}
+
+/* 各模块内容根：白卡片浮层 */
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page-loader,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .pro-wp-page-root,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .apps-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .tasks-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .cron-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .expert-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .proactive-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .ac-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .settings-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .agents-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .skills-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .channels-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .obs-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .asset-center-page,
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
+html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
+  background: var(--page-canvas, var(--bg-surface, #ffffff)) !important;
+  border-radius: var(--page-sheet-radius, 16px);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.04),
+    0 1px 2px rgba(15, 23, 42, 0.03);
+  box-sizing: border-box;
+  min-height: 100%;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #main-col,
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content {
+  background: var(--chrome-bg, #141414) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page,
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page-loader,
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .pro-wp-page-root,
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
+html[data-theme='dark']:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
+  background: var(--page-canvas, var(--chat-canvas, #212121)) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+/* 全屏编辑 / 详情：少留缝或取消圆角，避免工具台被裁切 */
+html:not([data-translucent-ui='1']) body #app.evopanel-app-studio-mode #content,
+html:not([data-translucent-ui='1']) body #app.evopanel-kv-detail-mode #content {
+  padding: var(--page-sheet-gap, 8px) !important;
+}
+
+html:not([data-translucent-ui='1']) body #app.evopanel-app-studio-mode #content > *,
+html:not([data-translucent-ui='1']) body #app.evopanel-kv-detail-mode #content > * {
+  border-radius: var(--page-sheet-radius, 16px);
+  background: var(--page-canvas, #ffffff) !important;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content {
+    padding: 0 !important;
+  }
+
+  html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page,
+  html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .page-loader,
+  html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > .pro-wp-page-root,
+  html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class*='-outlet'],
+  html:not([data-translucent-ui='1']) body #app:not(.evopanel-auth-mode) #content > [class$='-page'] {
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+

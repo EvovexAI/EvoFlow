@@ -1,0 +1,48 @@
+﻿{
+  "title": "ìì½ ìì",
+  "desc": "EvoPanel ì ê¸° ìì ê´ë¦?,
+  "addTask": "+ ìì ì¶ê°",
+  "noTasks": "ìì ìì",
+  "taskName": "ììëª?,
+  "schedule": "ì¤ì¼ì¤?,
+  "lastRun": "ë§ì§ë§?ì¤í",
+  "nextRun": "ë¤ì ì¤í",
+  "status": "ìí",
+  "inedit": "í¸ì§",
+  "delete": "ì­ì ",
+  "enable": "íì±í?,
+  "disable": "ë¹íì±í",
+  "runNow": "ì§ê¸?ì¤í",
+  "running": "ì¤í ì¤?..",
+  "addTitle": "ìì ì¶ê°",
+  "editTitle": "ìì í¸ì§",
+  "cronExpression": "Cron ííì?,
+  "command": "ëªë ¹",
+  "targetAgent": "ëì?Agent",
+  "allAgents": "ëª¨ë  Agent",
+  "nameRequired": "ììëªì ìë ¥íì¸ì?,
+  "created": "ìì ìì±ë?,
+  "createFailed": "ìì ìì± ì¤í¨",
+  "updated": "ìì ìë°ì´í¸ë?,
+  "updateFailed": "ìì ìë°ì´í¸ ì¤í¨",
+  "confirmDelete": "ììã{name}ãì ì­ì íìê² ìµëê¹?",
+  "deleted": "ìì ì­ì ë?,
+  "deleteFailed": "ìì ì­ì  ì¤í¨",
+  "enabled": "ìì íì±íë¨",
+  "disabled": "ìì ë¹íì±íë?,
+  "loadFailed": "ìì ë¡ë ì¤í¨",
+  "everyMinute": "ë§¤ë¶",
+  "everyHour": "ë§¤ì",
+  "everyDay": "ë§¤ì¼",
+  "everyWeek": "ë§¤ì£¼",
+  "everyMonth": "ë§¤ì",
+  "custom": "ì¬ì©ì?ì ì",
+  "timezone": "ìê°ë",
+  "description": "ì¤ëª",
+  "history": "ì¤í ì´ë ¥",
+  "noHistory": "ì¤í ì´ë ¥ ìì",
+  "success": "ì±ê³µ",
+  "failed": "ì¤í¨",
+  "duration": "ìì ìê°",
+  "output": "ì¶ë ¥"
+}

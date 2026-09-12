@@ -1,0 +1,77 @@
+# 依赖
+node_modules/
+.vite-cache/
+node_modules/.vite/
+
+.cursor
+docs/issue-solutions.md
+# 构建产物
+dist/
+build/
+out/
+src-tauri/target/
+src-tauri/updater-signing.key
+
+# 日志
+*.log
+tauri-dev.log
+api_doc_mcp.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# 构建临时文件
+nul
+release_body.md
+release_body.md.bak
+
+# 本地临时文件 / 设计文档 / 构建脚本
+.tmp/
+scripts/build-r2-archive.sh
+r2-archives/
+
+# 内部开发文档（不入公开仓）
+BLOCKING_ISSUES_REPORT.md
+# legacy archive placeholders (do not ship)
+ARCHIVE-NOTES.md
+
+# 大文件（宣传视频·原始版本）
+docs/promo-video.mp4
+
+# 液态玻璃演示视频（体积大，仅本地可选）
+public/assets/liquid-glass/*.mp4
+
+# IDE / 编辑器
+.idea/
+*.iml
+.vscode/settings.json
+.vscode/launch.json
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Rust 开发工具
+src-tauri/.cargo/
+.codex/
+# 二进制/调试产物（避免误提交大文件）
+*.dll
+*.ddl
+*.pdb
+*.exe
+*.so
+*.dylib
+# AI 上下文记忆
+.context.md
+CONTEXT_STATE.md
+PROJECT_CONTRACT.md
+project.yaml

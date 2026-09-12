@@ -1,0 +1,31 @@
+{
+  "agent_code": "code-agent",
+  "role_name": "前端工程师",
+  "session_key": "proactive:code-agent",
+  "round_id": "round_abc123",
+  "message_count": 24,
+  "tool_step_count": 8,
+  "tool_counts": {
+    "terminal": 3,
+    "read": 2,
+    "proactive_submit_work": 2,
+    "proactive_history": 1
+  },
+  "steps": [
+    {"tool": "proactive_submit_work", "at": "2026-07-18T10:10:01Z", "kind": "call", "id": "call_01"},
+    {"tool": "proactive_submit_work", "at": "2026-07-18T10:10:02Z", "kind": "result"},
+    {"tool": "terminal", "at": "2026-07-18T10:10:05Z", "kind": "call", "id": "call_02"},
+    {"tool": "terminal", "at": "2026-07-18T10:10:12Z", "kind": "result"},
+    {"tool": "read", "at": "2026-07-18T10:11:00Z", "kind": "call", "id": "call_03"},
+    {"tool": "read", "at": "2026-07-18T10:11:01Z", "kind": "result"},
+    {"tool": "proactive_submit_work", "at": "2026-07-18T10:14:50Z", "kind": "call", "id": "call_04"},
+    {"tool": "proactive_submit_work", "at": "2026-07-18T10:14:51Z", "kind": "result"}
+  ],
+  "scorecard": {
+    "goal": "核对 ESLint 是否仍为 0 error",
+    "outcome": "全仓 ESLint 仍为 0 error；未发现新增告警。",
+    "verdict": "done",
+    "item_count": 1
+  },
+  "watch_path": "/proactive/code-agent?live=1&round=round_abc123"
+}

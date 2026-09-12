@@ -1,0 +1,217 @@
+/* Enterprise AI Workspace design tokens
+ * Chrome #E8EDF2 · Content #FFFFFF · Text #202124
+ * Brand #635BFF — primary actions / selected / running only
+ */
+:root, [data-theme="light"] {
+  /* Semantic aliases (Enterprise Workspace) */
+  --bg-app: #e8edf2;
+  --bg-surface: #ffffff;
+  --bg-hover: #dde3ea;
+  --bg-active: #d5dde6;
+  --border-default: #e6e8ec;
+  --border-subtle: #ecedef;
+  --brand-primary: #635bff;
+
+  /* Legacy surface aliases — primary = 白内容面；app/chrome = 冷灰蓝外框 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f6f8;
+  --bg-tertiary: #ebeef2;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f4f5f7;
+  --bg-elevated: #ffffff;
+  --bg-glass: rgba(32, 33, 36, 0.03);
+  --bg-glass-hover: rgba(32, 33, 36, 0.06);
+
+  --border-primary: #e6e8ec;
+  --border-secondary: #ecedef;
+  --border-focus: rgba(99, 91, 255, 0.2);
+  --border: var(--border-primary);
+  --border-color: var(--border-primary);
+
+  --text-primary: #202124;
+  --text-secondary: #656b73;
+  --text-tertiary: #9297a0;
+  --text-inverse: #ffffff;
+
+  --accent: #635bff;
+  --accent-hover: #534bef;
+  --accent-muted: rgba(99, 91, 255, 0.08);
+  --accent-secondary: #635bff;
+
+  --brand-blue: #635bff;
+  --brand-purple: #635bff;
+
+  --success: #26875a;
+  --success-muted: rgba(38, 135, 90, 0.1);
+  --warning: #b7791f;
+  --warning-muted: rgba(183, 121, 31, 0.1);
+  --error: #c94a4a;
+  --error-muted: rgba(201, 74, 74, 0.1);
+  --danger: #c94a4a;
+  --info: #635bff;
+  --info-muted: rgba(99, 91, 255, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(32, 33, 36, 0.04);
+  --shadow-md: 0 4px 12px rgba(32, 33, 36, 0.06);
+  --shadow-lg: 0 8px 24px rgba(32, 33, 36, 0.08);
+  /* No purple glow — calm enterprise elevation */
+  --shadow-glow: 0 2px 8px rgba(32, 33, 36, 0.08);
+
+  --code-block-bg: transparent;
+  --code-block-border: #e6e8ec;
+  --code-block-accent: rgba(99, 91, 255, 0.45);
+  --code-block-fg: var(--text-primary);
+  --code-inline-bg: #f3f3f6;
+  --code-inline-fg: #5b54d6;
+  --hl-keyword: #5b54d6;
+  --hl-string: #26875a;
+  --hl-comment: #9297a0;
+  --hl-number: #c2410c;
+  --hl-func: #635bff;
+  --hl-type: #b7791f;
+
+  /* Apple Reminders-like: cool chrome frame, pure white floating sheet */
+  --chrome-bg: #e8edf2;
+  --chat-canvas: #ffffff;
+  --page-canvas: #ffffff;
+  --chat-sheet-radius: 16px;
+  --chat-sheet-gap: 8px;
+  --page-sheet-gap: 8px;
+  --page-sheet-radius: 16px;
+  --chat-ai-fg: #1d1d1f;
+  --chat-ai-muted: #86868b;
+  --chat-user-bubble: #f2f4f7;
+  --chat-user-fg: #1d1d1f;
+  --chat-user-border: rgba(0, 0, 0, 0.04);
+  --chat-code-inline-bg: #ececec;
+  --chat-code-inline-fg: #353535;
+}
+
+/* Dark: IDE-like charcoal, avoid pure black panels */
+[data-theme="dark"] {
+  --bg-app: #1e1e1e;
+  --bg-surface: #2a2a2a;
+  --bg-hover: #333333;
+  --bg-active: #383838;
+  --border-default: #3a3a3a;
+  --border-subtle: #2f2f2f;
+  --brand-primary: #7b74ff;
+
+  --brand-blue: #7b74ff;
+  --brand-purple: #7b74ff;
+
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --bg-card: #2a2a2a;
+  --bg-card-hover: #333333;
+  --bg-elevated: #2d2d2d;
+  --bg-glass: rgba(255, 255, 255, 0.05);
+  --bg-glass-hover: rgba(255, 255, 255, 0.08);
+
+  --border-primary: #3a3a3a;
+  --border-secondary: #2f2f2f;
+  --border-focus: rgba(123, 116, 255, 0.35);
+  --border: var(--border-primary);
+  --border-color: var(--border-primary);
+
+  --text-primary: #e8e8ea;
+  --text-secondary: #a8adb5;
+  --text-tertiary: #858a94;
+  --text-inverse: #1e1e1e;
+
+  --accent: #7b74ff;
+  --accent-hover: #958fff;
+  --accent-muted: rgba(123, 116, 255, 0.16);
+  --accent-secondary: #7b74ff;
+
+  --success: #3d9b6c;
+  --success-muted: rgba(61, 155, 108, 0.15);
+  --warning: #d4a017;
+  --warning-muted: rgba(212, 160, 23, 0.15);
+  --error: #d46464;
+  --error-muted: rgba(212, 100, 100, 0.15);
+  --danger: #d46464;
+  --info: #7b74ff;
+  --info-muted: rgba(123, 116, 255, 0.15);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.36);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --shadow-glow: 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  --code-block-bg: transparent;
+  --code-block-border: #3a3a3a;
+  --code-block-accent: rgba(123, 116, 255, 0.55);
+  --code-block-fg: var(--text-primary);
+  --code-inline-bg: rgba(255, 255, 255, 0.06);
+  --code-inline-fg: #a8a0ff;
+  --hl-keyword: #c4b5fd;
+  --hl-string: #86efac;
+  --hl-comment: #71717a;
+  --hl-number: #fdba74;
+  --hl-func: #a5b4fc;
+  --hl-type: #fcd34d;
+
+  /* Dark theme: near-black chrome, slightly lifted canvas */
+  --chrome-bg: #141414;
+  --chat-canvas: #212121;
+  --page-canvas: #212121;
+  --page-sheet-gap: 8px;
+  --page-sheet-radius: 16px;
+  --chat-ai-fg: #ececec;
+  --chat-ai-muted: #8e8e8e;
+  --chat-user-bubble: #2f2f2f;
+  --chat-user-fg: #ececec;
+  --chat-user-border: rgba(255, 255, 255, 0.08);
+  --chat-code-inline-bg: rgba(255, 255, 255, 0.08);
+  --chat-code-inline-fg: #d4d4d4;
+}
+
+/* Shared (theme-invariant) */
+:root {
+  --app-bg-image: url('/assets/evoflow_card_png_assets/home_background.png');
+  --app-bg-opacity: 0.35;
+  --app-bg-veil: 0.65;
+
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+  --font-sans-chat: 'Inter', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 20px;
+  --chat-font-size-base: 14px;
+  --chat-font-size-xs: 11px;
+  --chat-font-size-sm: 12px;
+  --chat-font-size-md: 12px;
+  --chat-font-size-lg: 13px;
+  --chat-tier-body: var(--chat-font-size-base);
+  --chat-tier-meta: var(--chat-font-size-md);
+
+  --transition-fast: 150ms ease-out;
+  --transition-normal: 180ms ease-out;
+  --transition-slow: 200ms ease-out;
+
+  --sidebar-width: 232px;
+  --sidebar-collapsed: 60px;
+  --header-height: 52px;
+  --content-max-width: 1320px;
+  --agent-panel-width: 340px;
+}

@@ -1,0 +1,8 @@
+{
+  "title": "Sicherheit",
+  "desc": "EvoPanel-Sicherheitseinstellungen verwalten",
+  "toolPermissions": "Werkzeug-Berechtigungen",
+  "savePermissions": "Berechtigungen speichern",
+  "permSaved": "Berechtigungen gespeichert",
+  "loadFailed": "Einstellungen laden fehlgeschlagen"
+}

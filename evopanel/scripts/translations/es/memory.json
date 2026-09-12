@@ -1,0 +1,17 @@
+{
+  "title": "Memoria",
+  "desc": "Gestionar archivos de memoria del Agent",
+  "noFiles": "Sin archivos",
+  "view": "Ver",
+  "download": "Descargar",
+  "delete": "Eliminar",
+  "upload": "Subir",
+  "uploading": "Subiendo...",
+  "uploaded": "Subido",
+  "uploadFailed": "Error al subir",
+  "deleted": "Eliminado",
+  "deleteFailed": "Error al eliminar",
+  "loadFailed": "Error al cargar",
+  "selectAgent": "Seleccionar Agent",
+  "searchPlaceholder": "Buscar..."
+}

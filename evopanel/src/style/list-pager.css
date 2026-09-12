@@ -1,0 +1,108 @@
+/* 通用列表底部分页条（智能体 / 员工 / 知识库等） */
+.ef-list-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 16px 0 8px;
+  padding: 12px 4px 4px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  border-top: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));
+}
+
+.ef-list-pager[hidden] {
+  display: none !important;
+}
+
+.ef-list-pager-meta {
+  color: var(--text-tertiary, #94a3b8);
+}
+
+.ef-list-pager-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ef-list-pager-size select {
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.12));
+  background: var(--bg-primary, #fff);
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+
+.ef-list-pager-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.ef-list-pager-cur {
+  min-width: 3.5em;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.ef-list-pager-btn {
+  border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.12));
+  background: var(--bg-primary, #fff);
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  font-weight: 500;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ef-list-pager-btn:hover:not(:disabled) {
+  border-color: var(--accent, #0f766e);
+  color: var(--text-primary, #0f172a);
+}
+
+.ef-list-pager-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+html[data-theme='dark'] .ef-list-pager-size select,
+html[data-theme='dark'] .ef-list-pager-btn {
+  background: color-mix(in srgb, var(--bg-secondary, #1e293b) 92%, transparent);
+  border-color: var(--border-primary, rgba(255, 255, 255, 0.12));
+  color: var(--text-secondary, #94a3b8);
+}
+
+html[data-theme='dark'] .ef-list-pager-cur {
+  color: var(--text-primary, #e2e8f0);
+}
+
+/* 智能体列表：与 role-grid 左右内边距对齐 */
+.role-list-pager-wrap {
+  padding: 0 32px 28px;
+}
+
+@media (max-width: 640px) {
+  .role-list-pager-wrap {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* 员工名册 */
+.pro-list-pager-wrap {
+  margin-top: 4px;
+  padding: 0 2px 12px;
+}
+
+/* 知识库卡片网格下方 */
+.kb-list-pager-wrap {
+  margin-top: 4px;
+  padding: 0 2px 8px;
+}

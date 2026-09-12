@@ -1,0 +1,2 @@
+# Local / CI: documentation site (MkDocs Material)
+mkdocs-material>=9.5.0,<10

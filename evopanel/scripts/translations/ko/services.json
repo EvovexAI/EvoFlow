@@ -1,0 +1,63 @@
+﻿{
+  "title": "ìë¹ì?ê´ë¦?,
+  "desc": "EvoPanel ìë¹ì?ììÂ·ì¤ì§Â·ëª¨ëí°ë§",
+  "gatewayTitle": "Gateway ìë¹ì?,
+  "guardianTitle": "Guardian ìë¹ì?,
+  "status": "ìí",
+  "pid": "PID",
+  "uptime": "ê°ë?ìê°",
+  "host": "í¸ì¤í?,
+  "actions": "ìì",
+  "start": "ìì",
+  "stop": "ì¤ì§",
+  "restart": "ì¬ìì?,
+  "forceKill": "ê°ì  ì¢ë£",
+  "starting": "ìì ì¤?..",
+  "stopping": "ì¤ì§ ì¤?..",
+  "restarting": "ì¬ìì?ì¤?..",
+  "killing": "ê°ì  ì¢ë£ ì¤?..",
+  "startSent": "ìì ëªë ¹ ì ì¡ë?,
+  "stopSent": "ì¤ì§ ëªë ¹ ì ì¡ë?,
+  "restartSent": "ì¬ìì?ëªë ¹ ì ì¡ë?,
+  "killSent": "ê°ì  ì¢ë£ ëªë ¹ ì ì¡ë?,
+  "startFail": "ìì ì¤í¨",
+  "stopFail": "ì¤ì§ ì¤í¨",
+  "restartFail": "ì¬ìì?ì¤í¨",
+  "killFail": "ê°ì  ì¢ë£ ì¤í¨",
+  "gwStarted": "Gateway ììë?(PID: {pid})",
+  "gwStopped": "Gateway ì¤ì§ë?,
+  "gwRestarted": "Gateway ì¬ììë¨ (PID: {pid})",
+  "gwKilled": "Gateway íë¡ì¸ì¤ ê°ì  ì¢ë£ë?,
+  "guardianStarted": "Guardian ììë?,
+  "guardianStopped": "Guardian ì¤ì§ë?,
+  "gwRestartTimeout": "ì¬ìì?íììì?,
+  "loadFail": "ìë¹ì?ìí ë¡ë ì¤í¨",
+  "confirmStop": "Gatewayë¥?ì¤ì§íìê² ìµëê¹? ëª¨ë  íì± ì°ê²°ì?ëì´ì§ëë?",
+  "confirmKill": "Gateway íë¡ì¸ì¤ë¥?ê°ì  ì¢ë£íìê² ìµëê¹? ì´ê²ì ìµíì?ìë¨ìëë?",
+  "portOpen": "í¬í¸ {port} ì´ë ¤ ìì",
+  "portClosed": "í¬í¸ {port} ë«í ìì",
+  "portCheckFail": "í¬í¸ íì¸ ì¤í¨",
+  "autoRefresh": "ìë ìë¡ê³ ì¹¨",
+  "processInfo": "íë¡ì¸ì¤ ì ë³´",
+  "noProcess": "íë¡ì¸ì¤ ìì",
+  "memory": "ë©ëª¨ë¦?,
+  "cpu": "CPU",
+  "configFile": "ì¤ì  íì¼",
+  "configPath": "ê²½ë¡",
+  "logsHint": "ãë¡ê·¸ã?íì´ì§ìì ìì¸í?íì¸",
+  "quickActions": "ë¹ ë¥¸ ìì",
+  "healthCheck": "ìí íì¸",
+  "healthOk": "ì ì ìë ì¤?,
+  "healthFail": "ìëµ ìì",
+  "checkingHealth": "ìí íì¸ ì¤?..",
+  "lastChecked": "ë§ì§ë§?íì¸",
+  "environment": "íê²½",
+  "nodeVersion": "Node.js ë²ì ",
+  "platform": "íë«í?,
+  "arch": "ìí¤íì²",
+  "homeDir": "í?ëë í ë¦¬",
+  "configDir": "ì¤ì  ëë í ë¦¬",
+  "gwNotRunning": "Gateway ì¤í ì¤ì´ ìëëë¤",
+  "guardianNotRunning": "Guardian ì¤í ì¤ì´ ìëëë¤",
+  "guardianDesc": "Gateway ìë ì¬ììì ê´ë¦¬íë?ìì¹ë?íë¡ì¸ì¤"
+}

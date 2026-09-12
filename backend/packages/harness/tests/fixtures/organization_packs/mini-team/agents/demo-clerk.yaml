@@ -1,0 +1,10 @@
+agent_code: demo-clerk
+agent_name: 演示文员
+description: Organization pack fixture agent
+agent_type: custom
+skills: []
+tool_groups:
+  - workspace
+tags:
+  - fixture
+system_prompt_file: ./demo-clerk.SOUL.md

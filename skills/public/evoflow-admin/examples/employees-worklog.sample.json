@@ -1,0 +1,75 @@
+{
+  "agent_code": "code-agent",
+  "role_name": "前端工程师",
+  "day": "2026-07-18",
+  "timezone": "Asia/Shanghai",
+  "round_count": 1,
+  "initiative_count": 2,
+  "rounds": [
+    {
+      "round_id": "round_abc123",
+      "at": "2026-07-18T10:15:00Z",
+      "goal": "核对 ESLint 是否仍为 0 error",
+      "outcome": "全仓 ESLint 仍为 0 error；未发现新增告警。",
+      "verdict": "done",
+      "item_count": 1,
+      "pending_approval": 1,
+      "journal_count": 1,
+      "items": [
+        {
+          "id": "init_j1",
+          "title": "核对 ESLint 是否仍为 0 error",
+          "status": "completed",
+          "result": "success",
+          "action_type": "report",
+          "is_journal": true,
+          "phase": "wrap_up",
+          "incomplete": false,
+          "round_id": "round_abc123",
+          "goal": "核对 ESLint 是否仍为 0 error",
+          "outcome": "全仓 ESLint 仍为 0 error；未发现新增告警。",
+          "created_at": "2026-07-18T10:15:00Z"
+        },
+        {
+          "id": "init_a1",
+          "title": "补一条注释说明 lint 基线",
+          "status": "pending_approval",
+          "result": null,
+          "action_type": "code_change",
+          "is_journal": false,
+          "phase": "",
+          "incomplete": false,
+          "round_id": "round_abc123",
+          "goal": "",
+          "outcome": "",
+          "created_at": "2026-07-18T10:14:30Z"
+        }
+      ]
+    }
+  ],
+  "task_count": 1,
+  "tasks": [
+    {
+      "task_id": "2607181000_demo",
+      "name": "修粘贴图片",
+      "status": "completed",
+      "progress": 100,
+      "source": "role",
+      "source_ref": "item:item_demo",
+      "created_at": "2026-07-18T09:00:00+08:00",
+      "updated_at": "2026-07-18T11:00:00+08:00",
+      "completed_at": "2026-07-18T11:00:00+08:00",
+      "summary": "已加 onPaste"
+    }
+  ],
+  "activity_count": 2,
+  "has_duty_rounds": true,
+  "has_board_tasks": true,
+  "hint": "当日有 1 个值班轮次、1 个台账任务；看「干了啥」请同时读 rounds 与 tasks，勿只看 round_count。",
+  "semantics": {
+    "rounds": "值班巡检轮次（initiatives 聚合）；仅当员工跑过 proactive 轮次才有",
+    "tasks": "当日指派给该员工的台账 Task（含 items.dispatch）",
+    "note": "dispatch 不会写入 initiatives；round_count=0 且 task_count>0 表示有派发工作、无巡检轮次，不是 bug"
+  },
+  "watch_path": "/proactive/code-agent"
+}

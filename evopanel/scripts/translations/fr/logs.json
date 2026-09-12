@@ -1,0 +1,16 @@
+﻿{
+  "title": "Journaux",
+  "desc": "Voir les journaux EvoPanel",
+  "tabGateway": "Gateway",
+  "tabGatewayErr": "Erreurs Gateway",
+  "tabGuardian": "Guardian",
+  "tabBackup": "Sauvegarde",
+  "tabAudit": "Audit",
+  "searchPlaceholder": "Rechercher...",
+  "autoScroll": "Défilement auto",
+  "loading": "Chargement...",
+  "empty": "Aucun journal",
+  "loadFailed": "Échec du chargement",
+  "noResults": "Aucun résultat",
+  "searchFailed": "Échec de la recherche"
+}

@@ -1,0 +1,17 @@
+﻿{
+  "title": "Geplante Aufgaben",
+  "desc": "EvoPanel-Aufgaben verwalten",
+  "addTask": "+ Aufgabe hinzufügen",
+  "noTasks": "Keine Aufgaben",
+  "taskName": "Aufgabenname",
+  "schedule": "Zeitplan",
+  "status": "Status",
+  "in  "edit": "Bearbeiten",
+  "delete": "Löschen",
+  "enable": "Aktivieren",
+  "disable": "Deaktivieren",
+  "runNow": "Jetzt ausführen",
+  "created": "Aufgabe erstellt",
+  "deleted": "Aufgabe gelöscht",
+  "loadFailed": "Laden fehlgeschlagen"
+}

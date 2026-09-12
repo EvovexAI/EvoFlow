@@ -1,0 +1,8 @@
+{
+  "identifier": "voice-overlay-capability",
+  "description": "语音浮窗外置窗口事件监听",
+  "windows": ["voice-overlay"],
+  "permissions": [
+    "core:event:default"
+  ]
+}

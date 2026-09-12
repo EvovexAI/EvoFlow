@@ -1,0 +1,16 @@
+﻿{
+  "title": "Gateway",
+  "desc": "Configurar e gerenciar Gateway",
+  "status": "Status",
+  "running": "Em execução",
+  "stopped": "Parado",
+  "saveConfig": "Salvar configuração",
+  "saved": "Configuração do Gateway salva",
+  "saveFailed": "Falha ao salvar",
+  "restartRequired": "É necessário reiniciar o Gateway",
+  "restartNow": "Reiniciar agora",
+  "configLoadFail": "Falha ao carregar configuração",
+  "pairingTitle": "Pareamento de dispositivos",
+  "pairedDevices": "Dispositivos pareados",
+  "noPairedDevices": "Nenhum dispositivo pareado"
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Chẩn đoán hệ thống",
+  "desc": "Chẩn đoán kết nối WebSocket và gỡ lỗi mạng",
+  "wsStatus": "Trạng thái WebSocket",
+  "wsConnect": "Kết nối",
+  "wsDisconnect": "Ngắt kết nối",
+  "wsConnected": "Đã kết nối",
+  "wsDisconnected": "Chưa kết nối",
+  "wsConnecting": "Đang kết nối...",
+  "wsError": "Lỗi WebSocket",
+  "networkLogTitle": "Nhật ký yêu cầu mạng",
+  "noRequests": "Không có yêu cầu",
+  "totalRequests": "Tổng yêu cầu",
+  "fixStarting": "Bắt đầu sửa chữa...",
+  "fixFailed": "Sửa chữa thất bại"
+}

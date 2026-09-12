@@ -1,0 +1,137 @@
+# 基础功能使用指南
+
+> **看几个例子你就知道这个界面怎么用了**：
+>
+> - **日常聊天**：在输入框打"今天 AI 圈有什么新闻"——AI 会直接回答，就像用 ChatGPT
+> - **让 AI 干活**：切换到"工作空间"场景，说"把我桌面上 meeting-notes.md 整理成周报"——AI 就能读写你的文件
+> - **执行多步任务**：切换到 Plan 模式，说"调研 3 个前端框架，选一个写 demo，出对比报告"——AI 先出方案，你确认后再执行
+> - **设个后台任务**：点"目标"药丸，说"每小时检查一次服务器健康，跑 7 天"——AI 在后台自己跑，你干别的去
+>
+> 本文带你快速了解聊天界面的每个按钮和模式是干什么的。各功能的详细操作见对应链接。
+
+---
+
+## 1. 对话功能
+
+EvoFlow 的核心交互方式就是聊天。你可以在输入框中发消息，AI 实时回复，支持多轮对话。
+
+**你能做什么：**
+- 发文本、贴图片、拖文件，AI 自动理解并回复
+- 看 AI 调用工具的过程（写代码、搜网页、执行命令等），每一步都展开可见
+- 管理历史会话：侧栏看所有历史对话，搜索、切换、删除
+- 一个会话可以开多个线程（独立上下文），适合同时处理多个相关子任务
+
+**相关文档：** [模型与场景详解](basic-functions.md) · [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] · [文件上传](file-upload.md) [[file-upload|文件上传]]
+
+**右侧信息栏：** 对话区右侧可展开信息栏，常见 Tab 包括 **Agent**（本轮上下文与工具）、**产物**（本轮生成的文件）、**平台**（运行与任务状态）。开启运维观测后还会出现 **调试**（按轮次查看模型调用与完整 JSON，与运维「会话调试」同源）。
+
+---
+
+## 2. 三种对话模式
+
+聊天输入框底部有三个模式药丸，控制 AI 的行为风格：
+
+| 模式 | 适合你什么时候用 | 说明 |
+|------|-----------------|------|
+| **Ask** | 只想问问题、查资料、写文档 | 快速问答，AI 不会主动调工具，专注回答 |
+| **Agent** | 直接让 AI 干活：写代码、跑命令、改文件 | 完整工具集，AI 自动调用工具完成任务（默认模式） |
+| **Plan** | 复杂多步任务：先出方案→你确认→再执行 | 适合"先对齐再开工"的工程类任务 |
+
+**切换方法：** 点击输入框底部的模式药丸，切换后 placeholder 文字会改变提示当前模式适合发什么。
+
+**相关文档：** [Plan 模式完整说明](plan-mode.md) [[plan-mode|Plan 模式完整说明]]
+
+---
+
+## 3. 文件上传与解析
+
+点击聊天框右侧上传按钮，或直接拖拽文件到聊天窗口即可上传。
+
+**你能做什么：**
+- **文档类**：PDF、Word、Excel、PPT、Markdown 等，自动解析文本内容
+- **代码类**：所有常见编程语言的代码文件、压缩包，AI 可直接读代码结构和内容
+- **图片类**：JPG、PNG、GIF 等，视觉模型可理解图片内容（截图直接粘贴也可）
+- **发送前预览**：图片会以缩略图显示在输入框上方，可点开全屏核查、删除后再发送
+- 上传后 AI 自动识别文件内容，你可直接针对文件提问、要求分析、修改等
+
+> 上传的文件只服务于**当前会话**，不是长期知识库。需长期保存可检索的，用 [上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]] 或 [知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]。
+
+**相关文档：** [文件上传详细说明](file-upload.md) [[file-upload|文件上传详细说明]] · [上传文档（RAG）](../configuration/document-knowledge-base.md) [[guides/configuration/document-knowledge-base|上传文档（RAG）]] · [知识库（Vault）](../configuration/knowledge-vault.md) [[guides/configuration/knowledge-vault|知识库（Vault）]]
+
+---
+
+## 4. 资产中心（记忆与经验）
+
+AI 能记住你的偏好、过程与经验，跨会话复用。日常在对话里说「记住 / 沉淀经验 / 反思」即可；需要翻看或改错字时打开侧栏 **资产中心**。
+
+**你能做什么：**
+- 对话里沉淀：记录事实、沉淀经验、写反思（也可点聊天侧栏快捷按钮）
+- 资产中心浏览：画像、记忆、经验、反思、专长；统计常用/冷资产
+- 校对：打开 Markdown 改两行后保存
+- 用户 / Agent / 员工资产互相独立，可「应用到」目标实体
+
+**功能关系：**
+- **资产中心** ≠ 知识库（Vault）：资产是「关于你/岗位」；知识库是文档笔记。
+- **资产中心** ≠ 会话附件：附件只服务当前轮；资产跨会话持续。
+
+**相关文档：** [资产中心操作](../configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] · [概念说明](../../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]]
+
+---
+
+## 5. 个性化设置
+
+点击左下角「设置」按钮进入设置页面。
+
+**你能做什么：**
+- **外观**：亮色/暗色/跟随系统，调整字体大小、行高
+- **语言**：中英文切换，AI 回复语言自动跟随界面语言
+- **模型**：设默认模型，配置温度、最大生成长度、推理努力程度等
+- **快捷键**：自定义常用操作快捷键（新建会话、发送消息等）
+- **通知**：配置任务完成、异常告警等通知的触发方式和渠道
+
+**相关文档：** [设置详解](../configuration/settings.md) [[guides/configuration/settings|设置详解]] · [模型配置](../../tutorials/configure-models.md) [[tutorials/configure-models|模型配置]]
+
+---
+
+## 功能关系全景
+
+作为一个新用户，你可能会疑惑这些功能之间是什么关系。这里帮你理清：
+
+```
+你打开 EvoFlow → 进入聊天界面
+  ├── Ask 模式：问问题、查资料
+  ├── Agent 模式：让 AI 干活（默认）
+  │   ├── 可上传文件让 AI 分析
+  │   ├── 可切换工作空间（读写本地仓库）
+  │   └── 可切换预设角色（专业岗位）
+  └── Plan 模式：复杂多步任务
+      └── 可调度项目团队（project-* 角色）
+
+聊天之外的能力：
+  ├── 任务中心：跨会话的复杂任务看板与观测
+  ├── 应用中心：把流程存成应用，填参数反复跑
+  ├── 自动化：到点自动跑固定任务
+  ├── 智能体员工：值班岗定时上班与审批
+  ├── 知识库（Vault）：连接 Obsidian 笔记
+  ├── 上传文档（RAG）：做可检索的向量知识库
+  └── 智能体管理：创建/编辑自定义角色
+```
+
+**想要更系统的学习路径？** 建议按以下顺序阅读：
+
+1. [项目介绍](../getting-started/introduction.md) [[getting-started/introduction|项目介绍]] → 了解 EvoFlow 是什么
+2. [5 分钟快速上手](../getting-started/quick-start.md) [[getting-started/quick-start|5 分钟快速上手]] → 马上用起来
+3. 本文 → 了解基础功能全局
+4. [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] → 学会多步协作
+5. [预设角色与团队](preset-roles.md) [[preset-roles|预设角色与团队]] → 了解专业角色分工
+6. 按需阅读 [配置指南](../configuration/agent-management.md) [[guides/configuration/agent-management|配置指南]] 或 [教程系列](../../tutorials/configure-models.md) [[tutorials/configure-models|教程系列]]
+
+---
+
+## 相关阅读
+
+- [[getting-started/product-overview|产品总览]] — 了解 EvoFlow 功能全貌
+- [[guides/chat/plan-mode|Plan 模式]] — 多步骤任务先对齐方案再执行
+- [[guides/chat/file-upload|文件上传]] — 上传文档让 AI 分析
+- [[guides/configuration/agent-management|智能体管理]] — 自定义角色配置详解
+- [[tutorials/configure-models|模型配置教程]] — 配置默认模型与参数

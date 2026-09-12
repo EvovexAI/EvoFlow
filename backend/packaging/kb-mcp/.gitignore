@@ -1,0 +1,7 @@
+# EvoFlow Knowledge Vault MCP (OHS + write server)
+# Install: make setup-kb-mcp
+# node_modules/ is gitignored; package.json + package-lock.json are tracked.
+node_modules/
+npm-cache/
+hf-cache/
+*.log

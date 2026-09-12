@@ -1,0 +1,33 @@
+﻿{
+  "title": "Skills",
+  "desc": "EvoPanel Skills ê´ë¦?ë°?ì¤ì¹",
+  "installed": "ì¤ì¹ë?,
+  "available": "ì¬ì© ê°ë?,
+  "noSkills": "Skills ìì",
+  "skillName": "ì¤í¬ëª?,
+  "version": "ë²ì ",
+  "author": "ìì±ì?,
+  "install": "ì¤ì¹",
+  "uninstall": "ì ê±°",
+  "update": "ìë°ì´í¸",
+  "search": "Skills ê²ì?..",
+  "searching": "ê²ì?ì¤?..",
+  "un  "updating": "ìë°ì´í¸ ì¤?..",
+  "unun  "updateSuccess": "ì¤í¬ ìë°ì´í¸ë?,
+  "updateFailed": "ìë°ì´í¸ ì¤í¨",
+  "confirmUninstall": "ì¤í¬ã{name}ãì ì ê±°íìê² ìµëê¹?",
+  "loadFailed": "Skills ë¡ë ì¤í¨",
+  "noResults": "ì¼ì¹íë ì¤í¬ ìì",
+  "description": "ì¤ëª",
+  "homepage": "ííì´ì§",
+  "license": "ë¼ì´ì ì¤",
+  "tags": "íê·¸",
+  "category": "ì¹´íê³ ë¦¬",
+  "searchHub": "SkillHub ê²ì?,
+  "installFromUrl": "URLìì ì¤ì¹",
+  "refreshList": "ëª©ë¡ ìë¡ê³ ì¹¨",
+  "checkUpdates": "ìë°ì´í¸ íì¸",
+  "noUpdates": "ëª¨ë ìµì ìëë?,
+  "updatesAvailable": "{count}ê±´ì ìë°ì´í¸ ì¬ì© ê°ë?,
+  "updateAll": "ëª¨ë ìë°ì´í¸"
+}

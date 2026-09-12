@@ -1,0 +1,77 @@
+{
+  "modeChat": "ì±í",
+  "modeChatDesc": "ëíë§, ëêµ¬ ë¯¸ì¬ì?,
+  "modePlan": "íëë?,
+  "modePlanDesc": "AI ì½ê¸° ì ì© ë¶ì, ëêµ¬ë?ì¡°íë§?,
+  "modeExecute": "ì¤í",
+  "modeExecuteDesc": "ëªë ¹ ì¤í ë°?íì¼ ë³ê²?íì©",
+  "modeUnlimited": "ë¬´ì í?,
+  "modeUnlimitedDesc": "ìí íì¸ ê±´ëë°ê¸°, ìì  ìë ì¤í",
+  "defaultName": "AI ì´ìì¤í´í?,
+  "welcomeText": "ìëíì¸ì? AI ì´ìì¤í´í¸ìëë¤. ë¬´ìì?ëìëë¦´ê¹ì?",
+  "loading": "ë¡ë© ì¤?..",
+  "settings": "ì¤ì ",
+  "settingsTitle": "ì´ìì¤í´í?ì¤ì ",
+  "settingsSaved": "ì¤ì  ì ì¥ë¨",
+  "settingsTabApi": "API ì¤ì ",
+  "settingsTabTools": "ëêµ¬",
+  "settingsTabPersona": "íë¥´ìë",
+  "settingsTabKnowledge": "ì§ì?ë² ì´ì?,
+  "apiType": "API ì í",
+  "model": "ëª¨ë¸",
+  "temperature": "ì¨ë",
+  "quickSelect": "ë¹ ë¥¸ ì í",
+  "visitSite": "ì¬ì´í?ë°©ë¬¸",
+  "notConfigured": "ë¯¸ì¤ì ?,
+  "testConnTitle": "ì°ê²° íì¤í?,
+  "testSuccess": "ì°ê²° ì±ê³µ",
+  "testFailed": "ì°ê²° ì¤í¨",
+  "testing": "íì¤í?ì¤?..",
+  "testBtn": "ì°ê²° íì¤í?,
+  "fetching": "ê°ì ¸ì¤ë?ì¤?..",
+  "fetchModelsTitle": "ëª¨ë¸ ëª©ë¡ ê°ì ¸ì¤ê¸?,
+  "fetchBtn": "ëª©ë¡ ê°ì ¸ì¤ê¸?,
+  "noModelsFound": "ì¬ì© ê°ë¥í ëª¨ë¸ ìì",
+  "modelsFound": "{count}ê°?ëª¨ë¸ ë°ê²¬",
+  "personaSource": "íë¥´ìë ìì¤",
+  "personaDefault": "ê¸°ë³¸",
+  "personaEvoPanel": "EvoPanel Agent",
+  "personaName": "ì´ìì¤í´í?ì´ë¦",
+  "personaPersonality": "ì´ìì¤í´í?ì±ê²©",
+  "personaSelectAgent": "Agent ì í",
+  "kbDesc": "ì¬ì©ì?ì ì ì§ì?ë² ì´ì? AI ìëµ ì?ì°¸ì¡°ë©ëë?,
+  "kbEmpty": "ì§ì?ë² ì´ì?í­ëª© ìì",
+  "kbSave": "ì ì?,
+  "toolFilterAll": "ì ì²´",
+  "toolNoDesc": "ì¤ëª ìì",
+  "toolExecuting": "ì¤í ì¤?..",
+  "toolDone": "ì¤í ìë£",
+  "toolDenied": "ì¬ì©ìê° ì¤í ê±°ë¶",
+  "toolExecFail": "ì¤í ì¤í¨",
+  "toolRejected": "ì¬ì©ìê° ì?ììì?ê±°ë¶íìµëë¤",
+  "confirmRunCmd": "ë¤ì ëªë ¹ì?ì¤íí©ëë?,
+  "confirmCwd": "ìì ëë í ë¦¬",
+  "confirmWriteFile": "ë¤ì íì¼ì?ì°ê¸°",
+  "confirmAllow": "ì¤í íì©",
+  "aiThinking": "ìê° ì¤?..",
+  "aiProcessingRound": "{round}ë¼ì´ë?ì²ë¦¬ ì¤?..",
+  "toolLoopQuestion": "AIê° {round}ë¼ì´ëì ëêµ¬ í¸ì¶ì?ì¤ííìµëë¤. ê³ìíìê² ìµëê¹?",
+  "toolLoopContinue": "ì¶ê° {rounds}ë¼ì´ë?ìë ì¤í",
+  "toolLoopStop": "ì¤í ì¤ì§",
+  "send": "ì ì¡",
+  "inputPlaceholder": "ë¬¸ì ë¥?ì¤ëªíê±°ë?ë¡ê·¸/ì¤í¬ë¦°ì·ì?ë¶ì¬ë£ì¼ì¸ì...",
+  "stopped": "ì¤ì§ë?,
+  "retry": "ì¬ìë?,
+  "copyText": "íì¤í?ë³µì¬",
+  "copyMd": "Markdown ë³µì¬",
+  "copiedText": "íì¤í?ë³µì¬ë?,
+  "copiedMd": "Markdown ë³µì¬ë?,
+  "uploadImage": "ì´ë¯¸ì§ ìë¡ë?,
+  "newSession": "ì?ì¸ì",
+  "deleteSession": "ì¸ì ì­ì ",
+  "noSessions": "ì¸ì ìì",
+  "confirmDeleteSession": "ì?ì¸ìì?ì­ì íìê² ìµëê¹?",
+  "sessionList": "ì¸ì ëª©ë¡",
+  "errConfigFirst": "ë¨¼ì  ì¤ì ìì APIë¥?ì¤ì íì¸ì?,
+  "errTimeout": "ìì²­ íììì?
+}

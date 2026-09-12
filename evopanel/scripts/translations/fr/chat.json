@@ -1,0 +1,22 @@
+{
+  "title": "Chat en direct",
+  "desc": "Discuter avec l'Agent en temps réel",
+  "selectAgent": "Sélectionner Agent",
+  "connecting": "Connexion...",
+  "connected": "Connecté",
+  "disconnected": "Déconnecté",
+  "send": "Envoyer",
+  "inputPlaceholder": "Tapez un message...",
+  "noMessages": "Aucun message",
+  "clearChat": "Effacer l'historique",
+  "newSession": "Nouvelle session",
+  "noSessions": "Aucune session",
+  "copyMessage": "Copier",
+  "thinking": "Réflexion...",
+  "generating": "Génération...",
+  "stop": "Arrêter",
+  "regenerate": "Régénérer",
+  "modelSelect": "Sélectionner un modèle",
+  "gatewayNotRunning": "Gateway n'est pas en cours d'exécution",
+  "startGateway": "Démarrer Gateway"
+}

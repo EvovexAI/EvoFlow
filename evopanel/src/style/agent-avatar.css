@@ -1,0 +1,241 @@
+/* Agent avatar components (emoji, custom image, initial) */
+
+.agent-avatar {
+  vertical-align: middle;
+  line-height: 0;
+}
+
+.agent-custom-figure--busy {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
+}
+
+.agent-avatar--emoji,
+.agent-avatar--initial {
+  border: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));
+}
+
+.agent-avatar-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-avatar-picker--compact {
+  gap: 0;
+}
+
+.agent-avatar-picker-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.agent-avatar-picker-trigger {
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 14px;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.agent-avatar-picker-trigger:focus-visible {
+  outline: 2px solid var(--color-primary, #6366f1);
+  outline-offset: 3px;
+}
+
+.agent-avatar-picker-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-avatar-picker-preview,
+.agent-avatar-picker-sheet-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-secondary, #f8fafc);
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--border-primary, #e5e7eb);
+}
+
+.agent-avatar-picker-overlay {
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.agent-avatar-picker-sheet {
+  width: min(560px, 100%);
+  max-height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary, #fff);
+  border-radius: var(--radius-xl, 16px);
+  border: 1px solid var(--border-primary, #e5e7eb);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+
+.agent-avatar-picker-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-primary, #e5e7eb);
+  flex-shrink: 0;
+}
+
+.agent-avatar-picker-sheet-head strong {
+  font-size: 15px;
+}
+
+.agent-avatar-picker-sheet-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-avatar-picker-sheet-close:hover {
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary, #0f172a);
+}
+
+.agent-avatar-picker-sheet-preview {
+  margin: 14px 16px 0;
+  flex-shrink: 0;
+}
+
+.agent-avatar-picker-sheet-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.agent-avatar-picker-sheet-body {
+  padding: 14px 16px 18px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-avatar-picker-reset {
+  font-size: 12px;
+}
+
+.agent-avatar-picker-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+}
+
+.agent-avatar-picker-emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-avatar-picker-emoji {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: var(--bg-secondary, #f4f4f5);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.agent-avatar-picker-emoji--active {
+  border-color: var(--color-primary, #6366f1);
+}
+
+.agent-avatar-picker-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-avatar-picker-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: var(--bg-secondary, #f4f4f5);
+  cursor: pointer;
+}
+
+.agent-avatar-picker-preset img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.agent-avatar-picker-preset-label {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.2;
+}
+
+.agent-avatar-picker-preset--active {
+  border-color: var(--color-primary, #6366f1);
+  background: color-mix(in srgb, var(--color-primary, #6366f1) 8%, transparent);
+}
+
+.agent-avatar-picker-preset--active .agent-avatar-picker-preset-label {
+  color: var(--text-primary);
+}
+
+.agent-avatar-picker-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-avatar-mount {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.role-card-top .role-avatar-mount {
+  width: 52px;
+  height: 52px;
+}
+
+.react-chat-bottom-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-chat-bottom-pill-avatar {
+  flex-shrink: 0;
+}
+

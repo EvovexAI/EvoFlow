@@ -1,0 +1,16 @@
+﻿{
+  "title": "ë¡ê·¸",
+  "desc": "EvoPanel ìë¹ì?ë¡ê·¸ ë³´ê¸°",
+  "tabGateway": "Gateway ë¡ê·¸",
+  "tabGatewayErr": "Gateway ì¤ë¥",
+  "tabGuardian": "ê°ëì¸",
+  "tabBackup": "ë°±ì ë¡ê·¸",
+  "tabAudit": "ê°ì¬ ë¡ê·¸",
+  "searchPlaceholder": "ë¡ê·¸ ê²ì?..",
+  "autoScroll": "ìë ì¤í¬ë¡?,
+  "loading": "ë¡ê·¸ ë¡ë© ì¤?..",
+  "empty": "ë¡ê·¸ ìì",
+  "loadFailed": "ë¡ê·¸ ë¡ë ì¤í¨",
+  "noResults": "ì¼ì¹íë ê²°ê³¼ ìì",
+  "searchFailed": "ê²ì?ì¤í¨"
+}

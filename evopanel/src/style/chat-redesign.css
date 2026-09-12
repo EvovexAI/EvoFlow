@@ -1,0 +1,597 @@
+/* =========================================================
+   Chat Redesign — 浅色现代风格 (最高优先级版本)
+   所有选择器加 body 前缀，优先级拉满
+   ========================================================= */
+
+body #react-chat-root,
+body .react-chat-full,
+body .chat-react-full {
+  --rd-primary: #635bff;
+  --rd-primary-hover: #534bef;
+  --rd-primary-light: #f0f1f4;
+  --rd-primary-lighter: #f7f8fa;
+  --rd-primary-soft: rgba(99, 91, 255, 0.08);
+  --rd-text-primary: #202124;
+  --rd-text-secondary: #656b73;
+  --rd-text-tertiary: #9297a0;
+  --rd-text-muted: #9297a0;
+  --rd-bg: #ffffff;
+  --rd-bg-secondary: #f7f8fa;
+  --rd-bg-tertiary: #f4f5f7;
+  --rd-surface: #ffffff;
+  --rd-border: #e6e8ec;
+  --rd-border-light: #ecedef;
+  --rd-success: #26875a;
+  --rd-warning: #b7791f;
+  --rd-danger: #c94a4a;
+  --rd-shadow-sm: 0 1px 2px rgba(32, 33, 36, 0.04);
+  --rd-shadow-md: 0 4px 12px rgba(32, 33, 36, 0.06);
+  --rd-shadow-lg: 0 8px 24px rgba(32, 33, 36, 0.08);
+  --rd-gradient-primary: var(--accent, #635bff);
+}
+
+/* ========== 聊天主区域背景（无分层半透明 UI 时保持经典浅底） ========== */
+html:not([data-translucent-ui='1']) body .react-chat-main-body,
+html:not([data-translucent-ui='1']) body .react-chat-messages,
+html:not([data-translucent-ui='1']) body .react-chat-surface,
+html:not([data-translucent-ui='1']) body .chat-react-outlet {
+  background: var(--chat-canvas, #f7f7f8) !important;
+}
+
+/* ========== 用户消息气泡 ========== */
+body .msg.msg-turn.msg-turn--user.msg-user {
+  justify-content: flex-end !important;
+  padding: 4px 0 !important;
+  display: flex !important;
+  width: 100% !important;
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-turn-user-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* 用户头像：中性圆标，避免紫球和灰气泡打架 */
+body .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
+  display: grid !important;
+  place-items: center !important;
+  width: 36px !important;
+  height: 36px !important;
+  margin-top: 4px !important;
+  border-radius: 50% !important;
+  flex-shrink: 0 !important;
+  color: var(--chat-user-fg, #1f2329) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  background: var(--chat-user-bubble, #e8eaef) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--chat-user-border, rgba(32, 33, 36, 0.08)) !important;
+}
+
+@keyframes avatar-glow {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5), 0 0 0 4px rgba(255, 255, 255, 0.3), inset 0 2px 4px rgba(255,255,255,0.3) !important;
+  }
+  50% {
+    box-shadow: 0 6px 28px rgba(99, 102, 241, 0.7), 0 0 0 6px rgba(99, 102, 241, 0.2), inset 0 2px 4px rgba(255,255,255,0.3) !important;
+  }
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-turn-body {
+  align-items: flex-end !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* 用户气泡：与 AI 阅读列同宽铺满 */
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  background: var(--chat-user-bubble, #f4f4f4) !important;
+  color: var(--chat-user-fg, #0d0d0d) !important;
+  border-radius: 18px !important;
+  padding: 10px 14px !important;
+  font-size: var(--font-size-sm, 13px) !important;
+  line-height: 1.55 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  border: 1px solid var(--chat-user-border, rgba(0, 0, 0, 0.06)) !important;
+  box-shadow: none !important;
+  word-wrap: break-word !important;
+  white-space: pre-wrap !important;
+  box-sizing: border-box !important;
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble * {
+  color: var(--chat-user-fg, #0d0d0d) !important;
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble code {
+  background: var(--chat-code-inline-bg, #eceef2) !important;
+  color: var(--chat-code-inline-fg, #3d4450) !important;
+  border: 1px solid transparent !important;
+  padding: 2px 6px !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+}
+
+body .msg.msg.turn.msg.turn--user.msg-user .msg-meta.msg-turn-user-meta {
+  justify-content: flex-end !important;
+  margin-top: 4px !important;
+  display: flex !important;
+}
+
+body .msg.msg.turn.msg.turn--user.msg-user .msg-time {
+  color: var(--chat-ai-muted, var(--text-tertiary)) !important;
+  font-size: 11px !important;
+}
+
+body .msg.msg.turn.msg.turn--user.msg-user .msg-user-text {
+  color: inherit !important;
+  font-size: var(--font-size-sm, 13px) !important;
+  line-height: 1.55 !important;
+}
+
+/* ========== AI 消息气泡 - 完全对齐输入框（不留白） ========== */
+body .msg-ai,
+body .msg.msg.turn.msg.turn--assistant,
+body .msg.msg.turn--assistant {
+  justify-content: flex-start !important;
+  padding: 4px 0 !important;
+  display: flex !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  gap: 0 !important;
+  align-items: flex-start !important;
+  margin: 0 !important;
+  flex: 1 1 auto !important;
+}
+
+body .msg.msg.turn.msg.turn--assistant .msg-turn-assistant-row,
+body .msg-ai .msg-turn-assistant-row {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 确保 AI 消息与输入框左对齐 */
+body .react-chat-messages {
+  align-items: stretch !important;
+}
+
+body .react-chat-messages .msg-ai,
+body .react-chat-messages .msg.msg.turn--assistant {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* AI 消息整体容器 - 完全填满宽度 */
+body .msg.msg.turn.msg.turn--assistant,
+body .msg-ai {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body .msg.msg.turn.msg.turn--assistant .msg-turn-assistant-row,
+body .msg-ai .msg-turn-assistant-row {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 强制 AI 气泡填满宽度 */
+body .msg-ai .msg-bubble,
+body .msg.msg.turn.msg.turn--assistant .msg-bubble,
+body .msg.msg.turn--assistant .msg-bubble,
+body .msg-turn-assistant-content {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* AI 头像保持默认，不额外修改 */
+
+/* AI 消息头部（名字+时间） */
+body .msg-ai-head,
+body .msg-turn-assistant-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin-bottom: 6px !important;
+  padding: 0 !important;
+}
+
+body .msg-ai-head-label,
+body .msg-ai .msg-name {
+  font-size: var(--font-size-sm, 13px) !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+}
+
+body .msg-ai-head-time,
+body .msg-ai .msg-time {
+  color: var(--text-secondary) !important;
+  font-size: 11px !important;
+}
+
+/* AI 回复主体：DeepSeek / ChatGPT 式无框贴底（用户侧才有气泡） */
+body .msg-ai .msg-bubble,
+body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+body .msg-turn--assistant .msg-bubble,
+body .msg-turn-assistant-content {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  border-radius: 0 !important;
+  padding: 4px 2px 8px !important;
+  font-size: var(--font-size-sm, 13px) !important;
+  line-height: 1.68 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  word-wrap: break-word !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  display: block !important;
+}
+
+/* AI 消息整体 - 填满宽度，不留白 */
+body .msg.msg.turn.msg.turn--assistant,
+body .msg-ai {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body .msg.msg.turn.msg.turn--assistant .msg-turn-assistant-row,
+body .msg-ai .msg-turn-assistant-row {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* AI 消息正文文字 */
+body .msg-ai .msg-text,
+body .msg.msg-turn.msg-turn--assistant .msg-text,
+body .msg-turn-assistant-content .msg-text {
+  color: var(--chat-ai-fg, var(--text-primary)) !important;
+  line-height: 1.7 !important;
+  font-size: var(--font-size-sm, 13px) !important;
+}
+
+body .msg-ai .msg-text p,
+body .msg-turn-assistant-content .msg-text p {
+  margin: 0 0 12px !important;
+}
+
+body .msg-ai .msg-text p:last-child,
+body .msg-turn-assistant-content .msg-text p:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* 行内代码 */
+body .msg-ai .msg-bubble code,
+body .msg-turn-assistant-content code {
+  background: var(--chat-code-inline-bg, #eceef2) !important;
+  color: var(--chat-code-inline-fg, #3d4450) !important;
+  padding: 2px 6px !important;
+  border-radius: 6px !important;
+  font-size: 12.5px !important;
+  font-family: "JetBrains Mono", Consolas, Monaco, monospace !important;
+  border: none !important;
+}
+
+/* 代码块 */
+body .msg-ai .msg-bubble pre,
+body .msg-turn-assistant-content pre {
+  background: #1e1e2e !important;
+  color: #e2e8f0 !important;
+  border-radius: 12px !important;
+  padding: 16px 18px !important;
+  overflow-x: auto !important;
+  margin: 14px 0 !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  font-family: "JetBrains Mono", Consolas, Monaco, monospace !important;
+  border: 1px solid #313244 !important;
+}
+
+body .msg-ai .msg-bubble pre code,
+body .msg-turn-assistant-content pre code {
+  background: transparent !important;
+  color: inherit !important;
+  padding: 0 !important;
+  font-size: inherit !important;
+  border: none !important;
+}
+
+/* 标题 */
+body .msg-ai .msg-bubble h1,
+body .msg-ai .msg-bubble h2,
+body .msg-ai .msg-bubble h3,
+body .msg-ai .msg-bubble h4,
+body .msg-turn-assistant-content h1,
+body .msg-turn-assistant-content h2,
+body .msg-turn-assistant-content h3,
+body .msg-turn-assistant-content h4 {
+  color: var(--text-primary) !important;
+  font-weight: 700 !important;
+  margin: 18px 0 10px !important;
+  line-height: 1.4 !important;
+}
+
+body .msg-ai .msg-bubble h1,
+body .msg-turn-assistant-content h1 { font-size: 16px !important; }
+body .msg-ai .msg-bubble h2,
+body .msg-turn-assistant-content h2 { font-size: 14px !important; }
+body .msg-ai .msg-bubble h3,
+body .msg-turn-assistant-content h3 { font-size: 13px !important; }
+body .msg-ai .msg-bubble h4,
+body .msg-turn-assistant-content h4 { font-size: 13px !important; }
+
+/* 列表 */
+body .msg-ai .msg-bubble ul,
+body .msg-ai .msg-bubble ol,
+body .msg-turn-assistant-content ul,
+body .msg-turn-assistant-content ol {
+  margin: 12px 0 !important;
+  padding-left: 22px !important;
+}
+
+body .msg-ai .msg-bubble li,
+body .msg-turn-assistant-content li {
+  margin-bottom: 6px !important;
+  line-height: 1.6 !important;
+  color: var(--text-primary) !important;
+}
+
+/* 链接 */
+body .msg-ai .msg-bubble a,
+body .msg-turn-assistant-content a {
+  color: var(--accent) !important;
+  text-decoration: none !important;
+  border-bottom: 1px solid transparent !important;
+  transition: border-color 0.2s !important;
+}
+
+body .msg-ai .msg-bubble a:hover,
+body .msg-turn-assistant-content a:hover {
+  border-bottom-color: #6366f1 !important;
+}
+
+/* 表格 */
+body .msg-ai .msg-bubble table,
+body .msg-turn-assistant-content table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  margin: 14px 0 !important;
+  font-size: 12px !important;
+}
+
+body .msg-ai .msg-bubble th,
+body .msg-turn-assistant-content th {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  padding: 8px 12px !important;
+  text-align: left !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+body .msg-ai .msg-bubble td,
+body .msg-turn-assistant-content td {
+  padding: 8px 12px !important;
+  border: 1px solid var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 引用 */
+body .msg-ai .msg-bubble blockquote,
+body .msg-turn-assistant-content blockquote {
+  border-left: 3px solid var(--accent) !important;
+  margin: 12px 0 !important;
+  padding: 8px 16px !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* 分隔线 */
+body .msg-ai .msg-bubble hr,
+body .msg-turn-assistant-content hr {
+  border: none !important;
+  border-top: 1px solid var(--border-primary) !important;
+  margin: 16px 0 !important;
+}
+
+/* ========== 深色模式：覆盖上方浅色 !important 规则 ========== */
+html[data-theme='dark'] body #react-chat-root,
+html[data-theme='dark'] body .react-chat-full,
+html[data-theme='dark'] body .chat-react-full {
+  --rd-text-primary: var(--text-primary);
+  --rd-text-secondary: var(--text-secondary);
+  --rd-text-tertiary: var(--text-secondary);
+  --rd-text-muted: var(--text-tertiary);
+  --rd-bg: var(--bg-primary);
+  --rd-bg-secondary: var(--bg-secondary);
+  --rd-bg-tertiary: var(--bg-tertiary);
+  --rd-surface: var(--bg-card);
+  --rd-border: var(--border-primary);
+  --rd-border-light: var(--border-secondary);
+}
+
+html[data-theme='dark'] body .react-chat-main-body,
+html[data-theme='dark'] body .react-chat-messages,
+html[data-theme='dark'] body .react-chat-surface,
+html[data-theme='dark'] body .chat-react-outlet {
+  background: var(--chat-canvas, var(--bg-primary)) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble,
+html[data-theme='dark'] body .msg.msg.turn.msg.turn--assistant .msg-bubble,
+html[data-theme='dark'] body .msg.msg.turn--assistant .msg-bubble,
+html[data-theme='dark'] body .msg-turn-assistant-content {
+  background: transparent !important;
+  color: var(--chat-ai-fg, var(--text-primary)) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] body .msg-ai-head-label,
+html[data-theme='dark'] body .msg-ai .msg-name {
+  color: var(--chat-ai-fg, var(--text-primary)) !important;
+}
+
+html[data-theme='dark'] body .msg-ai-head-time,
+html[data-theme='dark'] body .msg-ai .msg-time {
+  color: var(--chat-ai-muted, var(--text-secondary)) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-text,
+html[data-theme='dark'] body .msg.msg.turn.msg.turn--assistant .msg-text,
+html[data-theme='dark'] body .msg-turn-assistant-content .msg-text {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble h1,
+html[data-theme='dark'] body .msg-ai .msg-bubble h2,
+html[data-theme='dark'] body .msg-ai .msg-bubble h3,
+html[data-theme='dark'] body .msg-ai .msg-bubble h4,
+html[data-theme='dark'] body .msg-turn-assistant-content h1,
+html[data-theme='dark'] body .msg-turn-assistant-content h2,
+html[data-theme='dark'] body .msg-turn-assistant-content h3,
+html[data-theme='dark'] body .msg-turn-assistant-content h4 {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble code,
+html[data-theme='dark'] body .msg-turn-assistant-content code {
+  background: var(--chat-code-inline-bg, rgba(255, 255, 255, 0.08)) !important;
+  color: var(--chat-code-inline-fg, #c8cdd5) !important;
+  border: none !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble th,
+html[data-theme='dark'] body .msg-turn-assistant-content th {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble td,
+html[data-theme='dark'] body .msg-turn-assistant-content td {
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble blockquote,
+html[data-theme='dark'] body .msg-turn-assistant-content blockquote {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+}
+
+html[data-theme='dark'] body .msg-ai .msg-bubble hr,
+html[data-theme='dark'] body .msg-turn-assistant-content hr {
+  border-top-color: var(--border-primary) !important;
+}
+
+/* 用户消息：深色 / 半透明下仍用柔灰气泡（DeepSeek），品牌紫留给 CTA */
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  background: var(--chat-user-bubble, #2f3033) !important;
+  color: var(--chat-user-fg, #e6e6e8) !important;
+  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.06)) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble * {
+  color: var(--chat-user-fg, #e6e6e8) !important;
+}
+
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble code {
+  background: var(--chat-code-inline-bg, rgba(255, 255, 255, 0.08)) !important;
+  color: var(--chat-code-inline-fg, #c8cdd5) !important;
+  border: none !important;
+}
+
+html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
+  background: var(--chat-user-bubble, #2f3033) !important;
+  color: var(--chat-user-fg, #e6e6e8) !important;
+  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.1)) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  background: color-mix(in srgb, var(--chat-user-bubble, #e8eaef) 82%, transparent) !important;
+  color: var(--chat-user-fg, var(--text-primary)) !important;
+  border-color: var(--chat-user-border, rgba(32, 33, 36, 0.08)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble * {
+  color: var(--chat-user-fg, var(--text-primary)) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  background: color-mix(in srgb, var(--chat-user-bubble, #2f3033) 88%, transparent) !important;
+  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.08)) !important;
+}
+
+/* 分层半透明 UI：对话主区透明 */
+html[data-theme='dark'][data-translucent-ui='1'] body .react-chat-main-body,
+html[data-theme='dark'][data-translucent-ui='1'] body .react-chat-messages,
+html[data-theme='dark'][data-translucent-ui='1'] body .react-chat-surface,
+html[data-theme='dark'][data-translucent-ui='1'] body .chat-react-outlet {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] body .react-chat-main-body,
+html[data-translucent-ui='1'] body .react-chat-messages,
+html[data-translucent-ui='1'] body .react-chat-surface,
+html[data-translucent-ui='1'] body .chat-react-outlet {
+  background: transparent !important;
+}
+
+/* 液态玻璃：AI 仍无框贴底（DeepSeek 式）；勿再铺 tint 卡片 */
+html[data-translucent-ui='1'][data-liquid-glass='1'] body .msg-ai .msg-bubble,
+html[data-translucent-ui='1'][data-liquid-glass='1'] body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html[data-translucent-ui='1'][data-liquid-glass='1'] body .msg-turn-assistant-content {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body .msg-ai .msg-bubble,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body .msg-turn-assistant-content {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Диагностика системы",
+  "desc": "Диагностика WebSocket и отладка сети",
+  "wsStatus": "Статус WebSocket",
+  "wsConnect": "Подключить",
+  "wsDisconnect": "Отключить",
+  "wsConnected": "Подключено",
+  "wsDisconnected": "Не подключено",
+  "wsConnecting": "Подключение...",
+  "wsError": "Ошибка WebSocket",
+  "networkLogTitle": "Журнал сетевых запросов",
+  "noRequests": "Нет запросов",
+  "totalRequests": "Всего запросов",
+  "fixStarting": "Начинаем исправление...",
+  "fixFailed": "Исправление не удалось"
+}

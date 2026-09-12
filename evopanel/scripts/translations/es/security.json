@@ -1,0 +1,8 @@
+{
+  "title": "Seguridad",
+  "desc": "Gestionar configuración de seguridad de EvoPanel",
+  "toolPermissions": "Permisos de herramientas",
+  "savePermissions": "Guardar permisos",
+  "permSaved": "Permisos guardados",
+  "loadFailed": "Error al cargar configuración"
+}

@@ -1,0 +1,22 @@
+{
+  "title": "Живой чат",
+  "desc": "Общение с агентом в реальном времени",
+  "selectAgent": "Выбрать агента",
+  "connecting": "Подключение...",
+  "connected": "Подключено",
+  "disconnected": "Отключено",
+  "send": "Отправить",
+  "inputPlaceholder": "Введите сообщение...",
+  "noMessages": "Нет сообщений",
+  "clearChat": "Очистить историю",
+  "newSession": "Новая сессия",
+  "noSessions": "Нет сессий",
+  "copyMessage": "Копировать",
+  "thinking": "Думает...",
+  "generating": "Генерация...",
+  "stop": "Остановить",
+  "regenerate": "Перегенерировать",
+  "modelSelect": "Выбрать модель",
+  "gatewayNotRunning": "Gateway не запущен",
+  "startGateway": "Запустить Gateway"
+}

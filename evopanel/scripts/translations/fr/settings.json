@@ -1,0 +1,13 @@
+{
+  "title": "Paramètres du panneau",
+  "desc": "Gérer les paramètres réseau, proxy et sources de téléchargement",
+  "networkProxy": "Proxy réseau",
+  "modelProxy": "Proxy des requêtes de modèle",
+  "npmRegistry": "npm Registry",
+  "language": "Langue d'affichage",
+  "languageHint": "Changer la langue de l'interface.",
+  "testProxy": "Tester la connexion",
+  "clearProxy": "Désactiver le proxy",
+  "resetDefault": "Restaurer les paramètres par défaut",
+  "restarting": "Redémarrage..."
+}

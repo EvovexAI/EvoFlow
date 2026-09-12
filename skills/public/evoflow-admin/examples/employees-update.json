@@ -1,0 +1,15 @@
+﻿{
+  "role_name": "前端巡检员",
+  "reports_to": "tech-lead",
+  "responsibilities": [
+    "前端 UI / 性能巡检",
+    "ESLint 与关键页面回归"
+  ],
+  "kpis": ["ESLint 无新增 error", "首页可交互"],
+  "domain_scope": ["evopanel/src/"],
+  "heartbeat_rrule": "FREQ=HOURLY;INTERVAL=3",
+  "max_turns": 15,
+  "work_start_hour": 9,
+  "work_end_hour": 21,
+  "autonomy_level": "approval_for_risky"
+}

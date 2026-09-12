@@ -1,0 +1,779 @@
+# Configuration for the EvoFlow application
+#
+# Guidelines:
+# - Copy this file to `config.yaml` and customize it for your environment
+# - The default path of this configuration file is `config.yaml` in the current working directory.
+#   However you can change it using the `DEER_FLOW_CONFIG_PATH` environment variable.
+# - Environment variables are available for all field values. Example: `api_key: $OPENAI_API_KEY`
+# - The `use` path is a string that looks like "package_name.sub_package_name.module_name:class_name/variable_name".
+
+# ============================================================================
+# Config Version (used to detect outdated config files)
+# ============================================================================
+# Bump this number when the config schema changes.
+# Run `make config-upgrade` to merge new fields into your local config.yaml.
+config_version: 11
+
+# ============================================================================
+# Logging
+# ============================================================================
+# Log level for evoflow modules (debug/info/warning/error)
+log_level: info
+
+# ============================================================================
+# Token Usage Tracking
+# ============================================================================
+# Track LLM token usage per model call (input/output/total tokens)
+# Logs at info level via TokenUsageMiddleware; also helps persist AIMessage usage into checkpoints.
+# EvoPanel 历史/累计用量依赖 ui_messages 中的 usage_metadata；关闭后若模型仍上报用量，界面也可能显示。
+token_usage:
+  enabled: true
+
+# ============================================================================
+# Models (chat LLMs) — SQLite only, not in config.yaml
+# ============================================================================
+# Chat models and primary_model live in evoflow.db (evoflow_models / evoflow_app_settings).
+# Manage them via EvoPanel → Settings → Models, or Gateway API GET/POST/PUT/DELETE /api/models.
+# Any ``models:`` / ``primary_model:`` keys left in config.yaml are ignored at startup.
+# Legacy one-time YAML import (manual): evoflow.persistence.bootstrap.sync_models_from_yaml_to_db
+
+# models:  # removed — do not add models here
+
+# ============================================================================
+# Tool Groups Configuration
+# ============================================================================
+# Define groups of tools for organization and access control
+
+tool_groups:
+  - name: web
+  - name: file:read
+  - name: file:write
+  - name: bash
+
+# ============================================================================
+# Tools Configuration
+# ============================================================================
+# Configure available tools for the agent to use
+
+# Default web search: preference is set in EvoPanel Settings → 联网搜索
+# (SQLite evoflow_app_settings key web.search). config.yaml web.backend is ignored for search.
+web:
+  # extract_backend still optional for web_fetch; search preferredBackend is DB-only
+  extract_backend: null
+
+tools:
+  # Web search tool (Hermes providers + AI-daily RSS / 53AI list)
+  - name: web_search
+    group: web
+    use: evoflow.community.baidu_search.tools:web_search_tool
+    max_results: 30
+    # Preferred engine: Settings → 联网搜索 (SQLite web.search), not provider here.
+    # api_key: $TAVILY_API_KEY
+
+  # Standalone Tavily-only tool (alternative; do not enable alongside the entry above)
+  # - name: web_search
+  #   group: web
+  #   use: evoflow.community.tavily.tools:web_search_tool
+  #   max_results: 30
+  #   # api_key: $TAVILY_API_KEY  # Set if needed
+
+  # Web search tool (uses InfoQuest, requires InfoQuest API key)
+  # - name: web_search
+  #   group: web
+  #   use: evoflow.community.infoquest.tools:web_search_tool
+  #   # Used to limit the scope of search results, only returns content within the specified time range. Set to -1 to disable time filtering
+  #   search_time_range: 10
+
+  # Web fetch tool (uses Jina AI reader)
+  - name: web_fetch
+    group: web
+    use: evoflow.community.jina_ai.tools:web_fetch_tool
+    timeout: 10
+
+  # Web fetch tool (uses InfoQuest)
+  # - name: web_fetch
+  #   group: web
+  #   use: evoflow.community.infoquest.tools:web_fetch_tool
+  #   # Overall timeout for the entire crawling process (in seconds). Set to positive value to enable, -1 to disable
+  #   timeout: 10
+  #   # Waiting time after page loading (in seconds). Set to positive value to enable, -1 to disable
+  #   fetch_time: 10
+  #   # Timeout for navigating to the page (in seconds). Set to positive value to enable, -1 to disable
+  #   navigation_timeout: 30
+
+  # File operations tools
+  
+  - name: read_file
+    group: file:read
+    use: evoflow.sandbox.tools:read_file_tool
+
+    # Active only when using an isolated shell sandbox or when
+  # (LocalSandbox / allow_host_bash removed — use terminal or AIO.)
+  - name: bash
+    group: bash
+    use: evoflow.sandbox.tools:bash_tool
+
+# ============================================================================
+# Tool Search Configuration (Deferred Tool Loading)
+# ============================================================================
+# When enabled, MCP tools are not loaded into the agent's context directly.
+# Instead, they are listed by name in the system prompt and discoverable
+# via the tool_search tool at runtime.
+# This reduces context usage and improves tool selection accuracy when
+# multiple MCP servers expose a large number of tools.
+
+tool_search:
+  enabled: true
+
+# ============================================================================
+# Sandbox Configuration
+# ============================================================================
+# Desktop default: Noop (upload placeholder only — no process isolation).
+# Host shell = tools_mode=host_direct + ``terminal`` (+ optional execution_security).
+# Real container isolation = AioSandboxProvider (Option 2 below).
+
+# Option 1: Noop (desktop default)
+sandbox:
+  use: evoflow.sandbox.noop:NoopSandboxProvider
+
+# Option 2: Container-based AIO Sandbox
+# Executes commands in isolated containers (Docker or Apple Container)
+# On macOS: Automatically prefers Apple Container if available, falls back to Docker
+# On other platforms: Uses Docker
+# Uncomment to use:
+# sandbox:
+#   use: evoflow.community.aio_sandbox:AioSandboxProvider
+#
+#   # Optional: Container image to use (works with both Docker and Apple Container)
+#   # Default: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+#   # Recommended: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest (works on both x86_64 and arm64)
+#   # image: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+#
+#   # Optional: Base port for sandbox containers (default: 8080)
+#   # port: 8080
+#
+#   # Optional: Maximum number of concurrent sandbox containers (default: 3)
+#   # When the limit is reached the least-recently-used sandbox is evicted to
+#   # make room for new ones. Use a positive integer here; omit this field to use the default.
+#   # replicas: 3
+#
+#   # Optional: Prefix for container names (default: evo-flow-sandbox)
+#   # container_prefix: evo-flow-sandbox
+#
+#   # Optional: Additional mount directories from host to container
+#   # NOTE: Skills directory is automatically mounted from skills.path to skills.container_path
+#   # mounts:
+#   #   # Other custom mounts
+#   #   - host_path: /path/on/host
+#   #     container_path: /home/user/shared
+#   #     read_only: false
+#
+#   # Optional: Environment variables to inject into the sandbox container
+#   # Values starting with $ will be resolved from host environment variables
+#   # environment:
+#   #   NODE_ENV: production
+#   #   DEBUG: "false"
+#   #   API_KEY: $MY_API_KEY        # Reads from host's MY_API_KEY env var
+#   #   DATABASE_URL: $DATABASE_URL  # Reads from host's DATABASE_URL env var
+
+# ============================================================================
+# Host execution security (OS jail for host_direct terminal)
+# ============================================================================
+# Applies to host_direct terminal only. AIO/Docker stays under ``sandbox:``.
+# This is NOT “run runtime as upstream” — only optional OS sandbox helpers
+# (PermissionProfile shapes + platform jails). Prefer thin evoflow-*-sandbox
+# binaries; do not ship full runtime CLI in the product.
+#
+# Local/dev helper build (optional):
+#   Linux:  scripts/build-sandbox-helpers.sh
+#   Windows: scripts/windows/build-sandbox-helpers.ps1  (dev only)
+execution_security:
+  # native-like: helper 就绪则默认启用；日常只改聊天底部「请求批准 / 帮我批准 / 完全访问」
+  enabled: false
+  auto_enable_when_helpers_ready: true
+  profile: workspace          # 全局兜底；会话档位会覆盖 read-only | workspace | danger-full-access
+  approval: on-request        # 全局兜底；会话档位会覆盖 untrusted | on-request | never
+  windows_level: restricted-token   # restricted-token | elevated
+  # helper_dir: null          # default search includes ~/.evoflow/sandbox-helpers
+  allow_passthrough: true
+  # Do not bundle ~280MB vendor CLI into the installer.
+
+# Option 2: Container-based AIO Sandbox
+# Executes commands in isolated containers (Docker or Apple Container)
+# On macOS: Automatically prefers Apple Container if available, falls back to Docker
+# On other platforms: Uses Docker
+# Uncomment to use:
+# sandbox:
+#   use: evoflow.community.aio_sandbox:AioSandboxProvider
+#
+#   # Optional: Container image to use (works with both Docker and Apple Container)
+#   # Default: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+#   # Recommended: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest (works on both x86_64 and arm64)
+#   # image: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+#
+#   # Optional: Base port for sandbox containers (default: 8080)
+#   # port: 8080
+
+#   # Optional: Maximum number of concurrent sandbox containers (default: 3)
+#   # When the limit is reached the least-recently-used sandbox is evicted to
+#   # make room for new ones. Use a positive integer here; omit this field to use the default.
+#   # replicas: 3
+#
+#   # Optional: Prefix for container names (default: evo-flow-sandbox)
+#   # container_prefix: evo-flow-sandbox
+#
+#   # Optional: Additional mount directories from host to container
+#   # NOTE: Skills directory is automatically mounted from skills.path to skills.container_path
+#   # mounts:
+#   #   # Other custom mounts
+#   #   - host_path: /path/on/host
+#   #     container_path: /home/user/shared
+#   #     read_only: false
+#
+#   # Optional: Environment variables to inject into the sandbox container
+#   # Values starting with $ will be resolved from host environment variables
+#   # environment:
+#   #   NODE_ENV: production
+#   #   DEBUG: "false"
+#   #   API_KEY: $MY_API_KEY        # Reads from host's MY_API_KEY env var
+#   #   DATABASE_URL: $DATABASE_URL  # Reads from host's DATABASE_URL env var
+
+# ============================================================================
+# Guardrails Configuration (Tool-call Authorization)
+# ============================================================================
+# Pre-tool-call authorization layer. When enabled, every tool call passes
+# through the configured provider before execution. Denied calls return an
+# error ToolMessage so the agent can adjust.
+#
+# Desktop builds enable guardrails by default. For server/Docker deployments,
+# uncomment and customize as needed.
+
+# guardrails:
+#   enabled: true
+#   fail_closed: true          # Block tool calls if provider errors (default: true)
+#   passport: null             # OAP passport path or hosted agent ID
+#   provider:
+#     use: evoflow.guardrails.builtin:AllowlistProvider
+#     config:
+#       # Blacklist mode — block specific tools:
+#       denied_tools: ["bash", "write_file"]
+#       # Whitelist mode — only allow specific tools:
+#       # allowed_tools: ["web_search", "read_file", "ls"]
+
+# Option 3: Provisioner-managed AIO Sandbox (docker-compose-dev)
+# Each sandbox_id gets a dedicated Pod in k3s, managed by the provisioner.
+# Recommended for production or advanced users who want better isolation and scalability.:
+# sandbox:
+#   use: evoflow.community.aio_sandbox:AioSandboxProvider
+#   provisioner_url: http://provisioner:8002
+
+# ============================================================================
+# Subagents Configuration
+# ============================================================================
+# Configure timeouts for subagent execution
+# Subagents are background workers delegated tasks by the lead agent
+
+# subagents:
+#   # Default timeout in seconds for all subagents (default: 900 = 15 minutes)
+#   timeout_seconds: 900
+#
+#   # Optional per-agent timeout overrides
+#   agents:
+#     general-purpose:
+#       timeout_seconds: 1800  # 30 minutes for complex multi-step tasks
+#     bash:
+#       timeout_seconds: 300   # 5 minutes for quick command execution
+
+# ============================================================================
+# ACP Agents Configuration
+# ============================================================================
+# Configure external ACP-compatible agents for the built-in `invoke_acp_agent` tool.
+
+# acp_agents:
+#   claude_code:
+#     # EvoFlow expects an ACP adapter here. The standard `claude` CLI does not
+#     # speak ACP directly. Install `claude-agent-acp` separately or use:
+#     command: npx
+#     args: ["-y", "@zed-industries/claude-agent-acp"]
+#     description: Claude Code for implementation, refactoring, and debugging
+#     model: null
+#     # auto_approve_permissions: false  # Set to true to auto-approve ACP permission requests
+#     # env:                             # Optional: inject environment variables into the agent subprocess
+#     #   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY  # $VAR resolves from host environment
+#
+#   codex:
+#     # EvoFlow expects an ACP adapter here. The standard `external-agent` CLI does not
+#     # speak ACP directly. Install `external-agent-acp` separately or use:
+#     command: npx
+#     args: ["-y", "@zed-industries/external-agent-acp"]
+#     description: runtime CLI for repository tasks and code generation
+#     model: null
+#     # auto_approve_permissions: false  # Set to true to auto-approve ACP permission requests
+#     # env:                             # Optional: inject environment variables into the agent subprocess
+#     #   OPENAI_API_KEY: $OPENAI_API_KEY  # $VAR resolves from host environment
+
+# ============================================================================
+# Skills Configuration
+# ============================================================================
+# Configure skills directory for specialized agent workflows
+
+skills:
+  # Path to skills directory on the host (relative to project root or absolute)
+  # Default: ../skills (relative to backend directory)
+  # Uncomment to customize:
+  # path: /absolute/path/to/custom/skills
+
+  # Path where skills are mounted in the sandbox container
+  # This is used by the agent to access skills in both local and Docker sandbox
+  # Default: /mnt/skills
+  container_path: /mnt/skills
+
+  # Optional extra discovery roots (user-bound skill folders; higher precedence than public/)
+  # extra_roots:
+  #   - path: D:/company/shared-skills
+  #     readonly: true
+
+  # Project-local skills relative to bound workspace (default: .evoflow/skills)
+  # repo_skills_dir: .evoflow/skills
+
+# ============================================================================
+# Title Generation Configuration
+# ============================================================================
+# Automatic conversation title generation settings
+
+title:
+  enabled: true
+  max_words: 10
+  max_chars: 32
+  model_name: null # Use default model (first model in models list)
+
+# ============================================================================
+# Large tool result offloading
+# ============================================================================
+# Persist oversized tool outputs to disk; prompt keeps summary + path (DCD via read_file).
+
+tool_results:
+  enabled: false   # TEMPORARY: full inline tool bodies for debugging (code also hard-disables merge)
+  use_token_tiers: true
+  tier_small_tokens: 800
+  tier_medium_tokens: 1500
+  tool_summary_model_name: null # dedicated tool-summary model; null = llm_summary_model_name or default
+  history_keep_full_tools: 3   # keep newest 3 tool rounds full; merge all older into one [tool:history]
+  history_tail_token_budget: 6000
+  history_summarize_enabled: false
+  history_background_llm: false   # 工具冷区合并已并入 summarization 统一中间件（同步）
+  history_background_debounce_seconds: 2.0
+  history_merge_enabled: false
+  history_merge_min_tools: 2
+  history_merge_min_tokens: 2500
+  history_merge_cooldown_seconds: 60
+  code_compact_enabled: false
+  threshold_chars: 12000
+  medium_threshold_chars: 4000
+  summary_max_chars: 1200
+  summary_head_lines: 8
+  max_age_hours: 24
+  medium_background_llm: false  # 关闭单条工具后台 LLM；白名单工具仍规则塑形，冷区由 context compaction 批量合并
+  llm_summary_enabled: false
+  # 仅下列工具：返回时 tier 摘要 / [tool:summary] / 后台 LLM；其余工具原样保留（超大才落盘 ref）
+  llm_summary_tool_names:
+    - web_search
+    - web_fetch
+    - search_content
+    - grep
+    - session_search
+  llm_summary_model_name: null
+  llm_summary_max_input_chars: 12000
+  llm_summary_target_chars: 500   # LLM 摘要目标长度（旧版硬编码 120 字，信息偏少）
+  ref_lru_enabled: true
+  ref_lru_max_chars: 80000
+  prune_preserve_tool_names:
+    - supervisor
+    - task
+    - terminal
+    - bash
+    - execute_code
+    - list_agents
+    - list_assignable_tools
+
+# ============================================================================
+# Read registry (sync; paths shown inside <mission_state><files_already_read>)
+# Mission async: EVOFLOW_MISSION_STATE_DEBOUNCE_SEC=3 (default) coalesces same-turn reads
+# ============================================================================
+working_memory:
+  enabled: true
+  max_entries: 32
+  footer_max_entries: 12
+
+# ============================================================================
+# Agent orchestration (react | hybrid | local_scheduler)
+# ============================================================================
+# hybrid (default): prefetch parallel read/search before model; writes still via tool_calls.
+# local_scheduler: model outputs <task_plan> JSON; LocalToolScheduler executes ops.
+
+agent_orchestration:
+  default: hybrid
+  hybrid:
+    prefetch_enabled: false # Parallel reads only after search_code_index (read_limit>0), not every user turn
+    prefetch_max_files: 8
+    read_search_via_scheduler: true
+    post_search_parallel_read_enabled: true    # emit read_file UI rows for read_offset/read_limit batches
+    post_search_path_catalog_max: 24
+    post_search_read_context_before: 12         # lines before symbol/anchor when batch-reading catalog paths
+    post_search_read_context_after: 48          # lines after anchor (snippet window, not whole file)
+    post_search_read_fallback_lines: 80         # first N lines when index has path but no line anchor
+    post_search_read_batch_max: 16               # legacy; parallel read count = model read_limit on search_code_index
+    post_search_auto_read_enabled: false       # read_limit=0 → catalog only; model sets read_limit for batch read
+    post_search_auto_read_max_files: 5         # unused when post_search_auto_read_enabled is false
+    post_edit_parallel_lint_enabled: false     # write/replace no longer auto-bind read_lints
+    post_edit_auto_lint_enabled: false          # call read_lints manually when needed
+  worker:
+    worker_max_concurrency: 5                  # parallel file-worker subagents (max 5)
+    worker_default_max_turns: 200               # model rounds per file-worker
+    worker_search_default_read_limit: 0        # composer-style: catalog only by default; opt-in batch read (max 4)
+  local_scheduler:
+    max_io_concurrency: 8
+    tier0_paths:
+      - package.json
+      - pyproject.toml
+      - tsconfig.json
+  file_read_cache:
+    enabled: true
+    ttl_seconds: 90
+    max_entries: 256
+
+# ============================================================================
+# Code Index (FTS5 + symbol table for workspace search)
+# ============================================================================
+code_index:
+  enabled: true
+  max_files: 3000
+  max_chars_per_file: 48000
+  search_limit: 20
+  # Poll index_status for up to N seconds while a background build runs; then search stale/partial data.
+  search_wait_seconds: 2
+  reindex_min_interval_seconds: 300
+  auto_index_on_search: true
+  incremental_enabled: true
+  watcher_enabled: true
+  watcher_debounce_ms: 800
+  # LSP symbol extraction (default on; requires language servers on PATH):
+  #   Python: pyright-langserver --stdio
+  #   TS/JS: typescript-language-server --stdio
+  lsp_enabled: true
+  lsp_prefer: true
+  lsp_timeout_seconds: 30
+  lsp_max_files_per_build: 800
+  # IDE-like index: tree-sitter first for Python / JS / TS / Java (install optional extra)
+  index_parser_mode: tree_sitter_first  # tree_sitter_first | lsp_first
+  dependency_graph_enabled: true
+  dependency_search_hops: 1
+  prefetch_dependency_hops: 1
+  internal_refs_enabled: true
+  type_relations_enabled: true
+  # AST / tree-sitter (Python, JS, TS, Java): 随 evoflow-harness 默认依赖安装（javalang、tree-sitter-languages）
+  # Storage: $EVOFLOW_DATA_DIR/code_index/<hash>.db (FTS + symbols + file_deps + internal_refs + type_relations)
+
+# ============================================================================
+# Session intent rollup (recent user goals in system prompt)
+# ============================================================================
+session_intent:
+  enabled: true
+  max_turns: 5
+  llm_rollup_enabled: false   # MVP: use mission_state primary_objective instead of a second LLM rollup
+  llm_rollup_model_name: null
+  llm_rollup_max_input_chars: 6000
+  llm_rollup_min_chars: 120
+  # Auto 模式（面板 session_mode=auto）：每条用户消息自动判定是否开启思考，无需改此项；结果写入 evoflow_chat_sessions.thinking_enabled
+  # auto_thinking_decision_enabled 已忽略，仅保留兼容旧配置
+  auto_thinking_model_name: null   # 可选：指定判定模型；null 用默认/rollup 模型
+
+# ============================================================================
+# Summarization Configuration
+# ============================================================================
+# Automatically summarize conversation history when token limits are approached
+# This helps maintain context in long conversations without exceeding model limits
+
+summarization:
+  enabled: true
+
+  # Model to use for summarization (null = use default model)
+  # Recommended: Use a lightweight, cost-effective model like "gpt-4o-mini" or similar
+  model_name: null
+
+  # Hermes-style compaction thresholds — runtime-aligned:
+  # auto-compact at (context_window * 9) / 10; hard pass at full window.
+  threshold_ratio: 0.90   # runtime default auto_compact_token_limit
+  aggressive_ratio: 1.0   # runtime full_context_window_limit_reached
+  protect_first_n: 3
+  protect_tail_messages: 20
+  protect_tail_tool_rounds: 3   # fold older tool rounds; align with tool_results.history_keep_full_tools
+  # Anti ping-pong (same idea as tool_results.history_merge_cooldown_seconds)
+  compaction_cooldown_seconds: 0      # ignored: trigger on token threshold only
+  compaction_hysteresis_enabled: false  # ignored
+  compaction_release_ratio: 0.42   # re-arm only after tokens drop below 42%
+  compaction_min_middle_tokens: 0     # ignored: compress whenever over threshold
+  # Deprecated / ignored: compaction is token-window only (runtime-aligned).
+  compaction_trigger_message_count: 0
+  compaction_background_llm: false      # 统一同步压缩（工具 [tool:history] + 对话 conversation_summary）
+  compaction_background_debounce_seconds: 2
+
+  # Trigger conditions - at least one required
+  # Summarization runs when ANY threshold is met (OR logic)
+  # You can specify a single trigger or a list of triggers
+  trigger:
+    # Trigger when token count reaches 15564
+    - type: tokens
+      value: 15564
+    # Uncomment to also trigger when message count reaches 50
+    # - type: messages
+    #   value: 50
+    # Uncomment to trigger when 80% of model's max input tokens is reached
+    # - type: fraction
+    #   value: 0.8
+
+  # Context retention policy after summarization
+  # Specifies how much recent history to preserve
+  keep:
+    # Keep the most recent 10 messages (recommended)
+    type: messages
+    value: 10
+    # Alternative: Keep specific token count
+    # type: tokens
+    # value: 3000
+    # Alternative: Keep percentage of model's max input tokens
+    # type: fraction
+    # value: 0.3
+
+  # Maximum tokens to keep when preparing messages for summarization
+  # Set to null to skip trimming (not recommended for very long conversations)
+  trim_tokens_to_summarize: 15564
+
+  # Custom summary prompt template (null = EvoFlow default: LangChain-style extraction + mirror user's language)
+  # Must include a single "{messages}" placeholder if you override this.
+  summary_prompt: null
+
+# ============================================================================
+# Memory Configuration
+# ============================================================================
+# Global memory mechanism
+# Stores user context and conversation history for personalized responses
+memory:
+  enabled: true
+  storage_path: memory.json # Path relative to backend directory
+  debounce_seconds: 30 # Wait time before processing queued updates
+  model_name: null # Use default model
+  max_facts: 100 # Maximum number of facts to store
+  fact_confidence_threshold: 0.7 # Minimum confidence for storing facts
+  injection_enabled: true # Whether to inject memory into system prompt
+  max_injection_tokens: 2000 # Maximum tokens for memory injection
+  # External memory plugin (optional). Empty string = disabled (built-in memory.json only).
+  # Enable demo: external_provider: echo  (and set sync/prefetch true below).
+  external_provider: ""
+  external_sync_enabled: false # After built-in memory.json save, sync last user/assistant turn to plugin
+  external_prefetch_enabled: false # Before model: inject <memory_context> from plugin (user turns)
+  # echo only: after each sync_turn, call a chat model for short bullet summaries (uses API quota).
+  echo_summarize_enabled: false
+  echo_summarize_model: null # null = memory.model_name, then first model in ``models``
+
+# ============================================================================
+# Checkpointer Configuration
+# ============================================================================
+# Configure state persistence for the embedded EvoFlowClient.
+# The LangGraph Server manages its own state persistence separately
+# via the server infrastructure (this setting does not affect it).
+#
+# When configured, EvoFlowClient will automatically use this checkpointer,
+# enabling multi-turn conversations to persist across process restarts.
+#
+# Supported types:
+#   memory   - In-process only. State is lost when the process exits. (default)
+#   sqlite   - File-based SQLite persistence. Survives restarts.
+#              Requires: uv add langgraph-checkpoint-sqlite
+#   postgres - PostgreSQL persistence. Suitable for multi-process deployments.
+#              Requires: uv add langgraph-checkpoint-postgres psycopg[binary] psycopg-pool
+#
+# Examples:
+#
+# Prefer sqlite for desktop/long-running Gateway (memory checkpointer never prunes).
+checkpointer:
+  type: sqlite
+  connection_string: data/checkpoints/checkpoints.db
+#
+# In-memory (dev only):
+# checkpointer:
+#   type: memory
+
+# ============================================================================
+# Application storage (tasks, memory, threads, channels)
+# ============================================================================
+# SQLite files live under ``{base_dir}/data/`` (one subdirectory per database).
+# Legacy flat ``evoflow.db`` / ``checkpoints.db`` at base_dir root are migrated on Gateway startup.
+storage:
+  backend: sqlite
+  sqlite_path: data/app/evoflow.db
+
+# ============================================================================
+# Observability (SQLite trace / tools / model payloads)
+# ============================================================================
+# Keep enabled: false for user installs (no evoflow_observability.db writes).
+# Developers: set enabled: true or EVOFLOW_OBSERVABILITY=1 for Agent Trace / ops UI.
+# Set file_mirror: true only if you need JSONL copies under logs/debug.
+observability:
+  enabled: false
+  file_mirror: false
+  sqlite_path: data/observability/evoflow_observability.db
+
+# ============================================================================
+# Data retention (Gateway background cleanup)
+# ============================================================================
+# Logs: daily files under ``data/logs/`` (7-day default). Disable with EVOFLOW_DATA_RETENTION=0.
+data_retention:
+  enabled: true
+  interval_hours: 24
+  logs_days: 7
+  observability_days: 90
+  task_stream_days: 90
+  task_status_events_days: 90
+  automation_runs_per_task: 50
+  checkpoint_orphan_days: 90
+  checkpoint_inactive_session_days: 30
+  # checkpoints + writes (channel blobs) are trimmed together per thread_id
+  checkpoint_keep_per_thread: 5
+  vacuum_sqlite: true
+
+# PostgreSQL (multi-process, production):
+# checkpointer:
+#   type: postgres
+#   connection_string: postgresql://user:password@localhost:5432/evoflow
+
+# ============================================================================
+# IM Channels Configuration
+# ============================================================================
+# Connect EvoFlow to external messaging platforms.
+# All channels use outbound connections (WebSocket or polling) — no public IP required.
+
+# channels:
+#   # LangGraph Server URL for thread/message management (default: http://localhost:2024)
+#   # For Docker deployments, use the Docker service name instead of localhost:
+#   #   langgraph_url: http://langgraph:2024
+#   #   gateway_url: http://gateway:8001
+#   langgraph_url: http://localhost:2024
+#   # Gateway API URL for auxiliary queries like /models, /memory (default: http://localhost:8001)
+#   gateway_url: http://localhost:8001
+#   #
+#   # Docker Compose note:
+#   # If channels run inside the gateway container, use container DNS names instead
+#   # of localhost, for example:
+#   # langgraph_url: http://langgraph:2024
+#   # gateway_url: http://gateway:8001
+#   # You can also set DEER_FLOW_CHANNELS_LANGGRAPH_URL / DEER_FLOW_CHANNELS_GATEWAY_URL.
+#
+#   # Optional: default mobile/session settings for all IM channels
+#   session:
+#     assistant_id: lead_agent  # or a custom agent name; custom agents route via lead_agent + agent_name
+#     config:
+#       recursion_limit: 500
+#     context:
+#       session_mode: flash
+#       thinking_enabled: false
+#       reasoning_effort: minimum
+#       is_plan_mode: false
+#       subagent_enabled: false
+#
+#   feishu:
+#     enabled: false
+#     # Tip: Instead of manually setting app_id/app_secret, you can scan a QR code
+#     # via the Gateway API: POST /api/channels/feishu/registration/begin → scan with
+#     # Feishu app → poll until completed → POST /api/channels/feishu/registration/{id}/apply
+#     # will auto-save credentials here and start the channel.
+#     app_id: $FEISHU_APP_ID
+#     app_secret: $FEISHU_APP_SECRET
+#     # Long-connection WebSocket for inbound IM (default true). Failures retry in background
+#     # and do not block gateway startup. Set false if you only need outbound/push APIs.
+#     # websocket_enabled: true
+#     # reply_in_thread: true   # default false：主群内直出（非话题楼中楼），同群一条 agent 线程。设为 true 则回在话题线程里
+#     # Shared secret for POST /api/channels/feishu/push — set EVOFLOW_FEISHU_PUSH_SECRET in .env (never commit).
+#     # If the env var is unset at process start, this line is ignored so Gateway still boots; set the env before using push.
+#     # push_secret: $EVOFLOW_FEISHU_PUSH_SECRET
+#     # Default group for automation/cron Feishu push: ``channels.feishu.automation_push_chat_id`` or learned chat under {paths.base_dir}/state/.
+#     # Optional override: if unset, the latest Feishu inbound chat_id (updates when you switch chat) is saved under {paths.base_dir}/state/.
+#     # Use the group's chat_id (oc_...) and ensure the bot is a member.
+#     # automation_push_chat_id: "oc_xxxxxxxxxxxxxxxx"
+#
+#   slack:
+#     enabled: false
+#     bot_token: $SLACK_BOT_TOKEN     # xoxb-...
+#     app_token: $SLACK_APP_TOKEN     # xapp-... (Socket Mode)
+#     allowed_users: []               # empty = allow all
+#
+#   telegram:
+#     enabled: false
+#     bot_token: $TELEGRAM_BOT_TOKEN
+#     allowed_users: []               # empty = allow all
+#
+#     # Optional: channel-level session overrides
+#     session:
+#       assistant_id: mobile-agent  # custom agent names are supported here too
+#       context:
+#         thinking_enabled: false
+#
+#       # Optional: per-user overrides by user_id
+#       users:
+#         "123456789":
+#           assistant_id: vip-agent
+#           config:
+#             recursion_limit: 150
+#           context:
+#             thinking_enabled: true
+#             subagent_enabled: true
+#
+#   weixin:
+#     enabled: false
+#     # Personal WeChat via Tencent iLink Bot API (long-poll; no public webhook).
+#     # 1) From repo root with backend venv: ``cd backend && uv run python -m app.channels.weixin_setup``
+#     #    Scan QR; credentials save under ``$EVOFLOW_HOME/weixin/accounts/<account_id>.json``
+#     #    (or ``backend/.evo-flow/weixin/accounts/`` if EVOFLOW_HOME unset).
+#     # 2) Set ``enabled: true`` here (token/account_id optional if that file exists).
+#     # 3) EvoPanel 桌面版：IM Channels → 微信 →「微信扫码绑定」（与飞书相同 begin / poll / apply 流程）。
+#     # 可选环境变量：仅当需要 IPv4-only workaround 时设 ``EVOFLOW_ILINK_IPV4_ONLY=1``（默认双栈）。
+#     # Optional overrides: account_id, token, base_url, cdn_base_url, group_policy, allowed_users, …
+#     # See ``WeixinChannel`` docstring in ``backend/app/channels/weixin.py``.
+#     # Optional ``session:`` / per-user overrides work the same as telegram (same YAML shape).
+
+# ============================================================================
+# Guardrails Configuration
+# ============================================================================
+# Optional pre-execution authorization for tool calls.
+# When enabled, every tool call passes through the configured provider
+# before execution. Three options: built-in allowlist, OAP policy provider,
+# or custom provider. See docs/user/guides/security/guardrails.md for documentation.
+#
+# Providers are loaded by class path via resolve_variable (same as models/tools).
+
+# --- Option 1: Built-in AllowlistProvider (zero external deps) ---
+# guardrails:
+#   enabled: true
+#   provider:
+#     use: evoflow.guardrails.builtin:AllowlistProvider
+#     config:
+#       denied_tools: ["bash", "write_file"]
+#   # 若 denied_tools 含 execute_command：默认会在加载时去掉该项（便于本地开发跑子任务 shell）。
+#   # 生产要强拒命令执行：设置环境变量 EVOFLOW_GUARDRAILS_DENY_EXECUTE_COMMAND=1 保留配置中的拒绝。
+
+# --- Option 2: OAP passport provider (open standard, any implementation) ---
+#   The Open Agent Passport (OAP) spec defines passport format and decision codes.
+#   Any OAP-compliant provider works. Example using APort (reference implementation):
+#     pip install aport-agent-guardrails && aport setup --framework evoflow
+# guardrails:
+#   enabled: true
+#   provider:
+#     use: aport_guardrails.providers.generic:OAPGuardrailProvider
+
+# --- Option 3: Custom provider (any class with evaluate/aevaluate methods) ---
+# guardrails:
+#   enabled: true
+#   provider:
+#     use: my_package:MyGuardrailProvider
+#     config:
+#       key: value

@@ -1,0 +1,11 @@
+{
+  "local": "Локальный",
+  "remote": "Удалённый",
+  "docker": "Docker",
+  "addInstance": "Добавить экземпляр",
+  "addRemote": "Добавить удалённый",
+  "nameLabel": "Имя",
+  "endpointLabel": "Адрес панели",
+  "adding": "Добавление...",
+  "current": "Текущий"
+}

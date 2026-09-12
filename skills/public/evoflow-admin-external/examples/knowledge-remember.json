@@ -1,0 +1,5 @@
+{
+  "title": "MCP 配置备忘",
+  "knowledge": "本机文件系统 MCP 用 npx @modelcontextprotocol/server-filesystem，工作区路径用绝对路径。",
+  "tags": ["mcp", "ops"]
+}

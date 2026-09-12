@@ -1,0 +1,16 @@
+﻿{
+  "title": "Gateway",
+  "desc": "Cấu hình và quản lý Gateway",
+  "status": "Trạng thái",
+  "running": "Đang chạy",
+  "stopped": "Đã dừng",
+  "saveConfig": "Lưu cấu hình",
+  "saved": "Đã lưu cấu hình Gateway",
+  "saveFailed": "Lưu thất bại",
+  "restartRequired": "Cần khởi động lại Gateway",
+  "restartNow": "Khởi động lại ngay",
+  "configLoadFail": "Tải cấu hình thất bại",
+  "pairingTitle": "Ghép nối thiết bị",
+  "pairedDevices": "Thiết bị đã ghép nối",
+  "noPairedDevices": "Chưa có thiết bị ghép nối"
+}

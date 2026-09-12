@@ -1,0 +1,37 @@
+/* Shared hub tabs: Obsidian vs owned KB */
+
+.kb-source-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  background: color-mix(in srgb, var(--bg-secondary, #f5f6f7) 55%, transparent);
+}
+
+.kb-source-tabs__item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  text-decoration: none;
+  color: var(--text-secondary, #646a73);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 22px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.kb-source-tabs__item:hover {
+  color: var(--text-primary, #1f2329);
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 40%, transparent);
+}
+
+.kb-source-tabs__item.is-active {
+  color: var(--text-primary, #1f2329);
+  background: var(--bg-elevated, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}

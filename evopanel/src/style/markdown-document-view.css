@@ -1,0 +1,191 @@
+/* Shared Markdown document viewer (preview / edit) — used by knowledge vault + file preview */
+
+.md-doc-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+  width: 100%;
+}
+
+.md-doc-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.md-doc-segment {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-tertiary, #eef2f7);
+  border: 1px solid var(--border, #e5e7eb);
+}
+
+.md-doc-segment button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.md-doc-segment button:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.md-doc-segment button.is-active {
+  color: var(--text-primary, #0f172a);
+  background: var(--bg-primary, #fff);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.md-doc-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.md-doc-preview-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 22px;
+}
+
+.md-doc-preview.msg-text {
+  font-size: 14px;
+  line-height: 1.72;
+  color: var(--text-primary, #0f172a);
+}
+
+.md-doc-preview.msg-text > :first-child {
+  margin-top: 0;
+}
+
+.md-doc-preview.msg-text > :last-child {
+  margin-bottom: 0;
+}
+
+/* Global reset zeros list padding — restore readable indentation (same as chat bubbles). */
+.md-doc-preview.msg-text ul,
+.md-doc-preview.msg-text ol {
+  margin: 0.4em 0 0.85em;
+  padding-left: 1.6em;
+}
+
+.md-doc-preview.msg-text ul {
+  list-style: disc;
+}
+
+.md-doc-preview.msg-text ol {
+  list-style: decimal;
+}
+
+.md-doc-preview.msg-text li {
+  margin: 0.25em 0;
+}
+
+.md-doc-preview.msg-text li > ul,
+.md-doc-preview.msg-text li > ol {
+  margin: 0.25em 0 0.35em;
+}
+
+.md-doc-preview.msg-text p {
+  margin: 0 0 0.75em;
+}
+
+.md-doc-preview.msg-text h1,
+.md-doc-preview.msg-text h2,
+.md-doc-preview.msg-text h3,
+.md-doc-preview.msg-text h4,
+.md-doc-preview.msg-text h5,
+.md-doc-preview.msg-text h6 {
+  margin: 1em 0 0.45em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.md-doc-preview.msg-text h1 { font-size: 1.35em; }
+.md-doc-preview.msg-text h2 { font-size: 1.2em; }
+.md-doc-preview.msg-text h3 { font-size: 1.08em; }
+
+.md-doc-preview.msg-text blockquote {
+  margin: 0.6em 0;
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 3px solid var(--border, #e5e7eb);
+  color: var(--text-secondary, #64748b);
+}
+
+.md-doc-source {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 16px 18px;
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-primary, #0f172a);
+  background: transparent;
+  tab-size: 2;
+}
+
+.md-doc-source:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+html[data-theme='dark'] .md-doc-toolbar,
+html.dark .md-doc-toolbar {
+  background: var(--bg-secondary, #18181b);
+  border-bottom-color: var(--border, #27272a);
+}
+
+html[data-theme='dark'] .md-doc-segment,
+html.dark .md-doc-segment {
+  background: var(--bg-tertiary, #27272a);
+  border-color: var(--border, #3f3f46);
+}
+
+html[data-theme='dark'] .md-doc-segment button.is-active,
+html.dark .md-doc-segment button.is-active {
+  background: var(--bg-primary, #09090b);
+}
+
+/* Fill workspace file preview pane body */
+.react-chat-workspace-preview-pane-body > .md-doc-view {
+  height: 100%;
+}
+
+.react-chat-workspace-preview-md-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.react-chat-workspace-preview-md-host > .md-doc-view {
+  flex: 1;
+  min-height: 0;
+}

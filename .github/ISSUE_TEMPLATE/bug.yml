@@ -1,0 +1,71 @@
+name: Bug report
+description: Something is broken or behaves incorrectly
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Search existing issues first. **Never paste API keys or tokens.**
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong in one or two sentences?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps starting from a clean/known state.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other / unknown
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: EvoFlow / EvoPanel version
+      description: From About / Releases tag, e.g. 1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Redact secrets. Agent Trace excerpts, gateway errors, etc.
+  - type: checkboxes
+    id: docs
+    attributes:
+      label: Checklist
+      options:
+        - label: I checked the FAQ and docs Quick Start
+          required: false
+        - label: I searched for an existing issue
+          required: false

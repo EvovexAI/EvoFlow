@@ -1,0 +1,6 @@
+{
+  "title": "Windows 下 evoflow 路径问题",
+  "problem": "PowerShell 找不到 evoflow，或 stash@{0} 被解析坏掉",
+  "solution": "确认安装勾选 PATH；新开终端；Git 引用用单引号；命令链用分号不用 &&",
+  "tags": ["windows", "cli"]
+}

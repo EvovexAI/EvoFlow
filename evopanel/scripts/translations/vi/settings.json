@@ -1,0 +1,13 @@
+{
+  "title": "Cài đặt panel",
+  "desc": "Quản lý cài đặt mạng, proxy và nguồn tải xuống",
+  "networkProxy": "Proxy mạng",
+  "modelProxy": "Proxy yêu cầu mô hình",
+  "npmRegistry": "npm Registry",
+  "language": "Ngôn ngữ hiển thị",
+  "languageHint": "Chuyển đổi ngôn ngữ giao diện.",
+  "testProxy": "Kiểm tra kết nối",
+  "clearProxy": "Tắt proxy",
+  "resetDefault": "Khôi phục mặc định",
+  "restarting": "Đang khởi động lại..."
+}

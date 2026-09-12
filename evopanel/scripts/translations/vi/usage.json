@@ -1,0 +1,17 @@
+{
+  "title": "Sử dụng",
+  "desc": "Xem thống kê sử dụng mô hình và token",
+  "totalTokens": "Tổng token",
+  "totalRequests": "Tổng yêu cầu",
+  "totalCost": "Tổng chi phí",
+  "today": "Hôm nay",
+  "week": "Tuần này",
+  "month": "Tháng này",
+  "all": "Tất cả",
+  "noData": "Không có dữ liệu",
+  "model": "Mô hình",
+  "tokens": "Token",
+  "loadFailed": "Tải thất bại",
+  "chart": "Biểu đồ",
+  "table": "Bảng"
+}

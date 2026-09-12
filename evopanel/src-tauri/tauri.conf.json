@@ -1,0 +1,107 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "EvoFlow",
+  "version": "1.0.0",
+  "identifier": "com.evovex.evoflow",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:1421",
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1421 --strictPort",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "EvoFlow",
+        "width": 1440,
+        "height": 810,
+        "minWidth": 960,
+        "minHeight": 540,
+        "decorations": false,
+        "resizable": true,
+        "backgroundColor": "#f8f9fb"
+      }
+    ],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [
+            "$HOME/**",
+            "$HOME/**/*",
+            "$DOCUMENT/**",
+            "$DOCUMENT/**/*",
+            "$DESKTOP/**",
+            "$DESKTOP/**/*",
+            "$DOWNLOAD/**",
+            "$DOWNLOAD/**/*",
+            "**",
+            "**/*"
+          ],
+          "requireLiteralLeadingDot": false
+        }
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": "v1Compatible",
+    "publisher": "EvovexAI",
+    "copyright": "Copyright © 2024-2026 EvovexAI. All rights reserved.",
+    "category": "DeveloperTool",
+    "shortDescription": "EvoFlow — AI Agent Orchestration Desktop",
+    "longDescription": "EvoFlow is a super agent orchestration framework powered by EvovexAI, featuring a visual management desktop panel built with Tauri v2.",
+    "licenseFile": "windows/installer-license.txt",
+    "resources": [
+      "binaries/evoflow-gateway",
+      "windows/install-data.ps1",
+      "windows/uninstall-data.ps1"
+    ],
+    "targets": [
+      "nsis",
+      "dmg",
+      "appimage",
+      "deb"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": true,
+        "template": "windows/installer.nsi",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)|(obsidian://\\w+)).+|file:///.+"
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERFOUQxRDI2MENGRUU0ODEKUldTQjVQNE1KaDJkM25Na3RLMjVualJiMUdPdVlENHQ1SE83YmQzQzZhcGNxRXgzaW9uanlYd3oK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/EvovexAI/EvoFlow/main/update/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

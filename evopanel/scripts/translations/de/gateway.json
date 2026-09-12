@@ -1,0 +1,16 @@
+﻿{
+  "title": "Gateway",
+  "desc": "Gateway konfigurieren und verwalten",
+  "status": "Status",
+  "running": "Läuft",
+  "stopped": "Gestoppt",
+  "saveConfig": "Konfiguration speichern",
+  "saved": "Gateway-Konfiguration gespeichert",
+  "saveFailed": "Speichern fehlgeschlagen",
+  "restartRequired": "Gateway-Neustart erforderlich",
+  "restartNow": "Jetzt neustarten",
+  "configLoadFail": "Konfiguration laden fehlgeschlagen",
+  "pairingTitle": "Gerätekopplung",
+  "pairedDevices": "Gekoppelte Geräte",
+  "noPairedDevices": "Keine gekoppelten Geräte"
+}
