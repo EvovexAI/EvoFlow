@@ -92,7 +92,8 @@ backend/Dockerfile.langgraph
 .cursor/
 outputs/
 temp/
-uploads/
+# Local scratch dumps at repo root only — do NOT ignore evoflow.uploads package
+/uploads/
 
 # Local scratch / error dumps (never commit)
 backend/err.txt
