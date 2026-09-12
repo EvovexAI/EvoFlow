@@ -14,6 +14,8 @@
 
 [下载](https://github.com/EvovexAI/EvoFlow/releases) · [快速开始](#快速开始) · [文档](docs/index.md) · [贡献](CONTRIBUTING.md) · [English](README.en.md)
 
+<sub>许可：源码可见（PolyForm Noncommercial）· 个人/研究/非商业可用 · 商用须书面授权 · <strong>不是</strong> OSI「开源」许可证。详见下方[授权](#授权)。</sub>
+
 </div>
 
 ---
