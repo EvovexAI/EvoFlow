@@ -1,0 +1,26 @@
+# Public repo umbrella: build Windows + macOS in parallel and publish Release assets.
+# Replaces the old private "sync-public then build" release-desktop flow for EvovexAI/EvoFlow.
+# No private→public sync. No PUBLIC_REPO_GH_TOKEN.
+name: Release EvoFlow Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-public-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-windows:
+    uses: ./.github/workflows/release-windows-public.yml
+    secrets: inherit
+
+  release-macos:
+    uses: ./.github/workflows/release-macos-public.yml
+    secrets: inherit
