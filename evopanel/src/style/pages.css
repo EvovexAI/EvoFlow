@@ -9839,6 +9839,11 @@ html[data-theme='dark'] .models-sort-dropdown-panel {
   overflow-y: auto;
 }
 
+/* macOS 原生标题栏：设置页侧栏整体下移，避免「返回工作区」被交通灯遮挡 */
+html.evopanel-macos-titlebar .settings-modal-root .settings-layout--hub .settings-nav {
+  padding-top: 30px;
+}
+
 .settings-nav-back {
   display: flex;
   align-items: center;
@@ -9887,6 +9892,11 @@ html.dark .settings-modal-root .settings-layout--hub .settings-nav {
   padding-top: var(--space-xl);
   padding-right: 2.75rem;
   box-sizing: border-box;
+}
+
+/* macOS 原生标题栏：标题与侧栏「返回工作区」按钮保持同一基线 */
+html.evopanel-macos-titlebar .settings-modal-root .settings-layout--hub .settings-hub-main {
+  padding-top: 30px;
 }
 
 html[data-theme='dark'] .settings-modal-root .settings-layout--hub .settings-hub-main,

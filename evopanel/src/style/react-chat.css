@@ -335,6 +335,12 @@ html.evopanel-tauri-frameless .shell-aside-expand-btn.is-visible {
   gap: 6px;
 }
 
+/* macOS 原生标题栏：侧栏顶部同样为交通灯让位（其它平台维持 36px） */
+html.evopanel-macos-titlebar .react-chat-aside-toolbar {
+  height: 64px;
+  padding: 30px 0 0;
+}
+
 .react-chat-aside-brand {
   display: flex;
   align-items: center;
@@ -3553,6 +3559,14 @@ html.dark .browser-panel-stage {
   background: var(--chrome-bg, var(--bg-primary, #f0f0f0));
 }
 
+/* macOS 原生标题栏：顶栏加高、内容下移为交通灯让位（其它平台维持 38px） */
+html.evopanel-macos-titlebar .react-chat-header {
+  padding: 26px 12px 0;
+  height: 64px;
+  min-height: 64px;
+  max-height: 64px;
+}
+
 .react-chat-header-session {
   display: flex;
   align-items: center;
@@ -4317,7 +4331,7 @@ html.evopanel-tauri-frameless .react-chat-header-title-drag:hover {
 }
 
 /*
- * 桌面：左侧壳已展开时，顶栏「汉堡」与壳顶 « 重复 — 隐藏顶栏第一项（主导航），
+ * 桌面：左侧壳已展开时，顶栏「汉堡」（展开侧栏）与壳顶 « 重复 — 隐藏顶栏第一项，
  * 仅用左侧折叠；壳收起后再显示汉堡以便展开。（与 ChatApp 里 max-width:768px 移动端逻辑一致）
  */
 @media (min-width: 769px) {
@@ -15275,6 +15289,11 @@ html.evopanel-tauri .react-chat-subtask-modal-body .msg-ai .msg-bubble {
   background: var(--error-muted, rgba(220, 38, 38, 0.1));
   border: 1px solid color-mix(in srgb, var(--error, #dc2626) 28%, transparent);
   word-break: break-word;
+}
+
+/* macOS 原生标题栏：横幅下移，避免整条被红黄绿交通灯遮挡 */
+html.evopanel-macos-titlebar .settings-modal-error-banner {
+  margin: 30px 14px 0;
 }
 
 .settings-modal-error-banner[hidden] {
@@ -27275,6 +27294,14 @@ html.dark .meeting-view {
   border-bottom: none;
   /* 与主列 / 内容区同色，避免顶栏偏白、内容偏灰的色差 */
   background: var(--bg-primary, #f6f7fb);
+}
+
+/* macOS 原生标题栏：本文件后段第二次定义 .react-chat-header，需同步让位（其它平台维持 38px） */
+html.evopanel-macos-titlebar .react-chat-header {
+  height: 64px;
+  min-height: 64px;
+  max-height: 64px;
+  padding: 26px 10px 0 8px;
 }
 
 .react-chat-header-left {

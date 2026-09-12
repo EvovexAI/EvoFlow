@@ -14856,8 +14856,8 @@ export default function ChatApp() {
                     type="button"
                     className="react-chat-toggle-sidebar-btn"
                     data-tauri-no-drag
-                    title="主导航"
-                    aria-label="主导航"
+                    title="展开侧栏"
+                    aria-label="展开侧栏"
                     onClick={() => {
                       toggleShellAsideCollapsed()
                     }}
@@ -14923,7 +14923,7 @@ export default function ChatApp() {
                 <button
                   type="button"
                   className="react-chat-toggle-sidebar-btn"
-                  title="主导航"
+                  title="展开侧栏"
                   onClick={() => {
                     toggleShellAsideCollapsed()
                   }}

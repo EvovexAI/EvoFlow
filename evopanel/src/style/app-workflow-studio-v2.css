@@ -169,6 +169,12 @@
   gap: 16px !important;
 }
 
+/* macOS 原生标题栏：工作流工作室顶栏为交通灯让位（左侧留出交通灯宽度，其它平台不变） */
+html.evopanel-macos-titlebar .wf-studio-toolbar {
+  height: 74px !important;
+  padding: 26px 16px 0 84px !important;
+}
+
 .wf-studio-toolbar-left,
 .wf-studio-toolbar-center,
 .wf-studio-toolbar-right {
