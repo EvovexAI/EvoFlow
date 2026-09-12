@@ -1,13 +1,12 @@
 # Public repo (EvovexAI/EvoFlow): build Windows installer from this tree and attach to a GitHub Release.
+# Prefer umbrella workflow `release-desktop-public.yml` (Win + Mac). This file can also run alone.
 # No private→public sync. No PUBLIC_REPO_GH_TOKEN.
 # Updater signing is optional: if TAURI_SIGNING_* secrets are absent, publish unsigned setup.exe + checksums only.
 name: Release Windows desktop
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
