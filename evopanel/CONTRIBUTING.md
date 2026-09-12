@@ -30,8 +30,20 @@ npm install
 
 | 模式 | 命令 | 后端 | 用途 |
 |------|------|------|------|
-| Tauri 桌面 | `npm run dev:tauri`（或 `./scripts/dev.sh`） | Rust IPC | 日常桌面开发 |
+| Tauri 桌面 | `npm run dev:tauri`（或 `./scripts/dev.sh`） | Rust IPC + Gateway | 日常桌面开发 |
 | 仅前端 | `npm run dev` / `npm run dev:web` | `scripts/dev-api.js`（`/__api/*`） | 浏览器调试 UI |
+
+### 桌面壳（Tauri）与 Gateway sidecar
+
+克隆后的 `src-tauri/binaries/evoflow-gateway/` **只有占位**（真实 PyInstaller 产物不进 Git）。  
+`tauri.conf.json` 需要该目录存在；正式安装包请走仓库打包脚本 / 公开仓 Release Actions。
+
+本地 `npm run dev:tauri` 推荐二选一（不要指望空目录里的 sidecar）：
+
+1. 先起 backend（如 `make dev`，常见 `:8012`），再设 `EVOFLOW_GATEWAY_URL=http://127.0.0.1:8012`
+2. 或设 `EVOFLOW_BACKEND_DIR=<仓库>/backend`（含 `.venv`），由壳进程拉起可编辑 Gateway
+
+详见 `src-tauri/binaries/evoflow-gateway/README.md`。
 
 前端通过 `src/lib/tauri-api.js` 统一调 API：Tauri 走 `invoke`，Web 走 `fetch('/__api/…')`。页面里尽量不要直接 `fetch`。
 
