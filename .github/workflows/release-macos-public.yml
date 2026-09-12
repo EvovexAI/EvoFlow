@@ -1,0 +1,177 @@
+# Public repo: build macOS DMGs (Apple Silicon + Intel) and attach to GitHub Release.
+# No private→public sync. No PUBLIC_REPO_GH_TOKEN.
+name: Release macOS desktop
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  build-dmg:
+    name: build-${{ matrix.arch_label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            tauri_target: aarch64-apple-darwin
+            arch_label: aarch64
+          - runner: macos-15-intel
+            tauri_target: x86_64-apple-darwin
+            arch_label: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      UV_HTTP_TIMEOUT: "300"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: evopanel/package-lock.json
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.6.x"
+
+      - name: Prepare uv.lock for CI (PyPI CDN)
+        run: python scripts/ci/prepare-backend-uv-for-ci.py
+
+      - name: Install backend dependencies
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            if uv sync --group dev; then
+              exit 0
+            fi
+            echo "uv sync attempt $i failed, retrying..."
+            sleep 15
+          done
+          exit 1
+
+      - name: Pre-flight build validation
+        working-directory: backend
+        run: uv run python ../scripts/preflight-build-check.py
+
+      - name: Install evopanel dependencies
+        working-directory: evopanel
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            if npm ci --maxsockets 1000 --no-audit --no-fund; then
+              exit 0
+            fi
+            echo "npm ci attempt $i failed, retrying..."
+            rm -rf node_modules
+            sleep 15
+          done
+          exit 1
+
+      - name: Optional updater signing env
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+            unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
+          fi
+          key="${TAURI_SIGNING_PRIVATE_KEY:-}"
+          key="$(echo -n "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          if [[ -z "$key" || ${#key} -lt 280 ]]; then
+            echo "EVOFLOW_UPDATER_SIGN_ENABLED=false" >> "$GITHUB_ENV"
+            echo "No updater signing key — DMG build continues without updater sig."
+          else
+            echo "EVOFLOW_UPDATER_SIGN_ENABLED=true" >> "$GITHUB_ENV"
+            echo "Updater signing enabled."
+          fi
+
+      - name: Build DMG (${{ matrix.arch_label }})
+        working-directory: evopanel
+        env:
+          TAURI_BUILD_TARGET: ${{ matrix.tauri_target }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_DMG_ATTEMPTS: "5"
+        run: npm run build:desktop:mac
+
+      - name: Verify DMG artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t dmgs < <(find evopanel/src-tauri/target -path '*/bundle/dmg/*.dmg' -type f 2>/dev/null || true)
+          if [[ ${#dmgs[@]} -eq 0 ]]; then
+            echo "::error::No .dmg found under evopanel/src-tauri/target/**/bundle/dmg"
+            exit 1
+          fi
+          for f in "${dmgs[@]}"; do
+            echo "DMG: $f ($(du -h "$f" | cut -f1))"
+          done
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-dmg-${{ matrix.arch_label }}
+          path: evopanel/src-tauri/target/**/bundle/dmg/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish-macos:
+    name: publish-macos-release
+    needs: build-dmg
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download DMG artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: macos-dmg-*
+          path: dmg-staging
+          merge-multiple: true
+
+      - name: Publish macOS assets (this repo)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ver="$(node -p "require('./evopanel/package.json').version")"
+          tag="v${ver}"
+          mapfile -t dmgs < <(find dmg-staging -name '*.dmg' -type f | sort)
+          if [[ ${#dmgs[@]} -eq 0 ]]; then
+            echo "::error::No DMGs to upload"
+            exit 1
+          fi
+          notes="scripts/maintainer/windows/public-release-body.txt"
+          if [[ ! -f "$notes" ]]; then
+            notes="$(mktemp)"
+            printf '## EvoFlow %s (macOS)\n\nDMG built from this public repository.\n' "$tag" > "$notes"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" --clobber "${dmgs[@]}"
+          else
+            gh release create "$tag" --title "EvoFlow ${ver}" --notes-file "$notes" "${dmgs[@]}"
+          fi
+          echo "Uploaded ${#dmgs[@]} DMG(s) to ${tag}"
