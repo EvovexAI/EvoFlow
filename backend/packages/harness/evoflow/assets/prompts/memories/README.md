@@ -5,7 +5,9 @@ Provenance: upstream memory-template patterns, path-mapped to EvoFlow
 
 | File | Role | When used |
 |------|------|-----------|
-| `read_path.md` | How the **dialogue agent** uses memory | Injected every turn (Tier 0) with standing filled in |
+| `read_path.md` | Shared Entity-assets procedure (once per turn) | Tier 0; composed with entity blocks |
+| `read_path_entity.md` | Per-root layout + MEMORY_SUMMARY | Tier 0; one block per user/workspace/… |
+
 | `stage_one_system.md` | Phase 1 extract system | Background worker after idle session |
 | `stage_one_input.md` | Phase 1 user/input wrapper | Same |
 | `consolidation.md` | Phase 2 consolidate system | Background worker on entity lock |

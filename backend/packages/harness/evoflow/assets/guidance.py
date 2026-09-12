@@ -175,8 +175,30 @@ def resolve_session_entity(
     )
 
 
-def build_read_path_guidance(entity: EntityRef, *, standing: str | None = None) -> str:
-    """Render runtime ``read_path`` template with standing filled in."""
+def build_read_path_procedure() -> str:
+    """Shared Entity-assets read/write discipline (injected at most once per turn)."""
+    try:
+        from evoflow.assets.prompt_templates import load_memory_prompt
+
+        return load_memory_prompt("read_path").strip()
+    except Exception:
+        logger.debug("build_read_path_procedure failed", exc_info=True)
+        return ""
+
+
+def _entity_label(entity: EntityRef) -> str:
+    et = entity.normalized().entity_type
+    if et == "workspace":
+        return "Workspace"
+    if et == "employee":
+        return "Employee"
+    if et == "agent":
+        return "Agent"
+    return "User"
+
+
+def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = None) -> str:
+    """Per-root layout + MEMORY_SUMMARY (no shared procedure)."""
     e = entity.normalized()
     rel = entity_relative_dir(e)
     base = f"assets/{rel}"
@@ -187,15 +209,39 @@ def build_read_path_guidance(entity: EntityRef, *, standing: str | None = None) 
     try:
         layout_lines, cross_entity_note = _entity_layout_lines(e)
         return render_memory_prompt(
-            "read_path",
+            "read_path_entity",
+            entity_label=_entity_label(e),
             entity_root=base,
             layout_lines=layout_lines,
             cross_entity_note=cross_entity_note,
             memory_summary=summary or "（尚无站立摘要）",
-        )
+        ).strip()
     except Exception:
-        logger.debug("build_read_path_guidance failed", exc_info=True)
+        logger.debug("build_read_path_entity_block failed", exc_info=True)
         return ""
+
+
+def build_read_path_guidance(
+    entity: EntityRef,
+    *,
+    standing: str | None = None,
+    include_procedure: bool = True,
+) -> str:
+    """Render read_path: optional shared procedure + per-entity summary."""
+    e = entity.normalized()
+    summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
+    if asset_hub_memory_injection():
+        if standing_is_placeholder(summary) or not str(summary or "").strip():
+            return ""
+    parts: list[str] = []
+    if include_procedure:
+        proc = build_read_path_procedure()
+        if proc:
+            parts.append(proc)
+    ent = build_read_path_entity_block(e, standing=summary)
+    if ent:
+        parts.append(ent)
+    return "\n\n".join(parts)
 
 
 def _entity_layout_lines(entity: EntityRef) -> tuple[str, str]:
@@ -242,6 +288,7 @@ def build_entity_memory_injection(
     entity: EntityRef,
     *,
     include_read_guidance: bool = True,
+    include_procedure: bool = True,
     include_catalog: bool | None = None,
 ) -> str:
     """Tier-0 block: runtime read_path + standing (catalog off by default in asset-hub memory mode)."""
@@ -254,7 +301,9 @@ def build_entity_memory_injection(
     if asset_mode and (standing_is_placeholder(standing) or not standing.strip()):
         return ""
     if include_read_guidance:
-        guide = build_read_path_guidance(e, standing=standing)
+        guide = build_read_path_guidance(
+            e, standing=standing, include_procedure=include_procedure
+        )
         if guide.strip():
             parts.append(guide.strip())
     if include_catalog:
@@ -298,11 +347,15 @@ def build_session_asset_memory_block(
     *,
     agent_name: str | None = None,
     principal_id: str = "",
+    include_procedure: bool = True,
 ) -> str:
     """User/employee memory Tier-0 + optional agent SOUL summary.
 
     ``principal_id`` anchors the memory/standing entity to the caller's
     personal bucket so injected content matches what the Asset Center shows.
+
+    ``include_procedure``: when False, only the per-entity MEMORY_SUMMARY is
+    emitted (shared read_path text already injected elsewhere this turn).
     """
     try:
         from evoflow.assets.hub import ensure_entity_tree
@@ -310,7 +363,9 @@ def build_session_asset_memory_block(
         memory_ent = resolve_memory_entity(agent_name=agent_name, principal_id=principal_id)
         ensure_entity_tree(memory_ent)
         parts: list[str] = []
-        mem = build_entity_memory_injection(memory_ent)
+        mem = build_entity_memory_injection(
+            memory_ent, include_procedure=include_procedure
+        )
         if mem.strip():
             parts.append(mem.strip())
         soul = build_agent_soul_injection_block(agent_name=agent_name)
@@ -320,3 +375,9 @@ def build_session_asset_memory_block(
     except Exception:
         logger.debug("build_session_asset_memory_block failed", exc_info=True)
         return ""
+
+
+def session_asset_block_includes_procedure(block: str) -> bool:
+    """True when ``block`` already carries the shared Entity-assets procedure."""
+    text = str(block or "")
+    return "## Entity assets" in text or "assets(action=search" in text

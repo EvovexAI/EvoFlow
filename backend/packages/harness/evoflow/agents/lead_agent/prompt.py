@@ -1206,17 +1206,24 @@ def build_memory_injection_sections(
             body_parts.append(safe_mem)
 
     # runtime-aligned Asset Hub: standing + read_path guidance + catalog (Tier 0)
+    # Shared Entity-assets procedure is injected at most once (user first, else workspace).
+    procedure_emitted = False
     try:
-        from evoflow.assets.guidance import build_session_asset_memory_block
+        from evoflow.assets.guidance import (
+            build_session_asset_memory_block,
+            session_asset_block_includes_procedure,
+        )
 
         asset_block = build_session_asset_memory_block(
             agent_name=agent_name,
             principal_id=principal_id,
+            include_procedure=True,
         )
         if asset_block.strip():
             safe_asset = scan_content(asset_block.strip(), source="asset_memory").strip()
             if safe_asset:
                 body_parts.append(safe_asset)
+                procedure_emitted = session_asset_block_includes_procedure(safe_asset)
     except Exception:
         logger.debug("asset memory injection skipped", exc_info=True)
 
@@ -1226,7 +1233,11 @@ def build_memory_injection_sections(
         try:
             from evoflow.agents.memory.workspace_memory import format_workspace_memory_context
 
-            ws_block = format_workspace_memory_context(lw, injection_profile=injection_profile).strip()
+            ws_block = format_workspace_memory_context(
+                lw,
+                injection_profile=injection_profile,
+                include_procedure=not procedure_emitted,
+            ).strip()
             if ws_block:
                 safe_ws = scan_content(ws_block, source="workspace_memory").strip()
                 if safe_ws:

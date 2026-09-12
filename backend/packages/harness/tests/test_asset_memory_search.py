@@ -46,17 +46,25 @@ def entity_tree(assets_home: Path) -> EntityRef:
 def test_load_read_path_prompt():
     text = load_memory_prompt("read_path")
     assert "assets(action=search" in text
-    assert "MEMORY_SUMMARY BEGINS" in text
+    assert "## Entity assets" in text
+    assert "{{ layout_lines }}" not in text
+    assert "MEMORY_SUMMARY BEGINS" not in text
+
+
+def test_load_read_path_entity_prompt():
+    text = load_memory_prompt("read_path_entity")
+    assert "{{ entity_root }}" in text
     assert "{{ layout_lines }}" in text
-    assert "**Root:**" in text
+    assert "MEMORY_SUMMARY BEGINS" in text
 
 
 def test_render_read_path_fills_summary():
-    from evoflow.assets.guidance import _entity_layout_lines
+    from evoflow.assets.guidance import _entity_layout_lines, build_read_path_guidance
 
     layout_lines, cross = _entity_layout_lines(EntityRef("user", "user"))
     out = render_memory_prompt(
-        "read_path",
+        "read_path_entity",
+        entity_label="User",
         entity_root="assets/user",
         layout_lines=layout_lines,
         cross_entity_note=cross,
@@ -67,6 +75,14 @@ def test_render_read_path_fills_summary():
     assert "- memory/standing.md" in out
     assert "用户喜欢简短回复" in out
     assert "MEMORY_SUMMARY BEGINS" in out
+
+    composed = build_read_path_guidance(
+        EntityRef("user", "user"),
+        standing="用户喜欢简短回复",
+        include_procedure=True,
+    )
+    assert composed.count("## Entity assets") == 1
+    assert "用户喜欢简短回复" in composed
 
 
 def test_search_any_mode(entity_tree: EntityRef):

@@ -323,8 +323,13 @@ def format_workspace_memory_context(
     workspace_path: str | None,
     *,
     injection_profile: str = "full",
+    include_procedure: bool = True,
 ) -> str:
-    """Build ``<workspace_memory>`` catalog block (same disclosure as user assets)."""
+    """Build ``<workspace_memory>`` catalog block (same disclosure as user assets).
+
+    ``include_procedure``: in asset-hub mode, when False only emit the per-root
+    MEMORY_SUMMARY (shared read_path already injected once this turn).
+    """
     del injection_profile  # catalog form is always compact
     config = get_memory_config()
     if not config.enabled or not config.injection_enabled:
@@ -345,7 +350,9 @@ def format_workspace_memory_context(
             try:
                 from evoflow.assets.guidance import build_read_path_guidance
 
-                body = build_read_path_guidance(ref).strip()
+                body = build_read_path_guidance(
+                    ref, include_procedure=include_procedure
+                ).strip()
             except Exception:
                 logger.debug("workspace read_path guidance skipped", exc_info=True)
                 body = ""
@@ -361,7 +368,9 @@ def format_workspace_memory_context(
             try:
                 from evoflow.assets.guidance import build_read_path_guidance
 
-                guide = build_read_path_guidance(ref)
+                guide = build_read_path_guidance(
+                    ref, include_procedure=include_procedure
+                )
                 if guide.strip():
                     body = f"{guide.strip()}\n\n{body}" if body.strip() else guide.strip()
             except Exception:

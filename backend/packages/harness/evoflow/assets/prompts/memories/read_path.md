@@ -2,9 +2,9 @@
 
 ## Entity assets (memory, process, reflection, experience)
 
-You have access to an **asset folder** from prior runs. **Memory, episodic process,
+You have access to **asset folder(s)** from prior runs. **Memory, episodic process,
 journal reflections, and craft skills** share the same Markdown layout and the same
-read/write discipline — only paths and labels differ.
+read/write discipline — only roots and summaries differ (see sections below).
 
 Use assets when the task may depend on prior decisions, conventions, or learned procedures.
 
@@ -15,21 +15,14 @@ Decision boundary:
   or anything related to MEMORY_SUMMARY below.
 - If unsure, do a quick asset pass.
 
-Asset layout (general → specific):
-
-**Root:** `{{ entity_root }}/`
-
-{{ layout_lines }}
-{{ cross_entity_note }}
-
 **One tool for all families:** `assets(action=search|read|list|note|profile)`.
 Do **not** use legacy `experience_*`, separate memory DB tools, or direct edits to durable files.
 
 Quick asset pass (when applicable):
 
-1. Skim MEMORY_SUMMARY below; extract task-relevant keywords.
+1. Skim MEMORY_SUMMARY section(s) below; extract task-relevant keywords.
 2. `assets(action=search, …)` over `memory/MEMORY.md`, `memory/facts/`, `memory/episodic/`,
-   `memory/journal/`, `craft/`.
+   `memory/journal/`, `craft/` under the relevant root.
 3. Only if search hits specific paths, `assets(action=read, …)` **1–2** files.
 4. No relevant hits → stop lookup and continue.
 
@@ -66,9 +59,4 @@ Writing assets (same for memory, reflection, experience):
 - Do **not** edit `standing.md`, `MEMORY.md`, `facts/`, `journal/`, `craft/` directly.
 - Phase 2 consolidation merges inbox notes into durable files.
 
-========= MEMORY_SUMMARY BEGINS =========
-{{ memory_summary }}
-========= MEMORY_SUMMARY ENDS =========
-
 When assets are likely relevant, run the quick pass before deep repo exploration.
-

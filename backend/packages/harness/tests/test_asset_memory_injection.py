@@ -104,3 +104,50 @@ def test_build_memory_injection_sections_legacy_includes_sqlite_memory(monkeypat
     block = build_memory_injection_sections(agent_name="main")
     assert "<memory>" in block
     set_memory_config(MemoryConfig())
+
+
+def test_procedure_once_when_user_and_workspace(assets_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from evoflow.assets.paths import workspace_entity_ref
+    from evoflow.config.paths import reset_paths_cache
+
+    reset_paths_cache()
+    user = EntityRef("user", "user").normalized()
+    ensure_entity_tree(user)
+    (assets_home / "assets" / "user" / "memory" / "standing.md").write_text(
+        "v1\n\n用户主线：dedupe-read-path\n",
+        encoding="utf-8",
+    )
+
+    repo = assets_home / "proj"
+    repo.mkdir()
+    ws = workspace_entity_ref(str(repo))
+    ensure_entity_tree(ws)
+    (assets_home / "assets" / "workspaces" / ws.entity_id / "memory" / "standing.md").write_text(
+        "v1\n\n工作区：EvoFlow harness\n",
+        encoding="utf-8",
+    )
+
+    class _Cfg:
+        enabled = True
+        injection_enabled = True
+        injection_mode = "asset"
+        chat_compact_max_tokens = 800
+        max_injection_tokens = 2000
+
+    monkeypatch.setattr("evoflow.config.memory_config.get_memory_config", lambda: _Cfg())
+
+    block = build_memory_injection_sections(
+        agent_name="main",
+        local_workspace_root=str(repo),
+    )
+    assert block.count("## Entity assets") == 1
+    assert "Ask before deposit" in block
+    assert "dedupe-read-path" in block
+    assert "EvoFlow harness" in block
+    assert "<workspace_memory>" in block
+    assert "### User —" in block
+    assert "### Workspace —" in block
+    # Workspace block must not re-paste the shared procedure
+    ws_start = block.index("<workspace_memory>")
+    assert "## Entity assets" not in block[ws_start:]
+    assert "Ask before deposit" not in block[ws_start:]

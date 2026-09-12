@@ -50,7 +50,22 @@ def test_read_path_guidance_root_once(assets_home: Path) -> None:
     block = build_read_path_guidance(ref)
     root = f"assets/workspaces/{ref.entity_id}"
     assert block.count(root) == 1
-    assert f"**Root:** `{root}/`" in block
+    assert f"### Workspace — `{root}/`" in block
     assert f"{root}/memory/standing.md" not in block
     assert "- memory/standing.md" in block
     assert "profile/basic-info" not in block
+    assert block.count("## Entity assets") == 1
+
+
+def test_read_path_entity_only_skips_procedure(assets_home: Path) -> None:
+    ref = workspace_entity_ref(str(assets_home / "repo"))
+    ensure_entity_tree(ref)
+    standing = assets_home / "assets" / "workspaces" / ref.entity_id / "memory" / "standing.md"
+    standing.parent.mkdir(parents=True, exist_ok=True)
+    standing.write_text("# 项目\n\nEvoFlow backend harness\n", encoding="utf-8")
+
+    block = build_read_path_guidance(ref, include_procedure=False)
+    assert "## Entity assets" not in block
+    assert "assets(action=search" not in block
+    assert "MEMORY_SUMMARY BEGINS" in block
+    assert "EvoFlow backend harness" in block
