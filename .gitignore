@@ -136,9 +136,13 @@ _nodecheck.txt
 target/
 
 
-# EvoPanel Tauri sidecar exes under binaries/ (large); keep empty dir + .gitkeep for Tauri resource path
+# EvoPanel Tauri sidecar exes under binaries/ (large); keep dirs + .gitkeep so
+# tauri.conf.json resource path `binaries/evoflow-gateway` exists for clone/build.
 **/src-tauri/binaries/**
 !**/src-tauri/binaries/.gitkeep
+!**/src-tauri/binaries/evoflow-gateway/
+!**/src-tauri/binaries/evoflow-gateway/.gitkeep
+!**/src-tauri/binaries/evoflow-gateway/README.md
 
 # Backend evopanel (contains only built binaries)
 backend/evopanel/
