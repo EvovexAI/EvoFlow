@@ -1,0 +1,6 @@
+x iǎo V x iǎo V @小V小V :2.5 #0.18
+x iǎo w éi x iǎo w éi @小V小V :2.5 #0.18
+x iǎo w ēi x iǎo w ēi @小V小V :2.5 #0.18
+x iǎo w ěi x iǎo w ěi @小V小V :2.0 #0.2
+x iǎo m ì x iǎo m ì @小V小V :1.0 #0.25
+x iǎo m ǐ x iǎo m ǐ @小V小V :1.0 #0.25

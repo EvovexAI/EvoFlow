@@ -1,0 +1,23 @@
+{
+  "title": "Gestion des Agents",
+  "desc": "Cr茅er et g茅rer les Agents EvoPanel",
+  "addAgent": "+ Nouvel Agent",
+  "noAgents": "Aucun Agent",
+  "loadFailed": "脡chec du chargement",
+  "default": "Par d茅faut",
+  "backup": "Sauvegarde",
+  "edit": "Modifier",
+  "delete": "Supprimer",
+  "notSet": "Non d茅fini",
+  "addTitle": "Nouvel Agent",
+  "agentId": "ID Agent",
+  "agentName": "Nom",
+  "agentModel": "Mod猫le",
+  "created": "Agent cr茅茅",
+  "createFailed": "脡chec de la cr茅ation",
+  "editTitle": "Modifier l'Agent 鈥?{id}",
+  "updated": "Mis 脿 jour",
+  "updateFailed": "脡chec de la mise 脿 jour",
+  "deleted": "Supprim茅",
+  "deleteFailed": "脡chec de la suppression"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "周五报告",
+  "prompt": "汇总本周工作进展并生成报告",
+  "schedule_type": "once",
+  "scheduled_at": "2026-06-19T17:00:00",
+  "max_duration_minutes": 15
+}

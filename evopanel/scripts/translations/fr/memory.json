@@ -1,0 +1,17 @@
+{
+  "title": "Mémoire",
+  "desc": "Gérer les fichiers mémoire de l'Agent",
+  "noFiles": "Aucun fichier",
+  "view": "Voir",
+  "download": "Télécharger",
+  "delete": "Supprimer",
+  "upload": "Téléverser",
+  "uploading": "Téléversement...",
+  "uploaded": "Téléversé",
+  "uploadFailed": "Échec du téléversement",
+  "deleted": "Supprimé",
+  "deleteFailed": "Échec de la suppression",
+  "loadFailed": "Échec du chargement",
+  "selectAgent": "Sélectionner Agent",
+  "searchPlaceholder": "Rechercher..."
+}

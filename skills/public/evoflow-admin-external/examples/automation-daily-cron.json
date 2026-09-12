@@ -1,0 +1,7 @@
+{
+  "name": "每日晨报",
+  "prompt": "搜索今天 AI 领域的重要新闻，整理成简报发给我",
+  "cron_expr": "0 9 * * *",
+  "max_duration_minutes": 30,
+  "feishu_push_enabled": true
+}

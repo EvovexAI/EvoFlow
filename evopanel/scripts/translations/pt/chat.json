@@ -1,0 +1,22 @@
+{
+  "title": "Chat ao vivo",
+  "desc": "Conversar com o Agent em tempo real",
+  "selectAgent": "Selecionar Agent",
+  "connecting": "Conectando...",
+  "connected": "Conectado",
+  "disconnected": "Desconectado",
+  "send": "Enviar",
+  "inputPlaceholder": "Digite uma mensagem...",
+  "noMessages": "Sem mensagens",
+  "clearChat": "Limpar histórico",
+  "newSession": "Nova sessão",
+  "noSessions": "Sem sessões",
+  "copyMessage": "Copiar",
+  "thinking": "Pensando...",
+  "generating": "Gerando...",
+  "stop": "Parar",
+  "regenerate": "Regenerar",
+  "modelSelect": "Selecionar modelo",
+  "gatewayNotRunning": "Gateway não está em execução",
+  "startGateway": "Iniciar Gateway"
+}

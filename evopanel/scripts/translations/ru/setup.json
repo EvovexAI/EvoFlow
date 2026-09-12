@@ -1,0 +1,23 @@
+{
+  "title": "Начальная настройка",
+  "desc": "Установка и настройка EvoPanel",
+  "headerTitle": "Добро пожаловать в EvoPanel",
+  "recheck": "Проверить снова",
+  "stepNode": "Среда Node.js",
+  "installed": "Установлено",
+  "downloadNode": "Скачать Node.js",
+  "stepGit": "Git",
+  "stepConfig": "Файл конфигурации",
+  "saveBtn": "Сохранить",
+  "resetDefaultBtn": "Восстановить по умолчанию",
+  "aiAssistant": "ИИ-ассистент",
+  "openAiAssistant": "Открыть ИИ-ассистента",
+  "nextStepsTitle": "Следующие шаги",
+  "configModels": "Настроить модели",
+  "gatewaySetup": "Настроить Gateway",
+  "messageChannels": "Каналы",
+  "enterPanel": "Войти в панель",
+  "installBtn": "Быстрая установка",
+  "installEvoPanel": "Установить EvoPanel",
+  "installComplete": "Установка завершена"
+}

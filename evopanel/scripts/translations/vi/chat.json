@@ -1,0 +1,22 @@
+{
+  "title": "Trò chuyện trực tiếp",
+  "desc": "Trò chuyện với Agent theo thời gian thực",
+  "selectAgent": "Chọn Agent",
+  "connecting": "Đang kết nối...",
+  "connected": "Đã kết nối",
+  "disconnected": "Đã ngắt kết nối",
+  "send": "Gửi",
+  "inputPlaceholder": "Nhập tin nhắn...",
+  "noMessages": "Không có tin nhắn",
+  "clearChat": "Xóa lịch sử",
+  "newSession": "Phiên mới",
+  "noSessions": "Không có phiên",
+  "copyMessage": "Sao chép",
+  "thinking": "Đang suy nghĩ...",
+  "generating": "Đang tạo...",
+  "stop": "Dừng",
+  "regenerate": "Tạo lại",
+  "modelSelect": "Chọn mô hình",
+  "gatewayNotRunning": "Gateway chưa chạy",
+  "startGateway": "Khởi động Gateway"
+}

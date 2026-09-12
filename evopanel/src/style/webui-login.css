@@ -1,0 +1,499 @@
+/* WebUI 企业登录页 — 商务分栏，非消费级紫渐变 */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
+
+.webui-login-page {
+  --login-ink: #0c1a2a;
+  --login-ink-soft: #1a3348;
+  --login-slate: #5b6b7c;
+  --login-line: #d7dee6;
+  --login-paper: #f7f8fa;
+  --login-card: #ffffff;
+  --login-accent: #0f6e6a;
+  --login-accent-hover: #0c5a57;
+  --login-accent-soft: rgba(15, 110, 106, 0.12);
+  --login-danger: #b42318;
+  --login-danger-bg: #fef3f2;
+  --login-font: 'IBM Plex Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --login-display: 'Source Serif 4', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  font-family: var(--login-font);
+  color: var(--login-ink);
+  background: var(--login-paper);
+}
+
+.webui-login-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.05fr) minmax(320px, 0.95fr);
+  width: 100%;
+  max-width: 1080px;
+  min-height: 100dvh;
+  margin: 0 auto;
+}
+
+/* —— 左侧品牌面 —— */
+.webui-login-brand-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(32px, 6vh, 56px) clamp(28px, 4vw, 48px);
+  color: #e8eef4;
+  background:
+    linear-gradient(160deg, rgba(15, 110, 106, 0.18) 0%, transparent 42%),
+    linear-gradient(180deg, var(--login-ink) 0%, var(--login-ink-soft) 100%);
+  overflow: hidden;
+  animation: webui-login-brand-in 0.55s ease-out both;
+}
+
+.webui-login-brand-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(232, 238, 244, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 238, 244, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 30% 40%, #000 20%, transparent 75%);
+  pointer-events: none;
+}
+
+.webui-login-brand-panel::after {
+  content: '';
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  right: -80px;
+  bottom: -60px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(15, 110, 106, 0.35) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.webui-login-brand-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+}
+
+.webui-login-brand-markrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+
+.webui-login-mark {
+  width: 40px;
+  height: 40px;
+  color: #9fd8d4;
+  flex-shrink: 0;
+}
+
+.webui-login-brand-word {
+  font-family: var(--login-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #f4f7fa;
+}
+
+.webui-login-brand-kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fd8d4;
+}
+
+.webui-login-brand-title {
+  margin: 0;
+  font-family: var(--login-display);
+  font-size: clamp(40px, 5.5vw, 56px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.webui-login-brand-lead {
+  margin: 18px 0 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: rgba(232, 238, 244, 0.78);
+  max-width: 34ch;
+}
+
+.webui-login-brand-points {
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.webui-login-brand-points li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 13px;
+  color: rgba(232, 238, 244, 0.72);
+}
+
+.webui-login-brand-points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 1.5px;
+  background: #9fd8d4;
+}
+
+.webui-login-brand-foot {
+  position: relative;
+  z-index: 1;
+  margin: 40px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(232, 238, 244, 0.4);
+}
+
+/* —— 右侧表单 —— */
+.webui-login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(28px, 5vh, 48px) clamp(24px, 5vw, 56px);
+  background: var(--login-card);
+  border-left: 1px solid var(--login-line);
+  animation: webui-login-panel-in 0.5s ease-out 0.08s both;
+}
+
+.webui-login-panel-head {
+  margin-bottom: 28px;
+}
+
+.webui-login-eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--login-accent);
+}
+
+.webui-login-panel-title {
+  margin: 0;
+  font-family: var(--login-display);
+  font-size: clamp(26px, 3vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--login-ink);
+  line-height: 1.2;
+}
+
+.webui-login-panel-desc {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--login-slate);
+  max-width: 42ch;
+}
+
+.webui-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.webui-login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.webui-login-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--login-ink-soft);
+}
+
+.webui-login-input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.4;
+  border: 1px solid var(--login-line);
+  border-radius: 6px;
+  outline: none;
+  background: var(--login-paper);
+  color: var(--login-ink);
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+
+.webui-login-input::placeholder {
+  color: #9aa7b5;
+}
+
+.webui-login-input:focus {
+  border-color: var(--login-accent);
+  box-shadow: 0 0 0 3px var(--login-accent-soft);
+  background: #fff;
+}
+
+.webui-login-submit {
+  margin-top: 6px;
+  width: 100%;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  background: var(--login-accent);
+  transition: background 0.18s, transform 0.12s;
+}
+
+.webui-login-submit:hover:not(:disabled) {
+  background: var(--login-accent-hover);
+}
+
+.webui-login-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.webui-login-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.webui-login-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--login-danger);
+  background: var(--login-danger-bg);
+  border: 1px solid rgba(180, 35, 24, 0.2);
+}
+
+.webui-login-error[hidden] {
+  display: none !important;
+}
+
+.webui-login-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--login-line);
+  font-size: 12px;
+  color: var(--login-slate);
+  line-height: 1.55;
+}
+
+.webui-login-footer svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--login-accent);
+  opacity: 0.85;
+}
+
+.webui-login-version {
+  margin-top: 18px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #9aa7b5;
+}
+
+.webui-login-qr-status {
+  padding: 8px 0 4px;
+}
+
+.webui-login-spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 0 16px;
+  border: 2px solid var(--login-line);
+  border-top-color: var(--login-accent);
+  border-radius: 50%;
+  animation: webui-login-spin 0.75s linear infinite;
+}
+
+.webui-login-qr-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--login-slate);
+}
+
+.webui-login-qr-error {
+  margin-top: 8px;
+}
+
+.webui-login-qr-error-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--login-danger);
+}
+
+.webui-login-qr-error-msg {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--login-slate);
+}
+
+.webui-login-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16px;
+  padding: 11px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  color: #fff;
+  background: var(--login-accent);
+  transition: background 0.18s;
+}
+
+.webui-login-link-btn:hover {
+  background: var(--login-accent-hover);
+}
+
+.webui-login-link-btn--ghost {
+  width: 100%;
+  color: var(--login-ink-soft);
+  background: transparent;
+  border: 1px solid var(--login-line);
+}
+
+.webui-login-link-btn--ghost:hover {
+  background: var(--login-paper);
+  color: var(--login-ink);
+}
+
+.webui-login-sso {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--login-line);
+  background: var(--login-paper);
+  color: var(--login-ink);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+}
+
+.webui-login-sso svg {
+  width: 18px;
+  height: 18px;
+  color: var(--login-accent);
+}
+
+.webui-login-sso:hover {
+  border-color: var(--login-accent);
+  background: #fff;
+}
+
+.webui-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px;
+  color: #9aa7b5;
+  font-size: 12px;
+}
+
+.webui-login-divider::before,
+.webui-login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--login-line);
+}
+
+@keyframes webui-login-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes webui-login-brand-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes webui-login-panel-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 840px) {
+  .webui-login-layout {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+    min-height: auto;
+    margin: 0;
+    width: 100%;
+  }
+
+  .webui-login-page {
+    align-items: flex-start;
+    padding: 0;
+  }
+
+  .webui-login-brand-panel {
+    min-height: auto;
+    padding: 28px 24px 32px;
+  }
+
+  .webui-login-brand-title {
+    font-size: 36px;
+  }
+
+  .webui-login-brand-points {
+    display: none;
+  }
+
+  .webui-login-brand-foot {
+    display: none;
+  }
+
+  .webui-login-panel {
+    border-left: none;
+    border-top: 1px solid var(--login-line);
+    padding: 28px 24px 36px;
+    min-height: 60dvh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .webui-login-brand-panel,
+  .webui-login-panel,
+  .webui-login-spinner {
+    animation: none;
+  }
+}

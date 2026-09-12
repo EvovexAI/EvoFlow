@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "kind": "team",
+  "id": "mini-team",
+  "name": "迷你测试团队",
+  "version": "1.0.0",
+  "description": "Phase 1 fixture: one agent + one employee",
+  "workspace": {
+    "template": "./workspace",
+    "name": "迷你工作区",
+    "create_if_missing": true
+  },
+  "primitives": {
+    "agents": [
+      { "from": "./agents/demo-clerk.yaml" }
+    ],
+    "skills": []
+  },
+  "team": {
+    "employees": [
+      { "from": "./employees/demo-clerk.json" }
+    ]
+  },
+  "metadata": {
+    "author": "EvoFlow",
+    "tags": ["fixture", "test"]
+  }
+}

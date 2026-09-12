@@ -1,0 +1,16 @@
+﻿{
+  "title": "Nháº­t kÃ½",
+  "desc": "Xem nháº­t kÃ½ dá»ch vá»?EvoPanel",
+  "tabGateway": "Gateway",
+  "tabGatewayErr": "Lá»i Gateway",
+  "tabGuardian": "Guardian",
+  "tabBackup": "Sao lÆ°u",
+  "tabAudit": "Kiá»m toÃ¡n",
+  "searchPlaceholder": "TÃ¬m kiáº¿m...",
+  "autoScroll": "Tá»?Äá»ng cuá»n",
+  "loading": "Äang táº£i...",
+  "empty": "KhÃ´ng cÃ³ nháº­t kÃ½",
+  "loadFailed": "Táº£i tháº¥t báº¡i",
+  "noResults": "KhÃ´ng cÃ³ káº¿t quáº?,
+  "searchFailed": "TÃ¬m kiáº¿m tháº¥t báº¡i"
+}

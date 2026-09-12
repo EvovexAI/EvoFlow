@@ -1,0 +1,185 @@
+# Build Windows installer from this tree and attach to a GitHub Release.
+# Prefer umbrella workflow `release-desktop-public.yml` (Win + Mac). This file can also run alone.
+# Updater signing is optional: if TAURI_SIGNING_* secrets are absent, publish unsigned setup.exe + checksums only.
+name: Release Windows desktop
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      UV_HTTP_TIMEOUT: "300"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: evopanel/package-lock.json
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.6.x"
+
+      - name: Prepare uv.lock for CI (PyPI CDN)
+        run: python scripts/ci/prepare-backend-uv-for-ci.py
+
+      - name: Install backend dependencies
+        working-directory: backend
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          for ($i = 1; $i -le 3; $i++) {
+            try {
+              uv sync --group dev
+              if ($LASTEXITCODE -eq 0) { exit 0 }
+            } catch {
+              Write-Host "uv sync attempt $i failed: $_"
+            }
+            if ($i -lt 3) { Start-Sleep -Seconds 15 }
+          }
+          throw 'uv sync failed after 3 attempts'
+
+      - name: Pre-flight build validation
+        working-directory: backend
+        run: uv run python ../scripts/preflight-build-check.py
+
+      - name: Verify evopanel PowerShell scripts are ASCII-only
+        working-directory: evopanel
+        run: >
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/verify-ps1-ascii.ps1
+          ./scripts/build-installer-win.ps1 ./scripts/build.ps1 ./scripts/verify-ps1-ascii.ps1
+
+      - name: Install evopanel dependencies
+        working-directory: evopanel
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            if npm ci --maxsockets 1000 --no-audit --no-fund; then
+              exit 0
+            fi
+            echo "npm ci attempt $i failed, retrying..."
+            rm -rf node_modules
+            sleep 15
+          done
+          exit 1
+
+      - name: Optional updater signing env
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+            Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PASSWORD -ErrorAction SilentlyContinue
+          }
+          $key = ''
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) { $key = $env:TAURI_SIGNING_PRIVATE_KEY.Trim() }
+          if ([string]::IsNullOrWhiteSpace($key) -or $key.Length -lt 280) {
+            Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
+            "EVOFLOW_UPDATER_SIGN_ENABLED=false" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "No updater signing key — will publish setup.exe + checksums only."
+          } else {
+            $env:TAURI_SIGNING_PRIVATE_KEY = $key
+            "EVOFLOW_UPDATER_SIGN_ENABLED=true" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "Updater signing enabled."
+          }
+
+      # public/kws ONNX+WASM are omitted from git; download before package (also in prebuild:desktop:win)
+      - name: Download KWS wake-word assets
+        working-directory: evopanel
+        run: npm run kws:download
+
+      - name: Build NSIS installer
+        working-directory: evopanel
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: npm run build:desktop:win
+
+      - name: Collect artifacts + checksums
+        id: artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = node -p "require('./evopanel/package.json').version"
+          $nsis = "evopanel/src-tauri/target/release/bundle/nsis"
+          if (-not (Test-Path -LiteralPath $nsis)) { throw "NSIS dir missing: $nsis" }
+          $exe = Get-ChildItem -LiteralPath $nsis -Filter "*setup.exe" -File |
+            Where-Object { $_.Name -match [regex]::Escape($ver) } |
+            Select-Object -First 1
+          if (-not $exe) { throw "Missing setup.exe for v$ver under $nsis" }
+          $hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sumLine = "$hash  $($exe.Name)"
+          Set-Content -LiteralPath "$($exe.FullName).sha256" -Value $sumLine -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $nsis 'SHA256SUMS.txt') -Value $sumLine -Encoding ascii
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=v$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "exe=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Built $($exe.Name) ($hash)"
+
+      - name: Publish GitHub Release (this repo)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = "${{ steps.artifacts.outputs.version }}"
+          $tag = "${{ steps.artifacts.outputs.tag }}"
+          $nsis = "evopanel/src-tauri/target/release/bundle/nsis"
+          $exe = Get-ChildItem -LiteralPath $nsis -Filter "*setup.exe" -File |
+            Where-Object { $_.Name -match [regex]::Escape($ver) } |
+            Select-Object -First 1
+          $files = @(
+            $exe.FullName,
+            "$($exe.FullName).sha256",
+            (Join-Path $nsis 'SHA256SUMS.txt')
+          )
+          if ($env:EVOFLOW_UPDATER_SIGN_ENABLED -eq 'true') {
+            $zip = Get-ChildItem -LiteralPath $nsis -Filter "*.nsis.zip" -File |
+              Where-Object { $_.Name -match [regex]::Escape($ver) } |
+              Select-Object -First 1
+            if ($zip) {
+              $files += $zip.FullName
+              if (Test-Path -LiteralPath "$($zip.FullName).sig") { $files += "$($zip.FullName).sig" }
+            }
+          }
+          $notes = "scripts/maintainer/windows/public-release-body.txt"
+          if (-not (Test-Path -LiteralPath $notes)) {
+            $notesFile = Join-Path $env:TEMP 'evoflow-release-notes.md'
+            @"
+          ## EvoFlow $tag (Windows x64)
+
+          Installer built from this public repository.
+          "@ | Set-Content -LiteralPath $notesFile -Encoding utf8
+            $notes = $notesFile
+          }
+          gh release view $tag 1>$null 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag --clobber $files
+          } else {
+            gh release create $tag --title "EvoFlow $ver" --notes-file $notes $files
+          }

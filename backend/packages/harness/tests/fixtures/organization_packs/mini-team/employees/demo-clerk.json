@@ -1,0 +1,13 @@
+{
+  "agent_code": "demo-clerk",
+  "role_name": "演示文员",
+  "position_code": "demo-clerk",
+  "department": "测试部",
+  "reports_to": "",
+  "config": {
+    "workspace_path": "${ORG_WORKSPACE}",
+    "skills": [],
+    "autonomy_level": "approval_for_risky",
+    "schedule": "FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+  }
+}

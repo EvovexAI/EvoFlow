@@ -1,0 +1,11 @@
+{
+  "name": "my-glm",
+  "model": "glm-4.5",
+  "base_url": "https://api.example.com/v1",
+  "api_key": "sk-REPLACE",
+  "vendor": "openai",
+  "display_name": "GLM 示例",
+  "supports_vision": false,
+  "max_tokens": 8192,
+  "context_length": 128000
+}

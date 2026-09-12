@@ -1,0 +1,174 @@
+/**
+ * 平台模块页顶标题 — 任务中心 / 工作流 / 扩展应用 / 知识库 Hub 等列表页统一规范
+ * 加载顺序：main.js 末尾，覆盖 layout / theme 中的旧规则
+ */
+:root {
+  --ef-module-head-pad-y: 16px;
+  --ef-module-head-pad-x: 24px;
+  --ef-module-head-gap: 10px;
+  --ef-module-title-size: 20px;
+  --ef-module-title-weight: 600;
+  --ef-module-title-tracking: -0.02em;
+  --ef-module-title-line-height: 1.25;
+  --ef-module-desc-size: 12px;
+  --ef-module-desc-gap: 4px;
+}
+
+/* #content 提高优先级，避免被 layout 响应式规则盖掉 */
+#content .page {
+  padding: var(--ef-module-head-pad-y) var(--ef-module-head-pad-x) var(--space-xl);
+}
+
+#content .page-header {
+  margin-bottom: var(--ef-module-head-gap);
+}
+
+#content .page-header:has(.page-actions) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+#content .page-title,
+#content .expert-page-title {
+  margin: 0;
+  font-size: var(--ef-module-title-size);
+  font-weight: var(--ef-module-title-weight);
+  letter-spacing: var(--ef-module-title-tracking);
+  line-height: var(--ef-module-title-line-height);
+  color: var(--text-primary);
+}
+
+#content .page-desc,
+#content .expert-page-desc {
+  margin: var(--ef-module-desc-gap) 0 0;
+  font-size: var(--ef-module-desc-size);
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  max-width: 42em;
+}
+
+/* 全宽模块页 */
+#content > .page.apps-page,
+#content > .page.extensions-page,
+#content > .page.proactive-page {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+}
+
+/* 任务中心 / 知识库：内层 shell 控制边距 */
+#content > .page.tasks-page,
+#content > .page.knowledge-owned-outlet {
+  padding: 0;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+}
+
+#content .tasks-page .tasks-shell-top {
+  flex: none;
+  padding: var(--ef-module-head-pad-y) var(--ef-module-head-pad-x) 0;
+  background: transparent;
+  border-bottom: none;
+  z-index: 2;
+}
+
+#content .tasks-page .tasks-shell-body {
+  padding: 12px var(--ef-module-head-pad-x) 28px;
+}
+
+#content .tasks-page .tasks-page-header {
+  padding: 0;
+  align-items: flex-start;
+}
+
+#content .tasks-page .page-title {
+  background: none;
+  -webkit-text-fill-color: unset;
+  color: var(--t-text, var(--text-primary));
+}
+
+#content .tasks-page .page-desc {
+  color: var(--t-muted, var(--text-tertiary));
+}
+
+/* 知识库 Hub */
+#content .knowledge-owned-page.is-hub {
+  padding: var(--ef-module-head-pad-y) var(--ef-module-head-pad-x) 40px;
+}
+
+#content .ko-hero {
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--ko-line-soft, var(--border-primary));
+}
+
+#content .ko-hero__copy h1,
+#content .ko-hub-head__copy h1 {
+  margin: 0 0 6px;
+  font-family: var(--ko-font-display, var(--font-sans));
+  font-size: var(--ef-module-title-size);
+  font-weight: var(--ef-module-title-weight);
+  letter-spacing: var(--ef-module-title-tracking);
+  line-height: var(--ef-module-title-line-height);
+  color: var(--text-primary, var(--ko-text));
+}
+
+#content .ko-hero__sub,
+#content .ko-hub-head__copy .ko-topbar__sub {
+  margin: 0;
+  max-width: 40em;
+  font-size: var(--ef-module-desc-size);
+  line-height: 1.55;
+  color: var(--ko-muted, var(--text-tertiary));
+}
+
+/* 智能体员工 */
+#content > .page.proactive-page {
+  padding: var(--ef-module-head-pad-y) var(--ef-module-head-pad-x) var(--space-xl);
+}
+
+#content .pro-hero {
+  align-items: flex-start;
+  margin-bottom: var(--ef-module-head-gap);
+}
+
+#content .proactive-page .page-desc {
+  color: var(--text-secondary);
+}
+
+/* 智能体中心 */
+#content > .page.expert-page {
+  padding: var(--ef-module-head-pad-y) 0 var(--space-xl);
+}
+
+#content .expert-page-head {
+  padding-left: var(--ef-module-head-pad-x);
+  padding-right: var(--ef-module-head-pad-x);
+}
+
+@media (max-width: 960px) {
+  :root {
+    --ef-module-head-pad-x: 16px;
+    --ef-module-head-pad-y: 14px;
+    --ef-module-title-size: 18px;
+  }
+
+  #content .tasks-page .tasks-shell-top,
+  #content .tasks-page .tasks-shell-body {
+    padding-left: var(--ef-module-head-pad-x);
+    padding-right: var(--ef-module-head-pad-x);
+  }
+}
+
+@media (max-width: 768px) {
+  #content .page {
+    padding: var(--ef-module-head-pad-y) var(--ef-module-head-pad-x);
+  }
+
+  #content .page-title,
+  #content .expert-page-title {
+    font-size: var(--ef-module-title-size);
+  }
+}

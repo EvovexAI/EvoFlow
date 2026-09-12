@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>EvoFlow</title>
+  <link rel="icon" href="/icons/assistant.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- 首帧即生效：不依赖 JS 与 variables.css；浅色底与默认主题、WebView backgroundColor 一致 -->
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #f4f5fb; }
+    #boot-splash {
+      --boot-brand: #5b5fef;
+      --boot-brand-2: #8b5cf6;
+      position: fixed;
+      inset: 0;
+      z-index: 99990;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      overflow: hidden;
+      padding: calc(48px + env(safe-area-inset-top, 0px)) max(20px, 3vw) 16px;
+      background:
+        radial-gradient(ellipse 90% 55% at 50% 18%, rgba(99, 102, 241, 0.16), transparent 60%),
+        radial-gradient(ellipse 70% 50% at 80% 80%, rgba(139, 92, 246, 0.1), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 12% 70%, rgba(56, 189, 248, 0.08), transparent 50%),
+        linear-gradient(180deg, #fbfbff 0%, #f3f4fb 48%, #eef0f8 100%);
+      transition: opacity 0.38s ease, visibility 0.38s ease;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #boot-splash.boot-splash--hide {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .boot-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(2px);
+      opacity: 0.55;
+      pointer-events: none;
+      animation: boot-orb-drift 10s ease-in-out infinite;
+    }
+    .boot-orb--1 {
+      width: 180px; height: 180px; left: -40px; top: 18%;
+      background: radial-gradient(circle, rgba(99,102,241,.35), transparent 70%);
+      animation-duration: 12s;
+    }
+    .boot-orb--2 {
+      width: 220px; height: 220px; right: -60px; bottom: 12%;
+      background: radial-gradient(circle, rgba(139,92,246,.28), transparent 70%);
+      animation-duration: 14s;
+      animation-delay: -3s;
+    }
+    .boot-orb--3 {
+      width: 120px; height: 120px; left: 28%; bottom: 8%;
+      background: radial-gradient(circle, rgba(56,189,248,.22), transparent 70%);
+      animation-duration: 9s;
+      animation-delay: -1.5s;
+    }
+
+    /* 下方介绍卡：左右两栏；高度随内容，不撑满留白 */
+    .boot-guide {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 1180px;
+      flex: 0 1 auto;
+      max-height: min(52vh, 420px);
+      margin: 28px auto 0;
+      padding: 14px 20px 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(99, 102, 241, 0.18);
+      background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(248,249,255,0.9));
+      box-shadow:
+        0 10px 30px rgba(79, 70, 229, 0.1),
+        0 1px 0 rgba(255,255,255,0.8) inset;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+    .boot-guide::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: linear-gradient(180deg, var(--boot-brand), var(--boot-brand-2));
+      border-radius: 16px 0 0 16px;
+    }
+    .boot-guide__live {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 24px;
+      padding: 0 10px;
+      margin-bottom: 8px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #5b5fef, #7c3aed);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .boot-guide__live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #bbf7d0;
+      box-shadow: 0 0 0 0 rgba(187, 247, 208, 0.7);
+      animation: boot-live-pulse 1.4s ease-out infinite;
+    }
+    .boot-guide__title {
+      margin: 0 0 4px;
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1.3;
+      color: #18181b;
+      letter-spacing: -0.01em;
+    }
+    .boot-guide__lead {
+      margin: 0 0 12px;
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: #52525b;
+      max-width: none;
+    }
+    .boot-guide__grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px 28px;
+      align-items: start;
+    }
+    .boot-guide__col {
+      min-width: 0;
+    }
+    .boot-guide__section {
+      margin: 0 0 10px;
+    }
+    .boot-guide__section:last-child {
+      margin-bottom: 0;
+    }
+    .boot-guide__label {
+      margin: 0 0 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #4f46e5;
+    }
+    .boot-guide__tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .boot-guide__tag {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(99, 102, 241, 0.16);
+      background: rgba(99, 102, 241, 0.06);
+      color: #4338ca;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .boot-guide__list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 5px;
+    }
+    .boot-guide__list li {
+      position: relative;
+      padding: 6px 10px 6px 26px;
+      border-radius: 9px;
+      background: rgba(99, 102, 241, 0.045);
+      border: 1px solid rgba(99, 102, 241, 0.08);
+      font-size: 13px;
+      line-height: 1.5;
+      color: #3f3f46;
+    }
+    .boot-guide__list li::before {
+      content: '';
+      position: absolute;
+      left: 10px;
+      top: 11px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #a78bfa);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+    }
+    .boot-guide__list strong {
+      color: #27272a;
+      font-weight: 650;
+    }
+    .boot-guide__tip {
+      margin: 0;
+      padding: 8px 11px;
+      border-radius: 10px;
+      background: linear-gradient(90deg, rgba(99,102,241,.1), rgba(139,92,246,.08));
+      border: 1px solid rgba(99, 102, 241, 0.14);
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #3730a3;
+      font-weight: 500;
+    }
+
+    .boot-center {
+      position: relative;
+      z-index: 1;
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      margin: 12px 0 0;
+      padding: 8px 20px 0;
+      text-align: center;
+    }
+    .boot-mark-wrap {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      margin-bottom: 10px;
+      display: grid;
+      place-items: center;
+    }
+    .boot-mark-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1.5px solid rgba(99, 102, 241, 0.22);
+      animation: boot-ring 2.8s ease-out infinite;
+    }
+    .boot-mark-ring--2 {
+      inset: -10px;
+      animation-delay: 0.7s;
+      border-color: rgba(139, 92, 246, 0.18);
+    }
+    .boot-splash-mark {
+      width: 60px;
+      height: 60px;
+      object-fit: contain;
+      filter: drop-shadow(0 10px 22px rgba(99, 102, 241, 0.28));
+      animation: boot-sp-float 2.4s ease-in-out infinite;
+      position: relative;
+      z-index: 1;
+    }
+    .boot-splash-brand {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: linear-gradient(120deg, #4f46e5 0%, #7c3aed 45%, #6366f1 100%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: boot-brand-shine 3.2s ease-in-out infinite;
+    }
+    .boot-splash-tagline {
+      margin: 8px 0 0;
+      max-width: 340px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #71717a;
+    }
+    .boot-splash-bar {
+      margin-top: 14px;
+      width: 140px;
+      height: 4px;
+      border-radius: 99px;
+      overflow: hidden;
+      background: rgba(99, 102, 241, 0.12);
+      box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .boot-splash-bar > span {
+      display: block;
+      width: 42%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #6366f1, #a78bfa, #6366f1);
+      background-size: 200% 100%;
+      animation: boot-sp-slide 1.35s ease-in-out infinite, boot-bar-shine 1.8s linear infinite;
+    }
+    .boot-splash-sub {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #a1a1aa;
+      letter-spacing: 0.08em;
+    }
+
+    @keyframes boot-sp-slide {
+      0% { transform: translateX(-110%); }
+      50% { transform: translateX(180%); }
+      100% { transform: translateX(-110%); }
+    }
+    @keyframes boot-bar-shine {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+    @keyframes boot-brand-shine {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    @keyframes boot-sp-float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-7px); }
+    }
+    @keyframes boot-ring {
+      0% { transform: scale(0.92); opacity: 0.7; }
+      100% { transform: scale(1.2); opacity: 0; }
+    }
+    @keyframes boot-orb-drift {
+      0%, 100% { transform: translate3d(0, 0, 0); }
+      50% { transform: translate3d(18px, -14px, 0); }
+    }
+    @keyframes boot-live-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(187, 247, 208, 0.75); }
+      70% { box-shadow: 0 0 0 8px rgba(187, 247, 208, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(187, 247, 208, 0); }
+    }
+    @media (max-width: 860px) {
+      .boot-guide__grid {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .boot-guide {
+        max-height: min(48vh, 360px);
+        margin-top: 16px;
+      }
+    }
+    @media (max-width: 560px) {
+      #boot-splash {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+      .boot-guide {
+        padding: 12px 12px 10px;
+      }
+      .boot-guide__title { font-size: 15px; }
+    }
+    /* 开场介绍页动效始终播放，不跟随系统「减少动态效果」——
+       否则部分电脑启动页光斑/进度条静止，体验不一致。 */
+  </style>
+  <!-- entry: main.js via Vite -->
+</head>
+<body>
+
+  <!-- 独立于 #content：路由 innerHTML 清空时不会把开场层删掉 -->
+  <div id="boot-splash" aria-hidden="true">
+    <div class="boot-orb boot-orb--1" aria-hidden="true"></div>
+    <div class="boot-orb boot-orb--2" aria-hidden="true"></div>
+    <div class="boot-orb boot-orb--3" aria-hidden="true"></div>
+
+    <div class="boot-center">
+      <div class="boot-mark-wrap">
+        <span class="boot-mark-ring" aria-hidden="true"></span>
+        <span class="boot-mark-ring boot-mark-ring--2" aria-hidden="true"></span>
+        <img class="boot-splash-mark" src="/images/logo.png" alt="" width="60" height="60" />
+      </div>
+      <div class="boot-splash-brand">EvoFlow</div>
+      <p class="boot-splash-tagline">用对话驱动工作：不会点界面也没关系，交给 AI 就行</p>
+      <div class="boot-splash-bar"><span></span></div>
+      <div class="boot-splash-sub">正在启动</div>
+    </div>
+
+    <aside class="boot-guide" aria-label="平台简介">
+      <span class="boot-guide__live"><span class="boot-guide__live-dot" aria-hidden="true"></span>平台简介</span>
+      <h2 class="boot-guide__title">EvoFlow：用 AI 帮你干活的工作平台</h2>
+      <p class="boot-guide__lead">
+        记待办、派任务、跑工作流，也可以养「智能体员工」帮你执行。
+        跟 AI 说说你要做什么，它就能在对应模块里帮你创建和管理。
+      </p>
+
+      <div class="boot-guide__grid">
+        <div class="boot-guide__col">
+          <div class="boot-guide__section">
+            <p class="boot-guide__label">有哪些功能模块</p>
+            <div class="boot-guide__tags">
+              <span class="boot-guide__tag">任务中心</span>
+              <span class="boot-guide__tag">我的事项</span>
+              <span class="boot-guide__tag">工作流</span>
+              <span class="boot-guide__tag">智能体</span>
+              <span class="boot-guide__tag">智能体员工</span>
+              <span class="boot-guide__tag">知识库</span>
+              <span class="boot-guide__tag">自动化</span>
+              <span class="boot-guide__tag">扩展应用</span>
+            </div>
+          </div>
+          <div class="boot-guide__section">
+            <p class="boot-guide__label">怎么创建这些内容</p>
+            <ul class="boot-guide__list">
+              <li>打开<strong>小秘书小V</strong>，或使用<strong>超级助手</strong></li>
+              <li>用平常说话的方式告诉它，例如：「帮我记一条待办」「雇佣一个智能体员工」</li>
+              <li>它会帮你创建好；你再到对应页面里查看结果即可</li>
+            </ul>
+          </div>
+          <p class="boot-guide__tip">
+            各个功能还不熟悉也没关系：记待办、派任务、搭工作流、雇员工等，都可以直接跟「小秘书小V」说。页面用来看进度和结果。
+          </p>
+        </div>
+
+        <div class="boot-guide__col">
+          <div class="boot-guide__section">
+            <p class="boot-guide__label">每个模块干什么</p>
+            <ul class="boot-guide__list">
+              <li><strong>任务中心 / 我的事项</strong>：记待办、看协作进度、把事派给员工</li>
+              <li><strong>工作流</strong>：把多步骤工作串起来，让系统按流程自动跑</li>
+              <li><strong>智能体 / 智能体员工</strong>：你的 AI 同事，负责回答、执行、日常上班</li>
+              <li><strong>知识库</strong>：存资料、文档，让 AI 按你的材料来回答</li>
+              <li><strong>自动化</strong>：到点或满足条件就自动触发，不用人天天盯</li>
+              <li><strong>扩展应用</strong>：接入更多外部工具，扩展平台能力</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="app">
+    <aside id="app-shell-aside" aria-label="主导航"></aside>
+    <div id="main-col">
+      <div id="update-banner" class="update-banner update-banner-hidden"></div>
+      <div id="gw-banner" class="gw-banner gw-banner-hidden"></div>
+      <!-- 独立于 #content：路由切换时隐藏而不卸载 ChatApp，保持 SSE 与对话状态 -->
+      <div id="chat-persistent-host" hidden></div>
+      <main id="content"></main>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

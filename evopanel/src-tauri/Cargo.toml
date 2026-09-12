@@ -1,0 +1,48 @@
+[package]
+name = "evopanel"
+version = "1.0.0"
+edition = "2021"
+description = "EvoFlow 桌面端 — 面向长任务的原生 Agent Runtime 与控制平面"
+authors = ["EvovexAI"]
+repository = "https://github.com/EvovexAI/EvoFlow"
+homepage = "https://www.evovexai.com"
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+license-file = "../../LICENSE"
+
+[lib]
+name = "evopanel_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "evoflow"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = ["protocol-asset", "tray-icon", "image-png", "devtools", "macos-private-api"] }
+tauri-plugin-shell = "2.3"
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = { version = "2", features = ["rustls-tls"] }
+tauri-plugin-notification = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+chrono = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "gzip"], default-features = false }
+futures-util = "0.3"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+arboard = "3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+urlencoding = "2"
+url = "2"
+regex = "1"
+tokio = { version = "1", features = ["process", "time", "net", "io-util", "sync", "macros", "rt-multi-thread"] }

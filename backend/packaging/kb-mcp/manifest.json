@@ -1,0 +1,10 @@
+{
+  "ohs_package": "obsidian-hybrid-search@0.13.22",
+  "write_package": "obsidian-mcp-server@3.2.9",
+  "ohs_sha256": "508ded39cf75a367873f504c8622cce6c16f101053a1b3462404fd9e632b1413",
+  "write_sha256": "5db4343229085430ac3378badb9f45e25551131e90a504198671aaec0b0cc570",
+  "installed_at": "2026-07-27T02:44:33Z",
+  "node": "C:\\Program Files\\nodejs\\node.exe",
+  "installRoot": "D:\\dev\\github\\EvoFlow\\backend\\packaging\\kb-mcp",
+  "packaged": true
+}

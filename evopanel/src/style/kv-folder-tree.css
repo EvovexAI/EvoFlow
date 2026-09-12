@@ -1,0 +1,335 @@
+/* Shared folder browse tree — same look as knowledge vault BrowsePanel */
+
+:root,
+[data-theme='light'] {
+  --kv-border: var(--border-primary, rgba(0, 0, 0, 0.08));
+  --kv-text: var(--text-primary, #18181b);
+  --kv-muted: var(--text-secondary, #52525b);
+  --kv-purple: var(--accent, #6366f1);
+  --kv-hover-bg: var(--accent-muted, rgba(99, 102, 241, 0.1));
+  --kv-note-bg: var(--bg-primary, #f8f9fb);
+  --kv-radius-sm: 8px;
+  --kv-input-bg: var(--bg-primary, #f8f9fb);
+  --kv-focus-border: color-mix(in srgb, var(--accent, #6366f1) 55%, transparent);
+  --kv-focus-ring: color-mix(in srgb, var(--accent, #6366f1) 16%, transparent);
+}
+
+[data-theme='dark'],
+html.dark {
+  --kv-border: var(--border-primary, rgba(255, 255, 255, 0.1));
+  --kv-text: var(--text-primary, #f4f4f5);
+  --kv-muted: var(--text-secondary, #a1a1aa);
+  --kv-purple: var(--accent, #818cf8);
+  --kv-hover-bg: var(--accent-muted, rgba(129, 140, 248, 0.14));
+  --kv-note-bg: var(--bg-secondary, #18181b);
+  --kv-input-bg: var(--bg-tertiary, #27272a);
+}
+
+.kv-folder-tree-host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  gap: 8px;
+}
+
+.kv-folder-tree-host .kv-browse-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+.kv-folder-tree-host .kv-browse-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kv-folder-tree-host .kv-browse-filter {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--kv-border);
+  border-radius: var(--kv-radius-sm);
+  background: var(--kv-input-bg);
+  color: var(--kv-muted);
+}
+
+.kv-folder-tree-host .kv-browse-filter:focus-within {
+  border-color: var(--kv-focus-border);
+  box-shadow: 0 0 0 3px var(--kv-focus-ring);
+}
+
+.kv-folder-tree-host .kv-browse-filter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--kv-text);
+  font-size: 13px;
+}
+
+.kv-folder-tree-host .kv-browse-filter input::placeholder {
+  color: var(--kv-muted);
+}
+
+.kv-folder-tree-host .kv-browse-filter__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--kv-muted);
+  cursor: pointer;
+}
+
+.kv-folder-tree-host .kv-browse-filter__clear:hover {
+  color: var(--kv-text);
+  background: var(--kv-hover-bg);
+}
+
+.kv-folder-tree-host .kv-browse-refresh,
+.kv-folder-tree-host .kv-browse-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--kv-border);
+  border-radius: var(--kv-radius-sm);
+  background: var(--kv-input-bg);
+  color: var(--kv-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.kv-folder-tree-host .kv-browse-refresh:hover:not(:disabled),
+.kv-folder-tree-host .kv-browse-action:hover:not(:disabled) {
+  color: var(--kv-text);
+  background: var(--kv-hover-bg);
+}
+
+.kv-folder-tree-host .kv-browse-refresh:disabled,
+.kv-folder-tree-host .kv-browse-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.kv-folder-tree-host .kv-browse-meta {
+  font-size: 11px;
+  color: var(--kv-muted);
+  line-height: 1.4;
+}
+
+.kv-folder-tree-host .kv-browse-meta--inline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.kv-folder-tree-host .kv-browse-meta-path {
+  flex-shrink: 0;
+}
+
+.kv-folder-tree-host .kv-browse-meta-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kv-folder-tree-host .kv-browse-tree {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  border: 1px solid var(--kv-border);
+  border-radius: var(--kv-radius-sm);
+  background: var(--kv-note-bg);
+  padding: 8px 0;
+}
+
+.kv-folder-tree-host .kv-tree-folder-head,
+.kv-folder-tree-host .kv-tree-file {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 5px 10px 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--kv-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.kv-folder-tree-host .kv-tree-folder-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 6px 0 0;
+  box-sizing: border-box;
+}
+
+.kv-folder-tree-host .kv-tree-folder-row:hover,
+.kv-folder-tree-host .kv-tree-folder-row:hover .kv-tree-folder-head {
+  background: var(--kv-hover-bg);
+}
+
+.kv-folder-tree-host .kv-tree-folder-row .kv-tree-folder-head {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 8px 5px 2px;
+  width: auto;
+}
+
+.kv-folder-tree-host .kv-tree-expand {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  /* Explicit contrast — --kv-muted can wash out on glass panels */
+  color: #64748b;
+  opacity: 1;
+  cursor: pointer;
+  line-height: 0;
+}
+
+[data-theme='dark'] .kv-folder-tree-host .kv-tree-expand,
+html.dark .kv-folder-tree-host .kv-tree-expand {
+  color: #cbd5e1;
+}
+
+.kv-folder-tree-host .kv-tree-expand:hover {
+  background: color-mix(in srgb, var(--kv-purple) 14%, transparent);
+  color: var(--kv-text, #0f172a);
+}
+
+.kv-folder-tree-host .kv-tree-expand .kv-icon,
+.kv-folder-tree-host .kv-tree-expand .kv-icon--caret {
+  display: block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: inherit;
+  fill: currentColor;
+  opacity: 1;
+}
+
+.kv-folder-tree-host .kv-icon {
+  flex-shrink: 0;
+  display: block;
+  color: inherit;
+  opacity: 1;
+}
+
+.kv-folder-tree-host .kv-tree-folder-head .kv-icon,
+.kv-folder-tree-host .kv-tree-file .kv-icon {
+  color: var(--kv-muted, #64748b);
+  stroke: currentColor;
+}
+
+.kv-folder-tree-host .kv-tree-folder-head:hover,
+.kv-folder-tree-host .kv-tree-file:hover {
+  background: var(--kv-hover-bg);
+}
+
+.kv-folder-tree-host .kv-tree-file.is-selected,
+.kv-folder-tree-host .kv-tree-file.is-previewing {
+  background: color-mix(in srgb, var(--kv-purple) 10%, var(--kv-hover-bg));
+  border-left: 2px solid var(--kv-purple);
+}
+
+.kv-folder-tree-host .kv-tree-file.is-attached {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kv-purple) 28%, transparent);
+}
+
+.kv-folder-tree-host .kv-tree-file.is-focused,
+.kv-folder-tree-host .kv-tree-folder-row.is-focused,
+.kv-folder-tree-host .kv-tree-folder-head.is-focused {
+  outline: 1px solid color-mix(in srgb, var(--kv-purple) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.kv-folder-tree-host .kv-tree-folder-head.is-open,
+.kv-folder-tree-host .kv-tree-folder-row.is-open .kv-tree-folder-head {
+  color: var(--kv-text);
+}
+
+.kv-folder-tree-host .kv-tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.kv-folder-tree-host .kv-tree-label-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--kv-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-folder-tree-host .kv-tree-count,
+.kv-folder-tree-host .kv-tree-meta {
+  color: var(--kv-muted);
+  font-size: 11px;
+  margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.kv-folder-tree-host .kv-tree-attach {
+  margin-left: 4px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--kv-purple);
+}
+
+.kv-folder-tree-host .kv-empty-inline {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--kv-muted);
+  text-align: center;
+}
+
+.kv-folder-tree-host .kv-browse-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

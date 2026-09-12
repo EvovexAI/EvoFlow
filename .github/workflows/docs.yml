@@ -1,0 +1,37 @@
+name: Docs
+
+# 暂时关闭 push/PR 自动触发；需要时手动 workflow_dispatch
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main, master]
+  # pull_request:
+
+jobs:
+  mkdocs-and-openapi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync backend (for OpenAPI export)
+        working-directory: backend
+        run: uv sync
+
+      - name: Regenerate Gateway OpenAPI
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: uv run python ../scripts/docs/export_gateway_openapi.py
+
+      - name: Install MkDocs
+        run: pip install -r requirements-docs.txt
+
+      - name: MkDocs strict build
+        run: mkdocs build --strict

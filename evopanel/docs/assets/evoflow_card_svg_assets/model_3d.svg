@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="g" x1="36" y1="24" x2="220" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="256" height="256" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#7391C8" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <defs><linearGradient id="p" x1="56" y1="48" x2="210" y2="210"><stop stop-color="#C084FC"/><stop offset="1" stop-color="#818CF8"/></linearGradient></defs><ellipse cx="128" cy="201" rx="76" ry="20" fill="#C084FC" opacity=".13"/><rect x="76" y="76" width="104" height="104" rx="28" fill="url(#p)"/><path d="M104 58v26M128 58v26M152 58v26M104 198v-26M128 198v-26M152 198v-26M58 104h26M58 128h26M58 152h26M198 104h-26M198 128h-26M198 152h-26" stroke="url(#p)" stroke-width="12" stroke-linecap="round"/><path d="M106 128h44M128 106v44" stroke="#fff" stroke-width="12" stroke-linecap="round"/>
+</svg>

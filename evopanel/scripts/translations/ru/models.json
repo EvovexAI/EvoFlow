@@ -1,0 +1,21 @@
+{
+  "title": "Настройка моделей",
+  "desc": "Управление провайдерами и моделями ИИ",
+  "addProvider": "+ Добавить провайдера",
+  "noProviders": "Нет провайдеров",
+  "providerName": "Имя провайдера",
+  "baseUrl": "Base URL",
+  "apiKey": "API Key",
+  "models": "Модели",
+  "addModel": "Добавить модель",
+  "saveProvider": "Сохранить",
+  "testConnection": "Проверить подключение",
+  "testing": "Проверка...",
+  "testSuccess": "Подключение успешно",
+  "testFailed": "Ошибка подключения",
+  "fetchModels": "Получить список моделей",
+  "primaryModel": "Основная модель",
+  "enabled": "Включено",
+  "disabled": "Отключено",
+  "loadFailed": "Ошибка загрузки настроек"
+}

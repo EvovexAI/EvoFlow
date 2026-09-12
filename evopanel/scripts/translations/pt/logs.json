@@ -1,0 +1,16 @@
+﻿{
+  "title": "Logs",
+  "desc": "Ver logs do serviço EvoPanel",
+  "tabGateway": "Gateway",
+  "tabGatewayErr": "Erros Gateway",
+  "tabGuardian": "Guardian",
+  "tabBackup": "Backup",
+  "tabAudit": "Auditoria",
+  "searchPlaceholder": "Pesquisar...",
+  "autoScroll": "Rolagem auto",
+  "loading": "Carregando...",
+  "empty": "Sem logs",
+  "loadFailed": "Falha ao carregar",
+  "noResults": "Sem resultados",
+  "searchFailed": "Pesquisa falhou"
+}

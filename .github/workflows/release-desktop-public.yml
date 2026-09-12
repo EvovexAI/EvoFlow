@@ -1,0 +1,24 @@
+# Public repo: tag v* or dispatch → build Windows + macOS and publish Release assets.
+name: Release EvoFlow Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-public-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-windows:
+    uses: ./.github/workflows/release-windows-public.yml
+    secrets: inherit
+
+  release-macos:
+    uses: ./.github/workflows/release-macos-public.yml
+    secrets: inherit

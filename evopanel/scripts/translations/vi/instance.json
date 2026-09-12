@@ -1,0 +1,11 @@
+{
+  "local": "Cục bộ",
+  "remote": "Từ xa",
+  "docker": "Docker",
+  "addInstance": "Thêm instance",
+  "addRemote": "Thêm instance từ xa",
+  "nameLabel": "Tên",
+  "endpointLabel": "Địa chỉ panel",
+  "adding": "Đang thêm...",
+  "current": "Hiện tại"
+}

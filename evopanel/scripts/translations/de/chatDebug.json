@@ -1,0 +1,16 @@
+{
+  "title": "Systemdiagnose",
+  "desc": "WebSocket-Verbindungsdiagnose und Netzwerk-Debugging",
+  "wsStatus": "WebSocket-Status",
+  "wsConnect": "Verbinden",
+  "wsDisconnect": "Trennen",
+  "wsConnected": "Verbunden",
+  "wsDisconnected": "Nicht verbunden",
+  "wsConnecting": "Verbindung wird hergestellt...",
+  "wsError": "WebSocket-Fehler",
+  "networkLogTitle": "Netzwerkanfrage-Protokoll",
+  "noRequests": "Keine Anfragen",
+  "totalRequests": "Gesamte Anfragen",
+  "fixStarting": "Reparatur wird gestartet...",
+  "fixFailed": "Reparatur fehlgeschlagen"
+}

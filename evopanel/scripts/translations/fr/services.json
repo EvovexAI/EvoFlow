@@ -1,0 +1,21 @@
+﻿{
+  "title": "Gestion des services",
+  "desc": "Démarrer, arrêter et surveiller les services EvoPanel",
+  "gatewayTitle": "Service Gateway",
+  "guardianTitle": "Service Guardian",
+  "status": "Statut",
+  "pid": "PID",
+  "uptime": "Temps de fonctionnement",
+  "host": "Hôte",
+  "start": "Démarrer",
+  "stop": "Arrêter",
+  "restart": "Redémarrer",
+  "forceKill": "Forcer la fermeture",
+  "starting": "Démarrage...",
+  "stopping": "Arrêt...",
+  "restarting": "Redémarrage...",
+  "loadFail": "Échec du chargement du statut",
+  "healthCheck": "Vérification de santé",
+  "healthOk": "Fonctionne normalement",
+  "healthFail": "Pas de réponse"
+}

@@ -1,0 +1,17 @@
+{
+  "title": "Память",
+  "desc": "Управление файлами памяти агента",
+  "noFiles": "Нет файлов",
+  "view": "Просмотр",
+  "download": "Скачать",
+  "delete": "Удалить",
+  "upload": "Загрузить",
+  "uploading": "Загрузка...",
+  "uploaded": "Загружено",
+  "uploadFailed": "Ошибка загрузки",
+  "deleted": "Удалено",
+  "deleteFailed": "Ошибка удаления",
+  "loadFailed": "Ошибка загрузки",
+  "selectAgent": "Выбрать агента",
+  "searchPlaceholder": "Поиск..."
+}

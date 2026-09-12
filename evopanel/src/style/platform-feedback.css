@@ -1,0 +1,406 @@
+/* 平台行政操作反馈面板 */
+.react-chat-platform-feedback-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  align-self: stretch;
+  border-left: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-secondary, #f8fafc);
+  overflow: hidden;
+  max-width: min(360px, 34vw);
+  min-width: min(280px, 32vw);
+}
+
+.react-chat-platform-feedback-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.react-chat-platform-feedback-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.react-chat-platform-feedback-status--success {
+  background: transparent;
+  color: var(--success, #26875a);
+}
+
+.react-chat-platform-feedback-status--warning {
+  background: color-mix(in srgb, var(--warning, #d97706) 16%, transparent);
+  color: var(--warning, #d97706);
+}
+
+.react-chat-platform-feedback-status--error {
+  background: color-mix(in srgb, var(--error, #dc2626) 16%, transparent);
+  color: var(--error, #dc2626);
+}
+
+.react-chat-platform-feedback-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 14px;
+}
+
+.react-chat-platform-feedback-card {
+  border: 1px solid #e7e8ec;
+  border-radius: 10px;
+  background: #fafafb;
+  padding: 10px 12px;
+  box-shadow: none;
+}
+
+.react-chat-platform-feedback-card--warning {
+  border-color: color-mix(in srgb, var(--warning, #b7791f) 28%, #e7e8ec);
+}
+
+.react-chat-platform-feedback-domain {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-tertiary, #9297a0);
+  margin-bottom: 4px;
+}
+
+.react-chat-platform-feedback-title {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-primary, #202124);
+}
+
+.react-chat-platform-feedback-subtitle {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #64748b);
+}
+
+.react-chat-platform-feedback-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.react-chat-platform-feedback-details {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.react-chat-platform-feedback-details li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-tertiary, #f1f5f9);
+  font-size: 11px;
+}
+
+.react-chat-platform-feedback-details-label {
+  color: var(--text-tertiary, #94a3b8);
+}
+
+.react-chat-platform-feedback-details-value {
+  color: var(--text-secondary, #475569);
+  font-weight: 500;
+}
+
+.react-chat-platform-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.react-chat-platform-feedback-action {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--accent, #5b5fef) 24%, var(--border, #e5e7eb));
+  background: color-mix(in srgb, var(--accent, #5b5fef) 8%, transparent);
+  color: var(--accent-hover, #4f53dd);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.react-chat-platform-feedback-action:hover {
+  background: color-mix(in srgb, var(--accent, #5b5fef) 14%, transparent);
+}
+
+.react-chat-platform-feedback-action--muted {
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-secondary, #64748b);
+  border-color: var(--border, #e5e7eb);
+}
+
+.react-chat-main-body.is-platform-feedback-open .react-chat-platform-feedback-panel {
+  width: var(--chat-right-panel-width, 300px);
+}
+
+/* 本轮结果：产物 | 平台 tabs */
+.react-chat-run-outcomes-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.react-chat-run-outcomes-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--bg-tertiary, #eef2f7);
+}
+
+.react-chat-run-outcomes-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.react-chat-run-outcomes-tab.is-active {
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #0f172a);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.react-chat-platform-run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.react-chat-platform-run-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 9px;
+  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 88%, transparent);
+  border-radius: 10px;
+  background: var(--bg-card, #fff);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.react-chat-platform-run-card--success {
+  border-left: 3px solid var(--success, #16a34a);
+  border-left-color: var(--success, #16a34a);
+}
+
+.react-chat-platform-run-card--warning {
+  border-left: 3px solid var(--warning, #d97706);
+  border-left-color: var(--warning, #d97706);
+}
+
+.react-chat-platform-run-card--error {
+  border-left: 3px solid var(--error, #dc2626);
+  border-left-color: var(--error, #dc2626);
+}
+
+.react-chat-platform-run-card.is-active {
+  background: color-mix(in srgb, var(--accent, #5b5fef) 5%, var(--bg-card, #fff));
+  border-top-color: color-mix(in srgb, var(--accent, #5b5fef) 28%, var(--border, #e5e7eb));
+  border-right-color: color-mix(in srgb, var(--accent, #5b5fef) 28%, var(--border, #e5e7eb));
+  border-bottom-color: color-mix(in srgb, var(--accent, #5b5fef) 28%, var(--border, #e5e7eb));
+}
+
+.react-chat-platform-run-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.react-chat-platform-run-card-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.react-chat-platform-run-time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-secondary, #64748b);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.react-chat-platform-run-domain {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary, #f1f5f9);
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.react-chat-platform-run-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.react-chat-platform-run-subtitle {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.react-chat-platform-run-action {
+  appearance: none;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--accent, #5b5fef) 24%, var(--border, #e5e7eb));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #5b5fef) 8%, transparent);
+  color: var(--accent-hover, #4f53dd);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  padding: 4px 10px;
+}
+
+.react-chat-platform-run-action:hover {
+  background: color-mix(in srgb, var(--accent, #5b5fef) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent, #5b5fef) 36%, var(--border, #e5e7eb));
+}
+
+/* ========== 深色模式 ========== */
+html[data-theme='dark'] .react-chat-platform-feedback-panel {
+  background: var(--bg-secondary);
+  border-left-color: var(--border-primary);
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] .react-chat-platform-feedback-card {
+  background: var(--bg-tertiary);
+  border-color: var(--border-primary);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .react-chat-platform-run-card {
+  background: var(--bg-tertiary);
+  border-top-color: var(--border-primary);
+  border-right-color: var(--border-primary);
+  border-bottom-color: var(--border-primary);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .react-chat-platform-run-card--success {
+  border-left-color: var(--success, #16a34a);
+}
+
+html[data-theme='dark'] .react-chat-platform-run-card--warning {
+  border-left-color: var(--warning, #d97706);
+}
+
+html[data-theme='dark'] .react-chat-platform-run-card--error {
+  border-left-color: var(--error, #dc2626);
+}
+
+html[data-theme='dark'] .react-chat-platform-run-card.is-active {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+  border-top-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
+  border-right-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
+  border-bottom-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
+}
+
+html[data-theme='dark'] .react-chat-run-outcomes-tabs {
+  background: var(--bg-tertiary);
+}
+
+html[data-theme='dark'] .react-chat-run-outcomes-tab.is-active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+html[data-theme='dark'] .react-chat-platform-feedback-action {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border-primary));
+  color: var(--accent);
+}
+
+html[data-theme='dark'] .react-chat-platform-feedback-action:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+html[data-theme='dark'] .react-chat-platform-feedback-action--muted {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-color: var(--border-primary);
+}
+
+html[data-theme='dark'] .react-chat-platform-feedback-details li,
+html[data-theme='dark'] .react-chat-platform-run-domain {
+  background: var(--bg-secondary);
+}
+
+html[data-theme='dark'] .react-chat-info-rail-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+/* 液态玻璃 + 深色：产物/平台右栏透明，避免白底 */
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-panel,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-artifacts-panel.react-chat-right-stage-panel {
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-card,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-body,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-info-rail-body {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-card,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card {
+  background: color-mix(in srgb, var(--bg-tertiary) 68%, transparent) !important;
+  border-color: var(--border-primary) !important;
+}

@@ -1,0 +1,23 @@
+﻿{
+  "title": "Gateway",
+  "desc": "EvoPanel Gateway ìë¹ì?ì¤ì  ë°?ê´ë¦?,
+  "status": "ìí",
+  "running": "ì¤í ì¤?,
+  "stopped": "ì¤ì§ë?,
+  "host": "í¸ì¤í?,
+  "authMode": "ì¸ì¦ ëª¨ë",
+  "controlUI": "Control UI",
+  "saveConfig": "ì¤ì  ì ì?,
+  "saving": "ì ì?ì¤?..",
+  "saved": "Gateway ì¤ì  ì ì¥ë¨",
+  "saveFailed": "ì ì?ì¤í¨",
+  "restartRequired": "ë³ê²?ì¬í­ì?ì ì©íë ¤ë©?Gateway ì¬ììì´ íìí©ëë?,
+  "restartNow": "ì§ê¸?ì¬ìì?,
+  "configLoadFail": "Gateway ì¤ì  ë¡ë ì¤í¨",
+  "pairingTitle": "ëë°ì´ì¤ íì´ë§?,
+  "pairedDevices": "íì´ë§ë ëë°ì´ì¤",
+  "noPairedDevices": "íì´ë§ë ëë°ì´ì¤ ìì",
+  "removePairing": "íì´ë§?í´ì ",
+  "pairingRemoved": "íì´ë§?í´ì ë?,
+  "refreshPairing": "ìë¡ê³ ì¹¨"
+}

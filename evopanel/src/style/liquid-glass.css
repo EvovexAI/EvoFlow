@@ -1,0 +1,1372 @@
+/* EvoFlow ????????????????????? + ?????????? + ????????
+ * data-translucent-ui=1??????????????????????????????????appearance-background.js ????? */
+:root {
+  --ef-glass-blur: 12px;
+  --ef-glass-saturate: 1.28;
+  --ef-glass-brightness: 1;
+  --ef-lg-readability-dim: 0.36;
+  --ef-lg-bubble-fill: calc(24% + var(--ef-lg-readability-dim) * 58%);
+  --ef-glass-surface: color-mix(in srgb, var(--bg-primary) 5%, transparent);
+  --ef-glass-surface-strong: color-mix(in srgb, var(--bg-secondary) 9%, transparent);
+  --ef-glass-border: color-mix(in srgb, var(--text-primary) 8%, var(--border-primary));
+  --ef-glass-highlight: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --ef-glass-rim: color-mix(in srgb, var(--accent) 22%, transparent);
+  --ef-glass-shadow: 0 12px 40px color-mix(in srgb, #000 14%, transparent);
+  --ef-composer-surface: color-mix(in srgb, var(--bg-secondary) 22%, transparent);
+  --ef-composer-surface-focus: color-mix(in srgb, var(--bg-secondary) 28%, transparent);
+  --ef-composer-input-scrim: color-mix(in srgb, var(--bg-primary) 34%, transparent);
+}
+
+[data-theme='dark'],
+html[data-theme='dark'] {
+  --ef-glass-brightness: 0.9;
+  --ef-glass-saturate: 1.15;
+  --ef-glass-surface: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  --ef-glass-surface-strong: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  --ef-glass-border: color-mix(in srgb, var(--text-primary) 10%, var(--border-primary));
+  --ef-glass-highlight: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  --ef-glass-shadow: 0 12px 40px color-mix(in srgb, #000 52%, transparent);
+  --ef-composer-surface: color-mix(
+    in srgb,
+    var(--bg-secondary) calc(52% + var(--ef-lg-readability-dim) * 30%),
+    transparent
+  );
+  --ef-composer-surface-focus: color-mix(
+    in srgb,
+    var(--bg-secondary) calc(58% + var(--ef-lg-readability-dim) * 34%),
+    transparent
+  );
+  --ef-composer-input-scrim: color-mix(
+    in srgb,
+    var(--bg-primary) calc(46% + var(--ef-lg-readability-dim) * 26%),
+    transparent
+  );
+}
+
+#evopanel-app-wallpaper #ef-fluid-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+html[data-translucent-ui='1'] #evopanel-app-wallpaper {
+  display: block !important;
+}
+
+html[data-translucent-ui='1']:not([data-custom-bg='1']) #evopanel-app-wallpaper::before {
+  opacity: 0;
+  background-image: none;
+}
+
+html[data-translucent-ui='1'] body {
+  background: transparent;
+}
+
+html[data-translucent-ui='1'] #app {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+html[data-translucent-ui='1'] #main-col,
+html[data-translucent-ui='1'] #content,
+html[data-translucent-ui='1'] #chat-persistent-host,
+html[data-translucent-ui='1'] #react-chat-root,
+html[data-translucent-ui='1'] .chat-react-full,
+html[data-translucent-ui='1'] .react-chat-workspace,
+html[data-translucent-ui='1'] .react-chat-workspace--no-aside,
+html[data-translucent-ui='1'] .react-chat-main-col,
+html[data-translucent-ui='1'] .react-chat-main-body,
+html[data-translucent-ui='1'] .react-chat-messages-wrap,
+html[data-translucent-ui='1'] .react-chat-root {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+/* ???????????????????? */
+html[data-translucent-ui='1'] .tauri-main-chrome {
+  background: var(--ef-glass-surface) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-bottom: 1px solid var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .tauri-chrome-guide-btn,
+html[data-translucent-ui='1'] .ep-window-controls-btn {
+  color: var(--text-secondary);
+}
+
+html[data-translucent-ui='1'] .tauri-chrome-guide-btn:hover,
+html[data-translucent-ui='1'] .ep-window-controls-btn:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .tauri-main-chrome {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+/* Layer 1??? ? ???? */
+html[data-translucent-ui='1'] #app-shell-aside,
+html[data-translucent-ui='1'] #app-shell-aside.shell-aside-host,
+html[data-translucent-ui='1'] .shell-aside-host,
+html[data-translucent-ui='1'] .react-chat-session-aside,
+html[data-translucent-ui='1'] .mobile-topbar {
+  background: var(--ef-glass-surface) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-history-search {
+  background: color-mix(in srgb, var(--bg-primary) 28%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.75)) saturate(1.2);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.75)) saturate(1.2);
+  box-shadow: none !important;
+  border: 1px solid var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-history-item.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* ????????????????????? */
+html[data-translucent-ui='1'] .react-chat-session-aside,
+html[data-translucent-ui='1'] #app-shell-aside.shell-aside-host,
+html[data-translucent-ui='1'] .shell-aside-host {
+  --shell-text: var(--text-primary);
+  --shell-text-body: var(--text-primary);
+  --shell-text-muted: var(--text-primary);
+  --shell-text-weak: var(--text-primary);
+  --shell-brand-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+html[data-translucent-ui='1'] .react-chat-history-item-time,
+html[data-translucent-ui='1'] .react-chat-history-item-meta,
+html[data-translucent-ui='1'] .react-chat-history-item-meta.is-live,
+html[data-translucent-ui='1'] .react-chat-history-item.active .react-chat-history-item-meta,
+html[data-translucent-ui='1'] .react-chat-history-item.active .react-chat-history-item-meta.is-live {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-history-item {
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .react-chat-history-item-title {
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .react-chat-session-type-ic {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-session-type-ic.is-active,
+html[data-translucent-ui='1'] .react-chat-session-type-ic.is-running {
+  color: var(--accent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-nav-ic,
+html[data-translucent-ui='1'] .react-chat-aside-nav-item,
+html[data-translucent-ui='1'] .react-chat-aside-nav-label,
+html[data-translucent-ui='1'] .react-chat-aside-version,
+html[data-translucent-ui='1'] .react-chat-aside-footer-btn,
+html[data-translucent-ui='1'] .react-chat-aside-icon-btn,
+html[data-translucent-ui='1'] .shell-aside-notify-mount,
+html[data-translucent-ui='1'] .shell-aside-notify-mount .session-notify-bell,
+html[data-translucent-ui='1'] .shell-aside-notify-mount .react-chat-toggle-sidebar-btn {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-nav-item.active .react-chat-aside-nav-ic {
+  color: var(--accent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-header-share-btn,
+html[data-translucent-ui='1'] .react-chat-header-panel-btn,
+html[data-translucent-ui='1'] .react-chat-header-metrics,
+html[data-translucent-ui='1'] .react-chat-header-metrics .react-chat-tokens,
+html[data-translucent-ui='1'] .react-chat-tokens {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-agent-profile-bio,
+html[data-translucent-ui='1'] .react-chat-agent-profile-meta {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] #app-shell-aside.react-chat-session-aside,
+html[data-translucent-ui='1'] .react-chat-session-aside.shell-aside-host {
+  --shell-bg: transparent;
+  --shell-bg-elevated: color-mix(in srgb, var(--bg-card) 58%, transparent);
+  --shell-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --shell-brand-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --shell-border: color-mix(in srgb, var(--ef-glass-border) 42%, transparent);
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-history,
+html[data-translucent-ui='1'] .react-chat-aside-history-head,
+html[data-translucent-ui='1'] .react-chat-session-list,
+html[data-translucent-ui='1'] .react-chat-session-list > li,
+html[data-translucent-ui='1'] .react-chat-session-pinned-block,
+html[data-translucent-ui='1'] .react-chat-session-pinned-list,
+html[data-translucent-ui='1'] .react-chat-session-recent-block,
+html[data-translucent-ui='1'] .react-chat-session-recent-list,
+html[data-translucent-ui='1'] .react-chat-session-workspace-group,
+html[data-translucent-ui='1'] .react-chat-session-workspace-sessions,
+html[data-translucent-ui='1'] .react-chat-history-item {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-session-workspace-head-row,
+html[data-translucent-ui='1'] .react-chat-session-workspace-head-row::before,
+html[data-translucent-ui='1'] .react-chat-session-workspace-head-row::after {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ???????????????????? + ???? */
+html[data-translucent-ui='1'] .shell-aside-nav-divider {
+  height: 1px;
+  margin: 10px 14px 10px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+html[data-translucent-ui='1'] #shell-chat-panel,
+html[data-translucent-ui='1'] .shell-aside-recent,
+html[data-translucent-ui='1'] .react-chat-aside-primary,
+html[data-translucent-ui='1'] .react-chat-aside-footer,
+html[data-translucent-ui='1'] .react-chat-aside-toolbar {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-history-item:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 28%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-nav-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-nav-item.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .shell-aside-new-chat-btn {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 92%, transparent),
+    color-mix(in srgb, var(--accent-secondary) 88%, transparent)
+  ) !important;
+  color: var(--text-inverse) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent) !important;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 26%, transparent);
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.5)) saturate(1.15);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.5)) saturate(1.15);
+}
+
+html[data-translucent-ui='1'] .shell-aside-new-chat-btn:hover {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent-hover) 96%, transparent),
+    color-mix(in srgb, var(--accent-secondary) 90%, transparent)
+  ) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-session-workspace-head-row {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-session-workspace-head-row:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 20%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-conversation-col {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ???? / ?????????????? */
+html[data-translucent-ui='1'] .react-chat-info-rail,
+html[data-translucent-ui='1'] .react-chat-workspace-panel,
+html[data-translucent-ui='1'] .react-chat-right-stage-panel,
+html[data-translucent-ui='1'] .react-chat-collab-exec-panel,
+html[data-translucent-ui='1'] .react-chat-knowledge-map-panel,
+html[data-translucent-ui='1'] .react-chat-browser-panel,
+html[data-translucent-ui='1'] .react-chat-artifacts-panel,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-panel {
+  background: var(--ef-glass-surface) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.85)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.85)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-info-rail-header,
+html[data-translucent-ui='1'] .react-chat-right-stage-header,
+html[data-translucent-ui='1'] .react-chat-collab-exec-panel-header,
+html[data-translucent-ui='1'] .react-chat-workspace-panel-header {
+  background: transparent !important;
+  border-bottom-color: var(--ef-glass-border) !important;
+}
+
+/* Info Rail「资产沉淀」：玻璃态下勿用实心白底，否则字看不清 */
+html[data-translucent-ui='1'] .react-chat-asset-quick {
+  border-top-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-asset-quick-label,
+html[data-translucent-ui='1'] .react-chat-asset-quick-link {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-asset-quick-btn {
+  background: var(--ef-glass-surface-strong) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-asset-quick-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, var(--ef-glass-surface-strong)) !important;
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--ef-glass-border)) !important;
+  color: var(--accent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-asset-quick-link:hover {
+  color: var(--accent) !important;
+}
+
+/* ????????? */
+html[data-translucent-ui='1'] .knowledge-owned-page,
+html[data-translucent-ui='1'] .knowledge-vaults-page,
+html[data-translucent-ui='1'] #content > .page {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-glass,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-table-wrap,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-empty-hero,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-insight-card,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-kb-stat,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-data-list,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-stat-card,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-search-hero,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-rail-card,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-catalog,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-rail {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-header,
+html[data-translucent-ui='1'] .react-chat-header--tauri-chrome {
+  background: transparent !important;
+  border-bottom-color: var(--ef-glass-border);
+}
+
+/* ??????????? WebGL ??????????? AI ????????? */
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-steer-strip {
+  margin: 0;
+  padding: 10px 12px 10px !important;
+  background: color-mix(in srgb, var(--ef-composer-surface) 92%, var(--accent) 8%) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.08)) saturate(1.04)
+    brightness(var(--ef-glass-brightness, 1));
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.08)) saturate(1.04)
+    brightness(var(--ef-glass-brightness, 1));
+  border: 1px solid var(--ef-glass-border) !important;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
+  border-radius: 16px 16px 0 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-composer-stack.has-steer-strip .react-chat-bottom-area {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+  border-top: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-bottom-area {
+  margin: 0;
+  padding: 10px 12px 8px !important;
+  background: var(--ef-composer-surface) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.12)) saturate(1.06) brightness(var(--ef-glass-brightness, 1));
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.12)) saturate(1.06)
+    brightness(var(--ef-glass-brightness, 1));
+  border: 1px solid var(--ef-glass-border) !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-area {
+  isolation: auto;
+  margin-top: 0;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-area::before,
+html[data-translucent-ui='1'] .react-chat-bottom-area::after {
+  display: none !important;
+  content: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-area:hover {
+  background: var(--ef-composer-surface) !important;
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-area:focus-within {
+  background: var(--ef-composer-surface-focus) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--ef-glass-border)) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-area,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-area:hover {
+  background: var(--ef-composer-surface) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-area:focus-within {
+  background: var(--ef-composer-surface-focus) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--ef-glass-border)) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .msg-ai .msg-bubble {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .msg.msg-system.msg-system--hosted-callout .msg-bubble--system-callout {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent) !important;
+  border-color: var(--ef-glass-border);
+  box-shadow: none;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-dock {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-conversation-col > .react-chat-bottom-dock {
+  background: transparent !important;
+  padding-top: 8px;
+}
+
+html[data-translucent-ui='1'] .react-chat-input,
+html[data-translucent-ui='1'] .react-chat-input-wrap .react-chat-input {
+  background: transparent !important;
+}
+
+/* ?????????? + ??????????????????? */
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-input-wrap {
+  background: var(--ef-composer-input-scrim) !important;
+  border-radius: 10px;
+  padding: 2px 6px;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-input,
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-composer textarea.react-chat-input {
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary);
+  caret-color: var(--accent, var(--text-primary));
+  font-weight: 450;
+}
+
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-input::placeholder,
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-composer textarea.react-chat-input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 78%, transparent) !important;
+  -webkit-text-fill-color: color-mix(in srgb, var(--text-primary) 78%, transparent);
+  opacity: 1;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-input,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-composer textarea.react-chat-input {
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-input::placeholder,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-composer textarea.react-chat-input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 82%, transparent) !important;
+  -webkit-text-fill-color: color-mix(in srgb, var(--text-primary) 82%, transparent);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-bottom-dock .react-chat-input,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-bottom-dock .react-chat-composer textarea.react-chat-input {
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.55),
+    0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-bottom-dock .react-chat-input-wrap {
+  background: color-mix(
+    in srgb,
+    var(--bg-primary) calc(54% + var(--ef-lg-readability-dim) * 30%),
+    transparent
+  ) !important;
+}
+
+/* AI 回复无框贴底；系统 callout 仍可用轻 tint 区分 */
+html[data-translucent-ui='1'][data-liquid-glass='1'] .msg-ai .msg-bubble {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .msg.msg-system.msg-system--hosted-callout .msg-bubble--system-callout {
+  background: color-mix(in srgb, var(--bg-secondary) 22%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--ef-glass-border);
+  box-shadow: none;
+}
+
+html[data-translucent-ui='1'] .msg-user .msg-bubble,
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  background: color-mix(in srgb, var(--chat-user-bubble, #e8eaef) 82%, transparent) !important;
+  color: var(--chat-user-fg, var(--text-primary)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--chat-user-border, rgba(32, 33, 36, 0.08)) !important;
+  box-shadow: none;
+}
+
+html[data-translucent-ui='1'] .msg-user .msg-bubble *,
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble * {
+  color: var(--chat-user-fg, var(--text-primary)) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .msg-user .msg-bubble,
+html[data-theme='dark'][data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  background: color-mix(in srgb, var(--chat-user-bubble, #2f3033) 88%, transparent) !important;
+  color: var(--chat-user-fg, #e6e6e8) !important;
+  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.08)) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-main-col--home {
+  background-color: transparent !important;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-primary) 6%, transparent),
+    color-mix(in srgb, var(--bg-secondary) 4%, transparent)
+  ) !important;
+}
+
+html[data-translucent-ui='1'] .modal-overlay {
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 10px)) brightness(0.68) saturate(1.1);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 10px)) brightness(0.68) saturate(1.1);
+}
+
+html[data-translucent-ui='1'] .modal {
+  background: color-mix(in srgb, var(--bg-secondary) 48%, transparent);
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  border: 1px solid var(--ef-glass-border);
+  box-shadow: var(--ef-glass-shadow);
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] #evopanel-app-wallpaper::before {
+  z-index: 1;
+}
+
+/* WebGL ??????????? CSS ??? shader */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #evopanel-app-wallpaper::before {
+  opacity: 0 !important;
+  background-image: none !important;
+  pointer-events: none;
+}
+
+html[data-liquid-glass='1'][data-custom-bg='1'] #ef-fluid-canvas {
+  opacity: 0.5;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  html[data-translucent-ui='1'] .react-chat-session-aside {
+    background: var(--bg-secondary) !important;
+  }
+  html[data-translucent-ui='1'] .msg-ai .msg-bubble {
+    background: transparent !important;
+  }
+}
+
+/* WebGL ????????DOM ???????????/??? shader ?? */
+#evopanel-app-wallpaper #ef-glass-webgl-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  display: block;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #app-shell-aside,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #app-shell-aside.shell-aside-host,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .shell-aside-host,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-session-aside,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .mobile-topbar {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 55%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-conversation-col {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-bottom-dock .react-chat-bottom-area {
+  background: var(--ef-composer-surface) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.2)) saturate(1.04) brightness(0.94) !important;
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.2)) saturate(1.04) brightness(0.94) !important;
+  border: 1px solid var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-bottom-dock .react-chat-bottom-area {
+  background: var(--ef-composer-surface) !important;
+  border: 1px solid var(--ef-glass-border) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-bottom-area:focus-within {
+  background: var(--ef-composer-surface-focus) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-bottom-area::before,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-bottom-area::after {
+  display: none;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-aside-history-search {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-info-rail,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-workspace-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-right-stage-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-collab-exec-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-knowledge-map-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-browser-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-artifacts-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-platform-feedback-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-vaults-page,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content > .page {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .shell-aside-new-chat-btn {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 90%, transparent),
+    color-mix(in srgb, var(--accent-secondary) 86%, transparent)
+  ) !important;
+  color: var(--text-inverse) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent) !important;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 22%, transparent);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page .ko-glass,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page .ko-table-wrap,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page .ko-empty-hero,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page .ko-insight-card,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page .ko-kb-stat {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .modal-overlay {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: color-mix(in srgb, #000 35%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .modal {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 60%, transparent) !important;
+}
+
+/* Agent ?? / ???????????? */
+html[data-translucent-ui='1'] .react-chat-info-rail-body:has(.react-chat-agent-pane),
+html[data-translucent-ui='1'] .react-chat-info-rail-body:has(.react-chat-current-task-pane) {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-agent-cap-tab.is-active {
+  background: color-mix(in srgb, var(--bg-secondary) 42%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-agent-cap-list {
+  background: color-mix(in srgb, var(--bg-tertiary) 32%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-agent-cap-picker-search {
+  background: color-mix(in srgb, var(--bg-secondary) 38%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-text table,
+html[data-translucent-ui='1'] .msg-text table {
+  background: color-mix(in srgb, var(--bg-secondary) 26%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-text thead,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-text th,
+html[data-translucent-ui='1'] .msg-text thead {
+  background: color-mix(in srgb, var(--bg-tertiary) 38%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .msg-text tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--bg-tertiary) 22%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .msg-text .mermaid {
+  background: color-mix(in srgb, var(--bg-secondary) 30%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-text pre,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-text .md-code-block {
+  background: color-mix(in srgb, var(--bg-tertiary) 35%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+/* ???? / ???? Tab */
+html[data-translucent-ui='1'] .react-chat-aside-segment {
+  background: transparent !important;
+  border: 1px solid var(--ef-glass-border);
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-segment-btn:not(.is-active) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-segment-btn:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-segment-btn.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: none !important;
+  font-weight: 600 !important;
+}
+
+/* ?????? + ????????? / ???? */
+html[data-translucent-ui='1'] .react-chat-context-ring-panel {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-ctx-meter-compact-btn {
+  background: color-mix(in srgb, var(--bg-tertiary) 40%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-ctx-meter-compact-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--ef-glass-border)) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-ctx-meter-bar {
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-ctx-meter-count {
+  background: color-mix(in srgb, var(--text-secondary) 14%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-context-ring-panel {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-aside-segment {
+  background: transparent !important;
+  border: 1px solid var(--ef-glass-border) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .msg-ai .msg-bubble,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .msg.msg-system.msg-system--hosted-callout .msg-bubble--system-callout {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ???? / ?????????? UI */
+html[data-translucent-ui='1'] .react-chat-modal-overlay .react-chat-modal-card,
+html[data-translucent-ui='1'] .react-chat-modal-card--settings {
+  background: color-mix(in srgb, var(--bg-secondary) 52%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 4px)) saturate(1.2);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 4px)) saturate(1.2);
+  border: 1px solid var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+html[data-translucent-ui='1'] .settings-modal-root,
+html[data-translucent-ui='1'] .settings-modal-root .settings-layout--hub .settings-hub-main,
+html[data-translucent-ui='1'] .settings-modal-root .settings-layout--hub .settings-nav,
+html[data-translucent-ui='1'] .settings-panels {
+  background: color-mix(in srgb, var(--bg-secondary) 46%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.2);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.2);
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .settings-modal-root .config-section,
+html[data-translucent-ui='1'] .settings-modal-root .settings-modal-pane--general .config-section {
+  background: color-mix(in srgb, var(--bg-tertiary) 32%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .settings-modal-root .settings-panel-title,
+html[data-translucent-ui='1'] .settings-modal-root .config-section-title,
+html[data-translucent-ui='1'] .settings-modal-root .settings-nav-title,
+html[data-translucent-ui='1'] .settings-modal-root .form-label,
+html[data-translucent-ui='1'] .settings-modal-root .shortcut-row-label {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .settings-modal-root .form-hint,
+html[data-translucent-ui='1'] .settings-modal-root .settings-panel-desc,
+html[data-translucent-ui='1'] .settings-modal-root .shortcut-row-desc,
+html[data-translucent-ui='1'] .settings-modal-root .settings-nav-item {
+  color: var(--text-secondary) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-modal-overlay .react-chat-modal-card,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-modal-card--settings {
+  background: color-mix(in srgb, var(--bg-secondary) 38%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.15);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.15);
+  border: 1px solid var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+/* ???????? / ?? / ?? ? ??????????????? */
+html[data-translucent-ui='1'] .msg-run-progress-headline,
+html[data-translucent-ui='1'] .msg-run-progress-stats-row,
+html[data-translucent-ui='1'] .msg-run-progress-step,
+html[data-translucent-ui='1'] .msg-tool-activity-fold-tech-head,
+html[data-translucent-ui='1'] .msg-tool-activity-fold-tech-head .msg-tool-activity-fold-tools,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-toggle,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-meta,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-tools,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .react-chat-inline-reasoning-toggle,
+html[data-translucent-ui='1'] .react-chat-inline-reasoning-preview,
+html[data-translucent-ui='1'] .react-chat-inline-reasoning-md,
+html[data-translucent-ui='1'] .react-chat-inline-reasoning-text,
+html[data-translucent-ui='1'] .msg-tool-activity-fold-steps,
+html[data-translucent-ui='1'] .react-msg-tool .msg-tool-elapsed,
+html[data-translucent-ui='1'] .msg-run-progress-tip,
+html[data-translucent-ui='1'] .react-chat-info-rail-row-label,
+html[data-translucent-ui='1'] .react-chat-info-rail-empty,
+html[data-translucent-ui='1'] .react-chat-ctx-meter-headline,
+html[data-translucent-ui='1'] .react-chat-ctx-meter-row dt,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-domain,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-hint,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-details li,
+html[data-translucent-ui='1'] .react-chat-bottom-pill-text,
+html[data-translucent-ui='1'] .react-chat-creative-title,
+html[data-translucent-ui='1'] .react-chat-mode-label,
+html[data-translucent-ui='1'] .react-chat-context-pills-label,
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-input,
+html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-composer textarea.react-chat-input {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .msg-tool-activity-fold-tech-head .msg-tool-activity-fold-label,
+html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-label,
+html[data-translucent-ui='1'] .react-chat-info-rail-panel-title,
+html[data-translucent-ui='1'] .react-chat-info-rail-subsection-label {
+  color: var(--text-primary) !important;
+}
+
+/* 可读性增强：AI 仍无框；仅 hosted callout 保留 tint */
+html[data-translucent-ui='1'][data-liquid-glass='1'] .msg-ai .msg-bubble {
+  background: transparent !important;
+  border: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .msg.msg-system.msg-system--hosted-callout .msg-bubble--system-callout {
+  background: color-mix(in srgb, var(--bg-secondary) var(--ef-lg-bubble-fill), transparent) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass='1'] .msg-ai .msg-bubble {
+  background: transparent !important;
+  border: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'][data-liquid-glass='1'] .msg.msg-system.msg-system--hosted-callout .msg-bubble--system-callout {
+  background: color-mix(in srgb, var(--bg-secondary) calc(52% + var(--ef-lg-readability-dim) * 38%), transparent) !important;
+  border-color: color-mix(in srgb, var(--text-primary) calc(10% + var(--ef-lg-readability-dim) * 18%), var(--border-primary)) !important;
+}
+
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-aside-nav-label,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-history-item-title,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-aside-nav-item,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .shell-aside-host,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-session-aside {
+  text-shadow: 0 1px 4px rgba(0, 0, 0, calc(0.28 + var(--ef-lg-readability-dim) * 0.55));
+}
+
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-header-share-btn,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-header-panel-btn,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-header-metrics,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .react-chat-bottom-pill-text,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .page-title,
+html[data-translucent-ui='1'][data-lg-video-bg='1'] .page-desc {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, calc(0.32 + var(--ef-lg-readability-dim) * 0.48));
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-lg-video-bg='1'] .msg-ai .msg-bubble {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-lg-video-bg='1'] .msg.msg-system.msg-system--hosted-callout .msg-bubble--system-callout {
+  background: color-mix(in srgb, var(--bg-secondary) calc(58% + var(--ef-lg-readability-dim) * 34%), transparent) !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, calc(0.18 + var(--ef-lg-readability-dim) * 0.28)) !important;
+}
+
+/* ???? / ???????????????? body ??? */
+html[data-translucent-ui='1'] .react-chat-platform-feedback-body,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-panel .react-chat-collab-exec-panel-body,
+html[data-translucent-ui='1'] .react-chat-info-rail-body {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-feedback-card {
+  background: var(--ef-glass-surface-strong) !important;
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-run-card {
+  background: var(--ef-glass-surface-strong) !important;
+  border-top-color: var(--ef-glass-border) !important;
+  border-right-color: var(--ef-glass-border) !important;
+  border-bottom-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-run-card--success {
+  border-left-color: var(--success, #16a34a) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-run-card--warning {
+  border-left-color: var(--warning, #d97706) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-run-card--error {
+  border-left-color: var(--error, #dc2626) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-run-card.is-active {
+  background: color-mix(in srgb, var(--accent) 8%, var(--ef-glass-surface-strong)) !important;
+  border-top-color: color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
+  border-right-color: color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
+  border-bottom-color: color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-platform-feedback-action--muted,
+html[data-translucent-ui='1'] .react-chat-platform-feedback-details li,
+html[data-translucent-ui='1'] .react-chat-platform-run-domain,
+html[data-translucent-ui='1'] .react-chat-run-outcomes-tabs {
+  background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-run-outcomes-tab.is-active {
+  background: color-mix(in srgb, var(--bg-secondary) 62%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .toast {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.85)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.85)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-platform-feedback-card,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .react-chat-platform-run-card {
+  background: color-mix(in srgb, var(--bg-secondary) 52%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ?????? / ???? */
+html[data-translucent-ui='1'] .employee-talk-mode-wrap,
+html[data-translucent-ui='1'] .react-chat-composer-bottom-controls,
+html[data-translucent-ui='1'] .react-chat-composer-bottom-row,
+html[data-translucent-ui='1'] .react-chat-composer-bottom-row1,
+html[data-translucent-ui='1'] .react-chat-composer-bottom-row1-main,
+html[data-translucent-ui='1'] .react-chat-composer-bottom-row2 {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .employee-talk-hint {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--ef-glass-border)) !important;
+}
+
+html[data-translucent-ui='1'] .employee-talk-resume-select {
+  background: color-mix(in srgb, var(--bg-card) 52%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+html[data-translucent-ui='1'] .react-chat-mode-menu,
+html[data-translucent-ui='1'] .react-chat-bottom-dropdown {
+  background: color-mix(in srgb, var(--bg-card) 78%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-mode-item:hover,
+html[data-translucent-ui='1'] .react-chat-bottom-dropdown-item:hover:not(.react-chat-bottom-dropdown-item--active) {
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-mode-item.active,
+html[data-translucent-ui='1'] .react-chat-bottom-dropdown-item--active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-ws-menu {
+  background: color-mix(in srgb, var(--bg-card) 78%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-ws-menu-item:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 48%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-focus-bar {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .react-chat-aside-pinned-ws-chip {
+  background: color-mix(in srgb, var(--bg-card) 52%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+/* ?????? Dock?????????????? */
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-clarify-confirm-dock .react-chat-subtask-card.react-chat-clarify-card,
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-bottom-dock .react-chat-clarify-card {
+  background: color-mix(in srgb, var(--bg-card) 38%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(var(--ef-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur));
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-clarify-confirm-dock .react-chat-clarify-input-row {
+  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-thread-clarify-option {
+  background: color-mix(in srgb, var(--bg-card) 32%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-thread-clarify-option:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 38%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-thread-clarify-option.is-selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-thread-clarify-extra {
+  background: color-mix(in srgb, var(--bg-primary) 24%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-thread-clarify-question--tile {
+  background: color-mix(in srgb, var(--bg-tertiary) 28%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass='1'] .react-chat-task-sidebar {
+  background: color-mix(in srgb, var(--bg-secondary) 52%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(var(--ef-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur));
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+/* ?? ???????????????? ?? */
+html[data-translucent-ui='1'] {
+  --wf-studio-bg: transparent;
+}
+
+html[data-translucent-ui='1'] .app-wf-studio,
+html[data-translucent-ui='1'] .app-wf-studio-body,
+html[data-translucent-ui='1'] .app-wf-studio-center,
+html[data-translucent-ui='1'] .app-wf-studio-center .app-rf-flow-wrap,
+html[data-translucent-ui='1'] .app-rf-flow-wrap,
+html[data-translucent-ui='1'] .app-rf-root--fullscreen .app-rf-flow-wrap,
+html[data-translucent-ui='1'] .app-wf-canvas-host,
+html[data-translucent-ui='1'] .app-wf-page-body,
+html[data-translucent-ui='1'] #app.evopanel-app-studio-mode #content,
+html[data-translucent-ui='1'] #app.evopanel-app-studio-mode .app-wf-studio {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+html[data-translucent-ui='1'] .app-rf-flow-wrap .react-flow {
+  --xy-background-color: transparent !important;
+  --xy-background-pattern-color-props: color-mix(in srgb, var(--text-tertiary) 32%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .app-rf-flow-wrap .react-flow__pane,
+html[data-translucent-ui='1'] .app-rf-flow-wrap .react-flow__viewport,
+html[data-translucent-ui='1'] .app-rf-flow-wrap .react-flow__renderer {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer--library,
+html[data-translucent-ui='1'] .wf-drawer-body,
+html[data-translucent-ui='1'] .wf-drawer-top,
+html[data-translucent-ui='1'] .wf-drawer-section--agents {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-lib-card,
+html[data-translucent-ui='1'] .wf-drawer-lib-tile,
+html[data-translucent-ui='1'] .wf-drawer-agent-item,
+html[data-translucent-ui='1'] .wf-drawer-lib-row {
+  background: color-mix(in srgb, var(--bg-card) 26%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-segment,
+html[data-translucent-ui='1'] .wf-drawer-collapse,
+html[data-translucent-ui='1'] .wf-drawer-expand {
+  background: color-mix(in srgb, var(--bg-card) 22%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-seg.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .app-wf-sidebar,
+html[data-translucent-ui='1'] .wf-drawer,
+html[data-translucent-ui='1'] .wf-drawer.wf-drawer--library.is-open,
+html[data-translucent-ui='1'] .wf-drawer.wf-drawer--config.is-open,
+html[data-translucent-ui='1'] .wf-drawer-agent-caps--panel,
+html[data-translucent-ui='1'] .wf-inspector-control,
+html[data-translucent-ui='1'] .wf-palette-row,
+html[data-translucent-ui='1'] .wf-toolbar-tools {
+  background: color-mix(in srgb, var(--bg-secondary) 38%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(var(--ef-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur));
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-cap-tag,
+html[data-translucent-ui='1'] .wf-inspector-meta-chip,
+html[data-translucent-ui='1'] .wf-palette-search,
+html[data-translucent-ui='1'] .wf-drawer-search,
+html[data-translucent-ui='1'] .wf-drawer-agent-search {
+  background: color-mix(in srgb, var(--bg-card) 42%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+/* ?? ???????ef-side-drawer? ?? */
+html[data-translucent-ui='1'] .ef-side-drawer-root {
+  --ef-d-surface: color-mix(in srgb, var(--bg-secondary) 48%, transparent);
+  --ef-d-fill: color-mix(in srgb, var(--accent) 6%, transparent);
+  --ef-d-fill-2: color-mix(in srgb, var(--accent) 8%, transparent);
+  --ef-d-fill-hover: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+html[data-translucent-ui='1'] .ef-side-drawer {
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-left-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow) !important;
+}
+
+html[data-translucent-ui='1'] .ef-side-drawer-header,
+html[data-translucent-ui='1'] .ef-side-drawer-footer {
+  background: transparent !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+/* 小V 协助：右侧边缘条 / dock·浮层面板纳入玻璃态（勿实心白底） */
+html[data-translucent-ui='1'] .xm-panel,
+html[data-translucent-ui='1'] .xm-panel.xm-panel--dock,
+html[data-translucent-ui='1'] .xm-fab.xm-fab--quiet,
+html[data-translucent-ui='1'] .xm-edge-tab,
+html[data-translucent-ui='1'] .xm-edge-coach-card,
+html[data-translucent-ui='1'] .xm-history-menu,
+html[data-translucent-ui='1'] .xm-more-menu,
+html[data-translucent-ui='1'] .xm-fab-menu {
+  background: var(--ef-glass-surface) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.9)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.9)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .xm-fab.xm-fab--quiet:hover,
+html[data-translucent-ui='1'] .xm-edge-tab:hover {
+  background: var(--ef-glass-surface-strong) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .xm-header--workbench,
+html[data-translucent-ui='1'] .xm-history-menu-head,
+html[data-translucent-ui='1'] .xm-chat--guide .xm-guide-chips {
+  background: transparent !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .xm-header--workbench .xm-title,
+html[data-translucent-ui='1'] .xm-edge-tab-label,
+html[data-translucent-ui='1'] .xm-history-item-title {
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+html[data-translucent-ui='1'] .xm-header--workbench .xm-status-line,
+html[data-translucent-ui='1'] .xm-history-item-meta,
+html[data-translucent-ui='1'] .xm-chat--guide .xm-empty {
+  color: var(--text-secondary) !important;
+}
+
+html[data-translucent-ui='1'] .xm-composer {
+  border-top-color: var(--ef-glass-border) !important;
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .xm-composer-input {
+  background: var(--ef-composer-input-scrim) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.45)) saturate(1.1);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.45)) saturate(1.1);
+}
+
+html[data-translucent-ui='1'] .xm-composer-input::placeholder {
+  color: var(--text-tertiary) !important;
+}
+
+html[data-translucent-ui='1'] .xm-composer-bar .btn-primary {
+  background: var(--ef-glass-surface-strong) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .xm-history-item:hover,
+html[data-translucent-ui='1'] .xm-more-item:hover {
+  background: var(--ef-glass-surface-strong) !important;
+}
+
+html[data-translucent-ui='1'] .xm-edge-coach-cta {
+  background: var(--ef-glass-surface-strong) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .xm-panel,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-panel.xm-panel--dock,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-fab.xm-fab--quiet,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-edge-tab,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-edge-coach-card,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-history-menu,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-more-menu,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-fab-menu {
+  background: var(--ef-glass-surface) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .xm-fab.xm-fab--quiet:hover,
+html[data-theme='dark'][data-translucent-ui='1'] .xm-edge-tab:hover {
+  background: var(--ef-glass-surface-strong) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .xm-composer-input {
+  background: var(--ef-composer-input-scrim) !important;
+  border-color: var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}

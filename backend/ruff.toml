@@ -1,0 +1,26 @@
+line-length = 240
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP"]
+ignore = []
+
+# Generated / doc-heavy strings exceed 240 cols; keep default limit elsewhere.
+[lint.extend-per-file-ignores]
+"packages/harness/evoflow/community/baidu_search/tools.py" = ["E501"]
+"packages/harness/evoflow/tools/builtins/task_tool.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/prompt_blocks.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/prompt_blocks_en.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/prompt_blocks_zh.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/prompt_dynamic_en.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/prompt_dynamic_zh.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/plan_prompt_blocks_en.py" = ["E501"]
+"packages/harness/evoflow/agents/lead_agent/prompt.py" = ["E501"]
+"packages/harness/evoflow/agents/memory_plugins/hermes_port/plugins_memory/hindsight/__init__.py" = ["E501"]
+
+[lint.isort]
+known-first-party = ["evoflow", "app"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

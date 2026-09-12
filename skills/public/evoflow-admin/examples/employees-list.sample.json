@@ -1,0 +1,41 @@
+{
+  "roles": [
+    {
+      "agent_code": "code-agent",
+      "role_name": "前端工程师",
+      "department": "工程部",
+      "status": "active",
+      "busy": false,
+      "last_heartbeat_at": "2026-07-18T18:19:43+08:00",
+      "next_heartbeat_at": "2026-07-18T20:19:43+08:00",
+      "workspace_path": "~/projects/my-workspace",
+      "responsibilities": ["前端 UI 优化", "前端 BUG 修复"],
+      "kpis": ["ESLint 无新增 error"],
+      "pending_approvals": 0
+    },
+    {
+      "agent_code": "project-debugger",
+      "role_name": "Bug 猎人",
+      "department": "工程部",
+      "status": "active",
+      "busy": true,
+      "last_heartbeat_at": "2026-07-18T18:20:21+08:00",
+      "next_heartbeat_at": "2026-07-18T20:20:21+08:00",
+      "workspace_path": "~/projects/my-workspace",
+      "responsibilities": ["失败用例与日志证据定位"],
+      "kpis": ["问题有证据"],
+      "pending_approvals": 2
+    }
+  ],
+  "count": 2,
+  "active_count": 2,
+  "busy_count": 1,
+  "pending_approvals": 2,
+  "gateway_reachable": true,
+  "busy_roles": [
+    {
+      "agent_code": "project-debugger",
+      "started_at": "2026-07-18T18:45:00+08:00"
+    }
+  ]
+}

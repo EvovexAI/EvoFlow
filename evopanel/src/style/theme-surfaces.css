@@ -1,0 +1,3263 @@
+﻿/* 各业务模块卡片/面板：暗色实底 + 液态玻璃磨砂（加载于 liquid-glass 之后） */
+
+/* ── 暗色：模块页基础可读性 ── */
+html[data-theme='dark'] #content > .page {
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] #content > .page .page-desc {
+  color: var(--text-primary);
+}
+
+/* ── 暗色：覆盖硬编码白底 ── */
+html[data-theme='dark'] .filter-dropdown-btn:hover {
+  background: var(--bg-card);
+  border-color: var(--border-focus);
+}
+
+html[data-theme='dark'] .task-detail-page .td-progress,
+html[data-theme='dark'] .task-detail-page .td-exec-timeline {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+}
+
+html[data-theme='dark'] .engage-modal {
+  background: var(--bg-secondary);
+  border-color: var(--border-primary);
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] .role-search-input:focus {
+  background: var(--bg-tertiary);
+}
+
+html[data-theme='dark'] .modal.app-run-prompt-modal,
+html[data-theme='dark'] .app-settings-modal.modal {
+  background: var(--bg-secondary);
+  border-color: var(--border-primary);
+}
+
+html[data-theme='dark'] .modal.app-run-prompt-modal .modal-header,
+html[data-theme='dark'] .app-settings-modal .modal-header,
+html[data-theme='dark'] .modal.app-run-prompt-modal .modal-footer,
+html[data-theme='dark'] .app-settings-modal .modal-footer {
+  border-color: var(--border-primary);
+}
+
+html[data-theme='dark'] .app-settings-modal .modal-title {
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] .app-param-card,
+html[data-theme='dark'] .app-param-card.is-expanded {
+  background: var(--bg-card);
+  border-color: var(--border-primary);
+}
+
+html[data-theme='dark'] .sec-sub-card {
+  background: var(--bg-card);
+}
+
+html[data-theme='dark'] .models-connection-card {
+  background: var(--bg-card);
+}
+
+html[data-theme='dark'] .config-section {
+  background: var(--bg-card);
+}
+
+/* ── 模块卡片共用选择器（液态玻璃磨砂） ── */
+html[data-translucent-ui='1'] #content :is(
+  .card,
+  .overview-card,
+  .service-card,
+  .market-card,
+  .skill-card,
+  .mcp-server-card,
+  .mcp-server-list,
+  .skillhub-panel,
+  .skillhub-item,
+  .skillhub-detail-card,
+  .config-section,
+  .app-card,
+  .app-card-more,
+  .app-card-menu,
+  .role-card,
+  .hire-agent-card,
+  .pro-role-card,
+  .pro-duty-card,
+  .pro-item-card,
+  .pro-item-section,
+  .pro-worklog-round,
+  .pro-worklog-listrow,
+  .pro-role-task-stats,
+  .pro-patrol-panel,
+  .task-card,
+  .tasks-today-strip,
+  .tasks-monitor-hero,
+  .cron-card,
+  .cron-tab,
+  .cron-runs-empty,
+  .cron-status-bar,
+  .cron-empty,
+  .license-status-card,
+  .premium-activate-card,
+  .obs-console .el-obs-stat-card,
+  .obs-console .el-obs-card,
+  .models-connection-card,
+  .model-card,
+  .sec-sub-card
+) {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] #content :is(
+  .overview-card:hover,
+  .service-card:hover,
+  .market-card:hover,
+  .skill-card:hover,
+  .mcp-server-card:hover,
+  .app-card:hover,
+  .role-card:hover,
+  .pro-role-card:hover,
+  .task-card:hover,
+  .cron-card:hover,
+  .card:hover
+) {
+  background: color-mix(in srgb, var(--ef-glass-surface-strong) 82%, var(--accent) 18%) !important;
+}
+
+html[data-translucent-ui='1'] #content .cron-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--ef-glass-surface-strong)) !important;
+}
+
+/* 应用弹窗：覆盖 apps.css 硬编码白底 */
+html[data-translucent-ui='1'] .modal.app-run-prompt-modal,
+html[data-translucent-ui='1'] .app-settings-modal.modal {
+  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow);
+}
+
+html[data-translucent-ui='1'] .modal.app-run-prompt-modal .modal-header,
+html[data-translucent-ui='1'] .app-settings-modal .modal-header,
+html[data-translucent-ui='1'] .modal.app-run-prompt-modal .modal-footer,
+html[data-translucent-ui='1'] .app-settings-modal .modal-footer {
+  background: transparent !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .app-settings-modal .modal-title,
+html[data-translucent-ui='1'] .app-param-card,
+html[data-translucent-ui='1'] .app-param-card.is-expanded {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+/* WebGL 透镜模式：卡片只留描边，光学层由 shader 绘制 */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
+  .card,
+  .overview-card,
+  .service-card,
+  .market-card,
+  .skill-card,
+  .mcp-server-card,
+  .mcp-server-list,
+  .skillhub-panel,
+  .skillhub-item,
+  .skillhub-detail-card,
+  .config-section,
+  .app-card,
+  .app-card-more,
+  .app-card-menu,
+  .role-card,
+  .hire-agent-card,
+  .pro-role-card,
+  .pro-duty-card,
+  .pro-item-card,
+  .pro-item-section,
+  .pro-worklog-round,
+  .pro-worklog-listrow,
+  .pro-role-task-stats,
+  .pro-patrol-panel,
+  .task-card,
+  .tasks-today-strip,
+  .tasks-monitor-hero,
+  .cron-card,
+  .cron-tab,
+  .cron-runs-empty,
+  .cron-status-bar,
+  .cron-empty,
+  .license-status-card,
+  .premium-activate-card,
+  .obs-console .el-obs-stat-card,
+  .obs-console .el-obs-card,
+  .models-connection-card,
+  .model-card,
+  .sec-sub-card
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .modal.app-run-prompt-modal,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .app-settings-modal.modal {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 60%, transparent) !important;
+}
+
+/* 自定义墙纸：模块卡片略提高不透明度，避免文字发飘 */
+html[data-translucent-ui='1'] #content :is(
+  .card,
+  .overview-card,
+  .service-card,
+  .market-card,
+  .skill-card,
+  .mcp-server-card,
+  .app-card,
+  .role-card,
+  .pro-role-card,
+  .task-card,
+  .cron-card,
+  .config-section
+) {
+  background: color-mix(in srgb, var(--bg-secondary) 62%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
+  .card,
+  .overview-card,
+  .service-card,
+  .market-card,
+  .skill-card,
+  .mcp-server-card,
+  .app-card,
+  .role-card,
+  .pro-role-card,
+  .task-card,
+  .cron-card,
+  .config-section
+) {
+  background: transparent !important;
+}
+
+/* ── 工作流列表页：提示条 / 搜索 / 图标 ── */
+html[data-translucent-ui='1'] .apps-page .apps-tip,
+html[data-translucent-ui='1'] .apps-page .apps-filter-search,
+html[data-translucent-ui='1'] .apps-page .apps-new-menu,
+html[data-translucent-ui='1'] .apps-page .app-card,
+html[data-translucent-ui='1'] .apps-page .app-card-more,
+html[data-translucent-ui='1'] .apps-page .app-card-menu {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .apps-page .apps-tip,
+html[data-translucent-ui='1'] .apps-page .apps-tip-main,
+html[data-translucent-ui='1'] .apps-page .apps-tip-detail strong {
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .apps-page .apps-tip-detail {
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .apps-page .page-desc,
+html[data-translucent-ui='1'] .apps-page .app-card-meta,
+html[data-translucent-ui='1'] .apps-page .page-header .page-usage-guide-btn,
+html[data-translucent-ui='1'] .apps-page .page-actions .btn-ghost,
+html[data-translucent-ui='1'] .apps-page .apps-filter-btn:not(.is-active) {
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .apps-page .app-card-desc {
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] .apps-page .apps-filter-search::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 62%, var(--text-tertiary));
+}
+
+html[data-translucent-ui='1'] .apps-page .app-card-icon {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-tertiary)) !important;
+  box-shadow: inset 0 0 0 1px var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .apps-tip,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .apps-filter-search,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .apps-new-menu,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .app-card,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .app-card-more,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .apps-page .app-card-menu {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── 工作流画布：顶栏 / 侧栏 / 搜索 / 智能体头像行 ── */
+html[data-translucent-ui='1'] .wf-studio-toolbar,
+html[data-translucent-ui='1'] .wf-drawer.wf-drawer--library.is-open,
+html[data-translucent-ui='1'] .wf-drawer.wf-drawer--config.is-open,
+html[data-translucent-ui='1'] .wf-status-bar,
+html[data-translucent-ui='1'] .wf-node-card {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-search,
+html[data-translucent-ui='1'] .wf-drawer-agent-search,
+html[data-translucent-ui='1'] .wf-palette-search {
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent) !important;
+  border: 1px solid var(--ef-glass-border) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-search::placeholder,
+html[data-translucent-ui='1'] .wf-drawer-agent-search::placeholder,
+html[data-translucent-ui='1'] .wf-palette-search::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 62%, var(--text-tertiary)) !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-agent-item {
+  background: color-mix(in srgb, var(--bg-secondary) 62%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-lib-row .wf-drawer-lib-desc,
+html[data-translucent-ui='1'] .wf-drawer-agent-item .wf-drawer-lib-desc,
+html[data-translucent-ui='1'] .wf-node-intro {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .wf-drawer-lib-row .wf-drawer-lib-name,
+html[data-translucent-ui='1'] .wf-drawer-agent-item .wf-drawer-lib-name,
+html[data-translucent-ui='1'] .wf-node-title,
+html[data-translucent-ui='1'] .wf-drawer-panel-heading {
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .wf-studio-toolbar,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .wf-drawer.wf-drawer--library.is-open,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .wf-drawer.wf-drawer--config.is-open,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .wf-status-bar,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .wf-node-card,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .wf-drawer-agent-item {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── 工作流：最终覆盖（canvas 重复块里的 !important 白底；translucent-ui 时由 liquid-glass / theme-readability 接管） ── */
+html[data-theme='dark']:not([data-translucent-ui='1']) .app-wf-studio > .wf-studio-toolbar,
+html[data-theme='dark']:not([data-translucent-ui='1']) .wf-studio-toolbar {
+  background: var(--bg-secondary) !important;
+  border-bottom-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) .wf-drawer.wf-drawer--library.is-open,
+html[data-theme='dark']:not([data-translucent-ui='1']) .wf-drawer.wf-drawer--config.is-open {
+  background: var(--bg-secondary) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) .wf-status-bar {
+  background: var(--bg-secondary) !important;
+  border-top-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .apps-page .apps-filter-btn.is-active,
+html[data-translucent-ui='1'] .apps-page .apps-filter-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-tertiary)) !important;
+  color: color-mix(in srgb, var(--accent) 90%, #fff) !important;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-primary)) !important;
+}
+
+html[data-translucent-ui='1'] .apps-page .apps-filter-btn:not(.is-active) {
+  background: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
+  color: var(--text-secondary);
+}
+
+/* 智能体头像：工作流侧栏 / 节点 / 列表卡片 */
+html[data-theme='dark'] .wf-drawer-agent-avatar .agent-avatar--emoji,
+html[data-theme='dark'] .wf-drawer-agent-avatar .agent-avatar--initial,
+html[data-theme='dark'] .wf-node .agent-avatar--emoji,
+html[data-theme='dark'] .wf-node .agent-avatar--initial,
+html[data-translucent-ui='1'] .wf-drawer-agent-avatar .agent-avatar--emoji,
+html[data-translucent-ui='1'] .wf-drawer-agent-avatar .agent-avatar--initial {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-tertiary)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-primary)) !important;
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 22%, transparent);
+}
+
+html[data-theme='dark'] .wf-drawer-agent-avatar .agent-avatar--image,
+html[data-theme='dark'] .wf-node .agent-avatar--image,
+html[data-translucent-ui='1'] .wf-drawer-agent-avatar .agent-avatar--image {
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-primary) !important;
+  box-shadow: 0 1px 4px color-mix(in srgb, #000 22%, transparent);
+}
+
+html[data-theme='dark'] .wf-drawer-agent-avatar .agent-custom-figure,
+html[data-translucent-ui='1'] .wf-drawer-agent-avatar .agent-custom-figure {
+  background: var(--bg-tertiary);
+}
+
+html[data-theme='dark'] .app-card-icon,
+html[data-translucent-ui='1'] .apps-page .app-card-icon {
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--accent) 28%, var(--bg-tertiary)),
+    color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))
+  ) !important;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, var(--border-primary)),
+    0 2px 8px color-mix(in srgb, #000 18%, transparent) !important;
+}
+
+html[data-theme='dark']:not([data-translucent-ui='1']) #app.evopanel-app-studio-mode #content,
+html[data-theme='dark']:not([data-translucent-ui='1']) #app.evopanel-app-studio-mode .app-wf-studio {
+  background: var(--bg-primary);
+}
+
+/* ── Tauri 顶栏：暗色实底兜底（液态规则在 liquid-glass.css） ── */
+html[data-theme='dark'] #main-col > .tauri-main-chrome:not(.tauri-main-chrome--hidden) {
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-primary) !important;
+}
+
+/* ── 工作流列表：正文一律主色（覆盖 layout 的 tertiary/secondary） ── */
+html[data-theme='dark'] .apps-page .page-desc,
+html[data-theme='dark'] .apps-page .apps-tip-detail,
+html[data-theme='dark'] .apps-page .app-card-meta,
+html[data-theme='dark'] .apps-page .app-card-desc,
+html[data-theme='dark'] .apps-page .apps-empty-state p,
+html[data-translucent-ui='1'] .apps-page .page-desc,
+html[data-translucent-ui='1'] .apps-page .apps-tip-detail,
+html[data-translucent-ui='1'] .apps-page .app-card-meta,
+html[data-translucent-ui='1'] .apps-page .app-card-desc,
+html[data-translucent-ui='1'] .apps-page .apps-empty-state p,
+html[data-theme='dark'] .apps-page .page-header .page-usage-guide-btn,
+html[data-translucent-ui='1'] .apps-page .page-header .page-usage-guide-btn,
+html[data-theme='dark'] .apps-page .page-actions .btn-ghost,
+html[data-translucent-ui='1'] .apps-page .page-actions .btn-ghost {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .apps-page .apps-filter-search::placeholder,
+html[data-translucent-ui='1'] .apps-page .apps-filter-search::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 62%, var(--text-tertiary));
+}
+
+/* ── 首页 / 工作台：暗色实底 + 液态玻璃 ── */
+html[data-theme='dark'] :is(
+  .evo-home-card,
+  .evo-home-kpi,
+  .evo-home-composer,
+  .evo-home-quick,
+  .evo-home-drawer,
+  .evo-home-btn--outline,
+  .evo-home-btn--chip,
+  .evo-home-model-menu-root .react-chat-bottom-model-pill,
+  .evo-home-picker-item,
+  .evo-home-settings__select,
+  .evo-home-tooltip
+) {
+  background: var(--bg-card) !important;
+  border-color: var(--border-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .evo-home-settings__tip {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .evo-home-context-chip {
+  background: color-mix(in srgb, var(--bg-tertiary) 88%, transparent) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .evo-home-image-chip {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .evo-home-badge--todo {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+html[data-theme='dark'] .evo-home-badge--in_progress {
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+}
+
+html[data-theme='dark'] .evo-home-badge--waiting {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fdba74;
+}
+
+html[data-theme='dark'] .evo-home-badge--parked {
+  background: rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+}
+
+html[data-translucent-ui='1'] :is(
+  .evo-home-card,
+  .evo-home-kpi,
+  .evo-home-composer,
+  .evo-home-quick,
+  .evo-home-drawer,
+  .evo-home-btn--outline,
+  .evo-home-btn--chip,
+  .evo-home-model-menu-root .react-chat-bottom-model-pill,
+  .evo-home-picker-item,
+  .evo-home-settings__select,
+  .evo-home-tooltip,
+  .evo-home-filter-bar,
+  .evo-home-trend-tip
+) {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .evo-home-kpi:hover,
+html[data-translucent-ui='1'] .evo-home-quick:hover {
+  background: color-mix(in srgb, var(--ef-glass-surface-strong) 82%, var(--accent) 18%) !important;
+}
+
+html[data-translucent-ui='1'] .evo-home-settings__tip {
+  background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.75)) saturate(1.2);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.75)) saturate(1.2);
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'] .evo-home-context-chip {
+  background: color-mix(in srgb, var(--bg-tertiary) 38%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.6));
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 0.6));
+}
+
+html[data-translucent-ui='1'] .evo-home-image-chip {
+  background: color-mix(in srgb, var(--bg-tertiary) 35%, transparent) !important;
+  border-color: var(--ef-glass-border) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(
+  .evo-home-card,
+  .evo-home-kpi,
+  .evo-home-composer,
+  .evo-home-quick,
+  .evo-home-drawer,
+  .evo-home-btn--outline,
+  .evo-home-btn--chip,
+  .evo-home-model-menu-root .react-chat-bottom-model-pill,
+  .evo-home-picker-item,
+  .evo-home-settings__select,
+  .evo-home-tooltip,
+  .evo-home-filter-bar,
+  .evo-home-trend-tip,
+  .evo-home-settings__tip,
+  .evo-home-context-chip,
+  .evo-home-image-chip
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] :is(
+  .evo-home-card,
+  .evo-home-kpi,
+  .evo-home-composer,
+  .evo-home-quick,
+  .evo-home-drawer
+) {
+  background: color-mix(in srgb, var(--bg-secondary) 62%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(
+  .evo-home-card,
+  .evo-home-kpi,
+  .evo-home-composer,
+  .evo-home-quick,
+  .evo-home-drawer
+) {
+  background: transparent !important;
+}
+
+/* 工作台正文：灰字统一抬为主色（暗色=亮字，亮色=深字） */
+html[data-theme='dark'] .evo-home-dashboard,
+html[data-theme='dark'] .react-chat-main-col--home,
+html[data-translucent-ui='1'] .evo-home-dashboard {
+  --text-secondary: var(--text-primary);
+  --text-tertiary: var(--text-primary);
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] .evo-home-dashboard :is(
+  .evo-home-subtitle,
+  .evo-home-kpi__label,
+  .evo-home-kpi__hint,
+  .evo-home-legend,
+  .evo-home-legend span,
+  .evo-home-list__meta,
+  .evo-home-list__time,
+  .evo-home-composer__ai-tip,
+  .evo-home-btn,
+  .evo-home-btn--outline,
+  .evo-home-btn--chip,
+  .evo-home-btn--ghost,
+  .evo-home-empty,
+  .evo-home-empty__title,
+  .evo-home-empty__desc,
+  .evo-home-todo-tab,
+  .evo-home-todo-tab__count,
+  .evo-home-todo-more,
+  .evo-home-todo-block__head,
+  .evo-home-todo-chip,
+  .evo-home-todo-more-hint,
+  .evo-home-source__row-left,
+  .evo-home-source__total-label,
+  .evo-home-trend-tip,
+  .evo-home-filter-bar,
+  .evo-home-settings__tip-desc,
+  .evo-home-settings__row,
+  .evo-home-drawer-stats span,
+  .evo-home-todo-detail__meta,
+  .evo-home-tooltip__meta,
+  .evo-home-context-chip,
+  .evo-home-model-menu-root .react-chat-bottom-model-pill,
+  .evo-home-kpi__arrow,
+  .evo-home-kpi__delta:not(.is-up):not(.is-down)
+) {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .evo-home-chart .recharts-cartesian-axis-tick-value,
+html[data-theme='dark'] .evo-home-chart .recharts-text,
+html[data-theme='dark'] .evo-home-chart .recharts-legend-item-text,
+html[data-translucent-ui='1'] .evo-home-chart .recharts-cartesian-axis-tick-value,
+html[data-translucent-ui='1'] .evo-home-chart .recharts-text,
+html[data-translucent-ui='1'] .evo-home-chart .recharts-legend-item-text {
+  fill: var(--text-primary) !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .evo-home-kpi:hover .evo-home-kpi__arrow {
+  color: var(--accent) !important;
+  opacity: 1;
+}
+
+/* 工作台待办 Tab：亮字、透明底（需你处理 / 我的待办） */
+html[data-theme='dark'] .evo-home-todo-tabs,
+html[data-translucent-ui='1'] .evo-home-todo-tabs {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+html[data-theme='dark'] .evo-home-todo-tab:not(.is-active),
+html[data-translucent-ui='1'] .evo-home-todo-tab:not(.is-active) {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .evo-home-todo-tab:hover,
+html[data-translucent-ui='1'] .evo-home-todo-tab:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-theme='dark'] .evo-home-todo-tab.is-active,
+html[data-translucent-ui='1'] .evo-home-todo-tab.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .evo-home-todo-tab__count,
+html[data-translucent-ui='1'] .evo-home-todo-tab__count {
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .evo-home-todo-tab.is-active .evo-home-todo-tab__count,
+html[data-translucent-ui='1'] .evo-home-todo-tab.is-active .evo-home-todo-tab__count {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+/* 工作台首页滚动条：透明轨道，半透明滑块 */
+html[data-theme='dark'] .react-chat-main-col--home,
+html[data-translucent-ui='1'] .react-chat-main-col--home {
+  background-color: transparent !important;
+}
+
+html[data-theme='dark'] .react-chat-main-col--home .chat-messages-inner--home,
+html[data-translucent-ui='1'] .react-chat-main-col--home .chat-messages-inner--home {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-primary) 22%, transparent) transparent;
+}
+
+html[data-theme='dark'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar,
+html[data-translucent-ui='1'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+html[data-theme='dark'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar-track,
+html[data-translucent-ui='1'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar-thumb,
+html[data-translucent-ui='1'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
+  border: none;
+  border-radius: 999px;
+}
+
+html[data-theme='dark'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar-thumb:hover,
+html[data-translucent-ui='1'] .react-chat-main-col--home .chat-messages-inner--home::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-primary) 34%, transparent);
+}
+
+/* ── 任务中心 + 任务详情 + 我的事项 ── */
+html[data-theme='dark'] .tasks-page,
+html[data-theme='dark'] .task-detail-page.page,
+html[data-translucent-ui='1'] .tasks-page,
+html[data-translucent-ui='1'] .task-detail-page.page {
+  --t-text: var(--text-primary);
+  --t-muted: var(--text-primary);
+  --text-secondary: var(--text-primary);
+  --text-tertiary: var(--text-primary);
+  --t-card: transparent;
+  --t-page: transparent;
+  --td-ink: var(--text-primary);
+  --td-muted: var(--text-primary);
+  --td-card: transparent;
+  --td-bg: transparent;
+  color: var(--text-primary);
+  background: transparent !important;
+}
+
+html[data-theme='dark'] #content:has(> .tasks-page),
+html[data-theme='dark'] #content:has(> .task-detail-page),
+html[data-translucent-ui='1'] #content:has(> .tasks-page),
+html[data-translucent-ui='1'] #content:has(> .task-detail-page) {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items {
+  --im-text-primary: var(--text-primary);
+  --im-text-secondary: var(--text-secondary);
+  --im-text-tertiary: var(--text-tertiary);
+  --im-border: var(--border-primary);
+  --im-surface: transparent;
+  --im-page-bg: transparent;
+  background: transparent !important;
+}
+
+/* 任务中心：搜索 / 筛选 / 来源下拉 — 透明底 + 亮字 */
+html[data-theme='dark'] .tasks-page :is(
+  .tasks-search-field .form-input,
+  .tasks-filter-btn,
+  .tasks-filter-select,
+  .tasks-more-filters-body,
+  .tasks-time-filter-btn,
+  .tasks-more-panel,
+  .tasks-active-filters,
+  .tasks-active-chip,
+  .batch-toolbar
+),
+html[data-translucent-ui='1'] .tasks-page :is(
+  .tasks-search-field .form-input,
+  .tasks-filter-btn,
+  .tasks-filter-select,
+  .tasks-more-filters-body,
+  .tasks-time-filter-btn,
+  .tasks-more-panel,
+  .tasks-active-filters,
+  .tasks-active-chip,
+  .batch-toolbar
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-search-field .form-input::placeholder,
+html[data-translucent-ui='1'] .tasks-page .tasks-search-field .form-input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 58%, var(--text-tertiary));
+}
+
+html[data-theme='dark'] .tasks-page .tasks-filter-select,
+html[data-translucent-ui='1'] .tasks-page .tasks-filter-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5L6 6l4.5-4.5' fill='none' stroke='%23d4d4d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-filter-btn:hover,
+html[data-theme='dark'] .tasks-page .tasks-filter-btn.is-active,
+html[data-translucent-ui='1'] .tasks-page .tasks-filter-btn:hover,
+html[data-translucent-ui='1'] .tasks-page .tasks-filter-btn.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-time-filter-label,
+html[data-theme='dark'] .tasks-page .page-desc,
+html[data-theme='dark'] .tasks-page .tasks-time-filter-btn,
+html[data-theme='dark'] .tasks-page .tasks-status-tab,
+html[data-theme='dark'] .tasks-page .tasks-source-tab,
+html[data-theme='dark'] .tasks-page .tl-table thead th,
+html[data-theme='dark'] .tasks-page .tasks-list-pager-meta,
+html[data-theme='dark'] .tasks-page .tasks-card-meta,
+html[data-theme='dark'] .tasks-page .tasks-card-time,
+html[data-translucent-ui='1'] .tasks-page .tasks-time-filter-label,
+html[data-translucent-ui='1'] .tasks-page .page-desc,
+html[data-translucent-ui='1'] .tasks-page .tasks-time-filter-btn,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tab,
+html[data-translucent-ui='1'] .tasks-page .tasks-source-tab,
+html[data-translucent-ui='1'] .tasks-page .tl-table thead th,
+html[data-translucent-ui='1'] .tasks-page .tasks-list-pager-meta,
+html[data-translucent-ui='1'] .tasks-page .tasks-card-meta,
+html[data-translucent-ui='1'] .tasks-page .tasks-card-time {
+  color: var(--text-primary) !important;
+}
+
+/* 状态 Tab：异常与其它项一致，去掉竖线/红色强调 */
+html[data-theme='dark'] .tasks-page .tasks-status-tab[data-status-tab='failed'],
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tab[data-status-tab='failed'] {
+  color: var(--text-primary) !important;
+  border: none !important;
+  border-left: none !important;
+  margin-left: 0 !important;
+  padding-left: 14px !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tab[data-status-tab='failed']::before,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tab[data-status-tab='failed']::before {
+  display: none !important;
+  content: none !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tab:not(.is-active),
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tab:not(.is-active) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tab.is-active,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tab.is-active {
+  color: var(--accent) !important;
+  opacity: 1;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tab.is-active::after,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tab.is-active::after {
+  background: var(--accent) !important;
+}
+
+/* 状态 Tab 条：去掉右侧白条（overflow-x 触发的垂直滚动条轨道） */
+html[data-theme='dark'] .tasks-page .tasks-toolbar,
+html[data-theme='dark'] .tasks-page .tasks-status-tabs,
+html[data-theme='dark'] .tasks-page .tasks-source-tabs,
+html[data-theme='dark'] .tasks-page .tasks-toolbar-search,
+html[data-translucent-ui='1'] .tasks-page .tasks-toolbar,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tabs,
+html[data-translucent-ui='1'] .tasks-page .tasks-source-tabs,
+html[data-translucent-ui='1'] .tasks-page .tasks-toolbar-search {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tabs,
+html[data-theme='dark'] .tasks-page .tasks-source-tabs,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tabs,
+html[data-translucent-ui='1'] .tasks-page .tasks-source-tabs {
+  overflow-y: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tabs::-webkit-scrollbar,
+html[data-theme='dark'] .tasks-page .tasks-source-tabs::-webkit-scrollbar,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tabs::-webkit-scrollbar,
+html[data-translucent-ui='1'] .tasks-page .tasks-source-tabs::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-status-tabs::-webkit-scrollbar-track,
+html[data-theme='dark'] .tasks-page .tasks-source-tabs::-webkit-scrollbar-track,
+html[data-translucent-ui='1'] .tasks-page .tasks-status-tabs::-webkit-scrollbar-track,
+html[data-translucent-ui='1'] .tasks-page .tasks-source-tabs::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-ledger-btn,
+html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-ledger-btn.is-active,
+html[data-translucent-ui='1'] .tasks-page .tasks-ledger-btn.is-active {
+  color: var(--accent) !important;
+}
+
+/* 任务中心卡片 / 面板 / 标签 */
+html[data-translucent-ui='1'] #content .tasks-page :is(
+  .tasks-today-strip,
+  .tasks-monitor-hero,
+  .tasks-panel,
+  .tasks-card,
+  .tasks-more-filters-body,
+  .tasks-ledger-summary,
+  .task-card
+) {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content .tasks-page :is(
+  .tasks-today-strip,
+  .tasks-monitor-hero,
+  .tasks-panel,
+  .tasks-card,
+  .tasks-more-filters-body,
+  .tasks-ledger-summary,
+  .task-card
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'] .tasks-page :is(
+  .tl-tag,
+  .tl-tag--debug,
+  .tl-tag--production,
+  .tl-tag--scheduled,
+  .tl-tag--automation,
+  .tl-type--workflow,
+  .tl-type--prompt,
+  .tasks-ledger-pri,
+  .tasks-ledger-pri--p0,
+  .tasks-ledger-pri--p1,
+  .tasks-ledger-pri--p2,
+  .tasks-ledger-pri--p3
+) {
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-ledger-summary,
+html[data-translucent-ui='1'] .tasks-page .tasks-ledger-summary {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-card,
+html[data-translucent-ui='1'] .tasks-page .tasks-card {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-shell-body,
+html[data-translucent-ui='1'] .tasks-page .tasks-shell-body {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-primary) 22%, transparent) transparent;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-shell-body::-webkit-scrollbar,
+html[data-translucent-ui='1'] .tasks-page .tasks-shell-body::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-shell-body::-webkit-scrollbar-track,
+html[data-translucent-ui='1'] .tasks-page .tasks-shell-body::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-shell-body::-webkit-scrollbar-thumb,
+html[data-translucent-ui='1'] .tasks-page .tasks-shell-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
+  border-radius: 999px;
+}
+
+/* 我的事项 */
+html[data-theme='dark'] .tasks-page.is-ledger-items :is(
+  .im-search,
+  .im-filter-btn,
+  .im-filter-panel,
+  .im-card,
+  .im-pager-size select,
+  .im-page-btn,
+  .im-filter-row select,
+  .im-filter-row input[type='text']
+),
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items :is(
+  .im-search,
+  .im-filter-btn,
+  .im-filter-panel,
+  .im-card,
+  .im-pager-size select,
+  .im-page-btn,
+  .im-filter-row select,
+  .im-filter-row input[type='text']
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .im-search input::placeholder,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .im-search input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 58%, var(--text-tertiary));
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .im-chip,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .im-chip {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .im-chip.is-active,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .im-chip.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .im-card-meta--progress,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .im-card-meta--progress {
+  border-right-color: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .im-card:hover,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .im-card:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .im-tag,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .im-tag {
+  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .tasks-page.is-ledger-items .tasks-items-host,
+html[data-translucent-ui='1'] .tasks-page.is-ledger-items .tasks-items-host {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-primary) 22%, transparent) transparent;
+}
+
+/* 任务详情页 */
+html[data-translucent-ui='1'] .task-detail-page :is(
+  .td-card,
+  .td-aside-card,
+  .task-decision-panel,
+  .task-obs-panel,
+  .td-progress,
+  .td-exec-timeline,
+  .task-output-panel,
+  .task-detail-hero,
+  .td-more-panel,
+  .td-section-tab.is-active,
+  .subtasks-section
+) {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .task-detail-page :is(
+  .td-card,
+  .td-aside-card,
+  .task-decision-panel,
+  .task-obs-panel,
+  .td-progress,
+  .td-exec-timeline,
+  .task-output-panel,
+  .task-detail-hero,
+  .td-more-panel,
+  .subtasks-section
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'] .task-detail-page :is(
+  .td-title,
+  .td-meta-line,
+  .td-muted,
+  .td-card-title,
+  .td-aside-title,
+  .td-aside-row dt,
+  .td-aside-row dd,
+  .td-section-tab,
+  .task-detail-hero-title,
+  .task-detail-hero-desc,
+  .task-detail-meta-label,
+  .task-detail-progress-label,
+  .task-outcome-label,
+  .task-outcome-body,
+  .td-brief-body,
+  .td-more-item
+),
+html[data-translucent-ui='1'] .task-detail-page :is(
+  .td-title,
+  .td-meta-line,
+  .td-muted,
+  .td-card-title,
+  .td-aside-title,
+  .td-aside-row dt,
+  .td-aside-row dd,
+  .td-section-tab,
+  .task-detail-hero-title,
+  .task-detail-hero-desc,
+  .task-detail-meta-label,
+  .task-detail-progress-label,
+  .task-outcome-label,
+  .task-outcome-body,
+  .td-brief-body,
+  .td-more-item
+) {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .task-detail-page .td-more-panel,
+html[data-theme='dark'] .task-detail-page .td-progress,
+html[data-theme='dark'] .task-detail-page .td-exec-timeline,
+html[data-translucent-ui='1'] .task-detail-page .td-more-panel,
+html[data-translucent-ui='1'] .task-detail-page .td-progress,
+html[data-translucent-ui='1'] .task-detail-page .td-exec-timeline {
+  background: transparent !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .task-detail-page .td-section-tab.is-active,
+html[data-translucent-ui='1'] .task-detail-page .td-section-tab.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-theme='dark'] .task-detail-page .td-section-tab:not(.is-active):hover,
+html[data-translucent-ui='1'] .task-detail-page .td-section-tab:not(.is-active):hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .task-detail-page .form-input,
+html[data-theme='dark'] .task-detail-page .form-select,
+html[data-theme='dark'] .task-detail-page textarea,
+html[data-translucent-ui='1'] .task-detail-page .form-input,
+html[data-translucent-ui='1'] .task-detail-page .form-select,
+html[data-translucent-ui='1'] .task-detail-page textarea {
+  background: transparent !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 任务中心表格：执行内容 / 时间 / 类型(对话) / 按钮 — 全部亮字 */
+html[data-theme='dark'] .tasks-page .tl-table :is(
+  td,
+  .tl-type,
+  .tl-col-exec,
+  .tl-exec-text,
+  .tl-col-time,
+  .tl-time,
+  .tl-col-reg,
+  .tl-reg-date,
+  .tl-reg-time,
+  .tl-secondary,
+  .tl-item-desc,
+  .tl-prog-text,
+  .tl-empty,
+  .tl-col-idx,
+  .tl-src,
+  .tl-col-sub,
+  .tl-col-dur,
+  .tl-prog-num,
+  .tl-progbar.is-muted .tl-progbar__pct,
+  .tl-status--pending,
+  .tl-status--cancelled
+),
+html[data-translucent-ui='1'] .tasks-page .tl-table :is(
+  td,
+  .tl-type,
+  .tl-col-exec,
+  .tl-exec-text,
+  .tl-col-time,
+  .tl-time,
+  .tl-col-reg,
+  .tl-reg-date,
+  .tl-reg-time,
+  .tl-secondary,
+  .tl-item-desc,
+  .tl-prog-text,
+  .tl-empty,
+  .tl-col-idx,
+  .tl-src,
+  .tl-col-sub,
+  .tl-col-dur,
+  .tl-prog-num,
+  .tl-progbar.is-muted .tl-progbar__pct,
+  .tl-status--pending,
+  .tl-status--cancelled
+) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-table thead th,
+html[data-translucent-ui='1'] .tasks-page .tl-table thead th {
+  color: var(--text-primary) !important;
+  opacity: 0.92 !important;
+}
+
+html[data-theme='dark'] .tasks-page :is(
+  .tasks-panel-head,
+  .tasks-panel-head span,
+  .tasks-count,
+  .tasks-panel-link,
+  .tasks-panel-refresh,
+  .tasks-list-pager-meta,
+  .tasks-list-pager-page,
+  .tasks-empty,
+  .tasks-empty-hint
+),
+html[data-translucent-ui='1'] .tasks-page :is(
+  .tasks-panel-head,
+  .tasks-panel-head span,
+  .tasks-count,
+  .tasks-panel-link,
+  .tasks-panel-refresh,
+  .tasks-list-pager-meta,
+  .tasks-list-pager-page,
+  .tasks-empty,
+  .tasks-empty-hint
+) {
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tasks-panel-link:hover,
+html[data-translucent-ui='1'] .tasks-page .tasks-panel-link:hover {
+  color: var(--accent) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-ops .btn,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn {
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-ops .btn-secondary,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary {
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-ops .btn-secondary:hover,
+html[data-translucent-ui='1'] .tasks-page .tl-ops .btn-secondary:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-type--workflow,
+html[data-theme='dark'] .tasks-page .tl-type--prompt,
+html[data-translucent-ui='1'] .tasks-page .tl-type--workflow,
+html[data-translucent-ui='1'] .tasks-page .tl-type--prompt {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent) !important;
+  border-color: var(--border-primary) !important;
+}
+
+/* 语义色状态保留色相，但抬高亮度 */
+html[data-theme='dark'] .tasks-page .tl-status--executing,
+html[data-theme='dark'] .tasks-page .tl-status--planning,
+html[data-theme='dark'] .tasks-page .tl-status--reviewed,
+html[data-translucent-ui='1'] .tasks-page .tl-status--executing,
+html[data-translucent-ui='1'] .tasks-page .tl-status--planning,
+html[data-translucent-ui='1'] .tasks-page .tl-status--reviewed {
+  color: #93c5fd !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-status--completed,
+html[data-translucent-ui='1'] .tasks-page .tl-status--completed {
+  color: #86efac !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-status--failed,
+html[data-translucent-ui='1'] .tasks-page .tl-status--failed {
+  color: #fca5a5 !important;
+}
+
+html[data-theme='dark'] .tasks-page .tl-status--paused,
+html[data-translucent-ui='1'] .tasks-page .tl-status--paused {
+  color: #fdba74 !important;
+}
+
+/* ── 智能体（role-page）+ 值班台（proactive-page） ── */
+html[data-theme='dark'] .role-page,
+html[data-theme='dark'] .proactive-page,
+html[data-translucent-ui='1'] .role-page,
+html[data-translucent-ui='1'] .proactive-page {
+  --text-secondary: var(--text-primary);
+  --text-tertiary: var(--text-primary);
+  color: var(--text-primary);
+  background: transparent !important;
+}
+
+html[data-theme='dark'] #content:has(> .role-page),
+html[data-theme='dark'] #content:has(> .proactive-page),
+html[data-translucent-ui='1'] #content:has(> .role-page),
+html[data-translucent-ui='1'] #content:has(> .proactive-page) {
+  background: transparent !important;
+}
+
+/* 下拉 / 输入 / 筛选 — 暗色非玻璃：半透明实底 */
+html[data-theme='dark']:not([data-translucent-ui='1']) .role-page,
+html[data-theme='dark']:not([data-translucent-ui='1']) .proactive-page {
+  --ef-field-surface: color-mix(in srgb, var(--bg-secondary) 86%, #09090b);
+  --ef-field-surface-strong: color-mix(in srgb, var(--bg-secondary) 94%, #09090b);
+}
+
+/* 液态玻璃：智能体中心 / 值班台 — 控件透明描边 */
+html[data-translucent-ui='1'] .role-page,
+html[data-translucent-ui='1'] .proactive-page,
+html[data-translucent-ui='1'] .expert-page {
+  --ef-field-surface: transparent;
+  --ef-field-surface-strong: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+html[data-theme='dark'] .role-page :is(
+  .role-search-input,
+  .role-filter-select,
+  .role-filter-btn,
+  .role-more-panel,
+  .role-more-btn,
+  .role-more-menu,
+  .role-back-btn,
+  .role-active-chip,
+  .role-active-clear,
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu
+),
+html[data-translucent-ui='1'] .expert-page :is(
+  .role-search-input,
+  .role-filter-select,
+  .role-filter-btn,
+  .ec-filter-select,
+  .role-more-panel,
+  .role-more-btn,
+  .role-more-menu,
+  .role-back-btn,
+  .role-active-chip,
+  .role-active-clear,
+  .agent-tag-chip,
+  .role-market-banner
+),
+html[data-translucent-ui='1'] .role-page :is(
+  .role-search-input,
+  .role-filter-select,
+  .role-filter-btn,
+  .role-more-panel,
+  .role-more-btn,
+  .role-more-menu,
+  .role-back-btn,
+  .role-active-chip,
+  .role-active-clear,
+  .agent-tag-chip,
+  .role-market-banner,
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu
+),
+html[data-theme='dark'] .proactive-page :is(
+  .pro-kanban-select,
+  .pro-org-select,
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu,
+  .pro-worklog-datepicker input[type='date']
+),
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-kanban-select,
+  .pro-org-select,
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu,
+  .pro-worklog-datepicker input[type='date']
+) {
+  background: var(--ef-field-surface) !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'] .role-page .role-search-input:focus,
+html[data-theme='dark'] .role-page .re-search:focus,
+html[data-translucent-ui='1'] .role-page .role-search-input:focus,
+html[data-translucent-ui='1'] .role-page .re-search:focus,
+html[data-translucent-ui='1'] .expert-page .role-search-input:focus {
+  background: var(--ef-field-surface-strong) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent) !important;
+}
+
+html[data-theme='dark'] .role-page .role-search-input::placeholder,
+html[data-theme='dark'] .role-page .re-search::placeholder,
+html[data-translucent-ui='1'] .role-page .role-search-input::placeholder,
+html[data-translucent-ui='1'] .role-page .re-search::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 58%, var(--text-tertiary));
+}
+
+html[data-theme='dark'] .role-page .role-filter-select,
+html[data-translucent-ui='1'] .role-page .role-filter-select,
+html[data-translucent-ui='1'] .expert-page :is(.role-filter-select, .ec-filter-select) {
+  background-color: var(--ef-field-surface) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5L6 6l4.5-4.5' fill='none' stroke='%23d4d4d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+}
+
+html[data-theme='dark'] .role-page .role-more-btn,
+html[data-translucent-ui='1'] .role-page .role-more-btn,
+html[data-translucent-ui='1'] .expert-page .role-more-btn {
+  background: var(--ef-field-surface) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .role-page .role-more-btn:hover,
+html[data-theme='dark'] .role-page .role-more-menu button:hover,
+html[data-translucent-ui='1'] .role-page .role-more-btn:hover,
+html[data-translucent-ui='1'] .role-page .role-more-menu button:hover {
+  background: color-mix(in srgb, var(--accent) 14%, var(--ef-field-surface)) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .role-page .role-more-menu,
+html[data-translucent-ui='1'] .role-page .role-more-menu {
+  background: var(--ef-field-surface-strong) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'] .role-page .role-filter-btn:hover,
+html[data-translucent-ui='1'] .expert-page .role-filter-btn:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .role-page .role-filter-btn.is-active,
+html[data-translucent-ui='1'] .role-page .role-filter-btn.is-active,
+html[data-translucent-ui='1'] .expert-page .role-filter-btn.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-primary)) !important;
+}
+
+/* 值班台顶栏 Tab（待审批 / 员工 / …） */
+html[data-theme='dark'] .proactive-page .pro-tabs,
+html[data-translucent-ui='1'] .proactive-page .pro-tabs {
+  background: transparent !important;
+  border: 1px solid var(--border-primary);
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-tab,
+html[data-translucent-ui='1'] .proactive-page .pro-tab {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-tab:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-tab:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-tab--active,
+html[data-translucent-ui='1'] .proactive-page .pro-tab--active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: none !important;
+}
+
+/* 智能体卡片与次要文案 — 全部提亮 */
+html[data-theme='dark'] .role-page :is(
+  .role-desc,
+  .role-total,
+  .role-desc-text,
+  .role-card-code,
+  .role-type-label,
+  .role-type-sep,
+  .role-team-card-desc,
+  .role-team-card-arrow,
+  .role-active-filters-label,
+  .role-active-chip,
+  .role-more-panel-head,
+  .role-subtab,
+  .re-count,
+  .re-hint,
+  .re-empty,
+  .detail-label,
+  .hire-field,
+  .hire-agent-code,
+  .hire-dd-option-path,
+  .re-panel-head p
+),
+html[data-translucent-ui='1'] .role-page :is(
+  .role-desc,
+  .role-total,
+  .role-desc-text,
+  .role-card-code,
+  .role-type-label,
+  .role-type-sep,
+  .role-team-card-desc,
+  .role-team-card-arrow,
+  .role-active-filters-label,
+  .role-active-chip,
+  .role-more-panel-head,
+  .role-subtab,
+  .re-count,
+  .re-hint,
+  .re-empty,
+  .detail-label,
+  .hire-field,
+  .hire-agent-code,
+  .hire-dd-option-path,
+  .re-panel-head p
+) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .role-page .role-subtab--active,
+html[data-translucent-ui='1'] .role-page .role-subtab--active {
+  color: var(--accent) !important;
+}
+
+/* 值班台：卡片内灰字提亮 */
+html[data-theme='dark'] .proactive-page :is(
+  .page-desc,
+  .pro-role-sub,
+  .pro-role-dept,
+  .pro-role-duty,
+  .pro-tag,
+  .pro-badge--muted,
+  .pro-decide-strip-list,
+  .pro-decide-more,
+  .pro-draft-banner span,
+  .pro-duty-sheet-code,
+  .pro-duty-sheet-desc,
+  .pro-duty-sheet-panel-head p,
+  .pro-duty-fold-meta,
+  .pro-role-task-stats-total,
+  .pro-role-task-pill,
+  .pro-work-summary-meta,
+  .pro-work-summary-last,
+  .pro-kanban-check,
+  .pro-kanban-total,
+  .detail-label,
+  .pro-meta-chip
+),
+html[data-translucent-ui='1'] .proactive-page :is(
+  .page-desc,
+  .pro-role-sub,
+  .pro-role-dept,
+  .pro-role-duty,
+  .pro-tag,
+  .pro-badge--muted,
+  .pro-decide-strip-list,
+  .pro-decide-more,
+  .pro-draft-banner span,
+  .pro-duty-sheet-code,
+  .pro-duty-sheet-desc,
+  .pro-duty-sheet-panel-head p,
+  .pro-duty-fold-meta,
+  .pro-role-task-stats-total,
+  .pro-role-task-pill,
+  .pro-work-summary-meta,
+  .pro-work-summary-last,
+  .pro-kanban-check,
+  .pro-kanban-total,
+  .detail-label,
+  .pro-meta-chip
+) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-role-more-btn:hover,
+html[data-theme='dark'] .proactive-page .pro-role-more.is-open .pro-role-more-btn,
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-btn:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-role-more.is-open .pro-role-more-btn {
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-duty-sheet,
+html[data-theme='dark'] .proactive-page .pro-duty-sheet-hero,
+html[data-theme='dark'] .proactive-page .pro-duty-sheet-body,
+html[data-theme='dark'] .proactive-page .pro-duty-fold,
+html[data-theme='dark'] .proactive-page .pro-config-panel,
+html[data-theme='dark'] .proactive-page .pro-config-fold,
+html[data-theme='dark'] .proactive-page .pro-sched-preview,
+html[data-translucent-ui='1'] .proactive-page .pro-duty-sheet,
+html[data-translucent-ui='1'] .proactive-page .pro-duty-sheet-hero,
+html[data-translucent-ui='1'] .proactive-page .pro-duty-sheet-body,
+html[data-translucent-ui='1'] .proactive-page .pro-duty-fold,
+html[data-translucent-ui='1'] .proactive-page .pro-config-panel,
+html[data-translucent-ui='1'] .proactive-page .pro-config-fold,
+html[data-translucent-ui='1'] .proactive-page .pro-sched-preview {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .detail-value,
+html[data-translucent-ui='1'] .proactive-page .detail-value {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 雇佣 / 编辑弹窗 — 暗色非玻璃：半透明实底 */
+html[data-theme='dark']:not([data-translucent-ui='1']) :is(.hire-overlay, .role-editor-overlay) {
+  --ef-field-surface: color-mix(in srgb, var(--bg-secondary) 86%, #09090b);
+  --ef-field-surface-strong: color-mix(in srgb, var(--bg-secondary) 94%, #09090b);
+}
+
+/* 液态玻璃：编辑岗位 / 上班时间等控件透明描边 */
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) {
+  --ef-field-surface: transparent;
+  --ef-field-surface-strong: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) :is(.hire-sheet, .role-editor-modal),
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) :is(.hire-sheet, .role-editor-modal) {
+  background: var(--ef-field-surface-strong, color-mix(in srgb, var(--bg-secondary) 94%, #09090b)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary);
+  box-shadow: 0 24px 64px color-mix(in srgb, #000 42%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .role-editor-overlay) :is(.hire-sheet, .role-editor-modal) {
+  background: color-mix(in srgb, var(--bg-secondary) 96%, #09090b) !important;
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .agent-sheet-hero,
+  .re-nav,
+  .re-main,
+  .re-panel-head,
+  .re-footer
+),
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .agent-sheet-hero,
+  .re-nav,
+  .re-main,
+  .re-panel-head,
+  .re-footer
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--border-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu,
+  .hire-dnd-select,
+  .hire-chip,
+  .re-search,
+  .re-bar,
+  .re-check,
+  .detail-value,
+  .hire-agent-card,
+  .hire-vault-list
+),
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu,
+  .hire-dnd-select,
+  .hire-chip,
+  .re-search,
+  .re-bar,
+  .re-check,
+  .detail-value,
+  .hire-agent-card,
+  .hire-vault-list
+) {
+  background: var(--ef-field-surface, color-mix(in srgb, var(--bg-secondary) 86%, #09090b)) !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .hire-field,
+  .detail-label,
+  .re-panel-head p,
+  .re-hint,
+  .re-empty,
+  .hire-agent-code,
+  .hire-dd-option-path
+),
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .hire-field,
+  .detail-label,
+  .re-panel-head p,
+  .re-hint,
+  .re-empty,
+  .hire-agent-code,
+  .hire-dd-option-path
+) {
+  color: var(--text-primary) !important;
+}
+
+/* 左侧 Tab：内置工具 / MCP / 技能 — 去白底 */
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) .re-nav-item,
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) .re-nav-item {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) .re-nav-item:hover,
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) .re-nav-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) .re-nav-item--active,
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) .re-nav-item--active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent) !important;
+  font-weight: 600;
+}
+
+html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) .re-footer .btn-secondary,
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) .re-footer .btn-secondary {
+  color: var(--text-primary) !important;
+  background: var(--ef-field-surface, color-mix(in srgb, var(--bg-secondary) 86%, #09090b)) !important;
+  border-color: var(--border-primary) !important;
+}
+
+/* ── 智能体中心：顶部分段导航 + 卡片底部按钮（去实色底） ── */
+html[data-theme='dark'] .expert-page .expert-seg,
+html[data-translucent-ui='1'] .expert-page .expert-seg {
+  background: transparent !important;
+  border: 1px solid var(--ef-glass-border, var(--border-primary));
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .expert-page .expert-seg-item,
+html[data-translucent-ui='1'] .expert-page .expert-seg-item {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .expert-page .expert-seg-item:hover,
+html[data-translucent-ui='1'] .expert-page .expert-seg-item:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .expert-page .expert-seg-item.active,
+html[data-translucent-ui='1'] .expert-page .expert-seg-item.active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .expert-page .tab-toolbar-row .tab-bar,
+html[data-translucent-ui='1'] .expert-page .tab-toolbar-row .tab-bar {
+  background: transparent !important;
+  border: 1px solid var(--ef-glass-border, var(--border-primary));
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .expert-page .tab-toolbar-row .tab,
+html[data-translucent-ui='1'] .expert-page .tab-toolbar-row .tab {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .expert-page .tab-toolbar-row .tab:hover,
+html[data-translucent-ui='1'] .expert-page .tab-toolbar-row .tab:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .expert-page .tab-toolbar-row .tab.active,
+html[data-translucent-ui='1'] .expert-page .tab-toolbar-row .tab.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .role-page .role-btn:not(.role-btn--primary):not(.role-btn--hire),
+html[data-translucent-ui='1'] .role-page .role-btn:not(.role-btn--primary):not(.role-btn--hire) {
+  background: var(--ef-field-surface) !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'] .role-page .role-btn--hired,
+html[data-translucent-ui='1'] .role-page .role-btn--hired {
+  background: color-mix(in srgb, #0f766e 12%, transparent) !important;
+  border-color: color-mix(in srgb, #0f766e 38%, var(--border-primary)) !important;
+  color: #5eead4 !important;
+}
+
+html[data-theme='dark'] .role-page .role-btn:not(.role-btn--primary):not(.role-btn--hire):hover,
+html[data-translucent-ui='1'] .role-page .role-btn:not(.role-btn--primary):not(.role-btn--hire):hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .role-page .role-more-btn,
+html[data-translucent-ui='1'] .role-page .role-more-btn,
+html[data-translucent-ui='1'] .expert-page .role-more-btn {
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .expert-seg,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .tab-toolbar-row .tab-bar {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .expert-seg-item,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .tab-toolbar-row .tab {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-btn:not(.role-btn--primary):not(.role-btn--hire),
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-btn--hired,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-more-btn {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--border-primary) 58%, transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 卡片底部主操作（打开 / 部署 / 雇佣）— 去实色渐变 */
+html[data-translucent-ui='1'] .role-page .role-card-foot .role-btn--primary,
+html[data-translucent-ui='1'] .role-page .role-card-foot .role-btn--hire {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+html[data-translucent-ui='1'] .role-page .role-card-foot .role-btn--primary:hover,
+html[data-translucent-ui='1'] .role-page .role-card-foot .role-btn--hire:hover {
+  background: color-mix(in srgb, var(--accent) 26%, transparent) !important;
+  color: var(--text-primary) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-card-foot .role-btn--primary,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-card-foot .role-btn--hire {
+  background: transparent !important;
+  color: var(--accent) !important;
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-card-foot .role-btn--primary:hover,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-card-foot .role-btn--hire:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+/* 搜索 / 筛选 / 更多筛选面板 — WebGL 模式全透明 */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page :is(
+  .role-search-input,
+  .role-filter-select,
+  .role-filter-btn,
+  .ec-filter-select,
+  .role-more-panel,
+  .role-more-btn,
+  .role-active-chip,
+  .role-active-clear,
+  .agent-tag-chip,
+  .role-market-banner
+),
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page :is(
+  .role-search-input,
+  .role-filter-select,
+  .role-filter-btn,
+  .role-more-panel,
+  .role-more-btn,
+  .role-active-chip,
+  .role-active-clear,
+  .agent-tag-chip,
+  .role-market-banner
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 58%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .role-search-input:focus,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-search-input:focus {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  border-color: var(--accent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .role-more-panel,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-more-panel {
+  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 22%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page .role-more-menu,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-more-menu {
+  background: color-mix(in srgb, var(--bg-secondary) 32%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+/* ── 智能体员工（proactive-page）：顶栏按钮 + 详情面板 ── */
+html[data-translucent-ui='1'] .proactive-page .page-actions :is(
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost
+),
+html[data-translucent-ui='1'] .proactive-page .pro-page-nav :is(
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost,
+  .pro-dispatch-btn
+),
+html[data-translucent-ui='1'] .proactive-page .pro-duty-card .btn,
+html[data-translucent-ui='1'] .proactive-page .pro-decide-strip .btn,
+html[data-translucent-ui='1'] .proactive-page .pro-role-card .btn {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 58%, transparent) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .page-actions .btn-primary,
+html[data-translucent-ui='1'] .proactive-page .pro-page-nav .btn-primary,
+html[data-translucent-ui='1'] .proactive-page .pro-dispatch-btn {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .page-actions :is(
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost
+):hover,
+html[data-translucent-ui='1'] .proactive-page .pro-page-nav :is(
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost,
+  .pro-dispatch-btn
+):hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  color: var(--text-primary) !important;
+  transform: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-feishu-toolbar {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border-primary)) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-btn,
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-btn:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-role-more.is-open .pro-role-more-btn {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--border-primary) 58%, transparent) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-role-more-menu {
+  background: color-mix(in srgb, var(--bg-secondary) 32%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  box-shadow: 0 12px 32px color-mix(in srgb, #000 22%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-employee-tabs {
+  background: transparent !important;
+  border: 1px solid var(--ef-glass-border, var(--border-primary));
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-employee-tab {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-employee-tab:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-employee-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-duty-sheet-stat,
+  .pro-meta-chip,
+  .pro-kpi-tile,
+  .pro-role-schedule-badge,
+  .pro-tag
+) {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-role-schedule-badge--off {
+  opacity: 0.82 !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-config-fold {
+  border-color: color-mix(in srgb, var(--border-primary) 55%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-config-fold[open] {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary)) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-config-fold__sum:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-config-fold__body {
+  border-top-color: color-mix(in srgb, var(--border-primary) 45%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) .hire-chip.is-on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-primary)) !important;
+  color: var(--accent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-duty-fold-sum:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-onboard-card,
+  .pro-onboard-step,
+  .pro-diag-item:not(.pro-diag-item--urgent):not(.pro-diag-item--warn)
+) {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .page-actions :is(
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost
+),
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-page-nav :is(
+  .btn-primary,
+  .btn-secondary,
+  .btn-outline,
+  .btn-ghost,
+  .pro-dispatch-btn
+),
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-btn,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-btn:hover,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more.is-open .pro-role-more-btn {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page :is(
+  .pro-duty-sheet,
+  .pro-duty-sheet-hero,
+  .pro-duty-sheet-body,
+  .pro-duty-fold,
+  .pro-config-panel,
+  .pro-config-fold,
+  .detail-value,
+  .pro-employee-tabs,
+  .pro-employee-tab,
+  .pro-onboard-card,
+  .pro-onboard-step,
+  .pro-role-schedule-badge,
+  .pro-tag,
+  .pro-meta-chip
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-employee-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-role-more-menu {
+  background: color-mix(in srgb, var(--bg-secondary) 28%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .role-editor-overlay) :is(
+  .hire-input,
+  .hire-dd-trigger,
+  .hire-dd-menu,
+  .hire-dnd-select,
+  .hire-chip,
+  .hire-vault-list
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── 员工详情 · 上班记录 / 时间线 / 任务列表 ── */
+html[data-theme='dark'] .proactive-page :is(
+  .pro-worklog-round,
+  .pro-worklog-listrow,
+  .pro-worklog-daybar,
+  .pro-worklog-listbar,
+  .pro-worklog-viewtabs,
+  .pro-worklog-daychip,
+  .pro-round-summary,
+  .pro-scorecard,
+  .pro-progress-trail li,
+  .pro-item-subtasks li,
+  .pro-item-section,
+  .pro-process-viewer,
+  .pro-role-task-stats,
+  .pro-role-task-item,
+  .pro-work-summary,
+  .pro-diag-act,
+  .pro-detail-code,
+  .pro-growth-view-tabs,
+  .pro-growth-featured
+),
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-worklog-round,
+  .pro-worklog-listrow,
+  .pro-worklog-daybar,
+  .pro-worklog-listbar,
+  .pro-worklog-viewtabs,
+  .pro-worklog-daychip,
+  .pro-round-summary,
+  .pro-scorecard,
+  .pro-progress-trail li,
+  .pro-item-subtasks li,
+  .pro-item-section,
+  .pro-process-viewer,
+  .pro-role-task-stats,
+  .pro-role-task-item,
+  .pro-work-summary,
+  .pro-diag-act,
+  .pro-detail-code,
+  .pro-growth-view-tabs,
+  .pro-growth-featured
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-worklog-round,
+  .pro-worklog-listrow,
+  .pro-item-section,
+  .pro-role-task-stats
+) {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-day-head,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-day-head {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-primary) 42%, transparent);
+}
+
+/* 上班日期横条：近2天 / 今天 / 昨天（与视图 Tab 同款分段） */
+html[data-theme='dark'] .proactive-page .pro-worklog-daybar,
+html[data-theme='dark'] .proactive-page .pro-worklog-listbar,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-daybar,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-listbar {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 55%, transparent) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-daychips,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-daychips {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary);
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-daychip,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-daychip {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-daychip:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-daychip:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  border-color: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-viewtabs,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-viewtabs,
+html[data-theme='dark'] .proactive-page .pro-growth-view-tabs,
+html[data-translucent-ui='1'] .proactive-page .pro-growth-view-tabs {
+  background: transparent !important;
+  border: 1px solid var(--border-primary) !important;
+  box-shadow: none !important;
+  padding: 3px !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-viewtab,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-viewtab,
+html[data-theme='dark'] .proactive-page .pro-growth-view-tab,
+html[data-translucent-ui='1'] .proactive-page .pro-growth-view-tab {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-viewtab:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-viewtab:hover,
+html[data-theme='dark'] .proactive-page .pro-growth-view-tab:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-growth-view-tab:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-viewtab.is-active,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-viewtab.is-active,
+html[data-theme='dark'] .proactive-page .pro-growth-view-tab.is-active,
+html[data-translucent-ui='1'] .proactive-page .pro-growth-view-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-worklog-daychip.is-active,
+html[data-translucent-ui='1'] .proactive-page .pro-worklog-daychip.is-active {
+  background: color-mix(in srgb, var(--pro-teal, var(--accent)) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--pro-teal, var(--accent)) 38%, var(--border-primary)) !important;
+  color: var(--pro-teal, var(--accent)) !important;
+}
+
+html[data-theme='dark'] .proactive-page :is(
+  .pro-scorecard--ok,
+  .pro-round-summary.pro-scorecard--ok
+),
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-scorecard--ok,
+  .pro-round-summary.pro-scorecard--ok
+) {
+  background: color-mix(in srgb, var(--pro-teal, var(--success)) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-diag-item--urgent,
+html[data-translucent-ui='1'] .proactive-page .pro-diag-item--urgent {
+  background: color-mix(in srgb, var(--danger, #dc2626) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-diag-item--warn,
+html[data-translucent-ui='1'] .proactive-page .pro-diag-item--warn {
+  background: color-mix(in srgb, var(--warning, #b45309) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page :is(
+  .pro-item-approve-bar,
+  .pro-item-review-bar,
+  .pro-approval-banner
+),
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-item-approve-bar,
+  .pro-item-review-bar,
+  .pro-approval-banner
+) {
+  background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .proactive-page .pro-item-review-bar {
+  background: color-mix(in srgb, #3b82f6 10%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page .pro-timeline-item:hover,
+html[data-theme='dark'] .proactive-page .pro-timeline-item--expanded,
+html[data-translucent-ui='1'] .proactive-page .pro-timeline-item:hover,
+html[data-translucent-ui='1'] .proactive-page .pro-timeline-item--expanded {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page :is(
+  .pro-process-msg--user,
+  .pro-process-msg--tool
+),
+html[data-translucent-ui='1'] .proactive-page :is(
+  .pro-process-msg--user,
+  .pro-process-msg--tool
+) {
+  background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+
+html[data-theme='dark'] .proactive-page table,
+html[data-translucent-ui='1'] .proactive-page table {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .proactive-page :is(thead, tbody, tr, th, td),
+html[data-translucent-ui='1'] .proactive-page :is(thead, tbody, tr, th, td) {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--border-primary) 65%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .proactive-page table thead th,
+html[data-translucent-ui='1'] .proactive-page table thead th {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+/* WebGL：上班记录区域全部透明描边 */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page :is(
+  .pro-item-card,
+  .pro-worklog-round,
+  .pro-worklog-listrow,
+  .pro-worklog-daybar,
+  .pro-worklog-listbar,
+  .pro-worklog-viewtabs,
+  .pro-worklog-viewtab,
+  .pro-worklog-daychip,
+  .pro-round-summary,
+  .pro-scorecard,
+  .pro-progress-trail li,
+  .pro-item-subtasks li,
+  .pro-item-section,
+  .pro-process-viewer,
+  .pro-role-task-stats,
+  .pro-role-task-item,
+  .pro-work-summary,
+  .pro-diag-item,
+  .pro-diag-act,
+  .pro-detail-code,
+  .pro-growth-view-tabs,
+  .pro-growth-view-tab,
+  .pro-growth-featured,
+  .pro-item-approve-bar,
+  .pro-item-review-bar,
+  .pro-approval-banner
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-viewtab.is-active,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-growth-view-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-daychip.is-active {
+  background: color-mix(in srgb, var(--pro-teal, var(--accent)) 12%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-day-head {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-bottom-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-daybar,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-listbar,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-daychips {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-worklog-daychip {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-timeline-item:hover,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page .pro-timeline-item--expanded {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page table thead th {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   自动化（cron）· 知识库 · 通用弹窗 — 液态玻璃补全
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 知识库 Vault：实色 token → 半透明（与 custom-bg 对齐，绑定 liquid-glass） ── */
+html[data-translucent-ui='1'],
+html[data-translucent-ui='1'][data-theme='light'],
+html[data-translucent-ui='1'][data-theme='dark'] {
+  --kv-bg: transparent !important;
+  --kv-page-grad-top: transparent !important;
+  --kv-panel: transparent !important;
+  --kv-panel-2: color-mix(in srgb, var(--bg-tertiary) 18%, transparent) !important;
+  --kv-panel-3: color-mix(in srgb, var(--bg-tertiary) 14%, transparent) !important;
+  --kv-panel-surface: transparent !important;
+  --kv-card-surface: transparent !important;
+  --kv-ghost-bg: color-mix(in srgb, var(--bg-secondary) 48%, transparent) !important;
+  --kv-empty-bg: color-mix(in srgb, var(--bg-secondary) 45%, transparent) !important;
+  --kv-note-bg: color-mix(in srgb, var(--bg-primary) 45%, transparent) !important;
+  --kv-input-bg: color-mix(in srgb, var(--bg-primary) 42%, transparent) !important;
+  --kv-select-bg: color-mix(in srgb, var(--bg-secondary) 50%, transparent) !important;
+  --kv-result-surface: color-mix(in srgb, var(--bg-tertiary) 45%, transparent) !important;
+  --kv-manage-bg: color-mix(in srgb, var(--bg-tertiary) 42%, transparent) !important;
+  --kv-graph-bg: color-mix(in srgb, var(--bg-tertiary) 40%, transparent) !important;
+  --kv-modal-bg: color-mix(in srgb, var(--bg-secondary) 68%, transparent) !important;
+  --kv-toast-bg: color-mix(in srgb, var(--bg-secondary) 68%, transparent) !important;
+  --kv-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] :is(
+  .page.knowledge-vaults-outlet,
+  #knowledge-vaults-root,
+  .kv-page,
+  .kv-page.is-hub,
+  .kv-page.is-detail,
+  .kv-workspace,
+  .kv-workspace__body,
+  .kv-detail-view,
+  .kv-detail-layout,
+  .kv-detail-content
+) {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+html[data-translucent-ui='1'] :is(
+  .kv-hub-hero,
+  .kv-workspace-bar,
+  .kv-empty-hero,
+  .kv-rail,
+  .kv-explorer,
+  .kv-detail-sidebar,
+  .kv-workspace-panel,
+  .kv-note-panel,
+  .kv-graph-panel,
+  .kv-panel,
+  .kv-search-panel
+) {
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border, var(--kv-border)) !important;
+  box-shadow: none !important;
+}
+
+/* ── 自有知识库（owned KB）token ── */
+html[data-translucent-ui='1'] #content:has(> .page.knowledge-owned-outlet),
+html[data-translucent-ui='1'] #content:has(> .page.knowledge-vaults-outlet),
+html[data-theme='dark'] #content:has(> .page.knowledge-owned-outlet),
+html[data-theme='dark'] #content:has(> .page.knowledge-vaults-outlet) {
+  background: transparent !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page {
+  --kb-bg: transparent !important;
+  --kb-panel: transparent !important;
+  --kb-card-bg: transparent !important;
+  --kb-elevated: color-mix(in srgb, var(--bg-secondary) 48%, transparent) !important;
+  --kb-side: color-mix(in srgb, var(--bg-secondary) 48%, transparent) !important;
+  --kb-nav-bg: color-mix(in srgb, var(--bg-tertiary) 42%, transparent) !important;
+  --kb-nav-active: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  --kb-input-bg: transparent !important;
+  --kb-drawer: color-mix(in srgb, var(--bg-secondary) 68%, transparent) !important;
+  --ko-surface: transparent !important;
+  --ko-side: color-mix(in srgb, var(--bg-secondary) 48%, transparent) !important;
+  --ko-thead: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  background: transparent !important;
+  background-image: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page :is(
+  .ko-topbar,
+  .ko-catalog,
+  .ko-rail,
+  .ko-wiki-list,
+  .ko-sync-popup,
+  .ko-ask__dock,
+  .ko-search__bar,
+  .ko-wiki,
+  .ko-code-block,
+  .ko-table-wrap,
+  .ko-empty-hero,
+  .ko-insight-card,
+  .ko-kb-stat,
+  .ko-data-list,
+  .ko-data-list__item,
+  .ko-stat-card,
+  .ko-search-hero,
+  .ko-data-list__dropdown,
+  .ko-empty,
+  .ko-rail-card,
+  .ko-overview,
+  .ko-workspace,
+  .ko-shell,
+  .ko-shell--full,
+  .ko-detail,
+  .ko-main,
+  .ko-page-view,
+  .ko-reader-empty,
+  .ko-catalog__tabs
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--ef-glass-border, var(--kb-border)) !important;
+  box-shadow: none !important;
+}
+
+/* 详情右侧栏：健康度 / 文档信息 / 操作轨迹 / 相关知识（硬编码白底） */
+html[data-theme='dark'] .knowledge-owned-page .ko-rail-card,
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-rail-card {
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--border-primary) 55%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page :is(
+  .ko-rail-related button,
+  .ko-activity-list__btn,
+  .ko-activity-list__row
+) {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page :is(
+  .ko-rail-related button:hover,
+  .ko-activity-list__btn:hover
+) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-data-list__main:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-stat-card__icon {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-gauge__track {
+  stroke: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+}
+
+/* Vault / Obsidian 列表：统计条、筛选、卡片 */
+html[data-theme='dark'] .kv-page :is(
+  .kv-summary > div,
+  .kv-list-search,
+  .kv-list-toolbar select,
+  .kv-tile,
+  .kv-page-head
+),
+html[data-translucent-ui='1'] .kv-page :is(
+  .kv-summary > div,
+  .kv-list-search,
+  .kv-list-toolbar select,
+  .kv-tile,
+  .kv-page-head,
+  .kv-gallery
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--ef-glass-border, var(--kv-border)) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .kv-tile:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary)) !important;
+}
+
+html[data-translucent-ui='1'] .kv-tile__more,
+html[data-translucent-ui='1'] .kv-tile__menu {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--kv-border)) !important;
+  box-shadow: none !important;
+}
+
+/* ── 旧版知识库列表 / Wiki ── */
+html[data-theme='dark'] #content :is(
+  .kb-card,
+  .kb-wiki-toc,
+  .kb-wiki-main,
+  .kb-wiki-doc-card,
+  .kb-search-hit,
+  .kb-settings-card,
+  .stat-card.kb-card
+),
+html[data-translucent-ui='1'] #content :is(
+  .kb-card,
+  .kb-wiki-toc,
+  .kb-wiki-main,
+  .kb-wiki-doc-card,
+  .kb-search-hit,
+  .kb-settings-card,
+  .stat-card.kb-card,
+  .kb-card-icon,
+  .kb-detail-back
+) {
+  background: var(--ef-glass-surface-strong) !important;
+  backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--ef-glass-blur)) saturate(var(--ef-glass-saturate));
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: none !important;
+}
+
+/* 知识库 Hub 分段 Tab */
+html[data-theme='dark'] .kb-source-tabs,
+html[data-translucent-ui='1'] .kb-source-tabs {
+  background: transparent !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+html[data-theme='dark'] .kb-source-tabs__item,
+html[data-translucent-ui='1'] .kb-source-tabs__item {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .kb-source-tabs__item:hover,
+html[data-translucent-ui='1'] .kb-source-tabs__item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .kb-source-tabs__item.is-active,
+html[data-translucent-ui='1'] .kb-source-tabs__item.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+/* 知识库按钮 */
+html[data-translucent-ui='1'] .kv-page :is(
+  .kv-button:not(.is-primary):not(.is-danger),
+  .kv-icon-button
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--kv-border)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .kv-page .kv-button.is-primary {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-primary)) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page :is(
+  .ko-btn:not(.primary),
+  .ko-back-btn,
+  .ko-icon-btn
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--kb-border)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page .ko-btn.primary {
+  background: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-primary)) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page :is(
+  .ko-seg,
+  .ko-catalog__tabs,
+  .ko-top-nav
+) {
+  background: transparent !important;
+  border: 1px solid var(--border-primary) !important;
+}
+
+html[data-translucent-ui='1'] .knowledge-owned-page :is(
+  .ko-seg button.active,
+  .ko-catalog__tabs button.is-active,
+  .ko-top-nav button.is-active
+) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+/* ── 自动化页：卡片按钮 / 抽屉 / 弹窗 / 调度器 ── */
+html[data-theme='dark'] .cron-page,
+html[data-translucent-ui='1'] .cron-page {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .cron-page :is(
+  .cron-btn:not(.primary):not(.success):not(.danger),
+  .cron-more-panel,
+  .cron-runs-filter,
+  .cron-runs-filter-field select,
+  .cron-runs-filter-field input,
+  .cron-exec-kind,
+  .cron-input,
+  .cron-textarea,
+  .cron-select,
+  .cron-push-option,
+  .cron-history-item,
+  .sched-panel,
+  .sched-tabs,
+  .sched-digit-group,
+  .sched-once-area,
+  .sched-ai-box,
+  .sched-next-runs,
+  .sched-next-runs-list li,
+  .min-ring-grid,
+  .day-chip,
+  .min-quick-btn:not(.on),
+  .sched-once-quick-btn:not(.on),
+  .sched-datetime
+),
+html[data-translucent-ui='1'] .cron-page :is(
+  .cron-btn:not(.primary):not(.success):not(.danger),
+  .cron-more-panel,
+  .cron-runs-filter,
+  .cron-runs-filter-field select,
+  .cron-runs-filter-field input,
+  .cron-exec-kind,
+  .cron-input,
+  .cron-textarea,
+  .cron-select,
+  .cron-push-option,
+  .cron-history-item,
+  .sched-panel,
+  .sched-tabs,
+  .sched-digit-group,
+  .sched-once-area,
+  .sched-ai-box,
+  .sched-next-runs,
+  .sched-next-runs-list li,
+  .min-ring-grid,
+  .day-chip,
+  .min-quick-btn:not(.on),
+  .sched-once-quick-btn:not(.on),
+  .sched-datetime
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme='dark'] .cron-page .cron-btn.primary,
+html[data-translucent-ui='1'] .cron-page .cron-btn.primary {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-primary)) !important;
+  color: var(--accent) !important;
+}
+
+html[data-theme='dark'] .cron-page .cron-btn.primary:hover,
+html[data-translucent-ui='1'] .cron-page .cron-btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  color: var(--accent) !important;
+}
+
+html[data-theme='dark'] .cron-page .cron-btn.success,
+html[data-translucent-ui='1'] .cron-page .cron-btn.success {
+  background: color-mix(in srgb, var(--success) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border-primary)) !important;
+  color: var(--success) !important;
+}
+
+html[data-theme='dark'] .cron-page .cron-exec-kind__btn.is-active,
+html[data-translucent-ui='1'] .cron-page .cron-exec-kind__btn.is-active,
+html[data-theme='dark'] .cron-page .min-quick-btn.on,
+html[data-translucent-ui='1'] .cron-page .min-quick-btn.on,
+html[data-theme='dark'] .cron-page .sched-once-quick-btn.on,
+html[data-translucent-ui='1'] .cron-page .sched-once-quick-btn.on,
+html[data-theme='dark'] .cron-page .day-chip.on,
+html[data-translucent-ui='1'] .cron-page .day-chip.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  color: var(--accent) !important;
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .cron-page .cron-more-item:hover,
+html[data-translucent-ui='1'] .cron-page .cron-more-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-theme='dark'] .cron-page .sched-clock-area,
+html[data-translucent-ui='1'] .cron-page .sched-clock-area {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+}
+
+html[data-theme='dark'] .cron-page .tl-table thead th,
+html[data-translucent-ui='1'] .cron-page .tl-table thead th {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-theme='dark'] .cron-page .tl-row:hover,
+html[data-translucent-ui='1'] .cron-page .tl-row:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+/* 自动化弹窗 / 抽屉 */
+html[data-theme='dark'] :is(.cron-modal, .cron-drawer, .cron-history-panel),
+html[data-translucent-ui='1'] :is(.cron-modal, .cron-drawer, .cron-history-panel) {
+  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow, none) !important;
+  color: var(--text-primary);
+}
+
+html[data-theme='dark'] :is(.cron-modal-overlay, .cron-history-overlay, .cron-drawer-mask),
+html[data-translucent-ui='1'] :is(.cron-modal-overlay, .cron-history-overlay, .cron-drawer-mask) {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ── 通用业务弹窗 ── */
+html[data-translucent-ui='1'] :is(
+  .kv-modal,
+  .ko-modal,
+  .apps-history-modal,
+  .lk-modal,
+  .engage-modal
+) {
+  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent) !important;
+  backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) + 2px)) saturate(1.3);
+  border-color: var(--ef-glass-border) !important;
+  box-shadow: var(--ef-glass-shadow, none) !important;
+  color: var(--text-primary);
+}
+
+html[data-translucent-ui='1'] :is(
+  .kv-modal-backdrop,
+  .ko-modal-backdrop,
+  .apps-history-modal-overlay,
+  .lk-modal-backdrop
+) {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ── WebGL：知识库 / 自动化 / 弹窗全透明描边 ── */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(
+  .kv-hub-hero,
+  .kv-workspace-bar,
+  .kv-tile,
+  .kv-empty-hero,
+  .kv-rail,
+  .kv-explorer,
+  .kv-detail-sidebar,
+  .kv-workspace-panel,
+  .kv-note-panel,
+  .kv-graph-panel,
+  .kv-panel,
+  .kv-search-panel,
+  .kv-summary > div,
+  .kv-list-search,
+  .kv-list-toolbar select,
+  .kv-tile__menu
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page :is(
+  .ko-topbar,
+  .ko-catalog,
+  .ko-rail,
+  .ko-wiki-list,
+  .ko-sync-popup,
+  .ko-ask__dock,
+  .ko-search__bar,
+  .ko-wiki,
+  .ko-code-block,
+  .ko-table-wrap,
+  .ko-empty-hero,
+  .ko-insight-card,
+  .ko-kb-stat,
+  .ko-glass,
+  .ko-modal,
+  .ko-data-list,
+  .ko-data-list__item,
+  .ko-stat-card,
+  .ko-search-hero,
+  .ko-data-list__dropdown,
+  .ko-rail-card,
+  .ko-overview,
+  .ko-workspace,
+  .ko-shell,
+  .ko-shell--full,
+  .ko-detail,
+  .ko-main,
+  .ko-page-view,
+  .ko-reader-empty,
+  .ko-catalog__tabs,
+  .ko-rail-related button,
+  .ko-activity-list__btn,
+  .ko-activity-list__row
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page .ko-rail-card {
+  border: 1px solid color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page :is(
+  .ko-rail-related button:hover,
+  .ko-activity-list__btn:hover
+) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] #content :is(
+  .kb-card,
+  .kb-wiki-toc,
+  .kb-wiki-main,
+  .kb-wiki-doc-card,
+  .kb-search-hit,
+  .kb-settings-card,
+  .stat-card.kb-card,
+  .kb-card-icon,
+  .kb-detail-back
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .kv-page :is(
+  .kv-button:not(.is-primary),
+  .kv-icon-button
+),
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .knowledge-owned-page :is(
+  .ko-btn:not(.primary),
+  .ko-back-btn,
+  .ko-icon-btn
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .cron-page :is(
+  .cron-btn,
+  .cron-more-panel,
+  .cron-runs-filter,
+  .cron-input,
+  .cron-textarea,
+  .cron-select,
+  .cron-push-option,
+  .cron-drawer,
+  .cron-history-item,
+  .sched-panel,
+  .sched-tabs,
+  .sched-digit-group,
+  .sched-once-area,
+  .sched-ai-box,
+  .sched-next-runs,
+  .sched-next-runs-list li,
+  .min-ring-grid,
+  .day-chip,
+  .min-quick-btn,
+  .sched-once-quick-btn,
+  .sched-datetime,
+  .sched-clock-area
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .cron-page .cron-btn.primary,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .cron-page .cron-btn.success,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .cron-page .cron-exec-kind__btn.is-active,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .cron-page .min-quick-btn.on,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .cron-page .day-chip.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(
+  .cron-modal,
+  .cron-drawer,
+  .cron-history-panel,
+  .kv-modal,
+  .ko-modal,
+  .apps-history-modal,
+  .lk-modal,
+  .engage-modal
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 60%, transparent) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   扩展应用（extensions-page）：搜索 + 应用卡片
+   ══════════════════════════════════════════════════════════════════ */
+html[data-theme='dark'] .extensions-page,
+html[data-translucent-ui='1'] .extensions-page {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] #content:has(> .extensions-page),
+html[data-translucent-ui='1'] #content:has(> .extensions-page) {
+  background: transparent !important;
+}
+
+html[data-theme='dark'] .extensions-page :is(
+  .ext-search-input,
+  .uiext-app,
+  .uiext-app-more,
+  .uiext-app-menu,
+  .ext-remote-form,
+  .ext-remote-form .form-input
+),
+html[data-translucent-ui='1'] .extensions-page :is(
+  .ext-search-input,
+  .uiext-app,
+  .uiext-app-more,
+  .uiext-app-menu,
+  .ext-remote-form,
+  .ext-remote-form .form-input
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  box-shadow: none !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .extensions-page .uiext-app--suite,
+html[data-translucent-ui='1'] .extensions-page .uiext-app--suite {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-theme='dark'] .extensions-page .uiext-app:hover,
+html[data-translucent-ui='1'] .extensions-page .uiext-app:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary)) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'] .extensions-page .ext-search-input:focus,
+html[data-translucent-ui='1'] .extensions-page .ext-search-input:focus {
+  background: transparent !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-theme='dark'] .extensions-page .ext-search-input::placeholder,
+html[data-translucent-ui='1'] .extensions-page .ext-search-input::placeholder {
+  color: color-mix(in srgb, var(--text-primary) 58%, var(--text-tertiary));
+}
+
+html[data-theme='dark'] .extensions-page :is(
+  .uiext-app-name,
+  .uiext-app-desc,
+  .uiext-app-meta,
+  .ext-count,
+  .page-desc
+),
+html[data-translucent-ui='1'] .extensions-page :is(
+  .uiext-app-name,
+  .uiext-app-desc,
+  .uiext-app-meta,
+  .ext-count,
+  .page-desc
+) {
+  color: var(--text-primary) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme='dark'] .extensions-page .uiext-app-more:hover,
+html[data-theme='dark'] .extensions-page .uiext-app-more.is-open,
+html[data-translucent-ui='1'] .extensions-page .uiext-app-more:hover,
+html[data-translucent-ui='1'] .extensions-page .uiext-app-more.is-open {
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-theme='dark'] .extensions-page .uiext-app-menu-item:hover,
+html[data-translucent-ui='1'] .extensions-page .uiext-app-menu-item:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+}
+
+html[data-translucent-ui='1'] .extensions-page .page-actions :is(
+  .btn-secondary,
+  .btn-ghost,
+  .btn-outline
+),
+html[data-translucent-ui='1'] .extensions-page .ext-page-actions :is(
+  .btn-secondary,
+  .btn-ghost,
+  .btn-outline
+) {
+  background: transparent !important;
+  border-color: var(--ef-glass-border, var(--border-primary)) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'] .extensions-page .page-actions .btn-primary,
+html[data-translucent-ui='1'] .extensions-page .ext-page-actions .btn-primary {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-primary)) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .extensions-page :is(
+  .ext-search-input,
+  .uiext-app,
+  .uiext-app--suite,
+  .uiext-app-more,
+  .uiext-app-menu,
+  .ext-remote-form,
+  .ext-remote-form .form-input
+) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border-color: color-mix(in srgb, var(--border-primary) 50%, transparent) !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .extensions-page .uiext-app:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}

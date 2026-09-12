@@ -1,0 +1,12 @@
+{"type":"RUN_STARTED","threadId":"perf","runId":"perf-run"}
+{"type":"TEXT_MESSAGE_START","messageId":"b1","role":"assistant"}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"Paragraph 0 with **bold** and `code`. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_CONTENT","messageId":"b1","delta":"More explanatory prose follows here. More explanatory prose follows here. "}
+{"type":"TEXT_MESSAGE_END","messageId":"b1"}
+{"type":"RUN_FINISHED","threadId":"perf","runId":"perf-run"}

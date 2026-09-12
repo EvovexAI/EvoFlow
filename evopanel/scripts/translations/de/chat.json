@@ -1,0 +1,22 @@
+{
+  "title": "Live-Chat",
+  "desc": "Mit dem Agenten in Echtzeit chatten",
+  "selectAgent": "Agent auswählen",
+  "connecting": "Verbindung wird hergestellt...",
+  "connected": "Verbunden",
+  "disconnected": "Getrennt",
+  "send": "Senden",
+  "inputPlaceholder": "Nachricht eingeben...",
+  "noMessages": "Keine Nachrichten",
+  "clearChat": "Verlauf löschen",
+  "newSession": "Neue Sitzung",
+  "noSessions": "Keine Sitzungen",
+  "copyMessage": "Kopieren",
+  "thinking": "Denkt nach...",
+  "generating": "Wird generiert...",
+  "stop": "Stoppen",
+  "regenerate": "Neu generieren",
+  "modelSelect": "Modell auswählen",
+  "gatewayNotRunning": "Gateway läuft nicht",
+  "startGateway": "Gateway starten"
+}

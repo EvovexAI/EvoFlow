@@ -1,0 +1,13 @@
+{
+  "title": "Configurações do painel",
+  "desc": "Gerenciar configurações de rede, proxy e fontes de download",
+  "networkProxy": "Proxy de rede",
+  "modelProxy": "Proxy de solicitações de modelo",
+  "npmRegistry": "npm Registry",
+  "language": "Idioma de exibição",
+  "languageHint": "Alterar o idioma da interface.",
+  "testProxy": "Testar conexão",
+  "clearProxy": "Desativar proxy",
+  "resetDefault": "Restaurar padrão",
+  "restarting": "Reiniciando..."
+}

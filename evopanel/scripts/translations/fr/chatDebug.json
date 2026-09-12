@@ -1,0 +1,16 @@
+{
+  "title": "Diagnostic système",
+  "desc": "Diagnostic de connexion WebSocket et débogage réseau",
+  "wsStatus": "Statut WebSocket",
+  "wsConnect": "Connecter",
+  "wsDisconnect": "Déconnecter",
+  "wsConnected": "Connecté",
+  "wsDisconnected": "Non connecté",
+  "wsConnecting": "Connexion...",
+  "wsError": "Erreur WebSocket",
+  "networkLogTitle": "Journal des requêtes réseau",
+  "noRequests": "Aucune requête",
+  "totalRequests": "Total des requêtes",
+  "fixStarting": "Début de la réparation...",
+  "fixFailed": "Réparation échouée"
+}

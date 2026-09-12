@@ -1,0 +1,23 @@
+{
+  "title": "Gest茫o de Agentes",
+  "desc": "Criar e gerenciar EvoPanel Agents",
+  "addAgent": "+ Novo Agent",
+  "noAgents": "Sem Agentes",
+  "loadFailed": "Falha ao carregar",
+  "default": "Padr茫o",
+  "backup": "Backup",
+  "edit": "Editar",
+  "delete": "Excluir",
+  "notSet": "N茫o definido",
+  "addTitle": "Novo Agent",
+  "agentId": "Agent ID",
+  "agentName": "Nome",
+  "agentModel": "Modelo",
+  "created": "Agent criado",
+  "createFailed": "Falha ao criar",
+  "editTitle": "Editar Agent 鈥?{id}",
+  "updated": "Atualizado",
+  "updateFailed": "Falha ao atualizar",
+  "deleted": "Exclu铆do",
+  "deleteFailed": "Falha ao excluir"
+}

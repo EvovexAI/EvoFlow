@@ -1,0 +1,148 @@
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 自定义背景墙纸层（由 appearance-background.js 挂载） */
+#evopanel-app-wallpaper {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--bg-primary);
+}
+
+#evopanel-app-wallpaper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--app-bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: var(--app-bg-opacity, 0.35);
+}
+
+html[data-custom-bg='1'] #evopanel-app-wallpaper {
+  display: block;
+}
+
+html[data-custom-bg='1'] body {
+  background: transparent;
+}
+
+html[data-custom-bg='1'] #app {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+/* 知识库页：自有 --kv-* 实色底板，自定义背景下改为透出墙纸 */
+html[data-custom-bg='1'],
+html[data-custom-bg='1'][data-theme='light'],
+html[data-custom-bg='1'][data-theme='dark'] {
+  --kv-bg: transparent;
+  --kv-page-grad-top: transparent;
+  --kv-panel: color-mix(in srgb, var(--bg-secondary) 52%, transparent);
+  --kv-panel-2: color-mix(in srgb, var(--bg-tertiary) 48%, transparent);
+  --kv-panel-3: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
+  --kv-panel-surface: color-mix(in srgb, var(--bg-secondary) 52%, transparent);
+  --kv-card-surface: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+  --kv-ghost-bg: color-mix(in srgb, var(--bg-secondary) 48%, transparent);
+  --kv-empty-bg: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
+  --kv-note-bg: color-mix(in srgb, var(--bg-primary) 45%, transparent);
+  --kv-input-bg: color-mix(in srgb, var(--bg-primary) 42%, transparent);
+  --kv-select-bg: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+  --kv-result-surface: color-mix(in srgb, var(--bg-tertiary) 45%, transparent);
+  --kv-manage-bg: color-mix(in srgb, var(--bg-tertiary) 42%, transparent);
+  --kv-graph-bg: color-mix(in srgb, var(--bg-tertiary) 40%, transparent);
+  --kv-modal-bg: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  --kv-toast-bg: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  --kv-shadow: none;
+}
+
+html[data-custom-bg='1'] .page.knowledge-vaults-outlet,
+html[data-custom-bg='1'] #knowledge-vaults-root,
+html[data-custom-bg='1'] .kv-page,
+html[data-custom-bg='1'] .kv-page.is-hub,
+html[data-custom-bg='1'] .kv-page.is-detail,
+html[data-custom-bg='1'] .kv-workspace,
+html[data-custom-bg='1'] .kv-workspace__body,
+html[data-custom-bg='1'] .kv-detail-view,
+html[data-custom-bg='1'] .kv-detail-layout,
+html[data-custom-bg='1'] .kv-detail-content {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+html[data-custom-bg='1'] .kv-hub-hero,
+html[data-custom-bg='1'] .kv-workspace-bar,
+html[data-custom-bg='1'] .kv-tile,
+html[data-custom-bg='1'] .kv-empty-hero,
+html[data-custom-bg='1'] .kv-detail-sidebar,
+html[data-custom-bg='1'] .kv-workspace-panel,
+html[data-custom-bg='1'] .kv-note-panel,
+html[data-custom-bg='1'] .kv-graph-panel {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+#app {
+  display: flex;
+  height: 100%;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--border-focus);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}

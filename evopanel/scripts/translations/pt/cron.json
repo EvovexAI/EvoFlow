@@ -1,0 +1,17 @@
+﻿{
+  "title": "Tarefas agendadas",
+  "desc": "Gerenciar tarefas agendadas do EvoPanel",
+  "addTask": "+ Adicionar tarefa",
+  "noTasks": "Sem tarefas",
+  "taskName": "Nome da tarefa",
+  "schedule": "Agendamento",
+  "status": "Status",
+  "in  "edit": "Editar",
+  "delete": "Excluir",
+  "enable": "Ativar",
+  "disable": "Desativar",
+  "runNow": "Executar agora",
+  "created": "Tarefa criada",
+  "deleted": "Tarefa excluída",
+  "loadFailed": "Falha ao carregar"
+}

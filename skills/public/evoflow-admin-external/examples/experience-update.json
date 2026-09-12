@@ -1,0 +1,4 @@
+{
+  "title": "Windows PATH 问题（修订）",
+  "solution": "安装勾选 AddPath；新开终端；用 binaries/.../evoflow.cmd 全路径；PowerShell 用分号"
+}

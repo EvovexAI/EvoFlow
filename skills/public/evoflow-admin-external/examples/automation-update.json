@@ -1,0 +1,5 @@
+{
+  "prompt": "改为：汇总昨日风险与阻塞项，输出三条行动建议",
+  "max_duration_minutes": 20,
+  "feishu_push_enabled": false
+}

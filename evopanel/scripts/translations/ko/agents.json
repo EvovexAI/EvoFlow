@@ -1,0 +1,44 @@
+{
+  "title": "Agent ê´ë¦?,
+  "desc": "EvoPanel Agent ìì± ë°?ê´ë¦? IDÂ·ëª¨ë¸Â·ìí¬ì¤íì´ì¤ ì¤ì ",
+  "addAgent": "+ ì?Agent",
+  "noAgents": "Agent ìì",
+  "loadFailed": "ë¡ë ì¤í¨",
+  "loadListFailed": "Agent ëª©ë¡ ë¡ë ì¤í¨",
+  "noDesc": "ì¤ëª ìì",
+  "default": "ê¸°ë³¸",
+  "backup": "ë°±ì",
+  "edit": "í¸ì§",
+  "delete": "ì­ì ",
+  "labelName": "ì´ë¦:",
+  "labelModel": "ëª¨ë¸:",
+  "labelWorkspace": "ìí¬ì¤íì´ì¤:",
+  "labelBindings": "ë°ì¸ë?ì±ë:",
+  "notSet": "ë¯¸ì¤ì ?,
+  "noBinding": "ì±ë ë¯¸ë°ì¸ë©",
+  "addModelsFirst": "ë¨¼ì  ëª¨ë¸ ì¤ì  íì´ì§ìì ëª¨ë¸ì?ì¶ê°íì¸ì?,
+  "addTitle": "ì?Agent",
+  "agentId": "Agent ID",
+  "agentIdPlaceholder": "ì? translator (ìë¬¸ì? ì«ì, ë°ì¤, íì´í?",
+  "agentName": "ì´ë¦",
+  "agentNamePlaceholder": "ì? ë²ì­ ëì°ë¯?,
+  "agentEmoji": "Emoji",
+  "agentEmojiPlaceholder": "ì? ð (ì í)",
+  "agentModel": "ëª¨ë¸",
+  "agentWorkspace": "ìí¬ì¤íì´ì¤ ê²½ë¡",
+  "agentWorkspacePlaceholder": "ë¹ìëë©´ ìë ìì± (ì í, ì ë ê²½ë¡)",
+  "idRequired": "Agent IDë¥?ìë ¥íì¸ì?,
+  "idInvalid": "Agent IDë?ìë¬¸ì? ì«ì, ë°ì¤, íì´íë§ ì¬ì© ê°ë¥í©ëë¤",
+  "created": "Agent ìì±ë?,
+  "createFailed": "ìì± ì¤í¨",
+  "editTitle": "Agent í¸ì§ â?{id}",
+  "workspaceReadonly": "ìì± ì?ì¤ì , ë³ê²?ë¶ê°",
+  "updated": "ìë°ì´í¸ë?,
+  "updateFailed": "ìë°ì´í¸ ì¤í¨",
+  "confirmDelete": "Agentã{id}ãë¥¼ ì­ì íìê² ìµëê¹?\\n\\nì?Agentì?ëª¨ë  ë°ì´í°ì ëíê° ì­ì ë©ëë?",
+  "deleted": "ì­ì ë?,
+  "deleteFailed": "ì­ì  ì¤í¨",
+  "backingUp": "Agentã{id}ã?ë°±ì ì¤?..",
+  "backupDone": "ë°±ì ìë£: {file}",
+  "backupFailed": "ë°±ì ì¤í¨"
+}

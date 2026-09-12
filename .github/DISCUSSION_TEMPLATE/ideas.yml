@@ -1,0 +1,24 @@
+title: "[idea] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share a product idea. Large / breaking designs should follow the [RFC guide](https://github.com/EvovexAI/EvoFlow/blob/main/docs/contribute/rfc.md) (title with `[RFC]`).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who hurts today and how?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should EvoFlow do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

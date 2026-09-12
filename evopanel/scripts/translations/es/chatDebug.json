@@ -1,0 +1,16 @@
+{
+  "title": "Diagnóstico del sistema",
+  "desc": "Diagnóstico de conexión WebSocket y depuración de red",
+  "wsStatus": "Estado WebSocket",
+  "wsConnect": "Conectar",
+  "wsDisconnect": "Desconectar",
+  "wsConnected": "Conectado",
+  "wsDisconnected": "No conectado",
+  "wsConnecting": "Conectando...",
+  "wsError": "Error WebSocket",
+  "networkLogTitle": "Registro de solicitudes de red",
+  "noRequests": "Sin solicitudes",
+  "totalRequests": "Total de solicitudes",
+  "fixStarting": "Iniciando reparación...",
+  "fixFailed": "Reparación fallida"
+}

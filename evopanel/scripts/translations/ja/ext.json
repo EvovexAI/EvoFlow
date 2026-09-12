@@ -1,0 +1,11 @@
+{
+  "title": "Extensions",
+  "desc": "Manage EvoFlow tunneling and related desktop helpers",
+  "installBtn": "Install",
+  "status": "Status",
+  "running": "Running",
+  "stopped": "Stopped",
+  "version": "Version",
+  "start": "Start",
+  "stop": "Stop"
+}

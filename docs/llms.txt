@@ -1,0 +1,40 @@
+# EvoFlow
+
+> EvoFlow is a native Agent Runtime and Control Plane for long-running autonomous software work — plan, decompose, execute, recover, and deliver via observable Agent Teams. Built by EvovexAI. Source-available under the PolyForm Noncommercial License 1.0.0 (not OSI open source). Desktop app: EvoPanel.
+
+## Official links
+
+- [GitHub (public face)](https://github.com/EvovexAI/EvoFlow): Docs, releases, issues
+- [Product site](https://www.evovexai.com): Product and hosted docs entry
+- [Releases](https://github.com/EvovexAI/EvoFlow/releases): Desktop installers
+- [License](https://github.com/EvovexAI/EvoFlow/blob/main/LICENSE): Non-commercial terms
+- [Security](https://github.com/EvovexAI/EvoFlow/blob/main/SECURITY.md): Private vulnerability reporting
+
+## Docs (start here)
+
+- [Documentation home](https://github.com/EvovexAI/EvoFlow/blob/main/docs/index.md): Quick Links
+- [Quick start](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/getting-started/quick-start.md): First task in the panel
+- [Downloads](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/getting-started/downloads.md): Installer matrix
+- [Configure models](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/tutorials/configure-models.md): Providers and API keys
+- [Plan mode](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/guides/chat/plan-mode.md): Long-running planned work
+- [Skills](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/guides/configuration/skill-management.md): SKILL.md packages
+- [MCP / tools](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/guides/configuration/tools-mcp.md): Extensions
+- [IM channels](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/guides/integration/im-channels.md): Feishu / WeChat
+- [FAQ](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/guides/faq.md): Troubleshooting
+- [Why EvoFlow](https://github.com/EvovexAI/EvoFlow/blob/main/docs/user/explanation/why-evoflow.md): Product boundary
+
+## Contribute
+
+- [CONTRIBUTING.md](https://github.com/EvovexAI/EvoFlow/blob/main/CONTRIBUTING.md): Dev env, branches, CI
+- [Contributor guide (zh)](https://github.com/EvovexAI/EvoFlow/blob/main/docs/contribute/index.md): Repo map, branching, skills
+- [Add a Skill](https://github.com/EvovexAI/EvoFlow/blob/main/docs/contribute/add-skill.md)
+- [Add an IM channel](https://github.com/EvovexAI/EvoFlow/blob/main/docs/contribute/add-channel.md)
+- [RFC process](https://github.com/EvovexAI/EvoFlow/blob/main/docs/contribute/rfc.md)
+- [SUPPORT.md](https://github.com/EvovexAI/EvoFlow/blob/main/SUPPORT.md): Where to ask
+- [CODE_OF_CONDUCT.md](https://github.com/EvovexAI/EvoFlow/blob/main/CODE_OF_CONDUCT.md)
+- [MAINTAINERS.md](https://github.com/EvovexAI/EvoFlow/blob/main/MAINTAINERS.md)
+
+## Optional
+
+- Local MkDocs: `pip install -r requirements-docs.txt && mkdocs serve`
+- This file is a curated LLM index (`llms.txt`), not a full docs dump.

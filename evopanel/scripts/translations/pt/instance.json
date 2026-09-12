@@ -1,0 +1,11 @@
+{
+  "local": "Local",
+  "remote": "Remoto",
+  "docker": "Docker",
+  "addInstance": "Adicionar instância",
+  "addRemote": "Adicionar instância remota",
+  "nameLabel": "Nome",
+  "endpointLabel": "Endereço do painel",
+  "adding": "Adicionando...",
+  "current": "Atual"
+}

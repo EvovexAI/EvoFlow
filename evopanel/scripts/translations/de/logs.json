@@ -1,0 +1,16 @@
+﻿{
+  "title": "Protokolle",
+  "desc": "EvoPanel-Protokolle anzeigen",
+  "tabGateway": "Gateway",
+  "tabGatewayErr": "Gateway-Fehler",
+  "tabGuardian": "Guardian",
+  "tabBackup": "Backup",
+  "tabAudit": "Audit",
+  "searchPlaceholder": "Suchen...",
+  "autoScroll": "Auto-Scrollen",
+  "loading": "Laden...",
+  "empty": "Keine Protokolle",
+  "loadFailed": "Laden fehlgeschlagen",
+  "noResults": "Keine Ergebnisse",
+  "searchFailed": "Suche fehlgeschlagen"
+}

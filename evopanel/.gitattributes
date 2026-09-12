@@ -1,0 +1,26 @@
+# 统一使用 LF 行尾（适配 macOS / Linux / Windows 跨平台协作）
+* text=auto eol=lf
+
+# Windows 批处理脚本保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不处理行尾
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.dylib binary
+*.so binary
+
+# Rust 锁文件
+Cargo.lock text eol=lf

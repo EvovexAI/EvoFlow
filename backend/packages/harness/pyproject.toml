@@ -1,0 +1,83 @@
+[project]
+name = "evoflow-harness"
+version = "1.0.0"
+description = "EvoFlow agent harness — Agent Teams runtime, tools, skills, and sandbox execution"
+requires-python = ">=3.10"
+dependencies = [
+    "agent-client-protocol>=0.4.0",
+    "agent-sandbox>=0.0.19",
+    "dotenv>=0.9.9",
+    "httpx>=0.28.0",
+    "kubernetes>=30.0.0",
+    "langchain>=1.2.3",
+    "langchain-anthropic>=1.3.4",
+    "langchain-deepseek>=1.0.1",
+    "langchain-mcp-adapters>=0.1.0",
+    "langchain-openai>=1.1.7",
+    "langgraph>=1.0.6,<1.0.10",
+    "langgraph-api>=0.7.0,<0.8.0",
+    "langgraph-cli>=0.4.14",
+    "langgraph-runtime-inmem>=0.22.1",
+    "markdownify>=1.2.2",
+    "markitdown[all,xlsx]>=0.0.1a2",
+    "pydantic>=2.12.5",
+    "pyyaml>=6.0.3",
+    "readabilipy>=0.3.0",
+    "tavily-python>=0.7.17",
+    "firecrawl-py>=1.15.0",
+    "tiktoken>=0.8.0",
+    "ddgs>=9.10.0",
+    "playwright>=1.54.0",
+    "duckdb>=1.4.4",
+    "langchain-google-genai>=4.2.1",
+    "langgraph-checkpoint-sqlite>=3.0.3",
+    "langgraph-sdk>=0.1.51",
+    # Claude Code / ``claude_session``（含面板直连）：默认安装，避免 Gateway 与 LangGraph 仅一方带 optional extra 导致 import 失败。
+    "claude-agent-sdk>=0.1.65",
+    "watchfiles>=1.0.0",
+    # code_index AST（Java javalang、JS/TS tree-sitter）：默认安装，与 uv sync / Docker / PyInstaller 一致。
+    "javalang>=0.13.0",
+    # tree-sitter-languages 1.10.x 与 tree-sitter>=0.22 API 不兼容（Language __init__ 签名变更）
+    "tree-sitter>=0.21.3,<0.22",
+    "tree-sitter-languages>=1.10.2",
+    "typing_extensions>=4.12.0",
+    # code_index 中文注释/文档分词（默认启用，与 FTS 索引/query 扩展共用）
+    "jieba>=0.42.1",
+    # 知识库 RAG 向量存储：vec0 虚拟表（余弦相似度召回）
+    "sqlite-vec>=0.1.6",
+    # 本地向量模型（BGE Small 等）：知识库 / 代码索引语义检索默认后端。
+    # 首次启动会自动 seed + 从 HF 镜像下载权重；安装包需一并打入（见 gateway.spec）。
+    # PyTorch 自 2.3 起不再发布 macOS Intel (x86_64) wheel；该平台跳过本地 embedding，
+    # 运行时回退到远程向量接口（local_provider 对 ImportError 有明确提示）。
+    "sentence-transformers>=3.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
+
+[project.optional-dependencies]
+# 保留 extra 名以兼容旧文档/脚本；sentence-transformers 已并入默认 dependencies
+# （macOS Intel x86_64 除外，见上方 marker）。
+local-embedding = []
+# 保留 extra 名以兼容旧文档/脚本；依赖已并入默认 dependencies。
+code-index-ast = []
+# LSP uses external binaries on PATH (pyright-langserver, typescript-language-server)
+code-index-lsp = []
+# 保留 extra 名以兼容旧文档/脚本；jieba 已并入默认 dependencies。
+code-index-jieba = []
+
+[project.scripts]
+evoflow = "evoflow.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["evoflow"]
+
+# Packaged default cutouts + shared preset gallery (served via agents avatar APIs).
+# Product Obsidian vault: docs/user (用户指南).
+# 运营知识库 SSOT 在 ContentOS；wheel 不强制打包（开发态读同级仓库，gateway.spec 有 sibling 时再打进安装包）。
+[tool.hatch.build.targets.wheel.force-include]
+"evoflow/assets/builtin_agent_avatars" = "evoflow/assets/builtin_agent_avatars"
+"evoflow/assets/avatar_presets" = "evoflow/assets/avatar_presets"
+"evoflow/assets/builtin_agent_souls" = "evoflow/assets/builtin_agent_souls"
+"../../../docs/user" = "evoflow/assets/builtin_knowledge_vaults/user-guide"

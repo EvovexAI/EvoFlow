@@ -1,0 +1,17 @@
+{
+  "title": "Speicher",
+  "desc": "Agent-Speicherdateien verwalten",
+  "noFiles": "Keine Dateien",
+  "view": "Ansehen",
+  "download": "Herunterladen",
+  "delete": "Löschen",
+  "upload": "Hochladen",
+  "uploading": "Wird hochgeladen...",
+  "uploaded": "Hochgeladen",
+  "uploadFailed": "Hochladen fehlgeschlagen",
+  "deleted": "Gelöscht",
+  "deleteFailed": "Löschen fehlgeschlagen",
+  "loadFailed": "Laden fehlgeschlagen",
+  "selectAgent": "Agent auswählen",
+  "searchPlaceholder": "Suchen..."
+}

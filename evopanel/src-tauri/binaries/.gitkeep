@@ -1,0 +1,2 @@
+# Keeps `src-tauri/binaries/` in the repo so Tauri `bundle.resources` resolves at dev/build time.
+# Copy packaged sidecar exes here for release bundles; dev uses `../backend/dist` fallbacks (see backend.rs).

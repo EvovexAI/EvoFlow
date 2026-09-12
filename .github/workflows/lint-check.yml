@@ -1,0 +1,70 @@
+name: Lint Check
+
+# 暂时关闭 push/PR 自动触发；需要时手动 workflow_dispatch
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [ 'main' ]
+  # pull_request:
+  #   branches: [ '*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          uv sync --group dev
+
+      - name: Lint backend
+        working-directory: backend
+        run: make lint
+
+  # 本仓库无根目录 `frontend/`；桌面端为 `evopanel/`（Vite + React，与旧 deerflow `frontend` 不同）。
+  lint-evopanel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: evopanel/package-lock.json
+
+      - name: Install & verify EvoPanel (Vite)
+        working-directory: evopanel
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep Node's bundled npm — npm@latest + mirror-resolved lockfiles → EALLOWREMOTE.
+          # maxsockets + retry still mitigate npm/cli#9386 queue stalls.
+          for i in 1 2 3; do
+            if npm ci --maxsockets 1000 --no-audit --no-fund; then
+              break
+            fi
+            echo "npm ci attempt $i failed, retrying..."
+            rm -rf node_modules
+            sleep 15
+            if [[ "$i" -eq 3 ]]; then
+              exit 1
+            fi
+          done
+          npm run typecheck
+          npm run test
+          npm run build

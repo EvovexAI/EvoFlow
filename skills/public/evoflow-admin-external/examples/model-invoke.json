@@ -1,0 +1,8 @@
+{
+  "model_name": "primary",
+  "messages": [
+    {"role": "user", "content": "用一句话介绍你自己"}
+  ],
+  "temperature": 0.2,
+  "max_tokens": 256
+}

@@ -1,0 +1,8 @@
+{
+  "mcp_servers": {
+    "example-filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:/path/to/workspace"]
+    }
+  }
+}

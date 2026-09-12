@@ -1,0 +1,23 @@
+{
+  "title": "Agenten-Verwaltung",
+  "desc": "EvoPanel-Agenten erstellen und verwalten",
+  "addAgent": "+ Neuer Agent",
+  "noAgents": "Keine Agenten",
+  "loadFailed": "Laden fehlgeschlagen",
+  "default": "Standard",
+  "backup": "Backup",
+  "edit": "Bearbeiten",
+  "delete": "L枚schen",
+  "notSet": "Nicht gesetzt",
+  "addTitle": "Neuer Agent",
+  "agentId": "Agent-ID",
+  "agentName": "Name",
+  "agentModel": "Modell",
+  "created": "Agent erstellt",
+  "createFailed": "Erstellen fehlgeschlagen",
+  "editTitle": "Agent bearbeiten 鈥?{id}",
+  "updated": "Aktualisiert",
+  "updateFailed": "Aktualisierung fehlgeschlagen",
+  "deleted": "Gel枚scht",
+  "deleteFailed": "L枚schen fehlgeschlagen"
+}

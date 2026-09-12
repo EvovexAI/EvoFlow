@@ -1,0 +1,11 @@
+{
+  "name": "evoflow-kb-mcp",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned Obsidian Knowledge Vault MCP servers shipped with EvoFlow (source of truth for versions).",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "obsidian-hybrid-search": "0.13.22",
+    "obsidian-mcp-server": "3.2.9"
+  }
+}

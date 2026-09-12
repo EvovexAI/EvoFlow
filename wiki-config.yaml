@@ -1,0 +1,38 @@
+# .codebasewiki/ 知识库专用 preset(codebase-bootstrap 产物)
+# 拷到项目根:cp <SKILL>/wiki-config.codebase.yaml ./wiki-config.yaml
+#
+# 形态:.codebasewiki/codebase/{module}/ 每模块 7 文档(architecture/concerns/conventions/
+#       integrations/overview/stack/structure)+ index/(index.md/architecture.md/
+#       module-map.json/domain-lexicon.json)+ manifest.json + records/
+# frontmatter 用 module/doc_kind/scope/last_updated(非 id/title/category)
+# 跨链用相对 .md(知识库内部 + 指向源码)
+
+wiki_root: .codebasewiki
+machine_index: .codebasewiki/wiki-index.json
+
+# codebase-bootstrap 产出的 frontmatter 约定
+frontmatter_required: []                     # 由 doc_type 各自定义
+frontmatter_optional: [scope]
+
+doc_types:
+  - name: module-doc
+    match: { path_glob: "codebase/**/*.md" }
+    frontmatter_required: [module, doc_kind, last_updated]
+    required_sections: []                 # 7 类文档结构各异,只校 frontmatter + 不强求节
+  - name: index-doc
+    match: { path_glob: "index/*.md" }
+    required_sections: []
+
+links:
+  relative_md: check                       # 校验知识库内相对链接存活(防 compound 回写后留断链)
+  resolution: case_insensitive
+  allow_section_anchors: true
+
+orphans: off                               # KB 用 manifest.json 导航,非 doc 间链接;orphan 判定无意义;孤儿提示遗漏
+duplicates: warn
+empty_artifacts: error
+last_updated_check: warn                   # compound 增量回写后 last_updated 应同步
+
+url_liveness: { enabled: false }
+
+exclude: ["node_modules", ".git/", "/.omc/", "__pycache__", "/records/", "path-map.json"]

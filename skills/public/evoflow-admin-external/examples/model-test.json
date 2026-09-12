@@ -1,0 +1,6 @@
+{
+  "base_url": "https://api.example.com/v1",
+  "api_key": "sk-REPLACE",
+  "model_id": "glm-4.5",
+  "api_type": "openai-completions"
+}

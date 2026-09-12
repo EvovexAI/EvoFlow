@@ -1,0 +1,23 @@
+{
+  "title": "Ersteinrichtung",
+  "desc": "EvoPanel installieren und konfigurieren",
+  "headerTitle": "Willkommen bei EvoPanel",
+  "recheck": "Erneut prüfen",
+  "stepNode": "Node.js-Umgebung",
+  "installed": "Installiert",
+  "downloadNode": "Node.js herunterladen",
+  "stepGit": "Git",
+  "stepConfig": "Konfigurationsdatei",
+  "saveBtn": "Speichern",
+  "resetDefaultBtn": "Standard wiederherstellen",
+  "aiAssistant": "KI-Assistent",
+  "openAiAssistant": "KI-Assistent öffnen",
+  "nextStepsTitle": "Nächste Schritte",
+  "configModels": "Modelle konfigurieren",
+  "gatewaySetup": "Gateway konfigurieren",
+  "messageChannels": "Kanäle",
+  "enterPanel": "Panel betreten",
+  "installBtn": "Schnellinstallation",
+  "installEvoPanel": "EvoPanel installieren",
+  "installComplete": "Installation abgeschlossen"
+}

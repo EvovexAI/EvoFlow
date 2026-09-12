@@ -1,0 +1,13 @@
+{
+  "title": "Panel-Einstellungen",
+  "desc": "Netzwerk-, Proxy- und Download-Einstellungen verwalten",
+  "networkProxy": "Netzwerk-Proxy",
+  "modelProxy": "Modell-Anfrage-Proxy",
+  "npmRegistry": "npm Registry",
+  "language": "Anzeigesprache",
+  "languageHint": "Sprache der Benutzeroberfläche wechseln.",
+  "testProxy": "Verbindung testen",
+  "clearProxy": "Proxy deaktivieren",
+  "resetDefault": "Standard wiederherstellen",
+  "restarting": "Wird neugestartet..."
+}

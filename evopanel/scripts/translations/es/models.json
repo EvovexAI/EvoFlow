@@ -1,0 +1,21 @@
+{
+  "title": "Configuración de modelos",
+  "desc": "Gestionar proveedores y modelos de IA",
+  "addProvider": "+ Agregar proveedor",
+  "noProviders": "Sin proveedores",
+  "providerName": "Nombre del proveedor",
+  "baseUrl": "Base URL",
+  "apiKey": "API Key",
+  "models": "Modelos",
+  "addModel": "Agregar modelo",
+  "saveProvider": "Guardar",
+  "testConnection": "Probar conexión",
+  "testing": "Probando...",
+  "testSuccess": "Conexión exitosa",
+  "testFailed": "Conexión fallida",
+  "fetchModels": "Obtener lista de modelos",
+  "primaryModel": "Modelo principal",
+  "enabled": "Habilitado",
+  "disabled": "Deshabilitado",
+  "loadFailed": "Error al cargar configuración"
+}

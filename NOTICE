@@ -1,0 +1,149 @@
+EvoFlow
+=======
+
+Primary License
+---------------
+
+Except for Third-Party Components listed below, this project is licensed under
+the PolyForm Noncommercial License 1.0.0. See the LICENSE file in the
+repository root.
+
+Copyright (c) 2026 景银泰 (EvovexAI). All rights reserved.
+
+Commercial licensing: cloud@evovexai.com
+
+Third-Party and Upstream Components
+-----------------------------------
+
+Portions of this project are derived from or inspired by DeerFlow
+(https://github.com/bytedance/deer-flow), which is licensed under the MIT
+License. The following copyright notice applies to those portions:
+
+    Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+    Copyright (c) 2025-2026 DeerFlow Authors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+A copy of the upstream DeerFlow MIT license is kept at licenses/deerflow-MIT.txt.
+
+Where DeerFlow MIT applies to specific files, those files may be used under MIT
+terms for those portions, in addition to any obligations under this project's
+primary LICENSE.
+
+Bundled document skills note
+----------------------------
+
+Anthropic-branded Agent Skills previously shipped under skills/public/{pdf,docx,pptx,xlsx}
+are NOT included in this repository. Those materials are proprietary to Anthropic, PBC and
+may not be redistributed. For PDF/Office workflows use first-party alternatives such as
+skills/public/pdfkit-py and skills/public/md2word, or install third-party skills from
+SkillHub subject to each skill's own license.
+
+The following skills remain in-tree under Apache License 2.0 terms (see each skill's
+LICENSE.txt where present). They are derived from or aligned with Anthropic Agent Skills
+materials; copyright notices in those LICENSE files apply to those portions:
+
+* skills/public/canvas-design/ (includes OFL fonts under canvas-fonts/*-OFL.txt)
+* skills/public/frontend-design/
+* skills/public/skill-creator/
+
+Do not vendor third-party documentation (for example Anthropic platform docs) into this
+repository; link to upstream docs instead.
+
+Additional third-party notices in-tree include
+skills/public/talking-head-recut/NOTICE.md.
+
+Optional runtime animation library (not vendored)
+-------------------------------------------------
+
+Some video skills (talking-head-recut, music-to-video) may instruct users or
+templates to load GSAP (GreenSock) from a CDN or a locally fetched copy.
+GSAP is subject to GreenSock's own license (https://gsap.com/standard-license)
+and is **not** redistributed as part of EvoFlow. Obtain and use it under terms
+that apply to you.
+
+CDPR / Cyberpunk fan-kit materials previously referenced by embedded-captions
+are **not** included in this repository.
+
+Liquid glass theme (MIT)
+------------------------
+
+`evopanel/vendor/liquid-glass-theme/` contains build-input sources adapted from
+https://github.com/Rainpomelo/deepseek-harness-liquid-glass-theme (MIT).
+See that folder’s LICENSE. Runtime UI uses EvoFlow’s `evopanel/src/lib/liquid-glass/`
+modules generated/adapted from those sources — not the upstream DeepSeek/DSH package
+identity.
+
+
+Projects referenced for design / architecture inspiration
+---------------------------------------------------------
+
+EvoFlow is an independent product. During development we also studied (and in
+places adapted ideas from) the following open-source agent projects. Linking
+them here is attribution and thanks — it does **not** mean EvoFlow is a fork
+of any of them, and it does **not** change this repository's primary license.
+
+* Hermes Agent (Nous Research)
+  https://github.com/NousResearch/hermes-agent
+  https://hermes-agent.nousresearch.com
+  (community nickname in Chinese: 爱马仕)
+  Areas we looked at include gateway / IM channels, skills, memory plugins,
+  and community-ops surface. Some memory-related paths under
+  ``backend/packages/harness/evoflow/agents/memory_plugins/memory_port/``
+  retain upstream-oriented naming; see file headers where present.
+
+* OpenClaw
+  https://github.com/openclaw/openclaw
+  https://openclaw.ai
+  (community nickname in Chinese: 小龙虾)
+  Areas we looked at include multi-channel personal assistants, skills
+  packaging, and gateway-style control-plane patterns.
+
+* OpenAI Codex (CLI / agent tooling)
+  https://github.com/openai/codex
+  Areas we looked at include coding-agent UX, sandbox helpers, and local
+  agent-loop patterns.
+
+Other runtime / UI foundations are listed in the README acknowledgements
+(LangGraph, LangChain, MCP, Tauri, etc.).
+
+If an attribution is missing or a similarity needs a clearer notice, contact
+cloud@evovexai.com or open a GitHub Issue; we will review and update this file.
+
+Optional Runtime Dependencies (npm, not vendored)
+-------------------------------------------------
+
+EvoFlow may launch the following packages via ``npx`` when the user enables
+Obsidian Knowledge Vault and clicks install/initialize. Source code of these
+packages is **not** distributed as part of EvoFlow; licenses are determined by
+their upstream repositories:
+
+* obsidian-hybrid-search@0.13.22
+  https://github.com/flowing-abyss/obsidian-hybrid-search
+* obsidian-mcp-server@3.2.9
+  https://github.com/cyanheads/obsidian-mcp-server
+
+See docs/guides/integrations/obsidian-knowledge-vault.md.
+
+Trademarks
+----------
+
+The names "EvoFlow", "EvoPanel", and "EvovexAI", and associated logos are
+brand names of the copyright holder (景银泰 / EvovexAI); they are not
+registered trademarks. Use of these names requires separate permission.

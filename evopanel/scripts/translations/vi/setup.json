@@ -1,0 +1,23 @@
+{
+  "title": "Thiáº¿t láº­p ban Äáº§u",
+  "desc": "CÃ i Äáº·t vÃ  cáº¥u hÃ¬nh EvoPanel",
+  "headerTitle": "ChÃ o má»«ng Äáº¿n EvoPanel",
+  "recheck": "Kiá»m tra láº¡i",
+  "stepNode": "MÃ´i trÆ°á»ng Node.js",
+  "installed": "ÄÃ£ cÃ i Äáº·t",
+  "downloadNode": "Táº£i Node.js",
+  "stepGit": "Git",
+  "stepConfig": "Tá»p cáº¥u hÃ¬nh",
+  "saveBtn": "LÆ°u",
+  "resetDefaultBtn": "KhÃ´i phá»¥c máº·c Äá»nh",
+  "aiAssistant": "Trá»?lÃ½ AI",
+  "openAiAssistant": "Má»?trá»?lÃ½ AI",
+  "nextStepsTitle": "BÆ°á»c tiáº¿p theo",
+  "configModels": "Cáº¥u hÃ¬nh mÃ´ hÃ¬nh",
+  "gatewaySetup": "Cáº¥u hÃ¬nh Gateway",
+  "messageChannels": "KÃªnh",
+  "enterPanel": "VÃ o panel",
+  "installBtn": "CÃ i Äáº·t nhanh",
+  "installEvoPanel": "CÃ i Äáº·t EvoPanel",
+  "installComplete": "CÃ i Äáº·t hoÃ n táº¥t"
+}

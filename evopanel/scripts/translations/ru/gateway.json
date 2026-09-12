@@ -1,0 +1,16 @@
+﻿{
+  "title": "Gateway",
+  "desc": "Настройка и управление Gateway",
+  "status": "Статус",
+  "running": "Работает",
+  "stopped": "Остановлен",
+  "saveConfig": "Сохранить настройки",
+  "saved": "Настройки Gateway сохранены",
+  "saveFailed": "Ошибка сохранения",
+  "restartRequired": "Требуется перезапуск Gateway",
+  "restartNow": "Перезапустить сейчас",
+  "configLoadFail": "Ошибка загрузки настроек",
+  "pairingTitle": "Сопряжение устройств",
+  "pairedDevices": "Сопряжённые устройства",
+  "noPairedDevices": "Нет сопряжённых устройств"
+}

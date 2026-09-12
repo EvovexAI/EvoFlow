@@ -1,0 +1,21 @@
+{
+  "identifier": "default",
+  "description": "EvoFlow 默认权限",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "dialog:default",
+    "dialog:allow-open",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-toggle-maximize",
+    "updater:default",
+    "process:default",
+    "notification:default",
+    "global-shortcut:default",
+    "core:webview:default",
+    "core:webview:allow-create-webview-window"
+  ]
+}
