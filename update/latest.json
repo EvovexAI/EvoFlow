@@ -1,11 +1,11 @@
 {
-  "version": "1.0.0",
-  "minAppVersion": "1.0.0",
-  "updateKind": "full",
-  "assetKind": "installer",
-  "hash": "7208358af5eddad8c1218cd679df4901af920624e5344083706ddef5e6782888",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.0/EvoFlow_1.0.0_x64-setup.exe",
-  "size": 311749064,
-  "changelog": "EvoFlow 1.0.0 首个公开源码可见版本：原生 Agent Teams、Plan/Goal、技能与 MCP、工作流与可观测；模型在「设置 → 模型」配置。",
-  "releasedAt": "2026-09-12"
+    "url":  "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.0/EvoFlow_1.0.0_x64-setup.exe",
+    "assetKind":  "installer",
+    "minAppVersion":  "1.0.0",
+    "size":  311531994,
+    "version":  "1.0.0",
+    "releasedAt":  "2026-09-12",
+    "changelog":  "EvoFlow 1.0.0 首个公开源码可见版本：原生 Agent Teams、Plan/Goal、技能与 MCP、工作流与可观测；模型在「设置 → 模型」配置。",
+    "updateKind":  "full",
+    "hash":  "4574210a6955a6cae5a81409a22ee65600f22a8d10973cc2cde8b0b492e77434"
 }
