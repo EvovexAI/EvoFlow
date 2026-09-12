@@ -16,6 +16,10 @@ _STARTUP_EXEMPT_PREFIXES = (
 _LANGGRAPH_PREFIX = "/api/langgraph"
 
 # Registered in register_extended_routers (post-ready background task in packaged mode).
+# NOTE: every prefix mounted by ``register_extended_routers`` MUST be listed here.
+# Otherwise the middleware lets the request through while the router is not mounted
+# yet and Starlette answers a bare ``{"detail": "Not Found"}`` 404 — which the panel
+# surfaces as an opaque "Not Found" failure instead of the retryable 503 below.
 _EXTENDED_ROUTE_PREFIXES = (
     "/api/knowledge",
     "/api/memory",
@@ -32,9 +36,25 @@ _EXTENDED_ROUTE_PREFIXES = (
     "/api/apps",
     "/api/collab",
     "/api/automation",
+    # Deferred routers added later — keep in sync with register_extended_routers.
+    # NOTE: do NOT list prefixes that core routers also serve (e.g. "/api/threads"
+    # is owned by core routers/threads.py and only partially extended by
+    # browser_embed/browser_snapshots/browser_stream) — gating those would 503
+    # working core routes during the extended-loading window.
+    "/api/platform",
+    "/api/config",
+    "/api/stage/news",
+    "/api/meetings",
+    "/api/organizations",
+    "/api/task-detail",
+    "/api/runtime",
+    "/api/debug",
+    "/api/diagnostics",
+    "/api/trace",
+    "/api/client",
+    "/api/a2a",
     "/mcp",
-    "/v1/tools",
-    "/v1/openapi.json",
+    "/v1",
 )
 
 
