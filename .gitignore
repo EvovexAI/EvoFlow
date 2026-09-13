@@ -438,6 +438,10 @@ log/
 
 # One-off local debug scripts (backend/scripts/ is not shipped; keep ignore if re-added locally)
 backend/scripts/
+# CI architecture guard ships with the repo (rule R1, see backend/ARCHITECTURE.md)
+!backend/scripts/
+!backend/scripts/arch_ban_app_imports.py
+!backend/scripts/arch_ban_app_imports_baseline.txt
 backend/scripts/_tmp_*.py
 /tmp_fix_*.py
 /tmp_*.py
