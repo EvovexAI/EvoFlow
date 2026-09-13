@@ -377,6 +377,12 @@ html.evopanel-tauri-frameless .kv-workspace-bar--titlebar {
   -webkit-user-select: none;
 }
 
+/* macOS 原生标题栏：该顶栏兼任窗口标题栏，需为交通灯让位（其它平台维持 56px） */
+html.evopanel-macos-titlebar .kv-workspace-bar--titlebar {
+  min-height: 64px;
+  padding: 30px 8px 8px 84px;
+}
+
 html.evopanel-tauri-frameless .kv-workspace-bar--titlebar .kv-workspace-bar__actions .ep-window-controls {
   margin-left: 4px;
 }

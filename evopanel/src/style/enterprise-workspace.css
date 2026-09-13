@@ -51,6 +51,12 @@ html.dark:not([data-translucent-ui='1']) body .react-chat-surface {
   padding: 4px 2px 0;
 }
 
+/* macOS 原生标题栏：本文件在 react-chat.css 之后加载、会覆盖其让位规则，此处需同步让位 */
+html.evopanel-macos-titlebar .react-chat-aside-toolbar {
+  height: 64px;
+  padding: 30px 2px 0;
+}
+
 .react-chat-aside-toolbar-title {
   font-size: 13px;
   font-weight: 600;

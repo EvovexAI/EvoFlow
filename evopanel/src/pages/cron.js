@@ -107,15 +107,21 @@ export async function render() {
   applyCronTabVisibility(page, boot.tab)
   bindPageEvents(page)
   bindCronTabs(page, boot)
-  await refresh()
-  try {
-    if (sessionStorage.getItem('evopanel_pending_cron_create') === '1') {
-      sessionStorage.removeItem('evopanel_pending_cron_create')
-      void openCreateModal()
-    }
-  } catch {
-    /* ignore */
+  // Paint shell first; data comes from hover warm (nav-panel-prefetch) or network.
+  const listEl = page.querySelector('#cronList')
+  if (listEl && boot.tab !== 'runs') {
+    listEl.innerHTML = '<div class="cron-runs-loading">正在加载调度任务…</div>'
   }
+  void refresh().then(() => {
+    try {
+      if (sessionStorage.getItem('evopanel_pending_cron_create') === '1') {
+        sessionStorage.removeItem('evopanel_pending_cron_create')
+        void openCreateModal()
+      }
+    } catch {
+      /* ignore */
+    }
+  })
   return page
 }
 
@@ -729,10 +735,16 @@ async function refresh() {
   _loadSeq++
   const seq = _loadSeq
   try {
+    const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
+    const warmList = takeNavWarm('cron:list')
+    const warmPush = takeNavWarm('cron:feishu-push-default')
+    const warmSched = takeNavWarm('cron:scheduler-status')
     const [res, pushMeta, schedStatus] = await Promise.all([
-      api.automationList(),
-      api.automationFeishuPushDefault().catch(() => ({ targets: [] })),
-      api.automationSchedulerStatus().catch(() => null),
+      warmList || api.automationList(),
+      warmPush || api.automationFeishuPushDefault().catch(() => ({ targets: [] })),
+      warmSched != null
+        ? Promise.resolve(warmSched)
+        : api.automationSchedulerStatus().catch(() => null),
     ])
     if (_loadSeq !== seq) return
     _tasks = res.automations || []

@@ -598,11 +598,22 @@ export async function mountSecurityInto(container) {
   bindEvents(container)
 
   try {
-    const [settingsData, auditData, _approval] = await Promise.all([
-      fetchSecuritySettings(),
-      fetchSecurityAudit({ limit: 100 }).catch(() => ({ records: [] })),
-      fetchGlobalToolApprovalPolicy().catch(() => null),
-    ])
+    const { takeNavWarm } = await import('../../lib/nav-panel-prefetch.js')
+    const warm = takeNavWarm('settings:security')
+    let settingsData
+    let auditData
+    let _approval
+    if (warm && typeof warm === 'object' && warm.settingsData) {
+      settingsData = warm.settingsData
+      auditData = warm.auditData || { records: [] }
+      _approval = warm.approval
+    } else {
+      ;[settingsData, auditData, _approval] = await Promise.all([
+        fetchSecuritySettings(),
+        fetchSecurityAudit({ limit: 100 }).catch(() => ({ records: [] })),
+        fetchGlobalToolApprovalPolicy().catch(() => null),
+      ])
+    }
     _settings = settingsData?.settings || {}
     _auditRecords = auditData?.records || []
     try {

@@ -3,10 +3,18 @@
  * - /chat：窗口按钮在 React 顶栏（ChatApp）内
  * - 知识库详情：窗口按钮在 .kv-workspace-bar 内
  * - 其它路由：在 #main-col 顶部插入一条与内容同源的细栏（仍算「内容区」）
+ * - macOS：改用系统原生标题栏（tauri.macos.conf.json 里 decorations/titleBarStyle:Overlay），
+ *   顶栏需为交通灯让出高度，自绘窗口按钮隐藏 —— 由 html.evopanel-macos-titlebar 统一控制
  */
 
 const MAIN_CHROME_ID = 'tauri-main-chrome'
 const SCROLL_SHADOW_PX = 8
+/** macOS 原生标题栏模式：置位后 CSS 才应用「为交通灯让位」的那组规则 */
+const MACOS_TITLEBAR_CLASS = 'evopanel-macos-titlebar'
+
+function isMacOs() {
+  return /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '')
+}
 
 function routePath() {
   const hash = window.location.hash.slice(1) || '/chat'
@@ -108,6 +116,8 @@ export function initTauriFramelessChrome(mainColEl, insertBeforeEl) {
   if (document.getElementById(MAIN_CHROME_ID)) return
 
   document.documentElement.classList.add('evopanel-tauri-frameless')
+  // macOS 用系统原生标题栏：置位后 CSS 才为交通灯让位，其它平台维持原紧凑顶栏
+  if (isMacOs()) document.documentElement.classList.add(MACOS_TITLEBAR_CLASS)
 
   const mainCol = mainColEl || document.getElementById('main-col')
   if (!mainCol) return
@@ -118,6 +128,13 @@ export function initTauriFramelessChrome(mainColEl, insertBeforeEl) {
   chrome.setAttribute('role', 'toolbar')
   chrome.setAttribute('aria-label', '窗口')
   chrome.innerHTML = `
+    <button type="button" class="tauri-chrome-nav-btn" data-tauri-no-drag title="展开侧栏" aria-label="展开侧栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+    </button>
     <div class="tauri-main-chrome-drag" data-tauri-drag-region data-tauri-main-chrome-drag title="拖动窗口 · 双击最大化"></div>
     <div class="tauri-main-chrome-actions">
       <button type="button" class="tauri-chrome-guide-btn" data-tauri-no-drag title="使用指南（?）" aria-label="使用指南">
@@ -141,6 +158,14 @@ export function initTauriFramelessChrome(mainColEl, insertBeforeEl) {
   }
 
   void bindWindowControls(chrome)
+
+  // 主导航（汉堡）：非 /chat 路由统一走这里展开左侧壳（/chat 由 ChatApp 顶栏自带）
+  chrome.querySelector('.tauri-chrome-nav-btn')?.addEventListener('click', () => {
+    // 动态 import，避免与 shell-aside 形成静态循环依赖
+    import('../components/shell-aside.js')
+      .then((m) => m.toggleShellAsideCollapsed())
+      .catch(() => {})
+  })
 
   // 绑定全局指南按钮
   const guideBtn = chrome.querySelector('.tauri-chrome-guide-btn')

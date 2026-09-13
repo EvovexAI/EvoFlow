@@ -35,6 +35,9 @@ function loadSettingsHubModule() {
 export function prefetchSettingsModal() {
   loadSettingsHubModule()
   void import('../pages/general.js').catch(() => {})
+  void import('../lib/settings-tab-prefetch.js')
+    .then((m) => m.prefetchCommonSettingsTabs?.())
+    .catch(() => {})
   return loadSettingsHubModule()
 }
 

@@ -343,6 +343,20 @@ export async function mountSettingsRoot(rootEl, options = {}) {
     switchSettingsTab(rootEl, t, { syncHash, initial: false })
   })
 
+  // Hover / focus: warm each settings tab module (+ heavy APIs) before click.
+  rootEl.querySelectorAll('[data-settings-tab]').forEach((btn) => {
+    const tab = btn.dataset.settingsTab
+    if (!tab || btn.dataset.settingsTabPrefetchBound) return
+    btn.dataset.settingsTabPrefetchBound = '1'
+    const warm = () => {
+      void import('../../lib/settings-tab-prefetch.js')
+        .then((m) => m.prefetchSettingsTab(tab))
+        .catch(() => {})
+    }
+    btn.addEventListener('pointerenter', warm, { passive: true })
+    btn.addEventListener('focusin', warm)
+  })
+
   const visible = visibleSettingsTabs()
   const requested = initialTab === 'plans' ? 'models' : initialTab
   const tab =

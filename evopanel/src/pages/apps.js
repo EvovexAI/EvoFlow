@@ -97,7 +97,9 @@ export async function render() {
   async function loadApps() {
     const listEl = page.querySelector('#apps-list')
     try {
-      apps = await api.listApps()
+      const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
+      const warm = takeNavWarm('apps:list')
+      apps = Array.isArray(warm) ? warm : await api.listApps()
       renderAppsList()
     } catch (e) {
       toast.error('加载工作流列表失败: ' + e.message)

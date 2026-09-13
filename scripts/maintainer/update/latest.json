@@ -1,11 +1,11 @@
 {
-  "version": "1.0.0",
-  "minAppVersion": "1.0.0",
+  "version": "1.0.1",
+  "minAppVersion": "1.0.1",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "4574210a6955a6cae5a81409a22ee65600f22a8d10973cc2cde8b0b492e77434",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.0/EvoFlow_1.0.0_x64-setup.exe",
-  "size": 311531994,
-  "changelog": "EvoFlow 1.0.0 首个公开源码可见版本：原生 Agent Teams、Plan/Goal、技能与 MCP、工作流与可观测；模型在「设置 → 模型」配置。",
-  "releasedAt": "2026-09-12"
+  "hash": "",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.1/EvoFlow_1.0.1_x64-setup.exe",
+  "size": 0,
+  "changelog": "EvoFlow 1.0.1：Gateway 启动门控 503、联网搜索下拉样式、macOS 原生标题栏、侧栏/设置悬停预热。覆盖安装即可。",
+  "releasedAt": "2026-09-13"
 }

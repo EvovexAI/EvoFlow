@@ -354,7 +354,7 @@ function panelHtml() {
       </div>
     </div>
     <div class="ws-pref-row">
-      <label class="ws-field" style="flex:1;min-width:160px">
+      <label class="ws-field" style="flex:1;min-width:180px">
         <span>首选引擎（选完即保存）</span>
         <select class="cron-input" id="ws-preferred">${preferredOptionsHtml()}</select>
       </label>
@@ -400,7 +400,28 @@ function panelHtml() {
     .ws-card-body { display: grid; gap: 8px; margin-top: 10px; }
     .ws-card-test { margin-top: 10px; }
     .ws-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted, #888); }
-    .ws-field .cron-input { width: 100%; }
+    .ws-field > span { white-space: nowrap; }
+    .ws-field .cron-input {
+      width: 100%; height: 38px; padding: 9px 12px;
+      border: 1px solid var(--border-primary, #d1d5db);
+      border-radius: var(--radius-md, 8px);
+      background: var(--bg-primary, #fff);
+      color: var(--text-primary, #111827);
+      font-size: 13px; box-sizing: border-box;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .ws-field select.cron-input {
+      appearance: none; -webkit-appearance: none;
+      padding-right: 34px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; background-size: 16px;
+      cursor: pointer;
+    }
+    .ws-field .cron-input:focus {
+      outline: none;
+      border-color: var(--accent, #2563eb);
+      box-shadow: 0 0 0 3px var(--accent-muted, rgba(37,99,235,0.12));
+    }
     .ws-badge { font-size: 11px; margin-left: 8px; padding: 1px 6px; border-radius: 999px; }
     .ws-badge--ok { background: color-mix(in srgb, #22c55e 20%, transparent); color: #16a34a; }
     .ws-badge--warn { background: color-mix(in srgb, #eab308 22%, transparent); color: #a16207; }
