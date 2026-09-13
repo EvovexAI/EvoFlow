@@ -177,7 +177,7 @@ async def inject_collab_subtask_custom(main_task_id: str, data: dict[str, Any]) 
 
     if _is_gateway_sse_host():
         try:
-            from app.gateway.streaming.session_stream_inject import inject_langgraph_custom
+            from evoflow.runtime.ports import inject_langgraph_custom
 
             if await inject_langgraph_custom(thread_id, data):
                 return True
@@ -295,9 +295,9 @@ async def _broadcast_tool_approval_pending_sse(
     }
     if _is_gateway_sse_host():
         try:
-            from app.gateway.routers.events import EventBroadcaster
+            from evoflow.runtime.ports import broadcast_event
 
-            await EventBroadcaster.get_instance().broadcast(tid, "tool_approval:pending", data)
+            await broadcast_event(tid, "tool_approval:pending", data)
             return True
         except Exception:
             logger.debug("tool_approval SSE direct broadcast failed", exc_info=True)

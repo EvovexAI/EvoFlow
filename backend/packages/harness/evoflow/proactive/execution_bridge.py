@@ -165,11 +165,11 @@ class ExecutionBridge:
         thread_id = thread["thread_id"]
 
         # Prepend the non-interactive automation rules (same as automation_runner)
-        from app.gateway.automation_runner import _AUTOMATION_LANGGRAPH_OUTER_RULES
+        from evoflow.runtime.ports import automation_langgraph_outer_rules
 
         from evoflow.proactive.prompt import build_system_prompt
 
-        full_prompt = _AUTOMATION_LANGGRAPH_OUTER_RULES + user_prompt
+        full_prompt = (automation_langgraph_outer_rules() or "") + user_prompt
         # Phase F: duty archival retrieval keyed off this shift's prompt/goal text
         duty_query = str(user_prompt or "").strip()[:500]
         duty_system = (

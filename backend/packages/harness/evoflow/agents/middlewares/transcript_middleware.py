@@ -157,7 +157,7 @@ def _session_key_for_thread(thread_id: str) -> str:
 def _bind_mirror_model_bridge(runtime: Runtime) -> None:
     """Context for model-callback mirror bridge (middle layer below Gateway SSE)."""
     try:
-        from app.gateway.streaming.stream_mirror_model_bridge import (
+        from evoflow.runtime.ports import (
             clear_mirror_model_ctx,
             set_mirror_model_ctx,
         )
@@ -495,9 +495,9 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             self._acc_handler = StreamAccumulatorHandler()
         if not hasattr(self, "_mirror_token_handler"):
             try:
-                from app.gateway.streaming.stream_mirror_model_bridge import MirrorStreamTokenCallback
+                from evoflow.runtime.ports import make_mirror_token_callback
 
-                self._mirror_token_handler = MirrorStreamTokenCallback()
+                self._mirror_token_handler = make_mirror_token_callback()()
             except Exception:
                 self._mirror_token_handler = None
 
@@ -524,7 +524,7 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             raise
         finally:
             try:
-                from app.gateway.streaming.stream_mirror_model_bridge import clear_mirror_model_ctx
+                from evoflow.runtime.ports import clear_mirror_model_ctx
 
                 clear_mirror_model_ctx()
             except Exception:
@@ -545,9 +545,9 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             self._acc_handler = StreamAccumulatorHandler()
         if not hasattr(self, "_mirror_token_handler"):
             try:
-                from app.gateway.streaming.stream_mirror_model_bridge import MirrorStreamTokenCallback
+                from evoflow.runtime.ports import make_mirror_token_callback
 
-                self._mirror_token_handler = MirrorStreamTokenCallback()
+                self._mirror_token_handler = make_mirror_token_callback()()
             except Exception:
                 self._mirror_token_handler = None
 
@@ -574,7 +574,7 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             raise
         finally:
             try:
-                from app.gateway.streaming.stream_mirror_model_bridge import clear_mirror_model_ctx
+                from evoflow.runtime.ports import clear_mirror_model_ctx
 
                 clear_mirror_model_ctx()
             except Exception:
@@ -833,13 +833,13 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
 
         # 检查 ASGI 是否活跃（客户端是否还连着）
         try:
-            from app.gateway.streaming.stream_middle_layer import middle_layer_covers_thread
+            from evoflow.runtime.ports import middle_layer_covers_thread
 
             if middle_layer_covers_thread(thread_id):
                 return
-            from app.gateway.routers.langgraph_proxy import _active_stream_proxies
+            from evoflow.runtime.ports import _active_stream_proxies
 
-            asgi_active = thread_id in _active_stream_proxies
+            asgi_active = thread_id in _active_stream_proxies()
         except Exception:
             asgi_active = False
 

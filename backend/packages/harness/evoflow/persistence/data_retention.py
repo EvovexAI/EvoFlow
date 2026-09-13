@@ -58,7 +58,7 @@ def _delete_older_than(conn: sqlite3.Connection, table: str, time_col: str, cuto
 
 
 def prune_gateway_logs(log_dir: Path, *, days: int) -> int:
-    from app.gateway.logging_setup import prune_old_daily_logs
+    from evoflow.runtime.ports import prune_old_daily_logs
 
     return prune_old_daily_logs(log_dir, "gateway", days=days)
 

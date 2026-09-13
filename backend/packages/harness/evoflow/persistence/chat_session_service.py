@@ -551,7 +551,7 @@ async def ensure_session_thread(
         try:
             from langgraph_sdk import get_client
 
-            from app.gateway.streaming.goal_stream_events import is_goal_active_for_session
+            from evoflow.runtime.ports import is_goal_active_for_session
             from evoflow.langgraph_run_config import (
                 default_langgraph_thread_metadata,
                 ensure_langgraph_thread_exists,

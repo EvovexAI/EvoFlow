@@ -79,21 +79,21 @@ def should_hold_session_running(thread_id: str) -> bool:
     except Exception:
         logger.debug("session lifecycle pending-approval probe failed thread=%s", tid, exc_info=True)
     try:
-        from app.gateway.streaming.post_stream_ui_normalize import thread_in_tool_approval_pause
+        from evoflow.runtime.ports import thread_in_tool_approval_pause
 
         if thread_in_tool_approval_pause(tid):
             return True
     except Exception:
         pass
     try:
-        from app.gateway.streaming.post_stream_ui_normalize import _should_defer_run_finished
+        from evoflow.runtime.ports import _should_defer_run_finished
 
         if _should_defer_run_finished(tid):
             return True
     except Exception:
         pass
     try:
-        from app.gateway.streaming.session_stream_inject import _has_pending_collab_subtasks
+        from evoflow.runtime.ports import _has_pending_collab_subtasks
 
         if _has_pending_collab_subtasks(tid):
             return True

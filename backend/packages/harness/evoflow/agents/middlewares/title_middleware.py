@@ -248,7 +248,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
     def _broadcast_title_updated(self, thread_id: str, session_key: str | None, title: str) -> None:
         """Best-effort SSE broadcast so the frontend can refresh the sidebar immediately."""
         try:
-            from app.gateway.routers.events import broadcaster
+            from evoflow.runtime.ports import broadcaster
 
             data: dict[str, object] = {"title": title}
             if session_key:

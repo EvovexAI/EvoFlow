@@ -49,7 +49,7 @@ def _notify_shell_session_upserted(
     try:
         import asyncio
 
-        from app.gateway.routers.events import broadcaster
+        from evoflow.runtime.ports import broadcaster
 
         data: dict[str, Any] = {
             "session_key": sk,

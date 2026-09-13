@@ -194,7 +194,7 @@ def _emit_pending_inject_consumed(
     # stream_format=agui). Fall back to LangGraph custom writer when no thread.
     if tid:
         try:
-            from app.gateway.streaming.session_stream_inject import schedule_inject_evf_frame
+            from evoflow.runtime.ports import schedule_inject_evf_frame
 
             schedule_inject_evf_frame(tid, {"__evf__": payload})
         except Exception:

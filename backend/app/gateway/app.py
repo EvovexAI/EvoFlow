@@ -75,6 +75,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_startup_state(app)
     startup_mark("lifespan.enter", phase="lifespan")
     _st_log("lifespan enter")
+    # Register app→core runtime adapters before any router mounts (rule R1).
+    try:
+        from app.gateway.runtime_adapters import register_runtime_adapters
+
+        register_runtime_adapters()
+    except Exception:
+        logger.debug("runtime adapter registration failed", exc_info=True)
     configure_gateway_file_logging(force=True)
     stop_hang_diagnostics = None
     try:

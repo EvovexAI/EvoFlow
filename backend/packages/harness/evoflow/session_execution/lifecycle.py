@@ -109,13 +109,13 @@ def force_end_session_turn(
 
 def _after_run_ended(*, session_key: str | None = None, thread_id: str | None = None) -> None:
     try:
-        from app.gateway.run_status_reconcile import invalidate_runs_probe_cache
+        from evoflow.runtime.ports import invalidate_runs_probe_cache
 
         invalidate_runs_probe_cache(thread_id=thread_id)
     except Exception:
         logger.debug("invalidate runs probe after end failed", exc_info=True)
     try:
-        from app.gateway.run_status_reconcile import _invalidate_active_sessions_cache
+        from evoflow.runtime.ports import _invalidate_active_sessions_cache
 
         _invalidate_active_sessions_cache()
     except Exception:
@@ -136,7 +136,7 @@ async def end_session_turn(
     tid = str(thread_id or "").strip() or None
     if unregister_proxy and tid:
         try:
-            from app.gateway.routers.langgraph_proxy import unregister_active_stream_proxy
+            from evoflow.runtime.ports import unregister_active_stream_proxy
 
             unregister_active_stream_proxy(tid)
         except Exception:
@@ -179,7 +179,7 @@ async def end_session_turn(
 
     timeout = httpx.Timeout(connect=3.0, read=8.0, write=8.0, pool=10.0)
     try:
-        from app.gateway.run_status_reconcile import is_thread_run_active
+        from evoflow.runtime.ports import is_thread_run_active
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             active = await is_thread_run_active(client, tid, run_id=rid)

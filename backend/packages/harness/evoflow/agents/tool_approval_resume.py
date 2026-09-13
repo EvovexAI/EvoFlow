@@ -129,7 +129,7 @@ async def _touch_run_started_after_poll(thread_id: str) -> None:
     if not run_id:
         return
     try:
-        from app.gateway.routers.langgraph_proxy import _touch_session_run_started
+        from evoflow.runtime.ports import _touch_session_run_started
 
         await asyncio.to_thread(_touch_session_run_started, thread_id, run_id=run_id)
     except Exception:
@@ -142,7 +142,11 @@ async def _start_background_stream_run(
     session_key: str,
     body: dict[str, Any],
 ) -> dict[str, Any]:
-    from app.gateway.streaming.background_worker import StreamBackgroundWorker
+    from evoflow.runtime.ports import get_stream_background_worker_cls
+
+    StreamBackgroundWorker = get_stream_background_worker_cls()
+    if StreamBackgroundWorker is None:
+        raise ImportError("StreamBackgroundWorker not registered (not a Gateway process)")
 
     tid = str(thread_id or "").strip()
     sk = str(session_key or "").strip()
@@ -303,7 +307,7 @@ async def trigger_tool_approval_resume_inplace(
         event_data={"session_key": sk, "resume_payload": resume_payload})
 
     try:
-        from app.gateway.streaming.stream_middle_layer import (
+        from evoflow.runtime.ports import (
             get_active_middle_layer,
             resume_middle_layer_tool_approval,
         )

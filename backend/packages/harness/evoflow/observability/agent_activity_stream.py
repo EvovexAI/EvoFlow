@@ -127,8 +127,8 @@ def emit_agent_activity(
     if tool_calls:
         inject["tool_calls"] = [c for c in tool_calls if isinstance(c, dict)]
     try:
-        from app.gateway.streaming.session_stream_inject import schedule_inject_evf_frame
-        from app.gateway.streaming.stream_middle_layer import middle_layer_covers_thread
+        from evoflow.runtime.ports import schedule_inject_evf_frame
+        from evoflow.runtime.ports import middle_layer_covers_thread
 
         if middle_layer_covers_thread(tid):
             schedule_inject_evf_frame(tid, inject)

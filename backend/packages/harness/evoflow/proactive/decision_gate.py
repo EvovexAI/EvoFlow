@@ -595,7 +595,7 @@ class DecisionGate:
         from evoflow.persistence.channel_push_repositories import safe_record_push
 
         try:
-            from app.channels.service import get_channel_service
+            from evoflow.runtime.ports import get_channel_service
 
             service = get_channel_service()
             if service is None:
@@ -644,7 +644,7 @@ class DecisionGate:
 
             target = resolve_role_feishu_target(role)
             if not target:
-                from app.gateway.channel_result_push import resolve_push_target
+                from evoflow.runtime.ports import resolve_push_target
 
                 resolved = resolve_push_target(
                     push_enabled=True,
@@ -739,7 +739,7 @@ class DecisionGate:
                     if owned:
                         send_account = owned
                     else:
-                        from app.channels.feishu_automation_learned_chat import (
+                        from evoflow.runtime.ports import (
                             read_learned_feishu_automation_account_id,
                             read_learned_feishu_automation_chat_id,
                         )

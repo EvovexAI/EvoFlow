@@ -477,7 +477,7 @@ class ProactiveRunner:
     def _gateway_dispatch_overloaded(self) -> tuple[bool, float]:
         """Skip new patrol dispatch when Gateway event loop is severely lagging."""
         try:
-            from app.gateway.hang_diagnostics import (
+            from evoflow.runtime.ports import (
                 get_event_loop_lag_seconds,
                 is_listen_socket_broken,
             )
@@ -661,8 +661,8 @@ class ProactiveRunner:
             logger.debug("proactive.budget.desktop notify failed", exc_info=True)
 
         try:
-            from app.channels.service import get_channel_service
-            from app.gateway.channel_result_push import resolve_push_target
+            from evoflow.runtime.ports import get_channel_service
+            from evoflow.runtime.ports import resolve_push_target
 
             service = get_channel_service()
             if service is None:
@@ -882,8 +882,8 @@ class ProactiveRunner:
         except Exception:
             logger.debug("proactive.ops.desktop notify failed", exc_info=True)
         try:
-            from app.channels.service import get_channel_service
-            from app.gateway.channel_result_push import resolve_push_target
+            from evoflow.runtime.ports import get_channel_service
+            from evoflow.runtime.ports import resolve_push_target
 
             service = get_channel_service()
             if service is None:

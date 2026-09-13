@@ -103,7 +103,7 @@ def resolve_logs_dir() -> Path:
         return home_logs
 
     try:
-        from app.gateway.logging_setup import resolve_gateway_logs_dir
+        from evoflow.runtime.ports import resolve_gateway_logs_dir
 
         return resolve_gateway_logs_dir()
     except Exception:

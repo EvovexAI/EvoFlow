@@ -23,7 +23,7 @@ def _unregister_stream_proxy(thread_id: str | None) -> None:
     if not tid:
         return
     try:
-        from app.gateway.routers.langgraph_proxy import unregister_active_stream_proxy
+        from evoflow.runtime.ports import unregister_active_stream_proxy
 
         unregister_active_stream_proxy(tid)
     except Exception:
@@ -38,7 +38,7 @@ def _resolve_thread_id(session_key: str, row: dict[str, Any] | None) -> str | No
 
 def _clear_live_snapshot(session_key: str, thread_id: str | None) -> None:
     try:
-        from app.gateway.streaming.live_run_snapshot import clear_gateway_live_snapshot
+        from evoflow.runtime.ports import clear_gateway_live_snapshot
 
         clear_gateway_live_snapshot(thread_id, session_key=session_key)
     except Exception:
@@ -136,7 +136,7 @@ async def stop_session_execution(
                     preferred_run_id=run_id,
                 )
         try:
-            from app.gateway.run_status_reconcile import invalidate_runs_probe_cache
+            from evoflow.runtime.ports import invalidate_runs_probe_cache
 
             invalidate_runs_probe_cache(thread_id=tid)
         except Exception:

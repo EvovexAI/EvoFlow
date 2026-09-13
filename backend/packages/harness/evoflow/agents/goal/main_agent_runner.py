@@ -20,8 +20,7 @@ async def stream_lead_agent_goal_step(
     """Stream lead agent via LangGraph SDK; mirror tokens for chat stream-resume."""
     from langgraph_sdk import get_client
 
-    from app.gateway.sse_ui_normalize import UiStreamNormalizer
-    from app.gateway.streaming.stream_mirror import enqueue_wire_text
+    from evoflow.runtime.ports import enqueue_wire_text, get_ui_stream_normalizer_cls
     from evoflow.langgraph_run_config import (
         default_langgraph_thread_metadata,
         ensure_langgraph_thread_exists,
@@ -33,6 +32,9 @@ async def stream_lead_agent_goal_step(
     from evoflow.session_execution.lifecycle import force_end_session_turn, start_session_turn
 
     client = get_client(url=resolve_langgraph_base_url())
+    UiStreamNormalizer = get_ui_stream_normalizer_cls()
+    if UiStreamNormalizer is None:
+        raise RuntimeError("UiStreamNormalizer not registered (not a Gateway process)")
     normalizer = UiStreamNormalizer(user_input=continuation, thread_id=lead_thread_id)
     run_id: str | None = None
 

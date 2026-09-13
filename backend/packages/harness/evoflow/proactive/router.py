@@ -686,10 +686,12 @@ async def apply_role_feishu_registration(request: Request, agent_code: str, sess
     on the role and synced to ``channels.feishu.accounts[<agent_code>]``.
     """
     _require_role_agent(request, agent_code)
-    from app.channels.feishu_registration import get_registration_client
+    from evoflow.runtime.ports import get_feishu_registration_client
     from evoflow.proactive.feishu_binding import apply_registration_to_role
 
-    client = get_registration_client()
+    client = get_feishu_registration_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Feishu registration client not available")
     session = client.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Registration session not found")

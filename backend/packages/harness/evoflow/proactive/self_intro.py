@@ -232,7 +232,7 @@ async def push_employee_self_intro(
     if not text:
         return False
 
-    from app.channels.service import get_channel_service
+    from evoflow.runtime.ports import get_channel_service
 
     for attempt in range(max(1, int(attempts))):
         try:

@@ -217,7 +217,7 @@ async def _probe_ark_auth_via_invalid_generation(
 async def _probe_tts() -> tuple[bool, str]:
     def _run() -> tuple[bool, str]:
         try:
-            from app.gateway.speech.volcengine_speech import speech_configured, synthesize_speech_v3
+            from evoflow.runtime.ports import speech_configured, synthesize_speech_v3
 
             if not speech_configured():
                 return False, "语音未配置（设置 → 模型 → 创意媒体 → 火山 TTS）"
@@ -234,7 +234,7 @@ async def _probe_tts() -> tuple[bool, str]:
 async def _probe_asr() -> tuple[bool, str]:
     def _run() -> tuple[bool, str]:
         try:
-            from app.gateway.speech.volcengine_speech import (
+            from evoflow.runtime.ports import (
                 speech_configured,
                 speech_streaming_asr_available,
             )

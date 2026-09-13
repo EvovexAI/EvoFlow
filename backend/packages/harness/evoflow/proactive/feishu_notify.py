@@ -35,7 +35,7 @@ def _send_account_for_target(role: Any, receive_id: str, receive_id_type: str) -
     except Exception:
         logger.debug("feishu_notify: chat owner lookup failed", exc_info=True)
     try:
-        from app.channels.feishu_automation_learned_chat import (
+        from evoflow.runtime.ports import (
             read_learned_feishu_automation_account_id,
             read_learned_feishu_automation_chat_id,
         )
@@ -57,7 +57,7 @@ def resolve_role_feishu_target(role: Any) -> tuple[str, str] | None:
     if open_id:
         return open_id, "open_id"
     try:
-        from app.gateway.channel_result_push import resolve_push_target
+        from evoflow.runtime.ports import resolve_push_target
 
         resolved = resolve_push_target(
             push_enabled=True,
@@ -75,7 +75,7 @@ def resolve_role_feishu_target(role: Any) -> tuple[str, str] | None:
 
 
 def _feishu_channel():
-    from app.channels.service import get_channel_service
+    from evoflow.runtime.ports import get_channel_service
 
     service = get_channel_service()
     if service is None:
@@ -194,7 +194,7 @@ async def push_collab_tree_receipt(
     receive_id = ""
     receive_id_type = "chat_id"
     try:
-        from app.gateway.channel_result_push import resolve_push_target
+        from evoflow.runtime.ports import resolve_push_target
 
         resolved = resolve_push_target(
             push_enabled=True,

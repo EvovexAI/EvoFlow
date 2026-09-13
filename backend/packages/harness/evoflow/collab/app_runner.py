@@ -204,7 +204,7 @@ def _schedule_unattended_queue_advance(task_id: str) -> None:
 
     async def _go() -> None:
         try:
-            from app.gateway.unattended_task_pipeline import advance_unattended_task
+            from evoflow.runtime.ports import advance_unattended_task
 
             result = await advance_unattended_task(tid)
             import logging

@@ -1360,7 +1360,7 @@ async def task_tool(
 
         # 桥接到飞书：将子任务流式输出推送到飞书MessageBus
         try:
-            from app.channels.feishu_stream_bridge import get_feishu_stream_bridge
+            from evoflow.runtime.ports import get_feishu_stream_bridge
 
             feishu_bridge = get_feishu_stream_bridge()
             if feishu_bridge:

@@ -77,7 +77,7 @@ def _persist_feishu_accounts(accounts: dict[str, Any], *, ensure_enabled: bool =
 
     # Keep ChannelService in-memory config aligned when running.
     try:
-        from app.channels.service import get_channel_service
+        from evoflow.runtime.ports import get_channel_service
 
         service = get_channel_service()
         if service is not None:
@@ -141,7 +141,7 @@ def remove_role_account_from_channel(agent_code: str) -> bool:
 async def restart_feishu_channel_if_possible() -> bool:
     """Best-effort restart so new employee bots start receiving messages."""
     try:
-        from app.channels.service import get_channel_service
+        from evoflow.runtime.ports import get_channel_service
 
         service = get_channel_service()
         if service is None:

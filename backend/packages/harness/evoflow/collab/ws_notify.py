@@ -58,7 +58,7 @@ async def broadcast_to_channels(channel_ids: list[str], event_type: str, data: d
     if not channels:
         return
     try:
-        from app.gateway.routers.events import broadcaster
+        from evoflow.runtime.ports import broadcaster
 
         for cid in channels:
             await broadcaster.broadcast(cid, event_type, data)
