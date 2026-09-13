@@ -255,7 +255,10 @@ pub async fn gateway_proxy(request: GatewayProxyRequest) -> Result<GatewayProxyR
 
     let resp = send_proxy_request(&client, method, url, request.body, &request.headers).await?;
     let status = resp.status().as_u16();
-    let text = resp.text().await.unwrap_or_default();
+    // 显式按 UTF-8 解码，避免 reqwest `.text()` 在无 charset 时做编码嗅探，
+    // 将中文 UTF-8 误判为 GBK 而把「搞定了吗」显示成「鎼炲畾浜嗗悧」。
+    let bytes = resp.bytes().await.unwrap_or_default();
+    let text = String::from_utf8_lossy(&bytes).into_owned();
     let body = normalize_response_body(text);
     let ok = (200..300).contains(&status);
     let error = response_error(status, &body);
