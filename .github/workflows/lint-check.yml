@@ -1,10 +1,10 @@
 name: Lint Check
 
-# 暂时关闭 push/PR 自动触发；需要时手动 workflow_dispatch
+# Arch guard (rule R1) runs on every push to main; lint stays manual for now.
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [ 'main' ]
+  push:
+    branches: [ 'main' ]
   # pull_request:
   #   branches: [ '*' ]
 
@@ -12,6 +12,16 @@ permissions:
   contents: read
 
 jobs:
+  # Rule R1: evoflow core must not import app.* (see backend/ARCHITECTURE.md).
+  # Pure stdlib — no dependency install needed.
+  arch-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check kernel → app imports (R1)
+        run: python backend/scripts/arch_ban_app_imports.py
+
   lint:
     runs-on: ubuntu-latest
     steps:
