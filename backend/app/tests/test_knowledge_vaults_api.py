@@ -2,32 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-
-def _load_knowledge_vaults_router():
-    """Load backend/app router even if packages/harness/app shadows ``app`` on sys.path."""
-    router_path = Path(__file__).resolve().parents[1] / "gateway" / "routers" / "knowledge_vaults.py"
-    # Prefer in-memory module to avoid colliding with harness stub package
-    name = "evoflow_test_knowledge_vaults_router"
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, router_path)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-knowledge_vaults = _load_knowledge_vaults_router()
+from app.gateway.routers import knowledge_vaults
 
 
 @pytest.fixture

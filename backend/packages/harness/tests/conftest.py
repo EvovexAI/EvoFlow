@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 _backend_root = Path(__file__).resolve().parents[3]
-# Order matters: insert backend AFTER harness so backend/app (full gateway) wins
-# over packages/harness/app (thin app shim, only auth/mcp). Otherwise pytest
-# resolves `app` to the shim and `app.gateway.routers.tasks` fails to import.
+# ``app`` now resolves unambiguously to backend/app (the packages/harness/app
+# shim was removed — see backend/ARCHITECTURE.md, Phase 2). Keep both roots on
+# the path so evoflow.* and app.gateway.* both import from the real sources.
 sys.path.insert(0, str(_backend_root / "packages" / "harness"))
 sys.path.insert(0, str(_backend_root))
 
