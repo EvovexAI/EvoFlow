@@ -369,7 +369,9 @@ async function loadChannels(page) {
   setChannelsPhase(page, 'loading')
   const seq = ++_loadSeq
   try {
-    const data = await api.getChannelsStatus()
+    const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
+    const warm = takeNavWarm('settings:channels')
+    const data = warm || (await api.getChannelsStatus())
     if (seq !== _loadSeq) return
     if (!data || typeof data !== 'object' || typeof data.channels !== 'object') {
       throw new Error('频道接口返回异常（可能命中了页面缓存，请硬刷新或重启 Gateway）')

@@ -912,9 +912,12 @@ function readStoredShowPatrol() {
 async function ensureDisplayMaps(state) {
   if (state._mapsLoaded) return
   try {
+    const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
+    const warmAgents = takeNavWarm('tasks:agents')
+    const warmRoles = takeNavWarm('tasks:roles')
     const [agents, rolesRes] = await Promise.all([
-      api.listAgents().catch(() => []),
-      api.proactiveListRoles().catch(() => ({})),
+      warmAgents || api.listAgents().catch(() => []),
+      warmRoles || api.proactiveListRoles().catch(() => ({})),
     ])
     state.agents = Array.isArray(agents) ? agents : []
     const roles = Array.isArray(rolesRes?.roles) ? rolesRes.roles : (Array.isArray(rolesRes) ? rolesRes : [])
@@ -2236,9 +2239,13 @@ async function loadTasks(page, state, opts = {}) {
       }
     }
     const mapsPromise = ensureDisplayMaps(state)
-    const resp = await api.listAllTasks({
-      hide_noise: state.showPatrol ? 'false' : 'true',
-    })
+    const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
+    const warmList = takeNavWarm('tasks:list')
+    const resp =
+      warmList ||
+      (await api.listAllTasks({
+        hide_noise: state.showPatrol ? 'false' : 'true',
+      }))
     await mapsPromise
     // API returns { success: true, data: { tasks: [...], total: n } }
     const tasks = Array.isArray(resp) ? resp : (resp.data?.tasks || [])

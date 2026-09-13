@@ -1640,7 +1640,9 @@ async function loadConfig(page, state) {
     }
 
     // 数据源：Gateway SQLite evoflow_models（非 YAML）
-    const list = await api.listModels()
+    const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
+    const warmList = takeNavWarm('settings:models')
+    const list = warmList || (await api.listModels())
     const models = Array.isArray(list?.models) ? list.models : []
 
     // 收集向量模型（用于"向量模型" Tab）

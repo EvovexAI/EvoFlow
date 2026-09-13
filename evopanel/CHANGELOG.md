@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-13
+
+### Added
+
+- 侧栏菜单与设置 Tab 悬停预热（模块 + 首屏 API），降低任务中心 / 工作流 / 智能体 / 自动化等页首次打开等待
+- macOS 桌面端采用系统原生 Overlay 标题栏，并为交通灯统一让位
+
+### Fixed
+
+- Gateway 扩展路由未就绪时返回可重试 503，避免设置等面板出现「加载失败：Not Found」
+- 设置「联网搜索」首选引擎标签换行与下拉样式不一致
+
+### Changed
+
+- 发版说明与版本线对齐 **1.0.1**
+
 ## [1.0.0] - 2026-09-11
 
 ### Added

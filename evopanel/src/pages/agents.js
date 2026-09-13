@@ -557,11 +557,12 @@ export async function render() {
     const listEl = page.querySelector('#roles-list')
     renderRoleSkeleton(listEl)
     try {
+      const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
       const [agents, rolesRes, apps, automations] = await Promise.all([
-        api.listAgents(),
-        api.proactiveListRoles().catch(() => ({ roles: [] })),
-        api.listApps().catch(() => []),
-        api.automationList().catch(() => ({ automations: [] })),
+        takeNavWarm('expert:agents') || api.listAgents(),
+        takeNavWarm('expert:roles') || api.proactiveListRoles().catch(() => ({ roles: [] })),
+        takeNavWarm('expert:apps') || api.listApps().catch(() => []),
+        takeNavWarm('expert:automations') || api.automationList().catch(() => ({ automations: [] })),
       ])
       state.agents = sortAgents(Array.isArray(agents) ? agents : [])
       const roles = rolesRes?.roles || []
