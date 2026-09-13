@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "EvoFlow",
+        "width": 1440,
+        "height": 810,
+        "minWidth": 960,
+        "minHeight": 540,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "transparent": false,
+        "resizable": true,
+        "backgroundColor": "#f8f9fb"
+      }
+    ]
+  }
+}

@@ -37,6 +37,13 @@ html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
   transition: box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
 }
 
+/* macOS 原生标题栏（交通灯悬浮在 WebView 之上）：加高顶栏并让内容下移为其让位。
+ * 仅在 html 置位 evopanel-macos-titlebar 时生效；Windows / Linux 维持上面的 38px 紧凑顶栏。 */
+html.evopanel-macos-titlebar .tauri-main-chrome {
+  height: 64px;
+  padding-top: 26px;
+}
+
 /* 右侧内容下滚超过 8px 时，标题栏极轻底影分隔 */
 .tauri-main-chrome--scrolled {
   box-shadow: 0 1px 8px rgba(15, 23, 42, 0.06);
@@ -61,6 +68,57 @@ html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
   color: var(--text-secondary, #52525b);
   white-space: nowrap;
   opacity: 0.9;
+}
+
+/* ── 主导航（汉堡）：非 /chat 路由的展开侧栏入口 ───────────────
+ * 与聊天顶栏 .react-chat-toggle-sidebar-btn 同款外观，
+ * 保证「新建对话」页与其它页面的按钮视觉一致。 */
+.tauri-chrome-nav-btn {
+  flex-shrink: 0;
+  align-self: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  margin: 0 2px 0 12px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary, #111827);
+  cursor: pointer;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.tauri-chrome-nav-btn:hover {
+  background: color-mix(in srgb, var(--text-primary, #111827) 8%, transparent);
+}
+
+.tauri-chrome-nav-btn:active {
+  background: color-mix(in srgb, var(--text-primary, #111827) 14%, transparent);
+  transform: none;
+}
+
+.tauri-chrome-nav-btn svg {
+  display: block;
+}
+
+/* 壳已展开时，壳顶 « 已能折叠，此按钮与之重复 → 隐藏（与聊天顶栏规则一致） */
+@media (min-width: 769px) {
+  #app-shell-aside.shell-aside-host:not(.collapsed) ~ #main-col .tauri-chrome-nav-btn {
+    display: none;
+  }
+}
+
+/* 移动端侧栏为抽屉形态，顶栏不占位 */
+@media (max-width: 768px) {
+  .tauri-chrome-nav-btn {
+    display: none;
+  }
 }
 
 html[data-theme='dark'] .tauri-main-chrome,
@@ -278,4 +336,10 @@ html.dark .ep-window-controls-btn--close:hover {
 .ep-desktop-ctx-item:hover {
   background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
   color: var(--accent, #6366f1);
+}
+
+/* ── macOS 原生标题栏：自绘窗口按钮让位给系统交通灯 ─────────────
+ * 组件仍照常渲染（Windows / Linux 继续用它们），仅在 macOS 隐藏。 */
+html.evopanel-macos-titlebar .ep-window-controls {
+  display: none !important;
 }
