@@ -1,6 +1,6 @@
 [project]
 name = "evo-flow"
-version = "1.0.0"
+version = "1.0.2"
 description = "EvoFlow Gateway — Agent Runtime API and control plane for long-running Agent Teams"
 readme = "README.md"
 requires-python = ">=3.12"

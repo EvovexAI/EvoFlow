@@ -681,6 +681,34 @@ export function peekIdleSessionRuntimeRows(sessionKey: string): DisplayRow[] | n
   return rt.rows
 }
 
+/** Freshly created sessions are known-empty — skip historyLoading gate so home surface stays mounted. */
+const KNOWN_EMPTY_TTL_MS = 30_000
+const knownEmptyUntilByKey = new Map<string, number>()
+
+export function markSessionKnownEmpty(sessionKey: string): void {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return
+  knownEmptyUntilByKey.set(sk, Date.now() + KNOWN_EMPTY_TTL_MS)
+}
+
+export function peekSessionKnownEmpty(sessionKey: string): boolean {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return false
+  const until = knownEmptyUntilByKey.get(sk)
+  if (until == null) return false
+  if (Date.now() > until) {
+    knownEmptyUntilByKey.delete(sk)
+    return false
+  }
+  return true
+}
+
+export function clearSessionKnownEmpty(sessionKey: string): void {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return
+  knownEmptyUntilByKey.delete(sk)
+}
+
 export function updateSessionRuntimeRows(
   sessionKey: string,
   updater: (rows: DisplayRow[]) => DisplayRow[],

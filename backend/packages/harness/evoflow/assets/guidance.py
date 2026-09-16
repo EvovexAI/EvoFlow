@@ -200,8 +200,9 @@ def _entity_label(entity: EntityRef) -> str:
 def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = None) -> str:
     """Per-root layout + MEMORY_SUMMARY (no shared procedure)."""
     e = entity.normalized()
-    rel = entity_relative_dir(e)
-    base = f"assets/{rel}"
+    from evoflow.assets.paths import entity_prompt_root
+
+    base = entity_prompt_root(e)
     summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
     if asset_hub_memory_injection():
         if standing_is_placeholder(summary) or not str(summary or "").strip():

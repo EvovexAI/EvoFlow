@@ -745,7 +745,7 @@ class StreamMiddleLayer:
                 "path": path,
                 "raw_path": path.encode(),
                 "query_string": b"",
-                "headers": [(b"content-type", b"application/json")],
+                "headers": [(b"content-type", b"application/json; charset=utf-8")],
                 "client": ("127.0.0.1", 0),
                 "server": ("127.0.0.1", 8070),
             }

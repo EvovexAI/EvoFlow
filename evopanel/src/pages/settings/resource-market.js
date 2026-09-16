@@ -1,6 +1,6 @@
 /**
  * 设置 → 资源市场
- * 本地导入文件夹 / zip；GitHub catalog 浏览（需配置 EVOFLOW_RESOURCE_MARKET_CATALOG_URL）
+ * 本地导入文件夹 / zip；GitHub catalog 默认开启（EvovexAI/evoflow-resource-market）
  */
 import '../../style/settings-resources.css'
 import { api } from '../../lib/tauri-api.js'
@@ -216,17 +216,14 @@ function renderCatalog(data) {
   if (!list) return
   const packs = Array.isArray(data?.packs) ? data.packs : []
   if (meta) {
-    if (!data?.configured) meta.textContent = '未配置 catalog URL'
-    else meta.textContent = `${packs.length} 个包${data?.marketId ? ` · ${data.marketId}` : ''}`
+    meta.textContent = `${packs.length} 个包${data?.marketId ? ` · ${data.marketId}` : ''}`
   }
   if (!data?.configured) {
     list.innerHTML = `
       <div class="sr-empty">
-        市场索引已关闭。默认使用公开仓库
-        <code>EvovexAI/evoflow-resource-market</code>；
-        也可设置 <code>EVOFLOW_RESOURCE_MARKET_CATALOG_URL</code> 指向其它 GitHub raw
-        <code>catalog.json</code>，设为空字符串则关闭远程市场。
-        <br/><br/>当前可先用上方「导入本地包」。
+        暂时无法读取市场索引（默认仓库
+        <code>EvovexAI/evoflow-resource-market</code>）。
+        请检查网络后点「刷新」；也可先用上方「导入本地包」。
       </div>`
     return
   }

@@ -192,9 +192,9 @@ def list_craft_experiences(
     root = assets_root()
     patterns = []
     if entity is not None:
-        from evoflow.assets.paths import entity_relative_dir
+        from evoflow.assets.paths import entity_root
 
-        patterns.append(root / entity_relative_dir(entity) / "craft")
+        patterns.append(entity_root(entity) / "craft")
     else:
         patterns.extend(
             [
@@ -237,16 +237,21 @@ def list_craft_experiences(
                     "confidence": float(meta.get("confidence") or 1.0),
                     "use_count": 0,
                     "storage": "craft",
-                    "path": skill_md.relative_to(root).as_posix(),
+                    "path": (
+                        skill_md.relative_to(root).as_posix()
+                        if root in skill_md.resolve().parents or skill_md.resolve() == root.resolve()
+                        else skill_md.as_posix()
+                    ),
                     "entityType": str(meta.get("entity") or entity_type),
                     "entityId": str(meta.get("entity_id") or entity_id),
                 }
             )
 
     if entity is not None:
-        from evoflow.assets.paths import entity_relative_dir
+        from evoflow.assets.paths import entity_root as _entity_root
 
-        _scan_craft_dir(root / entity_relative_dir(entity) / "craft", entity.entity_type, entity.entity_id)
+        craft_base = _entity_root(entity)
+        _scan_craft_dir(craft_base / "craft", entity.entity_type, entity.entity_id)
     else:
         _scan_craft_dir(root / "user" / "craft", "user", "user")
         # Multi-user installs: per-principal buckets ``assets/users/<id>/craft``.

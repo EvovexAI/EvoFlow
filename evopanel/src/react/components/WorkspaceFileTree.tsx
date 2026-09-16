@@ -408,15 +408,24 @@ export function WorkspaceFileTree({
 
   // ── load (root directory) with race protection (#5) + highlight clear (#7) ──
 
+  /** 记住当前加载的 root/thread 作用域；仅作用域真正切换时才清空展开态/目录缓存，
+   *  避免「新建会话→切工作空间→回原目录」或手动刷新时整棵树折叠闪烁。 */
+  const loadScopeRef = useRef('')
+
   const load = useCallback(async (path: string) => {
     if (!root && !tid) return
     const ticket = ++loadTicketRef.current
     dirLoadEpochRef.current++          // invalidate any in-flight loadDir
+    const scope = `${root}\u0000${tid}`
+    const scopeChanged = scope !== loadScopeRef.current
+    loadScopeRef.current = scope
     setLoading(true)
     setError(null)
     setHighlightPath(null)             // #7: clear stale highlight on directory change
-    setExpandedPaths(new Set())        // collapse all subtrees
-    setDirCache(new Map())
+    if (scopeChanged) {
+      setExpandedPaths(new Set())      // 真正切目录时才折叠全部
+      setDirCache(new Map())
+    }
     setFocusedIdx(0)
     try {
       const { api } = await import('../../lib/tauri-api.js')

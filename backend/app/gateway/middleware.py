@@ -266,6 +266,66 @@ class GatewayRequestLoggingMiddleware:
             raise
 
 
+def _content_type_needs_utf8_charset(media_type: str) -> bool:
+    """True for text-ish / JSON responses that should declare charset=utf-8."""
+    mt = (media_type or "").split(";", 1)[0].strip().lower()
+    if not mt:
+        return False
+    if mt.startswith("text/"):
+        return True
+    if mt in ("application/json", "application/problem+json", "application/javascript"):
+        return True
+    if mt.endswith("+json"):
+        return True
+    return False
+
+
+def ensure_content_type_charset_utf8(value: bytes) -> bytes:
+    """Append ``charset=utf-8`` when missing (defense against HTTP clients that sniff encoding)."""
+    try:
+        ct = value.decode("latin-1")
+    except Exception:
+        return value
+    lower = ct.lower()
+    if "charset=" in lower:
+        return value
+    mime = lower.split(";", 1)[0].strip()
+    if not _content_type_needs_utf8_charset(mime):
+        return value
+    return f"{ct}; charset=utf-8".encode("latin-1")
+
+
+class Utf8CharsetMiddleware:
+    """ASGI middleware: ensure JSON / text / SSE responses advertise ``charset=utf-8``.
+
+    FastAPI/Starlette often emit ``Content-Type: application/json`` without charset.
+    Some HTTP clients (notably reqwest ``.text()`` on zh-CN Windows) then sniff GBK and
+    mojibake UTF-8 bodies. Explicit charset makes intent unambiguous end-to-end.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Callable, send: Callable) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_charset(message: dict[str, Any]) -> None:
+            if message.get("type") == "http.response.start":
+                raw_headers = list(message.get("headers") or [])
+                headers: list[tuple[bytes, bytes]] = []
+                for key, val in raw_headers:
+                    if key.lower() == b"content-type":
+                        headers.append((key, ensure_content_type_charset_utf8(val)))
+                    else:
+                        headers.append((key, val))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_charset)
+
+
 class ErrorHandlingMiddleware(BaseHTTPMiddleware):
     """Middleware to standardize all error responses."""
 
@@ -367,6 +427,9 @@ def setup_middleware(app: FastAPI) -> None:
 
     # Error handling middleware (must be last to catch all errors)
     app.add_middleware(ErrorHandlingMiddleware)
+
+    # Outermost: stamp charset=utf-8 on JSON/text/SSE so desktop HTTP proxies never sniff GBK.
+    app.add_middleware(Utf8CharsetMiddleware)
 
 
 # Exception handlers that can be registered directly with FastAPI

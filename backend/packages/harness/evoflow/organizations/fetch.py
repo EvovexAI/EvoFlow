@@ -17,8 +17,9 @@ from evoflow.organizations.manifest import LoadedPack, PackManifestError, load_p
 
 logger = logging.getLogger(__name__)
 
-# Official public market index (override with EVOFLOW_RESOURCE_MARKET_CATALOG_URL;
-# set the env to empty string to disable remote market).
+# Official public market index — always on by default for all installs.
+# Optional override: set EVOFLOW_RESOURCE_MARKET_CATALOG_URL to a non-empty
+# GitHub raw catalog.json URL. Empty / unset keeps the default (never disables).
 DEFAULT_MARKET_CATALOG_URL = (
     "https://raw.githubusercontent.com/EvovexAI/evoflow-resource-market/main/catalog.json"
 )
@@ -30,8 +31,9 @@ _RAW_GH = re.compile(
 
 
 def market_catalog_url() -> str:
-    if "EVOFLOW_RESOURCE_MARKET_CATALOG_URL" in os.environ:
-        return str(os.environ.get("EVOFLOW_RESOURCE_MARKET_CATALOG_URL") or "").strip()
+    override = str(os.environ.get("EVOFLOW_RESOURCE_MARKET_CATALOG_URL") or "").strip()
+    if override:
+        return override
     return DEFAULT_MARKET_CATALOG_URL
 
 
@@ -105,7 +107,7 @@ def load_pack_from_market_path(
     if not info:
         raise PackManifestError(
             "market_path requires a GitHub raw catalog URL "
-            "(default EvovexAI/evoflow-resource-market, or EVOFLOW_RESOURCE_MARKET_CATALOG_URL / source.repo=owner/repo@branch)"
+            "(default EvovexAI/evoflow-resource-market, or non-empty EVOFLOW_RESOURCE_MARKET_CATALOG_URL / source.repo=owner/repo@branch)"
         )
 
     zip_url = (

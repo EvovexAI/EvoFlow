@@ -1710,6 +1710,16 @@ async def bind_session_workspace(
     stamp = stamp_kwargs_from_request(request)
     paths = ws_repo.touch_session_workspace(key, path, user_pinned=True, stamp=stamp or None)
     current = ws_repo.get_session_current_workspace(key)
+    # Ensure ``<workspace>/.evoflow/`` skeleton (same memory/craft tree as before).
+    try:
+        from evoflow.assets.hub import ensure_entity_tree
+        from evoflow.assets.paths import workspace_entity_ref
+        from evoflow.persistence.workspace_repositories import get_or_create_workspace
+
+        get_or_create_workspace(path)
+        ensure_entity_tree(workspace_entity_ref(path))
+    except Exception:
+        logger.debug("workspace .evoflow skeleton on bind skipped", exc_info=True)
     return WorkspaceHistoryResponse(sessionKey=key, paths=paths, currentPath=current)
 
 

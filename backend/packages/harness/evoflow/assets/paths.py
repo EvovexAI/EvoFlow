@@ -1,7 +1,12 @@
-"""Path conventions for the Entity Asset Hub vault (``{EVOFLOW_HOME}/assets/``)."""
+"""Path conventions for the Entity Asset Hub vault (``{EVOFLOW_HOME}/assets/``).
+
+Workspace (project) memory is **not** under ``assets/workspaces/`` — it lives in the
+bound project at ``<workspace>/.evoflow/`` (same standing/facts/craft tree).
+"""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,11 +17,17 @@ BUILTIN_ASSET_VAULT_NAME = "EvoFlow 资产中心"
 
 EntityType = Literal["user", "agent", "employee", "workspace"]
 
+# Project-local SoT for workspace entity trees (same layout as Asset Hub memory/craft).
+WORKSPACE_ASSET_REL = Path(".evoflow")
+
 _USER_PROFILE_FILES = ("basic-info.md", "preferences.md", "persona.md", "README.md")
 _AGENT_PROFILE_FILES = ("identity.md", "SOUL.md", "system.md", "soul-summary.md")
 
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$", re.I)
 _SAFE_REL_PATH = re.compile(r"^[a-zA-Z0-9_./\-]+$")
+
+# Best-effort cache: ws-{hash} -> absolute workspace path (filled by workspace_entity_ref).
+_WS_PATH_BY_ID: dict[str, str] = {}
 
 
 def sanitize_user_asset_id(principal_or_id: str) -> str:
@@ -32,8 +43,6 @@ def sanitize_user_asset_id(principal_or_id: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw).strip("_").lower()
     if cleaned and _SAFE_SEGMENT.match(cleaned):
         return cleaned
-    import hashlib
-
     return "p_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -69,6 +78,47 @@ def assets_root() -> Path:
     return _paths().base_dir / "assets"
 
 
+def workspace_asset_root(workspace_path: str | Path) -> Path:
+    """Absolute ``<workspace>/.evoflow`` for a bound project root."""
+    from evoflow.persistence.workspace_repositories import normalize_workspace_path
+
+    normalized = normalize_workspace_path(str(workspace_path or ""))
+    if not normalized:
+        raise ValueError("workspace_path is required")
+    return Path(normalized).resolve() / WORKSPACE_ASSET_REL
+
+
+# Back-compat alias
+workspace_wiki_root = workspace_asset_root
+
+
+def resolve_workspace_path_for_entity_id(entity_id: str) -> str | None:
+    """Reverse ``ws-{hash}`` → workspace path (cache, then ``evoflow_workspaces``)."""
+    eid = str(entity_id or "").strip().lower()
+    if not eid.startswith("ws-"):
+        return None
+    cached = _WS_PATH_BY_ID.get(eid)
+    if cached:
+        return cached
+    digest = eid[3:]
+    try:
+        from evoflow.persistence.db import get_db
+        from evoflow.persistence.workspace_repositories import normalize_workspace_path
+
+        rows = get_db().execute("SELECT workspace_path FROM evoflow_workspaces").fetchall()
+    except Exception:
+        return None
+    for row in rows:
+        wp = normalize_workspace_path(str(row[0] or ""))
+        if not wp:
+            continue
+        resolved = str(Path(wp).resolve())
+        if hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:32] == digest:
+            _WS_PATH_BY_ID[eid] = resolved
+            return resolved
+    return None
+
+
 def entity_relative_dir(entity: EntityRef) -> str:
     e = entity.normalized()
     if e.entity_type == "user":
@@ -79,12 +129,33 @@ def entity_relative_dir(entity: EntityRef) -> str:
     if e.entity_type == "agent":
         return f"agents/{e.entity_id}"
     if e.entity_type == "workspace":
+        # Project-relative label (not under ~/.evoflow/assets/).
+        if resolve_workspace_path_for_entity_id(e.entity_id):
+            return WORKSPACE_ASSET_REL.as_posix()
         return f"workspaces/{e.entity_id}"
     return f"employees/{e.entity_id}"
 
 
+def entity_prompt_root(entity: EntityRef) -> str:
+    """Root string shown in Tier-0 read_path prompts."""
+    e = entity.normalized()
+    if e.entity_type == "workspace":
+        rel = entity_relative_dir(e)
+        if rel == WORKSPACE_ASSET_REL.as_posix():
+            return rel
+        return f"assets/{rel}"
+    return f"assets/{entity_relative_dir(e)}"
+
+
 def entity_root(entity: EntityRef) -> Path:
-    return assets_root() / entity_relative_dir(entity.normalized())
+    e = entity.normalized()
+    if e.entity_type == "workspace":
+        wp = resolve_workspace_path_for_entity_id(e.entity_id)
+        if wp:
+            return Path(wp).resolve() / WORKSPACE_ASSET_REL
+        # Orphan id (no bound path yet): legacy home bucket so tools don't crash.
+        return assets_root() / f"workspaces/{e.entity_id}"
+    return assets_root() / entity_relative_dir(e)
 
 
 def profile_dir(entity: EntityRef) -> Path:
@@ -144,14 +215,12 @@ def default_index_md() -> str:
         "- `user/` — 用户资产\n"
         "- `agents/` — 智能体资产\n"
         "- `employees/` — 智能体员工资产\n"
-        "- `workspaces/` — 工作区（项目）资产：standing / facts / episodic / craft\n"
+        "- 项目知识 — 绑定工作区下的 `.evoflow/`（standing / facts / episodic / craft）\n"
     )
 
 
 def workspace_entity_ref(workspace_path: str) -> EntityRef:
-    """Map a bound project root to ``EntityRef(workspace, ws-{hash})``."""
-    import hashlib
-
+    """Map a bound project root to ``EntityRef(workspace, ws-{hash})`` and cache the path."""
     from evoflow.persistence.workspace_repositories import normalize_workspace_path
 
     normalized = normalize_workspace_path(workspace_path)
@@ -159,4 +228,6 @@ def workspace_entity_ref(workspace_path: str) -> EntityRef:
         raise ValueError("workspace_path is required")
     resolved = str(Path(normalized).resolve())
     digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:32]
-    return EntityRef("workspace", f"ws-{digest}").normalized()
+    ref = EntityRef("workspace", f"ws-{digest}").normalized()
+    _WS_PATH_BY_ID[ref.entity_id] = resolved
+    return ref

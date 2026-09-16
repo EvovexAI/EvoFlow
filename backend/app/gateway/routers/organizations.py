@@ -137,7 +137,7 @@ async def api_list(
 
 @router.get("/market/catalog")
 async def api_market_catalog() -> dict[str, Any]:
-    """Return GitHub catalog.json (default public market, or EVOFLOW_RESOURCE_MARKET_CATALOG_URL)."""
+    """Return GitHub catalog.json (default public market; optional non-empty URL override)."""
     import json
     import urllib.request
 

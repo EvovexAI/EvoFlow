@@ -193,7 +193,7 @@ ENTITY_ASSETS_BLOCK = """<entity_assets>
 | 站立摘要 | memory/standing.md | Tier-0 已注入 | 禁止直接改 |
 | **用户画像** | **profile/basic-info.md · preferences.md · persona.md** | **Tier-0 已注入** | **`assets(action=profile)`**；用户也可 `#/assets` 编辑 |
 | **用户记忆** | **user/memory/**（所有 Agent 对话共享） | Tier-0 standing + search/read | **`assets(note)`** → inbox |
-| **项目知识** | **workspaces/{hash}/memory/**（绑定工作区时） | Tier-0 `<workspace_memory>` | **`assets(note, scope=workspace)`** 或 `[project]` 标签 |
+| **项目知识** | **`.evoflow/memory/`**（绑定工作区时，仓库内） | Tier-0 `<workspace_memory>` | **`assets(note, scope=workspace)`** 或 `[project]` 标签 |
 | **Agent 配置** | **agents/{code}/profile/**（SOUL 等） | soul-summary Tier-0 | `#/assets` 智能体 Tab；**无独立 memory** |
 | 注册表 | memory/MEMORY.md | assets search/read | 禁止直接改 |
 | 偏好/短事实 | memory/facts/ | assets search/read | assets(note) → inbox |

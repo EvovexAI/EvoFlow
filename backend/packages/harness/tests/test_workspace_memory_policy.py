@@ -31,4 +31,5 @@ def test_should_persist_module_fact() -> None:
 def test_discipline_block_zh() -> None:
     block = workspace_write_discipline_block(lang="zh")
     assert "module" in block
+    assert ".evoflow/memory" in block
     assert "scope=workspace" in block

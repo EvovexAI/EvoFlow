@@ -17,8 +17,8 @@ type Props = {
 }
 
 /**
- * Project assets for the bound workspace — Asset Hub catalog (title + short summary).
- * SoT: ~/.evoflow/assets/workspaces/{ws-hash}/
+ * Project assets for the bound workspace — same catalog as Asset Hub.
+ * SoT: <workspace>/.evoflow/
  */
 export function WorkspaceMemoryBlock({ workspaceRoot }: Props) {
   const root = String(workspaceRoot || '').trim()
@@ -107,7 +107,7 @@ export function WorkspaceMemoryBlock({ workspaceRoot }: Props) {
           {standing ? <p className="ws-memory-block__standing">{standing}</p> : null}
           {loading ? <p className="memory-muted">加载中…</p> : null}
           {!loading && atoms.length === 0 ? (
-            <p className="memory-muted">还没有项目事实。添加后写入 assets/workspaces/…</p>
+            <p className="memory-muted">还没有项目事实。添加后写入 `.evoflow/`。</p>
           ) : null}
           <ul className="ws-memory-block__list">
             {atoms.map((a) => (

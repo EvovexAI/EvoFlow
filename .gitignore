@@ -32,6 +32,11 @@ backend/daily.json
 
 # Root EVOFLOW_HOME when run from repo root (not product source)
 .evoflow/
+# Project memory/craft under bound workspace — allow committing
+!.evoflow/memory/
+!.evoflow/memory/**
+!.evoflow/craft/
+!.evoflow/craft/**
 
 # Machine-local skill runtime
 **/.daemon.pid

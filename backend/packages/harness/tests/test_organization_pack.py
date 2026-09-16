@@ -118,8 +118,9 @@ def test_market_catalog_url_default(monkeypatch):
 
     monkeypatch.delenv("EVOFLOW_RESOURCE_MARKET_CATALOG_URL", raising=False)
     assert fetch_mod.market_catalog_url() == fetch_mod.DEFAULT_MARKET_CATALOG_URL
+    # Empty override must not disable the public market for installed users.
     monkeypatch.setenv("EVOFLOW_RESOURCE_MARKET_CATALOG_URL", "")
-    assert fetch_mod.market_catalog_url() == ""
+    assert fetch_mod.market_catalog_url() == fetch_mod.DEFAULT_MARKET_CATALOG_URL
     monkeypatch.setenv(
         "EVOFLOW_RESOURCE_MARKET_CATALOG_URL",
         "https://raw.githubusercontent.com/acme/mkt/main/catalog.json",

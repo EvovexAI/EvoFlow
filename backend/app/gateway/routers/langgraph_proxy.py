@@ -624,7 +624,7 @@ async def attach_run_stream(
         finally:
             shrink_mirror_for_thread(thread_id)
 
-    return StreamingResponse(_gen_with_mirror(), headers=headers, media_type="text/event-stream")
+    return StreamingResponse(_gen_with_mirror(), headers=headers, media_type="text/event-stream; charset=utf-8")
 
 
 async def _wait_langgraph_ready(

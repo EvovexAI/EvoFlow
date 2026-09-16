@@ -484,14 +484,16 @@ pub async fn assistant_web_search(
     )
     .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 
-    let html = client
+    let html_bytes = client
         .get(&url)
         .send()
         .await
         .map_err(|e| format!("搜索请求失败: {e}"))?
-        .text()
+        .bytes()
         .await
         .map_err(|e| format!("读取搜索结果失败: {e}"))?;
+    // Prefer UTF-8; avoid reqwest `.text()` charset sniff (GBK mojibake on zh-CN Windows).
+    let html = String::from_utf8_lossy(&html_bytes).into_owned();
 
     // 解析搜索结果
     let mut results = Vec::new();
@@ -553,15 +555,16 @@ pub async fn assistant_fetch_url(url: String) -> Result<String, String> {
     let client = super::build_http_client(std::time::Duration::from_secs(15), Some("Mozilla/5.0"))
         .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 
-    let content = client
+    let content_bytes = client
         .get(&jina_url)
         .header("Accept", "text/plain")
         .send()
         .await
         .map_err(|e| format!("抓取失败: {e}"))?
-        .text()
+        .bytes()
         .await
         .map_err(|e| format!("读取内容失败: {e}"))?;
+    let content = String::from_utf8_lossy(&content_bytes).into_owned();
 
     if content.len() > 100_000 {
         Ok(format!(

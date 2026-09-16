@@ -38,9 +38,9 @@
 ## 装别人的包
 
 1. 打开 **设置 → 资源中心 → 市场**。  
-2. **市场目录**：默认读取公开索引  
+2. **市场目录**：默认读取公开索引（无需配置）  
    `https://raw.githubusercontent.com/EvovexAI/evoflow-resource-market/main/catalog.json`  
-   （可用环境变量 `EVOFLOW_RESOURCE_MARKET_CATALOG_URL` 覆盖；设为空字符串关闭）。点卡片「安装」即可从 GitHub 拉取并安装。  
+   点卡片「安装」即可从 GitHub 拉取并安装。高级场景可用环境变量 `EVOFLOW_RESOURCE_MARKET_CATALOG_URL` 指向其它 raw `catalog.json`（仅非空值生效，空值仍用默认）。  
 3. 或 **导入本地**：选 zip / 文件夹（根目录要有 `evoflow.organization.json`）→ 预检 → 安装。  
 4. 装完后：「资源中心 → 已装」能看到记录。
 

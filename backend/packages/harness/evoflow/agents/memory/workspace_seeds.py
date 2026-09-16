@@ -42,8 +42,9 @@ def _evoflow_seed() -> dict[str, Any]:
                 "summary": "user/agent/employee/workspace",
                 "category": "architecture",
                 "content": (
-                    "资产存放在 ~/.evoflow/assets/：user/（用户画像+对话记忆）、agents/{code}/profile（SOUL）、"
-                    "employees/{code}/（员工记忆+画像）、workspaces/{ws-hash}/（绑定项目的 module/logic 等事实）。"
+                    "用户对话记忆在 ~/.evoflow/assets/user/；Agent SOUL 在 assets/agents/{code}/profile；"
+                    "员工在 assets/employees/{code}/。"
+                    "项目知识在绑定仓库内的 .evoflow/（standing / facts / craft，与用户资产同构）。"
                     "Tier-0 注入 standing + catalog；正文用 assets(read) 按需拉取。"
                 ),
             },

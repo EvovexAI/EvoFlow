@@ -329,7 +329,7 @@ async def stream_tool(
 
     return EventSourceResponse(
         _stream_events(name, args, ctx, visible),
-        media_type="text/event-stream",
+        media_type="text/event-stream; charset=utf-8",
         ping=15,
     )
 

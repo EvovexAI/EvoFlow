@@ -83,6 +83,7 @@ import {
   provisionalSessionTitleFromUserText,
   setSessionTitle,
   getDisplayLabel,
+  purgeStaleSessionNamesCharsetCacheOnce,
 } from './lib/session-list/display.js'
 import {
   patchSessionPinInRows,
@@ -456,6 +457,7 @@ import {
   resetSessionLiveStreamDisplay,
   replaceSessionRuntimeRowsFromHistory,
   markSessionResumeCatchupReplay,
+  markSessionKnownEmpty,
   rowsAlreadyStopSealedForTurn,
   rowsBaseForSend,
   clearSessionRuntime,
@@ -1670,6 +1672,8 @@ function inferWriteStreamFormat(path: string): 'plain' | 'markdown' | 'code' {
 }
 
 export default function ChatApp() {
+  // Drop once any titles cached while gateway_proxy mis-decoded UTF-8 as GBK.
+  purgeStaleSessionNamesCharsetCacheOnce()
   const [selectedSessionKey, setSelectedSessionKey] = useState<string>(() => {
     // 优先检查从任务页等其他页面跳转过来的 pending session
     try {
@@ -12857,7 +12861,10 @@ export default function ChatApp() {
           if (display) setModelName(display)
           syncModelSessionPrevKeyRef.current = key
         }
-        void refreshSessions({ skipAutoReselect: true })
+        // Defer list refresh so home dashboard first paint is not contending for Gateway.
+        window.setTimeout(() => {
+          void refreshSessions({ skipAutoReselect: true })
+        }, 300)
       } catch {
         /* ignore */
       }
@@ -12891,6 +12898,8 @@ export default function ChatApp() {
       })) as ChatSessionRow & { key?: string }
       const key = String(row?.sessionKey || row?.key || '').trim()
       if (!key) throw new Error('创建会话失败')
+      // Before adopt: known-empty latch keeps home surface mounted (no historyLoading skeleton).
+      markSessionKnownEmpty(key)
       if (ws) {
         try {
           const bound = await wsClient.bindSessionWorkspace(key, ws, { userPinned: true })

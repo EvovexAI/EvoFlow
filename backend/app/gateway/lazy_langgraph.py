@@ -249,7 +249,7 @@ class ExternalLangGraphProxy:
                     "type": "http.response.start",
                     "status": 503,
                     "headers": [
-                        (b"content-type", b"application/json"),
+                        (b"content-type", b"application/json; charset=utf-8"),
                         (b"content-length", str(len(payload)).encode()),
                         (b"retry-after", b"2"),
                     ],
@@ -305,7 +305,7 @@ class LazyLangGraphMount:
                         "type": "http.response.start",
                         "status": 503,
                         "headers": [
-                            (b"content-type", b"application/json"),
+                            (b"content-type", b"application/json; charset=utf-8"),
                             (b"content-length", str(len(body)).encode()),
                             (b"retry-after", b"2"),
                         ],

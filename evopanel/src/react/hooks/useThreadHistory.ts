@@ -9,6 +9,7 @@ import {
   hydrateSessionRuntimeRowsIfIdle,
   isTurnBusy,
   peekIdleSessionRuntimeRows,
+  peekSessionKnownEmpty,
   replaceSessionRuntimeRowsFromHistory,
 } from '../lib/session-runtime-store.js'
 import { mergeSoftHistoryFetch } from '../lib/merge-soft-history-fetch.js'
@@ -364,6 +365,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
   const historyHasMoreRef = useRef(false)
   const loadingOlderRef = useRef(false)
   const paintedFromIdleCacheRef = useRef(false)
+  const paintedFromKnownEmptyRef = useRef(false)
   // Update ref in effect to avoid accessing ref during render
   useEffect(() => {
     liveRef.current = liveOpts
@@ -384,6 +386,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
   useLayoutEffect(() => {
     historyFetchEpochRef.current += 1
     paintedFromIdleCacheRef.current = false
+    paintedFromKnownEmptyRef.current = false
     setHistoryInstantPaint(false)
     setHistoryBoundSessionKey(null)
     setError(null)
@@ -411,6 +414,16 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
     if (idleCached?.length) {
       paintedFromIdleCacheRef.current = true
       setRows(idleCached)
+      setLoading(false)
+      setHistoryInstantPaint(true)
+      return
+    }
+    // Brand-new session: keep home surface mounted while soft-confirming empty history.
+    if (peekSessionKnownEmpty(sessionKey)) {
+      paintedFromKnownEmptyRef.current = true
+      setRows([])
+      setTokenTotals(null)
+      setRestoredScenarioScene(null)
       setLoading(false)
       setHistoryInstantPaint(true)
       return
@@ -443,12 +456,15 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
       const meta = liveRef.current
       const dbOnly = Boolean(opt?.dbOnly)
       /** 冷启动总超时：Gateway warming（latch 未放行）时不能无限 defer 转圈，
-       *  超过该窗口后按失败处理并展示错误，等用户手动刷新或 ready kick 再试。 */
-      const COLD_START_TIMEOUT_MS = 60_000
+       *  超过该窗口后按失败处理并展示错误，等用户手动刷新或 ready kick 再试。
+       *  60s 过长会让「数据加载中」转圈很久；后端就绪后 onBackendReadyChange
+       *  会 kick reload 自动恢复，因此缩短到 20s 更友好且不丢数据。 */
+      const COLD_START_TIMEOUT_MS = 20_000
       const coldStartDeadline = Date.now() + COLD_START_TIMEOUT_MS
       let soft =
         Boolean(opt?.soft) ||
         paintedFromIdleCacheRef.current ||
+        paintedFromKnownEmptyRef.current ||
         (historyBoundSessionKeyRef.current === sessionKey && rowsRef.current.length > 0)
 
       const liveStore = meta?.getLive?.() ?? null
@@ -478,7 +494,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           Array.isArray(rowsRef.current) &&
           rowsRef.current.length > 0
         const preserveRows =
-          soft || liveRowsOnHot || liveSendRows || sameSessionContent || paintedFromIdleCacheRef.current
+          soft || liveRowsOnHot || liveSendRows || sameSessionContent || paintedFromIdleCacheRef.current || paintedFromKnownEmptyRef.current
         if (!preserveRows) {
           setRows([])
           setTokenTotals(null)
@@ -518,7 +534,8 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           return { transcriptAnchor: null }
         }
         // Post-liveness /messages can still retry 503 starting_up for a while.
-        const HISTORY_FETCH_TIMEOUT_MS = 45_000
+        // 45s 会让骨架屏/加载中挂太久；20s 内未返回即提示超时（就绪后自动重试）。
+        const HISTORY_FETCH_TIMEOUT_MS = 20_000
         // Hover warm shares chatHistory inflight with this fetch — when it lands first,
         // paint idle cache immediately so the spinner does not wait for our await.
         if (!dbOnly && !soft && !liveRowsActive && !opt?.bypassCache) {
@@ -571,6 +588,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         soft =
           soft ||
           paintedFromIdleCacheRef.current ||
+          paintedFromKnownEmptyRef.current ||
           (historyBoundSessionKeyRef.current === sessionKey && rowsRef.current.length > 0)
         const raw = result.messages
         const built = buildHistoryViewFromRaw(raw)
@@ -636,6 +654,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           setRows(mergedRows)
         }
         paintedFromIdleCacheRef.current = false
+        paintedFromKnownEmptyRef.current = false
         if (sessionKey) {
           const rt = getSessionRuntime(sessionKey)
           const runStatusTerminal = !isActiveRunStatus(runStatus)
@@ -735,7 +754,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
 
   useEffect(() => {
     queueMicrotask(() => {
-      void reload({ soft: paintedFromIdleCacheRef.current })
+      void reload({ soft: paintedFromIdleCacheRef.current || paintedFromKnownEmptyRef.current })
     })
   }, [reload])
 
@@ -753,6 +772,7 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         soft:
           rowsRef.current.length > 0 ||
           paintedFromIdleCacheRef.current ||
+          paintedFromKnownEmptyRef.current ||
           historyBoundSessionKeyRef.current === sessionKey,
       })
     }

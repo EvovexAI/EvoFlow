@@ -184,7 +184,7 @@ same Markdown + frontmatter, same read/write rules — different folders only.
 | Standing | memory/standing.md | Tier-0 injected | never edit directly |
 | **User profile** | **profile/basic-info.md · preferences.md · persona.md** | **Tier-0 injected** | **`assets(action=profile)`**; user may edit in #/assets |
 | **User memory** | **user/memory/** (shared across all dialogue agents) | Tier-0 standing + search/read | **`assets(note)`** → inbox |
-| **Project knowledge** | **workspaces/{hash}/memory/** (when workspace bound) | Tier-0 `<workspace_memory>` | **`assets(note, scope=workspace)`** or `[project]` tag |
+| **Project knowledge** | **`.evoflow/memory/`** (bound workspace, in-repo) | Tier-0 `<workspace_memory>` | **`assets(note, scope=workspace)`** or `[project]` tag |
 | **Agent config** | **agents/{code}/profile/** (SOUL, etc.) | soul-summary Tier-0 | #/assets agent tab; **no separate memory tree** |
 | Registry | memory/MEMORY.md | assets search/read | never edit directly |
 | Facts / prefs | memory/facts/ | assets search/read | assets(note) → inbox |

@@ -76,7 +76,8 @@ def should_persist_workspace_asset(
 def workspace_write_discipline_block(*, lang: str = "zh") -> str:
     if lang == "en":
         return """<workspace_memory_policy>
-Project knowledge lives under **assets/workspaces/{ws-hash}/memory/** (only when a workspace is bound).
+Project knowledge lives under **`.evoflow/memory/`** in the bound workspace
+(same standing / facts / craft layout as user assets).
 
 Write here ONLY durable repo facts:
 - **module** — core subsystems and responsibilities
@@ -91,7 +92,7 @@ Use `assets(action=note, scope=workspace, content="[project][module] …")` for 
 User prefs / identity → user memory or profile, not workspace.
 </workspace_memory_policy>"""
     return """<workspace_memory_policy>
-**项目知识**仅在绑定工作区时写入 `assets/workspaces/{hash}/memory/`。
+**项目知识**写在绑定工作区下的 **`.evoflow/memory/`**（与用户资产同构：standing / facts / craft）。
 
 只记**可复用的项目事实**：
 - **module** — 核心功能模块与职责

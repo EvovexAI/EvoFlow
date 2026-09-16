@@ -122,7 +122,7 @@ def test_procedure_once_when_user_and_workspace(assets_home: Path, monkeypatch: 
     repo.mkdir()
     ws = workspace_entity_ref(str(repo))
     ensure_entity_tree(ws)
-    (assets_home / "assets" / "workspaces" / ws.entity_id / "memory" / "standing.md").write_text(
+    (repo / ".evoflow" / "memory" / "standing.md").write_text(
         "v1\n\n工作区：EvoFlow harness\n",
         encoding="utf-8",
     )

@@ -113,6 +113,32 @@ const SOURCE_HEX: Record<string, string> = {
   other: '#94A3B8',
 }
 
+/** Cross-mount cache so new-session remount does not flash「正在加载工作台数据…」. */
+const HOME_DASHBOARD_CACHE_TTL_MS = 60_000
+
+type HomeDashboardCachePayload = {
+  tasks: any[]
+  userItems: any[]
+  automations: any[]
+  appsRaw: any[]
+  roles: any[]
+  fetchedAt: number
+}
+
+let homeDashboardCache: HomeDashboardCachePayload | null = null
+
+function peekHomeDashboardCache(): HomeDashboardCachePayload | null {
+  if (!homeDashboardCache) return null
+  if (Date.now() - homeDashboardCache.fetchedAt > HOME_DASHBOARD_CACHE_TTL_MS) return null
+  return homeDashboardCache
+}
+
+function writeHomeDashboardCache(
+  payload: Omit<HomeDashboardCachePayload, 'fetchedAt'>,
+): void {
+  homeDashboardCache = { ...payload, fetchedAt: Date.now() }
+}
+
 function asArray(data: unknown): any[] {
   if (Array.isArray(data)) return data
   if (data && typeof data === 'object') {
@@ -348,13 +374,14 @@ function formatKpiDelta(kind: KpiDeltaKind, current: number, previous: number): 
 
 export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboardData {
   const rangeDays = opts?.rangeDays ?? 7
-  const [loading, setLoading] = useState(true)
+  const initialCache = peekHomeDashboardCache()
+  const [loading, setLoading] = useState(() => !initialCache)
   const [error, setError] = useState<string | null>(null)
-  const [tasks, setTasks] = useState<any[]>([])
-  const [userItems, setUserItems] = useState<any[]>([])
-  const [automations, setAutomations] = useState<any[]>([])
-  const [appsRaw, setAppsRaw] = useState<any[]>([])
-  const [roles, setRoles] = useState<any[]>([])
+  const [tasks, setTasks] = useState<any[]>(() => initialCache?.tasks ?? [])
+  const [userItems, setUserItems] = useState<any[]>(() => initialCache?.userItems ?? [])
+  const [automations, setAutomations] = useState<any[]>(() => initialCache?.automations ?? [])
+  const [appsRaw, setAppsRaw] = useState<any[]>(() => initialCache?.appsRaw ?? [])
+  const [roles, setRoles] = useState<any[]>(() => initialCache?.roles ?? [])
   const [tick, setTick] = useState(0)
 
   const refresh = useCallback(() => setTick((n) => n + 1), [])
@@ -362,12 +389,26 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      setLoading(true)
-      setError(null)
+      const cachedHit = peekHomeDashboardCache()
+      const soft = !!cachedHit
+      if (soft && cachedHit) {
+        setTasks(cachedHit.tasks)
+        setUserItems(cachedHit.userItems)
+        setAutomations(cachedHit.automations)
+        setAppsRaw(cachedHit.appsRaw)
+        setRoles(cachedHit.roles)
+        setLoading(false)
+        setError(null)
+      } else {
+        setLoading(true)
+        setError(null)
+      }
       try {
         if (isGatewayWarming()) {
+          // With cache: keep showing KPIs while warming; without: must wait.
           await waitForBackendReady(90_000)
         }
+        if (cancelled) return
         const [tasksRes, itemsRes, autoRes, appsRes, rolesRes] = await Promise.all([
           api.listAllTasks(),
           api.listUserItems({ include_done: false }).catch(() => ({ items: [] })),
@@ -376,18 +417,32 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
           api.proactiveListRoles('active').catch(() => []),
         ])
         if (cancelled) return
-        setTasks(asArray(tasksRes))
-        setUserItems(Array.isArray(itemsRes?.items) ? itemsRes.items : asArray(itemsRes))
-        setAutomations(Array.isArray(autoRes?.automations) ? autoRes.automations : asArray(autoRes))
-        setAppsRaw(asArray(appsRes))
-        const roleList = Array.isArray(rolesRes)
+        const nextTasks = asArray(tasksRes)
+        const nextItems = Array.isArray(itemsRes?.items) ? itemsRes.items : asArray(itemsRes)
+        const nextAutos = Array.isArray(autoRes?.automations) ? autoRes.automations : asArray(autoRes)
+        const nextApps = asArray(appsRes)
+        const nextRoles = Array.isArray(rolesRes)
           ? rolesRes
           : Array.isArray(rolesRes?.roles)
             ? rolesRes.roles
             : asArray(rolesRes)
-        setRoles(roleList)
+        setTasks(nextTasks)
+        setUserItems(nextItems)
+        setAutomations(nextAutos)
+        setAppsRaw(nextApps)
+        setRoles(nextRoles)
+        writeHomeDashboardCache({
+          tasks: nextTasks,
+          userItems: nextItems,
+          automations: nextAutos,
+          appsRaw: nextApps,
+          roles: nextRoles,
+        })
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e || '加载失败'))
+        if (!cancelled) {
+          // Soft remount: keep stale KPIs if network fails.
+          if (!soft) setError(e instanceof Error ? e.message : String(e || '加载失败'))
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }

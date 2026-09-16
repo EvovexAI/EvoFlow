@@ -299,7 +299,7 @@ async def a2a_task_stream(request: Request, agent_code: str, task_id: str) -> St
 
     return StreamingResponse(
         event_generator(),
-        media_type="text/event-stream",
+        media_type="text/event-stream; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

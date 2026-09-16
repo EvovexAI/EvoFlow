@@ -174,7 +174,7 @@ class LangGraphRouteLoggerMiddleware:
                         "type": "http.response.start",
                         "status": 413,
                         "headers": [
-                            (b"content-type", b"application/json"),
+                            (b"content-type", b"application/json; charset=utf-8"),
                             (b"content-length", str(len(err)).encode("ascii")),
                         ],
                     }

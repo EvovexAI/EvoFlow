@@ -303,7 +303,9 @@ pub async fn gateway_proxy_stream(
     let resp = send_stream_connect(&client, method, url, stream_body, &request.headers).await?;
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
-        let text = resp.text().await.unwrap_or_default();
+        // Same as gateway_proxy: never use `.text()` (charset sniff → GBK mojibake on zh-CN Windows).
+        let bytes = resp.bytes().await.unwrap_or_default();
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         let msg = if text.trim().is_empty() {
             format!("HTTP {status}")
         } else {

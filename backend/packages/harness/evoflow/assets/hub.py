@@ -54,7 +54,9 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     e = entity.normalized()
     ent_root = entity_root(e)
     ent_root.mkdir(parents=True, exist_ok=True)
-    profile_dir(e).mkdir(parents=True, exist_ok=True)
+    # Workspace project assets have no profile/; user/agent/employee keep profile under entity root.
+    if e.entity_type != "workspace":
+        profile_dir(e).mkdir(parents=True, exist_ok=True)
 
     # Agents are config shells — no memory/craft tree (dialogue memory lives under user/).
     if e.entity_type == "agent":
@@ -253,25 +255,10 @@ def list_entities() -> dict[str, Any]:
         logger.debug("list_entities: proactive roles scan skipped", exc_info=True)
 
     seen_workspace_ids: set[str] = set()
-    workspaces_root = assets_root() / "workspaces"
-    if workspaces_root.is_dir():
-        for p in sorted(workspaces_root.iterdir()):
-            if not p.is_dir() or not p.name.startswith("ws-"):
-                continue
-            eid = p.name.strip().lower()
-            seen_workspace_ids.add(eid)
-            label = eid
-            _upsert_entity(
-                entities,
-                entity_type="workspace",
-                entity_id=eid,
-                label=label,
-                root=f"workspaces/{eid}",
-            )
-
+    # Prefer bound projects from registry — SoT is ``<project>/.evoflow/``.
     try:
         from evoflow.persistence.db import get_db
-        from evoflow.assets.paths import workspace_entity_ref
+        from evoflow.assets.paths import entity_root, workspace_entity_ref
 
         rows = get_db().execute("SELECT workspace_path FROM evoflow_workspaces").fetchall()
         for row in rows:
@@ -283,27 +270,40 @@ def list_entities() -> dict[str, Any]:
             except ValueError:
                 continue
             eid = ref.entity_id
+            seen_workspace_ids.add(eid)
+            wiki = entity_root(ref)
+            _upsert_entity(
+                entities,
+                entity_type="workspace",
+                entity_id=eid,
+                label=Path(wp).name or wp,
+                root=".evoflow",
+            )
+            for ent in entities:
+                if ent.get("entityType") == "workspace" and ent.get("entityId") == eid:
+                    ent["workspacePath"] = wp
+                    ent["absRoot"] = str(wiki.resolve())
+                    break
+    except Exception:
+        logger.debug("list_entities: workspace registry scan skipped", exc_info=True)
+
+    # Legacy leftover under ~/.evoflow/assets/workspaces/ (pre-relocation).
+    workspaces_root = assets_root() / "workspaces"
+    if workspaces_root.is_dir():
+        for p in sorted(workspaces_root.iterdir()):
+            if not p.is_dir() or not p.name.startswith("ws-"):
+                continue
+            eid = p.name.strip().lower()
             if eid in seen_workspace_ids:
-                for ent in entities:
-                    if ent.get("entityType") == "workspace" and ent.get("entityId") == eid:
-                        ent["label"] = Path(wp).name or wp
-                        ent["workspacePath"] = wp
-                        break
                 continue
             seen_workspace_ids.add(eid)
             _upsert_entity(
                 entities,
                 entity_type="workspace",
                 entity_id=eid,
-                label=Path(wp).name or wp,
+                label=eid,
                 root=f"workspaces/{eid}",
             )
-            for ent in entities:
-                if ent.get("entityType") == "workspace" and ent.get("entityId") == eid:
-                    ent["workspacePath"] = wp
-                    break
-    except Exception:
-        logger.debug("list_entities: workspace registry scan skipped", exc_info=True)
 
     return {
         "vaultId": "evoflow-assets",

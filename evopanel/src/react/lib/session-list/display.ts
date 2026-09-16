@@ -1,6 +1,6 @@
 import type { ChatSessionRow } from '../../chat-types.js'
 import { parseTurnTimestampMs } from '../turn-timing.js'
-import { STORAGE_SESSION_NAMES_KEY } from './constants.js'
+import { STORAGE_SESSION_NAMES_KEY, STORAGE_SESSION_NAMES_CHARSET_PURGE_KEY } from './constants.js'
 
 const IM_CHANNEL_LABELS: Record<string, string> = {
   feishu: '飞书',
@@ -112,6 +112,22 @@ export function getSessionNames(): Record<string, string> {
     )
   } catch {
     return {}
+  }
+}
+
+/**
+ * Drop once any session-title localStorage written while gateway_proxy mis-decoded UTF-8 as GBK.
+ * Fresh titles rehydrate from API after the UTF-8 proxy + charset middleware fix.
+ */
+export function purgeStaleSessionNamesCharsetCacheOnce(): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    if (localStorage.getItem(STORAGE_SESSION_NAMES_CHARSET_PURGE_KEY) === '1') return
+    localStorage.removeItem(STORAGE_SESSION_NAMES_KEY)
+    localStorage.removeItem('evopanel-chat-session-names')
+    localStorage.setItem(STORAGE_SESSION_NAMES_CHARSET_PURGE_KEY, '1')
+  } catch {
+    /* ignore */
   }
 }
 

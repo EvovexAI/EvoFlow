@@ -181,7 +181,7 @@ async def subscribe_task_events(request: Request, task_id: str):
 
     return StreamingResponse(
         event_generator(task_id),
-        media_type="text/event-stream",
+        media_type="text/event-stream; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -371,7 +371,7 @@ async def subscribe_thread_panel_stream(request: Request, thread_id: str):
     require_thread_visible(request, tid)
     return StreamingResponse(
         event_generator(tid),
-        media_type="text/event-stream",
+        media_type="text/event-stream; charset=utf-8",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

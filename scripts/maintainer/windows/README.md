@@ -11,8 +11,8 @@ Local desktop release helpers for this public repo (`EvovexAI/EvoFlow`). Contrib
 ```powershell
 Set-Location <repo-root>
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows\release-evopanel-public.ps1 `
-  -Version 1.0.1 `
-  -ProductNotesPath .\scripts\maintainer\windows\release-notes\PRODUCT-NOTES-1.0.1.md `
+  -Version 1.0.2 `
+  -ProductNotesPath .\scripts\maintainer\windows\release-notes\PRODUCT-NOTES-1.0.2.md `
   -PushGitTag
 ```
 

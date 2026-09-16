@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-16
+
+### Changed
+
+- 项目空间记忆迁到绑定仓库内的 `.evoflow/memory/` 与 `.evoflow/craft/`（不再写 `~/.evoflow/assets/workspaces/`）
+- 发版说明与版本线对齐 **1.0.2**
+
+### Fixed
+
+- Gateway 文本响应补齐 `charset=utf-8`，减轻中文 Windows 下乱码
+- 会话历史 / 首页数据与资源市场相关稳定性问题
+
 ## [1.0.1] - 2026-09-13
 
 ### Added

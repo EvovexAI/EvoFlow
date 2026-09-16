@@ -1,6 +1,7 @@
 """Workspace-scoped project memory — Asset Hub Markdown (same form as user assets).
 
-SoT: ``~/.evoflow/assets/workspaces/{ws-hash}/`` with standing / facts / episodic / craft.
+SoT: ``<workspace>/.evoflow/`` with standing / facts / episodic / craft
+(same tree shape as ``~/.evoflow/assets/{user,employees}/``).
 Injection: catalog only (title + 10–30字 summary); full text via read tools.
 Legacy JSON memory-storage structure is no longer written or injected.
 """

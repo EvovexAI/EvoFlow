@@ -50,6 +50,10 @@ def test_create_empty_workspace_memory_is_catalog(sqlite_tmp: Path) -> None:
     assert "facts" in mem
     assert "craft" in mem
     assert "project" not in mem
+    asset = root / ".evoflow"
+    assert asset.is_dir()
+    assert (asset / "memory" / "standing.md").is_file()
+    assert str(asset.resolve()) in str(Path(mem["root"]).resolve())
 
 
 def test_record_fact_and_catalog_inject_legacy_mode(sqlite_tmp: Path, monkeypatch: pytest.MonkeyPatch) -> None:

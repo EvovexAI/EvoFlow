@@ -49,6 +49,11 @@
   overflow: hidden;
 }
 
+/* display:flex 会盖掉 UA 的 [hidden]{display:none}，导致三个分区叠在一起、点 Tab 无感 */
+.sr-panel--fill[hidden] {
+  display: none !important;
+}
+
 .sr-panel--fill > .sr-root,
 .sr-panel--fill > .sr-root--workbench,
 .sr-panel--fill > .sr-root--fill {
