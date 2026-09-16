@@ -472,7 +472,7 @@ code_index:
   internal_refs_enabled: true
   type_relations_enabled: true
   # AST / tree-sitter (Python, JS, TS, Java): 随 evoflow-harness 默认依赖安装（javalang、tree-sitter-languages）
-  # Storage: $EVOFLOW_DATA_DIR/code_index/<hash>.db (FTS + symbols + file_deps + internal_refs + type_relations)
+  # Storage: <workspace>/.evoflow/code_index/index.db (FTS + symbols + file_deps + internal_refs + type_relations; gitignored)
 
 # ============================================================================
 # Session intent rollup (recent user goals in system prompt)

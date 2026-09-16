@@ -2,7 +2,7 @@
 
 **When parsed**: during ``build_index()`` (explicit API/UI) or lazily on first search.
 
-**Where stored**: ``$EVOFLOW_DATA_DIR/code_index/<workspace-hash>.db`` (see ``index_db_path``).
+**Where stored**: ``<workspace>/.evoflow/code_index/index.db`` (see ``index_db_path``).
 
 **Parsers**: LSP ``documentSymbol`` when a language server is on PATH (pyright, typescript-language-server);
 Symbols: tree-sitter first (py/js/ts/java) via ``tree_sitter_core``; LSP optional; AST/regex fallback.

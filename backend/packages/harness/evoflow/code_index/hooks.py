@@ -43,11 +43,24 @@ def _ctx_from_runtime(runtime: Any | None) -> dict[str, Any]:
 
 
 def _guess_workspace_for_path(abs_path: str) -> tuple[str | None, str | None]:
-    """Match *abs_path* against indexed workspace roots stored in existing SQLite DBs."""
+    """Match *abs_path* by walking parents for ``.evoflow/code_index/index.db``."""
     try:
         target = Path(abs_path).resolve()
     except OSError:
         return None, None
+
+    # Prefer project-local index (current SoT).
+    for parent in (target.parent, *target.parents):
+        dbp = parent / ".evoflow" / "code_index" / "index.db"
+        if not dbp.is_file():
+            continue
+        try:
+            rel = target.relative_to(parent).as_posix()
+            return str(parent), rel
+        except ValueError:
+            continue
+
+    # Legacy: ~/.evoflow/code_index/{hash}.db (pre-relocation); no migration, just keep hooks working.
     base = Path(os.environ.get("EVOFLOW_DATA_DIR", Path.home() / ".evoflow")) / "code_index"
     if not base.is_dir():
         return None, None

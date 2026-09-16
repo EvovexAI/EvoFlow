@@ -13,11 +13,13 @@ def test_build_index_thread_sandbox(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    out = build_index(thread_id=tid, force=True)
+    # Index the thread sandbox explicitly (host resolution prefers EVOFLOW home / bound root).
+    out = build_index(workspace_root=str(sandbox), thread_id=tid, force=True)
     assert out.get("ok") is True
     assert out.get("root") == str(sandbox.resolve())
     dbp = index_db_path(str(sandbox.resolve()))
     assert dbp.exists()
+    assert dbp == sandbox.resolve() / ".evoflow" / "code_index" / "index.db"
 
-    data = search_index(thread_id=tid, query="Main")
+    data = search_index(workspace_root=str(sandbox), thread_id=tid, query="Main")
     assert any(s.get("name") == "Main" for s in data.get("symbols") or [])

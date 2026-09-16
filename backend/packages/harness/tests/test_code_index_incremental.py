@@ -19,5 +19,7 @@ def test_incremental_index_file_update_and_remove():
         assert any(s.get("name") == "Widget" for s in data.get("symbols") or [])
 
         index_file(str(root), relative_path="widget.py", deleted=True)
+        # Remove from disk too — otherwise auto_index_on_search rebuilds from the live file.
+        fp.unlink()
         data2 = search_index(str(root), query="Widget")
         assert not any(s.get("name") == "Widget" for s in data2.get("symbols") or [])

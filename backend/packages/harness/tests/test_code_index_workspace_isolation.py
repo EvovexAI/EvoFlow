@@ -1,5 +1,6 @@
 """Workspace-scoped index DB isolation and storage limits."""
 
+import gc
 import tempfile
 from pathlib import Path
 
@@ -7,7 +8,7 @@ from evoflow.code_index.store import build_index, index_db_path, search_index
 
 
 def test_two_workspaces_have_separate_index_dbs():
-    with tempfile.TemporaryDirectory() as base:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as base:
         root_a = Path(base) / "project_a"
         root_b = Path(base) / "project_b"
         root_a.mkdir()
@@ -22,6 +23,9 @@ def test_two_workspaces_have_separate_index_dbs():
         db_b = index_db_path(str(root_b.resolve()))
         assert db_a != db_b
         assert db_a.exists() and db_b.exists()
+        assert db_a.parent == root_a.resolve() / ".evoflow" / "code_index"
+        assert db_b.name == "index.db"
+        assert ".evoflow" in db_a.as_posix()
 
         hits_a = search_index(str(root_a), "unique_symbol_alpha")
         hits_b = search_index(str(root_b), "unique_symbol_beta")
@@ -30,10 +34,11 @@ def test_two_workspaces_have_separate_index_dbs():
         assert "unique_symbol_alpha" in sym_a
         assert "unique_symbol_beta" in sym_b
         assert "unique_symbol_beta" not in sym_a
+        gc.collect()
 
 
 def test_huge_file_skipped_by_size_cap():
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         root = Path(tmp)
         (root / "small.py").write_text("marker_small_file_xyz = 1\n", encoding="utf-8")
         (root / "huge.py").write_text("marker_huge_file_xyz\n" + ("z" * 600_000), encoding="utf-8")
@@ -44,3 +49,4 @@ def test_huge_file_skipped_by_size_cap():
         paths = {h["path"] for h in data.get("hits") or []} | {s["path"] for s in data.get("symbols") or []}
         assert "small.py" in paths
         assert "huge.py" not in paths
+        gc.collect()

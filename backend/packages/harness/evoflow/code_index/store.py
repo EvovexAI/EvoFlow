@@ -11,8 +11,8 @@ When indexing runs
 
 Where data is stored
 --------------------
-- Directory: ``$EVOFLOW_DATA_DIR/code_index/`` (default ``~/.evoflow/code_index/``).
-- One SQLite file per workspace root: ``{sha256(root)[:16]}.db``.
+- Directory: ``<workspace>/.evoflow/code_index/`` (gitignored with the rest of ``.evoflow/``).
+- One SQLite file per workspace: ``index.db`` (+ WAL sidecars).
 - Tables: ``fts_content`` (FTS5), ``symbols``, ``file_deps``, ``internal_refs``, ``type_relations``, ``meta``.
 """
 
@@ -53,6 +53,10 @@ _FTS_TOKENIZE = "unicode61 remove_diacritics 0 tokenchars '_-./'"
 _FTS_SCHEMA_VERSION = "unicode61_v2"
 _BUILD_BATCH_SIZE = 50
 
+# Relative to the bound workspace root (same layout as project memory under ``.evoflow/``).
+CODE_INDEX_REL_DIR = Path(".evoflow") / "code_index"
+CODE_INDEX_DB_NAME = "index.db"
+
 _SKIP_DIRS = {
     ".git",
     "node_modules",
@@ -65,6 +69,7 @@ _SKIP_DIRS = {
     "target",
     "binaries",
     "_internal",
+    "code_index",  # never index the index store itself
 }
 _TEXT_SUFFIXES = {
     ".py",
@@ -125,10 +130,11 @@ def _workspace_hash(root: str) -> str:
 
 
 def index_db_path(workspace_root: str) -> Path:
-    """Public helper: path to the SQLite index file for a resolved workspace root."""
-    base = Path(os.environ.get("EVOFLOW_DATA_DIR", Path.home() / ".evoflow")) / "code_index"
+    """SQLite index file for a resolved workspace root: ``<root>/.evoflow/code_index/index.db``."""
+    root = Path(workspace_root).resolve()
+    base = root / CODE_INDEX_REL_DIR
     base.mkdir(parents=True, exist_ok=True)
-    return base / f"{_workspace_hash(workspace_root)}.db"
+    return base / CODE_INDEX_DB_NAME
 
 
 def _db_path(root: str) -> Path:
@@ -809,6 +815,9 @@ def _mark_reindex_if_tokenizer_changed(conn: sqlite3.Connection) -> None:
         "INSERT OR REPLACE INTO meta(key, value) VALUES ('index_tokenizer_version', ?)",
         (ver,),
     )
+    # Missing key = legacy DB built before versioning; differing value = tokenizer changed.
+    # Either way the FTS corpus must be rebuilt. Fresh builds stamp the version in
+    # ``_touch_index_meta`` so this path is not hit right after a successful index.
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_needs_rebuild', '1')")
     conn.commit()
 
@@ -951,6 +960,10 @@ def _touch_index_meta(conn: sqlite3.Connection, root: str, dbp: Path) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO meta(key, value) VALUES ('index_db_path', ?)",
         (str(dbp),),
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) VALUES ('index_tokenizer_version', ?)",
+        (index_tokenizer_version(),),
     )
 
 

@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- 对齐 Codex 就绪语义：桌面 `checkBackendReady` / sidecar 等待改为 `/health/ready`（core 路由已挂载），不再把 liveness 当 API 可用
+- 扩展模块 `loading_extended` 503 改为可重试，避免设置等面板偶发「加载失败」
+- Guardian 热重启后等到 `/health/ready` 再标记恢复
+- Gateway 生命周期串行锁（ensure/stop/reload/apply_workspace 互斥），消除并发 kill/spawn 与 SQLite lock 竞态
+- `backend-runtime.json` 增加 `generation` / `status` / `pid`；后台 ready 探测忽略过期 generation
+- Warm latch 仅在 `/health/ready` 放行；扩展 API 调用前 soft-wait `extended_routers`
+- 会话右侧调试面板：按 `thread_id` 读 observability 不再强制 `org_admin`（流式时刷 `org_admin required`）
+- 设置「模型」厂商品牌图标：恢复 SVG logo（公开仓字母占位替换），深色主题下白底芯片保证可见
+
+## [1.0.3] - 2026-09-16
+
+### Changed
+
+- 工作区代码索引迁到绑定项目内的 `.evoflow/code_index/index.db`（不再写 `~/.evoflow/code_index/{hash}.db`）
+- 发版说明与版本线对齐 **1.0.3**
+
+### Fixed
+
+- 索引构建完成后写入 `index_tokenizer_version`，避免搜索误触发全量重建
+
 ## [1.0.2] - 2026-09-16
 
 ### Changed
