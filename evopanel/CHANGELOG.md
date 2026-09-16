@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- Windows 安装/卸载进程清理改为轻量策略：一轮 `taskkill` + ~1.5s 短等 + 写锁探测/Retry；去掉全机 `Win32_Process` 扫描与多轮最长约 15s 等待
+
 ### Fixed
 
 - 桌面 `checkBackendReady` / sidecar 等待改为 `/health/ready`（core 路由已挂载），不再把 liveness 当 API 可用

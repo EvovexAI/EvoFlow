@@ -4,35 +4,22 @@
 ; 以下宏在 `!insertmacro MUI_PAGE_LICENSE` 之前生效（本文件在 Tauri 的 installer.nsi 里先于各 Page 插入）。
 ; 使用「单勾选」代替默认双 radio，避免接受/拒绝选项被挤到可视区外。
 ;
-; 安装/卸载过程中通过 NSIS_HOOK_PREINSTALL / NSIS_HOOK_PREUNINSTALL
-; 按桌面单进程模型清理：桌面主程序（父）→ evoflow-gateway sidecar（同进程 HTTP+stdio）
-; → 仍引用安装目录的孤儿（含知识库 kb-mcp 的 node），避免
-; _internal\msvcp140*.dll / vcruntime140*.dll / builtin_knowledge_vaults 被占用。
-; 安装包路径不再有独立 TCP app-server 进程；升级时仍兼容旧名 backend-gateway.exe。
+; 安装/卸载进程策略（轻量）：
+;   一轮 taskkill（桌面父进程树 /T → gateway / 旧名）+ 短等 ~1.5s，
+;   再探测关键文件是否可写；仍占用则弹 Retry，由用户退出后重试。
+; 不再全机 Get-CimInstance Win32_Process，也不再多轮最长 ~15s 的写锁轮询。
 ;
 ; v0.3.9+: 进程清理改用 nsExec + taskkill 替代隐藏 PowerShell（-WindowStyle Hidden），
 ; 避免触发安全软件「隐藏执行 PowerShell」告警；install-data.ps1 与 PATH 清理
 ; 改用 nsExec::Exec 隐藏控制台窗口（不再依赖 -WindowStyle Hidden）。
-;
-; Overwrite-install hardening: multi-pass taskkill + INSTDIR-scoped process stop +
-; write-lock probe on VC runtimes / gateway / knowledge assets; Retry prompt if locked.
 
 !define MUI_LICENSEPAGE_CHECKBOX
 !define MUI_LICENSEPAGE_CHECKBOX_TEXT "我已阅读并同意上述许可条款与免责声明"
 
-; Stop any process whose ExecutablePath or CommandLine references $INSTDIR.
-; Catches orphaned kb-mcp node.exe that outlive evoflow-gateway (knowledge vault warm).
-; Uses nsExec (no -WindowStyle Hidden). Does NOT kill unrelated system/user Node apps.
-!macro EvpStopProcessesUnderInstallDir
-  DetailPrint "Stopping processes still using the install directory..."
-  nsExec::Exec `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$root=[System.IO.Path]::GetFullPath('$INSTDIR').TrimEnd('\\'); if (-not $$root) { exit 0 }; Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ForEach-Object { $$ep=[string]$$_.ExecutablePath; $$cl=[string]$$_.CommandLine; $$hit=$$false; if ($$ep -and $$ep.StartsWith($$root,[StringComparison]::OrdinalIgnoreCase)) { $$hit=$$true }; if (-not $$hit -and $$cl -and $$cl.IndexOf($$root,[StringComparison]::OrdinalIgnoreCase) -ge 0) { $$hit=$$true }; if ($$hit) { try { Stop-Process -Id $$.ProcessId -Force -ErrorAction SilentlyContinue } catch {} } }"`
-  Pop $0
-!macroend
-
 ; Desktop owns one gateway child (stdio). Kill parent tree first so the
-; sidecar exits with it; then sweep leftover gateway / legacy names / INSTDIR orphans.
+; sidecar exits with it; then sweep leftover gateway / legacy names.
 !macro EvpKillRunningAppProcesses
-  DetailPrint "Stopping EvoFlow (desktop parent tree + gateway sidecar + knowledge orphans)..."
+  DetailPrint "Stopping EvoFlow (desktop parent tree + gateway sidecar)..."
   ; Parent first (/T): takes stdio Gateway child with the desktop process tree.
   nsExec::Exec 'taskkill /IM "${MAINBINARYNAME}.exe" /F /T'
   Pop $0
@@ -48,45 +35,11 @@
   ; Upgrade from older packages that still used the legacy binary name.
   nsExec::Exec 'taskkill /IM "backend-gateway.exe" /F /T'
   Pop $0
-  ; Knowledge vault MCP often runs as node under gateway; orphans keep locking _internal.
-  !insertmacro EvpStopProcessesUnderInstallDir
 !macroend
 
-; Wait for known EvoFlow processes to fully exit (polling, up to ~15s).
-; Returns immediately if nothing is running.  Much more reliable than fixed Sleep
-; on slow machines where child process teardown (kb-mcp node, PyInstaller _internal)
-; can take longer than a hardcoded 2s.
-;
-; Implementation: probe the most-likely-to-be-locked file (gateway msvcp140.dll).
-; If it's writable, the processes are gone.  This is locale-independent and
-; more accurate than checking process names (catches orphan child processes too).
-!macro EvpWaitForProcessExit
-  !define EVP_WAIT_UID ${__COUNTER__}
-  StrCpy $R9 0 ; iteration counter
-evp_wait_loop_${EVP_WAIT_UID}:
-  ; If the gateway VC runtime doesn't exist or is writable, we're done.
-  IfFileExists "$INSTDIR\binaries\evoflow-gateway\_internal\msvcp140.dll" evp_wait_probe_${EVP_WAIT_UID}
-    Goto evp_wait_end_${EVP_WAIT_UID}
-evp_wait_probe_${EVP_WAIT_UID}:
-  ClearErrors
-  FileOpen $R8 "$INSTDIR\binaries\evoflow-gateway\_internal\msvcp140.dll" a
-  IfErrors 0 evp_wait_close_${EVP_WAIT_UID}
-    ; Still locked — wait more
-    Goto evp_wait_sleep_${EVP_WAIT_UID}
-  evp_wait_close_${EVP_WAIT_UID}:
-    FileClose $R8
-    ; File is writable — processes have exited
-    Goto evp_wait_end_${EVP_WAIT_UID}
-evp_wait_sleep_${EVP_WAIT_UID}:
-  IntOp $R9 $R9 + 1
-  ${If} $R9 > 30
-    ; ~15s total (500ms * 30) — give up, installer will probe + retry later
-    Goto evp_wait_end_${EVP_WAIT_UID}
-  ${EndIf}
-  Sleep 500
-  Goto evp_wait_loop_${EVP_WAIT_UID}
-evp_wait_end_${EVP_WAIT_UID}:
-  !undef EVP_WAIT_UID
+; Brief settle after taskkill so handles can drop before overwrite/delete.
+!macro EvpBriefSettle
+  Sleep 1500
 !macroend
 
 ; Returns: stack top = 1 if writable or missing; 0 if locked.
@@ -118,14 +71,8 @@ evp_wait_end_${EVP_WAIT_UID}:
 !macro EvpEnsureInstallDirUnlocked
   !define EVP_UNLOCK_UID ${__COUNTER__}
 
-  ; Multi-pass kill + wait-for-exit so delayed child exits (kb-mcp node)
-  ; release DLL / asset handles.  Polling wait adapts to slow machines.
   !insertmacro EvpKillRunningAppProcesses
-  !insertmacro EvpWaitForProcessExit
-  !insertmacro EvpKillRunningAppProcesses
-  !insertmacro EvpWaitForProcessExit
-  !insertmacro EvpKillRunningAppProcesses
-  !insertmacro EvpWaitForProcessExit
+  !insertmacro EvpBriefSettle
 
 evp_unlock_retry_${EVP_UNLOCK_UID}:
   ; VC runtimes under gateway _internal (locked while gateway / knowledge MCP runs).
@@ -141,14 +88,13 @@ evp_unlock_retry_${EVP_UNLOCK_UID}:
   Goto evp_unlock_ok_${EVP_UNLOCK_UID}
 
 evp_unlock_fail_${EVP_UNLOCK_UID}:
-  !insertmacro EvpKillRunningAppProcesses
   MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-    "无法写入安装目录中的文件（仍被占用）。$\r$\n$\r$\n常见原因：桌面端或其唯一网关子进程（evoflow-gateway，含知识库 kb-mcp / node）仍在运行，会锁定：$\r$\n  · msvcp140.dll / msvcp140_1.dll / vcruntime140*.dll$\r$\n  · builtin_knowledge_vaults$\r$\n$\r$\n请完全退出 EvoFlow（含托盘），并在任务管理器结束：$\r$\n  · evoflow.exe（桌面）$\r$\n  · evoflow-gateway.exe（若仍残留）$\r$\n  · 命令行含本安装目录的 node.exe$\r$\n然后点击「重试」。$\r$\n$\r$\n若反复失败，请重启电脑后再安装。$\r$\n$\r$\n安装目录：$INSTDIR" \
+    "无法写入安装目录中的文件（仍被占用）。$\r$\n$\r$\n请完全退出 EvoFlow（含托盘），并在任务管理器确认已结束：$\r$\n  · evoflow.exe$\r$\n  · evoflow-gateway.exe（若仍残留）$\r$\n然后点击「重试」。$\r$\n$\r$\n若反复失败，请重启电脑后再安装。$\r$\n$\r$\n安装目录：$INSTDIR" \
     IDRETRY evp_unlock_retry_kill_${EVP_UNLOCK_UID}
   Abort
 evp_unlock_retry_kill_${EVP_UNLOCK_UID}:
   !insertmacro EvpKillRunningAppProcesses
-  !insertmacro EvpWaitForProcessExit
+  !insertmacro EvpBriefSettle
   Goto evp_unlock_retry_${EVP_UNLOCK_UID}
 
 evp_unlock_ok_${EVP_UNLOCK_UID}:
@@ -156,7 +102,7 @@ evp_unlock_ok_${EVP_UNLOCK_UID}:
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
-  ; Overwrite / upgrade: stop running app + knowledge runtime before copying binaries.
+  ; Overwrite / upgrade: light stop + probe before copying binaries.
   !insertmacro EvpEnsureInstallDirUnlocked
 !macroend
 
@@ -189,11 +135,9 @@ evp_unlock_ok_${EVP_UNLOCK_UID}:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; Uninstall: same multi-pass kill so Delete of gateway tree does not leave locked DLLs.
+  ; Uninstall: one light kill so Delete of gateway tree is less likely to hit locked DLLs.
   !insertmacro EvpKillRunningAppProcesses
-  !insertmacro EvpWaitForProcessExit
-  !insertmacro EvpKillRunningAppProcesses
-  !insertmacro EvpWaitForProcessExit
+  !insertmacro EvpBriefSettle
 
   ; 不再询问是否删除本地数据；亦不自动执行 uninstall-data.ps1。
 

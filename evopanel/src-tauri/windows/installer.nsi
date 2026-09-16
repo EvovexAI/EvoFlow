@@ -380,13 +380,9 @@ Function PageLeaveReinstall
     ${EndIf}
 
     ; --- EvoFlow: post-uninstall safety net -----------------------------------
-    ; Old uninstallers may miss multi-pass kill; leftover
-    ; evoflow-gateway (+ kb-mcp node) may lock _internal / knowledge assets.
-    ; Re-run latest kill (desktop tree first, then gateway leftovers) before copy.
+    ; Light kill before copy in case the old uninstaller left the app running.
     !insertmacro EvpKillRunningAppProcesses
-    !insertmacro EvpWaitForProcessExit
-    !insertmacro EvpKillRunningAppProcesses
-    !insertmacro EvpWaitForProcessExit
+    !insertmacro EvpBriefSettle
     ; --------------------------------------------------------------------------
   reinst_done:
 FunctionEnd
