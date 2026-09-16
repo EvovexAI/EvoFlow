@@ -321,6 +321,36 @@ function renderAgentPickField(available, selectedCode) {
     </div>`
 }
 
+/** Load department catalog for hire / edit selects. */
+export async function loadDepartmentCatalog() {
+  const res = await api.proactiveListDepartments().catch(() => null)
+  return Array.isArray(res?.departments) ? res.departments : []
+}
+
+/** Sorted unique department names; keeps current value if not in catalog yet. */
+export function departmentNamesFromCatalog(departments, currentName = '') {
+  const names = new Set()
+  for (const d of departments || []) {
+    const n = String(d?.name || '').trim()
+    if (n) names.add(n)
+  }
+  const cur = String(currentName || '').trim()
+  if (cur) names.add(cur)
+  return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+}
+
+/** `<select data-name="department">` filled from the department catalog. */
+export function renderDepartmentSelectControl(currentName, departments) {
+  const cur = String(currentName || '').trim()
+  const names = departmentNamesFromCatalog(departments, cur)
+  return `<select class="hire-input" data-name="department">
+      <option value="">未分部门</option>
+      ${names
+        .map((n) => `<option value="${esc(n)}"${n === cur ? ' selected' : ''}>${esc(n)}</option>`)
+        .join('')}
+    </select>`
+}
+
 async function loadRebindableAgents(currentCode) {
   const cur = String(currentCode || '').trim()
   let hired = new Set()
@@ -375,21 +405,25 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
   const dailyBudget = Number(cfg.daily_budget_usd || 0) || 0
   const perRunBudget = Number(cfg.per_run_budget_usd || 0) || 0
   const budgetPolicy = String(cfg.budget_exceed_policy || 'skip_patrol').trim() || 'skip_patrol'
-  const [workspacePaths, chatModels, available, peerRoles, knowledgeVaults] = await Promise.all([
-    loadWorkspacePaths(),
-    loadChatModels(),
-    loadRebindableAgents(role.agent_code),
-    api
-      .proactiveListRoles()
-      .then((res) => (Array.isArray(res) ? res : res?.roles || []))
-      .catch(() => []),
-    loadKnowledgeVaults(),
-  ])
+  const [workspacePaths, chatModels, available, peerRoles, knowledgeVaults, departments] =
+    await Promise.all([
+      loadWorkspacePaths(),
+      loadChatModels(),
+      loadRebindableAgents(role.agent_code),
+      api
+        .proactiveListRoles()
+        .then((res) => (Array.isArray(res) ? res : res?.roles || []))
+        .catch(() => []),
+      loadKnowledgeVaults(),
+      loadDepartmentCatalog(),
+    ])
   if (!available.length) {
     toast('没有可绑定的智能体', 'warning')
     return
   }
   const selfCode = String(role.agent_code || '').trim()
+  const currentDepartment = String(role.department || cfg.department || '').trim()
+  const departmentSelect = renderDepartmentSelectControl(currentDepartment, departments)
   const managerOptions = (peerRoles || [])
     .filter((r) => {
       const c = String(r?.agent_code || '').trim()
@@ -461,7 +495,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
                 </label>
                 <label class="hire-field">
                   <span>部门</span>
-                  <input class="hire-input" data-name="department" value="${esc(role.department || '')}" placeholder="可选">
+                  ${departmentSelect}
                 </label>
               </div>
             </div>

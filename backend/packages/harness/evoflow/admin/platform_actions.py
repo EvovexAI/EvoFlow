@@ -349,6 +349,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?, include_archived?", H.employees_list, "现在有哪些员工"),
         _A("employees.get", "employees", "查看员工详情", "read", "agent_code, recent_limit?", H.employees_get, "拆解岗近况"),
         _A("employees.hire", "employees", "雇佣智能体为值班员工", "write", "agent_code, role_name?, heartbeat_rrule?…", H.employees_hire, "把文案助手雇成员工"),
+        _A("employees.create", "employees", "一次创建员工（能力+岗位）", "write", "role_name, agent_code?, department?, responsibilities?…", H.employees_create, "直接加人不用先建智能体"),
         _A("employees.update", "employees", "更新员工岗位配置", "write", "agent_code + 字段", H.employees_update, "改拆解岗心跳"),
         _A("employees.pause", "employees", "暂停员工值班", "write", "agent_code", H.employees_pause, "让拆解岗先休息"),
         _A("employees.resume", "employees", "恢复员工值班", "write", "agent_code", H.employees_resume, "恢复拆解岗"),

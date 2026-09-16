@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
-- 对齐 Codex 就绪语义：桌面 `checkBackendReady` / sidecar 等待改为 `/health/ready`（core 路由已挂载），不再把 liveness 当 API 可用
+- 桌面 `checkBackendReady` / sidecar 等待改为 `/health/ready`（core 路由已挂载），不再把 liveness 当 API 可用
 - 扩展模块 `loading_extended` 503 改为可重试，避免设置等面板偶发「加载失败」
 - Guardian 热重启后等到 `/health/ready` 再标记恢复
 - Gateway 生命周期串行锁（ensure/stop/reload/apply_workspace 互斥），消除并发 kill/spawn 与 SQLite lock 竞态

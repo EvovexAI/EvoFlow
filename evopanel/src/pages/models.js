@@ -6,6 +6,7 @@ import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showModal, showConfirm } from '../components/modal.js'
 import { icon, statusIcon } from '../lib/icons.js'
+import { publicIconUrl } from '../lib/public-asset.js'
 import { PROVIDER_PRESETS, VENDOR_PRESETS, MODEL_PRESETS, PROVIDER_URL_MODE_KEYS } from '../lib/model-presets.js'
 import {
   DEFAULT_MODEL_CONTEXT_WINDOW,
@@ -712,7 +713,8 @@ function vendorBrandIcon(key) {
   }
   const name = iconMap[key]
   if (name) {
-    return `<img src="/icons/${name}.svg" alt="" width="22" height="22" aria-hidden="true" style="width:22px;height:22px;object-fit:contain"/>`
+    const src = publicIconUrl(name)
+    return `<img src="${src}" alt="" width="22" height="22" aria-hidden="true" style="width:22px;height:22px;object-fit:contain"/>`
   }
   // 无官方图标的 fallback：生数云等
   const svg = (body) =>

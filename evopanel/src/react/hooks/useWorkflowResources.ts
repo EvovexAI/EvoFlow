@@ -60,6 +60,55 @@ function normalizeAgentList(raw: unknown): AgentPickerRow[] {
   }))
 }
 
+type RoleRow = {
+  agent_code?: string
+  role_name?: string
+  department?: string
+  status?: string
+}
+
+/** Prefer hired employees for workflow assignment; fall back to raw agents. */
+function mergeEmployeesIntoAgents(
+  agents: AgentPickerRow[],
+  rolesRaw: unknown,
+): AgentPickerRow[] {
+  let roles: RoleRow[] = []
+  if (Array.isArray(rolesRaw)) roles = rolesRaw as RoleRow[]
+  else if (rolesRaw && typeof rolesRaw === 'object') {
+    const obj = rolesRaw as { roles?: RoleRow[]; data?: { roles?: RoleRow[] } }
+    roles = obj.roles || obj.data?.roles || []
+  }
+  const hired = roles.filter((r) => {
+    const st = String(r?.status || '').trim()
+    return st !== 'archived' && String(r?.agent_code || '').trim()
+  })
+  if (!hired.length) return agents
+
+  const byCode = new Map(agents.map((a) => [String(a.agent_code || '').trim(), a]))
+  return hired.map((r) => {
+    const code = String(r.agent_code || '').trim()
+    const base = byCode.get(code) || ({ agent_code: code } as AgentPickerRow)
+    const roleName = String(r.role_name || '').trim()
+    const dept = String(r.department || '').trim()
+    const descBits = [dept ? `部门：${dept}` : '', String(base.description || '').trim()].filter(
+      Boolean,
+    )
+    return {
+      ...base,
+      agent_code: code,
+      agent_name: roleName || base.agent_name || code,
+      description: descBits.join(' · '),
+      tags: Array.from(
+        new Set([
+          ...(Array.isArray(base.tags) ? base.tags.map(String) : []),
+          '员工',
+          ...(dept ? [dept] : []),
+        ]),
+      ),
+    }
+  })
+}
+
 export function useWorkflowResources(_open: boolean) {
   const [agents, setAgents] = useState<AgentPickerRow[]>([])
   const [skills, setSkills] = useState<SkillPickerItem[]>([])
@@ -74,15 +123,20 @@ export function useWorkflowResources(_open: boolean) {
     let cancelled = false
     ;(async () => {
       try {
-        const [agentRes, meta] = await Promise.all([
+        const [agentRes, rolesRes, meta] = await Promise.all([
           api.listAgents(),
+          api.proactiveListRoles().catch((err: unknown) => {
+            console.warn('[useWorkflowResources] proactiveListRoles failed:', err)
+            return null
+          }),
           api.getToolsMetadata().catch((err) => {
             console.warn('[useWorkflowResources] getToolsMetadata failed:', err)
             return null
           }),
         ])
         if (cancelled) return
-        setAgents(normalizeAgentList(agentRes))
+        const agentsList = normalizeAgentList(agentRes)
+        setAgents(mergeEmployeesIntoAgents(agentsList, rolesRes))
         const rawTools = (meta?.tools || meta?.data?.tools || []) as Record<string, unknown>[]
         setTools(rawTools.map(mapTool).filter((t) => t.value))
 

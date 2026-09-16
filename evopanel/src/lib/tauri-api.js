@@ -214,10 +214,12 @@ function gatewayErrorCode(result) {
 function isRetryableGatewayResponse(status, result, method) {
   if (status === 503) return true
   const code = gatewayErrorCode(result)
-  // Extended routers load in background — fail fast so app-server stdio / HTTP
-  // stay free for /models and /messages instead of burning retry budget.
-  if (code === 'loading_extended') return false
-  if (code === 'starting_up' || code === 'warming_up') return true
+  // Align with Codex backpressure: not-ready / warming are explicitly retryable.
+  // loading_extended only hits extended prefixes (StartupGateMiddleware), so
+  // retrying does not steal budget from core /models or /messages.
+  if (code === 'loading_extended' || code === 'starting_up' || code === 'warming_up') {
+    return true
+  }
   if (status === 404 && String(method || 'GET').toUpperCase() === 'GET') {
     const msg = String(result?.detail || result?.error || '').toLowerCase()
     if (msg === 'not found' && !_backendReady) return true
@@ -468,21 +470,33 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
   let lastErr = null
   let maxAttempts = GATEWAY_RETRY_MAX
   let budgetMs = GATEWAY_RETRY_BUDGET_MS
+  const apiPath = String(path || '').startsWith('/api/')
+    ? String(path)
+    : `/api${String(path || '').startsWith('/') ? path : `/${path || ''}`}`
+  // Soft-wait for extended routers before burning the first attempt on 503.
+  if (!skipRetry && _pathNeedsExtendedRouters(apiPath) && _extendedReady !== true) {
+    await waitForExtendedReady(Math.min(15_000, budgetMs)).catch(() => {})
+  }
   for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
     if (Date.now() - startedAt > budgetMs) break
     try {
       return await gatewayProxyOnce(method, path, body, query, options)
     } catch (err) {
       lastErr = err
-      const code = gatewayErrorCode(err?.gatewayResult)
-      // loading_extended is a 503 but must not retry (clogs first-paint APIs).
-      if (code === 'loading_extended') break
-      const retryable = !skipRetry && (err?.retryable || err?.status === 503)
+      const retryable = !skipRetry && (
+        err?.retryable
+        || err?.status === 503
+        || isRetryableGatewayResponse(err?.status, err?.gatewayResult, method)
+      )
       if (!retryable || attempt >= maxAttempts) break
+      // Prefer server Retry-After / retry_after_ms (Codex-style explicit backpressure).
       const delay = Number(err?.gatewayResult?.retry_after_ms) || gatewayRetryDelayMs(attempt)
       await new Promise((r) => setTimeout(r, delay))
       if (isTauri && attempt % 3 === 2) {
         try { await checkBackendReady() } catch { /* ignore */ }
+        if (_pathNeedsExtendedRouters(apiPath)) {
+          try { await checkExtendedReady() } catch { /* ignore */ }
+        }
       }
     }
   }
@@ -795,24 +809,69 @@ let _backendReady = null // null=未检测, true=LangGraph ready, false=warming
 const _backendListeners = []
 const _backendReadyListeners = []
 
-// === 网关预热队列（冷启动 / reload 期间挂起 HTTP 请求，liveness 通过后放行） ===
+// === 网关预热队列（冷启动 / reload 期间挂起 HTTP 请求，/health/ready 通过后放行） ===
 const _warmLatch = createWarmLatchState()
+/** Extended routers mounted (settings / MCP / knowledge / …). null=unknown. */
+let _extendedReady = null
 
-/** 通知网关 liveness 状态（由 checkBackendHealth / checkBackendReady 调用）。
+const _EXTENDED_API_PREFIXES = [
+  '/api/knowledge',
+  '/api/memory',
+  '/api/mcp',
+  '/api/assets',
+  '/api/observability',
+  '/api/eval',
+  '/api/channels',
+  '/api/auth',
+  '/api/webui',
+  '/api/tools',
+  '/api/sessions',
+  '/api/proactive',
+  '/api/apps',
+  '/api/collab',
+  '/api/automation',
+  '/api/platform',
+  '/api/config',
+  '/api/stage/news',
+  '/api/meetings',
+  '/api/organizations',
+  '/api/task-detail',
+  '/api/runtime',
+  '/api/debug',
+  '/api/diagnostics',
+  '/api/trace',
+  '/api/client',
+  '/api/a2a',
+  '/mcp',
+  '/v1',
+]
+
+function _pathNeedsExtendedRouters(apiPath) {
+  const p = String(apiPath || '')
+  return _EXTENDED_API_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`))
+}
+
+/** 通知控制面就绪（由 checkBackendReady 调用，释放 warm latch）。
  *  单次抖动不重新挂起；连续失败或显式 reset（reload）才会再 hold。 */
 export function noteGatewayLiveness(ok) {
   const action = noteLiveness(_warmLatch, !!ok)
   if (action === 'reset') {
-    appendFrontendLog('warn', `[boot:${_bootId}] warm latch reset (liveness_fail_streak)`)
+    appendFrontendLog('warn', `[boot:${_bootId}] warm latch reset (ready_fail_streak)`)
   } else if (action === 'released' && ok) {
-    appendFrontendLog('info', `[boot:${_bootId}] warm latch released (liveness ok)`)
+    appendFrontendLog('info', `[boot:${_bootId}] warm latch released (/health/ready ok)`)
   }
+}
+
+/** Process-alive probe failures after ready can re-hold the latch (guardian path). */
+export function noteGatewayProcessDown() {
+  noteLiveness(_warmLatch, false)
 }
 
 /** Drop warm latch so subsequent gatewayProxy calls wait again (reload / crash). */
 export function resetGatewayWarmLatch(reason = 'manual') {
   if (!isTauri) return
   resetWarmLatch(_warmLatch, reason)
+  _extendedReady = null
   clearGatewayBaseUrlCache()
   appendFrontendLog('warn', `[boot:${_bootId}] warm latch reset (${reason})`)
 }
@@ -932,24 +991,24 @@ async function _tauriHealthProbe(kind = 'liveness', timeoutMs = 2500, baseUrl = 
   return !!result
 }
 
-/** LangGraph / agent engine readiness.
- *  Desktop: unlock composer on liveness  — full /ready + LG lifespan continue in background.
- *  Web: still wait for /health/ready.
+/** Core API readiness (Codex-style handshake analogue).
+ *  Desktop + Web: wait for /health/ready (core routers mounted).
+ *  Process-alive checks stay on checkBackendHealth → /health/liveness.
  */
 export async function checkBackendReady() {
   if (isTauri) {
     try {
-      let ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS)
+      let ok = await _tauriHealthProbe('ready', LIVENESS_TIMEOUT_MS)
       if (!ok) {
         clearGatewayBaseUrlCache()
         const probed = await probeGatewayBaseUrl({
           ports: [8070, 8012, 8071, 8022, 8032],
-          timeoutMs: 500,
-          kind: 'liveness',
+          timeoutMs: 800,
+          kind: 'ready',
         })
         if (probed) {
           setGatewayBaseUrlOverride(probed)
-          ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS, probed)
+          ok = await _tauriHealthProbe('ready', LIVENESS_TIMEOUT_MS, probed)
         }
       }
       // Sticky: once unlocked, treat transient probe failures as still ready.
@@ -959,12 +1018,17 @@ export async function checkBackendReady() {
       _setBackendReady(ok)
       if (ok) {
         noteGatewayLiveness(true)
-        kickAppServerPrewarm('engine-ready-liveness')
+        kickAppServerPrewarm('engine-ready')
+        // Prefetch extended readiness so settings/MCP pages don't 503 on first open.
+        void checkExtendedReady().catch(() => {})
+      } else {
+        noteGatewayLiveness(false)
       }
       return ok || (_backendReady === true && Date.now() < _engineReadyStickyUntil)
     } catch {
       if (_backendReady === true && Date.now() < _engineReadyStickyUntil) return true
       _setBackendReady(false)
+      noteGatewayLiveness(false)
       return false
     }
   }
@@ -997,6 +1061,50 @@ export async function waitForBackendReady(maxWaitMs = 120_000) {
   return false
 }
 
+/** Extended routers mounted (settings / MCP / knowledge / …). */
+export function isExtendedReady() {
+  return _extendedReady === true
+}
+
+async function _probeExtendedRouters(timeoutMs = 5000) {
+  try {
+    if (isTauri) {
+      const base = await getGatewayBaseUrl().catch(() => '')
+      const url = base
+        ? `${String(base).replace(/\/+$/, '')}/health/ready`
+        : null
+      if (!url) return false
+      const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+      if (!resp.ok) return false
+      const body = await resp.json().catch(() => ({}))
+      return !!body?.extended_routers
+    }
+    const resp = await fetch('/health/ready', { signal: AbortSignal.timeout(timeoutMs) })
+    if (!resp.ok) return false
+    const body = await resp.json().catch(() => ({}))
+    return !!body?.extended_routers
+  } catch {
+    return false
+  }
+}
+
+export async function checkExtendedReady() {
+  const ok = await _probeExtendedRouters()
+  _extendedReady = ok
+  return ok
+}
+
+/** Wait until extended API surface is mounted (or timeout). */
+export async function waitForExtendedReady(maxWaitMs = 120_000) {
+  if (await checkExtendedReady()) return true
+  const deadline = Date.now() + maxWaitMs
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 300))
+    if (await checkExtendedReady()) return true
+  }
+  return false
+}
+
 export async function checkBackendHealth() {
   if (isTauri) {
     try {
@@ -1010,7 +1118,8 @@ export async function checkBackendHealth() {
         }
       }
       _setBackendOnline(ok)
-      noteGatewayLiveness(ok)
+      // Liveness must NOT release the warm latch — only /health/ready does.
+      if (!ok) noteGatewayProcessDown()
       if (ok) kickAppServerPrewarm('liveness')
       return ok
     } catch {
@@ -1021,7 +1130,7 @@ export async function checkBackendHealth() {
           setGatewayBaseUrlOverride(probed)
           const ok = await _tauriHealthProbe('liveness', LIVENESS_TIMEOUT_MS)
           _setBackendOnline(ok)
-          noteGatewayLiveness(ok)
+          if (!ok) noteGatewayProcessDown()
           if (ok) kickAppServerPrewarm('liveness-probe')
           return ok
         }
@@ -1029,7 +1138,7 @@ export async function checkBackendHealth() {
         /* fall through */
       }
       _setBackendOnline(false)
-      noteGatewayLiveness(false)
+      noteGatewayProcessDown()
       return false
     }
   }
@@ -1056,11 +1165,14 @@ export async function checkGatewayHealth(options = {}) {
       const live = await fetch(`${base}/health/liveness`, { signal: AbortSignal.timeout(timeoutMs) })
       if (!live.ok) {
         _setBackendOnline(false)
+        noteGatewayProcessDown()
         return false
       }
     }
     await gatewayProxy('GET', '/observability/status', null, null, { silent: true, timeoutMs })
     _setBackendOnline(true)
+    _extendedReady = true
+    // Observability is an extended route — success implies ready + extended.
     noteGatewayLiveness(true)
     return true
   } catch {
@@ -2409,8 +2521,21 @@ export const api = {
     }),
   proactiveOrgTree: async (status = null) =>
     gatewayProxy('GET', '/proactive/org-tree', null, status ? { status } : null),
+  proactiveListDepartments: async () => gatewayProxy('GET', '/proactive/departments'),
+  proactiveCreateDepartment: async (payload) =>
+    gatewayProxy('POST', '/proactive/departments', payload || {}),
+  proactiveUpdateDepartment: async (id, payload) =>
+    gatewayProxy('PUT', `/proactive/departments/${encodeURIComponent(String(id || ''))}`, payload || {}),
+  proactiveDeleteDepartment: async (id) =>
+    gatewayProxy('DELETE', `/proactive/departments/${encodeURIComponent(String(id || ''))}`),
+  proactiveSetDepartmentMembers: async (id, agentCodes) =>
+    gatewayProxy('PUT', `/proactive/departments/${encodeURIComponent(String(id || ''))}/members`, {
+      agent_codes: Array.isArray(agentCodes) ? agentCodes : [],
+    }),
   proactiveGetRole: async (code) => gatewayProxy('GET', `/proactive/roles/${code}`),
   proactiveCreateRole: async (payload) => gatewayProxy('POST', '/proactive/roles', payload),
+  /** One-step employee create (capability pack + duty). Prefer over createAgent+createRole. */
+  proactiveCreateEmployee: async (payload) => gatewayProxy('POST', '/proactive/employees', payload || {}),
   proactiveUpdateRole: async (code, payload) => gatewayProxy('PUT', `/proactive/roles/${encodeURIComponent(String(code || ''))}`, payload),
   proactiveDeleteRole: async (code) => gatewayProxy('DELETE', `/proactive/roles/${encodeURIComponent(String(code || ''))}`),
   proactivePauseRole: async (code) =>

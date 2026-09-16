@@ -67,7 +67,7 @@ fn build_target_url(path: &str, query: Option<&BTreeMap<String, String>>) -> Res
         let base = backend_base_url();
         let base = base.trim_end_matches('/');
         if base.is_empty() {
-            return Err("网关未就绪: 尚无可用 Gateway 地址（等待 sidecar liveness）".to_string());
+            return Err("网关未就绪: 尚无可用 Gateway 地址（等待 sidecar /health/ready）".to_string());
         }
         format!("{}/{}", base, path.trim_start_matches('/'))
     };

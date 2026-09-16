@@ -1144,7 +1144,7 @@ function openRuleDrawer(taskId, { silent = false } = {}) {
       ${contentHtml}
     </section>
     <section class="cron-drawer-section">
-      <h4>使用的智能体</h4>
+      <h4>执行员工</h4>
       <p>${esc(boundApp ? '由工作流步骤指定' : agent)}</p>
     </section>
     ${err ? `<section class="cron-drawer-section"><h4>错误信息</h4><p class="cron-drawer-error">${esc(err)}</p></section>` : ''}
@@ -1266,13 +1266,44 @@ async function showModalForm(title, existing = null) {
     : {}
   const execKind = existingAppId ? 'workflow' : 'prompt'
 
-  // 加载智能体列表和模型列表
+  // 加载员工名册（在编优先）与模型列表
   let agents
   let models
   let publishedApps = []
   try {
-    agents = (await api.listAgents()) || []
-  } catch (_) { agents = [] }
+    const [agentList, roleRes] = await Promise.all([
+      api.listAgents().catch(() => []),
+      api.proactiveListRoles().catch(() => null),
+    ])
+    const rawAgents = Array.isArray(agentList) ? agentList : agentList?.agents || []
+    let roles = []
+    if (Array.isArray(roleRes)) roles = roleRes
+    else if (Array.isArray(roleRes?.roles)) roles = roleRes.roles
+    const hired = roles.filter(
+      (r) => String(r?.status || '') !== 'archived' && String(r?.agent_code || '').trim(),
+    )
+    if (hired.length) {
+      const byCode = new Map(
+        rawAgents.map((a) => [String(a.agent_code || a.name || '').trim(), a]),
+      )
+      agents = hired.map((r) => {
+        const code = String(r.agent_code || '').trim()
+        const base = byCode.get(code) || {}
+        return {
+          ...base,
+          agent_code: code,
+          agent_name: String(r.role_name || base.agent_name || code).trim(),
+          description: [r.department ? `部门：${r.department}` : '', base.description || '']
+            .filter(Boolean)
+            .join(' · '),
+        }
+      })
+    } else {
+      agents = rawAgents
+    }
+  } catch (_) {
+    agents = []
+  }
   try {
     const modelsData = await api.listModels()
     models = Array.isArray(modelsData) ? modelsData : (modelsData?.models || [])

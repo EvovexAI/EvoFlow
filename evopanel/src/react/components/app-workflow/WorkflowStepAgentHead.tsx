@@ -5,7 +5,7 @@ import type { AgentPickerRow } from '../../lib/agent-tags.ts'
 export function resolveWorkflowAgent(agents: AgentPickerRow[], agentCode?: string | null) {
   const code = String(agentCode || '').trim()
   if (!code) {
-    return { agent: null, label: '选择智能体', hasAgent: false }
+    return { agent: null, label: '选择员工', hasAgent: false }
   }
   const row = agents.find((a) => String(a.agent_code || '').trim() === code)
   return {

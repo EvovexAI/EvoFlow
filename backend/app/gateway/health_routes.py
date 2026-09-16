@@ -54,15 +54,27 @@ def register_health_routes(app: FastAPI) -> None:
 
     @app.get("/health/ready", tags=["health"], response_model=None)
     async def readiness_check(request: Request) -> dict | JSONResponse:
+        # Codex-style: ready means core control plane can serve API (routers mounted),
+        # not merely that the listen socket is up (that is /health/liveness).
         ready = bool(getattr(request.app.state, "startup_ready", False))
         phase = str(getattr(request.app.state, "startup_phase", "unknown") or "unknown")
+        extended = bool(getattr(request.app.state, "extended_routers_registered", False))
+        routers = bool(getattr(request.app.state, "routers_registered", False))
         if ready:
-            return {"status": "ready", "service": "evo-flow-gateway", "phase": phase}
+            return {
+                "status": "ready",
+                "service": "evo-flow-gateway",
+                "phase": phase,
+                "core_routers": routers,
+                "extended_routers": extended,
+            }
         err = getattr(request.app.state, "startup_error", None)
         body: dict = {
             "status": "not_ready",
             "service": "evo-flow-gateway",
             "phase": phase,
+            "core_routers": routers,
+            "extended_routers": extended,
         }
         if err:
             body["error"] = str(err)
@@ -82,6 +94,9 @@ def register_health_routes(app: FastAPI) -> None:
             "startup_phase": str(getattr(request.app.state, "startup_phase", "unknown") or "unknown"),
             "startup_ready": bool(getattr(request.app.state, "startup_ready", False)),
             "routers_registered": bool(getattr(request.app.state, "routers_registered", False)),
+            "extended_routers_registered": bool(
+                getattr(request.app.state, "extended_routers_registered", False)
+            ),
             "startup_error": getattr(request.app.state, "startup_error", None),
         }
         return report

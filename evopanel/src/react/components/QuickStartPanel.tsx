@@ -45,11 +45,11 @@ const ACTION_CARDS: Array<{
   },
   {
     id: 'hosted',
-    title: '雇佣员工',
-    desc: '雇佣一位 AI 员工\n帮你持续推进任务',
+    title: '加人',
+    desc: '加入一位 AI 员工\n帮你持续推进任务',
     iconSrc: `${CARD_ASSET_BASE}/agent_icon.png`,
     illustrationSrc: `${CARD_ASSET_BASE}/agent_3d.png`,
-    prompt: '我想雇佣一位 AI 员工（Hosted Agent），请帮我设计岗位职责、执行步骤和监控策略。设计完成后，帮我写入员工面板并启动运行。',
+    prompt: '我想加入一位 AI 员工，请帮我设计岗位职责、所属部门与执行节奏。设计完成后，帮我写入员工面板并启动运行。',
   },
   {
     id: 'model',

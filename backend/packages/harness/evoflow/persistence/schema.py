@@ -1010,6 +1010,15 @@ CREATE TABLE IF NOT EXISTS evoflow_orgs (
             config_json TEXT NOT NULL DEFAULT '{}'
         );
 
+CREATE TABLE IF NOT EXISTS evoflow_departments (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            head_agent_code TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
 CREATE TABLE IF NOT EXISTS evoflow_person_affect (
             agent_code TEXT PRIMARY KEY,
             curiosity REAL NOT NULL DEFAULT 0.5,
@@ -1858,6 +1867,8 @@ CREATE INDEX IF NOT EXISTS idx_license_issued_status
 CREATE INDEX IF NOT EXISTS idx_org_artifacts_instance ON evoflow_org_artifacts(org_instance_id);
 
 CREATE INDEX IF NOT EXISTS idx_org_registry_pack ON evoflow_org_registry(pack_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_departments_sort ON evoflow_departments(sort_order, name);
 
 CREATE INDEX IF NOT EXISTS idx_person_commit_child ON evoflow_person_commitments(child_task_id);
 

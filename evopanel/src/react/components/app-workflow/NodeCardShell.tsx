@@ -118,8 +118,8 @@ function NodeCardShell({
               <button
                 type="button"
                 className="wf-node-agent-hit nodrag nopan"
-                title="选择智能体"
-                aria-label="选择智能体"
+                title="选择员工"
+                aria-label="选择员工"
                 onClick={(e) => {
                   e.stopPropagation()
                   onAgentPick?.()

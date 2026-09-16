@@ -996,7 +996,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         .join('、')
       const more = noAgentSteps.length > 3 ? ` 等 ${noAgentSteps.length} 个` : ''
       problems.push(
-        `${noAgentSteps.length} 个步骤还没选执行智能体：${names}${more} — 选中节点后在右侧配置「执行 Agent」`,
+        `${noAgentSteps.length} 个步骤还没选执行员工：${names}${more} — 选中节点后在右侧配置「执行员工」`,
       )
     }
 

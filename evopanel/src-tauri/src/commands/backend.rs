@@ -5,6 +5,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
@@ -15,6 +16,11 @@ use std::os::windows::process::CommandExt;
 static BACKEND_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static SIDECAR_STDIO: OnceLock<Mutex<Option<(ChildStdin, ChildStdout)>>> = OnceLock::new();
 static STARTUP_T0: OnceLock<Instant> = OnceLock::new();
+/// Serializes start/stop/reload (Codex daemon.lock analogue). Prevents concurrent
+/// kill/spawn races that leave ports busy and SQLite `database is locked`.
+static LIFECYCLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+/// Monotonic generation for backend-runtime.json — background ready probes ignore stale gens.
+static RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn startup_elapsed_ms() -> u128 {
     STARTUP_T0
@@ -33,6 +39,18 @@ fn backend_child_slot() -> &'static Mutex<Option<Child>> {
 
 fn sidecar_stdio_slot() -> &'static Mutex<Option<(ChildStdin, ChildStdout)>> {
     SIDECAR_STDIO.get_or_init(|| Mutex::new(None))
+}
+
+fn lifecycle_lock() -> &'static Mutex<()> {
+    LIFECYCLE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn bump_runtime_generation() -> u64 {
+    RUNTIME_GENERATION.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+fn current_runtime_generation() -> u64 {
+    RUNTIME_GENERATION.load(Ordering::SeqCst)
 }
 
 /// Take stdin/stdout of the owned Gateway sidecar for native-style JSON-RPC (once).
@@ -57,24 +75,56 @@ fn runtime_state_path() -> PathBuf {
     runtime_dir().join("backend-runtime.json")
 }
 
-fn read_runtime_state_port() -> Option<u16> {
+#[derive(Debug, Clone)]
+struct RuntimeState {
+    port: u16,
+    base_url: String,
+    status: String,
+    generation: u64,
+    pid: Option<u32>,
+}
+
+fn read_runtime_state() -> Option<RuntimeState> {
     let content = fs::read_to_string(runtime_state_path()).ok()?;
     let val: serde_json::Value = serde_json::from_str(&content).ok()?;
     let port = val.get("port")?.as_u64()?;
     if port == 0 || port > u16::MAX as u64 {
         return None;
     }
-    Some(port as u16)
+    let base_url = val
+        .get("baseUrl")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
+    let status = val
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let generation = val
+        .get("generation")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let pid = val
+        .get("pid")
+        .and_then(|v| v.as_u64())
+        .and_then(|p| u32::try_from(p).ok());
+    Some(RuntimeState {
+        port: port as u16,
+        base_url,
+        status,
+        generation,
+        pid,
+    })
+}
+
+fn read_runtime_state_port() -> Option<u16> {
+    read_runtime_state().map(|s| s.port)
 }
 
 fn read_runtime_state_base_url() -> Option<String> {
-    let content = fs::read_to_string(runtime_state_path()).ok()?;
-    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let base_url = val.get("baseUrl")?.as_str()?.trim().trim_end_matches('/');
-    if base_url.is_empty() {
-        return None;
-    }
-    Some(base_url.to_string())
+    read_runtime_state().map(|s| s.base_url)
 }
 
 fn env_gateway_base_url() -> Option<String> {
@@ -110,7 +160,8 @@ fn port_from_base_url(base: &str) -> Option<u16> {
 
 fn sync_runtime_state_from_base_url(base: &str) {
     if let Some(port) = port_from_base_url(base) {
-        if let Err(e) = write_runtime_state(port) {
+        let gen = bump_runtime_generation();
+        if let Err(e) = write_runtime_state_full(port, "ready", gen, None) {
             append_startup_log(&format!(
                 "failed to sync backend-runtime.json from {base}: {e}"
             ));
@@ -120,6 +171,7 @@ fn sync_runtime_state_from_base_url(base: &str) {
 
 /// Probe common local Gateway ports when runtime state is stale
 /// (e.g. packaged sidecar wrote 8012, isolated stack listens on 8070).
+/// Prefer /health/ready so we never latch onto a half-started listener.
 fn probe_gateway_candidate_ports() -> Option<u16> {
     let mut ports: Vec<u16> = Vec::new();
     if let Some(p) = read_runtime_state_port() {
@@ -130,9 +182,21 @@ fn probe_gateway_candidate_ports() -> Option<u16> {
             ports.push(p);
         }
     }
-    for port in ports {
-        if probe_http_health(port) {
-            return Some(port);
+    for port in &ports {
+        if probe_http_ready(*port) {
+            return Some(*port);
+        }
+    }
+    // Fall back to liveness only when we still own a warming child.
+    let child_alive = backend_child_slot()
+        .lock()
+        .map(|g| g.is_some())
+        .unwrap_or(false);
+    if child_alive {
+        for port in &ports {
+            if probe_http_health(*port) {
+                return Some(*port);
+            }
         }
     }
     None
@@ -145,7 +209,11 @@ pub fn resolved_gateway_base_url() -> String {
     if let Some(base) = env_gateway_base_url() {
         return base;
     }
-    if let Some(port) = read_runtime_state_port() {
+    if let Some(state) = read_runtime_state() {
+        let port = state.port;
+        if state.status == "ready" && probe_http_ready(port) {
+            return format!("http://127.0.0.1:{port}");
+        }
         if probe_http_health(port) {
             return format!("http://127.0.0.1:{port}");
         }
@@ -159,15 +227,23 @@ pub fn resolved_gateway_base_url() -> String {
             .lock()
             .map(|g| g.is_some())
             .unwrap_or(false);
-        if child_alive || stdio_owned {
+        if child_alive || stdio_owned || matches!(state.status.as_str(), "spawning" | "live") {
             log_resolve_unhealthy_throttled(port, "owned sidecar warming");
             return format!("http://127.0.0.1:{port}");
         }
         log_resolve_unhealthy_throttled(port, "probing alternate local ports");
     }
     if let Some(port) = probe_gateway_candidate_ports() {
-        let _ = write_runtime_state(port);
-        append_startup_log(&format!("resolved Gateway via health probe on port {port}"));
+        let gen = current_runtime_generation().max(1);
+        let status = if probe_http_ready(port) {
+            "ready"
+        } else {
+            "live"
+        };
+        let _ = write_runtime_state_full(port, status, gen, None);
+        append_startup_log(&format!(
+            "resolved Gateway via health probe on port {port} (status={status})"
+        ));
         return format!("http://127.0.0.1:{port}");
     }
     // Unready: empty string forces proxy/probe callers to wait instead of hitting stale 8012.
@@ -255,17 +331,51 @@ fn append_startup_log(message: &str) {
     }
 }
 
-fn write_runtime_state(port: u16) -> Result<(), String> {
+fn write_runtime_state_full(
+    port: u16,
+    status: &str,
+    generation: u64,
+    pid: Option<u32>,
+) -> Result<(), String> {
     fs::create_dir_all(runtime_dir()).map_err(|e| format!("创建 runtime 目录失败: {e}"))?;
-    let payload = json!({
+    let mut payload = json!({
         "port": port,
         "baseUrl": format!("http://127.0.0.1:{port}"),
+        "status": status,
+        "generation": generation,
+        "updatedAtMs": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
     });
+    if let Some(pid) = pid {
+        payload["pid"] = json!(pid);
+    } else if let Some(existing) = read_runtime_state() {
+        if existing.port == port {
+            if let Some(p) = existing.pid {
+                payload["pid"] = json!(p);
+            }
+        }
+    }
     fs::write(
         runtime_state_path(),
         serde_json::to_vec_pretty(&payload).map_err(|e| e.to_string())?,
     )
     .map_err(|e| format!("写入 runtime 状态失败: {e}"))
+}
+
+/// Only advance status→ready when generation still matches (ignore stale background waits).
+fn mark_runtime_ready_if_current(port: u16, generation: u64, pid: Option<u32>) {
+    if current_runtime_generation() != generation {
+        append_startup_log(&format!(
+            "skip ready mark for port={port} gen={generation} (current={})",
+            current_runtime_generation()
+        ));
+        return;
+    }
+    if let Err(e) = write_runtime_state_full(port, "ready", generation, pid) {
+        append_startup_log(&format!("failed to mark runtime ready: {e}"));
+    }
 }
 
 fn is_port_free(port: u16) -> bool {
@@ -567,7 +677,7 @@ fn resolve_sidecar_config_yaml(backend_exe: &Path) -> Result<PathBuf, String> {
     Ok(home_cfg)
 }
 
-fn probe_http_health(port: u16) -> bool {
+fn probe_http_path(port: u16, path: &str) -> bool {
     let addr = format!("127.0.0.1:{port}");
     let mut stream = match TcpStream::connect_timeout(
         &addr
@@ -580,8 +690,8 @@ fn probe_http_health(port: u16) -> bool {
     };
     let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(600)));
-    let req = b"GET /health/liveness HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-    if stream.write_all(req).is_err() {
+    let req = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    if stream.write_all(req.as_bytes()).is_err() {
         return false;
     }
     let mut buf = [0_u8; 512];
@@ -594,12 +704,36 @@ fn probe_http_health(port: u16) -> bool {
     }
 }
 
-fn wait_backend_ready(port: u16, timeout: Duration) -> bool {
+/// Process is listening (Codex analogue: transport up).
+fn probe_http_health(port: u16) -> bool {
+    probe_http_path(port, "/health/liveness")
+}
+
+/// Core routers registered — safe to treat API as reachable (Codex analogue: initialize ok).
+fn probe_http_ready(port: u16) -> bool {
+    probe_http_path(port, "/health/ready")
+}
+
+fn wait_backend_liveness(port: u16, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
         if probe_http_health(port) {
             return true;
         }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    false
+}
+
+/// Prefer ready; fall back to liveness so cold-start ownership checks still work.
+fn wait_backend_ready(port: u16, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if probe_http_ready(port) {
+            return true;
+        }
+        // Still warming: keep waiting rather than succeeding on liveness alone.
+        let _ = probe_http_health(port);
         std::thread::sleep(Duration::from_millis(150));
     }
     false
@@ -692,8 +826,18 @@ fn verify_sidecar_panel_pin(backend_exe: &Path) -> Result<(), String> {
 }
 
 pub fn ensure_backend_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
+    let _life = lifecycle_lock()
+        .lock()
+        .map_err(|_| "获取 Gateway 生命周期锁失败".to_string())?;
+    ensure_backend_sidecar_inner(app)
+}
+
+fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
     mark_startup_begin();
     append_startup_log("ensure_backend_sidecar begin");
+    if let Some(state) = read_runtime_state() {
+        RUNTIME_GENERATION.fetch_max(state.generation, Ordering::SeqCst);
+    }
 
     // Dev / advanced setup: explicit Gateway env means this EvoPanel instance is bound
     // to that external backend. Do not spawn an embedded sidecar on another port.
@@ -727,7 +871,7 @@ pub fn ensure_backend_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
         append_startup_log(&format!(
             "existing sidecar on {gw_port} lacks stdio ownership; restarting for runtime pipe"
         ));
-        let _ = stop_backend_sidecar();
+        let _ = stop_backend_sidecar_inner();
         kill_gateway_port(gw_port);
     }
 
@@ -942,6 +1086,7 @@ pub fn ensure_backend_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
 
     let mut child = cmd.spawn().map_err(|e| format!("启动后端 sidecar 失败: {e}"))?;
     let child_id = child.id();
+    let generation = bump_runtime_generation();
     let stdin = child
         .stdin
         .take()
@@ -954,42 +1099,54 @@ pub fn ensure_backend_sidecar(app: &tauri::AppHandle) -> Result<(), String> {
         *slot = Some((stdin, stdout));
     }
     *guard = Some(child);
-    write_runtime_state(port)?;
+    write_runtime_state_full(port, "spawning", generation, Some(child_id))?;
     append_startup_log(&format!(
-        "sidecar spawned pid={child_id} (stdio app-server), runtime state written",
+        "sidecar spawned pid={child_id} gen={generation} (stdio app-server), runtime status=spawning",
     ));
     super::boot_cycle::mark_sidecar_spawn(child_id, port);
 
     // 不在 setup 里长时间阻塞：WebView 会长时间停在默认白底/无文档态。
-    // 冷启动后端可持续数秒，由前端 checkBackendHealth 轮询即可。
-    if wait_backend_ready(port, Duration::from_millis(500)) {
+    // Fast path + background wait for /health/ready (core routers), not mere liveness.
+    if wait_backend_ready(port, Duration::from_millis(800)) {
+        mark_runtime_ready_if_current(port, generation, Some(child_id));
         append_startup_log(&format!(
-            "sidecar health probe ready (fast path, total {}ms)",
+            "sidecar /health/ready ok (fast path, total {}ms, gen={generation})",
             startup_elapsed_ms()
         ));
         super::boot_cycle::mark_sidecar_liveness(port, true, startup_elapsed_ms() as u64);
     } else {
+        let _ = write_runtime_state_full(port, "live", generation, Some(child_id));
         append_startup_log(&format!(
-            "sidecar spawned; health pending after {}ms — UI polls until gateway ready",
+            "sidecar spawned; /health/ready pending after {}ms — UI polls until gateway ready (gen={generation})",
             startup_elapsed_ms()
         ));
         super::boot_cycle::mark_sidecar_liveness(port, false, startup_elapsed_ms() as u64);
-        // Background continue-wait so startup log shows when liveness actually lands.
+        // Background continue-wait so startup log shows when ready actually lands.
         std::thread::spawn(move || {
-            if wait_backend_ready(port, Duration::from_secs(30)) {
+            // Liveness first (process up), then ready (API control plane).
+            let _ = wait_backend_liveness(port, Duration::from_secs(15));
+            if current_runtime_generation() != generation {
                 append_startup_log(&format!(
-                    "sidecar health probe ready (background, total {}ms, port={port})",
+                    "sidecar ready wait aborted (stale gen={generation}, current={})",
+                    current_runtime_generation()
+                ));
+                return;
+            }
+            if wait_backend_ready(port, Duration::from_secs(45)) {
+                mark_runtime_ready_if_current(port, generation, Some(child_id));
+                append_startup_log(&format!(
+                    "sidecar /health/ready ok (background, total {}ms, port={port}, gen={generation})",
                     startup_elapsed_ms()
                 ));
                 super::boot_cycle::mark_sidecar_liveness(port, true, startup_elapsed_ms() as u64);
             } else {
                 append_startup_log(&format!(
-                    "sidecar health still pending after 30s background wait (port={port})"
+                    "sidecar /health/ready still pending after background wait (port={port}, gen={generation})"
                 ));
                 super::boot_cycle::mark(
                     "desktop",
-                    "sidecar.liveness_timeout_30s",
-                    Some(&format!("port={port}")),
+                    "sidecar.ready_timeout",
+                    Some(&format!("port={port};gen={generation}")),
                 );
             }
         });
@@ -1025,6 +1182,13 @@ fn kill_gateway_port(port: u16) {
 }
 
 pub fn stop_backend_sidecar() -> Result<(), String> {
+    let _life = lifecycle_lock()
+        .lock()
+        .map_err(|_| "获取 Gateway 生命周期锁失败".to_string())?;
+    stop_backend_sidecar_inner()
+}
+
+fn stop_backend_sidecar_inner() -> Result<(), String> {
     // Drop any pending stdio handles so attach cannot race a dying child.
     if let Ok(mut slot) = sidecar_stdio_slot().lock() {
         *slot = None;
@@ -1036,6 +1200,10 @@ pub fn stop_backend_sidecar() -> Result<(), String> {
         ));
         return Ok(());
     }
+    let gen = bump_runtime_generation();
+    if let Some(port) = read_runtime_state_port() {
+        let _ = write_runtime_state_full(port, "stopping", gen, None);
+    }
     let slot = backend_child_slot();
     let mut guard = slot.lock().map_err(|_| "获取后端进程锁失败".to_string())?;
     if let Some(mut child) = guard.take() {
@@ -1045,12 +1213,14 @@ pub fn stop_backend_sidecar() -> Result<(), String> {
         // the next create_app can stall for tens of seconds (database is locked).
         if let Some(port) = read_runtime_state_port() {
             kill_gateway_port(port);
-            wait_port_free(port, Duration::from_secs(3));
+            wait_port_free(port, Duration::from_secs(5));
+            let _ = write_runtime_state_full(port, "stopped", gen, None);
         }
     } else if let Some(port) = read_runtime_state_port() {
         // 热重载等场景可能丢失 child 句柄，按 runtime 端口清理残留 gateway
         kill_gateway_port(port);
-        wait_port_free(port, Duration::from_secs(3));
+        wait_port_free(port, Duration::from_secs(5));
+        let _ = write_runtime_state_full(port, "stopped", gen, None);
     }
     Ok(())
 }
@@ -1084,8 +1254,11 @@ pub fn apply_workspace_settings(
     app: tauri::AppHandle,
     migrate_from: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    let _life = lifecycle_lock()
+        .lock()
+        .map_err(|_| "获取 Gateway 生命周期锁失败".to_string())?;
     // Stop Gateway first so SQLite / runtime files are not locked during copy.
-    stop_backend_sidecar()?;
+    stop_backend_sidecar_inner()?;
 
     let dest = super::runtime_data_dir();
     let mut migrated = false;
@@ -1118,7 +1291,7 @@ pub fn apply_workspace_settings(
         }
     }
 
-    ensure_backend_sidecar(&app)?;
+    ensure_backend_sidecar_inner(&app)?;
     Ok(json!({
         "ok": true,
         "migrated": migrated,
@@ -1192,6 +1365,9 @@ pub fn get_gateway_base_url() -> String {
 
 #[tauri::command]
 pub fn reload_gateway(app: tauri::AppHandle) -> Result<(), String> {
+    let _life = lifecycle_lock()
+        .lock()
+        .map_err(|_| "获取 Gateway 生命周期锁失败".to_string())?;
     append_startup_log("reload_gateway requested");
     // External Gateway (EVOFLOW_GATEWAY_* / VITE_…): Panel must not stop_backend_sidecar /
     // kill_gateway_port — that murders the operator's terminal uvicorn, then skips respawn.
@@ -1201,8 +1377,8 @@ pub fn reload_gateway(app: tauri::AppHandle) -> Result<(), String> {
         ));
         return Ok(());
     }
-    stop_backend_sidecar()?;
-    ensure_backend_sidecar(&app)
+    stop_backend_sidecar_inner()?;
+    ensure_backend_sidecar_inner(&app)
 }
 
 #[tauri::command]
@@ -1213,6 +1389,7 @@ pub fn workspace_runtime_info() -> Result<serde_json::Value, String> {
     let runtime_data_dir = super::runtime_data_dir().to_string_lossy().to_string();
     let runtime_port = read_runtime_state_port();
     let runtime_base_url = read_runtime_state_base_url();
+    let runtime = read_runtime_state();
     let checkpoints_db = super::runtime_data_dir().join("checkpoints.db");
     let checkpoints_exists = checkpoints_db.exists();
     let backend_running = match backend_child_slot().lock() {
@@ -1228,6 +1405,9 @@ pub fn workspace_runtime_info() -> Result<serde_json::Value, String> {
         "runtimeDataDir": runtime_data_dir,
         "runtimePort": runtime_port,
         "runtimeBaseUrl": runtime_base_url,
+        "runtimeStatus": runtime.as_ref().map(|r| r.status.clone()).unwrap_or_default(),
+        "runtimeGeneration": runtime.as_ref().map(|r| r.generation).unwrap_or(0),
+        "runtimePid": runtime.as_ref().and_then(|r| r.pid),
         "runtimeStatePath": runtime_state_path().to_string_lossy().to_string(),
         "checkpointsDbPath": checkpoints_db.to_string_lossy().to_string(),
         "checkpointsDbExists": checkpoints_exists,

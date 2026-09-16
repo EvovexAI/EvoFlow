@@ -2,7 +2,7 @@
  * 全局应用状态
  * 管理 Gateway 运行状态与轻量守护（桌面端 sidecar 自动恢复）
  */
-import { api, checkBackendHealth } from './tauri-api.js'
+import { api, checkBackendHealth, checkBackendReady } from './tauri-api.js'
 import { UNHEALTHY_THRESHOLD } from './gateway-guardian-policy.js'
 
 const isTauri = !!window.__TAURI_INTERNALS__
@@ -200,19 +200,20 @@ async function _tryAutoRestart(options = {}) {
     )
     markGatewayReloadInProgress()
     await invoke('reload_gateway')
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 1000))
-      if (await checkBackendHealth()) {
+      // Codex-style: recovery means control plane can serve API, not just listen.
+      if (await checkBackendReady()) {
         _consecutiveFailures = 0
         _execHoldFailureSince = null
         _deferToastShown = false
         _setGatewayRunning(true)
         _runningSince = Date.now()
-        console.info('[gateway-guardian] Gateway recovered after reload')
+        console.info('[gateway-guardian] Gateway recovered after reload (/health/ready)')
         return
       }
     }
-    console.warn('[gateway-guardian] reload_gateway finished but health still failing')
+    console.warn('[gateway-guardian] reload_gateway finished but /health/ready still failing')
     // Removed: manual-recovery toast after repeated auto-restart failures.
     // If Gateway is still unhealthy, let the regular guardian poll handle it.
   } catch (e) {

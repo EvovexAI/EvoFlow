@@ -1,6 +1,8 @@
 /**
- * Desktop gateway warm latch: hold API traffic until liveness, and re-hold after reload.
+ * Desktop gateway warm latch: hold API traffic until /health/ready, and re-hold after reload.
  * Pure state machine (no Tauri) so unit tests can cover the cold-start race bugs.
+ *
+ * Historically named "liveness"; release now means control-plane ready (Codex handshake).
  */
 
 const WARMING_TIMEOUT_MS = 90_000

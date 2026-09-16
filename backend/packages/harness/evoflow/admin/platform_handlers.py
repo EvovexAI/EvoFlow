@@ -770,6 +770,13 @@ def employees_hire(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **emp.hire(args)}
 
 
+def employees_create(args: dict[str, Any]) -> dict[str, Any]:
+    """One-step employee create (capability pack + duty contract)."""
+    from evoflow.admin import employees as emp
+
+    return {"ok": True, **emp.create_employee(args)}
+
+
 def employees_update(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 

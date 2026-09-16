@@ -324,6 +324,112 @@ async def get_org_tree(
     }
 
 
+class DepartmentCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+class DepartmentUpdateRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=64)
+    head_agent_code: str | None = Field(
+        None,
+        description="Department head agent_code; empty string clears",
+    )
+    align_unmanaged: bool = Field(
+        False,
+        description="When setting a head, point members with empty reports_to at the head",
+    )
+
+
+class DepartmentMembersRequest(BaseModel):
+    agent_codes: list[str] = Field(default_factory=list)
+
+
+@router.get("/departments")
+async def list_departments(request: Request) -> dict[str, Any]:
+    """Managed department catalog (synced from role.department labels on read)."""
+    require_org_admin(request)
+    from evoflow.proactive.departments import DepartmentRepository
+
+    items = DepartmentRepository.list_departments(with_members=True)
+    return {"departments": items, "count": len(items)}
+
+
+@router.post("/departments")
+async def create_department(request: Request, body: DepartmentCreateRequest) -> dict[str, Any]:
+    require_org_admin(request)
+    from evoflow.proactive.departments import DepartmentRepository
+
+    try:
+        row = DepartmentRepository.create(name=body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {
+        "ok": True,
+        "department": {
+            **row,
+            "member_count": 0,
+            "members": [],
+            "head_agent_code": "",
+            "head_role_name": "",
+        },
+    }
+
+
+@router.put("/departments/{dept_id}")
+async def update_department(
+    request: Request, dept_id: str, body: DepartmentUpdateRequest
+) -> dict[str, Any]:
+    require_org_admin(request)
+    from evoflow.proactive.departments import DepartmentRepository
+
+    try:
+        row: dict[str, Any] | None = None
+        if body.name is not None:
+            row = DepartmentRepository.rename(dept_id, name=body.name)
+        if body.head_agent_code is not None:
+            row = DepartmentRepository.set_head(
+                dept_id,
+                head_agent_code=body.head_agent_code,
+                align_unmanaged=bool(body.align_unmanaged),
+            )
+        if row is None:
+            raise HTTPException(status_code=400, detail="请提供 name 或 head_agent_code")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = DepartmentRepository.list_departments(with_members=True)
+    for d in items:
+        if str(d.get("id")) == str(row.get("id")):
+            return {"ok": True, "department": d}
+    return {"ok": True, "department": row}
+
+
+@router.delete("/departments/{dept_id}")
+async def delete_department(request: Request, dept_id: str) -> dict[str, Any]:
+    require_org_admin(request)
+    from evoflow.proactive.departments import DepartmentRepository
+
+    try:
+        DepartmentRepository.delete(dept_id, clear_members=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True}
+
+
+@router.put("/departments/{dept_id}/members")
+async def set_department_members(
+    request: Request, dept_id: str, body: DepartmentMembersRequest
+) -> dict[str, Any]:
+    """Replace the non-archived member roster for a department."""
+    require_org_admin(request)
+    from evoflow.proactive.departments import DepartmentRepository
+
+    try:
+        dept = DepartmentRepository.set_members(dept_id, body.agent_codes or [])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "department": dept}
+
+
 @router.get("/roles/{agent_code}")
 async def get_role(agent_code: str) -> dict[str, Any]:
     role = ProactiveRepository.get_role(agent_code)
@@ -352,6 +458,50 @@ async def get_role(agent_code: str) -> dict[str, Any]:
     return result
 
 
+class CreateEmployeeRequest(BaseModel):
+    """One-step employee create: capability pack + duty contract."""
+
+    role_name: str = Field(..., description="岗位显示名")
+    agent_code: str = Field("", description="可选；空则自动生成")
+    agent_name: str = Field("", description="能力包显示名；默认同岗位名")
+    department: str = Field("")
+    responsibilities: list[str] = Field(default_factory=list)
+    workspace_path: str = Field("")
+    domain_scope: list[str] = Field(default_factory=list)
+    knowledge_vault_ids: list[str] = Field(default_factory=list)
+    autonomy_level: str = Field("approval_for_all")
+    heartbeat_schedule: str = Field("0 9-19/2 * * *")
+    think_mode: str = Field("agent_loop")
+    model_name: str = Field("")
+    reports_to: str = Field("")
+    status: str = Field("active")
+    description: str = Field("")
+    soul: str = Field("")
+    soul_md: str = Field("")
+
+
+@router.post("/employees")
+async def create_employee_endpoint(request: Request, req: CreateEmployeeRequest) -> dict[str, Any]:
+    """Create employee without requiring a prior Agents-page create."""
+    require_org_admin(request)
+    from evoflow.admin.employees import create_employee
+    from evoflow.admin.errors import ConflictError, NotFoundError, ValidationError
+
+    payload = req.model_dump()
+    try:
+        detail = create_employee(payload)
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("create_employee failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"ok": True, **detail}
+
+
 @router.post("/roles")
 async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any]:
     agent_code = str(req.agent_code or "").strip()
@@ -374,7 +524,7 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
     except NotFoundError as e:
         raise HTTPException(
             status_code=400,
-            detail=f"智能体「{agent_code}」不存在，请先到「智能体」页创建，再雇佣为员工",
+            detail=f"智能体「{agent_code}」不存在，请使用「加人」或先到「智能体」页创建",
         ) from e
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

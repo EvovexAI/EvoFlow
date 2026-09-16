@@ -2,6 +2,7 @@
  * 语音 API 配置 — 嵌入「设置 → 模型」页左侧分组
  */
 import { toast } from '../../components/toast.js'
+import { publicIconUrl } from '../../lib/public-asset.js'
 import {
   DEFAULT_MEDIA_CREDENTIALS,
   DEFAULT_ENABLED_VENDORS,
@@ -124,7 +125,7 @@ function escAttr(s) {
 
 function vendorIcon(v) {
   if (v.icon) {
-    return `<img src="/icons/${escAttr(v.icon)}.svg" alt="" width="22" height="22" style="width:22px;height:22px;object-fit:contain"/>`
+    return `<img src="${publicIconUrl(v.icon)}" alt="" width="22" height="22" style="width:22px;height:22px;object-fit:contain"/>`
   }
   if (v.key === 'kling') {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="4" fill="#1a1a2e"/><path d="M8 10h8v4H8z" fill="#7c3aed"/></svg>`

@@ -26,7 +26,7 @@ function StepNode({ id, data, selected }: NodeProps & { data: StepNodeData }) {
 
   const goalText = data.goal?.trim() || data.description?.trim() || ''
   let subtitle = !hasAgent
-    ? '点击选择智能体'
+    ? '点击选择员工'
     : goalText || (selected ? '在右侧面板写本步要做什么' : '待写步骤说明')
   if (hasAgent && stepOverrideTotal > 0 && selected) {
     subtitle = `${subtitle} · 另挂 ${stepOverrideTotal}`

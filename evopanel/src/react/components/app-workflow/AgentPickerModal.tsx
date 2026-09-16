@@ -112,7 +112,7 @@ export function AgentPickerModal({
       className="react-chat-modal-overlay"
       role="dialog"
       aria-modal="true"
-      aria-label="选择智能体"
+      aria-label="选择员工"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -123,9 +123,9 @@ export function AgentPickerModal({
       >
         <div className="react-chat-modal-header">
           <div>
-            <span className="react-chat-modal-title">选择智能体</span>
+            <span className="react-chat-modal-title">选择员工</span>
             <p className="react-chat-modal-desc" style={{ margin: '4px 0 0' }}>
-              为本步骤指定执行者 · 查看描述与自带技能/工具 · 双击可直接确认
+              为本步骤指定在编员工 · 查看岗位与能力 · 双击可直接确认
             </p>
           </div>
           <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">

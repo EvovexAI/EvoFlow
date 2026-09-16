@@ -460,6 +460,102 @@ def hire(data: dict[str, Any]) -> dict[str, Any]:
             f"Agent '{agent_code}' not found; create it with agents.create before hiring"
         ) from e
 
+    return _hire_existing_agent(agent_code, agent_row, data)
+
+
+def _slug_employee_code(role_name: str, explicit: str = "") -> str:
+    """Build a valid agent_code (letters/digits/hyphens) for a new employee."""
+    import uuid as uuid_mod
+
+    raw = str(explicit or "").strip().lower()
+    if raw:
+        cleaned = re.sub(r"[^a-z0-9-]+", "-", raw).strip("-")
+        cleaned = re.sub(r"-{2,}", "-", cleaned)
+        if cleaned and re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", cleaned):
+            return cleaned[:64]
+    # Prefer readable prefix from ascii letters in role_name; else emp-<hex>.
+    letters = re.sub(r"[^a-z0-9]+", "-", str(role_name or "").lower()).strip("-")
+    letters = re.sub(r"-{2,}", "-", letters)[:24].strip("-")
+    suffix = uuid_mod.uuid4().hex[:8]
+    if letters and re.match(r"^[a-z0-9]", letters):
+        return f"{letters}-{suffix}"[:64]
+    return f"emp-{suffix}"
+
+
+def create_employee(data: dict[str, Any]) -> dict[str, Any]:
+    """Create an employee in one step: ensure Agent capability pack, then hire.
+
+    Product surface: 「加人」— callers should not require a prior Agents-page create.
+    If ``agent_code`` already exists as an Agent and is not hired, only hire.
+    If missing, create a custom Agent then hire.
+    """
+    import uuid as uuid_mod
+
+    if not isinstance(data, dict):
+        raise ValidationError("Create-employee payload must be a JSON object")
+
+    role_name = str(data.get("role_name") or data.get("agent_name") or "").strip()
+    if not role_name:
+        raise ValidationError("role_name is required")
+
+    from evoflow.admin.agents import create_agent, get_agent
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    explicit_code = str(data.get("agent_code") or "").strip()
+    agent_code = _slug_employee_code(role_name, explicit_code)
+
+    # Resolve collisions for auto-generated codes.
+    if not explicit_code:
+        base = agent_code
+        n = 0
+        while cfg_repo.agent_exists(agent_code) or ProactiveRepository.get_role(agent_code):
+            n += 1
+            agent_code = f"{base}-{n}"[:64]
+            if n > 50:
+                agent_code = f"emp-{uuid_mod.uuid4().hex[:10]}"
+                break
+    elif ProactiveRepository.get_role(agent_code):
+        raise ConflictError(f"员工「{agent_code}」已存在")
+
+    created_agent = False
+    try:
+        agent_row = get_agent(agent_code)
+    except NotFoundError:
+        agent_payload = {
+            "agent_code": agent_code,
+            "agent_name": str(data.get("agent_name") or role_name).strip() or role_name,
+            "description": str(data.get("description") or "").strip()
+            or f"员工岗位：{role_name}",
+            "agent_type": "custom",
+            "soul": str(data.get("soul") or data.get("soul_md") or "").strip(),
+        }
+        if data.get("model") is not None or data.get("model_name") is not None:
+            agent_payload["model"] = str(data.get("model") or data.get("model_name") or "").strip()
+        if data.get("skills") is not None:
+            agent_payload["skills"] = list(data.get("skills") or [])
+        if data.get("tool_groups") is not None:
+            agent_payload["tool_groups"] = list(data.get("tool_groups") or [])
+        if data.get("tools") is not None:
+            agent_payload["tools"] = list(data.get("tools") or [])
+        if data.get("tags") is not None:
+            agent_payload["tags"] = data.get("tags")
+        agent_row = create_agent(agent_payload)
+        created_agent = True
+        agent_code = str(agent_row.get("agent_code") or agent_code).strip()
+
+    hire_payload = dict(data)
+    hire_payload["agent_code"] = agent_code
+    hire_payload["role_name"] = role_name
+    detail = _hire_existing_agent(agent_code, agent_row, hire_payload)
+    detail["agent_created"] = created_agent
+    return detail
+
+
+def _hire_existing_agent(
+    agent_code: str,
+    agent_row: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, Any]:
     try:
         initial_status = normalize_role_status(data.get("status") or "active")
     except ValueError as e:
@@ -566,6 +662,29 @@ def hire(data: dict[str, Any]) -> dict[str, Any]:
     if initial_status == "active":
         role.next_heartbeat_at = compute_next_duty_iso(role)
     ProactiveRepository.save_role(role)
+
+    # Best-effort: keep department catalog membership in sync.
+    dept_name = str(data.get("department") or "").strip()
+    if dept_name:
+        try:
+            from evoflow.proactive.departments import DepartmentRepository
+
+            DepartmentRepository.ensure_from_roles()
+            dept = DepartmentRepository.get_by_name(dept_name)
+            if dept:
+                listed = DepartmentRepository.list_departments(with_members=True)
+                cur = next((d for d in listed if d.get("id") == dept.get("id")), None)
+                codes = [
+                    str(m.get("agent_code") or "").strip()
+                    for m in (cur or {}).get("members") or []
+                    if str(m.get("agent_code") or "").strip()
+                ]
+                if agent_code not in codes:
+                    codes.append(agent_code)
+                    DepartmentRepository.set_members(str(dept["id"]), codes)
+        except Exception:
+            logger.debug("create_employee: dept sync skipped", exc_info=True)
+
     return _role_detail(role)
 
 

@@ -394,7 +394,7 @@ export function WorkflowDrawer({
       {
         id: 'agent',
         title: '智能体步骤',
-        desc: '选智能体并写本步要做什么',
+        desc: '选员工并写本步要做什么',
         tone: 'action' as const,
         icon: <Workflow size={16} />,
         onClick: onAddStep,
@@ -797,7 +797,7 @@ export function WorkflowDrawer({
                         className="wf-drawer-text-btn"
                         onClick={() => setAgentOpen(true)}
                       >
-                        更换智能体 / 查看完整列表
+                        更换员工 / 查看完整列表
                       </button>
                       <p className="wf-drawer-tip" style={{ margin: '6px 0 0' }}>
                         「可选」里另挂的技能/工具是本步额外覆盖，不会替换上面的默认能力。

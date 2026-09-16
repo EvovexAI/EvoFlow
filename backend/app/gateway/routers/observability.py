@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import sqlite3
 from collections.abc import Callable
 from typing import Any
@@ -16,13 +17,40 @@ from evoflow.observability import queries as obs_queries
 from evoflow.observability.queries import ObservabilityDiskFullError, disk_full_user_message
 
 
-from evoflow.authz.http_guard import require_org_admin
+from evoflow.authz.http_guard import require_org_admin, require_thread_visible
 
 
-def _org_admin_dep(request: Request) -> None:
+def _obs_access_dep(request: Request) -> None:
+    """Org-wide observability stays admin-only; thread-scoped reads allow session owners.
+
+    Session debug pane polls ``GET /models?thread_id=…`` while streaming. Requiring
+    org_admin for every observability call made that UI spam ``org_admin required``.
+    """
+    path = str(request.url.path or "").rstrip("/")
+    tid_q = str(request.query_params.get("thread_id") or "").strip()
+
+    # GET …/threads/{id}/timeline|insights  and  …/waterfall/{id}
+    m = re.search(r"/(?:threads|waterfall)/([^/]+)(?:/(?:timeline|insights))?$", path)
+    if m:
+        seg = m.group(1)
+        if seg not in ("summary",):
+            require_thread_visible(request, seg)
+            return
+
+    # GET …/models?thread_id=  or  …/tools?thread_id=
+    if tid_q and path.endswith(("/models", "/tools")):
+        require_thread_visible(request, tid_q)
+        return
+
+    # GET …/models/{row_id} — auth after row load (skip summary / reserved)
+    m_detail = re.search(r"/models/([^/]+)$", path)
+    if m_detail and m_detail.group(1) not in ("summary",):
+        return
+
     require_org_admin(request)
 
-router = APIRouter(prefix="/api/observability", tags=["observability"], dependencies=[Depends(_org_admin_dep)])
+
+router = APIRouter(prefix="/api/observability", tags=["observability"], dependencies=[Depends(_obs_access_dep)])
 
 
 def _disk_full_http(exc: BaseException) -> HTTPException:
@@ -362,11 +390,16 @@ async def get_models_summary(
 
 
 @router.get("/models/{row_id}")
-async def get_model_detail(row_id: str) -> dict:
+async def get_model_detail(request: Request, row_id: str) -> dict:
     """Fetch a single model invocation with full request_json / response_json."""
     row = await _obs_or_disk_full(obs_queries.get_model_invocation_detail, row_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Model invocation not found")
+    tid = str(row.get("thread_id") or "").strip()
+    if tid:
+        require_thread_visible(request, tid)
+    else:
+        require_org_admin(request)
     return row
 
 

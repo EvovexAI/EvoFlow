@@ -116,7 +116,7 @@ export async function render() {
       <div class="expert-head-row">
         <div class="expert-title-block">
           <h1 class="expert-page-title">智能体中心</h1>
-          <p class="expert-page-desc">创建、配置和部署可复用的智能体能力</p>
+          <p class="expert-page-desc">配置可复用能力包；日常加人、排班、工作流指派请到「员工」</p>
         </div>
         <div class="expert-seg" id="expert-tabs" role="tablist" aria-label="模块导航">
           ${TABS.map(

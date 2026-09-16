@@ -15,6 +15,9 @@ const LS_SHELL_COLLAPSED = 'evopanel_shell_aside_collapsed'
 const LS_SHELL_NAV_MORE = 'evopanel_shell_nav_more_expanded'
 
 const MORE_NAV_PATHS = [
+  '/expert',
+  '/agents',
+  '/tools',
   '/cron',
   '/automation',
   '/knowledge',
@@ -156,6 +159,12 @@ function _applyCollapsed(collapsed) {
 function _isMoreNavRoute(routePath) {
   const p = String(routePath || '')
   return (
+    p === '/expert' ||
+    p.startsWith('/expert/') ||
+    p === '/agents' ||
+    p.startsWith('/agents/') ||
+    p === '/tools' ||
+    p.startsWith('/tools/') ||
     p === '/cron' ||
     p === '/automation' ||
     p.startsWith('/knowledge') ||
@@ -445,19 +454,7 @@ export function initShellAside(el) {
         </span>
         <span class="react-chat-aside-nav-label">工作流</span>
       </button>
-      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/expert" title="智能体">
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="7" width="18" height="12" rx="2"/>
-            <circle cx="9" cy="12" r="1.5" fill="currentColor"/>
-            <circle cx="15" cy="12" r="1.5" fill="currentColor"/>
-            <path d="M9 3l3 2 3-2"/>
-            <path d="M9 17h6"/>
-          </svg>
-        </span>
-        <span class="react-chat-aside-nav-label">智能体</span>
-      </button>
-      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/proactive" data-premium-nav="proactive" title="智能体员工">
+      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/proactive" data-premium-nav="proactive" title="员工">
         <span class="react-chat-aside-nav-ic" aria-hidden>
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
@@ -484,6 +481,18 @@ export function initShellAside(el) {
           </span>
         </button>
         <div class="shell-aside-nav-more-body" id="shell-nav-more-body" role="group" aria-label="更多导航">
+          <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/expert" title="智能体 · 能力模板">
+            <span class="react-chat-aside-nav-ic" aria-hidden>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="7" width="18" height="12" rx="2"/>
+                <circle cx="9" cy="12" r="1.5" fill="currentColor"/>
+                <circle cx="15" cy="12" r="1.5" fill="currentColor"/>
+                <path d="M9 3l3 2 3-2"/>
+                <path d="M9 17h6"/>
+              </svg>
+            </span>
+            <span class="react-chat-aside-nav-label">智能体</span>
+          </button>
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/cron" title="自动化">
             <span class="react-chat-aside-nav-ic" aria-hidden>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">

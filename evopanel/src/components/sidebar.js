@@ -29,7 +29,6 @@ const NAV_ITEMS_FULL = [
     section: '配置',
     items: [
       { route: '/models', label: '模型配置', icon: 'models' },
-      { route: '/expert', label: '智能体', icon: 'agents' },
       { route: '/channels', label: '消息渠道', icon: 'channels' },
     ]
   },
@@ -46,6 +45,7 @@ const NAV_ITEMS_FULL = [
     items: [
       { route: '/apps', label: '工作流', icon: 'dashboard' },
       { route: '/tasks', label: '任务中心', icon: 'projects' },
+      { route: '/expert', label: '智能体', icon: 'agents' },
     ]
   },
   {

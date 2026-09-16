@@ -102,7 +102,7 @@ const QUICK_ACTIONS = [
   { id: 'agent', icon: Bot, label: '创建智能体' },
   { id: 'cron', icon: Clock3, label: '创建自动化' },
   { id: 'app', icon: AppWindow, label: '创建工作流' },
-  { id: 'hire', icon: Users, label: '雇佣员工' },
+  { id: 'hire', icon: Users, label: '加人' },
   { id: 'kb', icon: Database, label: '连接知识库' },
   { id: 'model', icon: Sparkles, label: '配置模型' },
 ] as const

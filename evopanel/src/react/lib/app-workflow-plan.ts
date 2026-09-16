@@ -63,7 +63,7 @@ export type StepFieldDef = {
 export const STEP_INSPECTOR_FIELDS: StepFieldDef[] = [
   { key: 'description', label: '描述', multiline: true, placeholder: '补充备注' },
   { key: 'goal', label: '步骤说明', multiline: true, placeholder: '这一步要完成什么' },
-  { key: 'assigned_agent', label: '执行 Agent', placeholder: 'agent_code' },
+  { key: 'assigned_agent', label: '执行员工', placeholder: '员工编码' },
   {
     key: 'inputs',
     label: '输入说明（给本步 Agent）',

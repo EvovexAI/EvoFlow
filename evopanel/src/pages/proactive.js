@@ -18,8 +18,10 @@ import { mountAgentAvatar } from '../lib/mount-agent-ui.js'
 import {
   showEditRoleModal as openEditRoleModal,
   loadKnowledgeVaults,
+  loadDepartmentCatalog,
   readKnowledgeVaultIds,
   renderKnowledgeVaultField,
+  renderDepartmentSelectControl,
 } from '../lib/proactive-role-edit.js'
 import {
   createSchedulePanel,
@@ -175,11 +177,21 @@ let _engineRunning = null
 let _refreshTimer = null
 let _busyPollTimer = null
 let _currentTab = 'roles' // roles | approvals | health | archived | org
-/** Org tab UI state (DingTalk-style master-detail). */
+/** Org tab UI state (department-first org tree + department manager). */
 let _orgUi = {
   forest: [],
+  /** @type {Array<Record<string, any>>} department-first tree roots */
+  deptForest: [],
   flat: [],
+  /** Selected left-tree node: person agent_code, or `dept:<id|__none__>` */
   selected: '',
+  selectedKind: 'person', // 'person' | 'dept'
+  /** @type {'tree' | 'depts'} */
+  view: 'tree',
+  /** @type {Array<Record<string, any>>} */
+  departments: [],
+  deptSelected: '',
+  deptPickerQuery: '',
   /** @type {Set<string>} */
   expanded: new Set(['__root__']),
 }
@@ -208,9 +220,13 @@ function applyProactiveHashQuery() {
   const qs = readProactiveHashQuery()
   const tab = String(qs.get('tab') || '').trim()
   _tabPinnedByHash = false
-  if (tab === 'approvals' || tab === 'roles' || tab === 'health' || tab === 'archived') {
+  if (tab === 'approvals' || tab === 'roles' || tab === 'health' || tab === 'archived' || tab === 'org') {
     _currentTab = tab
     _tabPinnedByHash = true
+  }
+  const orgView = String(qs.get('orgView') || '').trim()
+  if (orgView === 'depts' || orgView === 'tree') {
+    _orgUi.view = orgView
   }
   _highlightApprovalId = String(qs.get('highlight') || '').trim()
   _highlightInitiativeId = String(qs.get('highlight_init') || '').trim()
@@ -293,15 +309,15 @@ export async function render() {
     <div class="pro-hero">
       <div class="pro-hero-main">
         <p class="pro-hero-kicker">数字员工</p>
-        <h1 class="page-title">智能体员工</h1>
-        <p class="page-desc">有事项等你拍板时优先处理；员工近况看「员工」，进度全貌看「工作项」</p>
+        <h1 class="page-title">员工</h1>
+        <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
       </div>
       <div class="page-actions">
         <div class="pro-feishu-toolbar" id="pro-feishu-toolbar" hidden>
           <span class="pro-feishu-toolbar-label" id="pro-feishu-toolbar-label" title=""></span>
           <button type="button" class="btn btn-sm btn-primary" id="pro-feishu-bind-next">扫码绑定</button>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" id="pro-hire">雇佣员工</button>
+        <button type="button" class="btn btn-primary btn-sm" id="pro-hire">加人</button>
         <button type="button" class="btn btn-secondary btn-sm" id="pro-refresh">刷新</button>
       </div>
     </div>
@@ -328,24 +344,24 @@ export async function render() {
 
     <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
 
-    <div class="pro-tabs" role="tablist" aria-label="智能体员工">
+    <div class="pro-tabs" role="tablist" aria-label="员工">
       <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
         待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
       </button>
       <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
         员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
       </button>
-      <button type="button" class="pro-tab" data-tab="board" role="tab" title="按状态看全员岗位工作项">
-        工作项
-      </button>
       <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
-        组织架构
+        组织 / 部门
       </button>
       <button type="button" class="pro-tab ${_currentTab === 'health' ? 'pro-tab--active' : ''}" data-tab="health" role="tab">
         健康
       </button>
       <button type="button" class="pro-tab ${_currentTab === 'archived' ? 'pro-tab--active' : ''}" data-tab="archived" role="tab">
         归档 <span class="pro-tab-count" id="pro-tab-count-archived"></span>
+      </button>
+      <button type="button" class="pro-tab ${_currentTab === 'board' ? 'pro-tab--active' : ''}" data-tab="board" role="tab" title="按状态看全员岗位工作项">
+        工作项
       </button>
     </div>
 
@@ -635,22 +651,12 @@ async function loadHireableAgents() {
 }
 
 async function showHireModal(page) {
-  const available = await loadHireableAgents()
-  if (!available.length) {
-    const hasAgents = _rolesData.length > 0
-    toast(
-      hasAgents
-        ? '所有智能体都已雇佣。请先到「智能体」页新建智能体，再回来雇佣。'
-        : '还没有可雇佣的智能体。请先到「智能体」页创建智能体，再回来雇佣员工。',
-      'warning',
-    )
-    return
-  }
-
-  const [workspacePaths, chatModels, knowledgeVaults] = await Promise.all([
+  const available = await loadHireableAgents().catch(() => [])
+  const [workspacePaths, chatModels, knowledgeVaults, departments] = await Promise.all([
     loadWorkspacePaths(),
     loadChatModels(),
     loadKnowledgeVaults(),
+    loadDepartmentCatalog(),
   ])
   if (!chatModels.length) {
     const go = await showConfirm(
@@ -662,7 +668,7 @@ async function showHireModal(page) {
     }
     toast('未配置模型时可以先保存草稿，确认上班前请先配好模型', 'warning')
   }
-  let selected = available[0]
+
   const hireScheduleCtrl = createSchedulePanel({
     schedule: '0 9-19/2 * * *',
     idPrefix: 'hireSched',
@@ -671,35 +677,30 @@ async function showHireModal(page) {
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay hire-overlay'
 
-  const renderAgentCard = () => {
-    return `
-      <div class="hire-agent-card" data-role="agent-card">
-        <div class="hire-agent-avatar" data-avatar-agent="${esc(selected.code)}" aria-hidden="true"></div>
-        <div class="hire-agent-meta">
-          <div class="hire-agent-name">${esc(selected.name || selected.code)}</div>
-          <div class="hire-agent-code">${esc(selected.code)}</div>
-        </div>
-        <span class="hire-agent-pill">将加定时岗位</span>
-      </div>`
-  }
-
   const templateChips = HIRE_TEMPLATES.map(
     (t) =>
       `<button type="button" class="hire-chip hire-template-chip" data-template="${esc(t.id)}" title="${esc(t.blurb)}">${esc(t.label)}</button>`,
   ).join('')
 
+  const bindExistingOptions = available.length
+    ? `<option value="">自动创建能力（推荐）</option>
+       ${available
+         .map((a) => `<option value="${esc(a.code)}">沿用未入职能力 · ${esc(a.name || a.code)}（${esc(a.code)}）</option>`)
+         .join('')}`
+    : `<option value="">自动创建能力</option>`
+
   overlay.innerHTML = `
     <div class="hire-sheet" role="dialog" aria-labelledby="hire-sheet-title">
       <header class="hire-sheet-head">
         <div>
-          <p class="hire-sheet-kicker">智能体员工</p>
-          <h2 id="hire-sheet-title" class="hire-sheet-title">雇佣员工</h2>
+          <p class="hire-sheet-kicker">员工</p>
+          <h2 id="hire-sheet-title" class="hire-sheet-title">加人</h2>
         </div>
         <button type="button" class="hire-sheet-close" data-act="close" aria-label="关闭">&times;</button>
       </header>
 
       <div class="hire-sheet-body" style="padding-top:12px">
-        <p class="hire-chip-hint">两步即可：选人 → 写职责。工作空间可选，不选则用默认。</p>
+        <p class="hire-chip-hint">直接加人即可：填岗位与职责，系统自动准备能力；可选部门与上级。</p>
         <div class="hire-field">
           <span>从模板开始（可选）</span>
           <div class="hire-chip-row hire-template-row" data-role="hire-templates">
@@ -708,44 +709,52 @@ async function showHireModal(page) {
           </div>
           <p class="hire-chip-hint" data-role="template-hint">点模板会预填岗位名、职责、审批策略与上班频率，仍可再改。</p>
         </div>
-        ${renderAgentPickField(available, selected.code)}
-        ${renderAgentCard()}
 
         <label class="hire-field">
           <span>岗位名称</span>
-          <input class="hire-input" data-name="role_name" value="" placeholder="岗位显示名，例如：前端架构负责人">
+          <input class="hire-input" data-name="role_name" value="" placeholder="例如：创意广告负责人、后端开发">
         </label>
 
         <label class="hire-field">
           <span>职责</span>
-          <textarea class="hire-input hire-textarea" data-name="responsibilities" rows="3" placeholder="每行一条，写清要主动推进的事，例如：&#10;盯紧 evopanel 前端质量与构建&#10;发现可修问题就提出事项并跟进"></textarea>
+          <textarea class="hire-input hire-textarea" data-name="responsibilities" rows="3" placeholder="每行一条，写清要主动推进的事"></textarea>
         </label>
+
+        <div class="hire-field-row">
+          <label class="hire-field">
+            <span>部门</span>
+            ${renderDepartmentSelectControl('', departments)}
+          </label>
+          <label class="hire-field">
+            <span>直属上级</span>
+            <select class="hire-input" data-name="reports_to">
+              <option value="">（无上级 · 顶层）</option>
+              ${(_rolesData || [])
+                .filter((r) => String(r.agent_code || '').trim() && String(r.status || '') !== 'archived')
+                .map((r) => {
+                  const c = String(r.agent_code || '').trim()
+                  const n = String(r.role_name || c).trim()
+                  const d = String(r.department || '').trim()
+                  return `<option value="${esc(c)}">${esc(n)}${d ? ` · ${esc(d)}` : ''}</option>`
+                })
+                .join('')}
+            </select>
+          </label>
+        </div>
 
         ${renderKnowledgeVaultField(knowledgeVaults, [])}
 
         <details class="hire-advanced">
-          <summary>更多设置（工作空间 / 部门 / 转交审批策略 / 节奏 / 模型）</summary>
+          <summary>更多设置（能力来源 / 工作空间 / 审批 / 节奏 / 模型）</summary>
           <div class="hire-advanced-body">
-            ${renderWorkspaceField(workspacePaths, '', '')}
             <label class="hire-field">
-              <span>部门</span>
-              <input class="hire-input" data-name="department" value="" placeholder="可选">
-            </label>
-            <label class="hire-field">
-              <span>直属上级（可选）</span>
-              <select class="hire-input" data-name="reports_to">
-                <option value="">（无上级 · 顶层）</option>
-                ${(_rolesData || [])
-                  .filter((r) => String(r.agent_code || '').trim())
-                  .map((r) => {
-                    const c = String(r.agent_code || '').trim()
-                    const n = String(r.role_name || c).trim()
-                    return `<option value="${esc(c)}">${esc(n)} · ${esc(c)}</option>`
-                  })
-                  .join('')}
+              <span>能力来源</span>
+              <select class="hire-input" data-name="bind_agent_code">
+                ${bindExistingOptions}
               </select>
-              <p class="hire-chip-hint">也可稍后在「组织架构」页拖调上下级</p>
+              <p class="hire-chip-hint">默认自动创建；也可沿用尚未入职的能力配置（原「智能体」）。</p>
             </label>
+            ${renderWorkspaceField(workspacePaths, '', '')}
             ${renderModelField(chatModels, '')}
             <div class="hire-field">
               <span>转交审批策略</span>
@@ -768,16 +777,11 @@ async function showHireModal(page) {
       <footer class="hire-sheet-foot">
         <button type="button" class="btn btn-secondary btn-sm" data-act="close">取消</button>
         <button type="button" class="btn btn-ghost btn-sm" data-act="draft">保存草稿</button>
-        <button type="button" class="btn btn-sm hire-confirm" data-act="confirm">确认上班</button>
+        <button type="button" class="btn btn-sm hire-confirm" data-act="confirm">确认加人</button>
       </footer>
     </div>
   `
   document.body.appendChild(overlay)
-  // Hireable rows already carry avatar fields; seed index for mount.
-  for (const a of available) {
-    if (a.code) _agentsByCode.set(String(a.code).toLowerCase(), a)
-  }
-  mountProactiveAvatars(overlay, 48)
 
   const close = () => overlay.remove()
   overlay.addEventListener('click', (e) => {
@@ -835,33 +839,6 @@ async function showHireModal(page) {
     applyHireTemplate(btn.getAttribute('data-template') || '')
   })
 
-  const syncAgentCard = () => {
-    const card = overlay.querySelector('[data-role="agent-card"]')
-    if (!card) return
-    const wrap = document.createElement('div')
-    wrap.innerHTML = renderAgentCard().trim()
-    card.replaceWith(wrap.firstElementChild)
-    mountProactiveAvatars(overlay, 48)
-    if (nameEl && (!nameEl.value.trim() || nameEl.value === lastPrefill)) {
-      // 换人时不要用智能体名/英文 code 冒充岗位名；模板预填的岗位名可保留
-      if (nameEl.value === lastPrefill && lastPrefill) {
-        /* keep template title */
-      } else if (!nameEl.value.trim()) {
-        nameEl.value = ''
-        lastPrefill = ''
-      }
-    }
-  }
-
-  bindHireDropdown(overlay, {
-    role: 'agent-dd',
-    onPick: (code) => {
-      const next = available.find((a) => a.code === code)
-      if (!next) return
-      selected = next
-      syncAgentCard()
-    },
-  })
   bindHireChipRows(overlay)
   bindModelSelect(overlay)
   bindWorkspaceSelect(overlay)
@@ -878,14 +855,15 @@ async function showHireModal(page) {
       }
       return
     }
-    const agent_code =
-      (overlay.querySelector('input[data-name="agent_code"]')?.value || '').trim() || selected.code
     const role_name = (nameEl?.value || '').trim()
-    if (!role_name || role_name === agent_code) {
-      toast('请填写岗位名称（不要用智能体名或英文编码）', 'warning')
+    if (!role_name) {
+      toast('请填写岗位名称', 'warning')
       nameEl?.focus()
       return
     }
+    const bind_agent_code = (
+      overlay.querySelector('[data-name="bind_agent_code"]')?.value || ''
+    ).trim()
     const department = (overlay.querySelector('[data-name="department"]')?.value || '').trim()
     const reports_to = (overlay.querySelector('[data-name="reports_to"]')?.value || '').trim()
     const responsibilities = parseLines(overlay.querySelector('[data-name="responsibilities"]')?.value)
@@ -911,28 +889,9 @@ async function showHireModal(page) {
     if (status === 'draft' && draftBtn) draftBtn.textContent = busyLabel
     if (status === 'active' && confirmBtn) confirmBtn.textContent = busyLabel
     try {
-      if (status === 'active') {
-        const overlap = await api.proactiveCheckOverlap({
-          agent_code,
-          responsibilities,
-          domain_scope,
-          role_name,
-        }).catch(() => null)
-        if (overlap?.has_overlap && overlap.warning) {
-          const cont = await showConfirm(`${overlap.warning}\n\n仍要继续雇佣？`)
-          if (!cont) {
-            ;[confirmBtn, draftBtn].forEach((b) => {
-              if (b) b.disabled = false
-            })
-            if (confirmBtn) confirmBtn.textContent = '确认上班'
-            if (draftBtn) draftBtn.textContent = '保存草稿'
-            return
-          }
-        }
-      }
-      await api.proactiveCreateRole({
+      const payload = {
         role_name,
-        agent_code,
+        agent_name: role_name,
         department,
         reports_to,
         responsibilities,
@@ -941,20 +900,42 @@ async function showHireModal(page) {
         knowledge_vault_ids: readKnowledgeVaultIds(overlay),
         autonomy_level,
         heartbeat_schedule,
-        approval_channels: ['desktop', 'feishu'],
         think_mode: 'agent_loop',
         model_name,
         status,
-        approval_timeout_by_type: {
-          analysis: 120,
-          report: 120,
-          code_change: 1440,
-          optimization: 1440,
-          alert: 60,
-          task_delegation: 240,
-        },
-      })
-      toast(status === 'draft' ? `已保存草稿「${role_name}」` : `已雇佣「${role_name}」`, 'success')
+      }
+      if (bind_agent_code) payload.agent_code = bind_agent_code
+
+      if (status === 'active' && bind_agent_code) {
+        const overlap = await api
+          .proactiveCheckOverlap({
+            agent_code: bind_agent_code,
+            responsibilities,
+            domain_scope,
+            role_name,
+          })
+          .catch(() => null)
+        if (overlap?.has_overlap && overlap.warning) {
+          const cont = await showConfirm(`${overlap.warning}\n\n仍要继续加人？`)
+          if (!cont) {
+            ;[confirmBtn, draftBtn].forEach((b) => {
+              if (b) b.disabled = false
+            })
+            if (confirmBtn) confirmBtn.textContent = '确认加人'
+            if (draftBtn) draftBtn.textContent = '保存草稿'
+            return
+          }
+        }
+      }
+
+      const created = await api.proactiveCreateEmployee(payload)
+      const code = String(created?.agent_code || bind_agent_code || '').trim()
+      toast(
+        status === 'draft'
+          ? `已保存草稿「${role_name}」`
+          : `已加入「${role_name}」${code ? `（${code}）` : ''}`,
+        'success',
+      )
       close()
       _currentTab = 'roles'
       _tabPinnedByHash = true
@@ -963,11 +944,11 @@ async function showHireModal(page) {
       )
       await loadAll(page)
     } catch (e) {
-      toast((status === 'draft' ? '保存草稿失败: ' : '雇佣失败: ') + (e?.message || e), 'error')
+      toast((status === 'draft' ? '保存草稿失败: ' : '加人失败: ') + (e?.message || e), 'error')
       ;[confirmBtn, draftBtn].forEach((b) => {
         if (b) b.disabled = false
       })
-      if (confirmBtn) confirmBtn.textContent = '确认上班'
+      if (confirmBtn) confirmBtn.textContent = '确认加人'
       if (draftBtn) draftBtn.textContent = '保存草稿'
     }
   }
@@ -1619,21 +1600,51 @@ function _orgManagerOptions(code, flatRoles, currentMgr) {
   ].join('')
 }
 
-/** DingTalk-style left tree row (expand + avatar + name). */
+/** Left tree row: department folder or person. */
 function renderOrgTreeRow(node, flatRoles, depth, isLast) {
+  if (node?.node_type === 'dept') {
+    const key = String(node.key || '')
+    const name = String(node.dept_name || '部门').trim()
+    const kids = Array.isArray(node.children) ? node.children : []
+    const hasKids = kids.length > 0
+    const expanded = _orgUi.expanded.has(key)
+    const selected = _orgUi.selectedKind === 'dept' && _orgUi.selected === key
+    const count = Number(node.member_count || kids.length || 0)
+    const headLabel = String(node.head_role_name || node.head_agent_code || '').trim()
+    const childHtml =
+      hasKids && expanded
+        ? `<ul class="dd-org-children">${kids
+            .map((c, i) => renderOrgTreeRow(c, flatRoles, depth + 1, i === kids.length - 1))
+            .join('')}</ul>`
+        : ''
+    return `
+      <li class="dd-org-node dd-org-node--dept${isLast ? ' is-last' : ''}${hasKids ? ' has-kids' : ''}${expanded ? ' is-open' : ' is-collapsed'}" data-depth="${depth}">
+        <div class="dd-org-row dd-org-row--dept${selected ? ' is-selected' : ''}${hasKids ? ' has-kids' : ''}" data-act="org-select-dept" data-dept-key="${esc(key)}" role="treeitem" aria-selected="${selected ? 'true' : 'false'}"${hasKids ? ` aria-expanded="${expanded ? 'true' : 'false'}"` : ''}>
+          <button type="button" class="dd-org-twist${hasKids ? (expanded ? ' is-open' : '') : ' is-leaf'}" data-act="org-toggle" data-code="${esc(key)}" aria-label="${hasKids ? (expanded ? '收起部门' : '展开部门') : '无成员'}" ${hasKids ? '' : 'tabindex="-1"'}>
+            <span class="dd-org-twist-icon" aria-hidden="true"></span>
+          </button>
+          <span class="dd-org-dept-icon" aria-hidden="true"></span>
+          <div class="dd-org-text">
+            <span class="dd-org-name">${esc(name)}</span>
+            <span class="dd-org-dept">${headLabel ? `负责人 · ${esc(headLabel)}` : '未设负责人'}</span>
+          </div>
+          <span class="dd-org-count" title="部门人数">${count}</span>
+        </div>
+        ${childHtml}
+      </li>`
+  }
+
   const code = String(node.agent_code || '').trim()
   const flat = flatRoles.find((r) => String(r.agent_code || '').trim() === code) || node || {}
   const name = String(flat.role_name || node.role_name || code).trim()
   const dept = String(flat.department || node.department || '').trim()
   const status = String(flat.status || node.status || '').trim()
-  // 组织树固定：请假/草稿仍占位；仅 API 标记的桥接节点才灰显（显式按状态过滤时）
   const isBridge = Boolean(flat.is_bridge)
-  // 在岗不打标，避免整树刷屏；请假/归档等才显示状态
   const statusLabel = _orgStatusLabel(status)
   const kids = Array.isArray(node.children) ? node.children : []
   const hasKids = kids.length > 0
   const expanded = hasKids && _orgUi.expanded.has(code)
-  const selected = _orgUi.selected === code
+  const selected = _orgUi.selectedKind === 'person' && _orgUi.selected === code
   const directN = kids.length
   const subtreeN = hasKids ? _countOrgDescendants(node) : 0
 
@@ -1653,7 +1664,6 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
         <div class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="28" aria-hidden="true"></div>
         <div class="dd-org-text">
           <span class="dd-org-name">${esc(name)}</span>
-          ${dept ? `<span class="dd-org-dept">${esc(dept)}</span>` : ''}
           ${statusLabel ? `<span class="dd-org-badge">${esc(statusLabel)}</span>` : ''}
         </div>
         ${hasKids ? `<span class="dd-org-count" title="${expanded ? '直属下级' : `含下级 ${subtreeN} 人`}">${expanded ? directN : subtreeN}</span>` : ''}
@@ -1724,13 +1734,104 @@ function renderOrgChartPreview(flatRoles, forest, code) {
     </div>`
 }
 
+function renderOrgDeptDetail(deptNode, flatRoles) {
+  if (!deptNode) {
+    return `
+      <div class="dd-org-detail-empty">
+        <p>在左侧选择部门或员工</p>
+        <p class="dd-org-detail-hint">先展开部门，再点选人员调整上下级。</p>
+      </div>`
+  }
+  const name = String(deptNode.dept_name || '').trim()
+  const headCode = String(deptNode.head_agent_code || '').trim()
+  const headName = String(deptNode.head_role_name || '').trim()
+  const members = []
+  const walk = (nodes) => {
+    for (const n of nodes || []) {
+      if (n.node_type === 'dept') continue
+      const code = String(n.agent_code || '').trim()
+      if (code) members.push(n)
+      if (n.children?.length) walk(n.children)
+    }
+  }
+  walk(deptNode.children || [])
+  members.sort((a, b) => {
+    const ac = String(a.agent_code || '') === headCode ? 0 : 1
+    const bc = String(b.agent_code || '') === headCode ? 0 : 1
+    if (ac !== bc) return ac - bc
+    return String(a.role_name || a.agent_code || '').localeCompare(
+      String(b.role_name || b.agent_code || ''),
+      'zh-CN',
+    )
+  })
+
+  const listHtml = members.length
+    ? `<ul class="dd-org-dept-people">${members
+        .map((m) => {
+          const code = String(m.agent_code || '').trim()
+          const flat = flatRoles.find((r) => String(r.agent_code || '').trim() === code) || m
+          const rn = String(flat.role_name || code).trim()
+          const isHead = code === headCode
+          const mgr = String(flat.reports_to || '').trim()
+          const mgrRole = mgr
+            ? flatRoles.find((r) => String(r.agent_code || '').trim() === mgr)
+            : null
+          const mgrLabel = mgrRole
+            ? String(mgrRole.role_name || mgr).trim()
+            : mgr || '无上级'
+          const st = _orgStatusLabel(flat.status)
+          return `
+            <li>
+              <button type="button" class="dd-org-dept-person${isHead ? ' is-head' : ''}" data-act="org-select" data-code="${esc(code)}">
+                <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="36" aria-hidden="true"></span>
+                <span class="dd-org-dept-person-text">
+                  <strong>${esc(rn)}${isHead ? '<span class="dd-dept-head-badge">负责人</span>' : ''}</strong>
+                  <span>上级：${esc(mgrLabel)}${st ? ` · ${esc(st)}` : ''}</span>
+                </span>
+                <span class="dd-org-dept-person-go">调整上下级</span>
+              </button>
+            </li>`
+        })
+        .join('')}</ul>`
+    : `<p class="dd-org-muted">该部门暂无成员。可到「部门管理」添加。</p>`
+
+  return `
+    <div class="dd-org-detail">
+      <div class="dd-org-detail-head">
+        <span class="dd-org-dept-icon dd-org-dept-icon--lg" aria-hidden="true"></span>
+        <div>
+          <h3 class="dd-org-detail-name">${esc(name)}</h3>
+          <p class="dd-org-detail-meta">${members.length} 名成员 · 负责人：${
+            headName || headCode || '未指定'
+          }</p>
+        </div>
+      </div>
+      <div class="dd-org-section">
+        <h4>部门成员</h4>
+        ${listHtml}
+      </div>
+      ${
+        deptNode.dept_id && deptNode.dept_id !== '__none__' && !String(deptNode.dept_id).startsWith('name:')
+          ? `<div class="dd-org-detail-actions">
+              <button type="button" class="btn btn-sm btn-outline" data-act="org-goto-dept-mgmt" data-dept-id="${esc(deptNode.dept_id)}">在部门管理中编辑</button>
+            </div>`
+          : ''
+      }
+    </div>`
+}
+
 function renderOrgDetail(flatRoles, forest) {
+  if (_orgUi.selectedKind === 'dept') {
+    const deptNode = _findDeptNode(_orgUi.deptForest, _orgUi.selected)
+    return renderOrgDeptDetail(deptNode, flatRoles)
+  }
+
   const code = String(_orgUi.selected || '').trim()
   if (!code) {
     return `
       <div class="dd-org-detail-empty">
-        <p>在左侧选择一位员工</p>
-        <p class="dd-org-detail-hint">像钉钉通讯录一样：左侧是架构树，右侧改汇报关系。</p>
+        <p>先选部门，再选员工</p>
+        <p class="dd-org-detail-hint">左侧按部门展开；点到具体人员后，在此调整直属上级。</p>
       </div>`
   }
   const node = _findOrgNode(forest, code)
@@ -1770,20 +1871,28 @@ function renderOrgDetail(flatRoles, forest) {
         .join('')}</ul>`
     : `<p class="dd-org-muted">暂无直属下级</p>`
 
+  // Prefer same-department peers first in manager options
+  const mgrOptionsSource = [...flatRoles].sort((a, b) => {
+    const ad = String(a.department || '').trim() === dept ? 0 : 1
+    const bd = String(b.department || '').trim() === dept ? 0 : 1
+    if (ad !== bd) return ad - bd
+    return String(a.role_name || '').localeCompare(String(b.role_name || ''), 'zh-CN')
+  })
+
   return `
     <div class="dd-org-detail">
       <div class="dd-org-detail-head">
         <div class="dd-org-avatar dd-org-avatar--lg" data-avatar-agent="${esc(code)}" data-avatar-size="56" aria-hidden="true"></div>
         <div>
           <h3 class="dd-org-detail-name">${esc(name)}${selfStatus ? ` <span class="dd-org-badge">${esc(selfStatus)}</span>` : ''}</h3>
-          <p class="dd-org-detail-meta"><code>${esc(code)}</code>${dept ? ` · ${esc(dept)}` : ''} · ${esc(dutyLabel)}</p>
+          <p class="dd-org-detail-meta"><code>${esc(code)}</code>${dept ? ` · ${esc(dept)}` : ' · 未分部门'} · ${esc(dutyLabel)}</p>
         </div>
       </div>
       ${bridgeHint}
       <dl class="dd-org-facts">
         <div>
-          <dt>在岗状态</dt>
-          <dd>${esc(dutyLabel)}</dd>
+          <dt>所属部门</dt>
+          <dd>${esc(dept || '未分部门')}</dd>
         </div>
         <div>
           <dt>当前上级</dt>
@@ -1798,7 +1907,7 @@ function renderOrgDetail(flatRoles, forest) {
       <label class="dd-org-field">
         <span>调整上级（立即保存）</span>
         <select class="pro-org-select" data-act="set-reports-to" data-code="${esc(code)}">
-          ${_orgManagerOptions(code, flatRoles, currentMgr)}
+          ${_orgManagerOptions(code, mgrOptionsSource, currentMgr)}
         </select>
       </label>
       <div class="dd-org-section">
@@ -1811,50 +1920,43 @@ function renderOrgDetail(flatRoles, forest) {
     </div>`
 }
 
-function renderOrgTree(forest, flatRoles) {
-  const trees = Array.isArray(forest) ? forest : []
-  if (!trees.length) {
-    return `
-      <div class="pro-empty">
-        <p class="pro-empty-title">暂无组织节点</p>
-        <p class="pro-empty-desc">先雇佣员工，再在左侧选择并设置上级</p>
-      </div>`
-  }
+function renderOrgTree(_forestUnused, flatRoles) {
+  const deptForest = Array.isArray(_orgUi.deptForest) ? _orgUi.deptForest : []
   const people = flatRoles.filter((r) => !r.is_bridge).length
   const linked = flatRoles.filter((r) => !r.is_bridge && String(r.reports_to || '').trim()).length
-  const bridgeN = flatRoles.filter((r) => r.is_bridge).length
   const onDuty = flatRoles.filter((r) => !r.is_bridge && String(r.status || '') === 'active').length
-  const offDuty = people - onDuty
+  const deptN = deptForest.filter((d) => d.dept_id !== '__none__' || d.member_count > 0).length
   const flatHint =
-    people > 1 && linked === 0
-      ? `<div class="pro-org-hint">还没有汇报线。在左侧点选员工，右侧选择上级后，树会立刻变成钉钉式层级。</div>`
-      : bridgeN
-        ? `<div class="pro-org-hint">含 ${bridgeN} 个桥接节点（灰显），用于在按状态过滤时保留汇报层级。</div>`
-        : `<div class="pro-org-hint">组织架构按汇报关系固定展示；在岗 / 请假只影响状态标记，不改变上下级。</div>`
+    !people
+      ? `<div class="pro-org-hint">暂无员工。先雇佣，再到「部门管理」编入部门，然后在此调整上下级。</div>`
+      : linked === 0
+        ? `<div class="pro-org-hint">左侧先展开部门再点选人员；在右侧选择直属上级即可建立汇报线。</div>`
+        : `<div class="pro-org-hint">组织按部门分组；部门内仍按汇报关系缩进。点选人员后可调整上下级。</div>`
 
+  const visibleDepts = deptForest.filter(
+    (d) => d.dept_id !== '__none__' || Number(d.member_count || 0) > 0,
+  )
   const rootOpen = _orgUi.expanded.has('__root__')
   const rootKids = rootOpen
-    ? `<ul class="dd-org-children dd-org-children--root">${trees
-        .map((n, i) => renderOrgTreeRow(n, flatRoles, 0, i === trees.length - 1))
+    ? `<ul class="dd-org-children dd-org-children--root">${visibleDepts
+        .map((n, i) => renderOrgTreeRow(n, flatRoles, 0, i === visibleDepts.length - 1))
         .join('')}</ul>`
     : ''
 
   return `
     <div class="pro-org-panel">
-      <header class="pro-org-head">
-        <div>
-          <h2 class="pro-org-title">组织架构</h2>
-        </div>
-        <div class="pro-org-head-aside">
-          <span class="pro-org-stat">${people} 个岗位 · ${onDuty} 在岗 · ${offDuty} 请假/其他 · ${trees.length} 个顶层 · ${linked} 条汇报线${bridgeN ? ` · ${bridgeN} 桥接` : ''}</span>
+      ${renderOrgViewHeader({
+        title: '组织架构',
+        aside: `
+          <span class="pro-org-stat">${deptN} 个部门分组 · ${people} 人 · ${onDuty} 在岗 · ${linked} 条汇报线</span>
           <button type="button" class="btn btn-sm btn-outline" data-act="org-expand-all">全部展开</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="org-collapse-all">全部收起</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="org-refresh">刷新</button>
-        </div>
-      </header>
+        `,
+      })}
       ${flatHint}
       <div class="dd-org-layout">
-        <aside class="dd-org-tree-pane" aria-label="组织树">
+        <aside class="dd-org-tree-pane" aria-label="部门与人员">
           <div class="dd-org-company${rootOpen ? ' is-open' : ''}" data-act="org-toggle" data-code="__root__" role="treeitem" aria-expanded="${rootOpen ? 'true' : 'false'}">
             <button type="button" class="dd-org-twist${rootOpen ? ' is-open' : ''}" data-act="org-toggle" data-code="__root__" aria-label="${rootOpen ? '收起组织树' : '展开组织树'}" title="${rootOpen ? '收起组织树' : '展开组织树'}">
               <span class="dd-org-twist-icon" aria-hidden="true"></span>
@@ -1862,17 +1964,219 @@ function renderOrgTree(forest, flatRoles) {
             <strong>智能体组织</strong>
             <span class="dd-org-count">${people}</span>
           </div>
-          ${rootKids}
+          ${rootKids || `<div class="pro-empty pro-empty--compact"><p class="pro-empty-desc">暂无岗位</p></div>`}
         </aside>
-        <section class="dd-org-detail-pane" aria-label="岗位详情">
-          ${renderOrgDetail(flatRoles, trees)}
+        <section class="dd-org-detail-pane" aria-label="详情">
+          ${renderOrgDetail(flatRoles, _orgUi.forest)}
         </section>
       </div>
     </div>`
 }
 
+function renderOrgViewHeader({ title, aside = '' }) {
+  const view = _orgUi.view === 'depts' ? 'depts' : 'tree'
+  return `
+    <header class="pro-org-head">
+      <div>
+        <h2 class="pro-org-title">${esc(title)}</h2>
+        <div class="pro-org-view-tabs" role="tablist" aria-label="组织视图">
+          <button type="button" class="pro-org-view-tab${view === 'tree' ? ' is-on' : ''}" data-act="org-view" data-view="tree" role="tab" aria-selected="${view === 'tree' ? 'true' : 'false'}">组织架构</button>
+          <button type="button" class="pro-org-view-tab${view === 'depts' ? ' is-on' : ''}" data-act="org-view" data-view="depts" role="tab" aria-selected="${view === 'depts' ? 'true' : 'false'}">部门管理</button>
+        </div>
+      </div>
+      <div class="pro-org-head-aside">${aside}</div>
+    </header>`
+}
+
+function renderDepartmentsPanel(departments, roles) {
+  const depts = Array.isArray(departments) ? departments : []
+  const roster = (roles || []).filter((r) => String(r.status || '') !== 'archived')
+  const selectedId = String(_orgUi.deptSelected || '').trim()
+  let selected = depts.find((d) => String(d.id) === selectedId) || null
+  if (!selected && depts.length) {
+    selected = depts[0]
+    _orgUi.deptSelected = String(selected.id || '')
+  }
+  const memberCodes = new Set(
+    (selected?.members || []).map((m) => String(m.agent_code || '').trim()).filter(Boolean),
+  )
+  const unassigned = roster.filter((r) => !String(r.department || '').trim())
+  const q = String(_orgUi.deptPickerQuery || '').trim().toLowerCase()
+
+  const listHtml = depts.length
+    ? depts
+        .map((d) => {
+          const id = String(d.id || '')
+          const on = id === String(selected?.id || '')
+          const n = Number(d.member_count || (d.members || []).length || 0)
+          return `
+            <button type="button" class="dd-dept-row${on ? ' is-selected' : ''}" data-act="dept-select" data-id="${esc(id)}">
+              <span class="dd-dept-row-main">
+                <span class="dd-dept-name">${esc(d.name || '')}</span>
+                ${
+                  d.head_role_name || d.head_agent_code
+                    ? `<span class="dd-dept-row-head">负责人 · ${esc(d.head_role_name || d.head_agent_code)}</span>`
+                    : `<span class="dd-dept-row-head dd-dept-row-head--miss">未设负责人</span>`
+                }
+              </span>
+              <span class="dd-dept-count" title="成员数">${n}</span>
+            </button>`
+        })
+        .join('')
+    : `<div class="pro-empty pro-empty--compact"><p class="pro-empty-desc">还没有部门。在上方输入名称新建。</p></div>`
+
+  const members = selected?.members || []
+  const membersHtml = !selected
+    ? ''
+    : members.length
+      ? `<ul class="dd-dept-member-grid">${members
+          .map((m) => {
+            const code = String(m.agent_code || '').trim()
+            const name = String(m.role_name || code).trim()
+            const st = _orgStatusLabel(m.status)
+            return `
+              <li class="dd-dept-card${String(selected?.head_agent_code || '') === code ? ' is-head' : ''}">
+                <span class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="40" aria-hidden="true"></span>
+                <span class="dd-dept-card-text">
+                  <strong class="dd-dept-card-name">${esc(name)}${
+                    String(selected?.head_agent_code || '') === code
+                      ? '<span class="dd-dept-head-badge">负责人</span>'
+                      : ''
+                  }</strong>
+                  <span class="dd-dept-card-sub">${esc(code)}${st ? ` · ${esc(st)}` : ''}</span>
+                </span>
+                <button type="button" class="dd-dept-card-rm" data-act="dept-remove-member" data-code="${esc(code)}" title="移出部门" aria-label="移出">×</button>
+              </li>`
+          })
+          .join('')}</ul>`
+      : `<div class="dd-dept-empty-members">暂无成员，从下方搜索添加</div>`
+
+  // Candidates: not already in this department
+  const candidates = roster
+    .filter((r) => {
+      const code = String(r.agent_code || '').trim()
+      if (!code || memberCodes.has(code)) return false
+      if (!q) return true
+      const name = String(r.role_name || '').toLowerCase()
+      const dept = String(r.department || '').toLowerCase()
+      return name.includes(q) || code.toLowerCase().includes(q) || dept.includes(q)
+    })
+    .slice(0, 40)
+
+  const pickerHtml = !selected
+    ? ''
+    : `
+      <div class="dd-dept-picker">
+        <div class="dd-dept-picker-bar">
+          <input class="hire-input dd-dept-picker-search" data-act="dept-picker-q" type="search" placeholder="搜索姓名或代号以添加…" value="${esc(_orgUi.deptPickerQuery || '')}" autocomplete="off">
+          <span class="dd-dept-picker-meta">${candidates.length}${q ? ' 条匹配' : ' 位可添加'}${unassigned.length ? ` · ${unassigned.length} 未分部门` : ''}</span>
+        </div>
+        <div class="dd-dept-picker-list" role="listbox" aria-label="可添加员工">
+          ${
+            candidates.length
+              ? candidates
+                  .map((r) => {
+                    const code = String(r.agent_code || '').trim()
+                    const name = String(r.role_name || code).trim()
+                    const dept = String(r.department || '').trim()
+                    const st = _orgStatusLabel(r.status)
+                    return `
+                      <button type="button" class="dd-dept-pick" data-act="dept-add-member" data-code="${esc(code)}" role="option">
+                        <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="32" aria-hidden="true"></span>
+                        <span class="dd-dept-pick-text">
+                          <strong>${esc(name)}</strong>
+                          <span>${esc(code)}${st ? ` · ${esc(st)}` : ''}${dept ? ` · 现属「${esc(dept)}」` : ' · 未分部门'}</span>
+                        </span>
+                        <span class="dd-dept-pick-add">加入</span>
+                      </button>`
+                  })
+                  .join('')
+              : `<div class="dd-dept-empty-members">${q ? '没有匹配的员工' : '所有在编员工都已在本部门'}</div>`
+          }
+        </div>
+      </div>`
+
+  return `
+    <div class="pro-org-panel">
+      ${renderOrgViewHeader({
+        title: '部门管理',
+        aside: `
+          <span class="pro-org-stat">${depts.length} 个部门 · ${roster.length} 在编 · ${unassigned.length} 未分部门</span>
+          <button type="button" class="btn btn-sm btn-outline" data-act="org-refresh">刷新</button>
+        `,
+      })}
+      <div class="dd-dept-layout">
+        <aside class="dd-dept-side" aria-label="部门列表">
+          <form class="dd-dept-create" data-act="dept-create-form">
+            <input class="hire-input" name="name" maxlength="64" placeholder="新建部门…" required>
+            <button type="submit" class="btn btn-sm btn-primary">新建</button>
+          </form>
+          <div class="dd-dept-list">${listHtml}</div>
+        </aside>
+        <section class="dd-dept-main" aria-label="部门详情">
+          ${
+            selected
+              ? `
+            <div class="dd-dept-main-head">
+              <div>
+                <h3 class="dd-dept-main-title">${esc(selected.name || '')}</h3>
+                <p class="dd-dept-main-sub">${members.length} 名成员 · 先指定负责人，再理清汇报线</p>
+              </div>
+              <div class="dd-dept-main-actions">
+                <button type="button" class="btn btn-sm btn-outline" data-act="dept-rename" data-id="${esc(selected.id)}">重命名</button>
+                <button type="button" class="btn btn-sm btn-outline" data-act="dept-delete" data-id="${esc(selected.id)}">删除</button>
+              </div>
+            </div>
+            <div class="dd-dept-block">
+              <h4 class="dd-dept-block-title">部门负责人</h4>
+              <label class="hire-field dd-dept-head-field">
+                <select class="hire-input" data-act="dept-head-select" data-id="${esc(selected.id)}">
+                  <option value="">未指定</option>
+                  ${members
+                    .map((m) => {
+                      const code = String(m.agent_code || '').trim()
+                      const name = String(m.role_name || code).trim()
+                      const on = code === String(selected.head_agent_code || '').trim()
+                      return `<option value="${esc(code)}"${on ? ' selected' : ''}>${esc(name)} · ${esc(code)}</option>`
+                    })
+                    .join('')}
+                </select>
+              </label>
+              <label class="dd-dept-align">
+                <input type="checkbox" data-act="dept-head-align" checked>
+                <span>保存时，把「尚未设置上级」的成员自动汇报给负责人</span>
+              </label>
+              <p class="hire-chip-hint">已有上级的成员不会被改动。细调上下级请到「组织架构」。</p>
+            </div>
+            <div class="dd-dept-block">
+              <h4 class="dd-dept-block-title">部门成员</h4>
+              ${membersHtml}
+            </div>
+            <div class="dd-dept-block">
+              <h4 class="dd-dept-block-title">添加成员</h4>
+              ${pickerHtml}
+            </div>`
+              : `<div class="pro-empty"><p class="pro-empty-title">选择或新建部门</p><p class="pro-empty-desc">左侧管理编制，右侧维护成员。</p></div>`
+          }
+        </section>
+      </div>
+    </div>`
+}
+
+function _deptNodeKey(deptIdOrName) {
+  return `dept:${String(deptIdOrName || '__none__').trim() || '__none__'}`
+}
+
+/** Build reporting forest for a subset of roles (managers outside the set become roots). */
 function _buildForestFromFlat(flat) {
-  const byCode = new Map(flat.map((r) => [String(r.agent_code || '').trim(), { ...r, children: [] }]))
+  const byCode = new Map(
+    (flat || [])
+      .map((r) => {
+        const code = String(r.agent_code || '').trim()
+        return code ? [code, { ...r, node_type: 'person', children: [] }] : null
+      })
+      .filter(Boolean),
+  )
   const roots = []
   for (const r of byCode.values()) {
     const mgr = String(r.reports_to || '').trim()
@@ -1883,6 +2187,135 @@ function _buildForestFromFlat(flat) {
     }
   }
   return _sortOrgForest(roots)
+}
+
+/** Department-first org tree: dept folders → people (reporting tree within each dept). */
+function _buildDeptForest(flatRoles, departments) {
+  const people = (flatRoles || []).filter((r) => !r.is_bridge)
+  const byDeptName = new Map()
+  const unassigned = []
+  for (const r of people) {
+    const d = String(r.department || '').trim()
+    if (!d) {
+      unassigned.push(r)
+      continue
+    }
+    if (!byDeptName.has(d)) byDeptName.set(d, [])
+    byDeptName.get(d).push(r)
+  }
+
+  const makeDeptNode = (id, name, members, headCode = '', headName = '') => {
+    const children = _buildForestFromFlat(members)
+    // Prefer head as first root when they sit at dept root (no in-dept manager).
+    if (headCode && children.length > 1) {
+      children.sort((a, b) => {
+        const ac = String(a.agent_code || '') === headCode ? 0 : 1
+        const bc = String(b.agent_code || '') === headCode ? 0 : 1
+        if (ac !== bc) return ac - bc
+        return String(a.role_name || a.agent_code || '').localeCompare(
+          String(b.role_name || b.agent_code || ''),
+          'zh-CN',
+        )
+      })
+    }
+    return {
+      node_type: 'dept',
+      dept_id: id,
+      dept_name: name,
+      key: _deptNodeKey(id),
+      member_count: members.length,
+      head_agent_code: headCode,
+      head_role_name: headName,
+      children,
+    }
+  }
+
+  const roots = []
+  const seen = new Set()
+  for (const d of departments || []) {
+    const name = String(d.name || '').trim()
+    if (!name) continue
+    seen.add(name)
+    const members = byDeptName.get(name) || []
+    const id = String(d.id || '').trim() || `name:${name}`
+    const headCode = String(d.head_agent_code || '').trim()
+    const headName = String(d.head_role_name || '').trim()
+    roots.push(makeDeptNode(id, name, members, headCode, headName))
+  }
+  for (const [name, members] of byDeptName.entries()) {
+    if (seen.has(name)) continue
+    const id = `name:${name}`
+    roots.push(makeDeptNode(id, name, members))
+  }
+  roots.push(makeDeptNode('__none__', '未分部门', unassigned))
+  return roots
+}
+
+function _findDeptNode(nodes, key) {
+  const target = String(key || '').trim()
+  if (!target) return null
+  for (const n of nodes || []) {
+    if (n.node_type === 'dept' && String(n.key || '') === target) return n
+    if (n.node_type === 'dept') {
+      const hit = _findDeptNode(n.children || [], target)
+      if (hit) return hit
+    }
+  }
+  return null
+}
+
+function _findPersonInDeptForest(nodes, code) {
+  const target = String(code || '').trim()
+  if (!target) return null
+  for (const n of nodes || []) {
+    if (n.node_type === 'dept') {
+      const hit = _findOrgNode(n.children || [], target)
+      if (hit) return { dept: n, person: hit }
+      const nested = _findPersonInDeptForest(n.children || [], target)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+function _collectDeptExpandableKeys(nodes, out = []) {
+  for (const n of nodes || []) {
+    if (n.node_type === 'dept') {
+      out.push(String(n.key || ''))
+      _collectExpandableCodes(n.children || [], out)
+      _collectDeptExpandableKeys(n.children || [], out)
+    }
+  }
+  return out
+}
+
+function _expandDeptDefaults(deptForest) {
+  const expanded = new Set(['__root__'])
+  for (const n of deptForest || []) {
+    if (n.node_type === 'dept') {
+      expanded.add(String(n.key || ''))
+      // Also open first-level managers under each dept
+      for (const p of n.children || []) {
+        const code = String(p.agent_code || '').trim()
+        if (code && (p.children || []).length) expanded.add(code)
+      }
+    }
+  }
+  return expanded
+}
+
+function _expandPathToPerson(code, deptForest, expanded) {
+  const target = String(code || '').trim()
+  if (!target) return false
+  for (const dept of deptForest || []) {
+    if (dept.node_type !== 'dept') continue
+    if (_expandOrgPathTo(target, dept.children || [], expanded)) {
+      expanded.add(String(dept.key || ''))
+      expanded.add('__root__')
+      return true
+    }
+  }
+  return false
 }
 
 async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
@@ -1906,23 +2339,54 @@ async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
 
     _orgUi.forest = trees
     _orgUi.flat = flat
+
+    // Always load departments for dept-first org tree (and dept management view).
+    const deptRes = await api.proactiveListDepartments().catch(() => null)
+    _orgUi.departments = Array.isArray(deptRes?.departments) ? deptRes.departments : []
+    _orgUi.deptForest = _buildDeptForest(flat, _orgUi.departments)
+
     if (!keepSelection || _orgUi.expanded.size <= 1) {
-      _orgUi.expanded = _expandOrgDefaults(trees, flat)
+      _orgUi.expanded = _expandDeptDefaults(_orgUi.deptForest)
     } else {
       _orgUi.expanded.add('__root__')
     }
-    if (_orgUi.selected) {
-      _expandOrgPathTo(_orgUi.selected, trees, _orgUi.expanded)
+
+    if (_orgUi.selectedKind === 'person' && _orgUi.selected) {
+      if (!_expandPathToPerson(_orgUi.selected, _orgUi.deptForest, _orgUi.expanded)) {
+        // Fall back: still in global forest?
+        if (!_findOrgNode(trees, _orgUi.selected)) {
+          _orgUi.selected = ''
+          _orgUi.selectedKind = 'dept'
+        }
+      }
+    } else if (_orgUi.selectedKind === 'dept' && _orgUi.selected) {
+      if (!_findDeptNode(_orgUi.deptForest, _orgUi.selected)) {
+        _orgUi.selected = ''
+      } else {
+        _orgUi.expanded.add(_orgUi.selected)
+        _orgUi.expanded.add('__root__')
+      }
     }
-    if (keepSelection && _orgUi.selected && !_findOrgNode(trees, _orgUi.selected)) {
-      _orgUi.selected = ''
+
+    if (!_orgUi.selected && _orgUi.deptForest.length) {
+      const firstDept = _orgUi.deptForest.find((d) => d.member_count > 0) || _orgUi.deptForest[0]
+      _orgUi.selected = String(firstDept.key || '')
+      _orgUi.selectedKind = 'dept'
+      _orgUi.expanded.add(_orgUi.selected)
     }
-    if (!_orgUi.selected && flat.length) {
-      _orgUi.selected = String(flat[0].agent_code || '').trim()
+
+    if (
+      _orgUi.deptSelected &&
+      !_orgUi.departments.some((d) => String(d.id) === String(_orgUi.deptSelected))
+    ) {
+      _orgUi.deptSelected = ''
     }
 
     if (_currentTab !== 'org') return
-    container.innerHTML = renderOrgTree(trees, flat)
+    container.innerHTML =
+      _orgUi.view === 'depts'
+        ? renderDepartmentsPanel(_orgUi.departments, flat)
+        : renderOrgTree(trees, flat)
     await refreshAgentsAvatarIndex()
     mountProactiveAvatars(container)
     bindOrgPanel(page, container)
@@ -1936,7 +2400,10 @@ async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
 function _rerenderOrg(page) {
   const container = page.querySelector('#pro-tab-content')
   if (!container || _currentTab !== 'org') return
-  container.innerHTML = renderOrgTree(_orgUi.forest, _orgUi.flat)
+  container.innerHTML =
+    _orgUi.view === 'depts'
+      ? renderDepartmentsPanel(_orgUi.departments, _orgUi.flat)
+      : renderOrgTree(_orgUi.forest, _orgUi.flat)
   void refreshAgentsAvatarIndex().then(() => mountProactiveAvatars(container))
   bindOrgPanel(page, container)
 }
@@ -1944,11 +2411,25 @@ function _rerenderOrg(page) {
 function bindOrgPanel(page, container) {
   const orgClickState = { code: '', t: 0 }
 
+  container.querySelectorAll('[data-act="org-view"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const view = String(btn.getAttribute('data-view') || 'tree').trim()
+      if (view !== 'tree' && view !== 'depts') return
+      if (_orgUi.view === view) return
+      _orgUi.view = view
+      void loadAndRenderOrg(page)
+    })
+  })
+
   container.querySelector('[data-act="org-refresh"]')?.addEventListener('click', () => {
     void loadAndRenderOrg(page)
   })
   container.querySelector('[data-act="org-expand-all"]')?.addEventListener('click', () => {
-    _orgUi.expanded = new Set(['__root__', ..._collectExpandableCodes(_orgUi.forest)])
+    _orgUi.expanded = new Set([
+      '__root__',
+      ..._collectDeptExpandableKeys(_orgUi.deptForest),
+      ..._collectExpandableCodes(_orgUi.forest),
+    ])
     _rerenderOrg(page)
   })
   container.querySelector('[data-act="org-collapse-all"]')?.addEventListener('click', () => {
@@ -1966,20 +2447,41 @@ function bindOrgPanel(page, container) {
       _rerenderOrg(page)
     })
   })
+  container.querySelectorAll('[data-act="org-select-dept"]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-act="org-toggle"]')) return
+      const key = String(el.getAttribute('data-dept-key') || '').trim()
+      if (!key) return
+      _orgUi.selected = key
+      _orgUi.selectedKind = 'dept'
+      if (!_orgUi.expanded.has(key)) _orgUi.expanded.add(key)
+      _rerenderOrg(page)
+    })
+  })
+  container.querySelector('[data-act="org-goto-dept-mgmt"]')?.addEventListener('click', () => {
+    const id = String(
+      container.querySelector('[data-act="org-goto-dept-mgmt"]')?.getAttribute('data-dept-id') || '',
+    ).trim()
+    if (id) _orgUi.deptSelected = id
+    _orgUi.view = 'depts'
+    void loadAndRenderOrg(page)
+  })
   container.querySelectorAll('[data-act="org-select"]').forEach((el) => {
     el.addEventListener('click', (e) => {
       if (e.target.closest('[data-act="org-toggle"]')) return
       const code = String(el.getAttribute('data-code') || '').trim()
-      if (!code || code === '__root__') return
+      if (!code || code === '__root__' || code.startsWith('dept:')) return
       const now = Date.now()
       const isDbl = orgClickState.code === code && now - orgClickState.t < 360
       orgClickState.code = code
       orgClickState.t = now
 
       _orgUi.selected = code
-      _expandOrgPathTo(code, _orgUi.forest, _orgUi.expanded)
+      _orgUi.selectedKind = 'person'
+      _expandPathToPerson(code, _orgUi.deptForest, _orgUi.expanded)
 
-      const node = _findOrgNode(_orgUi.forest, code)
+      const inDept = _findPersonInDeptForest(_orgUi.deptForest, code)
+      const node = inDept?.person || _findOrgNode(_orgUi.forest, code)
       const hasKids = (node?.children || []).length > 0
       if (isDbl && hasKids) {
         if (_orgUi.expanded.has(code)) _orgUi.expanded.delete(code)
@@ -2005,6 +2507,168 @@ function bindOrgPanel(page, container) {
     btn.addEventListener('click', () => {
       const code = String(btn.getAttribute('data-code') || '').trim()
       if (code) navigate(`/proactive/${encodeURIComponent(code)}`)
+    })
+  })
+
+  // ── department management ───────────────────────────────
+  container.querySelectorAll('[data-act="dept-select"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      _orgUi.deptSelected = String(btn.getAttribute('data-id') || '').trim()
+      _rerenderOrg(page)
+    })
+  })
+  container.querySelector('[data-act="dept-create-form"]')?.addEventListener('submit', (e) => {
+    e.preventDefault()
+    const form = e.currentTarget
+    const name = String(form?.querySelector?.('[name="name"]')?.value || form?.name?.value || '').trim()
+    if (!name) return
+    void (async () => {
+      try {
+        const res = await api.proactiveCreateDepartment({ name })
+        const id = String(res?.department?.id || '').trim()
+        if (id) _orgUi.deptSelected = id
+        form.reset?.()
+        await loadAndRenderOrg(page)
+        await loadAll(page)
+      } catch (err) {
+        toast(String(err?.message || err || '新建失败'), 'error')
+      }
+    })()
+  })
+  container.querySelector('[data-act="dept-rename"]')?.addEventListener('click', () => {
+    const id = String(container.querySelector('[data-act="dept-rename"]')?.getAttribute('data-id') || '').trim()
+    const cur = (_orgUi.departments || []).find((d) => String(d.id) === id)
+    const next = window.prompt('部门新名称', String(cur?.name || ''))
+    if (next == null) return
+    const name = String(next).trim()
+    if (!name) return
+    void (async () => {
+      try {
+        await api.proactiveUpdateDepartment(id, { name })
+        await loadAndRenderOrg(page)
+        await loadAll(page)
+      } catch (err) {
+        toast(String(err?.message || err || '重命名失败'), 'error')
+      }
+    })()
+  })
+  container.querySelector('[data-act="dept-head-select"]')?.addEventListener('change', (e) => {
+    const sel = e.currentTarget
+    const id = String(sel?.getAttribute('data-id') || '').trim()
+    if (!id) return
+    const head = String(sel?.value || '').trim()
+    const align = Boolean(container.querySelector('[data-act="dept-head-align"]')?.checked)
+    void (async () => {
+      try {
+        await api.proactiveUpdateDepartment(id, {
+          head_agent_code: head,
+          align_unmanaged: align && Boolean(head),
+        })
+        toast(
+          head
+            ? align
+              ? '已指定负责人，并同步未设上级成员'
+              : '已指定部门负责人'
+            : '已清除部门负责人',
+          'success',
+        )
+        await loadAndRenderOrg(page)
+        await loadAll(page)
+      } catch (err) {
+        toast(String(err?.message || err || '设置负责人失败'), 'error')
+        await loadAndRenderOrg(page)
+      }
+    })()
+  })
+  container.querySelector('[data-act="dept-delete"]')?.addEventListener('click', () => {
+    const id = String(container.querySelector('[data-act="dept-delete"]')?.getAttribute('data-id') || '').trim()
+    const cur = (_orgUi.departments || []).find((d) => String(d.id) === id)
+    void (async () => {
+      const ok = await showConfirm(
+        `删除部门「${cur?.name || id}」？\n成员的部门字段会被清空（岗位本身保留）。`,
+      )
+      if (!ok) return
+      try {
+        await api.proactiveDeleteDepartment(id)
+        _orgUi.deptSelected = ''
+        await loadAndRenderOrg(page)
+        await loadAll(page)
+      } catch (err) {
+        toast(String(err?.message || err || '删除失败'), 'error')
+      }
+    })()
+  })
+
+  const pickerSearch = container.querySelector('[data-act="dept-picker-q"]')
+  pickerSearch?.addEventListener('input', () => {
+    _orgUi.deptPickerQuery = String(pickerSearch.value || '')
+    const keepFocus = document.activeElement === pickerSearch
+    const selStart = pickerSearch.selectionStart
+    const selEnd = pickerSearch.selectionEnd
+    _rerenderOrg(page)
+    if (keepFocus) {
+      const again = page.querySelector('[data-act="dept-picker-q"]')
+      if (again) {
+        again.focus()
+        try {
+          again.setSelectionRange(selStart, selEnd)
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  })
+
+  const _syncDeptMembers = async (id, codes) => {
+    await api.proactiveSetDepartmentMembers(id, codes)
+    // Keep local role cache in sync so roster labels update without full reload lag
+    const dept = (_orgUi.departments || []).find((d) => String(d.id) === String(id))
+    const name = String(dept?.name || '').trim()
+    const codeSet = new Set(codes)
+    for (const r of _orgUi.flat || []) {
+      const c = String(r.agent_code || '').trim()
+      if (!c) continue
+      if (codeSet.has(c)) r.department = name
+      else if (String(r.department || '').trim() === name) r.department = ''
+    }
+    for (const r of _rolesData || []) {
+      const c = String(r.agent_code || '').trim()
+      if (!c) continue
+      if (codeSet.has(c)) r.department = name
+      else if (String(r.department || '').trim() === name) r.department = ''
+    }
+    await loadAndRenderOrg(page)
+  }
+
+  container.querySelectorAll('[data-act="dept-add-member"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const code = String(btn.getAttribute('data-code') || '').trim()
+      const id = String(_orgUi.deptSelected || '').trim()
+      if (!code || !id) return
+      const codes = [
+        ...new Set([
+          ...((_orgUi.departments || []).find((d) => String(d.id) === id)?.members || [])
+            .map((m) => String(m.agent_code || '').trim())
+            .filter(Boolean),
+          code,
+        ]),
+      ]
+      void _syncDeptMembers(id, codes).catch((err) => {
+        toast(String(err?.message || err || '添加失败'), 'error')
+      })
+    })
+  })
+  container.querySelectorAll('[data-act="dept-remove-member"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const code = String(btn.getAttribute('data-code') || '').trim()
+      const id = String(_orgUi.deptSelected || '').trim()
+      if (!code || !id) return
+      const codes = ((_orgUi.departments || []).find((d) => String(d.id) === id)?.members || [])
+        .map((m) => String(m.agent_code || '').trim())
+        .filter((c) => c && c !== code)
+      void _syncDeptMembers(id, codes).catch((err) => {
+        toast(String(err?.message || err || '移出失败'), 'error')
+      })
     })
   })
   container.querySelectorAll('[data-act="set-reports-to"]').forEach((sel) => {
@@ -2461,8 +3125,8 @@ function renderRoles(roles) {
         </svg>
       </div>
       <p class="pro-empty-title">还没有智能体员工</p>
-      <p class="pro-empty-desc">先在「智能体」页准备好智能体，再点「雇佣员工」：选人、写职责、绑工作区即可确认上班</p>
-      <button type="button" class="btn btn-primary btn-sm" id="pro-empty-hire" style="margin-top:14px">雇佣第一位员工</button>
+      <p class="pro-empty-desc">点「加人」填写岗位与职责即可入职；也可到「组织 / 部门」编入编制后再调汇报线</p>
+      <button type="button" class="btn btn-primary btn-sm" id="pro-empty-hire" style="margin-top:14px">加人</button>
     </div>`
   }
 

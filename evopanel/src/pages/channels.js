@@ -2,6 +2,7 @@ import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { ensureQrImgFallbackHandler, qrImageHtml } from '../lib/qr-image.js'
+import { publicIconUrl } from '../lib/public-asset.js'
 import {
   FEISHU_COLLAB_HOWTO_HTML,
   feishuBindingOf,
@@ -389,8 +390,8 @@ async function loadChannels(page) {
 const CHANNEL_ICONS = {
   feishu: '<img src="/assets/feishu-logo.png" width="20" height="20" alt="Feishu" style="border-radius:4px">',
   dingtalk: '<svg viewBox="0 0 24 24" width="20" height="20" fill="#0083FF"><path d="M10.64 2.68a1.33 1.33 0 0 1 1.72 0l6.87 5.84c.53.45.59 1.24.14 1.77L16.07 13H19a1 1 0 0 1 .89.55l2 4A1 1 0 0 1 21 19h-5.62l-3.38 2.86a1.33 1.33 0 0 1-1.72 0L3.41 16.02a1.33 1.33 0 0 1-.14-1.77L7.93 9H5a1 1 0 0 1-.89-.55l-2-4A1 1 0 0 1 3 3h5.62l3.38-2.86z"/></svg>',
-  slack: '<img src="/icons/slack.svg" width="20" height="20" alt="Slack">',
-  telegram: '<img src="/icons/telegram.svg" width="20" height="20" alt="Telegram">',
+  slack: `<img src="${publicIconUrl('slack')}" width="20" height="20" alt="Slack">`,
+  telegram: `<img src="${publicIconUrl('telegram')}" width="20" height="20" alt="Telegram">`,
   weixin: '<svg viewBox="0 0 24 24" width="20" height="20" aria-label="WeChat"><path fill="#07C160" d="M8.5 9.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm7 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/><path fill="#07C160" d="M12 2C6.5 2 2 5.6 2 10c0 2.2 1.1 4.2 2.9 5.7L3 22l6.5-2.1c.8.2 1.6.3 2.5.3 5.5 0 10-3.6 10-8.2S17.5 2 12 2z"/></svg>',
 }
 

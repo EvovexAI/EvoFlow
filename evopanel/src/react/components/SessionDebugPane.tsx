@@ -95,9 +95,19 @@ function SessionDebugPaneInner({
       setCalls(rows)
       setRunIdToChatSeq(seqMap)
     } catch (err) {
+      const msg = String((err as Error)?.message || err || '加载失败')
+      const status = Number((err as { status?: number })?.status) || 0
+      const isForbidden =
+        status === 403 || /org_admin required|forbidden|权限/i.test(msg)
       setCalls([])
       setRunIdToChatSeq(new Map())
-      setError(String((err as Error)?.message || err || '加载失败'))
+      // Silent polls during streaming must not flash admin errors every few seconds.
+      if (silent && isForbidden) return
+      setError(
+        isForbidden
+          ? '当前账号无法查看本会话的模型调用明细（需要会话可见权限）'
+          : msg,
+      )
     } finally {
       if (!silent) setLoading(false)
     }

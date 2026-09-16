@@ -33,6 +33,10 @@ import {
 } from '../lib/workspace-field-ui.js'
 import { createSchedulePanel } from '../lib/schedule-panel.js'
 import {
+  loadDepartmentCatalog,
+  renderDepartmentSelectControl,
+} from '../lib/proactive-role-edit.js'
+import {
   bindListPager,
   renderListPagerHtml,
   writeStoredPageSize,
@@ -531,7 +535,7 @@ export function resolvePrimaryAction(agent, state) {
   if (deploy === 'automation') {
     return { action: 'open-automation', label: '打开自动化', className: 'role-btn--primary' }
   }
-  return { action: 'hire', label: '部署', className: 'role-btn--hire' }
+  return { action: 'hire', label: '加入员工', className: 'role-btn--hire' }
 }
 
 // ========== 渲染角色卡片 ==========
@@ -855,7 +859,7 @@ async function openAgentDetailDrawer(page, state, id) {
         <button type="button" class="btn btn-secondary" data-action="edit" data-id="${escapeAttr(id)}">编辑配置</button>
         ${feishuBtn}
         <button type="button" class="btn btn-primary" data-action="${escapeAttr(primary.action)}" data-id="${escapeAttr(id)}">${escapeHtml(
-          primary.action === 'hire' ? '部署为员工' : primary.label,
+          primary.action === 'hire' ? '加入员工编制' : primary.label,
         )}</button>
       </div>
     `
@@ -933,7 +937,7 @@ async function connectAgentToFeishu(page, state, id) {
     return
   }
   const ok = await showConfirm(
-    `「${name}」尚未部署为员工。\n\n部署并扫码绑定飞书后，把机器人拉进同事群即可协作。是否继续？`,
+    `「${name}」尚未加入员工编制。\n\n加入并扫码绑定飞书后，把机器人拉进同事群即可协作。是否继续？`,
   )
   if (!ok) return
   await hireAndBindFeishu(code, {
@@ -1110,13 +1114,17 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
     ? defaultName.slice(0, 2)
     : defaultName.slice(0, 2).toUpperCase()
 
-  const workspacePaths = await loadWorkspacePaths()
+  const [workspacePaths, departments] = await Promise.all([
+    loadWorkspacePaths(),
+    loadDepartmentCatalog(),
+  ])
   const workspaceField = renderWorkspaceFieldOnly(workspacePaths, '')
   const hireScheduleCtrl = createSchedulePanel({
     schedule: '0 9-19/2 * * *',
     idPrefix: 'agentHireSched',
     compact: true,
   })
+  const departmentSelect = renderDepartmentSelectControl('', departments)
 
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay hire-overlay'
@@ -1125,7 +1133,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
       <header class="hire-sheet-head">
         <div>
           <p class="hire-sheet-kicker">智能体员工</p>
-          <h2 id="hire-sheet-title" class="hire-sheet-title">部署为员工</h2>
+          <h2 id="hire-sheet-title" class="hire-sheet-title">加入员工编制</h2>
         </div>
         <button type="button" class="hire-sheet-close" data-act="close" aria-label="关闭">&times;</button>
       </header>
@@ -1147,7 +1155,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
           </label>
           <label class="hire-field">
             <span>部门</span>
-            <input class="hire-input" data-name="department" value="" placeholder="可选">
+            ${departmentSelect}
           </label>
         </div>
 
@@ -1181,7 +1189,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
 
       <footer class="hire-sheet-foot">
         <button type="button" class="btn btn-secondary btn-sm" data-act="close">取消</button>
-        <button type="button" class="btn btn-sm hire-confirm" data-act="confirm">确认部署</button>
+        <button type="button" class="btn btn-sm hire-confirm" data-act="confirm">确认加入</button>
       </footer>
     </div>
   `
@@ -1239,10 +1247,10 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
     const btn = overlay.querySelector('[data-act="confirm"]')
     if (btn) {
       btn.disabled = true
-      btn.textContent = '部署中…'
+      btn.textContent = '加入中…'
     }
     try {
-      await api.proactiveCreateRole({
+      await api.proactiveCreateEmployee({
         agent_code: code,
         role_name,
         department,
@@ -1250,10 +1258,9 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
         workspace_path,
         autonomy_level,
         heartbeat_schedule,
-        approval_channels: ['desktop', 'feishu'],
         think_mode: 'agent_loop',
       })
-      toast(`已部署「${role_name}」为员工`, 'success')
+      toast(`已将「${role_name}」加入员工编制`, 'success')
       state.hiredCodes?.add?.(code)
       close()
       const bindFeishu = await showConfirm(
@@ -1270,10 +1277,10 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
       if (typeof state.onRefresh === 'function') await state.onRefresh()
       else renderRoleCards(page, state)
     } catch (_e) {
-      toast('部署失败: ' + (_e?.message || _e), 'error')
+      toast('加入员工失败: ' + (_e?.message || _e), 'error')
       if (btn) {
         btn.disabled = false
-        btn.textContent = '确认部署'
+        btn.textContent = '确认加入'
       }
     }
   })
@@ -1574,7 +1581,7 @@ async function showRoleDetailDialog(id, page, state) {
           <button class="btn btn-secondary" data-action="close">关闭</button>
           ${hired
             ? '<button class="btn btn-secondary" data-action="open-duty">查看值班台</button>'
-            : '<button class="btn btn-primary" data-action="hire" style="background:linear-gradient(135deg,#0f766e,#14b8a6);border:none">部署为员工</button>'}
+            : '<button class="btn btn-primary" data-action="hire" style="background:linear-gradient(135deg,#0f766e,#14b8a6);border:none">加入员工编制</button>'}
           <button class="btn btn-primary" data-action="edit">编辑此角色</button>
         </footer>
       </div>
