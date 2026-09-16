@@ -319,7 +319,12 @@ export async function render() {
       }
     } catch (e) {
       toast.error('加载工作流失败: ' + e.message)
-      canvasMountEl.innerHTML = `<div class="app-editor-error">${escHtml(e.message)}</div>`
+      canvasMountEl.innerHTML = `
+        <div class="app-editor-error" style="padding:40px;text-align:center">
+          <p style="margin:0 0 12px;color:var(--text-secondary)">${escHtml(e.message)}</p>
+          <p style="margin:0 0 16px;font-size:13px;color:var(--text-tertiary)">若刚新建，请返回列表刷新后再打开；仍失败请重新创建。</p>
+          <a class="btn btn-secondary btn-sm" href="#/apps">返回工作流列表</a>
+        </div>`
     }
   }
 

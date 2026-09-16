@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -17,6 +18,8 @@ from evoflow.collab.app_runner import (
     run_app,
 )
 from evoflow.persistence import app_repositories
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/apps",
@@ -253,18 +256,15 @@ def create_app_endpoint(request: Request, body: CreateAppRequest) -> dict[str, A
 
     app_repositories.save_app(app_id, document)
     try:
-        from evoflow.authz.resource_visibility import stamp_kwargs_from_request
+        from evoflow.authz.resource_visibility import stamp_new_app_from_request
 
-        own = stamp_kwargs_from_request(request)
-        if own.get("owner_scope_id"):
-            app_repositories.set_app_owner_scope(
-                app_id,
-                org_id=own.get("org_id") or "local",
-                owner_scope_id=own["owner_scope_id"],
-                created_by=own.get("created_by"),
-            )
+        stamp_new_app_from_request(request, app_id)
     except Exception:
-        pass
+        logger.exception("failed to stamp ownership for new app %s", app_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to assign workflow ownership; please retry",
+        ) from None
 
     created = app_repositories.load_app(app_id)
     if created is None:
@@ -298,18 +298,15 @@ def generate_app_endpoint(http_request: Request, request: GenerateAppRequest) ->
     app_id = app_doc["id"]
     app_repositories.save_app(app_id, app_doc)
     try:
-        from evoflow.authz.resource_visibility import stamp_kwargs_from_request
+        from evoflow.authz.resource_visibility import stamp_new_app_from_request
 
-        own = stamp_kwargs_from_request(http_request)
-        if own.get("owner_scope_id"):
-            app_repositories.set_app_owner_scope(
-                app_id,
-                org_id=own.get("org_id") or "local",
-                owner_scope_id=own["owner_scope_id"],
-                created_by=own.get("created_by"),
-            )
+        stamp_new_app_from_request(http_request, app_id)
     except Exception:
-        pass
+        logger.exception("failed to stamp ownership for generated app %s", app_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to assign workflow ownership; please retry",
+        ) from None
 
     created = app_repositories.load_app(app_id)
     if created is None:

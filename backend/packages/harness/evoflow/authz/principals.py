@@ -367,6 +367,13 @@ def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
         principal_id="local-admin",
         attrs={"bootstrap": True},
     )
+    try:
+        from evoflow.authz import admin_grants as admin_mod
+
+        if not admin_mod.is_org_admin(str(created["principal_id"]), org_id=org_id):
+            admin_mod.promote_org_admin(str(created["principal_id"]), granted_by=None, org_id=org_id)
+    except Exception:
+        logger.debug("promote local-admin org_admin failed", exc_info=True)
     return created
 
 

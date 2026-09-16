@@ -85,6 +85,62 @@ def test_require_app_visible_blocks_other_user(sqlite_tmp: str, monkeypatch: pyt
     assert ei.value.status_code == 404
 
 
+def test_stamp_new_app_makes_creator_visible(sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: create without owner stamp → non-admin GET 404 (issue #19)."""
+    del sqlite_tmp
+    from fastapi import HTTPException
+
+    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz.resource_visibility import stamp_new_app_from_request
+    from evoflow.authz.scope import personal_scope
+    from evoflow.persistence import app_repositories
+
+    ensure_app_schema(get_db())
+    alice = principals_mod.create_principal(display_name="Alice", principal_id="user:alice")
+
+    app_repositories.save_app(
+        "App_new",
+        {"name": "Blank", "description": "", "parameters": [], "steps": [], "status": "draft"},
+    )
+    # Unstamped → invisible to non-admin
+    monkeypatch.setattr(
+        http_guard,
+        "resolve_authz_from_request",
+        lambda _r: {
+            "principal": alice,
+            "principal_id": "user:alice",
+            "is_admin": False,
+            "personal_scope": personal_scope("user:alice"),
+            "org_scope": "org:local",
+            "org_id": "local",
+        },
+    )
+    with pytest.raises(HTTPException) as ei:
+        http_guard.require_app_visible(MagicMock(), "App_new")
+    assert ei.value.status_code == 404
+
+    def _resolve_authz(req):
+        return {
+            "principal": alice,
+            "org_id": "local",
+            "is_org_admin": False,
+            "session_key": None,
+            "scope_id": personal_scope("user:alice"),
+            "audience": [alice],
+        }
+
+    monkeypatch.setattr(
+        "evoflow.authz.context.resolve_request_authz",
+        _resolve_authz,
+    )
+    stamped = stamp_new_app_from_request(MagicMock(), "App_new")
+    assert stamped.get("owner_scope_id") == personal_scope("user:alice")
+    org, owner = app_repositories.get_app_owner_scope("App_new")
+    assert owner == personal_scope("user:alice")
+
+    http_guard.require_app_visible(MagicMock(), "App_new")
+
+
 def test_require_session_visible_blocks_other_user(sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del sqlite_tmp
     from fastapi import HTTPException

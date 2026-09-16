@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- 新建空白工作流后立刻打开报 `Application not found`：创建时强制写入 `owner_scope_id`，避免非管理员因未盖章归属而 404（#19）
 - 桌面 `checkBackendReady` / sidecar 等待改为 `/health/ready`（core 路由已挂载），不再把 liveness 当 API 可用
 - 扩展模块 `loading_extended` 503 改为可重试，避免设置等面板偶发「加载失败」
 - Guardian 热重启后等到 `/health/ready` 再标记恢复

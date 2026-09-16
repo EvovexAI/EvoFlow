@@ -590,7 +590,13 @@ export async function render() {
             parameters: [],
           })
           toast.success('工作流创建成功')
-          navigate(`/apps/${created.id}`)
+          const newId = created?.id || created?.app_id || created?.appId
+          if (!newId) {
+            toast.warning('已创建，但未返回工作流 ID，请在列表中打开')
+            await loadApps()
+            return
+          }
+          navigate(`/apps/${newId}`)
         } catch (e) {
           toast.error('创建失败: ' + e.message)
         }
@@ -750,7 +756,13 @@ export async function render() {
           })
           toast.success('模板工作流创建成功')
           modal.close()
-          navigate(`/apps/${created.id}`)
+          const newId = created?.id || created?.app_id || created?.appId
+          if (!newId) {
+            toast.warning('已创建，但未返回工作流 ID，请在列表中打开')
+            await loadApps()
+            return
+          }
+          navigate(`/apps/${newId}`)
         } catch (e) {
           toast.error('创建失败: ' + e.message)
         }
@@ -822,7 +834,13 @@ export async function render() {
             })
             toast.success('工作流创建成功')
             modal.close()
-            navigate(`/apps/${created.id}`)
+            const newId = created?.id || created?.app_id || created?.appId
+            if (!newId) {
+              toast.warning('已创建，但未返回工作流 ID，请在列表中打开')
+              await loadApps()
+              return
+            }
+            navigate(`/apps/${newId}`)
           } catch (e) {
             toast.error('创建失败: ' + e.message)
           }
