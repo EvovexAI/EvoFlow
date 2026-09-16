@@ -6,12 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-09-16
+
 ### Changed
 
+- 工作区代码索引迁到绑定项目内的 `.evoflow/code_index/index.db`（不再写 `~/.evoflow/code_index/{hash}.db`）
+- 发版说明与版本线对齐 **1.0.3**
 - Windows 安装/卸载进程清理改为轻量策略：一轮 `taskkill` + ~1.5s 短等 + 写锁探测/Retry；去掉全机 `Win32_Process` 扫描与多轮最长约 15s 等待
+- 员工：部门 CRUD / 负责人、一次加人、组织树；工作流与自动化指派改为选员工；智能体入口下沉到「更多」；「工作项」Tab 移到最后
 
 ### Fixed
 
+- 索引构建完成后写入 `index_tokenizer_version`，避免搜索误触发全量重建
 - 新建空白工作流后立刻打开报 `Application not found`：创建时强制写入 `owner_scope_id`，避免非管理员因未盖章归属而 404（#19）
 - 桌面 `checkBackendReady` / sidecar 等待改为 `/health/ready`（core 路由已挂载），不再把 liveness 当 API 可用
 - 扩展模块 `loading_extended` 503 改为可重试，避免设置等面板偶发「加载失败」
@@ -21,17 +27,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Warm latch 仅在 `/health/ready` 放行；扩展 API 调用前 soft-wait `extended_routers`
 - 会话右侧调试面板：按 `thread_id` 读 observability 不再强制 `org_admin`（流式时刷 `org_admin required`）
 - 设置「模型」厂商品牌图标：恢复 SVG logo（公开仓字母占位替换），深色主题下白底芯片保证可见
-
-## [1.0.3] - 2026-09-16
-
-### Changed
-
-- 工作区代码索引迁到绑定项目内的 `.evoflow/code_index/index.db`（不再写 `~/.evoflow/code_index/{hash}.db`）
-- 发版说明与版本线对齐 **1.0.3**
-
-### Fixed
-
-- 索引构建完成后写入 `index_tokenizer_version`，避免搜索误触发全量重建
 
 ## [1.0.2] - 2026-09-16
 

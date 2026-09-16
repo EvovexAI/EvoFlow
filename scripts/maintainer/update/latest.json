@@ -6,6 +6,6 @@
   "hash": "",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.3/EvoFlow_1.0.3_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.0.3：代码索引迁至仓库 .evoflow/code_index/，修复索引后误触发全量重建。覆盖安装即可。",
+  "changelog": "EvoFlow 1.0.3：代码索引迁至项目 .evoflow/code_index/；修复新建工作流后打不开（#19）；安装进程清理与员工/组织体验改进。覆盖安装即可。",
   "releasedAt": "2026-09-16"
 }
