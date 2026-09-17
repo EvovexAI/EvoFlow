@@ -233,6 +233,28 @@ def _default_for_file(filename: str) -> str:
     }.get(filename, "")
 
 
+_PLACEHOLDER_LINE_RE = None
+
+
+def _placeholder_line_re():
+    """Lazy compiled regex matching whole-line placeholder prompts.
+
+    Covers template hints like ``（如：…）`` / ``（可选；…）`` / ``(e.g. …)`` —
+    example scaffolds, not real user input. Also matches the ``## 填写后会注入…``
+    intro lines of the default templates.
+    """
+    global _PLACEHOLDER_LINE_RE
+    if _PLACEHOLDER_LINE_RE is None:
+        import re as _re
+
+        _PLACEHOLDER_LINE_RE = _re.compile(
+            r"^\s*(?:[-*]\s*)?[（(]\s*(?:如|例|可选|例如|等待|希望|e\.g\.)[^）)]*[）)]\s*$"
+            r"|^[^\n]{0,12}填写后会注入[^\n]*$",
+            _re.MULTILINE,
+        )
+    return _PLACEHOLDER_LINE_RE
+
+
 def _strip_placeholder_body(text: str, *, filename: str) -> str:
     raw = str(text or "").strip()
     if not raw:
@@ -240,15 +262,22 @@ def _strip_placeholder_body(text: str, *, filename: str) -> str:
     default = _default_for_file(filename).strip()
     if raw == default:
         return ""
+    # Strip whole-line placeholder scaffolds (（如：…）/（可选；…）) instead of
+    # comparing total prose length — partial fills previously leaked the leftover
+    # template examples into prompt injection as if they were real preferences.
+    body = _placeholder_line_re().sub("", raw)
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    if not body:
+        return ""
 
     def _prose_len(s: str) -> int:
-        body = re.sub(r"^#+\s*[^\n]+\n?", "", s, flags=re.M)
-        body = re.sub(r"[（(][^）)]*[）)]", "", body)
-        return len(re.sub(r"\s+", "", body))
+        b = re.sub(r"^#+\s*[^\n]+\n?", "", s, flags=re.M)
+        return len(re.sub(r"\s+", "", b))
 
-    if _prose_len(raw) == _prose_len(default):
+    # A file reduced to bare section headings (no real content) counts as empty.
+    if _prose_len(body) == 0:
         return ""
-    return raw if _prose_len(raw) >= 1 else ""
+    return body
 
 
 def dimension_is_filled(text: str, *, filename: str) -> bool:

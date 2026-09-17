@@ -17,6 +17,7 @@ EvoFlow 本地 Whisper ASR 服务
   pip install modelscope
   python -c "from modelscope import snapshot_download; snapshot_download('AI-ModelScope/whisper-small', cache_dir='~/.cache/whisper')"
 ---
+"""
 
 import asyncio
 import json

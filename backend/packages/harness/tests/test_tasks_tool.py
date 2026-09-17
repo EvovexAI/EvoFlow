@@ -1,4 +1,4 @@
-﻿"""Tests for structured ``tasks`` tool (duty Task board; no shell JSON)."""
+"""Tests for structured ``tasks`` tool (duty Task board; no shell JSON)."""
 
 from __future__ import annotations
 

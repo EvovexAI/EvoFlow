@@ -1,4 +1,4 @@
-﻿"""Status / readiness probe for the host OS execution security layer."""
+"""Status / readiness probe for the host OS execution security layer."""
 
 from __future__ import annotations
 

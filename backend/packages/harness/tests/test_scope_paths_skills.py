@@ -1,4 +1,4 @@
-﻿"""Scope filesystem layout + layered skill discovery."""
+"""Scope filesystem layout + layered skill discovery."""
 
 from __future__ import annotations
 

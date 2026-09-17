@@ -732,7 +732,10 @@ def _assemble_system_prompt(
         blocks.append(role_block(prompt_language=prompt_language))
         blocks.append(policy_block(prompt_language=prompt_language))
         if soul.strip():
-            blocks.append(scan_content(soul.strip(), source="soul"))
+            # soul 参数已带 <soul> 标签（get_agent_soul），只扫描不重复包裹。
+            safe_soul = scan_content(soul.strip(), source="soul")
+            if safe_soul.strip():
+                blocks.append(safe_soul.strip())
         dyn = get_prompt_dynamic(prompt_language)
         extra = (custom_system_prompt or "").strip()
         if extra:
@@ -755,6 +758,23 @@ def _assemble_system_prompt(
                 )
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
+    # 统一裁决链：静态块（role/communication/entity_assets）是基础，
+    # soul 是行为习惯参考，custom_system_prompt（config.yaml system_prompt 字段）是覆盖段。
+    # 冲突时以「最新用户消息 > 覆盖段 > 基础块」裁决。
+    blocks.append(
+        """<decision_chain>
+## 指令优先级（裁决链）
+冲突时按以下顺序裁决（高→低）：
+1. **用户最新消息**（用户明确的新意图/要求优先于一切历史与预设）
+2. **本提示词覆盖段**（`<agent_system_prompt>` / 自定义 system_prompt 字段）
+3. **行为习惯参考**（`<soul>`）
+4. **基础规则块**（role / communication_style / entity_assets / workspace 等）
+5. 平台默认 / 历史上下文 / 站立摘要（仅参考）
+
+同一主题出现重复表述时，以**更靠后注入的覆盖段**为准；不要因重复而困惑，
+它们描述同一规则的不同侧重。
+</decision_chain>"""
+    )
     blocks.append(
         _fmt_with_agent_name(static.ROLE_BLOCK_CHAT_TEMPLATE.strip(), agent_name)
     )
@@ -798,12 +818,18 @@ def _assemble_system_prompt(
         blocks.append(task_router_section.strip())
 
     if soul.strip():
-        blocks.append(scan_content(soul.strip(), source="soul"))
+        # soul 参数已由 get_agent_soul() 返回带 <soul>...</soul> 标签的块；
+        # 这里只做注入扫描，不再重复包裹（否则双重 <soul> 标签）。
+        safe_soul = scan_content(soul.strip(), source="soul")
+        if safe_soul.strip():
+            blocks.append(safe_soul.strip())
     dyn = get_prompt_dynamic(prompt_language)
     extra = (custom_system_prompt or "").strip()
     if extra:
         safe_extra = scan_content(extra, source="custom_system_prompt")
-        blocks.append(f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>")
+        blocks.append(
+            f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>"
+        )
 
     if plan_runtime_stage_section.strip():
         blocks.append(plan_runtime_stage_section.strip())

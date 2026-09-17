@@ -153,12 +153,17 @@ function isSpuriousClipboardFile(file: File): boolean {
 /**
  * Parse a DataTransfer from paste or HTML5 drop.
  * Does not read Tauri OS drag-drop paths (use subscribeOsFileDrop).
+ *
+ * opts.pastePathsAsText: 粘贴场景下，纯路径（文件夹/文件路径）默认以纯文本
+ * 插入输入框（不生成引用卡、不读取文件），需要附加内容时改用拖放/选文件/图片。
+ * 拖放（fromPaste:false）保持「路径→引用卡」的附加语义。
  */
 export function parseComposeDataTransfer(
   dt: DataTransfer | null | undefined,
-  opts?: { fromPaste?: boolean },
+  opts?: { fromPaste?: boolean; pastePathsAsText?: boolean },
 ): ComposeAttachResult {
   if (!dt) return { contextFiles: [], blobFiles: [], urls: [], plainText: '', handled: false }
+  const pasteAsText = !!opts?.fromPaste && !!opts?.pastePathsAsText
 
   const contextFiles: ComposePathEntry[] = []
   const blobFiles: File[] = []
@@ -168,7 +173,7 @@ export function parseComposeDataTransfer(
   if (workspaceRaw) contextFiles.push(...parseWorkspaceMime(workspaceRaw))
 
   const uriList = dt.getData('text/uri-list')
-  if (uriList) {
+  if (uriList && !pasteAsText) {
     const parsed = parseUriList(uriList)
     contextFiles.push(...parsed.paths)
     urls.push(...parsed.urls)
@@ -213,9 +218,15 @@ export function parseComposeDataTransfer(
   const plainTrim = plain.trim()
   if (plainTrim) {
     if (looksLikeLocalPath(plainTrim)) {
-      const path = normalizeLocalPath(plainTrim)
-      if (path && !pathFromFiles.has(path)) {
-        contextFiles.push({ path, name: basenameFromPath(path) })
+      // 粘贴纯路径（文件夹/文件路径）：默认以纯文本进输入框，不生成引用卡、不读文件。
+      // 需要真正附加内容时用拖放 / 文件选择 / 图片（拖放场景 fromPaste:false 仍走引用卡）。
+      if (pasteAsText) {
+        /* 纯路径 → 由 plainText 回填输入框 */
+      } else {
+        const path = normalizeLocalPath(plainTrim)
+        if (path && !pathFromFiles.has(path)) {
+          contextFiles.push({ path, name: basenameFromPath(path) })
+        }
       }
     } else if (isHttpUrl(plainTrim)) {
       if (!opts?.fromPaste) urls.push(plainTrim)
@@ -227,6 +238,7 @@ export function parseComposeDataTransfer(
       if (lines.length > 1 && lines.every((l) => looksLikeLocalPath(l) || isHttpUrl(l))) {
         for (const line of lines) {
           if (looksLikeLocalPath(line)) {
+            if (pasteAsText) continue // 纯路径行 → 留在 plainText，不做引用卡
             const path = normalizeLocalPath(line)
             if (path && !pathFromFiles.has(path)) {
               pathFromFiles.add(path)
@@ -445,12 +457,16 @@ export function createComposeAttachHandlers(
   const readClipboard = opts?.readClipboardImage
 
   const handlePaste = (e: PasteLikeEvent) => {
-    const result = parseComposeDataTransfer(e.clipboardData, { fromPaste: true })
+    const result = parseComposeDataTransfer(e.clipboardData, {
+      fromPaste: true,
+      pastePathsAsText: true,
+    })
     if (result.handled) {
       const plain = result.plainText || String(e.clipboardData?.getData('text/plain') || '')
       e.preventDefault()
       if (result.contextFiles.length) onContextFiles(result.contextFiles)
       if (result.blobFiles.length) onBlobFiles(result.blobFiles)
+      // 粘贴纯路径走「未处理」分支回填输入框；此处仅在确有附件（图片等）时补回普通文本。
       if (plain && !looksLikeLocalPath(plain.trim())) onPlainText?.(plain)
       return
     }

@@ -87,8 +87,6 @@ services:
     command: sh -c "cd /app/backend && uv run langgraph dev --no-browser --allow-blocking --no-reload --host 0.0.0.0 --port 2024"
     ports:
       - "127.0.0.1:2024:2024"
-    ports:
-      - "127.0.0.1:2024:2024"
     volumes:
       - ${EVOFLOW_CONFIG_PATH}:/app/config.yaml:ro
       - ${EVOFLOW_EXTENSIONS_CONFIG_PATH}:/app/extensions_config.json:ro

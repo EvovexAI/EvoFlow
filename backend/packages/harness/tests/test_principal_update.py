@@ -1,4 +1,4 @@
-﻿"""Principal update + password reset tests."""
+"""Principal update + password reset tests."""
 
 from __future__ import annotations
 

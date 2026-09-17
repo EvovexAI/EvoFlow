@@ -138,6 +138,7 @@ async def api_list(
 @router.get("/market/catalog")
 async def api_market_catalog() -> dict[str, Any]:
     """Return GitHub catalog.json (default public market; optional non-empty URL override)."""
+    import asyncio
     import json
     import urllib.request
 
@@ -154,7 +155,8 @@ async def api_market_catalog() -> dict[str, Any]:
     }
     if not url:
         return empty
-    try:
+
+    def _fetch_catalog() -> dict[str, Any]:
         with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310 — operator-configured URL
             raw = resp.read().decode("utf-8", errors="replace")
         data = json.loads(raw)
@@ -166,6 +168,9 @@ async def api_market_catalog() -> dict[str, Any]:
         if not isinstance(data.get("packs"), list):
             data["packs"] = []
         return data
+
+    try:
+        return await asyncio.to_thread(_fetch_catalog)
     except Exception as e:
         raise HTTPException(
             status_code=502,

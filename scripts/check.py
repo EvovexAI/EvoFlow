@@ -3,17 +3,45 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
 from typing import Optional
 
 
+def _prepare_stdio() -> None:
+    """Avoid UnicodeEncodeError on Windows consoles that default to legacy code pages."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def _command_argv(command: list[str]) -> list[str]:
+    """On Windows, launch .cmd/.bat via cmd.exe so shell=False still works."""
+    if os.name != "nt" or not command:
+        return command
+    exe = command[0]
+    resolved = shutil.which(exe) or exe
+    lower = resolved.lower()
+    if lower.endswith((".cmd", ".bat")):
+        return ["cmd", "/c", *command]
+    return command
+
+
 def run_command(command: list[str]) -> Optional[str]:
     """Run a command and return trimmed stdout, or None on failure."""
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, check=True, shell=False
+            _command_argv(command),
+            capture_output=True,
+            text=True,
+            check=True,
+            shell=False,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -31,6 +59,7 @@ def parse_node_major(version_text: str) -> Optional[int]:
 
 
 def main() -> int:
+    _prepare_stdio()
     print("==========================================")
     print("  Checking Required Dependencies")
     print("==========================================")
@@ -81,7 +110,9 @@ def main() -> int:
     if shutil.which("uv"):
         uv_version_text = run_command(["uv", "--version"])
         if uv_version_text:
-            uv_version = uv_version_text.split()[-1]
+            # Prefer "uv 0.x.y ..." second token; fall back to full text.
+            parts = uv_version_text.split()
+            uv_version = parts[1] if len(parts) >= 2 else parts[-1]
             print(f"  ✓ uv {uv_version}")
         else:
             print("  ✗ Unable to determine uv version")
@@ -90,23 +121,6 @@ def main() -> int:
         print("  ✗ uv not found")
         print("    Visit the official installation guide for your platform:")
         print("    https://docs.astral.sh/uv/getting-started/installation/")
-        failed = True
-
-    print()
-    print("Checking nginx...")
-    if shutil.which("nginx"):
-        nginx_version_text = run_command(["nginx", "-v"])
-        if nginx_version_text and "/" in nginx_version_text:
-            nginx_version = nginx_version_text.split("/", 1)[1]
-            print(f"  ✓ nginx {nginx_version}")
-        else:
-            print("  ✓ nginx (version unknown)")
-    else:
-        print("  ✗ nginx not found")
-        print("    macOS:   brew install nginx")
-        print("    Ubuntu:  sudo apt install nginx")
-        print("    Windows: use WSL for local mode or use Docker mode")
-        print("    Or visit: https://nginx.org/en/download.html")
         failed = True
 
     print()

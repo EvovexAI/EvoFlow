@@ -29,6 +29,7 @@ Architecture (docker-compose-dev):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -375,6 +376,9 @@ async def create_sandbox(req: CreateSandboxRequest):
 
     If the sandbox already exists, returns the existing information
     (idempotent).
+
+    Kubernetes client calls are sync; run them in a worker thread so the
+    event loop is not blocked. NodePort polling uses ``asyncio.sleep``.
     """
     sandbox_id = req.sandbox_id
     thread_id = req.thread_id
@@ -384,17 +388,22 @@ async def create_sandbox(req: CreateSandboxRequest):
     )
 
     # ── Fast path: sandbox already exists ────────────────────────────
-    existing_port = _get_node_port(sandbox_id)
+    existing_port = await asyncio.to_thread(_get_node_port, sandbox_id)
     if existing_port:
+        phase = await asyncio.to_thread(_get_pod_phase, sandbox_id)
         return SandboxResponse(
             sandbox_id=sandbox_id,
             sandbox_url=_sandbox_url(existing_port),
-            status=_get_pod_phase(sandbox_id),
+            status=phase,
         )
 
     # ── Create Pod ───────────────────────────────────────────────────
     try:
-        core_v1.create_namespaced_pod(K8S_NAMESPACE, _build_pod(sandbox_id, thread_id))
+        await asyncio.to_thread(
+            core_v1.create_namespaced_pod,
+            K8S_NAMESPACE,
+            _build_pod(sandbox_id, thread_id),
+        )
         logger.info(f"Created Pod {_pod_name(sandbox_id)}")
     except ApiException as exc:
         if exc.status != 409:  # 409 = AlreadyExists
@@ -404,13 +413,21 @@ async def create_sandbox(req: CreateSandboxRequest):
 
     # ── Create Service ───────────────────────────────────────────────
     try:
-        core_v1.create_namespaced_service(K8S_NAMESPACE, _build_service(sandbox_id))
+        await asyncio.to_thread(
+            core_v1.create_namespaced_service,
+            K8S_NAMESPACE,
+            _build_service(sandbox_id),
+        )
         logger.info(f"Created Service {_svc_name(sandbox_id)}")
     except ApiException as exc:
         if exc.status != 409:
             # Roll back the Pod on failure
             try:
-                core_v1.delete_namespaced_pod(_pod_name(sandbox_id), K8S_NAMESPACE)
+                await asyncio.to_thread(
+                    core_v1.delete_namespaced_pod,
+                    _pod_name(sandbox_id),
+                    K8S_NAMESPACE,
+                )
             except ApiException:
                 pass
             raise HTTPException(
@@ -420,20 +437,21 @@ async def create_sandbox(req: CreateSandboxRequest):
     # ── Read the auto-allocated NodePort ─────────────────────────────
     node_port: int | None = None
     for _ in range(20):
-        node_port = _get_node_port(sandbox_id)
+        node_port = await asyncio.to_thread(_get_node_port, sandbox_id)
         if node_port:
             break
-        time.sleep(0.5)
+        await asyncio.sleep(0.5)
 
     if not node_port:
         raise HTTPException(
             status_code=500, detail="NodePort was not allocated in time"
         )
 
+    phase = await asyncio.to_thread(_get_pod_phase, sandbox_id)
     return SandboxResponse(
         sandbox_id=sandbox_id,
         sandbox_url=_sandbox_url(node_port),
-        status=_get_pod_phase(sandbox_id),
+        status=phase,
     )
 
 
@@ -444,7 +462,11 @@ async def destroy_sandbox(sandbox_id: str):
 
     # Delete Service
     try:
-        core_v1.delete_namespaced_service(_svc_name(sandbox_id), K8S_NAMESPACE)
+        await asyncio.to_thread(
+            core_v1.delete_namespaced_service,
+            _svc_name(sandbox_id),
+            K8S_NAMESPACE,
+        )
         logger.info(f"Deleted Service {_svc_name(sandbox_id)}")
     except ApiException as exc:
         if exc.status != 404:
@@ -452,7 +474,11 @@ async def destroy_sandbox(sandbox_id: str):
 
     # Delete Pod
     try:
-        core_v1.delete_namespaced_pod(_pod_name(sandbox_id), K8S_NAMESPACE)
+        await asyncio.to_thread(
+            core_v1.delete_namespaced_pod,
+            _pod_name(sandbox_id),
+            K8S_NAMESPACE,
+        )
         logger.info(f"Deleted Pod {_pod_name(sandbox_id)}")
     except ApiException as exc:
         if exc.status != 404:
@@ -469,14 +495,15 @@ async def destroy_sandbox(sandbox_id: str):
 @app.get("/api/sandboxes/{sandbox_id}", response_model=SandboxResponse)
 async def get_sandbox(sandbox_id: str):
     """Return current status and URL for a sandbox."""
-    node_port = _get_node_port(sandbox_id)
+    node_port = await asyncio.to_thread(_get_node_port, sandbox_id)
     if not node_port:
         raise HTTPException(status_code=404, detail=f"Sandbox '{sandbox_id}' not found")
 
+    phase = await asyncio.to_thread(_get_pod_phase, sandbox_id)
     return SandboxResponse(
         sandbox_id=sandbox_id,
         sandbox_url=_sandbox_url(node_port),
-        status=_get_pod_phase(sandbox_id),
+        status=phase,
     )
 
 
@@ -484,7 +511,8 @@ async def get_sandbox(sandbox_id: str):
 async def list_sandboxes():
     """List every sandbox currently managed in the namespace."""
     try:
-        services = core_v1.list_namespaced_service(
+        services = await asyncio.to_thread(
+            core_v1.list_namespaced_service,
             K8S_NAMESPACE,
             label_selector="app=evo-flow-sandbox",
         )
@@ -504,11 +532,12 @@ async def list_sandboxes():
                 node_port = port.node_port
                 break
         if node_port:
+            phase = await asyncio.to_thread(_get_pod_phase, sid)
             sandboxes.append(
                 SandboxResponse(
                     sandbox_id=sid,
                     sandbox_url=_sandbox_url(node_port),
-                    status=_get_pod_phase(sid),
+                    status=phase,
                 )
             )
 

@@ -17,9 +17,10 @@ _timers: dict[str, threading.Timer] = {}
 _DEBOUNCE_SEC = 30.0
 
 _LESSONS_RE = re.compile(
-    r"(?im)^#{1,3}\s*lessons?\s*learned\b[\s\S]*?(?=^#{1,3}\s|\Z)",
+    r"(?im)^#{1,3}\s*lessons?\s*learned\b[\s\S]*?(?=^#{1,3}\s|\Z)"
+    r"|^\*\*\s*lessons?\s*learned\b[\s\S]*?(?=^\*\*|\Z)",
 )
-_HEADING_RE = re.compile(r"^#{1,6}\s+", re.M)
+_HEADING_RE = re.compile(r"^#{1,6}\s+|\*\*(.+?)\*\*\s*$", re.M)
 
 
 def _entity_key(entity: EntityRef) -> str:
@@ -41,7 +42,10 @@ def extract_soul_summary(soul_md: str, *, max_chars: int = TIER0_SOUL_SUMMARY_CH
                 lines.append("")
             continue
         if _HEADING_RE.match(s):
-            title = _HEADING_RE.sub("", s).strip()
+            m = _HEADING_RE.match(s)
+            # ``**Heading**`` bold title → keep the inner text as a heading.
+            bold = m.group(1) if m.lastindex and m.group(1) else None
+            title = (bold or _HEADING_RE.sub("", s)).strip()
             if title and title.lower() not in {"soul", "personality", "人格"}:
                 lines.append(title)
             continue

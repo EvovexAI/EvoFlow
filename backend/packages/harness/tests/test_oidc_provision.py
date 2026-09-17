@@ -1,4 +1,4 @@
-﻿"""OIDC principal provisioning (JIT + email link)."""
+"""OIDC principal provisioning (JIT + email link)."""
 
 from __future__ import annotations
 

@@ -128,7 +128,7 @@ make docker-start
 ### Option 2: Local processes
 
 ```bash
-make check      # Node 22+, pnpm, uv, nginx
+make check      # Node 22+, pnpm, uv
 make install
 make dev        # nginx on :2026
 # Then open the UI → Settings → Models (not config.yaml)

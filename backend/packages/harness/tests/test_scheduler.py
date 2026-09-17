@@ -33,7 +33,7 @@ def load_module(name: str, filepath: str):
 
 # ─── Paths ──────────────────────────────────────────────────────
 
-BASE = Path(r"d:\github\evoflow\backend\packages\harness")
+BASE = Path(__file__).resolve().parents[1]  # packages/harness
 EVOFLOW_ROOT = BASE / "evoflow"
 
 ENGINE_PATH = EVOFLOW_ROOT / "core" / "scheduler" / "engine.py"

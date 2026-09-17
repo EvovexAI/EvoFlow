@@ -390,7 +390,10 @@ def format_soul_prompt_block(
         if not text:
             return ""
     if max_chars > 0 and len(text) > max_chars:
-        text = text[: max_chars - 1].rstrip() + "…\n<!-- soul truncated; details in archival -->"
+        # Sentence-boundary truncation — avoid hard-cutting mid-sentence (e.g. 「…但不把一次性的…」).
+        from evoflow.assets.injection_budget import cap_text_chars
+
+        text = cap_text_chars(text, max_chars) + "\n<!-- soul truncated; details in archival -->"
     return (
         "<soul>\n"
         "<!-- L1 — communication/work habits only; reference, not standing orders. "
