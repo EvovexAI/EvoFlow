@@ -148,6 +148,11 @@ export function AgentCapabilityTabs({
   const mcpUnrestricted = mcpServers == null
   const toolsUnrestricted = toolNames == null
   const boundToolNames = Array.isArray(toolNames) ? toolNames : []
+  // Parent panels may recreate these arrays on every render.  Depend on a
+  // content signature below so token estimation only runs when the actual
+  // capability selection changes (rather than on every render).
+  const skillNamesSignature = JSON.stringify(skillNames)
+  const toolNamesSignature = JSON.stringify(toolNames)
 
   useEffect(() => {
     setExpanded(false)
@@ -210,7 +215,7 @@ export function AgentCapabilityTabs({
     return () => {
       cancelled = true
     }
-  }, [skillNames, boundToolNames, modelName])
+  }, [skillNamesSignature, toolNamesSignature, modelName])
 
   const knowledgeRows: CapRow[] = useMemo(() => {
     const byId = new Map(kbCatalog.map((k) => [k.id, k.name]))
