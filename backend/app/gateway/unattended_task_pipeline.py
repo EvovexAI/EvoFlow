@@ -34,6 +34,7 @@ _ACTIVE_SUB = frozenset({"executing", "running", "in_progress", "planning", "pen
 _TERMINAL_SUB = frozenset({"completed", "done", "success", "failed", "error", "cancelled", "canceled", "timed_out", "skipped"})
 _PLAN_STALE_SECONDS = 20 * 60
 _DISPATCH_RETRY_MAX = 3
+_DEFAULT_PLAN_RETRY_MAX = 1
 
 # Per-task advancement lock (prevents overlapping ticks on the same row)
 _advance_locks: dict[str, asyncio.Lock] = {}
@@ -63,6 +64,59 @@ def task_queue_retry_delays_seconds() -> list[int]:
         except ValueError:
             continue
     return out or [60, 300, 900]
+
+
+def task_plan_retry_max() -> int:
+    """Maximum number of model-backed plan starts for one unattended task.
+
+    Planning is the expensive part of the unattended queue.  A dead worker used
+    to leave a row in ``planning`` forever, causing a fresh model call every
+    ``_PLAN_STALE_SECONDS``.  Keep the safe default at one attempt; operators
+    can opt into a larger bound with ``EVOFLOW_PLAN_RETRY_MAX``.
+    """
+    raw = (os.getenv("EVOFLOW_PLAN_RETRY_MAX") or str(_DEFAULT_PLAN_RETRY_MAX)).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return _DEFAULT_PLAN_RETRY_MAX
+
+
+def _plan_attempts(task: dict[str, Any]) -> int:
+    try:
+        return max(0, int(task.get("unattended_plan_attempts") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _plan_retry_exhausted(task: dict[str, Any]) -> bool:
+    return _plan_attempts(task) >= task_plan_retry_max()
+
+
+def _pause_stale_plan(task_id: str, *, attempts: int, reason: str) -> bool:
+    """Persist a terminal guard for a plan that must never be retriggered."""
+
+    def _pause(t: dict[str, Any]) -> dict[str, Any] | None:
+        status = str(t.get("status") or "").strip().lower()
+        if status in {"paused", "cancelled", "canceled"} or status in _TERMINAL:
+            return None
+        t["status"] = "paused"
+        t["unattended_stage"] = "paused"
+        t["unattended_plan_attempts"] = max(attempts, _plan_attempts(t))
+        t["unattended_plan_retry_exhausted"] = True
+        t["unattended_plan_paused_at"] = utc_now_iso_z()
+        t["error"] = reason[:2000]
+        return t
+
+    patched = _patch_task(task_id, _pause)
+    if patched is not None:
+        logger.error(
+            "unattended_pipeline: paused stale planning task_id=%s attempts=%s reason=%s",
+            task_id,
+            patched.get("unattended_plan_attempts"),
+            reason,
+        )
+        return True
+    return False
 
 
 def is_unattended_task(task: dict[str, Any]) -> bool:
@@ -306,19 +360,62 @@ async def _maybe_trigger_unattended_plan(task_id: str, thread_id: str, task: dic
             triggered_at,
         )
 
-    had_prior_trigger = bool(str(task.get("unattended_plan_triggered_at") or "").strip())
-    started = await _trigger_unattended_plan_run(task_id, thread_id, task)
+    attempts = _plan_attempts(task)
+    if attempts >= task_plan_retry_max():
+        _pause_stale_plan(
+            task_id,
+            attempts=attempts,
+            reason=(
+                "无人值守规划已达到最大重试次数，已暂停任务，"
+                "不会继续调用模型。请检查中转站/网络后手动恢复。"
+            ),
+        )
+        return "plan_paused_retry_limit"
 
-    def _mark(t: dict[str, Any]) -> dict[str, Any]:
-        t["unattended_plan_triggered_at"] = utc_now_iso_z()
+    had_prior_trigger = bool(str(task.get("unattended_plan_triggered_at") or "").strip())
+
+    # Claim the expensive attempt before starting the worker.  The queue tick
+    # and the initial automation kick can otherwise both observe a missing
+    # timestamp and start two model-backed plan runs.
+    next_attempt = attempts + 1
+    claimed_at = utc_now_iso_z()
+
+    def _claim(t: dict[str, Any]) -> dict[str, Any] | None:
+        status = str(t.get("status") or "").strip().lower()
+        if status in {"paused", "cancelled", "canceled"} or status in _TERMINAL:
+            return None
+        current_attempts = _plan_attempts(t)
+        if current_attempts >= task_plan_retry_max():
+            return None
+        t["unattended_plan_attempts"] = current_attempts + 1
+        t["unattended_plan_triggered_at"] = claimed_at
         t["status"] = "planning"
         t["unattended_stage"] = "planning"
+        t["unattended_plan_retry_exhausted"] = False
         return t
 
-    _patch_task(task_id, _mark)
+    claimed = _patch_task(task_id, _claim)
+    if claimed is None:
+        current = find_main_task(get_project_storage(), task_id)
+        current_status = str(current[1].get("status") if current else "").strip().lower()
+        if current_status in {"paused", "cancelled", "canceled"} or current_status in _TERMINAL:
+            return "plan_skipped"
+        if current_status and _plan_retry_exhausted(current[1]):
+            _pause_stale_plan(
+                task_id,
+                attempts=_plan_attempts(current[1]),
+                reason=(
+                    "无人值守规划已达到最大重试次数，已暂停任务，"
+                    "不会继续调用模型。请检查中转站/网络后手动恢复。"
+                ),
+            )
+            return "plan_paused_retry_limit"
+        return "plan_claim_lost"
+
+    started = await _trigger_unattended_plan_run(task_id, thread_id, task)
     if not started and StreamBackgroundWorker.is_worker_running(thread_id):
         return "plan_in_progress"
-    return "plan_retry" if had_prior_trigger else "plan_triggered"
+    return "plan_retry" if had_prior_trigger or next_attempt > 1 else "plan_triggered"
 
 
 async def _ensure_langgraph_thread(task_id: str, task: dict[str, Any]) -> str | None:
@@ -661,7 +758,13 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
 
     if not task_has_bound_plan(task):
         plan_action = await _maybe_trigger_unattended_plan(task_id, thread_id, task)
-        return {"task_id": task_id, "ok": True, "action": plan_action, "status": "planning"}
+        latest = find_main_task(storage, task_id)
+        latest_status = (
+            str(latest[1].get("status") or "").strip().lower()
+            if latest
+            else "planning"
+        )
+        return {"task_id": task_id, "ok": True, "action": plan_action, "status": latest_status}
 
     from evoflow.collab.plan_subtasks_sync import ensure_subtasks_synced_before_start_execution
 
@@ -811,7 +914,8 @@ def list_unattended_in_progress() -> list[dict[str, Any]]:
             has_plan = task_has_bound_plan(task)
             has_subs = bool(task.get("subtasks") or [])
             if status == "planning":
-                out.append(task)
+                if not _plan_retry_exhausted(task):
+                    out.append(task)
             elif status in {"planned", "awaiting_exec", "waiting_dispatch"} and has_plan and not _has_in_flight_subtasks(task):
                 out.append(task)
             elif status == "executing" and has_subs and not _has_in_flight_subtasks(task) and not _all_subtasks_terminal(task):
