@@ -4,7 +4,7 @@ Windows / macOS desktop builds ship:
 
 1. **Tauri UI** — Vite `evopanel/dist` (includes pruned `public/kws`)
 2. **Gateway sidecar** — PyInstaller onedir under `src-tauri/binaries/evoflow-gateway/`
-3. **Bundled tools** — `tools/agent-browser` (Chromium), `tools/ripgrep`, optional whisper
+3. **Bundled tools** — `tools/ripgrep`; Chromium / whisper are opt-in (`EVOFLOW_BUNDLE_CHROMIUM` / `EVOFLOW_BUNDLE_WHISPER`)
 4. **Skills seed** — `skills/public` (pruned at copy time)
 
 ## Automatic prunes (build scripts)

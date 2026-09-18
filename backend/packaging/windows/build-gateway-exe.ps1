@@ -5,6 +5,9 @@ param(
   # Desktop Tauri already ships Vite UI via frontendDist. Opt-in only for
   # headless Gateway WebUI (same as macOS build, which never copies this).
   [switch]$IncludeEvopanelDist,
+  # Offline Whisper ASR sidecar (~500MB+ torch). Lean desktop omits it by
+  # default; set -IncludeWhisper or EVOFLOW_BUNDLE_WHISPER=1 to ship it.
+  [switch]$IncludeWhisper,
   # Enable PyArmor code obfuscation (requires: pip install pyarmor)
   [switch]$EnablePyArmor
 )
@@ -84,17 +87,27 @@ try {
     Write-Host "[gateway-build] WARNING: ripgrep install failed: $($_.Exception.Message), continuing without it"
   }
 
-  # Build whisper ASR fallback (optional — skipped if openai-whisper not installed)
-  try {
-    $whisperPyi = Join-Path $BackendDir "whisper-dist"
-    if (-not (Test-Path $whisperPyi)) {
-      Write-Host "[gateway-build] Building whisper ASR..." -ForegroundColor Cyan
-      & (Join-Path $ScriptDir "build-whisper.ps1")
-    } else {
-      Write-Host "[gateway-build] whisper-dist already exists, skip build"
+  # Whisper ASR: opt-in only. openai-whisper pulls torch and blows past the
+  # lean sidecar budget (~564MB → ~1.1GB). Cloud ASR remains the default.
+  $bundleWhisper = $IncludeWhisper -or (
+    $env:EVOFLOW_BUNDLE_WHISPER -and (
+      $env:EVOFLOW_BUNDLE_WHISPER.Trim().ToLower() -in @("1", "true", "yes", "on")
+    )
+  )
+  if ($bundleWhisper) {
+    try {
+      $whisperPyi = Join-Path $BackendDir "whisper-dist"
+      if (-not (Test-Path $whisperPyi)) {
+        Write-Host "[gateway-build] Building whisper ASR (EVOFLOW_BUNDLE_WHISPER)..." -ForegroundColor Cyan
+        & (Join-Path $ScriptDir "build-whisper.ps1")
+      } else {
+        Write-Host "[gateway-build] whisper-dist already exists, skip build"
+      }
+    } catch {
+      Write-Host "[gateway-build] NOTE: whisper ASR skipped (pip install openai-whisper to include)" -ForegroundColor Yellow
     }
-  } catch {
-    Write-Host "[gateway-build] NOTE: whisper ASR skipped (pip install openai-whisper to include)" -ForegroundColor Yellow
+  } else {
+    Write-Host "[gateway-build] skip whisper ASR (lean default; set -IncludeWhisper or EVOFLOW_BUNDLE_WHISPER=1)"
   }
 
   # PyArmor code obfuscation (optional)
@@ -224,16 +237,22 @@ try {
     Write-Host "[gateway-build] skills/public not found, skip bundling: $PublicSkills"
   }
 
-  # Bundle whisper ASR fallback
+  # Bundle whisper ASR only when explicitly opted in (see $bundleWhisper above).
   $WhisperDist = Join-Path $BackendDir "whisper-dist"
   $WhisperTarget = Join-Path $OutputAbs "tools\whisper"
-  if (Test-Path (Join-Path $WhisperDist "whisper_server.exe")) {
+  if ($bundleWhisper -and (Test-Path (Join-Path $WhisperDist "whisper_server.exe"))) {
     if (Test-Path $WhisperTarget) { Remove-Item -Path $WhisperTarget -Recurse -Force }
     New-Item -ItemType Directory -Path $WhisperTarget -Force | Out-Null
     Copy-Item -Path (Join-Path $WhisperDist "*") -Destination $WhisperTarget -Recurse -Force
     Write-Host "[gateway-build] bundled whisper ASR -> $WhisperTarget"
-  } else {
+  } elseif ($bundleWhisper) {
     Write-Host "[gateway-build] whisper ASR not built, skip (run build-whisper.ps1 first)" -ForegroundColor Yellow
+  } else {
+    # Stale tools/whisper from a prior fat build must not ride into lean output.
+    if (Test-Path -LiteralPath $WhisperTarget) {
+      Write-Host "[gateway-build] scrubbing stale whisper sidecar: $WhisperTarget"
+      Remove-Item -LiteralPath $WhisperTarget -Recurse -Force
+    }
   }
 
   # Do not duplicate Vite UI inside the sidecar by default (Tauri frontendDist already ships it).

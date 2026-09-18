@@ -4,7 +4,9 @@ param(
   # When set, allow tools/agent-browser/browsers (offline/full fat).
   [switch]$AllowChromium,
   # When set, allow _internal/torch (local embedding fat build).
-  [switch]$AllowLocalEmbedding
+  [switch]$AllowLocalEmbedding,
+  # When set, allow tools/whisper (offline ASR; pulls torch ~500MB+).
+  [switch]$AllowWhisper
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +23,7 @@ if (-not (Test-Path -LiteralPath $GatewayDir)) {
 
 $allowChromium = $AllowChromium -or (Test-EnvFlag "EVOFLOW_BUNDLE_CHROMIUM")
 $allowLocalEmbed = $AllowLocalEmbedding -or (Test-EnvFlag "EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING")
+$allowWhisper = $AllowWhisper -or (Test-EnvFlag "EVOFLOW_BUNDLE_WHISPER")
 
 $errors = New-Object System.Collections.Generic.List[string]
 
@@ -48,6 +51,16 @@ if ((-not $allowLocalEmbed) -and (Test-Path -LiteralPath $torch)) {
 $st = Join-Path $GatewayDir "_internal\sentence_transformers"
 if ((-not $allowLocalEmbed) -and (Test-Path -LiteralPath $st)) {
   $errors.Add("sentence_transformers bundled at $st. Lean desktop must omit it (same as torch).")
+}
+
+$whisper = Join-Path $GatewayDir "tools\whisper"
+if ((-not $allowWhisper) -and (Test-Path -LiteralPath $whisper)) {
+  $mb = 0.0
+  try {
+    $sum = (Get-ChildItem -LiteralPath $whisper -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    if ($null -ne $sum) { $mb = [math]::Round($sum / 1MB, 1) }
+  } catch {}
+  $errors.Add("Whisper ASR bundled at $whisper ($mb MB). Lean desktop must omit it (openai-whisper pulls torch). Unset EVOFLOW_BUNDLE_WHISPER and rebuild.")
 }
 
 # Public installer must not ship scrubbed skill packs or OpenClaw compatibility residue.
@@ -93,8 +106,8 @@ if (Test-Path -LiteralPath $skillsPublic) {
 $totalSum = (Get-ChildItem -LiteralPath $GatewayDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
 $totalMb = if ($null -ne $totalSum) { [math]::Round($totalSum / 1MB, 1) } else { 0 }
 $limitMb = 900
-if ((-not $allowChromium) -and (-not $allowLocalEmbed) -and ($totalMb -gt $limitMb)) {
-  $errors.Add("Gateway sidecar is $totalMb MB (lean limit ${limitMb}MB). Likely Chromium/torch/other bloat still present.")
+if ((-not $allowChromium) -and (-not $allowLocalEmbed) -and (-not $allowWhisper) -and ($totalMb -gt $limitMb)) {
+  $errors.Add("Gateway sidecar is $totalMb MB (lean limit ${limitMb}MB). Likely Chromium/torch/whisper/other bloat still present.")
 }
 
 if ($errors.Count -gt 0) {
@@ -105,4 +118,4 @@ if ($errors.Count -gt 0) {
   throw "[lean-assert] lean gateway bundle checks failed ($($errors.Count) issue(s))"
 }
 
-Write-Host "[lean-assert] OK: $GatewayDir (${totalMb} MB; chromium=$allowChromium localEmbed=$allowLocalEmbed)" -ForegroundColor Green
+Write-Host "[lean-assert] OK: $GatewayDir (${totalMb} MB; chromium=$allowChromium localEmbed=$allowLocalEmbed whisper=$allowWhisper)" -ForegroundColor Green

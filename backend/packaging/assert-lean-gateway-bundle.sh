@@ -10,8 +10,10 @@ fi
 
 allow_chromium=0
 allow_local_embed=0
+allow_whisper=0
 case "${EVOFLOW_BUNDLE_CHROMIUM:-}" in 1|true|TRUE|yes|YES|on|ON) allow_chromium=1 ;; esac
 case "${EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING:-}" in 1|true|TRUE|yes|YES|on|ON) allow_local_embed=1 ;; esac
+case "${EVOFLOW_BUNDLE_WHISPER:-}" in 1|true|TRUE|yes|YES|on|ON) allow_whisper=1 ;; esac
 
 errors=0
 fail() {
@@ -34,9 +36,14 @@ if [[ "${allow_local_embed}" != "1" && -d "${st}" ]]; then
   fail "sentence_transformers bundled at ${st}."
 fi
 
+whisper="${GATEWAY_DIR}/tools/whisper"
+if [[ "${allow_whisper}" != "1" && -d "${whisper}" ]]; then
+  fail "Whisper ASR bundled at ${whisper}. Unset EVOFLOW_BUNDLE_WHISPER and rebuild."
+fi
+
 total_kb=$(du -sk "${GATEWAY_DIR}" 2>/dev/null | awk '{print $1}')
 total_mb=$(( total_kb / 1024 ))
-if [[ "${allow_chromium}" != "1" && "${allow_local_embed}" != "1" && "${total_mb}" -gt 900 ]]; then
+if [[ "${allow_chromium}" != "1" && "${allow_local_embed}" != "1" && "${allow_whisper}" != "1" && "${total_mb}" -gt 900 ]]; then
   fail "Gateway sidecar is ${total_mb} MB (lean limit 900MB)."
 fi
 
@@ -45,4 +52,4 @@ if [[ "${errors}" -gt 0 ]]; then
   exit 1
 fi
 
-echo "[lean-assert] OK: ${GATEWAY_DIR} (${total_mb} MB; chromium=${allow_chromium} localEmbed=${allow_local_embed})"
+echo "[lean-assert] OK: ${GATEWAY_DIR} (${total_mb} MB; chromium=${allow_chromium} localEmbed=${allow_local_embed} whisper=${allow_whisper})"
