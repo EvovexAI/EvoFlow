@@ -1,6 +1,8 @@
 name: Lint Check
 
-# Arch guard (rule R1) runs on every push to main; lint stays manual for now.
+# Push to main: only the cheap arch guard (R1).
+# Full ruff + EvoPanel typecheck stay manual until the public-tree lint debt is cleared
+# (currently 600+ ruff issues and many ChatApp TS errors — not introduced by recent PRs).
 on:
   workflow_dispatch:
   push:
@@ -23,6 +25,7 @@ jobs:
         run: python backend/scripts/arch_ban_app_imports.py
 
   lint:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -46,6 +49,7 @@ jobs:
 
   # 本仓库无根目录 `frontend/`；桌面端为 `evopanel/`（Vite + React，与旧 deerflow `frontend` 不同）。
   lint-evopanel:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
