@@ -28,6 +28,34 @@
 | `smart-employees.png` | 改用 `employees.png` |
 | 顶栏独立「模型 / 渠道 / 记忆」截图 | 模型与 IM 在 **设置**；记忆在 **资产中心** |
 
+## 清单核对（截至 2026-09）
+
+上面两张表是"该拍什么"，下面这张是"现在实际有什么"。照清单找图前先看这里，避免扑空。
+
+### 目录中现有文件的状态
+
+| 文件 | 状态 |
+|------|------|
+| `main-chat.png` | 在「待换新图」清单中，文件已存在 |
+| `task-center.png` | 在「待换新图」清单中，文件已存在 |
+| `wechat-group-qr.png` | 在「待换新图」清单中，文件已存在；已被 `README.md` / `README.en.md` 引用 |
+| `agents-preset-teams.png`、`agents-preset-roles.png` | 已退役（智能体页并入 `#/expert`），文件仍在 |
+| `smart-employees.png` | 已退役（改用 `employees.png`），文件仍在 |
+| `app-center.png` | 已退役（侧栏改称「工作流」），文件仍在 |
+| `app-center-canvas.png` | 文件存在，未登记在任何一张表里；同属已退役的「应用中心」命名 |
+| `agents.png`、`browser.png`、`hosted-1.png`、`hosted-2.png`、`scheduled-tasks-1.png`、`scheduled-tasks-2.png` | 文件存在，但未登记在上面任何一张表里 |
+
+### 「待换新图」清单中尚缺的文件
+
+这 5 个文件名在目录中还不存在，拍图补位时注意：
+
+`workflow.png`、`expert.png`、`employees.png`、`settings-models.png`、`settings-im.png`
+
+### 关于 alt 文本
+
+全仓 Markdown 目前只有 4 处 `<img>`（`README.md` 与 `README.en.md` 各两张微信二维码），
+均已带 `alt`，且没有指向不存在文件的图片链接。因此本轮只更新清单，不动二进制文件。
+
 Plan / Supervisor 演示视频仍放在 [plan-supervisor/](../plan-supervisor/README.md)，与 GUI 截图分开。
 
 ## 拍摄注意
