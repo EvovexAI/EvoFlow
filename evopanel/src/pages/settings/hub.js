@@ -226,6 +226,16 @@ async function ensurePanelMounted(rootEl, tab) {
           _tabCleanups.set('security', () => mod.cleanup())
           break
         }
+        case 'developer-agents': {
+          const mod = await import('./developer-agents.js')
+          if (!inner.isConnected) return
+          const pane = document.createElement('div')
+          pane.className = 'settings-modal-pane settings-modal-pane--developer-agents settings-embed-wrap'
+          inner.appendChild(pane)
+          await mod.mountDeveloperAgentsInto(pane)
+          _tabCleanups.set('developer-agents', () => mod.cleanup())
+          break
+        }
         case 'api': {
           const mod = await import('./remote.js')
           if (!inner.isConnected) return

@@ -19,6 +19,7 @@ const TAB_LOADERS = {
   'code-index': () => import('../pages/settings/code-index.js'),
   about: () => import('../pages/about.js'),
   security: () => import('../pages/settings/security.js'),
+  'developer-agents': () => import('../pages/settings/developer-agents.js'),
   api: () => import('../pages/settings/remote.js'),
   users: () => import('../pages/settings/users.js'),
   sso: () => import('../pages/settings/sso.js'),
@@ -55,6 +56,12 @@ async function warmTabApis(tab) {
           fetchGlobalToolApprovalPolicy().catch(() => null),
         ])
         return { settingsData, auditData, approval }
+      })
+      break
+    case 'developer-agents':
+      warmNavKey('settings:developer-agents', async () => {
+        const { listDeveloperAgents } = await import('./developer-agents.js')
+        return listDeveloperAgents()
       })
       break
     default:

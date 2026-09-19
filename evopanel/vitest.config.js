@@ -135,6 +135,7 @@ export default defineConfig({
       'tests/speech-client-queue.test.js',
       'tests/goal-closure-local.test.js',
       'tests/license-nav.test.js',
+      'tests/developer-agents.test.js',
       'tests/task-summary-outputs.test.js',
       'tests/task-tree.test.js',
       'tests/ui-extension-manifest.test.js',

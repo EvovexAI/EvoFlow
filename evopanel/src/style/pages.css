@@ -14953,6 +14953,47 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   background: color-mix(in srgb, var(--text-tertiary, #888) 14%, transparent);
   color: var(--text-secondary);
 }
+.dev-agent-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md, 12px);
+  max-width: 720px;
+}
+.dev-agent-fields {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+.dev-agent-field {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+}
+.dev-agent-field dt {
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--text-secondary);
+}
+.dev-agent-field dd {
+  margin: 0;
+  font-size: var(--font-size-sm, 13px);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.dev-agent-mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+}
+.dev-agent-detail {
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.dev-agent-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
 .sec-status-meta {
   font-size: var(--font-size-xs, 12px);
   color: var(--text-tertiary);

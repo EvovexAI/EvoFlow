@@ -12,6 +12,8 @@ export const NAV_ICONS = {
   im: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
   security:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  'developer-agents':
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/></svg>',
   shortcuts:
     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h8M6 16h.01M10 16h4"/></svg>',
   api:
@@ -39,6 +41,7 @@ export const NAV_LABELS = {
   search: '联网搜索',
   im: 'IM 通信',
   security: '安全中心',
+  'developer-agents': '开发代理',
   shortcuts: '快捷键',
   api: '远程访问',
   users: '用户权限',
@@ -57,6 +60,10 @@ export const TAB_META = {
   search: { title: '联网搜索', desc: '配置 web_search 引擎；Agent Plan 默认优先豆包（Harness 联网 Key），也可改引擎或自备 Key。' },
   im: { title: '消息渠道', desc: '飞书、Slack、Telegram 等 IM 对接。' },
   security: { title: '安全中心', desc: 'OS 沙箱、新对话默认权限、终端命令策略与审计。' },
+  'developer-agents': {
+    title: '开发代理',
+    desc: '本机 Cursor Agent CLI 的预检状态与连接可用性。',
+  },
   shortcuts: { title: '快捷键', desc: '自定义聊天与全局快捷键，避免与系统冲突。' },
   api: { title: 'WebUI 远程访问', desc: '启用后，手机、平板或远程浏览器可以访问 EvoPanel。' },
   users: { title: '用户与权限', desc: '组织管理员管理用户目录、管理员角色与 ACL 模式。' },
@@ -74,7 +81,7 @@ export const TAB_META = {
 /** 左栏分组（仅展示可见 Tab） */
 export const NAV_GROUPS = [
   { id: 'basic', title: '基础设置', tabs: ['general', 'models', 'search', 'shortcuts'] },
-  { id: 'capability', title: '能力与集成', tabs: ['im', 'security', 'api', 'sso', 'users'] },
+  { id: 'capability', title: '能力与集成', tabs: ['im', 'security', 'developer-agents', 'api', 'sso', 'users'] },
   { id: 'data', title: '数据与资源', tabs: ['usage', 'resources', 'code-index'] },
   { id: 'about', title: '关于', tabs: ['about', 'license'] },
 ]
