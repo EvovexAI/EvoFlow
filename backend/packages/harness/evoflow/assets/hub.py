@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -87,9 +88,7 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     inbox_readme = ent_root / "memory" / "_inbox" / "README.md"
     if not inbox_readme.is_file():
         inbox_readme.write_text(
-            "# _inbox\n\nPhase1 草稿与 ad-hoc notes。对话 Agent **只许**写 `notes/`；"
-            "不要直接改 `standing.md` / `MEMORY.md`。\n\n"
-            "Phase2 整合后，已处理的 `raw_*` / notes 会移到 `_done/`。\n",
+            "# _inbox\n\nPhase1 草稿与 ad-hoc notes。对话 Agent **只许**写 `notes/`；不要直接改 `standing.md` / `MEMORY.md`。\n\nPhase2 整合后，已处理的 `raw_*` / notes 会移到 `_done/`。\n",
             encoding="utf-8",
         )
     journal_readme = ent_root / "memory" / "journal" / "README.md"
@@ -186,6 +185,7 @@ def _prefer_display_label(current: str, candidate: str, code: str) -> str:
     """Prefer a human display name over raw agent/employee code."""
     return _pick_human_label(code, candidate, current)
 
+
 def _upsert_entity(
     entities: list[dict[str, Any]],
     *,
@@ -257,8 +257,8 @@ def list_entities() -> dict[str, Any]:
     seen_workspace_ids: set[str] = set()
     # Prefer bound projects from registry — SoT is ``<project>/.evoflow/``.
     try:
-        from evoflow.persistence.db import get_db
         from evoflow.assets.paths import entity_root, workspace_entity_ref
+        from evoflow.persistence.db import get_db
 
         rows = get_db().execute("SELECT workspace_path FROM evoflow_workspaces").fetchall()
         for row in rows:
@@ -441,7 +441,7 @@ def _slug_ascii(text: str, *, max_len: int = 48, fallback: str = "note") -> str:
     s = re.sub(r"[^a-z0-9_-]+", "-", str(text or "").strip().lower()).strip("-")
     if not s:
         s = fallback
-    return (s[:max_len].strip("-") or fallback)
+    return s[:max_len].strip("-") or fallback
 
 
 def record_fact(
@@ -461,12 +461,12 @@ def record_fact(
     if not body:
         raise ValueError("content is required")
     ensure_entity_tree(entity)
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
     slug = _slug_ascii(str(slug_hint or "").strip() or heading, fallback="fact")
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
     facts_dir = entity_root(entity.normalized()) / "memory" / "facts"
     fname = f"{slug}-{stamp[-8:]}.md"
     n = 0
@@ -474,25 +474,14 @@ def record_fact(
         n += 1
         fname = f"{slug}-{stamp[-8:]}-{n}.md"
     rel = f"memory/facts/{fname}"
-    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
     cat_line = ""
     if category.strip() and e.entity_type == "workspace":
         from evoflow.assets.workspace_memory_policy import normalize_workspace_fact_category
 
         cat_line = f"category: {normalize_workspace_fact_category(category)}\n"
-    md = (
-        f"---\n"
-        f"title: {heading}\n"
-        f"summary: {one_liner}\n"
-        f"{cat_line}"
-        f"entity: {e.entity_type}\n"
-        f"entity_id: {e.entity_id}\n"
-        f"created_at: {created}\n"
-        f"---\n\n"
-        f"# {heading}\n\n"
-        f"{body}\n"
-    )
+    md = f"---\ntitle: {heading}\nsummary: {one_liner}\n{cat_line}entity: {e.entity_type}\nentity_id: {e.entity_id}\ncreated_at: {created}\n---\n\n# {heading}\n\n{body}\n"
     return write_text_file(entity, rel, md)
 
 
@@ -512,9 +501,9 @@ def write_episode(
     if not body:
         raise ValueError("content is required")
     ensure_entity_tree(entity)
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc).astimezone()
+    now = datetime.now(UTC).astimezone()
     day = now.date().isoformat()
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
@@ -522,20 +511,9 @@ def write_episode(
     stamp = now.strftime("%H%M%S")
     fname = f"{day}-{slug}-{stamp[-4:]}.md"
     rel = f"memory/episodic/{fname}"
-    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
-    md = (
-        f"---\n"
-        f"title: {heading}\n"
-        f"summary: {one_liner}\n"
-        f"date: {day}\n"
-        f"entity: {e.entity_type}\n"
-        f"entity_id: {e.entity_id}\n"
-        f"created_at: {created}\n"
-        f"---\n\n"
-        f"# {heading}\n\n"
-        f"{body}\n"
-    )
+    md = f"---\ntitle: {heading}\nsummary: {one_liner}\ndate: {day}\nentity: {e.entity_type}\nentity_id: {e.entity_id}\ncreated_at: {created}\n---\n\n# {heading}\n\n{body}\n"
     return write_text_file(entity, rel, md)
 
 
@@ -554,17 +532,16 @@ def write_journal(
     body = str(content or "").strip()
     if not body:
         raise ValueError("content is required")
-    from datetime import date as date_cls, datetime, timezone
+    from datetime import date as date_cls
+    from datetime import datetime
 
     day = str(date or "").strip()
     if not day:
-        day = datetime.now(timezone.utc).astimezone().date().isoformat()
+        day = datetime.now(UTC).astimezone().date().isoformat()
     else:
         date_cls.fromisoformat(day)
 
-    one_liner = (
-        str(summary or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()
-    )[:30]
+    one_liner = (str(summary or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip())[:30]
     ensure_entity_tree(entity)
     rel = f"memory/journal/{day}.md"
     e = entity.normalized()
@@ -589,7 +566,7 @@ def write_journal(
         return fm + raw.rstrip() + "\n"
 
     if existing and append:
-        stamp = datetime.now(timezone.utc).astimezone().strftime("%H:%M")
+        stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
         # drop old fm, append section, rewrite fm with latest summary
         raw = existing
         if raw.startswith("---"):

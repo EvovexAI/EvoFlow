@@ -23,7 +23,8 @@ import asyncio
 import concurrent.futures
 import inspect
 import typing
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
@@ -118,11 +119,7 @@ def _inject_confirm_property(schema: dict) -> None:
     props = schema.setdefault("properties", {})
     props["confirm"] = {
         "type": "boolean",
-        "description": (
-            "Set true ONLY after restating the exact destructive/sensitive "
-            "action and its target to the user and getting explicit agreement. "
-            "Required to execute confirm-gated actions."
-        ),
+        "description": ("Set true ONLY after restating the exact destructive/sensitive action and its target to the user and getting explicit agreement. Required to execute confirm-gated actions."),
     }
 
 
@@ -152,7 +149,7 @@ class Capability:
         meta: CapabilityMeta,
         input_schema: dict,
         handler: Handler,
-        stream_handler: Optional[StreamingHandler] = None,
+        stream_handler: StreamingHandler | None = None,
     ) -> None:
         """Assemble a capability from its parts.
 
@@ -163,7 +160,7 @@ class Capability:
         self.meta: CapabilityMeta = meta
         self.input_schema: dict = input_schema
         self.handler: Handler = handler
-        self.stream_handler: Optional[StreamingHandler] = stream_handler
+        self.stream_handler: StreamingHandler | None = stream_handler
 
     @classmethod
     def from_model(
@@ -171,8 +168,8 @@ class Capability:
         meta: CapabilityMeta,
         model: type[BaseModel],
         handler: Callable[[CallerCtx, Any], dict],
-        stream_handler: Optional[Callable[[CallerCtx, Any, Callable[[Any], None]], dict]] = None,
-    ) -> "Capability":
+        stream_handler: Callable[[CallerCtx, Any, Callable[[Any], None]], dict] | None = None,
+    ) -> Capability:
         """Build a capability from a typed request model and a handler.
 
         ``model`` is the single source: its ``model_json_schema()`` becomes the
@@ -203,12 +200,10 @@ class Capability:
                 return {"error": f"invalid arguments for this tool: {e}"}
             return handler(ctx, p)
 
-        wrapped_stream: Optional[StreamingHandler] = None
+        wrapped_stream: StreamingHandler | None = None
         if stream_handler is not None:
 
-            def _validated_stream(
-                ctx: CallerCtx, args: dict, sink: Callable[[Any], None]
-            ) -> dict:
+            def _validated_stream(ctx: CallerCtx, args: dict, sink: Callable[[Any], None]) -> dict:
                 args = _strip_confirm(dict(args))
                 try:
                     p = model.model_validate(args)
@@ -265,12 +260,10 @@ class CapabilityRegistry:
             ValueError: If a capability with the same name is already registered.
         """
         if capability.meta.name in self._caps:
-            raise ValueError(
-                f"capability already registered: {capability.meta.name!r}"
-            )
+            raise ValueError(f"capability already registered: {capability.meta.name!r}")
         self._caps[capability.meta.name] = capability
 
-    def get(self, name: str) -> Optional[Capability]:
+    def get(self, name: str) -> Capability | None:
         """Look up a capability by name, or ``None`` if not registered."""
         return self._caps.get(name)
 
@@ -382,15 +375,16 @@ class CapabilityRegistry:
 
 # --- Decorator ---------------------------------------------------------------
 
+
 def capability(
     name: str,
     domain: str,
     danger: DangerTier,
     summary: str = "",
-    deny_on: Optional[list[Surface]] = None,
-    confirm_on: Optional[list[Surface]] = None,
+    deny_on: list[Surface] | None = None,
+    confirm_on: list[Surface] | None = None,
     stream: bool = False,
-    registry: Optional["CapabilityRegistry"] = None,
+    registry: CapabilityRegistry | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator that builds and registers a :class:`Capability`.
 
@@ -435,8 +429,8 @@ def capability(
         # Expect (ctx, p[, sink]) — locate the Pydantic-model request parameter.
         # ``CallerCtx`` is itself a Pydantic model but is the session context, not
         # the request model, so skip any parameter typed as ``CallerCtx``.
-        model_param: Optional[inspect.Parameter] = None
-        model: Optional[type[BaseModel]] = None
+        model_param: inspect.Parameter | None = None
+        model: type[BaseModel] | None = None
         for p in params:
             ann = hints.get(p.name, p.annotation)
             if isinstance(ann, type) and issubclass(ann, BaseModel) and ann is not CallerCtx:
@@ -444,10 +438,7 @@ def capability(
                 model = ann
                 break
         if model_param is None or model is None:
-            raise TypeError(
-                f"@capability({name!r}): handler {fn.__qualname__!r} must have a "
-                "parameter annotated with a Pydantic BaseModel"
-            )
+            raise TypeError(f"@capability({name!r}): handler {fn.__qualname__!r} must have a parameter annotated with a Pydantic BaseModel")
 
         desc = summary
         if not desc:
@@ -464,11 +455,13 @@ def capability(
         )
 
         if stream:
+
             def handler(ctx: CallerCtx, p: Any, sink: Callable[[Any], None]) -> dict:
                 return fn(ctx, p, sink)
 
             cap = Capability.from_model(meta, model, handler, stream_handler=handler)  # type: ignore[arg-type]
         else:
+
             def handler(ctx: CallerCtx, p: Any) -> dict:
                 return fn(ctx, p)
 
@@ -482,7 +475,7 @@ def capability(
 
 # --- Global singleton --------------------------------------------------------
 
-_registry: Optional[CapabilityRegistry] = None
+_registry: CapabilityRegistry | None = None
 
 
 def get_registry() -> CapabilityRegistry:

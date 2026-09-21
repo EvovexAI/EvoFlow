@@ -8,8 +8,7 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage
 
-from evoflow.agents.context_compaction_core import compaction_token_snapshot
-from evoflow.agents.context_compaction_core import get_context_compaction_engine, is_conversation_summary_human
+from evoflow.agents.context_compaction_core import compaction_token_snapshot, get_context_compaction_engine, is_conversation_summary_human
 from evoflow.agents.middlewares.context_compaction_middleware import build_ephemeral_model_messages
 from evoflow.agents.middlewares.session_transcript_hydration_middleware import (
     lead_transcript_rows_to_lc_messages,
@@ -115,9 +114,7 @@ async def run_manual_context_compaction(
     folded = await build_ephemeral_model_messages(messages, runtime, force=True)
     after_msgs = folded if folded is not None else messages
     after = compaction_token_snapshot(after_msgs, context_length=context_length)
-    changed = folded is not None and (
-        after["gate_tokens"] < before["gate_tokens"] or after["message_count"] < before["message_count"]
-    )
+    changed = folded is not None and (after["gate_tokens"] < before["gate_tokens"] or after["message_count"] < before["message_count"])
 
     persisted_summary = False
     reason = "manual_compact"

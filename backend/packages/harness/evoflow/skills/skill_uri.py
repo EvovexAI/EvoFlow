@@ -98,15 +98,9 @@ def format_skill_uri_error(path: str, *, require_enabled: bool = True) -> str:
     except ValueError:
         return f"Error: Skill path escapes skill root: {raw}"
     if cand.is_dir():
-        return (
-            f"Error: '{raw}' is a directory, not a file. "
-            f'Use terminal (e.g. dir / ls) on skill:{key} to browse, or read_file("skill:{key}/SKILL.md").'
-        )
+        return f"Error: '{raw}' is a directory, not a file. Use terminal (e.g. dir / ls) on skill:{key} to browse, or read_file(\"skill:{key}/SKILL.md\")."
     if not cand.is_file():
-        return (
-            f"Error: File not found under skill '{key}': {rel}. "
-            f'Use terminal (e.g. dir / ls) on skill:{key} to browse; do not guess paths like scripts/.'
-        )
+        return f"Error: File not found under skill '{key}': {rel}. Use terminal (e.g. dir / ls) on skill:{key} to browse; do not guess paths like scripts/."
     return f"Error: Unknown, disabled, or invalid skill path: {raw}"
 
 

@@ -74,6 +74,10 @@ import { SkillPickerModal, type SkillPickerItem, type SkillSelection } from './S
 
 type Props = {
   onPrompt?: (text: string) => void
+  /** 首页工作台显示当前工作空间名（basename；缺省空串时不展示） */
+  workspaceLabel?: string
+  /** 当前工作空间完整路径（用于点击定位 / title） */
+  workspacePath?: string
 }
 
 type DrawerKind = 'settings' | null
@@ -266,7 +270,7 @@ function deltaClass(positive: boolean | null): string {
   return positive ? 'evo-home-kpi__delta is-up' : 'evo-home-kpi__delta is-down'
 }
 
-export function EvoFlowHomeDashboard({ onPrompt }: Props) {
+export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspacePath = '' }: Props) {
   const [prefs, setPrefs] = useState<HomeWorkbenchPrefs>(() => loadHomeWorkbenchPrefs())
   const [prefsDraft, setPrefsDraft] = useState<HomeWorkbenchPrefs>(() => loadHomeWorkbenchPrefs())
   const data = useHomeDashboardData({ rangeDays: rangeDaysFromPrefs(prefs.defaultRange) })
@@ -1260,6 +1264,23 @@ export function EvoFlowHomeDashboard({ onPrompt }: Props) {
                     </div>
                   ) : null}
                 </div>
+                {workspaceLabel ? (
+                  <button
+                    type="button"
+                    className="evo-home-workspace-pill"
+                    title={workspacePath || workspaceLabel}
+                    onClick={() => {
+                      if (workspacePath) {
+                        void import('../../lib/tauri-api.js').then(({ api }) =>
+                          api.revealPathInFileManager(workspacePath).catch(() => {}),
+                        )
+                      }
+                    }}
+                  >
+                    <AppWindow className="evo-home-ic" />
+                    <span className="evo-home-workspace-pill__text">{workspaceLabel}</span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="evo-home-btn evo-home-btn--ghost"

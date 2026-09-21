@@ -20,7 +20,6 @@ async def stream_lead_agent_goal_step(
     """Stream lead agent via LangGraph SDK; mirror tokens for chat stream-resume."""
     from langgraph_sdk import get_client
 
-    from evoflow.runtime.ports import enqueue_wire_text, get_ui_stream_normalizer_cls
     from evoflow.langgraph_run_config import (
         default_langgraph_thread_metadata,
         ensure_langgraph_thread_exists,
@@ -29,6 +28,7 @@ async def stream_lead_agent_goal_step(
         merge_configurable_into_context,
         resolve_langgraph_base_url,
     )
+    from evoflow.runtime.ports import enqueue_wire_text, get_ui_stream_normalizer_cls
     from evoflow.session_execution.lifecycle import force_end_session_turn, start_session_turn
 
     client = get_client(url=resolve_langgraph_base_url())
@@ -96,11 +96,7 @@ async def stream_lead_agent_goal_step(
                 logger.debug("goal main_agent feed_frame failed thread=%s", lead_thread_id, exc_info=True)
                 continue
             for frame_bytes in frames:
-                frame_str = (
-                    frame_bytes.decode("utf-8")
-                    if isinstance(frame_bytes, (bytes, bytearray))
-                    else str(frame_bytes)
-                )
+                frame_str = frame_bytes.decode("utf-8") if isinstance(frame_bytes, (bytes, bytearray)) else str(frame_bytes)
                 enqueue_wire_text(
                     lead_thread_id,
                     frame_str,
@@ -124,11 +120,7 @@ async def stream_lead_agent_goal_step(
             await _consume_stream()
 
         for frame_bytes in normalizer.finish():
-            frame_str = (
-                frame_bytes.decode("utf-8")
-                if isinstance(frame_bytes, (bytes, bytearray))
-                else str(frame_bytes)
-            )
+            frame_str = frame_bytes.decode("utf-8") if isinstance(frame_bytes, (bytes, bytearray)) else str(frame_bytes)
             enqueue_wire_text(
                 lead_thread_id,
                 frame_str,

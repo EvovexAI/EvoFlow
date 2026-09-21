@@ -9,12 +9,13 @@ from typing import Annotated
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 
 from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_path
-from evoflow.tools.minimal_schema import REPLACE_TOOL_DESCRIPTION
 from evoflow.tools.host_direct.write_stream import (
     capture_stream_writer,
     count_lines,
     emit_write_progress,
 )
+from evoflow.tools.minimal_schema import REPLACE_TOOL_DESCRIPTION
+
 
 @tool("replace", description=REPLACE_TOOL_DESCRIPTION, parse_docstring=False)
 def str_replace_hd(
@@ -34,6 +35,7 @@ def str_replace_hd(
 
     # Resolve offloaded large-content refs (sent by LargeContentOffloadMiddleware).
     from evoflow.agents.middlewares.large_content_offload_middleware import resolve_offloaded_ref
+
     resolved_old = resolve_offloaded_ref(old_string)
     if resolved_old is not None:
         old_string = resolved_old
@@ -67,11 +69,7 @@ def str_replace_hd(
             try:
                 compiled = re.compile(old_string, re.DOTALL)
             except re.error as e:
-                hint = (
-                    f"Hint: old_string has invalid regex syntax ({e}). "
-                    "If you intended a literal replacement, call with regex=False (the default). "
-                    "If you need regex, escape special characters like ()[]{}*+?."
-                )
+                hint = f"Hint: old_string has invalid regex syntax ({e}). If you intended a literal replacement, call with regex=False (the default). If you need regex, escape special characters like ()[]{{}}*+?."
                 return f"Error: Replace failed in '{path}': invalid regex pattern.\n{hint}"
             matches = compiled.findall(content)
             new_content = compiled.sub(new_string, content)
@@ -84,10 +82,7 @@ def str_replace_hd(
                 dash_hint = _dash_mismatch_hint(content, old_string)
                 if dash_hint:
                     hint_block = f"{hint_block}\n\n{dash_hint}" if hint_block else f"\n\n{dash_hint}"
-                err = (
-                    f"Error: String not found in file: {path}\n"
-                    f"Searched for: {old_string[:100]}{'...' if len(old_string) > 100 else ''}{hint_block}"
-                )
+                err = f"Error: String not found in file: {path}\nSearched for: {old_string[:100]}{'...' if len(old_string) > 100 else ''}{hint_block}"
                 emit_write_progress(
                     tool_call_id=tool_call_id,
                     tool_name=tool_name,
@@ -182,13 +177,7 @@ def str_replace_hd(
 
 
 def _normalize_dashes(text: str) -> str:
-    return (
-        text.replace("\u2014", "-")
-        .replace("\u2013", "-")
-        .replace("\u2212", "-")
-        .replace("\u2010", "-")
-        .replace("\u2011", "-")
-    )
+    return text.replace("\u2014", "-").replace("\u2013", "-").replace("\u2212", "-").replace("\u2010", "-").replace("\u2011", "-")
 
 
 def _dash_mismatch_hint(content: str, old_string: str) -> str:
@@ -200,10 +189,7 @@ def _dash_mismatch_hint(content: str, old_string: str) -> str:
         return ""
     if _normalize_dashes(content).count(norm_old) == 0:
         return ""
-    return (
-        "Hint: file text may use a different dash or quote character than old_string "
-        "(e.g. em dash — vs hyphen -). Copy the exact characters from Closest match above."
-    )
+    return "Hint: file text may use a different dash or quote character than old_string (e.g. em dash — vs hyphen -). Copy the exact characters from Closest match above."
 
 
 def _find_closest_match(content: str, old_string: str) -> str:

@@ -49,11 +49,7 @@ def test_format_messages_as_rollout():
 
 
 def test_parse_phase1_json_fenced():
-    raw = (
-        '```json\n'
-        '{"rollout_summary":"# 修好缓存\\n细节","rollout_slug":"ci-cache","raw_memory":"- use rebase"}\n'
-        "```"
-    )
+    raw = '```json\n{"rollout_summary":"# 修好缓存\\n细节","rollout_slug":"ci-cache","raw_memory":"- use rebase"}\n```'
     parsed = _parse_phase1_json(raw)
     assert parsed["rollout_slug"] == "ci-cache"
     assert "rebase" in parsed["raw_memory"]
@@ -135,9 +131,7 @@ def test_run_phase1_no_signal(assets_home: Path, monkeypatch: pytest.MonkeyPatch
         lambda: _Cfg(),
     )
     mock_model = MagicMock()
-    mock_model.invoke.return_value = SimpleNamespace(
-        content='{"rollout_summary":"","rollout_slug":"","raw_memory":""}'
-    )
+    mock_model.invoke.return_value = SimpleNamespace(content='{"rollout_summary":"","rollout_slug":"","raw_memory":""}')
     monkeypatch.setattr(
         "evoflow.models.create_chat_model",
         lambda **kwargs: mock_model,

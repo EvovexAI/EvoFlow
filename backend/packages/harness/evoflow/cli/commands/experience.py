@@ -47,9 +47,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     update_p = sub.add_parser(
         "update",
         help="Update experience from JSON",
-        description="JSON payload fields (all optional, partial update):\n"
-        "  title, category, tags, steps, source_sessions,\n"
-        "  context, problem, solution, outcome, applicable_to\n",
+        description="JSON payload fields (all optional, partial update):\n  title, category, tags, steps, source_sessions,\n  context, problem, solution, outcome, applicable_to\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     update_p.add_argument("id")

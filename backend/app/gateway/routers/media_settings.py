@@ -40,9 +40,7 @@ async def get_media_credentials_api(request: Request) -> MediaCredentialsRespons
 
 
 @router.patch("/media", response_model=MediaCredentialsResponse)
-async def patch_media_credentials_api(
-    request: Request, body: MediaCredentialsPatchBody
-) -> MediaCredentialsResponse:
+async def patch_media_credentials_api(request: Request, body: MediaCredentialsPatchBody) -> MediaCredentialsResponse:
     require_org_admin(request)
     patch_media_credentials(body.credentials)
     apply_runtime_env_to_environ()

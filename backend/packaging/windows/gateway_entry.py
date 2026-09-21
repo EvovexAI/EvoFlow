@@ -56,7 +56,7 @@ except Exception:
     pass
 startup_mark("entry.asyncio_fixes", phase="entry")
 
-import uvicorn
+import uvicorn  # noqa: E402
 
 startup_mark("entry.uvicorn_imported", phase="entry")
 
@@ -499,9 +499,7 @@ def main() -> None:
                 async def _stdio_after_core() -> int:
                     ready = await asyncio.to_thread(wait_core_routers_ready, 180.0)
                     if not ready:
-                        logging.warning(
-                            "stdio: core routers not ready within 180s — starting anyway"
-                        )
+                        logging.warning("stdio: core routers not ready within 180s — starting anyway")
                     return await serve_stdio_async(gateway_base_url=gateway_url)
 
                 stdio_task = asyncio.create_task(_stdio_after_core())

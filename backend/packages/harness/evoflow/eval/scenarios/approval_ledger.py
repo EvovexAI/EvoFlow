@@ -63,9 +63,7 @@ def _run(home: Path) -> dict:
     bridge = ProactiveRepository.get_initiative(f"task:{tid}")
     bridge_pending = bridge is not None and bridge.status == InitiativeStatus.PENDING_APPROVAL
 
-    updated = asyncio.run(
-        gate.process_decision(appr.id, decision="approved", decided_by="user")
-    )
+    updated = asyncio.run(gate.process_decision(appr.id, decision="approved", decided_by="user"))
     approved_ok = updated is not None and updated.status == InitiativeStatus.APPROVED
     appr2 = ProactiveRepository.get_approval(appr.id)
     appr_approved = appr2 is not None and appr2.status == ApprovalStatus.APPROVED
@@ -98,12 +96,7 @@ def _run(home: Path) -> dict:
     )
     appr_rej = ProactiveRepository.get_approval(appr_r.id)
     bridge_rej = ProactiveRepository.get_initiative(f"task:{tid2}")
-    reject_ok = (
-        appr_rej is not None
-        and appr_rej.status == ApprovalStatus.REJECTED
-        and bridge_rej is not None
-        and bridge_rej.status == InitiativeStatus.REJECTED
-    )
+    reject_ok = appr_rej is not None and appr_rej.status == ApprovalStatus.REJECTED and bridge_rej is not None and bridge_rej.status == InitiativeStatus.REJECTED
 
     assertions = [
         check(

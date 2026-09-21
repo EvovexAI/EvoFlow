@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Annotated, Any
+from typing import Annotated
 
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langgraph.typing import ContextT
@@ -214,7 +214,7 @@ def assets_tool(
         return json.dumps({"ok": False, "error": f"bad_entity:{exc}"}, ensure_ascii=False)
 
     try:
-        from evoflow.assets.hub import ensure_entity_tree, list_tree, read_text_file, write_text_file
+        from evoflow.assets.hub import ensure_entity_tree, list_tree, read_text_file
 
         ensure_entity_tree(entity)
     except Exception as exc:

@@ -31,18 +31,11 @@ class ToolSearchInput(BaseModel):
 
     query: str | None = Field(
         default=None,
-        description=(
-            'Search string. Prefer exact load: "select:<tool_name>" '
-            '(e.g. "select:subagent" or "select:write,replace"). '
-            "Also accepts keyword / +keyword forms."
-        ),
+        description=('Search string. Prefer exact load: "select:<tool_name>" (e.g. "select:subagent" or "select:write,replace"). Also accepts keyword / +keyword forms.'),
     )
     select: str | None = Field(
         default=None,
-        description=(
-            'Shorthand alias → query="select:<names>". Pass name(s) only '
-            '(e.g. "subagent" or "write,replace"). Prefer ``query`` when possible.'
-        ),
+        description=('Shorthand alias → query="select:<names>". Pass name(s) only (e.g. "subagent" or "write,replace"). Prefer ``query`` when possible.'),
     )
 
     @model_validator(mode="after")
@@ -55,9 +48,7 @@ class ToolSearchInput(BaseModel):
         if s:
             self.query = s if s.lower().startswith("select:") else f"select:{s}"
             return self
-        raise ValueError(
-            'Provide query (e.g. {"query":"select:subagent"}) or select (e.g. {"select":"subagent"}).'
-        )
+        raise ValueError('Provide query (e.g. {"query":"select:subagent"}) or select (e.g. {"select":"subagent"}).')
 
 
 # ── Registry ──
@@ -290,10 +281,7 @@ def tool_search(query: str | None = None, select: str | None = None) -> str:
     """
     query = _resolve_tool_search_query(query, select)
     if not query:
-        return (
-            'Error: query is required. Use {"query":"select:tool_name"} '
-            '(or alias {"select":"tool_name"}).'
-        )
+        return 'Error: query is required. Use {"query":"select:tool_name"} (or alias {"select":"tool_name"}).'
 
     registry = get_deferred_registry()
     matched_tools: list[BaseTool] = []
@@ -320,13 +308,10 @@ def tool_search(query: str | None = None, select: str | None = None) -> str:
                 hint = (
                     " 提示：`media-visual-planner`、`media-artist` 等是子智能体 subagent_type，"
                     "不是工具名。请读 byted-ark-seedream-skill / media-production 技能，"
-                    "用 `subagent(subagent_type=\"media-visual-planner\", ...)` 委派，或 `list_agents` 查看媒体团队。"
+                    '用 `subagent(subagent_type="media-visual-planner", ...)` 委派，或 `list_agents` 查看媒体团队。'
                 )
             elif any(n.startswith("media_") for n in names):
-                hint = (
-                    " 提示：内置 media_* 工具已移除。请读 byted-ark-seedream-skill（生图）或 media-production（生视频），"
-                    "用 terminal 跑对应技能 scripts/。"
-                )
+                hint = " 提示：内置 media_* 工具已移除。请读 byted-ark-seedream-skill（生图）或 media-production（生视频），用 terminal 跑对应技能 scripts/。"
         elif "media_image" in q or "media_video" in q:
             hint = " 提示：生图/生视频请读 byted-ark-seedream-skill 或 media-production 等厂商技能，terminal 调用对应脚本。"
         if registry is None and not (_catalog_tools_var.get() or ()):

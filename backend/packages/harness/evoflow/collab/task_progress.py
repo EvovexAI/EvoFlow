@@ -130,9 +130,7 @@ def _schedule_main_task_broadcast(main_task_id: str, event_type: str, data: dict
                     _loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(_loop)
                     try:
-                        _loop.run_until_complete(
-                            _broadcast_task_event(main_task_id, event_type, dict(data))
-                        )
+                        _loop.run_until_complete(_broadcast_task_event(main_task_id, event_type, dict(data)))
                     finally:
                         _loop.close()
                 except Exception:
@@ -249,9 +247,7 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str) -> dic
         try:
             from evoflow.collab.app_rollup import maybe_rollup_main_task
 
-            rollup_patch = maybe_rollup_main_task(
-                task, answer_from_ref=str(task.get("answer_from_ref") or "")
-            )
+            rollup_patch = maybe_rollup_main_task(task, answer_from_ref=str(task.get("answer_from_ref") or ""))
             if rollup_patch:
                 for k, v in rollup_patch.items():
                     task[k] = v

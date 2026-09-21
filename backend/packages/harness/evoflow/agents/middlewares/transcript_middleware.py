@@ -408,11 +408,7 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
         # to inject "interrupted" placeholders.
         if isinstance(result, Command):
             update = getattr(result, "update", None)
-            tool_msgs = (
-                [m for m in (update.get("messages") or []) if isinstance(m, ToolMessage)]
-                if isinstance(update, dict)
-                else []
-            )
+            tool_msgs = [m for m in (update.get("messages") or []) if isinstance(m, ToolMessage)] if isinstance(update, dict) else []
         elif isinstance(result, ToolMessage):
             tool_msgs = [result]
         else:
@@ -707,9 +703,7 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             round_rid = str(round_id or "").strip() or _round_id_from_session_context(session_key)
             if round_rid:
                 for item in messages:
-                    if isinstance(item, dict) and not str(
-                        item.get("round_id") or item.get("roundId") or ""
-                    ).strip():
+                    if isinstance(item, dict) and not str(item.get("round_id") or item.get("roundId") or "").strip():
                         item["round_id"] = round_rid
             parent_tid = str(parent_thread_id or "").strip() or resolve_parent_thread_id(thread_id)
             pid = str(principal_id or "").strip() or None
@@ -731,9 +725,7 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
                 principal_id=pid,
             )
         except Exception:
-            logger.debug(
-                "transcript batch persist failed thread=%s", thread_id, exc_info=True
-            )
+            logger.debug("transcript batch persist failed thread=%s", thread_id, exc_info=True)
 
     def _persist_messages(self, state: AgentState, runtime: Runtime) -> None:
         thread_id = _thread_id_from_runtime(runtime)

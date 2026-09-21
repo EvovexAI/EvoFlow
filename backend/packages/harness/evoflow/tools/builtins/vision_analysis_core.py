@@ -207,12 +207,7 @@ def analyze_image_bytes(
 
     vision_model = resolve_vision_model_name(preferred=preferred_model, source=source)
     if not vision_model:
-        return {
-            "error": (
-                "未配置支持视觉的模型。"
-                "请在「设置 → 模型」为某个模型开启「视觉」，或在「设置 → 通用」设置「默认视觉模型」。"
-            )
-        }
+        return {"error": ("未配置支持视觉的模型。请在「设置 → 模型」为某个模型开启「视觉」，或在「设置 → 通用」设置「默认视觉模型」。")}
 
     started = time.perf_counter()
     try:
@@ -373,11 +368,7 @@ def format_native_tool_result(
         "mime_type": mime_type,
         "image_size_bytes": image_size_bytes,
         "cached": cached,
-        "message": (
-            "Image already attached in this thread; reuse prior analysis."
-            if cached
-            else "Image staged for the main vision model; pixels inject before the next model call."
-        ),
+        "message": ("Image already attached in this thread; reuse prior analysis." if cached else "Image staged for the main vision model; pixels inject before the next model call."),
     }
     return json.dumps(body, ensure_ascii=False)
 

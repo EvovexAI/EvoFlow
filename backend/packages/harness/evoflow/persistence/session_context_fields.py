@@ -108,15 +108,7 @@ def flat_fields_from_context(
         # embedding. Fall back to agent_name only when it looks like an agent_code.
         "agent_id": (
             str(ctx.get("agent_id") or "").strip()
-            or (
-                an
-                if (
-                    (an := str(ctx.get("agent_name") or "").strip())
-                    and an.replace("-", "").replace("_", "").isalnum()
-                    and an.lower() == an
-                )
-                else ""
-            )
+            or (an if ((an := str(ctx.get("agent_name") or "").strip()) and an.replace("-", "").replace("_", "").isalnum() and an.lower() == an) else "")
             or agent_id_from_session_key(session_key)
             or None
         ),

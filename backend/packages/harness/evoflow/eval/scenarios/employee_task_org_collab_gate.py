@@ -65,27 +65,13 @@ def _run(home: Path) -> dict:
     _hire(_PEER_B, "同组织平级B", workspace=_WS_HOME, reports_to=_MGR)
     _hire(_FOREIGN, "外组织员工", workspace=_WS_OTHER)
 
-    roster = [
-        r
-        for r in ProactiveRepository.list_roles()
-        if str(r.status or "").strip().lower() != "archived"
-    ]
+    roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
 
-    peer_err = validate_dispatch_org_relationship(
-        from_agent=_PEER_A, target_code=_PEER_B, roster=roster
-    )
-    cross_err = validate_dispatch_org_relationship(
-        from_agent=_PEER_A, target_code=_FOREIGN, roster=roster
-    )
-    user_err = validate_dispatch_org_relationship(
-        from_agent="user", target_code=_FOREIGN, roster=roster
-    )
-    mgr_err = validate_dispatch_org_relationship(
-        from_agent=_MGR, target_code=_PEER_A, roster=roster
-    )
-    xiaomi_err = validate_dispatch_org_relationship(
-        from_agent="xiaomi", target_code=_FOREIGN, roster=roster
-    )
+    peer_err = validate_dispatch_org_relationship(from_agent=_PEER_A, target_code=_PEER_B, roster=roster)
+    cross_err = validate_dispatch_org_relationship(from_agent=_PEER_A, target_code=_FOREIGN, roster=roster)
+    user_err = validate_dispatch_org_relationship(from_agent="user", target_code=_FOREIGN, roster=roster)
+    mgr_err = validate_dispatch_org_relationship(from_agent=_MGR, target_code=_PEER_A, roster=roster)
+    xiaomi_err = validate_dispatch_org_relationship(from_agent="xiaomi", target_code=_FOREIGN, roster=roster)
 
     assertions = [
         check(

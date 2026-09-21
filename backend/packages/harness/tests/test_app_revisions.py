@@ -63,9 +63,7 @@ def test_stamp_helpers_set_source_fields() -> None:
     from evoflow.collab.app_runner import _stamp_task_app_source
 
     task: dict = {"id": "Task_x", "name": "n"}
-    _stamp_task_app_source(
-        task, app_id="App_1", run_id="Run_1", app_version=3, app_name="Demo"
-    )
+    _stamp_task_app_source(task, app_id="App_1", run_id="Run_1", app_version=3, app_name="Demo")
     assert task["source_app_id"] == "App_1"
     assert task["source_run_id"] == "Run_1"
     assert task["source_app_version"] == 3

@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
 from evoflow.agents.middlewares import tool_approval_middleware as tam
-from evoflow.agents.tool_approval_service import list_pending_approvals, make_pending_entry
+from evoflow.agents.tool_approval_service import list_pending_approvals
 from evoflow.persistence.session_repositories import upsert_session_row
 
 

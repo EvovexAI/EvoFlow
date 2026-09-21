@@ -17,9 +17,9 @@ from evoflow.authz.http_guard import (
     resolve_authz_from_request,
 )
 from evoflow.authz.resource_visibility import stamp_kwargs_from_request
+from evoflow.knowledge.owned import blob_store
 from evoflow.knowledge.owned import service as owned_service
 from evoflow.knowledge.owned.assets import get_asset
-from evoflow.knowledge.owned import blob_store
 from evoflow.knowledge.owned.worker import ensure_owned_kb_worker_started
 
 logger = logging.getLogger(__name__)
@@ -149,9 +149,7 @@ async def create_base(request: Request, body: CreateBaseBody) -> dict[str, Any]:
     if not str(payload.get("embeddingModel") or "").strip():
         payload.pop("embeddingModel", None)
         # Without legacy model, ignore default embeddingMode=local so global default applies
-        if not str(payload.get("embeddingApiKey") or "").strip() and not str(
-            payload.get("embeddingBaseUrl") or ""
-        ).strip():
+        if not str(payload.get("embeddingApiKey") or "").strip() and not str(payload.get("embeddingBaseUrl") or "").strip():
             payload.pop("embeddingMode", None)
             payload.pop("embeddingApiKey", None)
             payload.pop("embeddingBaseUrl", None)
@@ -434,9 +432,7 @@ async def put_document_content(request: Request, doc_id: str, body: UpdateConten
     require_owned_doc_visible(request, doc_id)
     """Overwrite text/markdown body and re-index (panel editor save)."""
     try:
-        return owned_service.replace_document_content(
-            doc_id, body.content, title=body.title
-        )
+        return owned_service.replace_document_content(doc_id, body.content, title=body.title)
     except ValueError as exc:
         msg = str(exc)
         code = 404 if "not found" in msg else 400
@@ -539,9 +535,7 @@ async def list_tags(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}/doc-graph")
-async def document_graph(request: Request, 
-    kb_id: str, center: str | None = None, depth: int = 1
-) -> dict[str, Any]:
+async def document_graph(request: Request, kb_id: str, center: str | None = None, depth: int = 1) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -584,7 +578,8 @@ async def list_activities_global(request: Request, limit: int = 50, before: str 
 
 
 @router.get("/bases/{kb_id}/activities")
-async def list_activities_for_base(request: Request, 
+async def list_activities_for_base(
+    request: Request,
     kb_id: str,
     docId: str | None = None,
     limit: int = 50,
@@ -594,9 +589,7 @@ async def list_activities_for_base(request: Request,
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
     return {
-        "items": owned_service.list_activities(
-            kb_id=kb_id, doc_id=docId, limit=limit, before=before
-        ),
+        "items": owned_service.list_activities(kb_id=kb_id, doc_id=docId, limit=limit, before=before),
     }
 
 
@@ -615,6 +608,7 @@ async def list_jobs(request: Request, kb_id: str, limit: int = 40, activeOnly: b
 @router.get("/assets/{asset_id}")
 async def get_asset_file(request: Request, asset_id: str):
     from evoflow.knowledge.owned.assets import get_asset as _get_asset
+
     _asset = _get_asset(asset_id)
     if not _asset:
         raise HTTPException(404, "asset not found")
@@ -674,9 +668,7 @@ async def wiki_get_page(request: Request, kb_id: str, slug: str) -> dict[str, An
 
 
 @router.put("/bases/{kb_id}/wiki/pages/{slug:path}")
-async def wiki_update_page(
-    request: Request, kb_id: str, slug: str, body: WikiPageUpdateBody
-) -> dict[str, Any]:
+async def wiki_update_page(request: Request, kb_id: str, slug: str, body: WikiPageUpdateBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")

@@ -414,9 +414,7 @@ async def automation_runs_recent(
 
 
 @router.get("/tasks/{task_id}/history")
-async def automation_task_history(
-    request: Request, task_id: str, limit: int = Query(50, ge=1, le=50)
-) -> dict[str, Any]:
+async def automation_task_history(request: Request, task_id: str, limit: int = Query(50, ge=1, le=50)) -> dict[str, Any]:
     """Return newest runs first (``list_automation_runs`` is already ``ORDER BY id DESC``)."""
     from evoflow.persistence import automation_repositories as auto_repo
 
@@ -443,9 +441,7 @@ async def automation_task_get(request: Request, task_id: str) -> dict[str, Any]:
 
 
 @router.post("/tasks")
-async def automation_task_create(
-    request: Request, body: dict[str, Any] = Body(default_factory=dict)
-) -> dict[str, Any]:
+async def automation_task_create(request: Request, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     name = str(body.get("name") or "").strip()
     prompt = str(body.get("prompt") or "").strip()
     app_id = str(body.get("app_id") or body.get("workflow_id") or "").strip()
@@ -570,9 +566,7 @@ async def automation_task_create(
 
 
 @router.put("/tasks/{task_id}")
-async def automation_task_update(
-    request: Request, task_id: str, body: dict[str, Any] = Body(default_factory=dict)
-) -> dict[str, Any]:
+async def automation_task_update(request: Request, task_id: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     tid = task_id.strip()
     task = load_automation_toml(tid)
     if task is None:

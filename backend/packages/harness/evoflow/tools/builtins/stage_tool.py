@@ -186,9 +186,7 @@ def _handle_artifacts_panel(
     from evoflow.artifacts.chat_artifact import artifact_state_key, normalize_chat_artifacts
 
     raw_items = payload_data.get("items")
-    if raw_items is None and (
-        payload_data.get("path") or payload_data.get("url") or payload_data.get("content")
-    ):
+    if raw_items is None and (payload_data.get("path") or payload_data.get("url") or payload_data.get("content")):
         raw_items = [payload_data]
     normalized = normalize_chat_artifacts(raw_items)
     if act in ("show", "update") and not normalized:
@@ -232,10 +230,8 @@ def _handle_artifacts_panel(
     ]
     data_out = {
         "items": panel_items,
-        "focusPath": str(payload_data.get("focusPath") or "").strip()
-        or next((str(x.get("path") or "") for x in panel_items if x.get("path")), ""),
-        "focusId": str(payload_data.get("focusId") or "").strip()
-        or (str(panel_items[0].get("id") or "") if panel_items else ""),
+        "focusPath": str(payload_data.get("focusPath") or "").strip() or next((str(x.get("path") or "") for x in panel_items if x.get("path")), ""),
+        "focusId": str(payload_data.get("focusId") or "").strip() or (str(panel_items[0].get("id") or "") if panel_items else ""),
     }
     surface: dict[str, Any] = {
         "id": "primary",
@@ -280,10 +276,7 @@ def panel_set_tool(
         str | None,
         Field(
             default=None,
-            description=(
-                "artifacts | web-embed | news-dashboard | workspace-browse | write | mind-map | collab-workflow. "
-                "Deliverables: artifacts + data.items[{type,path|url|content}]. Web: web-embed + data.url."
-            ),
+            description=("artifacts | web-embed | news-dashboard | workspace-browse | write | mind-map | collab-workflow. Deliverables: artifacts + data.items[{type,path|url|content}]. Web: web-embed + data.url."),
         ),
     ] = None,
     data: Annotated[
@@ -340,9 +333,7 @@ def panel_set_tool(
         )
 
     if k == "web-embed":
-        page_url = _normalize_embed_url(
-            str(payload_data.get("url") or payload_data.get("href") or payload_data.get("link") or "")
-        )
+        page_url = _normalize_embed_url(str(payload_data.get("url") or payload_data.get("href") or payload_data.get("link") or ""))
         if act in ("show", "update") and not page_url:
             return json.dumps(
                 {"ok": False, "error": "web-embed requires data.url (or href/link)"},

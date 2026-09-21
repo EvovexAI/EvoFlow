@@ -23,10 +23,11 @@ from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
 from evoflow.agents.thread_state import ThreadState
 from evoflow.claude_subagent_type import (
     collab_executor_allows_auto_outcome_without_report,
-    effective_subagent_type as _resolve_effective_subagent_type,
     is_claude_code_subagent_type,
 )
-from evoflow.tools.builtins.subagent_tool_description import SUBAGENT_TOOL_DESCRIPTION
+from evoflow.claude_subagent_type import (
+    effective_subagent_type as _resolve_effective_subagent_type,
+)
 from evoflow.collab.id_format import make_trace_id
 from evoflow.collab.models import CollabPhase, WorkerProfile
 from evoflow.collab.storage import (
@@ -46,6 +47,7 @@ from evoflow.config.paths import get_paths
 from evoflow.sandbox.security import LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE, is_host_bash_allowed
 from evoflow.subagents import SubagentExecutor, get_available_subagent_names, get_subagent_config
 from evoflow.subagents.executor import SubagentResult, SubagentStatus, cleanup_background_task, get_background_task_result
+from evoflow.tools.builtins.subagent_tool_description import SUBAGENT_TOOL_DESCRIPTION
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +58,7 @@ def _trim_subagent_prompt(prompt: str) -> str:
     text = str(prompt or "").strip()
     if len(text) <= _SUBAGENT_PROMPT_MAX_CHARS:
         return text
-    return (
-        text[:_SUBAGENT_PROMPT_MAX_CHARS]
-        + "\n\n… [context trimmed for subagent — focus on the task goal above]"
-    )
+    return text[:_SUBAGENT_PROMPT_MAX_CHARS] + "\n\n… [context trimmed for subagent — focus on the task goal above]"
 
 
 # 子智能体不得切换父会话场景/协作（会误激活 plan 并进入 planning）
@@ -533,7 +532,6 @@ async def _finalize_collab_subtask_terminal(
     err = str(result.error or "").strip()
 
     if ex == "completed":
-
         st_row = find_subtask_by_ids(storage, resolved_collab, resolved_subtask) or {}
         assigned = str(st_row.get("assigned_to") or "").strip()
         profile_base = ""
@@ -743,18 +741,13 @@ async def task_tool(
             normalize_lead_thread_id,
         )
 
-        lead_for_exec = (
-            collab_lead_thread_id
-            or normalize_lead_thread_id(thread_id)
-            or str(thread_id or "").strip()
-        )
+        lead_for_exec = collab_lead_thread_id or normalize_lead_thread_id(thread_id) or str(thread_id or "").strip()
         tc = str(tool_call_id or "").strip()
         if tc:
             execution_thread_id = collab_subtask_executor_thread_id(lead_for_exec, tc)
 
     from evoflow.agents.lead_agent.runtime_context import (
         resolve_session_model_name_from_runtime,
-        runtime_context_mapping,
     )
     from evoflow.collab.thread_ids import normalize_lead_thread_id as _normalize_lead_tid
 
@@ -929,9 +922,7 @@ async def task_tool(
             from evoflow.platform.asyncio_windows import claude_session_subprocess_supported
 
             if not claude_session_subprocess_supported():
-                logger.info(
-                    "task_tool: claude-code unavailable on Selector loop; using general-purpose subagent"
-                )
+                logger.info("task_tool: claude-code unavailable on Selector loop; using general-purpose subagent")
                 effective_subagent_type = "general-purpose"
         except Exception:
             logger.debug("task_tool: claude subprocess capability check failed", exc_info=True)
@@ -1004,10 +995,7 @@ async def task_tool(
     assignee_for_tools = str(collab_agent_for_memory or "").strip() or None
     profile_tools = list(profile_model.tools) if profile_model is not None and profile_model.tools is not None else None
     if profile_tools is not None and not profile_tools:
-        return (
-            "Error: worker_profile.tools is empty after parsing. "
-            f"Provide valid tool names from: {sorted(allowed_tool_names)!r}"
-        )
+        return f"Error: worker_profile.tools is empty after parsing. Provide valid tool names from: {sorted(allowed_tool_names)!r}"
 
     final_tools = resolve_worker_tool_allowlist(
         profile_tools=profile_tools,
@@ -1019,15 +1007,9 @@ async def task_tool(
         session_mode=parent_session_mode,
     )
     if profile_tools is not None and not final_tools:
-        return (
-            f"Error: worker_profile.tools has no valid tool names after validation. "
-            f"Requested: {profile_tools!r}; available: {sorted(allowed_tool_names)!r}"
-        )
+        return f"Error: worker_profile.tools has no valid tool names after validation. Requested: {profile_tools!r}; available: {sorted(allowed_tool_names)!r}"
     if not final_tools:
-        return (
-            "Error: could not resolve a tool allowlist for this subagent "
-            f"(assignee={assignee_for_tools!r}, base={effective_subagent_type!r})."
-        )
+        return f"Error: could not resolve a tool allowlist for this subagent (assignee={assignee_for_tools!r}, base={effective_subagent_type!r})."
     overrides["tools"] = final_tools
 
     # 子智能体：WorkerProfile 显式传 skills 时优先；否则从 assigned_to / base AgentConfig 读取
@@ -1136,11 +1118,7 @@ async def task_tool(
     subagent_extra_context: dict[str, Any] | None = None
     from evoflow.collab.thread_ids import normalize_lead_thread_id
 
-    parent_tid_for_subagent = (
-        collab_lead_thread_id
-        or normalize_lead_thread_id(thread_id)
-        or str(thread_id or "").strip()
-    )
+    parent_tid_for_subagent = collab_lead_thread_id or normalize_lead_thread_id(thread_id) or str(thread_id or "").strip()
     if parent_tid_for_subagent:
         subagent_extra_context = dict(subagent_extra_context or {})
         subagent_extra_context["parent_thread_id"] = parent_tid_for_subagent

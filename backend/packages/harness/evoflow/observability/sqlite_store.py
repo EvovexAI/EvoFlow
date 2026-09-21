@@ -103,6 +103,7 @@ def _truncate_stored_json(value: str | None, *, limit: int = _STORED_MODEL_JSON_
     # Absolute last resort (invalid JSON marker) — list parser has regex fallback.
     return text[:cap] + "\n… [truncated]"
 
+
 _GATEWAY_REQUESTS_SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS {ObservabilityTable.GATEWAY_REQUESTS} (
     id TEXT PRIMARY KEY,
@@ -278,24 +279,13 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
     if ver < 3:
         cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.MODEL_INVOCATIONS})")}
         if "first_token_latency_ms" not in cols:
-            conn.execute(
-                f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN first_token_latency_ms REAL"
-            )
+            conn.execute(f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN first_token_latency_ms REAL")
     if ver < 4:
         conn.executescript(_GATEWAY_REQUESTS_SCHEMA)
     if ver < 5:
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_requested_at "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(requested_at)"
-        )
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_latency "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(latency_ms)"
-        )
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_kind_time "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(invocation_kind, requested_at)"
-        )
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_requested_at ON {ObservabilityTable.MODEL_INVOCATIONS}(requested_at)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_latency ON {ObservabilityTable.MODEL_INVOCATIONS}(latency_ms)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_kind_time ON {ObservabilityTable.MODEL_INVOCATIONS}(invocation_kind, requested_at)")
     if ver < 6:
         cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.MODEL_INVOCATIONS})")}
         for col in ("cache_read_tokens", "cache_creation_tokens", "cache_miss_tokens"):
@@ -307,10 +297,7 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN started_at TEXT")
         if "status" not in cols:
             conn.execute(f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'")
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_thread_status "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(thread_id, status)"
-        )
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_thread_status ON {ObservabilityTable.MODEL_INVOCATIONS}(thread_id, status)")
     if ver < 8:
         cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.MODEL_INVOCATIONS})")}
         for col, ddl in (
@@ -322,10 +309,7 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE {ObservabilityTable.MODEL_INVOCATIONS} ADD COLUMN {col} {ddl}")
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_reasoning_effort "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(reasoning_effort, requested_at)"
-        )
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_reasoning_effort ON {ObservabilityTable.MODEL_INVOCATIONS}(reasoning_effort, requested_at)")
     if ver < 9:
         for tbl, cols in (
             (ObservabilityTable.MODEL_INVOCATIONS, ("agent_code", "position_code")),
@@ -335,14 +319,8 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
             for col in cols:
                 if col not in existing:
                     conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_agent_time "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(agent_code, requested_at)"
-        )
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_tool_agent_time "
-            f"ON {ObservabilityTable.TOOL_INVOCATIONS}(agent_code, ended_at)"
-        )
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_agent_time ON {ObservabilityTable.MODEL_INVOCATIONS}(agent_code, requested_at)")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_tool_agent_time ON {ObservabilityTable.TOOL_INVOCATIONS}(agent_code, ended_at)")
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
     conn.commit()
 
@@ -351,10 +329,7 @@ def _ensure_model_thinking_indexes(conn: sqlite3.Connection) -> None:
     """Create thinking-related indexes only after columns exist (safe for old DBs)."""
     cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.MODEL_INVOCATIONS})")}
     if "reasoning_effort" in cols:
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_reasoning_effort "
-            f"ON {ObservabilityTable.MODEL_INVOCATIONS}(reasoning_effort, requested_at)"
-        )
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_evo_obs_model_reasoning_effort ON {ObservabilityTable.MODEL_INVOCATIONS}(reasoning_effort, requested_at)")
 
 
 def new_row_id() -> str:

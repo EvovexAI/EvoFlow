@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from evoflow.assets.paths import EntityRef
@@ -25,7 +25,7 @@ def normalize_ad_hoc_slug(text: str, *, fallback: str = "note") -> str:
 
 
 def build_ad_hoc_filename(*, slug_hint: str = "", fallback: str = "note") -> str:
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H-%M-%S")
     slug = normalize_ad_hoc_slug(slug_hint, fallback=fallback)
     name = f"{ts}-{slug}.md"
     if len(name.encode("utf-8")) > _FILENAME_MAX_BYTES:
@@ -47,7 +47,7 @@ def validate_ad_hoc_filename(filename: str) -> str | None:
         return "must use YYYY-MM-DDTHH-MM-SS-<slug>.md"
     if not _has_valid_timestamp_prefix(stem):
         return "must use YYYY-MM-DDTHH-MM-SS-<slug>.md"
-    slug = stem[_TIMESTAMP_PREFIX_LEN :]
+    slug = stem[_TIMESTAMP_PREFIX_LEN:]
     if not slug or len(slug.encode("utf-8")) > _SLUG_MAX_BYTES:
         return "slug must be 1 to 80 bytes"
     if not all(c.isascii() and (c.islower() or c.isdigit() or c == "-") for c in slug):
@@ -95,7 +95,7 @@ def write_ad_hoc_note(
     err = validate_ad_hoc_filename(filename)
     if err:
         raise ValueError(err)
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     rel = f"memory/_inbox/notes/{filename}"
     body = f"---\nsource: {source}\ncreated: {ts}\n---\n\n[ad-hoc note]\n\n{text}\n"
     return write_text_file(entity, rel, body)

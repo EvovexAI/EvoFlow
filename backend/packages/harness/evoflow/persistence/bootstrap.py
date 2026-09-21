@@ -93,10 +93,7 @@ def seed_config_from_app_yaml(config_data: dict[str, Any]) -> None:
         return
 
     if config_data.get("models") or config_data.get("primary_model"):
-        logger.warning(
-            "config.yaml defines models/primary_model but they are ignored. "
-            "Add chat models in Settings → Models (SQLite evoflow_models)."
-        )
+        logger.warning("config.yaml defines models/primary_model but they are ignored. Add chat models in Settings → Models (SQLite evoflow_models).")
 
     tools = _coerce_tools(config_data.get("tools"))
     groups = _coerce_tool_groups(config_data.get("tool_groups"))
@@ -401,10 +398,7 @@ def apply_config_from_db(config_data: dict[str, Any]) -> dict[str, Any]:
     Any ``models`` / ``primary_model`` keys in ``config.yaml`` are ignored.
     """
     if config_data.pop("models", None):
-        logger.warning(
-            "Ignoring models from config.yaml. "
-            "Chat models are stored in SQLite (evoflow_models); add them in Settings → Models."
-        )
+        logger.warning("Ignoring models from config.yaml. Chat models are stored in SQLite (evoflow_models); add them in Settings → Models.")
     if config_data.pop("primary_model", None):
         logger.debug("Ignoring primary_model from config.yaml (use evoflow_app_settings / UI).")
 

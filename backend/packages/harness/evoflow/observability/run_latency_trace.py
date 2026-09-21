@@ -44,6 +44,7 @@ def _append_shared_trace_log(line: str) -> None:
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
+
 _cycle: ContextVar[dict[str, Any] | None] = ContextVar("evoflow_run_latency_cycle", default=None)
 # LangGraph may run before_model / wrap_model_call in contexts where ContextVar
 # does not propagate — keep a thread-keyed mirror so pre_model_breakdown is not lost.
@@ -217,6 +218,7 @@ def clear_live_progress(thread_id: str) -> None:
         clear_agent_activity(tid)
     except Exception:
         pass
+
 
 _executor: ThreadPoolExecutor | None = None
 _executor_lock = threading.Lock()
@@ -613,16 +615,11 @@ def mark_wrap_model_enter(*, model_call_seq: int | None = None) -> None:
 
     # Total wall-clock time from user request to cloud API call
     user_ts = cycle.get("user_input_ts_ms")
-    pre_model_total_ms = max(
-        0.0, _now_wall_ms() - float(user_ts)
-    ) if user_ts else None
+    pre_model_total_ms = max(0.0, _now_wall_ms() - float(user_ts)) if user_ts else None
     pre_model_total_str = f" pre_model_total={pre_model_total_ms:.0f}ms" if pre_model_total_ms is not None else ""
 
     print(
-        f"[AGENT-TIMING] → cloud_api_call seq={model_call_seq or cycle.get('model_call_seq')}"
-        f"{pre_model_total_str}"
-        f" after_before_model={after_before_model_ms:.0f}ms"
-        f" phases=[{phases_summary}]",
+        f"[AGENT-TIMING] → cloud_api_call seq={model_call_seq or cycle.get('model_call_seq')}{pre_model_total_str} after_before_model={after_before_model_ms:.0f}ms phases=[{phases_summary}]",
         flush=True,
     )
     write_run_latency_event(

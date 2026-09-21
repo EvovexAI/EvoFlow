@@ -11,10 +11,7 @@ from evoflow.sandbox.exceptions import SandboxError
 from evoflow.sandbox.sandbox import Sandbox
 from evoflow.sandbox.sandbox_provider import SandboxProvider
 
-_MSG = (
-    "Host-local fake sandbox was removed. Use tools_mode=host_direct "
-    "(terminal + execution_security) or configure AioSandboxProvider."
-)
+_MSG = "Host-local fake sandbox was removed. Use tools_mode=host_direct (terminal + execution_security) or configure AioSandboxProvider."
 
 
 class NoopSandbox(Sandbox):

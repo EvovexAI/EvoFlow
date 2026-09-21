@@ -185,13 +185,7 @@ def pick_preferred_run_outputs_step(
     """Rollup → answer node (alias-aware) → last successful step with outputs."""
     aliases = alias_map or {}
     rollup = next(
-        (
-            s
-            for s in steps_detail
-            if isinstance(s, dict)
-            and (s.get("is_rollup_step") or str(s.get("ref") or "").strip() == "__rollup__")
-            and s.get("outputs")
-        ),
+        (s for s in steps_detail if isinstance(s, dict) and (s.get("is_rollup_step") or str(s.get("ref") or "").strip() == "__rollup__") and s.get("outputs")),
         None,
     )
     if rollup:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -24,7 +24,7 @@ def evoflow_home(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_default_deliverable_layout(evoflow_home: Path) -> None:
-    when = datetime(2026, 8, 24, 13, 8, tzinfo=timezone.utc)
+    when = datetime(2026, 8, 24, 13, 8, tzinfo=UTC)
     p = resolve_automation_deliverable_path(
         "bd105575",
         automation_name="每日AI日报",
@@ -36,7 +36,7 @@ def test_default_deliverable_layout(evoflow_home: Path) -> None:
 
 
 def test_custom_template_relative(evoflow_home: Path) -> None:
-    when = datetime(2026, 8, 24, tzinfo=timezone.utc)
+    when = datetime(2026, 8, 24, tzinfo=UTC)
     p = resolve_automation_deliverable_path(
         "bd105575",
         automation_name="每日AI日报",

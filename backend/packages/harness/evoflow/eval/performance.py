@@ -78,8 +78,7 @@ def _count_messages_by_role(db: Any, since_ms: int) -> dict[str, int]:
         return out
     try:
         rows = db.execute(
-            "SELECT role, COUNT(*) AS cnt FROM evoflow_chat_messages "
-            "WHERE created_at_ms >= ? GROUP BY role",
+            "SELECT role, COUNT(*) AS cnt FROM evoflow_chat_messages WHERE created_at_ms >= ? GROUP BY role",
             (since_ms,),
         ).fetchall()
         out = {str(r["role"] or "unknown"): int(r["cnt"] or 0) for r in rows}
@@ -159,10 +158,7 @@ def get_latency_distribution(days: int = 7) -> dict[str, Any]:
                 counts[i] += 1
                 break
 
-    distribution = [
-        {"bucket": label, "count": counts[i], "label": label}
-        for i, (label, _lo, _hi) in enumerate(buckets)
-    ]
+    distribution = [{"bucket": label, "count": counts[i], "label": label} for i, (label, _lo, _hi) in enumerate(buckets)]
     result: dict[str, Any] = {
         "days": days,
         "total": len(latencies),
@@ -259,9 +255,7 @@ def get_module_latency_breakdown(days: int = 7) -> dict[str, Any]:
     if "tool_name" in cols and "created_at_ms" in cols:
         try:
             rows = db.execute(
-                "SELECT created_at_ms FROM evoflow_chat_messages "
-                "WHERE tool_name IS NOT NULL AND tool_name <> '' AND created_at_ms >= ? "
-                "ORDER BY created_at_ms ASC LIMIT 20000",
+                "SELECT created_at_ms FROM evoflow_chat_messages WHERE tool_name IS NOT NULL AND tool_name <> '' AND created_at_ms >= ? ORDER BY created_at_ms ASC LIMIT 20000",
                 (since,),
             ).fetchall()
             ts_list = [int(r["created_at_ms"] or 0) for r in rows if r["created_at_ms"]]

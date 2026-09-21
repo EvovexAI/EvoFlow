@@ -43,9 +43,7 @@ _HTML_META_RE = re.compile(r"[<>]")
 
 def _validate_agent_name(name: str, *, enforce_max_len: bool = True) -> None:
     if not AGENT_NAME_PATTERN.match(name):
-        raise ValidationError(
-            f"Invalid agent name '{name}'. Must match ^[A-Za-z0-9-]+$ (letters, digits, and hyphens only)."
-        )
+        raise ValidationError(f"Invalid agent name '{name}'. Must match ^[A-Za-z0-9-]+$ (letters, digits, and hyphens only).")
     if enforce_max_len and len(name) > _AGENT_CODE_MAX_LEN:
         raise ValidationError(f"agent_code is too long (max {_AGENT_CODE_MAX_LEN} characters)")
 
@@ -122,9 +120,7 @@ def _validate_avatar_value(avatar: Any) -> str:
 def _validate_agent_type(raw: Any) -> str:
     at = str(raw or "custom").strip().lower() or "custom"
     if at not in _ALLOWED_AGENT_TYPES:
-        raise ValidationError(
-            f"Invalid agent_type: {raw!r} (expected one of {sorted(_ALLOWED_AGENT_TYPES)})"
-        )
+        raise ValidationError(f"Invalid agent_type: {raw!r} (expected one of {sorted(_ALLOWED_AGENT_TYPES)})")
     return at
 
 
@@ -204,6 +200,7 @@ def _validate_tools_list(tools: Any) -> list[str]:
         raise ValidationError(f"unknown tool(s): {', '.join(unknown)}")
     return known
 
+
 def _agent_tags(agent_cfg: AgentConfig | None) -> list[str]:
     """Return the agent's tag labels (empty list when unavailable)."""
     if agent_cfg is None:
@@ -237,6 +234,7 @@ def _validate_skills_list(skills: Any) -> list[str]:
         raise ValidationError(f"unknown skill(s): {', '.join(unknown)}")
     return names
 
+
 def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[str, Any]:
     code = agent_cfg.agent_code
     row: dict[str, Any] = {
@@ -246,9 +244,7 @@ def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[st
         "model": agent_cfg.model,
         "tool_groups": _dedupe_list_inplace(list(agent_cfg.tool_groups) if agent_cfg.tool_groups is not None else None),
         "tools": _dedupe_list_inplace(list(agent_cfg.tools) if agent_cfg.tools is not None else None),
-        "mcp_servers": _dedupe_list_inplace(
-            list(agent_cfg.mcp_servers) if agent_cfg.mcp_servers is not None else None
-        ),
+        "mcp_servers": _dedupe_list_inplace(list(agent_cfg.mcp_servers) if agent_cfg.mcp_servers is not None else None),
         "skills": _dedupe_list_inplace(list(agent_cfg.skills) if agent_cfg.skills is not None else None),
         "system_prompt": agent_cfg.system_prompt,
         "agent_type": agent_cfg.agent_type,
@@ -321,29 +317,16 @@ def list_agents(
     """
     agents = [_main_agent_row(include_soul=include_soul)]
     agents.extend(_agent_row(a, include_soul=include_soul) for a in list_custom_agents())
-    agents = [
-        a
-        for a in agents
-        if str(a.get("agent_code") or "").strip()
-        and str(a.get("agent_code") or "").strip().lower() not in _UI_HIDDEN_AGENT_CODES
-    ]
+    agents = [a for a in agents if str(a.get("agent_code") or "").strip() and str(a.get("agent_code") or "").strip().lower() not in _UI_HIDDEN_AGENT_CODES]
     if tag is not None:
         wanted = str(tag).strip()
         if wanted:
-            agents = [
-                a
-                for a in agents
-                if any(wanted in (t or "") for t in (a.get("tags") or []))
-            ]
+            agents = [a for a in agents if any(wanted in (t or "") for t in (a.get("tags") or []))]
         # empty tag string → no filter
     if agent_name is not None:
         wanted_name = str(agent_name).strip()
         if wanted_name:
-            agents = [
-                a
-                for a in agents
-                if wanted_name in str(a.get("agent_name") or "")
-            ]
+            agents = [a for a in agents if wanted_name in str(a.get("agent_name") or "")]
     off = 0
     if offset is not None:
         try:
@@ -363,6 +346,7 @@ def list_agents(
             raise ValidationError("limit must be >= 0")
         agents = agents[:lim]
     return {"agents": agents, "count": len(agents)}
+
 
 def get_agent(name: str) -> dict[str, Any]:
     if name.lower() == "main":
@@ -394,9 +378,7 @@ def _assert_agent_name_unique(agent_name: str, *, exclude_code: str | None = Non
             continue
         other = str(row.get("agent_name") or "").strip().casefold()
         if other and other == wanted:
-            raise ConflictError(
-                f"agent_name '{agent_name}' is already used by agent '{row.get('agent_code')}'"
-            )
+            raise ConflictError(f"agent_name '{agent_name}' is already used by agent '{row.get('agent_code')}'")
 
 
 def create_agent(data: dict[str, Any]) -> dict[str, Any]:
@@ -421,14 +403,10 @@ def create_agent(data: dict[str, Any]) -> dict[str, Any]:
         if data["agent_name"] is None:
             pass
         else:
-            config_data["agent_name"] = _sanitize_display_text(
-                data["agent_name"], field="agent_name", allow_empty=False, allow_newlines=False
-            )
+            config_data["agent_name"] = _sanitize_display_text(data["agent_name"], field="agent_name", allow_empty=False, allow_newlines=False)
             _assert_agent_name_unique(str(config_data["agent_name"]), exclude_code=normalized)
     if data.get("description") is not None:
-        config_data["description"] = _sanitize_display_text(
-            data["description"], field="description", allow_empty=True, max_len=4000
-        ) or ""
+        config_data["description"] = _sanitize_display_text(data["description"], field="description", allow_empty=True, max_len=4000) or ""
     if data.get("system_prompt") is not None:
         sp = data["system_prompt"]
         if sp is None:
@@ -503,17 +481,13 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
         if data["agent_name"] is None:
             pass
         else:
-            config_data["agent_name"] = _sanitize_display_text(
-                data["agent_name"], field="agent_name", allow_empty=False, allow_newlines=False
-            )
+            config_data["agent_name"] = _sanitize_display_text(data["agent_name"], field="agent_name", allow_empty=False, allow_newlines=False)
             _assert_agent_name_unique(str(config_data["agent_name"]), exclude_code=normalized)
     if "description" in data:
         if data["description"] is None:
             pass
         else:
-            config_data["description"] = _sanitize_display_text(
-                data["description"], field="description", allow_empty=True, max_len=4000
-            ) or ""
+            config_data["description"] = _sanitize_display_text(data["description"], field="description", allow_empty=True, max_len=4000) or ""
     if "model" in data:
         if data["model"] is None:
             config_data["model"] = None
@@ -582,8 +556,7 @@ def _refresh_sessions_tool_state_for_agent(agent_code: str) -> int:
 
     db = get_db()
     rows = db.execute(
-        "SELECT session_key FROM evoflow_chat_sessions "
-        "WHERE is_deleted = 0 AND (agent_id = ? OR session_key LIKE ?)",
+        "SELECT session_key FROM evoflow_chat_sessions WHERE is_deleted = 0 AND (agent_id = ? OR session_key LIKE ?)",
         (agent_code, f"agent:{agent_code}:%"),
     ).fetchall()
     refreshed = 0
@@ -602,7 +575,6 @@ def _refresh_sessions_tool_state_for_agent(agent_code: str) -> int:
     return refreshed
 
 
-
 def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:
     existing: dict[str, Any] = {}
     try:
@@ -613,13 +585,9 @@ def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:
         existing = {"agent_code": "main", "agent_type": "custom"}
 
     if "agent_name" in data and data["agent_name"] is not None:
-        existing["agent_name"] = _sanitize_display_text(
-            data["agent_name"], field="agent_name", allow_empty=False, allow_newlines=False
-        )
+        existing["agent_name"] = _sanitize_display_text(data["agent_name"], field="agent_name", allow_empty=False, allow_newlines=False)
     if "description" in data and data["description"] is not None:
-        existing["description"] = _sanitize_display_text(
-            data["description"], field="description", allow_empty=True
-        ) or ""
+        existing["description"] = _sanitize_display_text(data["description"], field="description", allow_empty=True) or ""
     if "model" in data:
         if data["model"] is None and "model" in existing:
             del existing["model"]
@@ -674,11 +642,7 @@ def delete_agent(
         linked_employee = False
 
     if linked_employee and not confirm_cascade and not keep_employee:
-        raise ValidationError(
-            f"Agent '{normalized}' has a linked employee. "
-            "Pass confirm_cascade=true to delete both, or keep_employee=true "
-            "to delete the agent only."
-        )
+        raise ValidationError(f"Agent '{normalized}' has a linked employee. Pass confirm_cascade=true to delete both, or keep_employee=true to delete the agent only.")
 
     cfg_repo.delete_agent(normalized)
     try:

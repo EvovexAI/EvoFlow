@@ -62,11 +62,7 @@ def _reject_preference_as_kb_note(
         return None
     kid = str(kb_id or "").strip().lower()
     p = str(path or "").replace("\\", "/").strip().lower()
-    folderish = (
-        "agent notes" in p
-        or p.startswith("agent notes/")
-        or "/agent notes/" in f"/{p}/"
-    )
+    folderish = "agent notes" in p or p.startswith("agent notes/") or "/agent notes/" in f"/{p}/"
     builtin = "builtin" in kid or "user_guide" in kid or kid.startswith("kb_builtin")
     # create without path defaults to Agent Notes folder in _owned_write
     default_notes = operation == "create" and not p
@@ -76,10 +72,7 @@ def _reject_preference_as_kb_note(
         {
             "ok": False,
             "error": "use_assets_note",
-            "message": (
-                "User preferences, reflections, and experience belong in Entity Asset Hub. "
-                "Call assets(action=note, …) instead of knowledge.write to builtin guide / Agent Notes."
-            ),
+            "message": ("User preferences, reflections, and experience belong in Entity Asset Hub. Call assets(action=note, …) instead of knowledge.write to builtin guide / Agent Notes."),
         }
     )
 
@@ -129,10 +122,7 @@ def _default_vault_id(vault_id: str | None) -> str | None:
 
 def _any_read_write_vault() -> bool:
     try:
-        return any(
-            c.enabled and c.access_mode == AccessMode.read_write
-            for c in vault_store.list_vault_configs()
-        )
+        return any(c.enabled and c.access_mode == AccessMode.read_write for c in vault_store.list_vault_configs())
     except Exception:
         return False
 
@@ -358,7 +348,7 @@ async def _owned_read(*, paths: list[str] | None, kb_id: str | None, max_content
         if not doc or not hit_kb:
             continue
         text = owned_service.get_document_text(doc["id"], max_chars=cap)
-        path = doc.get("folderPath") and f'{doc["folderPath"]}/{doc["fileName"]}' or doc.get("fileName") or doc["id"]
+        path = doc.get("folderPath") and f"{doc['folderPath']}/{doc['fileName']}" or doc.get("fileName") or doc["id"]
         items.append(
             {
                 "path": path,
@@ -539,7 +529,7 @@ async def _owned_list(*, kb_id: str | None, prefix: str, limit: int) -> str:
         docs = owned_service.list_documents(kid)
         total += len(docs)
         for d in docs:
-            path = (d.get("folderPath") and f'{d["folderPath"]}/{d["fileName"]}') or d.get("fileName") or d["id"]
+            path = (d.get("folderPath") and f"{d['folderPath']}/{d['fileName']}") or d.get("fileName") or d["id"]
             if pref and not path.startswith(pref) and not str(d.get("title") or "").startswith(pref):
                 continue
             items.append(
@@ -707,9 +697,7 @@ async def _owned_write(
     if not kid:
         return _json({"error": "knowledge_disabled", "message": "No owned knowledge base configured."})
     op = str(operation or "create").strip().lower() or "create"
-    blocked = _reject_preference_as_kb_note(
-        kb_id=kid, path=path, content=content, operation=op
-    )
+    blocked = _reject_preference_as_kb_note(kb_id=kid, path=path, content=content, operation=op)
     if blocked:
         return blocked
     if not str(path or "").strip() and op != "create":
@@ -747,9 +735,7 @@ async def _owned_write(
             p = str(path or "").replace("\\", "/").strip()
             if "/" in p:
                 folder = "/".join(p.split("/")[:-1]) or "Agent Notes"
-            doc = owned_service.upload_manual_markdown(
-                kid, title=title, content=content, folder_path=folder
-            )
+            doc = owned_service.upload_manual_markdown(kid, title=title, content=content, folder_path=folder)
             return _write_ok(operation="create", doc=doc, extra={"folderPath": doc.get("folderPath")})
         if op == "append":
             doc = owned_service.resolve_document(kid, str(path).strip())
@@ -787,10 +773,7 @@ async def _owned_write(
         return _json(
             {
                 "error": "unsupported",
-                "message": (
-                    f"owned write supports create|append|replace|delete (got {op}). "
-                    "Use vault for patch/frontmatter/tags."
-                ),
+                "message": (f"owned write supports create|append|replace|delete (got {op}). Use vault for patch/frontmatter/tags."),
             }
         )
     except Exception as exc:

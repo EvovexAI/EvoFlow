@@ -32,11 +32,7 @@ def _run(home: Path) -> dict:
         bad_ok = "invalid" in str(exc).lower() or "match" in str(exc).lower()
         bad_err = str(exc)
 
-    skill_names = [
-        str(s.get("name") or "")
-        for s in (skills_admin.list_skills(enabled_only=True).get("skills") or [])
-        if s.get("name")
-    ]
+    skill_names = [str(s.get("name") or "") for s in (skills_admin.list_skills(enabled_only=True).get("skills") or []) if s.get("name")]
     pick = skill_names[:2] if skill_names else []
 
     code = "eval-mod-agent-l2"

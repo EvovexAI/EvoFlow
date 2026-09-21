@@ -15,10 +15,18 @@ from typing import Any
 from evoflow.knowledge.embedding import get_embedding
 from evoflow.knowledge.folders import (
     create_folder as folders_create,
+)
+from evoflow.knowledge.folders import (
     delete_folder as folders_delete,
+)
+from evoflow.knowledge.folders import (
     ensure_root_folder,
-    list_folders as folders_list,
     normalize_folder_id,
+)
+from evoflow.knowledge.folders import (
+    list_folders as folders_list,
+)
+from evoflow.knowledge.folders import (
     rename_folder as folders_rename,
 )
 from evoflow.knowledge.processor import process_file, public_file_status
@@ -54,6 +62,7 @@ def dataset_llm_index_enabled(dataset_id: str) -> bool:
 # ---------------------------------------------------------------------------
 # Dataset CRUD
 # ---------------------------------------------------------------------------
+
 
 def list_datasets() -> list[dict[str, Any]]:
     """List all knowledge bases with aggregate stats."""
@@ -161,14 +170,17 @@ async def create_dataset(
 
     # Store settings in metadata_json
     import json
-    settings = json.dumps({
-        "chunk_size": chunk_size,
-        "chunk_overlap": chunk_overlap,
-        "top_k": top_k,
-        "score_threshold": score_threshold,
-        "llm_index_enabled": bool(llm_index_enabled),
-        "local_source_path": str(local_source_path or "").strip(),
-    })
+
+    settings = json.dumps(
+        {
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "top_k": top_k,
+            "score_threshold": score_threshold,
+            "llm_index_enabled": bool(llm_index_enabled),
+            "local_source_path": str(local_source_path or "").strip(),
+        }
+    )
 
     with db_connection_lock():
         conn = get_db()
@@ -279,6 +291,7 @@ def delete_dataset(dataset_id: str) -> bool:
 def get_dataset_settings(dataset_id: str) -> dict[str, Any]:
     """Extract settings from dataset metadata_json."""
     import json
+
     with db_connection_lock():
         conn = get_db()
         row = conn.execute(
@@ -293,6 +306,7 @@ def get_dataset_settings(dataset_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Source files
 # ---------------------------------------------------------------------------
+
 
 def list_files(dataset_id: str, *, folder_id: str | None = None) -> list[dict[str, Any]]:
     """List source files for a dataset, optionally filtered by folder."""
@@ -409,6 +423,7 @@ async def sync_local_source(dataset_id: str, *, force: bool = False) -> dict[str
 # Chunks
 # ---------------------------------------------------------------------------
 
+
 def list_chunks(dataset_id: str, *, page: int = 1, page_size: int = 50) -> dict[str, Any]:
     """List chunks for a dataset with pagination."""
     offset = (page - 1) * page_size
@@ -442,6 +457,7 @@ def list_chunks(dataset_id: str, *, page: int = 1, page_size: int = 50) -> dict[
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+
 
 def _file_id_from_summary_chunk_id(chunk_id: str) -> str | None:
     if str(chunk_id or "").startswith("summary_"):
@@ -517,7 +533,7 @@ async def search(
         raise ValueError(f"Dataset {dataset_id} not found")
     dim = int(ds["embedding_dim"])
 
-    from evoflow.knowledge.embedding import get_embedding, resolve_embedding_model_config
+    from evoflow.knowledge.embedding import resolve_embedding_model_config
 
     mc = resolve_embedding_model_config(str(ds.get("embedding_model") or "")) or None
     query_vec = await get_embedding(query, mc, expected_dim=dim)
@@ -556,21 +572,23 @@ async def search(
         except Exception:
             meta = {}
         kind = str(meta.get("kind") or ("summary" if hit.chunk_id.startswith("summary_") else "section"))
-        results.append({
-            "chunk_id": hit.chunk_id,
-            "content": chunk_data["content"],
-            "score": round(fused_score, 4),
-            "distance": round(hit.distance, 4),
-            "file_name": chunk_data.get("file_name", ""),
-            "file_id": chunk_data.get("file_id", ""),
-            "seq": chunk_data.get("seq", 0),
-            "token_count": chunk_data.get("token_count", 0),
-            "index_text": meta.get("index_text") or chunk_data.get("summary_index") or "",
-            "heading_path": meta.get("heading_path") or "",
-            "match_kind": kind,
-            "dataset_id": dataset_id,
-            "dataset_name": ds.get("name") or dataset_id,
-        })
+        results.append(
+            {
+                "chunk_id": hit.chunk_id,
+                "content": chunk_data["content"],
+                "score": round(fused_score, 4),
+                "distance": round(hit.distance, 4),
+                "file_name": chunk_data.get("file_name", ""),
+                "file_id": chunk_data.get("file_id", ""),
+                "seq": chunk_data.get("seq", 0),
+                "token_count": chunk_data.get("token_count", 0),
+                "index_text": meta.get("index_text") or chunk_data.get("summary_index") or "",
+                "heading_path": meta.get("heading_path") or "",
+                "match_kind": kind,
+                "dataset_id": dataset_id,
+                "dataset_name": ds.get("name") or dataset_id,
+            }
+        )
 
     return results
 
@@ -615,6 +633,7 @@ async def search_knowledge_bases(
 # Status
 # ---------------------------------------------------------------------------
 
+
 def get_status(dataset_id: str) -> dict[str, Any]:
     """Get processing status for a dataset."""
     with db_connection_lock():
@@ -625,19 +644,15 @@ def get_status(dataset_id: str) -> dict[str, Any]:
         ).fetchall()
     return {
         "dataset_id": dataset_id,
-        "files": [
-            {**dict(f), "status": public_file_status(str(f["status"] or "ready"))}
-            for f in files
-        ],
-        "processing": any(
-            public_file_status(str(f["status"] or "ready")) == "processing" for f in files
-        ),
+        "files": [{**dict(f), "status": public_file_status(str(f["status"] or "ready"))} for f in files],
+        "processing": any(public_file_status(str(f["status"] or "ready")) == "processing" for f in files),
     }
 
 
 # ---------------------------------------------------------------------------
 # Folders (Wiki TOC)
 # ---------------------------------------------------------------------------
+
 
 def list_folders(dataset_id: str) -> list[dict[str, Any]]:
     return folders_list(dataset_id)

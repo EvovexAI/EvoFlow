@@ -104,11 +104,7 @@ def _find_manifest_root(extracted: Path) -> Path:
     direct = extracted / _MANIFEST_NAME
     if direct.is_file():
         return extracted
-    candidates = [
-        p.parent
-        for p in extracted.rglob(_MANIFEST_NAME)
-        if p.is_file() and ".obsidian" not in p.parts
-    ]
+    candidates = [p.parent for p in extracted.rglob(_MANIFEST_NAME) if p.is_file() and ".obsidian" not in p.parts]
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
@@ -208,24 +204,14 @@ def load_json_ref(pack: LoadedPack, from_path: str) -> dict[str, Any]:
 
 def apply_placeholders(text: str, *, org_workspace: str, org_root: str) -> str:
     s = str(text or "")
-    return (
-        s.replace("${ORG_WORKSPACE}", org_workspace or "")
-        .replace("${ORG_ROOT}", org_root or "")
-        .replace("${EVOFLOW_HOME}", str(Path.home() / ".evoflow"))
-    )
+    return s.replace("${ORG_WORKSPACE}", org_workspace or "").replace("${ORG_ROOT}", org_root or "").replace("${EVOFLOW_HOME}", str(Path.home() / ".evoflow"))
 
 
 def deep_apply_placeholders(obj: Any, *, org_workspace: str, org_root: str) -> Any:
     if isinstance(obj, str):
         return apply_placeholders(obj, org_workspace=org_workspace, org_root=org_root)
     if isinstance(obj, list):
-        return [
-            deep_apply_placeholders(x, org_workspace=org_workspace, org_root=org_root)
-            for x in obj
-        ]
+        return [deep_apply_placeholders(x, org_workspace=org_workspace, org_root=org_root) for x in obj]
     if isinstance(obj, dict):
-        return {
-            k: deep_apply_placeholders(v, org_workspace=org_workspace, org_root=org_root)
-            for k, v in obj.items()
-        }
+        return {k: deep_apply_placeholders(v, org_workspace=org_workspace, org_root=org_root) for k, v in obj.items()}
     return obj

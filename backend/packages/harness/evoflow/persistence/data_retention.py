@@ -21,10 +21,10 @@ _TERMINAL_TASK_STATUSES = ("completed", "failed", "cancelled", "archived")
 
 def _checkpoints_table_exists(conn: sqlite3.Connection) -> bool:
     """True when LangGraph's SqliteSaver schema is present (``setup()`` has run)."""
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='checkpoints' LIMIT 1"
-    ).fetchone()
+    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='checkpoints' LIMIT 1").fetchone()
     return row is not None
+
+
 _ACTIVE_SUBTASK_STATUSES = ("pending", "executing", "paused", "running", "in_progress")
 
 
@@ -221,9 +221,7 @@ def enforce_observability_db_size_cap(
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.commit()
 
-        gw_count_row = conn.execute(
-            f"SELECT COUNT(*) FROM {ObservabilityTable.GATEWAY_REQUESTS}"
-        ).fetchone()
+        gw_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.GATEWAY_REQUESTS}").fetchone()
         gw_count = int(gw_count_row[0] or 0) if gw_count_row else 0
         # SQLite file size barely drops until VACUUM — estimate rows to delete from ratio.
         target_ratio = max(0.05, min(1.0, max_bytes / before))
@@ -245,9 +243,7 @@ def enforce_observability_db_size_cap(
             to_delete -= n
 
         if before > max_bytes * 1.2:
-            model_count_row = conn.execute(
-                f"SELECT COUNT(*) FROM {ObservabilityTable.MODEL_INVOCATIONS}"
-            ).fetchone()
+            model_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.MODEL_INVOCATIONS}").fetchone()
             model_count = int(model_count_row[0] or 0) if model_count_row else 0
             keep_model = max(1_000, int(model_count * target_ratio * 0.85))
             if model_count > 5_000:
@@ -267,9 +263,7 @@ def enforce_observability_db_size_cap(
                 model_to_delete -= n
 
         if before > max_bytes * 1.5:
-            trace_count_row = conn.execute(
-                f"SELECT COUNT(*) FROM {ObservabilityTable.TRACE_EVENTS}"
-            ).fetchone()
+            trace_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.TRACE_EVENTS}").fetchone()
             trace_count = int(trace_count_row[0] or 0) if trace_count_row else 0
             keep_trace = max(10_000, int(trace_count * target_ratio * 0.85))
             trace_to_delete = max(0, trace_count - keep_trace)
@@ -360,9 +354,7 @@ def prune_task_stream_events(*, days: int) -> int:
 
     def _do() -> int:
         conn = get_db()
-        if not conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_task_events'"
-        ).fetchone():
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_task_events'").fetchone():
             return 0
         rows = conn.execute(
             f"""
@@ -394,9 +386,7 @@ def prune_task_status_events(*, days: int) -> int:
 
     def _do() -> int:
         conn = get_db()
-        if not conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_task_events'"
-        ).fetchone():
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_task_events'").fetchone():
             return 0
         cur = conn.execute(
             "DELETE FROM evoflow_task_events WHERE event_type = ? AND created_at < ?",
@@ -798,6 +788,7 @@ def run_data_retention(
         logger.warning("retention: soft-deleted session messages prune failed", exc_info=True)
 
     try:
+
         def _load_checkpoint_context() -> tuple[set[str], set[str], set[str], set[str]]:
             app_conn = get_db()
             protected = _protected_thread_ids(app_conn)
@@ -826,11 +817,7 @@ def run_data_retention(
                     if not _checkpoints_table_exists(cp_conn):
                         logger.debug("retention: checkpoints db not initialized, skipping checkpoint prune")
                     else:
-                        cp_threads = {
-                            str(r[0])
-                            for r in cp_conn.execute("SELECT DISTINCT thread_id FROM checkpoints").fetchall()
-                            if r[0]
-                        }
+                        cp_threads = {str(r[0]) for r in cp_conn.execute("SELECT DISTINCT thread_id FROM checkpoints").fetchall() if r[0]}
                         never_session = cp_threads - any_sessions - protected
                         purge_whole_thread = (stale_threads | never_session | inactive_threads) - protected
                         (
@@ -881,9 +868,7 @@ def run_data_retention(
             app_path = resolve_evolflow_db_path()
             obs_path = observability_db_path(base_dir)
             cp_path = checkpoints_db_path(base_dir)
-            result.vacuumed = _vacuum_paths(
-                [p for p in (app_path, obs_path, cp_path) if p.is_file()]
-            )
+            result.vacuumed = _vacuum_paths([p for p in (app_path, obs_path, cp_path) if p.is_file()])
         except Exception as exc:
             result.errors.append(f"vacuum: {exc}")
     elif cfg.vacuum_sqlite:

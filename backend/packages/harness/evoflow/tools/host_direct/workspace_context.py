@@ -151,9 +151,7 @@ def resolve_tool_workspace_root(
     if not root:
         lookup_tid = str(parent_thread_id or "").strip()
         if not lookup_tid and thread_id:
-            lookup_tid = lead_thread_from_executor_thread(thread_id) or (
-                str(thread_id).strip() if not is_collab_executor_thread(thread_id) else ""
-            )
+            lookup_tid = lead_thread_from_executor_thread(thread_id) or (str(thread_id).strip() if not is_collab_executor_thread(thread_id) else "")
         root = _clean_workspace_root(load_local_workspace_root_for_thread(lookup_tid))
 
     return root, thread_id

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -37,16 +38,20 @@ def list_meeting_speak_turns(meeting_id: str) -> list[dict[str, Any]]:
     mid = str(meeting_id or "").strip()
     if not mid:
         return []
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT agent_code, goal, result_text, state, created_at
         FROM evoflow_a2a_tasks
         WHERE meeting_id = ?
           AND COALESCE(result_text, '') != ''
         ORDER BY created_at
         """,
-        (mid,),
-    ).fetchall()
+            (mid,),
+        )
+        .fetchall()
+    )
     out: list[dict[str, Any]] = []
     for row in rows:
         d = dict(row)
@@ -183,7 +188,7 @@ def deposit_meeting_conclusion_document(
     turns: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Write conclusion markdown into user Asset Hub ``memory/episodic/``."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from evoflow.assets.hub import ensure_entity_tree, write_text_file
     from evoflow.assets.paths import EntityRef
@@ -201,28 +206,16 @@ def deposit_meeting_conclusion_document(
     one_liner = (summary or title)[:30]
     body = format_conclusion_document(conclusion, meeting_id=mid, turns=turns)
 
-    now = datetime.now(timezone.utc).astimezone()
+    now = datetime.now(UTC).astimezone()
     day = now.date().isoformat()
     mid_slug = re.sub(r"[^a-zA-Z0-9]+", "", mid)[-10:] or "meet"
     stamp = now.strftime("%H%M%S")
     rel = f"memory/episodic/{day}-meeting-{mid_slug}-{stamp}.md"
-    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     # Escape YAML-ish quotes in title/summary
     title_y = title.replace('"', "'")[:80]
     sum_y = one_liner.replace('"', "'")
-    md = (
-        f"---\n"
-        f'title: "{title_y}"\n'
-        f'summary: "{sum_y}"\n'
-        f"kind: meeting-plan\n"
-        f"meeting_id: {mid}\n"
-        f"date: {day}\n"
-        f"entity: user\n"
-        f"entity_id: user\n"
-        f"created_at: {created}\n"
-        f"---\n\n"
-        f"{body}"
-    )
+    md = f'---\ntitle: "{title_y}"\nsummary: "{sum_y}"\nkind: meeting-plan\nmeeting_id: {mid}\ndate: {day}\nentity: user\nentity_id: user\ncreated_at: {created}\n---\n\n{body}'
     written = write_text_file(entity, rel, md)
     return {
         "ok": True,
@@ -297,9 +290,7 @@ async def conclude_meeting(meeting_id: str, *, topic: str = "") -> dict[str, Any
         )
         raw = getattr(response, "content", None)
         if isinstance(raw, list):
-            raw = "".join(
-                str(b.get("text") or "") if isinstance(b, dict) else str(b) for b in raw
-            )
+            raw = "".join(str(b.get("text") or "") if isinstance(b, dict) else str(b) for b in raw)
         parsed = _parse_conclude_json(str(raw or ""))
     except Exception as e:
         logger.warning("meeting conclude LLM failed: %s", e, exc_info=True)

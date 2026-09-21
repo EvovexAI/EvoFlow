@@ -61,18 +61,9 @@ _READONLY_TOOLS = frozenset(
 # Injected by this middleware — must not count as a new user turn.
 _BUDGET_MSG_PREFIX = "[会话工具预算"
 
-_WARN_MSG = (
-    f"{_BUDGET_MSG_PREFIX}] 自用户本轮消息起工具调用已超过 {_WARN_TOOL_COUNT} 次。"
-    "请收口总结、减少重复探索，优先用已有结果完成回答。"
-)
-_BLOCK_MSG = (
-    f"{_BUDGET_MSG_PREFIX}·已拦截] 自用户本轮消息起工具调用已达 {_HARD_TOOL_COUNT} 次上限，"
-    "非只读工具本次未执行。请根据已有结果输出结论，或向用户说明仍需的信息。"
-)
-_DELEGATE_COOLDOWN_MSG = (
-    "[子智能体冷却] 上次委派触达步数上限，60 秒内不再启动新子任务。"
-    "请根据已有子智能体结果直接总结，不要重复 task/subagent。"
-)
+_WARN_MSG = f"{_BUDGET_MSG_PREFIX}] 自用户本轮消息起工具调用已超过 {_WARN_TOOL_COUNT} 次。请收口总结、减少重复探索，优先用已有结果完成回答。"
+_BLOCK_MSG = f"{_BUDGET_MSG_PREFIX}·已拦截] 自用户本轮消息起工具调用已达 {_HARD_TOOL_COUNT} 次上限，非只读工具本次未执行。请根据已有结果输出结论，或向用户说明仍需的信息。"
+_DELEGATE_COOLDOWN_MSG = "[子智能体冷却] 上次委派触达步数上限，60 秒内不再启动新子任务。请根据已有子智能体结果直接总结，不要重复 task/subagent。"
 
 _TURN_LIMIT_MARKER = "STEP_LIMIT_REACHED"
 

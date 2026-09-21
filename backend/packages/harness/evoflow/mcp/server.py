@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from evoflow.capability import (
     CallerCtx,
@@ -146,9 +146,7 @@ def _handle_initialize(request_body: dict) -> dict:
     return _jsonrpc_result(req_id, result)
 
 
-def _handle_tools_list(
-    request_body: dict, registry: CapabilityRegistry
-) -> dict:
+def _handle_tools_list(request_body: dict, registry: CapabilityRegistry) -> dict:
     """Answer ``tools/list`` with the Remote-surface capabilities.
 
     Only capabilities not hard-denied on the Remote surface are listed (the
@@ -167,9 +165,7 @@ def _handle_tools_list(
     return _jsonrpc_result(req_id, {"tools": tools})
 
 
-def _handle_tools_call(
-    request_body: dict, registry: CapabilityRegistry, caller_ctx: CallerCtx
-) -> dict:
+def _handle_tools_call(request_body: dict, registry: CapabilityRegistry, caller_ctx: CallerCtx) -> dict:
     """Answer ``tools/call`` by dispatching to the registry.
 
     Parses ``{name, arguments}``, runs the capability through
@@ -203,9 +199,7 @@ def _handle_tools_call(
     # MCP marks tool errors with isError=true so clients surface them to the
     # LLM rather than treating them as transport failures. A result containing
     # an "error" or "needs_confirmation" key is a logical tool error.
-    is_error = isinstance(result, dict) and (
-        "error" in result or "needs_confirmation" in result
-    )
+    is_error = isinstance(result, dict) and ("error" in result or "needs_confirmation" in result)
 
     return _jsonrpc_result(
         req_id,
@@ -219,8 +213,8 @@ def _handle_tools_call(
 def handle_mcp_request(
     request_body: dict,
     caller_ctx: CallerCtx,
-    registry: Optional[CapabilityRegistry] = None,
-) -> Optional[dict]:
+    registry: CapabilityRegistry | None = None,
+) -> dict | None:
     """Unified entry point for a single MCP JSON-RPC 2.0 request.
 
     Routes the request to the appropriate handler (``initialize``,
@@ -292,7 +286,7 @@ def handle_mcp_request(
 def handle_mcp_batch(
     request_body: list,
     caller_ctx: CallerCtx,
-    registry: Optional[CapabilityRegistry] = None,
+    registry: CapabilityRegistry | None = None,
 ) -> list:
     """Handle a JSON-RPC 2.0 batch request (a list of requests).
 

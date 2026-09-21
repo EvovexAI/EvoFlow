@@ -111,11 +111,7 @@ class MemoryConfig(BaseModel):
     )
     injection_mode: str = Field(
         default="asset",
-        description=(
-            "Tier-0 injection style: ``asset`` = read_path + standing only (search/read on demand); "
-            "``legacy`` = SQLite <memory> block + asset catalog listing. "
-            "Legacy alias ``codex`` is accepted and treated as ``asset``."
-        ),
+        description=("Tier-0 injection style: ``asset`` = read_path + standing only (search/read on demand); ``legacy`` = SQLite <memory> block + asset catalog listing. Legacy alias ``codex`` is accepted and treated as ``asset``."),
     )
     max_injection_tokens: int = Field(
         default=2000,

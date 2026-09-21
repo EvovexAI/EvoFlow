@@ -87,9 +87,7 @@ def _model_name_from_runtime(runtime: object | None) -> str | None:
     return None
 
 
-def _prepare_rollup(
-    prior: list[str], *, model_name: str | None = None
-) -> tuple[object, str] | None:
+def _prepare_rollup(prior: list[str], *, model_name: str | None = None) -> tuple[object, str] | None:
     cfg = get_session_intent_config()
     if not cfg.llm_rollup_enabled:
         return None
@@ -134,9 +132,7 @@ def _llm_rollup(prior: list[str], *, model_name: str | None = None) -> str | Non
         return None
 
 
-async def _llm_rollup_async(
-    prior: list[str], *, model_name: str | None = None
-) -> str | None:
+async def _llm_rollup_async(prior: list[str], *, model_name: str | None = None) -> str | None:
     prepared = _prepare_rollup(prior, model_name=model_name)
     if prepared is None:
         return None
@@ -192,9 +188,7 @@ def _build_intent_block(messages: list, *, thread_id: str = "", model_name: str 
     return "\n".join(lines)
 
 
-async def _build_intent_block_async(
-    messages: list, *, thread_id: str = "", model_name: str | None = None
-) -> str:
+async def _build_intent_block_async(messages: list, *, thread_id: str = "", model_name: str | None = None) -> str:
     cfg = get_session_intent_config()
     if not cfg.enabled:
         return ""
@@ -225,9 +219,7 @@ def strip_session_intent_from_system_prompt(text: str) -> str:
 
 
 def _is_session_intent_message(msg: Any) -> bool:
-    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(
-        msg, "name", None
-    ) == _SESSION_INTENT_MESSAGE_NAME
+    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(msg, "name", None) == _SESSION_INTENT_MESSAGE_NAME
 
 
 def _strip_session_intent_messages(messages: list[Any]) -> list[Any]:
@@ -235,9 +227,7 @@ def _strip_session_intent_messages(messages: list[Any]) -> list[Any]:
 
 
 def _messages_from_request(request: ModelRequest) -> list[BaseMessage]:
-    state_msgs: list[Any] = (
-        list((request.state or {}).get("messages") or []) if isinstance(request.state, dict) else []
-    )
+    state_msgs: list[Any] = list((request.state or {}).get("messages") or []) if isinstance(request.state, dict) else []
     req_msgs: list[Any] = list(request.messages or []) if getattr(request, "messages", None) else []
     raw = state_msgs if len(state_msgs) >= len(req_msgs) else req_msgs
     return [m for m in raw if isinstance(m, BaseMessage)]

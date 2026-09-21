@@ -17,6 +17,7 @@ from evoflow.config.data_paths import resolve_data_base_dir
 
 logger = logging.getLogger(__name__)
 
+
 # MCP 配置文件路径（用户数据目录下的 mcp.json，和数据库等文件同级）
 # 默认 ~/.evoflow/mcp.json，可通过 EVOFLOW_HOME 环境变量覆盖
 def _get_mcp_config_path() -> Path:
@@ -51,10 +52,7 @@ def load_mcp_config() -> dict[str, Any]:
         return sqlite_servers
 
     if is_bogus_mcp_server_map(sqlite_servers):
-        logger.warning(
-            "SQLite MCP config looks like a raw mcp.json wrapper (key 'mcpServers'); "
-            "re-importing from mcp.json files"
-        )
+        logger.warning("SQLite MCP config looks like a raw mcp.json wrapper (key 'mcpServers'); re-importing from mcp.json files")
 
     file_servers, file_path = load_mcp_json_from_files()
     if file_servers:
@@ -135,6 +133,7 @@ def _normalize_mcp_server_config(server_name: str, config: dict[str, Any]) -> di
         # (passing it causes: _create_stdio_session() got an unexpected keyword argument 'timeout')
 
     return normalized
+
 
 # Global thread pool for sync tool invocation in async environments
 _SYNC_TOOL_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="mcp-sync-tool")
@@ -250,10 +249,7 @@ def _mcp_error_hint(server_name: str, cfg: dict[str, Any], err_text: str) -> str
     if "taskgroup" in lower and len(err_text) < 80:
         hints.append("详见展开后的子错误（多为进程启动失败或网络认证失败）")
     if "browser-tools" in server_name.lower() or "browser-tools" in " ".join(str(a) for a in (cfg.get("args") or [])):
-        hints.append(
-            "browser-tools 启动时会向 stdout 打印 Checking localhost:302x（污染 JSON-RPC，日志里会有 parse 报错但通常仍能加载）；"
-            "实际使用需另开 terminal 运行 npx @agentdeskai/browser-tools-server@1.2.0 + 安装 Chrome 扩展"
-        )
+        hints.append("browser-tools 启动时会向 stdout 打印 Checking localhost:302x（污染 JSON-RPC，日志里会有 parse 报错但通常仍能加载）；实际使用需另开 terminal 运行 npx @agentdeskai/browser-tools-server@1.2.0 + 安装 Chrome 扩展")
 
     if not hints:
         return err_text

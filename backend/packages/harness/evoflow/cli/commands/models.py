@@ -110,9 +110,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     remote_parser = models_sub.add_parser(
         "list-remote",
         help="List models from remote OpenAI-compatible API",
-        description="JSON payload fields:\n"
-        "  base_url (required)            Provider base URL\n"
-        "  api_key                        API key\n",
+        description="JSON payload fields:\n  base_url (required)            Provider base URL\n  api_key                        API key\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_json_input_flags(remote_parser)

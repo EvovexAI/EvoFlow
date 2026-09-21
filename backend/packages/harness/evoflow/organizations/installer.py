@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import shutil
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
+from evoflow.organizations import registry as org_registry
 from evoflow.organizations.manifest import (
     LoadedPack,
     PackManifestError,
@@ -17,7 +19,6 @@ from evoflow.organizations.manifest import (
     load_pack_from_source,
     resolve_pack_rel,
 )
-from evoflow.organizations import registry as org_registry
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class OrganizationInstallError(RuntimeError):
 
 
 def _now_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
 
 def _id_prefix(options: dict[str, Any] | None) -> str:
@@ -350,9 +351,7 @@ def install_organization(
                 if not from_path:
                     continue
                 agent_def = load_agent_definition(pack, from_path)
-                code = str(
-                    ref.get("id_override") or agent_def.get("agent_code") or agent_def.get("name") or ""
-                ).strip()
+                code = str(ref.get("id_override") or agent_def.get("agent_code") or agent_def.get("name") or "").strip()
                 code = _prefixed(code, prefix)
                 if not code:
                     continue
@@ -410,9 +409,7 @@ def install_organization(
                     "role_name": str(emp.get("role_name") or code),
                     "position_code": str(emp.get("position_code") or ""),
                     "department": str(emp.get("department") or ""),
-                    "reports_to": _prefixed(str(emp.get("reports_to") or "").strip(), prefix)
-                    if emp.get("reports_to")
-                    else "",
+                    "reports_to": _prefixed(str(emp.get("reports_to") or "").strip(), prefix) if emp.get("reports_to") else "",
                     "status": "active",
                 }
                 for k in (

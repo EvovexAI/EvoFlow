@@ -77,10 +77,7 @@ def resolve_skill_dir_from_archive(temp_path: Path) -> Path:
     if len(items) == 1 and items[0].is_file():
         raise ValueError("Skill archive must wrap files in a single top-level directory")
     names = ", ".join(p.name for p in items)
-    raise ValueError(
-        f"Skill archive must contain exactly one top-level directory, or SKILL.md at the archive root. "
-        f"Found: {names}"
-    )
+    raise ValueError(f"Skill archive must contain exactly one top-level directory, or SKILL.md at the archive root. Found: {names}")
 
 
 def safe_extract_skill_archive(

@@ -2752,6 +2752,7 @@ async def agent_trace_recent_threads(limit: int = Query(50, ge=1, le=200)) -> JS
 
 # ── Turn message trace (per-turn forensic replay) ──
 
+
 @router.get("/turns", include_in_schema=False)
 async def turn_trace_list(limit: int = Query(80, ge=1, le=200)) -> JSONResponse:
     """List recent turn traces (summary, no full messages)."""

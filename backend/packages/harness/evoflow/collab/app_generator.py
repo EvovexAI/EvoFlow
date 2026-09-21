@@ -59,9 +59,7 @@ def generate_app_from_plan(
     """
     # ── Step 1: Parameter extraction ──
     if auto_extract and goal and steps:
-        rendered_plan, parameters = extract_parameters_from_plan(
-            goal, steps, max_params=max_params
-        )
+        rendered_plan, parameters = extract_parameters_from_plan(goal, steps, max_params=max_params)
         goal_template = rendered_plan["goal_template"]
         param_steps = rendered_plan["steps"]
         param_count = rendered_plan["param_count"]
@@ -80,10 +78,7 @@ def generate_app_from_plan(
     if param_count > 0:
         final_tags.append("auto-parameterized")
 
-    final_description = description or (
-        f"Generated application: {name}. "
-        f"{param_count} parameter(s) extracted for reuse."
-    )
+    final_description = description or (f"Generated application: {name}. {param_count} parameter(s) extracted for reuse.")
 
     now = utc_now_iso_z()
 

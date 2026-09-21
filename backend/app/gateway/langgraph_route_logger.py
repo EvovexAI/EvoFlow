@@ -102,8 +102,7 @@ class LangGraphRouteLoggerMiddleware:
                     )
                 tee_on = bool(mirror_stream_resume and is_post_run)
                 print(
-                    f"[LG-ROUTE] ui_sse transform=ON format={stream_fmt} thread={lg_thread_id} "
-                    f"route={route_kind} middle_layer={tee_on}",
+                    f"[LG-ROUTE] ui_sse transform=ON format={stream_fmt} thread={lg_thread_id} route={route_kind} middle_layer={tee_on}",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -232,9 +231,7 @@ class LangGraphRouteLoggerMiddleware:
                             apply_interactive_chat_multitask_strategy,
                         )
 
-                        _ui_stream = bool(ui_sse_enabled_from_query(query)) or bool(
-                            mirror_stream_resume
-                        )
+                        _ui_stream = bool(ui_sse_enabled_from_query(query)) or bool(mirror_stream_resume)
                         parsed, _multitask_meta = apply_interactive_chat_multitask_strategy(
                             parsed,
                             ui_stream=_ui_stream,
@@ -242,11 +239,7 @@ class LangGraphRouteLoggerMiddleware:
                         if _multitask_meta.get("changed"):
                             body_chunks = [json.dumps(parsed, ensure_ascii=False).encode("utf-8")]
                             print(
-                                f"[LG-ROUTE] multitask_strategy "
-                                f"{_multitask_meta.get('before')!r} -> "
-                                f"{_multitask_meta.get('after')!r} "
-                                f"reason={_multitask_meta.get('reason')} "
-                                f"thread={lg_thread_id}",
+                                f"[LG-ROUTE] multitask_strategy {_multitask_meta.get('before')!r} -> {_multitask_meta.get('after')!r} reason={_multitask_meta.get('reason')} thread={lg_thread_id}",
                                 file=sys.stderr,
                                 flush=True,
                             )
@@ -263,8 +256,7 @@ class LangGraphRouteLoggerMiddleware:
                                 thread_id=lg_thread_id or "",
                                 session_key=_sk,
                                 multitask_before=_multitask_meta.get("before"),
-                                multitask_after=_multitask_meta.get("after")
-                                or parsed.get("multitask_strategy"),
+                                multitask_after=_multitask_meta.get("after") or parsed.get("multitask_strategy"),
                                 multitask_changed=bool(_multitask_meta.get("changed")),
                                 multitask_reason=_multitask_meta.get("reason"),
                                 ui_stream=_ui_stream,
@@ -284,16 +276,13 @@ class LangGraphRouteLoggerMiddleware:
 
             # Build replay deque and wire up replay receive
             import collections as _lg_collections
+
             _body_replay = _lg_collections.deque()
             for _i, _chunk in enumerate(body_chunks):
                 _is_last = _i == len(body_chunks) - 1
-                _body_replay.append(
-                    {"type": "http.request", "body": _chunk, "more_body": not _is_last}
-                )
+                _body_replay.append({"type": "http.request", "body": _chunk, "more_body": not _is_last})
             if not body_chunks:
-                _body_replay.append(
-                    {"type": "http.request", "body": b"", "more_body": False}
-                )
+                _body_replay.append({"type": "http.request", "body": b"", "more_body": False})
 
             async def _replay_body():
                 if _body_replay:
@@ -312,6 +301,7 @@ class LangGraphRouteLoggerMiddleware:
         if method == "POST" and lg_thread_id:
             try:
                 from evoflow.observability.run_latency_trace import write_run_latency_event as _rl_write
+
                 now_ms = int(_lg_time.time() * 1000)
                 evt = {"gateway_stream_post_ms": now_ms}
                 if user_input_ts_ms is not None:
@@ -382,18 +372,8 @@ class LangGraphRouteLoggerMiddleware:
             """Keep LangGraph upstream draining after client left so transform can mirror."""
             if middle_layer is not None:
                 return
-            is_post_run_stream = (
-                method == "POST"
-                and lg_thread_id
-                and "/runs/" in path
-                and "stream" in path
-            )
-            if (
-                upstream_task is None
-                or upstream_task.done()
-                or not mirror_stream_resume
-                or not is_post_run_stream
-            ):
+            is_post_run_stream = method == "POST" and lg_thread_id and "/runs/" in path and "stream" in path
+            if upstream_task is None or upstream_task.done() or not mirror_stream_resume or not is_post_run_stream:
                 return
             logger.info(
                 "[LG-ROUTE] draining upstream for mirror after disconnect thread=%s",
@@ -451,6 +431,7 @@ class LangGraphRouteLoggerMiddleware:
                 if is_stream and lg_thread_id:
                     try:
                         from evoflow.observability.run_latency_trace import write_run_latency_event as _rl_write
+
                         now_ms = int(_lg_time.time() * 1000)
                         evt = {
                             "gateway_upstream_ready_ms": now_ms,
@@ -469,15 +450,7 @@ class LangGraphRouteLoggerMiddleware:
                 more = message.get("more_body", False)
                 raw_body = message.get("body", b"")
                 # Mirror persistence: background writer when stream-resume header is set.
-                if (
-                    ui_transform is None
-                    and not mirror_stream_resume
-                    and is_stream_response
-                    and lg_thread_id
-                    and raw_body
-                    and "/runs/" in path
-                    and "stream" in path
-                ):
+                if ui_transform is None and not mirror_stream_resume and is_stream_response and lg_thread_id and raw_body and "/runs/" in path and "stream" in path:
                     try:
                         from app.gateway.streaming.stream_mirror import enqueue_wire_chunk_sync
 
@@ -497,6 +470,7 @@ class LangGraphRouteLoggerMiddleware:
                     if lg_thread_id:
                         try:
                             from evoflow.observability.run_latency_trace import write_run_latency_event as _rl_write
+
                             now_ms = int(_lg_time.time() * 1000)
                             evt = {"gateway_first_token_ts_ms": now_ms}
                             if user_input_ts_ms is not None:
@@ -507,16 +481,21 @@ class LangGraphRouteLoggerMiddleware:
                                 gap_ms = now_ms - _gs_upstream_ready_ms
                                 total_ms = now_ms - t0_wall_ms
                                 print(f"[LG-ROUTE] ⏱ Step2→Step4 gap={gap_ms}ms total={total_ms}ms", file=sys.stderr, flush=True)
-                                _rl_write(lg_thread_id, "gateway_upstream_processing", {
-                                    "gateway_upstream_processing_ms": now_ms,
-                                    "user_input_ts_ms": _gs_upstream_ready_ms,
-                                })
+                                _rl_write(
+                                    lg_thread_id,
+                                    "gateway_upstream_processing",
+                                    {
+                                        "gateway_upstream_processing_ms": now_ms,
+                                        "user_input_ts_ms": _gs_upstream_ready_ms,
+                                    },
+                                )
                         except Exception:
                             pass
                 elif not more and lg_thread_id:
                     # --- Step 6: gateway_stream_end (SSE stream finished) ---
                     try:
                         from evoflow.observability.run_latency_trace import write_run_latency_event as _rl_write
+
                         now_ms = int(_lg_time.time() * 1000)
                         evt = {"gateway_stream_end_ms": now_ms}
                         if user_input_ts_ms is not None:
@@ -536,17 +515,13 @@ class LangGraphRouteLoggerMiddleware:
                             thread_id=lg_thread_id or "",
                             duration_ms=_dur_ms,
                             client_stream_resume=bool(mirror_stream_resume),
-                            note=(
-                                "if stuck on 准备中 with no lg_queue_claim above, "
-                                "prior run likely held the thread (enqueue HOL)"
-                                if _dur_ms >= 5_000
-                                else None
-                            ),
+                            note=("if stuck on 准备中 with no lg_queue_claim above, prior run likely held the thread (enqueue HOL)" if _dur_ms >= 5_000 else None),
                         )
                     except Exception:
                         pass
                     try:
                         from evoflow.observability.run_latency_trace import clear_live_progress
+
                         clear_live_progress(lg_thread_id)
                     except Exception:
                         pass
@@ -581,18 +556,11 @@ class LangGraphRouteLoggerMiddleware:
             nonlocal ui_transform
             if ui_transform is not None:
                 if message.get("type") == "http.response.start":
-                    hdrs = {
-                        k.decode("latin-1"): v.decode("latin-1")
-                        for k, v in message.get("headers", [])
-                    }
+                    hdrs = {k.decode("latin-1"): v.decode("latin-1") for k, v in message.get("headers", [])}
                     ct = str(hdrs.get("content-type") or "")
                     status = int(message.get("status") or 200)
-                    is_ui_sse_stream = (
-                        method == "POST" and "/runs/stream" in path
-                    )
-                    if status >= 400 or (
-                        not is_ui_sse_stream and "text/event-stream" not in ct.lower()
-                    ):
+                    is_ui_sse_stream = method == "POST" and "/runs/stream" in path
+                    if status >= 400 or (not is_ui_sse_stream and "text/event-stream" not in ct.lower()):
                         print(
                             f"[LG-ROUTE] ui_sse transform=OFF passthrough status={status} ct={ct!r}",
                             file=sys.stderr,
@@ -615,6 +583,7 @@ class LangGraphRouteLoggerMiddleware:
                 return ""
             try:
                 from evoflow.observability.run_latency_trace import get_live_progress
+
                 p = get_live_progress(tid)
                 return f" [{p}]" if p else ""
             except Exception:
@@ -640,21 +609,21 @@ class LangGraphRouteLoggerMiddleware:
         if method == "POST" and lg_thread_id:
             try:
                 from evoflow.observability.run_latency_trace import write_run_latency_event as _rl_write
-                _rl_write(lg_thread_id, "gateway_pre_dispatch", {
-                    "gateway_pre_dispatch_ms": int(_lg_time.time() * 1000),
-                    "user_input_ts_ms": user_input_ts_ms,
-                })
+
+                _rl_write(
+                    lg_thread_id,
+                    "gateway_pre_dispatch",
+                    {
+                        "gateway_pre_dispatch_ms": int(_lg_time.time() * 1000),
+                        "user_input_ts_ms": user_input_ts_ms,
+                    },
+                )
             except Exception:
                 pass
 
         # Optional emergency only (EVOFLOW_CHAT_PREEMPT_PROACTIVE=1). Default:
         # multi-session — never cancel other threads for chat.
-        if (
-            method == "POST"
-            and lg_thread_id
-            and "/runs/" in path
-            and "stream" in path
-        ):
+        if method == "POST" and lg_thread_id and "/runs/" in path and "stream" in path:
             try:
                 from app.gateway.interactive_run_preempt import (
                     chat_preempt_proactive_enabled,
@@ -672,12 +641,7 @@ class LangGraphRouteLoggerMiddleware:
             except Exception:
                 logger.debug("interactive preempt before chat stream failed", exc_info=True)
 
-        is_post_run_stream = (
-            method == "POST"
-            and lg_thread_id
-            and "/runs/" in path
-            and "stream" in path
-        )
+        is_post_run_stream = method == "POST" and lg_thread_id and "/runs/" in path and "stream" in path
 
         upstream_task: asyncio.Task[None] | None = None
         try:
@@ -708,12 +672,7 @@ class LangGraphRouteLoggerMiddleware:
             logger.error("[LG-ROUTE] !!! %s %s EXCEPTION after %sms: %s: %s", method, path, elapsed_ms, type(e).__name__, e)
             raise
         finally:
-            is_post_run_stream = (
-                method == "POST"
-                and lg_thread_id
-                and "/runs/" in path
-                and "stream" in path
-            )
+            is_post_run_stream = method == "POST" and lg_thread_id and "/runs/" in path and "stream" in path
             should_launch_bg = False
             launch_reason = ""
             if mirror_stream_resume and is_post_run_stream and not mirror_tail_launched and middle_layer is None:

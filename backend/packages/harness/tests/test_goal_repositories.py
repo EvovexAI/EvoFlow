@@ -28,10 +28,7 @@ def test_v59_table_has_normalized_columns(sqlite_tmp: Path) -> None:
     conn = get_db()
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert int(version) >= 59
-    cols = {
-        row[1]
-        for row in conn.execute("PRAGMA table_info(evoflow_goal_sessions)").fetchall()
-    }
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(evoflow_goal_sessions)").fetchall()}
     for name in (
         "goal_session_id",
         "prompt",

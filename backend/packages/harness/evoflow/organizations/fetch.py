@@ -9,7 +9,6 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -20,9 +19,7 @@ logger = logging.getLogger(__name__)
 # Official public market index — always on by default for all installs.
 # Optional override: set EVOFLOW_RESOURCE_MARKET_CATALOG_URL to a non-empty
 # GitHub raw catalog.json URL. Empty / unset keeps the default (never disables).
-DEFAULT_MARKET_CATALOG_URL = (
-    "https://raw.githubusercontent.com/EvovexAI/evoflow-resource-market/main/catalog.json"
-)
+DEFAULT_MARKET_CATALOG_URL = "https://raw.githubusercontent.com/EvovexAI/evoflow-resource-market/main/catalog.json"
 
 _RAW_GH = re.compile(
     r"^https?://raw\.githubusercontent\.com/(?P<owner>[^/]+)/(?P<repo>[^/]+)/(?P<rest>.+)$",
@@ -105,15 +102,9 @@ def load_pack_from_market_path(
                 "branch": m.group(3) or (info or {}).get("branch") or "main",
             }
     if not info:
-        raise PackManifestError(
-            "market_path requires a GitHub raw catalog URL "
-            "(default EvovexAI/evoflow-resource-market, or non-empty EVOFLOW_RESOURCE_MARKET_CATALOG_URL / source.repo=owner/repo@branch)"
-        )
+        raise PackManifestError("market_path requires a GitHub raw catalog URL (default EvovexAI/evoflow-resource-market, or non-empty EVOFLOW_RESOURCE_MARKET_CATALOG_URL / source.repo=owner/repo@branch)")
 
-    zip_url = (
-        f"https://codeload.github.com/{info['owner']}/{info['repo']}"
-        f"/zip/refs/heads/{info['branch']}"
-    )
+    zip_url = f"https://codeload.github.com/{info['owner']}/{info['repo']}/zip/refs/heads/{info['branch']}"
     tmp = Path(tempfile.mkdtemp(prefix="evoflow_org_market_"))
     zip_path = tmp / "repo.zip"
     try:

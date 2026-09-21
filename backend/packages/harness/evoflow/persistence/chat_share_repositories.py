@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from evoflow.persistence.db import get_db
@@ -16,7 +16,7 @@ _MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024  # 8 MiB
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -28,7 +28,7 @@ def _parse_iso(value: str | None) -> datetime | None:
             raw = raw[:-1] + "+00:00"
         dt = datetime.fromisoformat(raw)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except Exception:
         return None
@@ -143,13 +143,8 @@ def create_share(
     expires_at: str | None = None
     if expires_in_days is not None:
         days = max(1, min(int(expires_in_days), 365))
-        expires_at = (
-            datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=days)
-        ).isoformat()
-    cols = {
-        str(r[1])
-        for r in get_db().execute("PRAGMA table_info(evoflow_chat_shares)").fetchall()
-    }
+        expires_at = (datetime.now(UTC).replace(microsecond=0) + timedelta(days=days)).isoformat()
+    cols = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_chat_shares)").fetchall()}
     creator = str(created_by or "").strip() or None
     if "created_by" in cols and creator:
         get_db().execute(
@@ -233,7 +228,7 @@ def share_is_active(row: dict[str, Any]) -> tuple[bool, str]:
     if str(row.get("revoked_at") or "").strip():
         return False, "revoked"
     expires = _parse_iso(str(row.get("expires_at") or ""))
-    if expires is not None and expires <= datetime.now(timezone.utc):
+    if expires is not None and expires <= datetime.now(UTC):
         return False, "expired"
     return True, "ok"
 

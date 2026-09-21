@@ -52,18 +52,10 @@ def format_langgraph_run_failure(status: str, run: dict[str, Any] | None = None)
     low = detail.lower()
 
     if "recursion limit" in low or "graphrecursionerror" in low:
-        return (
-            "执行失败：本轮工具步数用尽（引擎递归上限），任务中断。"
-            "请打开「工作轨迹」看停在哪一步；可缩小范围后重试。"
-            + (f"\n技术细节：{detail[:500]}" if detail else "")
-        )
+        return "执行失败：本轮工具步数用尽（引擎递归上限），任务中断。请打开「工作轨迹」看停在哪一步；可缩小范围后重试。" + (f"\n技术细节：{detail[:500]}" if detail else "")
 
     if "timed out" in low or "timeout" in low:
-        return (
-            "执行失败：等待超时。"
-            "请打开「工作轨迹」查看进度，或稍后重试。"
-            + (f"\n技术细节：{detail[:500]}" if detail else "")
-        )
+        return "执行失败：等待超时。请打开「工作轨迹」查看进度，或稍后重试。" + (f"\n技术细节：{detail[:500]}" if detail else "")
 
     if detail:
         return f"执行失败：{detail[:800]}"
@@ -71,10 +63,7 @@ def format_langgraph_run_failure(status: str, run: dict[str, Any] | None = None)
     # Empty error field — common with LangGraph API; still give actionable copy.
     if st in {"cancelled", "canceled"}:
         return "执行失败：运行已被取消。请打开「工作轨迹」确认，或重新派发。"
-    return (
-        "执行失败：引擎中断，但未返回具体原因。"
-        "常见于步数用尽或运行崩溃；请打开「工作轨迹」查看最后几步，或稍后重试。"
-    )
+    return "执行失败：引擎中断，但未返回具体原因。常见于步数用尽或运行崩溃；请打开「工作轨迹」查看最后几步，或稍后重试。"
 
 
 def humanize_execution_result(raw: str | None) -> str:

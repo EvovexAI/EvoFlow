@@ -16,18 +16,9 @@ def test_normalize_proxy_without_v1_unchanged() -> None:
 
 
 def test_messages_http_url_official_base() -> None:
-    assert (
-        anthropic_messages_http_url("https://api.anthropic.com")
-        == "https://api.anthropic.com/v1/messages"
-    )
+    assert anthropic_messages_http_url("https://api.anthropic.com") == "https://api.anthropic.com/v1/messages"
 
 
 def test_messages_http_url_already_versioned() -> None:
-    assert (
-        anthropic_messages_http_url("https://api.anthropic.com/v1")
-        == "https://api.anthropic.com/v1/messages"
-    )
-    assert (
-        anthropic_messages_http_url("https://proxy.example.com/v1/")
-        == "https://proxy.example.com/v1/messages"
-    )
+    assert anthropic_messages_http_url("https://api.anthropic.com/v1") == "https://api.anthropic.com/v1/messages"
+    assert anthropic_messages_http_url("https://proxy.example.com/v1/") == "https://proxy.example.com/v1/messages"

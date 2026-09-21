@@ -55,13 +55,7 @@ def media_providers_runtime_hint(*, lang: str = "zh") -> str:
             parts.append(f"生视频仅可用：`{'`、`'.join(video)}`")
         if voice:
             parts.append(f"配音仅可用：`{'`、`'.join(voice)}`")
-        return (
-            "<media_providers_runtime>\n"
-            + "；".join(parts)
-            + "。**禁止**传入未启用或未配置的 provider（如已停用的 wan/kling）。"
-            " jimeng 失败时不要自动换厂商，应提示用户检查 API Key 与模型设置。\n"
-            "</media_providers_runtime>"
-        )
+        return "<media_providers_runtime>\n" + "；".join(parts) + "。**禁止**传入未启用或未配置的 provider（如已停用的 wan/kling）。 jimeng 失败时不要自动换厂商，应提示用户检查 API Key 与模型设置。\n</media_providers_runtime>"
     if not image and not video:
         return (
             "<media_providers_runtime>\n"
@@ -76,12 +70,7 @@ def media_providers_runtime_hint(*, lang: str = "zh") -> str:
         parts.append(f"video providers: {', '.join(video)}")
     if voice:
         parts.append(f"voice providers: {', '.join(voice)}")
-    return (
-        "<media_providers_runtime>\n"
-        + "; ".join(parts)
-        + ". Do not pass disabled or unconfigured providers. Do not failover to wan/kling on jimeng errors.\n"
-        "</media_providers_runtime>"
-    )
+    return "<media_providers_runtime>\n" + "; ".join(parts) + ". Do not pass disabled or unconfigured providers. Do not failover to wan/kling on jimeng errors.\n</media_providers_runtime>"
 
 
 def _label_providers(providers: list[str]) -> str:
@@ -115,24 +104,13 @@ def _providers_for_tool(name: str) -> tuple[list[str], bool]:
 def _runtime_tool_description(tool: BaseTool, providers: list[str], *, required: bool) -> str:
     base = str(tool.description or "")
     if not providers:
-        return (
-            base
-            + "\n\n**Runtime**: No media provider is configured/enabled. "
-            "Ask the user to configure Volcengine Ark in EvoPanel before calling this tool."
-        )
+        return base + "\n\n**Runtime**: No media provider is configured/enabled. Ask the user to configure Volcengine Ark in EvoPanel before calling this tool."
     if len(providers) == 1:
         p = providers[0]
-        return (
-            base
-            + f"\n\n**Runtime**: Only `{p}` is available. Do **not** pass `provider` or try other vendors."
-        )
+        return base + f"\n\n**Runtime**: Only `{p}` is available. Do **not** pass `provider` or try other vendors."
     names = ", ".join(f"`{p}`" for p in providers)
     req = "required" if required else "optional"
-    return (
-        base
-        + f"\n\n**Runtime**: `provider` is {req}; allowed values only: {names}. "
-        "Do not use disabled providers (e.g. wan/kling when not enabled)."
-    )
+    return base + f"\n\n**Runtime**: `provider` is {req}; allowed values only: {names}. Do not use disabled providers (e.g. wan/kling when not enabled)."
 
 
 def _provider_type(providers: list[str], *, required: bool) -> Any:

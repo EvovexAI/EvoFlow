@@ -9,8 +9,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from evoflow.agents.automation_runtime import is_unattended_automation, triggered_by_automation
 from evoflow.agents.middlewares.automation_run_guard_middleware import (
-    AutomationRunGuardMiddleware,
     _PROACTIVE_SOFT_WRAP_MARKER,
+    AutomationRunGuardMiddleware,
     _reset_wrap_state_for_tests,
 )
 from evoflow.agents.middlewares.context_compaction_middleware import build_ephemeral_model_messages_sync
@@ -303,9 +303,7 @@ def test_proactive_guard_empty_board_soft_ends_fast(monkeypatch) -> None:
             "round_id": "round:empty",
         }
     )
-    live = HumanMessage(
-        content="<proactive_live_tasks>\n（暂无未结 — 可巡检结束；勿空建单）\n</proactive_live_tasks>"
-    )
+    live = HumanMessage(content="<proactive_live_tasks>\n（暂无未结 — 可巡检结束；勿空建单）\n</proactive_live_tasks>")
     base = [
         HumanMessage(content="# 值班 · 前端\n无待办"),
         live,
@@ -487,10 +485,7 @@ def test_failed_tasks_tool_state_does_not_reset_budget(monkeypatch) -> None:
             ],
         ),
         ToolMessage(
-            content=(
-                "Error invoking tool 'tasks' with kwargs {...} with error:\n"
-                " outputs: Input should be a valid list\n Please fix the error and try again."
-            ),
+            content=("Error invoking tool 'tasks' with kwargs {...} with error:\n outputs: Input should be a valid list\n Please fix the error and try again."),
             tool_call_id="bad-1",
         ),
         AIMessage(
@@ -521,9 +516,7 @@ def test_task_progress_resets_dig_budget(monkeypatch) -> None:
                 {
                     "id": "prog-1",
                     "name": "terminal",
-                    "args": {
-                        "command": "evoflow tasks progress Task_x --progress 50"
-                    },
+                    "args": {"command": "evoflow tasks progress Task_x --progress 50"},
                     "type": "tool_call",
                 }
             ],
@@ -615,9 +608,7 @@ def test_failed_tasks_progress_does_not_reset_budget(monkeypatch) -> None:
                 {
                     "id": "bad-1",
                     "name": "terminal",
-                    "args": {
-                        "command": "evoflow tasks progress Task_x --note x --percent 50"
-                    },
+                    "args": {"command": "evoflow tasks progress Task_x --note x --percent 50"},
                     "type": "tool_call",
                 }
             ],

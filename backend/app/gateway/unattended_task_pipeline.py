@@ -181,9 +181,7 @@ def _patch_task(task_id: str, mutator) -> dict[str, Any] | None:
 
 def _has_active_subtasks(task: dict[str, Any]) -> bool:
     subs = task.get("subtasks") or []
-    return any(
-        str(s.get("status") or "").strip().lower() in _ACTIVE_SUB for s in subs if isinstance(s, dict)
-    )
+    return any(str(s.get("status") or "").strip().lower() in _ACTIVE_SUB for s in subs if isinstance(s, dict))
 
 
 _IN_FLIGHT_SUB = frozenset({"executing", "running", "in_progress"})
@@ -192,9 +190,7 @@ _IN_FLIGHT_SUB = frozenset({"executing", "running", "in_progress"})
 def _has_in_flight_subtasks(task: dict[str, Any]) -> bool:
     """True when at least one subtask is actively running (not merely pending/planned)."""
     subs = task.get("subtasks") or []
-    return any(
-        str(s.get("status") or "").strip().lower() in _IN_FLIGHT_SUB for s in subs if isinstance(s, dict)
-    )
+    return any(str(s.get("status") or "").strip().lower() in _IN_FLIGHT_SUB for s in subs if isinstance(s, dict))
 
 
 def _all_subtasks_terminal(task: dict[str, Any]) -> bool:
@@ -365,10 +361,7 @@ async def _maybe_trigger_unattended_plan(task_id: str, thread_id: str, task: dic
         _pause_stale_plan(
             task_id,
             attempts=attempts,
-            reason=(
-                "无人值守规划已达到最大重试次数，已暂停任务，"
-                "不会继续调用模型。请检查中转站/网络后手动恢复。"
-            ),
+            reason=("无人值守规划已达到最大重试次数，已暂停任务，不会继续调用模型。请检查中转站/网络后手动恢复。"),
         )
         return "plan_paused_retry_limit"
 
@@ -404,10 +397,7 @@ async def _maybe_trigger_unattended_plan(task_id: str, thread_id: str, task: dic
             _pause_stale_plan(
                 task_id,
                 attempts=_plan_attempts(current[1]),
-                reason=(
-                    "无人值守规划已达到最大重试次数，已暂停任务，"
-                    "不会继续调用模型。请检查中转站/网络后手动恢复。"
-                ),
+                reason=("无人值守规划已达到最大重试次数，已暂停任务，不会继续调用模型。请检查中转站/网络后手动恢复。"),
             )
             return "plan_paused_retry_limit"
         return "plan_claim_lost"
@@ -601,11 +591,7 @@ async def _notify_lead_agent_task_failed(task_id: str, task: dict[str, Any]) -> 
         try:
             from evoflow.tools.builtins.supervisor.monitor import _trigger_lead_follow_run
 
-            failed_ids = [
-                str(st.get("id") or "").strip()
-                for st in (task.get("subtasks") or [])
-                if str(st.get("status") or "").strip().lower() in ("failed", "error", "timed_out")
-            ]
+            failed_ids = [str(st.get("id") or "").strip() for st in (task.get("subtasks") or []) if str(st.get("status") or "").strip().lower() in ("failed", "error", "timed_out")]
             await _trigger_lead_follow_run(
                 thread_id=thread_id,
                 main_task_id=task_id,
@@ -662,11 +648,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                 return {"task_id": task_id, "ok": True, "action": "requeued_for_retry", "attempt": attempts + 1}
         return {"task_id": task_id, "ok": True, "action": "terminal", "status": status}
 
-    needs_heal = (
-        status == "executing"
-        and not (task.get("subtasks") or [])
-        and not is_task_execution_authorized(storage, task_id)
-    )
+    needs_heal = status == "executing" and not (task.get("subtasks") or []) and not is_task_execution_authorized(storage, task_id)
     if needs_heal:
 
         def _heal(t: dict[str, Any]) -> dict[str, Any]:
@@ -759,11 +741,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
     if not task_has_bound_plan(task):
         plan_action = await _maybe_trigger_unattended_plan(task_id, thread_id, task)
         latest = find_main_task(storage, task_id)
-        latest_status = (
-            str(latest[1].get("status") or "").strip().lower()
-            if latest
-            else "planning"
-        )
+        latest_status = str(latest[1].get("status") or "").strip().lower() if latest else "planning"
         return {"task_id": task_id, "ok": True, "action": plan_action, "status": latest_status}
 
     from evoflow.collab.plan_subtasks_sync import ensure_subtasks_synced_before_start_execution
@@ -887,11 +865,7 @@ def list_unattended_candidates() -> list[dict[str, Any]]:
                 attempts = int(task.get("unattended_attempts") or 0)
                 if attempts < task_queue_max_retries():
                     out.append(task)
-            elif (
-                status == "executing"
-                and not (task.get("subtasks") or [])
-                and not task.get("execution_authorized")
-            ):
+            elif status == "executing" and not (task.get("subtasks") or []) and not task.get("execution_authorized"):
                 out.append(task)
     out.sort(key=lambda t: str(t.get("unattended_enqueued_at") or t.get("created_at") or ""))
     return out

@@ -70,9 +70,7 @@ def resolve_employee_identity(agent_code: str | None) -> dict[str, Any] | None:
     return {
         "code": str(getattr(role, "agent_code", None) or code).strip() or code,
         "role_name": str(getattr(role, "role_name", None) or code).strip() or code,
-        "department": str(
-            getattr(role, "department", None) or getattr(cfg, "department", None) or ""
-        ).strip(),
+        "department": str(getattr(role, "department", None) or getattr(cfg, "department", None) or "").strip(),
         "responsibilities": resp[:8],
         "workspace_path": workspace,
         "status": status,

@@ -207,21 +207,15 @@ def upsert_goal_session(
         "auto_stop_minutes": _safe_int(_pick("auto_stop_minutes", auto_stop_minutes, 0), 0),
         "persona_style": _pick("persona_style", persona_style, "professional"),
         "initiative": _safe_int(_pick("initiative", initiative, 70), 70),
-        "emotional_intelligence": _bool_int(
-            _pick("emotional_intelligence", emotional_intelligence, True), True
-        ),
-        "feishu_push_on_complete": _bool_int(
-            _pick("feishu_push_on_complete", feishu_push_on_complete, True), True
-        ),
+        "emotional_intelligence": _bool_int(_pick("emotional_intelligence", emotional_intelligence, True), True),
+        "feishu_push_on_complete": _bool_int(_pick("feishu_push_on_complete", feishu_push_on_complete, True), True),
         "push_channel": _pick("push_channel", push_channel, ""),
         "push_target_id": _pick("push_target_id", push_target_id, ""),
         "continuous_learning": _bool_int(_pick("continuous_learning", continuous_learning, False)),
         "use_evolution_skill": _bool_int(_pick("use_evolution_skill", use_evolution_skill, False)),
         "goal_status": _pick("goal_status", goal_status, "active"),
         "goal_revision": _safe_int(_pick("goal_revision", goal_revision, 1), 1),
-        "continuation_suppressed": _bool_int(
-            _pick("continuation_suppressed", continuation_suppressed, False)
-        ),
+        "continuation_suppressed": _bool_int(_pick("continuation_suppressed", continuation_suppressed, False)),
         "status": _pick("status", status, "idle"),
         "step_count": _safe_int(_pick("step_count", step_count, 0), 0),
         "enabled": _bool_int(_pick("enabled", enabled, False)),
@@ -239,9 +233,7 @@ def upsert_goal_session(
         "compaction_summary": _pick("compaction_summary", compaction_summary, ""),
         "goal_summary": _pick("goal_summary", goal_summary, ""),
         "completion_outcome": _pick("completion_outcome", completion_outcome, ""),
-        "interpreter_fallback_streak": _safe_int(
-            _pick("interpreter_fallback_streak", interpreter_fallback_streak, 0), 0
-        ),
+        "interpreter_fallback_streak": _safe_int(_pick("interpreter_fallback_streak", interpreter_fallback_streak, 0), 0),
         "created_at": existing.get("created_at") or now,
         "updated_at": now,
     }
@@ -401,14 +393,26 @@ def patch_goal_runtime_atomic(
     if not sk or not fields:
         return 0
     allowed = {
-        "goal_status", "goal_revision", "continuation_suppressed",
-        "status", "step_count", "enabled",
-        "last_run_at", "last_run_id", "last_error",
-        "pending_feedback", "feedback_prompt", "error_count",
-        "ended_at", "start_time", "locked_chat_model",
-        "goal_summary", "completion_outcome",
+        "goal_status",
+        "goal_revision",
+        "continuation_suppressed",
+        "status",
+        "step_count",
+        "enabled",
+        "last_run_at",
+        "last_run_id",
+        "last_error",
+        "pending_feedback",
+        "feedback_prompt",
+        "error_count",
+        "ended_at",
+        "start_time",
+        "locked_chat_model",
+        "goal_summary",
+        "completion_outcome",
         "interpreter_fallback_streak",
-        "system_prompt", "compaction_summary",
+        "system_prompt",
+        "compaction_summary",
     }
     sets: list[str] = []
     params: list[Any] = []
@@ -419,8 +423,7 @@ def patch_goal_runtime_atomic(
             value = ""
         if key == "last_run_at":
             value = _safe_int(value, 0)
-        if key in ("step_count", "error_count", "ended_at", "start_time",
-                     "goal_revision", "interpreter_fallback_streak"):
+        if key in ("step_count", "error_count", "ended_at", "start_time", "goal_revision", "interpreter_fallback_streak"):
             value = _safe_int(value, 0)
         if key in ("pending_feedback", "continuation_suppressed", "enabled"):
             value = _bool_int(value)

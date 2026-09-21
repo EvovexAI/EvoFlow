@@ -131,9 +131,7 @@ async def run_asr_stream_proxy(
                             continue
                         if parsed.get("message_type") == _MSG_SERVER_ERROR:
                             detail = parsed.get("detail")
-                            await browser_ws.send_json(
-                                {"type": "error", "message": f"ASR protocol error: {detail}"}
-                            )
+                            await browser_ws.send_json({"type": "error", "message": f"ASR protocol error: {detail}"})
                             stop_event.set()
                             return
                         utterances = _extract_utterances(parsed.get("payload"))
@@ -142,18 +140,22 @@ async def run_asr_stream_proxy(
                             for ut in utterances:
                                 if ut["text"]:
                                     last_text = ut["text"]
-                                await browser_ws.send_json({
-                                    "type": "transcript",
-                                    "text": ut["text"],
-                                    "is_final": ut["is_final"],
-                                    "seg": ut["seg"],
-                                })
+                                await browser_ws.send_json(
+                                    {
+                                        "type": "transcript",
+                                        "text": ut["text"],
+                                        "is_final": ut["is_final"],
+                                        "seg": ut["seg"],
+                                    }
+                                )
                         if is_last:
-                            await browser_ws.send_json({
-                                "type": "final",
-                                "text": last_text,
-                                "final": True,
-                            })
+                            await browser_ws.send_json(
+                                {
+                                    "type": "final",
+                                    "text": last_text,
+                                    "final": True,
+                                }
+                            )
                             stop_event.set()
                             return
                 except asyncio.CancelledError:

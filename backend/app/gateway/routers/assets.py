@@ -48,9 +48,7 @@ async def get_entities(request: Request):
     try:
         payload = list_entities()
         entities = payload.get("entities") if isinstance(payload, dict) else payload
-        filtered = filter_asset_entities_for_request(
-            request, entities if isinstance(entities, list) else []
-        )
+        filtered = filter_asset_entities_for_request(request, entities if isinstance(entities, list) else [])
         if isinstance(payload, dict):
             return {**payload, "entities": filtered}
         return {"entities": filtered}
@@ -544,17 +542,12 @@ async def init_assets_tree(request: Request):
         vault = ensure_builtin_asset_vault()
         payload = list_entities()
         entities = payload.get("entities") if isinstance(payload, dict) else payload
-        filtered = filter_asset_entities_for_request(
-            request, entities if isinstance(entities, list) else []
-        )
+        filtered = filter_asset_entities_for_request(request, entities if isinstance(entities, list) else [])
         return {
             "ok": True,
-            "root": str(
-                (payload.get("root") if isinstance(payload, dict) else None) or root.resolve()
-            ),
+            "root": str((payload.get("root") if isinstance(payload, dict) else None) or root.resolve()),
             "vault": vault,
-            "vaultId": (payload.get("vaultId") if isinstance(payload, dict) else None)
-            or "evoflow-assets",
+            "vaultId": (payload.get("vaultId") if isinstance(payload, dict) else None) or "evoflow-assets",
             # Flat list (not nested list_entities dict) so clients can paint in one round-trip.
             "entities": filtered,
         }

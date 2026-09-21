@@ -64,10 +64,7 @@ def test_resolve_vendor_request_from_stored() -> None:
 
 def test_format_thinking_label() -> None:
     assert tc.format_thinking_label({"reasoning_effort": "medium", "thinking_budget_tokens": 16384}) == "中度"
-    assert (
-        tc.format_thinking_label({"reasoning_effort_inferred": "medium", "thinking_budget_tokens": 16384})
-        == "中度 (16384 tokens)"
-    )
+    assert tc.format_thinking_label({"reasoning_effort_inferred": "medium", "thinking_budget_tokens": 16384}) == "中度 (16384 tokens)"
     assert tc.format_thinking_label({"thinking_enabled": False}) == "关闭"
 
 

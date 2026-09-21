@@ -389,9 +389,7 @@ def evf_payload_to_agui_events(
         block_kind = str(payload.get("block_kind") or "")
         if block_kind in {"plan_text", "body_text"} and block_id and block_id not in state.text_ended:
             state.text_ended.add(block_id)
-            out.append(
-                _attach_block_meta({"type": TEXT_MESSAGE_END, "messageId": block_id}, payload)
-            )
+            out.append(_attach_block_meta({"type": TEXT_MESSAGE_END, "messageId": block_id}, payload))
             if block_kind == "plan_text" and state.planning_step_open:
                 state.planning_step_open = False
                 out.append({"type": STEP_FINISHED, "stepName": "planning"})
@@ -406,9 +404,7 @@ def evf_payload_to_agui_events(
         block_id = str(payload.get("block_id") or "").strip() or "reasoning-default"
         if block_id not in state.reasoning_started:
             state.reasoning_started.add(block_id)
-            out.append(
-                _attach_block_meta({"type": REASONING_START, "messageId": block_id}, payload)
-            )
+            out.append(_attach_block_meta({"type": REASONING_START, "messageId": block_id}, payload))
         if block_id not in state.reasoning_message_started:
             state.reasoning_message_started.add(block_id)
             out.append(
@@ -588,8 +584,7 @@ def evf_payload_to_agui_events(
                 "value": {
                     "message_ids": [str(x).strip() for x in ids if str(x or "").strip()],
                     "messageIds": [str(x).strip() for x in ids if str(x or "").strip()],
-                    "consumed_by_run_id": payload.get("consumed_by_run_id")
-                    or payload.get("consumedByRunId"),
+                    "consumed_by_run_id": payload.get("consumed_by_run_id") or payload.get("consumedByRunId"),
                     "session_key": payload.get("session_key") or payload.get("sessionKey"),
                 },
             }

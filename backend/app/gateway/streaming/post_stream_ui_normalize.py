@@ -54,12 +54,8 @@ def _strip_fixed_length_response_headers(
 _TAIL_POLL_S = max(0.25, min(5.0, float(os.getenv("EVOFLOW_STREAM_INJECT_TAIL_POLL_S", "0.75") or "0.75")))
 _DEFER_CACHE: dict[str, tuple[float, bool]] = {}
 _DEFER_CACHE_TTL_S = max(0.5, min(5.0, float(os.getenv("EVOFLOW_STREAM_DEFER_CACHE_S", "1.5") or "1.5")))
-_DEFER_COMPLETION_POLL_MIN_S = max(
-    0.25, min(2.0, float(os.getenv("EVOFLOW_STREAM_DEFER_POLL_MIN_S", "0.5") or "0.5"))
-)
-_DEFER_COMPLETION_POLL_MAX_S = max(
-    1.0, min(5.0, float(os.getenv("EVOFLOW_STREAM_DEFER_POLL_MAX_S", "2.0") or "2.0"))
-)
+_DEFER_COMPLETION_POLL_MIN_S = max(0.25, min(2.0, float(os.getenv("EVOFLOW_STREAM_DEFER_POLL_MIN_S", "0.5") or "0.5")))
+_DEFER_COMPLETION_POLL_MAX_S = max(1.0, min(5.0, float(os.getenv("EVOFLOW_STREAM_DEFER_POLL_MAX_S", "2.0") or "2.0")))
 
 
 def invalidate_defer_run_finished_cache(thread_id: str | None = None) -> None:
@@ -307,9 +303,7 @@ class PostStreamUiTransform:
             thread_id=self.thread_id,
         )
         if self.stream_format == "openai":
-            self.normalizer: UiStreamNormalizer | OpenAiStreamNormalizer | AgUiStreamNormalizer = OpenAiStreamNormalizer(
-                **norm_kwargs
-            )
+            self.normalizer: UiStreamNormalizer | OpenAiStreamNormalizer | AgUiStreamNormalizer = OpenAiStreamNormalizer(**norm_kwargs)
         else:
             self.normalizer = AgUiStreamNormalizer(**norm_kwargs, run_id=self.run_id)
 
@@ -458,9 +452,7 @@ class PostStreamUiTransform:
             event_name, data_json = _parse_sse_frame(frame)
             if data_json is None:
                 continue
-            if event_name.lower() == "end" or (
-                isinstance(data_json, dict) and str(data_json.get("type") or "").strip() == "run_end"
-            ):
+            if event_name.lower() == "end" or (isinstance(data_json, dict) and str(data_json.get("type") or "").strip() == "run_end"):
                 if _should_defer_run_finished(self.thread_id):
                     logger.info(
                         "【流式UI】抑制上游 run_end（仍待授权/恢复中）thread=%s event=%s",
@@ -491,8 +483,7 @@ class PostStreamUiTransform:
                     data_preview = repr(data_json)[:400]
                 tb = traceback.format_exc()
                 logger.error(
-                    "[post-stream-ui] feed_frame raised — stream continues, frame skipped\n"
-                    "  event=%s tid=%s fmt=%s\n  exc=%s: %s\n  data_preview=%s\n%s",
+                    "[post-stream-ui] feed_frame raised — stream continues, frame skipped\n  event=%s tid=%s fmt=%s\n  exc=%s: %s\n  data_preview=%s\n%s",
                     event_name,
                     self.thread_id,
                     self.stream_format,
@@ -504,10 +495,7 @@ class PostStreamUiTransform:
                 # Surface to the SSE wire as a comment frame (line starting
                 # with ":") so the browser devtools Network tab shows the
                 # crash without breaking the EventSource parser.
-                comment = (
-                    f": [post-stream-ui][feed_frame error] event={event_name} "
-                    f"exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n"
-                ).encode("utf-8", errors="replace")
+                comment = (f": [post-stream-ui][feed_frame error] event={event_name} exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n").encode("utf-8", errors="replace")
                 out.append(comment)
                 continue
             out.extend(frames)
@@ -519,11 +507,7 @@ class PostStreamUiTransform:
                 try:
                     from app.gateway.streaming.live_run_snapshot import schedule_snapshot_from_normalizer
 
-                    inner = (
-                        self.normalizer.inner
-                        if isinstance(self.normalizer, (OpenAiStreamNormalizer, AgUiStreamNormalizer))
-                        else self.normalizer
-                    )
+                    inner = self.normalizer.inner if isinstance(self.normalizer, (OpenAiStreamNormalizer, AgUiStreamNormalizer)) else self.normalizer
                     schedule_snapshot_from_normalizer(self.thread_id, inner)
                 except Exception:
                     pass
@@ -572,18 +556,14 @@ class PostStreamUiTransform:
             except Exception as exc:
                 tb = traceback.format_exc()
                 logger.error(
-                    "[post-stream-ui] normalizer.finish() raised — emitting empty run_end\n"
-                    "  tid=%s fmt=%s\n  exc=%s: %s\n%s",
+                    "[post-stream-ui] normalizer.finish() raised — emitting empty run_end\n  tid=%s fmt=%s\n  exc=%s: %s\n%s",
                     self.thread_id,
                     self.stream_format,
                     exc.__class__.__name__,
                     exc,
                     tb,
                 )
-                comment = (
-                    f": [post-stream-ui][finish error] "
-                    f"exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n"
-                ).encode("utf-8", errors="replace")
+                comment = (f": [post-stream-ui][finish error] exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n").encode("utf-8", errors="replace")
                 finish_frames = [comment]
             out.extend(finish_frames)
             self._run_end_emitted = True
@@ -629,11 +609,7 @@ class PostStreamUiTransform:
             yield {"type": "http.response.start", "status": message.get("status", 200), "headers": headers}
             # Flush bootstrap AG-UI frames immediately so first SSE byte leaves
             # Gateway before LangGraph middleware / model TTFT (~headers_ms).
-            if (
-                not self._bootstrap_sent
-                and self.stream_format == "agui"
-                and isinstance(self.normalizer, AgUiStreamNormalizer)
-            ):
+            if not self._bootstrap_sent and self.stream_format == "agui" and isinstance(self.normalizer, AgUiStreamNormalizer):
                 self._bootstrap_sent = True
                 try:
                     for frame in self.normalizer.bootstrap_wire_bytes():
@@ -668,9 +644,7 @@ class PostStreamUiTransform:
             # Middle layer: defer RUN_FINISHED only while tool-approval or collab inject
             # may still resume on the same SSE. Normal turn completion should finish here
             # so the browser clears "generating" even if SQLite run_status lags LangGraph.
-            should_finish = not self._mirror_lane_owned or not await _should_defer_run_finished_async(
-                self.thread_id
-            )
+            should_finish = not self._mirror_lane_owned or not await _should_defer_run_finished_async(self.thread_id)
             if should_finish and not self._run_end_emitted:
                 finish_frames = await asyncio.to_thread(self._finish_normalizer)
                 for frame in finish_frames:

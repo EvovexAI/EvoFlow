@@ -94,9 +94,7 @@ def test_accepts_task_id_alias():
     row = {
         "role": "tool",
         "tool_name": "supervisor",
-        "content_json": json.dumps(
-            {"content": json.dumps({"action": "monitor_execution_step", "task_id": "T-8"})}
-        ),
+        "content_json": json.dumps({"content": json.dumps({"action": "monitor_execution_step", "task_id": "T-8"})}),
     }
     assert _supervisor_action_and_task_id(row) == ("monitor_execution_step", "T-8")
 
@@ -166,11 +164,7 @@ def test_hydration_prunes_by_default(chat_db):
         _append_monitor_row(sk, task_id="T-1", mid="mon-" + str(i), seq_marker=i)
 
     rows = list_lead_chat_rows_for_model_hydration(sk, limit=40)
-    monitor_rows = [
-        r for r in rows
-        if str(r.get("tool_name") or "") == "supervisor"
-        and _supervisor_action_and_task_id(r) == ("monitor_execution_step", "T-1")
-    ]
+    monitor_rows = [r for r in rows if str(r.get("tool_name") or "") == "supervisor" and _supervisor_action_and_task_id(r) == ("monitor_execution_step", "T-1")]
     assert len(monitor_rows) == 1
     assert monitor_rows[0]["message_id"] == "mon-4"
 
@@ -182,11 +176,7 @@ def test_hydration_keep_last_can_be_overridden(chat_db):
         _append_monitor_row(sk, task_id="T-1", mid="mon-" + str(i), seq_marker=i)
 
     rows = list_lead_chat_rows_for_model_hydration(sk, limit=40, keep_last_monitor_per_task=2)
-    monitor_rows = [
-        r for r in rows
-        if str(r.get("tool_name") or "") == "supervisor"
-        and _supervisor_action_and_task_id(r) == ("monitor_execution_step", "T-1")
-    ]
+    monitor_rows = [r for r in rows if str(r.get("tool_name") or "") == "supervisor" and _supervisor_action_and_task_id(r) == ("monitor_execution_step", "T-1")]
     assert [r["message_id"] for r in monitor_rows] == ["mon-2", "mon-3"]
 
 
@@ -212,17 +202,7 @@ def test_hydration_handles_mixed_tasks_in_one_session(chat_db):
     _append_monitor_row(sk, task_id="T-A", mid="mon-a3", seq_marker=3)
 
     rows = list_lead_chat_rows_for_model_hydration(sk, limit=40)
-    monitor_mids = sorted(
-        r["message_id"]
-        for r in rows
-        if str(r.get("tool_name") or "") == "supervisor"
-        and _supervisor_action_and_task_id(r)[0] == "monitor_execution_step"
-    )
+    monitor_mids = sorted(r["message_id"] for r in rows if str(r.get("tool_name") or "") == "supervisor" and _supervisor_action_and_task_id(r)[0] == "monitor_execution_step")
     assert monitor_mids == ["mon-a3", "mon-b2"]
-    other_supervisor = [
-        r["message_id"]
-        for r in rows
-        if str(r.get("tool_name") or "") == "supervisor"
-        and _supervisor_action_and_task_id(r)[0] == "create_subtasks"
-    ]
+    other_supervisor = [r["message_id"] for r in rows if str(r.get("tool_name") or "") == "supervisor" and _supervisor_action_and_task_id(r)[0] == "create_subtasks"]
     assert other_supervisor == ["cs-1"]

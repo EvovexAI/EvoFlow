@@ -17,9 +17,9 @@ def _run(home: Path) -> dict:
     from evoflow.admin import employees as employees_admin
     from evoflow.admin import tasks as tasks_admin
     from evoflow.collab.storage import get_project_storage, patch_collab_main_task_in_project_storage
+    from evoflow.proactive.repositories import ProactiveRepository
     from evoflow.proactive.runner import get_proactive_runner
     from evoflow.proactive.work_items import create_role_work_item
-    from evoflow.proactive.repositories import ProactiveRepository
 
     ensure_agent(
         agent_code=_CODE,
@@ -63,9 +63,7 @@ def _run(home: Path) -> dict:
     task_after = tasks_admin.get_task(tid) if tid else {}
     status = ""
     if isinstance(task_after, dict):
-        status = str(
-            task_after.get("status") or (task_after.get("task") or {}).get("status") or ""
-        )
+        status = str(task_after.get("status") or (task_after.get("task") or {}).get("status") or "")
 
     runner = get_proactive_runner()
     result = asyncio.run(

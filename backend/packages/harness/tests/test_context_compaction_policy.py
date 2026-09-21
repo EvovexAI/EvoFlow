@@ -109,27 +109,33 @@ def test_message_count_never_triggers_compress():
     msgs = _fill_messages(4, text="y " * 200)
     assert estimate_messages_tokens(msgs) < 50_000
 
-    assert engine.should_compress(
-        msgs,
-        thread_id="t-round",
-        context_length=ctx,
-        threshold_ratio=0.50,
-        aggressive_ratio=0.85,
-        compaction_trigger_message_count=200,
-    ) is False
+    assert (
+        engine.should_compress(
+            msgs,
+            thread_id="t-round",
+            context_length=ctx,
+            threshold_ratio=0.50,
+            aggressive_ratio=0.85,
+            compaction_trigger_message_count=200,
+        )
+        is False
+    )
 
     msgs200 = _fill_messages(200, text="y " * 200)
     assert len(msgs200) == 200
     # Even at/above the configured count, do not trigger without token pressure.
     assert estimate_messages_tokens(msgs200) < 50_000
-    assert engine.should_compress(
-        msgs200,
-        thread_id="t-round",
-        context_length=ctx,
-        threshold_ratio=0.50,
-        aggressive_ratio=0.85,
-        compaction_trigger_message_count=200,
-    ) is False
+    assert (
+        engine.should_compress(
+            msgs200,
+            thread_id="t-round",
+            context_length=ctx,
+            threshold_ratio=0.50,
+            aggressive_ratio=0.85,
+            compaction_trigger_message_count=200,
+        )
+        is False
+    )
 
 
 def test_message_count_rearm_disabled_after_fold():

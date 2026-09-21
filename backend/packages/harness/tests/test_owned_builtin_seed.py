@@ -107,11 +107,7 @@ def test_ensure_adopts_migrated_user_guide_and_dedupes(owned_seed_home):
     result = seed.ensure_builtin_owned_knowledge()
     assert result["ok"] is True
 
-    active = [
-        b
-        for b in owned_service.list_bases()
-        if b.get("name") == bv.BUILTIN_USER_GUIDE_VAULT_NAME or b.get("builtin")
-    ]
+    active = [b for b in owned_service.list_bases() if b.get("name") == bv.BUILTIN_USER_GUIDE_VAULT_NAME or b.get("builtin")]
     assert len(active) == 1
     assert active[0]["id"] == seed.BUILTIN_OWNED_USER_GUIDE_KB_ID
     assert active[0]["builtin"] is True

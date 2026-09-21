@@ -204,9 +204,7 @@ def save_app(app_id: str, document: dict[str, Any]) -> None:
         cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_apps)").fetchall()}
         if "owner_scope_id" in cols:
             prev = conn.execute(
-                "SELECT org_id, owner_scope_id, created_by FROM evoflow_apps WHERE id = ?"
-                if "created_by" in cols
-                else "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
+                "SELECT org_id, owner_scope_id, created_by FROM evoflow_apps WHERE id = ?" if "created_by" in cols else "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
                 (app_id,),
             ).fetchone()
             if prev:
@@ -296,10 +294,10 @@ INSERT OR REPLACE INTO evoflow_app_revisions (
             )
         except Exception as rev_err:
             import logging
-            logging.getLogger("evoflow.app_repositories").warning(
-                "Failed to write app revision for %s v%s: %s", app_id, version, rev_err
-            )
+
+            logging.getLogger("evoflow.app_repositories").warning("Failed to write app revision for %s v%s: %s", app_id, version, rev_err)
         conn.commit()
+
     run_db_with_retry(_do_save)
 
 
@@ -353,9 +351,7 @@ def _evoflow_apps_columns() -> set[str]:
     """Cached PRAGMA table_info(evoflow_apps) — avoid N× pragma on list authz."""
     global _apps_columns_cache
     if _apps_columns_cache is None:
-        _apps_columns_cache = {
-            str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_apps)").fetchall()
-        }
+        _apps_columns_cache = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_apps)").fetchall()}
     return _apps_columns_cache
 
 
@@ -371,10 +367,14 @@ def get_app_owner_scope(app_id: str) -> tuple[str | None, str | None]:
     cols = _evoflow_apps_columns()
     if "owner_scope_id" not in cols:
         return None, None
-    row = get_db().execute(
-        "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
-        (aid,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
+            (aid,),
+        )
+        .fetchone()
+    )
     if not row:
         return None, None
     return (str(row[0] or "").strip() or None, str(row[1] or "").strip() or None)
@@ -529,10 +529,7 @@ def list_apps(
         col_sql = ", ".join(ordered) if ordered else "*"
     else:
         col_sql = "*"
-    sql = (
-        f"SELECT {col_sql} FROM evoflow_apps {where_clause} "
-        "ORDER BY usage_count DESC, created_at DESC LIMIT ?"
-    )
+    sql = f"SELECT {col_sql} FROM evoflow_apps {where_clause} ORDER BY usage_count DESC, created_at DESC LIMIT ?"
     params.append(limit)
     cur = conn.execute(sql, params)
     cols = [d[0] for d in cur.description]

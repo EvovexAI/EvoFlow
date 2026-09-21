@@ -339,18 +339,14 @@ class ClaudeChatModel(VendorRoundtripChatMixin, ChatAnthropic):
             return False
         cls = classify(error)
         if not cls.retryable:
-            if cls.should_rotate_credential and self._rotate_credential_if_available(
-                reason=cls.reason.value if cls.reason else "auth"
-            ):
+            if cls.should_rotate_credential and self._rotate_credential_if_available(reason=cls.reason.value if cls.reason else "auth"):
                 return True
             return False
         if cls.reason == FailoverReason.CONTEXT_OVERFLOW:
             return False
         auth_types = _anthropic_error_types("AuthenticationError", "PermissionDeniedError", "NotFoundError")
         if auth_types and isinstance(error, auth_types):
-            if cls.should_rotate_credential and self._rotate_credential_if_available(
-                reason=cls.reason.value if cls.reason else "auth"
-            ):
+            if cls.should_rotate_credential and self._rotate_credential_if_available(reason=cls.reason.value if cls.reason else "auth"):
                 return True
             return False
         return True

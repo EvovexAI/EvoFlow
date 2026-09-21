@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from evoflow.config.memory_config import get_memory_config
@@ -35,7 +35,7 @@ def _parse_ts(raw: str | None) -> datetime | None:
             s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except Exception:
         return None
@@ -138,7 +138,7 @@ def consolidate_namespace(
     gc_days = int(gc_idle_days if gc_idle_days is not None else cfg.gc_idle_days)
 
     ns = mem_store.ensure_namespace(namespace_id)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_iso = utc_now_iso_z()
 
     atoms = mem_store.list_namespace_atoms(ns, limit=2000)
@@ -194,11 +194,7 @@ def consolidate_namespace(
     active_ids = {a["id"] for a in atoms}
 
     # --- A2. Similarity merge (semantic/procedural only; never L2 fuzzy) ---
-    merge_pool = [
-        a
-        for a in atoms
-        if a["id"] in active_ids and str(a.get("layer") or "") in _MERGE_LAYERS and not str(a.get("subject_key") or "").strip()
-    ]
+    merge_pool = [a for a in atoms if a["id"] in active_ids and str(a.get("layer") or "") in _MERGE_LAYERS and not str(a.get("subject_key") or "").strip()]
     merge_pool.sort(key=lambda a: (float(a.get("importance") or 0), a.get("updated_at") or ""), reverse=True)
     consumed: set[str] = set()
     for i, a in enumerate(merge_pool):

@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from evoflow.capability import CallerCtx
@@ -39,7 +39,7 @@ _BEARER_PREFIX = "Bearer "
 _SSE_CONTENT_TYPE = "text/event-stream"
 
 
-def _verify_bearer_token(authorization: Optional[str]) -> dict[str, Any]:
+def _verify_bearer_token(authorization: str | None) -> dict[str, Any]:
     """Validate the ``Authorization: Bearer <token>`` header.
 
     Mirrors :func:`app.gateway.auth.verify_bearer_token`: extracts the bearer
@@ -67,7 +67,7 @@ def _verify_bearer_token(authorization: Optional[str]) -> dict[str, Any]:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    plaintext = authorization[len(_BEARER_PREFIX):].strip()
+    plaintext = authorization[len(_BEARER_PREFIX) :].strip()
     if not plaintext:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,7 +115,7 @@ def _build_caller_ctx(token_data: dict[str, Any]) -> CallerCtx:
     )
 
 
-def _wants_sse(accept: Optional[str]) -> bool:
+def _wants_sse(accept: str | None) -> bool:
     """Whether the client requested an SSE response via the ``Accept`` header.
 
     Args:
@@ -126,10 +126,7 @@ def _wants_sse(accept: Optional[str]) -> bool:
     """
     if not accept:
         return False
-    return any(
-        part.strip().lower() == _SSE_CONTENT_TYPE
-        for part in accept.split(",")
-    )
+    return any(part.strip().lower() == _SSE_CONTENT_TYPE for part in accept.split(","))
 
 
 def _sse_event(data: dict) -> str:
@@ -148,8 +145,8 @@ def _sse_event(data: dict) -> str:
 @router.post("/mcp")
 async def mcp_post(
     request: Request,
-    authorization: Optional[str] = Header(default=None),
-    accept: Optional[str] = Header(default=None),
+    authorization: str | None = Header(default=None),
+    accept: str | None = Header(default=None),
 ) -> Any:
     """Handle a JSON-RPC 2.0 request over the MCP Streamable-HTTP transport.
 
@@ -188,6 +185,7 @@ async def mcp_post(
     if isinstance(body, list):
         responses = handle_mcp_batch(body, caller_ctx)
         if _wants_sse(accept):
+
             async def _batch_stream() -> Any:
                 """Yield one SSE event per non-notification batch response."""
                 for resp in responses:
@@ -203,6 +201,7 @@ async def mcp_post(
         return JSONResponse(content={}, status_code=status.HTTP_202_ACCEPTED)
 
     if _wants_sse(accept):
+
         async def _single_stream() -> Any:
             """Yield the single JSON-RPC response as one SSE event."""
             yield _sse_event(response)
@@ -213,7 +212,7 @@ async def mcp_post(
 
 @router.get("/mcp")
 async def mcp_get(
-    authorization: Optional[str] = Header(default=None),
+    authorization: str | None = Header(default=None),
 ) -> StreamingResponse:
     """Open a long-lived SSE connection (optional MCP long-connection mode).
 

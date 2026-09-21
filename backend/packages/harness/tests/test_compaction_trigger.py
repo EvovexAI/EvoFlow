@@ -213,12 +213,15 @@ def test_db_summary_blocks_recompress_until_refill_even_on_new_turn() -> None:
     turn_b = "turn-b"
     after = 25_166
 
-    with patch(
-        "evoflow.agents.compaction_trigger.resolve_turn_run_id",
-        side_effect=[(turn_a, "lg-a"), (turn_b, "lg-b")],
-    ), patch(
-        "evoflow.agents.compaction_trigger._session_has_compaction_summary",
-        return_value=True,
+    with (
+        patch(
+            "evoflow.agents.compaction_trigger.resolve_turn_run_id",
+            side_effect=[(turn_a, "lg-a"), (turn_b, "lg-b")],
+        ),
+        patch(
+            "evoflow.agents.compaction_trigger._session_has_compaction_summary",
+            return_value=True,
+        ),
     ):
         cache.record_compress(
             "t-db-refill",
@@ -377,15 +380,19 @@ def test_compress_in_flight_does_not_block_gate_inside_active_pipeline() -> None
 def test_resolve_turn_run_id_prefers_latest_user_run_id() -> None:
     from evoflow.agents.compaction_trigger import resolve_turn_run_id
 
-    with patch(
-        "evoflow.agents.compaction_trigger.run_id_from_context",
-        return_value="lg-hop-volatile",
-    ), patch(
-        "evoflow.persistence.chat_message_repositories.latest_user_run_id",
-        return_value="user-turn-stable",
-    ), patch(
-        "evoflow.persistence.session_run_state.peek_current_run_id",
-        return_value="lg-hop-overwritten",
+    with (
+        patch(
+            "evoflow.agents.compaction_trigger.run_id_from_context",
+            return_value="lg-hop-volatile",
+        ),
+        patch(
+            "evoflow.persistence.chat_message_repositories.latest_user_run_id",
+            return_value="user-turn-stable",
+        ),
+        patch(
+            "evoflow.persistence.session_run_state.peek_current_run_id",
+            return_value="lg-hop-overwritten",
+        ),
     ):
         turn, lg = resolve_turn_run_id(session_key="agent:main:x", thread_id="tid-1")
 

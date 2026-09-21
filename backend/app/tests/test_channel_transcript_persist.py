@@ -42,9 +42,13 @@ def test_persist_channel_user_transcript_turn(sqlite_tmp: None) -> None:
     from evoflow.persistence.session_run_state import mark_session_run_ended
 
     mark_session_run_ended(session_key=sk)
-    row = get_db().execute(
-        "SELECT run_status, current_run_id FROM evoflow_chat_sessions WHERE session_key = ?",
-        (sk,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT run_status, current_run_id FROM evoflow_chat_sessions WHERE session_key = ?",
+            (sk,),
+        )
+        .fetchone()
+    )
     assert row[0] == RUN_STATUS_DONE
     assert row[1] is None or str(row[1]).strip() == ""

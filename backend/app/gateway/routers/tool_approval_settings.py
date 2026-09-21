@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import Request, APIRouter, HTTPException
-from evoflow.authz.http_guard import require_org_admin, require_session_visible
-from pydantic import BaseModel, Field, AliasChoices, model_validator
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
+from evoflow.authz.http_guard import require_org_admin, require_session_visible
 from evoflow.execution_security.permission_preset import (
     VALID_PRESETS,
     preset_list_for_api,
@@ -116,7 +116,7 @@ async def patch_tool_approval_global_policy(request: Request, body: ToolApproval
     response_model=SessionToolApprovalPolicyResponse,
 )
 async def get_session_tool_approval_policy(request: Request, session_key: str) -> SessionToolApprovalPolicyResponse:
-    require_session_visible(request, str(session_key or '').strip())
+    require_session_visible(request, str(session_key or "").strip())
     sk = str(session_key or "").strip()
     if not sk:
         raise HTTPException(status_code=422, detail="session_key required")
@@ -127,10 +127,12 @@ async def get_session_tool_approval_policy(request: Request, session_key: str) -
     "/tool-approval/sessions/{session_key:path}",
     response_model=SessionToolApprovalPolicyResponse,
 )
-async def patch_session_tool_approval_policy(request: Request, session_key: str,
+async def patch_session_tool_approval_policy(
+    request: Request,
+    session_key: str,
     body: SessionToolApprovalPolicyBody,
 ) -> SessionToolApprovalPolicyResponse:
-    require_session_visible(request, str(session_key or '').strip())
+    require_session_visible(request, str(session_key or "").strip())
     sk = str(session_key or "").strip()
     if not sk:
         raise HTTPException(status_code=422, detail="session_key required")

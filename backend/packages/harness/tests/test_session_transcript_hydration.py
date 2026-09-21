@@ -162,11 +162,7 @@ def test_hydration_cache_miss_on_pending_inject(chat_db, monkeypatch: pytest.Mon
     assert patch is not None
     assert calls["n"] >= 1
     msgs = [m for m in patch["messages"] if not isinstance(m, RemoveMessage)]
-    human_texts = [
-        str(getattr(m, "content", "") or "")
-        for m in msgs
-        if isinstance(m, HumanMessage)
-    ]
+    human_texts = [str(getattr(m, "content", "") or "") for m in msgs if isinstance(m, HumanMessage)]
     assert any("steer now" in t for t in human_texts)
 
 
@@ -297,9 +293,7 @@ def test_collect_missing_state_humans_skips_stale_checkpoint_after_compaction() 
     assert _collect_missing_state_humans(db_lc, stale_state) == []
 
 
-def test_before_model_no_duplicate_when_input_id_matches_transcript(
-    chat_db, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_before_model_no_duplicate_when_input_id_matches_transcript(chat_db, monkeypatch: pytest.MonkeyPatch) -> None:
     sk = "agent:main:hydrate-id-align"
     append_message(sk, role="user", content="哈哈哈 你再检查下", message_id="user-optimistic-1")
     clear_hydration_watermark_cache()
@@ -310,19 +304,12 @@ def test_before_model_no_duplicate_when_input_id_matches_transcript(
     state = {"messages": [HumanMessage(content="哈哈哈 你再检查下", id="user-optimistic-1")]}
     out = mw.before_model(state, runtime)
     assert out is not None
-    humans = [
-        m
-        for m in (out.get("messages") or [])
-        if isinstance(m, HumanMessage)
-        and str(getattr(m, "content", "") or "").strip() == "哈哈哈 你再检查下"
-    ]
+    humans = [m for m in (out.get("messages") or []) if isinstance(m, HumanMessage) and str(getattr(m, "content", "") or "").strip() == "哈哈哈 你再检查下"]
     assert len(humans) == 1
     assert _id_of(humans[0]) == "user-optimistic-1"
 
 
-def test_before_model_no_duplicate_when_input_id_mismatches_transcript(
-    chat_db, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_before_model_no_duplicate_when_input_id_mismatches_transcript(chat_db, monkeypatch: pytest.MonkeyPatch) -> None:
     """DB is SSOT: LG-auto id ≠ transcript id must not duplicate the same user text."""
     sk = "agent:main:hydrate-id-mismatch"
     append_message(sk, role="user", content="哈哈哈 你再检查下", message_id="user-optimistic-1")
@@ -334,12 +321,7 @@ def test_before_model_no_duplicate_when_input_id_mismatches_transcript(
     state = {"messages": [HumanMessage(content="哈哈哈 你再检查下", id="lg-auto-different")]}
     out = mw.before_model(state, runtime)
     assert out is not None
-    humans = [
-        m
-        for m in (out.get("messages") or [])
-        if isinstance(m, HumanMessage)
-        and str(getattr(m, "content", "") or "").strip() == "哈哈哈 你再检查下"
-    ]
+    humans = [m for m in (out.get("messages") or []) if isinstance(m, HumanMessage) and str(getattr(m, "content", "") or "").strip() == "哈哈哈 你再检查下"]
     assert len(humans) == 1
     assert _id_of(humans[0]) == "user-optimistic-1"
 
@@ -377,9 +359,7 @@ def test_prime_hydration_cache_for_session(chat_db, monkeypatch: pytest.MonkeyPa
     assert calls["n"] == 0
 
 
-def test_hydration_trust_runtime_skips_when_watermark_advances(
-    chat_db, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_hydration_trust_runtime_skips_when_watermark_advances(chat_db, monkeypatch: pytest.MonkeyPatch) -> None:
     """runtime hot path: new user append must not force full SQLite reload."""
     sk = "agent:main:hydrate-trust-runtime"
     _patch_session_resolution(monkeypatch, sk)
@@ -397,9 +377,7 @@ def test_hydration_trust_runtime_skips_when_watermark_advances(
 
     mw = SessionTranscriptHydrationMiddleware()
     runtime = MagicMock()
-    state1 = {
-        "messages": [HumanMessage(content="hello", id="u1"), AIMessage(content="world", id="a1")]
-    }
+    state1 = {"messages": [HumanMessage(content="hello", id="u1"), AIMessage(content="world", id="a1")]}
     assert mw.before_model(state1, runtime) is not None
     first_calls = calls["n"]
     assert first_calls >= 1

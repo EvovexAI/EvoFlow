@@ -132,9 +132,7 @@ def format_read_catalog(targets: list[PostSearchReadTarget] | list[str], *, work
     n = len(targets)
     lines.append("")
     lines.append(f"Total ranked paths: {n}. Examples: read_file on [0] or [1]; optional batch read_offset=0 read_limit=2 (indices 0-1).")
-    lines.append(
-        "If the user asked to fix/implement code: read_file on top catalog paths, then use these paths in a follow-up worker edit task — search alone is not completion."
-    )
+    lines.append("If the user asked to fix/implement code: read_file on top catalog paths, then use these paths in a follow-up worker edit task — search alone is not completion.")
     lines.append("Next: read_file on the top 1-2 catalog paths before editing.")
     return "\n".join(lines)
 
@@ -335,11 +333,7 @@ def follow_read_after_search(
         return "\n\n".join(blocks)
 
     if not hybrid_search_scheduler_enabled():
-        blocks.append(
-            "<post_search_reads>\n"
-            "Use read_file(path) for catalog paths listed above.\n"
-            "</post_search_reads>"
-        )
+        blocks.append("<post_search_reads>\nUse read_file(path) for catalog paths listed above.\n</post_search_reads>")
         return "\n\n".join(blocks)
 
     offset = max(0, int(read_offset))

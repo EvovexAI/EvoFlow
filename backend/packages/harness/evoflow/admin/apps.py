@@ -244,13 +244,18 @@ def update_app(app_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     data = _normalize_plan_for_storage(dict(patch or {}))
     skip = {"appId", "app_id", "id", "confirm", "confirmed", "yes"}
     data = {k: v for k, v in data.items() if k not in skip and v is not None}
-    structural = frozenset({
-        "steps", "parameters", "canvas", "goal_template",
-        "execution_mode", "validation_template", "flowchart_mermaid",
-    })
-    has_structural = any(
-        key in data and data[key] != existing.get(key) for key in structural
+    structural = frozenset(
+        {
+            "steps",
+            "parameters",
+            "canvas",
+            "goal_template",
+            "execution_mode",
+            "validation_template",
+            "flowchart_mermaid",
+        }
     )
+    has_structural = any(key in data and data[key] != existing.get(key) for key in structural)
     for key, value in data.items():
         updated[key] = value
     if has_structural:
@@ -292,10 +297,7 @@ def publish_app(app_id: str) -> dict[str, Any]:
 
     validation = validate_app_definition(existing)
     if not validation.get("valid"):
-        raise ValidationError(
-            "Workflow validation failed; cannot publish: "
-            + "; ".join(str(e) for e in (validation.get("errors") or [])[:5])
-        )
+        raise ValidationError("Workflow validation failed; cannot publish: " + "; ".join(str(e) for e in (validation.get("errors") or [])[:5]))
     existing["status"] = "published"
     existing["version"] = int(existing.get("version") or 1) + 1
     app_repositories.save_app(aid, existing)

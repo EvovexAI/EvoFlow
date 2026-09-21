@@ -59,6 +59,4 @@ def test_reconcile_clears_when_thread_404() -> None:
 
     assert action == "cleared"
     force_end.assert_called_once()
-    assert force_end.call_args.kwargs.get("session_key") == (
-        "proactive:media-short-video-copy:task:dead"
-    )
+    assert force_end.call_args.kwargs.get("session_key") == ("proactive:media-short-video-copy:task:dead")

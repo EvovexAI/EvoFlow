@@ -11,7 +11,6 @@ WebUI is disabled, all requests pass through unchanged.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -44,8 +43,18 @@ _PUBLIC_PATH_PREFIXES = (
 
 # File extensions that are treated as static assets.
 _STATIC_EXTENSIONS = (
-    ".js", ".css", ".ico", ".png", ".jpg", ".jpeg", ".svg",
-    ".woff", ".woff2", ".ttf", ".map", ".webp",
+    ".js",
+    ".css",
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".svg",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".map",
+    ".webp",
 )
 
 
@@ -138,9 +147,7 @@ def create_webui_auth_middleware() -> type[BaseHTTPMiddleware]:
     class WebuiAuthMiddleware(BaseHTTPMiddleware):
         """JWT auth middleware for WebUI remote access."""
 
-        async def dispatch(
-            self, request: Request, call_next: RequestResponseEndpoint
-        ) -> Response:
+        async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
             path = request.url.path
 
             # Always attach a valid JWT when present (desktop switch-user /

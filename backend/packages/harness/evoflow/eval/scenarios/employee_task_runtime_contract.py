@@ -80,9 +80,7 @@ def _run(home: Path) -> dict:
     ]
     if vault_id:
         persist.append(expect_vault_setting(vault_id))
-        assertions.append(
-            expect_duty_brief(_CODE, must_contain=[vault_id], require_marker=True)
-        )
+        assertions.append(expect_duty_brief(_CODE, must_contain=[vault_id], require_marker=True))
 
     metrics = runtime_contract_metrics(agent_codes=[_CODE], extra={"vault_id": vault_id})
     metrics["tools_expected"] = list(_TOOLS)

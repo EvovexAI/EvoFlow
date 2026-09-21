@@ -199,9 +199,7 @@ def compute_thread_health_score(
     global_p95_ttft = float(ov.get("model_ttft_p95_ms") or 10_000)
     ttft_norm = min(1.0, max_ttft_ms / global_p95_ttft) if global_p95_ttft > 0 else 0.0
 
-    inv = invalid_summary if isinstance(invalid_summary, dict) else fetch_invalid_tool_calls_summary(
-        since_hours=since_hours
-    )
+    inv = invalid_summary if isinstance(invalid_summary, dict) else fetch_invalid_tool_calls_summary(since_hours=since_hours)
     invalid_norm = 0.0
     for row in inv.get("top_threads_by_invalid") or []:
         if isinstance(row, dict) and str(row.get("thread_id") or "") == tid:
@@ -301,7 +299,7 @@ def pick_sample_threads(
             )
 
     inv = fetch_invalid_tool_calls_summary(since_hours=since_hours)
-    for row in (inv.get("top_threads_by_invalid") or []):
+    for row in inv.get("top_threads_by_invalid") or []:
         if len(picked) >= k:
             break
         if isinstance(row, dict):

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from evoflow.authz.scope import parse_scope_id, personal_scope
 from evoflow.authz.types import DEFAULT_ORG_ID, Grant, Permission, Principal
@@ -133,15 +134,19 @@ def list_grants_for_ref(
     *,
     org_id: str = DEFAULT_ORG_ID,
 ) -> list[Grant]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT org_id, owner_scope_id, ref, grantee_scope_id, permission, granted_by, created_at
         FROM evoflow_acl_grants
         WHERE org_id = ? AND owner_scope_id = ? AND ref = ?
         ORDER BY created_at ASC
         """,
-        (org_id, owner_scope_id, ref),
-    ).fetchall()
+            (org_id, owner_scope_id, ref),
+        )
+        .fetchall()
+    )
     return [_grant_from_row(r) for r in rows]
 
 
@@ -150,15 +155,19 @@ def list_grants_to_scope(
     *,
     org_id: str = DEFAULT_ORG_ID,
 ) -> list[Grant]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT org_id, owner_scope_id, ref, grantee_scope_id, permission, granted_by, created_at
         FROM evoflow_acl_grants
         WHERE org_id = ? AND grantee_scope_id = ?
         ORDER BY created_at ASC
         """,
-        (org_id, grantee_scope_id),
-    ).fetchall()
+            (org_id, grantee_scope_id),
+        )
+        .fetchall()
+    )
     return [_grant_from_row(r) for r in rows]
 
 
@@ -174,14 +183,18 @@ def handles_for_audience(
     if not audience:
         return []
     pred = entitled or principal_entitled_to_scope
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT org_id, owner_scope_id, ref, grantee_scope_id, permission, granted_by, created_at
         FROM evoflow_acl_grants
         WHERE org_id = ?
         """,
-        (org_id,),
-    ).fetchall()
+            (org_id,),
+        )
+        .fetchall()
+    )
     out: list[Grant] = []
     for row in rows:
         g = _grant_from_row(row)
@@ -191,11 +204,7 @@ def handles_for_audience(
         if not any(pred(p, grantee, session_scope_id, org_scope_id) for p in audience):
             continue
         # Every audience member reaches via grantee OR owner
-        if not all(
-            pred(p, grantee, session_scope_id, org_scope_id)
-            or pred(p, owner, session_scope_id, org_scope_id)
-            for p in audience
-        ):
+        if not all(pred(p, grantee, session_scope_id, org_scope_id) or pred(p, owner, session_scope_id, org_scope_id) for p in audience):
             continue
         out.append(g)
     return out

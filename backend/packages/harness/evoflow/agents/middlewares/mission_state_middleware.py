@@ -50,7 +50,6 @@ def _thread_id_from_runtime(runtime: Runtime) -> str:
     return str(cfg.get("configurable", {}).get("thread_id") or "").strip()
 
 
-
 class MissionStateMiddleware(AgentMiddleware[AgentState]):
     """Mark turn start for working_memory read-counting before each model call.
 

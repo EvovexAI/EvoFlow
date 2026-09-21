@@ -1,13 +1,12 @@
 import logging
-import os
 import re
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import Request, APIRouter, HTTPException
-from evoflow.authz.http_guard import require_org_admin
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from evoflow.authz.http_guard import require_org_admin
 from evoflow.config import get_app_config
 from evoflow.utils.model_context_length import context_length_from_model_config
 
@@ -713,10 +712,7 @@ def _resolve_test_connection(
         if cfg is None:
             raise HTTPException(
                 status_code=404,
-                detail=(
-                    f"模型「{config_name}」不存在。"
-                    "请先保存配置后再测试，或提供 base_url / api_key"
-                ),
+                detail=(f"模型「{config_name}」不存在。请先保存配置后再测试，或提供 base_url / api_key"),
             )
         if not base_url:
             base_url = str(getattr(cfg, "base_url", None) or "").strip()
@@ -753,20 +749,14 @@ class TestModelRequest(BaseModel):
     )
     config_name: str | None = Field(
         default=None,
-        description=(
-            "Optional evoflow_models.name; fills missing credentials from DB and "
-            "on success clears unavailable status"
-        ),
+        description=("Optional evoflow_models.name; fills missing credentials from DB and on success clears unavailable status"),
     )
 
 
 @router.post(
     "/models/test",
     summary="Test Model Connection",
-    description=(
-        "Test connectivity with a simple vendor HTTP request. "
-        "Does not apply config, invoke LangChain, or load tiktoken."
-    ),
+    description=("Test connectivity with a simple vendor HTTP request. Does not apply config, invoke LangChain, or load tiktoken."),
 )
 async def test_model_connection(http_request: Request, request: TestModelRequest) -> dict:
     """Test model connectivity via httpx only."""
@@ -951,10 +941,7 @@ async def list_remote_openai_models(http_request: Request, request: ListRemoteMo
             if plan_fb:
                 return {
                     "success": True,
-                    "message": (
-                        f"Agent Plan 专线通常不提供 GET /models（HTTP 404）；"
-                        f"下列 {len(plan_fb)} 个为官方套餐概览对话模型，绑定全家桶时会自动写入"
-                    ),
+                    "message": (f"Agent Plan 专线通常不提供 GET /models（HTTP 404）；下列 {len(plan_fb)} 个为官方套餐概览对话模型，绑定全家桶时会自动写入"),
                     "models": plan_fb,
                     "degraded": True,
                 }
@@ -1068,10 +1055,7 @@ async def sync_model_connections(http_request: Request, request: ModelConnection
 @router.delete(
     "/model-connections/{key}",
     summary="Delete Model Connection",
-    description=(
-        "Remove a Panel LLM provider connection and every model row owned by it "
-        "(vendor == key). Returns the names of deleted models."
-    ),
+    description=("Remove a Panel LLM provider connection and every model row owned by it (vendor == key). Returns the names of deleted models."),
 )
 async def delete_model_connection(request: Request, key: str) -> dict:
     require_org_admin(request)

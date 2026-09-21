@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from collections import defaultdict
+from datetime import UTC
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Request, WebSocket
@@ -23,9 +24,7 @@ router = APIRouter(prefix="/api/events", tags=["events"])
 # How long to wait for a collaboration event before emitting a ping.
 # Default matches the long-run stream read limit so idle sessions don't get
 # spammed with pings every 30 s.  Can be overridden via env var.
-_EVENT_QUEUE_TIMEOUT = int(
-    os.getenv("EVOFLOW_EVENT_QUEUE_TIMEOUT", LONG_RUN_STREAM_READ_SECONDS)
-)
+_EVENT_QUEUE_TIMEOUT = int(os.getenv("EVOFLOW_EVENT_QUEUE_TIMEOUT", LONG_RUN_STREAM_READ_SECONDS))
 
 
 def _log_stream_debug(thread_id: str, phase: str, details: dict | None = None) -> None:
@@ -357,11 +356,7 @@ async def websocket_thread_collab_stream(websocket: WebSocket, thread_id: str) -
 @router.get(
     "/threads/{thread_id}/panel-stream",
     summary="SSE: LangGraph thread panel notifications",
-    description=(
-        "Subscribe to ``EventBroadcaster`` events keyed by LangGraph ``thread_id`` "
-        "(panel signals such as ``panel:hosted_remote_command``). "
-        "Subtask streaming uses the main chat ``runs/stream`` custom channel."
-    ),
+    description=("Subscribe to ``EventBroadcaster`` events keyed by LangGraph ``thread_id`` (panel signals such as ``panel:hosted_remote_command``). Subtask streaming uses the main chat ``runs/stream`` custom channel."),
 )
 async def subscribe_thread_panel_stream(request: Request, thread_id: str):
     """Panel/control-plane events for a chat thread (not collab main-task id)."""
@@ -399,7 +394,6 @@ async def get_thread_stream_status(request: Request, thread_id: str) -> dict:
     require_thread_visible(request, thread_id)
 
     import httpx
-    from datetime import datetime, timezone
 
     logger.debug("[events.stream_status] query thread_id=%s", thread_id)
 
@@ -490,12 +484,14 @@ def _check_recently_completed(thread_id: str, result: dict) -> None:
     查询 success 和 error 状态的 run，如果有在时间窗口内完成的，标记到 result 中。
     """
     import os
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    import httpx
 
     LANGGRAPH_BASE_URL = "http://127.0.0.1:8070/api/langgraph"
     window_s = int(os.getenv("EVOFLOW_RECENTLY_COMPLETED_WINDOW_S", "60"))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for status in ("success", "error"):
         try:
@@ -521,7 +517,7 @@ def _check_recently_completed(thread_id: str, result: dict) -> None:
                     end_time = datetime.fromisoformat(end_time_str)
                     # 确保时区感知
                     if end_time.tzinfo is None:
-                        end_time = end_time.replace(tzinfo=timezone.utc)
+                        end_time = end_time.replace(tzinfo=UTC)
                 except (ValueError, TypeError):
                     continue
 

@@ -16,11 +16,7 @@ def _run(home: Path) -> dict:
 
     listed = skills_admin.list_skills(enabled_only=False)
     public = next(
-        (
-            s
-            for s in (listed.get("skills") or [])
-            if isinstance(s, dict) and s.get("name") and s.get("category") != "custom"
-        ),
+        (s for s in (listed.get("skills") or []) if isinstance(s, dict) and s.get("name") and s.get("category") != "custom"),
         None,
     )
     pub_name = str((public or {}).get("name") or "")
@@ -30,12 +26,7 @@ def _run(home: Path) -> dict:
     src = home / "skill_src" / skill_name
     src.mkdir(parents=True, exist_ok=True)
     (src / "SKILL.md").write_text(
-        "---\n"
-        f"name: {skill_name}\n"
-        "description: Eval module L2 custom skill\n"
-        "---\n\n"
-        "# Eval Mod Skill L2\n\n"
-        "Used only by eval scenarios.\n",
+        f"---\nname: {skill_name}\ndescription: Eval module L2 custom skill\n---\n\n# Eval Mod Skill L2\n\nUsed only by eval scenarios.\n",
         encoding="utf-8",
     )
 
@@ -62,10 +53,7 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "public_get_shape",
-            bool(pub_name)
-            and isinstance(got_pub, dict)
-            and got_pub.get("name") == pub_name
-            and "enabled" in got_pub,
+            bool(pub_name) and isinstance(got_pub, dict) and got_pub.get("name") == pub_name and "enabled" in got_pub,
             inputs={"name": pub_name},
             expected={"name": pub_name, "has_enabled": True},
             actual=got_pub,

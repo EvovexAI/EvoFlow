@@ -373,14 +373,10 @@ async def _cancel_stale_active_run(session_key: str, thread_id: str) -> None:
     # stop_session_execution(user_initiated=False) does not write terminal DB
     # status, so always mark idle here.
     try:
-        force_end_session_turn(
-            session_key=session_key, thread_id=thread_id, source="startup_stale_cancel"
-        )
+        force_end_session_turn(session_key=session_key, thread_id=thread_id, source="startup_stale_cancel")
         _invalidate_active_sessions_cache()
     except Exception:
-        logger.debug(
-            "reconcile: force_end_session_turn failed session=%s", session_key, exc_info=True
-        )
+        logger.debug("reconcile: force_end_session_turn failed session=%s", session_key, exc_info=True)
 
 
 async def reconcile_session_run_row(
@@ -448,20 +444,25 @@ async def reconcile_session_run_row(
             if _run_has_active_client(tid):
                 logger.debug(
                     "reconcile: skip stale cancel — active stream proxy session=%s thread=%s",
-                    sk, tid,
+                    sk,
+                    tid,
                 )
                 return "kept"
             if _live_snapshot_is_stale(sk):
                 logger.info(
                     "reconcile: cancelling stale run (live snapshot heartbeat lost) session=%s thread=%s run=%s",
-                    sk, tid, run_id or "?",
+                    sk,
+                    tid,
+                    run_id or "?",
                 )
                 await _cancel_stale_active_run(sk, tid)
                 return "cancelled"
             if _is_session_run_stale(row):
                 logger.info(
                     "reconcile: cancelling stale run (updatedAt timeout, no live snapshot) session=%s thread=%s run=%s",
-                    sk, tid, run_id or "?",
+                    sk,
+                    tid,
+                    run_id or "?",
                 )
                 await _cancel_stale_active_run(sk, tid)
                 return "cancelled"
@@ -532,12 +533,7 @@ async def reconcile_ui_session_rows(rows: list[dict[str, Any]]) -> list[dict[str
 
     Deprecated: list API no longer calls this (use GET .../execution/state or startup reconcile).
     """
-    active_rows = [
-        r
-        for r in rows
-        if str(r.get("runStatus") or "").strip().lower() in _ACTIVE_RUN_STATUSES
-        and str(r.get("threadId") or r.get("thread_id") or "").strip()
-    ]
+    active_rows = [r for r in rows if str(r.get("runStatus") or "").strip().lower() in _ACTIVE_RUN_STATUSES and str(r.get("threadId") or r.get("thread_id") or "").strip()]
     if not active_rows:
         return rows
 

@@ -24,13 +24,7 @@ def _is_embedding_row(row: dict[str, Any]) -> bool:
     model = str(row.get("model") or "").lower()
     if vendor in {"local", "openai-embedding"}:
         return True
-    return (
-        "embedding" in name
-        or "embedding" in model
-        or "bge" in model
-        or "e5-" in model
-        or "nomic-embed" in model
-    )
+    return "embedding" in name or "embedding" in model or "bge" in model or "e5-" in model or "nomic-embed" in model
 
 
 def _model_dedup_identity(row: dict[str, Any]) -> tuple[str, str]:
@@ -78,9 +72,7 @@ def cleanup_stale_model_connections() -> list[str]:
 
     scopes_with_models: set[str] = set()
     for row in models:
-        scopes_with_models.add(
-            connection_scope_fingerprint(str(row.get("base_url") or ""), use_to_api_type(str(row.get("use") or "")))
-        )
+        scopes_with_models.add(connection_scope_fingerprint(str(row.get("base_url") or ""), use_to_api_type(str(row.get("use") or ""))))
 
     deleted: list[str] = []
     for key, conn in connections.items():
@@ -186,11 +178,7 @@ def delete_models_for_connection(
 
     models = [m for m in cfg_repo.list_models() if not _is_embedding_row(m)]
 
-    exact_names = {
-        str(m.get("name") or "").strip()
-        for m in models
-        if str(m.get("vendor") or "").strip() == key
-    }
+    exact_names = {str(m.get("name") or "").strip() for m in models if str(m.get("vendor") or "").strip() == key}
 
     deleted: list[str] = []
     for name in exact_names:
@@ -200,15 +188,7 @@ def delete_models_for_connection(
     # Scope fallback only when this scope is unique among live connections.
     if base_url:
         scope = connection_scope_fingerprint(base_url, api_type)
-        other_live = [
-            ck
-            for ck, c in list_model_connections().items()
-            if ck != key
-            and connection_scope_fingerprint(
-                str(c.get("base_url") or ""), str(c.get("api_type") or "")
-            )
-            == scope
-        ]
+        other_live = [ck for ck, c in list_model_connections().items() if ck != key and connection_scope_fingerprint(str(c.get("base_url") or ""), str(c.get("api_type") or "")) == scope]
         if not other_live:
             for m in models:
                 name = str(m.get("name") or "").strip()

@@ -33,10 +33,7 @@ def read_file_content(
             return f"Error: File not found: {path}"
 
         if not p.is_file():
-            return (
-                f"Error: Path is a directory, not a file: {path}. "
-                "Use terminal (e.g. dir / ls) to browse, or read_file with a concrete file path (e.g. outputs/result.txt)."
-            )
+            return f"Error: Path is a directory, not a file: {path}. Use terminal (e.g. dir / ls) to browse, or read_file with a concrete file path (e.g. outputs/result.txt)."
 
         if p.suffix.lower() in _IMAGE_EXTENSIONS:
             mime_type = mimetypes.guess_type(str(p))[0] or "image/png"

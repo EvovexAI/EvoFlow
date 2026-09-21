@@ -104,7 +104,8 @@ async def aexecute_approved_tool_entry(
 
     log_tool_approval_trace(
         "工具执行层·aexecute_approved_tool_entry开始",
-        thread_id=_ctx_tid, side="工具执行",
+        thread_id=_ctx_tid,
+        side="工具执行",
         event_data={
             "tool_call_id": tc_id,
             "tool_name": tool_name,
@@ -124,9 +125,9 @@ async def aexecute_approved_tool_entry(
     if tool is None:
         log_tool_approval_trace(
             "工具执行层·工具未找到，返回错误",
-            thread_id=_ctx_tid, side="工具执行",
-            event_data={"tool_call_id": tc_id, "tool_name": tool_name,
-                        "available_count": len(tools_by_name)},
+            thread_id=_ctx_tid,
+            side="工具执行",
+            event_data={"tool_call_id": tc_id, "tool_name": tool_name, "available_count": len(tools_by_name)},
         )
         return ToolMessage(
             content=json.dumps(
@@ -145,7 +146,8 @@ async def aexecute_approved_tool_entry(
     if blocked:
         log_tool_approval_trace(
             "工具执行层·被安全策略阻止",
-            thread_id=_ctx_tid, side="工具执行",
+            thread_id=_ctx_tid,
+            side="工具执行",
             event_data={"tool_call_id": tc_id, "tool_name": tool_name, "reason": reason},
         )
         return ToolMessage(
@@ -164,7 +166,8 @@ async def aexecute_approved_tool_entry(
     timeout = _timeout_for_tool(tool_name)
     log_tool_approval_trace(
         "工具执行层·开始执行工具",
-        thread_id=_ctx_tid, side="工具执行",
+        thread_id=_ctx_tid,
+        side="工具执行",
         event_data={"tool_call_id": tc_id, "tool_name": tool_name, "timeout_s": timeout},
     )
     try:
@@ -172,9 +175,9 @@ async def aexecute_approved_tool_entry(
         content = _tool_result_content(raw)
         log_tool_approval_trace(
             "工具执行层·执行成功",
-            thread_id=_ctx_tid, side="工具执行",
-            event_data={"tool_call_id": tc_id, "tool_name": tool_name,
-                        "result_preview": content[:300]},
+            thread_id=_ctx_tid,
+            side="工具执行",
+            event_data={"tool_call_id": tc_id, "tool_name": tool_name, "result_preview": content[:300]},
         )
         envelope = {
             "_evoflow_tool": {"status": "ok"},
@@ -189,7 +192,8 @@ async def aexecute_approved_tool_entry(
         logger.error("Tool approval replay timed out: %s (%s) after %ds", tool_name, tc_id, timeout)
         log_tool_approval_trace(
             "工具执行层·执行超时",
-            thread_id=_ctx_tid, side="工具执行",
+            thread_id=_ctx_tid,
+            side="工具执行",
             event_data={"tool_call_id": tc_id, "tool_name": tool_name, "timeout_s": timeout},
         )
         return ToolMessage(
@@ -207,7 +211,8 @@ async def aexecute_approved_tool_entry(
         logger.exception("tool approval replay failed: %s (%s)", tool_name, tc_id)
         log_tool_approval_trace(
             "工具执行层·执行异常",
-            thread_id=_ctx_tid, side="工具执行",
+            thread_id=_ctx_tid,
+            side="工具执行",
             event_data={"tool_call_id": tc_id, "tool_name": tool_name, "error": str(exc)},
         )
         return ToolMessage(
@@ -254,9 +259,7 @@ async def _ainvoke_tool(tool: BaseTool, args: dict[str, Any], *, runtime: Any) -
         "args": invoke_args,
         "id": tc_id,
     }
-    config = getattr(runtime, "config", None) or {
-        "configurable": {"thread_id": getattr(getattr(runtime, "context", None), "thread_id", None)}
-    }
+    config = getattr(runtime, "config", None) or {"configurable": {"thread_id": getattr(getattr(runtime, "context", None), "thread_id", None)}}
     if hasattr(tool, "ainvoke"):
         return await tool.ainvoke(tool_call_payload, config=config)
     if fn is None:
@@ -281,9 +284,7 @@ def execute_approved_tool_entry(
     _loop = asyncio.new_event_loop()
     asyncio.set_event_loop(_loop)
     try:
-        return _loop.run_until_complete(
-            aexecute_approved_tool_entry(entry, runtime_context=runtime_context)
-        )
+        return _loop.run_until_complete(aexecute_approved_tool_entry(entry, runtime_context=runtime_context))
     finally:
         try:
             _loop.run_until_complete(_loop.shutdown_asyncgens())

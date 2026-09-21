@@ -71,10 +71,7 @@ def build_workflow_platform_schema() -> dict[str, Any]:
     return {
         "domain": "workflow",
         "title": "工作流/应用",
-        "overview": (
-            "工作流 = App 定义（goal + steps 节点 + 可选 parameters）。"
-            "创建后 status=draft；发布用 workflow.publish；运行用 workflow.run。"
-        ),
+        "overview": ("工作流 = App 定义（goal + steps 节点 + 可选 parameters）。创建后 status=draft；发布用 workflow.publish；运行用 workflow.run。"),
         "recommended_paths": [
             {
                 "id": "generate",
@@ -107,10 +104,7 @@ def build_workflow_platform_schema() -> dict[str, Any]:
                 "condition (分支节点时)",
                 "input_bindings / input_schema / output_schema",
             ],
-            "assigned_agent": (
-                "智能体角色 code，如 lead、researcher；不确定时先用 lead，"
-                "或 workflow.get 参考已有应用"
-            ),
+            "assigned_agent": ("智能体角色 code，如 lead、researcher；不确定时先用 lead，或 workflow.get 参考已有应用"),
             "depends_on_rule": "无依赖=可并行；链式流程用 depends_on 指向前序 ref",
             "minimal_example": WORKFLOW_STEP_MINIMAL,
             "linear_chain_example": WORKFLOW_STEP_CHAIN,

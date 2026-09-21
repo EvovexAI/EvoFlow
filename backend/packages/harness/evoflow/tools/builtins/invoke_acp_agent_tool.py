@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -169,11 +168,7 @@ def _format_invocation_error(agent: str, cmd: str, exc: Exception) -> str:
 
     message = f"Error invoking ACP agent '{agent}': Command '{cmd}' was not found on PATH."
     if cmd == "external-agent-acp":
-        return (
-            f"{message} The installed CLI may not speak ACP directly. "
-            "Install an ACP adapter (for example `npx @zed-industries/claude-agent-acp`) "
-            f"or update `acp_agents.{agent}.command` and `args` in config.yaml."
-        )
+        return f"{message} The installed CLI may not speak ACP directly. Install an ACP adapter (for example `npx @zed-industries/claude-agent-acp`) or update `acp_agents.{agent}.command` and `args` in config.yaml."
 
     return f"{message} Install the agent binary or update `acp_agents.{agent}.command` in config.yaml."
 

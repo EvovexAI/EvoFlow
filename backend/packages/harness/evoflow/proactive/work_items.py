@@ -684,10 +684,7 @@ def format_meeting_task_memory_for_prompt(tasks: list[dict[str, Any]]) -> str:
 
     lines = [
         "以下为本岗近况任务记忆（已自动加载，含状态与时间；被问进度时据此直接答，无需再查）：",
-        (
-            f"概况：近 {len(tasks)} 条里，已完成 {done_n}，未结 {open_n}，失败 {failed_n}。"
-            "汇报工作进度时请说出这些数量，并点 1～2 件具体事项（含大致时间）。"
-        ),
+        (f"概况：近 {len(tasks)} 条里，已完成 {done_n}，未结 {open_n}，失败 {failed_n}。汇报工作进度时请说出这些数量，并点 1～2 件具体事项（含大致时间）。"),
         "",
     ]
     for t in tasks:
@@ -700,18 +697,12 @@ def format_meeting_task_memory_for_prompt(tasks: list[dict[str, Any]]) -> str:
             progress = int(t.get("progress") or 0)
         except (TypeError, ValueError):
             progress = 0
-        when = _meeting_task_time_snip(t.get("updated_at")) or _meeting_task_time_snip(
-            t.get("created_at")
-        )
+        when = _meeting_task_time_snip(t.get("updated_at")) or _meeting_task_time_snip(t.get("created_at"))
         line = f"- `{tid}` [{status}] {progress}% · {name}"
         if when:
             line += f" · 更新 {when}"
         result = str(t.get("result") or "").strip()
-        if result and (
-            status in _DONE_TASK_STATUSES
-            or status in _FAILED_TASK_STATUSES
-            or progress >= 100
-        ):
+        if result and (status in _DONE_TASK_STATUSES or status in _FAILED_TASK_STATUSES or progress >= 100):
             if len(result) > 80:
                 result = result[:79] + "…"
             line += f" → {result}"
@@ -823,11 +814,11 @@ def format_live_duty_tasks_section(role: ProactiveRole, *, limit: int = 8) -> st
     lines.extend(
         [
             "",
-            "动作：推进 ``tasks(action=\"progress\", task_id=…, progress=N)``；",
-            "干完结案 ``tasks(action=\"state\", task_id=…, status=\"completed\", "
-            "summary=\"做了什么/验收要点\", "
-            "outputs=[{\"type\":\"file\",\"key\":\"report\",\"value\":\"路径\"}], "
-            "handlers=[{\"agent_code\":\"…\",\"content\":\"做什么\",\"read_outputs\":[…]}])``"
+            '动作：推进 ``tasks(action="progress", task_id=…, progress=N)``；',
+            '干完结案 ``tasks(action="state", task_id=…, status="completed", '
+            'summary="做了什么/验收要点", '
+            'outputs=[{"type":"file","key":"report","value":"路径"}], '
+            'handlers=[{"agent_code":"…","content":"做什么","read_outputs":[…]}])``'
             "（已完成；handlers 仅直属下级；medium+ 交接由系统挂待审批后再 wake；"
             "勿经 terminal 拼 handlers JSON；勿对本岗交接再 create+wake 下级）；",
             "取证/改码时**同批并发** ``mind_map``；证据返回后下一轮立刻 patch 导图并回写进度。",
@@ -938,12 +929,7 @@ def set_work_item_status(
         # Don't stamp timeout/failure prose onto an already-successful task.
         if already_done and target in _DONE_TASK_STATUSES - {"cancelled", "canceled", "rejected"}:
             low = str(result).lower()
-            if (
-                "timeout" in low
-                or "timed out" in low
-                or "等待超时" in str(result)
-                or str(result).strip().startswith("执行失败")
-            ):
+            if "timeout" in low or "timed out" in low or "等待超时" in str(result) or str(result).strip().startswith("执行失败"):
                 logger.info(
                     "proactive.work_items: skip failure result on done task=%s",
                     tid,
@@ -1059,25 +1045,14 @@ def _is_execution_cancelled(result: str) -> bool:
     s = str(result or "").strip().lower()
     if not s:
         return False
-    return (
-        "已被取消" in s
-        or "已取消" in s
-        or "cancelled" in s
-        or "canceled" in s
-    )
+    return "已被取消" in s or "已取消" in s or "cancelled" in s or "canceled" in s
 
 
 def _is_execution_failure(result: str) -> bool:
     s = str(result or "").strip().lower()
     if not s:
         return False
-    return (
-        s.startswith("execution failed")
-        or s.startswith("execution error")
-        or s.startswith("执行失败")
-        or "步数用尽" in s
-        or "recursion limit" in s
-    )
+    return s.startswith("execution failed") or s.startswith("execution error") or s.startswith("执行失败") or "步数用尽" in s or "recursion limit" in s
 
 
 def initiative_status_to_task_status(status: InitiativeStatus | str) -> str:

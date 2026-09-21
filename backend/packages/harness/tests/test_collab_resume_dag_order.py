@@ -57,9 +57,7 @@ def test_explicit_start_still_respects_depends_on(plan_chain_storage) -> None:
     id_by_ref = {str(s["ref"]): str(s["id"]) for s in subs}
 
     # Lead/UI passes both ids — Step2 must stay blocked until Step1 completes.
-    runnable, blocked = _resolve_subtasks_for_start_execution(
-        storage, task_id, [id_by_ref["1"], id_by_ref["2"]]
-    )
+    runnable, blocked = _resolve_subtasks_for_start_execution(storage, task_id, [id_by_ref["1"], id_by_ref["2"]])
     assert runnable == [id_by_ref["1"]]
     blocked_ids = {b.get("subtaskId") for b in blocked}
     assert id_by_ref["2"] in blocked_ids
@@ -85,9 +83,7 @@ def test_pause_run_only_marks_inflight_subtasks_paused(monkeypatch) -> None:
         ]
     }
 
-    monkeypatch.setattr(
-        ar.app_repositories, "load_run", lambda _rid: {"task_id": "main-1", "status": "running"}
-    )
+    monkeypatch.setattr(ar.app_repositories, "load_run", lambda _rid: {"task_id": "main-1", "status": "running"})
     monkeypatch.setattr(ar.app_repositories, "update_run_status", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "evoflow.persistence.task_repositories.load_task_bundle",
@@ -121,9 +117,7 @@ def test_resume_run_resets_paused_to_pending_not_executing(monkeypatch) -> None:
         ]
     }
 
-    monkeypatch.setattr(
-        ar.app_repositories, "load_run", lambda _rid: {"task_id": "main-1", "status": "paused"}
-    )
+    monkeypatch.setattr(ar.app_repositories, "load_run", lambda _rid: {"task_id": "main-1", "status": "paused"})
     monkeypatch.setattr(ar.app_repositories, "update_run_status", lambda *_a, **_k: None)
     monkeypatch.setattr(
         "evoflow.persistence.task_repositories.load_task_bundle",

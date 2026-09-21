@@ -36,8 +36,7 @@ def _inject_compaction_stream_event(thread_id: str, event_type: str) -> None:
     else:
         return
     try:
-        from evoflow.runtime.ports import schedule_inject_evf_frame
-        from evoflow.runtime.ports import middle_layer_covers_thread
+        from evoflow.runtime.ports import middle_layer_covers_thread, schedule_inject_evf_frame
 
         if middle_layer_covers_thread(tid):
             schedule_inject_evf_frame(tid, inject)
@@ -157,8 +156,7 @@ def _inject_evf_frame_cross_thread(thread_id: str, payload: dict[str, Any]) -> N
         return
     used_direct = False
     try:
-        from evoflow.runtime.ports import schedule_inject_evf_frame
-        from evoflow.runtime.ports import middle_layer_covers_thread
+        from evoflow.runtime.ports import middle_layer_covers_thread, schedule_inject_evf_frame
 
         if middle_layer_covers_thread(tid):
             schedule_inject_evf_frame(tid, payload)

@@ -32,6 +32,7 @@ def test_mind_map_tool_description_carries_policy() -> None:
     assert "Placeholder turn" not in MIND_MAP_TOOL_DESCRIPTION
     assert "下一轮第一时间" not in MIND_MAP_TOOL_DESCRIPTION
 
+
 def test_system_prompt_omits_mind_map_policy(monkeypatch) -> None:
     from evoflow.exploration_graph.config import load_exploration_graph_config_from_dict
     from evoflow.persistence import panel_settings as ps

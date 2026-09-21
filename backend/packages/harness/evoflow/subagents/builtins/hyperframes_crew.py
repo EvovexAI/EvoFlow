@@ -24,9 +24,7 @@ HYPERFRAMES_AGENT_SKILL_WISHLISTS: dict[str, tuple[str, ...]] = {
         "hyperframes-creative",
         "hyperframes-registry",
     ),
-    "hf-visual-designer": (
-        "hyperframes-creative",
-    ),
+    "hf-visual-designer": ("hyperframes-creative",),
     "hf-director": (
         "hyperframes-creative",
         "hyperframes-media",

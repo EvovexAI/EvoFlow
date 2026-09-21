@@ -168,25 +168,12 @@ def _wrap_command(state: ThreadShellState, command: str, marker: str) -> str:
     if state.is_powershell:
         inner = prepare_shell_command(inner, state.shell_path)
         return (
-            f"Write-Output '__EVOFLOW_START__{marker}__'; "
-            f"{inner}; "
-            f"Write-Output ('__EVOFLOW_CWD__' + (Get-Location).Path); "
-            f"$ec = if ($null -ne $LASTEXITCODE) {{ $LASTEXITCODE }} else {{ 0 }}; "
-            f"Write-Output \"__EVOFLOW_END__{marker}__$ec\""
+            f"Write-Output '__EVOFLOW_START__{marker}__'; {inner}; Write-Output ('__EVOFLOW_CWD__' + (Get-Location).Path); $ec = if ($null -ne $LASTEXITCODE) {{ $LASTEXITCODE }} else {{ 0 }}; Write-Output \"__EVOFLOW_END__{marker}__$ec\""
         )
     if state.is_cmd:
         inner = prepare_shell_command(inner, state.shell_path)
-        return (
-            f"echo __EVOFLOW_START__{marker}__ & {inner} & "
-            f"for /f \"delims=\" %%i in ('cd') do echo __EVOFLOW_CWD__%%i & "
-            f"echo __EVOFLOW_END__{marker}__%ERRORLEVEL%"
-        )
-    return (
-        f"echo '__EVOFLOW_START__{marker}__'\n"
-        f"{inner}\n"
-        f"echo \"__EVOFLOW_CWD__$(pwd)\"\n"
-        f"ec=$?; echo \"__EVOFLOW_END__{marker}__${{ec}}\"\n"
-    )
+        return f"echo __EVOFLOW_START__{marker}__ & {inner} & for /f \"delims=\" %%i in ('cd') do echo __EVOFLOW_CWD__%%i & echo __EVOFLOW_END__{marker}__%ERRORLEVEL%"
+    return f'echo \'__EVOFLOW_START__{marker}__\'\n{inner}\necho "__EVOFLOW_CWD__$(pwd)"\nec=$?; echo "__EVOFLOW_END__{marker}__${{ec}}"\n'
 
 
 def _pipe_reader(

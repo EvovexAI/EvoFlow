@@ -2,7 +2,7 @@
 name: evoflow-admin-external
 description: "供 外部 Agent / CLI 宿主 等外部 Agent 管理 EvoFlow 平台。先按 references/00a-desktop-setup.md 下载桌面端、配模型、检测 evoflow CLI；再读 00-concept-routing 与 03 全量 CLI、examples/。覆盖模型、技能、Agent、岗位员工、事项、任务、审批、工作流、自动化、组织包、资产、MCP、记忆、知识、经验、评测、日志与 platform HTTP。"
 license: Apache-2.0
-version: 1.0.3
+version: 1.0.4
 author: EvovexAI
 homepage: https://github.com/EvovexAI/EvoFlow/tree/main/skills/public/evoflow-admin-external
 repository: https://github.com/EvovexAI/EvoFlow

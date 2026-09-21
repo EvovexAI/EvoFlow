@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -59,29 +59,19 @@ def _read_config() -> dict[str, Any]:
             "url": str(os.environ.get("HOTSPOT_DOUYIN_URL", "")).strip(),
         },
         "xiaohongshu": {
-            "url": str(
-                os.environ.get("HOTSPOT_XHS_URL")
-                or os.environ.get("HOTSPOT_XIAOHONGSHU_URL")
-                or ""
-            ).strip(),
-            "token": str(
-                os.environ.get("TIKHUB_TOKEN") or os.environ.get("HOTSPOT_TIKHUB_TOKEN") or ""
-            ).strip(),
+            "url": str(os.environ.get("HOTSPOT_XHS_URL") or os.environ.get("HOTSPOT_XIAOHONGSHU_URL") or "").strip(),
+            "token": str(os.environ.get("TIKHUB_TOKEN") or os.environ.get("HOTSPOT_TIKHUB_TOKEN") or "").strip(),
         },
         "hotdata": {
             "key": str(os.environ.get("HOTDATA_API_KEY", PUBLIC_HOTDATA_API_KEY) or "").strip(),
         },
         "wechat": {
             "url": str(os.environ.get("HOTSPOT_WECHAT_URL", "")).strip(),
-            "tianapi_key": str(
-                os.environ.get("TIANAPI_WECHAT_KEY") or tianapi_key or ""
-            ).strip(),
+            "tianapi_key": str(os.environ.get("TIANAPI_WECHAT_KEY") or tianapi_key or "").strip(),
         },
         "weibo": {
             "url": str(os.environ.get("HOTSPOT_WEIBO_URL", "")).strip(),
-            "tianapi_key": str(
-                os.environ.get("TIANAPI_WEIBO_KEY") or tianapi_key or ""
-            ).strip(),
+            "tianapi_key": str(os.environ.get("TIANAPI_WEIBO_KEY") or tianapi_key or "").strip(),
         },
     }
 
@@ -141,9 +131,7 @@ def _pick_array(data: Any) -> list[Any]:
         (data.get("data") or {}).get("list") if isinstance(data.get("data"), dict) else None,
         (data.get("data") or {}).get("items") if isinstance(data.get("data"), dict) else None,
         (data.get("data") or {}).get("data") if isinstance(data.get("data"), dict) else None,
-        ((data.get("data") or {}).get("data") or {}).get("items")
-        if isinstance(data.get("data"), dict) and isinstance((data.get("data") or {}).get("data"), dict)
-        else None,
+        ((data.get("data") or {}).get("data") or {}).get("items") if isinstance(data.get("data"), dict) and isinstance((data.get("data") or {}).get("data"), dict) else None,
         (data.get("data") or {}).get("hot_list") if isinstance(data.get("data"), dict) else None,
         (data.get("data") or {}).get("hotList") if isinstance(data.get("data"), dict) else None,
     ]
@@ -160,41 +148,14 @@ def _normalize_items(platform: str, raw_items: Any, source: str) -> list[dict[st
     for idx, item in enumerate(raw_items):
         if not isinstance(item, dict):
             continue
-        title = (
-            item.get("word")
-            or item.get("hotword")
-            or item.get("sentence")
-            or item.get("title")
-            or item.get("name")
-            or item.get("keyword")
-            or item.get("query")
-            or item.get("text")
-            or item.get("display_query")
-            or ""
-        )
+        title = item.get("word") or item.get("hotword") or item.get("sentence") or item.get("title") or item.get("name") or item.get("keyword") or item.get("query") or item.get("text") or item.get("display_query") or ""
         title = str(title).strip()
         if not title:
             continue
         tag = _label_text(item.get("label") or item.get("sentence_tag") or item.get("tag") or item.get("type"))
-        heat_raw = (
-            item.get("hot_value")
-            or item.get("hotValue")
-            or item.get("hotwordnum")
-            or item.get("heat")
-            or item.get("score")
-            or item.get("views")
-            or item.get("view_count")
-            or item.get("num")
-            or ""
-        )
+        heat_raw = item.get("hot_value") or item.get("hotValue") or item.get("hotwordnum") or item.get("heat") or item.get("score") or item.get("views") or item.get("view_count") or item.get("num") or ""
         heat = _format_heat(heat_raw) if heat_raw not in ("", None) else ""
-        url = str(
-            item.get("url")
-            or item.get("share_url")
-            or item.get("link")
-            or item.get("jump_url")
-            or ""
-        ).strip()
+        url = str(item.get("url") or item.get("share_url") or item.get("link") or item.get("jump_url") or "").strip()
         rank = int(item.get("position") or item.get("rank") or item.get("index") or idx + 1)
         items.append(
             {
@@ -304,15 +265,11 @@ def _fetch_douyin(config: dict[str, Any]) -> list[dict[str, Any]]:
 def _fetch_xiaohongshu(config: dict[str, Any]) -> list[dict[str, Any]]:
     providers = []
     if config["xiaohongshu"]["url"]:
-        providers.append(
-            lambda: _fetch_custom_platform("xiaohongshu", config["xiaohongshu"]["url"])
-        )
+        providers.append(lambda: _fetch_custom_platform("xiaohongshu", config["xiaohongshu"]["url"]))
     if config["xiaohongshu"]["token"]:
         providers.append(lambda: _fetch_tikhub_xiaohongshu(config))
     if config["provider"] in ("auto", "hotdata"):
-        providers.append(
-            lambda: _fetch_hotdata("xiaohongshu", "xiaohongshu", config["hotdata"]["key"])
-        )
+        providers.append(lambda: _fetch_hotdata("xiaohongshu", "xiaohongshu", config["hotdata"]["key"]))
     return _run_providers(providers, "小红书实时源未配置")
 
 
@@ -321,13 +278,9 @@ def _fetch_wechat(config: dict[str, Any]) -> list[dict[str, Any]]:
     if config["wechat"]["url"]:
         providers.append(lambda: _fetch_custom_platform("wechat", config["wechat"]["url"]))
     if config["wechat"]["tianapi_key"]:
-        providers.append(
-            lambda: _fetch_tianapi("wechat", "wxhottopic", config["wechat"]["tianapi_key"])
-        )
+        providers.append(lambda: _fetch_tianapi("wechat", "wxhottopic", config["wechat"]["tianapi_key"]))
     if config["provider"] in ("auto", "hotdata"):
-        providers.append(
-            lambda: _fetch_hotdata("wechat", "wxhottopic", config["hotdata"]["key"])
-        )
+        providers.append(lambda: _fetch_hotdata("wechat", "wxhottopic", config["hotdata"]["key"]))
     return _run_providers(providers, "微信热点实时源未配置")
 
 
@@ -336,9 +289,7 @@ def _fetch_weibo(config: dict[str, Any]) -> list[dict[str, Any]]:
     if config["weibo"]["url"]:
         providers.append(lambda: _fetch_custom_platform("weibo", config["weibo"]["url"]))
     if config["weibo"]["tianapi_key"]:
-        providers.append(
-            lambda: _fetch_tianapi("weibo", "weibohot", config["weibo"]["tianapi_key"])
-        )
+        providers.append(lambda: _fetch_tianapi("weibo", "weibohot", config["weibo"]["tianapi_key"]))
     if config["provider"] in ("auto", "hotdata"):
         providers.append(lambda: _fetch_hotdata("weibo", "weibohot", config["hotdata"]["key"]))
     if config["provider"] in ("auto", "xxapi"):
@@ -365,7 +316,7 @@ def _fetch_platform(platform: str, loader) -> dict[str, Any]:
 
 def _fetch_all_platforms() -> dict[str, Any]:
     config = _read_config()
-    fetched_at = datetime.now(timezone.utc)
+    fetched_at = datetime.now(UTC)
     loaders = {
         "douyin": lambda: _fetch_douyin(config),
         "xiaohongshu": lambda: _fetch_xiaohongshu(config),
@@ -374,10 +325,7 @@ def _fetch_all_platforms() -> dict[str, Any]:
     }
     results: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {
-            pool.submit(_fetch_platform, platform, loaders[platform]): platform
-            for platform in PLATFORM_ORDER
-        }
+        futures = {pool.submit(_fetch_platform, platform, loaders[platform]): platform for platform in PLATFORM_ORDER}
         for future in as_completed(futures):
             results.append(future.result())
     results.sort(key=lambda r: PLATFORM_ORDER.index(r["platform"]))
@@ -389,10 +337,7 @@ def _fetch_all_platforms() -> dict[str, Any]:
         status[result["platform"]] = result["status"]
 
     if not any(items for items in platforms.values()):
-        errors = [
-            f"{PLATFORM_LABELS.get(p, p)}：{(status.get(p) or {}).get('error') or '无数据'}"
-            for p in PLATFORM_ORDER
-        ]
+        errors = [f"{PLATFORM_LABELS.get(p, p)}：{(status.get(p) or {}).get('error') or '无数据'}" for p in PLATFORM_ORDER]
         raise RuntimeError("；".join(errors) or "全部热点源均不可用")
 
     return {

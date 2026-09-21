@@ -7,8 +7,8 @@ from pathlib import Path
 from evoflow.eval.scenarios._harness import check, finalize, run_scenario
 from evoflow.eval.scenarios._persist import expect_agent, expect_role, expect_task, expect_user_item
 from evoflow.eval.scenarios._runtime_contract import (
-    ensure_agent,
     build_duty_brief_text,
+    ensure_agent,
     expect_duty_brief,
     expect_tools_include,
     runtime_contract_metrics,
@@ -53,9 +53,7 @@ def _run(home: Path) -> dict:
     task = tasks_admin.get_task(task_id) if task_id else {}
     source_ref = ""
     if isinstance(task, dict):
-        source_ref = str(
-            task.get("source_ref") or (task.get("task") or {}).get("source_ref") or ""
-        )
+        source_ref = str(task.get("source_ref") or (task.get("task") or {}).get("source_ref") or "")
     expected_ref = f"item:{item_id}"
     snap = snapshot_agent_runtime(_CODE)
     brief = build_duty_brief_text(_CODE)

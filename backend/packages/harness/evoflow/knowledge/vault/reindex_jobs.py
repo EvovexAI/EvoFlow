@@ -18,7 +18,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from evoflow.knowledge.vault.errors import map_exception
-from evoflow.knowledge.vault.sanitize import sanitize_text
 from evoflow.knowledge.vault.runtime_resolve import (
     find_ready_kb_package_root,
     ohs_cli_js,
@@ -26,6 +25,7 @@ from evoflow.knowledge.vault.runtime_resolve import (
     preferred_install_root,
     resolve_node_binary,
 )
+from evoflow.knowledge.vault.sanitize import sanitize_text
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ _DONE_RE = re.compile(
     r"Done in ([^\s—\-]+).*?(\d+)\s+indexed.*?(\d+)\s+skipped",
     re.IGNORECASE,
 )
-_JOBS: dict[str, "ReindexJob"] = {}
+_JOBS: dict[str, ReindexJob] = {}
 _LOCK = asyncio.Lock()
 
 
@@ -74,16 +74,8 @@ class ReindexJob:
         data["jobId"] = data.pop("job_id")
         data["vaultId"] = data.pop("vault_id")
         data["runInstall"] = data.pop("run_install")
-        data["startedAt"] = (
-            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.started_at))
-            if self.started_at
-            else None
-        )
-        data["finishedAt"] = (
-            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.finished_at))
-            if self.finished_at
-            else None
-        )
+        data["startedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.started_at)) if self.started_at else None
+        data["finishedAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.finished_at)) if self.finished_at else None
         data["elapsedSec"] = data.pop("elapsed_sec")
         data["errorCount"] = data.pop("error_count")
         data["resultStatus"] = data.pop("result_status")
@@ -206,9 +198,7 @@ def _cli_child_env(vault_path: str, cfg: Any) -> dict[str, str]:
 
 def _is_benign_embedding_warning(line: str) -> bool:
     lower = str(line or "").lower()
-    return "embedding api unavailable" in lower or (
-        "semantic search and indexing disabled" in lower and "fulltext" in lower
-    )
+    return "embedding api unavailable" in lower or ("semantic search and indexing disabled" in lower and "fulltext" in lower)
 
 
 async def _run_cli_reindex(
@@ -385,9 +375,7 @@ async def _job_runner(job: ReindexJob, vault_path: str) -> None:
                 skipped = bool(install_result.get("skipped"))
                 _append_log(
                     job,
-                    "install skipped (already ready)"
-                    if skipped
-                    else f"install ok root={install_result.get('installRoot') or install_result.get('runtimeRoot')}",
+                    "install skipped (already ready)" if skipped else f"install ok root={install_result.get('installRoot') or install_result.get('runtimeRoot')}",
                 )
                 job.message = "检索组件已就绪，开始建立索引…"
                 job.percent = 10
@@ -429,10 +417,7 @@ async def _job_runner(job: ReindexJob, vault_path: str) -> None:
         notes = job.result_status.get("noteCount")
         # Status probe can lag (null) right after CLI rebuild; infer from job evidence.
         if sem is None and (job.indexed or 0) > 0:
-            had_embed_fail = any(
-                _is_benign_embedding_warning(x) or "fetch failed" in str(x).lower()
-                for x in job.log_tail
-            )
+            had_embed_fail = any(_is_benign_embedding_warning(x) or "fetch failed" in str(x).lower() for x in job.log_tail)
             if not had_embed_fail:
                 sem = True
         parts = []
@@ -490,11 +475,7 @@ async def start_reindex_job(
             path=path,
             run_install=bool(run_install),
             phase="installing_packages" if run_install else "queued",
-            message=(
-                "已排队：将安装检索组件并建索引"
-                if run_install
-                else "已排队"
-            ),
+            message=("已排队：将安装检索组件并建索引" if run_install else "已排队"),
         )
         _JOBS[vault_id] = job
 

@@ -238,12 +238,7 @@ class StdioAppServer:
                                 authorization=auth_s or None,
                             )
                     payload = result.get("body") if isinstance(result.get("body"), dict) else {}
-                    tid = str(
-                        payload.get("thread_id")
-                        or payload.get("threadId")
-                        or (payload.get("thread") or {}).get("thread_id")
-                        or ""
-                    ).strip()
+                    tid = str(payload.get("thread_id") or payload.get("threadId") or (payload.get("thread") or {}).get("thread_id") or "").strip()
                     out = {
                         "threadId": tid or None,
                         "sessionKey": session_key or None,

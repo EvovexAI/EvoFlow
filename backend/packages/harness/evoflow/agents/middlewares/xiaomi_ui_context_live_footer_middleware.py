@@ -80,9 +80,7 @@ class XiaomiUiContextLiveFooterMiddleware(AgentMiddleware[AgentState]):
             from evoflow.agents.xiaomi.prompt import strip_xiaomi_ui_context_from_system_prompt
         except Exception:
             return request
-        plain = _message_plain_text(sm) if not isinstance(getattr(sm, "content", None), str) else str(
-            sm.content or ""
-        )
+        plain = _message_plain_text(sm) if not isinstance(getattr(sm, "content", None), str) else str(sm.content or "")
         base = strip_xiaomi_ui_context_from_system_prompt(plain)
         if base == plain.rstrip():
             return request

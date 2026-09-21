@@ -7,9 +7,9 @@ from typing import Any
 
 from evoflow.agents.memory.workspace_memory import workspace_scope_id
 from evoflow.knowledge.owned.db import db
+from evoflow.memory import store as mem_store
 from evoflow.memory.document_codec import namespace_for_agent_key
 from evoflow.memory.namespaces import person_ns, workspace_ns
-from evoflow.memory import store as mem_store
 
 
 def _atom_count(namespace_id: str) -> int:
@@ -132,9 +132,7 @@ def list_memory_namespaces(request: object | None = None) -> dict[str, Any]:
             ns = namespace_for_agent_key(code)
             # Prefer stamped namespace ownership when present
             ns_row = existing.get(ns) or {}
-            if ns_row.get("owner_scope_id") and not _ns_owner_visible(
-                str(ns_row.get("owner_scope_id") or ""), vctx
-            ):
+            if ns_row.get("owner_scope_id") and not _ns_owner_visible(str(ns_row.get("owner_scope_id") or ""), vctx):
                 continue
             agents.append(
                 {
@@ -183,9 +181,7 @@ def list_memory_namespaces(request: object | None = None) -> dict[str, Any]:
         if ns in seen_ws:
             continue
         ns_row = existing.get(ns) or {}
-        if ns_row.get("owner_scope_id") and not _ns_owner_visible(
-            str(ns_row.get("owner_scope_id") or ""), vctx
-        ):
+        if ns_row.get("owner_scope_id") and not _ns_owner_visible(str(ns_row.get("owner_scope_id") or ""), vctx):
             continue
         seen_ws.add(ns)
         workspaces.append(
@@ -206,9 +202,7 @@ def list_memory_namespaces(request: object | None = None) -> dict[str, Any]:
             continue
         if nid in seen_ws:
             continue
-        if row.get("owner_scope_id") and not _ns_owner_visible(
-            str(row.get("owner_scope_id") or ""), vctx
-        ):
+        if row.get("owner_scope_id") and not _ns_owner_visible(str(row.get("owner_scope_id") or ""), vctx):
             continue
         owner = str(row.get("owner_ref") or "")
         workspaces.append(
@@ -256,9 +250,7 @@ def list_memory_namespaces(request: object | None = None) -> dict[str, Any]:
             continue
         if nid in seen_person:
             continue
-        if row.get("owner_scope_id") and not _ns_owner_visible(
-            str(row.get("owner_scope_id") or ""), vctx
-        ):
+        if row.get("owner_scope_id") and not _ns_owner_visible(str(row.get("owner_scope_id") or ""), vctx):
             continue
         owner = str(row.get("owner_ref") or "")
         if owner and not _agent_visible(owner, vctx):

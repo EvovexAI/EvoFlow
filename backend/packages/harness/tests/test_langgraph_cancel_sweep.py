@@ -14,13 +14,17 @@ def test_sweep_langgraph_runs_until_idle_clears_on_second_poll():
     cancel_mock = AsyncMock(return_value=["run-1"])
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel.cancel_active_langgraph_runs",
-            cancel_mock,
-        ), patch("evoflow.session_execution.langgraph_cancel.asyncio.sleep", new=AsyncMock()):
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel.cancel_active_langgraph_runs",
+                cancel_mock,
+            ),
+            patch("evoflow.session_execution.langgraph_cancel.asyncio.sleep", new=AsyncMock()),
+        ):
             return await sweep_langgraph_runs_until_idle(
                 client,
                 "thread-1",
@@ -43,13 +47,17 @@ def test_sweep_langgraph_runs_until_idle_reports_orphans_on_timeout():
     cancel_mock = AsyncMock(return_value=[])
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel.cancel_active_langgraph_runs",
-            cancel_mock,
-        ), patch("evoflow.session_execution.langgraph_cancel.asyncio.sleep", new=AsyncMock()):
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel.cancel_active_langgraph_runs",
+                cancel_mock,
+            ),
+            patch("evoflow.session_execution.langgraph_cancel.asyncio.sleep", new=AsyncMock()),
+        ):
             return await sweep_langgraph_runs_until_idle(
                 client,
                 "thread-2",
@@ -70,13 +78,17 @@ def test_sweep_does_not_cancel_runs_started_after_stop_began():
     cancel_mock = AsyncMock(return_value=["run-old"])
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel.cancel_active_langgraph_runs",
-            cancel_mock,
-        ), patch("evoflow.session_execution.langgraph_cancel.asyncio.sleep", new=AsyncMock()):
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel.cancel_active_langgraph_runs",
+                cancel_mock,
+            ),
+            patch("evoflow.session_execution.langgraph_cancel.asyncio.sleep", new=AsyncMock()),
+        ):
             return await sweep_langgraph_runs_until_idle(
                 client,
                 "thread-race",
@@ -98,13 +110,16 @@ def test_cancel_langgraph_runs_before_send_only_targets_preferred():
     list_mock = AsyncMock(return_value=["run-current", "run-other"])
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel._post_cancel_run",
-            new=AsyncMock(return_value="cancelled"),
-        ) as post_cancel:
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel._post_cancel_run",
+                new=AsyncMock(return_value="cancelled"),
+            ) as post_cancel,
+        ):
             out = await cancel_langgraph_runs_before_send(
                 client,
                 "thread-send",
@@ -127,12 +142,15 @@ def test_cancel_before_send_without_preferred_is_noop():
     post_cancel = AsyncMock(return_value="cancelled")
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel._post_cancel_run",
-            post_cancel,
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel._post_cancel_run",
+                post_cancel,
+            ),
         ):
             return await cancel_langgraph_runs_before_send(
                 client,
@@ -155,12 +173,15 @@ def test_cancel_before_send_does_not_fallthrough_to_newest():
     post_cancel = AsyncMock(return_value="cancelled")
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel._post_cancel_run",
-            post_cancel,
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel._post_cancel_run",
+                post_cancel,
+            ),
         ):
             return await cancel_langgraph_runs_before_send(
                 client,
@@ -180,12 +201,15 @@ def test_cancel_langgraph_runs_before_send_treats_404_as_done():
     list_mock = AsyncMock(return_value=["run-stale"])
 
     async def _run():
-        with patch(
-            "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
-            list_mock,
-        ), patch(
-            "evoflow.session_execution.langgraph_cancel._post_cancel_run",
-            new=AsyncMock(return_value="already_gone"),
+        with (
+            patch(
+                "evoflow.session_execution.langgraph_cancel.list_active_langgraph_run_ids",
+                list_mock,
+            ),
+            patch(
+                "evoflow.session_execution.langgraph_cancel._post_cancel_run",
+                new=AsyncMock(return_value="already_gone"),
+            ),
         ):
             return await cancel_langgraph_runs_before_send(
                 client,

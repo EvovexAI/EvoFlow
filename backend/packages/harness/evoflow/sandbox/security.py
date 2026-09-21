@@ -12,16 +12,9 @@ _HOST_PASSTHROUGH_PROVIDER_MARKERS = (
     "evoflow.sandbox.local.local_sandbox_provider:LocalSandboxProvider",
 )
 
-HOST_BASH_DISABLED_MESSAGE = (
-    "Host bash via LocalSandbox was removed. Use the `terminal` tool with "
-    "tools_mode=host_direct (optional execution_security OS jail), or switch "
-    "sandbox.use to AioSandboxProvider for container bash."
-)
+HOST_BASH_DISABLED_MESSAGE = "Host bash via LocalSandbox was removed. Use the `terminal` tool with tools_mode=host_direct (optional execution_security OS jail), or switch sandbox.use to AioSandboxProvider for container bash."
 
-BASH_SUBAGENT_DISABLED_MESSAGE = (
-    "Bash subagent requires an isolated sandbox (AioSandboxProvider). "
-    "On desktop host_direct use the `terminal` tool instead."
-)
+BASH_SUBAGENT_DISABLED_MESSAGE = "Bash subagent requires an isolated sandbox (AioSandboxProvider). On desktop host_direct use the `terminal` tool instead."
 
 # Back-compat aliases
 LOCAL_HOST_BASH_DISABLED_MESSAGE = HOST_BASH_DISABLED_MESSAGE

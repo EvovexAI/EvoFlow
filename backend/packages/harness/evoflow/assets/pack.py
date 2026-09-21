@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -33,7 +33,7 @@ def _manifest(entity: EntityRef) -> dict[str, Any]:
     return {
         "kind": PACK_KIND,
         "version": PACK_VERSION,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "entity": {"type": e.entity_type, "id": e.entity_id},
         "includes": list(_INCLUDE_DIRS),
         "relative_root": entity_relative_dir(e),
@@ -54,7 +54,7 @@ def export_entity_pack(
     if not root.is_dir():
         raise FileNotFoundError(str(root))
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     fname = f"{e.entity_type}-{e.entity_id}-{stamp}.evoflow-pack"
     out = output_path or (_exports_dir() / fname)
     out.parent.mkdir(parents=True, exist_ok=True)

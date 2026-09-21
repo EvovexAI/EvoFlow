@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import Request, APIRouter, HTTPException
-from evoflow.authz.http_guard import require_org_admin
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from evoflow.admin.errors import AdminError, NotFoundError, ValidationError
 from evoflow.admin.platform_actions import build_catalog, dispatch_platform_action
+from evoflow.authz.http_guard import require_org_admin
 
 router = APIRouter(prefix="/api/platform", tags=["platform"])
 

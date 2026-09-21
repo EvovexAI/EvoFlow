@@ -45,6 +45,7 @@ def _is_proactive_tool_request(request: ToolCallRequest) -> bool:
     except Exception:
         return False
 
+
 def _workspace_root_from_tool_request(request: ToolCallRequest) -> str | None:
     try:
         rt = getattr(request, "runtime", None)

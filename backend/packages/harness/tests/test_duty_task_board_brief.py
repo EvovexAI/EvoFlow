@@ -46,11 +46,7 @@ def test_user_prompt_leads_with_task_board_not_initiative_shell() -> None:
             }
         ]
     )
-    work_log = (
-        "## 工作日志\n"
-        "  🚫 [rejected] id=`task:Task_abc` 任务: 评估方案\n"
-        "    -> 驳回原因（勿再提同题）: 无需处理\n"
-    )
+    work_log = "## 工作日志\n  🚫 [rejected] id=`task:Task_abc` 任务: 评估方案\n    -> 驳回原因（勿再提同题）: 无需处理\n"
     prompt = build_user_prompt(
         role,
         ProactiveMemory(role_agent_code="quality-inspector"),

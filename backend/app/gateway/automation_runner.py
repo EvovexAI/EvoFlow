@@ -576,9 +576,7 @@ def _automation_via_task_center(task: dict[str, Any] | None = None) -> bool:
     Opt in via task field ``execution_mode=task_center`` or env ``EVOFLOW_AUTOMATION_VIA_TASK=1``.
     """
     if task is not None:
-        explicit = str(
-            task.get("execution_mode") or task.get("prompt_execution_mode") or ""
-        ).strip().lower().replace("-", "_")
+        explicit = str(task.get("execution_mode") or task.get("prompt_execution_mode") or "").strip().lower().replace("-", "_")
         if explicit in ("task_center", "plan", "unattended", "task_center_plan"):
             return True
         if explicit in ("direct", "direct_langgraph", "langgraph", "execute", "runs_wait"):
@@ -846,9 +844,6 @@ async def _run_one_task(
     push = bool(fresh.get("feishu_push_enabled"))
     prompt = str(fresh.get("prompt") or "").strip()
     run_id = secrets.token_hex(6)
-    ai_text = ""
-    thread_for_history = ""
-    session_key_for_chat = ""
     collab_task_id = ""
     summary = ""
     app_id = _bound_app_id(fresh)
@@ -881,9 +876,7 @@ async def _run_one_task(
                 collab_task_id = str(wf.get("collab_task_id") or "").strip()
                 app_run_id = str(wf.get("app_run_id") or "").strip()
                 app_name = str(wf.get("app_name") or app_id)
-                lines.append(
-                    f"workflow: ok app_id={app_id} app_run_id={app_run_id} collab_task_id={collab_task_id}"
-                )
+                lines.append(f"workflow: ok app_id={app_id} app_run_id={app_run_id} collab_task_id={collab_task_id}")
                 summary = f"已启动工作流「{app_name}」" + (f"（任务 ID：{collab_task_id}）" if collab_task_id else "")
                 if collab_task_id:
                     from evoflow.collab.app_runner import _dispatch_result_ok, dispatch_workflow_task_now
@@ -914,17 +907,8 @@ async def _run_one_task(
                     if push_target:
                         channel, target_id = push_target
                         title = str(fresh.get("name") or "自动化")
-                        body = (
-                            f"**{title}** 已触发已发布工作流\n\n"
-                            f"- 工作流：{app_name} (`{app_id}`)\n"
-                            f"- 任务 ID：`{collab_task_id or '—'}`\n"
-                            f"- 运行 ID：`{app_run_id or '—'}`\n"
-                            f"- 触发：{trigger_type}\n"
-                            f"- 时间：{record_started}\n"
-                        )
-                        ok, push_msg = await push_markdown_result(
-                            channel=channel, target_id=target_id, title=title, markdown_body=body
-                        )
+                        body = f"**{title}** 已触发已发布工作流\n\n- 工作流：{app_name} (`{app_id}`)\n- 任务 ID：`{collab_task_id or '—'}`\n- 运行 ID：`{app_run_id or '—'}`\n- 触发：{trigger_type}\n- 时间：{record_started}\n"
+                        ok, push_msg = await push_markdown_result(channel=channel, target_id=target_id, title=title, markdown_body=body)
                         lines.append(f"push:{channel}: {'ok (workflow started)' if ok else push_msg}")
                     else:
                         lines.append("push: skipped (no target; bind an IM session or pick a push channel)")
@@ -1011,16 +995,8 @@ async def _run_one_task(
                         if push_target:
                             channel, target_id = push_target
                             title = str(fresh.get("name") or "自动化")
-                            body = (
-                                f"**{title}** 已触发并入队任务中心\n\n"
-                                f"- 任务 ID：`{collab_task_id}`\n"
-                                f"- 触发：{trigger_type}\n"
-                                f"- 时间：{record_started}\n\n"
-                                f"系统将自动规划并派发子任务（task 工具）。"
-                            )
-                            ok, push_msg = await push_markdown_result(
-                                channel=channel, target_id=target_id, title=title, markdown_body=body
-                            )
+                            body = f"**{title}** 已触发并入队任务中心\n\n- 任务 ID：`{collab_task_id}`\n- 触发：{trigger_type}\n- 时间：{record_started}\n\n系统将自动规划并派发子任务（task 工具）。"
+                            ok, push_msg = await push_markdown_result(channel=channel, target_id=target_id, title=title, markdown_body=body)
                             lines.append(f"push:{channel}: {'ok (enqueued)' if ok else push_msg}")
                         else:
                             lines.append("push: skipped (no target; bind an IM session or pick a push channel)")
@@ -1185,34 +1161,22 @@ async def _run_one_task_direct_langgraph(
                     if link:
                         footer += f"\n[打开会话]({link})"
                     body = _truncate_text(ai_text, 7800) + footer
-                    ok, push_msg = await push_markdown_result(
-                        channel=channel, target_id=target_id, title=title, markdown_body=body
-                    )
+                    ok, push_msg = await push_markdown_result(channel=channel, target_id=target_id, title=title, markdown_body=body)
                     lines.append(f"push:{channel}: {'ok (model reply)' if ok else push_msg}")
                 elif err:
                     snippet = prompt[:500] + ("…" if len(prompt) > 500 else "")
                     md = f"**{title}**（定时 AI 执行失败）\n\n**错误**: {err}\n\n**Prompt 摘要**: {snippet}\n\n_时间_: {record_started}"
-                    ok, push_msg = await push_markdown_result(
-                        channel=channel, target_id=target_id, title=title, markdown_body=md
-                    )
+                    ok, push_msg = await push_markdown_result(channel=channel, target_id=target_id, title=title, markdown_body=md)
                     lines.append(f"push:{channel}: {'ok (failure notice)' if ok else push_msg}")
                 else:
                     snippet = prompt[:500] + ("…" if len(prompt) > 500 else "")
                     md = f"计划任务已触发（未跑 LangGraph）。\n\n**Prompt 摘要**: {snippet}\n\n_时间_: {record_started}"
-                    ok, push_msg = await push_markdown_result(
-                        channel=channel, target_id=target_id, title=title, markdown_body=md
-                    )
+                    ok, push_msg = await push_markdown_result(channel=channel, target_id=target_id, title=title, markdown_body=md)
                     lines.append(f"push:{channel}: {'ok (notify only)' if ok else push_msg}")
             else:
                 snippet = prompt[:500] + ("…" if len(prompt) > 500 else "") if prompt else ""
-                md = (
-                    f"计划任务已触发。\n\n**Prompt 摘要**: {snippet}\n\n_时间_: {record_started}"
-                    if snippet
-                    else f"计划任务已触发。\n\n_时间_: {record_started}"
-                )
-                ok, push_msg = await push_markdown_result(
-                    channel=channel, target_id=target_id, title=title, markdown_body=md
-                )
+                md = f"计划任务已触发。\n\n**Prompt 摘要**: {snippet}\n\n_时间_: {record_started}" if snippet else f"计划任务已触发。\n\n_时间_: {record_started}"
+                ok, push_msg = await push_markdown_result(channel=channel, target_id=target_id, title=title, markdown_body=md)
                 lines.append(f"push:{channel}: {'ok' if ok else push_msg}")
         elif push:
             lines.append("push: skipped (no target; bind an IM session or pick a push channel)")

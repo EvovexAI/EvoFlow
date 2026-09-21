@@ -184,10 +184,7 @@ class AppConfig(BaseModel):
             with open(resolved_path, encoding="utf-8") as f:
                 config_data = yaml.safe_load(f) or {}
         except UnicodeDecodeError as e:
-            raise ValueError(
-                f"Config file is not valid UTF-8: {resolved_path} ({e}). "
-                "Re-save as UTF-8 without BOM (PowerShell Set-Content often corrupts YAML)."
-            ) from e
+            raise ValueError(f"Config file is not valid UTF-8: {resolved_path} ({e}). Re-save as UTF-8 without BOM (PowerShell Set-Content often corrupts YAML).") from e
 
         # Check config version before processing
         cls._check_config_version(config_data, resolved_path)
@@ -410,12 +407,7 @@ class AppConfig(BaseModel):
                 #     to the correct provider.
                 if vendor_prefix:
                     found = next(
-                        (
-                            model
-                            for model in models
-                            if str(getattr(model, "model", "")) == suffix
-                            and str(getattr(model, "vendor", "") or "").strip().lower() == vendor_prefix
-                        ),
+                        (model for model in models if str(getattr(model, "model", "")) == suffix and str(getattr(model, "vendor", "") or "").strip().lower() == vendor_prefix),
                         None,
                     )
                     if found is not None:
@@ -651,9 +643,7 @@ def reload_models_from_db() -> AppConfig:
             from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
 
             clear_lead_agent_graph_cache()
-            logging.getLogger(__name__).info(
-                "reload_models_from_db: credentials changed; cleared lead-agent graph cache"
-            )
+            logging.getLogger(__name__).info("reload_models_from_db: credentials changed; cleared lead-agent graph cache")
         except Exception:
             pass
     return config
@@ -868,10 +858,7 @@ def update_model_in_config(model_name: str, model_data: dict) -> "ModelConfig":
 
     existing = config.models[model_index]
     if not hasattr(existing, "model_dump") or not callable(getattr(existing, "model_dump", None)):
-        raise TypeError(
-            f"Model '{model_name}' entry must be a ModelConfig instance, "
-            f"got {type(existing).__name__}"
-        )
+        raise TypeError(f"Model '{model_name}' entry must be a ModelConfig instance, got {type(existing).__name__}")
     # Merge so partial updates (e.g. only supports_thinking) do not wipe YAML-only
     # fields like when_thinking_enabled / thinking. Callers should pass model_data
     # from request.model_dump(exclude_unset=True).

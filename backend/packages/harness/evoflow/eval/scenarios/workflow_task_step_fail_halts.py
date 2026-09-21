@@ -79,12 +79,8 @@ def _run(home: Path) -> dict:
     s2 = by_ref.get("2") or {}
     status = str(final.get("status") or "").lower()
     s2_status = str(s2.get("status") or "").lower()
-    s1_ok_failed = str(s1.get("status") or "").lower() == "failed" and bool(
-        s1.get("outcome_reported_at")
-    )
-    s2_not_fake_completed = s2_status not in ("completed", "done") or not s2.get(
-        "outcome_reported_at"
-    )
+    s1_ok_failed = str(s1.get("status") or "").lower() == "failed" and bool(s1.get("outcome_reported_at"))
+    s2_not_fake_completed = s2_status not in ("completed", "done") or not s2.get("outcome_reported_at")
     main_not_green = status not in ("completed", "done", "reviewed")
 
     assertions = [

@@ -10,6 +10,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+# Giant baseline DDL rows are intentionally dense; do not reflow.
+# ruff: noqa: E501
+
 # Public source-available schema epoch (was 142 before the 1.0.0 squash).
 APP_SCHEMA_VERSION = 1
 # Pre-public ladder peak; used only to recognize legacy installs.
@@ -2016,10 +2019,7 @@ def ensure_chat_messages_thread_index(conn: sqlite3.Connection) -> None:
     """Compatibility shim: index is part of baseline DDL."""
     if not _table_exists(conn, "evoflow_chat_messages"):
         return
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_evo_chat_messages_thread_seq "
-        "ON evoflow_chat_messages(thread_id, seq)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_evo_chat_messages_thread_seq ON evoflow_chat_messages(thread_id, seq)")
     conn.commit()
 
 

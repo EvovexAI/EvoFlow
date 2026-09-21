@@ -42,6 +42,7 @@ class ExecutionBridge:
         """Reuse langgraph_sdk client to avoid connection pool fragmentation."""
         if self._cached_client is None:
             from langgraph_sdk import get_client
+
             self._cached_client = get_client(url=self._langgraph_url)
         return self._cached_client
 
@@ -165,16 +166,13 @@ class ExecutionBridge:
         thread_id = thread["thread_id"]
 
         # Prepend the non-interactive automation rules (same as automation_runner)
-        from evoflow.runtime.ports import automation_langgraph_outer_rules
-
         from evoflow.proactive.prompt import build_system_prompt
+        from evoflow.runtime.ports import automation_langgraph_outer_rules
 
         full_prompt = (automation_langgraph_outer_rules() or "") + user_prompt
         # Phase F: duty archival retrieval keyed off this shift's prompt/goal text
         duty_query = str(user_prompt or "").strip()[:500]
-        duty_system = (
-            build_system_prompt(role, query=duty_query) if role else ""
-        )
+        duty_system = build_system_prompt(role, query=duty_query) if role else ""
 
         task_title = ""
         if task_id:
@@ -318,9 +316,7 @@ class ExecutionBridge:
             last = messages[-1]
             content = last.get("content", "") if isinstance(last, dict) else str(last)
             if isinstance(content, list):
-                content = "".join(
-                    b.get("text", "") if isinstance(b, dict) else str(b) for b in content
-                )
+                content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
             return str(content)[:5000]
 
         return "Execution completed (no output)"

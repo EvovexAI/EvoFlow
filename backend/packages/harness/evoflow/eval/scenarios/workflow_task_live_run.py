@@ -51,9 +51,7 @@ def _run_live() -> dict:
                     "title": "收集",
                     "assigned_agent": "general-purpose",
                     "goal": "收集 {{topic}}",
-                    "instruction": (
-                        f"用一两句话处理主题 {{{{topic}}}}，并在总结中包含 {_TOKEN}_S1，然后结束。"
-                    ),
+                    "instruction": (f"用一两句话处理主题 {{{{topic}}}}，并在总结中包含 {_TOKEN}_S1，然后结束。"),
                     "depends_on": [],
                 },
                 {
@@ -62,9 +60,7 @@ def _run_live() -> dict:
                     "title": "摘要",
                     "assigned_agent": "general-purpose",
                     "goal": "摘要 {{topic}}",
-                    "instruction": (
-                        f"基于上一步写一句摘要，并包含 {_TOKEN}_S2，然后结束。"
-                    ),
+                    "instruction": (f"基于上一步写一句摘要，并包含 {_TOKEN}_S2，然后结束。"),
                     "depends_on": ["1"],
                 },
             ],
@@ -89,11 +85,7 @@ def _run_live() -> dict:
         timeout_s=120.0,
     )
     task_id = str((run_resp or {}).get("task_id") or "").strip()
-    run_id = str(
-        (run_resp or {}).get("run_id")
-        or ((run_resp or {}).get("run") or {}).get("id")
-        or ""
-    ).strip()
+    run_id = str((run_resp or {}).get("run_id") or ((run_resp or {}).get("run") or {}).get("id") or "").strip()
 
     def _pred() -> tuple[bool, dict[str, Any]]:
         task: dict[str, Any] = {}
@@ -106,9 +98,7 @@ def _run_live() -> dict:
         subs = list(task.get("subtasks") or [])
         if not subs:
             try:
-                subs = list(
-                    http_json("GET", f"/api/tasks/{task_id}/subtasks", timeout_s=20.0) or []
-                )
+                subs = list(http_json("GET", f"/api/tasks/{task_id}/subtasks", timeout_s=20.0) or [])
             except Exception:
                 subs = []
 
@@ -116,9 +106,7 @@ def _run_live() -> dict:
         for s in subs:
             if not isinstance(s, dict):
                 continue
-            report = str(
-                s.get("task_report") or s.get("result") or s.get("summary") or ""
-            )
+            report = str(s.get("task_report") or s.get("result") or s.get("summary") or "")
             st = str(s.get("status") or "").strip().lower()
             reported_at = s.get("outcome_reported_at")
             if reported_at or st in _STEP_DONE or len(report) > 20:

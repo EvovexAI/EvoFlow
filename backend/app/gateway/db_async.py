@@ -11,9 +11,6 @@ import asyncio
 import concurrent.futures
 import os
 from collections.abc import Callable
-from typing import TypeVar
-
-T = TypeVar("T")
 
 _DB_POOL_SIZE = max(4, min(16, int(os.getenv("EVOFLOW_DB_THREAD_POOL_SIZE", "8") or "8")))
 _DB_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
@@ -22,7 +19,7 @@ _DB_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
 )
 
 
-async def run_db(fn: Callable[..., T], /, *args, **kwargs) -> T:
+async def run_db[T](fn: Callable[..., T], /, *args, **kwargs) -> T:
     """Run a blocking DB/repository callable on a dedicated thread pool."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_DB_EXECUTOR, lambda: fn(*args, **kwargs))

@@ -57,10 +57,7 @@ def _ensure_agent_and_hire(code: str) -> dict[str, Any]:
                 "agent_name": "评测真跑值班员工",
                 "description": "live wake eval",
                 "soul": "You are a duty employee. Finish quickly.",
-                "system_prompt": (
-                    f"When given a task, reply with exactly {_TOKEN} in your "
-                    "final answer and stop. Do not call unnecessary tools."
-                ),
+                "system_prompt": (f"When given a task, reply with exactly {_TOKEN} in your final answer and stop. Do not call unnecessary tools."),
                 "tools": ["read"],
             },
         )
@@ -209,10 +206,7 @@ def _run_live() -> dict:
         idle_after = saw_busy and not busy
         obs: dict[str, Any] = {}
         try:
-            obs = (
-                http_json("GET", f"/api/tasks/{task_id}/observability", timeout_s=15.0)
-                or {}
-            )
+            obs = http_json("GET", f"/api/tasks/{task_id}/observability", timeout_s=15.0) or {}
         except Exception:
             obs = {}
         has_llm = bool(
@@ -221,18 +215,12 @@ def _run_live() -> dict:
             or obs.get("llm_calls")
             or obs.get("model_invocations")
             or (isinstance(obs.get("models"), list) and obs.get("models"))
-            or (
-                isinstance(obs.get("tokens"), dict)
-                and int((obs.get("tokens") or {}).get("total") or 0) > 0
-            )
+            or (isinstance(obs.get("tokens"), dict) and int((obs.get("tokens") or {}).get("total") or 0) > 0)
         )
         # Strong live evidence: assistant said TOKEN, or task terminal after wake.
         # Do not block forever on busy (execute/wrap_up may hang on channel push).
         strong = assistant_token or (terminal and saw_busy) or (token_hit and terminal)
-        done = bool(task_id) and wake_ok and (
-            strong
-            or (idle_after and (assistant_token or token_hit or has_llm or terminal))
-        )
+        done = bool(task_id) and wake_ok and (strong or (idle_after and (assistant_token or token_hit or has_llm or terminal)))
         return done, {
             "status": status,
             "busy": busy,
@@ -264,32 +252,15 @@ def _run_live() -> dict:
     linked = [str(x) for x in (final_item.get("linked_task_ids") or []) if str(x or "").strip()]
     # wake_now overwrites task.source_ref with dispatch:… trail stamp; ledger link is
     # user_item_id + item.linked_task_ids (initial create still uses item:{id}).
-    item_linked = (
-        user_item_id == item_id
-        or task_id in linked
-        or source_ref == f"item:{item_id}"
-        or f"item:{item_id}" in source_ref
-        or source_ref.startswith("dispatch:")
-    )
-    assigned = str(
-        final_task.get("assigned_to") or final_task.get("assignee") or ""
-    )
+    item_linked = user_item_id == item_id or task_id in linked or source_ref == f"item:{item_id}" or f"item:{item_id}" in source_ref or source_ref.startswith("dispatch:")
+    assigned = str(final_task.get("assigned_to") or final_task.get("assignee") or "")
     blob = _task_blob(final_task) if final_task else str(evidence.get("preview") or "")
     chat_blob, assistant_token = _chat_assistant_blob(code)
-    token_hit = (
-        bool(evidence.get("assistant_token"))
-        or assistant_token
-        or _TOKEN in blob
-        or bool(evidence.get("token_hit"))
-    )
+    token_hit = bool(evidence.get("assistant_token")) or assistant_token or _TOKEN in blob or bool(evidence.get("token_hit"))
     busy_cleared = bool(evidence.get("saw_busy")) and not bool(evidence.get("busy"))
-    live_ok = (
-        token_hit
-        or bool(evidence.get("has_llm_obs"))
-        or status.lower() in _TERMINAL
-        or busy_cleared
-        or (bool(evidence.get("saw_busy")) and bool(final_task.get("last_dispatch_at")))
-    ) and (bool(poll.get("ok")) or token_hit or status.lower() in _TERMINAL)
+    live_ok = (token_hit or bool(evidence.get("has_llm_obs")) or status.lower() in _TERMINAL or busy_cleared or (bool(evidence.get("saw_busy")) and bool(final_task.get("last_dispatch_at")))) and (
+        bool(poll.get("ok")) or token_hit or status.lower() in _TERMINAL
+    )
     del chat_blob
 
     assertions = [

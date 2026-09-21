@@ -77,10 +77,7 @@ def test_write_ad_hoc_note_creates_inbox_file(assets_home: Path) -> None:
 
 
 def test_parse_rollout_ids_and_strip() -> None:
-    block = (
-        "<citation_entries>\nmemory/standing.md:1-2|note=[x]\n</citation_entries>\n"
-        "<rollout_ids>\nthread-a\nthread-b\nthread-a\n</rollout_ids>"
-    )
+    block = "<citation_entries>\nmemory/standing.md:1-2|note=[x]\n</citation_entries>\n<rollout_ids>\nthread-a\nthread-b\nthread-a\n</rollout_ids>"
     assert parse_rollout_ids(block) == ["thread-a", "thread-b"]
     text = f"done.<evo-asset-citation>{block}</evo-asset-citation>"
     parsed = extract_evo_asset_citations(text)
@@ -97,15 +94,20 @@ def test_queue_asset_mode_skips_memory_updater() -> None:
     with q._lock:
         q._queue = [ctx]
         q._processing = False
-    with patch("evoflow.agents.memory.updater.MemoryUpdater", return_value=updater), patch(
-        "evoflow.assets.phase1.run_phase1_extract",
-        return_value={"ok": True, "skipped": "disabled"},
-    ), patch(
-        "evoflow.assets.phase2.run_phase2_consolidate",
-        return_value={"ok": True, "skipped": "disabled"},
-    ), patch(
-        "evoflow.assets.citation.record_citations_from_messages",
-        return_value={"ok": True, "recorded": 0},
+    with (
+        patch("evoflow.agents.memory.updater.MemoryUpdater", return_value=updater),
+        patch(
+            "evoflow.assets.phase1.run_phase1_extract",
+            return_value={"ok": True, "skipped": "disabled"},
+        ),
+        patch(
+            "evoflow.assets.phase2.run_phase2_consolidate",
+            return_value={"ok": True, "skipped": "disabled"},
+        ),
+        patch(
+            "evoflow.assets.citation.record_citations_from_messages",
+            return_value={"ok": True, "recorded": 0},
+        ),
     ):
         q._process_queue()
     updater.update_memory.assert_not_called()
@@ -120,15 +122,20 @@ def test_queue_legacy_runs_memory_updater() -> None:
     with q._lock:
         q._queue = [ctx]
         q._processing = False
-    with patch("evoflow.agents.memory.updater.MemoryUpdater", return_value=updater), patch(
-        "evoflow.assets.phase1.run_phase1_extract",
-        return_value={"ok": True, "skipped": "disabled"},
-    ), patch(
-        "evoflow.assets.phase2.run_phase2_consolidate",
-        return_value={"ok": True, "skipped": "disabled"},
-    ), patch(
-        "evoflow.assets.citation.record_citations_from_messages",
-        return_value={"ok": True, "recorded": 0},
+    with (
+        patch("evoflow.agents.memory.updater.MemoryUpdater", return_value=updater),
+        patch(
+            "evoflow.assets.phase1.run_phase1_extract",
+            return_value={"ok": True, "skipped": "disabled"},
+        ),
+        patch(
+            "evoflow.assets.phase2.run_phase2_consolidate",
+            return_value={"ok": True, "skipped": "disabled"},
+        ),
+        patch(
+            "evoflow.assets.citation.record_citations_from_messages",
+            return_value={"ok": True, "recorded": 0},
+        ),
     ):
         q._process_queue()
     updater.update_memory.assert_called_once()

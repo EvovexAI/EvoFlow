@@ -39,9 +39,7 @@ def parse_frontmatter(text: str) -> tuple[dict[str, Any], str]:
                 parts = [p.strip().strip("\"'") for p in inner.split(",")]
                 meta[key] = [p for p in parts if p]
                 continue
-        if (val.startswith('"') and val.endswith('"')) or (
-            val.startswith("'") and val.endswith("'")
-        ):
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
             try:
                 meta[key] = json.loads(val.replace("'", '"'))
                 continue

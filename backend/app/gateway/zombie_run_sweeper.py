@@ -52,9 +52,7 @@ async def run_zombie_sweeper_scheduler(stop: asyncio.Event) -> None:
         try:
             from app.gateway.run_status_reconcile import reconcile_stale_session_runs
 
-            stats = await reconcile_stale_session_runs(
-                wait_for_langgraph=False, max_sessions=batch_size
-            )
+            stats = await reconcile_stale_session_runs(wait_for_langgraph=False, max_sessions=batch_size)
             cancelled = stats.get("cancelled", 0)
             cleared = stats.get("cleared", 0)
             if cancelled or cleared:

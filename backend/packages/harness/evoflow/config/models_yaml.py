@@ -174,10 +174,7 @@ def _unique_provider_yaml_key(vendor: str, base_url: str | None, used: set[str])
 
 def _model_entry_dict(mc: ModelConfig, shared: ModelConfig) -> dict[str, Any]:
     if not isinstance(mc, ModelConfig) or not isinstance(shared, ModelConfig):
-        raise TypeError(
-            f"_model_entry_dict expects ModelConfig instances, got "
-            f"{type(mc).__name__} / {type(shared).__name__}"
-        )
+        raise TypeError(f"_model_entry_dict expects ModelConfig instances, got {type(mc).__name__} / {type(shared).__name__}")
     d = mc.model_dump(mode="json", exclude_none=True)
     sd = shared.model_dump(mode="json", exclude_none=True)
     # Never persist Pydantic's reserved class-config key if it leaked as extra.

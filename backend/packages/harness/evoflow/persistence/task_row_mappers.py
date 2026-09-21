@@ -420,9 +420,7 @@ def bundle_to_rows(document: dict[str, Any]) -> dict[str, Any]:
         plan_validation = known.get("plan_validation")
         plan_validation_json = known.get("plan_validation_json")
         if plan_validation_json is None:
-            plan_validation_json = (
-                _json_dumps(plan_validation) if isinstance(plan_validation, list) else "[]"
-            )
+            plan_validation_json = _json_dumps(plan_validation) if isinstance(plan_validation, list) else "[]"
         elif not isinstance(plan_validation_json, str):
             plan_validation_json = _json_dumps(plan_validation_json)
 

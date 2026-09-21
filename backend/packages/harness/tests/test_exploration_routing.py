@@ -22,9 +22,7 @@ def test_looks_like_filename_query():
     assert looks_like_filename_query("*agent-trace*")
     assert not looks_like_filename_query("path:evopanel FeishuChannel")
     assert not looks_like_filename_query("FeishuChannel|lark")
-    assert not looks_like_filename_query(
-        "backend/packages/harness/evoflow/observability/queries.py _summarize_response_for_list"
-    )
+    assert not looks_like_filename_query("backend/packages/harness/evoflow/observability/queries.py _summarize_response_for_list")
     assert not looks_like_filename_query("fetchObsModels obs-api obs-api.ts")
 
 
@@ -141,10 +139,7 @@ def test_classify_ui_layout_as_implement():
 
 
 def test_unbounded_recurse_does_not_cross_powershell_segments():
-    cmd = (
-        'Remove-Item -Recurse -Force "D:\\dev\\coding\\video-douyin\\outputs\\_lint_all"; '
-        'Get-ChildItem "D:\\dev\\coding\\video-douyin\\outputs\\compositions" | Select-Object Name, Length'
-    )
+    cmd = 'Remove-Item -Recurse -Force "D:\\dev\\coding\\video-douyin\\outputs\\_lint_all"; Get-ChildItem "D:\\dev\\coding\\video-douyin\\outputs\\compositions" | Select-Object Name, Length'
     assert is_unbounded_recurse_command(cmd) is False
 
 

@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from evoflow.knowledge.vault.errors import PathEscapeDetectedError, PathForbiddenError
-from evoflow.knowledge.vault.models import AccessMode, KnowledgeVaultConfig, LaunchMode
+from evoflow.knowledge.vault.models import AccessMode, KnowledgeNote, KnowledgeVaultConfig, LaunchMode
 from evoflow.knowledge.vault.normalize import (
     build_graph_from_note,
     extract_wikilinks,
     normalize_notes,
     normalize_search_results,
 )
-from evoflow.knowledge.vault.models import KnowledgeNote
 from evoflow.knowledge.vault.paths import (
     assert_read_allowed,
     assert_write_allowed,
@@ -187,9 +185,9 @@ def test_tool_json_schema_importable():
 def test_harness_vault_does_not_import_app():
     """Architecture: evoflow.knowledge.vault must not import app.*"""
     import evoflow.knowledge.vault as pkg
+    import evoflow.knowledge.vault.mcp_runtime as runtime
     import evoflow.knowledge.vault.provider as provider
     import evoflow.knowledge.vault.service as service
-    import evoflow.knowledge.vault.mcp_runtime as runtime
 
     for mod in (pkg, provider, service, runtime):
         src = Path(mod.__file__).read_text(encoding="utf-8")

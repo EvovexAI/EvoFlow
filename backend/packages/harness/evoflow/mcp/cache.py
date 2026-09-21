@@ -150,13 +150,9 @@ async def initialize_mcp_tools() -> list[BaseTool]:
                 else:
                     _mcp_tools_cache = await get_mcp_tools()
         except TimeoutError:
-            _mcp_init_error = (
-                f"MCP initialization timed out after {timeout_sec:.0f}s "
-                "(stdio/network MCP server may be hung)"
-            )
+            _mcp_init_error = f"MCP initialization timed out after {timeout_sec:.0f}s (stdio/network MCP server may be hung)"
             logger.error(
-                "%s. Continuing with partial/zero MCP tools. "
-                "Fix or disable servers in mcp.json, or set EVOFLOW_MCP_INIT_TIMEOUT_SEC.",
+                "%s. Continuing with partial/zero MCP tools. Fix or disable servers in mcp.json, or set EVOFLOW_MCP_INIT_TIMEOUT_SEC.",
                 _mcp_init_error,
             )
             _mcp_tools_cache = _mcp_tools_cache or []
@@ -179,6 +175,7 @@ async def initialize_mcp_tools() -> list[BaseTool]:
         # tools) would persist for the entire process lifetime.
         try:
             from evoflow.tools.tools import _cached_resolve_tools
+
             _cached_resolve_tools.cache_clear()
             logger.info("Cleared _cached_resolve_tools LRU cache after MCP init (%d tools)", len(_mcp_tools_cache or []))
         except Exception:
@@ -189,6 +186,7 @@ async def initialize_mcp_tools() -> list[BaseTool]:
         # key does not distinguish "has MCP tools" vs "MCP tools not yet loaded".
         try:
             from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
+
             clear_lead_agent_graph_cache()
             logger.info("Cleared lead-agent graph cache after MCP init (%d tools)", len(_mcp_tools_cache or []))
         except Exception:
@@ -243,10 +241,7 @@ def get_cached_mcp_tools() -> list[BaseTool]:
     # holding it while waiting for this loop (via _sync_initialize_on_loop)
     # would deadlock — see hang-diagnostics/gateway-hang-*.json.
     if not _cache_initialized and _on_asyncio_loop_thread():
-        logger.debug(
-            "get_cached_mcp_tools: cache cold inside asyncio task; returning []. "
-            "Use schedule_mcp_tools_warmup() / await initialize_mcp_tools()."
-        )
+        logger.debug("get_cached_mcp_tools: cache cold inside asyncio task; returning []. Use schedule_mcp_tools_warmup() / await initialize_mcp_tools().")
         return []
 
     with _thread_init_lock:
@@ -255,10 +250,7 @@ def get_cached_mcp_tools() -> list[BaseTool]:
 
         loop = _registered_init_loop
         if loop is None or not loop.is_running():
-            logger.warning(
-                "get_cached_mcp_tools: cache cold and no registered init loop. "
-                "Call register_mcp_init_loop() at gateway startup."
-            )
+            logger.warning("get_cached_mcp_tools: cache cold and no registered init loop. Call register_mcp_init_loop() at gateway startup.")
             return []
 
         timeout_sec = _init_timeout_sec()
@@ -295,12 +287,14 @@ def reset_mcp_tools_cache() -> None:
     # Invalidate LRU cache so get_available_tools() rebuilds with fresh MCP tools
     try:
         from evoflow.tools.tools import _cached_resolve_tools
+
         _cached_resolve_tools.cache_clear()
         logger.info("Cleared _cached_resolve_tools LRU cache on MCP reset")
     except Exception:
         logger.debug("Could not clear _cached_resolve_tools LRU cache on reset", exc_info=True)
     try:
         from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
+
         clear_lead_agent_graph_cache()
         logger.info("Cleared lead-agent graph cache on MCP reset")
     except Exception:

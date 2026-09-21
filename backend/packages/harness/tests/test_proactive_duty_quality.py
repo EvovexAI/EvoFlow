@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import sqlite3
 from unittest.mock import patch
 
 import pytest
 
+from evoflow.persistence.schema import ensure_app_schema
 from evoflow.proactive.models import (
     InitiativeStatus,
     ProactiveAutonomyLevel,
@@ -143,13 +142,7 @@ def test_incomplete_auto_wrap_marks_failed_not_completed() -> None:
     )
     assert res["ok"]
     assert res["incomplete"] is True
-    journals = [
-        i
-        for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=10)
-        if i.round_id == rid
-        and isinstance(i.action_plan, dict)
-        and i.action_plan.get("kind") == "round_log"
-    ]
+    journals = [i for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=10) if i.round_id == rid and isinstance(i.action_plan, dict) and i.action_plan.get("kind") == "round_log"]
     assert len(journals) == 1
     assert journals[0].status == InitiativeStatus.FAILED
     plan = journals[0].action_plan if isinstance(journals[0].action_plan, dict) else {}

@@ -172,10 +172,7 @@ def _infer_depends_refs_from_step_context(
     """Infer upstream refs from inputs/goal vs prior step outputs (fan-out vs chain)."""
     if step_num <= 1 or not prior_steps:
         return None
-    blob = "\n".join(
-        str(step.get(k) or "")
-        for k in ("inputs", "goal", "description", "block_markdown")
-    ).strip()
+    blob = "\n".join(str(step.get(k) or "") for k in ("inputs", "goal", "description", "block_markdown")).strip()
     if not blob:
         return None
 
@@ -223,9 +220,7 @@ def _build_semantic_ref_aliases(steps: list[dict[str, Any]]) -> dict[str, str]:
             continue
         step_num = _plan_step_num_for_index(raw, idx=i)
         canonical = str(step_num)
-        original = str(
-            raw.get("ref") if raw.get("ref") is not None else raw.get("step_num") or ""
-        ).strip()
+        original = str(raw.get("ref") if raw.get("ref") is not None else raw.get("step_num") or "").strip()
         if original and original != canonical:
             aliases[original] = canonical
     return aliases

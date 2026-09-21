@@ -33,14 +33,18 @@ def is_org_admin(principal_id: str, *, org_id: str = DEFAULT_ORG_ID) -> bool:
 
 
 def list_org_admins(*, org_id: str = DEFAULT_ORG_ID) -> list[str]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT principal_id FROM evoflow_admin_grants
         WHERE org_id = ? AND scope_id = ? AND role = 'org_admin'
         ORDER BY created_at ASC
         """,
-        (org_id, org_scope(org_id)),
-    ).fetchall()
+            (org_id, org_scope(org_id)),
+        )
+        .fetchall()
+    )
     return [str(r[0]) for r in rows]
 
 

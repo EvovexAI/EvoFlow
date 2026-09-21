@@ -96,9 +96,7 @@ def force_end_session_turn(
         _after_run_ended(session_key=session_key, thread_id=thread_id)
     else:
         logger.warning(
-            "force_end_session_turn: mark_session_run_ended returned False "
-            "source=%s session_key=%s thread_id=%s terminal=%s — "
-            "session_key unresolvable, DB run_status NOT updated",
+            "force_end_session_turn: mark_session_run_ended returned False source=%s session_key=%s thread_id=%s terminal=%s — session_key unresolvable, DB run_status NOT updated",
             source,
             session_key,
             thread_id,

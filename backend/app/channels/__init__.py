@@ -15,6 +15,7 @@ which uses ``langgraph-sdk`` to communicate with the underlying LangGraph Server
 """
 
 from app.channels.base import Channel
+from app.channels.dingtalk import DingtalkChannel
 from app.channels.feishu import FeishuChannel
 from app.channels.message_bus import InboundMessage, MessageBus, OutboundMessage
 from app.channels.sse_feishu_bridge import (
@@ -25,6 +26,7 @@ from app.channels.sse_feishu_bridge import (
     SSEFeishuBridge,
     stream_to_feishu_card,
 )
+from app.channels.wecom import WecomChannel
 
 __all__ = [
     # 基础类
@@ -34,6 +36,10 @@ __all__ = [
     "OutboundMessage",
     # 飞书主类
     "FeishuChannel",
+    # 企业微信主类
+    "WecomChannel",
+    # 钉钉主类
+    "DingtalkChannel",
     # SSE 流式桥接器
     "SSEFeishuBridge",
     "CardTemplate",

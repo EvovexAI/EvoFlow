@@ -147,17 +147,9 @@ class DeferredToolFilterMiddleware(AgentMiddleware[AgentState]):
         # is present in request.tools so it stays visible to the model.
         from evoflow.mcp.binding import is_mcp_tool_name
 
-        mounted_mcp_names = {
-            str(getattr(t, "name", "") or "").strip()
-            for t in (request.tools or [])
-            if is_mcp_tool_name(str(getattr(t, "name", "") or ""))
-        }
+        mounted_mcp_names = {str(getattr(t, "name", "") or "").strip() for t in (request.tools or []) if is_mcp_tool_name(str(getattr(t, "name", "") or ""))}
         deferred_names -= mounted_mcp_names
-        active_tools = [
-            t
-            for t in request.tools
-            if (getattr(t, "name", None) not in deferred_names) or (getattr(t, "name", None) in loaded)
-        ]
+        active_tools = [t for t in request.tools if (getattr(t, "name", None) not in deferred_names) or (getattr(t, "name", None) in loaded)]
 
         if len(active_tools) < len(request.tools):
             logger.debug(
@@ -178,13 +170,7 @@ class DeferredToolFilterMiddleware(AgentMiddleware[AgentState]):
                 return
             messages = list((request.state or {}).get("messages") or []) if isinstance(request.state, dict) else []
             keys = effective_activated_scenario_keys(request.runtime, messages)
-            bound_names = sorted(
-                {
-                    str(getattr(t, "name", "") or "").strip().lower()
-                    for t in (request.tools or [])
-                    if str(getattr(t, "name", "") or "").strip()
-                }
-            )
+            bound_names = sorted({str(getattr(t, "name", "") or "").strip().lower() for t in (request.tools or []) if str(getattr(t, "name", "") or "").strip()})
             sync_runtime_tool_snapshot(
                 session_key=session_key,
                 active_scenarios=keys,

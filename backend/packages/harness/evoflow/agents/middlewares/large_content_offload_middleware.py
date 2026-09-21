@@ -46,14 +46,16 @@ LARGE_FILE_REF_PREFIX = "__EVOFLOW_LARGE_FILE_REF__::"
 _OFFLOAD_THRESHOLD_BYTES = 32 * 1024
 
 # Tool names whose args we inspect for large strings.
-_WRITE_FAMILY_TOOLS = frozenset({
-    "write",
-    "replace",
-    "write_file",
-    "str_replace",
-    "write_to_file",
-    "replace_in_file",
-})
+_WRITE_FAMILY_TOOLS = frozenset(
+    {
+        "write",
+        "replace",
+        "write_file",
+        "str_replace",
+        "write_to_file",
+        "replace_in_file",
+    }
+)
 
 # Arg keys that may contain large string content for write-family tools.
 _LARGE_STRING_KEYS = ("content", "old_string", "new_string")
@@ -198,9 +200,9 @@ def resolve_offloaded_ref(value: object) -> str | None:
         return None
     if not value.startswith(LARGE_FILE_REF_PREFIX):
         return None
-    tmp_path = value[len(LARGE_FILE_REF_PREFIX):]
+    tmp_path = value[len(LARGE_FILE_REF_PREFIX) :]
     try:
-        with open(tmp_path, "r", encoding="utf-8") as f:
+        with open(tmp_path, encoding="utf-8") as f:
             content = f.read()
         logger.info("large_content_offload: resolved ref %s (%d chars)", tmp_path, len(content))
         return content

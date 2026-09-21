@@ -37,9 +37,7 @@ MODULE_LABELS: dict[str, str] = {
 }
 
 # Built from catalog + legacy observational fallbacks
-_CASE_MODULE: dict[str, str] = {
-    str(c["id"]): str(c["module"]) for c in CASE_CATALOG
-}
+_CASE_MODULE: dict[str, str] = {str(c["id"]): str(c["module"]) for c in CASE_CATALOG}
 
 MODULE_CASE_DESIGN: dict[str, list[dict[str, str]]] = module_case_design_view()
 

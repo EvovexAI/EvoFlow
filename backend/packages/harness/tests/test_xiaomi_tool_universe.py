@@ -33,11 +33,11 @@ def test_xiaomi_tool_universe_not_empty_when_config_tools_empty(sqlite_tmp: Path
     del sqlite_tmp
     from evoflow.agents.xiaomi.tool_policy import XIAOMI_SYSTEM_TOOL_NAMES
     from evoflow.config.agents_config import ensure_builtin_agents_materialized
+    from evoflow.persistence.session_repositories import upsert_session_row
     from evoflow.session_tool_binding.agent_tools import (
         bound_tools_for_session_agent,
         resolve_agent_tool_names_for_agent,
     )
-    from evoflow.persistence.session_repositories import upsert_session_row
 
     ensure_builtin_agents_materialized()
 

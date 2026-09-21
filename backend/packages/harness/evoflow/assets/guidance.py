@@ -8,7 +8,7 @@ import os
 from evoflow.assets.catalog import format_entity_catalog_xml, read_standing_text, standing_is_placeholder
 from evoflow.assets.injection_budget import TIER0_ASSET_TOTAL_CHARS, TIER0_STANDING_CHARS, cap_text_chars
 from evoflow.assets.memory_injection import asset_hub_memory_injection
-from evoflow.assets.paths import EntityRef, entity_relative_dir, entity_root
+from evoflow.assets.paths import EntityRef, entity_root
 from evoflow.assets.prompt_templates import render_memory_prompt
 
 logger = logging.getLogger(__name__)
@@ -88,9 +88,7 @@ def resolve_memory_entity(
     (``assets/users/<pid>/``); unauthenticated local keeps the shared ``user``.
     """
     if _LEGACY_AGENT_MEMORY:
-        return resolve_session_entity_legacy(
-            agent_name=agent_name, entity_type=entity_type, entity_id=entity_id
-        )
+        return resolve_session_entity_legacy(agent_name=agent_name, entity_type=entity_type, entity_id=entity_id)
 
     if entity_type and entity_id:
         et = str(entity_type).strip().lower()
@@ -251,10 +249,7 @@ def _entity_layout_lines(entity: EntityRef) -> tuple[str, str]:
     lines: list[str] = []
 
     if e.entity_type == "user":
-        lines.append(
-            "- profile/basic-info.md · preferences.md · persona.md "
-            "(USER_PROFILE when filled)"
-        )
+        lines.append("- profile/basic-info.md · preferences.md · persona.md (USER_PROFILE when filled)")
     elif e.entity_type == "employee":
         lines.append("- profile/ (SOUL / duty identity)")
     # workspace: no profile tree
@@ -272,15 +267,9 @@ def _entity_layout_lines(entity: EntityRef) -> tuple[str, str]:
 
     cross = ""
     if e.entity_type == "workspace":
-        cross = (
-            "\nShared (not under this root): user dialogue → `assets/user/memory/` · "
-            "agent SOUL → `assets/agents/{code}/profile/`"
-        )
+        cross = "\nShared (not under this root): user dialogue → `assets/user/memory/` · agent SOUL → `assets/agents/{code}/profile/`"
     elif e.entity_type == "employee":
-        cross = (
-            "\nShared: user dialogue → `assets/user/memory/` · "
-            "agent SOUL → `assets/agents/{code}/profile/`"
-        )
+        cross = "\nShared: user dialogue → `assets/user/memory/` · agent SOUL → `assets/agents/{code}/profile/`"
 
     return "\n".join(lines), cross
 
@@ -302,9 +291,7 @@ def build_entity_memory_injection(
     if asset_mode and (standing_is_placeholder(standing) or not standing.strip()):
         return ""
     if include_read_guidance:
-        guide = build_read_path_guidance(
-            e, standing=standing, include_procedure=include_procedure
-        )
+        guide = build_read_path_guidance(e, standing=standing, include_procedure=include_procedure)
         if guide.strip():
             parts.append(guide.strip())
     if include_catalog:
@@ -364,9 +351,7 @@ def build_session_asset_memory_block(
         memory_ent = resolve_memory_entity(agent_name=agent_name, principal_id=principal_id)
         ensure_entity_tree(memory_ent)
         parts: list[str] = []
-        mem = build_entity_memory_injection(
-            memory_ent, include_procedure=include_procedure
-        )
+        mem = build_entity_memory_injection(memory_ent, include_procedure=include_procedure)
         if mem.strip():
             parts.append(mem.strip())
         soul = build_agent_soul_injection_block(agent_name=agent_name)

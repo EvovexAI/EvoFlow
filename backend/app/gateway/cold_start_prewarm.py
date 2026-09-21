@@ -15,7 +15,7 @@ import logging
 import os
 import threading
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 

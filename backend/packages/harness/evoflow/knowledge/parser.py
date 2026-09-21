@@ -67,10 +67,7 @@ def _convert_with_markitdown(p: Path) -> str:
             logger.warning("markitdown returned empty content for %s", p.name)
         return text
     except ImportError:
-        raise RuntimeError(
-            "markitdown is not installed. Run 'pip install markitdown[all]' to enable "
-            f"parsing of {p.suffix} files."
-        )
+        raise RuntimeError(f"markitdown is not installed. Run 'pip install markitdown[all]' to enable parsing of {p.suffix} files.")
     except Exception as e:
         raise RuntimeError(f"Failed to parse {p.name} with markitdown: {e}") from e
 

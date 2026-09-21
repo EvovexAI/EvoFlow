@@ -21,14 +21,24 @@ def format_search_index_body(
     # Within each name-match tier, definitions (function/class/method) rank above
     # usage references so the model sees *where* a symbol is defined before seeing
     # *where* it is merely referenced.
-    _DEFINITION_KINDS = frozenset({
-        "function", "class", "method", "def", "class_definition",
-        "function_definition", "method_definition", "constructor",
-        "async_function", "async_function_definition",
-    })
+    _DEFINITION_KINDS = frozenset(
+        {
+            "function",
+            "class",
+            "method",
+            "def",
+            "class_definition",
+            "function_definition",
+            "method_definition",
+            "constructor",
+            "async_function",
+            "async_function_definition",
+        }
+    )
     if symbols and label:
         _label_terms = [t.strip().lower() for t in str(label).lower().split("|") if t.strip()]
         if _label_terms:
+
             def _symbol_rank(s):
                 sname = str(s.get("name") or "").lower()
                 skind = str(s.get("kind") or "").lower().strip()
@@ -40,6 +50,7 @@ def format_search_index_body(
                     if t and t in sname:
                         return (1, is_def)
                 return (2, is_def)
+
             symbols = sorted(symbols, key=_symbol_rank)
     related = data.get("related_files") or []
     imported_by = data.get("imported_by") or []
@@ -91,27 +102,33 @@ def format_search_index_body(
         lines.append("")
 
     _emit_section(
-        "Imports (internal)", imports,
+        "Imports (internal)",
+        imports,
         lambda r: f"{r.get('from_path')} -> {r.get('to_path')} ({r.get('spec', '')[:60]})",
     )
     _emit_section(
-        "Imported by (internal)", imported_by,
+        "Imported by (internal)",
+        imported_by,
         lambda r: f"{r.get('from_path')} imports {r.get('to_path')}",
     )
     _emit_section(
-        "Related (import graph neighbors)", related,
+        "Related (import graph neighbors)",
+        related,
         lambda r: f"{r.get('path')}",
     )
     _emit_section(
-        "Internal symbol uses", ref_users,
+        "Internal symbol uses",
+        ref_users,
         lambda r: f"{r.get('from_path')}:{r.get('line')} uses {r.get('symbol') or '?'} from {r.get('to_path')}",
     )
     _emit_section(
-        "Type hierarchy (supertypes / parents)", type_supers,
+        "Type hierarchy (supertypes / parents)",
+        type_supers,
         lambda r: f"{r.get('from_type')} @ {r.get('from_path')} {r.get('rel_kind')} {r.get('to_type')} ({r.get('to_path') or '?'})",
     )
     _emit_section(
-        "Type hierarchy (subtypes / implementers)", type_subs,
+        "Type hierarchy (subtypes / implementers)",
+        type_subs,
         lambda r: f"{r.get('from_type')} @ {r.get('from_path')} {r.get('rel_kind')} {r.get('to_type')} ({r.get('to_path') or '?'})",
     )
     return "\n".join(lines).rstrip()

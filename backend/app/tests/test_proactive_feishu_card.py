@@ -209,9 +209,7 @@ def test_feishu_callback_accepts_action_alias():
 
         with patch("evoflow.proactive.router.process_approval", new_callable=AsyncMock) as mock_proc:
             mock_proc.return_value = {"ok": True, "decision": "rejected"}
-            await feishu_approval_callback(
-                {"value": {"initiative_id": "init_7", "decision": "rejected"}}
-            )
+            await feishu_approval_callback({"value": {"initiative_id": "init_7", "decision": "rejected"}})
             assert mock_proc.await_args.args[1].decision == "rejected"
 
         with pytest.raises(HTTPException) as ei:

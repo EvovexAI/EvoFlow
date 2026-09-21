@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from evoflow.collab.structured_output import (
     extract_structured_output,
-    validate_against_schema,
-    process_step_output,
     get_step_output_schema,
+    process_step_output,
+    validate_against_schema,
 )
-
 
 # ── extract_structured_output ──────────────────────────────────────────
 
@@ -27,7 +24,7 @@ class TestExtract:
         assert source == "explicit"
 
     def test_explicit_list_wrapped(self):
-        data, source = extract_structured_output("text", explicit='[1, 2, 3]')
+        data, source = extract_structured_output("text", explicit="[1, 2, 3]")
         assert data == {"items": [1, 2, 3]}
         assert source == "explicit"
 
@@ -45,7 +42,7 @@ That's all."""
         assert source == "fence"
 
     def test_fenced_without_language(self):
-        text = "Results:\n```\n{\"x\": 42}\n```\nDone."
+        text = 'Results:\n```\n{"x": 42}\n```\nDone.'
         data, source = extract_structured_output(text)
         assert data == {"x": 42}
         assert source == "fence"
@@ -78,7 +75,7 @@ That's all."""
         assert source == "explicit"
 
     def test_invalid_json_in_fence_falls_through(self):
-        text = "```json\n{not valid json}\n```\n{\"valid\": true}"
+        text = '```json\n{not valid json}\n```\n{"valid": true}'
         data, source = extract_structured_output(text)
         assert data == {"valid": True}
         assert source == "trailing"
@@ -175,7 +172,7 @@ class TestProcessStepOutput:
             "required": ["score"],
         }
         result = process_step_output(
-            "The score is 85.\n```json\n{\"score\": 85}\n```",
+            'The score is 85.\n```json\n{"score": 85}\n```',
             schema,
         )
         assert result["structured_output"] == {"score": 85}
@@ -190,7 +187,7 @@ class TestProcessStepOutput:
             "required": ["score"],
         }
         result = process_step_output(
-            "Done.\n```json\n{\"verdict\": \"good\"}\n```",
+            'Done.\n```json\n{"verdict": "good"}\n```',
             schema,
         )
         assert result["structured_output"] == {"verdict": "good"}
@@ -199,7 +196,7 @@ class TestProcessStepOutput:
 
     def test_no_schema_extracts_anyway(self):
         result = process_step_output(
-            "Results:\n```json\n{\"x\": 1}\n```",
+            'Results:\n```json\n{"x": 1}\n```',
             None,
         )
         assert result["structured_output"] == {"x": 1}
@@ -213,7 +210,7 @@ class TestProcessStepOutput:
 
     def test_explicit_overrides_extraction(self):
         result = process_step_output(
-            "```json\n{\"from_fence\": true}\n```",
+            '```json\n{"from_fence": true}\n```',
             None,
             explicit_structured_output={"from_explicit": True},
         )

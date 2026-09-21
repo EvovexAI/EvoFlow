@@ -37,11 +37,7 @@ def test_register_read_file_records_path_and_note():
 
 
 def test_batch_read_paths_registered_from_post_search():
-    out = (
-        "hits\n<post_search_reads offset=0 limit=1>\n"
-        "[tool:summary] tool=read_file\npath: src/a.py\nlines: 1-40\ncore: export foo\n"
-        "</post_search_reads>"
-    )
+    out = "hits\n<post_search_reads offset=0 limit=1>\n[tool:summary] tool=read_file\npath: src/a.py\nlines: 1-40\ncore: export foo\n</post_search_reads>"
     register_tool_result("t2", tool_name="search_code_index", tool_input={"query": "foo"}, output_text=out)
     entries = list_entries("t2")
     assert len(entries) == 1
@@ -49,12 +45,7 @@ def test_batch_read_paths_registered_from_post_search():
 
 
 def test_search_catalog_only_does_not_register_paths():
-    out = (
-        "hits for foo\n"
-        "Read catalog (0-based index; prefer read_file on the top 1-2 most relevant paths):\n"
-        "  [0] src/a.py:12\n"
-        "  [1] src/b.py\n"
-    )
+    out = "hits for foo\nRead catalog (0-based index; prefer read_file on the top 1-2 most relevant paths):\n  [0] src/a.py:12\n  [1] src/b.py\n"
     register_tool_result("t2b", tool_name="search_code_index", tool_input={"query": "foo"}, output_text=out)
     assert list_entries("t2b") == []
 

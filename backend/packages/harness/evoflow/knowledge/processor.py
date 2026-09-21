@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from evoflow.knowledge.embedding import get_embeddings, get_embedding_config, resolve_embedding_model_config
+from evoflow.knowledge.embedding import get_embedding_config, get_embeddings, resolve_embedding_model_config
 from evoflow.knowledge.folders import normalize_folder_id
 from evoflow.knowledge.index_builder import (
     embedding_text_for_chunk,
@@ -50,11 +50,7 @@ async def process_file(
     p = Path(file_path).resolve()
     content_hash = _file_hash(p)
     target_folder = normalize_folder_id(dataset_id, folder_id)
-    file_id = (
-        _stable_file_id(dataset_id, stable_path_key)
-        if stable_path_key
-        else _make_file_id(dataset_id, p)
-    )
+    file_id = _stable_file_id(dataset_id, stable_path_key) if stable_path_key else _make_file_id(dataset_id, p)
 
     existing = _get_source_file(file_id)
     if skip_if_unchanged and existing:
@@ -85,9 +81,7 @@ async def process_file(
             raise RuntimeError(f"File {p.name} produced empty text")
 
         _update_source_file_status(file_id, "chunking")
-        summary_text, summary_index, chunks = await process_document_with_llm(
-            text, file_name=p.name, use_llm=llm_index
-        )
+        summary_text, summary_index, chunks = await process_document_with_llm(text, file_name=p.name, use_llm=llm_index)
         _save_file_summary(file_id, summary_text, summary_index)
         use_llm = llm_index if llm_index is not None else kb_llm_enabled()
         logger.info("Indexed %s → %d sections (llm=%s)", p.name, len(chunks), use_llm)
@@ -267,9 +261,7 @@ def _save_file_summary(file_id: str, summary_text: str, summary_index: str) -> N
         conn.commit()
 
 
-def _update_source_file_status(
-    file_id: str, status: str, *, chunk_count: int | None = None, error_msg: str | None = None
-) -> None:
+def _update_source_file_status(file_id: str, status: str, *, chunk_count: int | None = None, error_msg: str | None = None) -> None:
     with db_connection_lock():
         conn = get_db()
         if error_msg:

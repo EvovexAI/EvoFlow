@@ -7,8 +7,8 @@ from typing import Any
 from evoflow.persistence import config_repositories as cfg_repo
 from evoflow.persistence.db import get_db
 
-POLICY_PROMPT = "prompt"        # every sensitive tool call asks for confirmation
-POLICY_SESSION = "session"      # approve once per tool name, auto-run until session ends
+POLICY_PROMPT = "prompt"  # every sensitive tool call asks for confirmation
+POLICY_SESSION = "session"  # approve once per tool name, auto-run until session ends
 POLICY_GRANT_ALL = "grant_all"  # all tools auto-run, never ask
 VALID_POLICIES = frozenset({POLICY_PROMPT, POLICY_SESSION, POLICY_GRANT_ALL})
 

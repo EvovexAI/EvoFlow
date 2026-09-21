@@ -36,7 +36,8 @@ def test_require_app_visible_blocks_other_user(sqlite_tmp: str, monkeypatch: pyt
     del sqlite_tmp
     from fastapi import HTTPException
 
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.scope import personal_scope
     from evoflow.persistence import app_repositories
 
@@ -90,7 +91,8 @@ def test_stamp_new_app_makes_creator_visible(sqlite_tmp: str, monkeypatch: pytes
     del sqlite_tmp
     from fastapi import HTTPException
 
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.resource_visibility import stamp_new_app_from_request
     from evoflow.authz.scope import personal_scope
     from evoflow.persistence import app_repositories
@@ -145,7 +147,8 @@ def test_require_session_visible_blocks_other_user(sqlite_tmp: str, monkeypatch:
     del sqlite_tmp
     from fastapi import HTTPException
 
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.scope import personal_scope
     from evoflow.authz.session_ownership import stamp_session_ownership
     from evoflow.persistence import session_repositories as sess_repo

@@ -73,9 +73,7 @@ async def create_binding(request: Request, body: CreateBindingBody) -> dict[str,
 
 
 @router.patch("/bindings/{binding_id}")
-async def patch_binding(
-    request: Request, binding_id: str, body: PatchBindingBody
-) -> dict[str, Any]:
+async def patch_binding(request: Request, binding_id: str, body: PatchBindingBody) -> dict[str, Any]:
     require_org_admin(request)
     try:
         return plans_service.patch_binding(binding_id, body.model_dump(exclude_none=True))
@@ -125,9 +123,7 @@ class VerifyBindingBody(BaseModel):
 
 
 @router.post("/bindings/{binding_id}/verify")
-async def verify_binding(
-    request: Request, binding_id: str, body: VerifyBindingBody | None = None
-) -> dict[str, Any]:
+async def verify_binding(request: Request, binding_id: str, body: VerifyBindingBody | None = None) -> dict[str, Any]:
     """Live-probe Agent Plan capabilities (chat, embedding, TTS/ASR, image, …)."""
     require_org_admin(request)
     payload = body or VerifyBindingBody()

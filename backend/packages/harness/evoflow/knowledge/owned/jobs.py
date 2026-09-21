@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC
 from typing import Any
 
 from evoflow.knowledge.owned.db import db
@@ -233,13 +234,13 @@ def complete(job_id: str, *, error: str | None = None, permanent: bool = False) 
 def reclaim_stale_running(*, older_than_seconds: int = 1800) -> int:
     """Re-queue jobs stuck in ``running`` (worker crash / process kill)."""
     import time
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     cutoff_s = max(60, int(older_than_seconds or 1800))
     now = utc_now()
     try:
         # locked_at is ISO-ish from utc_now(); compare lexicographically when Zulu.
-        threshold = datetime.now(timezone.utc).timestamp() - cutoff_s
+        threshold = datetime.now(UTC).timestamp() - cutoff_s
     except Exception:
         threshold = time.time() - cutoff_s
 

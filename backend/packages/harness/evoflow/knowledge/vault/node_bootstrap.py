@@ -14,8 +14,9 @@ import shutil
 import tarfile
 import tempfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +225,7 @@ def ensure_private_node(*, progress_cb: ProgressCb | None = None, force: bool = 
                 continue
 
     raise NodeRuntimeMissingError(
-        "无法自动下载 Node 运行时。请检查网络后重试，"
-        "或手动安装 Node.js 18+，或将 Node 放到 {EVOFLOW_HOME}/runtime/node。",
+        "无法自动下载 Node 运行时。请检查网络后重试，或手动安装 Node.js 18+，或将 Node 放到 {EVOFLOW_HOME}/runtime/node。",
         details={"tried": urls, "cause": str(last_err) if last_err else ""},
         cause=last_err,
     )

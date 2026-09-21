@@ -86,11 +86,7 @@ def lead_thread_from_executor_thread(executor_thread_id: str | None) -> str | No
 
 def goal_checkpoint_thread_id(lead_thread_id: str, goal_session_id: str) -> str:
     """LangGraph checkpoint thread for ``goal_agent`` (valid UUID, isolated from lead chat)."""
-    lead = (
-        resolve_langgraph_lead_thread_id(lead_thread_id)
-        or normalize_lead_thread_id(lead_thread_id)
-        or str(lead_thread_id or "").strip()
-    )
+    lead = resolve_langgraph_lead_thread_id(lead_thread_id) or normalize_lead_thread_id(lead_thread_id) or str(lead_thread_id or "").strip()
     sid = str(goal_session_id or "").strip()
     if not lead or not sid:
         return str(uuid.uuid4())

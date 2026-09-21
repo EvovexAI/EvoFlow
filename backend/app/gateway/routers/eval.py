@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Query, Depends, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 
 from app.gateway.db_async import run_db
 from evoflow.eval import business_quality as bq
@@ -23,11 +23,12 @@ from evoflow.eval import security as sec
 
 logger = logging.getLogger(__name__)
 
-from evoflow.authz.http_guard import require_org_admin
+from evoflow.authz.http_guard import require_org_admin  # noqa: E402
 
 
 def _org_admin_dep(request: Request) -> None:
     require_org_admin(request)
+
 
 router = APIRouter(prefix="/api/eval", tags=["eval"], dependencies=[Depends(_org_admin_dep)])
 
@@ -40,6 +41,7 @@ def _ok(data: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 健康总览
 # ---------------------------------------------------------------------------
+
 
 @router.get("/dashboard/summary")
 async def dashboard_summary(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
@@ -78,6 +80,7 @@ async def dashboard_agents_ranking(
 # ---------------------------------------------------------------------------
 # 业务质量
 # ---------------------------------------------------------------------------
+
 
 @router.get("/business/tasks")
 async def business_tasks(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
@@ -139,6 +142,7 @@ async def business_intervention(days: int = Query(7, ge=1, le=90)) -> dict[str, 
 # 安全中心
 # ---------------------------------------------------------------------------
 
+
 @router.get("/security/summary")
 async def security_summary(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     """安全总览：评分、漏洞统计、数据泄露、权限情况。"""
@@ -191,6 +195,7 @@ async def security_scan(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
 # 性能基准
 # ---------------------------------------------------------------------------
 
+
 @router.get("/performance/summary")
 async def performance_summary(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     """性能总览：P50/P95/P99、QPS、错误率。"""
@@ -229,12 +234,14 @@ async def performance_run_load_test(
 ) -> dict[str, Any]:
     """触发性能压测——本轮未接入压测引擎，明确返回未实现。"""
     del config
-    return _ok({
-        "ok": False,
-        "implemented": False,
-        "status": "not_implemented",
-        "message": "负载压测引擎尚未接入，请使用 scenario/smoke 做业务回归。",
-    })
+    return _ok(
+        {
+            "ok": False,
+            "implemented": False,
+            "status": "not_implemented",
+            "message": "负载压测引擎尚未接入，请使用 scenario/smoke 做业务回归。",
+        }
+    )
 
 
 @router.get("/performance/module-breakdown")
@@ -254,6 +261,7 @@ async def performance_error_stats(days: int = Query(7, ge=1, le=90)) -> dict[str
 # ---------------------------------------------------------------------------
 # 评测管理
 # ---------------------------------------------------------------------------
+
 
 @router.get("/cases")
 async def eval_cases(
@@ -369,19 +377,23 @@ async def eval_compare(run_ids: str = Query(..., description="逗号分隔的 ru
 # 评测计划
 # ---------------------------------------------------------------------------
 
+
 @router.get("/schedules")
 async def eval_schedules_list() -> dict[str, Any]:
     """评测计划列表。"""
+
     # 计划数据存储在 eval_schedules 表；表不存在时返回空列表
     def _get_schedules() -> list[dict[str, Any]]:
+        from evoflow.eval.data_sources import _columns, _row_to_dict, _table_exists
         from evoflow.persistence.db import get_db
-        from evoflow.eval.data_sources import _table_exists, _row_to_dict, _columns
+
         db = get_db()
         if not _table_exists(db, "eval_schedules"):
             return []
         cols = _columns(db, "eval_schedules")
         rows = db.execute("SELECT * FROM eval_schedules ORDER BY created_at_ms DESC LIMIT 100").fetchall()
         return [_row_to_dict(r, cols) for r in rows]
+
     data = await run_db(_get_schedules)
     return _ok(data)
 
@@ -395,11 +407,14 @@ async def eval_schedules_create(
     config: dict | None = Body(None, embed=True),
 ) -> dict[str, Any]:
     """创建评测计划。"""
+
     def _create() -> dict[str, Any]:
-        from evoflow.persistence.db import get_db
-        from evoflow.eval.data_sources import _table_exists
         import time
         import uuid
+
+        from evoflow.eval.data_sources import _table_exists
+        from evoflow.persistence.db import get_db
+
         db = get_db()
         if not _table_exists(db, "eval_schedules"):
             db.execute("""
@@ -418,12 +433,14 @@ async def eval_schedules_create(
         sid = f"sch_{uuid.uuid4().hex[:12]}"
         now = int(time.time() * 1000)
         import json
+
         db.execute(
             "INSERT INTO eval_schedules (id, name, type, cron, case_ids, config, enabled, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
             (sid, name, type, cron, json.dumps(case_ids or []), json.dumps(config or {}), now, now),
         )
         db.commit()
         return {"ok": True, "id": sid}
+
     data = await run_db(_create)
     return _ok(data)
 
@@ -431,10 +448,13 @@ async def eval_schedules_create(
 @router.post("/schedules/{schedule_id}/toggle")
 async def eval_schedules_toggle(schedule_id: str) -> dict[str, Any]:
     """切换评测计划启用/停用。"""
+
     def _toggle() -> dict[str, Any]:
-        from evoflow.persistence.db import get_db
-        from evoflow.eval.data_sources import _table_exists
         import time
+
+        from evoflow.eval.data_sources import _table_exists
+        from evoflow.persistence.db import get_db
+
         db = get_db()
         if not _table_exists(db, "eval_schedules"):
             return {"ok": False, "error": "schedule table not found"}
@@ -448,6 +468,7 @@ async def eval_schedules_toggle(schedule_id: str) -> dict[str, Any]:
         )
         db.commit()
         return {"ok": True, "enabled": bool(new_val)}
+
     data = await run_db(_toggle)
     return _ok(data)
 
@@ -456,18 +477,22 @@ async def eval_schedules_toggle(schedule_id: str) -> dict[str, Any]:
 # 告警规则
 # ---------------------------------------------------------------------------
 
+
 @router.get("/alerts/rules")
 async def eval_alert_rules_list() -> dict[str, Any]:
     """告警规则列表。"""
+
     def _get_rules() -> list[dict[str, Any]]:
+        from evoflow.eval.data_sources import _columns, _row_to_dict, _table_exists
         from evoflow.persistence.db import get_db
-        from evoflow.eval.data_sources import _table_exists, _row_to_dict, _columns
+
         db = get_db()
         if not _table_exists(db, "eval_alert_rules"):
             return []
         cols = _columns(db, "eval_alert_rules")
         rows = db.execute("SELECT * FROM eval_alert_rules ORDER BY created_at_ms DESC LIMIT 100").fetchall()
         return [_row_to_dict(r, cols) for r in rows]
+
     data = await run_db(_get_rules)
     return _ok(data)
 
@@ -483,11 +508,14 @@ async def eval_alert_rules_create(
     channel: str = Body("in_app", embed=True),
 ) -> dict[str, Any]:
     """创建告警规则。"""
+
     def _create() -> dict[str, Any]:
-        from evoflow.persistence.db import get_db
-        from evoflow.eval.data_sources import _table_exists
         import time
         import uuid
+
+        from evoflow.eval.data_sources import _table_exists
+        from evoflow.persistence.db import get_db
+
         db = get_db()
         if not _table_exists(db, "eval_alert_rules"):
             db.execute("""
@@ -513,6 +541,7 @@ async def eval_alert_rules_create(
         )
         db.commit()
         return {"ok": True, "id": rid}
+
     data = await run_db(_create)
     return _ok(data)
 
@@ -520,10 +549,13 @@ async def eval_alert_rules_create(
 @router.post("/alerts/rules/{rule_id}/toggle")
 async def eval_alert_rules_toggle(rule_id: str) -> dict[str, Any]:
     """切换告警规则启用/停用。"""
+
     def _toggle() -> dict[str, Any]:
-        from evoflow.persistence.db import get_db
-        from evoflow.eval.data_sources import _table_exists
         import time
+
+        from evoflow.eval.data_sources import _table_exists
+        from evoflow.persistence.db import get_db
+
         db = get_db()
         if not _table_exists(db, "eval_alert_rules"):
             return {"ok": False, "error": "alert table not found"}
@@ -537,5 +569,6 @@ async def eval_alert_rules_toggle(rule_id: str) -> dict[str, Any]:
         )
         db.commit()
         return {"ok": True, "enabled": bool(new_val)}
+
     data = await run_db(_toggle)
     return _ok(data)

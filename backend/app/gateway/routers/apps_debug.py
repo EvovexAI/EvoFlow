@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.gateway.deps.license import require_premium
-from evoflow.collab.debug_runner import debug_run_from_step, debug_run_step, get_step_trace
 from evoflow.authz.http_guard import require_app_visible, require_task_visible
+from evoflow.collab.debug_runner import debug_run_from_step, debug_run_step, get_step_trace
 from evoflow.persistence import app_repositories
 
 router = APIRouter(

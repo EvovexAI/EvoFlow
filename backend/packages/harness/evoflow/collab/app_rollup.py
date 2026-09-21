@@ -58,9 +58,7 @@ def _all_subtasks_terminal(subtasks: list[dict[str, Any]]) -> bool:
     """True when every subtask has reached a terminal status."""
     if not subtasks:
         return False
-    _TERMINAL = frozenset(
-        {"completed", "failed", "blocked", "cancelled", "canceled", "skipped", "timeout", "timed_out"}
-    )
+    _TERMINAL = frozenset({"completed", "failed", "blocked", "cancelled", "canceled", "skipped", "timeout", "timed_out"})
     for st in subtasks:
         if not isinstance(st, dict):
             continue
@@ -239,10 +237,7 @@ def build_rollup_subtask_spec(
     validation_items = validation if isinstance(validation, list) else []
     validation_text = "\n".join(f"- {item}" for item in validation_items) if validation_items else "（未设置验收标准）"
 
-    goal_text = (
-        "你是这个工作流的收尾汇总员。所有步骤都已完成，请整合所有步骤的产出，"
-        "生成最终报告并对照验收标准逐项检查。"
-    )
+    goal_text = "你是这个工作流的收尾汇总员。所有步骤都已完成，请整合所有步骤的产出，生成最终报告并对照验收标准逐项检查。"
 
     instruction = f"""## 工作流目标
 {goal or "（未填写）"}
@@ -449,11 +444,7 @@ def maybe_rollup_main_task(
                 if task.get("rollup_applied_at"):
                     from evoflow.collab.task_outputs import normalize_task_outputs
 
-                    have_values = {
-                        str(o.get("value") or "").replace("\\", "/").lower()
-                        for o in normalize_task_outputs(task.get("outputs"))
-                        if str(o.get("value") or "").strip()
-                    }
+                    have_values = {str(o.get("value") or "").replace("\\", "/").lower() for o in normalize_task_outputs(task.get("outputs")) if str(o.get("value") or "").strip()}
                     missing = False
                     for o in _step_outputs(st):
                         val = str(o.get("value") or "").replace("\\", "/").lower().strip()

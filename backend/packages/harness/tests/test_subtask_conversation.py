@@ -105,7 +105,6 @@ def test_append_subtask_conversation_multi_round(storage_with_subtask):
 
 
 def test_append_collab_subtask_stream_message_persists_chat_only(storage_with_subtask):
-
     storage, task_id, subtask_id, lead_thread = storage_with_subtask
 
     ok = append_collab_subtask_stream_message(

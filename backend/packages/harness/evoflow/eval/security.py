@@ -19,15 +19,9 @@ logger = logging.getLogger(__name__)
 # Sensitive data patterns for leak detection
 _LEAK_PATTERNS: dict[str, re.Pattern] = {
     "api_key": re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
-    "jwt": re.compile(
-        r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"
-    ),
-    "private_key": re.compile(
-        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
-    ),
-    "password_field": re.compile(
-        r"(?:password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\";]{6,}", re.IGNORECASE
-    ),
+    "jwt": re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    "private_key": re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+    "password_field": re.compile(r"(?:password|passwd|pwd)\s*[:=]\s*['\"]?[^\s'\";]{6,}", re.IGNORECASE),
     "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
     "phone_cn": re.compile(r"\b1[3-9]\d{9}\b"),
     "aws_access_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -59,6 +53,7 @@ def _columns(db: Any, name: str) -> set[str]:
 # ---------------------------------------------------------------------------
 # Data leak scan
 # ---------------------------------------------------------------------------
+
 
 def scan_data_leaks(days: int = 7, limit: int = 50, *, module: str | None = None) -> dict[str, Any]:
     """Scan chat messages for sensitive data leaks.
@@ -99,6 +94,7 @@ def scan_data_leaks(days: int = 7, limit: int = 50, *, module: str | None = None
         }
 
     import time as _t
+
     since_ms = int(_t.time() * 1000) - days * 86400 * 1000
 
     try:
@@ -114,10 +110,7 @@ def scan_data_leaks(days: int = 7, limit: int = 50, *, module: str | None = None
                 (since_ms,),
             ).fetchall()
         else:
-            rows = db.execute(
-                f"SELECT id, session_key, {content_col} AS content "
-                f"FROM evoflow_chat_messages LIMIT 5000"
-            ).fetchall()
+            rows = db.execute(f"SELECT id, session_key, {content_col} AS content FROM evoflow_chat_messages LIMIT 5000").fetchall()
     except Exception:  # noqa: BLE001
         logger.exception("data leak scan query failed")
         return {
@@ -150,13 +143,15 @@ def scan_data_leaks(days: int = 7, limit: int = 50, *, module: str | None = None
                         masked.append(m_str[:4] + "***" + m_str[-2:])
                     else:
                         masked.append("***")
-                findings.append({
-                    "type": leak_type,
-                    "message_id": row["id"],
-                    "session_key": row["session_key"],
-                    "preview_masked": "; ".join(masked),
-                    "match_count": len(matches),
-                })
+                findings.append(
+                    {
+                        "type": leak_type,
+                        "message_id": row["id"],
+                        "session_key": row["session_key"],
+                        "preview_masked": "; ".join(masked),
+                        "match_count": len(matches),
+                    }
+                )
 
     by_type = {k: v for k, v in by_type.items() if v > 0}
 
@@ -173,6 +168,7 @@ def scan_data_leaks(days: int = 7, limit: int = 50, *, module: str | None = None
 # ---------------------------------------------------------------------------
 # Permission matrix
 # ---------------------------------------------------------------------------
+
 
 def get_permission_matrix(*, module: str | None = None) -> dict[str, Any]:
     """Get role -> permission mapping from auth tables.
@@ -238,6 +234,7 @@ def get_permission_matrix(*, module: str | None = None) -> dict[str, Any]:
 # Security config check (vulnerability scan)
 # ---------------------------------------------------------------------------
 
+
 def check_security_config(*, module: str | None = None) -> dict[str, Any]:
     """Check security config and generate vulnerability list.
 
@@ -249,82 +246,94 @@ def check_security_config(*, module: str | None = None) -> dict[str, Any]:
     # 1. Debug mode
     debug_env = os.getenv("DEBUG", "").lower()
     if debug_env in ("1", "true", "yes"):
-        vulns.append({
-            "id": "SEC-001",
-            "name": "Debug mode is enabled",
-            "severity": "high",
-            "category": "configuration",
-            "description": "DEBUG env var is true, should be off in production",
-            "recommendation": "Set DEBUG=false or remove the DEBUG env var",
-            "status": "open",
-        })
+        vulns.append(
+            {
+                "id": "SEC-001",
+                "name": "Debug mode is enabled",
+                "severity": "high",
+                "category": "configuration",
+                "description": "DEBUG env var is true, should be off in production",
+                "recommendation": "Set DEBUG=false or remove the DEBUG env var",
+                "status": "open",
+            }
+        )
 
     # 2. Weak secrets
     weak_keywords = ("test", "default", "changeme", "123456", "secret")
     for env_name in ("API_KEY", "SECRET_KEY", "JWT_SECRET", "DB_PASSWORD"):
         val = os.getenv(env_name, "")
         if val and any(kw in val.lower() for kw in weak_keywords):
-            vulns.append({
-                "id": f"SEC-002-{env_name}",
-                "name": f"Weak secret detected for {env_name}",
-                "severity": "critical",
-                "category": "secret",
-                "description": f"Env var {env_name} contains a weak keyword",
-                "recommendation": "Use a strong random secret, at least 32 chars",
-                "status": "open",
-            })
+            vulns.append(
+                {
+                    "id": f"SEC-002-{env_name}",
+                    "name": f"Weak secret detected for {env_name}",
+                    "severity": "critical",
+                    "category": "secret",
+                    "description": f"Env var {env_name} contains a weak keyword",
+                    "recommendation": "Use a strong random secret, at least 32 chars",
+                    "status": "open",
+                }
+            )
 
     # 3. CORS wildcard
     cors_origin = os.getenv("CORS_ORIGIN", os.getenv("ALLOWED_ORIGINS", ""))
     if cors_origin == "*":
-        vulns.append({
-            "id": "SEC-003",
-            "name": "CORS allows all origins",
-            "severity": "medium",
-            "category": "configuration",
-            "description": "CORS_ORIGIN is set to *, allowing any cross-origin request",
-            "recommendation": "Restrict to a list of trusted domains",
-            "status": "open",
-        })
+        vulns.append(
+            {
+                "id": "SEC-003",
+                "name": "CORS allows all origins",
+                "severity": "medium",
+                "category": "configuration",
+                "description": "CORS_ORIGIN is set to *, allowing any cross-origin request",
+                "recommendation": "Restrict to a list of trusted domains",
+                "status": "open",
+            }
+        )
 
     # 4. Auto-approve ACP
     auto_approve = os.getenv("AUTO_APPROVE_ACP", "").lower()
     if auto_approve in ("1", "true", "yes"):
-        vulns.append({
-            "id": "SEC-004",
-            "name": "ACP auto-approve is enabled",
-            "severity": "medium",
-            "category": "permission",
-            "description": "auto_approve_acp is true, agent tool calls skip human review",
-            "recommendation": "Disable auto-approve for sensitive operations in production",
-            "status": "open",
-        })
+        vulns.append(
+            {
+                "id": "SEC-004",
+                "name": "ACP auto-approve is enabled",
+                "severity": "medium",
+                "category": "permission",
+                "description": "auto_approve_acp is true, agent tool calls skip human review",
+                "recommendation": "Disable auto-approve for sensitive operations in production",
+                "status": "open",
+            }
+        )
 
     # 5. HTTPS not enforced
     use_https = os.getenv("USE_HTTPS", os.getenv("FORCE_HTTPS", "")).lower()
     if not use_https or use_https in ("0", "false", "no"):
-        vulns.append({
-            "id": "SEC-005",
-            "name": "HTTPS enforcement not detected",
-            "severity": "medium",
-            "category": "transport",
-            "description": "No HTTPS enforcement config detected",
-            "recommendation": "Enable HTTPS and configure HSTS in production",
-            "status": "open",
-        })
+        vulns.append(
+            {
+                "id": "SEC-005",
+                "name": "HTTPS enforcement not detected",
+                "severity": "medium",
+                "category": "transport",
+                "description": "No HTTPS enforcement config detected",
+                "recommendation": "Enable HTTPS and configure HSTS in production",
+                "status": "open",
+            }
+        )
 
     # 6. Sandbox disabled
     sandbox_disabled = os.getenv("DISABLE_SANDBOX", "").lower()
     if sandbox_disabled in ("1", "true", "yes"):
-        vulns.append({
-            "id": "SEC-006",
-            "name": "Sandbox is disabled",
-            "severity": "high",
-            "category": "sandbox",
-            "description": "DISABLE_SANDBOX is true, MCP tools run without sandbox limits",
-            "recommendation": "Enable sandbox to restrict MCP tool system access",
-            "status": "open",
-        })
+        vulns.append(
+            {
+                "id": "SEC-006",
+                "name": "Sandbox is disabled",
+                "severity": "high",
+                "category": "sandbox",
+                "description": "DISABLE_SANDBOX is true, MCP tools run without sandbox limits",
+                "recommendation": "Enable sandbox to restrict MCP tool system access",
+                "status": "open",
+            }
+        )
 
     by_severity: dict[str, int] = {}
     for v in vulns:
@@ -360,6 +369,7 @@ def list_vulnerabilities(
 # ---------------------------------------------------------------------------
 # Audit log stats
 # ---------------------------------------------------------------------------
+
 
 def get_audit_stats(days: int = 7) -> dict[str, Any]:
     """Audit log statistics. Empty if no audit table exists."""
@@ -400,6 +410,7 @@ def get_audit_stats(days: int = 7) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Security summary
 # ---------------------------------------------------------------------------
+
 
 def get_security_summary(days: int = 7) -> dict[str, Any]:
     """Overall security summary."""

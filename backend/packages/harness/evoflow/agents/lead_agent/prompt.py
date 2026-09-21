@@ -21,7 +21,6 @@ from evoflow.agents.lead_agent.prompt_language import resolve_prompt_language
 from evoflow.collab.models import CollabPhase
 from evoflow.config.agents_config import load_agent_soul
 from evoflow.config.paths import get_paths
-from evoflow.skills import load_skills
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +188,7 @@ def _build_mission_state_section(
     if tid:
         try:
             from evoflow.context.working_memory import format_files_already_read_section, format_files_modified_section
+
             parts: list[str] = []
             modified = format_files_modified_section(tid)
             if modified:
@@ -292,11 +292,7 @@ def resolve_pending_tools_for_prompt(
             from evoflow.agents.lead_agent.intent_tool_profile import resolve_deferred_tool_names_for_scenarios
 
             pending = resolve_deferred_tool_names_for_scenarios(active_scenarios)
-            return [
-                n
-                for n in pending
-                if str(n).strip().lower() not in loaded_set and str(n).strip().lower() not in deferred_loaded
-            ]
+            return [n for n in pending if str(n).strip().lower() not in loaded_set and str(n).strip().lower() not in deferred_loaded]
         except Exception:
             logger.debug("resolve_pending_tools_for_prompt: scenario fallback failed", exc_info=True)
 
@@ -740,9 +736,7 @@ def _assemble_system_prompt(
         extra = (custom_system_prompt or "").strip()
         if extra:
             safe_extra = scan_content(extra, source="custom_system_prompt")
-            blocks.append(
-                f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>"
-            )
+            blocks.append(f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>")
         if memory_context.strip():
             safe_mem = scan_content(memory_context.strip(), source="memory_context").strip()
             if safe_mem:
@@ -750,12 +744,7 @@ def _assemble_system_prompt(
         if person_memory_context.strip():
             safe_pm = scan_content(person_memory_context.strip(), source="person_memory_context").strip()
             if safe_pm:
-                blocks.append(
-                    "<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; "
-                    "never confuse with user <memory> █ -->\n"
-                    f"{safe_pm}\n"
-                    "<!-- █ END PERSON MEMORY █ -->"
-                )
+                blocks.append(f"<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; never confuse with user <memory> █ -->\n{safe_pm}\n<!-- █ END PERSON MEMORY █ -->")
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -775,15 +764,9 @@ def _assemble_system_prompt(
 它们描述同一规则的不同侧重。
 </decision_chain>"""
     )
-    blocks.append(
-        _fmt_with_agent_name(static.ROLE_BLOCK_CHAT_TEMPLATE.strip(), agent_name)
-    )
-    blocks.append(
-        (static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip()
-    )
-    blocks.append(
-        (static.ENTITY_ASSETS_COMPACT_BLOCK if pure_chat else static.ENTITY_ASSETS_BLOCK).strip()
-    )
+    blocks.append(_fmt_with_agent_name(static.ROLE_BLOCK_CHAT_TEMPLATE.strip(), agent_name))
+    blocks.append((static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip())
+    blocks.append((static.ENTITY_ASSETS_COMPACT_BLOCK if pure_chat else static.ENTITY_ASSETS_BLOCK).strip())
     # TOOL_CALLING_BLOCK：不再注入；工具 schema / 模型能力已够用。
 
     if thinking_enabled:
@@ -827,9 +810,7 @@ def _assemble_system_prompt(
     extra = (custom_system_prompt or "").strip()
     if extra:
         safe_extra = scan_content(extra, source="custom_system_prompt")
-        blocks.append(
-            f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>"
-        )
+        blocks.append(f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>")
 
     if plan_runtime_stage_section.strip():
         blocks.append(plan_runtime_stage_section.strip())
@@ -873,12 +854,7 @@ def _assemble_system_prompt(
     if person_memory_context.strip():
         safe_pm = scan_content(person_memory_context.strip(), source="person_memory_context").strip()
         if safe_pm:
-            blocks.append(
-                "<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; "
-                "never confuse with user <memory> █ -->\n"
-                f"{safe_pm}\n"
-                "<!-- █ END PERSON MEMORY █ -->"
-            )
+            blocks.append(f"<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; never confuse with user <memory> █ -->\n{safe_pm}\n<!-- █ END PERSON MEMORY █ -->")
 
     if mission_state_section.strip():
         blocks.append(mission_state_section.strip())
@@ -1018,11 +994,7 @@ def _build_subagent_section(
 
     available = "\n".join(catalog_lines)
     zh = resolve_prompt_language(prompt_language) == "zh"
-    header = (
-        "子代理已启用。选型 / 边界 / supervisor 分工见 **`subagent`** 与 **`supervisor`** 工具说明。"
-        if zh
-        else "Subagents enabled. Routing / boundaries / supervisor split: see **`subagent`** and **`supervisor`** tool descriptions."
-    )
+    header = "子代理已启用。选型 / 边界 / supervisor 分工见 **`subagent`** 与 **`supervisor`** 工具说明。" if zh else "Subagents enabled. Routing / boundaries / supervisor split: see **`subagent`** and **`supervisor`** tool descriptions."
     return f"""<subagent_system>
 {header}
 
@@ -1200,9 +1172,7 @@ def build_memory_injection_sections(
         )
 
     pid = str(principal_id or "").strip()
-    profile_entity = (
-        EntityRef("user", sanitize_user_asset_id(pid)).normalized() if pid else None
-    )
+    profile_entity = EntityRef("user", sanitize_user_asset_id(pid)).normalized() if pid else None
 
     sections: list[str] = []
     body_parts: list[str] = []
@@ -1327,10 +1297,7 @@ def build_memory_query_recall_sections(
             if block.strip():
                 safe = scan_content(block.strip(), source="memory_archival").strip()
                 if safe:
-                    sections.append(
-                        "<!-- █ MEMORY ARCHIVAL — retrieved for this turn; REFERENCE ONLY █ -->\n"
-                        f"{safe}\n<!-- █ END MEMORY ARCHIVAL █ -->"
-                    )
+                    sections.append(f"<!-- █ MEMORY ARCHIVAL — retrieved for this turn; REFERENCE ONLY █ -->\n{safe}\n<!-- █ END MEMORY ARCHIVAL █ -->")
         except Exception as ar_exc:
             logger.debug("User archival recall skipped: %s", ar_exc)
 
@@ -1363,9 +1330,7 @@ def build_memory_query_recall_sections(
     if person_memory_context.strip():
         safe_pm = scan_content(person_memory_context.strip(), source="person_memory_context").strip()
         if safe_pm:
-            sections.append(
-                f"<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; never confuse with user <memory> █ -->\n{safe_pm}\n<!-- █ END PERSON MEMORY █ -->"
-            )
+            sections.append(f"<!-- █ PERSON MEMORY — YOUR autobiography; read first, cite when relevant; never confuse with user <memory> █ -->\n{safe_pm}\n<!-- █ END PERSON MEMORY █ -->")
             snapshot_hits.append(
                 {
                     "id": "",
@@ -1378,9 +1343,7 @@ def build_memory_query_recall_sections(
     if person_craft_context.strip():
         safe_pc = scan_content(person_craft_context.strip(), source="person_craft_context").strip()
         if safe_pc:
-            sections.append(
-                f"<!-- █ PERSON CRAFT (HIGH WEIGHT) — howtos & hard negatives; MUST prefer matching craft before reinventing; treat as working memory not decoration █ -->\n{safe_pc}\n<!-- █ END PERSON CRAFT █ -->"
-            )
+            sections.append(f"<!-- █ PERSON CRAFT (HIGH WEIGHT) — howtos & hard negatives; MUST prefer matching craft before reinventing; treat as working memory not decoration █ -->\n{safe_pc}\n<!-- █ END PERSON CRAFT █ -->")
             snapshot_hits.append(
                 {
                     "id": "",
@@ -1601,10 +1564,7 @@ def _build_skills_prompt_section(
         desc = skill.description or ""
         return _truncate_skill_description(desc) if compact else desc
 
-    skill_items = "\n".join(
-        f"    <skill>\n        <name>{skill.name}</name>\n        <description>{_skill_description(skill)}</description>\n        <location>{_skill_location(skill)}</location>\n    </skill>"
-        for skill in skills
-    )
+    skill_items = "\n".join(f"    <skill>\n        <name>{skill.name}</name>\n        <description>{_skill_description(skill)}</description>\n        <location>{_skill_location(skill)}</location>\n    </skill>" for skill in skills)
     skills_list = f"<available_skills>\n{skill_items}\n</available_skills>"
 
     if compact:
@@ -1745,6 +1705,7 @@ def _proactive_employee_im_identity_block(agent_name: str | None) -> str:
         logger.debug("proactive IM identity lookup failed for %s", code, exc_info=True)
         return ""
 
+
 def get_deferred_tools_prompt_section(
     *,
     pending_names: list[str] | None = None,
@@ -1874,11 +1835,7 @@ def apply_prompt_template(
 
     # Subagent delegation block is opt-in; tools stay available via ``subagent_enabled`` elsewhere.
     n = max_concurrent_subagents
-    subagent_section = (
-        _build_subagent_section(n, display_name, prompt_language=lang, intent_hint=intent)
-        if include_subagent_system_prompt
-        else ""
-    )
+    subagent_section = _build_subagent_section(n, display_name, prompt_language=lang, intent_hint=intent) if include_subagent_system_prompt else ""
 
     # Get skills section
     _t_sk = time.perf_counter()
@@ -1983,9 +1940,7 @@ def apply_prompt_template(
     if employee_ok and emp_identity is not None:
         from evoflow.proactive.employee_prompt import build_employee_chat_system_prompt
 
-        skills_blob = "\n\n".join(
-            p for p in (str(skills_section or "").strip(), str(mcp_skill_section or "").strip()) if p
-        )
+        skills_blob = "\n\n".join(p for p in (str(skills_section or "").strip(), str(mcp_skill_section or "").strip()) if p)
         # Employee chat: always inject user identity + 画像 (even when runtime clears SQLite memory).
         emp_user_profile = ""
         try:
@@ -2014,8 +1969,7 @@ def apply_prompt_template(
             identity=emp_identity,
             soul=_load_agent_soul_text(agent_name),
             skills_section=skills_blob,
-            workspace_root_hint=_resolve_workspace_root(local_workspace_root)
-            or str(emp_identity.get("workspace_path") or ""),
+            workspace_root_hint=_resolve_workspace_root(local_workspace_root) or str(emp_identity.get("workspace_path") or ""),
             runtime_os=runtime_os,
             runtime_shell=runtime_shell,
             runtime_host_hint=runtime_host_hint,

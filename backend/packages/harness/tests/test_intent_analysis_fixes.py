@@ -36,12 +36,7 @@ def test_mission_queue_replaces_stale_bootstrap_snapshot() -> None:
 
 def test_is_real_user_message_skips_compaction_and_tool_history() -> None:
     assert is_real_user_message(HumanMessage(content="real ask")) is True
-    assert (
-        is_real_user_message(
-            HumanMessage(content="[CONTEXT COMPACTION — REFERENCE ONLY]\nbody", name="conversation_summary")
-        )
-        is False
-    )
+    assert is_real_user_message(HumanMessage(content="[CONTEXT COMPACTION — REFERENCE ONLY]\nbody", name="conversation_summary")) is False
     assert is_real_user_message(HumanMessage(content="[tool:history]\nbody", name="tool_history")) is False
 
 

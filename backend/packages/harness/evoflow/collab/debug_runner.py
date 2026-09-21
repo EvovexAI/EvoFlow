@@ -87,11 +87,7 @@ def _build_debug_prompt(
 
     # Add debug mode note on top of the shared core prompt
     parts = [core["prompt"]]
-    parts.append(
-        "\n## 调试模式说明\n"
-        "这是单节点调试运行。请执行本步骤的任务并返回结果。"
-        "完成后请用结构化格式输出结果（JSON 代码块），便于下游步骤引用。"
-    )
+    parts.append("\n## 调试模式说明\n这是单节点调试运行。请执行本步骤的任务并返回结果。完成后请用结构化格式输出结果（JSON 代码块），便于下游步骤引用。")
 
     prompt = "\n".join(parts)
     return prompt, core["resolved"]
@@ -112,9 +108,7 @@ async def _execute_step_async(
     from evoflow.tools.builtins.collab_bridge import delegate_via_task_tool
 
     debug_task_name = f"Debug_{uuid.uuid4().hex[:8]}"
-    project_data, task_data = new_project_bundle_root_task(
-        debug_task_name, "Debug single-step execution", thread_id=None
-    )
+    project_data, task_data = new_project_bundle_root_task(debug_task_name, "Debug single-step execution", thread_id=None)
     task_data["run_mode"] = "unattended"
     task_data["execution_authorized"] = True
     task_id = str(task_data.get("id") or "")
@@ -220,12 +214,7 @@ def debug_run_step(
     )
 
     # 4. Determine subagent type
-    subagent_type = str(
-        step.get("assigned_agent")
-        or step.get("assigned_to")
-        or (step.get("worker_profile") or {}).get("base_subagent")
-        or "general-purpose"
-    ).strip() or "general-purpose"
+    subagent_type = str(step.get("assigned_agent") or step.get("assigned_to") or (step.get("worker_profile") or {}).get("base_subagent") or "general-purpose").strip() or "general-purpose"
 
     # 5. Execute
     try:
@@ -428,11 +417,7 @@ def debug_run_from_step(
         def _dispatch() -> None:
             loop = asyncio.new_event_loop()
             try:
-                loop.run_until_complete(
-                    dispatch_authorized_main_task_execution(
-                        new_task_id, thread_id=None, authorized_by="debug"
-                    )
-                )
+                loop.run_until_complete(dispatch_authorized_main_task_execution(new_task_id, thread_id=None, authorized_by="debug"))
             except Exception:
                 logger.exception("debug run-from dispatch failed task=%s", new_task_id)
             finally:
@@ -580,13 +565,15 @@ def get_step_trace(run_id: str, step_ref: str) -> dict[str, Any]:
                         input_schema_valid = len(type_errors) == 0
                         if type_errors:
                             for te in type_errors:
-                                binding_errors.append({
-                                    "code": "TYPE_MISMATCH",
-                                    "binding_key": te.split(":")[0] if ":" in te else "unknown",
-                                    "expression": "",
-                                    "message": te,
-                                    "detail": {"input_schema": input_schema},
-                                })
+                                binding_errors.append(
+                                    {
+                                        "code": "TYPE_MISMATCH",
+                                        "binding_key": te.split(":")[0] if ":" in te else "unknown",
+                                        "expression": "",
+                                        "message": te,
+                                        "detail": {"input_schema": input_schema},
+                                    }
+                                )
     except Exception:
         logger.debug("trace: failed to reconstruct resolved_bindings", exc_info=True)
 
@@ -597,12 +584,7 @@ def get_step_trace(run_id: str, step_ref: str) -> dict[str, Any]:
 
     # Actual agent/model used
     wp = subtask.get("worker_profile") if isinstance(subtask.get("worker_profile"), dict) else {}
-    actual_agent = str(
-        subtask.get("assigned_to")
-        or subtask.get("assigned_agent")
-        or wp.get("base_subagent")
-        or ""
-    ).strip()
+    actual_agent = str(subtask.get("assigned_to") or subtask.get("assigned_agent") or wp.get("base_subagent") or "").strip()
     actual_model = str(wp.get("model") or "").strip() or None
 
     # Artifacts

@@ -174,10 +174,7 @@ class ContentBlockLedger:
             tools_idx = self.order.index(tools_block_id)
         except ValueError:
             return False
-        return any(
-            self.blocks.get(bid, {}).get("kind") == BLOCK_KIND_REASONING
-            for bid in self.order[tools_idx + 1 :]
-        )
+        return any(self.blocks.get(bid, {}).get("kind") == BLOCK_KIND_REASONING for bid in self.order[tools_idx + 1 :])
 
     def _tools_block_has_text_after(self, tools_block_id: str) -> bool:
         """Body/plan text after tools means the prior tool batch finished (CRUD round)."""
@@ -185,10 +182,7 @@ class ContentBlockLedger:
             tools_idx = self.order.index(tools_block_id)
         except ValueError:
             return False
-        return any(
-            self.blocks.get(bid, {}).get("kind") in {BLOCK_KIND_PLAN, BLOCK_KIND_BODY}
-            for bid in self.order[tools_idx + 1 :]
-        )
+        return any(self.blocks.get(bid, {}).get("kind") in {BLOCK_KIND_PLAN, BLOCK_KIND_BODY} for bid in self.order[tools_idx + 1 :])
 
     def before_tools(self) -> BlockWireMeta:
         self._close_open_text()

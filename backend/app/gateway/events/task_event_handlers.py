@@ -171,10 +171,10 @@ async def handle_task_authorized(event: TaskAuthorizedEvent) -> None:
         # Compose the message to Lead Agent
         if subtasks:
             planning_instruction = (
-                f'任务已获用户授权。请按顺序调用 supervisor：'
+                f"任务已获用户授权。请按顺序调用 supervisor："
                 f'① action="set_task_state", task_id="{task_id}", status="planned"（若已是 planned 可跳过）；'
                 f'② action="start_execution", task_id="{task_id}"。'
-                f'子任务已由 plan 同步，勿 create_task_with_subtasks。不要再次询问用户是否开始执行。'
+                f"子任务已由 plan 同步，勿 create_task_with_subtasks。不要再次询问用户是否开始执行。"
             )
             subtasks_overview = f"当前已有 {len(subtasks)} 个子任务：\n{chr(10).join(subtask_summary)}"
         else:

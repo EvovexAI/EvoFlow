@@ -54,9 +54,7 @@ def test_run_app_workflow_always_auto_authorizes(sqlite_tmp: Path) -> None:
     with patch.object(app_runner, "run_app_workflow", return_value={"ok": True}) as mocked:
         app_runner.run_app("App_wf1", {})
         mocked.assert_called_once()
-        assert mocked.call_args.kwargs.get("auto_authorize") is True or (
-            len(mocked.call_args.args) >= 3 and mocked.call_args.args[2] is True
-        )
+        assert mocked.call_args.kwargs.get("auto_authorize") is True or (len(mocked.call_args.args) >= 3 and mocked.call_args.args[2] is True)
 
 
 def test_get_run_status_writes_back_task_completion(sqlite_tmp: Path) -> None:
@@ -160,9 +158,7 @@ def test_get_run_status_mirrors_semantic_ref_aliases(sqlite_tmp: Path) -> None:
                         "semantic_ref": "assemble",
                         "name": "Step 2: 成片",
                         "status": "completed",
-                        "outputs": [
-                            {"type": "file", "key": "final", "value": "outputs/final.mp4"}
-                        ],
+                        "outputs": [{"type": "file", "key": "final", "value": "outputs/final.mp4"}],
                     },
                 ],
             }

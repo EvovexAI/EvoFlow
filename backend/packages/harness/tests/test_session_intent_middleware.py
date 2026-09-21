@@ -11,9 +11,7 @@ from evoflow.config.session_intent_config import SessionIntentConfig, load_sessi
 
 
 def test_session_intent_block_lists_prior_turns():
-    load_session_intent_config_from_dict(
-        SessionIntentConfig(enabled=True, max_turns=3, llm_rollup_enabled=False).model_dump()
-    )
+    load_session_intent_config_from_dict(SessionIntentConfig(enabled=True, max_turns=3, llm_rollup_enabled=False).model_dump())
     block = _build_intent_block(
         [
             HumanMessage(content="first goal"),
@@ -28,9 +26,7 @@ def test_session_intent_block_lists_prior_turns():
 
 
 def test_session_intent_middleware_injects_human_message_not_system():
-    load_session_intent_config_from_dict(
-        SessionIntentConfig(enabled=True, max_turns=3, llm_rollup_enabled=False).model_dump()
-    )
+    load_session_intent_config_from_dict(SessionIntentConfig(enabled=True, max_turns=3, llm_rollup_enabled=False).model_dump())
     mw = SessionIntentMiddleware()
     rt = MagicMock()
     rt.context = {"thread_id": "t-intent"}

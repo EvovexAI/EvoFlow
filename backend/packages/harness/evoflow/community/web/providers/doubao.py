@@ -62,11 +62,7 @@ class DoubaoWebSearchProvider(WebSearchProvider):
         if not api_key:
             return {
                 "success": False,
-                "error": (
-                    "DOUBAO_SEARCH_API_KEY not set. Create a key at "
-                    "https://console.volcengine.com/search-infinity/web-search-exp "
-                    "(not an Ark API key)."
-                ),
+                "error": ("DOUBAO_SEARCH_API_KEY not set. Create a key at https://console.volcengine.com/search-infinity/web-search-exp (not an Ark API key)."),
             }
 
         q = (query or "").strip()
@@ -121,12 +117,7 @@ class DoubaoWebSearchProvider(WebSearchProvider):
         result = (data.get("Result") if isinstance(data, dict) else None) or data or {}
         if not isinstance(result, dict):
             result = {}
-        web_results = (
-            result.get("WebResults")
-            or result.get("webResults")
-            or result.get("results")
-            or []
-        )
+        web_results = result.get("WebResults") or result.get("webResults") or result.get("results") or []
         if not isinstance(web_results, list):
             web_results = []
 
@@ -138,15 +129,7 @@ class DoubaoWebSearchProvider(WebSearchProvider):
             url = str(item.get("Url") or item.get("URL") or item.get("url") or "").strip()
             if not url:
                 continue
-            summary = str(
-                item.get("Summary")
-                or item.get("summary")
-                or item.get("Snippet")
-                or item.get("snippet")
-                or item.get("Content")
-                or item.get("content")
-                or ""
-            ).strip()
+            summary = str(item.get("Summary") or item.get("summary") or item.get("Snippet") or item.get("snippet") or item.get("Content") or item.get("content") or "").strip()
             site = str(item.get("SiteName") or item.get("siteName") or "").strip()
             published = str(item.get("PublishTime") or item.get("publishTime") or "").strip()
             meta = " | ".join(p for p in (site, published) if p)

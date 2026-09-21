@@ -101,14 +101,7 @@ def _finalize_duty_allow(allow: set[str]) -> set[str]:
 def format_proactive_duty_status_footer(duty: dict[str, Any] | None) -> str:
     """Habit reminder; live Task board is a separate HumanMessage footer."""
     del duty
-    return (
-        f"{_DUTY_FOOTER_TAG}"
-        "状态只认岗位工作项 Task。"
-        "有进展立刻用 tasks 回写进度；干完用 tasks 结案并写清结果汇报（summary）与交付物；"
-        "需要下游时在结案里指定处理人。"
-        "看上下文末尾 <proactive_live_tasks>。"
-        "</proactive_duty_status>"
-    )
+    return f"{_DUTY_FOOTER_TAG}状态只认岗位工作项 Task。有进展立刻用 tasks 回写进度；干完用 tasks 结案并写清结果汇报（summary）与交付物；需要下游时在结案里指定处理人。看上下文末尾 <proactive_live_tasks>。</proactive_duty_status>"
 
 
 def _tool_name(tool: Any) -> str:
@@ -335,7 +328,7 @@ def is_proactive_run(runtime: Any) -> bool:
     """Duty-loop helper (tool strip / duty brief / live task board).
 
     Historically also returned True for any ``proactive:`` session_key, which forced
-    the duty handbook onto user chat. Prefer ``is_proactive_duty_run`` / 
+    the duty handbook onto user chat. Prefer ``is_proactive_duty_run`` /
     ``is_proactive_session`` for new call sites; this alias keeps duty middleware
     behavior while fixing chat.
     """
@@ -345,12 +338,7 @@ def is_proactive_run(runtime: Any) -> bool:
 def _resolve_proactive_agent_code(runtime: Any) -> str:
     """Resolve employee agent_code from runtime context / session_key."""
     ctx = runtime_context_mapping(runtime) if runtime is not None else {}
-    code = str(
-        ctx.get("proactive_agent_code")
-        or ctx.get("agent_id")
-        or ctx.get("agent_name")
-        or ""
-    ).strip()
+    code = str(ctx.get("proactive_agent_code") or ctx.get("agent_id") or ctx.get("agent_name") or "").strip()
     if code and code.lower() not in {"main", "lead_agent", "auto"}:
         return code
     sk = str(ctx.get("session_key") or "").strip()
@@ -364,12 +352,7 @@ def _resolve_proactive_agent_code(runtime: Any) -> str:
         conf = get_config()
         cfg = conf.get("configurable") if isinstance(conf, dict) else None
         if isinstance(cfg, dict):
-            code = str(
-                cfg.get("proactive_agent_code")
-                or cfg.get("agent_id")
-                or cfg.get("agent_name")
-                or ""
-            ).strip()
+            code = str(cfg.get("proactive_agent_code") or cfg.get("agent_id") or cfg.get("agent_name") or "").strip()
             if code and code.lower() not in {"main", "lead_agent", "auto"}:
                 return code
             sk = str(cfg.get("session_key") or "").strip()
@@ -460,9 +443,7 @@ def _truncate_tool_body(text: str, *, max_chars: int) -> str:
     head = s[:keep]
     tail = s[-keep:]
     omitted = len(s) - 2 * keep
-    return (
-        f"{head}\n\n…[proactive: tool output truncated, omitted ~{omitted} chars]…\n\n{tail}"
-    )
+    return f"{head}\n\n…[proactive: tool output truncated, omitted ~{omitted} chars]…\n\n{tail}"
 
 
 def _with_tool_content(msg: ToolMessage, content: str) -> ToolMessage:
@@ -508,10 +489,7 @@ def _trim_proactive_messages(messages: list[Any]) -> tuple[list[Any], bool]:
         if _estimate_messages_bytes(out) <= budget:
             break
         m = out[i]
-        stub = (
-            "[proactive: earlier tool output removed to fit provider request-body limit; "
-            "rely on newer reads / work log]"
-        )
+        stub = "[proactive: earlier tool output removed to fit provider request-body limit; rely on newer reads / work log]"
         if _content_as_str(m.content) != stub:
             out[i] = _with_tool_content(m, stub)
             changed = True
@@ -555,9 +533,7 @@ def patch_proactive_tools(
     del submit_tool, history_tool
     out = [t for t in (tools or []) if not is_duty_strip_tool(_tool_name(t))]
     if allow_names is not None:
-        allow = _finalize_duty_allow(
-            {str(n).strip().lower() for n in allow_names if str(n or "").strip()}
-        )
+        allow = _finalize_duty_allow({str(n).strip().lower() for n in allow_names if str(n or "").strip()})
         out = [t for t in out if (n := _tool_name(t).lower()) and n in allow]
         present = {_tool_name(t).lower() for t in out}
         if "tasks" in allow and "tasks" not in present:
@@ -592,16 +568,8 @@ def _mode_agent_full_catalog(session_key: str, mode: str) -> set[str]:
             deferred_catalog_for_session_agent,
         )
 
-        names.update(
-            str(n).strip().lower()
-            for n in bound_tools_for_session_agent(session_key, mode)
-            if str(n or "").strip()
-        )
-        names.update(
-            str(n).strip().lower()
-            for n in deferred_catalog_for_session_agent(session_key, mode)
-            if str(n or "").strip()
-        )
+        names.update(str(n).strip().lower() for n in bound_tools_for_session_agent(session_key, mode) if str(n or "").strip())
+        names.update(str(n).strip().lower() for n in deferred_catalog_for_session_agent(session_key, mode) if str(n or "").strip())
     except Exception:
         logger.debug("proactive: agent full catalog via session failed", exc_info=True)
 
@@ -614,16 +582,8 @@ def _mode_agent_full_catalog(session_key: str, mode: str) -> set[str]:
             deferred_catalog_for_session_mode,
         )
 
-        names.update(
-            str(n).strip().lower()
-            for n in bound_tools_for_session_mode(mode)
-            if str(n or "").strip()
-        )
-        names.update(
-            str(n).strip().lower()
-            for n in deferred_catalog_for_session_mode(mode)
-            if str(n or "").strip()
-        )
+        names.update(str(n).strip().lower() for n in bound_tools_for_session_mode(mode) if str(n or "").strip())
+        names.update(str(n).strip().lower() for n in deferred_catalog_for_session_mode(mode) if str(n or "").strip())
     except Exception:
         logger.debug("proactive: mode full catalog failed", exc_info=True)
     return names
@@ -804,9 +764,7 @@ class ProactiveToolMiddleware(AgentMiddleware[AgentState]):
                 start = content.find(_DUTY_FOOTER_TAG)
                 end = content.find("</proactive_duty_status>", start)
                 if end >= 0:
-                    content = (
-                        content[:start] + content[end + len("</proactive_duty_status>") :]
-                    ).rstrip()
+                    content = (content[:start] + content[end + len("</proactive_duty_status>") :]).rstrip()
             new_text = f"{content.rstrip()}\n\n{line}" if content.strip() else line
             return request.override(system_message=SystemMessage(content=new_text))
         except Exception:
@@ -846,14 +804,7 @@ class ProactiveToolMiddleware(AgentMiddleware[AgentState]):
             return request
 
         messages = list(getattr(request, "messages", None) or [])
-        messages = [
-            m
-            for m in messages
-            if not (
-                isinstance(m, HumanMessage)
-                and str(getattr(m, "name", "") or "").strip() == _LIVE_TASKS_MSG_NAME
-            )
-        ]
+        messages = [m for m in messages if not (isinstance(m, HumanMessage) and str(getattr(m, "name", "") or "").strip() == _LIVE_TASKS_MSG_NAME)]
         # Keep after any existing session_mind_map so both sit at the tail.
         hint = HumanMessage(content=section, name=_LIVE_TASKS_MSG_NAME)
         return request.override(messages=[*messages, hint])
@@ -870,11 +821,7 @@ class ProactiveToolMiddleware(AgentMiddleware[AgentState]):
         tc = getattr(request, "tool_call", None) or {}
         name = _tool_call_name(tc) or "mode_set"
         return ToolMessage(
-            content=(
-                "Error: 值班模式工具面=智能体绑定工具（flat catalog）；"
-                "不支持 scenario / mode_set / tool_search / proactive_submit_work。"
-                "请直接用表内工具巡检；有待办用 tasks 建单 / 回写进度 / 结案。"
-            ),
+            content=("Error: 值班模式工具面=智能体绑定工具（flat catalog）；不支持 scenario / mode_set / tool_search / proactive_submit_work。请直接用表内工具巡检；有待办用 tasks 建单 / 回写进度 / 结案。"),
             tool_call_id=_tool_call_id(tc),
             name=name,
             status="error",
@@ -883,11 +830,7 @@ class ProactiveToolMiddleware(AgentMiddleware[AgentState]):
     def _refuse_unbound_tool(self, request: Any, name: str) -> ToolMessage:
         tc = getattr(request, "tool_call", None) or {}
         return ToolMessage(
-            content=(
-                f"Error: 工具「{name}」不在本值班工具表中。"
-                "值班无 deferred 激活；请只使用当前 tools 表内工具，"
-                "或用 tasks 回写进度 / 结案后结束。"
-            ),
+            content=(f"Error: 工具「{name}」不在本值班工具表中。值班无 deferred 激活；请只使用当前 tools 表内工具，或用 tasks 回写进度 / 结案后结束。"),
             tool_call_id=_tool_call_id(tc),
             name=name or "tool",
             status="error",

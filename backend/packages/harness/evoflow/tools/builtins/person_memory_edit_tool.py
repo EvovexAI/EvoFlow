@@ -138,6 +138,7 @@ def person_memory_edit_tool(
         )
 
     from evoflow.person_kernel import edit_person_memory
+
     try:
         result = edit_person_memory(
             agent,

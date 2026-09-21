@@ -24,9 +24,7 @@ from evoflow.agents.mission_state.models import MissionState
 
 def _hash_system_tools(req: ModelRequest) -> str:
     sys_text = str(getattr(req.system_message, "content", "") or "")
-    tool_names = "|".join(
-        sorted(str(getattr(t, "name", "") or "") for t in (req.tools or []))
-    )
+    tool_names = "|".join(sorted(str(getattr(t, "name", "") or "") for t in (req.tools or [])))
     blob = f"{sys_text}\n@@TOOLS@@\n{tool_names}".encode("utf-8", errors="ignore")
     return hashlib.sha256(blob).hexdigest()
 
@@ -41,10 +39,7 @@ def test_system_and_tools_stable_across_two_patches() -> None:
         "thread_id": tid,
         "evf_dynamic_prompt_meta": {"agent_name": "main", "prompt_language": "zh"},
     }
-    base_sys = SystemMessage(
-        content="BASE\n<workspace>\n用户工作目录: /ws\n当前系统时间: 1999-01-01\n</workspace>\n"
-        "<mission_state>old</mission_state>"
-    )
+    base_sys = SystemMessage(content="BASE\n<workspace>\n用户工作目录: /ws\n当前系统时间: 1999-01-01\n</workspace>\n<mission_state>old</mission_state>")
     tools = [SimpleNamespace(name="b_tool"), SimpleNamespace(name="a_tool")]
     req = ModelRequest(
         model=MagicMock(),

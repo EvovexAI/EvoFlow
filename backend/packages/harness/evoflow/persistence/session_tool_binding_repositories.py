@@ -41,9 +41,7 @@ def _ensure_binding_schema() -> None:
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         (_TRAJECTORY_TABLE,),
     ).fetchone()
-    has_cols = conn.execute(
-        "SELECT 1 FROM pragma_table_info('evoflow_chat_sessions') WHERE name='active_tools_json'"
-    ).fetchone()
+    has_cols = conn.execute("SELECT 1 FROM pragma_table_info('evoflow_chat_sessions') WHERE name='active_tools_json'").fetchone()
     if has_table and has_cols:
         return
     ensure_app_schema(conn)
@@ -103,15 +101,19 @@ def get_scenario_binding(session_key: str, scenario_key: str) -> dict[str, Any] 
     sc = str(scenario_key or "").strip().lower()
     if not sk or not sc:
         return None
-    row = get_db().execute(
-        f"""
+    row = (
+        get_db()
+        .execute(
+            f"""
         SELECT * FROM {_TRAJECTORY_TABLE}
         WHERE session_key = ? AND scenario_key = ?
         ORDER BY id DESC
         LIMIT 1
         """,
-        (sk, sc),
-    ).fetchone()
+            (sk, sc),
+        )
+        .fetchone()
+    )
     if not row:
         return None
     return _row_to_binding(row, fallback_scenario=sc)
@@ -141,8 +143,10 @@ def list_full_scenario_bindings_for_session(session_key: str) -> dict[str, dict[
     sk = str(session_key or "").strip()
     if not sk:
         return {}
-    rows = get_db().execute(
-        f"""
+    rows = (
+        get_db()
+        .execute(
+            f"""
         SELECT t.*
         FROM {_TRAJECTORY_TABLE} t
         JOIN (
@@ -156,8 +160,10 @@ def list_full_scenario_bindings_for_session(session_key: str) -> dict[str, dict[
         WHERE t.session_key = ?
         ORDER BY t.scenario_key ASC
         """,
-        (sk, sk),
-    ).fetchall()
+            (sk, sk),
+        )
+        .fetchall()
+    )
     out: dict[str, dict[str, Any]] = {}
     for row in rows:
         key = str(row[3] or "").strip().lower()
@@ -270,13 +276,9 @@ def _derive_tool_fields_for_mode(session_key: str, mode: str) -> dict[str, list[
     m = normalize_session_mode(mode)
     row = get_scenario_binding(sk, m) or {} if sk else {}
     bound = bound_tools_for_session_agent(sk, m) if sk else list(row.get("eager_tools") or [])
-    loaded = filter_loaded_for_agent_mode(sk, m, list(row.get("loaded_deferred") or [])) if sk else list(
-        row.get("loaded_deferred") or []
-    )
+    loaded = filter_loaded_for_agent_mode(sk, m, list(row.get("loaded_deferred") or [])) if sk else list(row.get("loaded_deferred") or [])
     pending = pending_activation_for_session_agent(sk, m, loaded_deferred=loaded) if sk else []
-    effective = (
-        effective_bound_tools_for_session_agent(sk, m, loaded_deferred=loaded) if sk else sorted({*bound, *loaded})
-    )
+    effective = effective_bound_tools_for_session_agent(sk, m, loaded_deferred=loaded) if sk else sorted({*bound, *loaded})
     return {
         "bound_tools": bound,
         "loaded_deferred": loaded,
@@ -330,14 +332,18 @@ def get_chat_session_tool_snapshot(session_key: str) -> dict[str, Any] | None:
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT session_mode, active_tools_json, pending_tools_json, updated_at
         FROM evoflow_chat_sessions
         WHERE session_key = ? AND is_deleted = 0
         """,
-        (sk,),
-    ).fetchone()
+            (sk,),
+        )
+        .fetchone()
+    )
     if not row:
         return None
     mode = str(row[0] or "ask").strip().lower() or "ask"

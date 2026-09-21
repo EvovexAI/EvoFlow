@@ -387,11 +387,7 @@ def _patch_context_filter_gap() -> bool:
                     {
                         "duration_ms": round((time.perf_counter() - t0) * 1000.0, 2),
                         "context_keys": n_keys,
-                        "schema_props": (
-                            len((context_schema or {}).get("properties") or {})
-                            if isinstance(context_schema, dict)
-                            else -1
-                        ),
+                        "schema_props": (len((context_schema or {}).get("properties") or {}) if isinstance(context_schema, dict) else -1),
                     },
                     trace_id=tr,
                 )
@@ -486,9 +482,7 @@ def apply_lg_blind_span_patches() -> bool:
                         {
                             "mode": str(mode) if mode is not None else None,
                             "since_enter_ms": round((now - t0) * 1000.0, 2),
-                            "since_metadata_ms": (
-                                round((now - t_meta) * 1000.0, 2) if t_meta is not None else None
-                            ),
+                            "since_metadata_ms": (round((now - t_meta) * 1000.0, 2) if t_meta is not None else None),
                             "run_id": rid or None,
                         },
                         trace_id=tr,

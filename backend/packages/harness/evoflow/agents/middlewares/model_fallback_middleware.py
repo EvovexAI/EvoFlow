@@ -43,29 +43,14 @@ _RETRYABLE_TRANSIENT_REASONS = frozenset(
     }
 )
 
-_AUTH_FAILURE_MESSAGE = (
-    "模型 API 认证失败，已尝试轮换所有可用凭证。请检查 API Key 配置或切换到其他模型。"
-)
+_AUTH_FAILURE_MESSAGE = "模型 API 认证失败，已尝试轮换所有可用凭证。请检查 API Key 配置或切换到其他模型。"
 
-_USER_FRIENDLY_MESSAGE = (
-    "模型请求失败：上游模型 API 返回错误。已记录调试信息，你可以重试或切换模型。"
-)
-_CONNECTION_ERROR_MESSAGE = (
-    "模型网络连接异常，无法连接到上游 API 服务。请检查网络状况或稍后重试。"
-)
-_RATE_LIMIT_USER_MESSAGE = (
-    "模型 API 限流（请求过于频繁），已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
-)
-_OVERLOADED_USER_MESSAGE = (
-    "模型服务当前过载，已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
-)
-_CONTEXT_OVERFLOW_USER_MESSAGE = (
-    "当前对话上下文已超出模型窗口上限，自动压缩后仍无法继续。"
-    "请新开会话、手动压缩上下文，或切换更大窗口的模型后再试。"
-)
-_BILLING_USER_MESSAGE = (
-    "当前模型 API 额度已用尽，无法继续生成回复。请稍后再试、切换其他模型，或升级 API 套餐。"
-)
+_USER_FRIENDLY_MESSAGE = "模型请求失败：上游模型 API 返回错误。已记录调试信息，你可以重试或切换模型。"
+_CONNECTION_ERROR_MESSAGE = "模型网络连接异常，无法连接到上游 API 服务。请检查网络状况或稍后重试。"
+_RATE_LIMIT_USER_MESSAGE = "模型 API 限流（请求过于频繁），已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
+_OVERLOADED_USER_MESSAGE = "模型服务当前过载，已自动重试但仍未成功。请稍等片刻后重试，或切换到其他模型。"
+_CONTEXT_OVERFLOW_USER_MESSAGE = "当前对话上下文已超出模型窗口上限，自动压缩后仍无法继续。请新开会话、手动压缩上下文，或切换更大窗口的模型后再试。"
+_BILLING_USER_MESSAGE = "当前模型 API 额度已用尽，无法继续生成回复。请稍后再试、切换其他模型，或升级 API 套餐。"
 _QUOTA_RESET_AT_RE = re.compile(r"reset at ([^'\"}\]]+)", re.IGNORECASE)
 _QUOTA_N_HOUR_RE = re.compile(r"(\d+)\s*-\s*hour", re.IGNORECASE)
 
@@ -95,15 +80,9 @@ def _billing_user_message(exc: Exception) -> str:
     match = _QUOTA_RESET_AT_RE.search(str(exc))
     if match:
         reset_at = match.group(1).strip().rstrip(".")
-        return (
-            f"当前模型 API {scope}已用尽，无法继续生成回复。"
-            f"额度将在 {reset_at} 重置；您也可以切换其他模型或升级 API 套餐后重试。"
-        )
+        return f"当前模型 API {scope}已用尽，无法继续生成回复。额度将在 {reset_at} 重置；您也可以切换其他模型或升级 API 套餐后重试。"
     if scope != "额度":
-        return (
-            f"当前模型 API {scope}已用尽，无法继续生成回复。"
-            "请稍后再试、切换其他模型，或升级 API 套餐。"
-        )
+        return f"当前模型 API {scope}已用尽，无法继续生成回复。请稍后再试、切换其他模型，或升级 API 套餐。"
     return _BILLING_USER_MESSAGE
 
 
@@ -453,6 +432,7 @@ def _resolve_model_name(runtime: Runtime | None) -> str | None:
             _tid = get_config().get("configurable", {}).get("thread_id")
         if _tid:
             from evoflow.persistence.session_repositories import get_model_name_for_thread
+
             _name = get_model_name_for_thread(str(_tid).strip())
             if _name:
                 return str(_name).strip() or None
@@ -569,9 +549,7 @@ def _hard_shrink_message_contents(messages: list[BaseMessage], *, char_cap: int 
                     omit = len(block) - char_cap
                     head = max(char_cap // 2, 256)
                     tail = max(char_cap - head, 128)
-                    new_blocks.append(
-                        f"{block[:head]}\n\n[... {omit} chars omitted after context overflow ...]\n\n{block[-tail:]}"
-                    )
+                    new_blocks.append(f"{block[:head]}\n\n[... {omit} chars omitted after context overflow ...]\n\n{block[-tail:]}")
                     changed = True
                 else:
                     new_blocks.append(block)
@@ -666,17 +644,11 @@ def _is_empty_ai_response(result: Any) -> bool:
 
 
 def _empty_response_user_fallback_message() -> str:
-    return (
-        "模型本轮未返回有效内容（无正文、无工具调用）。"
-        "可能是提供商瞬时异常或上下文被压缩后失真；请重试或换一种表述。"
-    )
+    return "模型本轮未返回有效内容（无正文、无工具调用）。可能是提供商瞬时异常或上下文被压缩后失真；请重试或换一种表述。"
 
 
 def _thinking_truncated_user_notice() -> str:
-    return (
-        "模型输出 token 已用尽（finish_reason=length），思考链在未完成时被截断，"
-        "未能生成正文或工具调用。建议：关闭 Thinking、缩短上下文，或换更大输出上限的模型。"
-    )
+    return "模型输出 token 已用尽（finish_reason=length），思考链在未完成时被截断，未能生成正文或工具调用。建议：关闭 Thinking、缩短上下文，或换更大输出上限的模型。"
 
 
 def _normalize_finish_reason(raw: Any) -> str:
@@ -805,8 +777,7 @@ def _inject_user_notice_evf(thread_id: str, body: str) -> bool:
     ]
     injected = False
     try:
-        from evoflow.runtime.ports import schedule_inject_evf_frame
-        from evoflow.runtime.ports import middle_layer_covers_thread
+        from evoflow.runtime.ports import middle_layer_covers_thread, schedule_inject_evf_frame
 
         if middle_layer_covers_thread(tid):
             for payload in payloads:
@@ -1308,9 +1279,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
         """Try credential rotation and/or model fallback for auth/provider errors."""
         classification = classify(exc)
         can_rotate = classification.should_rotate_credential and credential_attempt < _MAX_CREDENTIAL_ROTATIONS
-        can_fallback = (
-            classification.should_fallback_provider or classification.should_rotate_credential
-        ) and fallback_attempt < _MAX_MODEL_FALLBACKS
+        can_fallback = (classification.should_fallback_provider or classification.should_rotate_credential) and fallback_attempt < _MAX_MODEL_FALLBACKS
 
         if not can_rotate and not can_fallback:
             return None
@@ -1408,9 +1377,7 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
         """Try credential rotation and/or model fallback for auth/provider errors (async)."""
         classification = classify(exc)
         can_rotate = classification.should_rotate_credential and credential_attempt < _MAX_CREDENTIAL_ROTATIONS
-        can_fallback = (
-            classification.should_fallback_provider or classification.should_rotate_credential
-        ) and fallback_attempt < _MAX_MODEL_FALLBACKS
+        can_fallback = (classification.should_fallback_provider or classification.should_rotate_credential) and fallback_attempt < _MAX_MODEL_FALLBACKS
 
         if not can_rotate and not can_fallback:
             return None

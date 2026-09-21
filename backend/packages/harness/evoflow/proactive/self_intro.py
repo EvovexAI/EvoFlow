@@ -46,11 +46,7 @@ def has_intro_been_sent(agent_code: str, *, receive_id: str, receive_id_type: st
             return True
         # Legacy single-field marker (private-chat / open_id only) when map empty.
         rtype = str(receive_id_type or "chat_id").strip().lower() or "chat_id"
-        if (
-            rtype == "open_id"
-            and not (isinstance(sent, dict) and sent)
-            and str(getattr(cfg, "feishu_intro_sent_at", "") or "").strip()
-        ):
+        if rtype == "open_id" and not (isinstance(sent, dict) and sent) and str(getattr(cfg, "feishu_intro_sent_at", "") or "").strip():
             return True
         return False
     except Exception:
@@ -88,6 +84,7 @@ def mark_intro_sent(agent_code: str, *, receive_id: str, receive_id_type: str = 
         ProactiveRepository.save_role(role)
     except Exception:
         logger.debug("self_intro: mark_intro_sent failed code=%s", code, exc_info=True)
+
 
 # Wire name → short Chinese label for the capability list. Unknown tools fall
 # back to their wire name (still readable).
@@ -176,7 +173,7 @@ def build_employee_self_intro(agent_code: str) -> str:
     # Duties: role responsibilities first, then agent description.
     duties: list[str] = []
     if role is not None:
-        for r in (getattr(role.config, "responsibilities", None) or []):
+        for r in getattr(role.config, "responsibilities", None) or []:
             s = str(r or "").strip()
             if s and s not in duties:
                 duties.append(s)

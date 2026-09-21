@@ -84,10 +84,7 @@ def _resolve_subtask_executor_thread(
     lead = str(lead_thread or "").strip() or None
     stored = None
     if isinstance(subtask_row, dict):
-        stored = (
-            str(subtask_row.get("subtask_thread_id") or subtask_row.get("external_session_id") or "").strip()
-            or None
-        )
+        stored = str(subtask_row.get("subtask_thread_id") or subtask_row.get("external_session_id") or "").strip() or None
     from evoflow.collab.thread_ids import resolve_subtask_executor_thread_id
 
     return resolve_subtask_executor_thread_id(lead, sid, stored_subtask_thread_id=stored)

@@ -34,9 +34,7 @@ _WORKSPACE_RE = re.compile(r"(?is)(<workspace>)(.*?)(</workspace>)")
 
 
 def _is_runtime_clock_message(msg: Any) -> bool:
-    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(
-        msg, "name", None
-    ) == _RUNTIME_CLOCK_MESSAGE_NAME
+    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(msg, "name", None) == _RUNTIME_CLOCK_MESSAGE_NAME
 
 
 def _strip_runtime_clock_messages(messages: list[Any]) -> list[Any]:

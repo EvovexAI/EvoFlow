@@ -43,10 +43,14 @@ def load_todos(session_key: str, thread_id: str) -> list[dict[str, Any]]:
     tid = str(thread_id or "").strip()
     if not sk or not tid:
         return []
-    row = get_db().execute(
-        "SELECT todos_json FROM evoflow_todos WHERE session_key = ? AND thread_id = ?",
-        (sk, tid),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT todos_json FROM evoflow_todos WHERE session_key = ? AND thread_id = ?",
+            (sk, tid),
+        )
+        .fetchone()
+    )
     if not row:
         return []
     todos = _loads(str(row[0] or ""))

@@ -19,16 +19,13 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from evoflow.collab.expression_resolver import (
-    resolve_expression,
-    resolve_bindings,
-    resolve_step_inputs,
     build_steps_output_from_subtasks,
     format_resolved_inputs_for_prompt,
+    resolve_bindings,
+    resolve_expression,
+    resolve_step_inputs,
 )
-
 
 # ── Test fixtures ──────────────────────────────────────────────────────
 
@@ -386,9 +383,7 @@ class TestFormatForPrompt:
         assert "AI" in result
 
     def test_dict_value(self):
-        result = format_resolved_inputs_for_prompt(
-            {"companies": [{"name": "OpenAI"}]}
-        )
+        result = format_resolved_inputs_for_prompt({"companies": [{"name": "OpenAI"}]})
         assert "companies" in result
         assert "```json" in result
         assert "OpenAI" in result

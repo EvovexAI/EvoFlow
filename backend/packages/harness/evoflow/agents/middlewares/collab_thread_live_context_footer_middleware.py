@@ -126,9 +126,7 @@ class CollabThreadLiveContextFooterMiddleware(AgentMiddleware[AgentState]):
         except Exception:
             stage_appendix = ""
 
-        combined = "\n\n".join(
-            part.strip() for part in (appendix, stage_appendix) if part and part.strip()
-        )
+        combined = "\n\n".join(part.strip() for part in (appendix, stage_appendix) if part and part.strip())
         if not combined.strip():
             if len(messages) != len(_messages_from_request(request)):
                 return request.override(messages=messages)

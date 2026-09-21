@@ -73,11 +73,7 @@ def test_list_messages_for_display_skips_mirrors_but_keeps_lead(tmp_path, monkey
         _mirror_row(sk, mid=f"Subtask_y:src:{i}", sid="Subtask_y", text=f"worker chunk {i}")
 
     display = msg_repo.list_messages_for_display(sk, limit=200)
-    texts = [
-        str((m.get("content_json") or {}).get("content") or "")
-        for m in display
-        if m.get("role") in ("user", "assistant")
-    ]
+    texts = [str((m.get("content_json") or {}).get("content") or "") for m in display if m.get("role") in ("user", "assistant")]
     assert all("content" not in m for m in display)
     assert "plan this task" in texts
     assert "here is the plan" in texts

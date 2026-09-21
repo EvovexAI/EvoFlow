@@ -2,7 +2,6 @@ import fnmatch
 import os
 import posixpath
 import re
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -521,12 +520,7 @@ def _is_path_blacklisted(path: str) -> bool:
     try:
         from evoflow.persistence.security_settings_repositories import get_security_settings
 
-        blacklist = (
-            get_security_settings()
-            .get("sandbox", {})
-            .get("file_security", {})
-            .get("blacklist", [])
-        )
+        blacklist = get_security_settings().get("sandbox", {}).get("file_security", {}).get("blacklist", [])
         path_lower = path.lower()
         for entry in blacklist:
             e = str(entry).strip().lower()

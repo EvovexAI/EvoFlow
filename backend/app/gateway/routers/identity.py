@@ -14,7 +14,8 @@ from evoflow.authz import membership as membership_mod
 from evoflow.authz import principal_avatars as principal_avatars_mod
 from evoflow.authz import principals as principals_mod
 from evoflow.authz.acl_store import grant as acl_grant
-from evoflow.authz.acl_store import list_grants_for_ref, revoke as acl_revoke
+from evoflow.authz.acl_store import list_grants_for_ref
+from evoflow.authz.acl_store import revoke as acl_revoke
 from evoflow.authz.context import me_payload, resolve_request_authz
 from evoflow.authz.scope import group_scope
 from evoflow.authz.types import DEFAULT_ORG_ID, Permission
@@ -306,9 +307,7 @@ async def get_group_members(request: Request, group_id: str) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     scope = group_scope(group_id)
-    if not membership_mod.can_read_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get(
-        "is_org_admin"
-    ):
+    if not membership_mod.can_read_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="not a member")
     return {"groupId": group_id, "scopeId": scope, "members": membership_mod.list_scope_members(scope, org_id=org_id)}
 
@@ -318,9 +317,7 @@ async def put_group_member(request: Request, group_id: str, body: GroupMemberBod
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     scope = group_scope(group_id)
-    if not membership_mod.can_manage_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get(
-        "is_org_admin"
-    ):
+    if not membership_mod.can_manage_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="manager required")
     if not principals_mod.get_principal(body.principalId, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
@@ -338,9 +335,7 @@ async def delete_group_member(request: Request, group_id: str, principal_id: str
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     scope = group_scope(group_id)
-    if not membership_mod.can_manage_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get(
-        "is_org_admin"
-    ):
+    if not membership_mod.can_manage_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="manager required")
     membership_mod.remove_scope_member(scope, principal_id, org_id=org_id)
     return {"groupId": group_id, "principalId": principal_id, "removed": True}
@@ -358,9 +353,7 @@ async def post_grant(request: Request, body: GrantBody) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     actor = str((ctx.get("principal") or {}).get("principal_id") or "")
-    if not membership_mod.can_manage_scope(ctx["principal"], body.ownerScopeId, org_id=org_id) and not ctx.get(
-        "is_org_admin"
-    ):
+    if not membership_mod.can_manage_scope(ctx["principal"], body.ownerScopeId, org_id=org_id) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="cannot manage owner scope")
     acl_grant(
         owner_scope_id=body.ownerScopeId,
@@ -382,9 +375,7 @@ async def post_grant(request: Request, body: GrantBody) -> dict[str, Any]:
 async def delete_grant(request: Request, body: GrantBody) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    if not membership_mod.can_manage_scope(ctx["principal"], body.ownerScopeId, org_id=org_id) and not ctx.get(
-        "is_org_admin"
-    ):
+    if not membership_mod.can_manage_scope(ctx["principal"], body.ownerScopeId, org_id=org_id) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="cannot manage owner scope")
     acl_revoke(
         owner_scope_id=body.ownerScopeId,

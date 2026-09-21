@@ -141,7 +141,7 @@ class _LayerLangGraphLoop:
         wrapped = asyncio.wrap_future(future)  # type: ignore[arg-type]
         try:
             return await asyncio.wait_for(wrapped, timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "【LangGraph·worker】lg_app 异步执行超时 thread=%s timeout=%.1fs",
                 self._thread_id,
@@ -316,8 +316,7 @@ class StreamMiddleLayer:
             return False
         elapsed = time.monotonic() - self._resume_start_time
         if elapsed > _RESUME_IN_FLIGHT_TIMEOUT_S:
-            log_tool_approval_trace("middle_layer·resume_in_flight超时", thread_id=self.thread_id, side="middle_layer",
-                level=logging.WARNING, event_data={"elapsed_s": elapsed, "timeout_s": _RESUME_IN_FLIGHT_TIMEOUT_S})
+            log_tool_approval_trace("middle_layer·resume_in_flight超时", thread_id=self.thread_id, side="middle_layer", level=logging.WARNING, event_data={"elapsed_s": elapsed, "timeout_s": _RESUME_IN_FLIGHT_TIMEOUT_S})
             logger.warning(
                 "【中间层】_resume_in_flight 超时释放 thread=%s elapsed=%.1fs > %.1fs",
                 self.thread_id,
@@ -404,8 +403,7 @@ class StreamMiddleLayer:
         _last_warn_log: float = 0.0
         _consecutive_stable = 0
         _CONSECUTIVE_STABLE_MAX = 10
-        log_tool_approval_trace("middle_layer·进入defer循环", thread_id=self.thread_id, side="middle_layer",
-            event_data={"reason": "等待工具授权/协作注入完成"})
+        log_tool_approval_trace("middle_layer·进入defer循环", thread_id=self.thread_id, side="middle_layer", event_data={"reason": "等待工具授权/协作注入完成"})
         logger.info("【中间层】等待工具授权/协作注入完成 thread=%s", self.thread_id)
         try:
             while await _should_defer_run_finished_async(self.thread_id):
@@ -413,8 +411,7 @@ class StreamMiddleLayer:
                 # exit the loop to avoid permanent deadlock.
                 elapsed = time.monotonic() - _loop_start
                 if elapsed > _DEFER_LOOP_MAX_S:
-                    log_tool_approval_trace("middle_layer·defer循环超时退出", thread_id=self.thread_id, side="middle_layer",
-                        level=logging.ERROR, event_data={"reason": "超过30分钟最大等待", "elapsed_s": elapsed})
+                    log_tool_approval_trace("middle_layer·defer循环超时退出", thread_id=self.thread_id, side="middle_layer", level=logging.ERROR, event_data={"reason": "超过30分钟最大等待", "elapsed_s": elapsed})
                     logger.error(
                         "【中间层】defer 循环超时强制退出 thread=%s elapsed=%.1fs > %.1fs",
                         self.thread_id,
@@ -469,8 +466,7 @@ class StreamMiddleLayer:
         finally:
             self._tool_pause = False
             invalidate_defer_run_finished_cache(self.thread_id)
-            log_tool_approval_trace("middle_layer·defer循环退出", thread_id=self.thread_id, side="middle_layer",
-                event_data={"reason": "should_defer返回False"})
+            log_tool_approval_trace("middle_layer·defer循环退出", thread_id=self.thread_id, side="middle_layer", event_data={"reason": "should_defer返回False"})
             logger.info("【中间层】工具授权/协作等待结束 thread=%s", self.thread_id)
         await self._wait_upstream_drained()
         async for out_msg in self._transform.close_stream():
@@ -542,7 +538,7 @@ class StreamMiddleLayer:
                 # Reset heartbeat timer on any received message
                 self._last_upstream_data_time = time.monotonic()
                 _last_ping_time = time.monotonic()  # Reset ping timer on data
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 elapsed = time.monotonic() - self._last_upstream_data_time
                 logger.warning(
                     "middle_layer: upstream silent for %.0fs thread=%s proactive=%s",
@@ -554,11 +550,13 @@ class StreamMiddleLayer:
                 now = time.monotonic()
                 if now - _last_ping_time >= _PING_INTERVAL_S:
                     try:
-                        await self._emit_asgi({
-                            "type": "http.response.body",
-                            "body": b": ping\n\n",
-                            "more_body": True,
-                        })
+                        await self._emit_asgi(
+                            {
+                                "type": "http.response.body",
+                                "body": b": ping\n\n",
+                                "more_body": True,
+                            }
+                        )
                         _last_ping_time = now
                     except Exception:
                         logger.debug("SSE ping emit failed thread=%s", self.thread_id, exc_info=True)
@@ -619,7 +617,7 @@ class StreamMiddleLayer:
             return
         try:
             await asyncio.wait_for(done, timeout=10.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
 
     async def _inject_pump_loop(self) -> None:
@@ -688,7 +686,7 @@ class StreamMiddleLayer:
                 # Use run_async with timeout — non-blocking on the main loop.
                 try:
                     self._lg_loop.run_async(_go(), timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Re-raise on the calling thread so the outer try/except
                     # can distinguish timeout from other errors.
                     raise
@@ -697,7 +695,7 @@ class StreamMiddleLayer:
 
         try:
             await asyncio.to_thread(_run_on_layer_loop)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise
         finally:
             _reset_sse_starlette_app_status()
@@ -726,8 +724,7 @@ class StreamMiddleLayer:
         self._resume_in_flight = True
         self._resume_start_time = time.monotonic()
         self.wake_inject()
-        log_tool_approval_trace("middle_layer·resume后台任务启动", thread_id=self.thread_id, side="middle_layer",
-            event_data={"run_id": self.run_id})
+        log_tool_approval_trace("middle_layer·resume后台任务启动", thread_id=self.thread_id, side="middle_layer", event_data={"run_id": self.run_id})
         logger.info(
             "【工具授权·同SSE】resume_command_upstream 开始 thread=%s body_bytes=%s pause=%s",
             self.thread_id,
@@ -805,7 +802,7 @@ class StreamMiddleLayer:
                 label="tool_approval_resume",
                 timeout=_RESUME_TIMEOUT_S,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "【工具授权·同SSE】LangGraph resume 超时 thread=%s timeout=%.1fs — 降级为后台流",
                 tid,
@@ -1123,12 +1120,10 @@ async def resume_middle_layer_tool_approval(
     workspace_root: str | None = None,
 ) -> bool:
     """Push Command(resume=…) into the active POST middle layer for this thread."""
-    log_tool_approval_trace("middle_layer·resume入口", thread_id=thread_id, side="middle_layer",
-        event_data={"layer_exists": get_active_middle_layer(thread_id) is not None, "resume_payload": resume_payload})
+    log_tool_approval_trace("middle_layer·resume入口", thread_id=thread_id, side="middle_layer", event_data={"layer_exists": get_active_middle_layer(thread_id) is not None, "resume_payload": resume_payload})
     layer = get_active_middle_layer(thread_id)
     if layer is None:
-        log_tool_approval_trace("middle_layer·无活跃layer", thread_id=thread_id, side="middle_layer",
-            level=logging.WARNING, event_data={"reason": "get_active_middle_layer returned None"})
+        log_tool_approval_trace("middle_layer·无活跃layer", thread_id=thread_id, side="middle_layer", level=logging.WARNING, event_data={"reason": "get_active_middle_layer returned None"})
         logger.warning(
             "【工具授权·同SSE】无活跃 middle layer，无法同 SSE resume thread=%s payload=%s",
             thread_id,
@@ -1141,8 +1136,7 @@ async def resume_middle_layer_tool_approval(
         from evoflow.agents.tool_approval_resume import build_lead_run_config
 
         lg_app = _get_inprocess_lg_app()
-        log_tool_approval_trace("middle_layer·lg_app检查", thread_id=thread_id, side="middle_layer",
-            event_data={"lg_app_ready": lg_app is not None})
+        log_tool_approval_trace("middle_layer·lg_app检查", thread_id=thread_id, side="middle_layer", event_data={"lg_app_ready": lg_app is not None})
         if lg_app is None:
             logger.warning("【工具授权·同SSE】LangGraph 应用未就绪 thread=%s", thread_id)
             return False
@@ -1174,30 +1168,25 @@ async def resume_middle_layer_tool_approval(
             ensure_ascii=False,
         ).encode("utf-8")
 
-        log_tool_approval_trace("middle_layer·调用resume_command_upstream", thread_id=thread_id, side="middle_layer",
-            event_data={"run_id": layer.run_id})
+        log_tool_approval_trace("middle_layer·调用resume_command_upstream", thread_id=thread_id, side="middle_layer", event_data={"run_id": layer.run_id})
         try:
             await layer.resume_command_upstream(lg_app, body=body)
-        except asyncio.TimeoutError:
-            log_tool_approval_trace("middle_layer·resume失败", thread_id=thread_id, side="middle_layer",
-                level=logging.ERROR, event_data={"error": "resume_command_upstream TimeoutError"})
+        except TimeoutError:
+            log_tool_approval_trace("middle_layer·resume失败", thread_id=thread_id, side="middle_layer", level=logging.ERROR, event_data={"error": "resume_command_upstream TimeoutError"})
             logger.warning(
                 "【工具授权·同SSE】resume 启动超时 thread=%s — 降级为后台流",
                 thread_id,
             )
             return False
         except Exception as exc:
-            log_tool_approval_trace("middle_layer·resume失败", thread_id=thread_id, side="middle_layer",
-                level=logging.ERROR, event_data={"error": str(exc)})
+            log_tool_approval_trace("middle_layer·resume失败", thread_id=thread_id, side="middle_layer", level=logging.ERROR, event_data={"error": str(exc)})
             logger.exception("【工具授权·同SSE】Command(resume) 失败 thread=%s", thread_id)
             return False
-        log_tool_approval_trace("middle_layer·resume成功", thread_id=thread_id, side="middle_layer",
-            event_data={"run_id": layer.run_id})
+        log_tool_approval_trace("middle_layer·resume成功", thread_id=thread_id, side="middle_layer", event_data={"run_id": layer.run_id})
         logger.info("【工具授权·同SSE】Command(resume) 执行完毕 thread=%s", thread_id)
         return True
     except Exception as exc:
-        log_tool_approval_trace("middle_layer·resume失败", thread_id=thread_id, side="middle_layer",
-            level=logging.ERROR, event_data={"error": str(exc)})
+        log_tool_approval_trace("middle_layer·resume失败", thread_id=thread_id, side="middle_layer", level=logging.ERROR, event_data={"error": str(exc)})
         logger.exception("【工具授权·同SSE】resume 失败 thread=%s", thread_id)
         return False
 
@@ -1207,8 +1196,7 @@ def wake_middle_layer_inject(thread_id: str) -> None:
     tid = _tid_key(thread_id)
     if not tid:
         return
-    log_tool_approval_trace("middle_layer·收到wake注入", thread_id=tid, side="middle_layer",
-        event_data={"reason": "外部唤醒"})
+    log_tool_approval_trace("middle_layer·收到wake注入", thread_id=tid, side="middle_layer", event_data={"reason": "外部唤醒"})
     try:
         from app.gateway.streaming.post_stream_ui_normalize import invalidate_defer_run_finished_cache
 

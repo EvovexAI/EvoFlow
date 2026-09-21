@@ -121,9 +121,7 @@ async def create_item(request: Request, req: CreateItemRequest) -> dict[str, Any
 
 
 @router.post("/migrate-inbox", summary="Migrate task-center inbox rows into user items")
-async def migrate_inbox(
-    request: Request, dry_run: bool = Query(default=False)
-) -> dict[str, Any]:
+async def migrate_inbox(request: Request, dry_run: bool = Query(default=False)) -> dict[str, Any]:
     try:
         stamp = stamp_kwargs_from_request(request)
         return items_svc.migrate_inbox_tasks(
@@ -147,9 +145,7 @@ async def get_item(request: Request, item_id: str) -> dict[str, Any]:
 
 @router.patch("/{item_id}", summary="Update user item")
 @router.put("/{item_id}", summary="Update user item")
-async def update_item(
-    request: Request, item_id: str, req: UpdateItemRequest
-) -> dict[str, Any]:
+async def update_item(request: Request, item_id: str, req: UpdateItemRequest) -> dict[str, Any]:
     require_item_visible(request, item_id)
     try:
         patch = req.model_dump(exclude_unset=True)
@@ -168,9 +164,7 @@ async def delete_item(request: Request, item_id: str) -> dict[str, Any]:
 
 
 @router.post("/{item_id}/dispatch", summary="Dispatch item to employee as Task")
-async def dispatch_item(
-    request: Request, item_id: str, req: DispatchItemRequest
-) -> dict[str, Any]:
+async def dispatch_item(request: Request, item_id: str, req: DispatchItemRequest) -> dict[str, Any]:
     require_item_visible(request, item_id)
     try:
         return await items_svc.dispatch_item(

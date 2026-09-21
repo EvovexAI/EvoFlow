@@ -106,10 +106,7 @@ def _boot_cycle_append(phase: str, tag: str, *, delta_ms: float, total_ms: float
                 extra_bits = " " + " ".join(f"{k}={v!r}" for k, v in list(extra.items())[:6])
             except Exception:
                 pass
-        line = (
-            f"[{ts}] [BOOT-CYCLE] id={cid} {plus} phase=gateway/{phase} tag={tag} "
-            f"gw_delta_ms={delta_ms:.0f} gw_total_ms={total_ms:.0f} pid={os.getpid()}{extra_bits}"
-        )
+        line = f"[{ts}] [BOOT-CYCLE] id={cid} {plus} phase=gateway/{phase} tag={tag} gw_delta_ms={delta_ms:.0f} gw_total_ms={total_ms:.0f} pid={os.getpid()}{extra_bits}"
         with path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
@@ -142,11 +139,7 @@ def startup_mark(tag: str, *, phase: str = "process", extra: dict[str, Any] | No
             extra_bits = " " + " ".join(f"{k}={v!r}" for k, v in extra.items())
         except Exception:
             pass
-    human = (
-        f"[STARTUP-TRACE] phase={phase} tag={tag} "
-        f"delta_ms={mark.delta_ms:.0f} total_ms={mark.total_ms:.0f} "
-        f"pid={pid} frozen={frozen}{extra_bits}"
-    )
+    human = f"[STARTUP-TRACE] phase={phase} tag={tag} delta_ms={mark.delta_ms:.0f} total_ms={mark.total_ms:.0f} pid={pid} frozen={frozen}{extra_bits}"
     print(human, file=sys.stderr, flush=True)
     _append_log_line(human)
     _boot_cycle_append(phase, tag, delta_ms=mark.delta_ms, total_ms=mark.total_ms, extra=extra)

@@ -39,16 +39,12 @@ def test_v100_migration_adds_columns(sqlite_tmp: Path) -> None:
     assert "final_rollup_agent" in columns, "Missing column: final_rollup_agent"
     col_agent = columns["final_rollup_agent"]
     # SQLite stores '' as two single-quote characters in PRAGMA output
-    assert col_agent[4] is None or col_agent[4] == "" or col_agent[4] == "''", (
-        f"Unexpected default for final_rollup_agent: {col_agent[4]!r}"
-    )
+    assert col_agent[4] is None or col_agent[4] == "" or col_agent[4] == "''", f"Unexpected default for final_rollup_agent: {col_agent[4]!r}"
 
     # final_rollup_instruction: default ''
     assert "final_rollup_instruction" in columns, "Missing column: final_rollup_instruction"
     col_inst = columns["final_rollup_instruction"]
-    assert col_inst[4] is None or col_inst[4] == "" or col_inst[4] == "''", (
-        f"Unexpected default for final_rollup_instruction: {col_inst[4]!r}"
-    )
+    assert col_inst[4] is None or col_inst[4] == "" or col_inst[4] == "''", f"Unexpected default for final_rollup_instruction: {col_inst[4]!r}"
 
 
 def test_save_load_roundtrip_final_rollup_fields(sqlite_tmp: Path) -> None:

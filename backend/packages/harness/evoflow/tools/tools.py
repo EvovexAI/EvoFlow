@@ -157,9 +157,9 @@ def _filter_claude_code_if_unavailable(tools: list[BaseTool]) -> list[BaseTool]:
 def get_builtin_tools() -> tuple[BaseTool, ...]:
     """Load built-in sandbox tools on first use (avoids eager import of 50+ tool modules)."""
     from evoflow.community.web_fetch.tools import web_fetch_tool as fetch_url_tool
-    from evoflow.tools.builtins.clarification_tool import ask_clarification_tool
     from evoflow.tools.builtins.assets_tool import assets_tool
     from evoflow.tools.builtins.browser_tool import browser_tool
+    from evoflow.tools.builtins.clarification_tool import ask_clarification_tool
     from evoflow.tools.builtins.claude_session_tool import claude_session_tool
     from evoflow.tools.builtins.collab_peer_tools import (
         collab_peer_read_tool,
@@ -463,6 +463,7 @@ def get_available_tools(
         )
     )
 
+
 def _load_host_direct_tools(
     config,
     model_name: str | None = None,
@@ -480,9 +481,7 @@ def _load_host_direct_tools(
     # Core: HostDirect base tools (read/search/terminal/web_fetch)
     tools: list[BaseTool] = list(HOST_DIRECT_TOOLS)
 
-    tools.extend(
-        _filter_sandbox_superseded_for_host_direct(_filter_claude_code_if_unavailable(list(get_builtin_tools())))
-    )
+    tools.extend(_filter_sandbox_superseded_for_host_direct(_filter_claude_code_if_unavailable(list(get_builtin_tools()))))
     tools.extend(_knowledge_vault_tools_for_catalog())
 
     # Include subagent tools if enabled
@@ -569,11 +568,9 @@ def _load_host_direct_tools(
 
     total = len(tools) + len(mcp_tools) + len(plug_memory_tools)
     logger.debug(
-        f"HostDirect mode loaded: {len(HOST_DIRECT_TOOLS)} direct + {len(get_builtin_tools())} builtin + {len(mcp_tools)} MCP + {len(get_subagent_tools()) if subagent_enabled else 0} subagent + {len(plug_memory_tools)} memory plugin = {total} total"
+        f"HostDirect mode loaded: {len(HOST_DIRECT_TOOLS)} direct + {len(get_builtin_tools())} builtin + {len(mcp_tools)} MCP + {len(get_subagent_tools()) if subagent_enabled else 0} subagent + {len(plug_memory_tools)} memory plugin = {total} total"  # noqa: E501
     )
-    return _apply_media_runtime_tool_schemas(
-        _without_trae_agent_tools(_dedupe_tools_by_name(tools + mcp_tools + plug_memory_tools))
-    )
+    return _apply_media_runtime_tool_schemas(_without_trae_agent_tools(_dedupe_tools_by_name(tools + mcp_tools + plug_memory_tools)))
 
 
 def _apply_web_tool_citation_policies() -> None:

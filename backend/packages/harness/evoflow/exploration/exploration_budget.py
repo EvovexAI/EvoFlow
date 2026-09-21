@@ -182,20 +182,13 @@ def check_tool_budget(thread_id: str, tool_name: str, tool_input: dict | None = 
         attempts = _recent_attempts(tid, name)
         low = [a for a in attempts if a.outcome == "low_signal"]
         if len(attempts) >= _SEARCH_CODE_INDEX_BUDGET and len(low) >= _SEARCH_CODE_INDEX_BUDGET:
-            return (
-                "Error: search_code_index produced low-signal results repeatedly. "
-                "Switch strategy: find(pattern, root='...'), worker(tasks=[{'action':'locate',...}]), "
-                "read on a known path, or curl the relevant API for data bugs."
-            )
+            return "Error: search_code_index produced low-signal results repeatedly. Switch strategy: find(pattern, root='...'), worker(tasks=[{'action':'locate',...}]), read on a known path, or curl the relevant API for data bugs."
 
     if name == "terminal" and _is_unbounded_recurse_command(query):
         recent = _recent_attempts(tid, "terminal")
         blocked = [a for a in recent if a.outcome == "blocked"]
         if blocked:
-            return (
-                "Error: Unbounded filesystem scan blocked (already attempted). "
-                "Use find(pattern, root='<subdir>') or rg with a scoped path."
-            )
+            return "Error: Unbounded filesystem scan blocked (already attempted). Use find(pattern, root='<subdir>') or rg with a scoped path."
 
     if name == "find":
         pattern = str(inp.get("pattern") or query or "").strip()
@@ -237,12 +230,7 @@ def format_exploration_hint(thread_id: str) -> str:
     low = sum(1 for r in rows if r.outcome == "low_signal")
     if low < 2:
         return ""
-    return (
-        "<exploration_hint>\n"
-        "Recent tool attempts had low signal. Do not repeat similar search_code_index queries. "
-        "Switch tool class: find / rg / read_file / API curl.\n"
-        "</exploration_hint>"
-    )
+    return "<exploration_hint>\nRecent tool attempts had low signal. Do not repeat similar search_code_index queries. Switch tool class: find / rg / read_file / API curl.\n</exploration_hint>"
 
 
 def clear_exploration_budget(thread_id: str) -> None:

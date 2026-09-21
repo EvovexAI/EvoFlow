@@ -208,15 +208,11 @@ def maybe_push_tree_receipt_feishu(
     tree = tree_descendants_all_terminal(root_id)
     # Ensure current child counts as done (storage race).
     child_id = str(child.get("id") or child.get("task_id") or "").strip()
-    if child_id and any(
-        str(r.get("task_id") or "") == child_id for r in (tree.get("open_rows") or [])
-    ):
+    if child_id and any(str(r.get("task_id") or "") == child_id for r in (tree.get("open_rows") or [])):
         tree = dict(tree)
         tree["open"] = max(0, int(tree.get("open") or 0) - 1)
         tree["done"] = int(tree.get("done") or 0) + 1
-        tree["open_rows"] = [
-            r for r in (tree.get("open_rows") or []) if str(r.get("task_id") or "") != child_id
-        ]
+        tree["open_rows"] = [r for r in (tree.get("open_rows") or []) if str(r.get("task_id") or "") != child_id]
         tree["all_done"] = tree["open"] == 0 and int(tree.get("total") or 0) > 0
 
     if not tree.get("all_done"):
@@ -338,27 +334,16 @@ def build_receipt_goal(
     ]
     if summary:
         lines.append(f"- 下游结论：{summary}")
-    lines.append(
-        f"- 同级进度：{rollup.get('done', 0)}/{rollup.get('total', 0)} 已结案"
-        + ("（全部结案）" if rollup.get("all_done") else "")
-    )
+    lines.append(f"- 同级进度：{rollup.get('done', 0)}/{rollup.get('total', 0)} 已结案" + ("（全部结案）" if rollup.get("all_done") else ""))
     if rollup.get("open_rows"):
-        open_bits = [
-            f"`{r['task_id']}`({r.get('assigned_to') or '?'})"
-            for r in (rollup.get("open_rows") or [])[:6]
-        ]
+        open_bits = [f"`{r['task_id']}`({r.get('assigned_to') or '?'})" for r in (rollup.get("open_rows") or [])[:6]]
         lines.append(f"- 仍未结：{', '.join(open_bits)}")
     if rollup.get("all_done"):
-        lines.append(
-            "- 建议：同级下游已齐。编排岗继续下一步；提出人请验收根单并 ``completed`` 闭环"
-            "（根单若仍是「待闭环 / awaiting_close」不要当成已完成；进度 100% ≠ 整单结束）。"
-        )
+        lines.append("- 建议：同级下游已齐。编排岗继续下一步；提出人请验收根单并 ``completed`` 闭环（根单若仍是「待闭环 / awaiting_close」不要当成已完成；进度 100% ≠ 整单结束）。")
     else:
         lines.append("- 建议：可等待其余同级结案，或先处理已回执项——仍在原编排单上操作。")
     if parent_id:
-        lines.append(
-            f"- 你的上游编排单：`{parent_id}`（本轮 wake 已绑定此 id；待闭环期间可继续编排，验收后再 completed）"
-        )
+        lines.append(f"- 你的上游编排单：`{parent_id}`（本轮 wake 已绑定此 id；待闭环期间可继续编排，验收后再 completed）")
     return "\n".join(lines)
 
 
@@ -425,9 +410,7 @@ def notify_upstream_on_child_terminal(
             }
         )
 
-    targets = resolve_upstream_targets(
-        child, parent, all_siblings_done=bool(rollup.get("all_done"))
-    )
+    targets = resolve_upstream_targets(child, parent, all_siblings_done=bool(rollup.get("all_done")))
     now = utc_now_iso_z()
     wakes: list[dict[str, Any]] = []
     goal = ""
@@ -462,9 +445,7 @@ def notify_upstream_on_child_terminal(
                 wakes.append({"agent_code": code, "ok": True, "result": result})
             except ConflictError as e:
                 wakes.append({"agent_code": code, "ok": False, "busy": True, "error": str(e)})
-                logger.info(
-                    "upstream_receipt: target busy agent=%s child=%s", code, child_id
-                )
+                logger.info("upstream_receipt: target busy agent=%s child=%s", code, child_id)
             except ValidationError as e:
                 wakes.append({"agent_code": code, "ok": False, "error": str(e)})
                 logger.info(
@@ -475,9 +456,7 @@ def notify_upstream_on_child_terminal(
                 )
             except Exception as e:
                 wakes.append({"agent_code": code, "ok": False, "error": str(e)})
-                logger.exception(
-                    "upstream_receipt: wake failed agent=%s child=%s", code, child_id
-                )
+                logger.exception("upstream_receipt: wake failed agent=%s child=%s", code, child_id)
 
     feishu_push: dict[str, Any] | None = None
     try:
@@ -495,10 +474,7 @@ def notify_upstream_on_child_terminal(
         "child_status": str(terminal_status).strip().lower(),
         "child_assignee": str(child.get("assigned_to") or "").strip(),
         "all_siblings_done": bool(rollup.get("all_done")),
-        "wakes": [
-            {"agent_code": w.get("agent_code"), "ok": w.get("ok"), "busy": w.get("busy")}
-            for w in wakes
-        ],
+        "wakes": [{"agent_code": w.get("agent_code"), "ok": w.get("ok"), "busy": w.get("busy")} for w in wakes],
         "feishu_tree_receipt": feishu_push,
     }
     try:
@@ -546,12 +522,7 @@ def notify_upstream_on_child_terminal(
         )
 
     return {
-        "ok": (
-            any(w.get("ok") for w in wakes)
-            or any(w.get("busy") for w in wakes)
-            or bool(feishu_push and feishu_push.get("ok"))
-            or (not targets and feishu_push is not None)
-        ),
+        "ok": (any(w.get("ok") for w in wakes) or any(w.get("busy") for w in wakes) or bool(feishu_push and feishu_push.get("ok")) or (not targets and feishu_push is not None)),
         "task_id": child_id,
         "parent_task_id": parent_id,
         "targets": targets,

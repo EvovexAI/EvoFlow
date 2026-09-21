@@ -13,12 +13,8 @@ from evoflow.collab.thread_ids import (
 )
 from evoflow.observability import queries as obs_queries
 
-_TERMINAL_TASK_STATUSES = frozenset(
-    {"completed", "failed", "cancelled", "canceled", "done", "success", "error", "timed_out"}
-)
-_ACTIVE_TASK_STATUSES = frozenset(
-    {"executing", "running", "in_progress", "planning", "planned", "awaiting_exec", "plan_ready", "paused", "pending"}
-)
+_TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "cancelled", "canceled", "done", "success", "error", "timed_out"})
+_ACTIVE_TASK_STATUSES = frozenset({"executing", "running", "in_progress", "planning", "planned", "awaiting_exec", "plan_ready", "paused", "pending"})
 _TERMINAL_SUBTASK_STATUSES = _TERMINAL_TASK_STATUSES | frozenset({"skipped"})
 _ACTIVE_SUBTASK_STATUSES = frozenset({"executing", "running", "in_progress", "active", "working"})
 
@@ -38,18 +34,10 @@ def _extra_json_dict(subtask: dict[str, Any]) -> dict[str, Any]:
 
 def resolve_subtask_thread_id(task: dict[str, Any], sub: dict[str, Any]) -> str | None:
     """Executor thread for one subtask row."""
-    lead = normalize_lead_thread_id(
-        str(task.get("thread_id") or task.get("current_execution_thread_id") or "").strip()
-    ) or ""
+    lead = normalize_lead_thread_id(str(task.get("thread_id") or task.get("current_execution_thread_id") or "").strip()) or ""
     sid = str(sub.get("id") or "").strip()
     extra = _extra_json_dict(sub)
-    stored = str(
-        sub.get("subtask_thread_id")
-        or sub.get("external_session_id")
-        or extra.get("subtask_thread_id")
-        or extra.get("external_session_id")
-        or ""
-    ).strip()
+    stored = str(sub.get("subtask_thread_id") or sub.get("external_session_id") or extra.get("subtask_thread_id") or extra.get("external_session_id") or "").strip()
     if stored:
         return normalize_collab_executor_thread_id(stored)
     if lead and sid:
@@ -71,9 +59,7 @@ def collect_task_thread_ids(task: dict[str, Any] | None) -> list[str]:
         seen.add(tid)
         out.append(tid)
 
-    lead = normalize_lead_thread_id(
-        str(task.get("thread_id") or task.get("current_execution_thread_id") or "").strip()
-    ) or ""
+    lead = normalize_lead_thread_id(str(task.get("thread_id") or task.get("current_execution_thread_id") or "").strip()) or ""
     if lead:
         _add(lead)
 
@@ -93,9 +79,7 @@ def collect_task_thread_ids(task: dict[str, Any] | None) -> list[str]:
 
 
 def _resolve_lead_thread_id(task: dict[str, Any]) -> str | None:
-    lead = normalize_lead_thread_id(
-        str(task.get("thread_id") or task.get("current_execution_thread_id") or "").strip()
-    )
+    lead = normalize_lead_thread_id(str(task.get("thread_id") or task.get("current_execution_thread_id") or "").strip())
     return lead or None
 
 
@@ -153,12 +137,7 @@ def resolve_task_duration(task: dict[str, Any] | None) -> dict[str, Any]:
         except (TypeError, ValueError):
             pass
 
-    start = (
-        task.get("execution_started_at")
-        or task.get("started_at")
-        or task.get("planning_started_at")
-        or task.get("created_at")
-    )
+    start = task.get("execution_started_at") or task.get("started_at") or task.get("planning_started_at") or task.get("created_at")
     end = task.get("completed_at")
     return _duration_fields(start, end, running=running and not end)
 

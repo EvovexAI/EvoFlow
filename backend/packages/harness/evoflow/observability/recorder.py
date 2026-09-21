@@ -30,6 +30,7 @@ def _fire_and_forget(fn: Any, **kwargs: Any) -> None:
         except Exception:
             logger.debug("observability fire-and-forget sync fallback failed", exc_info=True)
 
+
 _lock = threading.Lock()
 _store: ObservabilitySqliteStore | None = None
 _store_path: str | None = None
@@ -44,11 +45,7 @@ def _store_for_config() -> ObservabilitySqliteStore | None:
 
         if not observability_enabled():
             return None
-        raw_path = str(
-            resolve_observability_db_config_path(
-                (get_app_config().observability.sqlite_path or "").strip() or None
-            )
-        )
+        raw_path = str(resolve_observability_db_config_path((get_app_config().observability.sqlite_path or "").strip() or None))
     except Exception:
         return None
     with _lock:

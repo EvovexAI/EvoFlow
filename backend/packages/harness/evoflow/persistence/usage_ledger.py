@@ -686,11 +686,7 @@ def fetch_usage_by_principal(
         where += " AND category = ?"
         params.append(cat)
 
-    has_pid = bool(
-        db.execute(
-            "SELECT 1 FROM pragma_table_info('evoflow_usage_daily') WHERE name='principal_id'"
-        ).fetchone()
-    )
+    has_pid = bool(db.execute("SELECT 1 FROM pragma_table_info('evoflow_usage_daily') WHERE name='principal_id'").fetchone())
     if not has_pid:
         return {
             "from": start,
@@ -716,12 +712,8 @@ def fetch_usage_by_principal(
 
     names: dict[str, str] = {}
     try:
-        if db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_principals'"
-        ).fetchone():
-            for pr in db.execute(
-                "SELECT principal_id, display_name FROM evoflow_principals"
-            ).fetchall():
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_principals'").fetchone():
+            for pr in db.execute("SELECT principal_id, display_name FROM evoflow_principals").fetchall():
                 pid = str(pr[0] or "").strip()
                 dn = str(pr[1] or "").strip()
                 if pid and dn:
@@ -731,11 +723,7 @@ def fetch_usage_by_principal(
 
     proactive_by_pid: dict[str, float] = {}
     try:
-        if db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_proactive_cost_log'"
-        ).fetchone() and db.execute(
-            "SELECT 1 FROM pragma_table_info('evoflow_proactive_cost_log') WHERE name='principal_id'"
-        ).fetchone():
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_proactive_cost_log'").fetchone() and db.execute("SELECT 1 FROM pragma_table_info('evoflow_proactive_cost_log') WHERE name='principal_id'").fetchone():
             prow = db.execute(
                 """
                 SELECT COALESCE(NULLIF(TRIM(principal_id), ''), '') AS pid,
@@ -793,9 +781,7 @@ def fetch_usage_by_principal(
                 "total_amount_sum": proactive,
             }
         )
-    items.sort(
-        key=lambda x: (-float(x.get("total_amount_sum") or 0), -float(x.get("quantity_sum") or 0))
-    )
+    items.sort(key=lambda x: (-float(x.get("total_amount_sum") or 0), -float(x.get("quantity_sum") or 0)))
 
     return {
         "from": start,
@@ -810,9 +796,7 @@ def heal_empty_llm_skus(db: Any | None = None) -> dict[str, Any]:
     """Backfill empty llm event sku from session model columns; rebuild llm daily rollup."""
 
     def _heal(conn: Any) -> dict[str, Any]:
-        if not conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_usage_events'"
-        ).fetchone():
+        if not conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_usage_events'").fetchone():
             return {"ok": False, "reason": "no_table", "updated_events": 0}
 
         before = conn.execute(

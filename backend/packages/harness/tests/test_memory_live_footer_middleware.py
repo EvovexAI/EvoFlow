@@ -52,9 +52,7 @@ def test_memory_live_footer_freezes_standing_and_keeps_system_stable() -> None:
                 return_value="",
             ):
                 out1 = mw._patch_request(req)
-                out2 = mw._patch_request(
-                    req.override(system_message=SystemMessage(content="STATIC_PROMPT_WITHOUT_MEMORY"))
-                )
+                out2 = mw._patch_request(req.override(system_message=SystemMessage(content="STATIC_PROMPT_WITHOUT_MEMORY")))
 
     assert standing_calls["n"] == 1
     assert "LIVE_MEMORY" in str(out1.system_message.content)

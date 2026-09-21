@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from evoflow.execution_security.approval import AskForApproval
 from evoflow.execution_security.permission_preset import (
     PRESET_DEFAULT,

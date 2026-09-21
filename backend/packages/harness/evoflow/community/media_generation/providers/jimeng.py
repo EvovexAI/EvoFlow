@@ -59,10 +59,7 @@ def _request_ark(method: str, path: str, body: dict[str, Any] | None = None) -> 
                 "勿自动改用 wan/kling，除非用户明确要求。"
             )
         elif resp.status_code == 401:
-            hint = (
-                " 提示：生图/生视频 API 基址应为 https://ark.cn-beijing.volces.com/api/plan/v3"
-                "（不是对话用的 /api/v3）。请确认 Ark API Key 有效且已在 EvoPanel 保存。"
-            )
+            hint = " 提示：生图/生视频 API 基址应为 https://ark.cn-beijing.volces.com/api/plan/v3（不是对话用的 /api/v3）。请确认 Ark API Key 有效且已在 EvoPanel 保存。"
         raise RuntimeError(f"Jimeng/Ark {resp.status_code}: {detail}{hint}")
     return data if isinstance(data, dict) else {}
 

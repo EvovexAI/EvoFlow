@@ -67,9 +67,7 @@ def authorize_main_task_execution(storage: ProjectStorage, task_id: str, authori
                     # UI「开始执行」重试派发时主任务可能已是 executing 但授权位未写入。
                     pass
                 else:
-                    return False, (
-                        f"Task status must be one of {allowed_status!r} to authorize execution; got {status!r}"
-                    )
+                    return False, (f"Task status must be one of {allowed_status!r} to authorize execution; got {status!r}")
             now = utc_now_iso_z()
             was_authorized = bool(task.get("execution_authorized"))
             task["execution_authorized"] = True

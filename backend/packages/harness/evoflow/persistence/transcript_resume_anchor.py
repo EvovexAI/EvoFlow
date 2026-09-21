@@ -101,7 +101,7 @@ def _find_assistant_before_user(messages: list[dict[str, Any]], user_idx: int) -
 
 
 def _reasoning_segments_from_message(msg: dict[str, Any]) -> list[str]:
-    from evoflow.persistence.chat_message_content import loads_payload, _pick_reasoning
+    from evoflow.persistence.chat_message_content import _pick_reasoning, loads_payload
 
     payload = msg.get("content_json")
     if not isinstance(payload, dict):
@@ -133,12 +133,7 @@ def _strip_prior_prefix(text: str, prefix: str, *, allow_hard_join: bool = True)
         return s
     if s.startswith(p):
         rest = s[len(p) :]
-        if (
-            not allow_hard_join
-            and rest
-            and not rest[0].isspace()
-            and rest[0] not in "，。！？、,:;)]"
-        ):
+        if not allow_hard_join and rest and not rest[0].isspace() and rest[0] not in "，。！？、,:;)]":
             return s
         return rest.lstrip()
     return s
@@ -172,7 +167,7 @@ def _lc_message_dict(msg: Any) -> dict[str, Any]:
         return msg
     role = "assistant"
     try:
-        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+        from langchain_core.messages import HumanMessage, ToolMessage
 
         if isinstance(msg, HumanMessage):
             role = "user"

@@ -24,10 +24,7 @@ def _cap_read_limit(read_limit: int, read_offset: int) -> tuple[int, str]:
         return read_limit, ""
     return (
         _MAX_READ_LIMIT,
-        (
-            f"\n\n[hint] read_limit capped at {_MAX_READ_LIMIT}; "
-            f"use read_offset={read_offset + _MAX_READ_LIMIT} on a follow-up call to continue."
-        ),
+        (f"\n\n[hint] read_limit capped at {_MAX_READ_LIMIT}; use read_offset={read_offset + _MAX_READ_LIMIT} on a follow-up call to continue."),
     )
 
 
@@ -63,19 +60,16 @@ def _run_search_index_lookup(
         st = index_status(workspace_root=root or None, thread_id=thread_id)
         if st.get("building"):
             return (
-                f"No index hits for '{label}' yet — workspace index is still building. "
-                "Retry search_code_index in a few seconds.",
+                f"No index hits for '{label}' yet — workspace index is still building. Retry search_code_index in a few seconds.",
                 None,
             )
         if not st.get("ready"):
             return (
-                f"No index hits for '{label}'. Workspace index is not ready — "
-                "open the project in EvoPanel (index build) or wait for background indexing.",
+                f"No index hits for '{label}'. Workspace index is not ready — open the project in EvoPanel (index build) or wait for background indexing.",
                 None,
             )
         return (
-            f"No index hits for '{label}'. Try pipe synonyms (dall-e|dalle), shorter symbols, "
-            "or read_file on likely paths after index miss.",
+            f"No index hits for '{label}'. Try pipe synonyms (dall-e|dalle), shorter symbols, or read_file on likely paths after index miss.",
             None,
         )
     data["label"] = label
@@ -129,10 +123,7 @@ def _follow_read_with_timeout(
         fut = _SEARCH_POOL.submit(_reads)
         extra_reads = fut.result(timeout=_MAX_READ_WALL_SECONDS)
     except FuturesTimeoutError:
-        return (
-            f"\n\n[hint] post-search reads timed out after {int(_MAX_READ_WALL_SECONDS)}s; "
-            "use read_file on catalog paths or lower read_limit."
-        )
+        return f"\n\n[hint] post-search reads timed out after {int(_MAX_READ_WALL_SECONDS)}s; use read_file on catalog paths or lower read_limit."
     except Exception as e:
         return f"\n\n[hint] post-search reads failed: {e}"
     return f"\n\n{extra_reads}" if extra_reads else ""
@@ -161,10 +152,7 @@ def _search_code_index_wallclock(
         )
         msg, data = fut.result(timeout=_MAX_WALL_SECONDS)
     except FuturesTimeoutError:
-        return (
-            f"Error: search_code_index timed out after {int(_MAX_WALL_SECONDS)}s. "
-            "Lower read_limit (max 4), narrow query, or paginate with read_offset."
-        )
+        return f"Error: search_code_index timed out after {int(_MAX_WALL_SECONDS)}s. Lower read_limit (max 4), narrow query, or paginate with read_offset."
     except Exception as e:
         return f"Error: search_code_index failed: {e}"
 
@@ -236,13 +224,16 @@ def search_code_index_hd(
         if budget_err:
             return budget_err
 
-    return _search_code_index_wallclock(
-        root=root,
-        thread_id=thread_id,
-        query=query,
-        queries=queries,
-        read_offset=read_offset,
-        read_limit=read_limit,
-        limit=limit,
-        verbose=verbose,
-    ) + read_cap_note
+    return (
+        _search_code_index_wallclock(
+            root=root,
+            thread_id=thread_id,
+            query=query,
+            queries=queries,
+            read_offset=read_offset,
+            read_limit=read_limit,
+            limit=limit,
+            verbose=verbose,
+        )
+        + read_cap_note
+    )

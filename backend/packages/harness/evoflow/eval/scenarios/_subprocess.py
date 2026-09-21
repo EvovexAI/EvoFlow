@@ -21,9 +21,7 @@ def run_handler_subprocess(handler: str, *, timeout_s: int = 180) -> dict[str, A
     cannot break JSON parsing.
     """
     t0 = int(time.time() * 1000)
-    harness_root = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..")
-    )
+    harness_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     env = os.environ.copy()
     pp = env.get("PYTHONPATH", "")
     parts = [harness_root]
@@ -54,9 +52,7 @@ def run_handler_subprocess(handler: str, *, timeout_s: int = 180) -> dict[str, A
             if cfg is not None:
                 env["EVOFLOW_CONFIG_PATH"] = str(cfg)
         except Exception:  # noqa: BLE001
-            repo_cfg = os.path.abspath(
-                os.path.join(harness_root, "..", "..", "..", "config.yaml")
-            )
+            repo_cfg = os.path.abspath(os.path.join(harness_root, "..", "..", "..", "config.yaml"))
             if os.path.isfile(repo_cfg):
                 env["EVOFLOW_CONFIG_PATH"] = repo_cfg
 

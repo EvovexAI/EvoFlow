@@ -55,8 +55,7 @@ def snapshot_from_config(mc: ModelConfig) -> dict[str, str]:
     local = _is_local_config(mc)
     return {
         "embedding_mode": "local" if local else "cloud",
-        "embedding_model": str(getattr(mc, "model", "") or "").strip()
-        or (FALLBACK_LOCAL_MODEL if local else FALLBACK_CLOUD_MODEL),
+        "embedding_model": str(getattr(mc, "model", "") or "").strip() or (FALLBACK_LOCAL_MODEL if local else FALLBACK_CLOUD_MODEL),
         "embedding_base_url": "" if local else str(getattr(mc, "base_url", "") or "").strip(),
         "embedding_model_ref": str(getattr(mc, "name", "") or "").strip(),
     }
@@ -148,21 +147,10 @@ def resolve_create_binding(payload: dict[str, Any]) -> dict[str, Any]:
     2. global default
     3. legacy embeddingMode/Model/BaseUrl/ApiKey fields
     """
-    ref = str(
-        payload.get("embeddingModelRef")
-        or payload.get("embedding_model_ref")
-        or ""
-    ).strip()
+    ref = str(payload.get("embeddingModelRef") or payload.get("embedding_model_ref") or "").strip()
     if not ref:
         # Only use global default when caller did not pass legacy cloud/local override
-        has_legacy = bool(
-            payload.get("embeddingModel")
-            or payload.get("embedding_model")
-            or payload.get("embeddingApiKey")
-            or payload.get("embedding_api_key")
-            or payload.get("embeddingBaseUrl")
-            or payload.get("embedding_base_url")
-        )
+        has_legacy = bool(payload.get("embeddingModel") or payload.get("embedding_model") or payload.get("embeddingApiKey") or payload.get("embedding_api_key") or payload.get("embeddingBaseUrl") or payload.get("embedding_base_url"))
         if not has_legacy:
             ref = default_embedding_ref()
 
@@ -192,17 +180,9 @@ def resolve_create_binding(payload: dict[str, Any]) -> dict[str, Any]:
         mode = default_mode
     if mode == "local" and not local_embedding_deps_available():
         mode = "cloud"
-    model = str(
-        payload.get("embeddingModel")
-        or payload.get("embedding_model")
-        or (FALLBACK_LOCAL_MODEL if mode == "local" else FALLBACK_CLOUD_MODEL)
-    ).strip()
-    base_url = str(
-        payload.get("embeddingBaseUrl") or payload.get("embedding_base_url") or ""
-    ).strip()
-    api_key = str(
-        payload.get("embeddingApiKey") or payload.get("embedding_api_key") or ""
-    ).strip()
+    model = str(payload.get("embeddingModel") or payload.get("embedding_model") or (FALLBACK_LOCAL_MODEL if mode == "local" else FALLBACK_CLOUD_MODEL)).strip()
+    base_url = str(payload.get("embeddingBaseUrl") or payload.get("embedding_base_url") or "").strip()
+    api_key = str(payload.get("embeddingApiKey") or payload.get("embedding_api_key") or "").strip()
     matched = match_registry_ref(mode=mode, model=model, base_url=base_url)
     binding = {
         "embedding_mode": mode,
@@ -225,14 +205,7 @@ def _ensure_create_binding_ready(
     ``processing`` because embeddings never start.
     """
     # Caller explicitly forced mode/model — respect it (surface errors at index time).
-    forced = bool(
-        payload.get("embeddingModelRef")
-        or payload.get("embedding_model_ref")
-        or payload.get("embeddingMode")
-        or payload.get("embedding_mode")
-        or payload.get("embeddingModel")
-        or payload.get("embedding_model")
-    )
+    forced = bool(payload.get("embeddingModelRef") or payload.get("embedding_model_ref") or payload.get("embeddingMode") or payload.get("embedding_mode") or payload.get("embeddingModel") or payload.get("embedding_model"))
     probe = {
         "embedding_mode": binding.get("embedding_mode"),
         "embedding_model": binding.get("embedding_model"),
@@ -243,7 +216,6 @@ def _ensure_create_binding_ready(
     }
     # Inline key for readiness probe (not yet stored as secret ref).
     if binding.get("embedding_api_key") and str(binding.get("embedding_mode") or "") != "local":
-        from evoflow.config.model_config import ModelConfig
         from evoflow.models.credential_sanitize import resolve_and_sanitize_api_key
 
         api_key = resolve_and_sanitize_api_key(str(binding.get("embedding_api_key") or "")) or ""
@@ -291,6 +263,7 @@ def _ensure_create_binding_ready(
     snap = snapshot_from_config(mc)
     return {**snap, "embedding_api_key": "", "from_registry": True}
 
+
 def model_config_for_base_row(base: dict[str, Any]) -> ModelConfig:
     """Build runtime ModelConfig for indexing / search."""
     ref = str(base.get("embedding_model_ref") or base.get("embeddingModelRef") or "").strip()
@@ -314,11 +287,7 @@ def model_config_for_base_row(base: dict[str, Any]) -> ModelConfig:
     if not api_key and mode != "local":
         import os
 
-        api_key = (
-            os.environ.get("EVOFLOW_OWNED_EMBEDDING_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-            or None
-        )
+        api_key = os.environ.get("EVOFLOW_OWNED_EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY") or None
     kb_id = str(base.get("id") or "")[:8] or "x"
     if mode == "local":
         return ModelConfig(

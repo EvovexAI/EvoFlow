@@ -14,18 +14,12 @@ from evoflow.tools.host_direct.terminal_code_search_redirect import (
 
 
 def test_detects_select_string():
-    cmd = (
-        'Select-String -Pattern "MessageVirtualList|VirtualList" '
-        '-Path "D:\\repo\\src\\Foo.tsx" | Select-Object -First 5'
-    )
+    cmd = 'Select-String -Pattern "MessageVirtualList|VirtualList" -Path "D:\\repo\\src\\Foo.tsx" | Select-Object -First 5'
     assert is_code_search_terminal_command(cmd)
 
 
 def test_parse_select_string():
-    cmd = (
-        'Select-String -Pattern "foo|bar" '
-        '-Path "D:\\repo\\src\\Foo.tsx" | Select-Object -First 3'
-    )
+    cmd = 'Select-String -Pattern "foo|bar" -Path "D:\\repo\\src\\Foo.tsx" | Select-Object -First 3'
     parsed = parse_code_search_command(cmd)
     assert parsed == ("foo|bar", ["D:\\repo\\src\\Foo.tsx"])
 
@@ -85,17 +79,13 @@ def test_allows_disk_folder_size_powershell():
     cmd = (
         "powershell -Command \"Get-ChildItem -Path 'C:\\\\' -Directory | ForEach-Object { "
         "$size = (Get-ChildItem -Path $_.FullName -Recurse -File -ErrorAction SilentlyContinue "
-        "| Measure-Object -Property Length -Sum).Sum; Write-Output $size }\""
+        '| Measure-Object -Property Length -Sum).Sum; Write-Output $size }"'
     )
     assert not is_code_search_terminal_command(cmd)
 
 
 def test_allows_measure_object_recurse_pipeline():
-    cmd = (
-        "powershell -NoProfile -Command \"$f='C:\\\\Windows'; "
-        "(Get-ChildItem $f -Recurse -File -ErrorAction SilentlyContinue "
-        "| Measure-Object -Property Length -Sum).Sum\""
-    )
+    cmd = "powershell -NoProfile -Command \"$f='C:\\\\Windows'; (Get-ChildItem $f -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum\""
     assert not is_code_search_terminal_command(cmd)
 
 

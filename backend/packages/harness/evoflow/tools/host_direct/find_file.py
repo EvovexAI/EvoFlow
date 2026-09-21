@@ -180,10 +180,7 @@ def find_file_wallclock(
 
     hits = _iter_matches(base.resolve(), pattern, max_results=max(1, min(int(max_results), _MAX_RESULTS)))
     if not hits:
-        return (
-            f"No files matching pattern {pattern!r} under {rel_root} "
-            f"(workspace {workspace_root}). Try a broader pattern or another root subdirectory."
-        )
+        return f"No files matching pattern {pattern!r} under {rel_root} (workspace {workspace_root}). Try a broader pattern or another root subdirectory."
     lines = [f"Found {len(hits)} file(s) matching {pattern!r} under {rel_root}:", ""]
     for i, rel in enumerate(hits):
         lines.append(f"  [{i}] {rel}")

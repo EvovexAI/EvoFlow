@@ -6,16 +6,18 @@
 
 前端类型定义见：evopanel/.../src/types/index.ts
 """
+
 from __future__ import annotations
 
 import json
 import time
+from datetime import UTC
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
+
 
 def _ms_to_s(ms: float | None) -> float:
     """毫秒转秒，保留 2 位小数。"""
@@ -37,13 +39,15 @@ def _fmt_duration_ms(ms: float | None) -> str:
 
 def _iso_now() -> str:
     """当前 UTC ISO 时间字符串。"""
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    from datetime import datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------------------------------------------------------------------------
 # Dashboard 适配
 # ---------------------------------------------------------------------------
+
 
 def adapt_dashboard_summary(raw: dict[str, Any]) -> dict[str, Any]:
     """适配健康总览 → 前端 DashboardSummary 类型。"""
@@ -146,6 +150,7 @@ def adapt_dashboard_agents_ranking(raw: dict[str, Any]) -> list[dict[str, Any]]:
 # 业务质量适配
 # ---------------------------------------------------------------------------
 
+
 def adapt_task_quality(raw: dict[str, Any]) -> dict[str, Any]:
     """适配任务质量 → 前端 TaskStats 类型。"""
     duration = raw.get("duration", {})
@@ -164,10 +169,7 @@ def adapt_task_quality(raw: dict[str, Any]) -> dict[str, Any]:
             "p99": duration.get("p99", 0),
             "avg": duration.get("avg", 0),
         },
-        "failureReasons": [
-            {"reason": r.get("reason", r.get("label", "")), "count": r.get("count", r.get("value", 0))}
-            for r in reasons
-        ],
+        "failureReasons": [{"reason": r.get("reason", r.get("label", "")), "count": r.get("count", r.get("value", 0))} for r in reasons],
         "score": raw.get("quality_score", raw.get("score", 0)),
     }
 
@@ -236,6 +238,7 @@ def adapt_conversation_stats(raw: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 安全中心适配
 # ---------------------------------------------------------------------------
+
 
 def adapt_security_summary(raw: dict[str, Any]) -> dict[str, Any]:
     """适配安全总览 → 前端 SecuritySummary 类型。"""
@@ -330,6 +333,7 @@ def adapt_audit_stats(raw: dict[str, Any]) -> list[dict[str, Any]]:
 # 性能基准适配
 # ---------------------------------------------------------------------------
 
+
 def adapt_performance_summary(raw: dict[str, Any]) -> dict[str, Any]:
     """适配性能总览 → 前端 PerformanceSummary 类型。"""
     latency = raw.get("latency", {})
@@ -400,6 +404,7 @@ def adapt_error_stats(raw: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 评估引擎适配
 # ---------------------------------------------------------------------------
+
 
 def adapt_eval_cases(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """适配评测用例列表 → 前端 EvalCase[] 类型。"""
@@ -520,9 +525,7 @@ def adapt_eval_run_detail(raw: dict[str, Any]) -> dict[str, Any]:
         assertions = r.get("assertions")
         if not assertions and isinstance(metrics, dict):
             assertions = metrics.get("assertions") or []
-        nested_metrics = (
-            metrics.get("metrics") if isinstance(metrics.get("metrics"), dict) else {}
-        )
+        nested_metrics = metrics.get("metrics") if isinstance(metrics.get("metrics"), dict) else {}
         provenance = r.get("provenance") or metrics.get("provenance") or {}
         case_id = r.get("case_id", r.get("id", ""))
         enriched = enrich_case_row(dict(r))
@@ -540,9 +543,7 @@ def adapt_eval_run_detail(raw: dict[str, Any]) -> dict[str, Any]:
                 "module_label": enriched.get("module_label") or module_label(mod),
                 "level": r.get("level", ""),
                 "level_label": enriched.get("level_label", ""),
-                "handler": r.get("handler")
-                or (provenance or {}).get("handler")
-                or "",
+                "handler": r.get("handler") or (provenance or {}).get("handler") or "",
                 "description": r.get("description") or "",
                 "params": enriched.get("params") or r.get("params") or {},
                 "design": enriched.get("design") or {},
@@ -558,7 +559,8 @@ def adapt_eval_run_detail(raw: dict[str, Any]) -> dict[str, Any]:
                 "assertions": assertions or [],
                 "steps": r.get("steps") or metrics.get("steps") or [],
                 "provenance": provenance,
-                "metrics": nested_metrics or {
+                "metrics": nested_metrics
+                or {
                     k: v
                     for k, v in (metrics or {}).items()
                     if k
@@ -597,27 +599,14 @@ def adapt_eval_run_detail(raw: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": (
             (summary or {}).get("duration_ms")
             if isinstance(summary, dict) and (summary or {}).get("duration_ms")
-            else base.get("duration_ms")
-            or (
-                int(base.get("finished_at_ms") or 0) - int(base.get("started_at_ms") or 0)
-                if base.get("finished_at_ms") and base.get("started_at_ms")
-                else 0
-            )
+            else base.get("duration_ms") or (int(base.get("finished_at_ms") or 0) - int(base.get("started_at_ms") or 0) if base.get("finished_at_ms") and base.get("started_at_ms") else 0)
         ),
         "duration": _fmt_duration_ms(
             (summary or {}).get("duration_ms")
             if isinstance(summary, dict) and (summary or {}).get("duration_ms")
-            else base.get("duration_ms")
-            or (
-                int(base.get("finished_at_ms") or 0) - int(base.get("started_at_ms") or 0)
-                if base.get("finished_at_ms") and base.get("started_at_ms")
-                else 0
-            )
+            else base.get("duration_ms") or (int(base.get("finished_at_ms") or 0) - int(base.get("started_at_ms") or 0) if base.get("finished_at_ms") and base.get("started_at_ms") else 0)
         ),
-        "startedAt": base.get("started_at")
-        or base.get("started_at_ms")
-        or base.get("created_at_ms")
-        or _iso_now(),
+        "startedAt": base.get("started_at") or base.get("started_at_ms") or base.get("created_at_ms") or _iso_now(),
         "triggeredBy": base.get("triggered_by", "system"),
         "dimensions": dimensions,
         "cases": cases,
@@ -660,6 +649,7 @@ def adapt_compare_evals(raw: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # 状态归一化
 # ---------------------------------------------------------------------------
+
 
 def _normalize_run_status(status: str) -> str:
     """将后端状态归一化为前端 EvalRunStatus。"""

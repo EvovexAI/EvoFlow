@@ -21,21 +21,18 @@ from evoflow.proactive.decision_gate import DecisionGate
 from evoflow.proactive.engine import ProactiveEngine
 from evoflow.proactive.models import (
     ApprovalStatus,
-    Initiative,
-    InitiativeActionType,
-    InitiativeRiskLevel,
     InitiativeStatus,
     ProactiveRole,
     needs_approval,
 )
 from evoflow.proactive.repositories import ProactiveRepository
 from evoflow.proactive.work_items import (
-    dispatch_rationale_zh as _dispatch_rationale_zh,
     dispatch_source_line as _dispatch_source_line,
 )
 from evoflow.timeutil import BEIJING_TZ, utc_now_iso_z
 
 logger = logging.getLogger(__name__)
+
 
 def _default_proactive_tick_seconds() -> int:
     raw = (os.getenv("EVOFLOW_PROACTIVE_TICK_SECONDS") or "60").strip()
@@ -81,9 +78,7 @@ def _role_ui_badge_zh(
     suspended = bool(getattr(getattr(role, "config", None), "auto_patrol_suspended", False))
     if engine_on is None:
         engine_on = _engine_pref_enabled_for_log()
-    stopped = st in {"paused", "archived", "draft"} or (
-        st == "active" and ((not engine_on) or suspended)
-    )
+    stopped = st in {"paused", "archived", "draft"} or (st == "active" and ((not engine_on) or suspended))
     if stopped:
         if st == "draft":
             tip = "草稿未确认，确认后才会排班"
@@ -123,14 +118,10 @@ def _log_duty_run_about_to_start(
 
         schedule = resolve_role_cron(role) or ""
     except Exception:
-        schedule = str(getattr(role, "heartbeat_schedule", "") or "") or str(
-            getattr(role, "heartbeat_rrule", "") or ""
-        )
+        schedule = str(getattr(role, "heartbeat_schedule", "") or "") or str(getattr(role, "heartbeat_rrule", "") or "")
     engine_on = _engine_pref_enabled_for_log()
     badge, badge_tip = _role_ui_badge_zh(role, busy=busy_now, engine_on=engine_on)
-    reason = str(trigger_reason or "").strip() or (
-        "定时心跳到期（自动上班）" if scheduled else "未标明来源的值班触发"
-    )
+    reason = str(trigger_reason or "").strip() or ("定时心跳到期（自动上班）" if scheduled else "未标明来源的值班触发")
     source = str(trigger_source or "").strip()
     parts = [
         f"【值班触发】原因={reason}",
@@ -182,10 +173,11 @@ async def _close_langgraph_client():
         _LANGGRAPH_CLIENT_CACHE = None
 
 
-from evoflow.proactive.schedule import (
+from datetime import UTC  # noqa: E402
+
+from evoflow.proactive.schedule import (  # noqa: E402
     compute_backoff_duty_iso,
     compute_next_duty_iso,
-    resolve_next_duty_display,
 )
 
 
@@ -302,6 +294,7 @@ def validate_dispatch_org_relationship(
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
     except Exception:
+
         def is_xiaomi_agent(_name: str | None) -> bool:  # type: ignore[misc]
             return False
 
@@ -331,10 +324,7 @@ def validate_dispatch_org_relationship(
     a_key = role_org_key(dispatcher)
     t_key = role_org_key(target)
     if a_key and t_key and a_key != t_key:
-        return (
-            f"禁止跨组织派发：`{tgt_code}` 与 `{from_code}` 不在同一工作区组织"
-            "（不同 workspace_path）。请先经共同上级或调整 workspace。"
-        )
+        return f"禁止跨组织派发：`{tgt_code}` 与 `{from_code}` 不在同一工作区组织（不同 workspace_path）。请先经共同上级或调整 workspace。"
     if a_key and not t_key:
         return f"目标岗位 `{tgt_code}` 未绑定工作区，无法确认同组织，禁止派发"
 
@@ -344,24 +334,14 @@ def validate_dispatch_org_relationship(
         return f"禁止跨组织派发：`{tgt_code}` 不在 `{from_code}` 的同组织名册内"
 
     # Allowed 1: direct reports (直属下级).
-    direct_reports = {
-        str(r.agent_code or "").strip()
-        for r in peers
-        if reports_to_code(r) == from_code
-        and str(r.agent_code or "").strip() != from_code
-    }
+    direct_reports = {str(r.agent_code or "").strip() for r in peers if reports_to_code(r) == from_code and str(r.agent_code or "").strip() != from_code}
     if tgt_code in direct_reports:
         return None
 
     # Allowed 2: peer → peer (同一上级的直属平级). 平级协作即时唤醒。
     dispatcher_mgr = reports_to_code(dispatcher)
     target_mgr = reports_to_code(target)
-    if (
-        dispatcher_mgr
-        and dispatcher_mgr == target_mgr
-        and dispatcher_mgr != tgt_code
-        and dispatcher_mgr != from_code
-    ):
+    if dispatcher_mgr and dispatcher_mgr == target_mgr and dispatcher_mgr != tgt_code and dispatcher_mgr != from_code:
         return None
 
     # Allowed 3: ancestor → descendant along reporting chain (逐级向下派发).
@@ -370,14 +350,8 @@ def validate_dispatch_org_relationship(
 
     # Forbidden: subordinate → superior / cross-level.
     if is_descendant_in_tree(target, dispatcher, peers):
-        return (
-            f"下级不能向上级派发：`{tgt_code}` 是 `{from_code}` 的上级（或更上层）。"
-            "请由上级派发，或经平级协作通道（同一上级下的平级岗位）。"
-        )
-    return (
-        f"无权向 `{tgt_code}` 派发：`{from_code}` 与目标既非直属上下级、"
-        "也非同组织平级。跨岗请经共同上级逐级派发，或由用户派发。"
-    )
+        return f"下级不能向上级派发：`{tgt_code}` 是 `{from_code}` 的上级（或更上层）。请由上级派发，或经平级协作通道（同一上级下的平级岗位）。"
+    return f"无权向 `{tgt_code}` 派发：`{from_code}` 与目标既非直属上下级、也非同组织平级。跨岗请经共同上级逐级派发，或由用户派发。"
 
 
 def resolve_dispatch_round_id(
@@ -399,9 +373,7 @@ def resolve_dispatch_round_id(
     if fresh_round:
         return f"dispatch:{utc_now_iso_z()}", False
     if resume_round and related_task:
-        rid = str(
-            related_task.get("round_id") or related_task.get("source_ref") or ""
-        ).strip()
+        rid = str(related_task.get("round_id") or related_task.get("source_ref") or "").strip()
         if rid:
             return rid, True
     return f"dispatch:{utc_now_iso_z()}", False
@@ -453,9 +425,7 @@ class ProactiveRunner:
     def _connect_retry_at_iso(self) -> str:
         from datetime import UTC, datetime, timedelta
 
-        return (
-            datetime.now(UTC) + timedelta(seconds=_CONNECT_RETRY_SECONDS)
-        ).isoformat().replace("+00:00", "Z")
+        return (datetime.now(UTC) + timedelta(seconds=_CONNECT_RETRY_SECONDS)).isoformat().replace("+00:00", "Z")
 
     async def _ensure_langgraph_ready_for_patrol(self) -> bool:
         if self._langgraph_warmup_done:
@@ -469,9 +439,7 @@ class ProactiveRunner:
             logger.debug("proactive.runner: langgraph ready probe failed", exc_info=True)
             ready = False
         if not ready:
-            logger.warning(
-                "proactive.runner: LangGraph HTTP not ready; patrols will retry after connect failures"
-            )
+            logger.warning("proactive.runner: LangGraph HTTP not ready; patrols will retry after connect failures")
         return ready
 
     def _gateway_dispatch_overloaded(self) -> tuple[bool, float]:
@@ -639,11 +607,7 @@ class ProactiveRunner:
         if len(self._budget_notified_days) > 200:
             self._budget_notified_days = {k for k in self._budget_notified_days if k.endswith(day)}
 
-        text = (
-            f"**预算熔断** · {role.role_name}（`{role.agent_code}`）\n\n"
-            f"今日成本已达预算上限 **${budget_usd:.4f}**（已花费 ${spent_today:.4f}），"
-            f"本角色巡检已暂停至次日。可在员工设置中提高日预算后重试。"
-        )
+        text = f"**预算熔断** · {role.role_name}（`{role.agent_code}`）\n\n今日成本已达预算上限 **${budget_usd:.4f}**（已花费 ${spent_today:.4f}），本角色巡检已暂停至次日。可在员工设置中提高日预算后重试。"
         try:
             from evoflow.collab.ws_notify import broadcast_to_channels
 
@@ -661,8 +625,7 @@ class ProactiveRunner:
             logger.debug("proactive.budget.desktop notify failed", exc_info=True)
 
         try:
-            from evoflow.runtime.ports import get_channel_service
-            from evoflow.runtime.ports import resolve_push_target
+            from evoflow.runtime.ports import get_channel_service, resolve_push_target
 
             service = get_channel_service()
             if service is None:
@@ -739,8 +702,7 @@ class ProactiveRunner:
                         "timeout_rate",
                         code,
                         "智能体员工 · 审批超时率过高",
-                        f"角色 **{role.role_name}**（`{code}`）近期审批超时率 **{rate:.0f}%**，"
-                        "审批通道可能异常，请尽快处理待审批。",
+                        f"角色 **{role.role_name}**（`{code}`）近期审批超时率 **{rate:.0f}%**，审批通道可能异常，请尽快处理待审批。",
                     )
 
             # Budget approaching 80%
@@ -755,8 +717,7 @@ class ProactiveRunner:
                         "budget_warn",
                         code,
                         "智能体员工 · 成本接近预算",
-                        f"角色 **{role.role_name}**（`{code}`）今日成本 "
-                        f"${spent:.4f} / 预算 ${budget:.4f}（≥80%）。",
+                        f"角色 **{role.role_name}**（`{code}`）今日成本 ${spent:.4f} / 预算 ${budget:.4f}（≥80%）。",
                     )
 
             # High fail rate among recent initiatives
@@ -764,11 +725,7 @@ class ProactiveRunner:
                 inits = ProactiveRepository.list_initiatives(role_agent_code=code, limit=30)
             except Exception:
                 inits = []
-            decided = [
-                i
-                for i in inits
-                if i.status.value in ("completed", "failed", "timeout_rejected", "rejected")
-            ]
+            decided = [i for i in inits if i.status.value in ("completed", "failed", "timeout_rejected", "rejected")]
             if len(decided) >= 5:
                 fail_n = sum(1 for i in decided if i.status.value in ("failed", "timeout_rejected"))
                 fail_rate = 100.0 * fail_n / len(decided)
@@ -791,15 +748,14 @@ class ProactiveRunner:
                     "idle",
                     code,
                     "智能体员工 · 疑似空转",
-                    f"角色 **{role.role_name}**（`{code}`）已连续 **{noop_n}** 轮无实质产出，"
-                    "系统已自动降频；可派发任务或检查职责配置。",
+                    f"角色 **{role.role_name}**（`{code}`）已连续 **{noop_n}** 轮无实质产出，系统已自动降频；可派发任务或检查职责配置。",
                 )
 
         return fired
 
     def _run_kpi_probes_after_patrol(self, role: ProactiveRole) -> None:
         """O6.1: run allowlisted KPI probes and persist on memory.extra."""
-        from evoflow.proactive.kpi_checker import run_role_kpi_probes, persist_kpi_probe_results
+        from evoflow.proactive.kpi_checker import persist_kpi_probe_results, run_role_kpi_probes
 
         if not (role.config.kpis or []):
             return
@@ -816,7 +772,7 @@ class ProactiveRunner:
 
     async def _maybe_push_weekly_reports(self) -> int:
         """O6.2: push weekly duty digest once per 7 days per active role."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from evoflow.proactive.kpi_checker import (
             build_performance_report,
@@ -825,7 +781,7 @@ class ProactiveRunner:
         from evoflow.proactive.repositories import ProactiveMemoryRepository
 
         pushed = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         roles = ProactiveRepository.list_roles(status="active")
         for role in roles:
             code = role.agent_code
@@ -841,10 +797,10 @@ class ProactiveRunner:
                     s = last_raw[:-1] + "+00:00" if last_raw.endswith("Z") else last_raw
                     last_dt = datetime.fromisoformat(s)
                     if last_dt.tzinfo is None:
-                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                        last_dt = last_dt.replace(tzinfo=UTC)
                 except ValueError:
                     last_dt = None
-            if last_dt and (now - last_dt.astimezone(timezone.utc)) < timedelta(days=7):
+            if last_dt and (now - last_dt.astimezone(UTC)) < timedelta(days=7):
                 continue
             # Dedup within process for the same UTC day
             day_key = f"weekly:{code}:{now.strftime('%Y-%m-%d')}"
@@ -863,9 +819,7 @@ class ProactiveRunner:
                 self._ops_alert_notified.add(day_key)
                 pushed += 1
             except Exception:
-                logger.debug(
-                    "proactive.weekly_report failed role=%s", code, exc_info=True
-                )
+                logger.debug("proactive.weekly_report failed role=%s", code, exc_info=True)
         return pushed
 
     async def _push_ops_alert(self, *, title: str, body: str) -> None:
@@ -882,8 +836,7 @@ class ProactiveRunner:
         except Exception:
             logger.debug("proactive.ops.desktop notify failed", exc_info=True)
         try:
-            from evoflow.runtime.ports import get_channel_service
-            from evoflow.runtime.ports import resolve_push_target
+            from evoflow.runtime.ports import get_channel_service, resolve_push_target
 
             service = get_channel_service()
             if service is None:
@@ -916,6 +869,7 @@ class ProactiveRunner:
         # 检测系统时间跳变（休眠/唤醒后重建 httpx 连接池）
         try:
             from evoflow.platform.asyncio_windows import check_clock_jump
+
             check_clock_jump()
         except Exception:
             pass
@@ -983,9 +937,7 @@ class ProactiveRunner:
                 self._process_role(
                     role,
                     scheduled=True,
-                    trigger_reason=(
-                        f"定时心跳到期（next_heartbeat_at={role.next_heartbeat_at or '已到期'}）"
-                    ),
+                    trigger_reason=(f"定时心跳到期（next_heartbeat_at={role.next_heartbeat_at or '已到期'}）"),
                     trigger_source="scheduler.tick",
                 )
             )
@@ -995,9 +947,7 @@ class ProactiveRunner:
             logger.info(
                 "【值班调度】本拍派发 %d 人自动上班：%s",
                 len(queued),
-                "、".join(
-                    f"{(r.role_name or r.agent_code)}({r.agent_code})" for r in queued
-                ),
+                "、".join(f"{(r.role_name or r.agent_code)}({r.agent_code})" for r in queued),
             )
 
         # 3. Recover initiatives stuck in pending_approval without an Approval row
@@ -1032,18 +982,9 @@ class ProactiveRunner:
             "idle_skipped": len(idle_skipped),
         }
 
-        if (
-            due_roles
-            or timed_out
-            or recovered
-            or stale_executing
-            or idle_skipped
-            or alerts
-            or weekly_n
-        ):
+        if due_roles or timed_out or recovered or stale_executing or idle_skipped or alerts or weekly_n:
             logger.info(
-                "proactive.runner.tick: due=%d idle_skipped=%d recovered=%d stale_exec=%d "
-                "timeouts=%d alerts=%d weekly=%d",
+                "proactive.runner.tick: due=%d idle_skipped=%d recovered=%d stale_exec=%d timeouts=%d alerts=%d weekly=%d",
                 len(due_roles),
                 len(idle_skipped),
                 recovered,
@@ -1064,8 +1005,7 @@ class ProactiveRunner:
 
                 if is_langgraph_connect_error(exc):
                     logger.error(
-                        "proactive.runner: scheduled patrol failed (LangGraph HTTP unreachable; "
-                        "Gateway may be overloaded or listen socket broken — check /health)",
+                        "proactive.runner: scheduled patrol failed (LangGraph HTTP unreachable; Gateway may be overloaded or listen socket broken — check /health)",
                     )
                     return
             except Exception:
@@ -1195,10 +1135,7 @@ class ProactiveRunner:
             "dispatched": False,
             "agent_code": code,
             "role_name": name,
-            "error": (
-                f"「{name}」正在执行任务（巡检/派发中）。请稍候用**同一 task_id / related_task_id** 再派，"
-                "打开该员工工作轨迹查看进度；**禁止**改文案新建同题任务。"
-            ),
+            "error": (f"「{name}」正在执行任务（巡检/派发中）。请稍候用**同一 task_id / related_task_id** 再派，打开该员工工作轨迹查看进度；**禁止**改文案新建同题任务。"),
             "hint": "retry_same_task_id",
             "started_at": self._inflight_started_at.get(code) or "",
             "watch_path": f"/proactive/{code}?live=1",
@@ -1243,12 +1180,7 @@ class ProactiveRunner:
             else:
                 # Same goal text — keep one.
                 g = entry["goal"]
-                q[:] = [
-                    e
-                    for e in q
-                    if str(e.get("related_task_id") or "").strip()
-                    or str(e.get("goal") or "").strip() != g
-                ]
+                q[:] = [e for e in q if str(e.get("related_task_id") or "").strip() or str(e.get("goal") or "").strip() != g]
             q.append(entry)
             depth = len(q)
         role = ProactiveRepository.get_role(code)
@@ -1270,10 +1202,7 @@ class ProactiveRunner:
             "role_name": name,
             "related_task_id": related or None,
             "goal": entry["goal"],
-            "message": (
-                f"「{name}」正在执行中；本次叫醒已排队，"
-                "当前轮结束后将自动续跑同一任务（未新建 Task）。"
-            ),
+            "message": (f"「{name}」正在执行中；本次叫醒已排队，当前轮结束后将自动续跑同一任务（未新建 Task）。"),
             "hint": "queued_behind_busy",
             "started_at": self._inflight_started_at.get(code) or "",
             "watch_path": f"/proactive/{code}?live=1",
@@ -1349,7 +1278,7 @@ class ProactiveRunner:
                         client.runs.list(thread_id=tid, limit=20),
                         timeout=_lg_op_timeout,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         "proactive.runner: langgraph list timed out thread=%s role=%s",
                         tid,
@@ -1459,7 +1388,7 @@ class ProactiveRunner:
                 await asyncio.wait_for(task, timeout=8.0)
             except asyncio.CancelledError:
                 task_cancelled = True
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 task_cancelled = True
                 logger.warning(
                     "proactive.runner: cancel_role timed out waiting for inflight task role=%s",
@@ -1480,8 +1409,7 @@ class ProactiveRunner:
         # Ensure busy clears even if task already finished / was not tracked
         await self._end_role(code, drain=drain_queue)
         logger.info(
-            "proactive.runner: cancel_role=%s was_busy=%s task_cancelled=%s lg_runs=%d "
-            "finalized_sessions=%d drain=%s",
+            "proactive.runner: cancel_role=%s was_busy=%s task_cancelled=%s lg_runs=%d finalized_sessions=%d drain=%s",
             code,
             was_busy,
             task_cancelled,
@@ -1548,10 +1476,8 @@ class ProactiveRunner:
 
         _log_duty_run_about_to_start(
             role=role,
-            trigger_reason=trigger_reason
-            or ("定时心跳到期（自动上班）" if scheduled else "手动/派发触发上班"),
-            trigger_source=trigger_source
-            or ("scheduler" if scheduled else "manual"),
+            trigger_reason=trigger_reason or ("定时心跳到期（自动上班）" if scheduled else "手动/派发触发上班"),
+            trigger_source=trigger_source or ("scheduler" if scheduled else "manual"),
             scheduled=scheduled,
             busy_now=True,
             extra=f"round_id={round_id or '（本轮将新建）'}",
@@ -1609,12 +1535,7 @@ class ProactiveRunner:
                 logger.debug("proactive.runner: budget check failed (non-fatal)", exc_info=True)
 
         # Scheduled 小V: empty board → do not open a duty session / LLM round.
-        if (
-            scheduled
-            and not str(extra_env_context or "").strip()
-            and not str(prepend_env_context or "").strip()
-            and _should_skip_xiaomi_idle_heartbeat(role)
-        ):
+        if scheduled and not str(extra_env_context or "").strip() and not str(prepend_env_context or "").strip() and _should_skip_xiaomi_idle_heartbeat(role):
             now = utc_now_iso_z()
             next_hb = compute_next_duty_iso(role)
             try:
@@ -1657,11 +1578,7 @@ class ProactiveRunner:
                     env_context = extra_env_context.rstrip()
                 elif prepend_env_context:
                     # Soft focus (立即开工事项): keep patrol context, lead with note.
-                    env_context = (
-                        f"{prepend_env_context.rstrip()}\n\n{env_context}"
-                        if env_context
-                        else prepend_env_context.rstrip()
-                    )
+                    env_context = f"{prepend_env_context.rstrip()}\n\n{env_context}" if env_context else prepend_env_context.rstrip()
 
                 pinned_round = str(round_id or "").strip() or None
                 if pinned_round is None and str(round_id_prefix or "").strip() not in ("", "round"):
@@ -1723,8 +1640,7 @@ class ProactiveRunner:
                     )
                 if budget_paused:
                     logger.info(
-                        "proactive.runner: role=%s paused after per_run budget check; "
-                        "skipping feishu card",
+                        "proactive.runner: role=%s paused after per_run budget check; skipping feishu card",
                         code,
                     )
                 else:
@@ -1735,12 +1651,7 @@ class ProactiveRunner:
                         created = list(getattr(result, "created_task_ids", None) or [])
                         if created:
                             report = {**report, "created_task_ids": created}
-                        summary = str(
-                            report.get("outcome")
-                            or report.get("goal")
-                            or report.get("reflection")
-                            or ""
-                        ).strip()
+                        summary = str(report.get("outcome") or report.get("goal") or report.get("reflection") or "").strip()
                         if not summary:
                             # Fall back to named work items so Feishu is not counters-only
                             for it in report.get("items") or []:
@@ -1865,13 +1776,10 @@ class ProactiveRunner:
         if round_id:
             try:
                 from evoflow.admin.tasks import list_tasks
+
                 task_result = list_tasks(assignee=role.agent_code, include_subtasks=False)
                 all_tasks = task_result.get("tasks") or []
-                collab_tasks_raw = [
-                    t for t in all_tasks
-                    if str(t.get("source_ref") or "") == round_id
-                    or str(t.get("round_id") or "") == round_id
-                ]
+                collab_tasks_raw = [t for t in all_tasks if str(t.get("source_ref") or "") == round_id or str(t.get("round_id") or "") == round_id]
             except Exception:
                 logger.debug("heartbeat: collab task fetch failed (non-fatal)", exc_info=True)
 
@@ -1931,23 +1839,13 @@ class ProactiveRunner:
                     "id": init.id,
                     "title": init.title,
                     "status": st,
-                    "action_type": (
-                        init.action_type.value
-                        if hasattr(init.action_type, "value")
-                        else str(init.action_type or "")
-                    ),
-                    "risk_level": (
-                        init.risk_level.value
-                        if hasattr(init.risk_level, "value")
-                        else str(init.risk_level or "")
-                    ),
+                    "action_type": (init.action_type.value if hasattr(init.action_type, "value") else str(init.action_type or "")),
+                    "risk_level": (init.risk_level.value if hasattr(init.risk_level, "value") else str(init.risk_level or "")),
                     "is_journal": journal,
                     "preview": str(init.description or init.outcome or "")[:160],
                     "goal": str(getattr(init, "goal", "") or ""),
                     "outcome": str(getattr(init, "outcome", "") or ""),
-                    "action_plan": (
-                        init.action_plan if isinstance(getattr(init, "action_plan", None), dict) else {}
-                    ),
+                    "action_plan": (init.action_plan if isinstance(getattr(init, "action_plan", None), dict) else {}),
                 }
             )
 
@@ -1972,11 +1870,7 @@ class ProactiveRunner:
 
         journals = [i for i in items_raw if _is_journal(i)]
         wrap = next(
-            (
-                j
-                for j in journals
-                if str((j.action_plan or {}).get("phase") or "") == "wrap_up"
-            ),
+            (j for j in journals if str((j.action_plan or {}).get("phase") or "") == "wrap_up"),
             journals[0] if journals else None,
         )
         incomplete = False
@@ -1984,13 +1878,8 @@ class ProactiveRunner:
         reflection = str(getattr(result, "reflection", "") or "")
         if wrap is not None:
             plan = wrap.action_plan if isinstance(wrap.action_plan, dict) else {}
-            incomplete = bool(plan.get("incomplete")) or (
-                wrap.status == InitiativeStatus.FAILED
-                and str(plan.get("phase") or "") == "wrap_up"
-            )
-            journal_status = (
-                wrap.status.value if hasattr(wrap.status, "value") else str(wrap.status or "")
-            )
+            incomplete = bool(plan.get("incomplete")) or (wrap.status == InitiativeStatus.FAILED and str(plan.get("phase") or "") == "wrap_up")
+            journal_status = wrap.status.value if hasattr(wrap.status, "value") else str(wrap.status or "")
             if not reflection:
                 reflection = str(plan.get("reflection") or "")
             if not getattr(result, "goal", None) and wrap.goal:
@@ -2018,16 +1907,8 @@ class ProactiveRunner:
             "verdict_label": verdict_label,
             "incomplete": incomplete,
             "journal_status": journal_status,
-            "goal": str(
-                (wrap.goal if wrap is not None else "")
-                or getattr(result, "goal", "")
-                or ""
-            ),
-            "outcome": str(
-                (wrap.outcome if wrap is not None else "")
-                or getattr(result, "outcome", "")
-                or ""
-            ),
+            "goal": str((wrap.goal if wrap is not None else "") or getattr(result, "goal", "") or ""),
+            "outcome": str((wrap.outcome if wrap is not None else "") or getattr(result, "outcome", "") or ""),
             "reflection": reflection,
             "actionable": max(0, counts["total"] - counts["journal"]),
             "pending_approval": counts["pending_approval"],
@@ -2150,14 +2031,11 @@ class ProactiveRunner:
                 ProactiveRepository.update_initiative_status(
                     init.id,
                     InitiativeStatus.FAILED,
-                    execution_result=(
-                        f"执行超时（>{max_age_minutes}min 未收尾），已被 runner 自动标记为失败。"
-                    ),
+                    execution_result=(f"执行超时（>{max_age_minutes}min 未收尾），已被 runner 自动标记为失败。"),
                 )
                 reaped += 1
                 logger.info(
-                    "proactive.runner: reaped stale executing initiative=%s "
-                    "role=%s age>=%dmin",
+                    "proactive.runner: reaped stale executing initiative=%s role=%s age>=%dmin",
                     init.id,
                     init.role_agent_code,
                     max_age_minutes,
@@ -2288,8 +2166,7 @@ class ProactiveRunner:
             ProactiveRepository.save_initiative(init)
             recovered += 1
             logger.info(
-                "proactive.runner: reconciled stuck pending_approval initiative=%s "
-                "approval=%s → %s",
+                "proactive.runner: reconciled stuck pending_approval initiative=%s approval=%s → %s",
                 init.id,
                 appr.id,
                 init.status.value,
@@ -2333,9 +2210,7 @@ class ProactiveRunner:
 
         outcome = str(getattr(result, "outcome", "") or "")
         created_ids = list(getattr(result, "created_initiative_ids", None) or [])
-        is_noop = not created_ids and any(
-            kw in outcome for kw in self._NOOP_KEYWORDS
-        )
+        is_noop = not created_ids and any(kw in outcome for kw in self._NOOP_KEYWORDS)
 
         try:
             mem = ProactiveMemoryRepository.get(role.agent_code)
@@ -2382,9 +2257,7 @@ class ProactiveRunner:
 
     # ── Manual trigger ────────────────────────────────────────
 
-    async def trigger_heartbeat(
-        self, agent_code: str, *, focus: str = ""
-    ) -> dict[str, Any]:
+    async def trigger_heartbeat(self, agent_code: str, *, focus: str = "") -> dict[str, Any]:
         """Manually trigger a heartbeat for a specific role.
 
         ``focus`` (optional): user-written matter for this round — prepended into
@@ -2400,19 +2273,12 @@ class ProactiveRunner:
         focus_s = str(focus or "").strip()
         prepend = ""
         if focus_s:
-            prepend = (
-                "## 用户本轮交代（优先关注）\n"
-                f"**事项：** {focus_s}\n"
-                "→ 优先处理该事项；其余按岗位职责正常上班并写工作汇报。"
-                "不要忽略工作汇报与 tasks 状态更新。\n"
-            )
+            prepend = f"## 用户本轮交代（优先关注）\n**事项：** {focus_s}\n→ 优先处理该事项；其余按岗位职责正常上班并写工作汇报。不要忽略工作汇报与 tasks 状态更新。\n"
 
         report = await self._process_role(
             role,
             prepend_env_context=prepend,
-            trigger_reason=(
-                f"手动立即上班{'（带本轮事项）' if focus_s else ''}"
-            ),
+            trigger_reason=(f"手动立即上班{'（带本轮事项）' if focus_s else ''}"),
             trigger_source="api.heartbeat",
         )
         if report.get("busy"):
@@ -2499,10 +2365,7 @@ class ProactiveRunner:
                         "agent_code": code,
                         "role_name": role.role_name,
                         "task_ids": done_ids,
-                        "message": (
-                            "目标引用的 Task 均已结案，跳过重复派发："
-                            + ", ".join(done_ids[:8])
-                        ),
+                        "message": ("目标引用的 Task 均已结案，跳过重复派发：" + ", ".join(done_ids[:8])),
                     }
             except Exception:
                 logger.debug("proactive.dispatch already_done check failed", exc_info=True)
@@ -2538,11 +2401,7 @@ class ProactiveRunner:
                 load_work_item_task,
             )
 
-            task_source = (
-                "employee_page"
-                if source_s in {"employee_page", "manual"}
-                else "proactive_dispatch"
-            )
+            task_source = "employee_page" if source_s in {"employee_page", "manual"} else "proactive_dispatch"
             wake_stamp = {
                 "woken_by": from_agent_s or None,
                 "last_dispatch_round_id": dispatch_round_id,
@@ -2572,9 +2431,7 @@ class ProactiveRunner:
                     patch_fields: dict[str, Any] = {
                         **wake_stamp,
                         "raised_by": raised_by_s,
-                        "rationale": _dispatch_source_line(
-                            source_s, from_agent=from_agent_s
-                        ),
+                        "rationale": _dispatch_source_line(source_s, from_agent=from_agent_s),
                     }
                     # Continuations keep the Task's trail stamp; new wakes stamp freshly.
                     if not resumed_round:
@@ -2590,8 +2447,7 @@ class ProactiveRunner:
                     dispatch_task_id = related_tid
                     reused = True
                     logger.info(
-                        "proactive.dispatch.reuse_task role=%s task=%s from=%s "
-                        "resumed=%s round=%s force=%s",
+                        "proactive.dispatch.reuse_task role=%s task=%s from=%s resumed=%s round=%s force=%s",
                         code,
                         related_tid,
                         from_agent_s or "-",
@@ -2634,9 +2490,7 @@ class ProactiveRunner:
                         {
                             **wake_stamp,
                             "raised_by": raised_by_s,
-                            "rationale": _dispatch_source_line(
-                                source_s, from_agent=from_agent_s
-                            ),
+                            "rationale": _dispatch_source_line(source_s, from_agent=from_agent_s),
                             "source_ref": dispatch_round_id,
                             "round_id": dispatch_round_id,
                         },
@@ -2655,9 +2509,7 @@ class ProactiveRunner:
                 if desc_s and desc_s != goal_s and not _looks_like_internal_dispatch_note(desc_s):
                     board_desc = f"{goal_s}\n\n补充说明：{desc_s}"
                 channel_source = task_source
-                if source_s in {"status_check", "xiaomi_assistant"} and "进度汇报" in _dispatch_title(
-                    goal_s
-                ):
+                if source_s in {"status_check", "xiaomi_assistant"} and "进度汇报" in _dispatch_title(goal_s):
                     channel_source = "status_check"
                 created = create_role_work_item(
                     role,
@@ -2666,9 +2518,7 @@ class ProactiveRunner:
                         "description": board_desc,
                         "action_type": "analysis",
                         "risk_level": "low",
-                        "rationale": _dispatch_source_line(
-                            source_s, from_agent=from_agent_s
-                        ),
+                        "rationale": _dispatch_source_line(source_s, from_agent=from_agent_s),
                     },
                     round_id=dispatch_round_id,
                     goal=goal_s,
@@ -2697,10 +2547,7 @@ class ProactiveRunner:
 
         from evoflow.proactive.prompt import _DISPATCH_ENV_MARKER
 
-        extra_env = (
-            f"{_DISPATCH_ENV_MARKER}（优先执行，覆盖本轮自选战场）\n"
-            f"**目标：** {goal_s}\n"
-        )
+        extra_env = f"{_DISPATCH_ENV_MARKER}（优先执行，覆盖本轮自选战场）\n**目标：** {goal_s}\n"
         if desc_s and not _looks_like_internal_dispatch_note(desc_s):
             extra_env += f"**补充：** {desc_s}\n"
         if dispatch_task_id:
@@ -2711,16 +2558,8 @@ class ProactiveRunner:
             if not dispatch_task_id:
                 extra_env += f"related_task_id: {related_tid}\n"
         if resumed_round:
-            extra_env += (
-                f"**续跑：** 沿用同一轮工作轨迹 `{dispatch_round_id}`。"
-                "先查看本轮已有工具结果与未结 Task，补做卡住的步骤后结案；"
-                "禁止无视轨迹从零重做已完成步骤。\n"
-            )
-        extra_env += (
-            f"**优先级：** {priority_s} · **来源：** "
-            f"{_dispatch_source_line(source_s, from_agent=from_agent_s)}\n"
-            "→ 更新该 Task；需协作则 wake 同事；方案需批先 approvals request。\n"
-        )
+            extra_env += f"**续跑：** 沿用同一轮工作轨迹 `{dispatch_round_id}`。先查看本轮已有工具结果与未结 Task，补做卡住的步骤后结案；禁止无视轨迹从零重做已完成步骤。\n"
+        extra_env += f"**优先级：** {priority_s} · **来源：** {_dispatch_source_line(source_s, from_agent=from_agent_s)}\n→ 更新该 Task；需协作则 wake 同事；方案需批先 approvals request。\n"
 
         report = await self._process_role(
             role,
@@ -2728,10 +2567,7 @@ class ProactiveRunner:
             round_id=dispatch_round_id,
             round_id_prefix="dispatch",
             role_lock_held=role_lock_held,
-            trigger_reason=(
-                f"任务派发触发上班：{goal_s[:80]}"
-                + (f"…（共{len(goal_s)}字）" if len(goal_s) > 80 else "")
-            ),
+            trigger_reason=(f"任务派发触发上班：{goal_s[:80]}" + (f"…（共{len(goal_s)}字）" if len(goal_s) > 80 else "")),
             trigger_source=f"dispatch.{source_s}",
         )
         if report.get("busy"):
@@ -2750,10 +2586,7 @@ class ProactiveRunner:
 
             round_tasks = list_pending_work_items_for_round(role, round_id)
             if not round_tasks:
-                guard_result = (
-                    f"用户派发了任务「{goal_s}」，但本轮未产出任何针对该目标的"
-                    "工作项，已自动标记为失败。"
-                )
+                guard_result = f"用户派发了任务「{goal_s}」，但本轮未产出任何针对该目标的工作项，已自动标记为失败。"
                 created = create_role_work_item(
                     role,
                     {
@@ -2767,11 +2600,7 @@ class ProactiveRunner:
                     round_id=round_id,
                     goal=goal_s,
                     outcome="AI 本轮未针对用户派发任务产出任何方案。",
-                    source=(
-                        "employee_page"
-                        if source_s in {"employee_page", "manual"}
-                        else "proactive_dispatch"
-                    ),
+                    source=("employee_page" if source_s in {"employee_page", "manual"} else "proactive_dispatch"),
                     source_ref=round_id,
                     raised_by="user",
                 )
@@ -2934,11 +2763,7 @@ class ProactiveRunner:
         # ancestor→descendant, same org.
         if from_agent_s and from_agent_s.lower() != "user":
             try:
-                roster = [
-                    r
-                    for r in ProactiveRepository.list_roles()
-                    if str(r.status or "").strip().lower() != "archived"
-                ]
+                roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
                 org_err = validate_dispatch_org_relationship(
                     from_agent=from_agent_s,
                     target_code=code,
@@ -2987,10 +2812,7 @@ class ProactiveRunner:
                         "agent_code": code,
                         "role_name": role.role_name,
                         "task_ids": done_ids,
-                        "message": (
-                            "目标引用的 Task 均已结案，跳过重复派发："
-                            + ", ".join(done_ids[:8])
-                        ),
+                        "message": ("目标引用的 Task 均已结案，跳过重复派发：" + ", ".join(done_ids[:8])),
                     }
             except Exception:
                 logger.debug(
@@ -3079,8 +2901,7 @@ class ProactiveRunner:
         )
 
         logger.info(
-            "proactive.dispatch.fire_and_forget role=%s source=%s from=%s related=%s "
-            "round=%s resumed=%s goal=%s",
+            "proactive.dispatch.fire_and_forget role=%s source=%s from=%s related=%s round=%s resumed=%s goal=%s",
             code,
             str(source or "manual").strip(),
             from_agent_s or "-",
@@ -3092,11 +2913,7 @@ class ProactiveRunner:
         # Person Kernel Phase D: peer wake bond (skip formal handoff path —
         # that already opens commitments via dispatch_confirmed_handlers).
         src_s = str(source or "manual").strip().lower()
-        if (
-            from_agent_s
-            and from_agent_s.lower() not in {"user", "system"}
-            and not (src_s == "role" and related_tid)
-        ):
+        if from_agent_s and from_agent_s.lower() not in {"user", "system"} and not (src_s == "role" and related_tid):
             try:
                 from evoflow.person_kernel import on_peer_wake
 
@@ -3165,10 +2982,7 @@ class ProactiveRunner:
                 return {
                     "ok": False,
                     "dispatched": False,
-                    "error": (
-                        "proactive runner has no live event loop; "
-                        "wake_now cannot schedule. Start Gateway / proactive runner."
-                    ),
+                    "error": ("proactive runner has no live event loop; wake_now cannot schedule. Start Gateway / proactive runner."),
                     "hint": "事项已关联任务；员工下次心跳仍可领取。",
                 }
 

@@ -20,21 +20,14 @@ def _evoflow_seed() -> dict[str, Any]:
                 "title": "backend harness 核心包",
                 "summary": "Python 运行时与 Gateway",
                 "category": "module",
-                "content": (
-                    "backend/packages/harness/evoflow/ 是核心 Python 包：主智能体（agents/lead_agent）、"
-                    "工具 builtins、记忆 pipeline（assets/ + agents/memory/）、Gateway、CLI。"
-                    "测试在 backend/packages/harness/tests/。"
-                ),
+                "content": ("backend/packages/harness/evoflow/ 是核心 Python 包：主智能体（agents/lead_agent）、工具 builtins、记忆 pipeline（assets/ + agents/memory/）、Gateway、CLI。测试在 backend/packages/harness/tests/。"),
             },
             {
                 "slug": "evopanel",
                 "title": "EvoPanel 桌面控制面",
                 "summary": "Tauri v2 + React 面板",
                 "category": "module",
-                "content": (
-                    "evopanel/ 为桌面应用：任务中心、智能体管理、资产中心、模型/MCP/技能配置。"
-                    "前端通过 Gateway API 与 harness 通信。"
-                ),
+                "content": ("evopanel/ 为桌面应用：任务中心、智能体管理、资产中心、模型/MCP/技能配置。前端通过 Gateway API 与 harness 通信。"),
             },
             {
                 "slug": "entity-hub",
@@ -64,22 +57,14 @@ def _evoflow_seed() -> dict[str, Any]:
                 "title": "启动与开发入口",
                 "summary": "config.yaml + Makefile",
                 "category": "entrypoint",
-                "content": (
-                    "仓库根 config.yaml 为 EvoFlow 配置；backend/ 下 pip install -e . 安装 harness。"
-                    "CLI：evoflow（models/agents/memory/assets/workspace …）。"
-                    "Gateway 启动后 EvoPanel 连接本地服务。"
-                ),
+                "content": ("仓库根 config.yaml 为 EvoFlow 配置；backend/ 下 pip install -e . 安装 harness。CLI：evoflow（models/agents/memory/assets/workspace …）。Gateway 启动后 EvoPanel 连接本地服务。"),
             },
             {
                 "slug": "workspace-bind-convention",
                 "title": "工作区绑定约定",
                 "summary": "按项目根目录绑定",
                 "category": "convention",
-                "content": (
-                    "会话绑定 local_workspace_root 后启用 workspace 记忆注入与写入。"
-                    "应绑定具体项目根（如 EvoFlow/），不要绑定上层 monorepo 根目录，"
-                    "避免把兄弟仓库误记为本项目模块。"
-                ),
+                "content": ("会话绑定 local_workspace_root 后启用 workspace 记忆注入与写入。应绑定具体项目根（如 EvoFlow/），不要绑定上层 monorepo 根目录，避免把兄弟仓库误记为本项目模块。"),
             },
         ],
     }

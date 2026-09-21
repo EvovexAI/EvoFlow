@@ -158,9 +158,7 @@ def _session_select() -> str:
     try:
         cols = {r[1] for r in get_db().execute("PRAGMA table_info(evoflow_chat_sessions)").fetchall()}
         if "org_id" in cols and "scope_id" in cols and "created_by" in cols:
-            _session_select_cache = (
-                _SESSION_SELECT_BASE.rstrip() + ",\n    org_id, scope_id, created_by\n"
-            )
+            _session_select_cache = _SESSION_SELECT_BASE.rstrip() + ",\n    org_id, scope_id, created_by\n"
         else:
             _session_select_cache = _SESSION_SELECT_BASE
     except Exception:
@@ -261,11 +259,7 @@ def derive_session_mode(scenarios: list[str]) -> str:
     """
     from evoflow.agents.lead_agent.intent_tool_profile import normalize_scenario_key
 
-    norm = [
-        normalize_scenario_key(s)
-        for s in (scenarios or [])
-        if str(s or "").strip()
-    ]
+    norm = [normalize_scenario_key(s) for s in (scenarios or []) if str(s or "").strip()]
     if "plan" in norm:
         return "plan"
     if "agent" in norm:
@@ -617,7 +611,6 @@ def repair_session_thread_binding(session_key: str, thread_id: str) -> bool:
         )
         db.commit()
         return True
-
 
     return run_db_with_retry(_do)
 
@@ -1084,7 +1077,6 @@ def mark_session_deleted(session_key: str) -> None:
         )
         get_db().commit()
 
-
     run_db_with_retry(_do)
 
 
@@ -1096,7 +1088,6 @@ def delete_sessions_by_thread_id(thread_id: str) -> None:
     def _do() -> None:
         get_db().execute("DELETE FROM evoflow_chat_sessions WHERE thread_id = ?", (tid,))
         get_db().commit()
-
 
     run_db_with_retry(_do)
 
@@ -1270,7 +1261,6 @@ def update_session_title(session_key: str, title: str, *, conn: Any = None) -> b
         )
         db.commit()
 
-
     run_db_with_retry(_do)
     return True
 
@@ -1281,13 +1271,7 @@ def enrich_session_rows_collab_task_id(rows: list[dict[str, Any]]) -> list[dict[
     Priority: current thread ``bound_task_id`` → session column ``collab_task_id`` →
     session-scoped task lookup (any historical thread for the session).
     """
-    thread_ids = list(
-        dict.fromkeys(
-            str(row.get("threadId") or "").strip()
-            for row in rows
-            if str(row.get("threadId") or "").strip()
-        )
-    )
+    thread_ids = list(dict.fromkeys(str(row.get("threadId") or "").strip() for row in rows if str(row.get("threadId") or "").strip()))
     if not thread_ids:
         return rows
 
@@ -1353,21 +1337,16 @@ def _workspace_filter_sql(workspace_key: str | None) -> tuple[str, list[Any]]:
         return " AND session_key LIKE 'proactive:%'", []
     if key == WORKSPACE_GROUP_VIRTUAL:
         return (
-            " AND COALESCE(use_virtual_paths, 0) = 1"
-            " AND session_key NOT LIKE 'proactive:%'",
+            " AND COALESCE(use_virtual_paths, 0) = 1 AND session_key NOT LIKE 'proactive:%'",
             [],
         )
     if key == WORKSPACE_GROUP_UNBOUND:
         return (
-            " AND COALESCE(use_virtual_paths, 0) = 0"
-            " AND COALESCE(TRIM(local_workspace_root), '') = ''"
-            " AND session_key NOT LIKE 'proactive:%'",
+            " AND COALESCE(use_virtual_paths, 0) = 0 AND COALESCE(TRIM(local_workspace_root), '') = '' AND session_key NOT LIKE 'proactive:%'",
             [],
         )
     return (
-        " AND COALESCE(use_virtual_paths, 0) = 0"
-        " AND session_key NOT LIKE 'proactive:%'"
-        f" AND {_WORKSPACE_ROOT_SQL_NORM} = ?",
+        f" AND COALESCE(use_virtual_paths, 0) = 0 AND session_key NOT LIKE 'proactive:%' AND {_WORKSPACE_ROOT_SQL_NORM} = ?",
         [normalize_workspace_group_key(key)],
     )
 

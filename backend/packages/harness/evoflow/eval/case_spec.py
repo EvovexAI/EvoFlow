@@ -1211,12 +1211,7 @@ def is_smoke_case(case: dict[str, Any]) -> bool:
     level = str(case.get("level") or "L1").upper()
     params = case.get("params") if isinstance(case.get("params"), dict) else {}
     design = params.get("design") if isinstance(params.get("design"), dict) else {}
-    priority = str(
-        case.get("priority")
-        or params.get("priority")
-        or design.get("priority")
-        or ("P0" if level in ("L0", "L1") and not cid.endswith("_detail") else "P1")
-    ).upper()
+    priority = str(case.get("priority") or params.get("priority") or design.get("priority") or ("P0" if level in ("L0", "L1") and not cid.endswith("_detail") else "P1")).upper()
     if priority != "P0":
         return False
     if level in ("L0", "L1"):
@@ -1243,9 +1238,7 @@ def module_case_design_view() -> dict[str, list[dict[str, str]]]:
             focus = "（规划）" + str(c.get("description") or "")
         else:
             d = c.get("design") or {}
-            focus = f"{FLOW_LABELS.get(str(d.get('flow')), d.get('flow'))} · {d.get('risk', '')}"[
-                :80
-            ]
+            focus = f"{FLOW_LABELS.get(str(d.get('flow')), d.get('flow'))} · {d.get('risk', '')}"[:80]
         out.setdefault(str(c["module"]), []).append(
             {
                 "id": str(c["id"]),

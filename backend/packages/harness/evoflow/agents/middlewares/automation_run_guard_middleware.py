@@ -25,22 +25,14 @@ _DEFAULT_MAX_TOOL_ROUNDS = 24
 # Duty default: no tool-round soft/hard wrap (0 = disabled). Cron/automation still capped.
 # Restore old 80-step behaviour with EVOFLOW_PROACTIVE_MAX_TOOL_ROUNDS=80.
 _DEFAULT_PROACTIVE_MAX_TOOL_ROUNDS = 0
-_HARD_STOP_MSG = (
-    "[自动化步数保护] 本轮工具调用次数已达上限。"
-    "请立即停止调用工具，根据已收集的信息输出最终结论（可标注不确定项），"
-    "不要再发起 web_search、read 或 execute。"
-)
-_PROACTIVE_HARD_STOP_MSG = (
-    "[值班步数保护] 本轮工具调用已达上限。"
-    "请用文字收尾（本轮结论 / 阻塞 / 下一步），**禁止再调用任何工具**；"
-    "空 tool_calls 结束本轮。"
-)
+_HARD_STOP_MSG = "[自动化步数保护] 本轮工具调用次数已达上限。请立即停止调用工具，根据已收集的信息输出最终结论（可标注不确定项），不要再发起 web_search、read 或 execute。"
+_PROACTIVE_HARD_STOP_MSG = "[值班步数保护] 本轮工具调用已达上限。请用文字收尾（本轮结论 / 阻塞 / 下一步），**禁止再调用任何工具**；空 tool_calls 结束本轮。"
 _PROACTIVE_SOFT_STOP_MSG = (
     "[值班步数保护·预留收尾] 探测工具额度将尽。"
     "有未结 Task 时下一轮只允许结案类调用："
     "优先 ``tasks`` 工具（action=progress|state|create），"
     "或 terminal：``evoflow tasks progress <task_id> --progress N`` / "
-    "``evoflow tasks state … --status completed --summary \"…\"`` / "
+    '``evoflow tasks state … --status completed --summary "…"`` / '
     "``employees wake`` / ``approvals request``；"
     "进度成功后本窗口探测额度重置并继续干活。"
     "无未结 Task 时请直接文字收尾。禁止再 read/rg/find/write。"
@@ -51,7 +43,7 @@ _PROACTIVE_SOFT_WRAP_HUMAN = (
     "本窗口探测额度已尽，系统已取消探测类 tool_calls。\n"
     "1. 立刻用 ``tasks``（action=progress / state=completed，outputs 用数组）"
     "或 terminal：``evoflow tasks progress <task_id> --progress N`` / "
-    "``evoflow tasks state <id> --status completed --summary \"…\"``"
+    '``evoflow tasks state <id> --status completed --summary "…"``'
     "（需要协作则 wake / approvals；进度无 ``--note``）。\n"
     "2. **进度/结案成功后本窗口探测额度会重置**——那不是下班信号，"
     "重置后应继续取证/改码；勿再说「额度用完」或提前结束本轮。\n"
@@ -59,24 +51,12 @@ _PROACTIVE_SOFT_WRAP_HUMAN = (
     "（直到进度成功、额度重置）。"
 )
 _PROACTIVE_SOFT_WRAP_EMPTY_BOARD_HUMAN = (
-    f"{_PROACTIVE_SOFT_WRAP_MARKER}\n"
-    "探测额度已尽，且当前**无未结 Task**。系统已取消探测类 tool_calls。\n"
-    "请**只输出文字结论**（本轮巡检所见 / 无待办 / 建议下一步），"
-    "**禁止再调用任何工具**；空 tool_calls 结束本轮。勿空建单。"
+    f"{_PROACTIVE_SOFT_WRAP_MARKER}\n探测额度已尽，且当前**无未结 Task**。系统已取消探测类 tool_calls。\n请**只输出文字结论**（本轮巡检所见 / 无待办 / 建议下一步），**禁止再调用任何工具**；空 tool_calls 结束本轮。勿空建单。"
 )
 _PROACTIVE_HARD_WRAP_MARKER = "[值班步数保护·强制收尾]"
-_PROACTIVE_HARD_WRAP_HUMAN = (
-    f"{_PROACTIVE_HARD_WRAP_MARKER}\n"
-    "工具步数已达硬上限。请**只输出文字结论**（做了什么 / 卡在哪 / 建议下一步），"
-    "禁止再调用任何工具；空 tool_calls 结束。"
-)
+_PROACTIVE_HARD_WRAP_HUMAN = f"{_PROACTIVE_HARD_WRAP_MARKER}\n工具步数已达硬上限。请**只输出文字结论**（做了什么 / 卡在哪 / 建议下一步），禁止再调用任何工具；空 tool_calls 结束。"
 _PROACTIVE_DIG_RESUME_MARKER = "[值班步数保护·探测恢复]"
-_PROACTIVE_DIG_RESUME_HUMAN = (
-    f"{_PROACTIVE_DIG_RESUME_MARKER}\n"
-    "进度/结案类调用已成功，**本窗口探测额度已重置**。"
-    "请继续取证或改码；不要再说「额度用完」或提前收尾。"
-    "本轮总工具次数仍有硬上限。"
-)
+_PROACTIVE_DIG_RESUME_HUMAN = f"{_PROACTIVE_DIG_RESUME_MARKER}\n进度/结案类调用已成功，**本窗口探测额度已重置**。请继续取证或改码；不要再说「额度用完」或提前收尾。本轮总工具次数仍有硬上限。"
 _MAX_SOFT_WRAP_NUDGES = 2
 _MAX_HARD_WRAP_NUDGES = 1
 
@@ -159,13 +139,7 @@ def _tool_call_id(tc: Any) -> str:
 def _is_budget_reset_cli_command(cmd: str) -> bool:
     """Task progress / state / create / wake / approvals = checkpoint, reset dig budget."""
     c = str(cmd or "").lower()
-    return (
-        "evoflow tasks progress" in c
-        or "evoflow tasks state" in c
-        or "evoflow tasks create" in c
-        or "evoflow employees wake" in c
-        or "evoflow approvals request" in c
-    )
+    return "evoflow tasks progress" in c or "evoflow tasks state" in c or "evoflow tasks create" in c or "evoflow employees wake" in c or "evoflow approvals request" in c
 
 
 def _is_task_cli_terminal(tc: Any) -> bool:
@@ -173,12 +147,7 @@ def _is_task_cli_terminal(tc: Any) -> bool:
     if _tool_call_name(tc) != "terminal":
         return False
     cmd = str(_tool_call_args(tc).get("command") or "").lower()
-    return (
-        "evoflow tasks" in cmd
-        or "evoflow employees" in cmd
-        or "evoflow approvals" in cmd
-        or "evoflow task " in cmd
-    )
+    return "evoflow tasks" in cmd or "evoflow employees" in cmd or "evoflow approvals" in cmd or "evoflow task " in cmd
 
 
 def _is_budget_reset_terminal(tc: Any) -> bool:
@@ -210,11 +179,7 @@ def _duty_human_index(messages: list[Any]) -> int:
         if not isinstance(m, HumanMessage):
             continue
         body = _content_str(getattr(m, "content", ""))
-        if (
-            _PROACTIVE_SOFT_WRAP_MARKER in body
-            or _PROACTIVE_HARD_WRAP_MARKER in body
-            or _PROACTIVE_DIG_RESUME_MARKER in body
-        ):
+        if _PROACTIVE_SOFT_WRAP_MARKER in body or _PROACTIVE_HARD_WRAP_MARKER in body or _PROACTIVE_DIG_RESUME_MARKER in body:
             continue
         last = i
     return last
@@ -460,9 +425,7 @@ def _effective_hard_nudges(messages: list[Any], *, window_start: int, key: str) 
 
 def _record_soft_nudge(key: str, *, human: str, empty_board: bool) -> int:
     with _WRAP_STATE_LOCK:
-        st = _WRAP_STATE.setdefault(
-            key, {"soft": 0, "hard": 0, "pending_human": None, "empty_board": False}
-        )
+        st = _WRAP_STATE.setdefault(key, {"soft": 0, "hard": 0, "pending_human": None, "empty_board": False})
         st["soft"] = int(st.get("soft") or 0) + 1
         st["pending_human"] = human
         st["empty_board"] = empty_board
@@ -471,9 +434,7 @@ def _record_soft_nudge(key: str, *, human: str, empty_board: bool) -> int:
 
 def _record_hard_nudge(key: str, *, human: str) -> int:
     with _WRAP_STATE_LOCK:
-        st = _WRAP_STATE.setdefault(
-            key, {"soft": 0, "hard": 0, "pending_human": None, "empty_board": False}
-        )
+        st = _WRAP_STATE.setdefault(key, {"soft": 0, "hard": 0, "pending_human": None, "empty_board": False})
         st["hard"] = int(st.get("hard") or 0) + 1
         st["pending_human"] = human
         return int(st["hard"])
@@ -576,21 +537,12 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
         # Progress/state checkpoint reopened the dig window — clear soft pressure and
         # do NOT re-inject stale「探测额度已尽」Humans (that was the wrap-up loop bug).
         if window_tools < soft and total_tools < limit:
-            had_soft = _soft_pressure_active(key) or _window_has_marker(
-                messages, _PROACTIVE_SOFT_WRAP_MARKER
-            )
+            had_soft = _soft_pressure_active(key) or _window_has_marker(messages, _PROACTIVE_SOFT_WRAP_MARKER)
             _reset_soft_wrap_window(key)
             checkpointed = window_start > duty_start
-            if (
-                had_soft
-                and checkpointed
-                and not _window_has_marker(
-                    messages, _PROACTIVE_DIG_RESUME_MARKER, after_index=window_start
-                )
-            ):
+            if had_soft and checkpointed and not _window_has_marker(messages, _PROACTIVE_DIG_RESUME_MARKER, after_index=window_start):
                 logger.info(
-                    "AutomationRunGuard(proactive): dig budget restored after checkpoint "
-                    "key=%s window_tools=%d soft=%d — resume dig (no soft wrap re-inject)",
+                    "AutomationRunGuard(proactive): dig budget restored after checkpoint key=%s window_tools=%d soft=%d — resume dig (no soft wrap re-inject)",
                     key,
                     window_tools,
                     soft,
@@ -602,14 +554,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
         if not pending:
             return None
         # Already present (e.g. tests that keep Human in the list)
-        if any(
-            isinstance(m, HumanMessage)
-            and (
-                _PROACTIVE_SOFT_WRAP_MARKER in _content_str(getattr(m, "content", ""))
-                or _PROACTIVE_HARD_WRAP_MARKER in _content_str(getattr(m, "content", ""))
-            )
-            for m in messages[-4:]
-        ):
+        if any(isinstance(m, HumanMessage) and (_PROACTIVE_SOFT_WRAP_MARKER in _content_str(getattr(m, "content", "")) or _PROACTIVE_HARD_WRAP_MARKER in _content_str(getattr(m, "content", ""))) for m in messages[-4:]):
             return None
         logger.info(
             "AutomationRunGuard(proactive): re-inject wrap Human after hydration key=%s",
@@ -724,8 +669,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
             hard_nudges = _effective_hard_nudges(messages, window_start=window_start, key=key)
             if hard_nudges >= _MAX_HARD_WRAP_NUDGES:
                 logger.warning(
-                    "AutomationRunGuard(proactive): hard limit tool_rounds=%d — strip & end "
-                    "(already nudged %d)",
+                    "AutomationRunGuard(proactive): hard limit tool_rounds=%d — strip & end (already nudged %d)",
                     tool_rounds,
                     hard_nudges,
                 )
@@ -740,8 +684,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
 
             n = _record_hard_nudge(key, human=_PROACTIVE_HARD_WRAP_HUMAN)
             logger.warning(
-                "AutomationRunGuard(proactive): hard limit tool_rounds=%d — "
-                "strip tools, jump_to=model for text wrap-up (nudge %d)",
+                "AutomationRunGuard(proactive): hard limit tool_rounds=%d — strip tools, jump_to=model for text wrap-up (nudge %d)",
                 tool_rounds,
                 n,
             )
@@ -771,8 +714,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
         if empty_board and not keep:
             if soft_nudges >= 1:
                 logger.warning(
-                    "AutomationRunGuard(proactive): soft tool_rounds=%d empty_board — strip & end "
-                    "(already text-nudged %d)",
+                    "AutomationRunGuard(proactive): soft tool_rounds=%d empty_board — strip & end (already text-nudged %d)",
                     tool_rounds,
                     soft_nudges,
                 )
@@ -788,8 +730,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
             human = _PROACTIVE_SOFT_WRAP_EMPTY_BOARD_HUMAN
             n = _record_soft_nudge(key, human=human, empty_board=True)
             logger.warning(
-                "AutomationRunGuard(proactive): soft tool_rounds=%d empty_board — "
-                "strip dig, jump_to=model for text wrap-up (nudge %d)",
+                "AutomationRunGuard(proactive): soft tool_rounds=%d empty_board — strip dig, jump_to=model for text wrap-up (nudge %d)",
                 tool_rounds,
                 n,
             )
@@ -806,8 +747,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
 
         if keep:
             logger.warning(
-                "AutomationRunGuard(proactive): soft tool_rounds=%d soft=%d limit=%d — "
-                "keeping %d Task-CLI call(s), stripping %d dig call(s)",
+                "AutomationRunGuard(proactive): soft tool_rounds=%d soft=%d limit=%d — keeping %d Task-CLI call(s), stripping %d dig call(s)",
                 tool_rounds,
                 soft,
                 limit,
@@ -824,8 +764,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
 
         if soft_nudges >= _MAX_SOFT_WRAP_NUDGES:
             logger.warning(
-                "AutomationRunGuard(proactive): soft tool_rounds=%d — strip & end "
-                "(soft wrap nudges exhausted %d)",
+                "AutomationRunGuard(proactive): soft tool_rounds=%d — strip & end (soft wrap nudges exhausted %d)",
                 tool_rounds,
                 soft_nudges,
             )
@@ -841,8 +780,7 @@ class AutomationRunGuardMiddleware(AgentMiddleware[AgentState]):
         human = _PROACTIVE_SOFT_WRAP_HUMAN
         n = _record_soft_nudge(key, human=human, empty_board=False)
         logger.warning(
-            "AutomationRunGuard(proactive): soft tool_rounds=%d soft=%d limit=%d — "
-            "strip dig tools, jump_to=model for Task CLI wrap-up (nudge %d/%d)",
+            "AutomationRunGuard(proactive): soft tool_rounds=%d soft=%d limit=%d — strip dig tools, jump_to=model for Task CLI wrap-up (nudge %d/%d)",
             tool_rounds,
             soft,
             limit,

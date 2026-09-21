@@ -61,8 +61,7 @@ async def _dispatch(job: dict[str, Any]) -> None:
                         skip_embedding = True
                         skip_reason = reason or "embedding runtime unavailable"
                         logger.warning(
-                            "owned kb job will skip vectors (embedding unavailable): "
-                            "%s type=%s kb=%s reason=%s",
+                            "owned kb job will skip vectors (embedding unavailable): %s type=%s kb=%s reason=%s",
                             job.get("id"),
                             jtype,
                             kb_id,
@@ -131,9 +130,7 @@ async def _loop() -> None:
                     from evoflow.knowledge.owned import service as owned_service
 
                     # Auto path: only pending/processing — never loop forever on failed.
-                    result = owned_service.requeue_orphan_parse_docs(
-                        limit=50, include_failed=False
-                    )
+                    result = owned_service.requeue_orphan_parse_docs(limit=50, include_failed=False)
                     return int(result.get("requeued") or 0)
 
                 n = await asyncio.to_thread(_reconcile)
@@ -148,6 +145,7 @@ async def _loop() -> None:
         await _dispatch(job)
         # Drain backlog without idle delay between consecutive jobs.
     logger.info("owned KB worker stopped")
+
 
 def ensure_owned_kb_worker_started() -> None:
     """Idempotent: spawn one asyncio task on the running loop, or a daemon thread."""

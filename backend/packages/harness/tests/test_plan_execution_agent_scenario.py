@@ -7,11 +7,11 @@ import pytest
 from evoflow.agents.middlewares import plan_guard_middleware as pgm
 from evoflow.agents.middlewares.plan_guard_middleware import PlanGuardMiddleware
 from evoflow.tools.builtins.scenario_activation import (
+    _add_scenario,
     get_activated_scenarios,
     reset_activated_scenario,
     sync_agent_scenario_after_plan_done,
     sync_plan_scenario_with_session_policy,
-    _add_scenario,
 )
 
 

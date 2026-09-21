@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import json
 from unittest.mock import MagicMock
 
@@ -12,6 +10,7 @@ import pytest
 from evoflow.community.media_generation import tools as media_tools
 from evoflow.community.media_generation.media_url_resolver import resolve_media_reference_url
 from evoflow.persistence.media_assets import find_remote_url_for_local_path, record_media_asset, update_media_asset_by_task
+from evoflow.persistence.schema import ensure_app_schema
 
 
 @pytest.fixture()
@@ -26,7 +25,6 @@ def media_db(tmp_path, monkeypatch):
     db_mod._conn = None
     import sqlite3
 
-    
     conn = sqlite3.connect(str(db_path))
     ensure_app_schema(conn)
     conn.commit()

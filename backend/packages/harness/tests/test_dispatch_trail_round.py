@@ -76,8 +76,12 @@ def test_resolve_keeps_dispatch_when_messages_already_stamped(tmp_path, monkeypa
 
     assert resolve_transcript_round_id(sk, dispatch) == dispatch
     # Sanity: DB has the stamped row
-    row = get_db().execute(
-        "SELECT round_id FROM evoflow_chat_messages WHERE session_key = ?",
-        (sk,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT round_id FROM evoflow_chat_messages WHERE session_key = ?",
+            (sk,),
+        )
+        .fetchone()
+    )
     assert str(row["round_id"]) == dispatch

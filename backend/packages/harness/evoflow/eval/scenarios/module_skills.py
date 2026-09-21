@@ -16,11 +16,7 @@ def _run(home: Path) -> dict:
     listed = skills_admin.list_skills(enabled_only=False)
     skills = list(listed.get("skills") or [])
     pick = next(
-        (
-            s
-            for s in skills
-            if isinstance(s, dict) and s.get("name") and s.get("category") != "custom"
-        ),
+        (s for s in skills if isinstance(s, dict) and s.get("name") and s.get("category") != "custom"),
         skills[0] if skills else None,
     )
     skill_name = str((pick or {}).get("name") or "").strip()
@@ -30,10 +26,7 @@ def _run(home: Path) -> dict:
     reenabled = None
     if skill_name:
         disabled = skills_admin.set_skill_enabled(skill_name, enabled=False)
-        enabled_only_names = [
-            str(s.get("name") or "")
-            for s in (skills_admin.list_skills(enabled_only=True).get("skills") or [])
-        ]
+        enabled_only_names = [str(s.get("name") or "") for s in (skills_admin.list_skills(enabled_only=True).get("skills") or [])]
         reenabled = skills_admin.set_skill_enabled(skill_name, enabled=True)
 
     agent_code = "eval-mod-skills"

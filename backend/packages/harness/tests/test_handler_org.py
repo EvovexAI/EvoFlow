@@ -81,15 +81,5 @@ def test_xiaomi_can_assign_any_handler():
     peer = _role("peer")
     foreign = _role("foreign", workspace="/ws/b")
     roster = [mgr, peer, foreign, _role("xiaomi", workspace="")]
-    assert (
-        validate_handler_assignee(
-            from_agent="xiaomi", target_code="peer", roster=roster
-        )
-        is None
-    )
-    assert (
-        validate_handler_assignee(
-            from_agent="xiaomi", target_code="foreign", roster=roster
-        )
-        is None
-    )
+    assert validate_handler_assignee(from_agent="xiaomi", target_code="peer", roster=roster) is None
+    assert validate_handler_assignee(from_agent="xiaomi", target_code="foreign", roster=roster) is None

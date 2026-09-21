@@ -23,9 +23,7 @@ _APPEARANCE_KEYS = (
 )
 
 _THEMES = frozenset({"light", "dark", "system"})
-_ACCENT_PALETTES = frozenset(
-    {"default", "blue", "violet", "cyan", "emerald", "amber", "rose", "slate", "custom"}
-)
+_ACCENT_PALETTES = frozenset({"default", "blue", "violet", "cyan", "emerald", "amber", "rose", "slate", "custom"})
 _LG_PRESETS = frozenset({"aurora", "deep-sea", "ember", "minimal", "aquarium"})
 _FONT_SIZES = frozenset({"small", "medium", "large", "extra-large"})
 _HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -37,10 +35,7 @@ def appearance_options_catalog() -> dict[str, Any]:
         "accentPalettes": sorted(_ACCENT_PALETTES),
         "liquidGlassPresets": sorted(_LG_PRESETS),
         "fontSizes": sorted(_FONT_SIZES),
-        "backgroundImage": (
-            "本地绝对路径、相对路径、http(s) URL，或空字符串清除；"
-            "桌面端本地图片/视频路径会由客户端解析显示"
-        ),
+        "backgroundImage": ("本地绝对路径、相对路径、http(s) URL，或空字符串清除；桌面端本地图片/视频路径会由客户端解析显示"),
         "backgroundOpacity": "0.05–1",
         "liquidGlassBlur": "0–40",
         "liquidGlassFlowSpeed": "0.1–3",
@@ -91,13 +86,18 @@ def _validate_patch(patch: dict[str, Any]) -> dict[str, Any]:
         elif key == "backgroundOpacity":
             out[key] = _clamp(float(value), 0.05, 1.0)
         elif key == "liquidGlassEnabled":
-            out[key] = bool(value) if isinstance(value, bool) else str(value).strip().lower() not in {
-                "0",
-                "false",
-                "no",
-                "off",
-                "",
-            }
+            out[key] = (
+                bool(value)
+                if isinstance(value, bool)
+                else str(value).strip().lower()
+                not in {
+                    "0",
+                    "false",
+                    "no",
+                    "off",
+                    "",
+                }
+            )
         elif key == "liquidGlassPreset":
             v = str(value or "").strip().lower()
             if v not in _LG_PRESETS:
@@ -168,10 +168,7 @@ def get_appearance_state() -> dict[str, Any]:
 def patch_appearance(args: dict[str, Any]) -> dict[str, Any]:
     patch = build_appearance_patch_from_args(args)
     if not patch:
-        raise ValidationError(
-            "no appearance fields provided; use theme, accentPalette, backgroundImage, "
-            "liquidGlassEnabled, liquidGlassPreset, backgroundOpacity, etc."
-        )
+        raise ValidationError("no appearance fields provided; use theme, accentPalette, backgroundImage, liquidGlassEnabled, liquidGlassPreset, backgroundOpacity, etc.")
     from evoflow.persistence.panel_settings import patch_panel_settings
 
     merged = patch_panel_settings(patch)

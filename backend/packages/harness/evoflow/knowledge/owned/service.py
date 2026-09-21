@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from evoflow.knowledge.embedding import get_embedding
-from evoflow.knowledge.owned import blob_store, jobs
 from evoflow.knowledge.owned import activity as owned_activity
+from evoflow.knowledge.owned import blob_store, jobs
+from evoflow.knowledge.owned import kg as kg_store
 from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.embedding_bind import resolve_create_binding
 from evoflow.knowledge.owned.formats import (
@@ -29,7 +30,6 @@ from evoflow.knowledge.owned.retrieve import (
     search_vector,
 )
 from evoflow.knowledge.owned.worker import ensure_owned_kb_worker_started
-from evoflow.knowledge.owned import kg as kg_store
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,7 @@ def _validate_chunk_size(raw: Any) -> int:
 def _validate_chunk_overlap(raw: Any, *, chunk_size: int) -> int:
     n = _parse_int_field(raw, field="chunkOverlap")
     if n < _CHUNK_OVERLAP_MIN or n > _CHUNK_OVERLAP_MAX:
-        raise ValueError(
-            f"chunkOverlap must be between {_CHUNK_OVERLAP_MIN} and {_CHUNK_OVERLAP_MAX}"
-        )
+        raise ValueError(f"chunkOverlap must be between {_CHUNK_OVERLAP_MIN} and {_CHUNK_OVERLAP_MAX}")
     if n >= chunk_size:
         raise ValueError("chunkOverlap must be less than chunkSize")
     return n
@@ -112,8 +110,7 @@ def _row_base(row: Any) -> dict[str, Any]:
         "orgId": d.get("org_id") or "",
         "ownerScopeId": d.get("owner_scope_id") or "",
         "createdBy": d.get("created_by") or "",
-        "builtin": str(d.get("id") or "") == "kb_builtin_user_guide"
-        or str(d.get("sync_vault_id") or "") == "evoflow-user-guide",
+        "builtin": str(d.get("id") or "") == "kb_builtin_user_guide" or str(d.get("sync_vault_id") or "") == "evoflow-user-guide",
     }
 
 
@@ -168,9 +165,7 @@ def list_bases(
 ) -> list[dict[str, Any]]:
     ensure_owned_kb_worker_started()
     with db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM kb_bases WHERE deleted_at IS NULL ORDER BY updated_at DESC"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM kb_bases WHERE deleted_at IS NULL ORDER BY updated_at DESC").fetchall()
         counts = {
             str(r[0]): int(r[1] or 0)
             for r in conn.execute(
@@ -270,6 +265,7 @@ def kb_visible_to_principal(
         org_scope=org_scope,
     )
 
+
 def create_base(payload: dict[str, Any]) -> dict[str, Any]:
     ensure_owned_kb_worker_started()
     kb_id = new_id("kb_")
@@ -285,17 +281,10 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
     raw_chunk_size = payload.get("chunkSize", payload.get("chunk_size", None))
     chunk_size = 512 if raw_chunk_size is None else _validate_chunk_size(raw_chunk_size)
     raw_chunk_overlap = payload.get("chunkOverlap", payload.get("chunk_overlap", None))
-    chunk_overlap = (
-        80 if raw_chunk_overlap is None else _validate_chunk_overlap(raw_chunk_overlap, chunk_size=chunk_size)
-    )
+    chunk_overlap = 80 if raw_chunk_overlap is None else _validate_chunk_overlap(raw_chunk_overlap, chunk_size=chunk_size)
     # Registry-bound models keep credentials on the models page; only legacy
     # inline keys are stored per-KB.
-    if (
-        not binding.get("from_registry")
-        and api_key
-        and str(api_key).strip()
-        and mode != "local"
-    ):
+    if not binding.get("from_registry") and api_key and str(api_key).strip() and mode != "local":
         from evoflow.knowledge.vault import secrets as vault_secrets
 
         key_ref = f"owned_{kb_id}_embedding_api_key"
@@ -373,9 +362,7 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     reindex_doc_ids: list[str] = []
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
         if not row:
             raise ValueError("knowledge base not found")
 
@@ -392,11 +379,7 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             sets.append("chunk_size=?")
             vals.append(_validate_chunk_size(chunk_size))
         if chunk_overlap is not None:
-            effective_size = (
-                _validate_chunk_size(chunk_size)
-                if chunk_size is not None
-                else int(existing.get("chunkSize") or 512)
-            )
+            effective_size = _validate_chunk_size(chunk_size) if chunk_size is not None else int(existing.get("chunkSize") or 512)
             sets.append("chunk_overlap=?")
             vals.append(_validate_chunk_overlap(chunk_overlap, chunk_size=effective_size))
         if chunk_strategy is not None:
@@ -420,12 +403,7 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             old_model = str(row["embedding_model"] or "")
             old_base = str(row["embedding_base_url"] or "")
             old_ref = str(row["embedding_model_ref"] or "") if "embedding_model_ref" in row.keys() else ""
-            embedding_changed = (
-                new_mode != old_mode
-                or new_model != old_model
-                or new_base != old_base
-                or new_ref != old_ref
-            )
+            embedding_changed = new_mode != old_mode or new_model != old_model or new_base != old_base or new_ref != old_ref
             sets.extend(
                 [
                     "embedding_mode=?",
@@ -612,9 +590,7 @@ def requeue_orphan_parse_docs(
 
 def get_base(kb_id: str) -> dict[str, Any] | None:
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
     return _row_base(row) if row else None
 
 
@@ -627,9 +603,7 @@ def delete_base(kb_id: str) -> None:
     base = get_base(kb_id)
     name = (base or {}).get("name") or kb_id
     with db() as conn:
-        row = conn.execute(
-            "SELECT embedding_api_key_ref FROM kb_bases WHERE id=?", (kb_id,)
-        ).fetchone()
+        row = conn.execute("SELECT embedding_api_key_ref FROM kb_bases WHERE id=?", (kb_id,)).fetchone()
         conn.execute(
             "UPDATE kb_bases SET deleted_at=?, updated_at=? WHERE id=?",
             (now, now, kb_id),
@@ -998,9 +972,7 @@ def move_document(
 
 def get_document(doc_id: str) -> dict[str, Any] | None:
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     return _row_doc(row) if row else None
 
 
@@ -1022,7 +994,7 @@ def resolve_document(kb_id: str, key: str) -> dict[str, Any] | None:
         ).fetchall()
     for row in rows:
         d = _row_doc(row)
-        path = (d.get("folderPath") and f'{d["folderPath"]}/{d["fileName"]}') or d.get("fileName") or ""
+        path = (d.get("folderPath") and f"{d['folderPath']}/{d['fileName']}") or d.get("fileName") or ""
         if key in (d.get("fileName"), path, d.get("title")):
             return d
         if path.endswith("/" + key) or path == key:
@@ -1088,9 +1060,7 @@ def get_document_content(doc_id: str, *, max_chars: int = 500_000) -> dict[str, 
     ``source=raw`` (original text files) or ``source=parsed`` (PDF/Office via pipeline).
     """
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if not row:
         return None
     doc = _row_doc(row)
@@ -1147,9 +1117,7 @@ def get_document_content(doc_id: str, *, max_chars: int = 500_000) -> dict[str, 
 def resolve_document_file(doc_id: str) -> dict[str, Any] | None:
     """Resolve original blob path + Content-Type for panel file preview (PDF etc.)."""
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if not row:
         return None
     blob_path = str(row["blob_path"] or "")
@@ -1326,14 +1294,7 @@ async def ask(
         if doc:
             focus = f"用户当前正在阅读「{doc.get('title') or doc.get('fileName') or doc_id}」，请优先依据该文档作答；不足时再引用其它片段。\n\n"
 
-    prompt = (
-        "你是企业知识库助手。仅根据下列检索片段回答用户问题，使用简洁中文。"
-        "禁止臆造片段中未出现的事实；若信息不足请明确说明。"
-        "回答末尾用「引用：」列出用到的编号（如 [1][3]）。\n\n"
-        f"{focus}"
-        f"问题：{q}\n\n"
-        f"检索片段：\n{context}"
-    )
+    prompt = f"你是企业知识库助手。仅根据下列检索片段回答用户问题，使用简洁中文。禁止臆造片段中未出现的事实；若信息不足请明确说明。回答末尾用「引用：」列出用到的编号（如 [1][3]）。\n\n{focus}问题：{q}\n\n检索片段：\n{context}"
 
     answer = ""
     try:
@@ -1598,9 +1559,7 @@ def replace_document_content(doc_id: str, content: str, *, title: str | None = N
 def append_document_content(doc_id: str, content: str, *, section: str | None = None) -> dict[str, Any]:
     existing = ""
     with db() as conn:
-        row = conn.execute(
-            "SELECT blob_path FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)
-        ).fetchone()
+        row = conn.execute("SELECT blob_path FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if row and row["blob_path"]:
         try:
             path = blob_store.resolve_blob(row["blob_path"])
@@ -2084,9 +2043,7 @@ def list_activities(
     limit: int = 50,
     before: str | None = None,
 ) -> list[dict[str, Any]]:
-    return owned_activity.list_activities(
-        kb_id=kb_id, doc_id=doc_id, limit=limit, before=before
-    )
+    return owned_activity.list_activities(kb_id=kb_id, doc_id=doc_id, limit=limit, before=before)
 
 
 def job_stats(kb_id: str) -> dict[str, Any]:

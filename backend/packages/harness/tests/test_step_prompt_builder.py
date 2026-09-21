@@ -98,7 +98,10 @@ class TestBuildCorePrompt:
         }
         subtask_row: dict = {}
         result = build_core_prompt(
-            step=step, params={}, mode="production", subtask_row=subtask_row,
+            step=step,
+            params={},
+            mode="production",
+            subtask_row=subtask_row,
         )
         assert result["unresolved_count"] == 1
         assert subtask_row.get("_has_unresolved_bindings") is True
@@ -111,7 +114,10 @@ class TestBuildCorePrompt:
         }
         subtask_row: dict = {}
         result = build_core_prompt(
-            step=step, params={}, mode="debug", subtask_row=subtask_row,
+            step=step,
+            params={},
+            mode="debug",
+            subtask_row=subtask_row,
         )
         assert result["unresolved_count"] == 1
         # Debug mode should NOT set the flag (allows inspection)
@@ -125,7 +131,10 @@ class TestBuildCorePrompt:
         }
         subtask_row: dict = {}
         build_core_prompt(
-            step=step, params={"val": "hello"}, mode="production", subtask_row=subtask_row,
+            step=step,
+            params={"val": "hello"},
+            mode="production",
+            subtask_row=subtask_row,
         )
         assert subtask_row.get("_has_resolved_input_bindings") is True
 
@@ -133,7 +142,10 @@ class TestBuildCorePrompt:
         step = {"ref": "2", "description": "Process", "goal": "Do thing"}
         mock_output = {"1": {"output": {"x": 1}, "summary": "Step 1 done"}}
         result = build_core_prompt(
-            step=step, params={}, steps_output=mock_output, mode="debug",
+            step=step,
+            params={},
+            steps_output=mock_output,
+            mode="debug",
         )
         assert "上游步骤" in result["prompt"]
         assert "Mock 数据" in result["prompt"]
@@ -170,7 +182,9 @@ class TestInputSchemaValidation:
             },
         }
         result = build_core_prompt(
-            step=step, params={"topic": "AI", "src": "web"}, mode="production",
+            step=step,
+            params={"topic": "AI", "src": "web"},
+            mode="production",
         )
         assert result["unresolved_count"] == 0
 
@@ -187,7 +201,9 @@ class TestInputSchemaValidation:
             },
         }
         result = build_core_prompt(
-            step=step, params={"val": "not_a_number"}, mode="production",
+            step=step,
+            params={"val": "not_a_number"},
+            mode="production",
         )
         # The binding resolves to "not_a_number" (string), but schema expects integer
         assert result["unresolved_count"] == 1
@@ -200,6 +216,8 @@ class TestInputSchemaValidation:
             "input_bindings": {"x": "{{params.val}}"},
         }
         result = build_core_prompt(
-            step=step, params={"val": "anything"}, mode="production",
+            step=step,
+            params={"val": "anything"},
+            mode="production",
         )
         assert result["unresolved_count"] == 0

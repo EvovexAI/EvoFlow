@@ -131,8 +131,7 @@ def log_compaction_trigger_decision(
     need = bool(decision.allow)
     # Always print the three fields the ops console needs for triage.
     logger.info(
-        "[context-compaction] 压缩判定 tokens=%d/%d (%.1f%%) need_compress=%s "
-        "threshold=%d reason=%s phase=%s thread=%s msgs=%d",
+        "[context-compaction] 压缩判定 tokens=%d/%d (%.1f%%) need_compress=%s threshold=%d reason=%s phase=%s thread=%s msgs=%d",
         tokens,
         window,
         pct,
@@ -146,16 +145,8 @@ def log_compaction_trigger_decision(
     try:
         from evoflow.observability.compaction_file_log import log_compaction_trace
 
-        refill_floor = (
-            int(decision.after_gate_tokens * POST_COMPRESS_REFILL_RATIO)
-            if decision.after_gate_tokens > 0
-            else None
-        )
-        same_turn_refill = (
-            int(decision.after_gate_tokens * SAME_TURN_REFILL_RATIO)
-            if decision.after_gate_tokens > 0
-            else None
-        )
+        refill_floor = int(decision.after_gate_tokens * POST_COMPRESS_REFILL_RATIO) if decision.after_gate_tokens > 0 else None
+        same_turn_refill = int(decision.after_gate_tokens * SAME_TURN_REFILL_RATIO) if decision.after_gate_tokens > 0 else None
         log_compaction_trace(
             "触发判断",
             thread_id=thread_id,
@@ -426,12 +417,7 @@ class CompactionTriggerCache:
             )
             return decision
 
-        refill_eligible = (
-            in_cooldown
-            and not same_run
-            and after_gate > 0
-            and tokens >= int(after_gate * POST_COMPRESS_REFILL_RATIO)
-        )
+        refill_eligible = in_cooldown and not same_run and after_gate > 0 and tokens >= int(after_gate * POST_COMPRESS_REFILL_RATIO)
         refill_floor = int(after_gate * POST_COMPRESS_REFILL_RATIO) if after_gate > 0 else 0
         db_summary = _session_has_compaction_summary(session_key)
 
@@ -467,13 +453,7 @@ class CompactionTriggerCache:
                 )
             )
 
-        if (
-            db_summary
-            and after_gate > 0
-            and tokens < refill_floor
-            and not force
-            and not aggressive
-        ):
+        if db_summary and after_gate > 0 and tokens < refill_floor and not force and not aggressive:
             return _done(
                 CompactionTriggerDecision(
                     allow=False,
@@ -506,9 +486,7 @@ class CompactionTriggerCache:
             )
 
         if same_run:
-            same_turn_refill = (
-                int(after_gate * SAME_TURN_REFILL_RATIO) if after_gate > 0 else aggressive_threshold + 1
-            )
+            same_turn_refill = int(after_gate * SAME_TURN_REFILL_RATIO) if after_gate > 0 else aggressive_threshold + 1
             if tokens >= aggressive_threshold and after_gate > 0 and tokens >= same_turn_refill:
                 return _done(
                     CompactionTriggerDecision(

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -76,11 +75,11 @@ class CallerCtx(BaseModel):
     #: True when the call arrives through the remote front door (LAN/web/device).
     remote: bool = False
     #: Set for an external IM channel master-agent session (telegram / lark / …).
-    channel_platform: Optional[str] = None
+    channel_platform: str | None = None
     #: Identity of the calling user.
     user_id: str = ""
     #: Identifier of the companion thread, if any.
-    companion_id: Optional[str] = None
+    companion_id: str | None = None
 
     def surface(self) -> Surface:
         """Resolve the permission surface this caller acts on.
@@ -143,6 +142,4 @@ class CapabilityMeta:
         Used to decide whether to inject the ``confirm`` property into its schema.
         Mirrors the Rust ``CapabilityMeta::confirmable``.
         """
-        return self.danger in (DangerTier.Destructive, DangerTier.Sensitive) or bool(
-            self.confirm_on
-        )
+        return self.danger in (DangerTier.Destructive, DangerTier.Sensitive) or bool(self.confirm_on)

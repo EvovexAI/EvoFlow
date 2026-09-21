@@ -160,12 +160,7 @@ def test_knowledge_create_list_ingest(sqlite_tmp: Path) -> None:
     assert created.get("ok") is True
     assert created.get("provider") == "owned"
     vault = created.get("vault") or created.get("base") or {}
-    vid = str(
-        created.get("kbId")
-        or created.get("vaultId")
-        or vault.get("id")
-        or ""
-    ).strip()
+    vid = str(created.get("kbId") or created.get("vaultId") or vault.get("id") or "").strip()
     assert vid.startswith("kb_")
     # Must not create Obsidian managed vault dirs by default
     assert not (sqlite_tmp / "knowledge-vaults").exists()
@@ -194,9 +189,7 @@ def test_knowledge_create_list_ingest(sqlite_tmp: Path) -> None:
 def test_unknown_action_suggests_catalog() -> None:
     miss = dispatch_platform_action("knowledge.nope")
     assert miss.get("ok") is False
-    assert "catalog" in str(miss.get("catalog_hint") or miss.get("hint") or "").lower() or miss.get(
-        "suggestions"
-    ) is not None
+    assert "catalog" in str(miss.get("catalog_hint") or miss.get("hint") or "").lower() or miss.get("suggestions") is not None
 
 
 def test_tool_wrapper_catalog() -> None:
@@ -459,4 +452,3 @@ def test_appearance_patch_updates_panel_ui(sqlite_tmp: None) -> None:
     assert got.get("ok") is True
     assert got.get("settings", {}).get("theme") == "dark"
     assert "options" in got
-

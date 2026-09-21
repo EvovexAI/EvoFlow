@@ -22,11 +22,7 @@ _BUILTIN: list[dict[str, Any]] = [
         "vendor": "volcengine",
         "plan_family": "agent_plan",
         "name": "火山方舟 Agent Plan",
-        "description": (
-            "胜任 Coding，不止 Coding。最新支持 DeepSeek-V4-flash 正式版、Kimi-K3、"
-            "Doubao-Seed-Evolving、GLM-5.3 等；全模态模型与 Harness。"
-            "Small/Medium 可叠加优惠低至约 ¥9.4 起（以活动页为准）。"
-        ),
+        "description": ("胜任 Coding，不止 Coding。最新支持 DeepSeek-V4-flash 正式版、Kimi-K3、Doubao-Seed-Evolving、GLM-5.3 等；全模态模型与 Harness。Small/Medium 可叠加优惠低至约 ¥9.4 起（以活动页为准）。"),
         "subscribe_url": "https://www.volcengine.com/product/ark",
         "invite_code": "",
         "docs_url": "https://www.volcengine.com/docs/82379/2366394?lang=zh",
@@ -124,10 +120,7 @@ _BUILTIN: list[dict[str, Any]] = [
             "embedding": {
                 "base_url": PLAN_CHAT_BASE,
                 "api": "openai-completions",
-                "notes": (
-                    "Agent Plan 向量仅 doubao-embedding-vision；"
-                    "POST {base}/embeddings/multimodal（纯文本 doubao-embedding 不支持 Agent Plan）"
-                ),
+                "notes": ("Agent Plan 向量仅 doubao-embedding-vision；POST {base}/embeddings/multimodal（纯文本 doubao-embedding 不支持 Agent Plan）"),
             },
         },
         "key_rules": {

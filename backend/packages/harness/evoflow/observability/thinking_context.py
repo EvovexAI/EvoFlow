@@ -293,9 +293,7 @@ def resolve_vendor_request_from_stored(obj: dict[str, Any] | None) -> dict[str, 
     if obj.get("messages") is not None or obj.get("model") is not None:
         return obj
     payload = obj.get("payload")
-    if isinstance(payload, dict) and (
-        payload.get("messages") is not None or payload.get("model") is not None
-    ):
+    if isinstance(payload, dict) and (payload.get("messages") is not None or payload.get("model") is not None):
         return payload
     return None
 
@@ -352,9 +350,7 @@ def format_thinking_label(ctx: dict[str, Any] | None) -> str:
     """Human-readable label for UI (zh-friendly)."""
     m = ctx if isinstance(ctx, dict) else {}
     te = m.get("thinking_enabled")
-    effort = _normalize_reasoning_effort(m.get("reasoning_effort")) or _normalize_reasoning_effort(
-        m.get("reasoning_effort_inferred")
-    )
+    effort = _normalize_reasoning_effort(m.get("reasoning_effort")) or _normalize_reasoning_effort(m.get("reasoning_effort_inferred"))
     thinking_type = str(m.get("thinking_type") or "").strip().lower()
     budget = m.get("thinking_budget_tokens")
 

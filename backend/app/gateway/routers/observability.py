@@ -8,16 +8,14 @@ import sqlite3
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from evoflow.authz.http_guard import require_org_admin, require_thread_visible
 from evoflow.observability import analysis_report as obs_report
 from evoflow.observability import eval_metrics as obs_eval
 from evoflow.observability import latency_waterfall as obs_waterfall
 from evoflow.observability import queries as obs_queries
 from evoflow.observability.queries import ObservabilityDiskFullError, disk_full_user_message
-
-
-from evoflow.authz.http_guard import require_org_admin, require_thread_visible
 
 
 def _obs_access_dep(request: Request) -> None:
@@ -143,11 +141,7 @@ def _build_runtime_status_payload() -> dict[str, Any]:
         from app.gateway.streaming.background_worker import StreamBackgroundWorker
 
         workers = StreamBackgroundWorker._workers
-        active_workers = [
-            {"thread_id": tid, "is_alive": w.is_alive()}
-            for tid, w in workers.items()
-            if w.is_alive()
-        ]
+        active_workers = [{"thread_id": tid, "is_alive": w.is_alive()} for tid, w in workers.items() if w.is_alive()]
         result["background_workers"] = {
             "total": len(workers),
             "active": len(active_workers),
@@ -217,16 +211,25 @@ def _build_runtime_status_payload() -> dict[str, Any]:
             agents: list[dict[str, Any]] = []
             for kind, info in kind_latest.items():
                 recent_count = kind_recent_count.get(kind, 0)
-                agents.append({
-                    **info,
-                    "is_active": recent_count > 0 or info["thread_id"] in active_thread_ids,
-                    "recent_calls_5min": recent_count,
-                })
+                agents.append(
+                    {
+                        **info,
+                        "is_active": recent_count > 0 or info["thread_id"] in active_thread_ids,
+                        "recent_calls_5min": recent_count,
+                    }
+                )
 
             kind_order = {
-                "main": 0, "subagent": 1, "title": 2, "mission_state": 3,
-                "memory": 4, "compress": 5, "tool_summary": 6,
-                "hosted": 7, "hosted_panel": 8, "hosted_closure": 9,
+                "main": 0,
+                "subagent": 1,
+                "title": 2,
+                "mission_state": 3,
+                "memory": 4,
+                "compress": 5,
+                "tool_summary": 6,
+                "hosted": 7,
+                "hosted_panel": 8,
+                "hosted_closure": 9,
             }
             agents.sort(key=lambda a: kind_order.get(a["invocation_kind"], 99))
             result["agent_activities"] = {

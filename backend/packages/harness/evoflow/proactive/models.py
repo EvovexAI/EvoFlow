@@ -90,11 +90,7 @@ def needs_approval(
 ) -> bool:
     """Whether a given risk level triggers approval for this autonomy level."""
     r = InitiativeRiskLevel(risk) if not isinstance(risk, InitiativeRiskLevel) else risk
-    a = (
-        ProactiveAutonomyLevel(autonomy)
-        if not isinstance(autonomy, ProactiveAutonomyLevel)
-        else autonomy
-    )
+    a = ProactiveAutonomyLevel(autonomy) if not isinstance(autonomy, ProactiveAutonomyLevel) else autonomy
     threshold = _AUTONOMY_THRESHOLD[a]
     return _RISK_ORDER[r] >= _RISK_ORDER[threshold]
 
@@ -137,8 +133,8 @@ class ProactiveRoleConfig:
     # When enabled, the runner only works during [work_start_hour, work_end_hour).
     # Default: 09:00 ~ 20:00 local time.
     work_schedule_enabled: bool = True
-    work_start_hour: int = 9   # inclusive (local hour, 0-23)
-    work_end_hour: int = 20    # exclusive (local hour, 0-23)
+    work_start_hour: int = 9  # inclusive (local hour, 0-23)
+    work_end_hour: int = 20  # exclusive (local hour, 0-23)
 
     # ── Approval timeouts by action type (minutes) ────────────
     # When non-empty, overrides ``approval_timeout_minutes`` per action_type.
@@ -386,20 +382,14 @@ class ProactiveMemory:
         valid["role_agent_code"] = role_agent_code
         # LOW-004: cap list/dict fields to prevent unbounded growth
         if isinstance(valid.get("focus_areas"), list):
-            valid["focus_areas"] = [
-                str(x).strip() for x in valid["focus_areas"] if str(x).strip()
-            ][: cls.MAX_FOCUS_AREAS]
+            valid["focus_areas"] = [str(x).strip() for x in valid["focus_areas"] if str(x).strip()][: cls.MAX_FOCUS_AREAS]
         if isinstance(valid.get("extra"), dict):
             items = list(valid["extra"].items())[: cls.MAX_EXTRA_ENTRIES]
             valid["extra"] = dict(items)
         if isinstance(valid.get("observations"), list):
-            valid["observations"] = [
-                str(x).strip() for x in valid["observations"] if str(x).strip()
-            ][: cls.MAX_OBSERVATIONS]
+            valid["observations"] = [str(x).strip() for x in valid["observations"] if str(x).strip()][: cls.MAX_OBSERVATIONS]
         if isinstance(valid.get("strategies"), list):
-            valid["strategies"] = [
-                str(x).strip() for x in valid["strategies"] if str(x).strip()
-            ][: cls.MAX_STRATEGIES]
+            valid["strategies"] = [str(x).strip() for x in valid["strategies"] if str(x).strip()][: cls.MAX_STRATEGIES]
         return cls(**valid)
 
     def summary(self, max_items: int = 5) -> str:

@@ -22,19 +22,23 @@ def _make_app(
 
 class TestStepRefIntegrity:
     def test_valid_deps(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "Step 1", "goal": "Do thing 1"},
-            {"ref": "2", "name": "Step 2", "goal": "Do thing 2", "depends_on": ["1"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "Step 1", "goal": "Do thing 1"},
+                {"ref": "2", "name": "Step 2", "goal": "Do thing 2", "depends_on": ["1"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is True
         assert result["errors"] == []
 
     def test_dangling_dep(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "Step 1", "goal": "Do thing 1"},
-            {"ref": "2", "name": "Step 2", "goal": "Do thing 2", "depends_on": ["99"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "Step 1", "goal": "Do thing 1"},
+                {"ref": "2", "name": "Step 2", "goal": "Do thing 2", "depends_on": ["99"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("non-existent step '99'" in e for e in result["errors"])
@@ -42,37 +46,45 @@ class TestStepRefIntegrity:
 
 class TestCircularDeps:
     def test_no_cycle(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "depends_on": []},
-            {"ref": "2", "name": "B", "depends_on": ["1"]},
-            {"ref": "3", "name": "C", "depends_on": ["2"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "depends_on": []},
+                {"ref": "2", "name": "B", "depends_on": ["1"]},
+                {"ref": "3", "name": "C", "depends_on": ["2"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is True
 
     def test_simple_cycle(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "depends_on": ["2"]},
-            {"ref": "2", "name": "B", "depends_on": ["1"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "depends_on": ["2"]},
+                {"ref": "2", "name": "B", "depends_on": ["1"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("Circular dependency" in e for e in result["errors"])
 
     def test_self_cycle(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "depends_on": ["1"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "depends_on": ["1"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("Circular" in e for e in result["errors"])
 
     def test_three_node_cycle(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "depends_on": ["3"]},
-            {"ref": "2", "name": "B", "depends_on": ["1"]},
-            {"ref": "3", "name": "C", "depends_on": ["2"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "depends_on": ["3"]},
+                {"ref": "2", "name": "B", "depends_on": ["1"]},
+                {"ref": "3", "name": "C", "depends_on": ["2"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("Circular dependency" in e for e in result["errors"])
@@ -80,30 +92,36 @@ class TestCircularDeps:
     def test_two_directed_cycles_same_nodes_are_both_reported(self) -> None:
         # 1->2->3->1 and 1->3->2->1 share nodes; fingerprint must not collapse them
         # into a single "sorted set" if both directed cycles exist.
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "depends_on": ["2", "3"]},
-            {"ref": "2", "name": "B", "depends_on": ["3", "1"]},
-            {"ref": "3", "name": "C", "depends_on": ["1", "2"]},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "depends_on": ["2", "3"]},
+                {"ref": "2", "name": "B", "depends_on": ["3", "1"]},
+                {"ref": "3", "name": "C", "depends_on": ["1", "2"]},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         cycles = result["checks"]["circular_deps"]["cycles"]
         assert len(cycles) >= 1
 
     def test_duplicate_refs_are_errors(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "goal": "one"},
-            {"ref": "1", "name": "B", "goal": "two"},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "goal": "one"},
+                {"ref": "1", "name": "B", "goal": "two"},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("Duplicate step ref" in e for e in result["errors"])
 
     def test_duplicate_names_are_warnings(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "Same", "goal": "one"},
-            {"ref": "2", "name": "Same", "goal": "two"},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "Same", "goal": "one"},
+                {"ref": "2", "name": "Same", "goal": "two"},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is True
         assert any("Duplicate step name" in w for w in result["warnings"])
@@ -111,18 +129,22 @@ class TestCircularDeps:
 
 class TestBindingRefs:
     def test_valid_step_binding(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "goal": "Produce data"},
-            {"ref": "2", "name": "B", "goal": "Use data", "input_bindings": {"data": "{{steps.1.output.data}}"}},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "goal": "Produce data"},
+                {"ref": "2", "name": "B", "goal": "Use data", "input_bindings": {"data": "{{steps.1.output.data}}"}},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is True
 
     def test_dangling_step_binding(self) -> None:
-        app = _make_app(steps=[
-            {"ref": "1", "name": "A", "goal": "Produce data"},
-            {"ref": "2", "name": "B", "goal": "Use data", "input_bindings": {"data": "{{steps.99.output.data}}"}},
-        ])
+        app = _make_app(
+            steps=[
+                {"ref": "1", "name": "A", "goal": "Produce data"},
+                {"ref": "2", "name": "B", "goal": "Use data", "input_bindings": {"data": "{{steps.99.output.data}}"}},
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("non-existent step '99'" in e for e in result["errors"])

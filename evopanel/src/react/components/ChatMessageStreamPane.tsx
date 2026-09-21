@@ -24,6 +24,9 @@ export type ChatMessageStreamPaneProps = {
   historyLoading: boolean
   /** When false, empty thread shows a quiet placeholder instead of the home dashboard */
   showHomeDashboard?: boolean
+  /** 首页工作台展示的当前工作空间名（basename）与完整路径 */
+  homeWorkspaceLabel?: string
+  homeWorkspacePath?: string
   isSending: boolean
   streamLive: boolean
   resumeAttachActive: boolean
@@ -87,6 +90,8 @@ export const ChatMessageStreamPane = memo(function ChatMessageStreamPane(props: 
     streamRef,
     historyLoading,
     showHomeDashboard = true,
+    homeWorkspaceLabel = '',
+    homeWorkspacePath = '',
     isSending,
     streamLive,
     resumeAttachActive,
@@ -232,6 +237,8 @@ export const ChatMessageStreamPane = memo(function ChatMessageStreamPane(props: 
       streamRef={streamRef}
       historyLoading={historyLoading}
       showHomeDashboard={showHomeDashboard}
+      homeWorkspaceLabel={homeWorkspaceLabel}
+      homeWorkspacePath={homeWorkspacePath}
       isSending={isSending}
       streamLive={streamLive}
       resumeAttachActive={resumeAttachActive}

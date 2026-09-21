@@ -34,10 +34,7 @@ def apply_langgraph_command_patch() -> None:
             goto = [cmd.get("goto")]
 
         update = cmd.get("update")
-        if isinstance(update, tuple | list) and all(
-            isinstance(t, tuple | list) and len(t) == 2 and isinstance(t[0], str)
-            for t in cast("list", update)
-        ):
+        if isinstance(update, tuple | list) and all(isinstance(t, tuple | list) and len(t) == 2 and isinstance(t[0], str) for t in cast("list", update)):
             update = [tuple(t) for t in cast("list", update)]
 
         if goto:

@@ -64,9 +64,7 @@ def test_env_overrides_config_to_enable(isolated_home: Path, monkeypatch: pytest
     obs_path = isolated_home / "obs-on.db"
     base = get_app_config()
     custom = base.model_copy(deep=True)
-    custom.observability = custom.observability.model_copy(
-        update={"enabled": False, "sqlite_path": str(obs_path)}
-    )
+    custom.observability = custom.observability.model_copy(update={"enabled": False, "sqlite_path": str(obs_path)})
     set_app_config(custom)
     monkeypatch.setenv("EVOFLOW_OBSERVABILITY", "1")
 

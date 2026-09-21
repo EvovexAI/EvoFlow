@@ -677,11 +677,7 @@ async def get_memory_graph_node_atoms(
     from evoflow.memory.graph import atoms_for_node
 
     atoms = atoms_for_node(node_id, limit=limit)
-    ns_ids = {
-        str(a.get("namespace_id") or a.get("namespace") or "").strip()
-        for a in atoms
-        if isinstance(a, dict)
-    }
+    ns_ids = {str(a.get("namespace_id") or a.get("namespace") or "").strip() for a in atoms if isinstance(a, dict)}
     ns_ids.discard("")
     if not ns_ids:
         require_org_admin(request)
@@ -770,5 +766,3 @@ async def get_memory_recall_snapshot(
             "updated_at": "",
         }
     return snap
-
-

@@ -253,13 +253,7 @@ def test_format_worker_search_deliverable_hoists_path_and_code():
             "query": "feishu|lark",
             "inner_tools": [
                 {
-                    "output": (
-                        "catalog hits\n"
-                        "<post_search_reads offset=0 limit=2>\n"
-                        "[tool:summary] tool=read_file\npath: src/a.py\ncore: alpha\n\n"
-                        "[tool:summary] tool=read_file\npath: src/b.py\ncore: beta\n"
-                        "</post_search_reads>"
-                    ),
+                    "output": ("catalog hits\n<post_search_reads offset=0 limit=2>\n[tool:summary] tool=read_file\npath: src/a.py\ncore: alpha\n\n[tool:summary] tool=read_file\npath: src/b.py\ncore: beta\n</post_search_reads>"),
                 },
             ],
         },
@@ -275,11 +269,7 @@ def test_format_worker_search_deliverable_hoists_path_and_code():
 def test_format_worker_search_deliverable_dedupes_same_path_across_workers():
     from evoflow.tools.builtins.worker_tool import _format_worker_search_deliverable
 
-    snippet = (
-        "<post_search_reads offset=0 limit=1>\n"
-        "[tool:summary] tool=read_file\npath: src/shared.py\ncore: same snippet\n"
-        "</post_search_reads>"
-    )
+    snippet = "<post_search_reads offset=0 limit=1>\n[tool:summary] tool=read_file\npath: src/shared.py\ncore: same snippet\n</post_search_reads>"
     result_rows = [
         {"index": 0, "ok": True, "query": "feishu", "inner_tools": [{"output": f"hits\n{snippet}"}]},
         {"index": 1, "ok": True, "query": "lark", "inner_tools": [{"output": f"hits\n{snippet}"}]},
@@ -306,11 +296,7 @@ def test_format_worker_execution_report_puts_reads_first():
             "query": "foo",
             "inner_tools": [
                 {
-                    "output": (
-                        "hits\n<post_search_reads>\n"
-                        "[tool:summary] tool=read_file\npath: x.py\ncore: snippet\n"
-                        "</post_search_reads>"
-                    ),
+                    "output": ("hits\n<post_search_reads>\n[tool:summary] tool=read_file\npath: x.py\ncore: snippet\n</post_search_reads>"),
                 },
             ],
         },
@@ -335,12 +321,7 @@ def test_format_worker_search_next_step_lists_catalog_paths():
             "ok": True,
             "inner_tools": [
                 {
-                    "output": (
-                        "Read catalog:\n  [0] src/a.py:10\n  [1] src/b.py:20\n"
-                        "<post_search_reads>\n"
-                        "[tool:summary] tool=read_file\npath: src/a.py\ncore: alpha\n"
-                        "</post_search_reads>"
-                    ),
+                    "output": ("Read catalog:\n  [0] src/a.py:10\n  [1] src/b.py:20\n<post_search_reads>\n[tool:summary] tool=read_file\npath: src/a.py\ncore: alpha\n</post_search_reads>"),
                 },
             ],
         },

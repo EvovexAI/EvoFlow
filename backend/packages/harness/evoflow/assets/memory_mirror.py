@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -143,15 +143,13 @@ def mirror_memory_document(namespace: str, document: dict[str, Any]) -> int:
             fid = str(fact.get("id") or "").strip() or _slug(content[:32])
             fname = _slug(fid) if fid.startswith("fact_") else _slug(content[:40])
             src = str(fact.get("source") or "").strip().lower()
-            is_closure = src in {"goal_complete", "task_complete"} or (
-                "已完成" in content and ("Goal「" in content or "任务「" in content)
-            )
+            is_closure = src in {"goal_complete", "task_complete"} or ("已完成" in content and ("Goal「" in content or "任务「" in content))
             if is_closure:
                 episodic_dir = root / "memory" / "episodic"
                 episodic_dir.mkdir(parents=True, exist_ok=True)
-                from datetime import datetime, timezone
+                from datetime import datetime
 
-                day = datetime.now(timezone.utc).strftime("%Y%m%d")
+                day = datetime.now(UTC).strftime("%Y%m%d")
                 path = episodic_dir / f"{day}-{fname}.md"
                 layer = "episodic"
             else:
@@ -210,7 +208,7 @@ def mirror_atom_file(
     if subdir == "facts" and aid:
         fname = _slug(aid) if aid.startswith("fact_") else slug
     else:
-        date = datetime.now(timezone.utc).strftime("%Y%m%d")
+        date = datetime.now(UTC).strftime("%Y%m%d")
         fname = f"{date}-{slug}"
     rel_dir = root / "memory" / subdir
     path = rel_dir / f"{fname}.md"
@@ -242,7 +240,7 @@ def _atom_frontmatter(
 ) -> str:
     import json
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     tag_list = [str(t) for t in (tags or []) if str(t).strip()]
     ev = evidence or {}
     lines = [

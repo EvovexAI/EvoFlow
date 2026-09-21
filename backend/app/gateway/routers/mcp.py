@@ -187,9 +187,7 @@ async def get_mcp_configuration(request: Request) -> McpConfigResponse:
     summary="Update MCP Configuration",
     description="Update Model Context Protocol (MCP) server configurations and save to file.",
 )
-async def update_mcp_configuration(
-    http_request: Request, request: McpConfigUpdateRequest
-) -> McpConfigResponse:
+async def update_mcp_configuration(http_request: Request, request: McpConfigUpdateRequest) -> McpConfigResponse:
     """Update the MCP configuration.
 
     This will:

@@ -79,12 +79,7 @@ def _run(home: Path) -> dict:
     )
     appr2 = ProactiveRepository.get_approval(appr.id)
     bridge = ProactiveRepository.get_initiative(f"task:{tid}")
-    ok = (
-        appr2 is not None
-        and appr2.status == ApprovalStatus.REJECTED
-        and bridge is not None
-        and bridge.status == InitiativeStatus.REJECTED
-    )
+    ok = appr2 is not None and appr2.status == ApprovalStatus.REJECTED and bridge is not None and bridge.status == InitiativeStatus.REJECTED
 
     assertions = [
         check(

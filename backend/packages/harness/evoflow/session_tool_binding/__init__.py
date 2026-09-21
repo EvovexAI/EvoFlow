@@ -2,8 +2,8 @@
 
 from evoflow.session_tool_binding.service import (
     CATALOG_SESSION_MODES,
-    build_session_tool_binding_view,
     binding_scenario_key,
+    build_session_tool_binding_view,
     ensure_session_binding_catalog,
     ensure_session_binding_record,
     hydrate_loaded_deferred_for_active_scenarios,

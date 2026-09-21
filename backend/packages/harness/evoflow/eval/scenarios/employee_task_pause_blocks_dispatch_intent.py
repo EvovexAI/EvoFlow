@@ -48,8 +48,7 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "paused_status",
-            paused.get("status") == "paused"
-            or (role_paused is not None and role_paused.status == "paused"),
+            paused.get("status") == "paused" or (role_paused is not None and role_paused.status == "paused"),
             inputs={"agent_code": _CODE},
             expected="paused",
             actual={"api": paused.get("status"), "db": getattr(role_paused, "status", None)},
@@ -68,8 +67,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "resumed_status",
-            resumed.get("status") == "active"
-            or (role_resumed is not None and role_resumed.status == "active"),
+            resumed.get("status") == "active" or (role_resumed is not None and role_resumed.status == "active"),
             inputs={"agent_code": _CODE},
             expected="active",
             actual={"api": resumed.get("status"), "db": getattr(role_resumed, "status", None)},

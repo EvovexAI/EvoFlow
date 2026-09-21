@@ -108,9 +108,7 @@ def test_department_head_and_align_unmanaged(sqlite_tmp: Path) -> None:
     rd = next(d for d in depts if d["name"] == "研发")
     assert rd["head_agent_code"] == ""
 
-    updated = DepartmentRepository.set_head(
-        rd["id"], head_agent_code="lead", align_unmanaged=True
-    )
+    updated = DepartmentRepository.set_head(rd["id"], head_agent_code="lead", align_unmanaged=True)
     assert updated["head_agent_code"] == "lead"
     assert updated["head_role_name"] == "lead"
     assert ProactiveRepository.get_role("a").config.reports_to == "lead"

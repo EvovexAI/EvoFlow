@@ -80,15 +80,18 @@ def test_wall_clock_passes_capped_read_limit() -> None:
             "evoflow.tools.host_direct.search_code_index._follow_read_with_timeout",
             return_value="",
         ) as follow:
-            out = _search_code_index_wallclock(
-                root=".",
-                thread_id=None,
-                query="foo",
-                queries=None,
-                read_offset=0,
-                read_limit=capped,
-                limit=15,
-            ) + note
+            out = (
+                _search_code_index_wallclock(
+                    root=".",
+                    thread_id=None,
+                    query="foo",
+                    queries=None,
+                    read_offset=0,
+                    read_limit=capped,
+                    limit=15,
+                )
+                + note
+            )
     assert "read_limit capped" in out
     follow.assert_called_once()
     assert follow.call_args.kwargs["read_limit"] == _MAX_READ_LIMIT

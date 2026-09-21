@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import sys
-from typing import Any
 
 import httpx
 from fastapi import FastAPI
@@ -73,10 +72,7 @@ def mount_langgraph_in_process() -> Starlette:
     else:
         os.environ["EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS"] = "1"
         os.environ["BG_JOB_ISOLATED_LOOPS"] = "true"
-        logger.info(
-            "LangGraph BG_JOB_ISOLATED_LOOPS=true (per-job event loop isolation); "
-            "set EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS=0 to share the Gateway loop"
-        )
+        logger.info("LangGraph BG_JOB_ISOLATED_LOOPS=true (per-job event loop isolation); set EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS=0 to share the Gateway loop")
     os.environ.setdefault("LANGGRAPH_DISABLE_FILE_PERSISTENCE", "false")
     os.environ.setdefault("N_JOBS_PER_WORKER", "10")
     if checkpointer:
@@ -101,8 +97,7 @@ def mount_langgraph_in_process() -> Starlette:
     if cp_type in ("sqlite", "postgres") and not keep_pckl:
         os.environ["LANGGRAPH_DISABLE_FILE_PERSISTENCE"] = "true"
         logger.info(
-            "LangGraph file persistence disabled (checkpointer.type=%s); "
-            "set EVOFLOW_KEEP_LG_FILE_PERSISTENCE=1 to keep .pckl store",
+            "LangGraph file persistence disabled (checkpointer.type=%s); set EVOFLOW_KEEP_LG_FILE_PERSISTENCE=1 to keep .pckl store",
             cp_type,
         )
     if not os.environ.get("MIGRATIONS_PATH"):
@@ -161,8 +156,7 @@ async def ensure_langgraph_mounted(app: FastAPI) -> Starlette:
         lg = await asyncio.to_thread(mount_langgraph_in_process)
         app.state._lg_app = lg
         print(
-            f"[gateway] LangGraph mounted (deferred), lg_app type={type(lg).__name__}, "
-            f"routes={[getattr(r, 'path', '?') for r in getattr(lg, 'routes', [])]}",
+            f"[gateway] LangGraph mounted (deferred), lg_app type={type(lg).__name__}, routes={[getattr(r, 'path', '?') for r in getattr(lg, 'routes', [])]}",
             file=sys.stderr,
             flush=True,
         )
@@ -223,11 +217,7 @@ class ExternalLangGraphProxy:
         if query:
             url += "?" + query.decode("latin-1", errors="replace")
 
-        headers = {
-            k.decode("latin-1", errors="replace"): v.decode("latin-1", errors="replace")
-            for k, v in scope.get("headers") or []
-            if k.lower() not in _HOP_BY_HOP
-        }
+        headers = {k.decode("latin-1", errors="replace"): v.decode("latin-1", errors="replace") for k, v in scope.get("headers") or [] if k.lower() not in _HOP_BY_HOP}
         body = await _read_request_body(receive)
         client = self._client_or_create()
         try:

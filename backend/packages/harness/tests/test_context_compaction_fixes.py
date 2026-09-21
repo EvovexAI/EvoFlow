@@ -126,10 +126,13 @@ def test_emergency_compress_forces_plan(monkeypatch):
         "evoflow.agents.middlewares.context_compaction_middleware.build_ephemeral_model_messages",
         _fake_build,
     )
-    with patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.emit_compaction_start",
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.emit_compaction_end",
+    with (
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.emit_compaction_start",
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.emit_compaction_end",
+        ),
     ):
         compressed, changed = emergency_compress_messages(big, _runtime(thread_id="t-emerg"))
     assert changed is True
@@ -309,13 +312,17 @@ def test_build_ephemeral_db_summary_hydrated_skip_does_not_raise_unbound_local()
     ]
     rt = _runtime(thread_id="t-db-skip", session_key="agent:main:main")
 
-    with patch(
-        "evoflow.persistence.chat_message_repositories.find_latest_compaction_seq",
-        return_value=5,
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+    with (
+        patch(
+            "evoflow.persistence.chat_message_repositories.find_latest_compaction_seq",
+            return_value=5,
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+        ),
     ):
         out = asyncio.run(build_ephemeral_model_messages(msgs, rt))
 
@@ -326,7 +333,7 @@ def test_build_ephemeral_same_turn_hydrated_does_not_refold_over_threshold():
     """Regression: gate deny on same turn must not structural-refold DB-hydrated stitch."""
     import asyncio
 
-    from evoflow.agents.context_compaction_core import ContextCompactionEngine, MAIN_SUMMARY_PREFIX, estimate_gate_tokens
+    from evoflow.agents.context_compaction_core import MAIN_SUMMARY_PREFIX, ContextCompactionEngine, estimate_gate_tokens
     from evoflow.agents.middlewares.context_compaction_middleware import build_ephemeral_model_messages
 
     big = "word " * 25000
@@ -356,19 +363,25 @@ def test_build_ephemeral_same_turn_hydrated_does_not_refold_over_threshold():
         refold_calls.append(1)
         raise AssertionError("try_refold_with_cached_summary must not run on hydrated same-turn")
 
-    with patch(
-        "evoflow.agents.compaction_trigger.resolve_turn_run_id",
-        return_value=(turn_id, "lg-same"),
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._engine.try_refold_with_cached_summary",
-        side_effect=_refold_must_not_run,
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._compress_with_followup_async",
-        side_effect=AssertionError("compress LLM must not run on hydrated same-turn"),
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+    with (
+        patch(
+            "evoflow.agents.compaction_trigger.resolve_turn_run_id",
+            return_value=(turn_id, "lg-same"),
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._engine.try_refold_with_cached_summary",
+            side_effect=_refold_must_not_run,
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._compress_with_followup_async",
+            side_effect=AssertionError("compress LLM must not run on hydrated same-turn"),
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+        ),
     ):
         out = asyncio.run(build_ephemeral_model_messages(msgs, rt))
 
@@ -396,19 +409,25 @@ def test_build_ephemeral_hydrated_passthrough_preserves_summary_in_payload():
     ]
     rt = _runtime(thread_id="t-keep-summary", session_key="agent:main:keep-summary")
 
-    with patch(
-        "evoflow.agents.compaction_trigger.resolve_turn_run_id",
-        return_value=("turn-x", "lg-x"),
-    ), patch(
-        "evoflow.agents.compaction_trigger._session_has_compaction_summary",
-        return_value=True,
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._engine.try_refold_with_cached_summary",
-        side_effect=AssertionError("refold must not run on hydrated passthrough"),
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+    with (
+        patch(
+            "evoflow.agents.compaction_trigger.resolve_turn_run_id",
+            return_value=("turn-x", "lg-x"),
+        ),
+        patch(
+            "evoflow.agents.compaction_trigger._session_has_compaction_summary",
+            return_value=True,
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._engine.try_refold_with_cached_summary",
+            side_effect=AssertionError("refold must not run on hydrated passthrough"),
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+        ),
     ):
         out = asyncio.run(build_ephemeral_model_messages(msgs, rt))
 
@@ -418,11 +437,12 @@ def test_build_ephemeral_hydrated_passthrough_preserves_summary_in_payload():
 
 
 def test_emit_bound_model_context_usage_when_compaction_skipped(monkeypatch):
+    from langchain_core.messages import AIMessage, HumanMessage
+
     from evoflow.agents.middlewares.context_compaction_middleware import (
         ContextCompactionMiddleware,
         _reset_compaction_call_markers,
     )
-    from langchain_core.messages import HumanMessage, AIMessage
 
     emitted: list[dict] = []
     monkeypatch.setattr(
@@ -505,38 +525,39 @@ def test_emit_context_usage_http_inject_when_no_stream_writer(monkeypatch):
 
 
 def test_compress_with_followup_emits_start_before_llm(monkeypatch):
-  import asyncio
-  from evoflow.agents.middlewares import context_compaction_middleware as mw
+    import asyncio
 
-  order: list[str] = []
+    from evoflow.agents.middlewares import context_compaction_middleware as mw
 
-  async def _slow_compress(*_a, **_k):
-      order.append("compress_llm")
-      return [HumanMessage(content="c")], True
+    order: list[str] = []
 
-  def _start(**_k):
-      order.append("start")
+    async def _slow_compress(*_a, **_k):
+        order.append("compress_llm")
+        return [HumanMessage(content="c")], True
 
-  def _end(**_k):
-      order.append("end")
+    def _start(**_k):
+        order.append("start")
 
-  monkeypatch.setattr(mw, "_compress_once_async", _slow_compress)
-  monkeypatch.setattr(mw, "emit_compaction_start", _start)
-  monkeypatch.setattr(mw, "emit_compaction_end", _end)
-  monkeypatch.setattr(mw, "_engine", mw._engine)
-  monkeypatch.setattr(mw._engine, "should_compress", lambda *_a, **_k: False)
-  monkeypatch.setattr(mw._engine, "mark_compress_completed", lambda *_a, **_k: None)
+    def _end(**_k):
+        order.append("end")
 
-  asyncio.run(
-      mw._compress_with_followup_async(
-          [HumanMessage(content="u"), AIMessage(content="a")],
-          thread_id="t-order",
-          session_key="agent:test:order",
-          compress_policy={},
-          plan_kw={"context_length": 128_000, "threshold_ratio": 0.5, "aggressive_ratio": 0.85},
-      )
-  )
-  assert order == ["start", "compress_llm", "end"]
+    monkeypatch.setattr(mw, "_compress_once_async", _slow_compress)
+    monkeypatch.setattr(mw, "emit_compaction_start", _start)
+    monkeypatch.setattr(mw, "emit_compaction_end", _end)
+    monkeypatch.setattr(mw, "_engine", mw._engine)
+    monkeypatch.setattr(mw._engine, "should_compress", lambda *_a, **_k: False)
+    monkeypatch.setattr(mw._engine, "mark_compress_completed", lambda *_a, **_k: None)
+
+    asyncio.run(
+        mw._compress_with_followup_async(
+            [HumanMessage(content="u"), AIMessage(content="a")],
+            thread_id="t-order",
+            session_key="agent:test:order",
+            compress_policy={},
+            plan_kw={"context_length": 128_000, "threshold_ratio": 0.5, "aggressive_ratio": 0.85},
+        )
+    )
+    assert order == ["start", "compress_llm", "end"]
 
 
 def test_should_compress_does_not_refire_every_hop_with_hydrated_summary() -> None:
@@ -719,22 +740,30 @@ def test_build_ephemeral_evaluates_trigger_policy_once() -> None:
     msgs = [HumanMessage(content="u"), AIMessage(content="a")]
     rt = _runtime(thread_id="t-once", session_key="agent:main:once")
     evaluate_calls: list[str] = []
-    real_evaluate = __import__(
-        "evoflow.agents.compaction_trigger",
-        fromlist=["get_compaction_trigger_cache"],
-    ).get_compaction_trigger_cache().evaluate
+    real_evaluate = (
+        __import__(
+            "evoflow.agents.compaction_trigger",
+            fromlist=["get_compaction_trigger_cache"],
+        )
+        .get_compaction_trigger_cache()
+        .evaluate
+    )
 
     def _counting_evaluate(*args, **kwargs):
         evaluate_calls.append(str(kwargs.get("log_phase") or ""))
         return real_evaluate(*args, **kwargs)
 
-    with patch(
-        "evoflow.agents.compaction_trigger.CompactionTriggerCache.evaluate",
-        side_effect=_counting_evaluate,
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+    with (
+        patch(
+            "evoflow.agents.compaction_trigger.CompactionTriggerCache.evaluate",
+            side_effect=_counting_evaluate,
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware._emit_stream_context_usage",
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.log_compaction_skipped",
+        ),
     ):
         asyncio.run(build_ephemeral_model_messages(msgs, rt))
 

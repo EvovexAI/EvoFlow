@@ -11,12 +11,12 @@ import asyncio
 from typing import Any
 
 from evoflow.admin.errors import NotFoundError, ValidationError
+from evoflow.knowledge.vault import service as vault_service
+from evoflow.knowledge.vault import store as vault_store
 from evoflow.knowledge.vault.builtin import (
     BUILTIN_USER_GUIDE_VAULT_ID,
     ensure_builtin_knowledge_vaults,
 )
-from evoflow.knowledge.vault import service as vault_service
-from evoflow.knowledge.vault import store as vault_store
 from evoflow.knowledge.vault.models import AccessMode
 
 
@@ -85,9 +85,7 @@ def resolve_vault_id(vault_id: str | None = None) -> str:
     _ensure_vaults_ready()
     enabled = _enabled_vaults()
     if not enabled:
-        raise ValidationError(
-            "还没有可用的知识库 Vault。请先在面板「知识库」连接并启用，或确认内置用户指南已注册。"
-        )
+        raise ValidationError("还没有可用的知识库 Vault。请先在面板「知识库」连接并启用，或确认内置用户指南已注册。")
 
     if vault_id:
         vid = str(vault_id).strip()
@@ -300,11 +298,7 @@ def list_knowledge(
             total += len(docs)
             base = owned_service.get_base(kid) or {}
             for d in docs:
-                path = (
-                    (d.get("folderPath") and f'{d["folderPath"]}/{d["fileName"]}')
-                    or d.get("fileName")
-                    or d["id"]
-                )
+                path = (d.get("folderPath") and f"{d['folderPath']}/{d['fileName']}") or d.get("fileName") or d["id"]
                 if pref and not path.startswith(pref) and not str(d.get("title") or "").startswith(pref):
                     continue
                 entries.append(
@@ -416,18 +410,14 @@ def remember(data: dict[str, Any], *, vault_id: str | None = None) -> dict[str, 
     vid = resolve_vault_id(explicit_s)
     cfg = vault_store.require_vault_config(vid)
     if cfg.access_mode != AccessMode.read_write:
-        raise ValidationError(
-            f"Vault '{vid}' 为只读，无法写入。请指定 --vault 到可写 Vault，或在面板改为读写。"
-        )
+        raise ValidationError(f"Vault '{vid}' 为只读，无法写入。请指定 --vault 到可写 Vault，或在面板改为读写。")
 
     payload = {
         "title": title,
         "content": content,
         "summary": str(data.get("summary") or ""),
         "source": str(data.get("source") or "evoflow-cli"),
-        "sourceDescription": str(
-            data.get("sourceDescription") or data.get("source_description") or "evoflow knowledge remember"
-        ),
+        "sourceDescription": str(data.get("sourceDescription") or data.get("source_description") or "evoflow knowledge remember"),
         "confidence": data.get("confidence", 0.7),
         "tags": list(data.get("tags") or ([data["category"]] if data.get("category") else [])),
         "relatedPaths": list(data.get("relatedPaths") or data.get("related_paths") or []),
@@ -517,9 +507,7 @@ def recall(
         tags = [str(category).strip()] if category else None
         merged: list[dict[str, Any]] = []
         for kid in kids:
-            result = _run_async(
-                owned_service.search(kid, q, mode=owned_mode, top_k=top_k, tags=tags)
-            )
+            result = _run_async(owned_service.search(kid, q, mode=owned_mode, top_k=top_k, tags=tags))
             base = owned_service.get_base(kid) or {}
             for item in result.get("items") or []:
                 merged.append(

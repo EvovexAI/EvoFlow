@@ -48,9 +48,7 @@ def resolve_system_skills_source() -> Path | None:
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
         for candidate in (exe_dir / "skills", exe_dir.parent / "skills"):
-            if candidate.is_dir() and (
-                (candidate / "public").is_dir() or (candidate / "custom").is_dir()
-            ):
+            if candidate.is_dir() and ((candidate / "public").is_dir() or (candidate / "custom").is_dir()):
                 return candidate.resolve()
 
     src = _skills_root_from_source_tree()
@@ -58,9 +56,7 @@ def resolve_system_skills_source() -> Path | None:
         return src
 
     cwd_skills = (Path.cwd() / "skills").resolve()
-    if cwd_skills.is_dir() and (
-        (cwd_skills / "public").is_dir() or (cwd_skills / "custom").is_dir()
-    ):
+    if cwd_skills.is_dir() and ((cwd_skills / "public").is_dir() or (cwd_skills / "custom").is_dir()):
         return cwd_skills
 
     backend_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -71,9 +67,7 @@ def resolve_system_skills_source() -> Path | None:
 
 
 def _is_valid_skills_root(path: Path) -> bool:
-    return path.is_dir() and (
-        (path / "public").is_dir() or (path / "custom").is_dir()
-    )
+    return path.is_dir() and ((path / "public").is_dir() or (path / "custom").is_dir())
 
 
 def _is_link_or_junction(path: Path) -> bool:
@@ -201,11 +195,7 @@ def _sync_manifest_matches(
 ) -> bool:
     if not prev:
         return False
-    return (
-        prev.get("signature") == signature
-        and prev.get("install_fingerprint") == install_fingerprint
-        and prev.get("source_public") == str(source_public.resolve())
-    )
+    return prev.get("signature") == signature and prev.get("install_fingerprint") == install_fingerprint and prev.get("source_public") == str(source_public.resolve())
 
 
 def _should_copy_public_file(src: Path, dst: Path) -> bool:
@@ -226,7 +216,7 @@ def sync_system_public_skills(
 ) -> bool:
     """Mirror ``source/public`` into ``skills_root/public``; never touch ``custom/``."""
     root = skills_root.resolve()
-    source_root = (source or resolve_system_skills_source())
+    source_root = source or resolve_system_skills_source()
     if source_root is None:
         logger.debug("No system skills source; skip public sync for %s", root)
         return False
@@ -360,9 +350,7 @@ def bootstrap_user_skills_path(*, force_sync: bool = False) -> Path:
     prev = _read_sync_manifest(root)
     install_fingerprint = _install_fingerprint(source_root)
     source_public_resolved = str(source_public.resolve())
-    if prev and prev.get("install_fingerprint") == install_fingerprint and prev.get(
-        "source_public"
-    ) == source_public_resolved:
+    if prev and prev.get("install_fingerprint") == install_fingerprint and prev.get("source_public") == source_public_resolved:
         if getattr(sys, "frozen", False) and prev.get("signature"):
             return root
         prev_count = prev.get("file_count")

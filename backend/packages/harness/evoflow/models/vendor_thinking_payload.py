@@ -146,12 +146,7 @@ def _apply_zhipu_thinking_payload(
 ) -> dict[str, Any]:
     """智谱 OpenAI 兼容: ``extra_body.thinking`` + ``extra_body.reasoning_effort``."""
     effort = _runtime_effort(payload, model_instance)
-    model_name = str(
-        getattr(model_instance, "model_name", None)
-        or getattr(model_instance, "model", None)
-        or payload.get("model")
-        or ""
-    )
+    model_name = str(getattr(model_instance, "model_name", None) or getattr(model_instance, "model", None) or payload.get("model") or "")
     disabled = _thinking_disabled(payload, model_instance, effort)
     enabled = _thinking_enabled(payload, model_instance) and not disabled
 

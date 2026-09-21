@@ -196,11 +196,7 @@ def test_shape_worker_preserves_code_reads_inline():
             llm_summary_enabled=False,
         )
     )
-    reads = (
-        "<worker_code_reads>\n"
-        "[tool:summary] tool=read_file\npath: src/a.py\ncore: alpha\n"
-        "</worker_code_reads>"
-    )
+    reads = "<worker_code_reads>\n[tool:summary] tool=read_file\npath: src/a.py\ncore: alpha\n</worker_code_reads>"
     body = reads + "\n\n" + ("catalog line\n" * 400)
     out = shape_tool_result(body, "worker", "tc-worker", thread_id="t1")
     assert "path: src/a.py" in out
@@ -220,11 +216,7 @@ def test_shape_search_code_index_preserves_post_search_reads_inline():
             llm_summary_enabled=True,
         )
     )
-    reads = (
-        "<post_search_reads offset=0 limit=2>\n"
-        "[tool:summary] tool=read_file\npath: src/b.py\ncore: beta\n"
-        "</post_search_reads>"
-    )
+    reads = "<post_search_reads offset=0 limit=2>\n[tool:summary] tool=read_file\npath: src/b.py\ncore: beta\n</post_search_reads>"
     body = reads + "\n\n" + ("hit line\n" * 400)
     out = shape_tool_result(body, "search_code_index", "tc-search", thread_id="t1")
     assert "path: src/b.py" in out

@@ -51,12 +51,7 @@ def _run(home: Path) -> dict:
     _s, main, subs = find_main_and_subtasks(task_id)
     main_status = str((main or {}).get("status") or "").lower()
     run_status = str((run_row or {}).get("status") or "").lower()
-    open_subs = [
-        s
-        for s in subs
-        if str(s.get("status") or "").lower()
-        not in ("completed", "done", "failed", "cancelled", "canceled", "skipped")
-    ]
+    open_subs = [s for s in subs if str(s.get("status") or "").lower() not in ("completed", "done", "failed", "cancelled", "canceled", "skipped")]
 
     assertions = [
         check(

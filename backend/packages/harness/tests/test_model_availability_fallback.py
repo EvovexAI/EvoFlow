@@ -150,28 +150,35 @@ def test_fallback_success_marks_primary_and_switches_session(sqlite_tmp: Path) -
     handler = MagicMock(side_effect=exc)
     request = _Request()
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._is_model_api_error",
-        return_value=True,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.classify",
-        return_value=SimpleNamespace(
-            should_compress=False,
-            reason=FailoverReason.AUTH,
-            should_rotate_credential=True,
-            should_fallback_provider=True,
-            retryable=False,
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._is_model_api_error",
+            return_value=True,
         ),
-    ), patch(
-        "evoflow.models.factory.create_chat_model",
-        return_value=fb_model,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
-        return_value=True,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
-    ), patch(
-        "evoflow.config.reload_models_from_db",
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.classify",
+            return_value=SimpleNamespace(
+                should_compress=False,
+                reason=FailoverReason.AUTH,
+                should_rotate_credential=True,
+                should_fallback_provider=True,
+                retryable=False,
+            ),
+        ),
+        patch(
+            "evoflow.models.factory.create_chat_model",
+            return_value=fb_model,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
+            return_value=True,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
+        ),
+        patch(
+            "evoflow.config.reload_models_from_db",
+        ),
     ):
         result = mw.wrap_model_call(request, handler)
 
@@ -193,23 +200,28 @@ def test_handle_model_error_includes_reason_and_marks(sqlite_tmp: Path) -> None:
     exc._evoflow_model = primary_model  # type: ignore[attr-defined]
     runtime = SimpleNamespace(context={"model_name": "primary"})
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
-        return_value=False,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.classify",
-        return_value=SimpleNamespace(
-            reason=FailoverReason.SERVER_ERROR,
-            should_compress=False,
-            should_rotate_credential=False,
-            should_fallback_provider=True,
-            retryable=True,
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
+            return_value=False,
         ),
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
-        return_value=True,
-    ), patch(
-        "evoflow.config.reload_models_from_db",
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.classify",
+            return_value=SimpleNamespace(
+                reason=FailoverReason.SERVER_ERROR,
+                should_compress=False,
+                should_rotate_credential=False,
+                should_fallback_provider=True,
+                retryable=True,
+            ),
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
+            return_value=True,
+        ),
+        patch(
+            "evoflow.config.reload_models_from_db",
+        ),
     ):
         msg = mw._handle_model_error(exc, runtime)
 

@@ -8,7 +8,7 @@ Query-keyed person/craft recall must not enter this freeze — it rides turn-tai
 from __future__ import annotations
 
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 _lock = threading.Lock()
 _standing_by_thread: dict[str, str] = {}

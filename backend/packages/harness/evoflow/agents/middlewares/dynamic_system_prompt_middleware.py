@@ -306,9 +306,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         ht = str(human_turn_fp or "")
         msf = str(mission_state_fp or "")
         mcp = str(mcp_fp or "")
-        return (
-            f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}"
-        )
+        return f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}"
 
     def _apply_proactive_duty_system(self, request: ModelRequest, ctx: dict[str, Any]) -> ModelRequest:
         """Skip chat prompt templates; set self-contained duty brief + live status footer."""
@@ -336,12 +334,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         text = brief.rstrip()
         if footer and _DUTY_FOOTER_TAG not in text:
             text = f"{text}\n\n{footer}"
-        agent_name_str = str(
-            ctx.get("proactive_agent_code")
-            or ctx.get("agent_name")
-            or (_resolve_prompt_meta(ctx) or {}).get("agent_name")
-            or "proactive"
-        )
+        agent_name_str = str(ctx.get("proactive_agent_code") or ctx.get("agent_name") or (_resolve_prompt_meta(ctx) or {}).get("agent_name") or "proactive")
         logger.info(
             "DynamicSystemPromptOnScenario: duty-only system agent=%s bytes=%d",
             agent_name_str,
@@ -408,9 +401,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 collab_rt = collab_runtime_state_fingerprint(tid_m)
             except Exception:
                 collab_rt = ""
-        scenario_tool_fp = (
-            _scenario_tool_results_fingerprint(messages) if dynamic_scenarios else ""
-        )
+        scenario_tool_fp = _scenario_tool_results_fingerprint(messages) if dynamic_scenarios else ""
         human_turn_fp = _human_turn_fingerprint(messages)
         if tid_m and dynamic_scenarios:
             try:
@@ -426,9 +417,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             from evoflow.mcp.native_prompt import mcp_native_prompt_fingerprint
 
             mcp_binding = meta.get("mcp_servers")
-            mcp_fp = mcp_native_prompt_fingerprint(
-                mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None
-            )
+            mcp_fp = mcp_native_prompt_fingerprint(mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None)
         sig = self._fingerprint(
             thread_id=tid,
             scenario_csv=scenario_csv,
@@ -452,14 +441,11 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             # changes (tools/scenario/role/collab/MCP) force apply_prompt_template.
             # Re-apply the *cached assembled* system (memory/profile included), not the
             # graph compile-time prompt.
-            if prev_sig and _system_prompt_structure_key(prev_sig) == _system_prompt_structure_key(
-                sig
-            ):
+            if prev_sig and _system_prompt_structure_key(prev_sig) == _system_prompt_structure_key(sig):
                 self._last_sig_by_thread[tid] = sig
                 if cached_system:
                     logger.info(
-                        "DynamicSystemPromptOnScenario: reuse cached system (human/mission-only) "
-                        "thread=%s bytes=%d",
+                        "DynamicSystemPromptOnScenario: reuse cached system (human/mission-only) thread=%s bytes=%d",
                         tid,
                         len(cached_system.encode("utf-8", errors="ignore")),
                     )
@@ -469,8 +455,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 self._last_sig_by_thread[tid] = sig
                 if cached_system:
                     logger.info(
-                        "DynamicSystemPromptOnScenario: skip full rebuild (intra-turn scenario) "
-                        "thread=%s",
+                        "DynamicSystemPromptOnScenario: skip full rebuild (intra-turn scenario) thread=%s",
                         tid,
                     )
                     return request.override(system_message=SystemMessage(content=cached_system))
@@ -518,11 +503,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
 
         state = request.state if isinstance(request.state, dict) else {}
         loaded_deferred_raw = state.get("loaded_deferred_tools")
-        loaded_deferred = (
-            [str(x).strip() for x in loaded_deferred_raw if str(x or "").strip()]
-            if isinstance(loaded_deferred_raw, list)
-            else None
-        )
+        loaded_deferred = [str(x).strip() for x in loaded_deferred_raw if str(x or "").strip()] if isinstance(loaded_deferred_raw, list) else None
         session_key = str(ctx.get("session_key") or "").strip() or None
 
         try:

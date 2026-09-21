@@ -22,9 +22,7 @@ def messages_from_model_request(request: ModelRequest) -> list[BaseMessage]:
     req_msgs: list[Any] = list(request.messages or []) if getattr(request, "messages", None) else []
     if req_msgs:
         return [m for m in req_msgs if isinstance(m, BaseMessage)]
-    state_msgs: list[Any] = (
-        list((request.state or {}).get("messages") or []) if isinstance(request.state, dict) else []
-    )
+    state_msgs: list[Any] = list((request.state or {}).get("messages") or []) if isinstance(request.state, dict) else []
     return [m for m in state_msgs if isinstance(m, BaseMessage)]
 
 

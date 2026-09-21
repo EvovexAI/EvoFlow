@@ -70,15 +70,15 @@ def build_mcp_status_snapshot(
         if hasattr(tool, "description") and tool.description:
             description = tool.description[:200]
 
-        tools_by_server[server_name].append({
-            "name": tool_name,
-            "full_name": tool.name,
-            "description": description,
-        })
+        tools_by_server[server_name].append(
+            {
+                "name": tool_name,
+                "full_name": tool.name,
+                "description": description,
+            }
+        )
 
-    tool_counts: dict[str, int] = {
-        name: len(items) for name, items in tools_by_server.items()
-    }
+    tool_counts: dict[str, int] = {name: len(items) for name, items in tools_by_server.items()}
 
     servers: list[dict[str, Any]] = []
     for name, cfg in raw_servers.items():

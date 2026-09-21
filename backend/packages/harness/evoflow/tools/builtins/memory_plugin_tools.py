@@ -59,8 +59,8 @@ def build_hermes_external_memory_langchain_tools() -> list[BaseTool]:
     """Schemas from the active Hermes ``MemoryManager``, bound to the process singleton."""
     from langgraph.config import get_config
 
-    from evoflow.agents.memory_plugins.memory_orchestrator import MemoryOrchestrator
     from evoflow.agents.memory_plugins.manager import get_external_memory_plugin_manager
+    from evoflow.agents.memory_plugins.memory_orchestrator import MemoryOrchestrator
     from evoflow.config.memory_config import get_memory_config
 
     wanted = (get_memory_config().external_provider or "").strip().lower()

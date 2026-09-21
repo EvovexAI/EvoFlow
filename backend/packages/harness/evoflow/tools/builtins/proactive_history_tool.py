@@ -1,5 +1,5 @@
-"""Tool: proactive employees look up their own work history during think loops.
-"""
+"""Tool: proactive employees look up their own work history during think loops."""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +16,7 @@ proactive_history_ui_metadata = {
     "icon": "📋",
     "description": "智能体员工查询自己的工作历史和事项记录（上岗前先翻工作日志）。",
 }
+
 
 @tool("proactive_history", parse_docstring=True)
 def proactive_history_tool(
@@ -37,6 +38,7 @@ def proactive_history_tool(
     """
     from evoflow.agents.automation_runtime import triggered_by_proactive
     from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
+
     ctx = runtime_context_mapping(runtime) if runtime is not None else {}
     if not triggered_by_proactive(ctx):
         sk = str(ctx.get("session_key") or "")
@@ -48,6 +50,7 @@ def proactive_history_tool(
         return json.dumps({"ok": False, "error": "缺少 proactive_agent_code"}, ensure_ascii=False)
 
     from evoflow.proactive.repositories import ProactiveRepository
+
     act = str(action or "").strip().lower()
 
     if act == "list":
@@ -108,11 +111,18 @@ def proactive_history_tool(
 
 
 STATUS_EMOJI = {
-    "proposed": "💡", "pending_approval": "🕐", "approved": "👍",
-    "rejected": "🚫", "executing": "⏳", "completed": "✅",
-    "failed": "❌", "timeout_rejected": "⌛", "skipped": "⏭️",
+    "proposed": "💡",
+    "pending_approval": "🕐",
+    "approved": "👍",
+    "rejected": "🚫",
+    "executing": "⏳",
+    "completed": "✅",
+    "failed": "❌",
+    "timeout_rejected": "⌛",
+    "skipped": "⏭️",
 }
 RISK_EMOJI = {"low": "🟢", "medium": "🟡", "high": "🟠", "critical": "🔴"}
+
 
 def _fmt_initiative(d: dict) -> str:
     status = str(d.get("status") or "?")
@@ -127,7 +137,7 @@ def _fmt_initiative(d: dict) -> str:
     if result:
         summary = result[:200].replace("\n", " ")
         parts.append(f"    执行结果: {summary}" + ("..." if len(result) > 200 else ""))
-    d.get("goal") and parts.append(f"    上岗目标: {d.get("goal")[:120]}")
+    d.get("goal") and parts.append(f"    上岗目标: {d.get('goal')[:120]}")
     return "\n".join(parts)
 
 

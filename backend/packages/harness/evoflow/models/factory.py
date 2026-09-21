@@ -443,11 +443,7 @@ def _volc_completion_reserve_tokens(max_out: int) -> int:
 
 
 def _volc_thinking_budget_floor(model_settings: dict[str, Any], kwargs: dict[str, Any]) -> int:
-    effort = _normalize_reasoning_effort(
-        kwargs.get("_evoflow_reasoning_effort")
-        or kwargs.get("reasoning_effort")
-        or model_settings.get("reasoning_effort")
-    )
+    effort = _normalize_reasoning_effort(kwargs.get("_evoflow_reasoning_effort") or kwargs.get("reasoning_effort") or model_settings.get("reasoning_effort"))
     return _VOLC_THINKING_BUDGET_BY_EFFORT.get(effort or "medium", _VOLC_THINKING_BUDGET_BY_EFFORT["medium"])
 
 
@@ -535,11 +531,7 @@ def _align_volcengine_thinking_output_budget(
     )
     if isinstance(kwargs.get("extra_body"), dict):
         model_settings["extra_body"] = dict(kwargs["extra_body"])
-    effort = _normalize_reasoning_effort(
-        kwargs.get("_evoflow_reasoning_effort")
-        or kwargs.get("reasoning_effort")
-        or model_settings.get("reasoning_effort")
-    )
+    effort = _normalize_reasoning_effort(kwargs.get("_evoflow_reasoning_effort") or kwargs.get("reasoning_effort") or model_settings.get("reasoning_effort"))
     logger.info(
         "Model %s: Volc thinking effort=%s budget_tokens=%s max_tokens=%s (completion reserve ~%s)",
         getattr(model_config, "name", "?"),
@@ -714,12 +706,7 @@ def _sanitize_volcengine_thinking_settings(
     elif t in ("auto", "on", "enabled") or thinking:
         raw_budget = thinking.get("budget_tokens") or thinking.get("budgetTokens")
         if raw_budget is None:
-            effort = (
-                _normalize_reasoning_effort(kwargs.get("_evoflow_reasoning_effort"))
-                or _normalize_reasoning_effort(kwargs.get("reasoning_effort"))
-                or _model_default_reasoning_effort(model_config)
-                or "medium"
-            )
+            effort = _normalize_reasoning_effort(kwargs.get("_evoflow_reasoning_effort")) or _normalize_reasoning_effort(kwargs.get("reasoning_effort")) or _model_default_reasoning_effort(model_config) or "medium"
             budget = _VOLC_THINKING_BUDGET_BY_EFFORT.get(effort, _VOLC_THINKING_BUDGET_BY_EFFORT["medium"])
         else:
             try:
@@ -867,10 +854,7 @@ def create_chat_model(
     if model_config is None:
         raise ValueError(f"Model {resolved!r} not found in config") from None
     if not hasattr(model_config, "model_dump") or not callable(getattr(model_config, "model_dump", None)):
-        raise TypeError(
-            f"Model {resolved!r} config must be a ModelConfig instance, "
-            f"got {type(model_config).__name__}"
-        ) from None
+        raise TypeError(f"Model {resolved!r} config must be a ModelConfig instance, got {type(model_config).__name__}") from None
     resolved_use = _resolve_model_use_path(model_config)
     model_class = resolve_class(resolved_use, BaseChatModel)
     dumped = model_config.model_dump(
@@ -926,9 +910,7 @@ def create_chat_model(
     auto_thinking_applied = False
     if thinking_type_norm == "auto":
         # Session Auto: omit all thinking kwargs — let the vendor decide.
-        auto_thinking_applied = _apply_vendor_auto_thinking(
-            model_config, model_settings_from_config, kwargs, model_class
-        )
+        auto_thinking_applied = _apply_vendor_auto_thinking(model_config, model_settings_from_config, kwargs, model_class)
     if thinking_enabled and has_thinking_settings and not auto_thinking_applied:
         if not model_config.supports_thinking:
             raise ValueError(f"Model {resolved} does not support thinking. Enable supports_thinking on the model in Settings → Models.") from None
@@ -1084,10 +1066,7 @@ def create_chat_model(
             pass
     ik = (invocation_kind or "main").strip() or "main"
     try:
-        vendor = (
-            str(getattr(model_config, "vendor", "") or "").strip()
-            or infer_vendor_from_connection(getattr(model_config, "base_url", None), resolved)
-        )
+        vendor = str(getattr(model_config, "vendor", "") or "").strip() or infer_vendor_from_connection(getattr(model_config, "base_url", None), resolved)
         setattr(model_instance, "_evoflow_vendor", vendor)
         setattr(model_instance, "_evoflow_invocation_kind", ik)
         setattr(model_instance, "_evoflow_thinking_enabled", evoflow_thinking_enabled)
@@ -1148,29 +1127,37 @@ def _instrument_vendor_call_timing(model: BaseChatModel) -> None:
     # Sync methods
     if hasattr(model, "stream") and callable(model.stream):
         orig = model.stream
+
         def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
             _log_before_vendor()
             return orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+
         _setattr("stream", timed)
 
     if hasattr(model, "_generate") and callable(model._generate):
         orig = model._generate
+
         def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
             _log_before_vendor()
             return orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+
         _setattr("_generate", timed)
 
     # Async methods — LangGraph / streaming uses these.
     if hasattr(model, "astream") and callable(model.astream):
         orig = model.astream
+
         async def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
             _log_before_vendor()
             return await orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+
         _setattr("astream", timed)
 
     if hasattr(model, "_agenerate") and callable(model._agenerate):
         orig = model._agenerate
+
         async def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
             _log_before_vendor()
             return await orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+
         _setattr("_agenerate", timed)

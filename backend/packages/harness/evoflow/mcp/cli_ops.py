@@ -94,10 +94,7 @@ def mcp_test_server(server_name: str) -> dict[str, Any]:
         "ok": True,
         "server": name,
         "tool_count": len(tools),
-        "tools": [
-            {"name": getattr(t, "name", ""), "description": (getattr(t, "description", "") or "")[:200]}
-            for t in tools
-        ],
+        "tools": [{"name": getattr(t, "name", ""), "description": (getattr(t, "description", "") or "")[:200]} for t in tools],
     }
 
 

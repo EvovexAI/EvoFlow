@@ -86,10 +86,7 @@ def test_before_model_injects_native_image_for_vision_model(tmp_path: Path):
     text = mw._human_text(updated)
     assert "do NOT call view_image" in text
     assert isinstance(updated.content, list)
-    assert any(
-        isinstance(b, dict) and b.get("type") == "image_url" and "data:image" in str(b.get("image_url", {}).get("url", ""))
-        for b in updated.content
-    )
+    assert any(isinstance(b, dict) and b.get("type") == "image_url" and "data:image" in str(b.get("image_url", {}).get("url", "")) for b in updated.content)
 
 
 def test_before_model_image_context_files_prompts_view_image_without_vision(tmp_path: Path):
@@ -111,6 +108,4 @@ def test_before_model_image_context_files_prompts_view_image_without_vision(tmp_
     assert out is not None
     text = out["messages"][-1].content
     assert "view_image" in text
-    assert not isinstance(out["messages"][-1].content, list) or not any(
-        isinstance(b, dict) and b.get("type") == "image_url" for b in (out["messages"][-1].content or [])
-    )
+    assert not isinstance(out["messages"][-1].content, list) or not any(isinstance(b, dict) and b.get("type") == "image_url" for b in (out["messages"][-1].content or []))

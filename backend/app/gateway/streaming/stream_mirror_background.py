@@ -118,13 +118,18 @@ async def is_run_still_active(*, thread_id: str, run_id: str | None = None) -> b
             return True
         sk = await _resolve_session_key(tid, None)
         if sk:
+
             def _session_run_status_active() -> bool:
                 from evoflow.persistence.db import get_db
 
-                row = get_db().execute(
-                    "SELECT run_status FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
-                    (sk,),
-                ).fetchone()
+                row = (
+                    get_db()
+                    .execute(
+                        "SELECT run_status FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
+                        (sk,),
+                    )
+                    .fetchone()
+                )
                 return bool(row and is_run_status_active(str(row[0] or "")))
 
             if await run_db(_session_run_status_active):
@@ -216,10 +221,7 @@ async def _join_native_run_stream_inprocess(
         await asyncio.sleep(3600)
         return {"type": "http.disconnect"}
 
-    query = "&".join(
-        [f"cancel_on_disconnect={_join_cancel_on_disconnect()}"]
-        + [f"stream_mode={mode}" for mode in _JOIN_STREAM_MODES]
-    )
+    query = "&".join([f"cancel_on_disconnect={_join_cancel_on_disconnect()}"] + [f"stream_mode={mode}" for mode in _JOIN_STREAM_MODES])
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},

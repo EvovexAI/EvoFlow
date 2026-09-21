@@ -350,10 +350,7 @@ def resolve_ops_knowledge_vault_path_result(*, force_materialize: bool = False) 
 
     src = bundled_ops_knowledge_src()
     if src is None:
-        logger.warning(
-            "builtin ops-knowledge vault source missing "
-            "(ContentOS 知识库 not found; set EVOFLOW_OPS_KNOWLEDGE_ROOT)"
-        )
+        logger.warning("builtin ops-knowledge vault source missing (ContentOS 知识库 not found; set EVOFLOW_OPS_KNOWLEDGE_ROOT)")
         return {"path": None, "contentUpdated": False, "filesUpdated": 0, "reason": "source_missing"}
 
     dest = materialized_ops_knowledge_dir()

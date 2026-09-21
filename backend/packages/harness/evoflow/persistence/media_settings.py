@@ -180,10 +180,7 @@ def vendor_has_usable_credentials(vendor_id: str, *, require_enabled: bool = Tru
 def vendor_setup_hint(vendor_id: str) -> str:
     vendor = normalize_vendor_id(vendor_id)
     label = VENDOR_UI_LABELS.get(vendor, vendor_id)
-    return (
-        f"未配置或未启用 {label}。"
-        f"请在 EvoFlow → 设置 → 模型 → 创意媒体 → {label} 填写凭据并打开启用开关。"
-    )
+    return f"未配置或未启用 {label}。请在 EvoFlow → 设置 → 模型 → 创意媒体 → {label} 填写凭据并打开启用开关。"
 
 
 def _deep_merge_defaults(raw: Any) -> dict[str, Any]:

@@ -20,12 +20,15 @@ def _get_changed_lines(path) -> set[int] | None:
     """Get changed line numbers from git diff for a file (unstaged + staged vs HEAD)."""
     import re as _re
     import subprocess
+
     try:
         from evoflow.utils.subprocess_platform import subprocess_hide_window_kwargs, subprocess_text_io_kwargs
 
         result = subprocess.run(
             ["git", "diff", "HEAD", "--unified=0", "--", str(path)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
             cwd=str(path.parent) if hasattr(path, "parent") else None,
             **subprocess_text_io_kwargs(),
             **subprocess_hide_window_kwargs(),
@@ -35,7 +38,7 @@ def _get_changed_lines(path) -> set[int] | None:
         lines: set[int] = set()
         for line in result.stdout.splitlines():
             if line.startswith("@@"):
-                m = _re.search(r'\+(\d+)(?:,(\d+))?', line)
+                m = _re.search(r"\+(\d+)(?:,(\d+))?", line)
                 if m:
                     start = int(m.group(1))
                     count = int(m.group(2) or "1")
@@ -72,12 +75,13 @@ def _extract_line_number_from_lint(line: str) -> int | None:
     - ESLint: ``    67:42  warning  message``         (indented, no path prefix)
     """
     import re as _re
+
     # ESLint format: "    67:42  warning  message" (indented, no path prefix)
-    m = _re.match(r'^\s*(\d+):\d+', line)
+    m = _re.match(r"^\s*(\d+):\d+", line)
     if m:
         return int(m.group(1))
     # Ruff format: "path:line:col: message" (path may contain colons on Windows)
-    m = _re.search(r':(\d+):\d+', line)
+    m = _re.search(r":(\d+):\d+", line)
     if m:
         return int(m.group(1))
     return None
@@ -104,35 +108,35 @@ def _filter_lint_by_changed_lines(lint_output: str, changed: set[int]) -> str:
 # --- Debug log lifecycle detection (优化8) ---
 # Patterns that are unambiguously temporary debug code — flagged in any context.
 _DEBUG_LOG_PATTERNS: list[tuple[_re_mod.Pattern, str]] = [
-    (_re_mod.compile(r'\bbreakpoint\s*\('), 'breakpoint()'),
-    (_re_mod.compile(r'\bpdb\.set_trace\s*\('), 'pdb.set_trace()'),
-    (_re_mod.compile(r'\bdebugger\s*;'), 'debugger statement'),
-    (_re_mod.compile(r'\be\.printStackTrace\s*\('), 'printStackTrace()'),
-    (_re_mod.compile(r'#\s*TODO[^\n]*(?:debug|remove|temp)', _re_mod.IGNORECASE), 'debug TODO marker'),
-    (_re_mod.compile(r'//\s*TODO[^\n]*(?:debug|remove|temp)', _re_mod.IGNORECASE), 'debug TODO marker'),
-    (_re_mod.compile(r'#\s*TEMP\s+DEBUG', _re_mod.IGNORECASE), 'TEMP DEBUG marker'),
-    (_re_mod.compile(r'logger\.debug\s*\(\s*["\'][^"\']*DEBUG', _re_mod.IGNORECASE), 'debug log with DEBUG marker'),
+    (_re_mod.compile(r"\bbreakpoint\s*\("), "breakpoint()"),
+    (_re_mod.compile(r"\bpdb\.set_trace\s*\("), "pdb.set_trace()"),
+    (_re_mod.compile(r"\bdebugger\s*;"), "debugger statement"),
+    (_re_mod.compile(r"\be\.printStackTrace\s*\("), "printStackTrace()"),
+    (_re_mod.compile(r"#\s*TODO[^\n]*(?:debug|remove|temp)", _re_mod.IGNORECASE), "debug TODO marker"),
+    (_re_mod.compile(r"//\s*TODO[^\n]*(?:debug|remove|temp)", _re_mod.IGNORECASE), "debug TODO marker"),
+    (_re_mod.compile(r"#\s*TEMP\s+DEBUG", _re_mod.IGNORECASE), "TEMP DEBUG marker"),
+    (_re_mod.compile(r'logger\.debug\s*\(\s*["\'][^"\']*DEBUG', _re_mod.IGNORECASE), "debug log with DEBUG marker"),
 ]
 
 # print()/console.log() are only flagged when the call content looks like debug output.
 # This avoids false positives on legitimate print() usage (CLI output, scripts, etc.).
 _DEBUG_KEYWORDS_RE = _re_mod.compile(
-    r'(?:DEBUG|debug|test|temp|trace|dump|here|xxx|fixme|todo|tmp|inspect|verify|hack|临时|调试|测试)',
+    r"(?:DEBUG|debug|test|temp|trace|dump|here|xxx|fixme|todo|tmp|inspect|verify|hack|临时|调试|测试)",
     _re_mod.IGNORECASE,
 )
 _CONDITIONAL_DEBUG_PATTERNS: list[tuple[_re_mod.Pattern, str]] = [
-    (_re_mod.compile(r'\bprint\s*\('), 'print() with debug content'),
-    (_re_mod.compile(r'\bconsole\.log\s*\('), 'console.log() with debug content'),
+    (_re_mod.compile(r"\bprint\s*\("), "print() with debug content"),
+    (_re_mod.compile(r"\bconsole\.log\s*\("), "console.log() with debug content"),
 ]
 
 # Lines that define regex patterns (not actual debug code) — skipped to avoid self-reference.
-_PATTERN_DEF_RE = _re_mod.compile(r'compile\s*\(|_DEBUG_LOG_PATTERNS|_CONDITIONAL_DEBUG|_DEBUG_KEYWORDS')
+_PATTERN_DEF_RE = _re_mod.compile(r"compile\s*\(|_DEBUG_LOG_PATTERNS|_CONDITIONAL_DEBUG|_DEBUG_KEYWORDS")
 
 
 def _is_comment_only(line: str) -> bool:
     """True when the line is a pure comment with no executable code."""
     stripped = line.strip()
-    return stripped.startswith('#') or stripped.startswith('//')
+    return stripped.startswith("#") or stripped.startswith("//")
 
 
 def _scan_debug_logs(path) -> str:
@@ -217,11 +221,7 @@ def read_lints_tool(
 ) -> str:
     """Read linter/diagnostic errors for one source file."""
     if not paths or not str(paths).strip():
-        return (
-            "Error: read_lints requires a single file path "
-            f"(Python / JS / TS / Java only: {LINTABLE_EXTENSIONS_LABEL}). "
-            "Directory scans are not supported."
-        )
+        return f"Error: read_lints requires a single file path (Python / JS / TS / Java only: {LINTABLE_EXTENSIONS_LABEL}). Directory scans are not supported."
 
     resolved = resolve_tool_path(
         str(paths).strip(),
@@ -250,10 +250,7 @@ def read_lints_tool(
     call_count = _record_lint_call(tid)
     batch_hint = ""
     if call_count >= _LINT_BATCH_THRESHOLD and changed_only:
-        batch_hint = (
-            f"\n\n[hint] {call_count} read_lints calls in the last {_LINT_BATCH_WINDOW_SEC:.0f}s — "
-            "for a full audit pass, consider changed_only=False to see all issues."
-        )
+        batch_hint = f"\n\n[hint] {call_count} read_lints calls in the last {_LINT_BATCH_WINDOW_SEC:.0f}s — for a full audit pass, consider changed_only=False to see all issues."
     debug_warning = _scan_debug_logs(resolved)
     header = f"Linter results: {resolved.resolve()}\n{'=' * 60}\n"
     return header + body + batch_hint + debug_warning

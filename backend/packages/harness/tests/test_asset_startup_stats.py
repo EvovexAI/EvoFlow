@@ -66,9 +66,7 @@ def test_collect_entity_usage_stats(entity: EntityRef):
     assert any(h.get("path", "").endswith("hot.md") for h in hot)
 
 
-def test_startup_scan_runs_phase2_for_pending_inbox(
-    entity: EntityRef, assets_home: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_startup_scan_runs_phase2_for_pending_inbox(entity: EntityRef, assets_home: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EVOFLOW_ASSET_STARTUP_PHASE2", "1")
     monkeypatch.setenv("EVOFLOW_ASSET_PHASE2", "1")
 

@@ -76,11 +76,7 @@ class GoalContinuationAssemblerMiddleware(AgentMiddleware):
         if not goal_mode_from_runtime(getattr(request, "runtime", None)):
             return ""
         messages = list((request.state or {}).get("messages") or []) if isinstance(request.state, dict) else []
-        has_synth = any(
-            isinstance(m, HumanMessage)
-            and str(getattr(m, "name", "") or "").strip() == GOAL_SYNTHETIC_USER_NAME
-            for m in messages
-        )
+        has_synth = any(isinstance(m, HumanMessage) and str(getattr(m, "name", "") or "").strip() == GOAL_SYNTHETIC_USER_NAME for m in messages)
         if has_synth:
             return ""
         if not sk:

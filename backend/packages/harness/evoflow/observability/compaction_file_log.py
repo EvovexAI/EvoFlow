@@ -220,11 +220,7 @@ def count_message_rounds(messages: Sequence[BaseMessage]) -> dict[str, int]:
 
 
 def format_compaction_snapshot_brief(snap: dict[str, Any]) -> str:
-    return (
-        f"{snap.get('gate_tokens', '?')} tok "
-        f"({snap.get('pct_of_context', '?')}%/{snap.get('context_k', '?')}k) "
-        f"{snap.get('message_count', '?')} msgs"
-    )
+    return f"{snap.get('gate_tokens', '?')} tok ({snap.get('pct_of_context', '?')}%/{snap.get('context_k', '?')}k) {snap.get('message_count', '?')} msgs"
 
 
 def _format_field(label: str, val: Any) -> str:

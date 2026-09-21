@@ -22,6 +22,4 @@ def test_run_context_wins_over_session_fallback(monkeypatch) -> None:
         "evoflow.persistence.session_repositories.get_session_context_for_run_config",
         lambda sk: {"preferred_skills": ["canvas-design"]},
     )
-    assert resolve_preferred_skills_for_turn(
-        {"session_key": "agent:main:abc", "preferred_skills": ["evoflow-admin"]}
-    ) == ["evoflow-admin"]
+    assert resolve_preferred_skills_for_turn({"session_key": "agent:main:abc", "preferred_skills": ["evoflow-admin"]}) == ["evoflow-admin"]

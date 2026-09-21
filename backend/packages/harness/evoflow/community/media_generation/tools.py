@@ -116,10 +116,7 @@ def _image_success_payload(
     frame_url = url or (urls[0] if urls else None)
     hint = _media_image_reply_hint(ap)
     if frame_url:
-        hint += (
-            " For image2video pass first_frame_url from this response (`url` / `first_frame_url`); "
-            "local absolute_path is accepted and auto-resolved."
-        )
+        hint += " For image2video pass first_frame_url from this response (`url` / `first_frame_url`); local absolute_path is accepted and auto-resolved."
     return success_response(
         provider=provider,
         task_id=task_id,
@@ -249,11 +246,7 @@ def _prepare_image_prompt(prompt: str) -> tuple[str, str | None]:
     if len(fitted) > _MAX_IMAGE_PROMPT_CHARS:
         fitted = fitted[: _MAX_IMAGE_PROMPT_CHARS - 1].rstrip() + "…"
 
-    note = (
-        f"prompt 已从 {orig_len} 字压缩至 {len(fitted)} 字（单帧上限 {_MAX_IMAGE_PROMPT_CHARS}）。"
-        "下次请直接写：主体 + 环境 + 光线 + 构图，2–4 句即可；多分镜视频请每镜单独 media_image_generate，"
-        "勿把整段故事板塞进一条 prompt。"
-    )
+    note = f"prompt 已从 {orig_len} 字压缩至 {len(fitted)} 字（单帧上限 {_MAX_IMAGE_PROMPT_CHARS}）。下次请直接写：主体 + 环境 + 光线 + 构图，2–4 句即可；多分镜视频请每镜单独 media_image_generate，勿把整段故事板塞进一条 prompt。"
     return fitted, note
 
 
@@ -261,10 +254,7 @@ def _validate_image_prompt(prompt: str) -> str | None:
     """Return error when prompt empty (length is auto-fitted via _prepare_image_prompt)."""
     text = str(prompt or "").strip()
     if not text:
-        return (
-            "Image prompt is empty. Describe one still frame: subject + environment + "
-            "lighting + composition (max 500 chars / ~2–4 sentences)."
-        )
+        return "Image prompt is empty. Describe one still frame: subject + environment + lighting + composition (max 500 chars / ~2–4 sentences)."
     return None
 
 
@@ -497,8 +487,7 @@ def media_video_generate_tool(
 
     if prov == "jimeng" and effective_mode == "text2video" and not resolved_first:
         return error_response(
-            "jimeng/Seedance 禁止 text2video 做整条宣传片：请先 media_image_generate，"
-            "再 media_video_generate(mode=image2video, first_frame_url=..., generate_audio=true)。",
+            "jimeng/Seedance 禁止 text2video 做整条宣传片：请先 media_image_generate，再 media_video_generate(mode=image2video, first_frame_url=..., generate_audio=true)。",
             provider=prov,
         )
 
@@ -640,15 +629,7 @@ def media_task_wait_tool(
 
     lp = local_paths[0] if local_paths else None
     ap = _path_for_display(lp)
-    next_action = (
-        _media_image_reply_hint(ap)
-        if media_kind == "image" and ap
-        else (
-            "Share absolute path in chat as @@/abs/path@@ (no relative @@outputs/…@@)."
-            if local_paths
-            else "Retry media_task_wait or check provider dashboard."
-        )
-    )
+    next_action = _media_image_reply_hint(ap) if media_kind == "image" and ap else ("Share absolute path in chat as @@/abs/path@@ (no relative @@outputs/…@@)." if local_paths else "Retry media_task_wait or check provider dashboard.")
     msg = f"Saved: {ap}" if ap else ("Task finished." if urls else f"Task status={status}; no download URL yet.")
     return success_response(
         provider=provider,
@@ -688,8 +669,7 @@ def media_voiceover_synthesize_tool(
 
         if is_jimeng_configured() and not configured_voice_providers():
             return error_response(
-                "独立 TTS 未配置或已停用。jimeng/Seedance 流水线请把口播写进 media_video_generate 的 prompt"
-                "（generate_audio=true），勿调用 media_voiceover_synthesize。",
+                "独立 TTS 未配置或已停用。jimeng/Seedance 流水线请把口播写进 media_video_generate 的 prompt（generate_audio=true），勿调用 media_voiceover_synthesize。",
                 provider=prov,
             )
         return error_response(err, provider=prov)

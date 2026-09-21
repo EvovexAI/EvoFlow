@@ -87,10 +87,7 @@ _ENV_BINDINGS: list[tuple[str, str]] = [
 ]
 
 # Agent Plan Harness console (claim search quota + SearchInfinity key).
-AGENT_PLAN_HARNESS_CONSOLE_URL = (
-    "https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement"
-    "?advancedActiveKey=agentPlan"
-)
+AGENT_PLAN_HARNESS_CONSOLE_URL = "https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?advancedActiveKey=agentPlan"
 AGENT_PLAN_DOUBAO_SEARCH_DOCS_URL = "https://www.volcengine.com/docs/82379/2545597?lang=zh"
 DOUBAO_SEARCH_CONSOLE_URL = "https://console.volcengine.com/search-infinity/web-search-exp"
 DOUBAO_SEARCH_DOCS_URL = "https://docs.volcengine.com/docs/87772/2272951?lang=zh"
@@ -104,11 +101,7 @@ PROVIDER_UI: list[dict[str, str]] = [
         "defaultBaseUrl": "https://open.feedcoopapi.com/search_api/web_search",
         "docsUrl": DOUBAO_SEARCH_DOCS_URL,
         "signupUrl": DOUBAO_SEARCH_CONSOLE_URL,
-        "hint": (
-            "火山「豆包搜索 / SearchInfinity」API。"
-            "须用联网搜索专用 Key（不是对话用的 ark- Key）。"
-            "独立开通有每月免费额度；若已订 Agent Plan，可在控制台「配置 Harness」领取套餐赠送额度 Key。"
-        ),
+        "hint": ("火山「豆包搜索 / SearchInfinity」API。须用联网搜索专用 Key（不是对话用的 ark- Key）。独立开通有每月免费额度；若已订 Agent Plan，可在控制台「配置 Harness」领取套餐赠送额度 Key。"),
     },
     {
         "id": "bocha",
@@ -322,14 +315,7 @@ def pick_recommended_backend(results: list[dict[str, Any]]) -> str | None:
     Prefer successful paid/self-hosted engines ordered by quality, then latency.
     ``ddgs`` only when nothing else succeeds.
     """
-    ok_rows = [
-        r
-        for r in results
-        if isinstance(r, dict)
-        and r.get("ok")
-        and int(r.get("result_count") or 0) >= 1
-        and str(r.get("name") or "").strip()
-    ]
+    ok_rows = [r for r in results if isinstance(r, dict) and r.get("ok") and int(r.get("result_count") or 0) >= 1 and str(r.get("name") or "").strip()]
     if not ok_rows:
         return None
 

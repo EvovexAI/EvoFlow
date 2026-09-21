@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from evoflow.persistence.db import reset_db_for_tests
 from evoflow.persistence.media_settings import (
     apply_media_credentials_to_mapping,
     patch_media_credentials,
 )
-from evoflow.persistence.db import reset_db_for_tests
 from evoflow.utils.subprocess_platform import sanitize_child_process_env
 
 

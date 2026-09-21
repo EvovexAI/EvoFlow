@@ -276,11 +276,7 @@ def split_text(
     strategy = (strategy or "recursive").strip().lower()
     if strategy == "auto":
         headings = len(_HEADING_LINE_RE.findall(text or ""))
-        strategy = (
-            "heading"
-            if headings >= 2 and len(text or "") > max(128, int(chunk_size))
-            else "recursive"
-        )
+        strategy = "heading" if headings >= 2 and len(text or "") > max(128, int(chunk_size)) else "recursive"
     if strategy == "heading":
         return _split_by_heading(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     return _split_recursive(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)

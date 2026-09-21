@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from contextlib import AsyncExitStack
 from unittest.mock import AsyncMock, MagicMock
 

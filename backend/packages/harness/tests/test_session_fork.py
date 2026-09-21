@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tempfile
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -62,9 +61,7 @@ def test_copy_messages_for_fork_full_and_cut(sqlite_tmp: None) -> None:
     assert rows[0]["message_id"] == "m1"
     assert "第一问" in str(rows[0].get("content") or rows[0].get("content_json") or "")
 
-    n2 = msg_repo.copy_messages_for_fork(
-        src, "agent:main:new-forkcut", through_seq=2, new_thread_id="t-cut"
-    )
+    n2 = msg_repo.copy_messages_for_fork(src, "agent:main:new-forkcut", through_seq=2, new_thread_id="t-cut")
     assert n2 == 2
     cut_rows = msg_repo.list_messages("agent:main:new-forkcut", limit=50)
     assert [r["seq"] for r in cut_rows] == [1, 2]

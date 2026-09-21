@@ -35,9 +35,7 @@ def test_host_path_stamps_org_shared(sqlite_tmp: str) -> None:
     host = str(Path(sqlite_tmp) / "shared-project")
     Path(host).mkdir(parents=True, exist_ok=True)
     assert default_owner_scope_for_path(host, principal_id="user:alice") == org_scope("local")
-    stamp = resolve_stamp_for_workspace_path(
-        host, {"org_id": "local", "principal_id": "user:alice", "created_by": "user:alice"}
-    )
+    stamp = resolve_stamp_for_workspace_path(host, {"org_id": "local", "principal_id": "user:alice", "created_by": "user:alice"})
     wid = ws_repo.get_or_create_workspace(host, org_id=stamp["org_id"], owner_scope_id=stamp["owner_scope_id"])
     assert wid > 0
     assert ws_repo.get_workspace_owner_scope(host) == org_scope("local")
@@ -46,7 +44,8 @@ def test_host_path_stamps_org_shared(sqlite_tmp: str) -> None:
 def test_personal_files_private_from_other_user(sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from fastapi import HTTPException
 
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.scope import personal_scope
     from evoflow.authz.scope_paths import ensure_principal_home, scope_files_dir
     from evoflow.authz.workspace_visibility import (
@@ -61,9 +60,7 @@ def test_personal_files_private_from_other_user(sqlite_tmp: str, monkeypatch: py
     bob = principals_mod.create_principal(display_name="Bob", principal_id="user:bob")
     ensure_principal_home(alice)
     alice_files = str(scope_files_dir(personal_scope("user:alice")).resolve())
-    assert default_owner_scope_for_path(alice_files, principal_id="user:alice") == personal_scope(
-        "user:alice"
-    )
+    assert default_owner_scope_for_path(alice_files, principal_id="user:alice") == personal_scope("user:alice")
     ws_repo.get_or_create_workspace(
         alice_files,
         org_id="local",

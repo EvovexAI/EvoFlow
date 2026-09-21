@@ -72,11 +72,7 @@ def _coerce_plan_tool_calls_on_ai(last: AIMessage) -> tuple[AIMessage, bool]:
     changed = False
     out_calls: list[object] = []
     for tc in tool_calls:
-        name = (
-            str(tc.get("name") or "").strip()
-            if isinstance(tc, dict)
-            else str(getattr(tc, "name", None) or "").strip()
-        )
+        name = str(tc.get("name") or "").strip() if isinstance(tc, dict) else str(getattr(tc, "name", None) or "").strip()
         if name != "plan":
             out_calls.append(tc)
             continue
@@ -170,15 +166,9 @@ def _process_invalid_tool_calls(state: AgentState) -> dict | None:
             if raw_args is not None:
                 raw_preview = str(raw_args).strip().replace("\n", " ")[:240]
             if "assigned_agent" in err.lower():
-                hint = (
-                    f"{err}（提示：每步用 assigned_agent，depends_on 用 [\"1\"] 数组，"
-                    "tools 用 [\"read_file\"] 数组）"
-                )
+                hint = f'{err}（提示：每步用 assigned_agent，depends_on 用 ["1"] 数组，tools 用 ["read_file"] 数组）'
             else:
-                hint = (
-                    f"{err}（提示：须传 goal + steps 数组；每步至少含 name、goal、assigned_agent；"
-                    "depends_on/tools 用 JSON 数组，勿传字符串）"
-                )
+                hint = f"{err}（提示：须传 goal + steps 数组；每步至少含 name、goal、assigned_agent；depends_on/tools 用 JSON 数组，勿传字符串）"
             if raw_preview:
                 hint = f"{hint} 原始参数片段: {raw_preview}"
         else:

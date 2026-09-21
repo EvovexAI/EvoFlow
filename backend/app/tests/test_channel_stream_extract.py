@@ -28,10 +28,13 @@ def test_accumulate_evf_stream_text_run_end():
 
 def test_accumulate_evf_stream_text_delta_replace():
     state: dict[str, str] = {"text": "old"}
-    assert _accumulate_evf_stream_text(
-        state,
-        {"type": "delta", "text": "new", "delta_kind": "replace"},
-    ) == "new"
+    assert (
+        _accumulate_evf_stream_text(
+            state,
+            {"type": "delta", "text": "new", "delta_kind": "replace"},
+        )
+        == "new"
+    )
 
 
 def test_is_im_live_assistant_accepts_chunks_only():
@@ -113,12 +116,7 @@ def test_accumulate_stream_text_bare_string_only_continues_open_buffer():
 def test_extract_custom_stream_text_skips_progress_content():
     assert _extract_custom_stream_text({"type": "delta", "text": "ok"}) == "ok"
     assert _extract_custom_stream_text({"type": "token_delta", "chunk": "x"}) == "x"
-    assert (
-        _extract_custom_stream_text(
-            {"type": "write_file_progress", "content": "huge file body " * 20}
-        )
-        == ""
-    )
+    assert _extract_custom_stream_text({"type": "write_file_progress", "content": "huge file body " * 20}) == ""
     assert _extract_custom_stream_text({"type": "tool_status", "content": "running"}) == ""
     # Untyped content still allowed for adapters that only send content
     assert _extract_custom_stream_text({"content": "plain"}) == "plain"

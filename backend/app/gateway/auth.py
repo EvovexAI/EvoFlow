@@ -74,7 +74,7 @@ def verify_bearer_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    plaintext = authorization[len(_BEARER_PREFIX):].strip()
+    plaintext = authorization[len(_BEARER_PREFIX) :].strip()
     if not plaintext:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -104,7 +104,6 @@ def verify_bearer_token(
     else:
         out["pinned_version"] = None
     return out
-
 
 
 # Convenience alias for routes that only need the auth gate (no caller ctx).

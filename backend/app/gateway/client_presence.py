@@ -55,9 +55,7 @@ async def attach_client_instance(client_instance_id: str) -> dict:
 
     stopped = None
     cancel_skipped = False
-    should_stop = reason == "client_attach" or (
-        reason == "client_restart" and _client_restart_should_stop_runs()
-    )
+    should_stop = reason == "client_attach" or (reason == "client_restart" and _client_restart_should_stop_runs())
     if should_stop:
         goal_service = None
         try:
@@ -66,9 +64,7 @@ async def attach_client_instance(client_instance_id: str) -> dict:
             from app.channels.manager import DEFAULT_LANGGRAPH_URL
             from app.channels.services.goal_service import GoalService
 
-            langgraph_url = (
-                os.getenv("EVOFLOW_LANGGRAPH_URL", DEFAULT_LANGGRAPH_URL) or ""
-            ).rstrip("/") or DEFAULT_LANGGRAPH_URL
+            langgraph_url = (os.getenv("EVOFLOW_LANGGRAPH_URL", DEFAULT_LANGGRAPH_URL) or "").rstrip("/") or DEFAULT_LANGGRAPH_URL
             langgraph_api_key = os.getenv("EVOFLOW_LANGGRAPH_API_KEY") or None
             lg_client = get_client(url=langgraph_url, api_key=langgraph_api_key)
             goal_service = GoalService.get_instance(lg_client)
@@ -78,9 +74,7 @@ async def attach_client_instance(client_instance_id: str) -> dict:
         stopped = await stop_all_panel_attached_sessions(reason=reason, goal_service=goal_service)
     elif reason == "client_restart":
         cancel_skipped = True
-        logger.info(
-            "EvoPanel client_restart: skipped panel run cancel (LangGraph continues; UI may stream-resume)"
-        )
+        logger.info("EvoPanel client_restart: skipped panel run cancel (LangGraph continues; UI may stream-resume)")
 
     return {
         "ok": True,

@@ -59,10 +59,7 @@ def delete_fts_for_doc(conn: Any, doc_id: str) -> None:
 def purge_document_index(conn: Any, doc_id: str) -> None:
     """Remove FTS, embeddings, chunks, and asset rows for a document (soft-delete cleanup)."""
     delete_fts_for_doc(conn, doc_id)
-    old_ids = [
-        r["id"]
-        for r in conn.execute("SELECT id FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchall()
-    ]
+    old_ids = [r["id"] for r in conn.execute("SELECT id FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchall()]
     if old_ids:
         placeholders = ",".join("?" * len(old_ids))
         conn.execute(

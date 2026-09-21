@@ -62,8 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         run_post_ready_warmups,
         shutdown_gateway_background,
     )
-
-    from app.gateway.startup_trace import startup_mark, startup_set_meta, startup_write_summary
+    from app.gateway.startup_trace import startup_mark, startup_write_summary
 
     _st0 = _st.perf_counter()
 
@@ -125,9 +124,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.routers_registered = True
             app.state.extended_routers_registered = False
             mark_core_routers_ready()
-            _st_log(
-                f"core routers registered ({(_st.perf_counter() - _t_core) * 1000:.0f}ms)"
-            )
+            _st_log(f"core routers registered ({(_st.perf_counter() - _t_core) * 1000:.0f}ms)")
 
             # Flip /health/ready as soon as core API routes exist.
             app.state.startup_ready = True
@@ -346,8 +343,8 @@ This gateway provides custom endpoints for models, MCP configuration, skills, ar
     print("[gateway] app.routes at create_app time:", file=sys.stderr, flush=True)
     for _r in app.routes:
         _rtype = type(_r).__name__
-        _rpath = getattr(_r, 'path', getattr(_r, 'prefix', ''))
-        _rmethods = getattr(_r, 'methods', '')
+        _rpath = getattr(_r, "path", getattr(_r, "prefix", ""))
+        _rmethods = getattr(_r, "methods", "")
         print(f"  {_rtype} {_rpath} {_rmethods}", file=sys.stderr, flush=True)
 
     from app.gateway.health_routes import register_health_routes

@@ -60,9 +60,7 @@ def test_ensure_app_schema_preserves_rows_when_snapping_legacy() -> None:
 
     ensure_app_schema(conn)
 
-    row = conn.execute(
-        "SELECT message_id FROM evoflow_chat_messages WHERE session_key='sk'"
-    ).fetchone()
+    row = conn.execute("SELECT message_id FROM evoflow_chat_messages WHERE session_key='sk'").fetchone()
     assert row is not None
     assert row[0] == "m1"
     assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == APP_SCHEMA_VERSION
@@ -73,7 +71,5 @@ def test_fresh_db_applies_baseline_to_version_1() -> None:
     conn = sqlite3.connect(":memory:")
     ensure_app_schema(conn)
     assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == APP_SCHEMA_VERSION
-    assert conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_apps'"
-    ).fetchone()
+    assert conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_apps'").fetchone()
     conn.close()

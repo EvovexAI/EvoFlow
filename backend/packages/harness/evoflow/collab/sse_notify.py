@@ -87,8 +87,7 @@ def _trace_relay_skip(reason: str, main_task_id: str, event_type: str) -> None:
         if not _relay_skip_logged:
             _relay_skip_logged = True
             stream_warn(
-                "session_inject_drop reason=%s main=%s type=%s "
-                "(no active runs/stream on gateway; set INTERNAL_EVENTS_SECRET for LangGraph relay)",
+                "session_inject_drop reason=%s main=%s type=%s (no active runs/stream on gateway; set INTERNAL_EVENTS_SECRET for LangGraph relay)",
                 reason,
                 main_task_id,
                 event_type,
@@ -335,6 +334,7 @@ def schedule_tool_approval_pending_sse(
 
     Uses ``_schedule_gateway_emit`` so it works in both sync and async contexts.
     """
+
     async def _go() -> None:
         await _broadcast_tool_approval_pending_sse(
             thread_id,

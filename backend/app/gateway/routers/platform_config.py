@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import Request, APIRouter, Body, HTTPException
-from evoflow.authz.http_guard import require_org_admin
+from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from evoflow.authz.http_guard import require_org_admin
 from evoflow.config.app_config import get_app_config, reload_app_config
 from evoflow.config.extensions_config import reload_extensions_config
 from evoflow.persistence import config_repositories as cfg_repo

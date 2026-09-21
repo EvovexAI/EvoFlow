@@ -68,9 +68,8 @@ def load_app_for_run(
     merged["status"] = current.get("status") or merged.get("status")
     return merged
 
-_TERMINAL_STATUSES = frozenset(
-    {"completed", "failed", "cancelled", "canceled", "error", "timeout"}
-)
+
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "canceled", "error", "timeout"})
 
 
 def extract_last_user_text(messages: list[Any] | None) -> str:
@@ -126,11 +125,7 @@ def map_chat_to_parameters(
                 params[name] = str(value)
 
     defined = app.get("parameters") if isinstance(app.get("parameters"), list) else []
-    defined_names = {
-        str(p.get("name") or "").strip()
-        for p in defined
-        if isinstance(p, dict) and str(p.get("name") or "").strip()
-    }
+    defined_names = {str(p.get("name") or "").strip() for p in defined if isinstance(p, dict) and str(p.get("name") or "").strip()}
 
     user_text = extract_last_user_text(messages)
     if user_text:
@@ -190,9 +185,7 @@ def resolve_app_id_from_request(
             continue
         if value.startswith("App_") or label == "appId":
             if value != app_id:
-                raise ValueError(
-                    f"{label} '{value}' does not match API key app '{app_id}'"
-                )
+                raise ValueError(f"{label} '{value}' does not match API key app '{app_id}'")
     return app_id
 
 
@@ -219,9 +212,7 @@ def iter_run_status(
     Raises:
         TimeoutError: ``(run_id, last_status_doc)`` when deadline hit without terminal.
     """
-    deadline = time.monotonic() + float(
-        timeout_sec if timeout_sec is not None else openai_completions_timeout_sec()
-    )
+    deadline = time.monotonic() + float(timeout_sec if timeout_sec is not None else openai_completions_timeout_sec())
     last: dict[str, Any] | None = None
     while True:
         status_doc = get_status(run_id)
@@ -262,9 +253,7 @@ def wait_for_run_terminal(
     raise TimeoutError(run_id, final)
 
 
-_STEP_DONE = frozenset(
-    {"completed", "done", "success", "failed", "error", "cancelled", "canceled"}
-)
+_STEP_DONE = frozenset({"completed", "done", "success", "failed", "error", "cancelled", "canceled"})
 
 
 def _step_rows(status_doc: dict[str, Any]) -> list[dict[str, Any]]:
@@ -280,15 +269,7 @@ def resolve_step_agent(step: dict[str, Any] | None) -> str:
     if not isinstance(step, dict):
         return ""
     wp = step.get("worker_profile") if isinstance(step.get("worker_profile"), dict) else {}
-    return str(
-        step.get("assigned_agent")
-        or step.get("assigned_to")
-        or step.get("agent_id")
-        or step.get("agent_code")
-        or wp.get("base_subagent")
-        or wp.get("agent_code")
-        or ""
-    ).strip()
+    return str(step.get("assigned_agent") or step.get("assigned_to") or step.get("agent_id") or step.get("agent_code") or wp.get("base_subagent") or wp.get("agent_code") or "").strip()
 
 
 def publicize_step_response(step: dict[str, Any]) -> dict[str, Any]:
@@ -301,12 +282,7 @@ def publicize_step_response(step: dict[str, Any]) -> dict[str, Any]:
     name = str(step.get("name") or "").strip()
     agent = resolve_step_agent(step)
     st = str(step.get("status") or "").strip()
-    body = str(
-        step.get("result_summary")
-        or step.get("output_summary")
-        or step.get("result")
-        or ""
-    ).strip()
+    body = str(step.get("result_summary") or step.get("output_summary") or step.get("result") or "").strip()
     err = str(step.get("error_text") or step.get("error") or "").strip()
     module_name = name or agent or (f"step-{ref}" if ref else "step")
     out: dict[str, Any] = {
@@ -337,10 +313,7 @@ def build_response_data(status_doc: dict[str, Any] | None) -> list[dict[str, Any
     """Ordered public step rows for ``responseData`` / ``flowResponses``."""
     if not isinstance(status_doc, dict):
         return []
-    return [
-        publicize_step_response(step)
-        for step in sorted(_step_rows(status_doc), key=_ref_sort_key)
-    ]
+    return [publicize_step_response(step) for step in sorted(_step_rows(status_doc), key=_ref_sort_key)]
 
 
 def format_step_stream_piece(step: dict[str, Any]) -> str:
@@ -349,14 +322,7 @@ def format_step_stream_piece(step: dict[str, Any]) -> str:
     agent = resolve_step_agent(step)
     heading = f"{name} · @{agent}" if agent else name
     st = str(step.get("status") or "").strip().lower()
-    body = str(
-        step.get("result_summary")
-        or step.get("output_summary")
-        or step.get("result")
-        or step.get("error_text")
-        or step.get("error")
-        or ""
-    ).strip()
+    body = str(step.get("result_summary") or step.get("output_summary") or step.get("result") or step.get("error_text") or step.get("error") or "").strip()
     if st in {"failed", "error"}:
         return f"## {heading} · 失败\n{body or '步骤执行失败'}"
     if st in {"cancelled", "canceled"}:
@@ -375,9 +341,7 @@ def _ref_sort_key(step: dict[str, Any]) -> tuple[int, str]:
 
 
 def _step_emit_key(step: dict[str, Any]) -> str:
-    return str(
-        step.get("subtask_id") or step.get("ref") or step.get("name") or ""
-    ).strip()
+    return str(step.get("subtask_id") or step.get("ref") or step.get("name") or "").strip()
 
 
 def collect_new_step_stream_events(
@@ -452,12 +416,7 @@ def last_successful_step_text(status_doc: dict[str, Any] | None) -> str:
         st = str(step.get("status") or "").strip().lower()
         if st not in success:
             continue
-        body = str(
-            step.get("result_summary")
-            or step.get("output_summary")
-            or step.get("result")
-            or ""
-        ).strip()
+        body = str(step.get("result_summary") or step.get("output_summary") or step.get("result") or "").strip()
         if body:
             last = body
     return last
@@ -473,17 +432,11 @@ def step_text_by_ref(status_doc: dict[str, Any] | None, ref: str) -> str:
 
     alias_map = build_step_ref_alias_map([], rows)
     canonical = resolve_step_ref(want, alias_map)
-    success = {"completed", "done", "success"}
     for step in rows:
         if str(step.get("ref") or "").strip() != canonical:
             continue
         st = str(step.get("status") or "").strip().lower()
-        body = str(
-            step.get("result_summary")
-            or step.get("output_summary")
-            or step.get("result")
-            or ""
-        ).strip()
+        body = str(step.get("result_summary") or step.get("output_summary") or step.get("result") or "").strip()
         if body:
             return body
         if st in {"failed", "error"}:
@@ -662,12 +615,7 @@ def build_example_response_data(app: dict[str, Any] | None) -> list[dict[str, An
     for idx, step in enumerate(_app_step_rows(app)):
         ref = str(step.get("ref") or idx + 1).strip() or str(idx + 1)
         name = str(step.get("name") or "").strip() or f"步骤{ref}"
-        agent = str(
-            step.get("assigned_agent")
-            or step.get("assigned_to")
-            or step.get("agent_id")
-            or ""
-        ).strip()
+        agent = str(step.get("assigned_agent") or step.get("assigned_to") or step.get("agent_id") or "").strip()
         out.append(
             {
                 "moduleName": name,

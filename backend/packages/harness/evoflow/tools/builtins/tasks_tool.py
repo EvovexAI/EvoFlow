@@ -31,10 +31,7 @@ tasks_ui_metadata = {
     "group": "builtin",
     "label": "岗位任务",
     "icon": "📋",
-    "description": (
-        "值班主工具：create / progress / state / delete。"
-        "有进展就 progress；干完必须 state=completed（可带 handlers），禁止只 progress 后空等审批。"
-    ),
+    "description": ("值班主工具：create / progress / state / delete。有进展就 progress；干完必须 state=completed（可带 handlers），禁止只 progress 后空等审批。"),
 }
 
 _ACTIONS = frozenset({"list", "get", "create", "progress", "state", "delete"})
@@ -76,9 +73,7 @@ def _coerce_optional_json_list(v: Any) -> Any:
         try:
             parsed = json.loads(text)
         except json.JSONDecodeError as e:
-            raise ValueError(
-                "outputs/handlers must be a list or a JSON list string"
-            ) from e
+            raise ValueError("outputs/handlers must be a list or a JSON list string") from e
         return parsed
     return v
 
@@ -109,9 +104,7 @@ def _dump_models(items: list[Any] | None) -> list[dict[str, Any]] | None:
         if not read:
             read = row.get("outputs") or []
         if isinstance(read, list):
-            row["read_outputs"] = [
-                o.model_dump() if hasattr(o, "model_dump") else o for o in read if o is not None
-            ]
+            row["read_outputs"] = [o.model_dump() if hasattr(o, "model_dump") else o for o in read if o is not None]
         row.pop("outputs", None)
         out.append(row)
     return out
@@ -225,17 +218,9 @@ def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
     want = str(role_name or "").strip().lower()
     if not want:
         raise ValidationError("role must be a non-empty role_name")
-    matches = [
-        r
-        for r in ProactiveRepository.list_roles()
-        if str(r.role_name or "").strip().lower() == want
-        and str(r.status or "").strip().lower() != "archived"
-    ]
+    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want and str(r.status or "").strip().lower() != "archived"]
     if not matches:
-        raise ValidationError(
-            f"no active role found with name '{role_name}'. "
-            "Use employees list / roster to see role_name values."
-        )
+        raise ValidationError(f"no active role found with name '{role_name}'. Use employees list / roster to see role_name values.")
     role = matches[0]
     code = str(role.agent_code or "").strip()
     if not code:
@@ -344,13 +329,7 @@ def tasks_tool(
                 cur = ""
                 if "illegal state transition:" in msg and "->" in msg:
                     try:
-                        cur = (
-                            msg.split("illegal state transition:", 1)[1]
-                            .split("->", 1)[0]
-                            .strip()
-                            .lower()
-                            .replace("-", "_")
-                        )
+                        cur = msg.split("illegal state transition:", 1)[1].split("->", 1)[0].strip().lower().replace("-", "_")
                     except Exception:
                         cur = ""
                 _bridge_from = {"pending", "planned", "planning", "waiting_user"}

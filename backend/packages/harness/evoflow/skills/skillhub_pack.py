@@ -25,9 +25,7 @@ from urllib.request import Request, urlopen
 logger = logging.getLogger(__name__)
 
 SKILLHUB_API = "https://api.skillhub.cn"
-AVATAR_CDN = (
-    "https://cloudcache.tencent-cloud.com/qcloud/tea/app/skillhub/assets/source/ai-buddy-decouple"
-)
+AVATAR_CDN = "https://cloudcache.tencent-cloud.com/qcloud/tea/app/skillhub/assets/source/ai-buddy-decouple"
 AVATAR_VERSION = "v20260625"
 AVATAR_EXT = "avif"
 _AVATAR_VERSION_OVERRIDES = frozenset(
@@ -211,7 +209,7 @@ def _slugify_skill_name(raw: str, fallback: str) -> str:
     if s and re.match(r"^[a-z0-9-]+$", s) and len(s) <= 64:
         return s
     fb = re.sub(r"[^a-z0-9]+", "-", (fallback or "skill").strip().lower()).strip("-")
-    return (fb[:64] or "skill")
+    return fb[:64] or "skill"
 
 
 def normalize_skill_md_frontmatter(text: str, *, slug: str) -> str:
@@ -484,9 +482,7 @@ def install_skillhub_expert_pack(
     skill_results = [_install_one_skill(s, force=force_skills) for s in skill_slugs]
     failed = [r for r in skill_results if r.status == "failed"]
     if len(failed) == len(skill_results):
-        raise RuntimeError(
-            "all skill installs failed: " + "; ".join(f"{r.slug}: {r.message}" for r in failed[:3])
-        )
+        raise RuntimeError("all skill installs failed: " + "; ".join(f"{r.slug}: {r.message}" for r in failed[:3]))
 
     clear_skills_cache()
     skill_names = _resolve_skill_names(skill_slugs, skill_results)

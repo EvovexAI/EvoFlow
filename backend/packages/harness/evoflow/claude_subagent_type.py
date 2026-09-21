@@ -29,13 +29,11 @@ def is_claude_code_sdk_available() -> bool:
         return _CLAUDE_SDK_AVAILABLE
     try:
         import claude_agent_sdk  # noqa: F401
+
         _CLAUDE_SDK_AVAILABLE = True
     except ImportError:
         _CLAUDE_SDK_AVAILABLE = False
-        logger.info(
-            "claude_agent_sdk not installed in this process — claude-code subagent "
-            "will be hidden / fall back to general-purpose."
-        )
+        logger.info("claude_agent_sdk not installed in this process — claude-code subagent will be hidden / fall back to general-purpose.")
     except Exception:
         _CLAUDE_SDK_AVAILABLE = False
         logger.warning("claude_agent_sdk import probe failed unexpectedly", exc_info=True)

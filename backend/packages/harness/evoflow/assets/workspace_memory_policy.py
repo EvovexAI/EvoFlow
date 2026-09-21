@@ -6,11 +6,11 @@ import re
 
 # Fact categories agents should use for workspace/project memory.
 WORKSPACE_FACT_CATEGORIES: tuple[str, ...] = (
-    "module",      # 核心功能模块说明
-    "logic",       # 重要业务/技术逻辑
+    "module",  # 核心功能模块说明
+    "logic",  # 重要业务/技术逻辑
     "architecture",  # 架构分层、数据流
     "convention",  # 项目约定（命名、目录、提交规范）
-    "gotcha",      # 踩坑与约束
+    "gotcha",  # 踩坑与约束
     "entrypoint",  # 启动/构建/部署入口
 )
 

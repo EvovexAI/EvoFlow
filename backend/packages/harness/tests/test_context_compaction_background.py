@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, messages_to_dict
 
 from evoflow.agents.compaction_trigger import get_compaction_trigger_cache, reset_compaction_trigger_cache_for_tests
@@ -85,6 +85,8 @@ def test_absorb_extracted_summaries_is_noop(chat_db):
     from evoflow.persistence.chat_message_repositories import load_conversation_summary_text
 
     sk = "agent:test:noop-absorb"
+    from evoflow.persistence import session_repositories as sess_repo
+
     sess_repo.upsert_session_row(sk, thread_id="bg-stub-absorb")
     engine = ContextCompactionEngine()
     stub = _stub_summary(middle_count=5, language="zh")

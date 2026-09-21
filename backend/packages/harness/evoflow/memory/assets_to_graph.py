@@ -148,6 +148,7 @@ def sync_user_memory_to_graph(namespace_id: str = "user:default") -> dict[str, A
     # Rebuild graph for this namespace
     try:
         from evoflow.memory.graph import rebuild_graph
+
         rebuild_graph(ns, clear=False)
     except Exception as exc:
         logger.warning(f"Graph rebuild failed: {exc}", exc_info=True)
@@ -230,6 +231,7 @@ def sync_workspace_memory_to_graph(workspace_id: str) -> dict[str, Any]:
 
     try:
         from evoflow.memory.graph import rebuild_graph
+
         rebuild_graph(ns, clear=False)
     except Exception as exc:
         logger.warning(f"Graph rebuild failed: {exc}", exc_info=True)

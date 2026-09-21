@@ -15,11 +15,11 @@ from evoflow.knowledge.owned.assets import (
     link_assets_to_chunks,
 )
 from evoflow.knowledge.owned.chunking import split_text
+from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.doc_links import rebuild_doc_links, update_document_metadata
 from evoflow.knowledge.owned.embedding_bind import model_config_for_base_row
-from evoflow.knowledge.owned.metadata import extract_tags, parse_frontmatter
-from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.ids import new_id, utc_now
+from evoflow.knowledge.owned.metadata import extract_tags, parse_frontmatter
 from evoflow.knowledge.owned.retrieve import delete_fts_for_doc, index_fts, pack_embedding
 from evoflow.knowledge.parser import parse_file
 
@@ -45,12 +45,8 @@ async def run_parse_index(
     jobs.update_progress(job_id, {"phase": "loading", "percent": 5, "message": "读取文档"})
 
     with db() as conn:
-        base = conn.execute(
-            "SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)
-        ).fetchone()
-        doc = conn.execute(
-            "SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)
-        ).fetchone()
+        base = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
+        doc = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if not base or not doc:
         raise ValueError("knowledge base or document not found")
 
@@ -81,9 +77,7 @@ async def run_parse_index(
 
     jobs.update_progress(job_id, {"phase": "assets", "percent": 25, "message": "抽取图片"})
     # Prefer original source folder for relative image paths when available
-    text, assets = extract_and_rewrite_images(
-        text, kb_id=kb_id, doc_id=doc_id, source_path=path
-    )
+    text, assets = extract_and_rewrite_images(text, kb_id=kb_id, doc_id=doc_id, source_path=path)
 
     jobs.update_progress(job_id, {"phase": "chunking", "percent": 35, "message": "分块"})
     fm, _body = parse_frontmatter(text)
@@ -103,10 +97,7 @@ async def run_parse_index(
 
     with db() as conn:
         # clear old
-        old_ids = [
-            r["id"]
-            for r in conn.execute("SELECT id FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchall()
-        ]
+        old_ids = [r["id"] for r in conn.execute("SELECT id FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchall()]
         delete_fts_for_doc(conn, doc_id)
         if old_ids:
             placeholders = ",".join("?" * len(old_ids))
@@ -233,15 +224,9 @@ async def run_parse_index(
 
     model_name = str(getattr(mc, "model", "") or base_d.get("embedding_model") or "").lower()
     base_url = str(getattr(mc, "base_url", "") or base_d.get("embedding_base_url") or "").lower()
-    multimodal = (
-        "multimodal" in model_name
-        or "embedding-vision" in model_name
-        or ("/api/plan/" in base_url and "embed" in model_name)
-    )
+    multimodal = "multimodal" in model_name or "embedding-vision" in model_name or ("/api/plan/" in base_url and "embed" in model_name)
     # Multimodal = one HTTP call per chunk; keep batches small for progress + 429 recovery.
-    batch_size = 8 if multimodal else (
-        32 if str(base_d.get("embedding_mode") or "").lower() == "cloud" else MAX_BATCH_SIZE
-    )
+    batch_size = 8 if multimodal else (32 if str(base_d.get("embedding_mode") or "").lower() == "cloud" else MAX_BATCH_SIZE)
     vectors: list[list[float]] = []
     total = len(embed_inputs)
     for start in range(0, total, batch_size):
@@ -320,9 +305,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
         return
     now = utc_now()
     with db() as conn:
-        doc = conn.execute(
-            "SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)
-        ).fetchone()
+        doc = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
         chunks = conn.execute(
             "SELECT content FROM kb_chunks WHERE doc_id=? AND enabled=1 ORDER BY ordinal",
             (doc_id,),
@@ -342,11 +325,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
 
     title = str(doc["title"] or doc["file_name"] or "")
     excerpt = body[:6000]
-    prompt = (
-        "请为以下知识库文档写 3～8 句中文摘要。点出主题、关键实体与表格/结论要点；"
-        "禁止臆造未出现的信息。只输出摘要正文。\n\n"
-        f"标题：{title}\n\n正文：\n{excerpt}"
-    )
+    prompt = f"请为以下知识库文档写 3～8 句中文摘要。点出主题、关键实体与表格/结论要点；禁止臆造未出现的信息。只输出摘要正文。\n\n标题：{title}\n\n正文：\n{excerpt}"
 
     with db() as conn:
         conn.execute(
@@ -394,9 +373,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
 
     try:
         with db() as conn:
-            base = conn.execute(
-                "SELECT wiki_enabled FROM kb_bases WHERE id=?", (job.get("kb_id"),)
-            ).fetchone()
+            base = conn.execute("SELECT wiki_enabled FROM kb_bases WHERE id=?", (job.get("kb_id"),)).fetchone()
         if base and int(base["wiki_enabled"] or 0) == 1 and job.get("kb_id"):
             jobs.enqueue(
                 kb_id=job["kb_id"],
@@ -406,4 +383,3 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
             )
     except Exception:
         logger.debug("wiki enqueue after summary skipped", exc_info=True)
-

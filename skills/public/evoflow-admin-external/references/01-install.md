@@ -28,8 +28,8 @@ evoflow-admin-external-1.0.0.zip   ← 推荐（Gateway / CLI 安装认 .zip）
 静态文件（与官网同源）：
 
 ```text
-/skills/downloads/evoflow-admin-external-1.0.3.zip
-/skills/downloads/evoflow-admin-external-1.0.3.skill
+/skills/downloads/evoflow-admin-external-1.0.4.zip
+/skills/downloads/evoflow-admin-external-1.0.4.skill
 /skills/downloads/SHA256SUMS.txt
 ```
 
@@ -38,7 +38,7 @@ evoflow-admin-external-1.0.0.zip   ← 推荐（Gateway / CLI 安装认 .zip）
 Work Body / runtime 可被提示：
 
 ```text
-从官网 /skills/downloads/evoflow-admin-external-1.0.3.zip 下载，校验 SHA256 后安装到 EvoFlow。
+从官网 /skills/downloads/evoflow-admin-external-1.0.4.zip 下载，校验 SHA256 后安装到 EvoFlow。
 ```
 
 ### B. 从本仓库源码目录使用（开发者）

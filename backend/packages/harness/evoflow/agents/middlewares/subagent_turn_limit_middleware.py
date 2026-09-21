@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 _HARD_STOP_MSG = (
     "[STEP_LIMIT_REACHED] 已达到本轮最大推理轮次。\n"
     "请立即调用 `subtask_outcome_report` 上报当前状态：\n"
-    "- 如果目标已达成 → outcome=\"completed\"，summary 写清产出路径和验收结论\n"
-    "- 如果无法继续 → outcome=\"blocked\"，summary 写清阻塞原因\n"
-    "- 如果部分完成 → outcome=\"completed\"（已完成的部分）或 outcome=\"blocked\"（无法完成的部分）\n"
+    '- 如果目标已达成 → outcome="completed"，summary 写清产出路径和验收结论\n'
+    '- 如果无法继续 → outcome="blocked"，summary 写清阻塞原因\n'
+    '- 如果部分完成 → outcome="completed"（已完成的部分）或 outcome="blocked"（无法完成的部分）\n'
     "不要再调用其他工具，直接调用 `subtask_outcome_report` 结束。"
 )
 

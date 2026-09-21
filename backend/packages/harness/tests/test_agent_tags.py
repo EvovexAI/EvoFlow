@@ -33,9 +33,7 @@ def test_schema_v82_has_tags_json_no_team_table(sqlite_tmp: Path) -> None:
     assert "tags_json" in cols
     assert "team_code" not in cols
 
-    row = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_agent_teams'"
-    ).fetchone()
+    row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_agent_teams'").fetchone()
     assert row is None
 
 

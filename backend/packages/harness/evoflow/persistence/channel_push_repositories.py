@@ -158,16 +158,20 @@ def _lookup_outbound_route(approval_id: str) -> tuple[str, str, str]:
     if not aid:
         return "", "", ""
     try:
-        row = get_db().execute(
-            """
+        row = (
+            get_db()
+            .execute(
+                """
             SELECT receive_id, receive_id_type, sender_account_id
             FROM evoflow_channel_push_log
             WHERE approval_id = ? AND direction = 'outbound' AND receive_id != ''
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            (aid,),
-        ).fetchone()
+                (aid,),
+            )
+            .fetchone()
+        )
         if not row:
             return "", "", ""
         return (

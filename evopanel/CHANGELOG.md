@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-09-22
+
+### Added
+
+- 消息渠道新增企业微信（WeCom）与钉钉（DingTalk）接入（Stream 模式，出站长连接，无需公网 IP）；支持企微/钉钉多机器人名册能力底座
+- 渠道配置模板：`config.example.yaml` 新增 `wecom` / `dingtalk` 段
+- 后端新增 `dingtalk-stream` 依赖
+
+### Changed
+
+- 知识库（owned KB）、内存（assets/memory）等模块重构与增强
+- 面板前端（react-chat 样式、资产中心、渠道页、工作台信息轨）多轮改进
+
+### Notes
+
+- 发版说明与版本线对齐 **1.0.4**
+
 ## [1.0.3] - 2026-09-16
 
 ### Changed

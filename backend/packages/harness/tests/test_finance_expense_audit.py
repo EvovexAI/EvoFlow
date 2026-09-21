@@ -15,8 +15,9 @@ L5 真实业务场景测试 - 财务：月度费用报销智能审核
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -151,12 +152,13 @@ class TestFinanceExpenseAudit:
         """财务 App 能正常创建，且 auto rollup 步骤被正确添加。"""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
-        from evoflow.persistence import app_repositories
         from evoflow.collab.app_rollup import is_rollup_subtask
+        from evoflow.collab.storage import find_main_task, get_project_storage
+        from evoflow.persistence import app_repositories
 
         def get_db():
             from evoflow.persistence.db import get_db as _get_db
+
             return _get_db()
 
         get_db()
@@ -190,13 +192,7 @@ class TestFinanceExpenseAudit:
         rollup = rollup_steps[0]
         # rollup 依赖所有 4 个业务步骤（检查所有可能的依赖字段）
         all_keys = list(rollup.keys())
-        deps = (
-            rollup.get("depends_on")
-            or rollup.get("dependsOn")
-            or rollup.get("depends_refs")
-            or rollup.get("dependencies")
-            or []
-        )
+        deps = rollup.get("depends_on") or rollup.get("dependsOn") or rollup.get("depends_refs") or rollup.get("dependencies") or []
         assert len(deps) == 4, f"Rollup should depend on all 4 steps, got deps={deps}, keys={all_keys}"
         assert rollup.get("ref") == "__rollup__"
 
@@ -204,14 +200,15 @@ class TestFinanceExpenseAudit:
         """财务工作流全部完成后，rollup 结果被正确回写到主任务。"""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.app_rollup import is_rollup_subtask
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
         from evoflow.timeutil import utc_now_iso_z
-        from evoflow.collab.app_rollup import is_rollup_subtask
 
         def get_db():
             from evoflow.persistence.db import get_db as _get_db
+
             return _get_db()
 
         get_db()
@@ -562,13 +559,14 @@ class TestFinanceExpenseAudit:
         """财务场景 answer_node_only 模式：只取指定步骤的结果作为最终答案。"""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
         from evoflow.timeutil import utc_now_iso_z
 
         def get_db():
             from evoflow.persistence.db import get_db as _get_db
+
             return _get_db()
 
         get_db()

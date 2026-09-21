@@ -159,19 +159,11 @@ def test_each_scenario_passes(eval_home: Path, handler: str) -> None:
     metrics = result.get("metrics") or {}
     persist_n = int(metrics.get("persist_assertion_total") or 0)
     assert persist_n >= 1, f"{handler} missing durable reconcile: {result.get('detail')}"
-    planes = {
-        a.get("plane")
-        for a in (result.get("assertions") or [])
-        if a.get("plane") in ("sqlite", "json_store")
-    }
+    planes = {a.get("plane") for a in (result.get("assertions") or []) if a.get("plane") in ("sqlite", "json_store")}
     assert planes, f"{handler} has no plane=sqlite|json_store assertions"
-    if "employee_task_" in handler or "workflow_task_" in handler or handler.endswith(
-        "workflow_rollup_stub"
-    ):
+    if "employee_task_" in handler or "workflow_task_" in handler or handler.endswith("workflow_rollup_stub"):
         rc = metrics.get("runtime_contract") or {}
-        assert metrics.get("eval_scope") == "config_and_official_outcome" or rc, (
-            f"{handler} missing runtime_contract metrics"
-        )
+        assert metrics.get("eval_scope") == "config_and_official_outcome" or rc, f"{handler} missing runtime_contract metrics"
 
 
 def test_smoke_run_p0_only(eval_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -208,9 +200,7 @@ def test_smoke_run_p0_only(eval_home: Path, monkeypatch: pytest.MonkeyPatch) -> 
         match = next((c for c in cases["cases"] if c["id"] == row["id"]), None)
         if match:
             assert is_smoke_case(match), match["id"]
-    assert any(
-        (r.get("case_id") or r.get("id")) == "sc_cross_module_saga" for r in scenario_results
-    )
+    assert any((r.get("case_id") or r.get("id")) == "sc_cross_module_saga" for r in scenario_results)
 
 
 LIVE_LLM_HANDLERS = [
@@ -242,11 +232,7 @@ def test_live_llm_scenarios(handler: str) -> None:
     assert metrics.get("eval_scope") == "live_llm"
     assert metrics.get("runner") == "gateway_http"
     assert (result.get("provenance") or {}).get("mock") is False
-    planes = {
-        a.get("plane")
-        for a in (result.get("assertions") or [])
-        if a.get("plane") in ("sqlite", "json_store", "api")
-    }
+    planes = {a.get("plane") for a in (result.get("assertions") or []) if a.get("plane") in ("sqlite", "json_store", "api")}
     assert planes, f"{handler} missing durable/api reconcile"
 
 

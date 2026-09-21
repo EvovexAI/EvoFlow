@@ -26,9 +26,7 @@ def _parse_expires(value: str) -> int:
     if not text:
         raise ValueError("empty expiry")
     if len(text) == 10 and text[4] == "-" and text[7] == "-":
-        dt = datetime.fromisoformat(text).replace(
-            hour=23, minute=59, second=59, tzinfo=UTC
-        )
+        dt = datetime.fromisoformat(text).replace(hour=23, minute=59, second=59, tzinfo=UTC)
         return int(dt.timestamp())
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
@@ -47,8 +45,7 @@ def cmd_keygen(_args: argparse.Namespace) -> int:
     print(f"EVOFLOW_LICENSE_PUBLIC_KEY={pub}")
     print(f"EVOFLOW_LICENSE_CODE_MAC={mac}")
     print(
-        "# 把 PUBLIC 写入 BUILTIN_LICENSE_PUBLIC_KEY_B64；"
-        "把 CODE_MAC 写入 BUILTIN_LICENSE_CODE_MAC_B64（短激活码验签）",
+        "# 把 PUBLIC 写入 BUILTIN_LICENSE_PUBLIC_KEY_B64；把 CODE_MAC 写入 BUILTIN_LICENSE_CODE_MAC_B64（短激活码验签）",
         file=sys.stderr,
     )
     return 0

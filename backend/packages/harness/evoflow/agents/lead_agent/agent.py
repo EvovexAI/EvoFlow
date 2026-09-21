@@ -3,13 +3,19 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import time as _time  # lru cache timing
 from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
+
+from evoflow.agents.goal.goal_auto_continue_middleware import GoalAutoContinueMiddleware
+from evoflow.agents.goal.goal_prompt_assembler import GoalContinuationAssemblerMiddleware
+
+# goal_report tool retired — completion detection handled solely by judge model
+# (goal_reply_interpreter). GoalToolMiddleware import kept for backward compat.
+from evoflow.agents.goal.goal_tool_middleware import GoalToolMiddleware  # noqa: F401
 
 # Lazy-imported to avoid circular import:
 #   scenario_activation → intent_tool_profile → lead_agent/__init__ → agent → scenario_activation
@@ -44,18 +50,10 @@ from evoflow.agents.middlewares.memory_live_footer_middleware import MemoryLiveF
 from evoflow.agents.middlewares.memory_middleware import MemoryMiddleware
 from evoflow.agents.middlewares.memory_runtime_control_middleware import MemoryRuntimeControlMiddleware
 from evoflow.agents.middlewares.mission_state_live_footer_middleware import MissionStateLiveFooterMiddleware
-from evoflow.agents.middlewares.xiaomi_ui_context_live_footer_middleware import (
-    XiaomiUiContextLiveFooterMiddleware,
-)
 from evoflow.agents.middlewares.mission_state_middleware import MissionStateMiddleware
-from evoflow.agents.goal.goal_prompt_assembler import GoalContinuationAssemblerMiddleware
-from evoflow.agents.goal.goal_auto_continue_middleware import GoalAutoContinueMiddleware
-# goal_report tool retired — completion detection handled solely by judge model
-# (goal_reply_interpreter). GoalToolMiddleware import kept for backward compat.
-from evoflow.agents.goal.goal_tool_middleware import GoalToolMiddleware  # noqa: F401
-from evoflow.agents.middlewares.proactive_tool_middleware import ProactiveToolMiddleware
 from evoflow.agents.middlewares.plan_doc_middleware import PlanDocMiddleware
 from evoflow.agents.middlewares.plan_guard_middleware import PlanGuardMiddleware
+from evoflow.agents.middlewares.proactive_tool_middleware import ProactiveToolMiddleware
 from evoflow.agents.middlewares.round_trace_middleware import RoundTraceMiddleware
 from evoflow.agents.middlewares.run_latency_timing_middleware import (
     LiveActivityToolMiddleware,
@@ -63,7 +61,6 @@ from evoflow.agents.middlewares.run_latency_timing_middleware import (
     RunLatencyWrapMiddleware,
 )
 from evoflow.agents.middlewares.scenario_activation_sync_middleware import ScenarioActivationSyncMiddleware
-from evoflow.agents.middlewares.tool_binding_sync_middleware import ToolBindingSyncMiddleware
 from evoflow.agents.middlewares.scenario_runtime_hint_middleware import ScenarioRuntimeHintMiddleware
 from evoflow.agents.middlewares.session_intent_middleware import SessionIntentMiddleware
 from evoflow.agents.middlewares.session_transcript_hydration_middleware import (
@@ -79,11 +76,15 @@ from evoflow.agents.middlewares.tool_approval_middleware import (
     ToolApprovalMiddleware,
     ToolApprovalReplayMiddleware,
 )
+from evoflow.agents.middlewares.tool_binding_sync_middleware import ToolBindingSyncMiddleware
 from evoflow.agents.middlewares.tool_error_handling_middleware import build_lead_runtime_middlewares
 from evoflow.agents.middlewares.transcript_middleware import TranscriptMiddleware
 from evoflow.agents.middlewares.turn_context_middleware import TurnContextMiddleware
 from evoflow.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from evoflow.agents.middlewares.workspace_guard_middleware import WorkspaceGuardMiddleware
+from evoflow.agents.middlewares.xiaomi_ui_context_live_footer_middleware import (
+    XiaomiUiContextLiveFooterMiddleware,
+)
 from evoflow.agents.mission_state import load_mission_state
 from evoflow.agents.mission_state.config import MISSION_STATE_ENABLED
 from evoflow.agents.thread_state import ThreadState
@@ -91,7 +92,6 @@ from evoflow.config.agents_config import (
     ensure_builtin_agents_materialized,
     load_agent_config,
     merge_skill_allowlist_with_preferred,
-    parse_preferred_skills_from_context,
     resolve_skill_allowlist_for_lead_prompt,
 )
 from evoflow.config.app_config import get_app_config
@@ -390,11 +390,7 @@ def _strip_mind_map_tools(tools):
             return list(tools or [])
     except Exception:
         return list(tools or [])
-    return [
-        t
-        for t in (tools or [])
-        if str(getattr(t, "name", "") or "").strip() not in _MIND_MAP_TOOL_NAMES
-    ]
+    return [t for t in (tools or []) if str(getattr(t, "name", "") or "").strip() not in _MIND_MAP_TOOL_NAMES]
 
 
 def _mcp_server_from_tool_name(tool_name: str) -> str | None:
@@ -448,14 +444,18 @@ def _models_runtime_revision() -> str:
     try:
         from evoflow.persistence.db import get_db
 
-        row = get_db().execute(
-            """
+        row = (
+            get_db()
+            .execute(
+                """
             SELECT
               (SELECT COALESCE(MAX(updated_at), '') FROM evoflow_models),
               (SELECT COALESCE(MAX(updated_at), '') FROM evoflow_model_connections),
               (SELECT COALESCE(value_text, '') FROM evoflow_app_settings WHERE key = 'primary_model')
             """
-        ).fetchone()
+            )
+            .fetchone()
+        )
         if not row:
             return ""
         return f"{row[0]}|{row[1]}|{row[2]}"
@@ -1071,12 +1071,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         if _voice_phase in ("", "idle", "done"):
             is_plan_mode = False
             cfg["is_plan_mode"] = False
-    auto_thinking_active = (
-        session_mode != "flash"
-        and not voice_mode
-        and (session_mode == "auto" or thinking_type == "auto")
-        and thinking_type != "manual"
-    )
+    auto_thinking_active = session_mode != "flash" and not voice_mode and (session_mode == "auto" or thinking_type == "auto") and thinking_type != "manual"
 
     # Settings → Models ``thinking.default_mode``:
     # - disabled: force off
@@ -1263,10 +1258,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                 )
                 agent_config = None
             elif agent_config is None:
-                raise FileNotFoundError(
-                    f"Agent config not found in database: {agent_name!r}. "
-                    "Create the agent in「智能体」or hire a different employee."
-                ) from None
+                raise FileNotFoundError(f"Agent config not found in database: {agent_name!r}. Create the agent in「智能体」or hire a different employee.") from None
     custom_system_prompt = str(agent_config.system_prompt).strip() if agent_config and agent_config.system_prompt else ""
     # Custom agent model or fallback to global/default model resolution
     agent_model_name = agent_config.model if agent_config and agent_config.model else _resolve_model_name()
@@ -1395,11 +1387,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     if _cfg_tools is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name
 
-        _tool_whitelist = {
-            canonical_tool_name(str(x).strip().lower())
-            for x in _cfg_tools
-            if str(x or "").strip()
-        }
+        _tool_whitelist = {canonical_tool_name(str(x).strip().lower()) for x in _cfg_tools if str(x or "").strip()}
         _tool_whitelist.discard("")
     else:
         _tool_whitelist = None
@@ -1421,30 +1409,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import is_role_editor_configurable_tool
 
-        tools = [
-            t
-            for t in tools
-            if not is_role_editor_configurable_tool(getattr(t, "name", ""))
-            or canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower())
-            in _tool_whitelist
-        ]
+        tools = [t for t in tools if not is_role_editor_configurable_tool(getattr(t, "name", "")) or canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) in _tool_whitelist]
     # Subagent templates persist disallowed_tools; honor them for lead runs too.
     if agent_config and agent_config.disallowed_tools:
         from evoflow.tools.tool_aliases import canonical_tool_name
 
-        blocked = {
-            canonical_tool_name(str(x).strip().lower())
-            for x in agent_config.disallowed_tools
-            if str(x or "").strip()
-        }
+        blocked = {canonical_tool_name(str(x).strip().lower()) for x in agent_config.disallowed_tools if str(x or "").strip()}
         blocked.discard("")
         if blocked:
-            tools = [
-                t
-                for t in tools
-                if canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower())
-                not in blocked
-            ]
+            tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) not in blocked]
     # "All tools" baseline should respect whitelist boundary, but not scenario pruning.
     all_tools = list(tools)
     # Dynamic tool profile (two-phase):
@@ -1640,9 +1613,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         activated_scenarios=tuple(sorted(effective_scenario_keys or persisted_scenarios)),
         exploration_graph_enabled=bool(_exploration_graph_enabled),
         tool_search_enabled=bool(_tool_search_enabled),
-        has_tool_search_tool=any(
-            str(getattr(t, "name", "") or "").strip() == "tool_search" for t in all_tools
-        ),
+        has_tool_search_tool=any(str(getattr(t, "name", "") or "").strip() == "tool_search" for t in all_tools),
         credentials_fp=_model_credentials_fp(str(model_name or "")),
     )
 

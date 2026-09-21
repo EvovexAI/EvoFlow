@@ -565,6 +565,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   inlineSubagentTasks,
   onQuickPrompt,
   suppressPlanExecPromptNoise = false,
+  homeWorkspaceLabel = '',
+  homeWorkspacePath = '',
   onToolApproval,
   toolApprovalBusy,
   toolApprovalUiDisabled = false,
@@ -609,6 +611,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   sessionKey?: string
   inlineSubagentTasks?: Record<string, SubagentStreamTask>
   onQuickPrompt?: (text: string) => void
+  /** 首页工作台展示的当前工作空间名（basename）与完整路径 */
+  homeWorkspaceLabel?: string
+  homeWorkspacePath?: string
   suppressPlanExecPromptNoise?: boolean
   onToolApproval?: (
     action: 'approve' | 'approve_all' | 'deny' | 'grant_all' | 'approve_remember',
@@ -2012,7 +2017,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     }
     return (
       <div className="react-vlist-scroller chat-messages-inner chat-messages-inner--home">
-        <EvoFlowHomeDashboard onPrompt={onQuickPrompt} />
+        <EvoFlowHomeDashboard onPrompt={onQuickPrompt} workspaceLabel={homeWorkspaceLabel} workspacePath={homeWorkspacePath} />
       </div>
     )
   }

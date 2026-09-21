@@ -1612,10 +1612,7 @@ async def supervisor_tool(
                     "success": False,
                     "action": "start_execution",
                     "error": "task_id is required for start_execution action",
-                    "hint": (
-                        "Pass task_id from get_status / list_subtasks on this thread, "
-                        "or ensure plan + create_task bound a main task to the thread."
-                    ),
+                    "hint": ("Pass task_id from get_status / list_subtasks on this thread, or ensure plan + create_task bound a main task to the thread."),
                 },
                 ensure_ascii=False,
             )
@@ -1634,21 +1631,14 @@ async def supervisor_tool(
             _project, _task = row
             _resolved_ids, _unresolved = resolve_explicit_subtask_tokens(storage, task_id, subtask_ids)
             if _unresolved:
-                ref_map = {
-                    str(st.get("ref") or "").strip(): str(st.get("id") or "").strip()
-                    for st in (_task.get("subtasks") or [])
-                    if isinstance(st, dict) and str(st.get("ref") or "").strip()
-                }
+                ref_map = {str(st.get("ref") or "").strip(): str(st.get("id") or "").strip() for st in (_task.get("subtasks") or []) if isinstance(st, dict) and str(st.get("ref") or "").strip()}
                 return json.dumps(
                     {
                         "success": False,
                         "action": "start_execution",
                         "taskId": task_id,
                         "error": f"Subtask id(s) not under this task: {_unresolved}",
-                        "hint": (
-                            "Use subtaskId from plan() subtasksSync (Subtask_YYYYMMDDHHMMSS_xxxxxx), "
-                            "or plan step ref (e.g. \"1\"). Omit subtask_ids to run the next runnable wave."
-                        ),
+                        "hint": ('Use subtaskId from plan() subtasksSync (Subtask_YYYYMMDDHHMMSS_xxxxxx), or plan step ref (e.g. "1"). Omit subtask_ids to run the next runnable wave.'),
                         "stepRefToSubtaskId": ref_map,
                     },
                     ensure_ascii=False,
@@ -1946,10 +1936,7 @@ async def supervisor_tool(
                 "message": "Detached execution started; follow real-time updates via chat stream and task sidebar.",
             }
         if blocked_subtasks:
-            _msg += (
-                f" {len(blocked_subtasks)} subtask(s) skipped (dependency not ready — see blockedSubtasks;"
-                " this is not missing user authorization)."
-            )
+            _msg += f" {len(blocked_subtasks)} subtask(s) skipped (dependency not ready — see blockedSubtasks; this is not missing user authorization)."
         _auth_row = find_main_task(storage, task_id)
         _auth_by = ""
         if _auth_row:
@@ -1980,39 +1967,26 @@ async def supervisor_tool(
         if follow_payload is not None:
             result["follow"] = follow_payload
         if blocked_subtasks:
-            result["blockedSubtasksNote"] = (
-                "blockedSubtasks 表示依赖未满足（如 Step 2 等 Step 1 完成），不是用户未授权。"
-                " executionAuthorized 为 true 时勿再要求用户点击「开始执行」。"
-            )
+            result["blockedSubtasksNote"] = "blockedSubtasks 表示依赖未满足（如 Step 2 等 Step 1 完成），不是用户未授权。 executionAuthorized 为 true 时勿再要求用户点击「开始执行」。"
         if not to_run:
             result["success"] = False
             _row_diag = find_main_task(storage, task_id)
             _sub_n = len((_row_diag[1].get("subtasks") or []) if _row_diag else [])
             if _sub_n == 0:
                 result["error"] = "no_subtasks"
-                result["message"] = (
-                    "主任务上没有子任务。plan 工具应已写入计划并同步子任务；"
-                    "若刚提交 plan，请确认 boundTaskId 与 start_execution 的 task_id 一致，"
-                    "或重新调用 plan 后再 start_execution。"
-                )
+                result["message"] = "主任务上没有子任务。plan 工具应已写入计划并同步子任务；若刚提交 plan，请确认 boundTaskId 与 start_execution 的 task_id 一致，或重新调用 plan 后再 start_execution。"
                 if subtasks_sync_meta.get("attempted"):
                     result["subtasksSync"] = subtasks_sync_meta.get("subtasksSync")
                     result["subtasksPreSync"] = subtasks_sync_meta
             else:
                 result["error"] = "no_runnable_subtasks"
-                result["message"] = (
-                    "No subtasks are ready to run in this wave (check status, assignee, or dependencies). "
-                    + str(result.get("message") or "")
-                ).strip()
+                result["message"] = ("No subtasks are ready to run in this wave (check status, assignee, or dependencies). " + str(result.get("message") or "")).strip()
             if blocked_subtasks:
                 result["blockedSubtasks"] = blocked_subtasks
         elif to_run and delegated and not all_ok:
             result["success"] = False
             result["error"] = "delegation_failed"
-            result["message"] = (
-                "One or more subtasks failed to start. See delegatedSubtasks for details. "
-                + str(result.get("message") or "")
-            ).strip()
+            result["message"] = ("One or more subtasks failed to start. See delegatedSubtasks for details. " + str(result.get("message") or "")).strip()
         return json.dumps(result, ensure_ascii=False)
 
     # ── Action: peer_send ─────────────────────────────────────────────
@@ -2502,10 +2476,7 @@ async def supervisor_tool(
                     "redirectedFrom": "continue_subtask_session",
                     "taskId": task_id,
                     "subtaskId": subtask_id,
-                    "message": (
-                        "continue_subtask_session applies to Claude/ACP session workers; "
-                        "ephemeral task_tool subtask was steered via steer_subtask instead."
-                    ),
+                    "message": ("continue_subtask_session applies to Claude/ACP session workers; ephemeral task_tool subtask was steered via steer_subtask instead."),
                     **steer_out,
                 },
                 ensure_ascii=False,
@@ -2596,15 +2567,8 @@ async def supervisor_tool(
                             "statusZh": _status_zh(task.get("status", "unknown")),
                             "progress": int(task.get("progress") or 0),
                             "executionAuthorized": bool(auth),
-                            "authorizationNote": (
-                                "用户已在界面或对话中授权，可直接 start_execution。"
-                                if auth
-                                else "尚未 execution_authorized：须用户点击「开始执行」或对话确认后再 start_execution。"
-                            ),
-                            "statusNote": (
-                                "主任务 status 可为 planned 且 executionAuthorized=true 并存；"
-                                "勿仅凭 status=planned 判断未授权。"
-                            ),
+                            "authorizationNote": ("用户已在界面或对话中授权，可直接 start_execution。" if auth else "尚未 execution_authorized：须用户点击「开始执行」或对话确认后再 start_execution。"),
+                            "statusNote": ("主任务 status 可为 planned 且 executionAuthorized=true 并存；勿仅凭 status=planned 判断未授权。"),
                             "threadId": tid,
                             "subtaskCount": len(subtasks),
                             "subtasks": [_subtask_row_dict(st) for st in subtasks],

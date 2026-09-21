@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -198,7 +198,7 @@ def test_assess_role_kpis_empty_config() -> None:
 def test_performance_report_filters_by_days_window() -> None:
     from evoflow.proactive.models import Initiative, InitiativeStatus
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     fresh = Initiative(
         id="new",
         role_agent_code="perf",

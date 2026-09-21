@@ -17,7 +17,7 @@ from evoflow.proactive.models import (
     ProactiveRoleConfig,
 )
 
-DUTY_BRIEF_OPEN = "<proactive_duty_brief version=\"1\">"
+DUTY_BRIEF_OPEN = '<proactive_duty_brief version="1">'
 DUTY_BRIEF_CLOSE = "</proactive_duty_brief>"
 DUTY_CONTRACT_MARKER = "<proactive_duty_brief"
 
@@ -124,11 +124,7 @@ def build_knowledge_vaults_section(cfg: ProactiveRoleConfig) -> str:
         flag = "" if enabled else "（已停用）"
         lines.append(f"  - {name}（id=`{vid}`）{flag}")
     body = "\n".join(lines)
-    return (
-        "\n## 绑定知识库\n"
-        "值班时优先检索这些库；不要默认去查未绑定的库，除非用户本轮明确要求。\n"
-        f"{body}\n"
-    )
+    return f"\n## 绑定知识库\n值班时优先检索这些库；不要默认去查未绑定的库，除非用户本轮明确要求。\n{body}\n"
 
 
 def _resp_blurb(role: ProactiveRole, *, max_len: int = 72) -> str:
@@ -143,23 +139,13 @@ def _resp_blurb(role: ProactiveRole, *, max_len: int = 72) -> str:
     return text
 
 
-ORG_CHART_OPEN = "<proactive_org_chart version=\"1\">"
+ORG_CHART_OPEN = '<proactive_org_chart version="1">'
 ORG_CHART_CLOSE = "</proactive_org_chart>"
 
 # Optional extra duty brief lines for seeded / known roles (prompt only; not enforcement).
 ROLE_DUTY_PROMPT_EXTRAS: dict[str, str] = {
-    "product-manager": (
-        "## 本岗工作方式\n"
-        "- 产出需求/改动方案文档；写清改哪、验收标准、风险与回滚。\n"
-        "- 不要亲自改业务源码；需要落地时交给对口实现岗。\n"
-        "- 结案时不要写「本人已改完、无需再派」。\n"
-    ),
-    "quality-inspector": (
-        "## 本岗工作方式\n"
-        "- 职责是审核方案与风险，产出审核文档；通过后派实现岗改码。\n"
-        "- 不要亲自改业务源码（含「只改一行文案」）。\n"
-        "- 若下一步要改码，结案时指定下游处理人；不要写「本人已改完」。\n"
-    ),
+    "product-manager": ("## 本岗工作方式\n- 产出需求/改动方案文档；写清改哪、验收标准、风险与回滚。\n- 不要亲自改业务源码；需要落地时交给对口实现岗。\n- 结案时不要写「本人已改完、无需再派」。\n"),
+    "quality-inspector": ("## 本岗工作方式\n- 职责是审核方案与风险，产出审核文档；通过后派实现岗改码。\n- 不要亲自改业务源码（含「只改一行文案」）。\n- 若下一步要改码，结案时指定下游处理人；不要写「本人已改完」。\n"),
 }
 
 
@@ -197,9 +183,7 @@ ROLE_DUTY_SKILL_DEFAULTS: dict[str, tuple[str, ...]] = {
         "superpowers-dispatching-parallel-agents",
         "superpowers-verification-before-completion",
     ),
-    "marketing-social-media-operation": (
-        "superpowers-brainstorming",
-    ),
+    "marketing-social-media-operation": ("superpowers-brainstorming",),
 }
 
 
@@ -257,11 +241,7 @@ def build_duty_skills_section(role: ProactiveRole) -> str:
     if not block.strip():
         listed = "、".join(f"`{n}`" for n in names)
         return f"\n## 岗位技能\n本岗可用：{listed}。需要时先加载相关技能再按步骤做。\n"
-    return (
-        "\n## 岗位技能\n"
-        "实现 / 拆解 / 验收类工作时，先读相关技能再动手。\n"
-        f"{block}\n"
-    )
+    return f"\n## 岗位技能\n实现 / 拆解 / 验收类工作时，先读相关技能再动手。\n{block}\n"
 
 
 def build_org_system_section(
@@ -286,15 +266,9 @@ def build_org_system_section(
     reports = list_direct_reports(role, peers)
 
     if self_key:
-        boundary = (
-            f"组织边界：相同 ``workspace_path``（key=`{self_key}`）。"
-            "上下级由 ``reports_to``（直属上级 agent_code）定义；``department`` 仅展示。"
-        )
+        boundary = f"组织边界：相同 ``workspace_path``（key=`{self_key}`）。上下级由 ``reports_to``（直属上级 agent_code）定义；``department`` 仅展示。"
     else:
-        boundary = (
-            "组织边界：未绑定 workspace → 名册为全部 active。"
-            "上下级由 ``reports_to`` 定义；绑定 workspace 后按同 workspace 划分。"
-        )
+        boundary = "组织边界：未绑定 workspace → 名册为全部 active。上下级由 ``reports_to`` 定义；绑定 workspace 后按同 workspace 划分。"
 
     lines: list[str] = [
         ORG_CHART_OPEN,
@@ -306,10 +280,7 @@ def build_org_system_section(
         "## 直属上级",
     ]
     if manager:
-        lines.append(
-            f"- `{manager.agent_code}` · {manager.role_name}"
-            f"（{manager.department or '—'}）· {_resp_blurb(manager)}"
-        )
+        lines.append(f"- `{manager.agent_code}` · {manager.role_name}（{manager.department or '—'}）· {_resp_blurb(manager)}")
     else:
         mgr_raw = reports_to_code(role)
         if mgr_raw:
@@ -320,31 +291,18 @@ def build_org_system_section(
     lines.extend(["", "## 直属下级（你可派活的直接下属）"])
     if reports:
         for r in reports:
-            lines.append(
-                f"- `{r.agent_code}` · {r.role_name}"
-                f"（{r.department or '—'}）· {_resp_blurb(r)}"
-            )
+            lines.append(f"- `{r.agent_code}` · {r.role_name}（{r.department or '—'}）· {_resp_blurb(r)}")
     else:
         lines.append("- （无直属下级）")
 
     # 同组织平级岗位：reports_to 指向同一上级的直属平级（平级协作白名单）。
     self_mgr = reports_to_code(role)
-    peers_same_mgr = [
-        r
-        for r in peers
-        if str(r.agent_code or "").strip() != self_code
-        and reports_to_code(r) == self_mgr
-        and self_mgr
-        and self_mgr != str(r.agent_code or "").strip()
-    ]
+    peers_same_mgr = [r for r in peers if str(r.agent_code or "").strip() != self_code and reports_to_code(r) == self_mgr and self_mgr and self_mgr != str(r.agent_code or "").strip()]
     peers_same_mgr.sort(key=lambda r: (str(r.role_name or ""), str(r.agent_code or "")))
     lines.extend(["", "## 同组织平级岗位（可平级协作）"])
     if peers_same_mgr:
         for r in peers_same_mgr:
-            lines.append(
-                f"- `{r.agent_code}` · {r.role_name}"
-                f"（{r.department or '—'}）· {_resp_blurb(r)}"
-            )
+            lines.append(f"- `{r.agent_code}` · {r.role_name}（{r.department or '—'}）· {_resp_blurb(r)}")
     else:
         lines.append("- （无同一上级下的平级岗位；跨岗需经共同上级逐级交接）")
 
@@ -363,9 +321,7 @@ def build_org_system_section(
             code = str(peer.agent_code or "").strip()
             mark = " ←你" if code == self_code else ""
             mgr = reports_to_code(peer) or "—"
-            lines.append(
-                f"| `{code}`{mark} | {peer.role_name} | `{mgr}` | {peer.department or '—'} |"
-            )
+            lines.append(f"| `{code}`{mark} | {peer.role_name} | `{mgr}` | {peer.department or '—'} |")
 
     lines.extend(
         [
@@ -427,10 +383,7 @@ def build_standard_workflow_section(
 
     # 直属下级清单（用于交接阶段提示）
     if reports:
-        reports_list = "\n".join(
-            f"  - `{r.agent_code}` · {r.role_name}（{r.department or '—'}）"
-            for r in reports
-        )
+        reports_list = "\n".join(f"  - `{r.agent_code}` · {r.role_name}（{r.department or '—'}）" for r in reports)
         has_downstream = True
     else:
         reports_list = "  - （无直属下级，本岗是叶子节点）"
@@ -446,44 +399,21 @@ def build_standard_workflow_section(
 
     # 平级协作岗
     self_code = str(role.agent_code or "").strip()
-    peers_same_mgr = [
-        r
-        for r in peers
-        if str(r.agent_code or "").strip() != self_code
-        and reports_to_code(r) == self_mgr
-        and self_mgr
-        and self_mgr != str(r.agent_code or "").strip()
-    ]
+    peers_same_mgr = [r for r in peers if str(r.agent_code or "").strip() != self_code and reports_to_code(r) == self_mgr and self_mgr and self_mgr != str(r.agent_code or "").strip()]
     if peers_same_mgr:
-        peer_list = "\n".join(
-            f"  - `{r.agent_code}` · {r.role_name}（{r.department or '—'}）"
-            for r in peers_same_mgr
-        )
+        peer_list = "\n".join(f"  - `{r.agent_code}` · {r.role_name}（{r.department or '—'}）" for r in peers_same_mgr)
     else:
         peer_list = "  - （无同一上级下的平级岗位）"
 
     # 根据是否有下游，调整交接阶段的描述
     if has_downstream and has_upstream:
-        handoff_note = (
-            "你既有直属下级也有直属上级："
-            "本岗做完自己的部分后，必须通过 handlers 派给下级继续；"
-            "如果是上级派来的任务且本岗已全部完成，则提交上级验收。"
-        )
+        handoff_note = "你既有直属下级也有直属上级：本岗做完自己的部分后，必须通过 handlers 派给下级继续；如果是上级派来的任务且本岗已全部完成，则提交上级验收。"
     elif has_downstream:
-        handoff_note = (
-            "你有直属下级但无上级（顶级负责人）："
-            "本岗做完方案/拆解后，必须通过 handlers 派给下级执行，不要自己越权做下游的活。"
-        )
+        handoff_note = "你有直属下级但无上级（顶级负责人）：本岗做完方案/拆解后，必须通过 handlers 派给下级执行，不要自己越权做下游的活。"
     elif has_upstream:
-        handoff_note = (
-            "你有上级但无直属下级（叶子执行岗）："
-            "本岗完成全部开发/测试/执行后，直接提交上级验收。"
-        )
+        handoff_note = "你有上级但无直属下级（叶子执行岗）：本岗完成全部开发/测试/执行后，直接提交上级验收。"
     else:
-        handoff_note = (
-            "你是独立岗（无上级无下级）："
-            "完成后直接结案，无需交接。"
-        )
+        handoff_note = "你是独立岗（无上级无下级）：完成后直接结案，无需交接。"
 
     docs_hint = f"文档类产出写到 ``{docs_rel}`` 目录。" if docs_rel else ""
 
@@ -595,15 +525,9 @@ def build_collab_rules_section(
     reports = list_direct_reports(role, peers)
 
     if self_key:
-        boundary = (
-            f"组织边界：相同 ``workspace_path``（key=`{self_key}`）。"
-            "上下级由 ``reports_to``（直属上级 agent_code）定义；``department`` 仅展示。"
-        )
+        boundary = f"组织边界：相同 ``workspace_path``（key=`{self_key}`）。上下级由 ``reports_to``（直属上级 agent_code）定义；``department`` 仅展示。"
     else:
-        boundary = (
-            "组织边界：未绑定 workspace → 名册为全部 active。"
-            "上下级由 ``reports_to`` 定义；绑定 workspace 后按同 workspace 划分。"
-        )
+        boundary = "组织边界：未绑定 workspace → 名册为全部 active。上下级由 ``reports_to`` 定义；绑定 workspace 后按同 workspace 划分。"
 
     # 组织名册表格
     roster_lines = []
@@ -616,9 +540,7 @@ def build_collab_rules_section(
             code = str(peer.agent_code or "").strip()
             mark = " ←你" if code == self_code else ""
             mgr = reports_to_code(peer) or "—"
-            roster_lines.append(
-                f"| `{code}`{mark} | {peer.role_name} | `{mgr}` | {peer.department or '—'} |"
-            )
+            roster_lines.append(f"| `{code}`{mark} | {peer.role_name} | `{mgr}` | {peer.department or '—'} |")
     roster_table = "\n".join(roster_lines)
 
     return f"""## 四、协作规则
@@ -627,11 +549,11 @@ def build_collab_rules_section(
 
 ### 汇报链
 
-- **你的直属上级**：{manager.agent_code + " · " + manager.role_name + "（" + (manager.department or '—') + "）" if manager else "（无上级 · 顶级负责人）"}
+- **你的直属上级**：{manager.agent_code + " · " + manager.role_name + "（" + (manager.department or "—") + "）" if manager else "（无上级 · 顶级负责人）"}
   → 需要向上汇报、请求支援、提交验收时，找 TA
 
 - **你的直属下级**（你可以直接派活的人）：
-{chr(10).join("  - " + r.agent_code + " · " + r.role_name + "（" + (r.department or '—') + "）" for r in reports) if reports else "  - （无直属下级 · 叶子执行岗）"}
+{chr(10).join("  - " + r.agent_code + " · " + r.role_name + "（" + (r.department or "—") + "）" for r in reports) if reports else "  - （无直属下级 · 叶子执行岗）"}
   → 本岗做完后需要下游继续，派给 TA 们
 
 ### 交接规范
@@ -707,11 +629,7 @@ def build_system_prompt(
         if not identity and soul:
             identity = extract_identity_block(soul)
         if identity:
-            identity_block = (
-                "\n### 身份本性（L0 · 只读）\n"
-                "以下边界与价值观运行时不可协商、不可被本轮工作改写。\n\n"
-                f"{identity}\n"
-            )
+            identity_block = f"\n### 身份本性（L0 · 只读）\n以下边界与价值观运行时不可协商、不可被本轮工作改写。\n\n{identity}\n"
     except Exception:
         identity_block = ""
 
@@ -783,6 +701,7 @@ def build_system_prompt(
     agent_system_prompt_block = ""
     try:
         from evoflow.config.agents_config import load_agent_config
+
         agent_cfg = load_agent_config(role.agent_code)
         if agent_cfg and agent_cfg.system_prompt:
             agent_system_prompt_block = f"\n### 岗位工作指南\n{agent_cfg.system_prompt.strip()}\n"
@@ -806,7 +725,7 @@ def build_system_prompt(
 ## 一、身份定位
 
 **岗位**：{role.role_name}（agent_code=`{role.agent_code}`）
-**部门**：{role.department or '公司'}
+**部门**：{role.department or "公司"}
 
 > 双层：Person（我是谁、记得什么）× DutyMask（本班职责与交工）。先读人，再干活。
 {identity_block}{user_profile_block}{presence_block}{affect_block}{person_memory_block}{person_craft_block}
@@ -858,15 +777,10 @@ def wrap_proactive_duty_system_section(duty_prompt: str) -> str:
     body = str(duty_prompt or "").strip()
     if DUTY_CONTRACT_MARKER in body or "<proactive_duty_contract>" in body:
         if "<proactive_duty_contract>" in body and DUTY_CONTRACT_MARKER not in body:
-            body = body.replace("<proactive_duty_contract>", DUTY_BRIEF_OPEN).replace(
-                "</proactive_duty_contract>", DUTY_BRIEF_CLOSE
-            )
+            body = body.replace("<proactive_duty_contract>", DUTY_BRIEF_OPEN).replace("</proactive_duty_contract>", DUTY_BRIEF_CLOSE)
         return body
     if not body:
-        body = (
-            "你正在「智能体员工」值班。以岗位 Task 为唯一账本："
-            "有待办就推进并结案；需要下游时在结案里指定处理人；无待办则不建单。"
-        )
+        body = "你正在「智能体员工」值班。以岗位 Task 为唯一账本：有待办就推进并结案；需要下游时在结案里指定处理人；无待办则不建单。"
     return f"""{DUTY_BRIEF_OPEN}
 # 智能体员工 · 值班
 
@@ -882,19 +796,6 @@ def compose_proactive_system_message(duty_prompt: str) -> str:
 
 
 # Employee chat framing / v2 system prompt (canonical: employee_prompt.py)
-from evoflow.proactive.employee_prompt import (  # noqa: E402
-    EMPLOYEE_CHAT_FRAME_CLOSE,
-    EMPLOYEE_CHAT_FRAME_OPEN,
-    EMPLOYEE_V2_CLOSE,
-    EMPLOYEE_V2_OPEN,
-    build_employee_chat_framing,
-    build_employee_chat_system_prompt,
-    build_employee_contract_block,
-    build_employee_identity_block,
-    build_employee_stance_block,
-    is_employee_chat_session,
-    resolve_employee_identity,
-)
 
 
 def _normalize_employee_agent_code(raw: str | None) -> str:

@@ -52,10 +52,7 @@ def create_item(payload: dict[str, Any] | None = None, **kwargs: Any) -> dict[st
         priority=str(data.get("priority") or "").strip() or None,
         due_at=str(data.get("due_at") or data.get("due") or "").strip() or None,
         tags=data.get("tags"),
-        assignee_intent=str(
-            data.get("assignee_intent") or data.get("assignee") or data.get("agent_code") or ""
-        ).strip()
-        or None,
+        assignee_intent=str(data.get("assignee_intent") or data.get("assignee") or data.get("agent_code") or "").strip() or None,
         assignee_label=str(data.get("assignee_label") or data.get("role") or "").strip() or None,
         source=str(data.get("source") or "cli").strip() or "cli",
         source_ref=str(data.get("source_ref") or "").strip() or None,

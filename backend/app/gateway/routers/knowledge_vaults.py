@@ -235,9 +235,7 @@ async def install_vault(request: Request, vault_id: str):
 
 
 @router.get("/{vault_id}/graph")
-async def full_graph(
-    request: Request, vault_id: str, max_nodes: int | None = None, max_edges: int | None = None
-):
+async def full_graph(request: Request, vault_id: str, max_nodes: int | None = None, max_edges: int | None = None):
     require_vault_visible(request, vault_id)
     try:
         return await vault_service.full_graph_vault(

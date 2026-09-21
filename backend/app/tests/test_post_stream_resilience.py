@@ -101,9 +101,7 @@ async def _drive_asgi(transform: PostStreamUiTransform, chunks: list[bytes]) -> 
     # body chunks
     for i, c in enumerate(chunks):
         more = i < len(chunks) - 1
-        async for msg in transform.process_asgi_message(
-            {"type": "http.response.body", "body": c, "more_body": more}
-        ):
+        async for msg in transform.process_asgi_message({"type": "http.response.body", "body": c, "more_body": more}):
             out.append(msg)
     # close_stream is invoked by app.py's finally block in production; mirror that.
     async for msg in transform.close_stream():
@@ -138,9 +136,7 @@ def test_post_stream_feed_frame_exception_does_not_terminate(monkeypatch: pytest
 
     # All 4 upstream events must have been delivered to feed_frame even after the
     # poisoned one raised — otherwise the stream silently truncated.
-    assert call_log == ["metadata", "messages", "values", "end"], (
-        f"feed_frame should be called for every frame, got {call_log}"
-    )
+    assert call_log == ["metadata", "messages", "values", "end"], f"feed_frame should be called for every frame, got {call_log}"
 
     # The transform must not have raised and must have produced at least one
     # http.response.body frame after the poisoned one.
@@ -149,9 +145,7 @@ def test_post_stream_feed_frame_exception_does_not_terminate(monkeypatch: pytest
     assert joined, "transform produced no output at all"
     # We expect to see either the post-poison values frame's signature or a run_end
     # (depending on normalizer anchoring); both prove the stream did not terminate.
-    assert ("after-poison" in joined) or ("run_end" in joined), (
-        f"stream truncated after poisoned frame; output={joined[:600]!r}"
-    )
+    assert ("after-poison" in joined) or ("run_end" in joined), f"stream truncated after poisoned frame; output={joined[:600]!r}"
 
 
 def test_post_stream_finish_exception_does_not_break_close(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,9 +198,7 @@ def test_post_stream_feed_frame_error_emits_diagnostic_comment_and_traceback(
     joined = b"".join(body_payloads).decode("utf-8", errors="ignore")
 
     # (a) Diagnostic SSE comment frame visible on the wire.
-    assert ": [post-stream-ui][feed_frame error]" in joined, (
-        f"expected diagnostic SSE comment frame; wire={joined[:600]!r}"
-    )
+    assert ": [post-stream-ui][feed_frame error]" in joined, f"expected diagnostic SSE comment frame; wire={joined[:600]!r}"
     assert "post-stream-poison-xyz" in joined
     assert "event=messages" in joined
 
@@ -262,9 +254,7 @@ async def _drive_asgi_no_close(transform: PostStreamUiTransform, chunks: list[by
         out.append(msg)
     for i, c in enumerate(chunks):
         more = i < len(chunks) - 1
-        async for msg in transform.process_asgi_message(
-            {"type": "http.response.body", "body": c, "more_body": more}
-        ):
+        async for msg in transform.process_asgi_message({"type": "http.response.body", "body": c, "more_body": more}):
             out.append(msg)
     return out
 

@@ -146,9 +146,7 @@ def test_ask_returns_citations_when_llm_unavailable(owned_home: Path, monkeypatc
     )
     monkeypatch.setattr("evoflow.models.create_chat_model", lambda **_k: object())
 
-    out = asyncio.run(
-        owned_service.ask(base["id"], "柠檬茶是什么检索？", doc_id=doc["id"], top_k=4)
-    )
+    out = asyncio.run(owned_service.ask(base["id"], "柠檬茶是什么检索？", doc_id=doc["id"], top_k=4))
     assert isinstance(out.get("answer"), str) and out["answer"]
     assert isinstance(out.get("citations"), list)
     assert out["citations"], "expected at least one citation from keyword hits"
@@ -390,9 +388,7 @@ def test_owned_a_group_boundary_guards(owned_home: Path):
     with pytest.raises(ValueError, match="chunkSize"):
         owned_service.create_base({"name": "svc-zero", "chunkSize": 0})
     with pytest.raises(ValueError, match="invalid folder path"):
-        owned_service.upload_manual_markdown(
-            base["id"], title="x", content="y", folder_path="../evil"
-        )
+        owned_service.upload_manual_markdown(base["id"], title="x", content="y", folder_path="../evil")
 
 
 def test_folder_crud(owned_home: Path):
@@ -405,9 +401,7 @@ def test_folder_crud(owned_home: Path):
     paths = {f["path"] for f in owned_service.list_folders(kb)}
     assert "笔记" in paths and "笔记/项目A" in paths
 
-    doc = owned_service.upload_manual_markdown(
-        kb, title="说明", content="# hi\n", folder_path="笔记/项目A"
-    )
+    doc = owned_service.upload_manual_markdown(kb, title="说明", content="# hi\n", folder_path="笔记/项目A")
     moved = owned_service.move_document(doc["id"], "归档")
     assert moved["folderPath"] == "归档"
 
@@ -429,9 +423,7 @@ def test_move_folder_nest_and_root(owned_home: Path):
     owned_service.create_folder(kb, "A")
     owned_service.create_folder(kb, "B")
     owned_service.create_folder(kb, "B/子")
-    doc = owned_service.upload_manual_markdown(
-        kb, title="在B", content="# x\n", folder_path="B"
-    )
+    doc = owned_service.upload_manual_markdown(kb, title="在B", content="# x\n", folder_path="B")
 
     # Nest A under B → A becomes B/A
     moved = owned_service.move_folder(kb, "A", "B")
@@ -493,9 +485,7 @@ def test_replace_document_content_reindexes(owned_home: Path, monkeypatch: pytes
     monkeypatch.setattr(pipeline_mod, "get_embeddings", _fake_embeddings)
 
     base = owned_service.create_base({"name": "可写库", "summaryEnabled": False})
-    doc = owned_service.upload_manual_markdown(
-        base["id"], title="草稿", content="# v1\n\n旧内容\n"
-    )
+    doc = owned_service.upload_manual_markdown(base["id"], title="草稿", content="# v1\n\n旧内容\n")
     job = jobs.get_job(doc["latestJobId"])
     assert job
     asyncio.run(run_parse_index(job))
@@ -564,8 +554,9 @@ def test_wiki_ingest_and_graph(owned_home: Path, monkeypatch: pytest.MonkeyPatch
     assert g["nodeCount"] >= 1
     assert g["edgeCount"] >= 1
 
-    from evoflow.tools.builtins import knowledge_vault_tools as kvt
     import json
+
+    from evoflow.tools.builtins import knowledge_vault_tools as kvt
 
     out = asyncio.run(kvt._action_graph(path="index", vault_id=base["id"], depth=2, direction="both"))
     data = json.loads(out)
@@ -642,9 +633,7 @@ def test_extract_data_uri_assets_and_search(owned_home: Path, monkeypatch: pytes
     monkeypatch.setattr(pipeline_mod, "get_embeddings", _fake_embeddings)
 
     # 1x1 PNG
-    png = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-    )
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
     b64 = base64.b64encode(png).decode("ascii")
     md = f"# 图文\n\n说明文字含关键词星辰大海。\n\n![小图](data:image/png;base64,{b64})\n"
 
@@ -655,9 +644,7 @@ def test_extract_data_uri_assets_and_search(owned_home: Path, monkeypatch: pytes
     asyncio.run(run_parse_index(job))
 
     with db() as conn:
-        assets = conn.execute(
-            "SELECT * FROM kb_assets WHERE doc_id=?", (doc["id"],)
-        ).fetchall()
+        assets = conn.execute("SELECT * FROM kb_assets WHERE doc_id=?", (doc["id"],)).fetchall()
     assert len(assets) == 1
     aid = assets[0]["id"]
     assert assets[0]["chunk_id"]
@@ -824,13 +811,9 @@ def test_owned_write_delete_purges_index(owned_home: Path, monkeypatch: pytest.M
 
     assert owned_service.get_document(doc_id) is None
     with owned_db.db() as conn:
-        chunks_after = conn.execute(
-            "SELECT COUNT(*) AS n FROM kb_chunks WHERE doc_id=?", (doc_id,)
-        ).fetchone()
+        chunks_after = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchone()
         assert chunks_after["n"] == 0
-        fts_after = conn.execute(
-            "SELECT COUNT(*) AS n FROM kb_chunks_fts WHERE doc_id=?", (doc_id,)
-        ).fetchone()
+        fts_after = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks_fts WHERE doc_id=?", (doc_id,)).fetchone()
         assert fts_after["n"] == 0
 
     miss = asyncio.run(owned_service.search(base["id"], "紫水晶", mode="keyword", top_k=5))

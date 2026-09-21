@@ -36,13 +36,7 @@ def build_meeting_verify_tools(*, agent_code: str, role: Any) -> list[Structured
         tasks = list_role_recent_tasks(role, limit=20)
         q = str(query or "").strip().lower()
         if q:
-            tasks = [
-                t
-                for t in tasks
-                if q in str(t.get("title") or "").lower()
-                or q in str(t.get("id") or "").lower()
-                or q in str(t.get("status") or "").lower()
-            ]
+            tasks = [t for t in tasks if q in str(t.get("title") or "").lower() or q in str(t.get("id") or "").lower() or q in str(t.get("status") or "").lower()]
         if not tasks:
             return "（无匹配任务）" if q else "（暂无登记任务）"
         return _clip(format_meeting_task_memory_for_prompt(tasks))
@@ -72,9 +66,7 @@ def build_meeting_verify_tools(*, agent_code: str, role: Any) -> list[Structured
         lines = []
         for m in matches[:8]:
             if isinstance(m, dict):
-                lines.append(
-                    f"- {m.get('path')}:{m.get('matchLine')}: {_clip(str(m.get('snippet') or ''), 200)}"
-                )
+                lines.append(f"- {m.get('path')}:{m.get('matchLine')}: {_clip(str(m.get('snippet') or ''), 200)}")
             else:
                 lines.append(f"- {_clip(str(m), 200)}")
         return _clip("\n".join(lines))
@@ -175,10 +167,14 @@ async def ainvoke_meeting_speak_with_tools(
         tool_calls = list(getattr(response, "tool_calls", None) or [])
         if not tool_calls:
             return text or last_text
-        messages.append(response if isinstance(response, AIMessage) else AIMessage(
-            content=getattr(response, "content", "") or "",
-            tool_calls=tool_calls,
-        ))
+        messages.append(
+            response
+            if isinstance(response, AIMessage)
+            else AIMessage(
+                content=getattr(response, "content", "") or "",
+                tool_calls=tool_calls,
+            )
+        )
         for tc in tool_calls:
             name = str(tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "") or "")
             args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", None)
@@ -189,11 +185,7 @@ async def ainvoke_meeting_speak_with_tools(
             messages.append(ToolMessage(content=result, tool_call_id=tid))
 
     # Force a final no-tool answer
-    messages.append(
-        HumanMessage(
-            content="查证已结束。请只输出最终圆桌口头发言（方案讨论约 120～220 字，同步约 60～120 字），不要再调用工具。"
-        )
-    )
+    messages.append(HumanMessage(content="查证已结束。请只输出最终圆桌口头发言（方案讨论约 120～220 字，同步约 60～120 字），不要再调用工具。"))
     try:
         final = await ainvoke_internal_chat_model(model, messages)
         return _message_text(final) or last_text

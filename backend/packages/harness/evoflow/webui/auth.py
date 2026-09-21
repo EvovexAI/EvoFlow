@@ -13,7 +13,6 @@ All DB access follows the shared ``get_db()`` + ``run_db_transaction`` pattern.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import logging
 import os
@@ -23,9 +22,8 @@ import threading
 import time
 from typing import Any
 
-from evoflow.persistence.db import get_db, run_db_transaction
-
 from evoflow.persistence import config_repositories as cfg_repo
+from evoflow.persistence.db import get_db, run_db_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -252,10 +250,7 @@ class QrTokenStore:
         now_ms = int(time.time() * 1000)
         removed = 0
         with self._lock:
-            expired = [
-                token for token, data in self._tokens.items()
-                if now_ms > data.created_at_ms + _QR_TOKEN_TTL_MS
-            ]
+            expired = [token for token, data in self._tokens.items() if now_ms > data.created_at_ms + _QR_TOKEN_TTL_MS]
             for token in expired:
                 del self._tokens[token]
                 removed += 1
@@ -318,13 +313,7 @@ def get_or_create_admin_user() -> dict[str, Any]:
         A dict with ``id``, ``username``, ``password_hash``, ``is_primary``,
         ``created_at``, ``updated_at``.
     """
-    row = (
-        get_db()
-        .execute(
-            "SELECT * FROM evoflow_webui_users WHERE is_primary = 1 LIMIT 1"
-        )
-        .fetchone()
-    )
+    row = get_db().execute("SELECT * FROM evoflow_webui_users WHERE is_primary = 1 LIMIT 1").fetchone()
     if row:
         user = _row_to_dict(row)
         _sync_webui_principal_row(user)
@@ -348,13 +337,7 @@ def get_or_create_admin_user() -> dict[str, Any]:
     logger.info("Created WebUI admin user with random password")
 
     # Return the newly created user
-    row = (
-        get_db()
-        .execute(
-            "SELECT * FROM evoflow_webui_users WHERE is_primary = 1 LIMIT 1"
-        )
-        .fetchone()
-    )
+    row = get_db().execute("SELECT * FROM evoflow_webui_users WHERE is_primary = 1 LIMIT 1").fetchone()
     user = _row_to_dict(row) if row else {}
     if user:
         _sync_webui_principal_row(user)
@@ -503,13 +486,7 @@ def is_password_set() -> bool:
     Returns:
         ``True`` if a primary admin user exists with a non-empty password hash.
     """
-    row = (
-        get_db()
-        .execute(
-            "SELECT password_hash FROM evoflow_webui_users WHERE is_primary = 1 LIMIT 1"
-        )
-        .fetchone()
-    )
+    row = get_db().execute("SELECT password_hash FROM evoflow_webui_users WHERE is_primary = 1 LIMIT 1").fetchone()
     return bool(row and row["password_hash"])
 
 

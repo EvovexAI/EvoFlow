@@ -512,7 +512,7 @@ def list_namespace_atoms(
     args.append(max(1, min(int(limit), 2000)))
     sql = f"""
         SELECT * FROM mem_atoms
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY pin DESC, importance DESC, updated_at DESC
         LIMIT ?
     """

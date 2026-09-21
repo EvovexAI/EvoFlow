@@ -23,7 +23,7 @@ def truncate_text_to_token_budget(text: str, max_tokens: int) -> str:
     omitted = max(0, count_tool_tokens(raw) - max_tokens)
     marker = _OMITTED_MARKER_TEMPLATE.format(omitted=omitted)
     marker_tokens = max(1, count_tool_tokens(marker))
-    body_budget = max(64, max_tokens - marker_tokens)
+    _body_budget = max(64, max_tokens - marker_tokens)
 
     # Binary search a char window whose token count fits body_budget.
     lo, hi = 0, len(raw)
@@ -59,8 +59,4 @@ def formatted_truncate_tool_output(text: str, max_tokens: int) -> str:
         return raw
     total_lines = len(raw.splitlines()) or 1
     body = truncate_text_to_token_budget(raw, max_tokens)
-    return (
-        f"Warning: truncated output (original token count: {original_token_count})\n"
-        f"Total output lines: {total_lines}\n\n"
-        f"{body}"
-    )
+    return f"Warning: truncated output (original token count: {original_token_count})\nTotal output lines: {total_lines}\n\n{body}"

@@ -44,10 +44,7 @@ async def _main() -> int:
     api_key = (os.environ.get("OBSIDIAN_API_KEY") or "").strip()
     if not api_key:
         print("SKIP: OBSIDIAN_API_KEY not set")
-        print(
-            "Command: $env:OBSIDIAN_API_KEY='…'; $env:OBSIDIAN_VAULT_PATH='D:\\vault'; "
-            "backend\\.venv\\Scripts\\python.exe packages\\harness\\tests\\scripts\\run_write_mcp_e2e.py"
-        )
+        print("Command: $env:OBSIDIAN_API_KEY='…'; $env:OBSIDIAN_VAULT_PATH='D:\\vault'; backend\\.venv\\Scripts\\python.exe packages\\harness\\tests\\scripts\\run_write_mcp_e2e.py")
         return 0
 
     vault_path = (os.environ.get("OBSIDIAN_VAULT_PATH") or "").strip()
@@ -65,12 +62,12 @@ async def _main() -> int:
     os.environ.setdefault("EVOFLOW_KB_MCP_LAUNCH", "npx")
 
     from evoflow.knowledge.vault import secrets as vault_secrets
-    from evoflow.knowledge.vault.mcp_runtime import ensure_session, drop_session, call_tool, install_packages
-    from evoflow.knowledge.vault.models import KnowledgeVaultConfig, AccessMode
-    from evoflow.knowledge.vault.sanitize import sanitize_text
-    from evoflow.knowledge.vault.provider import ObsidianKnowledgeProvider
     from evoflow.knowledge.vault import store as vault_store
     from evoflow.knowledge.vault.errors import ObsidianNotRunningError, PathForbiddenError
+    from evoflow.knowledge.vault.mcp_runtime import call_tool, drop_session, ensure_session, install_packages
+    from evoflow.knowledge.vault.models import AccessMode, KnowledgeVaultConfig
+    from evoflow.knowledge.vault.provider import ObsidianKnowledgeProvider
+    from evoflow.knowledge.vault.sanitize import sanitize_text
 
     store: dict = {}
 
@@ -127,9 +124,7 @@ async def _main() -> int:
         await provider.append_note(cfg.id, note_path, "\nappended line\n")
         print("append ok", flush=True)
 
-        await provider.patch_note(
-            cfg.id, note_path, target="body", operation="append", content="\npatched\n"
-        )
+        await provider.patch_note(cfg.id, note_path, target="body", operation="append", content="\npatched\n")
         print("patch ok", flush=True)
 
         fm_tool = _find_tool(tools, "frontmatter") or _find_tool(tools, "property")

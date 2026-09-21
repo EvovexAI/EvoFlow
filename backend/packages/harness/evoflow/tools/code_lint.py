@@ -31,19 +31,12 @@ def lint_skip_message(path: str | Path) -> str:
     """Human-readable skip (not an error) for non-code paths."""
     p = Path(path)
     suffix = p.suffix or "(no extension)"
-    return (
-        f"Skip: {p.name} is not a lintable source file ({suffix}). "
-        f"read_lints only diagnoses Python, JavaScript, TypeScript, and Java ({LINTABLE_EXTENSIONS_LABEL}). "
-        "Use read_file for .txt, .md, .json, .yaml, and other non-code files."
-    )
+    return f"Skip: {p.name} is not a lintable source file ({suffix}). read_lints only diagnoses Python, JavaScript, TypeScript, and Java ({LINTABLE_EXTENSIONS_LABEL}). Use read_file for .txt, .md, .json, .yaml, and other non-code files."
 
 
 def read_lints_directory_rejected_message(path: str | Path) -> str:
     p = Path(path)
-    return (
-        f"Error: read_lints only accepts a single source file, not a directory ({p.name}/). "
-        f"Pass a concrete file path with extension in {LINTABLE_EXTENSIONS_LABEL}."
-    )
+    return f"Error: read_lints only accepts a single source file, not a directory ({p.name}/). Pass a concrete file path with extension in {LINTABLE_EXTENSIONS_LABEL}."
 
 
 def validate_read_lints_target(path: str | Path) -> str | None:
@@ -56,6 +49,7 @@ def validate_read_lints_target(path: str | Path) -> str | None:
     if not is_lintable_code_path(p):
         return lint_skip_message(p)
     return None
+
 
 _ESLINT_MARKERS = (
     "eslint.config.js",
@@ -240,10 +234,7 @@ def _lint_js_ts(target: Path, *, post_edit: bool = False) -> str:
             if code == 0:
                 return "javascript (node --check): No issues found."
             return f"javascript (node --check):\n{out or 'syntax error'}"
-        return (
-            f"{lang}: post-edit lint skipped project-wide tsc (too slow). "
-            "Call read_lints on this file if you need full typecheck."
-        )
+        return f"{lang}: post-edit lint skipped project-wide tsc (too slow). Call read_lints on this file if you need full typecheck."
 
     if lang == "typescript" and root:
         tsconfig = root / "tsconfig.json"

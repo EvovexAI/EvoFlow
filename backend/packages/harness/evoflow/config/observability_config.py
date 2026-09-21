@@ -19,22 +19,13 @@ class ObservabilityConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description=(
-            "When false (default), never open or write evoflow_observability.db. "
-            "Override with EVOFLOW_OBSERVABILITY=1/0."
-        ),
+        description=("When false (default), never open or write evoflow_observability.db. Override with EVOFLOW_OBSERVABILITY=1/0."),
     )
     file_mirror: bool = Field(
         default=False,
-        description=(
-            "When true, also append JSONL under ``logs/debug``. Default false: SQLite only "
-            "(no dual-write). Override via EVOFLOW_DEBUG_FILE_MIRROR."
-        ),
+        description=("When true, also append JSONL under ``logs/debug``. Default false: SQLite only (no dual-write). Override via EVOFLOW_DEBUG_FILE_MIRROR."),
     )
     sqlite_path: str = Field(
         default=DEFAULT_OBS_DB_REL,
-        description=(
-            "SQLite database path under base_dir; empty uses "
-            "``data/observability/evoflow_observability.db``."
-        ),
+        description=("SQLite database path under base_dir; empty uses ``data/observability/evoflow_observability.db``."),
     )

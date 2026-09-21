@@ -10,13 +10,15 @@ import re
 import time
 import uuid
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.channels.models.goal import GoalChannelType
 
 from langgraph_sdk.errors import ConflictError, NotFoundError
 
 from app.channels.feishu_message_format import maybe_format_tool_message_content_for_im
 from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
-
 from app.channels.store import ChannelStore
 from evoflow.runtime.long_run_limits import LONG_RUN_RECURSION_LIMIT
 
@@ -158,12 +160,16 @@ CHANNEL_CAPABILITIES = {
     "slack": {"supports_streaming": False},
     "telegram": {"supports_streaming": False},
     "weixin": {"supports_streaming": False},
+    "wecom": {"supports_streaming": False},
+    "dingtalk": {"supports_streaming": False},
 }
-IM_CHANNEL_NAMES = frozenset({"feishu", "slack", "telegram", "weixin"})
+IM_CHANNEL_NAMES = frozenset({"feishu", "slack", "telegram", "weixin", "wecom", "dingtalk"})
 
 _CHANNEL_SESSION_TITLE_LABEL: dict[str, str] = {
     "feishu": "飞书",
     "weixin": "微信",
+    "wecom": "企业微信",
+    "dingtalk": "钉钉",
     "slack": "Slack",
     "telegram": "Telegram",
 }
@@ -193,11 +199,7 @@ def _default_channel_session_title(msg: InboundMessage, *, agent_name: str = "")
     """Stable IM sidebar title: 渠道 · 岗位/主对话 · chat id."""
     label = _CHANNEL_SESSION_TITLE_LABEL.get(msg.channel_name) or str(msg.channel_name or "IM")
     meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-    code = (
-        str(agent_name or "").strip()
-        or str(meta.get("account_id") or "").strip()
-        or str(meta.get("agent_code") or "").strip()
-    )
+    code = str(agent_name or "").strip() or str(meta.get("account_id") or "").strip() or str(meta.get("agent_code") or "").strip()
     who = _im_agent_who_label(code)
     cid = str(msg.chat_id or "").strip()
     short = cid if len(cid) <= 14 else f"{cid[:12]}…"
@@ -1022,11 +1024,7 @@ class ChannelManager:
         tracked = self._active_im_runs.get(routing_key) or {}
         tid = str(thread_id or tracked.get("thread_id") or "").strip()
         if not tid and self.store is not None:
-            tid = (
-                self.store.get_thread_id(channel_name, chat_id, topic_id=topic_id)
-                or self.store.get_thread_id(channel_name, chat_id, topic_id=None)
-                or ""
-            )
+            tid = self.store.get_thread_id(channel_name, chat_id, topic_id=topic_id) or self.store.get_thread_id(channel_name, chat_id, topic_id=None) or ""
         preview = str(tracked.get("preview") or "")[:800]
         if not tid:
             return {"ok": False, "error": "找不到进行中的会话", "cancelled": 0, "preview": preview}
@@ -1036,14 +1034,8 @@ class ChannelManager:
         try:
             runs = await client.runs.list(thread_id=tid, limit=20)
             for run in runs or []:
-                run_id = str(
-                    (run.get("run_id") if isinstance(run, dict) else getattr(run, "run_id", None))
-                    or (run.get("id") if isinstance(run, dict) else getattr(run, "id", None))
-                    or ""
-                ).strip()
-                status = str(
-                    (run.get("status") if isinstance(run, dict) else getattr(run, "status", None)) or ""
-                ).strip().lower()
+                run_id = str((run.get("run_id") if isinstance(run, dict) else getattr(run, "run_id", None)) or (run.get("id") if isinstance(run, dict) else getattr(run, "id", None)) or "").strip()
+                status = str((run.get("status") if isinstance(run, dict) else getattr(run, "status", None)) or "").strip().lower()
                 if not run_id or status not in ("pending", "running"):
                     continue
                 try:
@@ -1593,9 +1585,7 @@ class ChannelManager:
             existing = (sess_repo.load_session_map().get(session_key) or {}) if session_key else {}
             old_title = str(existing.get("title") or "").strip()
             weak = (not old_title) or (
-                old_title.startswith(("飞书 · ", "微信 · ", "Slack · ", "Telegram · "))
-                and ("主对话" not in old_title and "小V" not in old_title and "（" not in old_title)
-                and len([p for p in old_title.split("·")]) <= 3
+                old_title.startswith(("飞书 · ", "微信 · ", "Slack · ", "Telegram · ")) and ("主对话" not in old_title and "小V" not in old_title and "（" not in old_title) and len([p for p in old_title.split("·")]) <= 3
             )
             if weak and pretty and pretty != old_title:
                 _persist_channel_session_index(session_key, thread_id, msg, title=pretty)
@@ -1603,11 +1593,7 @@ class ChannelManager:
             logger.debug("[Manager] refresh weak IM session title skipped", exc_info=True)
         channel_run_id = _persist_channel_user_transcript_turn(session_key, thread_id, msg.text or "")
         _enrich_channel_run_context(run_context, session_key, msg, channel_run_id)
-        send_shortcut_hint = (
-            msg.channel_name in IM_CHANNEL_NAMES
-            and not self._im_shortcut_hint_sent(msg)
-            and not _im_should_omit_shortcut_hint(run_context, msg)
-        )
+        send_shortcut_hint = msg.channel_name in IM_CHANNEL_NAMES and not self._im_shortcut_hint_sent(msg) and not _im_should_omit_shortcut_hint(run_context, msg)
         if self._channel_supports_streaming(msg.channel_name):
             await self._handle_streaming_chat(
                 client,
@@ -1787,12 +1773,7 @@ class ChannelManager:
                         delta = _extract_custom_stream_text(_unwrap_custom_stream_payload(data))
                         if delta:
                             custom_text = _merge_stream_text(custom_text, delta)
-                            compatible = (
-                                not latest_text
-                                or custom_text == latest_text
-                                or custom_text.startswith(latest_text)
-                                or latest_text.startswith(custom_text)
-                            )
+                            compatible = not latest_text or custom_text == latest_text or custom_text.startswith(latest_text) or latest_text.startswith(custom_text)
                             if not saw_messages_stream:
                                 saw_streaming_token_source = True
                                 latest_text = custom_text
@@ -1870,11 +1851,7 @@ class ChannelManager:
 
         result = last_values if last_values is not None else {"messages": [{"type": "ai", "content": latest_text}]}
         inbound_turn = (msg.text or "").strip()
-        msgs_for_sync = (
-            result.get("messages", [])
-            if isinstance(result, dict)
-            else (result if isinstance(result, list) else [])
-        )
+        msgs_for_sync = result.get("messages", []) if isinstance(result, dict) else (result if isinstance(result, list) else [])
         tail_human = _last_human_text_from_messages(msgs_for_sync if isinstance(msgs_for_sync, list) else [])
         values_synced = not inbound_turn or tail_human == inbound_turn
 
@@ -1976,7 +1953,7 @@ class ChannelManager:
 
     # -- command handling --------------------------------------------------
 
-    def _goal_channel_type(self, channel_name: str) -> "GoalChannelType":
+    def _goal_channel_type(self, channel_name: str) -> GoalChannelType:
         from app.channels.models.goal import GoalChannelType
 
         mapping = {
@@ -2007,12 +1984,7 @@ class ChannelManager:
                 use_frontend_chat=False,
             )
             preview = goal_text if len(goal_text) <= 120 else f"{goal_text[:117]}…"
-            return (
-                f"已启动目标任务（ID: `{session.id}`）。\n"
-                f"- 目标：{preview}\n"
-                f"- 会话：{session_key}\n"
-                "后台将自动执行；发送 `/status` 可查看线程状态。"
-            )
+            return f"已启动目标任务（ID: `{session.id}`）。\n- 目标：{preview}\n- 会话：{session_key}\n后台将自动执行；发送 `/status` 可查看线程状态。"
         except RuntimeError as e:
             return str(e)
         except Exception:

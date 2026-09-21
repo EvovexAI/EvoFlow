@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.gateway.hang_diagnostics import dump_gateway_diagnostics
-
-
 from evoflow.authz.http_guard import require_org_admin
 
 
 def _org_admin_dep(request: Request) -> None:
     require_org_admin(request)
+
 
 router = APIRouter(prefix="/api/debug/hang-diagnostics", tags=["debug"], dependencies=[Depends(_org_admin_dep)])
 

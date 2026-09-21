@@ -52,11 +52,7 @@ def looks_like_filename_query(query: str) -> bool:
     # "queries.py _summarize_response" / "obs-api.ts fetchObsModels" → symbol search, not locate-file.
     if re.search(r"\s", raw):
         tokens = [t for t in re.split(r"\s+", raw) if t.strip()]
-        symbolish = [
-            t
-            for t in tokens
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{2,}", t) or "|" in t
-        ]
+        symbolish = [t for t in tokens if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{2,}", t) or "|" in t]
         if len(symbolish) >= 1 and len(tokens) >= 2:
             return False
     if _GLOBISH_RE.search(raw):

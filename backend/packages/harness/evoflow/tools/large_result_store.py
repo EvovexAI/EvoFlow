@@ -110,11 +110,7 @@ def maybe_persist(
             register_ref(thread_id, str(filepath), n)
         logger.info("Persisted large tool result (%d chars) to %s", n, filepath)
         summary = _llm_summary(content, tool_name) or build_head_summary(content)
-        return (
-            f"[ToolResult persisted — {tool_name}]\n{summary}\n\n"
-            f"Full output: {filepath}\n"
-            f"Use read_file(path='{filepath}', offset=…, limit=…) for on-demand loading."
-        )
+        return f"[ToolResult persisted — {tool_name}]\n{summary}\n\nFull output: {filepath}\nUse read_file(path='{filepath}', offset=…, limit=…) for on-demand loading."
     except OSError as e:
         logger.warning("Failed to persist large tool result to %s: %s", filepath, e)
         cap = min(cfg.summary_max_chars, n)

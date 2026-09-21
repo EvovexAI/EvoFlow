@@ -167,11 +167,7 @@ def is_agent_mode_system_tool(name: str | None) -> bool:
 
 def is_mode_managed_tool(name: str | None) -> bool:
     """True when runtime/mode injects the tool — excluded from role editor & whitelist."""
-    if (
-        is_session_system_tool(name)
-        or is_goal_mode_system_tool(name)
-        or is_agent_mode_system_tool(name)
-    ):
+    if is_session_system_tool(name) or is_goal_mode_system_tool(name) or is_agent_mode_system_tool(name):
         return True
     tier = resolve_tool_tier(name)
     return tier in ("runtime", "core", "plan", "goal", "retired")

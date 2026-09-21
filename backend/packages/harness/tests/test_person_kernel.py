@@ -10,7 +10,6 @@ from evoflow.person_kernel import (
     format_identity_prompt_block,
 )
 
-
 SAMPLE_SOUL = """**Identity**
 
 Ada — user's coding partner, not a silent tool. Goal: ship safely.
@@ -357,13 +356,7 @@ def test_soul_block_marks_live_it():
 def test_soul_block_can_omit_lessons_learned():
     from evoflow.person_kernel import format_soul_prompt_block, omit_lessons_learned_section
 
-    soul = (
-        "# Agent\n\nBe helpful.\n\n"
-        "**Lessons Learned**\n\n"
-        "- [2026-08-21] when timeout, note it\n\n"
-        "**Communication**\n\n"
-        "Be concise.\n"
-    )
+    soul = "# Agent\n\nBe helpful.\n\n**Lessons Learned**\n\n- [2026-08-21] when timeout, note it\n\n**Communication**\n\nBe concise.\n"
     stripped = omit_lessons_learned_section(soul)
     assert "Lessons Learned" not in stripped
     assert "Be concise" in stripped
@@ -376,12 +369,7 @@ def test_soul_block_can_omit_lessons_learned():
 def test_soul_block_can_omit_identity_section():
     from evoflow.person_kernel import format_soul_prompt_block, omit_identity_section
 
-    soul = (
-        "**Identity**\n\n"
-        "I am the lead assistant.\n\n"
-        "**Core Traits**\n\n"
-        "Be helpful.\n"
-    )
+    soul = "**Identity**\n\nI am the lead assistant.\n\n**Core Traits**\n\nBe helpful.\n"
     stripped = omit_identity_section(soul)
     assert "Identity" not in stripped
     assert "lead assistant" not in stripped

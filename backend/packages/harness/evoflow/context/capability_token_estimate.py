@@ -48,13 +48,7 @@ def _skill_catalog_xml_item(
             location = f"{container_base_path}/{name}/SKILL.md"
     else:
         location = f"{SKILL_URI_PREFIX}{name}"
-    return (
-        f"    <skill>\n"
-        f"        <name>{name}</name>\n"
-        f"        <description>{desc}</description>\n"
-        f"        <location>{location}</location>\n"
-        f"    </skill>"
-    )
+    return f"    <skill>\n        <name>{name}</name>\n        <description>{desc}</description>\n        <location>{location}</location>\n    </skill>"
 
 
 def estimate_named_skills_tokens(

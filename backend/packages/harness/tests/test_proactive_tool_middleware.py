@@ -186,9 +186,7 @@ def test_duty_before_model_disabled():
 def test_format_duty_status_footer_mentions_tasks_tool():
     from evoflow.agents.middlewares.proactive_tool_middleware import format_proactive_duty_status_footer
 
-    line = format_proactive_duty_status_footer(
-        {"checked_in": False, "wrapped_up": False, "tools_since_report": 0}
-    )
+    line = format_proactive_duty_status_footer({"checked_in": False, "wrapped_up": False, "tools_since_report": 0})
     assert "tasks" in line
     assert "进度" in line or "结案" in line
     assert "check_in" not in line
@@ -203,9 +201,7 @@ def test_finalize_duty_allow_strips_activation_tools():
         _finalize_duty_allow,
     )
 
-    allow = _finalize_duty_allow(
-        {"read", "tool_search", "scenario", "plan", "rg", "proactive_submit_work"}
-    )
+    allow = _finalize_duty_allow({"read", "tool_search", "scenario", "plan", "rg", "proactive_submit_work"})
     assert "read" in allow and "rg" in allow
     assert "tasks" in allow
     assert "mind_map" in allow

@@ -147,9 +147,7 @@ def _apply_initiative_updates(
             stamp = utc_now_iso_z()
             blob = f"\n\n[{stamp}] 进度：{note}"
             if exec_result:
-                target.execution_result = ((target.execution_result or "") + blob + f"\n结果：{exec_result}")[
-                    -8000:
-                ]
+                target.execution_result = ((target.execution_result or "") + blob + f"\n结果：{exec_result}")[-8000:]
             else:
                 target.execution_result = ((target.execution_result or "") + blob)[-8000:]
             dirty = True
@@ -233,15 +231,7 @@ def _upsert_round_journal(
         if obs:
             desc_parts.append("观察：\n" + "\n".join(f"- {o}" for o in obs[:12]))
         if not desc_parts or len(desc_parts) == 1:
-            desc_parts.append(
-                "本轮未写完工作汇报，记为未完成。"
-                if incomplete
-                else (
-                    "本轮已汇报，未提出新的待办事项。"
-                    if phase == "wrap_up"
-                    else "进度已同步。"
-                )
-            )
+            desc_parts.append("本轮未写完工作汇报，记为未完成。" if incomplete else ("本轮已汇报，未提出新的待办事项。" if phase == "wrap_up" else "进度已同步。"))
         # Incomplete auto wrap is FAILED so it does not look like a healthy patrol.
         if phase == "wrap_up" and incomplete:
             status = InitiativeStatus.FAILED
@@ -389,16 +379,8 @@ def apply_proactive_submit_work(
     update_results = _apply_initiative_updates(role_code=code, updates=updates) if updates else []
 
     recent = ProactiveRepository.list_initiatives(role_agent_code=code, limit=50)
-    existing_titles = [
-        str(i.title or "").strip()
-        for i in recent
-        if str(i.title or "").strip() and not _is_journal(i)
-    ]
-    existing_goals = [
-        str(i.goal or i.title or "").strip()
-        for i in recent[:25]
-        if str(i.goal or i.title or "").strip()
-    ]
+    existing_titles = [str(i.title or "").strip() for i in recent if str(i.title or "").strip() and not _is_journal(i)]
+    existing_goals = [str(i.goal or i.title or "").strip() for i in recent[:25] if str(i.goal or i.title or "").strip()]
 
     from evoflow.proactive.title_similarity import find_near_duplicate_title
 
@@ -444,8 +426,7 @@ def apply_proactive_submit_work(
             skipped.append(title)
         if ignored_initiative_titles:
             logger.warning(
-                "proactive.submit_work: ignoring initiatives[] for Task create "
-                "(use evoflow tasks create) role=%s count=%d",
+                "proactive.submit_work: ignoring initiatives[] for Task create (use evoflow tasks create) role=%s count=%d",
                 code,
                 len(ignored_initiative_titles),
             )
@@ -456,8 +437,7 @@ def apply_proactive_submit_work(
         near_goal = find_near_duplicate_title(goal_s, existing_goals) or ""
         if near_goal and near_goal != goal_s:
             obs = [
-                f"注意：本轮 goal 与近期事项接近「{near_goal[:60]}」。"
-                "应优先 initiative_updates 关闭/推进旧事项，勿换措辞重开同题。",
+                f"注意：本轮 goal 与近期事项接近「{near_goal[:60]}」。应优先 initiative_updates 关闭/推进旧事项，勿换措辞重开同题。",
                 *obs,
             ]
 
@@ -533,17 +513,10 @@ def apply_proactive_submit_work(
                 }
             craft_result = craft_result or {"ok": False, "error": "craft_hook_failed"}
 
-    proposed_ids = [
-        i.id
-        for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=40)
-        if str(i.round_id or "") == rid
-        and i.status == InitiativeStatus.PROPOSED
-        and not _is_journal(i)
-    ]
+    proposed_ids = [i.id for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=40) if str(i.round_id or "") == rid and i.status == InitiativeStatus.PROPOSED and not _is_journal(i)]
 
     logger.info(
-        "proactive.submit_work role=%s round=%s phase=%s created=%d tasks=%d updates=%d "
-        "proposed=%d skipped=%d near=%d incomplete=%s",
+        "proactive.submit_work role=%s round=%s phase=%s created=%d tasks=%d updates=%d proposed=%d skipped=%d near=%d incomplete=%s",
         code,
         rid,
         phase_s,
@@ -581,16 +554,7 @@ def apply_proactive_submit_work(
                 else (
                     "工作汇报已写入（系统补交·未完成）"
                     if incomplete
-                    else (
-                        "工作汇报已写入工作日志"
-                        + (
-                            "；可行动项请用 shell：evoflow tasks create "
-                            f'--role "{role.role_name}" --raised-by {code} '
-                            f"--source-ref {rid}"
-                            if ignored_initiative_titles
-                            else ""
-                        )
-                    )
+                    else ("工作汇报已写入工作日志" + (f'；可行动项请用 shell：evoflow tasks create --role "{role.role_name}" --raised-by {code} --source-ref {rid}' if ignored_initiative_titles else ""))
                 )
             )
         ),

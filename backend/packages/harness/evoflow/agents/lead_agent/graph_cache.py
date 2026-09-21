@@ -66,6 +66,7 @@ class LeadAgentGraphCacheKey:
     def as_tuple(self) -> tuple[Any, ...]:
         """All fields in definition order — new fields auto-included via dataclasses.astuple."""
         from dataclasses import astuple
+
         return astuple(self)
 
 

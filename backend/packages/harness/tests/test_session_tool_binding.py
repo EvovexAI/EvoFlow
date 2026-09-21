@@ -54,13 +54,9 @@ def _seed_session(session_key: str, *, session_mode: str = "ask") -> None:
 def test_schema_creates_binding_tables(sqlite_tmp: str) -> None:
     del sqlite_tmp
     # New design: single append-only trajectory table (legacy two-table design dropped).
-    row = get_db().execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_session_scenario_trajectory'"
-    ).fetchone()
+    row = get_db().execute("SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_session_scenario_trajectory'").fetchone()
     assert row is not None
-    col = get_db().execute(
-        "SELECT 1 FROM pragma_table_info('evoflow_chat_sessions') WHERE name='active_tools_json'"
-    ).fetchone()
+    col = get_db().execute("SELECT 1 FROM pragma_table_info('evoflow_chat_sessions') WHERE name='active_tools_json'").fetchone()
     assert col is not None
     # Legacy tables must be gone.
     for legacy in (
@@ -68,9 +64,7 @@ def test_schema_creates_binding_tables(sqlite_tmp: str) -> None:
         "evoflow_session_tool_state",
         "evoflow_session_binding_events",
     ):
-        gone = get_db().execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (legacy,)
-        ).fetchone()
+        gone = get_db().execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (legacy,)).fetchone()
         assert gone is None
 
 
@@ -319,9 +313,7 @@ def test_bound_tools_keep_session_spine_without_whitelist(monkeypatch: pytest.Mo
     assert "read" not in bound
 
 
-def test_context_agent_id_overrides_session_key_for_deferred_tools(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_context_agent_id_overrides_session_key_for_deferred_tools(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     """In-session role switch must gate deferred tools by context agent_id, not agent:main:…."""
     del sqlite_tmp
     from evoflow.config.agents_config import AgentConfig
@@ -364,9 +356,7 @@ def test_context_agent_id_overrides_session_key_for_deferred_tools(
     assert "ask_clarification" not in pending
 
 
-def test_disallowed_ask_clarification_not_in_deferred(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_disallowed_ask_clarification_not_in_deferred(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     """Agents that ban ask_clarification must not see it in deferred lists."""
     del sqlite_tmp
     from evoflow.config.agents_config import AgentConfig
@@ -396,9 +386,7 @@ def test_disallowed_ask_clarification_not_in_deferred(
     assert "tool_search" not in pending
 
 
-def test_legacy_read_file_whitelist_maps_to_read(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_legacy_read_file_whitelist_maps_to_read(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     """Agent configs with legacy read_file must still bind host-direct ``read``."""
     del sqlite_tmp
     from evoflow.config.agents_config import AgentConfig
@@ -433,9 +421,7 @@ def test_legacy_read_file_whitelist_maps_to_read(
     assert bound != ["terminal"]
 
 
-def test_role_switch_persists_agent_id_and_rewrites_tool_columns(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_role_switch_persists_agent_id_and_rewrites_tool_columns(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     """In-session switch must write flat agent_id and narrow active/pending tools."""
     del sqlite_tmp
     from evoflow.config.agents_config import AgentConfig
@@ -653,11 +639,14 @@ def test_scenario_switch_roundtrip_restores_loaded_deferred_from_trajectory(sqli
 
     # The trajectory table accumulated multiple rows for the agent scenario;
     # the latest one carries the restored deferred set.
-    rows = get_db().execute(
-        "SELECT event_type, loaded_deferred_json FROM evoflow_session_scenario_trajectory "
-        "WHERE session_key = ? AND scenario_key = 'agent' ORDER BY id ASC",
-        (session_key,),
-    ).fetchall()
+    rows = (
+        get_db()
+        .execute(
+            "SELECT event_type, loaded_deferred_json FROM evoflow_session_scenario_trajectory WHERE session_key = ? AND scenario_key = 'agent' ORDER BY id ASC",
+            (session_key,),
+        )
+        .fetchall()
+    )
     assert len(rows) >= 2
     event_types = [str(r[0]) for r in rows]
     assert "tool_search_load" in event_types
@@ -677,10 +666,14 @@ def test_persist_tool_search_load_appends_trajectory_row(sqlite_tmp: str) -> Non
     session_key = "sess-trajectory-toolload"
     _seed_session(session_key, session_mode="agent")
 
-    before = get_db().execute(
-        "SELECT COUNT(*) FROM evoflow_session_scenario_trajectory WHERE session_key = ?",
-        (session_key,),
-    ).fetchone()
+    before = (
+        get_db()
+        .execute(
+            "SELECT COUNT(*) FROM evoflow_session_scenario_trajectory WHERE session_key = ?",
+            (session_key,),
+        )
+        .fetchone()
+    )
     before_count = int(before[0]) if before else 0
 
     saved = persist_tool_search_loaded(
@@ -690,19 +683,25 @@ def test_persist_tool_search_load_appends_trajectory_row(sqlite_tmp: str) -> Non
     )
     assert "worker" in saved
 
-    after = get_db().execute(
-        "SELECT COUNT(*) FROM evoflow_session_scenario_trajectory WHERE session_key = ?",
-        (session_key,),
-    ).fetchone()
+    after = (
+        get_db()
+        .execute(
+            "SELECT COUNT(*) FROM evoflow_session_scenario_trajectory WHERE session_key = ?",
+            (session_key,),
+        )
+        .fetchone()
+    )
     after_count = int(after[0]) if after else 0
     assert after_count == before_count + 1
 
-    row = get_db().execute(
-        "SELECT event_type, loaded_deferred_json, scenario_key "
-        "FROM evoflow_session_scenario_trajectory "
-        "WHERE session_key = ? ORDER BY id DESC LIMIT 1",
-        (session_key,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT event_type, loaded_deferred_json, scenario_key FROM evoflow_session_scenario_trajectory WHERE session_key = ? ORDER BY id DESC LIMIT 1",
+            (session_key,),
+        )
+        .fetchone()
+    )
     assert row is not None
     assert str(row[0]) == "tool_search_load"
     import json as _json
@@ -737,9 +736,7 @@ def test_flat_bound_tool_names_excludes_tool_search() -> None:
             assert name in agent
 
 
-def test_tool_search_disabled_binds_flat_mode_tools(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_tool_search_disabled_binds_flat_mode_tools(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     del sqlite_tmp
     from evoflow.session_tool_binding.agent_tools import (
         bound_tools_for_session_agent,
@@ -780,9 +777,7 @@ def test_tool_search_disabled_binds_flat_mode_tools(
     assert pending_activation_for_session_agent(session_key, "agent", loaded_deferred=[]) == []
 
 
-def test_get_available_tools_omits_tool_search_when_disabled(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_get_available_tools_omits_tool_search_when_disabled(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     del sqlite_tmp
     from evoflow.tools.tools import get_available_tools, invalidate_available_tools_cache
 
@@ -795,9 +790,7 @@ def test_get_available_tools_omits_tool_search_when_disabled(
     assert "tool_search" not in names
 
 
-def test_tool_search_feature_temporarily_disabled_skips_injection(
-    monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str
-) -> None:
+def test_tool_search_feature_temporarily_disabled_skips_injection(monkeypatch: pytest.MonkeyPatch, sqlite_tmp: str) -> None:
     """While TOOL_SEARCH_TEMPORARILY_DISABLED, catalog must not include tool_search."""
     del sqlite_tmp
     from evoflow.tools.tools import get_available_tools, invalidate_available_tools_cache

@@ -87,7 +87,8 @@ def test_require_item_visible_blocks_other_user(sqlite_tmp: str, monkeypatch: py
     del sqlite_tmp
     from fastapi import HTTPException
 
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.scope import personal_scope
     from evoflow.items import service as items_svc
 

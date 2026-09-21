@@ -6,7 +6,7 @@ from typing import Any
 
 from evoflow.memory import facade as mem_facade
 from evoflow.memory import store as mem_store
-from evoflow.memory.namespaces import agent_ns, workspace_ns
+from evoflow.memory.namespaces import workspace_ns
 from evoflow.timeutil import utc_now_iso_z
 
 _SECTION_SUBJECTS = (

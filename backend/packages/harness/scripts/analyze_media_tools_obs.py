@@ -1,4 +1,5 @@
 """Analyze recent media tool invocations from observability API."""
+
 from __future__ import annotations
 
 import json
@@ -65,7 +66,7 @@ def main() -> None:
             msg = (i.get("output_text") or "")[:200]
         if status == "error" or ok is False:
             errors.append((name, status, msg))
-        print(f"[{i.get('ended_at','')[:19]}] {name} {status} {dur:.1f}s")
+        print(f"[{i.get('ended_at', '')[:19]}] {name} {status} {dur:.1f}s")
         print(f"  IN: {json.dumps(inp, ensure_ascii=False)[:350]}")
         print(f"  OUT: ok={ok} | {msg}")
         print()
@@ -75,10 +76,10 @@ def main() -> None:
         print(f"  {k}: {v}")
     print("\n=== Avg duration (s) ===")
     for name, ds in sorted(durations.items()):
-        print(f"  {name}: {sum(ds)/len(ds):.1f}s (n={len(ds)})")
+        print(f"  {name}: {sum(ds) / len(ds):.1f}s (n={len(ds)})")
     print("\n=== Avg prompt length ===")
     for name, ls in sorted(prompt_lens.items()):
-        print(f"  {name}: {sum(ls)/len(ls):.0f} chars (n={len(ls)})")
+        print(f"  {name}: {sum(ls) / len(ls):.0f} chars (n={len(ls)})")
     print("\n=== Modes ===")
     for k, v in modes.most_common():
         print(f"  {k}: {v}")

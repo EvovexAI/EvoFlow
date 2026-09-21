@@ -74,19 +74,11 @@ async def create_langgraph_thread(
     """Create a LangGraph thread with short retries on transient connect failures."""
     max_attempts = max(
         1,
-        int(
-            attempts
-            if attempts is not None
-            else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRIES", "3")
-        ),
+        int(attempts if attempts is not None else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRIES", "3")),
     )
     delay = max(
         0.1,
-        float(
-            retry_delay_seconds
-            if retry_delay_seconds is not None
-            else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRY_DELAY", "1.0")
-        ),
+        float(retry_delay_seconds if retry_delay_seconds is not None else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRY_DELAY", "1.0")),
     )
     body = dict(metadata or {})
     last_exc: BaseException | None = None

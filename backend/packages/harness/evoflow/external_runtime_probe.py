@@ -39,9 +39,9 @@ def _import_claude_agent_sdk() -> bool:
 def is_claude_code_worker_runtime_available() -> bool:
     """True if **this process** can start the Claude Code worker (SDK import + subprocess spawn).
 
-    Not a guarantee for other processes (e.g. LangGraph) — see module docstring.
-  On Windows with EvoFlow's Selector event-loop policy, ``import claude_agent_sdk`` may succeed
-    (bundled CLI) while ``asyncio`` subprocess spawn still fails.
+      Not a guarantee for other processes (e.g. LangGraph) — see module docstring.
+    On Windows with EvoFlow's Selector event-loop policy, ``import claude_agent_sdk`` may succeed
+      (bundled CLI) while ``asyncio`` subprocess spawn still fails.
     """
     global _claude_mon, _claude_ok
     now = time.monotonic()
@@ -59,10 +59,7 @@ def is_claude_code_worker_runtime_available() -> bool:
     _claude_mon = now
     _claude_ok = ok
     if not ok:
-        logger.debug(
-            "Claude Code worker runtime not operational "
-            "(missing SDK/CLI or subprocess unsupported on this event loop)"
-        )
+        logger.debug("Claude Code worker runtime not operational (missing SDK/CLI or subprocess unsupported on this event loop)")
     return ok
 
 

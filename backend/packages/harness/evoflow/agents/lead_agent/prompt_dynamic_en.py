@@ -86,18 +86,18 @@ SKILL_PROGRESSIVE_HEADER = "**Progressive loading:**"
 SKILL_RULE_1 = (
     '``<location>`` is ``skill:<name>`` (preferred) or a sandbox virtual path; ``read("<location>")`` only when executing skill steps or metadata is insufficient. '
     '**Files only**: ``read("skill:<name>")`` for SKILL.md; **directories** via ``terminal`` (e.g. dir / ls)—never ``read("skill:<name>/scripts")``. '
-    'Other files in the same skill: ``skill:<name>/relative/path`` (forward slashes, must be a real file). '
-    'For product self-intro / capability overview (e.g. evoflow-intro) when ``<available_skills>`` already has name+description, **do not read SKILL.md**—answer from description. '
+    "Other files in the same skill: ``skill:<name>/relative/path`` (forward slashes, must be a real file). "
+    "For product self-intro / capability overview (e.g. evoflow-intro) when ``<available_skills>`` already has name+description, **do not read SKILL.md**—answer from description. "
 )
 SKILL_RULE_2 = (
     "Load resources as needed; follow skill steps and boundaries. "
     "Run skill scripts: ``terminal`` for quick commands; ``process`` (start → log/wait/kill) for scripts, tests, or long jobs; "
-    "``workdir=\"skill:<name>\"`` with relative command paths (do not use deprecated execute_command)."
+    '``workdir="skill:<name>"`` with relative command paths (do not use deprecated execute_command).'
 )
 SKILL_RULE_3 = "Follow skill steps; conversation mode is UI-driven—do not call mode_set/scenario."
 SKILL_RULE_COMPACT = (
     "If `<skill_injection>` is present or `<available_skills>` description suffices, do not re-read SKILL.md. "
-    "Skills are **not** in the user workspace: read files via ``read(\"skill:<name>/path\")``; "
+    'Skills are **not** in the user workspace: read files via ``read("skill:<name>/path")``; '
     "run scripts with ``terminal`` or ``process(action='start')`` and ``workdir=\"skill:<name>\"`` "
     "(command paths relative to the skill root, e.g. ``python scripts/foo.py``). "
     "Never find/grep ``skills/`` or ``SKILL.md`` under the workspace."
@@ -108,7 +108,7 @@ MCP_RULE_COMPACT = (
     "Skills (``skill:<name>``) and MCP are separate: skills = workflow/docs/scripts; MCP = external connectors."
 )
 SKILL_DIR_LABEL = "**Skills root (logical; use skill: URIs per SKILL_RULE, not install-dir absolute paths in workspace tools):**"
-SKILL_EMPTY_COMMENT = "No skill metadata loaded in this process (disabled or empty catalog). If the UI still lists skills, use ``read(\"skill:<name>\")``."
+SKILL_EMPTY_COMMENT = 'No skill metadata loaded in this process (disabled or empty catalog). If the UI still lists skills, use ``read("skill:<name>")``.'
 
 SUBAGENT_FOCUS_MODE_BLOCK = ""
 
@@ -183,10 +183,7 @@ def format_scenario_activated_tools_reminder(
     deferred_line = ""
     if deferred_sample.strip():
         d_extra = f"\n({deferred_extra} more deferred; see JSON `deferred_tools`)" if deferred_extra > 0 else ""
-        deferred_line = (
-            f"\n`deferred_tools` (sample: {deferred_sample}){d_extra} need "
-            '`tool_search(query="select:name")` before calling.'
-        )
+        deferred_line = f'\n`deferred_tools` (sample: {deferred_sample}){d_extra} need `tool_search(query="select:name")` before calling.'
     return (
         "<scenario_activated_tools>\n"
         f"Scenario activated this turn. `activated_tools` are bound with schema—call directly (sample: {tools_sample}){extra_line}"

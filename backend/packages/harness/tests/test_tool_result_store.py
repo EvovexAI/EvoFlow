@@ -154,7 +154,7 @@ def test_pending_clarification_from_transcript(sqlite_tmp):
     msg_repo.append_message(
         sk,
         role="user",
-        content_json={"content": "__EVF_CLARIFY_ANS_V1__: {\"answers\":[]}"},
+        content_json={"content": '__EVF_CLARIFY_ANS_V1__: {"answers":[]}'},
         message_id="u2",
     )
     assert msg_repo.get_pending_clarification_for_session(sk) is None

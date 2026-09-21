@@ -218,10 +218,14 @@ def get_graph_header(thread_id: str) -> ExplorationGraphHeader | None:
     tid = resolve_scope_thread_id(thread_id)
     if not tid:
         return None
-    row = get_db().execute(
-        "SELECT * FROM evoflow_exploration_graph WHERE thread_id = ?",
-        (tid,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT * FROM evoflow_exploration_graph WHERE thread_id = ?",
+            (tid,),
+        )
+        .fetchone()
+    )
     return _header_from_row(row) if row else None
 
 
@@ -335,13 +339,17 @@ def get_node(thread_id: str, external_id: str) -> ExplorationNode | None:
     eid = str(external_id or "").strip()
     if not tid or not eid:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT * FROM evoflow_exploration_nodes
         WHERE thread_id = ? AND external_id = ?
         """,
-        (tid, eid),
-    ).fetchone()
+            (tid, eid),
+        )
+        .fetchone()
+    )
     return _node_from_row(row) if row else None
 
 
@@ -710,13 +718,17 @@ def get_edge(thread_id: str, external_id: str) -> ExplorationEdge | None:
     eid = str(external_id or "").strip()
     if not tid or not eid:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT * FROM evoflow_exploration_edges
         WHERE thread_id = ? AND external_id = ?
         """,
-        (tid, eid),
-    ).fetchone()
+            (tid, eid),
+        )
+        .fetchone()
+    )
     return _edge_from_row(row) if row else None
 
 
@@ -836,25 +848,33 @@ def list_ops(
         return []
     lim = max(1, min(int(limit), 1000))
     if tool_call_id:
-        rows = get_db().execute(
-            """
+        rows = (
+            get_db()
+            .execute(
+                """
             SELECT * FROM evoflow_exploration_ops
             WHERE thread_id = ? AND tool_call_id = ?
             ORDER BY op_index, id
             LIMIT ?
             """,
-            (tid, str(tool_call_id), lim),
-        ).fetchall()
+                (tid, str(tool_call_id), lim),
+            )
+            .fetchall()
+        )
     else:
-        rows = get_db().execute(
-            """
+        rows = (
+            get_db()
+            .execute(
+                """
             SELECT * FROM evoflow_exploration_ops
             WHERE thread_id = ?
             ORDER BY id DESC
             LIMIT ?
             """,
-            (tid, lim),
-        ).fetchall()
+                (tid, lim),
+            )
+            .fetchall()
+        )
     return [_row_dict(r) for r in rows]
 
 
@@ -893,26 +913,34 @@ def find_thread_id_by_session_key(session_key: str) -> str | None:
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT thread_id FROM evoflow_exploration_graph
         WHERE session_key = ? AND TRIM(COALESCE(thread_id, '')) != ''
         ORDER BY updated_at DESC
         LIMIT 1
         """,
-        (sk,),
-    ).fetchone()
+            (sk,),
+        )
+        .fetchone()
+    )
     if row and str(row[0] or "").strip():
         return str(row[0]).strip()
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT thread_id FROM evoflow_chat_messages
         WHERE session_key = ? AND TRIM(COALESCE(thread_id, '')) != ''
         ORDER BY seq DESC
         LIMIT 1
         """,
-        (sk,),
-    ).fetchone()
+            (sk,),
+        )
+        .fetchone()
+    )
     if row and str(row[0] or "").strip():
         return str(row[0]).strip()
     return None
@@ -923,15 +951,19 @@ def find_thread_id_with_graph_for_session(session_key: str) -> str | None:
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT thread_id FROM evoflow_exploration_graph
         WHERE session_key = ? AND TRIM(COALESCE(thread_id, '')) != ''
         ORDER BY node_count DESC, graph_version DESC, updated_at DESC
         LIMIT 8
         """,
-        (sk,),
-    ).fetchall()
+            (sk,),
+        )
+        .fetchall()
+    )
     for row in rows or []:
         tid = str(row[0] or "").strip()
         if tid and _graph_header_has_content(get_graph_header(tid)):

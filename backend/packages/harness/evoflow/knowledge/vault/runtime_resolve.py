@@ -205,11 +205,7 @@ def resolve_node_binary() -> str:
 def _is_editor_helper_node(path: str) -> bool:
     """True for IDE-bundled helper node (often wrong ABI for native modules)."""
     normalized = path.replace("\\", "/").lower()
-    return (
-        "/resources/app/resources/helpers/node" in normalized
-        or "/cursor/resources/" in normalized
-        or "/visual studio code/resources/" in normalized
-    )
+    return "/resources/app/resources/helpers/node" in normalized or "/cursor/resources/" in normalized or "/visual studio code/resources/" in normalized
 
 
 def resolve_npx_binary() -> str:
@@ -358,11 +354,7 @@ def build_search_launch_plan() -> McpLaunchPlan:
                 kind="unavailable",
                 command="",
                 args=[],
-                message=(
-                    "生产模式需要 Node 运行时，但未找到。"
-                    "请在知识库页点击「安装检索组件」或「重建索引」以自动下载私有 Node，"
-                    "或将 Node 放到 {EVOFLOW_HOME}/runtime/node，或设置 EVOFLOW_KB_NODE。"
-                ),
+                message=("生产模式需要 Node 运行时，但未找到。请在知识库页点击「安装检索组件」或「重建索引」以自动下载私有 Node，或将 Node 放到 {EVOFLOW_HOME}/runtime/node，或设置 EVOFLOW_KB_NODE。"),
                 production=True,
                 online_install_required=ready_root is None,
             )
@@ -371,11 +363,7 @@ def build_search_launch_plan() -> McpLaunchPlan:
             hint = (
                 f"请运行 `make setup-kb-mcp` 安装到 {packaged}。"
                 if packaged is not None
-                else (
-                    f"请在知识库页点击「重建索引」（缺组件时会自动联网安装 {OHS_PACKAGE} "
-                    f"到 {{EVOFLOW_HOME}}/runtime/kb-mcp）。"
-                    "正式安装包不含检索组件（约 700MB），需本机有 Node 且能联网。"
-                )
+                else (f"请在知识库页点击「重建索引」（缺组件时会自动联网安装 {OHS_PACKAGE} 到 {{EVOFLOW_HOME}}/runtime/kb-mcp）。正式安装包不含检索组件（约 700MB），需本机有 Node 且能联网。")
             )
             return McpLaunchPlan(
                 kind="unavailable",

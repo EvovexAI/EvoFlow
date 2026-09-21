@@ -45,12 +45,15 @@ def test_supervisor_phase_reraises_model_error() -> None:
     exc = Exception("upstream failed")
     runtime = SimpleNamespace(context={"is_task_execution": True})
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._is_model_api_error",
-        return_value=True,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
-        return_value=True,
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._is_model_api_error",
+            return_value=True,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
+            return_value=True,
+        ),
     ):
         try:
             mw._handle_model_error(exc, runtime)
@@ -64,17 +67,20 @@ def test_sync_unchanged_compression_falls_back_to_user_message() -> None:
     exc = _ModelApiError("context length exceeded")
     handler = MagicMock(side_effect=exc)
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.classify",
-        return_value=SimpleNamespace(
-            should_compress=True,
-            reason=FailoverReason.CONTEXT_OVERFLOW,
-            should_rotate_credential=False,
-            should_fallback_provider=False,
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.classify",
+            return_value=SimpleNamespace(
+                should_compress=True,
+                reason=FailoverReason.CONTEXT_OVERFLOW,
+                should_rotate_credential=False,
+                should_fallback_provider=False,
+            ),
         ),
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
-        return_value=([HumanMessage(content="hi")], False),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
+            return_value=([HumanMessage(content="hi")], False),
+        ),
     ):
         result = mw.wrap_model_call(_Request(), handler)
 
@@ -87,18 +93,21 @@ def test_sync_compression_retry_skips_second_compress() -> None:
     exc = _ModelApiError("context length exceeded")
     handler = MagicMock(side_effect=[exc, AIMessage(content="compressed ok")])
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.classify",
-        return_value=SimpleNamespace(
-            should_compress=True,
-            reason=FailoverReason.CONTEXT_OVERFLOW,
-            should_rotate_credential=False,
-            should_fallback_provider=False,
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.classify",
+            return_value=SimpleNamespace(
+                should_compress=True,
+                reason=FailoverReason.CONTEXT_OVERFLOW,
+                should_rotate_credential=False,
+                should_fallback_provider=False,
+            ),
         ),
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
-        return_value=([HumanMessage(content="hi")], True),
-    ) as compress_mock:
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
+            return_value=([HumanMessage(content="hi")], True),
+        ) as compress_mock,
+    ):
         result = mw.wrap_model_call(_Request(), handler)
 
     assert handler.call_count == 2
@@ -112,17 +121,20 @@ def test_async_unchanged_compression_falls_back_to_user_message() -> None:
         exc = _ModelApiError("context length exceeded")
         handler = AsyncMock(side_effect=exc)
 
-        with patch(
-            "evoflow.agents.middlewares.model_fallback_middleware.classify",
-            return_value=SimpleNamespace(
-            should_compress=True,
-            reason=FailoverReason.CONTEXT_OVERFLOW,
-            should_rotate_credential=False,
-            should_fallback_provider=False,
-        ),
-        ), patch(
-            "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages_async",
-            new=AsyncMock(return_value=([HumanMessage(content="hi")], False)),
+        with (
+            patch(
+                "evoflow.agents.middlewares.model_fallback_middleware.classify",
+                return_value=SimpleNamespace(
+                    should_compress=True,
+                    reason=FailoverReason.CONTEXT_OVERFLOW,
+                    should_rotate_credential=False,
+                    should_fallback_provider=False,
+                ),
+            ),
+            patch(
+                "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages_async",
+                new=AsyncMock(return_value=([HumanMessage(content="hi")], False)),
+            ),
         ):
             return await mw.awrap_model_call(_Request(), handler)
 
@@ -137,17 +149,20 @@ def test_async_compression_retry_skips_second_compress() -> None:
         handler = AsyncMock(side_effect=[exc, AIMessage(content="compressed ok")])
 
         compress_mock = AsyncMock(return_value=([HumanMessage(content="hi")], True))
-        with patch(
-            "evoflow.agents.middlewares.model_fallback_middleware.classify",
-            return_value=SimpleNamespace(
-            should_compress=True,
-            reason=FailoverReason.CONTEXT_OVERFLOW,
-            should_rotate_credential=False,
-            should_fallback_provider=False,
-        ),
-        ), patch(
-            "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages_async",
-            new=compress_mock,
+        with (
+            patch(
+                "evoflow.agents.middlewares.model_fallback_middleware.classify",
+                return_value=SimpleNamespace(
+                    should_compress=True,
+                    reason=FailoverReason.CONTEXT_OVERFLOW,
+                    should_rotate_credential=False,
+                    should_fallback_provider=False,
+                ),
+            ),
+            patch(
+                "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages_async",
+                new=compress_mock,
+            ),
         ):
             return await mw.awrap_model_call(_Request(), handler), handler, compress_mock
 
@@ -169,11 +184,7 @@ class _AccountQuotaError(Exception):
     __module__ = "openai"
 
     def __init__(self) -> None:
-        super().__init__(
-            "Error code: 429 - {'error': {'code': 'AccountQuotaExceeded', "
-            "'message': 'You have exceeded the monthly usage quota. "
-            "It will reset at 2026-07-11 23:59:59 +0800 CST. We recommend upgrading your plan.'}}"
-        )
+        super().__init__("Error code: 429 - {'error': {'code': 'AccountQuotaExceeded', 'message': 'You have exceeded the monthly usage quota. It will reset at 2026-07-11 23:59:59 +0800 CST. We recommend upgrading your plan.'}}")
         self.response = SimpleNamespace(status_code=429, headers={})
 
 
@@ -189,11 +200,7 @@ def test_user_friendly_message_for_account_quota() -> None:
 
 
 def test_user_friendly_message_for_five_hour_quota() -> None:
-    exc = Exception(
-        "Error code: 429 - {'error': {'code': 'AccountQuotaExceeded', "
-        "'message': 'You have exceeded the 5-hour usage quota. "
-        "It will reset at 2026-09-03 15:34:30 +0800 CST.'}}"
-    )
+    exc = Exception("Error code: 429 - {'error': {'code': 'AccountQuotaExceeded', 'message': 'You have exceeded the 5-hour usage quota. It will reset at 2026-09-03 15:34:30 +0800 CST.'}}")
     msg = _user_friendly_message_for_error(exc)
     assert "5小时额度已用尽" in msg
     assert "2026-09-03 15:34:30 +0800 CST" in msg
@@ -204,12 +211,15 @@ def test_handle_model_error_streams_user_notice() -> None:
     exc = _AccountQuotaError()
     runtime = SimpleNamespace(context={})
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
-        return_value=False,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
-    ) as stream_mock:
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
+            return_value=False,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
+        ) as stream_mock,
+    ):
         result = mw._handle_model_error(exc, runtime)
 
     assert "月度额度已用尽" in str(result.content)
@@ -222,10 +232,13 @@ def test_emit_user_notice_stream_prefers_gateway_inject() -> None:
 
     runtime = SimpleNamespace(context={"thread_id": "thread-quota-1"})
     writer = MagicMock()
-    with patch("langgraph.config.get_stream_writer", return_value=writer), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._inject_user_notice_evf",
-        return_value=True,
-    ) as inject_mock:
+    with (
+        patch("langgraph.config.get_stream_writer", return_value=writer),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._inject_user_notice_evf",
+            return_value=True,
+        ) as inject_mock,
+    ):
         ok = _emit_user_notice_stream("当前模型 API 月度额度已用尽。", runtime)
 
     assert ok is True
@@ -238,16 +251,17 @@ def test_emit_user_notice_stream_falls_back_to_writer_without_thread() -> None:
 
     runtime = SimpleNamespace(context={})
     writer = MagicMock()
-    with patch("langgraph.config.get_stream_writer", return_value=writer), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._inject_user_notice_evf",
-    ) as inject_mock:
+    with (
+        patch("langgraph.config.get_stream_writer", return_value=writer),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._inject_user_notice_evf",
+        ) as inject_mock,
+    ):
         ok = _emit_user_notice_stream("当前模型 API 月度额度已用尽。", runtime)
 
     assert ok is True
     inject_mock.assert_not_called()
-    writer.assert_called_once_with(
-        {"type": "empty_response_fallback", "text": "当前模型 API 月度额度已用尽。"}
-    )
+    writer.assert_called_once_with({"type": "empty_response_fallback", "text": "当前模型 API 月度额度已用尽。"})
 
 
 def test_sync_rate_limit_retry_succeeds_on_second_attempt() -> None:
@@ -257,12 +271,15 @@ def test_sync_rate_limit_retry_succeeds_on_second_attempt() -> None:
 
     rate_limit_cls = classify(exc)
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.classify",
-        return_value=rate_limit_cls,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
-    ) as sleep_mock:
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.classify",
+            return_value=rate_limit_cls,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
+        ) as sleep_mock,
+    ):
         result = mw.wrap_model_call(_Request(), handler)
 
     assert handler.call_count == 2
@@ -276,14 +293,18 @@ def test_sync_rate_limit_exhausted_returns_rate_limit_message() -> None:
     handler = MagicMock(side_effect=exc)
     rate_limit_cls = classify(exc)
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.classify",
-        return_value=rate_limit_cls,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
-        return_value=False,
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.classify",
+            return_value=rate_limit_cls,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
+            return_value=False,
+        ),
     ):
         result = mw.wrap_model_call(_Request(), handler)
 
@@ -306,15 +327,20 @@ def test_sync_overloaded_retries_three_times_and_emits_activity() -> None:
     req = _Request()
     req.runtime = SimpleNamespace(context={"thread_id": "thread-overload-1"})
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
-    ) as sleep_mock, patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
-        return_value=False,
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
-    ) as retry_activity, patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
+        ) as sleep_mock,
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._should_reraise_for_supervisor",
+            return_value=False,
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
+        ) as retry_activity,
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_user_notice_stream",
+        ),
     ):
         result = mw.wrap_model_call(req, handler)
 
@@ -337,11 +363,14 @@ def test_sync_connection_drop_retries_three_times() -> None:
     req = _Request()
     req.runtime = SimpleNamespace(context={"thread_id": "thread-relay-1"})
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
-    ) as sleep_mock, patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
-    ) as retry_activity:
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
+        ) as sleep_mock,
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
+        ) as retry_activity,
+    ):
         result = mw.wrap_model_call(req, handler)
 
     assert handler.call_count == 3
@@ -358,11 +387,14 @@ def test_sync_unknown_api_error_also_retries() -> None:
     req = _Request()
     req.runtime = SimpleNamespace(context={"thread_id": "thread-unknown-1"})
 
-    with patch(
-        "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
-    ) as retry_activity:
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware.time.sleep",
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
+        ) as retry_activity,
+    ):
         result = mw.wrap_model_call(req, handler)
 
     assert handler.call_count == 2
@@ -373,10 +405,7 @@ def test_sync_unknown_api_error_also_retries() -> None:
 def test_ark_image_token_overflow_strips_vision_and_retries() -> None:
     """Single-turn multimodal overflow must strip images even when fold is a no-op."""
     mw = ModelFallbackMiddleware()
-    exc = _ModelApiError(
-        "Error code: 400 - {'error': {'code': 'InvalidParameter', 'message': "
-        "'Total tokens of image and text exceed max message tokens.'}}"
-    )
+    exc = _ModelApiError("Error code: 400 - {'error': {'code': 'InvalidParameter', 'message': 'Total tokens of image and text exceed max message tokens.'}}")
     huge_b64 = "A" * 8000
     vision_msg = HumanMessage(
         content=[
@@ -387,14 +416,18 @@ def test_ark_image_token_overflow_strips_vision_and_retries() -> None:
     req = _Request(messages=[vision_msg])
     handler = MagicMock(side_effect=[exc, AIMessage(content="ok without image")])
 
-    with patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
-        return_value=([vision_msg], False),
-    ), patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
-    ), patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.mark_skip_compaction_once",
-    ) as skip_mock:
+    with (
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
+            return_value=([vision_msg], False),
+        ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
+        ),
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.mark_skip_compaction_once",
+        ) as skip_mock,
+    ):
         result = mw.wrap_model_call(req, handler)
 
     assert handler.call_count == 2
@@ -409,8 +442,9 @@ def test_ark_image_token_overflow_strips_vision_and_retries() -> None:
 
 
 def test_truncate_overflow_short_thread_with_huge_tool_payload() -> None:
-    from evoflow.agents.middlewares.model_fallback_middleware import _truncate_messages_for_overflow
     from langchain_core.messages import ToolMessage
+
+    from evoflow.agents.middlewares.model_fallback_middleware import _truncate_messages_for_overflow
 
     msgs = [
         HumanMessage(content="q"),
@@ -434,19 +468,20 @@ def test_messages_from_request_prefers_request_messages() -> None:
 
 def test_context_window_overflow_message_triggers_compress_retry() -> None:
     mw = ModelFallbackMiddleware()
-    exc = _ModelApiError(
-        "Your input exceeds the context window of this model. Please adjust your input and try again."
-    )
+    exc = _ModelApiError("Your input exceeds the context window of this model. Please adjust your input and try again.")
     handler = MagicMock(side_effect=[exc, AIMessage(content="ok after compress")])
     req = _Request()
     req.runtime = SimpleNamespace(context={"thread_id": "thread-overflow-1"})
 
-    with patch(
-        "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
-        return_value=([HumanMessage(content="hi")], True),
-    ) as compress_mock, patch(
-        "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
-    ) as retry_activity:
+    with (
+        patch(
+            "evoflow.agents.middlewares.context_compaction_middleware.emergency_compress_messages",
+            return_value=([HumanMessage(content="hi")], True),
+        ) as compress_mock,
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._emit_model_retry_activity",
+        ) as retry_activity,
+    ):
         result = mw.wrap_model_call(req, handler)
 
     assert compress_mock.call_count == 1
@@ -462,13 +497,16 @@ def test_async_rate_limit_retry_succeeds_on_second_attempt() -> None:
         handler = AsyncMock(side_effect=[exc, AIMessage(content="ok after retry")])
         rate_limit_cls = classify(exc)
 
-        with patch(
-            "evoflow.agents.middlewares.model_fallback_middleware.classify",
-            return_value=rate_limit_cls,
-        ), patch(
-            "evoflow.agents.middlewares.model_fallback_middleware.asyncio.sleep",
-            new=AsyncMock(),
-        ) as sleep_mock:
+        with (
+            patch(
+                "evoflow.agents.middlewares.model_fallback_middleware.classify",
+                return_value=rate_limit_cls,
+            ),
+            patch(
+                "evoflow.agents.middlewares.model_fallback_middleware.asyncio.sleep",
+                new=AsyncMock(),
+            ) as sleep_mock,
+        ):
             return await mw.awrap_model_call(_Request(), handler), handler, sleep_mock
 
     result, handler, sleep_mock = asyncio.run(_run())

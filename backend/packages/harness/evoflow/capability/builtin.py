@@ -23,12 +23,11 @@ the global registry.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from .models import CallerCtx, DangerTier
 from .registry import capability, get_registry
-from .models import CallerCtx, DangerTier, Surface
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +43,9 @@ class ListSessionsRequest(BaseModel):
     query: str = Field(..., description="Search query string")
     limit: int = Field(default=10, ge=1, le=100, description="Maximum number of results")
     offset: int = Field(default=0, ge=0, description="Offset for pagination")
-    assistant_id: Optional[str] = Field(default=None, description="Filter by assistant ID")
-    date_from: Optional[str] = Field(default=None, description="Filter by date range start (ISO)")
-    date_to: Optional[str] = Field(default=None, description="Filter by date range end (ISO)")
+    assistant_id: str | None = Field(default=None, description="Filter by assistant ID")
+    date_from: str | None = Field(default=None, description="Filter by date range start (ISO)")
+    date_to: str | None = Field(default=None, description="Filter by date range end (ISO)")
     search_in: str = Field(default="all", description="Where to search: 'user', 'assistant', or 'all'")
 
 
@@ -55,21 +54,21 @@ class CreateTaskRequest(BaseModel):
 
     name: str = Field(default="", description="Task name")
     description: str = Field(default="", description="Task description")
-    thread_id: Optional[str] = Field(default=None, description="Bind a LangGraph thread to this task")
+    thread_id: str | None = Field(default=None, description="Bind a LangGraph thread to this task")
     run_mode: str = Field(
         default="manual",
         description="unattended = zero-touch queue (auto plan/authorize/dispatch); manual = legacy UI flow",
     )
-    model_name: Optional[str] = Field(default=None, description="Session model name pinned at creation for subagent delegation")
+    model_name: str | None = Field(default=None, description="Session model name pinned at creation for subagent delegation")
 
 
 class ListTasksRequest(BaseModel):
     """List/filter tasks across all projects."""
 
-    status: Optional[str] = Field(default=None, description="Filter by status: pending|executing|paused|completed|failed|cancelled")
-    source: Optional[str] = Field(default=None, description="Filter by 任务来源: chat|workflow|role")
-    search: Optional[str] = Field(default=None, description="Search in task name")
-    project_id: Optional[str] = Field(default=None, description="Filter by project ID")
+    status: str | None = Field(default=None, description="Filter by status: pending|executing|paused|completed|failed|cancelled")
+    source: str | None = Field(default=None, description="Filter by 任务来源: chat|workflow|role")
+    search: str | None = Field(default=None, description="Search in task name")
+    project_id: str | None = Field(default=None, description="Filter by project ID")
     sort: str = Field(default="updated_at", description="Sort field: created_at|updated_at|status|name")
     order: str = Field(default="desc", description="Sort order: asc|desc")
 
@@ -77,7 +76,7 @@ class ListTasksRequest(BaseModel):
 class GetMemoryRequest(BaseModel):
     """Read memory data for the global store or a specific agent."""
 
-    agent: Optional[str] = Field(default=None, description="Agent id; omit for global memory")
+    agent: str | None = Field(default=None, description="Agent id; omit for global memory")
 
 
 class ListSkillsRequest(BaseModel):
@@ -89,7 +88,7 @@ class ListSkillsRequest(BaseModel):
 class ListAgentsRequest(BaseModel):
     """List configured agents (main + custom)."""
 
-    tag: Optional[str] = Field(default=None, description="Filter by tag label (substring match)")
+    tag: str | None = Field(default=None, description="Filter by tag label (substring match)")
     preset_only: bool = Field(default=False, description="Only main + custom preset roles")
     assignable_only: bool = Field(default=False, description="Only subagent/acp/claude-code workers")
 
@@ -196,9 +195,7 @@ def evo_create_task(ctx: CallerCtx, p: CreateTaskRequest) -> dict:
         if storage.save_project(project_data):
             out = dict(task)
             if run_mode == "unattended":
-                out["queue_hint"] = (
-                    "Task enqueued for unattended execution; Gateway task queue will pick it up."
-                )
+                out["queue_hint"] = "Task enqueued for unattended execution; Gateway task queue will pick it up."
             return {"success": True, "task": out}
         return {"error": "任务创建失败"}
     except Exception as e:  # noqa: BLE001
@@ -284,7 +281,7 @@ def evo_get_memory(ctx: CallerCtx, p: GetMemoryRequest) -> dict:
     try:
         from evoflow.agents.memory.updater import get_memory_data
 
-        agent_name: Optional[str] = None
+        agent_name: str | None = None
         if p.agent is not None:
             stripped = p.agent.strip()
             if stripped:

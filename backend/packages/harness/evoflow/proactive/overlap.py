@@ -76,11 +76,7 @@ def score_role_overlap(
         "domain_overlap": round(domain_score, 3),
         "overlap": overall,
         "high": overall >= 0.5,
-        "message": (
-            f"与「{existing.role_name}」职责高度重叠（{int(overall * 100)}%），建议合并或明确分工"
-            if overall >= 0.5
-            else ""
-        ),
+        "message": (f"与「{existing.role_name}」职责高度重叠（{int(overall * 100)}%），建议合并或明确分工" if overall >= 0.5 else ""),
     }
 
 

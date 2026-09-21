@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import tempfile
 from pathlib import Path
 
@@ -115,12 +113,7 @@ def test_schema_v6_normalized_columns(sqlite_tmp: Path) -> None:
 
 def test_schema_v14_task_tables_flat(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    assert (
-        get_db()
-        .execute("SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_task_bundles'")
-        .fetchone()
-        is None
-    )
+    assert get_db().execute("SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_task_bundles'").fetchone() is None
     collab_task_cols = {r[1] for r in get_db().execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
     assert "task_id" in collab_task_cols
     assert "plan_goal" in collab_task_cols
@@ -171,9 +164,6 @@ def test_bundle_with_subtasks_roundtrip(sqlite_tmp: Path) -> None:
     assert wp.get("expected_outputs") == ["outputs/a.md"]
 
 
-
-
-
 def test_schema_v16_mission_subproblems_have_timestamps(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     cols = {r[1] for r in get_db().execute("PRAGMA table_info(evoflow_mission_subproblems)").fetchall()}
@@ -215,11 +205,7 @@ def test_memory_roundtrip_v15(sqlite_tmp: Path) -> None:
     assert loaded is not None
     assert loaded["user"]["workContext"]["summary"] == "hello"
     facts = loaded.get("facts") or []
-    assert any(
-        (f.get("id") == "f1") or (f.get("content") == "fact-schema-v1-roundtrip")
-        for f in facts
-        if isinstance(f, dict)
-    )
+    assert any((f.get("id") == "f1") or (f.get("content") == "fact-schema-v1-roundtrip") for f in facts if isinstance(f, dict))
 
 
 def test_timestamps_use_beijing_offset(sqlite_tmp: Path) -> None:
@@ -247,7 +233,6 @@ def test_mission_runtime_sqlite(sqlite_tmp: Path) -> None:
     s = get_thread_state("t-rt")
     assert s.mode == "bootstrap"
     assert s.drift_count == 0
-
 
 
 def test_find_root_task_by_thread_reads_bound_plan_from_db(sqlite_tmp: Path) -> None:
@@ -456,4 +441,3 @@ def test_get_agent_config_tolerates_null_sort_order(sqlite_tmp: Path) -> None:
     tools = doc.get("tools") or []
     assert "read" in tools
     assert "write" in tools
-

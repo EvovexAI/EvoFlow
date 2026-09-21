@@ -107,9 +107,7 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
             if not dep_s:
                 continue
             if dep_s not in step_refs:
-                check1_errors.append(
-                    f"Step {step_name} (ref={ref}): depends_on references non-existent step '{dep_s}'"
-                )
+                check1_errors.append(f"Step {step_name} (ref={ref}): depends_on references non-existent step '{dep_s}'")
     checks["step_ref_integrity"] = {"errors": len(check1_errors)}
     errors.extend(check1_errors)
 
@@ -144,15 +142,11 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
                 ref_step = _extract_step_ref(expr)
                 if ref_step is not None:
                     if ref_step not in step_refs:
-                        check3_errors.append(
-                            f"Step {step_name} (ref={ref}): input_binding '{bk}' references non-existent step '{ref_step}'"
-                        )
+                        check3_errors.append(f"Step {step_name} (ref={ref}): input_binding '{bk}' references non-existent step '{ref_step}'")
                 # Check for params references
                 param_ref = _extract_param_ref(expr)
                 if param_ref is not None and param_ref not in param_names:
-                    check3_warnings.append(
-                        f"Step {step_name} (ref={ref}): input_binding '{bk}' references undeclared parameter '{param_ref}'"
-                    )
+                    check3_warnings.append(f"Step {step_name} (ref={ref}): input_binding '{bk}' references undeclared parameter '{param_ref}'")
     checks["binding_refs"] = {"errors": len(check3_errors), "warnings": len(check3_warnings)}
     errors.extend(check3_errors)
     warnings.extend(check3_warnings)
@@ -196,11 +190,7 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
                     field_name = parts[3]
                     declared = step_output_fields.get(src_ref)
                     if declared is not None and field_name not in declared:
-                        check3b_errors.append(
-                            f"Step {step_name} (ref={ref}): input_binding '{bk}' "
-                            f"references output field '{field_name}' which is not "
-                            f"declared in step {src_ref}'s output_schema"
-                        )
+                        check3b_errors.append(f"Step {step_name} (ref={ref}): input_binding '{bk}' references output field '{field_name}' which is not declared in step {src_ref}'s output_schema")
     checks["output_field_refs"] = {"errors": len(check3b_errors)}
     errors.extend(check3b_errors)
 
@@ -263,11 +253,7 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
                     if not src_type or not dst_type:
                         continue
                     if not _types_compatible(src_type, dst_type):
-                        check3c_errors.append(
-                            f"Step {step_name} (ref={ref}): input_binding '{bk}' "
-                            f"type mismatch: upstream output '{field_name}' is "
-                            f"'{src_type}', but input_schema expects '{dst_type}'"
-                        )
+                        check3c_errors.append(f"Step {step_name} (ref={ref}): input_binding '{bk}' type mismatch: upstream output '{field_name}' is '{src_type}', but input_schema expects '{dst_type}'")
     checks["static_type_mismatch"] = {"errors": len(check3c_errors)}
     errors.extend(check3c_errors)
 
@@ -299,17 +285,13 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
             placeholders = _PARAM_PLACEHOLDER_RE.findall(val)
             for ph in placeholders:
                 if ph not in param_names:
-                    check5_warnings.append(
-                        f"Step {step_name} (ref={ref}): {field_key} references undeclared parameter '{ph}'"
-                    )
+                    check5_warnings.append(f"Step {step_name} (ref={ref}): {field_key} references undeclared parameter '{ph}'")
     # Also check goal_template
     goal_template = _as_str(app_def.get("goal_template"))
     if goal_template:
         for ph in _PARAM_PLACEHOLDER_RE.findall(goal_template):
             if ph not in param_names:
-                check5_warnings.append(
-                    f"goal_template: references undeclared parameter '{ph}'"
-                )
+                check5_warnings.append(f"goal_template: references undeclared parameter '{ph}'")
     checks["param_placeholders"] = {"warnings": len(check5_warnings)}
     warnings.extend(check5_warnings)
 
@@ -317,18 +299,14 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
     check6_warnings: list[str] = []
     app_policy = _as_str(app_def.get("schema_enforcement"))
     if app_policy and app_policy not in _VALID_SCHEMA_POLICIES:
-        check6_warnings.append(
-            f"App-level schema_enforcement='{app_policy}' is invalid; must be one of: {', '.join(sorted(_VALID_SCHEMA_POLICIES))}"
-        )
+        check6_warnings.append(f"App-level schema_enforcement='{app_policy}' is invalid; must be one of: {', '.join(sorted(_VALID_SCHEMA_POLICIES))}")
     for step in steps:
         if not isinstance(step, dict):
             continue
         step_policy = _as_str(step.get("schema_enforcement"))
         if step_policy and step_policy not in _VALID_SCHEMA_POLICIES:
             ref = _as_str(step.get("ref"))
-            check6_warnings.append(
-                f"Step ref={ref}: schema_enforcement='{step_policy}' is invalid; must be one of: {', '.join(sorted(_VALID_SCHEMA_POLICIES))}"
-            )
+            check6_warnings.append(f"Step ref={ref}: schema_enforcement='{step_policy}' is invalid; must be one of: {', '.join(sorted(_VALID_SCHEMA_POLICIES))}")
     checks["schema_policy"] = {"warnings": len(check6_warnings)}
     warnings.extend(check6_warnings)
 

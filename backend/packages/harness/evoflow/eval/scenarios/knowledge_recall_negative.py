@@ -15,9 +15,7 @@ def _run(home: Path) -> dict:
 
     created = knowledge_admin.create_managed_vault(name="评测负例知识库")
     vault = created.get("vault") or created
-    vault_id = str(
-        vault.get("id") or created.get("vault_id") or created.get("id") or ""
-    ).strip()
+    vault_id = str(vault.get("id") or created.get("vault_id") or created.get("id") or "").strip()
 
     empty_err = ""
     empty_ok = False

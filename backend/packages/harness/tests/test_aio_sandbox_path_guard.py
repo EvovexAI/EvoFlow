@@ -123,6 +123,7 @@ def _make_aio_sandbox():
     concrete subclass that provides a no-op ``delete_file`` and then patch the
     client to a MagicMock.
     """
+
     class _ConcreteAioSandbox(AioSandbox):
         def delete_file(self, path: str) -> None:  # type: ignore[override]
             pass
@@ -164,9 +165,7 @@ class TestWriteFileGuard:
     def test_write_to_user_data_workspace_succeeds(self):
         sb = _make_aio_sandbox()
         sb.write_file("/mnt/user-data/workspace/out.txt", "hello")
-        sb._client.file.write_file.assert_called_once_with(
-            file="/mnt/user-data/workspace/out.txt", content="hello"
-        )
+        sb._client.file.write_file.assert_called_once_with(file="/mnt/user-data/workspace/out.txt", content="hello")
 
     def test_write_to_user_data_outputs_succeeds(self):
         sb = _make_aio_sandbox()
@@ -178,9 +177,7 @@ class TestWriteFileGuard:
         # read_file returns content via the mocked client
         sb._client.file.read_file.return_value = MagicMock(data=MagicMock(content="existing\n"))
         sb.write_file("/mnt/user-data/workspace/log.txt", "new", append=True)
-        sb._client.file.write_file.assert_called_once_with(
-            file="/mnt/user-data/workspace/log.txt", content="existing\nnew"
-        )
+        sb._client.file.write_file.assert_called_once_with(file="/mnt/user-data/workspace/log.txt", content="existing\nnew")
 
     def test_append_to_system_path_still_blocked(self):
         sb = _make_aio_sandbox()

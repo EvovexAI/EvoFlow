@@ -33,9 +33,7 @@ def test_job_permanent_error_marks_doc_failed(owned_home: Path) -> None:
 
     base = service.create_base({"name": "orphan-kb", "summaryEnabled": False})
     kb_id = base["id"]
-    doc = service.upload_manual_markdown(
-        kb_id, title="stuck", content="hello world " * 20, folder_path="inbox"
-    )
+    doc = service.upload_manual_markdown(kb_id, title="stuck", content="hello world " * 20, folder_path="inbox")
     doc_id = doc["id"]
     # Drop auto-enqueued jobs; insert a clean one we control.
     with db() as conn:
@@ -65,9 +63,7 @@ async def test_skip_embedding_still_completes_chunks(owned_home: Path) -> None:
 
     base = service.create_base({"name": "no-emb", "summaryEnabled": False})
     kb_id = base["id"]
-    doc = service.upload_manual_markdown(
-        kb_id, title="kw-only", content="关键词检索仍可用 " * 30, folder_path="inbox"
-    )
+    doc = service.upload_manual_markdown(kb_id, title="kw-only", content="关键词检索仍可用 " * 30, folder_path="inbox")
     doc_id = doc["id"]
     with db() as conn:
         conn.execute("DELETE FROM kb_jobs WHERE doc_id=?", (doc_id,))
@@ -92,9 +88,7 @@ def test_requeue_orphan_processing_docs(owned_home: Path) -> None:
 
     base = service.create_base({"name": "requeue-kb", "summaryEnabled": False})
     kb_id = base["id"]
-    doc = service.upload_manual_markdown(
-        kb_id, title="orphan", content="body", folder_path="inbox"
-    )
+    doc = service.upload_manual_markdown(kb_id, title="orphan", content="body", folder_path="inbox")
     doc_id = doc["id"]
     # Force processing with no active job (mimic deleted/exhausted job).
     with db() as conn:

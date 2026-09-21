@@ -120,12 +120,7 @@ def patch_binding(binding_id: str, body: dict[str, Any]) -> dict[str, Any]:
     elif "tier_id" in patch:
         patch["bound_capabilities"] = tier_entitlements(catalog, patch.get("tier_id"))
 
-    rematerialize = (
-        bool(patch.get("api_key"))
-        or "tier_id" in patch
-        or "bound_capabilities" in patch
-        or bool(body.get("rematerialize"))
-    )
+    rematerialize = bool(patch.get("api_key")) or "tier_id" in patch or "bound_capabilities" in patch or bool(body.get("rematerialize"))
     updated = bindings_store.update_binding(binding_id, patch)
 
     if rematerialize and updated.get("status") == "active":

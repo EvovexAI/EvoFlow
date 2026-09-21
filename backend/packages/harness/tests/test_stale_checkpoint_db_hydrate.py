@@ -22,12 +22,15 @@ def test_prefer_db_hydrate_when_checkpoint_lacks_summary() -> None:
         HumanMessage(content="latest", id="u-new"),
     ]
 
-    with patch(
-        "evoflow.persistence.chat_message_repositories.find_latest_compaction_seq",
-        return_value=100,
-    ), patch(
-        "evoflow.agents.middlewares.session_transcript_hydration_middleware.load_model_messages_for_session",
-        return_value=hydrated,
+    with (
+        patch(
+            "evoflow.persistence.chat_message_repositories.find_latest_compaction_seq",
+            return_value=100,
+        ),
+        patch(
+            "evoflow.agents.middlewares.session_transcript_hydration_middleware.load_model_messages_for_session",
+            return_value=hydrated,
+        ),
     ):
         out, swapped = _prefer_db_hydrated_if_stale_checkpoint(
             stale,
@@ -50,12 +53,15 @@ def test_prefer_db_hydrate_rejects_hydrate_without_summary() -> None:
     # round_id dump style: many msgs, no conversation_summary name
     hydrated = [HumanMessage(content=f"u{i}", id=f"hu{i}") for i in range(40)]
 
-    with patch(
-        "evoflow.persistence.chat_message_repositories.find_latest_compaction_seq",
-        return_value=100,
-    ), patch(
-        "evoflow.agents.middlewares.session_transcript_hydration_middleware.load_model_messages_for_session",
-        return_value=hydrated,
+    with (
+        patch(
+            "evoflow.persistence.chat_message_repositories.find_latest_compaction_seq",
+            return_value=100,
+        ),
+        patch(
+            "evoflow.agents.middlewares.session_transcript_hydration_middleware.load_model_messages_for_session",
+            return_value=hydrated,
+        ),
     ):
         out, swapped = _prefer_db_hydrated_if_stale_checkpoint(
             stale,

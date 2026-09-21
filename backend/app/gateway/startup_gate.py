@@ -106,9 +106,7 @@ class StartupGateMiddleware(BaseHTTPMiddleware):
                 retry_after_ms=500,
             )
 
-        if _needs_extended_routers(path) and not bool(
-            getattr(state, "extended_routers_registered", True)
-        ):
+        if _needs_extended_routers(path) and not bool(getattr(state, "extended_routers_registered", True)):
             return startup_not_ready_response(
                 code="loading_extended",
                 message="扩展模块仍在加载，请稍后重试",

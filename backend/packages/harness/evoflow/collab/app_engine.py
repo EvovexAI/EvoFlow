@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 PARAM_RE = re.compile(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}")
 
 # Content fields that may contain {{param}} (structural fields never rendered)
@@ -85,9 +84,7 @@ def apply_parameter_defaults(
     parameters: dict[str, str] | None,
 ) -> dict[str, str]:
     """Fill missing/blank parameters from AppParameter.default."""
-    out: dict[str, str] = {
-        str(k): "" if v is None else str(v) for k, v in (parameters or {}).items()
-    }
+    out: dict[str, str] = {str(k): "" if v is None else str(v) for k, v in (parameters or {}).items()}
     for p in app_def.get("parameters") or []:
         if not isinstance(p, dict):
             continue
@@ -117,11 +114,7 @@ def render_plan(app_def: dict[str, Any], parameters: dict[str, str]) -> dict[str
         "goal": _render_text(app_def.get("goal_template", ""), filled),
         "steps": _render_steps(app_def.get("steps", []) or [], filled),
         "flowchart_mermaid": _render_text(app_def.get("flowchart_mermaid", "") or "", filled),
-        "validation": [
-            _render_text(str(item), filled)
-            for item in (app_def.get("validation_template") or [])
-            if item is not None
-        ],
+        "validation": [_render_text(str(item), filled) for item in (app_def.get("validation_template") or []) if item is not None],
         "open_questions": "无",  # App runs have no open questions (parameters are filled)
     }
 

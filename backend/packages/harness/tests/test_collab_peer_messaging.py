@@ -154,11 +154,7 @@ def test_peer_reply_and_read(peer_collab) -> None:
         )
         assert replied.get("ok") is True
         view = peer_read(main_task_id=task_id, reader_party="Subtask_fe")
-        bodies = [
-            m.get("body")
-            for thread in (view.get("threads") or {}).values()
-            for m in thread
-        ]
+        bodies = [m.get("body") for thread in (view.get("threads") or {}).values() for m in thread]
         assert "/api/users" in bodies
 
     asyncio.run(_flow())

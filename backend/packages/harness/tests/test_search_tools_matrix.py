@@ -73,9 +73,7 @@ def test_classify_search_intent_and_tool(query: str, intent: str, tool: str):
 
 def test_filename_query_blocked_from_index():
     assert looks_like_filename_query("agent-trace-obs-sqlite.js")
-    assert not looks_like_filename_query(
-        "path:evopanel/src/pages renderModelResponseTypeCell|summarizeModelResponse"
-    )
+    assert not looks_like_filename_query("path:evopanel/src/pages renderModelResponseTypeCell|summarizeModelResponse")
 
 
 @pytest.mark.parametrize(
@@ -97,13 +95,11 @@ def _mini_repo() -> str:
     pages = tmp / "evopanel" / "src" / "pages"
     pages.mkdir(parents=True)
     (pages / "agent-trace-obs-sqlite.js").write_text(
-        "import { renderModelResponseTypeCell, summarizeModelResponse } from './agent-trace-model-response.js'\n"
-        "const response_summary = row.response_summary\n",
+        "import { renderModelResponseTypeCell, summarizeModelResponse } from './agent-trace-model-response.js'\nconst response_summary = row.response_summary\n",
         encoding="utf-8",
     )
     (pages / "agent-trace-model-response.js").write_text(
-        "export function summarizeModelResponse(r) {}\n"
-        "export function renderModelResponseTypeCell(s, opts) {}\n",
+        "export function summarizeModelResponse(r) {}\nexport function renderModelResponseTypeCell(s, opts) {}\n",
         encoding="utf-8",
     )
     backend = tmp / "backend" / "pkg"
@@ -120,24 +116,14 @@ def test_index_finds_scoped_evopanel_symbols():
         "path:evopanel/src/pages renderModelResponseTypeCell|summarizeModelResponse",
         limit=10,
     )
-    blob = " ".join(
-        str(x.get("path") or x.get("name") or "")
-        for x in (data.get("symbols") or []) + (data.get("hits") or [])
-    )
-    assert (
-        "agent-trace" in blob
-        or "renderModelResponseTypeCell" in blob
-        or "summarizeModelResponse" in blob
-    )
+    blob = " ".join(str(x.get("path") or x.get("name") or "") for x in (data.get("symbols") or []) + (data.get("hits") or []))
+    assert "agent-trace" in blob or "renderModelResponseTypeCell" in blob or "summarizeModelResponse" in blob
 
 
 def test_index_finds_backend_symbol():
     root = _mini_repo()
     data = search_index(root, "fetch_tools_summary", limit=8)
-    blob = " ".join(
-        str(x.get("path") or x.get("name") or "")
-        for x in (data.get("symbols") or []) + (data.get("hits") or [])
-    )
+    blob = " ".join(str(x.get("path") or x.get("name") or "") for x in (data.get("symbols") or []) + (data.get("hits") or []))
     assert "summaries.py" in blob
 
 
@@ -159,12 +145,7 @@ def test_rg_pipe_redirects_or_fixed_string_not_timeout():
     elapsed = time.perf_counter() - t0
     assert elapsed < 30.0, f"took {elapsed:.1f}s — likely regex OR timeout"
     assert "timed out" not in out.lower()
-    assert (
-        "code index" in out
-        or "fixed-string" in out
-        or "renderModelResponseTypeCell" in out
-        or "summarizeModelResponse" in out
-    )
+    assert "code index" in out or "fixed-string" in out or "renderModelResponseTypeCell" in out or "summarizeModelResponse" in out
 
 
 def test_rg_literal_finds_line_in_file():

@@ -69,9 +69,7 @@ def test_profile_roundtrip(sqlite_tmp: Path) -> None:
 
 def test_automation_crud(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    created = automation_admin.create_automation(
-        {"name": "Daily report", "prompt": "Summarize inbox", "schedule": "@daily"}
-    )
+    created = automation_admin.create_automation({"name": "Daily report", "prompt": "Summarize inbox", "schedule": "@daily"})
     task_id = created["id"]
     listed = automation_admin.list_automations()
     assert any(a["id"] == task_id for a in listed["automations"])

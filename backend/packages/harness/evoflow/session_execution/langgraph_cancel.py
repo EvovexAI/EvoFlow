@@ -240,11 +240,7 @@ async def sweep_langgraph_runs_until_idle(
             for rid in final_batch:
                 if rid not in cancelled_all:
                     cancelled_all.append(rid)
-            orphans = [
-                rid
-                for rid in await list_active_langgraph_run_ids(client, tid, exclude_run_ids=gone_run_ids)
-                if rid in target_run_ids
-            ]
+            orphans = [rid for rid in await list_active_langgraph_run_ids(client, tid, exclude_run_ids=gone_run_ids) if rid in target_run_ids]
             if orphans:
                 logger.warning(
                     "sweep_langgraph_runs_until_idle: orphan runs remain thread=%s runs=%s cancelled=%s gone=%s",

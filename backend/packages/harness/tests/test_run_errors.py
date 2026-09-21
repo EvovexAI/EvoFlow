@@ -27,6 +27,4 @@ def test_humanize_legacy_empty_bridge_string():
 
 
 def test_extract_from_kwargs():
-    assert (
-        extract_langgraph_run_error({"kwargs": {"error": "boom"}}) == "boom"
-    )
+    assert extract_langgraph_run_error({"kwargs": {"error": "boom"}}) == "boom"

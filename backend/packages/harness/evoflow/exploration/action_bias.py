@@ -131,17 +131,9 @@ def _hint_body(task_type: str, read_count: int) -> str:
             "- Do NOT worker-edit or deliver a「当前代码结构总结」instead of answering the question."
         )
     if tt == TASK_RUNTIME:
-        return (
-            "Phase: **explore → diagnose → act (runtime) → verify**.\n"
-            "- **Next act**: logs, health checks, process/port status—not search_code_index or file paging.\n"
-            "- Apply one fix (config/restart/command) then confirm recovery."
-        )
+        return "Phase: **explore → diagnose → act (runtime) → verify**.\n- **Next act**: logs, health checks, process/port status—not search_code_index or file paging.\n- Apply one fix (config/restart/command) then confirm recovery."
     if tt == TASK_LOCATE_FILE:
-        return (
-            "Phase: **locate → answer**.\n"
-            f"Paths are likely identified ({read_count} read(s)).\n"
-            "- **Next act**: tell the user the path(s) and stop repeating find/search."
-        )
+        return f"Phase: **locate → answer**.\nPaths are likely identified ({read_count} read(s)).\n- **Next act**: tell the user the path(s) and stop repeating find/search."
     return (
         "Phase: **explore → synthesize → (clarify if needed)**.\n"
         f"Gathered {read_count} reads—avoid endless exploration.\n"
@@ -204,7 +196,4 @@ def format_read_followup_action_hint(
         TASK_LOCATE_FILE: "reply with paths",
     }
     act = next_acts.get(tt, "synthesize or clarify")
-    return (
-        f"\n\n<read_next_step> Ready to act ({tt}, {count} reads).{path_line} "
-        f"Next: {act} — avoid broad re-exploration; targeted reads for verification are fine.</read_next_step>"
-    )
+    return f"\n\n<read_next_step> Ready to act ({tt}, {count} reads).{path_line} Next: {act} — avoid broad re-exploration; targeted reads for verification are fine.</read_next_step>"

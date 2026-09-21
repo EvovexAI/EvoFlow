@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
-from evoflow.authz.scope import org_scope, personal_scope, parse_scope_id
+from evoflow.authz.scope import org_scope, parse_scope_id, personal_scope
 from evoflow.authz.types import DEFAULT_ORG_ID, Principal
 
 

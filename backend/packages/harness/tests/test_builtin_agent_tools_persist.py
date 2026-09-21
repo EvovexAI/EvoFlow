@@ -32,12 +32,12 @@ def sqlite_tmp(monkeypatch: pytest.MonkeyPatch):
 
 def test_code_agent_user_tools_survive_rematerialize(sqlite_tmp: Path) -> None:
     del sqlite_tmp
+    import evoflow.config.agents_config as ac
     from evoflow.config.agents_config import (
         ensure_builtin_agents_materialized,
         load_agent_config,
         save_agent_config,
     )
-    import evoflow.config.agents_config as ac
 
     ensure_builtin_agents_materialized()
     cfg = load_agent_config("code-agent")

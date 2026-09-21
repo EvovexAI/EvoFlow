@@ -83,11 +83,7 @@ def _run(home: Path) -> dict:
     applied = apply_official_subtask_outcomes(task_id, reports) if task_id else {"ok": False}
     _s2, final, subs2 = find_main_and_subtasks(task_id)
     status = str(final.get("status") or "")
-    reported = [
-        s
-        for s in subs2
-        if s.get("outcome_reported_at") and _TOKEN in str(s.get("task_report") or "")
-    ]
+    reported = [s for s in subs2 if s.get("outcome_reported_at") and _TOKEN in str(s.get("task_report") or "")]
     has_rollup = any(is_rollup_subtask(s) for s in subs2)
 
     assertions = [

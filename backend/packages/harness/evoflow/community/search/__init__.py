@@ -10,11 +10,10 @@ Usage::
     results = orch.search("Python async best practices")
 """
 
-from .base import SearchEngine, SearchResult
-from .orchestrator import SearchOrchestrator
-
 # Import strategies so engines register themselves on package load.
 from . import strategies as _strategies  # noqa: F401
+from .base import SearchEngine, SearchResult
+from .orchestrator import SearchOrchestrator
 
 __all__ = [
     "SearchOrchestrator",

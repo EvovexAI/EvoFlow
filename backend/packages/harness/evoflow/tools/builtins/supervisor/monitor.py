@@ -72,9 +72,7 @@ _HOSTED_FOLLOW_SYSTEM_PROMPT = (
 _HOSTED_AUTOFOLLOW_MESSAGE_NAME = "hosted_autofollow"
 _HOSTED_HEARTBEAT_SECONDS = float(os.getenv("EVOFLOW_HOSTED_HEARTBEAT_SECONDS", "30") or 30)
 
-_ACTIVE_SUBTASK_STATUSES = frozenset(
-    {"pending", "planned", "waiting_dispatch", "executing", "running", "in_progress"}
-)
+_ACTIVE_SUBTASK_STATUSES = frozenset({"pending", "planned", "waiting_dispatch", "executing", "running", "in_progress"})
 
 
 def _has_dispatchable_subtasks(sub_rows: list[dict[str, Any]]) -> bool:
@@ -181,11 +179,11 @@ async def _requeue_and_redispatch_timed_out_subtasks_once(
     """Requeue timed_out/failed subtasks and immediately delegate the next runnable wave."""
     from evoflow.collab.storage import find_main_task
     from evoflow.tools.builtins.supervisor.dependency import (
+        _resolve_subtasks_for_start_execution,
         normalize_subtask_depends_on_refs,
         skip_subtasks_blocked_by_exhausted_upstream_failure,
         subtask_auto_retry_max,
     )
-    from evoflow.tools.builtins.supervisor.dependency import _resolve_subtasks_for_start_execution
     from evoflow.tools.builtins.supervisor.execution import (
         _resolve_collab_followup_runtime,
         delegate_collab_subtasks_for_start_execution,
@@ -224,11 +222,7 @@ async def _requeue_and_redispatch_timed_out_subtasks_once(
                 to_run,
                 wait_for_completion=False,
             )
-            delegated_ids = [
-                str(d.get("subtaskId") or "")
-                for d in delegated
-                if bool(d.get("ok")) and str(d.get("subtaskId") or "").strip()
-            ]
+            delegated_ids = [str(d.get("subtaskId") or "") for d in delegated if bool(d.get("ok")) and str(d.get("subtaskId") or "").strip()]
     except Exception:
         logger.debug(
             "requeue_and_redispatch timed_out: delegation failed task_id=%s",
@@ -800,11 +794,7 @@ def _ensure_background_task_monitor(
                                 rec.get("action"),
                             )
                         # 2) Heartbeat follow only while subtasks still need orchestration.
-                        if (
-                            _HOSTED_HEARTBEAT_SECONDS
-                            and _HOSTED_HEARTBEAT_SECONDS > 0
-                            and _has_dispatchable_subtasks(sub_rows)
-                        ):
+                        if _HOSTED_HEARTBEAT_SECONDS and _HOSTED_HEARTBEAT_SECONDS > 0 and _has_dispatchable_subtasks(sub_rows):
                             hb_rec = {"action": "heartbeat", "reason": "hosted_heartbeat", "failedSubtaskIds": [], "stalled": False}
                             await _trigger_lead_follow_run(
                                 thread_id=tid,

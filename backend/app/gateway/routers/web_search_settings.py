@@ -79,9 +79,7 @@ async def get_web_search_settings_api(request: Request) -> WebSearchSettingsResp
 
 
 @router.patch("/web-search", response_model=WebSearchSettingsResponse)
-async def patch_web_search_settings_api(
-    request: Request, body: WebSearchSettingsPatchBody
-) -> WebSearchSettingsResponse:
+async def patch_web_search_settings_api(request: Request, body: WebSearchSettingsPatchBody) -> WebSearchSettingsResponse:
     require_org_admin(request)
     return _to_settings_response(web_search_admin.patch_web_search(body.settings or {}))
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Coroutine
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -87,9 +86,7 @@ def schedule_detached_poll(coro: Any, *, name: str | None = None) -> None:
         if asyncio.iscoroutine(maybe):
             coro = maybe
     if not asyncio.iscoroutine(coro):
-        raise TypeError(
-            f"schedule_detached_poll expected a coroutine, got {type(coro)!r}"
-        )
+        raise TypeError(f"schedule_detached_poll expected a coroutine, got {type(coro)!r}")
 
     logger.info("[poll] detached_poll 开始处理 schedule name=%s", name or "detached-poll")
     loop = _ensure_loop()

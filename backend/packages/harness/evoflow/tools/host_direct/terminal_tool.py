@@ -177,6 +177,7 @@ def _run_subprocess(
     invocation_id: str = "",
     tool_call_id: str = "",
     stream_writer=None,
+    runtime=None,
 ) -> str:
     """Execute *command* via subprocess and return formatted result."""
     if pty:
@@ -495,7 +496,7 @@ _CURL_WITHOUT_MAX_TIME = re.compile(
 # Foreground commands that often exceed a short model-chosen timeout (hints only).
 _SLOW_FOREGROUND_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bgit\s+add\b.*(-A|--all)\b|\bgit\s+add\s+-A\b", re.I), "git add -A (ensure .gitignore excludes node_modules; try timeout=60–120)"),
-    (re.compile(r"\bgit\s+commit\b", re.I), "git commit (use -m \"…\"; GPG/editor prompts need long timeout or process)"),
+    (re.compile(r"\bgit\s+commit\b", re.I), 'git commit (use -m "…"; GPG/editor prompts need long timeout or process)'),
     (re.compile(r"\bnpx\s+tsc\b|\btsc\b", re.I), "TypeScript compile"),
     (re.compile(r"\bnpm\s+install\b|\bnpm\s+ci\b", re.I), "npm install (prefer process action=start)"),
 ]
@@ -538,20 +539,11 @@ def _timeout_recovery_hint(command: str, timeout: int, *, explicit_timeout: bool
     if slow_note:
         lines.append(f"Slow command detected ({slow_note}).")
     if _should_auto_background(cmd, background=False):
-        lines.append(
-            "This looks like a long-running job — prefer **process**(action='start', background=True) + "
-            "process(action='log'|'wait'|'kill') instead of terminal."
-        )
+        lines.append("This looks like a long-running job — prefer **process**(action='start', background=True) + process(action='log'|'wait'|'kill') instead of terminal.")
     elif explicit_timeout and timeout < _DEFAULT_TIMEOUT:
-        lines.append(
-            f"You passed timeout={timeout}; for non-probe commands the platform default is {_DEFAULT_TIMEOUT}s — "
-            f"retry with timeout={_DEFAULT_TIMEOUT}–120 or use process(action='start') when runtime is unpredictable."
-        )
+        lines.append(f"You passed timeout={timeout}; for non-probe commands the platform default is {_DEFAULT_TIMEOUT}s — retry with timeout={_DEFAULT_TIMEOUT}–120 or use process(action='start') when runtime is unpredictable.")
     else:
-        lines.append(
-            f"Retry with a larger timeout (e.g. {min(timeout * 2, _FOREGROUND_MAX_TIMEOUT)}) "
-            "or use **process**(action='start') for scripts, test suites, dev servers, builds, and installs."
-        )
+        lines.append(f"Retry with a larger timeout (e.g. {min(timeout * 2, _FOREGROUND_MAX_TIMEOUT)}) or use **process**(action='start') for scripts, test suites, dev servers, builds, and installs.")
     lines.append("Reserve terminal for quick one-shots: git status, env, curl -m 10, short file ops.")
     return "\n".join(lines)
 
@@ -567,6 +559,7 @@ def _check_dangerous(command: str) -> str | None:
 # ---------------------------------------------------------------------------
 # The Tool
 # ---------------------------------------------------------------------------
+
 
 @tool("terminal", description=TERMINAL_TOOL_DESCRIPTION, parse_docstring=False)
 def terminal_tool(
@@ -602,10 +595,7 @@ def terminal_tool(
     from evoflow.exploration.exploration_budget import check_tool_budget, is_unbounded_recurse_command
 
     if is_unbounded_recurse_command(effective_command):
-        return (
-            "Error: Unbounded filesystem scan blocked. "
-            "Use find(pattern, root='<subdir>') or rg with a scoped path."
-        )
+        return "Error: Unbounded filesystem scan blocked. Use find(pattern, root='<subdir>') or rg with a scoped path."
 
     thread_id = None
     if runtime is not None and getattr(runtime, "context", None):
@@ -642,9 +632,7 @@ def terminal_tool(
 
     if not background and _should_auto_background(effective_command, background=False):
         return (
-            "Error: Long-running command must use process(action='start'), not terminal.\n"
-            "Use process(action='start', command=..., background=True) + process(action='log'|'wait'|'kill', session_id=...).\n"
-            f"Command: {effective_command[:200]}"
+            f"Error: Long-running command must use process(action='start'), not terminal.\nUse process(action='start', command=..., background=True) + process(action='log'|'wait'|'kill', session_id=...).\nCommand: {effective_command[:200]}"
         )
 
     run_background = bool(background)
@@ -702,17 +690,11 @@ def terminal_tool(
             invocation_id=invocation_id,
             tool_call_id=tool_call_id,
             stream_writer=stream_writer,
+            runtime=runtime,
         )
     if "timed out" in result.lower():
-        if (
-            _CURL_WITHOUT_MAX_TIME.search(effective_command)
-            and not explicit_timeout
-            and effective_timeout <= _CURL_PROBE_MAX_TIMEOUT
-        ):
-            result += (
-                "\n\nHint: curl without -m/--max-time may hang on unreachable hosts. "
-                "Retry with e.g. `curl -m 10 -I <url>` or use process(action='start') for long-running commands."
-            )
+        if _CURL_WITHOUT_MAX_TIME.search(effective_command) and not explicit_timeout and effective_timeout <= _CURL_PROBE_MAX_TIMEOUT:
+            result += "\n\nHint: curl without -m/--max-time may hang on unreachable hosts. Retry with e.g. `curl -m 10 -I <url>` or use process(action='start') for long-running commands."
         else:
             result += "\n\n" + _timeout_recovery_hint(
                 effective_command,
@@ -720,5 +702,3 @@ def terminal_tool(
                 explicit_timeout=explicit_timeout,
             )
     return result
-
-

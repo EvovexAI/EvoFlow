@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ──────────────────────── answer_node_only mode ────────────────────────
 
 
@@ -15,14 +14,16 @@ class TestAnswerNodeOnlyRollup:
             step_statuses = {"1": "completed", "2": "completed"}
         subtasks = []
         for ref, status in step_statuses.items():
-            subtasks.append({
-                "id": f"sub_{ref}",
-                "ref": ref,
-                "name": f"Step {ref}",
-                "status": status,
-                "task_report": f"Report for step {ref}",
-                "outputs": [{"type": "file", "key": f"f{ref}", "value": f"out/step{ref}.md"}],
-            })
+            subtasks.append(
+                {
+                    "id": f"sub_{ref}",
+                    "ref": ref,
+                    "name": f"Step {ref}",
+                    "status": status,
+                    "task_report": f"Report for step {ref}",
+                    "outputs": [{"type": "file", "key": f"f{ref}", "value": f"out/step{ref}.md"}],
+                }
+            )
         return {
             "id": "task_test",
             "source_app_id": "App_test",
@@ -135,7 +136,7 @@ class TestBuildRollupSubtaskSpec:
         assert needs_auto_rollup(app) is True
 
     def test_build_spec_has_rollup_ref(self):
-        from evoflow.collab.app_rollup import build_rollup_subtask_spec, ROLLUP_REF
+        from evoflow.collab.app_rollup import ROLLUP_REF, build_rollup_subtask_spec
 
         app = self._make_app(3)
         spec = build_rollup_subtask_spec(app, goal="Test goal", validation=["Check A"])
@@ -178,17 +179,22 @@ class TestBuildRollupSubtaskSpec:
 
 class TestIsRollupSubtask:
     def test_by_ref(self):
-        from evoflow.collab.app_rollup import is_rollup_subtask, ROLLUP_REF
+        from evoflow.collab.app_rollup import ROLLUP_REF, is_rollup_subtask
 
         assert is_rollup_subtask({"ref": ROLLUP_REF}) is True
 
     def test_by_worker_profile(self):
         from evoflow.collab.app_rollup import is_rollup_subtask
 
-        assert is_rollup_subtask({
-            "ref": "custom",
-            "worker_profile": {"is_rollup_step": True},
-        }) is True
+        assert (
+            is_rollup_subtask(
+                {
+                    "ref": "custom",
+                    "worker_profile": {"is_rollup_step": True},
+                }
+            )
+            is True
+        )
 
     def test_normal_subtask(self):
         from evoflow.collab.app_rollup import is_rollup_subtask
@@ -206,7 +212,7 @@ class TestIsRollupSubtask:
 
 class TestApplyRollupResult:
     def test_merges_all_outputs(self):
-        from evoflow.collab.app_rollup import apply_rollup_result_to_main_task, ROLLUP_REF
+        from evoflow.collab.app_rollup import ROLLUP_REF, apply_rollup_result_to_main_task
 
         rollup_st = {
             "id": "sub_rollup",
@@ -217,10 +223,8 @@ class TestApplyRollupResult:
         }
         all_subs = [
             rollup_st,
-            {"id": "s1", "ref": "1", "status": "completed", "task_report": "s1",
-             "outputs": [{"type": "file", "key": "a", "value": "out/a.md"}]},
-            {"id": "s2", "ref": "2", "status": "completed", "task_report": "s2",
-             "outputs": [{"type": "file", "key": "b", "value": "out/b.md"}]},
+            {"id": "s1", "ref": "1", "status": "completed", "task_report": "s1", "outputs": [{"type": "file", "key": "a", "value": "out/a.md"}]},
+            {"id": "s2", "ref": "2", "status": "completed", "task_report": "s2", "outputs": [{"type": "file", "key": "b", "value": "out/b.md"}]},
         ]
         task = {"id": "t1", "subtasks": all_subs}
         patch = apply_rollup_result_to_main_task(task, rollup_st, all_subtasks=all_subs)

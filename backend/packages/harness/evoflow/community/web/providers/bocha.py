@@ -60,9 +60,7 @@ class BochaWebSearchProvider(WebSearchProvider):
         if not api_key:
             return {
                 "success": False,
-                "error": (
-                    "BOCHA_API_KEY not set. Create a key at https://open.bochaai.com/"
-                ),
+                "error": ("BOCHA_API_KEY not set. Create a key at https://open.bochaai.com/"),
             }
 
         q = (query or "").strip()
@@ -122,17 +120,9 @@ class BochaWebSearchProvider(WebSearchProvider):
             url = str(item.get("url") or item.get("URL") or item.get("Url") or "").strip()
             if not url:
                 continue
-            summary = str(
-                item.get("summary")
-                or item.get("Summary")
-                or item.get("snippet")
-                or item.get("Snippet")
-                or ""
-            ).strip()
+            summary = str(item.get("summary") or item.get("Summary") or item.get("snippet") or item.get("Snippet") or "").strip()
             site = str(item.get("siteName") or item.get("SiteName") or "").strip()
-            published = str(
-                item.get("datePublished") or item.get("DatePublished") or item.get("dateLastCrawled") or ""
-            ).strip()
+            published = str(item.get("datePublished") or item.get("DatePublished") or item.get("dateLastCrawled") or "").strip()
             meta = " | ".join(p for p in (site, published) if p)
             description = f"{meta}\n{summary}".strip() if meta else summary
             web.append(

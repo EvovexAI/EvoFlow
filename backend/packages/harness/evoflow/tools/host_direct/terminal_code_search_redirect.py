@@ -31,9 +31,7 @@ _CODE_SEARCH_RE = re.compile(
 )
 
 # ``Get-ChildItem -Recurse`` alone is used for disk/folder sizing — not code search.
-_GCI_RECURSE_CODE_SEARCH_RE = re.compile(
-    r"(?i)\b(?:get-childitem|gci)\b[^\n\r|;]*\s+-recurse\b"
-)
+_GCI_RECURSE_CODE_SEARCH_RE = re.compile(r"(?i)\b(?:get-childitem|gci)\b[^\n\r|;]*\s+-recurse\b")
 
 # Filesystem metrics / inventory — allow even when -Recurse appears in the pipeline.
 _NON_CODE_SEARCH_RE = re.compile(
@@ -47,8 +45,7 @@ _NON_CODE_SEARCH_RE = re.compile(
 )
 
 _REDIRECT_BANNER = (
-    "[terminal → code search] Shell 代码搜索已转为内置检索（秒级），避免 PowerShell/grep 冷启动超时。\n"
-    "下次请直接用 search_code_index(query=\"...\")、rg(pattern=\"...\") 或 read_file，勿再用 terminal 的 Select-String/grep/rg。\n\n"
+    '[terminal → code search] Shell 代码搜索已转为内置检索（秒级），避免 PowerShell/grep 冷启动超时。\n下次请直接用 search_code_index(query="...")、rg(pattern="...") 或 read_file，勿再用 terminal 的 Select-String/grep/rg。\n\n'
 )
 
 
@@ -136,9 +133,7 @@ def _parse_grep_like(command: str) -> tuple[str, list[str]] | None:
     if m:
         pattern = _unquote(m.group("pattern"))
         rest = (m.group("rest") or "").strip()
-        paths = [_unquote(x) for x in re.findall(_QUOTED, rest)] or (
-            [x for x in rest.split() if x and not x.startswith("-")]
-        )
+        paths = [_unquote(x) for x in re.findall(_QUOTED, rest)] or ([x for x in rest.split() if x and not x.startswith("-")])
         return pattern, paths
     m = re.search(
         rf"(?i)\bgrep\s+(?:-[a-zA-Z]+\s+)*"
@@ -148,9 +143,7 @@ def _parse_grep_like(command: str) -> tuple[str, list[str]] | None:
     if m:
         pattern = _unquote(m.group("pattern"))
         rest = (m.group("rest") or "").strip()
-        paths = [_unquote(x) for x in re.findall(_QUOTED, rest)] or (
-            [x for x in rest.split() if x and not x.startswith("-")]
-        )
+        paths = [_unquote(x) for x in re.findall(_QUOTED, rest)] or ([x for x in rest.split() if x and not x.startswith("-")])
         return pattern, paths
     return None
 
@@ -166,9 +159,7 @@ def _parse_findstr(command: str) -> tuple[str, list[str]] | None:
         return None
     pattern = _unquote(m.group("pattern"))
     rest = (m.group("rest") or "").strip()
-    paths = [_unquote(x) for x in re.findall(_QUOTED, rest)] or (
-        [x for x in rest.split() if x and not x.startswith("/")]
-    )
+    paths = [_unquote(x) for x in re.findall(_QUOTED, rest)] or ([x for x in rest.split() if x and not x.startswith("/")])
     return pattern, paths
 
 

@@ -1,5 +1,6 @@
-from .browser_tool import browser_tool
+from .assets_tool import assets_tool
 from .automation_tool import automation_tool
+from .browser_tool import browser_tool
 from .catalog_tools import list_assignable_tools_tool, list_skills_catalog_tool
 from .clarification_tool import ask_clarification_tool
 from .claude_session_tool import claude_session_tool
@@ -21,22 +22,22 @@ from .goal_report_tool import goal_report_tool  # noqa: F401 — retained for DB
 from .kb_search_tool import search_knowledge_base_tool
 from .knowledge_vault_tools import knowledge_tool
 from .list_agents_tool import list_agents_tool
+from .memory_remember_tool import memory_remember_tool
 from .mind_map_tool import mind_map_tool
 from .pattern_fix_tool import pattern_fix_tool
-from .memory_remember_tool import memory_remember_tool
-from .assets_tool import assets_tool
 from .person_memory_edit_tool import person_memory_edit_tool
 from .plan_tool import plan_tool
 from .platform_tool import platform_tool
 from .process_tool import process_tool
 from .propose_goal_tool import propose_goal_tool
 from .read_lints_tool import read_lints_tool
-# scenario_activation (mode_set/scenario) — import submodule directly; avoids circular import at startup
-from .stage_tool import panel_set_tool, stage_set_tool
 from .send_message_tool import send_message_tool
 from .session_workspace_tool import session_workspace_tool
 from .setup_agent_tool import setup_agent
 from .skill_manager_tool import skill_manager_tool
+
+# scenario_activation (mode_set/scenario) — import submodule directly; avoids circular import at startup
+from .stage_tool import panel_set_tool, stage_set_tool
 from .subtask_outcome_report_tool import subtask_outcome_report_tool
 from .subtask_progress_tool import subtask_progress_report_tool
 from .subtask_work_checklist_tool import subtask_work_checklist_tool

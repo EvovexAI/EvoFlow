@@ -26,13 +26,13 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from langgraph.runtime import Runtime
 
 from evoflow.agents.middleware_state import replace_messages_in_state
+from evoflow.agents.middlewares.transcript_middleware import seed_transcript_written_ids
 from evoflow.persistence.chat_message_content import (
     loads_payload,
     model_body_text,
     reasoning_text,
     tool_calls,
 )
-from evoflow.agents.middlewares.transcript_middleware import seed_transcript_written_ids
 from evoflow.persistence.chat_message_repositories import (
     get_session_hydration_watermark,
     list_lead_chat_rows_for_model_hydration,
@@ -104,8 +104,8 @@ def _drain_pending_injects_into_transcript(session_key: str, thread_id: str | No
     queue, write transcript + emit ``pending_inject_consumed`` for UI ack.
     """
     try:
-        from evoflow.persistence.pending_inject_repository import consume_pending_injects
         from evoflow.persistence import chat_session_service as chat_svc
+        from evoflow.persistence.pending_inject_repository import consume_pending_injects
     except Exception:
         return 0
 
@@ -121,11 +121,7 @@ def _drain_pending_injects_into_transcript(session_key: str, thread_id: str | No
         cfg = get_config() or {}
         conf = cfg.get("configurable") if isinstance(cfg, dict) else None
         if isinstance(conf, dict):
-            run_id = (
-                str(conf.get("run_id") or conf.get("evf_run_id") or conf.get("thread_run_id") or "")
-                .strip()
-                or None
-            )
+            run_id = str(conf.get("run_id") or conf.get("evf_run_id") or conf.get("thread_run_id") or "").strip() or None
     except Exception:
         run_id = None
 
@@ -296,9 +292,7 @@ def lead_transcript_rows_to_lc_messages(rows: list[dict[str, Any]]) -> list[Base
                 kwargs["name"] = uname
             ctx_files = payload.get("contextFiles") or payload.get("context_files")
             if isinstance(ctx_files, list) and ctx_files:
-                normalized = [
-                    x for x in ctx_files if isinstance(x, dict) and str(x.get("path") or "").strip()
-                ]
+                normalized = [x for x in ctx_files if isinstance(x, dict) and str(x.get("path") or "").strip()]
                 if normalized:
                     kwargs["additional_kwargs"] = {"context_files": normalized}
             out.append(HumanMessage(**kwargs))
@@ -446,11 +440,7 @@ def _collect_missing_state_humans(
         return []
 
     db_ids = {_lc_message_id(m) for m in db_lc if _lc_message_id(m)}
-    db_texts = {
-        _human_message_text(getattr(m, "content", None)).strip()
-        for m in db_lc
-        if isinstance(m, HumanMessage)
-    }
+    db_texts = {_human_message_text(getattr(m, "content", None)).strip() for m in db_lc if isinstance(m, HumanMessage)}
 
     last_human: HumanMessage | None = None
     for m in reversed(list(state_messages or [])):
@@ -516,9 +506,7 @@ def _extract_tool_approval_replay_messages(messages: list[Any] | None) -> list[H
         if isinstance(m.content, str):
             found.append(m)
         else:
-            found.append(
-                m.model_copy(update={"content": text, "name": getattr(m, "name", None) or "tool_approval_resume"})
-            )
+            found.append(m.model_copy(update={"content": text, "name": getattr(m, "name", None) or "tool_approval_resume"}))
     # Only the latest marker is needed for ToolApprovalReplayMiddleware.
     return found[-1:] if found else []
 
@@ -667,11 +655,7 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
         # watermark says a summary exists (stale checkpoint).
         from evoflow.agents.context_compaction_core import transcript_has_conversation_summary
 
-        stale_checkpoint = bool(
-            compaction_seq is not None
-            and len(state_messages) >= 24
-            and not transcript_has_conversation_summary(state_messages)
-        )
+        stale_checkpoint = bool(compaction_seq is not None and len(state_messages) >= 24 and not transcript_has_conversation_summary(state_messages))
         slim_checkpoint = checkpoint_messages_look_slim(state_messages, max_seq)
 
         can_skip = (
@@ -697,11 +681,7 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
             and not stale_checkpoint
             and not slim_checkpoint
             and len(state_messages) > 0
-            and (
-                cached.max_seq == max_seq
-                or not _state_humans_missing_from_ids(state_messages, cached.human_ids)
-                or any(isinstance(m, HumanMessage) for m in state_messages)
-            )
+            and (cached.max_seq == max_seq or not _state_humans_missing_from_ids(state_messages, cached.human_ids) or any(isinstance(m, HumanMessage) for m in state_messages))
         )
         if can_skip or trust_runtime:
             if trust_runtime and not can_skip and hydration_cache_enabled():
@@ -711,13 +691,11 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
                     _HydrationCacheEntry(
                         max_seq=max_seq,
                         compaction_seq=compaction_seq,
-                        human_ids=_human_ids_from_messages(state_messages)
-                        or (cached.human_ids if cached else frozenset()),
+                        human_ids=_human_ids_from_messages(state_messages) or (cached.human_ids if cached else frozenset()),
                     ),
                 )
             logger.info(
-                "session transcript hydration: skip rebuild (%s) thread=%s session=%s "
-                "max_seq=%s compaction_seq=%s state_msgs=%s",
+                "session transcript hydration: skip rebuild (%s) thread=%s session=%s max_seq=%s compaction_seq=%s state_msgs=%s",
                 "watermark hit" if can_skip else "trust runtime",
                 thread_id,
                 session_key,
@@ -765,8 +743,7 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
             )
 
         logger.info(
-            "session transcript hydration: replace runtime from chat_messages thread=%s session=%s "
-            "state_msgs=%s db_msgs=%s compaction_seq=%s injected=%s stale_checkpoint=%s",
+            "session transcript hydration: replace runtime from chat_messages thread=%s session=%s state_msgs=%s db_msgs=%s compaction_seq=%s injected=%s stale_checkpoint=%s",
             thread_id,
             session_key,
             len(state_messages),

@@ -292,10 +292,7 @@ def list_remote_models(data: dict[str, Any]) -> dict[str, Any]:
             if plan_fb:
                 return {
                     "success": True,
-                    "message": (
-                        f"Agent Plan endpoint has no GET /models; "
-                        f"returning {len(plan_fb)} official catalog IDs"
-                    ),
+                    "message": (f"Agent Plan endpoint has no GET /models; returning {len(plan_fb)} official catalog IDs"),
                     "models": plan_fb,
                     "degraded": True,
                 }

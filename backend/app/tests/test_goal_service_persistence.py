@@ -59,6 +59,7 @@ def patched_service(monkeypatch: pytest.MonkeyPatch):
 
     # Reset module-level concurrency counters between tests.
     import app.channels.services.goal_service as hsvc_module
+
     monkeypatch.setattr(hsvc_module, "global_running_count", 0, raising=True)
     monkeypatch.setattr(hsvc_module, "user_running_counts", {}, raising=True)
 
@@ -223,7 +224,7 @@ def test_submit_feedback_updates_persisted_state(sqlite_tmp, patched_service):  
 
 
 def test_start_goal_broadcasts_panel_state(sqlite_tmp, patched_service, monkeypatch):  # noqa: ARG001
-    sk = 'agent:main:web:sse-1'
+    sk = "agent:main:web:sse-1"
     cfg = _build_config()
 
     captured: list = []
@@ -232,15 +233,16 @@ def test_start_goal_broadcasts_panel_state(sqlite_tmp, patched_service, monkeypa
         captured.append((thread_id, event_type, data))
 
     from app.gateway.routers.events import EventBroadcaster
-    monkeypatch.setattr(EventBroadcaster, 'broadcast', _fake_broadcast, raising=True)
+
+    monkeypatch.setattr(EventBroadcaster, "broadcast", _fake_broadcast, raising=True)
 
     async def _run() -> None:
         svc = patched_service()
         try:
             await svc.start_goal(
-                user_id='alice',
+                user_id="alice",
                 channel_type=GoalChannelType.WEB,
-                channel_chat_id='chat-1',
+                channel_chat_id="chat-1",
                 associated_session_key=sk,
                 config=cfg,
                 use_frontend_chat=False,
@@ -251,18 +253,18 @@ def test_start_goal_broadcasts_panel_state(sqlite_tmp, patched_service, monkeypa
 
     asyncio.run(_run())
 
-    matching = [(tid, et, d) for tid, et, d in captured if et == 'panel:goal_state' and tid == sk]
-    assert matching, f'expected panel:goal_state for {sk}, got: {captured}'
+    matching = [(tid, et, d) for tid, et, d in captured if et == "panel:goal_state" and tid == sk]
+    assert matching, f"expected panel:goal_state for {sk}, got: {captured}"
     payload = matching[0][2]
-    assert payload['sessionKey'] == sk
-    assert payload['status'] == 'running'
-    assert payload['enabled'] is True
-    assert payload['stepCount'] == 0
-    assert 'goalId' in payload or 'hostedId' in payload
+    assert payload["sessionKey"] == sk
+    assert payload["status"] == "running"
+    assert payload["enabled"] is True
+    assert payload["stepCount"] == 0
+    assert "goalId" in payload or "hostedId" in payload
 
 
 def test_recover_persisted_sessions_resumes_enabled_rows(sqlite_tmp, patched_service):  # noqa: ARG001
-    sk = 'agent:main:web:recover-1'
+    sk = "agent:main:web:recover-1"
     goal_repo.upsert_goal_session(
         sk,
         goal_session_id="hosted-recover-1",
@@ -297,10 +299,10 @@ def test_recover_persisted_sessions_resumes_enabled_rows(sqlite_tmp, patched_ser
         svc = patched_service()
         try:
             n = await svc.recover_persisted_sessions()
-            assert n == 1, f'expected 1 resumed session, got {n}'
+            assert n == 1, f"expected 1 resumed session, got {n}"
             sks_in_memory = {s.associated_session_key for s in svc._sessions.values()}
             assert sk in sks_in_memory
-            assert 'agent:main:web:recover-2-idle' not in sks_in_memory
+            assert "agent:main:web:recover-2-idle" not in sks_in_memory
             session = next(s for s in svc._sessions.values() if s.associated_session_key == sk)
             assert session.id == "hosted-recover-1"
             assert session.id in svc._hosted_loop_tasks

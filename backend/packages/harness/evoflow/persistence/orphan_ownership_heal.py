@@ -35,9 +35,7 @@ def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
 
 
 def _stamp_orphan_sessions(conn: sqlite3.Connection, *, batch_size: int = _DEFAULT_BATCH) -> int:
-    if not conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_chat_sessions'"
-    ).fetchone():
+    if not conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='evoflow_chat_sessions'").fetchone():
         return 0
     if not _has_column(conn, "evoflow_chat_sessions", "created_by"):
         return 0
@@ -154,9 +152,7 @@ def _stamp_orphan_usage_table(
 
 
 def _stamp_orphan_usage(conn: sqlite3.Connection, *, batch_size: int = _DEFAULT_BATCH) -> int:
-    return _stamp_orphan_usage_table(conn, "evoflow_usage_events", batch_size=batch_size) + _stamp_orphan_usage_table(
-        conn, "evoflow_usage_daily", batch_size=batch_size
-    )
+    return _stamp_orphan_usage_table(conn, "evoflow_usage_events", batch_size=batch_size) + _stamp_orphan_usage_table(conn, "evoflow_usage_daily", batch_size=batch_size)
 
 
 def heal_orphan_ownership_to_admin(conn: sqlite3.Connection) -> None:

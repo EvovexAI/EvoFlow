@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from evoflow.skills.skill_uri import SKILL_URI_PREFIX
 from evoflow.skills.types import Skill
@@ -14,18 +13,18 @@ _DEFAULT_MAX_CHARS = 48_000
 
 _SKILL_EXECUTION_HINT_EN = (
     "Skill execution (install dir is outside the user workspace — use skill: URIs, do not search workspace):\n"
-    "- Read: read(\"skill:<name>/relative/file\")\n"
-    "- Run script: terminal(command=\"python scripts/foo.py\", workdir=\"skill:<name>\") "
-    "or process(action=\"start\", command=..., workdir=\"skill:<name>\")\n"
-    "- List skill tree: terminal(command=\"ls\" or \"dir\", workdir=\"skill:<name>\")\n"
+    '- Read: read("skill:<name>/relative/file")\n'
+    '- Run script: terminal(command="python scripts/foo.py", workdir="skill:<name>") '
+    'or process(action="start", command=..., workdir="skill:<name>")\n'
+    '- List skill tree: terminal(command="ls" or "dir", workdir="skill:<name>")\n'
 )
 
 _SKILL_EXECUTION_HINT_ZH = (
     "技能执行（安装在 EvoFlow skills 目录，不在用户工作区 — 用 skill: URI，勿搜工作区）：\n"
-    "- 读文件：read(\"skill:<名>/相对路径\")\n"
-    "- 跑脚本：terminal(command=\"python scripts/foo.py\", workdir=\"skill:<名>\") "
-    "或 process(action=\"start\", command=..., workdir=\"skill:<名>\")\n"
-    "- 列目录：terminal(command=\"ls\" 或 \"dir\", workdir=\"skill:<名>\")\n"
+    '- 读文件：read("skill:<名>/相对路径")\n'
+    '- 跑脚本：terminal(command="python scripts/foo.py", workdir="skill:<名>") '
+    '或 process(action="start", command=..., workdir="skill:<名>")\n'
+    '- 列目录：terminal(command="ls" 或 "dir", workdir="skill:<名>")\n'
 )
 
 
@@ -47,13 +46,7 @@ def _read_skill_body(skill: Skill) -> str:
 def format_skill_injection_block(skill: Skill, *, contents: str | None = None) -> str:
     body = contents if contents is not None else _read_skill_body(skill)
     location = f"{SKILL_URI_PREFIX}{skill.name}"
-    return (
-        f"<skill>\n"
-        f"<name>{skill.name}</name>\n"
-        f"<location>{location}</location>\n"
-        f"{body.rstrip()}\n"
-        f"</skill>"
-    )
+    return f"<skill>\n<name>{skill.name}</name>\n<location>{location}</location>\n{body.rstrip()}\n</skill>"
 
 
 def build_skill_injection_message(

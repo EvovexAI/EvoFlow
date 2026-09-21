@@ -108,6 +108,12 @@ backend/*.err.txt
 *.rej
 config.yaml.bak
 
+# Local typecheck error dump (never commit)
+evopanel/typecheck-errors.txt
+
+# Employee runtime duty logs (never commit)
+backend/assets/
+
 # MkDocs output
 site/
 

@@ -11,10 +11,10 @@ import tempfile
 import threading
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 Assertion = dict[str, Any]
 ScenarioFn = Callable[[Path], dict[str, Any]]
@@ -165,9 +165,7 @@ def finalize(
     failed = [a for a in assertions if not a.get("ok")]
     ok = total > 0 and not failed
     score = round((passed / total) * 100.0, 1) if total else 0.0
-    detail_parts = [
-        f"{a['name']}: {a.get('detail') or ('ok' if a['ok'] else 'fail')}" for a in failed
-    ]
+    detail_parts = [f"{a['name']}: {a.get('detail') or ('ok' if a['ok'] else 'fail')}" for a in failed]
     api_list = list(apis or [])
     if not api_list:
         for a in assertions:

@@ -7,12 +7,7 @@ from pathlib import Path
 
 
 def _load_cli_argv():
-    path = (
-        Path(__file__).resolve().parents[3]
-        / "packaging"
-        / "windows"
-        / "cli_argv.py"
-    )
+    path = Path(__file__).resolve().parents[3] / "packaging" / "windows" / "cli_argv.py"
     spec = importlib.util.spec_from_file_location("evoflow_packaging_cli_argv", path)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)

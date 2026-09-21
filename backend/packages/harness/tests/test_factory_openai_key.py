@@ -33,14 +33,19 @@ def test_openai_api_key_not_injected_for_claude_model(monkeypatch) -> None:
         def __init__(self, **kwargs):
             created.update(kwargs)
 
-    with patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)), patch(
-        "evoflow.models.factory.resolve_class",
-        return_value=_FakeClaude,
-    ), patch(
-        "evoflow.models.factory.is_tracing_enabled",
-        return_value=False,
-    ), patch(
-        "evoflow.models.factory.patch_chat_model_instance_credentials",
+    with (
+        patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)),
+        patch(
+            "evoflow.models.factory.resolve_class",
+            return_value=_FakeClaude,
+        ),
+        patch(
+            "evoflow.models.factory.is_tracing_enabled",
+            return_value=False,
+        ),
+        patch(
+            "evoflow.models.factory.patch_chat_model_instance_credentials",
+        ),
     ):
         create_chat_model("test-model")
 
@@ -56,14 +61,19 @@ def test_openai_api_key_injected_for_chat_openai(monkeypatch) -> None:
         def __init__(self, **kwargs):
             created.update(kwargs)
 
-    with patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)), patch(
-        "evoflow.models.factory.resolve_class",
-        return_value=_FakeOpenAI,
-    ), patch(
-        "evoflow.models.factory.is_tracing_enabled",
-        return_value=False,
-    ), patch(
-        "evoflow.models.factory.patch_chat_model_instance_credentials",
+    with (
+        patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)),
+        patch(
+            "evoflow.models.factory.resolve_class",
+            return_value=_FakeOpenAI,
+        ),
+        patch(
+            "evoflow.models.factory.is_tracing_enabled",
+            return_value=False,
+        ),
+        patch(
+            "evoflow.models.factory.patch_chat_model_instance_credentials",
+        ),
     ):
         create_chat_model("test-model")
 
@@ -87,14 +97,19 @@ def test_context_length_not_passed_to_chat_openai(monkeypatch) -> None:
         def __init__(self, **kwargs):
             created.update(kwargs)
 
-    with patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)), patch(
-        "evoflow.models.factory.resolve_class",
-        return_value=_FakeOpenAI,
-    ), patch(
-        "evoflow.models.factory.is_tracing_enabled",
-        return_value=False,
-    ), patch(
-        "evoflow.models.factory.patch_chat_model_instance_credentials",
+    with (
+        patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)),
+        patch(
+            "evoflow.models.factory.resolve_class",
+            return_value=_FakeOpenAI,
+        ),
+        patch(
+            "evoflow.models.factory.is_tracing_enabled",
+            return_value=False,
+        ),
+        patch(
+            "evoflow.models.factory.patch_chat_model_instance_credentials",
+        ),
     ):
         create_chat_model("test-model")
 
@@ -119,14 +134,19 @@ def test_plan_metadata_not_passed_to_chat_openai(monkeypatch) -> None:
         def __init__(self, **kwargs):
             created.update(kwargs)
 
-    with patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)), patch(
-        "evoflow.models.factory.resolve_class",
-        return_value=_FakeOpenAI,
-    ), patch(
-        "evoflow.models.factory.is_tracing_enabled",
-        return_value=False,
-    ), patch(
-        "evoflow.models.factory.patch_chat_model_instance_credentials",
+    with (
+        patch("evoflow.models.factory.get_app_config", return_value=_fake_app_config(cfg)),
+        patch(
+            "evoflow.models.factory.resolve_class",
+            return_value=_FakeOpenAI,
+        ),
+        patch(
+            "evoflow.models.factory.is_tracing_enabled",
+            return_value=False,
+        ),
+        patch(
+            "evoflow.models.factory.patch_chat_model_instance_credentials",
+        ),
     ):
         create_chat_model("deepseek-v4-flash")
 

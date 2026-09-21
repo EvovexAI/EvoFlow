@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import asyncio
-import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,14 +14,13 @@ _BACKEND = Path(__file__).resolve().parents[3]
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
-from evoflow.persistence.channel_push_repositories import (
+from evoflow.persistence.channel_push_repositories import (  # noqa: E402
     list_by_approval,
     list_recent,
     record_push,
     safe_record_push,
 )
-from evoflow.persistence.db import get_db, reset_db_for_tests
-
+from evoflow.persistence.db import get_db, reset_db_for_tests  # noqa: E402
 
 
 def test_record_and_list_by_approval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -71,9 +67,7 @@ def test_record_and_list_by_approval(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert any(r["id"] == pid for r in recent)
 
 
-def test_safe_record_push_mirrors_to_chat_transcript(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_safe_record_push_mirrors_to_chat_transcript(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Channel interactions land in chat_messages like normal user/assistant turns."""
     db_path = tmp_path / "push-chat.db"
     monkeypatch.setenv("EVOFLOW_DB_PATH", str(db_path))
@@ -114,13 +108,17 @@ def test_safe_record_push_mirrors_to_chat_transcript(
         triggered_by="user_callback",
     )
 
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT session_key, role, content_json, tool_name, message_id
         FROM evoflow_chat_messages
         ORDER BY seq ASC
         """
-    ).fetchall()
+        )
+        .fetchall()
+    )
     assert len(rows) >= 2
     sessions = {str(r["session_key"]) for r in rows}
     assert "proactive:project-architect" in sessions
@@ -136,9 +134,7 @@ def test_safe_record_push_mirrors_to_chat_transcript(
                 if isinstance(obj, dict) and "content" in obj:
                     return str(obj.get("content") or "")
                 if isinstance(obj, list):
-                    return " ".join(
-                        str(b.get("text") or "") for b in obj if isinstance(b, dict)
-                    )
+                    return " ".join(str(b.get("text") or "") for b in obj if isinstance(b, dict))
             except Exception:
                 pass
         return str(raw or "")
@@ -163,9 +159,7 @@ def test_safe_record_push_swallows_errors(monkeypatch: pytest.MonkeyPatch) -> No
     assert safe_record_push(direction="outbound", kind="x") is None
 
 
-def test_process_decision_records_desktop_inbound(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_process_decision_records_desktop_inbound(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from evoflow.proactive.decision_gate import DecisionGate
     from evoflow.proactive.models import Approval, ApprovalStatus
 
@@ -224,11 +218,7 @@ def test_process_decision_records_desktop_inbound(
             return_value=True,
         ),
     ):
-        asyncio.run(
-            DecisionGate().process_decision(
-                "appr_desk", decision="approved", decided_by="user"
-            )
-        )
+        asyncio.run(DecisionGate().process_decision("appr_desk", decision="approved", decided_by="user"))
 
     items = list_by_approval("appr_desk")
     assert len(items) == 1
@@ -238,9 +228,7 @@ def test_process_decision_records_desktop_inbound(
     assert items[0]["payload"]["decision"] == "approved"
 
 
-def test_push_feishu_records_outbound_card(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_push_feishu_records_outbound_card(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from evoflow.proactive.decision_gate import DecisionGate
     from evoflow.proactive.models import (
         Approval,
@@ -306,9 +294,7 @@ def test_push_feishu_records_outbound_card(
         "status": "completed",
         "handlers_pending_approval": True,
         "summary": "审核通过，派前端改文案",
-        "handlers": [
-            {"role": "前端工程师", "agent_code": "code-agent", "content": "改按钮"}
-        ],
+        "handlers": [{"role": "前端工程师", "agent_code": "code-agent", "content": "改按钮"}],
         "outputs": [
             {"type": "file", "label": "审核报告", "value": "docs/review.md"},
         ],
@@ -352,11 +338,7 @@ def test_push_feishu_records_outbound_card(
         ),
         patch("evoflow.proactive.decision_gate.ProactiveRepository.save_approval"),
     ):
-        asyncio.run(
-            DecisionGate()._push_feishu(
-                role, initiative, approval, triggered_by="manual_repush"
-            )
-        )
+        asyncio.run(DecisionGate()._push_feishu(role, initiative, approval, triggered_by="manual_repush"))
 
     items = list_by_approval("appr_out")
     kinds = {i["kind"] for i in items}

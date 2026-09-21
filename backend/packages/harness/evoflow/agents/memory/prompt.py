@@ -325,14 +325,7 @@ def format_memory_for_injection(
     facts_data = memory_data.get("facts", [])
     if isinstance(facts_data, list) and facts_data:
         ranked_facts = sorted(
-            (
-                f
-                for f in facts_data
-                if isinstance(f, dict)
-                and isinstance(f.get("content"), str)
-                and f.get("content").strip()
-                and _standing_fact_allowed(f, chat_compact=chat_compact)
-            ),
+            (f for f in facts_data if isinstance(f, dict) and isinstance(f.get("content"), str) and f.get("content").strip() and _standing_fact_allowed(f, chat_compact=chat_compact)),
             key=lambda fact: _coerce_confidence(fact.get("confidence"), default=0.0),
             reverse=True,
         )

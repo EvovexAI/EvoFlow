@@ -24,9 +24,9 @@ def owned_memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_mark_atom_stale_tags_and_lowers_vitality(owned_memory_root: Path) -> None:
+    from evoflow.memory import store as mem_store
     from evoflow.memory.facade import mark_atom_stale, remember
     from evoflow.memory.namespaces import user_ns
-    from evoflow.memory import store as mem_store
 
     ns = user_ns("default")
     aid = remember(
@@ -48,9 +48,9 @@ def test_mark_atom_stale_tags_and_lowers_vitality(owned_memory_root: Path) -> No
 
 
 def test_mark_related_skips_pinned(owned_memory_root: Path) -> None:
+    from evoflow.memory import store as mem_store
     from evoflow.memory.facade import mark_related_memories_stale, remember
     from evoflow.memory.namespaces import user_ns
-    from evoflow.memory import store as mem_store
 
     ns = user_ns("default")
     pinned = remember(
@@ -82,16 +82,14 @@ def test_mark_related_skips_pinned(owned_memory_root: Path) -> None:
     assert out.get("marked") == 1
     assert loose in (out.get("atom_ids") or [])
     assert "stale" in {str(t).lower() for t in (mem_store.get_atom(loose) or {}).get("tags") or []}
-    assert "stale" not in {
-        str(t).lower() for t in (mem_store.get_atom(pinned) or {}).get("tags") or []
-    }
+    assert "stale" not in {str(t).lower() for t in (mem_store.get_atom(pinned) or {}).get("tags") or []}
 
 
 def test_stale_memories_on_close_helper(owned_memory_root: Path) -> None:
+    from evoflow.memory import store as mem_store
     from evoflow.memory.facade import remember
     from evoflow.memory.namespaces import user_ns
     from evoflow.memory.stale_on_close import stale_memories_on_close
-    from evoflow.memory import store as mem_store
 
     ns = user_ns("default")
     aid = remember(

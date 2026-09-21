@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +13,6 @@ from evoflow.knowledge.vault.capability import DiscoveredCapabilities
 from evoflow.knowledge.vault.errors import NoteConflictError, PathForbiddenError, WriteDisabledError
 from evoflow.knowledge.vault.models import KnowledgeVaultConfig
 from evoflow.knowledge.vault.provider import ObsidianKnowledgeProvider
-from pathlib import Path
 
 
 def _cfg(tmp_path, **kwargs: Any) -> KnowledgeVaultConfig:
@@ -214,9 +214,7 @@ def test_read_prefers_filesystem_when_mcp_content_empty(tmp_path):
     note_path = tmp_path / "vault" / "Knowledge" / "Agent Memory.md"
     note_path.write_text("# Agent Memory\n\n正文来自磁盘\n", encoding="utf-8")
     sess = _sess()
-    sess.search_capabilities.schemas["evo_kb_read"] = {
-        "properties": {"paths": {}, "path": {}, "related": {}}
-    }
+    sess.search_capabilities.schemas["evo_kb_read"] = {"properties": {"paths": {}, "path": {}, "related": {}}}
 
     async def _run():
         with (

@@ -94,6 +94,7 @@ def _looks_like_placeholder(value: str) -> bool:
         return True
     return any(m in v for m in _PLACEHOLDER_MARKERS)
 
+
 class WebSearchProvider(abc.ABC):
     """Pluggable backend for web_search (and optionally extract)."""
 

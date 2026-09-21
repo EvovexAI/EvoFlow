@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from evoflow.admin import verification as ver
 from evoflow.admin.platform_actions import (
     dispatch_platform_action,
     reset_registry_cache,
 )
-from evoflow.admin import verification as ver
 from evoflow.persistence.db import reset_db_for_tests
 
 

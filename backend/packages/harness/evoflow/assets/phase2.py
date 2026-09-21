@@ -11,18 +11,19 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from evoflow.assets.catalog import parse_frontmatter
 from evoflow.assets.guidance import resolve_session_entity
-from evoflow.assets.pipeline_config import asset_phase2_enabled, max_inbox_for_consolidation
-from evoflow.assets.usage import usage_recency_score
 from evoflow.assets.hub import ensure_entity_tree, write_text_file
 from evoflow.assets.paths import EntityRef, entity_relative_dir, entity_root, resolve_entity_file
+from evoflow.assets.pipeline_config import asset_phase2_enabled, max_inbox_for_consolidation
 from evoflow.assets.prompt_templates import load_memory_prompt, render_memory_prompt
+from evoflow.assets.usage import usage_recency_score
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,7 @@ def rebuild_raw_memories_file(entity: EntityRef) -> tuple[str, list[str]]:
 
 def _write_phase2_diff_stub(entity: EntityRef, pending_rels: list[str]) -> str:
     """Synthetic diff artifact (runtime uses git; we list pending inbox paths)."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     lines = [
         "# phase2_workspace_diff",
         "",
@@ -278,7 +279,7 @@ def _normalize_standing(text: str) -> str:
 
 def _slug(name: str) -> str:
     s = _SLUG_SAFE.sub("-", str(name or "").strip().lower()).strip("-")
-    return (s[:48].strip("-") or "craft")
+    return s[:48].strip("-") or "craft"
 
 
 def _archive_pending(entity: EntityRef, pending_rels: list[str]) -> list[str]:
@@ -288,7 +289,7 @@ def _archive_pending(entity: EntityRef, pending_rels: list[str]) -> list[str]:
     done_root = root / "memory" / "_inbox" / "_done"
     done_root.mkdir(parents=True, exist_ok=True)
     moved: list[str] = []
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     for rel in pending_rels:
         src = resolve_entity_file(entity, rel)
         if not src.is_file():
@@ -342,10 +343,7 @@ def _apply_phase2_writes(
                 if not skill:
                     continue
                 if not skill.lstrip().startswith("---"):
-                    skill = (
-                        f"---\nname: {title}\ndescription: {title[:80]}\n"
-                        f"summary: {title[:30]}\nsource: phase2\n---\n\n{skill}\n"
-                    )
+                    skill = f"---\nname: {title}\ndescription: {title[:80]}\nsummary: {title[:30]}\nsource: phase2\n---\n\n{skill}\n"
                 rel = f"craft/{slug}/SKILL.md"
                 write_text_file(entity, rel, skill if skill.endswith("\n") else skill + "\n")
                 paths.append(rel)
@@ -469,9 +467,7 @@ def run_phase2_consolidate(
             try:
                 from langchain_core.messages import HumanMessage, SystemMessage
 
-                response = model.invoke(
-                    [SystemMessage(content=system), HumanMessage(content=user)]
-                )
+                response = model.invoke([SystemMessage(content=system), HumanMessage(content=user)])
             except Exception:
                 response = model.invoke(f"{system}\n\n---\n\n{user}")
             response_text = (_extract_text(getattr(response, "content", response)) or "").strip()

@@ -75,14 +75,10 @@ def _validate_workspace_path(path: Any) -> str:
     check = _normalize_path_for_safety_check(raw)
     for prefix in _DENIED_WORKSPACE_PREFIXES:
         if check.startswith(prefix) or check == prefix.rstrip("/"):
-            raise ValidationError(
-                "workspace_path is not allowed: points to a sensitive system location"
-            )
+            raise ValidationError("workspace_path is not allowed: points to a sensitive system location")
     for suffix in _DENIED_WORKSPACE_SUFFIXES:
         if check.endswith(suffix) or suffix in check:
-            raise ValidationError(
-                "workspace_path is not allowed: points to a sensitive system location"
-            )
+            raise ValidationError("workspace_path is not allowed: points to a sensitive system location")
     return raw
 
 
@@ -103,6 +99,7 @@ def _parse_worklog_day(day: str | None) -> str:
     except ValueError as e:
         raise ValidationError(f"day is not a valid calendar date: {day_s}") from e
     return day_s
+
 
 _HIRE_KEYS = frozenset(
     {
@@ -141,9 +138,7 @@ _HIRE_KEYS = frozenset(
     }
 )
 
-_UPDATE_KEYS = frozenset(_HIRE_KEYS - {"agent_code"}) | frozenset(
-    {"dnd_enabled", "dnd_start_hour", "dnd_end_hour"}
-)
+_UPDATE_KEYS = frozenset(_HIRE_KEYS - {"agent_code"}) | frozenset({"dnd_enabled", "dnd_start_hour", "dnd_end_hour"})
 
 
 def _proactive_api_base() -> str:
@@ -299,11 +294,7 @@ def sync_employee_from_agent(agent_code: str) -> dict[str, Any]:
     role.updated_at = utc_now_iso_z()
     # 岗位名与智能体名分离：仅在完全空/脏时保持为空，禁止用 agent_name 回填
     current_name = str(role.role_name or "").strip()
-    if (
-        not current_name
-        or current_name == code
-        or current_name.casefold() in {"none", "null", "undefined"}
-    ):
+    if not current_name or current_name == code or current_name.casefold() in {"none", "null", "undefined"}:
         role.role_name = ""
     ProactiveRepository.save_role(role)
     return {"synced": True, "agent_code": code}
@@ -456,9 +447,7 @@ def hire(data: dict[str, Any]) -> dict[str, Any]:
         agent_row = get_agent(agent_code)
         agent_code = str(agent_row.get("agent_code") or agent_code).strip()
     except NotFoundError as e:
-        raise ValidationError(
-            f"Agent '{agent_code}' not found; create it with agents.create before hiring"
-        ) from e
+        raise ValidationError(f"Agent '{agent_code}' not found; create it with agents.create before hiring") from e
 
     return _hire_existing_agent(agent_code, agent_row, data)
 
@@ -524,8 +513,7 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         agent_payload = {
             "agent_code": agent_code,
             "agent_name": str(data.get("agent_name") or role_name).strip() or role_name,
-            "description": str(data.get("description") or "").strip()
-            or f"员工岗位：{role_name}",
+            "description": str(data.get("description") or "").strip() or f"员工岗位：{role_name}",
             "agent_type": "custom",
             "soul": str(data.get("soul") or data.get("soul_md") or "").strip(),
         }
@@ -561,10 +549,7 @@ def _hire_existing_agent(
     except ValueError as e:
         raise ValidationError(str(e)) from e
 
-    role_name = (
-        str(data.get("role_name") or "").strip()
-        or str(agent_row.get("agent_name") or agent_code)
-    )
+    role_name = str(data.get("role_name") or "").strip() or str(agent_row.get("agent_name") or agent_code)
     position_code = str(data.get("position_code") or "").strip()
     heartbeat = str(data.get("heartbeat_rrule") or "FREQ=HOURLY;INTERVAL=2").strip()
     from evoflow.proactive.prompt import validate_knowledge_vault_ids
@@ -591,11 +576,7 @@ def _hire_existing_agent(
     skills_value = list(data.get("skills") or []) if explicit_skills else list(agent_skills)
 
     explicit_tool_groups = "tool_groups" in data and data.get("tool_groups") is not None
-    tool_groups_value = (
-        list(data.get("tool_groups") or [])
-        if explicit_tool_groups
-        else (agent_tool_groups or agent_tools)
-    )
+    tool_groups_value = list(data.get("tool_groups") or []) if explicit_tool_groups else (agent_tool_groups or agent_tools)
 
     model_name_value = str(data.get("model_name") or "").strip() or agent_model
 
@@ -611,9 +592,7 @@ def _hire_existing_agent(
         autonomy_level=_parse_autonomy(data.get("autonomy_level")),
         max_initiatives_per_cycle=int(data.get("max_initiatives_per_cycle") or 3),
         risk_threshold=_parse_risk(data.get("risk_threshold")),
-        approval_channels=list(
-            data.get("approval_channels") or ["desktop", "feishu"]
-        ),
+        approval_channels=list(data.get("approval_channels") or ["desktop", "feishu"]),
         approval_timeout_minutes=int(data.get("approval_timeout_minutes") or 30),
         soul_md=soul_md_value,
         think_mode=str(data.get("think_mode") or "agent_loop").strip() or "agent_loop",
@@ -674,11 +653,7 @@ def _hire_existing_agent(
             if dept:
                 listed = DepartmentRepository.list_departments(with_members=True)
                 cur = next((d for d in listed if d.get("id") == dept.get("id")), None)
-                codes = [
-                    str(m.get("agent_code") or "").strip()
-                    for m in (cur or {}).get("members") or []
-                    if str(m.get("agent_code") or "").strip()
-                ]
+                codes = [str(m.get("agent_code") or "").strip() for m in (cur or {}).get("members") or [] if str(m.get("agent_code") or "").strip()]
                 if agent_code not in codes:
                     codes.append(agent_code)
                     DepartmentRepository.set_members(str(dept["id"]), codes)
@@ -731,9 +706,7 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         schedule_changed = apply_schedule_input(
             role,
             heartbeat_schedule=str(data.get("heartbeat_schedule") or "").strip() or None,
-            heartbeat_rrule=str(data.get("heartbeat_rrule") or "").strip() or None
-            if data.get("heartbeat_rrule") is not None
-            else None,
+            heartbeat_rrule=str(data.get("heartbeat_rrule") or "").strip() or None if data.get("heartbeat_rrule") is not None else None,
         )
 
     cfg = role.config
@@ -747,9 +720,7 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         from evoflow.proactive.prompt import validate_knowledge_vault_ids
 
         try:
-            cfg.knowledge_vault_ids = validate_knowledge_vault_ids(
-                list(data.get("knowledge_vault_ids") or [])
-            )
+            cfg.knowledge_vault_ids = validate_knowledge_vault_ids(list(data.get("knowledge_vault_ids") or []))
         except ValueError as e:
             raise ValidationError(str(e)) from e
     if data.get("kpis") is not None:
@@ -848,11 +819,7 @@ def stop_role(agent_code: str) -> dict[str, Any]:
     if not role:
         raise NotFoundError(f"Role '{code}' not found")
     gw = _fetch_gateway_status()
-    busy_codes = {
-        str(row.get("agent_code") or "").strip()
-        for row in (list(gw.get("busy_roles") or []) if gw else [])
-        if isinstance(row, dict)
-    }
+    busy_codes = {str(row.get("agent_code") or "").strip() for row in (list(gw.get("busy_roles") or []) if gw else []) if isinstance(row, dict)}
     gw_resp = _try_gateway_post(f"/roles/{code}/stop")
     if code not in busy_codes:
         role.config.auto_patrol_suspended = True
@@ -877,9 +844,7 @@ def resume_role(agent_code: str) -> dict[str, Any]:
         raise NotFoundError(f"Role '{code}' not found")
     prev = role.status
     if prev == "archived":
-        raise ValidationError(
-            "Cannot resume an archived employee; re-hire or create a new role instead"
-        )
+        raise ValidationError("Cannot resume an archived employee; re-hire or create a new role instead")
     if prev == "active":
         return {
             "ok": True,
@@ -1050,11 +1015,7 @@ def list_roles(*, status: str | None = None, include_archived: bool = False) -> 
 
     gw = _fetch_gateway_status()
     busy_rows = list(gw.get("busy_roles") or []) if gw else []
-    busy_codes = {
-        str(row.get("agent_code") or "").strip()
-        for row in busy_rows
-        if isinstance(row, dict) and str(row.get("agent_code") or "").strip()
-    }
+    busy_codes = {str(row.get("agent_code") or "").strip() for row in busy_rows if isinstance(row, dict) and str(row.get("agent_code") or "").strip()}
     pending = ProactiveRepository.list_pending_approvals()
     pending_by_role: Counter[str] = Counter()
     for a in pending:
@@ -1109,15 +1070,9 @@ def worklog(
     # tasks   = board Tasks assigned that day (items.dispatch / proactive dispatch)
     activity_count = len(rounds) + len(tasks)
     if rounds and tasks:
-        hint = (
-            f"当日有 {len(rounds)} 个值班轮次、{len(tasks)} 个台账任务；"
-            "看「干了啥」请同时读 rounds 与 tasks，勿只看 round_count。"
-        )
+        hint = f"当日有 {len(rounds)} 个值班轮次、{len(tasks)} 个台账任务；看「干了啥」请同时读 rounds 与 tasks，勿只看 round_count。"
     elif tasks and not rounds:
-        hint = (
-            f"当日无值班巡检轮次（round_count=0 正常），但有 {len(tasks)} 个台账任务；"
-            "派发/执行工作请看 tasks[]，不要据此判定 worklog 为空。"
-        )
+        hint = f"当日无值班巡检轮次（round_count=0 正常），但有 {len(tasks)} 个台账任务；派发/执行工作请看 tasks[]，不要据此判定 worklog 为空。"
     elif rounds and not tasks:
         hint = f"当日有 {len(rounds)} 个值班轮次，无台账任务记录。"
     else:
@@ -1300,11 +1255,7 @@ def round_trail(
     # Round scorecard from initiatives
     scorecard: dict[str, Any] = {}
     if rid:
-        inits = [
-            i
-            for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=80)
-            if str(i.round_id or "") == rid
-        ]
+        inits = [i for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=80) if str(i.round_id or "") == rid]
         rounds = _group_rounds(inits)
         if rounds:
             scorecard = {
@@ -1337,24 +1288,12 @@ def resolve_role_ref(ref: str) -> ProactiveRole:
     if by_code:
         return by_code
     key_l = key.casefold()
-    matches = [
-        r
-        for r in ProactiveRepository.list_roles(status="active")
-        if str(r.role_name or "").strip().casefold() == key_l
-        or str(r.agent_code or "").strip().casefold() == key_l
-    ]
+    matches = [r for r in ProactiveRepository.list_roles(status="active") if str(r.role_name or "").strip().casefold() == key_l or str(r.agent_code or "").strip().casefold() == key_l]
     if not matches:
         # Also allow paused lookup by exact code already failed; try any status by name
-        matches = [
-            r
-            for r in ProactiveRepository.list_roles()
-            if str(r.role_name or "").strip().casefold() == key_l
-        ]
+        matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().casefold() == key_l]
     if not matches:
-        raise NotFoundError(
-            f"No employee matching '{key}'. Use agent_code or role_name "
-            "(see `evoflow employees list`)."
-        )
+        raise NotFoundError(f"No employee matching '{key}'. Use agent_code or role_name (see `evoflow employees list`).")
     if len(matches) > 1:
         codes = ", ".join(r.agent_code for r in matches)
         raise ValidationError(f"Ambiguous role_name '{key}' matches: {codes}")
@@ -1406,10 +1345,7 @@ def dispatch(
                 "task_ids": done_ids,
                 "agent_code": code,
                 "role_name": role.role_name,
-                "message": (
-                    "目标中引用的 Task 均已结案，跳过重复派发："
-                    + ", ".join(f"`{i}`" for i in done_ids[:8])
-                ),
+                "message": ("目标中引用的 Task 均已结案，跳过重复派发：" + ", ".join(f"`{i}`" for i in done_ids[:8])),
             }
 
     url = f"{_proactive_api_base()}/roles/{code}/dispatch"
@@ -1469,9 +1405,7 @@ def dispatch(
                 try:
                     t.result()
                 except Exception:
-                    logger.exception(
-                        "employees.dispatch in-process failed agent=%s", code
-                    )
+                    logger.exception("employees.dispatch in-process failed agent=%s", code)
 
             fut.add_done_callback(_log_done)
             return {
@@ -1494,9 +1428,7 @@ def dispatch(
         with httpx.Client(timeout=15.0) as client:
             r = client.post(url, json=payload)
     except httpx.TimeoutException as e:
-        raise ValidationError(
-            f"Gateway timeout calling {url}. Is Gateway running on EVOFLOW_LANGGRAPH_URL host?"
-        ) from e
+        raise ValidationError(f"Gateway timeout calling {url}. Is Gateway running on EVOFLOW_LANGGRAPH_URL host?") from e
     except httpx.HTTPError as e:
         raise ValidationError(f"Gateway unreachable at {url}: {e}") from e
 
@@ -1544,9 +1476,7 @@ def wake(
     """
     target_role = resolve_role_ref(target)
     if target_role.status != "active":
-        raise ValidationError(
-            f"Target '{target_role.agent_code}' status is '{target_role.status}', not 'active'"
-        )
+        raise ValidationError(f"Target '{target_role.agent_code}' status is '{target_role.status}', not 'active'")
 
     from_s = str(from_agent or "").strip()
     from_role: ProactiveRole | None = None
@@ -1581,28 +1511,17 @@ def wake(
             if not task_has_pending_handoff_approval(parent_row):
                 return
             handlers = task_handlers_of(parent_row)
-            codes = {
-                str(h.get("agent_code") or "").strip().lower()
-                for h in handlers
-                if str(h.get("agent_code") or "").strip()
-            }
+            codes = {str(h.get("agent_code") or "").strip().lower() for h in handlers if str(h.get("agent_code") or "").strip()}
             if target_role.agent_code.lower() in codes:
                 pid = str(parent_row.get("id") or parent_row.get("task_id") or "").strip()
-                raise ValidationError(
-                    f"上游 Task `{pid}` 交接待审批：批准前禁止 wake 下游 "
-                    f"「{target_role.role_name}」。请等用户同意后由系统派发。"
-                )
+                raise ValidationError(f"上游 Task `{pid}` 交接待审批：批准前禁止 wake 下游 「{target_role.role_name}」。请等用户同意后由系统派发。")
 
         if tid:
             child = load_work_item_task(tid)
             if child:
-                parent_id = str(
-                    child.get("parent_task_id") or child.get("parent_id") or ""
-                ).strip()
+                parent_id = str(child.get("parent_task_id") or child.get("parent_id") or "").strip()
                 if parent_id:
-                    found = find_main_task(
-                        get_project_storage(), parent_id, bypass_cache=True
-                    )
+                    found = find_main_task(get_project_storage(), parent_id, bypass_cache=True)
                     if found:
                         _block_if_pending_parent(found[1])
         if from_role:
@@ -1658,10 +1577,7 @@ def wake(
                 "task_ids": done_ids,
                 "agent_code": target_role.agent_code,
                 "role_name": target_role.role_name,
-                "message": (
-                    "目标中引用的 Task 均已 reviewed/completed，跳过重复派发："
-                    + ", ".join(f"`{i}`" for i in done_ids[:8])
-                ),
+                "message": ("目标中引用的 Task 均已 reviewed/completed，跳过重复派发：" + ", ".join(f"`{i}`" for i in done_ids[:8])),
             }
 
     if not goal_s and tid:

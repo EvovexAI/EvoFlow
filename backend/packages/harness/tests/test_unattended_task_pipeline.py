@@ -226,9 +226,7 @@ def test_advance_promotes_planning_when_plan_bound(sqlite_tmp: str, monkeypatch:
     asyncio.run(_run())
 
 
-def test_advance_executing_with_terminal_subtasks_does_not_redispatch(
-    sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_advance_executing_with_terminal_subtasks_does_not_redispatch(sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch) -> None:
     _ = sqlite_tmp
 
     async def _run() -> None:

@@ -118,12 +118,7 @@ def format_user_requests_section(thread_id: str) -> str:
     if not reqs:
         return ""
     lines = ["<user_requests>"]
-    lines.append(
-        "# 以下是用户最近提出的请求原文（按时间顺序，最多 10 条）。"
-        "即使对话被压缩，这些请求也不会丢失。"
-        "最后一条是用户最新提出的请求，即当前应执行的任务；"
-        "之前的请求仅作为上下文参考，不要重复已完成的工作。"
-    )
+    lines.append("# 以下是用户最近提出的请求原文（按时间顺序，最多 10 条）。即使对话被压缩，这些请求也不会丢失。最后一条是用户最新提出的请求，即当前应执行的任务；之前的请求仅作为上下文参考，不要重复已完成的工作。")
     for i, req in enumerate(reqs, 1):
         ts = str(req.get("ts") or "").strip()
         text = str(req.get("text") or "").strip()

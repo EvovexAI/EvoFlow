@@ -94,9 +94,7 @@ def register_health_routes(app: FastAPI) -> None:
             "startup_phase": str(getattr(request.app.state, "startup_phase", "unknown") or "unknown"),
             "startup_ready": bool(getattr(request.app.state, "startup_ready", False)),
             "routers_registered": bool(getattr(request.app.state, "routers_registered", False)),
-            "extended_routers_registered": bool(
-                getattr(request.app.state, "extended_routers_registered", False)
-            ),
+            "extended_routers_registered": bool(getattr(request.app.state, "extended_routers_registered", False)),
             "startup_error": getattr(request.app.state, "startup_error", None),
         }
         return report

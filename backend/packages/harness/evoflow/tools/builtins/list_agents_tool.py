@@ -191,40 +191,18 @@ async def list_agents_tool(
                 agent_list.append(acp)
 
         if assignable_only:
-            agent_list = [
-                a
-                for a in agent_list
-                if str(a.get("type") or "").strip().lower() in {"subagent", "acp", "builtin"}
-                and str(a.get("agent_code") or "").strip().lower()
-                not in {"claude-code", "claude-session", "claude"}
-            ]
+            agent_list = [a for a in agent_list if str(a.get("type") or "").strip().lower() in {"subagent", "acp", "builtin"} and str(a.get("agent_code") or "").strip().lower() not in {"claude-code", "claude-session", "claude"}]
 
         if tag_filters:
-            agent_list = [
-                a
-                for a in agent_list
-                if any(
-                    any(wanted in (t or "") for t in (a.get("tags") or []))
-                    for wanted in tag_filters
-                )
-            ]
+            agent_list = [a for a in agent_list if any(any(wanted in (t or "") for t in (a.get("tags") or [])) for wanted in tag_filters)]
 
-        agent_list = [
-            a
-            for a in agent_list
-            if str(a.get("agent_code") or "").strip().lower()
-            not in {"claude-code", "claude-session", "claude"}
-        ]
+        agent_list = [a for a in agent_list if str(a.get("agent_code") or "").strip().lower() not in {"claude-code", "claude-session", "claude"}]
 
         payload: dict = {
             "success": True,
             "agents": agent_list,
             "count": len(agent_list),
-            "message": (
-                f"Found {len(agent_list)} agent(s) matching tags {tag_filters}."
-                if tag_filters
-                else f"Found {len(agent_list)} agent(s). Use the 'agent_code' field for assigned_agent when creating subtasks."
-            ),
+            "message": (f"Found {len(agent_list)} agent(s) matching tags {tag_filters}." if tag_filters else f"Found {len(agent_list)} agent(s). Use the 'agent_code' field for assigned_agent when creating subtasks."),
         }
 
         logger.info(f"Listed {len(agent_list)} agents")

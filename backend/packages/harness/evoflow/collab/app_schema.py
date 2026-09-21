@@ -254,17 +254,12 @@ def _normalize_canvas(raw: Any, steps: list[dict[str, Any]]) -> dict[str, Any]:
         if agent_nodes:
             kept.append(agent_nodes[0])
     # Preserve at most one answer sink (visual + answer_from_ref pointer)
-    if answer_pos is not None or any(
-        isinstance(e, dict) and _as_str(e.get("target")) == ANSWER_NODE_ID
-        for e in (raw.get("edges") or [])
-        if isinstance(raw.get("edges"), list)
-    ):
+    if answer_pos is not None or any(isinstance(e, dict) and _as_str(e.get("target")) == ANSWER_NODE_ID for e in (raw.get("edges") or []) if isinstance(raw.get("edges"), list)):
         kept.append(
             {
                 "nodeId": ANSWER_NODE_ID,
                 "type": "answer",
-                "position": answer_pos
-                or {"x": 720.0, "y": 140.0},
+                "position": answer_pos or {"x": 720.0, "y": 140.0},
             }
         )
 
@@ -319,9 +314,7 @@ def _normalize_canvas(raw: Any, steps: list[dict[str, Any]]) -> dict[str, Any]:
     return canvas
 
 
-def _ensure_edges_from_depends_on(
-    steps: list[dict[str, Any]], canvas: dict[str, Any]
-) -> dict[str, Any]:
+def _ensure_edges_from_depends_on(steps: list[dict[str, Any]], canvas: dict[str, Any]) -> dict[str, Any]:
     """Rebuild canvas business edges from depends_on ONLY when canvas has zero edges.
 
     If canvas already has edges (even only start->node), the user has been
@@ -365,9 +358,7 @@ def _ensure_edges_from_depends_on(
     return out
 
 
-def _sync_depends_on_from_canvas(
-    steps: list[dict[str, Any]], canvas: dict[str, Any]
-) -> list[dict[str, Any]]:
+def _sync_depends_on_from_canvas(steps: list[dict[str, Any]], canvas: dict[str, Any]) -> list[dict[str, Any]]:
     """Execution truth: depends_on derived from non-start canvas edges."""
     incoming: dict[str, list[str]] = {}
     step_refs = {s["ref"] for s in steps}
@@ -487,9 +478,7 @@ def normalize_app_document(document: dict[str, Any]) -> dict[str, Any]:
         doc["answer_from_ref"] = explicit
         # Ensure answer node + edge exist so canvas round-trips
         nodes = list(canvas.get("nodes") or [])
-        if not any(
-            isinstance(n, dict) and _as_str(n.get("nodeId")) == ANSWER_NODE_ID for n in nodes
-        ):
+        if not any(isinstance(n, dict) and _as_str(n.get("nodeId")) == ANSWER_NODE_ID for n in nodes):
             nodes.append(
                 {
                     "nodeId": ANSWER_NODE_ID,
@@ -499,11 +488,7 @@ def normalize_app_document(document: dict[str, Any]) -> dict[str, Any]:
             )
             canvas = dict(canvas)
             canvas["nodes"] = nodes
-        edges = [
-            e
-            for e in (canvas.get("edges") or [])
-            if isinstance(e, dict) and _as_str(e.get("target")) != ANSWER_NODE_ID
-        ]
+        edges = [e for e in (canvas.get("edges") or []) if isinstance(e, dict) and _as_str(e.get("target")) != ANSWER_NODE_ID]
         edges.append(
             {
                 "source": explicit,

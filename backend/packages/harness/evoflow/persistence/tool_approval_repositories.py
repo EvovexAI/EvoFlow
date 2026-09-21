@@ -217,14 +217,18 @@ def thread_has_pending_approvals(thread_id: str) -> bool:
     tid = str(thread_id or "").strip()
     if not tid:
         return False
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT 1 FROM evoflow_tool_approvals
         WHERE thread_id = ? AND status = ?
         LIMIT 1
         """,
-        (tid, STATUS_PENDING),
-    ).fetchone()
+            (tid, STATUS_PENDING),
+        )
+        .fetchone()
+    )
     return row is not None
 
 
@@ -425,9 +429,7 @@ def expire_stale_pending(thread_id: str, *, max_age_seconds: int = 3600) -> int:
     tid = str(thread_id or "").strip()
     if not tid:
         return 0
-    cutoff_iso = (
-        datetime.now(BEIJING_TZ) - timedelta(seconds=int(max_age_seconds))
-    ).isoformat(timespec="microseconds")
+    cutoff_iso = (datetime.now(BEIJING_TZ) - timedelta(seconds=int(max_age_seconds))).isoformat(timespec="microseconds")
     cur = get_db().execute(
         """
         UPDATE evoflow_tool_approvals

@@ -155,6 +155,7 @@ ROLLUP_SUMMARY = """# 产品市场调研报告 — 最终汇总
 
 # ──────────────────────────── helpers ────────────────────────────
 
+
 def _make_market_research_app(app_id: str, rollup_mode: str = "auto") -> dict:
     """Build a realistic market research app with 4 sequential steps."""
     return {
@@ -253,7 +254,7 @@ def test_full_market_research_workflow_auto_rollup(sqlite_tmp: Path) -> None:
     """End-to-end: 4-step market research workflow with auto rollup produces merged result."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
     from evoflow.persistence import app_repositories
 
@@ -312,9 +313,7 @@ def test_full_market_research_workflow_auto_rollup(sqlite_tmp: Path) -> None:
     _, task1 = refound1
     rollup1 = _find_subtask_by_ref(task1.get("subtasks") or [], "__rollup__")
     assert rollup1 is not None
-    assert rollup1.get("status") == "planned", (
-        f"Rollup should still be planned after step 1 only, got {rollup1.get('status')}"
-    )
+    assert rollup1.get("status") == "planned", f"Rollup should still be planned after step 1 only, got {rollup1.get('status')}"
 
     # ── Simulate steps 2 and 3 completion (both depend on step 1) ──
     refound2 = find_main_task(storage, task_id)
@@ -350,9 +349,7 @@ def test_full_market_research_workflow_auto_rollup(sqlite_tmp: Path) -> None:
     _, t3 = refound3
     rollup3 = _find_subtask_by_ref(t3.get("subtasks") or [], "__rollup__")
     assert rollup3 is not None
-    assert rollup3.get("status") == "planned", (
-        f"Rollup should still be planned before step 4 completes, got {rollup3.get('status')}"
-    )
+    assert rollup3.get("status") == "planned", f"Rollup should still be planned before step 4 completes, got {rollup3.get('status')}"
 
     # ── Simulate step 4 completion (strategy, depends on 2+3) ──
     refound4 = find_main_task(storage, task_id)
@@ -378,9 +375,7 @@ def test_full_market_research_workflow_auto_rollup(sqlite_tmp: Path) -> None:
     _, t5 = refound5
     rollup5 = _find_subtask_by_ref(t5.get("subtasks") or [], "__rollup__")
     assert rollup5 is not None
-    assert rollup5.get("status") == "planned", (
-        f"Rollup should still be planned (not yet executed), got {rollup5.get('status')}"
-    )
+    assert rollup5.get("status") == "planned", f"Rollup should still be planned (not yet executed), got {rollup5.get('status')}"
 
     # ── Simulate rollup step execution ──
     refound6 = find_main_task(storage, task_id)
@@ -409,9 +404,7 @@ def test_full_market_research_workflow_auto_rollup(sqlite_tmp: Path) -> None:
     _, final_task = final
 
     # Status should be completed (all subtasks terminal + app-sourced)
-    assert final_task.get("status") == "completed", (
-        f"Main task should be completed, got {final_task.get('status')}"
-    )
+    assert final_task.get("status") == "completed", f"Main task should be completed, got {final_task.get('status')}"
     assert final_task.get("progress") == 100
 
     # Rollup metadata
@@ -454,7 +447,7 @@ def test_business_scenario_answer_node_only(sqlite_tmp: Path) -> None:
     """Business scenario with answer_node_only mode: step 4 is the answer node."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
     from evoflow.persistence import app_repositories
 
@@ -525,7 +518,7 @@ def test_business_scenario_off_mode(sqlite_tmp: Path) -> None:
     """Business scenario with off mode: no rollup, just progress tracking."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
     from evoflow.persistence import app_repositories
 
@@ -571,6 +564,4 @@ def test_business_scenario_off_mode(sqlite_tmp: Path) -> None:
     assert final_task.get("rollup_applied_at") is None
     assert final_task.get("rollup_mode") is None
     # result_summary should be empty (no rollup applied)
-    assert not (final_task.get("result_summary") or "").strip(), (
-        f"off mode should have no result_summary, got: {final_task.get('result_summary')}"
-    )
+    assert not (final_task.get("result_summary") or "").strip(), f"off mode should have no result_summary, got: {final_task.get('result_summary')}"

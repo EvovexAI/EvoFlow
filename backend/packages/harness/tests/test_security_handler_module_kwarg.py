@@ -1,4 +1,5 @@
 """Test that security handlers accept module kwarg from eval framework."""
+
 from __future__ import annotations
 
 

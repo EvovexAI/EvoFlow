@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import sys
+from collections.abc import Callable
+from datetime import UTC
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -53,11 +54,7 @@ def resolve_local_embedding_warmup_target() -> tuple[str | None, str | None]:
     from evoflow.knowledge.owned.embedding_bind import list_embedding_model_rows
 
     # 1) Quick DB check — avoids heavy import when no local model is configured.
-    local_rows = [
-        r
-        for r in list_embedding_model_rows()
-        if str(r.get("vendor") or "").strip().lower() == "local"
-    ]
+    local_rows = [r for r in list_embedding_model_rows() if str(r.get("vendor") or "").strip().lower() == "local"]
     if not local_rows:
         return ("no local model configured", None)
 
@@ -204,6 +201,8 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             from evoflow.config.paths import get_paths as _get_paths
             from evoflow.persistence.db import (
                 preflight_database_startup,
+            )
+            from evoflow.persistence.db import (
                 resolve_evolflow_db_path as _resolve_app_db,
             )
 
@@ -229,17 +228,13 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             async def _preflight_one(label: str, db_path: Path) -> None:
                 _t_one = _st.perf_counter()
                 await asyncio.to_thread(preflight_database_startup, db_path, label=label)
-                st_log(
-                    f"phase1.db.preflight.{label} ({(_st.perf_counter() - _t_one) * 1000:.0f}ms)"
-                )
+                st_log(f"phase1.db.preflight.{label} ({(_st.perf_counter() - _t_one) * 1000:.0f}ms)")
 
             await asyncio.gather(
                 *(_preflight_one(_l, _p) for _l, _p in _db_paths),
                 return_exceptions=True,
             )
-            st_log(
-                f"phase1.db.preflight total ({(_st.perf_counter() - _t_preflight) * 1000:.0f}ms)"
-            )
+            st_log(f"phase1.db.preflight total ({(_st.perf_counter() - _t_preflight) * 1000:.0f}ms)")
         except Exception:
             logger.warning("Database preflight stage failed at startup", exc_info=True)
 
@@ -490,6 +485,7 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 try:
                     from langchain_core.runnables.config import var_child_runnable_config
                     from langgraph.constants import CONF, CONFIG_KEY_STORE
+
                     langgraph_config = {CONF: {CONFIG_KEY_STORE: store_instance}}
                     var_child_runnable_config.set(langgraph_config)
                     print("[LG-LIFESPAN] Fallback config set with store", file=sys.stderr, flush=True)
@@ -521,7 +517,7 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                     @staticmethod
                     async def _patched_runs_next(wait: bool, limit: int = 1):
                         import time as _t
-                        from datetime import datetime, timedelta, timezone
+                        from datetime import datetime, timedelta
 
                         _t0 = _t.perf_counter()
 
@@ -529,18 +525,15 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                             """Reorder pending created_at so interactive claims first (no cancel)."""
                             try:
                                 from langgraph_runtime_inmem.database import GLOBAL_STORE
+
                                 from evoflow.session_concurrency_policy import claim_priority_key
 
                                 runs = GLOBAL_STORE.get("runs") or []
-                                pending = [
-                                    r
-                                    for r in runs
-                                    if isinstance(r, dict) and r.get("status") == "pending"
-                                ]
+                                pending = [r for r in runs if isinstance(r, dict) and r.get("status") == "pending"]
                                 if len(pending) < 2:
                                     return
                                 ordered = sorted(pending, key=claim_priority_key)
-                                base = datetime.now(timezone.utc) - timedelta(days=365)
+                                base = datetime.now(UTC) - timedelta(days=365)
                                 for i, run in enumerate(ordered):
                                     if "_evf_claim_created_backup" not in run:
                                         run["_evf_claim_created_backup"] = run.get("created_at")
@@ -557,20 +550,10 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                                 _ctx = (run.get("kwargs") or {}).get("context") or {}
                                 if not isinstance(_ctx, dict):
                                     _ctx = {}
-                                _tid = str(
-                                    (_c or {}).get("thread_id")
-                                    or _ctx.get("thread_id")
-                                    or run.get("thread_id")
-                                    or ""
-                                ).strip()
-                                _tr = (
-                                    str((_c or {}).get("evf_trace_id") or _ctx.get("evf_trace_id") or "").strip()
-                                    or None
-                                )
+                                _tid = str((_c or {}).get("thread_id") or _ctx.get("thread_id") or run.get("thread_id") or "").strip()
+                                _tr = str((_c or {}).get("evf_trace_id") or _ctx.get("evf_trace_id") or "").strip() or None
                                 _rid = str(run.get("run_id") or "").strip()
-                                _sk = str(
-                                    (_c or {}).get("session_key") or _ctx.get("session_key") or ""
-                                ).strip()
+                                _sk = str((_c or {}).get("session_key") or _ctx.get("session_key") or "").strip()
                                 _claim_poll_ms = round((_t.perf_counter() - _t0) * 1000.0, 2)
                                 _pending_age_ms = None
                                 _created = run.get("_evf_claim_created_backup") or run.get("created_at")
@@ -579,18 +562,13 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                                         from datetime import datetime as _dt
 
                                         if isinstance(_created, str):
-                                            _created_dt = _dt.fromisoformat(
-                                                _created.replace("Z", "+00:00")
-                                            )
+                                            _created_dt = _dt.fromisoformat(_created.replace("Z", "+00:00"))
                                         else:
                                             _created_dt = _created
                                         if getattr(_created_dt, "tzinfo", None) is None:
-                                            _created_dt = _created_dt.replace(tzinfo=timezone.utc)
+                                            _created_dt = _created_dt.replace(tzinfo=UTC)
                                         _pending_age_ms = round(
-                                            (
-                                                datetime.now(timezone.utc) - _created_dt
-                                            ).total_seconds()
-                                            * 1000.0,
+                                            (datetime.now(UTC) - _created_dt).total_seconds() * 1000.0,
                                             1,
                                         )
                                     except Exception:
@@ -624,10 +602,7 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                                         queue_slept=bool(slept),
                                         queue_claim_after_poll_ms=_claim_poll_ms,
                                         attempt=attempt,
-                                        multitask_strategy=str(
-                                            run.get("multitask_strategy") or ""
-                                        )
-                                        or None,
+                                        multitask_strategy=str(run.get("multitask_strategy") or "") or None,
                                     )
                                 except Exception:
                                     pass
@@ -659,8 +634,7 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
 
                     _lg_ops.Runs.next = _patched_runs_next  # type: ignore[method-assign]
                     print(
-                        f"[LG-LIFESPAN] Patched inmem Runs.next: claim-first + interactive prefer, "
-                        f"idle poll {_poll_ms}ms (was hardcoded 500ms; set EVOFLOW_LG_QUEUE_POLL_MS to tune)",
+                        f"[LG-LIFESPAN] Patched inmem Runs.next: claim-first + interactive prefer, idle poll {_poll_ms}ms (was hardcoded 500ms; set EVOFLOW_LG_QUEUE_POLL_MS to tune)",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -698,10 +672,7 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 logger.info("LangGraph graphs registered in-process: %s", registered)
                 print(f"[LG-LIFESPAN] Graphs registered: {registered}", file=sys.stderr, flush=True)
                 if "lead_agent" not in _lg_graph.GRAPHS:
-                    raise RuntimeError(
-                        f"lead_agent missing after collect_graphs_from_env; got {registered!r}. "
-                        "Check LANGSERVE_GRAPHS / backend/langgraph.json."
-                    )
+                    raise RuntimeError(f"lead_agent missing after collect_graphs_from_env; got {registered!r}. Check LANGSERVE_GRAPHS / backend/langgraph.json.")
 
                 if _lg_cfg.N_JOBS_PER_WORKER > 0:
                     print("[LG-LIFESPAN] Starting queue worker...", file=sys.stderr, flush=True)
@@ -725,9 +696,7 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             from langgraph_api import graph as _lg_graph
 
             if not _lg_graph.GRAPHS:
-                logger.error(
-                    "LangGraph GRAPHS still empty after lifespan init — runs will 404"
-                )
+                logger.error("LangGraph GRAPHS still empty after lifespan init — runs will 404")
                 print(
                     "[LG-LIFESPAN] ERROR: GRAPHS={} after init",
                     file=sys.stderr,
@@ -936,11 +905,7 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
 
         vault_result = await asyncio.to_thread(ensure_builtin_knowledge_vaults)
         logger.info("Builtin knowledge vaults (post-ready): %s", vault_result)
-        deferred_vault_reindex_ids.extend(
-            str(x).strip()
-            for x in (vault_result.get("needsReindex") or [])
-            if str(x).strip()
-        )
+        deferred_vault_reindex_ids.extend(str(x).strip() for x in (vault_result.get("needsReindex") or []) if str(x).strip())
         if deferred_vault_reindex_ids:
             reindex_started = await schedule_builtin_vault_reindex(deferred_vault_reindex_ids)
             st_log(f"post-ready vault reindex scheduled ({len(reindex_started)} jobs)")
@@ -1048,9 +1013,7 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
 
         _t_full = _st.perf_counter()
         results = await asyncio.to_thread(run_deferred_full_preflight, base_dir=get_paths().base_dir)
-        st_log(
-            f"post-ready full db preflight ({(_st.perf_counter() - _t_full) * 1000:.0f}ms) {results}"
-        )
+        st_log(f"post-ready full db preflight ({(_st.perf_counter() - _t_full) * 1000:.0f}ms) {results}")
         logger.info("Deferred full DB preflight done: %s", results)
     except Exception:
         logger.warning("Deferred full DB preflight failed (non-fatal)", exc_info=True)
@@ -1128,10 +1091,7 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         emb_ref = default_embedding_ref()
         if not emb_ref:
             st_log("post-ready owned KB worker skipped (no embedding model configured)")
-            logger.warning(
-                "Owned KB worker not started: no embedding model in registry "
-                "(configure a cloud embedding model in Settings → 向量模型)"
-            )
+            logger.warning("Owned KB worker not started: no embedding model in registry (configure a cloud embedding model in Settings → 向量模型)")
         else:
             ensure_owned_kb_worker_started()
             st_log("post-ready owned KB worker started")
@@ -1233,4 +1193,3 @@ async def shutdown_gateway_background(
     if stop_hang_diagnostics:
         stop_hang_diagnostics()
     logger.info("Shutting down API Gateway")
-

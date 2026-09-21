@@ -3,6 +3,7 @@
 Run: python -m tests._kb_vector_check  (or python tests/_kb_vector_check.py)
 Uses an isolated EVOFLOW_HOME temp dir so it never touches the real DB.
 """
+
 from __future__ import annotations
 
 import os
@@ -16,7 +17,7 @@ def main() -> int:
     shutil.rmtree(home, ignore_errors=True)
     os.makedirs(home, exist_ok=True)
 
-    from evoflow.persistence.db import db_connection_lock, get_db  # noqa: E402
+    from evoflow.persistence.db import get_db  # noqa: E402
 
     conn = get_db()
     print("schema version:", conn.execute("PRAGMA user_version").fetchone()[0])

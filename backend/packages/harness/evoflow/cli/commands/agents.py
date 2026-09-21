@@ -40,7 +40,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "  tools                          List of tool names\n"
         "  mcp_servers                    List of MCP server names\n"
         "  skills                         List of skill names\n"
-        "  tags                           Tag labels, e.g. [\"核心\", \"代码\"]\n"
+        '  tags                           Tag labels, e.g. ["核心", "代码"]\n'
         "  soul                           System prompt text\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -51,9 +51,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     update_parser = agents_sub.add_parser(
         "update",
         help="Update agent from JSON",
-        description="JSON payload fields (all optional, partial update):\n"
-        "  agent_name, description, model, tool_groups, tools,\n"
-        "  mcp_servers, skills, system_prompt, tags\n",
+        description="JSON payload fields (all optional, partial update):\n  agent_name, description, model, tool_groups, tools,\n  mcp_servers, skills, system_prompt, tags\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     update_parser.add_argument("name")

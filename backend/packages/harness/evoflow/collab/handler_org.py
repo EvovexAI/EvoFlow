@@ -79,6 +79,7 @@ def validate_handler_assignee(
     try:
         from evoflow.agents.xiaomi.identity import is_xiaomi_agent
     except Exception:
+
         def is_xiaomi_agent(_name: str | None) -> bool:  # type: ignore[misc]
             return False
 
@@ -103,10 +104,7 @@ def validate_handler_assignee(
         a_key = role_org_key(anchor)
         t_key = role_org_key(target)
         if a_key and t_key and a_key != t_key:
-            return (
-                f"禁止跨组织直派：`{tgt_code}` 与 `{anchor_code}` 不在同一工作区组织。"
-                "请先经共同上级或调整 workspace。"
-            )
+            return f"禁止跨组织直派：`{tgt_code}` 与 `{anchor_code}` 不在同一工作区组织。请先经共同上级或调整 workspace。"
         if a_key and not t_key:
             return f"处理人 `{tgt_code}` 未绑定工作区，无法确认同组织"
         return None
@@ -142,35 +140,22 @@ def validate_handler_assignee(
 
     # 平级协作白名单：同组织内、reports_to 指向同一上级的直属平级允许交接。
     # （平级协作是允许的，不要拦）
-    if (
-        dispatcher_mgr
-        and dispatcher_mgr == target_mgr
-        and dispatcher_mgr not in (tgt_code, from_code)
-    ):
+    if dispatcher_mgr and dispatcher_mgr == target_mgr and dispatcher_mgr not in (tgt_code, from_code):
         return None
 
     # 下级不能派给上级（含更上层）。
     if dispatcher_mgr and dispatcher_mgr == tgt_code:
-        return (
-            f"下级不能派给上级：`{tgt_code}` 是 `{from_code}` 的直属上级。"
-            "请由上级向本岗派活，或经平级协作通道（同一上级下的平级岗位）交接。"
-        )
+        return f"下级不能派给上级：`{tgt_code}` 是 `{from_code}` 的直属上级。请由上级向本岗派活，或经平级协作通道（同一上级下的平级岗位）交接。"
 
     if is_descendant(dispatcher, target, peers):
         hop = first_hop_toward_descendant(dispatcher, target, peers)
         if hop is not None:
             hop_code = str(hop.agent_code or "").strip()
             hop_name = str(hop.role_name or hop_code).strip()
-            return (
-                f"须逐级派发：不能跳过中间层直派 `{tgt_code}`。"
-                f"请先派给直属下级 `{hop_name}`（`{hop_code}`），再由其向下交工。"
-            )
+            return f"须逐级派发：不能跳过中间层直派 `{tgt_code}`。请先派给直属下级 `{hop_name}`（`{hop_code}`），再由其向下交工。"
         return f"须逐级派发：`{tgt_code}` 不在你的直属下级中"
 
-    return (
-        f"只能派给直属下级或同组织平级：`{tgt_code}` 不是 `{from_code}` 的直属下级，"
-        "也不在同一上级下的平级岗位。跨岗请经共同上级逐级交工，或由用户在确认页改派。"
-    )
+    return f"只能派给直属下级或同组织平级：`{tgt_code}` 不是 `{from_code}` 的直属下级，也不在同一上级下的平级岗位。跨岗请经共同上级逐级交工，或由用户在确认页改派。"
 
 
 def assert_handlers_org_ok(
@@ -186,11 +171,7 @@ def assert_handlers_org_ok(
     if roster is None:
         from evoflow.proactive.repositories import ProactiveRepository
 
-        roster = [
-            r
-            for r in ProactiveRepository.list_roles()
-            if str(r.status or "").strip().lower() != "archived"
-        ]
+        roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
 
     errors: list[str] = []
     for h in handlers or []:

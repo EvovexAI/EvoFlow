@@ -4,13 +4,13 @@ from .bash_agent import BASH_AGENT_CONFIG
 from .claude_session_worker import CLAUDE_CODE_WORKER_CONFIG, CLAUDE_SESSION_WORKER_CONFIG
 from .code_agent import CODE_AGENT_CONFIG
 from .file_worker import FILE_WORKER_CONFIG
+from .finance_crew import FINANCE_CREW_SUBAGENTS
 from .general_purpose import GENERAL_PURPOSE_CONFIG
+from .hyperframes_crew import HYPERFRAMES_CREW_SUBAGENTS
 from .knowledge_curator import KNOWLEDGE_CURATOR_CONFIG
 from .knowledge_retriever import KNOWLEDGE_RETRIEVER_CONFIG
-from .finance_crew import FINANCE_CREW_SUBAGENTS
 from .marketing_crew import MARKETING_SOCIAL_MEDIA_OPERATION_CONFIG
 from .media_crew import MEDIA_CREW_SUBAGENTS
-from .hyperframes_crew import HYPERFRAMES_CREW_SUBAGENTS
 from .project_crew import PROJECT_CREW_SUBAGENTS
 from .search_worker import SEARCH_WORKER_CONFIG
 

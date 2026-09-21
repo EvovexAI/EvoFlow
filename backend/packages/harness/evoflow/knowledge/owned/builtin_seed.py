@@ -45,9 +45,7 @@ def is_builtin_owned_kb_id(kb_id: str | None) -> bool:
 
 def _meta_get(key: str) -> str | None:
     with db() as conn:
-        row = conn.execute(
-            "SELECT value FROM kb_schema_meta WHERE key=?", (key,)
-        ).fetchone()
+        row = conn.execute("SELECT value FROM kb_schema_meta WHERE key=?", (key,)).fetchone()
     if not row:
         return None
     return str(row["value"] or "") or None
@@ -80,11 +78,7 @@ def _list_user_guide_candidates() -> list[dict[str, Any]]:
             continue
         name = str(base.get("name") or "").strip()
         sync_vid = str(base.get("syncVaultId") or "").strip()
-        if (
-            bid == BUILTIN_OWNED_USER_GUIDE_KB_ID
-            or sync_vid == BUILTIN_USER_GUIDE_VAULT_ID
-            or name == BUILTIN_USER_GUIDE_VAULT_NAME
-        ):
+        if bid == BUILTIN_OWNED_USER_GUIDE_KB_ID or sync_vid == BUILTIN_USER_GUIDE_VAULT_ID or name == BUILTIN_USER_GUIDE_VAULT_NAME:
             seen.add(bid)
             out.append(base)
     return out
@@ -113,9 +107,7 @@ def _soft_delete_duplicate_base(kb_id: str) -> None:
     now = utc_now()
     title = kb_id
     with db() as conn:
-        row = conn.execute(
-            "SELECT name FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)
-        ).fetchone()
+        row = conn.execute("SELECT name FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
         if not row:
             return
         title = str(row["name"] or kb_id)
@@ -275,13 +267,7 @@ def ensure_builtin_owned_knowledge(*, force: bool = False) -> dict[str, Any]:
     prev_fp = _meta_get(_FP_META_KEY)
     docs = owned_service.list_documents(kb_id)
     content_changed = bool(mat.get("contentUpdated")) or force
-    needs_import = (
-        force
-        or content_changed
-        or not docs
-        or (fingerprint and fingerprint != prev_fp)
-        or str(base.get("syncSourcePath") or "") != str(path)
-    )
+    needs_import = force or content_changed or not docs or (fingerprint and fingerprint != prev_fp) or str(base.get("syncSourcePath") or "") != str(path)
 
     if not needs_import:
         return {

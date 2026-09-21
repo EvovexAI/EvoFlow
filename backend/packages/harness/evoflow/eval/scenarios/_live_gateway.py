@@ -11,9 +11,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
-
+from typing import Any
 
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:8012"
 LIVE_ENV = "EVOFLOW_EVAL_LIVE_LLM"

@@ -36,8 +36,7 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "preview_pending",
-            bool(preview.get("pending_confirm"))
-            or (preview.get("ok") is True and not preview.get("item")),
+            bool(preview.get("pending_confirm")) or (preview.get("ok") is True and not preview.get("item")),
             inputs={"action": "items.create", "confirm": False, "args": preview_args},
             expected="pending_confirm 或无 item 落库",
             actual={k: preview.get(k) for k in ("ok", "pending_confirm", "item")},

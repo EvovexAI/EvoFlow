@@ -1,4 +1,3 @@
-import json
 import logging
 import mimetypes
 from pathlib import Path
@@ -19,7 +18,6 @@ from evoflow.tools.builtins.vision_analysis_core import (
     format_vision_tool_result,
     is_http_image_ref,
     is_safe_image_url,
-    load_image_bytes_for_native,
 )
 from evoflow.tools.minimal_schema import VIEW_IMAGE_DESCRIPTION
 

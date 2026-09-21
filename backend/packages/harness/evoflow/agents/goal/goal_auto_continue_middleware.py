@@ -222,10 +222,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                     "一轮结束-未参与",
                     session_key=session_key,
                     goal_text=str(row_peek.get("prompt") or ""),
-                    decision=(
-                        "goal_mode 未生效"
-                        f"（db_status={row_peek.get('status')} goal_status={row_peek.get('goal_status')}）"
-                    ),
+                    decision=(f"goal_mode 未生效（db_status={row_peek.get('status')} goal_status={row_peek.get('goal_status')}）"),
                 )
             return None
 
@@ -305,9 +302,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                     judgment=f"auto_stop_minutes={auto_stop_minutes} 已超时（elapsed={elapsed_ms // 1000}s）",
                     decision="定时停止，结束 Goal",
                     action="jump_to=end",
-                    state_patch=format_goal_state_patch(
-                        goal_status="completed", status="idle", last_error="定时停止"
-                    ),
+                    state_patch=format_goal_state_patch(goal_status="completed", status="idle", last_error="定时停止"),
                 )
                 return {"early": True, "result": {"jump_to": "end"}}
 
@@ -323,11 +318,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
         # 如果本轮 messages 中没有 synthetic user（即用户手动发的新消息），
         # 且 goal_status 虽然是 active 但 status 不是 running/waiting（说明目标可能已完成但 SQLite 写入失败），
         # 则不参与判定，避免对普通对话注入 synthetic user 续跑。
-        has_synth = any(
-            isinstance(msg, HumanMessage)
-            and str(getattr(msg, "name", "") or "").strip() == GOAL_SYNTHETIC_USER_NAME
-            for msg in messages
-        )
+        has_synth = any(isinstance(msg, HumanMessage) and str(getattr(msg, "name", "") or "").strip() == GOAL_SYNTHETIC_USER_NAME for msg in messages)
         if not has_synth and db_status not in {"running", "waiting"}:
             log_goal_trace(
                 "一轮结束-普通对话不参与判定",
@@ -355,10 +346,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
             return None
 
         if getattr(last_ai, "tool_calls", None):
-            tool_names = [
-                str(getattr(tc, "name", None) or (tc.get("name") if isinstance(tc, dict) else "") or "").strip()
-                for tc in (last_ai.tool_calls or [])
-            ]
+            tool_names = [str(getattr(tc, "name", None) or (tc.get("name") if isinstance(tc, dict) else "") or "").strip() for tc in (last_ai.tool_calls or [])]
             tool_names = [n for n in tool_names if n]
             log_goal_trace(
                 "一轮结束-等待工具",
@@ -401,9 +389,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                     decision="空回复但未超重试上限，注入 synthetic user 继续",
                     action="jump_to=model",
                     nudge_input=nudge,
-                    state_patch=format_goal_state_patch(
-                        status="running", step_count=turn_no, error_count=cur_error_count
-                    ),
+                    state_patch=format_goal_state_patch(status="running", step_count=turn_no, error_count=cur_error_count),
                 )
                 set_pending_goal_nudge(session_key, nudge)
                 return {
@@ -429,9 +415,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                 judgment="助手正文为空",
                 decision="无正文且无 tool_calls，停止续跑避免空消息落库",
                 action="jump_to=end",
-                state_patch=format_goal_state_patch(
-                    status="paused", step_count=turn_no, last_error="模型空回复"
-                ),
+                state_patch=format_goal_state_patch(status="paused", step_count=turn_no, last_error="模型空回复"),
             )
             return {"early": True, "result": {"jump_to": "end"}}
 
@@ -459,10 +443,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
         row: dict[str, Any],
         verdict: GoalReplyVerdict,
     ) -> dict[str, Any] | None:
-        judgment = (
-            f"interpreter verdict={verdict.verdict}"
-            + (f" reason={verdict.reason}" if verdict.reason else "")
-        )
+        judgment = f"interpreter verdict={verdict.verdict}" + (f" reason={verdict.reason}" if verdict.reason else "")
 
         if verdict.verdict == "complete":
             complete_summary = clip_goal_summary_text(verdict.summary or reply or "任务完成")
@@ -512,9 +493,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                 judgment=judgment,
                 decision="判定器认定目标已完成，结束 run",
                 action="jump_to=end",
-                state_patch=format_goal_state_patch(
-                    goal_status="completed", status="idle", step_count=turn_no
-                ),
+                state_patch=format_goal_state_patch(goal_status="completed", status="idle", step_count=turn_no),
             )
             return {"jump_to": "end"}
 
@@ -539,9 +518,7 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                 judgment=f"turn_no={turn_no} >= max_steps={max_steps}",
                 decision="强制结束 Goal",
                 action="jump_to=end",
-                state_patch=format_goal_state_patch(
-                    goal_status="completed", status="idle", step_count=turn_no
-                ),
+                state_patch=format_goal_state_patch(goal_status="completed", status="idle", step_count=turn_no),
             )
             return {"jump_to": "end"}
 
@@ -574,8 +551,11 @@ class GoalAutoContinueMiddleware(AgentMiddleware[AgentState]):
                 decision="判定器连续失败达到硬上限，暂停 Goal，等待用户介入",
                 action="jump_to=end",
                 state_patch=format_goal_state_patch(
-                    goal_status="paused", status="paused", step_count=turn_no,
-                    interpreter_fallback_streak=cur_streak, last_error="判定器熔断",
+                    goal_status="paused",
+                    status="paused",
+                    step_count=turn_no,
+                    interpreter_fallback_streak=cur_streak,
+                    last_error="判定器熔断",
                 ),
             )
             return {"jump_to": "end"}

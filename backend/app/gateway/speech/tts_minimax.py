@@ -38,10 +38,7 @@ async def synthesize_speech(
 ) -> bytes:
     """Non-streaming MiniMax TTS — returns the full MP3 buffer."""
     if not api_key or not api_key.strip():
-        raise ValueError(
-            "MiniMax TTS: 缺少 API Key，请在 设置 → 模型 → 创意媒体 填写 minimaxKey，"
-            "或设置环境变量 MINIMAX_API_KEY / MINIMAX_KEY。"
-        )
+        raise ValueError("MiniMax TTS: 缺少 API Key，请在 设置 → 模型 → 创意媒体 填写 minimaxKey，或设置环境变量 MINIMAX_API_KEY / MINIMAX_KEY。")
     script = str(text or "").strip()
     if not script:
         raise ValueError("MiniMax TTS: 文本不能为空")

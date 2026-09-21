@@ -235,11 +235,7 @@ class PlanStepInput(BaseModel):
                     if alt:
                         data["assigned_agent"] = alt
                         break
-        if (
-            not str(data.get("assigned_agent") or "").strip()
-            and str(data.get("name") or "").strip()
-            and str(data.get("goal") or "").strip()
-        ):
+        if not str(data.get("assigned_agent") or "").strip() and str(data.get("name") or "").strip() and str(data.get("goal") or "").strip():
             data["assigned_agent"] = "general-purpose"
         if not str(data.get("name") or "").strip():
             for alias in ("title", "step_name", "stepName", "label"):
@@ -340,10 +336,7 @@ class PlanInput(BaseModel):
     )
     bound_task_id: str | None = Field(
         default=None,
-        description=(
-            "修订计划时传入上次 plan() 返回的 boundTaskId（须为本会话已绑定主任务）。"
-            "首次提交可省略——同 thread 自动复用占位任务。"
-        ),
+        description=("修订计划时传入上次 plan() 返回的 boundTaskId（须为本会话已绑定主任务）。首次提交可省略——同 thread 自动复用占位任务。"),
         examples=["Task_20260602115016_254662"],
     )
 
@@ -506,9 +499,7 @@ def _plan_tool_impl(
     }
     bound = bool(bind_meta.get("bound"))
     if thread_id and not bound:
-        bind_err = str(bind_meta.get("bindError") or "").strip() or (
-            "计划未写入任务表。请完全重启 EvoFlow Gateway 以执行数据库迁移，然后重新提交 plan。"
-        )
+        bind_err = str(bind_meta.get("bindError") or "").strip() or ("计划未写入任务表。请完全重启 EvoFlow Gateway 以执行数据库迁移，然后重新提交 plan。")
         return json.dumps(
             {
                 "success": False,
@@ -535,12 +526,7 @@ def _plan_tool_impl(
         "用户点开始后由网关自动派发首波；你只需向用户简要说明计划已就绪、请点「开始执行」，然后等待。"
     )
     if revised:
-        msg = (
-            "计划已修订并同步子任务（执行授权已撤销）。"
-            "【停】须等用户重新点击「开始执行」后才会执行；"
-            "在此之前禁止 supervisor(start_execution)。"
-            "派发/监控时请用 stepRefToSubtaskId 或 subtaskId。"
-        )
+        msg = "计划已修订并同步子任务（执行授权已撤销）。【停】须等用户重新点击「开始执行」后才会执行；在此之前禁止 supervisor(start_execution)。派发/监控时请用 stepRefToSubtaskId 或 subtaskId。"
     return json.dumps(
         {
             "success": True,

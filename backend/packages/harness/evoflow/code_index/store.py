@@ -213,9 +213,7 @@ def _migrate_fts_if_needed(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT value FROM meta WHERE key='fts_schema_version'").fetchone()
     if row and str(row[0]) == _FTS_SCHEMA_VERSION:
         return
-    sql_row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_content'"
-    ).fetchone()
+    sql_row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='fts_content'").fetchone()
     ddl = str(sql_row[0] if sql_row else "")
     if not ddl:
         return
@@ -327,10 +325,7 @@ def _ensure_vec_table(conn: sqlite3.Connection) -> None:
         return
     dim = cfg.semantic_embedding_dim
     try:
-        conn.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS code_vec "
-            f"USING vec0(path TEXT PRIMARY KEY, embedding FLOAT[{dim}])"
-        )
+        conn.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS code_vec USING vec0(path TEXT PRIMARY KEY, embedding FLOAT[{dim}])")
         conn.commit()
     except sqlite3.OperationalError as exc:
         if "vec0" in str(exc).lower() or "no such module" in str(exc).lower():
@@ -373,7 +368,7 @@ def _path_under_prefix(rel_path: str, prefix: str | None) -> bool:
             # Verify the full prefix tail matches the path tail
             pref_segs = pref.split("/")
             for i in range(len(segments) - len(pref_segs) + 1):
-                if segments[i:i + len(pref_segs)] == pref_segs:
+                if segments[i : i + len(pref_segs)] == pref_segs:
                     return True
     return False
 
@@ -454,13 +449,23 @@ def _boost_filename_path_matches(
 
 
 _KIND_BONUS: dict[str, float] = {
-    "function": 10.0, "def": 10.0, "method": 10.0, "async_function": 10.0,
-    "class": 8.0, "class_definition": 8.0,
+    "function": 10.0,
+    "def": 10.0,
+    "method": 10.0,
+    "async_function": 10.0,
+    "class": 8.0,
+    "class_definition": 8.0,
     "interface": 9.0,
-    "constructor": 8.0, "enum": 5.0,
-    "type": 6.0, "type_alias": 6.0,
-    "variable": 2.0, "constant": 3.0, "property": 3.0, "field": 3.0,
-    "import": 1.0, "module": 4.0,
+    "constructor": 8.0,
+    "enum": 5.0,
+    "type": 6.0,
+    "type_alias": 6.0,
+    "variable": 2.0,
+    "constant": 3.0,
+    "property": 3.0,
+    "field": 3.0,
+    "import": 1.0,
+    "module": 4.0,
 }
 
 
@@ -567,6 +572,7 @@ def _should_index_file(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Semantic search helpers (embedding + vec0 recall)
 # ---------------------------------------------------------------------------
+
 
 def _pack_vec(values: Sequence[float]) -> bytes:
     """Pack floats into little-endian float32 blob for vec0."""
@@ -722,8 +728,7 @@ def _index_embeddings_sync(
         return 0
 
     if not embeddings or len(embeddings) != len(pairs):
-        logger.warning("code_index: embedding count mismatch (%d vs %d), skipping vectors",
-                       len(embeddings or []), len(pairs))
+        logger.warning("code_index: embedding count mismatch (%d vs %d), skipping vectors", len(embeddings or []), len(pairs))
         return 0
 
     # Store vectors
@@ -783,8 +788,7 @@ def _semantic_recall_sync(
     blob = _pack_vec(query_vec)
     try:
         rows = conn.execute(
-            "SELECT path, distance FROM code_vec "
-            "WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+            "SELECT path, distance FROM code_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance",
             (blob, top_k),
         ).fetchall()
     except sqlite3.OperationalError:
@@ -1289,6 +1293,7 @@ def build_index(
     sym_count = 0
 
     try:
+
         def _clear_tables() -> None:
             conn = _connect(root)
             try:
@@ -1769,11 +1774,7 @@ def search_index(
     path_scope_relaxed = False
     path_scope_empty_hint = ""
     if path_prefix and not hits and not symbols and (raw_hits or raw_symbols):
-        path_scope_empty_hint = (
-            f"No matches under path:{_normalize_path_prefix(path_prefix)} "
-            f"({len(raw_hits)} content / {len(raw_symbols)} symbol hits elsewhere). "
-            "Drop path: prefix or use a broader subdirectory."
-        )
+        path_scope_empty_hint = f"No matches under path:{_normalize_path_prefix(path_prefix)} ({len(raw_hits)} content / {len(raw_symbols)} symbol hits elsewhere). Drop path: prefix or use a broader subdirectory."
 
     related: list[dict] = []
     imported_by: list[dict] = []
@@ -1798,18 +1799,8 @@ def search_index(
         imported_by = list_importers(conn, seeds, limit=lim)
         imports = list_outgoing_imports(conn, seeds, limit=lim)
         if path_prefix:
-            imported_by = [
-                r
-                for r in imported_by
-                if _path_under_prefix(str(r.get("from_path") or ""), path_prefix)
-                or _path_under_prefix(str(r.get("to_path") or ""), path_prefix)
-            ]
-            imports = [
-                r
-                for r in imports
-                if _path_under_prefix(str(r.get("from_path") or ""), path_prefix)
-                or _path_under_prefix(str(r.get("to_path") or ""), path_prefix)
-            ]
+            imported_by = [r for r in imported_by if _path_under_prefix(str(r.get("from_path") or ""), path_prefix) or _path_under_prefix(str(r.get("to_path") or ""), path_prefix)]
+            imports = [r for r in imports if _path_under_prefix(str(r.get("from_path") or ""), path_prefix) or _path_under_prefix(str(r.get("to_path") or ""), path_prefix)]
 
     ref_users: list[dict] = []
     if cfg.internal_refs_enabled and seeds:
@@ -1833,9 +1824,7 @@ def search_index(
                 }
             )
         if path_prefix:
-            ref_users = [
-                r for r in ref_users if _path_under_prefix(str(r.get("from_path") or ""), path_prefix)
-            ]
+            ref_users = [r for r in ref_users if _path_under_prefix(str(r.get("from_path") or ""), path_prefix)]
 
     type_supertypes: list[dict] = []
     type_subtypes: list[dict] = []

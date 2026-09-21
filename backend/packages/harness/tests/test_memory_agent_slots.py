@@ -32,9 +32,9 @@ def sqlite_tmp(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_list_memory_agent_slots_marks_sqlite_content(sqlite_tmp: Path):
-    from evoflow.persistence import memory_repositories as mem_repo
     from evoflow.agents.memory.updater import list_memory_agent_slots
     from evoflow.config.agents_config import save_agent_config
+    from evoflow.persistence import memory_repositories as mem_repo
 
     save_agent_config(
         "demo-agent",

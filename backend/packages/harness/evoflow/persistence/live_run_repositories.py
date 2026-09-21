@@ -251,7 +251,7 @@ def check_run_completed(thread_id: str, *, conn: Any | None = None) -> dict[str,
     # 从 completed_success / completed_error 中提取原始状态
     completion_status = "success"
     if status_raw.startswith("completed_"):
-        completion_status = status_raw[len("completed_"):]
+        completion_status = status_raw[len("completed_") :]
 
     return {
         "run_id": run_id,

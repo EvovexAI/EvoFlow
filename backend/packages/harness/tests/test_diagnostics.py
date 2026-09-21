@@ -16,8 +16,7 @@ def test_list_sources_marks_errors(tmp_path: Path, monkeypatch) -> None:
 
     day = datetime.now().strftime("%Y-%m-%d")
     (logs / f"evoflow-gateway-{day}.log").write_text(
-        f"{day} 10:00:00 - app - INFO - boot ok\n"
-        f"{day} 10:01:00 - app - ERROR - connection failed: ECONNREFUSED\n",
+        f"{day} 10:00:00 - app - INFO - boot ok\n{day} 10:01:00 - app - ERROR - connection failed: ECONNREFUSED\n",
         encoding="utf-8",
     )
     (logs / "evopanel-startup.log").write_text(

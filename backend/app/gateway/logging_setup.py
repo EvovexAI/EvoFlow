@@ -226,8 +226,8 @@ class LangGraphPollNoiseFilter(Filter):
 # Panel / ChatApp high-frequency polls — hide successful GETs (set EVOFLOW_SHOW_PANEL_POLL_LOGS=1 to keep).
 _PANEL_POLL_ACCESS_RE = re.compile(
     r'"GET\s+(?:/api)?/(?:'
-    r'health/liveness|'
-    r'(?:api/)?session-notifications|'
+    r"health/liveness|"
+    r"(?:api/)?session-notifications|"
     r'(?:api/)?proactive/roles/[^/\s"]+/(?:busy|work-board)|'
     r'(?:api/)?chat/sessions/[^/\s"]+/execution/state'
     r')(?:\?[^"]*)?\s+HTTP/[^"]+"\s+200\b',
@@ -320,6 +320,7 @@ def _wire_logger_tree(root: logging.Logger, level: int) -> None:
     _quiet_noisy_loggers()
     access.setLevel(logging.INFO)
 
+
 def configure_gateway_file_logging(
     *,
     log_dir: Path | None = None,
@@ -378,12 +379,7 @@ def configure_gateway_file_logging(
     elif os.getenv("EVOFLOW_DISABLE_CONSOLE_LOG", "").strip().lower() in ("1", "true", "yes"):
         attach_console = False
 
-    has_stream = any(
-        isinstance(h, logging.StreamHandler)
-        and not isinstance(h, DailyNamedFileHandler)
-        and getattr(h, "stream", None) in (sys.stdout, sys.stderr)
-        for h in root.handlers
-    )
+    has_stream = any(isinstance(h, logging.StreamHandler) and not isinstance(h, DailyNamedFileHandler) and getattr(h, "stream", None) in (sys.stdout, sys.stderr) for h in root.handlers)
     if attach_console and not has_stream:
         sh = logging.StreamHandler(sys.stderr)
         sh.setLevel(level)

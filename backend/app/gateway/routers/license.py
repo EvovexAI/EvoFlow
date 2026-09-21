@@ -67,9 +67,7 @@ def _parse_expires(value: str) -> int:
     if not text:
         raise ValueError("empty expiry")
     if len(text) == 10 and text[4] == "-" and text[7] == "-":
-        dt = datetime.fromisoformat(text).replace(
-            hour=23, minute=59, second=59, tzinfo=UTC
-        )
+        dt = datetime.fromisoformat(text).replace(hour=23, minute=59, second=59, tzinfo=UTC)
         return int(dt.timestamp())
     if text.endswith("Z"):
         text = text[:-1] + "+00:00"
@@ -85,10 +83,7 @@ def _require_can_issue() -> None:
             status_code=503,
             detail={
                 "error": "no_private_key",
-                "message": (
-                    "未配置签发私钥：请设置 EVOFLOW_LICENSE_PRIVATE_KEY，"
-                    "或放置 backend/.evoflow-license-private.key"
-                ),
+                "message": ("未配置签发私钥：请设置 EVOFLOW_LICENSE_PRIVATE_KEY，或放置 backend/.evoflow-license-private.key"),
             },
         )
 

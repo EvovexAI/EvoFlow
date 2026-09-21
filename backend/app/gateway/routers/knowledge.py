@@ -17,7 +17,7 @@ from evoflow.knowledge import service as kb_service
 
 logger = logging.getLogger(__name__)
 
-from evoflow.authz.http_guard import require_org_admin
+from evoflow.authz.http_guard import require_org_admin  # noqa: E402
 
 
 def _org_admin_dep(request: Request) -> None:
@@ -34,6 +34,7 @@ router = APIRouter(
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
+
 
 class CreateDatasetRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -83,6 +84,7 @@ class SearchRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Dataset endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("")
 @router.get("/")
@@ -175,6 +177,7 @@ async def sync_local_source(dataset_id: str, req: SyncLocalRequest | None = None
 # ---------------------------------------------------------------------------
 # File endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.post("/{dataset_id}/upload")
 async def upload_file(
@@ -279,6 +282,7 @@ async def delete_file(dataset_id: str, file_id: str):
 # Chunk endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.get("/{dataset_id}/chunks")
 async def list_chunks(
     dataset_id: str,
@@ -294,6 +298,7 @@ async def list_chunks(
 # ---------------------------------------------------------------------------
 # Search endpoint
 # ---------------------------------------------------------------------------
+
 
 @router.post("/{dataset_id}/search")
 async def search(dataset_id: str, req: SearchRequest):
@@ -319,6 +324,7 @@ async def search(dataset_id: str, req: SearchRequest):
 # Status endpoint
 # ---------------------------------------------------------------------------
 
+
 @router.get("/{dataset_id}/status")
 async def get_status(dataset_id: str):
     """Get processing status for a knowledge base."""
@@ -330,6 +336,7 @@ async def get_status(dataset_id: str):
 # ---------------------------------------------------------------------------
 # Global search endpoint (no dataset_id required)
 # ---------------------------------------------------------------------------
+
 
 class GlobalSearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
@@ -357,6 +364,7 @@ async def global_search(req: GlobalSearchRequest):
 # ---------------------------------------------------------------------------
 # Embed endpoint (text → vector)
 # ---------------------------------------------------------------------------
+
 
 class EmbedRequest(BaseModel):
     text: str = Field(..., min_length=1)
@@ -389,9 +397,11 @@ async def embed_text(req: EmbedRequest):
             if not req.dataset_id:
                 raise HTTPException(status_code=400, detail="dataset_id is required when store=True")
             from evoflow.knowledge.vector.sqlite_vec import VectorStore
+
             vs = VectorStore(req.dataset_id, dim=dim)
             # Generate a stable chunk_id for ad-hoc embeddings
             import hashlib
+
             chunk_id = f"embed_{hashlib.sha256(req.text.encode()).hexdigest()[:16]}"
             vs.insert(chunk_id, embedding)
 

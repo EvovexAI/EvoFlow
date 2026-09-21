@@ -5,29 +5,20 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.channels.feishu import (
-    _FeishuInboundDeduper,
     _feishu_account_open_id,
     _feishu_mention_open_ids,
     _feishu_sender_is_bot,
     _feishu_should_skip_unmentioned_group,
+    _FeishuInboundDeduper,
 )
 
 
 def test_inbound_deduper_same_msg_id():
     d = _FeishuInboundDeduper(id_ttl=60, content_ttl=20)
-    assert (
-        d.is_duplicate(account_id="xiaomi", msg_id="om_1", chat_id="oc_g", text="@_user_1 我是谁")
-        is False
-    )
-    assert (
-        d.is_duplicate(account_id="xiaomi", msg_id="om_1", chat_id="oc_g", text="@_user_1 我是谁")
-        is True
-    )
+    assert d.is_duplicate(account_id="xiaomi", msg_id="om_1", chat_id="oc_g", text="@_user_1 我是谁") is False
+    assert d.is_duplicate(account_id="xiaomi", msg_id="om_1", chat_id="oc_g", text="@_user_1 我是谁") is True
     # Different account may still process the same Feishu message_id
-    assert (
-        d.is_duplicate(account_id="code-agent", msg_id="om_1", chat_id="oc_g", text="@_user_1 我是谁")
-        is False
-    )
+    assert d.is_duplicate(account_id="code-agent", msg_id="om_1", chat_id="oc_g", text="@_user_1 我是谁") is False
 
 
 def test_inbound_deduper_same_content_short_window():

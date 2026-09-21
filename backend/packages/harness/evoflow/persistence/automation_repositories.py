@@ -161,10 +161,14 @@ def get_automation_owner_scope(task_id: str) -> tuple[str | None, str | None]:
     cols = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_automations)").fetchall()}
     if "owner_scope_id" not in cols:
         return None, None
-    row = get_db().execute(
-        "SELECT org_id, owner_scope_id FROM evoflow_automations WHERE task_id = ?",
-        (tid,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT org_id, owner_scope_id FROM evoflow_automations WHERE task_id = ?",
+            (tid,),
+        )
+        .fetchone()
+    )
     if not row:
         return None, None
     return (str(row[0] or "").strip() or None, str(row[1] or "").strip() or None)

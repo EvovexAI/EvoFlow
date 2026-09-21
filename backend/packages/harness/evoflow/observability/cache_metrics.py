@@ -190,9 +190,7 @@ def aggregate_cache_metrics(
     sample_model = ""
     sample_provider = ""
     for row in rows:
-        r, _, _ = _row_cache_triplet(
-            cache_read=row[2], cache_create=row[3], cache_miss=row[4], usage_json=row[5]
-        )
+        r, _, _ = _row_cache_triplet(cache_read=row[2], cache_create=row[3], cache_miss=row[4], usage_json=row[5])
         if r > 0:
             sample_model = str(row[0] or "")
             sample_provider = str(row[1] or "")
@@ -206,11 +204,7 @@ def aggregate_cache_metrics(
     ref_savings_per_mtok = savings_cny_per_mtok(ref_rule) if ref_rule else None
     cost_after_cache = round(total_cost_cny, 4) if total_cost_cny > 0 else None
     savings_rounded = round(savings_cny, 4) if savings_cny > 0 else None
-    full_price = (
-        round(total_cost_cny + savings_cny, 4)
-        if (total_cost_cny > 0 or savings_cny > 0)
-        else None
-    )
+    full_price = round(total_cost_cny + savings_cny, 4) if (total_cost_cny > 0 or savings_cny > 0) else None
 
     return {
         "cache_read_tokens": read,

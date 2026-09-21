@@ -170,10 +170,7 @@ def test_view_image_middleware_injects_from_path_not_checkpoint_base64(tmp_path:
     assert update is not None
     assert update["viewed_images"] == {}
     blocks = update["messages"][0].content
-    assert any(
-        isinstance(b, dict) and b.get("type") == "image_url" and "data:image" in str(b.get("image_url", {}).get("url", ""))
-        for b in blocks
-    )
+    assert any(isinstance(b, dict) and b.get("type") == "image_url" and "data:image" in str(b.get("image_url", {}).get("url", "")) for b in blocks)
     assert any("[Image attached at:" in str(b.get("text", "")) for b in blocks if isinstance(b, dict))
 
 

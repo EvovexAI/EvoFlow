@@ -35,9 +35,7 @@ CREATE TABLE IF NOT EXISTS evoflow_departments (
 )
 """
 
-_CREATE_DEPTS_IDX_SQL = (
-    "CREATE INDEX IF NOT EXISTS idx_departments_sort ON evoflow_departments(sort_order, name)"
-)
+_CREATE_DEPTS_IDX_SQL = "CREATE INDEX IF NOT EXISTS idx_departments_sort ON evoflow_departments(sort_order, name)"
 
 
 def _sanitize_name(value: Any) -> str:
@@ -63,10 +61,7 @@ def _row_dict(row: Any) -> dict[str, Any]:
 
 
 def _table_columns(conn: Any) -> set[str]:
-    return {
-        str(r[1])
-        for r in conn.execute("PRAGMA table_info(evoflow_departments)").fetchall()
-    }
+    return {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_departments)").fetchall()}
 
 
 def ensure_departments_table(conn: Any | None = None) -> None:
@@ -76,10 +71,7 @@ def ensure_departments_table(conn: Any | None = None) -> None:
     db.execute(_CREATE_DEPTS_IDX_SQL)
     cols = _table_columns(db)
     if "head_agent_code" not in cols:
-        db.execute(
-            "ALTER TABLE evoflow_departments "
-            "ADD COLUMN head_agent_code TEXT NOT NULL DEFAULT ''"
-        )
+        db.execute("ALTER TABLE evoflow_departments ADD COLUMN head_agent_code TEXT NOT NULL DEFAULT ''")
     if conn is None and not db.in_transaction:
         try:
             db.commit()
@@ -152,11 +144,7 @@ class DepartmentRepository:
         def _work(conn: Any) -> None:
             nonlocal created
             ensure_departments_table(conn)
-            existing = {
-                str(r["name"]).strip()
-                for r in conn.execute("SELECT name FROM evoflow_departments").fetchall()
-                if str(r["name"] or "").strip()
-            }
+            existing = {str(r["name"]).strip() for r in conn.execute("SELECT name FROM evoflow_departments").fetchall() if str(r["name"] or "").strip()}
             rows = conn.execute(
                 """
                 SELECT DISTINCT TRIM(department) AS name
@@ -164,9 +152,7 @@ class DepartmentRepository:
                 WHERE TRIM(COALESCE(department, '')) != ''
                 """
             ).fetchall()
-            max_sort = conn.execute(
-                "SELECT COALESCE(MAX(sort_order), 0) FROM evoflow_departments"
-            ).fetchone()[0]
+            max_sort = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM evoflow_departments").fetchone()[0]
             sort = int(max_sort or 0)
             for row in rows:
                 name = _sanitize_name(row["name"] if hasattr(row, "keys") else row[0])
@@ -305,12 +291,7 @@ class DepartmentRepository:
             ensure_departments_table(conn)
             sort = sort_order
             if sort is None:
-                sort = int(
-                    conn.execute(
-                        "SELECT COALESCE(MAX(sort_order), 0) FROM evoflow_departments"
-                    ).fetchone()[0]
-                    or 0
-                ) + 10
+                sort = int(conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM evoflow_departments").fetchone()[0] or 0) + 10
             conn.execute(
                 f"""
                 INSERT INTO evoflow_departments ({_DEPT_COLS})
@@ -386,14 +367,18 @@ class DepartmentRepository:
         now = utc_now_iso_z()
 
         if head:
-            row = get_db().execute(
-                """
+            row = (
+                get_db()
+                .execute(
+                    """
                 SELECT agent_code, department, status
                 FROM evoflow_proactive_roles
                 WHERE agent_code = ?
                 """,
-                (head,),
-            ).fetchone()
+                    (head,),
+                )
+                .fetchone()
+            )
             if not row or str(row["status"] or "") == "archived":
                 raise ValueError(f"负责人岗位「{head}」不存在或已归档")
             if str(row["department"] or "").strip() != name:
@@ -472,13 +457,7 @@ class DepartmentRepository:
         if not existing:
             raise ValueError("部门不存在")
         name = str(existing.get("name") or "").strip()
-        codes = sorted(
-            {
-                str(c or "").strip()
-                for c in (agent_codes or [])
-                if str(c or "").strip()
-            }
-        )
+        codes = sorted({str(c or "").strip() for c in (agent_codes or []) if str(c or "").strip()})
         now = utc_now_iso_z()
         head = str(existing.get("head_agent_code") or "").strip()
         if head and head not in codes:

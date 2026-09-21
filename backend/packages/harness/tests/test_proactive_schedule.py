@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import sqlite3
 from datetime import datetime
 
+from evoflow.persistence.schema import ensure_app_schema
 from evoflow.proactive.models import ProactiveRole, ProactiveRoleConfig
 from evoflow.proactive.schedule import (
     compute_next_duty_iso,
@@ -96,7 +95,6 @@ def test_compute_next_duty_from_cron() -> None:
 
 
 def test_v126_migration_rewrites_legacy_rows() -> None:
-        
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     ensure_app_schema(conn)
@@ -136,12 +134,7 @@ def test_v126_migration_rewrites_legacy_rows() -> None:
     # Idempotent second pass
     ensure_app_schema(conn)
 
-    by_code = {
-        str(r["agent_code"]): str(r["heartbeat_schedule"])
-        for r in conn.execute(
-            "SELECT agent_code, heartbeat_schedule FROM evoflow_proactive_roles"
-        ).fetchall()
-    }
+    by_code = {str(r["agent_code"]): str(r["heartbeat_schedule"]) for r in conn.execute("SELECT agent_code, heartbeat_schedule FROM evoflow_proactive_roles").fetchall()}
     assert by_code["dev"] == "0 9-19 * * *"
     assert by_code["ops"] == "0 9-19/2 * * *"
     conn.close()

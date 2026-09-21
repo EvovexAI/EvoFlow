@@ -56,8 +56,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     update_p = sub.add_parser(
         "update",
         help="Update employee / 岗位 config (partial JSON)",
-        description="Partial JSON patch — same fields as hire except agent_code. "
-        "See examples/employees-update.json",
+        description="Partial JSON patch — same fields as hire except agent_code. See examples/employees-update.json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     update_p.add_argument("agent_code", help="Employee agent_code")
@@ -133,7 +132,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         description=(
             "Cross-role @：解析岗位名或 agent_code，再叫醒对方值班。\n"
             "例：\n"
-            '  evoflow employees wake 技术总监 --from product-manager \\\n'
+            "  evoflow employees wake 技术总监 --from product-manager \\\n"
             '    --goal "处理 Task_xxx：按 outputs/organic-handoff-plan.md 出技术方案"\n'
             "  evoflow employees wake quality-inspector --from product-manager --task-id Task_xxx\n"
             "底层仍走 Gateway /dispatch；organization 边界见值班 brief（同 workspace）。"

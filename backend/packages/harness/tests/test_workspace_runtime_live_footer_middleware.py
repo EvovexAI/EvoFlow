@@ -24,11 +24,7 @@ def test_inject_runtime_clock_into_workspace_upserts_line() -> None:
 
 
 def test_strip_runtime_clock_lines_from_system_prompt() -> None:
-    src = (
-        "<workspace>\n用户工作目录: /ws\n时间: old\n当前系统时间: legacy\n"
-        "<session_runtime_clock>\nCurrent system time: x\n</session_runtime_clock>\n"
-        "</workspace>"
-    )
+    src = "<workspace>\n用户工作目录: /ws\n时间: old\n当前系统时间: legacy\n<session_runtime_clock>\nCurrent system time: x\n</session_runtime_clock>\n</workspace>"
     out = strip_runtime_clock_lines_from_system_prompt(src)
     assert "时间:" not in out
     assert "当前系统时间" not in out
@@ -56,11 +52,7 @@ def test_workspace_live_footer_injects_clock_into_system_workspace() -> None:
         },
         runtime=MagicMock(),
     )
-    req = req.override(
-        system_message=SystemMessage(
-            content="base system only\n<workspace>\n用户工作目录: D:\\proj\n当前系统时间: 1999-01-01\n</workspace>"
-        )
-    )
+    req = req.override(system_message=SystemMessage(content="base system only\n<workspace>\n用户工作目录: D:\\proj\n当前系统时间: 1999-01-01\n</workspace>"))
 
     with (
         patch(

@@ -141,9 +141,7 @@ def _validate_target_state(target: str) -> None:
     from evoflow.tools.builtins.supervisor_tool import _ALLOWED_TASK_STATES
 
     if target not in _ALLOWED_TASK_STATES:
-        raise ValidationError(
-            f"invalid status '{target}'; allowed: {sorted(_ALLOWED_TASK_STATES)}"
-        )
+        raise ValidationError(f"invalid status '{target}'; allowed: {sorted(_ALLOWED_TASK_STATES)}")
 
 
 def _row_matches(
@@ -307,21 +305,13 @@ def list_tasks(
             from evoflow.proactive.repositories import ProactiveRepository
 
             roles = ProactiveRepository.list_roles()
-            known = {
-                str(r.role_name or "").strip().lower()
-                for r in roles
-                if str(r.status or "").strip().lower() != "archived"
-            }
+            known = {str(r.role_name or "").strip().lower() for r in roles if str(r.status or "").strip().lower() != "archived"}
         except ValidationError:
             raise
         except Exception as e:
             raise ValidationError(f"failed to resolve role '{role}': {e}") from e
         if role_name_norm not in known:
-            raise ValidationError(
-                f"no active role found with name '{role}'. "
-                "Run `evoflow employees list` to see available role_name values. "
-                "Create tasks with --role so they stamp assigned_role."
-            )
+            raise ValidationError(f"no active role found with name '{role}'. Run `evoflow employees list` to see available role_name values. Create tasks with --role so they stamp assigned_role.")
         role_name_filter = role_name_norm
 
     # Light path: no N× load_project / Path.resolve absolutization on list.
@@ -354,9 +344,7 @@ def list_tasks(
             "started_at": task.get("started_at"),
             "completed_at": task.get("completed_at"),
         }
-        if not (
-            source_filter and not sources_equal(task.get("source"), source_filter)
-        ) and _row_matches(
+        if not (source_filter and not sources_equal(task.get("source"), source_filter)) and _row_matches(
             mt_row,
             assignee_filter,
             status_filter,
@@ -366,9 +354,7 @@ def list_tasks(
 
     if include_subtasks:
         for st in repo.list_subtask_summaries(main_task_id=mid):
-            parent_tid = str(
-                st.get("_collab_parent_task_id") or st.get("main_task_id") or ""
-            ).strip()
+            parent_tid = str(st.get("_collab_parent_task_id") or st.get("main_task_id") or "").strip()
             sid = str(st.get("id") or "").strip()
             if not parent_tid or not sid:
                 continue
@@ -623,13 +609,7 @@ def update_progress(
         if not _can_transition(current, status_norm):
             raise ValidationError(
                 f"illegal state transition: {current} -> {status_norm}"
-                + (
-                    f"; use progress or state=executing first, then {status_norm}"
-                    if current in {"pending", "planned", "planning", "waiting_user"}
-                    and status_norm
-                    in {"completed", "failed", "awaiting_close", "reviewed"}
-                    else ""
-                )
+                + (f"; use progress or state=executing first, then {status_norm}" if current in {"pending", "planned", "planning", "waiting_user"} and status_norm in {"completed", "failed", "awaiting_close", "reviewed"} else "")
             )
     updates = {"progress": progress_value}
     if status_norm:
@@ -802,9 +782,7 @@ def _request_handoff_approval(task: dict[str, Any]) -> dict[str, Any] | None:
         try:
             await gate._push_to_channels(role, synthetic, approval)
         except Exception:
-            logger.debug(
-                "admin.tasks: handoff approval bg push failed task=%s", tid, exc_info=True
-            )
+            logger.debug("admin.tasks: handoff approval bg push failed task=%s", tid, exc_info=True)
 
     running_loop.create_task(_push_bg())
 
@@ -930,16 +908,10 @@ def set_task_state(
             pass
         elif not _can_transition(current, target):
             if not (raw_target == "reviewed" and _can_transition(current, "reviewed")):
-                hint = (
-                    f"; use progress or state=executing first, then {target}"
-                    if current in {"pending", "planned", "planning", "waiting_user"}
-                    and target in {"completed", "failed", "awaiting_close", "reviewed"}
-                    else ""
-                )
-                raise ValidationError(
-                    f"illegal state transition: {current} -> {target}{hint}"
-                )
+                hint = f"; use progress or state=executing first, then {target}" if current in {"pending", "planned", "planning", "waiting_user"} and target in {"completed", "failed", "awaiting_close", "reviewed"} else ""
+                raise ValidationError(f"illegal state transition: {current} -> {target}{hint}")
         code = agent_code_for_task_row(subtask) or agent_code_for_task_row(main_task)
+        ws = workspace_root_for_task_row(subtask) or workspace_root_for_task_row(main_task)
         outcome_updates = _outcome_patch(
             summary,
             outputs,
@@ -980,12 +952,7 @@ def set_task_state(
     _project, task = found
     current = _normalize_status(task.get("status"))
     # Remap completed+existing handlers (caller omitted handlers=) → awaiting_close
-    if (
-        target == "completed"
-        and handlers_norm is None
-        and task_handlers_of(task)
-        and not str(task.get("handlers_dispatched_at") or "").strip()
-    ):
+    if target == "completed" and handlers_norm is None and task_handlers_of(task) and not str(task.get("handlers_dispatched_at") or "").strip():
         target = "awaiting_close"
     if current == "reviewed" and target == "completed":
         pass
@@ -994,15 +961,8 @@ def set_task_state(
     elif not _can_transition(current, target):
         # Employee may pass status=reviewed (mapped to completed); allow if reviewed was legal.
         if not (raw_target == "reviewed" and _can_transition(current, "reviewed")):
-            hint = (
-                f"; use progress or state=executing first, then {target}"
-                if current in {"pending", "planned", "planning", "waiting_user"}
-                and target in {"completed", "failed", "awaiting_close", "reviewed"}
-                else ""
-            )
-            raise ValidationError(
-                f"illegal state transition: {current} -> {target}{hint}"
-            )
+            hint = f"; use progress or state=executing first, then {target}" if current in {"pending", "planned", "planning", "waiting_user"} and target in {"completed", "failed", "awaiting_close", "reviewed"} else ""
+            raise ValidationError(f"illegal state transition: {current} -> {target}{hint}")
 
     ws = workspace_root_for_task_row(task)
     code = agent_code_for_task_row(task)
@@ -1019,11 +979,7 @@ def set_task_state(
 
     assignee = str(task.get("assigned_to") or "").strip()
     # Org: employee handoff → direct reports only.
-    if handlers_norm is not None or (
-        target in {"completed", "awaiting_close"}
-        and task_handlers_of(task)
-        and not str(task.get("handlers_dispatched_at") or "").strip()
-    ):
+    if handlers_norm is not None or (target in {"completed", "awaiting_close"} and task_handlers_of(task) and not str(task.get("handlers_dispatched_at") or "").strip()):
         from evoflow.collab.handler_org import assert_handlers_org_ok
 
         to_check = handlers_norm if handlers_norm is not None else task_handlers_of(task)
@@ -1105,9 +1061,7 @@ def set_task_state(
         out["handoff_approval"] = handoff_approval
 
     # Downstream receipt: child terminal / 待闭环 → soft-wake orchestrating superior(s).
-    if target in {"completed", "failed", "cancelled", "awaiting_close"} and str(
-        task.get("parent_task_id") or ""
-    ).strip():
+    if target in {"completed", "failed", "cancelled", "awaiting_close"} and str(task.get("parent_task_id") or "").strip():
         try:
             from evoflow.collab.upstream_receipt import notify_upstream_on_child_terminal
 
@@ -1430,10 +1384,7 @@ def create_task(
         if not bypass_handoff_gate:
             parent_found = find_main_task(storage, parent_norm, bypass_cache=True)
             if parent_found and task_has_pending_handoff_approval(parent_found[1]):
-                raise ValidationError(
-                    f"parent task '{parent_norm}' 交接待审批：批准前禁止手动 create 下游子任务；"
-                    "请等用户同意后再由系统派发，或本岗用 tasks(state=completed, handlers=…) 交工"
-                )
+                raise ValidationError(f"parent task '{parent_norm}' 交接待审批：批准前禁止手动 create 下游子任务；请等用户同意后再由系统派发，或本岗用 tasks(state=completed, handlers=…) 交工")
     # Default: role-stamped → role; else chat
     default_src = TASK_SOURCE_ROLE if role_norm else TASK_SOURCE_CHAT
     source_canon, source_channel = resolve_write_source(source, default=default_src)
@@ -1458,10 +1409,7 @@ def create_task(
 
     if main_task_id:
         if parent_norm:
-            raise ValidationError(
-                "parent_task_id is for main-task handoff trees; "
-                "use main_task_id alone when creating a collab subtask"
-            )
+            raise ValidationError("parent_task_id is for main-task handoff trees; use main_task_id alone when creating a collab subtask")
         mtid = str(main_task_id).strip()
         with main_task_mutation_lock(mtid):
             found = find_main_task(storage, mtid, bypass_cache=True)

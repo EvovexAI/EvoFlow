@@ -16,9 +16,7 @@ def resolve_mcp_server_names(
 ) -> list[str]:
     """Role MCP binding: ``None`` = all enabled servers; ``[]`` = none; else explicit list."""
     if mcp_servers is None:
-        return sorted(
-            name for name, cfg in raw_cfg.items() if cfg.get("enabled", True) is not False
-        )
+        return sorted(name for name, cfg in raw_cfg.items() if cfg.get("enabled", True) is not False)
     return sorted(str(s).strip() for s in mcp_servers if str(s).strip())
 
 

@@ -6,7 +6,7 @@ from evoflow.agents.tool_approval_resume import (
     _build_resume_stream_body,
     build_tool_approval_resume_payload,
 )
-from evoflow.agents.tool_approval_service import apply_user_approval, append_pending, make_pending_entry
+from evoflow.agents.tool_approval_service import append_pending, apply_user_approval, make_pending_entry
 from evoflow.persistence.session_repositories import upsert_session_row
 
 
@@ -18,12 +18,15 @@ def test_approve_single_pending_returns_replay_ids(tmp_path, monkeypatch) -> Non
     tid = "thread-approval-flow"
     tc_id = "call_delete_1"
     upsert_session_row(sk, thread_id=tid, title="approval flow")
-    append_pending(tid, make_pending_entry(
-        tool_call_id=tc_id,
-        tool_name="delete",
-        args={"path": "outputs/x.txt"},
-        summary="outputs/x.txt",
-    ))
+    append_pending(
+        tid,
+        make_pending_entry(
+            tool_call_id=tc_id,
+            tool_name="delete",
+            args={"path": "outputs/x.txt"},
+            summary="outputs/x.txt",
+        ),
+    )
 
     result = apply_user_approval(tid, {"action": "approve", "tool_call_id": tc_id})
     assert tc_id in result.replay_tool_call_ids
@@ -128,8 +131,8 @@ def test_deny_then_approve_sibling_returns_replay_ids(tmp_path, monkeypatch) -> 
 def test_deny_updates_tool_transcript_to_denied(tmp_path, monkeypatch) -> None:
     import json
 
-    from evoflow.persistence.chat_message_repositories import append_message, list_messages
     from evoflow.persistence.chat_message_content import loads_payload
+    from evoflow.persistence.chat_message_repositories import append_message, list_messages
 
     db_path = tmp_path / "approval-deny-transcript.db"
     monkeypatch.setenv("EVOFLOW_DB_PATH", str(db_path))
@@ -167,11 +170,7 @@ def test_deny_updates_tool_transcript_to_denied(tmp_path, monkeypatch) -> None:
     assert tc in result.denied_tool_call_ids
 
     rows = list_messages(sk, limit=20)
-    tool_rows = [
-        r
-        for r in rows
-        if str(r.get("role") or "") == "tool" and str(r.get("tool_call_id") or "") == tc
-    ]
+    tool_rows = [r for r in rows if str(r.get("role") or "") == "tool" and str(r.get("tool_call_id") or "") == tc]
     assert tool_rows
     payload = tool_rows[-1].get("payload")
     if not isinstance(payload, dict):

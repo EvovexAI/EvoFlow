@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
 
 from evoflow.memory.storage import (  # noqa: F401 — re-export
     FileMemoryStorage,

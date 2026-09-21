@@ -76,9 +76,7 @@ def _mark_listen_socket_broken(reason: str) -> None:
     _listen_socket_broken_at = reason
     dump_gateway_diagnostics("listen_socket_broken", lag_seconds=round(get_event_loop_lag_seconds(), 3))
     logger.critical(
-        "Gateway listen socket is broken (%s). HTTP/API will stop accepting new connections; "
-        "restart Gateway (close the Gateway window or run restart-dev-stack). "
-        "Set EVOFLOW_GATEWAY_EXIT_ON_SOCKET_FAILURE=1 to auto-exit the process.",
+        "Gateway listen socket is broken (%s). HTTP/API will stop accepting new connections; restart Gateway (close the Gateway window or run restart-dev-stack). Set EVOFLOW_GATEWAY_EXIT_ON_SOCKET_FAILURE=1 to auto-exit the process.",
         reason,
     )
     if _flag_enabled("EVOFLOW_GATEWAY_EXIT_ON_SOCKET_FAILURE", "0"):

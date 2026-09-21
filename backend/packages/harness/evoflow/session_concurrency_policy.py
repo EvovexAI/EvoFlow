@@ -95,9 +95,7 @@ async def interrupt_thread(
     if not tid:
         summary["skipped"] = True
         return summary
-    base = (base_url or os.getenv("EVOFLOW_LANGGRAPH_URL") or "http://127.0.0.1:8070/api/langgraph").rstrip(
-        "/"
-    )
+    base = (base_url or os.getenv("EVOFLOW_LANGGRAPH_URL") or "http://127.0.0.1:8070/api/langgraph").rstrip("/")
     try:
         from evoflow.langgraph_run_config import resolve_langgraph_base_url
 

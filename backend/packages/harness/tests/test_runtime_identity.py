@@ -44,7 +44,8 @@ def test_enrich_from_session_and_automation(sqlite_tmp: str) -> None:
     )
     from evoflow.authz.scope import personal_scope
     from evoflow.authz.session_ownership import stamp_session_ownership
-    from evoflow.persistence import automation_repositories, session_repositories as sess_repo
+    from evoflow.persistence import automation_repositories
+    from evoflow.persistence import session_repositories as sess_repo
 
     ensure_app_schema(get_db())
     alice = principals_mod.create_principal(display_name="Alice", principal_id="user:alice")
@@ -61,17 +62,13 @@ def test_enrich_from_session_and_automation(sqlite_tmp: str) -> None:
         "cron_alice",
         {"name": "Cron", "prompt": "hi", "schedule": "0 9 * * *", "status": "active"},
     )
-    automation_repositories.set_automation_owner_scope(
-        "cron_alice", org_id="local", owner_scope_id=a_scope, created_by="user:alice"
-    )
+    automation_repositories.set_automation_owner_scope("cron_alice", org_id="local", owner_scope_id=a_scope, created_by="user:alice")
     ident = resolve_identity_from_automation("cron_alice")
     assert ident["principal_id"] == "user:alice"
 
     sess_repo.upsert_session_row("automation:cron_alice", title="auto", thread_id="tid-auto")
     assert stamp_session_from_identity("automation:cron_alice", ident)
-    again = enrich_run_context_identity(
-        {"session_key": "automation:cron_alice", "automation_task_id": "cron_alice"}
-    )
+    again = enrich_run_context_identity({"session_key": "automation:cron_alice", "automation_task_id": "cron_alice"})
     assert again["principal_id"] == "user:alice"
 
 
@@ -95,9 +92,7 @@ def test_enrich_from_agent_owner(sqlite_tmp: str) -> None:
     get_db().commit()
     # Columns may vary — set_agent_owner_scope handles missing cols
     try:
-        config_repositories.set_agent_owner_scope(
-            "alice-bot", org_id="local", owner_scope_id=personal_scope("user:alice")
-        )
+        config_repositories.set_agent_owner_scope("alice-bot", org_id="local", owner_scope_id=personal_scope("user:alice"))
     except Exception:
         get_db().execute(
             "UPDATE evoflow_agents SET owner_scope_id = ?, org_id = ? WHERE agent_code = ?",
@@ -114,9 +109,7 @@ def test_enrich_from_agent_owner(sqlite_tmp: str) -> None:
 def test_lead_agent_from_mapping_enriches() -> None:
     from evoflow.agents.lead_agent.runtime_context import LeadAgentRuntimeContext
 
-    ctx = LeadAgentRuntimeContext.from_mapping(
-        {"session_key": "x", "principal_id": "user:bob", "thread_id": "t1"}
-    )
+    ctx = LeadAgentRuntimeContext.from_mapping({"session_key": "x", "principal_id": "user:bob", "thread_id": "t1"})
     assert ctx.principal_id == "user:bob"
     assert ctx.created_by == "user:bob"
     assert ctx.owner_scope_id == "personal:user:bob"

@@ -7,9 +7,10 @@ import logging
 import threading
 import time
 
-from fastapi import Request, APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from evoflow.authz.http_guard import require_thread_visible
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
+
+from evoflow.authz.http_guard import require_thread_visible
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ async def restart_browser_stream_route(request: Request, thread_id: str) -> dict
 @router.websocket("/{thread_id}/browser-stream")
 async def browser_stream_ws(websocket: WebSocket, thread_id: str) -> None:
     from fastapi import HTTPException
+
     try:
         require_thread_visible(websocket, thread_id)  # type: ignore[arg-type]
     except HTTPException:

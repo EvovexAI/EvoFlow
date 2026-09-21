@@ -37,16 +37,20 @@ def _member_row(
 
 
 def list_scope_members(scope_id: str, *, org_id: str = DEFAULT_ORG_ID) -> list[dict[str, Any]]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT m.principal_id, m.role, m.joined_at, p.display_name, p.principal_type, p.status
         FROM evoflow_scope_members m
         LEFT JOIN evoflow_principals p ON p.principal_id = m.principal_id
         WHERE m.org_id = ? AND m.scope_id = ?
         ORDER BY m.joined_at ASC
         """,
-        (org_id, scope_id),
-    ).fetchall()
+            (org_id, scope_id),
+        )
+        .fetchall()
+    )
     out: list[dict[str, Any]] = []
     for r in rows:
         out.append(

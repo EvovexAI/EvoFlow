@@ -25,8 +25,8 @@ from evoflow.license.codec import (
 )
 from evoflow.license.entitlements import build_activated_state, get_license_status
 from evoflow.license.gate import require_premium
-from evoflow.license.machine import clear_machine_id_cache, get_machine_id
 from evoflow.license.keys import generate_keypair
+from evoflow.license.machine import clear_machine_id_cache, get_machine_id
 from evoflow.license.store import clear_license_state, set_license_state
 from evoflow.persistence.db import get_db, reset_db_for_tests
 

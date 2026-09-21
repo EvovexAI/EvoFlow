@@ -54,11 +54,7 @@ def is_task_center_noise(task: dict[str, Any] | None) -> bool:
     if name.startswith(_RECEIPT_PREFIX):
         return True
     if raised in _MEETING_RAISERS or woken in _MEETING_RAISERS:
-        if (
-            "口头汇报" in name
-            or name == "汇报每个人工作进度"
-            or name.startswith("【圆桌会议")
-        ):
+        if "口头汇报" in name or name == "汇报每个人工作进度" or name.startswith("【圆桌会议"):
             return True
     if "EVAL_LIVE" in name or "live_wake eval" in desc.lower():
         return True
@@ -96,11 +92,7 @@ def classify_noise_cleanup_reason(
     if name.startswith(_RECEIPT_PREFIX):
         return "upstream_receipt_wrapper"
     if raised in _MEETING_RAISERS or woken in _MEETING_RAISERS:
-        if (
-            "口头汇报" in name
-            or name == "汇报每个人工作进度"
-            or name.startswith("【圆桌会议")
-        ):
+        if "口头汇报" in name or name == "汇报每个人工作进度" or name.startswith("【圆桌会议"):
             return "meeting_oral_report"
     if channel == "status_check":
         return "status_check"

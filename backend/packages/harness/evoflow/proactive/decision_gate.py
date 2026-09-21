@@ -59,11 +59,11 @@ class DecisionGate:
     # These are far more generous than the old flat 30min to avoid the 94%
     # timeout rate that made the approval channel useless.
     _DEFAULT_TIMEOUT_BY_TYPE: dict[str, int] = {
-        "analysis": 120,         # 2h  - reports can wait
-        "report": 120,           # 2h
-        "code_change": 1440,     # 24h - needs careful review
-        "optimization": 1440,    # 24h - needs impact assessment
-        "alert": 60,             # 1h  - alerts need faster response
+        "analysis": 120,  # 2h  - reports can wait
+        "report": 120,  # 2h
+        "code_change": 1440,  # 24h - needs careful review
+        "optimization": 1440,  # 24h - needs impact assessment
+        "alert": 60,  # 1h  - alerts need faster response
         "task_delegation": 240,  # 4h  - coordination needed
     }
 
@@ -74,9 +74,7 @@ class DecisionGate:
     def __init__(self) -> None:
         self._pending_timeout_task: asyncio.Task | None = None
 
-    def _resolve_timeout_minutes(
-        self, role: ProactiveRole | None, initiative: Initiative | None
-    ) -> int:
+    def _resolve_timeout_minutes(self, role: ProactiveRole | None, initiative: Initiative | None) -> int:
         """Resolve the effective approval timeout for this initiative.
 
         Priority:
@@ -261,11 +259,7 @@ class DecisionGate:
                     role_agent_code=str(approval.role_agent_code or ""),
                     external_message_id=str(approval.feishu_message_id or ""),
                     title=str(decision),
-                    content_summary=(
-                        rejection_reason
-                        or comment
-                        or f"decision={decision} by={decided_by}"
-                    )[:400],
+                    content_summary=(rejection_reason or comment or f"decision={decision} by={decided_by}")[:400],
                     payload={
                         "decision": decision,
                         "decided_by": decided_by,
@@ -313,16 +307,12 @@ class DecisionGate:
                             task_has_pending_handoff_approval,
                         )
 
-                        if task_has_pending_handoff_approval(task) or task.get(
-                            "handlers_pending_approval"
-                        ):
+                        if task_has_pending_handoff_approval(task) or task.get("handlers_pending_approval"):
                             # Run create+wake off the event-loop thread so a
                             # legacy HTTP wake cannot deadlock Gateway.
                             import asyncio
 
-                            await asyncio.to_thread(
-                                dispatch_handlers_after_approval, task_id
-                            )
+                            await asyncio.to_thread(dispatch_handlers_after_approval, task_id)
                     except Exception:
                         logger.exception(
                             "proactive.approval: handoff dispatch failed task=%s",
@@ -360,9 +350,7 @@ class DecisionGate:
                     )
                 synthetic.status = InitiativeStatus.REJECTED
                 ProactiveRepository.save_initiative(synthetic)
-                reason = (
-                    approval.rejection_reason or approval.decision_comment or comment or ""
-                ).strip()
+                reason = (approval.rejection_reason or approval.decision_comment or comment or "").strip()
                 self._record_rejection_memory(synthetic, reason)
                 logger.info(
                     "proactive.approval.rejected_handoff task=%s by=%s",
@@ -371,14 +359,10 @@ class DecisionGate:
                 )
                 return None
 
-            set_work_item_status(
-                task_id, "cancelled", result=rejection_reason or comment or "rejected"
-            )
+            set_work_item_status(task_id, "cancelled", result=rejection_reason or comment or "rejected")
             synthetic.status = InitiativeStatus.REJECTED
             ProactiveRepository.save_initiative(synthetic)
-            reason = (
-                approval.rejection_reason or approval.decision_comment or comment or ""
-            ).strip()
+            reason = (approval.rejection_reason or approval.decision_comment or comment or "").strip()
             self._record_rejection_memory(synthetic, reason)
             logger.info(
                 "proactive.approval.rejected task=%s by=%s",
@@ -405,9 +389,7 @@ class DecisionGate:
         else:
             initiative.status = InitiativeStatus.REJECTED
             ProactiveRepository.save_initiative(initiative)
-            reason = (
-                approval.rejection_reason or approval.decision_comment or comment or ""
-            ).strip()
+            reason = (approval.rejection_reason or approval.decision_comment or comment or "").strip()
             self._record_rejection_memory(initiative, reason)
             logger.info(
                 "proactive.approval.rejected initiative=%s by=%s",
@@ -439,9 +421,7 @@ class DecisionGate:
             if len(mem.strategies) > 40:
                 mem.strategies = mem.strategies[-40:]
             # Drop prior duplicate copies accidentally stored as observations.
-            mem.observations = [
-                o for o in (mem.observations or []) if key not in str(o)
-            ]
+            mem.observations = [o for o in (mem.observations or []) if key not in str(o)]
             if len(mem.observations) > 100:
                 mem.observations = mem.observations[-100:]
             ProactiveMemoryRepository.save(mem)
@@ -493,19 +473,8 @@ class DecisionGate:
             role = ProactiveRepository.get_role(approval.role_agent_code)
             # If Feishu card never landed (channel down at create time), keep retrying
             # in background to avoid blocking the tick loop.
-            if (
-                role
-                and initiative
-                and not str(approval.feishu_message_id or "").strip()
-                and "feishu"
-                in {
-                    str(c).strip().lower()
-                    for c in (role.config.approval_channels or ["desktop", "feishu"])
-                }
-            ):
-                asyncio.create_task(
-                    self._retry_push_feishu_background(role, initiative, approval)
-                )
+            if role and initiative and not str(approval.feishu_message_id or "").strip() and "feishu" in {str(c).strip().lower() for c in (role.config.approval_channels or ["desktop", "feishu"])}:
+                asyncio.create_task(self._retry_push_feishu_background(role, initiative, approval))
             timeout_mins = self._resolve_timeout_minutes(role, initiative)
             escalate_mins = timeout_mins * 0.5
 
@@ -577,9 +546,7 @@ class DecisionGate:
         tasks: list[asyncio.Task] = []
         tasks.append(asyncio.create_task(self._push_desktop_safe(role, initiative, approval)))
         if "feishu" in channels:
-            tasks.append(
-                asyncio.create_task(self._push_feishu_safe(role, initiative, approval))
-            )
+            tasks.append(asyncio.create_task(self._push_feishu_safe(role, initiative, approval)))
         if tasks:
             await asyncio.gather(*tasks)
 
@@ -701,9 +668,7 @@ class DecisionGate:
                         shareable = shareable_approval_outputs(task_outputs_of(task_row))
                         next_handlers = task_handlers_of(task_row)
                         st = str(task_row.get("status") or "").strip().lower()
-                        if st in {"completed", "reviewed", "awaiting_close"} or task_row.get(
-                            "handlers_pending_approval"
-                        ):
+                        if st in {"completed", "reviewed", "awaiting_close"} or task_row.get("handlers_pending_approval"):
                             card_kind = "handoff"
                 except Exception:
                     logger.debug(
@@ -719,11 +684,7 @@ class DecisionGate:
             else:
                 description = initiative.description
                 if summary and summary not in description:
-                    description = (
-                        f"{description}\n\n交付摘要：{summary}".strip()
-                        if description
-                        else summary
-                    )
+                    description = f"{description}\n\n交付摘要：{summary}".strip() if description else summary
 
             # Prefer the bot that already owns this chat (same as normal Feishu replies).
             # Learned default often comes from 小V/私聊 inbound — sending as Settings
@@ -733,9 +694,7 @@ class DecisionGate:
             else:
                 send_account = ""
                 try:
-                    owned = str(
-                        getattr(channel, "_chat_account", {}).get(str(target_id), "") or ""
-                    ).strip()
+                    owned = str(getattr(channel, "_chat_account", {}).get(str(target_id), "") or "").strip()
                     if owned:
                         send_account = owned
                     else:
@@ -744,13 +703,9 @@ class DecisionGate:
                             read_learned_feishu_automation_chat_id,
                         )
 
-                        learned_chat = str(
-                            read_learned_feishu_automation_chat_id() or ""
-                        ).strip()
+                        learned_chat = str(read_learned_feishu_automation_chat_id() or "").strip()
                         if learned_chat == str(target_id).strip():
-                            send_account = str(
-                                read_learned_feishu_automation_account_id() or ""
-                            ).strip()
+                            send_account = str(read_learned_feishu_automation_account_id() or "").strip()
                 except Exception:
                     logger.debug(
                         "proactive.feishu.push: resolve chat owner failed",
@@ -777,11 +732,7 @@ class DecisionGate:
                 rationale=initiative.rationale,
                 expected_outcome=initiative.expected_outcome,
                 agent_code=role.agent_code,
-                timeout_minutes=int(
-                    getattr(approval, "approval_timeout_minutes", None)
-                    or getattr(initiative, "approval_timeout_minutes", None)
-                    or 30
-                ),
+                timeout_minutes=int(getattr(approval, "approval_timeout_minutes", None) or getattr(initiative, "approval_timeout_minutes", None) or 30),
                 receive_id_type=receive_id_type,
                 account_id=send_account,
                 summary=summary,
@@ -814,11 +765,7 @@ class DecisionGate:
                         rationale=initiative.rationale,
                         expected_outcome=initiative.expected_outcome,
                         agent_code=role.agent_code,
-                        timeout_minutes=int(
-                            getattr(approval, "approval_timeout_minutes", None)
-                            or getattr(initiative, "approval_timeout_minutes", None)
-                            or 30
-                        ),
+                        timeout_minutes=int(getattr(approval, "approval_timeout_minutes", None) or getattr(initiative, "approval_timeout_minutes", None) or 30),
                         receive_id_type=receive_id_type,
                         account_id=alt,
                         summary=summary,
@@ -878,9 +825,7 @@ class DecisionGate:
                         file_results = await channel.send_proactive_approval_output_files(
                             target_id,
                             outputs=shareable,
-                            workspace_path=str(
-                                getattr(role.config, "workspace_path", "") or ""
-                            ),
+                            workspace_path=str(getattr(role.config, "workspace_path", "") or ""),
                             receive_id_type=receive_id_type,
                             account_id=send_account,
                         )
@@ -1088,9 +1033,7 @@ class DecisionGate:
     ) -> None:
         """Re-notify with escalation urgency (resend interactive card)."""
         try:
-            await self._push_feishu(
-                role, initiative, approval, triggered_by="escalation"
-            )
+            await self._push_feishu(role, initiative, approval, triggered_by="escalation")
             logger.info("proactive.escalation.pushed initiative=%s", initiative.id)
         except Exception:
             logger.debug("proactive.escalation.push failed", exc_info=True)

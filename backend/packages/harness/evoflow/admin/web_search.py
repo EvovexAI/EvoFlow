@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any
 
 from evoflow.admin.errors import ValidationError
@@ -116,9 +117,7 @@ def get_agent_plan_web_search_status() -> dict[str, Any] | None:
                 "standalone_console_url": DOUBAO_SEARCH_CONSOLE_URL,
                 "title": "Agent Plan 含豆包联网搜索",
                 "hint": (
-                    "套餐赠送的是「豆包搜索 / SearchInfinity」额度，和对话用的 ark- Key 不是同一把。"
-                    "请到火山控制台「配置 Harness」领取联网搜索 API Key，填到下方「豆包搜索」。"
-                    "绑定时已默认把首选引擎设为豆包；你也可改成其它引擎或自备 Key。"
+                    "套餐赠送的是「豆包搜索 / SearchInfinity」额度，和对话用的 ark- Key 不是同一把。请到火山控制台「配置 Harness」领取联网搜索 API Key，填到下方「豆包搜索」。绑定时已默认把首选引擎设为豆包；你也可改成其它引擎或自备 Key。"
                 ),
                 "steps": [
                     "打开火山方舟控制台 → 配置 Harness → 豆包搜索，领取权益并复制联网搜索 API Key",
@@ -148,19 +147,13 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
 
     if plan and plan.get("needs_search_key"):
         status = "agent_plan_needs_doubao_key"
-        summary = (
-            "已绑定 Agent Plan（含豆包联网搜索额度），但还没填「豆包搜索」联网 Key；"
-            "对话里的 web_search 暂时走不了豆包。"
-        )
+        summary = "已绑定 Agent Plan（含豆包联网搜索额度），但还没填「豆包搜索」联网 Key；对话里的 web_search 暂时走不了豆包。"
         say = (
-            "你已开通 Agent Plan，套餐里的联网搜索是「豆包搜索」额度，"
-            "和对话用的 ark- Key 不是同一把。"
-            "请到火山控制台「配置 Harness → 豆包搜索」领取联网搜索 API Key，把 Key 发给我，"
-            "我帮你写入设置并测通。也可以改用博查 / Tavily 等其它引擎。"
+            "你已开通 Agent Plan，套餐里的联网搜索是「豆包搜索」额度，和对话用的 ark- Key 不是同一把。请到火山控制台「配置 Harness → 豆包搜索」领取联网搜索 API Key，把 Key 发给我，我帮你写入设置并测通。也可以改用博查 / Tavily 等其它引擎。"
         )
         next_steps = list(plan.get("steps") or []) + [
             "用户贴出联网 Key 后：settings.patch_web_search（preferredBackend=doubao, doubaoApiKey=…）",
-            "再 settings.test_web_search（engines=[\"doubao\"], adopt_recommended=true）",
+            '再 settings.test_web_search（engines=["doubao"], adopt_recommended=true）',
         ]
         links = {
             "harness_console": plan.get("harness_console_url") or AGENT_PLAN_HARNESS_CONSOLE_URL,
@@ -170,9 +163,7 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
     elif plan and has_doubao:
         status = "agent_plan_ready"
         summary = "Agent Plan + 豆包联网 Key 已就绪；web_search 可优先走豆包。"
-        say = (
-            "联网搜索已按 Agent Plan 默认走豆包。若要换引擎或更新 Key，直接说目标引擎或把新 Key 发给我即可。"
-        )
+        say = "联网搜索已按 Agent Plan 默认走豆包。若要换引擎或更新 Key，直接说目标引擎或把新 Key 发给我即可。"
         next_steps = [
             "可选：settings.test_web_search 再确认通不通",
             "换引擎：settings.patch_web_search（preferredBackend=…）",
@@ -194,10 +185,7 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
     ):
         status = "configured"
         summary = f"已有搜索凭据；当前生效引擎={active or '自动'}（来源={source}）。"
-        say = (
-            f"当前联网搜索生效引擎是「{active or '自动探测'}」。"
-            "要改首选、换 Key 或测通，直接说需求即可；不必让用户自己翻设置页。"
-        )
+        say = f"当前联网搜索生效引擎是「{active or '自动探测'}」。要改首选、换 Key 或测通，直接说需求即可；不必让用户自己翻设置页。"
         next_steps = [
             "改首选：settings.patch_web_search（preferredBackend=…）",
             "测通：settings.test_web_search",
@@ -206,12 +194,7 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
     else:
         status = "not_configured"
         summary = "尚未配置任何联网搜索引擎密钥。"
-        say = (
-            "还没配联网搜索。常见做法："
-            "① 若有火山 Agent Plan：控制台「配置 Harness」领豆包联网 Key 发我；"
-            "② 或独立开通豆包搜索 / 博查 / Tavily，把 Key 发我，我写入并测通。"
-            "不要用对话 ark- Key 填豆包搜索。"
-        )
+        say = "还没配联网搜索。常见做法：① 若有火山 Agent Plan：控制台「配置 Harness」领豆包联网 Key 发我；② 或独立开通豆包搜索 / 博查 / Tavily，把 Key 发我，我写入并测通。不要用对话 ark- Key 填豆包搜索。"
         next_steps = [
             "先问用户用哪条路径（Agent Plan / 独立豆包 / 博查 / Tavily…）",
             "拿到 Key 后 settings.patch_web_search + settings.test_web_search",
@@ -233,14 +216,8 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
         "preferred_backend": preferred or None,
         "agent_plan_bound": bool(plan),
         "doubao_key_configured": has_doubao,
-        "patch_fields_hint": (
-            "preferredBackend, doubaoApiKey, doubaoBaseUrl, bochaApiKey, tavilyApiKey, "
-            "braveApiKey, searxngUrl, firecrawlApiKey, infoquestApiKey"
-        ),
-        "note": (
-            "帮用户配联网搜索时走 platform settings.*，不要让用户自己在复杂设置页里找。"
-            "豆包联网 Key ≠ ark- 对话 Key。"
-        ),
+        "patch_fields_hint": ("preferredBackend, doubaoApiKey, doubaoBaseUrl, bochaApiKey, tavilyApiKey, braveApiKey, searxngUrl, firecrawlApiKey, infoquestApiKey"),
+        "note": ("帮用户配联网搜索时走 platform settings.*，不要让用户自己在复杂设置页里找。豆包联网 Key ≠ ark- 对话 Key。"),
     }
 
 
@@ -330,9 +307,7 @@ def patch_web_search(patch: dict[str, Any] | None) -> dict[str, Any]:
     if pref is not None:
         raw = str(pref).strip().lower()
         if raw and raw not in KNOWN_BACKENDS and raw not in {"auto", "none", "null"}:
-            raise ValidationError(
-                f"preferredBackend must be one of {sorted(KNOWN_BACKENDS)} (or empty for auto)"
-            )
+            raise ValidationError(f"preferredBackend must be one of {sorted(KNOWN_BACKENDS)} (or empty for auto)")
     patch_web_search_settings(normalized)
     apply_runtime_env_to_environ()
     return get_web_search()

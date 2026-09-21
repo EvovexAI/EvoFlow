@@ -386,9 +386,7 @@ def test_wrap_tool_call_returns_not_activated_without_workspace_scenario(mw: Pla
     assert "workspace" in str(result.content)
 
 
-def test_wrap_tool_call_skips_scenario_gate_for_unattended_automation(
-    mw: PlanGuardMiddleware, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_wrap_tool_call_skips_scenario_gate_for_unattended_automation(mw: PlanGuardMiddleware, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "evoflow.tools.builtins.scenario_activation.get_activated_scenarios",
         lambda: [],

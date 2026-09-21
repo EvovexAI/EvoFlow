@@ -80,12 +80,8 @@ def test_resolve_keeps_stored_when_lead_uuid_recreated():
     new_lead = "c5525aa9-d737-46f8-973c-fa82d8a9641d"
     sid = "Subtask_20260531080703_623573"
     stored = collab_subtask_executor_thread_id(old_lead, sid)
-    assert (
-        resolve_subtask_executor_thread_id(new_lead, sid, stored_subtask_thread_id=stored) == stored
-    )
-    assert resolve_subtask_executor_thread_id(None, sid, stored_subtask_thread_id=f"SubThread_{sid}") == (
-        f"SubThread_{sid}"
-    )
+    assert resolve_subtask_executor_thread_id(new_lead, sid, stored_subtask_thread_id=stored) == stored
+    assert resolve_subtask_executor_thread_id(None, sid, stored_subtask_thread_id=f"SubThread_{sid}") == (f"SubThread_{sid}")
 
 
 def test_persist_subtask_stream_without_lead_writes_chat_rows(tmp_path, monkeypatch):

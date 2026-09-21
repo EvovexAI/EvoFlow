@@ -142,10 +142,14 @@ def test_lead_message_does_not_self_parent(tmp_path, monkeypatch) -> None:
         message_id="u1",
         run_id="run-1",
     )
-    row = get_db().execute(
-        "SELECT parent_thread_id FROM evoflow_chat_messages WHERE session_key = ? AND message_id = ?",
-        (sk, "u1"),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT parent_thread_id FROM evoflow_chat_messages WHERE session_key = ? AND message_id = ?",
+            (sk, "u1"),
+        )
+        .fetchone()
+    )
     assert row is not None
     assert row[0] is None
     assert len(msg_repo.list_messages_for_display(sk, limit=10)) == 1

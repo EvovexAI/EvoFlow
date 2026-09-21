@@ -176,9 +176,7 @@ def ensure_collab_bridge_ready() -> tuple[bool, bool]:
             logger.debug("collab_bridge: supervisor.execution import failed", exc_info=True)
         task_ok, follow_ok = is_bridge_ready()
     if not task_ok:
-        logger.error(
-            "collab_bridge: task_tool delegate still missing after ensure (workflow dispatch will fail)"
-        )
+        logger.error("collab_bridge: task_tool delegate still missing after ensure (workflow dispatch will fail)")
     return task_ok, follow_ok
 
 

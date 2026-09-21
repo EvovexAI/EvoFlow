@@ -27,9 +27,7 @@ def _send_account_for_target(role: Any, receive_id: str, receive_id_type: str) -
     try:
         channel = _feishu_channel()
         if channel is not None:
-            owned = str(
-                getattr(channel, "_chat_account", {}).get(str(receive_id), "") or ""
-            ).strip()
+            owned = str(getattr(channel, "_chat_account", {}).get(str(receive_id), "") or "").strip()
             if owned:
                 return owned
     except Exception:
@@ -170,10 +168,7 @@ async def push_collab_tree_receipt(
         body_bits.append(f"触发下游：`{child_task_id}`")
     if raised_by:
         body_bits.append(f"提起人：`{raised_by}`")
-    body_bits.append(
-        "下游已全部结案。请提出人/产品验收后，将根单从「待闭环」改为 **已完成**；"
-        "未验收前整单不算结束。"
-    )
+    body_bits.append("下游已全部结案。请提出人/产品验收后，将根单从「待闭环」改为 **已完成**；未验收前整单不算结束。")
     text = "\n".join(body_bits)
 
     if channel is None:
@@ -379,9 +374,7 @@ def _is_idle_patrol_summary(text: str) -> bool:
     hit = sum(1 for m in markers if m in s)
     if hit >= 2:
         return True
-    if hit >= 1 and len(s) < 220 and not any(
-        k in s for k in ("需要你", "请确认", "阻塞：", "失败", "请拍板", "派发", "待办：")
-    ):
+    if hit >= 1 and len(s) < 220 and not any(k in s for k in ("需要你", "请确认", "阻塞：", "失败", "请拍板", "派发", "待办：")):
         return True
     return False
 
@@ -405,29 +398,11 @@ async def push_wrap_digest_card(
     think_summary = str(report.get("think_summary") or report.get("summary") or "").strip()
     raw_items = report.get("items") if isinstance(report.get("items"), list) else []
     items: list[dict] = [x for x in raw_items if isinstance(x, dict)]
-    has_named_item = any(
-        str(it.get("title") or it.get("preview") or "").strip() and not it.get("is_journal")
-        for it in items
-    )
-    idle_health = (
-        _is_idle_patrol_summary(think_summary)
-        and not has_named_item
-        and not created
-        and not pending
-        and not failed
-        and not executing
-    )
+    has_named_item = any(str(it.get("title") or it.get("preview") or "").strip() and not it.get("is_journal") for it in items)
+    idle_health = _is_idle_patrol_summary(think_summary) and not has_named_item and not created and not pending and not failed and not executing
     if idle_health:
         return None
-    if (
-        not created
-        and not pending
-        and not completed
-        and not failed
-        and not executing
-        and not think_summary
-        and not has_named_item
-    ):
+    if not created and not pending and not completed and not failed and not executing and not think_summary and not has_named_item:
         return None
 
     channel = _feishu_channel()

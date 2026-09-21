@@ -53,11 +53,7 @@ def default_video_provider(tool_name: str = "media_video_generate") -> VideoProv
 
 
 def default_voice_provider(tool_name: str = "media_voiceover_synthesize") -> VoiceProvider:
-    raw = str(
-        _tool_extra(tool_name).get("default_provider")
-        or os.getenv("MEDIA_DEFAULT_VOICE_PROVIDER")
-        or "volcengine"
-    )
+    raw = str(_tool_extra(tool_name).get("default_provider") or os.getenv("MEDIA_DEFAULT_VOICE_PROVIDER") or "volcengine")
     return "dashscope" if raw == "dashscope" else "volcengine"
 
 
@@ -325,10 +321,7 @@ def provider_unavailable_message(provider: str, *, media_kind: str) -> str | Non
     if media_kind in ("image", "video"):
         vendor = IMAGE_PROVIDER_VENDOR.get(provider)
         if vendor and not is_vendor_enabled(vendor):
-            return (
-                f"媒体 provider {provider!r} 已停用，拒绝调用。"
-                "请在 EvoPanel → 设置 → 模型 → 视频模型 中启用该厂商后再试。"
-            )
+            return f"媒体 provider {provider!r} 已停用，拒绝调用。请在 EvoPanel → 设置 → 模型 → 视频模型 中启用该厂商后再试。"
         if is_image_provider_configured(provider):
             return None
         available = configured_image_providers()
@@ -336,10 +329,7 @@ def provider_unavailable_message(provider: str, *, media_kind: str) -> str | Non
     elif media_kind == "voice":
         vendor = VOICE_PROVIDER_VENDOR.get(provider)
         if vendor and not is_vendor_enabled(vendor):
-            return (
-                f"媒体 provider {provider!r} 已停用，拒绝调用。"
-                "请在 EvoPanel → 设置 → 模型 → 视频模型 中启用该厂商后再试。"
-            )
+            return f"媒体 provider {provider!r} 已停用，拒绝调用。请在 EvoPanel → 设置 → 模型 → 视频模型 中启用该厂商后再试。"
         if is_voice_provider_configured(provider):
             return None
         available = configured_voice_providers()
@@ -348,16 +338,9 @@ def provider_unavailable_message(provider: str, *, media_kind: str) -> str | Non
         return None
 
     if not available:
-        return (
-            f"媒体 provider {provider!r} 未配置 API Key。"
-            "请先在 EvoPanel → 设置 → 模型 → 视频模型 中保存对应厂商凭据。"
-        )
+        return f"媒体 provider {provider!r} 未配置 API Key。请先在 EvoPanel → 设置 → 模型 → 视频模型 中保存对应厂商凭据。"
     names = ", ".join(label.get(p, p) for p in available)
-    return (
-        f"媒体 provider {provider!r} 未配置，已拒绝调用。"
-        f" 当前仅已配置：{names}。"
-        f" 请勿使用未配置的渠道。"
-    )
+    return f"媒体 provider {provider!r} 未配置，已拒绝调用。 当前仅已配置：{names}。 请勿使用未配置的渠道。"
 
 
 def resolve_image_provider(explicit: str | None, tool_name: str = "media_image_generate") -> tuple[str, str | None]:

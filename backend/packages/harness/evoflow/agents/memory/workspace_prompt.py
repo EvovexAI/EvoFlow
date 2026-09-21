@@ -245,11 +245,13 @@ _PROJECT_SECTION_LABELS = {
     "gotchas": "Gotchas",
 }
 
+
 # Categories eligible for persistence/injection (aligned with workspace_memory_policy).
 def _injectable_fact_categories() -> frozenset[str]:
     from evoflow.assets.workspace_memory_policy import WORKSPACE_FACT_CATEGORIES
 
     return frozenset(WORKSPACE_FACT_CATEGORIES)
+
 
 _ENTRY_POINT_PATH_MARKERS = (
     "/agent.py",
@@ -384,14 +386,7 @@ def format_workspace_memory_for_injection(
     facts_data = memory_data.get("facts", [])
     if isinstance(facts_data, list) and facts_data:
         ranked_facts = sorted(
-            (
-                f
-                for f in facts_data
-                if isinstance(f, dict)
-                and should_inject_workspace_fact(f)
-                and isinstance(f.get("content"), str)
-                and f.get("content").strip()
-            ),
+            (f for f in facts_data if isinstance(f, dict) and should_inject_workspace_fact(f) and isinstance(f.get("content"), str) and f.get("content").strip()),
             key=lambda fact: _coerce_confidence(fact.get("confidence"), default=0.0),
             reverse=True,
         )

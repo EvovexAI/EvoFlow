@@ -10,7 +10,7 @@ from starlette.requests import Request
 from evoflow.authz import admin_grants as admin_mod
 from evoflow.authz import principals as principals_mod
 from evoflow.authz.scope import org_scope, personal_scope
-from evoflow.authz.types import AuthzContext, DEFAULT_ORG_ID, Principal
+from evoflow.authz.types import DEFAULT_ORG_ID, AuthzContext, Principal
 
 logger = logging.getLogger(__name__)
 

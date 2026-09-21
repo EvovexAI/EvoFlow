@@ -206,9 +206,7 @@ def execute_mind_map(
         if cfg.require_mind_map_ops:
             log_mind_map("拒绝mind_map", reason="ops缺失或为空", call_id=call_id)
             return MIND_MAP_OPS_EMPTY_ERROR
-        return (
-            "Error: mind_map requires ops to update, or query=true to read the current snapshot."
-        )
+        return "Error: mind_map requires ops to update, or query=true to read the current snapshot."
 
     if cfg.require_mind_map_ops and not norm_ops:
         log_mind_map("拒绝mind_map", reason="ops缺失或为空", call_id=call_id)
@@ -312,7 +310,7 @@ def execute_mind_map(
             body += (
                 f"\n[结构告警] 孤立节点 {orphan_count} 个（没有任何 upsert_edge 连接）：{sample}{more}"
                 f"\n下一轮请用 upsert_edge 把这些节点连到 flow:/file:/fn: 等已有节点上，"
-                f"例如 {{\"op\":\"upsert_edge\",\"from\":\"flow:X\",\"to\":\"{orphan_sample[0]}\",\"rel\":\"contains\"}}"
+                f'例如 {{"op":"upsert_edge","from":"flow:X","to":"{orphan_sample[0]}","rel":"contains"}}'
             )
 
     if cfg.soft_hints and norm_ops and scope_tid and not skip_soft:

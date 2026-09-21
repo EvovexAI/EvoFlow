@@ -184,9 +184,7 @@ def build_oauth_tool_interceptor(
     token_manager: OAuthTokenManager | None = None,
 ) -> Any | None:
     """Build a tool interceptor that injects OAuth Authorization headers."""
-    manager = token_manager or (
-        OAuthTokenManager.from_extensions_config(extensions_config) if extensions_config is not None else None
-    )
+    manager = token_manager or (OAuthTokenManager.from_extensions_config(extensions_config) if extensions_config is not None else None)
     if manager is None or not manager.has_oauth_servers():
         return None
 
@@ -208,9 +206,7 @@ async def get_initial_oauth_headers(
     token_manager: OAuthTokenManager | None = None,
 ) -> dict[str, str]:
     """Get initial OAuth Authorization headers for MCP server connections."""
-    manager = token_manager or (
-        OAuthTokenManager.from_extensions_config(extensions_config) if extensions_config is not None else None
-    )
+    manager = token_manager or (OAuthTokenManager.from_extensions_config(extensions_config) if extensions_config is not None else None)
     if manager is None or not manager.has_oauth_servers():
         return {}
 

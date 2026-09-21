@@ -324,11 +324,7 @@ class ClarificationMiddleware(AgentMiddleware[ClarificationMiddlewareState]):
 
         # Get the tool call ID
         tool_call_id = str(request.tool_call.get("id") or "").strip()
-        stable_id = (
-            f"{message_id_prefix_for_gate('clarification')}-{tool_call_id}"
-            if tool_call_id
-            else None
-        )
+        stable_id = f"{message_id_prefix_for_gate('clarification')}-{tool_call_id}" if tool_call_id else None
 
         # Create a ToolMessage with the formatted question
         # This will be added to the message history

@@ -54,12 +54,7 @@ async def extract_triples_llm(text: str) -> list[tuple[str, str, str]] | None:
     excerpt = (text or "").strip()[:3500]
     if not excerpt:
         return []
-    prompt = (
-        "从下面文本抽取实体关系三元组。只输出 JSON 数组，每项为 "
-        '{"src":"实体A","rel":"关系","dst":"实体B"}。'
-        "最多 12 条；禁止臆造；不要 Markdown 围栏。\n\n"
-        f"{excerpt}"
-    )
+    prompt = f'从下面文本抽取实体关系三元组。只输出 JSON 数组，每项为 {{"src":"实体A","rel":"关系","dst":"实体B"}}。最多 12 条；禁止臆造；不要 Markdown 围栏。\n\n{excerpt}'
     try:
         from evoflow.context.internal_model_invoke import ainvoke_internal_chat_model
         from evoflow.models import create_chat_model

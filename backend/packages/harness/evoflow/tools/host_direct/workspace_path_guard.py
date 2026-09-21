@@ -47,6 +47,7 @@ def runtime_with_workspace(root: str, thread_id: str | None = None) -> Any:
             store=None,
         )
     except ImportError:
+
         class _Rt:
             context = _Ctx()
 
@@ -196,11 +197,7 @@ def resolve_tool_workdir(
 ) -> Path | str:
     """Resolve terminal/process cwd: workspace root, explicit path, or skill dir."""
     root_s, _tid = resolve_tool_workspace_root(runtime=runtime)
-    default_root = (
-        Path(os.path.expanduser(os.path.expandvars(root_s))).resolve()
-        if root_s
-        else Path.cwd().resolve()
-    )
+    default_root = Path(os.path.expanduser(os.path.expandvars(root_s))).resolve() if root_s else Path.cwd().resolve()
 
     if not workdir or not str(workdir).strip():
         if root_s and default_root.is_dir():
@@ -252,9 +249,7 @@ def format_read_access_hint(
     except (OSError, ValueError):
         return ""
     if _is_large_tool_results_path(p):
-        return (
-            "Hint: Large tool output was also saved here; if read fails, use the inline summary above."
-        )
+        return "Hint: Large tool output was also saved here; if read fails, use the inline summary above."
     return ""
 
 
@@ -281,12 +276,7 @@ def _finalize_path(
     if must_exist and not p.exists():
         return f"Error: Path not found: {label}"
     if must_be_file and p.exists() and not p.is_file():
-        hint = (
-            " Use terminal (e.g. dir / ls) to browse a directory, or read with a concrete file path "
-            "(e.g. outputs/result.txt), not the workspace root '.'."
-            if p.is_dir()
-            else ""
-        )
+        hint = " Use terminal (e.g. dir / ls) to browse a directory, or read with a concrete file path (e.g. outputs/result.txt), not the workspace root '.'." if p.is_dir() else ""
         return f"Error: Path is not a file: {label}.{hint}" if hint else f"Error: Path is not a file: {label}"
     if must_be_dir and not p.is_dir():
         return f"Error: Path is not a directory: {label}"

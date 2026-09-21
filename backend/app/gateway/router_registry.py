@@ -109,7 +109,6 @@ def register_core_routers(app: FastAPI) -> None:
 
 def register_extended_routers(app: FastAPI) -> None:
     """Heavy routers: knowledge, observability, eval, WebUI static, etc."""
-    from fastapi import Depends
 
     from app.gateway.deps.license import require_premium
     from app.gateway.startup_trace import startup_mark

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -12,14 +11,8 @@ from evoflow.config import agent_avatars as av
 from evoflow.persistence.db import reset_db_for_tests
 
 # 1x1 transparent PNG
-_PNG = bytes.fromhex(
-    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-    "0000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
-)
-_PNG2 = bytes.fromhex(
-    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-    "0000000c49444154789c630060000000020001e221bc330000000049454e44ae426082"
-)
+_PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082")
+_PNG2 = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000c49444154789c630060000000020001e221bc330000000049454e44ae426082")
 
 
 @pytest.fixture
@@ -109,14 +102,14 @@ def test_alias_seeds_from_target_bundled_asset(avatar_home, monkeypatch) -> None
 def test_xiaomi_does_not_alias_to_main_cutout() -> None:
     """小V defaults to gallery preset; must not reuse the male lead cutout."""
     assert "xiaomi" not in av._BUNDLED_AVATAR_ALIASES
-    from evoflow.config.agents_config import _XIAOMI_DEFAULT_AVATAR, _BUILTIN_AGENT_AVATARS
+    from evoflow.config.agents_config import _BUILTIN_AGENT_AVATARS, _XIAOMI_DEFAULT_AVATAR
 
     assert _BUILTIN_AGENT_AVATARS.get("xiaomi") == _XIAOMI_DEFAULT_AVATAR
     assert _XIAOMI_DEFAULT_AVATAR.startswith("preset:")
 
 
 def test_should_upgrade_xiaomi_avatar_from_male_image() -> None:
-    from evoflow.config.agents_config import _should_upgrade_xiaomi_avatar, _XIAOMI_DEFAULT_AVATAR
+    from evoflow.config.agents_config import _XIAOMI_DEFAULT_AVATAR, _should_upgrade_xiaomi_avatar
 
     assert _should_upgrade_xiaomi_avatar("image", _XIAOMI_DEFAULT_AVATAR) is True
     assert _should_upgrade_xiaomi_avatar(None, _XIAOMI_DEFAULT_AVATAR) is True

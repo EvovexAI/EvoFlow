@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from evoflow.agents.lead_agent.prompt import apply_prompt_template
 from evoflow.agents.xiaomi.identity import XIAOMI_AGENT_CODE, is_xiaomi_agent
 from evoflow.agents.xiaomi.prompt import policy_block, role_block
 from evoflow.agents.xiaomi.tool_policy import XIAOMI_SYSTEM_TOOL_NAMES, filter_xiaomi_tools
 from evoflow.agents.xiaomi.tools import get_xiaomi_tools
-from evoflow.agents.lead_agent.prompt import apply_prompt_template
 
 
 def test_is_xiaomi_agent() -> None:
@@ -259,9 +259,7 @@ def test_xiaomi_ui_context_live_footer_strips_legacy_and_system() -> None:
     req = ModelRequest(
         model=MagicMock(),
         messages=list(msgs),
-        system_message=SystemMessage(
-            content="sys base\n<xiaomi_ui_context>\nstale sys\n</xiaomi_ui_context>"
-        ),
+        system_message=SystemMessage(content="sys base\n<xiaomi_ui_context>\nstale sys\n</xiaomi_ui_context>"),
         tool_choice=None,
         tools=[],
         response_format=None,
@@ -404,9 +402,9 @@ def test_should_skip_xiaomi_idle_patrol(monkeypatch) -> None:
 
 
 def test_summarize_xiaomi_duty_load_counts_open_and_busy(monkeypatch) -> None:
-    from evoflow.agents.xiaomi import duty as xduty
     from evoflow.admin import employees as emp
     from evoflow.admin import tasks as admin_tasks
+    from evoflow.agents.xiaomi import duty as xduty
 
     monkeypatch.setattr(
         emp,
@@ -519,9 +517,7 @@ def test_xiaomi_knowledge_search_owned(monkeypatch) -> None:
 
     monkeypatch.setattr(owned_service, "search", _search)
 
-    raw = asyncio.run(
-        xtools.xiaomi_knowledge_search_tool.ainvoke({"query": "开发指南 配置", "top_k": 5})
-    )
+    raw = asyncio.run(xtools.xiaomi_knowledge_search_tool.ainvoke({"query": "开发指南 配置", "top_k": 5}))
     data = json.loads(raw)
     assert data.get("ok") is True
     assert data.get("provider") == "owned"
@@ -574,9 +570,9 @@ def test_xiaomi_role_protected_from_archive_and_delete(tmp_path, monkeypatch) ->
     import gc
     from pathlib import Path
 
-    from evoflow.agents.xiaomi.duty import ensure_xiaomi_proactive_role
     from evoflow.admin.employees import archive_role as admin_archive
     from evoflow.admin.errors import ValidationError
+    from evoflow.agents.xiaomi.duty import ensure_xiaomi_proactive_role
     from evoflow.config.app_config import reset_app_config
     from evoflow.persistence.db import get_db, reset_db_for_tests
 

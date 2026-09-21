@@ -15,8 +15,6 @@ from evoflow.persistence.chat_message_repositories import (
     load_conversation_summary_text,
     persist_conversation_summary,
 )
-
-
 from evoflow.persistence.db import reset_db_for_tests
 
 
@@ -129,10 +127,14 @@ def test_pre_compaction_anchor_counts_user_turns(chat_db) -> None:
     # 4 user turns before summary; keep oldest of last 3 → u1
     from evoflow.persistence.chat_message_repositories import get_db
 
-    anchor_row = get_db().execute(
-        "SELECT seq FROM evoflow_chat_messages WHERE session_key = ? AND message_id = ?",
-        (sk, "u1"),
-    ).fetchone()
+    anchor_row = (
+        get_db()
+        .execute(
+            "SELECT seq FROM evoflow_chat_messages WHERE session_key = ? AND message_id = ?",
+            (sk, "u1"),
+        )
+        .fetchone()
+    )
     assert anchor_row is not None
     assert anchor == int(anchor_row[0])
 

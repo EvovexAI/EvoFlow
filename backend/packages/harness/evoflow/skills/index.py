@@ -136,7 +136,7 @@ def build_skill_roots(
     ws = str(workspace_root or "").strip()
     if ws:
         rel = str(repo_skills_subdir or ".evoflow/skills").strip().strip("/\\")
-        repo_skills = (Path(ws).expanduser().resolve() / rel.replace("/", os.sep))
+        repo_skills = Path(ws).expanduser().resolve() / rel.replace("/", os.sep)
         if repo_skills.is_dir() and repo_skills not in {r.path for r in roots}:
             roots.append(SkillRootSpec(path=repo_skills, scope=SkillScope.REPO, label="repo"))
 

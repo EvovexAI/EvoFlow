@@ -121,9 +121,7 @@ class VectorStore:
             self._ensure_vectors_table(conn, dim)
         return dim
 
-    def _resolve_or_create_dataset(
-        self, conn: Any, *, name: str | None, embedding_model: str
-    ) -> int:
+    def _resolve_or_create_dataset(self, conn: Any, *, name: str | None, embedding_model: str) -> int:
         row = conn.execute(
             "SELECT embedding_dim FROM evoflow_kb_dataset WHERE dataset_id = ?",
             (self.dataset_id,),
@@ -150,10 +148,7 @@ class VectorStore:
         the only place where the parameterized dimension materializes.
         """
         table = _vectors_table_for(self.dataset_id)
-        ddl = (
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} "
-            f"USING vec0(chunk_id TEXT PRIMARY KEY, embedding FLOAT[{dim}])"
-        )
+        ddl = f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING vec0(chunk_id TEXT PRIMARY KEY, embedding FLOAT[{dim}])"
         try:
             conn.execute(ddl)
             conn.commit()
@@ -161,11 +156,7 @@ class VectorStore:
             # Surface a clear error if the sqlite-vec extension is missing —
             # the most common cause of "no such module: vec0".
             if "vec0" in str(exc).lower() or "no such module" in str(exc).lower():
-                raise VectorStoreError(
-                    "sqlite-vec extension is not loaded; cannot create vec0 "
-                    "virtual table. Install the `sqlite-vec` package and ensure "
-                    "the shared DB connection loads it."
-                ) from exc
+                raise VectorStoreError("sqlite-vec extension is not loaded; cannot create vec0 virtual table. Install the `sqlite-vec` package and ensure the shared DB connection loads it.") from exc
             raise
 
     # ---------------------------------------------------------------- insert
@@ -179,9 +170,7 @@ class VectorStore:
         """
         dim = self.dim
         if len(embedding) != dim:
-            raise VectorStoreError(
-                f"embedding dimension mismatch: expected {dim}, got {len(embedding)}"
-            )
+            raise VectorStoreError(f"embedding dimension mismatch: expected {dim}, got {len(embedding)}")
         blob = _pack_vector(embedding)
         table = _vectors_table_for(self.dataset_id)
         with db_connection_lock():
@@ -198,10 +187,7 @@ class VectorStore:
         rows: list[tuple[str, bytes]] = []
         for chunk_id, embedding in items:
             if len(embedding) != dim:
-                raise VectorStoreError(
-                    f"embedding dimension mismatch for chunk {chunk_id}: "
-                    f"expected {dim}, got {len(embedding)}"
-                )
+                raise VectorStoreError(f"embedding dimension mismatch for chunk {chunk_id}: expected {dim}, got {len(embedding)}")
             rows.append((chunk_id, _pack_vector(embedding)))
         if not rows:
             return 0
@@ -256,9 +242,7 @@ class VectorStore:
         return self.delete_many(ids)
 
     # ----------------------------------------------------------------- recall
-    def recall(
-        self, query_embedding: Sequence[float], *, top_k: int = 5
-    ) -> list[RecallHit]:
+    def recall(self, query_embedding: Sequence[float], *, top_k: int = 5) -> list[RecallHit]:
         """Return the ``top_k`` nearest chunks by cosine similarity.
 
         Args:
@@ -271,23 +255,17 @@ class VectorStore:
         """
         dim = self.dim
         if len(query_embedding) != dim:
-            raise VectorStoreError(
-                f"query embedding dimension mismatch: expected {dim}, got {len(query_embedding)}"
-            )
+            raise VectorStoreError(f"query embedding dimension mismatch: expected {dim}, got {len(query_embedding)}")
         k = max(1, int(top_k))
         blob = _pack_vector(query_embedding)
         table = _vectors_table_for(self.dataset_id)
         with db_connection_lock():
             conn = get_db()
             rows = conn.execute(
-                f"SELECT chunk_id, distance FROM {table} "
-                f"WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+                f"SELECT chunk_id, distance FROM {table} WHERE embedding MATCH ? AND k = ? ORDER BY distance",
                 (blob, k),
             ).fetchall()
-        return [
-            RecallHit(chunk_id=str(r["chunk_id"]), distance=float(r["distance"]), score=1.0 - float(r["distance"]))
-            for r in rows
-        ]
+        return [RecallHit(chunk_id=str(r["chunk_id"]), distance=float(r["distance"]), score=1.0 - float(r["distance"])) for r in rows]
 
     # -------------------------------------------------------------- get_count
     def get_count(self) -> int:
@@ -299,9 +277,7 @@ class VectorStore:
         """
         with db_connection_lock():
             conn = get_db()
-            row = conn.execute(
-                f"SELECT COUNT(*) AS c FROM {_vectors_table_for(self.dataset_id)}"
-            ).fetchone()
+            row = conn.execute(f"SELECT COUNT(*) AS c FROM {_vectors_table_for(self.dataset_id)}").fetchone()
         return int(row["c"]) if row is not None else 0
 
     def get_dataset_count(self) -> int:

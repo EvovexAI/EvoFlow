@@ -140,14 +140,12 @@ def update_model_plan_config(model_name: str, plan_type: str, plan_config: dict 
 
     if plan_config and isinstance(plan_config, dict):
         import json
+
         plan_config_json = json.dumps(plan_config, ensure_ascii=False)
     else:
         plan_config_json = None
 
-    result = conn.execute(
-        "UPDATE evoflow_models SET plan_type = ?, plan_config = ?, updated_at = ? WHERE name = ?",
-        (plan_type, plan_config_json, now, model_name)
-    )
+    result = conn.execute("UPDATE evoflow_models SET plan_type = ?, plan_config = ?, updated_at = ? WHERE name = ?", (plan_type, plan_config_json, now, model_name))
     conn.commit()
     return result.rowcount > 0
 
@@ -177,10 +175,7 @@ def update_model_api_key(model_name: str, api_key: str) -> bool:
     """Update only the API key for a model (useful when key is changed via URL param)."""
     conn = get_db()
     now = utc_now_iso_z()
-    result = conn.execute(
-        "UPDATE evoflow_models SET api_key = ?, updated_at = ? WHERE name = ?",
-        (api_key, now, model_name)
-    )
+    result = conn.execute("UPDATE evoflow_models SET api_key = ?, updated_at = ? WHERE name = ?", (api_key, now, model_name))
     conn.commit()
     return result.rowcount > 0
 
@@ -580,10 +575,14 @@ def get_agent_owner_scope(agent_code: str) -> tuple[str | None, str | None]:
     cols = {r[1] for r in get_db().execute("PRAGMA table_info(evoflow_agents)").fetchall()}
     if "org_id" not in cols or "owner_scope_id" not in cols:
         return None, None
-    row = get_db().execute(
-        "SELECT org_id, owner_scope_id FROM evoflow_agents WHERE agent_code = ?",
-        (code,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT org_id, owner_scope_id FROM evoflow_agents WHERE agent_code = ?",
+            (code,),
+        )
+        .fetchone()
+    )
     if not row:
         return None, None
     return (str(row[0]).strip() or None, str(row[1]).strip() or None)
@@ -598,8 +597,8 @@ def agent_visible_to_principal(
     org_scope: str | None = None,
 ) -> bool:
     """Visibility: admin / own personal / org / group; empty owner = admin-only."""
-    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
     from evoflow.authz.principals import get_principal
+    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
 
     code = str(agent_code or "").strip().lower()
     if not code or code == "main":
@@ -810,9 +809,7 @@ def append_soul_changelog(
         # Table may not exist until migration; never break soul saves.
         import logging
 
-        logging.getLogger(__name__).debug(
-            "append_soul_changelog skipped", exc_info=True
-        )
+        logging.getLogger(__name__).debug("append_soul_changelog skipped", exc_info=True)
 
 
 def list_soul_changelog(agent_code: str, *, limit: int = 30) -> list[dict[str, Any]]:
@@ -944,9 +941,7 @@ def upsert_model(document: dict[str, Any]) -> None:
     plan_type = str(document.get("plan_type") or "none") if "plan_type" in document else None
     if "plan_config" in document:
         plan_config = document.get("plan_config")
-        plan_config_json = (
-            json.dumps(plan_config, ensure_ascii=False) if isinstance(plan_config, dict) else None
-        )
+        plan_config_json = json.dumps(plan_config, ensure_ascii=False) if isinstance(plan_config, dict) else None
     else:
         plan_config_json = None
 

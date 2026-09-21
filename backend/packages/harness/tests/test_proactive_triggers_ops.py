@@ -117,9 +117,7 @@ def test_event_bus_ci_failed_fires_immediately() -> None:
         assert runner.dispatch_task.await_count == 1
         args, kwargs = runner.dispatch_task.await_args
         assert args[0] == "code-agent"
-        assert kwargs.get("source") == "event:ci_failed" or (
-            len(args) >= 1 and True
-        )
+        assert kwargs.get("source") == "event:ci_failed" or (len(args) >= 1 and True)
         # source is kwarg
         assert runner.dispatch_task.await_args.kwargs.get("source") == "event:ci_failed"
 

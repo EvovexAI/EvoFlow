@@ -84,10 +84,7 @@ def test_partial_tool_arguments_at_every_token_boundary_does_not_raise():
         try:
             norm.feed_frame("messages", frame)
         except Exception as exc:  # pragma: no cover — failure means stream would break
-            raise AssertionError(
-                f"feed_frame raised at prefix #{i + 1}={accumulated!r}: "
-                f"{exc.__class__.__name__}: {exc}"
-            ) from exc
+            raise AssertionError(f"feed_frame raised at prefix #{i + 1}={accumulated!r}: {exc.__class__.__name__}: {exc}") from exc
 
     # Final state should have a coherent path so the wire frame is usable.
     # Sanity: the normalizer should have recorded the path field somewhere.
@@ -126,10 +123,7 @@ def test_partial_args_with_pathological_payloads_does_not_raise():
         try:
             norm.feed_frame("messages", frame)
         except Exception as exc:  # pragma: no cover
-            raise AssertionError(
-                f"feed_frame raised on pathological args #{i}={raw!r}: "
-                f"{exc.__class__.__name__}: {exc}"
-            ) from exc
+            raise AssertionError(f"feed_frame raised on pathological args #{i}={raw!r}: {exc.__class__.__name__}: {exc}") from exc
 
 
 def test_partial_args_across_full_run_does_not_terminate_stream():
@@ -181,6 +175,4 @@ def test_partial_args_across_full_run_does_not_terminate_stream():
 
     joined = b"".join(out_tool + out_final).decode("utf-8", errors="ignore")
     # tool_result should be visible somewhere.
-    assert "tool_result" in joined or "Done writing" in joined, (
-        f"expected post-tool frames to flow through; got: {joined[:600]!r}"
-    )
+    assert "tool_result" in joined or "Done writing" in joined, f"expected post-tool frames to flow through; got: {joined[:600]!r}"

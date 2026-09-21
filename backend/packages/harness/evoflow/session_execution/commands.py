@@ -74,8 +74,8 @@ def _reset_collab_on_stop(thread_id: str) -> None:
 
 async def mark_session_idle(session_key: str, *, reason: str = "user_stop") -> SessionStopResult:
     """Force terminal run_status + partial mirror persist (legacy run-idle semantics)."""
-    from evoflow.session_execution.lifecycle import end_session_turn
     from evoflow.persistence.session_run_state import derive_execution_phase
+    from evoflow.session_execution.lifecycle import end_session_turn
 
     key = str(session_key or "").strip()
     if not key:

@@ -119,13 +119,7 @@ def cron_matches_at(expr: str, when: datetime | None = None) -> bool:
     now = when or datetime.now()
     js_dow = (now.weekday() + 1) % 7
     m_f, h_f, dom_f, mon_f, dow_f = parts[0], parts[1], parts[2], parts[3], parts[4]
-    return (
-        cron_field_matches(now.minute, m_f)
-        and cron_field_matches(now.hour, h_f)
-        and cron_field_matches(now.day, dom_f)
-        and cron_field_matches(now.month, mon_f)
-        and cron_dow_matches(js_dow, dow_f)
-    )
+    return cron_field_matches(now.minute, m_f) and cron_field_matches(now.hour, h_f) and cron_field_matches(now.day, dom_f) and cron_field_matches(now.month, mon_f) and cron_dow_matches(js_dow, dow_f)
 
 
 def next_cron_runs(expr: str, count: int = 5, from_dt: datetime | None = None) -> list[datetime]:

@@ -111,7 +111,4 @@ def describe_memory_message_shape(messages: list[Any]) -> str:
     ai_final = sum(1 for m in messages or [] if _is_final_assistant_message(m))
     pair = extract_last_user_assistant_texts(messages)
     pair_ok = "有" if pair else "无"
-    return (
-        f"总消息={total} human/user行={human_named} 真实用户={real_user} "
-        f"最终AI={ai_final} 可整理轮次={pair_ok}"
-    )
+    return f"总消息={total} human/user行={human_named} 真实用户={real_user} 最终AI={ai_final} 可整理轮次={pair_ok}"

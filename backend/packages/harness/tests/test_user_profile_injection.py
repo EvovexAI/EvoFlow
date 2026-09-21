@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from evoflow.agents.lead_agent.prompt import build_memory_injection_sections
+from evoflow.assets.paths import EntityRef, profile_path
 from evoflow.assets.profile_injection import (
     build_user_profile_injection_block,
     user_profile_is_placeholder,
 )
 from evoflow.assets.user_profile_dims import ensure_user_profile_files
 from evoflow.config.memory_config import MemoryConfig, set_memory_config
-from evoflow.assets.paths import EntityRef, profile_path
 
 
 @pytest.fixture

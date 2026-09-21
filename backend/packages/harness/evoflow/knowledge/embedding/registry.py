@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 # Config resolution
 # ---------------------------------------------------------------------------
 
+
 def get_embedding_config() -> ModelConfig:
     """Resolve the embedding model config from the EvoFlow model store.
 
@@ -78,8 +79,7 @@ def get_embedding_config() -> ModelConfig:
             return m
 
     logger.warning(
-        "No embedding model found in config. Using default '%s' (dim=%d). "
-        "Configure an embedding model in Settings → Models for best results.",
+        "No embedding model found in config. Using default '%s' (dim=%d). Configure an embedding model in Settings → Models for best results.",
         DEFAULT_EMBEDDING_MODEL,
         DEFAULT_EMBEDDING_DIM,
     )
@@ -149,6 +149,7 @@ def _resolve_provider(mc: ModelConfig) -> EmbeddingProvider:
 # ---------------------------------------------------------------------------
 # Public API (LRU-cached)
 # ---------------------------------------------------------------------------
+
 
 async def get_embedding(
     text: str,
@@ -233,19 +234,13 @@ async def get_embeddings(
         batch = uncached_texts[i : i + bs]
         batch_vecs = await provider.embed_batch(batch)
         if len(batch_vecs) != len(batch):
-            raise EmbeddingError(
-                f"Embedding backend returned {len(batch_vecs)} vectors "
-                f"for {len(batch)} inputs"
-            )
+            raise EmbeddingError(f"Embedding backend returned {len(batch_vecs)} vectors for {len(batch)} inputs")
         fetched.extend(batch_vecs)
 
     # 3) Dimension validation + write back to cache + merge into results.
     for j, vec in enumerate(fetched):
         if expected_dim is not None and len(vec) != expected_dim:
-            raise EmbeddingDimensionError(
-                f"Embedding dimension mismatch at index {uncached_idx[j]}: "
-                f"expected {expected_dim}, got {len(vec)}"
-            )
+            raise EmbeddingDimensionError(f"Embedding dimension mismatch at index {uncached_idx[j]}: expected {expected_dim}, got {len(vec)}")
         results[uncached_idx[j]] = vec
         _cache.set(_cache_key(uncached_texts[j], model_name), vec)
 
@@ -325,9 +320,7 @@ async def detect_embedding_dim(
             return len(vec)
     except Exception as exc:
         logger.warning(
-            "Embedding dimension probe failed for '%s' (%s); "
-            "falling back to dim=%d. The KB will be created with this "
-            "dimension — make sure your embedding model matches.",
+            "Embedding dimension probe failed for '%s' (%s); falling back to dim=%d. The KB will be created with this dimension — make sure your embedding model matches.",
             model_id,
             exc,
             fallback,
@@ -335,4 +328,3 @@ async def detect_embedding_dim(
 
     # 3) Fallback.
     return fallback
-

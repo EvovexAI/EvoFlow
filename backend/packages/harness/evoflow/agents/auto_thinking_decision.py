@@ -282,8 +282,7 @@ def apply_auto_thinking_decision(
                 _persist_session_decision(sk, decision)
                 _elapsed = (time.perf_counter() - _t0) * 1000.0
                 print(
-                    f"[AGENT-TIMING] auto_thinking_bg_classify={_elapsed:.0f}ms "
-                    f"thinking={decision.thinking_enabled} effort={decision.reasoning_effort}",
+                    f"[AGENT-TIMING] auto_thinking_bg_classify={_elapsed:.0f}ms thinking={decision.thinking_enabled} effort={decision.reasoning_effort}",
                     flush=True,
                 )
             except Exception as e:

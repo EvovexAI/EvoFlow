@@ -79,9 +79,7 @@ def test_reasoning_then_tool_then_body_golden():
         ev_type="tool_call",
         source="test",
     )
-    all_types.extend(
-        _event_types(convert_evf_frames_to_agui(out_tools, state=norm._state, ledger=norm.inner.block_ledger))
-    )
+    all_types.extend(_event_types(convert_evf_frames_to_agui(out_tools, state=norm._state, ledger=norm.inner.block_ledger)))
 
     frames_reason = norm.inner._emit_delta_raw("", content_phase="pre_tools")
     _ = frames_reason
@@ -467,9 +465,7 @@ def test_run_end_snapshot_includes_tool_args_from_thread_state():
     )
     frames = norm._build_run_end_frames()
     agui_frames = convert_evf_frames_to_agui(frames, state=state, ledger=norm.block_ledger)
-    snap_frame = next(
-        _decode_agui_from_frame(f) for f in agui_frames if _decode_agui_from_frame(f)["type"] == "MESSAGES_SNAPSHOT"
-    )
+    snap_frame = next(_decode_agui_from_frame(f) for f in agui_frames if _decode_agui_from_frame(f)["type"] == "MESSAGES_SNAPSHOT")
     messages = snap_frame.get("messages") or []
     tool_msg = next(m for m in messages if m.get("toolCalls"))
     args = tool_msg["toolCalls"][0]["function"]["arguments"]
@@ -484,9 +480,7 @@ def test_run_end_snapshot_includes_block_seq():
     state = AgUiEncoderState(thread_id="thread-seq", run_id="r-seq")
     frames = norm._build_run_end_frames()
     agui_frames = convert_evf_frames_to_agui(frames, state=state, ledger=norm.block_ledger)
-    snap_frame = next(
-        _decode_agui_from_frame(f) for f in agui_frames if _decode_agui_from_frame(f)["type"] == "MESSAGES_SNAPSHOT"
-    )
+    snap_frame = next(_decode_agui_from_frame(f) for f in agui_frames if _decode_agui_from_frame(f)["type"] == "MESSAGES_SNAPSHOT")
     messages = snap_frame.get("messages") or []
     for msg in messages:
         assert msg.get("seq"), f"missing seq on snapshot message: {msg}"
@@ -586,9 +580,7 @@ def test_post_stream_metadata_syncs_agui_encoder_run_id(monkeypatch: pytest.Monk
     assert isinstance(norm, AgUiStreamNormalizer)
     assert norm._state.run_id.startswith("run-")
 
-    transform.feed_upstream_for_mirror(
-        f'event: metadata\ndata: {{"run_id":"{lg_rid}"}}\n\n'.encode()
-    )
+    transform.feed_upstream_for_mirror(f'event: metadata\ndata: {{"run_id":"{lg_rid}"}}\n\n'.encode())
     assert transform.run_id == lg_rid
     assert norm._state.run_id == lg_rid
     assert patched == [lg_rid]

@@ -176,16 +176,9 @@ def build_file_worker_prompt(spec: WorkerTaskSpec, *, skip_lint: bool = False) -
         lines.append(spec.new_string)
     lines.append("")
     if skip_lint:
-        lines.append(
-            "Constraints: only modify the path above; do not touch other files. "
-            "Read the file first, apply the action, then summarize. "
-            "Do NOT run read_lints — a unified lint will run after all same-file edits complete."
-        )
+        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, then summarize. Do NOT run read_lints — a unified lint will run after all same-file edits complete.")
     else:
-        lines.append(
-            "Constraints: only modify the path above; do not touch other files. "
-            "Read the file first, apply the action, optionally run read_lints, then summarize."
-        )
+        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, optionally run read_lints, then summarize.")
     return "\n".join(lines)
 
 
@@ -224,10 +217,7 @@ def build_locate_worker_prompt(spec: WorkerTaskSpec) -> str:
     if spec.instruction:
         lines.append(f"instruction: {spec.instruction}")
     lines.append("")
-    lines.append(
-        "Constraints: call find_file once with pattern and root; then read_file on the top 1-2 hits. "
-        "Do not run unbounded shell find/Get-ChildItem -Recurse. Summarize paths in 3–6 sentences."
-    )
+    lines.append("Constraints: call find_file once with pattern and root; then read_file on the top 1-2 hits. Do not run unbounded shell find/Get-ChildItem -Recurse. Summarize paths in 3–6 sentences.")
     return "\n".join(lines)
 
 
@@ -268,9 +258,7 @@ def validate_worker_tasks(
         if batch_category is None:
             batch_category = category
         elif batch_category != category:
-            return None, (
-                "Error: worker cannot mix read-only discovery (search/locate) and file tasks in one call."
-            )
+            return None, ("Error: worker cannot mix read-only discovery (search/locate) and file tasks in one call.")
 
         thread_id = None
         if runtime is not None and getattr(runtime, "context", None):
@@ -293,9 +281,7 @@ def validate_worker_tasks(
                 if _worker_search_queries_redundant(norm_query, prev):
                     return (
                         None,
-                        "Error: redundant search query in tasks — each parallel search must use "
-                        f"distinct keywords/symbols (overlap: {norm_query!r} vs {prev!r}). "
-                        "Merge synonyms with `|` in one query instead of multiple tasks.",
+                        f"Error: redundant search query in tasks — each parallel search must use distinct keywords/symbols (overlap: {norm_query!r} vs {prev!r}). Merge synonyms with `|` in one query instead of multiple tasks.",
                     )
             seen_keys.add(norm_query)
             search_queries.append(norm_query)
@@ -431,10 +417,7 @@ def _search_deliverable_preview(inner_tools: list[dict[str, Any]] | None) -> str
         return "Search completed."
     n_summaries = sum(out.count("[tool:summary]") for out in outputs)
     if n_summaries:
-        return (
-            f"Search completed; {n_summaries} file excerpt(s) in <worker_code_reads>. "
-            "If the user asked to fix/implement code, follow <worker_search_next_step> — do not stop at search."
-        )
+        return f"Search completed; {n_summaries} file excerpt(s) in <worker_code_reads>. If the user asked to fix/implement code, follow <worker_search_next_step> — do not stop at search."
     return "Search completed; see <worker_code_reads>. Follow <worker_search_next_step> when edits are required."
 
 
@@ -544,11 +527,7 @@ def _format_worker_execution_report(
     parts.append(format_execution_report_xml(report))
     if not result_rows:
         return "\n".join(parts)
-    tag = (
-        "worker_search_results"
-        if batch_kind in ("search", "locate", "discover")
-        else "worker_file_results"
-    )
+    tag = "worker_search_results" if batch_kind in ("search", "locate", "discover") else "worker_file_results"
     payload = json.dumps(result_rows, ensure_ascii=False)
     parts.append(f"<{tag}>\n{payload}\n</{tag}>")
     return "\n".join(parts)
@@ -595,6 +574,7 @@ def _enhance_failed_file_preview(
     if not first_old or len(first_old) < 3:
         return base
     import difflib
+
     lines = file_text.splitlines()
     best_ratio = 0.0
     best_line = -1
@@ -1234,11 +1214,7 @@ async def _run_workers_async(
         from evoflow.collab.thread_ids import collab_subtask_executor_thread_id, normalize_lead_thread_id
 
         lead = normalize_lead_thread_id(thread_id) or str(thread_id or "").strip()
-        worker_thread_id = (
-            collab_subtask_executor_thread_id(lead, tc_id)
-            if tc_id
-            else f"worker_{uuid.uuid4().hex[:16]}"
-        )
+        worker_thread_id = collab_subtask_executor_thread_id(lead, tc_id) if tc_id else f"worker_{uuid.uuid4().hex[:16]}"
         extra_context = {"parent_thread_id": lead} if lead else None
         return SubagentExecutor(
             config=config,
@@ -1478,22 +1454,16 @@ async def worker_tool(
     configurable = runtime.config.get("configurable", {}) if runtime.config else {}
     if thread_id is None and isinstance(configurable, dict):
         thread_id = configurable.get("thread_id")
+    from evoflow.agents.lead_agent.runtime_context import resolve_session_model_name_from_runtime
+
     ctx_map = runtime_context_mapping(runtime)
-    local_workspace_root = (
-        str(ctx_map.get("local_workspace_root") or "").strip()
-        or str(configurable.get("local_workspace_root") or "").strip()
-        or None
-    )
+    local_workspace_root = str(ctx_map.get("local_workspace_root") or "").strip() or str(configurable.get("local_workspace_root") or "").strip() or None
     if not local_workspace_root and thread_id:
         from evoflow.tools.host_direct.workspace_context import load_local_workspace_root_for_thread
 
         local_workspace_root = load_local_workspace_root_for_thread(thread_id) or None
 
     metadata = runtime.config.get("metadata", {}) if runtime.config else {}
-    from evoflow.agents.lead_agent.runtime_context import (
-        resolve_session_model_name_from_runtime,
-        runtime_context_mapping,
-    )
 
     _ctx = runtime_context_mapping(runtime)
     parent_model = resolve_session_model_name_from_runtime(
@@ -1631,9 +1601,7 @@ async def worker_tool(
             row["content"] = spec.content
             row["old_string"] = spec.old_string
             row["new_string"] = spec.new_string
-            snap_before, snap_after = _snapshots_for_worker_file_results(
-                spec, before_content, after_content
-            )
+            snap_before, snap_after = _snapshots_for_worker_file_results(spec, before_content, after_content)
             row["before_content"] = snap_before
             row["after_content"] = snap_after
         result_rows.append(row)
@@ -1655,10 +1623,7 @@ async def worker_tool(
             for _path, _lint_out in lint_map.items():
                 _ri = _path_last_ri.get(_path)
                 if _ri is not None and _ri < len(report_rows):
-                    report_rows[_ri]["output_preview"] = (
-                        str(report_rows[_ri].get("output_preview", ""))
-                        + f"\n\n[post-batch lint for {_path}]\n{_lint_out}"
-                    )
+                    report_rows[_ri]["output_preview"] = str(report_rows[_ri].get("output_preview", "")) + f"\n\n[post-batch lint for {_path}]\n{_lint_out}"
 
     status = "ok" if all(r.get("ok") for r in report_rows) else "partial"
     report = ExecutionReport(status=status, results=report_rows)

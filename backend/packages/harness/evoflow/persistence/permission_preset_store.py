@@ -12,7 +12,6 @@ from evoflow.persistence.db import get_db
 from evoflow.persistence.tool_approval_policy import (
     get_global_default_policy,
     get_session_policy_raw,
-    normalize_policy,
 )
 
 

@@ -19,36 +19,22 @@ from evoflow.exploration_graph.mind_map_hints import (
 
 
 def test_ops_are_step_note_diaries() -> None:
-    assert ops_are_step_note_diaries(
-        [{"op": "upsert_node", "id": "note:step-1", "kind": "note", "body": "x"}]
-    )
-    assert not ops_are_step_note_diaries(
-        [{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "title": "a.ts"}]
-    )
+    assert ops_are_step_note_diaries([{"op": "upsert_node", "id": "note:step-1", "kind": "note", "body": "x"}])
+    assert not ops_are_step_note_diaries([{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "title": "a.ts"}])
 
 
 def test_ops_include_body_distill() -> None:
-    assert ops_include_body_distill(
-        [{"op": "patch_node", "id": "file:a.ts", "append_body": "login() calls /api"}]
-    )
-    assert not ops_include_body_distill(
-        [{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "parent": "goal:session", "title": "a.ts"}]
-    )
+    assert ops_include_body_distill([{"op": "patch_node", "id": "file:a.ts", "append_body": "login() calls /api"}])
+    assert not ops_include_body_distill([{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "parent": "goal:session", "title": "a.ts"}])
 
 
 def test_ops_have_intent_flow_gap_body() -> None:
-    assert ops_have_intent_flow_gap_body(
-        [{"op": "upsert_node", "id": "gap:x", "kind": "gap", "body": "查看 tauri-api.js 实现"}]
-    )
+    assert ops_have_intent_flow_gap_body([{"op": "upsert_node", "id": "gap:x", "kind": "gap", "body": "查看 tauri-api.js 实现"}])
 
 
 def test_ops_flat_under_goal_only() -> None:
-    assert ops_flat_under_goal_only(
-        [{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "parent": "goal:session"}]
-    )
-    assert not ops_flat_under_goal_only(
-        [{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "parent": "flow:auth"}]
-    )
+    assert ops_flat_under_goal_only([{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "parent": "goal:session"}])
+    assert not ops_flat_under_goal_only([{"op": "upsert_node", "id": "file:a.ts", "kind": "file", "parent": "flow:auth"}])
 
 
 def test_collect_hints_for_read_placeholder() -> None:
@@ -177,9 +163,7 @@ def test_collect_hints_when_claim_without_flow_status() -> None:
 def test_ops_status_patched_ids() -> None:
     from evoflow.exploration_graph.mind_map_hints import ops_status_patched_ids
 
-    patched = ops_status_patched_ids(
-        [{"op": "patch_node", "id": "flow:upload", "status": "resolved", "append_body": "done"}]
-    )
+    patched = ops_status_patched_ids([{"op": "patch_node", "id": "flow:upload", "status": "resolved", "append_body": "done"}])
     assert patched == {"flow:upload"}
 
 

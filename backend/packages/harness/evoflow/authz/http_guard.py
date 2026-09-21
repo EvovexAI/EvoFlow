@@ -101,9 +101,9 @@ def require_item_visible(request: Request | None, item_id: str) -> None:
 
 
 def require_vault_visible(request: Request | None, vault_id: str) -> None:
+    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
     from evoflow.knowledge.vault import store as vault_store
     from evoflow.knowledge.vault.builtin import is_builtin_vault_id
-    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
 
     vid = str(vault_id or "").strip()
     if not vid:
@@ -203,11 +203,14 @@ def require_session_visible(request: Request | None, session_key: str) -> None:
     fields = ["created_by"]
     if "scope_id" in cols:
         fields.append("scope_id")
-    row = get_db().execute(
-        f"SELECT {', '.join(fields)} FROM evoflow_chat_sessions "
-        "WHERE session_key = ? AND COALESCE(is_deleted, 0) = 0",
-        (sk,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            f"SELECT {', '.join(fields)} FROM evoflow_chat_sessions WHERE session_key = ? AND COALESCE(is_deleted, 0) = 0",
+            (sk,),
+        )
+        .fetchone()
+    )
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     data = dict(zip(fields, row, strict=False))

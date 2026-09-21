@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from evoflow.persistence.db import get_db
-from evoflow.persistence.timestamps import coerce_iso_z, now_iso_z
+from evoflow.persistence.timestamps import coerce_iso_z
 from evoflow.timeutil import utc_now_iso_z
 
 _USER_SECTIONS = (

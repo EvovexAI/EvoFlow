@@ -12,7 +12,7 @@ Hour stamp (UTC, to the hour) keeps same-topic writes from clobbering each other
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 _SAFE_SLUG = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -29,11 +29,11 @@ def role_docs_slug(role: Any = None, *, agent_code: str = "") -> str:
 
 def role_docs_hour_stamp(when: datetime | None = None) -> str:
     """UTC hour bucket: ``YYYYMMDD-HH`` (e.g. ``20260721-18``)."""
-    dt = when or datetime.now(timezone.utc)
+    dt = when or datetime.now(UTC)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     else:
-        dt = dt.astimezone(timezone.utc)
+        dt = dt.astimezone(UTC)
     return dt.strftime("%Y%m%d-%H")
 
 
@@ -64,12 +64,7 @@ def format_role_docs_prompt_block(role: Any, *, when: datetime | None = None) ->
     rel = role_docs_rel_dir(role, when=when, with_hour=True)
     html_rule = ""
     if code == "video-analyst":
-        html_rule = (
-            "\n**格式**：拆解分析报告必须写 **HTML（.html）**，"
-            "禁止写 Markdown（.md）。用表格呈现分类/标签/评分/归因；"
-            "可用 `video_render_report_html` 生成后 `--copy-to` 拷到本目录。"
-            "ContentOS 拆解面板可内嵌打开 HTML 报告。"
-        )
+        html_rule = "\n**格式**：拆解分析报告必须写 **HTML（.html）**，禁止写 Markdown（.md）。用表格呈现分类/标签/评分/归因；可用 `video_render_report_html` 生成后 `--copy-to` 拷到本目录。ContentOS 拆解面板可内嵌打开 HTML 报告。"
     return f"""## 交付文档目录
 
 岗位「{name}」（`{code}`）的方案 / 报告 / 纪要等文档，写到本小时目录（UTC）：``{rel}``。

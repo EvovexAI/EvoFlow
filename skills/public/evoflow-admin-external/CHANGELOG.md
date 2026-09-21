@@ -1,5 +1,9 @@
 # Changelog — evoflow-admin-external
 
+## 1.0.4 — 2026-09-22
+
+- 随产品线对齐 **1.0.4**。
+
 ## 1.0.3 — 2026-09-05
 
 - 新增 **`references/00a-desktop-setup.md`**：桌面端下载（Releases）、配模型、PATH/`evoflow.cmd`、CLI 自检脚本；技能包安装前置明确。

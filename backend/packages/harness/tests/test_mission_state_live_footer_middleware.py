@@ -44,9 +44,7 @@ def test_live_footer_injects_mission_state_as_human_message() -> None:
 
     with patch("evoflow.agents.mission_state.config.MISSION_STATE_PROMPT_INJECTION_ENABLED", True):
         with patch("evoflow.agents.lead_agent.prompt._build_mission_state_section") as build_section:
-            build_section.return_value = (
-                "<mission_state>\nFix worker search delivery\nHoist code reads\n</mission_state>"
-            )
+            build_section.return_value = "<mission_state>\nFix worker search delivery\nHoist code reads\n</mission_state>"
             with patch("evoflow.agents.mission_state.storage.load_mission_state", return_value=state):
                 mw.wrap_model_call(req, handler)
 

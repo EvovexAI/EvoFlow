@@ -41,10 +41,7 @@ def thinking_disable_gate_tokens() -> int:
 
 
 def _thinking_guard_notice(gate_tokens: int) -> str:
-    return (
-        f"上下文约 {gate_tokens // 1000}K token，已自动关闭 Thinking，避免输出预算被思考链占满。"
-        "如需深度推理，请缩短会话或开新 thread 后再开启 Thinking。"
-    )
+    return f"上下文约 {gate_tokens // 1000}K token，已自动关闭 Thinking，避免输出预算被思考链占满。如需深度推理，请缩短会话或开新 thread 后再开启 Thinking。"
 
 
 def _runtime_context(runtime: Runtime | None) -> dict[str, Any]:

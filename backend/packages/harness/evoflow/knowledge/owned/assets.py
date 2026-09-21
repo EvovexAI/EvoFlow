@@ -260,9 +260,7 @@ def get_asset(asset_id: str) -> dict[str, Any] | None:
     from evoflow.knowledge.owned.db import db
 
     with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM kb_assets WHERE id=?", (asset_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM kb_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
         return None
     d = dict(row)

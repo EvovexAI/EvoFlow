@@ -31,15 +31,13 @@ from evoflow.agents.tool_approval_config import (
     tool_risk_level,
 )
 from evoflow.agents.tool_approval_denylist import is_dangerous
-from evoflow.agents.tool_approval_trace_log import log_tool_approval_trace
-from evoflow.tools.tool_aliases import canonical_tool_name
 from evoflow.agents.tool_approval_service import (
     REPLAY_MARKER,
     append_pending,
     apply_user_approval,
     build_replay_message,
-    consume_signature_grant,
     consume_replay_queue,
+    consume_signature_grant,
     is_granted_for_thread,
     make_pending_entry,
     parse_replay_message,
@@ -47,6 +45,8 @@ from evoflow.agents.tool_approval_service import (
     summarize_tool_for_approval,
     tool_requires_approval,
 )
+from evoflow.agents.tool_approval_trace_log import log_tool_approval_trace
+from evoflow.tools.tool_aliases import canonical_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +103,7 @@ def _build_deny_retry_blocked_result(request: ToolCallRequest) -> ToolMessage:
     msg = json.dumps(
         {
             "_evoflow_tool": {"status": "denied"},
-            "message": (
-                f"工具 {tool_name} 已被用户拒绝 {count} 次，系统已阻止再次调用。"
-                "请换用其他方法，或使用 ask_clarification 向用户询问如何继续。"
-            ),
+            "message": (f"工具 {tool_name} 已被用户拒绝 {count} 次，系统已阻止再次调用。请换用其他方法，或使用 ask_clarification 向用户询问如何继续。"),
         },
         ensure_ascii=False,
     )
@@ -358,10 +355,7 @@ def _build_pending_tool_message(request: ToolCallRequest, *, summary: str) -> To
     msg = json.dumps(
         {
             "_evoflow_tool": {"status": "pending_approval"},
-            "message": (
-                f"[pending_approval] {tool_name}（{summary}）尚未执行，等待用户在 EvoPanel 中点击该工具并授权。"
-                "不要要求用户输入 /approve、slash 命令或再次调用本工具；用户批准后系统将自动执行，请等待后续工具结果消息再继续。"
-            ),
+            "message": (f"[pending_approval] {tool_name}（{summary}）尚未执行，等待用户在 EvoPanel 中点击该工具并授权。不要要求用户输入 /approve、slash 命令或再次调用本工具；用户批准后系统将自动执行，请等待后续工具结果消息再继续。"),
             "approval": approval,
         },
         ensure_ascii=False,
@@ -376,7 +370,6 @@ def _build_pending_tool_message(request: ToolCallRequest, *, summary: str) -> To
 
 def _register_pending_approval(request: ToolCallRequest, *, summary: str) -> ToolMessage:
     tool_name = _canonical_tool_name(request)
-    raw_name = _tool_name(request)
     tc_id = _tool_call_id(request)
     args = _tool_args(request)
     ws_root = _workspace_root_from_request(request) or None
@@ -473,9 +466,7 @@ async def _execute_other_approved_tools(
     if not entries:
         return out
 
-    log_tool_approval_trace("中间件·批量执行sibling工具", thread_id=tid, side="中间件",
-        event_data={"skip": skip, "entry_count": len(entries),
-                    "entry_ids": [str(e.get("tool_call_id") or "") for e in entries]})
+    log_tool_approval_trace("中间件·批量执行sibling工具", thread_id=tid, side="中间件", event_data={"skip": skip, "entry_count": len(entries), "entry_ids": [str(e.get("tool_call_id") or "") for e in entries]})
 
     ctx = LeadAgentRuntimeContext.from_mapping(runtime_context_mapping(getattr(request, "runtime", None)))
     executed_ids: list[str] = []
@@ -486,23 +477,23 @@ async def _execute_other_approved_tools(
         try:
             result_msg = await aexecute_approved_tool_entry(entry, runtime_context=ctx)
             out.append(result_msg)
-            log_tool_approval_trace("中间件·sibling执行结果", thread_id=tid, side="中间件",
-                event_data={"tool_call_id": tc_id, "success": True})
+            log_tool_approval_trace("中间件·sibling执行结果", thread_id=tid, side="中间件", event_data={"tool_call_id": tc_id, "success": True})
         except Exception as exc:
             logger.exception("Tool approval replay failed for sibling: %s", tc_id)
-            log_tool_approval_trace("中间件·sibling执行失败", thread_id=tid, side="中间件",
-                level=logging.ERROR, event_data={"tool_call_id": tc_id, "error": str(exc)[:300]})
+            log_tool_approval_trace("中间件·sibling执行失败", thread_id=tid, side="中间件", level=logging.ERROR, event_data={"tool_call_id": tc_id, "error": str(exc)[:300]})
             import json
 
             tool_name = str(entry.get("tool_name") or "tool").strip()
-            out.append(ToolMessage(
-                content=json.dumps(
-                    {"_evoflow_tool": {"status": "error"}, "message": f"执行失败：{exc}"},
-                    ensure_ascii=False,
-                ),
-                tool_call_id=tc_id,
-                name=tool_name,
-            ))
+            out.append(
+                ToolMessage(
+                    content=json.dumps(
+                        {"_evoflow_tool": {"status": "error"}, "message": f"执行失败：{exc}"},
+                        ensure_ascii=False,
+                    ),
+                    tool_call_id=tc_id,
+                    name=tool_name,
+                )
+            )
         # 无论成功还是失败，都标记为已执行，防止重复
         executed_ids.append(tc_id)
     if executed_ids:
@@ -526,9 +517,7 @@ def _execute_other_approved_tools_sync(
     if not entries:
         return out
 
-    log_tool_approval_trace("中间件·批量执行sibling工具(sync)", thread_id=tid, side="中间件",
-        event_data={"skip": skip, "entry_count": len(entries),
-                    "entry_ids": [str(e.get("tool_call_id") or "") for e in entries]})
+    log_tool_approval_trace("中间件·批量执行sibling工具(sync)", thread_id=tid, side="中间件", event_data={"skip": skip, "entry_count": len(entries), "entry_ids": [str(e.get("tool_call_id") or "") for e in entries]})
 
     ctx = LeadAgentRuntimeContext.from_mapping(runtime_context_mapping(getattr(request, "runtime", None)))
     executed_ids: list[str] = []
@@ -539,23 +528,23 @@ def _execute_other_approved_tools_sync(
         try:
             result_msg = execute_approved_tool_entry(entry, runtime_context=ctx)
             out.append(result_msg)
-            log_tool_approval_trace("中间件·sibling执行结果(sync)", thread_id=tid, side="中间件",
-                event_data={"tool_call_id": tc_id, "success": True})
+            log_tool_approval_trace("中间件·sibling执行结果(sync)", thread_id=tid, side="中间件", event_data={"tool_call_id": tc_id, "success": True})
         except Exception as exc:
             logger.exception("Tool approval replay failed for sibling: %s", tc_id)
-            log_tool_approval_trace("中间件·sibling执行失败(sync)", thread_id=tid, side="中间件",
-                level=logging.ERROR, event_data={"tool_call_id": tc_id, "error": str(exc)[:300]})
+            log_tool_approval_trace("中间件·sibling执行失败(sync)", thread_id=tid, side="中间件", level=logging.ERROR, event_data={"tool_call_id": tc_id, "error": str(exc)[:300]})
             import json
 
             tool_name = str(entry.get("tool_name") or "tool").strip()
-            out.append(ToolMessage(
-                content=json.dumps(
-                    {"_evoflow_tool": {"status": "error"}, "message": f"执行失败：{exc}"},
-                    ensure_ascii=False,
-                ),
-                tool_call_id=tc_id,
-                name=tool_name,
-            ))
+            out.append(
+                ToolMessage(
+                    content=json.dumps(
+                        {"_evoflow_tool": {"status": "error"}, "message": f"执行失败：{exc}"},
+                        ensure_ascii=False,
+                    ),
+                    tool_call_id=tc_id,
+                    name=tool_name,
+                )
+            )
         # 无论成功还是失败，都标记为已执行，防止重复
         executed_ids.append(tc_id)
     if executed_ids:
@@ -601,14 +590,12 @@ def _resolve_after_resume_sync(
     ws_root = _workspace_root_from_request(request) or None
     action = str((decision or {}).get("action") or "").strip().lower() if isinstance(decision, dict) else ""
 
-    log_tool_approval_trace("中间件·resume处理开始", thread_id=tid, side="中间件",
-        event_data={"tool_call_id": tc_id, "action": action, "should_execute": _should_execute_for_decision(decision, tc_id)})
+    log_tool_approval_trace("中间件·resume处理开始", thread_id=tid, side="中间件", event_data={"tool_call_id": tc_id, "action": action, "should_execute": _should_execute_for_decision(decision, tc_id)})
 
     if action == "deny":
         if tid:
             _record_deny(tid, tool_name)
-        log_tool_approval_trace("中间件·用户拒绝工具", thread_id=tid, side="中间件",
-            event_data={"tool_name": tool_name, "tool_call_id": tc_id})
+        log_tool_approval_trace("中间件·用户拒绝工具", thread_id=tid, side="中间件", event_data={"tool_name": tool_name, "tool_call_id": tc_id})
         denied = _denied_tool_message(request)
         persist_transcript_tool_message_now(getattr(request, "runtime", None), denied)
         return denied
@@ -652,14 +639,12 @@ async def _resolve_after_resume_async(
     ws_root = _workspace_root_from_request(request) or None
     action = str((decision or {}).get("action") or "").strip().lower() if isinstance(decision, dict) else ""
 
-    log_tool_approval_trace("中间件·resume处理开始", thread_id=tid, side="中间件",
-        event_data={"tool_call_id": tc_id, "action": action, "should_execute": _should_execute_for_decision(decision, tc_id)})
+    log_tool_approval_trace("中间件·resume处理开始", thread_id=tid, side="中间件", event_data={"tool_call_id": tc_id, "action": action, "should_execute": _should_execute_for_decision(decision, tc_id)})
 
     if action == "deny":
         if tid:
             _record_deny(tid, tool_name)
-        log_tool_approval_trace("中间件·用户拒绝工具", thread_id=tid, side="中间件",
-            event_data={"tool_name": tool_name, "tool_call_id": tc_id})
+        log_tool_approval_trace("中间件·用户拒绝工具", thread_id=tid, side="中间件", event_data={"tool_name": tool_name, "tool_call_id": tc_id})
         denied = _denied_tool_message(request)
         persist_transcript_tool_message_now(getattr(request, "runtime", None), denied)
         return denied
@@ -684,15 +669,12 @@ async def _resolve_after_resume_async(
         consume_replay_queue(tid, [tc_id])
         _clear_deny_counter(tid, tool_name)
 
-    log_tool_approval_trace("中间件·开始执行工具", thread_id=tid, side="中间件",
-        event_data={"tool_name": tool_name, "tool_call_id": tc_id})
+    log_tool_approval_trace("中间件·开始执行工具", thread_id=tid, side="中间件", event_data={"tool_name": tool_name, "tool_call_id": tc_id})
     try:
         result = await handler(request)
-        log_tool_approval_trace("中间件·工具执行完成", thread_id=tid, side="中间件",
-            event_data={"tool_name": tool_name, "tool_call_id": tc_id, "result_type": type(result).__name__})
+        log_tool_approval_trace("中间件·工具执行完成", thread_id=tid, side="中间件", event_data={"tool_name": tool_name, "tool_call_id": tc_id, "result_type": type(result).__name__})
     except Exception as exc:
-        log_tool_approval_trace("中间件·工具执行异常", thread_id=tid, side="中间件",
-            level=logging.ERROR, event_data={"tool_name": tool_name, "error": str(exc)[:300]})
+        log_tool_approval_trace("中间件·工具执行异常", thread_id=tid, side="中间件", level=logging.ERROR, event_data={"tool_name": tool_name, "error": str(exc)[:300]})
         raise
     extra = await _execute_other_approved_tools(request, skip_tool_call_id=tc_id)
     return _merge_tool_handler_result(result, extra)
@@ -705,11 +687,7 @@ def _gate_tool_call_sync(
     summary: str,
 ) -> ToolMessage | Command:
     tc_id = _tool_call_id(request)
-    batch_ids = [
-        str(tc.get("id") or "").strip()
-        for tc in _sibling_tool_calls_for_request(request)
-        if str(tc.get("id") or "").strip()
-    ]
+    batch_ids = [str(tc.get("id") or "").strip() for tc in _sibling_tool_calls_for_request(request) if str(tc.get("id") or "").strip()]
     if not batch_ids and tc_id:
         batch_ids = [tc_id]
     tid = _thread_id_from_request(request)
@@ -726,9 +704,7 @@ def _gate_tool_call_sync(
         request,
         extra={"决策": "interrupt_same_run", "摘要": summary, "批次工具数": len(batch_ids)},
     )
-    log_tool_approval_trace("中间件·interrupt暂停", thread_id=tid, side="中间件",
-        event_data={"tool_name": _canonical_tool_name(request), "tool_call_id": tc_id,
-                    "batch_ids": batch_ids, "summary": summary[:200]})
+    log_tool_approval_trace("中间件·interrupt暂停", thread_id=tid, side="中间件", event_data={"tool_name": _canonical_tool_name(request), "tool_call_id": tc_id, "batch_ids": batch_ids, "summary": summary[:200]})
     # Same POST SSE stays open: gateway defers RUN_FINISHED while pending rows exist.
     # UI receives ``tool_approval_pending`` (→ TOOL_CALL_RESULT) before this raises.
     decision = interrupt(
@@ -740,8 +716,7 @@ def _gate_tool_call_sync(
             "summary": summary,
         }
     )
-    log_tool_approval_trace("中间件·interrupt返回(resume)", thread_id=tid, side="中间件",
-        event_data={"tool_call_id": tc_id, "decision": str(decision)[:300] if decision else "None"})
+    log_tool_approval_trace("中间件·interrupt返回(resume)", thread_id=tid, side="中间件", event_data={"tool_call_id": tc_id, "decision": str(decision)[:300] if decision else "None"})
     return _resolve_after_resume_sync(request, handler, decision, pending_msg=pending_msg)
 
 
@@ -752,11 +727,7 @@ async def _gate_tool_call_async(
     summary: str,
 ) -> ToolMessage | Command:
     tc_id = _tool_call_id(request)
-    batch_ids = [
-        str(tc.get("id") or "").strip()
-        for tc in _sibling_tool_calls_for_request(request)
-        if str(tc.get("id") or "").strip()
-    ]
+    batch_ids = [str(tc.get("id") or "").strip() for tc in _sibling_tool_calls_for_request(request) if str(tc.get("id") or "").strip()]
     if not batch_ids and tc_id:
         batch_ids = [tc_id]
     tid = _thread_id_from_request(request)
@@ -773,9 +744,7 @@ async def _gate_tool_call_async(
         request,
         extra={"决策": "interrupt_same_run", "摘要": summary, "批次工具数": len(batch_ids)},
     )
-    log_tool_approval_trace("中间件·interrupt暂停", thread_id=tid, side="中间件",
-        event_data={"tool_name": _canonical_tool_name(request), "tool_call_id": tc_id,
-                    "batch_ids": batch_ids, "summary": summary[:200]})
+    log_tool_approval_trace("中间件·interrupt暂停", thread_id=tid, side="中间件", event_data={"tool_name": _canonical_tool_name(request), "tool_call_id": tc_id, "batch_ids": batch_ids, "summary": summary[:200]})
     # Same POST SSE stays open: gateway defers RUN_FINISHED while pending rows exist.
     decision = interrupt(
         {
@@ -786,8 +755,7 @@ async def _gate_tool_call_async(
             "summary": summary,
         }
     )
-    log_tool_approval_trace("中间件·interrupt返回(resume)", thread_id=tid, side="中间件",
-        event_data={"tool_call_id": tc_id, "decision": str(decision)[:300] if decision else "None"})
+    log_tool_approval_trace("中间件·interrupt返回(resume)", thread_id=tid, side="中间件", event_data={"tool_call_id": tc_id, "decision": str(decision)[:300] if decision else "None"})
     return await _resolve_after_resume_async(request, handler, decision, pending_msg=pending_msg)
 
 
@@ -873,8 +841,7 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
                 request,
                 extra={"拒绝次数": _get_deny_count(tid, canon_name), "工具名": canon_name},
             )
-            log_tool_approval_trace("中间件·deny重试拦截", thread_id=tid, side="中间件",
-                level=logging.WARNING, event_data={"tool_name": canon_name, "deny_count": _get_deny_count(tid, canon_name)})
+            log_tool_approval_trace("中间件·deny重试拦截", thread_id=tid, side="中间件", level=logging.WARNING, event_data={"tool_name": canon_name, "deny_count": _get_deny_count(tid, canon_name)})
             blocked_msg = _build_deny_retry_blocked_result(request)
             persist_transcript_tool_message_now(
                 getattr(request, "runtime", None),
@@ -932,8 +899,7 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
                 request,
                 extra={"拒绝次数": _get_deny_count(tid, canon_name), "工具名": canon_name},
             )
-            log_tool_approval_trace("中间件·deny重试拦截", thread_id=tid, side="中间件",
-                level=logging.WARNING, event_data={"tool_name": canon_name, "deny_count": _get_deny_count(tid, canon_name)})
+            log_tool_approval_trace("中间件·deny重试拦截", thread_id=tid, side="中间件", level=logging.WARNING, event_data={"tool_name": canon_name, "deny_count": _get_deny_count(tid, canon_name)})
             blocked_msg = _build_deny_retry_blocked_result(request)
             persist_transcript_tool_message_now(
                 getattr(request, "runtime", None),
@@ -1105,11 +1071,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
             # Configurable survives across model cycles; only fire while approved rows remain.
             entries = pop_replay_queue(tid_cfg, ids)
             if entries:
-                return [
-                    str(e.get("tool_call_id") or "").strip()
-                    for e in entries
-                    if str(e.get("tool_call_id") or "").strip()
-                ]
+                return [str(e.get("tool_call_id") or "").strip() for e in entries if str(e.get("tool_call_id") or "").strip()]
             return None
 
         tid = _thread_id_from_runtime(runtime)
@@ -1145,11 +1107,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
     ) -> list[Any]:
         executed_set = {x for x in executed_ids if x}
         denied_set = {x for x in (denied_ids or []) if x}
-        by_id = {
-            str(getattr(tm, "tool_call_id", "") or "").strip(): tm
-            for tm in tool_messages
-            if str(getattr(tm, "tool_call_id", "") or "").strip()
-        }
+        by_id = {str(getattr(tm, "tool_call_id", "") or "").strip(): tm for tm in tool_messages if str(getattr(tm, "tool_call_id", "") or "").strip()}
         out: list[Any] = []
         for msg in messages:
             if isinstance(msg, HumanMessage):
@@ -1192,10 +1150,11 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
         _last_preview = ""
         if messages:
             _c = getattr(messages[-1], "content", "")
-            _last_preview = (_c[:120] if isinstance(_c, str) else str(_c)[:120])
+            _last_preview = _c[:120] if isinstance(_c, str) else str(_c)[:120]
         log_tool_approval_trace(
             "Replay中间件·进入检查",
-            thread_id=_diag_tid, side="中间件",
+            thread_id=_diag_tid,
+            side="中间件",
             event_data={"msg_count": len(messages), "last_type": _last_type, "last_preview": _last_preview},
         )
 
@@ -1207,7 +1166,8 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
         if not replay_ids:
             log_tool_approval_trace(
                 "Replay中间件·早退(parse失败或非replay消息)",
-                thread_id=_diag_tid, side="中间件",
+                thread_id=_diag_tid,
+                side="中间件",
                 event_data={
                     "last_type": type(messages[-1]).__name__,
                     "content_type": type(getattr(messages[-1], "content", None)).__name__,
@@ -1220,8 +1180,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
             log_tool_approval_trace("Replay中间件·早退(tid为空)", side="中间件")
             return None
 
-        log_tool_approval_trace("中间件·replay执行已批准工具", thread_id=tid, side="中间件",
-            event_data={"replay_ids": replay_ids, "queue_length": len(replay_ids)})
+        log_tool_approval_trace("中间件·replay执行已批准工具", thread_id=tid, side="中间件", event_data={"replay_ids": replay_ids, "queue_length": len(replay_ids)})
 
         log_tool_approval_trace(
             "Replay 中间件：开始执行已批准工具",
@@ -1243,14 +1202,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
                 clear_tool_approval_pause(tid)
             except Exception:
                 logger.debug("clear tool approval pause on empty replay queue failed thread=%s", tid, exc_info=True)
-            cleaned = [
-                m
-                for m in messages
-                if not (
-                    isinstance(m, HumanMessage)
-                    and parse_replay_message(self._human_text(getattr(m, "content", None)))
-                )
-            ]
+            cleaned = [m for m in messages if not (isinstance(m, HumanMessage) and parse_replay_message(self._human_text(getattr(m, "content", None))))]
             note = HumanMessage(content="用户已批准，但 replay 队列中无对应工具（可能已执行或已取消）。")
             return replace_messages_in_state([*cleaned, note])
 
@@ -1305,11 +1257,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
         try:
             from evoflow.persistence.tool_approval_repositories import list_denied_for_thread
 
-            denied_ids = [
-                str(e.get("tool_call_id") or "").strip()
-                for e in list_denied_for_thread(tid)
-                if str(e.get("tool_call_id") or "").strip()
-            ]
+            denied_ids = [str(e.get("tool_call_id") or "").strip() for e in list_denied_for_thread(tid) if str(e.get("tool_call_id") or "").strip()]
         except Exception:
             logger.debug("list denied after replay failed thread=%s", tid, exc_info=True)
 
@@ -1348,12 +1296,12 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
         _last_preview = ""
         if messages:
             _c = getattr(messages[-1], "content", "")
-            _last_preview = (_c[:120] if isinstance(_c, str) else str(_c)[:120])
+            _last_preview = _c[:120] if isinstance(_c, str) else str(_c)[:120]
         log_tool_approval_trace(
             "Replay中间件·sync入口检查",
-            thread_id=_diag_tid, side="中间件",
-            event_data={"msg_count": len(messages), "last_type": _last_type,
-                        "last_preview": _last_preview},
+            thread_id=_diag_tid,
+            side="中间件",
+            event_data={"msg_count": len(messages), "last_type": _last_type, "last_preview": _last_preview},
         )
 
         if not messages:
@@ -1364,7 +1312,8 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
         if not replay_ids:
             log_tool_approval_trace(
                 "Replay中间件·sync早退(parse失败或非replay消息)",
-                thread_id=_diag_tid, side="中间件",
+                thread_id=_diag_tid,
+                side="中间件",
                 event_data={"last_type": type(messages[-1]).__name__},
             )
             return None
@@ -1373,8 +1322,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
             log_tool_approval_trace("Replay中间件·sync早退(tid为空)", side="中间件")
             return None
 
-        log_tool_approval_trace("Replay中间件·sync路径触发", thread_id=tid, side="中间件",
-            event_data={"replay_ids": replay_ids})
+        log_tool_approval_trace("Replay中间件·sync路径触发", thread_id=tid, side="中间件", event_data={"replay_ids": replay_ids})
 
         # 尝试在已有事件循环中运行 async _replay；若没有则创建新循环
         try:
@@ -1397,8 +1345,7 @@ class ToolApprovalReplayMiddleware(AgentMiddleware[AgentState]):
 
     @override
     async def abefore_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-        log_tool_approval_trace("Replay中间件·abefore_model入口", thread_id=_thread_id_from_runtime(runtime) or "?",
-            side="中间件")
+        log_tool_approval_trace("Replay中间件·abefore_model入口", thread_id=_thread_id_from_runtime(runtime) or "?", side="中间件")
         return await self._replay(state, runtime)
 
 
@@ -1410,11 +1357,7 @@ class ToolApprovalDenyContinueMiddleware(AgentMiddleware[AgentState]):
     @staticmethod
     def _deny_ids_from_runtime(runtime: Runtime) -> list[str]:
         ctx = runtime_context_mapping(runtime)
-        ids = [
-            str(x).strip()
-            for x in (ctx.get("tool_approval_deny_tool_call_ids") or [])
-            if str(x).strip()
-        ]
+        ids = [str(x).strip() for x in (ctx.get("tool_approval_deny_tool_call_ids") or []) if str(x).strip()]
         single = str(ctx.get("tool_approval_deny_tool_call_id") or "").strip()
         if single and single not in ids:
             ids.insert(0, single)
@@ -1451,11 +1394,7 @@ class ToolApprovalDenyContinueMiddleware(AgentMiddleware[AgentState]):
         out: list[Any] = []
         replaced = 0
         for msg in messages:
-            tc = (
-                str(getattr(msg, "tool_call_id", "") or "").strip()
-                if isinstance(msg, ToolMessage)
-                else ""
-            )
+            tc = str(getattr(msg, "tool_call_id", "") or "").strip() if isinstance(msg, ToolMessage) else ""
             if isinstance(msg, ToolMessage) and tc in deny_ids:
                 import json
 

@@ -35,20 +35,14 @@ def _run(home: Path) -> dict:
     item = created["item"]
     item_id = item["id"]
 
-    dispatched = items_admin.dispatch_item(
-        item_id, agent_code="eval-dispatcher", wake_now=False
-    )
+    dispatched = items_admin.dispatch_item(item_id, agent_code="eval-dispatcher", wake_now=False)
     task_id = str(dispatched.get("task_id") or "")
     item_after = dispatched.get("item") or items_admin.get_item(item_id)["item"]
     linked = list(item_after.get("linked_task_ids") or [])
     task = tasks_admin.get_task(task_id) if task_id else {}
     source_ref = ""
     if isinstance(task, dict):
-        source_ref = str(
-            task.get("source_ref")
-            or (task.get("task") or {}).get("source_ref")
-            or ""
-        )
+        source_ref = str(task.get("source_ref") or (task.get("task") or {}).get("source_ref") or "")
     expected_ref = f"item:{item_id}"
     item_status = str(item_after.get("status") or "")
 

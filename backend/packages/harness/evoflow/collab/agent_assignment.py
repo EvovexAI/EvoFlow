@@ -117,10 +117,5 @@ def resolve_assignable_agent(
 
 def resolve_step_assigned_agent(step: dict) -> tuple[str, str, list[str]]:
     """From a plan step dict, resolve assignee / assigned_agent / agent_code."""
-    raw = str(
-        step.get("assignee")
-        or step.get("assigned_agent")
-        or step.get("agent_code")
-        or ""
-    ).strip()
+    raw = str(step.get("assignee") or step.get("assigned_agent") or step.get("agent_code") or "").strip()
     return resolve_assignable_agent(raw or None)

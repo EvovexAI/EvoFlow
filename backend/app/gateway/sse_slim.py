@@ -55,11 +55,7 @@ def _slim_usage(obj: Any) -> dict[str, Any] | None:
     for details_key in _USAGE_DETAIL_KEYS:
         details = obj.get(details_key)
         if isinstance(details, dict):
-            slim_details = {
-                k: details[k]
-                for k in (*_USAGE_DETAIL_CACHE_READ_KEYS, *_USAGE_DETAIL_CACHE_CREATION_KEYS)
-                if k in details
-            }
+            slim_details = {k: details[k] for k in (*_USAGE_DETAIL_CACHE_READ_KEYS, *_USAGE_DETAIL_CACHE_CREATION_KEYS) if k in details}
             if slim_details:
                 out[details_key] = slim_details
     return out or None

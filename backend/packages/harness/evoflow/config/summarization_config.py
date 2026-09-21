@@ -75,19 +75,13 @@ class SummarizationConfig(BaseModel):
         default=0.90,
         ge=0.1,
         le=0.95,
-        description=(
-            "Compress when gate tokens >= this fraction of model context_length. "
-            "Default 0.90 matches runtime ``(context_window * 9) / 10``."
-        ),
+        description=("Compress when gate tokens >= this fraction of model context_length. Default 0.90 matches runtime ``(context_window * 9) / 10``."),
     )
     aggressive_ratio: float = Field(
         default=1.0,
         ge=0.5,
         le=1.0,
-        description=(
-            "Second pass / hard threshold after first compaction. "
-            "Default 1.0 matches runtime full-window force compact."
-        ),
+        description=("Second pass / hard threshold after first compaction. Default 1.0 matches runtime full-window force compact."),
     )
     protect_first_n: int = Field(
         default=0,
@@ -129,10 +123,7 @@ class SummarizationConfig(BaseModel):
     compaction_trigger_message_count: int = Field(
         default=0,
         ge=0,
-        description=(
-            "Deprecated / ignored. Compaction is token-window only (runtime-aligned); "
-            "message-count triggers are disabled."
-        ),
+        description=("Deprecated / ignored. Compaction is token-window only (runtime-aligned); message-count triggers are disabled."),
     )
     compaction_background_llm: bool = Field(
         default=True,
@@ -247,8 +238,7 @@ def get_compaction_settings() -> CompactionSettings:
         global _warned_release_override
         if not _warned_release_override:
             logger.warning(
-                "compaction_release_ratio=%.2f >= threshold_ratio=%.2f; auto-adjusted to %.2f. "
-                "Set compaction_release_ratio < threshold_ratio in config to silence this warning.",
+                "compaction_release_ratio=%.2f >= threshold_ratio=%.2f; auto-adjusted to %.2f. Set compaction_release_ratio < threshold_ratio in config to silence this warning.",
                 release,
                 threshold,
                 new_release,

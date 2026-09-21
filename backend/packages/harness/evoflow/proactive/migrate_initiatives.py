@@ -83,9 +83,7 @@ def migrate_actionable_initiatives_to_tasks(
                     # Soft: mark cancelled via status if column allows; else leave
                     ProactiveRepository.update_initiative_status(
                         init.id,
-                        InitiativeStatus.SKIPPED
-                        if hasattr(InitiativeStatus, "SKIPPED")
-                        else InitiativeStatus.REJECTED,
+                        InitiativeStatus.SKIPPED if hasattr(InitiativeStatus, "SKIPPED") else InitiativeStatus.REJECTED,
                         execution_result="cleaned: __role_stamp_test__",
                     )
                     deleted_test += 1
@@ -112,12 +110,8 @@ def migrate_actionable_initiatives_to_tasks(
                     "title": init.title,
                     "description": init.description,
                     "rationale": init.rationale,
-                    "action_type": init.action_type.value
-                    if hasattr(init.action_type, "value")
-                    else init.action_type,
-                    "risk_level": init.risk_level.value
-                    if hasattr(init.risk_level, "value")
-                    else init.risk_level,
+                    "action_type": init.action_type.value if hasattr(init.action_type, "value") else init.action_type,
+                    "risk_level": init.risk_level.value if hasattr(init.risk_level, "value") else init.risk_level,
                     "action_plan": init.action_plan if isinstance(init.action_plan, dict) else {},
                     "expected_outcome": init.expected_outcome,
                 },

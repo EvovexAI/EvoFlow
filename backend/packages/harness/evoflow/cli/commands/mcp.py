@@ -34,9 +34,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_parser = mcp_sub.add_parser(
         "add",
         help="Add or update an MCP server",
-        description="Examples:\n"
-        "  evoflow mcp add github --url https://example/mcp\n"
-        "  evoflow mcp add fs -- npx -y @modelcontextprotocol/server-filesystem /tmp\n",
+        description="Examples:\n  evoflow mcp add github --url https://example/mcp\n  evoflow mcp add fs -- npx -y @modelcontextprotocol/server-filesystem /tmp\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_parser.add_argument("server", help="Server name")
@@ -76,9 +74,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     set_parser = mcp_sub.add_parser(
         "set",
         help="Replace MCP configuration from JSON",
-        description="JSON payload fields:\n"
-        "  mcp_servers                    Object mapping server names to configs\n"
-        "                                 Each config: {command, args, env}\n",
+        description="JSON payload fields:\n  mcp_servers                    Object mapping server names to configs\n                                 Each config: {command, args, env}\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_json_input_flags(set_parser)

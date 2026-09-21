@@ -200,9 +200,7 @@ def _remove_scenario(scenario_key: str) -> bool:
 
 
 # Plan 协作进行中（含 awaiting_exec / executing / 验收）保留磁盘 collab 阶段；仅全流程 done 后切 agent 时可拉回 idle。
-_PLAN_COLLAB_PHASES_PRESERVE_ON_LEAVE = frozenset(
-    {"awaiting_exec", "executing", "verifying", "reflecting", "paused"}
-)
+_PLAN_COLLAB_PHASES_PRESERVE_ON_LEAVE = frozenset({"awaiting_exec", "executing", "verifying", "reflecting", "paused"})
 
 
 def sync_plan_scenario_with_session_policy(
@@ -256,11 +254,7 @@ def sync_agent_scenario_after_plan_done(
             from evoflow.config.paths import get_paths
 
             disk = load_thread_collab_state(get_paths(), tid)
-            disk_phase = (
-                disk.collab_phase.value
-                if isinstance(disk.collab_phase, CollabPhase)
-                else str(disk.collab_phase or "")
-            ).strip().lower()
+            disk_phase = (disk.collab_phase.value if isinstance(disk.collab_phase, CollabPhase) else str(disk.collab_phase or "")).strip().lower()
             if disk_phase == CollabPhase.DONE.value:
                 should_switch = True
         except Exception:
@@ -309,6 +303,7 @@ def reset_activated_scenario() -> None:
         state.scenarios = []
         state.chat_override_count = 0
         _persist_activated_scenarios([])
+
 
 def _scenario_tools_payload_for_run(scenarios: list[str]) -> dict[str, list[str]]:
     return build_scenario_tools_payload(scenarios, session_key=_resolve_chat_session_key())
@@ -417,9 +412,7 @@ def _auto_enter_planning_for_plan_scenario() -> None:
 
         paths = get_paths()
         cur = load_thread_collab_state(paths, thread_id)
-        phase_val = (
-            cur.collab_phase.value if isinstance(cur.collab_phase, CollabPhase) else str(cur.collab_phase or "")
-        ).strip().lower()
+        phase_val = (cur.collab_phase.value if isinstance(cur.collab_phase, CollabPhase) else str(cur.collab_phase or "")).strip().lower()
         if phase_val == CollabPhase.DONE.value:
             from evoflow.collab.plan_session_task import begin_new_plan_cycle
 
@@ -668,11 +661,7 @@ def mode_set(action: str, mode: str, reason: str = "") -> str:
                     "all_active_scenarios": [],
                     **build_scenario_tools_payload([], session_key=_resolve_chat_session_key()),
                     "previous_scenarios": previous or ["none"],
-                    "message": (
-                        "已切换日常对话：先前模式已解除，本回合仅绑定核心工具（"
-                        + "、".join(CORE_TOOL_NAMES)
-                        + "）。若用户下一步要改文件、联网等，请再 activate 对应模式（agent / plan），或对单个工具使用 tool_search。"
-                    ),
+                    "message": ("已切换日常对话：先前模式已解除，本回合仅绑定核心工具（" + "、".join(CORE_TOOL_NAMES) + "）。若用户下一步要改文件、联网等，请再 activate 对应模式（agent / plan），或对单个工具使用 tool_search。"),
                 },
                 ensure_ascii=False,
                 indent=2,

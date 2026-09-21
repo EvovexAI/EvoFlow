@@ -218,9 +218,7 @@ def goal_report_tool(
             summary=summary_body,
             result=result,
             decision="模型主动汇报目标完成",
-            state_patch=format_goal_state_patch(
-                goal_status="completed", status="idle", goal_summary="(written)"
-            ),
+            state_patch=format_goal_state_patch(goal_status="completed", status="idle", goal_summary="(written)"),
         )
         return result
 

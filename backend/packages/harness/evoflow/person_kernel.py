@@ -7,19 +7,14 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_IDENTITY_HEADING = re.compile(
-    r"(?im)^\s*(?:\*\*Identity\*\*|#{1,3}\s*Identity)\s*$"
-)
-_SECTION_HEADING = re.compile(
-    r"(?im)^\s*(?:\*\*(?P<bold>[^*]+)\*\*|#{1,3}\s*(?P<hash>.+?))\s*$"
-)
-_LESSONS_HEADING = re.compile(
-    r"(?im)^\s*(?:\*\*Lessons Learned\*\*|#{1,3}\s*Lessons Learned)\s*$"
-)
+_IDENTITY_HEADING = re.compile(r"(?im)^\s*(?:\*\*Identity\*\*|#{1,3}\s*Identity)\s*$")
+_SECTION_HEADING = re.compile(r"(?im)^\s*(?:\*\*(?P<bold>[^*]+)\*\*|#{1,3}\s*(?P<hash>.+?))\s*$")
+_LESSONS_HEADING = re.compile(r"(?im)^\s*(?:\*\*Lessons Learned\*\*|#{1,3}\s*Lessons Learned)\s*$")
 
 _MAX_LESSON_CHARS = 400
 _MAX_LESSONS_KEEP = 40
@@ -148,14 +143,10 @@ def append_lesson_to_soul(soul_md: str, lesson: str, *, stamp: str) -> str:
         suffix = ""
 
     lines = [ln for ln in body.strip().splitlines() if ln.strip()]
-    lines = [
-        ln
-        for ln in lines
-        if not re.match(r"(?i)^_?\(?(mistakes|insights|none|暂无|空).*$", ln.strip())
-    ]
+    lines = [ln for ln in lines if not re.match(r"(?i)^_?\(?(mistakes|insights|none|暂无|空).*$", ln.strip())]
     lines.append(bullet)
     if len(lines) > _MAX_LESSONS_KEEP:
-        lines = lines[-_MAX_LESSONS_KEEP :]
+        lines = lines[-_MAX_LESSONS_KEEP:]
     body_out = "\n".join(lines)
     parts = []
     if prefix:
@@ -243,7 +234,7 @@ def record_wrap_up_lesson(
     round_id: str = "",
 ) -> dict[str, Any]:
     """Append a lesson to agent soul_md and write changelog. Never touches identity_md."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from evoflow.persistence import config_repositories as cfg_repo
 
@@ -251,10 +242,8 @@ def record_wrap_up_lesson(
     if not code:
         return {"ok": False, "error": "missing agent_code"}
 
-    lesson = derive_lesson_from_wrap_up(
-        reflection=reflection, outcome=outcome, observations=observations
-    )
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    lesson = derive_lesson_from_wrap_up(reflection=reflection, outcome=outcome, observations=observations)
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     old_soul = cfg_repo.get_agent_soul(code) or ""
     new_soul = append_lesson_to_soul(old_soul, lesson, stamp=stamp)
     if new_soul == old_soul:
@@ -281,12 +270,8 @@ def record_wrap_up_lesson(
 
         role = ProactiveRepository.get_role(code)
         if role and (role.config.soul_md or "").strip():
-            role.config.soul_md = append_lesson_to_soul(
-                role.config.soul_md, lesson, stamp=stamp
-            )
-            saver = getattr(ProactiveRepository, "save_role", None) or getattr(
-                ProactiveRepository, "upsert_role", None
-            )
+            role.config.soul_md = append_lesson_to_soul(role.config.soul_md, lesson, stamp=stamp)
+            saver = getattr(ProactiveRepository, "save_role", None) or getattr(ProactiveRepository, "upsert_role", None)
             if callable(saver):
                 saver(role)
     except Exception:
@@ -362,12 +347,7 @@ def format_identity_prompt_block(identity_md: str) -> str:
     text = str(identity_md or "").strip()
     if not text:
         return ""
-    return (
-        "<identity>\n"
-        "<!-- L0 IDENTITY — READ-ONLY hard boundaries. Never renegotiate or soft-pedal. -->\n"
-        f"{text}\n"
-        "</identity>\n"
-    )
+    return f"<identity>\n<!-- L0 IDENTITY — READ-ONLY hard boundaries. Never renegotiate or soft-pedal. -->\n{text}\n</identity>\n"
 
 
 def format_soul_prompt_block(
@@ -394,13 +374,7 @@ def format_soul_prompt_block(
         from evoflow.assets.injection_budget import cap_text_chars
 
         text = cap_text_chars(text, max_chars) + "\n<!-- soul truncated; details in archival -->"
-    return (
-        "<soul>\n"
-        "<!-- L1 — communication/work habits only; reference, not standing orders. "
-        "Do not resume old verification/patrol lessons unless the user asks. -->\n"
-        f"{text}\n"
-        "</soul>\n"
-    )
+    return f"<soul>\n<!-- L1 — communication/work habits only; reference, not standing orders. Do not resume old verification/patrol lessons unless the user asks. -->\n{text}\n</soul>\n"
 
 
 def format_standing_summary_block(agent_code: str | None) -> str:
@@ -431,12 +405,7 @@ def format_standing_summary_block(agent_code: str | None) -> str:
     text = str(best.get("content") or "").strip()
     if not text:
         return ""
-    return (
-        "<standing_summary>\n"
-        "<!-- 跨班次站立摘要：背景参考。用户本轮没点名则不要续跑、重开或复查其中的旧任务。 -->\n"
-        f"{text[:320]}\n"
-        "</standing_summary>\n"
-    )
+    return f"<standing_summary>\n<!-- 跨班次站立摘要：背景参考。用户本轮没点名则不要续跑、重开或复查其中的旧任务。 -->\n{text[:320]}\n</standing_summary>\n"
 
 
 def format_person_presence_block(
@@ -502,11 +471,7 @@ def format_person_memory_context(
     try:
         from evoflow.persistence import person_memory_repositories as pm_repo
 
-        core_rows = [
-            r
-            for r in pm_repo.list_core_memory(code, limit=max(6, limit))
-            if str(r.get("layer") or "") != "procedural"
-        ]
+        core_rows = [r for r in pm_repo.list_core_memory(code, limit=max(6, limit)) if str(r.get("layer") or "") != "procedural"]
         # Pin newest state_summary / standing core to the front
         pinned: list[dict[str, Any]] = []
         rest: list[dict[str, Any]] = []
@@ -521,13 +486,7 @@ def format_person_memory_context(
         archival: list[dict[str, Any]] = []
         q = str(query or "").strip()
         if q:
-            archival = [
-                r
-                for r in pm_repo.retrieve_for_query(
-                    code, q, limit=limit, include_procedural=False, bump_hits=True
-                )
-                if str(r.get("layer") or "") != "procedural"
-            ]
+            archival = [r for r in pm_repo.retrieve_for_query(code, q, limit=limit, include_procedural=False, bump_hits=True) if str(r.get("layer") or "") != "procedural"]
         # Dedupe by id; core first
         seen: set[str] = set()
         rows: list[dict[str, Any]] = []
@@ -566,35 +525,15 @@ def format_person_memory_context(
     if not lines:
         return ""
     body = "\n".join(lines)
-    return (
-        "<person_memory>\n"
-        "<!-- AUTOBIOGRAPHICAL — about THIS agent. Read first, use when relevant; "
-        "never confuse with <memory> (about the user). Do not invent missing entries. -->\n"
-        f"{body}\n"
-        "</person_memory>\n"
-    )
+    return f"<person_memory>\n<!-- AUTOBIOGRAPHICAL — about THIS agent. Read first, use when relevant; never confuse with <memory> (about the user). Do not invent missing entries. -->\n{body}\n</person_memory>\n"
 
 
 def _build_latest_wrap_up(person_memory: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Pick the newest LLM duty wrap-up journal + same-round companions."""
-    journals = [
-        r
-        for r in person_memory
-        if str(r.get("layer") or "") == "journal"
-        and (
-            "llm" in str(r.get("source") or "").lower()
-            or str(r.get("source") or "") in {"duty_auto", "wrap_up", "duty_llm", "wrap_up_llm"}
-        )
-    ]
+    journals = [r for r in person_memory if str(r.get("layer") or "") == "journal" and ("llm" in str(r.get("source") or "").lower() or str(r.get("source") or "") in {"duty_auto", "wrap_up", "duty_llm", "wrap_up_llm"})]
     if not journals:
         # fallback: newest journal with mood evidence
-        journals = [
-            r
-            for r in person_memory
-            if str(r.get("layer") or "") == "journal"
-            and isinstance(r.get("evidence"), dict)
-            and (r.get("evidence") or {}).get("mood")
-        ]
+        journals = [r for r in person_memory if str(r.get("layer") or "") == "journal" and isinstance(r.get("evidence"), dict) and (r.get("evidence") or {}).get("mood")]
     if not journals:
         return None
     journals.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
@@ -610,9 +549,7 @@ def _build_latest_wrap_up(person_memory: list[dict[str, Any]]) -> dict[str, Any]
         layer = str(r.get("layer") or "")
         if layer == "semantic_self" and src.endswith(":state_summary"):
             state_summary = str(r.get("content") or "").strip()
-        elif layer == "semantic_self" and (
-            src.endswith(":insight") or str(r.get("content") or "").startswith("反思洞察")
-        ):
+        elif layer == "semantic_self" and (src.endswith(":insight") or str(r.get("content") or "").startswith("反思洞察")):
             insights.append(
                 {
                     "id": r.get("id"),
@@ -629,9 +566,7 @@ def _build_latest_wrap_up(person_memory: list[dict[str, Any]]) -> dict[str, Any]
         "mood": str(ev.get("mood") or "").strip(),
         "arc_label": str(ev.get("arc_label") or "").strip(),
         "poignancy": ev.get("poignancy"),
-        "unresolved": list(ev.get("unresolved") or [])
-        if isinstance(ev.get("unresolved"), list)
-        else [],
+        "unresolved": list(ev.get("unresolved") or []) if isinstance(ev.get("unresolved"), list) else [],
         "state_summary": state_summary,
         "insights": insights[:6],
     }
@@ -666,11 +601,7 @@ def get_growth_snapshot(
     from evoflow.persistence import person_relations_repositories as rel_repo
 
     craft_all = pm_repo.list_craft(code, limit=30)
-    craft_active = [
-        r
-        for r in craft_all
-        if str(r.get("status") or "") in {"proposed", "corrected", "graduated"}
-    ]
+    craft_active = [r for r in craft_all if str(r.get("status") or "") in {"proposed", "corrected", "graduated"}]
     meta = (person_state or {}).get("meta")
     if not isinstance(meta, dict):
         meta = {}
@@ -690,6 +621,7 @@ def get_growth_snapshot(
             semantic_self.append(r)
     timeline = timeline[: max(1, int(timeline_limit))]
     semantic_self = semantic_self[: max(1, int(person_memory_limit))]
+
     # Compact rows for UI (keep evidence out of huge payloads)
     def _compact(row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -843,7 +775,7 @@ def approve_evolution_proposal(
     resolved_by: str = "user",
 ) -> dict[str, Any]:
     """Apply draft patch to soul (Lessons only in Phase C) + changelog."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from evoflow.persistence import config_repositories as cfg_repo
     from evoflow.persistence import person_metabolism_repositories as meta_repo
@@ -861,7 +793,7 @@ def approve_evolution_proposal(
     if action == "append_lesson":
         lesson = str(patch.get("lesson") or "").strip()
         if lesson:
-            stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            stamp = datetime.now(UTC).strftime("%Y-%m-%d")
             old = cfg_repo.get_agent_soul(code) or ""
             new = append_lesson_to_soul(old, lesson, stamp=stamp)
             if new != old:
@@ -878,9 +810,7 @@ def approve_evolution_proposal(
                 )
                 applied = True
 
-    updated = meta_repo.resolve_evolution_proposal(
-        proposal_id, status="approved", resolved_by=resolved_by
-    )
+    updated = meta_repo.resolve_evolution_proposal(proposal_id, status="approved", resolved_by=resolved_by)
     return {
         "ok": True,
         "applied": applied,
@@ -900,9 +830,7 @@ def reject_evolution_proposal(
         return {"ok": False, "error": "not_found"}
     if str(prop.get("status") or "") != "draft":
         return {"ok": False, "error": "not_draft", "status": prop.get("status")}
-    updated = meta_repo.resolve_evolution_proposal(
-        proposal_id, status="rejected", resolved_by=resolved_by
-    )
+    updated = meta_repo.resolve_evolution_proposal(proposal_id, status="rejected", resolved_by=resolved_by)
     return {"ok": True, "applied": False, "proposal": updated}
 
 
@@ -1019,9 +947,7 @@ def on_handoff_fulfilled(
     """Child terminal → close commitments + positive affect."""
     from evoflow.persistence import person_relations_repositories as rel_repo
 
-    closed = rel_repo.close_commitments_for_child(
-        child_task_id, note="下游已结案回执"
-    )
+    closed = rel_repo.close_commitments_for_child(child_task_id, note="下游已结案回执")
     child = str(child_agent or "").strip().lower()
     up = str(upstream_agent or "").strip().lower()
     if child:
@@ -1029,9 +955,7 @@ def on_handoff_fulfilled(
     if up and up not in {"user", "system"}:
         update_affect_from_event(up, "handoff_fulfilled")
         if child:
-            rel_repo.upsert_relation_edge(
-                child, up, bond_delta=0.04, last_event="handoff_fulfilled"
-            )
+            rel_repo.upsert_relation_edge(child, up, bond_delta=0.04, last_event="handoff_fulfilled")
             rel_repo.upsert_relation_edge(up, child, bond_delta=0.03, last_event="receipt")
     try:
         if child:
@@ -1067,9 +991,7 @@ def on_peer_wake(*, from_agent: str, to_agent: str, source: str = "") -> dict[st
     if fr in {"user", "system"}:
         return {"ok": True, "skipped": True, "reason": "human_or_system"}
     src = str(source or "").strip().lower()
-    rel_repo.upsert_relation_edge(
-        fr, to, bond_delta=0.03, last_event=f"wake:{src or 'peer'}"
-    )
+    rel_repo.upsert_relation_edge(fr, to, bond_delta=0.03, last_event=f"wake:{src or 'peer'}")
     rel_repo.upsert_relation_edge(to, fr, bond_delta=0.02, last_event="woken")
     update_affect_from_event(fr, "wake_peer")
     update_affect_from_event(to, "woken_by_peer")
@@ -1116,9 +1038,7 @@ def format_affect_and_commitments_block(agent_code: str | None) -> str:
             fr = str(c.get("from_agent") or "")
             kind = str(c.get("kind") or "handoff")
             child = str(c.get("child_task_id") or "")[:20]
-            lines.append(
-                f"- 欠 {fr} · {kind}" + (f" · task `{child}`" if child else "")
-            )
+            lines.append(f"- 欠 {fr} · {kind}" + (f" · task `{child}`" if child else ""))
     else:
         lines.append("开放承诺：无")
     pressure = float(aff.get("pressure") or 0.3)
@@ -1158,11 +1078,7 @@ def desensitized_person_brief(agent_code: str) -> dict[str, Any]:
         "relation_highlights": [
             {
                 "peer": str(r.get("peer_code") or ""),
-                "bond_tier": (
-                    "强"
-                    if float(r.get("bond") or 0) >= 0.65
-                    else ("弱" if float(r.get("bond") or 0) < 0.35 else "中")
-                ),
+                "bond_tier": ("强" if float(r.get("bond") or 0) >= 0.65 else ("弱" if float(r.get("bond") or 0) < 0.35 else "中")),
                 "last_event": str(r.get("last_event") or "")[:40],
             }
             for r in rels[:4]
@@ -1497,9 +1413,7 @@ def build_wrap_up_from_duty_evidence(
     if not has_task_signal and not has_init_signal and not err:
         return None
 
-    incomplete = bool(err) or (bool(failed) and not done) or (
-        bool(open_tasks) and not done and not failed and int(tool_msg_count or 0) >= 2
-    )
+    incomplete = bool(err) or (bool(failed) and not done) or (bool(open_tasks) and not done and not failed and int(tool_msg_count or 0) >= 2)
 
     goal_parts: list[str] = []
     for t in (open_tasks + done + failed)[:3]:
@@ -1563,29 +1477,15 @@ def format_person_craft_context(
         return ""
     q = str(query or goal or "").strip()
     try:
-        negatives = pm_repo.list_craft(
-            code, statuses=["corrected", "graduated"], kind="negative", limit=6
-        )
-        howtos = pm_repo.list_craft(
-            code, statuses=["graduated"], kind="howto", limit=8
-        )
+        negatives = pm_repo.list_craft(code, statuses=["corrected", "graduated"], kind="negative", limit=6)
+        howtos = pm_repo.list_craft(code, statuses=["graduated"], kind="howto", limit=8)
         # Prefer core / high importance for always-on; full content only for top few
         if q:
-            hit_rows = pm_repo.retrieve_for_query(
-                code, q, limit=6, include_procedural=True, bump_hits=True
-            )
-            hit_howtos = [
-                r
-                for r in hit_rows
-                if str(r.get("layer") or "") == "procedural"
-                and str(r.get("kind") or "howto") == "howto"
-                and str(r.get("status") or "") in {"graduated", "proposed", "corrected"}
-            ]
+            hit_rows = pm_repo.retrieve_for_query(code, q, limit=6, include_procedural=True, bump_hits=True)
+            hit_howtos = [r for r in hit_rows if str(r.get("layer") or "") == "procedural" and str(r.get("kind") or "howto") == "howto" and str(r.get("status") or "") in {"graduated", "proposed", "corrected"}]
             # Merge hit howtos first
             seen = {str(r.get("id") or "") for r in hit_howtos}
-            howtos = hit_howtos + [
-                r for r in howtos if str(r.get("id") or "") not in seen
-            ]
+            howtos = hit_howtos + [r for r in howtos if str(r.get("id") or "") not in seen]
     except Exception:
         logger.debug("format_person_craft_context failed", exc_info=True)
         return ""
@@ -1617,12 +1517,7 @@ def format_person_craft_context(
     if not lines:
         return ""
     body = "\n".join(lines)
-    return (
-        "<person_craft>\n"
-        "<!-- HIGH WEIGHT PROCEDURAL — howtos & hard-won negatives. MUST prefer matching craft before reinventing; not optional decoration. -->\n"
-        f"{body}\n"
-        "</person_craft>\n"
-    )
+    return f"<person_craft>\n<!-- HIGH WEIGHT PROCEDURAL — howtos & hard-won negatives. MUST prefer matching craft before reinventing; not optional decoration. -->\n{body}\n</person_craft>\n"
 
 
 def _skill_slug_for_agent(agent_code: str, title: str) -> str:
@@ -1630,7 +1525,7 @@ def _skill_slug_for_agent(agent_code: str, title: str) -> str:
     import re
 
     code = re.sub(r"[^a-z0-9]+", "", str(agent_code or "").lower())[:12] or "agent"
-    digest = hashlib.sha1(f"{agent_code}:{title}".encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha1(f"{agent_code}:{title}".encode()).hexdigest()[:8]
     return f"craft-{code}-{digest}"[:64]
 
 
@@ -1646,15 +1541,7 @@ def _auto_create_craft_skill(
 
     name = _skill_slug_for_agent(agent_code, title)
     desc = f"本事自动巩固：{title}"[:200]
-    content = (
-        f"---\nname: {name}\ndescription: {desc}\n---\n\n"
-        f"# {title}\n\n"
-        f"{body}\n\n"
-        "## 来源\n"
-        f"- agent: `{agent_code}`\n"
-        f"- person_memory: `{entry_id or '-'}`\n"
-        "- 由 Person Kernel 证据门控自动晋升，可随时用 skill_manager 修订。\n"
-    )
+    content = f"---\nname: {name}\ndescription: {desc}\n---\n\n# {title}\n\n{body}\n\n## 来源\n- agent: `{agent_code}`\n- person_memory: `{entry_id or '-'}`\n- 由 Person Kernel 证据门控自动晋升，可随时用 skill_manager 修订。\n"
     try:
         from evoflow.tools.builtins.skill_manager_tool import _create_skill
 
@@ -1696,9 +1583,7 @@ def consolidate_craft_overnight(
     code = str(agent_code or "").strip().lower()
     if not code:
         return {"ok": False, "error": "missing agent_code"}
-    rows = pm_repo.list_craft(
-        code, statuses=["proposed", "corrected", "graduated"], limit=40
-    )
+    rows = pm_repo.list_craft(code, statuses=["proposed", "corrected", "graduated"], limit=40)
     howtos = [r for r in rows if str(r.get("kind") or "howto") == "howto"]
     graduated_ids: list[str] = []
     skills_created: list[str] = []
@@ -1707,9 +1592,7 @@ def consolidate_craft_overnight(
     # Group by heuristic theme from title+content
     groups: dict[str, list[dict[str, Any]]] = {}
     for r in howtos:
-        key = _heuristic_theme(
-            [str(r.get("title") or ""), str(r.get("content") or "")]
-        ) or str(r.get("title") or "流程")[:12]
+        key = _heuristic_theme([str(r.get("title") or ""), str(r.get("content") or "")]) or str(r.get("title") or "流程")[:12]
         groups.setdefault(key, []).append(r)
 
     # Prefer night-dream theme if provided
@@ -1723,21 +1606,10 @@ def consolidate_craft_overnight(
         if not cluster:
             continue
         hits = sum(int(r.get("hit_count") or 0) for r in cluster)
-        already_grad = [
-            r for r in cluster if str(r.get("status") or "") == "graduated"
-        ]
-        drafts = [
-            r
-            for r in cluster
-            if str(r.get("status") or "") in {"proposed", "corrected"}
-        ]
+        already_grad = [r for r in cluster if str(r.get("status") or "") == "graduated"]
+        drafts = [r for r in cluster if str(r.get("status") or "") in {"proposed", "corrected"}]
         # Gate: ≥2 sightings OR hit_count≥2 OR (1 graduated + 1 new draft)
-        strong = (
-            len(cluster) >= 2
-            or hits >= 2
-            or (already_grad and drafts)
-            or any(int(r.get("hit_count") or 0) >= 2 for r in cluster)
-        )
+        strong = len(cluster) >= 2 or hits >= 2 or (already_grad and drafts) or any(int(r.get("hit_count") or 0) >= 2 for r in cluster)
         if not strong:
             continue
 
@@ -1772,9 +1644,7 @@ def consolidate_craft_overnight(
 
         # Auto skill if missing
         if not str(canon.get("skill_name") or "").strip():
-            sk = _auto_create_craft_skill(
-                code, title=title, body=body, entry_id=eid
-            )
+            sk = _auto_create_craft_skill(code, title=title, body=body, entry_id=eid)
             if sk.get("ok") or sk.get("already_exists"):
                 sname = str(sk.get("skill_name") or "")
                 pm_repo.update_craft_entry(eid, skill_name=sname)
@@ -1879,8 +1749,7 @@ def run_reflection(agent_code: str, *, source: str = "poignancy") -> dict[str, A
     if theme:
         semantic_id = pm_repo.insert_person_memory(
             code,
-            f"反思洞察：围绕「{theme}」的近期经历需要持续关注。"
-            f"（证据：{', '.join(evidence_ids[:5])}）",
+            f"反思洞察：围绕「{theme}」的近期经历需要持续关注。（证据：{', '.join(evidence_ids[:5])}）",
             layer="semantic_self",
             importance=0.78,
             vitality=1.0,
@@ -1895,9 +1764,7 @@ def run_reflection(agent_code: str, *, source: str = "poignancy") -> dict[str, A
     meta = dict(state.get("meta") or {}) if isinstance(state.get("meta"), dict) else {}
     meta["last_reflection_at"] = utc_now_iso_safe()
     meta["last_reflection_theme"] = theme or ""
-    meta_repo.upsert_person_state(
-        code, today, str(state.get("stance_md") or ""), meta=meta
-    )
+    meta_repo.upsert_person_state(code, today, str(state.get("stance_md") or ""), meta=meta)
     return {
         "ok": True,
         "theme": theme or "",
@@ -1914,9 +1781,9 @@ def utc_now_iso_safe() -> str:
 
         return utc_now_iso_z()
     except Exception:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _reset_poignancy(agent_code: str) -> None:
@@ -1927,9 +1794,7 @@ def _reset_poignancy(agent_code: str) -> None:
         return
     meta["poignancy"] = 0.0
     state = meta_repo.get_person_state(code, today) or {}
-    meta_repo.upsert_person_state(
-        code, today, str(state.get("stance_md") or ""), meta=meta
-    )
+    meta_repo.upsert_person_state(code, today, str(state.get("stance_md") or ""), meta=meta)
 
 
 def edit_person_memory(
@@ -2037,9 +1902,7 @@ def edit_person_memory(
     if result.get("ok"):
         meta["tool_edits_today"] = edits + 1
         state = meta_repo.get_person_state(code, today) or {}
-        meta_repo.upsert_person_state(
-            code, today, str(state.get("stance_md") or ""), meta=meta
-        )
+        meta_repo.upsert_person_state(code, today, str(state.get("stance_md") or ""), meta=meta)
         try:
             cfg_repo.append_soul_changelog(
                 code,
@@ -2091,4 +1954,3 @@ def record_relation_memo(
         evidence={"peer": peer, "event": ev, "child_task_id": child},
     )
     return {"ok": bool(eid), "entry_id": eid}
-

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -202,11 +203,7 @@ def parse_wrap_up_llm_result(raw: str) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         poi = 1
     poi = max(1, min(10, poi))
-    unresolved = [
-        str(u).strip()[:160]
-        for u in (obj.get("unresolved") or [])
-        if str(u).strip()
-    ][:6]
+    unresolved = [str(u).strip()[:160] for u in (obj.get("unresolved") or []) if str(u).strip()][:6]
     return {
         "skip": skip and not journal,
         "mood": str(obj.get("mood") or "").strip()[:40],
@@ -397,13 +394,13 @@ def apply_llm_wrap_up_result(
     source: str = "duty_llm",
 ) -> dict[str, Any]:
     """Persist LLM wrap-up into Person Kernel tables."""
+    from evoflow.persistence import config_repositories as cfg_repo
+    from evoflow.persistence import person_memory_repositories as pm_repo
     from evoflow.person_kernel import (
         add_poignancy,
         append_lesson_to_soul,
         wrap_up_already_recorded,
     )
-    from evoflow.persistence import config_repositories as cfg_repo
-    from evoflow.persistence import person_memory_repositories as pm_repo
 
     code = str(agent_code or "").strip().lower()
     rid = str(round_id or "").strip()
@@ -481,11 +478,11 @@ def apply_llm_wrap_up_result(
     lesson = parsed.get("lesson")
     lesson_result = None
     if lesson:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from evoflow.person_kernel import extract_lessons_section
 
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        stamp = datetime.now(UTC).strftime("%Y-%m-%d")
         old = cfg_repo.get_agent_soul(code) or ""
         new = append_lesson_to_soul(old, str(lesson), stamp=stamp)
         if new != old:
@@ -643,10 +640,10 @@ def run_person_wrap_up_llm(
     source: str = "duty_llm",
 ) -> dict[str, Any]:
     """Sync LLM wrap-up (submit_work / scripts)."""
-    from evoflow.person_kernel import _beijing_today, wrap_up_already_recorded
     from evoflow.persistence import config_repositories as cfg_repo
     from evoflow.persistence import person_memory_repositories as pm_repo
     from evoflow.persistence import person_relations_repositories as rel_repo
+    from evoflow.person_kernel import _beijing_today, wrap_up_already_recorded
 
     code = str(agent_code or "").strip().lower()
     rid = str(round_id or "").strip()
@@ -656,10 +653,7 @@ def run_person_wrap_up_llm(
         return {"ok": True, "skipped": True, "reason": "already_recorded_for_round"}
 
     identity = (cfg_repo.get_agent_identity(code) or "")[:400]
-    recent = [
-        str(r.get("content") or "")
-        for r in pm_repo.list_person_memory(code, limit=5, layer="journal")
-    ]
+    recent = [str(r.get("content") or "") for r in pm_repo.list_person_memory(code, limit=5, layer="journal")]
     user = build_person_wrap_up_user_prompt(
         agent_code=code,
         role_name=role_name,
@@ -695,10 +689,10 @@ async def run_person_wrap_up_llm_async(
     source: str = "duty_llm",
 ) -> dict[str, Any]:
     """Async LLM wrap-up for duty engine."""
-    from evoflow.person_kernel import _beijing_today, wrap_up_already_recorded
     from evoflow.persistence import config_repositories as cfg_repo
     from evoflow.persistence import person_memory_repositories as pm_repo
     from evoflow.persistence import person_relations_repositories as rel_repo
+    from evoflow.person_kernel import _beijing_today, wrap_up_already_recorded
 
     code = str(agent_code or "").strip().lower()
     rid = str(round_id or "").strip()
@@ -708,10 +702,7 @@ async def run_person_wrap_up_llm_async(
         return {"ok": True, "skipped": True, "reason": "already_recorded_for_round"}
 
     identity = (cfg_repo.get_agent_identity(code) or "")[:400]
-    recent = [
-        str(r.get("content") or "")
-        for r in pm_repo.list_person_memory(code, limit=5, layer="journal")
-    ]
+    recent = [str(r.get("content") or "") for r in pm_repo.list_person_memory(code, limit=5, layer="journal")]
     user = build_person_wrap_up_user_prompt(
         agent_code=code,
         role_name=role_name,
@@ -725,9 +716,7 @@ async def run_person_wrap_up_llm_async(
         affect=rel_repo.get_affect(code),
     )
     try:
-        raw = await _ainvoke_chat(
-            system=PERSON_WRAP_UP_SYSTEM, user=user, model_name=model_name
-        )
+        raw = await _ainvoke_chat(system=PERSON_WRAP_UP_SYSTEM, user=user, model_name=model_name)
     except Exception as exc:
         logger.warning("person wrap_up llm async failed agent=%s: %s", code, exc, exc_info=True)
         return {"ok": False, "error": f"llm_failed:{exc}"}

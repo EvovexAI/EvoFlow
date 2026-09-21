@@ -65,9 +65,7 @@ async def get_session_notifications(request: Request) -> SessionNotificationList
 
 
 @router.post("", response_model=PushNotificationResponse)
-async def create_session_notification(
-    request: Request, body: PushNotificationBody
-) -> PushNotificationResponse:
+async def create_session_notification(request: Request, body: PushNotificationBody) -> PushNotificationResponse:
     """Push a notification. Server deduplicates by fingerprint (UNIQUE constraint)."""
     sk = str(body.session_key or "").strip()
     if sk:

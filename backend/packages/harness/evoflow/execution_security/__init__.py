@@ -7,8 +7,8 @@ runtime CLI is not a product upstream.
 from __future__ import annotations
 
 from evoflow.execution_security.approval import (
-    AskForApproval,
     ApprovalDecision,
+    AskForApproval,
     decide_shell_approval,
     map_evoflow_policy_to_ask,
 )

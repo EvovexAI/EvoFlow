@@ -6,7 +6,8 @@ L3 live handlers hit the running Gateway over HTTP (``EVOFLOW_EVAL_LIVE_LLM=1``)
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from evoflow.eval.scenarios import (
     approval_ledger,
@@ -14,10 +15,10 @@ from evoflow.eval.scenarios import (
     cross_module_saga_no_hire,
     cross_module_saga_reject,
     employee_hire_duplicate,
-    employee_task_dispatch_ledger,
-    employee_task_live_wake,
     employee_task_already_done_skip,
     employee_task_busy_mutex,
+    employee_task_dispatch_ledger,
+    employee_task_live_wake,
     employee_task_org_collab_gate,
     employee_task_pause_blocks_dispatch_intent,
     employee_task_pause_rejects_wake,

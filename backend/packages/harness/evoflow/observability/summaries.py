@@ -10,6 +10,7 @@ from typing import Any
 from evoflow.observability import eval_metrics as obs_eval
 from evoflow.observability.cache_metrics import cache_triplet_from_row, compute_cache_hit_rate
 from evoflow.observability.cache_pricing import estimate_row_cache_savings_cny
+from evoflow.observability.provider_labels import normalize_stored_provider
 from evoflow.observability.queries import (
     ObservabilityTable,
     _percentile,
@@ -19,7 +20,6 @@ from evoflow.observability.queries import (
     thread_timeline,
     token_triplet_from_usage_payload,
 )
-from evoflow.observability.provider_labels import normalize_stored_provider
 from evoflow.observability.response_error import (
     extract_response_error_message_from_json,
     response_json_indicates_error,

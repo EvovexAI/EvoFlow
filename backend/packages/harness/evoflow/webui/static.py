@@ -85,10 +85,7 @@ def mount_evopanel_static(app: FastAPI) -> bool:
 
     dist = resolve_evopanel_dist_dir()
     if dist is None:
-        logger.warning(
-            "WebUI is enabled but EvoPanel dist was not found — "
-            "build evopanel (npm run build) or set EVOFLOW_EVOPANEL_DIST"
-        )
+        logger.warning("WebUI is enabled but EvoPanel dist was not found — build evopanel (npm run build) or set EVOFLOW_EVOPANEL_DIST")
         return False
 
     dist_str = str(dist)

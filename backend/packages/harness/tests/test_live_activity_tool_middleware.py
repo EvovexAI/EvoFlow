@@ -29,9 +29,7 @@ def test_wrap_tool_call_skips_thinking_on_graph_interrupt() -> None:
 
 
 def test_emit_tool_finished_uses_thinking_after_normal_tool() -> None:
-    with patch(
-        "evoflow.agents.middlewares.run_latency_timing_middleware.emit_agent_activity"
-    ) as emit:
+    with patch("evoflow.agents.middlewares.run_latency_timing_middleware.emit_agent_activity") as emit:
         LiveActivityToolMiddleware._emit_tool_finished("tid-1")
         emit.assert_called_once()
         assert emit.call_args.kwargs.get("kind") == "thinking"

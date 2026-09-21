@@ -13,11 +13,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "items",
         help="Manage user items / 个人事项 (list / get / create / update / delete / dispatch)",
-        description=(
-            "Personal progress ledger (panel 「我的事项」).\n"
-            "Not the same as collab tasks (use `evoflow tasks`).\n"
-            "Mirrors platform: items.list / .get / .create / .update / .delete / .dispatch"
-        ),
+        description=("Personal progress ledger (panel 「我的事项」).\nNot the same as collab tasks (use `evoflow tasks`).\nMirrors platform: items.list / .get / .create / .update / .delete / .dispatch"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="items_cmd", required=True)
@@ -42,11 +38,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     create_p = sub.add_parser(
         "create",
         help="Create item from JSON (does not auto-run)",
-        description=(
-            "JSON fields:\n"
-            "  title (required)\n"
-            "  notes?, conclusion?, status?, priority?, due_at?, tags?, assignee_intent?, assignee_label?\n"
-        ),
+        description=("JSON fields:\n  title (required)\n  notes?, conclusion?, status?, priority?, due_at?, tags?, assignee_intent?, assignee_label?\n"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_json_input_flags(create_p)

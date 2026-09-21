@@ -143,9 +143,7 @@ class MemoryUpdateQueue:
 
             run_legacy_updater = should_run_legacy_memory_updater()
             if not run_legacy_updater:
-                logger.info(
-                    "[记忆] 资产库记忆模式：跳过 SQLite MemoryUpdater，本批仅 Phase1/2 + ad-hoc notes"
-                )
+                logger.info("[记忆] 资产库记忆模式：跳过 SQLite MemoryUpdater，本批仅 Phase1/2 + ad-hoc notes")
 
             for context in contexts_to_process:
                 agent_scope = context.agent_name if context.agent_name else "全局"

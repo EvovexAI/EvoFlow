@@ -120,48 +120,32 @@ TTS_PROVIDER_REQUIREMENTS: dict[str, dict[str, Any]] = {
     "volcengine": {
         "label": "火山引擎",
         "groups": [{"keys": ["volcengineSpeechApiKey", "volcengineApiKey"], "label": "语音 API Key"}],
-        "guide": (
-            "请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key，"
-            "并打开启用开关。Agent Plan 用户可填火山方舟专属 Key（ark- 开头）。"
-        ),
+        "guide": ("请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key，并打开启用开关。Agent Plan 用户可填火山方舟专属 Key（ark- 开头）。"),
     },
     "doubao": {
         "label": "豆包（方舟）",
         "groups": [{"keys": ["volcengineSpeechApiKey", "volcengineApiKey"], "label": "语音 API Key / 方舟 Key"}],
-        "guide": (
-            "请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key（ark- 开头的方舟 Key 也可）。"
-        ),
+        "guide": ("请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key（ark- 开头的方舟 Key 也可）。"),
     },
     "dashscope": {
         "label": "阿里 DashScope",
         "groups": [{"keys": ["dashscopeApiKey"], "label": "DashScope API Key"}],
-        "guide": (
-            "请在 设置 → 模型 → 创意媒体 → 通义万相 填写 DashScope API Key，并打开启用开关。"
-        ),
+        "guide": ("请在 设置 → 模型 → 创意媒体 → 通义万相 填写 DashScope API Key，并打开启用开关。"),
     },
     "openai": {
         "label": "OpenAI TTS",
         "groups": [{"keys": ["openaiTtsKey"], "label": "API Key"}],
-        "guide": (
-            "请在 设置 → 模型 → 创意媒体 填写 openaiTtsKey（可选 openaiTtsBaseUrl 自定义端点），"
-            "或设置环境变量 OPENAI_TTS_API_KEY / OPENAI_API_KEY。"
-        ),
+        "guide": ("请在 设置 → 模型 → 创意媒体 填写 openaiTtsKey（可选 openaiTtsBaseUrl 自定义端点），或设置环境变量 OPENAI_TTS_API_KEY / OPENAI_API_KEY。"),
     },
     "elevenlabs": {
         "label": "ElevenLabs",
         "groups": [{"keys": ["elevenLabsKey"], "label": "API Key"}],
-        "guide": (
-            "请在 设置 → 模型 → 创意媒体 填写 elevenLabsKey，"
-            "或设置环境变量 ELEVENLABS_API_KEY / ELEVENLABS_KEY。"
-        ),
+        "guide": ("请在 设置 → 模型 → 创意媒体 填写 elevenLabsKey，或设置环境变量 ELEVENLABS_API_KEY / ELEVENLABS_KEY。"),
     },
     "minimax": {
         "label": "MiniMax",
         "groups": [{"keys": ["minimaxKey"], "label": "API Key"}],
-        "guide": (
-            "请在 设置 → 模型 → 创意媒体 填写 minimaxKey，"
-            "或设置环境变量 MINIMAX_API_KEY / MINIMAX_KEY。"
-        ),
+        "guide": ("请在 设置 → 模型 → 创意媒体 填写 minimaxKey，或设置环境变量 MINIMAX_API_KEY / MINIMAX_KEY。"),
     },
 }
 
@@ -169,6 +153,7 @@ TTS_PROVIDER_REQUIREMENTS: dict[str, dict[str, Any]] = {
 # ─────────────────────────────────────────────────────────────────────────────
 # Credential resolution helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _get_creds() -> dict[str, Any]:
     """Fetch the current media credentials dict (with defaults merged)."""
@@ -214,6 +199,7 @@ def get_provider_credential_keys(provider: str) -> list[str]:
 # Preflight validation
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def validate_tts_config(provider: str | None, creds: dict[str, Any] | None = None) -> dict[str, Any]:
     """Preflight check: is *provider* valid and are its required creds present?
 
@@ -226,10 +212,7 @@ def validate_tts_config(provider: str | None, creds: dict[str, Any] | None = Non
         return {
             "ok": False,
             "provider": prov,
-            "guide": (
-                f"未选择有效的语音合成服务商（当前：{provider or '空'}）。"
-                "请在设置中选择 火山引擎 / 豆包 / DashScope / OpenAI / ElevenLabs / MiniMax 其中之一。"
-            ),
+            "guide": (f"未选择有效的语音合成服务商（当前：{provider or '空'}）。请在设置中选择 火山引擎 / 豆包 / DashScope / OpenAI / ElevenLabs / MiniMax 其中之一。"),
         }
     creds = creds if creds is not None else _get_creds()
     missing: list[str] = []
@@ -293,12 +276,11 @@ def list_available_providers(creds: dict[str, Any] | None = None) -> list[dict[s
 # Unified synthesis entry points
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _resolve_provider(provider: str | None) -> str:
     prov = (provider or "").strip().lower() or DEFAULT_PROVIDER
     if prov not in _PROVIDER_IDS:
-        raise ValueError(
-            f"未知的 TTS 服务商: {provider!r}。支持: {', '.join(_PROVIDER_IDS)}。"
-        )
+        raise ValueError(f"未知的 TTS 服务商: {provider!r}。支持: {', '.join(_PROVIDER_IDS)}。")
     return prov
 
 
@@ -344,9 +326,7 @@ def synthesize_tts(
 
         key = _cred_value(creds, "openaiTtsKey", "OPENAI_TTS_API_KEY", "OPENAI_API_KEY")
         base = _cred_value(creds, "openaiTtsBaseUrl", "OPENAI_TTS_BASE_URL", "OPENAI_BASE_URL")
-        audio = _sync_run(
-            _oai(text, voice_id=voice or None, api_key=key, base_url=base or None)
-        )
+        audio = _sync_run(_oai(text, voice_id=voice or None, api_key=key, base_url=base or None))
         return audio, voice or "nova"
 
     if prov == "elevenlabs":
@@ -400,9 +380,7 @@ async def synthesize_tts_stream(
     if prov in ("volcengine", "doubao"):
         from app.gateway.speech.volcengine_speech import synthesize_speech_v3_stream
 
-        async for chunk in synthesize_speech_v3_stream(
-            text, speaker=voice or None, preview=preview
-        ):
+        async for chunk in synthesize_speech_v3_stream(text, speaker=voice or None, preview=preview):
             yield chunk
         return
 
@@ -418,9 +396,7 @@ async def synthesize_tts_stream(
 
         key = _cred_value(creds, "openaiTtsKey", "OPENAI_TTS_API_KEY", "OPENAI_API_KEY")
         base = _cred_value(creds, "openaiTtsBaseUrl", "OPENAI_TTS_BASE_URL", "OPENAI_BASE_URL")
-        async for chunk in synthesize_speech_stream(
-            text, voice_id=voice or None, api_key=key, base_url=base or None
-        ):
+        async for chunk in synthesize_speech_stream(text, voice_id=voice or None, api_key=key, base_url=base or None):
             yield chunk
         return
 
@@ -428,9 +404,7 @@ async def synthesize_tts_stream(
         from app.gateway.speech.tts_elevenlabs import synthesize_speech_stream
 
         key = _cred_value(creds, "elevenLabsKey", "ELEVENLABS_API_KEY", "ELEVENLABS_KEY")
-        async for chunk in synthesize_speech_stream(
-            text, voice_id=voice or None, api_key=key
-        ):
+        async for chunk in synthesize_speech_stream(text, voice_id=voice or None, api_key=key):
             yield chunk
         return
 
@@ -438,9 +412,7 @@ async def synthesize_tts_stream(
         from app.gateway.speech.tts_minimax import synthesize_speech_stream
 
         key = _cred_value(creds, "minimaxKey", "MINIMAX_API_KEY", "MINIMAX_KEY")
-        async for chunk in synthesize_speech_stream(
-            text, voice_id=voice or None, api_key=key
-        ):
+        async for chunk in synthesize_speech_stream(text, voice_id=voice or None, api_key=key):
             yield chunk
         return
 

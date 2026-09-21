@@ -293,8 +293,7 @@ def _collab_hint_text(
             except Exception:
                 pass
         return (
-            common
-            + "**Awaiting execution:** User authorized「开始执行」. "
+            common + "**Awaiting execution:** User authorized「开始执行」. "
             "Prefer monitoring if workers already started; only call `supervisor(start_execution)` if nothing was dispatched. "
             "Then `monitor_execution_step` / `get_status` each turn. Do not ask again whether to start.\n"
             + auth_block
@@ -516,6 +515,7 @@ class CollabPhaseMiddleware(AgentMiddleware[AgentState]):
             # All subtasks finished but main is still open: stop hammering forced monitor; lead decides next.
             if processing_count == 0 and sub_terminal and not main_terminal:
                 from langchain_core.messages import SystemMessage
+
                 hint = SystemMessage(
                     name="collab_finalization_hint",
                     content=(

@@ -25,9 +25,7 @@ HUMAN_GATE_TOOL_KINDS: dict[str, HumanGateKind] = {
 
 # Dynamic: any tool whose risk level is session or confirm (derived from TOOL_RISK_LEVELS)
 # Updated automatically — no manual maintenance needed when tools are added.
-HUMAN_GATE_APPROVAL_TOOL_NAMES = frozenset(
-    name for name, level in TOOL_RISK_LEVELS.items() if level != RISK_AUTO
-) | {"worker"}  # worker has dynamic risk — always routed through approval middleware
+HUMAN_GATE_APPROVAL_TOOL_NAMES = frozenset(name for name, level in TOOL_RISK_LEVELS.items() if level != RISK_AUTO) | {"worker"}  # worker has dynamic risk — always routed through approval middleware
 
 # Stable transcript message_id prefix per kind (see persist_transcript_tool_message_now)
 HUMAN_GATE_MESSAGE_ID_PREFIX: dict[HumanGateKind, str] = {

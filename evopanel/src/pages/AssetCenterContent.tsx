@@ -425,6 +425,9 @@ export default function AssetCenterContent() {
   const currentEntity = useMemo(() => ({ entityType, entityId }), [entityType, entityId]);
   const isUserEntity = entityType === "user";
 
+  const [tabLoading, setTabLoading] = useState(false);
+  const initRanRef = useRef(false);
+
   const loadCustomSkills = useCallback(async () => {
     try {
       const rows = await api.loadSkills({ force: true });
@@ -469,7 +472,6 @@ export default function AssetCenterContent() {
       const nextPath = String(data?.path || rel || "");
       let entries: TreeEntry[] = Array.isArray(data?.entries) ? data.entries : [];
       if (activeTab === "memory" && nextPath === "memory") {
-        // 站立 Tab：只露 standing.md；其它类型走子目录不经过这里
         if (memoryKind === "standing") {
           entries = entries.filter((e) => e.name === "standing.md");
         } else {
@@ -542,50 +544,66 @@ export default function AssetCenterContent() {
     }
   }, [currentEntity]);
 
-  const refreshTab = useCallback(async () => {
-    setError("");
-    setFileSearch("");
-    try {
-      if (activeTab === "profile") {
-        await loadProfile();
-        setSelectedFile("");
-        setEditorContent("");
-      } else if (activeTab === "export") {
-        /* meta */
-      } else if (activeTab === "stats") {
-        await loadUsageStats();
-      } else if (activeTab === "craft") {
-        await loadCustomSkills();
-        await loadCraftItems();
-        await loadTree("craft");
-        setSelectedFile("");
-        setEditorContent("");
-        setFileDirty(false);
-      } else {
-        const root = treeRootForTab(activeTab);
-        if (root) {
-          if (activeTab === "experience") await loadCraftItems();
-          if (activeTab === "memory") {
-            await applyMemoryKind(memoryKind);
-          } else {
+  /** 只加载当前 tab 对应的数据，避免首屏全量请求 */
+  const loadTabData = useCallback(
+    async (tab: AssetTab) => {
+      setError("");
+      setFileSearch("");
+      setTabLoading(true);
+      try {
+        if (tab === "profile") {
+          await loadProfile();
+          setSelectedFile("");
+          setEditorContent("");
+        } else if (tab === "stats") {
+          await loadUsageStats();
+        } else if (tab === "craft") {
+          await Promise.all([loadCustomSkills(), loadCraftItems()]);
+          await loadTree("craft");
+          setSelectedFile("");
+          setEditorContent("");
+          setFileDirty(false);
+        } else if (tab === "memory") {
+          await applyMemoryKind(memoryKind);
+        } else if (tab === "experience") {
+          await loadCraftItems();
+          const root = treeRootForTab(tab);
+          if (root) {
+            await loadTree(root);
+            setSelectedFile("");
+            setEditorContent("");
+            setFileDirty(false);
+          }
+        } else if (tab === "journal") {
+          const root = treeRootForTab(tab);
+          if (root) {
             await loadTree(root);
             setSelectedFile("");
             setEditorContent("");
             setFileDirty(false);
           }
         }
+        /* export tab 无数据预加载 */
+      } catch (e: unknown) {
+        const msg = String((e as { message?: string })?.message || e);
+        setError(msg);
+        toast.error(msg);
+      } finally {
+        setTabLoading(false);
       }
-    } catch (e: unknown) {
-      const msg = String((e as { message?: string })?.message || e);
-      setError(msg);
-      toast.error(msg);
-    }
-  }, [activeTab, loadProfile, loadCustomSkills, loadCraftItems, loadTree, applyMemoryKind, memoryKind, loadUsageStats]);
+    },
+    [loadProfile, loadUsageStats, loadCustomSkills, loadCraftItems, loadTree, applyMemoryKind, memoryKind],
+  );
 
+  const refreshTab = useCallback(() => loadTabData(activeTab), [loadTabData, activeTab]);
+
+  /* ── 初始化：骨架屏立刻渲染，init 和当前 tab 数据并行请求 ── */
   useEffect(() => {
+    if (initRanRef.current) return;
+    initRanRef.current = true;
     let cancelled = false;
+
     (async () => {
-      setLoading(true);
       try {
         const { takeNavWarm } = await import("../lib/nav-panel-prefetch.js");
         let data = takeNavWarm("assets:init") as Record<string, unknown> | null;
@@ -593,7 +611,7 @@ export default function AssetCenterContent() {
           data = (await api.assetsInit()) as Record<string, unknown>;
         }
         if (cancelled) return;
-        // Prefer flat entities from /assets/init; tolerate legacy nested { entities: [...] }.
+
         const entField = data?.entities;
         const raw: Entity[] = Array.isArray(entField)
           ? (entField as Entity[])
@@ -602,13 +620,14 @@ export default function AssetCenterContent() {
             : [];
         const list0 = sanitizeEntitiesForUi(enrichEntityLabels(raw, [], []));
         setEntities(list0);
+
         const nestedRoot =
           entField && typeof entField === "object" && !Array.isArray(entField)
             ? String((entField as { root?: string }).root || "")
             : "";
         setVaultRoot(String(data?.root || nestedRoot || ""));
+
         const ok0 = list0.some((e) => e.entityType === entityType && e.entityId === entityId);
-        // 实体隔离：如果当前选中实体不在当前类型组中，自动切换到第一个可用实体
         const currentGroup = list0.filter((e) => {
           if (isUserEntity) return true;
           return e.entityType === entityType;
@@ -620,11 +639,13 @@ export default function AssetCenterContent() {
           setEntityType(list0[0].entityType);
           setEntityId(list0[0].entityId);
         }
-        // First paint with backend labels; enrich Chinese names in background.
+
+        // init 完成后，骨架屏消失
         setLoading(false);
+
+        // 后台补中文名字，不阻塞渲染
         void Promise.all([
           api.listAgents().catch(() => []),
-          // Same roster as 智能体员工: all non-archived roles (no status filter).
           api.proactiveListRoles().catch(() => null),
         ]).then(([agentRows, roleRes]) => {
           if (cancelled) return;
@@ -640,8 +661,16 @@ export default function AssetCenterContent() {
         if (!cancelled) setLoading(false);
       }
     })();
+
+    // init 和当前 tab 数据并行请求（tab 数据不等 init 完）
+    // 用一个微延迟让骨架屏先 paint 出来，避免主线程阻塞
+    const tabTimer = setTimeout(() => {
+      void loadTabData(initialTab());
+    }, 30);
+
     return () => {
       cancelled = true;
+      clearTimeout(tabTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -649,11 +678,10 @@ export default function AssetCenterContent() {
   useEffect(() => {
     const allowed = assetTabsForEntity(entityType).map((t) => t.id);
     if (!allowed.includes(activeTab)) {
-      setActiveTab("profile");
+      setActiveTab(allowed[0] || "profile");
     }
-    // 实体隔离：当切换到员工/工作区时，确保选中实体在该类型组内
-    const currentEntity = entities.find((e) => e.entityType === entityType && e.entityId === entityId);
-    if (!currentEntity && entities.length > 0) {
+    const currentEntityRec = entities.find((e) => e.entityType === entityType && e.entityId === entityId);
+    if (!currentEntityRec && entities.length > 0) {
       const targetGroup = entities.filter((e) =>
         isUserEntity ? true : e.entityType === entityType
       );
@@ -664,13 +692,15 @@ export default function AssetCenterContent() {
     }
   }, [entityType, activeTab, entities, isUserEntity]);
 
+  // 切换实体 / tab 时重新加载对应数据
   useEffect(() => {
     if (loading) return;
-    void refreshTab();
-  }, [loading, entityType, entityId, activeTab, refreshTab]);
+    void loadTabData(activeTab);
+  }, [entityType, entityId, activeTab, loadTabData, loading]);
 
+  // 目录树加载完成后，自动选中第一个文件
   useEffect(() => {
-    if (loading || activeTab === "profile" || activeTab === "export" || activeTab === "stats") return;
+    if (tabLoading || activeTab === "profile" || activeTab === "export" || activeTab === "stats") return;
     if (activeTab === "memory" && memoryKind === "graph") return;
     const pending = pendingOpenPath.current;
     if (pending) {
@@ -682,7 +712,7 @@ export default function AssetCenterContent() {
     if (selectedFile) return;
     const first = treeEntries.find((e) => e.kind !== "dir");
     if (first) void loadFile(first.path);
-  }, [treeEntries, selectedFile, activeTab, loading, loadFile, memoryKind]);
+  }, [treeEntries, selectedFile, activeTab, tabLoading, loadFile, memoryKind]);
 
   const graphScope = useMemo(
     () => graphScopeForEntity(entityType, entityId),
@@ -774,8 +804,79 @@ export default function AssetCenterContent() {
 
   if (loading) {
     return (
-      <main className="assets-center-root relative flex h-full min-w-0 flex-1 items-center justify-center overflow-hidden bg-[var(--ac-bg)] text-[var(--ac-text-muted)]">
-        加载资产中心…
+      <main className="assets-center-root relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="ac-page relative z-10">
+          {/* Header 骨架 */}
+          <header className="ac-header">
+            <div className="ac-header-row">
+              <div className="ac-header-left min-w-0">
+                <div className="ac-skeleton ac-skeleton--title" style={{ width: 80, height: 22 }} />
+                <div className="mt-2 flex items-center gap-3">
+                  <div className="ac-skeleton" style={{ width: 60, height: 20, borderRadius: 6 }} />
+                  <div className="ac-skeleton" style={{ width: 60, height: 20, borderRadius: 6 }} />
+                  <div className="ac-skeleton" style={{ width: 60, height: 20, borderRadius: 6 }} />
+                </div>
+                <div className="ac-skeleton mt-2" style={{ width: 140, height: 28, borderRadius: 6 }} />
+              </div>
+              <div className="ac-skeleton" style={{ width: 220, height: 32, borderRadius: 8 }} />
+            </div>
+          </header>
+
+          {/* 内容骨架 */}
+          <section className="ac-shell">
+            <div className="flex gap-1 mb-2 px-1">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="ac-skeleton" style={{ width: 56, height: 32, borderRadius: 6 }} />
+              ))}
+            </div>
+            <div className="ac-content">
+              <div className="ac-split">
+                {/* 左侧栏骨架 */}
+                <aside className="ac-explorer ac-rail">
+                  <div className="ac-rail-header">
+                    <div className="ac-skeleton" style={{ width: 80, height: 16 }} />
+                    <div className="ac-skeleton mt-1" style={{ width: 100, height: 12 }} />
+                  </div>
+                  <div className="ac-rail-search">
+                    <div className="ac-skeleton" style={{ width: "100%", height: 30, borderRadius: 6 }} />
+                  </div>
+                  <div className="ac-rail-list space-y-1.5 px-2 pt-2">
+                    {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                      <div
+                        key={i}
+                        className="ac-skeleton"
+                        style={{ width: "100%", height: 30, borderRadius: 4 }}
+                      />
+                    ))}
+                  </div>
+                </aside>
+                <div className="ac-split-line" aria-hidden />
+                {/* 右侧编辑区骨架 */}
+                <section className="ac-main">
+                  <div className="ac-editor-toolbar">
+                    <div>
+                      <div className="ac-skeleton" style={{ width: 120, height: 16 }} />
+                      <div className="ac-skeleton mt-1" style={{ width: 160, height: 12 }} />
+                    </div>
+                  </div>
+                  <div className="ac-editor-body p-4">
+                    {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+                      <div
+                        key={i}
+                        className="ac-skeleton mb-2"
+                        style={{
+                          width: `${60 + Math.random() * 35}%`,
+                          height: 12,
+                          borderRadius: 3,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
       </main>
     );
   }
@@ -825,7 +926,12 @@ export default function AssetCenterContent() {
           ) : null}
 
           <div className="ac-content">
-            {activeTab === "craft" ? (
+            {tabLoading && activeTab !== "export" ? (
+              <div className="ac-tab-loading">
+                <div className="ac-tab-loading-spinner" />
+                <span>加载中…</span>
+              </div>
+            ) : activeTab === "craft" ? (
               <SkillsView
                 globalSearch={globalSearch}
                 skillSearch={skillSearch}

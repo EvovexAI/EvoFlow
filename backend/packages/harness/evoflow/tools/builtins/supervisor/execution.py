@@ -132,6 +132,7 @@ def _resolve_collab_followup_runtime(
     dag_info("followup_runtime main=%s source=none (no caller runtime, no stored lead runtime)", tid)
     return None
 
+
 # Register followup handler at import time so task_tool can call us via bridge.
 # This is done lazily below (after function definitions) to avoid forward-ref issues.
 
@@ -973,7 +974,7 @@ async def delegate_collab_subtasks_for_start_execution(
         find_main_task,
         find_subtask_by_ids,
     )
-    from evoflow.tools.builtins.collab_bridge import delegate_via_task_tool, ensure_collab_bridge_ready, is_bridge_ready
+    from evoflow.tools.builtins.collab_bridge import delegate_via_task_tool, ensure_collab_bridge_ready
     from evoflow.tools.builtins.supervisor.dependency import (
         _build_ref_to_id_index,
         _build_subtask_name_index,
@@ -1209,8 +1210,7 @@ async def delegate_collab_subtasks_for_start_execution(
 
                 if is_subprocess_spawn_runtime_error(e):
                     logger.warning(
-                        "delegate subtask %s: claude_session subprocess failed (%s); "
-                        "retrying via task_tool general-purpose",
+                        "delegate subtask %s: claude_session subprocess failed (%s); retrying via task_tool general-purpose",
                         sid,
                         e,
                     )
@@ -1602,9 +1602,7 @@ def _resolved_subagent_type_for_subtask(st: dict) -> str:
             from evoflow.platform.asyncio_windows import claude_session_subprocess_supported
 
             if not claude_session_subprocess_supported():
-                logger.info(
-                    "claude-code worker unavailable on Selector loop (Windows); using general-purpose"
-                )
+                logger.info("claude-code worker unavailable on Selector loop (Windows); using general-purpose")
                 return "general-purpose"
         except Exception:
             logger.debug("claude subprocess capability check failed", exc_info=True)
@@ -1758,7 +1756,7 @@ def _build_subtask_enriched_prompt(
                 if not isinstance(params, dict):
                     params = {}
                 matching_step = None
-                for ps in (plan_steps or []):
+                for ps in plan_steps or []:
                     if str(ps.get("ref") or "").strip() == ref:
                         matching_step = ps
                         break
@@ -1789,10 +1787,7 @@ def _build_subtask_enriched_prompt(
                         # dispatch blocker (runtime contract enforcement).
                         if not core_result.get("input_schema_valid", True):
                             subtask_row["_has_input_schema_errors"] = True
-                            subtask_row["_input_schema_errors"] = [
-                                e["message"] for e in core_result.get("binding_errors", [])
-                                if e.get("code") == "TYPE_MISMATCH"
-                            ]
+                            subtask_row["_input_schema_errors"] = [e["message"] for e in core_result.get("binding_errors", []) if e.get("code") == "TYPE_MISMATCH"]
     except Exception:
         logger.debug("extract plan context failed for subtask=%s", subtask_id, exc_info=True)
 

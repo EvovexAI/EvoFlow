@@ -13,11 +13,7 @@ APP_ID = "App_gufeng_travel_ad"
 
 APP_DEFINITION: dict[str, Any] = {
     "name": "古风穿梭意象短片",
-    "description": (
-        "创意 AI 广告验证流：水墨古风、主体穿越多场景（如凝露/玉佩/水滴穿越山河云海）。"
-        "依赖火山 Agent Plan 全家桶（Seedream 4K 关键帧 + Seedance 4K/1080p 图生视频）；"
-        "分镜 → 关键帧 → 图生视频 → 精修拼接成片。"
-    ),
+    "description": ("创意 AI 广告验证流：水墨古风、主体穿越多场景（如凝露/玉佩/水滴穿越山河云海）。依赖火山 Agent Plan 全家桶（Seedream 4K 关键帧 + Seedance 4K/1080p 图生视频）；分镜 → 关键帧 → 图生视频 → 精修拼接成片。"),
     "icon": "🏮",
     "category": "creative",
     "execution_mode": "workflow",
@@ -141,10 +137,10 @@ APP_DEFINITION: dict[str, Any] = {
                 "读取 outputs/shot-prompts.json，按 shot_id **逐镜各调一次**生图（provider=jimeng）。\n"
                 "terminal 示例（每镜替换 prompt）：\n"
                 "  python skills/public/media-production/scripts/image_generate.py "
-                "--prompt \"<image_prompt>\" --aspect-ratio {{aspect_ratio}} "
+                '--prompt "<image_prompt>" --aspect-ratio {{aspect_ratio}} '
                 "--quality {{output_quality}} --output-dir outputs\n"
                 "第 2 镜起：若前镜已有本地图，优先 --mode image2image "
-                "--reference-image-urls \"<前镜 absolute_path 或 url>\" 保持色调连贯。\n"
+                '--reference-image-urls "<前镜 absolute_path 或 url>" 保持色调连贯。\n'
                 "每镜记录 JSON 返回的 url 与 absolute_path。\n"
                 "失败禁止换 wan/kling；同参最多重试 1 次（微调 prompt 后）。"
             ),
@@ -160,11 +156,11 @@ APP_DEFINITION: dict[str, Any] = {
                 "读取 shot-prompts + 各镜 image_generate 返回的 url。\n"
                 "对 **每一镜** 执行 image2video：\n"
                 "1) python skills/public/media-production/scripts/video_generate.py "
-                "--prompt \"<motion_hint + 本镜口播全文>\" --first-frame-url \"<url>\" "
+                '--prompt "<motion_hint + 本镜口播全文>" --first-frame-url "<url>" '
                 "--duration 5 --aspect-ratio {{aspect_ratio}} --quality {{output_quality}} "
                 "--generate-audio true --output-dir outputs\n"
                 "2) python skills/public/media-production/scripts/task_wait.py "
-                "--task-id \"<id>\" --provider jimeng --media-kind video --max-wait-seconds 900 "
+                '--task-id "<id>" --provider jimeng --media-kind video --max-wait-seconds 900 '
                 "--output-dir outputs\n"
                 "运镜克制连贯：微推/穿雾/掠水，与 continuity_note 一致；口播必须写进 prompt。\n"
                 "全部镜 task_wait 成功后再进入下一步。"
@@ -181,7 +177,7 @@ APP_DEFINITION: dict[str, Any] = {
                 "读取 outputs/ 内按镜号顺序的 mp4（每镜 ~5s）。\n"
                 "1) **精修成片**（拼接 + 调色 + 升分辨率到 {{output_quality}}）：\n"
                 "   python skills/public/media-production/scripts/video_finalize.py "
-                "--inputs \"outputs/shot1.mp4,outputs/shot2.mp4,...\" "
+                '--inputs "outputs/shot1.mp4,outputs/shot2.mp4,..." '
                 "--output-filename gufeng-travel-final-4k.mp4 "
                 "--resolution {{output_quality}} --output-dir outputs\n"
                 "   （按实际文件名逗号拼接，保持镜序）\n"
@@ -191,13 +187,7 @@ APP_DEFINITION: dict[str, Any] = {
             ),
         },
     ],
-    "flowchart_mermaid": (
-        "flowchart LR\n"
-        "  brief[分镜口播] --> prompts[生图Prompt]\n"
-        "  prompts --> images[Seedream关键帧]\n"
-        "  images --> videos[Seedance图生视频]\n"
-        "  videos --> assemble[精修拼接4K]\n"
-    ),
+    "flowchart_mermaid": ("flowchart LR\n  brief[分镜口播] --> prompts[生图Prompt]\n  prompts --> images[Seedream关键帧]\n  images --> videos[Seedance图生视频]\n  videos --> assemble[精修拼接4K]\n"),
 }
 
 

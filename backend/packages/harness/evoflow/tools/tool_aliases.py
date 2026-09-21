@@ -61,9 +61,7 @@ def augment_process_tools(matched: list[str], allowed: set[str]) -> list[str]:
     if not matched:
         return matched
     has_terminal = "terminal" in matched
-    has_process = any(n in matched for n in PROCESS_TOOL_SUITE) or any(
-        n in matched for n in ("process_start", "process_log", "process_wait", "process_kill", "process_poll")
-    )
+    has_process = any(n in matched for n in PROCESS_TOOL_SUITE) or any(n in matched for n in ("process_start", "process_log", "process_wait", "process_kill", "process_poll"))
     if not has_terminal and not has_process:
         return matched
     out = list(matched)

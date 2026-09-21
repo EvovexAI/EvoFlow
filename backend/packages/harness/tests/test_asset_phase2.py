@@ -168,9 +168,7 @@ def test_run_phase2_noop_still_archives(entity: EntityRef, monkeypatch: pytest.M
     )
     write_text_file(entity, "memory/_inbox/raw_hi.md", "just a hello with no reusable learning\n")
     mock_model = MagicMock()
-    mock_model.invoke.return_value = SimpleNamespace(
-        content='{"noop":true,"standing_md":"","memory_md":"","craft":[],"facts":[]}'
-    )
+    mock_model.invoke.return_value = SimpleNamespace(content='{"noop":true,"standing_md":"","memory_md":"","craft":[],"facts":[]}')
     monkeypatch.setattr(
         "evoflow.models.create_chat_model",
         lambda **kwargs: mock_model,

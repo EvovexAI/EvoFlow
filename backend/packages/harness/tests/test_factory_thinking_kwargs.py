@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from langchain_openai import ChatOpenAI
+
 from evoflow.models.factory import (
     _apply_vendor_auto_thinking,
     _effective_when_thinking_enabled,
@@ -11,7 +13,6 @@ from evoflow.models.factory import (
     _sanitize_anthropic_style_thinking_settings,
 )
 from evoflow.models.vendor_thinking_payload import apply_vendor_thinking_request_payload
-from langchain_openai import ChatOpenAI
 
 
 def test_effective_when_thinking_enabled_excludes_ui_metadata() -> None:

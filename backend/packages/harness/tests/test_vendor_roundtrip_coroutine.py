@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 
 from evoflow.models.vendor_roundtrip import _ensure_chat_result, _serialize_chat_result
 

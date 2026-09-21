@@ -133,15 +133,11 @@ def discover_helpers(*, helper_dir: str | Path | None = None) -> HelperPaths:
     windows: Path | None = None
     seatbelt: Path | None = None
 
-    env_linux = (
-        os.environ.get("EVOFLOW_LINUX_SANDBOX") or os.environ.get("EVOFLOW_CODEX_LINUX_SANDBOX") or ""
-    ).strip()
+    env_linux = (os.environ.get("EVOFLOW_LINUX_SANDBOX") or os.environ.get("EVOFLOW_CODEX_LINUX_SANDBOX") or "").strip()
     if env_linux and _is_exe(Path(env_linux)):
         linux = Path(env_linux)
 
-    env_win = (
-        os.environ.get("EVOFLOW_WINDOWS_SANDBOX") or os.environ.get("EVOFLOW_CODEX_EXE") or ""
-    ).strip()
+    env_win = (os.environ.get("EVOFLOW_WINDOWS_SANDBOX") or os.environ.get("EVOFLOW_CODEX_EXE") or "").strip()
     if env_win and _is_exe(Path(env_win)):
         windows = Path(env_win)
 
@@ -179,9 +175,7 @@ def discover_helpers(*, helper_dir: str | Path | None = None) -> HelperPaths:
     if linux is None:
         linux = _which_named(["evoflow-linux-sandbox", "codex-linux-sandbox"])
     if windows is None:
-        windows = _which_named(
-            ["evoflow-windows-sandbox", "evoflow-windows-sandbox.exe", "codex", "codex.exe"]
-        )
+        windows = _which_named(["evoflow-windows-sandbox", "evoflow-windows-sandbox.exe", "codex", "codex.exe"])
 
     if sys.platform == "darwin":
         seatbelt_path = Path("/usr/bin/sandbox-exec")

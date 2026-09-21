@@ -88,9 +88,7 @@ def test_search_action_dispatches():
             return_value=provider,
         ),
     ):
-        raw = asyncio.run(
-            knowledge_tool.ainvoke({"action": "search", "query": "quick-start", "top_k": 5})
-        )
+        raw = asyncio.run(knowledge_tool.ainvoke({"action": "search", "query": "quick-start", "top_k": 5}))
     data = json.loads(raw)
     assert data["action"] == "search"
     assert data["count"] == 1

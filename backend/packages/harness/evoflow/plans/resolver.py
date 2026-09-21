@@ -149,8 +149,5 @@ def _tier_message(catalog: dict[str, Any], tier_id: str | None, capability: str)
     name = catalog.get("name") or catalog.get("id")
     tier = tier_id or "未选档位"
     if capability == "video":
-        return (
-            f"「{name}」当前档位（{tier}）不含视频生成。"
-            "请升级到 Medium 及以上，或在绑定中更换档位。"
-        )
+        return f"「{name}」当前档位（{tier}）不含视频生成。请升级到 Medium 及以上，或在绑定中更换档位。"
     return f"「{name}」当前档位（{tier}）不含能力：{capability}"

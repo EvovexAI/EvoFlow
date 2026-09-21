@@ -233,8 +233,7 @@ def test_proactive_session_user_chat_falls_through_to_chat_prompt(
                     return_value="CHAT_EMPLOYEE_PROMPT",
                 ) as ap:
                     with patch(
-                        "evoflow.agents.middlewares.dynamic_system_prompt_middleware."
-                        "DynamicSystemPromptOnScenarioMiddleware._apply_proactive_duty_system",
+                        "evoflow.agents.middlewares.dynamic_system_prompt_middleware.DynamicSystemPromptOnScenarioMiddleware._apply_proactive_duty_system",
                     ) as duty:
                         mw.wrap_model_call(req, handler)
                         duty.assert_not_called()

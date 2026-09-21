@@ -1,4 +1,5 @@
 """Real-world test: call trace_call_chain against the actual workspace index."""
+
 import hashlib
 import json
 import os
@@ -51,25 +52,25 @@ conn = _connect(root)
 _ensure_schema(conn)
 
 # ── Test 1: Index stats ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 1: Index stats")
-print("="*60)
+print("=" * 60)
 stats = _index_stats(conn)
 print(f"  files={stats['files']}, symbols={stats['symbols']}, deps={stats['deps']}, refs={stats['refs']}")
 
 # ── Test 2: Find seeds for known symbol ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 2: Find seeds for 'trace_call_chain_hd'")
-print("="*60)
+print("=" * 60)
 seeds = _find_seed_paths(conn, "trace_call_chain_hd", "")
 print(f"  Seeds found: {len(seeds)}")
 for s in seeds:
     print(f"    path={s['path']}, name={s['name']}, kind={s['kind']}, line={s['line']}")
 
 # ── Test 3: BFS callers of trace_call_chain_hd ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 3: BFS callers of trace_call_chain_hd (depth=3)")
-print("="*60)
+print("=" * 60)
 if seeds:
     result = _bfs_trace(conn, seeds, direction="callers", max_depth=3)
     print(f"  ok={result['ok']}, total_nodes={result['total_nodes']}, truncated={result['truncated']}")
@@ -81,9 +82,9 @@ else:
     print("  No seeds found, skipping BFS")
 
 # ── Test 4: BFS callees of trace_call_chain.py ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 4: BFS callees of trace_call_chain.py (depth=2)")
-print("="*60)
+print("=" * 60)
 seeds_path = _find_seed_paths(conn, "", "backend/packages/harness/evoflow/tools/host_direct/trace_call_chain.py")
 print(f"  Seeds by path: {len(seeds_path)}")
 for s in seeds_path:
@@ -94,12 +95,12 @@ if seeds_path:
     for layer in result["layers"]:
         print(f"  Layer {layer['depth']}: {len(layer['nodes'])} nodes")
         for node in layer["nodes"]:
-            print(f"    {node['path']} (from={node['from']}, via={node['via']}, spec={node.get('spec','')})")
+            print(f"    {node['path']} (from={node['from']}, via={node['via']}, spec={node.get('spec', '')})")
 
 # ── Test 5: Full tool call via .func() — callers of derive_session_mode ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 5: Full tool call — callers of derive_session_mode")
-print("="*60)
+print("=" * 60)
 try:
     result_str = trace_call_chain_hd.func(
         symbol="derive_session_mode",
@@ -122,9 +123,9 @@ except Exception as e:
     print(f"  ERROR: {e!r}")
 
 # ── Test 6: Nonexistent symbol ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 6: Nonexistent symbol 'xyz_nonexistent_func'")
-print("="*60)
+print("=" * 60)
 try:
     result_str = trace_call_chain_hd.func(
         symbol="xyz_nonexistent_func",
@@ -134,15 +135,15 @@ try:
         runtime=MagicMock(),
     )
     data = json.loads(result_str)
-    print(f"  ok={data.get('ok')}, error={data.get('error','')}")
+    print(f"  ok={data.get('ok')}, error={data.get('error', '')}")
     print(f"  index_stats={data.get('index_stats')}")
 except Exception as e:
     print(f"  ERROR: {e!r}")
 
 # ── Test 7: Accuracy — verify trace_call_chain.py's callees match real imports ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 7: Accuracy — verify callees of trace_call_chain.py")
-print("="*60)
+print("=" * 60)
 seeds_tc = _find_seed_paths(conn, "", "backend/packages/harness/evoflow/tools/host_direct/trace_call_chain.py")
 if seeds_tc:
     result = _bfs_trace(conn, seeds_tc, direction="callees", max_depth=1)
@@ -151,8 +152,8 @@ if seeds_tc:
     for layer in result["layers"]:
         for node in layer["nodes"]:
             found_paths.add(node["path"])
-            print(f"    {node['path']} (via={node['via']}, spec={node.get('spec','')})")
-    
+            print(f"    {node['path']} (via={node['via']}, spec={node.get('spec', '')})")
+
     expected = [
         "backend/packages/harness/evoflow/code_index/store.py",
         "backend/packages/harness/evoflow/tools/host_direct/workspace_path_guard.py",
@@ -161,7 +162,7 @@ if seeds_tc:
     for exp in expected:
         status = "FOUND" if exp in found_paths else "MISSING"
         print(f"    [{status}] {exp}")
-    
+
     print("\n  Raw file_deps for trace_call_chain.py:")
     rows = conn.execute(
         "SELECT to_path, spec FROM file_deps WHERE from_path = ?",
@@ -173,9 +174,9 @@ else:
     print("  No seeds found for trace_call_chain.py path")
 
 # ── Test 8: Accuracy — who imports trace_call_chain? ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 8: Accuracy — verify callers of trace_call_chain.py")
-print("="*60)
+print("=" * 60)
 rows = conn.execute(
     "SELECT from_path, spec FROM file_deps WHERE to_path = ?",
     ("backend/packages/harness/evoflow/tools/host_direct/trace_call_chain.py",),
@@ -200,9 +201,9 @@ if seeds_tc:
             print(f"    {node['path']} (via={node['via']})")
 
 # ── Test 9: Both direction on a well-connected module ──
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST 9: Both direction on session_repositories.py")
-print("="*60)
+print("=" * 60)
 seeds_sr = _find_seed_paths(conn, "", "backend/packages/harness/evoflow/persistence/session_repositories.py")
 if seeds_sr:
     result = _bfs_trace(conn, seeds_sr, direction="both", max_depth=2)
@@ -213,6 +214,6 @@ if seeds_sr:
             print(f"    {node['path']} (from={node['from']}, via={node['via']})")
 
 conn.close()
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("ALL REAL TESTS COMPLETE")
-print("="*60)
+print("=" * 60)

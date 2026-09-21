@@ -55,6 +55,7 @@ class CreateAppRequest(BaseModel):
 
 class GenerateAppRequest(BaseModel):
     """Generate an App from a model-produced plan (goal + steps)."""
+
     name: str
     description: str = ""
     goal: str
@@ -109,6 +110,7 @@ class CreateAppKeyRequest(BaseModel):
 
 class SaveAsAppRequest(BaseModel):
     """Convert an existing task to a reusable application (used in tasks router)."""
+
     name: str
     description: str = ""
     execution_mode: str = "workflow"
@@ -336,14 +338,18 @@ def update_app_endpoint(http_request: Request, app_id: str, request: UpdateAppRe
     update_data = _normalize_plan_for_storage(update_data)
 
     # Detect structural changes that warrant a version bump
-    _STRUCTURAL_FIELDS = frozenset({
-        "steps", "parameters", "canvas", "goal_template",
-        "execution_mode", "validation_template", "flowchart_mermaid",
-    })
-    has_structural_change = any(
-        key in update_data and update_data[key] != existing.get(key)
-        for key in _STRUCTURAL_FIELDS
+    _STRUCTURAL_FIELDS = frozenset(
+        {
+            "steps",
+            "parameters",
+            "canvas",
+            "goal_template",
+            "execution_mode",
+            "validation_template",
+            "flowchart_mermaid",
+        }
     )
+    has_structural_change = any(key in update_data and update_data[key] != existing.get(key) for key in _STRUCTURAL_FIELDS)
 
     for key, value in update_data.items():
         updated[key] = value
@@ -428,9 +434,7 @@ def list_app_keys_endpoint(request: Request, app_id: str) -> dict[str, Any]:
 
 
 @router.post("/{app_id}/keys", status_code=201)
-def create_app_key_endpoint(
-    http_request: Request, app_id: str, request: CreateAppKeyRequest
-) -> dict[str, Any]:
+def create_app_key_endpoint(http_request: Request, app_id: str, request: CreateAppKeyRequest) -> dict[str, Any]:
     """Mint an app-scoped API key (``ef-…``). Plaintext is returned only once.
 
     Requires ``status=published``. Draft apps must be published first.
@@ -450,9 +454,7 @@ def create_app_key_endpoint(
 
     name = (request.name or "default").strip() or "default"
     pinned_version = int(app.get("version") or 1)
-    plaintext = token_repository.create_app_token(
-        name=name, app_id=app_id, pinned_version=pinned_version
-    )
+    plaintext = token_repository.create_app_token(name=name, app_id=app_id, pinned_version=pinned_version)
     record = token_repository.verify_token(plaintext)
     if record is None:
         raise HTTPException(status_code=500, detail="Failed to create API key")
@@ -463,9 +465,7 @@ def create_app_key_endpoint(
         "identity_type": record["identity_type"],
         "identity_id": record["identity_id"],
         "created_at": record["created_at"],
-        "pinned_version": record.get("pinned_version")
-        if record.get("pinned_version") is not None
-        else pinned_version,
+        "pinned_version": record.get("pinned_version") if record.get("pinned_version") is not None else pinned_version,
     }
 
 
@@ -491,9 +491,7 @@ def revoke_app_key_endpoint(request: Request, app_id: str, token_hash: str) -> d
 
 
 @router.post("/{app_id}/run")
-async def run_app_endpoint(
-    http_request: Request, app_id: str, request: RunAppRequest
-) -> dict[str, Any]:
+async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRequest) -> dict[str, Any]:
     """Run an application (creates a run instance and task center task).
 
     - workflow mode: Creates standalone task, auto-authorized, DAG auto-executes
@@ -520,9 +518,7 @@ async def run_app_endpoint(
 
 
 @router.get("/{app_id}/revisions")
-def list_app_revisions_endpoint(
-    request: Request, app_id: str, limit: int = Query(50, ge=1, le=200)
-) -> list[dict[str, Any]]:
+def list_app_revisions_endpoint(request: Request, app_id: str, limit: int = Query(50, ge=1, le=200)) -> list[dict[str, Any]]:
     """List immutable App definition snapshots (newest version first)."""
     from evoflow.authz.http_guard import require_app_visible
 
@@ -540,9 +536,7 @@ def get_app_revision_endpoint(request: Request, app_id: str, version: int) -> di
     require_app_visible(request, app_id)
     rev = app_repositories.load_revision(app_id, version)
     if rev is None:
-        raise HTTPException(
-            status_code=404, detail=f"Revision not found: {app_id}@v{version}"
-        )
+        raise HTTPException(status_code=404, detail=f"Revision not found: {app_id}@v{version}")
     return rev
 
 

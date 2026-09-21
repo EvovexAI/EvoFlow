@@ -12,10 +12,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "workflow",
         help="Manage apps / workflows (list / get / run / stop / status)",
-        description=(
-            "Operate panel 「工作流」apps. Mirrors platform actions:\n"
-            "  workflow.list / .get / .run / .stop / .run_status"
-        ),
+        description=("Operate panel 「工作流」apps. Mirrors platform actions:\n  workflow.list / .get / .run / .stop / .run_status"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="workflow_cmd", required=True)
@@ -35,10 +32,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     run_p = sub.add_parser(
         "run",
         help="Start one run",
-        description=(
-            "Optional JSON via --file/--stdin:\n"
-            "  {\"param_key\": \"value\", ...}   parameter map passed to the app\n"
-        ),
+        description=('Optional JSON via --file/--stdin:\n  {"param_key": "value", ...}   parameter map passed to the app\n'),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     run_p.add_argument("app_id", help="App id")

@@ -70,14 +70,15 @@ function _bindFeishuRosterActions(body) {
 
 /** 飞书：员工/上架智能体协作名册（可扫码绑定、部署并绑）。 */
 async function refreshFeishuBindingsUi(channelName) {
-  const panel = document.getElementById('feishu-bindings-panel')
+  const pane = document.getElementById('im-bindings-pane')
   const body = document.getElementById('feishu-bindings-body')
-  if (!panel || !body) return
+  if (!body) return
   if (channelName !== 'feishu') {
-    panel.setAttribute('hidden', '')
+    // 非飞书：隐藏整个名册 pane（当前仅飞书有名册能力）
+    if (pane) pane.style.display = 'none'
     return
   }
-  panel.removeAttribute('hidden')
+  // 飞书：渲染名册内容；pane 显隐由「岗位机器人名册」tab 切换控制，这里不强制显示
   body.innerHTML = '<p class="im-field-hint" style="margin:0">加载中…</p>'
   try {
     const [rolesData, configData, agents] = await Promise.all([
@@ -288,7 +289,7 @@ async function refreshFeishuInboundChatIdUi(channelName) {
 let _loadSeq = 0
 
 /** Sidebar / API channel order (飞书 first, 微信 second). */
-const CHANNEL_DISPLAY_ORDER = ['feishu', 'weixin', 'dingtalk', 'slack', 'telegram', 'discord', 'qqbot']
+const CHANNEL_DISPLAY_ORDER = ['feishu', 'weixin', 'wecom', 'dingtalk', 'slack', 'telegram', 'discord', 'qqbot']
 
 function sortChannelEntries(entries) {
   const rank = new Map(CHANNEL_DISPLAY_ORDER.map((name, i) => [name, i]))
@@ -393,6 +394,7 @@ const CHANNEL_ICONS = {
   slack: `<img src="${publicIconUrl('slack')}" width="20" height="20" alt="Slack">`,
   telegram: `<img src="${publicIconUrl('telegram')}" width="20" height="20" alt="Telegram">`,
   weixin: '<svg viewBox="0 0 24 24" width="20" height="20" aria-label="WeChat"><path fill="#07C160" d="M8.5 9.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm7 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/><path fill="#07C160" d="M12 2C6.5 2 2 5.6 2 10c0 2.2 1.1 4.2 2.9 5.7L3 22l6.5-2.1c.8.2 1.6.3 2.5.3 5.5 0 10-3.6 10-8.2S17.5 2 12 2z"/></svg>',
+  wecom: '<svg viewBox="0 0 24 24" width="20" height="20" aria-label="WeCom"><path fill="#0082EF" d="M12 2C6.5 2 2 5.6 2 10c0 2.2 1.1 4.2 2.9 5.7L3 22l6.5-2.1c.8.2 1.6.3 2.5.3 5.5 0 10-3.6 10-8.2S17.5 2 12 2z"/><path fill="#fff" d="M8.5 9.5a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm7 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z"/></svg>',
 }
 
 const CHANNEL_LABELS = {
@@ -411,7 +413,8 @@ const CHANNEL_LABELS = {
 const CHANNEL_TIPS = {
   feishu: '<p style="margin:0 0 6px">\ud83d\udcf1 \u70b9\u51fb\u53f3\u4e0a\u65b9\u300c<b>\u626b\u7801\u7ed1\u5b9a</b>\u300d\u914d\u7f6e<strong>\u5168\u5c40\u4e3b\u673a\u5668\u4eba</strong>\uff1b\u5458\u5de5\u4e2a\u4eba\u673a\u5668\u4eba\u8bf7\u5728\u540d\u518c\u626b\u7801\uff0c\u7ed1\u5b9a\u5173\u7cfb\u89c1\u4e0b\u65b9\u5217\u8868\uff08\u542b open_id\uff09\u3002</p><ol><li>\u524d\u5f80 <a href="https://open.feishu.cn/" target="_blank" rel="noopener">\u98de\u4e66\u5f00\u653e\u5e73\u53f0</a> \u521b\u5efa\u673a\u5668\u4eba\u5e94\u7528</li><li>\u83b7\u53d6 App ID \u548c App Secret</li><li>\u5f00\u542f\u673a\u5668\u4eba\u80fd\u529b\uff0c\u586b\u5199\u4e0b\u65b9\u914d\u7f6e</li><li>\u5f00\u542f\u5de6\u4fa7\u5f00\u5173\uff0c\u673a\u5668\u4eba\u5c06\u901a\u8fc7 Stream \u6a21\u5f0f\u8fde\u63a5</li></ol><a href="https://open.feishu.cn/document/home/introduction-to-custom-bot-development/bot-info-obtain-client-credentials" target="_blank" rel="noopener" class="im-setup-link">\u67e5\u770b\u6587\u6863</a>',
   weixin: '<p style="margin:0 0 6px">\ud83d\udcf1 \u70b9\u51fb\u53f3\u4e0a\u65b9\u300c<b>\u5fae\u4fe1\u626b\u7801\u7ed1\u5b9a</b>\u300d\uff0c\u901a\u8fc7\u817e\u8baf iLink Bot \u63a5\u5165\u4e2a\u4eba\u5fae\u4fe1\uff08\u957f\u8f6e\u8be2\uff0c\u65e0\u9700\u516c\u7f51 webhook\uff09\u3002</p><ol><li>\u7528\u624b\u673a\u5fae\u4fe1\u626b\u63cf\u5f39\u7a97\u4e2d\u7684\u4e8c\u7ef4\u7801\u5e76\u5728\u5fae\u4fe1\u5185\u786e\u8ba4\u767b\u5f55</li><li>\u6210\u529f\u540e\u4f1a\u81ea\u52a8\u5199\u5165\u51ed\u8bc1\u5e76\u53ef\u5f00\u542f\u6e20\u9053</li><li>\u4e5f\u53ef\u624b\u52a8\u586b\u5199 Account ID \u4e0e Bot Token</li></ol><p style="margin:8px 0 0;font-size:12px;color:var(--text-tertiary, #888)">\u4e2a\u4eba\u5fae\u4fe1\u63a5\u5165\u6709\u98ce\u63a7\u98ce\u9669\uff0c\u5efa\u8bae\u4f7f\u7528\u5c0f\u53f7\u3002</p>',
-  dingtalk: '<ol><li>\u524d\u5f80 <a href="https://open-dev.dingtalk.com/" target="_blank" rel="noopener">\u9489\u9489\u5f00\u653e\u5e73\u53f0</a> \u521b\u5efa\u673a\u5668\u4eba\u5e94\u7528</li><li>\u83b7\u53d6 Client ID \u548c Client Secret</li><li>\u5f00\u542f\u673a\u5668\u4eba\u80fd\u529b\uff0c\u586b\u5199\u4e0b\u65b9\u914d\u7f6e</li><li>\u5f00\u542f\u5de6\u4fa7\u5f00\u5173\uff0c\u673a\u5668\u4eba\u5c06\u81ea\u52a8\u8fde\u63a5</li></ol><a href="https://open.dingtalk.com/document/orgapp/custom-robot-access" target="_blank" rel="noopener" class="im-setup-link">\u67e5\u770b\u6587\u6863</a>',
+  wecom: '<p style="margin:0 0 6px">\ud83d\udcf1 \u70b9\u51fb\u53f3\u4e0a\u65b9\u300c<b>\u4f01\u5fae\u626b\u7801</b>\u300d\uff0c\u901a\u8fc7\u4f01\u4e1a\u5fae\u4fe1 AI Bot WebSocket \u63a5\u5165\uff08\u51fa\u7ad9\u8fde\u63a5\uff0c\u65e0\u9700\u516c\u7f51 IP\uff09\u3002</p><ol><li>\u7528\u4f01\u4e1a\u5fae\u4fe1\u626b\u63cf\u5f39\u7a97\u4e2d\u7684\u4e8c\u7ef4\u7801\uff0c\u521b\u5efa AI \u673a\u5668\u4eba\u5e76\u83b7\u53d6\u51ed\u8bc1</li><li>\u6210\u529f\u540e\u4f1a\u81ea\u52a8\u586b\u5165 Bot ID \u548c Secret</li><li>\u4e5f\u53ef\u624b\u52a8\u586b\u5199\u5df2\u6709\u7684 Bot ID \u4e0e Secret</li></ol><p style="margin:8px 0 0;font-size:12px;color:var(--text-tertiary, #888)">\u5728\u4f01\u4e1a\u5fae\u4fe1\u5de5\u4f5c\u53f0\u5e94\u7528\u4e2d\u521b\u5efa\u201c\u667a\u80fd\u673a\u5668\u4eba\u201d\u2014\u2014API \u6a21\u5f0f\u2014\u2014\u62f7\u8d1d Bot ID \u4e0e Secret\u3002</p>',
+  dingtalk: '<p style="margin:0 0 6px">\ud83d\udcf1 \u53ef\u70b9\u51fb\u53f3\u4e0a\u65b9\u300c<b>\u9489\u9489\u626b\u7801</b>\u300d\u901a\u8fc7\u8bbe\u5907\u6d41\u81ea\u52a8\u83b7\u53d6 Client ID \u4e0e Client Secret\uff1b\u4e5f\u53ef\u624b\u52a8\u521b\u5efa\uff1a</p><ol><li>\u524d\u5f80 <a href="https://open-dev.dingtalk.com/" target="_blank" rel="noopener">\u9489\u9489\u5f00\u653e\u5e73\u53f0</a> \u521b\u5efa\u673a\u5668\u4eba\u5e94\u7528</li><li>\u83b7\u53d6 Client ID \u548c Client Secret</li><li>\u5f00\u542f\u673a\u5668\u4eba\u80fd\u529b\uff0c\u586b\u5199\u4e0b\u65b9\u914d\u7f6e</li><li>\u5f00\u542f\u5de6\u4fa7\u5f00\u5173\uff0c\u673a\u5668\u4eba\u5c06\u81ea\u52a8\u8fde\u63a5</li></ol><a href="https://open.dingtalk.com/document/orgapp/custom-robot-access" target="_blank" rel="noopener" class="im-setup-link">\u67e5\u770b\u6587\u6863</a>',
   default: '<ol><li>\u5728\u5bf9\u5e94\u5e73\u53f0\u521b\u5efa\u673a\u5668\u4eba\u5e94\u7528\u5e76\u83b7\u53d6\u51ed\u8bc1</li><li>\u586b\u5199\u4e0b\u65b9 Client ID \u548c Client Secret</li><li>\u5f00\u542f\u5de6\u4fa7\u5f00\u5173\u5373\u53ef\u5efa\u7acb\u8fde\u63a5</li></ol>',
 }
 
@@ -427,6 +430,16 @@ function syncImCredentialUi(channelName) {
     s.textContent = 'Bot Token'
     idInput.placeholder = 'iLink bot id'
     secInput.placeholder = 'bot token'
+  } else if (channelName === 'wecom') {
+    p.textContent = 'Bot ID'
+    s.textContent = 'Secret'
+    idInput.placeholder = '企微 AI Bot ID'
+    secInput.placeholder = '企微 AI Bot Secret'
+  } else if (channelName === 'dingtalk') {
+    p.textContent = 'Client ID'
+    s.textContent = 'Client Secret'
+    idInput.placeholder = 'dingxxx'
+    secInput.placeholder = ''
   } else {
     p.textContent = 'App ID'
     s.textContent = 'App Secret'
@@ -496,6 +509,8 @@ function renderChannels(page, data) {
   html += '<span class="im-title-status' + (selRunning ? '' : ' im-title-status--off') + '">' + (selRunning ? '\u5df2\u8fde\u63a5' : '\u672a\u8fde\u63a5') + '</span>'
   html += '<button type="button" class="im-scan-btn" id="feishu-scan-btn" style="display:' + (selName === 'feishu' ? '' : 'none') + '">\ud83d\udcf1 \u626b\u7801\u7ed1\u5b9a</button>'
   html += '<button type="button" class="im-scan-btn" id="weixin-scan-btn" style="display:' + (selName === 'weixin' ? '' : 'none') + '">\ud83d\udcf1 \u5fae\u4fe1\u626b\u7801\u7ed1\u5b9a</button>'
+  html += '<button type="button" class="im-scan-btn" id="wecom-scan-btn" style="display:' + (selName === 'wecom' ? '' : 'none') + '">\ud83d\udcf1 \u4f01\u5fae\u626b\u7801</button>'
+  html += '<button type="button" class="im-scan-btn" id="dingtalk-scan-btn" style="display:' + (selName === 'dingtalk' ? '' : 'none') + '">\ud83d\udcf1 \u9489\u9489\u626b\u7801</button>'
   html += '<button type="button" class="btn btn-sm btn-outline im-title-test-btn" id="im-test-btn"><span class="im-signal-icon">\uD83D\uDCE1</span> \u6d4b\u8bd5\u8fde\u901a\u6027</button>'
   html += '</div></div>'
 
@@ -504,6 +519,12 @@ function renderChannels(page, data) {
   html += '<div class="im-tips">' + tips + '</div>'
 
   // Form
+  // Tab bar: 基础设置 / 岗位机器人名册（名册仅含多岗位机器人能力的平台显示，当前为飞书）
+  html += '<div class="im-tabs" id="im-tabs-bar"' + (selName === 'feishu' ? '' : ' style="display:none"') + '>'
+  html += '<button type="button" class="im-tab im-tab--active" data-im-tab="base">\u57fa\u7840\u8bbe\u7f6e</button>'
+  html += '<button type="button" class="im-tab" data-im-tab="bindings"' + (selName === 'feishu' ? '' : ' style="display:none"') + '>\u5c97\u4f4d\u673a\u5668\u4eba\u540d\u518c</button>'
+  html += '</div>'
+
   html += '<form class="im-form" id="im-config-form" data-channel="' + esc(selName) + '">'
   html += '<div class="im-field-group"><label class="im-label" for="im-app-id" id="im-primary-label">App ID</label>'
   html += '<input class="im-input" id="im-app-id" name="app_id" type="text" placeholder="cli_xxxxxxxx"></div>'
@@ -515,16 +536,21 @@ function renderChannels(page, data) {
   html += '<div class="im-readonly-mono" id="feishu-inbound-chat-id" aria-live="polite">\u2014</div>'
   html += '<p class="im-field-hint" id="feishu-inbound-chat-source" style="margin:0"></p>'
   html += '</div>'
-  html += '<div class="im-field-group im-feishu-bindings" id="feishu-bindings-panel" hidden>'
+  html += '</form>'
+
+  // 名册 pane（「岗位机器人名册」tab 内容；默认隐藏，由 tab 切换显示）
+  html += '<div class="im-bindings-pane" id="im-bindings-pane" style="display:none">'
+  html += '<div class="im-field-group im-feishu-bindings" id="feishu-bindings-panel">'
   html += '<div class="im-bindings-head">'
-  html += '<label class="im-label" style="margin:0">上岗智能体 · 飞书协作</label>'
-  html += '<button type="button" class="btn btn-sm btn-outline" id="feishu-bindings-refresh">刷新</button>'
+  html += '<label class="im-label" style="margin:0">\u4e0a\u5c97\u667a\u80fd\u4f53 \u00b7 \u98de\u4e66\u534f\u4f5c</label>'
+  html += '<button type="button" class="btn btn-sm btn-outline" id="feishu-bindings-refresh">\u5237\u65b0</button>'
   html += '</div>'
   html +=
-    '<p class="im-field-hint" style="margin:0">右上角「扫码绑定」= 个人助理主机器人。下方名册 = 各岗位专属机器人。拉群与同事用法见下方操作指南。</p>'
-  html += '<div id="feishu-bindings-body" class="im-bindings-body" aria-live="polite">—</div>'
+    '<p class="im-field-hint" style="margin:0">\u53f3\u4e0a\u89d2\u300c\u626b\u7801\u7ed1\u5b9a\u300d= \u4e2a\u4eba\u52a9\u7406\u4e3b\u673a\u5668\u4eba\u3002\u4e0b\u65b9\u540d\u518c = \u5404\u5c97\u4f4d\u4e13\u5c5e\u673a\u5668\u4eba\u3002\u62c9\u7fa4\u4e0e\u540c\u4e8b\u7528\u6cd5\u89c1\u4e0b\u65b9\u64cd\u4f5c\u6307\u5357\u3002</p>'
+  html += '<div id="feishu-bindings-body" class="im-bindings-body" aria-live="polite">\u2014</div>'
   html += '</div>'
-  html += '</form></main></div>'
+  html += '</div>'
+  html += '</main></div>'
 
   // Feishu QR scan modal (hidden by default)
   html += '<div class="im-scan-modal" id="feishu-scan-modal" hidden>'
@@ -547,6 +573,36 @@ function renderChannels(page, data) {
   html += '<div id="weixin-scan-status" class="im-scan-status" hidden></div>'
   html += '</div></div></div>'
 
+  html += '<div class="im-scan-modal" id="wecom-scan-modal" hidden>'
+  html += '<div class="im-scan-overlay" id="wecom-scan-overlay"></div>'
+  html += '<div class="im-scan-dialog">'
+  html += '<div class="im-scan-header"><strong>企微扫码绑定（AI Bot）</strong><button type="button" class="im-scan-close" id="wecom-scan-close" aria-label="关闭">&times;</button></div>'
+  html += '<div class="im-scan-body">'
+  html += '<div id="wecom-scan-qr-wrap" class="im-scan-qr-wrap"><div id="wecom-scan-loading">加载中...</div></div>'
+  html += '<p id="wecom-scan-hint" class="im-scan-hint">使用企业微信扫描下方二维码</p>'
+  html += '<div id="wecom-scan-status" class="im-scan-status" hidden></div>'
+  html += '</div></div></div>'
+
+  html += '<div class="im-scan-modal" id="dingtalk-scan-modal" hidden>'
+  html += '<div class="im-scan-overlay" id="dingtalk-scan-overlay"></div>'
+  html += '<div class="im-scan-dialog">'
+  html += '<div class="im-scan-header"><strong>钉钉扫码授权</strong><button type="button" class="im-scan-close" id="dingtalk-scan-close" aria-label="关闭">&times;</button></div>'
+  html += '<div class="im-scan-body">'
+  html += '<div id="dingtalk-scan-qr-wrap" class="im-scan-qr-wrap"><div id="dingtalk-scan-loading">加载中...</div></div>'
+  html += '<p id="dingtalk-scan-hint" class="im-scan-hint">使用钉钉扫描下方二维码进行授权</p>'
+  html += '<div id="dingtalk-scan-status" class="im-scan-status" hidden></div>'
+  html += '</div></div></div>'
+
+  html += '<div class="im-scan-modal" id="wecom-scan-modal" hidden>'
+  html += '<div class="im-scan-overlay" id="wecom-scan-overlay"></div>'
+  html += '<div class="im-scan-dialog">'
+  html += '<div class="im-scan-header"><strong>企业微信扫码绑定</strong><button type="button" class="im-scan-close" id="wecom-scan-close" aria-label="关闭">&times;</button></div>'
+  html += '<div class="im-scan-body">'
+  html += '<div id="wecom-scan-qr-wrap" class="im-scan-qr-wrap"><div id="wecom-scan-loading">加载中...</div></div>'
+  html += '<p id="wecom-scan-hint" class="im-scan-hint">使用企业微信扫描下方二维码，创建 AI 机器人并授权</p>'
+  html += '<div id="wecom-scan-status" class="im-scan-status" hidden></div>'
+  html += '</div></div></div>'
+
   contentEl.innerHTML = html
   syncImCredentialUi(selName)
   loadChannelConfig(selName)
@@ -554,6 +610,27 @@ function renderChannels(page, data) {
   void refreshFeishuBindingsUi(selName)
   contentEl.querySelector('#feishu-bindings-refresh')?.addEventListener('click', () => {
     void refreshFeishuBindingsUi('feishu')
+  })
+
+  // Tab 切换：基础设置 / 岗位机器人名册
+  contentEl.querySelectorAll('#im-tabs-bar .im-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.getAttribute('data-im-tab')
+      contentEl.querySelectorAll('#im-tabs-bar .im-tab').forEach(t => {
+        t.classList.toggle('im-tab--active', t === tab)
+      })
+      const f = contentEl.querySelector('#im-config-form')
+      const pane = contentEl.querySelector('#im-bindings-pane')
+      if (target === 'bindings') {
+        if (f) f.style.display = 'none'
+        if (pane) pane.style.display = ''
+        // 进入名册 tab 时刷新内容
+        void refreshFeishuBindingsUi('feishu')
+      } else {
+        if (f) f.style.display = ''
+        if (pane) pane.style.display = 'none'
+      }
+    })
   })
 
   // Channel selection
@@ -608,6 +685,12 @@ function renderChannels(page, data) {
     if (ch === 'weixin') {
       if (idVal) newConfig.account_id = idVal
       if (secVal) newConfig.token = secVal
+    } else if (ch === 'wecom') {
+      if (idVal) newConfig.bot_id = idVal
+      if (secVal) newConfig.secret = secVal
+    } else if (ch === 'dingtalk') {
+      if (idVal) newConfig.client_id = idVal
+      if (secVal) newConfig.client_secret = secVal
     } else {
       if (idVal) newConfig.app_id = idVal
       if (secVal) newConfig.app_secret = secVal
@@ -639,6 +722,16 @@ function renderChannels(page, data) {
           toast('\u8bf7\u5148\u586b\u5199 Account ID \u548c Bot Token', 'warning')
           return
         }
+      } else if (ch === 'wecom') {
+        if (!idVal || !secVal) {
+          toast('\u8bf7\u5148\u586b\u5199 Bot ID \u548c Secret', 'warning')
+          return
+        }
+      } else if (ch === 'dingtalk') {
+        if (!idVal || !secVal) {
+          toast('\u8bf7\u5148\u586b\u5199 Client ID \u548c Client Secret', 'warning')
+          return
+        }
       } else if (!idVal || !secVal) {
         toast('\u8bf7\u5148\u586b\u5199 App ID \u548c App Secret', 'warning')
         return
@@ -647,7 +740,7 @@ function renderChannels(page, data) {
       const origText = testBtn.innerHTML
       testBtn.innerHTML = '<span class="im-signal-icon">\uD83D\uDCE1</span> \u6d4b\u8bd5\u4e2d...'
       try {
-        const patch = ch === 'weixin' ? { account_id: idVal, token: secVal } : { app_id: idVal, app_secret: secVal }
+        const patch = ch === 'weixin' ? { account_id: idVal, token: secVal } : ch === 'wecom' ? { bot_id: idVal, secret: secVal } : ch === 'dingtalk' ? { client_id: idVal, client_secret: secVal } : { app_id: idVal, app_secret: secVal }
         try {
           await api.updateChannelConfig(ch, patch)
         } catch (saveEx) {
@@ -698,6 +791,30 @@ function renderChannels(page, data) {
   const wxScanBtn = contentEl.querySelector('#weixin-scan-btn')
   if (wxScanBtn) {
     wxScanBtn.addEventListener('click', () => startWeixinScan(page, configForm))
+  }
+  const wcClose = contentEl.querySelector('#wecom-scan-close')
+  if (wcClose) {
+    wcClose.addEventListener('click', () => { cancelWecomScan(); closeWecomScanModal(contentEl) })
+  }
+  const wcOverlay = contentEl.querySelector('#wecom-scan-overlay')
+  if (wcOverlay) {
+    wcOverlay.addEventListener('click', () => { cancelWecomScan(); closeWecomScanModal(contentEl) })
+  }
+  const wcScanBtn = contentEl.querySelector('#wecom-scan-btn')
+  if (wcScanBtn) {
+    wcScanBtn.addEventListener('click', () => startWecomScan(page, configForm))
+  }
+  const dtClose = contentEl.querySelector('#dingtalk-scan-close')
+  if (dtClose) {
+    dtClose.addEventListener('click', () => { cancelDingtalkScan(); closeDingtalkScanModal(contentEl) })
+  }
+  const dtOverlay = contentEl.querySelector('#dingtalk-scan-overlay')
+  if (dtOverlay) {
+    dtOverlay.addEventListener('click', () => { cancelDingtalkScan(); closeDingtalkScanModal(contentEl) })
+  }
+  const dtScanBtn = contentEl.querySelector('#dingtalk-scan-btn')
+  if (dtScanBtn) {
+    dtScanBtn.addEventListener('click', () => startDingtalkScan(page, configForm))
   }
 }
 
@@ -1006,12 +1123,298 @@ function closeWeixinScanModal(contentEl) {
   if (modal) modal.setAttribute('hidden', '')
 }
 
+// -- WeCom (Enterprise WeChat) QR scan flow --------------------------------
+
+let _wecomScanPollTimer = null
+let _wecomScanSessionId = null
+let _wecomLastPollQr = ''
+
+async function startWecomScan(page, configForm) {
+  const modal = document.getElementById('wecom-scan-modal')
+  const qrWrap = document.getElementById('wecom-scan-qr-wrap')
+  const hint = document.getElementById('wecom-scan-hint')
+  const statusEl = document.getElementById('wecom-scan-status')
+
+  if (!modal) return
+  cancelWecomScan()
+  _wecomScanSessionId = null
+  modal.removeAttribute('hidden')
+  if (hint) hint.textContent = '\u6b63\u5728\u83b7\u53d6\u4e8c\u7ef4\u7801...'
+  if (statusEl) statusEl.setAttribute('hidden', '')
+  if (qrWrap) qrWrap.innerHTML = '<div id="wecom-scan-loading">\u52a0\u8f7d\u4e2d...</div>'
+
+  try {
+    const result = await api.beginWecomRegistration()
+    _wecomScanSessionId = result.session_id
+    const qrUrl = result.qr_url
+    _wecomLastPollQr = String(qrUrl || '')
+
+    if (qrWrap && qrUrl) {
+      qrWrap.innerHTML = await qrImageHtml(qrUrl, { size: 260, alt: '\u4f01\u4e1a\u5fae\u4fe1\u626b\u7801' })
+    }
+    if (hint) hint.textContent = '\u4f7f\u7528\u4f01\u4e1a\u5fae\u4fe1\u626b\u63cf\u4e0b\u65b9\u4e8c\u7ef4\u7801'
+
+    _wecomScanPollTimer = setInterval(() => pollWecomScan(page, configForm), 2000)
+  } catch (e) {
+    if (hint) hint.textContent = '\u83b7\u53d6\u4e8c\u7ef4\u7801\u5931\u8d25'
+    if (qrWrap) qrWrap.innerHTML = `<p class="im-scan-error">\u9519\u8bef: ${esc(String(e.message || e))}</p>`
+    toast('\u4f01\u5fae\u626b\u7801\u5931\u8d25: ' + e, 'error')
+  }
+}
+
+async function pollWecomScan(page, configForm) {
+  if (!_wecomScanSessionId) return
+
+  try {
+    const result = await api.pollWecomRegistration(_wecomScanSessionId)
+    const statusEl = document.getElementById('wecom-scan-status')
+    const qrWrap = document.getElementById('wecom-scan-qr-wrap')
+
+    if (result.qr_url && qrWrap && (result.status === 'pending' || result.status === 'scanning')) {
+      const u = String(result.qr_url)
+      if (u !== _wecomLastPollQr) {
+        _wecomLastPollQr = u
+        qrWrap.innerHTML = await qrImageHtml(u, { size: 260, alt: '\u4f01\u4e1a\u5fae\u4fe1\u626b\u7801' })
+      }
+    }
+
+    if (result.status === 'completed') {
+      const sid = _wecomScanSessionId
+      _wecomScanSessionId = null
+      cancelWecomScan()
+      if (!sid) return
+      closeWecomScanModal(document.getElementById('channels-content'))
+
+      const botIdInput = document.getElementById('im-app-id')
+      const secretInput = document.getElementById('im-app-secret')
+      if (botIdInput && result.bot_id) botIdInput.value = result.bot_id
+      if (secretInput && result.secret) secretInput.value = result.secret
+
+      toast('\u626b\u7801\u6210\u529f\uff0c\u6b63\u5728\u4fdd\u5b58\u914d\u7f6e...', 'success')
+      try {
+        const applyResult = await api.applyWecomRegistration(sid, true)
+        if (applyResult.success) {
+          toast(applyResult.message + (applyResult.channel_running ? '\uff0c\u6e20\u9053\u5df2\u542f\u52a8' : '\uff0c\u91cd\u542f\u540e\u751f\u6548'), 'success')
+          setTimeout(() => loadChannels(page), 1000)
+        } else {
+          toast('\u4fdd\u5b58\u5931\u8d25: ' + applyResult.message, 'error')
+        }
+      } catch (e) {
+        toast('\u4fdd\u5b58\u4e2d...', 'info')
+        try {
+          await api.updateChannelConfig('wecom', {
+            bot_id: result.bot_id,
+            secret: result.secret,
+            enabled: true,
+          })
+          await api.restartChannel('wecom')
+          toast('\u914d\u7f6e\u5df2\u4fdd\u5b58\u5e76\u542f\u52a8', 'success')
+          setTimeout(() => loadChannels(page), 1000)
+        } catch (e2) {
+          toast('\u4fdd\u5b58\u5931\u8d25: ' + e2, 'error')
+        }
+      }
+      return
+    }
+
+    if (result.status === 'failed') {
+      cancelWecomScan()
+      _wecomScanSessionId = null
+      if (statusEl) {
+        statusEl.removeAttribute('hidden')
+        statusEl.textContent = '\u6388\u6743\u5931\u8d25: ' + (result.error || '\u672a\u77e5\u9519\u8bef')
+        statusEl.className = 'im-scan-status im-scan-status--error'
+      }
+      return
+    }
+
+    if (result.status === 'expired') {
+      cancelWecomScan()
+      _wecomScanSessionId = null
+      if (statusEl) {
+        statusEl.removeAttribute('hidden')
+        statusEl.textContent = '\u4f1a\u8bdd\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u626b\u7801'
+        statusEl.className = 'im-scan-status im-scan-status--error'
+      }
+      return
+    }
+
+    if (statusEl && result.status === 'scanning') {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '\u5df2\u626b\u7801\uff0c\u8bf7\u5728\u4f01\u4e1a\u5fae\u4fe1\u4e2d\u786e\u8ba4...'
+      statusEl.className = 'im-scan-status im-scan-status--waiting'
+    }
+  } catch (e) {
+    // keep polling
+  }
+}
+
+function cancelWecomScan() {
+  if (_wecomScanPollTimer) {
+    clearInterval(_wecomScanPollTimer)
+    _wecomScanPollTimer = null
+  }
+  _wecomLastPollQr = ''
+  _wecomScanSessionId = null
+}
+
+function closeWecomScanModal(contentEl) {
+  const modal = contentEl?.querySelector('#wecom-scan-modal')
+  if (modal) modal.setAttribute('hidden', '')
+}
+
+// -- DingTalk device-flow QR scan flow -------------------------------------
+
+let _dingtalkScanPollTimer = null
+let _dingtalkScanSessionId = null
+let _dingtalkLastPollQr = ''
+
+async function startDingtalkScan(page, configForm) {
+  const modal = document.getElementById('dingtalk-scan-modal')
+  const qrWrap = document.getElementById('dingtalk-scan-qr-wrap')
+  const hint = document.getElementById('dingtalk-scan-hint')
+  const statusEl = document.getElementById('dingtalk-scan-status')
+
+  if (!modal) return
+  cancelDingtalkScan()
+  _dingtalkScanSessionId = null
+  modal.removeAttribute('hidden')
+  if (hint) hint.textContent = '\u6b63\u5728\u83b7\u53d6\u4e8c\u7ef4\u7801...'
+  if (statusEl) statusEl.setAttribute('hidden', '')
+  if (qrWrap) qrWrap.innerHTML = '<div id="dingtalk-scan-loading">\u52a0\u8f7d\u4e2d...</div>'
+
+  try {
+    const result = await api.beginDingtalkRegistration()
+    _dingtalkScanSessionId = result.session_id
+    const qrUrl = result.qr_url
+    _dingtalkLastPollQr = String(qrUrl || '')
+
+    if (qrWrap && qrUrl) {
+      qrWrap.innerHTML = await qrImageHtml(qrUrl, { size: 260, alt: '\u9489\u9489\u626b\u7801' })
+    }
+    if (hint) hint.textContent = '\u4f7f\u7528\u9489\u9489\u626b\u63cf\u4e0b\u65b9\u4e8c\u7ef4\u7801\u8fdb\u884c\u6388\u6743'
+
+    _dingtalkScanPollTimer = setInterval(() => pollDingtalkScan(page, configForm), 2000)
+  } catch (e) {
+    if (hint) hint.textContent = '\u83b7\u53d6\u4e8c\u7ef4\u7801\u5931\u8d25'
+    if (qrWrap) qrWrap.innerHTML = `<p class="im-scan-error">\u9519\u8bef: ${esc(String(e.message || e))}</p>`
+    toast('\u9489\u9489\u626b\u7801\u5931\u8d25: ' + e, 'error')
+  }
+}
+
+async function pollDingtalkScan(page, configForm) {
+  if (!_dingtalkScanSessionId) return
+
+  try {
+    const result = await api.pollDingtalkRegistration(_dingtalkScanSessionId)
+    const statusEl = document.getElementById('dingtalk-scan-status')
+    const qrWrap = document.getElementById('dingtalk-scan-qr-wrap')
+
+    if (result.qr_url && qrWrap && (result.status === 'pending' || result.status === 'scanning')) {
+      const u = String(result.qr_url)
+      if (u !== _dingtalkLastPollQr) {
+        _dingtalkLastPollQr = u
+        qrWrap.innerHTML = await qrImageHtml(u, { size: 260, alt: '\u9489\u9489\u626b\u7801' })
+      }
+    }
+
+    if (result.status === 'completed') {
+      const sid = _dingtalkScanSessionId
+      _dingtalkScanSessionId = null
+      cancelDingtalkScan()
+      if (!sid) return
+      closeDingtalkScanModal(document.getElementById('channels-content'))
+
+      const clientIdInput = document.getElementById('im-app-id')
+      const secretInput = document.getElementById('im-app-secret')
+      if (clientIdInput && result.client_id) clientIdInput.value = result.client_id
+      if (secretInput && result.client_secret) secretInput.value = result.client_secret
+
+      toast('\u626b\u7801\u6210\u529f\uff0c\u6b63\u5728\u4fdd\u5b58\u914d\u7f6e...', 'success')
+      try {
+        const applyResult = await api.applyDingtalkRegistration(sid, true)
+        if (applyResult.success) {
+          toast(applyResult.message + (applyResult.channel_running ? '\uff0c\u6e20\u9053\u5df2\u542f\u52a8' : '\uff0c\u91cd\u542f\u540e\u751f\u6548'), 'success')
+          setTimeout(() => loadChannels(page), 1000)
+        } else {
+          toast('\u4fdd\u5b58\u5931\u8d25: ' + applyResult.message, 'error')
+        }
+      } catch (e) {
+        toast('\u4fdd\u5b58\u4e2d...', 'info')
+        try {
+          await api.updateChannelConfig('dingtalk', {
+            client_id: result.client_id,
+            client_secret: result.client_secret,
+            enabled: true,
+          })
+          await api.restartChannel('dingtalk')
+          toast('\u914d\u7f6e\u5df2\u4fdd\u5b58\u5e76\u542f\u52a8', 'success')
+          setTimeout(() => loadChannels(page), 1000)
+        } catch (e2) {
+          toast('\u4fdd\u5b58\u5931\u8d25: ' + e2, 'error')
+        }
+      }
+      return
+    }
+
+    if (result.status === 'failed') {
+      cancelDingtalkScan()
+      _dingtalkScanSessionId = null
+      if (statusEl) {
+        statusEl.removeAttribute('hidden')
+        statusEl.textContent = '\u6388\u6743\u5931\u8d25: ' + (result.error || '\u672a\u77e5\u9519\u8bef')
+        statusEl.className = 'im-scan-status im-scan-status--error'
+      }
+      return
+    }
+
+    if (result.status === 'expired') {
+      cancelDingtalkScan()
+      _dingtalkScanSessionId = null
+      if (statusEl) {
+        statusEl.removeAttribute('hidden')
+        statusEl.textContent = '\u4f1a\u8bdd\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u626b\u7801'
+        statusEl.className = 'im-scan-status im-scan-status--error'
+      }
+      return
+    }
+
+    if (statusEl && result.status === 'scanning') {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '\u5df2\u626b\u7801\uff0c\u8bf7\u5728\u9489\u9489\u4e2d\u786e\u8ba4\u6388\u6743...'
+      statusEl.className = 'im-scan-status im-scan-status--waiting'
+    }
+  } catch (e) {
+    // keep polling
+  }
+}
+
+function cancelDingtalkScan() {
+  if (_dingtalkScanPollTimer) {
+    clearInterval(_dingtalkScanPollTimer)
+    _dingtalkScanPollTimer = null
+  }
+  _dingtalkLastPollQr = ''
+  _dingtalkScanSessionId = null
+}
+
+function closeDingtalkScanModal(contentEl) {
+  const modal = contentEl?.querySelector('#dingtalk-scan-modal')
+  if (modal) modal.setAttribute('hidden', '')
+}
+
 function updateRightPanel(name, label, icon, status) {
   cancelFeishuScan()
   cancelWeixinScan()
+  cancelWecomScan()
+  cancelDingtalkScan()
   _weixinScanSessionId = null
+  _wecomScanSessionId = null
+  _dingtalkScanSessionId = null
   closeFeishuScanModal(document.getElementById('channels-content'))
   closeWeixinScanModal(document.getElementById('channels-content'))
+  closeWecomScanModal(document.getElementById('channels-content'))
+  closeDingtalkScanModal(document.getElementById('channels-content'))
 
   const main = document.getElementById('im-main-panel')
   if (!main) return
@@ -1027,6 +1430,10 @@ function updateRightPanel(name, label, icon, status) {
   if (feishuBtn) feishuBtn.style.display = name === 'feishu' ? '' : 'none'
   const weixinBtn = main.querySelector('#weixin-scan-btn')
   if (weixinBtn) weixinBtn.style.display = name === 'weixin' ? '' : 'none'
+  const wecomBtn = main.querySelector('#wecom-scan-btn')
+  if (wecomBtn) wecomBtn.style.display = name === 'wecom' ? '' : 'none'
+  const dingtalkBtn = main.querySelector('#dingtalk-scan-btn')
+  if (dingtalkBtn) dingtalkBtn.style.display = name === 'dingtalk' ? '' : 'none'
 
   const tipsEl = main.querySelector('.im-tips')
   if (tipsEl) {
@@ -1034,6 +1441,22 @@ function updateRightPanel(name, label, icon, status) {
   }
 
   syncImCredentialUi(name)
+  // 名册（多岗位机器人列表）当前仅飞书支持。切频道时重置到「基础设置」tab：
+  // 非飞书隐藏整个 tab 栏；飞书显示 tab 栏，名册 pane 默认收起（需点「岗位机器人名册」查看）。
+  const tabBar = main.querySelector('#im-tabs-bar')
+  if (tabBar) {
+    tabBar.style.display = name === 'feishu' ? '' : 'none'
+    tabBar.querySelectorAll('.im-tab').forEach((tb) => {
+      const isBindings = tb.getAttribute('data-im-tab') === 'bindings'
+      tb.classList.toggle('im-tab--active', !isBindings)
+      if (isBindings) tb.style.display = name === 'feishu' ? '' : 'none'
+      else tb.style.display = ''
+    })
+  }
+  const cfgFormEl = main.querySelector('#im-config-form')
+  if (cfgFormEl) cfgFormEl.style.display = ''
+  const bindingsPane = main.querySelector('#im-bindings-pane')
+  if (bindingsPane) bindingsPane.style.display = 'none'
   main.querySelector('#im-app-id').value = ''
   main.querySelector('#im-app-secret').value = ''
   loadChannelConfig(name)
@@ -1052,6 +1475,12 @@ async function loadChannelConfig(name) {
     if (name === 'weixin') {
       if (idInput) idInput.value = config.account_id || ''
       if (secInput) secInput.value = config.token || ''
+    } else if (name === 'wecom') {
+      if (idInput) idInput.value = config.bot_id || ''
+      if (secInput) secInput.value = config.secret || ''
+    } else if (name === 'dingtalk') {
+      if (idInput) idInput.value = config.client_id || ''
+      if (secInput) secInput.value = config.client_secret || ''
     } else {
       if (idInput) idInput.value = config.app_id || ''
       if (secInput) secInput.value = config.app_secret || ''

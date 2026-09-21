@@ -122,9 +122,7 @@ def test_work_board_returns_tasks_empty_initiatives(sqlite_tmp):
     assert board["counts"]["legacy"] == 0
     assert board["counts"]["tasks"] >= 1
     # Chat round meta only — not DB journals.
-    assert all(
-        (r.get("action_plan") or {}).get("synthetic") is True for r in board["rounds"]
-    )
+    assert all((r.get("action_plan") or {}).get("synthetic") is True for r in board["rounds"])
     assert not any(r.get("id") == "init_journal_legacy" for r in board["rounds"])
 
 
@@ -225,9 +223,5 @@ def test_dispatch_guard_writes_failed_task_not_initiative(sqlite_tmp):
     assert set_status.call_args[0][1] == "failed"
 
     # No initiative journal for the guard.
-    inits = ProactiveRepository.list_initiatives(
-        role_agent_code=role.agent_code, limit=20
-    )
-    assert not any(
-        str((i.action_plan or {}).get("kind") or "") == "dispatch_guard" for i in inits
-    )
+    inits = ProactiveRepository.list_initiatives(role_agent_code=role.agent_code, limit=20)
+    assert not any(str((i.action_plan or {}).get("kind") or "") == "dispatch_guard" for i in inits)

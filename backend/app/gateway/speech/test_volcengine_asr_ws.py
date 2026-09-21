@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from app.gateway.speech.volcengine_asr_ws import _SER_JSON, _CMP_NONE, _decode_payload
+from app.gateway.speech.volcengine_asr_ws import _CMP_NONE, _SER_JSON, _decode_payload
 
 
 def test_decode_payload_empty_json_body_returns_none() -> None:

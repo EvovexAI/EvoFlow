@@ -25,11 +25,7 @@ class ObservabilityDiskFullError(RuntimeError):
 
 
 def disk_full_user_message() -> str:
-    return (
-        "观测数据库所在磁盘空间不足（sqlite: database or disk is full）。"
-        "请释放系统盘空间（建议至少 2GB），或在 backend 目录执行 data retention 清理 "
-        "data/observability/evoflow_observability.db，并将 EVOFLOW_HOME 迁到空间充足的盘。"
-    )
+    return "观测数据库所在磁盘空间不足（sqlite: database or disk is full）。请释放系统盘空间（建议至少 2GB），或在 backend 目录执行 data retention 清理 data/observability/evoflow_observability.db，并将 EVOFLOW_HOME 迁到空间充足的盘。"
 
 
 def enrich_model_row_thinking(row: dict[str, Any]) -> None:
@@ -726,9 +722,7 @@ _MODEL_ORDER_BY = {
 _MODEL_JSON_TRUNCATE_BYTES = 100 * 1024  # 100 KB per request_json / response_json
 _MESSAGE_COUNT_RE = re.compile(r'"message_count"\s*:\s*(\d+)')
 _MESSAGES_TRUNC_RE = re.compile(r'"messages_truncated"\s*:\s*"tail_\d+_of_(\d+)"')
-_MESSAGES_STORED_TRUNC_RE = re.compile(
-    r'"messages_truncated"\s*:\s*"(?:stored_tail_\d+_of_|omitted_all_of_|tail_\d+_of_)(\d+)"'
-)
+_MESSAGES_STORED_TRUNC_RE = re.compile(r'"messages_truncated"\s*:\s*"(?:stored_tail_\d+_of_|omitted_all_of_|tail_\d+_of_)(\d+)"')
 
 
 def _message_count_from_request_raw(req_raw: Any) -> int | None:
@@ -796,7 +790,7 @@ def _truncate_json_field(value: Any, max_bytes: int = _MODEL_JSON_TRUNCATE_BYTES
     s = str(value)
     if len(s) <= max_bytes:
         return s
-    return s[:max_bytes] + '\n… [truncated]'
+    return s[:max_bytes] + "\n… [truncated]"
 
 
 def _tool_name_from_call_dict(tc: dict[str, Any]) -> str:
@@ -1058,10 +1052,7 @@ def _summarize_response_for_list(resp: Any) -> dict[str, Any] | None:
     if not has_tools and not has_content:
         if reasoning_text and "length" in finish_reason:
             preview = reasoning_text[:200]
-            note = (
-                "输出 token 已用尽，thinking 被截断，未产生正文。"
-                f" [Thinking] {preview}{'…' if len(reasoning_text) > 200 else ''}"
-            )
+            note = f"输出 token 已用尽，thinking 被截断，未产生正文。 [Thinking] {preview}{'…' if len(reasoning_text) > 200 else ''}"
             return {
                 "kind": "truncated_thinking",
                 "kind_label_zh": "Thinking截断",
@@ -1163,9 +1154,7 @@ def _enrich_total_cycle_ms(items: list[dict[str, Any]]) -> None:
             row["total_cycle_ms"] = None
             continue
         next_row = conn.execute(
-            f"SELECT requested_at FROM {T.MODEL_INVOCATIONS} "
-            "WHERE thread_id = ? AND requested_at > ? "
-            "ORDER BY requested_at ASC LIMIT 1",
+            f"SELECT requested_at FROM {T.MODEL_INVOCATIONS} WHERE thread_id = ? AND requested_at > ? ORDER BY requested_at ASC LIMIT 1",
             (tid, req_ts),
         ).fetchone()
         if next_row and next_row["requested_at"]:
@@ -1279,9 +1268,7 @@ def list_model_invocations(
                 row.update(compaction_fields_from_usage_payload(u))
                 cache = cache_tokens_from_usage_payload(u)
                 row["usage_cache_read_tokens"] = cache.get("cache_read_tokens") or row.get("cache_read_tokens")
-                row["usage_cache_creation_tokens"] = cache.get("cache_creation_tokens") or row.get(
-                    "cache_creation_tokens"
-                )
+                row["usage_cache_creation_tokens"] = cache.get("cache_creation_tokens") or row.get("cache_creation_tokens")
                 row["usage_cache_miss_tokens"] = cache.get("cache_miss_tokens") or row.get("cache_miss_tokens")
     if isinstance(items, list):
         from evoflow.observability.cache_metrics import enrich_model_row_cost

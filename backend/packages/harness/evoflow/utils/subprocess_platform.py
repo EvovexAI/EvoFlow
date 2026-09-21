@@ -15,10 +15,7 @@ _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 _POWERSHELL_ARGS = ("-NoProfile", "-WindowStyle", "Hidden", "-NonInteractive", "-Command")
 
 # Force UTF-8 on redirected stdout/stderr (Chinese Windows defaults to cp936 for Write-Output/echo).
-_POWERSHELL_UTF8_BOOTSTRAP = (
-    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
-    "$OutputEncoding = [Console]::OutputEncoding; "
-)
+_POWERSHELL_UTF8_BOOTSTRAP = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; "
 
 
 def subprocess_text_encoding() -> str:

@@ -1,6 +1,6 @@
 [project]
 name = "evoflow-harness"
-version = "1.0.3"
+version = "1.0.4"
 description = "EvoFlow agent harness — Agent Teams runtime, tools, skills, and sandbox execution"
 requires-python = ">=3.10"
 dependencies = [

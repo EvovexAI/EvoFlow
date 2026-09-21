@@ -6,12 +6,8 @@ import json
 import re
 from typing import Any
 
-_PROMPT_DOUBLED_END_RE = re.compile(
-    r'("(?:prompt|context|question)":\s*)""([^"]+?)"([^",}\]]+)"'
-)
-_PROMPT_DOUBLED_PAIR_RE = re.compile(
-    r'("(?:prompt|context|question)":\s*)""([^"]+?)""'
-)
+_PROMPT_DOUBLED_END_RE = re.compile(r'("(?:prompt|context|question)":\s*)""([^"]+?)"([^",}\]]+)"')
+_PROMPT_DOUBLED_PAIR_RE = re.compile(r'("(?:prompt|context|question)":\s*)""([^"]+?)""')
 _OPTIONS_RE = re.compile(r'"options"\s*:\s*(\[[^\]]*\])')
 _PROMPT_RE = re.compile(r'"prompt"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _QUESTION_RE = re.compile(r'"question"\s*:\s*"((?:[^"\\]|\\.)*)"')

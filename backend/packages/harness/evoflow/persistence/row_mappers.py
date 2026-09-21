@@ -256,10 +256,21 @@ def skill_row_to_doc(r: dict[str, Any]) -> dict[str, Any]:
 
 # --- MCP ---
 
-_MCP_SCALAR_KEYS = frozenset({
-    "enabled", "type", "command", "url", "description",
-    "args", "env", "headers", "oauth", "cwd", "timeout",
-})
+_MCP_SCALAR_KEYS = frozenset(
+    {
+        "enabled",
+        "type",
+        "command",
+        "url",
+        "description",
+        "args",
+        "env",
+        "headers",
+        "oauth",
+        "cwd",
+        "timeout",
+    }
+)
 
 
 def mcp_doc_to_row(name: str, doc: dict[str, Any]) -> dict[str, Any]:

@@ -29,10 +29,7 @@ def test_invalid_tool_calls_materialized_as_tool_messages():
 
 def test_invalid_plan_tool_call_repaired_from_string_steps():
     mw = InvalidToolCallMiddleware()
-    args_json = (
-        '{"goal": "demo", "steps": '
-        '[{"name": "script", "goal": "write script", "assigned_agent": "general-purpose"}]}'
-    )
+    args_json = '{"goal": "demo", "steps": [{"name": "script", "goal": "write script", "assigned_agent": "general-purpose"}]}'
     ai = AIMessage(
         content="",
         tool_calls=[],
@@ -60,10 +57,7 @@ def test_invalid_plan_tool_call_repaired_from_string_steps():
 
 def test_invalid_plan_tool_call_repaired_string_depends_on_and_tools() -> None:
     mw = InvalidToolCallMiddleware()
-    args_json = (
-        '{"goal": "demo", "steps": [{"name": "s1", "goal": "g1", "assigned_agent": "general-purpose", '
-        '"depends_on": "1", "tools": "[\\"read_file\\"]"}]}'
-    )
+    args_json = '{"goal": "demo", "steps": [{"name": "s1", "goal": "g1", "assigned_agent": "general-purpose", "depends_on": "1", "tools": "[\\"read_file\\"]"}]}'
     ai = AIMessage(
         content="",
         tool_calls=[],
@@ -112,10 +106,7 @@ def test_invalid_mind_map_op_as_tool_gets_misinvoked_hint():
 
 def test_invalid_plan_tool_call_repaired_when_args_merged_with_supervisor_tail() -> None:
     mw = InvalidToolCallMiddleware()
-    args_json = (
-        '{"goal": "任务调度测试", "steps": [{"name": "任务1", "goal": "写 task1", "subagent_type": "general-purpose", '
-        '"tools": ["read_file", "write_to_file"], "depends_on": []}]}start_execution", "task_id": "Task_x"}'
-    )
+    args_json = '{"goal": "任务调度测试", "steps": [{"name": "任务1", "goal": "写 task1", "subagent_type": "general-purpose", "tools": ["read_file", "write_to_file"], "depends_on": []}]}start_execution", "task_id": "Task_x"}'
     ai = AIMessage(
         content="",
         tool_calls=[],

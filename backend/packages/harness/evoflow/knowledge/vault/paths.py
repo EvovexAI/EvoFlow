@@ -192,6 +192,7 @@ def count_markdown_notes(
         )
     )
 
+
 def safe_join_display(vault_name: str, relative: str) -> str:
     """Build an Obsidian URI file parameter (path only, caller encodes)."""
     return normalize_vault_relative_path(relative)

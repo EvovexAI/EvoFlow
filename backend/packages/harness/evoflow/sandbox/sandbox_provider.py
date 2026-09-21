@@ -44,21 +44,13 @@ def _resolve_provider_class(use: str):
     import logging
 
     raw = str(use or "").strip()
-    is_legacy_local = (
-        raw
-        in (
-            "evoflow.sandbox.local:LocalSandboxProvider",
-            "evoflow.sandbox.local.local_sandbox_provider:LocalSandboxProvider",
-        )
-        or (
-            raw.endswith(":LocalSandboxProvider")
-            and "evoflow.sandbox.local" in raw
-        )
-    )
+    is_legacy_local = raw in (
+        "evoflow.sandbox.local:LocalSandboxProvider",
+        "evoflow.sandbox.local.local_sandbox_provider:LocalSandboxProvider",
+    ) or (raw.endswith(":LocalSandboxProvider") and "evoflow.sandbox.local" in raw)
     if is_legacy_local:
         logging.getLogger(__name__).warning(
-            "sandbox.use=%s was removed; using evoflow.sandbox.noop:NoopSandboxProvider. "
-            "For real isolation set AioSandboxProvider; for host shell use tools_mode=host_direct + terminal.",
+            "sandbox.use=%s was removed; using evoflow.sandbox.noop:NoopSandboxProvider. For real isolation set AioSandboxProvider; for host shell use tools_mode=host_direct + terminal.",
             raw,
         )
         raw = "evoflow.sandbox.noop:NoopSandboxProvider"

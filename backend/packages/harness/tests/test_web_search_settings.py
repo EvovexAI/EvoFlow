@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from evoflow.persistence.web_search_settings import (
     get_preferred_backend,
     get_web_search_settings,
@@ -162,9 +160,7 @@ def test_apply_agent_plan_web_search_defaults_sets_doubao(monkeypatch) -> None:
     assert get_preferred_backend() == "doubao"
 
     # User override must not be clobbered
-    patch_web_search_settings(
-        {"preferredBackend": "tavily", "preferredBackendSource": "user"}
-    )
+    patch_web_search_settings({"preferredBackend": "tavily", "preferredBackendSource": "user"})
     apply_agent_plan_web_search_defaults()
     assert get_web_search_settings()["preferredBackend"] == "tavily"
     assert get_web_search_settings()["preferredBackendSource"] == "user"
@@ -173,9 +169,7 @@ def test_apply_agent_plan_web_search_defaults_sets_doubao(monkeypatch) -> None:
 def test_normalize_patch_marks_user_provenance() -> None:
     from evoflow.admin.web_search import normalize_web_search_patch
 
-    out = normalize_web_search_patch(
-        {"preferredBackend": "bocha", "doubaoApiKey": "sk-search-xxx"}
-    )
+    out = normalize_web_search_patch({"preferredBackend": "bocha", "doubaoApiKey": "sk-search-xxx"})
     assert out["preferredBackendSource"] == "user"
     assert out["doubaoKeySource"] == "user"
 
@@ -262,6 +256,7 @@ def test_tool_and_settings_share_run_provider_search(monkeypatch) -> None:
     assert calls and calls[0][0] == "doubao"
 
     calls.clear()
+
     # Make get_provider return an object with supports_search for run_one_search availability check
     class _Prov:
         name = "doubao"

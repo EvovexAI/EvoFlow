@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.serialization import (
     PrivateFormat,
     PublicFormat,
 )
+
 # Vendor public key (raw 32 bytes, urlsafe-b64 without padding) — EF2 verify only.
 # Private key MUST NOT live in the product — set EVOFLOW_LICENSE_PRIVATE_KEY when issuing.
 BUILTIN_LICENSE_PUBLIC_KEY_B64 = "QaUE7y1r5i3GWeogHtJaBe3S_HPOpGq2wC3CggVdq9M"
@@ -137,10 +138,7 @@ def _private_raw_from_env() -> bytes:
     ensure_private_key_env_loaded()
     raw_b64 = (os.environ.get("EVOFLOW_LICENSE_PRIVATE_KEY") or "").strip()
     if not raw_b64:
-        raise LicenseKeyError(
-            "未设置 EVOFLOW_LICENSE_PRIVATE_KEY：签发端私钥仅保留在运营环境，"
-            "可放 backend/.evoflow-license-private.key 或设置环境变量"
-        )
+        raise LicenseKeyError("未设置 EVOFLOW_LICENSE_PRIVATE_KEY：签发端私钥仅保留在运营环境，可放 backend/.evoflow-license-private.key 或设置环境变量")
     raw = _b64url_decode(raw_b64)
     if len(raw) != 32:
         raise LicenseKeyError("license private key must be 32 raw bytes")
@@ -191,9 +189,7 @@ def generate_keypair() -> tuple[str, str, str]:
     priv = Ed25519PrivateKey.generate()
     priv_raw = priv.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     priv_b64 = _b64url_encode(priv_raw)
-    pub_b64 = _b64url_encode(
-        priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    )
+    pub_b64 = _b64url_encode(priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
     mac_b64 = _b64url_encode(derive_code_mac_key(priv_raw))
     return priv_b64, pub_b64, mac_b64
 

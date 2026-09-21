@@ -139,9 +139,7 @@ def test_build_example_chat_request_is_paste_ready():
     )
 
     assert sample_parameter_value({"name": "topic", "default": "AI"}) == "AI"
-    assert sample_parameter_value(
-        {"name": "format", "type": "select", "options": ["Markdown", "PDF"]}
-    ) == "Markdown"
+    assert sample_parameter_value({"name": "format", "type": "select", "options": ["Markdown", "PDF"]}) == "Markdown"
     assert "<" not in sample_parameter_value({"name": "topic", "label": "主题"})
 
     app = {
@@ -191,13 +189,9 @@ def test_build_example_chat_request_is_paste_ready():
 
 
 def test_summarize_and_build_response():
-    content = summarize_run_content(
-        {"status": "completed", "result_summary": "报告完成"}
-    )
+    content = summarize_run_content({"status": "completed", "result_summary": "报告完成"})
     assert content == "报告完成"
-    resp = build_chat_completion_response(
-        app_id="App_1", content=content, run_id="Run_1"
-    )
+    resp = build_chat_completion_response(app_id="App_1", content=content, run_id="Run_1")
     assert resp["object"] == "chat.completion"
     assert resp["model"] == "App_1"
     assert resp["choices"][0]["message"]["content"] == "报告完成"
@@ -260,9 +254,7 @@ def test_format_step_stream_piece_includes_agent():
     assert "@researcher" in text
     assert "调研" in text
     assert resolve_step_agent({"assigned_to": "coder"}) == "coder"
-    pub = publicize_step_response(
-        {"ref": "9", "assigned_agent": "ops", "status": "completed", "result_summary": "x"}
-    )
+    pub = publicize_step_response({"ref": "9", "assigned_agent": "ops", "status": "completed", "result_summary": "x"})
     assert pub["moduleName"] == "ops"
     assert pub["assigned_agent"] == "ops"
 
@@ -308,21 +300,30 @@ def test_should_append_final_answer_skips_duplicate_last_step():
             {"ref": "2", "status": "completed", "result_summary": "最终结论"},
         ],
     }
-    assert should_append_final_answer_delta(
-        "最终结论",
-        streamed_parts=["### 步骤 2\n最终结论"],
-        status_doc=doc,
-    ) is False
-    assert should_append_final_answer_delta(
-        "最终结论",
-        streamed_parts=[],
-        status_doc=doc,
-    ) is True
-    assert should_append_final_answer_delta(
-        "另外一句总结",
-        streamed_parts=["### 步骤 2\n最终结论"],
-        status_doc=doc,
-    ) is True
+    assert (
+        should_append_final_answer_delta(
+            "最终结论",
+            streamed_parts=["### 步骤 2\n最终结论"],
+            status_doc=doc,
+        )
+        is False
+    )
+    assert (
+        should_append_final_answer_delta(
+            "最终结论",
+            streamed_parts=[],
+            status_doc=doc,
+        )
+        is True
+    )
+    assert (
+        should_append_final_answer_delta(
+            "另外一句总结",
+            streamed_parts=["### 步骤 2\n最终结论"],
+            status_doc=doc,
+        )
+        is True
+    )
 
 
 def test_collect_new_step_stream_pieces_incremental():

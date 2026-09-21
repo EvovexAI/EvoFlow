@@ -46,11 +46,7 @@ def _current_violations() -> list[str]:
 def _load_baseline() -> list[str]:
     if not BASELINE.exists():
         return []
-    return [
-        ln.strip()
-        for ln in BASELINE.read_text(encoding="utf-8").splitlines()
-        if ln.strip() and not ln.startswith("#")
-    ]
+    return [ln.strip() for ln in BASELINE.read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.startswith("#")]
 
 
 def main() -> int:
@@ -65,10 +61,7 @@ def main() -> int:
     current = _current_violations()
     if args.update:
         BASELINE.write_text(
-            "# Baseline for arch_ban_app_imports (evoflow core -> app.* imports).\n"
-            "# This list may only shrink. New entries require an ARCHITECTURE.md waiver.\n"
-            + "\n".join(current)
-            + ("\n" if current else ""),
+            "# Baseline for arch_ban_app_imports (evoflow core -> app.* imports).\n# This list may only shrink. New entries require an ARCHITECTURE.md waiver.\n" + "\n".join(current) + ("\n" if current else ""),
             encoding="utf-8",
         )
         print(f"baseline updated: {len(current)} entries -> {BASELINE}")

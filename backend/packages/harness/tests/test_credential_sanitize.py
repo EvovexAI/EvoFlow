@@ -101,9 +101,7 @@ def test_sanitize_model_document_upgrades_legacy_8192_max_tokens():
 
 
 def test_sanitize_model_document_strips_reserved_model_config_key():
-    doc = sanitize_model_document(
-        {"name": "m1", "api_key": "sk-x", "model_config": {"extra": "allow"}}
-    )
+    doc = sanitize_model_document({"name": "m1", "api_key": "sk-x", "model_config": {"extra": "allow"}})
     assert "model_config" not in doc
 
 

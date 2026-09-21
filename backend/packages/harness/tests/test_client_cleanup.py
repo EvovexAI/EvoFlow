@@ -10,7 +10,7 @@ import pytest
 
 from evoflow.persistence import session_repositories as sess_repo
 from evoflow.persistence.db import get_db, reset_db_for_tests
-from evoflow.persistence.session_run_state import RUN_STATUS_CANCELLED, RUN_STATUS_DONE, RUN_STATUS_RUNNING, mark_session_run_started
+from evoflow.persistence.session_run_state import RUN_STATUS_DONE, mark_session_run_started
 from evoflow.session_execution.panel_sessions import is_panel_attached_session_key
 
 

@@ -98,10 +98,7 @@ def _run_native_rg(
             **_subprocess_no_window_kwargs(),
         )
     except subprocess.TimeoutExpired:
-        return (
-            f"Error: rg timed out after {int(_MAX_WALL_SECONDS)}s. "
-            "Narrow with `path`, `glob`, or a more specific pattern."
-        )
+        return f"Error: rg timed out after {int(_MAX_WALL_SECONDS)}s. Narrow with `path`, `glob`, or a more specific pattern."
     except OSError as e:
         return f"Error: rg failed to run: {e}"
 
@@ -222,13 +219,7 @@ def _run_rg_wallclock(
     )
 
     # Pipe-separated keywords (foo|bar): native rg -F per term — never redirect to FTS.
-    if (
-        not literal
-        and "|" in pat
-        and output_mode == "content"
-        and not glob_pattern
-        and _is_pipe_literal_keyword_list(pat)
-    ):
+    if not literal and "|" in pat and output_mode == "content" and not glob_pattern and _is_pipe_literal_keyword_list(pat):
         rg_bin = _find_rg_binary()
         terms = _filter_pipe_terms_for_disk_search(split_pipe_terms(pat))
         if rg_bin and terms:
@@ -246,15 +237,8 @@ def _run_rg_wallclock(
                 dropped = [t for t in split_pipe_terms(pat) if t not in terms]
                 note = ""
                 if dropped:
-                    note = (
-                        f"\n\n[note] Dropped overly broad keyword(s) {dropped!r} "
-                        "(use a longer literal or `search_code_index` for those)."
-                    )
-                return (
-                    "[rg → fixed-string] pipe-separated keywords are not regex OR; "
-                    "searched each term with `rg -F`.\n"
-                    f"{body}{note}"
-                )
+                    note = f"\n\n[note] Dropped overly broad keyword(s) {dropped!r} (use a longer literal or `search_code_index` for those)."
+                return f"[rg → fixed-string] pipe-separated keywords are not regex OR; searched each term with `rg -F`.\n{body}{note}"
 
     rg_bin = _find_rg_binary()
     if rg_bin:
@@ -364,10 +348,7 @@ def rg_hd(
         )
         return fut.result(timeout=_MAX_WALL_SECONDS)
     except FuturesTimeoutError:
-        return (
-            f"Error: rg timed out after {int(_MAX_WALL_SECONDS)}s. "
-            "Add `glob`, narrow `path`, or simplify the pattern."
-        )
+        return f"Error: rg timed out after {int(_MAX_WALL_SECONDS)}s. Add `glob`, narrow `path`, or simplify the pattern."
 
 
 # Alias tool for configs/docs that say ``ripgrep`` (catalog alias via tool_aliases.py)

@@ -225,9 +225,7 @@ async def goal_controller_node(state: GoalState, config: RunnableConfig) -> dict
         if verdict is not None and verdict.verdict == "complete":
             from evoflow.agents.goal.goal_runtime import clip_goal_summary_text
 
-            completed_from_reply = clip_goal_summary_text(
-                verdict.summary or verdict.reason or "任务完成"
-            )
+            completed_from_reply = clip_goal_summary_text(verdict.summary or verdict.reason or "任务完成")
             evt = new_goal_event(
                 event_type="goal_completed",
                 goal_id=goal_id,

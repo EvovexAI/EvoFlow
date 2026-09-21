@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from evoflow.knowledge.owned.db import db
@@ -164,7 +164,7 @@ def list_activities(
 
 def prune(kb_id: str | None = None) -> int:
     """Drop rows older than retention or exceeding per-KB cap. Returns deleted count."""
-    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    cutoff_dt = datetime.now(UTC) - timedelta(days=RETENTION_DAYS)
     cutoff = cutoff_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
     deleted = 0
     with db() as conn:

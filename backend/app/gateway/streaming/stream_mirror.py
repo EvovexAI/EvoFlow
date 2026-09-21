@@ -496,7 +496,7 @@ async def flush_mirror_batch_for_thread(
 
     try:
         await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("stream mirror flush timeout thread=%s", thread_id)
     except asyncio.CancelledError:
         raise

@@ -34,13 +34,7 @@ def _run(home: Path) -> dict:
         limit=5,
     )
 
-    entries = (
-        recalled.get("entries")
-        or recalled.get("results")
-        or recalled.get("items")
-        or recalled.get("hits")
-        or []
-    )
+    entries = recalled.get("entries") or recalled.get("results") or recalled.get("items") or recalled.get("hits") or []
     total = int(recalled.get("total") or len(entries) if isinstance(entries, list) else 0)
     blob = json.dumps(recalled, ensure_ascii=False, default=str)
     has_hit = total >= 1 or unique in blob

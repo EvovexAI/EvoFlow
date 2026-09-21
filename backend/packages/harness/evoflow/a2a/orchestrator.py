@@ -59,10 +59,14 @@ def create_meeting(
 
 def get_meeting(meeting_id: str) -> dict[str, Any] | None:
     """Fetch a meeting by ID."""
-    row = get_db().execute(
-        "SELECT * FROM evoflow_meetings WHERE meeting_id = ?",
-        (meeting_id,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT * FROM evoflow_meetings WHERE meeting_id = ?",
+            (meeting_id,),
+        )
+        .fetchone()
+    )
     if not row:
         return None
     d = dict(row)
@@ -214,9 +218,7 @@ class MeetingOrchestrator:
 
             task = task_result.get("task") or {}
             task_id = str(task.get("id") or "")
-            reply = sanitize_meeting_reply(
-                str(task_result.get("reply") or task.get("result_text") or "")
-            )
+            reply = sanitize_meeting_reply(str(task_result.get("reply") or task.get("result_text") or ""))
 
             if task_result.get("error") and not reply:
                 err = str(task_result.get("error") or "speak failed")
@@ -248,9 +250,7 @@ class MeetingOrchestrator:
             if task_id and reply:
                 _update_a2a_task_state(task_id, "completed", result_text=reply)
 
-            context_summary = _append_meeting_context(
-                context_summary, role_name, reply, mode=mode
-            )
+            context_summary = _append_meeting_context(context_summary, role_name, reply, mode=mode)
             results.append(
                 {
                     "agent_code": agent_code,
@@ -324,15 +324,8 @@ class MeetingOrchestrator:
         # instead of each reading a one-shot position paper.
         ok_speakers = [r for r in results if (r.get("reply") or "").strip()]
         if mode == "proposal" and len(ok_speakers) >= 2:
-            transcript = "\n".join(
-                f"【{r.get('role_name') or r.get('agent_code')}】：{r.get('reply')}"
-                for r in ok_speakers
-            )
-            rebuttal_topic = (
-                f"{topic}\n\n"
-                "【第二轮·碰撞】上面是第一轮发言。请只回应分歧："
-                "同意谁/反对谁、你拍板的一点。不要复述全文，不要汇报自己任务。"
-            )
+            transcript = "\n".join(f"【{r.get('role_name') or r.get('agent_code')}】：{r.get('reply')}" for r in ok_speakers)
+            rebuttal_topic = f"{topic}\n\n【第二轮·碰撞】上面是第一轮发言。请只回应分歧：同意谁/反对谁、你拍板的一点。不要复述全文，不要汇报自己任务。"
             for agent_code in speaker_order:
                 context_summary = await self._speak_one(
                     meeting_id=meeting_id,

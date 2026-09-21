@@ -93,6 +93,7 @@ def test_sync_skips_packaged_manifest_without_content_rescan(user_home, tmp_path
     assert sync_system_public_skills(skills_root=user_skills, source=source, force=False) is False
     assert (user_skills / "public" / "demo" / "SKILL.md").read_text(encoding="utf-8") == "# demo\n"
 
+
 def test_sync_dev_quick_stats_detects_skill_edit(user_home, tmp_path: Path, monkeypatch):
     import evoflow.skills.user_install as ui
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Admin agents.create/update/delete validation (BUG report 2026-08-19)."""
 
 from __future__ import annotations
@@ -6,17 +5,17 @@ from __future__ import annotations
 import gc
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from evoflow.admin import agents as agents_admin
 from evoflow.admin import employees as employees_admin
 from evoflow.admin.errors import ConflictError, NotFoundError, ValidationError
-from evoflow.admin.platform_handlers import agents_update, agents_list
+from evoflow.admin.platform_handlers import agents_list, agents_update
 from evoflow.config.app_config import reset_app_config
 from evoflow.persistence.db import get_db, reset_db_for_tests
 from evoflow.proactive.repositories import ProactiveRepository
-from unittest.mock import patch
 
 
 @pytest.fixture
@@ -39,21 +38,15 @@ def sqlite_tmp(monkeypatch: pytest.MonkeyPatch):
 
 def test_create_rejects_duplicate_agent_name(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    agents_admin.create_agent(
-        {"agent_code": "dup-n1", "agent_name": "同名测试", "skills": []}
-    )
+    agents_admin.create_agent({"agent_code": "dup-n1", "agent_name": "同名测试", "skills": []})
     with pytest.raises(ConflictError, match="already used"):
-        agents_admin.create_agent(
-            {"agent_code": "dup-n2", "agent_name": "同名测试", "skills": []}
-        )
+        agents_admin.create_agent({"agent_code": "dup-n2", "agent_name": "同名测试", "skills": []})
 
 
 def test_create_allows_apostrophe_in_agent_name(sqlite_tmp: Path) -> None:
     """SQL-looking strings are stored safely via parameterized queries."""
     del sqlite_tmp
-    row = agents_admin.create_agent(
-        {"agent_code": "sqli", "agent_name": "Test' OR '1'='1"}
-    )
+    row = agents_admin.create_agent({"agent_code": "sqli", "agent_name": "Test' OR '1'='1"})
     assert row["agent_name"] == "Test' OR '1'='1"
 
 
@@ -79,34 +72,26 @@ def test_create_emoji_name_ok(sqlite_tmp: Path) -> None:
 
 def test_create_dedupes_skills(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    row = agents_admin.create_agent(
-        {"agent_code": "dup-sk", "skills": ["aihot", "aihot", "aihot"]}
-    )
+    row = agents_admin.create_agent({"agent_code": "dup-sk", "skills": ["aihot", "aihot", "aihot"]})
     assert row["skills"] == ["aihot"]
 
 
 def test_create_rejects_unknown_skill(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     with pytest.raises(ValidationError, match="unknown skill"):
-        agents_admin.create_agent(
-            {"agent_code": "bad-sk", "skills": ["nonexistent-skill"]}
-        )
+        agents_admin.create_agent({"agent_code": "bad-sk", "skills": ["nonexistent-skill"]})
 
 
 def test_create_rejects_unknown_model(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     with pytest.raises(ValidationError, match="unknown model|unable to validate model"):
-        agents_admin.create_agent(
-            {"agent_code": "bad-mdl", "model": "nonexistent-model-xyz"}
-        )
+        agents_admin.create_agent({"agent_code": "bad-mdl", "model": "nonexistent-model-xyz"})
 
 
 def test_create_rejects_unknown_mcp(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     with pytest.raises(ValidationError, match="unknown mcp"):
-        agents_admin.create_agent(
-            {"agent_code": "bad-mcp", "mcp_servers": ["nonexistent-mcp"]}
-        )
+        agents_admin.create_agent({"agent_code": "bad-mcp", "mcp_servers": ["nonexistent-mcp"]})
 
 
 def test_create_agent_code_empty_vs_blank(sqlite_tmp: Path) -> None:
@@ -191,9 +176,7 @@ def test_delete_keep_employee(sqlite_tmp: Path) -> None:
     agents_admin.create_agent({"agent_code": "keep-emp2", "agent_name": "K2"})
     employees_admin.hire({"agent_code": "keep-emp2", "role_name": "R2"})
     with pytest.raises(ValidationError, match="mutually exclusive"):
-        agents_admin.delete_agent(
-            "keep-emp2", confirm_cascade=True, keep_employee=True
-        )
+        agents_admin.delete_agent("keep-emp2", confirm_cascade=True, keep_employee=True)
 
 
 def test_create_persists_system_prompt_and_identity(sqlite_tmp: Path) -> None:
@@ -226,19 +209,13 @@ def test_create_rejects_unknown_avatar_preset(sqlite_tmp: Path) -> None:
 def test_create_rejects_invalid_agent_type(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     with pytest.raises(ValidationError, match="agent_type"):
-        agents_admin.create_agent(
-            {"agent_code": "bad-type", "agent_name": "T", "agent_type": "invalid_type"}
-        )
+        agents_admin.create_agent({"agent_code": "bad-type", "agent_name": "T", "agent_type": "invalid_type"})
 
 
 def test_list_tag_limit_offset_and_agent_name(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    agents_admin.create_agent(
-        {"agent_code": "tag-a", "agent_name": "Alpha Name", "tags": ["核心"], "skills": []}
-    )
-    agents_admin.create_agent(
-        {"agent_code": "tag-b", "agent_name": "Beta Name", "tags": ["媒体"], "skills": []}
-    )
+    agents_admin.create_agent({"agent_code": "tag-a", "agent_name": "Alpha Name", "tags": ["核心"], "skills": []})
+    agents_admin.create_agent({"agent_code": "tag-b", "agent_name": "Beta Name", "tags": ["媒体"], "skills": []})
     empty = agents_admin.list_agents(tag="不存在的标签xyz")
     assert empty["agents"] == []
     core = agents_admin.list_agents(tag="核心")
@@ -266,9 +243,7 @@ def test_description_allows_newlines(sqlite_tmp: Path) -> None:
 
 def test_agent_update_syncs_employee_skills(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    agents_admin.create_agent(
-        {"agent_code": "sync-a", "agent_name": "Sync", "skills": ["aihot"], "soul": "初始灵魂"}
-    )
+    agents_admin.create_agent({"agent_code": "sync-a", "agent_name": "Sync", "skills": ["aihot"], "soul": "初始灵魂"})
     hired = employees_admin.hire({"agent_code": "sync-a"})
     assert hired["config"]["skills"] == ["aihot"]
     assert hired.get("inherits_agent") is True

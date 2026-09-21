@@ -15,9 +15,8 @@ remains the primary path.
 
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
-import os
 import subprocess
 import sys
 import time
@@ -41,7 +40,7 @@ def _binary_path() -> Path | None:
 
     candidates = [
         base / "tools" / "whisper" / "whisper_server.exe",  # Windows
-        base / "tools" / "whisper" / "whisper_server",      # macOS/Linux
+        base / "tools" / "whisper" / "whisper_server",  # macOS/Linux
         base / "whisper-dist" / "whisper_server.exe",
         base / "whisper-dist" / "whisper_server",
     ]
@@ -59,6 +58,7 @@ def _is_running() -> bool:
         return False
 
     import socket
+
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
@@ -133,6 +133,7 @@ def _start_stdout_reader():
             pass
 
     import threading
+
     if _process.stdout:
         threading.Thread(target=_reader, args=(_process.stdout, "out"), daemon=True).start()
     if _process.stderr:
@@ -176,6 +177,7 @@ async def transcribe_local(pcm_bytes: bytes, lang: str = "zh") -> str:
 
     try:
         import websockets
+
         async with websockets.connect(WHISPER_WS_URL) as ws:
             await ws.send(json.dumps({"type": "config", "lang": lang}))
             await ws.send(pcm_bytes)
@@ -199,8 +201,7 @@ def _auto_start():
         start_whisper()
 
 
-import json as _json  # noqa: E402 (needed in transcribe_local above)
-import threading as _threading
+import threading as _threading  # noqa: E402
 
 _auto_thread = _threading.Thread(target=_auto_start, daemon=True)
 _auto_thread.start()

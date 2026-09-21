@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from evoflow.authz.http_guard import require_session_visible
 from fastapi.responses import StreamingResponse
 
 from app.gateway.streaming.stream_resume_handler import stream_resume_events
+from evoflow.authz.http_guard import require_session_visible
 
 router = APIRouter(prefix="/api/chat/sessions", tags=["chat-stream-resume"])
 

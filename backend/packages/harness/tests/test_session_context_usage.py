@@ -63,10 +63,14 @@ def test_persist_session_context_usage_roundtrip(session_db):
 
     from evoflow.persistence.db import get_db
 
-    raw = get_db().execute(
-        "SELECT context_json FROM evoflow_chat_sessions WHERE session_key = ?",
-        (sk,),
-    ).fetchone()
+    raw = (
+        get_db()
+        .execute(
+            "SELECT context_json FROM evoflow_chat_sessions WHERE session_key = ?",
+            (sk,),
+        )
+        .fetchone()
+    )
     extra = json.loads(raw[0] or "{}")
     assert extra["context_usage"]["used_tokens"] == 42_000
 

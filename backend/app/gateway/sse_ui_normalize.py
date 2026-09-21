@@ -132,11 +132,7 @@ def _is_injected_human(m: dict[str, Any]) -> bool:
             if isinstance(block, dict) and block.get("type") == "text":
                 head += str(block.get("text") or "")
     head = head.strip()
-    return (
-        head.startswith("[LOOP DETECTED]")
-        or head.startswith("[FORCED STOP]")
-        or head.startswith("<xiaomi_ui_context>")
-    )
+    return head.startswith("[LOOP DETECTED]") or head.startswith("[FORCED STOP]") or head.startswith("<xiaomi_ui_context>")
 
 
 def _find_last_real_human_idx(messages: list[Any]) -> int:
@@ -206,9 +202,7 @@ def _message_has_tool_signal(m: dict[str, Any]) -> bool:
     return _message_has_ready_tool_calls(m)
 
 
-def _find_last_display_assistant_after_index(
-    messages: list[dict[str, Any]], human_idx: int
-) -> dict[str, Any] | None:
+def _find_last_display_assistant_after_index(messages: list[dict[str, Any]], human_idx: int) -> dict[str, Any] | None:
     """Last assistant message in this turn whose text is user-facing (no tool_calls on same generation)."""
     if human_idx < 0:
         return None
@@ -422,12 +416,7 @@ def _strip_prev_prefix(
         return s
     if s.startswith(p):
         rest = s[len(p) :]
-        if (
-            not allow_hard_join
-            and rest
-            and not rest[0].isspace()
-            and rest[0] not in "，。！？、,:;)]"
-        ):
+        if not allow_hard_join and rest and not rest[0].isspace() and rest[0] not in "，。！？、,:;)]":
             return s
         return rest.lstrip()
     np = _norm_loose(p)
@@ -442,9 +431,7 @@ def _strip_prev_prefix(
     return s
 
 
-def _collect_assistant_texts_after_human(
-    messages: list[dict[str, Any]], human_idx: int, prefix: str
-) -> list[str]:
+def _collect_assistant_texts_after_human(messages: list[dict[str, Any]], human_idx: int, prefix: str) -> list[str]:
     """本轮 user 之后每条 assistant 的可见正文（含带 tool_calls 的计划段）。"""
     if human_idx < 0:
         return []
@@ -706,12 +693,8 @@ def _merge_tool_call_arg_strings(prev: str, incoming: str) -> str:
             merged = _merge_complete_tool_arg_dicts(po, ro)
             if merged is not None:
                 return merged
-            pc = str(
-                po.get("content") or po.get("new_string") or po.get("contents") or po.get("text") or ""
-            )
-            rc = str(
-                ro.get("content") or ro.get("new_string") or ro.get("contents") or ro.get("text") or ""
-            )
+            pc = str(po.get("content") or po.get("new_string") or po.get("contents") or po.get("text") or "")
+            rc = str(ro.get("content") or ro.get("new_string") or ro.get("contents") or ro.get("text") or "")
             if len(rc) > len(pc):
                 return r
             if len(pc) > len(rc):
@@ -843,12 +826,8 @@ def _write_tool_path_content(tc: dict[str, Any]) -> tuple[str, str]:
     args = _normalize_tool_args(tc)
     if not isinstance(args, dict):
         return "", ""
-    path = str(
-        args.get("path") or args.get("target_file") or args.get("file_path") or args.get("file") or ""
-    ).strip()
-    content = str(
-        args.get("content") or args.get("new_string") or args.get("contents") or ""
-    )
+    path = str(args.get("path") or args.get("target_file") or args.get("file_path") or args.get("file") or "").strip()
+    content = str(args.get("content") or args.get("new_string") or args.get("contents") or "")
     return path, content
 
 
@@ -1333,10 +1312,7 @@ class UiStreamNormalizer:
         # final fragment with no further content growth — still must emit progress
         # so the UI / wire log get a non-empty path.
         path_arrived = bool(path_now) and path_now != path_prev
-        logger.debug(
-            f"[SANITIZE_WRITE] stats: content_len={len(content)}, content_grew={content_grew}, "
-            f"lines_changed={lines_changed}, path_arrived={path_arrived}"
-        )
+        logger.debug(f"[SANITIZE_WRITE] stats: content_len={len(content)}, content_grew={content_grew}, lines_changed={lines_changed}, path_arrived={path_arrived}")
         progress: dict[str, Any] | None = None
         # Only emit progress when args actually arrive (content/old_string grows,
         # lines change, or path becomes known). Do NOT emit on first sight alone —
@@ -1377,10 +1353,7 @@ class UiStreamNormalizer:
                         progress["old_string_delta"] = odelta
                 else:
                     progress["old_string"] = old_string
-            logger.debug(
-                f"[SANITIZE_WRITE] emitted progress: phase=args, content_len={len(content)}, "
-                f"has_delta={bool(progress.get('content_delta') or progress.get('content'))}"
-            )
+            logger.debug(f"[SANITIZE_WRITE] emitted progress: phase=args, content_len={len(content)}, has_delta={bool(progress.get('content_delta') or progress.get('content'))}")
         self.write_tool_wire_state[key] = {
             "_tc": merged,
             "tool_name": tool_name,
@@ -1433,14 +1406,9 @@ class UiStreamNormalizer:
         if not _chat_panel_visible_tool_call(tc):
             # Continuation args for an in-flight write tool must still stream.
             if known_name.lower() not in _WRITE_STREAM_TOOL_NAMES:
-                logger.debug(
-                    f"[APPEND_WRITE_TOOL] skipped: not chat_panel_visible, "
-                    f"tc_keys={list(tc.keys()) if isinstance(tc, dict) else type(tc)}"
-                )
+                logger.debug(f"[APPEND_WRITE_TOOL] skipped: not chat_panel_visible, tc_keys={list(tc.keys()) if isinstance(tc, dict) else type(tc)}")
                 return
-        wire_id = str(
-            tc.get("id") or tc.get("tool_call_id") or (chunk_meta or {}).get("id") or ""
-        ).strip()
+        wire_id = str(tc.get("id") or tc.get("tool_call_id") or (chunk_meta or {}).get("id") or "").strip()
         if self._is_subagent_nested_tool_id(wire_id):
             logger.debug(f"[APPEND_WRITE_TOOL] skipped: subagent_nested, wire_id={wire_id}")
             return
@@ -1456,9 +1424,7 @@ class UiStreamNormalizer:
             if isinstance(args_obj, dict):
                 content_val = args_obj.get("content", "")
                 logger.debug(f"[APPEND_WRITE_TOOL] sanitized.args.content: len={len(content_val) if isinstance(content_val, str) else 0}")
-        wire_id = str(
-            sanitized.get("id") or sanitized.get("tool_call_id") or tc.get("id") or tc.get("tool_call_id") or ""
-        ).strip()
+        wire_id = str(sanitized.get("id") or sanitized.get("tool_call_id") or tc.get("id") or tc.get("tool_call_id") or "").strip()
         if wire_id:
             self.emitted_tool_call_ids.add(wire_id)
             if meta is not None:
@@ -1479,10 +1445,7 @@ class UiStreamNormalizer:
         self._extend_block_close_frames(out)
 
     def _explicit_turn_isolation(self) -> bool:
-        return bool(
-            str(self.client_prior_prefix or "").strip()
-            or str(self.client_prior_reasoning or "").strip()
-        )
+        return bool(str(self.client_prior_prefix or "").strip() or str(self.client_prior_reasoning or "").strip())
 
     def _strip_prev_prefix_for_turn(self, text: str, prefix: str) -> str:
         explicit = self._explicit_turn_isolation()
@@ -1659,9 +1622,7 @@ class UiStreamNormalizer:
             self._sync_prev_turn_prefix(messages, human_idx)
             return
         pre_tuple = self.pre_anchor_tuple_tools
-        had_preanchor_deltas = any(
-            ev.get("type") == "delta" for ev in self.pre_anchor_stream_events if isinstance(ev, dict)
-        )
+        had_preanchor_deltas = any(ev.get("type") == "delta" for ev in self.pre_anchor_stream_events if isinstance(ev, dict))
         # Hydrated transcript on a fresh LangGraph thread can arrive as complete AIMessages
         # before values anchors — do not replay that history as live SSE.
         if _has_graph_progress_after_human(messages, human_idx):
@@ -1709,9 +1670,7 @@ class UiStreamNormalizer:
         has_tools = _message_has_tool_signal(root)
         if has_tools:
             if piece:
-                self.pre_anchor_stream_events.append(
-                    {"type": "delta", "text": piece, "delta_kind": "append"}
-                )
+                self.pre_anchor_stream_events.append({"type": "delta", "text": piece, "delta_kind": "append"})
             self._discard_assistant_stream_text(msg_id)
             self.pre_anchor_tuple_tools = True
         elif piece and msg_id not in self.tool_call_ai_ids:
@@ -1747,18 +1706,14 @@ class UiStreamNormalizer:
                 ch = ev.get("chunk")
                 if isinstance(ch, dict):
                     meta = self.block_ledger.before_tools()
-                    self._append_write_tool_wire(
-                        out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta
-                    )
+                    self._append_write_tool_wire(out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta)
             elif ev.get("type") == "tool_call":
                 tcs = ev.get("tool_calls")
                 if isinstance(tcs, list):
                     meta = self.block_ledger.before_tools()
                     for tc in tcs:
                         if isinstance(tc, dict):
-                            self._append_write_tool_wire(
-                                out, tc, ev_type="tool_call", source="messages", chunk_meta=tc, meta=meta
-                            )
+                            self._append_write_tool_wire(out, tc, ev_type="tool_call", source="messages", chunk_meta=tc, meta=meta)
         self.pre_anchor_stream_events.clear()
         return out
 
@@ -1777,9 +1732,7 @@ class UiStreamNormalizer:
                 # Log chunk structure
                 fn_args = (ch.get("function") or {}).get("arguments", "") if isinstance(ch.get("function"), dict) else ""
                 logger.debug(f"[SSE_PASSTHROUGH] chunk[{i}]: id={ch.get('id')}, args_len={len(fn_args)}, args_preview={fn_args[:100] if fn_args else 'empty'}")
-                self._append_write_tool_wire(
-                    out, ch, ev_type="tool_call_chunk", source=source, chunk_meta=ch, meta=meta
-                )
+                self._append_write_tool_wire(out, ch, ev_type="tool_call_chunk", source=source, chunk_meta=ch, meta=meta)
             return out
         tcs = root.get("tool_calls")
         # LangGraph often sends ``tool_calls: []`` on plain text/reasoning chunks.
@@ -1793,9 +1746,7 @@ class UiStreamNormalizer:
         for i, tc in enumerate(tc_list):
             fn_args = (tc.get("function") or {}).get("arguments", "") if isinstance(tc.get("function"), dict) else ""
             logger.debug(f"[SSE_PASSTHROUGH] tc[{i}]: id={tc.get('id')}, args_len={len(fn_args)}, args_preview={fn_args[:100] if fn_args else 'empty'}")
-            self._append_write_tool_wire(
-                out, tc, ev_type="tool_call", source=source, chunk_meta=tc, meta=meta
-            )
+            self._append_write_tool_wire(out, tc, ev_type="tool_call", source=source, chunk_meta=tc, meta=meta)
         return out
 
     def _emit_tool_calls_list_passthrough(self, calls: list[dict[str, Any]], *, source: str) -> EvfPayloadList:
@@ -1956,14 +1907,8 @@ class UiStreamNormalizer:
                 # Write-tool args (and any content echoed while tool_call_chunks stream)
                 # must not become chat body_text — that produces fragmented "Thinking N"
                 # stacks and dumps file prose into the transcript.
-                streaming_tool_args = isinstance(chunks, list) and any(
-                    isinstance(c, dict) for c in chunks
-                )
-                if (
-                    piece_use
-                    and not streaming_tool_args
-                    and not _message_has_write_tool_signal(root)
-                ):
+                streaming_tool_args = isinstance(chunks, list) and any(isinstance(c, dict) for c in chunks)
+                if piece_use and not streaming_tool_args and not _message_has_write_tool_signal(root):
                     out.extend(self._emit_delta_raw(piece_use, message_id=msg_id))
                 self._discard_assistant_stream_text(msg_id)
                 self.tuple_tools_kicked = True
@@ -1998,9 +1943,7 @@ class UiStreamNormalizer:
                 return []
             tool_payload = _slim_tool_result_message(root)
             tcid = str(tool_payload.get("tool_call_id") or tool_payload.get("id") or "").strip()
-            tool_name = str(
-                tool_payload.get("name") or tool_payload.get("tool_name") or "tool"
-            ).strip()
+            tool_name = str(tool_payload.get("name") or tool_payload.get("tool_name") or "tool").strip()
             if tool_omit_from_chat_panel(tool_name):
                 return out
             if not tcid or tcid not in self.emitted_tool_call_ids:
@@ -2013,11 +1956,7 @@ class UiStreamNormalizer:
                     "name": tool_payload.get("name") or tool_payload.get("tool_name") or "tool",
                     "content": tool_payload.get("content"),
                     "status": tool_payload.get("status") or "ok",
-                    **(
-                        {"truncated": True, "content_bytes": tool_payload.get("content_bytes")}
-                        if tool_payload.get("truncated")
-                        else {}
-                    ),
+                    **({"truncated": True, "content_bytes": tool_payload.get("content_bytes")} if tool_payload.get("truncated") else {}),
                 }
             )
         return out
@@ -2035,7 +1974,7 @@ class UiStreamNormalizer:
         raw = _pick_values_root(data)
         human_idx_for_state = _find_last_real_human_idx(messages) if self.anchored else -1
         if human_idx_for_state >= 0:
-            for m in messages[human_idx_for_state + 1:]:
+            for m in messages[human_idx_for_state + 1 :]:
                 if not isinstance(m, dict) or not _is_assistant(m):
                     continue
                 um = _usage_from_ai_message_dict(m)
@@ -2043,14 +1982,9 @@ class UiStreamNormalizer:
                     mid = str(m.get("id") or "__noid__")
                     self.usage_by_ai_id[mid] = um
             out.extend(self._emit_usage_updates())
-        turn_calls_for_state = (
-            _collect_turn_tool_calls(messages, human_idx_for_state) if human_idx_for_state >= 0 else []
-        )
+        turn_calls_for_state = _collect_turn_tool_calls(messages, human_idx_for_state) if human_idx_for_state >= 0 else []
         tool_names = [
-            str(tc.get("name") or (tc.get("function") or {}).get("name") or "").strip()
-            for tc in turn_calls_for_state
-            if _chat_panel_visible_tool_call(tc)
-            and str(tc.get("name") or (tc.get("function") or {}).get("name") or "").strip()
+            str(tc.get("name") or (tc.get("function") or {}).get("name") or "").strip() for tc in turn_calls_for_state if _chat_panel_visible_tool_call(tc) and str(tc.get("name") or (tc.get("function") or {}).get("name") or "").strip()
         ]
         activity_kind, activity_detail, last_assistant_calls = _resolve_thread_activity_from_messages(
             messages,
@@ -2411,11 +2345,7 @@ class UiStreamNormalizer:
             if self.last_values_messages:
                 hidx = _find_last_real_human_idx(self.last_values_messages)
                 if hidx >= 0:
-                    merged_turn = _merge_turn_assistant_texts(
-                        _collect_assistant_texts_after_human(
-                            self.last_values_messages, hidx, self.prev_turn_prefix
-                        )
-                    )
+                    merged_turn = _merge_turn_assistant_texts(_collect_assistant_texts_after_human(self.last_values_messages, hidx, self.prev_turn_prefix))
             stream_turn = ""
             if self.per_message_stream_text:
                 stream_turn = _merge_turn_assistant_texts(list(self.per_message_stream_text.values()))
@@ -2535,8 +2465,7 @@ async def normalize_langgraph_sse_stream(
                     data_preview = repr(data_json)[:400]
                 tb = traceback.format_exc()
                 logger.error(
-                    "[sse-ui] feed_frame raised — stream continues, frame skipped\n"
-                    "  event=%s tid=%s\n  exc=%s: %s\n  data_preview=%s\n%s",
+                    "[sse-ui] feed_frame raised — stream continues, frame skipped\n  event=%s tid=%s\n  exc=%s: %s\n  data_preview=%s\n%s",
                     event_name,
                     tid,
                     exc.__class__.__name__,
@@ -2548,10 +2477,7 @@ async def normalize_langgraph_sse_stream(
                 # devtools Network tab shows the crash without breaking the
                 # EventSource parser (lines starting with ":" are ignored by
                 # the SSE spec).
-                comment = (
-                    f": [sse-ui][feed_frame error] event={event_name} "
-                    f"exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n"
-                ).encode("utf-8", errors="replace")
+                comment = (f": [sse-ui][feed_frame error] event={event_name} exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n").encode("utf-8", errors="replace")
                 yield comment
                 continue
             for out in frames:

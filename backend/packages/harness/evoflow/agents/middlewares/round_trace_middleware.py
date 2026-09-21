@@ -164,7 +164,7 @@ class RoundTraceMiddleware(AgentMiddleware[AgentState]):
 
         system_prompt_sha256 = hashlib.sha256(system_text.encode("utf-8", errors="ignore")).hexdigest()[:16] if system_text else ""
         tools_sig = "|".join(request_tool_names)
-        prefix_sig = hashlib.sha256(f"{system_prompt_sha256}\n{tools_sig}".encode("utf-8")).hexdigest()[:16]
+        prefix_sig = hashlib.sha256(f"{system_prompt_sha256}\n{tools_sig}".encode()).hexdigest()[:16]
 
         prev_prefix = ""
         with self._lock:

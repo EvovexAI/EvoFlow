@@ -26,9 +26,7 @@ def vault_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     ops.mkdir()
     (ops / "README.md").write_text("# 运营知识库\n\n选题与平台规则。\n", encoding="utf-8")
     (ops / "06-平台规则-PLATFORM_RULE").mkdir()
-    (ops / "06-平台规则-PLATFORM_RULE" / "03-抖音.md").write_text(
-        "# 抖音算法\n\n完播优先。\n", encoding="utf-8"
-    )
+    (ops / "06-平台规则-PLATFORM_RULE" / "03-抖音.md").write_text("# 抖音算法\n\n完播优先。\n", encoding="utf-8")
 
     monkeypatch.setenv("EVOFLOW_HOME", str(home))
     monkeypatch.setattr(bv, "bundled_user_guide_src", lambda: src)

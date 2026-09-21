@@ -92,9 +92,7 @@ def test_fts_matches_snake_case_in_content():
         data = search_index(str(root), "assistant_chunk", limit=10)
         hits = data.get("hits") or []
         paths = {h.get("path") for h in hits}
-        assert "stream.py" in paths or any(
-            s.get("name") == "on_session_message" for s in (data.get("symbols") or [])
-        )
+        assert "stream.py" in paths or any(s.get("name") == "on_session_message" for s in (data.get("symbols") or []))
 
 
 def test_expand_search_terms_splits_path_and_snake():

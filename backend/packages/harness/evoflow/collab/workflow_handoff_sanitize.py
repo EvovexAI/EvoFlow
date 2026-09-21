@@ -143,10 +143,7 @@ def sanitize_output_item(item: dict[str, Any]) -> dict[str, str]:
 def sanitize_resolved_bindings(resolved: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(resolved, dict):
         return {}
-    return {
-        str(k): sanitize_value_for_handoff(v)
-        for k, v in resolved.items()
-    }
+    return {str(k): sanitize_value_for_handoff(v) for k, v in resolved.items()}
 
 
 def sanitize_steps_output_entry(entry: dict[str, Any]) -> dict[str, Any]:

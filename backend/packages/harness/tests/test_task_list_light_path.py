@@ -108,6 +108,7 @@ async def test_list_tasks_catalog_offloads_to_thread():
             },
         ) as sync_mock:
             with patch("asyncio.to_thread", new_callable=AsyncMock) as to_thread:
+
                 async def _run(fn, **kw):
                     return sync_mock(**kw)
 

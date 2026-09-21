@@ -44,9 +44,7 @@ def test_initialize_then_ping():
 def test_ping_rejected_before_initialize():
     server = StdioAppServer()
     server.handle_message({"id": 1, "method": "server/ping"})
-    assert server.drain_writes() == [
-        {"id": 1, "error": {"code": -32000, "message": "Not initialized"}}
-    ]
+    assert server.drain_writes() == [{"id": 1, "error": {"code": -32000, "message": "Not initialized"}}]
 
 
 def test_demo_stream_emits_notifications():
@@ -130,9 +128,7 @@ async def test_gateway_call_rpc_emits_result():
         "evoflow.app_server.stdio_rpc.proxy_gateway_call",
         new=AsyncMock(return_value={"ok": True, "status": 200, "body": {"n": 1}, "error": None}),
     ):
-        tasks = server.handle_message(
-            {"id": 9, "method": "gateway/call", "params": {"method": "GET", "path": "/api/models"}}
-        )
+        tasks = server.handle_message({"id": 9, "method": "gateway/call", "params": {"method": "GET", "path": "/api/models"}})
         assert tasks
         await tasks[0]
     writes = server.drain_writes()
@@ -215,9 +211,7 @@ async def test_thread_start_and_resources_call_alias():
         "evoflow.app_server.stdio_rpc.proxy_gateway_call",
         new=AsyncMock(return_value={"ok": True, "status": 200, "body": {"n": 2}, "error": None}),
     ):
-        tasks = server.handle_message(
-            {"id": 21, "method": "resources/call", "params": {"method": "GET", "path": "/api/models"}}
-        )
+        tasks = server.handle_message({"id": 21, "method": "resources/call", "params": {"method": "GET", "path": "/api/models"}})
         assert tasks
         await tasks[0]
     assert server.drain_writes()[0]["result"]["body"] == {"n": 2}
@@ -227,9 +221,7 @@ def test_thread_resume_sync():
     server = StdioAppServer(gateway_base_url="http://127.0.0.1:8070")
     server.handle_message({"id": 1, "method": "initialize", "params": {}})
     server.drain_writes()
-    server.handle_message(
-        {"id": 3, "method": "thread/resume", "params": {"threadId": "t1", "sessionKey": "s1"}}
-    )
+    server.handle_message({"id": 3, "method": "thread/resume", "params": {"threadId": "t1", "sessionKey": "s1"}})
     writes = server.drain_writes()
     assert writes[0]["result"]["threadId"] == "t1"
     assert writes[1]["method"] == "thread/started"

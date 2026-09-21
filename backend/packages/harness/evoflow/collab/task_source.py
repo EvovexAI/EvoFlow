@@ -117,7 +117,4 @@ def resolve_write_source(
 
 def list_task_sources() -> list[dict[str, str]]:
     """Catalog for API / UI pickers."""
-    return [
-        {"id": sid, "label_zh": TASK_SOURCE_LABELS_ZH[sid]}
-        for sid in (TASK_SOURCE_CHAT, TASK_SOURCE_WORKFLOW, TASK_SOURCE_ROLE)
-    ]
+    return [{"id": sid, "label_zh": TASK_SOURCE_LABELS_ZH[sid]} for sid in (TASK_SOURCE_CHAT, TASK_SOURCE_WORKFLOW, TASK_SOURCE_ROLE)]

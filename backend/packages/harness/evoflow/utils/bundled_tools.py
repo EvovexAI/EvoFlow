@@ -7,8 +7,8 @@ import sys
 import threading
 from pathlib import Path
 
-
 _chromium_install_lock = threading.Lock()
+
 
 def _backend_dir_from_harness() -> Path | None:
     here = Path(__file__).resolve()
@@ -68,7 +68,6 @@ def _evoflow_cli_script_names() -> tuple[str, ...]:
 
 
 def _venv_scripts_dir(backend_dir: Path) -> Path | None:
-
     rel = "Scripts" if sys.platform == "win32" else "bin"
     scripts = backend_dir / ".venv" / rel
     if not scripts.is_dir():
@@ -262,8 +261,7 @@ def ensure_agent_browser_chromium(*, timeout: int = 900) -> tuple[bool, str]:
     if not cli:
         return (
             False,
-            "agent-browser CLI not found. Dev: run `make setup-agent-browser` "
-            "from repo root, or: npm install -g agent-browser && agent-browser install",
+            "agent-browser CLI not found. Dev: run `make setup-agent-browser` from repo root, or: npm install -g agent-browser && agent-browser install",
         )
 
     with _chromium_install_lock:
@@ -273,9 +271,7 @@ def ensure_agent_browser_chromium(*, timeout: int = 900) -> tuple[bool, str]:
             return True, existing
 
         apply_agent_browser_to_path()
-        logger.info(
-            "Chromium missing — running `agent-browser install` (first use, ~400MB)..."
-        )
+        logger.info("Chromium missing — running `agent-browser install` (first use, ~400MB)...")
         try:
             proc = subprocess.run(
                 [cli, "install"],
@@ -288,8 +284,7 @@ def ensure_agent_browser_chromium(*, timeout: int = 900) -> tuple[bool, str]:
         except subprocess.TimeoutExpired:
             return (
                 False,
-                "浏览器引擎下载超时。请检查网络后重试，或在终端执行："
-                "agent-browser install",
+                "浏览器引擎下载超时。请检查网络后重试，或在终端执行：agent-browser install",
             )
         except Exception as exc:
             return False, f"浏览器引擎安装失败: {exc}"
@@ -305,8 +300,7 @@ def ensure_agent_browser_chromium(*, timeout: int = 900) -> tuple[bool, str]:
         if not chrome:
             return (
                 False,
-                "agent-browser install 已完成但未找到 chrome 可执行文件。"
-                "请检查 ~/.agent-browser/browsers 后重试。",
+                "agent-browser install 已完成但未找到 chrome 可执行文件。请检查 ~/.agent-browser/browsers 后重试。",
             )
         os.environ["AGENT_BROWSER_EXECUTABLE_PATH"] = chrome
         logger.info("Chromium ready at %s", chrome)

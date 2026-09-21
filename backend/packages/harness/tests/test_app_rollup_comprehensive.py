@@ -42,7 +42,8 @@ def _make_app(
 ) -> dict:
     return {
         "name": app_id,
-        "steps": steps or [
+        "steps": steps
+        or [
             {"ref": "1", "goal": "Step 1", "tools": [], "depends_on": []},
             {"ref": "2", "goal": "Step 2", "tools": [], "depends_on": []},
         ],
@@ -67,6 +68,7 @@ def _find_by_ref(subtasks, ref):
 
 def _complete(st, report="done", outputs=None):
     from evoflow.timeutil import utc_now_iso_z
+
     st["status"] = "completed"
     st["progress"] = 100
     st["outcome_reported_at"] = utc_now_iso_z()
@@ -88,12 +90,11 @@ class TestEdgeCases:
         """Single-step apps should NOT get a rollup subtask (nothing to roll up)."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.persistence import app_repositories
 
         get_db()
-        app = _make_app("App_single_step", final_rollup="auto",
-                        steps=[{"ref": "1", "goal": "Only step", "tools": [], "depends_on": []}])
+        app = _make_app("App_single_step", final_rollup="auto", steps=[{"ref": "1", "goal": "Only step", "tools": [], "depends_on": []}])
         app_repositories.save_app("App_single_step", app)
 
         result = app_runner.run_app_workflow("App_single_step", {"x": "test"}, auto_authorize=True)
@@ -130,7 +131,7 @@ class TestEdgeCases:
         """Many steps: rollup should depend on ALL of them."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.persistence import app_repositories
 
         get_db()
@@ -158,15 +159,13 @@ class TestEdgeCases:
         deps = rollup.get("dependencies") or rollup.get("depends_on") or []
         dep_refs = {str(d) for d in deps}
         for i in range(1, 11):
-            assert str(i) in dep_refs or any(str(i) in str(d) for d in deps), (
-                f"Rollup should depend on step {i}, deps={deps}"
-            )
+            assert str(i) in dep_refs or any(str(i) in str(d) for d in deps), f"Rollup should depend on step {i}, deps={deps}"
 
     def test_answer_node_ref_not_found(self, sqlite_tmp: Path) -> None:
         """answer_node_only with invalid answer_from_ref should gracefully skip rollup."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
 
@@ -195,15 +194,13 @@ class TestEdgeCases:
         assert final is not None
         _, ft = final
         assert ft.get("status") == "completed"
-        assert ft.get("rollup_applied_at") is None, (
-            "Should not apply rollup with invalid answer_from_ref"
-        )
+        assert ft.get("rollup_applied_at") is None, "Should not apply rollup with invalid answer_from_ref"
 
     def test_answer_node_step_failed(self, sqlite_tmp: Path) -> None:
         """answer_node_only: if the answer step failed, rollup should not apply."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
         from evoflow.timeutil import utc_now_iso_z
@@ -241,9 +238,7 @@ class TestEdgeCases:
         _, ft = final
         # Main task should be failed (not completed)
         assert ft.get("status") == "failed"
-        assert ft.get("rollup_applied_at") is None, (
-            "Should not apply rollup when answer node step failed"
-        )
+        assert ft.get("rollup_applied_at") is None, "Should not apply rollup when answer node step failed"
 
     def test_rollup_with_very_long_report(self, sqlite_tmp: Path) -> None:
         """Rollup with a very long task_report should be truncated safely (8000 char cap)."""
@@ -262,9 +257,7 @@ class TestEdgeCases:
 
         patch = apply_rollup_result_to_main_task(task, rollup_st, all_subtasks=[rollup_st])
         assert patch is not None
-        assert len(patch["result_summary"]) == 8000, (
-            f"Expected 8000-char truncation, got {len(patch['result_summary'])}"
-        )
+        assert len(patch["result_summary"]) == 8000, f"Expected 8000-char truncation, got {len(patch['result_summary'])}"
         assert len(patch["result_text"]) == 8000
 
     def test_rollup_empty_report(self, sqlite_tmp: Path) -> None:
@@ -294,16 +287,18 @@ class TestEdgeCases:
         # 5 user steps, each with 3 outputs + 2 rollup outputs → keep rollup only
         user_steps = []
         for i in range(1, 6):
-            user_steps.append({
-                "ref": str(i),
-                "status": "completed",
-                "task_report": f"step {i}",
-                "outputs": [
-                    {"type": "file", "key": f"s{i}_a", "value": f"/tmp/s{i}a.txt", "label": f"S{i}A"},
-                    {"type": "file", "key": f"s{i}_b", "value": f"/tmp/s{i}b.txt", "label": f"S{i}B"},
-                    {"type": "file", "key": f"s{i}_c", "value": f"/tmp/s{i}c.txt", "label": f"S{i}C"},
-                ],
-            })
+            user_steps.append(
+                {
+                    "ref": str(i),
+                    "status": "completed",
+                    "task_report": f"step {i}",
+                    "outputs": [
+                        {"type": "file", "key": f"s{i}_a", "value": f"/tmp/s{i}a.txt", "label": f"S{i}A"},
+                        {"type": "file", "key": f"s{i}_b", "value": f"/tmp/s{i}b.txt", "label": f"S{i}B"},
+                        {"type": "file", "key": f"s{i}_c", "value": f"/tmp/s{i}c.txt", "label": f"S{i}C"},
+                    ],
+                }
+            )
 
         rollup_st = {
             "ref": "__rollup__",
@@ -341,7 +336,7 @@ class TestIdempotency:
         """Calling sync_main_task_from_subtasks multiple times is safe (idempotent)."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
 
@@ -360,10 +355,7 @@ class TestIdempotency:
 
         # Complete all subtasks
         for st in task.get("subtasks") or []:
-            _complete(st, report=f"{st.get('ref')} done",
-                      outputs=[{"type": "file", "key": f"o_{st.get('ref')}",
-                                "value": f"/tmp/{st.get('ref')}.txt",
-                                "label": f"Output {st.get('ref')}"}])
+            _complete(st, report=f"{st.get('ref')} done", outputs=[{"type": "file", "key": f"o_{st.get('ref')}", "value": f"/tmp/{st.get('ref')}.txt", "label": f"Output {st.get('ref')}"}])
 
         storage.save_project(proj)
 
@@ -389,9 +381,7 @@ class TestIdempotency:
         _, t2 = f2
 
         # rollup_applied_at should not change (applied only once)
-        assert t2.get("rollup_applied_at") == rollup_time_1, (
-            "rollup_applied_at should be stable across multiple syncs"
-        )
+        assert t2.get("rollup_applied_at") == rollup_time_1, "rollup_applied_at should be stable across multiple syncs"
         # Outputs count should be the same
         assert len(t2.get("outputs") or []) == outputs_count_1
         # Result summary should be identical
@@ -401,7 +391,7 @@ class TestIdempotency:
         """10 consecutive sync calls should not corrupt state."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
 
@@ -452,7 +442,7 @@ class TestErrorPaths:
         """If the rollup step itself fails, rollup should NOT be applied."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
         from evoflow.timeutil import utc_now_iso_z
@@ -496,9 +486,9 @@ class TestErrorPaths:
     def test_non_app_task_no_rollup(self, sqlite_tmp: Path) -> None:
         """Non-app-sourced tasks should never get rollup applied."""
         del sqlite_tmp
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.id_format import make_subtask_id, make_task_id
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
-        from evoflow.collab.id_format import make_task_id, make_subtask_id
         from evoflow.timeutil import utc_now_iso_z
 
         get_db()
@@ -535,16 +525,18 @@ class TestErrorPaths:
             "id": task_id,
             "name": "Manual task",
             "type": "project",
-            "tasks": [{
-                "id": task_id,
-                "name": "Manual task",
-                "status": "executing",
-                "progress": 50,
-                "source": "manual",  # NOT app-sourced (no source_app_id)
-                "subtasks": subtasks,
-                "created_at": now,
-                "updated_at": now,
-            }],
+            "tasks": [
+                {
+                    "id": task_id,
+                    "name": "Manual task",
+                    "status": "executing",
+                    "progress": 50,
+                    "source": "manual",  # NOT app-sourced (no source_app_id)
+                    "subtasks": subtasks,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            ],
             "created_at": now,
             "updated_at": now,
         }
@@ -604,7 +596,7 @@ class TestBackwardCompatibility:
         """Legacy app with no final_rollup field: multi-step still rolls up (default auto)."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.persistence import app_repositories
 
         get_db()
@@ -645,7 +637,7 @@ class TestBackwardCompatibility:
         """Legacy tasks (no final_rollup) should complete normally without rollup."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
 
@@ -690,8 +682,8 @@ class TestBackwardCompatibility:
     def test_v99_to_v100_migration_preserves_data(self, sqlite_tmp: Path) -> None:
         """Migration from v99 to v100 should not lose existing app data."""
         del sqlite_tmp
-        from evoflow.persistence.schema import APP_SCHEMA_VERSION
         from evoflow.persistence import app_repositories
+        from evoflow.persistence.schema import APP_SCHEMA_VERSION
 
         get_db()
         # v100 should be the current version
@@ -732,7 +724,7 @@ class TestComplexScenarios:
         """Rollup should depend on all steps even in a parallel DAG."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.persistence import app_repositories
 
         get_db()
@@ -765,7 +757,7 @@ class TestComplexScenarios:
         """When only some steps are done, rollup should NOT apply yet."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
 
@@ -808,7 +800,7 @@ class TestComplexScenarios:
         """If some steps are cancelled, rollup should not apply."""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
         from evoflow.timeutil import utc_now_iso_z
@@ -849,7 +841,5 @@ class TestComplexScenarios:
 
         # All terminal but not all successful → should not be completed
         # Mixed completed + cancelled: no _SUB_FAIL entries, so status stays as-is (planned)
-        assert ft.get("status") != "completed", (
-            f"Should not be completed when some steps cancelled: {ft.get('status')}"
-        )
+        assert ft.get("status") != "completed", f"Should not be completed when some steps cancelled: {ft.get('status')}"
         assert ft.get("rollup_applied_at") is None

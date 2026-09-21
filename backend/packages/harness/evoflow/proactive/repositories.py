@@ -170,9 +170,7 @@ class ProactiveRepository:
         for r in rows:
             raw = _row_dict(r)
             role = _row_to_role(raw)
-            role = _heal_role_display_name_if_needed(
-                role, raw_role_name=_sanitize_role_text(raw.get("role_name"))
-            )
+            role = _heal_role_display_name_if_needed(role, raw_role_name=_sanitize_role_text(raw.get("role_name")))
             out.append(_heal_role_schedule_if_needed(role))
         return out
 
@@ -190,9 +188,7 @@ class ProactiveRepository:
             return None
         raw = _row_dict(row)
         role = _row_to_role(raw)
-        role = _heal_role_display_name_if_needed(
-            role, raw_role_name=_sanitize_role_text(raw.get("role_name"))
-        )
+        role = _heal_role_display_name_if_needed(role, raw_role_name=_sanitize_role_text(raw.get("role_name")))
         return _heal_role_schedule_if_needed(role)
 
     @staticmethod
@@ -264,23 +260,14 @@ class ProactiveRepository:
         db = get_db()
 
         # 1. Reject if this role is still someone's direct manager.
-        subs = (
-            db.execute(
-                "SELECT agent_code, role_name FROM evoflow_proactive_roles "
-                "WHERE reports_to = ? AND agent_code != ?",
-                (code, code),
-            )
-            .fetchall()
-        )
+        subs = db.execute(
+            "SELECT agent_code, role_name FROM evoflow_proactive_roles WHERE reports_to = ? AND agent_code != ?",
+            (code, code),
+        ).fetchall()
         if subs:
-            names = "、".join(
-                f"`{str(r[0] or '')}`（{str(r[1] or '')}）" for r in subs[:8]
-            )
+            names = "、".join(f"`{str(r[0] or '')}`（{str(r[1] or '')}）" for r in subs[:8])
             more = f" 等 {len(subs)} 个" if len(subs) > 8 else ""
-            raise ValueError(
-                f"无法删除岗位：请先处理下级岗位的汇报关系。"
-                f"该岗位仍有 {len(subs)} 个下级岗位：{names}{more}。"
-            )
+            raise ValueError(f"无法删除岗位：请先处理下级岗位的汇报关系。该岗位仍有 {len(subs)} 个下级岗位：{names}{more}。")
 
         # 2. Best-effort cancel any in-flight patrol (idempotent, non-fatal).
         try:
@@ -341,9 +328,7 @@ class ProactiveRepository:
                     (code,),
                 )
             except Exception as e:
-                logger.debug(
-                    "proactive.role.delete cascade skip %s: %s", table, e
-                )
+                logger.debug("proactive.role.delete cascade skip %s: %s", table, e)
 
         # 4. Clean chat session data under ``proactive:{code}`` (+ duty/task/chat children).
         try:
@@ -496,16 +481,14 @@ class ProactiveRepository:
                 if isinstance(blob, dict) and blob.get("role_agent_code") != new_code:
                     blob["role_agent_code"] = new_code
                     db.execute(
-                        "UPDATE evoflow_proactive_memory SET memory_json = ?, updated_at = ? "
-                        "WHERE role_agent_code = ?",
+                        "UPDATE evoflow_proactive_memory SET memory_json = ?, updated_at = ? WHERE role_agent_code = ?",
                         (json.dumps(blob, ensure_ascii=False), now, new_code),
                     )
         except Exception:
             logger.debug("proactive.rebind memory_json rewrite skipped", exc_info=True)
         # Point direct reports at the rebound code (column + config_json).
         peers = db.execute(
-            "SELECT agent_code, config_json FROM evoflow_proactive_roles "
-            "WHERE reports_to = ? AND agent_code != ?",
+            "SELECT agent_code, config_json FROM evoflow_proactive_roles WHERE reports_to = ? AND agent_code != ?",
             (old_code, new_code),
         ).fetchall()
         for peer in peers:
@@ -518,8 +501,7 @@ class ProactiveRepository:
                 cfg = {}
             cfg["reports_to"] = new_code
             db.execute(
-                "UPDATE evoflow_proactive_roles "
-                "SET reports_to = ?, config_json = ?, updated_at = ? WHERE agent_code = ?",
+                "UPDATE evoflow_proactive_roles SET reports_to = ?, config_json = ?, updated_at = ? WHERE agent_code = ?",
                 (new_code, json.dumps(cfg, ensure_ascii=False), now, peer_code),
             )
         db.execute(
@@ -620,11 +602,7 @@ class ProactiveRepository:
         last_heartbeat_at: str,
         next_heartbeat_at: str | None,
     ) -> None:
-        run_db_transaction(
-            lambda db: ProactiveRepository.update_heartbeat_in_txn(
-                db, agent_code, last_heartbeat_at=last_heartbeat_at, next_heartbeat_at=next_heartbeat_at
-            )
-        )
+        run_db_transaction(lambda db: ProactiveRepository.update_heartbeat_in_txn(db, agent_code, last_heartbeat_at=last_heartbeat_at, next_heartbeat_at=next_heartbeat_at))
 
     # ── Initiatives ────────────────────────────────────────────
 
@@ -831,8 +809,7 @@ class ProactiveRepository:
         row = (
             get_db()
             .execute(
-                f"SELECT {_APPROVAL_COLS.strip()} FROM evoflow_proactive_approvals "
-                "WHERE initiative_id = ? ORDER BY created_at DESC LIMIT 1",
+                f"SELECT {_APPROVAL_COLS.strip()} FROM evoflow_proactive_approvals WHERE initiative_id = ? ORDER BY created_at DESC LIMIT 1",
                 (initiative_id.strip(),),
             )
             .fetchone()
@@ -885,8 +862,7 @@ class ProactiveRepository:
         row = (
             get_db()
             .execute(
-                f"SELECT {_APPROVAL_COLS.strip()} FROM evoflow_proactive_approvals "
-                "WHERE task_id = ? ORDER BY created_at DESC LIMIT 1",
+                f"SELECT {_APPROVAL_COLS.strip()} FROM evoflow_proactive_approvals WHERE task_id = ? ORDER BY created_at DESC LIMIT 1",
                 (tid,),
             )
             .fetchone()
@@ -925,8 +901,7 @@ class ProactiveRepository:
         rows = (
             get_db()
             .execute(
-                f"SELECT {_INIT_COLS.strip()} FROM evoflow_proactive_initiatives "
-                "WHERE status = 'executing' ORDER BY updated_at DESC LIMIT ?",
+                f"SELECT {_INIT_COLS.strip()} FROM evoflow_proactive_initiatives WHERE status = 'executing' ORDER BY updated_at DESC LIMIT ?",
                 (limit,),
             )
             .fetchall()
@@ -1071,9 +1046,7 @@ class ProactiveCostRepository:
     ) -> None:
         """Internal: execute INSERT without commit (for batch transaction)."""
         now = utc_now_iso_z()
-        pid = (principal_id or "").strip() or ProactiveCostRepository._principal_id_for_agent(
-            role_agent_code
-        )
+        pid = (principal_id or "").strip() or ProactiveCostRepository._principal_id_for_agent(role_agent_code)
         cols = {str(r[1]) for r in db.execute("PRAGMA table_info(evoflow_proactive_cost_log)").fetchall()}
         if "principal_id" in cols:
             db.execute(
@@ -1156,36 +1129,46 @@ class ProactiveCostRepository:
         """Sum cost_usd for a role on a given day (YYYY-MM-DD). Defaults to today."""
         if not date_iso:
             date_iso = utc_now_iso_z()[:10]
-        row = get_db().execute(
-            "SELECT COALESCE(SUM(cost_usd), 0.0) FROM evoflow_proactive_cost_log "
-            "WHERE role_agent_code = ? AND substr(created_at, 1, 10) = ?",
-            (agent_code, date_iso),
-        ).fetchone()
+        row = (
+            get_db()
+            .execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM evoflow_proactive_cost_log WHERE role_agent_code = ? AND substr(created_at, 1, 10) = ?",
+                (agent_code, date_iso),
+            )
+            .fetchone()
+        )
         return float(row[0]) if row else 0.0
 
     @staticmethod
     def get_daily_tokens(agent_code: str, date_iso: str | None = None) -> int:
         if not date_iso:
             date_iso = utc_now_iso_z()[:10]
-        row = get_db().execute(
-            "SELECT COALESCE(SUM(total_tokens), 0) FROM evoflow_proactive_cost_log "
-            "WHERE role_agent_code = ? AND substr(created_at, 1, 10) = ?",
-            (agent_code, date_iso),
-        ).fetchone()
+        row = (
+            get_db()
+            .execute(
+                "SELECT COALESCE(SUM(total_tokens), 0) FROM evoflow_proactive_cost_log WHERE role_agent_code = ? AND substr(created_at, 1, 10) = ?",
+                (agent_code, date_iso),
+            )
+            .fetchone()
+        )
         return int(row[0]) if row else 0
 
     @staticmethod
     def get_cost_summary(agent_code: str, days: int = 7) -> dict[str, Any]:
         """Return daily cost + token trend for the last N days."""
-        rows = get_db().execute(
-            "SELECT substr(created_at, 1, 10) day, "
-            "COUNT(*) rounds, COALESCE(SUM(cost_usd), 0.0) cost, "
-            "COALESCE(SUM(total_tokens), 0) tokens "
-            "FROM evoflow_proactive_cost_log "
-            "WHERE role_agent_code = ? "
-            "GROUP BY day ORDER BY day DESC LIMIT ?",
-            (agent_code, days),
-        ).fetchall()
+        rows = (
+            get_db()
+            .execute(
+                "SELECT substr(created_at, 1, 10) day, "
+                "COUNT(*) rounds, COALESCE(SUM(cost_usd), 0.0) cost, "
+                "COALESCE(SUM(total_tokens), 0) tokens "
+                "FROM evoflow_proactive_cost_log "
+                "WHERE role_agent_code = ? "
+                "GROUP BY day ORDER BY day DESC LIMIT ?",
+                (agent_code, days),
+            )
+            .fetchall()
+        )
         return {
             "role_agent_code": agent_code,
             "days": [
@@ -1215,8 +1198,10 @@ class ProactiveCostRepository:
                 "duration_seconds": 0.0,
                 "rounds": 0,
             }
-        row = get_db().execute(
-            """
+        row = (
+            get_db()
+            .execute(
+                """
             SELECT COALESCE(SUM(cost_usd), 0.0) AS cost,
                    COALESCE(SUM(total_tokens), 0) AS tokens,
                    COALESCE(SUM(duration_seconds), 0.0) AS duration,
@@ -1224,8 +1209,10 @@ class ProactiveCostRepository:
             FROM evoflow_proactive_cost_log
             WHERE role_agent_code = ? AND round_id = ?
             """,
-            (code, rid),
-        ).fetchone()
+                (code, rid),
+            )
+            .fetchone()
+        )
         return {
             "role_agent_code": code,
             "round_id": rid,

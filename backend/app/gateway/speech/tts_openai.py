@@ -44,10 +44,7 @@ async def synthesize_speech_stream(
 ) -> AsyncGenerator[bytes, None]:
     """Stream MP3 chunks from OpenAI TTS as they arrive."""
     if not api_key or not api_key.strip():
-        raise ValueError(
-            "OpenAI TTS: 缺少 API Key，请在 设置 → 模型 → 创意媒体 填写 openaiTtsKey，"
-            "或设置环境变量 OPENAI_API_KEY / OPENAI_TTS_API_KEY。"
-        )
+        raise ValueError("OpenAI TTS: 缺少 API Key，请在 设置 → 模型 → 创意媒体 填写 openaiTtsKey，或设置环境变量 OPENAI_API_KEY / OPENAI_TTS_API_KEY。")
     script = str(text or "").strip()
     if not script:
         raise ValueError("OpenAI TTS: 文本不能为空")
@@ -69,9 +66,7 @@ async def synthesize_speech_stream(
         async with client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code >= 400:
                 body = await resp.aread()
-                raise RuntimeError(
-                    f"OpenAI TTS HTTP {resp.status_code}: {body[:300]!r}"
-                )
+                raise RuntimeError(f"OpenAI TTS HTTP {resp.status_code}: {body[:300]!r}")
             async for chunk in resp.aiter_bytes():
                 if chunk:
                     yield chunk

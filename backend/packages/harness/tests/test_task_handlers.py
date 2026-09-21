@@ -12,9 +12,7 @@ def test_normalize_handler_entry_full():
         {
             "agent_code": "frontend-dev",
             "content": "修闪烁",
-            "read_outputs": [
-                {"type": "file", "key": "report", "value": "docs/a.md", "label": "报告"}
-            ],
+            "read_outputs": [{"type": "file", "key": "report", "value": "docs/a.md", "label": "报告"}],
             "role": "前端",
         }
     )
@@ -68,9 +66,7 @@ def test_normalize_task_handlers_json_and_per_person_outputs():
 
 
 def test_normalize_task_handlers_json_string():
-    items = normalize_task_handlers(
-        '[{"agent_code":"x","content":"do","outputs":[{"type":"file","key":"a","value":"a.md"}]}]'
-    )
+    items = normalize_task_handlers('[{"agent_code":"x","content":"do","outputs":[{"type":"file","key":"a","value":"a.md"}]}]')
     assert items[0]["agent_code"] == "x"
     assert items[0]["read_outputs"][0]["value"] == "a.md"
 
@@ -114,6 +110,4 @@ def test_task_handlers_of_prefers_handlers():
         "suggested_handlers": [{"agent_code": "b", "content": "2"}],
     }
     assert task_handlers_of(row)[0]["agent_code"] == "a"
-    assert task_handlers_of({"suggested_handlers": [{"agent_code": "b", "content": "2"}]})[0][
-        "agent_code"
-    ] == "b"
+    assert task_handlers_of({"suggested_handlers": [{"agent_code": "b", "content": "2"}]})[0]["agent_code"] == "b"

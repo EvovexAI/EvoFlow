@@ -202,25 +202,13 @@ def list_issued_codes(
         "active": sum(1 for r in items if r.get("status") == STATUS_ACTIVE),
         "expired": sum(1 for r in items if r.get("status") == STATUS_EXPIRED),
         "revoked": sum(1 for r in items if r.get("status") == STATUS_REVOKED),
-        "expiring_soon": sum(
-            1
-            for r in items
-            if r.get("status") == STATUS_ACTIVE
-            and isinstance(r.get("days_remaining"), int)
-            and int(r["days_remaining"]) <= 30
-        ),
+        "expiring_soon": sum(1 for r in items if r.get("status") == STATUS_ACTIVE and isinstance(r.get("days_remaining"), int) and int(r["days_remaining"]) <= 30),
     }
 
     if want in {STATUS_ACTIVE, STATUS_EXPIRED, STATUS_REVOKED}:
         items = [r for r in items if r.get("status") == want]
     elif want == "expiring_soon":
-        items = [
-            r
-            for r in items
-            if r.get("status") == STATUS_ACTIVE
-            and isinstance(r.get("days_remaining"), int)
-            and int(r["days_remaining"]) <= 30
-        ]
+        items = [r for r in items if r.get("status") == STATUS_ACTIVE and isinstance(r.get("days_remaining"), int) and int(r["days_remaining"]) <= 30]
 
     total = len(items)
     page = items[off : off + lim]

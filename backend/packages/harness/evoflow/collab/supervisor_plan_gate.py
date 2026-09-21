@@ -36,9 +36,7 @@ _PLAN_REDUNDANT_SETUP_ACTIONS = frozenset(
 )
 
 _PLAN_REDUNDANT_SETUP_MESSAGE = (
-    "plan 工具已成功落库时，主任务与子任务行已由 plan Steps 自动同步，"
-    "勿再调用 create_task_with_subtasks / create_subtasks。"
-    "请使用 supervisor(start_execution, task_id=...) 派发，并用 monitor_execution_step 监控进度。"
+    "plan 工具已成功落库时，主任务与子任务行已由 plan Steps 自动同步，勿再调用 create_task_with_subtasks / create_subtasks。请使用 supervisor(start_execution, task_id=...) 派发，并用 monitor_execution_step 监控进度。"
 )
 
 # Mutates running work or starts workers — requires user「开始执行」authorization.
@@ -191,10 +189,7 @@ def check_supervisor_collab_gate(
                 action=act,
                 error_code="need_execution_authorization",
                 message=_EXEC_AUTH_USER_MESSAGE,
-                hint=(
-                    "用户「开始执行」后由你调用 supervisor(start_execution, task_id=...) 派发；"
-                    "用 monitor_execution_step / get_status 跟进。"
-                ),
+                hint=("用户「开始执行」后由你调用 supervisor(start_execution, task_id=...) 派发；用 monitor_execution_step / get_status 跟进。"),
             )
 
     return None

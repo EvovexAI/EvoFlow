@@ -43,7 +43,7 @@ def role_to_agent_card(role: ProactiveRole) -> dict[str, Any]:
     cfg: ProactiveRoleConfig = role.config
 
     skills = []
-    for skill_name in (cfg.skills or []):
+    for skill_name in cfg.skills or []:
         meta = _lookup_skill_metadata(skill_name)
         skills.append(
             {

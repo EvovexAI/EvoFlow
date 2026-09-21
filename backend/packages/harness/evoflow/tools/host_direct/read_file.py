@@ -6,13 +6,13 @@ from pathlib import Path
 from langchain.tools import ToolRuntime, tool
 
 from evoflow.tools.host_direct.read_logic import read_file_content
-from evoflow.tools.minimal_schema import READ_TOOL_DESCRIPTION
 from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
 from evoflow.tools.host_direct.workspace_path_guard import (
     _is_absolute_path,
     _resolve_relative_under_root,
     resolve_tool_path,
 )
+from evoflow.tools.minimal_schema import READ_TOOL_DESCRIPTION
 from evoflow.utils.workspace_browse import flatten_bound_workspace_absolute
 
 _SYMBOL_MAX_LINES = 200
@@ -34,9 +34,7 @@ def _detect_language(path: Path) -> str:
     return "python"  # default: indentation-based matching works for many languages
 
 
-def _find_symbol_range(
-    content: str, symbol: str, language: str = "python"
-) -> tuple[int, int] | None:
+def _find_symbol_range(content: str, symbol: str, language: str = "python") -> tuple[int, int] | None:
     """Find the line range (1-based start, exclusive end) of a function/class by name.
 
     Supports Python (indentation-based body), JS/TS/Java (brace-matched body).
@@ -52,7 +50,7 @@ def _find_symbol_python(lines: list[str], symbol: str) -> tuple[int, int] | None
     import re
 
     pattern = re.compile(
-        r'^(\s*)(?:async\s+)?(?:def|class)\s+' + re.escape(symbol) + r'\b',
+        r"^(\s*)(?:async\s+)?(?:def|class)\s+" + re.escape(symbol) + r"\b",
     )
     for i, line in enumerate(lines):
         m = pattern.match(line)
@@ -73,23 +71,21 @@ def _find_symbol_python(lines: list[str], symbol: str) -> tuple[int, int] | None
     return None
 
 
-def _find_symbol_brace(
-    lines: list[str], symbol: str, language: str
-) -> tuple[int, int] | None:
+def _find_symbol_brace(lines: list[str], symbol: str, language: str) -> tuple[int, int] | None:
     """JS/TS/Java: match function/class/method, use brace matching for body end."""
     import re
 
     sym = re.escape(symbol)
     if language == "jsts":
         patterns = [
-            re.compile(rf'^(\s*)(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+{sym}\b'),
-            re.compile(rf'^(\s*)(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+{sym}\b'),
-            re.compile(rf'^(\s*)(?:export\s+)?(?:const|let|var)\s+{sym}\s*=?\s*(?:\(|function|async|=>|\[)'),
+            re.compile(rf"^(\s*)(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+{sym}\b"),
+            re.compile(rf"^(\s*)(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+{sym}\b"),
+            re.compile(rf"^(\s*)(?:export\s+)?(?:const|let|var)\s+{sym}\s*=?\s*(?:\(|function|async|=>|\[)"),
         ]
     else:  # java
         patterns = [
-            re.compile(rf'^(\s*)(?:\w+\s+)*(?:class|interface|enum)\s+{sym}\b'),
-            re.compile(rf'^(\s*)(?:\w+\s+)*\w+(?:\s*<[^>]+>)?\s+{sym}\s*\('),
+            re.compile(rf"^(\s*)(?:\w+\s+)*(?:class|interface|enum)\s+{sym}\b"),
+            re.compile(rf"^(\s*)(?:\w+\s+)*\w+(?:\s*<[^>]+>)?\s+{sym}\s*\("),
         ]
 
     for i, line in enumerate(lines):
@@ -123,24 +119,20 @@ def _find_symbol_brace(
     return None
 
 
-def _list_symbols_in_file(
-    content: str, language: str = "python", limit: int = 15
-) -> list[str]:
+def _list_symbols_in_file(content: str, language: str = "python", limit: int = 15) -> list[str]:
     """Extract top-level symbol names for 'did you mean' suggestions."""
     import re
 
     lines = content.splitlines()
     names: list[str] = []
     if language == "python":
-        pat = re.compile(r'^(\s*)(?:async\s+)?(?:def|class)\s+(\w+)')
+        pat = re.compile(r"^(\s*)(?:async\s+)?(?:def|class)\s+(\w+)")
         grp = 2
     elif language == "jsts":
-        pat = re.compile(
-            r'^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+|class\s+)(\w+)'
-        )
+        pat = re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\s+|class\s+)(\w+)")
         grp = 1
     else:
-        pat = re.compile(r'^\s*(?:\w+\s+)*(?:class|interface|enum)\s+(\w+)')
+        pat = re.compile(r"^\s*(?:\w+\s+)*(?:class|interface|enum)\s+(\w+)")
         grp = 1
     for line in lines:
         m = pat.match(line)
@@ -178,10 +170,7 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
             target = flatten_bound_workspace_absolute(target, root)
         if not target.is_file():
             if target.is_dir():
-                return (
-                    f"Error: Path is a directory, not a file: {path}. "
-                    "Use terminal (e.g. dir / ls) to browse, or read with a concrete file path."
-                )
+                return f"Error: Path is a directory, not a file: {path}. Use terminal (e.g. dir / ls) to browse, or read with a concrete file path."
             return f"Error: File not found: {path}"
         return target
 
@@ -196,10 +185,7 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
 
     if not target.is_file():
         if target.is_dir():
-            return (
-                f"Error: Path is a directory, not a file: {path}. "
-                "Use terminal (e.g. dir / ls) to browse, or read with a concrete file path."
-            )
+            return f"Error: Path is a directory, not a file: {path}. Use terminal (e.g. dir / ls) to browse, or read with a concrete file path."
         return f"Error: File not found: {path}"
     return target
 
@@ -226,26 +212,16 @@ def read_file_hd(
             hint = ""
             if available:
                 hint = f"\n\nAvailable symbols: {', '.join(available[:10])}"
-            return (
-                f"Error: Symbol '{symbol}' not found in {path}.{hint}"
-                "\n\nTip: Use offset + limit to read by line range."
-            )
+            return f"Error: Symbol '{symbol}' not found in {path}.{hint}\n\nTip: Use offset + limit to read by line range."
         start, end = result
         lines = content.splitlines()
-        body_lines = lines[start - 1:end]
+        body_lines = lines[start - 1 : end]
         total = len(body_lines)
         if total > _SYMBOL_MAX_LINES:
             shown = body_lines[:_SYMBOL_MAX_LINES]
-            text = "\n".join(
-                f"{start + i}: {line}" for i, line in enumerate(shown)
-            )
+            text = "\n".join(f"{start + i}: {line}" for i, line in enumerate(shown))
             remaining = total - _SYMBOL_MAX_LINES
-            text += (
-                f"\n\n… [symbol '{symbol}' body is {total} lines; "
-                f"showing first {_SYMBOL_MAX_LINES}. "
-                f"Read the rest with offset={start + _SYMBOL_MAX_LINES}, "
-                f"limit={min(_SYMBOL_MAX_LINES, remaining)}]"
-            )
+            text += f"\n\n… [symbol '{symbol}' body is {total} lines; showing first {_SYMBOL_MAX_LINES}. Read the rest with offset={start + _SYMBOL_MAX_LINES}, limit={min(_SYMBOL_MAX_LINES, remaining)}]"
             return text
         return "\n".join(f"{start + i}: {line}" for i, line in enumerate(body_lines))
     return read_file_content(str(resolved), offset=offset, limit=limit, use_cache=True)

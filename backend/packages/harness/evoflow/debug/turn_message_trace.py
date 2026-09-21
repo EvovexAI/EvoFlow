@@ -95,14 +95,16 @@ class TurnMessageTracer:
         aborted: bool = False,
     ):
         """Record one model call round within a turn."""
-        trace.rounds.append({
-            "round": round_num,
-            "input_offset": input_offset,
-            "content": _cap_text(content),
-            "reasoning_content": _cap_text(reasoning_content),
-            "tool_calls": tool_calls or [],
-            "aborted": aborted,
-        })
+        trace.rounds.append(
+            {
+                "round": round_num,
+                "input_offset": input_offset,
+                "content": _cap_text(content),
+                "reasoning_content": _cap_text(reasoning_content),
+                "tool_calls": tool_calls or [],
+                "aborted": aborted,
+            }
+        )
 
     def end_turn(
         self,
@@ -127,21 +129,23 @@ class TurnMessageTracer:
         """Return summary list (no full messages)."""
         result = []
         for t in reversed(self.traces[-limit:]):
-            result.append({
-                "id": t.id,
-                "seq": t.seq,
-                "thread_id": t.thread_id,
-                "started_at": t.started_at,
-                "finished_at": t.finished_at,
-                "meta": t.meta,
-                "round_count": len(t.rounds),
-                "message_count": len(t.messages),
-                "delivered": t.delivered,
-                "aborted": t.aborted,
-                "error": t.error,
-                "role_ribbon": _role_ribbon(t.messages),
-                "preview": _cap_text(t.meta.get("user_message", ""), 120),
-            })
+            result.append(
+                {
+                    "id": t.id,
+                    "seq": t.seq,
+                    "thread_id": t.thread_id,
+                    "started_at": t.started_at,
+                    "finished_at": t.finished_at,
+                    "meta": t.meta,
+                    "round_count": len(t.rounds),
+                    "message_count": len(t.messages),
+                    "delivered": t.delivered,
+                    "aborted": t.aborted,
+                    "error": t.error,
+                    "role_ribbon": _role_ribbon(t.messages),
+                    "preview": _cap_text(t.meta.get("user_message", ""), 120),
+                }
+            )
         return result
 
     def get_turn(self, turn_id: str) -> dict[str, Any] | None:
@@ -178,7 +182,7 @@ class TurnMessageTracer:
             return
         try:
             lines = self._file.read_text(encoding="utf-8").strip().split("\n")
-            tail = lines[-self.max_turns:]
+            tail = lines[-self.max_turns :]
             for line in tail:
                 line = line.strip()
                 if not line:
@@ -208,12 +212,12 @@ class TurnMessageTracer:
 
     def _compact(self):
         """Rewrite file with only last max_turns traces."""
-        recent = [json.dumps(_trace_to_dict(t), ensure_ascii=False) for t in self.traces[-self.max_turns:]]
+        recent = [json.dumps(_trace_to_dict(t), ensure_ascii=False) for t in self.traces[-self.max_turns :]]
         self._file.write_text("\n".join(recent) + "\n", encoding="utf-8")
 
     def _trim(self):
         if len(self.traces) > self.max_turns:
-            self.traces = self.traces[-self.max_turns:]
+            self.traces = self.traces[-self.max_turns :]
 
 
 # ── Singleton ──
@@ -233,8 +237,9 @@ def get_turn_tracer(data_dir: Path | None = None) -> TurnMessageTracer:
 
 # ── Helpers ──
 
+
 def _now_iso() -> str:
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
 
     return datetime.now(timezone(timedelta(hours=8))).isoformat()
 
@@ -265,26 +270,21 @@ def _snapshot_message(m: Any) -> dict[str, Any]:
         out["content"] = _cap_text(str(content))
 
     # reasoning_content (DeepSeek / Claude thinking)
-    rc = getattr(m, "reasoning_content", None) or (
-        getattr(m, "additional_kwargs", {}) or {}
-    ).get("reasoning_content")
+    rc = getattr(m, "reasoning_content", None) or (getattr(m, "additional_kwargs", {}) or {}).get("reasoning_content")
     if rc:
         out["reasoning_content"] = _cap_text(str(rc))
 
     # tool_calls
     tcs = getattr(m, "tool_calls", None)
     if tcs:
-        out["tool_calls"] = [
-            {"name": tc.get("name", ""), "args": tc.get("args", {})} for tc in tcs
-        ]
+        out["tool_calls"] = [{"name": tc.get("name", ""), "args": tc.get("args", {})} for tc in tcs]
 
     return out
 
 
 def _role_ribbon(messages: list[dict[str, Any]]) -> str:
     """Compact role visualization: S=system, U=user, A=assistant, T=tool."""
-    chars = {"system": "S", "user": "U", "human": "U",
-             "assistant": "A", "ai": "A", "tool": "T"}
+    chars = {"system": "S", "user": "U", "human": "U", "assistant": "A", "ai": "A", "tool": "T"}
     return "".join(chars.get(m.get("role", "?"), "?") for m in messages)
 
 

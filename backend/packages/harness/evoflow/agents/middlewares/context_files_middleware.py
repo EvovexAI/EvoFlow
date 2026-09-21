@@ -112,21 +112,12 @@ class ContextFilesMiddleware(AgentMiddleware[ContextFilesMiddlewareState]):
     def _read_snippet(self, path: Path, entry: dict, *, native_vision: bool) -> str:
         if self._is_image_file(path):
             if native_vision:
-                return (
-                    "(image attached below as pixels — already visible to the vision model; "
-                    "do NOT call view_image for this path)"
-                )
+                return "(image attached below as pixels — already visible to the vision model; do NOT call view_image for this path)"
             size = path.stat().st_size if path.exists() else 0
-            return (
-                f"(binary image, {size} bytes — do not inline; "
-                "use view_image with this Path)"
-            )
+            return f"(binary image, {size} bytes — do not inline; use view_image with this Path)"
         if self._is_binary_file(path):
             size = path.stat().st_size if path.exists() else 0
-            return (
-                f"(binary file, {size} bytes — do not inline; "
-                "use read_file / vision tools with this Path)"
-            )
+            return f"(binary file, {size} bytes — do not inline; use read_file / vision tools with this Path)"
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
@@ -174,10 +165,7 @@ class ContextFilesMiddleware(AgentMiddleware[ContextFilesMiddlewareState]):
             lines.append("  ```")
             lines.append("")
         if has_native_images:
-            lines.append(
-                "Attached images are included as pixels in this user message; "
-                "do not call view_image for these paths."
-            )
+            lines.append("Attached images are included as pixels in this user message; do not call view_image for these paths.")
         else:
             lines.append("Prefer these paths when editing or explaining; use read_file for more.")
         lines.append("</context_files>")
@@ -328,11 +316,7 @@ class ContextFilesMiddleware(AgentMiddleware[ContextFilesMiddlewareState]):
         workspace_root = str(ctx.get("local_workspace_root") or "").strip() or None
         use_virtual = bool(ctx.get("use_virtual_paths"))
         native_vision = main_model_supports_vision(runtime)
-        block = (
-            self._build_block_virtual(entries)
-            if use_virtual and not workspace_root
-            else self._build_block(entries, workspace_root, native_vision=native_vision)
-        )
+        block = self._build_block_virtual(entries) if use_virtual and not workspace_root else self._build_block(entries, workspace_root, native_vision=native_vision)
         image_blocks = self._native_image_blocks(entries, workspace_root) if native_vision else None
         updated = self._inject_block(last, block, image_blocks=image_blocks or None)
         paths = [str(e.get("path") or "") for e in entries]

@@ -55,7 +55,7 @@ def _run(home: Path) -> dict:
     agent2 = agents_admin.get_agent(agent_code)
     cleared_bind = list(agent2.get("mcp_servers") or cleared_agent.get("mcp_servers") or [])
 
-    emptied = mcp_admin.set_mcp_config({"mcp_servers": {}})
+    _emptied = mcp_admin.set_mcp_config({"mcp_servers": {}})
     after = mcp_admin.get_mcp_config().get("mcp_servers") or {}
 
     assertions = [
@@ -105,8 +105,7 @@ def _run(home: Path) -> dict:
         expect_no_mcp_server(server_name),
         check_db_absent(
             f"db_no_agent_mcp_{agent_code}_{server_name}",
-            "SELECT item_value FROM evoflow_agent_list_items "
-            "WHERE lower(agent_code)=lower(?) AND list_kind='mcp_servers' AND item_value=?",
+            "SELECT item_value FROM evoflow_agent_list_items WHERE lower(agent_code)=lower(?) AND list_kind='mcp_servers' AND item_value=?",
             (agent_code, server_name),
         ),
     ]

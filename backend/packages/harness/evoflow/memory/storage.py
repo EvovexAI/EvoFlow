@@ -66,9 +66,7 @@ class OwnedMemoryStorage(MemoryStorage):
         if not agent_name:
             raise ValueError("Agent name must be a non-empty string.")
         if not AGENT_NAME_PATTERN.match(agent_name):
-            raise ValueError(
-                f"Invalid agent name {agent_name!r}: names must match {AGENT_NAME_PATTERN.pattern}"
-            )
+            raise ValueError(f"Invalid agent name {agent_name!r}: names must match {AGENT_NAME_PATTERN.pattern}")
 
     def _namespace(self, agent_name: str | None) -> str:
         from evoflow.memory.document_codec import namespace_for_agent_key
@@ -85,10 +83,7 @@ class OwnedMemoryStorage(MemoryStorage):
             return cached
         ns = self._namespace(agent_name)
         memory_data = atoms_to_document(ns)
-        if not any(
-            (memory_data.get("user") or {}).get(k, {}).get("summary")
-            for k in ("workContext", "personalContext", "topOfMind")
-        ) and not memory_data.get("facts"):
+        if not any((memory_data.get("user") or {}).get(k, {}).get("summary") for k in ("workContext", "personalContext", "topOfMind")) and not memory_data.get("facts"):
             # Keep empty structure stable
             memory_data = create_empty_memory()
         self._memory_cache[agent_name] = memory_data

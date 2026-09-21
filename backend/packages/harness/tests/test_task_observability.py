@@ -41,9 +41,7 @@ def obs_tmp(sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch):
         reset_observability_store_for_tests()
         base = get_app_config()
         custom = base.model_copy(deep=True)
-        custom.observability = custom.observability.model_copy(
-            update={"enabled": True, "sqlite_path": obs_path}
-        )
+        custom.observability = custom.observability.model_copy(update={"enabled": True, "sqlite_path": obs_path})
         set_app_config(custom)
         yield obs_path
         reset_observability_store_for_tests()

@@ -25,10 +25,7 @@ def _fingerprint(session_key: str, body: str) -> str:
 
 
 def _has_created_by_col() -> bool:
-    cols = {
-        str(r[1])
-        for r in get_db().execute("PRAGMA table_info(evoflow_session_notifications)").fetchall()
-    }
+    cols = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_session_notifications)").fetchall()}
     return "created_by" in cols
 
 
@@ -82,9 +79,7 @@ def list_session_notifications(
 def get_unread_count(*, created_by: str | None = None, is_admin: bool = False) -> int:
     db = get_db()
     if is_admin or not created_by or not _has_created_by_col():
-        row = db.execute(
-            "SELECT COUNT(*) FROM evoflow_session_notifications WHERE cleared = 0 AND read = 0"
-        ).fetchone()
+        row = db.execute("SELECT COUNT(*) FROM evoflow_session_notifications WHERE cleared = 0 AND read = 0").fetchone()
     else:
         row = db.execute(
             """SELECT COUNT(*) FROM evoflow_session_notifications
@@ -205,9 +200,7 @@ def mark_all_session_notifications_read(
 ) -> int:
     db = get_db()
     if is_admin or not created_by or not _has_created_by_col():
-        cur = db.execute(
-            "UPDATE evoflow_session_notifications SET read = 1 WHERE read = 0 AND cleared = 0"
-        )
+        cur = db.execute("UPDATE evoflow_session_notifications SET read = 1 WHERE read = 0 AND cleared = 0")
     else:
         cur = db.execute(
             """UPDATE evoflow_session_notifications SET read = 1
@@ -226,9 +219,7 @@ def clear_all_session_notifications(
     """Soft-delete visible notifications (sets cleared=1, retains fingerprints)."""
     db = get_db()
     if is_admin or not created_by or not _has_created_by_col():
-        cur = db.execute(
-            "UPDATE evoflow_session_notifications SET cleared = 1 WHERE cleared = 0"
-        )
+        cur = db.execute("UPDATE evoflow_session_notifications SET cleared = 1 WHERE cleared = 0")
     else:
         cur = db.execute(
             """UPDATE evoflow_session_notifications SET cleared = 1
@@ -271,8 +262,12 @@ def has_fingerprint(session_key: str, body: str) -> bool:
     if not sk:
         return False
     fp = _fingerprint(sk, str(body or "").strip())
-    row = get_db().execute(
-        "SELECT 1 FROM evoflow_session_notifications WHERE fingerprint = ?",
-        (fp,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT 1 FROM evoflow_session_notifications WHERE fingerprint = ?",
+            (fp,),
+        )
+        .fetchone()
+    )
     return row is not None

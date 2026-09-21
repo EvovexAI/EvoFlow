@@ -31,15 +31,7 @@ def _content_blocks_have_text(content: Any) -> bool:
     if isinstance(content, str):
         return bool(content.strip())
     if isinstance(content, list):
-        return any(
-            (isinstance(block, str) and block.strip())
-            or (
-                isinstance(block, dict)
-                and block.get("type") == "text"
-                and str(block.get("text") or "").strip()
-            )
-            for block in content
-        )
+        return any((isinstance(block, str) and block.strip()) or (isinstance(block, dict) and block.get("type") == "text" and str(block.get("text") or "").strip()) for block in content)
     return bool(content)
 
 

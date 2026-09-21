@@ -61,19 +61,15 @@ def _is_agent_plan_key(api_key: str) -> bool:
 def get_model_plan_config(model_name: str) -> dict | None:
     """Get plan configuration for a model from database."""
     from evoflow.persistence.db import get_db
+
     conn = get_db()
-    row = conn.execute(
-        "SELECT plan_type, plan_config FROM evoflow_models WHERE name = ?",
-        (model_name,)
-    ).fetchone()
+    row = conn.execute("SELECT plan_type, plan_config FROM evoflow_models WHERE name = ?", (model_name,)).fetchone()
     if not row:
         return None
     import json
+
     config = json.loads(row["plan_config"]) if row["plan_config"] else {}
-    return {
-        "plan_type": row["plan_type"] or "none",
-        **config
-    }
+    return {"plan_type": row["plan_type"] or "none", **config}
 
 
 def is_agent_plan(model_name: str) -> bool:
@@ -93,15 +89,15 @@ def get_plan_resources(model_name: str) -> tuple[str, str]:
     """Get TTS/ASR resource IDs for Agent Plan models."""
     config = get_model_plan_config(model_name)
     if not config:
-        return DEFAULT_TTS_RESOURCE, DEFAULT_ASR_RESOURCE
-    
+        return DEFAULT_TTS_RESOURCE_ID, DEFAULT_ASR_RESOURCE_ID
+
     if config.get("plan_type") == "volcengine_agent" or _is_agent_plan_key(config.get("api_key", "")):
         return (
-            config.get("tts_resource", DEFAULT_TTS_RESOURCE),
-            config.get("asr_resource", DEFAULT_ASR_RESOURCE),
+            config.get("tts_resource", DEFAULT_TTS_RESOURCE_ID),
+            config.get("asr_resource", DEFAULT_ASR_RESOURCE_ID),
         )
-    
-    return DEFAULT_TTS_RESOURCE, DEFAULT_ASR_RESOURCE
+
+    return DEFAULT_TTS_RESOURCE_ID, DEFAULT_ASR_RESOURCE_ID
 
 
 def _resolve_api_key(creds: dict | None = None) -> str:
@@ -127,22 +123,10 @@ def _load_credentials() -> tuple[str, str, str, str, bool]:
     api_key = _resolve_api_key(creds)
     agent_plan = _is_agent_plan_key(api_key)
     # 直接从 creds 读取，避免环境变量带来的不确定性
-    tts_resource = (
-        str(creds.get("volcengineTtsResourceId") or "").strip()
-        or os.getenv("VOLCENGINE_TTS_RESOURCE_ID", DEFAULT_TTS_RESOURCE_ID).strip()
-        or DEFAULT_TTS_RESOURCE_ID
-    )
-    tts_speaker = (
-        str(creds.get("volcengineTtsSpeaker") or "").strip()
-        or os.getenv("VOLCENGINE_TTS_SPEAKER", DEFAULT_TTS_SPEAKER).strip()
-        or DEFAULT_TTS_SPEAKER
-    )
+    tts_resource = str(creds.get("volcengineTtsResourceId") or "").strip() or os.getenv("VOLCENGINE_TTS_RESOURCE_ID", DEFAULT_TTS_RESOURCE_ID).strip() or DEFAULT_TTS_RESOURCE_ID
+    tts_speaker = str(creds.get("volcengineTtsSpeaker") or "").strip() or os.getenv("VOLCENGINE_TTS_SPEAKER", DEFAULT_TTS_SPEAKER).strip() or DEFAULT_TTS_SPEAKER
     asr_default = DEFAULT_AGENT_PLAN_ASR_RESOURCE_ID if agent_plan else DEFAULT_ASR_RESOURCE_ID
-    asr_resource = (
-        str(creds.get("volcengineAsrResourceId") or "").strip()
-        or os.getenv("VOLCENGINE_ASR_RESOURCE_ID", asr_default).strip()
-        or asr_default
-    )
+    asr_resource = str(creds.get("volcengineAsrResourceId") or "").strip() or os.getenv("VOLCENGINE_ASR_RESOURCE_ID", asr_default).strip() or asr_default
     return api_key, tts_resource, tts_speaker, asr_resource, agent_plan
 
 
@@ -158,11 +142,7 @@ def speech_configured() -> bool:
 def _require_credentials() -> tuple[str, str, str, str, bool]:
     api_key, tts_resource, tts_speaker, asr_resource, agent_plan = _load_credentials()
     if not api_key:
-        raise ValueError(
-            "请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key。"
-            "Agent Plan 用户可填火山方舟专属 Key（ark- 开头）；"
-            "也可复用同页「火山方舟」里的 Key。"
-        )
+        raise ValueError("请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key。Agent Plan 用户可填火山方舟专属 Key（ark- 开头）；也可复用同页「火山方舟」里的 Key。")
     if not get_enabled_vendors_safe():
         raise ValueError("Enable 火山 TTS vendor in Settings → Models")
     return api_key, tts_resource, tts_speaker, asr_resource, agent_plan
@@ -235,12 +215,7 @@ def _is_agent_plan_deduct_error(message: str) -> bool:
 def _format_tts_business_error(code, message: str) -> str:
     raw = str(message or "")
     if _is_agent_plan_deduct_error(raw) or code in (45000030, "45000030"):
-        return (
-            "当前方舟 Key 未开通 Agent Plan 语音抵扣（AgentPlanDeductNotEnabled）。"
-            "请确认已订阅 Agent Plan，并在方舟控制台开启语音/AFP 抵扣；"
-            f"TTS 应使用 Plan 接口与 Resource-Id=seed-tts-2.0。"
-            f"说明：{AGENT_PLAN_DOC_URL}"
-        )
+        return f"当前方舟 Key 未开通 Agent Plan 语音抵扣（AgentPlanDeductNotEnabled）。请确认已订阅 Agent Plan，并在方舟控制台开启语音/AFP 抵扣；TTS 应使用 Plan 接口与 Resource-Id=seed-tts-2.0。说明：{AGENT_PLAN_DOC_URL}"
     return f"TTS error code={code}: {raw}"
 
 
@@ -556,14 +531,8 @@ def _raise_asr_http_error(resp: httpx.Response, *, agent_plan: bool) -> None:
         pass
     if "Invalid X-Api-Key" in msg or "45000010" in msg:
         if agent_plan:
-            raise ValueError(
-                "语音 API Key 无效。Agent Plan 请确认已开通语音权益，并使用火山方舟专属 Key（ark- 开头）。"
-                f"配置说明：{AGENT_PLAN_DOC_URL}"
-            ) from None
-        raise ValueError(
-            "语音 API Key 无效。请使用豆包语音控制台创建的 Speech Key，"
-            f"或 Agent Plan 专属 Key。控制台：{SPEECH_CONSOLE_URL}"
-        ) from None
+            raise ValueError(f"语音 API Key 无效。Agent Plan 请确认已开通语音权益，并使用火山方舟专属 Key（ark- 开头）。配置说明：{AGENT_PLAN_DOC_URL}") from None
+        raise ValueError(f"语音 API Key 无效。请使用豆包语音控制台创建的 Speech Key，或 Agent Plan 专属 Key。控制台：{SPEECH_CONSOLE_URL}") from None
     raise RuntimeError(f"ASR HTTP {resp.status_code}: {msg}")
 
 

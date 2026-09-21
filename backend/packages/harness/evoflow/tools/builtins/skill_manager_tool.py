@@ -69,10 +69,7 @@ def _validate_skill_name(name: str) -> tuple[bool, str]:
     # Align with skills.validation hyphen-case: [a-z0-9-]+, no leading/trailing
     # hyphen, no consecutive hyphens, no dots/underscores.
     if not _VALID_SKILL_NAME_RE.match(name):
-        return False, (
-            f"无效的技能名称 '{name}'。"
-            "使用 hyphen-case（小写字母、数字和连字符），不能以连字符开头/结尾或包含连续连字符。"
-        )
+        return False, (f"无效的技能名称 '{name}'。使用 hyphen-case（小写字母、数字和连字符），不能以连字符开头/结尾或包含连续连字符。")
     return True, ""
 
 

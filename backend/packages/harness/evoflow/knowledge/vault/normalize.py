@@ -101,9 +101,7 @@ def _unwrap_mcp_content_blocks(payload: Any) -> Any:
             parsed = _try_parse_json(blocks)
             if parsed is not None:
                 return parsed
-        if isinstance(blocks, list) and blocks and all(
-            isinstance(b, dict) and ("text" in b or b.get("type") == "text") for b in blocks
-        ):
+        if isinstance(blocks, list) and blocks and all(isinstance(b, dict) and ("text" in b or b.get("type") == "text") for b in blocks):
             texts: list[str] = []
             for b in blocks:
                 if isinstance(b, dict):
@@ -238,14 +236,7 @@ def normalize_search_results(
             score = float(score_raw) if score_raw is not None else None
         except (TypeError, ValueError):
             score = None
-        snippet = str(
-            row.get("snippet")
-            or row.get("excerpt")
-            or row.get("preview")
-            or row.get("content")
-            or row.get("text")
-            or ""
-        )
+        snippet = str(row.get("snippet") or row.get("excerpt") or row.get("preview") or row.get("content") or row.get("text") or "")
         if len(snippet) > 800:
             snippet = snippet[:797] + "..."
         tags = row.get("tags") if isinstance(row.get("tags"), list) else []
@@ -432,13 +423,7 @@ def build_graph_from_related_search(
         if abs(d) > depth:
             continue
 
-        parent = str(
-            row.get("parent")
-            or row.get("from")
-            or row.get("source")
-            or row.get("via")
-            or ""
-        ).strip()
+        parent = str(row.get("parent") or row.get("from") or row.get("source") or row.get("via") or "").strip()
         if not parent:
             # Heuristic: depth ±1 connects to center; deeper needs parent
             if abs(d) == 1:

@@ -245,8 +245,7 @@ def mark_session_run_ended(
     sk = _resolve_session_key(session_key=session_key, thread_id=thread_id)
     if not sk:
         logger.warning(
-            "mark_session_run_ended: cannot resolve session_key "
-            "session_key=%s thread_id=%s — DB run_status NOT updated",
+            "mark_session_run_ended: cannot resolve session_key session_key=%s thread_id=%s — DB run_status NOT updated",
             session_key,
             thread_id,
         )

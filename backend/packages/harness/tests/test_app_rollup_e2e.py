@@ -38,7 +38,8 @@ def _make_app(
     """
     return {
         "name": app_id,
-        "steps": steps or [
+        "steps": steps
+        or [
             {"ref": "1", "goal": "Step 1", "tools": [], "depends_on": []},
             {"ref": "2", "goal": "Step 2", "tools": [], "depends_on": []},
         ],
@@ -94,7 +95,7 @@ def test_answer_node_only_mode_e2e(sqlite_tmp: Path) -> None:
     """answer_node_only mode: rollup copies answer step's report + its outputs to main task."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
     from evoflow.persistence import app_repositories
 
@@ -147,9 +148,7 @@ def test_answer_node_only_mode_e2e(sqlite_tmp: Path) -> None:
 
     # answer_node_only: result_summary should be from step 2 (the answer node)
     assert task2.get("result_summary"), "result_summary should not be empty"
-    assert "Step 2 report" in task2["result_summary"], (
-        f"Expected result_summary to contain 'Step 2 report', got: {task2.get('result_summary')}"
-    )
+    assert "Step 2 report" in task2["result_summary"], f"Expected result_summary to contain 'Step 2 report', got: {task2.get('result_summary')}"
     # outputs should prefer the answer node (step 2) only
     outputs = task2.get("outputs") or []
     assert len(outputs) == 1, f"Expected 1 answer-node output, got {len(outputs)}: {outputs}"
@@ -161,7 +160,7 @@ def test_auto_mode_adds_rollup_subtask(sqlite_tmp: Path) -> None:
     """auto mode: append_rollup_subtask adds a 4th subtask with ref=__rollup__."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.persistence import app_repositories
 
     get_db()
@@ -212,10 +211,10 @@ def test_auto_mode_rollup_step_executes_after_all_steps(sqlite_tmp: Path) -> Non
     """auto mode: rollup step stays blocked until all user steps complete."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
-    from evoflow.tools.builtins.supervisor.dependency import _resolve_subtasks_for_start_execution
     from evoflow.persistence import app_repositories
+    from evoflow.tools.builtins.supervisor.dependency import _resolve_subtasks_for_start_execution
 
     get_db()
     app_id = "App_rollup_dep_e2e"
@@ -260,9 +259,7 @@ def test_auto_mode_rollup_step_executes_after_all_steps(sqlite_tmp: Path) -> Non
     rollup_st1 = _find_subtask_by_ref(task1.get("subtasks") or [], "__rollup__")
     assert rollup_st1 is not None
     rollup_id = rollup_st1.get("id", "")
-    assert rollup_id not in runnable, (
-        f"Rollup should not be runnable when step 2 is still pending, runnable={runnable}"
-    )
+    assert rollup_id not in runnable, f"Rollup should not be runnable when step 2 is still pending, runnable={runnable}"
 
     # Step 2: mark step 2 as completed too
     refound = find_main_task(storage, task_id)
@@ -284,16 +281,14 @@ def test_auto_mode_rollup_step_executes_after_all_steps(sqlite_tmp: Path) -> Non
     rollup_st3 = _find_subtask_by_ref(task3.get("subtasks") or [], "__rollup__")
     assert rollup_st3 is not None
     rollup_id2 = rollup_st3.get("id", "")
-    assert rollup_id2 in runnable2, (
-        f"Rollup should be runnable after all steps complete, runnable={runnable2}, blocked={blocked2}"
-    )
+    assert rollup_id2 in runnable2, f"Rollup should be runnable after all steps complete, runnable={runnable2}, blocked={blocked2}"
 
 
 def test_auto_mode_rollup_result_writes_to_main_task(sqlite_tmp: Path) -> None:
     """auto mode: when rollup subtask completes, its result is promoted to the main task."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
     from evoflow.persistence import app_repositories
 
@@ -350,9 +345,7 @@ def test_auto_mode_rollup_result_writes_to_main_task(sqlite_tmp: Path) -> None:
     _project2, task2 = refound
 
     # result_summary should be the rollup's task_report
-    assert task2.get("result_summary") == "Final rollup report", (
-        f"Expected result_summary='Final rollup report', got: {task2.get('result_summary')}"
-    )
+    assert task2.get("result_summary") == "Final rollup report", f"Expected result_summary='Final rollup report', got: {task2.get('result_summary')}"
 
     # outputs should prefer the rollup summary file only
     # After normalization, each output is {type, key, value, label?}
@@ -372,7 +365,7 @@ def test_off_mode_still_rolls_up(sqlite_tmp: Path) -> None:
     """legacy 'off' must NOT disable rollup — multi-step workflows always roll up."""
     del sqlite_tmp
     from evoflow.collab import app_runner
-    from evoflow.collab.storage import get_project_storage, find_main_task
+    from evoflow.collab.storage import find_main_task, get_project_storage
     from evoflow.collab.task_progress import sync_main_task_from_subtasks
     from evoflow.persistence import app_repositories
 
@@ -401,9 +394,7 @@ def test_off_mode_still_rolls_up(sqlite_tmp: Path) -> None:
     subtasks = task.get("subtasks") or []
     # even with 'off', multi-step workflow still gets a rollup subtask
     user_step_refs = {st.get("ref", "") for st in subtasks}
-    assert "__rollup__" in user_step_refs, (
-        f"multi-step workflow with 'off' should still have a rollup subtask, refs={user_step_refs}"
-    )
+    assert "__rollup__" in user_step_refs, f"multi-step workflow with 'off' should still have a rollup subtask, refs={user_step_refs}"
 
     # Mark all user steps + rollup completed
     for st in subtasks:
@@ -430,10 +421,6 @@ def test_off_mode_still_rolls_up(sqlite_tmp: Path) -> None:
 
     # rollup is mandatory: result_summary should be promoted (not empty)
     result_summary = task2.get("result_summary") or ""
-    assert result_summary == "Final rollup report", (
-        f"multi-step 'off' should still promote rollup result, got: {result_summary!r}"
-    )
+    assert result_summary == "Final rollup report", f"multi-step 'off' should still promote rollup result, got: {result_summary!r}"
 
-    assert task2.get("status") == "completed", (
-        f"main task should be completed, got: {task2.get('status')}"
-    )
+    assert task2.get("status") == "completed", f"main task should be completed, got: {task2.get('status')}"

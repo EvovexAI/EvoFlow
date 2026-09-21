@@ -309,9 +309,7 @@ def _check_windows_stale_lock(path: Path) -> None:
             "processes (e.g. via Task Manager) and restart. If no process is "
             "running, manually delete the stale -wal/-shm files listed above."
         )
-        raise sqlite3.OperationalError(
-            f"SQLite sidecar files are locked by another process: {', '.join(stale)}. {hint}"
-        )
+        raise sqlite3.OperationalError(f"SQLite sidecar files are locked by another process: {', '.join(stale)}. {hint}")
 
 
 def _restrict_db_file_permissions(path: Path) -> None:
@@ -509,6 +507,7 @@ def set_app_schema_version(version: int, conn: Any | None = None) -> None:
 # Startup preflight: integrity_check + WAL checkpoint repair
 # ---------------------------------------------------------------------------
 
+
 def _startup_preflight_mode() -> str:
     """``fast`` (default): quick_check on boot; ``full``: legacy blocking check; ``skip``: none."""
     raw = (os.getenv("EVOFLOW_STARTUP_DB_PREFLIGHT") or "fast").strip().lower()
@@ -583,9 +582,7 @@ def preflight_database_startup(path: Path, *, label: str = "") -> bool:
     if mode == "skip":
         logger.debug("preflight startup: %s skipped (EVOFLOW_STARTUP_DB_PREFLIGHT=skip)", tag)
         return True
-    if _skip_observability_startup_preflight() and (
-        "observability" in tag.lower() or "observability" in str(path).lower()
-    ):
+    if _skip_observability_startup_preflight() and ("observability" in tag.lower() or "observability" in str(path).lower()):
         logger.info(
             "preflight startup: %s skipped (telemetry DB; full check deferred post-ready)",
             tag,
@@ -685,7 +682,10 @@ def preflight_database(path: Path, *, label: str = "") -> bool:
             busy, log_frames, ckpt_frames = _wal_checkpoint_truncate(conn)
             logger.info(
                 "preflight: %s attempted wal_checkpoint(TRUNCATE): busy=%s log=%s checkpointed=%s",
-                tag, busy, log_frames, ckpt_frames,
+                tag,
+                busy,
+                log_frames,
+                ckpt_frames,
             )
         except sqlite3.OperationalError as exc:
             logger.warning("preflight: %s wal_checkpoint(TRUNCATE) failed: %s", tag, exc)
@@ -698,9 +698,9 @@ def preflight_database(path: Path, *, label: str = "") -> bool:
 
         # Still broken — log error but do not raise (degraded run).
         logger.error(
-            "preflight: %s integrity_check STILL FAILED after repair: %s — "
-            "running in degraded mode; database may be corrupt",
-            tag, result2[:500],
+            "preflight: %s integrity_check STILL FAILED after repair: %s — running in degraded mode; database may be corrupt",
+            tag,
+            result2[:500],
         )
         return False
     except Exception as exc:
@@ -790,7 +790,10 @@ def checkpoint_all_databases() -> dict[str, dict[str, int]]:
             summary[label] = {"busy": busy, "log": log_frames, "checkpointed": ckpt_frames}
             logger.debug(
                 "wal_checkpoint %s: busy=%s log=%s checkpointed=%s",
-                label, busy, log_frames, ckpt_frames,
+                label,
+                busy,
+                log_frames,
+                ckpt_frames,
             )
         except Exception as exc:
             summary[label] = {"busy": -1, "log": -1, "checkpointed": -1, "error": 1}

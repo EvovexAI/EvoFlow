@@ -740,6 +740,35 @@ data_retention:
 #     # Optional overrides: account_id, token, base_url, cdn_base_url, group_policy, allowed_users, …
 #     # See ``WeixinChannel`` docstring in ``backend/app/channels/weixin.py``.
 #     # Optional ``session:`` / per-user overrides work the same as telegram (same YAML shape).
+#
+#   wecom:
+#     enabled: false
+#     # Enterprise WeChat (企业微信) via the AI Bot WebSocket gateway (出站长连接，无需公网 IP)。
+#     # 1) 在企微工作台「应用 → 智能机器人 → 创建智能机器人」选择 API 模式，复制 Bot ID 与 Secret。
+#     # 2) 也可在 EvoPanel：IM Channels → 企业微信 →「企微扫码」扫码自动创建机器人并获取凭证。
+#     bot_id: $WECOM_BOT_ID        # or WECOM_BOT_ID env var
+#     secret: $WECOM_SECRET        # or WECOM_SECRET env var
+#     # websocket_url: wss://openws.work.weixin.qq.com   # optional override
+#     # dm_policy: pairing          # open | allowlist | disabled | pairing (default pairing)
+#     # allow_from: ["user_id_1"]   # for dm_policy=allowlist
+#     # group_policy: pairing       # open | allowlist | disabled | pairing (default pairing)
+#     # group_allow_from: ["group_id_1"]
+#     # Optional ``session:`` / per-user overrides work the same as telegram (same YAML shape).
+#     # See ``WecomChannel`` docstring in ``backend/app/channels/wecom.py``.
+#
+#   dingtalk:
+#     enabled: false
+#     # DingTalk (钉钉) via Stream Mode (官方 dingtalk-stream SDK，出站长连接，无需公网 IP)。
+#     # 两种获取凭证方式：
+#     #   1) EvoPanel：IM Channels → 钉钉 →「📱 钉钉扫码」扫码自动授权并回填 Client ID / Secret。
+#     #   2) 前往钉钉开放平台创建企业内部机器人应用，手动复制 Client ID（AppKey）与 Client Secret（AppSecret）。
+#     client_id: $DINGTALK_CLIENT_ID        # or DINGTALK_CLIENT_ID env var
+#     client_secret: $DINGTALK_CLIENT_SECRET
+#     # require_mention: true       # 群聊需 @机器人（默认 false）
+#     # allowed_users: []           # 空 = 允许所有；["staff_id"] 或 "*"
+#     # free_response_chats: []     # 免 @ 直接回复的群
+#     # allowed_chats: []           # 硬白名单（空 = 不限制）
+#     # See ``DingtalkChannel`` docstring in ``backend/app/channels/dingtalk.py``.
 
 # ============================================================================
 # Guardrails Configuration

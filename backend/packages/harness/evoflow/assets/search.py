@@ -11,10 +11,11 @@ Local asset search algorithm:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from evoflow.assets.paths import EntityRef, entity_root
 
@@ -209,9 +210,7 @@ class _Matcher:
 
     def flags_for_line(self, line: str) -> list[bool]:
         hay = line if self.case_sensitive else line.lower()
-        return [
-            (q if self.case_sensitive else q.lower()) in hay for q in self.queries
-        ]
+        return [(q if self.case_sensitive else q.lower()) in hay for q in self.queries]
 
     def matched_names(self, flags: list[bool]) -> list[str]:
         return [q for q, ok in zip(self.queries, flags, strict=False) if ok]
@@ -288,9 +287,7 @@ def _search_file(
                     merged[k] = merged[k] or bit
                 end = j
                 if all(merged):
-                    hits.append(
-                        _build_hit(rel, lines, start, end, context_lines, matcher.matched_names(merged))
-                    )
+                    hits.append(_build_hit(rel, lines, start, end, context_lines, matcher.matched_names(merged)))
                     break
 
 

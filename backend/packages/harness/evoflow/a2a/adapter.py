@@ -26,15 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Meeting speaks share one API account; serialize + retry so multi-speaker rounds
 # do not stampede into SetLimitExceeded / 429.
-_MEETING_SPEAK_CONCURRENCY = max(
-    1, int(os.getenv("EVOFLOW_MEETING_SPEAK_CONCURRENCY", "1") or 1)
-)
-_MEETING_SPEAK_MAX_RETRIES = max(
-    0, int(os.getenv("EVOFLOW_MEETING_SPEAK_RATE_LIMIT_RETRIES", "4") or 4)
-)
-_MEETING_SPEAK_MAX_BACKOFF_S = max(
-    2.0, float(os.getenv("EVOFLOW_MEETING_SPEAK_MAX_BACKOFF_SECONDS", "20") or 20)
-)
+_MEETING_SPEAK_CONCURRENCY = max(1, int(os.getenv("EVOFLOW_MEETING_SPEAK_CONCURRENCY", "1") or 1))
+_MEETING_SPEAK_MAX_RETRIES = max(0, int(os.getenv("EVOFLOW_MEETING_SPEAK_RATE_LIMIT_RETRIES", "4") or 4))
+_MEETING_SPEAK_MAX_BACKOFF_S = max(2.0, float(os.getenv("EVOFLOW_MEETING_SPEAK_MAX_BACKOFF_SECONDS", "20") or 20))
 _meeting_speak_sem = asyncio.Semaphore(_MEETING_SPEAK_CONCURRENCY)
 
 
@@ -170,12 +164,16 @@ def record_terminal_a2a_task(
 
 def _get_a2a_task(task_id: str) -> dict[str, Any] | None:
     """Fetch an A2A task record by ID."""
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT * FROM evoflow_a2a_tasks WHERE task_id = ?
         """,
-        (task_id,),
-    ).fetchone()
+            (task_id,),
+        )
+        .fetchone()
+    )
     return dict(row) if row else None
 
 
@@ -335,15 +333,7 @@ def sanitize_meeting_reply(text: str, *, max_chars: int | None = None) -> str:
     if any(m.lower() in lower or m in raw for m in bad_markers):
         # Keep only lines that look like spoken report; else clear for regenerator
         lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        kept = [
-            ln
-            for ln in lines
-            if not any(b in ln for b in bad_markers)
-            and not ln.startswith("[feishu")
-            and "交班" not in ln
-            and "工作汇报摘要" not in ln
-            and "巡检" not in ln
-        ]
+        kept = [ln for ln in lines if not any(b in ln for b in bad_markers) and not ln.startswith("[feishu") and "交班" not in ln and "工作汇报摘要" not in ln and "巡检" not in ln]
         raw = "\n".join(kept).strip()
     # Strip rigid label scaffolds that make speeches sound like forms
     raw = re.sub(r"【\s*(立场|风险|建议|收敛|结论)\s*】", "", raw)
@@ -388,9 +378,7 @@ async def _llm_meeting_speak(
                 list_role_recent_tasks,
             )
 
-            task_memory = format_meeting_task_memory_for_prompt(
-                list_role_recent_tasks(role, limit=20)
-            )[:2000]
+            task_memory = format_meeting_task_memory_for_prompt(list_role_recent_tasks(role, limit=20))[:2000]
         except Exception:
             task_memory = ""
 
@@ -422,15 +410,9 @@ async def _llm_meeting_speak(
             "禁止：专业术语、条目式长列表、长分析、值班交班/工作汇报摘要、飞书模板、JSON、工具说明、新建任务。\n"
         )
     if allow_tools:
-        system += (
-            "本轮允许查证：需要证据时可调用 lookup_my_tasks / search_my_assets / read_my_asset（只读）。"
-            "查完后必须给出最终口头发言；不要把工具原文贴给用户；最多查 2～3 次。\n"
-        )
+        system += "本轮允许查证：需要证据时可调用 lookup_my_tasks / search_my_assets / read_my_asset（只读）。查完后必须给出最终口头发言；不要把工具原文贴给用户；最多查 2～3 次。\n"
     elif mode == "sync":
-        system += (
-            "系统已自动加载你近 20 条任务记忆（含未结与已完成/失败状态、更新时间）。"
-            "据此直接回答，不要说还要去查；没有记忆就如实说这周暂无登记任务。\n"
-        )
+        system += "系统已自动加载你近 20 条任务记忆（含未结与已完成/失败状态、更新时间）。据此直接回答，不要说还要去查；没有记忆就如实说这周暂无登记任务。\n"
     if task_memory and mode == "sync" and not allow_tools:
         system += f"\n{task_memory}"
     elif task_memory and allow_tools:
@@ -488,10 +470,7 @@ async def _llm_meeting_speak(
                         max_chars=max_chars,
                     )
                 if not text:
-                    text = (
-                        f"关于「{topic[:40]}」，我这边暂无更多细节可补充，"
-                        "建议会后再对齐具体阻塞点。"
-                    )
+                    text = f"关于「{topic[:40]}」，我这边暂无更多细节可补充，建议会后再对齐具体阻塞点。"
                 return text
             except Exception as exc:
                 last_exc = exc
@@ -664,9 +643,7 @@ def get_task(agent_code: str, task_id: str) -> dict[str, Any]:
             "messageId": f"msg_{msg.get('seq', 0)}",
         }
         if _is_tool_message(msg):
-            a2a_msg["parts"] = [
-                {"type": "text", "text": f"[工具: {msg['tool_name']}] {text[:200]}"}
-            ]
+            a2a_msg["parts"] = [{"type": "text", "text": f"[工具: {msg['tool_name']}] {text[:200]}"}]
         a2a_messages.append(a2a_msg)
 
     return {

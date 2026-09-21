@@ -624,6 +624,8 @@ function TaskPane({
   const [pendingApprovals, setPendingApprovals] = useState(0)
   const [boardCount, setBoardCount] = useState(0)
   const [showTechDetails, setShowTechDetails] = useState(false)
+  const [showTaskDetail, setShowTaskDetail] = useState(false)
+  const [showMoreInfo, setShowMoreInfo] = useState(false)
   const [roleMissing, setRoleMissing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [roleBusy, setRoleBusy] = useState(false)
@@ -632,6 +634,8 @@ function TaskPane({
 
   useEffect(() => {
     setFocusTaskId('')
+    setShowTaskDetail(false)
+    setShowMoreInfo(false)
   }, [sessionKey])
 
   useEffect(() => {
@@ -923,28 +927,49 @@ function TaskPane({
     )
   }
 
+  // 核心元数据：4 个字段两列展示
+  const coreMetaItems = [
+    { label: '任务状态', value: statusZh },
+    ...(roleName ? [{ label: '指派岗位', value: roleName }] : []),
+    ...(updatedLabel ? [{ label: '最近更新', value: updatedLabel }] : []),
+    ...(sourceLabel ? [{ label: '来源', value: sourceLabel }] : []),
+  ]
+
+  // 扩展元数据：收进「更多详情」
+  const extraMetaItems = [
+    { label: '岗位状态', value: roleStatus },
+    ...(startedLabel ? [{ label: '开始时间', value: startedLabel }] : []),
+    ...(completedLabel ? [{ label: '完成时间', value: completedLabel }] : []),
+    ...(assignee && assignee !== roleName ? [{ label: '执行人', value: assignee }] : []),
+    ...(raisedBy ? [{ label: '提起人', value: raisedBy }] : []),
+    ...(risk ? [{ label: '风险等级', value: risk }] : []),
+    ...(roundClock && !busyHint ? [{ label: '值班时间', value: roundClock }] : []),
+  ]
+  const hasExtraMeta = extraMetaItems.length > 0
+
+  // 相关任务：最多展示 3 条，超出折叠
+  const visibleRelated = showMoreInfo ? relatedTasks : relatedTasks.slice(0, 3)
+  const hiddenRelatedCount = relatedTasks.length - 3
+
   return (
     <div className="react-chat-current-task-pane">
+      {/* 当前任务卡 */}
       <section
         className={`react-chat-current-task-card${working ? ' is-working' : ''}`}
         aria-label="当前任务"
       >
         <div className="react-chat-current-task-kicker">
-          <span>{taskKind}</span>
+          <span className="react-chat-current-task-kind">{taskKind}</span>
           <span
             className={`react-chat-current-task-badge task-status-${tone}`}
           >
             {working && tone === 'progress' ? '执行中' : statusZh}
           </span>
         </div>
+
         <h2 className="react-chat-current-task-title" title={title}>
           {title}
         </h2>
-        {desc && desc !== title ? (
-          <p className="react-chat-current-task-desc" title={desc}>
-            {desc.length > 220 ? `${desc.slice(0, 220)}…` : desc}
-          </p>
-        ) : null}
 
         <div className="react-chat-current-task-progress-block">
           <div
@@ -965,46 +990,143 @@ function TaskPane({
           </div>
         </div>
 
-        {summary && summary !== desc && summary !== title ? (
-          <p className="react-chat-current-task-summary" title={summary}>
-            {summary.length > 200 ? `${summary.slice(0, 200)}…` : summary}
-          </p>
+        {(desc && desc !== title) || (summary && summary !== desc && summary !== title) ? (
+          <div className={`react-chat-current-task-body${showTaskDetail ? ' is-expanded' : ''}`}>
+            {desc && desc !== title ? (
+              <p className="react-chat-current-task-desc" title={desc}>
+                {desc}
+              </p>
+            ) : null}
+            {summary && summary !== desc && summary !== title ? (
+              <p className="react-chat-current-task-summary" title={summary}>
+                {summary}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {(desc !== title && desc) || (summary && summary !== desc && summary !== title) ? (
+          <button
+            type="button"
+            className="react-chat-current-task-expand"
+            onClick={() => setShowTaskDetail((v) => !v)}
+          >
+            {showTaskDetail ? '收起详情' : '查看详情'}
+          </button>
         ) : null}
       </section>
 
-      {showRelatedList ? (
-        <section className="react-chat-session-task-list" aria-label={relatedHead}>
-          <div className="react-chat-session-task-list-head">
-            {relatedHead}
-            <span className="react-chat-session-task-list-count">{relatedTasks.length}</span>
-          </div>
-          <ul className="react-chat-session-task-list-body">
-            {relatedTasks.map((t, idx) => {
-              const id = boardTaskId(t)
-              const name = String(t.name || '').trim() || '未命名'
-              const st = taskStatusLabel(t.status)
-              const active = Boolean(id && id === focusedId)
-              return (
-                <li key={id || `session-task-${idx}`}>
-                  <button
-                    type="button"
-                    className={`react-chat-session-task-item${active ? ' is-active' : ''}`}
-                    title={id || name}
-                    aria-current={active ? 'true' : undefined}
-                    onClick={() => {
-                      if (id) setFocusTaskId(id)
-                    }}
-                  >
-                    <span className="react-chat-session-task-item-name">{name}</span>
-                    <span className="react-chat-session-task-item-status">{st}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+      {/* 快捷统计 —— 胶囊标签 */}
+      {hasStats ? (
+        <div className="react-chat-task-stats-row" aria-label="工作概览">
+          {boardCount > 0 ? (
+            <span className="react-chat-task-stat-chip">
+              <strong>{boardCount}</strong>
+              <em>工作项</em>
+            </span>
+          ) : null}
+          {pendingApprovals > 0 ? (
+            <span className="react-chat-task-stat-chip is-warn">
+              <strong>{pendingApprovals}</strong>
+              <em>待审批</em>
+            </span>
+          ) : null}
+          {tokenTotal > 0 ? (
+            <span className="react-chat-task-stat-chip">
+              <strong>{formatCompactCount(tokenTotal)}</strong>
+              <em>Token</em>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 核心元数据 —— 两列网格 */}
+      {coreMetaItems.length > 0 ? (
+        <section className="react-chat-task-meta-grid" aria-label="任务信息">
+          {coreMetaItems.map((item) => (
+            <div key={item.label} className="react-chat-task-meta-item">
+              <span className="react-chat-task-meta-label">{item.label}</span>
+              <span className="react-chat-task-meta-value" title={item.value}>
+                {item.value}
+              </span>
+            </div>
+          ))}
         </section>
       ) : null}
 
+      {/* 更多详情（展开式） */}
+      {hasExtraMeta || showRelatedList ? (
+        <div className="react-chat-task-detail-fold">
+          <button
+            type="button"
+            className="react-chat-task-detail-toggle"
+            aria-expanded={showMoreInfo}
+            onClick={() => setShowMoreInfo((v) => !v)}
+          >
+            <span className="react-chat-task-detail-toggle-icon" aria-hidden>›</span>
+            {showMoreInfo ? '收起更多' : '更多信息'}
+          </button>
+
+          {showMoreInfo ? (
+            <div className="react-chat-task-detail-body">
+              {/* 扩展元数据 */}
+              {hasExtraMeta ? (
+                <div className="react-chat-task-meta-grid is-dense">
+                  {extraMetaItems.map((item) => (
+                    <div key={item.label} className="react-chat-task-meta-item">
+                      <span className="react-chat-task-meta-label">{item.label}</span>
+                      <span className="react-chat-task-meta-value" title={item.value}>
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* 相关任务列表 */}
+              {showRelatedList ? (
+                <div className="react-chat-session-task-list" aria-label={relatedHead}>
+                  <div className="react-chat-session-task-list-head">
+                    {relatedHead}
+                    <span className="react-chat-session-task-list-count">{relatedTasks.length}</span>
+                  </div>
+                  <ul className="react-chat-session-task-list-body">
+                    {visibleRelated.map((t, idx) => {
+                      const id = boardTaskId(t)
+                      const name = String(t.name || '').trim() || '未命名'
+                      const st = taskStatusLabel(t.status)
+                      const active = Boolean(id && id === focusedId)
+                      return (
+                        <li key={id || `session-task-${idx}`}>
+                          <button
+                            type="button"
+                            className={`react-chat-session-task-item${active ? ' is-active' : ''}`}
+                            title={id || name}
+                            aria-current={active ? 'true' : undefined}
+                            onClick={() => {
+                              if (id) setFocusTaskId(id)
+                            }}
+                          >
+                            <span className="react-chat-session-task-item-name">{name}</span>
+                            <span className="react-chat-session-task-item-status">{st}</span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  {!showMoreInfo && hiddenRelatedCount > 0 ? (
+                    <div className="react-chat-session-task-more">
+                      还有 {hiddenRelatedCount} 项…
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 忙碌提示 */}
       {busyHint ? (
         <div className="react-chat-current-task-notice" role="status">
           {busyHint}
@@ -1012,42 +1134,7 @@ function TaskPane({
         </div>
       ) : null}
 
-      {hasStats ? (
-        <section className="react-chat-current-task-stats" aria-label="工作概览">
-          {boardCount > 0 ? (
-            <span className="react-chat-current-task-stat">
-              <strong>{boardCount}</strong> 工作项
-            </span>
-          ) : null}
-          {pendingApprovals > 0 ? (
-            <span className="react-chat-current-task-stat react-chat-current-task-stat--warn">
-              <strong>{pendingApprovals}</strong> 待审批
-            </span>
-          ) : null}
-          {tokenTotal > 0 ? (
-            <span className="react-chat-current-task-stat">
-              <strong>{formatCompactCount(tokenTotal)}</strong> Token
-            </span>
-          ) : null}
-        </section>
-      ) : null}
-
-      <section className="react-chat-current-task-meta" aria-label="任务状态">
-        <Row label="岗位状态" value={roleStatus} />
-        <Row label="任务状态" value={statusZh} />
-        {updatedLabel ? <Row label="最近更新" value={updatedLabel} /> : null}
-        {startedLabel ? <Row label="开始" value={startedLabel} /> : null}
-        {completedLabel ? <Row label="完成" value={completedLabel} /> : null}
-        {roleName ? <Row label="指派岗位" value={roleName} /> : null}
-        {assignee && assignee !== roleName ? (
-          <Row label="执行人" value={assignee} />
-        ) : null}
-        {raisedBy ? <Row label="提起人" value={raisedBy} /> : null}
-        {sourceLabel ? <Row label="来源" value={sourceLabel} /> : null}
-        {risk ? <Row label="风险" value={risk} /> : null}
-        {roundClock && !busyHint ? <Row label="值班时间" value={roundClock} /> : null}
-      </section>
-
+      {/* 技术信息（最底部） */}
       {hasTechDetails ? (
         <div className="react-chat-current-task-tech">
           <button

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import sqlite3
 
 import pytest
@@ -13,6 +11,7 @@ from evoflow.persistence.media_assets import (
     record_media_asset,
     update_media_asset_by_task,
 )
+from evoflow.persistence.schema import ensure_app_schema
 
 
 @pytest.fixture()

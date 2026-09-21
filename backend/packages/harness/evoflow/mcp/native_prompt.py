@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from evoflow.mcp.prompt_section import resolve_mcp_server_names
 
@@ -11,13 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 def _prompt_dynamic(lang: str | None):
-    from evoflow.agents.lead_agent.prompt_language import resolve_prompt_language
     from evoflow.agents.lead_agent.prompt_dynamic_en import (
         MCP_RULE_COMPACT as EN,
     )
     from evoflow.agents.lead_agent.prompt_dynamic_zh import (
         MCP_RULE_COMPACT as ZH,
     )
+    from evoflow.agents.lead_agent.prompt_language import resolve_prompt_language
 
     if resolve_prompt_language(lang).startswith("zh"):
         return ZH
@@ -45,11 +44,7 @@ def build_mcp_native_prompt_section(
 
     tool_lines: list[str] = []
     if bound_tool_names:
-        mcp_tools = sorted(
-            n
-            for n in bound_tool_names
-            if is_mcp_tool_name(str(n)) and mcp_server_from_tool_name(str(n)) in names
-        )
+        mcp_tools = sorted(n for n in bound_tool_names if is_mcp_tool_name(str(n)) and mcp_server_from_tool_name(str(n)) in names)
         if mcp_tools:
             preview = mcp_tools[:24]
             tool_lines.append("Bound MCP tools (call by exact name):")
@@ -83,13 +78,7 @@ def build_mcp_native_prompt_section_safe(
         )
     except Exception as exc:
         logger.warning("build_mcp_native_prompt_section failed: %s", exc)
-        return (
-            "<mcp_system>\n"
-            "MCP tools are native function tools (``mcp__<server>__<tool>``). "
-            "Do not use terminal or mcp-terminal for MCP.\n"
-            f"(catalog error: {exc})\n"
-            "</mcp_system>"
-        )
+        return f"<mcp_system>\nMCP tools are native function tools (``mcp__<server>__<tool>``). Do not use terminal or mcp-terminal for MCP.\n(catalog error: {exc})\n</mcp_system>"
 
 
 def mcp_native_prompt_fingerprint(mcp_servers: list[str] | None) -> str:

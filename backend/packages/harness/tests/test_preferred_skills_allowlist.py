@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from evoflow.config.agents_config import (
+    AgentConfig,
     merge_skill_allowlist_with_preferred,
     parse_preferred_skills_from_context,
     resolve_skill_allowlist_for_lead_prompt,
 )
-from evoflow.config.agents_config import AgentConfig
 
 
 def test_parse_preferred_skills_from_context_list_and_single() -> None:

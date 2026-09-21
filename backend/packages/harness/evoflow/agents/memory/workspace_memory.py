@@ -258,9 +258,7 @@ def seed_workspace_memory(workspace_path: str, *, force: bool = False) -> dict[s
 
     seed = resolve_workspace_seed(str(root))
     if not seed:
-        raise ValueError(
-            f"No curated seed for {root}; use `workspace memory bootstrap` for LLM scan"
-        )
+        raise ValueError(f"No curated seed for {root}; use `workspace memory bootstrap` for LLM scan")
 
     get_or_create_workspace(str(root))
     ref = workspace_ref(str(root))
@@ -351,9 +349,7 @@ def format_workspace_memory_context(
             try:
                 from evoflow.assets.guidance import build_read_path_guidance
 
-                body = build_read_path_guidance(
-                    ref, include_procedure=include_procedure
-                ).strip()
+                body = build_read_path_guidance(ref, include_procedure=include_procedure).strip()
             except Exception:
                 logger.debug("workspace read_path guidance skipped", exc_info=True)
                 body = ""
@@ -369,9 +365,7 @@ def format_workspace_memory_context(
             try:
                 from evoflow.assets.guidance import build_read_path_guidance
 
-                guide = build_read_path_guidance(
-                    ref, include_procedure=include_procedure
-                )
+                guide = build_read_path_guidance(ref, include_procedure=include_procedure)
                 if guide.strip():
                     body = f"{guide.strip()}\n\n{body}" if body.strip() else guide.strip()
             except Exception:
@@ -523,7 +517,6 @@ def _apply_workspace_asset_updates(
     source: str = "conversation",
 ) -> dict[str, int]:
     """Write standing / facts / craft / episodes from LLM JSON into Asset Hub files."""
-    del source
     written = {"standing": 0, "facts": 0, "craft": 0, "episodes": 0}
     ensure_entity_tree(entity)
 
@@ -554,9 +547,7 @@ def _apply_workspace_asset_updates(
         try:
             from evoflow.assets.workspace_memory_policy import should_persist_workspace_asset
 
-            if not should_persist_workspace_asset(
-                title=title, content=content, category=category, source=source
-            ):
+            if not should_persist_workspace_asset(title=title, content=content, category=category, source=source):
                 continue
         except Exception:
             pass
@@ -655,18 +646,9 @@ class WorkspaceMemoryUpdater:
                 current_memory=json.dumps(
                     {
                         "standing": current.get("standing"),
-                        "facts": [
-                            {"title": r.get("title"), "summary": r.get("summary"), "path": r.get("path")}
-                            for r in (current.get("facts") or [])[:20]
-                        ],
-                        "craft": [
-                            {"name": r.get("name"), "description": r.get("description"), "path": r.get("path")}
-                            for r in (current.get("craft") or [])[:15]
-                        ],
-                        "episodes": [
-                            {"title": r.get("title"), "summary": r.get("summary"), "path": r.get("path")}
-                            for r in (current.get("episodes") or [])[:10]
-                        ],
+                        "facts": [{"title": r.get("title"), "summary": r.get("summary"), "path": r.get("path")} for r in (current.get("facts") or [])[:20]],
+                        "craft": [{"name": r.get("name"), "description": r.get("description"), "path": r.get("path")} for r in (current.get("craft") or [])[:15]],
+                        "episodes": [{"title": r.get("title"), "summary": r.get("summary"), "path": r.get("path")} for r in (current.get("episodes") or [])[:10]],
                     },
                     indent=2,
                     ensure_ascii=False,

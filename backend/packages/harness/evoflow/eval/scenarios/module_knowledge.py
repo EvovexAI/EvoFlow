@@ -18,11 +18,7 @@ def _run(home: Path) -> dict:
     vault_id = str(vault.get("id") or created.get("vault_id") or created.get("id") or "").strip()
 
     listed = knowledge_admin.list_vaults()
-    vault_ids = [
-        str(v.get("id") or "")
-        for v in (listed.get("items") or listed.get("vaults") or [])
-        if isinstance(v, dict)
-    ]
+    vault_ids = [str(v.get("id") or "") for v in (listed.get("items") or listed.get("vaults") or []) if isinstance(v, dict)]
 
     saved = knowledge_admin.remember(
         {
@@ -34,19 +30,11 @@ def _run(home: Path) -> dict:
     )
     note_path = ""
     if isinstance(saved, dict):
-        note_path = str(
-            (saved.get("result") or {}).get("path")
-            or saved.get("path")
-            or ""
-        ).strip()
+        note_path = str((saved.get("result") or {}).get("path") or saved.get("path") or "").strip()
 
     listed_notes = knowledge_admin.list_knowledge(vault_id=vault_id or None, limit=50)
     entries = listed_notes.get("entries") or []
-    entry_paths = [
-        str(e.get("path") or e.get("id") or "")
-        for e in entries
-        if isinstance(e, dict)
-    ]
+    entry_paths = [str(e.get("path") or e.get("id") or "") for e in entries if isinstance(e, dict)]
     if not note_path and entry_paths:
         note_path = entry_paths[0]
 

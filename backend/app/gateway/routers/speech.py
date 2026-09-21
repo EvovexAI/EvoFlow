@@ -15,7 +15,7 @@ from app.gateway.speech.volcengine_speech import (
     synthesize_speech_v3_stream,
     transcribe_audio_flash,
 )
-from app.gateway.speech.whisper_manager import is_available as whisper_available, start_whisper as ensure_whisper
+from app.gateway.speech.whisper_manager import is_available as whisper_available
 
 router = APIRouter(prefix="/api/speech", tags=["speech"])
 
@@ -67,7 +67,7 @@ async def speech_asr_stream(ws: WebSocket) -> None:
             return
         except WebSocketDisconnect:
             return
-        except Exception as e:
+        except Exception:
             # Cloud ASR failed → silently fall through to local
             pass
 
@@ -166,9 +166,7 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
         speaker = body.speaker.strip() if body.speaker else None
         if provider == "volcengine":
             # Native volcengine path (keeps exact prior behavior for volcengine).
-            audio_bytes, used_speaker = synthesize_speech_v3(
-                text, speaker=speaker, preview=body.preview
-            )
+            audio_bytes, used_speaker = synthesize_speech_v3(text, speaker=speaker, preview=body.preview)
         else:
             from app.gateway.speech.tts_registry import synthesize_tts
 

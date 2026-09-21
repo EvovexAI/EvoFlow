@@ -45,6 +45,7 @@ def _ensure_plan_columns_compat(conn: Any) -> None:
     """No-op: structured plan columns are part of the public baseline schema."""
     return
 
+
 def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
     from evoflow.persistence.db import run_db_with_retry
 
@@ -59,8 +60,7 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any]) -> None:
             cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
             if "owner_scope_id" in cols:
                 row = conn.execute(
-                    "SELECT org_id, owner_scope_id, created_by FROM evoflow_collab_tasks "
-                    "WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
+                    "SELECT org_id, owner_scope_id, created_by FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id LIMIT 1",
                     (mid,),
                 ).fetchone()
                 if row:
@@ -341,14 +341,18 @@ def load_task_bundle(main_task_id: str) -> dict[str, Any] | None:
 
 
 def list_task_bundle_ids() -> list[str]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT main_task_id
         FROM evoflow_collab_tasks
         GROUP BY main_task_id
         ORDER BY MAX(updated_at) DESC
         """
-    ).fetchall()
+        )
+        .fetchall()
+    )
     return [str(r[0]) for r in rows]
 
 
@@ -424,11 +428,14 @@ def get_root_task_owner_scope(task_id: str) -> tuple[str | None, str | None, str
     cols = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_collab_tasks)").fetchall()}
     if "owner_scope_id" not in cols:
         return None, None, None
-    row = get_db().execute(
-        "SELECT org_id, owner_scope_id, created_by FROM evoflow_collab_tasks "
-        "WHERE (task_id = ? OR main_task_id = ?) AND task_id = main_task_id LIMIT 1",
-        (tid, tid),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT org_id, owner_scope_id, created_by FROM evoflow_collab_tasks WHERE (task_id = ? OR main_task_id = ?) AND task_id = main_task_id LIMIT 1",
+            (tid, tid),
+        )
+        .fetchone()
+    )
     if not row:
         return None, None, None
     return (
@@ -971,29 +978,37 @@ def find_root_task_by_session_key(
         if found:
             return found
 
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT collab_task_id FROM evoflow_chat_sessions
         WHERE session_key = ? AND is_deleted = 0
         LIMIT 1
         """,
-        (sk,),
-    ).fetchone()
+            (sk,),
+        )
+        .fetchone()
+    )
     session_task_id = str(row[0] or "").strip() if row else ""
     if session_task_id:
         found = _root_task_from_main_id(session_task_id)
         if found:
             return found
 
-    thread_rows = get_db().execute(
-        """
+    thread_rows = (
+        get_db()
+        .execute(
+            """
         SELECT DISTINCT thread_id FROM evoflow_chat_messages
         WHERE session_key = ? AND TRIM(COALESCE(thread_id, '')) != ''
         ORDER BY seq DESC
         LIMIT 16
         """,
-        (sk,),
-    ).fetchall()
+            (sk,),
+        )
+        .fetchall()
+    )
     seen_tasks: set[str] = set()
     for tr in thread_rows:
         tid = str(tr[0] or "").strip()

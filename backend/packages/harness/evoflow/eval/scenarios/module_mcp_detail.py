@@ -59,10 +59,7 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "fields_roundtrip",
-            got.get("type") == "stdio"
-            and got.get("command") == "echo"
-            and list(got.get("args") or []) == ["ping"]
-            and bool(got.get("enabled")),
+            got.get("type") == "stdio" and got.get("command") == "echo" and list(got.get("args") or []) == ["ping"] and bool(got.get("enabled")),
             inputs=payload,
             expected={"type": "stdio", "command": "echo", "args": ["ping"], "enabled": True},
             actual=got,

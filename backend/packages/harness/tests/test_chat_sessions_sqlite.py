@@ -111,10 +111,7 @@ def test_provisional_session_title_helpers(sqlite_tmp: None) -> None:
     cap = sess_repo.SESSION_SIDEBAR_TITLE_MAX_CHARS
     assert sess_repo.provisional_session_title_from_user_text("abcdefghijklmnop") == "abcdefghijklmnop"
     long_msg = "这是一段比较长的用户首条消息内容" + ("续" * cap)
-    assert (
-        sess_repo.provisional_session_title_from_user_text(long_msg)
-        == long_msg[:cap].rstrip() + "..."
-    )
+    assert sess_repo.provisional_session_title_from_user_text(long_msg) == long_msg[:cap].rstrip() + "..."
 
 
 def test_upsert_llm_title_overwrites_provisional(sqlite_tmp: None) -> None:
@@ -288,9 +285,7 @@ def test_list_sessions_filtered_by_workspace(sqlite_tmp: None) -> None:
     unbound = sess_repo.list_sessions_for_ui(limit=20, workspace_key=sess_repo.WORKSPACE_GROUP_UNBOUND)
     assert [r["sessionKey"] for r in unbound] == ["agent:main:unbound-1"]
 
-    proactive = sess_repo.list_sessions_for_ui(
-        limit=20, workspace_key=sess_repo.WORKSPACE_GROUP_PROACTIVE
-    )
+    proactive = sess_repo.list_sessions_for_ui(limit=20, workspace_key=sess_repo.WORKSPACE_GROUP_PROACTIVE)
     assert [r["sessionKey"] for r in proactive] == ["proactive:frontend_architect"]
 
     summaries = sess_repo.summarize_sessions_by_workspace_for_ui()
@@ -344,11 +339,7 @@ def test_merge_workspace_groups_stable_sort_by_registered_order(sqlite_tmp: None
         summaries,
         ws_repo.list_global_workspace_paths(),
     )
-    bound_keys = [
-        g["workspaceKey"]
-        for g in merged
-        if g["workspaceKey"] not in (sess_repo.WORKSPACE_GROUP_UNBOUND, sess_repo.WORKSPACE_GROUP_VIRTUAL)
-    ]
+    bound_keys = [g["workspaceKey"] for g in merged if g["workspaceKey"] not in (sess_repo.WORKSPACE_GROUP_UNBOUND, sess_repo.WORKSPACE_GROUP_VIRTUAL)]
     assert bound_keys == ["d:/work/alpha", "d:/work/beta"]
 
 

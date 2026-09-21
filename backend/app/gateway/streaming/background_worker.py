@@ -342,26 +342,21 @@ class StreamBackgroundWorker:
                     body_preview = f"<{len(self.request_body)} bytes>"
             log_tool_approval_trace(
                 "后台流·开始连接LangGraph",
-                thread_id=self.thread_id, side="resume",
+                thread_id=self.thread_id,
+                side="resume",
                 event_data={
                     "target_path": self.langgraph_path,
                     "method": self.request_method,
                     "base_url": LANGGRAPH_BASE_URL,
                     "body_preview": body_preview,
-                    "has_stream_resume_header": bool(
-                        (self.request_headers or {}).get("x-evoflow-stream-resume")
-                    ),
+                    "has_stream_resume_header": bool((self.request_headers or {}).get("x-evoflow-stream-resume")),
                 },
             )
         except Exception:
             pass
 
         if logger.isEnabledFor(logging.DEBUG):
-            body_preview = (
-                self.request_body.decode("utf-8", errors="ignore")[:500]
-                if self.request_body
-                else "<empty>"
-            )
+            body_preview = self.request_body.decode("utf-8", errors="ignore")[:500] if self.request_body else "<empty>"
             logger.debug(
                 "Connecting to LangGraph path=%s method=%s body_preview=%s",
                 self.langgraph_path,
@@ -525,7 +520,8 @@ class StreamBackgroundWorker:
                 try:
                     log_tool_approval_trace(
                         "后台流·LangGraph流结束统计",
-                        thread_id=self.thread_id, side="resume",
+                        thread_id=self.thread_id,
+                        side="resume",
                         event_data={
                             "chunks": chunk_count,
                             "heartbeats": heartbeat_count,

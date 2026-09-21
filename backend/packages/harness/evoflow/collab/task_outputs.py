@@ -69,11 +69,7 @@ def normalize_output_type(raw: Any) -> str:
 
 def _strip_wrapping_brackets(text: str) -> str:
     s = str(text or "").strip()
-    while len(s) >= 2 and (
-        (s[0] == "[" and s[-1] == "]")
-        or (s[0] == "{" and s[-1] == "}")
-        or (s[0] == "(" and s[-1] == ")")
-    ):
+    while len(s) >= 2 and ((s[0] == "[" and s[-1] == "]") or (s[0] == "{" and s[-1] == "}") or (s[0] == "(" and s[-1] == ")")):
         s = s[1:-1].strip()
     # Leftover trailing junk from ``…}]`` when opening `[` was already stripped.
     while s.endswith("]") or s.endswith("}"):
@@ -172,12 +168,7 @@ def extract_output_path_fields(value: str) -> tuple[str, str, str]:
         return path, label, key
 
     path, label = split_path_label_suffix(s)
-    if path and (
-        "/" in path
-        or _FILE_EXT_RE.search(path)
-        or path.startswith("http://")
-        or path.startswith("https://")
-    ):
+    if path and ("/" in path or _FILE_EXT_RE.search(path) or path.startswith("http://") or path.startswith("https://")):
         # Reject values that are still clearly kv blobs without a usable path.
         if parse_output_kv_blob(path) and not _FILE_EXT_RE.search(path) and "/" not in path:
             pass
@@ -315,10 +306,7 @@ def normalize_task_output(item: Any, *, default_key: str = "artifact") -> dict[s
             # Keep outer key/label when inner blob didn't supply them.
             outer_key = str(item.get("key") or item.get("name") or "").strip()
             outer_label = str(item.get("label") or item.get("title") or "").strip()
-            if outer_key and (
-                not first.get("key")
-                or str(first.get("key") or "").startswith("artifact")
-            ):
+            if outer_key and (not first.get("key") or str(first.get("key") or "").startswith("artifact")):
                 first["key"] = outer_key[:_KEY_MAX]
             if outer_label and not first.get("label"):
                 first["label"] = outer_label[:_LABEL_MAX]
@@ -356,13 +344,7 @@ def normalize_task_outputs(raw: Any) -> list[dict[str, str]]:
             items = json.loads(text)
         except Exception:
             # Coerce agent pseudo-JSON / kv blobs / label typos.
-            if (
-                "[" in text
-                or "]" in text
-                or _LABEL_SUFFIX_RE.search(text)
-                or parse_output_kv_blob(text)
-                or _PATH_LABEL_RE.search(text)
-            ):
+            if "[" in text or "]" in text or _LABEL_SUFFIX_RE.search(text) or parse_output_kv_blob(text) or _PATH_LABEL_RE.search(text):
                 repaired = coerce_outputs_from_messy_text(text)
                 if repaired:
                     return normalize_task_outputs(repaired)
@@ -380,20 +362,13 @@ def normalize_task_outputs(raw: Any) -> list[dict[str, str]]:
         # One dict whose value concatenates several blobs → expand.
         if isinstance(item, dict):
             value = str(item.get("value") or "").strip()
-            if value and (
-                "}, {" in value
-                or '"}, {"' in value
-                or value.count('"value"') > 1
-                or value.count("value:") > 1
-            ):
+            if value and ("}, {" in value or '"}, {"' in value or value.count('"value"') > 1 or value.count("value:") > 1):
                 repaired = coerce_outputs_from_messy_text(value)
                 if len(repaired) > 1:
                     for j, rep in enumerate(repaired):
                         if len(out) >= _OUTPUT_MAX_ITEMS:
                             break
-                        normalized = normalize_task_output(
-                            rep, default_key=f"artifact_{i + 1}_{j + 1}"
-                        )
+                        normalized = normalize_task_output(rep, default_key=f"artifact_{i + 1}_{j + 1}")
                         if not normalized:
                             continue
                         sig = (normalized["type"], normalized["key"], normalized["value"])
@@ -731,6 +706,7 @@ def task_input_refs_of(
         workspace_root_for_task_row(row),
         agent_code=agent_code_for_task_row(row),
     )
+
 
 # Source / binary code — never push these on Feishu approval cards.
 _CODE_EXTS = frozenset(

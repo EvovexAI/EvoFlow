@@ -38,6 +38,7 @@ def test_apply_prompt_template_omits_session_mode_policy() -> None:
     assert "<scenario_activation>" not in text
     assert "<tool_catalog>" in text
 
+
 def test_format_active_modes_for_display() -> None:
     from evoflow.agents.lead_agent.intent_tool_profile import format_active_modes_for_display
 

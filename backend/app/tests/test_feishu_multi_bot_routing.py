@@ -31,10 +31,7 @@ def test_feishu_store_topic_isolates_accounts():
     assert b == "acct:xiaomi"
     assert a != b
     assert ChannelManager._channel_store_topic(_msg(account_id="")) is None
-    assert (
-        ChannelManager._channel_store_topic(_msg(account_id="code-agent", topic_id="root1"))
-        == "acct:code-agent:root1"
-    )
+    assert ChannelManager._channel_store_topic(_msg(account_id="code-agent", topic_id="root1")) == "acct:code-agent:root1"
 
 
 def test_im_routing_key_includes_account():
@@ -49,7 +46,6 @@ def test_proactive_employee_im_identity_block():
     from evoflow.agents.lead_agent.prompt import (
         _display_agent_name,
         _primary_assistant_im_identity_block,
-        _proactive_employee_im_identity_block,
     )
 
     role = SimpleNamespace(

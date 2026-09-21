@@ -30,6 +30,7 @@ def _attach_model_to_exception(exc: BaseException, model: Any) -> None:
     except Exception:
         pass
 
+
 logger = logging.getLogger(__name__)
 
 _STACK: contextvars.ContextVar[list[dict[str, Any]]] = contextvars.ContextVar(
@@ -219,9 +220,7 @@ def build_observability_request_record(vendor_payload: dict[str, Any]) -> dict[s
         else:
             record["latest_user_stats"] = {"chars": len(latest), "tokens": -1}
         if len(latest) > _OBS_USER_PREVIEW_MAX_CHARS:
-            record["latest_user_preview"] = (
-                latest[:_OBS_USER_PREVIEW_MAX_CHARS] + f"...<truncated:{len(latest)}>"
-            )
+            record["latest_user_preview"] = latest[:_OBS_USER_PREVIEW_MAX_CHARS] + f"...<truncated:{len(latest)}>"
         else:
             record["latest_user_preview"] = latest
 
@@ -230,9 +229,7 @@ def build_observability_request_record(vendor_payload: dict[str, Any]) -> dict[s
         tool_stats = tool_stats_from_vendor_payload(vendor_payload, model=model_hint)
         if tool_stats:
             record["request_tools_stats"] = tool_stats
-            record["request_tools_tokens_total"] = sum(
-                int(row.get("tokens") or 0) for row in tool_stats
-            )
+            record["request_tools_tokens_total"] = sum(int(row.get("tokens") or 0) for row in tool_stats)
     if tool_names:
         record["request_tool_names"] = tool_names
 
@@ -392,9 +389,7 @@ def _ensure_chat_result(value: Any) -> ChatResult:
         has_loop = False
     if not has_loop:
         return asyncio.run(value)
-    raise TypeError(
-        "Chat model _generate returned an unawaited coroutine; use ainvoke() in async contexts."
-    )
+    raise TypeError("Chat model _generate returned an unawaited coroutine; use ainvoke() in async contexts.")
 
 
 def _first_chat_generation(chat_result: ChatResult) -> Any:
@@ -439,9 +434,7 @@ def _usage_blob_for_sqlite(chat_result: ChatResult) -> dict[str, Any] | None:
 def _serialize_chat_result(res: ChatResult) -> dict[str, Any]:
     """Serialize ``ChatResult.generations`` (flat ``list[ChatGeneration]`` or legacy list-of-lists)."""
     if inspect.iscoroutine(res):
-        raise TypeError(
-            "Chat model returned an unawaited coroutine; use ainvoke() in async contexts."
-        )
+        raise TypeError("Chat model returned an unawaited coroutine; use ainvoke() in async contexts.")
     generations_out: list[list[dict[str, Any]]] = []
     gens = list(res.generations or [])
     if not gens:
@@ -575,9 +568,7 @@ def complete_vendor_roundtrip(
                     if isinstance(eth, dict):
                         runtime_thinking = eth.get("runtime") or eth
                 vendor_inferred = infer_thinking_from_vendor_payload(vendor_request)
-                thinking_fields = thinking_fields_for_sqlite(
-                    merge_thinking_context(runtime_thinking, vendor_inferred)
-                )
+                thinking_fields = thinking_fields_for_sqlite(merge_thinking_context(runtime_thinking, vendor_inferred))
             except Exception:
                 pass
             request_json = serialize_vendor_request_json(vendor_request)

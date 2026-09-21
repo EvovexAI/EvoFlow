@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import tempfile
 
-import pytest
-
 from evoflow.skills.index import SkillIndex, SkillRootSpec, discover_skills_from_roots
 from evoflow.skills.skill_scope import SkillScope
 
@@ -37,7 +35,6 @@ def test_external_root_overrides_public_name():
 
 def test_repo_flat_layout():
     with tempfile.TemporaryDirectory() as tmp:
-        repo_skills = os.path.join(tmp, ".evoflow", "skills", "repo-skill")
         _write_skill(tmp, os.path.join(".evoflow", "skills", "repo-skill"), "repo-skill")
         index = SkillIndex.load(
             skills_path=__import__("pathlib").Path(tmp) / "missing-primary",

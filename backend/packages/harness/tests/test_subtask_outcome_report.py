@@ -122,11 +122,7 @@ def test_outcome_record_persists_run_id(tmp_path, monkeypatch) -> None:
     asyncio.run(_run())
     executor = collab_subtask_executor_thread_id(lead, subtask_id)
     rows = msg_repo.list_messages_for_thread_id(executor, limit=20)
-    outcome_rows = [
-        r
-        for r in rows
-        if str(r.get("tool_name") or r.get("name") or "") == "subtask_outcome_report"
-    ]
+    outcome_rows = [r for r in rows if str(r.get("tool_name") or r.get("name") or "") == "subtask_outcome_report"]
     assert len(outcome_rows) == 1
     assert outcome_rows[0].get("run_id") == bg_run
     task = storage.load_project(project["id"])["tasks"][0]

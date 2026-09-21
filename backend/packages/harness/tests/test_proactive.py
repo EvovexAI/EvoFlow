@@ -6,15 +6,16 @@ and repository CRUD (with in-memory SQLite).
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import json
 import sqlite3
 import sys
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+from evoflow.persistence.schema import ensure_app_schema
 
 # Ensure evoflow is importable
 _backend = Path(__file__).resolve().parents[1]
@@ -70,9 +71,9 @@ def patch_get_db(db_conn):
 class TestModels:
     def test_proactive_role_config_roundtrip(self):
         from evoflow.proactive.models import (
+            InitiativeRiskLevel,
             ProactiveAutonomyLevel,
             ProactiveRoleConfig,
-            InitiativeRiskLevel,
         )
 
         cfg = ProactiveRoleConfig(
@@ -98,7 +99,7 @@ class TestModels:
         assert restored.soul_md == "You are a meticulous architect."
 
     def test_proactive_role_config_defaults(self):
-        from evoflow.proactive.models import ProactiveRoleConfig, ProactiveAutonomyLevel
+        from evoflow.proactive.models import ProactiveAutonomyLevel, ProactiveRoleConfig
 
         cfg = ProactiveRoleConfig.from_json("")
         assert cfg.responsibilities == []
@@ -186,20 +187,22 @@ class TestThinkResult:
     def test_parse_valid_json(self):
         from evoflow.proactive.models import ThinkResult
 
-        raw = json.dumps({
-            "observations": ["code is clean", "tests pass"],
-            "initiatives": [
-                {
-                    "title": "Optimize build",
-                    "description": "Split vendor chunk",
-                    "action_type": "optimization",
-                    "risk_level": "low",
-                    "action_plan": {"steps": ["edit webpack config"]},
-                    "expected_outcome": "20% faster build",
-                }
-            ],
-            "reflection": "Build is the main bottleneck.",
-        })
+        raw = json.dumps(
+            {
+                "observations": ["code is clean", "tests pass"],
+                "initiatives": [
+                    {
+                        "title": "Optimize build",
+                        "description": "Split vendor chunk",
+                        "action_type": "optimization",
+                        "risk_level": "low",
+                        "action_plan": {"steps": ["edit webpack config"]},
+                        "expected_outcome": "20% faster build",
+                    }
+                ],
+                "reflection": "Build is the main bottleneck.",
+            }
+        )
         result = ThinkResult.from_llm_output(raw)
 
         assert len(result.observations) == 2
@@ -250,10 +253,10 @@ class TestThinkResult:
 class TestProactiveRepository:
     def _make_role(self, agent_code="test_role"):
         from evoflow.proactive.models import (
+            InitiativeRiskLevel,
+            ProactiveAutonomyLevel,
             ProactiveRole,
             ProactiveRoleConfig,
-            ProactiveAutonomyLevel,
-            InitiativeRiskLevel,
         )
 
         return ProactiveRole(
@@ -376,10 +379,11 @@ class TestProactiveRepository:
 
     def test_list_due_roles_beijing_vs_utc_z_not_perpetually_due(self):
         """Beijing now must not treat a future UTC-Z next_hb as already due."""
+        from datetime import datetime, timedelta
+
         from evoflow.proactive.repositories import ProactiveRepository
         from evoflow.proactive.schedule import compute_next_duty_iso
         from evoflow.timeutil import BEIJING_TZ
-        from datetime import datetime, timedelta
 
         # 2026-07-16 14:00 +08 == 06:00Z
         now_bj = datetime(2026, 7, 16, 14, 0, 0, tzinfo=BEIJING_TZ)
@@ -396,9 +400,7 @@ class TestProactiveRepository:
 
         # Past Beijing next → due
         role_past = self._make_role("bj_past")
-        role_past.next_heartbeat_at = (now_bj - timedelta(minutes=1)).isoformat(
-            timespec="microseconds"
-        )
+        role_past.next_heartbeat_at = (now_bj - timedelta(minutes=1)).isoformat(timespec="microseconds")
         ProactiveRepository.save_role(role_past)
 
         due = ProactiveRepository.list_due_roles(now_bj.isoformat(timespec="microseconds"))
@@ -408,9 +410,10 @@ class TestProactiveRepository:
         assert "bj_past" in codes
 
     def test_compute_next_duty_iso_from_cron_beijing(self):
+        from datetime import datetime
+
         from evoflow.proactive.schedule import compute_next_duty_iso
         from evoflow.timeutil import BEIJING_TZ, parse_iso_to_ms
-        from datetime import datetime
 
         now = datetime(2026, 7, 16, 14, 0, 0, tzinfo=BEIJING_TZ)
         role = self._make_role("cron_role")
@@ -433,13 +436,13 @@ class TestProactiveRepository:
         assert archived.status == "archived"
 
     def test_save_and_get_initiative(self):
-        from evoflow.proactive.repositories import ProactiveRepository
         from evoflow.proactive.models import (
             Initiative,
             InitiativeActionType,
             InitiativeRiskLevel,
             InitiativeStatus,
         )
+        from evoflow.proactive.repositories import ProactiveRepository
 
         ProactiveRepository.save_role(self._make_role())
         init_id = ProactiveRepository.new_initiative_id()
@@ -466,8 +469,8 @@ class TestProactiveRepository:
         assert fetched.status == InitiativeStatus.PROPOSED
 
     def test_update_initiative_status(self):
-        from evoflow.proactive.repositories import ProactiveRepository
         from evoflow.proactive.models import Initiative, InitiativeStatus
+        from evoflow.proactive.repositories import ProactiveRepository
 
         ProactiveRepository.save_role(self._make_role())
         init = Initiative(
@@ -479,16 +482,14 @@ class TestProactiveRepository:
         )
         ProactiveRepository.save_initiative(init)
 
-        ProactiveRepository.update_initiative_status(
-            init.id, InitiativeStatus.COMPLETED, execution_result="done"
-        )
+        ProactiveRepository.update_initiative_status(init.id, InitiativeStatus.COMPLETED, execution_result="done")
         fetched = ProactiveRepository.get_initiative(init.id)
         assert fetched.status == InitiativeStatus.COMPLETED
         assert fetched.execution_result == "done"
 
     def test_list_initiatives_filter(self):
-        from evoflow.proactive.repositories import ProactiveRepository
         from evoflow.proactive.models import Initiative, InitiativeStatus
+        from evoflow.proactive.repositories import ProactiveRepository
 
         ProactiveRepository.save_role(self._make_role())
         for i in range(3):
@@ -520,8 +521,8 @@ class TestProactiveMemoryRepository:
         assert mem.completed_initiatives == 0
 
     def test_save_and_get_memory(self):
-        from evoflow.proactive.repositories import ProactiveMemoryRepository
         from evoflow.proactive.models import ProactiveMemory
+        from evoflow.proactive.repositories import ProactiveMemoryRepository
 
         mem = ProactiveMemory(
             role_agent_code="test_mem",
@@ -655,7 +656,7 @@ class TestPrompt:
         assert "优先检索" in prompt
 
     def test_role_docs_rel_dir_uses_agent_code(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from evoflow.proactive.artifacts import (
             role_docs_hour_stamp,
@@ -669,7 +670,7 @@ class TestPrompt:
             role_name="前端工程师",
             config=ProactiveRoleConfig(),
         )
-        when = datetime(2026, 7, 21, 18, 30, tzinfo=timezone.utc)
+        when = datetime(2026, 7, 21, 18, 30, tzinfo=UTC)
         assert role_docs_slug(role) == "code-agent"
         assert role_docs_hour_stamp(when) == "20260721-18"
         assert role_docs_rel_dir(role, with_hour=False) == "docs/roles/code-agent/"
@@ -716,11 +717,7 @@ class TestPrompt:
             observations=[note],
             strategies=[note, "优先推进未结 Task"],
         )
-        work_log = (
-            "## 工作日志\n"
-            "  🚫 [rejected] id=`task:x` 有机交班\n"
-            "    -> 驳回原因（勿再提同题）: 无需处理\n"
-        )
+        work_log = "## 工作日志\n  🚫 [rejected] id=`task:x` 有机交班\n    -> 驳回原因（勿再提同题）: 无需处理\n"
         prompt = build_user_prompt(role, mem, environment_context="", work_log=work_log)
         assert prompt.count("有机交班") == 1
         assert "用户驳回" not in prompt
@@ -737,11 +734,7 @@ class TestPrompt:
             role_name="产品经理",
             config=ProactiveRoleConfig(),
         )
-        env = (
-            f"{_DISPATCH_ENV_MARKER}（优先执行）\n"
-            "**目标：** 优化任务中心描述\n"
-            "**Task：** `Task_abc`\n"
-        )
+        env = f"{_DISPATCH_ENV_MARKER}（优先执行）\n**目标：** 优化任务中心描述\n**Task：** `Task_abc`\n"
         prompt = build_user_prompt(
             role,
             ProactiveMemory(role_agent_code="product-manager"),
@@ -1045,10 +1038,10 @@ class TestEngineInitiativeBuilding:
     def test_build_initiative_from_llm_output(self):
         from evoflow.proactive.engine import ProactiveEngine
         from evoflow.proactive.models import (
+            InitiativeStatus,
+            ProactiveAutonomyLevel,
             ProactiveRole,
             ProactiveRoleConfig,
-            ProactiveAutonomyLevel,
-            InitiativeStatus,
         )
 
         engine = ProactiveEngine()
@@ -1082,10 +1075,10 @@ class TestEngineInitiativeBuilding:
     def test_build_initiative_low_risk_auto(self):
         from evoflow.proactive.engine import ProactiveEngine
         from evoflow.proactive.models import (
+            InitiativeStatus,
+            ProactiveAutonomyLevel,
             ProactiveRole,
             ProactiveRoleConfig,
-            ProactiveAutonomyLevel,
-            InitiativeStatus,
         )
 
         engine = ProactiveEngine()
@@ -1260,18 +1253,10 @@ class TestProactiveSubmitWork:
         assert res.get("created_task_ids") == []
         assert "Fix work log gap" in (res.get("ignored_initiatives_use_cli") or [])
 
-        rows = [
-            i
-            for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=20)
-            if i.round_id == rid
-        ]
+        rows = [i for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=20) if i.round_id == rid]
         # Only round_log journal
         assert len(rows) == 1
-        journals = [
-            i
-            for i in rows
-            if isinstance(i.action_plan, dict) and i.action_plan.get("kind") == "round_log"
-        ]
+        journals = [i for i in rows if isinstance(i.action_plan, dict) and i.action_plan.get("kind") == "round_log"]
         assert len(journals) == 1
         assert journals[0].status.value == "completed"
 
@@ -1288,11 +1273,7 @@ class TestProactiveSubmitWork:
             phase="wrap_up",
         )
         assert res2["ok"] is True
-        rows2 = [
-            i
-            for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=20)
-            if i.round_id == rid2
-        ]
+        rows2 = [i for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=20) if i.round_id == rid2]
         assert len(rows2) == 1
         assert rows2[0].status.value == "completed"
         assert rows2[0].goal == "无事项巡检"

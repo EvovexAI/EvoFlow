@@ -82,11 +82,7 @@ def list_direct_reports(
     self_code = str(role.agent_code or "").strip()
     if not self_code:
         return []
-    out = [
-        r
-        for r in roster
-        if reports_to_code(r) == self_code and str(r.agent_code or "").strip() != self_code
-    ]
+    out = [r for r in roster if reports_to_code(r) == self_code and str(r.agent_code or "").strip() != self_code]
     out.sort(key=lambda r: (str(r.role_name or ""), str(r.agent_code or "")))
     return out
 
@@ -155,16 +151,8 @@ def with_reporting_bridges(
     Bridge nodes restore the reporting chain without changing stored
     ``reports_to`` values.
     """
-    by_code = {
-        str(r.agent_code or "").strip(): r
-        for r in full_roster
-        if str(r.agent_code or "").strip()
-    }
-    included: dict[str, ProactiveRole] = {
-        str(r.agent_code or "").strip(): r
-        for r in visible
-        if str(r.agent_code or "").strip()
-    }
+    by_code = {str(r.agent_code or "").strip(): r for r in full_roster if str(r.agent_code or "").strip()}
+    included: dict[str, ProactiveRole] = {str(r.agent_code or "").strip(): r for r in visible if str(r.agent_code or "").strip()}
     for role in list(included.values()):
         cur = reports_to_code(role)
         seen: set[str] = set()
@@ -194,7 +182,6 @@ def build_org_forest(
     roots: list[ProactiveRole] = []
 
     for r in roles:
-        code = str(r.agent_code or "").strip()
         mgr = reports_to_code(r)
         if not mgr or (roots_only_in_roster and mgr not in codes):
             roots.append(r)

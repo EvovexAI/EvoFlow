@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from typing import Any
 
 from evoflow.admin.errors import NotFoundError, ValidationError
@@ -363,9 +362,7 @@ def migrate_sqlite_experiences_to_craft(*, dry_run: bool = False) -> dict[str, A
     from evoflow.assets.craft import get_craft_experience, save_craft_from_experience
 
     db = _db()
-    rows = db.execute(
-        "SELECT * FROM evoflow_experience_entries WHERE deprecated = 0 ORDER BY created_at"
-    ).fetchall()
+    rows = db.execute("SELECT * FROM evoflow_experience_entries WHERE deprecated = 0 ORDER BY created_at").fetchall()
     migrated = 0
     skipped = 0
     errors: list[str] = []

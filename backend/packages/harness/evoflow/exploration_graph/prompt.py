@@ -98,10 +98,7 @@ def _compute_effectively_archived(nodes: list[Any]) -> set[str]:
     from evoflow.exploration_graph.node_status import ARCHIVED_NODE_STATUSES, PARKED_NODE_STATUSES
 
     closed_statuses = ARCHIVED_NODE_STATUSES | PARKED_NODE_STATUSES
-    directly_archived = {
-        n.external_id for n in nodes
-        if _node_status(n) in closed_statuses
-    }
+    directly_archived = {n.external_id for n in nodes if _node_status(n) in closed_statuses}
     children_map: dict[str, list[str]] = {}
     for n in nodes:
         parent = str(getattr(n, "parent_external_id", None) or "").strip()
@@ -125,10 +122,7 @@ def _compute_effectively_hidden(nodes: list[Any]) -> set[str]:
     ``<tree>`` nor in ``<resolved_history>``.  Its children are hidden too
     (same cascade logic as archived nodes).
     """
-    directly_hidden = {
-        n.external_id for n in nodes
-        if _node_status(n) == _COLLAPSED_STATUS
-    }
+    directly_hidden = {n.external_id for n in nodes if _node_status(n) == _COLLAPSED_STATUS}
     if not directly_hidden:
         return set()
     children_map: dict[str, list[str]] = {}
@@ -157,10 +151,7 @@ def _compute_effectively_parked(nodes: list[Any]) -> set[str]:
     ``select_archived_summaries`` can exclude parked nodes while
     ``select_parked_summaries`` can include them.
     """
-    directly_parked = {
-        n.external_id for n in nodes
-        if _node_status(n) in _PARKED_NODE_STATUSES
-    }
+    directly_parked = {n.external_id for n in nodes if _node_status(n) in _PARKED_NODE_STATUSES}
     if not directly_parked:
         return set()
     children_map: dict[str, list[str]] = {}
@@ -198,12 +189,7 @@ def select_nodes_for_injection(nodes: list[Any], *, max_nodes: int) -> list[Any]
     effectively_hidden = _compute_effectively_hidden(nodes)
     # Only inject active/stale nodes with full detail, excluding those
     # whose ancestor is archived (cascade) or collapsed (hidden).
-    live = [
-        n for n in nodes
-        if _node_status(n) in _ACTIVE_NODE_STATUSES
-        and n.external_id not in effectively_archived
-        and n.external_id not in effectively_hidden
-    ]
+    live = [n for n in nodes if _node_status(n) in _ACTIVE_NODE_STATUSES and n.external_id not in effectively_archived and n.external_id not in effectively_hidden]
     flows = [n for n in live if _effective_kind(n) == "flow"]
     gaps = [n for n in live if _effective_kind(n) == "gap"]
     goals = [n for n in live if _effective_kind(n) == "goal" or getattr(n, "external_id", None) == "goal:session"]
@@ -239,13 +225,7 @@ def select_archived_summaries(nodes: list[Any], *, max_summaries: int = _MAX_ARC
     effectively_parked = _compute_effectively_parked(nodes)
     # Include both directly-archived nodes and cascade-archived children,
     # but exclude collapsed nodes (hidden) and parked nodes (→ <parked_notes>).
-    archived = [
-        n for n in nodes
-        if n.external_id in effectively_archived
-        and n.external_id not in effectively_parked
-        and n.external_id not in effectively_hidden
-        and _effective_kind(n) in _ARCHIVED_INJECT_KINDS
-    ]
+    archived = [n for n in nodes if n.external_id in effectively_archived and n.external_id not in effectively_parked and n.external_id not in effectively_hidden and _effective_kind(n) in _ARCHIVED_INJECT_KINDS]
     # Prefer flows and gaps first (most likely to cause "redo" confusion),
     # then claims. Within the same kind, keep list_nodes order (updated_at DESC).
     kind_priority = {"flow": 0, "gap": 1, "claim": 2}
@@ -260,10 +240,7 @@ def select_parked_summaries(nodes: list[Any], *, max_summaries: int = _MAX_PARKE
         return []
     effectively_hidden = _compute_effectively_hidden(nodes)
     effectively_parked = _compute_effectively_parked(nodes)
-    parked = [
-        n for n in nodes
-        if n.external_id in effectively_parked and n.external_id not in effectively_hidden
-    ]
+    parked = [n for n in nodes if n.external_id in effectively_parked and n.external_id not in effectively_hidden]
     kind_priority = {"flow": 0, "gap": 1, "claim": 2, "diagram": 2, "file": 3, "goal": 4, "note": 5}
     parked.sort(key=lambda n: kind_priority.get(_effective_kind(n), 6))
     return parked[:cap]
@@ -310,9 +287,7 @@ def _build_tree_lines(nodes: list[Any], body_max_chars: int) -> list[str]:
         body = _truncate(n.body, body_max_chars)
         ekind = _effective_kind(n)
         suffix = f" — {body}" if body else ""
-        lines.append(
-            f"{prefix}{connector}{n.external_id} [{ekind}]: {n.title or n.external_id}{suffix}"
-        )
+        lines.append(f"{prefix}{connector}{n.external_id} [{ekind}]: {n.title or n.external_id}{suffix}")
 
         kids = children.get(n.external_id, [])
         child_prefix = prefix + ("   " if is_last else "│  ")
@@ -335,9 +310,7 @@ def _build_tree_lines(nodes: list[Any], body_max_chars: int) -> list[str]:
             ekind = _effective_kind(n)
             suffix = f" — {body}" if body else ""
             parent = f" (parent={n.parent_external_id})" if n.parent_external_id else ""
-            lines.append(
-                f"- {n.external_id} [{ekind}]{parent}: {n.title or n.external_id}{suffix}"
-            )
+            lines.append(f"- {n.external_id} [{ekind}]{parent}: {n.title or n.external_id}{suffix}")
 
     return lines
 
@@ -402,13 +375,8 @@ def build_mind_map_section(
 
     if archived:
         lines.append("<resolved_history>")
-        lines.append(
-            "<!-- 已处理分支摘要（勿重做）；用户若否定结论，以用户最新反馈为准 -->"
-        )
-        directly_archived_ids = {
-            n.external_id for n in raw_nodes
-            if _node_status(n) in _ARCHIVED_NODE_STATUSES
-        }
+        lines.append("<!-- 已处理分支摘要（勿重做）；用户若否定结论，以用户最新反馈为准 -->")
+        directly_archived_ids = {n.external_id for n in raw_nodes if _node_status(n) in _ARCHIVED_NODE_STATUSES}
         for n in archived:
             st = _node_status(n)
             # Cascade-archived children (own status still active but ancestor is
@@ -447,12 +415,7 @@ def build_mind_map_section(
         # active.  Edges between two archived nodes are redundant (both
         # appear in <resolved_history> with implicit parent-child links).
         # Edges touching collapsed/hidden nodes are dropped entirely.
-        visible_edges = [
-            e for e in edges
-            if e.from_external_id in visible_ids
-            and e.to_external_id in visible_ids
-            and (e.from_external_id in active_ids or e.to_external_id in active_ids)
-        ]
+        visible_edges = [e for e in edges if e.from_external_id in visible_ids and e.to_external_id in visible_ids and (e.from_external_id in active_ids or e.to_external_id in active_ids)]
         if visible_edges:
             lines.append("<relations>")
             for e in visible_edges:
@@ -465,9 +428,7 @@ def build_mind_map_section(
         hidden_count = len(effectively_hidden)
         omit_hint = f" omitted_notes={omitted}" if omitted else ""
         hidden_hint = f" hidden={hidden_count}" if hidden_count else ""
-        lines.append(
-            f"<!-- graph_version={header.graph_version} nodes={header.node_count} edges={header.edge_count}{omit_hint}{hidden_hint} -->"
-        )
+        lines.append(f"<!-- graph_version={header.graph_version} nodes={header.node_count} edges={header.edge_count}{omit_hint}{hidden_hint} -->")
 
     lines.append("</session_mind_map>")
     return "\n".join(lines)

@@ -263,9 +263,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         except Exception:
             logger.debug("title broadcast failed thread=%s", thread_id, exc_info=True)
 
-    async def _generate_title_llm(
-        self, prompt: str, user_msg: str, *, model_name: str | None = None
-    ) -> tuple[str, dict[str, int] | None]:
+    async def _generate_title_llm(self, prompt: str, user_msg: str, *, model_name: str | None = None) -> tuple[str, dict[str, int] | None]:
         """Generate a title via LLM. Returns (title, usage_metadata or None)."""
         config = get_title_config()
         resolved = config.model_name or model_name
@@ -293,6 +291,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
                 # Broadcast so frontend can refresh sidebar without polling.
                 try:
                     from evoflow.persistence import session_repositories as sess_repo
+
                     sk = sess_repo.find_session_key_by_thread_id(thread_id)
                 except Exception:
                     sk = None
@@ -379,11 +378,13 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
             if not _tid:
                 try:
                     from langgraph.config import get_config as _gc
+
                     _tid = _gc().get("configurable", {}).get("thread_id")
                 except Exception:
                     pass
             if _tid:
                 from evoflow.persistence.session_repositories import get_model_name_for_thread
+
                 _name = get_model_name_for_thread(str(_tid).strip())
                 if _name:
                     return str(_name).strip() or None

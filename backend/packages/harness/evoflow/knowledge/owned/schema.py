@@ -377,35 +377,19 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         pass
     conn.executescript(MEM_ATOM_ENTITIES_DDL)
     # Additive migrations for existing DBs (CREATE IF NOT EXISTS won't alter columns).
-    doc_cols = {
-        str(r[1]) for r in conn.execute("PRAGMA table_info(kb_documents)").fetchall()
-    }
+    doc_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(kb_documents)").fetchall()}
     if "sort_order" not in doc_cols:
-        conn.execute(
-            "ALTER TABLE kb_documents ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
-        )
+        conn.execute("ALTER TABLE kb_documents ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
     if "tags_json" not in doc_cols:
-        conn.execute(
-            "ALTER TABLE kb_documents ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'"
-        )
+        conn.execute("ALTER TABLE kb_documents ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'")
     if "frontmatter_json" not in doc_cols:
-        conn.execute(
-            "ALTER TABLE kb_documents ADD COLUMN frontmatter_json TEXT NOT NULL DEFAULT '{}'"
-        )
+        conn.execute("ALTER TABLE kb_documents ADD COLUMN frontmatter_json TEXT NOT NULL DEFAULT '{}'")
     if "source_rel_path" not in doc_cols:
-        conn.execute(
-            "ALTER TABLE kb_documents ADD COLUMN source_rel_path TEXT NOT NULL DEFAULT ''"
-        )
-    mem_cols = {
-        str(r[1]) for r in conn.execute("PRAGMA table_info(mem_atoms)").fetchall()
-    }
+        conn.execute("ALTER TABLE kb_documents ADD COLUMN source_rel_path TEXT NOT NULL DEFAULT ''")
+    mem_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(mem_atoms)").fetchall()}
     if "source_path" not in mem_cols:
-        conn.execute(
-            "ALTER TABLE mem_atoms ADD COLUMN source_path TEXT NOT NULL DEFAULT ''"
-        )
-    ns_cols = {
-        str(r[1]) for r in conn.execute("PRAGMA table_info(mem_namespaces)").fetchall()
-    }
+        conn.execute("ALTER TABLE mem_atoms ADD COLUMN source_path TEXT NOT NULL DEFAULT ''")
+    ns_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(mem_namespaces)").fetchall()}
     for col, decl in (
         ("org_id", "TEXT"),
         ("owner_scope_id", "TEXT"),
@@ -432,12 +416,8 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kb_doc_links_src ON kb_doc_links(src_doc_id)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kb_doc_links_dst ON kb_doc_links(kb_id, target_doc_id)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_doc_links_src ON kb_doc_links(src_doc_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_doc_links_dst ON kb_doc_links(kb_id, target_doc_id)")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS kb_activity (
@@ -452,24 +432,16 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kb_activity_kb_time ON kb_activity(kb_id, created_at DESC)"
-    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_activity_kb_time ON kb_activity(kb_id, created_at DESC)")
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_kb_activity_doc_time
           ON kb_activity(doc_id, created_at DESC) WHERE doc_id IS NOT NULL
         """
     )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kb_activity_time ON kb_activity(created_at DESC)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_kb_docs_path ON kb_documents(kb_id, folder_path, file_name)"
-    )
-    base_cols = {
-        str(r[1]) for r in conn.execute("PRAGMA table_info(kb_bases)").fetchall()
-    }
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_activity_time ON kb_activity(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kb_docs_path ON kb_documents(kb_id, folder_path, file_name)")
+    base_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(kb_bases)").fetchall()}
     for col, decl in (
         ("sync_source_type", "TEXT NOT NULL DEFAULT ''"),
         ("sync_source_path", "TEXT NOT NULL DEFAULT ''"),
@@ -547,9 +519,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
                 )
     except Exception:
         pass
-    row = conn.execute(
-        "SELECT value FROM kb_schema_meta WHERE key = ?", ("schema_version",)
-    ).fetchone()
+    row = conn.execute("SELECT value FROM kb_schema_meta WHERE key = ?", ("schema_version",)).fetchone()
     if not row:
         conn.execute(
             "INSERT INTO kb_schema_meta(key, value) VALUES (?, ?)",

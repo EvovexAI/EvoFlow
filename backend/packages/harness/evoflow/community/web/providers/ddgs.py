@@ -22,9 +22,7 @@ def _run_ddgs_search(query: str, safe_limit: int) -> list[dict[str, Any]]:
         try:
             results: list[dict[str, Any]] = []
             with DDGS(timeout=15) as client:
-                for i, hit in enumerate(
-                    client.text(query, max_results=safe_limit, backend=backend)
-                ):
+                for i, hit in enumerate(client.text(query, max_results=safe_limit, backend=backend)):
                     if i >= safe_limit:
                         break
                     url = str(hit.get("href") or hit.get("url") or "")

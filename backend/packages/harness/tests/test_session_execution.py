@@ -24,8 +24,8 @@ def sqlite_tmp(monkeypatch: pytest.MonkeyPatch):
         reset_db_for_tests()
 
 
-from evoflow.session_execution.lifecycle import force_end_session_turn, start_session_turn
-from evoflow.session_execution.queries import derive_executing
+from evoflow.session_execution.lifecycle import force_end_session_turn, start_session_turn  # noqa: E402
+from evoflow.session_execution.queries import derive_executing  # noqa: E402
 
 
 def test_start_session_turn_delegates(sqlite_tmp: None) -> None:
@@ -113,10 +113,13 @@ def test_mark_session_idle_clears_running(sqlite_tmp: None) -> None:
     mark_session_run_started(session_key=sk, run_id="run-1", status=RUN_STATUS_RUNNING)
 
     async def _run() -> None:
-        with patch("evoflow.session_execution.commands._clear_live_snapshot"), patch(
-            "evoflow.session_execution.lifecycle.end_session_turn",
-            new_callable=AsyncMock,
-        ) as mock_end:
+        with (
+            patch("evoflow.session_execution.commands._clear_live_snapshot"),
+            patch(
+                "evoflow.session_execution.lifecycle.end_session_turn",
+                new_callable=AsyncMock,
+            ) as mock_end,
+        ):
             mock_end.return_value = True
             result = await mark_session_idle(sk)
         assert result.ok is True
@@ -136,22 +139,29 @@ def test_stop_session_execution_cancels_and_idles(sqlite_tmp: None) -> None:
     mark_session_run_started(session_key=sk, run_id="run-stop", status=RUN_STATUS_RUNNING)
 
     async def _run() -> None:
-        with patch(
-            "evoflow.session_execution.commands.sweep_langgraph_runs_until_idle",
-            new_callable=AsyncMock,
-            return_value=(["run-stop"], []),
-        ) as mock_sweep, patch(
-            "evoflow.session_execution.commands.mark_session_idle",
-            new_callable=AsyncMock,
-        ) as mock_idle:
-            idle_result = type("R", (), {
-                "ok": True,
-                "session_key": sk,
-                "run_id": "run-stop",
-                "phase": RUN_STATUS_CANCELLED,
-                "cancelled_run_ids": [],
-                "session": {"runStatus": RUN_STATUS_CANCELLED},
-            })()
+        with (
+            patch(
+                "evoflow.session_execution.commands.sweep_langgraph_runs_until_idle",
+                new_callable=AsyncMock,
+                return_value=(["run-stop"], []),
+            ) as mock_sweep,
+            patch(
+                "evoflow.session_execution.commands.mark_session_idle",
+                new_callable=AsyncMock,
+            ) as mock_idle,
+        ):
+            idle_result = type(
+                "R",
+                (),
+                {
+                    "ok": True,
+                    "session_key": sk,
+                    "run_id": "run-stop",
+                    "phase": RUN_STATUS_CANCELLED,
+                    "cancelled_run_ids": [],
+                    "session": {"runStatus": RUN_STATUS_CANCELLED},
+                },
+            )()
             mock_idle.return_value = idle_result
             result = await stop_session_execution(sk)
 
@@ -171,14 +181,17 @@ def test_stop_session_execution_send_prep_skips_mark_idle(sqlite_tmp: None) -> N
     mark_session_run_started(session_key=sk, run_id="run-prep", status=RUN_STATUS_RUNNING)
 
     async def _run() -> None:
-        with patch(
-            "evoflow.session_execution.commands.cancel_langgraph_runs_before_send",
-            new_callable=AsyncMock,
-            return_value=["run-prep"],
-        ) as mock_prep, patch(
-            "evoflow.session_execution.commands.mark_session_idle",
-            new_callable=AsyncMock,
-        ) as mock_idle:
+        with (
+            patch(
+                "evoflow.session_execution.commands.cancel_langgraph_runs_before_send",
+                new_callable=AsyncMock,
+                return_value=["run-prep"],
+            ) as mock_prep,
+            patch(
+                "evoflow.session_execution.commands.mark_session_idle",
+                new_callable=AsyncMock,
+            ) as mock_idle,
+        ):
             result = await stop_session_execution(sk, user_initiated=False)
 
         mock_prep.assert_awaited_once()

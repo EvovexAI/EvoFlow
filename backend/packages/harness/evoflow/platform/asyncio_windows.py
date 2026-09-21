@@ -56,8 +56,7 @@ def _force_bg_job_isolated_loops_off_on_windows() -> None:
         return
     os.environ["BG_JOB_ISOLATED_LOOPS"] = "false"
     logger.warning(
-        "Windows long-run stability: forced BG_JOB_ISOLATED_LOOPS=false (was %r). "
-        "Set EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS=1 to keep isolated loops anyway.",
+        "Windows long-run stability: forced BG_JOB_ISOLATED_LOOPS=false (was %r). Set EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS=1 to keep isolated loops anyway.",
         prev,
     )
 
@@ -96,11 +95,7 @@ def is_event_loop_closed_runtime_error(exc: BaseException) -> bool:
     if not isinstance(exc, RuntimeError):
         return False
     msg = str(exc).lower()
-    return (
-        "event loop is closed" in msg
-        or "loop is closed" in msg
-        or "bound to a different event loop" in msg
-    )
+    return "event loop is closed" in msg or "loop is closed" in msg or "bound to a different event loop" in msg
 
 
 def is_benign_client_disconnect_error(exc: BaseException | None) -> bool:
@@ -168,9 +163,7 @@ def install_asyncio_benign_disconnect_handler(
             )
             return
         message = str(context.get("message") or "")
-        if "connection_lost" in message and is_benign_client_disconnect_error(
-            exc if isinstance(exc, BaseException) else None
-        ):
+        if "connection_lost" in message and is_benign_client_disconnect_error(exc if isinstance(exc, BaseException) else None):
             logger.debug("Ignored connection_lost disconnect: %s", message)
             return
         if previous is not None:
@@ -291,8 +284,7 @@ def apply_windows_langgraph_runtime_fixes() -> None:
     if not _APPLIED:
         _APPLIED = True
         logger.info(
-            "Windows LangGraph runtime fixes active "
-            "(selector_loop=%s, BG_JOB_ISOLATED_LOOPS=%s, httpx_aclose_patch=on)",
+            "Windows LangGraph runtime fixes active (selector_loop=%s, BG_JOB_ISOLATED_LOOPS=%s, httpx_aclose_patch=on)",
             _windows_selector_event_loop_enabled(),
             os.environ.get("BG_JOB_ISOLATED_LOOPS", ""),
         )

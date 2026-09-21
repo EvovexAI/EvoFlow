@@ -11,13 +11,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_EXECUTING_LIKE = frozenset(
-    {"executing", "in_progress", "running", "active", "waiting_dispatch"}
-)
+_EXECUTING_LIKE = frozenset({"executing", "in_progress", "running", "active", "waiting_dispatch"})
 # Child must be fully closed — awaiting_close on a child means that subtree is still open.
-_CHILD_FULLY_CLOSED = frozenset(
-    {"completed", "reviewed", "failed", "error", "cancelled", "canceled", "deleted"}
-)
+_CHILD_FULLY_CLOSED = frozenset({"completed", "reviewed", "failed", "error", "cancelled", "canceled", "deleted"})
 
 
 def _parse_iso(ts: str) -> datetime | None:
@@ -95,9 +91,7 @@ def classify_zombie_reclaim(
     ref = now or datetime.now(UTC)
     name = str(task.get("name") or "").strip()
 
-    if status in _EXECUTING_LIKE and _progress(task) >= 100 and _is_stale(
-        task, days=stuck_days, now=ref
-    ):
+    if status in _EXECUTING_LIKE and _progress(task) >= 100 and _is_stale(task, days=stuck_days, now=ref):
         return {
             "task_id": tid,
             "name": name,

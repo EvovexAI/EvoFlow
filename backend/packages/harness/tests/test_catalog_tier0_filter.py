@@ -50,8 +50,7 @@ def test_list_fact_catalog_omits_closure_files(assets_home: Path) -> None:
         encoding="utf-8",
     )
     (facts / "goal-done.md").write_text(
-        "---\naccess_tier: archival\nevidence: {\"source\": \"goal_complete\"}\n---\n\n"
-        "# Goal「测试」已完成\n",
+        '---\naccess_tier: archival\nevidence: {"source": "goal_complete"}\n---\n\n# Goal「测试」已完成\n',
         encoding="utf-8",
     )
 

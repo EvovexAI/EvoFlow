@@ -126,9 +126,7 @@ def dispatch_workflow_task_sync(
     authorized_by: str = "api",
 ) -> dict[str, Any]:
     """Synchronous wrapper for :func:`dispatch_workflow_task_now`."""
-    return _run_coroutine_sync(
-        dispatch_workflow_task_now(task_id, authorized_by=authorized_by)
-    )
+    return _run_coroutine_sync(dispatch_workflow_task_now(task_id, authorized_by=authorized_by))
 
 
 def apply_workflow_dispatch(
@@ -250,9 +248,7 @@ def _schedule_workflow_dispatch(task_id: str, run_id: str) -> None:
                 dispatch_authorized_main_task_execution,
             )
 
-            parsed = await dispatch_authorized_main_task_execution(
-                tid, thread_id=None, authorized_by="api"
-            )
+            parsed = await dispatch_authorized_main_task_execution(tid, thread_id=None, authorized_by="api")
             if not _dispatch_result_ok(parsed):
                 err = str((parsed or {}).get("error") or (parsed or {}).get("message") or "dispatch_failed")
                 logger.warning(
@@ -269,9 +265,7 @@ def _schedule_workflow_dispatch(task_id: str, run_id: str) -> None:
             if run_id:
                 try:
                     if err and not _dispatch_result_ok(parsed):
-                        app_repositories.update_run_status(
-                            run_id, "executing", error=f"Dispatch error: {err[:500]}"
-                        )
+                        app_repositories.update_run_status(run_id, "executing", error=f"Dispatch error: {err[:500]}")
                 except Exception:
                     pass
             if not _dispatch_result_ok(parsed):
@@ -459,9 +453,7 @@ def _create_lead_thread(*, app_id: str, app_name: str = "") -> str:
 
     import httpx
 
-    base = (
-        os.getenv("EVOFLOW_LANGGRAPH_URL", "http://127.0.0.1:8070/api/langgraph") or ""
-    ).rstrip("/")
+    base = (os.getenv("EVOFLOW_LANGGRAPH_URL", "http://127.0.0.1:8070/api/langgraph") or "").rstrip("/")
     if not base:
         raise ValueError("EVOFLOW_LANGGRAPH_URL is not configured")
     body = {
@@ -488,9 +480,7 @@ def _create_lead_thread(*, app_id: str, app_name: str = "") -> str:
             last_err = exc
             if attempt < 2:
                 time.sleep(0.5 * (attempt + 1))  # 0.5s, 1.0s backoff
-    raise ValueError(
-        f"Failed to create thread for lead_supervised mode after 3 retries: {last_err}"
-    )
+    raise ValueError(f"Failed to create thread for lead_supervised mode after 3 retries: {last_err}")
 
 
 _TASK_STATUS_TO_RUN = {
@@ -580,9 +570,7 @@ def run_app_lead_supervised(
     # 6. Advance collab phase to plan_ready (waiting for user authorize/start_execution)
     from evoflow.persistence.db import get_db
 
-    advance_collab_phase_to_plan_ready_for_task(
-        get_db(), get_project_storage(), task_id, "app_runner"
-    )
+    advance_collab_phase_to_plan_ready_for_task(get_db(), get_project_storage(), task_id, "app_runner")
 
     # 7. Create run record
     run_id = _make_run_id()
@@ -690,9 +678,7 @@ def run_app_workflow(
     name = app_name[:120]
     description = goal_text[:4000] if goal_text else f"工作流运行：{app_name}"
 
-    project_data, task_data = new_project_bundle_root_task(
-        name, description, thread_id=None
-    )
+    project_data, task_data = new_project_bundle_root_task(name, description, thread_id=None)
     task_id = str(task_data.get("id") or "")
     run_id = _make_run_id()
     app_version = int(app.get("version") or 1)
@@ -769,9 +755,7 @@ def run_app_workflow(
     save_task_bundle(task_id, project_data)
 
     # 7. Sync subtasks from plan steps (reads task from DB)
-    sync_result = sync_subtasks_from_plan_steps(
-        task_id, plan_input["steps"], storage=storage, goal=plan_input["goal"]
-    )
+    sync_result = sync_subtasks_from_plan_steps(task_id, plan_input["steps"], storage=storage, goal=plan_input["goal"])
 
     # 7.5 Auto rollup: append virtual rollup subtask when mode=auto and multi-step.
     # Must happen after sync_subtasks and before auto_authorize so the rollup
@@ -980,17 +964,10 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                 if str(task_status).lower() in ("completed", "done", "success"):
                     progress = 100
                 if not result_summary:
-                    result_summary = str(
-                        main_task.get("result_summary")
-                        or main_task.get("result_text")
-                        or main_task.get("error_text")
-                        or ""
-                    )
+                    result_summary = str(main_task.get("result_summary") or main_task.get("result_text") or main_task.get("error_text") or "")
                 main_outputs = task_outputs_of(main_task)
                 main_evidence = evidence_paths_from_outputs(main_outputs)
-                plan_steps = [
-                    s for s in (main_task.get("plan_steps") or []) if isinstance(s, dict)
-                ]
+                plan_steps = [s for s in (main_task.get("plan_steps") or []) if isinstance(s, dict)]
                 subtasks = [s for s in (main_task.get("subtasks") or []) if isinstance(s, dict)]
                 for idx, st in enumerate(subtasks):
                     ref = _resolve_subtask_ref(st, index=idx, plan_steps=plan_steps)
@@ -1006,13 +983,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                     raw_err = str(st.get("error_text") or st.get("error") or "").strip()
                     error_text = "" if raw_err.startswith("auto_blocked:") else raw_err
                     wp = st.get("worker_profile") if isinstance(st.get("worker_profile"), dict) else {}
-                    assigned_agent = str(
-                        st.get("assigned_agent")
-                        or st.get("assigned_to")
-                        or wp.get("base_subagent")
-                        or st.get("agent_id")
-                        or ""
-                    )
+                    assigned_agent = str(st.get("assigned_agent") or st.get("assigned_to") or wp.get("base_subagent") or st.get("agent_id") or "")
                     step_outputs = task_outputs_of(st)
                     step_paths = evidence_paths_from_outputs(step_outputs)
                     plan_step = plan_steps[idx] if idx < len(plan_steps) else None
@@ -1030,19 +1001,10 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                             "error_text": error_text[:2000],
                             "started_at": st.get("started_at"),
                             "completed_at": st.get("completed_at"),
-                            "subtask_thread_id": str(
-                                st.get("subtask_thread_id") or st.get("thread_id") or ""
-                            ).strip(),
+                            "subtask_thread_id": str(st.get("subtask_thread_id") or st.get("thread_id") or "").strip(),
                             "outputs": step_outputs,
                             "evidence_paths": step_paths,
-                            "is_rollup_step": bool(
-                                st.get("is_rollup_step")
-                                or str(ref or "").strip() == "__rollup__"
-                                or (
-                                    isinstance(wp, dict)
-                                    and bool(wp.get("is_rollup_step"))
-                                )
-                            ),
+                            "is_rollup_step": bool(st.get("is_rollup_step") or str(ref or "").strip() == "__rollup__" or (isinstance(wp, dict) and bool(wp.get("is_rollup_step")))),
                         },
                         subtask=st,
                         plan_step=plan_step if isinstance(plan_step, dict) else None,
@@ -1051,9 +1013,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                     )
                     steps_detail.append(step_row)
 
-                ref_aliases = build_step_ref_alias_map(
-                    plan_steps, steps_detail, app_steps=app_steps
-                )
+                ref_aliases = build_step_ref_alias_map(plan_steps, steps_detail, app_steps=app_steps)
                 mirror_ref_aliases(subtask_status, ref_aliases)
                 mirror_ref_aliases(step_ref_to_subtask_id, ref_aliases)
                 # Prefer answer/rollup step deliverables for run-level outputs
@@ -1086,9 +1046,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                 if pin is not None:
                     from evoflow.collab.app_openai_compat import load_app_for_run
 
-                    app_row = load_app_for_run(
-                        str(run.get("app_id")), pinned_version=int(pin)
-                    )
+                    app_row = load_app_for_run(str(run.get("app_id")), pinned_version=int(pin))
                 answer_from_ref = str(app_row.get("answer_from_ref") or "").strip()
         except Exception:
             pass
@@ -1113,9 +1071,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
 
     if result_summary and result_summary != run.get("result_summary"):
         try:
-            app_repositories.update_run_status(
-                run_id, status, progress=int(progress or 0), result_summary=result_summary
-            )
+            app_repositories.update_run_status(run_id, status, progress=int(progress or 0), result_summary=result_summary)
         except Exception:
             pass
 
@@ -1221,9 +1177,7 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
                 main_task["status"] = "paused"
                 # Only pause truly in-flight subtasks. Leave pending/planned alone so
                 # resume + DAG resolve won't treat waiting Step2 as "was running".
-                _in_flight = frozenset(
-                    {"executing", "running", "in_progress", "active", "planning"}
-                )
+                _in_flight = frozenset({"executing", "running", "in_progress", "active", "planning"})
                 subtasks = main_task.get("subtasks") or []
                 for st in subtasks:
                     if isinstance(st, dict):
@@ -1282,11 +1236,7 @@ def resume_run(run_id: str) -> bool:
 
                 loop = _aio.new_event_loop()
                 try:
-                    loop.run_until_complete(
-                        dispatch_authorized_main_task_execution(
-                            task_id, thread_id=None, authorized_by="api"
-                        )
-                    )
+                    loop.run_until_complete(dispatch_authorized_main_task_execution(task_id, thread_id=None, authorized_by="api"))
                 except Exception:
                     pass  # task_queue_runner will handle on next tick
                 finally:

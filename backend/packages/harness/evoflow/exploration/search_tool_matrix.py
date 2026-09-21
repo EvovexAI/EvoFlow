@@ -26,7 +26,7 @@ SEARCH_TOOL_ROWS_EN: list[tuple[str, str, str, str]] = [
         "Find symbol / class / API",
         "search_code_index / worker search",
         'query="path:evopanel/src/pages renderModelResponseTypeCell|summarizeModelResponse"',
-        'rg with pipe synonyms (| = regex OR, may timeout)',
+        "rg with pipe synonyms (| = regex OR, may timeout)",
     ),
     (
         "Scoped symbol in subdir",
@@ -97,7 +97,7 @@ SEARCH_TOOL_ROWS_ZH: list[tuple[str, str, str, str]] = [
         "已知文件内正则",
         "rg",
         'pattern="def fetch_tools_summary", path="backend/.../summaries.py"',
-        'pipe 关键词列表如 foo|bar|kind',
+        "pipe 关键词列表如 foo|bar|kind",
     ),
     (
         "界面文案 / 中英同义词",
@@ -119,12 +119,9 @@ SEARCH_TOOL_ROWS_ZH: list[tuple[str, str, str, str]] = [
     ),
 ]
 
+
 def _format_table(rows: list[tuple[str, str, str, str]], *, lang: str) -> str:
-    hdr = (
-        "| Intent | Tool | Good example | Avoid |\n"
-        if lang == "en"
-        else "| 意图 | 工具 | 正确示例 | 避免 |\n"
-    )
+    hdr = "| Intent | Tool | Good example | Avoid |\n" if lang == "en" else "| 意图 | 工具 | 正确示例 | 避免 |\n"
     lines = [hdr]
     for intent, tool, good, avoid in rows:
         lines.append(f"| {intent} | {tool} | {good} | {avoid} |")

@@ -33,14 +33,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     _assignee_group.add_argument(
         "--role",
         default="",
-        help="Filter by assigned_role (岗位显示名 / role_name). "
-        "Only tasks stamped with that 岗位 appear — not all agent_code history.",
+        help="Filter by assigned_role (岗位显示名 / role_name). Only tasks stamped with that 岗位 appear — not all agent_code history.",
     )
     list_p.add_argument(
         "--source",
         default="",
-        help="Filter by 任务来源: chat|workflow|role "
-        "(aliases like proactive_patrol / task_center also match)",
+        help="Filter by 任务来源: chat|workflow|role (aliases like proactive_patrol / task_center also match)",
     )
     list_p.add_argument(
         "--limit",
@@ -83,10 +81,10 @@ def register(subparsers: argparse._SubParsersAction) -> None:
             "  waiting_user | reviewed | completed | failed | cancelled\n\n"
             "智能体员工干完结案（面板「已完成」）:\n"
             "  evoflow tasks state <task_id> --status completed \\\n"
-            "    --summary \"做了什么 / 验收要点\" \\\n"
-            "    --outputs '[{\"type\":\"file\",\"key\":\"report\",\"value\":\"path/to.md\"}]' \\\n"
-            "  --handlers '[{\"agent_code\":\"frontend-dev\",\"content\":\"修闪烁\","
-            "\"read_outputs\":[{\"type\":\"file\",\"key\":\"report\",\"value\":\"path/to.md\"}]}]'\n"
+            '    --summary "做了什么 / 验收要点" \\\n'
+            '    --outputs \'[{"type":"file","key":"report","value":"path/to.md"}]\' \\\n'
+            '  --handlers \'[{"agent_code":"frontend-dev","content":"修闪烁",'
+            '"read_outputs":[{"type":"file","key":"report","value":"path/to.md"}]}]\'\n'
             "  （干完即结案；handlers 仅直属下级；medium+ 交接系统挂待审批后再 wake）\n"
             "  结案必须带 --summary；文件/链接等产出用 --outputs。\n"
             "  legacy --status reviewed 会映射为 completed。\n\n"
@@ -108,11 +106,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     state_p.add_argument(
         "--outputs",
         default="",
-        help=(
-            "结构化产出 JSON 数组："
-            '[{"type":"file|url|text|other","key":"...","value":"...","label":"..."}]；'
-            "也可传单个文件路径字符串"
-        ),
+        help=('结构化产出 JSON 数组：[{"type":"file|url|text|other","key":"...","value":"...","label":"..."}]；也可传单个文件路径字符串'),
     )
     state_p.add_argument(
         "--handlers",
@@ -132,11 +126,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     del_p = sub.add_parser(
         "delete",
         help="Hard-delete a main task (不可恢复；误建/重复单用)",
-        description=(
-            "物理删除主任务（与面板 DELETE /tasks 同源）。\n"
-            "例：evoflow tasks delete Task_xxx\n"
-            "若只需关闭、保留记录，改用：evoflow tasks state Task_xxx --status cancelled"
-        ),
+        description=("物理删除主任务（与面板 DELETE /tasks 同源）。\n例：evoflow tasks delete Task_xxx\n若只需关闭、保留记录，改用：evoflow tasks state Task_xxx --status cancelled"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     del_p.add_argument("task_id", help="Main task id")
@@ -157,8 +147,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     create_p.add_argument(
         "--role",
         default="",
-        help="Stamp assigned_role with this 岗位显示名 (role_name). "
-        "If --assignee omitted, resolves agent_code from the active employee role.",
+        help="Stamp assigned_role with this 岗位显示名 (role_name). If --assignee omitted, resolves agent_code from the active employee role.",
     )
     create_p.add_argument(
         "--main-task-id",
@@ -169,8 +158,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     create_p.add_argument(
         "--source",
         default="",
-        help="任务来源: chat|workflow|role "
-        "(default: role when --role set, else chat)",
+        help="任务来源: chat|workflow|role (default: role when --role set, else chat)",
     )
     create_p.add_argument(
         "--raised-by",
@@ -362,17 +350,9 @@ def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
     want = str(role_name or "").strip().lower()
     if not want:
         raise ValidationError("role must be a non-empty role_name")
-    matches = [
-        r
-        for r in ProactiveRepository.list_roles()
-        if str(r.role_name or "").strip().lower() == want
-        and str(r.status or "").strip().lower() != "archived"
-    ]
+    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want and str(r.status or "").strip().lower() != "archived"]
     if not matches:
-        raise ValidationError(
-            f"no active role found with name '{role_name}'. "
-            "Run `evoflow employees list` to see available role_name values."
-        )
+        raise ValidationError(f"no active role found with name '{role_name}'. Run `evoflow employees list` to see available role_name values.")
     role = matches[0]
     code = str(role.agent_code or "").strip()
     if not code:

@@ -2693,6 +2693,12 @@ export const api = {
   beginWeixinRegistration: async () => gatewayProxy('POST', '/channels/weixin/registration/begin'),
   pollWeixinRegistration: async (sessionId) => gatewayProxy('GET', `/channels/weixin/registration/${sessionId}/poll`),
   applyWeixinRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/weixin/registration/${sessionId}/apply`, { enabled }),
+  beginWecomRegistration: async () => gatewayProxy('POST', '/channels/wecom/registration/begin'),
+  pollWecomRegistration: async (sessionId) => gatewayProxy('GET', `/channels/wecom/registration/${sessionId}/poll`),
+  applyWecomRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/wecom/registration/${sessionId}/apply`, { enabled }),
+  beginDingtalkRegistration: async () => gatewayProxy('POST', '/channels/dingtalk/registration/begin'),
+  pollDingtalkRegistration: async (sessionId) => gatewayProxy('GET', `/channels/dingtalk/registration/${sessionId}/poll`),
+  applyDingtalkRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/dingtalk/registration/${sessionId}/apply`, { enabled }),
 
   // 传统技能接口（保持兼容）
   skillsCatalog: () => invoke('skills_list'),

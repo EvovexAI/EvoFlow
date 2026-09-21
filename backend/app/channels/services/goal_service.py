@@ -80,8 +80,6 @@ HOSTED_SYSTEM_PROMPT = """你是一个目标调度Agent。你的职责是：根�
 )
 
 
-
-
 class GoalService:
     """托管核心调度服务"""
 
@@ -282,9 +280,8 @@ class GoalService:
         2. completion_hint — 判定器 verdict.summary 或回复正文（fallback）
         3. 默认占位文本
         """
-        from evoflow.persistence import goal_repositories as goal_repo
-
         from evoflow.agents.goal.goal_runtime import clip_goal_summary_text
+        from evoflow.persistence import goal_repositories as goal_repo
 
         outcome = "任务完成"
         sk = str(session.associated_session_key or "").strip()
@@ -323,9 +320,7 @@ class GoalService:
         await self._broadcast_panel_state(session)
 
         # 飞书推送（如已配置，复用同一份 summary）
-        await self._maybe_push_feishu_completion(
-            session, outcome=session.completion_outcome, detail=session.goal_summary
-        )
+        await self._maybe_push_feishu_completion(session, outcome=session.completion_outcome, detail=session.goal_summary)
 
         self._hosted_op_log(
             "托管目标完成",
@@ -786,10 +781,7 @@ class GoalService:
         except Exception as exc:
             err = str(exc)
             if "not found" in err.lower():
-                err = (
-                    f"{err}（请确认 LangGraph 已重启，且 langgraph.json 已注册 goal_agent；"
-                    f"goal_thread={goal_thread_id or '?'} lead_thread={lead_thread_id or '?'}）"
-                )
+                err = f"{err}（请确认 LangGraph 已重启，且 langgraph.json 已注册 goal_agent；goal_thread={goal_thread_id or '?'} lead_thread={lead_thread_id or '?'}）"
             session.status = GoalStatus.ERROR
             session.last_error = err
             session.ended_at = time.time()
@@ -1209,10 +1201,7 @@ class GoalService:
                 max_steps=session.config.max_steps,
                 goal_text=session.config.prompt,
                 assistant_output=reply,
-                decision=(
-                    f"goal_status={session.goal_status} session_status="
-                    f"{session.status.value if hasattr(session.status, 'value') else session.status}"
-                ),
+                decision=(f"goal_status={session.goal_status} session_status={session.status.value if hasattr(session.status, 'value') else session.status}"),
                 hosted_id=session.id,
             )
         except asyncio.CancelledError:
@@ -1288,13 +1277,7 @@ class GoalService:
 
         sk = str(session.associated_session_key or "").strip()
         should_fallback_continue = False
-        if (
-            str(session.goal_status or "") == "active"
-            and not session.continuation_suppressed
-            and completed_reason is None
-            and verdict_continue
-            and session.current_step < int(session.config.max_steps or 50)
-        ):
+        if str(session.goal_status or "") == "active" and not session.continuation_suppressed and completed_reason is None and verdict_continue and session.current_step < int(session.config.max_steps or 50):
             db_step = int((row or {}).get("step_count") or 0)
             db_goal_status = str((row or {}).get("goal_status") or "").strip().lower()
             if db_goal_status == "completed":
@@ -1323,10 +1306,7 @@ class GoalService:
             max_steps=session.config.max_steps,
             goal_text=session.config.prompt,
             assistant_output=reply,
-            decision=(
-                f"goal_status={session.goal_status} session_status={session.status.value if hasattr(session.status, 'value') else session.status}"
-                + ("; 将触发兜底续跑" if should_fallback_continue else "")
-            ),
+            decision=(f"goal_status={session.goal_status} session_status={session.status.value if hasattr(session.status, 'value') else session.status}" + ("; 将触发兜底续跑" if should_fallback_continue else "")),
             completed_reason=completed_reason or "",
             hosted_id=session.id,
         )
@@ -1611,6 +1591,7 @@ class GoalService:
         """
         try:
             from app.gateway.routers.events import EventBroadcaster
+
             sk = (session.associated_session_key or "").strip()
             if not sk:
                 return
@@ -1795,9 +1776,7 @@ class GoalService:
         if err:
             session.last_error = err
         session.goal_summary = str(row.get("goal_summary") or getattr(session, "goal_summary", "") or "")
-        session.completion_outcome = str(
-            row.get("completion_outcome") or getattr(session, "completion_outcome", "") or ""
-        )
+        session.completion_outcome = str(row.get("completion_outcome") or getattr(session, "completion_outcome", "") or "")
         db_status = str(row.get("status") or "").strip().lower()
         if gs in {"completed", "cleared"}:
             session.status = GoalStatus.IDLE

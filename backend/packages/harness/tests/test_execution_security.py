@@ -126,10 +126,13 @@ def test_auto_enable_when_helpers_ready_by_default(tmp_path: Path):
     assert cfg.auto_enable_when_helpers_ready is True
     fake_ready = HelperPaths(windows_sandbox=tmp_path / "evoflow-windows-sandbox.exe")
     (tmp_path / "evoflow-windows-sandbox.exe").write_bytes(b"x")
-    with patch(
-        "evoflow.execution_security.helpers.discover_helpers",
-        return_value=fake_ready,
-    ), patch("sys.platform", "win32"):
+    with (
+        patch(
+            "evoflow.execution_security.helpers.discover_helpers",
+            return_value=fake_ready,
+        ),
+        patch("sys.platform", "win32"),
+    ):
         assert is_execution_security_active(cfg) is True
 
     with patch(
@@ -216,9 +219,7 @@ def test_windows_wrapper_argv_shape(tmp_path: Path):
 
 
 def test_run_sandboxed_passthrough_echo(tmp_path: Path):
-    set_execution_security_config(
-        ExecutionSecurityConfig(enabled=False, auto_enable_when_helpers_ready=False)
-    )
+    set_execution_security_config(ExecutionSecurityConfig(enabled=False, auto_enable_when_helpers_ready=False))
     if sys.platform == "win32":
         result = run_sandboxed("echo hello-sec", cwd=tmp_path, timeout=30)
     else:
@@ -266,9 +267,7 @@ def test_patch_execution_security_settings_updates_memory(monkeypatch, tmp_path)
         _set,
     )
     set_execution_security_config(ExecutionSecurityConfig(enabled=False, profile="workspace"))
-    st = patch_execution_security_settings(
-        {"enabled": True, "profile": "read-only", "approval": "never"}
-    )
+    st = patch_execution_security_settings({"enabled": True, "profile": "read-only", "approval": "never"})
     assert st["enabled"] is True
     assert st["profile"] == "read-only"
     assert st["approval"] == "never"
@@ -283,14 +282,10 @@ def test_windows_level_alias_restricted():
 def test_tool_risk_respects_execution_security_approval():
     from evoflow.agents.tool_approval_config import RISK_AUTO, RISK_CONFIRM, tool_risk_level
 
-    set_execution_security_config(
-        ExecutionSecurityConfig(enabled=True, approval="never", allow_passthrough=True)
-    )
+    set_execution_security_config(ExecutionSecurityConfig(enabled=True, approval="never", allow_passthrough=True))
     assert tool_risk_level("terminal", {"command": "rm -rf /"}) == RISK_AUTO
 
-    set_execution_security_config(
-        ExecutionSecurityConfig(enabled=True, approval="untrusted", allow_passthrough=True)
-    )
+    set_execution_security_config(ExecutionSecurityConfig(enabled=True, approval="untrusted", allow_passthrough=True))
     assert tool_risk_level("terminal", {"command": "ls"}) == RISK_CONFIRM
     assert tool_risk_level("bash", {"command": "ls"}) == RISK_CONFIRM
 

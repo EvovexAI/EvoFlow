@@ -54,9 +54,7 @@ def _run(home: Path) -> dict:
     # ── 1. 知识库：vault → remember → recall ──
     created_vault = knowledge_admin.create_managed_vault(name="跨模块Saga知识库")
     vault = created_vault.get("vault") or created_vault
-    vault_id = str(
-        vault.get("id") or created_vault.get("vault_id") or created_vault.get("id") or ""
-    ).strip()
+    vault_id = str(vault.get("id") or created_vault.get("vault_id") or created_vault.get("id") or "").strip()
     knowledge_admin.remember(
         {
             "title": "Saga评测笔记",
@@ -65,15 +63,9 @@ def _run(home: Path) -> dict:
         },
         vault_id=vault_id or None,
     )
-    recalled = knowledge_admin.recall(
-        _TOKEN, vault_id=vault_id or None, mode="fulltext", limit=5
-    )
+    recalled = knowledge_admin.recall(_TOKEN, vault_id=vault_id or None, mode="fulltext", limit=5)
     recall_blob = json.dumps(recalled, ensure_ascii=False, default=str)
-    recall_hit = (
-        int(recalled.get("total") or 0) >= 1
-        or _TOKEN in recall_blob
-        or bool(recalled.get("entries") or recalled.get("results") or recalled.get("hits"))
-    )
+    recall_hit = int(recalled.get("total") or 0) >= 1 or _TOKEN in recall_blob or bool(recalled.get("entries") or recalled.get("results") or recalled.get("hits"))
     steps.append({"step": 1, "module": "knowledge", "api": "vault+remember+recall", "vault_id": vault_id})
 
     # ── 2. MCP：配置面（不 spawn） ──
@@ -90,7 +82,7 @@ def _run(home: Path) -> dict:
             }
         }
     )
-    mcp_servers = (mcp_admin.get_mcp_config().get("mcp_servers") or {})
+    mcp_servers = mcp_admin.get_mcp_config().get("mcp_servers") or {}
     mcp_ok = _MCP in mcp_servers
     steps.append({"step": 2, "module": "mcp", "api": "set_mcp_config", "server": _MCP})
 
@@ -98,11 +90,7 @@ def _run(home: Path) -> dict:
     listed_skills = skills_admin.list_skills(enabled_only=False)
     skills = list(listed_skills.get("skills") or [])
     pick = next(
-        (
-            s
-            for s in skills
-            if isinstance(s, dict) and s.get("name") and s.get("category") != "custom"
-        ),
+        (s for s in skills if isinstance(s, dict) and s.get("name") and s.get("category") != "custom"),
         skills[0] if skills else None,
     )
     skill_name = str((pick or {}).get("name") or "").strip()
@@ -202,11 +190,7 @@ def _run(home: Path) -> dict:
     task_row = tasks_admin.get_task(dispatch_task_id) if dispatch_task_id else {}
     source_ref = ""
     if isinstance(task_row, dict):
-        source_ref = str(
-            task_row.get("source_ref")
-            or (task_row.get("task") or {}).get("source_ref")
-            or ""
-        )
+        source_ref = str(task_row.get("source_ref") or (task_row.get("task") or {}).get("source_ref") or "")
     expected_ref = f"item:{item_id}"
     steps.append(
         {
@@ -241,22 +225,11 @@ def _run(home: Path) -> dict:
         ],
     }
     validated = validate_app_definition(app_def)
-    valid_ok = bool(
-        validated.get("ok")
-        if "ok" in validated
-        else validated.get("valid")
-        if "valid" in validated
-        else not (validated.get("errors") or [])
-    )
+    valid_ok = bool(validated.get("ok") if "ok" in validated else validated.get("valid") if "valid" in validated else not (validated.get("errors") or []))
     app_repositories.save_app(_APP_ID, app_def)
     run_result = apps_admin.run_app(_APP_ID, parameters={"topic": "跨模块Saga"})
     run_obj = run_result.get("run") if isinstance(run_result, dict) else {}
-    wf_task_id = str(
-        (run_obj or {}).get("task_id")
-        or (run_obj or {}).get("main_task_id")
-        or run_result.get("task_id")
-        or ""
-    ).strip()
+    wf_task_id = str((run_obj or {}).get("task_id") or (run_obj or {}).get("main_task_id") or run_result.get("task_id") or "").strip()
     wf_run_id = str((run_obj or {}).get("run_id") or (run_obj or {}).get("id") or "").strip()
     steps.append(
         {
@@ -270,15 +243,9 @@ def _run(home: Path) -> dict:
 
     # ── 9. 任务中心：两条任务都可观测 ──
     listed_tasks = tasks_admin.list_tasks(include_subtasks=False)
-    task_ids = [
-        str(t.get("id") or t.get("task_id") or "")
-        for t in (listed_tasks.get("tasks") or listed_tasks.get("items") or [])
-        if isinstance(t, dict)
-    ]
+    task_ids = [str(t.get("id") or t.get("task_id") or "") for t in (listed_tasks.get("tasks") or listed_tasks.get("items") or []) if isinstance(t, dict)]
     # get_task fallback if list shape differs
-    dispatch_visible = dispatch_task_id in task_ids or bool(
-        dispatch_task_id and tasks_admin.get_task(dispatch_task_id)
-    )
+    dispatch_visible = dispatch_task_id in task_ids or bool(dispatch_task_id and tasks_admin.get_task(dispatch_task_id))
     wf_visible = wf_task_id in task_ids or bool(wf_task_id and tasks_admin.get_task(wf_task_id))
     steps.append(
         {
@@ -315,19 +282,10 @@ def _run(home: Path) -> dict:
         task = load_work_item_task(appr_task_id)
         appr = asyncio.run(gate.request_approval_for_task(role, task))
         appr_id = str(appr.id)
-        updated = asyncio.run(
-            gate.process_decision(appr.id, decision="approved", decided_by="user")
-        )
+        updated = asyncio.run(gate.process_decision(appr.id, decision="approved", decided_by="user"))
         appr2 = ProactiveRepository.get_approval(appr.id)
         bridge = ProactiveRepository.get_initiative(f"task:{appr_task_id}")
-        appr_ok = (
-            updated is not None
-            and updated.status == InitiativeStatus.APPROVED
-            and appr2 is not None
-            and appr2.status == ApprovalStatus.APPROVED
-            and bridge is not None
-            and bridge.status == InitiativeStatus.APPROVED
-        )
+        appr_ok = updated is not None and updated.status == InitiativeStatus.APPROVED and appr2 is not None and appr2.status == ApprovalStatus.APPROVED and bridge is not None and bridge.status == InitiativeStatus.APPROVED
     steps.append(
         {
             "step": 10,
@@ -369,9 +327,7 @@ def _run(home: Path) -> dict:
     if appr_id:
         persist.append(expect_approval(appr_id, status=ApprovalStatus.APPROVED.value))
     if appr_task_id:
-        persist.append(
-            expect_initiative(f"task:{appr_task_id}", status=InitiativeStatus.APPROVED.value)
-        )
+        persist.append(expect_initiative(f"task:{appr_task_id}", status=InitiativeStatus.APPROVED.value))
         persist.extend(expect_task(appr_task_id))
 
     # cleanup mcp so isolation leftovers are small (after persist reconcile)
@@ -415,8 +371,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "employee_hired_with_vault",
-            hired.get("agent_code") == _AGENT
-            and (not vault_id or vault_id in role_vaults),
+            hired.get("agent_code") == _AGENT and (not vault_id or vault_id in role_vaults),
             inputs={"agent_code": _AGENT, "knowledge_vault_ids": [vault_id]},
             expected={"agent_code": _AGENT, "vault": vault_id},
             actual={"agent_code": hired.get("agent_code"), "vaults": role_vaults},
@@ -424,12 +379,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "platform_confirm_gate",
-            (
-                bool(preview.get("pending_confirm"))
-                or (preview.get("ok") is True and not preview.get("item"))
-            )
-            and preview_total == 0
-            and bool(item_id),
+            (bool(preview.get("pending_confirm")) or (preview.get("ok") is True and not preview.get("item"))) and preview_total == 0 and bool(item_id),
             inputs={"confirm": "false→true"},
             expected="preview no mutate + confirmed item",
             actual={
@@ -441,9 +391,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "item_dispatch_link",
-            bool(dispatch_task_id)
-            and dispatch_task_id in linked
-            and (source_ref == expected_ref or expected_ref in source_ref),
+            bool(dispatch_task_id) and dispatch_task_id in linked and (source_ref == expected_ref or expected_ref in source_ref),
             inputs={"item_id": item_id, "agent_code": _AGENT, "wake_now": False},
             expected={"task_id": "non-empty", "source_ref": expected_ref},
             actual={

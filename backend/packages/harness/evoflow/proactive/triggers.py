@@ -77,9 +77,7 @@ class EventTriggerBus:
             # Immediate trigger (e.g. CI failure)
             await self._fire(agent_code, event_type, goal, description)
         else:
-            task = asyncio.create_task(
-                self._debounced_fire(key, agent_code, event_type, goal, description, delay)
-            )
+            task = asyncio.create_task(self._debounced_fire(key, agent_code, event_type, goal, description, delay))
             self._pending[key] = task
 
     def cancel_all(self) -> None:

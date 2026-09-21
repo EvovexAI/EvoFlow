@@ -40,11 +40,7 @@ _LEAD_AGENT_CONTEXT_KEYS = frozenset(
 
 
 def _lead_agent_context(cfg: dict[str, Any], *, lead_thread_id: str, session_key: str, continuation: str) -> dict[str, Any]:
-    ctx = {
-        k: v
-        for k, v in cfg.items()
-        if k in _LEAD_AGENT_CONTEXT_KEYS and not callable(v) and not isinstance(v, type)
-    }
+    ctx = {k: v for k, v in cfg.items() if k in _LEAD_AGENT_CONTEXT_KEYS and not callable(v) and not isinstance(v, type)}
     ctx.setdefault("thread_id", lead_thread_id)
     ctx.setdefault("session_key", session_key)
     ctx.setdefault("goal_automated", True)

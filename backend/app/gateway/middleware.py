@@ -37,9 +37,7 @@ _EXCLUDED_OBS_PATHS = (
     "/openapi.json",
     "/api/session-notifications",
 )
-_EXCLUDED_OBS_PREFIXES = (
-    "/api/proactive/roles/",
-)
+_EXCLUDED_OBS_PREFIXES = ("/api/proactive/roles/",)
 
 
 def _is_sensitive_name(name: str) -> bool:
@@ -128,7 +126,7 @@ def _gateway_body_samples_enabled() -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
-from app.gateway.gateway_obs_record import normalize_gateway_obs_path, schedule_gateway_observability_record
+from app.gateway.gateway_obs_record import normalize_gateway_obs_path, schedule_gateway_observability_record  # noqa: E402
 
 
 def _occurred_at() -> str:
@@ -162,13 +160,7 @@ class GatewayRequestLoggingMiddleware:
         request_url = URL(scope=scope)
         request_content_type = request_headers.get("content-type")
         request_content_length = _content_length(request_headers)
-        sample_request_body = (
-            _gateway_body_samples_enabled()
-            and not _is_streaming_request_path(path)
-            and _sampleable_content_type(request_content_type)
-            and request_content_length is not None
-            and request_content_length <= _BODY_READ_LIMIT
-        )
+        sample_request_body = _gateway_body_samples_enabled() and not _is_streaming_request_path(path) and _sampleable_content_type(request_content_type) and request_content_length is not None and request_content_length <= _BODY_READ_LIMIT
         request_body = bytearray()
         request_body_truncated = False
 
@@ -237,12 +229,7 @@ class GatewayRequestLoggingMiddleware:
                 response_headers = Headers(raw=message.get("headers") or [])
                 response_content_type = response_headers.get("content-type")
                 response_length = _content_length(response_headers)
-                sample_response_body = (
-                    _gateway_body_samples_enabled()
-                    and not _skip_response_body(response_content_type, response_headers)
-                    and response_length is not None
-                    and response_length <= _BODY_READ_LIMIT
-                )
+                sample_response_body = _gateway_body_samples_enabled() and not _skip_response_body(response_content_type, response_headers) and response_length is not None and response_length <= _BODY_READ_LIMIT
             elif message.get("type") == "http.response.body":
                 if sample_response_body:
                     chunk = message.get("body") or b""

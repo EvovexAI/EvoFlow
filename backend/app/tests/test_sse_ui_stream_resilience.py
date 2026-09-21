@@ -64,15 +64,11 @@ def test_feed_frame_exception_does_not_terminate_stream(monkeypatch: pytest.Monk
     out = _collect(gen)
 
     # poisoned frame skipped → log saw all 4 events
-    assert call_log == ["metadata", "messages", "values", "end"], (
-        f"feed_frame should be called for every frame even after error, got {call_log}"
-    )
+    assert call_log == ["metadata", "messages", "values", "end"], f"feed_frame should be called for every frame even after error, got {call_log}"
 
     # stream must NOT have early-returned with only an error frame
     joined = b"".join(out).decode("utf-8", errors="ignore")
-    assert "after-poison" in joined or "run_end" in joined, (
-        f"stream terminated prematurely; output={joined[:500]!r}"
-    )
+    assert "after-poison" in joined or "run_end" in joined, f"stream terminated prematurely; output={joined[:500]!r}"
 
     # outer except path emits exactly one ``{"type":"error",...}`` frame.
     # On the happy-skip path we MUST NOT see that early-abort error frame.
@@ -125,12 +121,8 @@ def test_feed_frame_error_emits_diagnostic_comment_and_traceback(
 
     # (a) SSE comment frame visible on the wire (lines starting with ":" are
     # safely ignored by EventSource but visible in browser devtools Network).
-    assert ": [sse-ui][feed_frame error]" in joined, (
-        f"expected diagnostic SSE comment frame; wire={joined[:600]!r}"
-    )
-    assert "poison-payload-blew-up-xyz" in joined, (
-        f"comment frame should include exc message; wire={joined[:600]!r}"
-    )
+    assert ": [sse-ui][feed_frame error]" in joined, f"expected diagnostic SSE comment frame; wire={joined[:600]!r}"
+    assert "poison-payload-blew-up-xyz" in joined, f"comment frame should include exc message; wire={joined[:600]!r}"
     assert "event=messages" in joined
 
     # (b) Server log includes full traceback so we can fix it next time.

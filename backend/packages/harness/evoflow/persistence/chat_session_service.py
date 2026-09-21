@@ -385,9 +385,7 @@ async def create_new_session(
         )
         from evoflow.authz.types import DEFAULT_ORG_ID
 
-        ctx_pid = str(
-            (merged_ctx or {}).get("created_by") or (merged_ctx or {}).get("principal_id") or ""
-        ).strip()
+        ctx_pid = str((merged_ctx or {}).get("created_by") or (merged_ctx or {}).get("principal_id") or "").strip()
         if ctx_pid:
             maybe = get_principal(ctx_pid)
             if maybe:
@@ -551,12 +549,12 @@ async def ensure_session_thread(
         try:
             from langgraph_sdk import get_client
 
-            from evoflow.runtime.ports import is_goal_active_for_session
             from evoflow.langgraph_run_config import (
                 default_langgraph_thread_metadata,
                 ensure_langgraph_thread_exists,
                 resolve_langgraph_base_url,
             )
+            from evoflow.runtime.ports import is_goal_active_for_session
 
             if is_goal_active_for_session(sk):
                 client = get_client(url=resolve_langgraph_base_url())
@@ -832,9 +830,7 @@ async def fork_session_full(
         model_name=parent.get("modelName") or child_ctx.get("model_name"),
         primary_model_name=parent.get("primaryModelName") or child_ctx.get("primary_model_name"),
         local_workspace_root=parent.get("localWorkspaceRoot") or child_ctx.get("local_workspace_root"),
-        use_virtual_paths=parent.get("useVirtualPaths")
-        if parent.get("useVirtualPaths") is not None
-        else child_ctx.get("use_virtual_paths"),
+        use_virtual_paths=parent.get("useVirtualPaths") if parent.get("useVirtualPaths") is not None else child_ctx.get("use_virtual_paths"),
         thinking_enabled=parent.get("thinkingEnabled"),
         reasoning_effort=parent.get("reasoningEffort") or child_ctx.get("reasoning_effort"),
         is_plan_mode=parent.get("isPlanMode"),
@@ -843,9 +839,7 @@ async def fork_session_full(
         memory_enabled=parent.get("memoryEnabled"),
     )
 
-    lwr = str(
-        parent.get("localWorkspaceRoot") or child_ctx.get("local_workspace_root") or ""
-    ).strip()
+    lwr = str(parent.get("localWorkspaceRoot") or child_ctx.get("local_workspace_root") or "").strip()
     if lwr:
         from evoflow.persistence import workspace_repositories as ws_repo
 
@@ -1087,9 +1081,7 @@ def append_message_and_touch_session(
                 from evoflow.persistence.usage_ledger import record_llm_chat_usage_in_txn
 
                 role_norm_msg = str(role or "").strip().lower()
-                if role_norm_msg in ("assistant", "ai", "model") or rollup.get("total_tokens") or rollup.get(
-                    "input_tokens"
-                ):
+                if role_norm_msg in ("assistant", "ai", "model") or rollup.get("total_tokens") or rollup.get("input_tokens"):
                     record_llm_chat_usage_in_txn(
                         conn,
                         session_key=sk,
@@ -1203,9 +1195,7 @@ def append_messages_batch_and_touch_session(
                 for m in messages or []:
                     if not isinstance(m, dict):
                         continue
-                    batch_model = str(
-                        m.get("model_name") or m.get("modelName") or m.get("model") or ""
-                    ).strip()
+                    batch_model = str(m.get("model_name") or m.get("modelName") or m.get("model") or "").strip()
                     if batch_model:
                         break
                 record_llm_chat_usage_in_txn(

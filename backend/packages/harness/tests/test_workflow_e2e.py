@@ -22,6 +22,7 @@ from evoflow.collab.workflow_validator import validate_app_definition
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
+
 def _make_step(
     ref: str,
     name: str = "",
@@ -72,12 +73,15 @@ def _make_subtask(
 
 # ── Scenario 1: Publish blocked by circular dependency ─────────────────
 
+
 class TestScenario1PublishBlockedCircular:
     def test_circular_dep_blocks_publish(self) -> None:
-        app = _make_app(steps=[
-            _make_step("1", name="A", depends_on=["2"]),
-            _make_step("2", name="B", depends_on=["1"]),
-        ])
+        app = _make_app(
+            steps=[
+                _make_step("1", name="A", depends_on=["2"]),
+                _make_step("2", name="B", depends_on=["1"]),
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("Circular dependency" in e for e in result["errors"])
@@ -85,26 +89,34 @@ class TestScenario1PublishBlockedCircular:
 
 # ── Scenario 2: Publish blocked by dangling binding reference ──────────
 
+
 class TestScenario2PublishBlockedDanglingRef:
     def test_dangling_step_ref_blocks_publish(self) -> None:
-        app = _make_app(steps=[
-            _make_step("1", name="A"),
-            _make_step("2", name="B", input_bindings={"data": "{{steps.99.output.x}}"}),
-        ])
+        app = _make_app(
+            steps=[
+                _make_step("1", name="A"),
+                _make_step("2", name="B", input_bindings={"data": "{{steps.99.output.x}}"}),
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("non-existent step '99'" in e for e in result["errors"])
 
     def test_unknown_output_field_blocks_publish(self) -> None:
         """Check 3b: binding references output field not in upstream output_schema."""
-        app = _make_app(steps=[
-            _make_step("1", name="Source", output_schema={
-                "type": "object",
-                "properties": {"title": {"type": "string"}},
-            }),
-            _make_step("2", name="Consumer", depends_on=["1"],
-                       input_bindings={"data": "{{steps.1.output.nonexistent}}"}),
-        ])
+        app = _make_app(
+            steps=[
+                _make_step(
+                    "1",
+                    name="Source",
+                    output_schema={
+                        "type": "object",
+                        "properties": {"title": {"type": "string"}},
+                    },
+                ),
+                _make_step("2", name="Consumer", depends_on=["1"], input_bindings={"data": "{{steps.1.output.nonexistent}}"}),
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("nonexistent" in e and "not declared" in e for e in result["errors"])
@@ -112,65 +124,95 @@ class TestScenario2PublishBlockedDanglingRef:
 
 # ── Scenario 3: Publish blocked by static type mismatch ────────────────
 
+
 class TestScenario3PublishBlockedTypeMismatch:
     def test_type_mismatch_blocks_publish(self) -> None:
         """Check 3c: string output bound to number input."""
-        app = _make_app(steps=[
-            _make_step("1", name="Source", output_schema={
-                "type": "object",
-                "properties": {"count": {"type": "string"}},
-            }),
-            _make_step("2", name="Consumer", depends_on=["1"],
-                       input_bindings={"total": "{{steps.1.output.count}}"},
-                       input_schema={
-                           "type": "object",
-                           "properties": {"total": {"type": "number"}},
-                       }),
-        ])
+        app = _make_app(
+            steps=[
+                _make_step(
+                    "1",
+                    name="Source",
+                    output_schema={
+                        "type": "object",
+                        "properties": {"count": {"type": "string"}},
+                    },
+                ),
+                _make_step(
+                    "2",
+                    name="Consumer",
+                    depends_on=["1"],
+                    input_bindings={"total": "{{steps.1.output.count}}"},
+                    input_schema={
+                        "type": "object",
+                        "properties": {"total": {"type": "number"}},
+                    },
+                ),
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is False
         assert any("type mismatch" in e.lower() for e in result["errors"])
 
     def test_compatible_types_pass(self) -> None:
         """integer output -> number input should be compatible."""
-        app = _make_app(steps=[
-            _make_step("1", name="Source", output_schema={
-                "type": "object",
-                "properties": {"count": {"type": "integer"}},
-            }),
-            _make_step("2", name="Consumer", depends_on=["1"],
-                       input_bindings={"total": "{{steps.1.output.count}}"},
-                       input_schema={
-                           "type": "object",
-                           "properties": {"total": {"type": "number"}},
-                       }),
-        ])
+        app = _make_app(
+            steps=[
+                _make_step(
+                    "1",
+                    name="Source",
+                    output_schema={
+                        "type": "object",
+                        "properties": {"count": {"type": "integer"}},
+                    },
+                ),
+                _make_step(
+                    "2",
+                    name="Consumer",
+                    depends_on=["1"],
+                    input_bindings={"total": "{{steps.1.output.count}}"},
+                    input_schema={
+                        "type": "object",
+                        "properties": {"total": {"type": "number"}},
+                    },
+                ),
+            ]
+        )
         result = validate_app_definition(app)
         assert result["valid"] is True
 
 
 # ── Scenario 4: Valid app publishes successfully ───────────────────────
 
+
 class TestScenario4ValidAppPublishes:
     def test_valid_app_passes_validation(self) -> None:
         app = _make_app(
             steps=[
-                _make_step("1", name="Research", goal="Research topic",
-                           output_schema={
-                               "type": "object",
-                               "properties": {"summary": {"type": "string"}},
-                           }),
-                _make_step("2", name="Write", goal="Write article",
-                           depends_on=["1"],
-                           input_bindings={"research": "{{steps.1.output.summary}}"},
-                           input_schema={
-                               "type": "object",
-                               "properties": {"research": {"type": "string"}},
-                           },
-                           output_schema={
-                               "type": "object",
-                               "properties": {"article": {"type": "string"}},
-                           }),
+                _make_step(
+                    "1",
+                    name="Research",
+                    goal="Research topic",
+                    output_schema={
+                        "type": "object",
+                        "properties": {"summary": {"type": "string"}},
+                    },
+                ),
+                _make_step(
+                    "2",
+                    name="Write",
+                    goal="Write article",
+                    depends_on=["1"],
+                    input_bindings={"research": "{{steps.1.output.summary}}"},
+                    input_schema={
+                        "type": "object",
+                        "properties": {"research": {"type": "string"}},
+                    },
+                    output_schema={
+                        "type": "object",
+                        "properties": {"article": {"type": "string"}},
+                    },
+                ),
             ],
             parameters=[{"name": "topic"}],
         )
@@ -181,10 +223,10 @@ class TestScenario4ValidAppPublishes:
 
 # ── Scenario 5: Binding resolution with completed upstream ─────────────
 
+
 class TestScenario5BindingResolution:
     def test_resolve_bindings_from_completed_upstream(self) -> None:
-        step = _make_step("2", name="Consumer",
-                          input_bindings={"data": "{{steps.1.output.title}}"})
+        step = _make_step("2", name="Consumer", input_bindings={"data": "{{steps.1.output.title}}"})
 
         subtasks = [
             _make_subtask("1", structured_output={"title": "Hello World"}),
@@ -197,8 +239,7 @@ class TestScenario5BindingResolution:
         assert len(unresolved) == 0
 
     def test_unresolved_binding_when_upstream_not_completed(self) -> None:
-        step = _make_step("2", name="Consumer",
-                          input_bindings={"data": "{{steps.1.output.title}}"})
+        step = _make_step("2", name="Consumer", input_bindings={"data": "{{steps.1.output.title}}"})
 
         subtasks = [
             _make_subtask("1", status="pending"),  # not completed
@@ -211,10 +252,10 @@ class TestScenario5BindingResolution:
 
 # ── Scenario 6: build_core_prompt produces correct output ──────────────
 
+
 class TestScenario6CorePrompt:
     def test_production_mode_unresolved_binding_detected(self) -> None:
-        step = _make_step("2", name="Consumer",
-                          input_bindings={"data": "{{steps.1.output.title}}"})
+        step = _make_step("2", name="Consumer", input_bindings={"data": "{{steps.1.output.title}}"})
 
         # No completed upstream → unresolved
         result = build_core_prompt(
@@ -227,8 +268,7 @@ class TestScenario6CorePrompt:
         assert len(result["binding_errors"]) > 0
 
     def test_debug_mode_resolves_with_mock_data(self) -> None:
-        step = _make_step("2", name="Consumer",
-                          input_bindings={"data": "{{steps.1.output.title}}"})
+        step = _make_step("2", name="Consumer", input_bindings={"data": "{{steps.1.output.title}}"})
 
         mock_output = {
             "1": {"output": {"title": "Mock Title"}, "summary": ""},
@@ -245,12 +285,15 @@ class TestScenario6CorePrompt:
         assert "Mock Title" in result["prompt"] or result["resolved"]["data"] == "Mock Title"
 
     def test_input_schema_valid_when_types_match(self) -> None:
-        step = _make_step("2", name="Consumer",
-                          input_bindings={"count": "{{steps.1.output.total}}"},
-                          input_schema={
-                              "type": "object",
-                              "properties": {"count": {"type": "number"}},
-                          })
+        step = _make_step(
+            "2",
+            name="Consumer",
+            input_bindings={"count": "{{steps.1.output.total}}"},
+            input_schema={
+                "type": "object",
+                "properties": {"count": {"type": "number"}},
+            },
+        )
 
         result = build_core_prompt(
             step=step,
@@ -261,12 +304,15 @@ class TestScenario6CorePrompt:
         assert result["input_schema_valid"] is True
 
     def test_input_schema_invalid_when_type_mismatches(self) -> None:
-        step = _make_step("2", name="Consumer",
-                          input_bindings={"count": "{{steps.1.output.total}}"},
-                          input_schema={
-                              "type": "object",
-                              "properties": {"count": {"type": "number"}},
-                          })
+        step = _make_step(
+            "2",
+            name="Consumer",
+            input_bindings={"count": "{{steps.1.output.total}}"},
+            input_schema={
+                "type": "object",
+                "properties": {"count": {"type": "number"}},
+            },
+        )
 
         # Provide a string value where number is expected
         result = build_core_prompt(
@@ -282,6 +328,7 @@ class TestScenario6CorePrompt:
 
 
 # ── Scenario 7: Schema enforcement policy resolution ───────────────────
+
 
 class TestScenario7SchemaEnforcement:
     def test_step_level_overrides_app_level(self) -> None:
@@ -303,6 +350,7 @@ class TestScenario7SchemaEnforcement:
 
 
 # ── Scenario 8: Binding error classification ───────────────────────────
+
 
 class TestScenario8BindingErrors:
     def test_unknown_step_error_code(self) -> None:
@@ -351,6 +399,7 @@ class TestScenario8BindingErrors:
 
 # ── Scenario 9: Parameter resolution in bindings ───────────────────────
 
+
 class TestScenario9ParameterBindings:
     def test_param_binding_resolves(self) -> None:
         step = _make_step("1", input_bindings={"topic": "{{params.topic}}"})
@@ -368,6 +417,7 @@ class TestScenario9ParameterBindings:
 
 # ── Scenario 10: Full pipeline (validator → prompt → enforcement) ──────
 
+
 class TestScenario10FullPipeline:
     def test_valid_pipeline_produces_resolved_prompt(self) -> None:
         """End-to-end: valid app definition passes validator, resolves
@@ -376,22 +426,28 @@ class TestScenario10FullPipeline:
         # 1. Define app
         app = _make_app(
             steps=[
-                _make_step("1", name="Research",
-                           output_schema={
-                               "type": "object",
-                               "properties": {"summary": {"type": "string"}},
-                           }),
-                _make_step("2", name="Write",
-                           depends_on=["1"],
-                           input_bindings={"research": "{{steps.1.output.summary}}"},
-                           input_schema={
-                               "type": "object",
-                               "properties": {"research": {"type": "string"}},
-                           },
-                           output_schema={
-                               "type": "object",
-                               "properties": {"article": {"type": "string"}},
-                           }),
+                _make_step(
+                    "1",
+                    name="Research",
+                    output_schema={
+                        "type": "object",
+                        "properties": {"summary": {"type": "string"}},
+                    },
+                ),
+                _make_step(
+                    "2",
+                    name="Write",
+                    depends_on=["1"],
+                    input_bindings={"research": "{{steps.1.output.summary}}"},
+                    input_schema={
+                        "type": "object",
+                        "properties": {"research": {"type": "string"}},
+                    },
+                    output_schema={
+                        "type": "object",
+                        "properties": {"article": {"type": "string"}},
+                    },
+                ),
             ],
             parameters=[{"name": "topic"}],
         )
@@ -424,10 +480,12 @@ class TestScenario10FullPipeline:
     def test_invalid_pipeline_blocks_at_validation(self) -> None:
         """End-to-end: invalid app (circular dep) blocked at validator,
         never reaches prompt builder."""
-        app = _make_app(steps=[
-            _make_step("1", depends_on=["2"]),
-            _make_step("2", depends_on=["1"]),
-        ])
+        app = _make_app(
+            steps=[
+                _make_step("1", depends_on=["2"]),
+                _make_step("2", depends_on=["1"]),
+            ]
+        )
 
         # Validator should block
         val_result = validate_app_definition(app)
@@ -441,13 +499,15 @@ class TestScenario10FullPipeline:
     def test_pipeline_with_schema_enforcement_strict(self) -> None:
         """End-to-end: strict schema enforcement + type mismatch
         produces TYPE_MISMATCH binding error."""
-        step = _make_step("2",
-                          input_bindings={"count": "{{steps.1.output.total}}"},
-                          input_schema={
-                              "type": "object",
-                              "properties": {"count": {"type": "number"}},
-                          },
-                          schema_enforcement="strict")
+        step = _make_step(
+            "2",
+            input_bindings={"count": "{{steps.1.output.total}}"},
+            input_schema={
+                "type": "object",
+                "properties": {"count": {"type": "number"}},
+            },
+            schema_enforcement="strict",
+        )
 
         # Upstream returns string instead of number
         subtasks = [_make_subtask("1", structured_output={"total": "oops"})]

@@ -12,7 +12,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -131,11 +131,7 @@ def classify_kpi_text(text: str) -> KpiAssessment:
             name=name,
             measurable=True,
             status="unknown",
-            detail=(
-                f"可映射内置探针 `{probe}`；巡检后会自动核验"
-                if probe
-                else "可量化表述；可用内置探针（eslint_count / build_ok / file_exists）"
-            ),
+            detail=(f"可映射内置探针 `{probe}`；巡检后会自动核验" if probe else "可量化表述；可用内置探针（eslint_count / build_ok / file_exists）"),
             target=_extract_target_hint(name),
             probe=probe,
         )
@@ -229,14 +225,14 @@ def _parse_iso_utc(iso: str) -> datetime | None:
             s = s[:-1] + "+00:00"
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
     except ValueError:
         return None
 
 
 def _window_bounds(days: int) -> tuple[datetime, datetime]:
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(days=max(1, days))
     return start, end
 
@@ -539,14 +535,8 @@ def format_weekly_report_markdown(report: PerformanceReport) -> str:
     lines = [
         f"**{report.role_name}** 履职周报{period}",
         f"- 值班轮次：{report.patrol_rounds} 轮",
-        (
-            f"- 事项：{report.initiatives_total}（完成 {report.completed} / "
-            f"失败 {report.failed} / 待批 {report.pending_approval}）"
-        ),
-        (
-            f"- 审批：{report.approval_approved}/{report.approval_total} "
-            f"（通过率 {report.approval_rate}%）"
-        ),
+        (f"- 事项：{report.initiatives_total}（完成 {report.completed} / 失败 {report.failed} / 待批 {report.pending_approval}）"),
+        (f"- 审批：{report.approval_approved}/{report.approval_total} （通过率 {report.approval_rate}%）"),
         f"- 成本：${report.cost_usd:.4f} · {report.tokens} tok",
     ]
     if report.consecutive_noop >= 3:
@@ -586,17 +576,9 @@ def build_performance_report(
     completed = sum(1 for i in recent if i.status.value == "completed")
     failed = sum(1 for i in recent if i.status.value in ("failed", "timeout_rejected"))
     pending = sum(1 for i in recent if i.status.value == "pending_approval")
-    journals = sum(
-        1
-        for i in recent
-        if isinstance(i.action_plan, dict) and str(i.action_plan.get("kind") or "") == "round_log"
-    )
+    journals = sum(1 for i in recent if isinstance(i.action_plan, dict) and str(i.action_plan.get("kind") or "") == "round_log")
 
-    approvals = [
-        a
-        for a in ProactiveRepository.list_approvals(limit=300)
-        if a.role_agent_code == role.agent_code and _in_window(a.created_at, start, end)
-    ]
+    approvals = [a for a in ProactiveRepository.list_approvals(limit=300) if a.role_agent_code == role.agent_code and _in_window(a.created_at, start, end)]
     appr_approved = sum(1 for a in approvals if a.status.value == "approved")
     appr_total = len(approvals)
     cost = ProactiveCostRepository.get_cost_summary(role.agent_code, days=days)

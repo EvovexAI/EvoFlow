@@ -141,9 +141,7 @@ def test_incremental_vendor_argument_fragments_stream_content_deltas():
             },
         }
         meta = norm.block_ledger.before_tools()
-        norm._append_write_tool_wire(
-            out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta
-        )
+        norm._append_write_tool_wire(out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta)
 
     progress = [p for p in out if p.get("type") == "write_file_progress"]
     assert len(progress) >= 2, f"expected multiple live progress events, got {len(progress)}: {progress}"
@@ -227,9 +225,7 @@ def test_content_before_path_emits_progress_with_path():
             },
         }
         meta = norm.block_ledger.before_tools()
-        norm._append_write_tool_wire(
-            out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta
-        )
+        norm._append_write_tool_wire(out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta)
 
     progress = [p for p in out if p.get("type") == "write_file_progress"]
     assert progress, "expected write_file_progress events"
@@ -256,10 +252,7 @@ def test_replace_old_new_before_path_emits_path_and_new_string_delta():
     from app.gateway.sse_ui_normalize import _extract_write_fields_from_partial_args
 
     # Nested "path" inside old_string must not steal the real root path.
-    nested = (
-        '{"old_string":"const cfg = {\\"path\\": \\"nested\\"}","new_string":"x",'
-        '"path":"src/real.py"}'
-    )
+    nested = '{"old_string":"const cfg = {\\"path\\": \\"nested\\"}","new_string":"x","path":"src/real.py"}'
     fields = _extract_write_fields_from_partial_args(nested)
     assert fields["path"] == "src/real.py"
     assert "nested" in fields["old_string"]
@@ -267,12 +260,12 @@ def test_replace_old_new_before_path_emits_path_and_new_string_delta():
     norm = UiStreamNormalizer(user_input="replace demo", anchored=True, allow_tuple_tools=True)
     fragments = [
         '{"old_string":"',
-        'hello',
+        "hello",
         ' world","new_string":"',
-        'hel',
-        'lo',
-        ' ',
-        '.',
+        "hel",
+        "lo",
+        " ",
+        ".",
         '","path":"',
         'src/demo.py"}',
     ]
@@ -287,9 +280,7 @@ def test_replace_old_new_before_path_emits_path_and_new_string_delta():
             },
         }
         meta = norm.block_ledger.before_tools()
-        norm._append_write_tool_wire(
-            out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta
-        )
+        norm._append_write_tool_wire(out, ch, ev_type="tool_call_chunk", source="messages", chunk_meta=ch, meta=meta)
 
     progress = [p for p in out if p.get("type") == "write_file_progress"]
     assert progress, "expected write_file_progress events"
@@ -300,11 +291,7 @@ def test_replace_old_new_before_path_emits_path_and_new_string_delta():
     # replace should also expose new_string_delta for AG-UI diff binding
     assert any(p.get("new_string_delta") for p in progress)
 
-    wire_args = [
-        str((p.get("chunk") or {}).get("function", {}).get("arguments") or "")
-        for p in out
-        if p.get("type") == "tool_call_chunk"
-    ]
+    wire_args = [str((p.get("chunk") or {}).get("function", {}).get("arguments") or "") for p in out if p.get("type") == "tool_call_chunk"]
     assert '{"path":"src/demo.py"}' in wire_args
     assert "{}" not in wire_args
 

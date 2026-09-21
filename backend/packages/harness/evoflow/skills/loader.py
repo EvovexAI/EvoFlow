@@ -39,6 +39,7 @@ def get_cached_skills_prompt_section(cache_key: tuple, builder) -> str:
         _skills_prompt_section_cache[cache_key] = section
     return section
 
+
 def _build_mtime_map(skills_path: Path) -> dict[str, tuple[int, int]]:
     """Build an mtime/size map of all SKILL.md files under public/ and custom/."""
     mtime_map: dict[str, tuple[int, int]] = {}
@@ -91,9 +92,7 @@ def get_skills_root_path() -> Path:
 
     # 2) User install dir — canonical store (public synced from system, custom user-only).
     user_skills = (Path.home() / ".evoflow" / "skills").resolve()
-    if user_skills.is_dir() and (
-        (user_skills / "public").is_dir() or (user_skills / "custom").is_dir()
-    ):
+    if user_skills.is_dir() and ((user_skills / "public").is_dir() or (user_skills / "custom").is_dir()):
         return user_skills
 
     # 3) Frozen executable layout (PyInstaller onedir) — before first user sync.

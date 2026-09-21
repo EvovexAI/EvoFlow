@@ -8,12 +8,12 @@ from typing import Annotated
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 
 from evoflow.tools.host_direct.workspace_path_guard import format_tool_path_label, resolve_tool_path
-from evoflow.tools.minimal_schema import WRITE_TOOL_DESCRIPTION
 from evoflow.tools.host_direct.write_stream import (
     capture_stream_writer,
     count_lines,
     emit_write_progress,
 )
+from evoflow.tools.minimal_schema import WRITE_TOOL_DESCRIPTION
 
 # Chunk size for incremental writing + progress events (bytes).
 _WRITE_CHUNK_BYTES = 8 * 1024
@@ -41,6 +41,7 @@ def write_file_hd(
     # Resolve offloaded large-content refs (sent by LargeContentOffloadMiddleware).
     # If ``content`` is a sentinel pointing to a temp file, read the real content from disk.
     from evoflow.agents.middlewares.large_content_offload_middleware import resolve_offloaded_ref
+
     resolved_content = resolve_offloaded_ref(content)
     if resolved_content is not None:
         content = resolved_content

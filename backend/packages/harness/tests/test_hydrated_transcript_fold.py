@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from evoflow.agents.context_compaction_core import (
     CompactionPlan,
+    ContextCompactionEngine,
     apply_compaction_with_summary,
     try_fold_hydrated_transcript,
 )
-from evoflow.agents.context_compaction_core import ContextCompactionEngine
 
 
 def _summary_msg(body: str = "folded history") -> HumanMessage:
@@ -59,12 +59,13 @@ def test_apply_compaction_with_summary_keeps_pre_summary_user_bridge() -> None:
 
 
 def test_compress_messages_fast_skips_background_job_when_real_summary_and_cooldown() -> None:
+    import os
+    import tempfile
+
     from evoflow.agents.context_compaction_core import _with_summary_prefix
     from evoflow.persistence import session_repositories as sess_repo
     from evoflow.persistence.chat_message_repositories import persist_conversation_summary
     from evoflow.persistence.db import reset_db_for_tests
-    import os
-    import tempfile
 
     td = tempfile.mkdtemp()
     os.environ["EVOFLOW_DB_PATH"] = f"{td}/fold.db"

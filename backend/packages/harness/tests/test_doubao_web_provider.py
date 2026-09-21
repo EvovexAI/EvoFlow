@@ -66,9 +66,7 @@ def test_doubao_business_error(monkeypatch) -> None:
     p = DoubaoWebSearchProvider()
     fake_resp = MagicMock()
     fake_resp.raise_for_status = MagicMock()
-    fake_resp.json.return_value = {
-        "ResponseMetadata": {"Error": {"Code": "invalid_api_key", "Message": "bad key"}}
-    }
+    fake_resp.json.return_value = {"ResponseMetadata": {"Error": {"Code": "invalid_api_key", "Message": "bad key"}}}
     with patch("httpx.post", return_value=fake_resp):
         out = p.search("q")
     assert out["success"] is False

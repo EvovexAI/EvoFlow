@@ -49,9 +49,7 @@ def test_completed_low_risk_dispatches_handlers_immediately():
         patch("evoflow.admin.tasks.handoff_needs_approval", return_value=False),
         patch("evoflow.admin.tasks.dispatch_confirmed_handlers") as mock_dispatch,
     ):
-        mock_dispatch.return_value = [
-            {"ok": True, "agent_code": "quality-inspector", "task_id": "Task_child"}
-        ]
+        mock_dispatch.return_value = [{"ok": True, "agent_code": "quality-inspector", "task_id": "Task_child"}]
         out = set_task_state(
             "Task_parent",
             "completed",
@@ -185,9 +183,7 @@ def test_approve_dispatches_pending_handoff():
             return_value=[{"ok": True}],
         ) as mock_disp,
     ):
-        out = asyncio.run(
-            gate.process_decision("appr_x", decision="approved", decided_by="user")
-        )
+        out = asyncio.run(gate.process_decision("appr_x", decision="approved", decided_by="user"))
 
     assert out is not None
     mock_disp.assert_called_once_with("Task_parent")

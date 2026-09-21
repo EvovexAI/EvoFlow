@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import sqlite3
 from unittest.mock import patch
 
 import pytest
 
+from evoflow.persistence.schema import ensure_app_schema
 from evoflow.proactive.decision_gate import DecisionGate
 from evoflow.proactive.models import (
     Approval,
@@ -175,8 +174,8 @@ def test_work_log_marks_timeout_rejected_for_reeval(db_conn) -> None:
 
 def test_prompt_mentions_timeout_reeval() -> None:
     """Task-only duty brief: no check_in/wrap_up; timeout reeval is optional."""
-    from evoflow.proactive.prompt import build_system_prompt, build_user_prompt
     from evoflow.proactive.models import ProactiveMemory, ProactiveRole
+    from evoflow.proactive.prompt import build_system_prompt, build_user_prompt
 
     role = ProactiveRole(agent_code="r", role_name="R")
     sys_p = build_system_prompt(role)

@@ -5,10 +5,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
-from evoflow.authz.http_guard import require_thread_visible
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from app.gateway.path_utils import resolve_thread_virtual_path
+from evoflow.authz.http_guard import require_thread_visible
 
 logger = logging.getLogger(__name__)
 

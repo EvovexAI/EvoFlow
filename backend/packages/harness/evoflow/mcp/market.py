@@ -38,15 +38,13 @@ def _friendly_glama_error(exc: BaseException) -> str:
     text = str(exc)
     low = text.lower()
     if "401" in text or "unauthorized" in low:
-        return (
-            "Glama 目录需 API Key（https://glama.ai/settings/api-keys），"
-            "已改用官方 MCP Registry + 精选列表。可设置 EVOFLOW_GLAMA_API_KEY。"
-        )
+        return "Glama 目录需 API Key（https://glama.ai/settings/api-keys），已改用官方 MCP Registry + 精选列表。可设置 EVOFLOW_GLAMA_API_KEY。"
     if "403" in text or "forbidden" in low:
         return "Glama 目录暂时不可用，已改用官方 MCP Registry + 精选列表。"
     if "timeout" in low or "timed out" in low:
         return "Glama 请求超时，已改用官方 MCP Registry + 精选列表。"
     return "Glama 暂时不可用，已改用官方 MCP Registry + 精选列表。"
+
 
 # Curated fallback when Glama is unreachable or for featured list (kept in sync with evopanel HOT_MCP).
 def _hot_meta(
@@ -153,13 +151,7 @@ def _hot_items(query: str = "") -> list[dict[str, Any]]:
     q = (query or "").strip().lower()
     items = HOT_MCP_SERVERS
     if q:
-        items = [
-            s
-            for s in items
-            if q in (s.get("slug") or "").lower()
-            or q in (s.get("name") or "").lower()
-            or q in (s.get("description") or "").lower()
-        ]
+        items = [s for s in items if q in (s.get("slug") or "").lower() or q in (s.get("name") or "").lower() or q in (s.get("description") or "").lower()]
     return [dict(s) for s in items]
 
 
@@ -413,9 +405,7 @@ def _registry_list_item(entry: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-async def _fetch_registry_browse(
-    query: str, cursor: str | None, limit: int
-) -> tuple[list[dict[str, Any]], str | None, bool]:
+async def _fetch_registry_browse(query: str, cursor: str | None, limit: int) -> tuple[list[dict[str, Any]], str | None, bool]:
     params: dict[str, str] = {
         "version": "latest",
         "limit": str(max(1, min(limit, 50))),
@@ -477,16 +467,11 @@ async def search_mcp_market(*, query: str = "", cursor: str | None = None, limit
     # Prefer Glama when an API key is configured (directory now requires auth).
     try_glama = cursor_src in ("", "glama")
     if try_glama and not _glama_api_key() and cursor_src != "glama":
-        warning = (
-            "未配置 Glama API Key，已使用官方 MCP Registry + 精选列表。"
-            "需要 Glama 目录时设置 EVOFLOW_GLAMA_API_KEY。"
-        )
+        warning = "未配置 Glama API Key，已使用官方 MCP Registry + 精选列表。需要 Glama 目录时设置 EVOFLOW_GLAMA_API_KEY。"
         try_glama = False
     if try_glama:
         try:
-            glama_items, glama_cursor, glama_more = await _fetch_glama(
-                q, real_cursor if cursor_src in ("", "glama") else None, limit
-            )
+            glama_items, glama_cursor, glama_more = await _fetch_glama(q, real_cursor if cursor_src in ("", "glama") else None, limit)
             if glama_items or glama_more:
                 remote_items = glama_items
                 next_cursor = f"gla:{glama_cursor}" if glama_cursor else None
@@ -503,9 +488,7 @@ async def search_mcp_market(*, query: str = "", cursor: str | None = None, limit
     # Official Registry when Glama missing / failed / or continuing registry cursor.
     if source != "glama" or cursor_src == "registry":
         try:
-            reg_items, reg_cursor, reg_more = await _fetch_registry_browse(
-                q, real_cursor if cursor_src == "registry" else None, limit
-            )
+            reg_items, reg_cursor, reg_more = await _fetch_registry_browse(q, real_cursor if cursor_src == "registry" else None, limit)
             if reg_items or reg_more:
                 remote_items = reg_items
                 next_cursor = f"reg:{reg_cursor}" if reg_cursor else None
@@ -725,10 +708,7 @@ async def resolve_mcp_install_config(
                     name_hint = str(detail.get("name") or glama_slug or slug or name_hint)
 
     if config is None:
-        raise ValueError(
-            "Could not resolve install configuration from Registry or Glama. "
-            "Add manually or provide registry_name."
-        )
+        raise ValueError("Could not resolve install configuration from Registry or Glama. Add manually or provide registry_name.")
 
     display_name = name_hint or (glama_slug or slug or resolved_registry or "mcp-server")
     return {"name": display_name, "config": config, "registry_name": resolved_registry or None}

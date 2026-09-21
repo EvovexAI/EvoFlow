@@ -44,18 +44,11 @@ def _coerce_openai_chat_completion_response(response: Any) -> Any:
     if isinstance(response, dict):
         return response
     if isinstance(response, (str, bytes, bytearray)):
-        text = (
-            response.decode("utf-8", errors="replace")
-            if isinstance(response, (bytes, bytearray))
-            else response
-        )
+        text = response.decode("utf-8", errors="replace") if isinstance(response, (bytes, bytearray)) else response
         preview = text.strip().replace("\n", " ")
         if len(preview) > 240:
             preview = preview[:240] + "…"
-        raise ValueError(
-            "OpenAI-compatible chat completion returned non-JSON text "
-            f"({len(text)} chars): {preview!r}"
-        )
+        raise ValueError(f"OpenAI-compatible chat completion returned non-JSON text ({len(text)} chars): {preview!r}")
     return response
 
 

@@ -38,9 +38,7 @@ def _query_recall_enabled() -> bool:
 
 
 def _is_memory_recall_message(msg: Any) -> bool:
-    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(
-        msg, "name", None
-    ) == _MEMORY_RECALL_MESSAGE_NAME
+    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(msg, "name", None) == _MEMORY_RECALL_MESSAGE_NAME
 
 
 def _strip_memory_recall_messages(messages: list[Any]) -> list[Any]:

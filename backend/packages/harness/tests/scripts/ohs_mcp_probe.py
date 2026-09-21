@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 
 VAULT = Path(os.environ["EVOFLOW_KB_E2E_VAULT"])
@@ -66,9 +65,7 @@ async def mcp_session():
         msg_id=1,
     )
     # initialized notification
-    proc.stdin.write(
-        (json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n").encode()
-    )
+    proc.stdin.write((json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n").encode())
     await proc.stdin.drain()
 
     tools = await rpc("tools/list", {}, msg_id=2)

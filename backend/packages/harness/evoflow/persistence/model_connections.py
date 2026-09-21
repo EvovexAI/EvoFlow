@@ -122,13 +122,17 @@ def _maybe_sync_active_plan_binding_key(
 
 
 def list_model_connections() -> dict[str, dict[str, Any]]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT key, base_url, api_key, api_type, display_name, updated_at
         FROM evoflow_model_connections
         ORDER BY key
         """
-    ).fetchall()
+        )
+        .fetchall()
+    )
     return {str(r[0]): _row_to_dict(r) for r in rows}
 
 
@@ -136,14 +140,18 @@ def get_model_connection(key: str) -> dict[str, Any] | None:
     k = str(key or "").strip()
     if not k:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT key, base_url, api_key, api_type, display_name, updated_at
         FROM evoflow_model_connections
         WHERE key = ?
         """,
-        (k,),
-    ).fetchone()
+            (k,),
+        )
+        .fetchone()
+    )
     return _row_to_dict(row) if row else None
 
 

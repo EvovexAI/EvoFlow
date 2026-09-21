@@ -12,9 +12,7 @@ from evoflow.config.paths import reset_paths_cache
 from evoflow.persistence.db import get_db, reset_db_for_tests
 from evoflow.persistence.schema import ensure_app_schema
 
-_FIXTURE = (
-    Path(__file__).resolve().parent / "fixtures" / "organization_packs" / "mini-team"
-)
+_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "organization_packs" / "mini-team"
 _EVOFLOW_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -103,13 +101,9 @@ def test_preflight_and_install_uninstall(sqlite_tmp: Path):
 def test_parse_github_raw_catalog_url():
     from evoflow.organizations.fetch import parse_github_raw_repo
 
-    info = parse_github_raw_repo(
-        "https://raw.githubusercontent.com/acme/evoflow-resource-market/main/catalog.json"
-    )
+    info = parse_github_raw_repo("https://raw.githubusercontent.com/acme/evoflow-resource-market/main/catalog.json")
     assert info == {"owner": "acme", "repo": "evoflow-resource-market", "branch": "main"}
-    info2 = parse_github_raw_repo(
-        "https://raw.githubusercontent.com/acme/repo/refs/heads/develop/catalog.json"
-    )
+    info2 = parse_github_raw_repo("https://raw.githubusercontent.com/acme/repo/refs/heads/develop/catalog.json")
     assert info2 == {"owner": "acme", "repo": "repo", "branch": "develop"}
 
 

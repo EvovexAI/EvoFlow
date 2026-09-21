@@ -108,10 +108,7 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "approve_path",
-            appr_ok is not None
-            and appr_ok.status == ApprovalStatus.APPROVED
-            and bridge_ok is not None
-            and bridge_ok.status == InitiativeStatus.APPROVED,
+            appr_ok is not None and appr_ok.status == ApprovalStatus.APPROVED and bridge_ok is not None and bridge_ok.status == InitiativeStatus.APPROVED,
             inputs={"task_id": tid},
             expected="approval+initiative APPROVED",
             actual={
@@ -122,10 +119,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "reject_path",
-            appr_rej is not None
-            and appr_rej.status == ApprovalStatus.REJECTED
-            and bridge_rej is not None
-            and bridge_rej.status == InitiativeStatus.REJECTED,
+            appr_rej is not None and appr_rej.status == ApprovalStatus.REJECTED and bridge_rej is not None and bridge_rej.status == InitiativeStatus.REJECTED,
             inputs={"task_id": tid2},
             expected="approval+initiative REJECTED",
             actual={

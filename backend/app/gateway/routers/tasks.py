@@ -5,11 +5,11 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app.gateway.deps.license import require_premium
 from app.gateway.cancellation import mark_task_cancelled
+from app.gateway.deps.license import require_premium
 from app.gateway.events import event_queue
 from app.gateway.events.task_events import TaskCancelEvent
 from app.gateway.routers.errors import (
@@ -115,9 +115,7 @@ def _public_task_dict(task: dict[str, Any]) -> dict[str, Any]:
         out["status"] = "planned"
     raw_src = out.get("source")
     # App runs historically stamped source_app_* without source — infer workflow.
-    if (raw_src is None or not str(raw_src).strip()) and (
-        str(out.get("source_app_id") or "").strip() or str(out.get("source_run_id") or "").strip()
-    ):
+    if (raw_src is None or not str(raw_src).strip()) and (str(out.get("source_app_id") or "").strip() or str(out.get("source_run_id") or "").strip()):
         raw_src = "app_runner"
         out["source"] = "app_runner"
     if raw_src is not None or "source" in task or str(out.get("source_app_id") or "").strip():
@@ -287,19 +285,12 @@ class SetTaskStateRequest(BaseModel):
     )
     outputs: list[TaskOutputItem] | None = Field(
         default=None,
-        description=(
-            "结构化产出列表 [{type,key,value,label?}]；"
-            "type=file|url|text|other。本岗交付物，不是下游 input_refs。"
-        ),
+        description=("结构化产出列表 [{type,key,value,label?}]；type=file|url|text|other。本岗交付物，不是下游 input_refs。"),
     )
     handlers: list[TaskHandlerItem] | None = Field(
         default=None,
         description=(
-            "下游处理人列表（每人一条）："
-            "[{agent_code, content, read_outputs[], role?}]。"
-            "交工 reviewed 时写入（员工仅可指派直属下级）；"
-            "确认 completed 时可改（用户可同组织改派），确认后按条建下游 Task，"
-            "子任务写入 input_refs 并 wake。"
+            "下游处理人列表（每人一条）：[{agent_code, content, read_outputs[], role?}]。交工 reviewed 时写入（员工仅可指派直属下级）；确认 completed 时可改（用户可同组织改派），确认后按条建下游 Task，子任务写入 input_refs 并 wake。"
         ),
     )
 
@@ -675,10 +666,7 @@ async def list_tasks(
     ),
     hide_noise: bool = Query(
         True,
-        description=(
-            "Hide task-center noise by default: duty patrol rounds, upstream receipts, "
-            "meeting oral reports, status_check, eval placeholders. Pass hide_noise=false to include."
-        ),
+        description=("Hide task-center noise by default: duty patrol rounds, upstream receipts, meeting oral reports, status_check, eval placeholders. Pass hide_noise=false to include."),
     ),
 ) -> dict:
     """List all tasks (flattened from all projects) with filtering and sorting.
@@ -1040,19 +1028,13 @@ async def get_task(request: Request, task_id: str) -> dict:
             if task.get("id") == task_id:
                 # Heal workflow main-task outputs/summary from completed rollup.
                 try:
-                    if str(task.get("source_app_id") or "").strip() or str(
-                        task.get("final_rollup") or ""
-                    ).strip():
+                    if str(task.get("source_app_id") or "").strip() or str(task.get("final_rollup") or "").strip():
                         from evoflow.collab.task_progress import sync_main_task_from_subtasks
 
                         sync_main_task_from_subtasks(storage, str(task_id))
                         bundle = task_repo.load_task_bundle(task_id) or bundle
                         task = next(
-                            (
-                                t
-                                for t in (bundle.get("tasks") or [])
-                                if t.get("id") == task_id
-                            ),
+                            (t for t in (bundle.get("tasks") or []) if t.get("id") == task_id),
                             task,
                         )
                 except Exception:
@@ -1174,9 +1156,7 @@ async def create_task(http_request: Request, request: CreateTaskRequest) -> dict
     "/{task_id}/authorize-execution",
     summary="Authorize task execution",
     description=(
-        "Gate §5.3: set execution_authorized=true when task is in planned or planning status, "
-        "then immediately dispatch the first wave (supervisor start_execution) so workers start "
-        "without waiting for Lead to call start_execution again."
+        "Gate §5.3: set execution_authorized=true when task is in planned or planning status, then immediately dispatch the first wave (supervisor start_execution) so workers start without waiting for Lead to call start_execution again."
     ),
 )
 async def authorize_task_execution(
@@ -1217,17 +1197,7 @@ async def authorize_task_execution(
             authorized_by=body.authorized_by or "user",
         )
         _disp_ids = dispatch_result.get("subtaskIds") if dispatch_result else None
-        dispatch_ok = bool(
-            dispatch_result
-            and dispatch_result.get("success")
-            and (
-                (isinstance(_disp_ids, list) and len(_disp_ids) > 0)
-                or any(
-                    isinstance(d, dict) and d.get("ok")
-                    for d in (dispatch_result.get("delegatedSubtasks") or [])
-                )
-            )
-        )
+        dispatch_ok = bool(dispatch_result and dispatch_result.get("success") and ((isinstance(_disp_ids, list) and len(_disp_ids) > 0) or any(isinstance(d, dict) and d.get("ok") for d in (dispatch_result.get("delegatedSubtasks") or []))))
     except Exception:
         logger.exception("authorize-execution: auto-dispatch failed task_id=%s", task_id)
         dispatch_result = {
@@ -1331,17 +1301,7 @@ async def dispatch_task_execution(
         }
 
     _disp_ids = dispatch_result.get("subtaskIds") if dispatch_result else None
-    dispatch_ok = bool(
-        dispatch_result
-        and dispatch_result.get("success")
-        and (
-            (isinstance(_disp_ids, list) and len(_disp_ids) > 0)
-            or any(
-                isinstance(d, dict) and d.get("ok")
-                for d in (dispatch_result.get("delegatedSubtasks") or [])
-            )
-        )
-    )
+    dispatch_ok = bool(dispatch_result and dispatch_result.get("success") and ((isinstance(_disp_ids, list) and len(_disp_ids) > 0) or any(isinstance(d, dict) and d.get("ok") for d in (dispatch_result.get("delegatedSubtasks") or []))))
     if dispatch_ok:
         try:
             advance_collab_phase_to_executing_for_task(
@@ -1483,10 +1443,7 @@ async def update_task(http_request: Request, task_id: str, request: UpdateTaskRe
                                 task["unattended_attempts"] = 0
 
                     # inbox 分配给岗位：进入 pending，供值班拉取；未分配不得自动开跑
-                    assigned_now = bool(
-                        str(task.get("assigned_role") or "").strip()
-                        or str(task.get("assigned_to") or "").strip()
-                    )
+                    assigned_now = bool(str(task.get("assigned_role") or "").strip() or str(task.get("assigned_to") or "").strip())
                     if cur_status == "inbox" and assigned_now and not promote:
                         task["status"] = "pending"
                         raw_src = str(request.source or task.get("source") or "").strip() or TASK_SOURCE_ROLE
@@ -1556,10 +1513,7 @@ async def set_task_state_endpoint(http_request: Request, task_id: str, request: 
             read = row.get("read_outputs")
             if read is None:
                 read = row.get("outputs") or []
-            row["read_outputs"] = [
-                o if isinstance(o, dict) else (o.model_dump() if hasattr(o, "model_dump") else o)
-                for o in (read or [])
-            ]
+            row["read_outputs"] = [o if isinstance(o, dict) else (o.model_dump() if hasattr(o, "model_dump") else o) for o in (read or [])]
             row.pop("outputs", None)
             handlers_payload.append(row)
     if not tid:
@@ -1629,7 +1583,8 @@ async def set_task_state_endpoint(http_request: Request, task_id: str, request: 
 @router.delete("/{task_id}", summary="Delete Task", description="Delete a task.")
 async def delete_task(request: Request, task_id: str) -> dict:
     """Delete a task and its project."""
-    from evoflow.admin.tasks import NotFoundError, ValidationError, delete_task as admin_delete_task
+    from evoflow.admin.tasks import NotFoundError, ValidationError
+    from evoflow.admin.tasks import delete_task as admin_delete_task
 
     require_task_visible(request, task_id)
     try:
@@ -2317,7 +2272,7 @@ async def batch_tasks(http_request: Request, request: BatchOperationRequest) -> 
     This endpoint executes the specified action on each task in the task_ids list.
     Each task is processed independently - failure of one does not affect others.
     """
-    for _tid in (request.task_ids or []):
+    for _tid in request.task_ids or []:
         tid = str(_tid or "").strip()
         if tid:
             require_task_visible(http_request, tid)
@@ -2782,9 +2737,7 @@ class SaveAsAppRequest(BaseModel):
 @router.post(
     "/{task_id}/save-as-app",
     summary="Save Task as Reusable App",
-    description="Convert an existing task (with plan) into a reusable App definition. "
-    "Auto-extracts parameter placeholders from plan content (product names, domains, "
-    "years, tech terms, etc.) if auto_extract=True.",
+    description="Convert an existing task (with plan) into a reusable App definition. Auto-extracts parameter placeholders from plan content (product names, domains, years, tech terms, etc.) if auto_extract=True.",
 )
 def save_task_as_app_endpoint(
     http_request: Request,

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import Request, APIRouter, HTTPException
-from evoflow.authz.http_guard import require_thread_visible
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
+
+from evoflow.authz.http_guard import require_thread_visible
 
 logger = logging.getLogger(__name__)
 

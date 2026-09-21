@@ -239,10 +239,7 @@ def classify(exception: Exception, context: dict | None = None) -> Classificatio
         )
 
     # Legacy: some gateways still return 400 without a recognizable overflow message.
-    if status_code == 400 and (
-        ("context" in error_lower and "length" in error_lower)
-        or ("exceed" in error_lower and "token" in error_lower)
-    ):
+    if status_code == 400 and (("context" in error_lower and "length" in error_lower) or ("exceed" in error_lower and "token" in error_lower)):
         return Classification(
             reason=FailoverReason.CONTEXT_OVERFLOW,
             retryable=True,
@@ -280,9 +277,7 @@ def classify(exception: Exception, context: dict | None = None) -> Classificatio
         )
 
     # ── Model not found ──────────────────────────────────────────────
-    model_not_found = (status_code == 404 and ("model" in error_lower or "deployment" in error_lower)) or _matches(
-        error_lower, _MODEL_NOT_FOUND_PATTERNS
-    )
+    model_not_found = (status_code == 404 and ("model" in error_lower or "deployment" in error_lower)) or _matches(error_lower, _MODEL_NOT_FOUND_PATTERNS)
     if model_not_found:
         return Classification(
             reason=FailoverReason.MODEL_NOT_FOUND,
@@ -329,40 +324,43 @@ def classify(exception: Exception, context: dict | None = None) -> Classificatio
         "StreamClosed",
         "StreamError",
         "StreamReset",
-    } or _matches(error_lower, [
-        "connection error",
-        "connection refused",
-        "connection reset",
-        "connection aborted",
-        "connection closed",
-        "name or service not known",
-        "nodename nor servname provided",
-        "network is unreachable",
-        "failed to establish",
-        "peer closed connection",
-        "remote end closed",
-        "remote disconnected",
-        "server disconnected",
-        "incomplete chunked read",
-        "chunked encoding",
-        "broken pipe",
-        "unexpected eof",
-        "eof occurred",
-        "stream reset",
-        "stream closed",
-        "ssl.*eof",
-        "temporarily unavailable",
-        "bad gateway",
-        "gateway timeout",
-        "error communicating with",
-        "network error",
-        "proxy error",
-        "连接.*重置",
-        "连接.*关闭",
-        "连接.*中断",
-        "网络.*异常",
-        "网络.*错误",
-    ]):
+    } or _matches(
+        error_lower,
+        [
+            "connection error",
+            "connection refused",
+            "connection reset",
+            "connection aborted",
+            "connection closed",
+            "name or service not known",
+            "nodename nor servname provided",
+            "network is unreachable",
+            "failed to establish",
+            "peer closed connection",
+            "remote end closed",
+            "remote disconnected",
+            "server disconnected",
+            "incomplete chunked read",
+            "chunked encoding",
+            "broken pipe",
+            "unexpected eof",
+            "eof occurred",
+            "stream reset",
+            "stream closed",
+            "ssl.*eof",
+            "temporarily unavailable",
+            "bad gateway",
+            "gateway timeout",
+            "error communicating with",
+            "network error",
+            "proxy error",
+            "连接.*重置",
+            "连接.*关闭",
+            "连接.*中断",
+            "网络.*异常",
+            "网络.*错误",
+        ],
+    ):
         return Classification(
             reason=FailoverReason.CONNECTION_ERROR,
             retryable=True,

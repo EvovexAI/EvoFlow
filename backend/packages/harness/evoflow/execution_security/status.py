@@ -16,17 +16,9 @@ from evoflow.execution_security.helpers import discover_helpers
 
 def _platform_notes(ready: bool, *, active: bool, auto: bool, enabled: bool) -> str:
     if sys.platform.startswith("linux"):
-        helper_hint = (
-            "Ready."
-            if ready
-            else "Build evoflow-linux-sandbox (scripts/build-sandbox-helpers.sh) for local tests."
-        )
+        helper_hint = "Ready." if ready else "Build evoflow-linux-sandbox (scripts/build-sandbox-helpers.sh) for local tests."
     elif sys.platform == "win32":
-        helper_hint = (
-            "Ready (restricted-token)."
-            if ready
-            else "Build evoflow-windows-sandbox (scripts/windows/build-sandbox-helpers.ps1) for local tests — not a runtime product dependency."
-        )
+        helper_hint = "Ready (restricted-token)." if ready else "Build evoflow-windows-sandbox (scripts/windows/build-sandbox-helpers.ps1) for local tests — not a runtime product dependency."
     elif sys.platform == "darwin":
         helper_hint = "macOS Seatbelt policy generation not packaged yet; host shell stays passthrough."
     else:

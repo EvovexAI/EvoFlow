@@ -73,11 +73,7 @@ def _approval_row(appr, *, enrich: bool = True) -> dict[str, Any]:
             out["description"] = str(task.get("description") or "")[:400]
             out["risk_level"] = task_risk_level(task).value
             out["task_status"] = str(task.get("status") or "")
-            out["watch_path"] = (
-                f"/proactive/{out['role_agent_code']}/work/{tid}"
-                if out.get("role_agent_code")
-                else f"/proactive/board"
-            )
+            out["watch_path"] = f"/proactive/{out['role_agent_code']}/work/{tid}" if out.get("role_agent_code") else "/proactive/board"
             return out
 
     init = ProactiveRepository.get_initiative(appr.initiative_id) if appr.initiative_id else None
@@ -132,10 +128,7 @@ def request(
 
     role = _resolve_role_for_task(task)
     if not role:
-        raise ValidationError(
-            f"Cannot resolve employee role for task '{tid}' "
-            "(need assigned_to agent_code or assigned_role 岗位名)"
-        )
+        raise ValidationError(f"Cannot resolve employee role for task '{tid}' (need assigned_to agent_code or assigned_role 岗位名)")
 
     status = str(task.get("status") or "").strip().lower()
     if status in {"completed", "done", "success", "cancelled", "canceled", "failed"}:
@@ -185,8 +178,7 @@ def request(
         "role_agent_code": role.agent_code,
         "role_name": role.role_name,
         "watch_path": f"/proactive/{role.agent_code}/work/{tid}",
-        "hint": "已推送待审批；用户：evoflow approvals approve "
-        f"{tid}  或面板 #/proactive?tab=approvals",
+        "hint": f"已推送待审批；用户：evoflow approvals approve {tid}  或面板 #/proactive?tab=approvals",
     }
 
 

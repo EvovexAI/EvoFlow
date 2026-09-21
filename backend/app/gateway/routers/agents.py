@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import shutil
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
@@ -13,7 +12,6 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 
 from evoflow.config import get_app_config
-from evoflow.config.agent_tags import default_tags_for_new_agent, infer_tags_for_agent
 from evoflow.config.agent_avatars import (
     avatar_path_for,
     avatar_revision_for,
@@ -22,14 +20,7 @@ from evoflow.config.agent_avatars import (
     has_local_avatar_file,
     save_avatar_bytes,
 )
-from evoflow.config.avatar_presets import (
-    content_type_for_preset,
-    is_valid_preset_avatar,
-    list_presets,
-    parse_preset_avatar,
-    pick_random_preset_avatar,
-    preset_path,
-)
+from evoflow.config.agent_tags import default_tags_for_new_agent
 from evoflow.config.agents_config import (
     AgentConfig,
     ensure_builtin_agents_materialized,
@@ -41,7 +32,14 @@ from evoflow.config.agents_config import (
     save_agent_identity,
     save_agent_soul,
 )
-from evoflow.config.paths import get_paths
+from evoflow.config.avatar_presets import (
+    content_type_for_preset,
+    is_valid_preset_avatar,
+    list_presets,
+    parse_preset_avatar,
+    pick_random_preset_avatar,
+    preset_path,
+)
 from evoflow.external_runtime_probe import external_runtime_available_for_agent
 from evoflow.persistence import config_repositories as cfg_repo
 from evoflow.tools.ui_metadata import collect_native_tool_specs_for_role_ui
@@ -105,6 +103,7 @@ def _filter_agents_for_ui_list(agents: list[AgentResponse]) -> list[AgentRespons
             continue
         out.append(a)
     return out
+
 
 # 新建自定义智能体且请求未带 skills 时：写入下列「基础技能」与当前已启用技能的交集（顺序固定）
 _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
@@ -524,13 +523,7 @@ async def list_agents(
         all_agents = [main_agent] + custom_responses
         # claude-code is omitted from panel lists via _UI_HIDDEN_AGENT_CODES (no virtual inject).
 
-        filtered = _filter_agents_for_ui_list(
-            [
-                a
-                for a in all_agents
-                if _matches_agent_list_filters(a, tag=tag, preset_only=preset_only, assignable_only=assignable_only)
-            ]
-        )
+        filtered = _filter_agents_for_ui_list([a for a in all_agents if _matches_agent_list_filters(a, tag=tag, preset_only=preset_only, assignable_only=assignable_only)])
 
         # Always isolate: hide other users' personal agents (legacy/unowned stay visible to admins).
         try:
@@ -679,10 +672,7 @@ async def get_agent(request: Request, name: str) -> AgentResponse:
     "/agents/install-from-skillhub",
     response_model=SkillHubExpertInstallResponse,
     summary="Install SkillHub Expert Package",
-    description=(
-        "Paste a SkillHub skillspackage URL (or slug). Downloads child skills, "
-        "creates/updates a custom agent with soul + skill allowlist, and extracts the expert avatar."
-    ),
+    description=("Paste a SkillHub skillspackage URL (or slug). Downloads child skills, creates/updates a custom agent with soul + skill allowlist, and extracts the expert avatar."),
 )
 async def install_agent_from_skillhub(request: SkillHubExpertInstallRequest) -> SkillHubExpertInstallResponse:
     from evoflow.skills.skillhub_pack import install_skillhub_expert_pack
@@ -779,9 +769,7 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
             try:
-                config_data["knowledge_vault_ids"] = validate_agent_knowledge_ids(
-                    list(request.knowledge_vault_ids or [])
-                )
+                config_data["knowledge_vault_ids"] = validate_agent_knowledge_ids(list(request.knowledge_vault_ids or []))
             except ValueError as e:
                 raise HTTPException(status_code=422, detail=str(e)) from e
 
@@ -882,9 +870,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
             try:
-                updates["knowledge_vault_ids"] = validate_agent_knowledge_ids(
-                    list(request.knowledge_vault_ids or [])
-                )
+                updates["knowledge_vault_ids"] = validate_agent_knowledge_ids(list(request.knowledge_vault_ids or []))
             except ValueError as e:
                 raise HTTPException(status_code=422, detail=str(e)) from e
         if "system_prompt" in request_dict:
@@ -897,9 +883,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             updates["avatar_meta"] = request.avatar_meta
         if "tts_speaker" in request_dict:
             raw_voice = request.tts_speaker
-            updates["tts_speaker"] = (
-                str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
-            )
+            updates["tts_speaker"] = str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
 
         _save_main_agent_config(updates)
 
@@ -977,9 +961,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
                 new_skills = agent_cfg.skills
             else:
                 new_tool_groups = request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups
-                new_tools = _normalize_agent_tools_for_api(
-                    request.tools if request.tools is not None else agent_cfg.tools
-                )
+                new_tools = _normalize_agent_tools_for_api(request.tools if request.tools is not None else agent_cfg.tools)
                 new_mcp = request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers
                 new_skills = request.skills if request.skills is not None else agent_cfg.skills
 
@@ -1001,15 +983,11 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
                 from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
                 try:
-                    updated["knowledge_vault_ids"] = validate_agent_knowledge_ids(
-                        list(request.knowledge_vault_ids or [])
-                    )
+                    updated["knowledge_vault_ids"] = validate_agent_knowledge_ids(list(request.knowledge_vault_ids or []))
                 except ValueError as e:
                     raise HTTPException(status_code=422, detail=str(e)) from e
             else:
-                updated["knowledge_vault_ids"] = list(
-                    getattr(agent_cfg, "knowledge_vault_ids", None) or []
-                )
+                updated["knowledge_vault_ids"] = list(getattr(agent_cfg, "knowledge_vault_ids", None) or [])
 
             new_system_prompt = request.system_prompt if request.system_prompt is not None else agent_cfg.system_prompt
             if new_system_prompt is not None:
@@ -1293,6 +1271,7 @@ def _get_mcp_servers() -> list[McpServerInfo]:
     servers: list[McpServerInfo] = []
     try:
         from evoflow.mcp.tools import load_mcp_config
+
         mcp_config = load_mcp_config()
         for name, cfg in mcp_config.items():
             # enabled 默认为 True，除非显式设置为 False
@@ -1404,10 +1383,7 @@ class ContextOverheadResponse(BaseModel):
     "/agents/context-overhead",
     response_model=ContextOverheadResponse,
     summary="Estimate per-skill / per-tool context tokens",
-    description=(
-        "Tiktoken (or CJK-aware fallback) estimates matching runtime injection: "
-        "skill catalog XML entries in the system prompt, and OpenAI wire tool schemas."
-    ),
+    description=("Tiktoken (or CJK-aware fallback) estimates matching runtime injection: skill catalog XML entries in the system prompt, and OpenAI wire tool schemas."),
 )
 async def post_agents_context_overhead(body: ContextOverheadRequest) -> ContextOverheadResponse:
     try:

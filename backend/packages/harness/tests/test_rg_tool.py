@@ -130,8 +130,7 @@ def test_rg_pipe_keywords_use_fixed_string_not_regex_or(tmp_path: Path):
     pages = tmp_path / "evopanel" / "src" / "pages"
     pages.mkdir(parents=True)
     (pages / "agent-trace-obs-sqlite.js").write_text(
-        "import { renderModelResponseTypeCell, summarizeModelResponse } from './agent-trace-model-response.js'\n"
-        "const kind = 1\n",
+        "import { renderModelResponseTypeCell, summarizeModelResponse } from './agent-trace-model-response.js'\nconst kind = 1\n",
         encoding="utf-8",
     )
     rt = runtime_with_workspace(str(tmp_path), "t-rg-pipe")

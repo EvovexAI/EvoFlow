@@ -17,7 +17,6 @@ import shutil
 import sys
 import tempfile
 import threading
-import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -46,20 +45,15 @@ def _write_vault(vault: Path) -> None:
     knowledge.mkdir(parents=True, exist_ok=True)
     (vault / "00-Inbox").mkdir(parents=True, exist_ok=True)
     (knowledge / "Agent Memory.md").write_text(
-        "---\ntags: [memory, agent]\naliases: [智能体记忆]\n---\n"
-        "# Agent Memory\n\n智能体长期记忆用于保存跨任务可复用的信息。\n\n"
-        "See also [[RAG]] and [[EvoFlow]].\n",
+        "---\ntags: [memory, agent]\naliases: [智能体记忆]\n---\n# Agent Memory\n\n智能体长期记忆用于保存跨任务可复用的信息。\n\nSee also [[RAG]] and [[EvoFlow]].\n",
         encoding="utf-8",
     )
     (knowledge / "RAG.md").write_text(
-        "---\ntags: [rag, retrieval]\n---\n"
-        "# RAG\n\nRetrieval Augmented Generation 与中文检索。\n\n"
-        "Back to [[Agent Memory]].\n",
+        "---\ntags: [rag, retrieval]\n---\n# RAG\n\nRetrieval Augmented Generation 与中文检索。\n\nBack to [[Agent Memory]].\n",
         encoding="utf-8",
     )
     (knowledge / "EvoFlow.md").write_text(
-        "---\ntags: [product]\naliases: [进化流]\n---\n"
-        "# EvoFlow\n\nEvoFlow 桌面 Agent 工作台。关联 [[Agent Memory]]。\n",
+        "---\ntags: [product]\naliases: [进化流]\n---\n# EvoFlow\n\nEvoFlow 桌面 Agent 工作台。关联 [[Agent Memory]]。\n",
         encoding="utf-8",
     )
 
@@ -90,23 +84,23 @@ async def _main() -> int:
         os.environ["EVOFLOW_KB_RUNTIME_ROOT"] = str(runtime)
         os.environ.pop("EVOFLOW_PACKAGED", None)
 
+        from evoflow.knowledge.vault.capability import (
+            build_read_arguments,
+            build_related_graph_arguments,
+            build_search_arguments,
+        )
         from evoflow.knowledge.vault.mcp_runtime import (
             call_tool,
             drop_session,
             ensure_session,
-            install_packages,
             get_session,
+            install_packages,
         )
-        from evoflow.knowledge.vault.models import KnowledgeVaultConfig, EmbeddingMode
-        from evoflow.knowledge.vault.capability import (
-            build_search_arguments,
-            build_related_graph_arguments,
-            build_read_arguments,
-        )
+        from evoflow.knowledge.vault.models import EmbeddingMode, KnowledgeVaultConfig
         from evoflow.knowledge.vault.normalize import (
-            normalize_search_results,
-            normalize_notes,
             build_graph_from_related_search,
+            normalize_notes,
+            normalize_search_results,
         )
         from evoflow.knowledge.vault.runtime_resolve import build_search_launch_plan
 
@@ -153,11 +147,7 @@ async def _main() -> int:
                 "reindex": caps.reindex_tool,
                 "status": caps.status_tool,
             }
-            evidence["schemas"] = {
-                name: (caps.schemas.get(name) if caps.schemas else None)
-                for name in (caps.search_tool, caps.read_tool, caps.reindex_tool, caps.status_tool)
-                if name
-            }
+            evidence["schemas"] = {name: (caps.schemas.get(name) if caps.schemas else None) for name in (caps.search_tool, caps.read_tool, caps.reindex_tool, caps.status_tool) if name}
             print("tools/list:", tool_names, flush=True)
             evidence["steps"]["initialize"] = True
             evidence["steps"]["tools_list"] = tool_names
@@ -189,29 +179,19 @@ async def _main() -> int:
                 print(f"{label} hits={len(hits)} paths={evidence['steps'][label]['paths']}", flush=True)
                 return hits
 
-            hits_ft = await _search(
-                "fulltext_zh", sess, search_tool, search_schema, query="智能体长期记忆", mode="fulltext", top_k=5
-            )
+            hits_ft = await _search("fulltext_zh", sess, search_tool, search_schema, query="智能体长期记忆", mode="fulltext", top_k=5)
             assert hits_ft, "fulltext Chinese search returned no hits"
 
-            hits_sem = await _search(
-                "semantic_zh", sess, search_tool, search_schema, query="跨任务可复用信息", mode="semantic", top_k=5
-            )
+            _hits_sem = await _search("semantic_zh", sess, search_tool, search_schema, query="跨任务可复用信息", mode="semantic", top_k=5)
             evidence["steps"]["semantic_zh"]["note"] = "fake embeddings; non-empty preferred"
 
-            hits_hyb = await _search(
-                "hybrid_zh", sess, search_tool, search_schema, query="智能体记忆", mode="hybrid", top_k=5
-            )
+            hits_hyb = await _search("hybrid_zh", sess, search_tool, search_schema, query="智能体记忆", mode="hybrid", top_k=5)
             assert hits_hyb, "hybrid Chinese search returned no hits"
 
-            hits_title = await _search(
-                "title_match", sess, search_tool, search_schema, query="EvoFlow", mode="title", top_k=5
-            )
+            hits_title = await _search("title_match", sess, search_tool, search_schema, query="EvoFlow", mode="title", top_k=5)
             assert any("EvoFlow" in (h.path or "") for h in hits_title), hits_title
 
-            await _search(
-                "tag_filter", sess, search_tool, search_schema, query="", mode="fulltext", top_k=5, tags=["memory"]
-            )
+            await _search("tag_filter", sess, search_tool, search_schema, query="", mode="fulltext", top_k=5, tags=["memory"])
             await _search(
                 "folder_scope",
                 sess,
@@ -284,9 +264,7 @@ async def _main() -> int:
             sess2 = await ensure_session(cfg, force_reload=True)
             assert sess2.search_tools and sess2.search_capabilities
             search_tool2 = sess2.search_capabilities.search_tool
-            search_schema2 = (
-                sess2.search_capabilities.schemas.get(search_tool2) if sess2.search_capabilities.schemas else None
-            )
+            search_schema2 = sess2.search_capabilities.schemas.get(search_tool2) if sess2.search_capabilities.schemas else None
             hits_after = await _search(
                 "after_restart",
                 sess2,
@@ -325,6 +303,7 @@ async def _main() -> int:
             httpd.shutdown()
             OUT_JSON.write_text(json.dumps(evidence, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
             print(f"wrote {OUT_JSON}", flush=True)
+
 
 if __name__ == "__main__":
     try:

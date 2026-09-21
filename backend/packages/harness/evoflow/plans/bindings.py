@@ -150,9 +150,7 @@ def insert_binding(payload: dict[str, Any]) -> dict[str, Any]:
                 json.dumps(dict(overrides), ensure_ascii=False),
                 str(payload.get("status") or "active"),
                 payload.get("last_probe_at"),
-                json.dumps(payload["soft_quota"], ensure_ascii=False)
-                if payload.get("soft_quota") is not None
-                else None,
+                json.dumps(payload["soft_quota"], ensure_ascii=False) if payload.get("soft_quota") is not None else None,
                 json.dumps(list(linked), ensure_ascii=False),
                 now,
                 now,
@@ -182,19 +180,11 @@ def update_binding(binding_id: str, patch: dict[str, Any]) -> dict[str, Any]:
             api_key = incoming
 
     tier_id = patch["tier_id"] if "tier_id" in patch else existing.get("tier_id")
-    display_name = (
-        str(patch["display_name"]).strip()
-        if "display_name" in patch
-        else existing.get("display_name") or ""
-    )
+    display_name = str(patch["display_name"]).strip() if "display_name" in patch else existing.get("display_name") or ""
     status = str(patch["status"]).strip() if "status" in patch else existing.get("status") or "active"
     caps = patch["bound_capabilities"] if "bound_capabilities" in patch else existing.get("bound_capabilities")
     overrides = patch["overrides"] if "overrides" in patch else existing.get("overrides")
-    linked = (
-        patch["linked_connection_ids"]
-        if "linked_connection_ids" in patch
-        else existing.get("linked_connection_ids")
-    )
+    linked = patch["linked_connection_ids"] if "linked_connection_ids" in patch else existing.get("linked_connection_ids")
     soft_quota = patch["soft_quota"] if "soft_quota" in patch else existing.get("soft_quota")
     last_probe = patch["last_probe_at"] if "last_probe_at" in patch else existing.get("last_probe_at")
 

@@ -84,12 +84,15 @@ def test_ensure_session_run_active_heals_idle_row(tmp_path, monkeypatch):
     mark_session_run_ended(session_key=sk)
 
     async def _run() -> tuple[bool, str | None]:
-        with patch(
-            "app.gateway.run_status_reconcile.is_thread_run_active",
-            new=AsyncMock(return_value=True),
-        ), patch(
-            "app.gateway.run_status_reconcile.discover_active_run_id",
-            new=AsyncMock(return_value="run-healed"),
+        with (
+            patch(
+                "app.gateway.run_status_reconcile.is_thread_run_active",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "app.gateway.run_status_reconcile.discover_active_run_id",
+                new=AsyncMock(return_value="run-healed"),
+            ),
         ):
             from app.gateway.run_status_reconcile import ensure_session_run_active
 
@@ -123,12 +126,15 @@ def test_ensure_session_run_active_skips_heal_after_user_stop(tmp_path, monkeypa
     mark_session_run_ended(session_key=sk, reason="user_stop", source="user_stop")
 
     async def _run() -> tuple[bool, str | None]:
-        with patch(
-            "app.gateway.run_status_reconcile.is_thread_run_active",
-            new=AsyncMock(return_value=True),
-        ), patch(
-            "app.gateway.run_status_reconcile.discover_active_run_id",
-            new=AsyncMock(return_value="run-orphan"),
+        with (
+            patch(
+                "app.gateway.run_status_reconcile.is_thread_run_active",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "app.gateway.run_status_reconcile.discover_active_run_id",
+                new=AsyncMock(return_value="run-orphan"),
+            ),
         ):
             from app.gateway.run_status_reconcile import ensure_session_run_active
 

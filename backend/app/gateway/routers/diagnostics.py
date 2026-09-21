@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from evoflow.admin import diagnostics as diag
-
-
 from evoflow.authz.http_guard import require_org_admin
 
 
 def _org_admin_dep(request: Request) -> None:
     require_org_admin(request)
+
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"], dependencies=[Depends(_org_admin_dep)])
 

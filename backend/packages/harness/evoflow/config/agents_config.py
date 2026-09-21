@@ -32,13 +32,12 @@ def invalidate_agent_config_cache(agent_code: str | None = None) -> None:
     except Exception:
         pass
 
+
 SOUL_FILENAME = "SOUL.md"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 
 # Ship-with-product SOUL.md defaults for built-in agents
-_BUNDLED_SOULS_DIR = (
-    Path(__file__).resolve().parent.parent / "assets" / "builtin_agent_souls"
-)
+_BUNDLED_SOULS_DIR = Path(__file__).resolve().parent.parent / "assets" / "builtin_agent_souls"
 
 
 def bundled_soul_path(agent_code: str) -> Path | None:
@@ -778,13 +777,7 @@ def ensure_builtin_agents_materialized() -> None:
                 cur_soul = (load_agent_soul("main") or "").strip()
                 bundled = load_bundled_soul("main") or ""
                 if bundled and (
-                    not cur_soul
-                    or cur_soul.startswith("# main")
-                    or cur_soul.startswith("# 小蜜")
-                    or cur_soul.startswith("# 小V")
-                    or cur_soul.startswith("# 超级助手")
-                    or "全局前台助手" in cur_soul
-                    or "Built-in subagent" in cur_soul
+                    not cur_soul or cur_soul.startswith("# main") or cur_soul.startswith("# 小蜜") or cur_soul.startswith("# 小V") or cur_soul.startswith("# 超级助手") or "全局前台助手" in cur_soul or "Built-in subagent" in cur_soul
                 ):
                     save_agent_soul("main", bundled)
             except Exception:
@@ -799,9 +792,7 @@ def ensure_builtin_agents_materialized() -> None:
             {
                 "agent_type": "custom",
                 "agent_name": "小V",
-                "description": (
-                    "用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"
-                ),
+                "description": ("用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"),
                 **_xm_caps,
                 "avatar": _BUILTIN_AGENT_AVATARS.get("xiaomi"),
             },
@@ -832,9 +823,7 @@ def ensure_builtin_agents_materialized() -> None:
                 xm_full["agent_name"] = "小V"
                 xm_changed = True
             if not str(xm_cfg.description or "").strip():
-                xm_full["description"] = (
-                    "用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"
-                )
+                xm_full["description"] = "用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"
                 xm_changed = True
             for key, desired in _xm_caps.items():
                 if xm_full.get(key) != desired:
@@ -858,14 +847,7 @@ def ensure_builtin_agents_materialized() -> None:
         try:
             cur_soul = (load_agent_soul("xiaomi") or "").strip()
             bundled = load_bundled_soul("xiaomi") or ""
-            if bundled and (
-                not cur_soul
-                or cur_soul.startswith("# xiaomi")
-                or cur_soul.startswith("# 小蜜")
-                or cur_soul.startswith("# 小V")
-                or "Built-in subagent" in cur_soul
-                or "禁止 Markdown" not in cur_soul
-            ):
+            if bundled and (not cur_soul or cur_soul.startswith("# xiaomi") or cur_soul.startswith("# 小蜜") or cur_soul.startswith("# 小V") or "Built-in subagent" in cur_soul or "禁止 Markdown" not in cur_soul):
                 save_agent_soul("xiaomi", bundled)
         except Exception:
             logger.debug("xiaomi soul backfill skipped", exc_info=True)
@@ -1069,8 +1051,6 @@ def save_agent_soul(agent_code: str, soul_md: str) -> None:
 
 
 def _agent_soul_file(agent_code: str) -> "Path":
-    from pathlib import Path
-
     from evoflow.assets.paths import EntityRef, profile_path
 
     return profile_path(EntityRef("agent", agent_code), "SOUL.md")
@@ -1137,9 +1117,7 @@ def save_agent_identity(agent_code: str, identity_md: str, *, reason: str = "") 
     """Persist Person Kernel L0 identity (admin/hire only)."""
     from evoflow.persistence import config_repositories as cfg_repo
 
-    cfg_repo.save_agent_identity(
-        agent_code, identity_md, source="admin", approved_by="admin", reason=reason
-    )
+    cfg_repo.save_agent_identity(agent_code, identity_md, source="admin", approved_by="admin", reason=reason)
 
 
 def load_agent_identity(agent_name: str | None) -> str | None:

@@ -49,11 +49,7 @@ class ExecutionSecurityConfig(BaseModel):
     )
     auto_enable_when_helpers_ready: bool = Field(
         default=True,
-        description=(
-            "native-like default: when platform helpers are present, host terminal "
-            "uses OS sandbox without a separate toggle. Session chat presets still "
-            "pick the profile (read-only / workspace / full-access)."
-        ),
+        description=("native-like default: when platform helpers are present, host terminal uses OS sandbox without a separate toggle. Session chat presets still pick the profile (read-only / workspace / full-access)."),
     )
 
 
@@ -136,4 +132,3 @@ def resolve_execution_security_for_thread(thread_id: str | None) -> ExecutionSec
         return get_execution_security_config()
     sk = find_session_key_by_thread_id(tid)
     return resolve_execution_security_for_session(sk)
-

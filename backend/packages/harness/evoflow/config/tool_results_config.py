@@ -18,6 +18,7 @@ def _env_flag(name: str, *, default: str = "1") -> bool:
         "off",
     }
 
+
 _DEFAULT_THRESHOLD = 50_000
 _DEFAULT_SUMMARY_LINES = 8
 _DEFAULT_SUMMARY_MAX_CHARS = 1200
@@ -191,13 +192,7 @@ def tool_output_token_cap() -> int:
 def tool_result_compression_active() -> bool:
     """Gate for [tool:summary] / disk persist / history merge / code compact (not inline shaping)."""
     cfg = get_tool_results_config()
-    return bool(
-        cfg.enabled
-        or cfg.history_summarize_enabled
-        or cfg.history_merge_enabled
-        or cfg.llm_summary_enabled
-        or cfg.code_compact_enabled
-    )
+    return bool(cfg.enabled or cfg.history_summarize_enabled or cfg.history_merge_enabled or cfg.llm_summary_enabled or cfg.code_compact_enabled)
 
 
 def load_tool_results_config_from_dict(config_dict: dict) -> None:

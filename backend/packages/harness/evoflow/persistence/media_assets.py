@@ -109,14 +109,18 @@ def update_media_asset_by_task(
         return False
     now = utc_now_iso_z()
     try:
-        row = get_db().execute(
-            """
+        row = (
+            get_db()
+            .execute(
+                """
             SELECT id, meta_json FROM evoflow_media_assets
             WHERE provider = ? AND task_id = ?
             ORDER BY id DESC LIMIT 1
             """,
-            (prov, tid),
-        ).fetchone()
+                (prov, tid),
+            )
+            .fetchone()
+        )
         if not row:
             return False
         rid = int(row[0])
@@ -163,8 +167,10 @@ def list_media_assets(
     off = max(0, int(offset))
     try:
         if thread_id and str(thread_id).strip():
-            rows = get_db().execute(
-                """
+            rows = (
+                get_db()
+                .execute(
+                    """
                 SELECT id, thread_id, tool_name, media_kind, provider, task_id, status,
                        remote_url, local_path, file_size_bytes, meta_json, created_at, updated_at
                 FROM evoflow_media_assets
@@ -172,19 +178,25 @@ def list_media_assets(
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
                 """,
-                (str(thread_id).strip(), lim, off),
-            ).fetchall()
+                    (str(thread_id).strip(), lim, off),
+                )
+                .fetchall()
+            )
         else:
-            rows = get_db().execute(
-                """
+            rows = (
+                get_db()
+                .execute(
+                    """
                 SELECT id, thread_id, tool_name, media_kind, provider, task_id, status,
                        remote_url, local_path, file_size_bytes, meta_json, created_at, updated_at
                 FROM evoflow_media_assets
                 ORDER BY id DESC
                 LIMIT ? OFFSET ?
                 """,
-                (lim, off),
-            ).fetchall()
+                    (lim, off),
+                )
+                .fetchall()
+            )
     except Exception:
         logger.debug("list_media_assets failed", exc_info=True)
         return []
@@ -253,16 +265,20 @@ def find_remote_url_for_local_path(
             kind_clause = " AND media_kind = ?"
             params.append(str(media_kind).strip())
         params.append(500)
-        rows = get_db().execute(
-            f"""
+        rows = (
+            get_db()
+            .execute(
+                f"""
             SELECT remote_url, local_path, meta_json, media_kind
             FROM evoflow_media_assets
             WHERE thread_id = ?{kind_clause}
             ORDER BY id DESC
             LIMIT ?
             """,
-            tuple(params),
-        ).fetchall()
+                tuple(params),
+            )
+            .fetchall()
+        )
     except Exception:
         logger.debug("find_remote_url_for_local_path failed", exc_info=True)
         return None

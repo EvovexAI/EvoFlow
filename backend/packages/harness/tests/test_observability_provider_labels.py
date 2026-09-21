@@ -15,10 +15,7 @@ def test_resolve_from_configured_vendor_on_instance() -> None:
 
 
 def test_resolve_gemini_via_model_prefix() -> None:
-    assert (
-        normalize_stored_provider("patched_openai", model="google/gemini-2.5-pro-preview")
-        == "google"
-    )
+    assert normalize_stored_provider("patched_openai", model="google/gemini-2.5-pro-preview") == "google"
 
 
 def test_resolve_deepseek_alias() -> None:

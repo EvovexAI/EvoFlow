@@ -39,12 +39,8 @@ class CreateTokenRequest(BaseModel):
     """Body for ``POST /api/auth/token``."""
 
     name: str = Field(..., description="Human-readable label for the token.")
-    identity_type: str = Field(
-        ..., description="Type of the bound identity (e.g. 'agent', 'user')."
-    )
-    identity_id: str = Field(
-        ..., description="Identifier of the bound identity (e.g. agent code)."
-    )
+    identity_type: str = Field(..., description="Type of the bound identity (e.g. 'agent', 'user').")
+    identity_id: str = Field(..., description="Identifier of the bound identity (e.g. agent code).")
 
 
 class CreateTokenResponse(BaseModel):

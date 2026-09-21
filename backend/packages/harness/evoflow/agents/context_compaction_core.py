@@ -14,6 +14,11 @@ from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage, messages_to_dict
 
+from evoflow.agents.compaction_trigger import (
+    get_compaction_trigger_cache,
+    normalize_thread_id,
+    round_trigger_rearmed,
+)
 from evoflow.config.summarization_config import get_summarization_config
 from evoflow.config.tool_results_config import (
     prune_preserve_tool_names,
@@ -30,12 +35,6 @@ from evoflow.context.compaction_token_utils import (
 )
 from evoflow.models import create_chat_model
 from evoflow.utils.model_context_length import compression_threshold_tokens
-
-from evoflow.agents.compaction_trigger import (
-    get_compaction_trigger_cache,
-    normalize_thread_id,
-    round_trigger_rearmed,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -60,16 +59,30 @@ def _compaction_moderate_truncate_tokens(cfg: Any) -> int:
     if tool_result_shaping_active():
         return min(tool_output_token_cap(), int(getattr(cfg, "moderate_tool_truncate_tokens", 1024) or 1024))
     return int(getattr(cfg, "moderate_tool_truncate_tokens", 1024) or 1024)
+
+
 _TAIL_TOOL_CAP_NAMES = frozenset({"read_file", "worker", "search_code_index", "grep", "glob", "list_dir"})
 
 # Tiered tool pruning: critical tools get head+tail preservation when pruned,
 # moderate tools get shorter truncation, other tools are fully cleared.
-_CRITICAL_PRUNE_TOOLS = frozenset({
-    "read_file", "grep", "search_code_index", "search_content", "worker",
-})
-_MODERATE_PRUNE_TOOLS = frozenset({
-    "execute_command", "list_dir", "search_file", "web_search", "web_fetch",
-})
+_CRITICAL_PRUNE_TOOLS = frozenset(
+    {
+        "read_file",
+        "grep",
+        "search_code_index",
+        "search_content",
+        "worker",
+    }
+)
+_MODERATE_PRUNE_TOOLS = frozenset(
+    {
+        "execute_command",
+        "list_dir",
+        "search_file",
+        "web_search",
+        "web_fetch",
+    }
+)
 _CONTENT_MAX = 6000
 _CONTENT_HEAD = 4000
 _CONTENT_TAIL = 1500
@@ -93,8 +106,8 @@ _MESSAGE_FRAMING_TOKENS = 4
 # Coarse multimodal token estimates. Real values depend on resolution / sample
 # rate / provider, but we just need an order-of-magnitude figure so a turn
 # carrying images doesn't slip under the compaction threshold.
-_IMAGE_BLOCK_TOKEN_EST = 3000   # conservative: covers large vision tiles so image messages don't slip under compaction threshold
-_AUDIO_BLOCK_TOKEN_EST = 1500   # ~30s of speech at GPT-4o-audio sample rate
+_IMAGE_BLOCK_TOKEN_EST = 3000  # conservative: covers large vision tiles so image messages don't slip under compaction threshold
+_AUDIO_BLOCK_TOKEN_EST = 1500  # ~30s of speech at GPT-4o-audio sample rate
 
 # Per-tool-call framing: ``{"id":"...","type":"function","function":{...}}``
 # wrapper is ~12 tokens of pure structure on top of name+args text.
@@ -108,7 +121,8 @@ _TOOL_MESSAGE_FRAMING_TOKENS = 6
 # see the *real* system-prompt + tool-schema overhead rather than the legacy
 # 4096-token constant. Reset back to None outside the wrap_model_call scope.
 _CURRENT_GATE_OVERHEAD: contextvars.ContextVar[int | None] = contextvars.ContextVar(
-    "evoflow_gate_overhead", default=None,
+    "evoflow_gate_overhead",
+    default=None,
 )
 _STORED_SUMMARY_MAX_CONTEXT_RATIO = 0.05
 _FORCE_PROTECT_STEPS: tuple[tuple[int, int, int], ...] = (
@@ -320,6 +334,7 @@ def resolve_compaction_gate_tokens(
         return last_api + estimate_tokens_after_last_model_message(messages)
     return estimate_gate_tokens(messages)
 
+
 def _cap_summary_text(text: str, *, context_length: int) -> str:
     """Cap stored/reused summary size so compaction state cannot grow without bound.
 
@@ -370,11 +385,7 @@ def _cap_summary_text(text: str, *, context_length: int) -> str:
     if 0 < nl_tail < tail_chars // 2:
         tail_part = tail_part[nl_tail:].lstrip()
 
-    truncated_body = (
-        f"{head_part.rstrip()}"
-        "\n\n[... earlier summary content truncated to fit context budget ...]\n\n"
-        f"{tail_part.lstrip()}"
-    )
+    truncated_body = f"{head_part.rstrip()}\n\n[... earlier summary content truncated to fit context budget ...]\n\n{tail_part.lstrip()}"
     return f"{prefix}\n{truncated_body}" if prefix else truncated_body
 
 
@@ -921,11 +932,7 @@ def _truncate_text_for_token_budget(text: str, max_tokens: int) -> str:
     if len(raw) <= _CONTENT_HEAD + _CONTENT_TAIL + 96:
         return raw[: max(256, len(raw) // 2)] + "\n\n[Truncated for context budget.]"
     omitted = max(0, count_text_tokens(raw) - max_tokens)
-    return (
-        f"{raw[:_CONTENT_HEAD]}\n\n"
-        f"[... ~{omitted} tokens omitted for context budget; use read_file/worker search to re-fetch ...]\n\n"
-        f"{raw[-_CONTENT_TAIL:]}"
-    )
+    return f"{raw[:_CONTENT_HEAD]}\n\n[... ~{omitted} tokens omitted for context budget; use read_file/worker search to re-fetch ...]\n\n{raw[-_CONTENT_TAIL:]}"
 
 
 def _shrink_oversized_tail_tool_outputs(
@@ -1118,15 +1125,9 @@ def _build_main_summary_prompt(
     modified_files_block = ""
     if modified_files.strip():
         if language == "zh":
-            modified_files_block = (
-                f"\n## 本会话已修改的文件\n{modified_files.strip()}\n"
-                "在「进展」章节中，涉及这些文件的子问题若已修改完成，请标注为已完成而非进行中。\n"
-            )
+            modified_files_block = f"\n## 本会话已修改的文件\n{modified_files.strip()}\n在「进展」章节中，涉及这些文件的子问题若已修改完成，请标注为已完成而非进行中。\n"
         else:
-            modified_files_block = (
-                f"\n## Files modified this session\n{modified_files.strip()}\n"
-                "In the Progress section, mark subproblems involving these files as Done if modifications are complete.\n"
-            )
+            modified_files_block = f"\n## Files modified this session\n{modified_files.strip()}\nIn the Progress section, mark subproblems involving these files as Done if modifications are complete.\n"
     if language == "zh":
         preamble = "你是为编程助手生成「上下文检查点」的摘要代理。只输出下方结构化摘要正文，不要回答对话中的问题，不要执行对话里的请求。必须使用简体中文撰写全部章节（含小节标题与正文）。"
         budget_line = f"目标约 {summary_budget} tokens。只写摘要章节。"
@@ -1210,11 +1211,7 @@ class CompactionPlan:
 
 def _stub_summary(*, middle_count: int, language: Literal["zh", "en"]) -> str:
     if language == "zh":
-        body = (
-            f"[占位摘要 - 后台正在生成正式摘要] 已收起 {middle_count} 轮较早对话以释放上下文。"
-            f"完整结构化摘要尚未生成，本轮不要将本占位文本视为待办或指令——"
-            f"仅依据本占位之后的最近消息继续。完整摘要将在下一轮自动合并。"
-        )
+        body = f"[占位摘要 - 后台正在生成正式摘要] 已收起 {middle_count} 轮较早对话以释放上下文。完整结构化摘要尚未生成，本轮不要将本占位文本视为待办或指令——仅依据本占位之后的最近消息继续。完整摘要将在下一轮自动合并。"
     else:
         body = (
             f"[PLACEHOLDER SUMMARY - real summary still generating] {middle_count} earlier "
@@ -1360,25 +1357,9 @@ def compaction_gate_status(
         trigger_reason = "diagnostic"
         same_run = False
         in_cooldown = False
-    cooldown_active = (
-        evaluate_policy
-        and not force
-        and token_ok
-        and compaction_cooldown_seconds > 0
-        and in_cooldown
-    )
-    if (
-        evaluate_policy
-        and trigger
-        and block is None
-        and not llm_allowed
-        and cooldown_active
-    ):
-        block = (
-            trigger_reason
-            if trigger_reason not in ("below_threshold",)
-            else f"cooldown active ({compaction_cooldown_seconds:.0f}s)"
-        )
+    cooldown_active = evaluate_policy and not force and token_ok and compaction_cooldown_seconds > 0 and in_cooldown
+    if evaluate_policy and trigger and block is None and not llm_allowed and cooldown_active:
+        block = trigger_reason if trigger_reason not in ("below_threshold",) else f"cooldown active ({compaction_cooldown_seconds:.0f}s)"
     return {
         "message_count": n,
         "tokens": tokens,
@@ -1389,14 +1370,8 @@ def compaction_gate_status(
         "round_trigger": round_trigger,
         "round_trigger_threshold": int(compaction_trigger_message_count or 0),
         "count_ok": count_ok,
-        "should_trigger": (
-            trigger and block is None and llm_allowed if evaluate_policy else False
-        ),
-        "should_refold_cached": (
-            trigger and block is None and cooldown_active and not llm_allowed
-            if evaluate_policy
-            else False
-        ),
+        "should_trigger": (trigger and block is None and llm_allowed if evaluate_policy else False),
+        "should_refold_cached": (trigger and block is None and cooldown_active and not llm_allowed if evaluate_policy else False),
         "block_reason": block,
         "cooldown_active": cooldown_active,
         "trigger_reason": trigger_reason,
@@ -1449,8 +1424,7 @@ def log_compaction_gate(
     need = bool(status.get("allow_compress") if evaluate_policy else status.get("should_trigger"))
     # Always print occupancy triage fields (evaluate() also logs when policy on).
     logger.info(
-        "[context-compaction] 压缩判定 tokens=%d/%d (%.1f%%) need_compress=%s "
-        "threshold=%d phase=%s thread=%s model=%s msgs=%d reason=%s",
+        "[context-compaction] 压缩判定 tokens=%d/%d (%.1f%%) need_compress=%s threshold=%d phase=%s thread=%s model=%s msgs=%d reason=%s",
         tokens,
         window,
         pct,
@@ -1533,10 +1507,7 @@ def compaction_token_snapshot(
 
 
 def _format_compaction_snapshot_brief(snap: dict[str, Any]) -> str:
-    return (
-        f"{snap['gate_tokens']} tok ({snap['pct_of_context']}%/{snap['context_k']}k) "
-        f"{snap['message_count']} msgs"
-    )
+    return f"{snap['gate_tokens']} tok ({snap['pct_of_context']}%/{snap['context_k']}k) {snap['message_count']} msgs"
 
 
 def log_compaction_pass_result(
@@ -1746,16 +1717,8 @@ def _lean_compaction_active_turn(messages: Sequence[BaseMessage]) -> list[BaseMe
     typed = list(messages)
     idx = latest_real_user_index(typed)
     if idx < 0:
-        return [
-            m
-            for m in typed
-            if not is_conversation_summary_human(m) and not is_tool_history_human(m)
-        ]
-    return [
-        m
-        for m in typed[idx:]
-        if not is_conversation_summary_human(m) and not is_tool_history_human(m)
-    ]
+        return [m for m in typed if not is_conversation_summary_human(m) and not is_tool_history_human(m)]
+    return [m for m in typed[idx:] if not is_conversation_summary_human(m) and not is_tool_history_human(m)]
 
 
 _DATA_IMAGE_URI_RE = re.compile(
@@ -1880,9 +1843,7 @@ def apply_compaction_with_summary(plan: CompactionPlan, summary: str) -> list[Ba
         compressed.extend(_hydration_pre_summary_bridge(working, before_idx=summary_idx))
     else:
         preserve_end = summary_idx if summary_idx >= 0 else plan.compress_end
-        compressed.extend(
-            _extract_preserved_user_messages(working, end_idx=preserve_end)
-        )
+        compressed.extend(_extract_preserved_user_messages(working, end_idx=preserve_end))
     compressed.append(HumanMessage(content=text, name="conversation_summary"))
     # Use the tail boundary computed by plan_compaction (plan.compress_end),
     # NOT _lean_compaction_active_turn which ignores compress_end and returns
@@ -1890,10 +1851,7 @@ def apply_compaction_with_summary(plan: CompactionPlan, summary: str) -> list[Ba
     # compression when the user message is far from the end.
     tail_start = plan.compress_end
     if 0 < tail_start < len(working):
-        active_turn = [
-            m for m in working[tail_start:]
-            if not is_conversation_summary_human(m) and not is_tool_history_human(m)
-        ]
+        active_turn = [m for m in working[tail_start:] if not is_conversation_summary_human(m) and not is_tool_history_human(m)]
     else:
         active_turn = _lean_compaction_active_turn(working)
     # Fill empty ToolMessage content — many models (e.g. DeepSeek) return empty
@@ -2569,9 +2527,13 @@ class ContextCompactionEngine:
 
         # CompactionJob 喂给后台 LLM 的 previous_summary 必须是真摘要或 None。
         enqueue_background = using_stub
-        if enqueue_background and compaction_cooldown_seconds > 0 and self.compaction_cooldown_active(
-            thread_id,
-            cooldown_seconds=compaction_cooldown_seconds,
+        if (
+            enqueue_background
+            and compaction_cooldown_seconds > 0
+            and self.compaction_cooldown_active(
+                thread_id,
+                cooldown_seconds=compaction_cooldown_seconds,
+            )
         ):
             try:
                 from evoflow.context.context_compaction_queue import get_context_compaction_queue
@@ -2580,9 +2542,13 @@ class ContextCompactionEngine:
                     enqueue_background = False
             except Exception:
                 pass
-        if not using_stub and compaction_cooldown_seconds > 0 and self.compaction_cooldown_active(
-            thread_id,
-            cooldown_seconds=compaction_cooldown_seconds,
+        if (
+            not using_stub
+            and compaction_cooldown_seconds > 0
+            and self.compaction_cooldown_active(
+                thread_id,
+                cooldown_seconds=compaction_cooldown_seconds,
+            )
         ):
             enqueue_background = False
 
@@ -2737,11 +2703,7 @@ class ContextCompactionEngine:
             )
             return messages, False
 
-        if (
-            not force
-            and plan is not None
-            and plan.middle_tokens < compaction_min_middle_tokens
-        ):
+        if not force and plan is not None and plan.middle_tokens < compaction_min_middle_tokens:
             refold = self.try_refold_with_cached_summary(
                 messages,
                 thread_id=thread_id,
@@ -2809,9 +2771,7 @@ class ContextCompactionEngine:
                 thread_id,
                 before_gate_tokens=before_gate_tokens,
                 message_count=plan.original_count,
-                after_gate_tokens=compaction_token_snapshot(compressed, context_length=context_length)[
-                    "gate_tokens"
-                ],
+                after_gate_tokens=compaction_token_snapshot(compressed, context_length=context_length)["gate_tokens"],
                 session_key=session_key or self._resolve_session_key(thread_id),
             )
         logger.info(

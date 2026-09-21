@@ -1,4 +1,5 @@
 """Analyze last N tool invocations from observability API — all tools."""
+
 from __future__ import annotations
 
 import json

@@ -22,15 +22,11 @@ def test_find_chrome_executable_user_cache(tmp_path: Path, monkeypatch) -> None:
     chrome = browsers / "chrome.exe"
     chrome.write_bytes(b"x")
     with patch.object(bundled_tools, "agent_browser_bundle_roots", return_value=[]):
-        with patch.object(
-            bundled_tools, "_user_agent_browser_roots", return_value=[tmp_path / "browsers"]
-        ):
+        with patch.object(bundled_tools, "_user_agent_browser_roots", return_value=[tmp_path / "browsers"]):
             assert bundled_tools.find_chrome_executable() == str(chrome)
 
 
-def test_ensure_agent_browser_chromium_noop_when_present(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_ensure_agent_browser_chromium_noop_when_present(tmp_path: Path, monkeypatch) -> None:
     chrome = tmp_path / "chrome.exe"
     chrome.write_bytes(b"x")
     monkeypatch.setenv("AGENT_BROWSER_EXECUTABLE_PATH", str(chrome))

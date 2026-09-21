@@ -51,6 +51,31 @@ def _require_role_agent(request: Request, agent_code: str) -> None:
     require_agent_visible(request, code)
 
 
+def _filter_roles_for_request(request: Request, roles: list[Any]) -> list[Any]:
+    """Return roles whose underlying agents are visible to the caller (anti-IDOR)."""
+    from evoflow.authz.http_guard import resolve_authz_from_request
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    authz = resolve_authz_from_request(request)
+    if authz.get("is_admin") or not str(authz.get("principal_id") or "").strip():
+        return list(roles)
+    out: list[Any] = []
+    for role in roles:
+        code = str(getattr(role, "agent_code", "") or "").strip().lower()
+        if not code or code == "main":
+            out.append(role)
+            continue
+        if cfg_repo.agent_visible_to_principal(
+            code,
+            str(authz.get("principal_id") or ""),
+            is_admin=False,
+            personal_scope=authz.get("personal_scope"),
+            org_scope=authz.get("org_scope"),
+        ):
+            out.append(role)
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Request / Response models
 # ═══════════════════════════════════════════════════════════════════════
@@ -249,9 +274,7 @@ class OverlapCheckRequest(BaseModel):
 
 @router.get("/roles")
 async def list_roles(
-    status: str | None = Query(
-        None, description="Filter by status: active|paused|archived|draft"
-    ),
+    status: str | None = Query(None, description="Filter by status: active|paused|archived|draft"),
 ) -> dict[str, Any]:
     if status is not None:
         try:
@@ -269,10 +292,7 @@ async def list_roles(
 async def get_org_tree(
     status: str | None = Query(
         None,
-        description=(
-            "Optional status filter. Default empty = fixed org chart "
-            "(all non-archived roles). Pass active|paused|draft|archived to filter."
-        ),
+        description=("Optional status filter. Default empty = fixed org chart (all non-archived roles). Pass active|paused|draft|archived to filter."),
     ),
 ) -> dict[str, Any]:
     """Organization chart forest based on ``config.reports_to``.
@@ -376,9 +396,7 @@ async def create_department(request: Request, body: DepartmentCreateRequest) -> 
 
 
 @router.put("/departments/{dept_id}")
-async def update_department(
-    request: Request, dept_id: str, body: DepartmentUpdateRequest
-) -> dict[str, Any]:
+async def update_department(request: Request, dept_id: str, body: DepartmentUpdateRequest) -> dict[str, Any]:
     require_org_admin(request)
     from evoflow.proactive.departments import DepartmentRepository
 
@@ -416,9 +434,7 @@ async def delete_department(request: Request, dept_id: str) -> dict[str, Any]:
 
 
 @router.put("/departments/{dept_id}/members")
-async def set_department_members(
-    request: Request, dept_id: str, body: DepartmentMembersRequest
-) -> dict[str, Any]:
+async def set_department_members(request: Request, dept_id: str, body: DepartmentMembersRequest) -> dict[str, Any]:
     """Replace the non-archived member roster for a department."""
     require_org_admin(request)
     from evoflow.proactive.departments import DepartmentRepository
@@ -436,9 +452,7 @@ async def get_role(agent_code: str) -> dict[str, Any]:
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     # Include recent initiatives
-    initiatives = ProactiveRepository.list_initiatives(
-        role_agent_code=agent_code, limit=10
-    )
+    initiatives = ProactiveRepository.list_initiatives(role_agent_code=agent_code, limit=10)
     result = _role_to_dict(role)
     result["recent_initiatives"] = [_initiative_to_dict(i) for i in initiatives]
     try:
@@ -447,11 +461,7 @@ async def get_role(agent_code: str) -> dict[str, Any]:
         result["org"] = org_chart_for_role(
             role,
             # 组织关系固定：用未归档全员花名册，不因请假把上级/下级裁掉
-            roster=[
-                r
-                for r in ProactiveRepository.list_roles(status=None)
-                if str(r.status or "").strip() != "archived"
-            ],
+            roster=[r for r in ProactiveRepository.list_roles(status=None) if str(r.status or "").strip() != "archived"],
         )
     except Exception:
         result["org"] = None
@@ -836,8 +846,8 @@ async def apply_role_feishu_registration(request: Request, agent_code: str, sess
     on the role and synced to ``channels.feishu.accounts[<agent_code>]``.
     """
     _require_role_agent(request, agent_code)
-    from evoflow.runtime.ports import get_feishu_registration_client
     from evoflow.proactive.feishu_binding import apply_registration_to_role
+    from evoflow.runtime.ports import get_feishu_registration_client
 
     client = get_feishu_registration_client()
     if client is None:
@@ -913,10 +923,7 @@ async def trigger_heartbeat(
             if not materialize_builtin_agent_if_missing(code):
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"底层智能体「{code}」不存在。"
-                        "请先到「智能体」页创建同编码智能体，或删除该员工后雇佣其他智能体。"
-                    ),
+                    detail=(f"底层智能体「{code}」不存在。请先到「智能体」页创建同编码智能体，或删除该员工后雇佣其他智能体。"),
                 ) from None
             load_agent_config(code)
     except HTTPException:
@@ -925,10 +932,7 @@ async def trigger_heartbeat(
         logger.warning("proactive.heartbeat agent preflight failed code=%s: %s", code, e)
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"底层智能体「{code}」配置不可用（{e}）。"
-                "请到「智能体」页确认该编码存在、配置完整后重试。"
-            ),
+            detail=(f"底层智能体「{code}」配置不可用（{e}）。请到「智能体」页确认该编码存在、配置完整后重试。"),
         ) from e
 
     runner = _get_proactive_runner()
@@ -941,25 +945,18 @@ async def trigger_heartbeat(
         if "Agent config not found" in msg or "FileNotFoundError" in msg:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"底层智能体「{code}」配置不可用：{msg}。"
-                    "请到「智能体」页确认该编码存在后重试。"
-                ),
+                detail=(f"底层智能体「{code}」配置不可用：{msg}。请到「智能体」页确认该编码存在后重试。"),
             ) from e
         if "Recursion limit" in msg or "GraphRecursionError" in msg:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    "本轮巡检工具步数已达上限，未能写完工作汇报。"
-                    "请缩短巡检范围，或在员工设置中提高 max_turns / timeout 后重试。"
-                ),
+                detail=("本轮巡检工具步数已达上限，未能写完工作汇报。请缩短巡检范围，或在员工设置中提高 max_turns / timeout 后重试。"),
             ) from e
         raise
     if result.get("busy"):
         raise HTTPException(
             status_code=409,
-            detail=result.get("error")
-            or "该员工正在执行任务，请稍候或打开工作轨迹查看进度",
+            detail=result.get("error") or "该员工正在执行任务，请稍候或打开工作轨迹查看进度",
         )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
@@ -996,11 +993,7 @@ async def debug_push_test_approval(
         id=ProactiveRepository.new_initiative_id(),
         role_agent_code=code,
         title="【验证】飞书审批卡片一键操作",
-        description=(
-            "这是一条用于验证飞书审批卡片的测试事项。"
-            "请在飞书里点「同意」或「拒绝」，或点「在面板查看」打开待审批页。"
-            "验证完可随意拒绝，不会影响真实业务。"
-        ),
+        description=("这是一条用于验证飞书审批卡片的测试事项。请在飞书里点「同意」或「拒绝」，或点「在面板查看」打开待审批页。验证完可随意拒绝，不会影响真实业务。"),
         action_type=InitiativeActionType.ANALYSIS,
         risk_level=InitiativeRiskLevel.MEDIUM,
         status=InitiativeStatus.PROPOSED,
@@ -1143,7 +1136,7 @@ async def archive_role(request: Request, agent_code: str) -> dict[str, Any]:
 @router.post("/roles/archive-legacy")
 async def archive_legacy_seed_roles(
     request: Request,
-    ) -> dict[str, Any]:
+) -> dict[str, Any]:
     """O5.2: archive known demo seed roles so they leave the active roster."""
     require_org_admin(request)
     archived: list[str] = []
@@ -1219,8 +1212,8 @@ async def approve_role_proposal(request: Request, agent_code: str, proposal_id: 
     role = ProactiveRepository.get_role(agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
-    from evoflow.person_kernel import approve_evolution_proposal
     from evoflow.persistence.person_metabolism_repositories import get_evolution_proposal
+    from evoflow.person_kernel import approve_evolution_proposal
 
     prop = get_evolution_proposal(proposal_id)
     if not prop or str(prop.get("agent_code") or "").lower() != role.agent_code.lower():
@@ -1237,8 +1230,8 @@ async def reject_role_proposal(request: Request, agent_code: str, proposal_id: s
     role = ProactiveRepository.get_role(agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
-    from evoflow.person_kernel import reject_evolution_proposal
     from evoflow.persistence.person_metabolism_repositories import get_evolution_proposal
+    from evoflow.person_kernel import reject_evolution_proposal
 
     prop = get_evolution_proposal(proposal_id)
     if not prop or str(prop.get("agent_code") or "").lower() != role.agent_code.lower():
@@ -1318,10 +1311,7 @@ async def dispatch_task(request: Request, agent_code: str, req: DispatchTaskRequ
             if not materialize_builtin_agent_if_missing(code):
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"底层智能体「{code}」不存在。"
-                        "请先到「智能体」页创建同编码智能体，或删除该员工后雇佣其他智能体。"
-                    ),
+                    detail=(f"底层智能体「{code}」不存在。请先到「智能体」页创建同编码智能体，或删除该员工后雇佣其他智能体。"),
                 ) from None
             load_agent_config(code)
     except HTTPException:
@@ -1330,10 +1320,7 @@ async def dispatch_task(request: Request, agent_code: str, req: DispatchTaskRequ
         logger.warning("proactive.dispatch agent preflight failed code=%s: %s", code, e)
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"底层智能体「{code}」配置不可用（{e}）。"
-                "请到「智能体」页确认该编码存在、配置完整后重试。"
-            ),
+            detail=(f"底层智能体「{code}」配置不可用（{e}）。请到「智能体」页确认该编码存在、配置完整后重试。"),
         ) from e
 
     runner = _get_proactive_runner()
@@ -1359,25 +1346,18 @@ async def dispatch_task(request: Request, agent_code: str, req: DispatchTaskRequ
         if "Agent config not found" in msg or "FileNotFoundError" in msg:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"底层智能体「{code}」配置不可用：{msg}。"
-                    "请到「智能体」页确认该编码存在后重试。"
-                ),
+                detail=(f"底层智能体「{code}」配置不可用：{msg}。请到「智能体」页确认该编码存在后重试。"),
             ) from e
         if "Recursion limit" in msg or "GraphRecursionError" in msg:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    "本轮派发任务工具步数已达上限，未能写完工作汇报。"
-                    "请缩短任务范围，或在员工设置中提高 max_turns / timeout 后重试。"
-                ),
+                detail=("本轮派发任务工具步数已达上限，未能写完工作汇报。请缩短任务范围，或在员工设置中提高 max_turns / timeout 后重试。"),
             ) from e
         raise
     if result.get("busy"):
         raise HTTPException(
             status_code=409,
-            detail=result.get("error")
-            or "该员工正在执行任务，请稍候或打开工作轨迹查看进度",
+            detail=result.get("error") or "该员工正在执行任务，请稍候或打开工作轨迹查看进度",
         )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
@@ -1409,11 +1389,8 @@ async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
             from evoflow.proactive.chat_session import list_employee_conversation_sessions
 
             convs = list_employee_conversation_sessions(agent_code, limit=20)
-            running = [
-                c
-                for c in convs
-                if str(c.get("run_status") or "").strip().lower() in {"running", "pending"}
-            ]
+            running = [c for c in convs if str(c.get("run_status") or "").strip().lower() in {"running", "pending"}]
+
             # Prefer task/duty over legacy when reporting the live conversation.
             def _rank(c: dict[str, Any]) -> tuple[int, str]:
                 kind = str(c.get("kind") or "").strip().lower()
@@ -1445,6 +1422,7 @@ async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
         "current_session_key": current_session_key,
         "watch_path": f"/proactive/{agent_code}?live=1",
     }
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Initiative endpoints
@@ -1558,11 +1536,7 @@ async def get_role_work_board(
     # Chat-only round meta for grouping / trail links (not initiative journals).
     rounds = _synthesize_round_journals_from_chat(code, limit=min(limit, 40))
 
-    pending_approvals = [
-        _approval_to_dict(a, enrich=True)
-        for a in ProactiveRepository.list_pending_approvals()
-        if a.role_agent_code == code
-    ]
+    pending_approvals = [_approval_to_dict(a, enrich=True) for a in ProactiveRepository.list_pending_approvals() if a.role_agent_code == code]
 
     return {
         "agent_code": code,
@@ -1643,9 +1617,7 @@ def _log_create_task_result(fut: asyncio.Future) -> None:
         logger.error("Unexpected error in background task callback: %s", e)
 
 
-async def _safe_execute_approved_work_item(
-    tid: str, role_agent_code: str
-) -> str:
+async def _safe_execute_approved_work_item(tid: str, role_agent_code: str) -> str:
     """Execute an approved work-item with status tracking and error handling.
 
     Sets the task to ``executing``, runs the engine, and on failure marks
@@ -1660,7 +1632,9 @@ async def _safe_execute_approved_work_item(
         result = await engine.execute_work_item(tid)
         logger.info(
             "Approved work item %s completed (role=%s): %s",
-            tid, role_agent_code, result,
+            tid,
+            role_agent_code,
+            result,
         )
         return result
     except asyncio.CancelledError:
@@ -1670,18 +1644,20 @@ async def _safe_execute_approved_work_item(
     except Exception as exc:
         logger.error(
             "Execution of approved work item %s failed (role=%s): %s",
-            tid, role_agent_code, exc, exc_info=exc,
+            tid,
+            role_agent_code,
+            exc,
+            exc_info=exc,
         )
         set_work_item_status(
-            tid, "failed",
+            tid,
+            "failed",
             result=f"执行失败: {exc!s}"[:500],
         )
         return f"error: {exc}"
 
 
-async def _safe_execute_approved_initiative(
-    engine: Any, initiative: Any
-) -> str:
+async def _safe_execute_approved_initiative(engine: Any, initiative: Any) -> str:
     """Execute an approved initiative with error handling.
 
     On failure, sets the initiative status to ``failed``.
@@ -1693,7 +1669,8 @@ async def _safe_execute_approved_initiative(
         result = await engine.execute_initiative(initiative)
         logger.info(
             "Approved initiative %s completed (role=%s)",
-            initiative.id, initiative.role_agent_code,
+            initiative.id,
+            initiative.role_agent_code,
         )
         return result
     except asyncio.CancelledError:
@@ -1707,7 +1684,10 @@ async def _safe_execute_approved_initiative(
     except Exception as exc:
         logger.error(
             "Execution of approved initiative %s failed (role=%s): %s",
-            initiative.id, initiative.role_agent_code, exc, exc_info=exc,
+            initiative.id,
+            initiative.role_agent_code,
+            exc,
+            exc_info=exc,
         )
         try:
             initiative.status = InitiativeStatus.FAILED
@@ -1733,11 +1713,7 @@ async def process_approval(
 
     _code = ""
     try:
-        _ap = (
-            ProactiveRepository.get_approval(item_id)
-            or ProactiveRepository.get_approval_by_initiative(item_id)
-            or ProactiveRepository.get_approval_by_task(item_id)
-        )
+        _ap = ProactiveRepository.get_approval(item_id) or ProactiveRepository.get_approval_by_initiative(item_id) or ProactiveRepository.get_approval_by_task(item_id)
         if _ap:
             _code = str(getattr(_ap, "role_agent_code", None) or "").strip()
         if not _code:
@@ -1791,12 +1767,7 @@ async def process_approval(
             if not role:
                 role = ProactiveRepository.get_role(
                     next(
-                        (
-                            r.agent_code
-                            for r in ProactiveRepository.list_roles()
-                            if str(r.role_name or "").strip().lower()
-                            == str(task.get("assigned_role") or "").strip().lower()
-                        ),
+                        (r.agent_code for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == str(task.get("assigned_role") or "").strip().lower()),
                         "",
                     )
                 )
@@ -1807,9 +1778,7 @@ async def process_approval(
         # Snapshot before decision: handoff parents are already done and only
         # need downstream dispatch (handled inside process_decision).
         pre_status = str(task.get("status") or "").strip().lower()
-        is_handoff_gate = pre_status in {"completed", "reviewed", "awaiting_close"} or bool(
-            task.get("handlers_pending_approval")
-        )
+        is_handoff_gate = pre_status in {"completed", "reviewed", "awaiting_close"} or bool(task.get("handlers_pending_approval"))
 
         updated = await gate.process_decision(
             approval.id,
@@ -1825,9 +1794,7 @@ async def process_approval(
             if not role_agent_code:
                 # Fallback: derive from the task's assigned_to role.
                 try:
-                    role = ProactiveRepository.get_role(
-                        str(task.get("assigned_to") or "").strip()
-                    )
+                    role = ProactiveRepository.get_role(str(task.get("assigned_to") or "").strip())
                     if role:
                         role_agent_code = role.agent_code
                 except Exception:
@@ -1840,12 +1807,12 @@ async def process_approval(
                     tid,
                 )
                 from evoflow.proactive.work_items import set_work_item_status
+
                 set_work_item_status(tid, "pending", result="角色忙，暂缓执行")
             else:
                 import asyncio
-                safe_task = asyncio.create_task(
-                    _safe_execute_approved_work_item(tid, role_agent_code or "")
-                )
+
+                safe_task = asyncio.create_task(_safe_execute_approved_work_item(tid, role_agent_code or ""))
                 safe_task.add_done_callback(_log_create_task_result)
 
         if req.decision != "approved":
@@ -1923,9 +1890,8 @@ async def process_approval(
             ProactiveRepository.save_initiative(updated_init)
             # Execute in background (non-blocking)
             import asyncio
-            task = asyncio.create_task(
-                _safe_execute_approved_initiative(engine, updated_init)
-            )
+
+            task = asyncio.create_task(_safe_execute_approved_initiative(engine, updated_init))
             task.add_done_callback(_log_create_task_result)
 
     return {
@@ -1985,9 +1951,7 @@ async def feishu_approval_callback(body: dict = Body(...)) -> dict[str, Any]:
 
     initiative_id = str(value.get("initiative_id") or "").strip()
     decision = str(value.get("decision") or value.get("action") or "").strip()
-    rejection_reason = str(
-        value.get("rejection_reason") or value.get("comment") or body.get("rejection_reason") or ""
-    ).strip()
+    rejection_reason = str(value.get("rejection_reason") or value.get("comment") or body.get("rejection_reason") or "").strip()
 
     if not initiative_id or not decision:
         raise HTTPException(
@@ -2052,9 +2016,7 @@ async def list_role_conversations(
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     kinds = [k.strip() for k in str(kind or "").split(",") if k.strip()] or None
-    rows = list_employee_conversation_sessions(
-        agent_code, limit=limit, kinds=kinds
-    )
+    rows = list_employee_conversation_sessions(agent_code, limit=limit, kinds=kinds)
     return {
         "agent_code": agent_code,
         "role_name": role.role_name,
@@ -2172,9 +2134,7 @@ async def get_role_cost(request: Request, agent_code: str, days: int = Query(7, 
         "today_tokens": today_tokens,
         "daily_budget_usd": role.config.daily_budget_usd,
         "budget_remaining_usd": round(
-            max(0, role.config.daily_budget_usd - today_cost)
-            if role.config.daily_budget_usd > 0
-            else -1,
+            max(0, role.config.daily_budget_usd - today_cost) if role.config.daily_budget_usd > 0 else -1,
             6,
         ),
         **summary,
@@ -2212,11 +2172,8 @@ async def get_dashboard(request: Request) -> dict[str, Any]:
             st = init.status.value
             status_counts[st] = status_counts.get(st, 0) + 1
             if init.status.value == "completed":
-                outcome = (init.outcome or "")
-                if any(
-                    kw in outcome
-                    for kw in ("无事", "无变化", "无新", "一致", "无异常", "健康")
-                ):
+                outcome = init.outcome or ""
+                if any(kw in outcome for kw in ("无事", "无变化", "无新", "一致", "无异常", "健康")):
                     no_op_count += 1
 
         completed = status_counts.get("completed", 0)
@@ -2283,31 +2240,33 @@ async def get_dashboard(request: Request) -> dict[str, Any]:
                 }
             )
 
-        role_summaries.append({
-            "agent_code": code,
-            "role_name": role.role_name,
-            "status": role.status,
-            "today_cost_usd": round(today_cost, 6),
-            "today_tokens": today_tokens,
-            "cost_7d_total_usd": cost_7d.get("total_cost_usd", 0),
-            "cost_7d_total_tokens": cost_7d.get("total_tokens", 0),
-            "cost_7d_days": cost_7d.get("days", []),
-            "daily_budget_usd": role.config.daily_budget_usd,
-            "initiative_status_counts": status_counts,
-            "no_op_pct": no_op_pct,
-            "zombie_executing_count": zombie_count,
-            "consecutive_noop_count": consecutive_noop,
-            "idle_suspected": idle_suspected,
-            "budget_warn": budget_warn,
-            "approval_stats": {
-                "total": appr_total,
-                "approved": appr_approved,
-                "rejected": appr_rejected,
-                "timeout": appr_timeout,
-                "approval_rate": round(100 * appr_approved / appr_total, 1) if appr_total else 0.0,
-                "timeout_rate": timeout_rate,
-            },
-        })
+        role_summaries.append(
+            {
+                "agent_code": code,
+                "role_name": role.role_name,
+                "status": role.status,
+                "today_cost_usd": round(today_cost, 6),
+                "today_tokens": today_tokens,
+                "cost_7d_total_usd": cost_7d.get("total_cost_usd", 0),
+                "cost_7d_total_tokens": cost_7d.get("total_tokens", 0),
+                "cost_7d_days": cost_7d.get("days", []),
+                "daily_budget_usd": role.config.daily_budget_usd,
+                "initiative_status_counts": status_counts,
+                "no_op_pct": no_op_pct,
+                "zombie_executing_count": zombie_count,
+                "consecutive_noop_count": consecutive_noop,
+                "idle_suspected": idle_suspected,
+                "budget_warn": budget_warn,
+                "approval_stats": {
+                    "total": appr_total,
+                    "approved": appr_approved,
+                    "rejected": appr_rejected,
+                    "timeout": appr_timeout,
+                    "approval_rate": round(100 * appr_approved / appr_total, 1) if appr_total else 0.0,
+                    "timeout_rate": timeout_rate,
+                },
+            }
+        )
 
     # Global aggregates
     total_today_cost = sum(r["today_cost_usd"] for r in role_summaries)
@@ -2496,11 +2455,7 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
     # 禁止用 agent_name 或英文 agent_code 冒充岗位名。
     code = str(role.agent_code or "").strip()
     display_name = str(role.role_name or "").strip()
-    if (
-        not display_name
-        or display_name.casefold() in {"none", "null", "undefined"}
-        or (code and display_name == code)
-    ):
+    if not display_name or display_name.casefold() in {"none", "null", "undefined"} or (code and display_name == code):
         display_name = ""
     return {
         "agent_code": role.agent_code,
@@ -2533,9 +2488,7 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             "approval_timeout_by_type": role.config.approval_timeout_by_type,
             "daily_budget_usd": role.config.daily_budget_usd,
             "per_run_budget_usd": float(getattr(role.config, "per_run_budget_usd", 0) or 0),
-            "budget_exceed_policy": str(
-                getattr(role.config, "budget_exceed_policy", None) or "skip_patrol"
-            ),
+            "budget_exceed_policy": str(getattr(role.config, "budget_exceed_policy", None) or "skip_patrol"),
             "auto_patrol_suspended": bool(getattr(role.config, "auto_patrol_suspended", False)),
             "reports_to": str(getattr(role.config, "reports_to", "") or "").strip(),
             "feishu_binding": _feishu_binding_for_role(role),
@@ -2724,9 +2677,7 @@ def _approval_to_dict(appr, *, enrich: bool = False) -> dict[str, Any]:
         out["initiative_title"] = init.title
         out["initiative_description"] = (init.description or "")[:400]
         out["risk_level"] = risk.value if hasattr(risk, "value") else str(risk or "")
-        out["action_type"] = (
-            init.action_type.value if hasattr(init.action_type, "value") else str(init.action_type or "")
-        )
+        out["action_type"] = init.action_type.value if hasattr(init.action_type, "value") else str(init.action_type or "")
         out["approval_timeout_minutes"] = int(init.approval_timeout_minutes or 30)
         out["goal"] = init.goal or ""
     else:

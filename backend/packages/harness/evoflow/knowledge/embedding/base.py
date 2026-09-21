@@ -72,6 +72,7 @@ def openai_compat_embeddings_url(base_url: str, *, multimodal: bool = False) -> 
         return f"{base}{suffix}"
     return f"{base}/v1{suffix}"
 
+
 # Local (sentence-transformers) defaults — used when vendor == "local"
 DEFAULT_LOCAL_MODEL = "BAAI/bge-small-zh-v1.5"
 DEFAULT_LOCAL_DIM = 512
@@ -86,6 +87,7 @@ _LRU_MAX_ENTRIES = 512
 # Errors
 # ---------------------------------------------------------------------------
 
+
 class EmbeddingError(RuntimeError):
     """Raised on embedding errors (network, auth, rate-limit, bad response,
     local backend missing, dimension mismatch, ...)."""
@@ -98,6 +100,7 @@ class EmbeddingDimensionError(EmbeddingError):
 # ---------------------------------------------------------------------------
 # LRU cache
 # ---------------------------------------------------------------------------
+
 
 class EmbeddingLRUCache:
     """OrderedDict-based LRU cache for embedding vectors.
@@ -149,6 +152,7 @@ def _cache_key(text: str, model: str, *, is_query: bool = False) -> str:
 # ---------------------------------------------------------------------------
 # Provider ABC
 # ---------------------------------------------------------------------------
+
 
 class EmbeddingProvider(ABC):
     """Abstract base for embedding backends.

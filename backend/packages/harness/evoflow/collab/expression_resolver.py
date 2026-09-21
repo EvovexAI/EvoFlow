@@ -428,14 +428,14 @@ def detect_unresolved_bindings(resolved: dict[str, Any]) -> list[str]:
 # These enable trace data and production dispatch gates to distinguish
 # *why* a binding failed, not just that it did.
 BindingErrorCode = Literal[
-    "UNKNOWN_PARAM",           # {{params.foo}} but foo is not a declared parameter
-    "UNKNOWN_STEP",            # {{steps.5.output.x}} but step ref "5" doesn't exist
-    "UNKNOWN_OUTPUT_FIELD",    # {{steps.1.output.companies}} but "companies" not in output
+    "UNKNOWN_PARAM",  # {{params.foo}} but foo is not a declared parameter
+    "UNKNOWN_STEP",  # {{steps.5.output.x}} but step ref "5" doesn't exist
+    "UNKNOWN_OUTPUT_FIELD",  # {{steps.1.output.companies}} but "companies" not in output
     "UPSTREAM_NOT_COMPLETED",  # {{steps.2.output.x}} but step 2 hasn't completed yet
-    "UPSTREAM_SCHEMA_INVALID", # upstream completed but schema_valid=False
-    "UNRESOLVED_BINDING",      # Generic: expression left as {{...}} for unknown reason
-    "INVALID_EXPRESSION",      # Malformed expression (e.g. empty, unparseable)
-    "TYPE_MISMATCH",           # Resolved value type doesn't match input_schema declaration
+    "UPSTREAM_SCHEMA_INVALID",  # upstream completed but schema_valid=False
+    "UNRESOLVED_BINDING",  # Generic: expression left as {{...}} for unknown reason
+    "INVALID_EXPRESSION",  # Malformed expression (e.g. empty, unparseable)
+    "TYPE_MISMATCH",  # Resolved value type doesn't match input_schema declaration
 ]
 
 

@@ -31,7 +31,7 @@ Body text here.
     split = split_skill_frontmatter(content)
     assert split is not None
     frontmatter, body = split
-    assert "description: \"--- some comment ---\"" in frontmatter
+    assert 'description: "--- some comment ---"' in frontmatter
     assert body.strip() == "Body text here."
 
 

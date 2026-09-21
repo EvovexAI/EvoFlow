@@ -17,11 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
 
-from evoflow.a2a.agent_card import get_agent_card, list_agent_cards
-from evoflow.authz.http_guard import require_agent_visible, resolve_authz_from_request
-from evoflow.persistence import config_repositories as cfg_repo
 from evoflow.a2a.adapter import (
     cancel_task,
     get_task,
@@ -29,7 +25,10 @@ from evoflow.a2a.adapter import (
     poll_new_messages,
     send_task,
 )
+from evoflow.a2a.agent_card import get_agent_card, list_agent_cards
 from evoflow.a2a.models import JSONRPCRequest
+from evoflow.authz.http_guard import require_agent_visible, resolve_authz_from_request
+from evoflow.persistence import config_repositories as cfg_repo
 from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
@@ -44,9 +43,7 @@ def _rpc_result(req_id: str | int | None, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "result": result, "id": req_id}
 
 
-def _rpc_error(
-    req_id: str | int | None, code: int, message: str
-) -> dict[str, Any]:
+def _rpc_error(req_id: str | int | None, code: int, message: str) -> dict[str, Any]:
     return {
         "jsonrpc": "2.0",
         "error": {"code": code, "message": message},
@@ -55,6 +52,7 @@ def _rpc_error(
 
 
 # ── Agent Card discovery ────────────────────────────────────
+
 
 def _filter_agent_cards(request: Request, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     authz = resolve_authz_from_request(request)
@@ -74,7 +72,6 @@ def _filter_agent_cards(request: Request, cards: list[dict[str, Any]]) -> list[d
         ):
             out.append(card)
     return out
-
 
 
 @router.get("/.well-known/agent.json")
@@ -125,11 +122,7 @@ async def a2a_jsonrpc(request: Request, agent_code: str, req: JSONRPCRequest) ->
         task_id = req.params.get("taskId", "")
         return _rpc_result(
             req.id,
-            {
-                "subscribeUrl": (
-                    f"/api/a2a/{agent_code}/tasks/{task_id}/stream"
-                )
-            },
+            {"subscribeUrl": (f"/api/a2a/{agent_code}/tasks/{task_id}/stream")},
         )
     else:
         return _rpc_error(req.id, -32601, f"method not found: {req.method}")
@@ -181,9 +174,7 @@ async def _handle_tasks_send(agent_code: str, req: JSONRPCRequest) -> dict[str, 
                             "parts": [
                                 {
                                     "type": "text",
-                                    "text": result.get(
-                                        "error", "agent is busy, try later"
-                                    ),
+                                    "text": result.get("error", "agent is busy, try later"),
                                 }
                             ],
                         },
@@ -205,9 +196,7 @@ async def _handle_tasks_get(agent_code: str, req: JSONRPCRequest) -> dict[str, A
     return _rpc_result(req.id, result)
 
 
-async def _handle_tasks_cancel(
-    agent_code: str, req: JSONRPCRequest
-) -> dict[str, Any]:
+async def _handle_tasks_cancel(agent_code: str, req: JSONRPCRequest) -> dict[str, Any]:
     """A2A tasks/cancel -> cancel task."""
     task_id = req.params.get("taskId", "")
     if not task_id:

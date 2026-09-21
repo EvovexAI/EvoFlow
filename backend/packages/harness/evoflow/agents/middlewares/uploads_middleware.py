@@ -4,9 +4,9 @@ import logging
 from pathlib import Path
 
 try:
-    from typing import Any, NotRequired, override
+    from typing import NotRequired, override
 except ImportError:
-    from typing import Any, NotRequired, override
+    from typing import NotRequired, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware

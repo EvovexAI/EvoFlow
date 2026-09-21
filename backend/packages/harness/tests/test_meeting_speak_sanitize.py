@@ -12,11 +12,7 @@ from evoflow.proactive.work_items import format_meeting_task_memory_for_prompt
 
 
 def test_meeting_speak_user_error_rate_limit_is_friendly():
-    exc = Exception(
-        "Error code: 429 - {'error': {'code': 'SetLimitExceeded', "
-        "'message': 'Your account [2130697331] has reached the set inference "
-        "limit for the [deepseek-v4-flash] model'}}"
-    )
+    exc = Exception("Error code: 429 - {'error': {'code': 'SetLimitExceeded', 'message': 'Your account [2130697331] has reached the set inference limit for the [deepseek-v4-flash] model'}}")
     msg = _meeting_speak_user_error(exc)
     assert "限流" in msg
     assert "SetLimitExceeded" not in msg
@@ -34,10 +30,7 @@ def test_llm_meeting_speak_retries_on_set_limit(monkeypatch):
     async def fake_ainvoke(model, messages):
         calls["n"] += 1
         if calls["n"] < 3:
-            raise Exception(
-                "Error code: 429 - {'error': {'code': 'SetLimitExceeded', "
-                "'message': 'inference limit'}}"
-            )
+            raise Exception("Error code: 429 - {'error': {'code': 'SetLimitExceeded', 'message': 'inference limit'}}")
         return _Resp()
 
     monkeypatch.setattr(
@@ -64,11 +57,7 @@ def test_llm_meeting_speak_retries_on_set_limit(monkeypatch):
 
 
 def test_sanitize_strips_feishu_duty_summary():
-    raw = (
-        "[feishu·值班交班摘要]\n"
-        "员工工作摘要\n"
-        "本周登录页已联调完成，缺验证码服务。"
-    )
+    raw = "[feishu·值班交班摘要]\n员工工作摘要\n本周登录页已联调完成，缺验证码服务。"
     out = sanitize_meeting_reply(raw)
     assert "feishu" not in out.lower()
     assert "交班" not in out
@@ -76,11 +65,7 @@ def test_sanitize_strips_feishu_duty_summary():
 
 
 def test_sanitize_strips_work_report_summary_marker():
-    raw = (
-        "[feishu·工作汇报]\n"
-        "工作汇报摘要\n"
-        "本周登录页已联调完成，缺验证码服务。"
-    )
+    raw = "[feishu·工作汇报]\n工作汇报摘要\n本周登录页已联调完成，缺验证码服务。"
     out = sanitize_meeting_reply(raw)
     assert "feishu" not in out.lower()
     assert "工作汇报摘要" not in out
@@ -133,6 +118,7 @@ def test_build_meeting_speak_goal_proposal_no_duty_sync():
     assert "值班" in g  # banned
     assert "会上已有发言" in g
     assert "【PM】先收范围" in g
+
 
 def test_format_meeting_task_memory_includes_completed_and_status_hint():
     text = format_meeting_task_memory_for_prompt(

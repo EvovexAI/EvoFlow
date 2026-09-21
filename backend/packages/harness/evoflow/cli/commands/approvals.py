@@ -14,11 +14,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="岗位工作项审批（员工 request / 用户 approve|reject）",
         description=(
             "智能体员工提审：\n"
-            "  evoflow approvals request Task_xxx --note \"请批准方案后再拆下游\"\n"
+            '  evoflow approvals request Task_xxx --note "请批准方案后再拆下游"\n'
             "用户处理：\n"
             "  evoflow approvals list\n"
             "  evoflow approvals approve Task_xxx\n"
-            "  evoflow approvals reject Task_xxx --reason \"需补充验收标准\"\n"
+            '  evoflow approvals reject Task_xxx --reason "需补充验收标准"\n'
             "同意后执行走 Gateway（需 Gateway 在跑）。"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

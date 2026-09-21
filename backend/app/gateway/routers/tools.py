@@ -23,7 +23,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -40,9 +41,7 @@ try:  # pragma: no cover - import shim, exercised at runtime
 except ImportError:  # pragma: no cover
     import sys
 
-    _HARNESS_ROOT = os.path.join(
-        os.path.dirname(__file__), "..", "..", "..", "packages", "harness"
-    )
+    _HARNESS_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..", "packages", "harness")
     _HARNESS_ROOT = os.path.abspath(_HARNESS_ROOT)
     if _HARNESS_ROOT not in sys.path:
         sys.path.insert(0, _HARNESS_ROOT)
@@ -54,9 +53,7 @@ except ImportError:  # pragma: no cover
     import importlib.util
 
     _AUTH_PATH = os.path.join(_HARNESS_ROOT, "app", "gateway", "auth.py")
-    _spec = importlib.util.spec_from_file_location(
-        "harness_app_gateway_auth", _AUTH_PATH
-    )
+    _spec = importlib.util.spec_from_file_location("harness_app_gateway_auth", _AUTH_PATH)
     _auth_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
     assert _spec and _spec.loader
     sys.modules["harness_app_gateway_auth"] = _auth_mod
@@ -142,7 +139,7 @@ def _status_for_result(result: dict[str, Any]) -> int:
 
 @router.get("/tools", summary="List Remote-surface capabilities")
 async def list_tools(
-    profile: Optional[str] = Query(
+    profile: str | None = Query(
         default=None,
         description="Catalog profile: ``agent`` (curated do-work subset) or ``full`` (default).",
     ),
@@ -206,9 +203,7 @@ async def call_tool(
     if name not in visible:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "error": f"Tool '{name}' is outside the configured Remote REST capability scope"
-            },
+            detail={"error": f"Tool '{name}' is outside the configured Remote REST capability scope"},
         )
 
     ctx = _caller_ctx(token_data)
@@ -259,13 +254,9 @@ async def _stream_events(
         """Execute the (synchronous) streaming dispatch in a worker thread."""
         try:
             if name not in visible:
-                final: Any = {
-                    "error": f"Tool '{name}' is outside the configured Remote REST capability scope"
-                }
+                final: Any = {"error": f"Tool '{name}' is outside the configured Remote REST capability scope"}
             else:
-                final = await run_in_threadpool(
-                    _registry().dispatch_stream, name, args, ctx, _sink
-                )
+                final = await run_in_threadpool(_registry().dispatch_stream, name, args, ctx, _sink)
                 if final is None:
                     final = {"error": f"Unknown tool: {name}"}
         except Exception as e:  # pragma: no cover - defensive
@@ -307,7 +298,7 @@ _DONE: Any = object()
 async def stream_tool(
     name: str,
     request: Request,
-    profile: Optional[str] = Query(default=None),
+    profile: str | None = Query(default=None),
     token_data: dict[str, Any] = Depends(verify_capability_bearer_token),
 ) -> EventSourceResponse:
     """Server-Sent Events stream of a capability call.
@@ -336,7 +327,7 @@ async def stream_tool(
 
 @router.get("/openapi.json", summary="OpenAPI 3.1 spec for the Remote capability API")
 async def openapi_spec(
-    profile: Optional[str] = Query(default=None),
+    profile: str | None = Query(default=None),
     token_data: dict[str, Any] = Depends(verify_capability_bearer_token),
 ) -> dict[str, Any]:
     """Generate an OpenAPI 3.1 document from the registry.
@@ -368,9 +359,7 @@ async def openapi_spec(
                             },
                         },
                     },
-                    "409": {
-                        "description": "needs confirmation (re-call with confirm=true)"
-                    },
+                    "409": {"description": "needs confirmation (re-call with confirm=true)"},
                     "422": {"description": "tool returned an error"},
                 },
                 "security": [{"bearerAuth": []}],
@@ -382,10 +371,7 @@ async def openapi_spec(
         "info": {
             "title": "EvoFlow Remote Capability API",
             "version": "v1",
-            "description": (
-                "External access to EvoFlow platform capabilities. All "
-                "operations require Authorization: Bearer <access token>."
-            ),
+            "description": ("External access to EvoFlow platform capabilities. All operations require Authorization: Bearer <access token>."),
         },
         "paths": paths,
         "components": {

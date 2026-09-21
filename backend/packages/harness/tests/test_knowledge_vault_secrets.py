@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from evoflow.knowledge.vault.constants import SECRET_ENC_PREFIX
 from evoflow.knowledge.vault import secrets as vault_secrets
+from evoflow.knowledge.vault.constants import SECRET_ENC_PREFIX
 
 TEST_SECRET_SHOULD_NEVER_APPEAR = "TEST_SECRET_SHOULD_NEVER_APPEAR"
 
@@ -55,7 +55,7 @@ def test_plaintext_migration_on_get(tmp_path, monkeypatch):
 
 
 def test_sanitize_redacts_sentinel_in_errors():
-    from evoflow.knowledge.vault.sanitize import sanitize_text, sanitize_obj
+    from evoflow.knowledge.vault.sanitize import sanitize_obj, sanitize_text
 
     msg = f"connect failed OBSIDIAN_API_KEY={TEST_SECRET_SHOULD_NEVER_APPEAR} detail"
     cleaned = sanitize_text(msg)

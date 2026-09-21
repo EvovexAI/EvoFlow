@@ -22,7 +22,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from evoflow.models.credential_loader import runtimeCliCredential, load_codex_cli_credential
+from evoflow.models.credential_loader import load_codex_cli_credential, runtimeCliCredential
 from evoflow.models.request_payload_logger import log_model_request_payload
 
 logger = logging.getLogger(__name__)

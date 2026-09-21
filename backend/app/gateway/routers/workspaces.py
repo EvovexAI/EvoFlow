@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from evoflow.authz.http_guard import require_workspace_root_access, require_workspace_path_visible
+from evoflow.authz.http_guard import require_workspace_path_visible, require_workspace_root_access
 from evoflow.authz.resource_visibility import stamp_kwargs_from_request
 from evoflow.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 from evoflow.persistence import workspace_repositories as ws_repo
@@ -428,18 +428,14 @@ def _resolve_workspace_file_target(
     # Otherwise ``/dev/proj/x`` is treated as POSIX-abs and never restored to ``D:/dev/proj/x``.
     if root:
         root_resolved = str(Path(root).expanduser().resolve())
-        healed = _heal_stripped_windows_absolute(norm, root_resolved) or _heal_stripped_posix_absolute(
-            norm, root_resolved
-        )
+        healed = _heal_stripped_windows_absolute(norm, root_resolved) or _heal_stripped_posix_absolute(norm, root_resolved)
         if healed and healed.replace("\\", "/") != norm.replace("\\", "/"):
             return _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=healed)
     elif thread_id:
         host_root = resolve_host_workspace_root_for_files(thread_id=thread_id)
         if host_root:
             host_resolved = str(Path(host_root).expanduser().resolve())
-            healed = _heal_stripped_windows_absolute(
-                norm, host_resolved
-            ) or _heal_stripped_posix_absolute(norm, host_resolved)
+            healed = _heal_stripped_windows_absolute(norm, host_resolved) or _heal_stripped_posix_absolute(norm, host_resolved)
             if healed and healed.replace("\\", "/") != norm.replace("\\", "/"):
                 return _resolve_workspace_file_target(root=host_root, thread_id=None, rel=healed)
 
@@ -566,9 +562,7 @@ def _read_workspace_file_impl(
         out_path = str(target).replace("\\", "/")
         if root and not _is_host_absolute(rel):
             try:
-                out_path = str(target.resolve().relative_to(Path(root).expanduser().resolve())).replace(
-                    "\\", "/"
-                )
+                out_path = str(target.resolve().relative_to(Path(root).expanduser().resolve())).replace("\\", "/")
             except ValueError:
                 pass
     try:
@@ -684,9 +678,7 @@ async def read_workspace_file(
 
 
 @router.post("/read-file", response_model=WorkspaceReadResponse)
-async def read_workspace_file_post(
-    request: Request, body: WorkspaceReadFileRequest
-) -> WorkspaceReadResponse:
+async def read_workspace_file_post(request: Request, body: WorkspaceReadFileRequest) -> WorkspaceReadResponse:
     """Read workspace file (POST avoids URL encoding issues with paths)."""
     require_workspace_root_access(request, root=body.root, thread_id=body.thread_id)
     return _read_workspace_file_impl(
@@ -697,9 +689,7 @@ async def read_workspace_file_post(
 
 
 @router.post("/delete-file", response_model=WorkspaceDeleteFileResponse)
-async def delete_workspace_file(
-    request: Request, body: WorkspaceDeleteFileRequest
-) -> WorkspaceDeleteFileResponse:
+async def delete_workspace_file(request: Request, body: WorkspaceDeleteFileRequest) -> WorkspaceDeleteFileResponse:
     """Delete one file under the workspace (EvoPanel context menu)."""
     require_workspace_root_access(request, root=body.root, thread_id=body.thread_id)
     rel = _normalize_rel_path(body.path)
@@ -737,9 +727,7 @@ async def delete_workspace_file(
 
 
 @router.post("/write-file", response_model=WorkspaceWriteFileResponse)
-async def write_workspace_file(
-    request: Request, body: WorkspaceWriteFileRequest
-) -> WorkspaceWriteFileResponse:
+async def write_workspace_file(request: Request, body: WorkspaceWriteFileRequest) -> WorkspaceWriteFileResponse:
     """Write/create a file under the workspace (EvoPanel create file)."""
     require_workspace_root_access(request, root=body.root, thread_id=body.thread_id)
     rel = _normalize_rel_path(body.path)
@@ -775,9 +763,7 @@ async def write_workspace_file(
 
 
 @router.post("/mkdir", response_model=WorkspaceMkdirResponse)
-async def create_workspace_dir(
-    request: Request, body: WorkspaceMkdirRequest
-) -> WorkspaceMkdirResponse:
+async def create_workspace_dir(request: Request, body: WorkspaceMkdirRequest) -> WorkspaceMkdirResponse:
     """Create a directory under the workspace (EvoPanel create folder)."""
     require_workspace_root_access(request, root=body.root, thread_id=body.thread_id)
     rel = _normalize_rel_path(body.path)
@@ -1080,9 +1066,7 @@ async def get_user_workspace_history(request: Request) -> UserWorkspaceHistoryRe
 
 
 @router.put("/user-history", response_model=UserWorkspaceHistoryResponse)
-async def put_user_workspace_history(
-    request: Request, body: UserWorkspaceHistoryPutBody
-) -> UserWorkspaceHistoryResponse:
+async def put_user_workspace_history(request: Request, body: UserWorkspaceHistoryPutBody) -> UserWorkspaceHistoryResponse:
     stamp = _stamp_from_request(request)
     for p in body.paths or []:
         ps = str(p or "").strip()
@@ -1093,9 +1077,7 @@ async def put_user_workspace_history(
 
 
 @router.post("/user-history/remove", response_model=UserWorkspaceHistoryResponse)
-async def remove_user_workspace_path(
-    request: Request, body: RemoveWorkspacePathBody
-) -> UserWorkspaceHistoryResponse:
+async def remove_user_workspace_path(request: Request, body: RemoveWorkspacePathBody) -> UserWorkspaceHistoryResponse:
     path = str(body.path or "").strip()
     if path:
         require_workspace_path_visible(request, path)
@@ -1104,9 +1086,7 @@ async def remove_user_workspace_path(
 
 
 @router.post("/resolve", response_model=ResolveWorkspaceResponse)
-async def resolve_workspace(
-    request: Request, req: ResolveWorkspaceRequest
-) -> ResolveWorkspaceResponse:
+async def resolve_workspace(request: Request, req: ResolveWorkspaceRequest) -> ResolveWorkspaceResponse:
     """
     Resolve and validate a local workspace path (frontend-selected directory).
 

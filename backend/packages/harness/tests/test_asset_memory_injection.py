@@ -40,7 +40,7 @@ def test_asset_tier0_read_path_without_catalog(assets_home: Path) -> None:
     facts = assets_home / "assets" / "user" / "memory" / "facts"
     facts.mkdir(parents=True, exist_ok=True)
     (facts / "goal-done.md").write_text(
-        "---\naccess_tier: archival\nevidence: {\"source\": \"goal_complete\"}\n---\n\n# Goal done\n",
+        '---\naccess_tier: archival\nevidence: {"source": "goal_complete"}\n---\n\n# Goal done\n',
         encoding="utf-8",
     )
 

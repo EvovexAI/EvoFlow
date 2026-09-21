@@ -39,9 +39,7 @@ def test_heal_stripped_windows_absolute(tmp_path: Path) -> None:
     # Force colon-kept form: :/…
     colon_form = ":" + rel if rel.startswith("/") else f":/{rel}"
     healed = _heal_stripped_windows_absolute(colon_form, root_s)
-    assert healed == sample.as_posix().replace("\\", "/") or healed == str(sample.resolve()).replace(
-        "\\", "/"
-    )
+    assert healed == sample.as_posix().replace("\\", "/") or healed == str(sample.resolve()).replace("\\", "/")
 
     slash_form = rel if rel.startswith("/") else f"/{rel}"
     healed2 = _heal_stripped_windows_absolute(slash_form, root_s)
@@ -73,14 +71,8 @@ def test_normalize_keeps_windows_drive() -> None:
 
 def test_strip_embedded_workspace_root_prefix() -> None:
     root = r"D:\dev\github\EvoFlow\outputs\smart-employee-test\workspace\qa-engineer"
-    key = (
-        "outputs/smart-employee-test/workspace/qa-engineer/"
-        "docs/roles/qa-engineer/20260808-17/test_report.md"
-    )
-    assert (
-        _strip_embedded_workspace_root_prefix(key, root)
-        == "docs/roles/qa-engineer/20260808-17/test_report.md"
-    )
+    key = "outputs/smart-employee-test/workspace/qa-engineer/docs/roles/qa-engineer/20260808-17/test_report.md"
+    assert _strip_embedded_workspace_root_prefix(key, root) == "docs/roles/qa-engineer/20260808-17/test_report.md"
 
 
 def test_resolve_strips_embedded_root_before_join(tmp_path: Path) -> None:

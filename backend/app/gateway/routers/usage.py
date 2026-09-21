@@ -34,9 +34,7 @@ def _usage_scope(request: Request) -> dict[str, Any]:
 
         p = resolve_request_principal(request)
         uid = str((p or {}).get("principal_id") or "").strip() or None
-        is_admin = bool((p or {}).get("principal_id") and __import__(
-            "evoflow.authz.admin_grants", fromlist=["is_org_admin"]
-        ).is_org_admin(uid) if uid else False)
+        is_admin = bool((p or {}).get("principal_id") and __import__("evoflow.authz.admin_grants", fromlist=["is_org_admin"]).is_org_admin(uid) if uid else False)
     except Exception:
         uid = None
         is_admin = False

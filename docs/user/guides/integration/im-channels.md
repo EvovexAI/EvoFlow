@@ -6,10 +6,10 @@
 > 2. 在 EvoFlow「设置→IM 通信」里填上这些凭证
 > 3. 搞定——现在你在飞书群里 @机器人 就能用 EvoFlow 了
 >
-> 支持飞书、钉钉、Telegram、Slack、Discord。所有渠道使用出站连接（WebSocket 或轮询），不需要公网 IP。
+> 支持飞书、钉钉、Telegram、Slack、Discord、企业微信。所有渠道使用出站连接（WebSocket 或轮询），不需要公网 IP。
 
 ## 适用场景
-将 EvoFlow 接入即时通讯平台（飞书、钉钉、Telegram、Slack、Discord），让用户通过 IM 与 Agent 对话。
+将 EvoFlow 接入即时通讯平台（飞书、钉钉、Telegram、Slack、Discord、企业微信），让用户通过 IM 与 Agent 对话。
 
 ## 前置条件
 - EvoFlow 已运行
@@ -25,6 +25,7 @@
 | Telegram | Bot API 轮询 | `bot_token` |
 | Slack | Socket Mode | `bot_token`, `app_token` |
 | Discord | Gateway | 相应凭证 |
+| 企业微信 (WeCom) | AI Bot WebSocket | `bot_id`, `secret` |
 
 所有渠道使用出站连接（WebSocket 或轮询），无需公网 IP。
 
@@ -82,6 +83,68 @@ channels:
     app_token: $SLACK_APP_TOKEN     # xapp-... (Socket Mode)
     allowed_users: []               # 空 = 允许所有用户
 ```
+
+## 钉钉 (DingTalk) 配置
+
+```yaml
+channels:
+  dingtalk:
+    enabled: true
+    client_id: $DINGTALK_CLIENT_ID        # 钉钉应用 Client ID（AppKey）
+    client_secret: $DINGTALK_CLIENT_SECRET  # 钉钉应用 Client Secret（AppSecret）
+```
+
+**获取 Client ID / Secret**（两种方式任选）：
+1. **EvoPanel 扫码**：IM Channels → 钉钉 →「📱 钉钉扫码」，用钉钉 App 扫描二维码完成授权，自动回填 Client ID 与 Client Secret（推荐）。
+2. **手动创建**：前往 [钉钉开放平台](https://open-dev.dingtalk.com/) → 创建企业内部机器人应用 → 复制 **Client ID**（AppKey）与 **Client Secret**（AppSecret）填入上方配置。
+
+**连接方式**：钉钉使用 **Stream Mode 长连接**（官方 `dingtalk-stream` SDK），出站 WebSocket，无需公网 IP 或回调地址。
+
+**群/私聊策略**（可选）：
+```yaml
+channels:
+  dingtalk:
+    enabled: true
+    client_id: $DINGTALK_CLIENT_ID
+    client_secret: $DINGTALK_CLIENT_SECRET
+    require_mention: true        # 群聊需 @机器人（默认 false）
+    allowed_users: []            # 空 = 允许所有用户；["staff_id"] 或 "*"
+    free_response_chats: []      # 免 @ 直接回复的群
+    allowed_chats: []            # 硬白名单（空 = 不限制）
+```
+
+> 钉钉回复走入站消息携带的 `session_webhook`，仅支持 **markdown 文本**；文件/图片需先通过其他方式上传。
+
+## 企业微信 (WeCom) 配置
+
+```yaml
+channels:
+  wecom:
+    enabled: true
+    bot_id: $WECOM_BOT_ID        # 企微 AI Bot ID（或 WECOM_BOT_ID 环境变量）
+    secret: $WECOM_SECRET        # 企微 AI Bot Secret（或 WECOM_SECRET 环境变量）
+```
+
+**获取 Bot ID / Secret**（两种方式任选）：
+1. **EvoPanel 扫码**：IM Channels → 企业微信 →「📱 企微扫码」，用企微 App 扫描二维码自动创建 AI 机器人并写入凭证（推荐）。
+2. **手动创建**：企微工作台 → 应用 → 智能机器人 → 创建智能机器人 → 选择 **API 模式**，复制 Bot ID 与 Secret 填入上方配置。
+
+**连接方式**：企业微信 AI Bot 使用 **WebSocket 长连接**（出站），无需公网 IP 或 webhook 回调端点。
+
+**群/私聊策略**（可选）：
+```yaml
+channels:
+  wecom:
+    enabled: true
+    bot_id: $WECOM_BOT_ID
+    secret: $WECOM_SECRET
+    dm_policy: pairing        # open | allowlist | disabled | pairing（默认 pairing）
+    allow_from: ["user_id_1"] # dm_policy=allowlist 时生效
+    group_policy: pairing     # open | allowlist | disabled | pairing（默认 pairing）
+    group_allow_from: ["group_id_1"]
+```
+
+> 默认 `pairing` 策略：陌生人私聊机器人会收到配对码，需在控制台批准后才可对话；群聊默认需要先在群内 @机器人 建立配对。
 
 ## Telegram 配置
 

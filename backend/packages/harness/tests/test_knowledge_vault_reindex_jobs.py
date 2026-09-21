@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from evoflow.knowledge.vault.reindex_jobs import ReindexJob, _PROGRESS_RE, _apply_progress_line
+from evoflow.knowledge.vault.reindex_jobs import _PROGRESS_RE, ReindexJob, _apply_progress_line
 
 
 def test_progress_regex():

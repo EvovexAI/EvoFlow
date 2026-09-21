@@ -71,9 +71,7 @@ def test_doc_wikilinks_and_tags(owned_home: Path, monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(pipeline_mod, "get_embeddings", _fake_embeddings)
 
-    base = owned_service.create_base(
-        {"name": "链接库", "summaryEnabled": False, "chunkStrategy": "auto"}
-    )
+    base = owned_service.create_base({"name": "链接库", "summaryEnabled": False, "chunkStrategy": "auto"})
     kb = base["id"]
     a = owned_service.upload_manual_markdown(
         kb,
@@ -105,9 +103,7 @@ def test_doc_wikilinks_and_tags(owned_home: Path, monkeypatch: pytest.MonkeyPatc
     assert len(graph["nodes"]) >= 2
     assert graph["edges"]
 
-    items = asyncio.run(
-        owned_service.search(kb, "See", mode="keyword", top_k=8, tags=["core"])
-    )
+    items = asyncio.run(owned_service.search(kb, "See", mode="keyword", top_k=8, tags=["core"]))
     assert items["items"]
     assert all("core" in (h.get("tags") or []) for h in items["items"])
 

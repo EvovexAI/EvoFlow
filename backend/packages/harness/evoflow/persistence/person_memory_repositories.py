@@ -6,7 +6,7 @@ import json
 import uuid
 from typing import Any
 
-from evoflow.persistence.db import get_db, run_db_transaction
+from evoflow.persistence.db import run_db_transaction
 from evoflow.timeutil import utc_now_iso_z
 
 _VALID_LAYERS = frozenset({"journal", "episodic", "semantic_self", "procedural"})
@@ -14,11 +14,7 @@ _VALID_STATUS = frozenset({"", "proposed", "corrected", "graduated", "retired"})
 _VALID_KINDS = frozenset({"", "howto", "negative", "check"})
 _VALID_TIERS = frozenset({"core", "archival"})
 
-_SELECT_COLS = (
-    "id, agent_code, layer, content, importance, vitality, "
-    "round_id, source, created_at, status, kind, title, evidence_json, "
-    "hit_count, updated_at, skill_name, access_tier, embedding_json"
-)
+_SELECT_COLS = "id, agent_code, layer, content, importance, vitality, round_id, source, created_at, status, kind, title, evidence_json, hit_count, updated_at, skill_name, access_tier, embedding_json"
 
 
 def _row_dict(row: Any) -> dict[str, Any]:
@@ -93,9 +89,7 @@ def insert_person_memory(
         kind_s = "howto"
     tier = str(access_tier or "").strip().lower()
     if tier not in _VALID_TIERS:
-        if layer_s == "procedural" and (
-            kind_s == "negative" or status_s == "graduated" or float(importance) >= 0.75
-        ):
+        if layer_s == "procedural" and (kind_s == "negative" or status_s == "graduated" or float(importance) >= 0.75):
             tier = "core"
         elif layer_s == "semantic_self" and float(importance) >= 0.7:
             tier = "core"

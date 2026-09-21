@@ -39,9 +39,7 @@ def test_write_sanitize_emits_content_delta_not_body_args():
     ]
     for ch in chunks:
         meta = norm.block_ledger.before_tools()
-        norm._append_write_tool_wire(
-            out, ch, ev_type="tool_call_chunk", source="test", chunk_meta=ch, meta=meta
-        )
+        norm._append_write_tool_wire(out, ch, ev_type="tool_call_chunk", source="test", chunk_meta=ch, meta=meta)
 
     progress = [p for p in out if p.get("type") == "write_file_progress"]
     assert progress, "expected write_file_progress events"
@@ -134,11 +132,7 @@ def test_empty_tool_calls_list_does_not_fragment_post_tool_reply():
 
     segs = norm.block_ledger.export_display_segments()
     body = [s for s in segs if s.get("block_kind") == "body_text" or s.get("kind") == "text"]
-    empty_tools = [
-        s
-        for s in segs
-        if (s.get("block_kind") == "tools" or s.get("kind") == "tools") and not (s.get("ids") or [])
-    ]
+    empty_tools = [s for s in segs if (s.get("block_kind") == "tools" or s.get("kind") == "tools") and not (s.get("ids") or [])]
     assert len(body) == 1, f"expected one continuous body_text, got {len(body)}: {body}"
     joined = "".join(str(s.get("text") or "") for s in body)
     assert joined == "".join(pieces)

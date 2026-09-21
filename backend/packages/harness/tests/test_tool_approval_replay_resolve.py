@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 from langchain_core.messages import HumanMessage, ToolMessage
 
-from evoflow.agents.middlewares.tool_approval_middleware import ToolApprovalReplayMiddleware
 from evoflow.agents.middlewares.session_transcript_hydration_middleware import (
     _extract_tool_approval_replay_messages,
 )
+from evoflow.agents.middlewares.tool_approval_middleware import ToolApprovalReplayMiddleware
 from evoflow.agents.tool_approval_service import (
     append_pending,
     apply_user_approval,

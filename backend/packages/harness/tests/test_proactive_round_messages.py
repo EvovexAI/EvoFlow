@@ -64,11 +64,7 @@ def test_prepare_hides_duty_brief_from_display(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("EVOFLOW_DB_PATH", str(tmp_path / "proactive-hide-brief.db"))
     reset_db_for_tests()
 
-    brief = (
-        "# 值班 · 「运维」\n\n"
-        "## 本岗看板 Task（可执行；``tasks(action=progress|state)`` 用这里的 id）\n\n"
-        "- `t1` [pending] 0% · 例行巡检\n"
-    )
+    brief = "# 值班 · 「运维」\n\n## 本岗看板 Task（可执行；``tasks(action=progress|state)`` 用这里的 id）\n\n- `t1` [pending] 0% · 例行巡检\n"
     sk = prepare_proactive_chat_session(
         agent_code="ops-bot",
         role_name="运维",
@@ -90,9 +86,7 @@ def test_prepare_hides_duty_brief_from_display(tmp_path, monkeypatch) -> None:
     assert "本轮值班开始 · 运维" in joined
     assert "例行巡检" in joined
 
-    debug = msg_repo.list_messages_for_display_all(
-        sk, max_rows=50, round_id="round:hide", include_hidden=True
-    )
+    debug = msg_repo.list_messages_for_display_all(sk, max_rows=50, round_id="round:hide", include_hidden=True)
     assert len(debug["messages"]) >= 2
     assert any("tasks(action=" in str(m.get("content_json") or "") for m in debug["messages"])
 
@@ -211,9 +205,7 @@ def test_model_hydration_ignores_round_id_includes_full_tail(tmp_path, monkeypat
         message_id="u-chat",
     )
 
-    hydrated = list_lead_chat_rows_for_model_hydration(
-        sk, limit=20, round_id="chat:2026-08-15T12:00:00Z"
-    )
+    hydrated = list_lead_chat_rows_for_model_hydration(sk, limit=20, round_id="chat:2026-08-15T12:00:00Z")
     texts = [str(r.get("content_json") or r.get("content") or "") for r in hydrated]
     joined = "\n".join(texts)
     assert "闲聊你好" in joined

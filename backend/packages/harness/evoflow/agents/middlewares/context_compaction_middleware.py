@@ -22,6 +22,7 @@ from langchain.agents.middleware.types import ModelCallResult, ModelRequest
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.runtime import Runtime
 
+from evoflow.agents.compaction_trigger import get_compaction_trigger_cache
 from evoflow.agents.context_compaction_core import (
     compaction_token_snapshot,
     dedupe_compaction_artifacts,
@@ -37,7 +38,6 @@ from evoflow.agents.context_compaction_core import (
     strip_image_base64_from_messages,
     transcript_has_conversation_summary,
 )
-from evoflow.agents.compaction_trigger import get_compaction_trigger_cache
 from evoflow.agents.context_compaction_events import (
     emit_compaction_end,
     emit_compaction_start,
@@ -203,6 +203,7 @@ def _model_name_from_runtime(runtime: Runtime | None) -> str | None:
             _tid = get_config().get("configurable", {}).get("thread_id")
         if _tid:
             from evoflow.persistence.session_repositories import get_model_name_for_thread
+
             _name = get_model_name_for_thread(str(_tid).strip())
             if _name:
                 return str(_name).strip() or None
@@ -676,8 +677,7 @@ def _emit_post_model_context_usage(result: ModelCallResult, request: ModelReques
         logger.debug("[post-model-ctx] context_length=0, skipping")
         return
     logger.info(
-        "[post-model-ctx] re-emitting context_usage used_tokens=%d "
-        "(runtime total/active, note=after_model, session=%s, input=%d output=%d)",
+        "[post-model-ctx] re-emitting context_usage used_tokens=%d (runtime total/active, note=after_model, session=%s, input=%d output=%d)",
         api_active,
         (session_key or "")[:24],
         real_input_tokens,
@@ -813,8 +813,7 @@ def _prefer_db_hydrated_if_stale_checkpoint(
         return messages, False
 
     logger.info(
-        "[context-compaction] stale checkpoint → DB hydrate session=%s thread=%s %d→%d msgs "
-        "(reason=db_has_summary_checkpoint_lacks_it)",
+        "[context-compaction] stale checkpoint → DB hydrate session=%s thread=%s %d→%d msgs (reason=db_has_summary_checkpoint_lacks_it)",
         sk[:32],
         str(thread_id or "")[:16],
         len(messages),
@@ -1057,8 +1056,7 @@ async def build_ephemeral_model_messages(
             # force a fold to avoid sending the full uncompressed history to the model.
             if gate.get("token_over_threshold"):
                 logger.warning(
-                    "[context-compaction] refold failed during cooldown; "
-                    "force fold to prevent %d msgs from hitting model unfolded",
+                    "[context-compaction] refold failed during cooldown; force fold to prevent %d msgs from hitting model unfolded",
                     len(working),
                 )
                 compressed, changed, passes = await _compress_with_followup_async(
@@ -1250,8 +1248,7 @@ def build_ephemeral_model_messages_sync(
                 "sync_compaction_timeout",
                 level=logging.WARNING,
                 timeout_s=_SYNC_COMPACTION_TIMEOUT_S,
-                note="compress pool future timed out; main turn proceeds without fold "
-                "(pool thread may still hold a worker until LLM returns)",
+                note="compress pool future timed out; main turn proceeds without fold (pool thread may still hold a worker until LLM returns)",
             )
         except Exception:
             pass
@@ -1310,8 +1307,8 @@ def _record_fold_outcome(
 ) -> None:
     """Record fold metrics only; summary rows are written via ``set_previous_summary`` → chat_messages."""
     ctx_len = int(plan_kw["context_length"]) if plan_kw else resolve_model_context_length(_model_name_from_runtime(runtime))
-    before_snap = compaction_token_snapshot(original, context_length=ctx_len)
-    after_snap = compaction_token_snapshot(folded, context_length=ctx_len)
+    _before_snap = compaction_token_snapshot(original, context_length=ctx_len)
+    _after_snap = compaction_token_snapshot(folded, context_length=ctx_len)
     before_n = len(original)
     after_n = len(folded)
     if after_n != before_n:
@@ -1348,11 +1345,7 @@ def _fill_empty_tool_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
                 is_empty = True
             elif isinstance(content, str) and not content.strip():
                 is_empty = True
-            elif isinstance(content, list) and not any(
-                (isinstance(b, str) and b.strip())
-                or (isinstance(b, dict) and str(b.get("text") or "").strip())
-                for b in content
-            ):
+            elif isinstance(content, list) and not any((isinstance(b, str) and b.strip()) or (isinstance(b, dict) and str(b.get("text") or "").strip()) for b in content):
                 is_empty = True
             if is_empty:
                 msg = ToolMessage(

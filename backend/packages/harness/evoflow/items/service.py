@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from evoflow.admin.errors import NotFoundError, ValidationError
+from evoflow.items import store as item_store
 from evoflow.items.models import (
     ITEM_PRIORITIES,
     ITEM_STATUSES,
@@ -16,7 +17,6 @@ from evoflow.items.models import (
     ItemStatus,
     UserItem,
 )
-from evoflow.items import store as item_store
 from evoflow.timeutil import beijing_now_iso
 
 logger = logging.getLogger(__name__)
@@ -571,11 +571,7 @@ def _interpret_wake_result(dispatch_result: dict[str, Any] | None) -> tuple[bool
         return False, False, False, ""
     interrupted = bool(dispatch_result.get("interrupted"))
     if dispatch_result.get("queued_behind_busy"):
-        return False, True, False, str(
-            dispatch_result.get("message")
-            or dispatch_result.get("hint")
-            or "员工忙碌，已排队待续跑"
-        )
+        return False, True, False, str(dispatch_result.get("message") or dispatch_result.get("hint") or "员工忙碌，已排队待续跑")
     if dispatch_result.get("busy") and dispatch_result.get("ok") is False:
         return False, False, False, str(dispatch_result.get("error") or "员工忙碌")
     if dispatch_result.get("ok") is False:
@@ -682,9 +678,7 @@ async def _finish_dispatch_with_optional_wake(
                 "interrupted": False,
                 "dispatch_error": str(exc),
                 "code": "WAKE_FAILED",
-                "hint": (
-                    f"事项已关联任务，但立刻叫醒失败；员工下次值班仍可领取。"
-                ),
+                "hint": ("事项已关联任务，但立刻叫醒失败；员工下次值班仍可领取。"),
             }
     hint_parts: list[str] = []
     if already:
@@ -697,11 +691,7 @@ async def _finish_dispatch_with_optional_wake(
         hint_parts.append(wake_hint or "员工忙碌，已排队待当前轮结束后续跑。")
     elif wake_now and wake_hint:
         hint_parts.append(wake_hint)
-    code_out = "QUEUED_BEHIND_BUSY" if queued else (
-        "INTERRUPTED_AND_WOKEN" if interrupted and woke else (
-            "ALREADY_DISPATCHED" if already else ("WOKEN" if woke else "TASK_READY")
-        )
-    )
+    code_out = "QUEUED_BEHIND_BUSY" if queued else ("INTERRUPTED_AND_WOKEN" if interrupted and woke else ("ALREADY_DISPATCHED" if already else ("WOKEN" if woke else "TASK_READY")))
     return {
         "ok": True,
         "item": get_item(item_id)["item"],
@@ -826,11 +816,7 @@ def migrate_inbox_tasks(
     """把任务中心里 status=inbox 的随手待办迁成用户事项（幂等，按 source_ref）。"""
     from evoflow.collab.storage import get_project_storage
 
-    existing_refs = {
-        str(r.get("source_ref") or "")
-        for r in item_store.list_raw_items()
-        if isinstance(r, dict) and str(r.get("source") or "") == "migrated_inbox"
-    }
+    existing_refs = {str(r.get("source_ref") or "") for r in item_store.list_raw_items() if isinstance(r, dict) and str(r.get("source") or "") == "migrated_inbox"}
     storage = get_project_storage()
     migrated: list[dict[str, Any]] = []
     skipped = 0

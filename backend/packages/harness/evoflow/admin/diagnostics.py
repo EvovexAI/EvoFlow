@@ -10,12 +10,14 @@ from __future__ import annotations
 import os
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 # ── known sources (SSOT for agents / CLI / panel alignment) ─────────────────
+
 
 @dataclass(frozen=True)
 class LogSource:
@@ -85,9 +87,7 @@ _ANOMALY_RE = re.compile(
     r")"
 )
 
-_TS_RE = re.compile(
-    r"(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)"
-)
+_TS_RE = re.compile(r"(?P<ts>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)")
 
 _DATE_FILE_RE = re.compile(r"^(?P<prefix>.+)-(?P<date>\d{4}-\d{2}-\d{2})\.log$")
 
@@ -422,9 +422,7 @@ def anomaly_timeline(
         if last and last != ts and count > 1:
             ts = f"{ts} ~ {last}"
         summary = str(ev.get("summary") or "").replace("|", "\\|")
-        lines.append(
-            f"| {ts} | {ev.get('source')} | {ev.get('level')} | {count} | {summary} |"
-        )
+        lines.append(f"| {ts} | {ev.get('source')} | {ev.get('level')} | {count} | {summary} |")
 
     if not events:
         lines.append("| — | — | — | — | 窗口内未匹配到异常行 |")
@@ -438,13 +436,9 @@ def anomaly_timeline(
         ]
     else:
         top = with_err[0]
-        conclusion = (
-            f"异常主要出现在 **{top}**"
-            + (f" 等 {len(with_err)} 个源" if len(with_err) > 1 else "")
-            + "。请优先把该源末尾日志与本时间线一起转发。"
-        )
+        conclusion = f"异常主要出现在 **{top}**" + (f" 等 {len(with_err)} 个源" if len(with_err) > 1 else "") + "。请优先把该源末尾日志与本时间线一起转发。"
         suggestions = [
-            f"优先查看 platform diagnostics.scan sources=[\"{top}\"] 或 evoflow logs scan --source {top}",
+            f'优先查看 platform diagnostics.scan sources=["{top}"] 或 evoflow logs scan --source {top}',
             "把本 markdown 时间线原样转发给协助排查的人",
             "敏感字段（API Key / token）转发前请打码",
         ]

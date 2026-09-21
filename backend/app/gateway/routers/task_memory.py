@@ -267,7 +267,7 @@ async def add_task_fact(http_request: Request, task_id: str, body: AddFactReques
                     fact = {
                         "id": f"fact_{utc_now_iso_z()}",
                         "content": body.content,
-                        "category": request.category,
+                        "category": body.category,
                         "confidence": body.confidence,
                         "source_message": body.source_message,
                     }

@@ -147,9 +147,7 @@ class _CollabWsSession:
                 await asyncio.sleep(0.2)
                 continue
 
-            waiter_tasks = [
-                asyncio.create_task(q.get(), name=f"collab_ws_qget_{cid}") for cid, q in queues
-            ]
+            waiter_tasks = [asyncio.create_task(q.get(), name=f"collab_ws_qget_{cid}") for cid, q in queues]
             waiters = {task: cid for task, (cid, _) in zip(waiter_tasks, queues, strict=True)}
             try:
                 done, pending = await asyncio.wait(

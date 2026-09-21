@@ -61,9 +61,7 @@ def test_log_compaction_trace_writes_file(tmp_path: Path, monkeypatch: pytest.Mo
     assert "---" in text
 
 
-def test_log_compaction_trace_not_in_console_by_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_log_compaction_trace_not_in_console_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     log_file = tmp_path / "context-compaction.log"
     monkeypatch.setenv("EVOFLOW_COMPACTION_TRACE_LOG_FILE", str(log_file))
     monkeypatch.delenv("EVOFLOW_COMPACTION_TRACE_CONSOLE", raising=False)

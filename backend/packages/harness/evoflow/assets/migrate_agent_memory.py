@@ -81,9 +81,7 @@ def migrate_agent_memory_to_user(*, dry_run: bool = True) -> dict[str, Any]:
                     if dst.exists():
                         report.conflicts_renamed += 1
                     report.files_moved += 1
-                    report.details.append(
-                        f"would copy agents/{code}/{subtree}/{rel.as_posix()} → user/{subtree}/{rel.as_posix()}"
-                    )
+                    report.details.append(f"would copy agents/{code}/{subtree}/{rel.as_posix()} → user/{subtree}/{rel.as_posix()}")
                     continue
                 _relocate_file(src, dst, conflict_prefix=code, report=report)
 

@@ -108,10 +108,5 @@ mode={mode}
     if read_registry.strip():
         suffix += f"\n\n## read_registry（本会话已读路径 + 短 note，非全文）\n{read_registry.strip()}\n"
     if write_registry.strip():
-        suffix += (
-            "\n\n## write_registry（本会话已修改的文件）\n"
-            f"{write_registry.strip()}\n"
-            "若 active_subproblems 中有子问题对应这些文件的修改，且对话中已确认修改完成，"
-            "请将该子问题 status 标为 done 并移入 done_subproblems。\n"
-        )
+        suffix += f"\n\n## write_registry（本会话已修改的文件）\n{write_registry.strip()}\n若 active_subproblems 中有子问题对应这些文件的修改，且对话中已确认修改完成，请将该子问题 status 标为 done 并移入 done_subproblems。\n"
     return base + suffix if suffix else base

@@ -52,9 +52,7 @@ def test_runtime_hint():
 
 
 def test_implement_alias():
-    assert format_implement_action_hint("t-x", task_type="implement", read_count=2) == format_action_hint(
-        "t-x", task_type="implement", read_count=2
-    )
+    assert format_implement_action_hint("t-x", task_type="implement", read_count=2) == format_action_hint("t-x", task_type="implement", read_count=2)
 
 
 def test_read_thresholds():

@@ -47,12 +47,8 @@ def test_sync_connection_without_models(sqlite_tmp: Path) -> None:
 
 def test_sync_omit_api_key_preserves_existing(sqlite_tmp: Path) -> None:
     del sqlite_tmp
-    conn_repo.sync_model_connections(
-        [{"key": "openai", "base_url": "https://api.openai.com/v1", "api_key": "sk-keep-me"}]
-    )
-    rows = conn_repo.sync_model_connections(
-        [{"key": "openai", "base_url": "https://api.openai.com/v1", "api_type": "openai-completions"}]
-    )
+    conn_repo.sync_model_connections([{"key": "openai", "base_url": "https://api.openai.com/v1", "api_key": "sk-keep-me"}])
+    rows = conn_repo.sync_model_connections([{"key": "openai", "base_url": "https://api.openai.com/v1", "api_type": "openai-completions"}])
     assert rows["openai"]["api_key"] == "sk-keep-me"
 
 
@@ -64,9 +60,7 @@ def test_sync_deletes_orphan_connections(sqlite_tmp: Path) -> None:
             {"key": "b", "base_url": "https://b.example/v1", "api_key": ""},
         ]
     )
-    rows = conn_repo.sync_model_connections(
-        [{"key": "a", "base_url": "https://a.example/v1", "api_key": ""}]
-    )
+    rows = conn_repo.sync_model_connections([{"key": "a", "base_url": "https://a.example/v1", "api_key": ""}])
     assert set(rows.keys()) == {"a"}
 
 
@@ -159,9 +153,7 @@ def test_delete_connection_removes_its_models(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     _upsert_conn_model("qwen-a", "aliyun", "qwen-max", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     _upsert_conn_model("qwen-b", "aliyun", "qwen-plus", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-    conn_repo.sync_model_connections(
-        [{"key": "aliyun", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "sk"}]
-    )
+    conn_repo.sync_model_connections([{"key": "aliyun", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "sk"}])
 
     deleted = conn_repo.delete_model_connection("aliyun")
 
@@ -205,9 +197,7 @@ def test_sync_drops_orphan_connection_and_its_models(sqlite_tmp: Path) -> None:
         ]
     )
 
-    rows = conn_repo.sync_model_connections(
-        [{"key": "a", "base_url": "https://a.example/v1", "api_key": ""}]
-    )
+    rows = conn_repo.sync_model_connections([{"key": "a", "base_url": "https://a.example/v1", "api_key": ""}])
 
     assert set(rows.keys()) == {"a"}
     from evoflow.persistence.config_repositories import get_model

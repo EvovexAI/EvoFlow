@@ -292,11 +292,7 @@ def test_attach_stream_anchors_without_post_user_input():
             "content": "EvoFlow 是…",
         },
     )
-    delta_texts = [
-        _decode_evf_payload(f).get("text", "")
-        for f in frames
-        if _decode_evf_payload(f).get("type") == "delta"
-    ]
+    delta_texts = [_decode_evf_payload(f).get("text", "") for f in frames if _decode_evf_payload(f).get("type") == "delta"]
     assert delta_texts == ["EvoFlow 是…"]
 
 
@@ -337,16 +333,8 @@ def test_preanchor_replay_stripped_with_prior_turn_isolation():
             ]
         },
     )
-    delta_texts = [
-        _decode_evf_payload(f).get("text", "")
-        for f in frames
-        if _decode_evf_payload(f).get("type") == "delta"
-    ]
-    reasoning = [
-        _decode_evf_payload(f).get("preview", "")
-        for f in frames
-        if _decode_evf_payload(f).get("type") == "reasoning"
-    ]
+    delta_texts = [_decode_evf_payload(f).get("text", "") for f in frames if _decode_evf_payload(f).get("type") == "delta"]
+    reasoning = [_decode_evf_payload(f).get("preview", "") for f in frames if _decode_evf_payload(f).get("type") == "reasoning"]
     assert not any(prior_body in t for t in delta_texts)
     assert any("哈哈" in t for t in delta_texts)
 
@@ -360,10 +348,6 @@ def test_preanchor_replay_stripped_with_prior_turn_isolation():
             "additional_kwargs": {"reasoning_content": f"{prior_reason}The user just said haha"},
         },
     )
-    reasoning = [
-        _decode_evf_payload(f).get("preview", "")
-        for f in frames2
-        if _decode_evf_payload(f).get("type") == "reasoning"
-    ]
+    reasoning = [_decode_evf_payload(f).get("preview", "") for f in frames2 if _decode_evf_payload(f).get("type") == "reasoning"]
     assert not any(prior_reason in r for r in reasoning)
     assert any("haha" in r.lower() for r in reasoning)

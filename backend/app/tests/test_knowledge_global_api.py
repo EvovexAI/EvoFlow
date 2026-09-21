@@ -27,6 +27,7 @@ def client():
 # POST /api/knowledge/search — global semantic search
 # ---------------------------------------------------------------------------
 
+
 def test_global_search_empty(client):
     """When no KBs exist, search returns empty results."""
     with patch.object(
@@ -103,6 +104,7 @@ def test_global_search_exception(client):
 # ---------------------------------------------------------------------------
 # POST /api/knowledge/embed — text embedding
 # ---------------------------------------------------------------------------
+
 
 def test_embed_text_no_store(client):
     """Embed computes vector without storing."""

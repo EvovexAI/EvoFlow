@@ -41,12 +41,7 @@ _FREE_TEXT_RE = re.compile(
 
 def _looks_like_handler_object_blob(text: str) -> bool:
     s = text or ""
-    return bool(
-        re.search(r"[{}\[\]]", s)
-        or re.search(r"agent_code\s*:", s, re.I)
-        or '"agent_code"' in s
-        or re.search(r"(?:read_)?outputs\s*:", s, re.I)
-    )
+    return bool(re.search(r"[{}\[\]]", s) or re.search(r"agent_code\s*:", s, re.I) or '"agent_code"' in s or re.search(r"(?:read_)?outputs\s*:", s, re.I))
 
 
 def try_parse_handlers_json(text: str) -> Any | None:
@@ -108,27 +103,13 @@ def normalize_handler_entry(item: Any, *, index: int = 0) -> dict[str, Any] | No
     if not isinstance(item, dict):
         return None
 
-    code = str(
-        item.get("agent_code")
-        or item.get("assignee")
-        or item.get("handler")
-        or item.get("code")
-        or ""
-    ).strip()
+    code = str(item.get("agent_code") or item.get("assignee") or item.get("handler") or item.get("code") or "").strip()
     if not code:
         return None
 
-    content = str(
-        item.get("content")
-        or item.get("description")
-        or item.get("work")
-        or item.get("task")
-        or ""
-    ).strip()[:_CONTENT_MAX]
+    content = str(item.get("content") or item.get("description") or item.get("work") or item.get("task") or "").strip()[:_CONTENT_MAX]
 
-    role = str(
-        item.get("role") or item.get("assigned_role") or item.get("role_name") or ""
-    ).strip()[:_ROLE_MAX]
+    role = str(item.get("role") or item.get("assigned_role") or item.get("role_name") or "").strip()[:_ROLE_MAX]
 
     # agent_code is the routing key; role_name is display. Fill from roster when omitted.
     if not role:
@@ -212,8 +193,8 @@ def task_handlers_of(row: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not direct:
         return []
     from evoflow.collab.task_outputs import (
-        agent_code_for_task_row,
         absolutize_handlers_paths,
+        agent_code_for_task_row,
         workspace_root_for_task_row,
     )
 

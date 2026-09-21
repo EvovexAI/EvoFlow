@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from evoflow.persistence.schema import ensure_app_schema
-
 import gc
 import json
 import tempfile
@@ -447,7 +445,6 @@ def test_org_filter_same_workspace() -> None:
     assert codes == {"a", "b"}
 
 
-
 def test_employees_update_reports_to(sqlite_tmp: Path) -> None:
     del sqlite_tmp
     _ensure_agent("product-manager")
@@ -473,10 +470,14 @@ def test_employees_update_reports_to(sqlite_tmp: Path) -> None:
     role = ProactiveRepository.get_role("fe-dev")
     assert role is not None
     assert role.config.reports_to == "product-manager"
-    row = get_db().execute(
-        "SELECT reports_to FROM evoflow_proactive_roles WHERE agent_code = ?",
-        ("fe-dev",),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT reports_to FROM evoflow_proactive_roles WHERE agent_code = ?",
+            ("fe-dev",),
+        )
+        .fetchone()
+    )
     assert row[0] == "product-manager"
 
 

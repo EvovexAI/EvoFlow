@@ -35,10 +35,11 @@ def command_allow_prefix_bypass_ok(command: str) -> bool:
         return False
     return True
 
+
 _PATH_ARG_TOOLS = frozenset({"delete", "read", "write", "replace"})
 
 # ── Risk levels ──────────────────────────────────────────────
-RISK_AUTO = "auto"        # read-only tools — always auto-allowed
+RISK_AUTO = "auto"  # read-only tools — always auto-allowed
 RISK_SESSION = "session"  # file modifications — session-level grant
 RISK_CONFIRM = "confirm"  # irreversible / external — per-call confirmation
 
@@ -79,9 +80,7 @@ TOOL_RISK_LEVELS: dict[str, str] = {
 }
 
 # Tools that require approval (risk > auto); derived from TOOL_RISK_LEVELS
-_TOOLS_REQUIRING_APPROVAL = frozenset(
-    name for name, level in TOOL_RISK_LEVELS.items() if level != RISK_AUTO
-)
+_TOOLS_REQUIRING_APPROVAL = frozenset(name for name, level in TOOL_RISK_LEVELS.items() if level != RISK_AUTO)
 
 # ── Worker task action → risk level mapping ─────────────────
 # Worker risk is dynamic: determined by the most dangerous action in ``tasks``.
@@ -341,10 +340,7 @@ def canonical_args_for_approval(
     if name == "worker":
         tasks = raw.get("tasks")
         if isinstance(tasks, list):
-            actions = sorted(set(
-                str(t.get("action") or "").strip().lower()
-                for t in tasks if isinstance(t, dict)
-            ))
+            actions = sorted(set(str(t.get("action") or "").strip().lower() for t in tasks if isinstance(t, dict)))
             return {"actions": actions}
         return {"actions": []}
     return normalize_args_for_approval(tool_name, args, workspace_root=workspace_root)
@@ -380,10 +376,7 @@ def summarize_tool_for_approval(tool_name: str, args: dict[str, Any]) -> str:
     if name in ("write", "replace", "str_replace", "write_to_file", "replace_in_file", "write_file"):
         raw = str((args or {}).get("path") or (args or {}).get("file_path") or (args or {}).get("target_file") or "").strip()
         return normalize_path_for_approval(raw) if raw else "(无路径)"
-    if name in ("knowledge_write", "knowledge_ingest") or (
-        canonical_tool_name(name.lower()) == "knowledge"
-        and str((args or {}).get("action") or "").strip().lower() in ("write", "ingest")
-    ):
+    if name in ("knowledge_write", "knowledge_ingest") or (canonical_tool_name(name.lower()) == "knowledge" and str((args or {}).get("action") or "").strip().lower() in ("write", "ingest")):
         a = args or {}
         vault_id = str(a.get("vault_id") or a.get("vaultId") or "").strip()
         vault_name = vault_id or "?"
@@ -397,10 +390,7 @@ def summarize_tool_for_approval(tool_name: str, args: dict[str, Any]) -> str:
             pass
         path = str(a.get("path") or "").strip()
         action = str(a.get("action") or "").strip().lower()
-        op = str(
-            a.get("operation")
-            or ("ingest" if name == "knowledge_ingest" or action == "ingest" else "")
-        ).strip()
+        op = str(a.get("operation") or ("ingest" if name == "knowledge_ingest" or action == "ingest" else "")).strip()
         risk_key = {
             "create": "knowledge_write:create_in_inbox" if "inbox" in path.replace("\\", "/").split("/")[0].lower() else "knowledge_write:create",
             "append": "knowledge_write:append",

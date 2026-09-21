@@ -138,11 +138,7 @@ class ProjectStorage:
 
         ts_now = time.time() if now is None else now
         if self._cache_ttl_seconds > 0:
-            expired = [
-                pid
-                for pid, ts in self._project_cache_ts.items()
-                if (ts_now - float(ts or 0.0)) >= self._cache_ttl_seconds
-            ]
+            expired = [pid for pid, ts in self._project_cache_ts.items() if (ts_now - float(ts or 0.0)) >= self._cache_ttl_seconds]
             for pid in expired:
                 self._project_cache.pop(pid, None)
                 self._project_cache_ts.pop(pid, None)
@@ -807,9 +803,7 @@ def persist_subtask_runtime_snapshot(
             except Exception:
                 pass
 
-    should_sync_mem = task_memory_persistence_enabled() and (
-        sync_agent_memory or output_summary is not None or current_step is not None
-    )
+    should_sync_mem = task_memory_persistence_enabled() and (sync_agent_memory or output_summary is not None or current_step is not None)
     if not should_sync_mem:
         rollup_root_task_progress_from_subtasks(storage, main_task_id)
         return True
@@ -870,9 +864,7 @@ def reconcile_subtask_memory_consistency(
             mem = {}
         mem_status = str(mem.get("status") or "").strip()
         mem_progress = int(mem.get("progress") or 0) if str(mem.get("progress") or "").strip() else 0
-        need_fix = (st_status and st_status != mem_status) or (
-            st_progress is not None and int(st_progress or 0) != mem_progress
-        )
+        need_fix = (st_status and st_status != mem_status) or (st_progress is not None and int(st_progress or 0) != mem_progress)
         if not need_fix:
             continue
         ok = persist_subtask_runtime_snapshot(

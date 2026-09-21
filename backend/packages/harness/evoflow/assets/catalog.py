@@ -274,8 +274,5 @@ def format_entity_catalog_xml(
     cap = max(1, int(TIER0_CATALOG_MAX_ROWS))
     if len(rows) > cap:
         rows = rows[:cap]
-    lines = [
-        f'{_KIND_PREFIX.get(k, "x")} {p} {lbl}'.rstrip()
-        for k, p, lbl in rows
-    ]
+    lines = [f"{_KIND_PREFIX.get(k, 'x')} {p} {lbl}".rstrip() for k, p, lbl in rows]
     return f"<{tag}>\n" + "\n".join(lines) + f"\n</{tag}>"

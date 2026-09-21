@@ -73,7 +73,7 @@ def _obs_snapshot() -> dict[str, Any]:
 def _real_alerts(days: int, tool_rel: dict[str, Any], sec_summary: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     """从真实数据构建告警列表（低成功率工具 + 安全漏洞 + 评测告警）。"""
     alerts: list[dict[str, Any]] = []
-    for t in (tool_rel.get("degraded_tools") or []):
+    for t in tool_rel.get("degraded_tools") or []:
         alerts.append(
             {
                 "level": "warn",
@@ -81,8 +81,7 @@ def _real_alerts(days: int, tool_rel: dict[str, Any], sec_summary: dict[str, Any
                 "timestamp": _ts_str(0),
             }
         )
-    vulns = (sec_summary.get("vulnerabilities") or {}).get("vulnerabilities") \
-        if isinstance(sec_summary.get("vulnerabilities"), dict) else (sec_summary.get("vulnerabilities") or [])
+    vulns = (sec_summary.get("vulnerabilities") or {}).get("vulnerabilities") if isinstance(sec_summary.get("vulnerabilities"), dict) else (sec_summary.get("vulnerabilities") or [])
     for v in (vulns if isinstance(vulns, list) else [])[:3]:
         sev = str(v.get("severity") or "low")
         level = "error" if sev in ("critical", "high") else ("warn" if sev == "medium" else "info")
@@ -172,20 +171,9 @@ def get_dashboard_summary(days: int = 7) -> dict[str, Any]:
 
     if scenario_rate is not None:
         # Prefer scenario regression when available
-        health_score = _clamp(
-            scenario_rate * 0.45
-            + business_score * 0.2
-            + performance_score * 0.15
-            + security_score * 0.12
-            + stability_score * 0.08
-        )
+        health_score = _clamp(scenario_rate * 0.45 + business_score * 0.2 + performance_score * 0.15 + security_score * 0.12 + stability_score * 0.08)
     else:
-        health_score = _clamp(
-            business_score * 0.4
-            + performance_score * 0.25
-            + security_score * 0.2
-            + stability_score * 0.15
-        )
+        health_score = _clamp(business_score * 0.4 + performance_score * 0.25 + security_score * 0.2 + stability_score * 0.15)
 
     alerts = _real_alerts(days, tool_rel, sec_summary, 5)
 

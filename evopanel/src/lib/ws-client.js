@@ -663,7 +663,7 @@ export async function evoflowInvokeGatewayJson(url, options = {}) {
 }
 
 /** Tauri: JSON via gatewayProxy/pipe. Browser: relative fetch. */
-async function evoflowFetch(url, options = {}) {
+export async function evoflowFetch(url, options = {}) {
   if (!isEvoflowTauri() || !String(url || '').startsWith('/')) {
     return fetch(url, options)
   }
@@ -2221,7 +2221,7 @@ export async function enqueuePendingInject(sessionKey, flatRow) {
  * assistant after the injected user.
  *
  * @param {string} sessionKey
- * @returns {Promise<{ ok: boolean, pendingCount: number, lastConsumed: { messageId: string, consumedAt?: string, consumedByRunId?: string } | null } | undefined>}
+ * @returns {Promise<{ ok: boolean, pendingCount: number, lastConsumed: { messageId: string, consumedAt?: string, consumedByRunId?: string } | null, items?: Array<{ messageId: string, text: string, createdAt?: string | null, runId?: string | null }> } | undefined>}
  */
 export async function getPendingInjectStatus(sessionKey) {
   const key = String(sessionKey || '').trim()

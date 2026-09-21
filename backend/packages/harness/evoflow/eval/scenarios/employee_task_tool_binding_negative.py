@@ -48,8 +48,7 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "tools_config_frozen",
-            snap.get("tools_config") == _ALLOWED
-            or set(snap.get("tools_config") or []) == set(_ALLOWED),
+            snap.get("tools_config") == _ALLOWED or set(snap.get("tools_config") or []) == set(_ALLOWED),
             inputs={"tools": _ALLOWED},
             expected=_ALLOWED,
             actual=snap.get("tools_config"),

@@ -76,9 +76,7 @@ def _agent_codes_for_log() -> tuple[str | None, str | None]:
 
             ctx = runtime_context_mapping(get_runtime())
             if not agent_code:
-                agent_code = (
-                    str(ctx.get("agent_id") or ctx.get("proactive_agent_code") or "").strip() or None
-                )
+                agent_code = str(ctx.get("agent_id") or ctx.get("proactive_agent_code") or "").strip() or None
             if not position_code:
                 position_code = str(ctx.get("position_code") or "").strip() or None
         except Exception:

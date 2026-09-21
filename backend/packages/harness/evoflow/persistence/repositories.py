@@ -179,10 +179,7 @@ def append_task_status_event(task_id: str, record: dict[str, Any]) -> None:
 
 
 def list_task_status_events(task_id: str, *, offset: int = 0, limit: int | None = None) -> list[dict[str, Any]]:
-    sql = (
-        "SELECT event_json FROM evoflow_task_events "
-        "WHERE event_type = ? AND task_id = ? ORDER BY id ASC"
-    )
+    sql = "SELECT event_json FROM evoflow_task_events WHERE event_type = ? AND task_id = ? ORDER BY id ASC"
     params: list[Any] = [TASK_EVENT_TYPE_STATUS, task_id]
     if limit is not None:
         sql += " LIMIT ? OFFSET ?"

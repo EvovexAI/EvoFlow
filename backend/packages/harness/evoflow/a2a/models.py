@@ -12,7 +12,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ── Task lifecycle ──────────────────────────────────────────
 
 
@@ -104,9 +103,7 @@ class AgentCard(BaseModel):
     version: str = "1.0.0"
     capabilities: AgentCapabilities = Field(default_factory=AgentCapabilities)
     defaultInputModes: list[str] = Field(default_factory=lambda: ["text/plain"])
-    defaultOutputModes: list[str] = Field(
-        default_factory=lambda: ["text/plain", "application/json"]
-    )
+    defaultOutputModes: list[str] = Field(default_factory=lambda: ["text/plain", "application/json"])
     skills: list[AgentSkill] = Field(default_factory=list)
     # EvoFlow extensions
     agent_code: str = ""

@@ -39,9 +39,7 @@ def test_reconcile_deletes_seed_when_deps_missing(monkeypatch) -> None:
         def set_default_embedding_model(ref: str | None) -> str:
             return str(ref or "")
 
-    monkeypatch.setattr(
-        local_provider, "probe_local_embedding_deps", lambda: "missing st"
-    )
+    monkeypatch.setattr(local_provider, "probe_local_embedding_deps", lambda: "missing st")
     with patch.dict(
         "sys.modules",
         {},

@@ -39,10 +39,7 @@ def skills_root(monkeypatch):
 
 def test_rewrite_repo_relative_skills_path(skills_root):
     root, _script = skills_root
-    cmd = (
-        'python skills/public/media-production/scripts/image_generate.py '
-        '--prompt "cat" --aspect-ratio 16:9 --output-dir outputs'
-    )
+    cmd = 'python skills/public/media-production/scripts/image_generate.py --prompt "cat" --aspect-ratio 16:9 --output-dir outputs'
     got = rewrite_skill_paths_in_command(cmd)
     expected = __import__("pathlib").Path(root, "public", "media-production", "scripts", "image_generate.py").resolve()
     assert str(expected) in got or expected.as_posix() in got.replace("\\", "/")

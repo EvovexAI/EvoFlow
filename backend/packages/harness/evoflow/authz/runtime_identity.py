@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Current run's principal id, set once at context construction. Tools fall back
 # to this when no runtime handle is available — the identity is ambient.
-_current_principal_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "evoflow_current_principal_id", default=""
-)
+_current_principal_var: contextvars.ContextVar[str] = contextvars.ContextVar("evoflow_current_principal_id", default="")
 
 
 def set_current_principal_id(principal_id: str | None) -> str:
@@ -79,11 +77,14 @@ def resolve_identity_from_session(session_key: str | None) -> dict[str, str]:
             fields.append("scope_id")
         if "org_id" in cols:
             fields.append("org_id")
-        row = get_db().execute(
-            f"SELECT {', '.join(fields)} FROM evoflow_chat_sessions "
-            "WHERE session_key = ? AND COALESCE(is_deleted, 0) = 0",
-            (sk,),
-        ).fetchone()
+        row = (
+            get_db()
+            .execute(
+                f"SELECT {', '.join(fields)} FROM evoflow_chat_sessions WHERE session_key = ? AND COALESCE(is_deleted, 0) = 0",
+                (sk,),
+            )
+            .fetchone()
+        )
         if not row:
             return {}
         data = dict(zip(fields, row, strict=False))
@@ -118,10 +119,14 @@ def resolve_identity_from_automation(task_id: str | None) -> dict[str, str]:
             parts.append("owner_scope_id")
         if "org_id" in cols:
             parts.append("org_id")
-        row = get_db().execute(
-            f"SELECT {', '.join(parts)} FROM evoflow_automations WHERE task_id = ?",
-            (tid,),
-        ).fetchone()
+        row = (
+            get_db()
+            .execute(
+                f"SELECT {', '.join(parts)} FROM evoflow_automations WHERE task_id = ?",
+                (tid,),
+            )
+            .fetchone()
+        )
         if not row:
             return {}
         idx = 0
@@ -190,11 +195,7 @@ def enrich_run_context_identity(run_context: dict[str, Any] | None) -> dict[str,
     if not identity.get("principal_id"):
         identity = resolve_identity_from_automation(str(ctx.get("automation_task_id") or ""))
     if not identity.get("principal_id"):
-        agent = (
-            str(ctx.get("proactive_agent_code") or "").strip()
-            or str(ctx.get("agent_id") or "").strip()
-            or str(ctx.get("agent_name") or "").strip()
-        )
+        agent = str(ctx.get("proactive_agent_code") or "").strip() or str(ctx.get("agent_id") or "").strip() or str(ctx.get("agent_name") or "").strip()
         if agent and agent not in ("main", "lead_agent"):
             identity = resolve_identity_from_agent(agent)
     for k, v in identity.items():

@@ -63,9 +63,7 @@ def goal_mode_from_context(ctx: dict[str, Any] | None) -> bool:
         return False
     if bool(ctx.get("goal_mode")) or bool(ctx.get("hosted_goal_mode")):
         return True
-    if bool(ctx.get("goal_automated")) and (
-        str(ctx.get("prompt_source") or "").strip() in {"goal", "goal_controller", "hosted_autofollow", "user"}
-    ):
+    if bool(ctx.get("goal_automated")) and (str(ctx.get("prompt_source") or "").strip() in {"goal", "goal_controller", "hosted_autofollow", "user"}):
         return True
     return False
 
@@ -159,7 +157,6 @@ def clip_goal_summary_text(text: str | None, *, max_len: int = 16000) -> str:
     return body[: max_len - 1] + "…"
 
 
-
 def patch_goal_state(session_key: str, **fields: Any) -> None:
     """Write hosted goal runtime fields to SQLite (LangGraph process → EvoPanel poll).
 
@@ -212,11 +209,7 @@ def build_goal_mode_preamble(*, goal_text: str, max_steps: int) -> str:
     """First-turn preamble: tell the model it's in goal mode."""
     goal = str(goal_text or "").strip()
     head = f"[目标模式 · 第1/{max_steps}轮] 你正处于目标模式，将持续自动推进直到目标完成。"
-    tail = (
-        "每轮结束时用正文简要汇报进展或完成情况即可——"
-        "系统会用判定模型理解你的回复并自动决定续跑或完成。"
-        "不需要调用任何特殊汇报工具。"
-    )
+    tail = "每轮结束时用正文简要汇报进展或完成情况即可——系统会用判定模型理解你的回复并自动决定续跑或完成。不需要调用任何特殊汇报工具。"
     if goal:
         return f"{head}\n\n目标：{goal}\n\n{tail}"
     return f"{head}\n\n{tail}"
@@ -232,12 +225,7 @@ def build_continue_nudge(*, goal_text: str, turn_no: int, max_steps: int = 50, i
         initiative_hint = "主动性中等：优先跟随目标推进，必要时给出1条关键建议。"
     else:
         initiative_hint = "主动性保守：严格按目标执行，避免发散。"
-    tail = (
-        f"{initiative_hint}\n"
-        "每轮结束时用正文简要汇报进展或完成情况即可——"
-        "系统会用判定模型理解你的回复并自动决定续跑或完成。\n"
-        "如果目标已全部完成，在回复中明确说明已完成，系统会判定为 complete。"
-    )
+    tail = f"{initiative_hint}\n每轮结束时用正文简要汇报进展或完成情况即可——系统会用判定模型理解你的回复并自动决定续跑或完成。\n如果目标已全部完成，在回复中明确说明已完成，系统会判定为 complete。"
     if goal:
         return f"{head}\n\n目标：{goal}\n\n{tail}"
     return f"{head}\n\n{tail}"

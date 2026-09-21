@@ -21,9 +21,7 @@ def test_normalize_plan_tool_aliases() -> None:
 
 
 def test_normalize_retired_write_and_search_aliases() -> None:
-    assert normalize_worker_tool_names(
-        ["write_to_file", "delete_file", "replace_in_file", "search_content", "str_replace"]
-    ) == ["write", "delete", "replace", "search_code_index"]
+    assert normalize_worker_tool_names(["write_to_file", "delete_file", "replace_in_file", "search_content", "str_replace"]) == ["write", "delete", "replace", "search_code_index"]
 
 
 def test_resolve_and_augment_file_io() -> None:

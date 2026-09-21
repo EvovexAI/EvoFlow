@@ -89,14 +89,14 @@ def chunk_text(
                 chunks.append(_make_chunk(current_parts, current_start, para["start"]))
                 current_parts = []
                 current_tokens = 0
-                overlap_text = chunks[-1]["content"][-(overlap * 4):] if overlap > 0 else ""
+                overlap_text = chunks[-1]["content"][-(overlap * 4) :] if overlap > 0 else ""
 
             # Hard-split the large paragraph
             sub_chunks = _hard_split(para_text, chunk_size, overlap)
             for sc in sub_chunks:
                 chunks.append(sc)
             if chunks and overlap > 0:
-                overlap_text = chunks[-1]["content"][-(overlap * 4):]
+                overlap_text = chunks[-1]["content"][-(overlap * 4) :]
             continue
 
         # Check if adding this paragraph would exceed chunk_size
@@ -132,7 +132,6 @@ def _split_paragraphs(text: str) -> list[dict]:
     """
     result: list[dict] = []
     # Split on double newline, but keep track of positions
-    pos = 0
     parts = re.split(r"(\n\n+)", text)
 
     current_start = 0
@@ -141,11 +140,13 @@ def _split_paragraphs(text: str) -> list[dict]:
             stripped = part.strip()
             if stripped:
                 start = text.index(stripped, current_start) if current_start < len(text) else current_start
-                result.append({
-                    "text": stripped,
-                    "start": start,
-                    "end": start + len(part),
-                })
+                result.append(
+                    {
+                        "text": stripped,
+                        "start": start,
+                        "end": start + len(part),
+                    }
+                )
         current_start += len(part)
 
     return result if result else [{"text": text.strip(), "start": 0, "end": len(text)}]
@@ -178,16 +179,18 @@ def _hard_split(text: str, chunk_size: int, overlap: int) -> list[dict]:
     for sent in sentences:
         sent_tokens = _count_tokens(sent)
         if current_tokens + sent_tokens > chunk_size and current:
-            chunks.append({
-                "content": current,
-                "token_count": _count_tokens(current),
-                "char_start": pos,
-                "char_end": pos + len(current),
-            })
+            chunks.append(
+                {
+                    "content": current,
+                    "token_count": _count_tokens(current),
+                    "char_start": pos,
+                    "char_end": pos + len(current),
+                }
+            )
             pos += len(current)
             # Overlap: keep last N chars
             if overlap > 0:
-                current = current[-(overlap * 4):] + " " + sent
+                current = current[-(overlap * 4) :] + " " + sent
             else:
                 current = sent
             current_tokens = _count_tokens(current)
@@ -196,11 +199,13 @@ def _hard_split(text: str, chunk_size: int, overlap: int) -> list[dict]:
             current_tokens += sent_tokens
 
     if current:
-        chunks.append({
-            "content": current,
-            "token_count": _count_tokens(current),
-            "char_start": pos,
-            "char_end": pos + len(current),
-        })
+        chunks.append(
+            {
+                "content": current,
+                "token_count": _count_tokens(current),
+                "char_start": pos,
+                "char_end": pos + len(current),
+            }
+        )
 
     return chunks

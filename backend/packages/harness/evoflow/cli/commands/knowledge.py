@@ -128,9 +128,7 @@ def _create(args: argparse.Namespace):
 
     if getattr(args, "legacy_vault", False) or data.get("legacyVault") or data.get("legacy_vault"):
         path = str(args.vault_path or data.get("vaultPath") or data.get("vault_path") or "").strip() or None
-        access = str(
-            args.access_mode or data.get("accessMode") or data.get("access_mode") or "read_write"
-        ).strip()
+        access = str(args.access_mode or data.get("accessMode") or data.get("access_mode") or "read_write").strip()
         enabled = True
         if args.disabled:
             enabled = False
@@ -143,15 +141,8 @@ def _create(args: argparse.Namespace):
             access_mode=access,
         )
 
-    description = str(
-        args.description or data.get("description") or data.get("desc") or ""
-    ).strip()
-    emb_ref = str(
-        args.embedding_model_ref
-        or data.get("embeddingModelRef")
-        or data.get("embedding_model_ref")
-        or ""
-    ).strip() or None
+    description = str(args.description or data.get("description") or data.get("desc") or "").strip()
+    emb_ref = str(args.embedding_model_ref or data.get("embeddingModelRef") or data.get("embedding_model_ref") or "").strip() or None
     return knowledge_admin.create_owned_base(
         name=name,
         description=description,

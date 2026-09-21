@@ -26,9 +26,7 @@ def _run(home: Path) -> dict:
     got = agents_admin.get_agent(code)
     listed = agents_admin.list_agents()
     codes = [str(a.get("agent_code") or "") for a in (listed.get("agents") or [])]
-    updated = agents_admin.update_agent(
-        code, {"description": "agents module scenario updated", "soul": "Updated soul."}
-    )
+    updated = agents_admin.update_agent(code, {"description": "agents module scenario updated", "soul": "Updated soul."})
     got2 = agents_admin.get_agent(code)
     deleted = agents_admin.delete_agent(code, confirm_cascade=True)
     # Prefer registry/list checks: get_agent may briefly hit in-memory cache.

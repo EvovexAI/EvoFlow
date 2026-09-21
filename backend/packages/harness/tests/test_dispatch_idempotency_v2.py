@@ -16,7 +16,7 @@ _backend = Path(__file__).resolve().parents[1] / "backend" / "packages" / "harne
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from evoflow.proactive.work_items import find_open_work_item_by_title
+from evoflow.proactive.work_items import find_open_work_item_by_title  # noqa: E402
 
 
 def test_dispatch_idempotency_same_assignee_same_title():
@@ -38,7 +38,7 @@ def test_dispatch_idempotency_same_assignee_same_title():
     }
     with patch("evoflow.collab.storage.get_project_storage", return_value=storage):
         tid = find_open_work_item_by_title("code-agent", "测试 dispatch 幂等性修复v2")
-    
+
     # Should return the existing task id, not None
     assert tid == "task_existing", f"Expected 'task_existing', got '{tid}'"
     print("✓ Test passed: Duplicate dispatch reuses existing task (same assignee)")
@@ -63,7 +63,7 @@ def test_dispatch_idempotency_different_assignee():
     }
     with patch("evoflow.collab.storage.get_project_storage", return_value=storage):
         tid = find_open_work_item_by_title("code-agent", "测试 dispatch 幂等性修复v2")
-    
+
     # Should return None because assignee is different
     assert tid is None, f"Expected None for different assignee, got '{tid}'"
     print("✓ Test passed: Different assignee does not reuse task (cross-assignee fan-out)")
@@ -88,7 +88,7 @@ def test_dispatch_idempotency_completed_task_not_reused():
     }
     with patch("evoflow.collab.storage.get_project_storage", return_value=storage):
         tid = find_open_work_item_by_title("code-agent", "测试 dispatch 幂等性修复v2")
-    
+
     # Should return None because task is completed
     assert tid is None, f"Expected None for completed task, got '{tid}'"
     print("✓ Test passed: Completed task is not reused")
@@ -113,7 +113,7 @@ def test_dispatch_idempotency_executing_task_reused():
     }
     with patch("evoflow.collab.storage.get_project_storage", return_value=storage):
         tid = find_open_work_item_by_title("code-agent", "测试 dispatch 幂等性修复v2")
-    
+
     # Should return the executing task id
     assert tid == "task_running", f"Expected 'task_running', got '{tid}'"
     print("✓ Test passed: Executing task is reused (no duplicate)")
@@ -121,13 +121,13 @@ def test_dispatch_idempotency_executing_task_reused():
 
 if __name__ == "__main__":
     print("Running dispatch idempotency tests...\n")
-    
+
     try:
         test_dispatch_idempotency_same_assignee_same_title()
         test_dispatch_idempotency_different_assignee()
         test_dispatch_idempotency_completed_task_not_reused()
         test_dispatch_idempotency_executing_task_reused()
-        
+
         print("\n✅ All tests passed! Dispatch idempotency fix v2 is working correctly.")
         print("   - Same assignee + same title → reuses existing task")
         print("   - Different assignee → creates new task (fan-out)")
@@ -139,5 +139,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

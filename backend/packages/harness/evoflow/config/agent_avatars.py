@@ -19,9 +19,7 @@ _MAX_DIM = 4096
 _AGENT_CODE_RE = re.compile(r"^[a-z0-9-]+$")
 
 # Ship-with-product defaults for built-in agents (``avatar: image``).
-_BUNDLED_AVATARS_DIR = (
-    Path(__file__).resolve().parent.parent / "assets" / "builtin_agent_avatars"
-)
+_BUNDLED_AVATARS_DIR = Path(__file__).resolve().parent.parent / "assets" / "builtin_agent_avatars"
 
 # Codes without their own cutout file → reuse another packaged asset.
 # NOTE: 小V must NOT alias to ``main`` (male lead cutout). Default is gallery
@@ -211,11 +209,7 @@ def _resolve_avatar_codes(
     if agent_codes is None:
         if not _BUNDLED_AVATARS_DIR.is_dir():
             return []
-        codes = {
-            p.stem.lower()
-            for p in _BUNDLED_AVATARS_DIR.iterdir()
-            if p.is_file() and p.suffix.lower() in {".png", ".webp", ".svg"}
-        }
+        codes = {p.stem.lower() for p in _BUNDLED_AVATARS_DIR.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".webp", ".svg"}}
         # Alias codes (e.g. xiaomi→main) must still be seeded into agents/{alias}/.
         for alias_code, target in _BUNDLED_AVATAR_ALIASES.items():
             if target in codes or bundled_avatar_path(alias_code) is not None:
@@ -312,7 +306,10 @@ def _image_dimensions(data: bytes) -> tuple[int, int] | None:
         h = int.from_bytes(data[20:24], "big")
         return w, h
     if len(data) >= 30 and data[0:4] == b"RIFF" and data[8:12] == b"WEBP" and data[12:16] == b"VP8X":
-        le24 = lambda b: b[0] | (b[1] << 8) | (b[2] << 16)
+
+        def le24(b: bytes) -> int:
+            return b[0] | (b[1] << 8) | (b[2] << 16)
+
         return le24(data[24:27]) + 1, le24(data[27:30]) + 1
     return None
 

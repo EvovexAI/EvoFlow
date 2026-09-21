@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Dispatch attribution helpers (DB SSOT for who woke whom)."""
 
 from __future__ import annotations

@@ -27,9 +27,7 @@ _ROUND_STATUSES = frozenset(
     }
 )
 _STEP_STATUSES = frozenset({"pending", "passed", "failed", "error", "skipped"})
-_TERMINAL_ROUND = frozenset(
-    {"passed", "failed", "completed_with_failures", "error", "aborted"}
-)
+_TERMINAL_ROUND = frozenset({"passed", "failed", "completed_with_failures", "error", "aborted"})
 _ROUND_STATUS_LABELS = {
     "queued": "待开始",
     "running": "进行中",
@@ -105,18 +103,14 @@ def _normalize_round_status(status: str, *, allow_empty: bool = False) -> str:
             return ""
         raise ValidationError("status is required")
     if s not in _ROUND_STATUSES:
-        raise ValidationError(
-            f"invalid round status '{s}'; expected one of {sorted(_ROUND_STATUSES)}"
-        )
+        raise ValidationError(f"invalid round status '{s}'; expected one of {sorted(_ROUND_STATUSES)}")
     return s
 
 
 def _normalize_step_status(status: str) -> str:
     s = str(status or "").strip().lower() or "pending"
     if s not in _STEP_STATUSES:
-        raise ValidationError(
-            f"invalid step status '{s}'; expected one of {sorted(_STEP_STATUSES)}"
-        )
+        raise ValidationError(f"invalid step status '{s}'; expected one of {sorted(_STEP_STATUSES)}")
     return s
 
 
@@ -349,9 +343,7 @@ def start_round(
         ).fetchone()
         if existing is not None:
             if not resume:
-                raise ValidationError(
-                    f"roundId '{rid}' already exists; pass resume=true to continue"
-                )
+                raise ValidationError(f"roundId '{rid}' already exists; pass resume=true to continue")
             reused = True
         else:
             title_s = str(title or "").strip() or "系统验证"
@@ -791,28 +783,16 @@ def update_round(
     if st:
         new_status = st
 
-    new_progress = (
-        _clamp_progress(progress)
-        if progress is not None
-        else int(round_data.get("progress") or 0)
-    )
-    new_conclusion = (
-        str(conclusion)
-        if conclusion is not None
-        else str(round_data.get("conclusion") or "")
-    )
-    new_exceptions = (
-        exceptions if exceptions is not None else round_data.get("exceptions") or []
-    )
+    new_progress = _clamp_progress(progress) if progress is not None else int(round_data.get("progress") or 0)
+    new_conclusion = str(conclusion) if conclusion is not None else str(round_data.get("conclusion") or "")
+    new_exceptions = exceptions if exceptions is not None else round_data.get("exceptions") or []
     if not isinstance(new_exceptions, list):
         new_exceptions = [new_exceptions]
     new_summary = summary if summary is not None else round_data.get("summary") or {}
     if not isinstance(new_summary, dict):
         raise ValidationError("summary must be a JSON object")
     new_title = str(title) if title is not None else str(round_data.get("title") or "")
-    new_scenario = (
-        str(scenario) if scenario is not None else str(round_data.get("scenario") or "")
-    )
+    new_scenario = str(scenario) if scenario is not None else str(round_data.get("scenario") or "")
 
     started_at = round_data.get("startedAt") or ""
     finished_at = round_data.get("finishedAt") or ""
@@ -890,12 +870,7 @@ def conclude_round(
 
     conclusion_s = str(conclusion or "").strip()
     if not conclusion_s:
-        conclusion_s = (
-            f"验证结束：{stats['total']} 步，"
-            f"通过 {stats['byStatus']['passed']}，"
-            f"失败 {stats['byStatus']['failed'] + stats['byStatus']['error']}，"
-            f"待开始 {stats['byStatus']['pending']}。"
-        )
+        conclusion_s = f"验证结束：{stats['total']} 步，通过 {stats['byStatus']['passed']}，失败 {stats['byStatus']['failed'] + stats['byStatus']['error']}，待开始 {stats['byStatus']['pending']}。"
 
     exc_list = exceptions
     if exc_list is None:
@@ -908,8 +883,7 @@ def conclude_round(
                 "exception": s.get("exception") or s.get("detail") or s.get("result"),
             }
             for s in steps
-            if s.get("status") in {"failed", "error"}
-            or (s.get("exception") or "").strip()
+            if s.get("status") in {"failed", "error"} or (s.get("exception") or "").strip()
         ]
 
     return update_round(

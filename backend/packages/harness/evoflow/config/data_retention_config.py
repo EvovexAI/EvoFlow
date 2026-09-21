@@ -14,19 +14,13 @@ class DataRetentionConfig(BaseModel):
         default=7,
         ge=1,
         le=3650,
-        description=(
-            "Shorter retention for evoflow_obs_gateway_requests (high-volume HTTP access log). "
-            "Falls back to observability_days when unset in legacy configs."
-        ),
+        description=("Shorter retention for evoflow_obs_gateway_requests (high-volume HTTP access log). Falls back to observability_days when unset in legacy configs."),
     )
     observability_max_size_gb: float = Field(
         default=2.0,
         ge=0.25,
         le=100.0,
-        description=(
-            "When observability.db (+ WAL) exceeds this size, strip heavy JSON columns, "
-            "delete oldest gateway/trace/model rows, then VACUUM until under the cap."
-        ),
+        description=("When observability.db (+ WAL) exceeds this size, strip heavy JSON columns, delete oldest gateway/trace/model rows, then VACUUM until under the cap."),
     )
     observability_model_json_limit_bytes: int = Field(
         default=32 * 1024,
@@ -78,8 +72,5 @@ class DataRetentionConfig(BaseModel):
         default=900,
         ge=0,
         le=86400,
-        description=(
-            "Delay the first full retention+VACUUM after Gateway start so the first "
-            "chat is not blocked by exclusive SQLite locks on large DBs"
-        ),
+        description=("Delay the first full retention+VACUUM after Gateway start so the first chat is not blocked by exclusive SQLite locks on large DBs"),
     )

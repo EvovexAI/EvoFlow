@@ -44,9 +44,7 @@ def test_ensure_principal_home_creates_layout(sqlite_tmp: Path) -> None:
     assert (scope_skills_dir(sid) / "public").is_dir()
     assert scope_agents_dir(sid).is_dir()
     assert scope_files_dir(sid).is_dir()
-    assert (sqlite_tmp / "scopes" / "personal" / "user__alice").is_dir() or (
-        sqlite_tmp / "scopes" / "personal"
-    ).is_dir()
+    assert (sqlite_tmp / "scopes" / "personal" / "user__alice").is_dir() or (sqlite_tmp / "scopes" / "personal").is_dir()
     assert p["principal_id"] == "user:alice"
 
 

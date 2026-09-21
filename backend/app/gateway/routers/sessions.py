@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-from evoflow.authz.http_guard import require_org_admin, require_session_visible, resolve_authz_from_request
-from evoflow.persistence import session_repositories as sess_repo
+from evoflow.authz.http_guard import require_org_admin, require_session_visible, resolve_authz_from_request  # noqa: E402
+from evoflow.persistence import session_repositories as sess_repo  # noqa: E402
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
 
 def _filter_search_hits(http_request: Request, results: list[dict]) -> list[dict]:
     authz = resolve_authz_from_request(http_request)
@@ -31,7 +32,6 @@ def _filter_search_hits(http_request: Request, results: list[dict]) -> list[dict
             continue
         out.append(r)
     return out
-
 
 
 class SessionSearchRequest(BaseModel):

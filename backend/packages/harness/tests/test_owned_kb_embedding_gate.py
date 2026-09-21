@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from evoflow.knowledge.owned import jobs
 from evoflow.knowledge.owned.embedding_bind import embedding_runtime_ready_for_base_row
 from evoflow.knowledge.owned.worker import _dispatch
 

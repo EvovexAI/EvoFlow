@@ -13,9 +13,7 @@ def test_llm_rollup_default_disabled():
 
 
 def test_llm_rollup_when_explicitly_enabled():
-    load_session_intent_config_from_dict(
-        SessionIntentConfig(llm_rollup_enabled=True, llm_rollup_min_chars=0).model_dump()
-    )
+    load_session_intent_config_from_dict(SessionIntentConfig(llm_rollup_enabled=True, llm_rollup_min_chars=0).model_dump())
     mock_resp = MagicMock()
     mock_resp.content = "User wants auth refactor and tests."
     mock_model = MagicMock()
@@ -28,9 +26,7 @@ def test_llm_rollup_when_explicitly_enabled():
 
 
 def test_build_intent_block_uses_rollup_when_llm_returns():
-    load_session_intent_config_from_dict(
-        SessionIntentConfig(enabled=True, max_turns=3, llm_rollup_enabled=True, llm_rollup_min_chars=0).model_dump()
-    )
+    load_session_intent_config_from_dict(SessionIntentConfig(enabled=True, max_turns=3, llm_rollup_enabled=True, llm_rollup_min_chars=0).model_dump())
     with (
         patch(
             "evoflow.agents.middlewares.session_intent_middleware._mission_primary_objective",

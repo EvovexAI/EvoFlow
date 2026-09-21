@@ -167,6 +167,7 @@ def _feishu_should_skip_unmentioned_group(
         return False
     return oid not in mention_open_ids
 
+
 _RISK_LABEL_ZH = {
     "low": "低风险",
     "medium": "中风险",
@@ -196,12 +197,7 @@ def resolve_proactive_panel_url(
     ``EVOFLOW_GATEWAY_URL``. Returns ``None`` when no base URL is configured
     (button omitted — in-card approve/reject still works).
     """
-    base = (
-        os.getenv("EVOFLOW_PANEL_URL")
-        or os.getenv("EVOFLOW_WEBUI_PUBLIC_URL")
-        or os.getenv("EVOFLOW_GATEWAY_URL")
-        or ""
-    ).strip().rstrip("/")
+    base = (os.getenv("EVOFLOW_PANEL_URL") or os.getenv("EVOFLOW_WEBUI_PUBLIC_URL") or os.getenv("EVOFLOW_GATEWAY_URL") or "").strip().rstrip("/")
     if not base:
         return None
     code = str(agent_code or "").strip()
@@ -275,11 +271,7 @@ def build_proactive_approval_card(
         if handlers:
             md_lines.extend(["", "**下一步（同意后派发）**："])
             for h in handlers[:6]:
-                who = (
-                    str(h.get("role") or h.get("role_name") or "").strip()
-                    or str(h.get("agent_code") or "").strip()
-                    or "下游同事"
-                )
+                who = str(h.get("role") or h.get("role_name") or "").strip() or str(h.get("agent_code") or "").strip() or "下游同事"
                 what = _scrub(str(h.get("content") or "").strip(), limit=220)
                 md_lines.append(f"- **{who}**：{what or '按上游交付继续执行'}")
         else:
@@ -360,9 +352,7 @@ def build_proactive_approval_card(
             }
         )
 
-    header_title = (
-        f"🔔 转交任务汇报 · {role_name}" if is_handoff else f"🔔 审批请求 · {role_name}"
-    )
+    header_title = f"🔔 转交任务汇报 · {role_name}" if is_handoff else f"🔔 审批请求 · {role_name}"
     return {
         "config": {"wide_screen_mode": True, "update_multi": True},
         "header": {
@@ -374,6 +364,7 @@ def build_proactive_approval_card(
             {"tag": "action", "actions": actions},
         ],
     }
+
 
 def build_proactive_decided_card(*, approved: bool, title: str = "") -> dict[str, Any]:
     """Card body after approve/reject — removes buttons."""
@@ -570,12 +561,7 @@ def build_wrap_digest_card(
     if agent_code:
         role_line += f" · `{agent_code}`"
     md = [role_line, "", "**本轮概况**"]
-    md.append(
-        f"- 待批 {int(counts.get('pending_approval') or 0)}"
-        f" · 完成 {int(counts.get('completed') or 0)}"
-        f" · 失败 {int(counts.get('failed') or 0)}"
-        f" · 执行中 {int(counts.get('executing') or 0)}"
-    )
+    md.append(f"- 待批 {int(counts.get('pending_approval') or 0)} · 完成 {int(counts.get('completed') or 0)} · 失败 {int(counts.get('failed') or 0)} · 执行中 {int(counts.get('executing') or 0)}")
     created = [str(x) for x in (created_task_ids or []) if x][:6]
     if created:
         md.append("- 新建工作项：`" + "`, `".join(created) + "`")
@@ -594,10 +580,7 @@ def build_wrap_digest_card(
         if len(summary) > 1200:
             md.append("\n…（已截断）")
     elif not item_lines:
-        md.append(
-            "\n**本轮小结**：本轮没有写出文字小结（可能仍在执行中或未完整收尾）。"
-            "点「打开员工页」看工作过程与看板。"
-        )
+        md.append("\n**本轮小结**：本轮没有写出文字小结（可能仍在执行中或未完整收尾）。点「打开员工页」看工作过程与看板。")
 
     actions: list[dict[str, Any]] = [
         {
@@ -647,14 +630,14 @@ def build_wrap_acked_card(*, started: bool = False, role_name: str = "") -> dict
     now = datetime.now().strftime("%H:%M")
     if started:
         title = "⚡ 已触发立即开工"
-        body = f"**已触发立即开工**"
+        body = "**已触发立即开工**"
         if role_name:
             body += f" · {role_name}"
         body += f"\n\n{now} 已安排本轮上班。"
         template = "blue"
     else:
         title = "👍 已阅"
-        body = f"**已阅工作汇报**"
+        body = "**已阅工作汇报**"
         if role_name:
             body += f" · {role_name}"
         body += f"\n\n{now} 确认完毕。"
@@ -760,7 +743,7 @@ def build_control_decided_card(*, action: str, title: str = "") -> dict[str, Any
 
 def build_run_stopped_card(*, title: str = "") -> dict[str, Any]:
     now = datetime.now().strftime("%H:%M")
-    body = f"**⏹ 已停止生成**"
+    body = "**⏹ 已停止生成**"
     if title:
         body += f"\n\n{title[:1500]}"
     body += f"\n\n{now} 已取消本轮回复。"
@@ -978,16 +961,11 @@ class FeishuChannel(Channel):
                 if account_id != bootstrap_account_id
                 and str(acc.get("app_id") or "").strip()
                 and str(acc.get("app_secret") or "").strip()
-                and not (
-                    str(acc.get("app_id") or "").strip() == str(app_id)
-                    and str(acc.get("app_secret") or "").strip() == str(app_secret)
-                )
+                and not (str(acc.get("app_id") or "").strip() == str(app_id) and str(acc.get("app_secret") or "").strip() == str(app_secret))
             )
             if bootstrap_account_id:
                 logger.info(
-                    "Feishu channel started (REST ready; WS in background; "
-                    "primary_from_config=%s bootstrap_account_id=%s dedicated_ws=%d accounts=%d) "
-                    "— primary WS is tagged as employee account (not unlabeled global primary)",
+                    "Feishu channel started (REST ready; WS in background; primary_from_config=%s bootstrap_account_id=%s dedicated_ws=%d accounts=%d) — primary WS is tagged as employee account (not unlabeled global primary)",
                     primary_from_config,
                     bootstrap_account_id,
                     dedicated_ws,
@@ -995,8 +973,7 @@ class FeishuChannel(Channel):
                 )
             else:
                 logger.info(
-                    "Feishu channel started (REST ready; WS in background; "
-                    "primary_from_config=%s dedicated_ws=%d accounts=%d)",
+                    "Feishu channel started (REST ready; WS in background; primary_from_config=%s dedicated_ws=%d accounts=%d)",
                     primary_from_config,
                     dedicated_ws,
                     len(accounts),
@@ -1184,9 +1161,7 @@ class FeishuChannel(Channel):
                 if callable(_reg):
                     handler_builder = _reg(self._on_im_chat_member_bot_event)
             # lark-oapi renamed register_p2_card_action_trigger_v1 → register_p2_card_action_trigger
-            register_card = getattr(handler_builder, "register_p2_card_action_trigger", None) or getattr(
-                handler_builder, "register_p2_card_action_trigger_v1", None
-            )
+            register_card = getattr(handler_builder, "register_p2_card_action_trigger", None) or getattr(handler_builder, "register_p2_card_action_trigger_v1", None)
             if register_card is None:
                 raise AttributeError("lark EventDispatcherHandler has no card action register method")
             event_handler = register_card(self._on_card_action).build()
@@ -1534,18 +1509,7 @@ class FeishuChannel(Channel):
             return None
 
         content = self._build_card_content(text, stop_ctx=stop_ctx)
-        request = (
-            self._ReplyMessageRequest.builder()
-            .message_id(message_id)
-            .request_body(
-                self._ReplyMessageRequestBody.builder()
-                .msg_type("interactive")
-                .content(content)
-                .reply_in_thread(self._reply_in_thread)
-                .build()
-            )
-            .build()
-        )
+        request = self._ReplyMessageRequest.builder().message_id(message_id).request_body(self._ReplyMessageRequestBody.builder().msg_type("interactive").content(content).reply_in_thread(self._reply_in_thread).build()).build()
         response = await asyncio.to_thread(api_client.im.v1.message.reply, request)
         ok, err = self._lark_call_succeeded(response)
         if ok:
@@ -1576,9 +1540,7 @@ class FeishuChannel(Channel):
             return None
 
         content = self._build_card_content(text)
-        request = self._CreateMessageRequest.builder().receive_id_type(receive_id_type).request_body(
-            self._CreateMessageRequestBody.builder().receive_id(receive_id).msg_type("interactive").content(content).build()
-        ).build()
+        request = self._CreateMessageRequest.builder().receive_id_type(receive_id_type).request_body(self._CreateMessageRequestBody.builder().receive_id(receive_id).msg_type("interactive").content(content).build()).build()
         response = await asyncio.to_thread(api_client.im.v1.message.create, request)
         suc = getattr(response, "success", None)
         try:
@@ -1609,9 +1571,7 @@ class FeishuChannel(Channel):
         if not api_client or not self._CreateMessageRequest:
             return None
         content = json.dumps(card, ensure_ascii=False)
-        request = self._CreateMessageRequest.builder().receive_id_type(receive_id_type).request_body(
-            self._CreateMessageRequestBody.builder().receive_id(receive_id).msg_type("interactive").content(content).build()
-        ).build()
+        request = self._CreateMessageRequest.builder().receive_id_type(receive_id_type).request_body(self._CreateMessageRequestBody.builder().receive_id(receive_id).msg_type("interactive").content(content).build()).build()
         response = await asyncio.to_thread(api_client.im.v1.message.create, request)
         ok, err = self._lark_call_succeeded(response)
         if not ok:
@@ -1806,18 +1766,7 @@ class FeishuChannel(Channel):
                 # Otherwise Feishu returns "code=230017 Bot is NOT the owner of the resource".
                 file_key = await self._upload_file(path, path.name, client=api_client)
                 content = json.dumps({"file_key": file_key})
-                request = (
-                    self._CreateMessageRequest.builder()
-                    .receive_id_type(receive_id_type)
-                    .request_body(
-                        self._CreateMessageRequestBody.builder()
-                        .receive_id(rid)
-                        .msg_type("file")
-                        .content(content)
-                        .build()
-                    )
-                    .build()
-                )
+                request = self._CreateMessageRequest.builder().receive_id_type(receive_id_type).request_body(self._CreateMessageRequestBody.builder().receive_id(rid).msg_type("file").content(content).build()).build()
                 response = await asyncio.to_thread(api_client.im.v1.message.create, request)
                 mid = ""
                 try:
@@ -1992,9 +1941,7 @@ class FeishuChannel(Channel):
             return
         card = build_proactive_decided_card(approved=approved, title=title)
         content = json.dumps(card, ensure_ascii=False)
-        request = self._PatchMessageRequest.builder().message_id(message_id).request_body(
-            self._PatchMessageRequestBody.builder().content(content).build()
-        ).build()
+        request = self._PatchMessageRequest.builder().message_id(message_id).request_body(self._PatchMessageRequestBody.builder().content(content).build()).build()
         response = await asyncio.to_thread(api_client.im.v1.message.patch, request)
         ok, err = self._lark_call_succeeded(response)
         if not ok:
@@ -2011,9 +1958,7 @@ class FeishuChannel(Channel):
         if not api_client or not self._PatchMessageRequest or not message_id:
             return
         content = json.dumps(card, ensure_ascii=False)
-        request = self._PatchMessageRequest.builder().message_id(message_id).request_body(
-            self._PatchMessageRequestBody.builder().content(content).build()
-        ).build()
+        request = self._PatchMessageRequest.builder().message_id(message_id).request_body(self._PatchMessageRequestBody.builder().content(content).build()).build()
         try:
             await asyncio.to_thread(api_client.im.v1.message.patch, request)
         except Exception:
@@ -2379,9 +2324,7 @@ class FeishuChannel(Channel):
                         init_ref = str(initiative_id or "").strip()
                         ap = ProactiveRepository.get_approval_by_initiative(init_ref)
                         if ap is None and not init_ref.startswith("task:"):
-                            ap = ProactiveRepository.get_approval_by_initiative(
-                                f"task:{init_ref}"
-                            )
+                            ap = ProactiveRepository.get_approval_by_initiative(f"task:{init_ref}")
                         aid = str(getattr(ap, "id", "") or "") if ap else ""
                         if ap and not role_code:
                             role_code = str(getattr(ap, "role_agent_code", "") or "")
@@ -2636,12 +2579,7 @@ class FeishuChannel(Channel):
             return
 
         content = self._build_card_content(text, stop_ctx=stop_ctx)
-        request = (
-            self._PatchMessageRequest.builder()
-            .message_id(message_id)
-            .request_body(self._PatchMessageRequestBody.builder().content(content).build())
-            .build()
-        )
+        request = self._PatchMessageRequest.builder().message_id(message_id).request_body(self._PatchMessageRequestBody.builder().content(content).build()).build()
         response = await asyncio.to_thread(api_client.im.v1.message.patch, request)
         ok, err = self._lark_call_succeeded(response)
         if not ok:
@@ -2782,9 +2720,7 @@ class FeishuChannel(Channel):
             )
         )
         self._running_card_tasks[source_message_id] = running_card_task
-        running_card_task.add_done_callback(
-            lambda done_task, mid=source_message_id: self._finalize_running_card_task(mid, done_task)
-        )
+        running_card_task.add_done_callback(lambda done_task, mid=source_message_id: self._finalize_running_card_task(mid, done_task))
         return running_card_task
 
     def _finalize_running_card_task(self, source_message_id: str, task: asyncio.Task) -> None:
@@ -2937,12 +2873,8 @@ class FeishuChannel(Channel):
                 overwrite_account=False,
             )
             patch_aid = self._prefer_account_id(
-                self._running_card_account_ids[running_card_id]
-                if running_card_id and running_card_id in self._running_card_account_ids
-                else None,
-                self._running_card_account_ids[source_message_id]
-                if source_message_id in self._running_card_account_ids
-                else None,
+                self._running_card_account_ids[running_card_id] if running_card_id and running_card_id in self._running_card_account_ids else None,
+                self._running_card_account_ids[source_message_id] if source_message_id in self._running_card_account_ids else None,
                 creator_aid,
                 account_id,
             )

@@ -31,16 +31,8 @@ def _fake_role(**kwargs):
 def test_normalize_strips_task_session_suffix():
     from evoflow.proactive.employee_prompt import _normalize_employee_agent_code
 
-    assert (
-        _normalize_employee_agent_code(
-            "proactive:evoflow-fullstack-lead:task:2608280500_e6e3"
-        )
-        == "evoflow-fullstack-lead"
-    )
-    assert (
-        _normalize_employee_agent_code("evoflow-fullstack-lead:task:2608280500_e6e3")
-        == "evoflow-fullstack-lead"
-    )
+    assert _normalize_employee_agent_code("proactive:evoflow-fullstack-lead:task:2608280500_e6e3") == "evoflow-fullstack-lead"
+    assert _normalize_employee_agent_code("evoflow-fullstack-lead:task:2608280500_e6e3") == "evoflow-fullstack-lead"
 
 
 def test_build_employee_chat_v2_structure():

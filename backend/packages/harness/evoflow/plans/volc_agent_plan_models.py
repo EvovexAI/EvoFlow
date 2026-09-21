@@ -242,11 +242,7 @@ AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
     {
         "id": "video",
         "label": "生视频",
-        "summary": (
-            "官方套餐概览：Small 不含视频生成（轻量化体验）。"
-            "Medium 仅 doubao-seedance-1.5-pro；"
-            "doubao-seedance-2.0 / 2.0-fast 需 Large 或 Max。"
-        ),
+        "summary": ("官方套餐概览：Small 不含视频生成（轻量化体验）。Medium 仅 doubao-seedance-1.5-pro；doubao-seedance-2.0 / 2.0-fast 需 Large 或 Max。"),
         "excluded_hint": {
             "small": "官方 Small 档不含视频生成。升级 Medium 可用 Seedance 1.5 Pro；2.0 系列需 Large / Max。",
             "medium": "当前 Medium 仅含即将下线的 Seedance 1.5 Pro；Seedance 2.0 / 2.0-fast 需升级 Large 或 Max。",
@@ -274,19 +270,14 @@ AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
     {
         "id": "web_search",
         "label": "联网搜索",
-        "summary": (
-            "套餐 Harness「豆包搜索」：在控制台领取联网搜索 API Key（SearchInfinity），"
-            "填到设置 → 联网搜索；与对话 ark- Key 不是同一把。"
-        ),
+        "summary": ("套餐 Harness「豆包搜索」：在控制台领取联网搜索 API Key（SearchInfinity），填到设置 → 联网搜索；与对话 ark- Key 不是同一把。"),
         "min_tier": "small",
         "items": [
             {
                 "id": "doubao-search",
                 "label": "豆包搜索",
                 "min_tier": "small",
-                "notes": (
-                    "赠送额度以控制台为准；领取后把联网 Key 填到「设置 → 联网搜索 → 豆包搜索」"
-                ),
+                "notes": ("赠送额度以控制台为准；领取后把联网 Key 填到「设置 → 联网搜索 → 豆包搜索」"),
             },
         ],
     },
@@ -717,9 +708,7 @@ def upsert_agent_plan_embedding_models(
                 cur_row = next((r for r in existing if str(r.get("name") or "") == current), None)
                 cur_model = str((cur_row or {}).get("model") or "").strip().lower()
                 # Retarget if default still points at unsupported plain text embedding
-                if cur_model == "doubao-embedding" or (
-                    not cur_row and "doubao-embedding" in current.lower() and "vision" not in current.lower()
-                ):
+                if cur_model == "doubao-embedding" or (not cur_row and "doubao-embedding" in current.lower() and "vision" not in current.lower()):
                     need_set = True
             if need_set:
                 owned_settings.set_default_embedding_model(pick)

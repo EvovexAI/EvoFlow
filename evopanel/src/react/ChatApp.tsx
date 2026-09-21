@@ -26,6 +26,7 @@ import {
   dispatchCollabCustomEvent,
   collabSnapshotFromTaskRow,
   evoflowInvokeGatewayJson,
+  evoflowFetch,
 } from '../lib/ws-client.js'
 import { getPanelSetting, getVoiceReplyEnabled, patchPanelSettings } from '../lib/panel-settings.js'
 import { shouldArmVoiceReply, voiceReplyModeToSettingsPatch } from '../lib/voice-reply-mode.js'
@@ -4633,6 +4634,13 @@ export default function ChatApp() {
     () => effectiveLocalWorkspaceRoot(localWorkspaceRoot, configuredWorkspaceRoot, useVirtualPaths),
     [localWorkspaceRoot, configuredWorkspaceRoot, useVirtualPaths],
   )
+
+  /** 首页工作台输入框下方展示的当前工作空间（与底部工作空间 pill 同源） */
+  const homeWorkspaceLabel = useMemo(() => {
+    if (useVirtualPaths) return '虚拟'
+    const p = String(effectiveWorkspaceRoot || '').trim()
+    return p ? _pathBasename(p) : '默认'
+  }, [useVirtualPaths, effectiveWorkspaceRoot])
 
   useEffect(() => {
     const sync = () => setWorkspaceIndexWatchEnabledState(getWorkspaceIndexWatchEnabled())
@@ -15048,6 +15056,8 @@ export default function ChatApp() {
                 streamRef={streamRef}
                 historyLoading={historyLoading}
                 showHomeDashboard={isHomeSurface}
+                homeWorkspaceLabel={homeWorkspaceLabel}
+                homeWorkspacePath={effectiveWorkspaceRoot}
                 isSending={selectedTurnBusy}
                 streamLive={selectedSessionLive}
                 resumeAttachActive={selectedResumeAttach}

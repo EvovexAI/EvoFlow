@@ -66,11 +66,15 @@ def _normalize_base(url: str) -> str:
 
 def _is_plan_base(url: str) -> bool:
     n = _normalize_base(url)
-    return n in {
-        _normalize_base(PLAN_CHAT_BASE),
-        _normalize_base(PLAN_MEDIA_BASE),
-        "https://ark.cn-beijing.volces.com/api/coding/v3",
-    } or "/api/plan/v3" in n
+    return (
+        n
+        in {
+            _normalize_base(PLAN_CHAT_BASE),
+            _normalize_base(PLAN_MEDIA_BASE),
+            "https://ark.cn-beijing.volces.com/api/coding/v3",
+        }
+        or "/api/plan/v3" in n
+    )
 
 
 def _list_plan_models() -> list[dict[str, Any]]:
@@ -84,10 +88,7 @@ def _list_plan_models() -> list[dict[str, Any]]:
 
 
 def _is_embedding_row(row: dict[str, Any]) -> bool:
-    blob = " ".join(
-        str(row.get(k) or "").lower()
-        for k in ("vendor", "name", "model", "display_name", "description")
-    )
+    blob = " ".join(str(row.get(k) or "").lower() for k in ("vendor", "name", "model", "display_name", "description"))
     return "embedding" in blob
 
 
@@ -277,11 +278,7 @@ async def _verify_chat(
     rows = [r for r in _list_plan_models() if _is_plan_vendor_row(r) and not _is_embedding_row(r)]
     if model_ids:
         want = {str(x).strip() for x in model_ids if str(x).strip()}
-        rows = [
-            r
-            for r in rows
-            if str(r.get("model") or "") in want or str(r.get("name") or "") in want
-        ]
+        rows = [r for r in rows if str(r.get("model") or "") in want or str(r.get("name") or "") in want]
     if not rows:
         return _fail("chat", label=label, message="未找到已写入的对话模型，请先「按套餐目录补齐」")
 
@@ -333,11 +330,7 @@ async def _verify_embedding(
     rows = [r for r in _list_plan_models() if _is_plan_vendor_row(r) and _is_embedding_row(r)]
     if model_ids:
         want = {str(x).strip() for x in model_ids if str(x).strip()}
-        rows = [
-            r
-            for r in rows
-            if str(r.get("model") or "") in want or str(r.get("name") or "") in want
-        ]
+        rows = [r for r in rows if str(r.get("model") or "") in want or str(r.get("name") or "") in want]
     if not rows:
         return _fail("embedding", label=label, message="未找到套餐向量模型，请先补齐")
 
@@ -371,18 +364,14 @@ async def _verify_tts(catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("tts", catalog)
     ok, msg = await _probe_tts()
     check = _check("tts", label="语音合成试听", ok=ok, message=msg)
-    return _ok("tts", label=label, message=msg, checks=[check]) if ok else _fail(
-        "tts", label=label, message=msg, checks=[check]
-    )
+    return _ok("tts", label=label, message=msg, checks=[check]) if ok else _fail("tts", label=label, message=msg, checks=[check])
 
 
 async def _verify_asr(catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("asr", catalog)
     ok, msg = await _probe_asr()
     check = _check("asr", label="语音识别通道", ok=ok, message=msg)
-    return _ok("asr", label=label, message=msg, checks=[check]) if ok else _fail(
-        "asr", label=label, message=msg, checks=[check]
-    )
+    return _ok("asr", label=label, message=msg, checks=[check]) if ok else _fail("asr", label=label, message=msg, checks=[check])
 
 
 async def _verify_image(*, api_key: str, catalog: dict[str, Any]) -> dict[str, Any]:
@@ -398,7 +387,7 @@ async def _verify_image(*, api_key: str, catalog: dict[str, Any]) -> dict[str, A
         pass
     # Prefer catalog Seedream id when present
     model_id = "doubao-seedream-5.0-lite"
-    for row in (catalog.get("capabilities") or []):
+    for row in catalog.get("capabilities") or []:
         if str(row.get("id") or "") == "image":
             items = list(row.get("items") or [])
             if items:
@@ -481,10 +470,7 @@ async def _verify_web_search(*, api_key: str, catalog: dict[str, Any]) -> dict[s
         pass
     ok, msg = await _post_chat(base_url=base, api_key=api_key, model_id=model_id)
     if ok:
-        msg = (
-            "套餐 Key 可用。联网搜索还需在控制台「配置 Harness」领取豆包搜索 Key，"
-            "填到「设置 → 联网搜索」（不是这把 ark- Key）"
-        )
+        msg = "套餐 Key 可用。联网搜索还需在控制台「配置 Harness」领取豆包搜索 Key，填到「设置 → 联网搜索」（不是这把 ark- Key）"
     check = _check("web_search", label="联网搜索凭证", ok=ok, message=msg)
     if ok:
         return _ok("web_search", label=label, message=msg, checks=[check])
@@ -550,9 +536,7 @@ async def verify_binding(
                     )
                 )
             elif cap == "embedding":
-                results.append(
-                    await _verify_embedding(catalog=catalog, model_ids=model_ids)
-                )
+                results.append(await _verify_embedding(catalog=catalog, model_ids=model_ids))
             elif cap == "tts":
                 results.append(await _verify_tts(catalog))
             elif cap == "asr":

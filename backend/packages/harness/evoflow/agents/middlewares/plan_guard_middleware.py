@@ -181,9 +181,7 @@ PLANNING_ALLOWED_TOOL_NAMES = frozenset(
 )
 
 # plan 已落库、等待「开始执行」：禁止 ask_clarification（由 EvoPanel PlanExecConfirm 承担），仅允许修订 plan / 只读 / supervisor。
-PLAN_READY_ALLOWED_TOOL_NAMES = frozenset(
-    n for n in PLANNING_ALLOWED_TOOL_NAMES if n != "ask_clarification"
-)
+PLAN_READY_ALLOWED_TOOL_NAMES = frozenset(n for n in PLANNING_ALLOWED_TOOL_NAMES if n != "ask_clarification")
 
 AWAITING_EXEC_ALLOWED_TOOL_NAMES = frozenset(
     {
@@ -285,7 +283,6 @@ def _is_tool_message_for_scenario_replay(m: Any) -> bool:
 def _replay_scenario_activation_keys_from_messages(messages: list[Any]) -> list[str]:
     """按时间顺序根据 ``scenario`` 工具返回重建 ``activated_scenarios``（优先 ``all_active_scenarios``）。"""
     from evoflow.agents.lead_agent.intent_tool_profile import normalize_scenario_key
-
     from evoflow.tools.tool_catalog import is_mode_set_tool
 
     active: list[str] = []
@@ -602,11 +599,7 @@ def _build_scenario_not_activated_tool_message(
     else:
         activate_hint = f"请先 scenario(action=activate, scenario_key={primary!r}, reason=...) 成功后再重试"
     one_liner = f"scenario(action='activate', scenario_key='{primary}', reason='enable {tool_name}')"
-    msg = (
-        f"Error: 工具「{tool_name}」未激活（{activate_hint}）。"
-        f"可复制: {one_liner} "
-        f"若工具列在 <tools_not_in_request>，也可在场景激活后用 tool_search 补齐 schema。勿在未激活时重复执行或对用户宣称已完成。"
-    )
+    msg = f"Error: 工具「{tool_name}」未激活（{activate_hint}）。可复制: {one_liner} 若工具列在 <tools_not_in_request>，也可在场景激活后用 tool_search 补齐 schema。勿在未激活时重复执行或对用户宣称已完成。"
     body = tool_result_json_error(
         msg,
         error_type="ScenarioNotActivated",
@@ -657,12 +650,7 @@ def _build_phase_blocked_tool_message(
     from evoflow.agents.tool_response_envelope import tool_result_json_error
 
     scope = "strict plan" if is_strict else f"阶段 {phase}"
-    msg = (
-        f"Error: 工具「{tool_name}」在当前{scope}下不可用。"
-        f"plan 模式下主会话仅做规划与调度，不直接执行代码操作。"
-        f"请改用 subagent 委派执行，或用 scenario(action=activate, scenario_key='agent') 切换到 Agent 模式后再重试。"
-        f"勿重复调用此工具。"
-    )
+    msg = f"Error: 工具「{tool_name}」在当前{scope}下不可用。plan 模式下主会话仅做规划与调度，不直接执行代码操作。请改用 subagent 委派执行，或用 scenario(action=activate, scenario_key='agent') 切换到 Agent 模式后再重试。勿重复调用此工具。"
     body = tool_result_json_error(
         msg,
         error_type="PhaseToolBlocked",
@@ -691,16 +679,9 @@ def _build_supervisor_stripped_feedback_message(
 
     phase = str(collab_phase or "").strip().lower()
     if phase == CollabPhase.DONE.value:
-        msg = (
-            f"Error: 工具「{tool_name}」在协作已结束（collab_phase=done）后不可用。"
-            "主任务已进入终态，supervisor 监控轮已关闭。"
-            "请直接向用户输出交付总结（成果、证据、遗留风险），勿再调用 supervisor 查询状态。"
-        )
+        msg = f"Error: 工具「{tool_name}」在协作已结束（collab_phase=done）后不可用。主任务已进入终态，supervisor 监控轮已关闭。请直接向用户输出交付总结（成果、证据、遗留风险），勿再调用 supervisor 查询状态。"
     else:
-        msg = (
-            f"Error: 工具「{tool_name}」在当前阶段不可用（未激活 plan 场景或协作已结束）。"
-            "请用 Agent 模式工具继续后续工作，或直接以文字回复用户；勿重复调用 supervisor。"
-        )
+        msg = f"Error: 工具「{tool_name}」在当前阶段不可用（未激活 plan 场景或协作已结束）。请用 Agent 模式工具继续后续工作，或直接以文字回复用户；勿重复调用 supervisor。"
     body = tool_result_json_error(
         msg,
         error_type="SupervisorStripped",
@@ -752,18 +733,11 @@ def _build_empty_model_turn_recovery(
     user_text = _latest_user_text(messages)
     p = str(phase or "").strip().lower()
     if p == CollabPhase.DONE.value:
-        reply = (
-            "协作任务已结束。请向用户输出最终交付总结：已完成项、关键产物路径、验证结果与遗留风险；"
-            "勿再调用 supervisor 或派发子任务。"
-        )
+        reply = "协作任务已结束。请向用户输出最终交付总结：已完成项、关键产物路径、验证结果与遗留风险；勿再调用 supervisor 或派发子任务。"
         nudge_hint = reply
     else:
         reply = _build_plan_empty_turn_reply(p, messages, runtime, user_text)
-        nudge_hint = (
-            "模型上一轮返回空内容且无工具调用。"
-            f"当前协作阶段={p or 'unknown'}。"
-            "请根据上一条用户消息继续：调用合适工具或直接文字回复；勿重复空回合。"
-        )
+        nudge_hint = f"模型上一轮返回空内容且无工具调用。当前协作阶段={p or 'unknown'}。请根据上一条用户消息继续：调用合适工具或直接文字回复；勿重复空回合。"
         if reply:
             nudge_hint = f"{nudge_hint}\n\n用户可见提示参考：{reply}"
 
@@ -1364,30 +1338,17 @@ def _build_plan_empty_turn_reply(
     }:
         hint = user_text.replace("\n", " ").strip()
         if hint and _plan_revision_intent(hint):
-            return (
-                f"收到，您希望重新规划（{hint[:120]}）。"
-                "模型本轮未返回有效内容；请补充目标、范围或约束，我将调用 `plan` 工具更新 Steps。"
-            )
+            return f"收到，您希望重新规划（{hint[:120]}）。模型本轮未返回有效内容；请补充目标、范围或约束，我将调用 `plan` 工具更新 Steps。"
         if hint:
-            return (
-                "计划已落库。**执行**：请在页面点击「开始执行」，或在对话中说明「开始执行」。"
-                f"**修订**：请说明要改的部分，我会调用 `plan` 工具更新 Steps（例如：{hint[:120]}）。"
-            )
-        return (
-            "计划已落库。**下一步**：请在页面点击「开始执行」启动协作；"
-            "若需改计划，直接说明修改点，我会调用 `plan` 工具重新提交 Steps。"
-        )
+            return f"计划已落库。**执行**：请在页面点击「开始执行」，或在对话中说明「开始执行」。**修订**：请说明要改的部分，我会调用 `plan` 工具更新 Steps（例如：{hint[:120]}）。"
+        return "计划已落库。**下一步**：请在页面点击「开始执行」启动协作；若需改计划，直接说明修改点，我会调用 `plan` 工具重新提交 Steps。"
     return _build_plan_fallback(user_text)
 
 
 def _phase_needs_response_tool_filter(phase: str) -> bool:
     """Only planning/verify/reflect phases strip disallowed tool_calls at wrap_model_call time."""
     p = str(phase or "").strip().lower()
-    return (
-        p in PLANNING_GUARD_PHASES
-        or p in VERIFYING_GUARD_PHASES
-        or p in REFLECTING_GUARD_PHASES
-    )
+    return p in PLANNING_GUARD_PHASES or p in VERIFYING_GUARD_PHASES or p in REFLECTING_GUARD_PHASES
 
 
 def _replace_ai_in_model_call_result(result: ModelCallResult, ai: AIMessage) -> ModelCallResult:
@@ -1446,13 +1407,7 @@ def _pg_snap_cn(snap: dict[str, Any]) -> str:
         return "无AI消息"
     tools = snap.get("tool_calls") or []
     tool_part = ",".join(str(t) for t in tools) if tools else "无"
-    return (
-        f"正文长度={snap.get('content_len', 0)} "
-        f"有正文={'是' if snap.get('has_text') else '否'} "
-        f"工具数={snap.get('tool_calls_count', 0)} "
-        f"工具=[{tool_part}]"
-    )
-
+    return f"正文长度={snap.get('content_len', 0)} 有正文={'是' if snap.get('has_text') else '否'} 工具数={snap.get('tool_calls_count', 0)} 工具=[{tool_part}]"
 
 
 def _log_empty_model_turn(
@@ -1921,11 +1876,7 @@ class PlanGuardMiddleware(AgentMiddleware[AgentState]):
             )
             return base
         active = set(effective_activated_scenario_keys(runtime, msgs))
-        promo_reason = (
-            "plan_scenario_and_has_plan_but_collab_disk_idle"
-            if "plan" in active
-            else "committed_plan_disk_without_active_plan_scenario"
-        )
+        promo_reason = "plan_scenario_and_has_plan_but_collab_disk_idle" if "plan" in active else "committed_plan_disk_without_active_plan_scenario"
         try:
             ctx = _pg_runtime_ctx(runtime)
             write_cycle_trace(
@@ -2203,9 +2154,13 @@ class PlanGuardMiddleware(AgentMiddleware[AgentState]):
                     args = getattr(tc, "args", None) or {}
                     if isinstance(args, dict):
                         action = str(args.get("action", "") or "").strip().lower()
-                        key = str(
-                            args.get("mode", "") or args.get("scenario_key", "") or "",
-                        ).strip().lower()
+                        key = (
+                            str(
+                                args.get("mode", "") or args.get("scenario_key", "") or "",
+                            )
+                            .strip()
+                            .lower()
+                        )
                         if action == "deactivate" and key == "plan":
                             return True
             return False

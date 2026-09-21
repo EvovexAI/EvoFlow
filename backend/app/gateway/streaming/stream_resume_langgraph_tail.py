@@ -166,9 +166,13 @@ def _enqueue_mirror_wire_frames(
     if fmt in {"agui", "ag-ui"}:
         from app.gateway.agui_stream_normalizer import AgUiEncoderState, convert_evf_frames_to_agui
 
-        state = agui_state if agui_state is not None else AgUiEncoderState(
-            thread_id=thread_id,
-            run_id=run_id,
+        state = (
+            agui_state
+            if agui_state is not None
+            else AgUiEncoderState(
+                thread_id=thread_id,
+                run_id=run_id,
+            )
         )
         for frame in frames:
             raw = str(frame or "")

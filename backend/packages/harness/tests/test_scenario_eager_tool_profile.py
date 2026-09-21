@@ -76,8 +76,8 @@ def test_filter_tools_by_intent_eager_agent_no_read_substring_leaks(monkeypatch:
     """``read`` eager must not bind ``read_lints`` / ``collab_peer_read`` via substring match."""
     from types import SimpleNamespace
 
-    from evoflow.tools.builtins.read_lints_tool import read_lints_tool
     from evoflow.tools.builtins.collab_peer_tools import collab_peer_read_tool
+    from evoflow.tools.builtins.read_lints_tool import read_lints_tool
 
     monkeypatch.setenv("EVOFLOW_SCENARIO_EAGER_TOOLS", "1")
     sample = [

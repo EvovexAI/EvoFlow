@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from langchain.tools import tool
 
-_DEPRECATION = (
-    "「上传文档」知识库已下线。请改用侧栏「知识库」（Obsidian Vault），"
-    "并通过 knowledge(action=search|read|…) 检索笔记。"
-)
+_DEPRECATION = "「上传文档」知识库已下线。请改用侧栏「知识库」（Obsidian Vault），并通过 knowledge(action=search|read|…) 检索笔记。"
 
 
 @tool("search_knowledge_base", parse_docstring=True)

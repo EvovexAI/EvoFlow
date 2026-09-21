@@ -185,12 +185,7 @@ def _reset_stale_plan_shell(task: dict[str, Any]) -> bool:
         changed = True
     subs = task.get("subtasks") or []
     if subs:
-        kept = [
-            st
-            for st in subs
-            if isinstance(st, dict)
-            and str(st.get("status") or "").strip().lower().replace("-", "_") in _ACTIVE_SUBTASK_STATUSES
-        ]
+        kept = [st for st in subs if isinstance(st, dict) and str(st.get("status") or "").strip().lower().replace("-", "_") in _ACTIVE_SUBTASK_STATUSES]
         if len(kept) != len(subs):
             task["subtasks"] = kept
             changed = True
@@ -533,10 +528,7 @@ def assert_thread_plan_task_binding(thread_id: str, bound_task_id: str, *, paths
     collab = load_thread_collab_state(p, tid)
     bound = str(collab.bound_task_id or "").strip()
     if bound and bound != want:
-        return (
-            f"bound_task_id '{want}' does not match this thread's bound task '{bound}'. "
-            "Use boundTaskId from the latest plan() on this session, or omit bound_task_id."
-        )
+        return f"bound_task_id '{want}' does not match this thread's bound task '{bound}'. Use boundTaskId from the latest plan() on this session, or omit bound_task_id."
     row = find_main_task(storage, want)
     if not row:
         return f"Task '{want}' not found."
@@ -596,10 +588,7 @@ def bind_plan_to_thread_task(
         bound_row = find_main_task(storage, pref)
         if bound_row:
             project_b, task_b = bound_row
-            if (
-                not _task_row_is_terminal(task_b)
-                and str(task_b.get("thread_id") or "").strip() in {"", tid}
-            ):
+            if not _task_row_is_terminal(task_b) and str(task_b.get("thread_id") or "").strip() in {"", tid}:
                 saved_touch, _ = _touch_plan_session(storage, project_b, task_b)
                 if saved_touch:
                     task_id = pref
@@ -669,10 +658,7 @@ def bind_plan_to_thread_task(
         task["progress"] = 0
     saved, _ = _touch_plan_session(storage, project, task)
     if not saved:
-        out["bindError"] = (
-            "无法保存计划到任务表（常见原因：数据库缺少 plan_goal 等列）。"
-            "请完全重启 EvoFlow Gateway 后再提交 plan；若仍失败，请检查 data/evoflow.db 是否可写。"
-        )
+        out["bindError"] = "无法保存计划到任务表（常见原因：数据库缺少 plan_goal 等列）。请完全重启 EvoFlow Gateway 后再提交 plan；若仍失败，请检查 data/evoflow.db 是否可写。"
         return out
     out["planRevised"] = plan_revised
     out["authorizationRevoked"] = auth_revoked

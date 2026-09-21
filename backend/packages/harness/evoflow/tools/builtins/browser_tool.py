@@ -6,13 +6,13 @@ Deferred under agent mode: activate agent, then ``tool_search(query='select:brow
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import subprocess
 import sys
 import tempfile
 import threading
-import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -243,11 +243,7 @@ def _run_agent_browser(
 
 
 def _browser_cli_missing_message() -> str:
-    return (
-        "agent-browser CLI not found. Dev: run `make setup-agent-browser` from repo root "
-        "(installs backend/packaging/agent-browser-bundle). "
-        "Or: npm install -g agent-browser && agent-browser install"
-    )
+    return "agent-browser CLI not found. Dev: run `make setup-agent-browser` from repo root (installs backend/packaging/agent-browser-bundle). Or: npm install -g agent-browser && agent-browser install"
 
 
 def _browser_chromium_missing_message() -> str:

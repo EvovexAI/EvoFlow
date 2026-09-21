@@ -18,9 +18,7 @@ from typing import Any
 
 from evoflow.persistence.db import get_db, run_db_transaction
 
-_TOKEN_SELECT_COLS = (
-    "token_hash, name, identity_type, identity_id, created_at, revoked_at, pinned_version"
-)
+_TOKEN_SELECT_COLS = "token_hash, name, identity_type, identity_id, created_at, revoked_at, pinned_version"
 
 
 def _hash_token(plaintext: str) -> str:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 
 from evoflow.agents.lead_agent.intent_tool_profile import (
@@ -138,45 +137,22 @@ def _cached_agent_tool_names(
         from evoflow.tools.tool_catalog import normalize_tool_name
 
         # Configs still use legacy names (read_file); runtime catalog is host-direct (read).
-        whitelist = {
-            canonical_tool_name(normalize_tool_name(x))
-            for x in tools_whitelist_key
-            if str(x or "").strip()
-        }
+        whitelist = {canonical_tool_name(normalize_tool_name(x)) for x in tools_whitelist_key if str(x or "").strip()}
         whitelist.discard("")
         # Explicit agent.tools = allowlist. ``tool_search`` + agent-mode system tools
         # (platform / panel_set) may bypass; ask_clarification is NOT auto-injected.
         from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
 
-        tools = [
-            t
-            for t in tools
-            if (
-                (name := canonical_tool_name(normalize_tool_name(getattr(t, "name", None))))
-                and (
-                    name in whitelist
-                    or name == "tool_search"
-                    or name in AGENT_MODE_SYSTEM_TOOL_NAMES
-                )
-            )
-        ]
+        tools = [t for t in tools if ((name := canonical_tool_name(normalize_tool_name(getattr(t, "name", None)))) and (name in whitelist or name == "tool_search" or name in AGENT_MODE_SYSTEM_TOOL_NAMES))]
     if disallowed_key:
         from evoflow.tools.tool_aliases import canonical_tool_name
         from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES, normalize_tool_name
 
-        blocked = {
-            canonical_tool_name(normalize_tool_name(x))
-            for x in disallowed_key
-            if str(x or "").strip()
-        }
+        blocked = {canonical_tool_name(normalize_tool_name(x)) for x in disallowed_key if str(x or "").strip()}
         blocked.discard("")
         # Agent-mode system tools cannot be banned via disallowed_tools.
         blocked -= {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
-        tools = [
-            t
-            for t in tools
-            if canonical_tool_name(normalize_tool_name(getattr(t, "name", None))) not in blocked
-        ]
+        tools = [t for t in tools if canonical_tool_name(normalize_tool_name(getattr(t, "name", None))) not in blocked]
 
     names = {str(getattr(t, "name", "") or "").strip().lower() for t in tools}
     names.discard("")
@@ -216,16 +192,8 @@ def resolve_agent_tool_names_for_agent(
 
     mcp_skill_mode = _agent_mcp_skill_mode_enabled(agent_config)
     groups_key = tuple(sorted(agent_config.tool_groups)) if agent_config and agent_config.tool_groups else None
-    whitelist_key = (
-        tuple(sorted(str(t).strip() for t in agent_config.tools if str(t or "").strip()))
-        if agent_config and agent_config.tools is not None
-        else None
-    )
-    disallowed_key = (
-        tuple(sorted(str(t).strip() for t in agent_config.disallowed_tools if str(t or "").strip()))
-        if agent_config and agent_config.disallowed_tools
-        else None
-    )
+    whitelist_key = tuple(sorted(str(t).strip() for t in agent_config.tools if str(t or "").strip())) if agent_config and agent_config.tools is not None else None
+    disallowed_key = tuple(sorted(str(t).strip() for t in agent_config.disallowed_tools if str(t or "").strip())) if agent_config and agent_config.disallowed_tools else None
     return _cached_agent_tool_names(
         aid,
         subagent_enabled,

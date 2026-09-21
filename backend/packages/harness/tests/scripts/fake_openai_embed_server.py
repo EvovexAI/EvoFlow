@@ -7,7 +7,6 @@ import json
 import math
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-
 DIM = 384
 
 
@@ -63,10 +62,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/").endswith("/embeddings") or "/embeddings" in self.path:
             inp = payload.get("input")
             texts = inp if isinstance(inp, list) else [str(inp or "")]
-            data = [
-                {"object": "embedding", "index": i, "embedding": _embed(str(t))}
-                for i, t in enumerate(texts)
-            ]
+            data = [{"object": "embedding", "index": i, "embedding": _embed(str(t))} for i, t in enumerate(texts)]
             body = json.dumps({"object": "list", "data": data, "model": payload.get("model") or "text-embedding-3-small"}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

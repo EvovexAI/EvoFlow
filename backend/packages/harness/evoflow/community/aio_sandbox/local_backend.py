@@ -237,8 +237,10 @@ class LocalContainerBackend(SandboxBackend):
             cmd.extend(
                 [
                     "--read-only",
-                    "--cap-drop", "ALL",
-                    "--security-opt", "no-new-privileges",
+                    "--cap-drop",
+                    "ALL",
+                    "--security-opt",
+                    "no-new-privileges",
                 ]
             )
 

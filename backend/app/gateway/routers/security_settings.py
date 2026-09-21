@@ -105,9 +105,7 @@ async def get_execution_security_status(request: Request) -> dict[str, Any]:
 
 
 @router.patch("/execution")
-async def patch_execution_security(
-    request: Request, body: ExecutionSecurityPatchBody
-) -> dict[str, Any]:
+async def patch_execution_security(request: Request, body: ExecutionSecurityPatchBody) -> dict[str, Any]:
     """Update host OS sandbox profile / enablement from Security Center."""
     require_org_admin(request)
     from evoflow.execution_security.persist import patch_execution_security_settings
@@ -128,9 +126,7 @@ async def get_security_center_settings(request: Request) -> SecuritySettingsResp
 
 
 @router.patch("", response_model=SecuritySettingsResponse)
-async def patch_security_center_settings(
-    request: Request, body: SecuritySettingsPatchBody
-) -> SecuritySettingsResponse:
+async def patch_security_center_settings(request: Request, body: SecuritySettingsPatchBody) -> SecuritySettingsResponse:
     require_org_admin(request)
     patch = dict(body.settings or {})
     # Allow nesting execution_security in the general PATCH for a single save path.
@@ -144,13 +140,9 @@ async def patch_security_center_settings(
 
 
 @router.put("", response_model=SecuritySettingsResponse)
-async def put_security_center_settings(
-    request: Request, body: SecuritySettingsPatchBody
-) -> SecuritySettingsResponse:
+async def put_security_center_settings(request: Request, body: SecuritySettingsPatchBody) -> SecuritySettingsResponse:
     require_org_admin(request)
-    return SecuritySettingsResponse(
-        settings=_merge_execution_security(replace_security_settings(body.settings or {}))
-    )
+    return SecuritySettingsResponse(settings=_merge_execution_security(replace_security_settings(body.settings or {})))
 
 
 # ── Audit endpoints ──────────────────────────────────────────

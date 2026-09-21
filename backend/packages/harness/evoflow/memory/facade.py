@@ -86,8 +86,8 @@ def _maybe_enqueue_kg_extract(atom_id: str, namespace: str) -> None:
 
 def _maybe_enqueue_threshold(namespace: str) -> None:
     try:
-        from evoflow.memory.consolidate import enqueue_consolidate, should_enqueue_threshold
         from evoflow.knowledge.owned import jobs
+        from evoflow.memory.consolidate import enqueue_consolidate, should_enqueue_threshold
 
         if not should_enqueue_threshold(namespace):
             return
@@ -230,9 +230,7 @@ def get_core(
                 continue
             seen.add(atom["id"])
             picked.append(atom)
-        for atom in mem_store.list_namespace_atoms(
-            ns, layers=["semantic", "procedural"], limit=60
-        ):
+        for atom in mem_store.list_namespace_atoms(ns, layers=["semantic", "procedural"], limit=60):
             if atom["id"] in seen:
                 continue
             if float(atom.get("confidence") or 0) < max(min_confidence, 0.7):
@@ -281,9 +279,7 @@ def recall(
         # No query: return recent high-importance archival (non-pin preference)
         hits: list[dict[str, Any]] = []
         for n in ns:
-            hits.extend(
-                mem_store.list_namespace_atoms(n, layers=layers, limit=top_k)
-            )
+            hits.extend(mem_store.list_namespace_atoms(n, layers=layers, limit=top_k))
         hits.sort(
             key=lambda a: (float(a.get("importance") or 0), a.get("updated_at") or ""),
             reverse=True,
@@ -293,16 +289,12 @@ def recall(
     kw = mem_store.search_keyword_ns(ns, q, top_k=max(top_k * 3, 12), layers=layers)
     vec: list[dict[str, Any]] = []
     if query_embedding:
-        vec = mem_store.search_vector_ns(
-            ns, query_embedding, top_k=max(top_k * 3, 12), layers=layers
-        )
+        vec = mem_store.search_vector_ns(ns, query_embedding, top_k=max(top_k * 3, 12), layers=layers)
     else:
         # Try embed query best-effort (sync bridge)
         emb = _try_embed_sync(q)
         if emb:
-            vec = mem_store.search_vector_ns(
-                ns, emb, top_k=max(top_k * 3, 12), layers=layers
-            )
+            vec = mem_store.search_vector_ns(ns, emb, top_k=max(top_k * 3, 12), layers=layers)
     if kw and vec:
         fused = mem_store.rrf_fuse_atoms(kw, vec, top_k=top_k)
     elif kw:

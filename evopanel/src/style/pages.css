@@ -10810,6 +10810,37 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   gap: var(--space-sm);
 }
 
+.im-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--space-xl);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.im-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  margin-bottom: -1px;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary, #888);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.im-tab:hover {
+  color: var(--text-primary, #222);
+}
+.im-tab--active {
+  color: var(--primary, #0084ff);
+  border-bottom-color: var(--primary, #0084ff);
+  font-weight: 600;
+}
+.im-bindings-pane {
+  padding: var(--space-sm) var(--space-xl) var(--space-2xl, 28px);
+}
+
 .im-field-group {
   display: flex;
   flex-direction: column;

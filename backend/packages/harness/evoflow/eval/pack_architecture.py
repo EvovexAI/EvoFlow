@@ -313,20 +313,14 @@ PACKS: dict[PackId, PackArchitecture] = {
     "employees": {
         "pack": "employees",
         "title": "智能体员工评测体系",
-        "principle": (
-            "按「雇佣→派发→门禁→think/执行→终态」验证；"
-            "账本场景证明状态机与隔离；L3 证明真 LLM 产出；禁止 inject 冒充 wake。"
-        ),
+        "principle": ("按「雇佣→派发→门禁→think/执行→终态」验证；账本场景证明状态机与隔离；L3 证明真 LLM 产出；禁止 inject 冒充 wake。"),
         "stages": EMPLOYEE_STAGES,
         "capabilities": EMPLOYEE_CAPABILITIES,
     },
     "workflow": {
         "pack": "workflow",
         "title": "工作流评测体系",
-        "principle": (
-            "按「定义→开跑→节点绑定→DAG 推进→控制面→outcome/rollup」验证；"
-            "官方 outcome API 写终态；依赖未满足不得伪绿；控制面与 app_run 对账。"
-        ),
+        "principle": ("按「定义→开跑→节点绑定→DAG 推进→控制面→outcome/rollup」验证；官方 outcome API 写终态；依赖未满足不得伪绿；控制面与 app_run 对账。"),
         "stages": WORKFLOW_STAGES,
         "capabilities": WORKFLOW_CAPABILITIES,
     },
@@ -346,9 +340,7 @@ def pack_architecture_view(pack: PackId | str) -> dict[str, Any]:
     caps = list(arch["capabilities"])
     counts = {"implemented": 0, "partial": 0, "planned": 0}
     for c in caps:
-        counts[str(c.get("coverage") or "planned")] = (
-            counts.get(str(c.get("coverage") or "planned"), 0) + 1
-        )
+        counts[str(c.get("coverage") or "planned")] = counts.get(str(c.get("coverage") or "planned"), 0) + 1
     return {
         "pack": arch["pack"],
         "title": arch["title"],

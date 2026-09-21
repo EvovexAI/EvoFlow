@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from evoflow.agents.goal.goal_runtime import patch_goal_state

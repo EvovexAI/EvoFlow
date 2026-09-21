@@ -5,7 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .news_feeds import PLATFORM_LABELS, fetch_news_feeds as _fetch_news_feeds
+from .news_feeds import PLATFORM_LABELS
+from .news_feeds import fetch_news_feeds as _fetch_news_feeds
 
 _thread_stage: dict[str, dict[str, Any]] = {}
 
@@ -42,11 +43,7 @@ def _format_news_context(feeds: dict[str, Any]) -> str:
         lines.append(f"抓取时间：{fetched}{stale}")
     for platform, items in (feeds.get("platforms") or {}).items():
         label = PLATFORM_LABELS.get(platform, platform)
-        top = "；".join(
-            f"{i + 1}. {it.get('text') or it.get('title', '')}"
-            for i, it in enumerate((items or [])[:3])
-            if isinstance(it, dict) and (it.get("text") or it.get("title"))
-        )
+        top = "；".join(f"{i + 1}. {it.get('text') or it.get('title', '')}" for i, it in enumerate((items or [])[:3]) if isinstance(it, dict) and (it.get("text") or it.get("title")))
         if top:
             lines.append(f"{label} Top3：{top}")
     return "\n".join(lines)
@@ -66,9 +63,5 @@ def build_stage_context_appendix(thread_id: str | None) -> str:
         page_url = str((state.get("data") or {}).get("url") or "").strip()
         if not page_url:
             return ""
-        return (
-            "## 网页上下文\n"
-            "用户打开了右侧内嵌网页面板。以下 URL 仅供背景参考，非用户消息。\n"
-            f"当前页面：{page_url}"
-        )
+        return f"## 网页上下文\n用户打开了右侧内嵌网页面板。以下 URL 仅供背景参考，非用户消息。\n当前页面：{page_url}"
     return ""

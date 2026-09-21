@@ -16,8 +16,9 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Query, Request
-from evoflow.authz.http_guard import require_thread_visible
 from fastapi.responses import JSONResponse, StreamingResponse
+
+from evoflow.authz.http_guard import require_thread_visible
 
 router = APIRouter(prefix="/api/langgraph", tags=["langgraph-proxy"])
 logger = logging.getLogger(__name__)
@@ -135,6 +136,7 @@ def reclaim_stale_active_stream_proxies(
             ",".join(victims[:8]),
         )
     return victims
+
 
 # Short TTL cache for GET /active-sessions (avoids N× LangGraph /runs per poll).
 _ACTIVE_SESSIONS_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
@@ -383,11 +385,11 @@ def _extract_evf_prior_assistant_from_stream_body(body: bytes) -> tuple[str, str
     if prefix:
         # Check for potential duplication (same text repeated)
         half_len = len(prefix) // 2
-        if half_len > 10 and prefix[:half_len] == prefix[half_len:half_len * 2]:
+        if half_len > 10 and prefix[:half_len] == prefix[half_len : half_len * 2]:
             logger.warning(
                 "evf_prior_assistant_prefix appears duplicated (len=%d, first_half=%r)",
                 len(prefix),
-                prefix[:min(100, half_len)],
+                prefix[: min(100, half_len)],
             )
         else:
             logger.debug(
@@ -442,6 +444,7 @@ async def attach_run_stream(
     """
     require_thread_visible(request, thread_id)
     import sys
+
     print(f"[proxy] >>> GET attach_run_stream thread={thread_id} run={run_id}", file=sys.stderr, flush=True)
 
     poll_seconds = max(0.2, min(5.0, float(poll_interval_ms) / 1000.0))
@@ -494,6 +497,7 @@ async def attach_run_stream(
 
             out_bytes = convert_evf_frames_to_agui([frame.encode("utf-8")], state=agui_attach_state)
             return [b.decode("utf-8") for b in out_bytes] if out_bytes else []
+
         from evoflow.observability.poll_loop_log import log_poll_loop_end, log_poll_loop_start, log_poll_tick
 
         log_poll_loop_start(
@@ -526,9 +530,7 @@ async def attach_run_stream(
                                 notify_attach_run_terminal,
                             )
 
-                            still_active = await _langgraph_has_active_run(
-                                client, thread_id, run_id=run_id
-                            )
+                            still_active = await _langgraph_has_active_run(client, thread_id, run_id=run_id)
                             if still_active is False:
                                 await notify_attach_run_terminal(thread_id, run_id=run_id)
                         except Exception:
@@ -571,9 +573,7 @@ async def attach_run_stream(
                                 notify_attach_run_terminal,
                             )
 
-                            still_active = await _langgraph_has_active_run(
-                                client, thread_id, run_id=run_id
-                            )
+                            still_active = await _langgraph_has_active_run(client, thread_id, run_id=run_id)
                             if still_active is False:
                                 await notify_attach_run_terminal(thread_id, run_id=run_id)
                                 if use_ui_sse and evf_emitter is not None:
@@ -863,4 +863,3 @@ def _fast_thread_state_enabled() -> bool:
 #   - GET /threads/{thread_id}/runs/{run_id}/stream  (attach/refresh stream)
 #   - GET /active-sessions  (active sessions list)
 # Client-side trace endpoints moved to routers/client_trace.py at /api/trace/*
-

@@ -93,9 +93,7 @@ def test_update_base_same_model_queues_when_dim_null(owned_home: Path):
             conn.execute("UPDATE kb_bases SET embedding_dim=NULL WHERE id=?", (kb_id,))
 
         queued: list[str] = []
-        with patch.object(
-            jobs, "enqueue", side_effect=lambda **kw: queued.append(kw["doc_id"]) or "j"
-        ):
+        with patch.object(jobs, "enqueue", side_effect=lambda **kw: queued.append(kw["doc_id"]) or "j"):
             out = service.update_base(kb_id, {"embeddingModelRef": "plan-emb"})
 
         assert out.get("reindexQueued") == 1

@@ -25,14 +25,12 @@ def test_post_stream_metadata_sets_run_id(monkeypatch: pytest.MonkeyPatch) -> No
         run_id=None,
         mirror_enabled=True,
     )
-    transform.feed_upstream_for_mirror(
-        b'event: metadata\ndata: {"run_id":"run-from-meta"}\n\n'
-        b'event: messages\ndata: {"type":"ai","content":"hi"}\n\n'
-    )
+    transform.feed_upstream_for_mirror(b'event: metadata\ndata: {"run_id":"run-from-meta"}\n\nevent: messages\ndata: {"type":"ai","content":"hi"}\n\n')
     transform.finish_upstream_for_mirror()
 
     assert transform.run_id == "run-from-meta"
     assert "run-from-meta" in enqueued
+
 
 @pytest.mark.asyncio
 async def test_background_mirror_writer_is_disabled() -> None:

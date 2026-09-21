@@ -65,8 +65,7 @@ def _find_seed_paths(conn: Any, symbol: str, path: str) -> list[dict]:
     if sym:
         # exact match first
         for row in conn.execute(
-            "SELECT DISTINCT path, name, kind, line FROM symbols "
-            "WHERE name = ? COLLATE NOCASE LIMIT ?",
+            "SELECT DISTINCT path, name, kind, line FROM symbols WHERE name = ? COLLATE NOCASE LIMIT ?",
             (sym, _MAX_SEEDS),
         ).fetchall():
             p = str(row[0])
@@ -78,8 +77,7 @@ def _find_seed_paths(conn: Any, symbol: str, path: str) -> list[dict]:
         if len(seeds) < _MAX_SEEDS:
             esc = sym.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             for row in conn.execute(
-                "SELECT DISTINCT path, name, kind, line FROM symbols "
-                "WHERE name LIKE ? ESCAPE '\\' LIMIT ?",
+                "SELECT DISTINCT path, name, kind, line FROM symbols WHERE name LIKE ? ESCAPE '\\' LIMIT ?",
                 (esc + "%", _MAX_SEEDS - len(seeds)),
             ).fetchall():
                 p = str(row[0])
@@ -184,17 +182,22 @@ def _bfs_trace(
             # ── Callers: who imports / references *cur* ──
             if want_callers and remaining > 0:
                 for row in conn.execute(
-                    "SELECT from_path, spec, line FROM file_deps "
-                    "WHERE to_path = ? LIMIT ?",
+                    "SELECT from_path, spec, line FROM file_deps WHERE to_path = ? LIMIT ?",
                     (cur, remaining),
                 ).fetchall():
                     if total >= _MAX_NODES:
                         truncated = True
                         break
                     if _add_neighbor(
-                        layer, nxt, visited,
-                        path=str(row[0]), from_path=cur, via="import",
-                        spec=str(row[1]), line=int(row[2] or 0), conn=conn,
+                        layer,
+                        nxt,
+                        visited,
+                        path=str(row[0]),
+                        from_path=cur,
+                        via="import",
+                        spec=str(row[1]),
+                        line=int(row[2] or 0),
+                        conn=conn,
                     ):
                         total += 1
                         remaining -= 1
@@ -203,17 +206,22 @@ def _bfs_trace(
 
             if want_callers and remaining > 0 and not truncated:
                 for row in conn.execute(
-                    "SELECT DISTINCT from_path, symbol, line FROM internal_refs "
-                    "WHERE to_path = ? LIMIT ?",
+                    "SELECT DISTINCT from_path, symbol, line FROM internal_refs WHERE to_path = ? LIMIT ?",
                     (cur, remaining),
                 ).fetchall():
                     if total >= _MAX_NODES:
                         truncated = True
                         break
                     if _add_neighbor(
-                        layer, nxt, visited,
-                        path=str(row[0]), from_path=cur, via="internal_ref",
-                        symbol=str(row[1] or ""), line=int(row[2] or 0), conn=conn,
+                        layer,
+                        nxt,
+                        visited,
+                        path=str(row[0]),
+                        from_path=cur,
+                        via="internal_ref",
+                        symbol=str(row[1] or ""),
+                        line=int(row[2] or 0),
+                        conn=conn,
                     ):
                         total += 1
                         remaining -= 1
@@ -223,17 +231,22 @@ def _bfs_trace(
             # ── Callees: what *cur* imports / references ──
             if want_callees and remaining > 0 and not truncated:
                 for row in conn.execute(
-                    "SELECT to_path, spec, line FROM file_deps "
-                    "WHERE from_path = ? AND to_path IS NOT NULL LIMIT ?",
+                    "SELECT to_path, spec, line FROM file_deps WHERE from_path = ? AND to_path IS NOT NULL LIMIT ?",
                     (cur, remaining),
                 ).fetchall():
                     if total >= _MAX_NODES:
                         truncated = True
                         break
                     if _add_neighbor(
-                        layer, nxt, visited,
-                        path=str(row[0]), from_path=cur, via="import",
-                        spec=str(row[1]), line=int(row[2] or 0), conn=conn,
+                        layer,
+                        nxt,
+                        visited,
+                        path=str(row[0]),
+                        from_path=cur,
+                        via="import",
+                        spec=str(row[1]),
+                        line=int(row[2] or 0),
+                        conn=conn,
                     ):
                         total += 1
                         remaining -= 1
@@ -242,17 +255,22 @@ def _bfs_trace(
 
             if want_callees and remaining > 0 and not truncated:
                 for row in conn.execute(
-                    "SELECT DISTINCT to_path, symbol, line FROM internal_refs "
-                    "WHERE from_path = ? LIMIT ?",
+                    "SELECT DISTINCT to_path, symbol, line FROM internal_refs WHERE from_path = ? LIMIT ?",
                     (cur, remaining),
                 ).fetchall():
                     if total >= _MAX_NODES:
                         truncated = True
                         break
                     if _add_neighbor(
-                        layer, nxt, visited,
-                        path=str(row[0]), from_path=cur, via="internal_ref",
-                        symbol=str(row[1] or ""), line=int(row[2] or 0), conn=conn,
+                        layer,
+                        nxt,
+                        visited,
+                        path=str(row[0]),
+                        from_path=cur,
+                        via="internal_ref",
+                        symbol=str(row[1] or ""),
+                        line=int(row[2] or 0),
+                        conn=conn,
                     ):
                         total += 1
                         remaining -= 1
@@ -320,8 +338,7 @@ def trace_call_chain_hd(
             return json.dumps(
                 {
                     "ok": False,
-                    "error": "Workspace code index is empty. Run a full index build first "
-                    "(POST /api/workspaces/index-build or index-warm), then retry.",
+                    "error": "Workspace code index is empty. Run a full index build first (POST /api/workspaces/index-build or index-warm), then retry.",
                     "index_stats": stats,
                 },
                 ensure_ascii=False,

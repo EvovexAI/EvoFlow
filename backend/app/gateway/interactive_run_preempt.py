@@ -112,6 +112,7 @@ async def preempt_background_runs_for_chat(
 
     try:
         import httpx
+
         from evoflow.langgraph_run_config import resolve_langgraph_base_url
 
         base = (resolve_langgraph_base_url() or "").rstrip("/")

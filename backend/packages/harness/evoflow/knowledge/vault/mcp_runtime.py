@@ -347,12 +347,7 @@ def _read_ohs_startup_error(max_chars: int = 1200) -> str:
 
 def _looks_like_native_abi_mismatch(text: str) -> bool:
     lowered = (text or "").lower()
-    return (
-        "node_module_version" in lowered
-        or "compiled against a different node" in lowered
-        or "err_dlopen_failed" in lowered
-        or ("better-sqlite3" in lowered and "abi" in lowered)
-    )
+    return "node_module_version" in lowered or "compiled against a different node" in lowered or "err_dlopen_failed" in lowered or ("better-sqlite3" in lowered and "abi" in lowered)
 
 
 def _looks_like_permanent_native_failure(text: str) -> bool:
@@ -478,10 +473,7 @@ async def _ensure_native_modules_for_search(params: dict[str, Any]) -> None:
     rebuild_err = await _rebuild_better_sqlite3(node, package_root)
     if rebuild_err:
         raise SearchProviderUnavailableError(
-            "better-sqlite3 与当前 Node 版本不匹配，自动重建失败。"
-            f" 请在 {package_root} 下用同一 Node 执行"
-            " `npm --prefix node_modules/better-sqlite3 run install`。"
-            f" 详情: {rebuild_err}",
+            f"better-sqlite3 与当前 Node 版本不匹配，自动重建失败。 请在 {package_root} 下用同一 Node 执行 `npm --prefix node_modules/better-sqlite3 run install`。 详情: {rebuild_err}",
             details={"node": node, "cwd": str(package_root)},
         )
 
@@ -843,10 +835,7 @@ async def _start_stdio_session(
     indexed = _index_tools(tools)
     # Attach MCP inputSchema onto tool objects for capability discovery
     try:
-        mcp_schemas = {
-            str(t.name): (t.inputSchema if isinstance(t.inputSchema, dict) else {})
-            for t in (getattr(listed, "tools", None) or [])
-        }
+        mcp_schemas = {str(t.name): (t.inputSchema if isinstance(t.inputSchema, dict) else {}) for t in (getattr(listed, "tools", None) or [])}
         for tool in tools:
             name = str(getattr(tool, "name", "") or "")
             base = name.split("_")[-1] if "_" in name else name
@@ -928,12 +917,7 @@ async def _ensure_session_body(
     existing = _SESSIONS.get(cfg.id)
     if existing and not force_reload:
         need_search = not existing.search_tools and not existing.search_unavailable
-        need_w = (
-            need_write
-            and cfg.access_mode == AccessMode.read_write
-            and not existing.write_tools
-            and not existing.write_unavailable
-        )
+        need_w = need_write and cfg.access_mode == AccessMode.read_write and not existing.write_tools and not existing.write_unavailable
         if not need_search and not need_w:
             return existing
         sess = existing
@@ -980,11 +964,7 @@ async def _ensure_session_body(
                 mapped = map_exception(exc)
                 sess.search_error = sanitize_text(getattr(mapped, "message", str(mapped)))
                 # Permanent native module failure: stop warmup storm immediately.
-                if (
-                    isinstance(exc, SearchProviderUnavailableError)
-                    or _looks_like_permanent_native_failure(sess.search_error)
-                    or sess.search_restarts >= MCP_RESTART_MAX
-                ):
+                if isinstance(exc, SearchProviderUnavailableError) or _looks_like_permanent_native_failure(sess.search_error) or sess.search_restarts >= MCP_RESTART_MAX:
                     sess.search_restarts = max(sess.search_restarts, MCP_RESTART_MAX)
                     sess.search_unavailable = True
                 # Persist degraded state so restarts accumulate and status stops
@@ -998,12 +978,7 @@ async def _ensure_session_body(
                         ) from exc
                     raise mapped from exc
 
-        if (
-            need_write
-            and cfg.access_mode == AccessMode.read_write
-            and not sess.write_tools
-            and not sess.write_unavailable
-        ):
+        if need_write and cfg.access_mode == AccessMode.read_write and not sess.write_tools and not sess.write_unavailable:
             try:
 
                 async def _boot_write():
@@ -1019,11 +994,7 @@ async def _ensure_session_body(
                     starter=_boot_write,
                     restarts_so_far=sess.write_restarts,
                 )
-                filtered = {
-                    k: v
-                    for k, v in indexed.items()
-                    if _tool_basename(k) not in BLOCKED_WRITE_TOOLS and k not in BLOCKED_WRITE_TOOLS
-                }
+                filtered = {k: v for k, v in indexed.items() if _tool_basename(k) not in BLOCKED_WRITE_TOOLS and k not in BLOCKED_WRITE_TOOLS}
                 sess.write_tools = filtered
                 sess.write_stack = stack
                 sess.write_capabilities = discover_from_tool_objects(tool_objs)
@@ -1043,9 +1014,7 @@ async def _ensure_session_body(
         # external_http
         if cfg.search_server_url and not sess.search_tools:
             if not is_localhost_url(cfg.search_server_url) and not cfg.allow_remote_http:
-                raise SearchProviderUnavailableError(
-                    "external search URL is not localhost; set allowRemoteHttp after explicit confirmation"
-                )
+                raise SearchProviderUnavailableError("external search URL is not localhost; set allowRemoteHttp after explicit confirmation")
             headers = dict(cfg.headers or {})
             auth = vault_secrets.get_secret(cfg.auth_secret_ref) if cfg.auth_secret_ref else None
             if auth and "Authorization" not in headers:
@@ -1061,27 +1030,16 @@ async def _ensure_session_body(
             except Exception as exc:
                 raise map_exception(exc) from exc
 
-        if (
-            need_write
-            and cfg.access_mode == AccessMode.read_write
-            and cfg.write_server_url
-            and not sess.write_tools
-        ):
+        if need_write and cfg.access_mode == AccessMode.read_write and cfg.write_server_url and not sess.write_tools:
             if not is_localhost_url(cfg.write_server_url) and not cfg.allow_remote_http:
-                raise WriteProviderUnavailableError(
-                    "external write URL is not localhost; set allowRemoteHttp after explicit confirmation"
-                )
+                raise WriteProviderUnavailableError("external write URL is not localhost; set allowRemoteHttp after explicit confirmation")
             headers = dict(cfg.headers or {})
             try:
                 indexed, tool_objs, client = await _start_http_session(
                     cfg.write_server_name or f"kb-write-{cfg.id}",
                     build_http_config(cfg.write_server_url, headers),
                 )
-                sess.write_tools = {
-                    k: v
-                    for k, v in indexed.items()
-                    if _tool_basename(k) not in BLOCKED_WRITE_TOOLS
-                }
+                sess.write_tools = {k: v for k, v in indexed.items() if _tool_basename(k) not in BLOCKED_WRITE_TOOLS}
                 sess.write_stack = client  # type: ignore[assignment]
                 sess.write_capabilities = discover_from_tool_objects(tool_objs)
             except Exception as exc:
@@ -1117,12 +1075,7 @@ async def ensure_session(
     if not force_reload:
         existing = _SESSIONS.get(cfg.id)
         if existing and existing.search_tools and not existing.search_unavailable:
-            need_w = (
-                need_write
-                and cfg.access_mode == AccessMode.read_write
-                and not existing.write_tools
-                and not existing.write_unavailable
-            )
+            need_w = need_write and cfg.access_mode == AccessMode.read_write and not existing.write_tools and not existing.write_unavailable
             if not need_w:
                 return existing
 
@@ -1237,10 +1190,7 @@ async def install_packages(*, progress_cb: Any | None = None) -> dict[str, Any]:
     probe = probe_node_runtime()
     npm_argv = resolve_npm_argv(node_path or probe.node_path or resolve_node_binary())
     if not npm_argv:
-        raise NodeRuntimeMissingError(
-            probe.message
-            or "npm not found — private Node 已准备但仍缺少 npm，请重试安装或手动安装 Node.js 18+"
-        )
+        raise NodeRuntimeMissingError(probe.message or "npm not found — private Node 已准备但仍缺少 npm，请重试安装或手动安装 Node.js 18+")
     packaged_pkg = None
     packaged = resolve_packaged_kb_mcp_root()
     if packaged is not None and (packaged / "package.json").is_file():
@@ -1259,9 +1209,7 @@ async def install_packages(*, progress_cb: Any | None = None) -> dict[str, Any]:
                 "private": True,
                 "dependencies": {
                     OHS_PACKAGE.split("@")[0]: OHS_PACKAGE.split("@", 1)[1] if "@" in OHS_PACKAGE else "*",
-                    WRITE_MCP_PACKAGE.split("@")[0]: WRITE_MCP_PACKAGE.split("@", 1)[1]
-                    if "@" in WRITE_MCP_PACKAGE
-                    else "*",
+                    WRITE_MCP_PACKAGE.split("@")[0]: WRITE_MCP_PACKAGE.split("@", 1)[1] if "@" in WRITE_MCP_PACKAGE else "*",
                 },
             }
             (root / "package.json").write_text(json.dumps(package_json, indent=2), encoding="utf-8")

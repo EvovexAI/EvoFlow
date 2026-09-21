@@ -21,14 +21,14 @@ ScenarioKey = str
 def normalize_scenario_key(value: str | None) -> ScenarioKey:
     """Normalize any legacy intent/scenario hint into current mode key (ask / agent / plan).
 
-  Mode keys (canonical, match UI Ask / Agent / Plan):
-    - ask: 默认对话
-    - plan: 规划与调度执行（`plan` 提交正文 + `supervisor` 编排）
-    - agent: Agent 模式（本地代码检索、读写改删、命令执行、联网检索）
+    Mode keys (canonical, match UI Ask / Agent / Plan):
+      - ask: 默认对话
+      - plan: 规划与调度执行（`plan` 提交正文 + `supervisor` 编排）
+      - agent: Agent 模式（本地代码检索、读写改删、命令执行、联网检索）
 
-    Legacy aliases ``chat`` / ``workspace`` / ``web`` are still accepted.
+      Legacy aliases ``chat`` / ``workspace`` / ``web`` are still accepted.
 
-    治理/自我进化走 evoflow-admin 技能 + terminal + evoflow CLI，无独立 manage/evolve 模式。
+      治理/自我进化走 evoflow-admin 技能 + terminal + evoflow CLI，无独立 manage/evolve 模式。
     """
     raw = (value or "").strip().lower()
     if raw in {"trae", "trae_window", "trae-runtime", "trae_runtime"}:
@@ -131,9 +131,7 @@ CORE_TOOL_NAMES: tuple[str, ...] = (
 )
 
 # 系统级延迟加载工具
-DEFERRED_SYSTEM_TOOL_NAMES: tuple[str, ...] = (
-    "ask_clarification",
-)
+DEFERRED_SYSTEM_TOOL_NAMES: tuple[str, ...] = ("ask_clarification",)
 
 # 冷启动首轮：当前无核心工具，全部走 deferred + tool_search
 BOOTSTRAP_TOOL_NAMES: tuple[str, ...] = (*CORE_TOOL_NAMES,)
@@ -195,6 +193,7 @@ SESSION_MODE_BOUND_TOOLS: dict[str, tuple[str, ...]] = {
     "agent": _dedupe_tool_names(CORE_TOOL_NAMES, SCENARIO_EAGER_TOOL_NAMES["agent"]),
     "plan": _dedupe_tool_names(CORE_TOOL_NAMES, SCENARIO_EAGER_TOOL_NAMES["plan"]),
 }
+
 
 def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
     from evoflow.tools.tool_catalog import AGENT_OPTIONAL_DEFERRED_TOOL_NAMES
@@ -394,9 +393,7 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
     },
     "file_ops_read_present": {
         "zh_description": "规划阶段只读检索：索引 search_code_index（大结果路径用 read；rg 在 workspace_baseline）",
-        "tools": (
-            "search_code_index",
-        ),
+        "tools": ("search_code_index",),
     },
     "web_research": {
         "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器（browser 工具，延迟激活）；截图理解用 view_image",
@@ -469,12 +466,7 @@ TASK_SCENARIO_PROFILES: dict[str, TaskScenarioProfile] = {
             "collab_peer_reply",
         ),
         signals="先规划后执行、多子任务编排与监督推进。",
-        boundaries=(
-            "plan 独占（激活会清 agent）。"
-            "全流程 done 后系统自动切 agent。"
-            "卡壳或用户要换模式：须先 supervisor 取消/失败主任务，勿半途 bypass。"
-            "Gateway 定时 automation 不是 plan，用 tool_search 后直接调，勿 activate plan。"
-        ),
+        boundaries=("plan 独占（激活会清 agent）。全流程 done 后系统自动切 agent。卡壳或用户要换模式：须先 supervisor 取消/失败主任务，勿半途 bypass。Gateway 定时 automation 不是 plan，用 tool_search 后直接调，勿 activate plan。"),
     ),
     "agent": TaskScenarioProfile(
         key="agent",
@@ -625,9 +617,7 @@ def scenarios_granting_tool(tool_name: str) -> list[str]:
     return ordered_scenario_keys_for_display(keys)
 
 
-_WORKSPACE_FILE_TOOL_NAMES = frozenset(
-    resolve_tools_for_scenarios(["agent"]) + resolve_tools_for_scenarios(["plan"])
-)
+_WORKSPACE_FILE_TOOL_NAMES = frozenset(resolve_tools_for_scenarios(["agent"]) + resolve_tools_for_scenarios(["plan"]))
 _WEB_TOOL_NAMES = frozenset(NON_CORE_TOOL_GROUPS["web_research"]["tools"])  # type: ignore[arg-type]
 _PLAN_ORCHESTRATION_TOOL_NAMES = frozenset({"plan", "supervisor"})
 

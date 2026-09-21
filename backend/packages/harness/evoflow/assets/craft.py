@@ -133,7 +133,6 @@ def save_craft_from_experience(data: dict[str, Any]) -> dict[str, Any]:
     skill_dir = craft_root / slug
     skill_dir.mkdir(parents=True, exist_ok=True)
     skill_path = skill_dir / "SKILL.md"
-    ctx = data.get("context") if isinstance(data.get("context"), dict) else {}
     tags = data.get("tags") or []
     if not isinstance(tags, list):
         tags = []
@@ -237,11 +236,7 @@ def list_craft_experiences(
                     "confidence": float(meta.get("confidence") or 1.0),
                     "use_count": 0,
                     "storage": "craft",
-                    "path": (
-                        skill_md.relative_to(root).as_posix()
-                        if root in skill_md.resolve().parents or skill_md.resolve() == root.resolve()
-                        else skill_md.as_posix()
-                    ),
+                    "path": (skill_md.relative_to(root).as_posix() if root in skill_md.resolve().parents or skill_md.resolve() == root.resolve() else skill_md.as_posix()),
                     "entityType": str(meta.get("entity") or entity_type),
                     "entityId": str(meta.get("entity_id") or entity_id),
                 }
@@ -335,8 +330,9 @@ def delete_craft_experience(experience_id: str) -> bool:
     row = get_craft_experience(experience_id)
     if not row:
         return False
-    from evoflow.assets.hub import assets_root
     import shutil
+
+    from evoflow.assets.hub import assets_root
 
     path = assets_root() / str(row.get("path") or "")
     skill_dir = path.parent

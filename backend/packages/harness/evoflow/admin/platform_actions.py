@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from evoflow.admin import platform_handlers as H
 from evoflow.admin.errors import AdminError, NotFoundError, ValidationError
@@ -55,11 +56,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "settings": {
         "title": "设置（模型/联网搜索）",
-        "when": (
-            "改默认模型、增删模型配置；"
-            "或帮用户配置/测通「联网搜索」（含 Agent Plan 豆包 Harness Key、独立豆包/博查/Tavily 等）。"
-            "用户说设置页太复杂、不会配搜索、豆包搜不通、Plan 联网怎么填时，优先在此域用对话代配。"
-        ),
+        "when": ("改默认模型、增删模型配置；或帮用户配置/测通「联网搜索」（含 Agent Plan 豆包 Harness Key、独立豆包/博查/Tavily 等）。用户说设置页太复杂、不会配搜索、豆包搜不通、Plan 联网怎么填时，优先在此域用对话代配。"),
         "not": "不是用户画像（用 assets.*_profile / 资产中心）；不是临时搜一句网页（那用 web_search）；配好后搜网页仍用 web_search",
     },
     "assets": {
@@ -80,10 +77,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "tasks": {
         "title": "协作任务台账（行政视角）",
         "when": "从行政侧列/查/建/改状态/删 Task 台账时",
-        "not": (
-            "值班过程中开单/progress/带 handlers 结案优先用专用工具 tasks；"
-            "用户备忘录用 items；对话 checklist 用 todo"
-        ),
+        "not": ("值班过程中开单/progress/带 handlers 结案优先用专用工具 tasks；用户备忘录用 items；对话 checklist 用 todo"),
     },
     "items": {
         "title": "用户事项/备忘",
@@ -199,11 +193,7 @@ def _preview(action: PlatformAction, args: dict[str, Any]) -> dict[str, Any]:
         "risk": action.risk,
         "summary": action.summary,
         "args": args,
-        "hint": (
-            f"这是{action.risk}操作，尚未执行。"
-            f"向用户复述将要做的事；用户确认后再次调用 "
-            f"platform(action={action.name!r}, args_json=..., confirm=true)。"
-        ),
+        "hint": (f"这是{action.risk}操作，尚未执行。向用户复述将要做的事；用户确认后再次调用 platform(action={action.name!r}, args_json=..., confirm=true)。"),
     }
 
 
@@ -324,9 +314,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "appearance",
             "更新界面外观（主题/色卡/背景/液态玻璃）",
             "write",
-            "theme?, accentPalette?, accentCustom?, backgroundImage?, backgroundOpacity?, "
-            "liquidGlassEnabled?, liquidGlassPreset?, liquidGlassBlur?, liquidGlassFlowSpeed?, "
-            "liquidGlassReadabilityDim?, clearBackground?",
+            "theme?, accentPalette?, accentCustom?, backgroundImage?, backgroundOpacity?, liquidGlassEnabled?, liquidGlassPreset?, liquidGlassBlur?, liquidGlassFlowSpeed?, liquidGlassReadabilityDim?, clearBackground?",
             H.appearance_patch,
             "改成深色+极光液态玻璃",
             "把背景换成本地视频路径",
@@ -622,9 +610,7 @@ def _domain_catalog_entry(domain: str, actions: list[PlatformAction]) -> dict[st
     return {
         **guide,
         "count": len(actions),
-        "actions": [
-            {"name": a.name, "summary": a.summary, "risk": a.risk} for a in actions
-        ],
+        "actions": [{"name": a.name, "summary": a.summary, "risk": a.risk} for a in actions],
         "action_names": [a.name for a in actions],
     }
 
@@ -647,30 +633,15 @@ def build_catalog(*, domain: str | None = None, detailed: bool = False) -> dict[
         by_dom: dict[str, list[PlatformAction]] = {}
         for a in actions:
             by_dom.setdefault(a.domain, []).append(a)
-        domain_summaries = [
-            _domain_catalog_entry(d, by_dom[d])
-            for d in PLATFORM_DOMAINS
-            if d in by_dom
-        ]
-        items = [
-            {"name": a.name, "domain": a.domain, "risk": a.risk, "summary": a.summary}
-            for a in actions
-        ]
+        domain_summaries = [_domain_catalog_entry(d, by_dom[d]) for d in PLATFORM_DOMAINS if d in by_dom]
+        items = [{"name": a.name, "domain": a.domain, "risk": a.risk, "summary": a.summary} for a in actions]
         return {
             "ok": True,
             "count": len(items),
             "domains": domain_summaries,
             "items": items,
-            "routing": (
-                "先按 domains[].when 选域，再选 domains[].actions[].name 作为 action。"
-                "用户备忘→items；岗位工单推进→专用工具 tasks（或本工具 tasks.* 行政侧）；"
-                "对话 checklist→todo。写/破坏性操作须用户确认后 confirm=true。"
-            ),
-            "hint": (
-                "某域详版：action=catalog 且 domain="
-                + "|".join(PLATFORM_DOMAINS)
-                + "。"
-            ),
+            "routing": ("先按 domains[].when 选域，再选 domains[].actions[].name 作为 action。用户备忘→items；岗位工单推进→专用工具 tasks（或本工具 tasks.* 行政侧）；对话 checklist→todo。写/破坏性操作须用户确认后 confirm=true。"),
+            "hint": ("某域详版：action=catalog 且 domain=" + "|".join(PLATFORM_DOMAINS) + "。"),
         }
 
     guide = domain_guide(dom) if dom else None
@@ -694,10 +665,7 @@ def build_catalog(*, domain: str | None = None, detailed: bool = False) -> dict[
     }
     if guide:
         out["guide"] = guide
-        out["actions"] = [
-            {"name": a.name, "summary": a.summary, "risk": a.risk, "params": a.params}
-            for a in actions
-        ]
+        out["actions"] = [{"name": a.name, "summary": a.summary, "risk": a.risk, "params": a.params} for a in actions]
         if dom == "workflow":
             from evoflow.admin.platform_workflow_schema import build_workflow_platform_schema
 
@@ -709,11 +677,7 @@ def build_help(topic: str | None = None) -> dict[str, Any]:
     t = str(topic or "").strip().lower()
     if not t or t in {"", "platform", "all", "*"}:
         cat = build_catalog(detailed=False)
-        cat["manual"] = (
-            "平台行政统一走 platform。流程：catalog/help 看 domains（含 when + 功能清单）→ "
-            "选 action →（写操作向用户确认）→ confirm=true 执行。"
-            "易混：items=用户备忘；tasks 域/专用 tasks 工具=协作工单；todo=对话内临时清单。"
-        )
+        cat["manual"] = "平台行政统一走 platform。流程：catalog/help 看 domains（含 when + 功能清单）→ 选 action →（写操作向用户确认）→ confirm=true 执行。易混：items=用户备忘；tasks 域/专用 tasks 工具=协作工单；todo=对话内临时清单。"
         return cat
     if t in {"catalog", "help", "domains"}:
         return build_catalog(detailed=False)

@@ -79,10 +79,7 @@ def evaluate_tool_reliability(days: int = 7) -> dict[str, Any]:
         "success_rate": round(success_rate, 4),
         "reliability_score": reliability_score,
         "tools": tools,
-        "degraded_tools": [
-            {"tool": t.get("tool"), "success_rate": t.get("success_rate"), "calls": t.get("calls")}
-            for t in degraded
-        ],
+        "degraded_tools": [{"tool": t.get("tool"), "success_rate": t.get("success_rate"), "calls": t.get("calls")} for t in degraded],
     }
 
 
@@ -180,9 +177,7 @@ def get_agent_ranking(days: int = 7, limit: int = 10) -> dict[str, Any]:
             for a in agents[:limit]:
                 code = str(a.get("agent_code") or a.get("code") or a.get("id") or "").strip()
                 if code:
-                    rows.append(
-                        {"agent": code, "tasks": 0, "done": 0, "completion_rate": 0.0}
-                    )
+                    rows.append({"agent": code, "tasks": 0, "done": 0, "completion_rate": 0.0})
         except Exception:  # noqa: BLE001
             rows = []
 
@@ -203,9 +198,7 @@ def evaluate_intervention_rate(days: int = 7) -> dict[str, Any]:
         cols = _columns(db, "evoflow_collab_tasks")
         if "status" in cols:
             try:
-                row = db.execute(
-                    "SELECT COUNT(*) AS c FROM evoflow_collab_tasks"
-                ).fetchone()
+                row = db.execute("SELECT COUNT(*) AS c FROM evoflow_collab_tasks").fetchone()
                 total = int(row["c"] or 0) if row else 0
                 row2 = db.execute(
                     """
@@ -282,9 +275,7 @@ def evaluate_task_consistency(days: int = 7) -> dict[str, Any]:
         if "status" not in cols:
             continue
         try:
-            row = db.execute(
-                f"SELECT COUNT(*) AS c FROM {table} WHERE LOWER(COALESCE(status,'')) = 'pending'"
-            ).fetchone()
+            row = db.execute(f"SELECT COUNT(*) AS c FROM {table} WHERE LOWER(COALESCE(status,'')) = 'pending'").fetchone()
             pending_approvals += int(row["c"] or 0) if row else 0
         except Exception:  # noqa: BLE001
             pass
@@ -330,9 +321,7 @@ def get_failure_reasons(days: int = 7, limit: int = 10) -> dict[str, Any]:
                     """
                 ).fetchall()
                 for r in result:
-                    reasons.append(
-                        {"reason": str(r["reason"] or "unknown"), "count": int(r["count"] or 0)}
-                    )
+                    reasons.append({"reason": str(r["reason"] or "unknown"), "count": int(r["count"] or 0)})
             except Exception:  # noqa: BLE001
                 reasons = []
 

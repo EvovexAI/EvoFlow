@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from pathlib import Path
 
 from evoflow.assets.injection_budget import TIER0_SOUL_SUMMARY_CHARS, cap_text_chars
 from evoflow.assets.paths import EntityRef, profile_path

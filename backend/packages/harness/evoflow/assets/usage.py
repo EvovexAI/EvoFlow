@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ def max_unused_days() -> int:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -199,7 +199,7 @@ def asset_is_stale(
 ) -> bool:
     """True when last_used_at (else created_at / mtime) is older than the window."""
     days = max_unused_days() if max_days is None else max(1, int(max_days))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     meta = read_usage_meta(entity, rel_path)
     stamp = _parse_iso(str(meta.get("last_used_at") or ""))
     cited = _parse_iso(str(meta.get("last_cited_at") or ""))
@@ -210,11 +210,11 @@ def asset_is_stale(
     if stamp is None:
         try:
             path = resolve_entity_file(entity, rel_path)
-            stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         except (ValueError, OSError):
             return False
     if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
+        stamp = stamp.replace(tzinfo=UTC)
     return stamp < cutoff
 
 
@@ -231,7 +231,7 @@ def usage_recency_score(meta: dict[str, str], path: Path | None = None) -> float
     if stamp is None:
         return 0.0
     if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
+        stamp = stamp.replace(tzinfo=UTC)
     return stamp.timestamp()
 
 
@@ -242,7 +242,7 @@ def prune_done_inbox(
 ) -> dict[str, Any]:
     """Delete archived ``_inbox/_done/**`` files older than the unused window."""
     days = max_unused_days() if max_days is None else max(1, int(max_days))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     root = entity_root(entity.normalized()) / "memory" / "_inbox" / "_done"
     if not root.is_dir():
         return {"ok": True, "deleted": 0}
@@ -251,7 +251,7 @@ def prune_done_inbox(
         if not path.is_file():
             continue
         try:
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
         except OSError:
             continue
         if mtime >= cutoff:
@@ -349,19 +349,7 @@ def collect_entity_usage_stats(
                 "lastUsedAt": last_used,
                 "lastCitedAt": last_cited,
                 "stale": is_stale,
-                "kind": (
-                    "craft"
-                    if rel.startswith("craft/")
-                    else "episodic"
-                    if "/episodic/" in rel
-                    else "facts"
-                    if "/facts/" in rel
-                    else "journal"
-                    if "/journal/" in rel
-                    else "standing"
-                    if "standing" in rel
-                    else "memory"
-                ),
+                "kind": ("craft" if rel.startswith("craft/") else "episodic" if "/episodic/" in rel else "facts" if "/facts/" in rel else "journal" if "/journal/" in rel else "standing" if "standing" in rel else "memory"),
             }
         )
 

@@ -108,10 +108,7 @@ class ModelConfig(BaseModel):
     supports_vision: bool = Field(default_factory=lambda: False, description="Whether the model supports vision/image inputs")
     enable_web_search: bool = Field(
         default_factory=lambda: False,
-        description=(
-            "Enable vendor-native web search when supported. "
-            "Phase 1: DashScope/Aliyun maps this to extra_body.enable_search."
-        ),
+        description=("Enable vendor-native web search when supported. Phase 1: DashScope/Aliyun maps this to extra_body.enable_search."),
     )
     web_search_options: dict | None = Field(
         default_factory=lambda: None,

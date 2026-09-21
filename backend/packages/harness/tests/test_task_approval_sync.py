@@ -95,9 +95,7 @@ def test_task_approve_syncs_bridge_initiative(sqlite_tmp):
         assert bridge is not None
         assert bridge.status == InitiativeStatus.PENDING_APPROVAL
 
-        updated = asyncio.run(
-            gate.process_decision(appr.id, decision="approved", decided_by="user")
-        )
+        updated = asyncio.run(gate.process_decision(appr.id, decision="approved", decided_by="user"))
         assert updated is not None
         assert updated.status == InitiativeStatus.APPROVED
         assert updated.approved_by == "user"

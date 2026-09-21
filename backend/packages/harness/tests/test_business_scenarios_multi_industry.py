@@ -11,8 +11,9 @@ L5 真实业务场景测试 - HR + 内容运营
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -26,6 +27,7 @@ def sqlite_tmp(tmp_path: Path, monkeypatch) -> Path:
 # ═══════════════════════════════════════════════════════════════
 # 场景 1：HR 招聘流程自动化
 # ═══════════════════════════════════════════════════════════════
+
 
 def _make_hr_recruitment_app() -> dict:
     """HR 招聘 App - 4 个步骤 + auto rollup。"""
@@ -157,13 +159,13 @@ class TestHRRecruitment:
         """招聘全流程完成后，rollup 生成完整招聘决策报告。"""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.app_rollup import is_rollup_subtask
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
-        from evoflow.timeutil import utc_now_iso_z
-        from evoflow.collab.app_rollup import is_rollup_subtask
-
         from evoflow.persistence.db import get_db as _get_db
+        from evoflow.timeutil import utc_now_iso_z
+
         _get_db()
 
         app = _make_hr_recruitment_app()
@@ -501,6 +503,7 @@ class TestHRRecruitment:
 # 场景 2：内容运营 - 短视频选题与脚本策划
 # ═══════════════════════════════════════════════════════════════
 
+
 def _make_content_ops_app() -> dict:
     """内容运营 App - 短视频选题策划全流程。"""
     return {
@@ -631,13 +634,13 @@ class TestContentOperations:
         """内容策划全流程完成后，rollup 生成完整内容生产包。"""
         del sqlite_tmp
         from evoflow.collab import app_runner
-        from evoflow.collab.storage import get_project_storage, find_main_task
+        from evoflow.collab.app_rollup import is_rollup_subtask
+        from evoflow.collab.storage import find_main_task, get_project_storage
         from evoflow.collab.task_progress import sync_main_task_from_subtasks
         from evoflow.persistence import app_repositories
-        from evoflow.timeutil import utc_now_iso_z
-        from evoflow.collab.app_rollup import is_rollup_subtask
-
         from evoflow.persistence.db import get_db as _get_db
+        from evoflow.timeutil import utc_now_iso_z
+
         _get_db()
 
         app = _make_content_ops_app()

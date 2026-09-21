@@ -258,6 +258,7 @@ def _api_licensed_search(
     )
     return []
 
+
 @tool("web_search", description=WEB_SEARCH_DESCRIPTION, parse_docstring=False)
 def web_search_tool(
     query: str,
@@ -386,11 +387,7 @@ def web_search_tool(
             title = str(r.get("title", "") or "").strip()
             url = str(r.get("href", r.get("link", r.get("url", ""))) or "").strip()
             raw_content = str(r.get("body", r.get("snippet", "")) or "").strip()
-            content_val = (
-                raw_content[:max_content_chars]
-                if raw_content
-                else _ensure_non_empty_content(query=query, title=title, url=url, content=raw_content)[:max_content_chars]
-            )
+            content_val = raw_content[:max_content_chars] if raw_content else _ensure_non_empty_content(query=query, title=title, url=url, content=raw_content)[:max_content_chars]
             eng = str(r.get("_engine") or "").strip()
             row_out: dict = {
                 "title": title,
@@ -480,9 +477,7 @@ def web_search_tool(
             out_payload["_official_news_index"] = authoritative_official_news_index()
         if news_53ai_effective == "latest":
             out_payload["_list_level_only"] = True
-            out_payload["_body_fetch_hint"] = (
-                "仅列表级摘要；若需某条全文请根据标题与任务判断是否必要，再对该条 url 单独调用 web_fetch。"
-            )
+            out_payload["_body_fetch_hint"] = "仅列表级摘要；若需某条全文请根据标题与任务判断是否必要，再对该条 url 单独调用 web_fetch。"
         return json.dumps(out_payload, ensure_ascii=False)
 
     if news_53ai_effective == "latest":
@@ -507,11 +502,7 @@ def web_search_tool(
             "total_results": 0,
             "engines": [],
             "results": [],
-            "_note": (
-                "No results: open Settings → 联网搜索, set preferred engine + API key "
-                "(豆包搜索 / Tavily / Brave / Firecrawl / SearXNG), or install ddgs for free fallback. "
-                "Baidu/Bing/Sogou HTML scraping has been removed."
-            ),
+            "_note": ("No results: open Settings → 联网搜索, set preferred engine + API key (豆包搜索 / Tavily / Brave / Firecrawl / SearXNG), or install ddgs for free fallback. Baidu/Bing/Sogou HTML scraping has been removed."),
             "ai_daily": ai_daily_effective,
             "news_53ai": news_53ai_effective,
         },

@@ -31,10 +31,7 @@ def test_values_jsonrpc_serialize_dwarfs_agui_delta():
             {
                 "type": "ai",
                 "content": "x" * 8000,
-                "tool_calls": [
-                    {"id": f"c{i}", "name": "tool", "args": {"n": i, "blob": "y" * 200}}
-                    for i in range(40)
-                ],
+                "tool_calls": [{"id": f"c{i}", "name": "tool", "args": {"n": i, "blob": "y" * 200}} for i in range(40)],
             }
         ]
         * 5

@@ -218,9 +218,7 @@ def runtime_context_mapping(runtime: Runtime | None) -> dict[str, Any]:
     if isinstance(ctx, dict):
         return dict(ctx)
     if isinstance(ctx, LeadAgentRuntimeContext):
-        out: dict[str, Any] = {
-            f.name: getattr(ctx, f.name) for f in fields(ctx) if f.name != "_EXTRA" and getattr(ctx, f.name) is not None
-        }
+        out: dict[str, Any] = {f.name: getattr(ctx, f.name) for f in fields(ctx) if f.name != "_EXTRA" and getattr(ctx, f.name) is not None}
         extra = getattr(ctx, "_EXTRA", None)
         if isinstance(extra, dict):
             out.update({k: v for k, v in extra.items() if v is not None})

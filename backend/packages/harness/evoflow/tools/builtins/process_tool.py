@@ -123,7 +123,7 @@ def _get_finished_record(session_id: str) -> dict[str, Any] | None:
 
 def _format_finished_record(record: dict[str, Any], *, tail: int = 50) -> str:
     parts = [
-        f"Status: finished (process exited, session pruned)",
+        "Status: finished (process exited, session pruned)",
         f"Command: {record.get('command', '')}",
         f"Exit code: {record.get('exit_code', '?')}",
     ]
@@ -344,10 +344,7 @@ def _process_log(
     if len(parts) == 1:
         parts.append("(no output yet)")
     if session.is_alive():
-        parts.append(
-            "Tip: process still running — use process(action='wait', ...) to block until "
-            "completion instead of polling log repeatedly."
-        )
+        parts.append("Tip: process still running — use process(action='wait', ...) to block until completion instead of polling log repeatedly.")
     return "\n\n".join(parts)
 
 
@@ -403,15 +400,9 @@ def _process_wait(
         if stderr:
             parts.append(f"[stderr]\n{stderr}")
         if streak >= 2:
-            parts.append(
-                f"Further wait calls are blocked. Run process(action='kill', "
-                f"session_id='{session_id}') to stop, or wait for natural exit."
-            )
+            parts.append(f"Further wait calls are blocked. Run process(action='kill', session_id='{session_id}') to stop, or wait for natural exit.")
         else:
-            parts.append(
-                f"Retry with a larger timeout: process(action='wait', "
-                f"session_id='{session_id}', timeout=600)."
-            )
+            parts.append(f"Retry with a larger timeout: process(action='wait', session_id='{session_id}', timeout=600).")
         return "\n".join(parts)
     except Exception as e:
         return f"Error waiting for process: {e}"

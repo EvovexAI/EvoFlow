@@ -42,6 +42,7 @@ from evoflow.tools.host_direct.trace_call_chain import (  # noqa: I001
 #  Helpers — build in-memory index
 # ═══════════════════════════════════════════════════════════════
 
+
 def _make_conn() -> sqlite3.Connection:
     """Create an in-memory SQLite with the same schema as the real index."""
     conn = sqlite3.connect(":memory:")
@@ -146,6 +147,7 @@ def _seed_internal_refs(conn) -> list[str]:
 #  L1 — Unit tests (pure helpers)
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestPathHasSkippedSegment:
     """L1: _path_has_skipped_segment filtering."""
 
@@ -187,10 +189,10 @@ class TestIndexStats:
 
     def test_populated_db(self):
         conn = _make_conn()
-        _seed_chain(conn, depth=3)       # 3 files, 3 symbols, 2 deps
-        _seed_internal_refs(conn)         # 3 more files, 3 more symbols, 2 refs
+        _seed_chain(conn, depth=3)  # 3 files, 3 symbols, 2 deps
+        _seed_internal_refs(conn)  # 3 more files, 3 more symbols, 2 refs
         stats = _index_stats(conn)
-        assert stats["files"] == 6       # 3 + 3
+        assert stats["files"] == 6  # 3 + 3
         assert stats["symbols"] >= 6
         assert stats["deps"] >= 2
         assert stats["refs"] >= 2
@@ -312,9 +314,14 @@ class TestAddNeighbor:
     def test_adds_new_node(self):
         layer, nxt, visited = [], [], set()
         added = _add_neighbor(
-            layer, nxt, visited,
-            path="src/new.py", from_path="src/old.py", via="import",
-            spec="from .new import X", line=5,
+            layer,
+            nxt,
+            visited,
+            path="src/new.py",
+            from_path="src/old.py",
+            via="import",
+            spec="from .new import X",
+            line=5,
         )
         assert added
         assert len(layer) == 1
@@ -327,8 +334,12 @@ class TestAddNeighbor:
     def test_skips_visited(self):
         layer, nxt, visited = [], [], {"src/seen.py"}
         added = _add_neighbor(
-            layer, nxt, visited,
-            path="src/seen.py", from_path="src/old.py", via="import",
+            layer,
+            nxt,
+            visited,
+            path="src/seen.py",
+            from_path="src/old.py",
+            via="import",
         )
         assert not added
         assert len(layer) == 0
@@ -336,25 +347,38 @@ class TestAddNeighbor:
     def test_skips_empty_path(self):
         layer, nxt, visited = [], [], set()
         added = _add_neighbor(
-            layer, nxt, visited,
-            path="", from_path="src/old.py", via="import",
+            layer,
+            nxt,
+            visited,
+            path="",
+            from_path="src/old.py",
+            via="import",
         )
         assert not added
 
     def test_skips_node_modules(self):
         layer, nxt, visited = [], [], set()
         added = _add_neighbor(
-            layer, nxt, visited,
-            path="node_modules/lodash/index.js", from_path="src/old.py", via="import",
+            layer,
+            nxt,
+            visited,
+            path="node_modules/lodash/index.js",
+            from_path="src/old.py",
+            via="import",
         )
         assert not added
 
     def test_includes_symbol_field(self):
         layer, nxt, visited = [], [], set()
         _add_neighbor(
-            layer, nxt, visited,
-            path="src/new.py", from_path="src/old.py", via="internal_ref",
-            symbol="my_func", line=10,
+            layer,
+            nxt,
+            visited,
+            path="src/new.py",
+            from_path="src/old.py",
+            via="internal_ref",
+            symbol="my_func",
+            line=10,
         )
         assert layer[0]["symbol"] == "my_func"
         assert "spec" not in layer[0]
@@ -364,6 +388,7 @@ class TestAddNeighbor:
 #  L3 — Boundary tests (invalid inputs)
 # ═════════════════════════════════════════════════════ and the tool
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestBfsTrace:
     """L1/L3: _bfs_trace with various configurations."""
@@ -467,6 +492,7 @@ class TestBfsTrace:
 #  L4 — Limits / caps enforcement
 # ═════════════════════════════════════════════════ node budget
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestLimits:
     """L4: Verify all caps are enforced."""
@@ -581,6 +607,7 @@ class TestLimits:
 #  L5 — Structural / JSON field completeness
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestStructural:
     """L5: Verify JSON output structure."""
 
@@ -692,14 +719,13 @@ class TestStructural:
 #  L3 — Tool-level boundary tests (trace_call_chain_hd)
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestToolBoundary:
     """L3: Invalid inputs to the @tool function."""
 
     def _call_tool(self, symbol="", path="", direction="both", max_depth=3):
         """Call trace_call_chain_hd with mocked workspace resolution."""
-        with patch(
-            "evoflow.tools.host_direct.workspace_path_guard.resolve_search_workspace_root"
-        ) as mock_resolve:
+        with patch("evoflow.tools.host_direct.workspace_path_guard.resolve_search_workspace_root") as mock_resolve:
             # Create a temp dir with an empty index DB
             tmpdir = tempfile.mkdtemp()
             from evoflow.code_index.store import _ensure_schema, _connect  # noqa: I001
@@ -727,6 +753,7 @@ class TestToolBoundary:
             mock_resolve.return_value = (tmpdir, None)
 
             from evoflow.tools.host_direct.trace_call_chain import trace_call_chain_hd
+
             # Call the underlying function directly, bypassing pydantic validation
             # that would require a real ToolRuntime for the `runtime` parameter.
             return trace_call_chain_hd.func(
@@ -804,9 +831,7 @@ class TestToolBoundary:
 
     def test_empty_index_returns_helpful_error(self):
         """When index is completely empty, should return clear message."""
-        with patch(
-            "evoflow.tools.host_direct.workspace_path_guard.resolve_search_workspace_root"
-        ) as mock_resolve:
+        with patch("evoflow.tools.host_direct.workspace_path_guard.resolve_search_workspace_root") as mock_resolve:
             tmpdir = tempfile.mkdtemp()
             from evoflow.code_index.store import _ensure_schema, _connect  # noqa: I001
 
@@ -818,8 +843,12 @@ class TestToolBoundary:
             mock_resolve.return_value = (tmpdir, None)
 
             from evoflow.tools.host_direct.trace_call_chain import trace_call_chain_hd
+
             result = trace_call_chain_hd.func(
-                symbol="anything", path="", direction="both", max_depth=3,
+                symbol="anything",
+                path="",
+                direction="both",
+                max_depth=3,
                 runtime=MagicMock(),
             )
             data = json.loads(result)
@@ -829,14 +858,16 @@ class TestToolBoundary:
 
     def test_exception_returns_structured_error(self):
         """If an exception occurs, should return structured JSON, not crash."""
-        with patch(
-            "evoflow.tools.host_direct.workspace_path_guard.resolve_search_workspace_root"
-        ) as mock_resolve:
+        with patch("evoflow.tools.host_direct.workspace_path_guard.resolve_search_workspace_root") as mock_resolve:
             mock_resolve.side_effect = RuntimeError("simulated failure")
 
             from evoflow.tools.host_direct.trace_call_chain import trace_call_chain_hd
+
             result = trace_call_chain_hd.func(
-                symbol="test", path="", direction="both", max_depth=3,
+                symbol="test",
+                path="",
+                direction="both",
+                max_depth=3,
                 runtime=MagicMock(),
             )
             # resolve_search_workspace_root returns a string on error,
@@ -849,6 +880,7 @@ class TestToolBoundary:
 #  L2 — Integration test (real workspace index)
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestIntegration:
     """L2: Real workspace code index integration.
 
@@ -860,6 +892,7 @@ class TestIntegration:
     def _get_real_conn(cls):
         """Try to connect to the real workspace index."""
         import hashlib
+
         root = os.path.abspath(".")
         h = hashlib.sha256(root.encode("utf-8")).hexdigest()[:16]
         data_dir = os.environ.get("EVOFLOW_DATA_DIR", os.path.join(os.path.expanduser("~"), ".evoflow"))
@@ -867,6 +900,7 @@ class TestIntegration:
         if not os.path.exists(dbp):
             return None, None
         from evoflow.code_index.store import _connect, _ensure_schema
+
         conn = _connect(root)
         _ensure_schema(conn)
         # Check if index has data
@@ -881,6 +915,7 @@ class TestIntegration:
         conn, root = self._get_real_conn()
         if conn is None:
             import pytest
+
             pytest.skip("Workspace index not available or empty")
         try:
             seeds = _find_seed_paths(conn, "trace_call_chain_hd", "")
@@ -900,6 +935,7 @@ class TestIntegration:
         conn, root = self._get_real_conn()
         if conn is None:
             import pytest
+
             pytest.skip("Workspace index not available or empty")
         try:
             seeds = _find_seed_paths(conn, "", "backend/packages/harness/evoflow/tools/host_direct/trace_call_chain.py")
@@ -915,6 +951,7 @@ class TestIntegration:
         conn, root = self._get_real_conn()
         if conn is None:
             import pytest
+
             pytest.skip("Workspace index not available or empty")
         try:
             stats = _index_stats(conn)
@@ -931,4 +968,5 @@ class TestIntegration:
 
 if __name__ == "__main__":
     import pytest
+
     sys.exit(pytest.main([__file__, "-v", "--tb=short"]))

@@ -7,8 +7,9 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from evoflow.authz.http_guard import require_org_admin
 from pydantic import BaseModel
+
+from evoflow.authz.http_guard import require_org_admin
 
 logger = logging.getLogger(__name__)
 
@@ -139,10 +140,7 @@ async def cancel_all_runs(request: Request, body: CancelRunsRequest | None = Non
             "cancelled_count": len(cancelled_run_ids),
             "cancelled_sessions": cancelled_sessions,
             "errors": errors,
-            "message": (
-                f"Cancelled {len(cancelled_run_ids)} run(s) across "
-                f"{len(cancelled_sessions)} session(s)."
-            ),
+            "message": (f"Cancelled {len(cancelled_run_ids)} run(s) across {len(cancelled_sessions)} session(s)."),
         }
     except Exception as e:
         logger.error("Failed to cancel runs: %s", e)

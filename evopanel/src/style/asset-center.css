@@ -1239,6 +1239,56 @@
   padding: 0 4px;
 }
 
+/* ── Skeleton loading ───────────────────────────────────────────────── */
+.ac-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--ac-surface-2, #f1f5f9) 0%,
+    var(--ac-border-subtle, #e2e8f0) 50%,
+    var(--ac-surface-2, #f1f5f9) 100%
+  );
+  background-size: 200% 100%;
+  animation: ac-skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+@keyframes ac-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.ac-skeleton--title {
+  border-radius: 6px;
+}
+
+/* Tab loading */
+.ac-tab-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  color: var(--ac-text-faint, #94a3b8);
+  font-size: 13px;
+}
+
+.ac-tab-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--ac-border, #e2e8f0);
+  border-top-color: var(--ac-primary, #6366f1);
+  border-radius: 50%;
+  animation: ac-spin 0.8s linear infinite;
+}
+
+@keyframes ac-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Stats tab (KB-style cards) ─────────────────────────────────── */
 .ac-stats-panel {
   padding: 8px 4px 24px;

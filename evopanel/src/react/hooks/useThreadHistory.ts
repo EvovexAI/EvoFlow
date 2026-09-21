@@ -8,6 +8,7 @@ import {
   getSessionRuntime,
   hydrateSessionRuntimeRowsIfIdle,
   isTurnBusy,
+  markSessionKnownEmpty,
   peekIdleSessionRuntimeRows,
   peekSessionKnownEmpty,
   replaceSessionRuntimeRowsFromHistory,
@@ -592,6 +593,10 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           (historyBoundSessionKeyRef.current === sessionKey && rowsRef.current.length > 0)
         const raw = result.messages
         const built = buildHistoryViewFromRaw(raw)
+        // 空会话：标记「已知为空」，切回时秒开，避免每次切换都全量拉历史
+        if (!dbOnly && built.rows.length === 0) {
+          markSessionKnownEmpty(sessionKey)
+        }
         const anchorRunId = String(opt?.anchorRunId || meta?.currentRunId || '').trim() || null
         const transcriptAnchor = anchorRunId
           ? buildTranscriptResumeAnchorFromRawMessages(raw, { runId: anchorRunId })

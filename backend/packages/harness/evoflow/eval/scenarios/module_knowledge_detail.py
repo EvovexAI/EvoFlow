@@ -35,11 +35,7 @@ def _run(home: Path) -> dict:
     entries = listed.get("entries") or []
     paths = [str(e.get("path") or "") for e in entries if isinstance(e, dict)]
     listed_inbox = knowledge_admin.list_knowledge(vault_id=vault_id, prefix="00-Inbox", limit=50)
-    inbox_paths = [
-        str(e.get("path") or "")
-        for e in (listed_inbox.get("entries") or [])
-        if isinstance(e, dict)
-    ]
+    inbox_paths = [str(e.get("path") or "") for e in (listed_inbox.get("entries") or []) if isinstance(e, dict)]
 
     recalled = knowledge_admin.recall(token, vault_id=vault_id, mode="fulltext", limit=5)
     hit_blob = str(recalled)
@@ -81,13 +77,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "list_contains_note",
-            bool(note_path)
-            and (
-                note_path in paths
-                or note_path in inbox_paths
-                or any(note_path.endswith(p) or p.endswith(note_path.split("/")[-1]) for p in paths + inbox_paths)
-                or int(listed.get("total") or 0) >= 1
-            ),
+            bool(note_path) and (note_path in paths or note_path in inbox_paths or any(note_path.endswith(p) or p.endswith(note_path.split("/")[-1]) for p in paths + inbox_paths) or int(listed.get("total") or 0) >= 1),
             inputs={"vault_id": vault_id, "prefix": ["", "00-Inbox"]},
             expected=note_path,
             actual={"total": listed.get("total"), "paths": (paths or inbox_paths)[:8]},

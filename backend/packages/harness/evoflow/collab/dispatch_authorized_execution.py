@@ -101,10 +101,7 @@ async def dispatch_authorized_main_task_execution(
                 "action": "start_execution",
                 "taskId": tid,
                 "error": "no_subtasks",
-                "message": (
-                    "主任务无子任务。请先成功调用 plan（boundPlanReady）同步子任务，"
-                    "或检查 plan 的 subtasksSync 是否 created>0。"
-                ),
+                "message": ("主任务无子任务。请先成功调用 plan（boundPlanReady）同步子任务，或检查 plan 的 subtasksSync 是否 created>0。"),
                 "subtasksPreSync": pre_sync,
             }
 

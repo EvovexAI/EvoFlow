@@ -1,9 +1,9 @@
 import logging
 
-from fastapi import Request, APIRouter, HTTPException
-from evoflow.authz.http_guard import require_thread_visible
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from evoflow.authz.http_guard import require_thread_visible
 from evoflow.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,8 @@ def _delete_thread_data(thread_id: str, paths: Paths | None = None) -> ThreadDel
 
 
 @router.get("/{thread_id}/tool-timeline")
-async def get_thread_tool_timeline(request: Request, 
+async def get_thread_tool_timeline(
+    request: Request,
     thread_id: str,
     query: str | None = None,
     tool_name: str | None = None,

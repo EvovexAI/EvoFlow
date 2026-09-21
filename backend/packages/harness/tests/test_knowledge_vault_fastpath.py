@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from evoflow.knowledge.vault import mcp_runtime as rt
 from evoflow.knowledge.vault.errors import ToolTimeoutError
 from evoflow.knowledge.vault.fs_search import filesystem_keyword_search, tokenize_query
-from evoflow.knowledge.vault import mcp_runtime as rt
 from evoflow.knowledge.vault.models import AccessMode, KnowledgeVaultConfig
 from evoflow.knowledge.vault.provider import ObsidianKnowledgeProvider
 

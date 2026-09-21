@@ -47,8 +47,7 @@ def _resume_tool_approval_blocking(
         return
     sk = str(session_key or "").strip()
 
-    log_tool_approval_trace("resume阻塞函数·开始", thread_id=tid, side="resume",
-        event_data={"action": action, "resume_action": resume_action, "session_key": sk})
+    log_tool_approval_trace("resume阻塞函数·开始", thread_id=tid, side="resume", event_data={"action": action, "resume_action": resume_action, "session_key": sk})
     t0 = time.perf_counter()
     logger.info(
         "【工具授权·线程池恢复】开始 thread=%s action=%s resume_action=%s tc=%s replay_ids=%s",
@@ -126,17 +125,14 @@ def _resume_tool_approval_blocking(
                 "【工具授权·线程池恢复】resume 未启动，补推 pending 到 SSE thread=%s",
                 tid,
             )
-        log_tool_approval_trace("resume阻塞函数·完成", thread_id=tid, side="resume",
-            event_data={"action": action, "result_started": out.get("started", False),
-                        "result_run_id": out.get("run_id"), "same_sse": out.get("same_sse", False)})
+        log_tool_approval_trace("resume阻塞函数·完成", thread_id=tid, side="resume", event_data={"action": action, "result_started": out.get("started", False), "result_run_id": out.get("run_id"), "same_sse": out.get("same_sse", False)})
     except Exception:
         logger.exception(
             "【工具授权·线程池恢复】失败 thread=%s ms=%.1f",
             tid,
             (time.perf_counter() - t0) * 1000.0,
         )
-        log_tool_approval_trace("resume阻塞函数·异常", thread_id=tid, side="resume",
-            level=logging.ERROR, event_data={"error": "see logger.exception"})
+        log_tool_approval_trace("resume阻塞函数·异常", thread_id=tid, side="resume", level=logging.ERROR, event_data={"error": "see logger.exception"})
 
 
 async def _delayed_client_replay_fallback(
@@ -308,6 +304,8 @@ async def _resume_tool_approval_background(
             tid,
             (time.perf_counter() - t0) * 1000.0,
         )
+
+
 async def _push_resume_failure_sse(thread_id: str, error: str) -> None:
     """Resume 失败时通过 SSE 推送错误通知，让用户知道审批后执行失败。"""
     try:
@@ -324,8 +322,7 @@ async def _push_resume_failure_sse(thread_id: str, error: str) -> None:
             message=f"工具执行恢复失败：{error[:200]}。请重新发送消息或重新审批。",
             reason="resume_failed",
         )
-        log_tool_approval_trace("resume失败·SSE错误通知已推送", thread_id=tid, side="resume",
-            level=logging.ERROR, event_data={"error": error[:200]})
+        log_tool_approval_trace("resume失败·SSE错误通知已推送", thread_id=tid, side="resume", level=logging.ERROR, event_data={"error": error[:200]})
         # 清除 pause 标记，让 SSE 流可以正常结束
         clear_thread_tool_approval_pause(tid)
         wake_middle_layer_inject(tid)
@@ -403,9 +400,7 @@ async def list_thread_tool_approval_pending(request: Request, thread_id: str) ->
 
 
 @router.post("/threads/{thread_id}/tool-approval", response_model=ToolApprovalActionResponse)
-async def post_thread_tool_approval(
-    request: Request, thread_id: str, body: ToolApprovalActionBody
-) -> ToolApprovalActionResponse:
+async def post_thread_tool_approval(request: Request, thread_id: str, body: ToolApprovalActionBody) -> ToolApprovalActionResponse:
     require_thread_visible(request, thread_id)
     import asyncio
     import time
@@ -437,8 +432,7 @@ async def post_thread_tool_approval(
     if body.summary:
         data["summary"] = str(body.summary).strip()
     ws = str(body.local_workspace_root or "").strip() or None
-    log_tool_approval_trace("API收到审批请求", thread_id=tid, side="API",
-        event_data={"action": action, "tool_call_id": tc_id, "tool_name": str(body.tool_name or "")})
+    log_tool_approval_trace("API收到审批请求", thread_id=tid, side="API", event_data={"action": action, "tool_call_id": tc_id, "tool_name": str(body.tool_name or "")})
     logger.info("tool approval API trace logged thread=%s ms=%.1f", tid, (time.perf_counter() - t0) * 1000.0)
     from app.gateway.db_async import run_db
 
@@ -462,16 +456,10 @@ async def post_thread_tool_approval(
     # 重要：部分批准/部分拒绝（await_next）只更新 DB/UI，绝不 Command(resume)。
     # 否则 LangGraph 可能用 rollback/enqueue 开新一轮，同批 sibling 仍 pending 时图已继续。
     # 仅当全部决策完毕（有 replay_ids，或纯拒绝且无剩余 pending）才 resume。
-    should_resume = bool(result.replay_tool_call_ids) or (
-        action == "deny"
-        and bool(data.get("tool_call_id"))
-        and resume_action != "await_next"
-        and not bundle.still_pending
+    should_resume = bool(result.replay_tool_call_ids) or (action == "deny" and bool(data.get("tool_call_id")) and resume_action != "await_next" and not bundle.still_pending)
+    log_tool_approval_trace(
+        "API·DB操作完成", thread_id=tid, side="API", event_data={"reply": result.reply, "replay_ids": list(result.replay_tool_call_ids), "still_pending": bundle.still_pending, "should_resume": should_resume, "resume_action": resume_action}
     )
-    log_tool_approval_trace("API·DB操作完成", thread_id=tid, side="API",
-        event_data={"reply": result.reply, "replay_ids": list(result.replay_tool_call_ids),
-                     "still_pending": bundle.still_pending, "should_resume": should_resume,
-                     "resume_action": resume_action})
     logger.info(
         "【工具授权·API】DB完成 thread=%s ms=%.1f still_pending=%s replay_ids=%s resume_action=%s 回复=%s",
         tid,
@@ -544,11 +532,7 @@ async def post_thread_tool_approval(
                         n,
                     )
                 else:
-                    decision_ids = (
-                        [tc_id]
-                        if action == "approve" and tc_id and not result.replay_tool_call_ids
-                        else list(result.replay_tool_call_ids) or ([tc_id] if tc_id else [])
-                    )
+                    decision_ids = [tc_id] if action == "approve" and tc_id and not result.replay_tool_call_ids else list(result.replay_tool_call_ids) or ([tc_id] if tc_id else [])
                     for rid in decision_ids:
                         if not rid:
                             continue
@@ -574,8 +558,7 @@ async def post_thread_tool_approval(
         logger.exception("tool approval post-db wake failed thread=%s", tid)
 
     # SSE决策推送记录
-    log_tool_approval_trace("API·SSE决策已推送", thread_id=tid, side="API",
-        event_data={"action": action, "pushed_ids": decision_ids if 'decision_ids' in dir() else []})
+    log_tool_approval_trace("API·SSE决策已推送", thread_id=tid, side="API", event_data={"action": action, "pushed_ids": decision_ids if "decision_ids" in dir() else []})
 
     resume_run_id: str | None = None
     stream_resume_recommended = False
@@ -716,10 +699,7 @@ async def post_thread_tool_approval(
         (time.perf_counter() - t0) * 1000.0,
         should_resume,
         client_stream_replay,
-        bool(result.replay_tool_call_ids)
-        or action == "deny"
-        or action in {"grant_all", "approve_all"}
-        or getattr(result, "resume_action", "") == "await_next",
+        bool(result.replay_tool_call_ids) or action == "deny" or action in {"grant_all", "approve_all"} or getattr(result, "resume_action", "") == "await_next",
     )
     return ToolApprovalActionResponse(
         success=bool(result.replay_tool_call_ids) or action == "deny" or action in {"grant_all", "approve_all"} or getattr(result, "resume_action", "") == "await_next",
@@ -768,8 +748,7 @@ async def cancel_thread_tool_approval(request: Request, thread_id: str) -> dict[
     except Exception:
         logger.exception("【工具授权·cancel】清理失败 thread=%s", tid)
 
-    log_tool_approval_trace("API·取消审批", thread_id=tid, side="API",
-        event_data={"cancelled_count": n})
+    log_tool_approval_trace("API·取消审批", thread_id=tid, side="API", event_data={"cancelled_count": n})
     return {"success": True, "cancelled_count": n}
 
 
@@ -823,9 +802,7 @@ async def get_thread_mission_analysis(request: Request, thread_id: str) -> dict[
 
 
 @router.put("/threads/{thread_id}", response_model=ThreadCollabStateResponse)
-async def put_thread_collab_state(
-    request: Request, thread_id: str, body: dict[str, Any] = Body(default_factory=dict)
-) -> ThreadCollabState:
+async def put_thread_collab_state(request: Request, thread_id: str, body: dict[str, Any] = Body(default_factory=dict)) -> ThreadCollabState:
     require_thread_visible(request, thread_id)
     paths = get_paths()
     try:
@@ -878,9 +855,7 @@ def _conversation_text_line(msg: dict[str, Any]) -> str:
 
 
 @router.get("/tasks/{main_task_id}/subtasks/{subtask_id}/history", response_model=SubtaskHistoryResponse)
-async def get_subtask_history(
-    request: Request, main_task_id: str, subtask_id: str, limit: int = 600
-) -> SubtaskHistoryResponse:
+async def get_subtask_history(request: Request, main_task_id: str, subtask_id: str, limit: int = 600) -> SubtaskHistoryResponse:
     """Return persisted conversation text lines for one subtask (chat transcript)."""
     require_task_visible(request, main_task_id)
     try:

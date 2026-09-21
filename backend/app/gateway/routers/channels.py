@@ -8,8 +8,9 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from evoflow.authz.http_guard import require_org_admin
 from pydantic import BaseModel, Field
+
+from evoflow.authz.http_guard import require_org_admin
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,62 @@ class WeixinRegistrationApplyRequest(BaseModel):
 
 
 class WeixinRegistrationApplyResponse(BaseModel):
+    success: bool
+    message: str
+    channel_running: bool = False
+
+
+class WecomRegistrationBeginResponse(BaseModel):
+    session_id: str
+    qr_url: str = Field(..., description="URL to render as QR (WeCom bot-creation flow)")
+    status: str = "pending"
+
+
+class WecomRegistrationPollResponse(BaseModel):
+    session_id: str
+    status: str = Field(..., description="pending | scanning | completed | failed | expired")
+    qr_url: str | None = Field(
+        default=None,
+        description="Present while pending/scanning so the UI can refresh the image after server-side QR refresh",
+    )
+    bot_id: str | None = None
+    secret: str | None = None
+    error: str | None = None
+
+
+class WecomRegistrationApplyRequest(BaseModel):
+    enabled: bool = Field(default=True, description="Whether to enable the WeCom channel after applying credentials")
+
+
+class WecomRegistrationApplyResponse(BaseModel):
+    success: bool
+    message: str
+    channel_running: bool = False
+
+
+class DingtalkRegistrationBeginResponse(BaseModel):
+    session_id: str
+    qr_url: str = Field(..., description="URL to render as QR (DingTalk device-flow authorization)")
+    status: str = "pending"
+
+
+class DingtalkRegistrationPollResponse(BaseModel):
+    session_id: str
+    status: str = Field(..., description="pending | scanning | completed | failed | expired")
+    qr_url: str | None = Field(
+        default=None,
+        description="Present while pending/scanning so the UI can refresh the image after server-side QR refresh",
+    )
+    client_id: str | None = None
+    client_secret: str | None = None
+    error: str | None = None
+
+
+class DingtalkRegistrationApplyRequest(BaseModel):
+    enabled: bool = Field(default=True, description="Whether to enable the DingTalk channel after applying credentials")
+
+
+class DingtalkRegistrationApplyResponse(BaseModel):
     success: bool
     message: str
     channel_running: bool = False
@@ -401,16 +458,17 @@ async def feishu_registration_poll(request: Request, session_id: str) -> FeishuR
 
 @router.post("/feishu/registration/{session_id}/apply", response_model=FeishuRegistrationApplyResponse)
 async def feishu_registration_apply(
+    request: Request,
     session_id: str,
     body: FeishuRegistrationApplyRequest = FeishuRegistrationApplyRequest(),
 ) -> FeishuRegistrationApplyResponse:
-    require_org_admin(request)
     """Apply Feishu registration credentials.
 
     Saves ``app_id`` / ``app_secret`` to ``config.yaml`` and automatically starts
     (or restarts) the Feishu channel.  Intended to be called after ``/poll``
     returns ``status == "completed"``.
     """
+    require_org_admin(request)
     from app.channels.feishu_registration import get_registration_client
     from app.channels.service import get_channel_service
 
@@ -522,11 +580,12 @@ async def weixin_registration_poll(request: Request, session_id: str) -> WeixinR
 
 @router.post("/weixin/registration/{session_id}/apply", response_model=WeixinRegistrationApplyResponse)
 async def weixin_registration_apply(
+    request: Request,
     session_id: str,
     body: WeixinRegistrationApplyRequest = WeixinRegistrationApplyRequest(),
 ) -> WeixinRegistrationApplyResponse:
-    require_org_admin(request)
     """Save Weixin credentials to disk and ``config.yaml``, then start or restart the channel."""
+    require_org_admin(request)
     from app.channels.service import get_channel_service
     from app.channels.weixin_registration import get_weixin_registration_client
     from app.channels.weixin_setup import save_weixin_credentials
@@ -594,5 +653,261 @@ async def weixin_registration_apply(
     return WeixinRegistrationApplyResponse(
         success=True,
         message="Weixin credentials saved. Restart the Gateway to activate the channel.",
+        channel_running=False,
+    )
+
+
+# -- WeCom (Enterprise WeChat) QR registration (EvoPanel / Control UI) -------
+
+
+@router.post("/wecom/registration/begin", response_model=WecomRegistrationBeginResponse)
+async def wecom_registration_begin(request: Request) -> WecomRegistrationBeginResponse:
+    """Begin WeCom (Enterprise WeChat) QR registration. Returns ``qr_url`` to render as a QR image.
+
+    The QR flow uses WeCom's admin-console bot-creation endpoints (same as
+    hermes-agent's ``qr_scan_for_bot_info``).  Scan with the WeCom app to create
+    an AI Bot and obtain ``bot_id`` / ``secret``.
+    """
+    require_org_admin(request)
+    from app.channels.wecom_registration import WecomRegistrationError, get_wecom_registration_client
+
+    client = get_wecom_registration_client()
+    try:
+        session = await client.begin()
+    except WecomRegistrationError as e:
+        raise HTTPException(status_code=502, detail=e.message) from e
+    except Exception as e:
+        logger.exception("WeCom registration begin failed")
+        raise HTTPException(status_code=500, detail=str(e) or type(e).__name__) from e
+
+    return WecomRegistrationBeginResponse(
+        session_id=session.session_id,
+        qr_url=session.qr_url,
+        status=session.status,
+    )
+
+
+@router.get("/wecom/registration/{session_id}/poll", response_model=WecomRegistrationPollResponse)
+async def wecom_registration_poll(request: Request, session_id: str) -> WecomRegistrationPollResponse:
+    """Poll WeCom QR status (call every ~3s after ``/begin``)."""
+    require_org_admin(request)
+    from app.channels.wecom_registration import WecomRegistrationError, get_wecom_registration_client
+
+    client = get_wecom_registration_client()
+    try:
+        session = await client.poll(session_id)
+    except WecomRegistrationError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+    except Exception as e:
+        logger.exception("WeCom registration poll failed")
+        raise HTTPException(status_code=500, detail=str(e) or type(e).__name__) from e
+
+    err = session.error if session.status in ("failed", "expired") else None
+    return WecomRegistrationPollResponse(
+        session_id=session.session_id,
+        status=session.status,
+        qr_url=session.qr_url if session.status in ("pending", "scanning") else None,
+        bot_id=session.bot_id if session.status == "completed" else None,
+        secret=session.secret if session.status == "completed" else None,
+        error=err,
+    )
+
+
+@router.post("/wecom/registration/{session_id}/apply", response_model=WecomRegistrationApplyResponse)
+async def wecom_registration_apply(
+    request: Request,
+    session_id: str,
+    body: WecomRegistrationApplyRequest = WecomRegistrationApplyRequest(),
+) -> WecomRegistrationApplyResponse:
+    """Save WeCom credentials to disk and ``config.yaml``, then start or restart the channel."""
+    require_org_admin(request)
+    from app.channels.service import get_channel_service
+    from app.channels.wecom_registration import get_wecom_registration_client
+    from app.channels.wecom_setup import save_wecom_credentials
+
+    client = get_wecom_registration_client()
+    session = client.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Registration session not found")
+
+    if session.status != "completed":
+        msg = {
+            "expired": "Registration session expired. Please start a new registration.",
+            "failed": f"Registration failed: {session.error or 'unknown error'}",
+        }.get(session.status, f"Registration is not complete (status={session.status})")
+        raise HTTPException(status_code=400, detail=msg)
+
+    if not session.bot_id or not session.secret:
+        raise HTTPException(status_code=500, detail="Registration completed but credentials are missing")
+
+    save_wecom_credentials(bot_id=session.bot_id, secret=session.secret)
+
+    payload = {
+        "bot_id": session.bot_id,
+        "secret": session.secret,
+        "enabled": body.enabled,
+    }
+
+    service = get_channel_service()
+    if service is not None:
+        success = await service.update_channel_config("wecom", payload)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to persist WeCom credentials")
+
+        # Also persist to SQLite database (evoflow_channel_configs) for settings API
+        try:
+            from evoflow.persistence import config_repositories as cfg_repo
+
+            cfg_repo.upsert_channel_config("wecom", payload)
+        except Exception:
+            logger.warning("Failed to persist WeCom config to SQLite database", exc_info=True)
+
+        _, _, running = service.get_channel_config("wecom")
+        return WecomRegistrationApplyResponse(
+            success=True,
+            message="WeCom credentials saved and channel started",
+            channel_running=running,
+        )
+
+    from evoflow.config.app_config import get_app_config, update_channels_section_and_save
+
+    cfg = get_app_config()
+    channels = _channels_section_from_app_config(cfg) or {}
+    wecom_cfg = dict(channels.get("wecom", {}))
+    wecom_cfg.update(payload)
+    channels["wecom"] = wecom_cfg
+    update_channels_section_and_save(channels)
+
+    return WecomRegistrationApplyResponse(
+        success=True,
+        message="WeCom credentials saved. Restart the Gateway to activate the channel.",
+        channel_running=False,
+    )
+
+
+# -- DingTalk (钉钉) device-flow QR registration (EvoPanel / Control UI) ----
+
+
+@router.post("/dingtalk/registration/begin", response_model=DingtalkRegistrationBeginResponse)
+async def dingtalk_registration_begin(request: Request) -> DingtalkRegistrationBeginResponse:
+    """Begin DingTalk device-flow QR registration. Returns ``qr_url`` to render as a QR image.
+
+    Scan with the DingTalk app to authorize; on success the device-flow returns
+    Client ID (AppKey) and Client Secret (AppSecret) automatically.
+
+    NOTE: the onboarding bridge is branded "OpenClaw" on DingTalk's side (a
+    third-party ecosystem endpoint, not DingTalk's official enterprise bot-creation
+    page) and may change without notice.
+    """
+    require_org_admin(request)
+    from app.channels.dingtalk_registration import DingtalkRegistrationError, get_dingtalk_registration_client
+
+    client = get_dingtalk_registration_client()
+    try:
+        session = await client.begin()
+    except DingtalkRegistrationError as e:
+        raise HTTPException(status_code=502, detail=e.message) from e
+    except Exception as e:
+        logger.exception("DingTalk registration begin failed")
+        raise HTTPException(status_code=500, detail=str(e) or type(e).__name__) from e
+
+    return DingtalkRegistrationBeginResponse(
+        session_id=session.session_id,
+        qr_url=session.qr_url,
+        status=session.status,
+    )
+
+
+@router.get("/dingtalk/registration/{session_id}/poll", response_model=DingtalkRegistrationPollResponse)
+async def dingtalk_registration_poll(request: Request, session_id: str) -> DingtalkRegistrationPollResponse:
+    """Poll DingTalk device-flow status (call every ~3s after ``/begin``)."""
+    require_org_admin(request)
+    from app.channels.dingtalk_registration import DingtalkRegistrationError, get_dingtalk_registration_client
+
+    client = get_dingtalk_registration_client()
+    try:
+        session = await client.poll(session_id)
+    except DingtalkRegistrationError as e:
+        raise HTTPException(status_code=404, detail=e.message) from e
+    except Exception as e:
+        logger.exception("DingTalk registration poll failed")
+        raise HTTPException(status_code=500, detail=str(e) or type(e).__name__) from e
+
+    err = session.error if session.status in ("failed", "expired") else None
+    return DingtalkRegistrationPollResponse(
+        session_id=session.session_id,
+        status=session.status,
+        qr_url=session.qr_url if session.status in ("pending", "scanning") else None,
+        client_id=session.client_id if session.status == "completed" else None,
+        client_secret=session.client_secret if session.status == "completed" else None,
+        error=err,
+    )
+
+
+@router.post("/dingtalk/registration/{session_id}/apply", response_model=DingtalkRegistrationApplyResponse)
+async def dingtalk_registration_apply(
+    request: Request,
+    session_id: str,
+    body: DingtalkRegistrationApplyRequest = DingtalkRegistrationApplyRequest(),
+) -> DingtalkRegistrationApplyResponse:
+    """Save DingTalk credentials to ``config.yaml``, then start or restart the channel."""
+    require_org_admin(request)
+    from app.channels.dingtalk_registration import get_dingtalk_registration_client
+    from app.channels.service import get_channel_service
+
+    client = get_dingtalk_registration_client()
+    session = client.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Registration session not found")
+
+    if session.status != "completed":
+        msg = {
+            "expired": "Registration session expired. Please start a new registration.",
+            "failed": f"Registration failed: {session.error or 'unknown error'}",
+        }.get(session.status, f"Registration is not complete (status={session.status})")
+        raise HTTPException(status_code=400, detail=msg)
+
+    if not session.client_id or not session.client_secret:
+        raise HTTPException(status_code=500, detail="Registration completed but credentials are missing")
+
+    payload = {
+        "client_id": session.client_id,
+        "client_secret": session.client_secret,
+        "enabled": body.enabled,
+    }
+
+    service = get_channel_service()
+    if service is not None:
+        success = await service.update_channel_config("dingtalk", payload)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to persist DingTalk credentials")
+
+        # Also persist to SQLite database (evoflow_channel_configs) for settings API
+        try:
+            from evoflow.persistence import config_repositories as cfg_repo
+
+            cfg_repo.upsert_channel_config("dingtalk", payload)
+        except Exception:
+            logger.warning("Failed to persist DingTalk config to SQLite database", exc_info=True)
+
+        _, _, running = service.get_channel_config("dingtalk")
+        return DingtalkRegistrationApplyResponse(
+            success=True,
+            message="DingTalk credentials saved and channel started",
+            channel_running=running,
+        )
+
+    from evoflow.config.app_config import get_app_config, update_channels_section_and_save
+
+    cfg = get_app_config()
+    channels = _channels_section_from_app_config(cfg) or {}
+    dingtalk_cfg = dict(channels.get("dingtalk", {}))
+    dingtalk_cfg.update(payload)
+    channels["dingtalk"] = dingtalk_cfg
+    update_channels_section_and_save(channels)
+
+    return DingtalkRegistrationApplyResponse(
+        success=True,
+        message="DingTalk credentials saved. Restart the Gateway to activate the channel.",
         channel_running=False,
     )

@@ -24,9 +24,7 @@ _CONTEXT_REFS_MESSAGE_NAME = "session_context_refs"
 
 
 def _is_context_refs_message(msg: Any) -> bool:
-    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(
-        msg, "name", None
-    ) == _CONTEXT_REFS_MESSAGE_NAME
+    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(msg, "name", None) == _CONTEXT_REFS_MESSAGE_NAME
 
 
 def _strip_context_refs_messages(messages: list[Any]) -> list[Any]:

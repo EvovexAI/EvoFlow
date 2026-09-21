@@ -276,9 +276,7 @@ def resolve_transcript_round_id(session_key: str, round_id: str | None) -> str |
     return rid
 
 
-_BOARD_TASK_LINE = re.compile(
-    r"^-\s+`[^`]+`\s+\[(?P<status>[^\]]+)\]\s+\d+%\s+·\s+(?P<title>.+?)(?:\s+·\s+.+)?\s*$"
-)
+_BOARD_TASK_LINE = re.compile(r"^-\s+`[^`]+`\s+\[(?P<status>[^\]]+)\]\s+\d+%\s+·\s+(?P<title>.+?)(?:\s+·\s+.+)?\s*$")
 
 
 def build_duty_beat_text(*, role_name: str, prompt: str, kind: str = "think") -> str:
@@ -639,9 +637,7 @@ def list_employee_conversation_sessions(
                 "thread_id": str(row["thread_id"] or "").strip() or None,
                 "title": str(row["title"] or "").strip(),
                 "kind": kind,
-                "task_id": parsed.get("task_id")
-                or str(ctx.get("related_task_id") or "").strip()
-                or None,
+                "task_id": parsed.get("task_id") or str(ctx.get("related_task_id") or "").strip() or None,
                 "run_status": str(row["run_status"] or "").strip() or "done",
                 "updated_at": str(row["updated_at"] or ""),
                 "created_at": str(row["created_at"] or ""),

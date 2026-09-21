@@ -23,9 +23,9 @@ def scan_and_run_phase2_on_startup(*, max_entities: int = 24) -> dict[str, Any]:
     if not asset_startup_phase2_enabled():
         return {"ok": False, "skipped": "disabled"}
 
-    from evoflow.assets.phase2 import asset_phase2_enabled, list_inbox_pending, run_phase2_consolidate
     from evoflow.assets.hub import list_entities
     from evoflow.assets.paths import EntityRef
+    from evoflow.assets.phase2 import asset_phase2_enabled, list_inbox_pending, run_phase2_consolidate
 
     if not asset_phase2_enabled():
         return {"ok": False, "skipped": "phase2_disabled"}

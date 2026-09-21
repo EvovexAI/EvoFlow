@@ -32,11 +32,14 @@ def list_artifacts(org_instance_id: str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     if not oid:
         return out
-    rows = get_db().execute(
-        "SELECT artifact_type, artifact_id FROM evoflow_org_artifacts "
-        "WHERE org_instance_id = ? ORDER BY id",
-        (oid,),
-    ).fetchall()
+    rows = (
+        get_db()
+        .execute(
+            "SELECT artifact_type, artifact_id FROM evoflow_org_artifacts WHERE org_instance_id = ? ORDER BY id",
+            (oid,),
+        )
+        .fetchall()
+    )
     for r in rows:
         t = str(r[0] or "").strip()
         aid = str(r[1] or "").strip()
@@ -67,9 +70,7 @@ def get_org_instance(org_instance_id: str) -> dict[str, Any] | None:
     oid = str(org_instance_id or "").strip()
     if not oid:
         return None
-    row = get_db().execute(
-        "SELECT * FROM evoflow_org_registry WHERE id = ?", (oid,)
-    ).fetchone()
+    row = get_db().execute("SELECT * FROM evoflow_org_registry WHERE id = ?", (oid,)).fetchone()
     if not row:
         return None
     raw = dict(row)
@@ -135,16 +136,20 @@ def mark_uninstalled(org_instance_id: str) -> None:
 
 def find_artifact_owner(artifact_type: str, artifact_id: str) -> str | None:
     """Return active org_instance_id that owns this artifact, if any."""
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT a.org_instance_id
         FROM evoflow_org_artifacts a
         JOIN evoflow_org_registry r ON r.id = a.org_instance_id
         WHERE a.artifact_type = ? AND a.artifact_id = ? AND r.status = 'active'
         LIMIT 1
         """,
-        (str(artifact_type), str(artifact_id)),
-    ).fetchone()
+            (str(artifact_type), str(artifact_id)),
+        )
+        .fetchone()
+    )
     if not row:
         return None
     return str(row[0] or "") or None

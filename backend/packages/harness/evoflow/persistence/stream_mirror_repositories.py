@@ -14,9 +14,7 @@ from evoflow.persistence.timestamps import iso_z_to_ms, ms_to_iso_z
 logger = logging.getLogger(__name__)
 
 STREAM_RESUME_TTL_SECONDS = int(os.getenv("EVOFLOW_STREAM_RESUME_TTL_SECONDS", "300") or "300")
-STREAM_RESUME_POST_COMPLETE_TTL_SECONDS = int(
-    os.getenv("EVOFLOW_STREAM_RESUME_POST_COMPLETE_TTL_SECONDS", "30") or "30"
-)
+STREAM_RESUME_POST_COMPLETE_TTL_SECONDS = int(os.getenv("EVOFLOW_STREAM_RESUME_POST_COMPLETE_TTL_SECONDS", "30") or "30")
 STREAM_MIRROR_MAX_FRAMES = int(os.getenv("EVOFLOW_STREAM_MIRROR_MAX_FRAMES", "50000") or "50000")
 STREAM_MIRROR_MAX_BYTES = int(os.getenv("EVOFLOW_STREAM_MIRROR_MAX_BYTES", "52428800") or "52428800")
 
@@ -120,8 +118,7 @@ def update_last_persisted_seq(
         if not rid:
             return
         row = db.execute(
-            "SELECT COALESCE(MAX(seq), 0) FROM evoflow_chat_stream_mirror "
-            "WHERE session_key = ? AND run_id = ?",
+            "SELECT COALESCE(MAX(seq), 0) FROM evoflow_chat_stream_mirror WHERE session_key = ? AND run_id = ?",
             (sk, rid),
         ).fetchone()
         max_seq = int(row[0] or 0)
@@ -284,8 +281,7 @@ def append_mirror_frame(
             byte_count = 0
             # Reset last_persisted_seq — old run's frames are gone.
             db.execute(
-                "UPDATE evoflow_chat_stream_mirror_meta SET last_persisted_seq = 0 "
-                "WHERE session_key = ?",
+                "UPDATE evoflow_chat_stream_mirror_meta SET last_persisted_seq = 0 WHERE session_key = ?",
                 (sk,),
             )
 

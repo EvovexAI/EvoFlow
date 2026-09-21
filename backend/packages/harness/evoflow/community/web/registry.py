@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
 
 from .provider import WebSearchProvider
 
@@ -46,7 +45,7 @@ def list_providers() -> list[WebSearchProvider]:
     return sorted(items, key=lambda p: p.name)
 
 
-def get_provider(name: str) -> Optional[WebSearchProvider]:
+def get_provider(name: str) -> WebSearchProvider | None:
     ensure_providers_loaded()
     if not isinstance(name, str):
         return None
@@ -108,7 +107,7 @@ def resolve_search_backend() -> str | None:
     return None
 
 
-def get_active_search_provider() -> Optional[WebSearchProvider]:
+def get_active_search_provider() -> WebSearchProvider | None:
     """Return the provider that should handle web_search."""
     ensure_providers_loaded()
     name = resolve_search_backend()

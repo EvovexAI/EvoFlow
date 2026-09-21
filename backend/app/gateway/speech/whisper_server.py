@@ -22,8 +22,6 @@ EvoFlow 本地 Whisper ASR 服务
 import asyncio
 import json
 import sys
-import os
-import struct
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -51,11 +49,30 @@ MIN_UTTERANCE_VOICED_CHUNKS = 2
 
 # ── Hallucination filters (Whisper known false positives) ──
 _HALLUCINATION_FRAGMENTS = [
-    "字幕", "翻译", "感谢收看", "感谢观看", "谢谢收看", "谢谢观看",
-    "请订阅", "请关注", "点赞", "订阅", "转发", "打赏",
-    "作词", "作曲", "制作人", "出品", "版权",
-    "subtitles by", "captioned by", "transcribed by",
-    "www.", ".com", ".org", ".net",
+    "字幕",
+    "翻译",
+    "感谢收看",
+    "感谢观看",
+    "谢谢收看",
+    "谢谢观看",
+    "请订阅",
+    "请关注",
+    "点赞",
+    "订阅",
+    "转发",
+    "打赏",
+    "作词",
+    "作曲",
+    "制作人",
+    "出品",
+    "版权",
+    "subtitles by",
+    "captioned by",
+    "transcribed by",
+    "www.",
+    ".com",
+    ".org",
+    ".net",
 ]
 _SINGLE_CHAR_REPEAT_THRESHOLD = 6
 _PHRASE_REPEAT_THRESHOLD = 3
@@ -76,7 +93,7 @@ def is_hallucination(text: str) -> bool:
     words = t.split()
     if len(words) >= 6:
         for i in range(len(words) - 2):
-            triplet = " ".join(words[i:i + 3])
+            triplet = " ".join(words[i : i + 3])
             if t.count(triplet) >= _PHRASE_REPEAT_THRESHOLD:
                 return True
     return False
@@ -144,16 +161,27 @@ class WhisperServer:
             loop = asyncio.get_running_loop()
             text = await loop.run_in_executor(self._executor, self._transcribe, audio, lang)
             if text and not is_hallucination(text):
-                await websocket.send(json.dumps({
-                    "type": "transcript",
-                    "text": text,
-                    "is_final": True,
-                    "seg": "local",
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "transcript",
+                            "text": text,
+                            "is_final": True,
+                            "seg": "local",
+                        }
+                    )
+                )
             else:
-                await websocket.send(json.dumps({
-                    "type": "transcript", "text": "", "is_final": True, "seg": "local",
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "transcript",
+                            "text": "",
+                            "is_final": True,
+                            "seg": "local",
+                        }
+                    )
+                )
 
         silence_count = 0
         try:
@@ -174,7 +202,7 @@ class WhisperServer:
                 if len(msg) < CHUNK_SAMPLES * 2:
                     continue
                 samples = np.frombuffer(msg, dtype=np.int16).astype(np.float32) / 32768.0
-                rms = float(np.sqrt(np.mean(samples ** 2)))
+                rms = float(np.sqrt(np.mean(samples**2)))
 
                 if rms > SILENCE_RMS_THRESHOLD:
                     buf_pcm.append(samples)
@@ -207,6 +235,7 @@ class WhisperServer:
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="EvoFlow Whisper ASR Server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=3723)

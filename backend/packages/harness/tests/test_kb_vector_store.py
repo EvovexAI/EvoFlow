@@ -48,9 +48,7 @@ def test_schema_v64_tables_exist(isolated_home: Path) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert version >= 64, f"expected schema version >= 64, got {version}"
     for table in ("evoflow_kb_dataset", "evoflow_kb_source_file", "evoflow_kb_chunk"):
-        row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
-        ).fetchone()
+        row = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
         assert row is not None, f"missing table {table}"
 
 

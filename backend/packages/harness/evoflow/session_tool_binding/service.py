@@ -133,19 +133,12 @@ def sync_runtime_tool_snapshot(
     try:
         mode = resolve_runtime_tool_mode(sk, active_scenarios)
         loaded = filter_loaded_for_agent_mode(sk, mode, loaded_deferred) if mode != "ask" else []
-        pending = (
-            pending_activation_for_session_agent(sk, mode, loaded_deferred=loaded)
-            if mode != "ask"
-            else []
-        )
+        pending = pending_activation_for_session_agent(sk, mode, loaded_deferred=loaded) if mode != "ask" else []
         # Intersect model-bound tools with the mode's allowed catalog to
         # prevent cross-mode tool residue (e.g. plan-only tools surviving a
         # plan→agent switch) from leaking into active_tools_json.
         allowed = set(bound_tools_for_session_agent(sk, mode)) | set(loaded)
-        bound = sorted(
-            {str(n or "").strip().lower() for n in (model_bound_tools or []) if str(n or "").strip()}
-            & allowed
-        )
+        bound = sorted({str(n or "").strip().lower() for n in (model_bound_tools or []) if str(n or "").strip()} & allowed)
         return repo.sync_chat_session_tool_snapshot(
             sk,
             current_mode=mode,
@@ -217,8 +210,8 @@ def effective_bound_tools_for_mode(
     if sk:
         return effective_bound_tools_for_session_agent(sk, mode, loaded_deferred=loaded)
     try:
-        from evoflow.session_tool_binding.agent_tools import _tool_search_enabled
         from evoflow.agents.lead_agent.intent_tool_profile import flat_bound_tool_names_for_session_mode
+        from evoflow.session_tool_binding.agent_tools import _tool_search_enabled
 
         if not _tool_search_enabled():
             return sorted(flat_bound_tool_names_for_session_mode(mode))
@@ -293,9 +286,7 @@ def _upsert_binding_snapshot(
     mode = normalize_session_mode(mode_key)
     if not sk or not mode:
         return {"eager_tools": [], "loaded_deferred": []}
-    eager = list(
-        eager_tools if eager_tools is not None else _default_eager_for_session(sk, mode)
-    )
+    eager = list(eager_tools if eager_tools is not None else _default_eager_for_session(sk, mode))
     deferred = filter_loaded_for_agent_mode(sk, mode, loaded_deferred)
     # Single INSERT into the trajectory table merges the snapshot write and the
     # binding event (previously a two-step upsert + append_binding_event flow).
@@ -305,12 +296,8 @@ def _upsert_binding_snapshot(
         "agent_id": resolve_session_agent_id(sk),
         "eager_tools": eager,
         "loaded_deferred": deferred,
-        "effective_tools": effective_bound_tools_for_mode(
-            mode, loaded_deferred=deferred, session_key=sk
-        ),
-        "pending_activation": pending_activation_for_mode(
-            mode, loaded_deferred=deferred, session_key=sk
-        ),
+        "effective_tools": effective_bound_tools_for_mode(mode, loaded_deferred=deferred, session_key=sk),
+        "pending_activation": pending_activation_for_mode(mode, loaded_deferred=deferred, session_key=sk),
     }
     saved = repo.upsert_scenario_binding(
         sk,
@@ -354,11 +341,7 @@ def ensure_session_binding_catalog(
     mode = resolve_persisted_binding_mode(sk)
     eager = _default_eager_for_session(sk, mode)
     existing = repo.get_scenario_binding(sk, mode)
-    deferred = (
-        filter_loaded_for_agent_mode(sk, mode, list(existing.get("loaded_deferred") or []))
-        if existing
-        else []
-    )
+    deferred = filter_loaded_for_agent_mode(sk, mode, list(existing.get("loaded_deferred") or [])) if existing else []
     saved = repo.upsert_scenario_binding(
         sk,
         mode,
@@ -396,12 +379,7 @@ def ensure_session_binding_record(
     existing = repo.get_scenario_binding(sk, mode)
     if existing and not deferred and mode != "ask" and not force:
         deferred = filter_loaded_for_agent_mode(sk, mode, list(existing.get("loaded_deferred") or []))
-    if (
-        not force
-        and existing
-        and list(existing.get("eager_tools") or []) == eager
-        and list(existing.get("loaded_deferred") or []) == deferred
-    ):
+    if not force and existing and list(existing.get("eager_tools") or []) == eager and list(existing.get("loaded_deferred") or []) == deferred:
         return {
             "eager_tools": list(existing.get("eager_tools") or []),
             "loaded_deferred": list(existing.get("loaded_deferred") or []),
@@ -449,9 +427,7 @@ def on_scenario_tool_success(
     if sk:
         if action == "activate":
             prev_raw = payload.get("previous_scenarios") or []
-            prev_active = _normalized_active_scenarios(
-                [s for s in prev_raw if str(s or "").strip() and str(s).strip().lower() != "none"]
-            )
+            prev_active = _normalized_active_scenarios([s for s in prev_raw if str(s or "").strip() and str(s).strip().lower() != "none"])
             old_mode = resolve_current_binding_mode(sk, prev_active)
             new_mode = _mode_from_scenario_payload(payload, sk, new_active)
             if loaded_now or old_mode != new_mode:
@@ -479,11 +455,7 @@ def on_scenario_tool_success(
                     update_current_state=False,
                 )
 
-    restored = (
-        load_loaded_deferred_for_mode(sk, _mode_from_scenario_payload(payload, sk, new_active))
-        if sk
-        else []
-    )
+    restored = load_loaded_deferred_for_mode(sk, _mode_from_scenario_payload(payload, sk, new_active)) if sk else []
     if sk:
         new_mode = _mode_from_scenario_payload(payload, sk, new_active)
         # Append a single switch-in row for the new scenario (restored from the
@@ -606,9 +578,7 @@ def build_session_tool_binding_view(
     row = per_mode.get(mode) or {}
     loaded = filter_loaded_for_agent_mode(sk, mode, list(row.get("loaded_deferred") or []))
     eager = _default_eager_for_session(sk, mode) if sk else list(bound_tools_for_session_mode(mode))
-    deferred_catalog = deferred_catalog_for_session_agent(sk, mode) if sk else list(
-        deferred_catalog_for_session_mode(mode)
-    )
+    deferred_catalog = deferred_catalog_for_session_agent(sk, mode) if sk else list(deferred_catalog_for_session_mode(mode))
     effective = effective_bound_tools_for_mode(mode, loaded_deferred=loaded, session_key=sk or None)
     pending = pending_activation_for_mode(mode, loaded_deferred=loaded, session_key=sk or None)
     agent_tools = sorted(resolve_agent_tool_names_for_session(sk)) if sk else []

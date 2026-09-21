@@ -40,8 +40,8 @@ import os
 import re
 import tempfile
 import threading
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import Iterable
 
 try:
     import tiktoken
@@ -85,12 +85,8 @@ _TOKEN_CACHE_SIZE = 2048
 # select. Kept here so we can probe the on-disk cache *without* triggering a
 # network download on the event-loop hot path.
 _ENCODING_BLOB_URLS: dict[str, str] = {
-    "cl100k_base": (
-        "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
-    ),
-    "o200k_base": (
-        "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
-    ),
+    "cl100k_base": ("https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"),
+    "o200k_base": ("https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"),
 }
 
 _DEFAULT_ENCODINGS_TO_WARM: tuple[str, ...] = ("cl100k_base", "o200k_base")
@@ -370,15 +366,7 @@ def _encoding_name_for_model(model_name: str | None) -> str:
         return "cl100k_base"
     name = model_name.lower()
     # OpenAI o200k_base family: 4o, o1, o3, gpt-5, omni-*, chatgpt-4o-*
-    if (
-        "gpt-4o" in name
-        or "gpt-5" in name
-        or name.startswith("o1")
-        or name.startswith("o3")
-        or name.startswith("o4")
-        or "omni" in name
-        or "chatgpt-4o" in name
-    ):
+    if "gpt-4o" in name or "gpt-5" in name or name.startswith("o1") or name.startswith("o3") or name.startswith("o4") or "omni" in name or "chatgpt-4o" in name:
         return "o200k_base"
     return "cl100k_base"
 
@@ -390,9 +378,7 @@ def _encoding_name_for_model(model_name: str | None) -> str:
 # Set by middleware (``ContextCompactionMiddleware``) at the start of a model
 # call so all downstream token math uses the right tokenizer without having
 # to thread ``model_name`` through every signature.
-_CURRENT_MODEL: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "evoflow_token_model", default=None
-)
+_CURRENT_MODEL: contextvars.ContextVar[str | None] = contextvars.ContextVar("evoflow_token_model", default=None)
 
 
 def set_token_model(model_name: str | None) -> contextvars.Token:
@@ -411,8 +397,8 @@ def current_token_model() -> str | None:
 class token_model_scope:
     """Context manager: temporarily set the active model for token counting.
 
-        with token_model_scope("gpt-4o"):
-            count_text_tokens(some_text)   # uses o200k_base
+    with token_model_scope("gpt-4o"):
+        count_text_tokens(some_text)   # uses o200k_base
     """
 
     __slots__ = ("_model", "_tok")

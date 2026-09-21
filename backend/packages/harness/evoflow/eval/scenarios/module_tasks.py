@@ -24,17 +24,11 @@ def _run(home: Path) -> dict:
     rows = listed.get("tasks") or listed.get("items") or listed.get("rows") or []
     if not isinstance(rows, list):
         rows = []
-    ids = [
-        str(r.get("task_id") or r.get("id") or "")
-        for r in rows
-        if isinstance(r, dict)
-    ]
+    ids = [str(r.get("task_id") or r.get("id") or "") for r in rows if isinstance(r, dict)]
 
     got = tasks_admin.get_task(tid) if tid else {}
     exec_out = tasks_admin.set_task_state(tid, "executing") if tid else {}
-    done_out = (
-        tasks_admin.set_task_state(tid, "completed", summary="模块评测完成") if tid else {}
-    )
+    done_out = tasks_admin.set_task_state(tid, "completed", summary="模块评测完成") if tid else {}
     final = tasks_admin.get_task(tid) if tid else {}
     final_task = final.get("task") if isinstance(final.get("task"), dict) else final
     final_status = str(final_task.get("status") or done_out.get("status") or "")
@@ -70,8 +64,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "to_executing",
-            str(exec_out.get("status") or "") == "executing"
-            or str((exec_out.get("task") or {}).get("status") or "") == "executing",
+            str(exec_out.get("status") or "") == "executing" or str((exec_out.get("task") or {}).get("status") or "") == "executing",
             inputs={"task_id": tid, "to": "executing"},
             expected="executing",
             actual=exec_out.get("status") or (exec_out.get("task") or {}).get("status"),

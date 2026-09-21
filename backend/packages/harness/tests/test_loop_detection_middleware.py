@@ -10,9 +10,9 @@ from evoflow.agents.middlewares.loop_detection_middleware import (
     _BLOCK_MSG,
     _EXPLORE_BLOCK_MSG,
     _EXPLORE_WARNING_MSG,
+    LoopDetectionMiddleware,
     _explore_loop_fingerprint,
     _terminal_command_fingerprint,
-    LoopDetectionMiddleware,
 )
 
 
@@ -77,9 +77,7 @@ def test_list_dir_same_path_depth_not_blocked_when_explore_loop_disabled() -> No
         msg = mw._track_and_check(state, runtime)  # type: ignore[arg-type]
         assert msg != _EXPLORE_BLOCK_MSG
 
-    blocked = mw._maybe_block_tool(
-        SimpleNamespace(tool_call={"name": "list_dir", "args": args, "id": "c5"}, runtime=runtime)
-    )  # type: ignore[arg-type]
+    blocked = mw._maybe_block_tool(SimpleNamespace(tool_call={"name": "list_dir", "args": args, "id": "c5"}, runtime=runtime))  # type: ignore[arg-type]
     assert blocked is None
 
 
@@ -96,9 +94,7 @@ def test_terminal_repeat_not_blocked_when_explore_loop_disabled() -> None:
 
     assert _EXPLORE_WARNING_MSG not in msgs
     assert _EXPLORE_BLOCK_MSG not in msgs
-    blocked = mw._maybe_block_tool(
-        SimpleNamespace(tool_call={"name": "terminal", "args": args, "id": "c5"}, runtime=runtime)
-    )  # type: ignore[arg-type]
+    blocked = mw._maybe_block_tool(SimpleNamespace(tool_call={"name": "terminal", "args": args, "id": "c5"}, runtime=runtime))  # type: ignore[arg-type]
     assert blocked is None
 
 
@@ -150,26 +146,9 @@ def test_read_file_error_repeat_is_not_blocked() -> None:
 
 
 def test_cd_node_different_scripts_have_distinct_fingerprints() -> None:
-    topic_list = {
-        "command": (
-            "cd D:/dev/github/ContentOS; "
-            "node skills/contentos-topic-research/scripts/mcp-call.js topic_list '{}'"
-        )
-    }
-    search = {
-        "command": (
-            "cd D:/dev/github/ContentOS; "
-            'node skills/contentos-topic-research/scripts/search.js '
-            '"{\\"keyword\\":\\"AI\\",\\"limit\\":10}"'
-        )
-    }
-    topic_create = {
-        "command": (
-            "cd D:/dev/github/ContentOS; "
-            "node skills/contentos-topic-research/scripts/mcp-call.js topic_create "
-            '"{\\"title\\":\\"x\\"}"'
-        )
-    }
+    topic_list = {"command": ("cd D:/dev/github/ContentOS; node skills/contentos-topic-research/scripts/mcp-call.js topic_list '{}'")}
+    search = {"command": ('cd D:/dev/github/ContentOS; node skills/contentos-topic-research/scripts/search.js "{\\"keyword\\":\\"AI\\",\\"limit\\":10}"')}
+    topic_create = {"command": ('cd D:/dev/github/ContentOS; node skills/contentos-topic-research/scripts/mcp-call.js topic_create "{\\"title\\":\\"x\\"}"')}
     fp_list = _terminal_command_fingerprint(topic_list)
     fp_search = _terminal_command_fingerprint(search)
     fp_create = _terminal_command_fingerprint(topic_create)
@@ -181,15 +160,9 @@ def test_cd_node_different_scripts_have_distinct_fingerprints() -> None:
 
 def test_read_offset_micro_nudge_shares_fingerprint() -> None:
     path = r"D:/dev/github/EvoFlow/evopanel/src/react/hooks/useSessionList.ts"
-    fp_a = _explore_loop_fingerprint(
-        {"name": "read", "args": {"path": path, "offset": 130, "limit": 30}}
-    )
-    fp_b = _explore_loop_fingerprint(
-        {"name": "read", "args": {"path": path, "offset": 132, "limit": 20}}
-    )
-    fp_far = _explore_loop_fingerprint(
-        {"name": "read", "args": {"path": path, "offset": 515, "limit": 50}}
-    )
+    fp_a = _explore_loop_fingerprint({"name": "read", "args": {"path": path, "offset": 130, "limit": 30}})
+    fp_b = _explore_loop_fingerprint({"name": "read", "args": {"path": path, "offset": 132, "limit": 20}})
+    fp_far = _explore_loop_fingerprint({"name": "read", "args": {"path": path, "offset": 515, "limit": 50}})
     assert fp_a == fp_b
     assert fp_a != fp_far
 
@@ -304,11 +277,7 @@ def test_mixed_batch_blocks_only_offender_terminal_not_write() -> None:
     runtime = _runtime("t-mixed-collateral")
     state: dict = {"messages": []}
 
-    search_cmd = (
-        "cd D:/dev/github/ContentOS; "
-        'node skills/contentos-topic-research/scripts/search.js '
-        '"{\\"keyword\\":\\"AI\\",\\"limit\\":10}"'
-    )
+    search_cmd = 'cd D:/dev/github/ContentOS; node skills/contentos-topic-research/scripts/search.js "{\\"keyword\\":\\"AI\\",\\"limit\\":10}"'
     # Seed 4 search.js terminals via mixed batches (explore-only batches skip checks).
     for i in range(4):
         state["messages"] = [
@@ -331,11 +300,7 @@ def test_mixed_batch_blocks_only_offender_terminal_not_write() -> None:
         mw._track_and_check(state, runtime)  # type: ignore[arg-type]
 
     write_path = r"C:\Users\admin\.evoflow\outputs\????.md"
-    topic_create_cmd = (
-        "cd D:/dev/github/ContentOS; "
-        "node skills/contentos-topic-research/scripts/mcp-call.js topic_create "
-        '"{\\"title\\":\\"demo\\"}"'
-    )
+    topic_create_cmd = 'cd D:/dev/github/ContentOS; node skills/contentos-topic-research/scripts/mcp-call.js topic_create "{\\"title\\":\\"demo\\"}"'
     # 5th search.js in a batch with write + different terminal should:
     # - block only the search.js offender
     # - allow write and topic_create to run
@@ -395,6 +360,7 @@ def test_mixed_batch_blocks_only_offender_terminal_not_write() -> None:
         is None
     )
 
+
 def test_explore_streak_disabled_no_warn() -> None:
     from evoflow.agents.middlewares.loop_detection_middleware import (
         _EXPLORE_STREAK_BLOCK_MSG,
@@ -432,9 +398,7 @@ def test_search_tools_never_blocked_by_explore_streak() -> None:
     state: dict = {"messages": []}
     msgs: list[str | None] = []
     for i in range(12):
-        state["messages"] = [
-            _ai_tool("rg", {"pattern": f"pattern_{i}", "path": "backend/packages/harness/evoflow"}, call_id=f"g{i}")
-        ]
+        state["messages"] = [_ai_tool("rg", {"pattern": f"pattern_{i}", "path": "backend/packages/harness/evoflow"}, call_id=f"g{i}")]
         msgs.append(mw._track_and_check(state, runtime))  # type: ignore[arg-type]
 
     assert _EXPLORE_STREAK_WARN_MSG not in msgs
@@ -465,9 +429,7 @@ def test_rg_repeat_not_warned_when_explore_loop_disabled() -> None:
 
     assert _EXPLORE_WARNING_MSG not in msgs
     assert _EXPLORE_BLOCK_MSG not in msgs
-    blocked = mw._maybe_block_tool(
-        SimpleNamespace(tool_call={"name": "rg", "args": args, "id": "g5"}, runtime=runtime)
-    )  # type: ignore[arg-type]
+    blocked = mw._maybe_block_tool(SimpleNamespace(tool_call={"name": "rg", "args": args, "id": "g5"}, runtime=runtime))  # type: ignore[arg-type]
     assert blocked is None
 
 

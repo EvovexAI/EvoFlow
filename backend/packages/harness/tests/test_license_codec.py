@@ -32,6 +32,7 @@ from evoflow.license.machine import clear_machine_id_cache, get_machine_id
 from evoflow.license.store import clear_license_state, set_license_state
 from evoflow.persistence.db import get_db, reset_db_for_tests
 
+
 @pytest.fixture
 def sqlite_tmp(monkeypatch: pytest.MonkeyPatch):
     with tempfile.TemporaryDirectory() as tmp:

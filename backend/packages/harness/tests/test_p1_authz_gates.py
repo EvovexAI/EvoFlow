@@ -126,7 +126,8 @@ def test_skills_update_requires_admin(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_agent_asset_requires_visible(sqlite_tmp: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del sqlite_tmp
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.scope import personal_scope
     from evoflow.persistence import config_repositories as cfg_repo
 

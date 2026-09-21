@@ -18,9 +18,7 @@ def test_resolve_upstream_targets_manager_then_raised_by_when_all_done():
         "assigned_to": "project-architect",
         "raised_by": "product-manager",
     }
-    assert resolve_upstream_targets(child, parent, all_siblings_done=False) == [
-        "project-architect"
-    ]
+    assert resolve_upstream_targets(child, parent, all_siblings_done=False) == ["project-architect"]
     assert resolve_upstream_targets(child, parent, all_siblings_done=True) == [
         "project-architect",
         "product-manager",
@@ -42,9 +40,7 @@ def test_build_receipt_goal_mentions_rollup():
             "done": 2,
             "open": 1,
             "all_done": False,
-            "open_rows": [
-                {"task_id": "2607250854_b220", "assigned_to": "project-debugger"}
-            ],
+            "open_rows": [{"task_id": "2607250854_b220", "assigned_to": "project-debugger"}],
         },
     )
     assert "下游回执" in goal
@@ -324,9 +320,7 @@ def test_maybe_push_tree_receipt_when_descendants_all_done():
         ),
         patch("evoflow.collab.storage.get_project_storage", return_value=MagicMock()),
     ):
-        out = maybe_push_tree_receipt_feishu(
-            child=child, parent=parent, all_siblings_done=True
-        )
+        out = maybe_push_tree_receipt_feishu(child=child, parent=parent, all_siblings_done=True)
 
     assert out and out.get("ok") is True
     assert out.get("root_task_id") == "Task_root"

@@ -102,10 +102,7 @@ def test_coerce_tool_call_args_plan_nested_payload_and_goal_fallback() -> None:
 
 
 def test_parse_loose_json_object_salvages_trailing_garbage() -> None:
-    raw = (
-        '{"goal": "调度", "steps": [{"name": "s1", "goal": "g1", "assigned_agent": "general-purpose"}]}'
-        'start_execution", "task_id": "Task_x"}'
-    )
+    raw = '{"goal": "调度", "steps": [{"name": "s1", "goal": "g1", "assigned_agent": "general-purpose"}]}start_execution", "task_id": "Task_x"}'
     parsed = parse_loose_json_object(raw)
     assert parsed is not None
     assert parsed["goal"] == "调度"

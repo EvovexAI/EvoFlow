@@ -13,12 +13,8 @@ from evoflow.models.factory import _apply_native_web_search, _is_dashscope_like_
 
 def test_is_dashscope_like_host_by_vendor_and_url() -> None:
     assert _is_dashscope_like_host(SimpleNamespace(vendor="aliyun", base_url=""))
-    assert _is_dashscope_like_host(
-        SimpleNamespace(vendor="", base_url="https://dashscope.aliyuncs.com/compatible-mode/v1")
-    )
-    assert not _is_dashscope_like_host(
-        SimpleNamespace(vendor="openai", base_url="https://api.openai.com/v1")
-    )
+    assert _is_dashscope_like_host(SimpleNamespace(vendor="", base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"))
+    assert not _is_dashscope_like_host(SimpleNamespace(vendor="openai", base_url="https://api.openai.com/v1"))
 
 
 def test_apply_native_web_search_dashscope_merges_enable_search() -> None:

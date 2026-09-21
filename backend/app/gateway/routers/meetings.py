@@ -27,7 +27,6 @@ from evoflow.a2a.orchestrator import (
 )
 from evoflow.authz.http_guard import require_agent_visible, require_org_admin, require_session_visible
 from evoflow.persistence.db import get_db
-from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +61,7 @@ class ConcludeRequest(BaseModel):
 
 # ── Endpoints ──────────────────────────────────────────────
 
+
 def _require_meeting_visible(request: Request, meeting_id: str) -> dict[str, Any]:
     meeting = get_meeting(meeting_id)
     if not meeting:
@@ -77,7 +77,6 @@ def _require_meeting_visible(request: Request, meeting_id: str) -> dict[str, Any
     for code in participants:
         require_agent_visible(request, str(code or "").strip())
     return meeting
-
 
 
 @router.post("")
@@ -103,9 +102,7 @@ async def create_meeting_endpoint(request: Request, req: CreateMeetingRequest) -
                 }
             )
         else:
-            participants_meta.append(
-                {"agent_code": code, "role_name": code, "agent_card": None}
-            )
+            participants_meta.append({"agent_code": code, "role_name": code, "agent_card": None})
 
     create_meeting(
         meeting_id=meeting_id,
@@ -140,18 +137,14 @@ async def get_meeting_endpoint(request: Request, meeting_id: str) -> dict[str, A
                 }
             )
         else:
-            participants_meta.append(
-                {"agent_code": code, "role_name": code, "agent_card": None}
-            )
+            participants_meta.append({"agent_code": code, "role_name": code, "agent_card": None})
 
     meeting["participants"] = participants_meta
     return meeting
 
 
 @router.post("/{meeting_id}/discuss")
-async def start_discussion_endpoint(
-    request: Request, meeting_id: str, req: DiscussRequest
-) -> dict[str, Any]:
+async def start_discussion_endpoint(request: Request, meeting_id: str, req: DiscussRequest) -> dict[str, Any]:
     """Start a discussion round. The orchestrator serially dispatches
     the topic to each participant in the background."""
     meeting = _require_meeting_visible(request, meeting_id)
@@ -176,16 +169,12 @@ async def start_discussion_endpoint(
 
 
 @router.post("/{meeting_id}/mention")
-async def meeting_mention_endpoint(
-    request: Request, meeting_id: str, req: MentionRequest
-) -> dict[str, Any]:
+async def meeting_mention_endpoint(request: Request, meeting_id: str, req: MentionRequest) -> dict[str, Any]:
     """User @mentions a specific participant during a meeting."""
-    meeting = _require_meeting_visible(request, meeting_id)
+    _require_meeting_visible(request, meeting_id)
 
     if not req.agent_code or not req.text.strip():
-        raise HTTPException(
-            status_code=400, detail="agent_code and text are required"
-        )
+        raise HTTPException(status_code=400, detail="agent_code and text are required")
 
     orchestrator = MeetingOrchestrator()
     result = await orchestrator.send_mention(
@@ -206,15 +195,19 @@ async def meeting_mention_endpoint(
 async def list_turns_endpoint(request: Request, meeting_id: str) -> dict[str, Any]:
     """List all discussion turns for a meeting."""
     _require_meeting_visible(request, meeting_id)
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT turn_id, meeting_id, topic, speaker_order, status, created_at
         FROM evoflow_meeting_turns
         WHERE meeting_id = ?
         ORDER BY created_at
         """,
-        (meeting_id,),
-    ).fetchall()
+            (meeting_id,),
+        )
+        .fetchall()
+    )
 
     turns = []
     for row in rows:
@@ -232,32 +225,34 @@ async def list_turns_endpoint(request: Request, meeting_id: str) -> dict[str, An
 async def list_meeting_tasks_endpoint(request: Request, meeting_id: str) -> dict[str, Any]:
     """List all A2A tasks associated with a meeting."""
     _require_meeting_visible(request, meeting_id)
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT task_id, agent_code, meeting_id, session_id, state,
                goal, context_summary, result_text, created_at, updated_at, completed_at
         FROM evoflow_a2a_tasks
         WHERE meeting_id = ?
         ORDER BY created_at
         """,
-        (meeting_id,),
-    ).fetchall()
+            (meeting_id,),
+        )
+        .fetchall()
+    )
 
     tasks = [dict(row) for row in rows]
     return {"meeting_id": meeting_id, "tasks": tasks}
 
 
 @router.post("/{meeting_id}/conclude")
-async def conclude_meeting_endpoint(
-    request: Request, meeting_id: str, req: ConcludeRequest = ConcludeRequest()
-) -> dict[str, Any]:
+async def conclude_meeting_endpoint(request: Request, meeting_id: str, req: ConcludeRequest = ConcludeRequest()) -> dict[str, Any]:
     """Synthesize an optimal plan from employee oral turns (host conclusion)."""
     from evoflow.a2a.meeting_conclude import conclude_meeting
 
     mid = str(meeting_id or "").strip()
     if not mid:
         raise HTTPException(status_code=422, detail="meeting_id required")
-    meeting = _require_meeting_visible(request, mid)
+    _require_meeting_visible(request, mid)
     topic = str(req.topic or "").strip()
     result = await conclude_meeting(mid, topic=topic)
     if not result.get("ok"):

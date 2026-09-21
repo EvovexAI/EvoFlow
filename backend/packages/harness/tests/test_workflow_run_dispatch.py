@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tempfile
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -53,12 +53,16 @@ def test_run_app_applies_workflow_dispatch_sync(sqlite_tmp: str) -> None:
     _save_published_workflow_app()
     fake_dispatch = {"success": True, "action": "start_execution", "taskId": "t1"}
 
-    with patch.object(app_runner, "run_app_workflow", return_value={
-        "run_id": "Run_x",
-        "task_id": "Task_x",
-        "execution_mode": "workflow",
-        "status": "planned",
-    }) as mocked_wf:
+    with patch.object(
+        app_runner,
+        "run_app_workflow",
+        return_value={
+            "run_id": "Run_x",
+            "task_id": "Task_x",
+            "execution_mode": "workflow",
+            "status": "planned",
+        },
+    ) as mocked_wf:
         with patch.object(
             app_runner,
             "dispatch_workflow_task_sync",

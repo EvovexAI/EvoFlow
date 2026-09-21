@@ -14,7 +14,6 @@ from typing import Any
 
 from evoflow.timeutil import utc_now_iso_z
 
-
 # ──────────────────────────────── Parameter Detectors ───────────────────────────────
 
 
@@ -131,14 +130,63 @@ def _detect_file_paths(text: str) -> list[tuple[str, str]]:
 def _detect_languages_tech(text: str) -> list[tuple[str, str]]:
     """Detect programming languages, frameworks, and tech terms."""
     keywords = {
-        "python", "javascript", "typescript", "java", "c++", "c#", "go", "golang",
-        "rust", "ruby", "php", "swift", "kotlin", "scala", "haskell", "elixir",
-        "react", "vue", "angular", "next.js", "nextjs", "nuxt", "svelte", "django",
-        "flask", "fastapi", "spring", "express", "nestjs", "laravel", "rails",
-        "pandas", "numpy", "tensorflow", "pytorch", "openai", "gpt", "claude",
-        "llama", "mistral", "langchain", "llamaindex", "vector", "embedding",
-        "sqlite", "postgres", "mysql", "mongodb", "redis", "elasticsearch",
-        "docker", "kubernetes", "k8s", "aws", "gcp", "azure", "terraform",
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "c++",
+        "c#",
+        "go",
+        "golang",
+        "rust",
+        "ruby",
+        "php",
+        "swift",
+        "kotlin",
+        "scala",
+        "haskell",
+        "elixir",
+        "react",
+        "vue",
+        "angular",
+        "next.js",
+        "nextjs",
+        "nuxt",
+        "svelte",
+        "django",
+        "flask",
+        "fastapi",
+        "spring",
+        "express",
+        "nestjs",
+        "laravel",
+        "rails",
+        "pandas",
+        "numpy",
+        "tensorflow",
+        "pytorch",
+        "openai",
+        "gpt",
+        "claude",
+        "llama",
+        "mistral",
+        "langchain",
+        "llamaindex",
+        "vector",
+        "embedding",
+        "sqlite",
+        "postgres",
+        "mysql",
+        "mongodb",
+        "redis",
+        "elasticsearch",
+        "docker",
+        "kubernetes",
+        "k8s",
+        "aws",
+        "gcp",
+        "azure",
+        "terraform",
     }
     results = []
     for kw in keywords:
@@ -435,10 +483,7 @@ def create_app_from_task(
     if name.lower().startswith("task: "):
         name = name[6:]
 
-    description = app_description or (
-        f"Auto-generated from successful task: {task_name}. "
-        f"{len(parameters)} parameter(s) detected."
-    )
+    description = app_description or (f"Auto-generated from successful task: {task_name}. {len(parameters)} parameter(s) detected.")
 
     ts = utc_now_iso_z().replace(":", "").replace("-", "").replace("T", "").split(".")[0]
     app_id = f"App_{ts}_{uuid.uuid4().hex[:6]}"

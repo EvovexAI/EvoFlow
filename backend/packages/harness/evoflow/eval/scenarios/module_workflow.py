@@ -43,13 +43,7 @@ def _run(home: Path) -> dict:
     app_id = "eval_module_workflow"
     app_def = _app_def()
     validated = validate_app_definition(app_def)
-    valid_ok = bool(
-        validated.get("ok")
-        if "ok" in validated
-        else validated.get("valid")
-        if "valid" in validated
-        else not (validated.get("errors") or [])
-    )
+    valid_ok = bool(validated.get("ok") if "ok" in validated else validated.get("valid") if "valid" in validated else not (validated.get("errors") or []))
 
     app_repositories.save_app(app_id, app_def)
     listed = apps_admin.list_apps(search="模块评测", limit=20)
@@ -59,12 +53,7 @@ def _run(home: Path) -> dict:
 
     run_result = apps_admin.run_app(app_id, parameters={"topic": "模块评测主题"})
     run_obj = run_result.get("run") if isinstance(run_result, dict) else {}
-    task_id = str(
-        (run_obj or {}).get("task_id")
-        or (run_obj or {}).get("main_task_id")
-        or run_result.get("task_id")
-        or ""
-    ).strip()
+    task_id = str((run_obj or {}).get("task_id") or (run_obj or {}).get("main_task_id") or run_result.get("task_id") or "").strip()
     run_id = str((run_obj or {}).get("run_id") or (run_obj or {}).get("id") or "").strip()
 
     assertions = [

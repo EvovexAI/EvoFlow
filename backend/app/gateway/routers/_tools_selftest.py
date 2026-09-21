@@ -9,11 +9,9 @@ Run: python -m app.gateway.routers._tools_selftest
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
-from typing import Any
 
 # Ensure backend root is importable when run as a script.
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -21,22 +19,20 @@ _BACKEND = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
-from evoflow.capability import (
+from app.gateway.routers import tools as tools_mod  # noqa: E402
+from evoflow.capability import (  # noqa: E402
     CallerCtx,
     DangerTier,
-    Surface,
     capability,
     get_registry,
 )
 
-from app.gateway.routers import tools as tools_mod
-
-
 # --- Test capability models -------------------------------------------------
+
 
 class EchoArgs(BaseModel):
     text: str
@@ -56,6 +52,7 @@ class StreamArgs(BaseModel):
 
 
 # --- Test capability handlers -----------------------------------------------
+
 
 @capability(
     name="_test_echo",
@@ -102,8 +99,10 @@ def _test_stream(ctx: CallerCtx, p: StreamArgs, sink) -> dict:
 
 # --- Build an app with the router, bypassing auth --------------------------
 
+
 def _build_client() -> TestClient:
     app = FastAPI()
+
     # Bypass the bearer-token gate: return a fixed identity for every call.
     async def _fake_token():
         return {"identity_type": "agent", "identity_id": "test-user", "token_name": "test", "token_hash": "h"}

@@ -124,9 +124,7 @@ def get_task_stats(days: int = 7) -> dict[str, Any]:
     # 优先：evoflow_collab_tasks（真实协作任务表）
     if _table_exists(db, "evoflow_collab_tasks"):
         try:
-            all_rows = db.execute(
-                "SELECT status, created_at FROM evoflow_collab_tasks"
-            ).fetchall()
+            all_rows = db.execute("SELECT status, created_at FROM evoflow_collab_tasks").fetchall()
             total = 0
             status_map: dict[str, int] = {}
             for r in all_rows:
@@ -164,10 +162,7 @@ def get_task_stats(days: int = 7) -> dict[str, Any]:
         if status_col:
             try:
                 if ts_col:
-                    rows = db.execute(
-                        f"SELECT {status_col} AS status, {ts_col} AS ts_raw "
-                        f"FROM evoflow_mission_nodes"
-                    ).fetchall()
+                    rows = db.execute(f"SELECT {status_col} AS status, {ts_col} AS ts_raw FROM evoflow_mission_nodes").fetchall()
                     total = 0
                     status_map: dict[str, int] = {}
                     for r in rows:
@@ -202,14 +197,20 @@ def get_task_stats(days: int = 7) -> dict[str, Any]:
                         "status_counts": status_map,
                     }
                 return {
-                    "total": 0, "done": 0, "failed": 0,
-                    "completion_rate": 0.0, "status_counts": {},
+                    "total": 0,
+                    "done": 0,
+                    "failed": 0,
+                    "completion_rate": 0.0,
+                    "status_counts": {},
                 }
             except Exception:  # noqa: BLE001
                 logger.debug("mission_nodes task stats query failed", exc_info=True)
         return {
-            "total": 0, "done": 0, "failed": 0,
-            "completion_rate": 0.0, "status_counts": {},
+            "total": 0,
+            "done": 0,
+            "failed": 0,
+            "completion_rate": 0.0,
+            "status_counts": {},
         }
 
     # 回退：任务事件数量
@@ -219,15 +220,20 @@ def get_task_stats(days: int = 7) -> dict[str, Any]:
             n = int(row["c"]) if row else 0
             if n > 0:
                 return {
-                    "total": n, "done": 0, "failed": 0,
+                    "total": n,
+                    "done": 0,
+                    "failed": 0,
                     "completion_rate": 0.0,
                     "status_counts": {"pending": n},
                 }
         except Exception:  # noqa: BLE001
             pass
         return {
-            "total": 0, "done": 0, "failed": 0,
-            "completion_rate": 0.0, "status_counts": {},
+            "total": 0,
+            "done": 0,
+            "failed": 0,
+            "completion_rate": 0.0,
+            "status_counts": {},
         }
 
     return _missing("evoflow_collab_tasks")
@@ -239,9 +245,7 @@ def _iter_mission_updated_ms(db: Any) -> list[int]:
     if "updated_at" not in cols:
         return []
     try:
-        rows = db.execute(
-            "SELECT updated_at FROM evoflow_mission_nodes WHERE updated_at IS NOT NULL"
-        ).fetchall()
+        rows = db.execute("SELECT updated_at FROM evoflow_mission_nodes WHERE updated_at IS NOT NULL").fetchall()
     except Exception:  # noqa: BLE001
         return []
     out: list[int] = []
@@ -290,9 +294,7 @@ def get_task_duration_distribution(days: int = 7) -> dict[str, Any]:
         if end_col:
             try:
                 if start_col:
-                    rows = db.execute(
-                        f"SELECT {start_col} AS s, {end_col} AS e FROM evoflow_mission_nodes"
-                    ).fetchall()
+                    rows = db.execute(f"SELECT {start_col} AS s, {end_col} AS e FROM evoflow_mission_nodes").fetchall()
                     for r in rows:
                         s = _parse_iso_ms(r["s"])
                         e = _parse_iso_ms(r["e"])
@@ -339,9 +341,7 @@ def get_task_trend(days: int = 7) -> dict[str, Any]:
         cols = _columns(db, "evoflow_mission_nodes")
         if "updated_at" in cols:
             try:
-                rows = db.execute(
-                    "SELECT status, updated_at FROM evoflow_mission_nodes WHERE updated_at IS NOT NULL"
-                ).fetchall()
+                rows = db.execute("SELECT status, updated_at FROM evoflow_mission_nodes WHERE updated_at IS NOT NULL").fetchall()
                 for r in rows:
                     ts = _parse_iso_ms(r["updated_at"])
                     if ts is None or ts < since:
@@ -385,6 +385,7 @@ def _day_key_for_ms(ts: int) -> str:
 # ---------------------------------------------------------------------------
 # 工具调用统计（基于 evoflow_chat_messages.tool_name / tool_calls_json）
 # ---------------------------------------------------------------------------
+
 
 def _extract_tool_names_from_json(raw: Any) -> list[str]:
     """从 tool_calls_json 或 content_json 中尽力抽取工具名列表。"""
@@ -552,6 +553,7 @@ def get_tool_trend(days: int = 7) -> dict[str, Any]:
 # 对话 / 知识库统计
 # ---------------------------------------------------------------------------
 
+
 def get_conversation_stats(days: int = 7) -> dict[str, Any]:
     """对话统计：会话数、消息数、活跃用户（会话）数。"""
     db = get_db()
@@ -567,11 +569,7 @@ def get_conversation_stats(days: int = 7) -> dict[str, Any]:
         del_col = "is_deleted" if "is_deleted" in cols else None
         try:
             if ts_col:
-                rows = db.execute(
-                    f"SELECT {ts_col} AS ts_raw, is_deleted FROM evoflow_chat_sessions"
-                ).fetchall() if del_col else db.execute(
-                    f"SELECT {ts_col} AS ts_raw FROM evoflow_chat_sessions"
-                ).fetchall()
+                rows = db.execute(f"SELECT {ts_col} AS ts_raw, is_deleted FROM evoflow_chat_sessions").fetchall() if del_col else db.execute(f"SELECT {ts_col} AS ts_raw FROM evoflow_chat_sessions").fetchall()
                 count = 0
                 for r in rows:
                     ts_raw = r["ts_raw"]
@@ -721,6 +719,7 @@ def get_knowledge_stats(days: int = 7) -> dict[str, Any]:
 # 列表接口
 # ---------------------------------------------------------------------------
 
+
 def list_task_rows(limit: int = 50, offset: int = 0, status: str | None = None) -> dict[str, Any]:
     """任务列表（基于 evoflow_mission_nodes）。"""
     db = get_db()
@@ -737,8 +736,7 @@ def list_task_rows(limit: int = 50, offset: int = 0, status: str | None = None) 
         sel_cols = [c for c in ("id", "thread_id", "kind", "title", "status", "priority", "updated_at") if c in cols]
         try:
             rows = db.execute(
-                f"SELECT {', '.join(sel_cols)} FROM evoflow_mission_nodes {where} "
-                f"ORDER BY id DESC LIMIT ? OFFSET ?",
+                f"SELECT {', '.join(sel_cols)} FROM evoflow_mission_nodes {where} ORDER BY id DESC LIMIT ? OFFSET ?",
                 (*params, limit, offset),
             ).fetchall()
             items = [_row_to_dict(r, sel_cols) for r in rows]
@@ -768,8 +766,7 @@ def list_tool_call_rows(limit: int = 50, tool_name: str | None = None) -> dict[s
             params2 = [*params, limit]
             try:
                 rows = db.execute(
-                    f"SELECT {', '.join(sel)} FROM evoflow_chat_messages {cond} "
-                    f"ORDER BY id DESC LIMIT ?",
+                    f"SELECT {', '.join(sel)} FROM evoflow_chat_messages {cond} ORDER BY id DESC LIMIT ?",
                     params2,
                 ).fetchall()
                 items = [_row_to_dict(r, sel) for r in rows]

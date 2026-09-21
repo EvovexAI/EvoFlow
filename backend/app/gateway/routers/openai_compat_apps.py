@@ -10,7 +10,8 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -41,9 +42,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["openai-compat-apps"])
 
-_TERMINAL = frozenset(
-    {"completed", "failed", "cancelled", "canceled", "error", "timeout"}
-)
+_TERMINAL = frozenset({"completed", "failed", "cancelled", "canceled", "error", "timeout"})
 
 
 class ChatMessage(BaseModel):
@@ -116,11 +115,7 @@ def _app_model_evoflow_meta(
         "example_response": build_example_chat_response(app_id, app, detail=True),
         "response_contract": build_response_contract(),
         "invoke_path": "/v1/chat/completions",
-        "hint": (
-            "POST example_request to /v1/chat/completions with Bearer ef-… . "
-            "Read choices[0].message.content for the answer; with detail=true read "
-            "responseData[].assigned_agent for per-agent outputs (see example_response)."
-        ),
+        "hint": ("POST example_request to /v1/chat/completions with Bearer ef-… . Read choices[0].message.content for the answer; with detail=true read responseData[].assigned_agent for per-agent outputs (see example_response)."),
     }
 
 
@@ -150,10 +145,7 @@ def _start_published_app(
     if live_status != "published":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Application must be published before OpenAPI invocation "
-                f"(current status={live_status or 'unknown'})."
-            ),
+            detail=(f"Application must be published before OpenAPI invocation (current status={live_status or 'unknown'})."),
         )
 
     pin = _pinned_from_token(token_data)
@@ -166,17 +158,11 @@ def _start_published_app(
     if mode == "lead_supervised":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "OpenAPI invocation requires execution_mode=workflow. "
-                "This app is lead_supervised — switch to pure workflow in settings, "
-                "publish again, then retry. Studio debug still supports Lead mode."
-            ),
+            detail=("OpenAPI invocation requires execution_mode=workflow. This app is lead_supervised — switch to pure workflow in settings, publish again, then retry. Studio debug still supports Lead mode."),
         )
 
     messages = [m.model_dump() for m in body.messages]
-    parameters = map_chat_to_parameters(
-        app, variables=body.variables, messages=messages
-    )
+    parameters = map_chat_to_parameters(app, variables=body.variables, messages=messages)
     missing = missing_required_parameters(app, parameters)
     if missing:
         raise HTTPException(
@@ -291,9 +277,7 @@ async def chat_completions(
         )
 
     if body.async_:
-        app_id, started, app_version = await asyncio.to_thread(
-            _start_published_app, token_data=token_data, body=body
-        )
+        app_id, started, app_version = await asyncio.to_thread(_start_published_app, token_data=token_data, body=body)
         run_id = str(started.get("run_id") or "")
         return JSONResponse(
             content=_async_acceptance_response(
@@ -307,9 +291,7 @@ async def chat_completions(
     if body.stream:
         return _chat_completions_stream(body, token_data)
 
-    app_id, started, final = await asyncio.to_thread(
-        _run_published_app, token_data=token_data, body=body
-    )
+    app_id, started, final = await asyncio.to_thread(_run_published_app, token_data=token_data, body=body)
     run_id = str(started.get("run_id") or "")
     content = summarize_run_content(final)
     st = str(final.get("status") or "").strip().lower()
@@ -495,9 +477,7 @@ def _chat_completions_stream(
         )
 
         try:
-            app_id, started, app_version = await asyncio.to_thread(
-                _start_published_app, token_data=token_data, body=body
-            )
+            app_id, started, app_version = await asyncio.to_thread(_start_published_app, token_data=token_data, body=body)
             run_id = str(started.get("run_id") or "")
             bound_app = app_id
             # Metadata only — no Chinese startup fluff in assistant content
@@ -561,10 +541,7 @@ def _chat_completions_stream(
                             "subtask_status": doc.get("subtask_status") or {},
                             "steps": build_response_data(doc),
                         }
-                        yield (
-                            "event: evoflow.progress\n"
-                            f"data: {json.dumps(progress_payload, ensure_ascii=False)}\n\n"
-                        )
+                        yield (f"event: evoflow.progress\ndata: {json.dumps(progress_payload, ensure_ascii=False)}\n\n")
 
                     st = str(doc.get("status") or "").strip().lower()
                     if st in _TERMINAL:
@@ -592,9 +569,7 @@ def _chat_completions_stream(
             st = str(final.get("status") or "").strip().lower()
             if st in {"failed", "error"} and not answer:
                 answer = f"Run failed (run_id={run_id})"
-            if should_append_final_answer_delta(
-                answer, streamed_parts=streamed_parts, status_doc=final
-            ):
+            if should_append_final_answer_delta(answer, streamed_parts=streamed_parts, status_doc=final):
                 prefix = "\n\n---\n" if streamed_parts else ""
                 yield _delta(
                     f"{prefix}{answer}",
@@ -603,10 +578,7 @@ def _chat_completions_stream(
 
             if body.detail and final:
                 rows = build_response_data(final)
-                yield (
-                    "event: evoflow.flowResponses\n"
-                    f"data: {json.dumps({'responseData': rows, 'steps': rows, 'status': final.get('status'), 'answer': answer}, ensure_ascii=False)}\n\n"
-                )
+                yield (f"event: evoflow.flowResponses\ndata: {json.dumps({'responseData': rows, 'steps': rows, 'status': final.get('status'), 'answer': answer}, ensure_ascii=False)}\n\n")
 
             yield _delta(finish="stop", extra={"run_id": run_id, "app_id": app_id})
             yield "data: [DONE]\n\n"
@@ -616,9 +588,7 @@ def _chat_completions_stream(
                 detail = str(detail)
             err = {
                 "error": {
-                    "message": detail
-                    if isinstance(detail, str)
-                    else json.dumps(detail, ensure_ascii=False),
+                    "message": detail if isinstance(detail, str) else json.dumps(detail, ensure_ascii=False),
                     "type": "api_error",
                     "code": e.status_code,
                 }

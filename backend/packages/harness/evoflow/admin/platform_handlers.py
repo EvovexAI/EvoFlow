@@ -119,9 +119,7 @@ def knowledge_enable(args: dict[str, Any]) -> dict[str, Any]:
     if not vault_id:
         raise ValidationError("vaultId is required")
     if vault_id.startswith("kb_"):
-        raise ValidationError(
-            "自有知识库无需启用/停用；删除请在面板「知识库」操作，或继续用 knowledge.ingest / search。"
-        )
+        raise ValidationError("自有知识库无需启用/停用；删除请在面板「知识库」操作，或继续用 knowledge.ingest / search。")
     data = kn.set_vault_enabled(vault_id, _arg_bool(args, "enabled", True))
     return {"ok": True, **data}
 
@@ -369,11 +367,7 @@ def workflow_update(args: dict[str, Any]) -> dict[str, Any]:
     app_id = _arg_str(args, "appId", "app_id", "id")
     if not app_id:
         raise ValidationError("appId is required")
-    patch = {
-        k: v
-        for k, v in args.items()
-        if k not in {"appId", "app_id", "id", "confirm", "confirmed", "yes"} and v is not None
-    }
+    patch = {k: v for k, v in args.items() if k not in {"appId", "app_id", "id", "confirm", "confirmed", "yes"} and v is not None}
     data = apps_admin.update_app(app_id, patch)
     return _workflow_app_result(data)
 
@@ -612,10 +606,7 @@ def settings_patch_web_search(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import web_search as ws
 
     if not ws.normalize_web_search_patch(args):
-        raise ValidationError(
-            "pass preferredBackend and/or provider keys "
-            "(doubaoApiKey / bochaApiKey / tavilyApiKey / searxngUrl / …)"
-        )
+        raise ValidationError("pass preferredBackend and/or provider keys (doubaoApiKey / bochaApiKey / tavilyApiKey / searxngUrl / …)")
     data = ws.patch_web_search(args)
     guide = data.pop("assistant_guide", None)
     out: dict[str, Any] = {"ok": True}
@@ -708,11 +699,7 @@ def agents_update(args: dict[str, Any]) -> dict[str, Any]:
     name = name_key or code_key
     if not name:
         raise ValidationError("name/agent_code is required")
-    patch = {
-        k: v
-        for k, v in args.items()
-        if k not in {"name", "agent_code", "agentCode", "confirm", "confirmed", "yes"}
-    }
+    patch = {k: v for k, v in args.items() if k not in {"name", "agent_code", "agentCode", "confirm", "confirmed", "yes"}}
     return {"ok": True, "agent": agents_admin.update_agent(name, patch)}
 
 
@@ -724,13 +711,7 @@ def agents_delete(args: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("name/agent_code is required")
     keep_employee = _arg_bool(args, "keep_employee", False)
     # Platform confirm=true (stripped before handler) OR explicit confirm_cascade.
-    confirm_cascade = (
-        not keep_employee
-        and (
-            _arg_bool(args, "confirm_cascade", False)
-            or _arg_bool(args, "confirm", False)
-        )
-    )
+    confirm_cascade = not keep_employee and (_arg_bool(args, "confirm_cascade", False) or _arg_bool(args, "confirm", False))
     return {
         "ok": True,
         **agents_admin.delete_agent(
@@ -783,11 +764,7 @@ def employees_update(args: dict[str, Any]) -> dict[str, Any]:
     code = _arg_str(args, "agent_code", "agentCode", "code")
     if not code:
         raise ValidationError("agent_code is required")
-    patch = {
-        k: v
-        for k, v in args.items()
-        if k not in {"agent_code", "agentCode", "code", "confirm", "confirmed", "yes"}
-    }
+    patch = {k: v for k, v in args.items() if k not in {"agent_code", "agentCode", "code", "confirm", "confirmed", "yes"}}
     return {"ok": True, **emp.update_role(code, patch)}
 
 
@@ -1483,23 +1460,27 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
         sources_scan = diag.scan_errors(hours=24, max_events=50)
         err_sources = sources_scan.get("sources_with_errors") or []
         event_count = sources_scan.get("event_count") or 0
-        modules.append({
-            "module": "logs",
-            "title": "系统日志",
-            "status": "error" if err_sources else "ok",
-            "detail": f"最近24小时有 {event_count} 条异常，来源: {', '.join(err_sources) if err_sources else '无'}",
-            "error_sources": err_sources,
-            "event_count": event_count,
-            "top_events": (sources_scan.get("events") or [])[:5],
-        })
+        modules.append(
+            {
+                "module": "logs",
+                "title": "系统日志",
+                "status": "error" if err_sources else "ok",
+                "detail": f"最近24小时有 {event_count} 条异常，来源: {', '.join(err_sources) if err_sources else '无'}",
+                "error_sources": err_sources,
+                "event_count": event_count,
+                "top_events": (sources_scan.get("events") or [])[:5],
+            }
+        )
         if err_sources:
             for src in err_sources:
-                issues.append({
-                    "module": "logs",
-                    "severity": "high" if src in ("gateway", "langgraph") else "medium",
-                    "title": f"{src} 日志有异常",
-                    "detail": f"来源 {src} 在最近24小时有报错记录",
-                })
+                issues.append(
+                    {
+                        "module": "logs",
+                        "severity": "high" if src in ("gateway", "langgraph") else "medium",
+                        "title": f"{src} 日志有异常",
+                        "detail": f"来源 {src} 在最近24小时有报错记录",
+                    }
+                )
     except Exception as e:
         modules.append({"module": "logs", "title": "系统日志", "status": "error", "detail": f"扫描失败: {e}"})
         issues.append({"module": "logs", "severity": "high", "title": "日志扫描失败", "detail": str(e)})
@@ -1509,20 +1490,24 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
         bases = kn.list_bases()
         base_list = bases.get("items") or []
         total_bases = len(base_list)
-        modules.append({
-            "module": "knowledge",
-            "title": "知识库",
-            "status": "ok" if total_bases else "warn",
-            "detail": f"共 {total_bases} 个平台自有知识库",
-            "total": total_bases,
-        })
-        if not total_bases:
-            issues.append({
+        modules.append(
+            {
                 "module": "knowledge",
-                "severity": "low",
-                "title": "尚未创建自有知识库",
-                "detail": "可用 knowledge.create 或面板「知识库」新建",
-            })
+                "title": "知识库",
+                "status": "ok" if total_bases else "warn",
+                "detail": f"共 {total_bases} 个平台自有知识库",
+                "total": total_bases,
+            }
+        )
+        if not total_bases:
+            issues.append(
+                {
+                    "module": "knowledge",
+                    "severity": "low",
+                    "title": "尚未创建自有知识库",
+                    "detail": "可用 knowledge.create 或面板「知识库」新建",
+                }
+            )
     except Exception as e:
         modules.append({"module": "knowledge", "title": "知识库", "status": "error", "detail": f"检查失败: {e}"})
 
@@ -1531,14 +1516,16 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
         primary = models_admin.get_primary_model()
         model_list = models_admin.list_models()
         models_data = model_list.get("models") or model_list.get("items") or []
-        modules.append({
-            "module": "models",
-            "title": "模型配置",
-            "status": "ok" if models_data else "warn",
-            "detail": f"共 {len(models_data)} 个模型，默认: {primary.get('model_name', primary.get('name', '未设置'))}",
-            "total": len(models_data),
-            "primary": primary.get("model_name") or primary.get("name"),
-        })
+        modules.append(
+            {
+                "module": "models",
+                "title": "模型配置",
+                "status": "ok" if models_data else "warn",
+                "detail": f"共 {len(models_data)} 个模型，默认: {primary.get('model_name', primary.get('name', '未设置'))}",
+                "total": len(models_data),
+                "primary": primary.get("model_name") or primary.get("name"),
+            }
+        )
         if not models_data:
             issues.append({"module": "models", "severity": "high", "title": "无可用模型配置", "detail": "未配置任何模型，对话和员工均无法正常工作"})
     except Exception as e:
@@ -1549,22 +1536,26 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
         emp_data = emp.list_roles(status=None, include_archived=False)
         emp_list = emp_data.get("roles") or emp_data.get("items") or emp_data.get("employees") or []
         paused = [e for e in emp_list if str(e.get("status", "")).lower() in ("paused", "stopped", "inactive")]
-        modules.append({
-            "module": "employees",
-            "title": "员工/智能体",
-            "status": "warn" if paused else "ok",
-            "detail": f"共 {len(emp_list)} 个员工，{len(paused)} 个暂停/停止",
-            "total": len(emp_list),
-            "paused_count": len(paused),
-            "paused": [e.get("agent_code") or e.get("name", "?") for e in paused],
-        })
-        if paused:
-            issues.append({
+        modules.append(
+            {
                 "module": "employees",
-                "severity": "medium",
-                "title": f"{len(paused)} 个员工处于暂停/停止状态",
-                "detail": ", ".join(e.get("agent_code") or e.get("name", "?") for e in paused),
-            })
+                "title": "员工/智能体",
+                "status": "warn" if paused else "ok",
+                "detail": f"共 {len(emp_list)} 个员工，{len(paused)} 个暂停/停止",
+                "total": len(emp_list),
+                "paused_count": len(paused),
+                "paused": [e.get("agent_code") or e.get("name", "?") for e in paused],
+            }
+        )
+        if paused:
+            issues.append(
+                {
+                    "module": "employees",
+                    "severity": "medium",
+                    "title": f"{len(paused)} 个员工处于暂停/停止状态",
+                    "detail": ", ".join(e.get("agent_code") or e.get("name", "?") for e in paused),
+                }
+            )
     except Exception as e:
         modules.append({"module": "employees", "title": "员工/智能体", "status": "error", "detail": f"检查失败: {e}"})
 
@@ -1573,21 +1564,25 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
         auto_data = auto_admin.list_automations()
         auto_list = auto_data.get("automations") or auto_data.get("items") or []
         disabled_auto = [a for a in auto_list if not a.get("enabled", True) and not a.get("is_active", True)]
-        modules.append({
-            "module": "automation",
-            "title": "定时任务",
-            "status": "warn" if disabled_auto else "ok",
-            "detail": f"共 {len(auto_list)} 个定时任务，{len(disabled_auto)} 个未启用",
-            "total": len(auto_list),
-            "disabled_count": len(disabled_auto),
-        })
-        if disabled_auto:
-            issues.append({
+        modules.append(
+            {
                 "module": "automation",
-                "severity": "low",
-                "title": f"{len(disabled_auto)} 个定时任务未启用",
-                "detail": ", ".join(a.get("name", a.get("id", "?")) for a in disabled_auto),
-            })
+                "title": "定时任务",
+                "status": "warn" if disabled_auto else "ok",
+                "detail": f"共 {len(auto_list)} 个定时任务，{len(disabled_auto)} 个未启用",
+                "total": len(auto_list),
+                "disabled_count": len(disabled_auto),
+            }
+        )
+        if disabled_auto:
+            issues.append(
+                {
+                    "module": "automation",
+                    "severity": "low",
+                    "title": f"{len(disabled_auto)} 个定时任务未启用",
+                    "detail": ", ".join(a.get("name", a.get("id", "?")) for a in disabled_auto),
+                }
+            )
     except Exception as e:
         modules.append({"module": "automation", "title": "定时任务", "status": "error", "detail": f"检查失败: {e}"})
 
@@ -1649,9 +1644,7 @@ def verification_catalog(args: dict[str, Any]) -> dict[str, Any]:
             domain=args.get("domain", args.get("domains")),
             risk=args.get("risk", args.get("risks")),
             query=_arg_str(args, "query", "q"),
-            include_verification=_arg_bool(args, "includeVerification", False)
-            if "includeVerification" in args
-            else _arg_bool(args, "include_verification", False),
+            include_verification=_arg_bool(args, "includeVerification", False) if "includeVerification" in args else _arg_bool(args, "include_verification", False),
         ),
     }
 
@@ -1673,14 +1666,8 @@ def verification_start(args: dict[str, Any]) -> dict[str, Any]:
             domains=args.get("domains", args.get("domain")),
             apis=args.get("apis", args.get("api")),
             risks=args.get("risks", args.get("risk")),
-            include_verification=_arg_bool(args, "includeVerification", False)
-            if "includeVerification" in args
-            else _arg_bool(args, "include_verification", False),
-            only_missing=True if "onlyMissing" not in args and "only_missing" not in args else (
-                _arg_bool(args, "onlyMissing", True)
-                if "onlyMissing" in args
-                else _arg_bool(args, "only_missing", True)
-            ),
+            include_verification=_arg_bool(args, "includeVerification", False) if "includeVerification" in args else _arg_bool(args, "include_verification", False),
+            only_missing=True if "onlyMissing" not in args and "only_missing" not in args else (_arg_bool(args, "onlyMissing", True) if "onlyMissing" in args else _arg_bool(args, "only_missing", True)),
         ),
     }
 
@@ -1701,14 +1688,8 @@ def verification_init(args: dict[str, Any]) -> dict[str, Any]:
         domains=args.get("domains", args.get("domain")),
         apis=args.get("apis", args.get("api")),
         risks=args.get("risks", args.get("risk")),
-        include_verification=_arg_bool(args, "includeVerification", False)
-        if "includeVerification" in args
-        else _arg_bool(args, "include_verification", False),
-        only_missing=True if "onlyMissing" not in args and "only_missing" not in args else (
-            _arg_bool(args, "onlyMissing", True)
-            if "onlyMissing" in args
-            else _arg_bool(args, "only_missing", True)
-        ),
+        include_verification=_arg_bool(args, "includeVerification", False) if "includeVerification" in args else _arg_bool(args, "include_verification", False),
+        only_missing=True if "onlyMissing" not in args and "only_missing" not in args else (_arg_bool(args, "onlyMissing", True) if "onlyMissing" in args else _arg_bool(args, "only_missing", True)),
         config=args.get("config"),
     )
     return {"ok": True, **started}
@@ -1733,11 +1714,7 @@ def verification_get(args: dict[str, Any]) -> dict[str, Any]:
     rid = _arg_str(args, "roundId", "round_id", "id")
     if not rid:
         raise ValidationError("roundId is required")
-    include_steps = True if "includeSteps" not in args and "include_steps" not in args else (
-        _arg_bool(args, "includeSteps", True)
-        if "includeSteps" in args
-        else _arg_bool(args, "include_steps", True)
-    )
+    include_steps = True if "includeSteps" not in args and "include_steps" not in args else (_arg_bool(args, "includeSteps", True) if "includeSteps" in args else _arg_bool(args, "include_steps", True))
     return {"ok": True, **ver.get_round(rid, include_steps=include_steps)}
 
 

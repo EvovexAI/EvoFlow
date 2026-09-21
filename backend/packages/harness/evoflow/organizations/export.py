@@ -225,9 +225,7 @@ def export_organization(
             skill_refs.append({"from": f"./skills/{safe}"})
 
     if extension_ids:
-        warnings.append(
-            "extension_ids recorded in manifest only (file copy not available from Gateway)"
-        )
+        warnings.append("extension_ids recorded in manifest only (file copy not available from Gateway)")
     if vault_ids and not include_vault_data:
         warnings.append("vault_ids recorded as refs; vault data not packed (include_vault_data=false)")
     elif vault_ids and include_vault_data:

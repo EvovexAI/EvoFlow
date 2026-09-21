@@ -34,10 +34,7 @@ def _op_body_text(raw: dict[str, Any]) -> str:
 
 
 def _op_text(raw: dict[str, Any]) -> str:
-    return " ".join(
-        str(raw.get(k) or "")
-        for k in ("body", "append_body", "title")
-    ).strip()
+    return " ".join(str(raw.get(k) or "") for k in ("body", "append_body", "title")).strip()
 
 
 def _op_kind(raw: dict[str, Any]) -> str:
@@ -290,17 +287,12 @@ def collect_mind_map_soft_hints(
         flows = _list_flow_ids(thread_id)
         if flows:
             sample = flows[0]
-            hints.append(
-                f"已有链路节点（如 {sample}）；新建 file:/gap: 请 parent 指向 flow:…，勿全部挂 goal:session。"
-            )
+            hints.append(f"已有链路节点（如 {sample}）；新建 file:/gap: 请 parent 指向 flow:…，勿全部挂 goal:session。")
 
     if name in EVIDENCE_TOOLS and not ops_include_body_distill(ops):
         path = _path_from_tool_args(name, tool_args)
         fid = f"file:{path}" if path else "file:…"
-        hints.append(
-            f"取证已执行；若有新确认事实，可用 mind_map patch_node append_body 追加 {fid}。"
-            "无新发现则跳过 mind_map，优先 replace/write 或收口。"
-        )
+        hints.append(f"取证已执行；若有新确认事实，可用 mind_map patch_node append_body 追加 {fid}。无新发现则跳过 mind_map，优先 replace/write 或收口。")
 
     if thread_id:
         empty_files = _list_empty_file_nodes(thread_id)
@@ -308,9 +300,7 @@ def collect_mind_map_soft_hints(
         pending = [eid for eid in empty_files if eid not in touched]
         if pending and not ops_include_body_distill(ops):
             joined = "、".join(pending[:3])
-            hints.append(
-                f"以下 file 节点 body 仍为空：{joined}；有结论时再 patch_node append_body，勿空转。"
-            )
+            hints.append(f"以下 file 节点 body 仍为空：{joined}；有结论时再 patch_node append_body，勿空转。")
 
     if thread_id and _graph_node_count(thread_id) >= 4 and _graph_edge_count(thread_id) == 0 and not ops_include_edge(ops):
         hints.append("可用 upsert_edge 连接 flow→file 或 flow→gap（rel: depends / part_of），便于导图成树。")
@@ -322,20 +312,14 @@ def collect_mind_map_soft_hints(
         if parent in status_patched:
             continue
         # No thread_id → still remind; with thread_id skip if flow already closed.
-        flow_open = (not thread_id) or (
-            _node_status(thread_id, parent) not in _CLOSED_STATUSES
-        )
+        flow_open = (not thread_id) or (_node_status(thread_id, parent) not in _CLOSED_STATUSES)
         if flow_open:
-            hints.append(
-                f"已写 claim；该分支处理完请同步 patch_node {parent} 设置 status=resolved/verified 并用 body 覆盖写结论（勿 append_body）。"
-            )
+            hints.append(f"已写 claim；该分支处理完请同步 patch_node {parent} 设置 status=resolved/verified 并用 body 覆盖写结论（勿 append_body）。")
         active_gaps = _list_active_gaps_for_flow(thread_id, parent) if thread_id else []
         untouched_gaps = [g for g in active_gaps if g not in status_patched]
         if untouched_gaps:
             sample = "、".join(untouched_gaps[:3])
-            hints.append(
-                f"分支 {parent} 下仍有 open gap（{sample}）；若已证实/排除请 patch_node 更新 gap 的 status 与 body。"
-            )
+            hints.append(f"分支 {parent} 下仍有 open gap（{sample}）；若已证实/排除请 patch_node 更新 gap 的 status 与 body。")
 
     # de-dupe while preserving order
     seen: set[str] = set()
@@ -431,6 +415,7 @@ def collect_evidence_tool_mind_map_hints(
     if path and thread_id:
         try:
             from evoflow.context.working_memory import list_entries, list_write_entries
+
             already_read = any(path in str(e) for e in list_entries(thread_id))
             if already_read:
                 return []
@@ -444,10 +429,7 @@ def collect_evidence_tool_mind_map_hints(
         except Exception:
             pass
     fid = f"file:{path}" if path else "file:…"
-    return [
-        f"本批未并发 mind_map。若有新确认事实，可用 patch_node append_body 追加 {fid}；"
-        f"无新发现则跳过，优先 replace/write 或收口总结。"
-    ]
+    return [f"本批未并发 mind_map。若有新确认事实，可用 patch_node append_body 追加 {fid}；无新发现则跳过，优先 replace/write 或收口总结。"]
 
 
 def append_evidence_tool_mind_map_hints(

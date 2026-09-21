@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 # 小V系统工具（唯一允许面）— 行政用通用 ``platform``，不另起 xiaomi_*_admin
 XIAOMI_SYSTEM_TOOL_NAMES = frozenset(

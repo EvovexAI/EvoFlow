@@ -28,12 +28,7 @@ async def push_tool_approval_decision(
     content = json.dumps(
         {
             "_evoflow_tool": {"status": wire_status},
-            "message": message
-            or (
-                "当前工具已批准，等待其他待授权工具确认后统一执行。"
-                if wire_status in {"approved_waiting", "awaiting_other_approval"}
-                else f"工具授权结果：{wire_status}"
-            ),
+            "message": message or ("当前工具已批准，等待其他待授权工具确认后统一执行。" if wire_status in {"approved_waiting", "awaiting_other_approval"} else f"工具授权结果：{wire_status}"),
         },
         ensure_ascii=False,
     )
@@ -99,10 +94,7 @@ async def push_pending_approvals_to_live_stream(thread_id: str, *, reason: str =
         content = json.dumps(
             {
                 "_evoflow_tool": {"status": "pending_approval"},
-                "message": (
-                    f"[pending_approval] {tool_name}（{summary}）尚未执行，等待用户在 EvoPanel 中点击该工具并授权。"
-                    "不要要求用户输入 /approve、slash 命令或再次调用本工具；用户批准后系统将自动执行，请等待后续工具结果消息再继续。"
-                ),
+                "message": (f"[pending_approval] {tool_name}（{summary}）尚未执行，等待用户在 EvoPanel 中点击该工具并授权。不要要求用户输入 /approve、slash 命令或再次调用本工具；用户批准后系统将自动执行，请等待后续工具结果消息再继续。"),
                 "approval": approval,
             },
             ensure_ascii=False,

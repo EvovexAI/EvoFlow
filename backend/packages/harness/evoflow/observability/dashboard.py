@@ -8,6 +8,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from evoflow.observability.cache_metrics import aggregate_cache_metrics, cache_triplet_from_row, compute_cache_hit_rate
+from evoflow.observability.provider_labels import normalize_stored_provider
 from evoflow.observability.queries import (
     ObservabilityTable,
     _percentile,
@@ -17,8 +19,6 @@ from evoflow.observability.queries import (
     list_model_invocations,
     token_triplet_from_usage_payload,
 )
-from evoflow.observability.cache_metrics import aggregate_cache_metrics, cache_triplet_from_row, compute_cache_hit_rate
-from evoflow.observability.provider_labels import normalize_stored_provider
 from evoflow.observability.summaries import _infer_row_status, _response_has_error, enrich_recent_request_row
 from evoflow.observability.tool_filters import llm_tool_visibility_sql
 
@@ -120,9 +120,7 @@ def _aggregate_window_metrics(
     latencies = [
         float(r[0])
         for r in conn.execute(
-            f"SELECT latency_ms FROM {T.MODEL_INVOCATIONS} WHERE latency_ms IS NOT NULL"
-            + (f" AND {time_clause}" if time_clause else "")
-            + (kind_clause if kind_clause else ""),
+            f"SELECT latency_ms FROM {T.MODEL_INVOCATIONS} WHERE latency_ms IS NOT NULL" + (f" AND {time_clause}" if time_clause else "") + (kind_clause if kind_clause else ""),
             tuple(params),
         ).fetchall()
         if r[0] is not None
@@ -501,9 +499,7 @@ def fetch_dashboard_bundle(
         previous_until_iso = since_iso
         previous_since_iso = (datetime.now(UTC) - timedelta(hours=hours * 2)).isoformat().replace("+00:00", "Z")
 
-    current = _aggregate_window_metrics(
-        conn, since_iso=kpi_since_iso, until_iso=None, agent_filter=agent_filter
-    )
+    current = _aggregate_window_metrics(conn, since_iso=kpi_since_iso, until_iso=None, agent_filter=agent_filter)
     if hours is None:
         previous = {"total_requests": 0, "success_rate": 0, "avg_latency_ms": 0, "total_tokens": 0}
         deltas = {
@@ -513,9 +509,7 @@ def fetch_dashboard_bundle(
             "total_tokens_pct": None,
         }
     else:
-        previous = _aggregate_window_metrics(
-            conn, since_iso=previous_since_iso, until_iso=previous_until_iso, agent_filter=agent_filter
-        )
+        previous = _aggregate_window_metrics(conn, since_iso=previous_since_iso, until_iso=previous_until_iso, agent_filter=agent_filter)
         deltas = {
             "total_requests_pct": dashboard_pct_delta(float(current["total_requests"]), float(previous["total_requests"])),
             "success_rate_pts": dashboard_pts_delta(float(current["success_rate"]), float(previous["success_rate"])),
@@ -554,10 +548,7 @@ def fetch_dashboard_bundle(
 
     request_trends = build_request_trends(model_daily, tool_daily)
     spark_requests = [{"day": r["day"], "value": r["total"]} for r in request_trends[-14:]]
-    spark_success = [
-        {"day": r["day"], "value": round(r["success"] / r["total"], 4) if r["total"] else 0}
-        for r in request_trends[-14:]
-    ]
+    spark_success = [{"day": r["day"], "value": round(r["success"] / r["total"], 4) if r["total"] else 0} for r in request_trends[-14:]]
     spark_latency = [
         _row_to_dict(conn, r)
         for r in conn.execute(

@@ -77,6 +77,4 @@ async def verify_custom_env_api(request: Request, body: CustomEnvPutBody) -> Cus
     require_org_admin(request)
     payload = [{"key": v.key, "value": v.value} for v in body.vars]
     raw = verify_custom_env_vars(payload)
-    return CustomEnvVerifyResponse(
-        results=[CustomEnvVerifyResultItem(**item) for item in raw]
-    )
+    return CustomEnvVerifyResponse(results=[CustomEnvVerifyResultItem(**item) for item in raw])

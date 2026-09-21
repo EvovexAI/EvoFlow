@@ -17,13 +17,10 @@ In ``debug`` mode, unresolved bindings are left as-is for inspection.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from evoflow.collab.expression_resolver import (
-    BindingError,
-    detect_binding_errors,
     detect_unresolved_bindings,
     format_resolved_inputs_for_prompt,
     resolve_bindings,
@@ -155,13 +152,15 @@ def build_core_prompt(
                 unresolved.extend(type_errors)
                 # Add TYPE_MISMATCH errors to structured list
                 for te in type_errors:
-                    binding_errors.append({
-                        "code": "TYPE_MISMATCH",
-                        "binding_key": te.split(":")[0] if ":" in te else "unknown",
-                        "expression": "",
-                        "message": te,
-                        "detail": {"input_schema": input_schema},
-                    })
+                    binding_errors.append(
+                        {
+                            "code": "TYPE_MISMATCH",
+                            "binding_key": te.split(":")[0] if ":" in te else "unknown",
+                            "expression": "",
+                            "message": te,
+                            "detail": {"input_schema": input_schema},
+                        }
+                    )
 
         if unresolved:
             if mode == "production":
@@ -253,11 +252,7 @@ def _format_upstream_context(
         entry_lines = [f"- 上游步骤 #{ref}:"]
         if summary:
             entry_lines.append(f"  摘要: {summary}")
-        artifact_paths = [
-            str(a.get("value") or "").strip()
-            for a in artifacts
-            if isinstance(a, dict) and str(a.get("value") or "").strip()
-        ]
+        artifact_paths = [str(a.get("value") or "").strip() for a in artifacts if isinstance(a, dict) and str(a.get("value") or "").strip()]
         if artifact_paths:
             entry_lines.append("  产出路径:")
             for p in artifact_paths[:12]:

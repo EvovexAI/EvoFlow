@@ -27,9 +27,7 @@ def _current_turn_assistant_text(messages: list[dict[str, Any]], *, prior_prefix
     hidx = _find_last_real_human_idx(messages)
     if hidx < 0:
         return ""
-    return _merge_turn_assistant_texts(
-        _collect_assistant_texts_after_human(messages, hidx, prior_prefix)
-    )
+    return _merge_turn_assistant_texts(_collect_assistant_texts_after_human(messages, hidx, prior_prefix))
 
 
 @dataclass
@@ -48,9 +46,7 @@ class AttachEvfDiffEmitter:
         messages = _values_messages_from_state(state_data)
         if not messages:
             return []
-        full_text = str(
-            _current_turn_assistant_text(messages, prior_prefix=self.prior_assistant_prefix) or ""
-        )
+        full_text = str(_current_turn_assistant_text(messages, prior_prefix=self.prior_assistant_prefix) or "")
         if not full_text:
             return []
 

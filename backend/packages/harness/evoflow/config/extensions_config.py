@@ -148,14 +148,7 @@ class ExtensionsConfig(BaseModel):
             elif isinstance(value, dict):
                 config[key] = cls.resolve_env_variables(value)
             elif isinstance(value, list):
-                config[key] = [
-                    cls._resolve_env_string(item)
-                    if isinstance(item, str)
-                    else cls.resolve_env_variables(item)
-                    if isinstance(item, dict)
-                    else item
-                    for item in value
-                ]
+                config[key] = [cls._resolve_env_string(item) if isinstance(item, str) else cls.resolve_env_variables(item) if isinstance(item, dict) else item for item in value]
         return config
 
     @staticmethod

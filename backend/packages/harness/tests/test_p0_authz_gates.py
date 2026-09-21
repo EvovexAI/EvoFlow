@@ -60,7 +60,8 @@ def test_require_owned_doc_visible(sqlite_tmp: str, monkeypatch: pytest.MonkeyPa
     del sqlite_tmp
     from fastapi import HTTPException
 
-    from evoflow.authz import http_guard, principals as principals_mod
+    from evoflow.authz import http_guard
+    from evoflow.authz import principals as principals_mod
     from evoflow.authz.scope import personal_scope
     from evoflow.knowledge.owned import service as owned_service
 

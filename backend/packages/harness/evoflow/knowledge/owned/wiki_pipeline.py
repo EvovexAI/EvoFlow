@@ -44,9 +44,7 @@ async def run_wiki_ingest(job: dict[str, Any]) -> None:
     jobs.update_progress(job_id, {"phase": "wiki_ingest", "percent": 10, "message": "生成 Wiki 页面"})
 
     with db() as conn:
-        base = conn.execute(
-            "SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)
-        ).fetchone()
+        base = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
         if not base:
             raise ValueError("knowledge base not found")
         if doc_id:
@@ -108,11 +106,7 @@ async def run_wiki_ingest(job: dict[str, Any]) -> None:
                 slug=cslug,
                 title=h.strip(),
                 page_type="concept",
-                body_md=(
-                    f"# {h.strip()}\n\n"
-                    f"相关文档：[[{slug}|{title}]]\n\n"
-                    f"- 返回 [[index|知识库索引]]\n"
-                ),
+                body_md=(f"# {h.strip()}\n\n相关文档：[[{slug}|{title}]]\n\n- 返回 [[index|知识库索引]]\n"),
                 summary=f"概念页（自文档「{title}」标题抽取）",
                 source_refs=[f"{did}|{title}"],
                 edit_source="pipeline",

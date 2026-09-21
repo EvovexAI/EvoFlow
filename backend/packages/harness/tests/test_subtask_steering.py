@@ -60,12 +60,17 @@ def test_interrupt_cancels_background_task(storage_with_ephemeral_subtask):
     bg_result.status = SimpleNamespace(name="RUNNING", value="running")
     store: dict[str, MagicMock] = {bg_id: bg_result}
 
-    with patch("evoflow.subagents.executor.get_background_task_result", return_value=bg_result), patch(
-        "evoflow.subagents.executor._background_tasks",
-        store,
-    ), patch("evoflow.subagents.executor._background_tasks_lock", MagicMock()), patch(
-        "evoflow.subagents.executor.SubagentStatus",
-        SimpleNamespace(CANCELLED=SimpleNamespace(name="CANCELLED", value="cancelled")),
+    with (
+        patch("evoflow.subagents.executor.get_background_task_result", return_value=bg_result),
+        patch(
+            "evoflow.subagents.executor._background_tasks",
+            store,
+        ),
+        patch("evoflow.subagents.executor._background_tasks_lock", MagicMock()),
+        patch(
+            "evoflow.subagents.executor.SubagentStatus",
+            SimpleNamespace(CANCELLED=SimpleNamespace(name="CANCELLED", value="cancelled")),
+        ),
     ):
         out = interrupt_subtask_background_run(storage, task_id, subtask_id, reason="stop for steer")
     assert out["ok"] is True
@@ -87,15 +92,19 @@ def test_steer_ephemeral_subtask_detached(storage_with_ephemeral_subtask):
     )
 
     async def _run():
-        with patch(
-            "evoflow.collab.subtask_steering.interrupt_subtask_background_run",
-            return_value={"ok": True, "interrupted": True},
-        ), patch(
-            "evoflow.tools.builtins.collab_bridge.delegate_via_task_tool",
-            new=AsyncMock(return_value="Task Detached. Background execution started for collab subtask."),
-        ) as mock_delegate, patch(
-            "evoflow.tools.builtins.collab_bridge.is_bridge_ready",
-            return_value=(True, True),
+        with (
+            patch(
+                "evoflow.collab.subtask_steering.interrupt_subtask_background_run",
+                return_value={"ok": True, "interrupted": True},
+            ),
+            patch(
+                "evoflow.tools.builtins.collab_bridge.delegate_via_task_tool",
+                new=AsyncMock(return_value="Task Detached. Background execution started for collab subtask."),
+            ) as mock_delegate,
+            patch(
+                "evoflow.tools.builtins.collab_bridge.is_bridge_ready",
+                return_value=(True, True),
+            ),
         ):
             return await steer_ephemeral_subtask(
                 runtime,

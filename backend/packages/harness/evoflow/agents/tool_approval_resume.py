@@ -177,12 +177,19 @@ async def _start_background_stream_run(
 
     asyncio.create_task(_touch_run_started_after_poll(tid))
 
-    log_tool_approval_trace("后台流·worker启动", thread_id=tid, side="resume",
-        event_data={"is_new": is_new, "worker_running": StreamBackgroundWorker.is_worker_running(tid),
-                    "langgraph_base": DEFAULT_LANGGRAPH_URL,
-                    "langgraph_path": f"threads/{tid}/runs/stream",
-                    "request_method": "POST",
-                    "body_size": len(encoded) if encoded else 0})
+    log_tool_approval_trace(
+        "后台流·worker启动",
+        thread_id=tid,
+        side="resume",
+        event_data={
+            "is_new": is_new,
+            "worker_running": StreamBackgroundWorker.is_worker_running(tid),
+            "langgraph_base": DEFAULT_LANGGRAPH_URL,
+            "langgraph_path": f"threads/{tid}/runs/stream",
+            "request_method": "POST",
+            "body_size": len(encoded) if encoded else 0,
+        },
+    )
     return {
         "started": True,
         "run_id": None,
@@ -206,8 +213,7 @@ async def trigger_tool_approval_replay_run(
     if not ids:
         return {"started": False, "run_id": None, "error": "no replay ids"}
     marker = build_replay_message(ids)
-    log_tool_approval_trace("replay_run·启动", thread_id=thread_id, side="resume",
-        event_data={"replay_ids": ids, "session_key": session_key, "replay_marker": marker})
+    log_tool_approval_trace("replay_run·启动", thread_id=thread_id, side="resume", event_data={"replay_ids": ids, "session_key": session_key, "replay_marker": marker})
     run_config = await build_lead_run_config_async(
         session_key=session_key,
         thread_id=thread_id,
@@ -220,12 +226,8 @@ async def trigger_tool_approval_replay_run(
     if isinstance(run_config, dict):
         _conf = run_config.get("configurable")
         if isinstance(_conf, dict):
-            _cfg_diag = {k: (str(v)[:80] if v is not None else None)
-                         for k, v in _conf.items()
-                         if k in ("thread_id", "session_key", "local_workspace_root", "tool_approval_replay_ids")}
-    log_tool_approval_trace("replay_run·config检查", thread_id=thread_id, side="resume",
-        event_data={"configurable_keys": sorted(list(_cfg_diag.keys())) if _cfg_diag else [],
-                    "configurable_snapshot": _cfg_diag})
+            _cfg_diag = {k: (str(v)[:80] if v is not None else None) for k, v in _conf.items() if k in ("thread_id", "session_key", "local_workspace_root", "tool_approval_replay_ids")}
+    log_tool_approval_trace("replay_run·config检查", thread_id=thread_id, side="resume", event_data={"configurable_keys": sorted(list(_cfg_diag.keys())) if _cfg_diag else [], "configurable_snapshot": _cfg_diag})
     body = {
         "assistant_id": DEFAULT_ASSISTANT_ID,
         "input": {"messages": [{"role": "user", "content": marker}]},
@@ -233,11 +235,7 @@ async def trigger_tool_approval_replay_run(
         "stream_mode": "messages-tuple",
         "multitask_strategy": "enqueue",
     }
-    log_tool_approval_trace("replay_run·请求体构建完成", thread_id=thread_id, side="resume",
-        event_data={"assistant_id": DEFAULT_ASSISTANT_ID,
-                    "input_messages": 1,
-                    "stream_mode": "messages-tuple",
-                    "multitask_strategy": "enqueue"})
+    log_tool_approval_trace("replay_run·请求体构建完成", thread_id=thread_id, side="resume", event_data={"assistant_id": DEFAULT_ASSISTANT_ID, "input_messages": 1, "stream_mode": "messages-tuple", "multitask_strategy": "enqueue"})
     return await _start_background_stream_run(
         thread_id=thread_id,
         session_key=session_key,
@@ -303,8 +301,7 @@ async def trigger_tool_approval_resume_inplace(
     if not tid:
         return {"started": False, "run_id": None, "error": "missing thread_id", "same_sse": False}
 
-    log_tool_approval_trace("resume_inplace·开始", thread_id=tid, side="resume",
-        event_data={"session_key": sk, "resume_payload": resume_payload})
+    log_tool_approval_trace("resume_inplace·开始", thread_id=tid, side="resume", event_data={"session_key": sk, "resume_payload": resume_payload})
 
     try:
         from evoflow.runtime.ports import (
@@ -314,8 +311,7 @@ async def trigger_tool_approval_resume_inplace(
 
         layer = get_active_middle_layer(tid)
         run_id = str(layer.run_id or "").strip() if layer else ""
-        log_tool_approval_trace("resume_inplace·middle_layer检查", thread_id=tid, side="resume",
-            event_data={"layer_exists": layer is not None, "run_id": run_id})
+        log_tool_approval_trace("resume_inplace·middle_layer检查", thread_id=tid, side="resume", event_data={"layer_exists": layer is not None, "run_id": run_id})
         if layer is not None:
             # Browser SSE is still open: MUST resume on this layer.
             # Falling back to StreamBackgroundWorker would let the model keep
@@ -341,8 +337,7 @@ async def trigger_tool_approval_resume_inplace(
                         timeout=8.0,
                     )
                     if ok:
-                        log_tool_approval_trace("resume_inplace·同SSE成功", thread_id=tid, side="resume",
-                            event_data={"attempt": attempt, "run_id": run_id})
+                        log_tool_approval_trace("resume_inplace·同SSE成功", thread_id=tid, side="resume", event_data={"attempt": attempt, "run_id": run_id})
                         return {
                             "started": True,
                             "run_id": run_id or None,
@@ -351,17 +346,15 @@ async def trigger_tool_approval_resume_inplace(
                             "stream_resume_recommended": False,
                             "same_sse": True,
                         }
-                    log_tool_approval_trace("resume_inplace·同SSE失败", thread_id=tid, side="resume",
-                        level=logging.WARNING, event_data={"attempt": attempt, "error": "resume returned False"})
+                    log_tool_approval_trace("resume_inplace·同SSE失败", thread_id=tid, side="resume", level=logging.WARNING, event_data={"attempt": attempt, "error": "resume returned False"})
                     logger.warning(
                         "【工具授权·同SSE】resume 返回失败（不回退后台流）attempt=%s thread=%s",
                         attempt,
                         tid,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     last_err = TimeoutError("middle layer resume timed out after 8s")
-                    log_tool_approval_trace("resume_inplace·同SSE失败", thread_id=tid, side="resume",
-                        level=logging.WARNING, event_data={"attempt": attempt, "error": "timeout"})
+                    log_tool_approval_trace("resume_inplace·同SSE失败", thread_id=tid, side="resume", level=logging.WARNING, event_data={"attempt": attempt, "error": "timeout"})
                     logger.warning(
                         "【工具授权·同SSE】resume 超时 attempt=%s/%s thread=%s — 回退到下一轮",
                         attempt,
@@ -370,8 +363,7 @@ async def trigger_tool_approval_resume_inplace(
                     )
                 except Exception as exc:
                     last_err = exc
-                    log_tool_approval_trace("resume_inplace·同SSE失败", thread_id=tid, side="resume",
-                        level=logging.WARNING, event_data={"attempt": attempt, "error": str(exc)})
+                    log_tool_approval_trace("resume_inplace·同SSE失败", thread_id=tid, side="resume", level=logging.WARNING, event_data={"attempt": attempt, "error": str(exc)})
                     logger.exception(
                         "【工具授权·同SSE】resume 异常 attempt=%s thread=%s",
                         attempt,
@@ -399,8 +391,7 @@ async def trigger_tool_approval_resume_inplace(
     except Exception:
         logger.exception("tool approval inplace resume failed thread=%s", tid)
 
-    log_tool_approval_trace("resume_inplace·回退后台流", thread_id=tid, side="resume",
-        level=logging.WARNING, event_data={"reason": "middle_layer不可用或resume失败"})
+    log_tool_approval_trace("resume_inplace·回退后台流", thread_id=tid, side="resume", level=logging.WARNING, event_data={"reason": "middle_layer不可用或resume失败"})
 
     # 关键修复：middle layer 不存在时，原始 interrupted run 已经结束了，
     # Command(resume) 无处可恢复。必须改用 replay marker 启动新 run，
@@ -409,8 +400,7 @@ async def trigger_tool_approval_resume_inplace(
     if act == "execute_approved":
         replay_ids = list((resume_payload or {}).get("tool_call_ids") or [])
         if replay_ids:
-            log_tool_approval_trace("resume_inplace·改用replay_run启动新run", thread_id=tid, side="resume",
-                event_data={"replay_ids": replay_ids, "reason": "middle_layer不存在，Command(resume)无效"})
+            log_tool_approval_trace("resume_inplace·改用replay_run启动新run", thread_id=tid, side="resume", event_data={"replay_ids": replay_ids, "reason": "middle_layer不存在，Command(resume)无效"})
             logger.info(
                 "【工具授权·回退】middle layer 不存在，改用 replay_run 启动新 run thread=%s ids=%s",
                 tid,
@@ -423,21 +413,15 @@ async def trigger_tool_approval_resume_inplace(
                 workspace_root=workspace_root,
             )
         else:
-            log_tool_approval_trace("resume_inplace·replay_ids为空，无法恢复", thread_id=tid, side="resume",
-                level=logging.ERROR, event_data={"reason": "execute_approved但无tool_call_ids"})
+            log_tool_approval_trace("resume_inplace·replay_ids为空，无法恢复", thread_id=tid, side="resume", level=logging.ERROR, event_data={"reason": "execute_approved但无tool_call_ids"})
             out = {"started": False, "run_id": None, "error": "no replay ids", "same_sse": False}
     elif act == "deny":
         deny_tc = str((resume_payload or {}).get("tool_call_id") or "").strip()
-        deny_ids = [
-            str(x).strip()
-            for x in ((resume_payload or {}).get("tool_call_ids") or [])
-            if str(x).strip()
-        ]
+        deny_ids = [str(x).strip() for x in ((resume_payload or {}).get("tool_call_ids") or []) if str(x).strip()]
         if deny_tc and deny_tc not in deny_ids:
             deny_ids.insert(0, deny_tc)
         if deny_ids:
-            log_tool_approval_trace("resume_inplace·改用deny_run启动新run", thread_id=tid, side="resume",
-                event_data={"tool_call_id": deny_ids[0], "denied_ids": deny_ids, "reason": "middle_layer不存在"})
+            log_tool_approval_trace("resume_inplace·改用deny_run启动新run", thread_id=tid, side="resume", event_data={"tool_call_id": deny_ids[0], "denied_ids": deny_ids, "reason": "middle_layer不存在"})
             out = await trigger_tool_approval_deny_run(
                 thread_id=tid,
                 session_key=sk,
@@ -449,8 +433,7 @@ async def trigger_tool_approval_resume_inplace(
             out = {"started": False, "run_id": None, "error": "deny without tool_call_id", "same_sse": False}
     else:
         # await_next 或其他：不应该走到这里，但兜底用 legacy 方式
-        log_tool_approval_trace("resume_inplace·未知action，用legacy恢复", thread_id=tid, side="resume",
-            level=logging.WARNING, event_data={"action": act})
+        log_tool_approval_trace("resume_inplace·未知action，用legacy恢复", thread_id=tid, side="resume", level=logging.WARNING, event_data={"action": act})
         out = await trigger_tool_approval_resume(
             thread_id=tid,
             session_key=sk,
@@ -474,8 +457,7 @@ async def trigger_tool_approval_resume(
     if not tid:
         return {"started": False, "run_id": None, "error": "missing thread_id"}
 
-    log_tool_approval_trace("resume·legacy后台流启动", thread_id=tid, side="resume",
-        event_data={"session_key": sk})
+    log_tool_approval_trace("resume·legacy后台流启动", thread_id=tid, side="resume", event_data={"session_key": sk})
     run_config = await build_lead_run_config_async(session_key=sk, thread_id=tid, workspace_root=workspace_root)
     body = _build_resume_stream_body(
         resume_payload=resume_payload,

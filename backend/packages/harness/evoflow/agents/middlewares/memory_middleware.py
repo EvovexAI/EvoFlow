@@ -58,12 +58,14 @@ def _resolve_model_name(runtime: Runtime | None) -> str | None:
             _tid = get_config().get("configurable", {}).get("thread_id")
         if _tid:
             from evoflow.persistence.session_repositories import get_model_name_for_thread
+
             _name = get_model_name_for_thread(str(_tid).strip())
             if _name:
                 return str(_name).strip() or None
     except Exception:
         pass
     return None
+
 
 # One async memory update per user turn (not per tool-loop model step).
 _MEMORY_UPDATE_SCHEDULED: dict[str, str] = {}
@@ -178,8 +180,8 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
         try:
             from evoflow.authz.runtime_identity import principal_id_from_runtime
             from evoflow.authz.scope import personal_scope
-            from evoflow.memory.document_codec import namespace_for_agent_key
             from evoflow.memory import store as mem_store
+            from evoflow.memory.document_codec import namespace_for_agent_key
 
             pid = principal_id_from_runtime(runtime)
             if pid:

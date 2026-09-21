@@ -34,12 +34,7 @@ def record_task_episode(
     if not task_id:
         return None
     title = str(task.get("title") or task.get("name") or task_id).strip()
-    result = (
-        str(task.get("result") or "").strip()
-        or str(task.get("summary") or "").strip()
-        or str(task.get("result_text") or "").strip()
-        or str(extra_summary or "").strip()
-    )
+    result = str(task.get("result") or "").strip() or str(task.get("summary") or "").strip() or str(task.get("result_text") or "").strip() or str(extra_summary or "").strip()
     goal = str(task.get("goal") or task.get("description") or "").strip()
     parts = [
         f"任务「{title}」已{('完成' if outcome == 'completed' else outcome)}",

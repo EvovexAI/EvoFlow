@@ -11,8 +11,8 @@ from app.gateway.routers.platform import router
 def test_platform_http_catalog_and_verification(tmp_path, monkeypatch):
     monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path))
     try:
-        from evoflow.persistence.db import reset_db_for_tests
         from evoflow.admin.platform_actions import reset_registry_cache
+        from evoflow.persistence.db import reset_db_for_tests
 
         reset_db_for_tests()
         reset_registry_cache()

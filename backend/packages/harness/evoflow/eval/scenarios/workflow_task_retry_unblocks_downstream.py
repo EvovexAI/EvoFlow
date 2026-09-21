@@ -86,14 +86,10 @@ def _run(home: Path) -> dict:
         s1 = s1 or (_by_ref(subs1).get("1") or {})
         s2 = s2 or (_by_ref(subs1).get("2") or {})
     s1_failed = str(s1.get("status") or "").lower() in ("failed", "error") or any(
-        str(a.get("ref") or "") == "1" and str(a.get("status") or "").lower() in ("failed", "error")
-        for a in (failed_apply.get("applied") or [])
-        if isinstance(a, dict)
+        str(a.get("ref") or "") == "1" and str(a.get("status") or "").lower() in ("failed", "error") for a in (failed_apply.get("applied") or []) if isinstance(a, dict)
     )
     s2_status_after_fail = str(s2.get("status") or "").lower()
-    s2_not_fake_green = s2_status_after_fail not in ("completed", "done") or not s2.get(
-        "outcome_reported_at"
-    )
+    s2_not_fake_green = s2_status_after_fail not in ("completed", "done") or not s2.get("outcome_reported_at")
 
     # Requeue failed + complete both officially (skip_done guard allows re-report after requeue)
     storage = get_project_storage()
@@ -146,8 +142,7 @@ def _run(home: Path) -> dict:
         ),
         check(
             "both_completed_after_retry",
-            str(s1b.get("status") or "").lower() in ("completed", "done")
-            and str(s2b.get("status") or "").lower() in ("completed", "done"),
+            str(s1b.get("status") or "").lower() in ("completed", "done") and str(s2b.get("status") or "").lower() in ("completed", "done"),
             inputs={},
             expected="both completed",
             actual={"s1": s1b.get("status"), "s2": s2b.get("status"), "main": main_status},

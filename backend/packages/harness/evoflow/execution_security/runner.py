@@ -10,9 +10,9 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
 
 from evoflow.execution_security.config import (
     ExecutionSecurityConfig,
@@ -145,11 +145,7 @@ def wrap_argv_for_sandbox(
                 sys.platform,
             )
             return argv, "passthrough"
-        raise HelperUnavailable(
-            f"OS sandbox helper not found for platform {sys.platform}. "
-            "Set EVOFLOW_SANDBOX_HELPER_DIR or build evoflow-*-sandbox helpers "
-            "(see evoflow.execution_security.helpers)."
-        )
+        raise HelperUnavailable(f"OS sandbox helper not found for platform {sys.platform}. Set EVOFLOW_SANDBOX_HELPER_DIR or build evoflow-*-sandbox helpers (see evoflow.execution_security.helpers).")
 
     policy_root = Path(policy_cwd or command_cwd).resolve()
     cmd_cwd = Path(command_cwd).resolve()
@@ -170,11 +166,7 @@ def wrap_argv_for_sandbox(
         )
 
     if sys.platform == "win32" and paths.windows_sandbox:
-        home = Path(
-            os.environ.get("EVOFLOW_SANDBOX_HOME")
-            or os.environ.get("EVOFLOW_HOME")
-            or (Path.home() / ".evoflow")
-        )
+        home = Path(os.environ.get("EVOFLOW_SANDBOX_HOME") or os.environ.get("EVOFLOW_HOME") or (Path.home() / ".evoflow"))
         home.mkdir(parents=True, exist_ok=True)
         return (
             _windows_wrapper_argv(
@@ -215,9 +207,7 @@ def run_sandboxed(
     else:
         base_argv = [str(x) for x in command]
 
-    child_env = sanitize_child_process_env(
-        prepare_shell_env(dict(env) if env is not None else os.environ.copy())
-    )
+    child_env = sanitize_child_process_env(prepare_shell_env(dict(env) if env is not None else os.environ.copy()))
 
     argv, mode = wrap_argv_for_sandbox(
         base_argv,

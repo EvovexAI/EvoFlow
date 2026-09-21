@@ -119,9 +119,7 @@ def resolve_worker_tool_allowlist(
         out = _intersect_catalog(list(profile_tools), allowed)
         if out:
             return out
-        logger.warning(
-            "worker_profile.tools empty after catalog filter; falling back to agent inheritance"
-        )
+        logger.warning("worker_profile.tools empty after catalog filter; falling back to agent inheritance")
 
     assignee = str(assignee_agent_code or "").strip()
     base = str(base_subagent or "").strip()

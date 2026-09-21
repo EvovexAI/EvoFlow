@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from evoflow.config.paths import get_paths
@@ -87,7 +86,7 @@ def resolve_automation_deliverable_path(
     if not aid:
         raise ValueError("automation_id is required")
 
-    when = run_at or datetime.now(timezone.utc)
+    when = run_at or datetime.now(UTC)
     ext_norm = _normalize_ext(ext)
     name = str(automation_name or "").strip()
     rid = str(run_id or "").strip()

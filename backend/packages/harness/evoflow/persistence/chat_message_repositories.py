@@ -369,6 +369,7 @@ def delete_messages_for_session(session_key: str, *, conn: Any | None = None) ->
     sk = str(session_key or "").strip()
     if not sk:
         return 0
+
     def _delete(db: Any) -> int:
         cur = db.execute("DELETE FROM evoflow_chat_messages WHERE session_key = ?", (sk,))
         return int(cur.rowcount or 0)
@@ -428,10 +429,14 @@ def count_messages(session_key: str) -> int:
     # Hold lock across execute+fetchone: shared conn cursors are invalidated if
     # another thread runs a statement between the two calls.
     with db_connection_lock():
-        row = get_db().execute(
-            "SELECT COUNT(*) FROM evoflow_chat_messages WHERE session_key = ?",
-            (sk,),
-        ).fetchone()
+        row = (
+            get_db()
+            .execute(
+                "SELECT COUNT(*) FROM evoflow_chat_messages WHERE session_key = ?",
+                (sk,),
+            )
+            .fetchone()
+        )
         return int((row[0] if row else 0) or 0)
 
 
@@ -631,15 +636,8 @@ def append_message(
 ) -> dict[str, Any] | None:
     sk = str(session_key or "").strip()
     raw = flat_kwargs.pop("raw", None) if isinstance(flat_kwargs, dict) else None
-    explicit_parent = str(
-        flat_kwargs.pop("parent_thread_id", None) or flat_kwargs.pop("parentThreadId", None) or ""
-    ).strip() or None
-    rid_round = str(
-        round_id
-        or flat_kwargs.pop("round_id", None)
-        or flat_kwargs.pop("roundId", None)
-        or ""
-    ).strip() or None
+    explicit_parent = str(flat_kwargs.pop("parent_thread_id", None) or flat_kwargs.pop("parentThreadId", None) or "").strip() or None
+    rid_round = str(round_id or flat_kwargs.pop("round_id", None) or flat_kwargs.pop("roundId", None) or "").strip() or None
     for _meta_key in ("thread_id", "threadId", "run_id", "runId", "seq", "round_id", "roundId"):
         flat_kwargs.pop(_meta_key, None)
     fields = pack_row_from_message(
@@ -681,15 +679,19 @@ def append_message(
         thread_id=tid_for_run,
         raw=raw if isinstance(raw, dict) else None,
     )
-    if transcript_duplicate_exists(
-        sk,
-        role=r,
-        content_text=dedupe_text,
-        tool_call_id=fields.get("tool_call_id"),
-        run_id=rid,
-        conn=conn,
-    ) and not skip_transcript_dedupe:
+    if (
+        transcript_duplicate_exists(
+            sk,
+            role=r,
+            content_text=dedupe_text,
+            tool_call_id=fields.get("tool_call_id"),
+            run_id=rid,
+            conn=conn,
+        )
+        and not skip_transcript_dedupe
+    ):
         return None
+
     def _insert(db: Any) -> dict[str, Any] | None:
         if seq is not None:
             target_seq = int(seq)
@@ -799,9 +801,7 @@ def append_messages_batch(
             if row.get("parentThreadId") and not row.get("parent_thread_id"):
                 row["parent_thread_id"] = row.get("parentThreadId")
             row.setdefault("parent_thread_id", parent_thread_id)
-            row_round = str(
-                row.get("round_id") or row.get("roundId") or round_id or ""
-            ).strip() or None
+            row_round = str(row.get("round_id") or row.get("roundId") or round_id or "").strip() or None
             explicit_seq = row.get("seq")
             try:
                 seq_arg = int(explicit_seq) if explicit_seq is not None else None
@@ -881,7 +881,7 @@ def list_messages(
             f"""
         SELECT {_SELECT_COLS}
         FROM evoflow_chat_messages
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY seq DESC
         LIMIT ? OFFSET ?
         """,
@@ -1076,16 +1076,20 @@ def get_tool_result_for_display(session_key: str, tool_call_id: str) -> dict[str
     tcid = str(tool_call_id or "").strip()
     if not sk or not tcid:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT tool_name, content_json
         FROM evoflow_chat_messages
         WHERE session_key = ? AND role = 'tool' AND tool_call_id = ?
         ORDER BY seq DESC
         LIMIT 1
         """,
-        (sk, tcid),
-    ).fetchone()
+            (sk, tcid),
+        )
+        .fetchone()
+    )
     call_meta = find_tool_call_in_session(sk, tcid)
     if not row and not call_meta:
         return None
@@ -1382,14 +1386,18 @@ def find_latest_compaction_seq(session_key: str) -> int | None:
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT seq FROM evoflow_chat_messages
         WHERE session_key = ? AND role = 'user' AND tool_name = 'conversation_summary'
         ORDER BY seq DESC LIMIT 1
         """,
-        (sk,),
-    ).fetchone()
+            (sk,),
+        )
+        .fetchone()
+    )
     if not row:
         return None
     return int(row[0])
@@ -1400,26 +1408,35 @@ def get_session_hydration_watermark(session_key: str) -> tuple[int, int | None]:
     sk = str(session_key or "").strip()
     if not sk:
         return 0, None
-    row = get_db().execute(
-        "SELECT COALESCE(MAX(seq), 0) FROM evoflow_chat_messages WHERE session_key = ?",
-        (sk,),
-    ).fetchone()
+    row = (
+        get_db()
+        .execute(
+            "SELECT COALESCE(MAX(seq), 0) FROM evoflow_chat_messages WHERE session_key = ?",
+            (sk,),
+        )
+        .fetchone()
+    )
     max_seq = int(row[0] or 0) if row else 0
     return max_seq, find_latest_compaction_seq(sk)
+
 
 def load_conversation_summary_text(session_key: str) -> str | None:
     """Load body text of the newest ``conversation_summary`` row (SSOT for compaction)."""
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    row = get_db().execute(
-        """
+    row = (
+        get_db()
+        .execute(
+            """
         SELECT content_json FROM evoflow_chat_messages
         WHERE session_key = ? AND role = 'user' AND tool_name = 'conversation_summary'
         ORDER BY seq DESC LIMIT 1
         """,
-        (sk,),
-    ).fetchone()
+            (sk,),
+        )
+        .fetchone()
+    )
     if not row or not row[0]:
         return None
     payload = loads_payload(str(row[0]))
@@ -1498,11 +1515,7 @@ def _prune_stale_compaction_summary_rows(rows: list[dict[str, Any]]) -> list[dic
     """Hydration sends only the newest ``conversation_summary`` row to the model."""
     if not rows:
         return rows
-    summary_idxs = [
-        i
-        for i, row in enumerate(rows)
-        if str(row.get("tool_name") or "").strip() == "conversation_summary"
-    ]
+    summary_idxs = [i for i, row in enumerate(rows) if str(row.get("tool_name") or "").strip() == "conversation_summary"]
     if len(summary_idxs) <= 1:
         return rows
     drop = set(summary_idxs[:-1])
@@ -1559,15 +1572,19 @@ def _lead_row_at_seq(session_key: str, seq: int) -> dict[str, Any] | None:
     sk = str(session_key or "").strip()
     if not sk or seq is None:
         return None
-    row = get_db().execute(
-        f"""
+    row = (
+        get_db()
+        .execute(
+            f"""
         SELECT {_SELECT_COLS}
         FROM evoflow_chat_messages
         WHERE session_key = ? AND seq = ?
         LIMIT 1
         """,
-        (sk, int(seq)),
-    ).fetchone()
+            (sk, int(seq)),
+        )
+        .fetchone()
+    )
     if not row:
         return None
     internal = _row_to_internal(tuple(row))
@@ -1583,11 +1600,7 @@ def _filter_pre_compaction_bridge_rows(
 ) -> list[dict[str, Any]]:
     """Keep only real user rows in ``[anchor, compaction_seq)`` — no stale summaries or assistant/tool hops."""
     cap = int(compaction_seq)
-    return [
-        row
-        for row in rows
-        if int(row.get("seq") or 0) < cap and _is_real_user_transcript_row(row)
-    ]
+    return [row for row in rows if int(row.get("seq") or 0) < cap and _is_real_user_transcript_row(row)]
 
 
 def list_lead_chat_rows_for_model_hydration(
@@ -1735,11 +1748,7 @@ def list_recent_real_user_texts(
             if str(row.get("tool_name") or "").strip() == "conversation_summary":
                 continue
             if _is_real_user_transcript_row(row):
-                payload = (
-                    row.get("payload")
-                    if isinstance(row.get("payload"), dict)
-                    else loads_payload(str(row.get("content_json") or ""))
-                )
+                payload = row.get("payload") if isinstance(row.get("payload"), dict) else loads_payload(str(row.get("content_json") or ""))
                 text = plain_text(payload).strip()
                 if text:
                     # _row_to_internal stores epoch ms in "created_at_ms" (Beijing ISO source).
@@ -1872,8 +1881,10 @@ def count_lead_messages(session_key: str) -> int:
         return 0
     # Hold lock across execute+fetchone (shared-conn cursor race → fetchone None).
     with db_connection_lock():
-        row = get_db().execute(
-            """
+        row = (
+            get_db()
+            .execute(
+                """
             SELECT COUNT(*) FROM evoflow_chat_messages
             WHERE session_key = ?
               AND (parent_thread_id IS NULL OR TRIM(parent_thread_id) = '')
@@ -1892,8 +1903,10 @@ def count_lead_messages(session_key: str) -> int:
                 )
               )
             """,
-            (sk,),
-        ).fetchone()
+                (sk,),
+            )
+            .fetchone()
+        )
         return int((row[0] if row else 0) or 0)
 
 
@@ -2096,7 +2109,6 @@ def _align_display_page_to_user_turn(
             if _is_real_user_transcript_row(r):
                 return out
     return out
-
 
 
 def latest_run_id_for_thread_id(thread_id: str) -> str | None:

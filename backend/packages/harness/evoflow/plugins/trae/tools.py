@@ -489,10 +489,7 @@ def trae_start_tool(
     return f"Error: Unable to start Trae bridge at {base_url}.\nTried commands:\n{details}\nTip: set trae.repo_path to your local Trae bridge directory that contains start-traeapi.cmd."
 
 
-_TRAE_DELEGATE_DESCRIPTION = (
-    "Delegate a prompt to Trae desktop via local bridge. "
-    "Lead clarifies DoD and verifies results; use trae_start/trae_status if the bridge is down."
-)
+_TRAE_DELEGATE_DESCRIPTION = "Delegate a prompt to Trae desktop via local bridge. Lead clarifies DoD and verifies results; use trae_start/trae_status if the bridge is down."
 
 
 @tool("trae_delegate", description=_TRAE_DELEGATE_DESCRIPTION, parse_docstring=False)

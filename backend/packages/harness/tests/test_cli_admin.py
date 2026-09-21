@@ -115,9 +115,7 @@ def test_cli_agents_delete_keep_employee(capsys, sqlite_tmp: Path) -> None:
     from evoflow.admin import employees as employees_admin
     from evoflow.proactive.repositories import ProactiveRepository
 
-    agents_admin.create_agent(
-        {"agent_code": "cli-keep", "agent_name": "CLI Keep", "skills": []}
-    )
+    agents_admin.create_agent({"agent_code": "cli-keep", "agent_name": "CLI Keep", "skills": []})
     employees_admin.hire({"agent_code": "cli-keep", "role_name": "R"})
     code = main(["agents", "delete", "cli-keep", "--keep-employee"])
     assert code == 0

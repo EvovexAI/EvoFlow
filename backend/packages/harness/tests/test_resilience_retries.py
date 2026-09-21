@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -33,7 +32,7 @@ def plan_chain_storage(tmp_path, monkeypatch):
 def test_stream_retry_helpers():
     assert _stream_retry_attempts() >= 1
     assert _is_retriable_stream_error(TimeoutError())
-    assert _is_retriable_stream_error(asyncio.TimeoutError())
+    assert _is_retriable_stream_error(TimeoutError())
     assert _is_retriable_stream_error(RuntimeError("HTTP 429 rate limit"))
     assert not _is_retriable_stream_error(ValueError("bad prompt"))
 

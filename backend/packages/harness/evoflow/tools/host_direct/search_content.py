@@ -222,11 +222,7 @@ def _index_keyword_parts(pattern: str) -> list[str]:
     return [x.strip() for x in re.split(r"\s+", p) if len(x.strip()) >= 2]
 
 
-_INDEX_REDIRECT_BANNER = (
-    "[search_content → code index] `pattern` is a keyword/synonym query (not Python regex); "
-    "ran tokenized FTS search instead of disk scan.\n"
-    "Next time prefer `search_code_index` with the same query.\n\n"
-)
+_INDEX_REDIRECT_BANNER = "[search_content → code index] `pattern` is a keyword/synonym query (not Python regex); ran tokenized FTS search instead of disk scan.\nNext time prefer `search_code_index` with the same query.\n\n"
 
 
 def _try_index_keyword_redirect(
@@ -269,10 +265,7 @@ def _try_index_keyword_redirect(
     if not any([hits, symbols, related, imported_by, imports, ref_users, type_supers, type_subs]):
         st = index_status(workspace_root=workspace_root, thread_id=thread_id)
         if st.get("building"):
-            return (
-                _INDEX_REDIRECT_BANNER
-                + f"No index hits for '{scoped_label}' yet — workspace index is still building."
-            )
+            return _INDEX_REDIRECT_BANNER + f"No index hits for '{scoped_label}' yet — workspace index is still building."
         return _INDEX_REDIRECT_BANNER + f"No index hits for '{scoped_label}'."
     body = format_search_index_body(data, label=scoped_label, limit=max_results)
     return _INDEX_REDIRECT_BANNER + body
@@ -346,8 +339,7 @@ def _index_search_bundle(
             return (
                 [],
                 {},
-                "[index] code index is building — use search_code_index (retry in a few seconds); "
-                "avoid full-tree search_content until ready.\n",
+                "[index] code index is building — use search_code_index (retry in a few seconds); avoid full-tree search_content until ready.\n",
             )
         return None, None, ""
 
@@ -409,14 +401,7 @@ def _run_search_content(
     else:
         workspace_root = str(search_root)
 
-    if (
-        not skip_index
-        and context_before == 0
-        and context_after == 0
-        and not case_sensitive
-        and output_mode == "content"
-        and _looks_like_index_keyword_query(pattern)
-    ):
+    if not skip_index and context_before == 0 and context_after == 0 and not case_sensitive and output_mode == "content" and _looks_like_index_keyword_query(pattern):
         redirected = _try_index_keyword_redirect(
             pattern=pattern,
             workspace_root=workspace_root,

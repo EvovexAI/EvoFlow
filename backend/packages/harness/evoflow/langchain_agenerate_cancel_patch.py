@@ -44,9 +44,7 @@ def apply_langchain_agenerate_cancel_patch() -> None:
         logger.info("langchain BaseChatModel.agenerate already uses BaseException filter; skip patch")
         return
     if _NEEDLE not in src:
-        logger.warning(
-            "langchain agenerate cancel patch: unexpected source (no Exception filter); skip"
-        )
+        logger.warning("langchain agenerate cancel patch: unexpected source (no Exception filter); skip")
         return
 
     fixed = src.replace(_NEEDLE, _FIXED, 1)
@@ -59,10 +57,7 @@ def apply_langchain_agenerate_cancel_patch() -> None:
 
     BaseChatModel.agenerate = patched  # type: ignore[method-assign]
     _PATCHED = True
-    logger.info(
-        "Applied langchain BaseChatModel.agenerate patch "
-        "(CancelledError uses BaseException filter; langchain#38469)"
-    )
+    logger.info("Applied langchain BaseChatModel.agenerate patch (CancelledError uses BaseException filter; langchain#38469)")
 
 
 __all__ = ["apply_langchain_agenerate_cancel_patch"]

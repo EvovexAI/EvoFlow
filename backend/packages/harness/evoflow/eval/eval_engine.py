@@ -60,6 +60,7 @@ def _table_exists(db: Any, name: str) -> bool:
 # Case listing
 # ---------------------------------------------------------------------------
 
+
 def list_eval_cases(
     category: str | None = None,
     level: str | None = None,
@@ -144,12 +145,7 @@ def _select_cases_for_mode(
             from evoflow.eval.case_spec import is_smoke_case
 
             selected = [c for c in selected if is_smoke_case(c)]
-            security_smoke = [
-                c
-                for c in all_cases
-                if c.get("category") == "security"
-                and (c.get("level") == "L1" or c["id"] in _SECURITY_SMOKE_IDS)
-            ]
+            security_smoke = [c for c in all_cases if c.get("category") == "security" and (c.get("level") == "L1" or c["id"] in _SECURITY_SMOKE_IDS)]
             seen = {c["id"] for c in selected}
             for c in security_smoke:
                 if c["id"] not in seen:
@@ -180,6 +176,7 @@ def _select_cases_for_mode(
 # ---------------------------------------------------------------------------
 # Case execution (handler whitelist)
 # ---------------------------------------------------------------------------
+
 
 def _run_case(case_id: str, handler: str, params: dict, days: int) -> dict[str, Any]:
     """Execute a single eval case via handler whitelist."""
@@ -212,14 +209,10 @@ def _run_case(case_id: str, handler: str, params: dict, days: int) -> dict[str, 
         t0 = _now_ms()
         try:
             # Subprocess isolation: never mutate Gateway process EVOFLOW_* / shared DB.
-            use_inline = bool((params or {}).get("inline")) or os.environ.get(
-                "EVOFLOW_EVAL_INLINE", ""
-            ).strip() in ("1", "true", "yes")
+            use_inline = bool((params or {}).get("inline")) or os.environ.get("EVOFLOW_EVAL_INLINE", "").strip() in ("1", "true", "yes")
             runner = "inline"
             if use_inline and handler in SCENARIO_HANDLERS:
-                result = SCENARIO_HANDLERS[handler](
-                    **{k: v for k, v in (params or {}).items() if k != "inline"}
-                )
+                result = SCENARIO_HANDLERS[handler](**{k: v for k, v in (params or {}).items() if k != "inline"})
             else:
                 from evoflow.eval.scenarios._subprocess import run_handler_subprocess
 
@@ -308,6 +301,7 @@ def _run_case(case_id: str, handler: str, params: dict, days: int) -> dict[str, 
 # Alert evaluation
 # ---------------------------------------------------------------------------
 
+
 def _evaluate_alerts_for_run(run_id: str, summary: dict[str, Any], results: list[dict]) -> list[dict]:
     """Match enabled alert rules against run summary; persist triggered alerts."""
     db = get_db()
@@ -315,9 +309,7 @@ def _evaluate_alerts_for_run(run_id: str, summary: dict[str, Any], results: list
         return []
 
     try:
-        rows = db.execute(
-            "SELECT * FROM eval_alert_rules WHERE enabled = 1"
-        ).fetchall()
+        rows = db.execute("SELECT * FROM eval_alert_rules WHERE enabled = 1").fetchall()
     except Exception:  # noqa: BLE001
         return []
 
@@ -359,9 +351,7 @@ def _evaluate_alerts_for_run(run_id: str, summary: dict[str, Any], results: list
         if not _match(op, float(value), threshold):
             continue
         alert_id = _new_alert_id()
-        message = (
-            f"{row['name']}: {metric}={value:.1f} {op} {threshold}"
-        )
+        message = f"{row['name']}: {metric}={value:.1f} {op} {threshold}"
         alert = {
             "id": alert_id,
             "rule_id": row["id"],
@@ -431,6 +421,7 @@ def list_eval_alerts(limit: int = 50, run_id: str | None = None) -> dict[str, An
 # Run evaluation
 # ---------------------------------------------------------------------------
 
+
 def _execute_run(
     run_id: str,
     name: str,
@@ -475,12 +466,14 @@ def _execute_run(
         else:
             failed += 1
 
-        results.append({
-            "case_id": case["id"],
-            "case_name": case["name"],
-            "category": case["category"],
-            **case_result,
-        })
+        results.append(
+            {
+                "case_id": case["id"],
+                "case_name": case["name"],
+                "category": case["category"],
+                **case_result,
+            }
+        )
 
         progress = int((i + 1) / len(selected) * 100) if selected else 100
         try:
@@ -611,6 +604,7 @@ def run_eval(
         return {"run_id": None, "error": "failed to create run record"}
 
     if async_mode:
+
         def _bg() -> None:
             with _RUN_LOCK:
                 try:
@@ -645,6 +639,7 @@ def run_eval(
 # ---------------------------------------------------------------------------
 # Run queries
 # ---------------------------------------------------------------------------
+
 
 def _row_to_run_dict(row: Any) -> dict[str, Any]:
     d = {}
@@ -720,9 +715,7 @@ def get_eval_run(run_id: str) -> dict[str, Any]:
                 "case_name": r["case_name"],
                 "category": r["category"],
                 "level": r["level"],
-                "handler": (r["case_handler"] if "case_handler" in r.keys() else "")
-                or (metrics.get("provenance") or {}).get("handler")
-                or "",
+                "handler": (r["case_handler"] if "case_handler" in r.keys() else "") or (metrics.get("provenance") or {}).get("handler") or "",
                 "description": r["case_description"] if "case_description" in r.keys() else "",
                 "params": case_params,
                 "status": r["status"],
@@ -734,11 +727,7 @@ def get_eval_run(run_id: str) -> dict[str, Any]:
                 "detail": r["detail"],
                 "started_at_ms": r["started_at_ms"],
                 "finished_at_ms": r["finished_at_ms"],
-                "duration_ms": (
-                    int(r["finished_at_ms"] or 0) - int(r["started_at_ms"] or 0)
-                    if r["finished_at_ms"] and r["started_at_ms"]
-                    else (metrics.get("duration_ms") if isinstance(metrics, dict) else None)
-                ),
+                "duration_ms": (int(r["finished_at_ms"] or 0) - int(r["started_at_ms"] or 0) if r["finished_at_ms"] and r["started_at_ms"] else (metrics.get("duration_ms") if isinstance(metrics, dict) else None)),
             }
         )
         results.append(row)
@@ -798,8 +787,7 @@ def get_eval_progress(run_id: str) -> dict[str, Any]:
     db = get_db()
 
     if not _table_exists(db, "eval_runs"):
-        return {"run_id": run_id, "progress": 0, "status": "unknown",
-                "_table_missing": True}
+        return {"run_id": run_id, "progress": 0, "status": "unknown", "_table_missing": True}
 
     try:
         row = db.execute(
@@ -811,12 +799,10 @@ def get_eval_progress(run_id: str) -> dict[str, Any]:
             (run_id,),
         ).fetchone()
     except Exception:  # noqa: BLE001
-        return {"run_id": run_id, "progress": 0, "status": "unknown",
-                "_table_missing": False}
+        return {"run_id": run_id, "progress": 0, "status": "unknown", "_table_missing": False}
 
     if not row:
-        return {"run_id": run_id, "progress": 0, "status": "not_found",
-                "_table_missing": False}
+        return {"run_id": run_id, "progress": 0, "status": "not_found", "_table_missing": False}
 
     return {
         "run_id": row["run_id"],
@@ -834,8 +820,7 @@ def rerun_eval(run_id: str, *, async_mode: bool = False) -> dict[str, Any]:
     """Re-run an evaluation based on an existing run."""
     detail = get_eval_run(run_id)
     if not detail.get("run"):
-        return {"error": "run not found",
-                "_table_missing": detail.get("_table_missing", False)}
+        return {"error": "run not found", "_table_missing": detail.get("_table_missing", False)}
 
     run = detail["run"]
     config = run.get("config", {})
@@ -870,9 +855,7 @@ def compare_evals(run_ids: list[str]) -> dict[str, Any]:
         row = {"case_id": case_id}
         for detail in runs:
             rid = detail["run"]["run_id"]
-            match = next(
-                (r for r in detail["results"] if r["case_id"] == case_id), None
-            )
+            match = next((r for r in detail["results"] if r["case_id"] == case_id), None)
             row[rid] = {
                 "status": match["status"] if match else "not_run",
                 "score": match["score"] if match else None,
@@ -905,9 +888,7 @@ def list_scenario_results(limit: int = 1) -> dict[str, Any]:
     listing = list_eval_runs(limit=20)
     for run in listing.get("runs") or []:
         detail = get_eval_run(str(run.get("run_id") or ""))
-        results = [
-            r for r in (detail.get("results") or []) if r.get("category") == "scenario"
-        ]
+        results = [r for r in (detail.get("results") or []) if r.get("category") == "scenario"]
         if results:
             return {
                 "run_id": run.get("run_id"),

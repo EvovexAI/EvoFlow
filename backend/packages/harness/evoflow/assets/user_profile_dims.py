@@ -101,6 +101,7 @@ def resolve_profile_injection_scope(
         pass
     return "full"
 
+
 def resolve_profile_dimension(path_or_tag: str) -> UserProfileDimension:
     """Map filename, tag, or shorthand to a profile dimension."""
     raw = str(path_or_tag or "").strip().lower()
@@ -182,27 +183,11 @@ def default_basic_info_md() -> str:
 
 
 def default_preferences_md() -> str:
-    return (
-        "# 偏好与爱好\n\n"
-        "## 回复风格\n"
-        "（如：结论先行、中文、简洁、少 emoji）\n\n"
-        "## 爱好与兴趣\n"
-        "（可选；用于闲聊与共情，非任务必需）\n\n"
-        "## 避免事项\n"
-        "（可选；不想被提及的话题或禁忌）\n"
-    )
+    return "# 偏好与爱好\n\n## 回复风格\n（如：结论先行、中文、简洁、少 emoji）\n\n## 爱好与兴趣\n（可选；用于闲聊与共情，非任务必需）\n\n## 避免事项\n（可选；不想被提及的话题或禁忌）\n"
 
 
 def default_persona_md() -> str:
-    return (
-        "# 画像与行为特征\n\n"
-        "## 沟通方式\n"
-        "（如：直接、偏技术、需要步骤清单）\n\n"
-        "## 工作习惯\n"
-        "（如：先读文档再改代码、偏好 PR 小步提交）\n\n"
-        "## 决策与协作\n"
-        "（如：风险敏感、重要操作前先确认）\n"
-    )
+    return "# 画像与行为特征\n\n## 沟通方式\n（如：直接、偏技术、需要步骤清单）\n\n## 工作习惯\n（如：先读文档再改代码、偏好 PR 小步提交）\n\n## 决策与协作\n（如：风险敏感、重要操作前先确认）\n"
 
 
 def default_profile_readme_md() -> str:
@@ -367,15 +352,9 @@ def build_user_profile_injection_block(
     lines: list[str] = [f"<{root_tag}>"]
     if scope == "identity":
         if lang == "en":
-            lines.append(
-                "(Employee context — inject user identity only; preferences/persona omitted. "
-                "Use assets(search) on user memory if task-specific prefs matter.)"
-            )
+            lines.append("(Employee context — inject user identity only; preferences/persona omitted. Use assets(search) on user memory if task-specific prefs matter.)")
         else:
-            lines.append(
-                "（员工上下文 — 仅注入用户身份信息；偏好/行为画像不注入。"
-                "若任务需要具体偏好，可用 assets(search) 查用户 memory/facts。）"
-            )
+            lines.append("（员工上下文 — 仅注入用户身份信息；偏好/行为画像不注入。若任务需要具体偏好，可用 assets(search) 查用户 memory/facts。）")
     for dim in active:
         text = (dims.get(dim.filename) or "").strip()
         lines.append(f"<{dim.tag}>")
@@ -384,15 +363,9 @@ def build_user_profile_injection_block(
         else:
             ask = dim.ask_en if lang == "en" else dim.ask_zh
             if lang == "en":
-                lines.append(
-                    f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when "
-                    f"they have not already answered it, then save with assets(action=profile): {ask})"
-                )
+                lines.append(f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when they have not already answered it, then save with assets(action=profile): {ask})")
             else:
-                lines.append(
-                    f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，"
-                    f"得到回答后立刻用 assets(action=profile) 写入：{ask}）"
-                )
+                lines.append(f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，得到回答后立刻用 assets(action=profile) 写入：{ask}）")
         lines.append(f"</{dim.tag}>")
 
     if missing:
@@ -403,8 +376,7 @@ def build_user_profile_injection_block(
                 lines.append(
                     "MANDATORY: User identity is incomplete. You MUST proactively ask "
                     "(brief, friendly — not a long form) for missing fields in this conversation "
-                    "if the user has not already provided them — e.g. " + gaps
-                    + ". After they answer, you MUST call "
+                    "if the user has not already provided them — e.g. " + gaps + ". After they answer, you MUST call "
                     "assets(action=profile, path=basic-info, content=…) and briefly confirm the update. "
                     "Do not only chat without writing."
                 )
@@ -413,9 +385,7 @@ def build_user_profile_injection_block(
                     "MANDATORY profile gap policy (non-negotiable):\n"
                     "1) If any dimension below is empty and the user has NOT already supplied that info "
                     "in this conversation, you MUST actively ask 1–2 short questions this turn or the "
-                    "next natural turn — do not wait for them to volunteer. Example prompts: "
-                    + gaps
-                    + ".\n"
+                    "next natural turn — do not wait for them to volunteer. Example prompts: " + gaps + ".\n"
                     "2) As soon as they answer, you MUST persist with "
                     "`assets(action=profile, path=basic-info|preferences|persona, content=…)` "
                     "and confirm in one short line.\n"
@@ -423,9 +393,7 @@ def build_user_profile_injection_block(
                     "when new stable facts were shared.\n"
                     "Tone: warm and brief; never grill like a questionnaire."
                 )
-                lines.append(
-                    "They can also edit under Asset Center → Profile (#/assets → 画像)."
-                )
+                lines.append("They can also edit under Asset Center → Profile (#/assets → 画像).")
             lines.append("</profile_gaps>")
         else:
             gaps = "；".join(d.ask_zh for d in missing[:3])
@@ -433,9 +401,7 @@ def build_user_profile_injection_block(
             if scope == "identity":
                 lines.append(
                     "【强制】用户身份信息不完整。若本对话中用户尚未提供缺口信息，"
-                    "你必须主动、简短友好地询问（不要长问卷），例如："
-                    + gaps
-                    + "。用户回答后，必须立刻调用 "
+                    "你必须主动、简短友好地询问（不要长问卷），例如：" + gaps + "。用户回答后，必须立刻调用 "
                     "assets(action=profile, path=basic-info, content=…) 写入，并简短确认已更新。"
                     "禁止只聊不写。"
                 )
@@ -444,9 +410,7 @@ def build_user_profile_injection_block(
                     "【强制·用户画像缺口策略】不可省略：\n"
                     "1）下列维度若仍为空，且用户在本对话中尚未补充对应信息，"
                     "你必须在本回合或紧接着的自然回合主动提问（每轮最多 1～2 句），"
-                    "不要等用户主动提起。可参考："
-                    + gaps
-                    + "。\n"
+                    "不要等用户主动提起。可参考：" + gaps + "。\n"
                     "2）用户一旦回答，必须马上用 "
                     "`assets(action=profile, path=basic-info|preferences|persona, content=…)` "
                     "写入对应维度，并用一句话确认已更新。\n"
@@ -478,17 +442,11 @@ def build_user_profile_injection_block(
     elif scope == "identity":
         if lang == "en":
             lines.append("<profile_upkeep>")
-            lines.append(
-                "When the user shares name, role, language, or timezone, update basic-info via "
-                "assets(action=profile, path=basic-info, content=…). Leave preferences/persona to dialogue agents."
-            )
+            lines.append("When the user shares name, role, language, or timezone, update basic-info via assets(action=profile, path=basic-info, content=…). Leave preferences/persona to dialogue agents.")
             lines.append("</profile_upkeep>")
         else:
             lines.append("<profile_upkeep>")
-            lines.append(
-                "用户透露称呼、职业、语言、时区等身份信息时，用 assets(action=profile, path=basic-info, content=…) 更新；"
-                "偏好与行为画像由对话 Agent 维护，员工任务不必写入。"
-            )
+            lines.append("用户透露称呼、职业、语言、时区等身份信息时，用 assets(action=profile, path=basic-info, content=…) 更新；偏好与行为画像由对话 Agent 维护，员工任务不必写入。")
             lines.append("</profile_upkeep>")
     lines.append(f"</{root_tag}>")
     return "\n".join(lines)

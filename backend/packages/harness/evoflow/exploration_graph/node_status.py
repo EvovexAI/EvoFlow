@@ -18,14 +18,10 @@ COLLAPSED_STATUS = "collapsed"
 STATUS_TRACKED_KINDS = frozenset({"flow", "gap", "task", "hypothesis"})
 
 # Parent closed → children treated as done/hidden in injection (read-time cascade).
-CLOSED_NODE_STATUSES = frozenset(
-    {"resolved", "verified", "refuted", "blocked", "parked", COLLAPSED_STATUS}
-)
+CLOSED_NODE_STATUSES = frozenset({"resolved", "verified", "refuted", "blocked", "parked", COLLAPSED_STATUS})
 
 # User closes a tracked branch → cascade this status to active/stale tracked descendants.
-CASCADE_CHILD_STATUSES = frozenset(
-    {"resolved", "verified", "refuted", "blocked", "parked", COLLAPSED_STATUS}
-)
+CASCADE_CHILD_STATUSES = frozenset({"resolved", "verified", "refuted", "blocked", "parked", COLLAPSED_STATUS})
 
 _KIND_PREFIX_MAP = {
     "goal:": "goal",

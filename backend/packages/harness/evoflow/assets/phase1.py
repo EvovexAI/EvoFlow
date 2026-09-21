@@ -12,9 +12,9 @@ import re
 from typing import Any
 
 from evoflow.assets.guidance import resolve_session_entity
-from evoflow.assets.pipeline_config import asset_phase1_enabled, min_rollout_chars
 from evoflow.assets.hub import ensure_entity_tree, write_episode, write_text_file
 from evoflow.assets.paths import EntityRef
+from evoflow.assets.pipeline_config import asset_phase1_enabled, min_rollout_chars
 from evoflow.assets.prompt_templates import load_memory_prompt, render_memory_prompt
 
 logger = logging.getLogger(__name__)
@@ -167,9 +167,7 @@ def run_phase1_extract(
         try:
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            response = model.invoke(
-                [SystemMessage(content=system), HumanMessage(content=user)]
-            )
+            response = model.invoke([SystemMessage(content=system), HumanMessage(content=user)])
         except Exception:
             response = model.invoke(f"{system}\n\n---\n\n{user}")
         response_text = (_extract_text(getattr(response, "content", response)) or "").strip()

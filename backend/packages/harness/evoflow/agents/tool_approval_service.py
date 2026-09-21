@@ -294,18 +294,12 @@ def begin_approval_batch(thread_id: str, keep_tool_call_ids: list[str] | None = 
             keep_set = {str(x).strip() for x in keep_tool_call_ids if str(x).strip()}
             if keep_set:
                 approved_rows = ta_repo.list_approved_for_replay(tid)
-                orphaned = [
-                    str(r.get("tool_call_id") or "").strip()
-                    for r in approved_rows
-                    if str(r.get("tool_call_id") or "").strip() not in keep_set
-                ]
+                orphaned = [str(r.get("tool_call_id") or "").strip() for r in approved_rows if str(r.get("tool_call_id") or "").strip() not in keep_set]
                 for orphan_id in orphaned:
                     ta_repo.set_approval_status(tid, orphan_id, ta_repo.STATUS_EXECUTED)
         except Exception:
             logger.debug("begin_approval_batch: orphan cleanup failed thread=%s", tid, exc_info=True)
-    log_tool_approval_trace("数据层·begin_batch", thread_id=tid, side="数据层",
-        event_data={"keep_ids": list(keep_tool_call_ids or []), "cancelled": cancelled,
-                    "orphaned_cleaned": len(orphaned)})
+    log_tool_approval_trace("数据层·begin_batch", thread_id=tid, side="数据层", event_data={"keep_ids": list(keep_tool_call_ids or []), "cancelled": cancelled, "orphaned_cleaned": len(orphaned)})
     return cancelled
 
 
@@ -340,28 +334,33 @@ def pop_replay_queue(thread_id: str, tool_call_ids: list[str] | None = None) -> 
     tid = str(thread_id or "").strip()
     log_tool_approval_trace(
         "DB层·pop_replay_queue进入",
-        thread_id=tid, side="数据层",
+        thread_id=tid,
+        side="数据层",
         event_data={"requested_ids": tool_call_ids or "ALL"},
     )
     entries = ta_repo.list_approved_for_replay(thread_id, tool_call_ids)
     if not entries:
         log_tool_approval_trace(
             "DB层·pop_replay_queue返回空",
-            thread_id=tid, side="数据层",
+            thread_id=tid,
+            side="数据层",
             event_data={"requested_ids": tool_call_ids or "ALL"},
         )
         return []
     # 诊断：列出每个条目的关键字段
     _diag = []
     for e in entries:
-        _diag.append({
-            "tool_call_id": str(e.get("tool_call_id") or ""),
-            "tool_name": str(e.get("tool_name") or ""),
-            "status": str(e.get("status") or ""),
-        })
+        _diag.append(
+            {
+                "tool_call_id": str(e.get("tool_call_id") or ""),
+                "tool_name": str(e.get("tool_name") or ""),
+                "status": str(e.get("status") or ""),
+            }
+        )
     log_tool_approval_trace(
         "DB层·pop_replay_queue返回条目",
-        thread_id=tid, side="数据层",
+        thread_id=tid,
+        side="数据层",
         event_data={"count": len(entries), "entries": _diag},
     )
     return [{**e, "status": "approved"} for e in entries]
@@ -456,16 +455,13 @@ def apply_user_approval(
         action = str(data.get("action") or "").strip().lower()
         tc_id = str(data.get("tool_call_id") or "").strip()
 
-        log_tool_approval_trace("数据层·收到审批请求", thread_id=tid, side="数据层",
-            event_data={"action": action, "tool_call_id": tc_id})
+        log_tool_approval_trace("数据层·收到审批请求", thread_id=tid, side="数据层", event_data={"action": action, "tool_call_id": tc_id})
 
-        log_tool_approval_trace("数据层·获得审批锁", thread_id=tid, side="数据层",
-            event_data={"action": action})
+        log_tool_approval_trace("数据层·获得审批锁", thread_id=tid, side="数据层", event_data={"action": action})
 
         if action == "approve_all":
             pending = ta_repo.list_pending_for_thread(tid)
-            log_tool_approval_trace("数据层·批量批准", thread_id=tid, side="数据层",
-                event_data={"count": len(pending), "ids": [str(p.get("tool_call_id") or "") for p in pending]})
+            log_tool_approval_trace("数据层·批量批准", thread_id=tid, side="数据层", event_data={"count": len(pending), "ids": [str(p.get("tool_call_id") or "") for p in pending]})
             for p in pending:
                 _approve_pending_row(sk, tid, p, grants, workspace_root=workspace_root)
                 grants = ta_repo.load_grants(sk)
@@ -478,8 +474,7 @@ def apply_user_approval(
                     action="approve",
                 )
             replay_ids = _replay_ids_when_no_pending(tid)
-            log_tool_approval_trace("数据层·replay_ids计算", thread_id=tid, side="数据层",
-                event_data={"replay_ids": replay_ids, "remaining_pending": 0})
+            log_tool_approval_trace("数据层·replay_ids计算", thread_id=tid, side="数据层", event_data={"replay_ids": replay_ids, "remaining_pending": 0})
             n = len(replay_ids)
             return ToolApprovalApplyResult(
                 reply=f"已批准本批 {n} 个工具，正在执行…" if n else "没有待授权项。",
@@ -490,8 +485,7 @@ def apply_user_approval(
         if action == "grant_all":
             set_session_policy(sk, POLICY_GRANT_ALL)
             pending = ta_repo.list_pending_for_thread(tid)
-            log_tool_approval_trace("数据层·grant_all", thread_id=tid, side="数据层",
-                event_data={"count": len(pending)})
+            log_tool_approval_trace("数据层·grant_all", thread_id=tid, side="数据层", event_data={"count": len(pending)})
             replay_ids = [str(p.get("tool_call_id") or "").strip() for p in pending]
             replay_ids = [x for x in replay_ids if x]
             for p in pending:
@@ -545,8 +539,7 @@ def apply_user_approval(
                     replay_tool_call_ids=[],
                     denied_tool_call_ids=[],
                 )
-            log_tool_approval_trace("数据层·找到pending行", thread_id=tid, side="数据层",
-                event_data={"tool_call_id": tc_id, "status": str(hit.get("status") or "")})
+            log_tool_approval_trace("数据层·找到pending行", thread_id=tid, side="数据层", event_data={"tool_call_id": tc_id, "status": str(hit.get("status") or "")})
             force_remember = bool(data.get("remember") or data.get("always") or data.get("always_allow"))
             if str(data.get("scope") or "").strip().lower() in {"session", "project", "tool"}:
                 force_remember = True
@@ -558,8 +551,7 @@ def apply_user_approval(
                 workspace_root=workspace_root,
                 force_remember=force_remember,
             )
-            log_tool_approval_trace("数据层·工具已标记approved", thread_id=tid, side="数据层",
-                event_data={"tool_call_id": tc_id, "remember": force_remember})
+            log_tool_approval_trace("数据层·工具已标记approved", thread_id=tid, side="数据层", event_data={"tool_call_id": tc_id, "remember": force_remember})
             ta_repo.write_audit_log(
                 session_key=sk,
                 thread_id=tid,
@@ -571,28 +563,17 @@ def apply_user_approval(
             name = str(hit.get("tool_name") or "")
             replay_ids = _replay_ids_when_no_pending(tid)
             remaining = ta_repo.list_pending_for_thread(tid)
-            log_tool_approval_trace("数据层·replay_ids计算", thread_id=tid, side="数据层",
-                event_data={"replay_ids": replay_ids, "remaining_pending": len(remaining)})
+            log_tool_approval_trace("数据层·replay_ids计算", thread_id=tid, side="数据层", event_data={"replay_ids": replay_ids, "remaining_pending": len(remaining)})
             if replay_ids:
-                log_tool_approval_trace("数据层·返回replay_ids", thread_id=tid, side="数据层",
-                    event_data={"replay_ids": replay_ids, "reply": f"已全部确认，正在执行 {len(replay_ids)} 个工具…"})
+                log_tool_approval_trace("数据层·返回replay_ids", thread_id=tid, side="数据层", event_data={"replay_ids": replay_ids, "reply": f"已全部确认，正在执行 {len(replay_ids)} 个工具…"})
                 return ToolApprovalApplyResult(
-                    reply=(
-                        f"已记住本会话「{name}」授权，正在执行…"
-                        if force_remember
-                        else f"已全部确认，正在执行 {len(replay_ids)} 个工具…"
-                    ),
+                    reply=(f"已记住本会话「{name}」授权，正在执行…" if force_remember else f"已全部确认，正在执行 {len(replay_ids)} 个工具…"),
                     replay_tool_call_ids=replay_ids,
                     denied_tool_call_ids=[],
                 )
-            log_tool_approval_trace("数据层·返回await_next", thread_id=tid, side="数据层",
-                event_data={"remaining_pending": len(remaining), "reply": "等待其他工具授权"})
+            log_tool_approval_trace("数据层·返回await_next", thread_id=tid, side="数据层", event_data={"remaining_pending": len(remaining), "reply": "等待其他工具授权"})
             return ToolApprovalApplyResult(
-                reply=(
-                    f"已记住本会话「{name}」授权，尚有 {len(remaining)} 个工具待授权。"
-                    if force_remember
-                    else f"已批准 {name}，尚有 {len(remaining)} 个工具待授权。"
-                ),
+                reply=(f"已记住本会话「{name}」授权，尚有 {len(remaining)} 个工具待授权。" if force_remember else f"已批准 {name}，尚有 {len(remaining)} 个工具待授权。"),
                 replay_tool_call_ids=[],
                 denied_tool_call_ids=[],
                 resume_action="await_next",
@@ -614,8 +595,7 @@ def apply_user_approval(
             # 立刻把 transcript 从 pending_approval 改成 denied（不能等 deny_run；
             # append 会因 tool_call_id 去重跳过，必须 UPDATE）。
             _persist_denied_tool_transcript(sk, tc_id, tool_name=tool_name)
-            log_tool_approval_trace("数据层·工具已标记denied", thread_id=tid, side="数据层",
-                event_data={"tool_call_id": tc_id})
+            log_tool_approval_trace("数据层·工具已标记denied", thread_id=tid, side="数据层", event_data={"tool_call_id": tc_id})
             remaining = ta_repo.list_pending_for_thread(tid)
             if remaining:
                 # 与部分批准对称：同批还有待授权时绝不 resume / deny_run，
@@ -633,11 +613,7 @@ def apply_user_approval(
                     resume_action="await_next",
                 )
             replay_ids = _replay_ids_when_no_pending(tid)
-            denied_ids = [
-                str(e.get("tool_call_id") or "").strip()
-                for e in ta_repo.list_denied_for_thread(tid)
-                if str(e.get("tool_call_id") or "").strip()
-            ]
+            denied_ids = [str(e.get("tool_call_id") or "").strip() for e in ta_repo.list_denied_for_thread(tid) if str(e.get("tool_call_id") or "").strip()]
             if not denied_ids:
                 denied_ids = [tc_id]
             if replay_ids:

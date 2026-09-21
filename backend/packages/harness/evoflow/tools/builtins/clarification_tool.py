@@ -2,7 +2,6 @@ from typing import Any, Literal
 
 from langchain.tools import tool
 
-
 _ASK_CLARIFICATION_DESCRIPTION = """\
 Structured clarification for EvoPanel sidebar (do not list options only in chat).
 Use when blocked on missing info / ambiguity / approach / risk; max 3 questions.

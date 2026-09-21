@@ -33,10 +33,7 @@ from evoflow.cli.common import run_handler
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="evoflow",
-        description=(
-            "EvoFlow admin CLI — models, skills, agents, employees, workflow, items, "
-            "knowledge, experience, automation, memory, eval, …"
-        ),
+        description=("EvoFlow admin CLI — models, skills, agents, employees, workflow, items, knowledge, experience, automation, memory, eval, …"),
     )
     parser.add_argument(
         "--config",

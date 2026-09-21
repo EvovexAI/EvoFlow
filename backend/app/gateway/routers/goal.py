@@ -28,7 +28,6 @@ def get_goal_service() -> GoalService:
     return GoalService.get_instance(lg_client)
 
 
-
 def _require_goal_session_visible(http_request: Request, goal_service: GoalService, session_id: str) -> None:
     """Gate by associated chat session_key (anti-IDOR)."""
     sid = str(session_id or "").strip()

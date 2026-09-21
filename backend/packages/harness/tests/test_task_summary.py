@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from evoflow.admin.tasks import _outcome_patch, normalize_task_summary, task_summary_of, _summary_patch
+from evoflow.admin.tasks import _outcome_patch, _summary_patch, normalize_task_summary, task_summary_of
 from evoflow.collab.task_outputs import (
     evidence_paths_from_outputs,
     normalize_task_outputs,
@@ -66,10 +66,7 @@ def test_normalize_task_outputs_json_string_and_bare_path():
 
 def test_normalize_task_outputs_repairs_path_label_pseudo_json():
     """Agents often emit ``[{path.md,label:标题}]`` instead of JSON."""
-    messy = (
-        "[{docs/roles/evoflow-marketing-director/20260722-14/"
-        "抖音口播稿_EvoFlow智能体员工.md,label:抖音口播稿 - EvoFlow智能体员工}]"
-    )
+    messy = "[{docs/roles/evoflow-marketing-director/20260722-14/抖音口播稿_EvoFlow智能体员工.md,label:抖音口播稿 - EvoFlow智能体员工}]"
     items = normalize_task_outputs(messy)
     assert len(items) == 1
     assert items[0]["type"] == "file"
@@ -78,20 +75,14 @@ def test_normalize_task_outputs_repairs_path_label_pseudo_json():
     assert items[0]["label"] == "抖音口播稿 - EvoFlow智能体员工"
 
     # Already-persisted dirty value field also repairs on read/normalize.
-    dirty_value = (
-        "docs/roles/x/20260722-14/抖音口播稿_EvoFlow智能体员工.md,"
-        "label:抖音口播稿 - EvoFlow智能体员工}]"
-    )
+    dirty_value = "docs/roles/x/20260722-14/抖音口播稿_EvoFlow智能体员工.md,label:抖音口播稿 - EvoFlow智能体员工}]"
     one = normalize_task_outputs([{"type": "file", "key": "a", "value": dirty_value}])
     assert one[0]["value"].endswith("抖音口播稿_EvoFlow智能体员工.md")
     assert one[0]["label"] == "抖音口播稿 - EvoFlow智能体员工"
 
 
 def test_normalize_task_outputs_repairs_type_key_value_blob():
-    blob = (
-        "type:file,key:口播稿,value:docs/roles/evoflow-marketing-director/"
-        "20260722-14/抖音口播稿_EvoFlow智能体员工.md"
-    )
+    blob = "type:file,key:口播稿,value:docs/roles/evoflow-marketing-director/20260722-14/抖音口播稿_EvoFlow智能体员工.md"
     items = normalize_task_outputs(blob)
     assert len(items) == 1
     assert items[0]["key"] == "口播稿"

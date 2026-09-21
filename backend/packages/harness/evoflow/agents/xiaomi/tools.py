@@ -102,13 +102,7 @@ def xiaomi_board_overview_tool(limit_per_role: int = 8) -> str:
                 tasks = list(listed.get("tasks") or [])
             except Exception:
                 tasks = []
-            open_all = [
-                t
-                for t in tasks
-                if str(t.get("status") or "").lower()
-                not in {"completed", "reviewed", "cancelled", "canceled", "rejected"}
-                and int(t.get("progress") or 0) < 100
-            ]
+            open_all = [t for t in tasks if str(t.get("status") or "").lower() not in {"completed", "reviewed", "cancelled", "canceled", "rejected"} and int(t.get("progress") or 0) < 100]
             total_open += len(open_all)
             sample = []
             for t in open_all[:lim]:
@@ -466,11 +460,7 @@ def xiaomi_employee_brief_tool(
                 "recent_rounds": rounds_meta,
                 "work_trail": trail,
                 "person_workplace": person_brief,
-                "hint": (
-                    "用白话向用户说明忙闲、未结任务与最近在干啥；"
-                    "person_workplace 仅含脱敏职场情绪/开放承诺数/关系亮点，勿编造心智日记。"
-                    "需要单任务详情再调 xiaomi_task_brief。"
-                ),
+                "hint": ("用白话向用户说明忙闲、未结任务与最近在干啥；person_workplace 仅含脱敏职场情绪/开放承诺数/关系亮点，勿编造心智日记。需要单任务详情再调 xiaomi_task_brief。"),
                 "watch_path": f"/proactive/{code}?live=1",
             }
         )
@@ -630,7 +620,6 @@ def xiaomi_wake_tool(
     except Exception as exc:
         logger.exception("xiaomi_wake failed code=%s", code)
         return _json({"ok": False, "error": str(exc)})
-
 
 
 @tool("xiaomi_knowledge_search", parse_docstring=True)

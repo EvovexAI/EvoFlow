@@ -46,9 +46,7 @@ def test_log_goal_trace_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "---" in text
 
 
-def test_log_goal_trace_not_in_console_by_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_log_goal_trace_not_in_console_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     import logging
 
     log_file = tmp_path / "goal-trace.log"

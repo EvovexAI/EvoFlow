@@ -55,23 +55,19 @@ class TestDockerSecurityHardening:
         # --cap-drop ALL is two args
         assert "--cap-drop" in cmd, f"--cap-drop missing from cmd: {cmd}"
         idx = cmd.index("--cap-drop")
-        assert cmd[idx + 1] == "ALL", f"cap-drop value is not ALL: {cmd[idx+1]}"
+        assert cmd[idx + 1] == "ALL", f"cap-drop value is not ALL: {cmd[idx + 1]}"
 
     def test_no_new_privileges(self):
         backend = _make_backend()
         cmd = _capture_start_cmd(backend)
         assert "--security-opt" in cmd, f"--security-opt missing from cmd: {cmd}"
         idx = cmd.index("--security-opt")
-        assert cmd[idx + 1] == "no-new-privileges", (
-            f"security-opt value is not no-new-privileges: {cmd[idx+1]}"
-        )
+        assert cmd[idx + 1] == "no-new-privileges", f"security-opt value is not no-new-privileges: {cmd[idx + 1]}"
 
     def test_seccomp_unconfined_removed(self):
         backend = _make_backend()
         cmd = _capture_start_cmd(backend)
-        assert "seccomp=unconfined" not in cmd, (
-            f"seccomp=unconfined should be removed: {cmd}"
-        )
+        assert "seccomp=unconfined" not in cmd, f"seccomp=unconfined should be removed: {cmd}"
         # Also verify no seccomp option at all referencing unconfined
         for i, arg in enumerate(cmd):
             if arg == "--security-opt":
@@ -84,34 +80,24 @@ class TestDockerSecurityHardening:
         assert "--tmpfs" in cmd, f"--tmpfs missing from cmd: {cmd}"
         idx = cmd.index("--tmpfs")
         tmpfs_spec = cmd[idx + 1]
-        assert tmpfs_spec.startswith("/mnt/user-data"), (
-            f"tmpfs not on /mnt/user-data: {tmpfs_spec}"
-        )
+        assert tmpfs_spec.startswith("/mnt/user-data"), f"tmpfs not on /mnt/user-data: {tmpfs_spec}"
         assert "rw" in tmpfs_spec, f"tmpfs not rw: {tmpfs_spec}"
         assert "size=512m" in tmpfs_spec, f"tmpfs size not 512m: {tmpfs_spec}"
 
     def test_skills_mount_preserved_readonly(self):
         backend = _make_backend()
-        cmd = _capture_start_cmd(
-            backend, extra_mounts=[("/host/skills", "/mnt/skills", True)]
-        )
+        cmd = _capture_start_cmd(backend, extra_mounts=[("/host/skills", "/mnt/skills", True)])
         # -v /host/skills:/mnt/skills:ro
         assert "-v" in cmd
         idx = cmd.index("-v")
         mount_spec = cmd[idx + 1]
-        assert "/host/skills:/mnt/skills:ro" == mount_spec, (
-            f"skills mount not read-only: {mount_spec}"
-        )
+        assert "/host/skills:/mnt/skills:ro" == mount_spec, f"skills mount not read-only: {mount_spec}"
 
     def test_acp_workspace_mount_preserved_readonly(self):
         backend = _make_backend()
-        cmd = _capture_start_cmd(
-            backend, extra_mounts=[("/host/acp", "/mnt/acp-workspace", True)]
-        )
+        cmd = _capture_start_cmd(backend, extra_mounts=[("/host/acp", "/mnt/acp-workspace", True)])
         mounts = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-v"]
-        assert any("/mnt/acp-workspace:ro" in m for m in mounts), (
-            f"acp-workspace mount not read-only: {mounts}"
-        )
+        assert any("/mnt/acp-workspace:ro" in m for m in mounts), f"acp-workspace mount not read-only: {mounts}"
 
     def test_user_data_bindmount_writable(self):
         """Per-thread workspace bind-mount must remain writable (not :ro)."""
@@ -121,6 +107,4 @@ class TestDockerSecurityHardening:
             extra_mounts=[("/host/ws", "/mnt/user-data/workspace", False)],
         )
         mounts = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-v"]
-        assert any(
-            m == "/host/ws:/mnt/user-data/workspace" for m in mounts
-        ), f"workspace mount should be writable (no :ro): {mounts}"
+        assert any(m == "/host/ws:/mnt/user-data/workspace" for m in mounts), f"workspace mount should be writable (no :ro): {mounts}"

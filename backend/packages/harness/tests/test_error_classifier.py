@@ -37,12 +37,7 @@ def test_context_overflow_without_status_code_triggers_compress() -> None:
 
 def test_context_window_exceeded_message_triggers_compress() -> None:
     """OpenAI-style wording used by several gateways (not 'context length')."""
-    result = classify(
-        Exception(
-            "Your input exceeds the context window of this model. "
-            "Please adjust your input and try again."
-        )
-    )
+    result = classify(Exception("Your input exceeds the context window of this model. Please adjust your input and try again."))
     assert result.should_compress is True
     assert result.reason == FailoverReason.CONTEXT_OVERFLOW
 
@@ -83,11 +78,7 @@ def test_context_overflow_with_400_still_classifies() -> None:
 
 def test_max_bytes_request_body_triggers_payload_compress() -> None:
     """Provider 6MB body limit must compress+retry, not hard-fail as unknown 400."""
-    msg = (
-        "Error code: 400 - {'error': {'message': "
-        "'Exceeded limit on max bytes to request body : 6291456', "
-        "'type': 'invalid_request_error'}}"
-    )
+    msg = "Error code: 400 - {'error': {'message': 'Exceeded limit on max bytes to request body : 6291456', 'type': 'invalid_request_error'}}"
     result = classify(_StatusError(msg, 400))
     assert result.should_compress is True
     assert result.reason == FailoverReason.PAYLOAD_TOO_LARGE
@@ -108,11 +99,7 @@ def test_httpx_read_timeout_classified_as_timeout() -> None:
 
 
 def test_account_quota_exceeded_is_billing_not_rate_limit() -> None:
-    exc = Exception(
-        "Error code: 429 - {'error': {'code': 'AccountQuotaExceeded', "
-        "'message': 'You have exceeded the monthly usage quota. "
-        "It will reset at 2026-07-11 23:59:59 +0800 CST.'}}"
-    )
+    exc = Exception("Error code: 429 - {'error': {'code': 'AccountQuotaExceeded', 'message': 'You have exceeded the monthly usage quota. It will reset at 2026-07-11 23:59:59 +0800 CST.'}}")
     result = classify(exc)
     assert result.reason == FailoverReason.BILLING
     assert result.retryable is False
@@ -122,10 +109,7 @@ def test_account_quota_exceeded_is_billing_not_rate_limit() -> None:
 
 def test_set_limit_exceeded_is_rate_limit_retryable() -> None:
     exc = Exception(
-        "Error code: 429 - {'error': {'code': 'SetLimitExceeded', "
-        "'message': 'Your account [2130697331] has reached the set inference "
-        "limit for the [deepseek-v4-flash] model, and the model service "
-        "is temporarily unavailable.'}}"
+        "Error code: 429 - {'error': {'code': 'SetLimitExceeded', 'message': 'Your account [2130697331] has reached the set inference limit for the [deepseek-v4-flash] model, and the model service is temporarily unavailable.'}}"
     )
     result = classify(exc)
     assert result.reason == FailoverReason.RATE_LIMIT
@@ -135,10 +119,7 @@ def test_set_limit_exceeded_is_rate_limit_retryable() -> None:
 def test_ark_image_text_token_exceed_is_overflow_not_auth() -> None:
     """Volcengine Ark 400 InvalidParameter + tokens must compress, not exhaust API key."""
     msg = (
-        "Error code: 400 - {'error': {'code': 'InvalidParameter', 'message': "
-        "'Total tokens of image and text exceed max message tokens. "
-        "Request id: 021786237984403c14bc3c844fed6d85948b6b35dcf073d2d8cf0', "
-        "'param': '', 'type': 'BadRequest'}}"
+        "Error code: 400 - {'error': {'code': 'InvalidParameter', 'message': 'Total tokens of image and text exceed max message tokens. Request id: 021786237984403c14bc3c844fed6d85948b6b35dcf073d2d8cf0', 'param': '', 'type': 'BadRequest'}}"
     )
     result = classify(_StatusError(msg, 400))
     assert result.reason == FailoverReason.CONTEXT_OVERFLOW

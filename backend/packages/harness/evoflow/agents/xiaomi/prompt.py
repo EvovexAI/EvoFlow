@@ -269,9 +269,7 @@ def format_page_context_block(
             fname = _clip_text(focus.get("name"), 60)
             fkind = _clip_text(focus.get("kind"), 20)
             if fname:
-                lines.append(
-                    (("Focus: " if en else "焦点：") + (f"{fkind} · " if fkind else "") + fname)
-                )
+                lines.append(("Focus: " if en else "焦点：") + (f"{fkind} · " if fkind else "") + fname)
             draft = _clip_text(ui.get("focusDraftPreview"), 80)
             if draft:
                 lines.append(("Draft preview: " if en else "输入预览：") + draft)
@@ -290,10 +288,7 @@ def format_page_context_block(
             # Skip noise: empty rows, or route entries that are the current screen.
             if not typ and not lab:
                 continue
-            if typ == "route" and (
-                (lab and cur_label and lab == cur_label)
-                or (row_mod and cur_mod and row_mod == cur_mod)
-            ):
+            if typ == "route" and ((lab and cur_label and lab == cur_label) or (row_mod and cur_mod and row_mod == cur_mod)):
                 continue
             if typ and lab:
                 act_bits.append(f"{typ}:{lab}")
@@ -302,22 +297,15 @@ def format_page_context_block(
             elif lab:
                 act_bits.append(lab)
         if act_bits:
-            lines.append(
-                ("Past nav (not current screen): " if en else "路过页面（不是当前位置）：")
-                + " → ".join(act_bits)
-            )
+            lines.append(("Past nav (not current screen): " if en else "路过页面（不是当前位置）：") + " → ".join(act_bits))
 
     if not lines:
         return ""
 
     guidance = (
-        "The Now viewing line is authoritative for where the user is. Ignore older chat turns "
-        "that mention a different module. Prefer platform tools matching the module. "
-        "Do not invent entities not listed here."
+        "The Now viewing line is authoritative for where the user is. Ignore older chat turns that mention a different module. Prefer platform tools matching the module. Do not invent entities not listed here."
         if en
-        else "「用户当前界面」为准：用户问「这里/当前页」时按模块回答，"
-        "不要沿用对话历史里其它模块（例如把工作流说成任务中心/待办）。"
-        "优先按模块走 platform 对应域；未列出的实体不要臆造。"
+        else "「用户当前界面」为准：用户问「这里/当前页」时按模块回答，不要沿用对话历史里其它模块（例如把工作流说成任务中心/待办）。优先按模块走 platform 对应域；未列出的实体不要臆造。"
     )
     body = "\n".join(lines)
     return f"<xiaomi_ui_context>\n{body}\n{guidance}\n</xiaomi_ui_context>"

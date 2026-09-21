@@ -57,9 +57,23 @@ def upsert_artifacts(
         label = str(item.get("label") or "")
         size = item.get("size")
         content = item.get("content")
-        meta = {k: v for k, v in item.items() if k not in {
-            "id", "type", "path", "url", "name", "mime", "label", "size", "content", "status",
-        }}
+        meta = {
+            k: v
+            for k, v in item.items()
+            if k
+            not in {
+                "id",
+                "type",
+                "path",
+                "url",
+                "name",
+                "mime",
+                "label",
+                "size",
+                "content",
+                "status",
+            }
+        }
         db.execute(
             """
             INSERT INTO evoflow_artifacts (
@@ -158,6 +172,7 @@ def list_session_artifacts(
         if not aid or aid in seen:
             continue
         seen.add(aid)
+
         def _g(key: str, idx: int, default: Any = "") -> Any:
             try:
                 if hasattr(r, "keys"):

@@ -7,7 +7,7 @@ from typing import Any
 
 from evoflow.authz.scope import org_scope, personal_scope
 from evoflow.authz.types import DEFAULT_ORG_ID, Principal
-from evoflow.persistence.db import get_db, run_db_transaction
+from evoflow.persistence.db import run_db_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +106,7 @@ def add_session_participant(session_key: str, principal_id: str) -> None:
     now = float(time.time())
 
     def _write(db: Any) -> None:
-        if not db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_session_participants'"
-        ).fetchone():
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='evoflow_session_participants'").fetchone():
             return
         db.execute(
             """
@@ -136,9 +134,7 @@ def session_visible_to_principal(
     Owner (``created_by``), member of owning scope, or admin. Orphan rows were
     attributed to the local admin (v136), so non-admins don't see them.
     """
-    created_by = str(
-        row.get("created_by") or row.get("createdBy") or row.get("user_id") or row.get("userId") or ""
-    ).strip()
+    created_by = str(row.get("created_by") or row.get("createdBy") or row.get("user_id") or row.get("userId") or "").strip()
     scope = str(row.get("scope_id") or row.get("scopeId") or "").strip()
     pid = str(principal.get("principal_id") or "")
     if is_admin:

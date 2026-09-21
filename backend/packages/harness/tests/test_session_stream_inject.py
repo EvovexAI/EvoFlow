@@ -20,9 +20,9 @@ async def _collect(agen):
 
 def test_merge_normalized_does_not_split_upstream_frames() -> None:
     async def normalized():
-        yield b"event: evf\ndata: {\"type\":\"delta\",\"text\":\"hel\"}\n\n"
-        yield b"event: evf\ndata: {\"type\":\"delta\",\"text\":\"lo\"}\n\n"
-        yield b"event: evf\ndata: {\"type\":\"run_end\",\"text\":\"hello\"}\n\n"
+        yield b'event: evf\ndata: {"type":"delta","text":"hel"}\n\n'
+        yield b'event: evf\ndata: {"type":"delta","text":"lo"}\n\n'
+        yield b'event: evf\ndata: {"type":"run_end","text":"hello"}\n\n'
 
     begin_thread_inject("t1")
     try:
@@ -39,7 +39,7 @@ def test_merge_normalized_does_not_split_upstream_frames() -> None:
 def test_inject_yields_evf_custom_after_normalize() -> None:
     async def normalized():
         await asyncio.sleep(0.02)
-        yield b"event: evf\ndata: {\"type\":\"run_end\",\"text\":\"\"}\n\n"
+        yield b'event: evf\ndata: {"type":"run_end","text":""}\n\n'
 
     begin_thread_inject("t2")
 
@@ -100,8 +100,8 @@ def test_merge_waits_through_slow_upstream_without_aborting_normalize() -> None:
 
     async def normalized():
         await asyncio.sleep(0.12)
-        yield b"event: evf\ndata: {\"type\":\"delta\",\"text\":\"hi\"}\n\n"
-        yield b"event: evf\ndata: {\"type\":\"run_end\",\"text\":\"hi\"}\n\n"
+        yield b'event: evf\ndata: {"type":"delta","text":"hi"}\n\n'
+        yield b'event: evf\ndata: {"type":"run_end","text":"hi"}\n\n'
 
     begin_thread_inject("t3")
     try:

@@ -26,11 +26,7 @@ XIAOMI_KPIS = [
     "汇报含岗位名 + Task id，便于用户点进员工页",
 ]
 
-XIAOMI_SOUL = (
-    "你是小V：用户的全局助手与平台常驻管家。只传讯、分诊、催办；"
-    "具体实现永远交给对应岗位员工，也不扮演 main（EvoFlow）。"
-    "对用户用口语短句汇报，禁止 Markdown。"
-)
+XIAOMI_SOUL = "你是小V：用户的全局助手与平台常驻管家。只传讯、分诊、催办；具体实现永远交给对应岗位员工，也不扮演 main（EvoFlow）。对用户用口语短句汇报，禁止 Markdown。"
 
 
 def _migrate_legacy_main_front_desk() -> None:
@@ -145,9 +141,7 @@ def ensure_xiaomi_proactive_role() -> dict[str, Any]:
     }
 
 
-_CLOSED_TASK_STATUSES = frozenset(
-    {"completed", "reviewed", "cancelled", "canceled", "rejected"}
-)
+_CLOSED_TASK_STATUSES = frozenset({"completed", "reviewed", "cancelled", "canceled", "rejected"})
 
 
 def _task_progress(task: dict[str, Any]) -> int:
@@ -234,10 +228,7 @@ def should_skip_xiaomi_idle_patrol() -> tuple[bool, dict[str, Any]]:
     snap = summarize_xiaomi_duty_load()
     if not snap.get("ok"):
         return False, snap
-    skip = (
-        int(snap.get("open_task_count") or 0) == 0
-        and int(snap.get("pending_approvals") or 0) == 0
-    )
+    skip = int(snap.get("open_task_count") or 0) == 0 and int(snap.get("pending_approvals") or 0) == 0
     return skip, snap
 
 
@@ -288,11 +279,7 @@ def build_xiaomi_duty_system_prompt(role) -> str:
 
     del role  # identity is fixed to 小V; roster is global
     try:
-        roster = [
-            r
-            for r in ProactiveRepository.list_roles()
-            if str(r.status or "").strip().lower() != "archived"
-        ]
+        roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
     except Exception:
         roster = []
 
@@ -319,9 +306,7 @@ def build_xiaomi_duty_system_prompt(role) -> str:
                 continue
             any_row = True
             mgr = reports_to_code(peer) or "—"
-            lines.append(
-                f"| `{code}` | {peer.role_name} | `{mgr}` | {peer.department or '—'} |"
-            )
+            lines.append(f"| `{code}` | {peer.role_name} | `{mgr}` | {peer.department or '—'} |")
         if not any_row:
             lines.append("| （空） | — | — | — |")
     roster_block = "\n".join(lines)

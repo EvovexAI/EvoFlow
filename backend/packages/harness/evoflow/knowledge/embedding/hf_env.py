@@ -26,9 +26,7 @@ def _patch_hub_constants(endpoint: str) -> None:
     endpoint = endpoint.rstrip("/")
     mod.ENDPOINT = endpoint
     if hasattr(mod, "HUGGINGFACE_CO_URL_TEMPLATE"):
-        mod.HUGGINGFACE_CO_URL_TEMPLATE = (
-            endpoint + "/{repo_id}/resolve/{revision}/{filename}"
-        )
+        mod.HUGGINGFACE_CO_URL_TEMPLATE = endpoint + "/{repo_id}/resolve/{revision}/{filename}"
     host = urlsplit(endpoint).hostname
     if host and hasattr(mod, "HF_URL_HOSTS"):
         try:

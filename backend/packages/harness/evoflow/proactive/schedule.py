@@ -73,9 +73,7 @@ def legacy_rrule_to_cron(
 
     if freq == "HOURLY":
         if ws_enabled and start < end:
-            hour_field = (
-                f"{start}-{end_inclusive}/{interval}" if interval > 1 else f"{start}-{end_inclusive}"
-            )
+            hour_field = f"{start}-{end_inclusive}/{interval}" if interval > 1 else f"{start}-{end_inclusive}"
             return f"{minute} {hour_field} * * *"
         return f"{minute} */{interval} * * *" if interval > 1 else f"{minute} * * * *"
 

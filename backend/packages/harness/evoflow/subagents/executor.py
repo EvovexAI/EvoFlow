@@ -459,9 +459,7 @@ class SubagentExecutor:
                 if not inherited:
                     inherited = ["workspace"]
                 replace_activated_scenarios_from_mission_list(inherited)
-                logger.info(
-                    f"[trace={self.trace_id}] Subagent {self.config.name} activated_scenarios={inherited}"
-                )
+                logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} activated_scenarios={inherited}")
             except Exception:
                 logger.debug("subagent: failed to set inherited scenarios", exc_info=True)
             async with _subagent_loop_local_http_clients() as (http_async_client, http_client):
@@ -506,10 +504,7 @@ class SubagentExecutor:
                             raw_ctx[key] = val
                 context = LeadAgentRuntimeContext.from_mapping(raw_ctx)
 
-                logger.info(
-                    f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution "
-                    f"max_turns={self.config.max_turns} recursion_limit={recursion_limit}"
-                )
+                logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution max_turns={self.config.max_turns} recursion_limit={recursion_limit}")
 
                 # Use stream instead of invoke to get real-time updates
                 # Walk full messages list so we capture ToolMessage (tool results), not only last AIMessage.

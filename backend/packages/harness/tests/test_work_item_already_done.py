@@ -21,10 +21,7 @@ def test_is_work_item_done_terminal_statuses() -> None:
 
 
 def test_extract_task_ids_preserves_order() -> None:
-    text = (
-        "重试 Task_20260721072714_620865 和 Task_20260721062746_537245；"
-        "再看 Task_20260721072714_620865"
-    )
+    text = "重试 Task_20260721072714_620865 和 Task_20260721062746_537245；再看 Task_20260721072714_620865"
     ids = extract_task_ids_from_text(text)
     assert ids == [
         "Task_20260721072714_620865",

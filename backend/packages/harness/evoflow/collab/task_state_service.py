@@ -332,6 +332,7 @@ class TaskStateService:
             )
         except Exception:
             logger.debug("task complete → memory episode skipped", exc_info=True)
+
     def _on_fail(self, context: dict[str, Any]) -> None:
         """Hook: When task fails."""
         task = context.get("task", {})

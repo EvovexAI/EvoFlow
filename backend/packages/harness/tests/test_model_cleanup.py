@@ -52,9 +52,7 @@ def test_delete_model_clears_primary_and_orphan_connection(sqlite_tmp: Path) -> 
     del sqlite_tmp
     _upsert_chat_model(name="primary-model")
     cfg_repo.set_app_setting("primary_model", "primary-model")
-    conn_repo.sync_model_connections(
-        [{"key": "aliyun", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "sk"}]
-    )
+    conn_repo.sync_model_connections([{"key": "aliyun", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "sk"}])
 
     assert cfg_repo.delete_model("primary-model") is True
     assert cfg_repo.get_app_setting("primary_model") is None
@@ -65,9 +63,7 @@ def test_delete_model_keeps_connection_when_other_models_remain(sqlite_tmp: Path
     del sqlite_tmp
     _upsert_chat_model(name="model-a", model="qwen-max")
     _upsert_chat_model(name="model-b", model="qwen-plus")
-    conn_repo.sync_model_connections(
-        [{"key": "aliyun", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "sk"}]
-    )
+    conn_repo.sync_model_connections([{"key": "aliyun", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key": "sk"}])
 
     assert cfg_repo.delete_model("model-a") is True
     assert conn_repo.get_model_connection("aliyun") is not None

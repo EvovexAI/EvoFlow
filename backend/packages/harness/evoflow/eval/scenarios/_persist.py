@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from evoflow.eval.scenarios._harness import Assertion, check, _jsonable
+from evoflow.eval.scenarios._harness import Assertion, _jsonable, check
 
 
 def _db():
@@ -248,17 +248,6 @@ def expect_agent_mcp(agent_code: str, server_name: str) -> Assertion:
         actual=(row or {}).get("item_value") if row else None,
         api="db.evoflow_agent_list_items(mcp_servers)",
         plane="sqlite",
-    )
-
-    exp: dict[str, Any] = {"agent_code": agent_code}
-    if agent_name is not None:
-        exp["agent_name"] = agent_name
-    return check_db_row(
-        f"db_agent_{agent_code}",
-        "SELECT agent_code, agent_name FROM evoflow_agents WHERE lower(agent_code)=lower(?)",
-        (agent_code,),
-        exp,
-        api="db.evoflow_agents",
     )
 
 

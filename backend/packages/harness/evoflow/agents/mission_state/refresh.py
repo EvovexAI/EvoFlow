@@ -28,6 +28,7 @@ def maybe_refresh_mission_on_read(thread_id: str) -> None:
     _model = None
     try:
         from evoflow.persistence.session_repositories import get_model_name_for_thread
+
         _model = get_model_name_for_thread(tid)
     except Exception:
         pass

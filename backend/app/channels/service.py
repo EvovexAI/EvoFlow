@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 _CHANNEL_REGISTRY: dict[str, str] = {
     "feishu": "app.channels.feishu:FeishuChannel",
     "weixin": "app.channels.weixin:WeixinChannel",
+    "wecom": "app.channels.wecom:WecomChannel",
+    "dingtalk": "app.channels.dingtalk:DingtalkChannel",
     "slack": "app.channels.slack:SlackChannel",
     "telegram": "app.channels.telegram:TelegramChannel",
 }
@@ -47,10 +49,7 @@ def resolve_channels_config_from_app() -> dict[str, Any]:
 
 def registry_channel_status(*, service_running: bool = False) -> dict[str, Any]:
     """Default channel list when the service is unavailable (UI should still show Feishu/Weixin cards)."""
-    channels_status = {
-        name: {"enabled": False, "running": False}
-        for name in _CHANNEL_REGISTRY
-    }
+    channels_status = {name: {"enabled": False, "running": False} for name in _CHANNEL_REGISTRY}
     return {"service_running": service_running, "channels": channels_status}
 
 

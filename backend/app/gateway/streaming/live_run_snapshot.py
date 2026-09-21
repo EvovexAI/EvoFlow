@@ -214,6 +214,7 @@ def schedule_snapshot_from_normalizer(thread_id: str, normalizer: Any, *, force:
         return
     _track_snapshot_task(task)
 
+
 async def flush_live_snapshot_from_langgraph_state(
     thread_id: str,
     *,
@@ -253,9 +254,7 @@ async def flush_live_snapshot_from_langgraph_state(
         if isinstance(messages, list):
             hidx = _find_last_real_human_idx(messages)
             if hidx >= 0:
-                partial_text = _merge_turn_assistant_texts(
-                    _collect_assistant_texts_after_human(messages, hidx, "")
-                )
+                partial_text = _merge_turn_assistant_texts(_collect_assistant_texts_after_human(messages, hidx, ""))
     except Exception:
         pass
 

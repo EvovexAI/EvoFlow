@@ -10,7 +10,7 @@ Validates policy defaults that make chat + proactive coexist:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from evoflow.session_concurrency_policy import (
     claim_priority_key,
@@ -30,12 +30,12 @@ def test_interactive_pending_sorts_before_proactive():
     older_proactive = {
         "status": "pending",
         "kwargs": {"context": {"session_key": "proactive:role-a", "evf_interactive": False}},
-        "created_at": datetime(2026, 9, 8, 14, 0, 0, tzinfo=timezone.utc),
+        "created_at": datetime(2026, 9, 8, 14, 0, 0, tzinfo=UTC),
     }
     newer_chat = {
         "status": "pending",
         "kwargs": {"context": {"evf_interactive": True, "session_key": "agent:main:new"}},
-        "created_at": datetime(2026, 9, 8, 14, 0, 5, tzinfo=timezone.utc),
+        "created_at": datetime(2026, 9, 8, 14, 0, 5, tzinfo=UTC),
     }
     ordered = sorted([older_proactive, newer_chat], key=claim_priority_key)
     assert should_prefer_interactive_claim(ordered[0]) is True

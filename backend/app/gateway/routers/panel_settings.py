@@ -39,20 +39,10 @@ async def get_panel_ui_settings(request: Request) -> PanelSettingsResponse:
 
 
 @router.patch("/panel", response_model=PanelSettingsResponse)
-async def patch_panel_ui_settings(
-    request: Request, body: PanelSettingsPatchBody
-) -> PanelSettingsResponse:
-    return PanelSettingsResponse(
-        settings=patch_panel_settings(body.settings, principal_id=_principal_id(request))
-    )
+async def patch_panel_ui_settings(request: Request, body: PanelSettingsPatchBody) -> PanelSettingsResponse:
+    return PanelSettingsResponse(settings=patch_panel_settings(body.settings, principal_id=_principal_id(request)))
 
 
 @router.put("/panel", response_model=PanelSettingsResponse)
-async def put_panel_ui_settings(
-    request: Request, body: PanelSettingsPatchBody
-) -> PanelSettingsResponse:
-    return PanelSettingsResponse(
-        settings=replace_panel_settings(
-            body.settings or {}, principal_id=_principal_id(request)
-        )
-    )
+async def put_panel_ui_settings(request: Request, body: PanelSettingsPatchBody) -> PanelSettingsResponse:
+    return PanelSettingsResponse(settings=replace_panel_settings(body.settings or {}, principal_id=_principal_id(request)))

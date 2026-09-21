@@ -22,9 +22,7 @@ def _mind_map_middleware_runtime(monkeypatch: pytest.MonkeyPatch):
     from evoflow.exploration_graph.config import load_exploration_graph_config_from_dict
 
     # Footer injection tests need inject on; production default is off for prompt-cache.
-    load_exploration_graph_config_from_dict(
-        {"enabled": True, "inject_into_model_payload": True, "return_snapshot_on_update": True}
-    )
+    load_exploration_graph_config_from_dict({"enabled": True, "inject_into_model_payload": True, "return_snapshot_on_update": True})
     monkeypatch.setattr("evoflow.agents.automation_runtime.is_unattended_automation", lambda _rt: False)
 
 
@@ -93,9 +91,7 @@ def test_exploration_graph_live_footer_skips_when_inject_disabled(sqlite_tmp: No
     from evoflow.exploration_graph.config import load_exploration_graph_config_from_dict
     from evoflow.persistence.exploration_graph_repositories import apply_mind_map_ops
 
-    load_exploration_graph_config_from_dict(
-        {"enabled": True, "inject_into_model_payload": False}
-    )
+    load_exploration_graph_config_from_dict({"enabled": True, "inject_into_model_payload": False})
     tid = "t-no-inject"
     apply_mind_map_ops(
         tid,
@@ -386,11 +382,7 @@ def test_exploration_graph_live_footer_uses_session_graph_when_runtime_thread_em
     with patch("langgraph.config.get_config", return_value={"configurable": {"thread_id": new_tid, "session_key": sk}}):
         mw.wrap_model_call(req, handler)
 
-    injected = [
-        m
-        for m in (seen[0] if seen else [])
-        if isinstance(m, SystemMessage) and getattr(m, "name", None) == "session_mind_map"
-    ]
+    injected = [m for m in (seen[0] if seen else []) if isinstance(m, SystemMessage) and getattr(m, "name", None) == "session_mind_map"]
     assert len(injected) == 1
     assert "Footer scope goal" in str(injected[0].content)
 
@@ -422,9 +414,7 @@ def test_exploration_graph_live_footer_skips_when_disabled(sqlite_tmp: None, mon
     mw.wrap_model_call(req, handler)
     assert seen
     assert len(seen[0]) == 1
-    load_exploration_graph_config_from_dict(
-        {"enabled": True, "inject_into_model_payload": True, "return_snapshot_on_update": True}
-    )
+    load_exploration_graph_config_from_dict({"enabled": True, "inject_into_model_payload": True, "return_snapshot_on_update": True})
 
 
 def test_exploration_graph_live_footer_no_duplicate_on_ai(sqlite_tmp: None) -> None:

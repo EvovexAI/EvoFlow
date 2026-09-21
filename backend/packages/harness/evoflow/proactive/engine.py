@@ -156,6 +156,7 @@ class ProactiveEngine:
         """Reuse langgraph_sdk client to avoid connection pool fragmentation."""
         if self._cached_client is None:
             from langgraph_sdk import get_client
+
             self._cached_client = get_client(url=self._langgraph_url)
         return self._cached_client
 
@@ -253,7 +254,8 @@ class ProactiveEngine:
 
         # 1. Board Tasks (SSOT) + initiative side notes
         recent_initiatives = ProactiveRepository.list_initiatives(
-            role_agent_code=role.agent_code, limit=20,
+            role_agent_code=role.agent_code,
+            limit=20,
         )
         work_log = self._build_work_log(recent_initiatives)
         from evoflow.proactive.work_items import (
@@ -305,9 +307,7 @@ class ProactiveEngine:
         )
 
         # 3. Build prompts
-        system_prompt = build_system_prompt(
-            role, query=str(environment_context or "").strip()[:500]
-        )
+        system_prompt = build_system_prompt(role, query=str(environment_context or "").strip()[:500])
         user_prompt = build_user_prompt(
             role,
             memory,
@@ -330,7 +330,8 @@ class ProactiveEngine:
         round_inits = [
             i
             for i in ProactiveRepository.list_initiatives(
-                role_agent_code=role.agent_code, limit=40,
+                role_agent_code=role.agent_code,
+                limit=40,
             )
             if str(i.round_id or "") == round_id
         ]
@@ -358,8 +359,7 @@ class ProactiveEngine:
                     )
                 except Exception:
                     logger.warning(
-                        "proactive.think: failed to mark related task failed "
-                        "task=%s role=%s err=%s",
+                        "proactive.think: failed to mark related task failed task=%s role=%s err=%s",
                         related_task_id,
                         role.agent_code,
                         run_error,
@@ -367,24 +367,8 @@ class ProactiveEngine:
                     )
 
         # Count completed/failed this round for 角色记忆 counters.
-        _completed = sum(
-            1
-            for i in round_inits
-            if i.status == InitiativeStatus.COMPLETED
-            and str(
-                (i.action_plan if isinstance(i.action_plan, dict) else {}).get("kind") or ""
-            )
-            != "round_log"
-        )
-        _failed = sum(
-            1
-            for i in round_inits
-            if i.status == InitiativeStatus.FAILED
-            and str(
-                (i.action_plan if isinstance(i.action_plan, dict) else {}).get("kind") or ""
-            )
-            != "round_log"
-        )
+        _completed = sum(1 for i in round_inits if i.status == InitiativeStatus.COMPLETED and str((i.action_plan if isinstance(i.action_plan, dict) else {}).get("kind") or "") != "round_log")
+        _failed = sum(1 for i in round_inits if i.status == InitiativeStatus.FAILED and str((i.action_plan if isinstance(i.action_plan, dict) else {}).get("kind") or "") != "round_log")
 
         proposed = [i for i in round_inits if i.status == InitiativeStatus.PROPOSED]
         reflection = ""
@@ -427,12 +411,7 @@ class ProactiveEngine:
                     _use_update_after = True
                     _update_kwargs = {
                         "new_observations": observations,
-                        "reflection": reflection
-                        or (
-                            f"本轮完成 {_completed} / 失败 {_failed}"
-                            if (_completed or _failed)
-                            else ""
-                        ),
+                        "reflection": reflection or (f"本轮完成 {_completed} / 失败 {_failed}" if (_completed or _failed) else ""),
                         "completed": _completed,
                         "failed": _failed,
                     }
@@ -446,6 +425,7 @@ class ProactiveEngine:
                 }
 
             if _need_mem_write or cost_info:
+
                 def _batch_persist(db: Any) -> None:
                     if _need_mem_write:
                         if _use_update_after:
@@ -535,17 +515,13 @@ class ProactiveEngine:
                 tool_msg_count=tool_msg_count,
             )
             if evidence:
-                model_name = (
-                    str(getattr(role.config, "model_name", None) or "").strip() or None
-                )
+                model_name = str(getattr(role.config, "model_name", None) or "").strip() or None
                 pk = await run_person_wrap_up_llm_async(
                     role.agent_code,
                     statements=list(evidence.get("statements") or []),
                     round_id=round_id,
                     role_name=str(role.role_name or ""),
-                    environment_context=str(
-                        evidence.get("environment_context") or environment_context or ""
-                    ),
+                    environment_context=str(evidence.get("environment_context") or environment_context or ""),
                     run_error=evidence.get("run_error") or run_error,
                     model_name=model_name,
                     source="duty_llm",
@@ -606,12 +582,12 @@ class ProactiveEngine:
         """
         import asyncio
 
+        from evoflow.langgraph_connectivity import create_langgraph_thread
         from evoflow.proactive.chat_session import (
             finalize_proactive_chat_session,
             prepare_proactive_chat_session,
         )
         from evoflow.proactive.limits import resolve_proactive_recursion_limit
-        from evoflow.langgraph_connectivity import create_langgraph_thread
 
         # Unattended: pre-activate agent scenario so tools aren't blocked behind activation gates
         try:
@@ -719,7 +695,6 @@ class ProactiveEngine:
             run_context.setdefault("evf_interactive", False)
             run_context.setdefault("source", "proactive")
 
-
         _run_started_at = asyncio.get_event_loop().time()
         finalize_reason = "proactive_completed"
 
@@ -764,7 +739,7 @@ class ProactiveEngine:
                         thread_id,
                         n_cancelled,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         "proactive.think: cancel wait timed out (5s) role=%s round=%s thread=%s",
                         role.agent_code,
@@ -816,6 +791,7 @@ class ProactiveEngine:
                 thread_id=thread_id,
                 reason=finalize_reason,
             )
+
     # ── Cost tracking (O2) ─────────────────────────────────────
 
     @staticmethod
@@ -946,7 +922,8 @@ class ProactiveEngine:
 
         # Build work log + board Tasks for context (even in prompt-only mode)
         recent_initiatives = ProactiveRepository.list_initiatives(
-            role_agent_code=role.agent_code, limit=20,
+            role_agent_code=role.agent_code,
+            limit=20,
         )
         work_log = self._build_work_log(recent_initiatives)
         from evoflow.proactive.work_items import (
@@ -965,9 +942,7 @@ class ProactiveEngine:
         except Exception:
             task_board = format_task_board_for_prompt(list_role_open_tasks(role))
 
-        system_prompt = build_system_prompt(
-            role, query=str(environment_context or "").strip()[:500]
-        )
+        system_prompt = build_system_prompt(role, query=str(environment_context or "").strip()[:500])
         user_prompt = build_user_prompt(
             role,
             memory,
@@ -1048,15 +1023,7 @@ class ProactiveEngine:
         dispatch_guard journals are omitted — they are no longer written on the
         Task-only duty path and must not drive「工作记录」.
         """
-        actionable = [
-            init
-            for init in (initiatives or [])[:20]
-            if str(
-                (init.action_plan if isinstance(init.action_plan, dict) else {}).get("kind")
-                or ""
-            )
-            not in {"round_log", "dispatch_guard"}
-        ]
+        actionable = [init for init in (initiatives or [])[:20] if str((init.action_plan if isinstance(init.action_plan, dict) else {}).get("kind") or "") not in {"round_log", "dispatch_guard"}]
         if not actionable:
             return ""
 
@@ -1078,18 +1045,11 @@ class ProactiveEngine:
                     appr = None
                 reason = ""
                 if appr is not None:
-                    reason = str(
-                        getattr(appr, "rejection_reason", "")
-                        or getattr(appr, "decision_comment", "")
-                        or ""
-                    ).strip()
+                    reason = str(getattr(appr, "rejection_reason", "") or getattr(appr, "decision_comment", "") or "").strip()
                 if init.status.value == "timeout_rejected":
                     if not reason:
                         reason = "审批超时未处理，系统已自动拒绝"
-                    line += (
-                        "\n    -> 【待重新评估】审批超时自动拒绝。"
-                        "请确认问题是否仍存在。"
-                    )
+                    line += "\n    -> 【待重新评估】审批超时自动拒绝。请确认问题是否仍存在。"
                     if reason:
                         line += f"\n    -> 超时备注: {reason[:160]}"
                 else:
@@ -1220,10 +1180,7 @@ class ProactiveEngine:
         response = await model.ainvoke(messages)
         content = response.content if hasattr(response, "content") else str(response)
         if isinstance(content, list):
-            content = "".join(
-                block.get("text", "") if isinstance(block, dict) else str(block)
-                for block in content
-            )
+            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
         return str(content)
 
     # ── LangGraph run polling ──────────────────────────────────
@@ -1271,7 +1228,5 @@ class ProactiveEngine:
         last = messages[-1]
         content = last.get("content", "") if isinstance(last, dict) else str(last)
         if isinstance(content, list):
-            content = "".join(
-                b.get("text", "") if isinstance(b, dict) else str(b) for b in content
-            )
+            content = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
         return str(content)

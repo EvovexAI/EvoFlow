@@ -15,9 +15,7 @@ from evoflow.tools.builtins.browser_screenshot_store import _safe_thread_segment
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SESSION = "evoflow"
-_STREAM_PORT_CACHE_TTL_SEC = float(
-    __import__("os").getenv("EVOFLOW_BROWSER_STREAM_PORT_CACHE_TTL", "45")
-)
+_STREAM_PORT_CACHE_TTL_SEC = float(__import__("os").getenv("EVOFLOW_BROWSER_STREAM_PORT_CACHE_TTL", "45"))
 
 _port_cache: dict[str, tuple[int, float]] = {}
 _port_cache_lock = threading.Lock()

@@ -27,12 +27,7 @@ MIND_MAP_OPS_EMPTY_ERROR = (
 # Backward compat alias (after_model / tests)
 MIND_MAP_OPS_REQUIRED_ERROR = MIND_MAP_COMPANION_REQUIRED_ERROR
 
-MIND_MAP_GOAL_REQUIRED_ERROR = (
-    "Error: session mind map has no goal yet (enforced by runtime). "
-    "Include set_goal as the first op, e.g. "
-    '{"ops":[{"op":"set_goal","title":"定位并修复登录页 401 错误"}]}. '
-    "Retry the mind_map call."
-)
+MIND_MAP_GOAL_REQUIRED_ERROR = 'Error: session mind map has no goal yet (enforced by runtime). Include set_goal as the first op, e.g. {"ops":[{"op":"set_goal","title":"定位并修复登录页 401 错误"}]}. Retry the mind_map call.'
 
 # Model sometimes calls op types as standalone tools; route to mind_map tool.
 MIND_MAP_OP_NAMES = frozenset(
@@ -55,9 +50,7 @@ def mind_map_misinvoked_tool_hint(tool_name: str) -> str | None:
         return None
     op_example = "patch_node" if name in {"mind_map_ops", "patch_node"} else name
     return (
-        f"'{name}' is NOT a standalone tool — call the `mind_map` tool with an `ops` array. "
-        f'Do NOT call tool `{name}`. Instead: '
-        f'{{"name":"mind_map","args":{{"ops":[{{"op":"{op_example}","id":"file:path/to/file","append_body":"…"}}]}}}}'
+        f'\'{name}\' is NOT a standalone tool — call the `mind_map` tool with an `ops` array. Do NOT call tool `{name}`. Instead: {{"name":"mind_map","args":{{"ops":[{{"op":"{op_example}","id":"file:path/to/file","append_body":"…"}}]}}}}'
     )
 
 

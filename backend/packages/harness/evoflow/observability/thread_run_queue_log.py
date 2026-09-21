@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -71,15 +71,13 @@ def _ensure_logger() -> logging.Logger:
                 path,
             )
         except Exception:
-            logging.getLogger(__name__).debug(
-                "thread-run-queue log setup failed", exc_info=True
-            )
+            logging.getLogger(__name__).debug("thread-run-queue log setup failed", exc_info=True)
             _CONFIGURED = True
     return log
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(UTC).astimezone().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _fmt_fields(fields: dict[str, Any]) -> str:

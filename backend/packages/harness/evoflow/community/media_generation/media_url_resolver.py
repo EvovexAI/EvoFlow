@@ -152,9 +152,7 @@ def resolve_media_reference_url(
 
     local_file = resolve_local_media_file(s, outputs_dir=out_dir)
     if local_file is None:
-        raise ValueError(
-            f"Media URL must be http(s)/oss:// or a file under outputs/; could not resolve: {s!r}"
-        )
+        raise ValueError(f"Media URL must be http(s)/oss:// or a file under outputs/; could not resolve: {s!r}")
 
     upload_model = _dashscope_upload_model(purpose=purpose, provider=provider)
     if upload_model:
@@ -171,11 +169,7 @@ def resolve_media_reference_url(
         b64 = base64.b64encode(local_file.read_bytes()).decode("ascii")
         return f"data:{mime};base64,{b64}", f"Encoded local image as data URL for Seedance ({local_file.name})."
 
-    raise ValueError(
-        f"Provider {provider!r} requires a public http(s) URL for {purpose}; "
-        f"got local path {s!r} with no cached remote URL. "
-        f"Use the `url` field from media_image_generate, not absolute_path."
-    )
+    raise ValueError(f"Provider {provider!r} requires a public http(s) URL for {purpose}; got local path {s!r} with no cached remote URL. Use the `url` field from media_image_generate, not absolute_path.")
 
 
 def uses_dashscope_oss_resolve(*urls: str | None) -> bool:

@@ -103,8 +103,8 @@ def _is_explore_only_callset(tool_calls: list[dict]) -> bool:
 def _is_explore_streak_batch(tool_calls: list[dict]) -> bool:
     """Read/list_dir/terminal (± mind_map) with no act/progress — counts toward explore streak.
 
-    Search/discovery tools (rg, search_code_index, find, web_search, web_fetch, …) are
-  excluded: legitimate multi-step research should not trip "探索过久" hard blocks.
+      Search/discovery tools (rg, search_code_index, find, web_search, web_fetch, …) are
+    excluded: legitimate multi-step research should not trip "探索过久" hard blocks.
     """
     if not tool_calls:
         return False
@@ -133,27 +133,13 @@ def _batch_has_act_or_progress(tool_calls: list[dict]) -> bool:
     return False
 
 
-_WARNING_MSG = (
-    "[LOOP DETECTED] You are repeating the same tool calls. Change strategy or summarize "
-    "with results collected so far; do not repeat identical calls."
-)
+_WARNING_MSG = "[LOOP DETECTED] You are repeating the same tool calls. Change strategy or summarize with results collected so far; do not repeat identical calls."
 
-_BLOCK_MSG = (
-    "[重复调用·已拦截] 同一工具调用已达安全上限，本次未执行。"
-    "请根据已有工具结果换做法，不要重复相同调用。"
-)
+_BLOCK_MSG = "[重复调用·已拦截] 同一工具调用已达安全上限，本次未执行。请根据已有工具结果换做法，不要重复相同调用。"
 
-_EXPLORE_WARNING_MSG = (
-    "[重复探索] 同一 read/rg/search 目标调用过多。请停止重复探索；"
-    "若用户要求改代码/修 bug/加功能，立即 replace/write（勿再 read 同一文件近邻偏移）；"
-    "若仅调研/解释则收口总结。近邻 offset（同 bucket）视为重复。"
-)
+_EXPLORE_WARNING_MSG = "[重复探索] 同一 read/rg/search 目标调用过多。请停止重复探索；若用户要求改代码/修 bug/加功能，立即 replace/write（勿再 read 同一文件近邻偏移）；若仅调研/解释则收口总结。近邻 offset（同 bucket）视为重复。"
 
-_EXPLORE_BLOCK_MSG = (
-    "[重复探索·已拦截] 同一探索工具目标已达上限，本次调用未执行。"
-    "请根据已有工具结果换策略：replace/write 落地修改，或换文件/换 pattern；"
-    "不要再次 read/rg/list_dir 同一目标。"
-)
+_EXPLORE_BLOCK_MSG = "[重复探索·已拦截] 同一探索工具目标已达上限，本次调用未执行。请根据已有工具结果换策略：replace/write 落地修改，或换文件/换 pattern；不要再次 read/rg/list_dir 同一目标。"
 
 # Consecutive read/list_dir/terminal steps (± mind_map) with no write/act — warn only.
 _EXPLORE_STREAK_WARN = 8
@@ -170,15 +156,8 @@ _ACT_OR_PROGRESS_TOOLS = frozenset(
         "panel_set",
     }
 )
-_EXPLORE_STREAK_WARN_MSG = (
-    "[探索过久] 本轮已连续多次只读探索且未落地修改。"
-    "若用户要求改代码/修 UI/修 bug：立即 replace/write 或 ask_clarification；"
-    "禁止再为记账调用 mind_map。若仅调研则收口总结。"
-)
-_EXPLORE_STREAK_BLOCK_MSG = (
-    "[探索过久·已拦截] 连续探索未改代码已达上限，本次探索工具未执行。"
-    "请立即 replace/write，或 ask_clarification，或根据已有结果总结。"
-)
+_EXPLORE_STREAK_WARN_MSG = "[探索过久] 本轮已连续多次只读探索且未落地修改。若用户要求改代码/修 UI/修 bug：立即 replace/write 或 ask_clarification；禁止再为记账调用 mind_map。若仅调研则收口总结。"
+_EXPLORE_STREAK_BLOCK_MSG = "[探索过久·已拦截] 连续探索未改代码已达上限，本次探索工具未执行。请立即 replace/write，或 ask_clarification，或根据已有结果总结。"
 
 # Search / discovery — never hard-blocked by explore streak or explore-loop limits.
 _SEARCH_DISCOVERY_TOOLS = frozenset(
@@ -242,15 +221,22 @@ _ERROR_FAIL_MARKERS = (
 )
 _ERROR_WARN_THRESHOLD = 2
 _ERROR_HARD_THRESHOLD = 3
-_ERROR_BLOCK_MSG = (
-    "[重复失败·已拦截] 同一路径的读/列目录已连续失败，本次未执行。"
-    "请换 search_code_index、核对工作区路径，或根据已有错误信息换策略。"
-)
+_ERROR_BLOCK_MSG = "[重复失败·已拦截] 同一路径的读/列目录已连续失败，本次未执行。请换 search_code_index、核对工作区路径，或根据已有错误信息换策略。"
 
-_SAFE_GIT_SUBCOMMANDS = frozenset({
-    "status", "log", "diff", "show", "branch", "remote",
-    "rev-parse", "check-ignore", "describe", "reflog",
-})
+_SAFE_GIT_SUBCOMMANDS = frozenset(
+    {
+        "status",
+        "log",
+        "diff",
+        "show",
+        "branch",
+        "remote",
+        "rev-parse",
+        "check-ignore",
+        "describe",
+        "reflog",
+    }
+)
 
 
 def _is_safe_terminal_command(args: dict) -> bool:

@@ -13,7 +13,6 @@ from typing import Any
 from evoflow.eval.scenarios._harness import Assertion, check
 from evoflow.proactive.prompt import DUTY_CONTRACT_MARKER
 
-
 EVAL_SCOPE = "config_and_official_outcome"
 
 
@@ -104,8 +103,8 @@ def snapshot_agent_runtime(agent_code: str) -> dict[str, Any]:
 
 
 def build_duty_brief_text(agent_code: str) -> str:
-    from evoflow.proactive.repositories import ProactiveRepository
     from evoflow.proactive.prompt import build_system_prompt
+    from evoflow.proactive.repositories import ProactiveRepository
 
     role = ProactiveRepository.get_role(str(agent_code or "").strip())
     if role is None:

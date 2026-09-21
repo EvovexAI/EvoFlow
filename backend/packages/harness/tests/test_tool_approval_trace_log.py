@@ -44,9 +44,7 @@ def test_file_logging_disabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert not (tmp_path / "tool-approval-trace.log").exists()
 
 
-def test_log_tool_approval_trace_no_duplicate_tool_call_id_kwarg(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_log_tool_approval_trace_no_duplicate_tool_call_id_kwarg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: named tool_call_id + fields['tool_call_id'] must not raise TypeError."""
     log_file = tmp_path / "tool-approval-trace.log"
     monkeypatch.setenv("EVOFLOW_TOOL_APPROVAL_TRACE_LOG_FILE", str(log_file))

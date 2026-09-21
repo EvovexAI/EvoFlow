@@ -19,7 +19,7 @@ def _fmt_ops(ops: list[dict[str, Any]] | None) -> str:
         eid = str(raw.get("id") or "")
         title = str(raw.get("title") or raw.get("body") or "")[:40]
         parts.append(f"{op}:{eid or title or '?'}")
-    extra = f"+{len(ops)-4}" if len(ops) > 4 else ""
+    extra = f"+{len(ops) - 4}" if len(ops) > 4 else ""
     return ",".join(parts) + extra
 
 

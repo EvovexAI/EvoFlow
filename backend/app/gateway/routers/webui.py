@@ -31,7 +31,6 @@ from evoflow.webui.auth import (
     change_username,
     gateway_serves_evopanel_webui,
     generate_jwt,
-    generate_password,
     get_lan_access_urls,
     get_or_create_admin_user,
     get_webui_access_port,
@@ -44,8 +43,6 @@ from evoflow.webui.auth import (
     reset_password,
     set_webui_enabled,
     set_webui_http_port,
-    verify_admin_credentials,
-    verify_password,
     verify_user_credentials,
 )
 
@@ -108,9 +105,7 @@ class EnableResponse(BaseModel):
     """Response for ``POST /api/webui/enable``."""
 
     enabled: bool = Field(..., description="Whether WebUI is now enabled")
-    initial_password: str | None = Field(
-        default=None, description="One-time initial password (only on first enable)"
-    )
+    initial_password: str | None = Field(default=None, description="One-time initial password (only on first enable)")
     admin_username: str = Field(..., description="The admin username")
     access_urls: list[str] = Field(default_factory=list, description="LAN access URLs")
 
@@ -548,4 +543,3 @@ async def oidc_callback(
         logger.warning("OIDC callback failed", exc_info=True)
         q = urllib.parse.urlencode({"error": str(exc) or "oidc_failed"})
         return RedirectResponse(url=f"{base}{fail_path}?{q}", status_code=302)
-

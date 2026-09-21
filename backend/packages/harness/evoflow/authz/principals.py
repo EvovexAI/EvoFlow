@@ -102,29 +102,34 @@ def resolve_principal_by_identity(
 
 def list_principals(*, org_id: str = DEFAULT_ORG_ID, include_deactivated: bool = False) -> list[Principal]:
     if include_deactivated:
-        rows = get_db().execute(
-            "SELECT * FROM evoflow_principals WHERE org_id = ? ORDER BY display_name ASC, principal_id ASC",
-            (org_id,),
-        ).fetchall()
+        rows = (
+            get_db()
+            .execute(
+                "SELECT * FROM evoflow_principals WHERE org_id = ? ORDER BY display_name ASC, principal_id ASC",
+                (org_id,),
+            )
+            .fetchall()
+        )
     else:
-        rows = get_db().execute(
-            """
+        rows = (
+            get_db()
+            .execute(
+                """
             SELECT * FROM evoflow_principals
             WHERE org_id = ? AND status = 'active'
             ORDER BY display_name ASC, principal_id ASC
             """,
-            (org_id,),
-        ).fetchall()
+                (org_id,),
+            )
+            .fetchall()
+        )
     return [principal_from_row(r) for r in rows]
 
 
 def is_active_internal(principal: Principal | None) -> bool:
     if not principal:
         return False
-    return (
-        str(principal.get("status") or "") == "active"
-        and str(principal.get("principal_type") or "") == "internal"
-    )
+    return str(principal.get("status") or "") == "active" and str(principal.get("principal_type") or "") == "internal"
 
 
 def create_principal(

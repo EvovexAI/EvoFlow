@@ -29,18 +29,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
 from pathlib import Path
 
 from evoflow.config.model_config import ModelConfig
-from evoflow.knowledge.embedding.hf_env import ensure_hf_hub_env
 from evoflow.knowledge.embedding.base import (
     DEFAULT_LOCAL_DEVICE,
     DEFAULT_LOCAL_MODEL,
     EmbeddingError,
     EmbeddingProvider,
 )
+from evoflow.knowledge.embedding.hf_env import ensure_hf_hub_env
 
 logger = logging.getLogger(__name__)
 
@@ -52,16 +51,9 @@ ensure_hf_hub_env()
 # A failed load is deliberately not cached so the next call retries.
 _model_cache: dict[str, object] = {}
 
-_MISSING_ST_HINT = (
-    "本地向量运行时未包含在当前安装包中（默认使用云端 embedding）。"
-    "请在「设置 → 模型」选择云端向量模型；开发环境可 uv sync 后设 "
-    "EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1 重新打包。"
-)
+_MISSING_ST_HINT = "本地向量运行时未包含在当前安装包中（默认使用云端 embedding）。请在「设置 → 模型」选择云端向量模型；开发环境可 uv sync 后设 EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1 重新打包。"
 
-_LEAN_LOCAL_UNAVAILABLE_REASON = (
-    "本地向量模型不可用：当前桌面版未捆绑 sentence-transformers / torch。"
-    "请改用云端向量模型（设置 → 模型）。"
-)
+_LEAN_LOCAL_UNAVAILABLE_REASON = "本地向量模型不可用：当前桌面版未捆绑 sentence-transformers / torch。请改用云端向量模型（设置 → 模型）。"
 
 
 def probe_local_embedding_deps() -> str | None:
@@ -91,11 +83,7 @@ def probe_local_embedding_deps() -> str | None:
     except Exception as exc:  # noqa: BLE001 — any import failure ⇒ unavailable
         if getattr(sys, "frozen", False):
             return _MISSING_ST_HINT
-        return (
-            f"Local embedding deps failed to import ({type(exc).__name__}: {exc}). "
-            "Stop the gateway, then reinstall torch/sentence-transformers "
-            "(cd backend && uv sync)."
-        )
+        return f"Local embedding deps failed to import ({type(exc).__name__}: {exc}). Stop the gateway, then reinstall torch/sentence-transformers (cd backend && uv sync)."
     return None
 
 
@@ -116,9 +104,9 @@ def reconcile_local_embedding_models_for_runtime() -> dict[str, int]:
     if deps_err is None:
         return stats
     try:
-        from evoflow.persistence import config_repositories as cfg_repo
         from evoflow.knowledge.owned import settings as owned_settings
         from evoflow.knowledge.owned.embedding_bind import SEED_EMBEDDING_NAME
+        from evoflow.persistence import config_repositories as cfg_repo
 
         for row in cfg_repo.list_models() or []:
             if not isinstance(row, dict):
@@ -225,18 +213,13 @@ async def _load_model(model_id: str, device: str) -> object:
         try:
             from sentence_transformers import SentenceTransformer  # noqa: F401
         except ImportError as exc:  # pragma: no cover - packaging gap
-            raise EmbeddingError(
-                f"{_MISSING_ST_HINT} ({type(exc).__name__}: {exc})"
-            ) from exc
+            raise EmbeddingError(f"{_MISSING_ST_HINT} ({type(exc).__name__}: {exc})") from exc
         try:
             return _build_sentence_transformer(model_id, device)
         except Exception as exc:
             endpoint = ensure_hf_hub_env()
             raise EmbeddingError(
-                f"Failed to load local embedding model '{model_id}': {exc}. "
-                f"Hub endpoint={endpoint}. "
-                "If downloads fail, set HF_ENDPOINT=https://hf-mirror.com, "
-                "pre-download the model, or point model config to a local folder."
+                f"Failed to load local embedding model '{model_id}': {exc}. Hub endpoint={endpoint}. If downloads fail, set HF_ENDPOINT=https://hf-mirror.com, pre-download the model, or point model config to a local folder."
             ) from exc
 
     # Build off the event loop so imports / downloads don't block it.
@@ -260,19 +243,14 @@ def _load_model_sync(model_id: str, device: str) -> object:
     try:
         from sentence_transformers import SentenceTransformer  # noqa: F401
     except ImportError as exc:  # pragma: no cover - packaging gap
-        raise EmbeddingError(
-            f"{_MISSING_ST_HINT} ({type(exc).__name__}: {exc})"
-        ) from exc
+        raise EmbeddingError(f"{_MISSING_ST_HINT} ({type(exc).__name__}: {exc})") from exc
 
     logger.info("Loading local embedding model '%s' on %s (sync)...", model_id, device)
     try:
         model = _build_sentence_transformer(model_id, device)
     except Exception as exc:
         endpoint = ensure_hf_hub_env()
-        raise EmbeddingError(
-            f"Failed to load local embedding model '{model_id}': {exc}. "
-            f"Hub endpoint={endpoint}."
-        ) from exc
+        raise EmbeddingError(f"Failed to load local embedding model '{model_id}': {exc}. Hub endpoint={endpoint}.") from exc
     _model_cache[model_id] = model
     return model
 
@@ -306,9 +284,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         except EmbeddingError:
             raise
         except Exception as exc:
-            raise EmbeddingError(
-                f"Local embedding inference failed for '{model_id}': {exc}"
-            ) from exc
+            raise EmbeddingError(f"Local embedding inference failed for '{model_id}': {exc}") from exc
 
     def embed_batch_sync(self, texts: list[str]) -> list[list[float]]:
         """Synchronous batch embedding — bypasses ``asyncio.to_thread``.
@@ -378,10 +354,7 @@ def ensure_default_local_embedding_model() -> bool:
             "on",
         }
         if not seed_opt_in:
-            logger.info(
-                "Skip seeding local embedding model "
-                "(set EVOFLOW_SEED_LOCAL_EMBEDDING=1 to enable; cloud embedding is default)"
-            )
+            logger.info("Skip seeding local embedding model (set EVOFLOW_SEED_LOCAL_EMBEDDING=1 to enable; cloud embedding is default)")
             return False
 
         deps_err = probe_local_embedding_deps()
@@ -403,12 +376,7 @@ def ensure_default_local_embedding_model() -> bool:
                 "name": "bge-small-zh",
                 "vendor": "local",
                 "display_name": "BGE Small 中文向量模型 (本地)",
-                "description": (
-                    "本地语义向量模型 BAAI/bge-small-zh-v1.5 (512维, ~95MB)，"
-                    "用于自有知识库默认嵌入与代码索引语义检索。"
-                    "可在「设置 → 模型 → 向量模型」中更换，并设为知识库默认。"
-                    "首次使用自动从镜像下载。"
-                ),
+                "description": ("本地语义向量模型 BAAI/bge-small-zh-v1.5 (512维, ~95MB)，用于自有知识库默认嵌入与代码索引语义检索。可在「设置 → 模型 → 向量模型」中更换，并设为知识库默认。首次使用自动从镜像下载。"),
                 "model": DEFAULT_LOCAL_MODEL,
             }
         )

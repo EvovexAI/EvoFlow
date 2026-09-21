@@ -116,11 +116,7 @@ def emit_prefetch_tool_result(
     new_string: str | None = None,
     slim_preview: bool = False,
 ) -> None:
-    preview_out = (
-        ""
-        if slim_preview and ok
-        else str(output_preview or "")[: (_WORKER_STREAM_PREVIEW_MAX if slim_preview else 2000)]
-    )
+    preview_out = "" if slim_preview and ok else str(output_preview or "")[: (_WORKER_STREAM_PREVIEW_MAX if slim_preview else 2000)]
     payload: dict[str, Any] = {
         "type": "prefetch_tool_result",
         "tool_call_id": tool_call_id,
@@ -186,11 +182,7 @@ def emit_worker_file_completed(
     blow up SSE frames and freeze the panel. UI diff uses ``old_string`` / ``new_string``
     / ``content``; full snapshots remain in ``<worker_file_results>`` JSON when needed.
     """
-    preview_out = (
-        ""
-        if ok
-        else str(output_preview or "")[:_WORKER_STREAM_PREVIEW_MAX]
-    )
+    preview_out = "" if ok else str(output_preview or "")[:_WORKER_STREAM_PREVIEW_MAX]
     payload: dict[str, Any] = {
         "type": "worker_file_completed",
         "parent_tool_call_id": parent_tool_call_id,

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from evoflow.collab.schema_enforcement import (
     enforce_schema_on_outcome,
     resolve_schema_policy,

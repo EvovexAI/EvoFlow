@@ -9,15 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from evoflow.collab.task_noise import (
     classify_noise_cleanup_reason,
     cleanup_noise_tasks,
-    is_duty_patrol_task,
     is_task_center_noise,
 )
 
 
 def test_is_task_center_noise_receipt_and_meeting():
-    assert is_task_center_noise(
-        {"name": "【下游回执】系统自动通知：你派发/编排的下游已结案。", "source": "role"}
-    )
+    assert is_task_center_noise({"name": "【下游回执】系统自动通知：你派发/编排的下游已结案。", "source": "role"})
     assert is_task_center_noise(
         {
             "name": "【圆桌会议 · 口头汇报】",
@@ -25,21 +22,13 @@ def test_is_task_center_noise_receipt_and_meeting():
             "source": "role",
         }
     )
-    assert is_task_center_noise(
-        {"name": "汇报每个人工作进度", "woken_by": "meeting_orchestrator"}
-    )
-    assert is_task_center_noise(
-        {"name": "进度汇报 · 前端 · 2026-08-14", "source_channel": "status_check"}
-    )
-    assert not is_task_center_noise(
-        {"name": "开发财务报销后端", "source": "role", "raised_by": "pm-lead"}
-    )
+    assert is_task_center_noise({"name": "汇报每个人工作进度", "woken_by": "meeting_orchestrator"})
+    assert is_task_center_noise({"name": "进度汇报 · 前端 · 2026-08-14", "source_channel": "status_check"})
+    assert not is_task_center_noise({"name": "开发财务报销后端", "source": "role", "raised_by": "pm-lead"})
 
 
 def test_is_task_center_noise_hides_duty_patrol():
-    assert is_task_center_noise(
-        {"name": "【巡检】project-architect 2026-08-28 值班", "source": "chat"}
-    )
+    assert is_task_center_noise({"name": "【巡检】project-architect 2026-08-28 值班", "source": "chat"})
     assert is_task_center_noise(
         {
             "name": "【值班】项目·测试 2026-08-28 巡检",
@@ -47,9 +36,7 @@ def test_is_task_center_noise_hides_duty_patrol():
             "source_channel": "proactive_patrol",
         }
     )
-    assert not is_task_center_noise(
-        {"name": "修复 EvoFlow 标题不生效", "source": "role", "raised_by": "xiaomi"}
-    )
+    assert not is_task_center_noise({"name": "修复 EvoFlow 标题不生效", "source": "role", "raised_by": "xiaomi"})
     assert not is_task_center_noise(
         {
             "name": "【技术巡检】sqlite-vec 向量检索模块健康度复核",
@@ -60,18 +47,8 @@ def test_is_task_center_noise_hides_duty_patrol():
 
 
 def test_classify_duty_patrol_cleanup():
-    assert (
-        classify_noise_cleanup_reason(
-            {"name": "【巡检】代码助手 2026-08-28 值班", "status": "pending"}
-        )
-        == "duty_patrol"
-    )
-    assert (
-        classify_noise_cleanup_reason(
-            {"name": "开发财务报销后端", "status": "pending", "source": "role"}
-        )
-        is None
-    )
+    assert classify_noise_cleanup_reason({"name": "【巡检】代码助手 2026-08-28 值班", "status": "pending"}) == "duty_patrol"
+    assert classify_noise_cleanup_reason({"name": "开发财务报销后端", "status": "pending", "source": "role"}) is None
 
 
 def test_classify_eval_and_stuck_moved_to_reclaim():

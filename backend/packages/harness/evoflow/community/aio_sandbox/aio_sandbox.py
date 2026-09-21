@@ -71,10 +71,7 @@ def _validate_writable_container_path(path: str) -> None:
         if normalised == prefix or normalised.startswith(f"{prefix}/"):
             return
 
-    raise PermissionError(
-        f"Write access denied: only paths under {VIRTUAL_PATH_PREFIX}/workspace, "
-        f"{VIRTUAL_PATH_PREFIX}/uploads, or {VIRTUAL_PATH_PREFIX}/outputs are writable"
-    )
+    raise PermissionError(f"Write access denied: only paths under {VIRTUAL_PATH_PREFIX}/workspace, {VIRTUAL_PATH_PREFIX}/uploads, or {VIRTUAL_PATH_PREFIX}/outputs are writable")
 
 
 class AioSandbox(Sandbox):

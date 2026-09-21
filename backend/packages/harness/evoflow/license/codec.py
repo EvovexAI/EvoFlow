@@ -49,9 +49,7 @@ _FLAG_HAS_MID = 0x01
 _GROUP_SIZE = 5
 _MAC_LEN = 10
 
-_LEGACY_CODE_RE = re.compile(
-    rf"^{LEGACY_PREFIX}\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$"
-)
+_LEGACY_CODE_RE = re.compile(rf"^{LEGACY_PREFIX}\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$")
 
 
 class LicenseCodecError(ValueError):
@@ -275,11 +273,7 @@ def _finalize_claims(
     now: int | None,
     allow_expired: bool,
 ) -> LicenseClaims:
-    if (
-        ENFORCE_MACHINE_BIND
-        and expected_machine_id is not None
-        and not claims.floating
-    ):
+    if ENFORCE_MACHINE_BIND and expected_machine_id is not None and not claims.floating:
         want = normalize_machine_id(expected_machine_id)
         if want != claims.machine_id:
             raise LicenseCodecError("machine_mismatch", "激活码与本机机器码不匹配")

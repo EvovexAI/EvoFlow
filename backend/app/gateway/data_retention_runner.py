@@ -13,9 +13,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_INTERVAL_SECONDS = 24 * 3600
 # WAL checkpoint cadence: run more frequently than full retention (hourly)
 # to prevent WAL files from growing unbounded between retention passes.
-_WAL_CHECKPOINT_INTERVAL_SECONDS = int(
-    os.getenv("EVOFLOW_WAL_CHECKPOINT_INTERVAL_S", str(3600)) or "3600"
-)
+_WAL_CHECKPOINT_INTERVAL_SECONDS = int(os.getenv("EVOFLOW_WAL_CHECKPOINT_INTERVAL_S", str(3600)) or "3600")
 # Default: wait 15m after startup before the first full retention+VACUUM so the
 # first chat is not blocked by exclusive locks on large SQLite files.
 _DEFAULT_STARTUP_DELAY_SECONDS = 900
@@ -141,8 +139,7 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
     wal_interval = max(300, _WAL_CHECKPOINT_INTERVAL_SECONDS)
     startup_delay = _effective_startup_delay_seconds()
     logger.info(
-        "Data retention scheduler started (startup_delay=%ss, retention_interval=%sh, "
-        "wal_checkpoint_interval=%ss; disable with EVOFLOW_DATA_RETENTION=0)",
+        "Data retention scheduler started (startup_delay=%ss, retention_interval=%sh, wal_checkpoint_interval=%ss; disable with EVOFLOW_DATA_RETENTION=0)",
         startup_delay,
         interval // 3600,
         wal_interval,
@@ -168,9 +165,7 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
             last_wal_checkpoint = now
 
         # --- Full data retention pass (infrequent; delayed after startup) ---
-        retention_due = now >= retention_due_at and (
-            last_retention <= 0.0 or (now - last_retention) >= interval
-        )
+        retention_due = now >= retention_due_at and (last_retention <= 0.0 or (now - last_retention) >= interval)
         if retention_due:
             try:
                 summary = await asyncio.to_thread(run_retention_once)

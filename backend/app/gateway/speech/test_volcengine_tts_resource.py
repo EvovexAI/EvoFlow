@@ -13,10 +13,7 @@ def test_resolve_tts_resource_id_uranus_2_0():
 
 
 def test_resolve_tts_resource_id_icl_uranus_2_0():
-    assert (
-        _resolve_tts_resource_id("ICL_uranus_zh_female_aojiaonvyou_tob", "seed-tts-1.0")
-        == "seed-tts-2.0"
-    )
+    assert _resolve_tts_resource_id("ICL_uranus_zh_female_aojiaonvyou_tob", "seed-tts-1.0") == "seed-tts-2.0"
 
 
 def test_resolve_tts_resource_id_icl_legacy():

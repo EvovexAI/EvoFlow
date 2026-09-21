@@ -49,6 +49,7 @@ def _require_session_access(request: Request | None, session_key: str) -> str:
     require_session_visible(request, key)
     return key
 
+
 class SessionRowResponse(BaseModel):
     sessionKey: str
     key: str
@@ -346,51 +347,51 @@ async def set_session_scenario(request: Request, session_key: str, body: SetSess
 
 @router.get("/workspace-groups", response_model=WorkspaceGroupsListResponse, summary="Workspace folders with session counts")
 async def list_workspace_groups(request: Request) -> WorkspaceGroupsListResponse:
-  summaries = await run_db(sess_repo.summarize_sessions_by_workspace_for_ui)
-  registered = await run_db(ws_repo.list_global_workspace_paths)
-  try:
-      from evoflow.authz.http_guard import resolve_authz_from_request
-      from evoflow.authz.workspace_visibility import filter_visible_workspace_paths
-      from evoflow.persistence.session_repositories import (
-          WORKSPACE_GROUP_PROACTIVE,
-          WORKSPACE_GROUP_UNBOUND,
-          WORKSPACE_GROUP_VIRTUAL,
-      )
+    summaries = await run_db(sess_repo.summarize_sessions_by_workspace_for_ui)
+    registered = await run_db(ws_repo.list_global_workspace_paths)
+    try:
+        from evoflow.authz.http_guard import resolve_authz_from_request
+        from evoflow.authz.workspace_visibility import filter_visible_workspace_paths
+        from evoflow.persistence.session_repositories import (
+            WORKSPACE_GROUP_PROACTIVE,
+            WORKSPACE_GROUP_UNBOUND,
+            WORKSPACE_GROUP_VIRTUAL,
+        )
 
-      authz = resolve_authz_from_request(request)
-      registered = filter_visible_workspace_paths(
-          registered,
-          authz.get("principal"),
-          is_admin=bool(authz.get("is_admin")),
-          personal_scope_id=authz.get("personal_scope"),
-          org_scope_id=authz.get("org_scope"),
-      )
-      kept: list[dict] = []
-      for s in summaries or []:
-          wk = str((s or {}).get("workspaceKey") or "")
-          if wk in {
-              WORKSPACE_GROUP_UNBOUND,
-              WORKSPACE_GROUP_VIRTUAL,
-              WORKSPACE_GROUP_PROACTIVE,
-          }:
-              kept.append(s)
-              continue
-          root = str((s or {}).get("localWorkspaceRoot") or "").strip()
-          if not root or filter_visible_workspace_paths(
-              [root],
-              authz.get("principal"),
-              is_admin=bool(authz.get("is_admin")),
-              personal_scope_id=authz.get("personal_scope"),
-              org_scope_id=authz.get("org_scope"),
-          ):
-              kept.append(s)
-      summaries = kept
-  except Exception:
-      pass
-  groups = sess_repo.merge_workspace_group_summaries_for_ui(summaries, registered)
-  return WorkspaceGroupsListResponse(
-      groups=[WorkspaceGroupSummaryResponse(**g) for g in groups],
-  )
+        authz = resolve_authz_from_request(request)
+        registered = filter_visible_workspace_paths(
+            registered,
+            authz.get("principal"),
+            is_admin=bool(authz.get("is_admin")),
+            personal_scope_id=authz.get("personal_scope"),
+            org_scope_id=authz.get("org_scope"),
+        )
+        kept: list[dict] = []
+        for s in summaries or []:
+            wk = str((s or {}).get("workspaceKey") or "")
+            if wk in {
+                WORKSPACE_GROUP_UNBOUND,
+                WORKSPACE_GROUP_VIRTUAL,
+                WORKSPACE_GROUP_PROACTIVE,
+            }:
+                kept.append(s)
+                continue
+            root = str((s or {}).get("localWorkspaceRoot") or "").strip()
+            if not root or filter_visible_workspace_paths(
+                [root],
+                authz.get("principal"),
+                is_admin=bool(authz.get("is_admin")),
+                personal_scope_id=authz.get("personal_scope"),
+                org_scope_id=authz.get("org_scope"),
+            ):
+                kept.append(s)
+        summaries = kept
+    except Exception:
+        pass
+    groups = sess_repo.merge_workspace_group_summaries_for_ui(summaries, registered)
+    return WorkspaceGroupsListResponse(
+        groups=[WorkspaceGroupSummaryResponse(**g) for g in groups],
+    )
 
 
 def _session_acl_kwargs(request: Request | None) -> dict[str, Any]:
@@ -602,8 +603,6 @@ async def list_messages_by_thread(
             oldestSeq=None,
         )
     return MessagesListResponse(sessionKey=sk or "", messages=[], messageCount=0)
-
-
 
 
 class ToolResultFullResponse(BaseModel):
@@ -832,7 +831,8 @@ async def get_knowledge_map_by_thread(thread_id: str) -> KnowledgeMapResponse:
     response_model=KnowledgeMapNodePatchResponse,
     summary="User patch mind map node status (evopanel)",
 )
-async def patch_session_knowledge_map_node_status(request: Request, 
+async def patch_session_knowledge_map_node_status(
+    request: Request,
     session_key: str,
     external_id: str,
     body: KnowledgeMapNodeStatusPatchRequest,
@@ -1096,6 +1096,7 @@ async def get_session_runtime_status(request: Request, session_key: str) -> dict
     """Backward-compatible alias for ``GET .../execution/state`` (SQLite read model)."""
     key = _require_session_access(request, session_key)
     from evoflow.session_execution import build_session_execution_state
+
     try:
         return await build_session_execution_state(key)
     except ValueError as exc:
@@ -1129,10 +1130,7 @@ def _validate_client_http_append_role(role: str) -> None:
     if r not in _CLIENT_HTTP_APPEND_ROLES:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "client may only append user messages; "
-                "assistant/tool transcript is written by TranscriptMiddleware"
-            ),
+            detail=("client may only append user messages; assistant/tool transcript is written by TranscriptMiddleware"),
         )
 
 
@@ -1310,8 +1308,7 @@ async def get_pending_inject_status(request: Request, session_key: str) -> dict[
         last_consumed = {
             "messageId": last_consumed.get("messageId") or last_consumed.get("message_id"),
             "consumedAt": last_consumed.get("consumedAt") or last_consumed.get("consumed_at"),
-            "consumedByRunId": last_consumed.get("consumedByRunId")
-            or last_consumed.get("consumed_by_run_id"),
+            "consumedByRunId": last_consumed.get("consumedByRunId") or last_consumed.get("consumed_by_run_id"),
         }
 
     items = [
@@ -1455,9 +1452,7 @@ async def prime_session_hydration(request: Request, session_key: str) -> dict[st
 
 
 @router.post("/{session_key:path}/bind-thread", summary="Bind task/collab LangGraph thread to session")
-async def bind_session_thread(
-    request: Request, session_key: str, body: BindThreadBody
-) -> dict[str, Any]:
+async def bind_session_thread(request: Request, session_key: str, body: BindThreadBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
     if sess_repo.is_session_deleted(key):
         raise HTTPException(status_code=404, detail="session not found")
@@ -1578,9 +1573,7 @@ async def truncate_chat_session(request: Request, session_key: str, body: Trunca
     "/{session_key:path}/fork",
     summary="Fork session: copy transcript into a new session (parent unchanged)",
 )
-async def fork_chat_session(
-    request: Request, session_key: str, body: ForkSessionBody | None = None
-) -> dict[str, Any]:
+async def fork_chat_session(request: Request, session_key: str, body: ForkSessionBody | None = None) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
     payload = body or ForkSessionBody()
     try:
@@ -1740,9 +1733,7 @@ async def get_chat_session(request: Request, session_key: str) -> SessionRowResp
 
 
 @router.patch("/{session_key:path}/context", summary="Update session context fields (memory_enabled, etc.)")
-async def patch_session_context(
-    request: Request, session_key: str, body: UpdateSessionContextBody
-) -> dict[str, Any]:
+async def patch_session_context(request: Request, session_key: str, body: UpdateSessionContextBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
     if sess_repo.is_session_deleted(key):
         raise HTTPException(status_code=404, detail="session not found")
@@ -1763,13 +1754,7 @@ async def patch_session_context(
     try:
         new_ctx = row.get("context") if isinstance(row, dict) and isinstance(row.get("context"), dict) else {}
         ctx_patch = body.context if isinstance(body.context, dict) else {}
-        new_agent = str(
-            new_ctx.get("agent_id")
-            or (row.get("agentId") if isinstance(row, dict) else None)
-            or ctx_patch.get("agent_id")
-            or ctx_patch.get("agent_name")
-            or ""
-        ).strip()
+        new_agent = str(new_ctx.get("agent_id") or (row.get("agentId") if isinstance(row, dict) else None) or ctx_patch.get("agent_id") or ctx_patch.get("agent_name") or "").strip()
         agent_touched = "agent_id" in ctx_patch or "agent_name" in ctx_patch
         if agent_touched and new_agent:
             from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache

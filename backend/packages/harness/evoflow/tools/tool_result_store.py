@@ -99,6 +99,7 @@ def _is_lazy_empty_ui_tool(name: str) -> bool:
     n = _normalize_tool_name(name)
     return n in _UI_ALWAYS_OFFLOAD_EMPTY_NAMES or n in _UI_RETIRED_BROWSER_TOOL_NAMES
 
+
 _READ_PREVIEW_MAX_CHARS = 480
 
 

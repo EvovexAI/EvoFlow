@@ -8,9 +8,7 @@ structured data blocks, and that the legacy _build_dependency_context
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from evoflow.tools.builtins.supervisor.execution import (
     _build_subtask_enriched_prompt,

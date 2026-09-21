@@ -172,9 +172,7 @@ def test_dispatch_item_is_idempotent_for_same_agent(items_home: Path, monkeypatc
         linked = [str(x) for x in (item.get("linked_task_ids") or []) if str(x).strip()]
         assert linked == [tid1]
 
-        forced = await items_svc.dispatch_item(
-            item_id, agent_code="code-agent", wake_now=False, force=True
-        )
+        forced = await items_svc.dispatch_item(item_id, agent_code="code-agent", wake_now=False, force=True)
         assert forced.get("already_dispatched") is False
         assert forced["task_id"] != tid1
         linked2 = items_svc.get_item(item_id)["item"]["linked_task_ids"]
@@ -183,9 +181,7 @@ def test_dispatch_item_is_idempotent_for_same_agent(items_home: Path, monkeypatc
     asyncio.run(_run())
 
 
-def test_dispatch_item_busy_queues_without_second_task(
-    items_home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_dispatch_item_busy_queues_without_second_task(items_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When wake returns queued_behind_busy, do not mint another Task."""
     import asyncio
     from unittest.mock import AsyncMock
@@ -269,9 +265,7 @@ def test_task_complete_syncs_linked_item(items_home: Path, monkeypatch: pytest.M
     assert item["status"] == "waiting"
     assert (exec_out.get("item_sync") or {}).get("status") == "waiting"
 
-    done_out = tasks_admin.set_task_state(
-        tid, "completed", summary="闭环完成，事项应自动 done"
-    )
+    done_out = tasks_admin.set_task_state(tid, "completed", summary="闭环完成，事项应自动 done")
     assert done_out.get("status") == "completed"
     item = items_svc.get_item(item_id)["item"]
     assert item["status"] == "done"

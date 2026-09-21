@@ -150,10 +150,7 @@ async def llm_semantic_chunk(text: str, *, file_name: str = "") -> tuple[str, st
     if len(body) > len(clipped):
         clipped += "\n\n[注：文档后续部分将由结构分块补充处理]"
 
-    system = (
-        "你是知识库文档分析助手。将文档按语义分成若干可读段落，并生成摘要与索引。"
-        "只输出一个 JSON 对象，不要 Markdown 说明。"
-    )
+    system = "你是知识库文档分析助手。将文档按语义分成若干可读段落，并生成摘要与索引。只输出一个 JSON 对象，不要 Markdown 说明。"
     user = f"""文档名：{file_name or "未命名"}
 
 请输出 JSON：

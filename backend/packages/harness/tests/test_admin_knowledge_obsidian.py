@@ -8,9 +8,9 @@ import pytest
 
 from evoflow.admin import knowledge as knowledge_admin
 from evoflow.admin.errors import ValidationError
+from evoflow.knowledge.vault import store as vault_store
 from evoflow.knowledge.vault.builtin import BUILTIN_USER_GUIDE_VAULT_ID
 from evoflow.knowledge.vault.models import AccessMode, KnowledgeVaultConfig, ProviderType
-from evoflow.knowledge.vault import store as vault_store
 from evoflow.persistence.db import reset_db_for_tests
 
 

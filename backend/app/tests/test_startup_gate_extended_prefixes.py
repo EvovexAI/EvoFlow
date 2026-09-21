@@ -42,9 +42,7 @@ def test_deferred_prefixes_are_gated():
 
 def test_core_shared_prefixes_are_not_gated():
     for prefix in _CORE_SHARED_PREFIXES:
-        assert not _needs_extended_routers(f"{prefix}/probe"), (
-            f"{prefix} is served by core routers and must not be gated"
-        )
+        assert not _needs_extended_routers(f"{prefix}/probe"), f"{prefix} is served by core routers and must not be gated"
 
 
 def test_settings_panel_platform_action_is_gated():

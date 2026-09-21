@@ -3,6 +3,9 @@
 Run: python -m evoflow.capability._selftest
 """
 
+from pydantic import BaseModel as BM
+from pydantic import Field
+
 from evoflow.capability import (
     CallerCtx,
     CapabilityMeta,
@@ -15,7 +18,6 @@ from evoflow.capability import (
     default_decision,
     get_registry,
 )
-from pydantic import BaseModel as BM, Field
 
 
 def test_matrix() -> None:
@@ -132,7 +134,11 @@ def test_stream_and_errors() -> None:
     def rm2(ctx: CallerCtx, args: StreamArgs) -> dict:
         return {"deleted": args.n}
 
-    r = reg.dispatch("rm2", {}, CallerCtx(), )
+    r = reg.dispatch(
+        "rm2",
+        {},
+        CallerCtx(),
+    )
     # needs confirmation first (destructive on desktop, unconfirmed)
     assert r == {"needs_confirmation": True}, r
     r = reg.dispatch("rm2", {"confirm": True}, CallerCtx())

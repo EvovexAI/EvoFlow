@@ -49,14 +49,14 @@ def test_stream_mirror_append_read_clear(sqlite_tmp) -> None:
         sk,
         thread_id=tid,
         run_id=rid,
-        raw_frame="event: evf\ndata: {\"type\":\"delta\",\"text\":\"hi\"}\n\n",
+        raw_frame='event: evf\ndata: {"type":"delta","text":"hi"}\n\n',
         conn=conn,
     )
     seq2 = append_mirror_frame(
         sk,
         thread_id=tid,
         run_id=rid,
-        raw_frame="event: evf\ndata: {\"type\":\"run_end\"}\n\n",
+        raw_frame='event: evf\ndata: {"type":"run_end"}\n\n',
         is_terminal=True,
         conn=conn,
     )

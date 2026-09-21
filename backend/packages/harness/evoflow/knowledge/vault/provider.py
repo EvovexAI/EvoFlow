@@ -30,7 +30,6 @@ from evoflow.knowledge.vault.errors import (
     ObsidianNotRunningError,
     ToolTimeoutError,
     WriteDisabledError,
-    map_exception,
 )
 from evoflow.knowledge.vault.fs_search import filesystem_keyword_search
 from evoflow.knowledge.vault.mcp_runtime import (
@@ -503,9 +502,7 @@ class ObsidianKnowledgeProvider:
                     schema=schema,
                 )
                 try:
-                    raw = await _call_search_tool(
-                        cfg, sess, tool_name, args, timeout_sec=FULLTEXT_SEARCH_TIMEOUT_SEC
-                    )
+                    raw = await _call_search_tool(cfg, sess, tool_name, args, timeout_sec=FULLTEXT_SEARCH_TIMEOUT_SEC)
                 except Exception as exc2:
                     logger.warning("MCP fulltext failed, filesystem fallback: %s", exc2)
                     return self._filesystem_search(cfg, query, top_k)
@@ -685,9 +682,7 @@ class ObsidianKnowledgeProvider:
                 )
 
             cur.execute(
-                "SELECT from_path, to_path FROM links WHERE from_path IN ({seq}) AND to_path IN ({seq}) LIMIT ?".format(
-                    seq=",".join("?" * len(nodes_by_path))
-                ),
+                "SELECT from_path, to_path FROM links WHERE from_path IN ({seq}) AND to_path IN ({seq}) LIMIT ?".format(seq=",".join("?" * len(nodes_by_path))),
                 list(nodes_by_path.keys()) + list(nodes_by_path.keys()) + [max_e + 1],
             )
             link_rows = cur.fetchall()
@@ -726,9 +721,7 @@ class ObsidianKnowledgeProvider:
             raise WriteDisabledError("vault is read-only; enable read_write in settings")
         sess = await ensure_session(cfg, need_write=True)
         if not sess.write_tools:
-            raise ObsidianNotRunningError(
-                "写入服务不可用。请启动 Obsidian 并启用 Local REST API。知识检索仍然可用。"
-            )
+            raise ObsidianNotRunningError("写入服务不可用。请启动 Obsidian 并启用 Local REST API。知识检索仍然可用。")
         return cfg, sess
 
     async def create_note(self, vault_id: str, path: str, content: str) -> KnowledgeNote:
@@ -836,9 +829,7 @@ class ObsidianKnowledgeProvider:
     ) -> KnowledgeNote:
         cfg, sess = await self._require_write(vault_id)
         rel = assert_write_allowed(path, cfg.allowed_write_paths)
-        tool_name = _write_tool_name(
-            sess, "frontmatter_tool", ("obsidian_manage_frontmatter", "manage_frontmatter")
-        )
+        tool_name = _write_tool_name(sess, "frontmatter_tool", ("obsidian_manage_frontmatter", "manage_frontmatter"))
         raw = await call_tool(
             sess.write_tools,
             tool_name,
@@ -893,11 +884,7 @@ class ObsidianKnowledgeProvider:
         """Search duplicates then create into Inbox (no auto-merge)."""
         cfg = _cfg(vault_id)
         duplicates = await self.search(vault_id, title, mode="hybrid", top_k=5)
-        dup_candidates = [
-            {"path": d.path, "title": d.title, "score": d.score, "snippet": d.snippet}
-            for d in duplicates
-            if d.path
-        ]
+        dup_candidates = [{"path": d.path, "title": d.title, "score": d.score, "snippet": d.snippet} for d in duplicates if d.path]
         folder = (inbox_path or cfg.default_inbox_path or "00-Inbox").strip().strip("/")
         filename = inbox_filename(title)
         rel = f"{folder}/{filename}"

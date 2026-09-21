@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from evoflow.config.memory_config import get_memory_config
@@ -152,9 +152,7 @@ def _should_skip_batch_llm(atom: dict[str, Any]) -> str | None:
     cfg = get_memory_config().graph
     kind = str(atom.get("kind") or "")
     source = str(atom.get("source") or "").strip().lower()
-    if getattr(cfg, "skip_section_llm", True) and (
-        kind.startswith("section:") or str(atom.get("subject_key") or "").startswith("section.")
-    ):
+    if getattr(cfg, "skip_section_llm", True) and (kind.startswith("section:") or str(atom.get("subject_key") or "").startswith("section.")):
         return "skip section summary"
     if getattr(cfg, "skip_bootstrap_source", True) and source in _BOOTSTRAP_SOURCES:
         return "skip bootstrap/migrate source"
@@ -239,10 +237,7 @@ async def extract_graph_llm_batch(atoms: list[dict[str, Any]]) -> dict[str, dict
     for atom in atoms:
         aid = str(atom.get("id") or "")
         content = str(atom.get("content") or "").strip()[:1200]
-        blocks.append(
-            f"- atom_id={aid} layer={atom.get('layer')} kind={atom.get('kind')}\n"
-            f"  content: {content}"
-        )
+        blocks.append(f"- atom_id={aid} layer={atom.get('layer')} kind={atom.get('kind')}\n  content: {content}")
     prompt = (
         "你是记忆图谱抽取器。下面有多条记忆原子，请为每条分别抽取实体与关系。\n"
         "只输出一个 JSON 对象（不要 Markdown），schema:\n"
@@ -253,9 +248,7 @@ async def extract_graph_llm_batch(atoms: list[dict[str, Any]]) -> dict[str, dict
         "- 不要把 Identity、密钥、工具原始 dump 当实体\n"
         "- 每条最多 6 个 nodes、8 条 edges；无实体则 nodes/edges 为空数组\n"
         "- items 必须覆盖输入的每个 atom_id\n"
-        "原子列表：\n"
-        + "\n".join(blocks)
-        + "\n"
+        "原子列表：\n" + "\n".join(blocks) + "\n"
     )
     from evoflow.context.internal_model_invoke import ainvoke_internal_chat_model
     from evoflow.models import create_chat_model
@@ -437,7 +430,7 @@ async def run_mem_kg_batch(job: dict[str, Any]) -> dict[str, Any]:
 
 def _run_after_iso(debounce_seconds: float) -> str:
     sec = max(0.0, float(debounce_seconds or 0))
-    when = datetime.now(timezone.utc) + timedelta(seconds=sec)
+    when = datetime.now(UTC) + timedelta(seconds=sec)
     return when.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
@@ -455,11 +448,7 @@ def enqueue_mem_kg_batch(
     if dirty_count(ns) <= 0:
         return None
     kb_id = mem_kb_id(ns)
-    delay = (
-        float(debounce_seconds)
-        if debounce_seconds is not None
-        else float(getattr(cfg, "batch_debounce_seconds", 45) or 45)
-    )
+    delay = float(debounce_seconds) if debounce_seconds is not None else float(getattr(cfg, "batch_debounce_seconds", 45) or 45)
     run_after = _run_after_iso(delay)
 
     pending = jobs.list_jobs(kb_id, limit=30, states=["queued", "running"])

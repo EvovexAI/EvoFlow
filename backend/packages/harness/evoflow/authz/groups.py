@@ -94,15 +94,19 @@ def get_group(group_id: str, *, org_id: str = DEFAULT_ORG_ID) -> dict[str, Any] 
 
 
 def list_groups(*, org_id: str = DEFAULT_ORG_ID) -> list[dict[str, Any]]:
-    rows = get_db().execute(
-        """
+    rows = (
+        get_db()
+        .execute(
+            """
         SELECT org_id, group_id, name, kind, created_by, created_at
         FROM evoflow_groups
         WHERE org_id = ?
         ORDER BY created_at DESC
         """,
-        (org_id,),
-    ).fetchall()
+            (org_id,),
+        )
+        .fetchall()
+    )
     return [
         {
             "org_id": str(r[0]),
