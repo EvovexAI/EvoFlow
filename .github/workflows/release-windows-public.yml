@@ -167,15 +167,11 @@ jobs:
               if (Test-Path -LiteralPath "$($zip.FullName).sig") { $files += "$($zip.FullName).sig" }
             }
           }
-          $notes = "scripts/maintainer/windows/public-release-body.txt"
-          if (-not (Test-Path -LiteralPath $notes)) {
-            $notesFile = Join-Path $env:TEMP 'evoflow-release-notes.md'
-            @"
-          ## EvoFlow $tag (Windows x64)
-
-          Installer built from this public repository.
-          "@ | Set-Content -LiteralPath $notesFile -Encoding utf8
-            $notes = $notesFile
+          $notes = Join-Path $env:TEMP 'evoflow-release-notes.md'
+          python scripts/ci/build-release-body.py $ver $notes
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $notes)) {
+            Write-Host "build-release-body.py failed; falling back to static footer."
+            $notes = "scripts/maintainer/windows/public-release-body.txt"
           }
           gh release view $tag 1>$null 2>$null
           if ($LASTEXITCODE -eq 0) {

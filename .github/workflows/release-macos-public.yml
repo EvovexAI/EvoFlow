@@ -176,11 +176,15 @@ jobs:
             echo "::error::No DMGs to upload"
             exit 1
           fi
-          notes="scripts/maintainer/windows/public-release-body.txt"
-          if [[ ! -f "$notes" ]]; then
-            notes="$(mktemp)"
-            printf '## EvoFlow %s (macOS)\n\nDMG built from this public repository.\n' "$tag" > "$notes"
-          fi
+          notes="$(mktemp)"
+          python3 scripts/ci/build-release-body.py "$ver" "$notes" || {
+            echo "build-release-body.py failed; falling back to static footer."
+            notes="scripts/maintainer/windows/public-release-body.txt"
+            if [[ ! -f "$notes" ]]; then
+              notes="$(mktemp)"
+              printf '## EvoFlow %s (macOS)\n\nDMG built from this public repository.\n' "$tag" > "$notes"
+            fi
+          }
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" --clobber "${dmgs[@]}"
           else
