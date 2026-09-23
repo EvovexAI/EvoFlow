@@ -270,7 +270,7 @@ async def write_journal(request: Request, body: JournalBody):
 
 @router.post("/craft/save")
 async def save_craft(request: Request, body: CraftSaveBody):
-    """Direct-write ``craft/{slug}/SKILL.md`` (no experience DB)."""
+    """Direct-write ``craft/{slug}.md`` (no experience DB)."""
     from evoflow.assets.hub import save_craft_note
 
     entity = _entity(request, body.entityType, body.entityId)
@@ -421,7 +421,7 @@ async def list_craft(
     entityType: Literal["user", "agent", "employee", "workspace"] = Query(...),
     entityId: str = Query(...),
 ):
-    """List promotable craft/*/SKILL.md under an entity."""
+    """List promotable craft/*.md under an entity."""
     from evoflow.assets.promote import list_promotable_crafts
 
     entity = _entity(request, entityType, entityId)
@@ -439,7 +439,7 @@ async def list_craft(
 
 @router.post("/craft/promote")
 async def promote_craft(request: Request, body: PromoteCraftBody):
-    """Promote craft/{name} → ~/.evoflow/skills/custom/{name}."""
+    """Promote craft/{name}.md → ~/.evoflow/skills/custom/{name}."""
     from evoflow.assets.promote import promote_craft_to_custom
     from evoflow.skills.installer import SkillAlreadyExistsError
 

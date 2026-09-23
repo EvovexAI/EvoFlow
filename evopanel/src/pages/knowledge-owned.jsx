@@ -879,6 +879,34 @@ export default function KnowledgeOwnedPage() {
     return () => window.clearInterval(id);
   }, [docs, selectedId, loadDocs, jobStats]);
 
+  async function openKbLocation() {
+    if (!selectedId) return;
+    const sourcePath = String(selected?.syncSourcePath || "").trim();
+    const storageDir = String(selected?.resolvedStorageDir || selected?.storageDir || "").trim();
+    if (!sourcePath && !storageDir) {
+      notify("该知识库还没有可打开的目录");
+      return;
+    }
+    // Prefer the user's source folder; fall back to the KB data dir when the
+    // source is missing (e.g. the imported folder was moved or deleted).
+    const candidates = [sourcePath, storageDir].filter((p, i, a) => p && a.indexOf(p) === i);
+    let lastErr = "";
+    for (const target of candidates) {
+      try {
+        await api.revealPathInFileManager(target);
+        notify(
+          target === sourcePath
+            ? `已在文件管理器中打开源目录：${sourcePath}`
+            : `已在文件管理器中打开库目录：${storageDir}`
+        );
+        return;
+      } catch (e) {
+        lastErr = e?.message || String(e || "");
+      }
+    }
+    notify(lastErr || "打开目录失败（仅桌面端可用）");
+  }
+
   async function resyncRemembered() {
     if (!selectedId) return;
     if (!selected?.syncSourceType) {
@@ -1773,6 +1801,13 @@ export default function KnowledgeOwnedPage() {
           onOpen={goOwnedDetail}
           onRename={renameBase}
           onSettings={(base) => openBaseSettings(base)}
+          onRevealDir={(base) => {
+            const dir = base.resolvedStorageDir || base.storageDir;
+            if (!dir) return;
+            api.revealPathInFileManager(dir).catch((err) => {
+              console.error("[kb] reveal dir failed", err);
+            });
+          }}
         />
       ) : (
         <div className="ko-shell ko-shell--full">
@@ -1875,6 +1910,19 @@ export default function KnowledgeOwnedPage() {
               </button>
               <button className="ko-btn" disabled={busy} onClick={importFolderPath} type="button">
                 导入路径
+              </button>
+              <button
+                className="ko-btn"
+                disabled={busy || !(selected?.syncSourcePath || selected?.resolvedStorageDir || selected?.storageDir)}
+                onClick={openKbLocation}
+                title={
+                  selected?.syncSourcePath
+                    ? `在文件管理器中打开源目录：${selected.syncSourcePath}`
+                    : `在文件管理器中打开库目录：${selected?.resolvedStorageDir || selected?.storageDir || ""}`
+                }
+                type="button"
+              >
+                打开位置
               </button>
               <button className="ko-btn" disabled={busy} onClick={importFromVault} type="button">
                 从 Obsidian 导入

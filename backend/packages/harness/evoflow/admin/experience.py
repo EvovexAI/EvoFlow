@@ -373,7 +373,7 @@ def delete_experience(experience_id: str, *, permanent: bool = False) -> dict[st
 
 
 def migrate_sqlite_experiences_to_craft(*, dry_run: bool = False) -> dict[str, Any]:
-    """Copy legacy SQLite experience rows into ``craft/*/SKILL.md``."""
+    """Copy legacy SQLite experience rows into ``craft/*.md``."""
     from evoflow.assets.craft import get_craft_experience, save_craft_from_experience
 
     db = _db()

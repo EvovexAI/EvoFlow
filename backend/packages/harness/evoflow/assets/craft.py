@@ -1,4 +1,4 @@
-"""Craft skills under Asset Hub ``craft/*/SKILL.md`` (replaces experience library)."""
+"""Craft skills under Asset Hub ``craft/*.md`` (replaces experience library)."""
 
 from __future__ import annotations
 
@@ -141,9 +141,7 @@ def save_craft_from_experience(data: dict[str, Any]) -> dict[str, Any]:
         exp_id = f"exp_{uuid.uuid4().hex[:12]}"
     slug = _slug(data.get("skill_name") or title)
     craft_root = _craft_root(entity)
-    skill_dir = craft_root / slug
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    skill_path = skill_dir / "SKILL.md"
+    skill_path = craft_root / f"{slug}.md"
     tags = data.get("tags") or []
     if not isinstance(tags, list):
         tags = []
@@ -238,14 +236,16 @@ def list_craft_experiences(
     def _scan_craft_dir(craft_dir: Path, entity_type: str, entity_id: str) -> None:
         if not craft_dir.is_dir():
             return
-        for skill_md in craft_dir.rglob("SKILL.md"):
+        for skill_md in sorted(craft_dir.glob("*.md")):
+            if skill_md.name.upper() == "README.MD":
+                continue
             try:
                 text = skill_md.read_text(encoding="utf-8")
             except OSError:
                 continue
             meta, body = _parse_skill_frontmatter(text)
-            title = str(meta.get("name") or skill_md.parent.name).replace("-", " ")
-            exp_id = str(meta.get("experience_id") or meta.get("id") or skill_md.parent.name)
+            title = str(meta.get("name") or skill_md.stem).replace("-", " ")
+            exp_id = str(meta.get("experience_id") or meta.get("id") or skill_md.stem)
             cat = str(meta.get("category") or "general")
             if cat_prefix and not cat.lower().startswith(cat_prefix):
                 continue
@@ -356,14 +356,11 @@ def delete_craft_experience(experience_id: str) -> bool:
     row = get_craft_experience(experience_id)
     if not row:
         return False
-    import shutil
-
     from evoflow.assets.hub import assets_root
 
     path = assets_root() / str(row.get("path") or "")
-    skill_dir = path.parent
-    if skill_dir.is_dir():
-        shutil.rmtree(skill_dir, ignore_errors=True)
+    if path.is_file():
+        path.unlink()
         try:
             from evoflow.assets.memory_mirror import schedule_asset_vault_reindex_delayed
 

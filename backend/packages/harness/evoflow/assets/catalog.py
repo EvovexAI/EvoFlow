@@ -171,28 +171,25 @@ def list_craft_catalog(entity: EntityRef, *, limit: int = TIER0_SKILLS_MAX_ITEMS
     if not root.is_dir():
         return []
     rows: list[dict[str, Any]] = []
-    dirs = sorted(
-        (p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")),
+    files = sorted(
+        (p for p in root.glob("*.md") if p.is_file() and p.name.upper() != "README.MD"),
         key=_mtime_sort_key,
         reverse=True,
     )
-    for d in dirs:
-        skill = d / "SKILL.md"
-        if not skill.is_file():
-            continue
+    for craft_file in files:
         if len(rows) >= limit:
             break
         try:
-            text = skill.read_text(encoding="utf-8")
+            text = craft_file.read_text(encoding="utf-8")
         except OSError:
             continue
         meta, body = parse_frontmatter(text)
-        name = (meta.get("name") or d.name).strip()
+        name = (meta.get("name") or craft_file.stem).strip()
         desc = cap_text_chars(
             (meta.get("description") or meta.get("summary") or name).strip(),
             _CATALOG_DESC_CHARS,
         )
-        rel = f"craft/{d.name}/SKILL.md"
+        rel = f"craft/{craft_file.name}"
         rows.append({"kind": "craft", "id": name, "name": name, "description": desc, "path": rel})
     return rows
 

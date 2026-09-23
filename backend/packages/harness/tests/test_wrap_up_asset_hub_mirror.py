@@ -54,8 +54,11 @@ def test_mirror_wrap_up_writes_journal_and_craft(assets_home: Path) -> None:
     assert "站立摘要" in text
     assert "2026-08-28T10:00:00Z" in text
 
-    craft_skills = list((root / "craft").glob("*/SKILL.md"))
-    assert craft_skills, "expected craft/*/SKILL.md"
+    craft_skills = sorted(
+        (p for p in (root / "craft").glob("*.md") if p.name.upper() != "README.MD"),
+        key=lambda p: p.name.lower(),
+    )
+    assert craft_skills, "expected craft/*.md"
     craft_text = craft_skills[0].read_text(encoding="utf-8")
     assert "核对" in craft_text or "CI" in craft_text
 

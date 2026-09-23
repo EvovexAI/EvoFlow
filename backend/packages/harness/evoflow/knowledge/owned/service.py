@@ -121,15 +121,31 @@ def _write_kb_meta(kb_id: str, kb_dir: str | Path, *, name: str = "") -> None:
         logger.debug("kb.json write skipped for kb=%s", kb_id, exc_info=True)
 
 
+def _resolved_storage_dir(d: dict[str, Any]) -> str:
+    """Absolute KB directory even when ``storage_dir`` was never stamped.
+
+    Legacy bases (pre per-KB split) keep ``storage_dir=''``; resolving through
+    ``store_paths`` keeps the "open folder" action working for them too.
+    """
+    try:
+        from evoflow.knowledge.owned import store_paths
+
+        raw = str(d.get("storage_dir") or "").strip()
+        return str(store_paths.resolve_kb_dir(str(d.get("id") or ""), storage_dir=raw or None))
+    except Exception:
+        logger.debug("resolved storage dir lookup failed", exc_info=True)
+        return str(d.get("storage_dir") or "")
+
+
 def _row_base(row: Any) -> dict[str, Any]:
     d = dict(row)
     ref = str(d.get("embedding_api_key_ref") or "")
     has_key = False
     if ref:
         try:
-            from evoflow.knowledge.vault import secrets as vault_secrets
+            from evoflow.knowledge.owned.secrets import has_embedding_key
 
-            has_key = vault_secrets.has_secret(ref)
+            has_key = has_embedding_key(ref, is_ref=True)
         except Exception:
             has_key = False
     # Registry-bound cloud models keep the key on the model row, not per-KB secret.
@@ -165,6 +181,7 @@ def _row_base(row: Any) -> dict[str, Any]:
         "syncVaultId": d.get("sync_vault_id") or "",
         "lastSyncedAt": d.get("last_synced_at"),
         "storageDir": d.get("storage_dir") or "",
+        "resolvedStorageDir": _resolved_storage_dir(d),
         "contentMode": d.get("content_mode") or "copy",
         "createdAt": d.get("created_at"),
         "updatedAt": d.get("updated_at"),
@@ -379,10 +396,9 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
     # Registry-bound models keep credentials on the models page; only legacy
     # inline keys are stored per-KB.
     if not binding.get("from_registry") and api_key and str(api_key).strip() and mode != "local":
-        from evoflow.knowledge.vault import secrets as vault_secrets
+        from evoflow.knowledge.owned.secrets import put_embedding_key
 
-        key_ref = f"owned_{kb_id}_embedding_api_key"
-        vault_secrets.put_secret(key_ref, str(api_key).strip())
+        key_ref = put_embedding_key(kb_id, str(api_key).strip())
     # Resolve where this KB's own index DB will live (independent root, or the
     # app data fallback when the requested directory is not writable).
     storage_dir = _prepare_kb_storage(kb_id, payload)
@@ -520,19 +536,19 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             if new_mode == "local" or binding.get("from_registry"):
                 if key_ref:
                     try:
-                        from evoflow.knowledge.vault import secrets as vault_secrets
+                        from evoflow.knowledge.owned.secrets import delete_embedding_key
 
-                        vault_secrets.delete_secret(key_ref)
+                        delete_embedding_key(key_ref, is_ref=True)
                     except Exception:
                         pass
                 sets.append("embedding_api_key_ref=?")
                 vals.append("")
             elif api_key and str(api_key).strip():
-                from evoflow.knowledge.vault import secrets as vault_secrets
+                from evoflow.knowledge.owned.secrets import put_embedding_key
 
                 if not key_ref:
                     key_ref = f"owned_{kb_id}_embedding_api_key"
-                vault_secrets.put_secret(key_ref, str(api_key).strip())
+                put_embedding_key(kb_id, str(api_key).strip())
                 sets.append("embedding_api_key_ref=?")
                 vals.append(key_ref)
 
@@ -769,9 +785,9 @@ def delete_base(kb_id: str) -> None:
         ref = str(row["embedding_api_key_ref"] or "")
         if ref:
             try:
-                from evoflow.knowledge.vault import secrets as vault_secrets
+                from evoflow.knowledge.owned.secrets import delete_embedding_key
 
-                vault_secrets.delete_secret(ref)
+                delete_embedding_key(ref, is_ref=True)
             except Exception:
                 pass
     jobs.cancel_for_kb(kb_id)

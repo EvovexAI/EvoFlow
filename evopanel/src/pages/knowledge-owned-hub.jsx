@@ -117,7 +117,7 @@ export function KnowledgeStats({ bases, docCounts }) {
   );
 }
 
-function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, onSettings }) {
+function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, onSettings, onRevealDir }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -208,6 +208,18 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
             >
               设置
             </button>
+            {base.resolvedStorageDir ? (
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  onRevealDir?.(base);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                打开所在目录
+              </button>
+            ) : null}
             {base.builtin ? null : (
               <button
                 disabled={busy}
@@ -238,7 +250,7 @@ function formatShortDate(iso) {
   }
 }
 
-export function KnowledgeList({ bases, docCounts, busy, onOpen, onDelete, onRename, onSettings }) {
+export function KnowledgeList({ bases, docCounts, busy, onOpen, onDelete, onRename, onSettings, onRevealDir }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => readStoredPageSize(OWNED_KB_PAGE_SIZE_KEY));
   const baseKey = (bases || []).map((b) => b.id).join("|");
@@ -268,6 +280,7 @@ export function KnowledgeList({ bases, docCounts, busy, onOpen, onDelete, onRena
             onOpen={onOpen}
             onRename={onRename}
             onSettings={onSettings}
+            onRevealDir={onRevealDir}
           />
         ))}
       </ul>
@@ -460,6 +473,7 @@ export function KnowledgeHubLayout({
   onDelete,
   onRename,
   onSettings,
+  onRevealDir,
   onAssistantPrompt,
 }) {
   const [insightsOpen, setInsightsOpen] = useState(false);
@@ -508,6 +522,7 @@ export function KnowledgeHubLayout({
                 onOpen={onOpen}
                 onRename={onRename}
                 onSettings={onSettings}
+                onRevealDir={onRevealDir}
               />
             </>
           ) : (

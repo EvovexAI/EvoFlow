@@ -146,7 +146,7 @@ def test_run_phase2_writes_and_archives(entity: EntityRef, assets_home: Path, mo
     memory = (assets_home / "assets" / "user" / "memory" / "MEMORY.md").read_text(encoding="utf-8")
     assert "Task Group: ci" in memory
 
-    craft = assets_home / "assets" / "user" / "craft" / "rebase-before-push" / "SKILL.md"
+    craft = assets_home / "assets" / "user" / "craft" / "rebase-before-push.md"
     assert craft.is_file()
 
     # Inbox archived — no longer pending

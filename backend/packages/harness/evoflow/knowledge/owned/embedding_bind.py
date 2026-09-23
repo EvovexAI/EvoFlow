@@ -279,9 +279,9 @@ def model_config_for_base_row(base: dict[str, Any]) -> ModelConfig:
     key_ref = str(base.get("embedding_api_key_ref") or "").strip()
     if key_ref:
         try:
-            from evoflow.knowledge.vault import secrets as vault_secrets
+            from evoflow.knowledge.owned.secrets import get_embedding_key
 
-            api_key = vault_secrets.get_secret(key_ref) or None
+            api_key = get_embedding_key(key_ref, is_ref=True) or None
         except Exception:
             logger.debug("owned embedding secret resolve failed", exc_info=True)
     if not api_key and mode != "local":

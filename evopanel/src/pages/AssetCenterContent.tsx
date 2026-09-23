@@ -13,20 +13,8 @@ import {
   RefreshCw,
   Save,
   MoreVertical,
-  Check,
-  Upload,
-  Grid2X2,
-  List,
-  MoreHorizontal,
-  ShieldCheck,
-  Globe2,
-  Video,
-  PenLine,
   BarChart3,
-  Code2,
-  ChevronLeft,
   ChevronRight,
-  Layers3,
   ArrowUp,
   Copy,
   Maximize2,
@@ -47,7 +35,7 @@ import { getCurrentRoute } from "../router.js";
 
 type AssetTab = "profile" | "memory" | "experience" | "journal" | "craft" | "stats" | "export";
 
-type TreeTab = "memory" | "experience" | "journal";
+type TreeTab = "memory" | "experience" | "journal" | "craft";
 
 type MemoryKind = "standing" | "facts" | "episodic" | "graph";
 
@@ -57,16 +45,6 @@ type TreeEntry = { name: string; path: string; kind: string };
 
 type FileItem = { id: string; name: string; type: "folder" | "file"; path: string; count?: number };
 
-type SkillRow = {
-  id: string;
-  alias: string;
-  status: "enabled" | "disabled";
-  description: string;
-  source: string;
-  updatedAt: string;
-};
-
-type CraftItem = { name: string; path?: string; description?: string; promoted?: boolean };
 
 const PROFILE_LABELS: Record<string, string> = {
   "README.md": "画像索引",
@@ -137,12 +115,17 @@ function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   if (et === "agent") {
     return ASSET_TABS.filter((t) => t.id === "profile" || t.id === "export" || t.id === "stats");
   }
+  // Workspaces are memory vaults — memory only.
+  if (et === "workspace") {
+    return ASSET_TABS.filter((t) => t.id === "memory");
+  }
+  // Profile (画像) and craft (专长) are user-only; employees don't need them.
+  if (et !== "user") {
+    return ASSET_TABS.filter((t) => t.id !== "craft" && t.id !== "profile");
+  }
   return ASSET_TABS;
 }
 
-const PAGE_SIZE = 7;
-
-const SKILL_ICONS = [Video, PenLine, Globe2, ShieldCheck, Search, BarChart3, Code2, Star];
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
@@ -227,7 +210,7 @@ function sanitizeEntitiesForUi(list: Entity[]): Entity[] {
 
 function treeRootForTab(tab: AssetTab): string | null {
   if (tab === "memory") return "memory";
-  if (tab === "experience") return "craft";
+  if (tab === "experience" || tab === "craft") return "craft";
   if (tab === "journal") return "memory/journal";
   return null;
 }
@@ -236,6 +219,7 @@ function workspaceTitle(tab: AssetTab): string {
   if (tab === "profile") return "用户画像";
   if (tab === "memory") return "记忆目录";
   if (tab === "experience") return "经验目录";
+  if (tab === "craft") return "经验与专长";
   if (tab === "journal") return "反思日志";
   return "资产目录";
 }
@@ -245,6 +229,7 @@ function workspacePath(tab: AssetTab, treePath?: string): string {
   if (treePath) return `${treePath}/`;
   if (tab === "memory") return "memory/";
   if (tab === "experience") return "craft/";
+  if (tab === "craft") return "craft/";
   if (tab === "journal") return "memory/journal/";
   return "";
 }
@@ -257,12 +242,6 @@ function todayJournalPath(): string {
   return `memory/journal/${y}-${m}-${day}.md`;
 }
 
-function skillIconFor(id: string): React.ReactNode {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i) * (i + 1)) % SKILL_ICONS.length;
-  const Icon = SKILL_ICONS[h] || Star;
-  return <Icon size={15} />;
-}
 
 function assetsHrefForPath(
   path: string,
@@ -384,9 +363,7 @@ export default function AssetCenterContent() {
   const [activeTab, setActiveTab] = useState<AssetTab>(initialTab);
   const [globalSearch, setGlobalSearch] = useState("");
   const [fileSearch, setFileSearch] = useState("");
-  const [skillSearch, setSkillSearch] = useState("");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
-  const [page, setPage] = useState(1);
+
 
   const [entities, setEntities] = useState<Entity[]>([]);
   const [entityType, setEntityType] = useState(initEnt.entityType);
@@ -406,8 +383,6 @@ export default function AssetCenterContent() {
   const [editorContent, setEditorContent] = useState("");
   const [fileDirty, setFileDirty] = useState(false);
 
-  const [customSkills, setCustomSkills] = useState<SkillRow[]>([]);
-  const [craftItems, setCraftItems] = useState<CraftItem[]>([]);
 
   const [applyTarget, setApplyTarget] = useState("");
   const [applyScopes, setApplyScopes] = useState({
@@ -428,35 +403,6 @@ export default function AssetCenterContent() {
   const [tabLoading, setTabLoading] = useState(false);
   const initRanRef = useRef(false);
 
-  const loadCustomSkills = useCallback(async () => {
-    try {
-      const rows = await api.loadSkills({ force: true });
-      const list = Array.isArray(rows) ? rows : [];
-      setCustomSkills(
-        list
-          .filter((s: { category?: string }) => String(s?.category || "").toLowerCase() === "custom")
-          .map((s: { name?: string; description?: string; enabled?: boolean }) => ({
-            id: String(s.name || ""),
-            alias: String(s.name || ""),
-            status: (s.enabled === false ? "disabled" : "enabled") as "enabled" | "disabled",
-            description: String(s.description || ""),
-            source: "custom",
-            updatedAt: "—",
-          })),
-      );
-    } catch {
-      setCustomSkills([]);
-    }
-  }, []);
-
-  const loadCraftItems = useCallback(async () => {
-    try {
-      const data = await api.assetsListCraft(currentEntity);
-      setCraftItems(Array.isArray(data?.items) ? data.items : []);
-    } catch {
-      setCraftItems([]);
-    }
-  }, [currentEntity]);
 
   const loadTree = useCallback(
     async (path = "") => {
@@ -558,7 +504,6 @@ export default function AssetCenterContent() {
         } else if (tab === "stats") {
           await loadUsageStats();
         } else if (tab === "craft") {
-          await Promise.all([loadCustomSkills(), loadCraftItems()]);
           await loadTree("craft");
           setSelectedFile("");
           setEditorContent("");
@@ -566,7 +511,6 @@ export default function AssetCenterContent() {
         } else if (tab === "memory") {
           await applyMemoryKind(memoryKind);
         } else if (tab === "experience") {
-          await loadCraftItems();
           const root = treeRootForTab(tab);
           if (root) {
             await loadTree(root);
@@ -592,7 +536,7 @@ export default function AssetCenterContent() {
         setTabLoading(false);
       }
     },
-    [loadProfile, loadUsageStats, loadCustomSkills, loadCraftItems, loadTree, applyMemoryKind, memoryKind],
+    [loadProfile, loadUsageStats, loadTree, applyMemoryKind, memoryKind],
   );
 
   const refreshTab = useCallback(() => loadTabData(activeTab), [loadTabData, activeTab]);
@@ -618,7 +562,9 @@ export default function AssetCenterContent() {
           : Array.isArray((entField as { entities?: Entity[] } | null)?.entities)
             ? ((entField as { entities: Entity[] }).entities)
             : [];
-        const list0 = sanitizeEntitiesForUi(enrichEntityLabels(raw, [], []));
+        const list0 = sanitizeEntitiesForUi(enrichEntityLabels(raw, [], [])).filter(
+          (e) => e.entityType !== "workspace"
+        );
         setEntities(list0);
 
         const nestedRoot =
@@ -719,23 +665,6 @@ export default function AssetCenterContent() {
     [entityType, entityId],
   );
 
-  const filteredSkills = useMemo(() => {
-    const keyword = (globalSearch || skillSearch).trim().toLowerCase();
-    if (!keyword) return customSkills;
-    return customSkills.filter(
-      (s) =>
-        s.id.toLowerCase().includes(keyword) ||
-        s.alias.toLowerCase().includes(keyword) ||
-        s.description.toLowerCase().includes(keyword),
-    );
-  }, [globalSearch, skillSearch, customSkills]);
-
-  const pageCount = Math.max(1, Math.ceil(filteredSkills.length / PAGE_SIZE));
-  const pagedSkills = filteredSkills.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(1);
-  }, [globalSearch, skillSearch, customSkills.length]);
 
   const profileFiles = useMemo<FileItem[]>(() => {
     const kw = fileSearch.trim().toLowerCase();
@@ -769,36 +698,11 @@ export default function AssetCenterContent() {
     [entities],
   );
 
-  const craftDirs = useMemo(
-    () =>
-      treeEntries
-        .filter((e) => e.kind === "dir")
-        .map((e) => ({ name: e.name, path: e.path, count: 0 })),
-    [treeEntries],
-  );
-
-  async function doPromote(craftName: string, overwrite = false) {
-    const name = String(craftName || "").trim();
-    if (!name) return;
-    try {
-      const res = await api.assetsPromoteCraft({ ...currentEntity, craftName: name, overwrite });
-      toast.success(res?.message || `已晋升 ${res?.skillName || name}`);
-      await loadCustomSkills();
-      await loadCraftItems();
-    } catch (e: unknown) {
-      const msg = String((e as { message?: string })?.message || e);
-      if (/already exists|已存在|409/i.test(msg)) {
-        if (window.confirm(`技能已存在，是否覆盖晋升「${name}」？`)) await doPromote(name, true);
-        return;
-      }
-      toast.error(msg);
-    }
-  }
 
   function changeTab(tab: AssetTab) {
     setActiveTab(tab);
     setFileSearch("");
-    setSkillSearch("");
+
     if (tab === "memory") setMemoryKind("facts");
   }
 
@@ -931,33 +835,7 @@ export default function AssetCenterContent() {
                 <div className="ac-tab-loading-spinner" />
                 <span>加载中…</span>
               </div>
-            ) : activeTab === "craft" ? (
-              <SkillsView
-                globalSearch={globalSearch}
-                skillSearch={skillSearch}
-                setSkillSearch={setSkillSearch}
-                skills={pagedSkills}
-                totalSkills={filteredSkills.length}
-                page={page}
-                pageCount={pageCount}
-                setPage={setPage}
-                viewMode={viewMode}
-                setViewMode={setViewMode}
-                craftDirs={craftDirs}
-                craftItems={craftItems}
-                treePath={treePath}
-                onRefresh={() => void refreshTab()}
-                onPromote={(n) => void doPromote(n)}
-                onOpenDir={(p) => void loadTree(p)}
-                onUp={async () => {
-                  const root = treeRoot || "craft";
-                  const parts = treePath.split("/").filter(Boolean);
-                  parts.pop();
-                  let next = parts.join("/");
-                  if (!next || (next !== root && !next.startsWith(`${root}/`))) next = root;
-                  await loadTree(next);
-                }}
-              />
+
             ) : activeTab === "stats" ? (
               <AssetStatsPanel
                 busy={statsBusy}
@@ -1158,7 +1036,6 @@ export default function AssetCenterContent() {
                 editorContent={editorContent}
                 fileDirty={fileDirty}
                 lineCount={lineCount}
-                craftItems={craftItems}
                 canGoUp={!!treePath && treePath !== treeRoot}
                 onUp={async () => {
                   const root = treeRoot || "";
@@ -1189,23 +1066,6 @@ export default function AssetCenterContent() {
                     toast.error(String((e as { message?: string })?.message || e));
                   }
                 }}
-                onPromote={(n) => void doPromote(n)}
-                onMigrateExp={
-                  activeTab === "experience"
-                    ? async () => {
-                        try {
-                          const res = await api.assetsMigrate({ scope: "experience" });
-                          toast.success(
-                            `经验迁移完成：${res?.migrated ?? res?.experiences?.migrated ?? 0} 条`,
-                          );
-                          await loadTree(treeRoot);
-                          await loadCraftItems();
-                        } catch (e: unknown) {
-                          toast.error(String((e as { message?: string })?.message || e));
-                        }
-                      }
-                    : undefined
-                }
                 onNewJournal={
                   activeTab === "journal"
                     ? async () => {
@@ -1595,7 +1455,7 @@ function SplitShell({ left, right }: { left: React.ReactNode; right: React.React
 /* ── File workspace ──────────────────────────────────────────────── */
 
 function TreeWorkspace({
-  tab,
+
   title,
   pathHint,
   files,
@@ -1605,7 +1465,6 @@ function TreeWorkspace({
   editorContent,
   fileDirty,
   lineCount,
-  craftItems,
   canGoUp,
   onUp,
   onRefresh,
@@ -1613,9 +1472,8 @@ function TreeWorkspace({
   onOpenFile,
   onChangeContent,
   onSave,
-  onPromote,
-  onMigrateExp,
   onNewJournal,
+  onReveal,
 }: {
   tab: TreeTab;
   title: string;
@@ -1627,7 +1485,6 @@ function TreeWorkspace({
   editorContent: string;
   fileDirty: boolean;
   lineCount: number;
-  craftItems: CraftItem[];
   canGoUp: boolean;
   onUp: () => void;
   onRefresh: () => void;
@@ -1635,12 +1492,9 @@ function TreeWorkspace({
   onOpenFile: (path: string) => void;
   onChangeContent: (v: string) => void;
   onSave: () => void;
-  onPromote: (name: string) => void;
-  onMigrateExp?: () => void;
   onNewJournal?: () => void;
+  onReveal?: (id: string) => void;
 }) {
-  const selectedCraft = String(selectedFile || "").match(/^craft\/([^/]+)/)?.[1];
-
   return (
     <SplitShell
       left={
@@ -1654,6 +1508,7 @@ function TreeWorkspace({
           onSelectFile={(id) => onOpenFile(id)}
           onSelectFolder={(id) => onOpenDir(id)}
           onRefresh={onRefresh}
+          onReveal={onReveal}
           headerExtra={
             canGoUp ? (
               <IconButton title="上级" onClick={onUp}>
@@ -1663,33 +1518,7 @@ function TreeWorkspace({
           }
           footer={
             <>
-              {tab === "experience" && craftItems.length > 0 && (
-                <div className="space-y-0.5 border-b border-[color:var(--ac-border-subtle)] px-2 py-2">
-                  <div className="px-1 pb-1 text-[10px] text-[#94A3B8]">晋升到 Skills</div>
-                  {craftItems.slice(0, 4).map((it) => (
-                    <button
-                      key={it.name}
-                      type="button"
-                      onClick={() => onPromote(it.name)}
-                      className="ac-tree-row flex h-[34px] w-full items-center justify-between px-2 text-[13px] text-[var(--ac-text-secondary)]"
-                    >
-                      <span className="truncate">{it.name}</span>
-                      <span className="text-[var(--ac-primary)]">{it.promoted ? "覆盖" : "晋升"}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {onMigrateExp && (
-                <div className="px-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={onMigrateExp}
-                    className="flex h-[34px] w-full items-center justify-center rounded-[6px] text-[12px] text-[#475569] hover:bg-[#F8FAFC]"
-                  >
-                    从旧经验库迁移
-                  </button>
-                </div>
-              )}
+
               {onNewJournal && (
                 <div className="px-2 pt-2">
                   <button
@@ -1716,17 +1545,7 @@ function TreeWorkspace({
           lineCount={lineCount}
           onChange={onChangeContent}
           onSave={onSave}
-          extraActions={
-            selectedCraft && tab === "experience" ? (
-              <button
-                type="button"
-                onClick={() => onPromote(selectedCraft)}
-                className="text-[12px] text-[var(--ac-text-muted)] hover:text-[var(--ac-primary)]"
-              >
-                晋升
-              </button>
-            ) : null
-          }
+
         />
       }
     />
@@ -1743,6 +1562,7 @@ function FileSidebar({
   onSelectFile,
   onSelectFolder,
   onRefresh,
+  onReveal,
   headerExtra,
   footer,
 }: {
@@ -1755,6 +1575,7 @@ function FileSidebar({
   onSelectFile: (id: string) => void;
   onSelectFolder: (id: string) => void;
   onRefresh: () => void;
+  onReveal?: (id: string) => void;
   headerExtra?: React.ReactNode;
   footer?: React.ReactNode;
 }) {
@@ -1792,32 +1613,47 @@ function FileSidebar({
           files.map((file) => {
             const active = selectedId === file.id;
             return (
-              <button
+              <div
                 key={file.id}
-                type="button"
-                onClick={() => {
-                  if (file.type === "file") onSelectFile(file.id);
-                  else onSelectFolder(file.path);
-                }}
                 className={["ac-tree-row", active ? "is-active" : ""].join(" ")}
               >
-                {file.type === "folder" ? (
-                  <Folder size={14} strokeWidth={1.6} className="ac-tree-icon shrink-0 text-[var(--ac-folder)]" />
-                ) : (
-                  <FileText
-                    size={14}
-                    strokeWidth={1.6}
-                    className={[
-                      "ac-tree-icon shrink-0",
-                      active ? "text-[var(--ac-primary)]" : "text-[var(--ac-text-faint)]",
-                    ].join(" ")}
-                  />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (file.type === "file") onSelectFile(file.id);
+                    else onSelectFolder(file.path);
+                  }}
+                  className="flex min-w-0 flex-1 items-center"
+                >
+                  {file.type === "folder" ? (
+                    <Folder size={14} strokeWidth={1.6} className="ac-tree-icon shrink-0 text-[var(--ac-folder)]" />
+                  ) : (
+                    <FileText
+                      size={14}
+                      strokeWidth={1.6}
+                      className={[
+                        "ac-tree-icon shrink-0",
+                        active ? "text-[var(--ac-primary)]" : "text-[var(--ac-text-faint)]",
+                      ].join(" ")}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                  {file.count !== undefined && (
+                    <span className="text-[11px] text-[var(--ac-text-faint)]">{file.count}</span>
+                  )}
+                </button>
+                {onReveal && file.type === "file" && (
+                  <IconButton
+                    title="打开位置"
+                    onClick={(e) => {
+                      e?.stopPropagation();
+                      onReveal(file.id);
+                    }}
+                  >
+                    <Maximize2 size={13} strokeWidth={1.6} />
+                  </IconButton>
                 )}
-                <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                {file.count !== undefined && (
-                  <span className="text-[11px] text-[var(--ac-text-faint)]">{file.count}</span>
-                )}
-              </button>
+              </div>
             );
           })
         )}
@@ -1953,348 +1789,6 @@ function VaultInfo() {
   );
 }
 
-/* ── Skills ──────────────────────────────────────────────────────── */
-
-function SkillsView({
-  globalSearch,
-  skillSearch,
-  setSkillSearch,
-  skills,
-  totalSkills,
-  page,
-  pageCount,
-  setPage,
-  viewMode,
-  setViewMode,
-  craftDirs,
-  craftItems,
-  treePath,
-  onRefresh,
-  onPromote,
-  onOpenDir,
-  onUp,
-}: {
-  globalSearch: string;
-  skillSearch: string;
-  setSkillSearch: React.Dispatch<React.SetStateAction<string>>;
-  skills: SkillRow[];
-  totalSkills: number;
-  page: number;
-  pageCount: number;
-  setPage: (n: number) => void;
-  viewMode: "list" | "grid";
-  setViewMode: React.Dispatch<React.SetStateAction<"list" | "grid">>;
-  craftDirs: { name: string; path: string; count: number }[];
-  craftItems: CraftItem[];
-  treePath: string;
-  onRefresh: () => void;
-  onPromote: (name: string) => void;
-  onOpenDir: (path: string) => void;
-  onUp: () => void;
-}) {
-  const runnable = craftItems.filter((c) => !c.promoted);
-  const atRoot = !treePath || treePath === "craft";
-
-  return (
-    <SplitShell
-      left={
-        <aside className="ac-explorer ac-rail">
-          <div className="ac-rail-header flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="text-[13px] font-semibold leading-[18px] text-[var(--ac-text)]">技能目录</h3>
-              <p className="ac-mono mt-0.5 truncate text-[11px] leading-4 text-[var(--ac-text-faint)]">
-                {treePath ? `${treePath}/` : "craft/"}
-              </p>
-            </div>
-            <div className="flex shrink-0 gap-0.5">
-              {!atRoot && (
-                <IconButton title="上级" onClick={onUp}>
-                  <ArrowUp size={14} strokeWidth={1.6} />
-                </IconButton>
-              )}
-              <IconButton title="刷新" onClick={onRefresh}>
-                <RefreshCw size={14} strokeWidth={1.6} />
-              </IconButton>
-            </div>
-          </div>
-          <div className="ac-rail-search">
-            <div className="ac-input gap-2 px-2.5">
-              <Search size={13} strokeWidth={1.6} className="text-[var(--ac-text-faint)]" />
-              <input
-                value={skillSearch}
-                onChange={(e) => setSkillSearch(e.target.value)}
-                placeholder="搜索技能…"
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-[var(--ac-text)] outline-none placeholder:text-[var(--ac-text-faint)]"
-              />
-            </div>
-          </div>
-          <div className="ac-rail-list">
-            {craftDirs.map((d) => (
-              <button
-                key={d.path}
-                type="button"
-                onClick={() => onOpenDir(d.path)}
-                className="ac-tree-row"
-              >
-                <Folder size={14} strokeWidth={1.6} className="ac-tree-icon shrink-0 text-[var(--ac-folder)]" />
-                <span className="min-w-0 flex-1 truncate">{d.name}</span>
-                {d.count > 0 && (
-                  <span className="text-[11px] text-[var(--ac-text-faint)]">{d.count}</span>
-                )}
-              </button>
-            ))}
-            {!craftDirs.length && (
-              <p className="px-2 py-6 text-center text-[13px] text-[var(--ac-text-faint)]">暂无 craft 目录</p>
-            )}
-          </div>
-          <div className="ac-rail-footer">
-            <div className="px-3 py-2">
-              <div className="flex items-center gap-1.5 text-[12px] font-medium text-[var(--ac-text-muted)]">
-                <Layers3 size={12} strokeWidth={1.6} className="text-[var(--ac-text-faint)]" />
-                {runnable.length ? `${runnable.length} 个可晋升` : "暂无可晋升"}
-              </div>
-              {runnable.slice(0, 2).map((it) => (
-                <button
-                  key={it.name}
-                  type="button"
-                  onClick={() => onPromote(it.name)}
-                  className="mt-1 flex h-7 w-full items-center gap-1.5 rounded-[6px] px-1.5 text-[12px] text-[var(--ac-primary)] hover:bg-[var(--ac-hover)]"
-                >
-                  <Plus size={12} strokeWidth={1.6} />
-                  晋升 {it.name}
-                </button>
-              ))}
-              <a
-                href="#/skills/market"
-                className="mt-0.5 flex h-7 items-center gap-1.5 rounded-[6px] px-1.5 text-[12px] text-[var(--ac-text-muted)] hover:bg-[var(--ac-hover)] hover:text-[var(--ac-text)]"
-              >
-                <Plus size={12} strokeWidth={1.6} />
-                新建 / 安装
-              </a>
-            </div>
-          </div>
-        </aside>
-      }
-      right={
-        <section className="ac-main">
-          <div className="ac-editor-toolbar">
-            <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium leading-[18px] text-[var(--ac-text)]">
-                自定义 Skills
-              </div>
-              <div className="ac-mono mt-px truncate text-[11px] leading-4 text-[var(--ac-text-faint)]">
-                ~/.evoflow/skills/custom/
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <a href="#/skills/market" className="ac-btn-ghost" title="导入 Skill">
-                <Upload size={13} strokeWidth={1.6} />
-                导入
-              </a>
-              <a href="#/skills/market" className="ac-cta !h-8 !px-3 !text-[12px]" title="新建 Skill">
-                <Plus size={13} strokeWidth={1.6} />
-                新建
-              </a>
-              <div className="ml-0.5 flex gap-0.5">
-                <IconButton title="网格" onClick={() => setViewMode("grid")}>
-                  <Grid2X2
-                    size={14}
-                    strokeWidth={1.6}
-                    className={viewMode === "grid" ? "text-[var(--ac-primary)]" : undefined}
-                  />
-                </IconButton>
-                <IconButton title="列表" onClick={() => setViewMode("list")}>
-                  <List
-                    size={14}
-                    strokeWidth={1.6}
-                    className={viewMode === "list" ? "text-[var(--ac-primary)]" : undefined}
-                  />
-                </IconButton>
-              </div>
-            </div>
-          </div>
-
-          {viewMode === "list" ? (
-            <>
-              <div className="grid h-7 shrink-0 grid-cols-[minmax(200px,240px)_72px_minmax(200px,1fr)_72px_28px] items-center border-b border-[color:var(--ac-border-subtle)] px-3 text-[11px] text-[var(--ac-text-faint)]">
-                <span>技能</span>
-                <span>状态</span>
-                <span>描述</span>
-                <span>更新</span>
-                <span />
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {skills.length === 0 ? (
-                  <EmptySkills hasSearch={!!(globalSearch || skillSearch).trim()} />
-                ) : (
-                  skills.map((skill) => <SkillRow key={skill.id} skill={skill} />)
-                )}
-              </div>
-              <SkillPagination
-                page={page}
-                pageCount={pageCount}
-                total={totalSkills}
-                setPage={setPage}
-              />
-            </>
-          ) : (
-            <SkillGrid skills={skills} />
-          )}
-        </section>
-      }
-    />
-  );
-}
-
-function SkillRow({ skill }: { skill: SkillRow }) {
-  return (
-    <div className="group grid h-[56px] grid-cols-[minmax(200px,240px)_72px_minmax(200px,1fr)_72px_28px] items-center border-b border-[color:var(--ac-border-subtle)] px-3 transition-colors hover:bg-[var(--ac-hover)]">
-      <div className="flex min-w-0 items-center gap-2.5 pr-2">
-        <SkillIcon>{skillIconFor(skill.id)}</SkillIcon>
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium text-[var(--ac-text)]">{skill.id}</div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[11px] text-[var(--ac-text-faint)]">{skill.alias}</span>
-            <span className="ac-meta-badge shrink-0">{skill.source}</span>
-          </div>
-        </div>
-      </div>
-      <div>
-        {skill.status === "enabled" ? (
-          <span className="ac-status-on">
-            <Check size={10} strokeWidth={2} />
-            已启用
-          </span>
-        ) : (
-          <span className="inline-flex h-5 items-center rounded-[4px] border border-[color:var(--ac-border)] px-1.5 text-[11px] text-[var(--ac-text-muted)]">
-            已停用
-          </span>
-        )}
-      </div>
-      <p className="line-clamp-2 max-w-[56ch] pr-4 text-[13px] leading-[18px] text-[var(--ac-text-muted)]">
-        {skill.description || "无描述"}
-      </p>
-      <span className="text-[12px] text-[var(--ac-text-faint)]">{skill.updatedAt || "—"}</span>
-      <div className="flex justify-end">
-        <a
-          href="#/skills/market"
-          title="更多"
-          className="flex h-6 w-6 items-center justify-center rounded-[6px] text-[var(--ac-text-faint)] opacity-0 transition hover:bg-[var(--ac-fill)] hover:text-[var(--ac-text-muted)] group-hover:opacity-100"
-        >
-          <MoreHorizontal size={14} strokeWidth={1.6} />
-        </a>
-      </div>
-    </div>
-  );
-}
-
-function SkillGrid({ skills }: { skills: SkillRow[] }) {
-  if (!skills.length) return <EmptySkills hasSearch={false} />;
-  return (
-    <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-3 overflow-y-auto p-4 2xl:grid-cols-3">
-      {skills.map((skill) => (
-        <div
-          key={skill.id}
-          className="group min-h-[148px] border border-[color:var(--ac-border)] bg-white p-4 transition hover:bg-[#F8FAFC]"
-        >
-          <div className="flex items-start justify-between">
-            <SkillIcon>{skillIconFor(skill.id)}</SkillIcon>
-            <IconButton title="更多">
-              <MoreHorizontal size={13} strokeWidth={1.7} />
-            </IconButton>
-          </div>
-          <div className="mt-3 truncate text-[12px] font-medium text-[#0F172A]">{skill.id}</div>
-          <div className="mt-1 flex items-center gap-1.5">
-            <span className="truncate text-[10px] text-[#94A3B8]">{skill.alias}</span>
-            <span className="ac-meta-badge shrink-0">{skill.source}</span>
-          </div>
-          <p className="mt-2 line-clamp-2 max-w-[56ch] text-[11.5px] leading-[18px] text-[#64748B]">
-            {skill.description || "无描述"}
-          </p>
-          <div className="mt-3 flex items-center justify-between">
-            {skill.status === "enabled" ? (
-              <span className="ac-status-on">
-                <Check size={10} strokeWidth={2} />
-                已启用
-              </span>
-            ) : (
-              <span className="text-[10px] text-[#64748B]">已停用</span>
-            )}
-            <span className="text-[10.5px] text-[#94A3B8]">{skill.updatedAt || "—"}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SkillPagination({
-  page,
-  pageCount,
-  total,
-  setPage,
-}: {
-  page: number;
-  pageCount: number;
-  total: number;
-  setPage: (n: number) => void;
-}) {
-  const pages = Array.from({ length: pageCount }, (_, i) => i + 1).slice(0, 5);
-  return (
-    <div className="flex h-[34px] shrink-0 items-center justify-center gap-0.5 border-t border-[color:var(--ac-border-subtle)] pr-[76px] text-[12px] text-[var(--ac-text-muted)]">
-      <button
-        type="button"
-        disabled={page <= 1}
-        onClick={() => setPage(Math.max(1, page - 1))}
-        className="flex h-[26px] w-[26px] items-center justify-center rounded-[var(--ac-radius-row)] transition hover:bg-[var(--ac-hover)] disabled:opacity-30"
-      >
-        <ChevronLeft size={13} strokeWidth={1.7} />
-      </button>
-      {pages.map((n) => (
-        <button
-          key={n}
-          type="button"
-          onClick={() => setPage(n)}
-          className={[
-            "flex h-[26px] w-[26px] items-center justify-center rounded-[var(--ac-radius-row)] transition",
-            n === page
-              ? "bg-[var(--ac-primary-soft)] text-[var(--ac-primary)]"
-              : "hover:bg-[var(--ac-hover)]",
-          ].join(" ")}
-        >
-          {n}
-        </button>
-      ))}
-      <button
-        type="button"
-        disabled={page >= pageCount}
-        onClick={() => setPage(Math.min(pageCount, page + 1))}
-        className="flex h-[26px] w-[26px] items-center justify-center rounded-[var(--ac-radius-row)] transition hover:bg-[var(--ac-hover)] disabled:opacity-30"
-      >
-        <ChevronRight size={13} strokeWidth={1.7} />
-      </button>
-      <span className="ml-3 text-[11px] text-[var(--ac-text-faint)]">共 {total} 项</span>
-    </div>
-  );
-}
-
-function EmptySkills({ hasSearch }: { hasSearch: boolean }) {
-  return (
-    <div className="flex h-full min-h-[280px] items-center justify-center">
-      <div className="text-center">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[8px] border border-[color:var(--ac-border)] bg-[#F8FAFC] text-[#94A3B8]">
-          <Search size={16} strokeWidth={1.7} />
-        </div>
-        <div className="mt-3 text-[13px] text-[#475569]">
-          {hasSearch ? "没有找到 Skill" : "暂无自定义技能"}
-        </div>
-        <div className="mt-1 text-[11.5px] text-[#94A3B8]">
-          {hasSearch ? "尝试修改搜索关键词" : "去 Skills 市场安装，或从 craft 晋升"}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── Export ──────────────────────────────────────────────────────── */
 
@@ -2556,11 +2050,6 @@ function KvRow({
 
 /* ── Common ──────────────────────────────────────────────────────── */
 
-function SkillIcon({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="ac-skill-icon flex shrink-0 items-center justify-center">{children}</div>
-  );
-}
 
 function IconButton({
   children,
@@ -2569,10 +2058,10 @@ function IconButton({
 }: {
   children: React.ReactNode;
   title?: string;
-  onClick?: () => void;
+  onClick?: (e?: React.MouseEvent) => void;
 }) {
   return (
-    <button type="button" title={title} onClick={onClick} className="ac-icon-btn">
+    <button type="button" title={title} onClick={(e) => onClick?.(e)} className="ac-icon-btn">
       {children}
     </button>
   );

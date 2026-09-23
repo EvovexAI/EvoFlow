@@ -100,15 +100,47 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     craft_readme = ent_root / "craft" / "README.md"
     if not craft_readme.is_file():
         craft_readme.write_text(
-            "# 经验与专长\n\n每个子目录一份 `SKILL.md`（原经验库沉淀到此）。\n",
+            "# 经验与专长\n\n每份经验/专长一个 Markdown 文件，文件名即其名称（如 `craft/修复构建失败.md`）。\n",
             encoding="utf-8",
         )
+    _migrate_craft_dirs_to_files(ent_root)
 
     if e.entity_type == "user":
         from evoflow.assets.user_profile_dims import ensure_user_profile_files
 
         ensure_user_profile_files(e)
     return root
+
+
+def _migrate_craft_dirs_to_files(ent_root: Path) -> None:
+    """Flatten legacy ``craft/{name}/SKILL.md`` into ``craft/{name}.md``.
+
+    Older asset trees nested each craft under its own directory; the current
+    layout keeps one Markdown file per craft. Migration is in place + idempotent.
+    """
+    craft_dir = ent_root / "craft"
+    if not craft_dir.is_dir():
+        return
+    try:
+        children = list(craft_dir.iterdir())
+    except OSError:
+        return
+    for child in children:
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        skill_md = child / "SKILL.md"
+        if not skill_md.is_file():
+            continue
+        target = craft_dir / f"{child.name}.md"
+        if target.exists():
+            continue
+        try:
+            skill_md.replace(target)
+            # Drop the now-empty legacy directory; keep it if it holds other files.
+            if not any(child.iterdir()):
+                child.rmdir()
+        except OSError:
+            logger.debug("craft layout migration skipped: %s", child, exc_info=True)
 
 
 def _agent_display_label(code: str) -> str:
@@ -589,7 +621,7 @@ def save_craft_note(
     content: str = "",
     description: str = "",
 ) -> dict[str, Any]:
-    """Write ``craft/{slug}/SKILL.md`` directly (no experience DB)."""
+    """Write ``craft/{slug}.md`` directly (no experience DB)."""
     from evoflow.assets.craft import save_craft_from_experience
 
     t = str(title or "").strip()

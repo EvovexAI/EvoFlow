@@ -203,7 +203,9 @@ def _list_craft_snippets(entity: EntityRef, *, max_files: int = 12, max_chars: i
         return "(no craft yet)"
     parts: list[str] = []
     count = 0
-    for skill in sorted(craft_dir.rglob("SKILL.md")):
+    for skill in sorted(craft_dir.glob("*.md")):
+        if skill.name.upper() == "README.MD":
+            continue
         if count >= max_files:
             parts.append("…(truncated)")
             break
@@ -344,7 +346,7 @@ def _apply_phase2_writes(
                     continue
                 if not skill.lstrip().startswith("---"):
                     skill = f"---\nname: {title}\ndescription: {title[:80]}\nsummary: {title[:30]}\nsource: phase2\n---\n\n{skill}\n"
-                rel = f"craft/{slug}/SKILL.md"
+                rel = f"craft/{slug}.md"
                 write_text_file(entity, rel, skill if skill.endswith("\n") else skill + "\n")
                 paths.append(rel)
 

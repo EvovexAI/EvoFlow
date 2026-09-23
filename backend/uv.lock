@@ -716,6 +716,19 @@ wheels = [
 ]
 
 [[package]]
+name = "dingtalk-stream"
+version = "0.24.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "requests" },
+    { name = "websockets" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4c/44/102dede3f371277598df6aa9725b82e3add068c729333c7a5dbc12764579/dingtalk_stream-0.24.3-py3-none-any.whl", hash = "sha256:2160403656985962878bf60cdf5adf41619f21067348e06f07a7c7eebf5943ad", size = 27813, upload-time = "2025-10-24T09:36:57.497Z" },
+]
+
+[[package]]
 name = "distro"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -799,6 +812,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "certifi" },
     { name = "cryptography" },
+    { name = "dingtalk-stream" },
     { name = "evoflow-harness" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -827,6 +841,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "certifi", specifier = ">=2024.0.0" },
     { name = "cryptography", specifier = ">=41.0.0" },
+    { name = "dingtalk-stream", specifier = ">=0.20" },
     { name = "evoflow-harness", editable = "packages/harness" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },

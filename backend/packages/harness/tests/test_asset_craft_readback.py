@@ -44,9 +44,9 @@ def test_resolve_entity_file_accepts_unicode_paths() -> None:
     """CJK slugs/filenames must resolve — craft and memory write them by design."""
     ref = EntityRef("user", "user")
     for rel in (
-        "craft/中文目录/SKILL.md",
+        "craft/中文目录.md",
         "memory/facts/偏好设置.md",
-        "craft/软删不等于删干净-清理逻辑需统一收口/SKILL.md",
+        "craft/软删不等于删干净-清理逻辑需统一收口.md",
     ):
         assert resolve_entity_file(ref, rel).name == rel.rsplit("/", 1)[-1]
 
