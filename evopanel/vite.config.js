@@ -221,6 +221,15 @@ export default defineConfig(({ mode }) => {
           ws: true,
           configure: configureGatewayProxy,
         },
+        // /health/* 也需要代理到 Gateway，否则 Vite 会返回 index.html(200)，
+        // 导致 /health/ready 的 JSON 解析失败，扩展路由软等待硬等满 15 秒。
+        '/health': {
+          target: gatewayProxyTarget,
+          changeOrigin: true,
+          timeout: 5000,
+          proxyTimeout: 5000,
+          configure: configureGatewayProxy,
+        },
       },
       warmup: {
         clientFiles: ['./src/react/ChatApp.tsx', './src/react/obs/ObsDashboardApp.tsx'],

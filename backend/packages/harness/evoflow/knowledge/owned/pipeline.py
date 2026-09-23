@@ -19,6 +19,7 @@ from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.doc_links import rebuild_doc_links, update_document_metadata
 from evoflow.knowledge.owned.embedding_bind import model_config_for_base_row
 from evoflow.knowledge.owned.ids import new_id, utc_now
+from evoflow.knowledge.owned.kb_conn import db_for_kb, kb_dir_for_kb
 from evoflow.knowledge.owned.metadata import extract_tags, parse_frontmatter
 from evoflow.knowledge.owned.retrieve import delete_fts_for_doc, index_fts, pack_embedding
 from evoflow.knowledge.parser import parse_file
@@ -44,8 +45,10 @@ async def run_parse_index(
 
     jobs.update_progress(job_id, {"phase": "loading", "percent": 5, "message": "读取文档"})
 
+    # Registry row (kb_bases) is central; the document row is KB-local.
     with db() as conn:
         base = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
+    with db_for_kb(kb_id) as conn:
         doc = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if not base or not doc:
         raise ValueError("knowledge base or document not found")
@@ -53,7 +56,7 @@ async def run_parse_index(
     base_d = dict(base)
     doc_d = dict(doc)
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         conn.execute(
             "UPDATE kb_documents SET parse_status='processing', error_message='', updated_at=? WHERE id=?",
             (now, doc_id),
@@ -62,13 +65,13 @@ async def run_parse_index(
     blob_path = doc_d.get("blob_path") or ""
     if not blob_path:
         raise ValueError("document has no blob_path")
-    path = blob_store.resolve_blob(blob_path)
+    path = blob_store.resolve_blob(blob_path, kb_id=kb_id)
 
     jobs.update_progress(job_id, {"phase": "parsing", "percent": 15, "message": "解析正文"})
     try:
         text = parse_file(path)
     except Exception as exc:
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 "UPDATE kb_documents SET parse_status='failed', error_message=?, updated_at=? WHERE id=?",
                 (str(exc)[:2000], utc_now(), doc_id),
@@ -76,6 +79,24 @@ async def run_parse_index(
         raise
 
     jobs.update_progress(job_id, {"phase": "assets", "percent": 25, "message": "抽取图片"})
+    # Drop asset files from a previous run BEFORE extraction writes new ones.
+    # (Doing this inside the DB transaction below deleted the files that
+    # ``extract_and_rewrite_images`` had just written — leaving DB rows whose
+    # blobs were gone.)
+    try:
+        from evoflow.knowledge.owned.store_paths import blobs_dir
+
+        doc_blob_dir = blobs_dir(kb_dir_for_kb(kb_id)) / doc_id
+        if doc_blob_dir.is_dir():
+            for f in doc_blob_dir.iterdir():
+                if f.is_file() and f.stem.startswith("ast_"):
+                    try:
+                        f.unlink()
+                    except OSError:
+                        logger.debug("asset file unlink skipped: %s", f)
+    except Exception:
+        logger.debug("asset dir pre-clean skipped", exc_info=True)
+
     # Prefer original source folder for relative image paths when available
     text, assets = extract_and_rewrite_images(text, kb_id=kb_id, doc_id=doc_id, source_path=path)
 
@@ -95,7 +116,7 @@ async def run_parse_index(
         strategy=str(base_d.get("chunk_strategy") or "recursive"),
     )
 
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         # clear old
         old_ids = [r["id"] for r in conn.execute("SELECT id FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchall()]
         delete_fts_for_doc(conn, doc_id)
@@ -104,18 +125,6 @@ async def run_parse_index(
             conn.execute(f"DELETE FROM kb_chunk_embeddings WHERE chunk_id IN ({placeholders})", old_ids)
         conn.execute("DELETE FROM kb_chunks WHERE doc_id=?", (doc_id,))
         conn.execute("DELETE FROM kb_assets WHERE doc_id=?", (doc_id,))
-
-        # Drop previous asset files so reindex does not accumulate blobs
-        try:
-            import shutil
-
-            from evoflow.knowledge.owned.paths import files_dir
-
-            asset_dir = files_dir() / kb_id / doc_id / "assets"
-            if asset_dir.is_dir():
-                shutil.rmtree(asset_dir, ignore_errors=True)
-        except Exception:
-            logger.debug("asset dir cleanup skipped", exc_info=True)
 
         chunk_rows: list[tuple] = []
         for i, piece in enumerate(pieces):
@@ -152,7 +161,7 @@ async def run_parse_index(
             index_fts(conn, chunk_id=cid, kb_id=kb_id, doc_id=doc_id, content=fts_text)
 
     if not pieces:
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 """
                 UPDATE kb_documents SET parse_status='completed', chunk_count=0,
@@ -165,7 +174,7 @@ async def run_parse_index(
 
     # Collect chunk ids for embed or keyword-only completion
     chunk_ids: list[str] = []
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             "SELECT id FROM kb_chunks WHERE doc_id=? ORDER BY ordinal",
             (doc_id,),
@@ -176,7 +185,7 @@ async def run_parse_index(
         reason = (skip_embedding_reason or "embedding 未就绪").strip()
         note = f"已分块并可关键词检索；向量化已跳过（{reason[:180]}）"
         now = utc_now()
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 """
                 UPDATE kb_documents SET parse_status='completed', chunk_count=?,
@@ -208,7 +217,7 @@ async def run_parse_index(
     )
     mc = _model_config_for_base(base_d)
     embed_inputs = []
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             "SELECT id, content, context_header FROM kb_chunks WHERE doc_id=? ORDER BY ordinal",
             (doc_id,),
@@ -250,7 +259,7 @@ async def run_parse_index(
     dim = len(vectors[0])
     model_name = str(base_d.get("embedding_model") or "")
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         for cid, vec in zip(chunk_ids, vectors, strict=True):
             conn.execute(
                 """
@@ -260,11 +269,6 @@ async def run_parse_index(
                 """,
                 (cid, kb_id, doc_id, dim, pack_embedding(list(vec)), model_name, now),
             )
-        if not base_d.get("embedding_dim"):
-            conn.execute(
-                "UPDATE kb_bases SET embedding_dim=?, updated_at=? WHERE id=?",
-                (dim, now, kb_id),
-            )
         conn.execute(
             """
             UPDATE kb_documents SET parse_status='completed', chunk_count=?,
@@ -272,6 +276,13 @@ async def run_parse_index(
             """,
             (len(chunk_ids), now, doc_id),
         )
+    # embedding_dim lives on the registry row (central DB).
+    if not base_d.get("embedding_dim"):
+        with db() as conn:
+            conn.execute(
+                "UPDATE kb_bases SET embedding_dim=?, updated_at=? WHERE id=?",
+                (dim, now, kb_id),
+            )
 
     # Optional summary enqueue
     if int(base_d.get("summary_enabled") or 0) == 1:
@@ -301,10 +312,11 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
     """Best-effort document summary via default Chat model; never fails parse."""
     job_id = job["id"]
     doc_id = job.get("doc_id")
-    if not doc_id:
+    kb_id = str(job.get("kb_id") or "").strip()
+    if not doc_id or not kb_id:
         return
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         doc = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
         chunks = conn.execute(
             "SELECT content FROM kb_chunks WHERE doc_id=? AND enabled=1 ORDER BY ordinal",
@@ -315,7 +327,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
 
     body = "\n\n".join(str(r["content"] or "") for r in chunks).strip()
     if not body:
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 "UPDATE kb_documents SET summary_status='skipped', updated_at=? WHERE id=?",
                 (now, doc_id),
@@ -327,7 +339,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
     excerpt = body[:6000]
     prompt = f"请为以下知识库文档写 3～8 句中文摘要。点出主题、关键实体与表格/结论要点；禁止臆造未出现的信息。只输出摘要正文。\n\n标题：{title}\n\n正文：\n{excerpt}"
 
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         conn.execute(
             "UPDATE kb_documents SET summary_status='processing', updated_at=? WHERE id=?",
             (now, doc_id),
@@ -346,7 +358,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
         if len(text) > 4000:
             text = text[:3999] + "…"
         done = utc_now()
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 """
                 UPDATE kb_documents
@@ -361,7 +373,7 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
         fail = utc_now()
         # No chat model / network → skipped; other errors → failed
         status = "skipped" if "not found" in str(exc).lower() or "Model" in str(exc) else "failed"
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 "UPDATE kb_documents SET summary_status=?, updated_at=? WHERE id=?",
                 (status, fail, doc_id),
@@ -373,10 +385,10 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
 
     try:
         with db() as conn:
-            base = conn.execute("SELECT wiki_enabled FROM kb_bases WHERE id=?", (job.get("kb_id"),)).fetchone()
-        if base and int(base["wiki_enabled"] or 0) == 1 and job.get("kb_id"):
+            base = conn.execute("SELECT wiki_enabled FROM kb_bases WHERE id=?", (kb_id,)).fetchone()
+        if base and int(base["wiki_enabled"] or 0) == 1:
             jobs.enqueue(
-                kb_id=job["kb_id"],
+                kb_id=kb_id,
                 doc_id=doc_id,
                 type="wiki_ingest",
                 priority=220,

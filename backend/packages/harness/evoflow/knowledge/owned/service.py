@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from evoflow.knowledge.owned.formats import (
     should_skip_file,
 )
 from evoflow.knowledge.owned.ids import new_id, utc_now
+from evoflow.knowledge.owned.kb_conn import db_for_kb
 from evoflow.knowledge.owned.pipeline import _model_config_for_base
 from evoflow.knowledge.owned.retrieve import (
     enrich_hits,
@@ -60,6 +62,63 @@ def _validate_chunk_overlap(raw: Any, *, chunk_size: int) -> int:
     if n >= chunk_size:
         raise ValueError("chunkOverlap must be less than chunkSize")
     return n
+
+
+def _normalize_content_mode(raw: Any) -> str:
+    """``copy`` (default) or ``link`` (reference the user's files in place)."""
+    mode = str(raw or "").strip().lower()
+    return mode if mode in {"copy", "link"} else "copy"
+
+
+def _prepare_kb_storage(kb_id: str, payload: dict[str, Any]) -> Path:
+    """Create the KB's directory + index DB and return the resolved directory.
+
+    Honours an explicit ``storageDir`` / ``storage_dir``; falls back to the
+    configured KB root or the app data dir. If the requested directory is not
+    writable (git checkout, read-only mount, network share) we fall back to the
+    app data dir so KB creation never fails outright.
+    """
+    from evoflow.knowledge.owned import store_paths
+
+    requested = str(payload.get("storageDir") or payload.get("storage_dir") or "").strip()
+    if requested:
+        target = Path(requested).expanduser()
+        if not store_paths.is_dir_writable(target):
+            logger.warning(
+                "kb storage dir not writable, falling back to app data dir: %s (kb=%s)",
+                target,
+                kb_id,
+            )
+            target = store_paths.default_kb_dir(kb_id)
+    else:
+        target = store_paths.default_kb_dir(kb_id)
+
+    store_paths.ensure_kb_layout(target)
+    # Create the index DB eagerly so the layout is complete before first use.
+    from evoflow.knowledge.owned.kb_conn import db_for_dir
+
+    with db_for_dir(target):
+        pass
+    return target.resolve()
+
+
+def _write_kb_meta(kb_id: str, kb_dir: str | Path, *, name: str = "") -> None:
+    """Write ``kb.json`` describing this KB (portable metadata next to its index)."""
+    from evoflow.knowledge.owned import store_paths
+
+    try:
+        store_paths.write_kb_meta(
+            kb_dir,
+            {
+                "kbId": kb_id,
+                "name": name,
+                "schemaVersion": 1,
+                "layout": ".evoflow/kb",
+                "createdBy": "EvoFlow",
+            },
+        )
+    except Exception:
+        logger.debug("kb.json write skipped for kb=%s", kb_id, exc_info=True)
 
 
 def _row_base(row: Any) -> dict[str, Any]:
@@ -105,6 +164,8 @@ def _row_base(row: Any) -> dict[str, Any]:
         "syncSourcePath": d.get("sync_source_path") or "",
         "syncVaultId": d.get("sync_vault_id") or "",
         "lastSyncedAt": d.get("last_synced_at"),
+        "storageDir": d.get("storage_dir") or "",
+        "contentMode": d.get("content_mode") or "copy",
         "createdAt": d.get("created_at"),
         "updatedAt": d.get("updated_at"),
         "orgId": d.get("org_id") or "",
@@ -155,6 +216,47 @@ def _row_doc(row: Any) -> dict[str, Any]:
     }
 
 
+def _document_counts_by_kb(rows: list[Any]) -> dict[str, int]:
+    """Count active documents per KB by opening each KB's own index DB.
+
+    Falls back to the central DB for KBs that have not been migrated yet, so the
+    count stays correct during a rolling migration.
+    """
+    counts: dict[str, int] = {}
+    pending: list[str] = []
+    for r in rows:
+        kid = str(r["id"] if isinstance(r, sqlite3.Row) else r[0])
+        sd = str((r["storage_dir"] if isinstance(r, sqlite3.Row) else "") or "").strip()
+        if not sd:
+            pending.append(kid)
+            continue
+        try:
+            with db_for_kb(kid) as conn:
+                counts[kid] = int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM kb_documents WHERE kb_id=? AND deleted_at IS NULL",
+                        (kid,),
+                    ).fetchone()[0]
+                )
+        except Exception:
+            logger.debug("doc count skipped for kb=%s", kid, exc_info=True)
+            pending.append(kid)
+
+    if pending:
+        try:
+            with db() as conn:
+                for kid in pending:
+                    counts[kid] = int(
+                        conn.execute(
+                            "SELECT COUNT(*) FROM kb_documents WHERE kb_id=? AND deleted_at IS NULL",
+                            (kid,),
+                        ).fetchone()[0]
+                    )
+        except Exception:
+            logger.debug("central doc count fallback failed", exc_info=True)
+    return counts
+
+
 def list_bases(
     *,
     is_admin: bool = False,
@@ -166,16 +268,8 @@ def list_bases(
     ensure_owned_kb_worker_started()
     with db() as conn:
         rows = conn.execute("SELECT * FROM kb_bases WHERE deleted_at IS NULL ORDER BY updated_at DESC").fetchall()
-        counts = {
-            str(r[0]): int(r[1] or 0)
-            for r in conn.execute(
-                """
-                SELECT kb_id, COUNT(*) FROM kb_documents
-                WHERE deleted_at IS NULL
-                GROUP BY kb_id
-                """
-            ).fetchall()
-        }
+    # Documents live in each KB's own index DB, so counts are gathered per KB.
+    counts = _document_counts_by_kb(rows)
     out: list[dict[str, Any]] = []
     for r in rows:
         item = _row_base(r)
@@ -289,6 +383,9 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
 
         key_ref = f"owned_{kb_id}_embedding_api_key"
         vault_secrets.put_secret(key_ref, str(api_key).strip())
+    # Resolve where this KB's own index DB will live (independent root, or the
+    # app data fallback when the requested directory is not writable).
+    storage_dir = _prepare_kb_storage(kb_id, payload)
     with db() as conn:
         conn.execute(
             """
@@ -297,8 +394,9 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
               embedding_mode, embedding_model, embedding_base_url, embedding_api_key_ref,
               embedding_model_ref,
               vector_enabled, keyword_enabled, wiki_enabled, graph_enabled,
-              summary_enabled, image_caption_enabled, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,0,0,?,?,?,?)
+              summary_enabled, image_caption_enabled, storage_dir, content_mode,
+              created_at, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,0,0,?,?,?,?,?,?)
             """,
             (
                 kb_id,
@@ -314,10 +412,13 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
                 model_ref,
                 1 if payload.get("summaryEnabled", True) else 0,
                 1 if payload.get("imageCaptionEnabled") else 0,
+                str(storage_dir),
+                _normalize_content_mode(payload.get("contentMode") or payload.get("content_mode")),
                 now,
                 now,
             ),
         )
+    _write_kb_meta(kb_id, storage_dir, name=name)
     out = get_base(kb_id)  # type: ignore[return-value]
     owned_activity.record(
         kb_id,
@@ -438,24 +539,26 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             if embedding_changed:
                 sets.append("embedding_dim=?")
                 vals.append(None)
-                conn.execute("DELETE FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,))
-                doc_rows = conn.execute(
-                    """
-                    SELECT id FROM kb_documents
-                    WHERE kb_id=? AND deleted_at IS NULL
-                    """,
-                    (kb_id,),
-                ).fetchall()
+                with db_for_kb(kb_id) as kb_conn:
+                    kb_conn.execute("DELETE FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,))
+                    doc_rows = kb_conn.execute(
+                        """
+                        SELECT id FROM kb_documents
+                        WHERE kb_id=? AND deleted_at IS NULL
+                        """,
+                        (kb_id,),
+                    ).fetchall()
                 reindex_doc_ids = [str(r["id"]) for r in doc_rows]
             elif row["embedding_dim"] is None:
                 # Same model but never vectorized (or dim cleared) — still enqueue.
-                doc_rows = conn.execute(
-                    """
-                    SELECT id FROM kb_documents
-                    WHERE kb_id=? AND deleted_at IS NULL
-                    """,
-                    (kb_id,),
-                ).fetchall()
+                with db_for_kb(kb_id) as kb_conn:
+                    doc_rows = kb_conn.execute(
+                        """
+                        SELECT id FROM kb_documents
+                        WHERE kb_id=? AND deleted_at IS NULL
+                        """,
+                        (kb_id,),
+                    ).fetchall()
                 reindex_doc_ids = [str(r["id"]) for r in doc_rows]
 
         vals.append(kb_id)
@@ -510,12 +613,16 @@ def reindex_base(
         if not row:
             raise ValueError("knowledge base not found")
         if force or row["embedding_dim"] is None:
-            conn.execute("DELETE FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,))
             conn.execute(
                 "UPDATE kb_bases SET embedding_dim=?, updated_at=? WHERE id=?",
                 (None, now, kb_id),
             )
-            conn.execute(
+
+    # Chunks/embeddings/documents are KB-local.
+    with db_for_kb(kb_id) as kb_conn:
+        if force or row["embedding_dim"] is None:
+            kb_conn.execute("DELETE FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,))
+            kb_conn.execute(
                 """
                 UPDATE kb_documents
                 SET parse_status='pending', error_message='', updated_at=?
@@ -523,7 +630,7 @@ def reindex_base(
                 """,
                 (now, kb_id),
             )
-        doc_rows = conn.execute(
+        doc_rows = kb_conn.execute(
             """
             SELECT id FROM kb_documents
             WHERE kb_id=? AND deleted_at IS NULL
@@ -566,7 +673,7 @@ def requeue_orphan_parse_docs(
         kid = str(row.get("kb_id") or "").strip()
         if not doc_id or not kid:
             continue
-        with db() as conn:
+        with db_for_kb(kid) as conn:
             conn.execute(
                 """
                 UPDATE kb_documents
@@ -594,6 +701,53 @@ def get_base(kb_id: str) -> dict[str, Any] | None:
     return _row_base(row) if row else None
 
 
+def _purge_base_documents(conn: Any, kb_id: str, *, now: str) -> int:
+    """Soft-delete every active document of a base and drop its derived rows.
+
+    Historically ``delete_base`` only stamped ``kb_bases.deleted_at`` and deleted
+    the blob directory, leaving all chunks / embeddings / FTS rows behind — data
+    that is unreachable from the UI but still occupies the SQLite file forever.
+
+    Keep the per-document work in sync with :func:`delete_document` so the two
+    paths cannot drift again. Returns the number of documents touched.
+    """
+    doc_ids = [
+        r["id"]
+        for r in conn.execute(
+            "SELECT id FROM kb_documents WHERE kb_id=? AND deleted_at IS NULL",
+            (kb_id,),
+        ).fetchall()
+    ]
+    for doc_id in doc_ids:
+        conn.execute(
+            "UPDATE kb_documents SET deleted_at=?, updated_at=? WHERE id=?",
+            (now, now, doc_id),
+        )
+        purge_document_index(conn, doc_id)
+
+    conn.execute("DELETE FROM kb_folders WHERE kb_id=?", (kb_id,))
+    conn.execute("DELETE FROM kb_doc_links WHERE kb_id=?", (kb_id,))
+    conn.execute("DELETE FROM kb_assets WHERE kb_id=?", (kb_id,))
+
+    # Knowledge graph / wiki tables are optional features; ignore missing tables.
+    try:
+        conn.execute("DELETE FROM kg_edges WHERE kb_id=?", (kb_id,))
+        conn.execute("DELETE FROM kg_nodes WHERE kb_id=?", (kb_id,))
+    except Exception:
+        logger.debug("kg cleanup skipped for kb=%s", kb_id, exc_info=True)
+    try:
+        conn.execute(
+            "DELETE FROM wiki_page_revisions WHERE page_id IN (SELECT id FROM wiki_pages WHERE kb_id=?)",
+            (kb_id,),
+        )
+        conn.execute("DELETE FROM wiki_pages WHERE kb_id=?", (kb_id,))
+        conn.execute("DELETE FROM wiki_folders WHERE kb_id=?", (kb_id,))
+    except Exception:
+        logger.debug("wiki cleanup skipped for kb=%s", kb_id, exc_info=True)
+
+    return len(doc_ids)
+
+
 def delete_base(kb_id: str) -> None:
     from evoflow.knowledge.owned.builtin_seed import is_builtin_owned_kb_id
 
@@ -602,12 +756,15 @@ def delete_base(kb_id: str) -> None:
     now = utc_now()
     base = get_base(kb_id)
     name = (base or {}).get("name") or kb_id
+    # Registry row lives in the central DB; KB-owned rows live in the KB's index DB.
     with db() as conn:
         row = conn.execute("SELECT embedding_api_key_ref FROM kb_bases WHERE id=?", (kb_id,)).fetchone()
         conn.execute(
             "UPDATE kb_bases SET deleted_at=?, updated_at=? WHERE id=?",
             (now, now, kb_id),
         )
+    with db_for_kb(kb_id) as conn:
+        _purge_base_documents(conn, kb_id, now=now)
     if row:
         ref = str(row["embedding_api_key_ref"] or "")
         if ref:
@@ -617,12 +774,13 @@ def delete_base(kb_id: str) -> None:
                 vault_secrets.delete_secret(ref)
             except Exception:
                 pass
+    jobs.cancel_for_kb(kb_id)
     blob_store.delete_kb_blobs(kb_id)
     owned_activity.record(kb_id, "base.delete", title=str(name), detail={"name": name})
 
 
 def list_documents(kb_id: str) -> list[dict[str, Any]]:
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT * FROM kb_documents
@@ -647,7 +805,7 @@ def _resolve_folder_path(path: str | None) -> str:
 
 def list_folders(kb_id: str) -> list[dict[str, Any]]:
     """Explicit empty folders + distinct folder_path prefixes from documents."""
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             "SELECT path, created_at, updated_at FROM kb_folders WHERE kb_id=? ORDER BY path",
             (kb_id,),
@@ -699,7 +857,7 @@ def create_folder(kb_id: str, path: str) -> dict[str, Any]:
         raise ValueError("folder path required")
     now = utc_now()
     fid = new_id("fld_")
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         existing = conn.execute(
             "SELECT path FROM kb_folders WHERE kb_id=? AND path=?",
             (kb_id, folder),
@@ -747,7 +905,7 @@ def rename_folder(
         raise ValueError("cannot rename folder into its own child")
     now = utc_now()
     moved = 0
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT id, folder_path FROM kb_documents
@@ -847,7 +1005,8 @@ def delete_folder(
     parent = "/".join(folder.split("/")[:-1])
     now = utc_now()
     affected = 0
-    with db() as conn:
+    deleted_doc_ids: list[str] = []
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT id, folder_path FROM kb_documents
@@ -859,10 +1018,15 @@ def delete_folder(
         for r in rows:
             old = _norm_folder_path(r["folder_path"])
             if mode == "delete_docs":
+                doc_id = str(r["id"])
                 conn.execute(
                     "UPDATE kb_documents SET deleted_at=?, updated_at=? WHERE id=?",
-                    (now, now, r["id"]),
+                    (now, now, doc_id),
                 )
+                # Keep parity with delete_document(): drop derived index rows so a
+                # folder delete does not silently strand chunks/embeddings/FTS.
+                purge_document_index(conn, doc_id)
+                deleted_doc_ids.append(doc_id)
             else:
                 if old == folder:
                     new = parent
@@ -878,6 +1042,8 @@ def delete_folder(
             "DELETE FROM kb_folders WHERE kb_id=? AND (path=? OR path LIKE ?)",
             (kb_id, folder, f"{folder}/%"),
         )
+    for doc_id in deleted_doc_ids:
+        blob_store.delete_doc_blobs(kb_id, doc_id)
     owned_activity.record(
         kb_id,
         "folder.delete",
@@ -900,7 +1066,7 @@ def move_document(
         raise ValueError("document not found")
     kb_id = doc["kbId"]
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         folder = _resolve_folder_path(folder_path if folder_path is not None else doc.get("folderPath"))
         target_order = sort_order
 
@@ -971,7 +1137,10 @@ def move_document(
 
 
 def get_document(doc_id: str) -> dict[str, Any] | None:
-    with db() as conn:
+    kb_id = _kb_id_for_doc(doc_id)
+    if not kb_id:
+        return None
+    with db_for_kb(kb_id) as conn:
         row = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     return _row_doc(row) if row else None
 
@@ -984,7 +1153,7 @@ def resolve_document(kb_id: str, key: str) -> dict[str, Any] | None:
     doc = get_document(key)
     if doc and doc.get("kbId") == kb_id:
         return doc
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT * FROM kb_documents
@@ -1053,13 +1222,84 @@ _TEXT_SUFFIXES = {
 }
 
 
+def _kb_id_for_doc(doc_id: str) -> str | None:
+    """Resolve which KB owns *doc_id*.
+
+    Documents live in per-KB index DBs, so a bare ``doc_id`` cannot locate its
+    file. The central registry keeps a ``kb_doc_index`` map written whenever a
+    document row is created.
+    """
+    did = str(doc_id or "").strip()
+    if not did:
+        return None
+    try:
+        with db() as conn:
+            cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(kb_doc_index)").fetchall()}
+            if not cols:
+                return None
+            row = conn.execute("SELECT kb_id FROM kb_doc_index WHERE doc_id=?", (did,)).fetchone()
+        if row:
+            return str(row[0] or "").strip() or None
+    except Exception:
+        logger.debug("kb_doc_index lookup failed for doc=%s", did, exc_info=True)
+    return None
+
+
+def _remember_doc_kb(doc_id: str, kb_id: str) -> None:
+    """Record doc → kb in the central registry (idempotent)."""
+    did = str(doc_id or "").strip()
+    kid = str(kb_id or "").strip()
+    if not did or not kid:
+        return
+    try:
+        with db() as conn:
+            conn.execute(
+                """
+                INSERT INTO kb_doc_index(doc_id, kb_id, created_at) VALUES (?,?,?)
+                ON CONFLICT(doc_id) DO UPDATE SET kb_id=excluded.kb_id
+                """,
+                (did, kid, utc_now()),
+            )
+    except Exception:
+        logger.debug("kb_doc_index write failed for doc=%s", did, exc_info=True)
+
+
+def _kb_id_for_asset(asset_id: str) -> str | None:
+    """Resolve the KB owning an asset id (assets live in per-KB index DBs)."""
+    aid = str(asset_id or "").strip()
+    if not aid:
+        return None
+    try:
+        with db() as conn:
+            cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(kb_asset_index)").fetchall()}
+            if not cols:
+                return None
+            row = conn.execute("SELECT kb_id FROM kb_asset_index WHERE asset_id=?", (aid,)).fetchone()
+        if row:
+            return str(row[0] or "").strip() or None
+    except Exception:
+        logger.debug("kb_asset_index lookup failed for asset=%s", aid, exc_info=True)
+    return None
+
+
+def _forget_doc_kb(doc_id: str) -> None:
+    try:
+        with db() as conn:
+            conn.execute("DELETE FROM kb_doc_index WHERE doc_id=?", (str(doc_id or "").strip(),))
+    except Exception:
+        logger.debug("kb_doc_index delete failed for doc=%s", doc_id, exc_info=True)
+
+
 def get_document_content(doc_id: str, *, max_chars: int = 500_000) -> dict[str, Any] | None:
     """Return viewable content for panel: raw text blob when possible, else parsed chunks.
 
     Lexiang opens `/pages/{id}` with the document body; we mirror that with
     ``source=raw`` (original text files) or ``source=parsed`` (PDF/Office via pipeline).
     """
-    with db() as conn:
+    kb_id = _kb_id_for_doc(doc_id)
+    if not kb_id:
+        return None
+    with db_for_kb(kb_id) as conn:
         row = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if not row:
         return None
@@ -1074,7 +1314,7 @@ def get_document_content(doc_id: str, *, max_chars: int = 500_000) -> dict[str, 
 
     if blob_path and suffix in _TEXT_SUFFIXES:
         try:
-            path = blob_store.resolve_blob(blob_path)
+            path = blob_store.resolve_blob(blob_path, kb_id=kb_id)
             if path.is_file():
                 raw = path.read_bytes()
                 for enc in ("utf-8", "utf-8-sig", "gb18030", "latin-1"):
@@ -1116,7 +1356,10 @@ def get_document_content(doc_id: str, *, max_chars: int = 500_000) -> dict[str, 
 
 def resolve_document_file(doc_id: str) -> dict[str, Any] | None:
     """Resolve original blob path + Content-Type for panel file preview (PDF etc.)."""
-    with db() as conn:
+    kb_id = _kb_id_for_doc(doc_id)
+    if not kb_id:
+        return None
+    with db_for_kb(kb_id) as conn:
         row = conn.execute("SELECT * FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if not row:
         return None
@@ -1124,7 +1367,7 @@ def resolve_document_file(doc_id: str) -> dict[str, Any] | None:
     if not blob_path:
         return None
     try:
-        path = blob_store.resolve_blob(blob_path)
+        path = blob_store.resolve_blob(blob_path, kb_id=kb_id)
     except ValueError:
         return None
     if not path.is_file():
@@ -1177,7 +1420,7 @@ def enqueue_document_summary(doc_id: str, *, force: bool = False) -> dict[str, A
             "summaryText": doc.get("summaryText") or "",
         }
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(str(doc.get("kbId") or "")) as conn:
         if force:
             conn.execute(
                 """
@@ -1367,7 +1610,7 @@ def _create_doc_record(
     folder = _resolve_folder_path(folder_path)
     rel = f"{folder}/{file_name}".strip("/") if folder else file_name
     mime = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         conn.execute(
             """
             INSERT INTO kb_documents(
@@ -1393,6 +1636,7 @@ def _create_doc_record(
         )
     job = jobs.enqueue(kb_id=kb_id, doc_id=doc_id, type="parse_index", priority=100)
     ensure_owned_kb_worker_started()
+    _remember_doc_kb(doc_id, kb_id)
     doc = get_document(doc_id) or {}
     doc["job"] = job
     return doc
@@ -1400,7 +1644,7 @@ def _create_doc_record(
 
 def _find_doc_by_rel_path(kb_id: str, folder_path: str, file_name: str) -> dict[str, Any] | None:
     folder = folder_path.replace("\\", "/").strip("/")
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         row = conn.execute(
             """
             SELECT * FROM kb_documents
@@ -1436,7 +1680,7 @@ def _update_doc_from_file(
     blob_path = blob_store.put_bytes(kb_id, doc_id, file_name, data)
     now = utc_now()
     mime = mimetypes.guess_type(file_name)[0] or "application/octet-stream"
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         conn.execute(
             """
             UPDATE kb_documents SET
@@ -1519,7 +1763,7 @@ def replace_document_content(doc_id: str, content: str, *, title: str | None = N
     file_name = doc.get("fileName") or f"{Path(title or doc.get('title') or 'note').stem}.md"
     blob_path = blob_store.put_bytes(kb_id, doc_id, file_name, data)
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         conn.execute(
             """
             UPDATE kb_documents SET
@@ -1557,12 +1801,16 @@ def replace_document_content(doc_id: str, content: str, *, title: str | None = N
 
 
 def append_document_content(doc_id: str, content: str, *, section: str | None = None) -> dict[str, Any]:
+    doc = get_document(doc_id)
+    if not doc:
+        raise ValueError("document not found")
+    kb_id = str(doc.get("kbId") or "")
     existing = ""
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         row = conn.execute("SELECT blob_path FROM kb_documents WHERE id=? AND deleted_at IS NULL", (doc_id,)).fetchone()
     if row and row["blob_path"]:
         try:
-            path = blob_store.resolve_blob(row["blob_path"])
+            path = blob_store.resolve_blob(row["blob_path"], kb_id=kb_id)
             if path.is_file():
                 existing = path.read_text(encoding="utf-8", errors="replace")
         except Exception:
@@ -1678,7 +1926,7 @@ def import_local_folder(
 
     pruned = 0
     if prune_missing and upsert:
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             if prefix:
                 rows = conn.execute(
                     """
@@ -1775,7 +2023,7 @@ def import_from_vault(
         doc_id = doc.get("id")
         if not doc_id:
             continue
-        with db() as conn:
+        with db_for_kb(kb_id) as conn:
             conn.execute(
                 "UPDATE kb_documents SET source_type='import_vault', updated_at=? WHERE id=?",
                 (utc_now(), doc_id),
@@ -1836,15 +2084,17 @@ def resync_base(kb_id: str, *, prune_missing: bool = False) -> dict[str, Any]:
 
 def delete_document(doc_id: str, *, record_activity: bool = True) -> None:
     title = ""
-    kb_id = ""
-    with db() as conn:
+    kb_id = _kb_id_for_doc(doc_id) or ""
+    if not kb_id:
+        raise ValueError("document not found")
+    with db_for_kb(kb_id) as conn:
         row = conn.execute(
             "SELECT kb_id, title, file_name FROM kb_documents WHERE id=? AND deleted_at IS NULL",
             (doc_id,),
         ).fetchone()
         if not row:
             raise ValueError("document not found")
-        kb_id = row["kb_id"]
+        kb_id = str(row["kb_id"] or kb_id)
         title = str(row["title"] or row["file_name"] or doc_id)
         now = utc_now()
         conn.execute(
@@ -1853,6 +2103,7 @@ def delete_document(doc_id: str, *, record_activity: bool = True) -> None:
         )
         purge_document_index(conn, doc_id)
     blob_store.delete_doc_blobs(kb_id, doc_id)
+    _forget_doc_kb(doc_id)
     if record_activity:
         owned_activity.record(
             kb_id,
@@ -1860,6 +2111,99 @@ def delete_document(doc_id: str, *, record_activity: bool = True) -> None:
             doc_id=doc_id,
             title=title,
         )
+
+
+async def search_all(
+    query: str,
+    *,
+    mode: str = "hybrid",
+    top_k: int = 8,
+    tags: list[str] | None = None,
+    record_activity: bool = False,
+) -> dict[str, Any]:
+    """Search every visible KB and fuse the per-KB rankings with RRF.
+
+    KBs live in separate index DBs, so results are merged in memory: each KB
+    contributes its own ranked list and RRF combines them without letting a
+    single large KB dominate.
+    """
+    q = (query or "").strip()
+    if not q:
+        return {"items": [], "total": 0, "mode": mode, "degraded": False, "tags": []}
+
+    bases = list_bases()
+    per_kb: list[list[dict[str, Any]]] = []
+    degraded = False
+    for b in bases:
+        kid = str(b.get("id") or "").strip()
+        if not kid:
+            continue
+        try:
+            res = await search(
+                kid,
+                q,
+                mode=mode,
+                top_k=max(top_k, 8),
+                tags=tags,
+                record_activity=False,
+            )
+        except Exception:
+            logger.debug("cross-kb search skipped kb=%s", kid, exc_info=True)
+            degraded = True
+            continue
+        if res.get("degraded"):
+            degraded = True
+        hits = res.get("items") or []
+        if hits:
+            # Normalise ranks within this KB so RRF compares like with like.
+            # ``search()`` returns camelCase items; rrf_fuse expects index-style keys.
+            ranked: list[dict[str, Any]] = []
+            for i, h in enumerate(hits):
+                item = dict(h)
+                cid = item.get("chunk_id") or item.get("chunkId")
+                if not cid:
+                    continue
+                item["chunk_id"] = cid
+                item["doc_id"] = item.get("doc_id") or item.get("docId")
+                item["kb_id"] = item.get("kb_id") or item.get("kbId") or kid
+                item["rank"] = i + 1
+                ranked.append(item)
+            if ranked:
+                per_kb.append(ranked)
+
+    if not per_kb:
+        return {"items": [], "total": 0, "mode": mode, "degraded": degraded, "tags": list(tags or [])}
+
+    # Fuse pairwise: RRF is associative over ranked lists.
+    fused = per_kb[0]
+    for nxt in per_kb[1:]:
+        fused = rrf_fuse(fused, nxt, top_k=max(top_k * 2, 20))
+
+    # Normalise back to the camelCase shape the API/UI expects.
+    items: list[dict[str, Any]] = []
+    for h in fused[:top_k]:
+        item = dict(h)
+        item["chunkId"] = item.get("chunkId") or item.get("chunk_id")
+        item["docId"] = item.get("docId") or item.get("doc_id")
+        item["kbId"] = item.get("kbId") or item.get("kb_id")
+        item["rrfScore"] = item.get("rrfScore", item.get("rrf_score"))
+        items.append(item)
+    if record_activity:
+        owned_activity.record(
+            "",
+            "search",
+            title=_preview_title(q),
+            detail={"query": q, "mode": mode, "hitCount": len(items), "scope": "all"},
+        )
+    return {
+        "items": items,
+        "total": len(items),
+        "mode": mode,
+        "degraded": degraded,
+        "tags": [str(t) for t in (tags or [])],
+        "scope": "all",
+        "kbCount": len(per_kb),
+    }
 
 
 async def search(
@@ -1871,10 +2215,19 @@ async def search(
     tags: list[str] | None = None,
     record_activity: bool = True,
 ) -> dict[str, Any]:
+    """Search one KB, or all KBs when ``kb_id`` is empty.
+
+    Each KB keeps its own index DB, so a cross-KB search fans out per KB and
+    fuses the per-KB result lists with RRF (``rrf_fuse``).
+    """
     ensure_owned_kb_worker_started()
-    base = get_base(kb_id)
+    target = str(kb_id or "").strip()
+    if not target:
+        return await search_all(query, mode=mode, top_k=top_k, tags=tags, record_activity=record_activity)
+    base = get_base(target)
     if not base:
         raise ValueError("knowledge base not found")
+    kb_id = target
     mode = (mode or "hybrid").lower()
     degraded = False
     keyword_hits: list[dict[str, Any]] = []
@@ -1910,9 +2263,10 @@ async def search(
     if mode in ("semantic", "vector", "hybrid"):
         if base.get("embeddingDim") and base.get("vectorEnabled", True):
             try:
+                # ``base`` already carries the registry row (central DB) — no re-read.
                 with db() as conn:
                     row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id,)).fetchone()
-                mc = _model_config_for_base(dict(row))
+                mc = _model_config_for_base(dict(row or {}))
                 qvec = await get_embedding(query, mc, expected_dim=int(base["embeddingDim"]))
                 vector_hits = search_vector(kb_id, qvec, top_k=fetch_k)
             except Exception:
@@ -1993,7 +2347,7 @@ def list_tags(kb_id: str) -> list[dict[str, Any]]:
     import json
 
     counts: dict[str, int] = {}
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT tags_json FROM kb_documents
@@ -2051,7 +2405,10 @@ def job_stats(kb_id: str) -> dict[str, Any]:
 
 
 def list_chunks(doc_id: str) -> list[dict[str, Any]]:
-    with db() as conn:
+    doc = get_document(doc_id)
+    if not doc:
+        return []
+    with db_for_kb(str(doc.get("kbId") or "")) as conn:
         rows = conn.execute(
             "SELECT * FROM kb_chunks WHERE doc_id=? ORDER BY ordinal",
             (doc_id,),

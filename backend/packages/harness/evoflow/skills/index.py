@@ -214,24 +214,32 @@ class SkillIndex:
         skills_path: Path | None = None,
         workspace_root: str | None = None,
         scope_skill_roots: list[tuple[Path, SkillScope]] | None = None,
+        extra_roots: list[Path] | None = None,
     ) -> SkillIndex:
-        if skills_path is None:
-            try:
-                from evoflow.config import get_app_config
+        """Build an index over all discovery roots.
 
-                cfg = get_app_config().skills
+        Config is always consulted for ``skills.extra_roots`` / ``skills.repo_skills_dir``
+        (previously that only happened when ``skills_path`` was None, so ``load_skills()``
+        — which resolves the primary path first and passes it in — silently dropped
+        configured extra roots). Pass ``extra_roots`` explicitly to override.
+        """
+        repo_dir = ".evoflow/skills"
+        cfg_extra: list[Path] = []
+        try:
+            from evoflow.config import get_app_config
+
+            cfg = get_app_config().skills
+            if skills_path is None:
                 skills_path = cfg.get_skills_path()
-                extra = cfg.get_extra_root_paths()
-                repo_dir = str(cfg.repo_skills_dir or ".evoflow/skills").strip().strip("/\\")
-            except Exception:
+            cfg_extra = cfg.get_extra_root_paths()
+            repo_dir = str(cfg.repo_skills_dir or ".evoflow/skills").strip().strip("/\\")
+        except Exception:
+            if skills_path is None:
                 from evoflow.skills.loader import get_skills_root_path
 
                 skills_path = get_skills_root_path()
-                extra = []
-                repo_dir = ".evoflow/skills"
-        else:
-            extra = []
-            repo_dir = ".evoflow/skills"
+
+        extra = list(extra_roots) if extra_roots is not None else cfg_extra
 
         roots = build_skill_roots(
             primary_root=skills_path,

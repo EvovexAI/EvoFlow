@@ -12380,6 +12380,11 @@ html.dark .msg-ai-ask-inline-label,
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* 与消息列 / 输入框同一中轴：全屏（对话列变宽）时不能贴左 */
+  width: 100%;
+  max-width: var(--chat-composer-max, 840px);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .react-chat-clarify-confirm-dock-accent {
@@ -12400,6 +12405,9 @@ html.dark .msg-ai-ask-inline-label,
   min-height: 0;
   width: 100%;
   max-width: min(720px, 100%);
+  /* 卡片限宽后必须自居中，否则在全屏（对话列变宽）时贴左 */
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Dock context: card-body scrolls internally */

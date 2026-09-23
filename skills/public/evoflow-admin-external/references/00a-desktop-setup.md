@@ -103,7 +103,7 @@ Write-Host "exit=$LASTEXITCODE"
 CLI 冒烟通过后：
 
 1. 官网首页 `/#skill-pack` → **下载 .zip**  
-   或直链：`/skills/downloads/evoflow-admin-external-1.0.4.zip`（版本以首页卡片为准）
+   或直链：`/skills/downloads/evoflow-admin-external-1.0.5.zip`（版本以首页卡片为准）
 2. `evoflow skills install <zip路径>`
 3. `evoflow skills enable evoflow-admin-external`
 4. 读 `00-concept-routing.md` → `03-cli-cheatsheet.md`

@@ -217,6 +217,21 @@ def save_experience(data: dict[str, Any]) -> dict[str, Any]:
         payload.setdefault("solution", ctx.get("solution"))
         payload.setdefault("outcome", ctx.get("outcome"))
         payload.setdefault("applicable_to", ctx.get("applicable_to"))
+    # ``content`` is the field the platform catalog advertises; treat it as a
+    # full Markdown body (verbatim) so a body actually lands in the SKILL.md.
+    # Without this the call succeeded while silently writing a title-only file.
+    if not any(str(payload.get(k) or "").strip() for k in ("problem", "solution", "outcome")):
+        body_text = str(data.get("content") or "").strip()
+        if body_text:
+            payload["body_md"] = body_text
+    # Refuse a title-only save: it used to "succeed" while writing an empty
+    # body, which is exactly the silent-failure mode this guard closes.
+    has_body = any(
+        str(payload.get(k) or "").strip()
+        for k in ("problem", "solution", "outcome", "body_md")
+    )
+    if not has_body and not payload.get("steps"):
+        raise ValidationError("experience body is empty: provide problem/solution/outcome (or content)")
     payload["origin"] = payload.get("origin") or "distilled"
     # Multi-user isolation: authenticated callers persist into their personal
     # bucket ``assets/users/<id>/craft`` (the same bucket the Asset Center reads).

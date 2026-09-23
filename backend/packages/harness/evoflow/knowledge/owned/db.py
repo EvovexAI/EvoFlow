@@ -71,3 +71,11 @@ def reset_db_state_for_tests() -> None:
                 pass
             _conn = None
         _schema_version_applied = None
+    # Per-KB connections are cached separately (see ``kb_conn``); without this
+    # a test that switched EVOFLOW_HOME would keep reading the previous KB dir.
+    try:
+        from evoflow.knowledge.owned import kb_conn
+
+        kb_conn.reset_for_tests()
+    except Exception:
+        pass

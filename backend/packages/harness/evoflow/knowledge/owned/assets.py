@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from evoflow.knowledge.owned.ids import new_id, utc_now
-from evoflow.knowledge.owned.paths import files_dir
+from evoflow.knowledge.owned.kb_conn import db_for_kb, kb_dir_for_kb
+from evoflow.knowledge.owned.store_paths import blobs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,12 @@ _DATA_URI_RE = re.compile(
     r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$",
     re.DOTALL,
 )
-_ASSET_REF_RE = re.compile(r"!\[([^\]]*)\]\(asset://([^)]+)\)")
+_ASSET_REF_RE = re.compile(r"!\[([^\]]*)\]\((?:asset://|/api/knowledge/owned/assets/)([^)]+?)\)")
+
+# Assets are served by this gateway route; rewriting the body to a real URL keeps
+# images renderable in Markdown previews (an ``asset://`` scheme is not a valid
+# <img src> for browsers).
+ASSET_URL_PREFIX = "/api/knowledge/owned/assets/"
 
 _EXT_BY_MIME = {
     "image/png": ".png",
@@ -36,12 +42,20 @@ _EXT_BY_MIME = {
 
 
 def put_asset_bytes(kb_id: str, doc_id: str, asset_id: str, name: str, data: bytes) -> str:
+    """Persist an extracted asset under the KB's blob root.
+
+    The returned ``blob_path`` must be resolvable by
+    :func:`evoflow.knowledge.owned.blob_store.resolve_blob`, which is rooted at
+    ``<kb_dir>/.evoflow/kb/blobs/`` — so assets live in ``blobs/{doc_id}/``
+    alongside document blobs (previously they were written to a sibling
+    ``assets/`` dir that ``resolve_blob`` never looked at).
+    """
     safe = Path(name).name or f"{asset_id}.bin"
-    dest_dir = files_dir() / kb_id / doc_id / "assets"
+    dest_dir = blobs_dir(kb_dir_for_kb(kb_id)) / doc_id
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / safe
     dest.write_bytes(data)
-    return f"files/{kb_id}/{doc_id}/assets/{safe}"
+    return f"blobs/{doc_id}/{safe}"
 
 
 def embed_text_for_chunk(content: str) -> str:
@@ -108,7 +122,7 @@ def extract_and_rewrite_images(
         nonlocal count
         alt = match.group(1) or ""
         url = (match.group(2) or "").strip()
-        if url.startswith("asset://"):
+        if url.startswith(("asset://", ASSET_URL_PREFIX)):
             return match.group(0)
         if count >= MAX_ASSETS_PER_DOC:
             return match.group(0)
@@ -169,7 +183,7 @@ def extract_and_rewrite_images(
             }
         )
         count += 1
-        return f"![{alt}](asset://{asset_id})"
+        return f"![{alt}]({ASSET_URL_PREFIX}{asset_id})"
 
     rewritten = _MD_IMAGE_RE.sub(_replace, text)
     return rewritten, assets
@@ -203,17 +217,37 @@ def insert_assets(conn: Any, assets: list[dict[str, Any]]) -> None:
             for a in assets
         ],
     )
+    # Assets live in the KB's index DB; register the id -> kb map centrally so
+    # ``get_asset(asset_id)`` can locate the owning KB.
+    _remember_assets(assets)
+
+
+def _remember_assets(assets: list[dict[str, Any]]) -> None:
+    try:
+        from evoflow.knowledge.owned.db import db
+
+        now = utc_now()
+        with db() as conn:
+            conn.executemany(
+                """
+                INSERT INTO kb_asset_index(asset_id, kb_id, created_at) VALUES (?,?,?)
+                ON CONFLICT(asset_id) DO UPDATE SET kb_id=excluded.kb_id
+                """,
+                [(a["id"], a["kb_id"], now) for a in assets if a.get("id") and a.get("kb_id")],
+            )
+    except Exception:
+        logger.debug("kb_asset_index write skipped", exc_info=True)
 
 
 def link_assets_to_chunks(conn: Any, assets: list[dict[str, Any]], chunk_rows: list[tuple]) -> None:
-    """Set chunk_id when chunk content contains asset://{id}."""
+    """Set chunk_id when chunk content references the asset (legacy or URL form)."""
     for a in assets:
         aid = a["id"]
-        needle = f"asset://{aid}"
+        needles = (f"asset://{aid}", f"{ASSET_URL_PREFIX}{aid}")
         for row in chunk_rows:
             # row: (id, kb_id, doc_id, ordinal, content, ...)
             content = row[4] if len(row) > 4 else ""
-            if needle in (content or ""):
+            if any(n in (content or "") for n in needles):
                 conn.execute(
                     "UPDATE kb_assets SET chunk_id=? WHERE id=?",
                     (row[0], aid),
@@ -222,21 +256,39 @@ def link_assets_to_chunks(conn: Any, assets: list[dict[str, Any]], chunk_rows: l
                 break
 
 
-def assets_for_chunks(chunk_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+def assets_for_chunks(chunk_ids: list[str], *, kb_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Return ``{chunk_id: [asset, ...]}`` for the given chunks.
+
+    Assets live in per-KB index DBs. When ``kb_id`` is omitted the owning KBs are
+    resolved from the central doc/asset registry so cross-KB callers still work.
+    """
     if not chunk_ids:
         return {}
-    from evoflow.knowledge.owned.db import db
-
     placeholders = ",".join("?" * len(chunk_ids))
-    with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT id, chunk_id, alt_text, caption_text, blob_path, width, height, kind
-            FROM kb_assets
-            WHERE chunk_id IN ({placeholders})
-            """,
-            chunk_ids,
-        ).fetchall()
+
+    if kb_id:
+        scopes = [str(kb_id)]
+    else:
+        from evoflow.knowledge.owned.service import list_bases
+
+        scopes = [str(b.get("id") or "") for b in list_bases() if b.get("id")]
+
+    rows: list[Any] = []
+    for scope in scopes:
+        try:
+            with db_for_kb(scope) as conn:
+                rows.extend(
+                    conn.execute(
+                        f"""
+                        SELECT id, chunk_id, alt_text, caption_text, blob_path, width, height, kind
+                        FROM kb_assets
+                        WHERE chunk_id IN ({placeholders})
+                        """,
+                        chunk_ids,
+                    ).fetchall()
+                )
+        except Exception:
+            continue
     out: dict[str, list[dict[str, Any]]] = {cid: [] for cid in chunk_ids}
     for r in rows:
         cid = r["chunk_id"]
@@ -257,9 +309,12 @@ def assets_for_chunks(chunk_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
 
 
 def get_asset(asset_id: str) -> dict[str, Any] | None:
-    from evoflow.knowledge.owned.db import db
+    from evoflow.knowledge.owned.service import _kb_id_for_asset
 
-    with db() as conn:
+    kid = _kb_id_for_asset(asset_id)
+    if not kid:
+        return None
+    with db_for_kb(kid) as conn:
         row = conn.execute("SELECT * FROM kb_assets WHERE id=?", (asset_id,)).fetchone()
     if not row:
         return None

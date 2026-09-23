@@ -454,7 +454,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         # experience
         _A("experience.list", "experience", "列出经验库条目", "read", "query?, category?, limit?", H.experience_list, "经验库有啥"),
         _A("experience.get", "experience", "查看经验详情", "read", "id", H.experience_get, "这条经验细节"),
-        _A("experience.save", "experience", "保存经验", "write", "title/content 等字段", H.experience_save, "记一条经验"),
+        _A("experience.save", "experience", "保存经验", "write", "title, problem, solution, outcome, category, tags, steps, content", H.experience_save, "记一条经验"),
         _A("experience.delete", "experience", "删除经验", "destructive", "id, permanent?", H.experience_delete, "删掉这条经验"),
         # diagnostics（系统已知日志源 + 异常扫描 + 可转发时间线）
         _A(

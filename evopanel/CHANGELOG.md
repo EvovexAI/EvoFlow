@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-09-23
+
+### Changed
+
+- 知识库（owned KB）存储改造为**每个知识库独立索引**：文档/分块/嵌入/FTS/资产/wiki/KG 落在 `<kb_dir>/.evoflow/kb/index.db`，中心 `owned.sqlite` 只保留 kb 注册表、任务队列、活动日志与 Agent 记忆（新增 `kb_conn.py` / `store_paths.py`）
+- 知识库 blob 解析按 `kb_id` 隔离，避免跨库路径串用
+- 技能索引与加载（skills index/loader）增强
+
+### Added
+
+- 知识库迁移脚本 `knowledge/owned/migrate.py`（旧布局 → per-KB 布局）
+- 资产经验（craft）回读能力与测试覆盖（`test_asset_craft_readback.py`）
+- 平台动作 `experience.save` 字段扩展（problem/solution/outcome/steps 等）
+
+### Notes
+
+- 发版说明与版本线对齐 **1.0.5**
+
 ## [1.0.4] - 2026-09-22
 
 ### Added

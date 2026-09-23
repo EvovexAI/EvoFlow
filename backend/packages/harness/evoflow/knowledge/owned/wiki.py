@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
-from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.ids import new_id, utc_now
+from evoflow.knowledge.owned.kb_conn import db_for_kb
+
+logger = logging.getLogger(__name__)
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]")
 _MD_WIKI_LINK_RE = re.compile(r"\[([^\]]+)\]\(wiki:([^)\s]+)\)")
@@ -45,7 +48,7 @@ def _row_page(row: Any) -> dict[str, Any]:
 
 
 def list_pages(kb_id: str, *, page_type: str | None = None) -> list[dict[str, Any]]:
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         if page_type:
             rows = conn.execute(
                 """
@@ -68,7 +71,7 @@ def list_pages(kb_id: str, *, page_type: str | None = None) -> list[dict[str, An
 
 
 def get_page(kb_id: str, slug: str) -> dict[str, Any] | None:
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         row = conn.execute(
             """
             SELECT * FROM wiki_pages
@@ -80,12 +83,39 @@ def get_page(kb_id: str, slug: str) -> dict[str, Any] | None:
 
 
 def get_page_by_id(page_id: str) -> dict[str, Any] | None:
-    with db() as conn:
+    kid = _kb_id_for_wiki_page(page_id)
+    if not kid:
+        return None
+    with db_for_kb(kid) as conn:
         row = conn.execute(
             "SELECT * FROM wiki_pages WHERE id=? AND deleted_at IS NULL",
             (page_id,),
         ).fetchone()
     return _row_page(row) if row else None
+
+
+def _kb_id_for_wiki_page(page_id: str) -> str | None:
+    """Wiki pages live in per-KB index DBs; resolve the owning KB first."""
+    pid = str(page_id or "").strip()
+    if not pid:
+        return None
+    try:
+        from evoflow.knowledge.owned.service import list_bases
+
+        for b in list_bases():
+            kid = str(b.get("id") or "").strip()
+            if not kid:
+                continue
+            try:
+                with db_for_kb(kid) as conn:
+                    row = conn.execute("SELECT 1 FROM wiki_pages WHERE id=?", (pid,)).fetchone()
+                if row:
+                    return kid
+            except Exception:
+                continue
+    except Exception:
+        logger.debug("wiki page kb lookup failed for %s", pid, exc_info=True)
+    return None
 
 
 def extract_out_links(body_md: str) -> list[str]:
@@ -123,7 +153,7 @@ def upsert_page(
     if not slug:
         raise ValueError("slug required")
     out_links = extract_out_links(body_md)
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         existing = conn.execute(
             "SELECT * FROM wiki_pages WHERE kb_id=? AND slug=? AND deleted_at IS NULL",
             (kb_id, slug),
@@ -230,7 +260,7 @@ def rebuild_link_index(kb_id: str) -> dict[str, Any]:
             if p["slug"] not in ins[target]:
                 ins[target].append(p["slug"])
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         for p in pages:
             slug = p["slug"]
             conn.execute(
@@ -328,7 +358,7 @@ def ensure_folder(kb_id: str, path: str, name: str | None = None) -> dict[str, A
     if not path:
         raise ValueError("folder path required")
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         row = conn.execute(
             "SELECT * FROM wiki_folders WHERE kb_id=? AND path=? AND deleted_at IS NULL",
             (kb_id, path),
@@ -356,7 +386,7 @@ def ensure_folder(kb_id: str, path: str, name: str | None = None) -> dict[str, A
 
 
 def list_folders(kb_id: str) -> list[dict[str, Any]]:
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT * FROM wiki_folders

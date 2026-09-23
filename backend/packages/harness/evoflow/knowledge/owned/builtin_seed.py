@@ -102,7 +102,7 @@ def _soft_delete_duplicate_base(kb_id: str) -> None:
     """Soft-delete a duplicate user-guide base (bypasses builtin delete guard)."""
     from evoflow.knowledge.owned import activity as owned_activity
     from evoflow.knowledge.owned import blob_store
-    from evoflow.knowledge.owned.retrieve import purge_document_index
+    from evoflow.knowledge.owned import service as owned_service
 
     now = utc_now()
     title = kb_id
@@ -115,19 +115,8 @@ def _soft_delete_duplicate_base(kb_id: str) -> None:
             "UPDATE kb_bases SET deleted_at=?, updated_at=? WHERE id=?",
             (now, now, kb_id),
         )
-        doc_ids = [
-            r["id"]
-            for r in conn.execute(
-                "SELECT id FROM kb_documents WHERE kb_id=? AND deleted_at IS NULL",
-                (kb_id,),
-            ).fetchall()
-        ]
-        for doc_id in doc_ids:
-            conn.execute(
-                "UPDATE kb_documents SET deleted_at=?, updated_at=? WHERE id=?",
-                (now, now, doc_id),
-            )
-            purge_document_index(conn, doc_id)
+        # Same purge path as delete_base() so derived rows never drift apart.
+        owned_service._purge_base_documents(conn, kb_id, now=now)
     try:
         blob_store.delete_kb_blobs(kb_id)
     except Exception:

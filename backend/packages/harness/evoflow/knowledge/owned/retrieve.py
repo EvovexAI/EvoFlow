@@ -8,7 +8,7 @@ import struct
 from typing import Any
 
 from evoflow.knowledge.owned.assets import assets_for_chunks
-from evoflow.knowledge.owned.db import db
+from evoflow.knowledge.owned.kb_conn import db_for_kb
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def search_keyword(kb_id: str, query: str, *, top_k: int = 20) -> list[dict[str,
     if not match:
         return []
     hits: list[dict[str, Any]] = []
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = []
         try:
             rows = conn.execute(
@@ -95,6 +95,7 @@ def search_keyword(kb_id: str, query: str, *, top_k: int = 20) -> list[dict[str,
                 SELECT f.chunk_id, f.doc_id, f.content, bm25(kb_chunks_fts) AS rank
                 FROM kb_chunks_fts f
                 JOIN kb_chunks c ON c.id = f.chunk_id
+                JOIN kb_documents d ON d.id = f.doc_id AND d.deleted_at IS NULL
                 WHERE f.kb_id = ? AND c.enabled = 1 AND kb_chunks_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
@@ -104,14 +105,16 @@ def search_keyword(kb_id: str, query: str, *, top_k: int = 20) -> list[dict[str,
         except Exception as exc:
             logger.warning("FTS search failed: %s", exc)
             rows = []
-        # CJK / short queries often need LIKE when FTS tokenizer splits poorly
+        # CJK / short queries often need LIKE when FTS tokenizer splits poorly.
+        # Join kb_documents so soft-deleted docs never resurface.
         if not rows:
             like = f"%{q}%"
             rows = conn.execute(
                 """
-                SELECT id AS chunk_id, doc_id, content, 0 AS rank
-                FROM kb_chunks
-                WHERE kb_id=? AND enabled=1 AND content LIKE ?
+                SELECT c.id AS chunk_id, c.doc_id, c.content, 0 AS rank
+                FROM kb_chunks c
+                JOIN kb_documents d ON d.id = c.doc_id AND d.deleted_at IS NULL
+                WHERE c.kb_id=? AND c.enabled=1 AND c.content LIKE ?
                 LIMIT ?
                 """,
                 (kb_id, like, top_k),
@@ -120,6 +123,7 @@ def search_keyword(kb_id: str, query: str, *, top_k: int = 20) -> list[dict[str,
             hits.append(
                 {
                     "chunk_id": row["chunk_id"],
+                    "kb_id": kb_id,
                     "doc_id": row["doc_id"],
                     "content": row["content"],
                     "rank": i + 1,
@@ -138,12 +142,13 @@ def search_vector(
     if not query_vec:
         return []
     scored: list[tuple[float, dict[str, Any]]] = []
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT e.chunk_id, e.doc_id, e.dim, e.embedding, c.content, c.context_header
             FROM kb_chunk_embeddings e
             JOIN kb_chunks c ON c.id = e.chunk_id
+            JOIN kb_documents d ON d.id = e.doc_id AND d.deleted_at IS NULL
             WHERE e.kb_id=? AND c.enabled=1
             """,
             (kb_id,),
@@ -159,6 +164,7 @@ def search_vector(
                     score,
                     {
                         "chunk_id": row["chunk_id"],
+                        "kb_id": kb_id,
                         "doc_id": row["doc_id"],
                         "content": row["content"],
                         "context_header": row["context_header"] or "",
@@ -205,22 +211,41 @@ def rrf_fuse(
 
 
 def enrich_hits(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach document metadata to chunk hits.
+
+    Hits carry ``kb_id`` from the index; group by KB so a cross-KB search reads
+    each KB's own index DB exactly once.
+    """
     if not hits:
         return []
     chunk_ids = [h["chunk_id"] for h in hits]
-    placeholders = ",".join("?" * len(chunk_ids))
-    with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT c.*, d.title, d.file_name, d.folder_path, d.blob_path, d.tags_json
-            FROM kb_chunks c
-            JOIN kb_documents d ON d.id = c.doc_id
-            WHERE c.id IN ({placeholders})
-            """,
-            chunk_ids,
-        ).fetchall()
-        by_id = {r["id"]: r for r in rows}
-    asset_map = assets_for_chunks(chunk_ids)
+    by_kb: dict[str, list[str]] = {}
+    for h in hits:
+        kid = str(h.get("kb_id") or "").strip()
+        if not kid:
+            continue
+        by_kb.setdefault(kid, []).append(h["chunk_id"])
+
+    by_id: dict[str, Any] = {}
+    for kid, ids in by_kb.items():
+        placeholders = ",".join("?" * len(ids))
+        try:
+            with db_for_kb(kid) as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT c.*, d.title, d.file_name, d.folder_path, d.blob_path, d.tags_json
+                    FROM kb_chunks c
+                    JOIN kb_documents d ON d.id = c.doc_id
+                    WHERE c.id IN ({placeholders})
+                    """,
+                    ids,
+                ).fetchall()
+        except Exception:
+            logger.debug("enrich skipped for kb=%s", kid, exc_info=True)
+            continue
+        for r in rows:
+            by_id[r["id"]] = r
+    asset_map = assets_for_chunks(chunk_ids, kb_id=next(iter(by_kb)) if len(by_kb) == 1 else None)
     enriched: list[dict[str, Any]] = []
     for h in hits:
         row = by_id.get(h["chunk_id"])
@@ -261,7 +286,7 @@ def search_title(kb_id: str, query: str, *, top_k: int = 20) -> list[dict[str, A
     if not q:
         return []
     like = f"%{q}%"
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         docs = conn.execute(
             """
             SELECT id FROM kb_documents
@@ -288,6 +313,7 @@ def search_title(kb_id: str, query: str, *, top_k: int = 20) -> list[dict[str, A
             hits.append(
                 {
                     "chunk_id": row["id"],
+                    "kb_id": kb_id,
                     "doc_id": row["doc_id"],
                     "content": row["content"],
                     "rank": i + 1,

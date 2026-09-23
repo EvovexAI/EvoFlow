@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.ids import new_id, utc_now
+from evoflow.knowledge.owned.kb_conn import db_for_kb
 from evoflow.knowledge.owned.metadata import extract_wikilinks
 
 
@@ -20,7 +20,7 @@ def _norm_key(value: str) -> str:
 def _build_resolver(kb_id: str) -> dict[str, str]:
     """Map normalized title / stem / rel-path → doc_id."""
     mapping: dict[str, str] = {}
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT id, title, file_name, folder_path, source_rel_path
@@ -54,7 +54,7 @@ def rebuild_doc_links(kb_id: str, doc_id: str, text: str) -> list[str]:
     targets = extract_wikilinks(text)
     resolver = _build_resolver(kb_id)
     now = utc_now()
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         conn.execute("DELETE FROM kb_doc_links WHERE src_doc_id=?", (doc_id,))
         for target in targets:
             dst = resolver.get(_norm_key(target))
@@ -70,7 +70,12 @@ def rebuild_doc_links(kb_id: str, doc_id: str, text: str) -> list[str]:
 
 
 def get_document_links(doc_id: str) -> dict[str, Any] | None:
-    with db() as conn:
+    from evoflow.knowledge.owned.service import _kb_id_for_doc
+
+    kid = _kb_id_for_doc(doc_id)
+    if not kid:
+        return None
+    with db_for_kb(kid) as conn:
         doc = conn.execute(
             "SELECT id, kb_id, title, file_name FROM kb_documents WHERE id=? AND deleted_at IS NULL",
             (doc_id,),
@@ -126,7 +131,7 @@ def get_document_links(doc_id: str) -> dict[str, Any] | None:
 def doc_graph_payload(kb_id: str, *, center_doc_id: str | None = None, depth: int = 1) -> dict[str, Any]:
     """Force-graph payload from note-level links."""
     depth = max(1, min(int(depth or 1), 3))
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         docs = conn.execute(
             """
             SELECT id, title, file_name, folder_path FROM kb_documents
@@ -188,7 +193,12 @@ def update_document_metadata(
     tags: list[str],
     frontmatter: dict[str, Any],
 ) -> None:
-    with db() as conn:
+    from evoflow.knowledge.owned.service import _kb_id_for_doc
+
+    kid = _kb_id_for_doc(doc_id)
+    if not kid:
+        return
+    with db_for_kb(kid) as conn:
         conn.execute(
             """
             UPDATE kb_documents

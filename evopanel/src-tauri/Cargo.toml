@@ -1,6 +1,6 @@
 [package]
 name = "evopanel"
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
 description = "EvoFlow 桌面端 — 面向长任务的原生 Agent Runtime 与控制平面"
 authors = ["EvovexAI"]

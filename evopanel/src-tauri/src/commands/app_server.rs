@@ -320,6 +320,10 @@ fn spawn_fallback_app_server(app: &AppHandle, gateway_base: &str) -> Result<(), 
         .stderr(Stdio::piped())
         .env("PYTHONUNBUFFERED", "1")
         .env("EVOFLOW_GATEWAY_URL", gateway_base);
+        // Must match the other spawn paths: the child reads UTF-8 JSON-RPC lines from
+        // stdin. Without PYTHONUTF8/PYTHONIOENCODING a zh-CN Windows interpreter decodes
+        // them as cp936 and turns 「哈喽」 into 「鍝堝柦」.
+        super::apply_windows_stdio_env(&mut cmd);
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;

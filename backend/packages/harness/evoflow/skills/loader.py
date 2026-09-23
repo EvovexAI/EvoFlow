@@ -40,8 +40,15 @@ def get_cached_skills_prompt_section(cache_key: tuple, builder) -> str:
     return section
 
 
-def _build_mtime_map(skills_path: Path) -> dict[str, tuple[int, int]]:
-    """Build an mtime/size map of all SKILL.md files under public/ and custom/."""
+def _build_mtime_map(
+    skills_path: Path,
+    extra_roots: list[Path] | None = None,
+) -> dict[str, tuple[int, int]]:
+    """Build an mtime/size map of all SKILL.md files under public/ and custom/.
+
+    Extra discovery roots (``skills.extra_roots``) are included too, otherwise edits
+    inside them would never invalidate the TTL cache and the stale list would be served.
+    """
     mtime_map: dict[str, tuple[int, int]] = {}
     for category in ("public", "custom"):
         category_path = skills_path / category
@@ -56,6 +63,24 @@ def _build_mtime_map(skills_path: Path) -> dict[str, tuple[int, int]]:
                 st = skill_file.stat()
                 rel = str(skill_file.relative_to(skills_path))
                 mtime_map[rel] = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                continue
+
+    for root in extra_roots or []:
+        try:
+            root_resolved = Path(root).expanduser().resolve()
+        except OSError:
+            continue
+        if not root_resolved.is_dir():
+            continue
+        for current_root, dir_names, file_names in os.walk(root_resolved, followlinks=True):
+            dir_names[:] = sorted(name for name in dir_names if not name.startswith("."))
+            if "SKILL.md" not in file_names:
+                continue
+            skill_file = Path(current_root) / "SKILL.md"
+            try:
+                st = skill_file.stat()
+                mtime_map[f"@extra:{skill_file.resolve()}"] = (st.st_mtime_ns, st.st_size)
             except OSError:
                 continue
     return mtime_map
@@ -159,6 +184,7 @@ def load_skills(
     *,
     workspace_root: str | None = None,
     scope_skill_roots: list | None = None,
+    extra_roots: list[Path] | None = None,
 ) -> list[Skill]:
     """
     Load all skills from the skills directory.
@@ -177,6 +203,8 @@ def load_skills(
         use_config: Whether to load skills path from config (default: True)
         enabled_only: If True, only return enabled skills (default: False)
         scope_skill_roots: Optional ``[(Path, SkillScope), ...]`` for org/personal/group layers.
+        extra_roots: Optional override for ``skills.extra_roots``; when None the configured
+                     extra discovery roots are read from config (``use_config`` only).
 
     Returns:
         List of Skill objects, sorted by name
@@ -184,20 +212,26 @@ def load_skills(
     global _skills_cache
     import time as _time
 
-    if skills_path is None:
-        if use_config:
-            try:
-                from evoflow.config import get_app_config
+    cfg_extra_roots: list[Path] = []
+    if use_config:
+        try:
+            from evoflow.config import get_app_config
 
-                config = get_app_config()
+            config = get_app_config()
+            if skills_path is None:
                 skills_path = config.skills.get_skills_path()
-            except Exception:
-                # Fallback to default if config fails
+            cfg_extra_roots = config.skills.get_extra_root_paths()
+        except Exception:
+            # Fallback to default if config fails
+            if skills_path is None:
                 skills_path = get_skills_root_path()
-        else:
-            skills_path = get_skills_root_path()
+    elif skills_path is None:
+        skills_path = get_skills_root_path()
 
-    if not skills_path.exists() and not scope_skill_roots:
+    if extra_roots is None:
+        extra_roots = cfg_extra_roots
+
+    if not skills_path.exists() and not scope_skill_roots and not extra_roots:
         return []
 
     use_simple_cache = not scope_skill_roots
@@ -212,7 +246,7 @@ def load_skills(
                 skills = [s for s in skills if s.enabled]
             return skills
         try:
-            current_mtime_map = _build_mtime_map(skills_path)
+            current_mtime_map = _build_mtime_map(skills_path, extra_roots)
             if current_mtime_map == cached_mtime_map:
                 # Refresh TTL stamp without reparsing.
                 _skills_cache = (cached_mtime_map, cached_skills, _time.monotonic())
@@ -241,6 +275,7 @@ def load_skills(
             skills_path=skills_path,
             workspace_root=workspace_root,
             scope_skill_roots=scope_skill_roots,
+            extra_roots=extra_roots,
         )
         skills = index.skills
     except Exception:
@@ -270,7 +305,7 @@ def load_skills(
     # ── Update cache ──────────────────────────────────────────────────
     if use_simple_cache:
         try:
-            mtime_map = _build_mtime_map(skills_path)
+            mtime_map = _build_mtime_map(skills_path, extra_roots)
             _skills_cache = (mtime_map, list(skills), _time.monotonic())
         except Exception:
             pass

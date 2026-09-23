@@ -15,12 +15,20 @@ def owned_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EVOFLOW_HOME", str(home))
     monkeypatch.setenv("EVOFLOW_KNOWLEDGE_ROOT", str(home / "knowledge"))
     from evoflow.knowledge.owned import db as owned_db
+    from evoflow.knowledge.owned.kb_conn import db_for_kb
     from evoflow.knowledge.owned.worker import stop_owned_kb_worker_for_tests
 
     stop_owned_kb_worker_for_tests()
     owned_db.reset_db_state_for_tests()
     yield home
     stop_owned_kb_worker_for_tests()
+
+
+def _kb_db(kb_id):
+    """Open the KB's own index DB (documents/chunks live there after the split)."""
+    from evoflow.knowledge.owned.kb_conn import db_for_kb
+
+    return db_for_kb(kb_id)
 
 
 _BINDING = {
@@ -61,9 +69,10 @@ def test_reindex_base_queues_docs_when_dim_null(owned_home: Path):
     ):
         base = service.create_base({"name": "kb-reindex", "embeddingModelRef": "plan-emb"})
         kb_id = base["id"]
-        with service.db() as conn:
+        with _kb_db(kb_id) as conn:
             _insert_doc(conn, doc_id="d1", kb_id=kb_id, title="a.md")
             _insert_doc(conn, doc_id="d2", kb_id=kb_id, title="b.md")
+        with service.db() as conn:
             conn.execute("UPDATE kb_bases SET embedding_dim=NULL WHERE id=?", (kb_id,))
 
         queued: list[str] = []
@@ -88,8 +97,9 @@ def test_update_base_same_model_queues_when_dim_null(owned_home: Path):
     ):
         base = service.create_base({"name": "kb2", "embeddingModelRef": "plan-emb"})
         kb_id = base["id"]
-        with service.db() as conn:
+        with _kb_db(kb_id) as conn:
             _insert_doc(conn, doc_id="dx", kb_id=kb_id, title="x.md")
+        with service.db() as conn:
             conn.execute("UPDATE kb_bases SET embedding_dim=NULL WHERE id=?", (kb_id,))
 
         queued: list[str] = []

@@ -26,6 +26,13 @@ def owned_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     stop_owned_kb_worker_for_tests()
 
 
+def _kb_db(kb_id):
+    """Open the KB's own index DB (documents/chunks/embeddings/FTS live there)."""
+    from evoflow.knowledge.owned.kb_conn import db_for_kb
+
+    return db_for_kb(kb_id)
+
+
 def test_chunking_protects_table():
     from evoflow.knowledge.owned.chunking import split_text
 
@@ -117,7 +124,7 @@ def test_ask_returns_citations_when_llm_unavailable(owned_home: Path, monkeypatc
     chunks = owned_service.list_chunks(doc["id"])
     assert chunks
 
-    async def _fake_search(kb_id, query, *, mode="hybrid", top_k=8):
+    async def _fake_search(kb_id, query, *, mode="hybrid", top_k=8, record_activity=True):
         assert kb_id == base["id"]
         return {
             "items": [
@@ -167,7 +174,7 @@ def test_ask_keyword_fallback_when_hybrid_empty(owned_home: Path, monkeypatch: p
     base = owned_service.create_base({"name": "降级问答", "summaryEnabled": False})
     calls: list[str] = []
 
-    async def _search(kb_id, query, *, mode="hybrid", top_k=8):
+    async def _search(kb_id, query, *, mode="hybrid", top_k=8, record_activity=True):
         calls.append(mode)
         if mode == "hybrid":
             return {"items": [], "total": 0, "mode": mode, "degraded": True}
@@ -233,10 +240,9 @@ def test_enqueue_document_summary_force(owned_home: Path, monkeypatch: pytest.Mo
     asyncio.run(run_parse_index(job))
 
     # Seed an existing summary, then force rebuild.
-    from evoflow.knowledge.owned.db import db
     from evoflow.knowledge.owned.ids import utc_now
 
-    with db() as conn:
+    with _kb_db(base["id"]) as conn:
         conn.execute(
             "UPDATE kb_documents SET summary_status='completed', summary_text=?, updated_at=? WHERE id=?",
             ("旧摘要", utc_now(), doc["id"]),
@@ -624,7 +630,6 @@ def test_extract_data_uri_assets_and_search(owned_home: Path, monkeypatch: pytes
     from evoflow.knowledge.owned import pipeline as pipeline_mod
     from evoflow.knowledge.owned import service as owned_service
     from evoflow.knowledge.owned.assets import get_asset
-    from evoflow.knowledge.owned.db import db
     from evoflow.knowledge.owned.pipeline import run_parse_index
 
     async def _fake_embeddings(texts, model_config=None, **kwargs):
@@ -643,7 +648,7 @@ def test_extract_data_uri_assets_and_search(owned_home: Path, monkeypatch: pytes
     assert job
     asyncio.run(run_parse_index(job))
 
-    with db() as conn:
+    with _kb_db(base["id"]) as conn:
         assets = conn.execute("SELECT * FROM kb_assets WHERE doc_id=?", (doc["id"],)).fetchall()
     assert len(assets) == 1
     aid = assets[0]["id"]
@@ -653,7 +658,8 @@ def test_extract_data_uri_assets_and_search(owned_home: Path, monkeypatch: pytes
     assert meta["url"].endswith(aid)
 
     text = owned_service.get_document_text(doc["id"])
-    assert "asset://" in text
+    # Body is rewritten to a directly renderable URL (legacy ``asset://`` is also accepted).
+    assert "/api/knowledge/owned/assets/" in text or "asset://" in text
     assert len(assets) >= 1
 
     result = asyncio.run(owned_service.search(base["id"], "星辰大海", mode="keyword", top_k=5))
@@ -750,7 +756,6 @@ def test_owned_write_and_ingest(owned_home: Path):
 def test_owned_write_delete_purges_index(owned_home: Path, monkeypatch: pytest.MonkeyPatch):
     import json
 
-    from evoflow.knowledge.owned import db as owned_db
     from evoflow.knowledge.owned import jobs
     from evoflow.knowledge.owned import pipeline as pipeline_mod
     from evoflow.knowledge.owned import service as owned_service
@@ -784,7 +789,7 @@ def test_owned_write_delete_purges_index(owned_home: Path, monkeypatch: pytest.M
     assert job
     asyncio.run(run_parse_index(job))
 
-    with owned_db.db() as conn:
+    with _kb_db(base["id"]) as conn:
         chunks = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchone()
         assert chunks["n"] >= 1
 
@@ -810,7 +815,7 @@ def test_owned_write_delete_purges_index(owned_home: Path, monkeypatch: pytest.M
     assert deleted.get("operation") == "delete"
 
     assert owned_service.get_document(doc_id) is None
-    with owned_db.db() as conn:
+    with _kb_db(base["id"]) as conn:
         chunks_after = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks WHERE doc_id=?", (doc_id,)).fetchone()
         assert chunks_after["n"] == 0
         fts_after = conn.execute("SELECT COUNT(*) AS n FROM kb_chunks_fts WHERE doc_id=?", (doc_id,)).fetchone()
@@ -818,3 +823,115 @@ def test_owned_write_delete_purges_index(owned_home: Path, monkeypatch: pytest.M
 
     miss = asyncio.run(owned_service.search(base["id"], "紫水晶", mode="keyword", top_k=5))
     assert not any(h.get("docId") == doc_id for h in miss.get("items") or [])
+
+
+def test_delete_base_purges_index_rows(owned_home: Path, monkeypatch: pytest.MonkeyPatch):
+    """delete_base must drop chunks/embeddings/FTS of a soft-deleted base.
+
+    Regression: delete_base only stamped kb_bases.deleted_at and removed blobs,
+    leaving every chunk + embedding + FTS row behind (24 MB of dead data on the
+    dev machine).
+    """
+    from evoflow.knowledge.owned import jobs
+    from evoflow.knowledge.owned import pipeline as pipeline_mod
+    from evoflow.knowledge.owned import service as owned_service
+    from evoflow.knowledge.owned.pipeline import run_parse_index
+
+    async def _fake_embeddings(texts, model_config=None, **kwargs):
+        return [[0.1] * 8 for _ in texts]
+
+    monkeypatch.setattr(pipeline_mod, "get_embeddings", _fake_embeddings)
+
+    base = owned_service.create_base({"name": "删库清理", "summaryEnabled": False})
+    kb_id = base["id"]
+    doc = owned_service.upload_manual_markdown(
+        kb_id,
+        title="待删文档",
+        content="# 待删\n\n可检索关键词：琥珀切片测试。\n",
+    )
+    job = jobs.get_job(doc["latestJobId"])
+    assert job is not None
+    asyncio.run(run_parse_index(job))
+
+    with _kb_db(base["id"]) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunks WHERE kb_id=?", (kb_id,)).fetchone()[0] >= 1
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,)).fetchone()[0] >= 1
+
+    owned_service.delete_base(kb_id)
+
+    assert owned_service.get_base(kb_id) is None
+    with _kb_db(base["id"]) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunks WHERE kb_id=?", (kb_id,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunks_fts WHERE kb_id=?", (kb_id,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kb_doc_links WHERE kb_id=?", (kb_id,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kb_folders WHERE kb_id=?", (kb_id,)).fetchone()[0] == 0
+        # Documents are soft-deleted, not hard-deleted (audit trail kept).
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM kb_documents WHERE kb_id=? AND deleted_at IS NULL",
+                (kb_id,),
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_delete_base_cancels_pending_jobs(owned_home: Path, monkeypatch: pytest.MonkeyPatch):
+    """Queued jobs must not keep retrying against a deleted base."""
+    from evoflow.knowledge.owned import db as owned_db
+    from evoflow.knowledge.owned import service as owned_service
+
+    base = owned_service.create_base({"name": "删库任务", "summaryEnabled": False})
+    kb_id = base["id"]
+    doc = owned_service.upload_manual_markdown(kb_id, title="排队中", content="# 排队\n\n未解析内容。\n")
+    assert doc.get("latestJobId")
+
+    owned_service.delete_base(kb_id)
+
+    with owned_db.db() as conn:
+        active = conn.execute(
+            "SELECT COUNT(*) FROM kb_jobs WHERE kb_id=? AND state IN ('queued', 'running')",
+            (kb_id,),
+        ).fetchone()[0]
+        cancelled = conn.execute(
+            "SELECT COUNT(*) FROM kb_jobs WHERE kb_id=? AND state='cancelled'",
+            (kb_id,),
+        ).fetchone()[0]
+    assert active == 0
+    assert cancelled >= 1
+
+
+def test_delete_folder_delete_docs_purges_index(owned_home: Path, monkeypatch: pytest.MonkeyPatch):
+    """Folder delete with mode=delete_docs must purge derived rows like doc delete."""
+    from evoflow.knowledge.owned import jobs
+    from evoflow.knowledge.owned import pipeline as pipeline_mod
+    from evoflow.knowledge.owned import service as owned_service
+    from evoflow.knowledge.owned.pipeline import run_parse_index
+
+    async def _fake_embeddings(texts, model_config=None, **kwargs):
+        return [[0.1] * 8 for _ in texts]
+
+    monkeypatch.setattr(pipeline_mod, "get_embeddings", _fake_embeddings)
+
+    base = owned_service.create_base({"name": "删文件夹", "summaryEnabled": False})
+    kb_id = base["id"]
+    doc = owned_service.upload_manual_markdown(
+        kb_id,
+        title="目录内文档",
+        content="# 目录内\n\n可检索关键词：珊瑚目录测试。\n",
+        folder_path="资料库",
+    )
+    job = jobs.get_job(doc["latestJobId"])
+    assert job is not None
+    asyncio.run(run_parse_index(job))
+
+    with _kb_db(base["id"]) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunks WHERE doc_id=?", (doc["id"],)).fetchone()[0] >= 1
+
+    out = owned_service.delete_folder(kb_id, "资料库", mode="delete_docs")
+    assert out["affectedDocs"] >= 1
+
+    with _kb_db(base["id"]) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunks WHERE doc_id=?", (doc["id"],)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunk_embeddings WHERE doc_id=?", (doc["id"],)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kb_chunks_fts WHERE doc_id=?", (doc["id"],)).fetchone()[0] == 0

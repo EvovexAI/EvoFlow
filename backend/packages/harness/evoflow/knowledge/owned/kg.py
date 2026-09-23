@@ -1,13 +1,36 @@
-"""G2 entity graph store (SQLite, no Neo4j)."""
+"""G2 entity graph store (SQLite, no Neo4j).
+
+The ``kg_*`` tables are shared by two kinds of scope:
+
+* ``kb_*``  — a knowledge base's own entity graph → lives in that KB's index DB.
+* ``mem:*`` — agent memory graph namespaces → stays in the central DB.
+
+:func:`_kg_conn` routes on the id prefix so callers don't have to care.
+"""
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
-from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.ids import new_id, utc_now
+
+
+@contextmanager
+def _kg_conn(kb_id: str) -> Iterator[Any]:
+    """Route to the KB's index DB (``kb_*``) or the central DB (``mem:*``)."""
+    scope = str(kb_id or "").strip()
+    if scope.startswith("mem:") or not scope.startswith("kb_"):
+        with _kg_conn(kb_id) as conn:
+            yield conn
+        return
+    from evoflow.knowledge.owned.kb_conn import db_for_kb
+
+    with db_for_kb(scope) as conn:
+        yield conn
 
 
 def _loads(raw: str | None, default: Any) -> Any:
@@ -32,7 +55,7 @@ def upsert_node(
     if not name:
         raise ValueError("entity name required")
     now = utc_now()
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         row = conn.execute(
             "SELECT * FROM kg_nodes WHERE kb_id=? AND name=?",
             (kb_id, name),
@@ -91,7 +114,7 @@ def upsert_edge(kb_id: str, src_id: str, dst_id: str, rel_type: str) -> dict[str
     if src_id == dst_id:
         raise ValueError("self-edge not allowed")
     now = utc_now()
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         existing = conn.execute(
             """
             SELECT * FROM kg_edges
@@ -151,7 +174,7 @@ def find_nodes_by_query(kb_id: str, query: str, *, limit: int = 8) -> list[dict[
     if not q:
         return []
     like = f"%{q}%"
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         rows = conn.execute(
             """
             SELECT * FROM kg_nodes
@@ -192,7 +215,7 @@ def neighbor_chunk_ids(kb_id: str, node_ids: list[str], *, limit: int = 40) -> l
         return []
     chunk_ids: list[str] = []
     seen: set[str] = set()
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         placeholders = ",".join("?" * len(node_ids))
         seeds = conn.execute(
             f"SELECT chunk_ids_json FROM kg_nodes WHERE kb_id=? AND id IN ({placeholders})",
@@ -237,7 +260,7 @@ def search_graph_chunks(kb_id: str, query: str, *, top_k: int = 20) -> list[dict
     if not cids:
         return []
     hits: list[dict[str, Any]] = []
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         for i, cid in enumerate(cids[:top_k]):
             row = conn.execute(
                 "SELECT id, doc_id, content FROM kb_chunks WHERE id=? AND enabled=1",
@@ -258,7 +281,7 @@ def search_graph_chunks(kb_id: str, query: str, *, top_k: int = 20) -> list[dict
 
 
 def list_nodes(kb_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         rows = conn.execute(
             "SELECT * FROM kg_nodes WHERE kb_id=? ORDER BY name ASC LIMIT ?",
             (kb_id, limit),
@@ -283,7 +306,7 @@ def graph_payload(kb_id: str, *, center: str | None = None, limit: int = 80) -> 
         center_node = next((n for n in nodes_raw if n["name"] == center or n["id"] == center), None)
         if center_node:
             keep = {center_node["id"]}
-            with db() as conn:
+            with _kg_conn(kb_id) as conn:
                 for r in conn.execute(
                     """
                     SELECT src_node_id, dst_node_id FROM kg_edges
@@ -296,7 +319,7 @@ def graph_payload(kb_id: str, *, center: str | None = None, limit: int = 80) -> 
             nodes_raw = [by_id[i] for i in keep if i in by_id]
 
     node_ids = {n["id"] for n in nodes_raw}
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         if not node_ids:
             edges_rows = []
         else:
@@ -341,13 +364,13 @@ def graph_payload(kb_id: str, *, center: str | None = None, limit: int = 80) -> 
 
 
 def delete_by_kb(kb_id: str) -> None:
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         conn.execute("DELETE FROM kg_edges WHERE kb_id=?", (kb_id,))
         conn.execute("DELETE FROM kg_nodes WHERE kb_id=?", (kb_id,))
 
 
 def stats(kb_id: str) -> dict[str, int]:
-    with db() as conn:
+    with _kg_conn(kb_id) as conn:
         n = conn.execute("SELECT COUNT(*) AS c FROM kg_nodes WHERE kb_id=?", (kb_id,)).fetchone()["c"]
         e = conn.execute("SELECT COUNT(*) AS c FROM kg_edges WHERE kb_id=?", (kb_id,)).fetchone()["c"]
     return {"nodeCount": int(n), "edgeCount": int(e)}

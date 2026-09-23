@@ -10,6 +10,7 @@ from typing import Any
 from evoflow.knowledge.owned import jobs, kg
 from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.ids import utc_now
+from evoflow.knowledge.owned.kb_conn import db_for_kb
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ async def run_kg_extract(job: dict[str, Any]) -> None:
 
     jobs.update_progress(job_id, {"phase": "kg_extract", "percent": 5, "message": "实体抽取"})
 
-    with db() as conn:
+    with db_for_kb(kb_id) as conn:
         if doc_id:
             chunks = conn.execute(
                 """
@@ -143,8 +144,7 @@ async def run_kg_extract(job: dict[str, Any]) -> None:
     with db() as conn:
         conn.execute(
             "UPDATE kb_bases SET graph_enabled=1, updated_at=? WHERE id=?",
-            (utc_now(), kb_id),
-        )
+            (utc_now(), kb_id),        )
 
     st = kg.stats(kb_id)
     jobs.update_progress(

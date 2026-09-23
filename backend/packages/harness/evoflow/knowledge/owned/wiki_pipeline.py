@@ -9,6 +9,7 @@ from typing import Any
 from evoflow.knowledge.owned import jobs, wiki
 from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.ids import utc_now
+from evoflow.knowledge.owned.kb_conn import db_for_kb
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,12 @@ def _slugify_concept(title: str) -> str:
 
 
 def _doc_excerpt(doc_id: str, *, limit: int = 1200) -> str:
-    with db() as conn:
+    from evoflow.knowledge.owned.service import _kb_id_for_doc
+
+    kid = _kb_id_for_doc(doc_id)
+    if not kid:
+        return ""
+    with db_for_kb(kid) as conn:
         rows = conn.execute(
             """
             SELECT content FROM kb_chunks
@@ -43,10 +49,12 @@ async def run_wiki_ingest(job: dict[str, Any]) -> None:
     doc_id = job.get("doc_id")
     jobs.update_progress(job_id, {"phase": "wiki_ingest", "percent": 10, "message": "生成 Wiki 页面"})
 
+    # Registry row is central; documents are KB-local.
     with db() as conn:
         base = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
-        if not base:
-            raise ValueError("knowledge base not found")
+    if not base:
+        raise ValueError("knowledge base not found")
+    with db_for_kb(str(job.get("kb_id") or "")) as conn:
         if doc_id:
             docs = conn.execute(
                 """
@@ -155,7 +163,7 @@ async def run_wiki_ingest(job: dict[str, Any]) -> None:
         edit_source="pipeline",
     )
 
-    # Enable wiki flag (G2 stays opt-in via kg rebuild / graph_enabled)
+    # Enable wiki flag on the registry row (central DB).
     with db() as conn:
         conn.execute(
             "UPDATE kb_bases SET wiki_enabled=1, updated_at=? WHERE id=?",

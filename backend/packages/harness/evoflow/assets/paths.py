@@ -24,7 +24,13 @@ _USER_PROFILE_FILES = ("basic-info.md", "preferences.md", "persona.md", "README.
 _AGENT_PROFILE_FILES = ("identity.md", "SOUL.md", "system.md", "soul-summary.md")
 
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$", re.I)
-_SAFE_REL_PATH = re.compile(r"^[a-zA-Z0-9_./\-]+$")
+# Relative asset paths may contain CJK / other Unicode word characters: craft
+# slugs, memory note filenames and workspace docs are routinely written in
+# Chinese by ``_slug`` (craft.py) and ``assets_tool._SLUG_RE``. Restricting this
+# to ASCII made every non-ASCII asset unreadable even though the write succeeded.
+# ``\w`` (Unicode-aware) still rejects separators, control chars and the
+# Windows-reserved set ``<>:"|?*``, and traversal is checked separately below.
+_SAFE_REL_PATH = re.compile(r"^[\w./\-]+$", re.UNICODE)
 
 # Best-effort cache: ws-{hash} -> absolute workspace path (filled by workspace_entity_ref).
 _WS_PATH_BY_ID: dict[str, str] = {}

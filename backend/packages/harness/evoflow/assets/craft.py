@@ -94,6 +94,17 @@ def _build_skill_md(
 
 
 def experience_to_skill_body(data: dict[str, Any]) -> str:
+    # A caller-supplied ``body_md`` is already a full Markdown body (it may
+    # carry its own ``## 问题`` / ``## 解决方案`` sections) — use it verbatim
+    # instead of nesting it under a generated heading.
+    raw_body = str(data.get("body_md") or "").strip()
+    if raw_body:
+        title = str(data.get("title") or "").strip()
+        if not raw_body.startswith("# "):
+            head = f"# {title or '专长'}"
+            return f"{head}\n\n{raw_body}\n"
+        return raw_body + "\n"
+
     ctx = data.get("context") if isinstance(data.get("context"), dict) else {}
     problem = str(data.get("problem") or ctx.get("problem") or "").strip()
     solution = str(data.get("solution") or ctx.get("solution") or "").strip()
@@ -175,8 +186,26 @@ def save_craft_from_experience(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def problem_summary(data: dict[str, Any]) -> str:
+    """One-line description for the SKILL.md frontmatter.
+
+    Prefers an explicit ``description``; otherwise derives a concise first line
+    from problem/solution/title. Keeping this short matters because the front
+    matter ``description`` is what list views surface.
+    """
+    explicit = str(data.get("description") or "").strip()
+    if explicit:
+        return explicit[:200]
     ctx = data.get("context") if isinstance(data.get("context"), dict) else {}
-    return str(data.get("problem") or ctx.get("solution") or data.get("title") or "")[:200]
+    raw = str(data.get("problem") or ctx.get("problem") or data.get("solution") or ctx.get("solution") or "")
+    if not raw.strip():
+        # A verbatim body: use its first real line, skipping the H1/## headings.
+        raw = str(data.get("body_md") or "")
+        for line in raw.splitlines():
+            s = line.strip()
+            if s and not s.startswith("#"):
+                return s[:160]
+    first_line = next((ln.strip() for ln in raw.splitlines() if ln.strip()), "")
+    return (first_line or str(data.get("title") or ""))[:160]
 
 
 def list_craft_experiences(
@@ -223,16 +252,19 @@ def list_craft_experiences(
             blob = f"{title}\n{body}\n{meta.get('description', '')}".lower()
             if q and q not in blob:
                 continue
+            sections = _sections_from_body(body)
+            # The H1 in the body is the real title; ``description`` is a summary.
+            display_title = _body_title(body) or str(meta.get("description") or title)
             hits.append(
                 {
                     "id": exp_id,
-                    "title": str(meta.get("description") or title)[:120],
+                    "title": display_title[:120],
                     "category": cat,
                     "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
-                    "problem": body[:200],
-                    "solution": "",
-                    "outcome": "",
-                    "step_count": body.count("\n## 步骤"),
+                    "problem": sections["problem"][:200],
+                    "solution": sections["solution"][:200],
+                    "outcome": sections["outcome"][:100],
+                    "step_count": len(sections["steps"]),
                     "confidence": float(meta.get("confidence") or 1.0),
                     "use_count": 0,
                     "storage": "craft",
@@ -295,25 +327,19 @@ def get_craft_experience(experience_id: str) -> dict[str, Any] | None:
         except Exception:
             return None
         meta, body = _parse_skill_frontmatter(file_data.get("content") or "")
-        steps: list[str] = []
-        if "## 步骤" in body:
-            section = body.split("## 步骤", 1)[1]
-            for line in section.splitlines():
-                m = re.match(r"^\s*\d+\.\s+(.*)", line.strip())
-                if m:
-                    steps.append(m.group(1).strip())
+        sections = _sections_from_body(body)
         return {
             "id": eid,
-            "title": str(meta.get("description") or row.get("title") or eid),
+            "title": _body_title(body) or str(meta.get("description") or row.get("title") or eid),
             "category": str(meta.get("category") or "general"),
             "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
             "context": {
-                "problem": _section_text(body, "问题"),
-                "solution": _section_text(body, "解决方案"),
-                "outcome": _section_text(body, "结果"),
-                "applicable_to": _section_text(body, "适用场景"),
+                "problem": sections["problem"],
+                "solution": sections["solution"],
+                "outcome": sections["outcome"],
+                "applicable_to": sections["applicable_to"],
             },
-            "steps": steps,
+            "steps": sections["steps"],
             "source_sessions": [],
             "related_ids": [],
             "confidence": float(meta.get("confidence") or 1.0),
@@ -356,3 +382,34 @@ def _section_text(body: str, heading: str) -> str:
     if "##" in part:
         part = part.split("##", 1)[0]
     return part.strip()
+
+
+def _body_title(body: str) -> str:
+    """First ``# heading`` of a SKILL.md body — the human title."""
+    for line in str(body or "").splitlines():
+        s = line.strip()
+        if s.startswith("# "):
+            return s[2:].strip()
+    return ""
+
+
+def _sections_from_body(body: str) -> dict[str, Any]:
+    """Extract the standard experience sections from a craft SKILL.md body.
+
+    Single source of truth for both the list summary and the detail view, so
+    the two can never disagree about what a stored experience contains.
+    """
+    steps: list[str] = []
+    if "## 步骤" in body:
+        section = body.split("## 步骤", 1)[1]
+        for line in section.splitlines():
+            m = re.match(r"^\s*\d+\.\s+(.*)", line.strip())
+            if m:
+                steps.append(m.group(1).strip())
+    return {
+        "applicable_to": _section_text(body, "适用场景"),
+        "problem": _section_text(body, "问题"),
+        "solution": _section_text(body, "解决方案"),
+        "outcome": _section_text(body, "结果"),
+        "steps": steps,
+    }

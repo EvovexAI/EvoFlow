@@ -617,7 +617,7 @@ async def get_asset_file(request: Request, asset_id: str):
     if not asset:
         raise HTTPException(404, "asset not found")
     try:
-        path = blob_store.resolve_blob(asset["blobPath"])
+        path = blob_store.resolve_blob(asset["blobPath"], kb_id=str(_asset.get("kbId") or ""))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not path.is_file():

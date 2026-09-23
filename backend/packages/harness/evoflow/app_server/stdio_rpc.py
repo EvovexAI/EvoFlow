@@ -475,6 +475,23 @@ class StdioAppServer:
         self.write({"id": msg_id, "error": {"code": code, "message": message}})
 
 
+def _force_utf8_stdio(stream: Any) -> None:
+    """Best-effort UTF-8 reconfigure for a text stdio stream.
+
+    Chinese Windows defaults to cp936 (GBK). The desktop client writes UTF-8 JSON-RPC
+    lines, so reading them with the locale codec turns 「哈喽」 into 「鍝堝柦」.
+    ``PYTHONUTF8`` / ``PYTHONIOENCODING`` only help when set *before* the interpreter
+    starts, so state the intent explicitly here as well.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (ValueError, OSError):
+        pass
+
+
 def serve_stdio(
     stdin: TextIO | None = None,
     stdout: TextIO | None = None,
@@ -493,6 +510,10 @@ async def serve_stdio_async(
     server = StdioAppServer(gateway_base_url=gateway_base_url.strip().rstrip("/"))
     in_stream = stdin if stdin is not None else sys.stdin
     out_stream = stdout if stdout is not None else sys.stdout
+    if stdin is None:
+        _force_utf8_stdio(in_stream)
+    if stdout is None:
+        _force_utf8_stdio(out_stream)
     write_lock = asyncio.Lock()
     pending: set[asyncio.Task[Any]] = set()
 

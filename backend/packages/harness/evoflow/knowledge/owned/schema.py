@@ -43,6 +43,27 @@ CREATE TABLE IF NOT EXISTS kb_bases (
 CREATE INDEX IF NOT EXISTS idx_kb_bases_updated
   ON kb_bases(updated_at DESC);
 
+-- doc_id -> kb_id map. Documents live in per-KB index DBs, so a bare doc_id
+-- cannot locate its file; this registry-level map is written on doc create.
+CREATE TABLE IF NOT EXISTS kb_doc_index (
+  doc_id      TEXT PRIMARY KEY,
+  kb_id       TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_doc_index_kb
+  ON kb_doc_index(kb_id);
+
+-- asset_id -> kb_id map (assets also live in per-KB index DBs).
+CREATE TABLE IF NOT EXISTS kb_asset_index (
+  asset_id    TEXT PRIMARY KEY,
+  kb_id       TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_asset_index_kb
+  ON kb_asset_index(kb_id);
+
 CREATE TABLE IF NOT EXISTS kb_documents (
   id              TEXT PRIMARY KEY,
   kb_id           TEXT NOT NULL,
@@ -361,6 +382,170 @@ CREATE INDEX IF NOT EXISTS idx_mem_atom_entities_atom
 """
 
 
+# Tables that live in a per-KB index DB (``<kb_dir>/.evoflow/kb/index.db``).
+# Everything else in ``DDL`` is central (registry / jobs / activity / memory).
+_KB_LOCAL_SCRIPTS = (WIKI_DDL, KG_DDL)
+
+_KB_LOCAL_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_kb_docs_kb
+  ON kb_documents(kb_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kb_docs_status
+  ON kb_documents(kb_id, parse_status);
+CREATE INDEX IF NOT EXISTS idx_kb_docs_path
+  ON kb_documents(kb_id, folder_path, file_name);
+CREATE INDEX IF NOT EXISTS idx_kb_folders_kb
+  ON kb_folders(kb_id, path);
+CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb_doc
+  ON kb_chunks(kb_id, doc_id);
+CREATE INDEX IF NOT EXISTS idx_kb_emb_kb ON kb_chunk_embeddings(kb_id);
+CREATE INDEX IF NOT EXISTS idx_kb_assets_doc ON kb_assets(doc_id);
+CREATE INDEX IF NOT EXISTS idx_kb_doc_links_src ON kb_doc_links(src_doc_id);
+CREATE INDEX IF NOT EXISTS idx_kb_doc_links_dst ON kb_doc_links(kb_id, target_doc_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_kb_type ON wiki_pages(kb_id, page_type);
+CREATE INDEX IF NOT EXISTS idx_kg_edges_src ON kg_edges(kb_id, src_node_id);
+CREATE INDEX IF NOT EXISTS idx_kg_edges_dst ON kg_edges(kb_id, dst_node_id);
+CREATE INDEX IF NOT EXISTS idx_kg_nodes_kb ON kg_nodes(kb_id);
+"""
+
+_KB_LOCAL_TABLES = """
+CREATE TABLE IF NOT EXISTS kb_schema_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_documents (
+  id              TEXT PRIMARY KEY,
+  kb_id           TEXT NOT NULL,
+  title           TEXT NOT NULL DEFAULT '',
+  source_type     TEXT NOT NULL DEFAULT 'upload',
+  file_name       TEXT NOT NULL DEFAULT '',
+  mime            TEXT NOT NULL DEFAULT '',
+  size_bytes      INTEGER NOT NULL DEFAULT 0,
+  content_hash    TEXT NOT NULL DEFAULT '',
+  blob_path       TEXT NOT NULL DEFAULT '',
+  folder_path     TEXT NOT NULL DEFAULT '',
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  parse_status    TEXT NOT NULL DEFAULT 'pending',
+  error_message   TEXT NOT NULL DEFAULT '',
+  chunk_count     INTEGER NOT NULL DEFAULT 0,
+  summary_status  TEXT NOT NULL DEFAULT 'none',
+  summary_text    TEXT NOT NULL DEFAULT '',
+  tags_json       TEXT NOT NULL DEFAULT '[]',
+  frontmatter_json TEXT NOT NULL DEFAULT '{}',
+  source_rel_path TEXT NOT NULL DEFAULT '',
+  storage_mode    TEXT NOT NULL DEFAULT 'copy',
+  source_abs_path TEXT NOT NULL DEFAULT '',
+  latest_job_id   TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  deleted_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS kb_folders (
+  id              TEXT PRIMARY KEY,
+  kb_id           TEXT NOT NULL,
+  path            TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  UNIQUE (kb_id, path)
+);
+
+CREATE TABLE IF NOT EXISTS kb_chunks (
+  id              TEXT PRIMARY KEY,
+  kb_id           TEXT NOT NULL,
+  doc_id          TEXT NOT NULL,
+  ordinal         INTEGER NOT NULL,
+  content         TEXT NOT NULL,
+  context_header  TEXT NOT NULL DEFAULT '',
+  token_estimate  INTEGER NOT NULL DEFAULT 0,
+  heading_path    TEXT NOT NULL DEFAULT '',
+  chunk_kind      TEXT NOT NULL DEFAULT 'text',
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  UNIQUE (doc_id, ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS kb_chunk_embeddings (
+  chunk_id        TEXT PRIMARY KEY,
+  kb_id           TEXT NOT NULL,
+  doc_id          TEXT NOT NULL,
+  dim             INTEGER NOT NULL,
+  embedding       BLOB NOT NULL,
+  model           TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_assets (
+  id              TEXT PRIMARY KEY,
+  kb_id           TEXT NOT NULL,
+  doc_id          TEXT NOT NULL,
+  chunk_id        TEXT,
+  kind            TEXT NOT NULL DEFAULT 'image',
+  blob_path       TEXT NOT NULL,
+  alt_text        TEXT NOT NULL DEFAULT '',
+  caption_status  TEXT NOT NULL DEFAULT 'none',
+  caption_text    TEXT NOT NULL DEFAULT '',
+  width           INTEGER,
+  height          INTEGER,
+  created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_doc_links (
+  id              TEXT PRIMARY KEY,
+  kb_id           TEXT NOT NULL,
+  src_doc_id      TEXT NOT NULL,
+  target_raw      TEXT NOT NULL,
+  target_doc_id   TEXT,
+  created_at      TEXT NOT NULL
+);
+"""
+
+KB_SCHEMA_VERSION = "1"
+
+
+def ensure_kb_schema(conn: sqlite3.Connection) -> None:
+    """Create the schema for a per-KB index DB.
+
+    Contains only KB-owned data: documents, chunks, embeddings, assets, folders,
+    doc links, wiki pages, and the KB-scoped knowledge graph. Job queue,
+    activity log, registry, and agent memory stay in the central DB.
+    """
+    conn.executescript(_KB_LOCAL_TABLES)
+    for script in _KB_LOCAL_SCRIPTS:
+        conn.executescript(script)
+    try:
+        conn.executescript(FTS_DDL)
+    except sqlite3.OperationalError:
+        # Some builds may lack FTS5; keyword search degrades to LIKE.
+        pass
+    conn.executescript(_KB_LOCAL_INDEXES)
+    # Additive migrations for index DBs created by earlier versions.
+    doc_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(kb_documents)").fetchall()}
+    for col, decl in (
+        ("sort_order", "INTEGER NOT NULL DEFAULT 0"),
+        ("tags_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("frontmatter_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ("source_rel_path", "TEXT NOT NULL DEFAULT ''"),
+        ("storage_mode", "TEXT NOT NULL DEFAULT 'copy'"),
+        ("source_abs_path", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if col not in doc_cols:
+            conn.execute(f"ALTER TABLE kb_documents ADD COLUMN {col} {decl}")
+    row = conn.execute("SELECT value FROM kb_schema_meta WHERE key = ?", ("kb_schema_version",)).fetchone()
+    if not row:
+        conn.execute(
+            "INSERT INTO kb_schema_meta(key, value) VALUES (?, ?)",
+            ("kb_schema_version", KB_SCHEMA_VERSION),
+        )
+    elif str(row["value"] if isinstance(row, sqlite3.Row) else row[0]) != KB_SCHEMA_VERSION:
+        conn.execute(
+            "UPDATE kb_schema_meta SET value=? WHERE key=?",
+            (KB_SCHEMA_VERSION, "kb_schema_version"),
+        )
+    conn.commit()
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(DDL)
     conn.executescript(WIKI_DDL)
@@ -451,6 +636,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         ("org_id", "TEXT"),
         ("owner_scope_id", "TEXT"),
         ("created_by", "TEXT"),
+        # Per-KB storage: directory holding the KB's own index DB, and whether
+        # content files are copied in or referenced in place.
+        ("storage_dir", "TEXT NOT NULL DEFAULT ''"),
+        ("content_mode", "TEXT NOT NULL DEFAULT 'copy'"),
     ):
         if col not in base_cols:
             conn.execute(f"ALTER TABLE kb_bases ADD COLUMN {col} {decl}")
