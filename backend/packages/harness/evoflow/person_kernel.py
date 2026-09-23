@@ -12,9 +12,36 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_IDENTITY_HEADING = re.compile(r"(?im)^\s*(?:\*\*Identity\*\*|#{1,3}\s*Identity)\s*$")
-_SECTION_HEADING = re.compile(r"(?im)^\s*(?:\*\*(?P<bold>[^*]+)\*\*|#{1,3}\s*(?P<hash>.+?))\s*$")
-_LESSONS_HEADING = re.compile(r"(?im)^\s*(?:\*\*Lessons Learned\*\*|#{1,3}\s*Lessons Learned)\s*$")
+# Identity 标题匹配：`**Identity**` / `# Identity` / 裸 `Identity` 三种写法都覆盖。
+# 顺带兼容中文 `身份` 标题，避免 SOUL 改写者一时疏忽就绕过了 omit。
+_IDENTITY_HEADING = re.compile(
+    r"(?im)^\s*(?:\*\*(?:Identity|身份)\*\*|#{1,3}\s*(?:Identity|身份)|(?:Identity|身份))\s*$"
+)
+# Section heading matcher for omit_identity_section / omit_lessons_learned_section.
+#
+# Three styles are accepted:
+#   - `**Bold**` / `# heading` markdown headings
+#   - Bare short heading lines (any tokens, ≤30 chars after trim) **bounded by
+#     blank lines above AND below** — that two-blank-lines anchor is what
+#     distinguishes a heading from the tail line of a multi-line paragraph.
+#
+# Length cap (≤30 chars after trim) and bare-ending-with-colon rule keep prose
+# paragraphs out of the match set.
+_SECTION_HEADING = re.compile(
+    r"(?imx)"
+    r"(?:^|\n\n)"                                                 # BOF or blank line above
+    r"(?P<indent>^[ \t]*)"                                        # leading indent (kept)
+    r"(?:"
+    r"  \*\*(?P<bold>[^*\n]+)\*\*\s*\n\s*\n"                      # `**Bold**` then blank line
+    r"  |"
+    r"  \#{1,3}\s*(?P<hash>[^\n#]+?)\s*\n\s*\n"                   # `# H1`..`### H3` then blank line
+    r"  |"
+    r"  (?P<bare>[A-Za-z\u4e00-\u9fa5][A-Za-z0-9\u4e00-\u9fa5 _\-]{0,28})\s*\n\s*\n"  # bare heading + blank line
+    r")"
+)
+_LESSONS_HEADING = re.compile(
+    r"(?im)^\s*(?:\*\*Lessons Learned\*\*|#{1,3}\s*Lessons Learned|Lessons\s+Learned)\s*$"
+)
 
 _MAX_LESSON_CHARS = 400
 _MAX_LESSONS_KEEP = 40
@@ -64,21 +91,52 @@ def omit_identity_section(soul_md: str) -> str:
     """Drop the Identity section from soul text (file on disk unchanged).
 
     Product identity lives in ``<role>`` for the lead assistant; soul keeps traits/habits only.
+
+    Splitter algorithm:
+      1. Locate the Identity heading (matched via ``_IDENTITY_HEADING``).
+      2. Strip that heading and everything until the next heading line. A "next
+         heading line" is detected with ``_SECTION_HEADING`` (anchored by a blank
+         line above and below, so prose paragraphs never trip the matcher).
+      3. If no next heading exists, strip Identity all the way to EOF.
+
+    Fallback policy (fail-open, NEVER fail-closed):
+      - If the heading matches → strip the section and return the rest.
+      - If heading is missing → return the original soul **as-is** with a debug log.
+        Reason: a soul without an Identity heading is just traits/habits (which is
+        perfectly fine); blindly returning empty would lose habit content.
+
+    Note: callers that inject into a lead prompt also rely on
+    ``format_soul_prompt_block``'s own ``omit_identity`` plus the late-prompt
+    regression detector (``get_agent_soul`` warns when a stray Identity heading
+    survives), so this fail-open is safe.
     """
     text = str(soul_md or "").replace("\r\n", "\n")
     match = _IDENTITY_HEADING.search(text)
     if not match:
-        return str(soul_md or "").strip()
-    prefix = text[: match.start()].rstrip()
-    rest = text[match.end() :]
+        logger.debug(
+            "omit_identity_section: no Identity/身份 heading detected; returning soul as-is"
+        )
+        return text.strip()
+
+    # Find the next heading after Identity — that's where Identity's body ends.
+    rest = text[match.end():]
     next_sec = None
     for m in _SECTION_HEADING.finditer(rest):
-        title = (m.group("bold") or m.group("hash") or "").strip().lower()
-        if title and title != "identity":
-            next_sec = m
-            break
-    suffix = rest[next_sec.start() :].lstrip() if next_sec else ""
-    parts = [p for p in (prefix, suffix) if p.strip()]
+        title = (m.group("bold") or m.group("hash") or m.group("bare") or "").strip().lower()
+        # Skip any stray 'identity' / '身份' re-heading and empty matches.
+        if not title or title in {"identity", "身份"}:
+            continue
+        next_sec = m
+        break
+
+    if next_sec is None:
+        # Identity was the last section — strip everything from Identity onwards.
+        before = text[: match.start()].rstrip()
+        return before
+
+    before = text[: match.start()].rstrip()
+    suffix = rest[next_sec.start():].lstrip()
+    parts = [p for p in (before, suffix) if p.strip()]
     return "\n\n".join(parts).strip()
 
 

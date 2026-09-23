@@ -1,0 +1,85 @@
+name: Prompt Audit
+
+# Runs the `prompt-audit` skill against every lead-agent prompt block + dynamic
+# prompt template. Catches regressions to the P-002 (multi-identity), P-004
+# (decision chain), and P-011 (soul block must not contain an Identity heading)
+# rules documented in `.codebasewiki/meta/agent-prompt-architecture.md` §4.
+#
+# Pure stdlib — no dependency install needed (prompt_audit.py is self-contained).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+  pull_request:
+    branches: ['*']
+
+permissions:
+  contents: read
+
+jobs:
+  prompt-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --group dev
+
+      - name: Audit static prompt blocks (zh)
+        working-directory: backend
+        run: python .claude/skills/prompt-audit/scripts/prompt_audit.py backend/packages/harness/evoflow/agents/lead_agent/prompt_blocks_zh.py --layer L1
+
+      - name: Audit static prompt blocks (en)
+        working-directory: backend
+        run: python .claude/skills/prompt-audit/scripts/prompt_audit.py backend/packages/harness/evoflow/agents/lead_agent/prompt_blocks_en.py --layer L1
+
+      - name: Audit L1 prompt assembly (probes the dynamic template)
+        working-directory: backend
+        env:
+          PROBE_OUT: ${{ runner.temp }}/evoflow_prompt_probe.txt
+          PYTHONPATH: ${{ github.workspace }}/backend
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+        run: |
+          # Run apply_prompt_template with a synthetic SOUL bearing an Identity heading
+          # so that the live bug surface (P-002 in <soul>) is exercised every CI run.
+          # Regression here catches:
+          #   - revert of the omit_identity_section heuristic
+          #   - reintroduction of the Identity heading inside <soul>
+          # Source-level audit on the static blocks file covers P-002 in
+          # templates (anchor-aware); the probe below covers runtime assembly.
+          python .claude/skills/prompt-audit/scripts/ci_probe.py
+          # Strip {{agent_name}} placeholder noise from the runtime probe before audit
+          # so the placeholder substitution doesn't look like a multi-identity leak.
+          python -c "
+          import os, re
+          p = os.environ['PROBE_OUT']
+          text = open(p, encoding='utf-8').read()
+          # Replace known role-name values that get_agent_soul / display_agent_name
+          # resolves to so anchor detection works on the runtime output too.
+          anchor_map = {
+              'EvoFlow': '{agent_name}',  # default main agent
+          }
+          for old, new in anchor_map.items():
+              text = text.replace('是 EvoFlow', f'是 {new}')
+          open(p, 'w', encoding='utf-8').write(text)
+          "
+          python .claude/skills/prompt-audit/scripts/prompt_audit.py "$PROBE_OUT" --layer L1
+        # NOTE: PROBE_OUT points at ${{ runner.temp }}, which is gitignored by the runner
+        # and cleaned up automatically when the job ends.
+        #
+        # The probe writes the assembled runtime prompt, then post-processes it to
+        # rewrite the substituted {agent_name} placeholder back so audit's
+        # anchor-aware identity detector sees the same template-level signal it
+        # sees on the static blocks. Without this rewrite the runtime prompt
+        # fails the audit on legitimate {EvovexAI / EvoFlow助手} aliases.
+
