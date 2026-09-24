@@ -884,7 +884,7 @@
   bottom: 0;
   z-index: 850;
   height: calc(56px + env(safe-area-inset-bottom, 0px));
-  padding: 0 4px env(safe-area-inset-bottom, 0px);
+  padding: 0 env(safe-area-inset-right, 8px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 8px);
   box-sizing: border-box;
   background: var(--bg-secondary, #fff);
   border-top: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));

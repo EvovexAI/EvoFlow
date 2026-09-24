@@ -83,6 +83,10 @@ const ACCENT_VARS = [
   '--shell-active-fg',
   '--shell-aside-active-bg',
   '--shell-aside-active-fg',
+  // 全侧栏/顶栏背景与文字跟随色卡（VS Code 风格）
+  '--shell-bg',
+  '--shell-text',
+  '--chrome-bg',
   // logo hue
   '--logo-hue-rotate',
 ]
@@ -206,6 +210,13 @@ function applyAccentColor(hex) {
   root.style.setProperty('--shell-active-fg', hex)
   root.style.setProperty('--shell-aside-active-bg', soft)
   root.style.setProperty('--shell-aside-active-fg', hex)
+
+  // 全侧栏/顶栏背景跟随色卡（VS Code 风格）
+  // 设 --chrome-bg 而非 --shell-bg，因为 .react-chat-session-aside 内部
+  // local --shell-bg: var(--chrome-bg) 会遮蔽继承，设 chrome-bg 覆盖其 fallback
+  root.style.setProperty('--chrome-bg', soft)
+  root.style.setProperty('--shell-bg', soft)
+  root.style.setProperty('--shell-text', dark ? 'rgba(255,255,255,0.92)' : '#1a1c24')
 
   applyLogoHueRotate(hex)
 
