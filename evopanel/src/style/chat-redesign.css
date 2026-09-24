@@ -545,7 +545,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-user-ava
 }
 
 html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: color-mix(in srgb, var(--chat-user-bubble, #e8eaef) 65%, transparent) !important;
+  background: transparent !important;
   color: var(--chat-user-fg, var(--text-primary)) !important;
   border-color: var(--chat-user-border, rgba(32, 33, 36, 0.08)) !important;
   backdrop-filter: none !important;
@@ -559,7 +559,7 @@ html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bu
 }
 
 html[data-theme='dark'][data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: color-mix(in srgb, var(--chat-user-bubble, #2f3033) 72%, transparent) !important;
+  background: transparent !important;
   border-color: var(--chat-user-border, rgba(255, 255, 255, 0.08)) !important;
 }
 
