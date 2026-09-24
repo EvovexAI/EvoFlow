@@ -23,59 +23,58 @@ html[data-scifi-ui='1'] {
 }
 
 /* ============================================================
- * 科技风专属设计 token(不依赖用户调色板)
- * 配色:翡翠绿 #00e676 + 黑色基底
+ * 科技风专属设计 token —— 跟随用户全局调色板
+ *
+ * 关键设计:
+ *  - 科技风是「视觉风格」,不是「新调色板」 — --accent 跟随用户选择(amber/violet/blue/...)
+ *  - 但整体走「Baixiao 风格」:黑底 + 半透明 overlay + 细边 + 玻璃 + 动画
+ *  - 用户调什么色,科技风的辉光就是什么色
+ *
+ * 与液态玻璃的关系:
+ *  - 液态玻璃: [data-translucent-ui='1'] → 透明 + 模糊
+ *  - 科技风:   [data-scifi-ui='1']     → 黑底 + 辉光跟随accent + 动画
  * ============================================================ */
 html[data-scifi-ui='1'] {
-  --scifi-green: #00e676;              /* 主辉光 翡翠绿 */
-  --scifi-green-soft: #00c974;         /* 略暗版本 */
-  --scifi-green-deep: #007f42;          /* 深绿 */
-  --scifi-green-bright: #51df98;       /* 亮绿(强调) */
-  --scifi-mint: #6fffe0;               /* 薄荷色(辅助高光) */
-  --scifi-cyan: #4ad6ff;               /* 青色(辅助) */
-  --scifi-violet: #b39dff;             /* 紫色(辅助,极少用) */
-  --scifi-amber: #fbbf24;              /* 琥珀色(警告) */
-  --scifi-danger: #f87171;             /* 红色(危险) */
-  --scifi-success: #00e676;            /* 成功(用主绿) */
+  color-scheme: dark;
+}
 
-  /* 强制 accent 为翡翠绿,覆盖 amber/violet 等 */
-  --accent: var(--scifi-green) !important;
-  --accent-hover: var(--scifi-green-bright) !important;
-  --accent-muted: rgba(0, 230, 118, 0.18) !important;
-  --accent-secondary: var(--scifi-cyan) !important;
-
-  /* 黑色基底 — 黑优先,所有 card/panel 用半透明 overlay 叠加 */
-  --bg-primary: #050706;               /* 主背景,纯黑微绿 */
-  --bg-secondary: #0a0e0c;             /* 二级背景 */
-  --bg-tertiary: #0f1411;              /* 三级背景 */
-  --bg-card: rgba(15, 19, 18, 0.72);   /* 卡片半透明 */
+html[data-scifi-ui='1'] {
+  /* ══════ 黑色基底 — 黑优先,所有 card/panel 用半透明 overlay 叠加 ══════ */
+  --bg-primary: #050706;
+  --bg-secondary: #0a0e0c;
+  --bg-tertiary: #0f1411;
+  --bg-card: rgba(15, 19, 18, 0.72);
   --bg-card-hover: rgba(20, 28, 24, 0.78);
   --bg-elevated: rgba(15, 19, 18, 0.84);
   --bg-surface: rgba(10, 14, 13, 0.84);
-  --bg-active: rgba(0, 230, 118, 0.10);
+  --bg-active: rgba(255, 255, 255, 0.08);
   --bg-app: #050706;
   --bg-glass: rgba(10, 14, 13, 0.78);
   --bg-glass-hover: rgba(15, 19, 18, 0.85);
   --bg-hover: rgba(255, 255, 255, 0.04);
   --bg-deep: #000;
 
-  /* 文字 — 白色为主,层次用透明度 */
-  --text-primary: #f1fff8;
+  /* 文字 */
+  --text-primary: #f1f8f4;
   --text-secondary: #c8d4ce;
   --text-tertiary: #8e9a94;
   --text-inverse: #050706;
 
-  /* 边框 — 极细 1px + 低透明度 + 主题色微染 */
+  /* 边框 — 极细 1px + 低透明度白色 */
   --border: rgba(255, 255, 255, 0.12);
   --border-color: rgba(255, 255, 255, 0.12);
   --border-default: rgba(255, 255, 255, 0.16);
   --border-primary: rgba(255, 255, 255, 0.12);
   --border-secondary: rgba(255, 255, 255, 0.07);
   --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-focus: var(--scifi-green);
-  --border-strong: rgba(0, 230, 118, 0.28);
+  --border-focus: var(--accent);
+  --border-strong: color-mix(in srgb, var(--accent) 28%, rgba(255, 255, 255, 0.10));
 
-  /* Shell 侧栏/顶栏 — 玻璃 + 细边 */
+  /* accent 派生 — 跟随全局调色板 */
+  --accent-muted: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-secondary: color-mix(in srgb, var(--accent) 60%, #06b6d4);
+
+  /* Shell 侧栏/顶栏 */
   --shell-bg: rgba(10, 14, 13, 0.84) !important;
   --shell-bg-elevated: var(--bg-tertiary) !important;
   --shell-border: var(--border-primary) !important;
@@ -86,33 +85,33 @@ html[data-scifi-ui='1'] {
   --shell-hover: rgba(255, 255, 255, 0.04) !important;
   --shell-active-bg: rgba(255, 255, 255, 0.08) !important;
   --shell-active-fg: #fff !important;
-  --shell-brand-soft: rgba(0, 230, 118, 0.18) !important;
-  --shell-brand-softer: rgba(0, 230, 118, 0.09) !important;
+  --shell-brand-soft: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  --shell-brand-softer: color-mix(in srgb, var(--accent) 9%, transparent) !important;
   --chrome-bg: var(--bg-primary) !important;
 
   /* ══════ 聊天区 token ══════ */
   --chat-canvas: transparent;
   --chat-ai-fg: var(--text-primary);
   --chat-ai-muted: var(--text-secondary);
-  --chat-user-bubble: linear-gradient(180deg, rgba(0, 230, 118, 0.22), rgba(0, 125, 63, 0.18));
+  --chat-user-bubble: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 18%, transparent));
   --chat-user-fg: #fff;
-  --chat-user-border: rgba(0, 230, 118, 0.35);
+  --chat-user-border: color-mix(in srgb, var(--accent) 35%, transparent);
   --page-canvas: var(--bg-primary);
-  --code-inline-bg: rgba(0, 230, 118, 0.16);
-  --code-inline-fg: var(--scifi-green-bright);
+  --code-inline-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+  --code-inline-fg: color-mix(in srgb, var(--accent) 65%, #fff);
   --code-block-bg: rgba(0, 0, 0, 0.6);
   --code-block-border: var(--border-primary);
-  --code-block-accent: var(--scifi-green);
+  --code-block-accent: var(--accent);
   --code-block-fg: var(--text-primary);
-  --chat-code-inline-bg: rgba(0, 230, 118, 0.16);
-  --chat-code-inline-fg: var(--scifi-green-bright);
+  --chat-code-inline-bg: color-mix(in srgb, var(--accent) 16%, transparent);
+  --chat-code-inline-fg: color-mix(in srgb, var(--accent) 65%, #fff);
 
   --text-muted: var(--text-secondary);
   --bg-app-veil: transparent;
 
   /* react-chat 子 token */
   --agent-mute: var(--text-secondary);
-  --agent-soft: rgba(0, 230, 118, 0.10);
+  --agent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
   --agent-ink: var(--text-primary);
   --agent-line: var(--border-primary);
   --chat-text-2: var(--text-secondary);
@@ -120,13 +119,13 @@ html[data-scifi-ui='1'] {
   --chat-tier-body: var(--text-primary);
   --chat-tier-meta: var(--text-tertiary);
   --chat-line: var(--border-primary);
-  --chat-primary: var(--scifi-green);
-  --chat-primary-soft: rgba(0, 230, 118, 0.14);
-  --reasoning-accent: var(--scifi-green);
-  --meter-tint: rgba(0, 230, 118, 0.30);
+  --chat-primary: var(--accent);
+  --chat-primary-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --reasoning-accent: var(--accent);
+  --meter-tint: color-mix(in srgb, var(--accent) 30%, transparent);
   --history-fade-bg: var(--bg-secondary);
 
-  /* Chat redesign token */
+  /* Chat redesign */
   --rd-text-primary: var(--text-primary);
   --rd-text-secondary: var(--text-secondary);
   --rd-text-tertiary: var(--text-tertiary);
@@ -137,17 +136,17 @@ html[data-scifi-ui='1'] {
   --rd-surface: var(--bg-card);
   --rd-border: var(--border-primary);
   --rd-border-light: var(--border-secondary);
-  --rd-primary: var(--scifi-green);
-  --rd-primary-hover: var(--scifi-green-bright);
-  --rd-primary-soft: rgba(0, 230, 118, 0.18);
-  --rd-primary-light: rgba(0, 230, 118, 0.22);
-  --rd-primary-lighter: rgba(0, 230, 118, 0.12);
-  --rd-gradient-primary: var(--scifi-green);
+  --rd-primary: var(--accent);
+  --rd-primary-hover: var(--accent-hover);
+  --rd-primary-soft: var(--accent-muted);
+  --rd-primary-light: color-mix(in srgb, var(--accent) 22%, transparent);
+  --rd-primary-lighter: color-mix(in srgb, var(--accent) 12%, transparent);
+  --rd-gradient-primary: var(--accent);
 
   /* 工作流 */
   --wf-studio-bg: var(--bg-primary);
   --wf-control-bg: rgba(15, 19, 18, 0.84);
-  --wf-sidebar-hover: rgba(0, 230, 118, 0.10);
+  --wf-sidebar-hover: color-mix(in srgb, var(--accent) 10%, transparent);
   --wf-minimap-mask: rgba(5, 7, 6, 0.30);
   --xy-background-color: var(--bg-primary);
   --xy-background-pattern-color-props: rgba(255, 255, 255, 0.06);
@@ -155,10 +154,10 @@ html[data-scifi-ui='1'] {
   --wf-node-desc: var(--text-secondary);
   --wf-node-border: var(--border-primary);
   --wf-edge: var(--border-primary);
-  --wf-edge-active: var(--scifi-green);
-  --wf-select: var(--scifi-green);
-  --wf-grid: rgba(0, 230, 118, 0.14);
-  --wf-grid-dot: rgba(0, 230, 118, 0.08);
+  --wf-edge-active: var(--accent);
+  --wf-select: var(--accent);
+  --wf-grid: color-mix(in srgb, var(--accent) 14%, transparent);
+  --wf-grid-dot: color-mix(in srgb, var(--accent) 8%, transparent);
 
   /* 资产中心 */
   --ac-bg: var(--bg-primary);
@@ -180,18 +179,18 @@ html[data-scifi-ui='1'] {
   --ac-text-faint: var(--text-tertiary);
   --ac-text-disabled: var(--text-tertiary);
   --ac-editor-fg: var(--text-primary);
-  --ac-primary: var(--scifi-green);
-  --ac-primary-hover: var(--scifi-green-bright);
-  --ac-primary-soft: rgba(0, 230, 118, 0.22);
-  --ac-primary-ring: rgba(0, 230, 118, 0.36);
-  --ac-accent: var(--scifi-green);
-  --ac-underline: var(--scifi-green);
-  --ac-link: var(--scifi-cyan);
-  --ac-caret: var(--scifi-cyan);
-  --ac-selection: rgba(0, 230, 118, 0.22);
-  --ac-active: rgba(0, 230, 118, 0.22);
+  --ac-primary: var(--accent);
+  --ac-primary-hover: var(--accent-hover);
+  --ac-primary-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+  --ac-primary-ring: color-mix(in srgb, var(--accent) 36%, transparent);
+  --ac-accent: var(--accent);
+  --ac-underline: var(--accent);
+  --ac-link: var(--accent-secondary);
+  --ac-caret: var(--accent);
+  --ac-selection: color-mix(in srgb, var(--accent) 22%, transparent);
+  --ac-active: color-mix(in srgb, var(--accent) 22%, transparent);
   --ac-fill: rgba(255, 255, 255, 0.04);
-  --ac-hover: rgba(0, 230, 118, 0.08);
+  --ac-hover: color-mix(in srgb, var(--accent) 8%, transparent);
   --ac-icon-bg: rgba(255, 255, 255, 0.05);
   --ac-icon-fg: var(--text-secondary);
   --ac-icon-border: var(--border-primary);
@@ -202,8 +201,8 @@ html[data-scifi-ui='1'] {
   --t-text: var(--text-primary);
   --t-muted: var(--text-secondary);
   --t-line: var(--border-primary);
-  --t-accent: var(--scifi-green);
-  --t-accent-soft: rgba(0, 230, 118, 0.18);
+  --t-accent: var(--accent);
+  --t-accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
   --td-card: var(--bg-secondary);
   --td-bg: var(--bg-primary);
   --td-ink: var(--text-primary);
@@ -236,7 +235,7 @@ html[data-scifi-ui='1'] {
   --kv-manage-bg: var(--bg-primary);
   --kv-toast-bg: var(--bg-tertiary);
   --kv-result-surface: var(--bg-secondary);
-  --kv-page-grad-top: rgba(0, 230, 118, 0.06);
+  --kv-page-grad-top: color-mix(in srgb, var(--accent) 6%, transparent);
   --kv-shadow: 0 8px 24px rgba(0, 0, 0, 0.46);
 
   --kb-bg: var(--bg-primary);
@@ -247,7 +246,7 @@ html[data-scifi-ui='1'] {
   --kb-input-bg: var(--bg-tertiary);
   --kb-side: var(--bg-secondary);
   --kb-nav-bg: var(--bg-secondary);
-  --kb-nav-active: rgba(0, 230, 118, 0.18);
+  --kb-nav-active: color-mix(in srgb, var(--accent) 18%, transparent);
 
   --ko-side: var(--bg-secondary);
   --ko-surface: var(--bg-card);
@@ -264,12 +263,12 @@ html[data-scifi-ui='1'] {
   --ef-d-ink-2: var(--text-secondary);
   --ef-d-muted: var(--text-tertiary);
   --ef-d-faint: var(--text-tertiary);
-  --ef-d-glow: 0 0 20px rgba(0, 230, 118, 0.30);
-  --ef-d-grad: linear-gradient(135deg, #00e676, #00c974);
-  --ef-d-grad-soft: rgba(0, 230, 118, 0.14);
-  --ef-d-indigo: var(--scifi-green);
-  --ef-d-violet: var(--scifi-violet);
-  --ef-d-blue: var(--scifi-cyan);
+  --ef-d-glow: 0 0 20px color-mix(in srgb, var(--accent) 30%, transparent);
+  --ef-d-grad: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #000));
+  --ef-d-grad-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --ef-d-indigo: var(--accent);
+  --ef-d-violet: color-mix(in srgb, var(--accent) 80%, #a855f7);
+  --ef-d-blue: color-mix(in srgb, var(--accent) 60%, #06b6d4);
 
   /* 液态玻璃辅助 */
   --ef-glass-blur: 24px;
@@ -292,10 +291,10 @@ html[data-scifi-ui='1'] {
   --login-ink: var(--text-primary);
   --login-ink-soft: var(--text-secondary);
   --login-line: var(--border-primary);
-  --login-accent: var(--scifi-green);
-  --login-accent-hover: var(--scifi-green-bright);
-  --login-accent-soft: rgba(0, 230, 118, 0.18);
-  --login-danger: var(--scifi-danger);
+  --login-accent: var(--accent);
+  --login-accent-hover: var(--accent-hover);
+  --login-accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --login-danger: #f87171;
   --login-danger-bg: rgba(248, 113, 113, 0.12);
   --login-display: var(--text-primary);
   --login-slate: var(--text-secondary);
@@ -314,25 +313,21 @@ html[data-scifi-ui='1'] {
   --obs-surface-soft: rgba(15, 19, 18, 0.50);
 
   /* 状态调试 */
-  --success-bg: rgba(0, 230, 118, 0.14);
-  --warning-bg: rgba(251, 191, 36, 0.14);
-  --error-bg: rgba(248, 113, 113, 0.14);
+  --success-bg: color-mix(in srgb, #34d399 14%, transparent);
+  --warning-bg: color-mix(in srgb, #fbbf24 14%, transparent);
+  --error-bg: color-mix(in srgb, #f87171 14%, transparent);
 
   /* 浅色 mock token */
-  --blue: var(--scifi-cyan);
-  --blue-soft: rgba(74, 214, 255, 0.18);
-  --green: var(--scifi-green);
-  --green-soft: rgba(0, 230, 118, 0.18);
+  --blue: var(--accent-secondary);
+  --blue-soft: color-mix(in srgb, var(--accent-secondary) 18%, transparent);
+  --green: #34d399;
+  --green-soft: rgba(52, 211, 153, 0.18);
 
-  /* 品牌色 */
-  --brand-primary: var(--scifi-green) !important;
-  --brand-blue: var(--scifi-green) !important;
-  --brand-purple: var(--scifi-green) !important;
-  --shadow-glow: 0 0 24px rgba(0, 230, 118, 0.30) !important;
-
-  /* 科技风专属辉光(给 body 用) */
-  --scifi-glow-top: rgba(0, 230, 118, 0.06);
-  --scifi-glow-bot: rgba(0, 230, 118, 0.05);
+  /* 品牌色 — 跟随全局 */
+  --brand-primary: var(--accent) !important;
+  --brand-blue: var(--accent) !important;
+  --brand-purple: var(--accent) !important;
+  --shadow-glow: 0 0 24px color-mix(in srgb, var(--accent) 30%, transparent) !important;
 }
 
 /* ============================================================
@@ -371,13 +366,14 @@ html[data-scifi-ui='1'] {
 
 /* ============================================================
  * body 背景 —— 黑色 + 多层辉光(参考 Baixiao ycs-reading-dashboard)
+ * 辉光跟随 var(--accent) 用户调色板
  * ============================================================ */
 html[data-scifi-ui='1'] body {
   background-color: #050706;
   background-image:
-    radial-gradient(circle at 54% 45%, rgba(0, 230, 118, 0.06) 0%, transparent 34%),
-    radial-gradient(circle at 76% 23%, rgba(74, 214, 255, 0.04) 0%, transparent 38%),
-    radial-gradient(circle at 28% 88%, rgba(0, 230, 118, 0.05) 0%, transparent 42%),
+    radial-gradient(circle at 54% 45%, color-mix(in srgb, var(--accent) 6%, transparent) 0%, transparent 34%),
+    radial-gradient(circle at 76% 23%, color-mix(in srgb, var(--accent-secondary) 4%, transparent) 0%, transparent 38%),
+    radial-gradient(circle at 28% 88%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 42%),
     #050706;
   background-attachment: fixed !important;
   color: var(--text-primary);
@@ -392,9 +388,9 @@ html[data-scifi-ui='1'] body::before {
   pointer-events: none;
   z-index: 0;
   background-image:
-    radial-gradient(ellipse 32% 20% at 18% 18%, rgba(0, 230, 118, 0.18) 0%, transparent 72%),
-    radial-gradient(ellipse 46% 35% at 78% 75%, rgba(74, 214, 255, 0.14) 0%, transparent 74%),
-    radial-gradient(ellipse 38% 28% at 46% 84%, rgba(0, 230, 118, 0.10) 0%, transparent 72%);
+    radial-gradient(ellipse 32% 20% at 18% 18%, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 72%),
+    radial-gradient(ellipse 46% 35% at 78% 75%, color-mix(in srgb, var(--accent-secondary) 14%, transparent) 0%, transparent 74%),
+    radial-gradient(ellipse 38% 28% at 46% 84%, color-mix(in srgb, var(--accent) 10%, transparent) 0%, transparent 72%);
   filter: blur(23px) saturate(1.35);
   mix-blend-mode: screen;
   transform: translate3d(-5%, -4%, 0) scale(1.08);
@@ -459,7 +455,7 @@ html[data-scifi-ui='1'] #app-shell-aside.react-chat-session-aside.shell-aside-ho
 html[data-scifi-ui='1'] .react-chat-session-aside.shell-aside-host {
   background: linear-gradient(145deg, rgba(10, 14, 13, 0.84), rgba(15, 19, 18, 0.78)) !important;
   border-right: 1px solid var(--border-primary) !important;
-  border-radius: 0 24px 24px 0 !important;
+  border-radius: 0 16px 16px 0 !important;
   box-shadow:
     24px 0 70px rgba(0, 0, 0, 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
@@ -473,7 +469,7 @@ html[data-scifi-ui='1'] .react-chat-aside-brand {
 }
 
 html[data-scifi-ui='1'] .react-chat-aside-toolbar-title {
-  background: linear-gradient(135deg, var(--scifi-green), var(--scifi-mint)) !important;
+  background: linear-gradient(135deg, var(--accent), var(--accent-secondary)) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
@@ -522,7 +518,7 @@ html[data-scifi-ui='1'] .react-chat-aside-segment-btn.is-active {
 /* 工具按钮 */
 html[data-scifi-ui='1'] .react-chat-aside-history-icon-btn.is-active {
   background: rgba(0, 230, 118, 0.16) !important;
-  color: var(--scifi-green-bright) !important;
+  color: var(--accent-hover) !important;
   box-shadow: 0 0 8px rgba(0, 230, 118, 0.20) !important;
 }
 
@@ -531,13 +527,13 @@ html[data-scifi-ui='1'] .react-chat-aside-ws-trigger.is-open,
 html[data-scifi-ui='1'] .react-chat-aside-ws-trigger.has-filter {
   background: rgba(0, 230, 118, 0.10) !important;
   border-color: rgba(0, 230, 118, 0.28) !important;
-  color: var(--scifi-green-bright) !important;
+  color: var(--accent-hover) !important;
 }
 
 /* 菜单项激活 */
 html[data-scifi-ui='1'] .react-chat-aside-ws-menu-item.is-active {
   background: rgba(0, 230, 118, 0.18) !important;
-  color: var(--scifi-green-bright) !important;
+  color: var(--accent-hover) !important;
 }
 
 /* 会话列表项 */
@@ -553,7 +549,7 @@ html[data-scifi-ui='1'] .react-chat-session-list-item:hover .react-chat-history-
 html[data-scifi-ui='1'] .react-chat-history-item.active {
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.035)) !important;
   color: #fff !important;
-  border-left: 3px solid var(--scifi-green) !important;
+  border-left: 3px solid var(--accent) !important;
   box-shadow: 0 0 14px rgba(0, 230, 118, 0.22), inset 0 0 12px rgba(0, 230, 118, 0.08) !important;
 }
 
@@ -586,7 +582,7 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-list {
   position: relative !important;
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.84)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 24px !important;
+  border-radius: 16px !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
   box-shadow:
@@ -623,7 +619,7 @@ html[data-scifi-ui='1'] .modal-dialog {
   position: relative !important;
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.92), rgba(8, 12, 11, 0.90)) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 24px !important;
+  border-radius: 16px !important;
   backdrop-filter: blur(32px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(32px) saturate(180%) !important;
   box-shadow:
@@ -654,7 +650,7 @@ html[data-scifi-ui='1'] .react-chat-turn-user-bubble {
   background: linear-gradient(180deg, rgba(0, 230, 118, 0.22), rgba(0, 125, 63, 0.18)) !important;
   color: #fff !important;
   border: 1px solid rgba(0, 230, 118, 0.35) !important;
-  border-radius: 20px !important;
+  border-radius: 14px !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 0 16px rgba(0, 230, 118, 0.18) !important;
@@ -662,9 +658,183 @@ html[data-scifi-ui='1'] .react-chat-turn-user-bubble {
 }
 
 html[data-scifi-ui='1'] .react-chat-turn-user-avatar {
-  background: linear-gradient(135deg, var(--scifi-green), var(--scifi-green-deep)) !important;
-  border: 1px solid var(--scifi-green-soft) !important;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #000)) !important;
+  border: 1px solid var(--accent) !important;
   box-shadow: 0 0 12px rgba(0, 230, 118, 0.45) !important;
+}
+
+/* ============================================================
+ * 右侧面板 — 关键样式(模仿 Baixiao ycs-right)
+ *
+ * Baixiao 设计:
+ *   - 外层 .ycs-right:padding:20px 18px 16px + 24px 圆角 + 玻璃
+ *   - 内部 .ycs-right-head:border-bottom:1px + font-weight:600
+ *   - .ycs-detail-title small:小chip + 颜色背景
+ *   - .ycs-ai:嵌套玻璃 + 内嵌半透明渐变(独立小卡片)
+ *   - .ycs-right-actions:margin-top:auto + grid 1fr 1fr 40px
+ *   - .ycs-next:active 按钮:绿色背景高亮
+ * ============================================================ */
+html[data-scifi-ui='1'] .react-chat-right-stage-panel,
+html[data-scifi-ui='1'] .react-chat-workspace-panel,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel,
+html[data-scifi-ui='1'] .react-chat-knowledge-map-panel,
+html[data-scifi-ui='1'] .react-chat-platform-feedback-panel,
+html[data-scifi-ui='1'] .react-chat-news-dashboard-panel,
+html[data-scifi-ui='1'] .react-chat-web-embed-panel {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.84)) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: 16px !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  box-shadow:
+    -24px 0 70px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  padding: 18px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 右侧面板头部 — 底部细线分隔 */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  padding-bottom: 14px !important;
+  border-bottom: 1px solid var(--border-secondary) !important;
+  margin-bottom: 14px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title-wrap {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: 0 !important;
+}
+
+/* 右侧面板标题旁边的小 chip(状态标签) — 模仿 ycs-detail-title small */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title small,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title-wrap small,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-header small {
+  font-size: 10px !important;
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  padding: 3px 8px !important;
+  border-radius: 7px !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}
+
+/* 右侧面板主体 */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body,
+html[data-scifi-ui='1'] .collab-wf-panel-body {
+  flex: 1 1 auto !important;
+  overflow: auto !important;
+  padding: 0 !important;
+  min-height: 0;
+}
+
+/* 右侧面板内嵌子卡片 — 模仿 .ycs-ai 嵌套玻璃 */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > .card,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > section,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > .panel,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-card,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .stage-card,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [data-panel-section] {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 14px !important;
+  padding: 14px 13px !important;
+  margin-bottom: 12px !important;
+}
+
+/* 右侧面板空态 — 模仿 ycs-empty */
+html[data-scifi-ui='1'] .collab-exec-dag-empty,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .empty,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [data-empty] {
+  font-size: 11px !important;
+  color: var(--text-tertiary) !important;
+  padding: 18px 14px !important;
+  text-align: center !important;
+  border: 1px dashed var(--border-secondary) !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* 右侧面板底部操作条 — 模仿 .ycs-right-actions */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .actions,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [data-panel-actions],
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel .actions,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer {
+  margin-top: auto !important;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr 40px !important;
+  gap: 8px !important;
+  padding-top: 14px !important;
+  border-top: 1px solid var(--border-secondary) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer button {
+  height: 36px !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--border-primary) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  color: var(--text-secondary) !important;
+  font-size: 11px !important;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #fff !important;
+  border-color: var(--border-default) !important;
+}
+
+/* 主操作按钮 — 模仿 .ycs-next 绿色背景 */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .is-primary,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button.is-primary,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer .is-primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 18%, transparent)) !important;
+  color: #fff !important;
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent) !important;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .is-primary:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer .is-primary:hover {
+  box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 40%, transparent) !important;
+}
+
+/* 热榜面板 — 新闻 row 样式 */
+html[data-scifi-ui='1'] .react-chat-news-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: 0 !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-news-row:hover {
+  background: rgba(255, 255, 255, 0.055) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-news-new {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  color: var(--accent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent) !important;
+  border-radius: 6px !important;
+}
+
+/* 工作流面板 — 状态色 dot */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .ycs-group-dot,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [class*="-dot"] {
+  background: var(--accent) !important;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent) !important;
 }
 
 /* ============================================================
@@ -674,7 +844,7 @@ html[data-scifi-ui='1'] .react-chat-turn-assistant .react-chat-turn-assistant-co
 html[data-scifi-ui='1'] .react-chat-turn-assistant-content {
   background: linear-gradient(145deg, rgba(15, 19, 18, 0.65), rgba(8, 12, 11, 0.65)) !important;
   border: 1px solid var(--border-primary) !important;
-  border-radius: 20px !important;
+  border-radius: 14px !important;
   backdrop-filter: blur(20px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
   box-shadow:
@@ -691,7 +861,7 @@ html[data-scifi-ui='1'] footer.react-chat-composer,
 html[data-scifi-ui='1'] .react-chat-composer {
   background: linear-gradient(145deg, rgba(10, 14, 13, 0.92), rgba(15, 19, 18, 0.88)) !important;
   border: 1px solid var(--border-primary) !important;
-  border-radius: 24px !important;
+  border-radius: 16px !important;
   backdrop-filter: blur(28px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
   box-shadow:
@@ -712,7 +882,7 @@ html[data-scifi-ui='1'] .react-chat-composer:focus-within {
 html[data-scifi-ui='1'] textarea.react-chat-input {
   background: transparent !important;
   color: var(--text-primary) !important;
-  caret-color: var(--scifi-green) !important;
+  caret-color: var(--accent) !important;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif !important;
 }
 
@@ -773,7 +943,7 @@ html[data-scifi-ui='1'] .react-chat-icon-send-btn:disabled {
 /* 停止按钮 */
 html[data-scifi-ui='1'] .react-chat-icon-stop-btn {
   background: rgba(248, 113, 113, 0.18) !important;
-  color: var(--scifi-danger) !important;
+  color: #f87171 !important;
   border: 1px solid rgba(248, 113, 113, 0.40) !important;
   border-radius: 14px !important;
   box-shadow: 0 0 12px rgba(248, 113, 113, 0.30) !important;
@@ -782,7 +952,7 @@ html[data-scifi-ui='1'] .react-chat-icon-stop-btn {
 /* 注入按钮 */
 html[data-scifi-ui='1'] .react-chat-icon-flush-btn {
   background: rgba(74, 214, 255, 0.18) !important;
-  color: var(--scifi-cyan) !important;
+  color: var(--accent-secondary) !important;
   border: 1px solid rgba(74, 214, 255, 0.40) !important;
   border-radius: 14px !important;
 }
@@ -794,7 +964,7 @@ html[data-scifi-ui='1'] .shell-logo-text,
 html[data-scifi-ui='1'] .app-logo-text,
 html[data-scifi-ui='1'] .topbar-logo-text,
 html[data-scifi-ui='1'] .webui-login-brand-title {
-  background: linear-gradient(135deg, var(--scifi-green), var(--scifi-mint)) !important;
+  background: linear-gradient(135deg, var(--accent), var(--accent-secondary)) !important;
   -webkit-background-clip: text !important;
   background-clip: text !important;
   -webkit-text-fill-color: transparent !important;
@@ -815,7 +985,7 @@ html[data-scifi-ui='1'] .modal-title {
 html[data-scifi-ui='1'] pre,
 html[data-scifi-ui='1'] .msg pre,
 html[data-scifi-ui='1'] .markdown-body pre {
-  border-left: 3px solid var(--scifi-green) !important;
+  border-left: 3px solid var(--accent) !important;
   background: rgba(0, 0, 0, 0.55) !important;
   box-shadow: inset 0 0 16px rgba(0, 230, 118, 0.05) !important;
   border-radius: 0 12px 12px 0 !important;
@@ -824,7 +994,7 @@ html[data-scifi-ui='1'] .markdown-body pre {
 html[data-scifi-ui='1'] code,
 html[data-scifi-ui='1'] .markdown-body code {
   background: rgba(0, 230, 118, 0.16) !important;
-  color: var(--scifi-green-bright) !important;
+  color: var(--accent-hover) !important;
   border: 1px solid rgba(0, 230, 118, 0.20) !important;
   border-radius: 6px !important;
   padding: 1px 6px !important;
@@ -859,7 +1029,7 @@ html[data-scifi-ui='1'] .assets-center-root {
   --ac-bg: var(--bg-primary) !important;
   --ac-surface: var(--bg-secondary) !important;
   --ac-text: var(--text-primary) !important;
-  --ac-primary: var(--scifi-green) !important;
+  --ac-primary: var(--accent) !important;
 }
 
 html[data-scifi-ui='1'] .settings-panels,
