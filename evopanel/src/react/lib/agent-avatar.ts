@@ -26,7 +26,8 @@ export type ResolvedAgentAvatar =
   | { kind: 'image'; src: string; meta: ReturnType<typeof avatarMetaFromWire> }
   | { kind: 'initial'; initial: string; bg: string }
 
-const AVATAR_COLORS = ['#635bff', '#4b5563', '#64748b', '#57534e', '#0f766e', '#1d4ed8', '#b45309', '#7c3aed']
+// 第一项用 CSS 变量 `--accent`，跟着全局色卡走；其余保持中性，确保 brand 染色时头像仍有辨识区分。
+const AVATAR_COLORS = ['var(--accent, #635bff)', '#4b5563', '#64748b', '#57534e', '#0f766e', '#1d4ed8', '#b45309', '#7c3aed']
 
 /** Legacy UI placeholders — not real gallery ids. */
 const LEGACY_PRESET_IDS = new Set(['mochi', 'ink', 'bolt'])
