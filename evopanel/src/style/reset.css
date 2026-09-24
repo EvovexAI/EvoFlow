@@ -15,12 +15,9 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 自定义背景墙纸层（由 appearance-background.js 挂载）
- * v17.1 — 默认壁纸始终展示（不依赖 data-custom-bg）
- * 用户的太空壁纸作为主视觉,login / 主页 / 各路由均展示
- */
+/* 自定义背景墙纸层（由 appearance-background.js 挂载） */
 #evopanel-app-wallpaper {
-  display: block;
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 0;
@@ -36,16 +33,18 @@ html, body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  opacity: var(--app-bg-opacity, 0.55);
+  opacity: var(--app-bg-opacity, 0.35);
 }
 
-html[data-custom-bg='1'] body,
-html body {
+html[data-custom-bg='1'] #evopanel-app-wallpaper {
+  display: block;
+}
+
+html[data-custom-bg='1'] body {
   background: transparent;
 }
 
-html[data-custom-bg='1'] #app,
-html #app {
+html[data-custom-bg='1'] #app {
   position: relative;
   z-index: 1;
   background: transparent;
