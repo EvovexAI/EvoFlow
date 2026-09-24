@@ -6,6 +6,7 @@ import { initShellAside, openMobileShellAside } from './components/shell-aside.j
 import { initTheme, attachSystemThemeListener } from './lib/theme.js'
 import { initFontSizePreference } from './lib/font-size.js'
 import { initAccentThemePreference } from './lib/accent-theme.js'
+import { initSciFiUI } from './lib/sci-fi-theme.js'
 import { initAppearanceBackground, applyBackgroundPreference } from './lib/appearance-background.js'
 import { initLiquidGlass } from './lib/liquid-glass/index.js'
 import { initPanelSettings, reloadPanelSettings, getPanelSetting, patchPanelSettings } from './lib/panel-settings.js'
@@ -119,6 +120,7 @@ import './style/license.css'
 import './components/global-assistant/global-assistant.css'
 import './style/ai-roundtable.css'
 import './style/liquid-glass.css'
+import './style/sci-fi-theme.css'
 import './style/theme-surfaces.css'
 import './style/assets-page.css'
 import './style/theme-readability.css'
@@ -129,6 +131,7 @@ import './style/ef-panel-head.css'
 initTheme()
 initFontSizePreference()
 initAccentThemePreference()
+initSciFiUI()
 attachSystemThemeListener()
 // 先等面板设置加载完成再初始化背景外观（透明效果、背景图等），
 // 避免默认值覆盖用户已持久化的 transparency/opacity 设置

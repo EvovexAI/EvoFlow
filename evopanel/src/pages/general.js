@@ -51,6 +51,7 @@ import {
   MIN_LIQUID_GLASS_READABILITY_DIM,
   MAX_LIQUID_GLASS_READABILITY_DIM,
 } from '../lib/liquid-glass/index.js'
+import { getSciFiUIEnabled, setSciFiUIEnabled, SCIFI_UI_EVENT } from '../lib/sci-fi-theme.js'
 import { getUseVirtualPaths, setUseVirtualPaths } from '../lib/path-mode.js'
 import { getPanelSetting, patchPanelSettings } from '../lib/panel-settings.js'
 import { api } from '../lib/tauri-api.js'
@@ -237,6 +238,7 @@ export async function mountGeneralInto(container) {
   window.addEventListener(ACCENT_THEME_EVENT, _themeListener)
   window.addEventListener(BACKGROUND_EVENT, _themeListener)
   window.addEventListener(LIQUID_GLASS_EVENT, _themeListener)
+  window.addEventListener(SCIFI_UI_EVENT, _themeListener)
   _panelSettingsListener = () => {
     renderPathMode(root)
     renderMemoryDefaultToggle(root)
@@ -409,6 +411,12 @@ export async function mountGeneralInto(container) {
       setLiquidGlassEnabled(!!t.checked)
       renderAppearanceBar(root)
       toast(t.checked ? '液态玻璃已开启' : '液态玻璃已关闭', 'success')
+      return
+    }
+    if (t.id === 'general-scifi-toggle') {
+      setSciFiUIEnabled(!!t.checked)
+      renderAppearanceBar(root)
+      toast(t.checked ? '科技风已开启' : '科技风已关闭', 'success')
       return
     }
     if (t.id === 'general-memory-default-toggle') {
@@ -1154,6 +1162,14 @@ export function renderAppearanceBar(page) {
           <p class="form-hint settings-appearance-inline-hint" style="margin-top:4px">视频背景会自动加强压暗；字仍看不清时可拉到 60–75%。</p>
         </div>
       </div>
+    </div>
+    <div class="config-section" style="margin-top:0;padding-top:0;border-top:1px dashed var(--border-subtle)">
+      <div class="config-section-title">科技风</div>
+      <label class="switch-row" style="margin-top:8px">
+        <input id="general-scifi-toggle" type="checkbox" ${getSciFiUIEnabled() ? 'checked' : ''} />
+        <span class="switch-label">开启科技风</span>
+      </label>
+      <p class="form-hint settings-appearance-inline-hint">赛博朋克风格：深蓝黑底 + 霓虹青描边 + 网格扫描线。与液态玻璃二选一，开启后会替代玻璃态背景。</p>
     </div>
     <div class="settings-appearance-group settings-appearance-group--range">
       <div class="settings-appearance-label">字体大小</div>

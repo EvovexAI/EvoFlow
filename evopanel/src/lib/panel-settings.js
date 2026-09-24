@@ -52,6 +52,8 @@ export const DEFAULT_PANEL_SETTINGS = {
   liquidGlassFlowSpeed: 0.55,
   /** 液态玻璃背景压暗 0–90，提升文字可读性 */
   liquidGlassReadabilityDim: 36,
+  /** 科技风：赛博朋克风格，替代液态玻璃 */
+  sciFiUIEnabled: false,
 }
 
 const LS_MIGRATION_FLAG = 'evopanel_panel_settings_migrated_v1'
