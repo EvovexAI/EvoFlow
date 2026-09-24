@@ -1,13 +1,15 @@
 /**
- * EvoFlow Sci-Fi Theme v6
+ * EvoFlow Sci-Fi Theme v7
  *
- * 设计原则：复用项目 token 体系（--text-primary/secondary/tertiary、--accent、--bg-*）
- *          只在 [data-scifi-ui='1'] 下覆盖：底色、辉光、玻璃强度
+ * 设计原则:统一 token 驱动 —— 所有模块(token 前缀 --ac-, --wf-, --t-, --td-,
+ *          --im-, --kv-, --kb-, --rd-, --shell-, --ef-d-, --login-)在科技风下
+ *          全部映射到科技风配色,无需写选择器
  *
- * 这套主题与「液态玻璃」是同套主题的两套参数：
- *  - 液态玻璃（translucent-ui='1'）：透明背景 + 模糊
- *  - 科技风（scifi-ui='1'）：深紫蓝底 + 双辉光 + 紫蓝强调
- * 两者都靠 --text-primary 等 token 控制系统可读性。
+ * 与液态玻璃的关系(同源同结构):
+ *  - 液态玻璃: [data-translucent-ui='1'] → 透明 + 模糊
+ *  - 科技风:   [data-scifi-ui='1']     → 深紫蓝 + 双辉光 + 强玻璃
+ *
+ * 两套主题都是"参数切换",通过 token 集中映射实现,与 theme-readability.css 协作。
  */
 
 html[data-scifi-ui='1'] {
@@ -16,40 +18,303 @@ html[data-scifi-ui='1'] {
 
 /*
  * 科技风强制暗色 —— 不依赖 data-theme
- * 复用项目 token,但覆写其值到科技风专属色
  *
- * 关键设计:不覆写 --accent,让它跟随用户调色板选择(amber/violet/blue...)
- * 风格差异化通过:底色 / 辉光 / 玻璃强度 / 强调色辅助变量
+ * 设计取舍:
+ *  - --accent 不覆写 → 跟随用户调色板(amber/violet/blue/...)
+ *  - 风格差异化通过底色/辉光/玻璃强度
+ *  - 全部模块私有 token 一次性映射到科技风色
  */
 html[data-scifi-ui='1'] {
-  --bg-primary: #14122a;        /* 主底 - 深紫蓝 */
-  --bg-secondary: #1a1838;      /* 二级底 */
-  --bg-tertiary: #221f48;       /* 三级底 */
-  --bg-card: #1a1838;           /* 卡片底 */
+  /* ══════ 全局基础 token ══════ */
+  --bg-primary: #14122a;
+  --bg-secondary: #1a1838;
+  --bg-tertiary: #221f48;
+  --bg-card: #1a1838;
+  --bg-card-hover: #221f48;
+  --bg-elevated: #221f48;
+  --bg-surface: #1a1838;
+  --bg-active: #2a2752;
+  --bg-app: #14122a;
+  --bg-glass: rgba(26, 24, 56, 0.78);
+  --bg-glass-hover: rgba(34, 31, 72, 0.85);
+  --bg-hover: color-mix(in srgb, var(--accent) 8%, transparent);
 
-  --text-primary: #f8f9fc;      /* 主文字 - 近白（与暗色一致） */
-  --text-secondary: #c8cdd8;    /* 次文字 - 比默认稍亮 */
-  --text-tertiary: #8a93a3;     /* 三级 */
+  --text-primary: #f8f9fc;
+  --text-secondary: #c8cdd8;
+  --text-tertiary: #8a93a3;
+  --text-inverse: #14122a;
 
-  /* --accent 不覆写:跟随用户调色板选择 */
-
+  --border: rgba(160, 168, 200, 0.14);
+  --border-color: rgba(160, 168, 200, 0.14);
+  --border-default: rgba(160, 168, 200, 0.18);
   --border-primary: rgba(160, 168, 200, 0.14);
   --border-secondary: rgba(160, 168, 200, 0.08);
+  --border-subtle: rgba(160, 168, 200, 0.06);
+  --border-focus: var(--accent);
 
-  /* 聊天区专属 token（覆写 chat-user-bubble 等） */
-  --chat-canvas: transparent;        /* 对话区透出辉光背景 */
-  --page-canvas: var(--bg-secondary);
-  --chat-ai-fg: var(--text-primary); /* AI 文字走主色 */
+  /* 状态色(由 accent-theme.js 动态设置,这里不重复) */
+
+  /* Shell 侧栏/顶栏(液态玻璃也有这套) */
+  --shell-bg: color-mix(in srgb, var(--bg-secondary) 70%, transparent) !important;
+  --shell-bg-elevated: var(--bg-tertiary) !important;
+  --shell-border: var(--border-primary) !important;
+  --shell-text: var(--text-primary) !important;
+  --shell-text-body: var(--text-primary) !important;
+  --shell-text-muted: var(--text-secondary) !important;
+  --shell-text-weak: var(--text-tertiary) !important;
+  --shell-hover: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  --shell-active-bg: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  --shell-active-fg: var(--accent) !important;
+  --shell-brand-soft: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  --shell-brand-softer: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  --chrome-bg: var(--bg-primary) !important;
+
+  /* ══════ 聊天区 token ══════ */
+  --chat-canvas: transparent;
+  --chat-ai-fg: var(--text-primary);
   --chat-ai-muted: var(--text-secondary);
-  --chat-user-bubble: var(--accent);  /* 用户气泡用 accent(科技风关键视觉) */
+  --chat-user-bubble: var(--accent);
   --chat-user-fg: #fff;
   --chat-user-border: var(--accent-hover);
+  --page-canvas: var(--bg-secondary);
+  --code-inline-bg: color-mix(in srgb, var(--accent) 22%, transparent);
+  --code-inline-fg: var(--accent);
+  --code-block-bg: var(--bg-deep);
+  --code-block-border: var(--border-primary);
+  --code-block-accent: var(--accent);
+  --code-block-fg: var(--text-primary);
   --chat-code-inline-bg: color-mix(in srgb, var(--accent) 22%, transparent);
   --chat-code-inline-fg: var(--accent);
 
-  /* 科技风专属：双辉光背景（仅 body 用，不会污染 token） */
+  /* react-chat 子 token */
+  --agent-mute: var(--text-secondary);
+  --agent-soft: color-mix(in srgb, var(--accent) 8%, transparent);
+  --agent-ink: var(--text-primary);
+  --agent-line: var(--border-primary);
+  --chat-text-2: var(--text-secondary);
+  --chat-text-3: var(--text-secondary);
+  --chat-tier-body: var(--text-primary);
+  --chat-tier-meta: var(--text-tertiary);
+  --chat-line: var(--border-primary);
+  --chat-primary: var(--accent);
+  --chat-primary-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --reasoning-accent: var(--accent);
+  --meter-tint: color-mix(in srgb, var(--accent) 30%, transparent);
+  --history-fade-bg: var(--bg-secondary);
+
+  /* ══════ Chat redesign token(--rd-*) ══════ */
+  --rd-text-primary: var(--text-primary);
+  --rd-text-secondary: var(--text-secondary);
+  --rd-text-tertiary: var(--text-tertiary);
+  --rd-text-muted: var(--text-tertiary);
+  --rd-bg: var(--bg-primary);
+  --rd-bg-secondary: var(--bg-secondary);
+  --rd-bg-tertiary: var(--bg-tertiary);
+  --rd-surface: var(--bg-card);
+  --rd-border: var(--border-primary);
+  --rd-border-light: var(--border-secondary);
+  --rd-primary: var(--accent);
+  --rd-primary-hover: var(--accent-hover);
+  --rd-primary-soft: var(--accent-muted);
+  --rd-primary-light: color-mix(in srgb, var(--accent) 22%, transparent);
+  --rd-primary-lighter: color-mix(in srgb, var(--accent) 12%, transparent);
+  --rd-gradient-primary: var(--accent);
+
+  /* ══════ 工作流 token(--wf-*) ══════ */
+  --wf-studio-bg: var(--bg-primary);
+  --wf-control-bg: color-mix(in srgb, var(--bg-card) 14%, transparent);
+  --wf-sidebar-hover: color-mix(in srgb, var(--accent) 6%, transparent);
+  --wf-minimap-mask: color-mix(in srgb, var(--bg-primary) 30%, transparent);
+  --xy-background-color: var(--bg-primary);
+  --xy-background-pattern-color-props: color-mix(in srgb, var(--text-tertiary) 22%, transparent);
+  --wf-node-title: var(--text-primary);
+  --wf-node-desc: var(--text-secondary);
+  --wf-node-border: var(--border-primary);
+  --wf-edge: var(--border-strong, var(--border-primary));
+  --wf-edge-active: var(--accent);
+  --wf-select: var(--accent);
+  --wf-grid: color-mix(in srgb, var(--text-tertiary) 16%, transparent);
+  --wf-grid-dot: color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+
+  /* ══════ 资产中心 token(--ac-*) ══════ */
+  --ac-bg: var(--bg-primary);
+  --ac-surface: var(--bg-secondary);
+  --ac-surface-2: var(--bg-tertiary);
+  --ac-explorer: var(--bg-secondary);
+  --ac-editor-bar: var(--bg-secondary);
+  --ac-editor-body: var(--bg-tertiary);
+  --ac-gutter: var(--bg-secondary);
+  --ac-footer: var(--bg-secondary);
+  --ac-vault-bg: var(--bg-secondary);
+
+  --ac-border: var(--border-primary);
+  --ac-border-subtle: var(--border-secondary);
+  --ac-divider: var(--border-primary);
+  --ac-border-strong: var(--border-default);
+
+  --ac-text: var(--text-primary);
+  --ac-text-secondary: var(--text-secondary);
+  --ac-text-muted: var(--text-tertiary);
+  --ac-text-faint: var(--text-tertiary);
+  --ac-text-disabled: var(--text-tertiary);
+  --ac-editor-fg: var(--text-primary);
+
+  --ac-primary: var(--accent);
+  --ac-primary-hover: var(--accent-hover);
+  --ac-primary-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --ac-primary-ring: color-mix(in srgb, var(--accent) 30%, transparent);
+  --ac-accent: var(--accent);
+  --ac-underline: var(--accent);
+  --ac-link: var(--accent);
+  --ac-caret: var(--accent);
+  --ac-selection: color-mix(in srgb, var(--accent) 18%, transparent);
+  --ac-active: color-mix(in srgb, var(--accent) 18%, transparent);
+
+  --ac-fill: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+  --ac-hover: color-mix(in srgb, var(--accent) 8%, transparent);
+  --ac-icon-bg: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+  --ac-icon-fg: var(--text-secondary);
+  --ac-icon-border: var(--border-primary);
+
+  /* ══════ 任务中心 token(--t-* / --td-*) ══════ */
+  --t-card: var(--bg-secondary);
+  --t-page: var(--bg-primary);
+  --t-text: var(--text-primary);
+  --t-muted: var(--text-secondary);
+  --t-line: var(--border-primary);
+  --t-accent: var(--accent);
+  --t-accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --td-card: var(--bg-secondary);
+  --td-bg: var(--bg-primary);
+  --td-ink: var(--text-primary);
+  --td-muted: var(--text-secondary);
+  --td-fill: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+  --td-border: var(--border-primary);
+
+  /* ══════ 我的事项 token(--im-*) ══════ */
+  --im-text-primary: var(--text-primary);
+  --im-text-secondary: var(--text-secondary);
+  --im-text-tertiary: var(--text-tertiary);
+  --im-surface: var(--bg-secondary);
+  --im-border: var(--border-primary);
+  --im-page-bg: var(--bg-primary);
+
+  /* ══════ 知识库 token(--kv-* / --kb-* / --ko-*) ══════ */
+  --kv-bg: var(--bg-primary);
+  --kv-panel: var(--bg-secondary);
+  --kv-panel-2: var(--bg-tertiary);
+  --kv-panel-3: var(--bg-tertiary);
+  --kv-panel-surface: var(--bg-card);
+  --kv-card-surface: var(--bg-secondary);
+  --kv-modal-bg: var(--bg-tertiary);
+  --kv-input-bg: var(--bg-tertiary);
+  --kv-select-bg: var(--bg-tertiary);
+  --kv-empty-bg: var(--bg-secondary);
+  --kv-ghost-bg: transparent;
+  --kv-graph-bg: var(--bg-deep);
+  --kv-note-bg: var(--bg-secondary);
+  --kv-manage-bg: var(--bg-primary);
+  --kv-toast-bg: var(--bg-tertiary);
+  --kv-result-surface: var(--bg-secondary);
+  --kv-page-grad-top: color-mix(in srgb, var(--accent) 6%, transparent);
+  --kv-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+
+  --kb-bg: var(--bg-primary);
+  --kb-card-bg: var(--bg-secondary);
+  --kb-panel: var(--bg-secondary);
+  --kb-drawer: var(--bg-secondary);
+  --kb-elevated: var(--bg-tertiary);
+  --kb-input-bg: var(--bg-tertiary);
+  --kb-side: var(--bg-secondary);
+  --kb-nav-bg: var(--bg-secondary);
+  --kb-nav-active: color-mix(in srgb, var(--accent) 18%, transparent);
+
+  --ko-side: var(--bg-secondary);
+  --ko-surface: var(--bg-card);
+  --ko-thead: var(--bg-tertiary);
+
+  /* ══════ 侧栏抽屉 token(--ef-d-*) ══════ */
+  --ef-d-surface: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  --ef-d-fill: color-mix(in srgb, var(--accent) 5%, transparent);
+  --ef-d-fill-2: color-mix(in srgb, var(--accent) 7%, transparent);
+  --ef-d-fill-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --ef-d-line: var(--border-primary);
+  --ef-d-line-strong: var(--border-default);
+  --ef-d-ink: var(--text-primary);
+  --ef-d-ink-2: var(--text-secondary);
+  --ef-d-muted: var(--text-tertiary);
+  --ef-d-faint: var(--text-tertiary);
+  --ef-d-glow: 0 0 18px color-mix(in srgb, var(--accent) 30%, transparent);
+  --ef-d-grad: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #06b6d4));
+  --ef-d-grad-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --ef-d-indigo: var(--accent);
+  --ef-d-violet: color-mix(in srgb, var(--accent) 80%, #a855f7);
+  --ef-d-blue: color-mix(in srgb, var(--accent) 60%, #06b6d4);
+
+  /* ══════ 液态玻璃辅助 token(项目在多处复用) ══════ */
+  --ef-glass-blur: 20px;
+  --ef-glass-saturate: 160%;
+  --ef-glass-surface: rgba(26, 24, 56, 0.78);
+  --ef-glass-surface-strong: rgba(34, 31, 72, 0.88);
+  --ef-glass-border: var(--border-primary);
+  --ef-glass-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --ef-glass-highlight: rgba(255, 255, 255, 0.05);
+  --ef-glass-rim: rgba(255, 255, 255, 0.08);
+  --ef-glass-brightness: 1.05;
+
+  /* ══════ 表单字段 token ══════ */
+  --ef-field-surface: var(--bg-tertiary);
+  --ef-field-surface-strong: var(--bg-tertiary);
+
+  /* ══════ 登录页 token(--login-*) ══════ */
+  --login-paper: var(--bg-primary);
+  --login-card: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  --login-ink: var(--text-primary);
+  --login-ink-soft: var(--text-secondary);
+  --login-line: var(--border-primary);
+  --login-accent: var(--accent);
+  --login-accent-hover: var(--accent-hover);
+  --login-accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --login-danger: #f87171;
+  --login-danger-bg: rgba(248, 113, 113, 0.12);
+  --login-display: var(--text-primary);
+  --login-slate: var(--text-secondary);
+
+  /* ══════ 智能体 trace token ══════ */
+  --el-bg-page: var(--bg-primary);
+  --el-text-primary: var(--text-primary);
+  --el-text-regular: var(--text-primary);
+  --el-text-secondary: var(--text-secondary);
+  --el-border-color: var(--border-primary);
+  --el-border-color-lighter: var(--border-secondary);
+  --el-fill-color-light: var(--bg-tertiary);
+
+  /* ══════ 观察面板 token ══════ */
+  --obs-surface-muted: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+  --obs-surface-soft: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+
+  /* 状态调试 */
+  --success-bg: color-mix(in srgb, #34d399 14%, transparent);
+  --warning-bg: color-mix(in srgb, #fbbf24 14%, transparent);
+  --error-bg: color-mix(in srgb, #f87171 14%, transparent);
+
+  /* 浅色 mock token(给某些浅色组件如按钮) */
+  --blue: color-mix(in srgb, var(--accent) 70%, #06b6d4);
+  --blue-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --green: #34d399;
+  --green-soft: color-mix(in srgb, #34d399 18%, transparent);
+
+  /* 主题色派生 */
+  --text-muted: var(--text-secondary);
+  --border-strong: var(--border-default);
+  --bg-app-veil: transparent;
+
+  /* 科技风专属辉光(仅 body 用) */
   --scifi-glow-top: color-mix(in srgb, var(--accent) 35%, #06b6d4);
   --scifi-glow-bot: var(--accent);
+
+  /* 深色背景补充 */
+  --bg-deep: #0c0a1f;
 }
 
 /* ============================================================
