@@ -777,6 +777,28 @@ html[data-translucent-ui='1'] .react-chat-agent-cap-tabs {
   background: color-mix(in srgb, var(--bg-secondary) 22%, transparent) !important;
 }
 
+/* 用户消息行：头像 + 行背景全透明 */
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user .msg-turn-user-row {
+  background: transparent !important;
+}
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--user.msg-user {
+  background: transparent !important;
+}
+
+/* AI 消息气泡：玻璃态下全透明（DeepSeek 式），不依赖 liquid-glass flag */
+html[data-translucent-ui='1'] body .msg-ai .msg-bubble,
+html[data-translucent-ui='1'] body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html[data-translucent-ui='1'] body .msg-turn-assistant-content {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 html[data-translucent-ui='1'] .react-chat-conversation-col .msg-turn--assistant .msg-text table,
 html[data-translucent-ui='1'] .msg-text table {
   background: color-mix(in srgb, var(--bg-secondary) 26%, transparent) !important;
