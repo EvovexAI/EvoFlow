@@ -8,9 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <!-- 首帧即生效：v17.2 整个客户端都是太空壁纸,首帧用深色基底避免白闪 -->
+  <!-- 首帧即生效：不依赖 JS 与 variables.css；浅色底与默认主题、WebView backgroundColor 一致 -->
   <style>
-    html, body { margin: 0; min-height: 100%; background: #050706; }
+    html, body { margin: 0; min-height: 100%; background: #f4f5fb; }
     #boot-splash {
       --boot-brand: #5b5fef;
       --boot-brand-2: #8b5cf6;
@@ -20,14 +20,14 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       overflow: hidden;
-      /* v17.2 — 整个客户端背景都是太空壁纸,不显示 EvoFlow logo 加载卡 */
-      background-image: url('/assets/evoflow_card_png_assets/home_background.jpg');
-      background-size: cover;
-      background-position: center center;
-      background-repeat: no-repeat;
-      background-color: #050706;
+      padding: calc(48px + env(safe-area-inset-top, 0px)) max(20px, 3vw) 16px;
+      background:
+        radial-gradient(ellipse 90% 55% at 50% 18%, rgba(99, 102, 241, 0.16), transparent 60%),
+        radial-gradient(ellipse 70% 50% at 80% 80%, rgba(139, 92, 246, 0.1), transparent 55%),
+        radial-gradient(ellipse 60% 40% at 12% 70%, rgba(56, 189, 248, 0.08), transparent 50%),
+        linear-gradient(180deg, #fbfbff 0%, #f3f4fb 48%, #eef0f8 100%);
       transition: opacity 0.38s ease, visibility 0.38s ease;
       font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
@@ -35,21 +35,6 @@
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
-    }
-
-    /* v17.2 — 整个客户端都是壁纸,不显示 logo / orb / 介绍卡
-       加载瞬间不需要任何 indicator (JS 加载完即 hide, <500ms) */
-    #boot-splash .boot-orb,
-    #boot-splash .boot-mark-wrap,
-    #boot-splash .boot-splash-mark,
-    #boot-splash .boot-splash-brand,
-    #boot-splash .boot-splash-tagline,
-    #boot-splash .boot-splash-bar,
-    #boot-splash .boot-splash-sub,
-    #boot-splash .boot-guide,
-    #boot-splash .boot-center,
-    #boot-splash .boot-mark-ring {
-      display: none !important;
     }
 
     .boot-orb {

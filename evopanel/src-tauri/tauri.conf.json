@@ -21,7 +21,7 @@
         "minHeight": 540,
         "decorations": false,
         "resizable": true,
-        "backgroundColor": "#050706"
+        "backgroundColor": "#f8f9fb"
       }
     ],
     "withGlobalTauri": true,
