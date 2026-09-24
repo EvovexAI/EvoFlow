@@ -310,6 +310,171 @@ def _archive_pending(entity: EntityRef, pending_rels: list[str]) -> list[str]:
     return moved
 
 
+# --- MEMORY.md auto-index reconciliation ---------------------------------
+#
+# MEMORY.md is the registry rendered into the system prompt as the first catalog row
+# (`summary memory/MEMORY.md — (registry — N task groups: …)`). Without reconciliation the
+# model's `memory_md` output is the only source of truth, and we routinely see Phase 2
+# return either noop (skips writing) or a default skeleton, while real facts / episodic /
+# craft files exist on disk. The registry line then renders `(registry — empty; consolidate
+# to populate)` even though there is recoverable content. To keep the system prompt honest,
+# we reconcile MEMORY.md after every Phase 2 write:
+#
+# 1. When the model's output has real Task Group structure, preserve it verbatim.
+# 2. Append a trailing `## Auto-Index` section listing every on-disk fact / episodic /
+#    craft file (deduplicated against what the model already referenced).
+# 3. When the model's output is the default skeleton (or empty), regenerate the entire
+#    MEMORY.md from on-disk content under a single `## Auto-Index` Task Group.
+
+_TASK_GROUP_HEAD_RE = re.compile(r"^\s*#\s*Task\s+Group:", re.MULTILINE)
+_TASK_HEAD_RE = re.compile(r"^\s*##\s+Task\s+\d+:", re.MULTILINE)
+_AUTO_INDEX_HEADER = "## Auto-Index"
+
+
+def _enumerate_indexed_assets(entity: EntityRef) -> list[tuple[str, str]]:
+    """Return [(rel_path, kind_label), ...] for every on-disk indexable asset.
+
+    Skips READMEs and the registry file itself. Stable order so the index is
+    deterministic across runs.
+    """
+    from evoflow.assets.paths import entity_root
+
+    out: list[tuple[str, str]] = []
+    try:
+        root = entity_root(entity.normalized())
+    except Exception:
+        return out
+
+    def _scan(subdir: str, kind: str) -> None:
+        d = root / subdir
+        if not d.is_dir():
+            return
+        for path in sorted(d.glob("*.md")):
+            if not path.is_file() or path.name.upper() == "README.MD":
+                continue
+            rel = f"{subdir}/{path.name}".replace("\\", "/")
+            out.append((rel, kind))
+
+    _scan("memory/facts", "fact")
+    _scan("memory/episodic", "episode")
+    _scan("memory/journal", "journal")
+    craft_dir = root / "craft"
+    if craft_dir.is_dir():
+        for path in sorted(craft_dir.glob("*.md")):
+            if not path.is_file() or path.name.upper() == "README.MD":
+                continue
+            rel = f"craft/{path.name}".replace("\\", "/")
+            out.append((rel, "craft"))
+    return out
+
+
+def _existing_memory_md_has_structure(text: str) -> bool:
+    return bool(_TASK_GROUP_HEAD_RE.search(text) or _TASK_HEAD_RE.search(text))
+
+
+def _extract_existing_referenced_paths(text: str) -> set[str]:
+    """Pick up ``- <path>`` bullet lines and `path=…` references already in MEMORY.md."""
+    out: set[str] = set()
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("- "):
+            tok = s[2:].strip().split()
+            if tok and ("/" in tok[0] or tok[0].endswith(".md")):
+                p = tok[0].strip("`").rstrip(",").rstrip(")").strip()
+                if p.endswith(".md"):
+                    out.add(p.replace("\\", "/"))
+            continue
+        for m in re.finditer(r"path=([^\s,)]+\.md)", s):
+            out.add(m.group(1).replace("\\", "/"))
+    return out
+
+
+def _build_auto_index_block(
+    assets: list[tuple[str, str]],
+    *,
+    existing_refs: set[str],
+) -> tuple[str, list[str]]:
+    """Build the `## Auto-Index` section body. Returns (text, appended_paths)."""
+    appended: list[str] = []
+    lines: list[str] = [_AUTO_INDEX_HEADER, ""]
+    for rel, kind in assets:
+        if rel in existing_refs:
+            continue
+        appended.append(rel)
+        lines.append(f"- {rel} ({kind})")
+    if not appended:
+        return "", []
+    lines.append("")
+    return "\n".join(lines), appended
+
+
+def reconcile_memory_index(entity: EntityRef) -> None:
+    """Reconcile MEMORY.md against on-disk assets.
+
+    - Default skeleton (no Task Group structure): regenerate the whole file from on-disk
+      assets under a single `# Task Group: auto-index`.
+    - Has Task Group structure: append (or replace in place) a trailing `## Auto-Index`
+      section for any on-disk asset path that isn't already referenced.
+
+    Idempotent: re-running on an already-reconciled file is a no-op.
+    """
+    from evoflow.assets.paths import entity_root
+
+    try:
+        root = entity_root(entity.normalized())
+    except Exception:
+        return
+    mem_path = root / "memory" / "MEMORY.md"
+    if not mem_path.is_file():
+        return
+
+    try:
+        text = mem_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+
+    assets = _enumerate_indexed_assets(entity)
+    if not assets:
+        return  # nothing on disk to index
+
+    if not _existing_memory_md_has_structure(text):
+        # Default skeleton: replace with auto-generated registry.
+        lines = [
+            "# MEMORY",
+            "",
+            "（手动编写的 task-group 段会保留在前；下面 `## Auto-Index` 由 Phase2 自动维护。）",
+            "",
+            "# Task Group: auto-index",
+            "scope: 由 Phase 2 自动维护的 on-disk 反向索引",
+            "applies_to: cwd=project; reuse_rule=general",
+            "",
+        ]
+        for rel, kind in assets:
+            lines.append(f"- {rel} ({kind})")
+        lines.append("")
+        new_text = "\n".join(lines)
+    else:
+        existing_refs = _extract_existing_referenced_paths(text)
+        # Strip any prior auto-index section (idempotency).
+        stripped = re.sub(
+            rf"\n*{re.escape(_AUTO_INDEX_HEADER)}\n.*?(?=\n# |\Z)",
+            "\n",
+            text,
+            flags=re.DOTALL,
+        )
+        existing_refs_after_strip = _extract_existing_referenced_paths(stripped)
+        block, _appended = _build_auto_index_block(assets, existing_refs=existing_refs_after_strip)
+        if not block:
+            return
+        new_text = stripped.rstrip() + "\n\n" + block + "\n"
+
+    if new_text != text:
+        try:
+            mem_path.write_text(new_text, encoding="utf-8")
+        except OSError as exc:
+            logger.warning("memory_md reconcile write failed: %s", exc)
+
+
 def _apply_phase2_writes(
     entity: EntityRef,
     data: dict[str, Any],
@@ -333,6 +498,17 @@ def _apply_phase2_writes(
             memory_md if memory_md.endswith("\n") else memory_md + "\n",
         )
         paths.append("memory/MEMORY.md")
+
+        # Reconcile MEMORY.md so it actually indexes what is on disk: the model's output
+        # is preserved, but a trailing `## Auto-Index` section is appended (or seeded when
+        # the model returned the default empty skeleton). Without this, the registry line
+        # rendered into the system prompt reads `(registry — empty; consolidate to populate)`
+        # even when facts / episodic / craft exist on disk.
+        try:
+            reconcile_memory_index(entity)
+            paths.append("memory/MEMORY.md")
+        except Exception:
+            logger.warning("memory_md reconcile failed for %s", entity, exc_info=True)
 
         craft_items = data.get("craft") or []
         if isinstance(craft_items, list):
@@ -423,9 +599,16 @@ def run_phase2_consolidate(
 
         diff_text = _write_phase2_diff_stub(ent, pending_rels)
         entity_rel = entity_relative_dir(ent)
+        try:
+            from evoflow.config.paths import get_paths
+
+            base_dir_for_phase2 = str(get_paths().base_dir)
+        except Exception:
+            base_dir_for_phase2 = "(unresolved)"
         system = render_memory_prompt(
             "consolidation",
             entity_root=f"assets/{entity_rel}",
+            base_dir=base_dir_for_phase2,
             phase2_workspace_diff_file="memory/_inbox/phase2_workspace_diff.md",
             memory_extensions_folder_structure="",
             memory_extensions_primary_inputs="",

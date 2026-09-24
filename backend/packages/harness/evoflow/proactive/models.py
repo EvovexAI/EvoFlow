@@ -260,7 +260,7 @@ class ProactiveRoleConfig:
 
 
 # Role lifecycle (O5.1): only ``active`` roles receive automatic patrols.
-ROLE_STATUSES = frozenset({"active", "paused", "archived", "draft"})
+ROLE_STATUSES = frozenset({"active", "paused", "draft"})
 
 
 def normalize_role_status(status: str | None, *, default: str = "active") -> str:
@@ -287,7 +287,7 @@ class ProactiveRole:
     heartbeat_rrule: str = "FREQ=HOURLY;INTERVAL=2"
     # Authoritative 5-field cron (same semantics as automation tasks).
     heartbeat_schedule: str = ""
-    status: str = "active"  # active / paused / archived / draft
+    status: str = "active"  # active / paused / draft
     last_heartbeat_at: str | None = None
     next_heartbeat_at: str | None = None
     created_at: str = ""

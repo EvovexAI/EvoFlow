@@ -673,6 +673,77 @@ def _is_xiaomi_lead_run(agent_name: str | None) -> bool:
         return str(agent_name or "").strip().lower() in {"xiaomi", "小v", "小蜜", "xiaov"}
 
 
+def _inject_identity_layers(
+    blocks: list[str],
+    *,
+    soul: str,
+    custom_system_prompt: str,
+    dyn,
+) -> None:
+    """Inject the three identity layers (soul / custom override) into *blocks* in canonical order.
+
+    Identity layering rules (kept in code so it stays in sync with the runtime behaviour):
+
+      - ``<soul>`` is the behavioral habit reference. The caller already wraps it
+        (e.g. ``get_agent_soul``), so we only sanitize here; never re-wrap.
+      - ``<agent_system_prompt>`` is the override layer that sits *above* role blocks
+        in the assembled prompt. It is the only place ``config.yaml system_prompt``
+        surfaces.
+      - These two layers coexist with the L1 ``<decision_chain>`` rule: on conflict,
+        ``<agent_system_prompt>`` outranks ``<soul>``, which outranks the base role block.
+
+    Centralizing this avoids drift between the xiaomi-mode and the default-assemble
+    branches (they previously inlined this logic with subtle wording differences).
+    """
+    if soul.strip():
+        safe_soul = scan_content(soul.strip(), source="soul")
+        # Defensive: callers may pass already-wrapped `<soul>...</soul>` text
+        # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
+        # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
+        # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
+        if safe_soul.startswith("<soul>") and safe_soul.endswith("</soul>"):
+            safe_soul = safe_soul[len("<soul>") : -len("</soul>")].strip()
+        if safe_soul.strip():
+            blocks.append(f"<soul>\n{safe_soul}\n</soul>")
+
+    extra = (custom_system_prompt or "").strip()
+    if extra:
+        # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
+        # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
+        # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
+        bare_soul = soul.strip()
+        if bare_soul.startswith("<soul>") and bare_soul.endswith("</soul>"):
+            bare_soul = bare_soul[len("<soul>") : -len("</soul>")].strip()
+        if extra == bare_soul:
+            return
+        safe_extra = scan_content(extra, source="custom_system_prompt")
+        # Strip stray "Lessons Learned" section + normalize legacy "Lessons" writes
+        # (the legacy term is no longer a valid deposit target; the inbox flow owns writes).
+        try:
+            from evoflow.person_kernel import omit_lessons_learned_section
+
+            safe_extra = omit_lessons_learned_section(safe_extra)
+        except Exception:
+            pass
+        for legacy, repl in (
+            ("写进 Lessons", "写进 inbox (首行标签)"),
+            ("记到 Lessons", "写进 inbox (首行标签)"),
+            ("积累到 Lessons", "写进 inbox (首行标签)"),
+            ("存入 Lessons", "写进 inbox (首行标签)"),
+            ("write to Lessons", "write to inbox (first-line tag)"),
+            ("save to Lessons", "write to inbox (first-line tag)"),
+            ("log to Lessons", "write to inbox (first-line tag)"),
+            ("append to Lessons", "write to inbox (first-line tag)"),
+        ):
+            safe_extra = safe_extra.replace(legacy, repl)
+        # XML tag itself is the only signal needed: `<agent_system_prompt>`
+        # is the canonical "this is the agent's own config.yaml override" anchor.
+        # No free-text wrapper — `config.yaml` is already the source-of-truth location.
+        blocks.append(
+            f"<agent_system_prompt>\n{safe_extra}\n</agent_system_prompt>"
+        )
+
+
 def _assemble_system_prompt(
     *,
     scenario: str,
@@ -727,16 +798,13 @@ def _assemble_system_prompt(
 
         blocks.append(role_block(prompt_language=prompt_language))
         blocks.append(policy_block(prompt_language=prompt_language))
-        if soul.strip():
-            # soul 参数已带 <soul> 标签（get_agent_soul），只扫描不重复包裹。
-            safe_soul = scan_content(soul.strip(), source="soul")
-            if safe_soul.strip():
-                blocks.append(safe_soul.strip())
         dyn = get_prompt_dynamic(prompt_language)
-        extra = (custom_system_prompt or "").strip()
-        if extra:
-            safe_extra = scan_content(extra, source="custom_system_prompt")
-            blocks.append(f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>")
+        _inject_identity_layers(
+            blocks,
+            soul=soul,
+            custom_system_prompt=custom_system_prompt,
+            dyn=dyn,
+        )
         if memory_context.strip():
             safe_mem = scan_content(memory_context.strip(), source="memory_context").strip()
             if safe_mem:
@@ -750,20 +818,7 @@ def _assemble_system_prompt(
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
     # soul 是行为习惯参考，custom_system_prompt（config.yaml system_prompt 字段）是覆盖段。
     # 冲突时以「最新用户消息 > 覆盖段 > 基础块」裁决。
-    blocks.append(
-        """<decision_chain>
-## 指令优先级（裁决链）
-冲突时按以下顺序裁决（高→低）：
-1. **用户最新消息**（用户明确的新意图/要求优先于一切历史与预设）
-2. **本提示词覆盖段**（`<agent_system_prompt>` / 自定义 system_prompt 字段）
-3. **行为习惯参考**（`<soul>`）
-4. **基础规则块**（role / communication_style / entity_assets / workspace 等）
-5. 平台默认 / 历史上下文 / 站立摘要（仅参考）
-
-同一主题出现重复表述时，以**更靠后注入的覆盖段**为准；不要因重复而困惑，
-它们描述同一规则的不同侧重。
-</decision_chain>"""
-    )
+    blocks.append(static.DECISION_CHAIN_BLOCK.strip())
     blocks.append(_fmt_with_agent_name(static.ROLE_BLOCK_CHAT_TEMPLATE.strip(), agent_name))
     blocks.append((static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip())
     blocks.append((static.ENTITY_ASSETS_COMPACT_BLOCK if pure_chat else static.ENTITY_ASSETS_BLOCK).strip())
@@ -800,17 +855,13 @@ def _assemble_system_prompt(
     if task_router_section.strip():
         blocks.append(task_router_section.strip())
 
-    if soul.strip():
-        # soul 参数已由 get_agent_soul() 返回带 <soul>...</soul> 标签的块；
-        # 这里只做注入扫描，不再重复包裹（否则双重 <soul> 标签）。
-        safe_soul = scan_content(soul.strip(), source="soul")
-        if safe_soul.strip():
-            blocks.append(safe_soul.strip())
     dyn = get_prompt_dynamic(prompt_language)
-    extra = (custom_system_prompt or "").strip()
-    if extra:
-        safe_extra = scan_content(extra, source="custom_system_prompt")
-        blocks.append(f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>")
+    _inject_identity_layers(
+        blocks,
+        soul=soul,
+        custom_system_prompt=custom_system_prompt,
+        dyn=dyn,
+    )
 
     if plan_runtime_stage_section.strip():
         blocks.append(plan_runtime_stage_section.strip())
@@ -916,7 +967,7 @@ def _display_agent_name(agent_name: str | None, *, prompt_language: str | None =
 
         role = ProactiveRepository.get_role(raw)
         status = str(getattr(role, "status", "") or "").strip().lower() if role else ""
-        if role is not None and status not in {"archived", "draft"}:
+        if role is not None and status != "draft":
             name = str(getattr(role, "role_name", "") or "").strip()
             # Do not use leftover test postings that hijack the primary agent code.
             if name and raw.lower() not in {"main", "lead_agent"}:
@@ -1223,7 +1274,8 @@ def build_memory_injection_sections(
     except Exception:
         logger.debug("asset memory injection skipped", exc_info=True)
 
-    # Bound workspace: inject project catalog (separate from user memory)
+    # Bound workspace: inject project catalog (compact asset-hub style).
+    # No procedure / no discipline block — already covered by user memory's read_path.md.
     lw = str(local_workspace_root or "").strip()
     if lw:
         try:
@@ -1232,17 +1284,11 @@ def build_memory_injection_sections(
             ws_block = format_workspace_memory_context(
                 lw,
                 injection_profile=injection_profile,
-                include_procedure=not procedure_emitted,
             ).strip()
             if ws_block:
                 safe_ws = scan_content(ws_block, source="workspace_memory").strip()
                 if safe_ws:
                     body_parts.append(safe_ws)
-            from evoflow.agents.lead_agent.prompt_language import resolve_prompt_language
-            from evoflow.assets.workspace_memory_policy import workspace_write_discipline_block
-
-            disc = workspace_write_discipline_block(lang=resolve_prompt_language(prompt_language))
-            body_parts.append(disc)
         except Exception:
             logger.debug("workspace memory injection skipped", exc_info=True)
 
@@ -1656,6 +1702,15 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = T
         omit_identity=is_lead,
         omit_lessons_learned=is_lead,
     )
+    if soul_block and is_lead:
+        # P-002 defence: if a stray "Identity" heading slipped through (heading typo,
+        # nested **Identity** in list item, etc.), warn loudly so regressions are caught.
+        if re.search(r"(?im)^\s*(?:\*\*Identity\*\*|Identity)\s*$", soul_block):
+            logger.warning(
+                "get_agent_soul: Identity heading survived omit for lead agent %r; "
+                "strip it to avoid P-002 multi-identity drift",
+                agent_name,
+            )
     if soul_block:
         parts.append(soul_block)
     # ``<person_presence>`` / 站立摘要是智能体员工值班话术（班次、本轮、收工）。

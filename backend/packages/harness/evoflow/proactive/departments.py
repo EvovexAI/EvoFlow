@@ -197,7 +197,7 @@ class DepartmentRepository:
                 """
                 SELECT TRIM(department) AS department, COUNT(*) AS n
                 FROM evoflow_proactive_roles
-                WHERE status != 'archived' AND TRIM(COALESCE(department, '')) != ''
+                WHERE TRIM(COALESCE(department, '')) != ''
                 GROUP BY TRIM(department)
                 """
             ).fetchall()
@@ -207,7 +207,7 @@ class DepartmentRepository:
             """
             SELECT agent_code, role_name, department, status, reports_to, config_json
             FROM evoflow_proactive_roles
-            WHERE status != 'archived' AND TRIM(COALESCE(department, '')) != ''
+            WHERE TRIM(COALESCE(department, '')) != ''
             ORDER BY role_name COLLATE NOCASE ASC
             """
         ).fetchall():
@@ -379,8 +379,8 @@ class DepartmentRepository:
                 )
                 .fetchone()
             )
-            if not row or str(row["status"] or "") == "archived":
-                raise ValueError(f"负责人岗位「{head}」不存在或已归档")
+            if not row:
+                raise ValueError(f"负责人岗位「{head}」不存在")
             if str(row["department"] or "").strip() != name:
                 raise ValueError("负责人必须是本部门成员，请先加入部门")
 
@@ -398,7 +398,7 @@ class DepartmentRepository:
                     """
                     SELECT agent_code, reports_to, config_json
                     FROM evoflow_proactive_roles
-                    WHERE status != 'archived' AND TRIM(department) = ?
+                    WHERE TRIM(department) = ?
                     """,
                     (name,),
                 ).fetchall()
@@ -446,9 +446,9 @@ class DepartmentRepository:
 
     @staticmethod
     def set_members(dept_id: str, agent_codes: list[str]) -> dict[str, Any]:
-        """Set the member roster for a department (non-archived roles only).
+        """Set the member roster for a department.
 
-        Codes in *agent_codes* get ``department = name``; other non-archived roles
+        Codes in *agent_codes* get ``department = name``; other roles
         currently in this department are cleared. If the current head is removed
         from the roster, ``head_agent_code`` is cleared.
         """
@@ -468,7 +468,7 @@ class DepartmentRepository:
                 """
                 UPDATE evoflow_proactive_roles
                 SET department = '', updated_at = ?
-                WHERE status != 'archived' AND TRIM(department) = ?
+                WHERE TRIM(department) = ?
                 """,
                 (now, name),
             )
@@ -477,7 +477,7 @@ class DepartmentRepository:
                     """
                     UPDATE evoflow_proactive_roles
                     SET department = ?, updated_at = ?
-                    WHERE agent_code = ? AND status != 'archived'
+                    WHERE agent_code = ?
                     """,
                     (name, now, code),
                 )

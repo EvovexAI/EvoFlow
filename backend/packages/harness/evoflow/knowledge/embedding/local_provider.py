@@ -69,22 +69,35 @@ def probe_local_embedding_deps() -> str | None:
     present but miss a transitive module (e.g. ``scipy._external...fft``),
     and the generic hint alone hides the real packaging gap.
     """
-    try:
-        import sentence_transformers  # noqa: F401
-    except ImportError as exc:
-        # Lean desktop: ST is intentionally omitted — keep the user-facing
-        # message short and actionable (avoid raw ModuleNotFoundError noise).
-        if getattr(sys, "frozen", False):
-            return _MISSING_ST_HINT
-        detail = f"{type(exc).__name__}: {exc}".strip()
-        if detail and detail not in _MISSING_ST_HINT:
-            return f"{_MISSING_ST_HINT} ({detail})"
+    # Check package availability WITHOUT importing — importing sentence_transformers
+    # triggers scipy.linalg._fblas which hangs on Windows when the OpenMP/MKL DLL
+    # is broken or missing.  Use file/directory existence as a proxy to avoid
+    # any import machinery whatsoever.
+    import sys
+    if getattr(sys, "frozen", False):
+        # Frozen bundle: ST is absent by design on lean desktop.
         return _MISSING_ST_HINT
-    except Exception as exc:  # noqa: BLE001 — any import failure ⇒ unavailable
-        if getattr(sys, "frozen", False):
-            return _MISSING_ST_HINT
-        return f"Local embedding deps failed to import ({type(exc).__name__}: {exc}). Stop the gateway, then reinstall torch/sentence-transformers (cd backend && uv sync)."
+    import os
+    import os.path
+
+    venv_path = getattr(sys, "real_prefix", None) or (
+        sys.prefix if hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix else None
+    )
+    if not venv_path:
+        return _MISSING_ST_HINT
+
+    st_pkg_dir = os.path.join(venv_path, "Lib", "site-packages", "sentence_transformers")
+    if not os.path.isdir(st_pkg_dir):
+        return _MISSING_ST_HINT
+    init_file = os.path.join(st_pkg_dir, "__init__.py")
+    if not os.path.isfile(init_file):
+        return f"{_MISSING_ST_HINT} (no __init__.py)"
+    # Basic sanity: the main sub-package used for embedding must exist.
+    util_dir = os.path.join(st_pkg_dir, "util")
+    if not os.path.isdir(util_dir):
+        return f"{_MISSING_ST_HINT} (no util sub-package)"
     return None
+
 
 
 def local_embedding_deps_available() -> bool:

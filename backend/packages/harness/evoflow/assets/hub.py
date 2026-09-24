@@ -32,8 +32,8 @@ def ensure_assets_tree() -> Path:
     if not index.is_file():
         index.write_text(default_index_md(), encoding="utf-8")
 
-    user_profile = profile_path(EntityRef("user", "user"), "README.md")
-    user_profile.parent.mkdir(parents=True, exist_ok=True)
+    user_profile_parent = profile_dir(EntityRef("user", "user"))
+    user_profile_parent.mkdir(parents=True, exist_ok=True)
 
     for sub in ("memory", "craft"):
         (entity_root(EntityRef("user", "user")) / sub).mkdir(parents=True, exist_ok=True)
@@ -89,18 +89,6 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
     if not inbox_readme.is_file():
         inbox_readme.write_text(
             "# _inbox\n\nPhase1 草稿与 ad-hoc notes。对话 Agent **只许**写 `notes/`；不要直接改 `standing.md` / `MEMORY.md`。\n\nPhase2 整合后，已处理的 `raw_*` / notes 会移到 `_done/`。\n",
-            encoding="utf-8",
-        )
-    journal_readme = ent_root / "memory" / "journal" / "README.md"
-    if not journal_readme.is_file():
-        journal_readme.write_text(
-            "# 反思日志\n\n按日期记录日反思 / wrap-up，例如 `2026-08-25.md`。\n",
-            encoding="utf-8",
-        )
-    craft_readme = ent_root / "craft" / "README.md"
-    if not craft_readme.is_file():
-        craft_readme.write_text(
-            "# 经验与专长\n\n每份经验/专长一个 Markdown 文件，文件名即其名称（如 `craft/修复构建失败.md`）。\n",
             encoding="utf-8",
         )
     _migrate_craft_dirs_to_files(ent_root)
@@ -267,11 +255,8 @@ def list_entities() -> dict[str, Any]:
     try:
         from evoflow.proactive.repositories import ProactiveRepository
 
-        # Same SoT as `#/proactive`: GET /proactive/roles, drop archived.
+        # Same SoT as `#/proactive`: GET /proactive/roles.
         for role in ProactiveRepository.list_roles() or []:
-            status = str(getattr(role, "status", "") or "").strip().lower()
-            if status == "archived":
-                continue
             code = str(role.agent_code or "").strip().lower()
             if not code:
                 continue
@@ -498,13 +483,13 @@ def record_fact(
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
     slug = _slug_ascii(str(slug_hint or "").strip() or heading, fallback="fact")
-    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
+    date_part = datetime.now(UTC).strftime("%Y%m%d")
     facts_dir = entity_root(entity.normalized()) / "memory" / "facts"
-    fname = f"{slug}-{stamp[-8:]}.md"
-    n = 0
+    fname = f"{date_part}-{slug}.md"
+    n = 1
     while (facts_dir / fname).exists():
         n += 1
-        fname = f"{slug}-{stamp[-8:]}-{n}.md"
+        fname = f"{date_part}-{slug}-{n}.md"
     rel = f"memory/facts/{fname}"
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
@@ -535,13 +520,11 @@ def write_episode(
     ensure_entity_tree(entity)
     from datetime import datetime
 
-    now = datetime.now(UTC).astimezone()
-    day = now.date().isoformat()
     heading = str(title or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip()[:60]
     one_liner = (str(summary or "").strip() or heading)[:30]
     slug = _slug_ascii(heading, fallback="episode")
-    stamp = now.strftime("%H%M%S")
-    fname = f"{day}-{slug}-{stamp[-4:]}.md"
+    date_part = datetime.now(UTC).astimezone().strftime("%Y%m%d")
+    fname = f"{date_part}-{slug}.md"
     rel = f"memory/episodic/{fname}"
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     e = entity.normalized()
@@ -572,10 +555,11 @@ def write_journal(
         day = datetime.now(UTC).astimezone().date().isoformat()
     else:
         date_cls.fromisoformat(day)
+    day_filename = day.replace("-", "")
 
     one_liner = (str(summary or "").strip() or body.split("\n", 1)[0].lstrip("# ").strip())[:30]
     ensure_entity_tree(entity)
-    rel = f"memory/journal/{day}.md"
+    rel = f"memory/journal/{day_filename}.md"
     e = entity.normalized()
     target = resolve_entity_file(e, rel)
     existing = ""
@@ -594,7 +578,7 @@ def write_journal(
                 raw = parts[2].lstrip("\n")
         fm = f"---\ndate: {day}\nsummary: {one_liner}\n---\n\n"
         if not raw.lstrip().startswith("#"):
-            raw = f"# {day} 反思\n\n{raw}"
+            raw = f"# {day_filename}\n\n{raw}"
         return fm + raw.rstrip() + "\n"
 
     if existing and append:
@@ -608,9 +592,9 @@ def write_journal(
         merged = raw.rstrip() + f"\n\n## {stamp}\n\n{body}\n"
         text = _with_frontmatter(merged)
     elif existing and not append:
-        text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day} 反思\n\n{body}\n")
+        text = _with_frontmatter(body if body.lstrip().startswith("#") else f"# {day_filename}\n\n{body}\n")
     else:
-        text = _with_frontmatter(f"# {day} 反思\n\n{body}\n")
+        text = _with_frontmatter(f"# {day_filename}\n\n{body}\n")
     return write_text_file(e, rel, text)
 
 
@@ -652,7 +636,6 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
         raise ValueError("path is required")
     # Protect core profile files from casual delete
     protected = {
-        "profile/README.md",
         "profile/basic-info.md",
         "profile/preferences.md",
         "profile/persona.md",

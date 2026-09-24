@@ -1,8 +1,12 @@
-### {{ entity_label }} — `{{ entity_root }}/`
+### {{ entity_label }} `{{ entity_root }}` · base=`{{ base_dir }}`
+{{ workspace_context_block }}
 
-{{ layout_lines }}
-{{ cross_entity_note }}
+catalog (`read` 即取):
+{{ catalog_lines }}
 
-========= MEMORY_SUMMARY BEGINS =========
+standing (already loaded):
+```md
 {{ memory_summary }}
-========= MEMORY_SUMMARY ENDS =========
+```
+
+{{ tail_block }}

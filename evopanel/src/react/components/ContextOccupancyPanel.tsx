@@ -46,6 +46,7 @@ export function ContextOccupancyPanel({
   const breakdown = useMemo(() => contextBreakdownFromSnapshot(usage), [usage])
   const cacheLine = useMemo(() => cacheHitLine(tokenTotals), [tokenTotals])
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
 
   if (!occupancy) {
     return (
@@ -75,6 +76,19 @@ export function ContextOccupancyPanel({
     tokenTotals != null && Number.isFinite(Number(tokenTotals.output))
       ? Math.max(0, Math.round(Number(tokenTotals.output)))
       : null
+  // Sub-rows under the system-prompt bar segment (only shown when backend sends them).
+  const systemSubRows: { key: string; label: string; tokens: number }[] = []
+  if (breakdown?.systemSkillsTokens != null) {
+    systemSubRows.push({ key: 'skills', label: '技能注入', tokens: breakdown.systemSkillsTokens })
+  }
+  if (breakdown?.systemAssetsTokens != null) {
+    systemSubRows.push({ key: 'assets', label: '资产注入', tokens: breakdown.systemAssetsTokens })
+  }
+  if (breakdown?.systemMemoryTokens != null) {
+    systemSubRows.push({ key: 'memory', label: '记忆注入', tokens: breakdown.systemMemoryTokens })
+  }
+  const hasSystemSubRows = systemSubRows.length > 0
+
   const rows = [
     { key: 'system', label: '系统提示词', tokens: breakdown?.systemTokens ?? 0, tone: 'system' as const, countLabel: null as string | null },
     {
@@ -181,6 +195,19 @@ export function ContextOccupancyPanel({
                   <dd>~{formatContextTokensCompact(row.tokens)}</dd>
                 </div>
               ))}
+              {hasSystemSubRows ? (
+                <>
+                  {systemSubRows.map((sub) => (
+                    <div key={sub.key} className="react-chat-ctx-meter-row is-sub">
+                      <dt>
+                        <span className={`react-chat-ctx-meter-swatch is-system-sub-${sub.key}`} aria-hidden />
+                        {sub.label}
+                      </dt>
+                      <dd>~{formatContextTokensCompact(sub.tokens)}</dd>
+                    </div>
+                  ))}
+                </>
+              ) : null}
             </dl>
           ) : (
             <p className="react-chat-ctx-meter-hint">跑一轮对话后显示系统 / 工具 / 消息拆分</p>
@@ -206,7 +233,64 @@ export function ContextOccupancyPanel({
               缓存 {cacheLine}
             </p>
           ) : null}
+          <div className="react-chat-ctx-meter-detail-row">
+            <button
+              type="button"
+              className="react-chat-ctx-meter-detail-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                setDetailOpen(true)
+              }}
+            >
+              📋 查看注入详情
+            </button>
+          </div>
         </details>
+      ) : null}
+      {detailOpen ? (
+        <div
+          className="react-chat-ctx-meter-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDetailOpen(false)
+          }}
+        >
+          <div className="react-chat-ctx-meter-modal">
+            <div className="react-chat-ctx-meter-modal-header">
+              <h3 className="react-chat-ctx-meter-modal-title">实际注入内容</h3>
+              <button
+                type="button"
+                className="react-chat-ctx-meter-modal-close"
+                onClick={() => setDetailOpen(false)}
+                aria-label="关闭"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="react-chat-ctx-meter-modal-body">
+              {usage?.injectedSections && Object.keys(usage.injectedSections).length > 0 ? (
+                Object.entries(usage.injectedSections).map(([key, content]) => (
+                  <div key={key} className="react-chat-ctx-meter-modal-section">
+                    <h4 className="react-chat-ctx-meter-modal-section-title">
+                      {key === 'full' ? '系统提示词（完整）' :
+                       key === 'skill_injection' ? '技能注入' :
+                       key === 'entity_assets' ? '资产注入' :
+                       key === 'memory' ? '记忆注入' :
+                       key === 'soul' ? '行为习惯（SOUL）' :
+                       key === 'agent_system_prompt' ? '自定义提示词' :
+                       key}
+                      <span className="react-chat-ctx-meter-modal-section-size">
+                        {formatContextTokensCompact(content.length)}
+                      </span>
+                    </h4>
+                    <pre className="react-chat-ctx-meter-modal-content">{content}</pre>
+                  </div>
+                ))
+              ) : (
+                <p className="react-chat-ctx-meter-modal-empty">暂无动态注入（当前会话未使用技能/资产/记忆等场景）</p>
+              )}
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   )

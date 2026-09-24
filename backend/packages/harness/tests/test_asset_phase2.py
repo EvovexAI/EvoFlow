@@ -16,6 +16,7 @@ from evoflow.assets.phase2 import (
     asset_phase2_enabled,
     list_inbox_pending,
     rebuild_raw_memories_file,
+    reconcile_memory_index,
     run_phase2_consolidate,
 )
 from evoflow.config.paths import reset_paths_cache
@@ -177,3 +178,73 @@ def test_run_phase2_noop_still_archives(entity: EntityRef, monkeypatch: pytest.M
     assert out.get("ok") is True
     assert out.get("skipped") == "no_signal"
     assert list_inbox_pending(entity) == []
+
+
+# --- MEMORY.md auto-index reconciliation ---------------------------------
+
+
+def test_reconcile_regenerates_default_skeleton(entity: EntityRef, assets_home: Path) -> None:
+    """Default skeleton MEMORY.md must be regenerated into an auto-index listing every fact."""
+    write_text_file(entity, "memory/MEMORY.md", "# MEMORY\n\n（手册层：按 Task Group 聚合）\n")
+    write_text_file(
+        entity,
+        "memory/facts/alpha.md",
+        "---\ntitle: alpha\n---\nbody\n",
+    )
+    write_text_file(
+        entity,
+        "memory/facts/beta.md",
+        "---\ntitle: beta\n---\nbody\n",
+    )
+
+    reconcile_memory_index(entity)
+
+    text = (assets_home / "assets" / "user" / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+    assert "## Auto-Index" in text
+    assert "memory/facts/alpha.md" in text
+    assert "memory/facts/beta.md" in text
+    assert "Task Group: auto-index" in text
+
+
+def test_reconcile_appends_to_existing_structure(entity: EntityRef, assets_home: Path) -> None:
+    """When MEMORY.md already has Task Group structure, Auto-Index is appended (not replacing)."""
+    write_text_file(
+        entity,
+        "memory/MEMORY.md",
+        "# Task Group: ci\nscope: CI 工作流\n\n## Task 1: 修好缓存\n\nbody\n",
+    )
+    write_text_file(
+        entity,
+        "memory/facts/extra.md",
+        "---\ntitle: extra\n---\nbody\n",
+    )
+
+    reconcile_memory_index(entity)
+
+    text = (assets_home / "assets" / "user" / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+    # Original structure preserved
+    assert "Task Group: ci" in text
+    assert "Task 1: 修好缓存" in text
+    # Auto-index appended
+    assert "## Auto-Index" in text
+    assert "memory/facts/extra.md" in text
+
+
+def test_reconcile_is_idempotent(entity: EntityRef, assets_home: Path) -> None:
+    """Running reconcile twice does not duplicate the Auto-Index section."""
+    write_text_file(entity, "memory/MEMORY.md", "# MEMORY\n\n（手册层）\n")
+    write_text_file(
+        entity,
+        "memory/facts/gamma.md",
+        "---\ntitle: gamma\n---\nbody\n",
+    )
+
+    reconcile_memory_index(entity)
+    first = (assets_home / "assets" / "user" / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+
+    reconcile_memory_index(entity)
+    second = (assets_home / "assets" / "user" / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+
+    assert first == second
+    # Single Auto-Index header (not duplicated)
+    assert second.count("## Auto-Index") == 1

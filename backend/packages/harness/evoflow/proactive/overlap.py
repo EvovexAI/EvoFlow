@@ -92,7 +92,7 @@ def find_overlaps(
     cand_code = str(candidate.get("agent_code") or "").strip()
     out: list[dict[str, Any]] = []
     for role in roles:
-        if role.status in ("archived", "draft"):
+        if role.status == "draft":
             continue
         if exclude and role.agent_code == exclude:
             continue

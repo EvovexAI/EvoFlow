@@ -252,12 +252,3 @@ def test_agent_update_syncs_employee_skills(sqlite_tmp: Path) -> None:
     assert got["config"]["skills"] == ["evoflow-admin"]
     assert "更新后灵魂" in (got["config"].get("soul_md") or "")
 
-
-def test_resume_rejects_archived(sqlite_tmp: Path) -> None:
-    del sqlite_tmp
-    agents_admin.create_agent({"agent_code": "arch-a", "agent_name": "Arch", "skills": []})
-    employees_admin.hire({"agent_code": "arch-a"})
-    with patch.object(employees_admin, "_try_gateway_put", return_value=None):
-        employees_admin.archive_role("arch-a")
-    with pytest.raises(ValidationError, match="archived"):
-        employees_admin.resume_role("arch-a")

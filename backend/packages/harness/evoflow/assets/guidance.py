@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 import os
 
-from evoflow.assets.catalog import format_entity_catalog_xml, read_standing_text, standing_is_placeholder
+from evoflow.assets.catalog import (
+    format_entity_catalog_lines,
+    format_entity_catalog_xml,
+    read_standing_text,
+    standing_is_placeholder,
+)
 from evoflow.assets.injection_budget import TIER0_ASSET_TOTAL_CHARS, TIER0_STANDING_CHARS, cap_text_chars
 from evoflow.assets.memory_injection import asset_hub_memory_injection
 from evoflow.assets.paths import EntityRef, entity_root
@@ -196,9 +201,15 @@ def _entity_label(entity: EntityRef) -> str:
 
 
 def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = None) -> str:
-    """Per-root layout + MEMORY_SUMMARY (no shared procedure)."""
+    """Per-entity block: 锚点(heading) + 已存在的资产索引(catalog) + standing 摘要。
+
+    资产索引由 ``format_entity_catalog_lines`` 渲染(一行一文件,无 XML 包裹、无 registry 元数据),
+    让模型一眼能看到"我有哪些资产可用",不用盲读。
+
+    asset-hub 模式下 standing 为空占位符时直接返回空串(不要空骨架)。
+    """
     e = entity.normalized()
-    from evoflow.assets.paths import entity_prompt_root
+    from evoflow.assets.paths import entity_prompt_root, resolve_workspace_path_for_entity_id
 
     base = entity_prompt_root(e)
     summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
@@ -206,14 +217,48 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
         if standing_is_placeholder(summary) or not str(summary or "").strip():
             return ""
     try:
-        layout_lines, cross_entity_note = _entity_layout_lines(e)
+        from evoflow.config.paths import get_paths
+
+        base_dir_str = str(get_paths().base_dir)
+
+        # 资产索引:扫 frontmatter 列出已存在的事实/过程/反思/专长文件。
+        # 不含 standing (memory_summary 单独输出);不含 profile (USER_PROFILE block 单独处理)。
+        # 这里把 catalog_xml 摊平成 "- <file> — <first line>" 行,去掉 (registry — N task groups) 元数据
+        # (这些信息在 standing 里、也可以通过 `read memory/MEMORY.md` 拿到,不必每轮重复)。
+        catalog_lines = format_entity_catalog_lines(
+            e,
+            include_facts=True,
+            include_episodes=True,
+            include_craft=True,
+        )
+        if not catalog_lines:
+            catalog_lines = ["(尚无 asset 文件;按 inbox 路径写入新笔记即可)"]
+
+        # 写入路径单独一行附在块尾(heading + base 已经在头部说过根,这里只补写入动词)。
+        # user/agent/employee: 相对路径 = base_dir + 实体根/memory/_inbox/notes。
+        # workspace: 绝对路径(因为 inbox 在 repo 内,而 base_dir 不在 workspace 内)。
+        if e.entity_type == "workspace":
+            ws_path = resolve_workspace_path_for_entity_id(e.entity_id) or ""
+            workspace_context_block = (
+                f"项目根 `{ws_path}` · 写入:`{ws_path}\\.evoflow\\memory\\_inbox\\notes\\<TS>-<slug>.md` · 标签 `[project]`"
+            )
+            tail_block = ""
+        else:
+            workspace_context_block = ""
+            tail_block = (
+                f"写入:`{base}/memory/_inbox/notes/<TS>-<slug>.md` · "
+                f"标签:`[experience]`/`[process]`/`[reflection]`/`[preference]` (首行)"
+            )
+
         return render_memory_prompt(
             "read_path_entity",
             entity_label=_entity_label(e),
             entity_root=base,
-            layout_lines=layout_lines,
-            cross_entity_note=cross_entity_note,
+            base_dir=base_dir_str,
+            workspace_context_block=workspace_context_block,
+            catalog_lines="\n".join(f"- {ln}" for ln in catalog_lines),
             memory_summary=summary or "（尚无站立摘要）",
+            tail_block=tail_block,
         ).strip()
     except Exception:
         logger.debug("build_read_path_entity_block failed", exc_info=True)
@@ -226,17 +271,23 @@ def build_read_path_guidance(
     standing: str | None = None,
     include_procedure: bool = True,
 ) -> str:
-    """Render read_path: optional shared procedure + per-entity summary."""
+    """Render read_path: optional shared procedure + per-entity block (if standing exists).
+
+    In asset-hub mode the entity block is skipped when standing is a placeholder
+    or empty, but the procedure (access rules) is always emitted if requested.
+    """
     e = entity.normalized()
     summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
-    if asset_hub_memory_injection():
-        if standing_is_placeholder(summary) or not str(summary or "").strip():
-            return ""
     parts: list[str] = []
     if include_procedure:
         proc = build_read_path_procedure()
         if proc:
             parts.append(proc)
+    # Entity block needs real standing to be useful.
+    if asset_hub_memory_injection():
+        if standing_is_placeholder(summary) or not str(summary or "").strip():
+            # no standing → entity block is empty; return procedure-only if any
+            return "\n\n".join(parts) if parts else ""
     ent = build_read_path_entity_block(e, standing=summary)
     if ent:
         parts.append(ent)
@@ -261,15 +312,15 @@ def _entity_layout_lines(entity: EntityRef) -> tuple[str, str]:
             "- memory/facts/ (stable facts / conventions)",
             "- memory/episodic/ (process recaps — search, do not bulk-read)",
             "- memory/journal/ (reflections — search, do not bulk-read)",
-            "- craft/<name>/SKILL.md (reusable procedures)",
+            "- craft/<name>.md (reusable procedures; flat files, NOT subdirectories)",
         ]
     )
 
     cross = ""
     if e.entity_type == "workspace":
-        cross = "\nShared (not under this root): user dialogue → `assets/user/memory/` · agent SOUL → `assets/agents/{code}/profile/`"
+        cross = "\nShared (not under this root): user dialogue → `user/memory/` · agent SOUL → `agents/{code}/profile/`"
     elif e.entity_type == "employee":
-        cross = "\nShared: user dialogue → `assets/user/memory/` · agent SOUL → `assets/agents/{code}/profile/`"
+        cross = "\nShared: user dialogue → `user/memory/` · agent SOUL → `agents/{code}/profile/`"
 
     return "\n".join(lines), cross
 
@@ -281,7 +332,11 @@ def build_entity_memory_injection(
     include_procedure: bool = True,
     include_catalog: bool | None = None,
 ) -> str:
-    """Tier-0 block: runtime read_path + standing (catalog off by default in asset-hub memory mode)."""
+    """Tier-0 block: 共享 procedure + entity block(含资产索引和 standing)。
+
+    asset-hub 模式下 entity block 内部已经渲染了资产索引,所以顶层 ``include_catalog``
+    默认 off(避免双发);legacy 模式仍默认 on,行为不变。
+    """
     e = entity.normalized()
     asset_mode = asset_hub_memory_injection()
     if include_catalog is None:
@@ -366,4 +421,4 @@ def build_session_asset_memory_block(
 def session_asset_block_includes_procedure(block: str) -> bool:
     """True when ``block`` already carries the shared Entity-assets procedure."""
     text = str(block or "")
-    return "## Entity assets" in text or "assets(action=search" in text
+    return "## Entity assets" in text or "memory/_inbox/notes" in text

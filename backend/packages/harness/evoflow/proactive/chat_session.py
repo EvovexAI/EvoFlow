@@ -3,7 +3,7 @@
 Employee = workspace (role config, memory, tools). Conversations are separate
 ``evoflow_chat_sessions`` rows:
 
-- legacy contact: ``proactive:{code}`` (archived / UI entry; new duty/task/chat
+- legacy contact: ``proactive:{code}`` (UI entry; new duty/task/chat
   no longer append here)
 - duty round: ``proactive:{code}:duty:{stamp}``
 - task: ``proactive:{code}:task:{task_id}`` (optional resume bucket for a

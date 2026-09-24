@@ -324,12 +324,18 @@ def format_workspace_memory_context(
     injection_profile: str = "full",
     include_procedure: bool = True,
 ) -> str:
-    """Build ``<workspace_memory>`` catalog block (same disclosure as user assets).
+    """Build ``<workspace_memory>`` block.
 
-    ``include_procedure``: in asset-hub mode, when False only emit the per-root
-    MEMORY_SUMMARY (shared read_path already injected once this turn).
+    Two modes:
+
+    - **asset-hub** (default): inject compact catalog (standing summary + facts/episodic/craft
+      titles + MEMORY.md registry pointer) + a one-line prompt to read by path. Skip
+      the shared procedure/layout block — ``read_path.md`` already emitted it for user memory.
+      Conventional Asset-Hub pattern: tell the model what is here; let it open files on demand.
+    - **legacy**: same as before (procedure + catalog) for compatibility.
+
+    ``include_procedure`` kept for legacy callers; asset-hub mode ignores it.
     """
-    del injection_profile  # catalog form is always compact
     config = get_memory_config()
     if not config.enabled or not config.injection_enabled:
         return ""
@@ -341,42 +347,64 @@ def format_workspace_memory_context(
     try:
         ref = workspace_ref(normalized)
         ensure_entity_tree(ref)
-        if not catalog_has_content(ref):
-            return ""
         from evoflow.assets.memory_injection import asset_hub_memory_injection
 
         if asset_hub_memory_injection():
-            try:
-                from evoflow.assets.guidance import build_read_path_guidance
-
-                body = build_read_path_guidance(ref, include_procedure=include_procedure).strip()
-            except Exception:
-                logger.debug("workspace read_path guidance skipped", exc_info=True)
-                body = ""
-        else:
-            body = format_entity_catalog_xml(
-                ref,
-                include_standing=False,
-                include_facts=True,
-                include_episodes=True,
-                include_craft=True,
-                tag="catalog",
-            )
-            try:
-                from evoflow.assets.guidance import build_read_path_guidance
-
-                guide = build_read_path_guidance(ref, include_procedure=include_procedure)
-                if guide.strip():
-                    body = f"{guide.strip()}\n\n{body}" if body.strip() else guide.strip()
-            except Exception:
-                logger.debug("workspace read_path guidance skipped", exc_info=True)
+            return _build_workspace_asset_hub_block(ref).strip()
+        # Legacy: full procedure + catalog
+        return _build_workspace_legacy_block(ref, include_procedure=include_procedure).strip()
     except Exception as exc:
         logger.debug("workspace catalog inject skipped: %s", exc)
         return ""
 
+    return ""
+
+
+def _build_workspace_asset_hub_block(ref) -> str:
+    """Asset-Hub workspace block: 只含 entity block,procedure 已在 user 段一次性注过了。
+
+    与 user/agent/employee 共用同一套 entity block 渲染路径(workspace_context_block 填入
+    workspace 专用字段),不再重复 procedure。
+    """
+    from evoflow.assets.guidance import build_read_path_entity_block
+    from evoflow.assets.paths import resolve_workspace_path_for_entity_id
+
+    # Workspace entity id is `ws-{hash}`; resolve the bound project root so the
+    # entity block can render the absolute `.evoflow/` path for file ops.
+    ws_path = resolve_workspace_path_for_entity_id(ref.entity_id) or ""
+    if not ws_path:
+        return ""
+
+    # workspace 走 build_read_path_entity_block(不含 procedure),避免 procedure 重复。
+    body = build_read_path_entity_block(ref)
     if not body.strip():
         return ""
 
+    return f"<workspace_memory>\n{body.strip()}\n</workspace_memory>\n"
+
+
+def _build_workspace_legacy_block(ref, *, include_procedure: bool) -> str:
+    """Legacy: shared procedure + entity-block header + catalog."""
+    from evoflow.assets.catalog import format_entity_catalog_xml
+    from evoflow.assets.guidance import build_read_path_guidance
+
+    body = ""
+    catalog = format_entity_catalog_xml(
+        ref,
+        include_standing=False,
+        include_facts=True,
+        include_episodes=True,
+        include_craft=True,
+        tag="catalog",
+    )
+    guide = build_read_path_guidance(ref, include_procedure=include_procedure)
+    if guide.strip():
+        body = f"{guide.strip()}\n\n{catalog}".strip() if catalog.strip() else guide.strip()
+    elif catalog.strip():
+        body = catalog.strip()
+
+    if not body.strip():
+        return ""
     return f"<workspace_memory>\n{body}\n</workspace_memory>\n"
 
 

@@ -17,7 +17,7 @@ from evoflow.tools.builtins.tool_search import reset_deferred_registry
 logger = logging.getLogger(__name__)
 
 # Retired from the LLM tool surface — use unified ``browser`` tool or ``evoflow-admin`` skill + ``terminal`` + ``evoflow`` CLI.
-# Agent entity assets (memory / journal / craft / episodic): unified ``assets(action=…)`` only.
+# Agent entity assets (memory / journal / craft / episodic): direct read/write via sandbox tools.
 # Legacy ``memory_remember`` / ``person_memory_edit`` / ``experience_*`` map to ``assets`` via tool_aliases.
 _ADMIN_CLI_REPLACED_TOOL_NAMES: frozenset[str] = frozenset(
     {
@@ -87,6 +87,21 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
         "browser_console",
         "browser_get_images",
         "vision_analyze",
+        # Deprecated internal tools
+        "trace_call_chain",
+        "mind_map",
+        "pattern_fix",
+        "web_extract",
+        "setup_agent",
+        "trae_start",
+        "trae_status",
+        "trae_new_chat",
+        "trae_switch_mode",
+        "trae_delegate",
+        "claude_session",
+        "bash",
+        "session_workspace",
+        "send_message",
     }
 )
 
@@ -157,24 +172,19 @@ def _filter_claude_code_if_unavailable(tools: list[BaseTool]) -> list[BaseTool]:
 def get_builtin_tools() -> tuple[BaseTool, ...]:
     """Load built-in sandbox tools on first use (avoids eager import of 50+ tool modules)."""
     from evoflow.community.web_fetch.tools import web_fetch_tool as fetch_url_tool
-    from evoflow.tools.builtins.assets_tool import assets_tool
+    # assets_tool removed — memory/craft access via direct read/replace/write on
     from evoflow.tools.builtins.browser_tool import browser_tool
     from evoflow.tools.builtins.clarification_tool import ask_clarification_tool
-    from evoflow.tools.builtins.claude_session_tool import claude_session_tool
     from evoflow.tools.builtins.collab_peer_tools import (
         collab_peer_read_tool,
         collab_peer_reply_tool,
         collab_peer_send_tool,
     )
-    from evoflow.tools.builtins.mind_map_tool import mind_map_tool
-    from evoflow.tools.builtins.pattern_fix_tool import pattern_fix_tool
     from evoflow.tools.builtins.plan_tool import plan_tool
     from evoflow.tools.builtins.platform_tool import platform_tool
     from evoflow.tools.builtins.process_tool import process_tool
     from evoflow.tools.builtins.propose_goal_tool import propose_goal_tool
     from evoflow.tools.builtins.read_lints_tool import read_lints_tool
-    from evoflow.tools.builtins.send_message_tool import send_message_tool
-    from evoflow.tools.builtins.session_workspace_tool import session_workspace_tool
     from evoflow.tools.builtins.stage_tool import stage_set_tool
     from evoflow.tools.builtins.subtask_outcome_report_tool import subtask_outcome_report_tool
     from evoflow.tools.builtins.subtask_progress_tool import subtask_progress_report_tool
@@ -188,12 +198,10 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         plan_tool,
         ask_clarification_tool,
         propose_goal_tool,
-        claude_session_tool,
         supervisor_tool,
         subtask_outcome_report_tool,
         subtask_progress_report_tool,
         subtask_work_checklist_tool,
-        mind_map_tool,
         tasks_tool,
         platform_tool,
         collab_peer_send_tool,
@@ -201,15 +209,11 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         collab_peer_reply_tool,
         todo_tool,
         stage_set_tool,
-        session_workspace_tool,
-        send_message_tool,
         fetch_url_tool,
         view_image_tool,
         process_tool,
         browser_tool,
         read_lints_tool,
-        pattern_fix_tool,
-        assets_tool,
         bash_tool,
         read_file_tool,
     )

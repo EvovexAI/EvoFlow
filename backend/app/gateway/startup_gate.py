@@ -78,6 +78,21 @@ def _needs_extended_routers(path: str) -> bool:
     return any(path == p or path.startswith(f"{p}/") for p in _EXTENDED_ROUTE_PREFIXES)
 
 
+def _cors_headers() -> dict[str, str]:
+    try:
+        from app.gateway.config import get_gateway_config
+
+        origins = get_gateway_config().cors_origins
+    except Exception:
+        origins = ["http://127.0.0.1:1521", "http://localhost:1521", "http://localhost:3000"]
+    return {
+        "Access-Control-Allow-Origin": ", ".join(origins),
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Requested-With",
+        "Access-Control-Allow-Credentials": "true",
+    }
+
+
 def startup_not_ready_response(*, code: str, message: str, retry_after_ms: int = 500) -> JSONResponse:
     return JSONResponse(
         status_code=503,
@@ -86,7 +101,10 @@ def startup_not_ready_response(*, code: str, message: str, retry_after_ms: int =
             "message": message,
             "retry_after_ms": retry_after_ms,
         },
-        headers={"Retry-After": str(max(1, retry_after_ms // 1000))},
+        headers={
+            "Retry-After": str(max(1, retry_after_ms // 1000)),
+            **_cors_headers(),
+        },
     )
 
 

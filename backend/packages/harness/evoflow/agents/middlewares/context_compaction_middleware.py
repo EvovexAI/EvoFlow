@@ -683,6 +683,22 @@ def _emit_post_model_context_usage(result: ModelCallResult, request: ModelReques
         real_input_tokens,
         real_output,
     )
+    # Read actual injected section content from _last_system_by_thread (set by
+    # DynamicSystemPromptOnScenarioMiddleware after assembling the system prompt).
+    injected_sections: dict[str, str] = {}
+    if thread_id:
+        try:
+            from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+                _last_system_by_thread,
+                _extract_injected_sections,
+            )
+            text = _last_system_by_thread.get(thread_id) if isinstance(_last_system_by_thread, dict) else None
+            if text and isinstance(text, str):
+                injected_sections = _extract_injected_sections(text)
+            logger.debug("[post-model-ctx] injected_sections from _last_system_by_thread: keys=%s", list(injected_sections.keys()))
+        except Exception as exc:
+            logger.debug("[post-model-ctx] failed to read injected_sections: %s", exc)
+
     # Occupancy numerator = runtime active context (total), not input-only.
     snap = compaction_token_snapshot(msgs, context_length=context_length) if msgs else {}
     emit_context_usage(
@@ -699,7 +715,9 @@ def _emit_post_model_context_usage(result: ModelCallResult, request: ModelReques
         message_tokens=snap.get("history_tokens") if isinstance(snap, dict) else None,
         tool_count=snap.get("tool_count") if isinstance(snap, dict) else None,
         api_active_tokens=api_active,
+        injected_sections=injected_sections or None,
     )
+    logger.info("[post-model-ctx] emit done: context_length=%d, api_active=%d, session=%s", context_length, api_active, (session_key or "")[:24])
 
 
 def _emit_ephemeral_model_summary(

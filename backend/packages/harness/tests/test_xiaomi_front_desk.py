@@ -566,11 +566,11 @@ def test_build_system_prompt_routes_xiaomi() -> None:
     assert "常驻" in text
 
 
-def test_xiaomi_role_protected_from_archive_and_delete(tmp_path, monkeypatch) -> None:
+def test_xiaomi_role_protected_from_delete(tmp_path, monkeypatch) -> None:
     import gc
     from pathlib import Path
 
-    from evoflow.admin.employees import archive_role as admin_archive
+    from evoflow.admin import employees as employees_admin
     from evoflow.admin.errors import ValidationError
     from evoflow.agents.xiaomi.duty import ensure_xiaomi_proactive_role
     from evoflow.config.app_config import reset_app_config
@@ -587,7 +587,7 @@ def test_xiaomi_role_protected_from_archive_and_delete(tmp_path, monkeypatch) ->
     try:
         ensure_xiaomi_proactive_role()
         try:
-            admin_archive("xiaomi")
+            employees_admin.delete_role("xiaomi")
             raise AssertionError("expected ValidationError")
         except ValidationError as e:
             assert "系统默认前台" in str(e) or "小V" in str(e)

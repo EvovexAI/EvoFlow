@@ -43,7 +43,7 @@ def test_compaction_prefix_mentions_asset_hub():
 
 
 def test_extract_evo_asset_citations():
-    raw = "修好了缓存。\n\n<evo-asset-citation>\n<citation_entries>\nmemory/MEMORY.md:12-18|note=[先诊断再改]\nmemory/episodic/2026-08-25-ci.md:1-40|note=[CI 证据]\n</citation_entries>\n</evo-asset-citation>\n"
+    raw = "修好了缓存。\n\n<evo-asset-citation>\n<citation_entries>\nmemory/MEMORY.md:12-18|note=[先诊断再改]\nmemory/episodic/ci.md:1-40|note=[CI 证据]\n</citation_entries>\n</evo-asset-citation>\n"
     out = extract_evo_asset_citations(raw)
     assert "修好了缓存" in out["text"]
     assert "<evo-asset-citation>" not in out["text"]

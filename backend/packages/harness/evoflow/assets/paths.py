@@ -208,12 +208,6 @@ def resolve_entity_file(entity: EntityRef, rel_path: str) -> Path:
     return target
 
 
-def default_user_profile_md() -> str:
-    from evoflow.assets.user_profile_dims import default_profile_readme_md
-
-    return default_profile_readme_md()
-
-
 def default_index_md() -> str:
     return (
         "# 资产中心索引\n\n"

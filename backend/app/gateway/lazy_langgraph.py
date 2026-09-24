@@ -124,6 +124,17 @@ def mount_langgraph_in_process() -> Starlette:
 
     from langgraph_api.server import app as lg_app
 
+    # Apply langgraph_api.command patch AFTER langgraph_api.server import.
+    # At this point ``langgraph_api.command`` is already in sys.modules, so
+    # the patch's ``import langgraph_api.command`` does NOT re-trigger the
+    # sentence_transformers -> torch -> sklearn chain that hangs on Windows.
+    try:
+        from evoflow.langgraph_api_command_patch import apply_langgraph_command_patch
+
+        apply_langgraph_command_patch()
+    except Exception:
+        logger.debug("langgraph_api map_cmd patch skipped", exc_info=True)
+
     try:
         _lg_route_paths = []
         for _r in getattr(lg_app, "routes", []):

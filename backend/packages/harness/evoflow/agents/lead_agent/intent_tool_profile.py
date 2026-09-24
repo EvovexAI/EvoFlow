@@ -160,7 +160,6 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "replace",
         "write",
         "delete",
-        "mind_map",
         "tasks",
         "platform",
         "panel_set",
@@ -232,7 +231,6 @@ SESSION_MODE_DEFERRED_CATALOG: dict[str, tuple[str, ...]] = {
             "process",
             "rg",
             "find",
-            "mind_map",
             # "worker",  # temporarily unregistered (code retained)
             "todo",
             "knowledge",
@@ -363,7 +361,7 @@ def build_scenario_tools_payload(
 # 说明：这里只放"除基础能力之外"的工具。
 NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
     "workspace_baseline": {
-        "zh_description": "工作区基础：read/rg/find/terminal/todo/subagent/mind_map/tasks（须 activate workspace）",
+        "zh_description": "工作区基础：read/rg/find/terminal/todo/subagent/tasks（须 activate workspace）",
         "tools": (
             "read",
             "rg",
@@ -372,7 +370,6 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
             # "worker",  # temporarily unregistered (code retained)
             "todo",
             "subagent",
-            "mind_map",
         ),
     },
     "plan_orchestration": {

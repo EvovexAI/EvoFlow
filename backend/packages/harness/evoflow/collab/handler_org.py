@@ -94,9 +94,6 @@ def validate_handler_assignee(
             return None
         return f"处理人 `{tgt_code}` 不在岗位花名册中"
 
-    if str(target.status or "").strip().lower() == "archived":
-        return f"处理人 `{tgt_code}` 已归档，无法派发"
-
     def _same_org_or_err(anchor_code: str) -> str | None:
         anchor = find_role(roster, anchor_code)
         if anchor is None:
@@ -171,7 +168,7 @@ def assert_handlers_org_ok(
     if roster is None:
         from evoflow.proactive.repositories import ProactiveRepository
 
-        roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
+        roster = list(ProactiveRepository.list_roles())
 
     errors: list[str] = []
     for h in handlers or []:

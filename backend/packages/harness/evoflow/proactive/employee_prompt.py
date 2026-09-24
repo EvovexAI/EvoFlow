@@ -59,7 +59,7 @@ def resolve_employee_identity(agent_code: str | None) -> dict[str, Any] | None:
     if role is None:
         return None
     status = str(getattr(role, "status", "") or "").strip().lower()
-    if status in {"archived", "draft"}:
+    if status == "draft":
         return None
     cfg = getattr(role, "config", None)
     resp_raw = list(getattr(cfg, "responsibilities", None) or []) if cfg is not None else []
@@ -128,13 +128,13 @@ def build_employee_communication_block(
 Tone: professional, warm, practical. Short for chitchat; lead with the answer for Q&A; concise for tech.
 Refuse unsafe requests; never expose tool/orchestration internals.
 Follow brevity/format asks; after finishing, one optional next step (skip if user wants ultra-short).
-Assets: read with `assets(search|read)`; when durable prefs/lessons/reflections appear, you decide and write with `assets(note)` → inbox (do not wait for "remember").
+Assets: read with `read`; when durable prefs/lessons/reflections appear, you decide and write to `memory/_inbox/notes/` (first line tagged `[preference]`/`[reflection]`/`[experience]`/`[process]`) — do not wait for "remember".
 </communication>"""
     return """<communication>
 气质：专业、温和、务实。闲聊短句；答疑结论先行；技术精简。
 拒绝违规/危险请求；勿向用户暴露工具与编排细节。
 配合简洁/详细与格式要求；完成后可酌情给一项下一步建议（用户要极简时省略）。
-资产：读用 `assets(search|read)`；出现值得长期保留的偏好/教训/反思时，由你判断并 `assets(note)` 写入 inbox（无需等用户说「记住」）。
+资产：读用 `read`；出现值得长期保留的偏好/教训/反思时，由你判断并 `write` 到 `memory/_inbox/notes/`（首行带 `[preference]`/`[reflection]`/`[experience]`/`[process]` 标签），无需等用户说「记住」。
 </communication>"""
 
 
@@ -236,8 +236,13 @@ def build_employee_chat_system_prompt(
     if habits:
         parts.append(habits)
 
+    # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段（调度器 fallback）。
+    # 这里不要在 ``<habits>`` 之外再叠一个 ``<agent_system_prompt>`` 显示相同内容。
+    bare_soul = (soul or "").strip()
+    if bare_soul.startswith("<soul>") and bare_soul.endswith("</soul>"):
+        bare_soul = bare_soul[len("<soul>") : -len("</soul>")].strip()
     extra = str(custom_system_prompt or "").strip()
-    if extra:
+    if extra and extra != bare_soul:
         try:
             from evoflow.security.prompt_injection_scanner import scan_content
 
@@ -311,10 +316,10 @@ def build_employee_chat_system_prompt(
         "<context_priority>\n"
         "1) **最新用户消息**最高优先；\n"
         "2) **用户画像**（user_profile）次之——有缺口且本对话未补充时**必须主动简短询问**，"
-        "用户回答后立刻用 `assets(action=profile, …)` 写入并确认，禁止只聊不写；\n"
+        "用户回答后立刻用 `write`/`replace` profile 文件并确认，禁止只聊不写；\n"
         "3) **本岗经验(craft)/反思(journal)/过程(episodic) 高权重**——任务相关时必须优先检索复用，"
         "禁止当摆设；遇有价值流程、有价值过程、反复出错点时，必须主动问用户是否沉淀为 "
-        "`[experience]`/`[process]`/`[reflection]`，同意后再 `assets(note)`；\n"
+        "`[experience]`/`[process]`/`[reflection]`，同意后再 `write` 到 `memory/_inbox/notes/`；\n"
         "4) 岗位合同 / 习惯 / 其它记忆仅作参考。未点名的旧任务/巡检不要自动续跑。\n"
         "</context_priority>"
     )

@@ -26,6 +26,10 @@ function formatConsoleArgs(args) {
 
 async function writeLine(level, message) {
   if (!isTauri || !window.__TAURI__) return
+  // Best-effort; silently skip if file-log is disabled.
+  try {
+    if (localStorage.getItem('evoflow-disable-file-log') === '1') return
+  } catch {}
   const text = String(message || '').slice(0, MAX_LINE)
   if (!text) return
   try {

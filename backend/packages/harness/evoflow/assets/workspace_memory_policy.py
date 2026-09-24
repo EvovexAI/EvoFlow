@@ -76,33 +76,21 @@ def should_persist_workspace_asset(
 def workspace_write_discipline_block(*, lang: str = "zh") -> str:
     if lang == "en":
         return """<workspace_memory_policy>
-Project knowledge lives under **`.evoflow/memory/`** in the bound workspace
-(same standing / facts / craft layout as user assets).
+Project knowledge lives under **`<workspace>/.evoflow/memory/`** (same standing / facts / craft layout as user assets).
 
-Write here ONLY durable repo facts:
-- **module** — core subsystems and responsibilities
-- **logic** — important business/technical flows
-- **architecture** — layers, data flow, key dependencies
-- **convention** — naming, folders, build/run habits
-- **gotcha** — constraints and pitfalls
-- **entrypoint** — how to run/build/deploy
+Write ONLY durable repo facts. Use a single `[project]` tag — no category subdivision.
+Phase 2 merges into `.evoflow/memory/facts/`.
 
 Do NOT store: one-off tests, session changelogs, UI tweak outcomes, greetings, or trivial snippets.
-Use `assets(action=note, scope=workspace, content="[project][module] …")` for project facts.
-User prefs / identity → user memory or profile, not workspace.
+Use `write` to `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md` with `[project]` as the first-line tag.
+User prefs / identity → user memory or profile, NOT workspace.
 </workspace_memory_policy>"""
     return """<workspace_memory_policy>
-**项目知识**写在绑定工作区下的 **`.evoflow/memory/`**（与用户资产同构：standing / facts / craft）。
+**项目知识**写在绑定工作区下的 **`<workspace>/.evoflow/memory/`**（与用户资产同构：standing / facts / craft）。
 
-只记**可复用的项目事实**：
-- **module** — 核心功能模块与职责
-- **logic** — 重要业务/技术逻辑
-- **architecture** — 架构分层、数据流、关键依赖
-- **convention** — 命名、目录、构建/运行约定
-- **gotcha** — 踩坑与约束
-- **entrypoint** — 启动/构建/部署入口
+只记**可复用的项目事实**。用单一 `[project]` 标签，不区分 category；Phase 2 合并进 `.evoflow/memory/facts/`。
 
 **不要写入**：一次性测试、会话改动流水、UI 微调结果、问候语、无结构碎片。
-项目事实用 `assets(action=note, scope=workspace, content="[project][module] …")`。
+项目事实用 `write` 到 `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md`（首行 `[project]`）。
 用户偏好/身份 → 写 user 记忆或 profile，不要写 workspace。
 </workspace_memory_policy>"""

@@ -22,6 +22,10 @@ from evoflow.agents.lead_agent.runtime_context import (
 from evoflow.skills.active import reset_active_skills, set_active_skills
 from evoflow.skills.injection import build_skill_injection_message
 from evoflow.skills.selection import select_skills_for_turn
+from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
+    get_injected_sections,
+    set_injected_sections,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,17 +121,48 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
     @override
     def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
         selected, names, ctx = _resolve_turn_skills(request)
-        token = set_active_skills(names)
+        token_skills = set_active_skills(names)
         try:
-            return handler(self._patch_request(request, selected, names, ctx))
+            result = handler(self._patch_request(request, selected, names, ctx))
+            # Also update the injected-sections ContextVar so the detail modal sees skill content.
+            if selected:
+                body = build_skill_injection_message(
+                    selected,
+                    prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
+                )
+                if body.strip():
+                    prev = get_injected_sections()
+                    merged = dict(prev) if prev else {}
+                    merged["skill_injection"] = body.strip()
+                    tok = set_injected_sections(merged)
+                    try:
+                        _ = result
+                    finally:
+                        reset_injected_sections(tok)
+            return result
         finally:
-            reset_active_skills(token)
+            reset_active_skills(token_skills)
 
     @override
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
         selected, names, ctx = _resolve_turn_skills(request)
-        token = set_active_skills(names)
+        token_skills = set_active_skills(names)
         try:
-            return await handler(self._patch_request(request, selected, names, ctx))
+            result = await handler(self._patch_request(request, selected, names, ctx))
+            if selected:
+                body = build_skill_injection_message(
+                    selected,
+                    prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
+                )
+                if body.strip():
+                    prev = get_injected_sections()
+                    merged = dict(prev) if prev else {}
+                    merged["skill_injection"] = body.strip()
+                    tok = set_injected_sections(merged)
+                    try:
+                        _ = result
+                    finally:
+                        reset_injected_sections(tok)
+            return result
         finally:
-            reset_active_skills(token)
+            reset_active_skills(token_skills)

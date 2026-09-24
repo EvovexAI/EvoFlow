@@ -58,12 +58,6 @@ SEARCH_TOOL_ROWS_EN: list[tuple[str, str, str, str]] = [
         'rg(pattern="response_summary", path="evopanel/src/pages", glob="*.js")',
         "repeat same index query or broader rg on .",
     ),
-    (
-        "Call/dependency chain",
-        "trace_call_chain",
-        'trace_call_chain(symbol="derive_session_mode", direction="callers", max_depth=3)',
-        "manual rg across dozens of files for impact analysis",
-    ),
 ]
 
 # --- Decision table (ZH) -------------------------------------------------------
@@ -110,12 +104,6 @@ SEARCH_TOOL_ROWS_ZH: list[tuple[str, str, str, str]] = [
         "rg 再 read",
         'rg(pattern="response_summary", path="evopanel/src/pages", glob="*.js")',
         "重复同一 index 查询或在 . 上大范围 rg",
-    ),
-    (
-        "调用/依赖链追踪",
-        "trace_call_chain",
-        'trace_call_chain(symbol="derive_session_mode", direction="callers", max_depth=3)',
-        "手动 rg 遍历数十个文件做影响面分析",
     ),
 ]
 

@@ -292,6 +292,7 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
 DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
     "evoflow-intro",
     "evoflow-admin",
+    "evoflow-assets",
     "aihot",
     "deep-research",
     "preset-role-assistant",
@@ -300,7 +301,7 @@ DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
 )
 
 # 已有 main / general-purpose 落盘后仍应补上的基础技能（幂等合并，仅追加缺失项）
-BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-intro", "evoflow-admin")
+BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-intro", "evoflow-admin", "evoflow-assets")
 
 
 def resolved_skills_for_materialize(wishlist: tuple[str, ...] | None = None) -> list[str]:

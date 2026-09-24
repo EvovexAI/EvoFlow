@@ -126,7 +126,7 @@ def _resolve_employee_by_code(agent_code: str) -> tuple[str, str] | None:
     if not code:
         return None
     role = ProactiveRepository.get_role(code)
-    if role is None or str(role.status or "").strip().lower() == "archived":
+    if role is None:
         return None
     name = str(role.role_name or "").strip() or code
     return name, code
@@ -218,7 +218,7 @@ def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
     want = str(role_name or "").strip().lower()
     if not want:
         raise ValidationError("role must be a non-empty role_name")
-    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want and str(r.status or "").strip().lower() != "archived"]
+    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want]
     if not matches:
         raise ValidationError(f"no active role found with name '{role_name}'. Use employees list / roster to see role_name values.")
     role = matches[0]

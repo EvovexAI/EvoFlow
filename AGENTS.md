@@ -16,3 +16,8 @@
 - **质量审**:`/codebase-wiki`(审 .codebasewiki/ 断链/缺节/frontmatter)
 
 详见 `.claude/skills/codebase-wiki/SKILL.md`。
+
+## Agent 提示词工程
+- 规范：[`.codebasewiki/meta/agent-prompt-architecture.md`](./.codebasewiki/meta/agent-prompt-architecture.md)
+- 审计：`.claude/skills/prompt-audit/SKILL.md`(或 `python .claude/skills/prompt-audit/scripts/prompt_audit.py`)
+- 适用：任何 Agent 提示词栈(system_prompt + AGENTS.md + .mdc rules)的结构化诊断

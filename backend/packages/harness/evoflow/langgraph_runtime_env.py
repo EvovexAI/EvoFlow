@@ -57,12 +57,11 @@ def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
         db_uri,
         data_dir,
     )
-    try:
-        from evoflow.langgraph_api_command_patch import apply_langgraph_command_patch
-
-        apply_langgraph_command_patch()
-    except Exception:
-        logger.debug("langgraph_api map_cmd patch skipped", exc_info=True)
+    # NOTE: apply_langgraph_command_patch() is NOT called here.
+    # It must run AFTER ``import langgraph_api.server`` (below) so that
+    # ``import langgraph_api.command`` inside the patch hits sys.modules
+    # instead of triggering the sentence_transformers -> torch -> sklearn
+    # import chain that hangs on Windows.
     try:
         from evoflow.langchain_agenerate_cancel_patch import apply_langchain_agenerate_cancel_patch
 

@@ -3,6 +3,11 @@
 Uses LangChain's ``convert_to_openai_tool`` so compaction gating matches the
 OpenAI-compatible ``tools`` array actually sent to providers — not inflated
 Pydantic ``model_json_schema()`` blobs with ``$defs``.
+
+For the system prompt, tokens are further split into sub-rows:
+- ``system_skills_tokens``: tokens inside ``<skill_injection>...</skill_injection>``
+- ``system_assets_tokens``: tokens inside ``<entity_assets>...</entity_assets>``
+- ``system_memory_tokens``: tokens inside ``<!-- memory:`` / ``<!-- memory: reference only-->`` blocks
 """
 
 from __future__ import annotations
@@ -10,6 +15,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +38,9 @@ class ModelCallOverheadEstimate:
     system_tokens: int
     tools_tokens: int
     tool_count: int
+    system_skills_tokens: int = 0
+    system_assets_tokens: int = 0
+    system_memory_tokens: int = 0
 
     @property
     def total(self) -> int:
@@ -42,6 +51,9 @@ class ModelCallOverheadEstimate:
             "system_tokens": self.system_tokens,
             "tools_tokens": self.tools_tokens,
             "tool_count": self.tool_count,
+            "system_skills_tokens": self.system_skills_tokens,
+            "system_assets_tokens": self.system_assets_tokens,
+            "system_memory_tokens": self.system_memory_tokens,
         }
 
 
@@ -55,6 +67,15 @@ def reset_gate_overhead_meta(token: contextvars.Token) -> None:
 
 def current_gate_overhead_meta() -> dict[str, int] | None:
     return _GATE_OVERHEAD_META.get()
+
+
+# ---- Section markers used to split system-prompt tokens ----
+# Match <skill_injection> ... </skill_injection>
+_RE_SKILL_INJECTION = re.compile(r"<skill_injection\b.*?</skill_injection>", re.DOTALL | re.IGNORECASE)
+# Match <entity_assets> ... </entity_assets>
+_RE_ENTITY_ASSETS = re.compile(r"<entity_assets\b.*?</entity_assets>", re.DOTALL | re.IGNORECASE)
+# Match <!-- memory: ... -->  (also the reference-only variant)
+_RE_MEMORY_BLOCK = re.compile(r"<!--\s*memory\s*:.*?-->", re.IGNORECASE)
 
 
 def _system_message_text(request: Any) -> str:
@@ -71,6 +92,18 @@ def _system_message_text(request: Any) -> str:
                 parts.append(block["text"])
         return "".join(parts)
     return str(text) if text else ""
+
+
+def _extract_system_sub_tokens(text: str, model: str | None) -> tuple[int, int, int]:
+    """Return (skills_tokens, assets_tokens, memory_tokens) for known section markers."""
+    skills_text = "".join(m.group() for m in _RE_SKILL_INJECTION.finditer(text))
+    assets_text = "".join(m.group() for m in _RE_ENTITY_ASSETS.finditer(text))
+    memory_text = "".join(m.group() for m in _RE_MEMORY_BLOCK.finditer(text))
+    return (
+        count_text_tokens(skills_text, model=model) if skills_text else 0,
+        count_text_tokens(assets_text, model=model) if assets_text else 0,
+        count_text_tokens(memory_text, model=model) if memory_text else 0,
+    )
 
 
 def estimate_system_prompt_tokens(request: Any, *, model: str | None = None) -> int:
@@ -140,11 +173,16 @@ def estimate_bound_tools_tokens(tools: Sequence[Any], *, model: str | None = Non
 
 def estimate_model_call_overhead(request: Any, *, model: str | None = None) -> ModelCallOverheadEstimate:
     """System prompt + wire-format tool schemas (matches provider request body)."""
-    system_tokens = estimate_system_prompt_tokens(request, model=model)
+    system_text = _system_message_text(request)
+    system_tokens = count_text_tokens(system_text, model=model) if system_text.strip() else 0
+    skills_tok, assets_tok, memory_tok = _extract_system_sub_tokens(system_text, model=model)
     tools = getattr(request, "tools", None) or []
     tools_tokens, tool_count = estimate_bound_tools_tokens(tools, model=model)
     return ModelCallOverheadEstimate(
         system_tokens=system_tokens,
         tools_tokens=tools_tokens,
         tool_count=tool_count,
+        system_skills_tokens=skills_tok,
+        system_assets_tokens=assets_tok,
+        system_memory_tokens=memory_tok,
     )

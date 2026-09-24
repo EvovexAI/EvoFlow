@@ -109,6 +109,7 @@ def _filter_agents_for_ui_list(agents: list[AgentResponse]) -> list[AgentRespons
 _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
     "evoflow-intro",
     "evoflow-admin",
+    "evoflow-assets",
     "create-plan",
     "deep-research",
     "article-writer",

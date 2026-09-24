@@ -424,17 +424,6 @@ class TestProactiveRepository:
         delta_ms = parse_iso_to_ms(nxt) - parse_iso_to_ms(now.isoformat())
         assert 9 * 60_000 <= delta_ms <= 11 * 60_000
 
-    def test_archive_role(self):
-        from evoflow.proactive.repositories import ProactiveRepository
-
-        ProactiveRepository.save_role(self._make_role())
-        role = ProactiveRepository.get_role("test_role")
-        role.status = "archived"
-        ProactiveRepository.save_role(role)
-
-        archived = ProactiveRepository.get_role("test_role")
-        assert archived.status == "archived"
-
     def test_save_and_get_initiative(self):
         from evoflow.proactive.models import (
             Initiative,

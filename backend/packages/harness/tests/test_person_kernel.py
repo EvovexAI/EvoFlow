@@ -350,7 +350,13 @@ def test_soul_block_marks_live_it():
 
     block = format_soul_prompt_block("Be concise.")
     assert "<soul>" in block
-    assert "habits" in block or "Live it" in block
+    # Confirm the L1 self-referential HTML comment has been removed (it caused
+    # self-contradiction: the comment declared the block "reference only" while
+    # the body was imperative rules). The block must now stand on its own rules.
+    assert "<!-- L1 —" not in block
+    assert "</soul>" in block
+    # The inner soul text must round-trip cleanly.
+    assert "Be concise." in block
 
 
 def test_soul_block_can_omit_lessons_learned():
