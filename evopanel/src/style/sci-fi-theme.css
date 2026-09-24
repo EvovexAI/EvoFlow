@@ -472,7 +472,7 @@ html[data-scifi-ui='1'] [data-screen] {
  * 顶光 + 底部辉光线
  * ============================================================ */
 html[data-scifi-ui='1'] .react-chat-header {
-  background: linear-gradient(145deg, rgba(10, 14, 13, 0.94), rgba(15, 19, 18, 0.94)) !important;
+  background: linear-gradient(145deg, rgba(10, 14, 13, 0.78), rgba(15, 19, 18, 0.80)) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 60%, rgba(255, 255, 255, 0.18)) !important;
   box-shadow:
     0 8px 48px rgba(0, 0, 0, 0.55),
@@ -520,7 +520,7 @@ html[data-scifi-ui='1'] .react-chat-header-session-title {
  * ============================================================ */
 html[data-scifi-ui='1'] #app-shell-aside.react-chat-session-aside.shell-aside-host,
 html[data-scifi-ui='1'] .react-chat-session-aside.shell-aside-host {
-  background: linear-gradient(145deg, rgba(10, 14, 13, 0.92), rgba(15, 19, 18, 0.86)) !important;
+  background: linear-gradient(145deg, rgba(10, 14, 13, 0.72), rgba(15, 19, 18, 0.70)) !important;
   border-right: 1px solid color-mix(in srgb, var(--accent) 40%, rgba(255, 255, 255, 0.14)) !important;
   border-radius: 0 18px 18px 0 !important;
   box-shadow:
@@ -581,7 +581,7 @@ html[data-scifi-ui='1'] .react-chat-aside-nav-item {
   border: 1px solid transparent !important;
   background: transparent !important;
   color: var(--text-secondary) !important;
-  border-radius: 15px !important;
+  border-radius: 0 !important;
   padding: 0 13px !important;
   transition: all 0.18s ease;
 }
@@ -2000,10 +2000,24 @@ html[data-scifi-ui='1'] [data-screen] {
 }
 
 /* ============================================================
- * 关闭液态玻璃墙纸(科技风自带辉光背景)
+ * 背景墙纸 — sci-fi 模式显示太空壁纸
+ * (墙纸 div 是 fixed inset:0 全屏,z-index:0(在最底层);
+ *  body 自带的 radial-gradient + ::before/::after 流体辉光在更上层覆盖,形成「辉光 + 太空底图」的叠合)
  * ============================================================ */
 html[data-scifi-ui='1'] #evopanel-app-wallpaper {
-  display: none !important;
+  display: block !important;
+}
+html[data-scifi-ui='1'] #evopanel-app-wallpaper::before {
+  opacity: 1 !important; /* 让 ::before 背景图完全显示;sci-fi 模式的 radial-gradient/辉光层负责整体调暗 */
+}
+html[data-scifi-ui='1'] #evopanel-app-wallpaper::after {
+  /* sci-fi 模式下,在壁纸之上叠加一层暗色 + 模糊蒙版,让壁纸不抢戏 + 增强辉光可读性 */
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  background: rgba(5, 7, 6, 0.55) !important;
+  backdrop-filter: blur(0px) !important;
+  pointer-events: none;
 }
 
 /* ============================================================
