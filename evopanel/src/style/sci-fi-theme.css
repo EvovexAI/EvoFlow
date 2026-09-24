@@ -575,9 +575,9 @@ html[data-scifi-ui='1'] .react-chat-aside-toolbar-title {
   letter-spacing: -0.5px !important;
 }
 
-/* 侧栏导航按钮 — 收紧高度，避免 nav + 展开子项占满 sidebar 高度（普通模式 30px，这里取 38px 保留 sci-fi 视觉重量） */
+/* 侧栏导航按钮 — 与非科技风一致高度，避免 sci-fi 模式下 sidebar 占满 viewport */
 html[data-scifi-ui='1'] .react-chat-aside-nav-item {
-  height: 38px !important;
+  height: 30px !important;
   border: 1px solid transparent !important;
   background: transparent !important;
   color: var(--text-secondary) !important;
