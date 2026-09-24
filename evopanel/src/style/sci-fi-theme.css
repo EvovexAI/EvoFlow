@@ -1413,6 +1413,351 @@ html[data-scifi-ui='1'] .react-chat-icon-send-btn:hover:not(:disabled) {
   transform: translateY(-2px);
 }
 
+/* ============================================================
+ * v16 — Home Surface 区域(EvoFlow 顶部 / 模型 / 计数 / 上下文 / 资产沉淀)
+ *
+ * v16.0 — 隐藏 home_background.png,改用 body 辉光透出
+ * ============================================================ */
+html[data-scifi-ui='1'] .react-chat-main-col--home {
+  background-image: none !important;
+  background-color: transparent !important;
+}
+
+/* ============================================================
+ * v16 — Home Surface 区域(EvoFlow 顶部 / 模型 / 计数 / 上下文 / 资产沉淀)
+ *
+ * 涉及 className:
+ *  - AgentCapabilityTabs:  Skills/Tools/Knowledge/MCP 计数
+ *      .react-chat-agent-cap
+ *      .react-chat-agent-cap-overview
+ *      .react-chat-agent-cap-overview-item
+ *      .react-chat-agent-cap-overview-value / -label
+ *      .react-chat-agent-cap-tabs
+ *      .react-chat-agent-cap-tab
+ *      .react-chat-agent-cap-list
+ *      .react-chat-agent-cap-name / -tok / -badge
+ *  - ChatWorkspaceInfoRail: 资产沉淀
+ *      .react-chat-asset-quick
+ *      .react-chat-asset-quick-label
+ *      .react-chat-asset-quick-actions
+ *      .react-chat-asset-quick-btn
+ *      .react-chat-asset-quick-link
+ *      .react-chat-info-rail
+ *      .react-chat-info-rail-empty / -row / -row-label / -row-value
+ *  - ContextOccupancyPanel:  上下文压缩
+ *      .react-chat-ctx-meter
+ *      .react-chat-ctx-meter-header
+ *      .react-chat-ctx-meter-headline
+ *      .react-chat-ctx-meter-percent
+ *      .react-chat-ctx-meter-bar / -fill
+ *      .react-chat-ctx-meter-figures
+ *      .react-chat-ctx-meter-compact-btn
+ * ============================================================ */
+
+/* Agent 能力概览容器 */
+html[data-scifi-ui='1'] .react-chat-agent-cap {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.84), rgba(8, 12, 11, 0.78)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.10)) !important;
+  border-radius: 14px !important;
+  padding: 16px 14px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 0 32px 4px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 80px 16px color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+
+/* 计数四宫格(每个 item) —— 三态辉光 */
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.80), rgba(8, 12, 11, 0.75)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, rgba(255, 255, 255, 0.08)) !important;
+  border-radius: 12px !important;
+  padding: 10px 12px !important;
+  transition: all 0.18s ease;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 16px 0 color-mix(in srgb, var(--accent) 6%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item:hover {
+  background: linear-gradient(145deg, rgba(20, 24, 22, 0.88), rgba(12, 16, 15, 0.82)) !important;
+  border-color: color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.16)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.36),
+    0 0 28px 2px color-mix(in srgb, var(--accent) 24%, transparent),
+    0 0 64px 12px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item.is-active {
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--accent) 35%, transparent),
+    color-mix(in srgb, var(--accent) 18%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent) !important;
+  color: #fff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.40),
+    0 0 36px 4px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 0 80px 16px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 0 160px 40px color-mix(in srgb, var(--accent) 7%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-value {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: var(--accent) !important;
+  letter-spacing: -0.5px !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item.is-active .react-chat-agent-cap-overview-value {
+  color: #fff !important;
+  text-shadow: 0 0 16px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-label {
+  font-size: 11px !important;
+  color: var(--text-tertiary) !important;
+  letter-spacing: 0.4px !important;
+  text-transform: uppercase;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item.is-active .react-chat-agent-cap-overview-label {
+  color: color-mix(in srgb, var(--accent) 60%, white) !important;
+}
+
+/* 详情 tab 列表(Skills/Tools/Knowledge/MCP 切到具体页) */
+html[data-scifi-ui='1'] .react-chat-agent-cap-tabs {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, rgba(255, 255, 255, 0.08)) !important;
+  margin-bottom: 8px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-tab {
+  border-radius: 10px 10px 0 0 !important;
+  color: var(--text-tertiary) !important;
+  transition: all 0.18s ease;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-tab:hover {
+  color: var(--text-primary) !important;
+  background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-tab.is-active {
+  color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+  box-shadow:
+    inset 0 0 16px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 0 20px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* 列表项(Skill/Tool/Knowledge/MCP 行) */
+html[data-scifi-ui='1'] .react-chat-agent-cap-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-list > li,
+html[data-scifi-ui='1'] .react-chat-agent-cap-list .react-chat-agent-cap-row {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.80), rgba(8, 12, 11, 0.75)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, rgba(255, 255, 255, 0.06)) !important;
+  border-radius: 10px !important;
+  padding: 8px 12px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.28),
+    0 0 12px 0 color-mix(in srgb, var(--accent) 4%, transparent) !important;
+  transition: all 0.16s ease;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-list > li:hover,
+html[data-scifi-ui='1'] .react-chat-agent-cap-list .react-chat-agent-cap-row:hover {
+  background: linear-gradient(145deg, rgba(20, 24, 22, 0.88), rgba(12, 16, 15, 0.82)) !important;
+  border-color: color-mix(in srgb, var(--accent) 50%, rgba(255, 255, 255, 0.14)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.36),
+    0 0 24px 2px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 0 56px 12px color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-name {
+  color: var(--text-primary) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-tok {
+  color: var(--text-tertiary) !important;
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent) !important;
+  border-radius: 6px !important;
+  padding: 2px 7px !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-agent-cap-add {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 30%, transparent), color-mix(in srgb, var(--accent) 18%, transparent)) !important;
+  color: #fff !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent) !important;
+  border-radius: 10px !important;
+  box-shadow:
+    0 0 20px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+
+/* 资产沉淀区 */
+html[data-scifi-ui='1'] .react-chat-asset-quick {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.86), rgba(8, 12, 11, 0.80)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 30%, rgba(255, 255, 255, 0.10)) !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 32px 4px color-mix(in srgb, var(--accent-secondary) 10%, transparent),
+    0 0 80px 16px color-mix(in srgb, var(--accent-secondary) 5%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-asset-quick-label {
+  color: var(--accent-secondary) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-secondary) 50%, transparent);
+  margin-bottom: 10px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-asset-quick-btn {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.82), rgba(8, 12, 11, 0.76)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 22%, rgba(255, 255, 255, 0.10)) !important;
+  border-radius: 10px !important;
+  color: var(--text-primary) !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 14px 0 color-mix(in srgb, var(--accent-secondary) 6%, transparent) !important;
+  transition: all 0.18s ease;
+  cursor: pointer;
+}
+
+html[data-scifi-ui='1'] .react-chat-asset-quick-btn:hover {
+  background: linear-gradient(145deg, rgba(20, 24, 22, 0.88), rgba(12, 16, 15, 0.82)) !important;
+  border-color: color-mix(in srgb, var(--accent-secondary) 60%, rgba(255, 255, 255, 0.16)) !important;
+  color: #fff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.36),
+    0 0 24px 2px color-mix(in srgb, var(--accent-secondary) 28%, transparent),
+    0 0 56px 12px color-mix(in srgb, var(--accent-secondary) 12%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+html[data-scifi-ui='1'] .react-chat-asset-quick-link {
+  color: var(--accent-secondary) !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-secondary) 50%, transparent);
+}
+
+/* 上下文压缩面板 */
+html[data-scifi-ui='1'] .react-chat-ctx-meter {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.86), rgba(8, 12, 11, 0.80)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(255, 255, 255, 0.10)) !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 32px 4px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 80px 16px color-mix(in srgb, var(--accent) 5%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-headline {
+  color: var(--accent) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.4px !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-percent {
+  color: var(--accent) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-bar {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  border-radius: 999px !important;
+  overflow: hidden;
+  height: 8px !important;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.30), 0 0 8px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 50%, transparent), var(--accent)) !important;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-figures {
+  color: var(--text-tertiary) !important;
+  font-size: 11px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-compact-btn {
+  background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent) !important;
+  border-radius: 8px !important;
+  color: var(--accent) !important;
+  padding: 4px 10px !important;
+  box-shadow:
+    0 0 12px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-ctx-meter-compact-btn:hover {
+  background: color-mix(in srgb, var(--accent) 24%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+  box-shadow:
+    0 0 20px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Home Surface 主区(EvoFlow 标题/模型选择卡片) */
+html[data-scifi-ui='1'] .react-chat-info-rail {
+  background: transparent !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-info-rail-empty {
+  color: var(--text-tertiary) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-info-rail-row {
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-info-rail-row-label {
+  color: var(--text-tertiary) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-info-rail-row-value {
+  color: var(--text-primary) !important;
+}
+
 html[data-scifi-ui='1'] .react-chat-icon-send-btn:disabled {
   background: var(--bg-tertiary) !important;
   border-color: var(--border-primary) !important;

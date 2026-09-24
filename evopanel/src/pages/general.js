@@ -288,8 +288,16 @@ export async function mountGeneralInto(container) {
       const pref = themeBtn.dataset.themePref
       if (pref === 'light' || pref === 'dark' || pref === 'system') {
         setThemePreference(pref)
+        // 切到浅/深/系统时,关闭科技风
+        if (getSciFiUIEnabled()) setSciFiUIEnabled(false)
         renderAppearanceBar(root)
         toast('外观已保存', 'success')
+      } else if (pref === 'scifi') {
+        // 切到科技风时,自动关闭液态玻璃(互斥)
+        if (getLiquidGlassEnabled()) setLiquidGlassEnabled(false)
+        setSciFiUIEnabled(true)
+        renderAppearanceBar(root)
+        toast('科技风已开启', 'success')
       }
       return
     }
@@ -1035,8 +1043,11 @@ export function renderAppearanceBar(page) {
   const lgBlur = getLiquidGlassBlurPreference()
   const lgFlow = getLiquidGlassFlowSpeedPreference()
   const lgReadability = getLiquidGlassReadabilityDimPreference()
-  const labels = { light: '浅色', dark: '深色', system: '跟随系统' }
-  const keys = ['light', 'dark', 'system']
+  const labels = { light: '浅色', dark: '深色', system: '跟随系统', scifi: '科技' }
+  const keys = ['light', 'dark', 'system', 'scifi']
+  // 当前生效主题: 科技风开启时优先显示「科技」选中
+  const isScifi = getSciFiUIEnabled()
+  const activeKey = isScifi ? 'scifi' : p
   const bgHint = !hasBg
     ? '未设置自定义背景（使用液态玻璃预设）'
     : bgStored === '__local__'
@@ -1056,7 +1067,7 @@ export function renderAppearanceBar(page) {
         ${keys
           .map(
             (key) => `
-          <button type="button" class="settings-theme-btn${p === key ? ' settings-theme-btn--active' : ''}"
+          <button type="button" class="settings-theme-btn${activeKey === key ? ' settings-theme-btn--active' : ''}"
             data-action="set-theme-pref" data-theme-pref="${key}">${labels[key]}</button>`
           )
           .join('')}
@@ -1162,14 +1173,6 @@ export function renderAppearanceBar(page) {
           <p class="form-hint settings-appearance-inline-hint" style="margin-top:4px">视频背景会自动加强压暗；字仍看不清时可拉到 60–75%。</p>
         </div>
       </div>
-    </div>
-    <div class="config-section" style="margin-top:0;padding-top:0;border-top:1px dashed var(--border-subtle)">
-      <div class="config-section-title">科技风</div>
-      <label class="switch-row" style="margin-top:8px">
-        <input id="general-scifi-toggle" type="checkbox" ${getSciFiUIEnabled() ? 'checked' : ''} />
-        <span class="switch-label">开启科技风</span>
-      </label>
-      <p class="form-hint settings-appearance-inline-hint">赛博朋克风格：深蓝黑底 + 霓虹青描边 + 网格扫描线。与液态玻璃二选一，开启后会替代玻璃态背景。</p>
     </div>
     <div class="settings-appearance-group settings-appearance-group--range">
       <div class="settings-appearance-label">字体大小</div>

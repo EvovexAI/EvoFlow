@@ -7,9 +7,9 @@ import { getPanelSetting, patchPanelSettings } from './panel-settings.js'
 export const SCIFI_UI_EVENT = 'evopanel-scifi-ui-changed'
 export const SCIFI_UI_PREF_KEY = 'sciFiUIEnabled'
 
-/** 获取科技风开启状态 */
+/** 获取科技风开启状态 —— 默认 true(新装即科技风) */
 export function getSciFiUIEnabled() {
-  return !!getPanelSetting(SCIFI_UI_PREF_KEY, false)
+  return !!getPanelSetting(SCIFI_UI_PREF_KEY, true)
 }
 
 /** 切换科技风 */
