@@ -1,90 +1,99 @@
 /**
- * 科技风 / Sci-Fi Theme
- * 赛博朋克风格：深蓝黑底 + 霓虹青/蓝描边 + 网格背景 + 扫描线
+ * 科技风 (Sci-Fi Theme) v2
+ * 设计目标：现代 + 科技感 + 高度可读
+ *  - 深空蓝灰底 (#0f172a) + 暖白文字 (#e2e8f0)
+ *  - 霓虹青 (#06b6d4) 作强调色,不做主底
+ *  - 微网格背景 (3%) + 极淡扫描线 (1.5%)
+ *  - 现代圆角 (10px),保留玻璃面板透明
+ *  - 所有文字至少 WCAG AAA 对比度
  *
  * 启用方式：html[data-scifi-ui='1']
- * 切换入口：设置 → 外观 → 科技风（开关）
  */
 
-/* ===== 1. CSS 变量覆盖 ===== */
+/* ============================================================
+ * 1. 主题变量（深空蓝灰主题）
+ * ============================================================ */
 :root,
 html[data-scifi-ui='1'] {
-  /* 科技风专属变量（覆盖 dark 主题默认值） */
-  --scifi-accent:       #00e5ff;
-  --scifi-accent-dim:   rgba(0, 229, 255, 0.15);
-  --scifi-accent-glow:  rgba(0, 229, 255, 0.35);
-  --scifi-accent-glow-strong: rgba(0, 229, 255, 0.55);
-  --scifi-accent2:      #2979ff;
-  --scifi-bg:           #060d1a;
-  --scifi-bg2:          #0a1226;
-  --scifi-bg3:          #0d1730;
-  --scifi-surface:      #0f1e38;
-  --scifi-surface2:     #132040;
-  --scifi-border:        rgba(0, 229, 255, 0.25);
-  --scifi-border-strong: rgba(0, 229, 255, 0.5);
-  --scifi-text:         #c8e8ff;
-  --scifi-text2:        #6fa8cc;
-  --scifi-text3:        #3d6a88;
-  --scifi-glow-sm:      0 0 6px var(--scifi-accent-glow);
-  --scifi-glow-md:      0 0 12px var(--scifi-accent-glow);
-  --scifi-glow-lg:      0 0 20px var(--scifi-accent-glow-strong), 0 0 40px rgba(0, 229, 255, 0.2);
+  --scifi-bg:           #0f172a;   /* slate-900 深空蓝灰底 */
+  --scifi-bg2:          #1e293b;   /* slate-800 面板底 */
+  --scifi-bg3:          #334155;   /* slate-700 浮层底 */
+  --scifi-surface:      rgba(30, 41, 59, 0.6);   /* 玻璃面板 */
+  --scifi-surface2:     rgba(51, 65, 85, 0.7);
+  --scifi-border:       rgba(148, 163, 184, 0.18);
+  --scifi-border-strong: rgba(6, 182, 212, 0.45);
+
+  /* 文字 —— 保证可读性 */
+  --scifi-text:         #e2e8f0;   /* slate-200 主文字 */
+  --scifi-text2:        #cbd5e1;   /* slate-300 次文字 */
+  --scifi-text3:        #94a3b8;   /* slate-400 弱文字 */
+
+  /* 强调色：霓虹青 */
+  --scifi-accent:       #06b6d4;   /* cyan-500 主强调 */
+  --scifi-accent-bright:#22d3ee;   /* cyan-400 亮态 */
+  --scifi-accent-glow:  rgba(6, 182, 212, 0.4);
+  --scifi-accent-dim:   rgba(6, 182, 212, 0.12);
+
+  --scifi-glow-sm:      0 0 0 1px rgba(6, 182, 212, 0.35), 0 0 8px rgba(6, 182, 212, 0.15);
+  --scifi-glow-md:      0 0 0 1px rgba(6, 182, 212, 0.5), 0 0 12px rgba(6, 182, 212, 0.3);
+  --scifi-glow-lg:      0 0 0 1px rgba(6, 182, 212, 0.6), 0 0 24px rgba(6, 182, 212, 0.4);
+
+  /* 状态色保持语义 */
+  --scifi-success:      #10b981;
+  --scifi-warning:      #f59e0b;
+  --scifi-error:        #ef4444;
 }
 
-/* ===== 2. 全局背景与边框 ===== */
+/* ============================================================
+ * 2. 全局底色与字体（柔和不刺眼）
+ * ============================================================ */
 html[data-scifi-ui='1'] body {
-  background: var(--scifi-bg) !important;
+  background-color: var(--scifi-bg) !important;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(6, 182, 212, 0.08), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 100%, rgba(99, 102, 241, 0.06), transparent) !important;
   color: var(--scifi-text) !important;
-  font-family: var(--font-family, 'PingFang SC', 'Microsoft YaHei', sans-serif) !important;
 }
 
-/* 暗色模式兼容性：scifi 强制覆盖 */
-html[data-scifi-ui='1'][data-theme='dark'] body,
-html[data-scifi-ui='1'] body {
-  background: var(--scifi-bg) !important;
-}
-
-/* 背景网格纹理（SVG data URI） */
+/* 微网格纹理（极淡，不抢戏） */
 html[data-scifi-ui='1'] body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-color: var(--scifi-bg);
+  background-color: transparent;
   background-image:
-    /* 大格 40px */
-    linear-gradient(rgba(0, 229, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.04) 1px, transparent 1px),
-    /* 小格 10px（更淡） */
-    linear-gradient(rgba(0, 229, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.02) 1px, transparent 1px);
-  background-size: 40px 40px, 40px 40px, 10px 10px, 10px 10px;
-  background-position: -1px -1px;
+    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px, 32px 32px;
 }
 
-/* 扫描线叠加层 */
+/* 极淡扫描线（顶部到底部 1.5% 透明，柔和） */
 html[data-scifi-ui='1'] body::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 9998;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.06) 2px,
-    rgba(0, 0, 0, 0.06) 4px
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(6, 182, 212, 0.015) 50%,
+    transparent 100%
   );
-  animation: scifi-scan 8s linear infinite;
+  background-size: 100% 6px;
+  animation: scifi-scan 6s linear infinite;
 }
 
 @keyframes scifi-scan {
   0%   { background-position: 0 0; }
-  100% { background-position: 0 100vh; }
+  100% { background-position: 0 100%; }
 }
 
-/* ===== 3. 主布局容器 ===== */
+/* ============================================================
+ * 3. 主布局容器（透明让背景透出）
+ * ============================================================ */
 html[data-scifi-ui='1'] #app,
 html[data-scifi-ui='1'] #main-col,
 html[data-scifi-ui='1'] #content,
@@ -103,84 +112,101 @@ html[data-scifi-ui='1'] .chat-react-outlet {
   background: transparent !important;
 }
 
-/* ===== 4. 侧栏 ===== */
+/* ============================================================
+ * 4. 侧栏（深空蓝灰面板 + 细线网格）
+ * ============================================================ */
 html[data-scifi-ui='1'] .react-chat-session-aside {
-  background: var(--scifi-bg2) !important;
+  background: rgba(15, 23, 42, 0.85) !important;
   border-right: 1px solid var(--scifi-border) !important;
+  backdrop-filter: blur(12px) !important;
 }
 
 /* 侧栏顶栏（Logo 区） */
 html[data-scifi-ui='1'] .react-chat-session-header,
 html[data-scifi-ui='1'] .shell-header {
-  background: var(--scifi-bg2) !important;
+  background: rgba(15, 23, 42, 0.6) !important;
   border-bottom: 1px solid var(--scifi-border) !important;
 }
 
-/* 搜索框 */
+/* 搜索框 —— 现代圆角 + 聚焦发光 */
 html[data-scifi-ui='1'] .shell-search-input,
-html[data-scifi-ui='1'] .session-search-input {
+html[data-scifi-ui='1'] .session-search-input,
+html[data-scifi-ui='1'] .shell-search-wrap input,
+html[data-scifi-ui='1'] .session-search-wrap input {
   background: var(--scifi-surface) !important;
   border: 1px solid var(--scifi-border) !important;
   color: var(--scifi-text) !important;
+  border-radius: 10px !important;
+}
+html[data-scifi-ui='1'] .shell-search-input::placeholder,
+html[data-scifi-ui='1'] .session-search-input::placeholder {
+  color: var(--scifi-text3) !important;
 }
 html[data-scifi-ui='1'] .shell-search-input:focus,
-html[data-scifi-ui='1'] .session-search-input:focus {
+html[data-scifi-ui='1'] .session-search-input:focus,
+html[data-scifi-ui='1'] .shell-search-wrap input:focus,
+html[data-scifi-ui='1'] .session-search-wrap input:focus {
   border-color: var(--scifi-accent) !important;
   box-shadow: var(--scifi-glow-sm) !important;
   outline: none !important;
 }
 
-/* 会话列表项 */
+/* 会话列表项 —— 选中态有青色发光 */
 html[data-scifi-ui='1'] .session-item {
   border: 1px solid transparent !important;
   background: transparent !important;
+  border-radius: 10px !important;
+  color: var(--scifi-text2) !important;
 }
 html[data-scifi-ui='1'] .session-item:hover {
-  background: var(--scifi-accent-dim) !important;
+  background: var(--scifi-surface) !important;
   border-color: var(--scifi-border) !important;
 }
 html[data-scifi-ui='1'] .session-item.is-active,
 html[data-scifi-ui='1'] .session-item.active {
   background: var(--scifi-accent-dim) !important;
-  border-color: var(--scifi-accent) !important;
+  border-color: var(--scifi-border-strong) !important;
   box-shadow: var(--scifi-glow-sm) !important;
 }
 html[data-scifi-ui='1'] .session-item .session-name,
 html[data-scifi-ui='1'] .session-item .session-title {
-  color: var(--scifi-text) !important;
+  color: var(--scifi-text2) !important;
 }
 html[data-scifi-ui='1'] .session-item.is-active .session-name,
 html[data-scifi-ui='1'] .session-item.active .session-name {
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 
-/* ===== 5. 右侧面板 ===== */
+/* ============================================================
+ * 5. 右侧面板（玻璃半透明）
+ * ============================================================ */
 html[data-scifi-ui='1'] .react-chat-right-stage-panel,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel,
 html[data-scifi-ui='1'] .react-chat-knowledge-map-panel {
-  background: rgba(6, 13, 26, 0.88) !important;
-  backdrop-filter: blur(8px) !important;
+  background: rgba(15, 23, 42, 0.7) !important;
+  backdrop-filter: blur(16px) !important;
   border-left: 1px solid var(--scifi-border) !important;
   box-shadow: none !important;
 }
 
-/* ===== 6. 聊天区 ===== */
-/* 用户消息气泡 */
+/* ============================================================
+ * 6. 聊天区 —— 用户气泡青色发光 + AI 透明
+ * ============================================================ */
 html[data-scifi-ui='1'] .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: rgba(0, 229, 255, 0.1) !important;
-  border: 1px solid var(--scifi-accent) !important;
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.18), rgba(6, 182, 212, 0.1)) !important;
+  border: 1px solid rgba(6, 182, 212, 0.4) !important;
   color: var(--scifi-text) !important;
-  box-shadow: var(--scifi-glow-sm), inset 0 0 12px rgba(0, 229, 255, 0.06) !important;
-  border-radius: 4px 4px 4px 0 !important;
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.15), 0 4px 12px rgba(6, 182, 212, 0.1) !important;
+  border-radius: 14px 14px 14px 4px !important;
 }
 html[data-scifi-ui='1'] .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
-  background: rgba(0, 229, 255, 0.15) !important;
-  border: 1px solid var(--scifi-border) !important;
-  color: var(--scifi-accent) !important;
+  background: var(--scifi-accent) !important;
+  color: #fff !important;
+  border: 1px solid var(--scifi-accent-bright) !important;
   box-shadow: var(--scifi-glow-sm) !important;
 }
 
-/* AI 消息 */
+/* AI 消息 —— 透明背景让网格透出 */
 html[data-scifi-ui='1'] .msg-ai .msg-bubble,
 html[data-scifi-ui='1'] .msg.msg-turn.msg-turn--assistant .msg-bubble,
 html[data-scifi-ui='1'] .msg-turn-assistant-content {
@@ -188,80 +214,94 @@ html[data-scifi-ui='1'] .msg-turn-assistant-content {
   color: var(--scifi-text) !important;
 }
 
-/* 消息文字 */
+/* 消息文字颜色 */
 html[data-scifi-ui='1'] .msg-user-text,
 html[data-scifi-ui='1'] .msg-text,
-html[data-scifi-ui='1'] .msg-turn-assistant-content .msg-text p {
-  color: var(--scifi-text) !important;
-}
-html[data-scifi-ui='1'] .msg-user-text {
+html[data-scifi-ui='1'] .msg-turn-assistant-content .msg-text,
+html[data-scifi-ui='1'] .msg-turn-assistant-content .msg-text p,
+html[data-scifi-ui='1'] .markdown-body,
+html[data-scifi-ui='1'] .markdown-body p {
   color: var(--scifi-text) !important;
 }
 
-/* ===== 7. 输入框 ===== */
+/* ============================================================
+ * 7. 输入框 —— 大圆角 + 聚焦霓虹发光
+ * ============================================================ */
+html[data-scifi-ui='1'] .chat-composer,
 html[data-scifi-ui='1'] .chat-composer-input,
 html[data-scifi-ui='1'] .chat-input,
 html[data-scifi-ui='1'] textarea.chat-composer-textarea,
 html[data-scifi-ui='1'] .composer-textarea,
-html[data-scifi-ui='1'] [contenteditable] {
-  background: var(--scifi-surface) !important;
+html[data-scifi-ui='1'] [contenteditable].chat-composer-textarea {
+  background: rgba(30, 41, 59, 0.7) !important;
   border: 1px solid var(--scifi-border) !important;
   color: var(--scifi-text) !important;
-  border-radius: 4px !important;
+  border-radius: 14px !important;
+  backdrop-filter: blur(8px) !important;
 }
 html[data-scifi-ui='1'] .chat-composer-input:focus-within,
 html[data-scifi-ui='1'] .chat-input:focus,
 html[data-scifi-ui='1'] textarea.chat-composer-textarea:focus,
 html[data-scifi-ui='1'] .composer-textarea:focus,
-html[data-scifi-ui='1'] [contenteditable]:focus {
+html[data-scifi-ui='1'] [contenteditable].chat-composer-textarea:focus {
   border-color: var(--scifi-accent) !important;
   box-shadow: var(--scifi-glow-md) !important;
   outline: none !important;
 }
+html[data-scifi-ui='1'] .chat-composer-input::placeholder,
+html[data-scifi-ui='1'] textarea.chat-composer-textarea::placeholder {
+  color: var(--scifi-text3) !important;
+}
 
-/* 发送按钮 */
+/* 发送按钮 —— 实心青色 + 发光 */
 html[data-scifi-ui='1'] .chat-send-btn,
 html[data-scifi-ui='1'] .composer-send-btn,
 html[data-scifi-ui='1'] .chat-composer-send {
   background: var(--scifi-accent) !important;
-  color: #000 !important;
+  color: #fff !important;
   border: none !important;
-  box-shadow: var(--scifi-glow-md) !important;
+  box-shadow: var(--scifi-glow-sm) !important;
+  border-radius: 10px !important;
 }
 html[data-scifi-ui='1'] .chat-send-btn:hover,
 html[data-scifi-ui='1'] .composer-send-btn:hover {
-  background: #33ecff !important;
-  box-shadow: var(--scifi-glow-lg) !important;
+  background: var(--scifi-accent-bright) !important;
+  box-shadow: var(--scifi-glow-md) !important;
+}
+html[data-scifi-ui='1'] .chat-send-btn:disabled,
+html[data-scifi-ui='1'] .composer-send-btn:disabled {
+  background: var(--scifi-bg3) !important;
+  color: var(--scifi-text3) !important;
+  box-shadow: none !important;
 }
 
-/* ===== 8. 按钮（仅限聊天区内容按钮，不动顶栏/侧栏图标按钮） ===== */
-html[data-scifi-ui='1'] .chat-composer button:not(.chat-send-btn):not(.composer-send-btn):not(.chat-composer-send),
+/* ============================================================
+ * 8. 按钮（只针对内容区，不碰顶栏图标按钮）
+ * ============================================================ */
 html[data-scifi-ui='1'] .msg-actions button,
-html[data-scifi-ui='1'] .msg-button,
-html[data-scifi-ui='1'] .modal-footer button,
-html[data-scifi-ui='1'] .ai-drawer button {
+html[data-scifi-ui='1'] .modal-footer button {
   border: 1px solid var(--scifi-border) !important;
-  color: var(--scifi-text) !important;
+  color: var(--scifi-text2) !important;
   background: var(--scifi-surface) !important;
-  border-radius: 4px !important;
+  border-radius: 8px !important;
 }
-html[data-scifi-ui='1'] .chat-composer button:hover:not(:disabled),
-html[data-scifi-ui='1'] .msg-actions button:hover,
-html[data-scifi-ui='1'] .ai-drawer button:hover {
+html[data-scifi-ui='1'] .msg-actions button:hover {
   border-color: var(--scifi-accent) !important;
-  color: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  color: var(--scifi-accent-bright) !important;
 }
+
 html[data-scifi-ui='1'] .btn-primary,
 html[data-scifi-ui='1'] .btn-accent,
 html[data-scifi-ui='1'] .btn-primary-accent {
   background: var(--scifi-accent) !important;
-  color: #000 !important;
+  color: #fff !important;
   border-color: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-md) !important;
+  box-shadow: var(--scifi-glow-sm) !important;
 }
 
-/* ===== 9. 技能/工具/知识库 面板 ===== */
+/* ============================================================
+ * 9. 技能 / 工具 / 知识库面板
+ * ============================================================ */
 html[data-scifi-ui='1'] .react-chat-agent-cap {
   background: transparent !important;
 }
@@ -272,22 +312,23 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item {
   background: var(--scifi-surface) !important;
   border: 1px solid var(--scifi-border) !important;
   color: var(--scifi-text2) !important;
+  border-radius: 10px !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-overview-item.is-active {
   background: var(--scifi-accent-dim) !important;
-  border-color: var(--scifi-accent) !important;
-  color: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  border-color: var(--scifi-border-strong) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-overview-value {
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-overview-label {
   color: var(--scifi-text3) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-tabs {
-  background: var(--scifi-surface) !important;
+  background: rgba(15, 23, 42, 0.6) !important;
   border: 1px solid var(--scifi-border) !important;
+  border-radius: 10px !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-tab {
   background: transparent !important;
@@ -295,55 +336,65 @@ html[data-scifi-ui='1'] .react-chat-agent-cap-tab {
   border: none !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-tab:hover {
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-tab.is-active {
   background: var(--scifi-accent-dim) !important;
-  color: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-list {
-  background: var(--scifi-surface) !important;
+  background: rgba(15, 23, 42, 0.5) !important;
   border: 1px solid var(--scifi-border) !important;
+  border-radius: 10px !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-list li {
   color: var(--scifi-text) !important;
+  border-color: var(--scifi-border) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-name {
   color: var(--scifi-text) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-tok {
-  color: var(--scifi-text2) !important;
+  color: var(--scifi-text3) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-sum {
   color: var(--scifi-text2) !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-add {
   background: transparent !important;
-  border: 1px solid var(--scifi-border) !important;
-  color: var(--scifi-accent) !important;
+  border: 1px dashed var(--scifi-border) !important;
+  color: var(--scifi-accent-bright) !important;
+  border-radius: 8px !important;
 }
 html[data-scifi-ui='1'] .react-chat-agent-cap-add:hover:not(:disabled) {
+  border-style: solid !important;
   border-color: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  background: var(--scifi-accent-dim) !important;
 }
 
-/* ===== 10. 链接与强调 ===== */
+/* ============================================================
+ * 10. 链接 & 文本
+ * ============================================================ */
 html[data-scifi-ui='1'] a,
 html[data-scifi-ui='1'] .link {
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 html[data-scifi-ui='1'] a:hover {
-  text-shadow: var(--scifi-glow-sm) !important;
+  color: var(--scifi-accent-bright) !important;
+  text-shadow: 0 0 6px var(--scifi-accent-glow) !important;
 }
 
-/* ===== 11. 分隔线与边框 ===== */
+/* ============================================================
+ * 11. 分隔线
+ * ============================================================ */
 html[data-scifi-ui='1'] hr,
 html[data-scifi-ui='1'] .divider {
   border-color: var(--scifi-border) !important;
 }
 
-/* ===== 12. 设置页 ===== */
+/* ============================================================
+ * 12. 设置页
+ * ============================================================ */
 html[data-scifi-ui='1'] .settings-page,
 html[data-scifi-ui='1'] .settings-page-inner,
 html[data-scifi-ui='1'] .settings-group {
@@ -351,7 +402,10 @@ html[data-scifi-ui='1'] .settings-group {
   color: var(--scifi-text) !important;
 }
 html[data-scifi-ui='1'] .settings-group-title {
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .settings-group-desc {
+  color: var(--scifi-text3) !important;
 }
 html[data-scifi-ui='1'] .config-section-title {
   color: var(--scifi-text) !important;
@@ -361,137 +415,193 @@ html[data-scifi-ui='1'] .switch-label,
 html[data-scifi-ui='1'] .form-label {
   color: var(--scifi-text) !important;
 }
+
+/* 输入框（设置页） */
 html[data-scifi-ui='1'] input[type='text'],
 html[data-scifi-ui='1'] input[type='search'],
 html[data-scifi-ui='1'] input[type='email'],
+html[data-scifi-ui='1'] input[type='password'],
 html[data-scifi-ui='1'] select {
   background: var(--scifi-surface) !important;
   border: 1px solid var(--scifi-border) !important;
   color: var(--scifi-text) !important;
+  border-radius: 8px !important;
 }
 html[data-scifi-ui='1'] input[type='text']:focus,
 html[data-scifi-ui='1'] input[type='search']:focus,
+html[data-scifi-ui='1'] input[type='email']:focus,
+html[data-scifi-ui='1'] input[type='password']:focus,
 html[data-scifi-ui='1'] select:focus {
   border-color: var(--scifi-accent) !important;
   box-shadow: var(--scifi-glow-sm) !important;
   outline: none !important;
 }
+html[data-scifi-ui='1'] input[type='text']::placeholder,
+html[data-scifi-ui='1'] input[type='search']::placeholder {
+  color: var(--scifi-text3) !important;
+}
 
-/* Switch 开关 */
-html[data-scifi-ui='1'] .switch-track,
+/* Switch 滑块 */
+html[data-scifi-ui='1'] input[type='checkbox'] {
+  accent-color: var(--scifi-accent) !important;
+}
+
+/* 滑块 (range) */
 html[data-scifi-ui='1'] input[type='range'] {
-  background: var(--scifi-surface) !important;
-}
-html[data-scifi-ui='1'] input[type='range']::-webkit-slider-thumb {
-  background: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  accent-color: var(--scifi-accent) !important;
+  background: transparent !important;
 }
 
-/* 设置页色卡 / 按钮样式（保留主色盘功能） */
+/* 设置页色卡/按钮 */
 html[data-scifi-ui='1'] .settings-theme-btn {
   background: var(--scifi-surface) !important;
   border: 1px solid var(--scifi-border) !important;
   color: var(--scifi-text2) !important;
+  border-radius: 8px !important;
 }
-html[data-scifi-ui='1'] .settings-theme-btn:hover {
+html[data-scifi-ui='1'] .settings-theme-btn:hover:not(:disabled) {
   border-color: var(--scifi-accent) !important;
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 html[data-scifi-ui='1'] .settings-theme-btn--active {
   background: var(--scifi-accent-dim) !important;
   border-color: var(--scifi-accent) !important;
-  color: var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  color: var(--scifi-accent-bright) !important;
 }
 
-/* ===== 13. Toast / 提示 ===== */
+/* ============================================================
+ * 13. Toast / 提示
+ * ============================================================ */
 html[data-scifi-ui='1'] .toast {
-  background: var(--scifi-surface2) !important;
-  border: 1px solid var(--scifi-border) !important;
+  background: rgba(15, 23, 42, 0.92) !important;
+  border: 1px solid var(--scifi-border-strong) !important;
   color: var(--scifi-text) !important;
-  box-shadow: var(--scifi-glow-md) !important;
+  border-radius: 10px !important;
+  backdrop-filter: blur(8px) !important;
 }
 html[data-scifi-ui='1'] .toast--success {
   border-color: var(--scifi-accent) !important;
 }
 
-/* ===== 14. 滚动条 ===== */
+/* ============================================================
+ * 14. 滚动条（细线、霓虹色高亮）
+ * ============================================================ */
 html[data-scifi-ui='1'] ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 html[data-scifi-ui='1'] ::-webkit-scrollbar-track {
-  background: var(--scifi-bg2) !important;
+  background: transparent !important;
 }
 html[data-scifi-ui='1'] ::-webkit-scrollbar-thumb {
   background: var(--scifi-border) !important;
-  border-radius: 2px !important;
+  border-radius: 3px !important;
 }
 html[data-scifi-ui='1'] ::-webkit-scrollbar-thumb:hover {
   background: var(--scifi-accent) !important;
 }
 
-/* ===== 15. 代码块 ===== */
+/* ============================================================
+ * 15. 代码块
+ * ============================================================ */
 html[data-scifi-ui='1'] pre,
-html[data-scifi-ui='1'] .msg pre {
-  background: var(--scifi-surface) !important;
+html[data-scifi-ui='1'] .msg pre,
+html[data-scifi-ui='1'] .markdown-body pre {
+  background: rgba(15, 23, 42, 0.85) !important;
   border: 1px solid var(--scifi-border) !important;
   border-left: 3px solid var(--scifi-accent) !important;
-  box-shadow: var(--scifi-glow-sm) !important;
+  border-radius: 10px !important;
+  color: var(--scifi-text) !important;
 }
-html[data-scifi-ui='1'] code {
-  background: var(--scifi-accent-dim) !important;
-  color: var(--scifi-accent) !important;
+html[data-scifi-ui='1'] code,
+html[data-scifi-ui='1'] .markdown-body code {
+  background: rgba(6, 182, 212, 0.15) !important;
+  color: var(--scifi-accent-bright) !important;
   border: none !important;
+  border-radius: 4px !important;
+  padding: 1px 6px !important;
 }
 
-/* ===== 16. 液态玻璃兼容性 ===== */
-/* 科技风模式不依赖液态玻璃特效，直接用 scifi 自身背景 */
-html[data-scifi-ui='1'] #evopanel-app-wallpaper {
-  display: none !important;
-}
-
-/* 禁用液态玻璃覆盖效果，避免干扰科技风 */
-html[data-scifi-ui='1'][data-liquid-glass='1'] .react-chat-right-stage-panel,
-html[data-scifi-ui='1'][data-liquid-glass='1'] .react-chat-agent-cap {
-  background: rgba(6, 13, 26, 0.9) !important;
-}
-
-/* ===== 17. 头部/导航 ===== */
+/* ============================================================
+ * 16. 头部/导航
+ * ============================================================ */
 html[data-scifi-ui='1'] .topbar,
 html[data-scifi-ui='1'] .shell-topbar,
 html[data-scifi-ui='1'] .app-topbar {
-  background: var(--scifi-bg2) !important;
+  background: rgba(15, 23, 42, 0.6) !important;
   border-bottom: 1px solid var(--scifi-border) !important;
+  backdrop-filter: blur(12px) !important;
 }
 
 /* Logo 文字发光 */
 html[data-scifi-ui='1'] .shell-logo-text,
 html[data-scifi-ui='1'] .app-logo-text {
-  color: var(--scifi-accent) !important;
-  text-shadow: var(--scifi-glow-md) !important;
+  color: var(--scifi-accent-bright) !important;
+  text-shadow: 0 0 8px var(--scifi-accent-glow) !important;
 }
 
-/* ===== 18. 模态框 ===== */
+/* ============================================================
+ * 17. 模态框
+ * ============================================================ */
 html[data-scifi-ui='1'] .modal,
 html[data-scifi-ui='1'] .modal-dialog {
-  background: var(--scifi-surface) !important;
-  border: 1px solid var(--scifi-border) !important;
-  box-shadow: var(--scifi-glow-lg) !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid var(--scifi-border-strong) !important;
+  border-radius: 14px !important;
+  backdrop-filter: blur(16px) !important;
 }
 html[data-scifi-ui='1'] .modal-header,
 html[data-scifi-ui='1'] .modal-footer {
-  background: var(--scifi-bg3) !important;
+  background: transparent !important;
   border-bottom: 1px solid var(--scifi-border) !important;
 }
 html[data-scifi-ui='1'] .modal-title {
-  color: var(--scifi-accent) !important;
+  color: var(--scifi-text) !important;
 }
 
-/* ===== 19. 空状态 / 占位 ===== */
-html[data-scifi-ui='1'] .empty-state,
-html[data-scifi-ui='1'] .placeholder {
+/* ============================================================
+ * 18. 液态玻璃兼容性（科技风时关闭）
+ * ============================================================ */
+html[data-scifi-ui='1'] #evopanel-app-wallpaper {
+  display: none !important;
+}
+
+/* ============================================================
+ * 19. 列表项 / 卡片
+ * ============================================================ */
+html[data-scifi-ui='1'] .card,
+html[data-scifi-ui='1'] .panel,
+html[data-scifi-ui='1'] .stat-card {
+  background: var(--scifi-surface) !important;
+  border: 1px solid var(--scifi-border) !important;
+  border-radius: 12px !important;
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .card-title,
+html[data-scifi-ui='1'] .panel-title {
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .card-subtitle,
+html[data-scifi-ui='1'] .card-desc,
+html[data-scifi-ui='1'] .form-hint {
   color: var(--scifi-text3) !important;
 }
 
-/* ===== 20. 性能优化：仅在科技风模式下启用过渡（不通过通配避免性能问题） ===== */
+/* ============================================================
+ * 20. 选择文本
+ * ============================================================ */
+html[data-scifi-ui='1'] ::selection {
+  background: var(--scifi-accent) !important;
+  color: #fff !important;
+}
+
+/* ============================================================
+ * 21. 顶栏图标按钮（不强制改背景，保留原图标样式）
+ *    只在 hover 时给发光提示
+ * ============================================================ */
+html[data-scifi-ui='1'] .topbar button:hover,
+html[data-scifi-ui='1'] .shell-topbar button:hover,
+html[data-scifi-ui='1'] .app-topbar button:hover {
+  background: var(--scifi-accent-dim) !important;
+  color: var(--scifi-accent-bright) !important;
+}
