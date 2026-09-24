@@ -1414,26 +1414,13 @@ html[data-scifi-ui='1'] .react-chat-icon-send-btn:hover:not(:disabled) {
 }
 
 /* ============================================================
- * v16.0 — 科技风下让 home_background.jpg 仍可见(用户要求)
+ * v16 — Home Surface 区域(EvoFlow 顶部 / 模型 / 计数 / 上下文 / 资产沉淀)
  *
- * 之前 v16 把 home 隐藏是因为旧 png 与科技辉光冲突
- * 新 jpg 是太空深色背景,本身是深色调,完全契合科技风
- *
- * 解法: 不隐藏整张背景,只让顶部的浅色 linear-gradient 透明(不要压暗)
+ * v16.0 — 隐藏 home_background.png,改用 body 辉光透出
  * ============================================================ */
 html[data-scifi-ui='1'] .react-chat-main-col--home {
-  background-image:
-    linear-gradient(
-      180deg,
-      rgba(5, 7, 6, 0.0) 0%,
-      rgba(5, 7, 6, 0.10) 60%,
-      rgba(5, 7, 6, 0.35) 100%
-    ),
-    var(--app-bg-image, url('/assets/evoflow_card_png_assets/home_background.jpg')) !important;
-  background-color: #050706 !important;
-  background-size: cover !important;
-  background-position: center top !important;
-  background-repeat: no-repeat !important;
+  background-image: none !important;
+  background-color: transparent !important;
 }
 
 /* ============================================================
@@ -1894,11 +1881,10 @@ html[data-scifi-ui='1'] [data-screen] {
 }
 
 /* ============================================================
- * 关闭液态玻璃墙纸(科技风自带辉光背景 + 太空壁纸作为底图)
+ * 关闭液态玻璃墙纸(科技风自带辉光背景)
  * ============================================================ */
 html[data-scifi-ui='1'] #evopanel-app-wallpaper {
   display: none !important;
-  /* 但 home_background.jpg 通过 .react-chat-main-col--home 直接展示 */
 }
 
 /* ============================================================
