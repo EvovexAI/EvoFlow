@@ -573,3 +573,75 @@ html[data-scifi-ui='1'] ::-webkit-scrollbar-thumb:hover {
 html[data-scifi-ui='1'] #evopanel-app-wallpaper {
   display: none !important;
 }
+
+/* ============================================================
+ * 资产中心: .assets-center-root 有自己的 CSS 规则定义 --ac-*
+ * 它的作用域优先级 > html[data-scifi-ui='1']
+ * 所以必须在其作用域上再次覆盖,并加 !important
+ * ============================================================ */
+html[data-scifi-ui='1'] .assets-center-root {
+  --ac-bg: var(--bg-primary) !important;
+  --ac-surface: var(--bg-secondary) !important;
+  --ac-surface-2: var(--bg-tertiary) !important;
+  --ac-explorer: var(--bg-secondary) !important;
+  --ac-editor-bar: var(--bg-secondary) !important;
+  --ac-editor-body: var(--bg-tertiary) !important;
+  --ac-gutter: var(--bg-secondary) !important;
+  --ac-footer: var(--bg-secondary) !important;
+  --ac-vault-bg: var(--bg-secondary) !important;
+
+  --ac-border: var(--border-primary) !important;
+  --ac-border-subtle: var(--border-secondary) !important;
+  --ac-divider: var(--border-primary) !important;
+  --ac-border-strong: var(--border-default) !important;
+
+  --ac-text: var(--text-primary) !important;
+  --ac-text-secondary: var(--text-secondary) !important;
+  --ac-text-muted: var(--text-tertiary) !important;
+  --ac-text-faint: var(--text-tertiary) !important;
+  --ac-text-disabled: var(--text-tertiary) !important;
+  --ac-editor-fg: var(--text-primary) !important;
+
+  --ac-primary: var(--accent) !important;
+  --ac-primary-hover: var(--accent-hover) !important;
+  --ac-primary-soft: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  --ac-primary-ring: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+  --ac-accent: var(--accent) !important;
+  --ac-underline: var(--accent) !important;
+  --ac-link: var(--accent) !important;
+  --ac-caret: var(--accent) !important;
+  --ac-selection: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+  --ac-active: color-mix(in srgb, var(--accent) 18%, transparent) !important;
+
+  --ac-fill: color-mix(in srgb, var(--bg-tertiary) 60%, transparent) !important;
+  --ac-hover: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  --ac-icon-bg: color-mix(in srgb, var(--bg-tertiary) 50%, transparent) !important;
+  --ac-icon-fg: var(--text-secondary) !important;
+  --ac-icon-border: var(--border-primary) !important;
+}
+
+/* ============================================================
+ * 设置页: .settings-panels / .settings-modal-root 同理
+ * ============================================================ */
+html[data-scifi-ui='1'] .settings-panels,
+html[data-scifi-ui='1'] .settings-modal-root,
+html[data-scifi-ui='1'] .settings-modal-root .settings-layout--hub .settings-nav,
+html[data-scifi-ui='1'] .settings-modal-root .settings-layout--hub .settings-hub-main {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-scifi-ui='1'] .config-section {
+  background: var(--bg-card) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* 通用页面根(兜底:所有 .page / [data-page]) */
+html[data-scifi-ui='1'] .page,
+html[data-scifi-ui='1'] [data-page],
+html[data-scifi-ui='1'] [data-screen],
+html[data-scifi-ui='1'] #app:not(.evopanel-auth-mode) #content > .page {
+  background: var(--page-canvas, var(--bg-secondary)) !important;
+  color: var(--text-primary) !important;
+}
