@@ -605,3 +605,84 @@ html[data-scifi-ui='1'] .app-topbar button:hover {
   background: var(--scifi-accent-dim) !important;
   color: var(--scifi-accent-bright) !important;
 }
+
+/* ============================================================
+ * 22. 登录页 (webui-login-*)
+ *    原样式是浅色主题的，所有深色文字在深底上完全不可见
+ * ============================================================ */
+html[data-scifi-ui='1'] .webui-login-page {
+  background: transparent !important;
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .webui-login-panel,
+html[data-scifi-ui='1'] .webui-login-card {
+  background: rgba(15, 23, 42, 0.85) !important;
+  border: 1px solid var(--scifi-border-strong) !important;
+  box-shadow: var(--scifi-glow-md) !important;
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .webui-login-eyebrow,
+html[data-scifi-ui='1'] .webui-login-panel-title,
+html[data-scifi-ui='1'] .webui-login-brand-kicker,
+html[data-scifi-ui='1'] .webui-login-brand-title,
+html[data-scifi-ui='1'] .webui-login-brand-lead,
+html[data-scifi-ui='1'] .webui-login-brand-foot {
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .webui-login-brand-title {
+  color: var(--scifi-accent-bright) !important;
+  text-shadow: 0 0 12px var(--scifi-accent-glow) !important;
+}
+html[data-scifi-ui='1'] .webui-login-panel-desc,
+html[data-scifi-ui='1'] .webui-login-brand-lead,
+html[data-scifi-ui='1'] .webui-login-brand-foot {
+  color: var(--scifi-text3) !important;
+}
+html[data-scifi-ui='1'] .webui-login-label {
+  color: var(--scifi-text) !important;
+}
+html[data-scifi-ui='1'] .webui-login-input {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid var(--scifi-border) !important;
+  color: var(--scifi-text) !important;
+  border-radius: 8px !important;
+}
+html[data-scifi-ui='1'] .webui-login-input:focus {
+  border-color: var(--scifi-accent) !important;
+  box-shadow: var(--scifi-glow-sm) !important;
+  outline: none !important;
+}
+html[data-scifi-ui='1'] .webui-login-input::placeholder {
+  color: var(--scifi-text3) !important;
+}
+html[data-scifi-ui='1'] .webui-login-submit {
+  background: var(--scifi-accent) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: var(--scifi-glow-sm) !important;
+  border-radius: 8px !important;
+}
+html[data-scifi-ui='1'] .webui-login-submit:hover {
+  background: var(--scifi-accent-bright) !important;
+  box-shadow: var(--scifi-glow-md) !important;
+}
+html[data-scifi-ui='1'] .webui-login-hint {
+  color: var(--scifi-text3) !important;
+}
+
+/* ============================================================
+ * 23. 通用兜底：所有文字节点保证至少 slate-200 可读
+ *    避免遗漏的硬编码深色
+ * ============================================================ */
+html[data-scifi-ui='1'] {
+  color-scheme: dark;
+}
+html[data-scifi-ui='1'] body,
+html[data-scifi-ui='1'] #app,
+html[data-scifi-ui='1'] #root,
+html[data-scifi-ui='1'] [class*='content'],
+html[data-scifi-ui='1'] [class*='panel'],
+html[data-scifi-ui='1'] [class*='wrapper'],
+html[data-scifi-ui='1'] [class*='main'] {
+  color: var(--scifi-text);
+}
