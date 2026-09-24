@@ -10,7 +10,8 @@ html, body {
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
   color: var(--text-primary);
-  background: var(--bg-primary);
+  /* v17.1 — 太空壁纸已作为整个客户端主视觉,html/body 透明让壁纸层显示 */
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
