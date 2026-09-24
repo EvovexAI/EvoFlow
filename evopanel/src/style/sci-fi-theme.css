@@ -575,9 +575,9 @@ html[data-scifi-ui='1'] .react-chat-aside-toolbar-title {
   letter-spacing: -0.5px !important;
 }
 
-/* 侧栏导航按钮 */
+/* 侧栏导航按钮 — 收紧高度，避免 nav + 展开子项占满 sidebar 高度（普通模式 30px，这里取 38px 保留 sci-fi 视觉重量） */
 html[data-scifi-ui='1'] .react-chat-aside-nav-item {
-  height: 48px !important;
+  height: 38px !important;
   border: 1px solid transparent !important;
   background: transparent !important;
   color: var(--text-secondary) !important;
@@ -1858,11 +1858,128 @@ html[data-scifi-ui='1'] ::-webkit-scrollbar-track {
 /* ============================================================
  * 资产中心 / 设置页 / 其他模块 (作用域!important 覆盖本地 token)
  * ============================================================ */
+
+/* 资产中心主容器 — 科技风玻璃面板效果 */
 html[data-scifi-ui='1'] .assets-center-root {
-  --ac-bg: var(--bg-primary) !important;
-  --ac-surface: var(--bg-secondary) !important;
-  --ac-text: var(--text-primary) !important;
+  --ac-bg: transparent !important;
+  --ac-surface: rgba(15, 19, 18, 0.85) !important;
+  --ac-surface-2: rgba(15, 19, 18, 0.72) !important;
+  --ac-explorer: rgba(10, 14, 13, 0.78) !important;
+  --ac-editor-bar: rgba(10, 14, 13, 0.90) !important;
+  --ac-editor-body: rgba(10, 14, 13, 0.84) !important;
+  --ac-gutter: rgba(10, 14, 13, 0.84) !important;
+  --ac-footer: rgba(10, 14, 13, 0.90) !important;
+  --ac-vault-bg: rgba(10, 14, 13, 0.84) !important;
+  --ac-border: rgba(255, 255, 255, 0.12) !important;
+  --ac-border-subtle: rgba(255, 255, 255, 0.07) !important;
+  --ac-divider: rgba(255, 255, 255, 0.12) !important;
+  --ac-border-strong: rgba(255, 255, 255, 0.16) !important;
+  --ac-text: #f1f8f4 !important;
+  --ac-text-secondary: #c8d4ce !important;
+  --ac-text-muted: #8e9a94 !important;
+  --ac-text-faint: #8e9a94 !important;
+  --ac-text-disabled: #64748b !important;
+  --ac-editor-fg: #f1f8f4 !important;
   --ac-primary: var(--accent) !important;
+  --ac-primary-hover: var(--accent-hover) !important;
+  --ac-primary-soft: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  --ac-primary-ring: color-mix(in srgb, var(--accent) 36%, transparent) !important;
+  --ac-accent: var(--accent) !important;
+  --ac-underline: var(--accent) !important;
+  --ac-link: var(--accent-secondary) !important;
+  --ac-caret: var(--accent) !important;
+  --ac-selection: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  --ac-active: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  --ac-fill: rgba(255, 255, 255, 0.04) !important;
+  --ac-hover: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  --ac-icon-bg: rgba(255, 255, 255, 0.05) !important;
+  --ac-icon-fg: #c8d4ce !important;
+  --ac-icon-border: rgba(255, 255, 255, 0.12) !important;
+  background: transparent !important;
+  color: #f1f8f4 !important;
+}
+
+/* 资产中心内层面板 — 玻璃效果 */
+html[data-scifi-ui='1'] .assets-center-root .ac-shell,
+html[data-scifi-ui='1'] .assets-center-root .ac-main,
+html[data-scifi-ui='1'] .assets-center-root .ac-explorer {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.88), rgba(8, 12, 11, 0.86)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow:
+    0 8px 40px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* 编辑器区域 */
+html[data-scifi-ui='1'] .assets-center-root .ac-editor-body,
+html[data-scifi-ui='1'] .assets-center-root .ac-editor-textarea {
+  background: rgba(8, 12, 11, 0.92) !important;
+  color: #f1f8f4 !important;
+}
+
+/* Asset Hub (#/assets) 科技风覆盖 */
+html[data-scifi-ui='1'] .assets-page {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .page-subtitle,
+html[data-scifi-ui='1'] .assets-page .assets-tab-hint,
+html[data-scifi-ui='1'] .assets-page .assets-path-code,
+html[data-scifi-ui='1'] .assets-page .assets-editor-title {
+  color: var(--text-secondary) !important;
+}
+
+/* 玻璃面板效果 */
+html[data-scifi-ui='1'] .assets-page .assets-tabs,
+html[data-scifi-ui='1'] .assets-page .assets-skills-panel,
+html[data-scifi-ui='1'] .assets-page .assets-tree,
+html[data-scifi-ui='1'] .assets-page .assets-apply-section,
+html[data-scifi-ui='1'] .assets-page .assets-export-panel,
+html[data-scifi-ui='1'] .assets-page .assets-profile-panel {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.84)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4) !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .assets-tab,
+html[data-scifi-ui='1'] .assets-page .assets-profile-field-btn {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: var(--text-secondary) !important;
+  background: transparent !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .assets-tab:hover,
+html[data-scifi-ui='1'] .assets-page .assets-profile-field-btn:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: var(--text-primary) !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .assets-tab.is-active,
+html[data-scifi-ui='1'] .assets-page .assets-profile-field-btn.is-active {
+  color: var(--text-primary) !important;
+  border-color: var(--accent) !important;
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 30%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .assets-tree-item {
+  color: var(--text-primary) !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .assets-skills-name,
+html[data-scifi-ui='1'] .assets-page .assets-section-title {
+  color: var(--text-primary) !important;
+}
+
+html[data-scifi-ui='1'] .assets-page .assets-editor {
+  background: rgba(8, 12, 11, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: var(--text-primary) !important;
 }
 
 html[data-scifi-ui='1'] .settings-panels,
