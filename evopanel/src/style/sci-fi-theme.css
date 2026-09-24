@@ -560,7 +560,9 @@ html[data-scifi-ui='1'] #app-shell-aside.react-chat-session-aside.shell-aside-ho
 
 /* 侧栏 logo */
 html[data-scifi-ui='1'] .react-chat-aside-brand {
-  padding: 22px 16px 24px !important;
+  /* 收紧到「仅留出 logo 上下视觉呼吸」的尺寸：避免在 toolbar 内被 padding 反向撑高，
+     让 toolbar 维持原 36px 基线，primary 紧跟其后。 */
+  padding: 4px 8px !important;
 }
 
 html[data-scifi-ui='1'] .react-chat-aside-toolbar-title {
