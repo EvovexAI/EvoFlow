@@ -17,7 +17,9 @@ html[data-scifi-ui='1'] {
 /*
  * 科技风强制暗色 —— 不依赖 data-theme
  * 复用项目 token,但覆写其值到科技风专属色
- * 不再需要 [data-theme='dark'] 前缀
+ *
+ * 关键设计:不覆写 --accent,让它跟随用户调色板选择(amber/violet/blue...)
+ * 风格差异化通过:底色 / 辉光 / 玻璃强度 / 强调色辅助变量
  */
 html[data-scifi-ui='1'] {
   --bg-primary: #14122a;        /* 主底 - 深紫蓝 */
@@ -29,16 +31,25 @@ html[data-scifi-ui='1'] {
   --text-secondary: #c8cdd8;    /* 次文字 - 比默认稍亮 */
   --text-tertiary: #8a93a3;     /* 三级 */
 
-  --accent: #818cf8;            /* 紫蓝主强调（比默认 #7b74ff 更鲜） */
-  --accent-hover: #a5b4fc;
-  --accent-muted: rgba(129, 140, 248, 0.16);
+  /* --accent 不覆写:跟随用户调色板选择 */
 
   --border-primary: rgba(160, 168, 200, 0.14);
   --border-secondary: rgba(160, 168, 200, 0.08);
 
+  /* 聊天区专属 token（覆写 chat-user-bubble 等） */
+  --chat-canvas: transparent;        /* 对话区透出辉光背景 */
+  --page-canvas: var(--bg-secondary);
+  --chat-ai-fg: var(--text-primary); /* AI 文字走主色 */
+  --chat-ai-muted: var(--text-secondary);
+  --chat-user-bubble: var(--accent);  /* 用户气泡用 accent(科技风关键视觉) */
+  --chat-user-fg: #fff;
+  --chat-user-border: var(--accent-hover);
+  --chat-code-inline-bg: color-mix(in srgb, var(--accent) 22%, transparent);
+  --chat-code-inline-fg: var(--accent);
+
   /* 科技风专属：双辉光背景（仅 body 用，不会污染 token） */
-  --scifi-glow-top: rgba(6, 182, 212, 0.10);
-  --scifi-glow-bot: rgba(129, 140, 248, 0.10);
+  --scifi-glow-top: color-mix(in srgb, var(--accent) 35%, #06b6d4);
+  --scifi-glow-bot: var(--accent);
 }
 
 /* ============================================================
@@ -130,30 +141,33 @@ html[data-scifi-ui='1'] .session-item:hover {
 }
 
 /* ============================================================
- * 用户气泡：紫蓝渐变 + 强发光（科技感核心）
+ * 用户气泡 --chat-user-bubble 已被覆写为 var(--accent)
+ * 这里只做视觉加强：发光 + 圆角差异化
+ * 颜色逻辑全部交给 token（与液态玻璃一致）
  * ============================================================ */
 html[data-scifi-ui='1'] .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 50%, #06b6d4)) !important;
-  border: 1px solid var(--accent-hover) !important;
-  color: #fff !important;
   border-radius: 18px 18px 4px 18px !important;
   box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 40%, transparent) !important;
 }
 html[data-scifi-ui='1'] .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
   background: var(--accent) !important;
-  color: #fff !important;
   border: 1px solid var(--accent-hover) !important;
   box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent) !important;
 }
 
 /* ============================================================
- * AI 气泡（可读性已由 theme-readability 保证，这里只管玻璃感）
+ * AI 气泡 --chat-ai-fg 已被覆写为 var(--text-primary)
+ * 由 theme-readability.css 自动保证可读性
+ * 这里只管视觉：玻璃感 + 圆角差异化
  * ============================================================ */
-html[data-scifi-ui='1'] .msg-ai .msg-bubble,
-html[data-scifi-ui='1'] .msg.msg-turn.msg-turn--assistant .msg-bubble,
-html[data-scifi-ui='1'] .msg-turn-assistant-content {
-  backdrop-filter: blur(16px) !important;
-  -webkit-backdrop-filter: blur(16px) !important;
+html[data-scifi-ui='1'] body .msg-ai .msg-bubble,
+html[data-scifi-ui='1'] body .msg.msg-turn.msg-turn--assistant .msg-bubble,
+html[data-scifi-ui='1'] body .msg-turn-assistant-content {
+  background: color-mix(in srgb, var(--bg-secondary) 50%, transparent) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: 18px 18px 18px 4px !important;
+  backdrop-filter: blur(16px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(160%) !important;
 }
 
 /* ============================================================
