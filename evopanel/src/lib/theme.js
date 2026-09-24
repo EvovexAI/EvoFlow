@@ -16,9 +16,10 @@ function effectiveFromMedia() {
 
 /** @returns {'light' | 'dark' | 'system'} */
 export function getThemePreference() {
-  const v = getPanelSetting('theme', 'system')
+  const v = getPanelSetting('theme', 'light')
   if (v === 'light' || v === 'dark') return v
-  return 'system'
+  // 旧值 'system' 落到默认 light（不透明浅色皮肤）
+  return 'light'
 }
 
 /** @param {'light' | 'dark' | 'system'} pref */
@@ -36,19 +37,8 @@ export function setThemePreference(pref) {
 
 export function initTheme() {
   const pref = getThemePreference()
-  if (pref === 'system') {
-    document.documentElement.dataset.theme = effectiveFromMedia()
-    return
-  }
-  if (pref === 'light' || pref === 'dark') {
-    document.documentElement.dataset.theme = pref
-    return
-  }
-  if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
-    document.documentElement.dataset.theme = 'light'
-    return
-  }
-  document.documentElement.dataset.theme = effectiveFromMedia()
+  // 默认锁定 light（不透明浅色皮肤）；仅当用户显式选 dark 才走 dark
+  document.documentElement.dataset.theme = pref === 'dark' ? 'dark' : 'light'
 }
 
 /** 在「跟随系统」或未写入偏好时，随 OS 明暗切换更新界面 */

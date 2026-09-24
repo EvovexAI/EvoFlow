@@ -61,9 +61,14 @@ html[data-theme='dark'][data-translucent-ui='1'] #app-shell-aside.shell-aside-ho
 /* 对话：时间戳、思考、工具过程等 */
 html[data-theme='dark'] .react-chat-history-item-time,
 html[data-theme='dark'] .react-chat-history-item-meta,
-html[data-theme='dark'] .react-chat-history-item-meta.is-live,
+html[data-theme='dark'] .react-chat-history-item-meta.is-live {
+  color: var(--text-primary) !important;
+}
+/* active 行的元信息用主色高亮，不被锁定成普通文字色 */
 html[data-theme='dark'] .react-chat-history-item.active .react-chat-history-item-meta,
-html[data-theme='dark'] .react-chat-history-item.active .react-chat-history-item-meta.is-live,
+html[data-theme='dark'] .react-chat-history-item.active .react-chat-history-item-meta.is-live {
+  color: var(--shell-aside-active-fg, var(--accent)) !important;
+}
 html[data-theme='dark'] .msg-ai-head-time,
 html[data-theme='dark'] .msg-ai .msg-time,
 html[data-theme='dark'] .msg-turn-meta,

@@ -615,7 +615,11 @@
 
 /* 版本更新通知横幅 */
 .update-banner {
-  background: linear-gradient(135deg, var(--brand-blue, #4169f5), var(--brand-purple, #9065f8));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 60%, white)
+  );
   color: #fff;
   padding: 10px 20px;
   font-size: var(--font-size-sm);
@@ -708,7 +712,7 @@
 }
 
 .about-update-available .update-progress-bar-fill {
-  background: var(--brand-blue, #4169f5);
+  background: var(--accent);
 }
 
 .about-update-available .update-progress-text {
@@ -880,7 +884,7 @@
   bottom: 0;
   z-index: 850;
   height: calc(56px + env(safe-area-inset-bottom, 0px));
-  padding: 0 4px env(safe-area-inset-bottom, 0px);
+  padding: 0 env(safe-area-inset-right, 8px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 8px);
   box-sizing: border-box;
   background: var(--bg-secondary, #fff);
   border-top: 1px solid var(--border-primary, rgba(0, 0, 0, 0.08));
@@ -906,7 +910,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 .mobile-tabbar-item.is-active {
-  color: var(--accent, #5b5fef);
+  color: var(--accent);
 }
 .mobile-tabbar-ic {
   display: flex;

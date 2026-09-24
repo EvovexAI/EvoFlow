@@ -51,6 +51,7 @@ import {
   MIN_LIQUID_GLASS_READABILITY_DIM,
   MAX_LIQUID_GLASS_READABILITY_DIM,
 } from '../lib/liquid-glass/index.js'
+import { getSciFiUIEnabled, setSciFiUIEnabled, SCIFI_UI_EVENT } from '../lib/sci-fi-theme.js'
 import { getUseVirtualPaths, setUseVirtualPaths } from '../lib/path-mode.js'
 import { getPanelSetting, patchPanelSettings } from '../lib/panel-settings.js'
 import { api } from '../lib/tauri-api.js'
@@ -237,6 +238,7 @@ export async function mountGeneralInto(container) {
   window.addEventListener(ACCENT_THEME_EVENT, _themeListener)
   window.addEventListener(BACKGROUND_EVENT, _themeListener)
   window.addEventListener(LIQUID_GLASS_EVENT, _themeListener)
+  window.addEventListener(SCIFI_UI_EVENT, _themeListener)
   _panelSettingsListener = () => {
     renderPathMode(root)
     renderMemoryDefaultToggle(root)
@@ -286,8 +288,16 @@ export async function mountGeneralInto(container) {
       const pref = themeBtn.dataset.themePref
       if (pref === 'light' || pref === 'dark' || pref === 'system') {
         setThemePreference(pref)
+        // 切到浅/深/系统时,关闭科技风
+        if (getSciFiUIEnabled()) setSciFiUIEnabled(false)
         renderAppearanceBar(root)
         toast('外观已保存', 'success')
+      } else if (pref === 'scifi') {
+        // 切到科技风时,自动关闭液态玻璃(互斥)
+        if (getLiquidGlassEnabled()) setLiquidGlassEnabled(false)
+        setSciFiUIEnabled(true)
+        renderAppearanceBar(root)
+        toast('科技风已开启', 'success')
       }
       return
     }
@@ -409,6 +419,12 @@ export async function mountGeneralInto(container) {
       setLiquidGlassEnabled(!!t.checked)
       renderAppearanceBar(root)
       toast(t.checked ? '液态玻璃已开启' : '液态玻璃已关闭', 'success')
+      return
+    }
+    if (t.id === 'general-scifi-toggle') {
+      setSciFiUIEnabled(!!t.checked)
+      renderAppearanceBar(root)
+      toast(t.checked ? '科技风已开启' : '科技风已关闭', 'success')
       return
     }
     if (t.id === 'general-memory-default-toggle') {
@@ -1027,8 +1043,11 @@ export function renderAppearanceBar(page) {
   const lgBlur = getLiquidGlassBlurPreference()
   const lgFlow = getLiquidGlassFlowSpeedPreference()
   const lgReadability = getLiquidGlassReadabilityDimPreference()
-  const labels = { light: '浅色', dark: '深色', system: '跟随系统' }
-  const keys = ['light', 'dark', 'system']
+  const labels = { light: '浅色', dark: '深色', system: '跟随系统', scifi: '科技' }
+  const keys = ['light', 'dark', 'system', 'scifi']
+  // 当前生效主题: 科技风开启时优先显示「科技」选中
+  const isScifi = getSciFiUIEnabled()
+  const activeKey = isScifi ? 'scifi' : p
   const bgHint = !hasBg
     ? '未设置自定义背景（使用液态玻璃预设）'
     : bgStored === '__local__'
@@ -1048,7 +1067,7 @@ export function renderAppearanceBar(page) {
         ${keys
           .map(
             (key) => `
-          <button type="button" class="settings-theme-btn${p === key ? ' settings-theme-btn--active' : ''}"
+          <button type="button" class="settings-theme-btn${activeKey === key ? ' settings-theme-btn--active' : ''}"
             data-action="set-theme-pref" data-theme-pref="${key}">${labels[key]}</button>`
           )
           .join('')}

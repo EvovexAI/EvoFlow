@@ -9,7 +9,8 @@ import { isVoiceReplyEnabled } from './voice-reply-mode.js'
 const API_PANEL = '/settings/panel'
 
 export const DEFAULT_PANEL_SETTINGS = {
-  theme: 'system',
+  // 默认主题：强制 light（不透明浅色皮肤）
+  theme: 'light',
   useVirtualPaths: false,
   memoryEnabledDefault: true,
   knowledgeMapEnabled: true,
@@ -52,11 +53,15 @@ export const DEFAULT_PANEL_SETTINGS = {
   liquidGlassFlowSpeed: 0.55,
   /** 液态玻璃背景压暗 0–90，提升文字可读性 */
   liquidGlassReadabilityDim: 36,
+  /** 科技风：赛博朋克风格，替代液态玻璃 */
+  sciFiUIEnabled: false,
 }
 
 const LS_MIGRATION_FLAG = 'evopanel_panel_settings_migrated_v1'
 /** 产品改为默认不自动拉开写入侧栏：旧 always 一次性降为 off */
 const LS_WRITE_PREVIEW_OFF_FLAG = 'evopanel_write_stream_default_off_v1'
+const LS_DEFAULT_BG_V17 = 'evopanel_default_bg_v17_applied'
+const DEFAULT_BACKGROUND_URL = '/assets/evoflow_card_png_assets/home_background.jpg'
 const LS_ACCENT_PALETTE = 'evopanel-accent-palette'
 const LS_ACCENT_CUSTOM = 'evopanel-accent-custom'
 
@@ -249,6 +254,9 @@ export function initPanelSettings() {
       } catch {
         /* ignore */
       }
+      // v17.3 — 一次性副作用:用户从未设过背景 → 自动应用太空壁纸为默认
+      // 通过 LS flag 保证仅触发一次,后续用户可自由切换
+      maybeAutoApplyDefaultBackground(settings)
     } catch {
       if (seq !== _loadSeq) return
       _loadFromServerOk = false
@@ -381,6 +389,31 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') void flushPanelSettingsNow()
   })
+}
+
+/**
+ * v17.3 — 一次性自动应用太空壁纸
+ *
+ * 用户从未设过背景 → 在设置面板显示该壁纸并应用
+ * LS flag 保证仅第一次启动触发一次,后续用户可自由切换
+ */
+async function maybeAutoApplyDefaultBackground(settings) {
+  if (!settings || typeof window === 'undefined') return
+  const hasUserBg = typeof settings.backgroundImage === 'string' && settings.backgroundImage.trim() !== ''
+  if (hasUserBg) return // 用户已经设过,不要动
+  try {
+    if (localStorage.getItem(LS_DEFAULT_BG_V17) === '1') return
+    localStorage.setItem(LS_DEFAULT_BG_V17, '1')
+  } catch {
+    return
+  }
+  try {
+    const { setBackgroundImagePreference } = await import('./appearance-background.js')
+    setBackgroundImagePreference(DEFAULT_BACKGROUND_URL)
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[panel-settings] auto-apply default background failed:', err)
+  }
 }
 
 function schedulePanelSettingsPatch(patch, silent) {

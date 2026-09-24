@@ -10,7 +10,7 @@
   --bg-active: #d5dde6;
   --border-default: #e6e8ec;
   --border-subtle: #ecedef;
-  --brand-primary: #635bff;
+  --brand-primary: var(--accent);
 
   /* Legacy surface aliases — primary = 白内容面；app/chrome = 冷灰蓝外框 */
   --bg-primary: #ffffff;
@@ -38,8 +38,8 @@
   --accent-muted: rgba(99, 91, 255, 0.08);
   --accent-secondary: #635bff;
 
-  --brand-blue: #635bff;
-  --brand-purple: #635bff;
+  --brand-blue: var(--accent);
+  --brand-purple: var(--accent);
 
   --success: #26875a;
   --success-muted: rgba(38, 135, 90, 0.1);
