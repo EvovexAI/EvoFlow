@@ -9,7 +9,8 @@ import { isVoiceReplyEnabled } from './voice-reply-mode.js'
 const API_PANEL = '/settings/panel'
 
 export const DEFAULT_PANEL_SETTINGS = {
-  theme: 'system',
+  // 默认主题：强制 light（不透明浅色皮肤）
+  theme: 'light',
   useVirtualPaths: false,
   memoryEnabledDefault: true,
   knowledgeMapEnabled: true,
