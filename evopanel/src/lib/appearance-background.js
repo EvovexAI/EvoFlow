@@ -22,7 +22,7 @@ const MAX_VIDEO_DATA_URL_BYTES = 12 * 1024 * 1024
 
 /** @type {string} */
 let _sessionVideoBlobUrl = ''
-const DEFAULT_BG_URL = '/assets/evoflow_card_png_assets/home_background.png'
+const DEFAULT_BG_URL = '/assets/evoflow_card_png_assets/home_background.jpg'
 const MIN_OPACITY = 0.05
 const MAX_OPACITY = 1
 const DEFAULT_OPACITY = 0.35

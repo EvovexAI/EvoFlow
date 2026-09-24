@@ -19595,7 +19595,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
       color-mix(in srgb, #ffffff calc(var(--app-bg-veil, 0.55) * 100%), transparent),
       color-mix(in srgb, #f8faff calc((var(--app-bg-veil, 0.55) * 0.9 + 0.2) * 100%), transparent)
     ),
-    var(--app-bg-image, url('/assets/evoflow_card_png_assets/home_background.png'));
+    var(--app-bg-image, url('/assets/evoflow_card_png_assets/home_background.jpg'));
   background-size: cover;
   background-position: center top;
   background-repeat: no-repeat;
@@ -19608,7 +19608,7 @@ html.dark .msg-tool-activity-fold.is-running .msg-tool-activity-fold-label {
       color-mix(in srgb, #0f172a calc(var(--app-bg-veil, 0.75) * 100%), transparent),
       color-mix(in srgb, #0f172a calc((var(--app-bg-veil, 0.75) * 0.95 + 0.15) * 100%), transparent)
     ),
-    var(--app-bg-image, url('/assets/evoflow_card_png_assets/home_background.png'));
+    var(--app-bg-image, url('/assets/evoflow_card_png_assets/home_background.jpg'));
 }
 
 .react-chat-main-col--home .react-chat-header,
