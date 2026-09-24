@@ -189,8 +189,9 @@ function ensureWallpaperEl() {
     el.setAttribute('aria-hidden', 'true')
     document.body?.prepend(el)
   }
-  const custom = document.documentElement.dataset.customBg === '1'
-  el.hidden = !(custom || isLiquidGlassWallpaperActive())
+  // v17.1 — 默认壁纸(用户已经设定为主视觉)始终展示
+  // 只在液态玻璃模式下,因为有专门玻璃背景,才隐藏
+  el.hidden = !isLiquidGlassWallpaperActive()
 }
 
 export { ensureWallpaperEl }
