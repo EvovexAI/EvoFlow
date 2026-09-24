@@ -542,7 +542,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 
 .react-chat-aside-nav-item.active {
   background: var(--shell-active-bg, color-mix(in srgb, var(--accent) 10%, transparent));
-  color: var(--text-primary, #1a1c24);
+  color: var(--shell-active-fg, var(--accent));
   font-weight: var(--shell-item-fw-active, 500);
   border-color: transparent;
 }
@@ -2085,7 +2085,7 @@ html.dark .shell-account-menu {
 }
 
 .react-chat-history-item.active {
-  background: var(--bg-active, #f0f1f4);
+  background: var(--shell-aside-active-bg, color-mix(in srgb, var(--accent) 10%, transparent));
   color: var(--shell-text, #202124);
 }
 
@@ -2170,7 +2170,7 @@ html.dark .shell-account-menu {
 
 .react-chat-history-item.active {
   border-color: transparent;
-  background: var(--bg-active, #f0f1f4);
+  background: var(--shell-aside-active-bg, color-mix(in srgb, var(--accent) 10%, transparent));
   box-shadow: none;
   transform: none;
   z-index: 3;
