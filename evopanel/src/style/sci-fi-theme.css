@@ -490,22 +490,117 @@ html[data-scifi-ui='1'] .app-topbar {
 }
 
 /* ============================================================
- * 侧栏 active 项 —— 强发光 + 紫蓝渐变边
+ * 顶栏 (真实 className: .react-chat-header / .react-chat-header-toolbar)
  * ============================================================ */
-html[data-scifi-ui='1'] .session-item.is-active,
-html[data-scifi-ui='1'] .session-item.active {
+html[data-scifi-ui='1'] .react-chat-header {
+  background:
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--scifi-violet) 8%, transparent) 0%,
+      color-mix(in srgb, var(--scifi-cyan) 8%, transparent) 100%),
+    color-mix(in srgb, var(--bg-secondary) 75%, transparent) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--scifi-violet) 25%, transparent) !important;
+  box-shadow:
+    0 4px 24px color-mix(in srgb, var(--scifi-violet) 14%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--scifi-cyan) 30%, transparent) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+}
+
+/* 顶栏按钮 */
+html[data-scifi-ui='1'] .react-chat-header-toolbar button,
+html[data-scifi-ui='1'] .react-chat-header-session-title,
+html[data-scifi-ui='1'] .react-chat-header-run-badge {
+  color: var(--text-primary) !important;
+}
+
+/* ============================================================
+ * 侧栏 active 项 —— 真实 className:
+ *   .react-chat-session-list-item  (li 项)
+ *   .react-chat-history-item.active (激活态 div)
+ *   .react-chat-aside-segment-btn.is-active (分段按钮)
+ *   .react-chat-aside-nav-item.is-active (导航按钮)
+ * ============================================================ */
+
+/* 会话 item 激活态(实际 active 加在子 div 上) */
+html[data-scifi-ui='1'] .react-chat-session-list-item:has(.react-chat-history-item.active),
+html[data-scifi-ui='1'] .react-chat-history-item.active {
   background: linear-gradient(90deg,
-    color-mix(in srgb, var(--scifi-violet) 25%, transparent) 0%,
-    color-mix(in srgb, var(--scifi-violet) 8%, transparent) 100%) !important;
+    color-mix(in srgb, var(--scifi-violet) 28%, transparent) 0%,
+    color-mix(in srgb, var(--scifi-violet) 6%, transparent) 100%) !important;
   color: var(--scifi-violet-hover) !important;
   border-left: 3px solid var(--scifi-violet) !important;
   box-shadow:
     0 0 16px color-mix(in srgb, var(--scifi-violet) 35%, transparent),
-    inset 0 0 12px color-mix(in srgb, var(--scifi-violet) 12%, transparent) !important;
+    inset 0 0 12px color-mix(in srgb, var(--scifi-violet) 14%, transparent) !important;
 }
-html[data-scifi-ui='1'] .session-item:hover {
-  background: color-mix(in srgb, var(--scifi-violet) 8%, transparent) !important;
-  box-shadow: inset 0 0 8px color-mix(in srgb, var(--scifi-violet) 12%, transparent) !important;
+
+html[data-scifi-ui='1'] .react-chat-session-list-item:hover .react-chat-history-item {
+  background: color-mix(in srgb, var(--scifi-violet) 10%, transparent) !important;
+  box-shadow: inset 0 0 8px color-mix(in srgb, var(--scifi-violet) 14%, transparent) !important;
+}
+
+/* 分段切换按钮激活态 */
+html[data-scifi-ui='1'] .react-chat-aside-segment-btn.is-active {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--scifi-violet) 30%, transparent) 0%,
+    color-mix(in srgb, var(--scifi-cyan) 22%, transparent) 100%) !important;
+  color: #fff !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-violet) 50%, transparent) !important;
+  box-shadow:
+    0 0 14px color-mix(in srgb, var(--scifi-violet) 40%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 工具按钮激活态(过滤按钮等) */
+html[data-scifi-ui='1'] .react-chat-aside-history-icon-btn.is-active {
+  background: color-mix(in srgb, var(--scifi-violet) 22%, transparent) !important;
+  color: var(--scifi-violet-hover) !important;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--scifi-violet) 30%, transparent) !important;
+}
+
+/* 导航按钮激活态(任务中心/工作流/资产中心等) */
+html[data-scifi-ui='1'] .react-chat-aside-nav-item.is-active {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--scifi-violet) 25%, transparent) 0%,
+    transparent 100%) !important;
+  color: var(--scifi-violet-hover) !important;
+  border-left: 3px solid var(--scifi-violet) !important;
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--scifi-violet) 14%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-aside-nav-item:hover {
+  background: color-mix(in srgb, var(--scifi-violet) 10%, transparent) !important;
+}
+
+/* 工作空间触发器激活 */
+html[data-scifi-ui='1'] .react-chat-aside-ws-trigger.is-open,
+html[data-scifi-ui='1'] .react-chat-aside-ws-trigger.has-filter {
+  background: color-mix(in srgb, var(--scifi-cyan) 16%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-cyan) 35%, transparent) !important;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--scifi-cyan) 24%, transparent) !important;
+}
+
+/* 主导航面板内的次级菜单激活 */
+html[data-scifi-ui='1'] .react-chat-aside-ws-menu-item.is-active {
+  background: color-mix(in srgb, var(--scifi-violet) 22%, transparent) !important;
+  color: var(--scifi-violet-hover) !important;
+  box-shadow: inset 2px 0 0 var(--scifi-violet) !important;
+}
+
+/* 侧栏品牌区 logo 容器 + 标题 */
+html[data-scifi-ui='1'] .react-chat-aside-brand {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--scifi-violet) 10%, transparent) 0%,
+    transparent 100%) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-aside-toolbar-title {
+  background: linear-gradient(135deg, var(--scifi-violet), var(--scifi-cyan)) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--scifi-violet) 35%, transparent));
+  font-weight: 700 !important;
 }
 
 /* ============================================================
@@ -547,59 +642,181 @@ html[data-scifi-ui='1'] body .msg-turn-assistant-content {
 }
 
 /* ============================================================
- * 输入框 —— 玻璃 + 紫蓝边框 + 聚焦强发光
+ * 输入框 (真实 className: .react-chat-composer / .react-chat-input-wrap / textarea.react-chat-input)
  * ============================================================ */
-html[data-scifi-ui='1'] .chat-composer,
-html[data-scifi-ui='1'] .chat-composer-input,
-html[data-scifi-ui='1'] .chat-input,
-html[data-scifi-ui='1'] textarea.chat-composer-textarea,
-html[data-scifi-ui='1'] .composer-textarea,
-html[data-scifi-ui='1'] [contenteditable].chat-composer-textarea {
+html[data-scifi-ui='1'] footer.react-chat-composer,
+html[data-scifi-ui='1'] .react-chat-composer {
   background: color-mix(in srgb, var(--bg-secondary) 80%, transparent) !important;
   border: 1px solid color-mix(in srgb, var(--scifi-violet) 30%, transparent) !important;
-  border-radius: 16px !important;
-  backdrop-filter: blur(24px) saturate(180%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border-radius: 18px !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--scifi-violet) 20%, transparent),
-    0 0 16px color-mix(in srgb, var(--scifi-violet) 8%, transparent) !important;
+    inset 0 1px 0 color-mix(in srgb, var(--scifi-violet) 22%, transparent),
+    0 0 24px color-mix(in srgb, var(--scifi-violet) 12%, transparent),
+    0 8px 32px rgba(0, 0, 0, 0.4) !important;
+  padding: 12px !important;
+  margin: 12px !important;
 }
-html[data-scifi-ui='1'] .chat-composer-input:focus-within,
-html[data-scifi-ui='1'] .chat-input:focus,
-html[data-scifi-ui='1'] textarea.chat-composer-textarea:focus,
-html[data-scifi-ui='1'] .composer-textarea:focus,
-html[data-scifi-ui='1'] [contenteditable].chat-composer-textarea:focus {
+
+html[data-scifi-ui='1'] .react-chat-composer:focus-within,
+html[data-scifi-ui='1'] .react-chat-input-wrap:focus-within {
   border-color: var(--scifi-violet) !important;
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--scifi-violet) 25%, transparent),
-    0 0 24px color-mix(in srgb, var(--scifi-violet) 30%, transparent) !important;
+    0 0 0 3px color-mix(in srgb, var(--scifi-violet) 22%, transparent),
+    0 0 32px color-mix(in srgb, var(--scifi-violet) 30%, transparent) !important;
   outline: none !important;
 }
 
-/* 发送按钮 —— 紫蓝→青渐变 + 强辉光 */
-html[data-scifi-ui='1'] .chat-send-btn,
-html[data-scifi-ui='1'] .composer-send-btn,
-html[data-scifi-ui='1'] .chat-composer-send {
+html[data-scifi-ui='1'] textarea.react-chat-input {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  caret-color: var(--scifi-cyan) !important;
+  font-family: var(--font-sans-chat, system-ui) !important;
+}
+
+/* Composer 文件预览卡片 */
+html[data-scifi-ui='1'] .react-chat-image-preview-card,
+html[data-scifi-ui='1'] .react-chat-file-chip {
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-violet) 24%, transparent) !important;
+  border-radius: 10px !important;
+}
+
+/* Composer 底部控件 */
+html[data-scifi-ui='1'] .react-chat-composer-bottom-controls,
+html[data-scifi-ui='1'] .react-chat-composer-bottom-row {
+  border-top: 1px solid color-mix(in srgb, var(--scifi-violet) 18%, transparent) !important;
+}
+
+/* Composer 发送按钮 —— 真实 className: .react-chat-icon-send-btn */
+html[data-scifi-ui='1'] .react-chat-icon-send-btn {
   background: linear-gradient(135deg, var(--scifi-violet), var(--scifi-cyan)) !important;
   color: #fff !important;
   border: 1px solid color-mix(in srgb, var(--scifi-cyan) 50%, transparent) !important;
+  border-radius: 12px !important;
   box-shadow:
     0 0 20px color-mix(in srgb, var(--scifi-violet) 50%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
-  border-radius: 12px !important;
   transition: all 0.18s ease;
 }
-html[data-scifi-ui='1'] .chat-send-btn:hover,
-html[data-scifi-ui='1'] .composer-send-btn:hover {
+html[data-scifi-ui='1'] .react-chat-icon-send-btn:hover:not(:disabled) {
   box-shadow:
     0 0 32px color-mix(in srgb, var(--scifi-violet) 60%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.35) !important;
   transform: translateY(-1px);
 }
-html[data-scifi-ui='1'] .chat-send-btn:disabled,
-html[data-scifi-ui='1'] .composer-send-btn:disabled {
+html[data-scifi-ui='1'] .react-chat-icon-send-btn:disabled {
   background: var(--bg-tertiary) !important;
   box-shadow: none !important;
+  opacity: 0.5;
+}
+
+/* Composer 停止按钮 */
+html[data-scifi-ui='1'] .react-chat-icon-stop-btn {
+  background: color-mix(in srgb, var(--scifi-danger) 24%, transparent) !important;
+  color: var(--scifi-danger) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-danger) 50%, transparent) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--scifi-danger) 30%, transparent) !important;
+}
+
+/* Composer 注入按钮 */
+html[data-scifi-ui='1'] .react-chat-icon-flush-btn {
+  background: color-mix(in srgb, var(--scifi-cyan) 18%, transparent) !important;
+  color: var(--scifi-cyan) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-cyan) 40%, transparent) !important;
+  border-radius: 12px !important;
+}
+
+/* Composer 底部 pill / 按钮激活 */
+html[data-scifi-ui='1'] .react-chat-bottom-pill {
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-violet) 24%, transparent) !important;
+  color: var(--text-secondary) !important;
+  border-radius: 999px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-bottom-pill.is-active,
+html[data-scifi-ui='1'] .react-chat-bottom-pill.react-chat-bottom-mode-pill.is-on {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--scifi-violet) 30%, transparent),
+    color-mix(in srgb, var(--scifi-cyan) 22%, transparent)) !important;
+  color: #fff !important;
+  border-color: color-mix(in srgb, var(--scifi-cyan) 40%, transparent) !important;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--scifi-violet) 35%, transparent) !important;
+}
+
+/* ============================================================
+ * 主内容面板 (真实 className: .chat-main / .react-chat-main-col / .react-chat-main-body / .react-chat-messages-wrap / .react-chat-messages-body)
+ * ============================================================ */
+html[data-scifi-ui='1'] .chat-main,
+html[data-scifi-ui='1'] .react-chat-main-col {
+  background: transparent !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-main-body {
+  background: transparent !important;
+  position: relative !important;
+}
+
+/* 消息区 - 玻璃感 + 顶部高光 */
+html[data-scifi-ui='1'] .react-chat-messages-wrap,
+html[data-scifi-ui='1'] .chat-messages-wrap {
+  background: transparent !important;
+  position: relative !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-messages-body {
+  background: transparent !important;
+  position: relative !important;
+}
+
+/* 消息 turn 容器 */
+html[data-scifi-ui='1'] .react-chat-turn,
+html[data-scifi-ui='1'] .msg-turn {
+  position: relative !important;
+}
+
+/* 用户气泡真实 className: .react-chat-turn-user-bubble / .react-chat-turn-user */
+html[data-scifi-ui='1'] .react-chat-turn-user .react-chat-turn-user-bubble,
+html[data-scifi-ui='1'] .react-chat-turn-user-bubble {
+  background: linear-gradient(135deg, var(--scifi-violet), var(--scifi-cyan)) !important;
+  color: #fff !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-cyan) 50%, transparent) !important;
+  border-radius: 18px 18px 4px 18px !important;
+  box-shadow:
+    0 0 24px color-mix(in srgb, var(--scifi-violet) 45%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+  padding: 12px 16px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-turn-user-avatar,
+html[data-scifi-ui='1'] .react-chat-msg-avatar {
+  background: linear-gradient(135deg, var(--scifi-violet), var(--scifi-cyan)) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-cyan) 50%, transparent) !important;
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--scifi-violet) 50%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25) !important;
+}
+
+/* AI 气泡(assitant turn) */
+html[data-scifi-ui='1'] .react-chat-turn-assistant .react-chat-turn-assistant-content,
+html[data-scifi-ui='1'] .react-chat-turn-assistant-content {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--scifi-cyan) 10%, transparent) 0%,
+      transparent 4px),
+    color-mix(in srgb, var(--bg-secondary) 70%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--scifi-violet) 22%, transparent) !important;
+  border-radius: 18px 18px 18px 4px !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--scifi-cyan) 22%, transparent),
+    0 4px 16px rgba(0, 0, 0, 0.28) !important;
+  padding: 12px 16px !important;
+  color: var(--text-primary) !important;
 }
 
 /* ============================================================
