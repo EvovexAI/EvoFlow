@@ -41,8 +41,9 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: clamp(32px, 6vh, 56px) clamp(28px, 4vw, 48px);
+  justify-content: flex-start;
+  /* 顶部贴齐：logo 紧跟 padding，让大空白消失；foot 仍贴底 */
+  padding: clamp(20px, 3.2vh, 28px) clamp(28px, 4vw, 48px);
   color: #e8eef4;
   background:
     linear-gradient(160deg, rgba(15, 110, 106, 0.18) 0%, transparent 42%),
@@ -159,7 +160,8 @@
 .webui-login-brand-foot {
   position: relative;
   z-index: 1;
-  margin: 40px 0 0;
+  /* 在 flex-start 父容器里用 margin-top: auto 自动贴底 */
+  margin: auto 0 0;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
