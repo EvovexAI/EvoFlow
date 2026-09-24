@@ -413,12 +413,13 @@ html[data-scifi-ui='1'] body {
 }
 
 /* 流体辉光层 — 关键帧呼吸(动画幅度加大,scale 1.30 max) */
+/* z-index 1 (在主内容之下,但在背景之上),不影响交互 */
 html[data-scifi-ui='1'] body::before {
   content: "";
   position: fixed;
   inset: -30%;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
   background-image:
     radial-gradient(ellipse 36% 24% at 18% 18%, color-mix(in srgb, var(--accent) 60%, transparent) 0%, transparent 72%),
     radial-gradient(ellipse 50% 38% at 78% 75%, color-mix(in srgb, var(--accent-secondary) 45%, transparent) 0%, transparent 74%),
@@ -437,7 +438,7 @@ html[data-scifi-ui='1'] body::after {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
   background:
     linear-gradient(118deg, rgba(255, 255, 255, 0.14) 0%, transparent 18% 64%, color-mix(in srgb, var(--accent) 14%, transparent) 82%, transparent),
     radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--accent-secondary) 12%, transparent) 0%, transparent 60%);
@@ -471,17 +472,41 @@ html[data-scifi-ui='1'] [data-screen] {
  * 顶光 + 底部辉光线
  * ============================================================ */
 html[data-scifi-ui='1'] .react-chat-header {
-  background: linear-gradient(145deg, rgba(10, 14, 13, 0.92), rgba(15, 19, 18, 0.92)) !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, rgba(255, 255, 255, 0.14)) !important;
+  background: linear-gradient(145deg, rgba(10, 14, 13, 0.94), rgba(15, 19, 18, 0.94)) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 60%, rgba(255, 255, 255, 0.18)) !important;
   box-shadow:
-    0 4px 32px rgba(0, 0, 0, 0.50),
-    0 0 32px 4px color-mix(in srgb, var(--accent) 16%, transparent),
-    0 0 64px 16px color-mix(in srgb, var(--accent) 8%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, var(--accent) 30%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
-  backdrop-filter: blur(36px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(220%) !important;
+    0 8px 48px rgba(0, 0, 0, 0.55),
+    0 0 56px 6px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 112px 16px color-mix(in srgb, var(--accent) 14%, transparent),
+    0 0 200px 40px color-mix(in srgb, var(--accent) 6%, transparent),
+    inset 0 -2px 0 color-mix(in srgb, var(--accent) 50%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 0 32px color-mix(in srgb, var(--accent) 8%, transparent) !important;
+  backdrop-filter: blur(40px) saturate(240%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(240%) !important;
   position: relative;
+  z-index: 5;
+}
+
+/* 顶栏底部呼吸光带 —— 2px 整条 */
+html[data-scifi-ui='1'] .react-chat-header::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 70%, transparent) 25%,
+    color-mix(in srgb, var(--accent) 95%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 70%, transparent) 75%,
+    transparent 100%);
+  filter: blur(3px);
+  box-shadow: 0 0 16px 2px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: scifi-acrylic-breath 4s ease-in-out infinite alternate;
+  opacity: 0.95;
 }
 
 html[data-scifi-ui='1'] .react-chat-header-toolbar button,
@@ -766,23 +791,26 @@ html[data-scifi-ui='1'] .react-chat-platform-feedback-panel,
 html[data-scifi-ui='1'] .react-chat-news-dashboard-panel,
 html[data-scifi-ui='1'] .react-chat-web-embed-panel {
   position: relative;
-  background: linear-gradient(145deg, rgba(15, 19, 18, 0.94), rgba(8, 12, 11, 0.92)) !important;
-  border: 1px solid color-mix(in srgb, var(--accent-secondary) 40%, rgba(255, 255, 255, 0.14)) !important;
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.96), rgba(8, 12, 11, 0.94)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 50%, rgba(255, 255, 255, 0.16)) !important;
   border-radius: 16px !important;
-  backdrop-filter: blur(36px) saturate(220%) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(220%) !important;
+  backdrop-filter: blur(40px) saturate(240%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(240%) !important;
   box-shadow:
-    -24px 0 80px rgba(0, 0, 0, 0.65),
-    0 0 48px 4px color-mix(in srgb, var(--accent-secondary) 16%, transparent),
-    0 0 96px 16px color-mix(in srgb, var(--accent-secondary) 7%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    inset -1px 0 0 color-mix(in srgb, var(--accent-secondary) 30%, transparent),
-    inset 0 0 32px color-mix(in srgb, var(--accent-secondary) 4%, transparent) !important;
+    -32px 0 96px rgba(0, 0, 0, 0.7),
+    -8px 0 0 0 color-mix(in srgb, var(--accent-secondary) 14%, transparent),
+    0 0 56px 6px color-mix(in srgb, var(--accent-secondary) 28%, transparent),
+    0 0 112px 16px color-mix(in srgb, var(--accent-secondary) 14%, transparent),
+    0 0 200px 40px color-mix(in srgb, var(--accent-secondary) 6%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset -1px 0 0 color-mix(in srgb, var(--accent-secondary) 40%, transparent),
+    inset 0 0 32px color-mix(in srgb, var(--accent-secondary) 8%, transparent) !important;
   padding: 18px !important;
   display: flex !important;
   flex-direction: column !important;
   min-height: 0;
   overflow: hidden;
+  z-index: 4;
 }
 
 /* 面板左侧辉光线(更亮更宽 + 加速呼吸) */
@@ -793,18 +821,38 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel::before {
   top: 0;
   left: -1px;
   bottom: 0;
-  width: 3px;
+  width: 4px;
   pointer-events: none;
   background: linear-gradient(180deg,
     transparent 0%,
-    color-mix(in srgb, var(--accent-secondary) 80%, transparent) 30%,
+    color-mix(in srgb, var(--accent-secondary) 95%, transparent) 30%,
     color-mix(in srgb, var(--accent-secondary) 100%, transparent) 50%,
-    color-mix(in srgb, var(--accent-secondary) 80%, transparent) 70%,
+    color-mix(in srgb, var(--accent-secondary) 95%, transparent) 70%,
     transparent 100%);
-  filter: blur(4px);
-  box-shadow: 0 0 16px color-mix(in srgb, var(--accent-secondary) 60%, transparent);
-  opacity: 0.95;
-  animation: scifi-acrylic-breath 6s ease-in-out infinite alternate;
+  filter: blur(5px);
+  box-shadow:
+    0 0 20px 4px color-mix(in srgb, var(--accent-secondary) 70%, transparent),
+    0 0 40px 8px color-mix(in srgb, var(--accent-secondary) 30%, transparent);
+  opacity: 1;
+  animation: scifi-acrylic-breath 4.5s ease-in-out infinite alternate;
+}
+
+/* 面板外层辉光圈(整圈呼吸,极强) */
+html[data-scifi-ui='1'] .react-chat-right-stage-panel::after,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  pointer-events: none;
+  z-index: -1;
+  border-radius: 20px;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-secondary) 35%, transparent),
+    transparent 35%, transparent 65%,
+    color-mix(in srgb, var(--accent-secondary) 35%, transparent));
+  filter: blur(16px);
+  opacity: 0.7;
+  animation: scifi-acrylic-breath 5s ease-in-out infinite alternate;
 }
 
 /* 右侧面板头部 — 底部细线分隔 */
@@ -1237,12 +1285,13 @@ html[data-scifi-ui='1'] .config-section {
   border-color: var(--border-primary) !important;
 }
 
-/* 通用页面根 */
+/* 通用页面根 —— 背景透明,让 body 辉光透出 */
 html[data-scifi-ui='1'] .page,
 html[data-scifi-ui='1'] [data-page],
 html[data-scifi-ui='1'] [data-screen] {
-  background: var(--page-canvas, var(--bg-primary)) !important;
+  background: transparent !important;
   color: var(--text-primary) !important;
+  position: relative;
 }
 
 /* ============================================================
