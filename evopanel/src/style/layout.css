@@ -317,7 +317,7 @@
   bottom: 8px;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  background: var(--accent);
+  background: var(--accent, #635bff);
 }
 
 .nav-item svg {
@@ -337,7 +337,7 @@
 
 .nav-item.active svg {
   opacity: 1;
-  color: var(--accent);
+  color: var(--accent, #635bff);
 }
 
 /* 主内容列（横幅 + 内容区） */

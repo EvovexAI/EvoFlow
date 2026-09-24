@@ -90,11 +90,13 @@
 }
 
 .react-chat-session-aside {
-  /* VS Code 风格：侧栏整体背景跟随色卡。
-   * 本地 shell-bg 引用全局(--chrome-bg),accent-theme.js 通过 --shell-bg 覆盖全局 chrome-bg。
-   * 修法: 不在这里定义 --shell-bg,让它走全局。
-   */
-  --shell-bg: var(--chrome-bg);
+  /* Enterprise shell: calm neutrals; brand only for CTA / active indicator */
+  --shell-brand: var(--accent, #635bff);
+  --shell-brand-hover: var(--accent-hover, #534bef);
+  /* brand-soft: 直接用实色浅紫底,在白底侧栏上更清晰 */
+  --shell-brand-soft: #ece9ff;
+  --shell-brand-softer: #f5f3ff;
+  --shell-bg: var(--chrome-bg, #f6f7f9);
   --shell-hover: color-mix(in srgb, var(--text-primary, #202124) 6%, transparent);
   --shell-border: var(--border-default, #e6e8ec);
   --shell-text: var(--text-primary, #202124);
@@ -462,7 +464,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   padding: 0 12px;
   border: none;
   border-radius: var(--shell-item-radius, 6px);
-  background: var(--shell-brand);
+  background: var(--shell-brand, #5b5fef);
   color: #fff;
   font-size: var(--shell-font-size-sm, 12px);
   font-weight: 600;
@@ -485,6 +487,10 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 
 .shell-aside-new-chat-btn.active {
   background: var(--shell-brand-hover);
+}
+
+.shell-aside-new-chat-btn svg {
+  stroke-width: var(--shell-icon-stroke, 1.5);
 }
 
 .shell-aside-new-chat-btn svg {
@@ -538,8 +544,8 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .react-chat-aside-nav-item.active {
-  background: var(--shell-active-bg, color-mix(in srgb, var(--accent) 10%, transparent));
-  color: var(--shell-active-fg, var(--accent));
+  background: var(--shell-active-bg, color-mix(in srgb, var(--accent, #635bff) 10%, transparent));
+  color: var(--text-primary, #1a1c24);
   font-weight: var(--shell-item-fw-active, 500);
   border-color: transparent;
 }
@@ -552,11 +558,11 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   bottom: 7px;
   width: 3px;
   border-radius: 0 2px 2px 0;
-  background: var(--shell-brand);
+  background: var(--shell-brand, #635bff);
 }
 
 .react-chat-aside-nav-item.active .react-chat-aside-nav-ic {
-  color: var(--shell-brand);
+  color: var(--shell-brand, #635bff);
 }
 
 .react-chat-aside-nav-ic {
