@@ -3319,6 +3319,30 @@ function addModel(page, state, providerKey) {
   const defaultInputCtx = DEFAULT_MODEL_CONTEXT_WINDOW
   const defaultOutputCtx = DEFAULT_MODEL_MAX_OUTPUT_TOKENS
 
+  // 远程模型拉取：仅 OpenAI 兼容接口支持（list-remote 后端约束）
+  const providerApiLower = String(provider.api || 'openai-completions').toLowerCase()
+  const remoteSupported = !providerApiLower || providerApiLower === 'openai-completions' || providerApiLower === 'openai-responses'
+  const remoteSectionHtml = remoteSupported ? `
+        <div class="form-group">
+          <label class="form-label">从服务商获取</label>
+          <button type="button" class="btn btn-sm btn-secondary" data-action="fetch-remote">获取模型列表</button>
+          <span class="form-hint" data-remote-status style="margin-left:8px"></span>
+          <div data-remote-panel hidden style="margin-top:10px">
+            <input class="form-input" data-name="remote-search" placeholder="搜索模型 ID，如 glm" autocomplete="off">
+            <div style="display:flex;gap:8px;align-items:center;margin:8px 0 4px">
+              <button type="button" class="btn btn-sm btn-secondary" data-action="remote-all">全选</button>
+              <button type="button" class="btn btn-sm btn-secondary" data-action="remote-none">清空</button>
+              <span class="form-hint" data-remote-count></span>
+            </div>
+            <div data-remote-list style="max-height:220px;overflow:auto;border:1px solid rgba(127,127,127,.28);border-radius:8px;padding:6px"></div>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+              <button type="button" class="btn btn-sm btn-primary" data-action="remote-add">添加选中</button>
+              <span class="form-hint">勾选要添加的模型；「测试」验证该模型连通性</span>
+            </div>
+          </div>
+        </div>
+  ` : ''
+
   const overlay = mountModelsModalOverlay(`
     <div class="modal models-edit-modal">
       <div class="models-edit-modal-header">
@@ -3338,6 +3362,8 @@ function addModel(page, state, providerKey) {
         </div>
         <div class="models-edit-divider"></div>
         ` : ''}
+
+        ${remoteSectionHtml}
 
         <div class="models-edit-section-label">模型信息</div>
         <div class="models-edit-field-row">
@@ -3471,6 +3497,150 @@ function addModel(page, state, providerKey) {
       autoSave(state)
       toast(`已添加模型: ${preset.name}`, 'success')
     }
+  })
+
+  // ── 从服务商拉取远程模型列表（OpenAI 兼容端点）────────────────
+  const remoteStatus = overlay.querySelector('[data-remote-status]')
+  const remotePanel = overlay.querySelector('[data-remote-panel]')
+  const remoteListEl = overlay.querySelector('[data-remote-list]')
+  const remoteCount = overlay.querySelector('[data-remote-count]')
+  const remoteBtn = overlay.querySelector('[data-action="fetch-remote"]')
+  const remoteModels = []
+  let remoteBase = ''
+  let remoteKey = ''
+  let remoteConfigName = null
+  const remoteApiType = providerApiLower || 'openai-completions'
+
+  const updateRemoteCount = () => {
+    if (remoteCount) remoteCount.textContent = `${remoteListEl.querySelectorAll('[data-remote-id]:checked').length} 个已选`
+  }
+
+  const renderRemoteList = (filter) => {
+    if (!remoteListEl) return
+    const kw = String(filter || '').trim().toLowerCase()
+    const shown = remoteModels.filter((id) => !kw || id.toLowerCase().includes(kw))
+    remoteListEl.innerHTML = shown.length ? shown.map((id) => `
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px">
+        <input type="checkbox" data-remote-id="${escAttr(id)}">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(id)}">${escHtml(id)}</span>
+        <button type="button" class="btn btn-sm btn-secondary" data-remote-test="${escAttr(id)}">测试</button>
+        <span class="form-hint" data-remote-test-result="${escAttr(id)}" style="min-width:72px;text-align:right"></span>
+      </label>
+    `).join('') : '<div class="form-hint" style="padding:6px">无匹配模型</div>'
+    remoteListEl.querySelectorAll('[data-remote-test]').forEach((btn) => {
+      btn.onclick = async () => {
+        const id = btn.dataset.remoteTest
+        const out = remoteListEl.querySelector(`[data-remote-test-result="${window.CSS && CSS.escape ? CSS.escape(id) : id}"]`)
+        if (out) out.textContent = '测试中...'
+        btn.disabled = true
+        try {
+          await api.testModel(remoteBase, remoteKey, id, remoteApiType, remoteConfigName)
+          if (out) out.textContent = '✓ 连通'
+        } catch (e) {
+          if (out) out.textContent = `✗ ${String(e?.message || e).slice(0, 48)}`
+        } finally {
+          btn.disabled = false
+        }
+      }
+    })
+    updateRemoteCount()
+  }
+
+  if (remoteBtn && remotePanel) {
+    remoteBtn.addEventListener('click', async () => {
+      // 未保存的行内表单值优先，其次已保存的 provider 配置
+      const setupRoot = page.querySelector(`.models-inline-setup[data-inline-preset="${providerKey}"]`) ||
+        page.querySelector('.models-inline-setup')
+      const liveBase = setupRoot?.querySelector('[data-inline-field="baseUrl"]')?.value?.trim() || ''
+      const liveKey = setupRoot?.querySelector('[data-inline-field="apiKey"]')?.value?.trim() || ''
+      const firstConfig = (provider.models || []).find((m) => m && typeof m === 'object' && m.configName)
+
+      remoteBase = liveBase || String(provider.baseUrl || '').trim()
+      remoteKey = liveKey || String(provider.apiKey || '').trim()
+      remoteConfigName = !remoteKey && firstConfig ? firstConfig.configName : null
+
+      const keyOptional = !!VENDOR_PRESETS.find((p) => p.key === providerKey)?.apiKeyOptional
+      if (!remoteBase && !remoteConfigName) { setRemoteHint('请先填写 Base URL'); return }
+      if (!remoteKey && !remoteConfigName && !keyOptional) { setRemoteHint('请先填写并保存 API Key'); return }
+
+      remoteBtn.disabled = true
+      setRemoteHint('拉取中...')
+      try {
+        const payload = { base_url: remoteBase, api_key: remoteKey, api_type: remoteApiType }
+        if (remoteConfigName) payload.config_name = remoteConfigName
+        const res = await api.listRemoteOpenAIModels(payload)
+        if (!res?.success) {
+          setRemoteHint(res?.message || '拉取失败')
+          return
+        }
+        remoteModels.length = 0
+        const ids = (res.models || []).map((m) => String(m?.id || '').trim()).filter(Boolean)
+        remoteModels.push(...ids.filter((id) => !existingIds.includes(id)))
+        if (!remoteModels.length) {
+          setRemoteHint(res.degraded ? (res.message || '未发现可添加的新模型') : '服务商未返回可添加的模型')
+          remotePanel.hidden = true
+          return
+        }
+        setRemoteHint(`共 ${remoteModels.length} 个可添加`)
+        renderRemoteList('')
+        remotePanel.hidden = false
+      } catch (e) {
+        setRemoteHint(`拉取失败: ${String(e?.message || e).slice(0, 80)}`)
+      } finally {
+        remoteBtn.disabled = false
+      }
+    })
+  }
+
+  function setRemoteHint(text) {
+    if (remoteStatus) remoteStatus.textContent = text
+  }
+
+  overlay.querySelector('[data-name="remote-search"]')?.addEventListener('input', (e) => renderRemoteList(e.target.value))
+  overlay.querySelector('[data-action="remote-all"]')?.addEventListener('click', () => {
+    remoteListEl.querySelectorAll('[data-remote-id]').forEach((cb) => { cb.checked = true })
+    updateRemoteCount()
+  })
+  overlay.querySelector('[data-action="remote-none"]')?.addEventListener('click', () => {
+    remoteListEl.querySelectorAll('[data-remote-id]').forEach((cb) => { cb.checked = false })
+    updateRemoteCount()
+  })
+  remoteListEl?.addEventListener('change', (e) => {
+    if (e.target?.matches?.('[data-remote-id]')) updateRemoteCount()
+  })
+
+  // 批量添加勾选的远程模型
+  overlay.querySelector('[data-action="remote-add"]')?.addEventListener('click', () => {
+    const checked = [...remoteListEl.querySelectorAll('[data-remote-id]:checked')].map((cb) => cb.dataset.remoteId)
+    if (!checked.length) {
+      toast('请先勾选要添加的模型', 'warning')
+      return
+    }
+    pushUndo(state)
+    let added = 0
+    for (const id of checked) {
+      const usedNames = collectUsedConfigNames(state.config)
+      const configName = deriveConfigName(id, providerKey, id, usedNames)
+      state.config.models.providers[providerKey].models.push({
+        configName,
+        id,
+        name: '',
+        reasoning: false,
+        input: ['text'],
+        enableWebSearch: false,
+        contextWindow: DEFAULT_MODEL_CONTEXT_WINDOW,
+        inputContextLength: null,
+        outputContextLength: null,
+        temperature: null,
+      })
+      added++
+    }
+    overlay.remove()
+    renderProviders(page, state)
+    renderDefaultBar(page, state)
+    updateUndoBtn(page, state)
+    autoSave(state)
+    toast(added > 1 ? `已添加 ${added} 个模型` : `已添加模型: ${checked[0]}`, 'success')
   })
 
   // 保存（手动添加）

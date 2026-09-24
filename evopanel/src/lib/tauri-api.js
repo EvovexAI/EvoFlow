@@ -1394,6 +1394,7 @@ export const api = {
       base_url: payload.base_url,
       api_key: payload.api_key ?? '',
       api_type: payload.api_type ?? 'openai-completions',
+      ...(payload.config_name ? { config_name: String(payload.config_name) } : {}),
     }),
   // 模型配置管理接口（Gateway API → SQLite evoflow_models）
   listModels: async () => gatewayProxy('GET', '/models'),
