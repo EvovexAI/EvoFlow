@@ -899,18 +899,39 @@ html[data-scifi-ui='1'] .collab-wf-panel-body {
   min-height: 0;
 }
 
-/* 右侧面板内嵌子卡片 — 模仿 .ycs-ai 嵌套玻璃 */
+/* 右侧面板内嵌子卡片 — 模仿 .ycs-ai 嵌套玻璃 + v15 极强辉光 */
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > .card,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > section,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > .panel,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-card,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .stage-card,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [data-panel-section] {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.80)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 30%, rgba(255, 255, 255, 0.12)) !important;
   border-radius: 14px !important;
   padding: 14px 13px !important;
   margin-bottom: 12px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 24px 0 color-mix(in srgb, var(--accent-secondary) 8%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent-secondary) 4%, transparent) !important;
+  position: relative;
+  transition: all 0.18s ease;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > .card:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body > section:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-card:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .stage-card:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [data-panel-section]:hover {
+  border-color: color-mix(in srgb, var(--accent-secondary) 60%, rgba(255, 255, 255, 0.16)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.32),
+    0 0 32px 2px color-mix(in srgb, var(--accent-secondary) 22%, transparent),
+    0 0 64px 12px color-mix(in srgb, var(--accent-secondary) 10%, transparent) !important;
+  transform: translateY(-1px);
 }
 
 /* 右侧面板空态 — 模仿 ycs-empty */
@@ -949,27 +970,67 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer button {
   font-size: 11px !important;
   cursor: pointer;
   transition: all 0.18s ease;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button::before,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-secondary) 50%, transparent),
+    color-mix(in srgb, rgba(255, 255, 255, 0.18) 50%, transparent),
+    color-mix(in srgb, var(--accent-secondary) 40%, transparent));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button:hover {
   background: rgba(255, 255, 255, 0.06) !important;
   color: #fff !important;
-  border-color: var(--border-default) !important;
+  border-color: color-mix(in srgb, var(--accent-secondary) 35%, transparent) !important;
+  box-shadow:
+    0 0 20px color-mix(in srgb, var(--accent-secondary) 30%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent-secondary) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16) !important;
+  transform: translateY(-1px);
 }
 
-/* 主操作按钮 — 模仿 .ycs-next 绿色背景 */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button:hover::before,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer button:hover::before {
+  opacity: 0.85;
+}
+
+/* 主操作按钮 — 模仿 .ycs-next 绿色背景 + v15 极强辉光 */
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .is-primary,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body button.is-primary,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer .is-primary {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 18%, transparent)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 35%, transparent), color-mix(in srgb, var(--accent) 18%, transparent)) !important;
   color: #fff !important;
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent) !important;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+  box-shadow:
+    0 0 20px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent) 20%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.20) !important;
 }
 
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .is-primary:hover,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-footer .is-primary:hover {
-  box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 40%, transparent) !important;
+  box-shadow:
+    0 0 36px color-mix(in srgb, var(--accent) 70%, transparent),
+    0 0 80px 12px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28) !important;
+  transform: translateY(-1px);
 }
 
 /* 热榜面板 — 新闻 row 样式 */
@@ -980,6 +1041,9 @@ html[data-scifi-ui='1'] .react-chat-news-row {
 
 html[data-scifi-ui='1'] .react-chat-news-row:hover {
   background: rgba(255, 255, 255, 0.055) !important;
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--accent-secondary) 22%, transparent),
+    inset 0 0 12px color-mix(in srgb, var(--accent-secondary) 8%, transparent);
 }
 
 html[data-scifi-ui='1'] .react-chat-news-new {
@@ -989,11 +1053,188 @@ html[data-scifi-ui='1'] .react-chat-news-new {
   border-radius: 6px !important;
 }
 
+/* ============================================================
+ * 右侧 panel 内 Agent 产物面板(Artifacts) —— v15 极强辉光
+ *
+ * 核心 className:
+ *   - .react-chat-artifacts-header  (顶部标题区)
+ *   - .react-chat-artifacts-body    (列表体)
+ *   - .react-chat-artifacts-list    (ul 列表)
+ *   - .react-chat-artifacts-item    (每个 li/button 产物项)
+ *   - .react-chat-artifacts-item.is-active (选中态)
+ *   - .react-chat-artifacts-item-name/status/path (子元素)
+ * ============================================================ */
+html[data-scifi-ui='1'] .react-chat-artifacts-header {
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.85), rgba(8, 12, 11, 0.80)) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-secondary) 30%, rgba(255, 255, 255, 0.10)) !important;
+  box-shadow:
+    0 0 16px 0 color-mix(in srgb, var(--accent-secondary) 12%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent-secondary) 25%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-header-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: -0.2px !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-secondary) 36%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-body {
+  padding: 8px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  list-style: none !important;
+}
+
+/* 每个产物项 —— v15 三态:默认/hover/active */
+html[data-scifi-ui='1'] .react-chat-artifacts-item {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  padding: 10px 12px !important;
+  border-radius: 12px !important;
+  background: linear-gradient(145deg, rgba(15, 19, 18, 0.82), rgba(8, 12, 11, 0.78)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent-secondary) 18%, rgba(255, 255, 255, 0.10)) !important;
+  color: var(--text-primary) !important;
+  cursor: pointer;
+  width: 100% !important;
+  text-align: left !important;
+  transition: all 0.18s ease;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+    0 0 16px 0 color-mix(in srgb, var(--accent-secondary) 6%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item:hover {
+  background: linear-gradient(145deg, rgba(20, 24, 22, 0.88), rgba(12, 16, 15, 0.84)) !important;
+  border-color: color-mix(in srgb, var(--accent-secondary) 50%, rgba(255, 255, 255, 0.14)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.36),
+    0 0 24px 2px color-mix(in srgb, var(--accent-secondary) 22%, transparent),
+    0 0 56px 12px color-mix(in srgb, var(--accent-secondary) 10%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item:active {
+  transform: translateY(0);
+}
+
+/* 选中态 —— 4 层辉光 + 左侧 3px 亮条 */
+html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active {
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--accent-secondary) 32%, transparent),
+    color-mix(in srgb, var(--accent-secondary) 18%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--accent-secondary) 70%, transparent) !important;
+  color: #fff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.40),
+    0 0 32px 2px color-mix(in srgb, var(--accent-secondary) 35%, transparent),
+    0 0 80px 16px color-mix(in srgb, var(--accent-secondary) 16%, transparent),
+    0 0 160px 40px color-mix(in srgb, var(--accent-secondary) 6%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -1px;
+  bottom: 0;
+  width: 3px;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent-secondary) 60%, transparent) 0%,
+    color-mix(in srgb, var(--accent-secondary) 95%, transparent) 50%,
+    color-mix(in srgb, var(--accent-secondary) 60%, transparent) 100%);
+  border-radius: 12px 0 0 12px;
+  filter: blur(2px);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-secondary) 60%, transparent);
+  opacity: 1;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item-name {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: -0.1px !important;
+  word-break: break-all;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active .react-chat-artifacts-item-name {
+  color: #fff !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--accent-secondary) 60%, transparent);
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item-status {
+  font-size: 10px !important;
+  color: var(--text-tertiary) !important;
+  letter-spacing: 0.2px !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active .react-chat-artifacts-item-status {
+  color: color-mix(in srgb, var(--accent-secondary) 80%, white) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-artifacts-item-path {
+  font-size: 10px !important;
+  color: var(--text-quaternary, rgba(255, 255, 255, 0.42)) !important;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace !important;
+  word-break: break-all;
+  opacity: 0.7;
+}
+
 /* 工作流面板 — 状态色 dot */
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .ycs-group-dot,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [class*="-dot"] {
   background: var(--accent) !important;
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent) !important;
+}
+
+/* ============================================================
+ * 通用 —— 右侧 panel 内 list/tab/pill/card 类元素 v15 辉光
+ * (覆盖右侧 panel 内部一切可交互元素的 hover/active 光晕)
+ * ============================================================ */
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .list-item:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [role="listitem"]:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [role="tab"]:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .tab-item:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .chip:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .tag:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-row:hover,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-tile:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 20px color-mix(in srgb, var(--accent-secondary) 22%, transparent),
+    0 0 48px 8px color-mix(in srgb, var(--accent-secondary) 10%, transparent) !important;
+}
+
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .list-item.is-active,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [role="tab"][aria-selected="true"],
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body [role="listitem"].is-active,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .tab-item.is-active,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-row.is-active,
+html[data-scifi-ui='1'] .react-chat-collab-exec-panel-body .panel-tile.is-active {
+  border-color: color-mix(in srgb, var(--accent-secondary) 60%, transparent) !important;
+  background: linear-gradient(145deg,
+    color-mix(in srgb, var(--accent-secondary) 28%, transparent),
+    color-mix(in srgb, var(--accent-secondary) 14%, transparent)) !important;
+  color: #fff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.36),
+    0 0 28px 2px color-mix(in srgb, var(--accent-secondary) 30%, transparent),
+    0 0 64px 12px color-mix(in srgb, var(--accent-secondary) 14%, transparent) !important;
 }
 
 /* ============================================================
