@@ -7,7 +7,40 @@ import { SHOW_KNOWLEDGE_VAULT_NAV } from '../lib/nav-visibility.js'
 import { installSessionListDebugGlobal } from '../lib/session-list-debug.js'
 import { mountSessionNotify } from '../lib/mount-session-notify.js'
 import { mountShellAccount } from './shell-account.js'
+import {
+  ServiceHealthState,
+  startServiceHealthPoll,
+  stopServiceHealthPoll,
+  onServiceHealthChange,
+} from '../lib/service-health.js'
 import { version as APP_VERSION } from '../../package.json'
+
+/**
+ * 侧栏图标:对齐 lucide-react 标准 (zcode 同款),14px / 1.5 stroke。
+ * 这里用模板字符串渲染,避免引入 React.createElement 到非 JSX 文件。
+ * 数据来源:node_modules/lucide-react/dist/esm/icons/<name>.mjs
+ */
+const ICONS = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  listTodo: '<path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><rect width="6" height="6" x="3" y="4" rx="1"/>',
+  layoutGrid: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/>',
+  bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  bookOpen: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+  fileSearch: '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="M13.3 16.3 15 18"/>',
+  blocks: '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><path d="M14 14h7v7h-7z"/>',
+  chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
+  moreHorizontal: '<circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/>',
+}
+
+/** 渲染一个 lucide 风格图标:14px / 1.5 stroke / currentColor */
+function _lucide(name, size = 14, stroke = 1.5) {
+  const body = ICONS[name] || ''
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+}
 
 installSessionListDebugGlobal()
 
@@ -417,123 +450,60 @@ export function initShellAside(el) {
   el.innerHTML = `
     <div class="react-chat-aside-toolbar">
       <div class="react-chat-aside-brand">
-        <img class="react-chat-aside-brand-logo" src="/images/logo.png" alt="" width="14" height="14" />
+        <img class="react-chat-aside-brand-logo" src="/images/logo.png" alt="" width="18" height="18" />
         <span class="react-chat-aside-toolbar-title">EvoFlow</span>
         <span class="react-chat-aside-version">v${APP_VERSION}</span>
       </div>
       <button type="button" class="react-chat-aside-icon-btn shell-aside-collapse-btn" id="shell-aside-collapse" title="折叠侧栏" aria-label="折叠侧栏">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M15 6l-6 6 6 6"/>
-        </svg>
+        ${_lucide('chevronLeft', 14, 1.5)}
       </button>
     </div>
     <nav class="react-chat-aside-primary" aria-label="产品导航">
       <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/chat" data-shell-home="1" id="shell-btn-new-task" title="新建对话" aria-label="新建对话">
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-        </span>
+        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('plus')}</span>
         <span class="react-chat-aside-nav-label">新建对话</span>
       </button>
       <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/tasks" data-premium-nav="tasks" title="任务中心">
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M9 11l3 3L22 4"/>
-            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
-          </svg>
-        </span>
+        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('listTodo')}</span>
         <span class="react-chat-aside-nav-label">任务中心</span>
       </button>
       <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/apps" data-premium-nav="apps" title="工作流">
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-            <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-          </svg>
-        </span>
+        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('layoutGrid')}</span>
         <span class="react-chat-aside-nav-label">工作流</span>
       </button>
       <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/proactive" data-premium-nav="proactive" title="员工">
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
-          </svg>
-        </span>
+        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('users')}</span>
         <span class="react-chat-aside-nav-label">员工</span>
       </button>
       <div class="shell-aside-nav-more" data-shell-nav-more>
         <button type="button" class="react-chat-aside-nav-item shell-aside-nav-more-toggle" data-shell-nav-more-toggle title="更多" aria-expanded="false" aria-controls="shell-nav-more-body">
-          <span class="react-chat-aside-nav-ic" aria-hidden>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-              <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/>
-              <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
-              <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/>
-            </svg>
-          </span>
+          <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('moreHorizontal')}</span>
           <span class="react-chat-aside-nav-label">更多</span>
-          <span class="shell-aside-nav-more-chevron" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 6l6 6-6 6"/>
-            </svg>
-          </span>
+          <span class="shell-aside-nav-more-chevron" aria-hidden="true">${_lucide('chevronRight', 12, 1.5)}</span>
         </button>
         <div class="shell-aside-nav-more-body" id="shell-nav-more-body" role="group" aria-label="更多导航">
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/expert" title="智能体 · 能力模板">
-            <span class="react-chat-aside-nav-ic" aria-hidden>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="7" width="18" height="12" rx="2"/>
-                <circle cx="9" cy="12" r="1.5" fill="currentColor"/>
-                <circle cx="15" cy="12" r="1.5" fill="currentColor"/>
-                <path d="M9 3l3 2 3-2"/>
-                <path d="M9 17h6"/>
-              </svg>
-            </span>
+            <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('bot')}</span>
             <span class="react-chat-aside-nav-label">智能体</span>
           </button>
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/cron" title="自动化">
-            <span class="react-chat-aside-nav-ic" aria-hidden>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-            </span>
+            <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('clock')}</span>
             <span class="react-chat-aside-nav-label">自动化</span>
           </button>
           ${
             SHOW_KNOWLEDGE_VAULT_NAV
               ? `<button type="button" class="react-chat-aside-nav-item" data-shell-nav="/knowledge" data-testid="nav-knowledge-owned" title="知识库">
-            <span class="react-chat-aside-nav-ic" aria-hidden>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                <path d="M8 7h8"/>
-                <path d="M8 11h5"/>
-                <circle cx="16.5" cy="15.5" r="2.5"/>
-                <path d="m18.5 17.5 2 2"/>
-              </svg>
-            </span>
+            <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('fileSearch')}</span>
             <span class="react-chat-aside-nav-label">知识库</span>
           </button>`
               : ''
           }
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/assets" data-testid="nav-assets" title="资产中心">
-            <span class="react-chat-aside-nav-ic" aria-hidden>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/>
-                <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/>
-              </svg>
-            </span>
+            <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('bookOpen')}</span>
             <span class="react-chat-aside-nav-label">资产中心</span>
           </button>
           <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/extensions" title="扩展应用">
-            <span class="react-chat-aside-nav-ic" aria-hidden>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
-                <rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/>
-              </svg>
-            </span>
+            <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('blocks')}</span>
             <span class="react-chat-aside-nav-label">扩展应用</span>
           </button>
 
@@ -543,14 +513,10 @@ export function initShellAside(el) {
     <div class="shell-aside-nav-divider" aria-hidden="true"></div>
     <div id="shell-chat-panel" class="shell-aside-recent"></div>
     <div class="react-chat-aside-footer shell-aside-bottom-bar">
+      <div id="shell-aside-health-status" title="服务状态" style="display:none;align-items:center;gap:4px;padding:0 6px;font-size:11px;opacity:0.8;cursor:default;"></div>
       <div class="shell-aside-account-mount" id="shell-aside-account-mount"></div>
       <button type="button" class="shell-footer-icon-btn" id="shell-footer-settings" title="设置" aria-label="设置">
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-          </svg>
-        </span>
+        <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('settings')}</span>
       </button>
       <div class="shell-aside-notify-mount" id="shell-aside-notify-mount"></div>
     </div>
@@ -577,6 +543,40 @@ export function initShellAside(el) {
     void wsClient.hydrateGlobalWorkspaceHistoryOnce()
   })
   _startAsideTitleShimmer(el)
+
+  // 健康状态小点（侧栏底部右侧，正常时隐藏）
+  const healthEl = el.querySelector('#shell-aside-health-status')
+  if (healthEl) {
+    const dot = document.createElement('span')
+    dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;'
+    healthEl.prepend(dot)
+    const label = document.createElement('span')
+    label.style.cssText = 'white-space:nowrap;'
+    healthEl.appendChild(label)
+    const _applyHealth = (snap) => {
+      const state = snap.state
+      if (state === ServiceHealthState.HEALTHY) {
+        healthEl.style.display = 'none'
+      } else if (state === ServiceHealthState.DEGRADED) {
+        healthEl.style.display = 'flex'
+        dot.style.background = 'var(--warning, #f59e0b)'
+        label.textContent = '初始化中…'
+        healthEl.title = snap.lastError || '服务正在初始化'
+      } else if (state === ServiceHealthState.UNAVAILABLE) {
+        healthEl.style.display = 'flex'
+        dot.style.background = 'var(--error, #ef4444)'
+        dot.style.animation = 'react-chat-health-blink 1s ease-in-out infinite'
+        label.textContent = '服务初始化中'
+        healthEl.title = snap.lastError || '服务不可用'
+      } else {
+        healthEl.style.display = 'none'
+      }
+    }
+    void import('../lib/service-health.js').then((mod) => {
+      mod.startServiceHealthPoll()
+      mod.onServiceHealthChange(_applyHealth)
+    })
+  }
 }
 
 /** Kept for callers after activate; premium menus stay always visible. */

@@ -729,10 +729,8 @@ def employees_list(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
     status = _arg_str(args, "status") or None
-    include_archived = _arg_bool(args, "include_archived", False)
-    data = emp.list_roles(status=status, include_archived=include_archived)
+    data = emp.list_roles(status=status)
     roles = data.get("roles") if isinstance(data.get("roles"), list) else []
-    # Aliases for agents / verification runners that expect employees|items
     return {"ok": True, **data, "employees": roles, "items": roles}
 
 
@@ -793,15 +791,6 @@ def employees_stop(args: dict[str, Any]) -> dict[str, Any]:
     if not code:
         raise ValidationError("agent_code is required")
     return {"ok": True, **emp.stop_role(code)}
-
-
-def employees_archive(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import employees as emp
-
-    code = _arg_str(args, "agent_code", "agentCode", "code")
-    if not code:
-        raise ValidationError("agent_code is required")
-    return {"ok": True, **emp.archive_role(code)}
 
 
 def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
@@ -1533,7 +1522,7 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
 
     # ── 4. 员工/智能体 ────────────────────────────────────────
     try:
-        emp_data = emp.list_roles(status=None, include_archived=False)
+        emp_data = emp.list_roles(status=None)
         emp_list = emp_data.get("roles") or emp_data.get("items") or emp_data.get("employees") or []
         paused = [e for e in emp_list if str(e.get("status", "")).lower() in ("paused", "stopped", "inactive")]
         modules.append(

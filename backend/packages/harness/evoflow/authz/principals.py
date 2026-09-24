@@ -274,7 +274,17 @@ def ensure_webui_principal(
             admin_mod.promote_org_admin(str(existing["principal_id"]), granted_by=None, org_id=org_id)
         return existing
 
-    principal_id = f"webui:{uid}"
+    # Use the sanitized login username as the principal_id (and therefore asset
+    # bucket entity_id).  Avoids the old ``webui:{uid}`` form which leaked the
+    # WebUI provider prefix into user-visible names (e.g. ``users/webui_1/``).
+    # Sanitization mirrors asset paths.sanitize_user_asset_id and rejects ``:``
+    # so OIDC ``sub`` values cannot collide with webui usernames.
+    from evoflow.assets.paths import sanitize_user_asset_id
+
+    principal_id = sanitize_user_asset_id(uname)
+    if not principal_id or principal_id in {"user", "me", "self"}:
+        # Defensive: fallback should never trigger because ``uname`` is non-empty.
+        principal_id = f"webui-{uid}"
     now = float(time.time())
 
     def _write(db: Any) -> None:

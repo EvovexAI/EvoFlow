@@ -93,26 +93,32 @@
   /* Enterprise shell: calm neutrals; brand only for CTA / active indicator */
   --shell-brand: var(--accent, #635bff);
   --shell-brand-hover: var(--accent-hover, #534bef);
-  --shell-brand-soft: var(--bg-active, #f0f1f4);
-  --shell-bg: var(--chrome-bg, var(--bg-app, #f0f0f0));
-  --shell-hover: var(--bg-hover, #f4f5f7);
+  /* brand-soft: 直接用实色浅紫底,在白底侧栏上更清晰 */
+  --shell-brand-soft: #ece9ff;
+  --shell-brand-softer: #f5f3ff;
+  --shell-bg: var(--chrome-bg, #f6f7f9);
+  --shell-hover: color-mix(in srgb, var(--text-primary, #202124) 6%, transparent);
   --shell-border: var(--border-default, #e6e8ec);
   --shell-text: var(--text-primary, #202124);
-  --shell-text-body: var(--text-secondary, #656b73);
-  --shell-text-muted: var(--text-tertiary, #9297a0);
-  --shell-text-weak: var(--text-tertiary, #9297a0);
-  --shell-aside-width: 232px;
+  /* 暖灰替代冷灰,在 light 模式下与文字背景对比更柔和 */
+  --shell-text-body: #4a4f5a;
+  --shell-text-muted: #6f7682;
+  --shell-text-weak: #8a909c;
+  --shell-aside-width: 240px;
   --shell-aside-collapsed: 60px;
   width: var(--shell-aside-width);
   min-width: var(--shell-aside-width);
   max-width: var(--shell-aside-width);
-  border-right: 1px solid var(--shell-border);
+  border-right: 1px solid color-mix(in srgb, var(--shell-border, #e6e8ec) 60%, transparent);
   background: var(--shell-bg);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 0 10px;
+  padding: 0 8px;
   box-sizing: border-box;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease, padding 0.2s ease;
 }
 
@@ -155,11 +161,11 @@
 }
 
 .react-chat-session-aside.collapsed .shell-aside-new-chat-btn {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   margin: 0 auto;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .react-chat-session-aside.collapsed .react-chat-aside-primary {
@@ -172,11 +178,12 @@
 }
 
 .react-chat-session-aside.collapsed .react-chat-aside-nav-item {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   justify-content: center;
   gap: 0;
+  margin: 0 auto;
 }
 
 .react-chat-session-aside.collapsed .react-chat-aside-nav-item.active::before {
@@ -349,11 +356,12 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .react-chat-aside-brand-logo {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   object-fit: contain;
   flex-shrink: 0;
   display: block;
+  border-radius: 4px;
   /* 轻微上移，视觉上对齐标题 */
   transform: translateY(-1px);
   /* 彩色 PNG：随外观色卡做色相偏移 */
@@ -362,9 +370,9 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 
 .react-chat-aside-toolbar-title {
   display: inline-block;
-  font-size: var(--font-size-md, 14px);
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 14px;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em;
   line-height: 1.2;
   color: var(--shell-text, #171a2b);
   background: none;
@@ -409,7 +417,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   max-height: calc(100% - 320px);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   padding: 0 0 4px;
   border-bottom: none;
   overflow-x: hidden;
@@ -449,21 +457,22 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  height: 36px;
+  height: 32px;
   margin: 0;
   padding: 0 12px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--shell-item-radius, 6px);
   background: var(--shell-brand, #5b5fef);
   color: #fff;
-  font-size: var(--font-size-sm, 13px);
-  font-weight: 500;
+  font-size: var(--shell-font-size-sm, 12px);
+  font-weight: 600;
+  letter-spacing: 0;
   line-height: 1;
   cursor: pointer;
   box-shadow: none;
-  transition: background 0.12s ease;
+  transition: background-color 120ms ease;
   flex-shrink: 0;
 }
 
@@ -478,6 +487,10 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 
 .shell-aside-new-chat-btn.active {
   background: var(--shell-brand-hover, #4f53dd);
+}
+
+.shell-aside-new-chat-btn svg {
+  stroke-width: var(--shell-icon-stroke, 1.5);
 }
 
 .shell-aside-new-chat-ic {
@@ -497,36 +510,39 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--shell-item-gap, 8px);
   width: 100%;
-  height: 34px;
-  padding: 0 9px;
+  height: var(--shell-item-h, 30px);
+  padding: 0 var(--shell-item-pad-x, 8px);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--shell-item-radius, 6px);
   background: transparent;
-  color: var(--shell-text-body, #42475a);
-  font-size: var(--font-size-sm, 13px);
-  font-weight: 500;
+  color: var(--shell-text-body, #4a4f5a);
+  font-family: inherit;
+  font-size: var(--shell-font-size, 13px);
+  font-weight: var(--shell-item-fw, 400);
+  font-feature-settings: "tnum", "cv11"; /* 让中文 + 数字看起来更整齐 */
+  letter-spacing: -0.005em;
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
   box-shadow: none;
   flex-shrink: 0;
   transition:
-    background 0.12s ease,
-    color 0.12s ease;
+    background-color 120ms ease,
+    color 120ms ease;
 }
 
 .react-chat-aside-nav-item:hover {
   background: var(--shell-hover, #f0f2f7);
-  color: var(--shell-text, #24283a);
+  color: var(--text-primary, #2a2e3a);
   border-color: transparent;
 }
 
 .react-chat-aside-nav-item.active {
-  background: var(--bg-active, #f0f1f4);
-  color: var(--shell-text, #202124);
-  font-weight: 500;
+  background: var(--shell-active-bg, color-mix(in srgb, var(--accent, #635bff) 10%, transparent));
+  color: var(--text-primary, #1a1c24);
+  font-weight: var(--shell-item-fw-active, 500);
   border-color: transparent;
 }
 
@@ -534,30 +550,32 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   content: '';
   position: absolute;
   left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  border-radius: 1px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
   background: var(--shell-brand, #635bff);
 }
 
 .react-chat-aside-nav-item.active .react-chat-aside-nav-ic {
-  color: var(--shell-text, #202124);
+  color: var(--shell-brand, #635bff);
 }
 
 .react-chat-aside-nav-ic {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  color: var(--shell-text-muted, #72788d);
+  width: var(--shell-icon-size, 14px);
+  height: var(--shell-icon-size, 14px);
+  color: var(--text-tertiary, #6f7682);
   flex-shrink: 0;
+  transition: color 120ms ease;
 }
 
 .react-chat-aside-nav-ic svg {
-  width: 18px;
-  height: 18px;
+  width: var(--shell-icon-size, 14px);
+  height: var(--shell-icon-size, 14px);
+  stroke-width: var(--shell-icon-stroke, 1.5);
 }
 
 .react-chat-aside-nav-label {
@@ -568,11 +586,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .react-chat-aside-nav-item:hover .react-chat-aside-nav-ic {
-  color: var(--shell-text, #24283a);
-}
-
-.react-chat-aside-nav-item.active .react-chat-aside-nav-ic {
-  color: var(--shell-text, #202124);
+  color: var(--text-secondary, #4a4f5a);
 }
 
 /* 「更多」折叠组：默认收起自动化 / 知识库 / 扩展应用 */
@@ -620,8 +634,8 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .shell-aside-nav-more-body .react-chat-aside-nav-item {
-  height: 32px;
-  font-size: var(--font-size-sm, 13px);
+  height: var(--shell-item-h-sm, 28px);
+  font-size: var(--shell-font-size-sm, 12px);
 }
 
 .react-chat-session-aside.collapsed .shell-aside-nav-more {
@@ -3595,7 +3609,7 @@ html.evopanel-macos-titlebar .react-chat-header {
 
 .react-chat-header-session-title {
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-primary, #111827);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8156,6 +8170,170 @@ html.dark .react-chat-current-task-expand,
   border-radius: 2px;
   background: #94a3b8;
   vertical-align: baseline;
+}
+
+/* Sub-rows under the system-prompt bar (技能/资产/记忆). */
+.react-chat-ctx-meter-row.is-sub {
+  padding-left: 24px;
+  margin-top: 2px;
+}
+.react-chat-ctx-meter-row.is-sub dt {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+/* Skill / asset / memory swatch colours (tinted variants of system blue). */
+.react-chat-ctx-meter-swatch.is-system-sub-skills {
+  background: #60a5fa;
+}
+.react-chat-ctx-meter-swatch.is-system-sub-assets {
+  background: #a78bfa;
+}
+.react-chat-ctx-meter-swatch.is-system-sub-memory {
+  background: #34d399;
+}
+
+/* ---- Injected detail button (inside "运行统计" panel) ---- */
+.react-chat-ctx-meter-detail-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 0 2px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  margin-top: 8px;
+}
+.react-chat-ctx-meter-detail-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.react-chat-ctx-meter-detail-btn:hover {
+  color: var(--text-primary);
+}
+
+/* ---- Detail modal ---- */
+.react-chat-ctx-meter-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.react-chat-ctx-meter-modal {
+  background: var(--bg-primary, #fff);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  width: min(900px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.react-chat-ctx-meter-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+.react-chat-ctx-meter-modal-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+.react-chat-ctx-meter-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.react-chat-ctx-meter-modal-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+}
+.react-chat-ctx-meter-modal-body {
+  overflow-y: auto;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.react-chat-ctx-meter-modal-empty {
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+  padding: 20px 0;
+  text-align: center;
+}
+.react-chat-ctx-meter-modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.react-chat-ctx-meter-modal-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.react-chat-ctx-meter-modal-section-size {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-tertiary, #999);
+}
+.react-chat-ctx-meter-modal-content {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  background: var(--bg-secondary, #f8f9fa);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 360px;
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+
+/* Dark mode for modal */
+html[data-theme='dark'] .react-chat-ctx-meter-modal,
+html.dark .react-chat-ctx-meter-modal,
+[data-theme='dark'] .react-chat-ctx-meter-modal {
+  background: #1e2330;
+}
+html[data-theme='dark'] .react-chat-ctx-meter-modal-header,
+html.dark .react-chat-ctx-meter-modal-header,
+[data-theme='dark'] .react-chat-ctx-meter-modal-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme='dark'] .react-chat-ctx-meter-modal-content,
+html.dark .react-chat-ctx-meter-modal-content,
+[data-theme='dark'] .react-chat-ctx-meter-modal-content {
+  background: #161b27;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+}
+html[data-theme='dark'] .react-chat-ctx-meter-modal-close:hover,
+html.dark .react-chat-ctx-meter-modal-close:hover,
+[data-theme='dark'] .react-chat-ctx-meter-modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .react-chat-info-rail-delivery {
@@ -26980,6 +27158,120 @@ html.dark .tool-char-scan {
 @keyframes react-chat-health-blink {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
+}
+
+/* --- 服务可用性状态横幅（顶部常驻，区别于 stream-health：服务级） --- */
+.react-chat-recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.react-chat-recovery-banner--unavailable {
+  color: var(--error, #ef4444);
+  background: color-mix(in srgb, var(--error, #ef4444) 10%, transparent);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.react-chat-recovery-banner--unavailable:hover {
+  background: color-mix(in srgb, var(--error, #ef4444) 18%, transparent);
+}
+
+.react-chat-recovery-banner--degraded {
+  color: var(--warning, #f59e0b);
+  background: color-mix(in srgb, var(--warning, #f59e0b) 10%, transparent);
+}
+
+.react-chat-recovery-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.react-chat-recovery-banner--unavailable .react-chat-recovery-dot {
+  background: var(--error, #ef4444);
+  animation: react-chat-health-blink 1s ease-in-out infinite;
+}
+
+.react-chat-recovery-banner--degraded .react-chat-recovery-dot {
+  background: var(--warning, #f59e0b);
+}
+
+.react-chat-recovery-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.react-chat-recovery-action {
+  font-size: 11px;
+  opacity: 0.85;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* --- 全局服务可用性 banner (vanilla DOM，document.body 顶层；与 ChatApp banner 视觉一致) --- */
+.evoflow-global-recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: auto;
+  box-sizing: border-box;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid currentColor;
+}
+
+.evoflow-global-recovery-banner--unavailable {
+  color: var(--error, #ef4444);
+  background: color-mix(in srgb, var(--error, #ef4444) 12%, var(--bg-primary, #fff));
+  cursor: pointer;
+}
+
+.evoflow-global-recovery-banner--degraded {
+  color: var(--warning, #f59e0b);
+  background: color-mix(in srgb, var(--warning, #f59e0b) 12%, var(--bg-primary, #fff));
+}
+
+.evoflow-global-recovery-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.evoflow-global-recovery-banner--unavailable .evoflow-global-recovery-dot {
+  background: var(--error, #ef4444);
+  animation: react-chat-health-blink 1s ease-in-out infinite;
+}
+
+.evoflow-global-recovery-banner--degraded .evoflow-global-recovery-dot {
+  background: var(--warning, #f59e0b);
+}
+
+.evoflow-global-recovery-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.evoflow-global-recovery-action {
+  font-size: 12px;
+  opacity: 0.9;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* ═════════════════════════════════════════════════════════════════

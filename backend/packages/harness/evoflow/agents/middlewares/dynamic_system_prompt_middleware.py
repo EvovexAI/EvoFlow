@@ -38,6 +38,7 @@ except ImportError:
     from typing import override
 
 import logging
+import re
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
@@ -49,6 +50,56 @@ logger = logging.getLogger(__name__)
 # agent_code -> (monotonic_ts, signature)
 _ROLE_DISK_SIG_CACHE: dict[str, tuple[float, str]] = {}
 _ROLE_DISK_SIG_TTL_S = 2.0
+
+# ---- System-prompt section extraction for the context-detail modal ----
+# Section regexes (same as model_request_token_estimate but capturing, not just counting).
+_RE_SKILL = re.compile(r"<skill_injection\b.*?</skill_injection>", re.DOTALL | re.IGNORECASE)
+_RE_ASSETS = re.compile(r"<entity_assets\b.*?</entity_assets>", re.DOTALL | re.IGNORECASE)
+_RE_MEMORY = re.compile(r"<!--\s*memory\s*:.*?-->", re.IGNORECASE)
+_RE_SOUL = re.compile(r"<soul\b.*?</soul>", re.DOTALL | re.IGNORECASE)
+_RE_AGENT_PROMPT = re.compile(r"<agent_system_prompt\b.*?</agent_system_prompt>", re.DOTALL | re.IGNORECASE)
+
+# ---------------------------------------------------------------------------
+# Stack-based injected-sections store (save/restore for nested middleware).
+# Used by SkillsInjectionMiddleware to temporarily add skill bodies to the
+# assembled system prompt without overwriting other sections (entity_assets,
+# memory, soul, etc.) that may already be set by other middleware.
+# ---------------------------------------------------------------------------
+import contextvars
+
+_INJECTED_SECTIONS_STACK: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
+    "_INJECTED_SECTIONS_STACK", default=None
+)
+
+
+def get_injected_sections() -> dict[str, str]:
+    """Return the current injected sections dict (never ``None`` — empty dict if none)."""
+    val = _INJECTED_SECTIONS_STACK.get()
+    return dict(val) if val else {}
+
+
+def set_injected_sections(sections: dict[str, str]) -> dict[str, str]:
+    """Push *sections* onto the stack; return a save-token for ``reset_injected_sections``."""
+    current = _INJECTED_SECTIONS_STACK.get()
+    token = _INJECTED_SECTIONS_STACK.set(dict(sections))
+    return dict(current) if current else {}
+
+
+def reset_injected_sections(saved: dict[str, str]) -> None:
+    """Restore the stack to the state captured by the *saved* token."""
+    _INJECTED_SECTIONS_STACK.set(dict(saved) if saved else None)
+
+
+def _extract_injected_sections(text: str) -> dict[str, str]:
+    """Parse assembled system prompt and return named section blocks."""
+    return {
+        "full": text,
+        "skill_injection": "".join(m.group() for m in _RE_SKILL.finditer(text)),
+        "entity_assets": "".join(m.group() for m in _RE_ASSETS.finditer(text)),
+        "memory": "".join(m.group() for m in _RE_MEMORY.finditer(text)),
+        "soul": "".join(m.group() for m in _RE_SOUL.finditer(text)),
+        "agent_system_prompt": "".join(m.group() for m in _RE_AGENT_PROMPT.finditer(text)),
+    }
 
 
 def _tool_names_sorted(tools: list[Any] | None) -> list[str]:
@@ -334,7 +385,12 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         text = brief.rstrip()
         if footer and _DUTY_FOOTER_TAG not in text:
             text = f"{text}\n\n{footer}"
-        agent_name_str = str(ctx.get("proactive_agent_code") or ctx.get("agent_name") or (_resolve_prompt_meta(ctx) or {}).get("agent_name") or "proactive")
+        agent_name_str = str(
+            ctx.get("proactive_agent_code")
+            or ctx.get("agent_name")
+            or (_resolve_prompt_meta(ctx) or {}).get("agent_name")
+            or "proactive"
+        )
         logger.info(
             "DynamicSystemPromptOnScenario: duty-only system agent=%s bytes=%d",
             agent_name_str,
@@ -417,7 +473,9 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             from evoflow.mcp.native_prompt import mcp_native_prompt_fingerprint
 
             mcp_binding = meta.get("mcp_servers")
-            mcp_fp = mcp_native_prompt_fingerprint(mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None)
+            mcp_fp = mcp_native_prompt_fingerprint(
+                mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None
+            )
         sig = self._fingerprint(
             thread_id=tid,
             scenario_csv=scenario_csv,
@@ -431,8 +489,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             mcp_fp=mcp_fp,
         )
         with self._lock:
-            prev_sig = self._last_sig_by_thread.get(tid)
-            cached_system = self._last_system_by_thread.get(tid) or ""
+            prev_sig = _last_sig_by_thread.get(tid)
+            cached_system = _last_system_by_thread.get(tid) or ""
             if prev_sig == sig:
                 if cached_system:
                     return request.override(system_message=SystemMessage(content=cached_system))
@@ -442,7 +500,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             # Re-apply the *cached assembled* system (memory/profile included), not the
             # graph compile-time prompt.
             if prev_sig and _system_prompt_structure_key(prev_sig) == _system_prompt_structure_key(sig):
-                self._last_sig_by_thread[tid] = sig
+                _last_sig_by_thread[tid] = sig
                 if cached_system:
                     logger.info(
                         "DynamicSystemPromptOnScenario: reuse cached system (human/mission-only) thread=%s bytes=%d",
@@ -452,14 +510,14 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                     return request.override(system_message=SystemMessage(content=cached_system))
                 # No cache yet — fall through to full rebuild once.
             if prev_sig and _is_intra_turn_scenario_only_change(prev_sig, sig):
-                self._last_sig_by_thread[tid] = sig
+                _last_sig_by_thread[tid] = sig
                 if cached_system:
                     logger.info(
                         "DynamicSystemPromptOnScenario: skip full rebuild (intra-turn scenario) thread=%s",
                         tid,
                     )
                     return request.override(system_message=SystemMessage(content=cached_system))
-            self._last_sig_by_thread[tid] = sig
+            _last_sig_by_thread[tid] = sig
 
         intent_hint = scenario_csv if scenario_csv else None
         collab_phase = ctx.get("collab_phase")
@@ -503,11 +561,15 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
 
         state = request.state if isinstance(request.state, dict) else {}
         loaded_deferred_raw = state.get("loaded_deferred_tools")
-        loaded_deferred = [str(x).strip() for x in loaded_deferred_raw if str(x or "").strip()] if isinstance(loaded_deferred_raw, list) else None
+        loaded_deferred = (
+            [str(x).strip() for x in loaded_deferred_raw if str(x or "").strip()]
+            if isinstance(loaded_deferred_raw, list)
+            else None
+        )
         session_key = str(ctx.get("session_key") or "").strip() or None
 
         try:
-            import time
+            import time as _time
 
             from evoflow.agents.lead_agent.prompt import apply_prompt_template
             from evoflow.agents.memory.runtime_overrides import effective_memory_injection_enabled
@@ -532,7 +594,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                         bound_tool_names=list(tools_sorted),
                         prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
                     )
-            _t_prompt = time.perf_counter()
+            _t_prompt = _time.perf_counter()
             text = apply_prompt_template(
                 bool(meta.get("subagent_enabled", False)),
                 int(meta.get("max_concurrent_subagents", 5)),
@@ -560,7 +622,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             )
             record_phase(
                 "apply_prompt_template_ms",
-                (time.perf_counter() - _t_prompt) * 1000.0,
+                (_time.perf_counter() - _t_prompt) * 1000.0,
                 agent_name=agent_name_str,
                 scenario_csv=scenario_csv,
             )
@@ -570,20 +632,16 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
 
         new_sys = SystemMessage(content=text)
         with self._lock:
-            self._last_system_by_thread[tid] = text
+            _last_system_by_thread[tid] = text
             # Cap map growth (thread churn).
-            if len(self._last_system_by_thread) > 256:
-                drop = next(iter(self._last_system_by_thread))
-                self._last_system_by_thread.pop(drop, None)
-                self._last_sig_by_thread.pop(drop, None)
+            if len(_last_system_by_thread) > 256:
+                drop = next(iter(_last_system_by_thread))
+                _last_system_by_thread.pop(drop, None)
+                _last_sig_by_thread.pop(drop, None)
         return request.override(system_message=new_sys)
 
     @override
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler,
-    ) -> ModelCallResult:
+    def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
         req2 = self._maybe_rebuild_system_message(request)
         return handler(req2)
 
@@ -591,3 +649,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
         req2 = self._maybe_rebuild_system_message(request)
         return await handler(req2)
+
+
+# Aliases for old class-level names (backwards compat for subclasses / external refs).
+_last_sig_by_thread = DynamicSystemPromptOnScenarioMiddleware._last_sig_by_thread
+_last_system_by_thread = DynamicSystemPromptOnScenarioMiddleware._last_system_by_thread

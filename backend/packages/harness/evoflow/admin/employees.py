@@ -226,8 +226,6 @@ def _normalize_reports_to(agent_code: str, raw: Any) -> str:
     target = ProactiveRepository.get_role(mgr)
     if not target:
         raise ValidationError(f"reports_to role '{mgr}' not found")
-    if str(target.status or "").strip().lower() == "archived":
-        raise ValidationError(f"reports_to role '{mgr}' is archived")
     roster = ProactiveRepository.list_roles()
     if would_create_cycle(self_code, mgr, roster):
         raise ValidationError(f"reports_to '{mgr}' would create a reporting cycle")
@@ -843,8 +841,6 @@ def resume_role(agent_code: str) -> dict[str, Any]:
     if not role:
         raise NotFoundError(f"Role '{code}' not found")
     prev = role.status
-    if prev == "archived":
-        raise ValidationError("Cannot resume an archived employee; re-hire or create a new role instead")
     if prev == "active":
         return {
             "ok": True,
@@ -867,32 +863,6 @@ def resume_role(agent_code: str) -> dict[str, Any]:
         "agent_code": code,
         "status": "active",
         "from_status": prev,
-    }
-
-
-def archive_role(agent_code: str) -> dict[str, Any]:
-    code = str(agent_code or "").strip()
-    role = ProactiveRepository.get_role(code)
-    if not role:
-        raise NotFoundError(f"Role '{code}' not found")
-    try:
-        from evoflow.agents.xiaomi.identity import XIAOMI_PROTECTED_DETAIL_ZH, is_xiaomi_agent
-
-        if is_xiaomi_agent(code):
-            raise ValidationError(XIAOMI_PROTECTED_DETAIL_ZH)
-    except ValidationError:
-        raise
-    except Exception:
-        pass
-    role.status = "archived"
-    role.updated_at = utc_now_iso_z()
-    ProactiveRepository.save_role(role)
-    gw = _try_gateway_put(f"/roles/{code}/archive")
-    return {
-        "ok": True,
-        "agent_code": code,
-        "status": "archived",
-        "gateway_notified": gw is not None,
     }
 
 
@@ -1001,7 +971,7 @@ def _group_rounds(inits: list[Initiative]) -> list[dict[str, Any]]:
     return rounds
 
 
-def list_roles(*, status: str | None = None, include_archived: bool = False) -> dict[str, Any]:
+def list_roles(*, status: str | None = None) -> dict[str, Any]:
     """Roster + pending approvals + busy (when Gateway is up)."""
     st = (status or "").strip() or None
     if st is not None:
@@ -1010,8 +980,6 @@ def list_roles(*, status: str | None = None, include_archived: bool = False) -> 
         except ValueError as e:
             raise ValidationError(str(e)) from e
     roles = ProactiveRepository.list_roles(status=st)
-    if not include_archived and st is None:
-        roles = [r for r in roles if r.status != "archived"]
 
     gw = _fetch_gateway_status()
     busy_rows = list(gw.get("busy_roles") or []) if gw else []

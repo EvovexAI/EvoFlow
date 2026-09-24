@@ -5,7 +5,6 @@ from __future__ import annotations
 from evoflow.assets.user_profile_dims import (
     ProfileInjectionScope,
     build_user_profile_injection_block,
-    default_user_profile_md,
     dimension_is_filled,
     ensure_user_profile_files,
     missing_profile_dimensions,
@@ -18,7 +17,6 @@ from evoflow.assets.user_profile_dims import (
 __all__ = [
     "ProfileInjectionScope",
     "build_user_profile_injection_block",
-    "default_user_profile_md",
     "dimension_is_filled",
     "ensure_user_profile_files",
     "missing_profile_dimensions",

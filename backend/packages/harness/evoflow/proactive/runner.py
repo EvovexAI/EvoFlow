@@ -69,7 +69,7 @@ def _role_ui_badge_zh(
 ) -> tuple[str, str]:
     """与 Panel 名册/详情徽章对齐，只三种：工作中 / 在岗 / 已停。
 
-    见 ``proactive.js`` ``roleDutyBadge``：关闭总开关、请假、归档、草稿、
+    见 ``proactive.js`` ``roleDutyBadge``：关闭总开关、请假、草稿、
     停止工作（auto_patrol_suspended）均显示「已停」。
     """
     if busy:
@@ -78,14 +78,12 @@ def _role_ui_badge_zh(
     suspended = bool(getattr(getattr(role, "config", None), "auto_patrol_suspended", False))
     if engine_on is None:
         engine_on = _engine_pref_enabled_for_log()
-    stopped = st in {"paused", "archived", "draft"} or (st == "active" and ((not engine_on) or suspended))
+    stopped = st in {"paused", "draft"} or (st == "active" and ((not engine_on) or suspended))
     if stopped:
         if st == "draft":
             tip = "草稿未确认，确认后才会排班"
         elif st == "paused":
             tip = "请假中，不会自动巡检"
-        elif st == "archived":
-            tip = "已归档，不会自动巡检"
         elif suspended:
             tip = "该员工自动巡检已关；菜单「上班」可恢复"
         elif not engine_on:
@@ -309,8 +307,6 @@ def validate_dispatch_org_relationship(
         if from_code.lower() in {"", "user"} or is_xiaomi_agent(from_code):
             return None
         return f"目标岗位 `{tgt_code}` 不在岗位花名册中"
-    if str(target.status or "").strip().lower() == "archived":
-        return f"目标岗位 `{tgt_code}` 已归档，无法派发"
 
     # Human user or 小V（系统前台）：代表用户全局派活，不受组织上下级/平级限制。
     if from_code.lower() in {"", "user"} or is_xiaomi_agent(from_code):
@@ -2763,7 +2759,7 @@ class ProactiveRunner:
         # ancestor→descendant, same org.
         if from_agent_s and from_agent_s.lower() != "user":
             try:
-                roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
+                roster = list(ProactiveRepository.list_roles())
                 org_err = validate_dispatch_org_relationship(
                     from_agent=from_agent_s,
                     target_code=code,

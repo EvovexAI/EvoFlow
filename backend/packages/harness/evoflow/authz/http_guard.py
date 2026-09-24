@@ -440,12 +440,24 @@ def filter_asset_entities_for_request(
     request: Request | None,
     entities: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Filter Asset Hub entity list and rewrite ``user`` to the caller's bucket."""
+    """Filter Asset Hub entity list and rewrite ``user`` to the caller's bucket.
+
+    The user label is derived from ``me_payload`` logic so it is consistent with:
+      - the account chip display name
+      - the "用户「我」" label in prompts
+    """
     from evoflow.assets.paths import EntityRef, entity_relative_dir, sanitize_user_asset_id
 
     authz = resolve_authz_from_request(request)
     pid = str(authz.get("principal_id") or "").strip()
     is_admin = bool(authz.get("is_admin"))
+    principal = authz.get("principal") or {}
+
+    # Label uses display_name directly because me_payload already normalises it
+    # to the correct username for JWT callers (fix in context.py).
+    p_display = str(principal.get("display_name") or "").strip()
+    label = p_display or pid or "我"
+
     out: list[dict[str, Any]] = []
     saw_user = False
     for raw in entities:
@@ -462,7 +474,7 @@ def filter_asset_entities_for_request(
                 row = dict(raw)
                 row["entityId"] = mine
                 row["root"] = entity_relative_dir(EntityRef("user", mine))
-                row["label"] = row.get("label") or "我"
+                row["label"] = label
                 out.append(row)
             elif is_admin or not pid:
                 out.append(dict(raw))
@@ -479,7 +491,7 @@ def filter_asset_entities_for_request(
             {
                 "entityType": "user",
                 "entityId": mine,
-                "label": "我",
+                "label": label,
                 "root": entity_relative_dir(EntityRef("user", mine)),
             },
         )

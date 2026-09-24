@@ -300,12 +300,12 @@ def list_tasks(
         role_name_norm = str(role).strip().lower()
         if not role_name_norm:
             raise ValidationError("role must be a non-empty role_name")
-        # Validate the 岗位 exists (active/non-archived) so typos fail loudly.
+        # Validate the 岗位 exists so typos fail loudly.
         try:
             from evoflow.proactive.repositories import ProactiveRepository
 
             roles = ProactiveRepository.list_roles()
-            known = {str(r.role_name or "").strip().lower() for r in roles if str(r.status or "").strip().lower() != "archived"}
+            known = {str(r.role_name or "").strip().lower() for r in roles}
         except ValidationError:
             raise
         except Exception as e:

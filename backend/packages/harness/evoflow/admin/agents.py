@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
     "evoflow-intro",
     "evoflow-admin",
+    "evoflow-assets",
     "create-plan",
     "deep-research",
     "article-writer",

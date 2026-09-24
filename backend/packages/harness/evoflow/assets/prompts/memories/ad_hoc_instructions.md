@@ -1,4 +1,14 @@
-<!-- Asset Hub memory template (paths under ~/.evoflow/assets/). -->
+； Asset Hub memory template (paths under EVOFLOW_HOME assets root, resolved at render time).
+
+     Required render vars:
+       entity_root                — prompt-relative root label (e.g. `assets/users/webui_1/`)
+       entity_root_abs            — absolute filesystem path to the entity root
+       phase2_workspace_diff_file — relative path to phase2_workspace_diff.md
+       memory_extensions_folder_structure — extra structure notes
+       memory_extensions_primary_inputs  — extra primary-input notes
+
+     IMPORTANT: this file is a runtime memory prompt. Do NOT use HTML comments
+     `<!-- ... -->`. They trip content_scanner's HTML-comment-injection guard.
 
 # Ad-hoc notes
 

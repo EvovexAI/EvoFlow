@@ -182,7 +182,7 @@ def _resolve_employee_code(agent_code_or_name: str) -> tuple[str, str | None]:
                 return code, None
         except NotFoundError:
             pass
-        data = emp.list_roles(status="active", include_archived=True)
+        data = emp.list_roles(status="active")
         roles = data.get("roles") if isinstance(data, dict) else []
         needle = raw.lower()
         for r in roles or []:

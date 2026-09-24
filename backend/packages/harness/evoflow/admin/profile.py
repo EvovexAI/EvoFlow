@@ -29,7 +29,7 @@ def get_user_profile(*, principal_id: str = "") -> dict[str, Any]:
     return {
         "dimensions": dims,
         "fields": read_profile(entity).get("fields") or {},
-        "hint": "资产中心 #/assets → 画像；对话写入用 assets(action=profile, path=basic-info|preferences|persona)",
+        "hint": "对话写入用 `write`/`replace` profile 文件；UI 智能体 Tab 可手动维护",
     }
 
 

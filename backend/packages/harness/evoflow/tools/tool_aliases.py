@@ -30,17 +30,6 @@ _TOOL_NAME_ALIASES: dict[str, str] = {
     "knowledge_status": "knowledge",
     "knowledge_write": "knowledge",
     "knowledge_ingest": "knowledge",
-    # Asset Hub: unified ``assets(action=…)`` — legacy names alias here (not separate LLM tools)
-    "experience_save": "assets",
-    "experience_list": "assets",
-    "experience_get": "assets",
-    "experience_update": "assets",
-    "experience_mark_used": "assets",
-    "experience_delete": "assets",
-    "memory_remember": "assets",
-    "person_memory_edit": "assets",
-    "assets_search": "assets",
-    "assets_read": "assets",
 }
 
 _FILE_IO_CANONICAL = frozenset(
@@ -49,6 +38,7 @@ _FILE_IO_CANONICAL = frozenset(
         "write",
         "replace",
         "delete",
+        "rg",
     }
 )
 

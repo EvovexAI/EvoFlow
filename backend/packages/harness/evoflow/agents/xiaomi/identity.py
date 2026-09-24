@@ -12,7 +12,7 @@ XIAOMI_DISPLAY_NAME_EN = "Xiao V"
 
 # Product copy: roster badge / API reject reason for uninstall attempts.
 XIAOMI_SYSTEM_BADGE_ZH = "系统前台"
-XIAOMI_PROTECTED_DETAIL_ZH = "小V是系统默认前台岗，不能归档或删除；可下班暂停催办。"
+XIAOMI_PROTECTED_DETAIL_ZH = "小V是系统默认前台岗，不能删除；可下班暂停催办。"
 
 # Codes / legacy display names that identify 小V (never ``main``).
 _XIAOMI_CODES = frozenset({"xiaomi", "小v", "小蜜", "xiaov"})

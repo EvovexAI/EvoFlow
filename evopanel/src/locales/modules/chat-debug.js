@@ -146,4 +146,8 @@ export default {
   fixOriginRejected1008: _('连接被拒绝 (1008) - Gateway 拒绝了当前 origin', 'Connection rejected (1008) - Gateway rejected current origin', '連線被拒絕 (1008) - Gateway 拒絕了當前 origin', '接続拒否 (1008) - Gateway が現在の origin を拒否しました'),
   fixRetryHint: _('该问题应已被本次修复流程处理，请再次点击「一键修复配对」', 'This issue should have been fixed, please click "Fix Pairing" again', '該問題應已被本次修復流程處理，請再次點擊「一鍵修復配對」'),
   fixFailed: _('修复失败', 'Fix failed', '修復失敗'),
+  /** 服务可用性状态横幅（顶部常驻指示器；区别于 stream-health：服务级） */
+  serviceUnavailableText: _('服务未启动或暂时不可用，请检查服务状态', 'Service not started or temporarily unavailable, please check service status', '服務未啟動或暫時不可用，請檢查服務狀態'),
+  serviceDegradedText: _('服务正在初始化中，请稍候', 'Service is initializing, please wait', '服務正在初始化中，請稍候'),
+  serviceRetryAction: _('点击重试', 'Click to retry', '點擊重試'),
 }

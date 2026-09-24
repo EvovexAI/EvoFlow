@@ -68,6 +68,9 @@ def resolve_principal_from_webui_payload(payload: dict[str, Any] | None) -> Prin
         p = principals_mod.get_principal(sub)
         if p:
             return p
+    # legacy fallback: read principal_id that was written by old ensure_webui_principal
+    # (``webui:{uid}``).  New writes use the sanitized username as principal_id so
+    # this branch only matters when migrating existing installs.
     if webui_uid is not None and str(webui_uid).strip():
         uid = str(webui_uid).strip()
         p = principals_mod.resolve_principal_by_identity("webui", uid)
@@ -162,10 +165,14 @@ def me_payload(
     uname = username or (str(attrs.get("username") or "").strip() or None)
     source = "jwt" if auth_source == "jwt" else "local"
     display = str(p.get("display_name") or "").strip()
-    # Prefer login username over bootstrap "Local Admin" when JWT is present.
-    if source == "jwt" and uname and (not display or display.lower() in {"local admin", "admin"}):
+    # When a JWT is present, always show the login username — never a stale bootstrap
+    # label like "Local Admin".  This is the single source of truth for:
+    #   - the account chip (前端显示)
+    #   - the "我" 资产桶标签  (API /assets/entities)
+    #   - every prompt that says "用户「我」" (按钮 ownerLine)
+    if source == "jwt" and uname:
         display = uname
-    if not display:
+    elif not display:
         display = uname or pid or "用户"
     from evoflow.authz.principals import _avatar_public_fields
 

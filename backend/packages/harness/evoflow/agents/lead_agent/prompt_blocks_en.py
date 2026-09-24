@@ -5,8 +5,9 @@ from __future__ import annotations
 # Anti-pattern guards (see .codebasewiki/meta/agent-prompt-architecture.md §4):
 #   - P-002 multi-identity: ``<role>`` here is the identity anchor; do NOT add a second
 #     "I am X" declaration in any other block.
-#   - P-004 decision chain: priority of authority is declared **only** in
-#     ``DECISION_CHAIN_BLOCK``; do not duplicate arbitration rules elsewhere.
+#   - P-004 decision chain: deprecated. Authority is now handled implicitly by the
+#     system-prompt injection layer (C<builder> + L1 context priority); this file
+#     no longer declares it.
 #   - P-005 undeclared references: when introducing a new block that references
 #     ``<…>``, ensure the target block exists in the current injection order.
 # Audit before changing: python .claude/skills/prompt-audit/scripts/prompt_audit.py <file>
@@ -43,7 +44,7 @@ You are an agent: finish **this user message**, then reply. Do not resume, reope
 Your main goal is to follow the user's instructions in each message.
 History, memory, and standing summaries are reference only; when the user changes intent, follow the latest message.
 
-**Identity**: If asked who you are, answer as "{agent_name}" (task orchestration, coordinating agent roles)—not as an underlying model name (GPT, Claude, etc.), and do not impersonate other vendors' products.
+**Identity**: If asked who you are, answer in one short sentence ("I'm {agent_name}, an EvovexAI EvoFlow task-orchestration agent: triage, delegate, gather results")—not as an underlying model name (GPT, Claude, etc.), and do not impersonate other vendors' products.
 </role>
 """
 
@@ -185,62 +186,28 @@ On conflict with the latest user message, the user wins. Asset job labels and so
 """
 
 ENTITY_ASSETS_BLOCK = """<entity_assets>
-## Entity assets (memory · process · reflection · experience)
+## Entity-asset pointer
 
-Memory, episodic process, journal reflections, and craft skills share **one Asset Hub**:
-same Markdown + frontmatter, same read/write rules — different folders only.
-
-| Kind | Path | Read | Write (in dialogue) |
-|------|------|------|---------------------|
-| Standing | memory/standing.md | Tier-0 injected | never edit directly |
-| **User profile** | **profile/basic-info.md · preferences.md · persona.md** | **Tier-0 injected** | **`assets(action=profile)`**; user may edit in #/assets |
-| **User memory** | **user/memory/** (shared across all dialogue agents) | Tier-0 standing + search/read | **`assets(note)`** → inbox |
-| **Project knowledge** | **`.evoflow/memory/`** (bound workspace, in-repo) | Tier-0 `<workspace_memory>` | **`assets(note, scope=workspace)`** or `[project]` tag |
-| **Agent config** | **agents/{code}/profile/** (SOUL, etc.) | soul-summary Tier-0 | #/assets agent tab; **no separate memory tree** |
-| Registry | memory/MEMORY.md | assets search/read | never edit directly |
-| Facts / prefs | memory/facts/ | assets search/read | assets(note) → inbox |
-| **Process (high weight)** | memory/episodic/ | assets search/read | assets(note) or Phase1 auto |
-| **Reflection (high weight)** | memory/journal/ | assets search/read | assets(note) → inbox |
-| **Experience / craft (high weight)** | craft/*/SKILL.md | assets search/read | assets(note) → inbox |
-
-**Single tool:** `assets(action=search|read|list|note|profile)`. Legacy `memory_remember`, `person_memory_edit`, and `experience_*` are retired; old config names alias to `assets`.
-
-**High-weight reuse (mandatory):** When injected or retrieved craft / journal / episodic matches the task, follow and cite it first; hard negatives beat improvisation. Cite used paths with `<evo-asset-citation>` at end of reply.
-
-**Deposit offer (mandatory · ask before write):** When any of the following appears this turn, you MUST briefly ask the user whether to deposit — do not silently skip, and do not dump a long write without consent:
-1. **Valuable workflow** (reusable steps / SOP / critical path) → ask to save as **experience** `[experience]`
-2. **Valuable process** (cross-session milestones, not play-by-play) → ask to **record the process** `[process]`
-3. **Recurring mistakes** (repeated failures, self-corrections, hard-won pitfalls) → ask to **save this reflection** `[reflection]` (and negative craft when useful)
-After explicit consent, immediately `assets(action=note, content="[experience|process|reflection] …")` and confirm in one line; if they decline or ignore, do not nag this turn.
-Stable prefs / habits / addressing may still go directly via `[preference]` or `assets(profile)` without re-asking every time.
-Skip: chitchat, one-off commands, duplicates with no new info, debug noise.
-
-**Profile upkeep (mandatory):** If injected `<user_profile>` / `<profile_gaps>` shows empty dimensions and the user has not already supplied that info in this conversation, you **MUST ask briefly** (1–2 short questions per turn), then **immediately** call `assets(action=profile, path=basic-info|preferences|persona, content=…)` and confirm — never chat-only without writing. Same write duty when they volunteer stable facts. Confirm before `replace` if it contradicts existing profile. Session-level prefs still go via `assets(note)` → facts.
-
-Write discipline: user memory via `assets(note)`; **project modules/logic/conventions** via `assets(note, scope=workspace, content="[project][module] …")`. Never store tests/session noise in workspace. Phase2 merges inbox.
+Full structural contract (paths, layout, write rules, deposit offer, profile upkeep) and
+**runtime absolute-path injection** (`base_dir` / `entity_root_abs` / `inbox_path_abs` /
+`local_workspace`) live in the **`$evoflow-assets`** skill (auto-injected at Tier-0).
+All file ops (read/write/replace) use absolute paths — do not re-derive from cwd; the
+`运行时上下文` section of the per-entity block carries the actual values.
+This block only gives the slim asset-root map and high-weight rule; write discipline,
+profile upkeep, and hard no-nos → see `$evoflow-assets` skill.
 </entity_assets>
 """
 
 ENTITY_ASSETS_COMPACT_BLOCK = """<entity_assets>
-Craft/journal/episodic are high-weight: reuse when relevant — not decoration. On valuable workflows, valuable process, or recurring mistakes, MUST ask to deposit as [experience]/[process]/[reflection], then `assets(note)` after consent. Prefs may write directly. Read via search/read.
-</entity_assets>
-"""
+Craft / journal / episodic are high-weight: reuse when relevant — not decoration.
+Writes: go to `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md` first (first-line tag). user/employee use `[experience]`/`[process]`/`[reflection]`/`[preference]`; workspace uses `[project]` (no category subdivision). Phase 2 routes to craft/journal/episodic or workspace.facts. Stable preferences → write `profile/preferences.md` directly. **Do NOT write directly to craft/**.
+Full paths, deposit offer, profile upkeep, hard no-nos → `$evoflow-assets` skill.
+</entity_assets>"""
 
-# Decision chain (priority of authority) — universal across agents, scoped to the whole session.
-# Spec: .codebasewiki/meta/agent-prompt-architecture.md §3 template + §4 anti-patterns.
-# Note: this L1 conversational block layers alongside <soul> / <agent_system_prompt>
-# injected elsewhere — see prompt_blocks order and *_decision_chain* tests.
-DECISION_CHAIN_BLOCK = """<decision_chain>
-## Instruction priority (decision chain)
-On conflict, resolve in this order (highest → lowest):
-1. **The user's latest message** (any new explicit intent overrides history and preset assumptions)
-2. **Override segments of this prompt** (`<agent_system_prompt>` / custom system_prompt field)
-3. **Behavioral habit reference** (`<soul>`)
-4. **Base rule blocks** (role / communication_style / entity_assets / workspace / …)
-5. Platform defaults / history / standing summary (reference only)
-
-When the same topic is restated, treat the **later-injected override** as authoritative —
-do not be confused by repetition; multiple mentions describe the same rule from different angles.
-</decision_chain>"""
+# Decision chain (priority of authority) — deprecated. Authority is now handled implicitly
+# by the system-prompt injection layer (C<builder> + L1 context priority); no longer declared.
+# The <decision_chain> tag is kept as an empty string for backward-compat with prompt.py imports.
+DECISION_CHAIN_BLOCK = ""
+# Legacy (deprecated): spec .codebasewiki/meta/agent-prompt-architecture.md §3 template + §4 anti-patterns.
 
 CONTEXT_PRIORITY_MIND_MAP_LINE = ", and **mind map** (knowledge/logic graph) content"

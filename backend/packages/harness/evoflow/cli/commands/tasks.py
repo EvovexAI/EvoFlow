@@ -350,7 +350,7 @@ def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
     want = str(role_name or "").strip().lower()
     if not want:
         raise ValidationError("role must be a non-empty role_name")
-    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want and str(r.status or "").strip().lower() != "archived"]
+    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want]
     if not matches:
         raise ValidationError(f"no active role found with name '{role_name}'. Run `evoflow employees list` to see available role_name values.")
     role = matches[0]

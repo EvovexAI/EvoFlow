@@ -72,7 +72,7 @@ def build_meeting_verify_tools(*, agent_code: str, role: Any) -> list[Structured
         return _clip("\n".join(lines))
 
     def read_my_asset(path: str) -> str:
-        """读取本岗资产中心某一相对路径（只读，如 memory/journal/2026-08-28.md）。"""
+        """读取本岗资产中心某一相对路径（只读，如 memory/journal/20260828.md）。"""
         from evoflow.assets.hub import read_text_file
         from evoflow.assets.paths import EntityRef
 

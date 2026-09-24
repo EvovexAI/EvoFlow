@@ -427,12 +427,26 @@ def format_soul_prompt_block(
         text = omit_lessons_learned_section(text)
         if not text:
             return ""
+    # Normalize legacy "Lessons" references in remaining text (legacy phrasing in user-edited
+    # soul files). The system has moved to a 1-inbox / 4-tag deposit flow; "Lessons" no longer
+    # exists as a write target.
+    for legacy in (
+        "写进 Lessons",
+        "记到 Lessons",
+        "积累到 Lessons",
+        "存入 Lessons",
+        "write to Lessons",
+        "save to Lessons",
+        "log to Lessons",
+        "append to Lessons",
+    ):
+        text = text.replace(legacy, "写进 inbox (首行标签)" if legacy.startswith("写") or legacy.startswith("记") or legacy.startswith("积") or legacy.startswith("存") else "write to inbox (first-line tag)")
     if max_chars > 0 and len(text) > max_chars:
         # Sentence-boundary truncation — avoid hard-cutting mid-sentence (e.g. 「…但不把一次性的…」).
         from evoflow.assets.injection_budget import cap_text_chars
 
         text = cap_text_chars(text, max_chars) + "\n<!-- soul truncated; details in archival -->"
-    return f"<soul>\n<!-- L1 — communication/work habits only; reference, not standing orders. Do not resume old verification/patrol lessons unless the user asks. -->\n{text}\n</soul>\n"
+    return f"<soul>\n{text}\n</soul>\n"
 
 
 def format_standing_summary_block(agent_code: str | None) -> str:

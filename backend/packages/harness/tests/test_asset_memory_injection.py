@@ -29,7 +29,8 @@ def test_default_injection_mode_is_asset() -> None:
     assert resolve_memory_injection_mode() == "asset"
 
 
-def test_asset_tier0_read_path_without_catalog(assets_home: Path) -> None:
+def test_asset_tier0_read_path_with_catalog(assets_home: Path) -> None:
+    """asset-hub 模式下 entity block 内部渲染 catalog,让模型一眼看到已有哪些资产."""
     ref = EntityRef("user", "user").normalized()
     ensure_entity_tree(ref)
     standing = assets_home / "assets" / "user" / "memory" / "standing.md"
@@ -39,17 +40,21 @@ def test_asset_tier0_read_path_without_catalog(assets_home: Path) -> None:
     )
     facts = assets_home / "assets" / "user" / "memory" / "facts"
     facts.mkdir(parents=True, exist_ok=True)
-    (facts / "goal-done.md").write_text(
-        '---\naccess_tier: archival\nevidence: {"source": "goal_complete"}\n---\n\n# Goal done\n',
+    (facts / "ci-fix.md").write_text(
+        "---\ntitle: CI fix\nsummary: 使用 cache mount\n---\n\nuse --mount=type=cache\n",
         encoding="utf-8",
     )
 
     block = build_entity_memory_injection(ref)
-    assert "MEMORY_SUMMARY BEGINS" in block
+    # standing 内容仍出现在块内(无 BEGIN/END sentinel,只用 ``` 代码栅栏)
     assert "prompt-audit" in block
-    assert "assets(action=search" in block
-    assert "<catalog>" not in block
-    assert "goal-done" not in block
+    # read/write/replace 是统一的工具集(任意出现即可,不必 "read / write / replace" 这个完整字面)
+    for token in ("read", "write", "replace"):
+        assert token in block, token
+    # catalog 已渲染(新格式:不再用 <catalog> 包裹,而是 - path · label 平铺)
+    assert "ci-fix" in block
+    # 锚点行里就带 base_dir,不必单开一行
+    assert "base=" in block
 
 
 def test_asset_skips_empty_standing(assets_home: Path) -> None:
@@ -76,7 +81,8 @@ def test_build_memory_injection_sections_asset_no_legacy_memory(assets_home: Pat
     monkeypatch.setattr("evoflow.config.memory_config.get_memory_config", lambda: _Cfg())
 
     block = build_memory_injection_sections(agent_name="main")
-    assert "MEMORY_SUMMARY" in block
+    # standing 内容仍可见(没有 sentinel,只有 markdown 代码栅栏 + base 锚点)
+    assert "验证岗偏好结论先行" in block
     assert "<memory>" not in block
     assert "User Context" not in block
 
@@ -141,13 +147,15 @@ def test_procedure_once_when_user_and_workspace(assets_home: Path, monkeypatch: 
         local_workspace_root=str(repo),
     )
     assert block.count("## Entity assets") == 1
-    assert "Ask before deposit" in block
+    # procedure 段已改写为中文
+    assert "先问用户" in block
     assert "dedupe-read-path" in block
     assert "EvoFlow harness" in block
     assert "<workspace_memory>" in block
-    assert "### User —" in block
-    assert "### Workspace —" in block
+    # heading 格式:`### User \`xxx\` · base=\`...\``(短破折号 + 锚点合并)
+    assert "### User `assets/user`" in block
+    assert "### Workspace `" in block
     # Workspace block must not re-paste the shared procedure
     ws_start = block.index("<workspace_memory>")
     assert "## Entity assets" not in block[ws_start:]
-    assert "Ask before deposit" not in block[ws_start:]
+    assert "先问用户" not in block[ws_start:]

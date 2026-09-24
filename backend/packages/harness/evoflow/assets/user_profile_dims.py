@@ -17,17 +17,10 @@ from evoflow.assets.paths import EntityRef, profile_dir, profile_path
 
 ProfileInjectionScope = Literal["full", "identity"]
 
-_INDEX_FILE = "README.md"
-
 USER_PROFILE_DIMENSION_FILES: tuple[str, ...] = (
     "basic-info.md",
     "preferences.md",
     "persona.md",
-)
-
-USER_PROFILE_ALL_FILES: tuple[str, ...] = (
-    _INDEX_FILE,
-    *USER_PROFILE_DIMENSION_FILES,
 )
 
 
@@ -190,31 +183,11 @@ def default_persona_md() -> str:
     return "# 画像与行为特征\n\n## 沟通方式\n（如：直接、偏技术、需要步骤清单）\n\n## 工作习惯\n（如：先读文档再改代码、偏好 PR 小步提交）\n\n## 决策与协作\n（如：风险敏感、重要操作前先确认）\n"
 
 
-def default_profile_readme_md() -> str:
-    return (
-        "# 用户画像（索引）\n\n"
-        "用户画像已拆分为三个独立文件，便于维护；**每个 Agent** 会注入已填写的内容。\n\n"
-        "| 文件 | 内容 |\n"
-        "|------|------|\n"
-        "| [basic-info.md](./basic-info.md) | 称呼、语言、时区、职业 |\n"
-        "| [preferences.md](./preferences.md) | 回复风格、爱好、避免事项 |\n"
-        "| [persona.md](./persona.md) | 沟通方式、工作习惯、行为特征 |\n\n"
-        "编辑入口：EvoPanel **#/assets → 画像**，或分别编辑上述文件。\n"
-        "某维度留空时，Agent **必须**在对话中主动简短询问并写入（如称呼、偏好）。\n"
-    )
-
-
-def default_user_profile_md() -> str:
-    """Alias for profile README default (asset-center index)."""
-    return default_profile_readme_md()
-
-
 def _default_for_file(filename: str) -> str:
     return {
         "basic-info.md": default_basic_info_md(),
         "preferences.md": default_preferences_md(),
         "persona.md": default_persona_md(),
-        _INDEX_FILE: default_profile_readme_md(),
     }.get(filename, "")
 
 
@@ -240,6 +213,47 @@ def _placeholder_line_re():
     return _PLACEHOLDER_LINE_RE
 
 
+def _strip_orphaned_section_headings(text: str) -> str:
+    """Remove section headings (# heading\n) that have no non-empty content immediately below them.
+
+    After stripping placeholder lines, some sections may be left with just a heading
+    and no prose. These orphan headings count as "decorative" and should be removed.
+    """
+    import re as _re
+
+    lines = text.splitlines()
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Match section heading (any level: # ## ### etc.)
+        m = _re.match(r"^#+\s+\S", line)
+        if m:
+            # Check if there's non-empty content in the next N lines
+            has_content = False
+            j = i + 1
+            # Allow up to 3 blank lines before next heading
+            blank_count = 0
+            while j < len(lines):
+                next_line = lines[j].strip()
+                if _re.match(r"^#+\s+\S", next_line):
+                    # Next heading reached — this heading has no content
+                    break
+                if next_line:
+                    has_content = True
+                    break
+                blank_count += 1
+                if blank_count > 3:
+                    break
+                j += 1
+            if has_content:
+                result.append(line)
+        else:
+            result.append(line)
+        i += 1
+    return "\n".join(result)
+
+
 def _strip_placeholder_body(text: str, *, filename: str) -> str:
     raw = str(text or "").strip()
     if not raw:
@@ -251,6 +265,11 @@ def _strip_placeholder_body(text: str, *, filename: str) -> str:
     # comparing total prose length — partial fills previously leaked the leftover
     # template examples into prompt injection as if they were real preferences.
     body = _placeholder_line_re().sub("", raw)
+
+    # Strip orphaned section headings that no longer have any content below them
+    # (e.g. "## 回复风格\n" with no prose underneath after placeholder stripping).
+    body = _strip_orphaned_section_headings(body)
+
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
     if not body:
         return ""
@@ -279,10 +298,6 @@ def ensure_user_profile_files(entity: EntityRef | None = None) -> None:
         p = root / name
         if not p.is_file():
             p.write_text(_default_for_file(name), encoding="utf-8")
-
-    readme = root / _INDEX_FILE
-    if not readme.is_file():
-        readme.write_text(default_profile_readme_md(), encoding="utf-8")
 
     # Drop retired monolith if present (no longer read or shown).
     legacy = root / "USER.md"
@@ -363,21 +378,24 @@ def build_user_profile_injection_block(
         else:
             ask = dim.ask_en if lang == "en" else dim.ask_zh
             if lang == "en":
-                lines.append(f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when they have not already answered it, then save with assets(action=profile): {ask})")
+                lines.append(f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when they have not already answered it, then save with `write` to profile file: {ask})")
             else:
-                lines.append(f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，得到回答后立刻用 assets(action=profile) 写入：{ask}）")
+                lines.append(f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，得到回答后立刻用 `write`/`replace` 写入 profile 文件：{ask}）")
         lines.append(f"</{dim.tag}>")
 
     if missing:
         if lang == "en":
             gaps = "; ".join(d.ask_en for d in missing[:3])
-            lines.append("<profile_gaps>")
+            # Profile gaps are agent behavior directives, not user data; render under
+            # <agent_behavior> so the prompt parser does not mis-classify them as
+            # profile content and so the user-facing profile block stays clean.
+            lines.append("<agent_behavior>")
             if scope == "identity":
                 lines.append(
                     "MANDATORY: User identity is incomplete. You MUST proactively ask "
                     "(brief, friendly — not a long form) for missing fields in this conversation "
-                    "if the user has not already provided them — e.g. " + gaps + ". After they answer, you MUST call "
-                    "assets(action=profile, path=basic-info, content=…) and briefly confirm the update. "
+                    "if the user has not already provided them — e.g. " + gaps + ". After they answer, you MUST use "
+                    "`write`/`replace` on the profile file and confirm briefly. "
                     "Do not only chat without writing."
                 )
             else:
@@ -387,22 +405,22 @@ def build_user_profile_injection_block(
                     "in this conversation, you MUST actively ask 1–2 short questions this turn or the "
                     "next natural turn — do not wait for them to volunteer. Example prompts: " + gaps + ".\n"
                     "2) As soon as they answer, you MUST persist with "
-                    "`assets(action=profile, path=basic-info|preferences|persona, content=…)` "
+                    "`write`/`replace` on the profile file "
                     "and confirm in one short line.\n"
                     "3) Never finish the turn with only verbal acknowledgment and no profile write "
                     "when new stable facts were shared.\n"
                     "Tone: warm and brief; never grill like a questionnaire."
                 )
                 lines.append("They can also edit under Asset Center → Profile (#/assets → 画像).")
-            lines.append("</profile_gaps>")
+            lines.append("</agent_behavior>")
         else:
             gaps = "；".join(d.ask_zh for d in missing[:3])
-            lines.append("<profile_gaps>")
+            lines.append("<agent_behavior>")
             if scope == "identity":
                 lines.append(
                     "【强制】用户身份信息不完整。若本对话中用户尚未提供缺口信息，"
                     "你必须主动、简短友好地询问（不要长问卷），例如：" + gaps + "。用户回答后，必须立刻调用 "
-                    "assets(action=profile, path=basic-info, content=…) 写入，并简短确认已更新。"
+                    "`write`/`replace` 写入 profile 文件，并简短确认已更新。"
                     "禁止只聊不写。"
                 )
             else:
@@ -412,21 +430,21 @@ def build_user_profile_injection_block(
                     "你必须在本回合或紧接着的自然回合主动提问（每轮最多 1～2 句），"
                     "不要等用户主动提起。可参考：" + gaps + "。\n"
                     "2）用户一旦回答，必须马上用 "
-                    "`assets(action=profile, path=basic-info|preferences|persona, content=…)` "
-                    "写入对应维度，并用一句话确认已更新。\n"
-                    "3）用户已透露稳定信息时，禁止只口头应承而不调用 assets(profile)。\n"
+                    "`write`/`replace` 写入 profile 文件"
+                    "，并用一句话确认已更新。\n"
+                    "3）用户已透露稳定信息时，禁止只口头应承而不写 profile。\n"
                     "语气：友善、简短；不要像填表审问。"
                 )
-                lines.append("用户也可自行在资产中心 #/assets → 画像 维护 basic-info / preferences / persona。")
-            lines.append("</profile_gaps>")
+                lines.append("用户也可直接在 UI 智能体 Tab 维护 basic-info / preferences / persona。")
+            lines.append("</agent_behavior>")
     elif scope == "full":
         if lang == "en":
             lines.append("<profile_upkeep>")
             lines.append(
                 "MANDATORY upkeep: When the user shares new stable facts, preferences, or habits — "
                 "or corrects old ones — you MUST update the matching dimension via "
-                "assets(action=profile, path=basic-info|preferences|persona, content=…). "
-                "Default append; use query=replace only after confirmation if it contradicts existing text. "
+                "`write`/`replace` on the profile file. "
+                "Default append; use replace only after confirmation if it contradicts existing text. "
                 "Do not only acknowledge verbally."
             )
             lines.append("</profile_upkeep>")
@@ -434,19 +452,17 @@ def build_user_profile_injection_block(
             lines.append("<profile_upkeep>")
             lines.append(
                 "【强制维护】用户透露新的稳定信息（称呼、偏好、习惯）或更正旧画像时，"
-                "必须用 `assets(action=profile, path=basic-info|preferences|persona, content=…)` "
-                "主动更新对应维度；禁止只口头记下。默认 append 追加；"
-                "若与现有内容矛盾，先确认再 query=replace。"
+                "必须用 `write`/`replace` 主动更新 profile 文件；禁止只口头记下。"
             )
             lines.append("</profile_upkeep>")
     elif scope == "identity":
         if lang == "en":
             lines.append("<profile_upkeep>")
-            lines.append("When the user shares name, role, language, or timezone, update basic-info via assets(action=profile, path=basic-info, content=…). Leave preferences/persona to dialogue agents.")
+            lines.append("When the user shares name, role, language, or timezone, use `write`/`replace` to update the profile file. Leave preferences/persona to dialogue agents.")
             lines.append("</profile_upkeep>")
         else:
             lines.append("<profile_upkeep>")
-            lines.append("用户透露称呼、职业、语言、时区等身份信息时，用 assets(action=profile, path=basic-info, content=…) 更新；偏好与行为画像由对话 Agent 维护，员工任务不必写入。")
+            lines.append("用户透露称呼、职业、语言、时区等身份信息时，用 `write`/`replace` 更新 profile 文件；偏好与行为画像由对话 Agent 维护，员工任务不必写入。")
             lines.append("</profile_upkeep>")
     lines.append(f"</{root_tag}>")
     return "\n".join(lines)

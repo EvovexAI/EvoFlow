@@ -125,8 +125,7 @@ def ensure_xiaomi_proactive_role() -> dict[str, Any]:
             cfg.reports_to = prev_mgr
     existing.config = cfg
     sync_role_schedule_fields(existing, XIAOMI_HEARTBEAT_SCHEDULE)
-    if existing.status == "archived":
-        existing.status = "active"
+    existing.status = "active"
     existing.updated_at = now
     if not str(existing.next_heartbeat_at or "").strip():
         existing.next_heartbeat_at = compute_next_duty_iso(existing)
@@ -279,7 +278,7 @@ def build_xiaomi_duty_system_prompt(role) -> str:
 
     del role  # identity is fixed to 小V; roster is global
     try:
-        roster = [r for r in ProactiveRepository.list_roles() if str(r.status or "").strip().lower() != "archived"]
+        roster = list(ProactiveRepository.list_roles())
     except Exception:
         roster = []
 

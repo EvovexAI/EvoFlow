@@ -902,6 +902,7 @@ async function gatewayProxyFetchStream(url, options = {}) {
 /**
  * Desktop stream transport:
  * - Chat ``/runs/stream`` (default): Rust ``gateway_proxy_stream`` — fast SSE bytes, no page port discovery.
+ * - DEV 模式 或 evoflow-dev-network-debug=1: 直走浏览器 fetch → DevTools Network 可见
  * - Opt-in stdio structured pipe: ``localStorage evoflow-desktop-pipe-chat=1`` (filtered; drops fat values).
  * - Other SSE: prefer warm app-server pipe; HTTP fallback.
  * - Web: same-origin ``fetch``.
@@ -910,8 +911,15 @@ export async function evoflowFetchStream(url, options = {}) {
   if (!isEvoflowTauri() || !url.startsWith('/')) {
     return fetch(url, options)
   }
+
   const pathOnly = String(url).split('?')[0]
   const isRunsStream = String(url).includes('/runs/stream')
+
+  // DEV 模式：直走 Vite proxy fetch，DevTools Network 可见（SSE 也走 /api proxy，ws: true）
+  if (import.meta.env.DEV) {
+    console.info('[evoflow] sse transport=dev-fetch', pathOnly)
+    return fetch(url, options)
+  }
 
   let forcePipeChat = false
   let forceWebviewHttp = false
@@ -2133,6 +2141,13 @@ export async function appendSessionTranscriptMessage(sessionKey, flatRow, { runI
       const netCode = classifyNetworkError(e, { status: e?.status })
       const msg = String(e?.message || e || '').toLowerCase()
       const isServiceUnreachable = netCode === NetworkErrorCode.SERVICE_UNREACHABLE
+      // 服务不可达 → 立即通知 service-health 亮 banner（不等 30s 轮询）
+      if (isServiceUnreachable) {
+        try {
+          const { markServiceUnreachable } = await import('./service-health.js')
+          markServiceUnreachable(msg)
+        } catch { /* service-health 加载失败不影响重试流 */ }
+      }
       const isServiceInternal =
         netCode === NetworkErrorCode.SERVICE_INTERNAL ||
         msg.includes('database') ||
@@ -2196,6 +2211,13 @@ export async function enqueuePendingInject(sessionKey, flatRow) {
       const netCode = classifyNetworkError(e, { status: e?.status })
       const msg = String(e?.message || e || '').toLowerCase()
       const isServiceUnreachable = netCode === NetworkErrorCode.SERVICE_UNREACHABLE
+      // 服务不可达 → 立即通知 service-health 亮 banner
+      if (isServiceUnreachable) {
+        try {
+          const { markServiceUnreachable } = await import('./service-health.js')
+          markServiceUnreachable(msg)
+        } catch { /* service-health 加载失败不影响重试流 */ }
+      }
       const isServiceInternal =
         netCode === NetworkErrorCode.SERVICE_INTERNAL ||
         msg.includes('database') ||
@@ -7312,6 +7334,13 @@ export class WsClient {
       const errMsg = String(err?.message || err || '请求失败')
       // 用统一分类区分 502（服务端不可达）与客户端网络错误，给出不同提示
       const netCode = classifyNetworkError(err, { status: err?.status })
+      // 服务不可达 → 立即通知 service-health 亮 banner（不等 30s 轮询）
+      if (netCode === NetworkErrorCode.SERVICE_UNREACHABLE) {
+        try {
+          const { markServiceUnreachable } = await import('./service-health.js')
+          markServiceUnreachable(errMsg)
+        } catch { /* service-health 加载失败不影响错误流 */ }
+      }
       const friendlyMsg = (() => {
         if (/前端流超时|stream read timeout/i.test(errMsg)) return errMsg
         if (isLangGraphThreadOrAssistantMissing(err)) {

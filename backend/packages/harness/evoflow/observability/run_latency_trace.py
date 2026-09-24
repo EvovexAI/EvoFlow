@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import atexit
 import logging
 import os
+import queue
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from pathlib import Path
 from typing import Any
 
@@ -220,11 +219,9 @@ def clear_live_progress(thread_id: str) -> None:
         pass
 
 
-_executor: ThreadPoolExecutor | None = None
-_executor_lock = threading.Lock()
-_pending_lock = threading.Lock()
-_pending_futures: list[Future[None]] = []
+_persist_queue: queue.Queue | None = None
 _MAX_TRACKED_PENDING = 512
+_persist_thread_alive = False
 
 
 def _sync_writes_enabled() -> bool:
@@ -233,43 +230,84 @@ def _sync_writes_enabled() -> bool:
     return v in ("1", "true", "yes", "on")
 
 
-def _get_executor() -> ThreadPoolExecutor:
-    global _executor
-    with _executor_lock:
-        if _executor is None:
-            _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="run-latency-")
-        return _executor
+def _get_persist_queue() -> queue.Queue:
+    """Return the persist queue, creating it on the first call."""
+    global _persist_queue
+    if _persist_queue is None:
+        _persist_queue = queue.Queue(maxsize=_MAX_TRACKED_PENDING * 2)
+    return _persist_queue
 
 
-def _shutdown_executor() -> None:
-    global _executor
-    with _executor_lock:
-        if _executor is not None:
-            try:
-                flush_run_latency_trace_pending(timeout=1.5)
-            except Exception:
-                pass
-            _executor.shutdown(wait=False, cancel_futures=False)
-            _executor = None
+def _enqueue_persist(row: dict[str, Any]) -> None:
+    """Persist one trace row.
+
+    Uses a bounded queue + periodic drain instead of a dedicated writer thread.
+    This avoids thread.start() blocking when the OS thread pool is saturated
+    (e.g. sklearn/scipy import storm during LangGraph mount).
+
+    Writes are synchronous JSONL appends.  The OS write cache absorbs the I/O
+    so each call returns in <1 ms.  If the queue is full, the row is dropped —
+    tracing must never block or break the caller.
+    """
+    if _sync_writes_enabled():
+        _persist_run_latency_row(row)
+        return
+
+    q = _get_persist_queue()
+    try:
+        q.put_nowait(row)
+    except queue.Full:
+        pass  # drop — must never block
+    except Exception:
+        pass
+
+    # Drain up to _MAX_TRACKED_PENDING items per call so the queue never grows
+    # without bound.  Periodic drain (rather than a dedicated thread) means no
+    # thread.start() and no _adjust_thread_count contention.
+    drained = 0
+    while drained < _MAX_TRACKED_PENDING:
+        try:
+            item = q.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            _persist_run_latency_row(item)
+        except Exception:
+            pass
+        drained += 1
 
 
-atexit.register(_shutdown_executor)
+def _flush_persist_queue() -> None:
+    """Drain all pending rows synchronously (used by tests / shutdown)."""
+    q = _persist_queue
+    if q is None:
+        return
+    while True:
+        try:
+            item = q.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            _persist_run_latency_row(item)
+        except Exception:
+            pass
 
 
 def flush_run_latency_trace_pending(*, timeout: float = 2.0) -> None:
     """Wait for background writes (tests or graceful shutdown)."""
-    with _pending_lock:
-        futures = [f for f in _pending_futures if not f.done()]
-    if not futures:
+    q = _persist_queue
+    if q is None:
         return
-    done, not_done = wait(futures, timeout=timeout)
-    for fut in done:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         try:
-            fut.result()
+            row = q.get_nowait()
+        except queue.Empty:
+            return
+        try:
+            _persist_run_latency_row(row)
         except Exception:
             pass
-    if not_done:
-        logger.debug("run_latency_trace: %s pending writes after %.1fs", len(not_done), timeout)
 
 
 def _now_wall_ms() -> int:
@@ -472,11 +510,12 @@ def _enqueue_persist(row: dict[str, Any]) -> None:
     if _sync_writes_enabled():
         _persist_run_latency_row(row)
         return
-    fut = _get_executor().submit(_persist_run_latency_row, row)
-    with _pending_lock:
-        _pending_futures.append(fut)
-        if len(_pending_futures) > _MAX_TRACKED_PENDING:
-            _pending_futures[:] = [f for f in _pending_futures if not f.done()][-_MAX_TRACKED_PENDING:]
+    try:
+        _get_persist_queue().put_nowait(row)
+    except queue.Full:
+        pass  # drop row rather than block — tracing must never block the caller
+    except Exception:
+        pass
 
 
 def write_run_latency_event(

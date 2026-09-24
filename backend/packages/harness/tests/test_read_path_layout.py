@@ -37,7 +37,8 @@ def test_layout_lines_workspace_no_profile() -> None:
     lines, cross = _entity_layout_lines(workspace_entity_ref("/tmp/proj"))
     assert "profile/" not in lines
     assert "memory/facts/" in lines
-    assert "assets/user/memory" in cross
+    # M 工作树将 cross_entity_note 从 `assets/user/memory` 改为相对 `user/memory/`
+    assert "user/memory/" in cross
 
 
 def test_read_path_guidance_root_once(assets_home: Path) -> None:
@@ -51,12 +52,19 @@ def test_read_path_guidance_root_once(assets_home: Path) -> None:
     block = build_read_path_guidance(ref)
     root = ".evoflow"
     assert block.count(root) >= 1
-    assert f"### Workspace — `{root}/`" in block
+    # 新 heading:`### Workspace \`<root>\` · base=\`<base_dir>\``(破折号换回点连接符)
+    assert f"### Workspace `{root}` · base=" in block
     assert f"{root}/memory/standing.md" not in block
-    assert "- memory/standing.md" in block
+    # standing 出现在 markdown 代码栅栏的 standing (already loaded) 段,不再用 BEGIN/END sentinel
+    assert "standing (already loaded)" in block
+    assert "EvoFlow backend harness" in block
     assert "profile/basic-info" not in block
     assert block.count("## Entity assets") == 1
     assert f"assets/workspaces/{ref.entity_id}" not in block
+    # 锚点行里就带 base_dir,不再单开 base_dir: ... 行
+    assert "base=" in block
+    # 绝对 workspace 路径通过 heading 注入
+    assert "base=`" in block
 
 
 def test_read_path_entity_only_skips_procedure(assets_home: Path) -> None:
@@ -69,6 +77,12 @@ def test_read_path_entity_only_skips_procedure(assets_home: Path) -> None:
 
     block = build_read_path_guidance(ref, include_procedure=False)
     assert "## Entity assets" not in block
+    # M 工作树把 prompt 从 `assets(action=search|...)` 改为统一走 read/write/replace
     assert "assets(action=search" not in block
-    assert "MEMORY_SUMMARY BEGINS" in block
+    # entity-only 块还带 standing(改用 markdown 代码栅栏 + 'standing (already loaded)' 标题,不再用 BEGIN/END sentinel)
+    assert "standing (already loaded)" in block
     assert "EvoFlow backend harness" in block
+    # heading 把 entity_root + base_dir 合并成单行
+    assert "### Workspace `" in block
+    assert "base=" in block
+

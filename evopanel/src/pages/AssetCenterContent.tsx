@@ -5,7 +5,6 @@ import {
   BrainCircuit,
   Sparkles,
   MessageCircleMore,
-  Star,
   FileOutput,
   Folder,
   FileText,
@@ -33,9 +32,9 @@ import { getCurrentRoute } from "../router.js";
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
-type AssetTab = "profile" | "memory" | "experience" | "journal" | "craft" | "stats" | "export";
+type AssetTab = "profile" | "memory" | "experience" | "journal" | "stats" | "export";
 
-type TreeTab = "memory" | "experience" | "journal" | "craft";
+type TreeTab = "memory" | "experience" | "journal";
 
 type MemoryKind = "standing" | "facts" | "episodic" | "graph";
 
@@ -47,7 +46,6 @@ type FileItem = { id: string; name: string; type: "folder" | "file"; path: strin
 
 
 const PROFILE_LABELS: Record<string, string> = {
-  "README.md": "画像索引",
   "basic-info.md": "基本信息",
   "preferences.md": "偏好与爱好",
   "persona.md": "画像与行为",
@@ -91,7 +89,6 @@ const ASSET_TABS: { id: AssetTab; label: string; icon: React.ReactNode }[] = [
   { id: "memory", label: "记忆", icon: <BrainCircuit size={16} strokeWidth={1.6} /> },
   { id: "experience", label: "经验", icon: <Sparkles size={16} strokeWidth={1.6} /> },
   { id: "journal", label: "反思", icon: <MessageCircleMore size={16} strokeWidth={1.6} /> },
-  { id: "craft", label: "专长", icon: <Star size={16} strokeWidth={1.6} /> },
   { id: "stats", label: "统计", icon: <BarChart3 size={16} strokeWidth={1.6} /> },
   { id: "export", label: "导出", icon: <FileOutput size={16} strokeWidth={1.6} /> },
 ];
@@ -119,9 +116,9 @@ function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   if (et === "workspace") {
     return ASSET_TABS.filter((t) => t.id === "memory");
   }
-  // Profile (画像) and craft (专长) are user-only; employees don't need them.
+  // Profile (画像) is user-only; employees don't need it.
   if (et !== "user") {
-    return ASSET_TABS.filter((t) => t.id !== "craft" && t.id !== "profile");
+    return ASSET_TABS.filter((t) => t.id !== "profile");
   }
   return ASSET_TABS;
 }
@@ -210,7 +207,7 @@ function sanitizeEntitiesForUi(list: Entity[]): Entity[] {
 
 function treeRootForTab(tab: AssetTab): string | null {
   if (tab === "memory") return "memory";
-  if (tab === "experience" || tab === "craft") return "craft";
+  if (tab === "experience") return "craft";
   if (tab === "journal") return "memory/journal";
   return null;
 }
@@ -219,7 +216,6 @@ function workspaceTitle(tab: AssetTab): string {
   if (tab === "profile") return "用户画像";
   if (tab === "memory") return "记忆目录";
   if (tab === "experience") return "经验目录";
-  if (tab === "craft") return "经验与专长";
   if (tab === "journal") return "反思日志";
   return "资产目录";
 }
@@ -229,7 +225,6 @@ function workspacePath(tab: AssetTab, treePath?: string): string {
   if (treePath) return `${treePath}/`;
   if (tab === "memory") return "memory/";
   if (tab === "experience") return "craft/";
-  if (tab === "craft") return "craft/";
   if (tab === "journal") return "memory/journal/";
   return "";
 }
@@ -249,7 +244,7 @@ function assetsHrefForPath(
 ): string {
   const rel = String(path || "").replace(/\\/g, "/").replace(/^\//, "");
   const params = new URLSearchParams();
-  params.set("tab", rel.startsWith("craft/") ? "craft" : "memory");
+  params.set("tab", rel.startsWith("craft/") ? "experience" : "memory");
   if (rel.startsWith("memory/episodic/")) params.set("memoryKind", "episodic");
   else if (rel.startsWith("memory/facts/") || rel === "memory/MEMORY.md") params.set("memoryKind", "facts");
   else if (rel.includes("standing")) params.set("memoryKind", "standing");
@@ -287,16 +282,16 @@ function treeToFileItems(entries: TreeEntry[]): FileItem[] {
 function initialTab(): AssetTab {
   const routePath = String(getCurrentRoute() || "").split("?")[0];
   if (routePath === "/memory" || routePath === "/memory/atoms") return "memory";
-  if (routePath === "/skills") return "craft";
+  if (routePath === "/skills") return "experience";
   const q = parseHashQuery();
   const t = String(q.tab || "");
   if (t === "experience" || t === "exp") return "experience";
   if (t === "journal" || t === "reflect" || t === "reflection") return "journal";
-  if (t === "skill" || t === "skills") return "craft";
+  if (t === "skill" || t === "skills") return "experience";
   if (t === "image" || t === "profile") return "profile";
   if (ASSET_TABS.some((x) => x.id === t)) return t as AssetTab;
   const path = String(q.path || "").replace(/\\/g, "/");
-  if (path.startsWith("craft/")) return "craft";
+  if (path.startsWith("craft/")) return "experience";
   if (path.startsWith("memory/journal/")) return "journal";
   if (path.startsWith("profile/")) return "profile";
   if (path.startsWith("memory/")) return "memory";
@@ -387,7 +382,7 @@ export default function AssetCenterContent() {
   const [applyTarget, setApplyTarget] = useState("");
   const [applyScopes, setApplyScopes] = useState({
     profile: true,
-    craft: true,
+    experience: true,
     memory: false,
     journal: false,
   });
@@ -503,11 +498,6 @@ export default function AssetCenterContent() {
           setEditorContent("");
         } else if (tab === "stats") {
           await loadUsageStats();
-        } else if (tab === "craft") {
-          await loadTree("craft");
-          setSelectedFile("");
-          setEditorContent("");
-          setFileDirty(false);
         } else if (tab === "memory") {
           await applyMemoryKind(memoryKind);
         } else if (tab === "experience") {
@@ -654,7 +644,6 @@ export default function AssetCenterContent() {
       void loadFile(pending);
       return;
     }
-    if (activeTab === "craft") return;
     if (selectedFile) return;
     const first = treeEntries.find((e) => e.kind !== "dir");
     if (first) void loadFile(first.path);
@@ -1118,11 +1107,14 @@ function AssetHeader({
   // 内容隔离由下拉框过滤 + 图谱 scope + 实体作用域数据加载负责，Tab 只负责导航。
   const isUserEntity = entityType === "user";
   const typeTabs = useMemo(() => {
-    return ENTITY_GROUPS.map((g) => ({
-      key: g.key,
-      label: g.label,
-      count: groupedEntities.find((x) => x.key === g.key)?.items.length ?? 0,
-    })).filter((t) => t.count > 0);
+    return ENTITY_GROUPS
+      .filter((g) => g.key !== "workspace") // 资产中心不需要工作区 Tab
+      .map((g) => ({
+        key: g.key,
+        label: g.label,
+        count: groupedEntities.find((x) => x.key === g.key)?.items.length ?? 0,
+      }))
+      .filter((t) => t.count > 0);
   }, [groupedEntities]);
 
   const typeItems = useMemo(() => {
@@ -1623,7 +1615,7 @@ function FileSidebar({
                     if (file.type === "file") onSelectFile(file.id);
                     else onSelectFolder(file.path);
                   }}
-                  className="flex min-w-0 flex-1 items-center"
+                  className="flex w-full min-w-0 flex-1 items-center text-left"
                 >
                   {file.type === "folder" ? (
                     <Folder size={14} strokeWidth={1.6} className="ac-tree-icon shrink-0 text-[var(--ac-folder)]" />
@@ -1814,9 +1806,9 @@ function ExportWorkspace({
   entities: Entity[];
   applyTarget: string;
   setApplyTarget: (v: string) => void;
-  applyScopes: { profile: boolean; craft: boolean; memory: boolean; journal: boolean };
+  applyScopes: { profile: boolean; experience: boolean; memory: boolean; journal: boolean };
   setApplyScopes: React.Dispatch<
-    React.SetStateAction<{ profile: boolean; craft: boolean; memory: boolean; journal: boolean }>
+    React.SetStateAction<{ profile: boolean; experience: boolean; memory: boolean; journal: boolean }>
   >;
   exportHint: string;
   onPack: () => void | Promise<void>;
@@ -1941,7 +1933,7 @@ function ExportWorkspace({
                 {(
                   [
                     ["profile", "用户画像"],
-                    ["craft", "专长 / 经验"],
+                    ["experience", "经验"],
                     ["journal", "反思"],
                     ["memory", "记忆"],
                   ] as const

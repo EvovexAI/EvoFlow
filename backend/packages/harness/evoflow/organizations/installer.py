@@ -158,7 +158,7 @@ def _collect_conflicts(will: dict[str, list[str]]) -> list[dict[str, str]]:
 
     for code in will.get("employees") or []:
         role = ProactiveRepository.get_role(code)
-        if role and str(role.status or "").lower() != "archived":
+        if role:
             owner = org_registry.find_artifact_owner("employee", code)
             conflicts.append(
                 {

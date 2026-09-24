@@ -222,6 +222,14 @@ import {
 import { TauriWindowControls } from './components/TauriWindowControls.js'
 import { toast } from '../components/toast.js'
 import { toUserFacingError } from '../lib/user-facing-error.js'
+import {
+  ServiceHealthState,
+  startServiceHealthPoll,
+  stopServiceHealthPoll,
+  onServiceHealthChange,
+  triggerServiceHealthCheck,
+} from '../lib/service-health.js'
+import { t as i18nT } from '../lib/i18n.js'
 import { loadSkillCatalog, subscribeSkillCatalog } from '../lib/skill-catalog.js'
 import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
 import {
@@ -1819,6 +1827,37 @@ export default function ChatApp() {
   const goalActiveRef = useRef(false)
   const [streamHealth, setStreamHealth] = useState<'connected' | 'disconnected' | 'silent' | null>(null)
   const streamHealthRef = useRef<'connected' | 'disconnected' | 'silent' | null>(null)
+  /** 服务可用性状态（独立于对话流健康 — 关注"服务能不能连上"） */
+  const [serviceHealth, setServiceHealth] = useState<string>(ServiceHealthState.UNKNOWN)
+  const serviceHealthRetryRef = useRef<boolean>(false)
+
+  // 启动服务健康轮询（30s），订阅状态变化同步到 React state
+  useEffect(() => {
+    startServiceHealthPoll()
+    const unsubscribe = onServiceHealthChange((snap) => {
+      setServiceHealth(snap.state)
+      // 调试日志：方便排查用户是否能看到 banner（控制台）
+      try {
+        console.info('[service-health]', snap)
+      } catch { /* ignore */ }
+      // 恢复时清掉 retry 标记
+      if (snap.state === ServiceHealthState.HEALTHY) serviceHealthRetryRef.current = false
+    })
+    return () => {
+      unsubscribe()
+      stopServiceHealthPoll()
+    }
+  }, [])
+
+  const handleServiceHealthRetry = useCallback(() => {
+    if (serviceHealthRetryRef.current) return
+    serviceHealthRetryRef.current = true
+    void triggerServiceHealthCheck({ manual: true }).finally(() => {
+      // 留给下次点击重置
+      setTimeout(() => { serviceHealthRetryRef.current = false }, 500)
+    })
+  }, [])
+
   const liveRunPersistTimerRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
   const liveRunPersistPendingRef = useRef<Record<string, { runId: string; threadId: string | null; status: string; partialText: string; partialTools: unknown[]; partialDisplaySegments: MessageSegment[]; lastEventAtMs: number } | null>>({})
 
@@ -9415,6 +9454,10 @@ export default function ChatApp() {
           toolsTokens?: number | null
           messageTokens?: number | null
           toolCount?: number | null
+          systemSkillsTokens?: number | null
+          systemAssetsTokens?: number | null
+          systemMemoryTokens?: number | null
+          injectedSections?: Record<string, string>
         }
         if (!p) return
         // 必须使用 payload 中的 sessionKey，禁止 fallback
@@ -9435,6 +9478,10 @@ export default function ChatApp() {
             toolsTokens: p.toolsTokens != null ? Number(p.toolsTokens) || 0 : null,
             messageTokens: p.messageTokens != null ? Number(p.messageTokens) || 0 : null,
             toolCount: p.toolCount != null ? Number(p.toolCount) || 0 : null,
+            systemSkillsTokens: p.systemSkillsTokens != null ? Number(p.systemSkillsTokens) || 0 : null,
+            systemAssetsTokens: p.systemAssetsTokens != null ? Number(p.systemAssetsTokens) || 0 : null,
+            systemMemoryTokens: p.systemMemoryTokens != null ? Number(p.systemMemoryTokens) || 0 : null,
+            injectedSections: p.injectedSections,
             updatedAt: Date.now(),
           }),
         }))
@@ -12175,13 +12222,29 @@ export default function ChatApp() {
 
   const [assetQuickBusy, setAssetQuickBusy] = useState(false)
   const handleAssetQuickAction = useCallback(
-    (kind: 'episode' | 'craft' | 'journal') => {
+    async (kind: 'episode' | 'craft' | 'journal') => {
       // 一点即发：由当前会话 Agent 根据对话完成；用户不填表、不弹窗
       const empCode = String(employeeSessionAgentCode || '').trim().toLowerCase()
       const forEmployee = isProactiveEmployeeSession && !!empCode
+      // 从 /assets/entities 拿到「我」的真实桶（多用户安装为 users/<id>，legacy 为 user）。
+      // 拉不到时回落到 user，与后端 sanitize_user_asset_id 默认对齐。
+      let myUserRoot = 'user'
+      try {
+        const api = await getApi()
+        const payload = await api.assetsListEntities()
+        const rows = Array.isArray(payload?.entities) ? payload.entities : []
+        const myEntity = rows.find(
+          (e) => String(e?.entityType || '').toLowerCase() === 'user',
+        )
+        if (myEntity && String(myEntity.entityId || '').trim()) {
+          myUserRoot = String(myEntity.entityId).trim()
+        }
+      } catch {
+        // 网络失败时保持 legacy 'user' 回退，避免按钮报错卡死。
+      }
       const ownerLine = forEmployee
-        ? `写入智能体员工「${empCode}」自己的资产目录（employees/${empCode}/，与用户同级），不要写到 user。`
-        : `写入用户「我」的资产目录（assets/user/）。`
+        ? `写入智能体员工「${empCode}」自己的资产目录（employees/${empCode}/，与用户同级），不要写到用户「我」的资产目录（assets/${myUserRoot}/）。`
+        : `写入用户「我」的资产目录（assets/${myUserRoot}/，多用户安装里形如 assets/users/<id>/）。`
 
       const messages = {
         episode: [
@@ -12189,18 +12252,21 @@ export default function ChatApp() {
           ownerLine,
           '用途：给人以后回顾这段对话走过了什么、结论/约定是什么；不是沉淀经验（怎么做），也不是反思（日结/判断）。',
           '文件必须带 YAML frontmatter：title + summary（短描述 10～30 字，能辨认即可，勿写长）+ 可选 tags；正文按时间线或要点写清过程。',
+          '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
           '不要再问我要写什么；自行总结并保存。',
         ].join('\n'),
         journal: [
           '请根据刚才的对话，直接写一段今日反思并沉淀到资产（memory/journal/{今天}.md）。',
           ownerLine,
           '文件必须带 YAML frontmatter：date + summary（短描述 10～30 字，能辨认即可，勿写长）+ 可选 tags；正文再写详细反思。',
+          '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
           '不要再问我要写什么；自行总结并保存。',
         ].join('\n'),
         craft: [
           '请把刚才对话里可复用的做法，直接沉淀成一条经验（craft/{name}/SKILL.md）。',
           ownerLine,
           'SKILL.md 必须带 frontmatter：name + description（短描述 10～30 字，能辨认即可，勿写长）；正文再写步骤/结论。',
+          '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
           '不要再问我要标题或正文；自行总结并保存。',
         ].join('\n'),
       } as const
@@ -12214,7 +12280,7 @@ export default function ChatApp() {
         setAssetQuickBusy(false)
       })
     },
-    [isProactiveEmployeeSession, employeeSessionAgentCode, selectedTurnBusy],
+    [isProactiveEmployeeSession, employeeSessionAgentCode, selectedTurnBusy, getApi],
   )
 
   const infoRailHeaderToggle = (

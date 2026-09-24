@@ -90,7 +90,7 @@ def test_record_fact_and_catalog_inject_legacy_mode(sqlite_tmp: Path, monkeypatc
     block = format_workspace_memory_context(str(root))
     assert "<workspace_memory>" in block
     assert "<catalog>" in block
-    assert "f memory/facts/" in block or "包管理" in block
+    assert "fact memory/facts/" in block or "包管理" in block
     # Must not dump legacy project sections
     assert "Overview" not in block
     assert "Architecture" not in block

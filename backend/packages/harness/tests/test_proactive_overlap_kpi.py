@@ -68,19 +68,10 @@ def test_overlap_low_for_unrelated_roles() -> None:
     assert scored["high"] is False
 
 
-def test_find_overlaps_skips_archived_draft_and_self() -> None:
+def test_find_overlaps_skips_draft_and_self() -> None:
     roles = [
         _role("a", resp=["检查 console 报错"], domain=["src/app"]),
         _role("b", resp=["检查 console 报错"], domain=["src/app"]),
-        ProactiveRole(
-            agent_code="c",
-            role_name="archived twin",
-            status="archived",
-            config=ProactiveRoleConfig(
-                responsibilities=["检查 console 报错"],
-                domain_scope=["src/app"],
-            ),
-        ),
         ProactiveRole(
             agent_code="d",
             role_name="draft twin",
@@ -99,7 +90,6 @@ def test_find_overlaps_skips_archived_draft_and_self() -> None:
     codes = {h["agent_code"] for h in hits}
     assert "b" in codes
     assert "a" not in codes
-    assert "c" not in codes
     assert "d" not in codes
 
 

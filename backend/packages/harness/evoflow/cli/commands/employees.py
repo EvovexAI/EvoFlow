@@ -17,8 +17,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     sub = parser.add_subparsers(dest="employees_cmd", required=True)
 
     list_p = sub.add_parser("list", help="Roster: status, busy, pending approvals")
-    list_p.add_argument("--status", default="", help="Filter: active|paused|archived|draft")
-    list_p.add_argument("--include-archived", action="store_true", help="Include archived roles")
+    list_p.add_argument("--status", default="", help="Filter: active|paused|draft")
     add_output_flags(list_p)
     list_p.set_defaults(handler=_list)
 
@@ -78,11 +77,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     resume_p.add_argument("agent_code")
     add_output_flags(resume_p)
     resume_p.set_defaults(handler=_resume)
-
-    archive_p = sub.add_parser("archive", help="Soft-archive employee (leave roster)")
-    archive_p.add_argument("agent_code")
-    add_output_flags(archive_p)
-    archive_p.set_defaults(handler=_archive)
 
     worklog_p = sub.add_parser("worklog", help="Day work log grouped by duty round")
     worklog_p.add_argument("agent_code", help="Employee agent_code")
@@ -176,10 +170,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 def _list(args: argparse.Namespace):
     status = str(getattr(args, "status", "") or "").strip() or None
-    return employees_admin.list_roles(
-        status=status,
-        include_archived=bool(getattr(args, "include_archived", False)),
-    )
+    return employees_admin.list_roles(status=status)
 
 
 def _get(args: argparse.Namespace):
@@ -213,10 +204,6 @@ def _stop(args: argparse.Namespace):
 
 def _resume(args: argparse.Namespace):
     return employees_admin.resume_role(args.agent_code)
-
-
-def _archive(args: argparse.Namespace):
-    return employees_admin.archive_role(args.agent_code)
 
 
 def _worklog(args: argparse.Namespace):

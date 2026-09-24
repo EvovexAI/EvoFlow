@@ -284,7 +284,7 @@ def build_org_system_section(
     else:
         mgr_raw = reports_to_code(role)
         if mgr_raw:
-            lines.append(f"- 已配置 `reports_to={mgr_raw}`，但对方不在本组织名册（可能已归档/不在同 workspace）")
+            lines.append(f"- 已配置 `reports_to={mgr_raw}`，但对方不在本组织名册（不在同 workspace）")
         else:
             lines.append("- （未设置 · 视为本组织顶层或独立岗）")
 

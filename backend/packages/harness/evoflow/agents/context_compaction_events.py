@@ -194,6 +194,10 @@ def emit_context_usage(
     message_tokens: int | None = None,
     tool_count: int | None = None,
     api_active_tokens: int | None = None,
+    system_skills_tokens: int | None = None,
+    system_assets_tokens: int | None = None,
+    system_memory_tokens: int | None = None,
+    injected_sections: dict[str, str] | None = None,
 ) -> None:
     """Push model-bound context fill + composition breakdown to the UI.
 
@@ -211,7 +215,11 @@ def emit_context_usage(
     tools_tok = tools_tokens
     msg_tok = message_tokens
     tools_n = tool_count
-    if sys_tok is None or tools_tok is None or tools_n is None:
+    # Sub-row tokens: prefer explicit args, fall back to gate meta.
+    skills_tok = system_skills_tokens
+    assets_tok = system_assets_tokens
+    memory_tok = system_memory_tokens
+    if sys_tok is None or tools_tok is None or tools_n is None or skills_tok is None:
         try:
             from evoflow.context.model_request_token_estimate import current_gate_overhead_meta
 
@@ -222,8 +230,27 @@ def emit_context_usage(
                 tools_tok = int(meta["tools_tokens"])
             if tools_n is None and "tool_count" in meta:
                 tools_n = int(meta["tool_count"])
+            if skills_tok is None and "system_skills_tokens" in meta:
+                skills_tok = int(meta["system_skills_tokens"])
+            if assets_tok is None and "system_assets_tokens" in meta:
+                assets_tok = int(meta["system_assets_tokens"])
+            if memory_tok is None and "system_memory_tokens" in meta:
+                memory_tok = int(meta["system_memory_tokens"])
         except Exception:
             pass
+
+    # Read actual injected section content from the ContextVar (set by
+    # DynamicSystemPromptOnScenarioMiddleware / SkillsInjectionMiddleware).
+    # Prefer the explicit argument if provided; fall back to the ContextVar read.
+    _injected: dict[str, str] = {}
+    try:
+        from evoflow.agents.middlewares.dynamic_system_prompt_middleware import get_injected_sections
+        raw = get_injected_sections()
+        if isinstance(raw, dict) and raw:
+            _injected = {k: v for k, v in raw.items() if isinstance(v, str) and v.strip()}
+    except Exception:
+        pass
+    injected_sections = injected_sections or _injected
 
     snapshot = build_context_usage_snapshot(
         used_tokens=used_tokens,
@@ -237,6 +264,10 @@ def emit_context_usage(
         message_tokens=msg_tok,
         tool_count=tools_n,
         api_active_tokens=api_active_tokens,
+        system_skills_tokens=skills_tok,
+        system_assets_tokens=assets_tok,
+        system_memory_tokens=memory_tok,
+        injected_sections=injected_sections,
     )
     payload: dict[str, Any] = {
         "type": "context_usage",

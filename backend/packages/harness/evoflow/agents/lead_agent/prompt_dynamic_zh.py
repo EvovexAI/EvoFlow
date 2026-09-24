@@ -12,8 +12,6 @@ SKILLS_CONTAINER_LABEL_LOCAL = "本机技能目录"
 
 MEMORY_PREAMBLE = "以下为长期记忆参考摘要，可能与当前对话无关；与最新 user 消息冲突时以用户为准。"
 
-AGENT_CUSTOM_PROMPT_WRAPPER = "以下为该智能体 config.yaml 中的 system_prompt 字段，与上文全局角色、场景与工具策略同时生效；若与平台默认表述不一致，以本节为准（仍须遵守最前的安全与合规要求）。"
-
 INTENT_DEBUG_SCENARIO_LABEL = "当前场景"
 INTENT_DEBUG_DESC_LABEL = "场景说明"
 INTENT_DEBUG_MODULES_LABEL = "当前激活模块"

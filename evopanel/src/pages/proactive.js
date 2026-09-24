@@ -55,7 +55,6 @@ import {
 } from '../components/list-pager.js'
 
 const ROLES_PAGE_SIZE_KEY = 'evopanel_proactive_roles_page_size'
-const ARCHIVED_PAGE_SIZE_KEY = 'evopanel_proactive_archived_page_size'
 
 // ── helpers ──────────────────────────────────────────────
 
@@ -167,7 +166,6 @@ const RISK_BADGE = {
 const ROLE_STATUS_LABEL = {
   active: '在岗',
   paused: '已停',
-  archived: '已停',
   draft: '已停',
 }
 
@@ -176,7 +174,7 @@ let _engineRunning = null
 
 let _refreshTimer = null
 let _busyPollTimer = null
-let _currentTab = 'roles' // roles | approvals | health | archived | org
+let _currentTab = 'roles' // roles | approvals | health | org
 /** Org tab UI state (department-first org tree + department manager). */
 let _orgUi = {
   forest: [],
@@ -197,11 +195,8 @@ let _orgUi = {
 }
 /** True when URL explicitly picked a tab / highlight (don't auto-steal focus). */
 let _tabPinnedByHash = false
-let _archivedRolesData = []
 let _rolesPage = 1
 let _rolesPageSize = readStoredPageSize(ROLES_PAGE_SIZE_KEY)
-let _archivedPage = 1
-let _archivedPageSize = readStoredPageSize(ARCHIVED_PAGE_SIZE_KEY)
 
 function readProactiveHashQuery() {
   const raw = String(window.location.hash || '').replace(/^#/, '')
@@ -220,7 +215,7 @@ function applyProactiveHashQuery() {
   const qs = readProactiveHashQuery()
   const tab = String(qs.get('tab') || '').trim()
   _tabPinnedByHash = false
-  if (tab === 'approvals' || tab === 'roles' || tab === 'health' || tab === 'archived' || tab === 'org') {
+  if (tab === 'approvals' || tab === 'roles' || tab === 'health' || tab === 'org') {
     _currentTab = tab
     _tabPinnedByHash = true
   }
@@ -356,9 +351,6 @@ export async function render() {
       </button>
       <button type="button" class="pro-tab ${_currentTab === 'health' ? 'pro-tab--active' : ''}" data-tab="health" role="tab">
         健康
-      </button>
-      <button type="button" class="pro-tab ${_currentTab === 'archived' ? 'pro-tab--active' : ''}" data-tab="archived" role="tab">
-        归档 <span class="pro-tab-count" id="pro-tab-count-archived"></span>
       </button>
       <button type="button" class="pro-tab ${_currentTab === 'board' ? 'pro-tab--active' : ''}" data-tab="board" role="tab" title="按状态看全员岗位工作项">
         工作项
@@ -730,7 +722,7 @@ async function showHireModal(page) {
             <select class="hire-input" data-name="reports_to">
               <option value="">（无上级 · 顶层）</option>
               ${(_rolesData || [])
-                .filter((r) => String(r.agent_code || '').trim() && String(r.status || '') !== 'archived')
+                .filter((r) => String(r.agent_code || '').trim())
                 .map((r) => {
                   const c = String(r.agent_code || '').trim()
                   const n = String(r.role_name || c).trim()
@@ -1331,10 +1323,9 @@ async function loadTabData(page) {
         : Promise.resolve(_dashboardData),
       refreshAgentsAvatarIndex(),
     ])
-    // One roles list covers roster + archived (no second archived round-trip).
+    // One roles list covers roster.
     const allRoles = rolesRes?.roles || []
-    _rolesData = allRoles.filter((r) => r.status !== 'archived')
-    _archivedRolesData = allRoles.filter((r) => r.status === 'archived')
+    _rolesData = allRoles
     _initiativesData = initsRes?.initiatives || []
     _approvalsData = apprsRes?.approvals || []
     if (needDash) {
@@ -1385,9 +1376,6 @@ async function loadTabData(page) {
       apprCountEl.textContent = _approvalsData.length || ''
       apprCountEl.classList.toggle('pro-tab-count--urgent', _approvalsData.length > 0)
     }
-    const archEl = page.querySelector('#pro-tab-count-archived')
-    if (archEl) archEl.textContent = _archivedRolesData.length || ''
-
     if (_currentTab === 'initiatives') _currentTab = 'roles'
 
     // Soft entry: pending approvals take priority over roster (unless URL/user pinned a tab)
@@ -1426,7 +1414,6 @@ function roleDutyBadge(role, busy = false) {
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
   const stopped =
     st === 'paused' ||
-    st === 'archived' ||
     st === 'draft' ||
     (st === 'active' && (_engineRunning === false || suspended))
 
@@ -1434,7 +1421,6 @@ function roleDutyBadge(role, busy = false) {
     let tip = '不会自动巡检'
     if (st === 'draft') tip = '草稿未确认，确认后才会排班'
     else if (st === 'paused') tip = '请假中，不会自动巡检'
-    else if (st === 'archived') tip = '已归档，不会自动巡检'
     else if (suspended) tip = '该员工自动巡检已关；菜单「上班」可恢复'
     else if (_engineRunning === false) tip = '总开关已关闭，到期也不会跑'
     return { label: '已停', cls: 'pro-badge--muted', tip }
@@ -1482,15 +1468,6 @@ function reRenderRolesTab(page) {
   updateDecideStrip(page)
 }
 
-function reRenderArchivedTab(page) {
-  const container = page?.querySelector('#pro-tab-content')
-  if (!container || _currentTab !== 'archived') return
-  container.innerHTML = renderArchivedRoles(_archivedRolesData)
-  bindArchivedRoles(container)
-  mountProactiveAvatars(container, 44)
-  updateDecideStrip(page)
-}
-
 function renderTabContent(page) {
   const container = page.querySelector('#pro-tab-content')
   if (_currentTab === 'approvals') {
@@ -1499,10 +1476,6 @@ function renderTabContent(page) {
   } else if (_currentTab === 'health') {
     container.innerHTML = renderHealthDashboard(_dashboardData, _rolesData)
     bindHealth(container)
-  } else if (_currentTab === 'archived') {
-    container.innerHTML = renderArchivedRoles(_archivedRolesData)
-    bindArchivedRoles(container)
-    mountProactiveAvatars(container, 44)
   } else if (_currentTab === 'org') {
     container.innerHTML = `<div class="pro-loading">加载组织架构…</div>`
     void loadAndRenderOrg(page)
@@ -1576,7 +1549,6 @@ function _expandOrgDefaults(trees, flat) {
 function _orgStatusLabel(status) {
   const s = String(status || '').trim()
   if (s === 'paused') return '已请假'
-  if (s === 'archived') return '已归档'
   if (s && s !== 'active') return s
   return ''
 }
@@ -1990,7 +1962,7 @@ function renderOrgViewHeader({ title, aside = '' }) {
 
 function renderDepartmentsPanel(departments, roles) {
   const depts = Array.isArray(departments) ? departments : []
-  const roster = (roles || []).filter((r) => String(r.status || '') !== 'archived')
+  const roster = roles || []
   const selectedId = String(_orgUi.deptSelected || '').trim()
   let selected = depts.find((d) => String(d.id) === selectedId) || null
   if (!selected && depts.length) {
@@ -2688,7 +2660,7 @@ function bindOrgPanel(page, container) {
         try {
           const rolesRes = await api.proactiveListRoles().catch(() => null)
           if (rolesRes?.roles) {
-            _rolesData = (rolesRes.roles || []).filter((r) => r.status !== 'archived')
+            _rolesData = rolesRes.roles
           }
         } catch {
           /* ignore */
@@ -2700,177 +2672,6 @@ function bindOrgPanel(page, container) {
         toast(`更新失败: ${e?.message || e}`, 'error')
         sel.disabled = false
         void loadAndRenderOrg(page)
-      }
-    })
-  })
-}
-
-function renderArchivedRoles(roles) {
-  const toolbar = `<div class="pro-archived-toolbar">
-    <p class="pro-archived-hint">已归档员工不会自动上班、不出现在名册；历史事项保留。可重新上班或彻底删除。</p>
-    <button type="button" class="btn btn-sm btn-outline" data-act="archive-legacy">清理演示种子岗</button>
-  </div>`
-  if (!roles.length) {
-    return `${toolbar}<div class="pro-empty">
-      <p class="pro-empty-title">暂无归档员工</p>
-      <p class="pro-empty-desc">名册里对员工选「归档」后会出现在这里；演示种子岗可用上方按钮一键归档</p>
-    </div>`
-  }
-  const paged = paginateItems(roles, _archivedPage, _archivedPageSize)
-  _archivedPage = paged.page
-  _archivedPageSize = paged.pageSize
-  return (
-    toolbar +
-    '<div class="pro-role-grid">' +
-    paged.items
-      .map((r) => {
-        const resp = Array.isArray(r.config?.responsibilities)
-          ? r.config.responsibilities.filter(Boolean)
-          : []
-        const dutyHtml = renderRoleDutyText(resp, {
-          empty: `<p class="pro-role-duty">${esc(previewLine(r.department || '已归档', 56))}</p>`,
-        })
-        return `
-    <article class="pro-role-card pro-role-card--slim pro-role-card--archived" data-code="${esc(r.agent_code)}">
-      <div class="pro-role-header">
-        <div class="pro-role-avatar" data-avatar-agent="${esc(r.agent_code)}" aria-hidden="true"></div>
-        <div class="pro-role-heading">
-          <div class="pro-role-title">
-            <span class="pro-role-name">${esc(roleCardTitle(r))}</span>
-            <span class="pro-badge pro-badge--muted">已归档</span>
-          </div>
-          ${dutyHtml}
-        </div>
-        <div class="pro-role-more">
-          <button type="button" class="pro-role-more-btn" data-action="more" data-code="${esc(r.agent_code)}" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">⋯</button>
-          <div class="pro-role-more-menu" role="menu" hidden>
-            <button type="button" class="pro-role-more-item" role="menuitem" data-action="worklog" data-code="${esc(r.agent_code)}">工作日志</button>
-            <button type="button" class="pro-role-more-item" role="menuitem" data-action="resume" data-code="${esc(r.agent_code)}">重新上班</button>
-            <div class="pro-role-more-sep" role="separator"></div>
-            <button type="button" class="pro-role-more-item pro-role-more-item--danger" role="menuitem" data-action="delete" data-code="${esc(r.agent_code)}">删除岗位</button>
-          </div>
-        </div>
-      </div>
-      <div class="pro-role-body">
-        <div class="pro-role-meta pro-role-meta--compact">
-          <span class="pro-meta-chip">已归档</span>
-        </div>
-        <button type="button" class="pro-work-summary pro-work-summary--slim" data-action="worklog" data-code="${esc(r.agent_code)}">
-          <span class="pro-work-summary-label">近况</span>
-          <span class="pro-work-summary-last">查看历史工作日志</span>
-          <span class="pro-work-summary-meta">${esc(r.agent_code)}</span>
-        </button>
-      </div>
-    </article>`
-      })
-      .join('') +
-    '</div>' +
-    `<div class="pro-list-pager-wrap">${renderListPagerHtml({
-      total: paged.total,
-      page: paged.page,
-      pageCount: paged.pageCount,
-      pageSize: paged.pageSize,
-      from: paged.from,
-      to: paged.to,
-      unit: '位',
-    })}</div>`
-  )
-}
-
-function bindArchivedRoles(container) {
-  const page = container.closest('.proactive-page')
-  const archivedPaged = paginateItems(_archivedRolesData, _archivedPage, _archivedPageSize)
-  bindListPager(container, {
-    page: archivedPaged.page,
-    pageCount: archivedPaged.pageCount,
-    onPage: (next) => {
-      _archivedPage = next
-      if (page) reRenderArchivedTab(page)
-    },
-    onPageSize: (nextSize) => {
-      _archivedPageSize = nextSize
-      _archivedPage = 1
-      writeStoredPageSize(ARCHIVED_PAGE_SIZE_KEY, nextSize)
-      if (page) reRenderArchivedTab(page)
-    },
-  })
-  container.querySelector('[data-act="archive-legacy"]')?.addEventListener('click', async () => {
-    const ok = await showConfirm(
-      '将演示种子岗（前端架构 / 后端工程 / 运维）归档？\n\n已归档的会跳过；名册中仍在岗的同名岗也会被归档。',
-    )
-    if (!ok) return
-    try {
-      const res = await api.proactiveArchiveLegacy()
-      const n = (res?.archived || []).length
-      toast(n ? `已归档 ${n} 个种子岗` : '没有需要归档的种子岗', n ? 'success' : 'info')
-      if (page) await loadAll(page)
-    } catch (e) {
-      toast(`清理失败: ${e?.message || e}`, 'error')
-    }
-  })
-  container.querySelectorAll('.pro-role-card[data-code]').forEach((card) => {
-    card.addEventListener('click', (e) => {
-      const t = e.target
-      if (!(t instanceof Element)) return
-      if (t.closest('[data-action], button, a, input, textarea, select, .pro-role-more')) return
-      const code = card.dataset.code
-      if (code) navigate(`/proactive/${encodeURIComponent(code)}`)
-    })
-  })
-  container.querySelectorAll('[data-action]').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      const action = btn.dataset.action
-      const code = btn.dataset.code
-      if (action === 'more') {
-        const wrap = btn.closest('.pro-role-more')
-        const menu = wrap?.querySelector('.pro-role-more-menu')
-        if (!wrap || !menu) return
-        const willOpen = menu.hidden
-        closeAllRoleMoreMenus(container)
-        if (willOpen) {
-          wrap.classList.add('is-open')
-          btn.setAttribute('aria-expanded', 'true')
-          positionRoleMoreMenu(btn, menu)
-        }
-        return
-      }
-      closeAllRoleMoreMenus(container)
-      if (action === 'worklog') {
-        navigate(`/proactive/${encodeURIComponent(code)}`)
-        return
-      }
-      if (action === 'resume') {
-        const role = _archivedRolesData.find((r) => String(r.agent_code) === String(code))
-        const name = role?.role_name || code
-        const ok = await showConfirm(`将「${name}」重新上班？\n\n恢复后会按节奏自动上班。`)
-        if (!ok) return
-        try {
-          await api.proactiveResumeRole(code)
-          toast(`已雇佣 ${name}`, 'success')
-          _currentTab = 'roles'
-          _tabPinnedByHash = true
-          page?.querySelectorAll('.pro-tab').forEach((t) =>
-            t.classList.toggle('pro-tab--active', t.dataset.tab === 'roles'),
-          )
-          if (page) await loadAll(page)
-        } catch (err) {
-          toast(`雇佣失败: ${err?.message || err}`, 'error')
-        }
-        return
-      }
-      if (action === 'delete') {
-        const role = _archivedRolesData.find((r) => String(r.agent_code) === String(code))
-        const name = role?.role_name || code
-        const ok = await showConfirm(`确定删除岗位「${name}」？\n\n会移除岗位雇佣，不删除底层智能体。`)
-        if (!ok) return
-        try {
-          await api.proactiveDeleteRole(code)
-          toast(`已删除 ${name}`, 'info')
-          if (page) await loadAll(page)
-        } catch (err) {
-          toast(`删除失败: ${err?.message || err}`, 'error')
-        }
       }
     })
   })
@@ -2945,7 +2746,7 @@ function renderHealthDashboard(dash, roles) {
     </div>`
   }
   const g = dash.global || {}
-  const rows = (dash.roles || []).filter((r) => r.status !== 'archived')
+  const rows = dash.roles || []
   const alertList = Array.isArray(dash.alerts) ? dash.alerts : []
   const alertBanner = alertList.length
     ? `<div class="pro-health-alerts">${alertList
@@ -3150,7 +2951,6 @@ function renderRoles(roles) {
       .map((r) => {
     const isPaused = r.status === 'paused'
     const isDraft = r.status === 'draft'
-    const isArchived = r.status === 'archived'
     const isBusy = _busyCodes.has(String(r.agent_code))
     const dash = roleDash(r.agent_code)
     const dutyBadge = roleDutyBadge(r, isBusy)
@@ -3174,7 +2974,7 @@ function renderRoles(roles) {
     if (isDraft) oneLiner = '草稿未确认 · 确认后才开始自动上班'
     else if (isPaused) oneLiner = '请假中 · 不会自动巡检'
     else if (isSuspended) oneLiner = '自动巡检已关 · 菜单「上班」可恢复'
-    else if (_engineRunning === false && !isArchived) oneLiner = '总开关已关 · 到期不会自动跑'
+    else if (_engineRunning === false) oneLiner = '总开关已关 · 到期不会自动跑'
     else if (pendingN) oneLiner = `${pendingN} 项待你拍板`
     else if (isBusy) oneLiner = '工作中 · 正在干活…'
     else if (isIdle) {
@@ -3231,7 +3031,7 @@ function renderRoles(roles) {
       : `<button type="button" class="pro-role-more-item" role="menuitem" data-action="feishu-bind" data-code="${esc(r.agent_code)}">扫码绑定飞书</button>`
 
     return `
-    <article class="pro-role-card pro-role-card--slim ${isPaused || isDraft ? 'pro-role-card--paused' : ''} ${isArchived ? 'pro-role-card--archived' : ''} ${!isPaused && !isArchived && !isDraft ? 'pro-role-card--active' : ''} ${isBusy ? 'pro-role-card--busy' : ''} ${isIdle ? 'pro-role-card--idle' : ''} ${pendingN ? 'pro-role-card--needs-you' : ''}" data-code="${esc(r.agent_code)}">
+    <article class="pro-role-card pro-role-card--slim ${isPaused || isDraft ? 'pro-role-card--paused' : ''} ${!isPaused && !isDraft ? 'pro-role-card--active' : ''} ${isBusy ? 'pro-role-card--busy' : ''} ${isIdle ? 'pro-role-card--idle' : ''} ${pendingN ? 'pro-role-card--needs-you' : ''}" data-code="${esc(r.agent_code)}">
       <div class="pro-role-header">
         <div class="pro-role-avatar" data-avatar-agent="${esc(r.agent_code)}" aria-hidden="true"></div>
         <div class="pro-role-heading">
@@ -3244,7 +3044,7 @@ function renderRoles(roles) {
           ${dutyHtml}
         </div>
         <div class="pro-role-more">
-          <button type="button" class="pro-role-more-btn" data-action="more" data-code="${esc(r.agent_code)}" aria-label="更多操作" title="编辑、删除、归档等" aria-haspopup="menu" aria-expanded="false">⋯</button>
+          <button type="button" class="pro-role-more-btn" data-action="more" data-code="${esc(r.agent_code)}" aria-label="更多操作" title="编辑、删除等" aria-haspopup="menu" aria-expanded="false">⋯</button>
           <div class="pro-role-more-menu" role="menu" hidden>
             <button type="button" class="pro-role-more-item" role="menuitem" data-action="live" data-code="${esc(r.agent_code)}">工作过程</button>
             <button type="button" class="pro-role-more-item" role="menuitem" data-action="edit" data-code="${esc(r.agent_code)}">编辑岗位</button>
@@ -3254,8 +3054,7 @@ function renderRoles(roles) {
               isSystemFrontDesk
                 ? ''
                 : `<div class="pro-role-more-sep" role="separator"></div>
-            <button type="button" class="pro-role-more-item" role="menuitem" data-action="archive" data-code="${esc(r.agent_code)}">归档</button>
-            <button type="button" class="pro-role-more-item pro-role-more-item--danger" role="menuitem" data-action="delete" data-code="${esc(r.agent_code)}">删除岗位</button>`
+          <button type="button" class="pro-role-more-item pro-role-more-item--danger" role="menuitem" data-action="delete" data-code="${esc(r.agent_code)}">删除岗位</button>`
             }
           </div>
         </div>
@@ -3529,22 +3328,6 @@ function bindRoles(container) {
           if (page) await loadAll(page)
         } catch (err) {
           toast(`删除失败: ${err?.message || err}`, 'error')
-        }
-        return
-      }
-      if (action === 'archive') {
-        const role = _rolesData.find((r) => String(r.agent_code) === String(code))
-        const name = role?.role_name || code
-        const ok = await showConfirm(
-          `将「${name}」归档？\n\n名册不再显示，历史事项保留；需要彻底移除可再删除。`,
-        )
-        if (!ok) return
-        try {
-          await api.proactiveArchiveRole(code)
-          toast(`已归档 ${name}`, 'info')
-          if (page) await loadAll(page)
-        } catch (err) {
-          toast(`归档失败: ${err?.message || err}`, 'error')
         }
         return
       }

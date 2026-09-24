@@ -214,4 +214,24 @@
   --header-height: 52px;
   --content-max-width: 1320px;
   --agent-panel-width: 340px;
+
+  /* === Shell sidebar shared tokens (zcode 紧凑 + workbuddy 柔色 + cursor 几何感) === */
+  --shell-item-h: 30px;
+  --shell-item-h-sm: 28px;
+  --shell-item-radius: 6px;
+  --shell-item-pad-x: 8px;
+  --shell-item-gap: 8px;
+  --shell-icon-size: 14px;
+  --shell-icon-stroke: 1.5;
+  --shell-font-size: 13px;
+  --shell-font-size-sm: 12px;
+  --shell-item-fw: 400;
+  --shell-item-fw-active: 500;
+  --shell-brand-soft: #ece9ff;
+  --shell-brand-softer: #f5f3ff;
+  --shell-hover: color-mix(in srgb, var(--text-primary, #202124) 6%, transparent);
+  --shell-active-bg: var(--shell-brand-soft);
+  --shell-active-fg: var(--accent, #635bff);
+  --shell-text: var(--text-secondary, #4a4f5a);
+  --shell-text-muted: var(--text-tertiary, #6f7682);
 }

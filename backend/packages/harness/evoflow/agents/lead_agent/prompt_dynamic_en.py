@@ -12,10 +12,6 @@ SKILLS_CONTAINER_LABEL_LOCAL = "Local skills directory"
 
 MEMORY_PREAMBLE = "Long-term memory below is reference only; on conflict, follow the latest user message."
 
-AGENT_CUSTOM_PROMPT_WRAPPER = (
-    "The following is the agent's system_prompt from config.yaml. It applies together with global role, scenario, and tool policy above. If it conflicts with platform defaults, this section wins (still subject to safety rules at the top)."
-)
-
 INTENT_DEBUG_SCENARIO_LABEL = "Current scenario"
 INTENT_DEBUG_DESC_LABEL = "Scenario description"
 INTENT_DEBUG_MODULES_LABEL = "Active modules"

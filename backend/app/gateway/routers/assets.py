@@ -554,3 +554,45 @@ async def init_assets_tree(request: Request):
     except Exception as exc:
         logger.error("assets init failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/audit")
+async def run_audit(
+    request: Request,
+    entityType: Literal["user", "agent", "employee", "workspace"] = Query(...),
+    entityId: str = Query(...),
+    repair: bool = Query(default=False, description="Append pointer lines to MEMORY.md for unreferenced files"),
+):
+    """Run a self-audit on the entity's asset system.
+
+    Static scan (no LLM). Produces a Markdown report under
+    ``memory/audit/YYYY-MM-DD-...-audit.md`` plus a summary JSON.
+
+    If ``repair=true``, also appends pointer lines for unreferenced files
+    to the ``## Audit-Trail`` section of ``memory/MEMORY.md`` (creating it if missing).
+    """
+    from evoflow.assets.audit import run_audit as _run_audit
+
+    entity = _entity(request, entityType, entityId)
+    try:
+        return await asyncio.to_thread(_run_audit, entity.entity_id, repair=repair)
+    except Exception as exc:
+        logger.error("assets audit failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/audit/reports")
+async def list_audit_reports(
+    request: Request,
+    entityType: Literal["user", "agent", "employee", "workspace"] = Query(...),
+    entityId: str = Query(...),
+):
+    """List all past audit reports (newest first)."""
+    from evoflow.assets.audit import list_audit_reports as _list_reports
+
+    entity = _entity(request, entityType, entityId)
+    try:
+        return {"reports": _list_reports(entity.entity_id)}
+    except Exception as exc:
+        logger.error("assets audit list failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

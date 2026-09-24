@@ -139,7 +139,7 @@ class CreateRoleRequest(BaseModel):
     )
     status: str = Field(
         "active",
-        description="active|paused|archived|draft — draft=未上岗（不巡检）",
+        description="active|paused|draft — draft=未上岗（不巡检）",
     )
 
 
@@ -274,7 +274,7 @@ class OverlapCheckRequest(BaseModel):
 
 @router.get("/roles")
 async def list_roles(
-    status: str | None = Query(None, description="Filter by status: active|paused|archived|draft"),
+    status: str | None = Query(None, description="Filter by status: active|paused|draft"),
 ) -> dict[str, Any]:
     if status is not None:
         try:
@@ -292,14 +292,16 @@ async def list_roles(
 async def get_org_tree(
     status: str | None = Query(
         None,
-        description=("Optional status filter. Default empty = fixed org chart (all non-archived roles). Pass active|paused|draft|archived to filter."),
+        description=(
+            "Optional status filter. Default empty = fixed org chart (all active + paused + draft roles). "
+            "Pass active|paused|draft to filter. "
+        ),
     ),
 ) -> dict[str, Any]:
     """Organization chart forest based on ``config.reports_to``.
 
     Default is the **fixed** reporting graph (active + paused + draft): 在岗/请假
-    does not reshape the tree — status is metadata only. Archived roles are
-    omitted unless ``status=archived`` is requested explicitly.
+    does not reshape the tree — status is metadata only.
 
     When an explicit status filter is set, missing managers on the reporting
     path are kept as ``is_bridge`` nodes so the tree does not flatten.
@@ -318,8 +320,7 @@ async def get_org_tree(
             raise HTTPException(status_code=400, detail=str(e)) from e
     full = ProactiveRepository.list_roles(status=None)
     if st is None:
-        # Fixed org: everyone still on the books (not archived).
-        roles = [r for r in full if str(r.status or "").strip() != "archived"]
+        roles = full
     else:
         visible = [r for r in full if str(r.status or "").strip() == st]
         roles = with_reporting_bridges(visible, full)
@@ -435,7 +436,7 @@ async def delete_department(request: Request, dept_id: str) -> dict[str, Any]:
 
 @router.put("/departments/{dept_id}/members")
 async def set_department_members(request: Request, dept_id: str, body: DepartmentMembersRequest) -> dict[str, Any]:
-    """Replace the non-archived member roster for a department."""
+    """Replace the member roster for a department."""
     require_org_admin(request)
     from evoflow.proactive.departments import DepartmentRepository
 
@@ -460,8 +461,8 @@ async def get_role(agent_code: str) -> dict[str, Any]:
 
         result["org"] = org_chart_for_role(
             role,
-            # 组织关系固定：用未归档全员花名册，不因请假把上级/下级裁掉
-            roster=[r for r in ProactiveRepository.list_roles(status=None) if str(r.status or "").strip() != "archived"],
+            # 组织关系固定：用全员花名册，不因请假把上级/下级裁掉
+            roster=list(ProactiveRepository.list_roles(status=None)),
         )
     except Exception:
         result["org"] = None
@@ -1096,75 +1097,6 @@ async def check_role_overlap(req: OverlapCheckRequest) -> dict[str, Any]:
         "has_overlap": bool(overlaps),
         "overlaps": overlaps,
         "warning": overlaps[0]["message"] if overlaps else "",
-    }
-
-
-# Demo / legacy seed codes from scripts/seed_proactive_roles.py
-_LEGACY_SEED_CODES = ("frontend_architect", "backend_engineer", "devops_lead")
-
-
-@router.put("/roles/{agent_code}/archive")
-async def archive_role(request: Request, agent_code: str) -> dict[str, Any]:
-    """O5.2: soft-archive a role (hidden from roster, keeps history)."""
-    _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
-    if not role:
-        raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
-    try:
-        from evoflow.agents.xiaomi.identity import XIAOMI_PROTECTED_DETAIL_ZH, is_xiaomi_agent
-
-        if is_xiaomi_agent(agent_code):
-            raise HTTPException(status_code=400, detail=XIAOMI_PROTECTED_DETAIL_ZH)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.debug("xiaomi protect check skipped", exc_info=True)
-    role.status = "archived"
-    role.updated_at = utc_now_iso_z()
-    ProactiveRepository.save_role(role)
-    # Stop further heartbeats
-    try:
-        runner = _get_proactive_runner()
-        if hasattr(runner, "cancel_role"):
-            await runner.cancel_role(agent_code)  # type: ignore[attr-defined]
-    except Exception:
-        logger.debug("proactive.archive cancel_role failed", exc_info=True)
-    logger.info("proactive.role.archived agent_code=%s", agent_code)
-    return {"ok": True, "agent_code": agent_code, "status": "archived"}
-
-
-@router.post("/roles/archive-legacy")
-async def archive_legacy_seed_roles(
-    request: Request,
-) -> dict[str, Any]:
-    """O5.2: archive known demo seed roles so they leave the active roster."""
-    require_org_admin(request)
-    archived: list[str] = []
-    skipped: list[str] = []
-    for code in _LEGACY_SEED_CODES:
-        role = ProactiveRepository.get_role(code)
-        if not role:
-            skipped.append(code)
-            continue
-        if role.status == "archived":
-            skipped.append(code)
-            continue
-        role.status = "archived"
-        role.updated_at = utc_now_iso_z()
-        ProactiveRepository.save_role(role)
-        try:
-            runner = _get_proactive_runner()
-            if hasattr(runner, "cancel_role"):
-                await runner.cancel_role(code)  # type: ignore[attr-defined]
-        except Exception:
-            logger.debug("proactive.archive_legacy cancel failed code=%s", code, exc_info=True)
-        archived.append(code)
-    logger.info("proactive.roles.archive_legacy archived=%s skipped=%s", archived, skipped)
-    return {
-        "ok": True,
-        "archived": archived,
-        "skipped": skipped,
-        "legacy_codes": list(_LEGACY_SEED_CODES),
     }
 
 
@@ -2389,7 +2321,7 @@ async def stop_role_work(request: Request, agent_code: str) -> dict[str, Any]:
 
 @router.put("/roles/{agent_code}/resume")
 async def resume_role(request: Request, agent_code: str) -> dict[str, Any]:
-    """Resume a paused / draft / archived role back to active (上岗)."""
+    """Resume a paused / draft role back to active (上岗)."""
     _require_role_agent(request, agent_code)
     role = ProactiveRepository.get_role(agent_code)
     if not role:

@@ -34,10 +34,10 @@ def test_placeholder_profile_gets_hint_block(profile_home: Path) -> None:
     assert "<preferences>" in block
     assert "<persona>" in block
     assert "未填写" in block or "暂未补充" in block or "空 — 强制" in block or "强制" in block
-    assert "<profile_gaps>" in block
+    assert "<profile_gaps>" not in block
+    assert "<agent_behavior>" in block
     assert "强制" in block
     assert "必须主动" in block or "主动向用户询问" in block
-    assert "assets(action=profile" in block
 
 
 def test_filled_profile_injected(profile_home: Path) -> None:

@@ -13,6 +13,12 @@ export type ContextUsageSnapshot = {
   /** Conversation history / surface tokens (backend-measured). */
   messageTokens?: number | null
   toolCount?: number | null
+  /** Detailed system prompt breakdown (injected as sub-rows of "系统提示词"). */
+  systemSkillsTokens?: number | null
+  systemAssetsTokens?: number | null
+  systemMemoryTokens?: number | null
+  /** Actual injected section content for the detail modal. */
+  injectedSections?: Record<string, string>
   updatedAt: number
 }
 
@@ -58,6 +64,10 @@ export type ContextBreakdown = {
   systemTokens: number
   toolsTokens: number
   messageTokens: number
+  /** Sub-rows of systemTokens; only populated when backend sends them. */
+  systemSkillsTokens?: number
+  systemAssetsTokens?: number
+  systemMemoryTokens?: number
 }
 
 /**
@@ -84,7 +94,26 @@ export function contextBreakdownFromSnapshot(
   const tool = tools ?? 0
   const messageTokens =
     messagesExplicit != null ? messagesExplicit : Math.max(0, used - sys - tool)
-  return { systemTokens: sys, toolsTokens: tool, messageTokens }
+
+  const subSystemTokens = snap.systemTokens != null ? sys : null
+  return {
+    systemTokens: sys,
+    toolsTokens: tool,
+    messageTokens,
+    // Only surface sub-rows when backend explicitly sent them (not a remainder).
+    systemSkillsTokens:
+      snap.systemSkillsTokens != null && Number.isFinite(snap.systemSkillsTokens)
+        ? Math.max(0, Math.round(Number(snap.systemSkillsTokens)))
+        : undefined,
+    systemAssetsTokens:
+      snap.systemAssetsTokens != null && Number.isFinite(snap.systemAssetsTokens)
+        ? Math.max(0, Math.round(Number(snap.systemAssetsTokens)))
+        : undefined,
+    systemMemoryTokens:
+      snap.systemMemoryTokens != null && Number.isFinite(snap.systemMemoryTokens)
+        ? Math.max(0, Math.round(Number(snap.systemMemoryTokens)))
+        : undefined,
+  }
 }
 
 /** Compact display for large session totals (e.g. 2.60M, 19.0k). */
@@ -234,6 +263,29 @@ export function parseContextUsageFromSessionContext(
       const v = Number(o.tool_count ?? o.toolCount)
       return Number.isFinite(v) && v >= 0 ? v : null
     })(),
+    systemSkillsTokens: (() => {
+      const v = Number(o.system_skills_tokens ?? o.systemSkillsTokens)
+      return Number.isFinite(v) && v >= 0 ? v : null
+    })(),
+    systemAssetsTokens: (() => {
+      const v = Number(o.system_assets_tokens ?? o.systemAssetsTokens)
+      return Number.isFinite(v) && v >= 0 ? v : null
+    })(),
+    systemMemoryTokens: (() => {
+      const v = Number(o.system_memory_tokens ?? o.systemMemoryTokens)
+      return Number.isFinite(v) && v >= 0 ? v : null
+    })(),
+    injectedSections: (() => {
+      const raw = o.injected_sections ?? o.injectedSections
+      if (raw && typeof raw === 'object') {
+        const result: Record<string, string> = {}
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === 'string' && v.trim()) result[k] = v
+        }
+        return Object.keys(result).length > 0 ? result : undefined
+      }
+      return undefined
+    })(),
     updatedAt,
   }
 }
@@ -251,5 +303,9 @@ export function mergeContextUsageSnapshots(
     toolsTokens: next.toolsTokens ?? prev.toolsTokens ?? null,
     messageTokens: next.messageTokens ?? prev.messageTokens ?? null,
     toolCount: next.toolCount ?? prev.toolCount ?? null,
+    systemSkillsTokens: next.systemSkillsTokens ?? prev.systemSkillsTokens ?? null,
+    systemAssetsTokens: next.systemAssetsTokens ?? prev.systemAssetsTokens ?? null,
+    systemMemoryTokens: next.systemMemoryTokens ?? prev.systemMemoryTokens ?? null,
+    injectedSections: next.injectedSections ?? prev.injectedSections ?? undefined,
   }
 }

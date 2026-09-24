@@ -697,14 +697,50 @@ def _inject_identity_layers(
     """
     if soul.strip():
         safe_soul = scan_content(soul.strip(), source="soul")
+        # Defensive: callers may pass already-wrapped `<soul>...</soul>` text
+        # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
+        # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
+        # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
+        if safe_soul.startswith("<soul>") and safe_soul.endswith("</soul>"):
+            safe_soul = safe_soul[len("<soul>") : -len("</soul>")].strip()
         if safe_soul.strip():
-            blocks.append(safe_soul.strip())
+            blocks.append(f"<soul>\n{safe_soul}\n</soul>")
 
     extra = (custom_system_prompt or "").strip()
     if extra:
+        # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
+        # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
+        # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
+        bare_soul = soul.strip()
+        if bare_soul.startswith("<soul>") and bare_soul.endswith("</soul>"):
+            bare_soul = bare_soul[len("<soul>") : -len("</soul>")].strip()
+        if extra == bare_soul:
+            return
         safe_extra = scan_content(extra, source="custom_system_prompt")
+        # Strip stray "Lessons Learned" section + normalize legacy "Lessons" writes
+        # (the legacy term is no longer a valid deposit target; the inbox flow owns writes).
+        try:
+            from evoflow.person_kernel import omit_lessons_learned_section
+
+            safe_extra = omit_lessons_learned_section(safe_extra)
+        except Exception:
+            pass
+        for legacy, repl in (
+            ("写进 Lessons", "写进 inbox (首行标签)"),
+            ("记到 Lessons", "写进 inbox (首行标签)"),
+            ("积累到 Lessons", "写进 inbox (首行标签)"),
+            ("存入 Lessons", "写进 inbox (首行标签)"),
+            ("write to Lessons", "write to inbox (first-line tag)"),
+            ("save to Lessons", "write to inbox (first-line tag)"),
+            ("log to Lessons", "write to inbox (first-line tag)"),
+            ("append to Lessons", "write to inbox (first-line tag)"),
+        ):
+            safe_extra = safe_extra.replace(legacy, repl)
+        # XML tag itself is the only signal needed: `<agent_system_prompt>`
+        # is the canonical "this is the agent's own config.yaml override" anchor.
+        # No free-text wrapper — `config.yaml` is already the source-of-truth location.
         blocks.append(
-            f"<agent_system_prompt>\n{dyn.AGENT_CUSTOM_PROMPT_WRAPPER}\n\n{safe_extra}\n</agent_system_prompt>"
+            f"<agent_system_prompt>\n{safe_extra}\n</agent_system_prompt>"
         )
 
 
@@ -931,7 +967,7 @@ def _display_agent_name(agent_name: str | None, *, prompt_language: str | None =
 
         role = ProactiveRepository.get_role(raw)
         status = str(getattr(role, "status", "") or "").strip().lower() if role else ""
-        if role is not None and status not in {"archived", "draft"}:
+        if role is not None and status != "draft":
             name = str(getattr(role, "role_name", "") or "").strip()
             # Do not use leftover test postings that hijack the primary agent code.
             if name and raw.lower() not in {"main", "lead_agent"}:
@@ -1238,7 +1274,8 @@ def build_memory_injection_sections(
     except Exception:
         logger.debug("asset memory injection skipped", exc_info=True)
 
-    # Bound workspace: inject project catalog (separate from user memory)
+    # Bound workspace: inject project catalog (compact asset-hub style).
+    # No procedure / no discipline block — already covered by user memory's read_path.md.
     lw = str(local_workspace_root or "").strip()
     if lw:
         try:
@@ -1247,17 +1284,11 @@ def build_memory_injection_sections(
             ws_block = format_workspace_memory_context(
                 lw,
                 injection_profile=injection_profile,
-                include_procedure=not procedure_emitted,
             ).strip()
             if ws_block:
                 safe_ws = scan_content(ws_block, source="workspace_memory").strip()
                 if safe_ws:
                     body_parts.append(safe_ws)
-            from evoflow.agents.lead_agent.prompt_language import resolve_prompt_language
-            from evoflow.assets.workspace_memory_policy import workspace_write_discipline_block
-
-            disc = workspace_write_discipline_block(lang=resolve_prompt_language(prompt_language))
-            body_parts.append(disc)
         except Exception:
             logger.debug("workspace memory injection skipped", exc_info=True)
 

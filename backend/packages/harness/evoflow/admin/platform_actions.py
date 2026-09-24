@@ -71,7 +71,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "employees": {
         "title": "智能体员工岗位",
-        "when": "雇佣/暂停/恢复/归档员工、改心跳、看工作日志时",
+        "when": "雇佣/暂停/恢复员工、改心跳、看工作日志时",
         "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch",
     },
     "tasks": {
@@ -334,7 +334,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "删掉测试智能体",
         ),
         # employees
-        _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?, include_archived?", H.employees_list, "现在有哪些员工"),
+        _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?", H.employees_list, "现在有哪些员工"),
         _A("employees.get", "employees", "查看员工详情", "read", "agent_code, recent_limit?", H.employees_get, "拆解岗近况"),
         _A("employees.hire", "employees", "雇佣智能体为值班员工", "write", "agent_code, role_name?, heartbeat_rrule?…", H.employees_hire, "把文案助手雇成员工"),
         _A("employees.create", "employees", "一次创建员工（能力+岗位）", "write", "role_name, agent_code?, department?, responsibilities?…", H.employees_create, "直接加人不用先建智能体"),
@@ -342,7 +342,6 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("employees.pause", "employees", "暂停员工值班", "write", "agent_code", H.employees_pause, "让拆解岗先休息"),
         _A("employees.resume", "employees", "恢复员工值班", "write", "agent_code", H.employees_resume, "恢复拆解岗"),
         _A("employees.stop", "employees", "停止员工当前轮次", "write", "agent_code", H.employees_stop, "停掉他手头这轮"),
-        _A("employees.archive", "employees", "归档员工岗位", "destructive", "agent_code", H.employees_archive, "归档测试岗"),
         _A(
             "employees.worklog",
             "employees",

@@ -22,6 +22,10 @@ def build_context_usage_snapshot(
     message_tokens: int | None = None,
     tool_count: int | None = None,
     api_active_tokens: int | None = None,
+    system_skills_tokens: int | None = None,
+    system_assets_tokens: int | None = None,
+    system_memory_tokens: int | None = None,
+    injected_sections: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build UI + persist snapshot.
 
@@ -29,6 +33,8 @@ def build_context_usage_snapshot(
     - ``system_tokens``: system prompt (skills catalog lives here)
     - ``tools_tokens``: bound tool schemas
     - ``message_tokens``: conversation history / surface
+    - ``system_skills_tokens`` / ``system_assets_tokens`` / ``system_memory_tokens``:
+        detailed system-prompt sub-rows (技能 / 资产 / 记忆 injection).
     Occupancy numerator stays ``used_tokens`` (gate or provider input).
 
     ``api_active_tokens`` is the native-style last-turn active context size
@@ -58,6 +64,15 @@ def build_context_usage_snapshot(
         snap["tool_count"] = max(0, int(tool_count))
     if api_active_tokens is not None and int(api_active_tokens) > 0:
         snap["api_active_tokens"] = max(0, int(api_active_tokens))
+    if system_skills_tokens is not None and int(system_skills_tokens) >= 0:
+        snap["system_skills_tokens"] = max(0, int(system_skills_tokens))
+    if system_assets_tokens is not None and int(system_assets_tokens) >= 0:
+        snap["system_assets_tokens"] = max(0, int(system_assets_tokens))
+    if system_memory_tokens is not None and int(system_memory_tokens) >= 0:
+        snap["system_memory_tokens"] = max(0, int(system_memory_tokens))
+    if injected_sections:
+        # Only store sections that have actual content.
+        snap["injected_sections"] = {k: v for k, v in injected_sections.items() if v.strip()}
     return snap
 
 
@@ -110,6 +125,25 @@ def persist_session_context_usage(
             prev_api = int((prev or {}).get("api_active_tokens") or 0)
             if prev_api > 0:
                 merged["api_active_tokens"] = prev_api
+        # Carry forward any system sub-row tokens the newer snapshot didn't send.
+        _CARRY_FIELDS = (
+            "system_skills_tokens",
+            "system_assets_tokens",
+            "system_memory_tokens",
+        )
+        prev = load_session_context_usage(sk)
+        if prev:
+            for f in _CARRY_FIELDS:
+                if int(merged.get(f) or 0) <= 0:
+                    v = int((prev or {}).get(f) or 0)
+                    if v > 0:
+                        merged[f] = v
+        # Carry forward injected sections if the new snapshot didn't send any.
+        if "injected_sections" not in merged or not merged.get("injected_sections"):
+            prev = load_session_context_usage(sk)
+            prev_sections = (prev or {}).get("injected_sections")
+            if prev_sections and isinstance(prev_sections, dict) and prev_sections:
+                merged["injected_sections"] = prev_sections
 
         upsert_session_row(sk, context={"context_usage": merged})
     except Exception as exc:

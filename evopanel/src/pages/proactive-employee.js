@@ -390,7 +390,6 @@ const AUTONOMY_HINT = {
 const ROLE_STATUS_LABEL = {
   active: '在岗',
   paused: '已停',
-  archived: '已停',
   draft: '已停',
 }
 
@@ -1226,7 +1225,6 @@ function roleStatusBadge(role, busy = false) {
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
   const stopped =
     st === 'paused' ||
-    st === 'archived' ||
     st === 'draft' ||
     (st === 'active' && suspended)
 
@@ -1234,7 +1232,6 @@ function roleStatusBadge(role, busy = false) {
     let tip = '不会自动巡检'
     if (st === 'draft') tip = '草稿未确认，确认后才会排班'
     else if (st === 'paused') tip = '请假中，不会自动巡检'
-    else if (st === 'archived') tip = '已归档，不会自动巡检'
     else if (suspended) tip = '该员工自动巡检已关；点「上班」可恢复'
     return { label: '已停', cls: 'pro-badge--muted', tip }
   }
@@ -2156,9 +2153,6 @@ function renderEmployeeShell(
     `<button type="button" class="pro-role-more-item" role="menuitem" data-act="open-tasks">本岗全部任务</button>`,
   )
   if (!isSystemFrontDesk) {
-    if (role.status !== 'archived') {
-      moreItems.push(`<button type="button" class="pro-role-more-item" role="menuitem" data-act="archive">归档</button>`)
-    }
     moreItems.push(
       `<div class="pro-role-more-sep"></div>`,
       `<button type="button" class="pro-role-more-item pro-role-more-item--danger" role="menuitem" data-act="delete">删除岗位</button>`,
@@ -4008,20 +4002,6 @@ function bindEmployeePage(page, role, initiatives) {
         }
       },
     })
-  })
-  page.querySelector('[data-act="archive"]')?.addEventListener('click', async () => {
-    const name = role.role_name || role.agent_code
-    const ok = await showConfirm(
-      `将「${name}」归档？\n\n名册不再显示，历史工作项保留；需要彻底移除可再删除。`,
-    )
-    if (!ok) return
-    try {
-      await api.proactiveArchiveRole(role.agent_code)
-      toast(`已归档 ${name}`, 'info')
-      navigate('/proactive')
-    } catch (err) {
-      toast(`归档失败: ${err?.message || err}`, 'error')
-    }
   })
   page.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
     const name = role.role_name || role.agent_code

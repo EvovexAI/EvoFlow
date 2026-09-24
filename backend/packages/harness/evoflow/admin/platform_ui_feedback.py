@@ -182,7 +182,6 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.pause": f"已暂停员工「{name}」值班",
         "employees.resume": f"已恢复员工「{name}」值班",
         "employees.stop": f"已停止员工「{name}」当前轮次",
-        "employees.archive": f"已归档员工岗位「{name}」",
         "agents.create": f"已创建智能体「{name}」",
         "agents.update": f"已更新智能体「{name}」配置",
         "agents.delete": f"已删除智能体「{name}」",

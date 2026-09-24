@@ -260,12 +260,14 @@ export function getModelCatalogPrefetch() {
 async function gatewayProxyOnce(method, path, body = null, query = null, options = null) {
   const silent = !!(options && options.silent)
   const timeoutMs = Number(options?.timeoutMs)
+  gatewayProxyOnce._start = Date.now()
   const apiPath = String(path || '').startsWith('/api/')
     ? String(path)
     : `/api${String(path || '').startsWith('/') ? path : `/${path || ''}`}`
 
   // 桌面端：优先走常驻 app-server 管道；未暖好则 Rust gateway_proxy → Gateway
-  if (isTauri) {
+  // DEV 模式：跳过 Rust 代理，直走浏览器 fetch → DevTools Network 可见
+  if (isTauri && !import.meta.env.DEV) {
     const { invoke } = await import('@tauri-apps/api/core')
     /** @type {Record<string, string> | null} */
     let queryMap = null
@@ -308,6 +310,15 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
         })
         const status = Number(proxied?.status) || 0
         const result = proxied?.body
+        logGatewayRequest({
+          method: String(method || 'GET').toUpperCase(),
+          path: apiPath,
+          body,
+          status,
+          ok: !!proxied?.ok,
+          duration: Date.now() - gatewayProxyOnce._start,
+          transport: 'app-server-pipe',
+        })
         if (!proxied?.ok) {
           const msg =
             proxied?.error ||
@@ -327,7 +338,19 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
       }
     } catch (e) {
       // Pipe unavailable / RPC error with no HTTP status → fall through to gateway_proxy
-      if (e && typeof e.status === 'number' && e.status > 0) throw e
+      if (e && typeof e.status === 'number' && e.status > 0) {
+        logGatewayRequest({
+          method: String(method || 'GET').toUpperCase(),
+          path: apiPath,
+          body,
+          status: e.status,
+          ok: false,
+          duration: Date.now() - gatewayProxyOnce._start,
+          transport: 'app-server-pipe',
+          error: String(e?.message || e),
+        })
+        throw e
+      }
       if (!silent) {
         console.warn('[evoflow] app-server API pipe fallback to gateway_proxy', e)
       }
@@ -353,6 +376,16 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
         )
       }
     } catch (e) {
+      logGatewayRequest({
+        method: String(method || 'GET').toUpperCase(),
+        path: apiPath,
+        body,
+        status: 0,
+        ok: false,
+        duration: Date.now() - gatewayProxyOnce._start,
+        transport: 'gateway_proxy',
+        error: String(e?.message || e || 'invoke failed'),
+      })
       const msg = String(e?.message || e || 'gateway_proxy failed')
       const err = new Error(msg)
       err.status = 0
@@ -365,6 +398,15 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
     }
     const status = Number(proxied?.status) || 0
     const result = proxied?.body
+    logGatewayRequest({
+      method: String(method || 'GET').toUpperCase(),
+      path: apiPath,
+      body,
+      status,
+      ok: !!proxied?.ok,
+      duration: Date.now() - gatewayProxyOnce._start,
+      transport: 'gateway_proxy',
+    })
     if (!proxied?.ok) {
       const msg =
         proxied?.error ||
@@ -415,6 +457,15 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
   const text = await res.text()
   let result
   try { result = JSON.parse(text) } catch { result = text }
+  logGatewayRequest({
+    method: String(method || 'GET').toUpperCase(),
+    path: apiPath,
+    body,
+    status: res.status,
+    ok: res.ok,
+    duration: Date.now() - gatewayProxyOnce._start,
+    transport: 'web-fetch',
+  })
   if (!res.ok) {
     const msg = parseGatewayErrorMessage(res.status, result)
     if (res.status === 401 && !path.startsWith('/webui/login') && !path.startsWith('/qr-login') && !path.startsWith('/webui/qr-login')) {
@@ -687,6 +738,59 @@ const CACHE_TTL = 15000 // 15秒
 // 网络请求日志（用于调试）
 const _requestLogs = []
 const MAX_LOGS = 100
+
+/**
+ * Gateway HTTP 请求审计日志 — 记录每个真实请求/响应，供 Console 和调试面板使用。
+ * 在 DevTools Network 不可见的情况下，这是桌面端调试 Gateway 请求的主要手段。
+ * @type {Array<{id:number, time:string, method:string, path:string, body:any, status:number, ok:boolean, duration:number, transport:string, error?:string}>}
+ */
+const _gatewayAuditLog = []
+const MAX_AUDIT = 200
+let _auditId = 0
+
+/**
+ * 记录一个完整的 Gateway HTTP 请求/响应。
+ * @param {{ method:string, path:string, body:any, status:number, ok:boolean, duration:number, transport:string, error?:string }} info
+ */
+function logGatewayRequest(info) {
+  const entry = {
+    id: ++_auditId,
+    ...info,
+    time: new Date().toLocaleTimeString('zh-CN', { hour12: false, fractionalSecondDigits: 3 }),
+  }
+  _gatewayAuditLog.push(entry)
+  if (_gatewayAuditLog.length > MAX_AUDIT) _gatewayAuditLog.shift()
+  // Console 输出（不会触发 append_frontend_log，因为 main.js 已改为 PROD only）
+  const icon = entry.ok ? '✅' : '❌'
+  const dur = entry.duration ? `+${entry.duration}ms` : ''
+  const err = entry.error ? ` [${entry.error}]` : ''
+  const bodyPreview = entry.body != null
+    ? ` body=${JSON.stringify(entry.body).slice(0, 120)}${JSON.stringify(entry.body).length > 120 ? '…' : ''}`
+    : ''
+  console.info(
+    `${icon} [gw-audit#${entry.id}] ${entry.transport} ${entry.method} ${entry.path}${dur}${err}${bodyPreview}`,
+    entry,
+  )
+}
+
+/**
+ * 获取 Gateway 请求审计日志（最近 200 条）。
+ * 在 DevTools Console 输入 window.__evoflow_gw_logs 或 getGatewayAuditLogs() 查看。
+ */
+export function getGatewayAuditLogs() {
+  return _gatewayAuditLog.slice()
+}
+
+export function clearGatewayAuditLogs() {
+  _gatewayAuditLog.length = 0
+}
+
+// 暴露到 window，供 DevTools Console 直接调用
+if (typeof window !== 'undefined') {
+  window.__evoflow_gw_logs = _gatewayAuditLog
+  window.getGatewayAuditLogs = getGatewayAuditLogs
+  window.clearGatewayAuditLogs = clearGatewayAuditLogs
+}
 
 function logRequest(cmd, args, duration, cached = false) {
   const log = {
@@ -1033,14 +1137,47 @@ export async function checkBackendReady() {
     }
   }
   try {
+    // Codex-style ready: 必须 phase !== "initializing" 且 extended_routers 已挂载，
+    // 否则即便 HTTP 200 也不能信任（用户发消息会 503/失败）。
     const resp = await fetch('/health/ready', { signal: AbortSignal.timeout(5000) })
-    const ok = resp.ok
-    _setBackendReady(ok)
-    return ok
+    if (!resp.ok) {
+      _setBackendReady(false)
+      return false
+    }
+    const body = await resp.json().catch(() => null)
+    const fullyReady = isFullyReadyPayload(body)
+    if (!fullyReady.ok) {
+      _setBackendReady(false)
+      // 表面 ok 但 phase=initializing → 视为 not ready（与 health probe 状态一致）
+      return false
+    }
+    _setBackendReady(true)
+    return true
   } catch {
     _setBackendReady(false)
     return false
   }
+}
+
+/**
+ * 判定 /health/ready 响应体是否真正"可用"。
+ *
+ * 后端在冷启动过程中可能返回 `{status: "ready", phase: "initializing", extended_routers: false}`,
+ * HTTP 200 但扩展路由（如聊天资产/记忆/MCP/团队）尚未挂载 — 此时发消息几乎一定会 503。
+ *
+ * 返回：{ ok: boolean, phase: string|null, extended: boolean|null }
+ */
+function isFullyReadyPayload(body) {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, phase: null, extended: null }
+  }
+  const status = String(body.status || '').toLowerCase()
+  const phase = body.phase == null ? null : String(body.phase)
+  const extended = body.extended_routers == null ? null : !!body.extended_routers
+  const phaseReady = !phase || phase === 'ready' || phase === 'completed' || phase === 'complete'
+  // 如果后端报了 extended_routers: false，扩展 API 路径暂不可用 → 视作 not ready
+  const ready = (status === 'ready') && phaseReady && extended !== false
+  return { ok: ready, phase, extended }
 }
 
 /** Block until Gateway reports ready (desktop boot gate / home dashboard). */
@@ -2638,10 +2775,6 @@ export const api = {
     gatewayProxy('POST', '/proactive/events', payload || {}),
   proactiveCheckOverlap: async (payload) =>
     gatewayProxy('POST', '/proactive/roles/check-overlap', payload || {}),
-  proactiveArchiveRole: async (code) =>
-    gatewayProxy('PUT', `/proactive/roles/${encodeURIComponent(String(code || ''))}/archive`),
-  /** O5.2: archive demo seed roles (frontend_architect / backend_engineer / devops_lead) */
-  proactiveArchiveLegacy: async () => gatewayProxy('POST', '/proactive/roles/archive-legacy'),
   proactiveRolePerformance: async (code, days = 7, runProbes = false) =>
     gatewayProxy('GET', `/proactive/roles/${encodeURIComponent(String(code || ''))}/performance`, null, {
       days,

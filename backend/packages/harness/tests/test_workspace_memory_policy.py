@@ -30,6 +30,10 @@ def test_should_persist_module_fact() -> None:
 
 def test_discipline_block_zh() -> None:
     block = workspace_write_discipline_block(lang="zh")
-    assert "module" in block
+    # Chinese discipline block should:
+    # - mention the workspace asset root
+    # - require `[project]` as the only tag (no category split)
+    # - be wrapped in <workspace_memory_policy> so callers can detect scope
     assert ".evoflow/memory" in block
-    assert "scope=workspace" in block
+    assert "[project]" in block
+    assert "<workspace_memory_policy>" in block
