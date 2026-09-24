@@ -36,15 +36,12 @@ jobs:
         run: uv sync --group dev
 
       - name: Audit static prompt blocks (zh)
-        working-directory: backend
         run: python scripts/prompt-audit/prompt_audit.py backend/packages/harness/evoflow/agents/lead_agent/prompt_blocks_zh.py --layer L1
 
       - name: Audit static prompt blocks (en)
-        working-directory: backend
         run: python scripts/prompt-audit/prompt_audit.py backend/packages/harness/evoflow/agents/lead_agent/prompt_blocks_en.py --layer L1
 
       - name: Audit L1 prompt assembly (probes the dynamic template)
-        working-directory: backend
         env:
           PROBE_OUT: ${{ runner.temp }}/evoflow_prompt_probe.txt
           PYTHONPATH: ${{ github.workspace }}/backend
@@ -57,7 +54,7 @@ jobs:
           #   - reintroduction of the Identity heading inside <soul>
           # Source-level audit on the static blocks file covers P-002 in
           # templates (anchor-aware); the probe below covers runtime assembly.
-          python scripts/prompt-audit/ci_probe.py
+          python backend/scripts/prompt-audit/ci_probe.py
           # Strip {{agent_name}} placeholder noise from the runtime probe before audit
           # so the placeholder substitution doesn't look like a multi-identity leak.
           python -c "
@@ -73,7 +70,7 @@ jobs:
               text = text.replace('是 EvoFlow', f'是 {new}')
           open(p, 'w', encoding='utf-8').write(text)
           "
-          python scripts/prompt-audit/prompt_audit.py "$PROBE_OUT" --layer L1
+          python backend/scripts/prompt-audit/prompt_audit.py "$PROBE_OUT" --layer L1
         # NOTE: PROBE_OUT points at ${{ runner.temp }}, which is gitignored by the runner
         # and cleaned up automatically when the job ends.
         #
