@@ -234,14 +234,20 @@ html[data-scifi-ui='1'] .composer-send-btn:hover {
   box-shadow: var(--scifi-glow-lg) !important;
 }
 
-/* ===== 8. 按钮 ===== */
-html[data-scifi-ui='1'] button:not(.settings-theme-btn):not(.settings-accent-swatch) {
+/* ===== 8. 按钮（仅限聊天区内容按钮，不动顶栏/侧栏图标按钮） ===== */
+html[data-scifi-ui='1'] .chat-composer button:not(.chat-send-btn):not(.composer-send-btn):not(.chat-composer-send),
+html[data-scifi-ui='1'] .msg-actions button,
+html[data-scifi-ui='1'] .msg-button,
+html[data-scifi-ui='1'] .modal-footer button,
+html[data-scifi-ui='1'] .ai-drawer button {
   border: 1px solid var(--scifi-border) !important;
   color: var(--scifi-text) !important;
   background: var(--scifi-surface) !important;
   border-radius: 4px !important;
 }
-html[data-scifi-ui='1'] button:hover:not(:disabled):not(.settings-theme-btn):not(.settings-accent-swatch) {
+html[data-scifi-ui='1'] .chat-composer button:hover:not(:disabled),
+html[data-scifi-ui='1'] .msg-actions button:hover,
+html[data-scifi-ui='1'] .ai-drawer button:hover {
   border-color: var(--scifi-accent) !important;
   color: var(--scifi-accent) !important;
   box-shadow: var(--scifi-glow-sm) !important;
@@ -334,10 +340,6 @@ html[data-scifi-ui='1'] a:hover {
 /* ===== 11. 分隔线与边框 ===== */
 html[data-scifi-ui='1'] hr,
 html[data-scifi-ui='1'] .divider {
-  border-color: var(--scifi-border) !important;
-}
-html[data-scifi-ui='1'] [class*='border'],
-html[data-scifi-ui='1'] [class*='divider'] {
   border-color: var(--scifi-border) !important;
 }
 
@@ -492,7 +494,4 @@ html[data-scifi-ui='1'] .placeholder {
   color: var(--scifi-text3) !important;
 }
 
-/* ===== 20. hover / active 效果增强 ===== */
-html[data-scifi-ui='1'] *:hover:not(:disabled) {
-  transition: border-color 0.15s, box-shadow 0.15s, color 0.15s;
-}
+/* ===== 20. 性能优化：仅在科技风模式下启用过渡（不通过通配避免性能问题） ===== */
