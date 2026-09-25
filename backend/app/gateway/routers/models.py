@@ -875,11 +875,18 @@ def _dashscope_coding_fallback_models() -> list[dict]:
 class ListRemoteModelsRequest(BaseModel):
     """List models via OpenAI-compatible GET {base_url}/models."""
 
-    base_url: str = Field(..., description="API root, e.g. https://api.openai.com/v1 or .../compatible-mode/v1")
+    base_url: str = Field(
+        default="",
+        description="API root, e.g. https://api.openai.com/v1 or .../compatible-mode/v1 (optional when config_name is set)",
+    )
     api_key: str = Field(default="", description="Bearer token (same as chat/completions)")
     api_type: str | None = Field(
         default="openai-completions",
         description="openai-completions / openai-responses（与 OpenAI 同源 /models 列表）",
+    )
+    config_name: str | None = Field(
+        default=None,
+        description="Optional evoflow_models.name; fills missing base_url / api_key / api_type from DB",
     )
 
 
@@ -902,12 +909,36 @@ async def list_remote_openai_models(http_request: Request, request: ListRemoteMo
         }
 
     base = (request.base_url or "").strip().rstrip("/")
+    key = (request.api_key or "").strip()
+
+    # Mirror /models/test: fill missing credentials from a DB-backed model config,
+    # so the panel can list models after reload when the key is stored server-side only.
+    config_name = str(request.config_name or "").strip() or None
+    if config_name:
+        cfg = get_app_config().get_model_config(config_name)
+        if cfg is None:
+            return {
+                "success": False,
+                "message": f"模型「{config_name}」不存在。请先保存配置后再获取，或提供 base_url / api_key",
+                "models": [],
+            }
+        if not base:
+            base = (str(getattr(cfg, "base_url", None) or "").strip()).rstrip("/")
+        if not key:
+            key = str(getattr(cfg, "api_key", None) or "").strip()
+        if not request.api_type:
+            use = str(getattr(cfg, "use", "") or "")
+            lowered = use.lower()
+            if "anthropic" in lowered:
+                api_type = "anthropic-messages"
+            elif "google_genai" in lowered:
+                api_type = "google-generative-ai"
+
     if not base:
         return {"success": False, "message": "base_url 为空", "models": []}
 
     url = f"{base}/models"
     headers: dict[str, str] = {"accept": "application/json"}
-    key = (request.api_key or "").strip()
     if key:
         headers["authorization"] = f"Bearer {key}"
 
