@@ -1587,7 +1587,7 @@ html.dark .shell-account-menu {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: 0;
   color: var(--shell-text-weak, #9ca2b3);
   flex-shrink: 0;
   opacity: 0.75;
@@ -28021,7 +28021,8 @@ html.dark .react-chat-main-col--home .react-chat-header-toolbar > .react-chat-to
   padding-left: 8px;
 }
 
-/* 再次锁定无边框顶栏与内容同色（防止其它 header 规则回写） */
+/* 再次锁定无边框顶栏与内容同色（防止其它 header 规则回写）。
+ * 科技风模式下让位,sci-fi-theme.css 内有专属覆盖(深色玻璃 + 辉光)。 */
 .react-chat-header.react-chat-header--tauri-chrome {
   background: var(--bg-primary, #f6f7fb);
   border-bottom: none;
@@ -28031,6 +28032,45 @@ html[data-theme='dark'] .react-chat-header,
 html.dark .react-chat-header {
   background: var(--bg-primary, #1e1e1e);
   border-bottom: none;
+}
+
+/* 科技风模式下让位:sci-fi-theme.css 会用深色玻璃 + 呼吸辉光接管顶栏 */
+html[data-scifi-ui='1'] .react-chat-header,
+html[data-scifi-ui='1'] .react-chat-header--tauri-chrome,
+html[data-scifi-ui='1'] .react-chat-header.react-chat-header--tauri-chrome,
+html[data-scifi-ui='1'][data-theme='dark'] .react-chat-header.react-chat-header--tauri-chrome {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, rgba(10, 14, 13, 0.88)) 0%, rgba(8, 11, 10, 0.94) 60%, rgba(5, 7, 6, 0.96) 100%) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 50%, rgba(255, 255, 255, 0.12)) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.20)),
+    inset 0 2px 14px color-mix(in srgb, var(--accent) 22%, transparent),
+    inset 0 -2px 10px color-mix(in srgb, var(--accent) 30%, transparent) !important;
+  backdrop-filter: blur(40px) saturate(260%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(260%) !important;
+  position: relative;
+  z-index: 5;
+}
+
+html[data-scifi-ui='1'] .react-chat-header::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 60%, transparent) 20%,
+    color-mix(in srgb, var(--accent) 95%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 60%, transparent) 80%,
+    transparent 100%);
+  filter: blur(1px);
+  box-shadow:
+    0 0 8px 1px color-mix(in srgb, var(--accent) 65%, transparent),
+    0 2px 14px color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: scifi-acrylic-breath 4s ease-in-out infinite alternate;
+  opacity: 0.95;
 }
 
 html[data-theme='dark'] .react-chat-header.react-chat-header--tauri-chrome,
