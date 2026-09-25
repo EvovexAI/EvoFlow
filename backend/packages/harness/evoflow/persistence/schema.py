@@ -1957,8 +1957,60 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return row is not None
 
 
+def _existing_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    if not _table_exists(conn, table):
+        return set()
+    return {
+        str(r[1])
+        for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    }
+
+
+# Hand-curated set of columns that may be missing from a legacy (pre-1.0.0)
+# ``evoflow.db`` after the public baseline DDL was installed. The baseline DDL
+# uses ``CREATE TABLE IF NOT EXISTS``, so it does not add new columns to tables
+# that already exist from an older schema. We backfill these by ``ALTER TABLE
+# … ADD COLUMN`` so the application code never crashes with
+# ``sqlite3.DatabaseError: no such column: …``.
+#
+# All entries are safe to add: each uses ``DEFAULT <value>`` so SQLite can fill
+# existing rows without a table rewrite. Each entry was added when the column
+# was introduced in the post-1.0 ladder; add new entries here when adding new
+# columns to a baseline table.
+_LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
+    "evoflow_chat_sessions": (
+        ("hidden_from_list", "INTEGER NOT NULL DEFAULT 0"),
+        ("permission_preset", "TEXT"),
+        ("org_id", "TEXT"),
+        ("scope_id", "TEXT"),
+        ("created_by", "TEXT"),
+    ),
+}
+
+
+def _backfill_legacy_columns(conn: sqlite3.Connection) -> None:
+    """Add columns that legacy ``evoflow.db`` instances are missing."""
+    added: list[tuple[str, str]] = []
+    for table, columns in _LEGACY_COLUMN_BACKFILL.items():
+        existing = _existing_columns(conn, table)
+        for col_name, col_def in columns:
+            if col_name in existing:
+                continue
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_def}")
+            added.append((table, col_name))
+    if added:
+        logger.info(
+            "schema: backfilled %d missing legacy column(s): %s",
+            len(added),
+            ", ".join(f"{t}.{c}" for t, c in added),
+        )
+
+
 def _apply_baseline(conn: sqlite3.Connection) -> None:
     conn.executescript(_BASELINE_DDL)
+    # ``CREATE TABLE IF NOT EXISTS`` does not add new columns to pre-existing
+    # legacy tables; backfill them explicitly.
+    _backfill_legacy_columns(conn)
     conn.execute(f"PRAGMA user_version = {APP_SCHEMA_VERSION}")
     conn.commit()
 
@@ -1986,6 +2038,13 @@ def _snap_legacy_user_version(conn: sqlite3.Connection, version: int) -> int:
             version,
             APP_SCHEMA_VERSION,
         )
+        # The physical schema may predate the public baseline; backfill any
+        # columns that the application code now requires (e.g.
+        # ``evoflow_chat_sessions.permission_preset``). Without this, the
+        # legacy snap would set ``user_version=1`` but leave queries like
+        # ``SELECT permission_preset FROM evoflow_chat_sessions`` failing
+        # with ``sqlite3.DatabaseError: no such column``.
+        _backfill_legacy_columns(conn)
         conn.execute(f"PRAGMA user_version = {APP_SCHEMA_VERSION}")
         conn.commit()
         return APP_SCHEMA_VERSION
