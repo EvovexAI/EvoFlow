@@ -849,7 +849,7 @@ html[data-translucent-ui='1'] .react-chat-aside-segment-btn.is-active {
   color: var(--accent) !important;
   background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
   box-shadow: none !important;
-  font-weight: 600 !important;
+  font-weight: 400 !important;
 }
 
 /* ?????? + ????????? / ???? */

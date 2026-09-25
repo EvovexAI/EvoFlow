@@ -600,18 +600,18 @@ html[data-scifi-ui='1'] .react-chat-aside-nav-item.is-active {
 
 /* 分段切换按钮 */
 html[data-scifi-ui='1'] .react-chat-aside-segment-btn {
-  border-radius: 14px !important;
-  padding: 8px 12px !important;
+  border-radius: 8px !important;
+  padding: 4px 10px !important;
   transition: all 0.18s ease;
+  font-weight: 400 !important;
 }
 
 html[data-scifi-ui='1'] .react-chat-aside-segment-btn.is-active {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--accent) 14%, transparent)) !important;
-  color: #fff !important;
-  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent) !important;
-  box-shadow:
-    0 0 16px color-mix(in srgb, var(--accent) 30%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  background: color-mix(in srgb, var(--accent) 16%, transparent) !important;
+  color: var(--accent) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent) !important;
+  box-shadow: none !important;
+  font-weight: 500 !important;
 }
 
 /* 工具按钮 */

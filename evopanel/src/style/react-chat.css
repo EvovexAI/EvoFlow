@@ -721,6 +721,8 @@ html.dark .react-chat-aside-history-head {
   min-width: 0;
   height: 22px;
   padding: 0 6px;
+  color: var(--shell-text-muted, #6b7080);
+  font-weight: 400 !important;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -745,7 +747,6 @@ html.dark .react-chat-aside-history-head {
   color: var(--shell-text, #171a2b);
   background: color-mix(in srgb, var(--accent) 12%, var(--shell-bg, #f8f9fc));
   box-shadow: none;
-  font-weight: 550;
 }
 
 html[data-theme='dark'] .react-chat-aside-segment-btn.is-active,

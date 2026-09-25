@@ -146,7 +146,7 @@ html[data-theme='dark'] .react-chat-aside-segment-btn:not(.is-active),
 html[data-theme='dark'][data-translucent-ui='1'] .react-chat-aside-segment-btn:not(.is-active) {
   color: var(--text-primary) !important;
   opacity: 1 !important;
-  font-weight: 550 !important;
+  font-weight: 400 !important;
   background: transparent !important;
 }
 
@@ -167,7 +167,7 @@ html[data-theme='dark'] .react-chat-aside-segment-btn.is-active,
 [data-theme='dark'] .react-chat-aside-segment-btn.is-active {
   color: var(--accent) !important;
   background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
-  font-weight: 600 !important;
+  font-weight: 400 !important;
 }
 
 /* agent rail / 侧栏：抬高 mute 色 */
