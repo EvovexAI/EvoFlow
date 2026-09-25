@@ -36,7 +36,8 @@ def _automations_dir() -> Path:
     raw = (os.getenv("EVOFLOW_AUTOMATIONS_DIR") or "").strip()
     if raw:
         return Path(raw).expanduser()
-    return Path.home() / ".evoflow" / "tasks" / "automations"
+    evoflow_home = os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))
+    return Path(evoflow_home) / "tasks" / "automations"
 
 
 def _ensure_dir() -> Path:

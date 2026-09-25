@@ -204,7 +204,7 @@ def load_json_ref(pack: LoadedPack, from_path: str) -> dict[str, Any]:
 
 def apply_placeholders(text: str, *, org_workspace: str, org_root: str) -> str:
     s = str(text or "")
-    return s.replace("${ORG_WORKSPACE}", org_workspace or "").replace("${ORG_ROOT}", org_root or "").replace("${EVOFLOW_HOME}", str(Path.home() / ".evoflow"))
+    return s.replace("${ORG_WORKSPACE}", org_workspace or "").replace("${ORG_ROOT}", org_root or "").replace("${EVOFLOW_HOME}", os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow")))
 
 
 def deep_apply_placeholders(obj: Any, *, org_workspace: str, org_root: str) -> Any:

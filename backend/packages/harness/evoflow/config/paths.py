@@ -4,6 +4,8 @@ import re
 import shutil
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 # Virtual path prefix seen by agents inside the sandbox
 VIRTUAL_PATH_PREFIX = "/mnt/user-data"
 
@@ -37,9 +39,21 @@ class Paths:
 
     BaseDir resolution (in priority order):
         1. Constructor argument `base_dir`
-        2. EVOFLOW_HOME environment variable
+        2. EVOFLOW_HOME environment variable  <-- Use this for development (.evoflow-dev)
         3. Local dev fallback: cwd/.evoflow  (when cwd is the backend/ dir)
         4. Default: $HOME/.evoflow
+
+    === Development Environment Setup ===
+    To use a separate data directory for development (e.g., .evoflow-dev while
+    production uses .evoflow), set the EVOFLOW_HOME environment variable:
+
+        # Windows PowerShell
+        [System.Environment]::SetEnvironmentVariable("EVOFLOW_HOME", "$env:USERPROFILE\.evoflow-dev", "User")
+
+        # Linux/macOS
+        export EVOFLOW_HOME=~/.evoflow-dev
+
+    This allows running multiple instances with isolated data directories.
     """
 
     def __init__(self, base_dir: str | Path | None = None) -> None:
@@ -63,17 +77,27 @@ class Paths:
     @property
     def base_dir(self) -> Path:
         """Root directory for all application data."""
+        logger.info("[EVOFLOW_DEBUG] === base_dir resolution started ===")
+        
         if self._base_dir is not None:
+            logger.info(f"[EVOFLOW_DEBUG] Using explicit _base_dir: {self._base_dir}")
             return self._base_dir
 
-        if env_home := os.getenv("EVOFLOW_HOME"):
+        env_home = os.getenv("EVOFLOW_HOME")
+        logger.info(f"[EVOFLOW_DEBUG] EVOFLOW_HOME env var: '{env_home}'")
+        
+        if env_home:
             from evoflow.config.data_paths import normalize_evoflow_base_dir
-
-            return normalize_evoflow_base_dir(Path(env_home))
+            result = normalize_evoflow_base_dir(Path(env_home))
+            logger.info(f"[EVOFLOW_DEBUG] Using EVOFLOW_HOME path: {result}")
+            return result
 
         # Prefer existing data dir before loading AppConfig (opening evoflow.db must not take 30s+).
         home_dir = Path.home() / ".evoflow"
+        logger.info(f"[EVOFLOW_DEBUG] EVOFLOW_HOME not set, checking default: {home_dir} (exists={home_dir.exists()})")
+        
         if home_dir.exists():
+            logger.info(f"[EVOFLOW_DEBUG] Returning default home_dir: {home_dir}")
             return home_dir
 
         # Config-driven base_dir (written to config.yaml by EvoPanel)

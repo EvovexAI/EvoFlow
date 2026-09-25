@@ -98,7 +98,7 @@ def resolve_logs_dir() -> Path:
     if raw:
         return Path(raw).expanduser().resolve()
 
-    home_logs = (Path.home() / ".evoflow" / "logs").resolve()
+    home_logs = (Path(os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))) / "logs").resolve()
     if home_logs.is_dir():
         return home_logs
 

@@ -17,9 +17,24 @@ pub mod mcp_market;
 pub mod update;
 pub mod voice_overlay;
 
-/// 获取 EvoFlow 配置目录 (~/.evoflow/)
+/// 获取 EvoFlow 配置目录。
+/// 优先读取 `EVOFLOW_CONFIG_DIR` 环境变量（支持 dev/prod 隔离）；
+/// 未设置时：
+///   - debug 构建自动使用 `~/.evoflow-dev`（开发隔离）
+///   - release 构建回退到 `~/.evoflow`
 pub fn evoflow_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".evoflow")
+    if let Ok(config_dir) = std::env::var("EVOFLOW_CONFIG_DIR") {
+        return PathBuf::from(config_dir);
+    }
+    let home = dirs::home_dir().unwrap_or_default();
+    #[cfg(debug_assertions)]
+    {
+        home.join(".evoflow-dev")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        home.join(".evoflow")
+    }
 }
 
 /// 读取用户设置的数据工作空间根目录（基础目录）。

@@ -84,7 +84,7 @@ def _candidate_dirs(helper_dir: str | Path | None) -> list[Path]:
     if helper_dir:
         add(Path(helper_dir))
 
-    add(Path.home() / ".evoflow" / "sandbox-helpers")
+        add(Path.home() / ".evoflow" / "sandbox-helpers")
 
     try:
         from evoflow.config.paths import get_paths
@@ -92,6 +92,11 @@ def _candidate_dirs(helper_dir: str | Path | None) -> list[Path]:
         base = get_paths().base_dir
         add(base / "sandbox-helpers")
         add(base / "binaries" / "sandbox-helpers")
+    except Exception:
+        evoflow_home = os.getenv("EVOFLOW_HOME", "")
+        if evoflow_home:
+            add(Path(evoflow_home) / "sandbox-helpers")
+        add(Path.home() / ".evoflow" / "sandbox-helpers")
     except Exception:
         pass
 

@@ -27,7 +27,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 SKILLHUB_API_BASE = "https://api.skillhub.cn"
-SKILLS_ROOT = Path.home() / ".evoflow" / "skills"
+SKILLS_ROOT = Path(os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))) / "skills"
 
 
 def download_skill_zip(slug: str, *, timeout: int = 60) -> Path:

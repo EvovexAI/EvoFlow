@@ -16,7 +16,7 @@ _PERSISTED_DIR_NAME = "large_tool_results"
 
 
 def _get_store_dir() -> Path:
-    base = Path(os.environ.get("EVOFLOW_DATA_DIR", Path.home() / ".evoflow"))
+    base = Path(os.environ.get("EVOFLOW_DATA_DIR") or os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow")))
     store_dir = base / _PERSISTED_DIR_NAME
     store_dir.mkdir(parents=True, exist_ok=True)
     return store_dir

@@ -61,7 +61,7 @@ def _guess_workspace_for_path(abs_path: str) -> tuple[str | None, str | None]:
             continue
 
     # Legacy: ~/.evoflow/code_index/{hash}.db (pre-relocation); no migration, just keep hooks working.
-    base = Path(os.environ.get("EVOFLOW_DATA_DIR", Path.home() / ".evoflow")) / "code_index"
+    base = Path(os.environ.get("EVOFLOW_DATA_DIR", os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow")))) / "code_index"
     if not base.is_dir():
         return None, None
     for dbp in base.glob("*.db"):

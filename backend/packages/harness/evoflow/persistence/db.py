@@ -165,7 +165,9 @@ def _load_sqlite_vec_extension(conn: sqlite3.Connection) -> None:
 def _base_dir_for_db() -> Path:
     from evoflow.config.data_paths import resolve_data_base_dir
 
-    return resolve_data_base_dir()
+    base = resolve_data_base_dir()
+    logger.info(f"[EVOFLOW_DEBUG] _base_dir_for_db returning: {base}")
+    return base
 
 
 def _resolve_sqlite_file_path(raw: str) -> Path:
@@ -190,15 +192,20 @@ def resolve_evolflow_db_path(*, storage_sqlite_path: str | None = None) -> Path:
     global _cached_default_path
 
     env_db = str(os.getenv("EVOFLOW_DB_PATH") or "").strip()
+    logger.info(f"[EVOFLOW_DEBUG] resolve_evolflow_db_path: EVOFLOW_DB_PATH='{env_db}'")
+    
     if env_db:
         path = Path(env_db).expanduser().resolve()
+        logger.info(f"[EVOFLOW_DEBUG] Using EVOFLOW_DB_PATH: {path}")
         _cached_default_path = path
         return path
 
     if storage_sqlite_path is not None:
+        logger.info(f"[EVOFLOW_DEBUG] Using storage_sqlite_path: {storage_sqlite_path}")
         return _resolve_sqlite_file_path(storage_sqlite_path)
 
     if _cached_default_path is not None:
+        logger.info(f"[EVOFLOW_DEBUG] Using cached default path: {_cached_default_path}")
         return _cached_default_path
 
     # Avoid re-entering AppConfig while it is loading (``get_db`` during ``from_file``).
@@ -207,14 +214,19 @@ def resolve_evolflow_db_path(*, storage_sqlite_path: str | None = None) -> Path:
 
         if _app_config_loading:
             path = _default_db_path_under_base()
+            logger.info(f"[EVOFLOW_DEBUG] AppConfig loading, using base path: {path}")
             _cached_default_path = path
             return path
     except Exception:
         pass
 
     # Tests and explicit ``EVOFLOW_HOME`` should not open the host config.yaml DB.
-    if os.getenv("EVOFLOW_HOME"):
+    evoflow_home = os.getenv("EVOFLOW_HOME")
+    logger.info(f"[EVOFLOW_DEBUG] EVOFLOW_HOME='{evoflow_home}'")
+    
+    if evoflow_home:
         path = _default_db_path_under_base()
+        logger.info(f"[EVOFLOW_DEBUG] Using _default_db_path_under_base: {path}")
         _cached_default_path = path
         return path
 

@@ -1,4 +1,14 @@
-"""Canonical paths under ``{base_dir}/data/`` — one subdirectory per SQLite database."""
+"""Canonical paths under ``{base_dir}/data/`` — one subdirectory per SQLite database.
+
+Development Environment:
+    Set EVOFLOW_HOME environment variable to use a separate data directory
+    for development (e.g., ~/.evoflow-dev while production uses ~/.evoflow).
+
+    This is useful for developers who want to keep production data separate
+    from development experiments and testing.
+
+    See :func:`evoflow.config.paths.Paths` for full documentation.
+"""
 
 from __future__ import annotations
 

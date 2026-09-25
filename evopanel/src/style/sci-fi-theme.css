@@ -1336,12 +1336,13 @@ html[data-scifi-ui='1']:not([data-translucent-ui='1']) body .react-chat-bottom-d
   bottom: -20px;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 95% 115% at 50% 50%,
-      color-mix(in srgb, var(--accent) 55%, transparent) 0%,
-      color-mix(in srgb, var(--accent-secondary) 28%, transparent) 35%,
-      transparent 72%) !important;
-  filter: blur(40px) !important;
-  opacity: 0.45 !important;
+    radial-gradient(ellipse 80% 120% at 5% 60%, color-mix(in srgb, var(--accent) 85%, transparent) 0%, color-mix(in srgb, var(--accent-secondary) 55%, transparent) 22%, transparent 60%) !important,
+    radial-gradient(ellipse 110% 130% at 18% 55%,
+      color-mix(in srgb, var(--accent) 80%, transparent) 0%,
+      color-mix(in srgb, var(--accent-secondary) 50%, transparent) 28%,
+      transparent 68%) !important;
+  filter: blur(40px) saturate(1.8) !important;
+  opacity: 0.5 !important;
   z-index: 0 !important;
   animation: scifi-halo-pulse 4.5s ease-in-out infinite !important;
 }

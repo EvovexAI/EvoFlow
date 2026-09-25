@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 60
 # Legacy TOML directory (optional one-time import when SQLite table is empty).
-AUTOMATIONS_DIR = Path(os.getenv("EVOFLOW_AUTOMATIONS_DIR", "")).expanduser() if os.getenv("EVOFLOW_AUTOMATIONS_DIR") else Path.home() / ".evoflow" / "tasks" / "automations"
+AUTOMATIONS_DIR = Path(os.getenv("EVOFLOW_AUTOMATIONS_DIR", "")).expanduser() if os.getenv("EVOFLOW_AUTOMATIONS_DIR") else Path(os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))) / "tasks" / "automations"
 
 _automations_toml_import_done = False
 

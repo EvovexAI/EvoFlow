@@ -194,7 +194,7 @@ async def upload_file(
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    save_dir = Path(os.getenv("EVOFLOW_KB_UPLOAD_DIR", "")) or Path.home() / ".evoflow" / "kb_uploads"
+    save_dir = Path(os.getenv("EVOFLOW_KB_UPLOAD_DIR", "")) or Path(os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))) / "kb_uploads"
     save_dir = save_dir / dataset_id
 
     try:

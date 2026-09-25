@@ -115,29 +115,45 @@ def get_skills_root_path() -> Path:
         if p.exists():
             return p.resolve()
 
-    # 2) User install dir — canonical store (public synced from system, custom user-only).
+    # 2) EVOFLOW_HOME → skills follows the home dir (dev/prod isolation).
+    evoflow_home = os.getenv("EVOFLOW_HOME", "").strip()
+    if evoflow_home:
+        home = Path(evoflow_home).expanduser().resolve()
+        user_skills = home / "skills"
+        if user_skills.is_dir() and (
+            (user_skills / "public").is_dir() or (user_skills / "custom").is_dir()
+        ):
+            return user_skills
+        # Also accept when EVOFLOW_HOME points directly at the root (no data/ subdir).
+        user_skills = home.parent / ".evoflow" / "skills"
+        if user_skills.is_dir() and (
+            (user_skills / "public").is_dir() or (user_skills / "custom").is_dir()
+        ):
+            return user_skills
+
+    # 3) Default user install dir (production fallback).
     user_skills = (Path.home() / ".evoflow" / "skills").resolve()
     if user_skills.is_dir() and ((user_skills / "public").is_dir() or (user_skills / "custom").is_dir()):
         return user_skills
 
-    # 3) Frozen executable layout (PyInstaller onedir) — before first user sync.
+    # 4) Frozen executable layout (PyInstaller onedir) — before first user sync.
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
         for candidate in (exe_dir / "skills", exe_dir.parent / "skills"):
             if candidate.exists():
                 return candidate.resolve()
 
-    # 4) Monorepo checkout (dev fallback when gateway bootstrap has not run yet).
+    # 5) Monorepo checkout (dev fallback when gateway bootstrap has not run yet).
     src_skills = _skills_root_from_source_tree()
     if src_skills is not None:
         return src_skills
 
-    # 5) Working-directory-relative fallback (local dev).
+    # 6) Working-directory-relative fallback (local dev).
     cwd_skills = (Path.cwd() / "skills").resolve()
     if cwd_skills.exists():
         return cwd_skills
 
-    # 6) Last resort: same parent walk as (4) even if directory missing (caller may create / error).
+    # 7) Last resort: same parent walk as (4) even if directory missing (caller may create / error).
     backend_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
     return (backend_dir.parent / "skills").resolve()
 

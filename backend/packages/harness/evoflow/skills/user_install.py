@@ -25,10 +25,22 @@ _CONTENT_HASH_MAX_BYTES = 512 * 1024
 
 
 def get_user_skills_root(*, resolve: bool = True) -> Path:
-    """Canonical user skills root (``~/.evoflow/skills``).
+    """Canonical user skills root.
 
-    Pass ``resolve=False`` when checking/removing a legacy junction at the link path.
+    Respects ``EVOFLOW_HOME`` for dev/prod isolation;
+    falls back to ``~/.evoflow/skills``.
     """
+    evoflow_home = os.getenv("EVOFLOW_HOME", "").strip()
+    if evoflow_home:
+        home = Path(evoflow_home).expanduser().resolve()
+        # EVOFLOW_HOME may be the root dir or point to data/ subdir.
+        for candidate in [home / "skills", home.parent / ".evoflow" / "skills"]:
+            if candidate.is_dir() or (candidate.parent / "public").is_dir() or (candidate.parent / "custom").is_dir():
+                return candidate.resolve() if resolve else candidate
+        # Fallback: create under EVOFLOW_HOME.
+        p = home / "skills"
+        return p.resolve() if resolve else p
+
     p = Path.home() / ".evoflow" / "skills"
     return p.resolve() if resolve else p
 

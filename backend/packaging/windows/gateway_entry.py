@@ -64,13 +64,15 @@ startup_mark("entry.uvicorn_imported", phase="entry")
 def _default_config_path() -> str:
     if env := os.environ.get("EVOFLOW_CONFIG_PATH"):
         return env
-    return str(Path.home() / ".evoflow" / "config.yaml")
+    home = os.environ.get("EVOFLOW_HOME", str(Path.home() / ".evoflow"))
+    return str(Path(home) / "config.yaml")
 
 
 def _default_extensions_path() -> str:
     if env := os.environ.get("EVOFLOW_EXTENSIONS_CONFIG_PATH"):
         return env
-    return str(Path.home() / ".evoflow" / "extensions_config.json")
+    home = os.environ.get("EVOFLOW_HOME", str(Path.home() / ".evoflow"))
+    return str(Path(home) / "extensions_config.json")
 
 
 def _ensure_runtime_files() -> None:

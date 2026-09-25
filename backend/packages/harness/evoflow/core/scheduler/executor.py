@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Paths ────────────────────────────────────────────────────────
 
-_AUTOMATIONS_DIR = Path.home() / ".evoflow" / "tasks" / "automations"
+_AUTOMATIONS_DIR = Path(os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))) / "tasks" / "automations"
 
 
 def _history_file(automation_id: str) -> Path:
