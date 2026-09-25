@@ -55,6 +55,18 @@ function readyOk() {
   })
 }
 
+/** [fix-2026-09-25] HTTP 200 + phase=ready + extended=false (LG ready, 但 extended routers 未注册)
+ * 之前被当作 DEGRADED + "服务正在初始化中" banner；现在应是 UNKNOWN / transient，
+ * 避免 cold start 时一探针就弹 banner 阻挡用户。 */
+function extendedPending() {
+  return async () => ({
+    httpOk: true,
+    phase: 'ready',
+    extended: false,
+    fullyReady: false,
+  })
+}
+
 /** 老的启动中间态：HTTP 503 + status=not_ready（处理 startup_error） */
 function notReady503() {
   return async () => ({
@@ -84,13 +96,14 @@ test('HTTP 不可达 → UNAVAILABLE（fail streak=1 已生效，用户早知道
 test('关键场景：HTTP 200 + phase=initializing + extended=false → 立即 DEGRADED', async () => {
   // 这是用户实际看到的 status: "ready" 但 phase: "initializing" 的伪 ready 场景。
   // 必须立刻识别为"还不能用" — banner 立刻亮，不等 streak。
+  // [fix-2026-09-25] phase=initializing 仍然立即 DEGRADED（LG 引擎未就绪）；
+  // extended=false 不再叠加进 DEGRADED 错误信息，避免误报。
   __setReadyDetailProbe(initializing())
   await triggerServiceHealthCheck()
   const snap = getServiceHealthState()
   assert.equal(snap.state, ServiceHealthState.DEGRADED)
-  // error 字符串应该带 phase 与 extended 信息，方便调试
+  // error 字符串应该带 phase 信息，方便调试
   assert.match(snap.lastError, /initializing/)
-  assert.match(snap.lastError, /extended/)
 })
 
 test('HTTP 200 + 完全 ready → HEALTHY', async () => {
@@ -100,6 +113,16 @@ test('HTTP 200 + 完全 ready → HEALTHY', async () => {
   assert.equal(snap.state, ServiceHealthState.HEALTHY)
   assert.equal(snap.lastError, null)
   assert.equal(snap.failStreak, 0)
+})
+
+test('[fix-2026-09-25] HTTP 200 + phase=ready + extended=false → HEALTHY (extended routers 后台注册中)', async () => {
+  // Cold start 时 extended routers (settings/knowledge/MCP) 还没注册，但 core API
+  // (models/agents/messages/LG runs) 已可用。把 extended=false 单独当作 HEALTHY
+  // — 不阻挡主聊天面板，extended 路由会自己 503 (StartupGateMiddleware)。
+  __setReadyDetailProbe(extendedPending())
+  await triggerServiceHealthCheck()
+  const snap = getServiceHealthState()
+  assert.equal(snap.state, ServiceHealthState.HEALTHY)
 })
 
 test('HTTP 503 + status=not_ready → UNAVAILABLE', async () => {

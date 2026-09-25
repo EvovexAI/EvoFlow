@@ -401,11 +401,15 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         # Fat LangGraph imports run in a worker thread but still hold the CPython GIL,
         # so uvicorn + app-server HTTP starve for tens of seconds. Session history /
         # model catalog only need core routers — delay mount so first paint can finish.
-        delay_raw = (os.environ.get("EVOFLOW_LG_MOUNT_DELAY_SEC") or "25").strip()
+        # Default 5s (down from 25s): long enough for first paint to render the panel
+        # and warm model catalog, short enough that LangGraph /ok clears "warming_up"
+        # before the panel polls its health probe the first few times. Set
+        # EVOFLOW_LG_MOUNT_DELAY_SEC=0 to mount inline (cold start with no panel race).
+        delay_raw = (os.environ.get("EVOFLOW_LG_MOUNT_DELAY_SEC") or "5").strip()
         try:
             lg_delay_sec = max(0.0, float(delay_raw))
         except ValueError:
-            lg_delay_sec = 25.0
+            lg_delay_sec = 5.0
         if lg_delay_sec > 0:
             st_log(f"langgraph mount delayed {lg_delay_sec:.0f}s (first-paint APIs)")
             logger.info(
