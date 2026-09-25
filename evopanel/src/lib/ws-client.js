@@ -4692,6 +4692,25 @@ function dispatchChatWireSseFrame(self, opts) {
     } catch (evfErr) {
       console.warn('[evoflow] wire evf event failed', data?.type, evfErr)
     }
+    // KB citations: backend pushes a ``kb_citations`` EVF frame BEFORE the
+    // first model token whenever a KB-injected run completes its search.
+    // Surface it to the UI so the chat panel can render inline [1][2] anchors
+    // for Perplexity-style referencing.
+    if (data?.type === 'kb_citations') {
+      try {
+        self._emitEvent('kb_citations', {
+          sessionKey: key,
+          runId,
+          payload: data.data || data,
+          ts: Date.now(),
+        })
+        if (opts.onKbCitations) {
+          opts.onKbCitations(data.data || data, { sessionKey: key, runId })
+        }
+      } catch (kbErr) {
+        console.warn('[evoflow] kb_citations dispatch failed', kbErr)
+      }
+    }
     opts.onEvfAfter?.(data)
     return true
   }

@@ -107,12 +107,18 @@ async def _do_kb_search(
     query: str,
     vault_ids: list[str],
     config: KbInjectionConfig,
-) -> str:
-    """Run parallel KB searches across all bound vaults and return assembled context."""
+) -> tuple[str, list[dict[str, Any]]]:
+    """Run parallel KB searches across all bound vaults.
+
+    Returns ``(context_string, results_sorted_by_score)``. ``results`` is the
+    raw list of search-result dicts (one per matched chunk), pre-sorted by score
+    descending and pre-truncated to ``top_k`` so it can drive both the
+    injected-text formatter and the live UI citation list.
+    """
     if not query or not vault_ids:
-        return ""
+        return "", []
     if config.mode in ("off",):
-        return ""
+        return "", []
 
     import asyncio
 
@@ -149,15 +155,16 @@ async def _do_kb_search(
         all_results.extend(res_list)
 
     if not all_results:
-        return ""
+        return "", []
 
     # Sort by score descending
     all_results.sort(key=lambda r: float(r.get("score") or 0), reverse=True)
 
-    # Assemble context string
+    # Assemble context string from the top_k results
     buf: list[str] = []
     used_chars = 0
     max_chars = int(config.max_inject_tokens * _CHARS_PER_TOKEN)
+    kept: list[dict[str, Any]] = []
 
     for r in all_results:
         title = str(r.get("title") or r.get("file_name") or r.get("path") or "")
@@ -174,10 +181,11 @@ async def _do_kb_search(
         if used_chars + len(entry) > max_chars:
             break
         buf.append(entry)
+        kept.append(r)
         used_chars += len(entry)
 
     if not buf:
-        return ""
+        return "", []
 
     logger.info(
         "KbInjection: assembled context vaults=%d results=%d chars=%d query=%r",
@@ -190,7 +198,7 @@ async def _do_kb_search(
         + "\n\n以上是你可参考的知识库内容(已按相关度排序),请在回答中引用其中相关内容。\n"
         + "</knowledge_context>"
     )
-    return context
+    return context, kept
 
 
 def _build_kb_injection_message(
@@ -215,28 +223,34 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
     state_schema = AgentState
 
-    def _should_inject(self, request: ModelRequest) -> tuple[bool, str, KbInjectionConfig, list[str]]:
-        """Return (should_inject, query, config, vault_ids). Log and return False on any error."""
+    def _should_inject(self, request: ModelRequest) -> tuple[bool, str, KbInjectionConfig, list[str], str]:
+        """Return ``(should_inject, query, config, vault_ids, thread_id)``.
+
+        ``thread_id`` is the live run's thread id — used to push citations to the
+        SSE channel via ``kb_citations_publisher``. Empty when there's no live
+        stream (e.g. background worker); the publisher handles that gracefully.
+        """
         try:
             agent_code = _agent_code_from_runtime(request)
             config = get_agent_kb_injection_config(agent_code)
 
             if config.mode == "off":
                 logger.debug("KbInjection skip: mode=off agent=%s", agent_code)
-                return False, "", config, []
+                return False, "", config, [], ""
 
             messages = messages_from_model_request(request)
             query = _latest_human_preview(messages)
             if not query:
                 logger.debug("KbInjection skip: empty query agent=%s", agent_code)
-                return False, "", config, []
+                return False, "", config, [], ""
 
             # Skip proactive runs
             ctx = merge_model_request_runtime_context(request)
             session_key = str(ctx.get("session_key") or "")
+            thread_id = str(ctx.get("thread_id") or "").strip()
             if session_key.startswith("proactive:"):
                 logger.debug("KbInjection skip: proactive run agent=%s", agent_code)
-                return False, "", config, []
+                return False, "", config, [], thread_id
 
             vault_ids = get_agent_kb_vault_ids(agent_code)
             if not vault_ids:
@@ -245,12 +259,12 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                     "(check knowledge_vault_ids on the role; auto-mode requires vaults)",
                     agent_code, config.mode,
                 )
-                return False, "", config, []
+                return False, "", config, [], thread_id
 
-            return True, query, config, vault_ids
+            return True, query, config, vault_ids, thread_id
         except Exception as exc:
             logger.debug("KbInjection: skip due to error: %s", exc)
-            return False, "", KbInjectionConfig(), []
+            return False, "", KbInjectionConfig(), [], ""
 
     def _patch_request(
         self,
@@ -264,7 +278,7 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
     @override
     def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
-        should, query, config, vault_ids = self._should_inject(request)
+        should, query, config, vault_ids, thread_id = self._should_inject(request)
         if not should or not query:
             return handler(request)
 
@@ -272,17 +286,33 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         import concurrent.futures
 
         context = ""
+        results: list[dict[str, Any]] = []
 
-        def _sync_search() -> str:
+        def _sync_search() -> tuple[str, list[dict[str, Any]]]:
             return asyncio.run(_do_kb_search(query, vault_ids, config))
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 future = ex.submit(_sync_search)
-                context = future.result(timeout=config.timeout_sec + 1)
+                context, results = future.result(timeout=config.timeout_sec + 1)
         except Exception as exc:
             logger.warning("KbInjection: sync KB search failed: %s", exc)
-            context = ""
+            context, results = "", []
+
+        # Publish citations to live SSE channel BEFORE the model call lands —
+        # so the UI receives ``kb_citations`` ahead of the first token.
+        if results and thread_id:
+            try:
+                from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
+
+                publish_kb_citations(
+                    thread_id=thread_id,
+                    query=query,
+                    agent_code=_agent_code_from_runtime(request),
+                    results=results,
+                )
+            except Exception as exc:
+                logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
 
         patched = self._patch_request(request, context)
         result = handler(patched)
@@ -305,16 +335,32 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
     @override
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
-        should, query, config, vault_ids = self._should_inject(request)
+        should, query, config, vault_ids, thread_id = self._should_inject(request)
         if not should or not query:
             return await handler(request)
 
         context = ""
+        results: list[dict[str, Any]] = []
         try:
-            context = await _do_kb_search(query, vault_ids, config)
+            context, results = await _do_kb_search(query, vault_ids, config)
         except Exception as exc:
             logger.warning("KbInjection: async KB search failed: %s", exc)
-            context = ""
+            context, results = "", []
+
+        # Publish citations to live SSE channel BEFORE the model call lands —
+        # so the UI receives ``kb_citations`` ahead of the first token.
+        if results and thread_id:
+            try:
+                from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
+
+                publish_kb_citations(
+                    thread_id=thread_id,
+                    query=query,
+                    agent_code=_agent_code_from_runtime(request),
+                    results=results,
+                )
+            except Exception as exc:
+                logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
 
         patched = self._patch_request(request, context)
         result = await handler(patched)
