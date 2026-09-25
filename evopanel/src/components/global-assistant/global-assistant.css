@@ -241,7 +241,7 @@ html.dark .xm-root {
   right: 10px;
   bottom: 10px;
   width: var(--xm-dock-width, 380px);
-  max-width: min(420px, 46vw);
+  max-width: min(640px, 70vw);
   min-width: 300px;
   border-radius: 16px;
   border: 1px solid var(--border, #e6e8ec);
@@ -3424,4 +3424,23 @@ html.dark .xm-panel.xm-panel--dock {
 
 .xm-debug-session .react-chat-session-debug {
   padding: 0;
+}
+
+/* 小V 侧栏左缘拖拽调宽 */
+.xm-panel--dock .xm-dock-resize {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 3;
+}
+.xm-panel--dock .xm-dock-resize:hover,
+body.xm-resizing .xm-panel--dock .xm-dock-resize {
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.35));
+}
+body.xm-resizing {
+  user-select: none;
+  cursor: ew-resize;
 }
