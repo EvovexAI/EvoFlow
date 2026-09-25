@@ -23,6 +23,10 @@
 
 > 如果系统提示"无法验证开发者"，macOS 用户去「系统设置 → 隐私与安全性」中允许运行；Windows 用户点击"更多信息"后再点"仍要运行"即可。
 
+### Linux 没有找到安装包？
+
+官方 Releases 暂未固定提供 Linux 产物时，可从源码自行构建桌面端（免安装二进制 / deb），步骤见 [在 Linux 上构建桌面端](build-linux.md) [[getting-started/build-linux|在 Linux 上构建桌面端]]。
+
 ### 安装后做什么
 
 打开应用，在 **设置 → 模型** 中配置 API 密钥即可开始使用。详细界面说明见 [桌面端使用指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|桌面端使用指南]]。
