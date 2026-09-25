@@ -85,6 +85,7 @@ nav:
           - 产品总览（人群·问题·功能地图）: user/getting-started/product-overview.md
           - 项目介绍: user/getting-started/introduction.md
           - 下载与安装包: user/getting-started/downloads.md
+          - 在 Linux 上构建桌面端: user/getting-started/build-linux.md
           - 开发者安装: user/getting-started/installation.md
           - 5 分钟快速上手: user/getting-started/quick-start.md
           - 第一个任务: user/getting-started/first-task.md
