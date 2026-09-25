@@ -189,6 +189,18 @@ def apply_vendor_thinking_request_payload(
     model_instance: Any | None = None,
 ) -> dict[str, Any]:
     """Apply vendor-native thinking parameters to the outgoing chat payload."""
+    runtime_thinking = getattr(model_instance, "_evoflow_thinking_enabled", None) if model_instance is not None else None
+    if runtime_thinking is None:
+        # Unspecified runtime thinking: leave the payload untouched so the vendor
+        # default applies. Always-thinking models (e.g. GLM-5.3) reject an explicit
+        # "disabled" that a bool coercion would otherwise inject.
+        has_explicit = (
+            bool(_resolve_thinking_dict(payload))
+            or bool(_resolve_reasoning_effort(payload))
+            or (isinstance(payload.get("extra_body"), dict) and "enable_thinking" in payload["extra_body"])
+        )
+        if not has_explicit:
+            return payload
     kind = _host(base_url)
     if kind == "volc":
         return apply_volcengine_request_payload(payload, base_url=base_url)

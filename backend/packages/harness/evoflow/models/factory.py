@@ -825,7 +825,7 @@ def _default_resolved_model_name(config: AppConfig) -> str:
 
 def create_chat_model(
     name: str | None = None,
-    thinking_enabled: bool = False,
+    thinking_enabled: bool | None = False,
     *,
     thinking_type: str | None = None,
     invocation_kind: str | None = None,
@@ -918,7 +918,9 @@ def create_chat_model(
             model_settings_from_config.update(_strip_provider_internal_keys(effective_wte))
         _normalize_dashscope_thinking_vs_max_completion(model_settings_from_config, model_config)
     # Explicit off only when user/manual disabled — not for Auto (omit).
-    if not thinking_enabled and thinking_type_norm != "auto":
+    # ``None`` = unspecified: omit thinking kwargs and let the vendor default apply,
+    # so always-thinking models (e.g. GLM-5.3, which rejects explicit off) still work.
+    if thinking_enabled is False and thinking_type_norm != "auto":
         if effective_wte.get("extra_body", {}).get("thinking", {}).get("type"):
             # OpenAI-compatible gateway: thinking is nested under extra_body
             kwargs.update({"extra_body": {"thinking": {"type": "disabled"}}})
@@ -964,7 +966,7 @@ def create_chat_model(
             kwargs["reasoning_effort"] = resolved_effort
     else:
         kwargs["_evoflow_reasoning_effort"] = _normalize_reasoning_effort(kwargs.get("reasoning_effort"))
-    evoflow_thinking_enabled = bool(thinking_enabled)
+    evoflow_thinking_enabled = None if thinking_enabled is None else bool(thinking_enabled)
     evoflow_reasoning_effort = kwargs.get("_evoflow_reasoning_effort")
     evoflow_thinking_type = thinking_type_norm or None
     evoflow_session_mode = None
