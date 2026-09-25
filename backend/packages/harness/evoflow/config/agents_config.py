@@ -1,8 +1,10 @@
 """Configuration and loaders for custom agents."""
 
+import json
 import logging
 import re
 import time as _agent_cfg_time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -64,6 +66,136 @@ def load_bundled_soul(agent_code: str) -> str | None:
     except OSError:
         logger.warning("failed to read bundled soul for %s from %s", agent_code, src, exc_info=True)
         return None
+
+
+# ---------------------------------------------------------------------------
+# KB injection config — stored in evoflow_agents.extra_json under "kb_injection"
+# ---------------------------------------------------------------------------
+
+KB_INJECTION_MODES = frozenset({"off", "auto", "agent", "both"})
+KB_RETRIEVAL_MODES = frozenset({"vector", "hybrid", "rerank"})
+KB_INJECTION_DEFAULTS: dict[str, Any] = {
+    "mode": "auto",
+    "top_k": 24,
+    "agent_top_k": 12,
+    "score_threshold": 0.0,
+    "max_inject_tokens": 12000,
+    "recall_multiplier": 6,
+    "retrieval": "hybrid",
+    "bm25_weight": 0.3,
+    "reranker": "none",
+    "timeout_sec": 8,
+    "on_failure": "ignore",
+}
+
+
+@dataclass
+class KbInjectionConfig:
+    """Per-agent KB injection settings — stored as JSON in ``evoflow_agents.extra_json``.
+
+    All fields have sensible defaults so agents need not set every key.
+    Defaults are deliberately generous (high recall) since context window is rarely
+    the bottleneck with modern models.
+
+    Attributes:
+        mode: ``off`` (disabled), ``auto`` (inject before LLM call),
+              ``agent`` (Agent tool call), ``both`` (auto inject + tool available).
+              Default: ``auto``.
+        top_k: Number of KB results to inject into context (auto/both mode).
+               Default: 24.
+        agent_top_k: Number of KB results per tool call (agent/both mode).
+                     Default: 12.
+        score_threshold: Minimum similarity score [0.0, 1.0]; 0.0 = no filter.
+                         Default: 0.0 (return all recalled results above threshold).
+        max_inject_tokens: Approximate character cap for injected KB context
+                           (~1.5 chars per token for Chinese). Default: 12000.
+        recall_multiplier: Oversampling factor before score filtering.
+                           recall_k = max(top_k * multiplier, 16).
+                           Default: 6.
+        retrieval: Retrieval algorithm: ``vector`` (embedding only),
+                   ``hybrid`` (vec 0.7 + bm25 0.3), ``rerank`` (adds cross-encoder).
+                   Default: ``hybrid``.
+        bm25_weight: BM25 weight in hybrid fusion [0.0, 1.0]. Default: 0.3.
+        reranker: Reranker model name. ``none`` disables reranking.
+                   Default: ``none``.
+        timeout_sec: Search timeout in seconds. Default: 8.
+        on_failure: What to do on timeout / error: ``ignore`` (continue without KB),
+                   ``abort`` (raise, block the LLM call). Default: ``ignore``.
+    """
+
+    mode: str = "auto"
+    top_k: int = 24
+    agent_top_k: int = 12
+    score_threshold: float = 0.0
+    max_inject_tokens: int = 12000
+    recall_multiplier: int = 6
+    retrieval: str = "hybrid"
+    bm25_weight: float = 0.3
+    reranker: str = "none"
+    timeout_sec: int = 8
+    on_failure: str = "ignore"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "KbInjectionConfig":
+        """Reconstruct from extra_json payload or return defaults."""
+        if not data:
+            return cls()
+        merged = {**KB_INJECTION_DEFAULTS, **{k: v for k, v in data.items() if v is not None}}
+        return cls(
+            mode=str(merged.get("mode", "auto")) if merged.get("mode") in KB_INJECTION_MODES else "auto",
+            top_k=int(merged.get("top_k", 24)),
+            agent_top_k=int(merged.get("agent_top_k", 12)),
+            score_threshold=float(merged.get("score_threshold", 0.0)),
+            max_inject_tokens=int(merged.get("max_inject_tokens", 12000)),
+            recall_multiplier=int(merged.get("recall_multiplier", 6)),
+            retrieval=str(merged.get("retrieval", "hybrid")) if merged.get("retrieval") in KB_RETRIEVAL_MODES else "hybrid",
+            bm25_weight=float(merged.get("bm25_weight", 0.3)),
+            reranker=str(merged.get("reranker", "none")),
+            timeout_sec=int(merged.get("timeout_sec", 8)),
+            on_failure=str(merged.get("on_failure", "ignore")) if merged.get("on_failure") in ("ignore", "abort") else "ignore",
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "top_k": self.top_k,
+            "agent_top_k": self.agent_top_k,
+            "score_threshold": self.score_threshold,
+            "max_inject_tokens": self.max_inject_tokens,
+            "recall_multiplier": self.recall_multiplier,
+            "retrieval": self.retrieval,
+            "bm25_weight": self.bm25_weight,
+            "reranker": self.reranker,
+            "timeout_sec": self.timeout_sec,
+            "on_failure": self.on_failure,
+        }
+
+
+def get_agent_kb_injection_config(agent_code: str | None) -> KbInjectionConfig:
+    """Load KB injection config for an agent, falling back to defaults."""
+    if not agent_code:
+        return KbInjectionConfig()
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        data = cfg_repo.get_agent_extra_json(agent_code) or {}
+        kb_block = data.get("kb_injection")
+        return KbInjectionConfig.from_dict(kb_block)
+    except Exception:
+        return KbInjectionConfig()
+
+
+def get_agent_kb_vault_ids(agent_code: str | None) -> list[str]:
+    """Return the agent's bound vault IDs (knowledge_vault_ids field)."""
+    if not agent_code:
+        return []
+    try:
+        cfg = load_agent_config(agent_code)
+        if cfg is None:
+            return []
+        return list(cfg.knowledge_vault_ids or [])
+    except Exception:
+        return []
 
 
 class AgentConfig(BaseModel):
