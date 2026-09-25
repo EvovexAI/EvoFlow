@@ -65,6 +65,141 @@ function prettyRrule(rrule) {
   return roleScheduleSummary({ heartbeat_schedule: rrule, schedule_summary: '' })
 }
 
+function renderKbInjectionField(existingConfig = null) {
+    const cfg = existingConfig || {}
+    const mode = String(cfg.mode || 'auto')
+    const topK = parseInt(cfg.top_k ?? 24, 10) || 24
+    const agentTopK = parseInt(cfg.agent_top_k ?? 12, 10) || 12
+    const scoreThreshold = parseFloat(cfg.score_threshold ?? 0)
+    const maxTokens = parseInt(cfg.max_inject_tokens ?? 12000, 10) || 12000
+    const recallMul = parseInt(cfg.recall_multiplier ?? 6, 10) || 6
+    const retrieval = String(cfg.retrieval || 'hybrid')
+    const bm25Weight = parseFloat(cfg.bm25_weight ?? 0.3)
+    const reranker = String(cfg.reranker || 'none')
+    const timeout = parseInt(cfg.timeout_sec ?? 8, 10) || 8
+    const onFailure = String(cfg.on_failure || 'ignore')
+
+    const modeOpts = [
+        ['auto', '自动注入(推荐)'],
+        ['agent', 'Agent 工具调用'],
+        ['both', '两者并行(自动注入 + 工具可用)'],
+        ['off', '关闭'],
+    ]
+    const retrievalOpts = [
+        ['hybrid', `混合(vec 0.7 + BM25 ${bm25Weight})`],
+        ['vector', '纯向量'],
+        ['rerank', '重排序(bge-reranker)'],
+    ]
+
+    return `
+      <div class="hire-field" data-section="kb-injection">
+        <span>知识库检索配置</span>
+        <p class="hire-chip-hint">影响该岗位在绑定知识库上的检索行为。默认 auto:系统在 LLM 调用前自动检索并把相关片段注入上下文。</p>
+        <input type="hidden" data-name="kb_injection_mode" value="${esc(mode)}">
+        <input type="hidden" data-name="kb_injection_retrieval" value="${esc(retrieval)}">
+        <input type="hidden" data-name="kb_injection_reranker" value="${esc(reranker)}">
+        <input type="hidden" data-name="kb_injection_on_failure" value="${esc(onFailure)}">
+
+        <div class="hire-chip-row" data-name="kb_injection_mode" role="radiogroup">
+          ${modeOpts
+            .map(([v, label]) => `<button type="button" class="hire-chip${v === mode ? ' is-on' : ''}" data-value="${esc(v)}">${esc(label)}</button>`)
+            .join('')}
+        </div>
+
+        <div class="hire-row-split">
+          <label class="hire-subfield">
+            <span>检索条数 (auto)</span>
+            <input type="number" min="1" max="64" data-name="kb_injection_top_k" value="${esc(topK)}">
+          </label>
+          <label class="hire-subfield">
+            <span>工具调用条数 (agent)</span>
+            <input type="number" min="1" max="32" data-name="kb_injection_agent_top_k" value="${esc(agentTopK)}">
+          </label>
+        </div>
+
+        <div class="hire-row-split">
+          <label class="hire-subfield">
+            <span>相似度阈值 [0.0-1.0]</span>
+            <input type="number" step="0.01" min="0" max="1" data-name="kb_injection_score_threshold" value="${esc(scoreThreshold)}">
+          </label>
+          <label class="hire-subfield">
+            <span>注入上限 (tokens)</span>
+            <input type="number" min="500" max="100000" data-name="kb_injection_max_tokens" value="${esc(maxTokens)}">
+          </label>
+        </div>
+
+        <div class="hire-row-split">
+          <label class="hire-subfield">
+            <span>召回倍数</span>
+            <input type="number" min="1" max="20" data-name="kb_injection_recall_mul" value="${esc(recallMul)}">
+          </label>
+          <label class="hire-subfield">
+            <span>检索超时 (秒)</span>
+            <input type="number" min="1" max="60" data-name="kb_injection_timeout" value="${esc(timeout)}">
+          </label>
+        </div>
+
+        <div class="hire-subfield">
+          <span>检索算法</span>
+          <div class="hire-chip-row" data-name="kb_injection_retrieval" role="radiogroup">
+            ${retrievalOpts
+              .map(([v, label]) => `<button type="button" class="hire-chip${v === retrieval ? ' is-on' : ''}" data-value="${esc(v)}">${esc(label)}</button>`)
+              .join('')}
+          </div>
+        </div>
+
+        <div class="hire-row-split">
+          <label class="hire-subfield">
+            <span>BM25 权重 (hybrid)</span>
+            <input type="number" step="0.05" min="0" max="1" data-name="kb_injection_bm25_weight" value="${esc(bm25Weight)}">
+          </label>
+          <label class="hire-subfield">
+            <span>失败策略</span>
+            <select data-name="kb_injection_on_failure">
+              <option value="ignore" ${onFailure === 'ignore' ? 'selected' : ''}>忽略(继续回答)</option>
+              <option value="abort" ${onFailure === 'abort' ? 'selected' : ''}>中止(告知用户)</option>
+            </select>
+          </label>
+        </div>
+      </div>`
+}
+
+function readKbInjectionConfig(overlay) {
+    const get = (n) => overlay.querySelector(`[data-name="${n}"]`)
+    const num = (n, d) => {
+        const v = parseFloat(get(n)?.value ?? '')
+        return Number.isFinite(v) ? v : d
+    }
+    return {
+        mode: get('kb_injection_mode')?.value || 'auto',
+        top_k: num('kb_injection_top_k', 24),
+        agent_top_k: num('kb_injection_agent_top_k', 12),
+        score_threshold: num('kb_injection_score_threshold', 0.0),
+        max_inject_tokens: num('kb_injection_max_tokens', 12000),
+        recall_multiplier: num('kb_injection_recall_mul', 6),
+        retrieval: get('kb_injection_retrieval')?.value || 'hybrid',
+        bm25_weight: num('kb_injection_bm25_weight', 0.3),
+        reranker: get('kb_injection_reranker')?.value || 'none',
+        timeout_sec: num('kb_injection_timeout', 8),
+        on_failure: get('kb_injection_on_failure')?.value || 'ignore',
+    }
+}
+
+function bindKbInjectionChipRows(overlay) {
+    overlay
+        .querySelectorAll('[data-section="kb-injection"] .hire-chip-row[data-name]')
+        .forEach((row) => {
+            row.addEventListener('click', (e) => {
+                const chip = e.target.closest('.hire-chip')
+                if (!chip) return
+                const value = chip.dataset.value || ''
+                row.querySelectorAll('.hire-chip').forEach((c) => c.classList.toggle('is-on', c === chip))
+                const hidden = overlay.querySelector(`[data-name="${row.dataset.name}"]`)
+                if (hidden) hidden.value = value
+            })
+        })
+}
+
 async function loadKnowledgeVaults() {
   try {
     const res = await api.listKnowledgeVaults()
@@ -402,6 +537,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
   const modelName = String(cfg.model_name || '').trim()
   const currentReportsTo = String(role.reports_to || cfg.reports_to || '').trim()
   const selectedVaultIds = Array.isArray(cfg.knowledge_vault_ids) ? cfg.knowledge_vault_ids : []
+  const existingKbInjection = (cfg && cfg.kb_injection) || {}
   const dailyBudget = Number(cfg.daily_budget_usd || 0) || 0
   const perRunBudget = Number(cfg.per_run_budget_usd || 0) || 0
   const budgetPolicy = String(cfg.budget_exceed_policy || 'skip_patrol').trim() || 'skip_patrol'
@@ -518,6 +654,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
               ${renderModelField(chatModels, modelName)}
               ${renderWorkspaceField(workspacePaths, workspacePath, domain)}
               ${renderKnowledgeVaultField(knowledgeVaults, selectedVaultIds)}
+              ${renderKbInjectionField(existingKbInjection)}
               <div class="hire-field">
                 <span>工作方式</span>
                 <div class="hire-chip-row" data-name="think_mode" role="radiogroup">
@@ -587,6 +724,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
   bindHireChipRows(overlay)
   bindModelSelect(overlay)
   bindWorkspaceSelect(overlay)
+  bindKbInjectionChipRows(overlay)
   scheduleCtrl.initEvents()
 
   overlay.querySelectorAll('[data-act="edit-section"]').forEach((btn) => {
@@ -645,6 +783,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
     const department = (overlay.querySelector('[data-name="department"]')?.value || '').trim()
     const reports_to = (overlay.querySelector('[data-name="reports_to"]')?.value || '').trim()
     const knowledge_vault_ids = readKnowledgeVaultIds(overlay)
+    const kb_injection = readKbInjectionConfig(overlay)
 
     const changes = []
     if (role_name !== String(role.role_name || '')) changes.push(`岗位名称：${role.role_name || '—'} → ${role_name}`)
@@ -678,6 +817,9 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
         `超额策略：${BUDGET_POLICY_LABELS[budgetPolicy] || budgetPolicy} → ${BUDGET_POLICY_LABELS[nextPolicy] || nextPolicy}`,
       )
     }
+    const prevKb = existingKbInjection || {}
+    const kbChanged = JSON.stringify(kb_injection) !== JSON.stringify(prevKb)
+    if (kbChanged) changes.push('知识库检索配置已修改')
 
     if (!changes.length) {
       toast('没有变更', 'info')
@@ -747,6 +889,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
         workspace_path,
         domain_scope,
         knowledge_vault_ids,
+        kb_injection,
         autonomy_level,
         heartbeat_schedule,
         think_mode,
@@ -776,4 +919,7 @@ export {
   loadKnowledgeVaults,
   readKnowledgeVaultIds,
   renderKnowledgeVaultField,
+  renderKbInjectionField,
+  readKbInjectionConfig,
+  bindKbInjectionChipRows,
 }
