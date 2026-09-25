@@ -140,7 +140,15 @@ def startup_mark(tag: str, *, phase: str = "process", extra: dict[str, Any] | No
         except Exception:
             pass
     human = f"[STARTUP-TRACE] phase={phase} tag={tag} delta_ms={mark.delta_ms:.0f} total_ms={mark.total_ms:.0f} pid={pid} frozen={frozen}{extra_bits}"
-    print(human, file=sys.stderr, flush=True)
+    # Trace IO must never abort process startup: frozen Win32 builds with a
+    # closed or wrapped sys.stderr can raise ``OSError: [Errno 22] Invalid
+    # argument`` from ``flush()`` (ERROR_INVALID_HANDLE). Swallow that, plus
+    # the usual closed-file ``ValueError``, so a broken trace sink cannot
+    # take the whole gateway down before uvicorn binds.
+    try:
+        print(human, file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
     _append_log_line(human)
     _boot_cycle_append(phase, tag, delta_ms=mark.delta_ms, total_ms=mark.total_ms, extra=extra)
 
