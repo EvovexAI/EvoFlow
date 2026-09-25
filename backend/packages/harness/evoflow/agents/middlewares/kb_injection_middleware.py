@@ -65,6 +65,8 @@ from evoflow.agents.middlewares.model_request_messages import messages_from_mode
 
 logger = logging.getLogger(__name__)
 
+import time  # noqa: E402  (used for perf timing in summary logs)
+
 _KB_INJECTION_MESSAGE_NAME = "evf_kb_injection"
 # Approximate chars-to-tokens ratio for mixed Chinese/English text
 _CHARS_PER_TOKEN = 1.5
@@ -117,6 +119,88 @@ def _emit_kb_activity(thread_id: str, kind: str, detail: str) -> None:
         logger.debug("KbInjection activity emit failed thread=%s", tid, exc_info=True)
 
 
+def _summarize_result(raw: dict[str, Any]) -> str:
+    """Compact per-hit log line: ``title | vault=X | score=0.82``.
+
+    Used in single-line summaries so a grep on the service log gives the user
+    immediate "what was retrieved" without paging through tracebacks.
+    """
+    title = str(raw.get("title") or raw.get("file_name") or raw.get("path") or "?")
+    if len(title) > 60:
+        title = title[:59] + "…"
+    vault = str(raw.get("vaultId") or raw.get("dataset_id") or "?")
+    score = raw.get("score")
+    score_str = f"{float(score):.3f}" if score is not None else "-"
+    return f"{title!r} | vault={vault} | score={score_str}"
+
+
+def _log_summary(
+    *,
+    agent_code: str | None,
+    thread_id: str,
+    query: str,
+    config: KbInjectionConfig,
+    vault_ids: list[str],
+    decision: str,
+    duration_ms: float | None = None,
+    results: list[dict[str, Any]] | None = None,
+    context_chars: int | None = None,
+    err: BaseException | None = None,
+) -> None:
+    """Single-line structured summary for the service log.
+
+    Levels:
+      - INFO    on a real injection (success path — operator wants to see it)
+      - WARNING on user-misconfig (mode=off / no vault / empty query)
+      - WARNING on search error (with exc_info so the stack is captured)
+      - DEBUG   on proactive / no-thread (high volume, expected)
+    """
+    q_preview = str(query or "").strip().replace("\n", " ")
+    if len(q_preview) > 80:
+        q_preview = q_preview[:79] + "…"
+    duration = f" elapsed={duration_ms:.1f}ms" if duration_ms is not None else ""
+    parts: list[str] = []
+    if agent_code:
+        parts.append(f"agent={agent_code}")
+    if thread_id:
+        parts.append(f"thread={thread_id[:8]}")
+    parts.append(f"decision={decision}")
+    parts.append(f"mode={config.mode}")
+    parts.append(f"top_k={config.top_k}")
+    parts.append(f"threshold={config.score_threshold}")
+    parts.append(f"timeout={config.timeout_sec}s")
+    parts.append(f"retrieval={config.retrieval}")
+    parts.append(f"rerank={config.reranker}")
+    if vault_ids:
+        parts.append(f"vaults=[{','.join(vault_ids)}]")
+    parts.append(f"query={q_preview!r}")
+    if results is not None:
+        parts.append(f"hits={len(results)}")
+    if context_chars is not None:
+        parts.append(f"injected_chars={context_chars}")
+    if duration:
+        parts.append(duration.strip())
+    line = "KbInjection: " + " ".join(parts)
+
+    if err is not None:
+        logger.warning("%s err=%s: %s", line, err.__class__.__name__, err, exc_info=True)
+
+    if decision == "ok":
+        logger.info(line)
+        for i, r in enumerate((results or [])[:3]):
+            logger.info("  hit[%d] %s", i + 1, _summarize_result(r))
+        if len(results or []) > 3:
+            logger.info("  …and %d more", len(results) - 3)
+        return
+
+    # decision ∈ {skip_mode_off, skip_no_vault, skip_empty_query, skip_proactive, no_hits}
+    if decision in {"skip_mode_off", "skip_no_vault", "no_hits"}:
+        logger.warning(line)
+    else:
+        # empty query / proactive: expected, not a misconfig
+        logger.debug(line)
+
+
 def _agent_code_from_runtime(request: ModelRequest) -> str | None:
     """Resolve agent_code from LangGraph runtime context."""
     ctx = merge_model_request_runtime_context(request)
@@ -150,6 +234,7 @@ async def _do_kb_search(
     rerank = config.reranker != "none"
 
     async def search_one(vault_id: str) -> list[dict[str, Any]]:
+        t0 = time.perf_counter()
         try:
             results = await asyncio.wait_for(
                 provider.search(
@@ -162,12 +247,26 @@ async def _do_kb_search(
                 ),
                 timeout=config.timeout_sec,
             )
+            dt_ms = (time.perf_counter() - t0) * 1000
+            logger.debug(
+                "KbInjection vault=%s mode=%s rerank=%s hits=%d elapsed=%.1fms query=%r",
+                vault_id, mode, rerank, len(results), dt_ms, query[:80],
+            )
             return [r.model_dump(by_alias=True, mode="json") for r in results]
         except asyncio.TimeoutError:
-            logger.warning("KB search timed out vault=%s query=%r", vault_id, query[:80])
+            dt_ms = (time.perf_counter() - t0) * 1000
+            logger.warning(
+                "KbInjection vault=%s timed out after %.1fms (timeout=%ss) query=%r",
+                vault_id, dt_ms, config.timeout_sec, query[:80],
+            )
             return []
         except Exception as exc:
-            logger.warning("KB search failed vault=%s query=%r: %s", vault_id, query[:80], exc)
+            dt_ms = (time.perf_counter() - t0) * 1000
+            logger.warning(
+                "KbInjection vault=%s failed after %.1fms err=%s: %s query=%r",
+                vault_id, dt_ms, exc.__class__.__name__, exc, query[:80],
+                exc_info=True,
+            )
             return []
 
     # Parallel search across all vaults
@@ -250,41 +349,68 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         ``thread_id`` is the live run's thread id — used to push citations to the
         SSE channel via ``kb_citations_publisher``. Empty when there's no live
         stream (e.g. background worker); the publisher handles that gracefully.
+
+        Side effect: emits a single structured service-log line per call so the
+        operator can grep ``KbInjection:`` to see why a turn did or did not
+        inject context.
         """
         try:
             agent_code = _agent_code_from_runtime(request)
             config = get_agent_kb_injection_config(agent_code)
+            ctx = merge_model_request_runtime_context(request)
+            thread_id = str(ctx.get("thread_id") or "").strip()
+            session_key = str(ctx.get("session_key") or "").strip()
 
             if config.mode == "off":
-                logger.debug("KbInjection skip: mode=off agent=%s", agent_code)
-                return False, "", config, [], ""
+                _log_summary(
+                    agent_code=agent_code,
+                    thread_id=thread_id,
+                    query="",
+                    config=config,
+                    vault_ids=[],
+                    decision="skip_mode_off",
+                )
+                return False, "", config, [], thread_id
 
             messages = messages_from_model_request(request)
             query = _latest_human_preview(messages)
             if not query:
-                logger.debug("KbInjection skip: empty query agent=%s", agent_code)
-                return False, "", config, [], ""
+                _log_summary(
+                    agent_code=agent_code,
+                    thread_id=thread_id,
+                    query="",
+                    config=config,
+                    vault_ids=[],
+                    decision="skip_empty_query",
+                )
+                return False, "", config, [], thread_id
 
-            # Skip proactive runs
-            ctx = merge_model_request_runtime_context(request)
-            session_key = str(ctx.get("session_key") or "")
-            thread_id = str(ctx.get("thread_id") or "").strip()
             if session_key.startswith("proactive:"):
-                logger.debug("KbInjection skip: proactive run agent=%s", agent_code)
+                _log_summary(
+                    agent_code=agent_code,
+                    thread_id=thread_id,
+                    query=query,
+                    config=config,
+                    vault_ids=[],
+                    decision="skip_proactive",
+                )
                 return False, "", config, [], thread_id
 
             vault_ids = get_agent_kb_vault_ids(agent_code)
             if not vault_ids:
-                logger.warning(
-                    "KbInjection skip: no bound vaults agent=%s mode=%s "
-                    "(check knowledge_vault_ids on the role; auto-mode requires vaults)",
-                    agent_code, config.mode,
+                _log_summary(
+                    agent_code=agent_code,
+                    thread_id=thread_id,
+                    query=query,
+                    config=config,
+                    vault_ids=[],
+                    decision="skip_no_vault",
                 )
                 return False, "", config, [], thread_id
 
             return True, query, config, vault_ids, thread_id
         except Exception as exc:
-            logger.debug("KbInjection: skip due to error: %s", exc)
+            logger.warning("KbInjection: skip due to unexpected error: %s", exc, exc_info=True)
             return False, "", KbInjectionConfig(), [], ""
 
     def _patch_request(
@@ -308,6 +434,8 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
         context = ""
         results: list[dict[str, Any]] = []
+        search_err: BaseException | None = None
+        t0 = time.perf_counter()
 
         def _sync_search() -> tuple[str, list[dict[str, Any]]]:
             return asyncio.run(_do_kb_search(query, vault_ids, config))
@@ -316,9 +444,49 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 future = ex.submit(_sync_search)
                 context, results = future.result(timeout=config.timeout_sec + 1)
-        except Exception as exc:
-            logger.warning("KbInjection: sync KB search failed: %s", exc)
+        except concurrent.futures.TimeoutError:
+            search_err = TimeoutError(
+                f"sync kb search wall-clock exceeded {config.timeout_sec + 1}s"
+            )
             context, results = "", []
+        except Exception as exc:
+            search_err = exc
+            context, results = "", []
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        if search_err is not None:
+            _log_summary(
+                agent_code=_agent_code_from_runtime(request),
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="search_error",
+                duration_ms=elapsed_ms,
+                err=search_err,
+            )
+        elif context and results:
+            _log_summary(
+                agent_code=_agent_code_from_runtime(request),
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="ok",
+                duration_ms=elapsed_ms,
+                results=results,
+                context_chars=len(context),
+            )
+        else:
+            _log_summary(
+                agent_code=_agent_code_from_runtime(request),
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="no_hits",
+                duration_ms=elapsed_ms,
+            )
 
         # Activity trace — single post-search tick so the live UI shows whether
         # KB was consulted on this turn, regardless of result count.
@@ -381,11 +549,48 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
         context = ""
         results: list[dict[str, Any]] = []
+        search_err: BaseException | None = None
+        t0 = time.perf_counter()
         try:
             context, results = await _do_kb_search(query, vault_ids, config)
         except Exception as exc:
-            logger.warning("KbInjection: async KB search failed: %s", exc)
+            search_err = exc
             context, results = "", []
+
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        if search_err is not None:
+            _log_summary(
+                agent_code=_agent_code_from_runtime(request),
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="search_error",
+                duration_ms=elapsed_ms,
+                err=search_err,
+            )
+        elif context and results:
+            _log_summary(
+                agent_code=_agent_code_from_runtime(request),
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="ok",
+                duration_ms=elapsed_ms,
+                results=results,
+                context_chars=len(context),
+            )
+        else:
+            _log_summary(
+                agent_code=_agent_code_from_runtime(request),
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="no_hits",
+                duration_ms=elapsed_ms,
+            )
 
         # Activity trace — single post-search tick so the live UI shows whether
         # KB was consulted on this turn, regardless of result count.
