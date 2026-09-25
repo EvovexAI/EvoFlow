@@ -24,7 +24,10 @@ def _kg_conn(kb_id: str) -> Iterator[Any]:
     """Route to the KB's index DB (``kb_*``) or the central DB (``mem:*``)."""
     scope = str(kb_id or "").strip()
     if scope.startswith("mem:") or not scope.startswith("kb_"):
-        with _kg_conn(kb_id) as conn:
+        # Central ``owned.sqlite`` — mem:* namespace + any non-kb_ scope.
+        from evoflow.knowledge.owned.db import db as _central_db_conn
+
+        with _central_db_conn() as conn:
             yield conn
         return
     from evoflow.knowledge.owned.kb_conn import db_for_kb
