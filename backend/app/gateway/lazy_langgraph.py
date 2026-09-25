@@ -223,6 +223,13 @@ class ExternalLangGraphProxy:
         path = str(scope.get("path") or "")
         if not path.startswith("/"):
             path = f"/{path}"
+        # Strip the gateway mount prefix when the upstream serves at its root
+        # (e.g. `langgraph dev` on its own port); keep it for packaged sidecars
+        # whose base URL already ends with /api/langgraph.
+        mount_prefix = "/api/langgraph"
+        if path.startswith(mount_prefix + "/"):
+            stripped = path[len(mount_prefix):]
+            path = stripped if stripped.startswith("/") else f"/{stripped}"
         query = scope.get("query_string") or b""
         url = self._upstream_base + path
         if query:
