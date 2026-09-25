@@ -35,6 +35,11 @@ _shared_conn: sqlite3.Connection | None = None
 _shared_conn_path: Path | None = None
 _shared_wrapper: Any = None
 
+# Process-level flag: once a legacy column miss is observed on the shared
+# connection, run the backfill once and stop retrying. Subsequent misses are
+# genuine bugs (unknown columns) and should surface, not loop forever.
+_LAZY_BACKFILL_DONE: bool = False
+
 _DEFAULT_BUSY_TIMEOUT_MS = max(1000, int(os.getenv("EVOFLOW_SQLITE_BUSY_TIMEOUT_MS", "10000") or "10000"))
 _DEFAULT_CONNECT_TIMEOUT_S = max(1.0, float(os.getenv("EVOFLOW_SQLITE_CONNECT_TIMEOUT_S", "5") or "5"))
 _DEFAULT_MAX_ATTEMPTS = max(1, int(os.getenv("EVOFLOW_SQLITE_MAX_ATTEMPTS", "8") or "8"))
@@ -61,8 +66,36 @@ class _LockedConnection:
             self._conn.row_factory = value
 
     def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+        """Execute a statement on the shared connection with lazy legacy backfill.
+
+        If a legacy ``evoflow.db`` was opened before any backfill ran (process
+        started before the fix landed), the first query that touches a missing
+        column (e.g. ``SELECT permission_preset FROM evoflow_chat_sessions``)
+        raises ``sqlite3.DatabaseError: no such column: …``. We catch that
+        specific error, ALTER TABLE the missing columns, then retry once.
+        A process-level flag prevents repeating the probe on every request.
+        """
+        from evoflow.persistence.schema import (
+            _backfill_legacy_columns,
+            _is_legacy_missing_column_error,
+        )
+
+        global _LAZY_BACKFILL_DONE
         with _lock:
-            return self._conn.execute(sql, parameters)
+            try:
+                return self._conn.execute(sql, parameters)
+            except sqlite3.DatabaseError as exc:
+                if _LAZY_BACKFILL_DONE or not _is_legacy_missing_column_error(exc):
+                    raise
+                _LAZY_BACKFILL_DONE = True
+                logger.warning(
+                    "sqlite: missing legacy column on live connection "
+                    "(%s) — running lazy backfill and retrying",
+                    exc,
+                )
+                _backfill_legacy_columns(self._conn)
+                self._conn.commit()
+                return self._conn.execute(sql, parameters)
 
     def executemany(self, sql: str, parameters: Any) -> sqlite3.Cursor:
         with _lock:

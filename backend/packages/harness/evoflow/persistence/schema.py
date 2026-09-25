@@ -2006,6 +2006,31 @@ def _backfill_legacy_columns(conn: sqlite3.Connection) -> None:
         )
 
 
+# Legacy columns we know may be missing on pre-1.0.0 databases. Used by the
+# lazy backfill path in ``db.py`` to detect "should we retry after ALTER".
+_LEGACY_KNOWN_MISSING_COLUMNS: frozenset[tuple[str, str]] = frozenset(
+    (table, col_name)
+    for table, columns in _LEGACY_COLUMN_BACKFILL.items()
+    for col_name, _ in columns
+)
+
+
+def _is_legacy_missing_column_error(exc: BaseException) -> bool:
+    """True iff ``exc`` is ``sqlite3.DatabaseError: no such column: <known_legacy>``.
+
+    Only the specific legacy columns we know how to backfill are matched —
+    unknown missing columns must surface as bugs, not be silently retried.
+    """
+    msg = str(exc or "").strip()
+    if not msg.startswith("no such column:"):
+        return False
+    needle = msg.split(":", 1)[1].strip().lower()
+    for _table, col in _LEGACY_KNOWN_MISSING_COLUMNS:
+        if needle == col.lower():
+            return True
+    return False
+
+
 def _apply_baseline(conn: sqlite3.Connection) -> None:
     conn.executescript(_BASELINE_DDL)
     # ``CREATE TABLE IF NOT EXISTS`` does not add new columns to pre-existing
