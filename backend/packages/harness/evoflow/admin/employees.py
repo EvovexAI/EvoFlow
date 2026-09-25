@@ -613,7 +613,7 @@ def backfill_agent_kb_vault_ids() -> dict[str, int]:
     """
     summary: dict[str, int] = {"synced": 0, "skipped": 0, "errors": 0}
     try:
-        from evoflow.proactive.repository import ProactiveRepository
+        from evoflow.proactive.repositories import ProactiveRepository
 
         roles = ProactiveRepository.list_roles() or []
     except Exception as exc:

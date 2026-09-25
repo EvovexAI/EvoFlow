@@ -193,11 +193,12 @@ def _log_summary(
             logger.info("  …and %d more", len(results) - 3)
         return
 
-    # decision ∈ {skip_mode_off, skip_no_vault, skip_empty_query, skip_proactive, no_hits}
+    # decision ∈ {skip_mode_off, skip_no_vault, skip_empty_query,
+    #              skip_proactive_duty, no_hits}
     if decision in {"skip_mode_off", "skip_no_vault", "no_hits"}:
         logger.warning(line)
     else:
-        # empty query / proactive: expected, not a misconfig
+        # empty query / proactive duty: expected, not a misconfig
         logger.debug(line)
 
 
@@ -336,7 +337,9 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
     - ``mode == "off"`` for the agent
     - No bound vault IDs
     - Empty user query
-    - Proactive / system-initiated runs (session_key starts with "proactive:")
+    - Unattended proactive duty loop (``triggered_by=proactive_engine`` or
+      ``proactive_process=True``). User chat into ``proactive:{agent_code}``
+      sessions is *not* skipped — operators open those explicitly to test KB.
 
     On failure (timeout / error): log + continue without KB context (never block the agent).
     """
@@ -385,16 +388,27 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                 )
                 return False, "", config, [], thread_id
 
-            if session_key.startswith("proactive:"):
-                _log_summary(
-                    agent_code=agent_code,
-                    thread_id=thread_id,
-                    query=query,
-                    config=config,
-                    vault_ids=[],
-                    decision="skip_proactive",
+            # Skip unattended duty / engine loops only — user-driven chat into
+            # ``proactive:{agent_code}`` still gets KB so the operator can see
+            # what the employee would otherwise consult on its own patrol.
+            try:
+                from evoflow.agents.middlewares.proactive_tool_middleware import (
+                    is_proactive_duty_run,
                 )
-                return False, "", config, [], thread_id
+
+                if is_proactive_duty_run(request):
+                    _log_summary(
+                        agent_code=agent_code,
+                        thread_id=thread_id,
+                        query=query,
+                        config=config,
+                        vault_ids=[],
+                        decision="skip_proactive_duty",
+                    )
+                    return False, "", config, [], thread_id
+            except Exception:
+                # Detection helper failure must not block KB; fall through.
+                pass
 
             vault_ids = get_agent_kb_vault_ids(agent_code)
             if not vault_ids:
