@@ -718,6 +718,15 @@ def evf_payload_to_agui_events(
         out.append({"type": CUSTOM, "name": t, "value": payload})
         return out
 
+    # KB citations — the KbInjectionMiddleware pushes EVF ``kb_citations``
+    # frames onto the thread inject queue before the model call lands. Mirror
+    # them as ``CUSTOM(name=kb_citations)`` so AG-UI consumers (chat panels,
+    # transcript persist) receive the references metadata inline with the
+    # other wire frames, instead of losing it to the silent fall-through.
+    if t == "kb_citations":
+        out.append({"type": CUSTOM, "name": "kb_citations", "value": payload})
+        return out
+
     return out
 
 

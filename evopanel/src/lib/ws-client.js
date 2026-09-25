@@ -250,6 +250,17 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
       })
     } else if (name === 'pending_inject_consumed' && value && typeof value === 'object') {
       emitPendingInjectConsumedEvent(self, key, chatRunId, value)
+    } else if (name === 'kb_citations' && value && typeof value === 'object') {
+      // Backend pushes ``kb_citations`` AG-UI CUSTOM frames whenever the
+      // KbInjectionMiddleware finishes a search before the model call. Surface
+      // them on the chat event bus so the chat panel can render Perplexity-
+      // style inline citations and an expandable references card.
+      self._emitEvent('chat', {
+        sessionKey: key,
+        runId: chatRunId,
+        state: 'kb_citations',
+        citationsPayload: value,
+      })
     } else if (name === 'custom' && value && typeof value === 'object') {
       // LangGraph stream_writer / EVF custom envelope → AG-UI CUSTOM name=custom
       const chunk =

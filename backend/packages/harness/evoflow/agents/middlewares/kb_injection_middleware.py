@@ -96,6 +96,27 @@ def _latest_human_preview(messages: list[Any]) -> str:
     return ""
 
 
+def _emit_kb_activity(thread_id: str, kind: str, detail: str) -> None:
+    """Best-effort agent_activity stream tick for the user-facing live trace.
+
+    The KbInjectionMiddleware can be silent in three failure modes (mode=off, no
+    bound vaults, search error) — without an explicit activity tick the user
+    has no way of telling whether KB was consulted on this turn. We always
+    emit at least one tick per middleware invocation so the live SSE carries
+    "正在执行 kb_injection…" even when nothing was injected.
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        from evoflow.observability.agent_activity_stream import emit_agent_activity
+
+        emit_agent_activity(tid, kind=kind, detail=detail, force=True)
+    except Exception:
+        # Activity tick is a UX signal; never propagate.
+        logger.debug("KbInjection activity emit failed thread=%s", tid, exc_info=True)
+
+
 def _agent_code_from_runtime(request: ModelRequest) -> str | None:
     """Resolve agent_code from LangGraph runtime context."""
     ctx = merge_model_request_runtime_context(request)
@@ -299,6 +320,25 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             logger.warning("KbInjection: sync KB search failed: %s", exc)
             context, results = "", []
 
+        # Activity trace — single post-search tick so the live UI shows whether
+        # KB was consulted on this turn, regardless of result count.
+        if thread_id:
+            if context and results:
+                _emit_kb_activity(
+                    thread_id,
+                    kind="kb_injection",
+                    detail=(
+                        f"kb_injection 检索到 {len(results)} 条 "
+                        f"({sum(len(s) for s in [context])} chars)"
+                    ),
+                )
+            else:
+                _emit_kb_activity(
+                    thread_id,
+                    kind="kb_injection",
+                    detail="kb_injection 未命中（mode=off / 无库 / 检索失败）",
+                )
+
         # Publish citations to live SSE channel BEFORE the model call lands —
         # so the UI receives ``kb_citations`` ahead of the first token.
         if results and thread_id:
@@ -346,6 +386,25 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         except Exception as exc:
             logger.warning("KbInjection: async KB search failed: %s", exc)
             context, results = "", []
+
+        # Activity trace — single post-search tick so the live UI shows whether
+        # KB was consulted on this turn, regardless of result count.
+        if thread_id:
+            if context and results:
+                _emit_kb_activity(
+                    thread_id,
+                    kind="kb_injection",
+                    detail=(
+                        f"kb_injection 检索到 {len(results)} 条 "
+                        f"({sum(len(s) for s in [context])} chars)"
+                    ),
+                )
+            else:
+                _emit_kb_activity(
+                    thread_id,
+                    kind="kb_injection",
+                    detail="kb_injection 未命中（mode=off / 无库 / 检索失败）",
+                )
 
         # Publish citations to live SSE channel BEFORE the model call lands —
         # so the UI receives ``kb_citations`` ahead of the first token.
