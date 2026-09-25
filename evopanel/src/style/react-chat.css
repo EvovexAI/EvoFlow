@@ -2214,11 +2214,7 @@ html.dark .shell-account-menu {
   width: 28px;
   pointer-events: none;
   z-index: 1;
-  background: linear-gradient(
-    to right,
-    transparent 0%,
-    var(--history-fade-bg, var(--chrome-bg, #e8edf2)) 88%
-  );
+  display: none;
 }
 
 .react-chat-history-item {

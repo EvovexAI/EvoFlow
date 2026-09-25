@@ -263,13 +263,33 @@
   height: 36px;
   padding: 0 10px;
   border-radius: 8px;
-  border: 1px solid var(--border-primary, #e2e8f0);
-  background: var(--bg-secondary, #fff);
-  color: var(--text-secondary, #475569);
+  border: 1px solid var(--border-primary, #e2e8f0) !important;
+  background: #ffffff !important;
+  color: var(--text-secondary, #475569) !important;
   font-size: 13px;
   cursor: pointer;
   flex-shrink: 0;
   max-width: 148px;
+  outline: none !important;
+}
+
+.role-filter-select:focus,
+.role-filter-btn:focus {
+  outline: none !important;
+  border-color: var(--accent, #6366f1) !important;
+}
+
+.role-filter-select:focus-visible,
+.role-filter-btn:focus-visible {
+  outline: none !important;
+}
+
+/* 强制覆盖所有透明背景 */
+html[data-custom-bg='1'] .role-filter-select,
+html[data-translucent-ui='1'] .role-filter-select,
+html[data-liquid-glass-webgl='1'] .role-filter-select {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
 }
 
 .role-filter-btn.is-active {

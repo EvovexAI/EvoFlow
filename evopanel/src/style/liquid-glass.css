@@ -1421,3 +1421,112 @@ html[data-theme='dark'][data-translucent-ui='1'] .xm-composer-input {
   border-color: var(--ef-glass-border) !important;
   color: var(--text-primary) !important;
 }
+
+/* ========== 修复：背景图模式下模态框使用不透明实心背景 ========== */
+/* 有背景图时，确保 .modal 使用不透明的实心背景，避免文字看不清 */
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal {
+  background: #f4f6f8 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #e6e8ec !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px #e6e8ec !important;
+  color: #202124 !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal .form-label,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal .form-label {
+  color: #656b73 !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal .form-input,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal .form-input {
+  background: #ffffff !important;
+  color: #202124 !important;
+  border-color: #e6e8ec !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal .form-hint,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal .form-hint {
+  color: #9297a0 !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal .modal-title,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal .models-edit-modal-title {
+  color: #202124 !important;
+}
+
+/* 有背景图时，确保模态框操作栏样式正确 */
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal-actions,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal-actions {
+  border-top: 1px solid #e6e8ec !important;
+  background: #f4f6f8 !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal-actions .btn-secondary,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal-actions .btn-secondary {
+  background: rgba(32, 33, 36, 0.03) !important;
+  border-color: #e6e8ec !important;
+  color: #656b73 !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal-actions .btn-secondary:hover,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal-actions .btn-secondary:hover {
+  background: rgba(32, 33, 36, 0.06) !important;
+  color: #202124 !important;
+}
+
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal-actions .btn-primary,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-edit-modal-actions .btn-primary {
+  background: #635bff !important;
+  border-color: #635bff !important;
+  color: #ffffff !important;
+}
+
+/* 遮罩层也要确保不透明 */
+html[data-translucent-ui='1'][data-custom-bg='1'] .modal-overlay,
+html[data-translucent-ui='1'][data-custom-bg='1'] .models-modal-overlay {
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ========== 修复 WebGL 模式下背景图时的模态框透明度 ========== */
+/* 确保在 WebGL 模式下且有背景图时，模态框使用不透明背景 */
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .modal,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .models-edit-modal {
+  background: #f4f6f8 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid #e6e8ec !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px #e6e8ec !important;
+  color: #202124 !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .modal .form-label,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .models-edit-modal .form-label {
+  color: #656b73 !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .modal .form-input,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .models-edit-modal .form-input {
+  background: #ffffff !important;
+  color: #202124 !important;
+  border-color: #e6e8ec !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .modal .form-hint,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .models-edit-modal .form-hint {
+  color: #9297a0 !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .modal .modal-title,
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .models-edit-modal .models-edit-modal-title {
+  color: #202124 !important;
+}
+
+html[data-translucent-ui='1'][data-liquid-glass-webgl='1'][data-custom-bg='1'] .modal-overlay {
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

@@ -14432,7 +14432,7 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   border-radius: 0;
   background: transparent;
 }
-/* ========== ????????????? ========== */
+/* ========== 模型编辑弹窗 ========== */
 .models-edit-modal {
   width: 95%;
   max-width: 680px;
@@ -14447,6 +14447,69 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
     0 24px 80px rgba(0, 0, 0, 0.18),
     0 0 0 1px color-mix(in srgb, var(--border-primary) 60%, transparent);
   animation: models-edit-modal-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 浅色模式下确保弹窗背景正确 */
+:root[data-theme="light"] .models-edit-modal {
+  background: #f4f6f8 !important;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.12),
+    0 0 0 1px #e6e8ec !important;
+}
+
+/* 确保浅色模式下所有子元素文字颜色正确 */
+:root[data-theme="light"] .models-edit-modal-body {
+  background: #f4f6f8 !important;
+  color: #202124 !important;
+  border: none !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-body .form-label {
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-body .form-input {
+  background: #ffffff !important;
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-body .form-hint {
+  color: #9297a0 !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-header {
+  background: linear-gradient(135deg, rgba(99, 91, 255, 0.07) 0%, transparent 60%),
+    linear-gradient(to bottom, #ffffff, #f4f6f8) !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-title {
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-subtitle {
+  color: #9297a0 !important;
+}
+
+:root[data-theme="light"] .models-edit-section-label {
+  color: #9297a0 !important;
+}
+
+:root[data-theme="light"] .models-edit-advanced-section {
+  background: rgba(32, 33, 36, 0.02) !important;
+  border-color: rgba(230, 232, 236, 0.5) !important;
+}
+
+:root[data-theme="light"] .models-edit-advanced-title {
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .models-edit-checkbox-item {
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .models-edit-checkbox-item.is-disabled {
+  color: #9297a0 !important;
+  opacity: 0.7;
 }
 
 @keyframes models-edit-modal-in {
@@ -14873,6 +14936,44 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   gap: 10px;
   flex-shrink: 0;
   background: var(--bg-secondary) !important;
+}
+
+/* 浅色模式下确保底部分隔线和按钮颜色正确 */
+:root[data-theme="light"] .models-edit-modal-actions {
+  border-top: 1px solid #e6e8ec !important;
+  background: #f4f6f8 !important;
+}
+
+/* 浅色模式下确保按钮颜色正确 */
+:root[data-theme="light"] .models-edit-modal-actions .btn-secondary {
+  background: rgba(32, 33, 36, 0.03) !important;
+  border-color: #e6e8ec !important;
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-actions .btn-secondary:hover {
+  background: rgba(32, 33, 36, 0.06) !important;
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .models-edit-modal-actions .btn-primary {
+  background: #635bff !important;
+  border-color: #635bff !important;
+  color: #ffffff !important;
+}
+
+/* 确保模态框内按钮在浅色模式下正确显示 */
+:root[data-theme="light"] .modal .btn-secondary,
+:root[data-theme="light"] .models-edit-modal .btn-secondary {
+  background: rgba(32, 33, 36, 0.03) !important;
+  border-color: #e6e8ec !important;
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .modal .btn-secondary:hover,
+:root[data-theme="light"] .models-edit-modal .btn-secondary:hover {
+  background: rgba(32, 33, 36, 0.06) !important;
+  color: #202124 !important;
 }
 
 .models-edit-modal-actions .btn {

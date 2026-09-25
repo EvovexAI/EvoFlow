@@ -713,17 +713,14 @@ html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root,
 html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root .settings-layout--hub .settings-nav,
 html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root .settings-layout--hub .settings-hub-main,
 html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-panels,
-html[data-custom-bg='1']:not([data-liquid-glass='1']) .modal,
-html[data-custom-bg='1']:not([data-liquid-glass='1']) .react-chat-modal-overlay .react-chat-modal-card,
-html[data-custom-bg='1']:not([data-liquid-glass='1']) .settings-modal-root,
-html[data-custom-bg='1']:not([data-liquid-glass='1']) .settings-panels,
 html[data-theme='dark'][data-translucent-ui='1']:not([data-liquid-glass='1']) .modal,
 html[data-theme='dark'][data-custom-bg='1']:not([data-liquid-glass='1']) .modal {
-  background: color-mix(in srgb, var(--bg-secondary) 36%, transparent) !important;
-  border-color: color-mix(in srgb, var(--border-primary) 45%, transparent) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: none !important;
+  /* 背景图模式下使用不透明实心背景 */
+  background: var(--bg-secondary, #f4f6f8) !important;
+  border-color: var(--border-primary, #e6e8ec) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border-primary, #e6e8ec) !important;
 }
 
 html[data-translucent-ui='1']:not([data-liquid-glass='1']) .settings-modal-root .config-section,

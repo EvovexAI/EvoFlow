@@ -592,6 +592,31 @@ mark {
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
+
+/* 浅色模式下确保模态框背景正确 */
+:root[data-theme="light"] .modal {
+  background: #f4f6f8 !important;
+  border-color: #e6e8ec !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px #e6e8ec !important;
+}
+
+:root[data-theme="light"] .modal .modal-title {
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .modal .form-label {
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .modal .form-input {
+  background: #ffffff !important;
+  color: #202124 !important;
+  border-color: #e6e8ec !important;
+}
+
+:root[data-theme="light"] .modal .form-hint {
+  color: #9297a0 !important;
+}
 .modal-body,
 .modal-content-body {
   flex: 1;
@@ -621,6 +646,7 @@ mark {
   font-weight: 600;
   margin-bottom: 0;
   flex-shrink: 0;
+  color: var(--text-primary);
 }
 
 .modal-header {
@@ -669,6 +695,30 @@ mark {
   gap: var(--space-sm);
   margin-top: var(--space-xl);
   flex-shrink: 0;
+}
+
+/* 浅色模式下确保模态框操作栏样式正确 */
+:root[data-theme="light"] .modal-actions {
+  border-top: 1px solid #e6e8ec !important;
+  padding-top: 16px !important;
+  margin-top: 16px !important;
+}
+
+:root[data-theme="light"] .modal-actions .btn-secondary {
+  background: rgba(32, 33, 36, 0.03) !important;
+  border-color: #e6e8ec !important;
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .modal-actions .btn-secondary:hover {
+  background: rgba(32, 33, 36, 0.06) !important;
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .modal-actions .btn-primary {
+  background: #635bff !important;
+  border-color: #635bff !important;
+  color: #ffffff !important;
 }
 
 @keyframes fadeInModal {

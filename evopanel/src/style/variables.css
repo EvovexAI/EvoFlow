@@ -235,3 +235,57 @@
   --shell-text: var(--text-secondary, #4a4f5a);
   --shell-text-muted: var(--text-tertiary, #6f7682);
 }
+
+/* ========== 浅色模式全局覆盖 ========== */
+/* 通用表单元素 - 使用 :root[data-theme] 选择器确保高优先级 */
+:root[data-theme="light"] .form-label {
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .form-input {
+  background: #ffffff !important;
+  color: #202124 !important;
+  border-color: #e6e8ec !important;
+}
+
+:root[data-theme="light"] .form-hint {
+  color: #9297a0 !important;
+}
+
+:root[data-theme="light"] .form-group {
+  color: #202124 !important;
+}
+
+/* 通用模态框 */
+:root[data-theme="light"] .modal {
+  background: #f4f6f8 !important;
+  border-color: #e6e8ec !important;
+}
+
+:root[data-theme="light"] .modal .modal-title {
+  color: #202124 !important;
+}
+
+/* 通用模态框操作栏 */
+:root[data-theme="light"] .modal-actions {
+  border-top: 1px solid #e6e8ec !important;
+  padding-top: 16px !important;
+  margin-top: 16px !important;
+}
+
+:root[data-theme="light"] .modal-actions .btn-secondary {
+  background: rgba(32, 33, 36, 0.03) !important;
+  border-color: #e6e8ec !important;
+  color: #656b73 !important;
+}
+
+:root[data-theme="light"] .modal-actions .btn-secondary:hover {
+  background: rgba(32, 33, 36, 0.06) !important;
+  color: #202124 !important;
+}
+
+:root[data-theme="light"] .modal-actions .btn-primary {
+  background: #635bff !important;
+  border-color: #635bff !important;
+  color: #ffffff !important;
+}

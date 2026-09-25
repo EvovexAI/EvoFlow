@@ -1362,12 +1362,12 @@ html[data-theme='dark']:not([data-translucent-ui='1']) .proactive-page {
   --ef-field-surface-strong: color-mix(in srgb, var(--bg-secondary) 94%, #09090b);
 }
 
-/* 液态玻璃：智能体中心 / 值班台 — 控件透明描边 */
+/* 液态玻璃：智能体中心 / 值班台 — 控件使用浅色半透明背景 */
 html[data-translucent-ui='1'] .role-page,
 html[data-translucent-ui='1'] .proactive-page,
 html[data-translucent-ui='1'] .expert-page {
-  --ef-field-surface: transparent;
-  --ef-field-surface-strong: color-mix(in srgb, var(--accent) 10%, transparent);
+  --ef-field-surface: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+  --ef-field-surface-strong: color-mix(in srgb, var(--accent) 10%, var(--bg-secondary));
 }
 
 html[data-theme='dark'] .role-page :is(
@@ -1458,8 +1458,7 @@ html[data-translucent-ui='1'] .role-page .re-search::placeholder {
 html[data-theme='dark'] .role-page .role-filter-select,
 html[data-translucent-ui='1'] .role-page .role-filter-select,
 html[data-translucent-ui='1'] .expert-page :is(.role-filter-select, .ec-filter-select) {
-  background-color: var(--ef-field-surface) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 1.5L6 6l4.5-4.5' fill='none' stroke='%23d4d4d8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-color: #ffffff !important;
 }
 
 html[data-theme='dark'] .role-page .role-more-btn,
@@ -1935,7 +1934,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page .role-card
   color: var(--accent) !important;
 }
 
-/* 搜索 / 筛选 / 更多筛选面板 — WebGL 模式全透明 */
+/* 搜索 / 筛选 / 更多筛选面板 — WebGL 模式使用实心背景 */
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .expert-page :is(
   .role-search-input,
   .role-filter-select,
@@ -1959,10 +1958,10 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .role-page :is(
   .agent-tag-chip,
   .role-market-banner
 ) {
-  background: transparent !important;
+  background: var(--bg-secondary, #ffffff) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  border-color: color-mix(in srgb, var(--border-primary) 58%, transparent) !important;
+  border-color: var(--border-primary, #e2e8f0) !important;
   box-shadow: none !important;
 }
 
