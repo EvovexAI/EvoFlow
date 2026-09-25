@@ -22,7 +22,6 @@ const MAX_VIDEO_DATA_URL_BYTES = 12 * 1024 * 1024
 
 /** @type {string} */
 let _sessionVideoBlobUrl = ''
-const DEFAULT_BG_URL = '/assets/evoflow_card_png_assets/home_background.png'
 const MIN_OPACITY = 0.05
 const MAX_OPACITY = 1
 const DEFAULT_OPACITY = 0.35
@@ -156,12 +155,12 @@ export function applyBackgroundPreference() {
   const resolved = resolveBackgroundImageUrl(stored)
   const opacity = getBackgroundOpacityPreference()
   const isVideo = isVideoBackgroundPreference(stored) || isVideoMediaUrl(resolved)
-  const imageUrl = !isVideo && resolved ? resolved : DEFAULT_BG_URL
+  const imageUrl = !isVideo && resolved ? resolved : ''
   const custom = !!resolved
 
   root.dataset.customBg = custom ? '1' : '0'
   root.dataset.customBgVideo = custom && isVideo ? '1' : '0'
-  if (!isVideo) {
+  if (!isVideo && imageUrl) {
     root.style.setProperty('--app-bg-image', cssUrl(imageUrl))
   } else {
     root.style.removeProperty('--app-bg-image')

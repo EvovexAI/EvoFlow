@@ -170,7 +170,7 @@
 
 /* Shared (theme-invariant) */
 :root {
-  --app-bg-image: url('/assets/evoflow_card_png_assets/home_background.png');
+  --app-bg-image: none;
   --app-bg-opacity: 0.35;
   --app-bg-veil: 0.65;
 
