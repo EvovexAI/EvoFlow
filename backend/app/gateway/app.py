@@ -81,6 +81,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         register_runtime_adapters()
     except Exception:
         logger.debug("runtime adapter registration failed", exc_info=True)
+    # [fix-2026-09-25] Bump anyio default thread-limiter capacity so a single
+    # GIL-bound sync call (e.g. sentence_transformers cold import + load on
+    # customer-service KB search) cannot starve the 40 default workers and
+    # freeze every concurrent sync route. Hang diagnostics have shown 45s+
+    # event-loop stalls when all 40 default workers get pulled into a single
+    # scipy/sklearn import chain. Default 80 covers cold-start + concurrent chat.
+    try:
+        from anyio import to_thread as _anyio_to_thread
+
+        limiter = _anyio_to_thread.current_default_thread_limiter()
+        # Anyio thread limiter has no public setter; the safe way is to set
+        # total_tokens dynamically when no work is in flight. We use a generous
+        # default for desktop / packaged builds where KB+chat share a process.
+        _EVOFLOW_THREAD_LIMIT = int(
+            (os.environ.get("EVOFLOW_ANYIO_THREAD_LIMIT") or "80").strip() or "80"
+        )
+        if limiter.total_tokens < _EVOFLOW_THREAD_LIMIT:
+            limiter.total_tokens = _EVOFLOW_THREAD_LIMIT
+            logger.info("anyio thread limiter bumped to %d workers", _EVOFLOW_THREAD_LIMIT)
+    except Exception:
+        logger.debug("anyio thread limiter bump skipped", exc_info=True)
     configure_gateway_file_logging(force=True)
     stop_hang_diagnostics = None
     try:
