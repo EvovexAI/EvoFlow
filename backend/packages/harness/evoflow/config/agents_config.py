@@ -86,6 +86,7 @@ KB_INJECTION_DEFAULTS: dict[str, Any] = {
     "reranker": "none",
     "timeout_sec": 8,
     "on_failure": "ignore",
+    "mount_platform_tools": False,
 }
 
 
@@ -121,6 +122,10 @@ class KbInjectionConfig:
         timeout_sec: Search timeout in seconds. Default: 8.
         on_failure: What to do on timeout / error: ``ignore`` (continue without KB),
                    ``abort`` (raise, block the LLM call). Default: ``ignore``.
+        mount_platform_tools: When ``True`` (opt-in), expose admin tools
+                             (``platform``, ``panel_set``, ``AGENT_MODE_SYSTEM_TOOL_NAMES``)
+                             to this agent. Default: ``False`` — subagents / employees
+                             don't need admin / side-panel tools; ``main`` keeps them.
     """
 
     mode: str = "auto"
@@ -134,6 +139,7 @@ class KbInjectionConfig:
     reranker: str = "none"
     timeout_sec: int = 8
     on_failure: str = "ignore"
+    mount_platform_tools: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "KbInjectionConfig":
@@ -153,6 +159,7 @@ class KbInjectionConfig:
             reranker=str(merged.get("reranker", "none")),
             timeout_sec=int(merged.get("timeout_sec", 8)),
             on_failure=str(merged.get("on_failure", "ignore")) if merged.get("on_failure") in ("ignore", "abort") else "ignore",
+            mount_platform_tools=bool(merged.get("mount_platform_tools", False)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -168,6 +175,7 @@ class KbInjectionConfig:
             "reranker": self.reranker,
             "timeout_sec": self.timeout_sec,
             "on_failure": self.on_failure,
+            "mount_platform_tools": self.mount_platform_tools,
         }
 
 

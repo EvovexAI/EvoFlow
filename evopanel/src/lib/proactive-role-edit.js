@@ -78,6 +78,7 @@ function renderKbInjectionField(existingConfig = null) {
     const reranker = String(cfg.reranker || 'none')
     const timeout = parseInt(cfg.timeout_sec ?? 8, 10) || 8
     const onFailure = String(cfg.on_failure || 'ignore')
+    const mountPlatformTools = cfg.mount_platform_tools === true
 
     const modeOpts = [
         ['auto', '自动注入(推荐)'],
@@ -161,6 +162,12 @@ function renderKbInjectionField(existingConfig = null) {
             </select>
           </label>
         </div>
+
+        <label class="hire-subfield hire-toggle">
+          <input type="checkbox" data-name="kb_injection_mount_platform_tools" ${mountPlatformTools ? 'checked' : ''}>
+          <span>挂载平台工具 (platform / panel_set)</span>
+        </label>
+        <p class="hire-chip-hint">默认关闭：员工不需要「平台行政」与「侧边面板控制」工具。开启后该员工会获得 platform / panel_set 等系统管理工具(谨慎使用,通常只给 main)。</p>
       </div>`
 }
 
@@ -182,6 +189,7 @@ function readKbInjectionConfig(overlay) {
         reranker: get('kb_injection_reranker')?.value || 'none',
         timeout_sec: num('kb_injection_timeout', 8),
         on_failure: get('kb_injection_on_failure')?.value || 'ignore',
+        mount_platform_tools: !!overlay.querySelector('[data-name="kb_injection_mount_platform_tools"]')?.checked,
     }
 }
 

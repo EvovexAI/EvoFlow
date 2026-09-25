@@ -1461,6 +1461,21 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   color: var(--text-primary);
   font-family: inherit;
 }
+.hire-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hire-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0;
+}
+.hire-toggle > span {
+  flex: 1;
+}
 .hire-chip-hint {
   margin: 0;
   font-size: 11px;
