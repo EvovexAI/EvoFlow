@@ -14,10 +14,46 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { homedir } from 'os'
 import net from 'net'
-import { _initApi, _apiMiddleware } from './dev-api.js'
+import { _apiMiddleware } from './dev-api.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST_DIR = path.resolve(__dirname, '..', 'dist')
+
+// === 网关反向代理（/api、/health）===
+const GATEWAY_URL = (process.env.EVOFLOW_GATEWAY_URL || 'http://127.0.0.1:8012').replace(/\/+$/, '')
+let GW_HOST = '127.0.0.1'
+let GW_PORT = 8012
+try {
+  const u = new URL(GATEWAY_URL)
+  GW_HOST = u.hostname || '127.0.0.1'
+  GW_PORT = Number(u.port) || (u.protocol === 'https:' ? 443 : 80)
+} catch {}
+
+function proxyToGateway(req, res) {
+  const upstream = http.request(
+    {
+      host: GW_HOST,
+      port: GW_PORT,
+      path: req.url,
+      method: req.method,
+      headers: { ...req.headers, host: `${GW_HOST}:${GW_PORT}` },
+    },
+    (ur) => {
+      res.writeHead(ur.statusCode || 502, ur.headers)
+      ur.pipe(res)
+    },
+  )
+  upstream.on('error', () => {
+    if (!res.headersSent) {
+      res.statusCode = 502
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ error: 'gateway unreachable', gateway: GATEWAY_URL }))
+    } else {
+      res.end()
+    }
+  })
+  req.pipe(upstream)
+}
 
 // === è§£æå½ä»¤è¡åæ?===
 function parseServePort() {
@@ -91,7 +127,8 @@ function serveStatic(req, res) {
   const urlPath = req.url.split('?')[0]
   let filePath = path.join(DIST_DIR, urlPath === '/' ? 'index.html' : urlPath)
 
-  // å®å¨æ£æ¥ï¼ä¸åè®¸ç®å½éå?  if (!filePath.startsWith(DIST_DIR)) {
+  // Security check: reject directory traversal
+  if (!filePath.startsWith(DIST_DIR)) {
     res.statusCode = 403
     res.end('Forbidden')
     return
@@ -119,7 +156,8 @@ function sendFile(res, filePath) {
   const ext = path.extname(filePath)
   const contentType = MIME_TYPES[ext] || 'application/octet-stream'
 
-  // ç¼å­ç­ç¥ï¼èµæºæä»¶é¿ç¼å­ï¼HTML ä¸ç¼å­?  if (ext === '.html') {
+  // (comment)
+  if (ext === '.html') {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
   } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
@@ -128,6 +166,7 @@ function sendFile(res, filePath) {
   res.setHeader('Content-Type', contentType)
   fs.createReadStream(filePath).pipe(res)
 }
+
 
 // === å¯å¨æå¡å?===
 async function main() {
@@ -140,27 +179,32 @@ async function main() {
   const { host, port } = parseArgs()
 
   // åå§å?API
-  _initApi()
 
   const server = http.createServer(async (req, res) => {
-    // CORS å¤´ï¼æ¹ä¾¿å¼åè°è¯ï¼
+    // 网关路径优先反代（SSE/长连接由 pipe 天然支持）
+    if (req.url?.startsWith('/api/') || req.url?.startsWith('/health/') || req.url === '/health') {
+      return proxyToGateway(req, res)
+    }
+
+    // CORS 头（方便开发调试）
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return }
 
-    // API è¯·æ±
+    // API 请求
     await _apiMiddleware(req, res, () => {
-      // é?API â?éææä»?      serveStatic(req, res)
+      // non-API -> static file
+      serveStatic(req, res)
     })
   })
 
-  // WebSocket ä»£ç
-  let gatewayPort = 18789
+  // WebSocket 代理
+  let gatewayPort = GW_PORT
   try {
     const cfgPath = path.join(homedir(), '.evopanel', 'evopanel.json')
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-    gatewayPort = cfg?.gateway?.port || 18789
+    if (!process.env.EVOFLOW_GATEWAY_URL) gatewayPort = cfg?.gateway?.port || GW_PORT
   } catch {}
 
   server.on('upgrade', (req, socket, head) => {
@@ -186,23 +230,17 @@ async function main() {
 
   server.listen(port, host, () => {
     console.log('')
-    console.log('  âââââââââââââââââââââââââââââââââââââââââââ?)
-    console.log('  â?                                        â?)
-    console.log('  â?  ð¦ EvoPanel Web Server (Headless)    â?)
-    console.log('  â?                                        â?)
-    console.log(`  â?  http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`.padEnd(44) + 'â?)
+    console.log('  EvoPanel Web Server (Headless)')
+    console.log(`  http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`)
     if (host === '0.0.0.0') {
-      console.log(`  â?  http://0.0.0.0:${port}/`.padEnd(44) + 'â?)
+      console.log(`  http://0.0.0.0:${port}/`)
     }
-    console.log('  â?                                        â?)
-    console.log('  âââââââââââââââââââââââââââââââââââââââââââ?)
-    console.log('')
-    console.log('  æ?Ctrl+C åæ­¢æå¡')
+    console.log('  Press Ctrl+C to stop')
     console.log('')
   })
 
-  // ä¼ééå?  process.on('SIGINT', () => { console.log('\n  ð æå¡å·²åæ­?); process.exit(0) })
-  process.on('SIGTERM', () => { console.log('\n  ð æå¡å·²åæ­?); process.exit(0) })
+  process.on('SIGINT', () => { console.log('\n  Server stopped'); process.exit(0) })
+  process.on('SIGTERM', () => { console.log('\n  Server stopped'); process.exit(0) })
 }
 
 main().catch(e => { console.error('å¯å¨å¤±è´¥:', e); process.exit(1) })
