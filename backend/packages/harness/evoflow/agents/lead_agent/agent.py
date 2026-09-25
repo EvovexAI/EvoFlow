@@ -806,6 +806,10 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     from evoflow.agents.middlewares.skills_injection_middleware import SkillsInjectionMiddleware
 
     middlewares.append(SkillsInjectionMiddleware())
+    # KB injection: search bound Knowledge Vaults and inject context before LLM call.
+    from evoflow.agents.middlewares.kb_injection_middleware import KbInjectionMiddleware
+
+    middlewares.append(KbInjectionMiddleware())
     # Immediate, one-step scenario guidance after `scenario` tool success.
     middlewares.append(ScenarioRuntimeHintMiddleware())
     # Fresh plan/task snapshot at end of message list every model call (survives prompt fingerprint skip + summarization).
