@@ -1040,6 +1040,12 @@ def create_chat_model(
         from evoflow.models.anthropic_url import normalize_anthropic_sdk_base_url
 
         merged_kwargs["base_url"] = normalize_anthropic_sdk_base_url(str(merged_kwargs.get("base_url") or ""))
+    if _is_anthropic_native(model_class):
+        # ChatAnthropic has no ``request_timeout`` (that's the ChatOpenAI param name);
+        # the anthropic SDK create() rejects it. Map to ``timeout`` instead.
+        _rt = merged_kwargs.pop("request_timeout", None)
+        if _rt is not None:
+            merged_kwargs.setdefault("timeout", _rt)
     if not merged_kwargs.get("api_key") and issubclass(model_class, ChatOpenAI):
         env_key = resolve_and_sanitize_api_key(os.environ.get("OPENAI_API_KEY"))
         if env_key:
