@@ -2986,7 +2986,8 @@ html[data-theme='dark'] .react-chat-history-item.active {
   flex-direction: column;
   min-height: 0;
   /* 高度裁切交给 input-wrap，保留菜单溢出 */
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .react-chat-bottom-area.is-custom-height .react-chat-composer {
@@ -10147,7 +10148,8 @@ html.dark .react-chat-icon-stop-btn:hover {
 
 /* 更矮的文本 chip；勿用过死的 height，中文下缘易被裁 */
 .react-chat-bottom-pill {
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   min-height: 22px;
   height: auto;
   padding: 2px 4px;

@@ -4409,7 +4409,8 @@ export default function ChatApp() {
       minHeight: bottomDockHeightPx,
       maxHeight: bottomDockHeightPx,
       boxSizing: 'border-box',
-      overflow: 'auto',
+      overflowX: 'hidden',
+      overflowY: 'auto',
       flexShrink: 0,
     } as const
   }, [layoutResizeEnabled, bottomDockHeightPx])
