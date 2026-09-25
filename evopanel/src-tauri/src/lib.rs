@@ -156,6 +156,7 @@ pub fn run() {
             backend::reload_gateway,
             backend::workspace_runtime_info,
             backend::get_gateway_base_url,
+            backend::set_webview_zoom,
             // 网关代理
             gateway::gateway_proxy,
             gateway::gateway_proxy_stream,

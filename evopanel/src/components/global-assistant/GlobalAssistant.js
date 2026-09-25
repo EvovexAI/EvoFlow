@@ -3,6 +3,7 @@
  */
 import { navigate, getCurrentRoute } from '../../router.js'
 import { toast } from '../toast.js'
+import { getUiZoom } from '../../lib/ui-zoom.js'
 import { showConfirm } from '../modal.js'
 import {
   formatShortcutDisplay,
@@ -162,8 +163,9 @@ function initXmDockResize(panel) {
   handle.title = '拖拽调整宽度'
   panel.appendChild(handle)
   const onMove = (e) => {
-    const max = Math.min(640, Math.round(window.innerWidth * 0.7))
-    const w = Math.min(Math.max(window.innerWidth - e.clientX, XM_DOCK_MIN), max)
+    const zoom = getUiZoom() || 1
+    const max = Math.min(640, Math.round((window.innerWidth * 0.7) / zoom))
+    const w = Math.min(Math.max((window.innerWidth - e.clientX) / zoom, XM_DOCK_MIN), max)
     document.documentElement.style.setProperty('--xm-dock-width', w + 'px')
   }
   const onUp = () => {

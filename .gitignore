@@ -488,3 +488,6 @@ skills/**/hyperframes-animation/examples/
 # Extracted to standalone repos under ../evo/ (local junctions may remain)
 /website/
 /clawdevoflow/
+
+# Tauri build-generated schemas
+evopanel/src-tauri/gen/
