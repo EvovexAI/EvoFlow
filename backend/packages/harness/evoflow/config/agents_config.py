@@ -186,16 +186,42 @@ def get_agent_kb_injection_config(agent_code: str | None) -> KbInjectionConfig:
 
 
 def get_agent_kb_vault_ids(agent_code: str | None) -> list[str]:
-    """Return the agent's bound vault IDs (knowledge_vault_ids field)."""
+    """Return the agent's bound vault IDs (knowledge_vault_ids field).
+
+    Resolves from TWO sources, preferring the most recent:
+
+    1. ``evoflow_agents.extra_json['knowledge_vault_ids']`` (mirror written by
+       employee hire/update so the live middleware sees current role bindings).
+    2. ``AgentConfig.knowledge_vault_ids`` (the original on-agent field).
+
+    Returns a deduplicated list preserving order.
+    """
     if not agent_code:
         return []
+    seen: set[str] = set()
+    out: list[str] = []
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        extra = cfg_repo.get_agent_extra_json(agent_code) or {}
+        for vid in list(extra.get("knowledge_vault_ids") or []):
+            v = str(vid or "").strip()
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+    except Exception:
+        pass
     try:
         cfg = load_agent_config(agent_code)
-        if cfg is None:
-            return []
-        return list(cfg.knowledge_vault_ids or [])
+        if cfg is not None:
+            for vid in list(cfg.knowledge_vault_ids or []):
+                v = str(vid or "").strip()
+                if v and v not in seen:
+                    seen.add(v)
+                    out.append(v)
     except Exception:
-        return []
+        pass
+    return out
 
 
 class AgentConfig(BaseModel):
@@ -555,6 +581,17 @@ def sync_skills_then_merge_baseline_for_lead_family() -> None:
     except Exception:
         logger.warning("sync_skills_then_merge_baseline: filesystem sync failed", exc_info=True)
     merge_baseline_skills_for_lead_family()
+    # One-shot: mirror role-bound knowledge_vault_ids into evoflow_agents.extra_json
+    # so KbInjectionMiddleware (which reads from agent config) sees the same vault list.
+    # Idempotent — safe to run on every startup.
+    try:
+        from evoflow.admin.employees import backfill_agent_kb_vault_ids
+
+        result = backfill_agent_kb_vault_ids()
+        if result.get("synced"):
+            logger.info("[Startup] KB vault_ids backfill synced=%d errors=%d", result.get("synced", 0), result.get("errors", 0))
+    except Exception:
+        logger.warning("sync_skills_then_merge_baseline: KB vault_ids backfill failed", exc_info=True)
 
 
 # Display names aligned with evoflow.collab.agent_assignment.BUILTIN_AGENT_UI_NAMES (list_agents / UI).

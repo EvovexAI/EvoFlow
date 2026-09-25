@@ -222,21 +222,29 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             config = get_agent_kb_injection_config(agent_code)
 
             if config.mode == "off":
+                logger.debug("KbInjection skip: mode=off agent=%s", agent_code)
                 return False, "", config, []
 
             messages = messages_from_model_request(request)
             query = _latest_human_preview(messages)
             if not query:
+                logger.debug("KbInjection skip: empty query agent=%s", agent_code)
                 return False, "", config, []
 
             # Skip proactive runs
             ctx = merge_model_request_runtime_context(request)
             session_key = str(ctx.get("session_key") or "")
             if session_key.startswith("proactive:"):
+                logger.debug("KbInjection skip: proactive run agent=%s", agent_code)
                 return False, "", config, []
 
             vault_ids = get_agent_kb_vault_ids(agent_code)
             if not vault_ids:
+                logger.warning(
+                    "KbInjection skip: no bound vaults agent=%s mode=%s "
+                    "(check knowledge_vault_ids on the role; auto-mode requires vaults)",
+                    agent_code, config.mode,
+                )
                 return False, "", config, []
 
             return True, query, config, vault_ids

@@ -573,6 +573,77 @@ def _persist_agent_kb_injection(agent_code: str, kb_injection: dict[str, Any]) -
         logger.warning("persist agent kb_injection failed code=%s", code, exc_info=True)
 
 
+def _persist_agent_kb_vault_ids(agent_code: str, vault_ids: list[str]) -> None:
+    """Mirror the role-bound vault IDs into ``evoflow_agents.extra_json``.
+
+    The agent config (AgentConfig) and the proactive role config (ProactiveRoleConfig)
+    are two separate storage paths; vault IDs set via the employee hire/update form
+    land on ProactiveRoleConfig. The KbInjectionMiddleware reads from the agent config,
+    so we mirror it here so the live middleware sees the same vault list.
+    """
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        existing = cfg_repo.get_agent_extra_json(code) or {}
+        merged = dict(existing)
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in list(vault_ids or []):
+            v = str(raw or "").strip()
+            if v and v not in seen:
+                seen.add(v)
+                cleaned.append(v)
+        merged["knowledge_vault_ids"] = cleaned
+        cfg_repo.upsert_agent_extra_json(code, merged)
+    except Exception:
+        logger.warning("persist agent kb vault_ids failed code=%s", code, exc_info=True)
+
+
+def backfill_agent_kb_vault_ids() -> dict[str, int]:
+    """One-shot: mirror every existing ProactiveRole's knowledge_vault_ids into the agent extra_json.
+
+    Idempotent and safe to call on every startup. Walks ProactiveRepository.list_roles(),
+    copies ``config.knowledge_vault_ids`` into ``evoflow_agents.extra_json['knowledge_vault_ids']``
+    so the live KbInjectionMiddleware sees them without requiring a role edit.
+
+    Returns counts: ``{"synced": int, "skipped": int, "errors": int}``.
+    """
+    summary: dict[str, int] = {"synced": 0, "skipped": 0, "errors": 0}
+    try:
+        from evoflow.proactive.repository import ProactiveRepository
+
+        roles = ProactiveRepository.list_roles() or []
+    except Exception as exc:
+        logger.warning("backfill_agent_kb_vault_ids: list_roles failed: %s", exc, exc_info=True)
+        summary["errors"] += 1
+        return summary
+
+    for role in roles:
+        try:
+            code = str(getattr(role, "agent_code", "") or "").strip().lower()
+            if not code:
+                summary["skipped"] += 1
+                continue
+            cfg = getattr(role, "config", None)
+            if cfg is None:
+                summary["skipped"] += 1
+                continue
+            vault_ids = list(getattr(cfg, "knowledge_vault_ids", None) or [])
+            _persist_agent_kb_vault_ids(code, vault_ids)
+            summary["synced"] += 1
+        except Exception:
+            logger.warning(
+                "backfill_agent_kb_vault_ids: role %s failed",
+                getattr(role, "agent_code", "?"),
+                exc_info=True,
+            )
+            summary["errors"] += 1
+    return summary
+
+
 def _hire_existing_agent(
     agent_code: str,
     agent_row: dict[str, Any],
@@ -700,12 +771,14 @@ def _hire_existing_agent(
         _persist_agent_kb_injection(
             role.agent_code, dict(data.get("kb_injection") or cfg.kb_injection or {}),
         )
-        try:
-            from evoflow.config.agents_config import invalidate_agent_config_cache
+    # Mirror knowledge_vault_ids into extra_json so the live middleware sees them.
+    _persist_agent_kb_vault_ids(role.agent_code, list(cfg.knowledge_vault_ids or []))
+    try:
+        from evoflow.config.agents_config import invalidate_agent_config_cache
 
-            invalidate_agent_config_cache(role.agent_code)
-        except Exception:
-            pass
+        invalidate_agent_config_cache(role.agent_code)
+    except Exception:
+        pass
 
     return _role_detail(role)
 
@@ -844,12 +917,15 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
     # KbInjectionMiddleware can read it on every model call.
     if data.get("kb_injection") is not None:
         _persist_agent_kb_injection(role.agent_code, dict(cfg.kb_injection or {}))
-        try:
-            from evoflow.config.agents_config import invalidate_agent_config_cache
+    # Mirror knowledge_vault_ids so the live middleware sees the role's bound vaults.
+    if data.get("knowledge_vault_ids") is not None:
+        _persist_agent_kb_vault_ids(role.agent_code, list(cfg.knowledge_vault_ids or []))
+    try:
+        from evoflow.config.agents_config import invalidate_agent_config_cache
 
-            invalidate_agent_config_cache(role.agent_code)
-        except Exception:
-            pass
+        invalidate_agent_config_cache(role.agent_code)
+    except Exception:
+        pass
 
     out = _role_detail(role)
     if unknown:
