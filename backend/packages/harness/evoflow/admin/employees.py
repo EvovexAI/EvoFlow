@@ -351,6 +351,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "workspace_path": cfg.workspace_path or "",
             "domain_scope": list(cfg.domain_scope or []),
             "knowledge_vault_ids": list(getattr(cfg, "knowledge_vault_ids", None) or []),
+            "kb_injection": dict(getattr(cfg, "kb_injection", None) or {}),
             "kpis": list(cfg.kpis or []),
             "autonomy_level": cfg.autonomy_level.value,
             "max_initiatives_per_cycle": cfg.max_initiatives_per_cycle,
@@ -537,6 +538,41 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
     return detail
 
 
+def _safe_kb_injection(raw: Any) -> dict[str, Any]:
+    """Validate kb_injection payload through KbInjectionConfig.from_dict.
+
+    Returns an empty dict when input is missing/invalid (caller falls back to defaults).
+    """
+    if not raw:
+        return {}
+    try:
+        from evoflow.config.agents_config import KbInjectionConfig
+
+        return KbInjectionConfig.from_dict(raw if isinstance(raw, dict) else {}).to_dict()
+    except Exception:
+        return {}
+
+
+def _persist_agent_kb_injection(agent_code: str, kb_injection: dict[str, Any]) -> None:
+    """Mirror the kb_injection block into ``evoflow_agents.extra_json``.
+
+    Read by ``KbInjectionMiddleware`` via ``KbInjectionConfig.from_dict``.
+    """
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return
+    try:
+        from evoflow.config.agents_config import KbInjectionConfig
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        existing = cfg_repo.get_agent_extra_json(code) or {}
+        merged = dict(existing)
+        merged["kb_injection"] = KbInjectionConfig.from_dict(kb_injection or {}).to_dict()
+        cfg_repo.upsert_agent_extra_json(code, merged)
+    except Exception:
+        logger.warning("persist agent kb_injection failed code=%s", code, exc_info=True)
+
+
 def _hire_existing_agent(
     agent_code: str,
     agent_row: dict[str, Any],
@@ -599,6 +635,7 @@ def _hire_existing_agent(
         timeout_seconds=int(data.get("timeout_seconds") or 300),
         tool_groups=tool_groups_value,
         skills=skills_value,
+        kb_injection=_safe_kb_injection(data.get("kb_injection")),
         work_schedule_enabled=bool(data.get("work_schedule_enabled", True)),
         work_start_hour=int(data.get("work_start_hour") if data.get("work_start_hour") is not None else 9),
         work_end_hour=int(data.get("work_end_hour") if data.get("work_end_hour") is not None else 20),
@@ -657,6 +694,18 @@ def _hire_existing_agent(
                     DepartmentRepository.set_members(str(dept["id"]), codes)
         except Exception:
             logger.debug("create_employee: dept sync skipped", exc_info=True)
+
+    # Mirror kb_injection into agent's extra_json (per-employee toggle).
+    if data.get("kb_injection") is not None or cfg.kb_injection:
+        _persist_agent_kb_injection(
+            role.agent_code, dict(data.get("kb_injection") or cfg.kb_injection or {}),
+        )
+        try:
+            from evoflow.config.agents_config import invalidate_agent_config_cache
+
+            invalidate_agent_config_cache(role.agent_code)
+        except Exception:
+            pass
 
     return _role_detail(role)
 
@@ -721,6 +770,11 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
             cfg.knowledge_vault_ids = validate_knowledge_vault_ids(list(data.get("knowledge_vault_ids") or []))
         except ValueError as e:
             raise ValidationError(str(e)) from e
+    if data.get("kb_injection") is not None:
+        from evoflow.config.agents_config import KbInjectionConfig
+
+        cfg.kb_injection = KbInjectionConfig.from_dict(data.get("kb_injection") or {}).to_dict()
+        _mark_employee_override(cfg, override=True)
     if data.get("kpis") is not None:
         cfg.kpis = list(data.get("kpis") or [])
     if data.get("autonomy_level") is not None:
@@ -785,6 +839,18 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
 
         role.next_heartbeat_at = compute_next_duty_iso(role)
     ProactiveRepository.save_role(role)
+
+    # Mirror kb_injection from role.config into agent's extra_json so the
+    # KbInjectionMiddleware can read it on every model call.
+    if data.get("kb_injection") is not None:
+        _persist_agent_kb_injection(role.agent_code, dict(cfg.kb_injection or {}))
+        try:
+            from evoflow.config.agents_config import invalidate_agent_config_cache
+
+            invalidate_agent_config_cache(role.agent_code)
+        except Exception:
+            pass
+
     out = _role_detail(role)
     if unknown:
         out["ignored_keys"] = unknown
