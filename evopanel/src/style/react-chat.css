@@ -356,8 +356,8 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .react-chat-aside-brand-logo {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
   flex-shrink: 0;
   display: block;

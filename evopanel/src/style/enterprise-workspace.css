@@ -59,7 +59,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 
 .react-chat-aside-toolbar-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.015em;
   color: var(--text-primary, #1d1d1f);
 }

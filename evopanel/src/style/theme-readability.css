@@ -945,7 +945,7 @@ html:not([data-translucent-ui='1']) body .shell-aside-new-chat-btn {
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-toolbar-title {
   font-size: 13px !important;
-  font-weight: 600 !important;
+  font-weight: 400 !important;
   letter-spacing: -0.015em !important;
 }
 
