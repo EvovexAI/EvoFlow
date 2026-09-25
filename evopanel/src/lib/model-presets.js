@@ -19,7 +19,7 @@ export const PROVIDER_PRESETS = [
   // 支持 Coding Plan 专属接口的三家排在最前：百炼 → 火山 → 智谱
   { key: 'aliyun', label: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', codingBaseUrl: 'https://coding.dashscope.aliyuncs.com/v1', api: 'openai-completions', site: 'https://www.aliyun.com/product/bailian', desc: '阿里云 AI 大模型平台，支持通义千问全系列' },
   { key: 'volcengine', label: '火山引擎', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', codingBaseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3', agentPlanBaseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3', api: 'openai-completions', site: 'https://www.volcengine.com/product/ark', desc: '方舟 Agent Plan：DeepSeek-V4-flash / Kimi-K3 / Doubao-Seed-Evolving / GLM-5.3 等，全模态 + Harness。套餐请用 /api/plan/v3，勿用按量 /api/v3' },
-  { key: 'zhipu', label: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', codingBaseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4', api: 'openai-completions', site: 'https://www.bigmodel.cn/', desc: '国产大模型领军企业，支持 GLM-4 全系列' },
+  { key: 'zhipu', label: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', codingBaseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4', api: 'openai-completions', site: 'https://www.bigmodel.cn/', desc: '国产大模型领军企业，支持 GLM-5.3 / GLM-5 全系列' },
   { key: 'shengsuanyun', label: '胜算云', baseUrl: 'https://router.shengsuanyun.com/api/v1', codingBaseUrl: 'https://router.shengsuanyun.com/api/v1', api: 'openai-completions', site: 'https://www.shengsuanyun.com/', desc: '国内知名 AI 模型聚合平台，支持多种主流模型' },
   { key: 'siliconflow', label: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', codingBaseUrl: 'https://api.siliconflow.cn/v1', api: 'openai-completions', site: 'https://cloud.siliconflow.cn/', desc: '高性价比推理平台，支持 DeepSeek、Qwen 等开源模型' },
   { key: 'minimax', label: 'MiniMax', baseUrl: 'https://api.minimax.chat/v1', codingBaseUrl: 'https://api.minimax.chat/v1', api: 'openai-completions', site: 'https://platform.minimaxi.com/', desc: '国产多模态大模型，支持 MiniMax-Text 系列' },
@@ -114,6 +114,23 @@ export const MODEL_PRESETS = {
     { id: 'qwen2.5:7b', name: 'Qwen 2.5 7B', contextWindow: 32768 },
     { id: 'llama3.2', name: 'Llama 3.2', contextWindow: 8192 },
     { id: 'gemma3', name: 'Gemma 3', contextWindow: 32768 },
+  ],
+  // 智谱快捷添加：GLM-5.3 系列；section 用于弹窗内「推荐 / 更多」分组
+  zhipu: [
+    {
+      id: 'glm-5.3',
+      name: 'GLM-5.3',
+      contextWindow: 200000,
+      reasoning: true,
+      section: 'recommended',
+    },
+    {
+      id: 'glm-5.3-flash',
+      name: 'GLM-5.3 Flash',
+      contextWindow: 200000,
+      reasoning: true,
+      section: 'recommended',
+    },
   ],
   // 百炼快捷添加：默认 128k 上下文 + 推理；section 用于弹窗内「推荐 / 更多」分组
   aliyun: [
