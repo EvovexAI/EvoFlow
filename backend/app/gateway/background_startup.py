@@ -280,6 +280,14 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
     # Lean desktop omits torch; cloud embedding is default. Warmup only when a
     # vendor=local model exists (or EVOFLOW_SEED_LOCAL_EMBEDDING seeded one).
     # Probe deps/model BEFORE optional delay — never sleep 30s just to skip.
+    # [fix-2026-09-25] Default delay 5s (down from 30s): customer-service KB search
+    # triggers cold-path sentence_transformers → sklearn → scipy → _fblas import
+    # chain (~4s + model download/load). If we wait 30s before warmup, the user's
+    # first KB query grabs anyio thread pool worker for the whole import + load,
+    # starving concurrent sync routes (Hang diagnostics showed 45s event-loop
+    # stall with all 40 anyio workers blocked on the same sentence_transformers
+    # import chain). 5s lines up with EVOFLOW_LG_MOUNT_DELAY_SEC so first paint
+    # + first KB query are both clean.
     async def _warmup_embedding_model() -> None:
         if os.environ.get("EVOFLOW_SKIP_EMBEDDING_WARMUP", "").strip().lower() in {
             "1",
@@ -296,11 +304,11 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 st_log(f"embedding warmup skipped ({skip_reason})")
                 logger.info("Local embedding model warmup skipped: %s", skip_reason)
                 return
-            delay_raw = os.environ.get("EVOFLOW_EMBEDDING_WARMUP_DELAY_SEC", "30").strip()
+            delay_raw = os.environ.get("EVOFLOW_EMBEDDING_WARMUP_DELAY_SEC", "5").strip()
             try:
                 delay_sec = max(0.0, float(delay_raw))
             except ValueError:
-                delay_sec = 30.0
+                delay_sec = 5.0
             if delay_sec > 0:
                 st_log(f"embedding warmup scheduled in {delay_sec:.0f}s")
                 await asyncio.sleep(delay_sec)
@@ -401,11 +409,15 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         # Fat LangGraph imports run in a worker thread but still hold the CPython GIL,
         # so uvicorn + app-server HTTP starve for tens of seconds. Session history /
         # model catalog only need core routers — delay mount so first paint can finish.
-        delay_raw = (os.environ.get("EVOFLOW_LG_MOUNT_DELAY_SEC") or "25").strip()
+        # Default 5s (down from 25s): long enough for first paint to render the panel
+        # and warm model catalog, short enough that LangGraph /ok clears "warming_up"
+        # before the panel polls its health probe the first few times. Set
+        # EVOFLOW_LG_MOUNT_DELAY_SEC=0 to mount inline (cold start with no panel race).
+        delay_raw = (os.environ.get("EVOFLOW_LG_MOUNT_DELAY_SEC") or "5").strip()
         try:
             lg_delay_sec = max(0.0, float(delay_raw))
         except ValueError:
-            lg_delay_sec = 25.0
+            lg_delay_sec = 5.0
         if lg_delay_sec > 0:
             st_log(f"langgraph mount delayed {lg_delay_sec:.0f}s (first-paint APIs)")
             logger.info(

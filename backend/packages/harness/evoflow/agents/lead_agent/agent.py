@@ -806,6 +806,10 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     from evoflow.agents.middlewares.skills_injection_middleware import SkillsInjectionMiddleware
 
     middlewares.append(SkillsInjectionMiddleware())
+    # KB injection: search bound Knowledge Vaults and inject context before LLM call.
+    from evoflow.agents.middlewares.kb_injection_middleware import KbInjectionMiddleware
+
+    middlewares.append(KbInjectionMiddleware())
     # Immediate, one-step scenario guidance after `scenario` tool success.
     middlewares.append(ScenarioRuntimeHintMiddleware())
     # Fresh plan/task snapshot at end of message list every model call (survives prompt fingerprint skip + summarization).
@@ -1403,6 +1407,31 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         tools_mode=tools_mode,
     )
     _setup_phase("resolve_available_tools_ms", _t_tools)
+
+    # Drop "agent-mode system tools" (``platform``, ``panel_set``, etc.) for subagents
+    # and proactive employees unless ``kb_injection.mount_platform_tools=True`` is set.
+    # The ``main`` lead agent keeps them — admin chat console needs them.
+    # See ``AGENT_MODE_SYSTEM_TOOL_NAMES`` in evoflow.tools.tool_catalog.
+    try:
+        from evoflow.config.agents_config import get_agent_kb_injection_config
+        from evoflow.tools.tool_aliases import canonical_tool_name
+        from evoflow.tools.tool_catalog import AGENT_MODE_SYSTEM_TOOL_NAMES
+
+        agent_type_str = str((agent_config.agent_type if agent_config else "") or "")
+        is_subagent_or_custom = agent_type_str in {"subagent", "custom"}
+        is_main_lead = str(agent_name or "").strip().lower() in {"", "main"}
+        kb_cfg = get_agent_kb_injection_config(agent_name)
+        if is_subagent_or_custom and not is_main_lead and not kb_cfg.mount_platform_tools:
+            drop = {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
+            before = len(tools)
+            tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "")) not in drop]
+            if len(tools) != before:
+                logger.info(
+                    "[Tools] dropped %d agent-mode system tools (platform/panel_set) for agent=%s type=%s — opt-in via kb_injection.mount_platform_tools=true",
+                    before - len(tools), agent_name, agent_type_str,
+                )
+    except Exception:
+        logger.debug("agent-mode system tool filter skipped", exc_info=True)
 
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
     if _tool_whitelist is not None:

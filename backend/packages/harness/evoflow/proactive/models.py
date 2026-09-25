@@ -127,6 +127,9 @@ class ProactiveRoleConfig:
     timeout_seconds: int = 0
     tool_groups: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
+    # KB injection config (overrides defaults from ``AgentConfig.kb_injection``).
+    # Stored as a dict to mirror ``KbInjectionConfig.to_dict()`` shape; validated on load.
+    kb_injection: dict[str, Any] = field(default_factory=dict)
     # Optional: extra context injected into the think prompt (e.g. recent CI logs)
     extra_context: dict[str, Any] = field(default_factory=dict)
     # ── Work schedule (上班时间) ────────────────────────────────

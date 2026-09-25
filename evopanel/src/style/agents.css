@@ -1435,6 +1435,47 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   color: var(--hire-accent);
   font-weight: 650;
 }
+.hire-row-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+.hire-subfield {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary, #6b7280);
+}
+.hire-subfield > span {
+  font-weight: 500;
+}
+.hire-subfield input,
+.hire-subfield select {
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border-primary, rgba(0,0,0,0.12));
+  background: var(--bg-primary, #fff);
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+.hire-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hire-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0;
+}
+.hire-toggle > span {
+  flex: 1;
+}
 .hire-chip-hint {
   margin: 0;
   font-size: 11px;

@@ -674,6 +674,56 @@ def get_agent_config(agent_code: str) -> dict[str, Any] | None:
     return doc
 
 
+def get_agent_extra_json(agent_code: str) -> dict[str, Any] | None:
+    """Read the raw extra_json dict for an agent (used by kb_injection config)."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return None
+    try:
+        row = get_db().execute(
+            "SELECT extra_json FROM evoflow_agents WHERE agent_code = ?",
+            (code,),
+        ).fetchone()
+        if not row:
+            return None
+        raw = row[0]
+        if not raw:
+            return None
+        return _loads(raw) or None
+    except Exception:
+        return None
+
+
+def upsert_agent_extra_json(agent_code: str, extra: dict[str, Any] | None) -> bool:
+    """Merge-write the extra_json blob for an agent (preserves sibling keys).
+
+    Used by employee-edit / hire flows to mirror ``kb_injection`` into the agent row
+    while leaving other extra_json keys (e.g. team_code legacy) intact.
+
+    Returns True on success.
+    """
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return False
+    payload = json.dumps(extra or {}, ensure_ascii=False)
+    try:
+        now = utc_now_iso_z()
+        get_db().execute(
+            "UPDATE evoflow_agents SET extra_json = ?, updated_at = ? WHERE agent_code = ?",
+            (payload, now, code),
+        )
+        # SQLite is in autocommit-by-default within the lazy connection, but
+        # most repo callers assume an explicit commit; mirror get_db() usage elsewhere.
+        try:
+            from evoflow.persistence.db import get_db as _g
+            _g().commit()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 def get_agent_soul(agent_code: str) -> str | None:
     row = (
         get_db()

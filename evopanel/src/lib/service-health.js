@@ -186,11 +186,24 @@ async function _probeOnce() {
   // HTTP 200 但 phase 还在 initializing 或 extended=false：
   // 这就是用户场景："服务在跑但还没真正可用"，应明确为 DEGRADED + 友好文案，banner 立刻亮。
   // 不走 streak 阈值（用户已经点击重试或刚发消息失败）— 立即告知。
-  if (ready.phase === 'initializing' || ready.extended === false) {
+  // [fix-2026-09-25] 区分两种"伪 ready":
+  //   1) phase=initializing → LG 引擎真的未就绪 → 立刻 DEGRADED（消息发送会失败）
+  //   2) extended=false alone → extended routers 还在后台注册中，core API 已可用
+  //      (模型列表、会话、消息发送都是 core / 走 LG runs，不依赖 extended routers)
+  //      → 直接 HEALTHY，不要因为 1-2 个 extended 路由（如 settings/knowledge/MCP）
+  //      还没注册就阻挡用户主聊天界面
+  if (ready.phase === 'initializing') {
     return {
       state: ServiceHealthState.DEGRADED,
-      error: `phase=${ready.phase || 'unknown'} extended=${ready.extended === null ? '?' : ready.extended}`,
+      error: `phase=initializing (langgraph engine loading)`,
     }
+  }
+  if (ready.extended === false) {
+    // Extended routers still registering — treat as ready; next probe in ≤30s will
+    // almost always see extended_routers=true. If extended stays false for long,
+    // users hitting /api/settings/* etc. will see 503 from StartupGateMiddleware,
+    // which is a much narrower scope than locking the entire panel.
+    return { state: ServiceHealthState.HEALTHY, error: null }
   }
 
   // HTTP 200，phase/extended 都为 null（理论上的边界情况）→ 模糊信号交给 streak

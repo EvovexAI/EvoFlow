@@ -292,8 +292,27 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             # Convert numpy rows to plain python lists of floats.
             return [list(map(float, row)) for row in embs]
 
+        # [fix-2026-09-25] Bound encode latency so a long GIL-bound batch cannot
+        # occupy an anyio thread-pool worker for tens of seconds and starve every
+        # concurrent sync route. Default 30s covers ~512-token chunks on CPU; raise
+        # via env if a real batch legitimately needs longer.
         try:
-            return await asyncio.to_thread(_encode)
+            encode_timeout_s = float(
+                os.environ.get("EVOFLOW_LOCAL_EMBED_BATCH_TIMEOUT_SEC", "30").strip() or "30"
+            )
+        except ValueError:
+            encode_timeout_s = 30.0
+        encode_timeout_s = max(1.0, encode_timeout_s)
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_encode),
+                timeout=encode_timeout_s,
+            )
+        except asyncio.TimeoutError as exc:
+            raise EmbeddingError(
+                f"Local embedding inference timed out after {encode_timeout_s:.0f}s "
+                f"for '{model_id}' on batch of {len(texts)} texts; consider a smaller batch."
+            ) from exc
         except EmbeddingError:
             raise
         except Exception as exc:
