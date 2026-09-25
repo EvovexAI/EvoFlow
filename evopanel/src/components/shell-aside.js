@@ -454,6 +454,7 @@ export function initShellAside(el) {
         <span class="react-chat-aside-toolbar-title">EvoFlow</span>
         <span class="react-chat-aside-version">v${APP_VERSION}</span>
       </div>
+      <span id="shell-aside-init-status" class="react-chat-aside-init-status" title="服务初始化状态" aria-live="polite" style="display:none;margin-left:6px;font-size:11px;opacity:0.75;white-space:nowrap;"></span>
       <button type="button" class="react-chat-aside-icon-btn shell-aside-collapse-btn" id="shell-aside-collapse" title="折叠侧栏" aria-label="折叠侧栏">
         ${_lucide('chevronLeft', 14, 1.5)}
       </button>
@@ -513,7 +514,6 @@ export function initShellAside(el) {
     <div class="shell-aside-nav-divider" aria-hidden="true"></div>
     <div id="shell-chat-panel" class="shell-aside-recent"></div>
     <div class="react-chat-aside-footer shell-aside-bottom-bar">
-      <div id="shell-aside-health-status" title="服务状态" style="display:none;align-items:center;gap:4px;padding:0 6px;font-size:11px;opacity:0.8;cursor:default;"></div>
       <div class="shell-aside-account-mount" id="shell-aside-account-mount"></div>
       <button type="button" class="shell-footer-icon-btn" id="shell-footer-settings" title="设置" aria-label="设置">
         <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('settings')}</span>
@@ -544,32 +544,50 @@ export function initShellAside(el) {
   })
   _startAsideTitleShimmer(el)
 
-  // 健康状态小点（侧栏底部右侧，正常时隐藏）
-  const healthEl = el.querySelector('#shell-aside-health-status')
-  if (healthEl) {
-    const dot = document.createElement('span')
-    dot.style.cssText = 'display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;'
-    healthEl.prepend(dot)
-    const label = document.createElement('span')
-    label.style.cssText = 'white-space:nowrap;'
-    healthEl.appendChild(label)
+  // 健康状态提示（顶部 toolbar，初始化中 / 服务异常时显示）
+  // 首次探针失败不立刻报"服务异常"——后端可能还在启动，先显示"初始化中…"更友好
+  // 只有连续失败（或已成功过一次后再次失败）才升级为"服务异常"
+  const initStatusEl = el.querySelector('#shell-aside-init-status')
+  let _everSucceeded = false // 探针是否曾经成功过
+  let _firstFailureShown = false // 首次失败是否已展示"初始化中…"
+  if (initStatusEl) {
     const _applyHealth = (snap) => {
       const state = snap.state
+      if (state === ServiceHealthState.UNKNOWN) {
+        // 探针尚未执行，保持隐藏
+        initStatusEl.style.display = 'none'
+        return
+      }
       if (state === ServiceHealthState.HEALTHY) {
-        healthEl.style.display = 'none'
-      } else if (state === ServiceHealthState.DEGRADED) {
-        healthEl.style.display = 'flex'
-        dot.style.background = 'var(--warning, #f59e0b)'
-        label.textContent = '初始化中…'
-        healthEl.title = snap.lastError || '服务正在初始化'
-      } else if (state === ServiceHealthState.UNAVAILABLE) {
-        healthEl.style.display = 'flex'
-        dot.style.background = 'var(--error, #ef4444)'
-        dot.style.animation = 'react-chat-health-blink 1s ease-in-out infinite'
-        label.textContent = '服务初始化中'
-        healthEl.title = snap.lastError || '服务不可用'
-      } else {
-        healthEl.style.display = 'none'
+        _everSucceeded = true
+        _firstFailureShown = false
+        initStatusEl.style.display = 'none'
+        return
+      }
+      if (state === ServiceHealthState.DEGRADED) {
+        _everSucceeded = true
+        _firstFailureShown = false
+        initStatusEl.style.display = 'inline'
+        initStatusEl.textContent = '初始化中…'
+        initStatusEl.style.color = 'var(--warning, #f59e0b)'
+        initStatusEl.title = snap.lastError || '服务正在初始化'
+        return
+      }
+      if (state === ServiceHealthState.UNAVAILABLE) {
+        // 曾经成功过 → 真正异常了
+        // 从未成功过（后端还在启动中）→ 显示"初始化中…"而非"服务异常"
+        if (_everSucceeded) {
+          initStatusEl.style.display = 'inline'
+          initStatusEl.textContent = '服务异常'
+          initStatusEl.style.color = 'var(--error, #ef4444)'
+          initStatusEl.title = snap.lastError || '服务不可用'
+        } else {
+          _firstFailureShown = true
+          initStatusEl.style.display = 'inline'
+          initStatusEl.textContent = '初始化中…'
+          initStatusEl.style.color = 'var(--warning, #f59e0b)'
+          initStatusEl.title = snap.lastError || '服务正在初始化'
+        }
       }
     }
     void import('../lib/service-health.js').then((mod) => {
