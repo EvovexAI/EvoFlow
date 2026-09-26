@@ -214,13 +214,16 @@ async def _do_kb_search(
     vault_ids: list[str],
     config: KbInjectionConfig,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Run parallel KB searches across all bound vaults.
+    """Run parallel KB searches across all bound vaults (self-hosted owned KB only).
 
-    Each ``vault_id`` is resolved in priority order:
-      1. ``owned_service.search`` — ``kb_bases.id`` OR ``kb_bases.sync_vault_id``
-         (the in-house self-hosted KB; fast, index-backed; e.g. the built-in
-         ``evoflow-user-guide`` → ``kb_builtin_user_guide``).
-      2. ``ObsidianKnowledgeProvider.search`` — Markdown/Obsidian vault on disk.
+    Each ``vault_id`` is resolved against ``kb_bases``:
+      - ``kb_bases.id`` direct match → ``owned_service.search``.
+      - ``kb_bases.sync_vault_id`` match → ``owned_service.search`` (the
+        built-in user guide uses this path — alias ``evoflow-user-guide``
+        maps to ``kb_builtin_user_guide``).
+      - No match → warning log + skip. Obsidian / Markdown vault lookups
+        are intentionally NOT supported here; this middleware only
+        consults the in-house self-hosted knowledge base.
 
     Returns ``(context_string, results_sorted_by_score)``. ``results`` is the
     raw list of search-result dicts (one per matched chunk), pre-sorted by score
@@ -234,20 +237,18 @@ async def _do_kb_search(
 
     import asyncio
 
-    from evoflow.knowledge.vault.provider import get_knowledge_provider
+    from evoflow.knowledge.owned.db import db as _own_db
     from evoflow.knowledge.owned.service import (
         get_base as owned_get_base,
         search as owned_search,
     )
 
-    provider = get_knowledge_provider()
     mode = config.retrieval if config.mode in ("auto", "both") else "hybrid"
-    rerank = config.reranker != "none"
 
-    def _resolve_kind(vault_id: str) -> str:
-        """``"owned:<kb_id>"`` or ``"obsidian"``.
+    def _resolve_kb_id(vault_id: str) -> str | None:
+        """Return the owned KB id matching ``vault_id``, or ``None`` if unbound.
 
-        A vault_id is ``owned`` if ``kb_bases.id`` matches directly OR
+        A vault_id is bound if ``kb_bases.id`` matches directly OR
         ``kb_bases.sync_vault_id`` matches — the built-in user guide uses the
         second path (its stable id is ``kb_builtin_user_guide`` but it is exposed
         to the role-binding UI under ``evoflow-user-guide``).
@@ -255,24 +256,39 @@ async def _do_kb_search(
         try:
             base = owned_get_base(vault_id)
             if base is not None:
-                return f"owned:{vault_id}"
+                return str(base["id"])
         except Exception:
             pass
         try:
-            from evoflow.knowledge.owned.db import db as _own_db
-
             with _own_db() as conn:
                 row = conn.execute(
                     "SELECT id FROM kb_bases WHERE sync_vault_id=? AND deleted_at IS NULL LIMIT 1",
                     (vault_id,),
                 ).fetchone()
                 if row and row["id"]:
-                    return f"owned:{row['id']}"
+                    return str(row["id"])
         except Exception:
             pass
-        return "obsidian"
+        return None
 
-    async def search_owned(kb_id: str, source_vault_id: str) -> list[dict[str, Any]]:
+    # Pre-resolve every vault_id once so an unbound id logs a single clear
+    # warning rather than a per-iteration stack trace.
+    resolved: list[tuple[str, str]] = []
+    for vid in vault_ids:
+        kb_id = _resolve_kb_id(vid)
+        if kb_id is None:
+            logger.warning(
+                "KbInjection vault=%r is not bound to any owned KB "
+                "(no kb_bases.id or sync_vault_id match). Skipping.",
+                vid,
+            )
+            continue
+        resolved.append((vid, kb_id))
+
+    if not resolved:
+        return "", []
+
+    async def search_owned(source_vault_id: str, kb_id: str) -> list[dict[str, Any]]:
         t0 = time.perf_counter()
         try:
             result = await asyncio.wait_for(
@@ -341,52 +357,9 @@ async def _do_kb_search(
             )
             return []
 
-    async def search_obsidian(vault_id: str) -> list[dict[str, Any]]:
-        t0 = time.perf_counter()
-        try:
-            results = await asyncio.wait_for(
-                provider.search(
-                    vault_id,
-                    query,
-                    mode=mode,
-                    top_k=config.top_k,
-                    threshold=config.score_threshold if config.score_threshold > 0 else None,
-                    rerank=rerank,
-                ),
-                timeout=config.timeout_sec,
-            )
-            dt_ms = (time.perf_counter() - t0) * 1000
-            logger.debug(
-                "KbInjection vault=%s obsidian mode=%s rerank=%s hits=%d elapsed=%.1fms query=%r",
-                vault_id, mode, rerank, len(results), dt_ms, query[:80],
-            )
-            return [r.model_dump(by_alias=True, mode="json") for r in results]
-        except asyncio.TimeoutError:
-            dt_ms = (time.perf_counter() - t0) * 1000
-            logger.warning(
-                "KbInjection vault=%s obsidian timed out after %.1fms (timeout=%ss) query=%r",
-                vault_id, dt_ms, config.timeout_sec, query[:80],
-            )
-            return []
-        except Exception as exc:
-            dt_ms = (time.perf_counter() - t0) * 1000
-            logger.warning(
-                "KbInjection vault=%s obsidian failed after %.1fms err=%s: %s query=%r",
-                vault_id, dt_ms, exc.__class__.__name__, exc, query[:80],
-                exc_info=True,
-            )
-            return []
-
-    # Resolve each vault_id once → owned (mapped to kb id) or obsidian, then fan out.
-    async def search_one(vault_id: str) -> list[dict[str, Any]]:
-        kind = _resolve_kind(vault_id)
-        if kind.startswith("owned:"):
-            return await search_owned(kind[len("owned:"):], vault_id)
-        return await search_obsidian(vault_id)
-
-    # Parallel search across all vaults
+    # Parallel search across all resolved owned KBs.
     all_results: list[dict[str, Any]] = []
-    for res_list in await asyncio.gather(*[search_one(vid) for vid in vault_ids]):
+    for res_list in await asyncio.gather(*[search_owned(vid, kid) for vid, kid in resolved]):
         all_results.extend(res_list)
 
     if not all_results:
