@@ -3274,11 +3274,21 @@ export function isStreamAssistantLineRewrite(prev, incoming) {
   const p = String(prev || '').trimEnd()
   const n = String(incoming || '').trimEnd()
   if (!p || !n) return false
+  // A genuine rewrite replaces nearly ALL of prev, not just shares a trailing
+  // fragment. Requiring the incoming text to cover most of prev's length avoids
+  // false positives where a delta merely happens to end with the same short
+  // tail (punctuation/line breaks) — that used to drop whole fragments with
+  // coarse-framed thinking models (e.g. GLM reasoning streams).
+  if (n.length < p.length * 0.8) return false
+  if (n.startsWith(p)) return true
+  const pT = normalizeStreamPlainLoose(p)
+  const nT = normalizeStreamPlainLoose(n)
+  if (pT && nT.startsWith(pT)) return true
   const pm = p.match(/\|\s*([^\n|]+)\s*$/)
   const nm = n.match(/\|\s*([^\n|]+)\s*$/)
   if (pm && nm && pm[1] === nm[1] && n.length >= 4) return true
-  for (let k = Math.min(p.length, n.length, 80); k >= 6; k--) {
-    if (p.slice(-k) === n.slice(-k)) return true
+  for (let k = Math.min(p.length, n.length, 80); k >= 12; k--) {
+    if (p.slice(-k) === n.slice(-k) && n.startsWith(p.slice(0, Math.max(1, p.length - k)))) return true
   }
   return false
 }
@@ -3335,8 +3345,11 @@ export function appendStreamAssistantTextPiece(segments, tailText, piece) {
     return { segments: segs, tailText: p, changed: true }
   }
 
+  // Overlap stitching: only trust overlaps >= 6 chars. A 1-5 char accidental
+  // overlap (period/newline/common word) previously caused whole fragments
+  // to be dropped with coarse-framed thinking-model streams (GLM).
   const maxOverlap = Math.min(tail.length, p.length, 200)
-  for (let k = maxOverlap; k >= 1; k--) {
+  for (let k = maxOverlap; k >= 6; k--) {
     if (tail.slice(-k) === p.slice(0, k)) {
       const next = tail + p.slice(k)
       if (next !== tail) {

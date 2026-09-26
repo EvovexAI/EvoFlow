@@ -3806,7 +3806,9 @@ function tryEmitChatStreamFinal(self, ctx) {
     )
   }
   const segPlain = finalTextFromDisplaySegments(lane.authoritativeDisplaySegments)
-  if (segPlain) {
+  if (segPlain && segPlain.length >= String(finalTextOut || '').length * 0.5) {
+    // Snapshot-derived text is authoritative; prefer it whenever it is not
+    // absurdly shorter than the stitched stream text.
     finalTextOut = stripWsPriorTurnPollutants(segPlain, prevTurnStripBundle)
   }
   const usageTriplet = ctx.runUsage?.tripletForFinal?.()
