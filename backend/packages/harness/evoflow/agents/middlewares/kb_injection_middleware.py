@@ -196,11 +196,18 @@ def _log_summary(
         return
 
     # decision ∈ {skip_mode_off, skip_no_vault, skip_empty_query,
-    #              skip_proactive_duty, no_hits}
-    if decision in {"skip_mode_off", "skip_no_vault", "no_hits"}:
+    #              skip_proactive_duty, no_hits, search_error}
+    # ``no_hits`` is *legitimate* (vault has docs but query doesn't match) —
+    # not a misconfig. Down-rank it to DEBUG so operators don't mistake
+    # expected empty results for a fault.
+    if decision in {"skip_mode_off", "skip_no_vault", "skip_empty_query"}:
+        logger.debug(line)
+    elif decision == "no_hits":
+        logger.debug(line)
+    elif decision == "search_error":
         logger.warning(line)
     else:
-        # empty query / proactive duty: expected, not a misconfig
+        # proactive duty skip: expected
         logger.debug(line)
 
 
@@ -501,14 +508,11 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
             vault_ids = get_agent_kb_vault_ids(agent_code)
             if not vault_ids:
-                _log_summary(
-                    agent_code=agent_code,
-                    thread_id=thread_id,
-                    query=query,
-                    config=config,
-                    vault_ids=[],
-                    decision="skip_no_vault",
-                )
+                # Agent has no KB configured — silently fall through. Don't
+                # log here: a missing vault list is the default for agents
+                # that haven't opted into KB injection, not an operational
+                # signal. The ``awrap_model_call`` wrapper still short-circuits
+                # before any search work runs.
                 return False, "", config, [], thread_id
 
             return True, query, config, vault_ids, thread_id
