@@ -91,7 +91,6 @@ _PLAN_COLLAB_TOOL_NAMES: frozenset[str] = frozenset(
 # Also merged into agent-mode deferred catalog (tool_search / pending activation).
 _OPTIONAL_TOOL_NAMES: frozenset[str] = frozenset(
     {
-        "claude-code",
         "invoke_acp_agent",
         "send_message",
         "session_workspace",
@@ -102,13 +101,10 @@ _OPTIONAL_TOOL_NAMES: frozenset[str] = frozenset(
     }
 )
 
-# Agent 对话模式系统必带：右侧面板 + 平台行政（eager；非角色编辑器可选项）。
-AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        "platform",
-        "panel_set",
-    }
-)
+# Agent 模式默认 deferred tools（由 ``agent_config.tools`` 白名单决定是否挂载）。
+# tasks / platform / panel_set 不再强制绑定 — 它们在 _agent_mode_deferred_tool_names 里
+# 跟随角色勾选，角色不勾就不挂。
+AGENT_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset()
 
 AGENT_OPTIONAL_DEFERRED_TOOL_NAMES: tuple[str, ...] = tuple(sorted(_OPTIONAL_TOOL_NAMES))
 

@@ -250,6 +250,17 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
       })
     } else if (name === 'pending_inject_consumed' && value && typeof value === 'object') {
       emitPendingInjectConsumedEvent(self, key, chatRunId, value)
+    } else if (name === 'kb_citations' && value && typeof value === 'object') {
+      // Backend pushes ``kb_citations`` AG-UI CUSTOM frames whenever the
+      // KbInjectionMiddleware finishes a search before the model call. Surface
+      // them on the chat event bus so the chat panel can render Perplexity-
+      // style inline citations and an expandable references card.
+      self._emitEvent('chat', {
+        sessionKey: key,
+        runId: chatRunId,
+        state: 'kb_citations',
+        citationsPayload: value,
+      })
     } else if (name === 'custom' && value && typeof value === 'object') {
       // LangGraph stream_writer / EVF custom envelope → AG-UI CUSTOM name=custom
       const chunk =
@@ -4691,6 +4702,25 @@ function dispatchChatWireSseFrame(self, opts) {
       dispatchEvfUiStreamEvent(self, key, runId, data, evfLane)
     } catch (evfErr) {
       console.warn('[evoflow] wire evf event failed', data?.type, evfErr)
+    }
+    // KB citations: backend pushes a ``kb_citations`` EVF frame BEFORE the
+    // first model token whenever a KB-injected run completes its search.
+    // Surface it to the UI so the chat panel can render inline [1][2] anchors
+    // for Perplexity-style referencing.
+    if (data?.type === 'kb_citations') {
+      try {
+        self._emitEvent('kb_citations', {
+          sessionKey: key,
+          runId,
+          payload: data.data || data,
+          ts: Date.now(),
+        })
+        if (opts.onKbCitations) {
+          opts.onKbCitations(data.data || data, { sessionKey: key, runId })
+        }
+      } catch (kbErr) {
+        console.warn('[evoflow] kb_citations dispatch failed', kbErr)
+      }
     }
     opts.onEvfAfter?.(data)
     return true

@@ -11,8 +11,7 @@ independent sub-problems. Prefer `find`/`rg`/`read` for simple locate; \
 `read`+`replace` for single-file small edits.
 
 **Types**: `general-purpose` | `code-agent` (preferred for coding/repo work) | \
-`bash` (when allowed) | `media-*` crew for creative pipelines. Do **not** use \
-`claude-code` — prefer `code-agent`.
+`bash` (when allowed) | `media-*` crew for creative pipelines.
 
 **Don't**: trivial one-shots; clarify with user first via `ask_clarification`; \
 set `model` on worker_profile unless the user asks.

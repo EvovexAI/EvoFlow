@@ -1521,13 +1521,9 @@ export const api = {
       pruneMissing: Boolean(opts.pruneMissing),
       folderPrefix: opts.folderPrefix || '',
     }),
+  // Obsidian vault support removed — import-vault returns a no-op rejection.
   importOwnedKnowledgeVault: async (id, vaultId, opts = {}) =>
-    gatewayProxy('POST', `/knowledge/owned/bases/${encodeURIComponent(String(id || ''))}/import-vault`, {
-      vaultId,
-      upsert: opts.upsert !== false,
-      pruneMissing: Boolean(opts.pruneMissing),
-      folderPrefix: opts.folderPrefix == null ? undefined : opts.folderPrefix,
-    }),
+    Promise.reject(new Error("Obsidian vault import has been removed. Use import-folder instead.")),
   resyncOwnedKnowledgeBase: async (id, opts = {}) =>
     gatewayProxy('POST', `/knowledge/owned/bases/${encodeURIComponent(String(id || ''))}/resync`, {
       pruneMissing: Boolean(opts.pruneMissing),
@@ -1705,64 +1701,6 @@ export const api = {
       null,
       { heuristicOnly: heuristicOnly ? 'true' : 'false' },
     ),
-
-  // ---- Knowledge Vault (Obsidian) — external connector ----
-  listKnowledgeVaults: async () =>
-    gatewayProxy('GET', '/knowledge/vaults', null, null, { preferGatewayHttp: true }),
-  createKnowledgeVault: async (data) => gatewayProxy('POST', '/knowledge/vaults', data),
-  getKnowledgeVault: async (id) =>
-    gatewayProxy('GET', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}`),
-  updateKnowledgeVault: async (id, data) =>
-    gatewayProxy('PUT', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}`, data),
-  deleteKnowledgeVault: async (id) =>
-    gatewayProxy('DELETE', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}`),
-  testKnowledgeVault: async (id) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/test`),
-  getKnowledgeVaultStatus: async (id) =>
-    gatewayProxy(
-      'GET',
-      `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/status`,
-      null,
-      null,
-      { preferGatewayHttp: true },
-    ),
-  listKnowledgeVaultNotes: async (id, query = {}) => {
-    const q = {}
-    if (query.limit != null) q.limit = query.limit
-    if (query.prefix) q.prefix = query.prefix
-    return gatewayProxy(
-      'GET',
-      `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/notes`,
-      null,
-      Object.keys(q).length ? q : null,
-    )
-  },
-  installKnowledgeVault: async (id) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/install`),
-  reindexKnowledgeVault: async (id, path = null, options = null) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/reindex`, {
-      path,
-      force: options?.force !== false,
-      wait: !!options?.wait,
-    }),
-  getKnowledgeVaultReindexJob: async (id) =>
-    gatewayProxy('GET', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/reindex/job`),
-  searchKnowledgeVault: async (id, body) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/search`, body),
-  readKnowledgeVault: async (id, body) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/read`, body),
-  saveKnowledgeVaultNote: async (id, body) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/save`, body),
-  graphKnowledgeVault: async (id, body) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/graph`, body),
-  fullGraphKnowledgeVault: async (id, params = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    return gatewayProxy('GET', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/graph${qs ? `?${qs}` : ''}`);
-  },
-  ingestKnowledgeVault: async (id, body) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/ingest`, body),
-  openKnowledgeVaultNote: async (id, path) =>
-    gatewayProxy('POST', `/knowledge/vaults/${encodeURIComponent(String(id || ''))}/open`, { path }),
 
   getModel: async (name) => gatewayProxy('GET', `/models/${encodeURIComponent(String(name || ''))}`),
   createModel: async (modelData) => gatewayProxy('POST', '/models', modelData),

@@ -319,10 +319,24 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             st_log(f"embedding warmup start ({model_id})")
             logger.info("Local embedding model warmup starting (hub=%s, model=%s)", hub, model_id)
             _t_embed = _st.perf_counter()
-            await asyncio.to_thread(warmup_local_model, model_id)
-            _embed_ms = (_st.perf_counter() - _t_embed) * 1000.0
-            st_log(f"embedding warmup done ({_embed_ms:.0f}ms)")
-            logger.info("Local embedding model warmup completed: %s (%.0fms)", model_id, _embed_ms)
+            # Run directly on the event loop — NOT via asyncio.to_thread —
+            # which would dispatch to the ThreadPoolExecutor and trigger a
+            # scipy.linalg._fblas native .pyd cold-load that hangs on Windows
+            # (Windows DLL loader + ThreadPoolExecutor worker threads deadlock).
+            # warmup_local_model uses _load_model_sync (pure sync, no to_thread),
+            # so this blocks the event loop but loads sklearn/scipy in the main
+            # thread where the DLL loader is ready. After warmup, _model_cache
+            # is populated so subsequent _load_model calls skip to_thread.
+            try:
+                warmup_local_model(model_id)
+            except Exception:
+                st_log("embedding warmup failed (non-fatal)")
+                logger.debug("Local embedding model warmup failed (non-fatal)", exc_info=True)
+                _embed_ms = 0.0
+            else:
+                _embed_ms = (_st.perf_counter() - _t_embed) * 1000.0
+                st_log(f"embedding warmup done ({_embed_ms:.0f}ms)")
+                logger.info("Local embedding model warmup completed: %s (%.0fms)", model_id, _embed_ms)
         except Exception:
             st_log("embedding warmup failed (non-fatal)")
             logger.debug("Local embedding model warmup failed (non-fatal)", exc_info=True)
@@ -908,30 +922,6 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
     except Exception:
         pass
 
-    _skip_vault = (
-        os.environ.get("EVOFLOW_SKIP_BUILTIN_VAULT_REINDEX", "").strip().lower()
-        in ("1", "true", "yes", "on")
-    )
-    if not _skip_vault:
-        deferred_vault_reindex_ids: list[str] = []
-        try:
-            from evoflow.knowledge.vault.builtin import (
-                ensure_builtin_knowledge_vaults,
-                schedule_builtin_vault_reindex,
-            )
-
-            vault_result = await asyncio.to_thread(ensure_builtin_knowledge_vaults)
-            logger.info("Builtin knowledge vaults (post-ready): %s", vault_result)
-            deferred_vault_reindex_ids.extend(str(x).strip() for x in (vault_result.get("needsReindex") or []) if str(x).strip())
-            if deferred_vault_reindex_ids:
-                reindex_started = await schedule_builtin_vault_reindex(deferred_vault_reindex_ids)
-                st_log(f"post-ready vault reindex scheduled ({len(reindex_started)} jobs)")
-                logger.info("Builtin vault reindex scheduled (post-ready): %s", reindex_started)
-        except Exception:
-            logger.warning("Post-ready builtin vault ensure failed (non-fatal)", exc_info=True)
-    else:
-        st_log("builtin vault reindex skipped (EVOFLOW_SKIP_BUILTIN_VAULT_REINDEX=1)")
-        logger.info("Builtin vault reindex skipped (EVOFLOW_SKIP_BUILTIN_VAULT_REINDEX=1)")
 
     try:
         from evoflow.tools.builtins.collab_bridge import ensure_collab_bridge_ready
@@ -1070,35 +1060,7 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
     except Exception:
         logger.warning("Failed to schedule owned KB seed (non-fatal)", exc_info=True)
 
-    if not _skip_vault:
-        try:
-            from evoflow.knowledge.vault.mcp_runtime import warmup_enabled_vaults
-
-            # Vault MCP spawns Node children and can stall the event loop for 30s+.
-            # First chat only needs /api/models + LG; defer vault warm until after UI settles.
-            async def _vault_mcp_warmup_deferred() -> None:
-                delay_raw = os.environ.get("EVOFLOW_VAULT_MCP_WARMUP_DELAY_SEC", "45").strip()
-                try:
-                    delay_sec = max(0.0, float(delay_raw))
-                except ValueError:
-                    delay_sec = 45.0
-                if delay_sec > 0:
-                    await asyncio.sleep(delay_sec)
-                try:
-                    result = await warmup_enabled_vaults()
-                    st_log(f"post-ready vault MCP warmup done (ok={len(result.get('ok') or [])})")
-                    logger.info("Knowledge vault MCP warmup done (post-ready): %s", result)
-                except Exception:
-                    logger.warning("Knowledge vault MCP warmup failed (non-fatal)", exc_info=True)
-
-            asyncio.create_task(_vault_mcp_warmup_deferred())
-            st_log("post-ready vault MCP warmup scheduled (deferred)")
-            logger.info("Knowledge vault MCP warmup deferred (non-blocking for first chat)")
-        except Exception:
-            logger.warning("Knowledge vault MCP warmup failed (non-fatal)", exc_info=True)
-    else:
-        st_log("vault MCP warmup skipped (EVOFLOW_SKIP_BUILTIN_VAULT_REINDEX=1)")
-        logger.info("Vault MCP warmup skipped (EVOFLOW_SKIP_BUILTIN_VAULT_REINDEX=1)")
+    # Vault MCP warmup removed (Obsidian vault support removed).
 
     # Owned KB worker last: after seed + embedding reconcile to avoid 100+ failed index jobs.
     try:

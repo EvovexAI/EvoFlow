@@ -16,7 +16,6 @@ BUILTIN_AGENT_UI_NAMES: dict[str, str] = {
     "general-purpose": "通用助手",
     "code-agent": "代码助手",
     "bash": "终端执行",
-    "claude-code": "Claude Code",
     "knowledge-retriever": "知识检索",
     "knowledge-curator": "知识整理",
     "project-architect": "项目·方案",

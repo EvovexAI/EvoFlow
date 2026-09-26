@@ -11,17 +11,16 @@ logger = logging.getLogger(__name__)
 
 
 def is_ephemeral_task_tool_subtask(subtask_row: dict[str, Any] | None) -> bool:
-    """True when subtask worker runs via in-process ``task_tool`` (not Claude/ACP session)."""
+    """True when subtask worker runs via in-process ``task_tool`` (not ACP session)."""
     if not isinstance(subtask_row, dict):
         return False
     from evoflow.tools.builtins.supervisor.execution import (
         _is_acp_worker,
-        _is_claude_session_worker,
         _resolved_subagent_type_for_subtask,
     )
 
     worker = _resolved_subagent_type_for_subtask(subtask_row)
-    return not _is_claude_session_worker(worker) and not _is_acp_worker(worker)
+    return not _is_acp_worker(worker)
 
 
 def interrupt_subtask_background_run(
@@ -221,7 +220,7 @@ async def steer_ephemeral_subtask(
     if not is_ephemeral_task_tool_subtask(st):
         return {
             "ok": False,
-            "error": "steer_subtask currently supports task_tool workers only (not claude-code / ACP)",
+            "error": "steer_subtask currently supports task_tool workers only (not ACP)",
             "assignedTo": st.get("assigned_to"),
         }
 

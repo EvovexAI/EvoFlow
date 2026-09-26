@@ -52,25 +52,8 @@ def normalize_knowledge_vault_ids(raw: Any) -> list[str]:
     return out
 
 
-def validate_knowledge_vault_ids(ids: list[str]) -> list[str]:
-    """Ensure each id exists in Knowledge Vault settings. Empty list is ok."""
-    cleaned = normalize_knowledge_vault_ids(ids)
-    if not cleaned:
-        return []
-    try:
-        from evoflow.knowledge.vault import store as vault_store
-
-        known = {str(c.id).strip() for c in (vault_store.list_vault_configs() or []) if c and c.id}
-    except Exception as e:
-        raise ValueError(f"无法校验知识库配置: {e}") from e
-    missing = [vid for vid in cleaned if vid not in known]
-    if missing:
-        raise ValueError("未知知识库 id: " + ", ".join(missing))
-    return cleaned
-
-
 def validate_agent_knowledge_ids(ids: list[str]) -> list[str]:
-    """Validate agent-bound knowledge ids (owned bases and/or legacy vault configs)."""
+    """Validate agent-bound knowledge ids against owned knowledge bases."""
     cleaned = normalize_knowledge_vault_ids(ids)
     if not cleaned:
         return []
@@ -84,47 +67,12 @@ def validate_agent_knowledge_ids(ids: list[str]) -> list[str]:
                 known.add(kid)
     except Exception:
         pass
-    try:
-        from evoflow.knowledge.vault import store as vault_store
-
-        for c in vault_store.list_vault_configs() or []:
-            if c and getattr(c, "id", None):
-                known.add(str(c.id).strip())
-    except Exception:
-        pass
     if known:
         missing = [vid for vid in cleaned if vid not in known]
         if missing:
             raise ValueError("未知知识库 id: " + ", ".join(missing))
     return cleaned
 
-
-def build_knowledge_vaults_section(cfg: ProactiveRoleConfig) -> str:
-    """Duty-brief section listing bound Knowledge Vaults (empty when unbound)."""
-    ids = normalize_knowledge_vault_ids(getattr(cfg, "knowledge_vault_ids", None) or [])
-    if not ids:
-        return ""
-    by_id: dict[str, Any] = {}
-    try:
-        from evoflow.knowledge.vault import store as vault_store
-
-        for c in vault_store.list_vault_configs() or []:
-            if c and c.id:
-                by_id[str(c.id).strip()] = c
-    except Exception:
-        by_id = {}
-    lines: list[str] = []
-    for vid in ids:
-        row = by_id.get(vid)
-        if row is None:
-            lines.append(f"  - id=`{vid}`（配置未找到）")
-            continue
-        name = str(getattr(row, "name", None) or vid).strip() or vid
-        enabled = bool(getattr(row, "enabled", True))
-        flag = "" if enabled else "（已停用）"
-        lines.append(f"  - {name}（id=`{vid}`）{flag}")
-    body = "\n".join(lines)
-    return f"\n## 绑定知识库\n值班时优先检索这些库；不要默认去查未绑定的库，除非用户本轮明确要求。\n{body}\n"
 
 
 def _resp_blurb(role: ProactiveRole, *, max_len: int = 72) -> str:
@@ -648,7 +596,7 @@ def build_system_prompt(
     if focus:
         domain_block += f"\n关注子路径 / 模块：\n{focus}"
 
-    vault_block = build_knowledge_vaults_section(cfg)
+    vault_block = ""
 
     from evoflow.proactive.artifacts import format_role_docs_prompt_block, role_docs_rel_dir
 
@@ -764,7 +712,7 @@ def build_system_prompt(
 
 ### 岗位文档
 {docs_block}
-{vault_block}{skills_block}
+{skills_block}
 ---
 
 **记住**：任务闭环 = 本岗做完 + 交接到位 + 验收通过。少一步都不算完。

@@ -50,11 +50,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 def _init(_args: argparse.Namespace):
     from evoflow.assets.hub import ensure_assets_tree, list_entities
-    from evoflow.knowledge.vault.builtin import ensure_builtin_asset_vault
 
     root = ensure_assets_tree()
-    vault = ensure_builtin_asset_vault()
-    return {"ok": True, "root": str(root.resolve()), "vault": vault, "entities": list_entities()}
+    return {"ok": True, "root": str(root.resolve()), "entities": list_entities()}
 
 
 def _migrate(args: argparse.Namespace):

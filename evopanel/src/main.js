@@ -753,9 +753,8 @@ async function boot() {
   registerRoute('/memory/atoms', () => import('./pages/assets.js'))
   registerRoute('/skills', () => import('./pages/assets.js'))
   registerRoute('/skills/market', () => import('./pages/skills.js'))
-  // Owned KB is the default knowledge home; Obsidian vaults under /knowledge/vaults
+  // Owned KB is the only knowledge source.
   registerRoute('/knowledge', () => import('./pages/knowledge-owned.js'))
-  registerRoute('/knowledge/vaults', () => import('./pages/knowledge-vaults.js'))
   registerRoute('/knowledge/owned', () => import('./pages/knowledge-owned.js'))
   registerRoute('/knowledge/owned/:id', () => import('./pages/knowledge-owned.js'))
   registerRoute('/tools', () => import('./pages/tools.js'))

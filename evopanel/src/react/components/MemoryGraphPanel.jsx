@@ -5,7 +5,6 @@ import {
 } from "./KnowledgeForceGraph.jsx";
 import { api } from "../../lib/tauri-api.js";
 import { toast } from "../../components/toast.js";
-import "../../pages/knowledge-vaults.css";
 
 /**
  * Memory namespace entity graph — Asset Center 记忆 → 图谱.

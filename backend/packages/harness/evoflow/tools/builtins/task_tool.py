@@ -23,10 +23,6 @@ from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
 from evoflow.agents.thread_state import ThreadState
 from evoflow.claude_subagent_type import (
     collab_executor_allows_auto_outcome_without_report,
-    is_claude_code_subagent_type,
-)
-from evoflow.claude_subagent_type import (
-    effective_subagent_type as _resolve_effective_subagent_type,
 )
 from evoflow.collab.id_format import make_trace_id
 from evoflow.collab.models import CollabPhase, WorkerProfile
@@ -96,33 +92,6 @@ def _merge_collab_subtask_tool_allowlist(
         if tool_name in allowed_tool_names and tool_name not in merged:
             merged.append(tool_name)
     return merged
-
-
-# Last successful ``claude_session`` session_id per lead/subtask thread (non-collab continuity).
-_LAST_CLAUDE_SESSION_BY_THREAD: dict[str, str] = {}
-_LAST_CLAUDE_SESSION_LOCK = threading.Lock()
-
-
-def _thread_key_for_claude_cache(thread_id: str | None) -> str | None:
-    s = str(thread_id or "").strip()
-    return s or None
-
-
-def _remember_claude_session_for_thread(thread_id: str | None, session_id: str | None) -> None:
-    sid = str(session_id or "").strip()
-    key = _thread_key_for_claude_cache(thread_id)
-    if not key or not sid:
-        return
-    with _LAST_CLAUDE_SESSION_LOCK:
-        _LAST_CLAUDE_SESSION_BY_THREAD[key] = sid
-
-
-def _default_claude_session_id_for_thread(thread_id: str | None) -> str | None:
-    key = _thread_key_for_claude_cache(thread_id)
-    if not key:
-        return None
-    with _LAST_CLAUDE_SESSION_LOCK:
-        return _LAST_CLAUDE_SESSION_BY_THREAD.get(key)
 
 
 def _resolve_effective_root(project_workspace_path: str | None = None) -> str:
@@ -271,39 +240,6 @@ def _normalize_tool_output_content(v: object) -> str:
         return str(v)
 
 
-def _claude_session_meta_from_subagent_stream(stream_messages: list[Any] | None) -> tuple[str | None, str | None]:
-    """Parse ``claude_session`` ToolMessage payloads for ``session_id`` and ``log_path`` (last wins)."""
-    last_sid: str | None = None
-    last_log: str | None = None
-    for msg in stream_messages or []:
-        if not isinstance(msg, dict):
-            continue
-        m_type = str(msg.get("type") or msg.get("role") or "").strip().lower()
-        if m_type != "tool":
-            continue
-        name = str(msg.get("name") or msg.get("tool_name") or "").strip()
-        if name != "claude-code":
-            continue
-        raw = msg.get("content")
-        data: Any = None
-        if isinstance(raw, dict):
-            data = raw
-        elif isinstance(raw, str):
-            s = raw.strip()
-            if s.startswith("{"):
-                try:
-                    data = json.loads(s)
-                except Exception:
-                    continue
-        if not isinstance(data, dict):
-            continue
-        sid = str(data.get("session_id") or "").strip()
-        if sid:
-            last_sid = sid
-        lp = data.get("log_path")
-        if isinstance(lp, str) and lp.strip():
-            last_log = lp.strip()
-    return last_sid, last_log
 
 
 def _extract_tool_events_from_stream_message(message: object) -> list[dict[str, Any]]:
@@ -621,7 +557,6 @@ async def task_tool(
     collab_task_id: str | None = None,
     collab_subtask_id: str | None = None,
     detach: bool = False,
-    new_claude_session: bool = False,
     stream: bool = True,
 ) -> str:
     """Delegate work to a specialized subagent (policy in tool description)."""
@@ -914,18 +849,9 @@ async def task_tool(
         elif outcome == "cancelled":
             await broadcast_collab_task_event(resolved_collab, "task:cancelled", {"task_id": tid, "error": (r.error or "")[:4000]})
 
-    effective_subagent_type = _resolve_effective_subagent_type(subagent_type)
+    effective_subagent_type = subagent_type
     if profile_model and profile_model.base_subagent:
-        effective_subagent_type = _resolve_effective_subagent_type(str(profile_model.base_subagent).strip())
-    if is_claude_code_subagent_type(effective_subagent_type):
-        try:
-            from evoflow.platform.asyncio_windows import claude_session_subprocess_supported
-
-            if not claude_session_subprocess_supported():
-                logger.info("task_tool: claude-code unavailable on Selector loop; using general-purpose subagent")
-                effective_subagent_type = "general-purpose"
-        except Exception:
-            logger.debug("task_tool: claude subprocess capability check failed", exc_info=True)
+        effective_subagent_type = str(profile_model.base_subagent).strip()
 
     config = get_subagent_config(effective_subagent_type)
     if config is None:
@@ -1132,18 +1058,6 @@ async def task_tool(
         )
         if collab_lead_thread_id:
             subagent_extra_context["parent_thread_id"] = collab_lead_thread_id
-    if is_claude_code_subagent_type(effective_subagent_type):
-        ctx_extra: dict[str, Any] = dict(subagent_extra_context or {})
-        if collab_sub_row is not None and resolved_collab and resolved_subtask:
-            if not new_claude_session:
-                rsid_row = str(collab_sub_row.get("claude_session_id") or collab_sub_row.get("external_session_id") or "").strip()
-                if rsid_row:
-                    ctx_extra["claude_session_reuse_session_id"] = rsid_row
-        if not new_claude_session and "claude_session_reuse_session_id" not in ctx_extra:
-            cached = _default_claude_session_id_for_thread(execution_thread_id)
-            if cached:
-                ctx_extra["claude_session_reuse_session_id"] = cached
-        if ctx_extra:
             subagent_extra_context = ctx_extra
 
     # Lead-graph stream writer: same ``task_*`` custom events as main chat (LangGraph + gateway SSE).
@@ -1538,10 +1452,6 @@ async def task_tool(
                             runtime=runtime,
                             executor_subagent_type=effective_subagent_type,
                         )
-                        if is_claude_code_subagent_type(effective_subagent_type) and ex_name == "completed":
-                            sid, _logp = _claude_session_meta_from_subagent_stream(getattr(result, "stream_messages", None))
-                            if sid:
-                                _remember_claude_session_for_thread(execution_thread_id, sid)
                         cleanup_background_task(task_id)
                         _pw = locals().get("persistent_writer")
                         if _pw is not None and hasattr(_pw, "close"):

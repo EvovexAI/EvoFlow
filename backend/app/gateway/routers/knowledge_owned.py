@@ -93,19 +93,12 @@ class UpdateContentBody(BaseModel):
     title: str | None = None
 
 
-class ImportVaultBody(BaseModel):
-    vaultId: str = Field(..., min_length=1)
-    upsert: bool = True
-    pruneMissing: bool = False
-    folderPrefix: str | None = None
-
-
 class ResyncBody(BaseModel):
     pruneMissing: bool = False
 
 
 class PrimaryBody(BaseModel):
-    primary: Literal["owned", "vault", "auto"] | None = None
+    primary: Literal["owned", "auto"] | None = None
     defaultEmbeddingModel: str | None = None
 
 
@@ -353,24 +346,9 @@ async def import_folder(request: Request, kb_id: str, body: ImportFolderBody) ->
 
 
 @router.post("/bases/{kb_id}/import-vault")
-async def import_vault(request: Request, kb_id: str, body: ImportVaultBody) -> dict[str, Any]:
-    require_kb_visible(request, kb_id)
-    """Copy notes from a connected Obsidian vault into the owned KB (upsert by path)."""
-    if not owned_service.get_base(kb_id):
-        raise HTTPException(404, "knowledge base not found")
-    try:
-        return owned_service.import_from_vault(
-            kb_id,
-            body.vaultId,
-            upsert=body.upsert,
-            prune_missing=body.pruneMissing,
-            folder_prefix=body.folderPrefix,
-        )
-    except ValueError as exc:
-        msg = str(exc)
-        # Missing vault is a client/resource error, not a bad request body.
-        status = 404 if "vault not found" in msg.lower() else 400
-        raise HTTPException(status, msg) from exc
+async def import_vault(request: Request, kb_id: str) -> dict[str, Any]:
+    """Obsidian vault import: removed. Returns 410 Gone."""
+    raise HTTPException(410, "Obsidian vault import has been removed. Use /import-folder instead.")
 
 
 @router.post("/bases/{kb_id}/resync")

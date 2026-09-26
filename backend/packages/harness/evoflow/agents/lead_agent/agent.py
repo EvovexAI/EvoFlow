@@ -327,11 +327,6 @@ def _filter_tools_by_intent(tools, intent_hint: str | None):
             continue
         seen.add(n)
         uniq.append(t)
-    # Safety fallback: never return empty set.
-    # CORE_TOOL_NAMES is empty (all tools deferred + tool_search),
-    # so we only fallback on truly empty results.
-    if not uniq:
-        return tools
     return uniq
 
 
@@ -350,11 +345,6 @@ def _filter_tools_by_name_set(tools, keep_names: set[str]):
             continue
         seen.add(n)
         uniq.append(t)
-    # Safety fallback: never return empty set.
-    # CORE_TOOL_NAMES is empty (all tools deferred + tool_search),
-    # so we only fallback on truly empty results.
-    if not uniq:
-        return tools
     return uniq
 
 
@@ -777,6 +767,7 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
         from evoflow.config.tool_search_config import is_tool_search_enabled
 
         _ts_on = bool(is_tool_search_enabled())
+        print(f"[DEFER_FILTER] is_tool_search_enabled() = {_ts_on}", flush=True)
     except Exception:
         _ts_on = False
     if _ts_on:
@@ -1408,10 +1399,10 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     )
     _setup_phase("resolve_available_tools_ms", _t_tools)
 
-    # Drop "agent-mode system tools" (``platform``, ``panel_set``, etc.) for subagents
-    # and proactive employees unless ``kb_injection.mount_platform_tools=True`` is set.
-    # The ``main`` lead agent keeps them — admin chat console needs them.
-    # See ``AGENT_MODE_SYSTEM_TOOL_NAMES`` in evoflow.tools.tool_catalog.
+    # Drop legacy "agent-mode system tools" (currently empty) for subagents / custom agents
+    # unless ``kb_injection.mount_platform_tools=True`` is set. tasks / platform / panel_set
+    # are no longer in AGENT_MODE_SYSTEM_TOOL_NAMES — they live in the agent-mode deferred
+    # catalog and are bound only when the role whitelist lists them.
     try:
         from evoflow.config.agents_config import get_agent_kb_injection_config
         from evoflow.tools.tool_aliases import canonical_tool_name
@@ -1423,13 +1414,14 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         kb_cfg = get_agent_kb_injection_config(agent_name)
         if is_subagent_or_custom and not is_main_lead and not kb_cfg.mount_platform_tools:
             drop = {canonical_tool_name(n) for n in AGENT_MODE_SYSTEM_TOOL_NAMES}
-            before = len(tools)
-            tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "")) not in drop]
-            if len(tools) != before:
-                logger.info(
-                    "[Tools] dropped %d agent-mode system tools (platform/panel_set) for agent=%s type=%s — opt-in via kb_injection.mount_platform_tools=true",
-                    before - len(tools), agent_name, agent_type_str,
-                )
+            if drop:
+                before = len(tools)
+                tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "")) not in drop]
+                if len(tools) != before:
+                    logger.info(
+                        "[Tools] dropped %d agent-mode system tools for agent=%s type=%s — opt-in via kb_injection.mount_platform_tools=true",
+                        before - len(tools), agent_name, agent_type_str,
+                    )
     except Exception:
         logger.debug("agent-mode system tool filter skipped", exc_info=True)
 

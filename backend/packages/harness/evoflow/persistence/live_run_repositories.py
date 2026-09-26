@@ -122,7 +122,7 @@ def update_live_run_heartbeat(session_key: str) -> int:
     if not sk:
         return 0
 
-    from evoflow.utils.timeutil import iso_z_to_ms, now_iso_z
+    from evoflow.persistence.timestamps import iso_z_to_ms, now_iso_z
 
     def _tx(db: Any) -> int:
         current_time = now_iso_z()

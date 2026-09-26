@@ -7,6 +7,7 @@ param(
     [switch] $SkipBackend,
     [switch] $InstallEvoPanel,
     [switch] $ExternalGateway,
+    [switch] $ShowBackendLog,
     [int] $FrontendPort = 1421,
     [switch] $AutoFrontendPort = $true,
     [int] $GatewayPort = 0

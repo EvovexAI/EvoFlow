@@ -259,7 +259,6 @@ async function loadAllItems() {
     api.listApps(),
     api.loadSkills(),
     api.listOwnedKnowledgeBases(),
-    api.listKnowledgeVaults(),
     import('../../lib/ui-extensions.js').then((m) => m.listUiExtensions()),
   ])
   const val = (i, fb) => (settled[i].status === 'fulfilled' ? settled[i].value : fb)
@@ -368,31 +367,7 @@ async function loadAllItems() {
     })
   }
 
-  const vaultsRaw = val(5, [])
-  const vaults = Array.isArray(vaultsRaw)
-    ? vaultsRaw
-    : Array.isArray(vaultsRaw?.items)
-      ? vaultsRaw.items
-      : Array.isArray(vaultsRaw?.vaults)
-        ? vaultsRaw.vaults
-        : []
-  for (const v of vaults) {
-    const id = String(v.id || '').trim()
-    if (!id) continue
-    const title = String(v.name || v.title || id).trim() || id
-    out.push({
-      key: `knowledge:vault:${id}`,
-      kind: 'knowledge',
-      id,
-      title,
-      meta: v.path ? String(v.path) : 'Vault',
-      badge: 'Vault',
-      nav: '/knowledge',
-      search: `${title} ${id} vault ${v.path || ''}`.toLowerCase(),
-    })
-  }
-
-  const exts = Array.isArray(val(6, [])) ? val(6, []) : []
+  const exts = Array.isArray(val(5, [])) ? val(5, []) : []
   for (const x of exts) {
     if (!x || x.kind === 'suite' || String(x.manifest?.kind || '') === 'suite') continue
     const id = String(x.id || x.manifest?.id || '').trim()

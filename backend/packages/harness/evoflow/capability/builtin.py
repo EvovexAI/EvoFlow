@@ -90,7 +90,7 @@ class ListAgentsRequest(BaseModel):
 
     tag: str | None = Field(default=None, description="Filter by tag label (substring match)")
     preset_only: bool = Field(default=False, description="Only main + custom preset roles")
-    assignable_only: bool = Field(default=False, description="Only subagent/acp/claude-code workers")
+    assignable_only: bool = Field(default=False, description="Only subagent/acp workers")
 
 
 class ListModelsRequest(BaseModel):
@@ -378,7 +378,7 @@ def evo_list_agents(ctx: CallerCtx, p: ListAgentsRequest) -> dict:
                 continue
             if p.preset_only and a.agent_type not in ("main", "preset"):
                 continue
-            if p.assignable_only and a.agent_type not in ("subagent", "acp", "claude-code"):
+            if p.assignable_only and a.agent_type not in ("subagent", "acp"):
                 continue
             agents.append(
                 {

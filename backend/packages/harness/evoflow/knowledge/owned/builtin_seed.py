@@ -1,34 +1,119 @@
 """Seed packaged product docs into owned knowledge bases on Gateway startup.
 
-Mirrors vault ``ensure_builtin_knowledge_vaults`` for the primary knowledge path:
-install / upgrade materializes the user guide into a stable owned KB and
+Install / upgrade materializes the user guide into a stable owned KB and
 re-imports when the bundled fingerprint changes.
-
-If an older migration already created an owned KB for the user-guide vault,
-we **adopt** that base instead of creating a second one, and soft-delete
-true duplicates (same name / same sync_vault_id).
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 from evoflow.knowledge.owned import service as owned_service
 from evoflow.knowledge.owned.db import db
 from evoflow.knowledge.owned.embedding_bind import resolve_create_binding
 from evoflow.knowledge.owned.ids import utc_now
-from evoflow.knowledge.vault.builtin import (
-    BUILTIN_USER_GUIDE_VAULT_ID,
-    BUILTIN_USER_GUIDE_VAULT_NAME,
-    materialize_user_guide_vault_result,
-)
 
 logger = logging.getLogger(__name__)
 
 # Stable id so Agent / UI can rely on it across fresh installs.
+BUILTIN_USER_GUIDE_VAULT_ID = "evoflow-user-guide"
+BUILTIN_USER_GUIDE_VAULT_NAME = "EvoFlow 用户指南"
 BUILTIN_OWNED_USER_GUIDE_KB_ID = "kb_builtin_user_guide"
 _FP_META_KEY = f"builtin_owned:{BUILTIN_USER_GUIDE_VAULT_ID}:fingerprint"
+
+# Skip-copy names: .obsidian marker files and OS noise.
+_SKIP_COPY_NAMES = {
+    ".obsidian-hybrid-search.db",
+    ".obsidian-hybrid-search.db-shm",
+    ".obsidian-hybrid-search.db-wal",
+    ".vault_source",
+    ".DS_Store",
+    "Thumbs.db",
+}
+_COPY_SUFFIXES = {
+    ".md", ".markdown", ".mdx", ".txt", ".json", ".yml", ".yaml",
+    ".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif",
+}
+
+
+def _repo_docs_user() -> Path | None:
+    """Locate ``docs/user`` next to the monorepo root."""
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "docs" / "user").is_dir():
+            candidate = parent / "docs" / "user"
+            if any(candidate.rglob("*.md")):
+                return candidate
+        if (parent / "mkdocs.yml").is_file() and (parent / "docs" / "user").is_dir():
+            candidate = parent / "docs" / "user"
+            if any(candidate.rglob("*.md")):
+                return candidate
+    return None
+
+
+def _content_fingerprint(src: Path) -> str:
+    h = hashlib.sha256()
+    for p in src.rglob("*"):
+        if not p.is_file():
+            continue
+        if p.name in _SKIP_COPY_NAMES:
+            continue
+        if ".obsidian" in p.parts:
+            continue
+        if p.suffix.lower() not in _COPY_SUFFIXES and p.name.lower() != "license":
+            continue
+        rel = p.relative_to(src).as_posix().encode("utf-8")
+        h.update(rel)
+        h.update(b"\0")
+        try:
+            h.update(p.read_bytes())
+        except OSError:
+            continue
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def materialize_user_guide_vault_result(force: bool = False) -> dict[str, Any]:
+    """Return source path + fingerprint for docs/user, or source_missing."""
+    src = _repo_docs_user()
+    if src is None:
+        logger.warning("builtin user-guide vault source missing (docs/user not found)")
+        return {"path": None, "contentUpdated": False, "filesUpdated": 0, "reason": "source_missing"}
+
+    fingerprint = _content_fingerprint(src)
+    # Check if already materialized (match vault/builtin.py fingerprint logic).
+    marker_path = src.parent / ".evoflow_user_guide_fingerprint"
+    try:
+        if not force and marker_path.is_file():
+            prev = marker_path.read_text(encoding="utf-8").strip()
+            if prev == fingerprint:
+                return {
+                    "path": src,
+                    "contentUpdated": False,
+                    "filesUpdated": 0,
+                    "fingerprint": fingerprint,
+                }
+    except OSError:
+        pass
+
+    # Write fingerprint marker so next call is fast.
+    try:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(fingerprint + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+    logger.info("user-guide source ready path=%s fingerprint=%s", src, fingerprint[:8])
+    return {
+        "path": src,
+        "contentUpdated": True,
+        "filesUpdated": 0,
+        "fingerprint": fingerprint,
+    }
 
 
 def is_builtin_owned_kb_id(kb_id: str | None) -> bool:

@@ -18,7 +18,7 @@
 | 项目级 Plan 流程（project-* 团队） | [project-team-plan-workflow.md](chat/project-team-plan-workflow.md) [[guides/chat/project-team-plan-workflow|项目级 Plan 流程]] |
 | 目标 Agent | [goal-agent.md](chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] |
 | 工作空间（workspace 场景） | [workspace.md](chat/workspace.md) [[guides/chat/workspace|工作空间]] |
-| Claude Code 编码助手 | [claude-code.md](chat/claude-code.md) [[guides/chat/claude-code|Claude Code]] |
+| Claude Code 编码助手 | ~~[claude-code.md](chat/claude-code.md)~~ 已移除 |
 | 快捷指令 / 斜杠命令 | [shortcut-commands.md](chat/shortcut-commands.md) [[guides/chat/shortcut-commands|快捷指令]] |
 | 文件上传与解析 | [file-upload.md](chat/file-upload.md) [[guides/chat/file-upload|文件上传]] |
 

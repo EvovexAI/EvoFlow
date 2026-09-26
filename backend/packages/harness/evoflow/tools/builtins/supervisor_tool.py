@@ -392,7 +392,7 @@ async def supervisor_tool(
             When used with `action="create_subtask"`, the new subtask will be created already assigned (create+assign).
             Must be selected from `list_agents()` and capability-matched to subtask content.
             Prefer `code-agent` for code/project work (coding, debugging, refactor, file/repo changes).
-            Do not assign `claude-code` unless the user explicitly asks for the Claude Code main-chat preset.
+            Do not assign `claude-code` (use `code-agent` instead).
         assigned_agent_code: Same as ``assigned_agent`` (preferred when models/tools use the API field name ``agent_code``).
         subtasks: For create_task_with_subtasks or create_subtasks: list of subtask objects.
             Each item must include a name; optional fields include description, assigned_agent or assigned_agent_code,
@@ -462,7 +462,7 @@ async def supervisor_tool(
         if n in available_agents:
             return True
         norm = n.lower().replace("_", "-")
-        return norm in {"claude-code", "claude-session", "claude"} or norm in acp_agent_names
+        return norm in acp_agent_names
 
     # Normalize ids to avoid mismatches caused by model/tool serialization adding
     # accidental whitespace (e.g. "ccd29719 " or "ccd29719\n").
@@ -2178,7 +2178,7 @@ async def supervisor_tool(
                     "action": "interrupt_subtask",
                     "taskId": task_id,
                     "subtaskId": subtask_id,
-                    "error": "interrupt_subtask supports task_tool workers only (not claude-code / ACP)",
+                    "error": "interrupt_subtask supports task_tool workers only (not ACP)",
                     "assignedTo": st_row.get("assigned_to"),
                 },
                 ensure_ascii=False,

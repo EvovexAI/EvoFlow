@@ -2000,92 +2000,13 @@ def import_local_folder(
     return result
 
 
-def import_from_vault(
-    kb_id: str,
-    vault_id: str,
-    *,
-    upsert: bool = True,
-    prune_missing: bool = False,
-    folder_prefix: str | None = None,
-    activity_action: str | None = "import.vault",
-) -> dict[str, Any]:
-    """Import a connected Obsidian vault directory into an owned knowledge base."""
-    from evoflow.knowledge.vault import service as vault_service
-    from evoflow.knowledge.vault.errors import VaultNotFoundError
-
-    vid = str(vault_id or "").strip()
-    try:
-        vault = vault_service.get_vault(vid)
-    except VaultNotFoundError as exc:
-        raise ValueError(f"vault not found: {vid}") from exc
-    if not vault:
-        raise ValueError(f"vault not found: {vid}")
-    root = str(vault.get("vaultPath") or vault.get("vault_path") or "").strip()
-    if not root:
-        raise ValueError("vault has no vaultPath")
-    prefix = folder_prefix
-    if prefix is None:
-        prefix = str(vault.get("id") or vault_id)
-    result = import_local_folder(
-        kb_id,
-        root,
-        upsert=upsert,
-        prune_missing=prune_missing,
-        folder_prefix=prefix or "",
-        remember_source=False,
-        activity_action=None,
-    )
-    for doc in result.get("items") or []:
-        doc_id = doc.get("id")
-        if not doc_id:
-            continue
-        with db_for_kb(kb_id) as conn:
-            conn.execute(
-                "UPDATE kb_documents SET source_type='import_vault', updated_at=? WHERE id=?",
-                (utc_now(), doc_id),
-            )
-    remember_sync_source(
-        kb_id,
-        source_type="vault",
-        source_path=root,
-        vault_id=str(vault.get("id") or vault_id),
-    )
-    result["vaultId"] = vault.get("id") or vault_id
-    result["vaultName"] = vault.get("name") or ""
-    result["vaultPath"] = root
-    result["source"] = "import_vault"
-    if activity_action:
-        owned_activity.record(
-            kb_id,
-            activity_action,
-            title=str(result.get("vaultName") or vault_id),
-            detail={
-                "created": result.get("created"),
-                "updated": result.get("updated"),
-                "unchanged": result.get("unchanged"),
-                "pruned": result.get("pruned"),
-                "vaultId": result.get("vaultId"),
-            },
-        )
-    return result
-
-
 def resync_base(kb_id: str, *, prune_missing: bool = False) -> dict[str, Any]:
-    """Re-run last remembered folder/vault sync for a knowledge base."""
+    """Re-run last remembered folder sync for a knowledge base."""
     base = get_base(kb_id)
     if not base:
         raise ValueError("knowledge base not found")
     kind = str(base.get("syncSourceType") or "")
     path = str(base.get("syncSourcePath") or "")
-    vault_id = str(base.get("syncVaultId") or "")
-    if kind == "vault" and vault_id:
-        return import_from_vault(
-            kb_id,
-            vault_id,
-            upsert=True,
-            prune_missing=prune_missing,
-            activity_action="sync.resync",
-        )
     if kind == "folder" and path:
         return import_local_folder(
             kb_id,
@@ -2095,7 +2016,7 @@ def resync_base(kb_id: str, *, prune_missing: bool = False) -> dict[str, Any]:
             remember_source=True,
             activity_action="sync.resync",
         )
-    raise ValueError("no sync source remembered; import a folder or vault first")
+    raise ValueError("no sync source remembered; import a folder first")
 
 
 def delete_document(doc_id: str, *, record_activity: bool = True) -> None:

@@ -512,14 +512,10 @@ class SubagentExecutor:
                 message_count = 0
 
                 from evoflow.scheduler.subagent_stream import subagent_stream_task_id_ctx
-                from evoflow.tools.builtins.claude_session_tool import (
-                    parent_chat_stream_writer_ctx,
-                    use_claude_session_collab_context,
-                )
+                from evoflow.scheduler.subagent_stream import parent_chat_stream_writer_ctx
 
                 with (
                     subagent_stream_task_id_ctx(result.task_id),
-                    use_claude_session_collab_context(self.extra_context),
                     parent_chat_stream_writer_ctx(self.parent_chat_stream_writer),
                 ):
                     # stream_mode=["values", "messages"]：

@@ -19,7 +19,7 @@ def capture_stream_writer() -> StreamWriter | None:
     """Capture LangGraph custom-stream writer (must call from sync tool before ``asyncio.run``).
 
     Subagents run in a thread pool without a graph writer; fall back to the lead-agent writer
-    bound by ``task_tool`` via ``parent_chat_stream_writer_ctx`` (same path as claude_session).
+    bound by ``task_tool`` via ``parent_chat_stream_writer_ctx``.
     """
     try:
         from langgraph.config import get_stream_writer
@@ -27,14 +27,6 @@ def capture_stream_writer() -> StreamWriter | None:
         writer = get_stream_writer()
         if writer:
             return writer
-    except Exception:
-        pass
-    try:
-        from evoflow.tools.builtins.claude_session_tool import _PARENT_CHAT_STREAM_WRITER
-
-        parent = _PARENT_CHAT_STREAM_WRITER.get()
-        if parent:
-            return parent
     except Exception:
         pass
     return None

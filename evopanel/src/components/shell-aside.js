@@ -3,7 +3,7 @@
  */
 import { navigate, getCurrentRoute } from '../router.js'
 import { getPanelSetting, patchPanelSettings } from '../lib/panel-settings.js'
-import { SHOW_KNOWLEDGE_VAULT_NAV } from '../lib/nav-visibility.js'
+import { SHOW_KNOWLEDGE_OWNED_NAV } from '../lib/nav-visibility.js'
 import { installSessionListDebugGlobal } from '../lib/session-list-debug.js'
 import { mountSessionNotify } from '../lib/mount-session-notify.js'
 import { mountShellAccount } from './shell-account.js'
@@ -54,7 +54,6 @@ const MORE_NAV_PATHS = [
   '/cron',
   '/automation',
   '/knowledge',
-  '/knowledge/vaults',
   '/assets',
   '/memory',
   '/skills',
@@ -201,7 +200,6 @@ function _isMoreNavRoute(routePath) {
     p === '/cron' ||
     p === '/automation' ||
     p.startsWith('/knowledge') ||
-    p.startsWith('/knowledge/vaults') ||
     p === '/assets' ||
     p.startsWith('/assets/') ||
     p === '/memory' ||
@@ -257,10 +255,9 @@ function _syncNavActive() {
     if (target === '/cron' && (routePath === '/cron' || routePath === '/automation')) active = true
     if (target === '/proactive' && (routePath === '/proactive' || routePath.startsWith('/proactive/'))) active = true
     if (target === '/extensions' && (routePath === '/extensions' || routePath.startsWith('/extensions/'))) active = true
-    if (target === '/knowledge' || target === '/knowledge/vaults') {
+    if (target === '/knowledge') {
       active =
         routePath === '/knowledge' ||
-        routePath === '/knowledge/vaults' ||
         routePath.startsWith('/knowledge/')
     }
     if (target === '/assets') {
@@ -492,7 +489,7 @@ export function initShellAside(el) {
             <span class="react-chat-aside-nav-label">自动化</span>
           </button>
           ${
-            SHOW_KNOWLEDGE_VAULT_NAV
+            SHOW_KNOWLEDGE_OWNED_NAV
               ? `<button type="button" class="react-chat-aside-nav-item" data-shell-nav="/knowledge" data-testid="nav-knowledge-owned" title="知识库">
             <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('fileSearch')}</span>
             <span class="react-chat-aside-nav-label">知识库</span>

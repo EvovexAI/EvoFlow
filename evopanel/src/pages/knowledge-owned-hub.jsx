@@ -18,7 +18,6 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "../lib/tauri-api.js";
-import { KnowledgeSourceTabs } from "./knowledge-source-tabs.jsx";
 import { kbActivityLabel, kbActivityRelativeTime } from "./knowledge-owned-activity.js";
 import { KB_UI_PLACEHOLDERS, kbSearchShortcutLabel } from "./knowledge-owned-placeholders.js";
 import {
@@ -41,7 +40,6 @@ export function KnowledgeHero({ busy, onCreate }) {
         </p>
       </div>
       <div className="ko-hero__right">
-        <KnowledgeSourceTabs active="owned" />
         <div className="ko-actions">
           <button className="ko-btn primary" disabled={busy} onClick={onCreate} type="button">
             新建知识库

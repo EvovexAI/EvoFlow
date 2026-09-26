@@ -533,21 +533,17 @@ async def post_phase2_startup_scan(
 
 @router.post("/init")
 async def init_assets_tree(request: Request):
-    """Ensure ``~/.evoflow/assets/`` skeleton and builtin vault registration."""
+    """Ensure ``~/.evoflow/assets/`` skeleton exists."""
     from evoflow.assets.hub import ensure_assets_tree, list_entities
-    from evoflow.knowledge.vault.builtin import ensure_builtin_asset_vault
 
     try:
         root = ensure_assets_tree()
-        vault = ensure_builtin_asset_vault()
         payload = list_entities()
         entities = payload.get("entities") if isinstance(payload, dict) else payload
         filtered = filter_asset_entities_for_request(request, entities if isinstance(entities, list) else [])
         return {
             "ok": True,
             "root": str((payload.get("root") if isinstance(payload, dict) else None) or root.resolve()),
-            "vault": vault,
-            "vaultId": (payload.get("vaultId") if isinstance(payload, dict) else None) or "evoflow-assets",
             # Flat list (not nested list_entities dict) so clients can paint in one round-trip.
             "entities": filtered,
         }

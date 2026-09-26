@@ -124,14 +124,14 @@ def resolve_active_scenario_keys_for_display(
     return ordered_scenario_keys_for_display(collected)
 
 
-# 基础 chat 工具：ask_clarification 改为延迟加载（见 DEFERRED_SYSTEM_TOOL_NAMES）
+# 基础 chat 工具（ask_clarification 不在默认集中，由员工自行绑定）
 # 读文件、rg、terminal、worker、subagent、todo 等随 session_mode / 白名单绑定
 CORE_TOOL_NAMES: tuple[str, ...] = (
     # "mode_set",  # 暂不常驻：用户在界面切 plan/agent；逻辑保留在 scenario_activation
 )
 
 # 系统级延迟加载工具
-DEFERRED_SYSTEM_TOOL_NAMES: tuple[str, ...] = ("ask_clarification",)
+DEFERRED_SYSTEM_TOOL_NAMES: tuple[str, ...] = ()
 
 # 冷启动首轮：当前无核心工具，全部走 deferred + tool_search
 BOOTSTRAP_TOOL_NAMES: tuple[str, ...] = (*CORE_TOOL_NAMES,)
@@ -153,6 +153,10 @@ PLAN_SCENARIO_EAGER_TOOL_NAMES: tuple[str, ...] = (
 # P1 渐进加载：scenario 激活后仅 eager 工具立即绑定 schema；其余进 deferred（tool_search 按需加载）。
 # 全量并集仍见 ``resolve_tools_for_scenarios`` / ``NON_CORE_TOOL_GROUPS``。
 # Agent 模式系统必带：``platform``（平台行政）+ ``panel_set``（右侧面板）— 不可 deferred / 不可被角色白名单摘掉。
+# Agent 模式 eager 工具：纯工作区基础能力（读 / 改 / 删 / 搜 / 终端 / 代码索引）。
+# tasks / platform / panel_set 是平台行政与跨平台消息工具，不再强制绑定：
+# - 它们仍在 agent 模式 deferred catalog 里，由 ``agent_config.tools`` 白名单决定是否挂载。
+# - 角色编辑器的工具勾选列表是单一事实源；不再由 catalog 暗中追加。
 SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
     "agent": (
         "read",
@@ -160,9 +164,6 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "replace",
         "write",
         "delete",
-        "tasks",
-        "platform",
-        "panel_set",
         "terminal",
         "search_code_index",
     ),
@@ -197,6 +198,7 @@ SESSION_MODE_BOUND_TOOLS: dict[str, tuple[str, ...]] = {
 def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
     from evoflow.tools.tool_catalog import AGENT_OPTIONAL_DEFERRED_TOOL_NAMES
 
+    # 平台行政 + 跨平台消息 + 右侧面板：跟随 ``agent_config.tools`` 白名单。
     return _dedupe_tool_names(
         (
             # "worker",  # temporarily unregistered (code retained)
@@ -208,20 +210,22 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
             "todo",
             "find",
             "view_image",
-            "trace_call_chain",
             "read_lints",
             "assets",
+            # 不再默认绑定 — 由 agent 角色白名单决定是否挂载
+            "tasks",
+            "platform",
+            "panel_set",
         ),
         AGENT_OPTIONAL_DEFERRED_TOOL_NAMES,
     )
 
 
 SESSION_MODE_DEFERRED_CATALOG: dict[str, tuple[str, ...]] = {
-    # Ask: keep spine small, but allow docs/RAG tools when the role whitelist includes them.
-    "ask": _dedupe_tool_names(
-        DEFERRED_SYSTEM_TOOL_NAMES,
-        ("knowledge", "assets"),
-    ),
+    # Ask: pure chat — no tools bound. Knowledge lives in prompt injection
+    # (KbInjectionMiddleware) and KB-driven memory footers; users reach assets
+    # via proactive employees / explicit scenario activate.
+    "ask": _dedupe_tool_names(DEFERRED_SYSTEM_TOOL_NAMES),
     "agent": _dedupe_tool_names(_agent_mode_deferred_tool_names(), DEFERRED_SYSTEM_TOOL_NAMES),
     "plan": _dedupe_tool_names(
         (
@@ -377,13 +381,12 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("plan", "supervisor", "subagent"),
     },
     "file_ops": {
-        "zh_description": "工作区写删与进程：read+replace/write/delete；多文件改写委派 subagent；search_code_index、trace_call_chain、read_lints、process",
+        "zh_description": "工作区写删与进程：read+replace/write/delete；多文件改写委派 subagent；search_code_index、read_lints、process",
         "tools": (
             "write",
             "replace",
             "delete",
             "search_code_index",
-            "trace_call_chain",
             "read_lints",
             "process",
         ),
@@ -403,7 +406,7 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
     },
     "orchestration": {
         "zh_description": "任务编排与多代理协作：调度、跨平台消息",
-        "tools": ("supervisor", "send_message", "claude-code"),
+        "tools": ("supervisor", "send_message"),
     },
     "memory_profile": {
         "zh_description": "实体资产（记忆/过程/反思/经验）：统一 assets(search|read|list|note)",

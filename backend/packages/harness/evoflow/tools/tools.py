@@ -11,7 +11,6 @@ from evoflow.sandbox.tools import (
     bash_tool,
     read_file_tool,
 )
-from evoflow.tools.builtins.knowledge_vault_tools import knowledge_tool
 from evoflow.tools.builtins.tool_search import reset_deferred_registry
 
 logger = logging.getLogger(__name__)
@@ -88,7 +87,6 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
         "browser_get_images",
         "vision_analyze",
         # Deprecated internal tools
-        "trace_call_chain",
         "mind_map",
         "pattern_fix",
         "web_extract",
@@ -152,20 +150,6 @@ def _finalize_tool_catalog(tools: list[BaseTool], *, tools_mode: str | None = No
 def _filter_sandbox_superseded_for_host_direct(tools: list[BaseTool]) -> list[BaseTool]:
     skip = _HOST_DIRECT_SUPERSEDED_SANDBOX_NAMES
     return [t for t in tools if _tool_name(t) not in skip]
-
-
-def _filter_claude_code_if_unavailable(tools: list[BaseTool]) -> list[BaseTool]:
-    try:
-        from evoflow.external_runtime_probe import is_claude_code_worker_runtime_available
-
-        if is_claude_code_worker_runtime_available():
-            return tools
-    except Exception:
-        return tools
-    filtered = [t for t in tools if str(getattr(t, "name", "") or "").strip() != "claude-code"]
-    if len(filtered) < len(tools):
-        logger.info("claude-code tool omitted — worker runtime not available in this process")
-    return filtered
 
 
 @lru_cache(maxsize=1)
@@ -340,7 +324,7 @@ def _cached_resolve_tools(
         )
 
     # ── Sandbox mode ──
-    tools: list[BaseTool] = list(_filter_claude_code_if_unavailable(list(get_builtin_tools())))
+    tools: list[BaseTool] = list(get_builtin_tools())
     tools.extend(_knowledge_vault_tools_for_catalog())
 
     if subagent_enabled:
@@ -408,17 +392,9 @@ def invalidate_available_tools_cache() -> None:
 
 
 def _knowledge_vault_tools_for_catalog() -> list[BaseTool]:
-    """Dynamically register Knowledge Vault tools based on enabled vaults."""
-    try:
-        from evoflow.knowledge.vault import store as vault_store
+    """Owned in-house knowledge base tools (replaces removed Obsidian vault MCP)."""
+    from evoflow.tools.builtins.knowledge_tool import knowledge_tool
 
-        configs = [c for c in vault_store.list_vault_configs() if c.enabled]
-    except Exception:
-        logger.debug("Knowledge Vault catalog probe failed", exc_info=True)
-        return []
-    if not configs:
-        return []
-    # Single dispatcher tool; write/ingest gated at runtime when no read_write vault.
     return [knowledge_tool]
 
 
@@ -485,7 +461,7 @@ def _load_host_direct_tools(
     # Core: HostDirect base tools (read/search/terminal/web_fetch)
     tools: list[BaseTool] = list(HOST_DIRECT_TOOLS)
 
-    tools.extend(_filter_sandbox_superseded_for_host_direct(_filter_claude_code_if_unavailable(list(get_builtin_tools()))))
+    tools.extend(_filter_sandbox_superseded_for_host_direct(list(get_builtin_tools())))
     tools.extend(_knowledge_vault_tools_for_catalog())
 
     # Include subagent tools if enabled

@@ -61,7 +61,7 @@ const MCP_ICON_MAP = [
   [/puppeteer|playwright|browser/i, '🌍'],
   [/aws|azure|gcp|cloud/i, '☁️'],
   [/docker|k8s|kubernetes/i, '🐳'],
-  [/notion|obsidian|wiki/i, '📝'],
+  [/notion|wiki/i, '📝'],
   [/everything|mcp|server|tool/i, '🔌'],
 ]
 const DEFAULT_MCP_ICON = '🔌'

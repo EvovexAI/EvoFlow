@@ -661,9 +661,11 @@ class ProactiveToolMiddleware(AgentMiddleware[AgentState]):
     def _patch_tools(self, request: ModelRequest, runtime: Any) -> ModelRequest:
         original = list(request.tools or [])
         proactive = is_proactive_run(runtime)
+        print(f"[PROACTIVE_PATCH] proactive={proactive} original_tools={len(original)}", flush=True)
 
         if proactive:
             allow = resolve_proactive_session_allow_names(runtime)
+            print(f"[PROACTIVE_PATCH] allow_names count={len(allow) if allow else 0} allow={sorted(allow)[:20] if allow else None}", flush=True)
             if allow is None:
                 try:
                     from evoflow.agents.lead_agent.intent_tool_profile import (
@@ -686,7 +688,9 @@ class ProactiveToolMiddleware(AgentMiddleware[AgentState]):
             tools = patch_proactive_tools(original, allow_names=allow)
             before_names = {_tool_name(t) for t in original if _tool_name(t)}
             after_names = {_tool_name(t) for t in tools if _tool_name(t)}
+            print(f"[PROACTIVE_PATCH] patched {len(original)}->{len(tools)} before={sorted(before_names)[:15]} after={sorted(after_names)[:15]}", flush=True)
             if after_names != before_names:
+                print(f"[PROACTIVE_PATCH] TOOLS CHANGED! removed={sorted(before_names - after_names)}", flush=True)
                 logger.info(
                     "proactive: tools patched count=%d->%d allow=%d names=%s",
                     len(original),

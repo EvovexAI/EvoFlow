@@ -64,10 +64,9 @@ export async function render() {
     <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
       <div>
         <h1 class="page-title">上传文档</h1>
-        <p class="page-desc">管理上传文档知识库（RAG）。Obsidian Vault 请使用侧栏「Obsidian Vault」。</p>
+        <p class="page-desc">管理上传文档知识库（RAG）。</p>
       </div>
       <div style="display:flex;gap:8px;flex-shrink:0;margin-top:4px">
-        <button type="button" class="btn btn-secondary" id="btn-goto-vaults" data-testid="goto-obsidian-vaults">Obsidian Vault</button>
         <button id="btn-new-kb">＋ 新建知识库</button>
       </div>
     </div>
@@ -96,9 +95,6 @@ export async function render() {
 
 function bindEvents(page) {
   page.querySelector('#btn-new-kb').addEventListener('click', () => showCreateModal(page))
-  page.querySelector('#btn-goto-vaults')?.addEventListener('click', () => {
-    window.location.hash = '#/knowledge/vaults'
-  })
   page.querySelector('#kb-filter-input').addEventListener('input', (e) => {
     _kbFilter = e.target.value.trim().toLowerCase()
     _kbPage = 1

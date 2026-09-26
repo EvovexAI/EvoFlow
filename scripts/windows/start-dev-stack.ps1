@@ -11,6 +11,7 @@ param(
     [switch] $SkipBackend,
     [switch] $InstallEvoPanel,
     [switch] $ExternalGateway,
+    [switch] $ShowBackendLog,
     [int] $FrontendPort = 1421,
     [switch] $AutoFrontendPort = $true,
     [int] $GatewayPort = 0
@@ -133,7 +134,16 @@ if (-not (Test-Path -LiteralPath $tauriCliJs)) {
 # Desktop default = installer experience. Web / explicit -ExternalGateway keep operator uvicorn.
 $usePackDesktop = (-not $WebOnly) -and (-not $ExternalGateway)
 
-if ($usePackDesktop) {
+# Desktop + ShowBackendLog: spawn backend in its own window, then run Tauri as external.
+$useDesktopWithLog = $usePackDesktop -and $ShowBackendLog
+
+# Three modes:
+#   1. $usePackDesktop && !$useDesktopWithLog  → Tauri owns Gateway (installer experience)
+#   2. $useDesktopWithLog                       → Backend in separate window, then Tauri connects via HTTP
+#   3. otherwise ($WebOnly or $ExternalGateway) → Web mode with vite frontend
+
+if ($usePackDesktop -and -not $useDesktopWithLog) {
+    # === Mode 1: Pure Desktop (Tauri owns Gateway) ===
     Write-Host ""
     Write-Host "==> Desktop pack mode (same as installer): Tauri owns Gateway + stdio" -ForegroundColor Cyan
     Write-Host "    No separate uvicorn window; no EVOFLOW_GATEWAY_URL; no mouthpiece." -ForegroundColor DarkGray

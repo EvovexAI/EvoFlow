@@ -17,8 +17,8 @@ from .experience_tool import (
     experience_update_tool,
 )
 from .goal_report_tool import goal_report_tool  # noqa: F401 — retained for DB compat; no longer bound to LLM
+from .knowledge_tool import knowledge_tool
 from .kb_search_tool import search_knowledge_base_tool
-from .knowledge_vault_tools import knowledge_tool
 from .list_agents_tool import list_agents_tool
 from .memory_remember_tool import memory_remember_tool
 from .person_memory_edit_tool import person_memory_edit_tool
@@ -62,8 +62,8 @@ __all__ = [
     # "worker_tool",  # temporarily unregistered (code retained)
     "propose_goal_tool",
     "goal_report_tool",
-    "search_knowledge_base_tool",
     "knowledge_tool",
+    "search_knowledge_base_tool",
     "platform_tool",
     "automation_tool",
     "create_agent_tool",

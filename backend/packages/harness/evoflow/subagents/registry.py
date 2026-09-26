@@ -1,9 +1,10 @@
 """Subagent registry for managing available subagents."""
 
+from __future__ import annotations
+
 import logging
 from dataclasses import replace
 
-from evoflow.claude_subagent_type import claude_subagent_lookup_keys, is_claude_code_subagent_type
 from evoflow.config.agents_config import list_custom_agents
 from evoflow.config.subagents_config import get_subagents_app_config
 from evoflow.sandbox.security import is_host_bash_allowed
@@ -14,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def _timeout_for_subagent(app_config, primary_name: str, matched_key: str | None = None) -> int:
-    """Resolve timeout, checking Claude family aliases for config.yaml overrides."""
-    for key in dict.fromkeys([primary_name, matched_key, "claude-code", "claude-session", "claude"]):
+    """Resolve timeout, checking config.yaml overrides."""
+    for key in dict.fromkeys([primary_name, matched_key]):
         if not key:
             continue
         override = app_config.agents.get(key)
@@ -103,18 +104,10 @@ def _agent_config_to_subagent_config(agent_cfg) -> SubagentConfig | None:
 
 
 def get_subagent_config(name: str) -> SubagentConfig | None:
-    """Get a subagent configuration by name, with config.yaml overrides applied.
-
-    Args:
-        name: The name of the subagent.
-
-    Returns:
-        SubagentConfig if found (with any config.yaml overrides applied), None otherwise.
-    """
-    keys = claude_subagent_lookup_keys(name)
+    """Get a subagent configuration by name, with config.yaml overrides applied."""
     # 1) Filesystem agents: custom + subagent (see list_custom_agents), keyed by agent_code
     for agent_cfg in list_custom_agents():
-        if agent_cfg.agent_code not in keys:
+        if agent_cfg.agent_code != name:
             continue
         subagent_cfg = _agent_config_to_subagent_config(agent_cfg)
         if not subagent_cfg:
@@ -134,11 +127,10 @@ def get_subagent_config(name: str) -> SubagentConfig | None:
         return subagent_cfg
 
     # 2) Fallback to built-in subagents (so registry works even without filesystem configs)
-    for builtin_key, cfg in BUILTIN_SUBAGENTS.items():
-        if builtin_key not in keys and cfg.name not in keys:
-            continue
+    if name in BUILTIN_SUBAGENTS:
+        cfg = BUILTIN_SUBAGENTS[name]
         app_config = get_subagents_app_config()
-        effective_timeout = _timeout_for_subagent(app_config, name, builtin_key)
+        effective_timeout = _timeout_for_subagent(app_config, name, name)
         if effective_timeout != cfg.timeout_seconds:
             cfg = replace(cfg, timeout_seconds=effective_timeout)
         return cfg
@@ -147,11 +139,7 @@ def get_subagent_config(name: str) -> SubagentConfig | None:
 
 
 def list_subagents() -> list[SubagentConfig]:
-    """List all available subagent configurations (with config.yaml overrides applied).
-
-    Returns:
-        List of all registered SubagentConfig instances.
-    """
+    """List all available subagent configurations (with config.yaml overrides applied)."""
     by_name: dict[str, SubagentConfig] = {}
 
     # 1) filesystem: custom + subagent with system_prompt
@@ -177,20 +165,12 @@ def list_subagents() -> list[SubagentConfig]:
 
 
 def get_subagent_names() -> list[str]:
-    """Get all available subagent names.
-
-    Returns:
-        List of subagent names.
-    """
+    """Get all available subagent names."""
     return [cfg.name for cfg in list_subagents()]
 
 
 def get_available_subagent_names() -> list[str]:
-    """Get subagent names that should be exposed to the active runtime.
-
-    Returns:
-        List of subagent names visible to the current sandbox configuration.
-    """
+    """Get subagent names that should be exposed to the active runtime."""
     names = get_subagent_names()
     try:
         host_bash_allowed = is_host_bash_allowed()
@@ -201,7 +181,4 @@ def get_available_subagent_names() -> list[str]:
     if not host_bash_allowed:
         names = [name for name in names if name != "bash"]
 
-    # Lead routing: do not expose Claude Code as a pickable subagent_type.
-    # Explicit main-chat Claude Code preset still works via session agent_name.
-    names = [name for name in names if not is_claude_code_subagent_type(name)]
     return names

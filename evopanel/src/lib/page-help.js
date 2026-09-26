@@ -288,36 +288,33 @@ const GUIDE = {
     ],
   },
 
-  '/knowledge/vaults': {
+  '/knowledge': {
     title: '知识库',
     icon: '📚',
     overview: {
-      what: '把你电脑里的 Obsidian 笔记库或 Markdown 文件夹"接"进 EvoFlow，这样 AI 就能读懂你的笔记、回答问题时参考它们。就像把自家书房的书都摆出来，AI 随时能翻。支持全文搜索、语义搜索、预览、关系图谱。',
-      when: '当你已经有 Obsidian 笔记或一堆 Markdown 文档，想让 AI 基于这些"自家资料"来回答你、或者写东西时参考你记过的内容的时候。',
-      how: '三步走：点「连接知识库」选本地文件夹 → 等它把索引建好（就当你让它先翻一遍书架）→ 搜索关键词就能找到笔记，AI 也会自动去引用。',
+      what: '在 EvoFlow 里建自己的知识库，把文档喂进来，AI 就能在回答问题时参考这些内容。就像把自家书房的书都摆出来，AI 随时能翻。支持全文搜索、语义搜索、按 KB 分组、混合检索。',
+      when: '当你有一堆产品文档、培训资料、FAQ、参考资料，想让 AI 基于这些"自家资料"来回答你、或者写东西时参考你记过的内容的时候。',
+      how: '三步走：点「新建知识库」建一个 KB → 上传文档（PDF/Word/Markdown/代码）→ 知识库会自动建索引，搜索关键词就能找到文档片段，AI 也会自动去引用。',
     },
     steps: [
-      { title: '连接知识库（把文件夹告诉它）', desc: '点「连接知识库」按钮，在弹出的窗口里，选一个本地文件夹——可以是 Obsidian 笔记库，也可以是普通 Markdown 文档目录。可以同时连好几个。', tip: '放心，它只是"读"你的本地文件夹，不会把你的数据传到任何地方' },
-      { title: '等它建索引（翻书架）', desc: '第一次连上后，它会自动给所有笔记建索引，方便之后快速搜。如果你的笔记有改动，可以点「重建索引」更新。', tip: '第一次会自动装个检索组件，稍微等一会儿是正常的' },
-      { title: '搜索笔记', desc: '在最上面的搜索框里打关键词，支持全文搜索和语义搜索（就是哪怕你记不清原话，意思相近也能搜到）。结果按相关度排序。', tip: '搜中文内容也很好用，直接打大白话就行' },
-      { title: '点开预览笔记', desc: '点搜索结果，就能预览这篇笔记的内容，支持 Markdown 排版、代码高亮、图片显示。', tip: '预览是只读的，你只会看，不会改到原文件，放心' },
-      { title: '看关系图谱', desc: '切到「图谱」这个视图，能看到笔记之间是怎么互相链接的，可以缩放、拖动。', tip: '笔记之间互相引用的链接越多，图谱越丰富好看' },
-      { title: '让 AI 引用知识库', desc: '连上知识库后，AI 回答问题时会自动去检索相关笔记当参考，给你的答案更准。', tip: '可以在设置里挑哪些知识库对 AI 可见、哪些不开放' },
+      { title: '新建知识库（KB）', desc: '点「新建知识库」按钮，给它起个名字，比如「产品手册」「客服 FAQ」之类的。每个 KB 独立管理、单独检索。', tip: '可以建多个 KB，按主题/项目分门别类' },
+      { title: '上传文档', desc: '进入 KB 后上传文件，支持 PDF、Word、Markdown、代码文件等。一次可以拖多个。', tip: '文件存在本地，索引也建在本地' },
+      { title: '等它建索引（翻书架）', desc: '上传后系统会自动给文档建索引，方便之后快速搜。如果文档改了，点「重建索引」更新。', tip: '第一次建索引会调一次本地嵌入模型，几百页几秒搞定' },
+      { title: '搜索文档片段', desc: '在 KB 里打关键词搜索，支持全文搜索 + 语义搜索（意思相近也能搜到）。结果按相关度排序。', tip: '点开片段能看到原文出处和页码' },
+      { title: '让 AI 引用知识库', desc: '在员工/角色设置里把 KB 加进「知识库注入」，AI 回答时就会自动去检索相关片段当参考。', tip: '可以调 top_k / 检索模式 / 命中阈值' },
     ],
     faq: [
-      { q: '支持什么样的笔记？', a: '主要支持 Obsidian 笔记库（.md 文件）和普通 Markdown 文件夹，带图片和附件的笔记库也能用。' },
-      { q: '我的笔记会被传到网上吗？', a: '不会，放心。所有数据都在你本地，索引也建在本地。你的笔记永远待在你电脑里，不会上传。' },
-      { q: '建索引要多久？', a: '看你笔记多少。几百篇一般几十秒，几千篇要几分钟。之后是增量更新，很快。' },
-      { q: 'AI 能改我的笔记吗？', a: '不能。AI 只能检索和引用你的笔记，没法修改或删除你原来的文件，这点很安全。' },
-      { q: '能接多个知识库吗？', a: '能，可以同时接好几个不同主题的库，分别管理，比如一个工作笔记、一个学习笔记。' },
-      { q: '我的笔记更新了，AI 还用旧的？', a: '点「重建索引」手动更新一下就行，也可以设置成自动检测变动、自动更新。' },
-      { q: '怎么让 AI 优先用我的笔记？', a: '在 AI 的设置里打开「知识库检索」，勾选要用哪个知识库，这样它回答时就会优先翻你的笔记。' },
+      { q: '支持什么格式的文件？', a: 'PDF、Word(.docx)、Markdown、TXT、代码文件都可以。带图片和表格的文档也能用。' },
+      { q: '我的文档会被传到网上吗？', a: '不会。所有数据都存本地，嵌入模型也是本地跑的。你的文档永远在你电脑里。' },
+      { q: '建索引要多久？', a: '看你文档多少。几十页几秒，几千页要一两分钟。之后是增量更新，几乎无感。' },
+      { q: 'AI 能改我的文档吗？', a: '不能。AI 只能检索和引用你的文档片段，没法修改或删除你原来的文件。' },
+      { q: '能建多个知识库吗？', a: '可以。按主题/项目建多个 KB，分别管理，单独控制每个角色的可见性。' },
+      { q: '文档更新了，AI 还用旧的？', a: '点「重建索引」手动更新；增量更新会在文档变更时自动跑。' },
+      { q: '怎么让 AI 优先用我的文档？', a: '在角色的「知识库」里勾上 KB，调到 auto 模式，AI 回答时就会自动去翻。' },
     ],
     docs: [
-      { label: '知识库完整指南', type: 'doc', search: '知识库 笔记 检索' },
-      { label: 'Obsidian 集成教程', type: 'tutorial', search: 'Obsidian 集成 知识库连接' },
+      { label: '知识库完整指南', type: 'doc', search: '知识库 RAG 检索' },
       { label: '智能体引用配置', type: 'doc', search: '智能体 知识库引用 检索配置' },
-      { label: '知识图谱使用说明', type: 'doc', search: '知识图谱 图谱 可视化' },
     ],
   },
 
@@ -1257,8 +1254,7 @@ export function getHelpForRoute(route) {
   if (route.startsWith('/workflow/')) return normalizeGuide(GUIDE['/workflow/:id'])
   if (route.startsWith('/runs/')) return normalizeGuide(GUIDE['/runs/:runId'])
   if (route.startsWith('/project/')) return normalizeGuide(GUIDE['/project/:id'])
-  if (route === '/knowledge/vaults' || route.startsWith('/knowledge/vaults/')) return normalizeGuide(GUIDE['/knowledge/vaults'])
-  if (route === '/knowledge' || route.startsWith('/knowledge/')) return normalizeGuide(GUIDE['/knowledge/vaults'])
+  if (route === '/knowledge' || route.startsWith('/knowledge/')) return normalizeGuide(GUIDE['/knowledge'])
 
   return null
 }
@@ -1289,8 +1285,8 @@ let _currentTab = 'overview'
 /** @type {any} */
 let _currentGuide = null
 
-/** 内置「EvoFlow 用户指南」知识库 ID */
-const USER_GUIDE_VAULT_ID = 'evoflow-user-guide'
+/** 内置「EvoFlow 用户指南」知识库 ID（自研 owned KB，唯一 KB 来源） */
+const USER_GUIDE_KB_ID = 'kb_builtin_user_guide'
 
 /**
  * 弹出当前页「使用指南」面板
@@ -1660,19 +1656,38 @@ async function _openGuideNoteByPath(path, fallbackTitle = '') {
   }
   _showGuideStatus('正在加载文档…')
   try {
-    const { readKnowledgeNotes } = await import('../services/knowledge-vault-api.js')
-    const readResponse = await readKnowledgeNotes(USER_GUIDE_VAULT_ID, {
-      paths: [p],
-      maxContentChars: 100000,
-    })
-    const notes = readResponse.items || readResponse.notes || []
-    const note = Array.isArray(notes) ? notes[0] : notes
-    if (!note) {
+    const { api } = await import('./tauri-api.js')
+    // 路径可能是 docId（数字/UUID）或文件路径，先按 docId 试一次。
+    const isDocId = /^[0-9a-f]{8,}$/i.test(p)
+    let doc = null
+    if (isDocId) {
+      try {
+        doc = await api.getOwnedKnowledgeDocumentContent(p)
+      } catch {
+        doc = null
+      }
+    }
+    if (!doc) {
+      // 退化为搜索：用 path 的 basename 当关键词
+      const baseName = p.split(/[\\/]/).pop() || p
+      const res = await api.searchOwnedKnowledge(USER_GUIDE_KB_ID, {
+        query: baseName,
+        mode: 'title',
+        topK: 5,
+      })
+      const hit = (res?.items || []).find((it) => (it.path || '').endsWith(baseName)) || res?.items?.[0]
+      if (hit?.docId) {
+        doc = await api.getOwnedKnowledgeDocumentContent(hit.docId)
+      } else if (hit?.content) {
+        doc = hit
+      }
+    }
+    if (!doc) {
       _showGuideStatus('未能读取该文档，请稍后重试')
       return
     }
-    if (!note.title && fallbackTitle) note.title = fallbackTitle
-    await _renderDocViewer(note)
+    if (!doc.title && fallbackTitle) doc.title = fallbackTitle
+    await _renderDocViewer(doc)
   } catch (e) {
     _showGuideStatus(String(e?.message || e || '读取文档失败'))
   }
@@ -1686,8 +1701,8 @@ async function _openGuideDocBySearch(query, label = '') {
   }
   _showGuideStatus('正在检索文档…')
   try {
-    const { searchKnowledgeVault } = await import('../services/knowledge-vault-api.js')
-    const response = await searchKnowledgeVault(USER_GUIDE_VAULT_ID, {
+    const { api } = await import('./tauri-api.js')
+    const response = await api.searchOwnedKnowledge(USER_GUIDE_KB_ID, {
       query: q,
       mode: 'hybrid',
       topK: 5,
@@ -1698,17 +1713,22 @@ async function _openGuideDocBySearch(query, label = '') {
       return
     }
     const top = items[0]
-    const path = String(top.path || top.note_path || top.notePath || '').trim()
+    const path = String(top.path || '').trim()
     const title = String(top.title || label || path).trim()
-    if (!path) {
-      // 检索结果可能直接带 snippet/content
-      const content = String(top.content || top.snippet || '').trim()
-      if (content) {
-        await _renderDocViewer({ title, path: '', content })
-        return
-      }
-      _showGuideStatus('检索结果缺少文档路径')
+    // 命中片段可直接展示
+    const content = String(top.content || top.snippet || '').trim()
+    if (!path && content) {
+      await _renderDocViewer({ title, path: '', content })
       return
+    }
+    if (top.docId) {
+      try {
+        const doc = await api.getOwnedKnowledgeDocumentContent(top.docId)
+        await _renderDocViewer(doc)
+        return
+      } catch {
+        // fall through to path-based load
+      }
     }
     await _openGuideNoteByPath(path, title)
   } catch (e) {
@@ -1719,9 +1739,9 @@ async function _openGuideDocBySearch(query, label = '') {
 async function _browseUserGuideVault() {
   _showGuideStatus('正在加载用户指南目录…')
   try {
-    const { listKnowledgeNotes } = await import('../services/knowledge-vault-api.js')
-    const response = await listKnowledgeNotes(USER_GUIDE_VAULT_ID, { limit: 80 })
-    const items = response.items || response.notes || []
+    const { api } = await import('./tauri-api.js')
+    const response = await api.listOwnedKnowledgeDocuments(USER_GUIDE_KB_ID)
+    const items = response.items || response.documents || []
     if (!Array.isArray(items) || !items.length) {
       _showGuideStatus('用户指南暂无文档，请稍后在「知识库」确认内置指南已同步')
       return
@@ -1730,8 +1750,9 @@ async function _browseUserGuideVault() {
       .map((n, i) => {
         const path = String(n.path || '').trim()
         const title = String(n.title || path.replace(/\.md$/i, '') || `文档 ${i + 1}`).trim()
+        const id = String(n.id || n.docId || path).trim()
         return `
-          <button type="button" class="guide-doc-item" data-guide-path="${_esc(path)}" data-guide-title="${_esc(title)}">
+          <button type="button" class="guide-doc-item" data-guide-id="${_esc(id)}" data-guide-path="${_esc(path)}" data-guide-title="${_esc(title)}">
             <span class="guide-doc-icon">📄</span>
             <span class="guide-doc-label">${_esc(title)}</span>
             <svg class="guide-doc-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -1756,11 +1777,12 @@ async function _browseUserGuideVault() {
     _currentPanel?.querySelector('#guide-doc-back')?.addEventListener('click', () => {
       _backToGuideDocs()
     })
-    _currentPanel?.querySelectorAll('[data-guide-path]').forEach((btn) => {
+    _currentPanel?.querySelectorAll('[data-guide-path],[data-guide-id]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const path = btn.getAttribute('data-guide-path') || ''
+        const id = btn.getAttribute('data-guide-id') || ''
         const title = btn.getAttribute('data-guide-title') || ''
-        void _openGuideNoteByPath(path, title)
+        void _openGuideNoteByPath(id || path, title)
       })
     })
   } catch (e) {

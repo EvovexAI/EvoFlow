@@ -25,7 +25,9 @@ import {
   pushHistory,
   toggleFavorite,
 } from "../../lib/knowledge-graph-explore.js";
-import { readKnowledgeNotes } from "../../services/knowledge-vault-api.js";
+// knowledge-vault-api.js was removed (Obsidian support dropped). The knowledge
+// graph panel in the owned-KB page no longer previews raw vault notes — it
+// shows the chunk summary returned by the KB search API instead.
 import { api } from "../../lib/tauri-api.js";
 
 const EMPTY_HL = {
@@ -448,17 +450,9 @@ export function KnowledgeForceGraph({
         setNoteDetail(null);
         return;
       }
-      try {
-        const read = await readKnowledgeNotes(vaultId, { paths: [node.path] });
-        const note = read?.items?.[0] || read?.notes?.[0] || null;
-        setNoteDetail(note);
-        if (note?.modifiedAt || note?.modified_at) {
-          node.modifiedAt = note.modifiedAt || note.modified_at;
-        }
-        if (Array.isArray(note?.tags)) node.tags = note.tags;
-      } catch {
-        setNoteDetail(null);
-      }
+      // Owned-KB graph: vaultId is not set, so this branch is dead.
+      // (Kept for type-checkers; gated by !vaultId above.)
+      setNoteDetail(null);
     },
     [vaultId]
   );

@@ -261,38 +261,5 @@ def _atom_frontmatter(
 
 
 def schedule_asset_vault_reindex_delayed(delay_s: float = 20.0) -> None:
-    """Debounce vault reindex after asset file writes."""
-    global _reindex_timer
-
-    def _fire() -> None:
-        try:
-            _schedule_reindex_now()
-        except Exception:
-            logger.debug("asset vault reindex skipped", exc_info=True)
-
-    with _reindex_lock:
-        if _reindex_timer is not None:
-            _reindex_timer.cancel()
-        _reindex_timer = threading.Timer(delay_s, _fire)
-        _reindex_timer.daemon = True
-        _reindex_timer.start()
-
-
-def _schedule_reindex_now() -> None:
-    import asyncio
-
-    from evoflow.assets.hub import materialized_assets_vault_dir
-    from evoflow.knowledge.vault.builtin import BUILTIN_ASSET_VAULT_ID, ensure_builtin_asset_vault
-    from evoflow.knowledge.vault.reindex_jobs import start_reindex_job
-
-    ensure_builtin_asset_vault()
-    vault_path = str(materialized_assets_vault_dir())
-
-    async def _run() -> None:
-        await start_reindex_job(BUILTIN_ASSET_VAULT_ID, vault_path=vault_path, force=False)
-
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_run())
-    except RuntimeError:
-        asyncio.run(_run())
+    """Debounce asset reindex after file writes (no-op: Obsidian vault support removed)."""
+    pass

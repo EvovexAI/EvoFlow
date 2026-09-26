@@ -52,7 +52,7 @@ def capture_stream_writer() -> StreamWriter | None:
     except Exception:
         pass
     try:
-        from evoflow.tools.builtins.claude_session_tool import _PARENT_CHAT_STREAM_WRITER
+        from evoflow.scheduler.subagent_stream import _PARENT_CHAT_STREAM_WRITER
 
         parent = _PARENT_CHAT_STREAM_WRITER.get()
         if parent:
