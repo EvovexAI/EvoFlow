@@ -1345,8 +1345,11 @@ def _workspace_filter_sql(workspace_key: str | None) -> tuple[str, list[Any]]:
             " AND COALESCE(use_virtual_paths, 0) = 0 AND COALESCE(TRIM(local_workspace_root), '') = '' AND session_key NOT LIKE 'proactive:%'",
             [],
         )
+    # Unbound sessions (local_workspace_root IS NULL/empty) belong to no workspace;
+    # include them in every bound-workspace view so legacy sessions never disappear
+    # from the default panel list.
     return (
-        f" AND COALESCE(use_virtual_paths, 0) = 0 AND session_key NOT LIKE 'proactive:%' AND {_WORKSPACE_ROOT_SQL_NORM} = ?",
+        f" AND COALESCE(use_virtual_paths, 0) = 0 AND session_key NOT LIKE 'proactive:%' AND ({_WORKSPACE_ROOT_SQL_NORM} = ? OR COALESCE(TRIM(local_workspace_root), '') = '')",
         [normalize_workspace_group_key(key)],
     )
 
