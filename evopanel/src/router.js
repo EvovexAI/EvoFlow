@@ -57,7 +57,8 @@ function resolveLoader(path) {
   if (/^\/extensions\/[^/]+$/.test(path) && routes['/extensions/:id']) return routes['/extensions/:id']
   if (/^\/project\/[^/]+$/.test(path) && routes['/project/:id']) return routes['/project/:id']
   if (/^\/workflow\/[^/]+$/.test(path) && routes['/workflow/:id']) return routes['/workflow/:id']
-  if (/^\/knowledge\/vaults$/.test(path) && routes['/knowledge/vaults']) return routes['/knowledge/vaults']
+  // /knowledge/vaults (legacy Obsidian vault route) is removed — redirect to owned KB home.
+  if (/^\/knowledge\/vaults$/.test(path)) return routes['/knowledge/owned']
   if (/^\/knowledge\/owned$/.test(path) && routes['/knowledge/owned']) return routes['/knowledge/owned']
   if (/^\/knowledge\/owned\/[^/]+$/.test(path) && routes['/knowledge/owned/:id']) return routes['/knowledge/owned/:id']
   if (/^\/knowledge\/[^/]+$/.test(path) && routes['/knowledge/:id']) return routes['/knowledge/:id']
@@ -195,7 +196,6 @@ function updateNavActive(routePath) {
     if (!active && r === '/proactive' && (routePath.startsWith('/proactive/') || routePath.startsWith('/runs/'))) active = true
     if (!active && r === '/expert' && ['/agents','/skills','/tools','/tasks','/cron','/automation'].some(p => routePath === p || routePath.startsWith(p + '/'))) active = true
     if (!active && r === '/knowledge' && (routePath === '/knowledge' || routePath === '/knowledge/vaults' || routePath.startsWith('/knowledge/owned'))) active = true
-    if (!active && r === '/knowledge/vaults' && (routePath === '/knowledge/vaults' || routePath === '/knowledge')) active = true
     if (!active && r === '/extensions' && (routePath === '/extensions' || routePath.startsWith('/extensions/'))) active = true
     item.classList.toggle('active', active)
   })

@@ -54,7 +54,6 @@ const MORE_NAV_PATHS = [
   '/cron',
   '/automation',
   '/knowledge',
-  '/knowledge/vaults',
   '/assets',
   '/memory',
   '/skills',
@@ -201,7 +200,6 @@ function _isMoreNavRoute(routePath) {
     p === '/cron' ||
     p === '/automation' ||
     p.startsWith('/knowledge') ||
-    p.startsWith('/knowledge/vaults') ||
     p === '/assets' ||
     p.startsWith('/assets/') ||
     p === '/memory' ||
@@ -257,10 +255,9 @@ function _syncNavActive() {
     if (target === '/cron' && (routePath === '/cron' || routePath === '/automation')) active = true
     if (target === '/proactive' && (routePath === '/proactive' || routePath.startsWith('/proactive/'))) active = true
     if (target === '/extensions' && (routePath === '/extensions' || routePath.startsWith('/extensions/'))) active = true
-    if (target === '/knowledge' || target === '/knowledge/vaults') {
+    if (target === '/knowledge') {
       active =
         routePath === '/knowledge' ||
-        routePath === '/knowledge/vaults' ||
         routePath.startsWith('/knowledge/')
     }
     if (target === '/assets') {

@@ -1612,49 +1612,7 @@ export default function KnowledgeOwnedPage() {
   }
 
   async function importFromVault() {
-    if (!selectedId) return;
-    setBusy(true);
-    try {
-      const list = await api.listKnowledgeVaults();
-      const vaults = list.items || list || [];
-      if (!vaults.length) {
-        notify("还没有已连接的 Obsidian Vault（遗留）。可到「Obsidian（遗留）」页添加后再导入，或直接「导入路径」");
-        return;
-      }
-      const lines = vaults
-        .map((v, i) => `${i + 1}. ${v.name || v.id}  (${v.vaultPath || ""})`)
-        .join("\n");
-      const pick = window.prompt(`选择要导入/再同步的 Vault 序号：\n${lines}`, "1");
-      if (!pick) return;
-      const idx = Math.max(0, parseInt(pick, 10) - 1);
-      const vault = vaults[idx];
-      if (!vault?.id) {
-        notify("无效的 Vault 选择");
-        return;
-      }
-      if (
-        !window.confirm(
-          `将「${vault.name || vault.id}」增量同步进当前知识库？\n同路径按内容哈希更新；原 Vault 不删除。`
-        )
-      ) {
-        return;
-      }
-      const prune = window.confirm("是否清理 Vault 中已删除、但库里仍保留的导入文档？");
-      const res = await api.importOwnedKnowledgeVault(selectedId, vault.id, {
-        upsert: true,
-        pruneMissing: prune,
-      });
-      await loadDocs(selectedId);
-      await loadBases();
-      notify(
-        `Vault 同步：新增 ${res.created || 0} · 更新 ${res.updated || 0} · 未变 ${res.unchanged || 0}` +
-          `${res.skipped ? ` · 跳过 ${res.skipped}` : ""}${res.pruned ? ` · 清理 ${res.pruned}` : ""}`
-      );
-    } catch (e) {
-      notify(e?.message || "从 Vault 导入失败");
-    } finally {
-      setBusy(false);
-    }
+    notify("Obsidian Vault 导入功能已移除。请使用「导入路径」或「上传文档」。", "warn");
   }
 
   async function createFolderAt(parentPath = "") {

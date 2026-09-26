@@ -12,7 +12,7 @@ import { isStreamWriteContentDisplayable, resolveWritePreviewPath } from '../../
 import { WorkspaceFilePreviewPane, type WorkspacePreviewState } from './WorkspaceFilePreviewPane.js'
 import { KvFolderIcon, KvTreeCaret } from './KvFolderIcons.js'
 import { setWorkspacePathDragData } from '../lib/compose-attach.js'
-import '../../style/kv-folder-tree.css'
+// kv-folder-tree.css merged into style/react-chat.css; standalone import dropped.
 
 export type ContextFileEntry = {
   path: string

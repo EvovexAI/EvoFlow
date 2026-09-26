@@ -20,7 +20,6 @@ const FROST_PANEL_SELECTORS = [
   '.react-chat-artifacts-panel',
   '.react-chat-platform-feedback-panel',
   '.knowledge-owned-page',
-  '.knowledge-vaults-page',
   '#content > .page',
   '.page.settings-page',
   '.page.general-page',

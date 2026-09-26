@@ -209,25 +209,8 @@ function bindKbInjectionChipRows(overlay) {
 }
 
 async function loadKnowledgeVaults() {
-  try {
-    const res = await api.listKnowledgeVaults()
-    const rows = Array.isArray(res?.vaults)
-      ? res.vaults
-      : Array.isArray(res)
-        ? res
-        : Array.isArray(res?.items)
-          ? res.items
-          : []
-    return rows
-      .map((v) => ({
-        id: String(v?.id || '').trim(),
-        name: String(v?.name || v?.id || '').trim(),
-        enabled: v?.enabled !== false,
-      }))
-      .filter((v) => v.id)
-  } catch {
-    return []
-  }
+  // Obsidian vault support removed — no external vaults available.
+  return []
 }
 
 function readKnowledgeVaultIds(overlay) {
