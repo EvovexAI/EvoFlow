@@ -128,6 +128,13 @@ def register_runtime_adapters() -> None:
     except Exception:
         logger.debug("register background_worker failed", exc_info=True)
 
+    try:
+        from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
+
+        ports.register("kb_citations.publish", publish_kb_citations)
+    except Exception:
+        logger.debug("register kb_citations_publisher failed", exc_info=True)
+
     # ── channels + push routing + feishu ────────────────────────────────
     try:
         from app.channels.service import get_channel_service

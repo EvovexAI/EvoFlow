@@ -641,13 +641,12 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         # Citations
         if thread_id:
             try:
-                from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
-                publish_kb_citations(
+                from evoflow.runtime.ports import publish_kb_citations as _port_publish_kb_citations
+                _port_publish_kb_citations(
                     thread_id=thread_id,
                     query=query,
                     agent_code=agent_code,
                     results=results,
-                    config=config,
                 )
             except Exception as exc:
                 logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
@@ -749,14 +748,13 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         # Publish citations to live SSE channel (both hits and errors; UI shows citation on ok).
         if thread_id:
             try:
-                from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
+                from evoflow.runtime.ports import publish_kb_citations as _port_publish_kb_citations
 
-                publish_kb_citations(
+                _port_publish_kb_citations(
                     thread_id=thread_id,
                     query=query,
                     agent_code=agent_code,
                     results=results,
-                    config=config,
                 )
             except Exception as exc:
                 logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)

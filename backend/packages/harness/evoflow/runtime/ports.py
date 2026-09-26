@@ -342,6 +342,40 @@ def get_stream_background_worker_cls() -> Any | None:
 
 
 # ---------------------------------------------------------------------------
+# kb_citations — live KB injection citation SSE push
+# (app.gateway.streaming.kb_citations_publisher)
+# ---------------------------------------------------------------------------
+
+
+def publish_kb_citations(
+    *,
+    thread_id: str | None,
+    query: str,
+    agent_code: str | None,
+    results: list[dict[str, Any]],
+) -> bool:
+    """Push a ``kb_citations`` EVF frame onto the live SSE channel.
+
+    Returns ``True`` when queued; ``False`` when no live thread or off-process
+    (background worker). Never raises.
+    """
+    impl = get("kb_citations.publish")
+    if impl is None:
+        return False
+    try:
+        return bool(
+            impl(
+                thread_id=thread_id,
+                query=query,
+                agent_code=agent_code,
+                results=results,
+            )
+        )
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # channels — channel service & push routing (app.channels / channel_result_push)
 # ---------------------------------------------------------------------------
 
