@@ -245,21 +245,42 @@ function ScrollableUserText({
   )
 }
 
-/** 用户消息气泡内原地编辑（ChatGPT / runtime 式） */
+/** 用户消息气泡内原地编辑（ChatGPT / runtime 式）；支持移除/添加图片附件 */
 function UserMessageInlineEditor({
   initialText,
+  initialImages,
   busy,
   onCancel,
   onSubmit,
 }: {
   initialText: string
+  /** 编辑态图片：mediaType + base64 data（无 url 形态的历史图不可编辑则原样保留） */
+  initialImages?: Array<{ mediaType: string; data?: string; url?: string }>
   busy?: boolean
   onCancel: () => void
-  onSubmit: (text: string) => void | Promise<void>
+  onSubmit: (text: string, images: Array<{ mediaType: string; data?: string; url?: string }>) => void | Promise<void>
 }) {
   const [draft, setDraft] = useState(initialText)
+  const [images, setImages] = useState<Array<{ mediaType: string; data?: string; url?: string }>>(
+    () => (Array.isArray(initialImages) ? [...initialImages] : []),
+  )
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [submitting, setSubmitting] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
+
+  const removeImage = (idx: number) => setImages((prev) => prev.filter((_, i) => i !== idx))
+  const addImageFiles = (files: FileList | null) => {
+    if (!files?.length) return
+    for (const f of Array.from(files)) {
+      if (!f.type.startsWith('image/')) continue
+      const reader = new FileReader()
+      reader.onload = () => {
+        const data = String(reader.result || '').split(',')[1] || ''
+        if (data) setImages((prev) => [...prev, { mediaType: f.type || 'image/png', data }])
+      }
+      reader.readAsDataURL(f)
+    }
+  }
 
   useLayoutEffect(() => {
     const el = taRef.current
@@ -283,11 +304,11 @@ function UserMessageInlineEditor({
     if (!t || submitting || busy) return
     setSubmitting(true)
     try {
-      await onSubmit(t)
+      await onSubmit(t, images)
     } finally {
       setSubmitting(false)
     }
-  }, [draft, submitting, busy, onSubmit])
+  }, [draft, images, submitting, busy, onSubmit])
 
   const disabled = submitting || !!busy
 
@@ -335,6 +356,52 @@ function UserMessageInlineEditor({
           }
         }}
       />
+        {images.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {images.map((img, i) => (
+              <div
+                key={`${i}-${(img.data || img.url || '').slice(-12)}`}
+                style={{ position: 'relative', width: 56, height: 56, borderRadius: 8, overflow: 'hidden', border: '1px solid #d0d5dd', background: '#f4f5fb' }}
+              >
+                <img
+                  src={img.data ? `data:${img.mediaType || 'image/png'};base64,${img.data}` : img.url || ''}
+                  alt=""
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+                <button
+                  type="button"
+                  aria-label="移除图片"
+                  onClick={() => removeImage(i)}
+                  disabled={disabled}
+                  style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, borderRadius: '50%', border: 'none', background: 'rgba(0,0,0,.62)', color: '#fff', fontSize: 11, lineHeight: '18px', padding: 0, cursor: 'pointer' }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            style={{ border: '1px dashed #d0d5dd', background: 'transparent', color: '#475467', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1 }}
+          >
+            ＋ 添加图片
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              addImageFiles(e.target.files)
+              e.currentTarget.value = ''
+            }}
+          />
+        </div>
       <div className="msg-user-inline-edit-actions">
         <button
           type="button"
@@ -527,7 +594,7 @@ export function MessageRow({
   /** 重新生成（仅 assistant 消息） */
   onRetry?: () => void
   /** 编辑已发送的用户消息（同会话撤回本条及之后并重发） */
-  onEdit?: (text: string, messageId?: string) => void | Promise<void>
+  onEdit?: (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => void | Promise<void>
   /** 从此条 assistant 消息处分叉会话 */
   onFork?: (messageId?: string) => void
   /** 当前会话 Agent 展示名 */
@@ -571,9 +638,10 @@ export function MessageRow({
             {userEditing ? (
               <UserMessageInlineEditor
                 initialText={userText}
+                initialImages={displayRow.images}
                 onCancel={() => setUserEditing(false)}
-                onSubmit={async (nextText) => {
-                  await onEdit?.(nextText, mid)
+                onSubmit={async (nextText, images) => {
+                  await onEdit?.(nextText, mid, images)
                   setUserEditing(false)
                 }}
               />

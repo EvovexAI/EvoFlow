@@ -2218,9 +2218,9 @@ export default function ChatApp() {
   const composerDraftSnapshotRef = useRef('')
   const savedDraftBeforeGlobalVoiceRef = useRef('')
   const pendingComposerDraftCarryRef = useRef<string | null>(null)
-  const handleEditMessageRef = useRef<(text: string, messageId?: string) => void | Promise<void>>(
-    () => {},
-  )
+  const handleEditMessageRef = useRef<
+    (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => void | Promise<void>
+  >(() => {})
   const [composerDraftVersion, setComposerDraftVersion] = useState(0)
   const [speechEnabled, setSpeechEnabled] = useState(false)
   const [engineReady, setEngineReady] = useState(() => {
@@ -2935,9 +2935,12 @@ export default function ChatApp() {
       void handleSend(String(text || ''))
     }
   }, [handleSend])
-  const handleEditMessage = useCallback((text: string, messageId?: string) => {
-    void handleEditMessageRef.current?.(text, messageId)
-  }, [])
+  const handleEditMessage = useCallback(
+    (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => {
+      void handleEditMessageRef.current?.(text, messageId, images)
+    },
+    [],
+  )
   /** 稳定引用：传给 MessageVirtualList（已 memo），避免内联箭头函数每次渲染击穿 memo */
   const handleHistoryViewReady = useCallback(() => setHistoryViewReady(true), [])
   /** 稳定引用：传给 GoalModePanel（已 memo），避免内联箭头每次渲染击穿 memo */
@@ -14665,6 +14668,26 @@ export default function ChatApp() {
     }
   }, [])
 
+  // 自愈：SSE 会话变更事件偶尔丢失（窗口假死/后台标签错过推送）会让会话列表停在旧状态。
+  // 窗口重新聚焦或每 60s 轻量刷新一次会话列表，保证列表最终一致。
+  useEffect(() => {
+    let disposed = false
+    const heal = () => {
+      if (disposed) return
+      void onShellRefreshSessionList().catch(() => {})
+    }
+    const onFocus = () => {
+      heal()
+    }
+    window.addEventListener('focus', onFocus)
+    const timer = window.setInterval(heal, 60_000)
+    return () => {
+      disposed = true
+      window.removeEventListener('focus', onFocus)
+      window.clearInterval(timer)
+    }
+  }, [onShellRefreshSessionList])
+
   const onShellStopSession = useCallback(async (k: string) => {
     setMoreMenuKey(null)
     try {
@@ -14746,7 +14769,7 @@ export default function ChatApp() {
     }
   }, [selectedSessionKey])
 
-  handleEditMessageRef.current = async (text: string, messageId?: string) => {
+  handleEditMessageRef.current = async (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => {
     const draft = String(text || '').trim()
     const mid = String(messageId || '').trim()
     const key = String(selectedSessionKey || sessionRef.current || '').trim()
@@ -14796,8 +14819,11 @@ export default function ChatApp() {
         }
       }
 
-      // 用编辑后的正文重新发送（不塞底部输入框）
-      await handleSendRef.current?.(draft)
+      // 用编辑后的正文重新发送（不塞底部输入框）；带留存/新加的图片
+      const attachments = (images || [])
+        .filter((img) => img.data)
+        .map((img) => ({ mimeType: img.mediaType || 'image/png', content: img.data! }))
+      await handleSendRef.current?.(draft, attachments)
     } catch (e) {
       toast(toUserFacingError((e as Error)?.message || e || '编辑失败'), 'error')
       throw e
