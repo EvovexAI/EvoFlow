@@ -213,6 +213,10 @@ class MessageBus:
             len(msg.text),
         )
         if channel_cb is not None:
+            logger.info("[Bus] invoking channel callback for %s", msg.channel_name)
             await self._invoke_outbound_callback(channel_cb, msg)
+            logger.info("[Bus] channel callback completed for %s (text_len=%d)", msg.channel_name, len(msg.text))
+        else:
+            logger.warning("[Bus] no outbound callback registered for channel=%s — message dropped", msg.channel_name)
         for callback in self._outbound_listeners:
             await self._invoke_outbound_callback(callback, msg)

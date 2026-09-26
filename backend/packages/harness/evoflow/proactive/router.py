@@ -902,6 +902,71 @@ async def get_role_feishu_binding(request: Request, agent_code: str) -> dict[str
     return {"agent_code": agent_code, "binding": feishu_binding_public(role.config)}
 
 
+# ── Per-employee WeCom (Enterprise WeChat) binding endpoints ────────────
+# Mirror the Feishu endpoints above so the panel needs only parameterise
+# ``channel`` instead of duplicating glue per platform. See
+# :mod:`evoflow.proactive.wecom_binding` for the storage / channel-sync
+# semantics (including the 1-bot-per-employee invariant).
+
+
+@router.post("/roles/{agent_code}/wecom/registration/{session_id}/apply")
+async def apply_role_wecom_registration(request: Request, agent_code: str, session_id: str) -> dict[str, Any]:
+    """Apply a completed WeCom QR registration to this employee AI bot."""
+    _require_role_agent(request, agent_code)
+    from evoflow.proactive.wecom_binding import apply_registration_to_role
+    from evoflow.runtime.ports import get_wecom_registration_client
+
+    client = get_wecom_registration_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="WeCom registration client not available")
+    session = client.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Registration session not found")
+    if session.status != "completed":
+        msg = {
+            "expired": "Registration session expired. Please start a new registration.",
+            "failed": f"Registration failed: {session.error or 'unknown error'}",
+        }.get(session.status, f"Registration is not complete (status={session.status})")
+        raise HTTPException(status_code=400, detail=msg)
+    if not session.bot_id or not session.secret:
+        raise HTTPException(status_code=500, detail="Registration completed but credentials are missing")
+
+    try:
+        return await apply_registration_to_role(
+            agent_code,
+            bot_id=session.bot_id,
+            secret=session.secret,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/roles/{agent_code}/wecom/binding")
+async def unbind_role_wecom(request: Request, agent_code: str) -> dict[str, Any]:
+    """Remove this employee's WeCom AI bot binding."""
+    _require_role_agent(request, agent_code)
+    from evoflow.proactive.wecom_binding import unbind_role_wecom as _unbind
+
+    try:
+        return await _unbind(agent_code)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/roles/{agent_code}/wecom/binding")
+async def get_role_wecom_binding(request: Request, agent_code: str) -> dict[str, Any]:
+    """Return UI-safe WeCom binding status for an employee."""
+    _require_role_agent(request, agent_code)
+    from evoflow.proactive.wecom_binding import wecom_binding_public
+
+    role = ProactiveRepository.get_role(agent_code)
+    if not role:
+        raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
+    return {"agent_code": agent_code, "binding": wecom_binding_public(role.config)}
+
+
 @router.post("/roles/{agent_code}/heartbeat")
 async def trigger_heartbeat(
     request: Request,

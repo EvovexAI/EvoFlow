@@ -5,7 +5,16 @@ import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { navigate } from '../router.js'
-import { startFeishuEmployeeScan, hireAndBindFeishu, feishuBindingOf } from '../lib/feishu-employee-bind.js'
+import { startFeishuEmployeeScan, hireAndBindFeishu } from '../lib/feishu-employee-bind.js'
+import {
+  imBindingCount,
+  hireAndBindIMChannel,
+  startIMChannelScan,
+  IM_CHANNELS,
+  IM_CHANNEL_LABELS,
+  IM_CHANNEL_ICONS,
+} from '../lib/im-employee-bind.js'
+import { showIMChannelPicker } from '../components/IMChannelPickerModal.js'
 import {
   BUILTIN_AGENT_TAGS,
   agentCapabilityTags,
@@ -654,7 +663,7 @@ export function renderRoleCards(page, state, _tagFilter) {
                 <button type="button" data-action="edit" data-id="${escapeAttr(code)}">编辑</button>
                 ${
                   !isDefault
-                    ? `<button type="button" data-action="feishu-connect" data-id="${escapeAttr(code)}">接到飞书</button>`
+                    ? `<button type="button" data-action="bind-im" data-id="${escapeAttr(code)}">扫码绑定 IM</button>`
                     : ''
                 }
                 <button type="button" data-action="copy" data-id="${escapeAttr(code)}">复制</button>
@@ -843,21 +852,27 @@ async function openAgentDetailDrawer(page, state, id) {
         <h4>版本记录</h4>
         <p class="role-drawer-muted">配置变更历史将在后续版本提供</p>
       </section>
+      <section class="ef-side-drawer__section role-drawer-section">
+        <h4>渠道</h4>
+        ${renderIMBindingsSection(role)}
+      </section>
     `
 
-    const feishuBound = role ? feishuBindingOf(role).bound : false
     const isDefaultAgent = id === 'main' || agent?.isDefault
-    const feishuBtn =
+    const imBoundCount = role ? imBindingCount(role) : 0
+    const imBtnLabel = imBoundCount > 0 ? `已绑 IM（${imBoundCount}）` : '扫码绑定 IM'
+    const imBtnTitle = imBoundCount > 0
+      ? `已绑 ${imBoundCount} 个 IM 渠道；点此加新渠道或重新扫码`
+      : '扫码给该员工绑定一个 IM 机器人（飞书 / 企业微信 / 钉钉）'
+    const imBtn =
       isDefaultAgent
         ? ''
-        : feishuBound
-          ? `<button type="button" class="btn btn-secondary" data-action="feishu-connect" data-id="${escapeAttr(id)}" title="已绑定；可再绑其他岗位">飞书已绑</button>`
-          : `<button type="button" class="btn btn-secondary" data-action="feishu-connect" data-id="${escapeAttr(id)}">接到飞书</button>`
+        : `<button type="button" class="btn btn-secondary" data-action="bind-im" data-id="${escapeAttr(id)}" title="${escapeAttr(imBtnTitle)}">${escapeHtml(imBtnLabel)}</button>`
 
     foot.innerHTML = `
       <div class="ef-side-drawer__actions">
         <button type="button" class="btn btn-secondary" data-action="edit" data-id="${escapeAttr(id)}">编辑配置</button>
-        ${feishuBtn}
+        ${imBtn}
         <button type="button" class="btn btn-primary" data-action="${escapeAttr(primary.action)}" data-id="${escapeAttr(id)}">${escapeHtml(
           primary.action === 'hire' ? '加入员工编制' : primary.label,
         )}</button>
@@ -911,7 +926,30 @@ function startChatWithAgent(id) {
   navigate('/chat')
 }
 
-async function connectAgentToFeishu(page, state, id) {
+function renderIMBindingsSection(role) {
+  const list = IM_CHANNELS.map((ch) => {
+    const b = imBindingOf(role, ch)
+    const label = IM_CHANNEL_LABELS[ch] || ch
+    const icon = IM_CHANNEL_ICONS[ch] || '💬'
+    if (!b.bound) {
+      return `<li class="role-im-row role-im-row--empty">
+        <span class="role-im-icon" aria-hidden="true">${icon}</span>
+        <span class="role-im-label">${escapeHtml(label)}</span>
+        <span class="role-im-state">未绑定</span>
+      </li>`
+    }
+    const suffix = b.app_id_suffix || b.bot_id_suffix || b.client_id_suffix || (b.account_id ? `…${String(b.account_id).slice(-4)}` : '')
+    return `<li class="role-im-row role-im-row--bound">
+      <span class="role-im-icon" aria-hidden="true">${icon}</span>
+      <span class="role-im-label">${escapeHtml(label)}</span>
+      <span class="role-im-suffix">${escapeHtml(suffix || '已绑')}</span>
+    </li>`
+  }).join('')
+  return `<ul class="role-im-list">${list}</ul>
+    <p class="role-im-hint">点击下方「扫码绑定 IM」按钮即可加新渠道或重新扫码。</p>`
+}
+
+async function connectAgentToIM(page, state, id) {
   const code = String(id || '').trim()
   if (!code || code === 'main') {
     toast('默认助手请用消息渠道页配置全局主机器人', 'info')
@@ -925,22 +963,37 @@ async function connectAgentToFeishu(page, state, id) {
     if (typeof state.onRefresh === 'function') await state.onRefresh()
     else renderRoleCards(page, state)
   }
-  if (hired && role && feishuBindingOf(role).bound) {
-    toast('已绑定飞书。把该机器人拉进同事所在群即可协作；也可在消息渠道页继续绑其他岗位。', 'info')
+
+  // Open the channel picker. The user picks feishu / wecom / dingtalk / weixin.
+  // Picker returns the chosen channel or null if cancelled.
+  let chosen
+  try {
+    chosen = await showIMChannelPicker({
+      roleName: name,
+      currentBindings: role || null,
+    })
+  } catch (e) {
+    toast('打开渠道选择失败: ' + (e?.message || e), 'error')
     return
   }
+  if (!chosen) return
+
   if (hired) {
-    void startFeishuEmployeeScan(code, {
+    void startIMChannelScan({
+      channel: chosen,
+      agentCode: code,
       roleName: name,
       onBound: () => void refresh(),
     })
     return
   }
   const ok = await showConfirm(
-    `「${name}」尚未加入员工编制。\n\n加入并扫码绑定飞书后，把机器人拉进同事群即可协作。是否继续？`,
+    `「${name}」尚未加入员工编制。\n\n加入并扫码绑定 ${IM_CHANNEL_LABELS[chosen] || chosen} 后，把该机器人拉进同事群即可协作。是否继续？`,
   )
   if (!ok) return
-  await hireAndBindFeishu(code, {
+  await hireAndBindIMChannel({
+    channel: chosen,
+    agentCode: code,
     roleName: name,
     onBound: () => void refresh(),
   })
@@ -964,8 +1017,8 @@ async function handlePrimaryOrMenuAction(action, id, page, state) {
     void showHireAsEmployeeDialog(page, state, id)
     return
   }
-  if (action === 'feishu-connect') {
-    await connectAgentToFeishu(page, state, id)
+  if (action === 'bind-im') {
+    await connectAgentToIM(page, state, id)
     return
   }
   if (action === 'open-duty') {
@@ -1263,16 +1316,28 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
       toast(`已将「${role_name}」加入员工编制`, 'success')
       state.hiredCodes?.add?.(code)
       close()
-      const bindFeishu = await showConfirm(
-        `「${role_name}」已上岗。\n\n是否现在扫码绑定飞书，方便和同事在飞书里协作？`,
+      const wantBindIM = await showConfirm(
+        `「${role_name}」已上岗。\n\n要不要现在扫码绑定一个 IM 渠道，让同事在群里 @ 它？`,
       )
-      if (bindFeishu) {
-        void startFeishuEmployeeScan(code, {
-          roleName: role_name,
-          onBound: () => {
-            if (typeof state.onRefresh === 'function') void state.onRefresh()
-          },
-        })
+      if (wantBindIM) {
+        try {
+          const chosen = await showIMChannelPicker({
+            roleName: role_name,
+            currentBindings: null,
+          })
+          if (chosen) {
+            void startIMChannelScan({
+              channel: chosen,
+              agentCode: code,
+              roleName: role_name,
+              onBound: () => {
+                if (typeof state.onRefresh === 'function') void state.onRefresh()
+              },
+            })
+          }
+        } catch (e) {
+          toast('打开渠道选择失败: ' + (e?.message || e), 'error')
+        }
       }
       if (typeof state.onRefresh === 'function') await state.onRefresh()
       else renderRoleCards(page, state)

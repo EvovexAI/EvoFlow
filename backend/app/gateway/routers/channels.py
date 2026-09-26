@@ -118,7 +118,11 @@ class WeixinRegistrationApplyResponse(BaseModel):
 
 class WecomRegistrationBeginResponse(BaseModel):
     session_id: str
-    qr_url: str = Field(..., description="URL to render as QR (WeCom bot-creation flow)")
+    qr_url: str = Field(..., description="URL rendered into the QR. WeCom mobile app scans this directly.")
+    fallback_url: str = Field(
+        ...,
+        description="Human-openable HTML landing page URL. Keep as a '点此打开' fallback link in the UI for scanners that don't recognize qr_url as a deep link.",
+    )
     status: str = "pending"
 
 
@@ -683,6 +687,7 @@ async def wecom_registration_begin(request: Request) -> WecomRegistrationBeginRe
     return WecomRegistrationBeginResponse(
         session_id=session.session_id,
         qr_url=session.qr_url,
+        fallback_url=session.fallback_url,
         status=session.status,
     )
 

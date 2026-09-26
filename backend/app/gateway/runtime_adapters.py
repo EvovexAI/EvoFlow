@@ -153,9 +153,27 @@ def register_runtime_adapters() -> None:
     try:
         from app.channels.feishu_registration import get_registration_client
 
-        ports.register("channels.feishu_registration_client", get_registration_client)
+        # Register the *resolved* singleton client (not the factory function).
+        # The router calls `client.get_session(...)` directly, so storing the
+        # factory here causes an `AttributeError: 'function' object has no
+        # attribute 'get_session'` at request time.
+        ports.register("channels.feishu_registration_client", get_registration_client())
     except Exception:
         logger.debug("register channels.feishu_registration_client failed", exc_info=True)
+
+    try:
+        from app.channels.wecom_registration import get_wecom_registration_client
+
+        ports.register("channels.wecom_registration_client", get_wecom_registration_client())
+    except Exception:
+        logger.debug("register channels.wecom_registration_client failed", exc_info=True)
+
+    try:
+        from app.channels.dingtalk_registration import get_dingtalk_registration_client
+
+        ports.register("channels.dingtalk_registration_client", get_dingtalk_registration_client())
+    except Exception:
+        logger.debug("register channels.dingtalk_registration_client failed", exc_info=True)
 
     try:
         from app.channels.feishu_stream_bridge import get_feishu_stream_bridge

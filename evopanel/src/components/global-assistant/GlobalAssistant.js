@@ -1407,7 +1407,7 @@ function renderHeader(st) {
     if (pending > 0) statusBits.push(`${pending} 项待审批`)
   }
   const feishuBound = !!st.feishuBound
-  if (feishuBound) statusBits.push('飞书已绑')
+  if (feishuBound) statusBits.push('IM 已绑')
   const statusLine = statusBits.length ? statusBits.join(' · ') : '待命'
   const moreOpen = !!st.headerMoreOpen
   const histOpen = !!st.sessionHistoryOpen
@@ -1474,8 +1474,8 @@ function renderHeader(st) {
             <button type="button" class="xm-more-item" role="menuitem" data-act="pause-listen">暂停监听</button>
             ${
               feishuBound
-                ? `<button type="button" class="xm-more-item" role="menuitem" data-act="feishu-unbind">解绑飞书</button>`
-                : `<button type="button" class="xm-more-item" role="menuitem" data-act="feishu-bind">绑定飞书</button>`
+                ? `<button type="button" class="xm-more-item" role="menuitem" data-act="feishu-unbind">解绑 IM（飞书）</button>`
+                : `<button type="button" class="xm-more-item" role="menuitem" data-act="feishu-bind">扫码绑定 IM（飞书）</button>`
             }
             <button type="button" class="xm-more-item" role="menuitem" data-act="refresh">刷新</button>
             <button type="button" class="xm-more-item" role="menuitem" data-act="toggle-layout">${docked ? '改为悬浮窗' : '改为右侧栏'}</button>

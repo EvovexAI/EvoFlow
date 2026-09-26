@@ -31,7 +31,13 @@ WecomRegistrationStatus = Literal["pending", "scanning", "completed", "failed", 
 class WecomRegistrationSession:
     session_id: str
     status: WecomRegistrationStatus = "pending"
+    # `qr_url` is the URL that gets encoded into the QR image. WeCom's mobile
+    # client scans `auth_url` directly, while the work.weixin.qq.com HTML
+    # landing page (`fallback_url`) exists as a manual-open fallback if a user's
+    # scanner doesn't recognize `auth_url` as a deep-link target. Encoding
+    # `auth_url` here makes the first scan work without the browser detour.
     qr_url: str = ""
+    fallback_url: str = ""
     scode: str = ""
     bot_id: str | None = None
     secret: str | None = None
@@ -78,7 +84,8 @@ class WecomRegistrationClient:
             raise WecomRegistrationError("wecom_qr_error", (str(exc) or type(exc).__name__)[:800]) from exc
 
         sess.scode = qr["scode"]
-        sess.qr_url = qr_page_url(qr["scode"])
+        sess.qr_url = qr["auth_url"]
+        sess.fallback_url = qr_page_url(qr["scode"])
         sess.status = "pending"
         logger.info("WeCom registration session %s created", session_id)
         return sess

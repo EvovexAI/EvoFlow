@@ -3211,7 +3211,14 @@ class FeishuChannel(Channel):
 
             # Schedule on the async event loop
             if self._main_loop and self._main_loop.is_running() and not self._main_loop.is_closed():
-                logger.info("[Feishu] publishing inbound message to bus (type=%s, msg_id=%s)", msg_type.value, msg_id)
+                inbound_text = (inbound.text or "")[:200]
+                logger.info(
+                    "[Feishu] inbound type=%s msg_id=%s chat_id=%s text=%.200s",
+                    msg_type.value,
+                    msg_id,
+                    str(inbound.chat_id or "")[:12],
+                    inbound_text if inbound_text else "(no text)",
+                )
                 fut = asyncio.run_coroutine_threadsafe(self._prepare_inbound(msg_id, inbound), self._main_loop)
                 fut.add_done_callback(lambda f, mid=msg_id: self._log_future_error(f, "prepare_inbound", mid))
             else:

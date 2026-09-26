@@ -375,7 +375,9 @@ def configure_gateway_file_logging(
     if getattr(sys, "frozen", False):
         attach_console = False
     elif (os.getenv("EVOFLOW_LOGS_DIR") or "").strip():
-        attach_console = False
+        # Default: file-only when EVOFLOW_LOGS_DIR is set (avoids duplicate console output).
+        # Override with EVOFLOW_ENABLE_CONSOLE_LOG=1 to also print to terminal.
+        attach_console = os.getenv("EVOFLOW_ENABLE_CONSOLE_LOG", "").strip().lower() in ("1", "true", "yes", "on")
     elif os.getenv("EVOFLOW_DISABLE_CONSOLE_LOG", "").strip().lower() in ("1", "true", "yes"):
         attach_console = False
 
