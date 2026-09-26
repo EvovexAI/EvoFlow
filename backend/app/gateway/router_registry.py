@@ -130,7 +130,6 @@ def register_extended_routers(app: FastAPI) -> None:
     _include_module_router(app, "app.gateway.routers.mcp", label="mcp")
     _include_module_router(app, "app.gateway.routers.memory", label="memory")
     _include_module_router(app, "app.gateway.routers.assets", label="assets")
-    _include_module_router(app, "app.gateway.routers.knowledge_vaults", label="knowledge_vaults")
     _include_module_router(app, "app.gateway.routers.knowledge_owned", label="knowledge_owned")
     _include_module_router(app, "app.gateway.routers.knowledge", label="knowledge")
     _include_module_router(app, "app.gateway.routers.browser_embed", label="browser_embed")

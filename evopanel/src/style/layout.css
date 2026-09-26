@@ -1418,26 +1418,26 @@
   width: 100%;
 }
 
-/* Knowledge Vault 详情：点进 Vault 后沉浸全屏，← 返回列表才恢复侧栏 */
-/* 顶栏内容并入 .kv-workspace-bar，隐藏空白窗口 chrome */
-#app.evopanel-kv-detail-mode #tauri-main-chrome {
+/* Knowledge detail (Owned KB) — full-screen immersion; ← back to list restores sidebar */
+/* Topbar content is folded into .kv-workspace-bar; hide the redundant chrome */
+#app.evopanel-kb-detail-mode #tauri-main-chrome {
   display: none !important;
 }
-#app.evopanel-kv-detail-mode #app-shell-aside,
-#app.evopanel-kv-detail-mode .shell-aside-expand-btn {
+#app.evopanel-kb-detail-mode #app-shell-aside,
+#app.evopanel-kb-detail-mode .shell-aside-expand-btn {
   display: none !important;
 }
-#app.evopanel-kv-detail-mode #mobile-topbar,
-#app.evopanel-kv-detail-mode #update-banner,
-#app.evopanel-kv-detail-mode #gw-banner {
+#app.evopanel-kb-detail-mode #mobile-topbar,
+#app.evopanel-kb-detail-mode #update-banner,
+#app.evopanel-kb-detail-mode #gw-banner {
   display: none !important;
 }
-#app.evopanel-kv-detail-mode #main-col {
+#app.evopanel-kb-detail-mode #main-col {
   width: 100%;
   flex: 1 1 100%;
   min-width: 0;
 }
-#app.evopanel-kv-detail-mode #content {
+#app.evopanel-kb-detail-mode #content {
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -1445,36 +1445,7 @@
   flex-direction: column;
   max-width: none;
 }
-#app.evopanel-kv-detail-mode #content > .page.knowledge-vaults-outlet {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  max-width: none !important;
-  margin: 0;
-  padding: 0 !important;
-  display: flex;
-  flex-direction: column;
-}
-#app.evopanel-kv-detail-mode #content > .page.knowledge-vaults-outlet #knowledge-vaults-root {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-#app.evopanel-kv-detail-mode #content > .page.knowledge-vaults-outlet .kv-page.is-detail,
-#app.evopanel-kv-detail-mode #content > .page.knowledge-vaults-outlet .kv-workspace,
-#app.evopanel-kv-detail-mode #content > .page.knowledge-vaults-outlet .kv-workspace__body {
-  width: 100%;
-  max-width: none;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-}
-
-/* Owned KB 详情：同样隐藏左侧壳，铺满主区 */
-#app.evopanel-kv-detail-mode #content > .page.knowledge-owned-outlet {
+#app.evopanel-kb-detail-mode #content > .page.knowledge-owned-outlet {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -1485,7 +1456,7 @@
   flex-direction: column;
   overflow: hidden;
 }
-#app.evopanel-kv-detail-mode #content > .page.knowledge-owned-outlet #knowledge-owned-root {
+#app.evopanel-kb-detail-mode #content > .page.knowledge-owned-outlet #knowledge-owned-root {
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -1493,10 +1464,10 @@
   flex-direction: column;
   overflow: hidden;
 }
-#app.evopanel-kv-detail-mode #content > .page.knowledge-owned-outlet .knowledge-owned-page.is-detail,
-#app.evopanel-kv-detail-mode #content > .page.knowledge-owned-outlet .ko-shell--full,
-#app.evopanel-kv-detail-mode #content > .page.knowledge-owned-outlet .ko-workspace,
-#app.evopanel-kv-detail-mode #content > .page.knowledge-owned-outlet .ko-detail {
+#app.evopanel-kb-detail-mode #content > .page.knowledge-owned-outlet .knowledge-owned-page.is-detail,
+#app.evopanel-kb-detail-mode #content > .page.knowledge-owned-outlet .ko-shell--full,
+#app.evopanel-kb-detail-mode #content > .page.knowledge-owned-outlet .ko-workspace,
+#app.evopanel-kb-detail-mode #content > .page.knowledge-owned-outlet .ko-detail {
   width: 100%;
   max-width: none;
   flex: 1;

@@ -10530,6 +10530,18 @@ export default function ChatApp() {
             aguiEvent.type === EventType.REASONING_START,
         })
         if (aguiEvent.type === 'RUN_FINISHED' || aguiEvent.type === 'RUN_ERROR') {
+          // 流式结束后立即收尾 runtime 与 session row：
+          // 后端通常先发 RUN_FINISHED 关 SSE，再异步把 session.runStatus='idle' 落库。
+          // 不主动清会让「左下『运行中』+ 停止按钮」多亮 3-5s（等待下一次 refreshSessions
+          // 把 runStatus='idle' 拉回来）。守卫 isTurnBusy(rt) 避免覆盖用户已触发的
+          // stopped/error；isBackground 同理尊重后台会话。
+          if (rt && isTurnBusy(rt) && targetSk) {
+            dispatchSessionTurnEvent(targetSk, { type: 'TURN_IDLE' })
+          }
+          void refreshSessionsRef.current?.({
+            skipAutoReselect: true,
+            summariesOnly: isBackground,
+          })
           const hasArtifacts = turnRunArtifactsRef.current.length > 0
           const platformEntries = turnPlatformEntriesRef.current
           if (platformEntries.length > 0 && !hasArtifacts) {

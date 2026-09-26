@@ -377,37 +377,18 @@ def summarize_tool_for_approval(tool_name: str, args: dict[str, Any]) -> str:
         raw = str((args or {}).get("path") or (args or {}).get("file_path") or (args or {}).get("target_file") or "").strip()
         return normalize_path_for_approval(raw) if raw else "(无路径)"
     if name in ("knowledge_write", "knowledge_ingest") or (canonical_tool_name(name.lower()) == "knowledge" and str((args or {}).get("action") or "").strip().lower() in ("write", "ingest")):
+        # Owned KB write/ingest shown as generic knowledge write.
         a = args or {}
-        vault_id = str(a.get("vault_id") or a.get("vaultId") or "").strip()
-        vault_name = vault_id or "?"
-        try:
-            from evoflow.knowledge.vault import store as vault_store
-
-            cfg = vault_store.get_vault_config(vault_id) if vault_id else None
-            if cfg is not None:
-                vault_name = str(getattr(cfg, "name", None) or vault_id)
-        except Exception:
-            pass
-        path = str(a.get("path") or "").strip()
+        path = str(a.get("path") or a.get("path") or "").strip()
         action = str(a.get("action") or "").strip().lower()
         op = str(a.get("operation") or ("ingest" if name == "knowledge_ingest" or action == "ingest" else "")).strip()
         risk_key = {
-            "create": "knowledge_write:create_in_inbox" if "inbox" in path.replace("\\", "/").split("/")[0].lower() else "knowledge_write:create",
+            "create": "knowledge_write:create",
             "append": "knowledge_write:append",
-            "patch": "knowledge_write:patch_existing",
-            "set_frontmatter": "knowledge_write:set_frontmatter",
-            "update_tags": "knowledge_write:update_tags",
+            "patch": "knowledge_write:patch",
             "ingest": "knowledge_ingest",
-        }.get(op, "knowledge_ingest" if action == "ingest" else name)
-        bits = [
-            f"Vault={vault_name}",
-            f"路径={path or '?'}",
-            f"操作={risk_key}",
-        ]
-        for key, label in (("target", "章节/字段"), ("section", "章节"), ("key", "字段")):
-            val = a.get(key)
-            if val:
-                bits.append(f"{label}={val}")
+        }.get(op, "knowledge_write")
+        bits = [f"路径={path or '?'}", f"操作={risk_key}"]
         content = str(a.get("content") or a.get("title") or "")
         if content:
             preview = content.replace("\n", " ")[:120]

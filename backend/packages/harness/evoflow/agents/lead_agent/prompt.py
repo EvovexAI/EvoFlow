@@ -1040,8 +1040,6 @@ def _build_subagent_section(
         catalog_lines.append(f"- `code-agent`{dyn.SUBAGENT_CODE_LABEL}")
     if "bash" in available_names:
         catalog_lines.append(f"- `bash`{dyn.SUBAGENT_BASH_LABEL}")
-    if "claude-code" in available_names:
-        catalog_lines.append(f"- `claude-code`{dyn.SUBAGENT_CLAUDE_LABEL}")
 
     available = "\n".join(catalog_lines)
     zh = resolve_prompt_language(prompt_language) == "zh"

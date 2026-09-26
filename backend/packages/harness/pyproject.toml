@@ -1,6 +1,6 @@
 [project]
 name = "evoflow-harness"
-version = "1.0.6"
+version = "1.0.7"
 description = "EvoFlow agent harness — Agent Teams runtime, tools, skills, and sandbox execution"
 requires-python = ">=3.10"
 dependencies = [
@@ -74,10 +74,7 @@ build-backend = "hatchling.build"
 packages = ["evoflow"]
 
 # Packaged default cutouts + shared preset gallery (served via agents avatar APIs).
-# Product Obsidian vault: docs/user (用户指南).
-# 运营知识库 SSOT 在 ContentOS；wheel 不强制打包（开发态读同级仓库，gateway.spec 有 sibling 时再打进安装包）。
 [tool.hatch.build.targets.wheel.force-include]
 "evoflow/assets/builtin_agent_avatars" = "evoflow/assets/builtin_agent_avatars"
 "evoflow/assets/avatar_presets" = "evoflow/assets/avatar_presets"
 "evoflow/assets/builtin_agent_souls" = "evoflow/assets/builtin_agent_souls"
-"../../../docs/user" = "evoflow/assets/builtin_knowledge_vaults/user-guide"

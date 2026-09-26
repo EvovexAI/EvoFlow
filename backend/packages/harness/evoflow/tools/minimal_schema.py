@@ -11,7 +11,6 @@ DELETE_TOOL_DESCRIPTION = "Delete a single file (not directories; system paths b
 RG_TOOL_DESCRIPTION = "Search file contents with ripgrep in the bound workspace. Uses native rg only (no FTS/index redirect); pipe in pattern is not search_code_index synonyms."
 FIND_TOOL_DESCRIPTION = "Find files by glob pattern under a workspace directory."
 SEARCH_CODE_INDEX_DESCRIPTION = "Search workspace code index (symbols/FTS). Pipe in query means synonym terms, not regex."
-TRACE_CALL_CHAIN_DESCRIPTION = "Trace callers/callees from a symbol or file path via the workspace code index."
 
 TERMINAL_TOOL_DESCRIPTION = "Short shell command. workdir: path or skill:<name>. Long jobs → process."
 READ_LINTS_DESCRIPTION = "Run linter/diagnostics on one Python/JS/TS/Java source file."

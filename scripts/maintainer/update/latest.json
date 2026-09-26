@@ -1,11 +1,11 @@
 {
-  "version": "1.0.5",
-  "minAppVersion": "1.0.5",
+  "version": "1.0.7",
+  "minAppVersion": "1.0.7",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.5/EvoFlow_1.0.5_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.7/EvoFlow_1.0.7_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.0.5：知识库升级为每个知识库独立索引（.evoflow/kb/index.db）；修复知识库资产跨库路径问题；技能索引与经验库字段增强。覆盖安装即可。",
-  "releasedAt": "2026-09-16"
+  "changelog": "EvoFlow 1.0.7：知识库从 Obsidian 旧方案完全切换到 owned KB 单一路径；移除 vault 残留模块与 UI；角色编辑器可显式勾选/取消挂载任务/平台/侧边面板等系统级工具，工具面按角色逐人配置生效，不再被默认绑定。覆盖安装即可。",
+  "releasedAt": "2026-09-26"
 }

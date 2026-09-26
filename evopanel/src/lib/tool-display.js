@@ -178,7 +178,6 @@ export const TOOL_NAME_ZH = {
   goal_report: '目标汇报',
   subtask_work_checklist: '执行步骤',
   subtask_outcome_report: '完成汇报',
-  'claude-code': 'Claude Code',
   // 常见 MCP / 别名
   mcp: '扩展工具',
   // Entity Asset Hub
@@ -229,7 +228,6 @@ export const TOOL_SHORT_LABEL_ZH = {
   setup_agent: '设置',
   skill_manager: '技能',
   claude_session: '会话',
-  'claude-code': 'Claude',
   trae_delegate: '委派',
   trae_switch_mode: '切换',
   trae_start: '启动',
@@ -375,7 +373,6 @@ export const TOOL_ICON = {
   list_skills_catalog: '📚',
   propose_goal: '🤝',
   goal_report: '🎯',
-  'claude-code': '💬',
   mcp: '🔌',
   // Entity Asset Hub
   assets: '🗂️',
@@ -591,15 +588,11 @@ export function supervisorActionZh(action) {
 
 /**
  * 内置子代理展示名（与后端 ``BUILTIN_AGENT_UI_NAMES`` / ``_BUILTIN_SUBAGENT_UI_NAMES`` 对齐）。
- * ``claude-code`` 等在 ``/api/agents`` 里被 UI 隐藏，必须本地兜底，否则折叠条会裸显 code。
  */
 export const BUILTIN_SUBAGENT_UI_NAMES = {
   'general-purpose': '通用助手',
   'code-agent': '代码助手',
   bash: '终端执行',
-  'claude-code': 'Claude Code',
-  'claude-session': 'Claude Code',
-  claude: 'Claude Code',
   'knowledge-retriever': '知识检索',
   'knowledge-curator': '知识整理',
   'project-architect': '项目·方案',

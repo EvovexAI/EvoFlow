@@ -13,6 +13,24 @@ _SUBAGENT_STREAM_TASK_ID: contextvars.ContextVar[str | None] = contextvars.Conte
     "_SUBAGENT_STREAM_TASK_ID",
     default=None,
 )
+# Shared writer for subagent thread pool streaming.
+_PARENT_CHAT_STREAM_WRITER: contextvars.ContextVar[Callable[..., Any] | None] = contextvars.ContextVar(
+    "_PARENT_CHAT_STREAM_WRITER",
+    default=None,
+)
+
+
+@contextmanager
+def parent_chat_stream_writer_ctx(writer: Callable[..., Any] | None) -> Iterator[None]:
+    """Bind a parent chat stream writer for the duration of a subagent run."""
+    if writer is None:
+        yield
+        return
+    tok = _PARENT_CHAT_STREAM_WRITER.set(writer)
+    try:
+        yield
+    finally:
+        _PARENT_CHAT_STREAM_WRITER.reset(tok)
 
 
 @contextmanager

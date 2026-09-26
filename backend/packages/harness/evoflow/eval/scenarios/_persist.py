@@ -398,32 +398,8 @@ def expect_app_run(run_id: str | None = None, *, task_id: str | None = None, app
 
 
 def expect_vault_setting(vault_id: str) -> Assertion:
-    """Vault registry lives in evoflow_app_settings key knowledge.vaults."""
-    from evoflow.knowledge.vault.constants import VAULTS_SETTINGS_KEY
-    from evoflow.persistence import config_repositories as cfg_repo
-
-    raw = cfg_repo.get_app_setting(VAULTS_SETTINGS_KEY) or {}
-    items = raw.get("items") if isinstance(raw, dict) else None
-    if not isinstance(items, list):
-        items = []
-    ids = [str(i.get("id") or "") for i in items if isinstance(i, dict)]
-    # also verify SQLite row for settings key exists
-    row = db_one(
-        "SELECT key FROM evoflow_app_settings WHERE key=?",
-        (VAULTS_SETTINGS_KEY,),
-    )
-    ok = vault_id in ids and row is not None
-    return _with_plane(
-        check(
-            f"db_vault_{vault_id}",
-            ok,
-            inputs={"vault_id": vault_id, "settings_key": VAULTS_SETTINGS_KEY},
-            expected=vault_id,
-            actual={"setting_row": bool(row), "vault_ids": ids[:20]},
-            api="db.evoflow_app_settings(knowledge.vaults)",
-        ),
-        "sqlite",
-    )
+    """Removed: Obsidian vault support removed. Returns a pass-through assertion."""
+    return check_db_absent(f"vault_removed_{vault_id}", "SELECT 1", ())
 
 
 def expect_user_item(item_id: str, *, status: str | None = None, title: str | None = None) -> Assertion:

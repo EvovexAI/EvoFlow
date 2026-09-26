@@ -225,7 +225,7 @@ const SKILL_ICON_MAP = [
   [/translate|lang|i18n|locale/i, '🌐'],
   [/stock|finance|trade|money|price/i, '💰'],
   [/game|play|gaming/i, '🎮'],
-  [/note|notion|obsidian|write|doc|wiki|md|markdown/i, '📝'],
+  [/note|notion|write|doc|wiki|md|markdown/i, '📝'],
   [/calendar|schedule|meeting|event|date|time/i, '📅'],
   [/security|auth|pass|key|secret|encrypt|1password/i, '🔐'],
   [/deploy|server|host|docker|vercel|infra/i, '🚀'],

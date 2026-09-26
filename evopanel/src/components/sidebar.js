@@ -8,7 +8,7 @@ import { api } from '../lib/tauri-api.js'
 import { getPanelSetting, patchPanelSettings } from '../lib/panel-settings.js'
 import { toast } from './toast.js'
 import { version as APP_VERSION } from '../../package.json'
-import { SHOW_KNOWLEDGE_VAULT_NAV, showTaskCenterNav, showAppsNav, showLicenseKeysNav } from '../lib/nav-visibility.js'
+import { SHOW_KNOWLEDGE_OWNED_NAV, showTaskCenterNav, showAppsNav, showLicenseKeysNav } from '../lib/nav-visibility.js'
 import { showPageHelpPanel } from '../lib/page-help.js'
 const isTauri = !!window.__TAURI_INTERNALS__
 
@@ -146,7 +146,7 @@ export function renderSidebar(el) {
     ...section,
     items: section.items.filter((item) => {
       if (!showTaskCenterNav() && item.route === '/tasks') return false
-      if (!SHOW_KNOWLEDGE_VAULT_NAV && item.route === '/knowledge') return false
+      if (!SHOW_KNOWLEDGE_OWNED_NAV && item.route === '/knowledge') return false
       if (!showAppsNav() && item.route === '/apps') return false
       if (!showLicenseKeysNav() && item.route === '/license-keys') return false
       return true

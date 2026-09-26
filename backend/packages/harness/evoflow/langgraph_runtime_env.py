@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_GRAPHS: dict[str, str] = {
     "lead_agent": "evoflow.agents.lead_agent.agent:make_lead_agent",
-    "claude_code_chat": "evoflow.agents.claude_code_chat_graph:make_claude_code_chat_graph",
 }
 
 

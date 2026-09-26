@@ -17,7 +17,6 @@ from langchain.tools import ToolRuntime
 from langgraph.config import get_stream_writer
 from langgraph.typing import ContextT
 
-from evoflow.claude_subagent_type import effective_subagent_type, is_claude_code_subagent_type
 from evoflow.collab.id_format import make_formatted_id
 from evoflow.timeutil import utc_now_iso_z
 
@@ -135,11 +134,6 @@ def _resolve_collab_followup_runtime(
 
 # Register followup handler at import time so task_tool can call us via bridge.
 # This is done lazily below (after function definitions) to avoid forward-ref issues.
-
-
-def _is_claude_session_worker(subagent_type: str) -> bool:
-    """True for Claude Code worker (``claude-code`` or legacy ``claude-session`` / ``claude``)."""
-    return is_claude_code_subagent_type(subagent_type)
 
 
 def _followup_lock_for_task(main_task_id: str) -> asyncio.Lock:
@@ -278,40 +272,12 @@ def _is_acp_worker(subagent_type: str) -> bool:
         return False
 
 
-def _persist_subtask_session_id(storage: Any, main_task_id: str, subtask_id: str, session_id: str) -> None:
-    """Persist claude_session id onto subtask row for future reuse."""
-    from evoflow.collab.storage import find_main_task
-
-    row = find_main_task(storage, main_task_id)
-    if not row:
-        return
-    project, task = row
-    touched = False
-    for st in task.get("subtasks") or []:
-        if not isinstance(st, dict):
-            continue
-        if str(st.get("id") or "").strip() != subtask_id:
-            continue
-        st["claude_session_id"] = session_id
-        st["external_session_id"] = session_id
-        wp = st.get("worker_profile")
-        if isinstance(wp, dict):
-            st["worker_profile"] = {**wp, "claude_session_id": session_id}
-        touched = True
-        break
-    if touched:
-        try:
-            storage.save_project(project)
-        except Exception:
-            logger.debug("persist subtask claude_session_id failed", exc_info=True)
-
-
 def _worker_delegation_error(subagent_type: str) -> str | None:
     """Return a user-visible error when the worker cannot run; None if delegation may proceed."""
     stype = str(subagent_type or "").strip()
     if not stype:
         return "No worker assigned to subtask (set assigned_to or worker_profile.base_subagent)."
-    if _is_claude_session_worker(stype) or _is_acp_worker(stype):
+    if _is_acp_worker(stype):
         return None
     from evoflow.subagents import get_available_subagent_names, get_subagent_config
 
@@ -654,306 +620,11 @@ async def _delegate_via_acp_tool(
                 pass
 
 
-async def _emit_claude_subtask_task_started(
-    *,
-    main_task_id: str,
-    subtask_id: str,
-    subtask_row: dict[str, Any],
-    writer: Any | None,
-    runtime: Any | None = None,
-) -> None:
-    """Emit ``task_started`` on the unified collab stream path."""
-    from evoflow.collab.unified_stream import emit_collab_subtask_lifecycle
-
-    await emit_collab_subtask_lifecycle(
-        runtime=runtime,
-        main_task_id=main_task_id,
-        subtask_id=subtask_id,
-        event="started",
-        description=str(subtask_row.get("name") or subtask_id),
-        subagent_type="claude-code",
-    )
-
-
 def _is_task_tool_preflight_error(text: str) -> bool:
     """True when task_tool rejected before execution (gate / validation), not a worker failure."""
     t = str(text or "").strip()
     return t.startswith("Error:")
 
-
-async def _claude_send_and_finalize(
-    *,
-    storage: Any,
-    main_task_id: str,
-    subtask_id: str,
-    subtask_row: dict[str, Any],
-    session_id: str,
-    prompt: str,
-    runtime: Any | None = None,
-    keep_session_open: bool = True,
-) -> dict[str, Any]:
-    """Run claude_session send to completion and persist draft output (streams via SSE during send)."""
-    from evoflow.collab.dag_trace import dag_info, dag_warning
-    from evoflow.collab.storage import get_task_detail_storage, persist_subtask_runtime_snapshot
-    from evoflow.collab.unified_stream import emit_collab_subtask_lifecycle
-    from evoflow.tools.builtins.claude_session_tool import claude_session_tool
-
-    try:
-        await emit_collab_subtask_lifecycle(
-            runtime=runtime,
-            main_task_id=main_task_id,
-            subtask_id=subtask_id,
-            event="running",
-            subagent_type="claude-code",
-            message={"type": "ai", "content": "（Claude Code 执行中…）"},
-        )
-    except Exception:
-        logger.debug("claude send: initial running sse failed", exc_info=True)
-
-    send_result = await claude_session_tool.ainvoke(
-        {
-            "action": "send",
-            "session_id": session_id,
-            "message": prompt,
-            "stream_to_chat": True,
-            "stream_to_subtask_id": subtask_id,
-            "stream_to_main_task_id": main_task_id,
-        }
-    )
-    if not bool(send_result.get("ok")):
-        send_error = str(send_result.get("error") or "claude_session send failed")
-        dag_warning(
-            "claude_delegate_send_failed main=%s sub=%s error=%s",
-            main_task_id,
-            subtask_id,
-            send_error[:300],
-        )
-        try:
-            persist_subtask_runtime_snapshot(
-                storage,
-                get_task_detail_storage(),
-                main_task_id,
-                subtask_id,
-                status="failed",
-                progress=0,
-                error=send_error[:2000],
-                output_summary=send_error[:8000],
-                current_step="claude_session send failed",
-            )
-        except Exception:
-            logger.debug("claude_session send failure snapshot persist failed", exc_info=True)
-        return {
-            "subtaskId": subtask_id,
-            "ok": False,
-            "error": send_error,
-            "session_id": session_id,
-        }
-
-    text = str(send_result.get("accumulated_text") or "").strip()
-    if not text:
-        read_result = await claude_session_tool.ainvoke({"action": "read", "session_id": session_id, "lines": 200})
-        lines = read_result.get("lines", []) if isinstance(read_result, dict) else []
-        text = "".join(str(x) for x in lines if str(x).strip()).strip()
-    if not text:
-        text = f"claude_session completed (streamed_lines={send_result.get('streamed_lines', 0)})"
-    if not keep_session_open:
-        try:
-            await claude_session_tool.ainvoke({"action": "close", "session_id": session_id})
-        except Exception:
-            logger.debug("auto close claude_session after send failed", exc_info=True)
-    try:
-        persist_subtask_runtime_snapshot(
-            storage,
-            get_task_detail_storage(),
-            main_task_id,
-            subtask_id,
-            status="in_progress",
-            progress=max(10, min(90, int(subtask_row.get("progress") or 0) or 50)),
-            current_step="claude_session 已返回正文，待 subtask_outcome_report 或 Lead 确认终态",
-        )
-    except Exception:
-        logger.debug("claude_session draft snapshot persist failed", exc_info=True)
-    try:
-        from evoflow.collab.storage import find_main_task
-        from evoflow.tools.builtins.task_tool import _append_subtask_conversation_replica
-
-        _parent_tid: str | None = None
-        _main_row = find_main_task(storage, main_task_id)
-        if _main_row:
-            _parent_tid = str(_main_row[1].get("thread_id") or "").strip() or None
-        _append_subtask_conversation_replica(
-            main_task_id,
-            subtask_id,
-            {"role": "assistant", "content": text},
-            1,
-            parent_thread_id=_parent_tid,
-        )
-    except Exception:
-        logger.debug("claude_session: execution_conversation replica append failed", exc_info=True)
-
-    dag_info(
-        "claude_delegate_done main=%s sub=%s streamed_lines=%s text_len=%s status=in_progress",
-        main_task_id,
-        subtask_id,
-        send_result.get("streamed_lines", 0),
-        len(text),
-    )
-    try:
-        preview = text[:160] if text else "（Claude Code 已返回，等待 outcome 确认）"
-        await emit_collab_subtask_lifecycle(
-            runtime=runtime,
-            main_task_id=main_task_id,
-            subtask_id=subtask_id,
-            event="running",
-            subagent_type="claude-code",
-            message={"type": "ai", "content": preview},
-        )
-    except Exception:
-        logger.debug("claude_delegate_done: sse running snapshot failed", exc_info=True)
-    return {
-        "subtaskId": subtask_id,
-        "ok": True,
-        "result": text,
-        "session_id": session_id,
-    }
-
-
-async def _delegate_via_claude_session_tool(
-    *,
-    storage: Any,
-    main_task_id: str,
-    subtask_id: str,
-    subtask_row: dict[str, Any],
-    prompt: str,
-    default_project_path: str | None = None,
-    wait_for_completion: bool = True,
-) -> dict[str, Any]:
-    """Run a subtask via claude_session tool instead of task_tool/subagent path."""
-    from evoflow.collab.dag_trace import dag_info
-    from evoflow.collab.storage import get_task_detail_storage, persist_subtask_runtime_snapshot
-    from evoflow.tools.builtins.claude_session_tool import claude_session_tool
-
-    dag_info("claude_delegate_begin main=%s sub=%s detached=%s", main_task_id, subtask_id, not wait_for_completion)
-
-    project_path = str(subtask_row.get("project_path") or "").strip() or str(default_project_path or "").strip() or "./"
-    existing_sid = str(subtask_row.get("claude_session_id") or "").strip() or str(subtask_row.get("external_session_id") or "").strip()
-
-    session_id = existing_sid
-    lead_rt = _collab_lead_runtime_strong.get(str(main_task_id or "").strip())
-    from evoflow.collab.unified_stream import resolve_collab_parent_stream_writer
-
-    writer = resolve_collab_parent_stream_writer(
-        runtime=lead_rt,
-        main_task_id=main_task_id,
-    )
-    await _emit_claude_subtask_task_started(
-        main_task_id=main_task_id,
-        subtask_id=subtask_id,
-        subtask_row=subtask_row,
-        writer=writer,
-        runtime=lead_rt,
-    )
-    if not session_id:
-        created = await claude_session_tool.ainvoke(
-            {
-                "action": "create",
-                "project_path": project_path,
-            }
-        )
-        if not bool(created.get("ok")):
-            create_error = str(created.get("error") or "claude_session create failed")
-            low = create_error.lower()
-            if ("allow" in low and "directory" in low) or ("not in" in low and "allow" in low):
-                create_error = f"{create_error}. Hint: add this path to Claude Code allowed directories, or create the subtask with project_path under an already allowed workspace."
-            try:
-                persist_subtask_runtime_snapshot(
-                    storage,
-                    get_task_detail_storage(),
-                    main_task_id,
-                    subtask_id,
-                    status="failed",
-                    progress=0,
-                    error=create_error[:2000],
-                    output_summary=create_error[:8000],
-                    current_step="claude_session create failed",
-                    sync_agent_memory=True,
-                )
-            except Exception:
-                logger.debug("claude_session create failure snapshot persist failed", exc_info=True)
-            return {
-                "subtaskId": subtask_id,
-                "ok": False,
-                "error": create_error,
-            }
-        session_id = str(created.get("session_id") or "").strip()
-        if not session_id:
-            return {
-                "subtaskId": subtask_id,
-                "ok": False,
-                "error": "claude_session create succeeded but no session_id returned",
-            }
-        _persist_subtask_session_id(storage, main_task_id, subtask_id, session_id)
-
-    if not wait_for_completion:
-
-        async def _bg_claude() -> None:
-            try:
-                res = await _claude_send_and_finalize(
-                    storage=storage,
-                    main_task_id=main_task_id,
-                    subtask_id=subtask_id,
-                    subtask_row=subtask_row,
-                    session_id=session_id,
-                    prompt=prompt,
-                    runtime=lead_rt,
-                    keep_session_open=True,
-                )
-                if not bool(res.get("ok")):
-                    await _mark_subtask_delegate_failed(
-                        storage,
-                        main_task_id,
-                        subtask_id,
-                        str(res.get("error") or "claude_session send failed"),
-                    )
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                logger.exception("claude detached send failed sub=%s", subtask_id)
-                await _mark_subtask_delegate_failed(storage, main_task_id, subtask_id, str(exc))
-
-        try:
-            asyncio.get_running_loop().create_task(
-                _bg_claude(),
-                name=f"claude-detached-{subtask_id[:18]}",
-            )
-        except RuntimeError:
-            return await _claude_send_and_finalize(
-                storage=storage,
-                main_task_id=main_task_id,
-                subtask_id=subtask_id,
-                subtask_row=subtask_row,
-                session_id=session_id,
-                prompt=prompt,
-                runtime=lead_rt,
-                keep_session_open=True,
-            )
-        return {
-            "subtaskId": subtask_id,
-            "ok": True,
-            "detached": True,
-            "session_id": session_id,
-        }
-
-    return await _claude_send_and_finalize(
-        storage=storage,
-        main_task_id=main_task_id,
-        subtask_id=subtask_id,
-        subtask_row=subtask_row,
-        session_id=session_id,
-        prompt=prompt,
-        runtime=lead_rt,
-        keep_session_open=True,
-    )
 
 
 async def delegate_collab_subtasks_for_start_execution(
@@ -1194,30 +865,6 @@ async def delegate_collab_subtasks_for_start_execution(
             )
             await _mark_subtask_delegate_failed(storage, main_task_id, sid, worker_err)
             return {"subtaskId": sid, "ok": False, "error": worker_err}
-        if _is_claude_session_worker(subagent_type):
-            try:
-                return await _delegate_via_claude_session_tool(
-                    storage=storage,
-                    main_task_id=main_task_id,
-                    subtask_id=sid,
-                    subtask_row=st,
-                    prompt=prompt,
-                    default_project_path=default_project_path,
-                    wait_for_completion=wait_for_completion,
-                )
-            except Exception as e:
-                from evoflow.platform.asyncio_windows import is_subprocess_spawn_runtime_error
-
-                if is_subprocess_spawn_runtime_error(e):
-                    logger.warning(
-                        "delegate subtask %s: claude_session subprocess failed (%s); retrying via task_tool general-purpose",
-                        sid,
-                        e,
-                    )
-                    subagent_type = "general-purpose"
-                else:
-                    logger.exception("delegate subtask %s via claude_session failed", sid)
-                    return {"subtaskId": sid, "ok": False, "error": str(e)}
         if _is_acp_worker(subagent_type):
             try:
                 return await _delegate_via_acp_tool(
@@ -1581,10 +1228,7 @@ def _verify_upstream_artifacts_before_followup(storage: Any, main_task_id: str) 
 def _resolved_subagent_type_for_subtask(st: dict) -> str:
     """Prefer explicit assigned_to on the subtask row; else worker_profile.base_subagent; else default.
 
-    Falls back from ``claude-code`` to ``general-purpose`` when ``claude_agent_sdk`` is not
-    installed in this process (LangGraph runtime), so delegation does not hard-fail.
-    On Windows with Selector event loop (EvoFlow default), also falls back because Claude Code
-    CLI subprocess spawn requires Proactor.
+    Falls back to ``general-purpose`` if nothing is assigned.
     """
     resolved = "general-purpose"
     a = (st.get("assigned_to") or "").strip()
@@ -1596,16 +1240,6 @@ def _resolved_subagent_type_for_subtask(st: dict) -> str:
             b = str(wp.get("base_subagent") or "").strip()
             if b:
                 resolved = b
-    resolved = effective_subagent_type(resolved) or "general-purpose"
-    if _is_claude_session_worker(resolved):
-        try:
-            from evoflow.platform.asyncio_windows import claude_session_subprocess_supported
-
-            if not claude_session_subprocess_supported():
-                logger.info("claude-code worker unavailable on Selector loop (Windows); using general-purpose")
-                return "general-purpose"
-        except Exception:
-            logger.debug("claude subprocess capability check failed", exc_info=True)
     return resolved
 
 

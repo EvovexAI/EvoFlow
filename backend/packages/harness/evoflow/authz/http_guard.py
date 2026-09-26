@@ -101,34 +101,8 @@ def require_item_visible(request: Request | None, item_id: str) -> None:
 
 
 def require_vault_visible(request: Request | None, vault_id: str) -> None:
-    from evoflow.authz.resource_visibility import owner_scope_visible_to_principal
-    from evoflow.knowledge.vault import store as vault_store
-    from evoflow.knowledge.vault.builtin import is_builtin_vault_id
-
-    vid = str(vault_id or "").strip()
-    if not vid:
-        raise HTTPException(status_code=404, detail="vault not found")
-    if is_builtin_vault_id(vid):
-        return
-    cfg = vault_store.get_vault_config(vid)
-    if cfg is None:
-        raise HTTPException(status_code=404, detail="vault not found")
-    if bool(getattr(cfg, "builtin", False)):
-        return
-    authz = resolve_authz_from_request(request)
-    if authz.get("is_admin"):
-        return
-    if not str(authz.get("principal_id") or "").strip():
-        return
-    owner = getattr(cfg, "owner_scope_id", None) or None
-    if not owner_scope_visible_to_principal(
-        owner,
-        authz.get("principal"),
-        is_admin=False,
-        personal_scope=authz.get("personal_scope"),
-        org_scope=authz.get("org_scope"),
-    ):
-        raise HTTPException(status_code=404, detail="vault not found")
+    """No-op: Obsidian vault support removed. Kept to avoid import errors in dead code paths."""
+    pass
 
 
 def require_memory_namespace_visible(request: Request | None, namespace_id: str) -> None:

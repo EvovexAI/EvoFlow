@@ -1,6 +1,6 @@
 # EvoFlow - Unified Development Environment
 
-.PHONY: help config config-upgrade check install setup-agent-browser setup-kb-mcp setup-sandbox dev dev-daemon start stop up down clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway docs-install docs-serve docs-build openapi-export ci-local setup-git-hooks
+.PHONY: help config config-upgrade check install setup-agent-browser setup-sandbox dev dev-daemon start stop up down clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway docs-install docs-serve docs-build openapi-export ci-local setup-git-hooks
 
 PYTHON ?= python
 BASH ?= bash
@@ -17,7 +17,6 @@ help:
 	@echo "  make check           - Check if all required tools are installed"
 	@echo "  make install         - Install all dependencies (EvoPanel + backend)"
 	@echo "  make setup-agent-browser - Install agent-browser CLI (Chromium on first browser use)"
-	@echo "  make setup-kb-mcp       - Install Obsidian Knowledge Vault MCP packages (OHS)"
 	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
 	@echo "  make dev             - Start all services in development mode (with hot-reloading)"
 	@echo "  make dev-daemon      - Start all services in background (daemon mode)"
@@ -73,9 +72,6 @@ install:
 	@echo "Browser tools require agent-browser (not installed by uv sync alone):"
 	@echo "  make setup-agent-browser"
 	@echo ""
-	@echo "Knowledge Vault MCP packages (obsidian-hybrid-search) live in-repo:"
-	@echo "  make setup-kb-mcp"
-	@echo ""
 	@echo "If you plan to use Docker/Container-based sandbox, you can pre-pull the image:"
 	@echo "  make setup-sandbox"
 	@echo ""
@@ -86,14 +82,6 @@ ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -ExecutionPolicy Bypass -File backend/packaging/windows/install-agent-browser-bundle.ps1
 else
 	@bash backend/packaging/install-agent-browser-bundle.sh
-endif
-
-# Install pinned Knowledge Vault MCP packages into backend/packaging/kb-mcp
-setup-kb-mcp:
-ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -ExecutionPolicy Bypass -File backend/packaging/windows/install-kb-mcp.ps1
-else
-	@bash backend/packaging/install-kb-mcp.sh
 endif
 
 # Pre-pull sandbox Docker image (optional but recommended)

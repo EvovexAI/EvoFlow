@@ -274,10 +274,10 @@ package.json
 !website/**/package.json
 !clawdevoflow/package.json
 !clawdevoflow/package-lock.json
-# Knowledge Vault MCP pins (in-repo source of truth; node_modules gitignored)
-!backend/packaging/kb-mcp/package.json
-!backend/packaging/kb-mcp/package-lock.json
-clawdevoflow/dist/
+
+# Obsidian Hybrid Search local index caches (do not commit)
+**/.obsidian-hybrid-search.db
+**/.obsidian-hybrid-search.db-*
 CLAUDE.md
 
 # Next.js marketing site (website/)
@@ -292,7 +292,7 @@ website/**/dist/
 # Browser packaging caches (rebuilt by make setup-agent-browser / gateway build)
 backend/packaging/agent-browser-bundle/
 backend/packaging/ripgrep-bundle/
-# kb-mcp node_modules is ignored via backend/packaging/kb-mcp/.gitignore
+# kb-mcp node_modules is ignored via backend/packaging/kb-mcp/.gitignore (removed)
 # Legacy Playwright bundle (no longer used by gateway builds)
 backend/packaging/windows/.playwright-browsers/
 
@@ -307,6 +307,14 @@ reports/
 docs/roles/
 backend/docs/roles/
 tmp_media_analysis.txt
+
+# EvoFlow runtime caches (generated at runtime; never commit)
+**/.evoflow_user_guide_fingerprint
+docs/.evoflow_user_guide_fingerprint
+
+# Local sqlite dev DB (populated by `python -m evoflow...` during startup tests)
+backend/app/evoflow.db
+backend/app/evoflow.db-*
 
 # Local doc buckets (ignore if recreated; not part of the published tree)
 docs/system/

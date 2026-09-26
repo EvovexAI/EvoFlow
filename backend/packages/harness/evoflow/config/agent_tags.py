@@ -88,7 +88,7 @@ def normalize_tags(tags: Any) -> list[str]:
 # Agent-code prefixes used for tag inference (mirrors the former team rules).
 # ---------------------------------------------------------------------------
 
-_CORE_AGENT_CODES = frozenset({"general-purpose", "bash", "claude-code", "code-agent"})
+_CORE_AGENT_CODES = frozenset({"general-purpose", "bash", "code-agent"})
 
 
 def infer_tags_for_agent(agent_code: str, agent_type: str | None = None) -> list[str]:
@@ -104,7 +104,7 @@ def infer_tags_for_agent(agent_code: str, agent_type: str | None = None) -> list
     * ``finance-*`` -> ``["财务"]``.
     * ``marketing-social-media-operation`` -> ``["营销", "社媒"]``.
     * one of the core subagents (``general-purpose`` / ``bash`` /
-      ``claude-code`` / ``code-agent``) -> ``["核心", "代码"]``.
+      ``code-agent``) -> ``["核心", "代码"]``.
     * ``custom`` agent type -> ``["自定义"]``.
 
     Unknown codes with no matching prefix fall back to ``["自定义"]``.

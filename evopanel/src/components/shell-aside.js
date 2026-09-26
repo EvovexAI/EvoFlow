@@ -3,7 +3,7 @@
  */
 import { navigate, getCurrentRoute } from '../router.js'
 import { getPanelSetting, patchPanelSettings } from '../lib/panel-settings.js'
-import { SHOW_KNOWLEDGE_VAULT_NAV } from '../lib/nav-visibility.js'
+import { SHOW_KNOWLEDGE_OWNED_NAV } from '../lib/nav-visibility.js'
 import { installSessionListDebugGlobal } from '../lib/session-list-debug.js'
 import { mountSessionNotify } from '../lib/mount-session-notify.js'
 import { mountShellAccount } from './shell-account.js'
@@ -489,7 +489,7 @@ export function initShellAside(el) {
             <span class="react-chat-aside-nav-label">自动化</span>
           </button>
           ${
-            SHOW_KNOWLEDGE_VAULT_NAV
+            SHOW_KNOWLEDGE_OWNED_NAV
               ? `<button type="button" class="react-chat-aside-nav-item" data-shell-nav="/knowledge" data-testid="nav-knowledge-owned" title="知识库">
             <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('fileSearch')}</span>
             <span class="react-chat-aside-nav-label">知识库</span>

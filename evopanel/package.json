@@ -1,6 +1,6 @@
 {
   "name": "evopanel",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "description": "EvoFlow — 面向长任务的原生 Agent Runtime 与控制平面（桌面端）",
   "type": "module",

@@ -115,10 +115,19 @@ class DeferredToolFilterMiddleware(AgentMiddleware[AgentState]):
         try:
             from evoflow.agents.middlewares.proactive_tool_middleware import is_proactive_run
 
-            if is_proactive_run(getattr(request, "runtime", None)):
-                return request
+            proactive = is_proactive_run(getattr(request, "runtime", None))
         except Exception:
+            proactive = False
             logger.debug("deferred filter: proactive check failed", exc_info=True)
+
+        # DEBUG: 打印过滤决策
+        import sys
+        session_key = getattr(getattr(request, "runtime", None), "session_key", "unknown") if request.runtime else "no_runtime"
+        print(f"[DEFER_FILTER] session={session_key} proactive={proactive}", flush=True)
+
+        if proactive:
+            print(f"[DEFER_FILTER] 跳过过滤（proactive run）", flush=True)
+            return request
 
         from evoflow.tools.builtins.tool_search import get_bound_tool_names, get_deferred_registry, set_activated_deferred_tools
 

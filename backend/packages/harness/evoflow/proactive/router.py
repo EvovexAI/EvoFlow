@@ -90,7 +90,7 @@ class CreateRoleRequest(BaseModel):
     domain_scope: list[str] = Field(default_factory=list)
     knowledge_vault_ids: list[str] = Field(
         default_factory=list,
-        description="Bound Knowledge Vault ids (multi); injected into duty system prompt",
+        description="Bound knowledge base ids (owned KBs only; Obsidian vault support removed)",
     )
     kpis: list[Any] = Field(
         default_factory=list,
@@ -554,10 +554,10 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
     if role_name == agent_code:
         role_name = ""
 
-    from evoflow.proactive.prompt import validate_knowledge_vault_ids
+    from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
     try:
-        vault_ids = validate_knowledge_vault_ids(list(req.knowledge_vault_ids or []))
+        vault_ids = validate_agent_knowledge_ids(list(req.knowledge_vault_ids or []))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

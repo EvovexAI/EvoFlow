@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -77,8 +78,6 @@ def probe_local_embedding_deps() -> str | None:
     if getattr(sys, "frozen", False):
         # Frozen bundle: ST is absent by design on lean desktop.
         return _MISSING_ST_HINT
-    import os
-    import os.path
 
     venv_path = getattr(sys, "real_prefix", None) or (
         sys.prefix if hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix else None

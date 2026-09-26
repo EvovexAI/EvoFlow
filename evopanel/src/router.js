@@ -126,12 +126,15 @@ function setAppStudioShellMode(active) {
   if (active) closeAppSidebarDrawer()
 }
 
-/** Knowledge Vault 进入某个 Vault 详情时隐藏全局侧栏，返回列表恢复 */
-export function setKnowledgeVaultDetailShellMode(active) {
+/**
+ * Knowledge detail (Owned KB) — enter detail view: hide global sidebar shell.
+ * Kept for backward compat; the shell mode class also serves Owned KB.
+ */
+export function setKnowledgeDetailShellMode(active) {
   const app = document.getElementById('app')
-  if (app) app.classList.toggle('evopanel-kv-detail-mode', !!active)
+  if (app) app.classList.toggle('evopanel-kb-detail-mode', !!active)
   if (active) closeAppSidebarDrawer()
-  // 详情顶栏兼任标题栏：同步隐藏 #tauri-main-chrome
+  // Detail topbar doubles as title bar: hide the redundant Tauri chrome
   void import('./lib/tauri-titlebar.js').then((m) => m.refreshTauriMainChromeVisibility?.())
 }
 

@@ -7,7 +7,6 @@ apply_windows_langgraph_runtime_fixes()
 from .thread_state import SandboxState, ThreadState  # noqa: E402
 
 __all__ = [
-    "make_claude_code_chat_graph",
     "make_goal_graph",
     "make_lead_agent",
     "SandboxState",
@@ -25,10 +24,6 @@ def __getattr__(name: str):
         from .lead_agent import make_lead_agent
 
         return make_lead_agent
-    if name == "make_claude_code_chat_graph":
-        from .claude_code_chat_graph import make_claude_code_chat_graph
-
-        return make_claude_code_chat_graph
     if name == "make_goal_graph":
         from .goal.goal_graph import make_goal_graph
 

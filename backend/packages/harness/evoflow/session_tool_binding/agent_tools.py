@@ -255,10 +255,36 @@ def bound_tools_for_session_agent(session_key: str, mode: str | None) -> list[st
     except Exception:
         logger.debug("xiaomi bound tools resolve skipped", exc_info=True)
 
-    agent = resolve_agent_tool_names_for_session(session_key)
-    if not _tool_search_enabled():
-        return _intersect_mode_tools(flat_bound_tool_names_for_session_mode(m), agent)
-    return _intersect_mode_tools(bound_tools_for_session_mode(m), agent)
+    agent_tools = resolve_agent_tool_names_for_session(session_key)
+    mode_tools = flat_bound_tool_names_for_session_mode(m) if not _tool_search_enabled() else bound_tools_for_session_mode(m)
+    result = _intersect_mode_tools(mode_tools, agent_tools)
+
+    # DEBUG: 只在 debug 级别打印，且只在 tool_search 启用时才打（避免循环）
+    if _tool_search_enabled():
+        agent_id = resolve_session_agent_id(session_key)
+        # 用简单的计数器防刷屏（每 session 只打前 3 次）
+        _debug_print_count.setdefault(session_key, 0)
+        if _debug_print_count[session_key] < 3:
+            _debug_print_count[session_key] += 1
+            print(
+                f"[TOOL_BINDING] session={session_key} agent={agent_id} mode={m} "
+                f"tool_search=enabled iter={_debug_print_count[session_key]}"
+            )
+            print(f"  mode_tools ({len(mode_tools)}): {list(mode_tools)}")
+            print(f"  agent_whitelist ({len(agent_tools)}): {sorted(agent_tools)}")
+            print(f"  RESULT ({len(result)}): {result}")
+            if agent_tools:
+                missing = [t for t in mode_tools if t not in agent_tools]
+                if missing:
+                    print(f"  [交集过滤] 不在 agent_whitelist: {missing}")
+
+    return result
+
+
+# 模块级防刷屏计数器
+_debug_print_count: dict[str, int] = {}
+_defer_debug_count: dict[str, int] = {}
+_eff_debug_count: dict[str, int] = {}
 
 
 def deferred_catalog_for_session_agent(session_key: str, mode: str | None) -> list[str]:
@@ -273,8 +299,28 @@ def deferred_catalog_for_session_agent(session_key: str, mode: str | None) -> li
     if not _tool_search_enabled():
         return []
     m = normalize_session_mode(mode)
+    mode_deferred = deferred_catalog_for_session_mode(m)
     agent = resolve_agent_tool_names_for_session(session_key)
-    return _intersect_mode_tools(deferred_catalog_for_session_mode(m), agent)
+    result = _intersect_mode_tools(mode_deferred, agent)
+
+    # DEBUG: deferred 工具加载
+    agent_id = resolve_session_agent_id(session_key)
+    _defer_debug_count.setdefault(session_key, 0)
+    if _defer_debug_count[session_key] < 3:
+        _defer_debug_count[session_key] += 1
+        print(
+            f"[DEFER_TOOLS] session={session_key} agent={agent_id} mode={m} "
+            f"iter={_defer_debug_count[session_key]}"
+        )
+        print(f"  mode_deferred ({len(mode_deferred)}): {list(mode_deferred)}")
+        print(f"  agent_whitelist ({len(agent)}): {sorted(agent)}")
+        print(f"  RESULT ({len(result)}): {result}")
+
+    return result
+
+
+# 模块级防刷屏计数器
+_defer_debug_count: dict[str, int] = {}
 
 
 def filter_loaded_for_agent_mode(
@@ -308,7 +354,26 @@ def effective_bound_tools_for_session_agent(
     if not _tool_search_enabled():
         return sorted(bound)
     loaded = filter_loaded_for_agent_mode(session_key, mode, list(loaded_deferred or []))
-    return sorted({*bound, *loaded})
+    result = sorted({*bound, *loaded})
+
+    # DEBUG: 最终工具列表合并
+    agent_id = resolve_session_agent_id(session_key)
+    _eff_debug_count.setdefault(session_key, 0)
+    if _eff_debug_count[session_key] < 3:
+        _eff_debug_count[session_key] += 1
+        print(
+            f"[EFFECTIVE_TOOLS] session={session_key} agent={agent_id} mode={mode} "
+            f"iter={_eff_debug_count[session_key]}"
+        )
+        print(f"  bound ({len(bound)}): {bound}")
+        print(f"  loaded_deferred_in ({list(loaded_deferred or []): 50s})")
+        print(f"  loaded_filtered ({len(loaded)}): {loaded}")
+        print(f"  RESULT ({len(result)}): {result}")
+
+    return result
+
+
+# 模块级防刷屏计数器
 
 
 def pending_activation_for_session_agent(

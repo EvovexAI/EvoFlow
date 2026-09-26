@@ -1,7 +1,6 @@
 """内置子智能体配置（代码侧默认值，可与 agents 目录持久化合并）。"""
 
 from .bash_agent import BASH_AGENT_CONFIG
-from .claude_session_worker import CLAUDE_CODE_WORKER_CONFIG, CLAUDE_SESSION_WORKER_CONFIG
 from .code_agent import CODE_AGENT_CONFIG
 from .file_worker import FILE_WORKER_CONFIG
 from .finance_crew import FINANCE_CREW_SUBAGENTS
@@ -20,8 +19,6 @@ __all__ = [
     "FILE_WORKER_CONFIG",
     "SEARCH_WORKER_CONFIG",
     "BASH_AGENT_CONFIG",
-    "CLAUDE_CODE_WORKER_CONFIG",
-    "CLAUDE_SESSION_WORKER_CONFIG",
     "MARKETING_SOCIAL_MEDIA_OPERATION_CONFIG",
     "KNOWLEDGE_RETRIEVER_CONFIG",
     "KNOWLEDGE_CURATOR_CONFIG",
@@ -39,7 +36,6 @@ BUILTIN_SUBAGENTS = {
     "general-purpose": GENERAL_PURPOSE_CONFIG,
     "code-agent": CODE_AGENT_CONFIG,
     "bash": BASH_AGENT_CONFIG,
-    "claude-code": CLAUDE_CODE_WORKER_CONFIG,
     "marketing-social-media-operation": MARKETING_SOCIAL_MEDIA_OPERATION_CONFIG,
     "knowledge-retriever": KNOWLEDGE_RETRIEVER_CONFIG,
     "knowledge-curator": KNOWLEDGE_CURATOR_CONFIG,

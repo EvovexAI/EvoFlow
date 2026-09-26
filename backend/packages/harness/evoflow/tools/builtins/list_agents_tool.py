@@ -107,8 +107,6 @@ def _infer_recommended_task_types(
     code_key = str(agent_code or "").strip().lower()
     if code_key.startswith("media-"):
         rec.extend(["creative_media", "media_production", "image_generation", "video_generation"])
-    if "claude-code" in text or "claude-session" in text or "claude-code" in tool_set:
-        rec.extend(["code_implementation", "code_debugging", "code_refactor", "project_engineering"])
     if any(k in text for k in ("代码", "coding", "code", "debug", "调试", "重构", "refactor")):
         rec.extend(["code_implementation", "code_debugging"])
     if any(k in text for k in ("research", "检索", "搜索", "web", "资料")):
@@ -191,12 +189,10 @@ async def list_agents_tool(
                 agent_list.append(acp)
 
         if assignable_only:
-            agent_list = [a for a in agent_list if str(a.get("type") or "").strip().lower() in {"subagent", "acp", "builtin"} and str(a.get("agent_code") or "").strip().lower() not in {"claude-code", "claude-session", "claude"}]
+            agent_list = [a for a in agent_list if str(a.get("type") or "").strip().lower() in {"subagent", "acp", "builtin"}]
 
         if tag_filters:
             agent_list = [a for a in agent_list if any(any(wanted in (t or "") for t in (a.get("tags") or [])) for wanted in tag_filters)]
-
-        agent_list = [a for a in agent_list if str(a.get("agent_code") or "").strip().lower() not in {"claude-code", "claude-session", "claude"}]
 
         payload: dict = {
             "success": True,

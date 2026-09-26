@@ -5,13 +5,8 @@
  * - 其余全部（内置 + agents 目录自定义 config 名）：delta 流式拼接；executor 成功可系统收口。
  */
 
-/** 与后端 claude_subagent_type.CLAUDE_CODE_SUBAGENT_FAMILY 保持一致 */
-const CLAUDE_CODE_SUBAGENT_FAMILY = new Set([
-  'claude-code',
-  'claude-session',
-  'claude',
-  'claude-session-tool',
-])
+/** Claude Code worker family — empty after removal of claude_code / claude_session tools */
+const CLAUDE_CODE_SUBAGENT_FAMILY = new Set<string>()
 
 function normalizeSubagentTypeName(name: string | undefined): string {
   return String(name || '')

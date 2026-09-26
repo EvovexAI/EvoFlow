@@ -29,7 +29,7 @@ echo [EvoFlow] Isolated pack-mode ports: sidecar prefer=%EVOFLOW_GATEWAY_PORT% V
 echo [EvoFlow] Same as installer: Tauri owns Gateway+stdio (no separate uvicorn / mouthpiece).
 echo [EvoFlow] Packaged app can keep defaults 8012 (or its auto-picked ports).
 echo [EvoFlow] No evopanel\node_modules yet? Run: dev-stack-isolated.bat -InstallEvoPanel   OR   cd evopanel ^&^& npm run deps:ci
-echo [EvoFlow] Need old external uvicorn mode? restart-dev-stack.bat -ExternalGateway
+echo [EvoFlow] Desktop mode + separate backend log window (see the new Gateway console).
 echo [EvoFlow] evoflow CLI: agent uses backend\.venv\Scripts\evoflow.exe after backend updates
 echo.
 
@@ -40,7 +40,7 @@ if not exist "%RESTART%" (
   exit /b 1
 )
 
-call "%RESTART%" %*
+call "%RESTART%" -ShowBackendLog %*
 set "RC=%ERRORLEVEL%"
 echo.
 if not "%RC%"=="0" (

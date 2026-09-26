@@ -107,7 +107,6 @@ nav:
             - 思维导图: user/guides/chat/knowledge-map.md
             - 目标 Agent: user/guides/chat/goal-agent.md
             - 工作空间: user/guides/chat/workspace.md
-            - 编码助手（Claude Code）: user/guides/chat/claude-code.md
             - 快捷指令: user/guides/chat/shortcut-commands.md
             - 文件上传: user/guides/chat/file-upload.md
           - 任务与调度:
@@ -124,10 +123,9 @@ nav:
             - 工具与 MCP: user/guides/configuration/tools-mcp.md
             - 记忆管理: user/guides/configuration/memory-management.md
             - 上传文档（RAG）: user/guides/configuration/document-knowledge-base.md
-            - 知识库（Vault）: user/guides/configuration/knowledge-vault.md
             - 应用中心: user/guides/configuration/app-center.md
             - 沙箱配置: user/guides/configuration/sandbox-config.md
-            - Obsidian 知识库集成: user/guides/integrations/obsidian-knowledge-vault.md
+            - Obsidian 知识库集成已移除。如需知识管理，请使用自研知识库（知识库页面）或上传文档（RAG）。
           - IM 与渠道:
             - 飞书集成: user/guides/integration/feishu-integration.md
             - IM 渠道总览: user/guides/integration/im-channels.md

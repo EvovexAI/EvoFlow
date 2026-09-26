@@ -3,7 +3,7 @@
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import { setKnowledgeVaultDetailShellMode } from '../router.js'
+import { setKnowledgeDetailShellMode } from '../router.js'
 import KnowledgeOwnedPage from './knowledge-owned.jsx'
 import './knowledge-owned.css'
 import '../style/ef-module-head.css'
@@ -29,7 +29,7 @@ export async function render() {
 }
 
 export function cleanup() {
-  setKnowledgeVaultDetailShellMode(false)
+  setKnowledgeDetailShellMode(false)
   try {
     document.querySelector('.knowledge-owned-outlet')?._xmLiveUnsub?.()
   } catch {

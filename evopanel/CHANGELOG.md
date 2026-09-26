@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-09-26
+
+### Changed
+
+- 知识库完全切换到 owned KB 单一路径：移除旧的 Obsidian vault 接入与相关 UI / skills / 文档
+- 角色工具白名单现在能精确控制「任务 / 平台行政 / 侧边面板」等系统级工具，不再由 catalog 默认强制绑定（之前员工模式也会无差别挂载）
+
+### Fixed
+
+- 修复合并请求的工具签名消失问题：ask 模式（默认聊天）不再因为脱壳 fallback 误挂整个工具 catalog
+- 修复角色白名单下 platform / panel_set 真正不可移除的旧 bug
+
+### Removed
+
+- 删除 `knowledge_vault_tools` 模块及对应 UI 入口（`evopanel/src/pages/knowledge-source-tabs.jsx` / `docs/user/guides/configuration/knowledge-vault.md` / `docs/user/guides/integrations/obsidian-knowledge-vault.md` 等），由 owned KB 接管
+
+### Notes
+
+- 发版说明与版本线对齐 **1.0.7**
+
 ## [1.0.5] - 2026-09-23
 
 ### Changed

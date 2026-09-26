@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/tauri-api.js";
 import { collectEmbeddingModelOptions } from "../lib/model-classification.js";
-import { setKnowledgeVaultDetailShellMode } from "../router.js";
+import { setKnowledgeDetailShellMode } from "../router.js";
 import { MarkdownDocumentView } from "../react/components/MarkdownDocumentView.js";
 import { KnowledgeHubLayout } from "./knowledge-owned-hub.jsx";
 import {
@@ -701,11 +701,11 @@ export default function KnowledgeOwnedPage() {
     return () => window.removeEventListener("hashchange", sync);
   }, []);
 
-  // 详情沉浸：隐藏全局左侧壳菜单（与 Obsidian Vault 详情一致）
+  // 详情沉浸：隐藏全局左侧壳菜单（与知识库详情一致）
   useEffect(() => {
     const inDetail = route.view === "detail";
-    setKnowledgeVaultDetailShellMode(inDetail);
-    return () => setKnowledgeVaultDetailShellMode(false);
+    setKnowledgeDetailShellMode(inDetail);
+    return () => setKnowledgeDetailShellMode(false);
   }, [route.view]);
 
   const loadBases = useCallback(async () => {
@@ -910,7 +910,7 @@ export default function KnowledgeOwnedPage() {
   async function resyncRemembered() {
     if (!selectedId) return;
     if (!selected?.syncSourceType) {
-      notify("还没有记住的同步源，请先「导入路径」或「从 Obsidian 导入」");
+      notify("还没有记住的同步源，请先「导入路径」或「上传文件」");
       return;
     }
     const prune = window.confirm("再同步时是否清理源中已删除的文档？");
@@ -1612,7 +1612,7 @@ export default function KnowledgeOwnedPage() {
   }
 
   async function importFromVault() {
-    notify("Obsidian Vault 导入功能已移除。请使用「导入路径」或「上传文档」。", "warn");
+    notify("Obsidian Vault 导入功能已移除。请使用「导入路径」或「上传文件」。");
   }
 
   async function createFolderAt(parentPath = "") {
@@ -1882,8 +1882,8 @@ export default function KnowledgeOwnedPage() {
               >
                 打开位置
               </button>
-              <button className="ko-btn" disabled={busy} onClick={importFromVault} type="button">
-                从 Obsidian 导入
+              <button className="ko-btn" disabled type="button" title="Obsidian Vault 导入已移除">
+                从 Obsidian 导入（已移除）
               </button>
               <button
                 className="ko-btn primary"
@@ -1892,7 +1892,7 @@ export default function KnowledgeOwnedPage() {
                 title={
                   selected?.syncSourcePath
                     ? `再同步：${selected.syncSourcePath}`
-                    : "先导入路径或 Vault 后可一键再同步"
+                    : "先导入路径后即可一键再同步"
                 }
                 type="button"
               >

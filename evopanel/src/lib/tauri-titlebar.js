@@ -73,13 +73,13 @@ function syncMainChromeVisibility() {
   const el = getMainChrome()
   if (!el) return
   const path = routePath()
-  const kvDetail =
+  const kbDetail =
     typeof document !== 'undefined' &&
-    document.getElementById('app')?.classList.contains('evopanel-kv-detail-mode')
-  // 聊天 / KV 详情顶栏自带窗口钮；应用工作室 / UI 扩展全屏沉浸时也不占顶栏白条
+    document.getElementById('app')?.classList.contains('evopanel-kb-detail-mode')
+  // 聊天 / 知识库详情顶栏自带窗口钮；应用工作室 / UI 扩展全屏沉浸时也不占顶栏白条
   const hide =
     path === '/chat' ||
-    kvDetail ||
+    kbDetail ||
     /^\/apps\/[^/]+(?:\/(?:run|history))?$/.test(path) ||
     /^\/extensions\/[^/]+$/.test(path)
   el.classList.toggle('tauri-main-chrome--hidden', hide)
