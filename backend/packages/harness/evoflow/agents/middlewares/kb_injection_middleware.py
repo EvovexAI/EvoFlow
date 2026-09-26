@@ -216,6 +216,12 @@ async def _do_kb_search(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Run parallel KB searches across all bound vaults.
 
+    Each ``vault_id`` is resolved in priority order:
+      1. ``owned_service.search`` — ``kb_bases.id`` OR ``kb_bases.sync_vault_id``
+         (the in-house self-hosted KB; fast, index-backed; e.g. the built-in
+         ``evoflow-user-guide`` → ``kb_builtin_user_guide``).
+      2. ``ObsidianKnowledgeProvider.search`` — Markdown/Obsidian vault on disk.
+
     Returns ``(context_string, results_sorted_by_score)``. ``results`` is the
     raw list of search-result dicts (one per matched chunk), pre-sorted by score
     descending and pre-truncated to ``top_k`` so it can drive both the
@@ -229,12 +235,113 @@ async def _do_kb_search(
     import asyncio
 
     from evoflow.knowledge.vault.provider import get_knowledge_provider
+    from evoflow.knowledge.owned.service import (
+        get_base as owned_get_base,
+        search as owned_search,
+    )
 
     provider = get_knowledge_provider()
     mode = config.retrieval if config.mode in ("auto", "both") else "hybrid"
     rerank = config.reranker != "none"
 
-    async def search_one(vault_id: str) -> list[dict[str, Any]]:
+    def _resolve_kind(vault_id: str) -> str:
+        """``"owned:<kb_id>"`` or ``"obsidian"``.
+
+        A vault_id is ``owned`` if ``kb_bases.id`` matches directly OR
+        ``kb_bases.sync_vault_id`` matches — the built-in user guide uses the
+        second path (its stable id is ``kb_builtin_user_guide`` but it is exposed
+        to the role-binding UI under ``evoflow-user-guide``).
+        """
+        try:
+            base = owned_get_base(vault_id)
+            if base is not None:
+                return f"owned:{vault_id}"
+        except Exception:
+            pass
+        try:
+            from evoflow.knowledge.owned.db import db as _own_db
+
+            with _own_db() as conn:
+                row = conn.execute(
+                    "SELECT id FROM kb_bases WHERE sync_vault_id=? AND deleted_at IS NULL LIMIT 1",
+                    (vault_id,),
+                ).fetchone()
+                if row and row["id"]:
+                    return f"owned:{row['id']}"
+        except Exception:
+            pass
+        return "obsidian"
+
+    async def search_owned(kb_id: str, source_vault_id: str) -> list[dict[str, Any]]:
+        t0 = time.perf_counter()
+        try:
+            result = await asyncio.wait_for(
+                owned_search(kb_id, query, mode=mode, top_k=config.top_k),
+                timeout=config.timeout_sec,
+            )
+            dt_ms = (time.perf_counter() - t0) * 1000
+            items = result.get("items") or []
+            # Normalize into the {title, snippet, content, score, vaultId} shape
+            # the formatter expects.
+            out: list[dict[str, Any]] = []
+            for it in items:
+                raw_score = (
+                    it.get("rrfScore")
+                    or it.get("vectorScore")
+                    or it.get("fulltextScore")
+                    or it.get("score")
+                    or 0
+                )
+                try:
+                    score = float(raw_score)
+                except (TypeError, ValueError):
+                    score = 0.0
+                out.append(
+                    {
+                        "title": it.get("title") or it.get("path"),
+                        "snippet": (it.get("content") or it.get("snippet") or "")[:512],
+                        "content": it.get("content"),
+                        "path": it.get("path") or it.get("fileName"),
+                        "score": score,
+                        "vaultId": source_vault_id,
+                        "kbId": it.get("kbId") or kb_id,
+                        "kbName": it.get("kbName"),
+                        "provider": "owned",
+                    }
+                )
+            logger.debug(
+                "KbInjection vault=%s owned kb=%s mode=%s hits=%d elapsed=%.1fms query=%r",
+                source_vault_id,
+                kb_id,
+                mode,
+                len(out),
+                dt_ms,
+                query[:80],
+            )
+            return out
+        except asyncio.TimeoutError:
+            dt_ms = (time.perf_counter() - t0) * 1000
+            logger.warning(
+                "KbInjection vault=%s owned timed out after %.1fms (timeout=%ss) query=%r",
+                source_vault_id,
+                dt_ms,
+                config.timeout_sec,
+                query[:80],
+            )
+            return []
+        except Exception as exc:
+            dt_ms = (time.perf_counter() - t0) * 1000
+            logger.warning(
+                "KbInjection vault=%s owned failed after %.1fms err=%s: %s query=%r",
+                source_vault_id,
+                dt_ms,
+                exc.__class__.__name__,
+                exc,
+                query[:80],
+            )
+            return []
+
+    async def search_obsidian(vault_id: str) -> list[dict[str, Any]]:
         t0 = time.perf_counter()
         try:
             results = await asyncio.wait_for(
@@ -250,25 +357,32 @@ async def _do_kb_search(
             )
             dt_ms = (time.perf_counter() - t0) * 1000
             logger.debug(
-                "KbInjection vault=%s mode=%s rerank=%s hits=%d elapsed=%.1fms query=%r",
+                "KbInjection vault=%s obsidian mode=%s rerank=%s hits=%d elapsed=%.1fms query=%r",
                 vault_id, mode, rerank, len(results), dt_ms, query[:80],
             )
             return [r.model_dump(by_alias=True, mode="json") for r in results]
         except asyncio.TimeoutError:
             dt_ms = (time.perf_counter() - t0) * 1000
             logger.warning(
-                "KbInjection vault=%s timed out after %.1fms (timeout=%ss) query=%r",
+                "KbInjection vault=%s obsidian timed out after %.1fms (timeout=%ss) query=%r",
                 vault_id, dt_ms, config.timeout_sec, query[:80],
             )
             return []
         except Exception as exc:
             dt_ms = (time.perf_counter() - t0) * 1000
             logger.warning(
-                "KbInjection vault=%s failed after %.1fms err=%s: %s query=%r",
+                "KbInjection vault=%s obsidian failed after %.1fms err=%s: %s query=%r",
                 vault_id, dt_ms, exc.__class__.__name__, exc, query[:80],
                 exc_info=True,
             )
             return []
+
+    # Resolve each vault_id once → owned (mapped to kb id) or obsidian, then fan out.
+    async def search_one(vault_id: str) -> list[dict[str, Any]]:
+        kind = _resolve_kind(vault_id)
+        if kind.startswith("owned:"):
+            return await search_owned(kind[len("owned:"):], vault_id)
+        return await search_obsidian(vault_id)
 
     # Parallel search across all vaults
     all_results: list[dict[str, Any]] = []
