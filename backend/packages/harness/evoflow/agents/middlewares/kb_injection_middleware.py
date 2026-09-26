@@ -38,6 +38,7 @@ Both ``wrap_model_call`` (sync) and ``awrap_model_call`` (async) are implemented
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -526,38 +527,63 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
 
     @override
     def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
+        """Sync path — delegates to ``awrap_model_call`` via the running event loop.
+
+        ``asyncio.run()`` is NOT used here because it creates a nested event loop,
+        which deadlocks when ``_do_kb_search`` calls ``ensure_owned_kb_worker_started()``
+        (which is async and needs the outer loop to make forward progress).
+
+        Instead, ``asyncio.get_event_loop().run_until_complete()`` re-enters the
+        existing loop that LangGraph / uvicorn is already running.
+        """
         should, query, config, vault_ids, thread_id = self._should_inject(request)
         if not should or not query:
             return handler(request)
-
-        import asyncio
-        import concurrent.futures
 
         context = ""
         results: list[dict[str, Any]] = []
         search_err: BaseException | None = None
         t0 = time.perf_counter()
 
-        def _sync_search() -> tuple[str, list[dict[str, Any]]]:
-            return asyncio.run(_do_kb_search(query, vault_ids, config))
-
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                future = ex.submit(_sync_search)
-                context, results = future.result(timeout=config.timeout_sec + 1)
+            try:
+                # Preferred: get the running loop (never raises RuntimeError for main-thread loops)
+                loop = asyncio.get_running_loop()
+                loop_is_running = True
+            except RuntimeError:
+                # No running loop on this thread (e.g. stand-alone invocation).
+                loop = asyncio.get_event_loop()
+                loop_is_running = False
+            if loop_is_running:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    def _call() -> tuple[str, list[dict[str, Any]]]:
+                        async def _inner() -> tuple[str, list[dict[str, Any]]]:
+                            return await _do_kb_search(query, vault_ids, config)
+                        # re-enter the running loop from the worker thread
+                        return loop.run_until_complete(_inner())
+                    future = ex.submit(_call)
+                    context, results = future.result(timeout=config.timeout_sec + 1)
+            else:
+                context, results = loop.run_until_complete(
+                    _do_kb_search(query, vault_ids, config)
+                )
+        except asyncio.TimeoutError:
+            search_err = TimeoutError(f"kb search wall-clock exceeded {config.timeout_sec}s")
+            context, results = "", []
         except concurrent.futures.TimeoutError:
-            search_err = TimeoutError(
-                f"sync kb search wall-clock exceeded {config.timeout_sec + 1}s"
-            )
+            search_err = TimeoutError(f"sync kb search wall-clock exceeded {config.timeout_sec + 1}s")
             context, results = "", []
         except Exception as exc:
             search_err = exc
             context, results = "", []
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
+        agent_code = _agent_code_from_runtime(request)
+
         if search_err is not None:
             _log_summary(
-                agent_code=_agent_code_from_runtime(request),
+                agent_code=agent_code,
                 thread_id=thread_id,
                 query=query,
                 config=config,
@@ -568,7 +594,7 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             )
         elif context and results:
             _log_summary(
-                agent_code=_agent_code_from_runtime(request),
+                agent_code=agent_code,
                 thread_id=thread_id,
                 query=query,
                 config=config,
@@ -580,7 +606,7 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             )
         else:
             _log_summary(
-                agent_code=_agent_code_from_runtime(request),
+                agent_code=agent_code,
                 thread_id=thread_id,
                 query=query,
                 config=config,
@@ -589,44 +615,41 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                 duration_ms=elapsed_ms,
             )
 
-        # Activity trace — single post-search tick so the live UI shows whether
-        # KB was consulted on this turn, regardless of result count.
+        # Activity trace
         if thread_id:
+            from evoflow.observability.agent_activity_stream import emit_agent_activity
             if context and results:
-                _emit_kb_activity(
+                emit_agent_activity(
                     thread_id,
-                    kind="kb_injection",
-                    detail=(
-                        f"kb_injection 检索到 {len(results)} 条 "
-                        f"({sum(len(s) for s in [context])} chars)"
-                    ),
+                    kind="middleware",
+                    detail=f"kb_injection 检索到 {len(results)} 条 ({len(context)} chars)",
+                    force=True,
                 )
             else:
-                _emit_kb_activity(
+                emit_agent_activity(
                     thread_id,
-                    kind="kb_injection",
-                    detail="kb_injection 未命中（mode=off / 无库 / 检索失败）",
+                    kind="middleware",
+                    detail="kb_injection 未命中（检索失败或 0 结果）",
+                    force=True,
                 )
 
-        # Publish citations to live SSE channel BEFORE the model call lands —
-        # so the UI receives ``kb_citations`` ahead of the first token.
-        if results and thread_id:
+        # Citations
+        if thread_id:
             try:
                 from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
-
                 publish_kb_citations(
                     thread_id=thread_id,
                     query=query,
-                    agent_code=_agent_code_from_runtime(request),
+                    agent_code=agent_code,
                     results=results,
+                    config=config,
                 )
             except Exception as exc:
                 logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
 
-        patched = self._patch_request(request, context)
-        result = handler(patched)
+        req2 = self._patch_request(request, context) if context else request
+        result = handler(req2)
 
-        # Update injected_sections ContextVar for UI detail display
         if context:
             try:
                 prev = get_injected_sections()
@@ -652,16 +675,22 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         results: list[dict[str, Any]] = []
         search_err: BaseException | None = None
         t0 = time.perf_counter()
+
         try:
             context, results = await _do_kb_search(query, vault_ids, config)
+        except asyncio.TimeoutError:
+            search_err = TimeoutError(f"kb search wall-clock exceeded {config.timeout_sec}s")
+            context, results = "", []
         except Exception as exc:
             search_err = exc
             context, results = "", []
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
+        agent_code = _agent_code_from_runtime(request)
+
         if search_err is not None:
             _log_summary(
-                agent_code=_agent_code_from_runtime(request),
+                agent_code=agent_code,
                 thread_id=thread_id,
                 query=query,
                 config=config,
@@ -672,7 +701,7 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             )
         elif context and results:
             _log_summary(
-                agent_code=_agent_code_from_runtime(request),
+                agent_code=agent_code,
                 thread_id=thread_id,
                 query=query,
                 config=config,
@@ -684,7 +713,7 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             )
         else:
             _log_summary(
-                agent_code=_agent_code_from_runtime(request),
+                agent_code=agent_code,
                 thread_id=thread_id,
                 query=query,
                 config=config,
@@ -693,44 +722,46 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                 duration_ms=elapsed_ms,
             )
 
-        # Activity trace — single post-search tick so the live UI shows whether
-        # KB was consulted on this turn, regardless of result count.
+        # Always emit activity so the UI gets a KB status update on every turn.
         if thread_id:
+            from evoflow.observability.agent_activity_stream import emit_agent_activity
+
             if context and results:
-                _emit_kb_activity(
+                emit_agent_activity(
                     thread_id,
-                    kind="kb_injection",
-                    detail=(
-                        f"kb_injection 检索到 {len(results)} 条 "
-                        f"({sum(len(s) for s in [context])} chars)"
-                    ),
+                    kind="middleware",
+                    detail=f"kb_injection 检索到 {len(results)} 条 ({len(context)} chars)",
+                    force=True,
                 )
             else:
-                _emit_kb_activity(
+                emit_agent_activity(
                     thread_id,
-                    kind="kb_injection",
-                    detail="kb_injection 未命中（mode=off / 无库 / 检索失败）",
+                    kind="middleware",
+                    detail="kb_injection 未命中（检索失败或 0 结果）",
+                    force=True,
                 )
 
-        # Publish citations to live SSE channel BEFORE the model call lands —
-        # so the UI receives ``kb_citations`` ahead of the first token.
-        if results and thread_id:
+        # Publish citations to live SSE channel (both hits and errors; UI shows citation on ok).
+        if thread_id:
             try:
                 from app.gateway.streaming.kb_citations_publisher import publish_kb_citations
 
                 publish_kb_citations(
                     thread_id=thread_id,
                     query=query,
-                    agent_code=_agent_code_from_runtime(request),
+                    agent_code=agent_code,
                     results=results,
+                    config=config,
                 )
             except Exception as exc:
                 logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
 
-        patched = self._patch_request(request, context)
-        result = await handler(patched)
+        # Patch request and call the next handler in the chain.
+        # ``context`` is only non-empty when search succeeded with hits.
+        req2 = self._patch_request(request, context) if context else request
+        result = await handler(req2)
 
-        # Update injected_sections ContextVar for UI detail display
+        # Update injected_sections ContextVar so downstream code can read the KB context.
         if context:
             try:
                 prev = get_injected_sections()
