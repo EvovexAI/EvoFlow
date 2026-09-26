@@ -24,6 +24,7 @@ from evoflow.skills.injection import build_skill_injection_message
 from evoflow.skills.selection import select_skills_for_turn
 from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
     get_injected_sections,
+    reset_injected_sections,
     set_injected_sections,
 )
 

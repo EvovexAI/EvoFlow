@@ -60,6 +60,7 @@ from evoflow.config.agents_config import (
 from evoflow.agents.lead_agent.runtime_context import merge_model_request_runtime_context
 from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
     get_injected_sections,
+    reset_injected_sections,
     set_injected_sections,
 )
 from evoflow.agents.middlewares.model_request_messages import messages_from_model_request
@@ -776,10 +777,3 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                 pass
 
         return result
-
-
-def reset_injected_sections(tok):
-    """Forward the reset call from dynamic_system_prompt_middleware."""
-    from evoflow.agents.middlewares.dynamic_system_prompt_middleware import reset_injected_sections as _reset
-
-    _reset(tok)
