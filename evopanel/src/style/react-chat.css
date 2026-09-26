@@ -6698,10 +6698,24 @@ html.dark .react-chat-session-debug-modal-pre {
 .react-chat-conversation-col .msg-turn--assistant .msg-text h2,
 .react-chat-conversation-col .msg-turn--assistant .msg-text h3 { font-size: 13px; }
 
+/* Ordered-list markers: use inside positioning so no ancestor
+   overflow:hidden can clip them at scaled font sizes (WebKit). */
 .react-chat-conversation-col .msg-turn--assistant .msg-text ul,
 .react-chat-conversation-col .msg-turn--assistant .msg-text ol {
   margin: 8px 0 12px;
   padding-left: 1.25em;
+}
+
+.react-chat-conversation-col .msg-turn--assistant .msg-text ol {
+  list-style-position: inside;
+  padding-inline-start: 0;
+  overflow: visible;
+}
+.react-chat-conversation-col .msg-turn--assistant .msg-text ol > li::marker {
+  font-weight: 600;
+}
+.react-chat-conversation-col .msg-turn--assistant .msg-text ol > li + li {
+  margin-top: 6px;
 }
 
 .react-chat-conversation-col .msg-turn--assistant .msg-text li {

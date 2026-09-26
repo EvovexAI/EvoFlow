@@ -624,7 +624,12 @@
 .msg-ai .msg-bubble ul,
 .msg-ai .msg-bubble ol {
   margin: 4px 0;
-  padding-left: 20px;
+  list-style-position: inside;
+  padding-inline-start: 0;
+  overflow: visible;
+}
+.msg-ai .msg-bubble ol > li::marker {
+  font-weight: 600;
 }
 
 .msg-ai .msg-bubble li {
