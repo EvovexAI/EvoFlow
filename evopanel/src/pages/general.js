@@ -5,6 +5,7 @@ import { toast } from '../components/toast.js'
 import { showChoice, showConfirm } from '../components/modal.js'
 import { getThemePreference, setThemePreference } from '../lib/theme.js'
 import { FONT_SIZE_EVENT, getFontScalePreference, previewFontScale, setFontScalePreference } from '../lib/font-size.js'
+import { getUiZoom, setUiZoom } from '../lib/ui-zoom.js'
 import {
   ACCENT_PALETTES,
   ACCENT_THEME_EVENT,
@@ -260,6 +261,11 @@ export async function mountGeneralInto(container) {
   if (envHost) {
     await mountEnvContentInto(envHost)
   }
+  const syncUiZoomValue = () => {
+    const el = root.querySelector('#general-ui-zoom-value')
+    if (el) el.textContent = `${Math.round(getUiZoom() * 100)}%`
+  }
+  window.addEventListener('ui-zoom-change', syncUiZoomValue)
   root.addEventListener('click', (e) => {
     const target = e.target
     if (!(target instanceof Element)) return
@@ -273,6 +279,14 @@ export async function mountGeneralInto(container) {
     }
     if (target.closest('#general-default-project-pick')) {
       void pickDefaultProjectRoot(root)
+      return
+    }
+    if (target.closest('#general-ui-zoom-minus, #general-ui-zoom-plus, #general-ui-zoom-reset')) {
+      const cur = getUiZoom()
+      if (target.id === 'general-ui-zoom-minus') setUiZoom(cur - 0.1)
+      else if (target.id === 'general-ui-zoom-plus') setUiZoom(cur + 0.1)
+      else setUiZoom(1)
+      syncUiZoomValue()
       return
     }
     if (target.closest('#general-runtime-data-copy')) {
@@ -1196,6 +1210,23 @@ export function renderAppearanceBar(page) {
           <span>大</span>
         </div>
       </div>
+    </div>
+    <div class="settings-appearance-group settings-appearance-group--range">
+      <div class="settings-appearance-label">界面缩放</div>
+      <div class="settings-font-size-control">
+        <div class="settings-font-size-row" style="align-items:center;gap:10px">
+          <button type="button" id="general-ui-zoom-minus" class="btn btn-secondary" style="width:36px" aria-label="缩小界面">−</button>
+          <span id="general-ui-zoom-value" class="settings-font-size-value">${Math.round(getUiZoom() * 100)}%</span>
+          <button type="button" id="general-ui-zoom-plus" class="btn btn-secondary" style="width:36px" aria-label="放大界面">＋</button>
+          <button type="button" id="general-ui-zoom-reset" class="btn btn-secondary">复位 100%</button>
+        </div>
+        <div class="settings-font-size-ticks" aria-hidden="true">
+          <span>80%</span>
+          <span>100%</span>
+          <span>200%</span>
+        </div>
+      </div>
+      <div class="form-hint" style="margin-top:6px">整个界面等比缩放（含布局），独立于字体大小。快捷键：Ctrl+= / Ctrl+- / Ctrl+0，或按住 Ctrl 滚轮。</div>
     </div>
     <p class="form-hint" style="margin-top:var(--space-xs)">外观设置会保存为你的偏好，并立即应用到整个客户端。</p>
   `

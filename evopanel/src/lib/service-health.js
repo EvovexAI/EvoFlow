@@ -67,7 +67,11 @@ async function _defaultCheckReady() {
  */
 async function _probeReadyDetail() {
   try {
-    const resp = await fetch('/health/ready', { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+    // Relative URLs break in Tauri desktop builds (page origin is tauri://localhost,
+    // not the gateway) — always probe against the resolved gateway base.
+    const { getGatewayBaseUrl } = await import('./api-client.js')
+    const base = await getGatewayBaseUrl()
+    const resp = await fetch(`${base}/health/ready`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
     if (!resp.ok) return { httpOk: false, phase: null, extended: null, fullyReady: false }
     const body = await resp.json().catch(() => null)
     if (!body || typeof body !== 'object') return { httpOk: true, phase: null, extended: null, fullyReady: false }
@@ -85,7 +89,9 @@ async function _probeReadyDetail() {
 
 async function _defaultFetchHealth() {
   try {
-    const resp = await fetch('/health', { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+    const { getGatewayBaseUrl } = await import('./api-client.js')
+    const base = await getGatewayBaseUrl()
+    const resp = await fetch(`${base}/health`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
     const body = await resp.json().catch(() => ({}))
     return { ok: resp.ok, status: String(body?.status || ''), reason: body?.reason }
   } catch {

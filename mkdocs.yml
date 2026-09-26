@@ -141,8 +141,7 @@ nav:
           - 安装技能: user/cases/install-skill.md
           - 自动化: user/cases/scheduled-tasks.md
           - 搜索 + HTML 报告: user/cases/search-html-report.md
-          - Claude Code 持续协作: user/cases/claude-code-continuous.md
-          - Supervisor 模式: user/cases/supervisor-mode.md
+          - 总控智能体模式: user/cases/total-agent-mode.md
       - 核心概念:
           - 为什么是 EvoFlow: user/explanation/why-evoflow.md
           - 生态对照（DF / 爱马仕 / Codex / 小龙虾）: user/explanation/ecosystem-comparison.md

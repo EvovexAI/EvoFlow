@@ -1363,6 +1363,14 @@ pub fn get_gateway_base_url() -> String {
     resolved_gateway_base_url()
 }
 
+/// Set the webview page zoom factor (UI zoom feature).
+#[tauri::command]
+pub fn set_webview_zoom(window: tauri::WebviewWindow, scale: f64) -> Result<(), String> {
+    window
+        .set_zoom(scale.clamp(0.5, 2.5))
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn reload_gateway(app: tauri::AppHandle) -> Result<(), String> {
     let _life = lifecycle_lock()

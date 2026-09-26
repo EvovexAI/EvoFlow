@@ -5,6 +5,7 @@ import { registerRoute, initRouter, navigate, setDefaultRoute, removeBootSplash,
 import { initShellAside, openMobileShellAside } from './components/shell-aside.js'
 import { initTheme, attachSystemThemeListener } from './lib/theme.js'
 import { initFontSizePreference } from './lib/font-size.js'
+import { initUiZoom } from './lib/ui-zoom.js'
 import { initAccentThemePreference } from './lib/accent-theme.js'
 import { initSciFiUI } from './lib/sci-fi-theme.js'
 import { initAppearanceBackground, applyBackgroundPreference } from './lib/appearance-background.js'
@@ -130,6 +131,7 @@ import './style/ef-panel-head.css'
 // 初始化主题与面板设置（SQLite evoflow_app_settings / panel.ui）
 initTheme()
 initFontSizePreference()
+initUiZoom()
 initAccentThemePreference()
 initSciFiUI()
 attachSystemThemeListener()

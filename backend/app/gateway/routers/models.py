@@ -310,9 +310,13 @@ async def invoke_configured_model(request: ModelInvokeRequest) -> ModelInvokeRes
     raw_ik = (request.invocation_kind or "").strip().lower()
     obs_ik = raw_ik if raw_ik in _ALLOWED_INVOKE_OBS_KINDS else None
     model_cfg = config.get_model_config(name) if name else (config.models[0] if config.models else None)
-    thinking = bool(request.thinking_enabled) if request.thinking_enabled is not None else False
-    if thinking and model_cfg is not None and not getattr(model_cfg, "supports_thinking", False):
-        thinking = False
+    # None = unspecified: follow the model default instead of forcing explicit off,
+    # which always-thinking models (e.g. GLM-5.3) reject with error 1210.
+    thinking: bool | None = None
+    if request.thinking_enabled is not None:
+        thinking = bool(request.thinking_enabled)
+        if thinking and model_cfg is not None and not getattr(model_cfg, "supports_thinking", False):
+            thinking = False
     try:
         model = create_chat_model(name=name, thinking_enabled=thinking, invocation_kind=obs_ik)
     except ValueError as e:

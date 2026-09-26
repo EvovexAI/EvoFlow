@@ -3,6 +3,7 @@
  */
 import { navigate, getCurrentRoute } from '../../router.js'
 import { toast } from '../toast.js'
+import { getUiZoom } from '../../lib/ui-zoom.js'
 import { showConfirm } from '../modal.js'
 import {
   formatShortcutDisplay,
@@ -133,15 +134,53 @@ function resolveEdgeCoach(st = getState()) {
   return tip
 }
 
+const XM_DOCK_MIN = 300
+const XM_DOCK_MAX = Math.min(640, Math.round(window.innerWidth * 0.7))
+
+function xmDockSavedWidth() {
+  const n = Number(localStorage.getItem('xm-dock-width') || 0)
+  return n >= XM_DOCK_MIN ? Math.min(n, XM_DOCK_MAX) : 0
+}
+
 function syncDockChrome(st = getState()) {
   const docked = !!(st.isOpen && !st.isMinimized && resolvePanelLayout(st) === 'dock')
   try {
     document.documentElement.classList.toggle('is-xm-docked', docked)
-    document.documentElement.style.setProperty('--xm-dock-width', docked ? '400px' : '0px')
+    const saved = xmDockSavedWidth()
+    document.documentElement.style.setProperty('--xm-dock-width', docked ? (saved ? saved + 'px' : '400px') : '0px')
   } catch {
     /* ignore */
   }
   syncShellXiaomiActive(docked || !!(st.isOpen && !st.isMinimized))
+}
+
+// 小V 侧栏左缘拖拽调宽（宽度持久化到 localStorage）
+function initXmDockResize(panel) {
+  if (!panel || panel.dataset.resizeInit) return
+  panel.dataset.resizeInit = '1'
+  const handle = document.createElement('div')
+  handle.className = 'xm-dock-resize'
+  handle.title = '拖拽调整宽度'
+  panel.appendChild(handle)
+  const onMove = (e) => {
+    const zoom = getUiZoom() || 1
+    const max = Math.min(640, Math.round((window.innerWidth * 0.7) / zoom))
+    const w = Math.min(Math.max((window.innerWidth - e.clientX) / zoom, XM_DOCK_MIN), max)
+    document.documentElement.style.setProperty('--xm-dock-width', w + 'px')
+  }
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+    document.body.classList.remove('xm-resizing')
+    const w = Math.round(panel.getBoundingClientRect().width)
+    if (w >= XM_DOCK_MIN) localStorage.setItem('xm-dock-width', String(w))
+  }
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    document.body.classList.add('xm-resizing')
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
 }
 
 let _root = null
@@ -2715,6 +2754,7 @@ function render() {
   } else {
     panel.classList.toggle('xm-panel--expanded', !!st.isExpanded && resolvePanelLayout(st) !== 'dock')
     panel.classList.toggle('xm-panel--dock', resolvePanelLayout(st) === 'dock')
+    initXmDockResize(panel)
     const chrome = panel.querySelector('[data-xm-chrome]')
     if (chrome) chrome.innerHTML = renderHeader(st)
     const bannerHost = panel.querySelector('[data-xm-banner]')
