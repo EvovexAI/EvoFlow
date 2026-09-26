@@ -3290,12 +3290,14 @@ function addModel(page, state, providerKey) {
     { label: '256K', value: 262144 },
     { label: '512K', value: 524288 },
     { label: '1M', value: 1048576 },
+    { label: '2M', value: 2097152 },
   ]
   const outputPresets = [
     { label: '8K', value: 8192 },
     { label: '16K', value: 16384 },
     { label: '32K', value: 32768 },
     { label: '64K', value: 65536 },
+    { label: '128K', value: 131072 },
   ]
   let presetQuickHtml = ''
   if (available.length) {
@@ -3799,12 +3801,14 @@ function editModel(page, state, providerKey, idx) {
     { label: '256K', value: 262144 },
     { label: '512K', value: 524288 },
     { label: '1M', value: 1048576 },
+    { label: '2M', value: 2097152 },
   ]
   const outputPresets = [
     { label: '8K', value: 8192 },
     { label: '16K', value: 16384 },
     { label: '32K', value: 32768 },
     { label: '64K', value: 65536 },
+    { label: '128K', value: 131072 },
   ]
   const overlay = mountModelsModalOverlay(`
     <div class="modal models-edit-modal">
@@ -4028,6 +4032,7 @@ async function probeModelConnectivity(state, providerKey, model, { skipSync = fa
     const res = await api.invokeConfiguredModel({
       model_name: configName,
       messages: [{ role: 'user', content: 'Hi' }],
+      thinking_enabled: model?.supports_thinking === true ? true : undefined,
     })
     const text = String(res?.content ?? '').trim()
     return text || '连接成功'
@@ -4062,6 +4067,7 @@ async function probeModelConnectivity(state, providerKey, model, { skipSync = fa
     const res = await api.invokeConfiguredModel({
       model_name: syncedName,
       messages: [{ role: 'user', content: 'Hi' }],
+      thinking_enabled: model?.supports_thinking === true ? true : undefined,
     })
     const text = String(res?.content ?? '').trim()
     return text || '连接成功'
