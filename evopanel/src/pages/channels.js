@@ -8,10 +8,31 @@ import {
   feishuBindingOf,
   hireAndBindFeishu,
   isFeishuHireablePublishedAgent,
-  listUnboundFeishuRoles,
   startFeishuEmployeeScan,
   unbindFeishuEmployee,
 } from '../lib/feishu-employee-bind.js'
+import {
+  imBindingOf,
+  startIMChannelScan,
+  unbindIMChannel,
+} from '../lib/im-employee-bind.js'
+
+/**
+ * Per-channel "hireable" agents — published agents that look fit to deploy
+ * but have not yet been hired as a role. Currently only Feishu keeps the
+ * extra 「部署并绑渠道」affordance because its binding storage has unique
+ * warnings (shared App ID). WeCom keeps the table simpler.
+ */
+function _hireableAgentsForChannel(channel, allAgents, hiredCodes) {
+  if (channel !== 'feishu') return []
+  return (Array.isArray(allAgents) ? allAgents : [])
+    .filter((a) => isFeishuHireablePublishedAgent(a, hiredCodes))
+    .map((a) => ({
+      kind: 'hireable',
+      code: String(a.agent_code || '').trim(),
+      name: String(a.agent_name || a.agent_code || ''),
+    }))
+}
 
 function esc(str) {
   if (!str) return ''
@@ -26,64 +47,98 @@ function _shortMono(id, keep = 14) {
 }
 
 function _bindFeishuRosterActions(body) {
-  if (!body || body.dataset.feishuRosterBound === '1') return
-  body.dataset.feishuRosterBound = '1'
+  // Legacy wrapper — 全局泛化到 _bindIMRosterActions(body, channel)。
+  _bindIMRosterActions(body, 'feishu')
+}
+
+/**
+ * Channel-aware binding roster handler.  All buttons carry
+ * ``data-im-act`` (动作) + ``data-channel`` + ``data-code`` + ``data-name`` —
+ * we fan them out per channel so the same UI works for feishu / wecom / …
+ */
+function _bindIMRosterActions(body, channelName) {
+  if (!body) return
+  const channel = String(channelName || '').toLowerCase()
+  const flag = `imRosterBound:${channel}`
+  if (body.dataset[flag] === '1') return
+  body.dataset[flag] = '1'
+
+  const chLabel = channel === 'wecom' ? '企业微信' : channel === 'dingtalk' ? '钉钉' : channel === 'weixin' ? '微信' : '飞书'
+  const hireConfirmMsg = (name) =>
+    `将「${name}」部署为员工并扫码绑定${chLabel}？\n\n绑定后把该机器人拉进同事所在群，即可协作。`
+  const unbindConfirmMsg = (name) =>
+    `确定解除「${name}」的${chLabel}机器人绑定？\n\n解绑后该渠道侧将无法再对话到此员工。`
+
   body.addEventListener('click', (e) => {
-    const btn = e.target instanceof Element ? e.target.closest('[data-feishu-act]') : null
+    const btn = e.target instanceof Element ? e.target.closest('[data-im-act]') : null
     if (!btn) return
-    const act = btn.getAttribute('data-feishu-act') || ''
+    const act = btn.getAttribute('data-im-act') || ''
+    const ch = String(btn.getAttribute('data-channel') || channel).toLowerCase()
     const code = String(btn.getAttribute('data-code') || '').trim()
     const name = String(btn.getAttribute('data-name') || code).trim() || code
-    if (act === 'bind' && code) {
-      void startFeishuEmployeeScan(code, {
-        roleName: name,
-        onBound: () => void refreshFeishuBindingsUi('feishu'),
-      })
+    if (!code) return
+    const refresh = () => {
+      void refreshIMBindingsUi(ch)
+    }
+    if (act === 'bind') {
+      if (ch === 'feishu') {
+        void startFeishuEmployeeScan(code, { roleName: name, onBound: refresh })
+      } else {
+        // wecom / 其他渠道都走通用 IM 扫码流（im-employee-bind.js 已支持）。
+        void startIMChannelScan({ channel: ch, agentCode: code, roleName: name, onBound: refresh })
+      }
       return
     }
-    if (act === 'hire-bind' && code) {
+    if (act === 'hire-bind') {
       void (async () => {
-        const ok = await showConfirm(
-          `将「${name}」部署为员工并扫码绑定飞书？\n\n绑定后把该机器人拉进同事所在群，即可协作。`,
-        )
+        const ok = await showConfirm(hireConfirmMsg(name))
         if (!ok) return
-        await hireAndBindFeishu(code, {
-          roleName: name,
-          onBound: () => void refreshFeishuBindingsUi('feishu'),
-        })
+        if (ch === 'feishu') {
+          await hireAndBindFeishu(code, { roleName: name, onBound: refresh })
+        } else {
+          await startIMChannelScan({ channel: ch, agentCode: code, roleName: name, onBound: refresh })
+        }
       })()
       return
     }
-    if (act === 'unbind' && code) {
+    if (act === 'unbind') {
       void (async () => {
-        const ok = await showConfirm(
-          `确定解除「${name}」的飞书机器人绑定？\n\n解绑后飞书侧将无法再对话到此员工。`,
-        )
+        const ok = await showConfirm(unbindConfirmMsg(name))
         if (!ok) return
-        await unbindFeishuEmployee(code, {
-          onUnbound: () => void refreshFeishuBindingsUi('feishu'),
-        })
+        if (ch === 'feishu') {
+          await unbindFeishuEmployee(code, { onUnbound: refresh })
+        } else {
+          await unbindIMChannel(ch, code, { onUnbound: refresh })
+        }
       })()
+      return
     }
   })
 }
 
-/** 飞书：员工/上架智能体协作名册（可扫码绑定、部署并绑）。 */
-async function refreshFeishuBindingsUi(channelName) {
+/**
+ * 统一「岗位机器人名册」renderer。feishu / wecom 都走同一逻辑；
+ * feishu 保留「与主机器人共享 App ID」警示 + 「部署并绑渠道」按钮，
+ * wecom / 其他渠道的表格保持简洁。
+ */
+async function refreshIMBindingsUi(channelName) {
+  const ch = String(channelName || '').toLowerCase()
   const pane = document.getElementById('im-bindings-pane')
-  const body = document.getElementById('feishu-bindings-body')
+  // 总是渲染指定 channel 的 panel；面板本身的显隐由 wiring（点击 tab / 切换渠道）控制。
+  const panel = document.getElementById(`${ch}-bindings-panel`)
+  const body = document.getElementById(`${ch}-bindings-body`)
   if (!body) return
-  if (channelName !== 'feishu') {
-    // 非飞书：隐藏整个名册 pane（当前仅飞书有名册能力）
+  if (!['feishu', 'wecom'].includes(ch)) {
+    if (panel) panel.style.display = 'none'
     if (pane) pane.style.display = 'none'
     return
   }
-  // 飞书：渲染名册内容；pane 显隐由「岗位机器人名册」tab 切换控制，这里不强制显示
+
   body.innerHTML = '<p class="im-field-hint" style="margin:0">加载中…</p>'
   try {
     const [rolesData, configData, agents] = await Promise.all([
       api.proactiveListRoles().catch(() => null),
-      api.getChannelConfig('feishu').catch(() => null),
+      api.getChannelConfig(ch).catch(() => null),
       api.listAgents().catch(() => []),
     ])
     const roles = Array.isArray(rolesData?.roles) ? rolesData.roles : []
@@ -91,7 +146,8 @@ async function refreshFeishuBindingsUi(channelName) {
     const accounts = accountsRaw && typeof accountsRaw === 'object' && !Array.isArray(accountsRaw)
       ? accountsRaw
       : {}
-    const primaryAppId = String(configData?.config?.app_id || '').trim()
+    const credentialField = ch === 'wecom' ? 'bot_id' : 'app_id'
+    const primaryCredential = String(configData?.config?.[credentialField] || '').trim()
     const hiredCodes = new Set(
       roles.map((r) => String(r?.agent_code || '').trim()).filter(Boolean),
     )
@@ -101,35 +157,37 @@ async function refreshFeishuBindingsUi(channelName) {
       const code = String(role?.agent_code || '').trim()
       if (!code) continue
       if (String(role?.status || '').toLowerCase() === 'archived') continue
-      const binding = feishuBindingOf(role)
+      const binding = ch === 'feishu' ? feishuBindingOf(role) : imBindingOf(role, ch)
       const acc = accounts[code] && typeof accounts[code] === 'object' ? accounts[code] : null
       employeeRows.push({
         kind: 'employee',
         code,
         name: String(role.role_name || code),
-        bound: binding.bound,
-        appId: String(binding.app_id || acc?.app_id || '').trim(),
-        openId: String(binding.open_id || acc?.open_id || '').trim(),
-        boundAt: binding.bound_at,
+        bound: Boolean(binding && binding.bound),
+        appId:
+          ch === 'feishu'
+            ? String(binding.app_id || acc?.app_id || '').trim()
+            : String(acc?.bot_id || '').trim(),
+        openId:
+          ch === 'feishu' ? String(binding.open_id || acc?.open_id || '').trim() : '',
+        boundAt:
+          ch === 'feishu'
+            ? String(binding.bound_at || '')
+            : String(binding.bound_at || '').trim(),
         inChannel: Boolean(acc),
       })
     }
 
-    const hireable = (Array.isArray(agents) ? agents : [])
-      .filter((a) => isFeishuHireablePublishedAgent(a, hiredCodes))
-      .map((a) => {
-        const code = String(a.agent_code || '').trim()
-        return {
-          kind: 'hireable',
-          code,
-          name: String(a.agent_name || code),
-          bound: false,
-          appId: '',
-          openId: '',
-          boundAt: '',
-          inChannel: false,
-        }
-      })
+    const hireable = _hireableAgentsForChannel(ch, agents, hiredCodes).map((r) => ({
+      kind: 'hireable',
+      code: r.code,
+      name: r.name,
+      bound: false,
+      appId: '',
+      openId: '',
+      boundAt: '',
+      inChannel: false,
+    }))
 
     const boundRows = employeeRows.filter((r) => r.bound)
     const unboundRows = employeeRows.filter((r) => !r.bound)
@@ -144,37 +202,49 @@ async function refreshFeishuBindingsUi(channelName) {
         code,
         name: String(acc.name || code),
         bound: true,
-        appId: String(acc.app_id || '').trim(),
-        openId: String(acc.open_id || '').trim(),
+        appId: String(acc[credentialField] || '').trim(),
+        openId: '',
         boundAt: '',
         inChannel: true,
       })
     }
 
     let html = ''
-    html += '<div class="im-bindings-howto">'
-    html += '<div class="im-bindings-howto-title">操作指南（给你配，不是给同事配）</div>'
-    html += FEISHU_COLLAB_HOWTO_HTML
-    html += '</div>'
+    if (ch === 'feishu') {
+      html += '<div class="im-bindings-howto">'
+      html += '<div class="im-bindings-howto-title">操作指南（给你配，不是给同事配）</div>'
+      html += FEISHU_COLLAB_HOWTO_HTML
+      html += '</div>'
+    } else if (ch === 'wecom') {
+      html += '<div class="im-bindings-howto">'
+      html += '<div class="im-bindings-howto-title">操作指南（企业微信 · AI Bot）</div>'
+      html +=
+        '<ol style="margin:8px 0 0;padding-left:20px;line-height:1.7">'
+        + '<li><strong>你来配</strong>：消息渠道 → 企业微信 → 下方名册，给每个岗位「扫码绑定」。每岗会创建<strong>专属</strong> AI 机器人；不同员工的机器人互不影响。</li>'
+        + '<li><strong>拉进群</strong>：打开同事所在企业微信群 → 右上角 ··· → 群机器人 → 添加机器人 → 把刚绑的<strong>岗位机器人</strong>都加进同一个群（不同岗位不同机器人）。</li>'
+        + '<li><strong>同事只会这一句</strong>：在群里 <code>@岗位名 帮我……</code>，消息会按 bot 路由到对应岗位智能体。</li>'
+        + '</ol>'
+      html += '</div>'
+    }
 
-    // Diagnose primary vs employee bots (shared App ID = historical bootstrap smell)
+    const credentialLabel = ch === 'wecom' ? 'Bot ID' : 'App ID'
     const sharedWithPrimary = boundRows.filter(
-      (r) => r.appId && primaryAppId && r.appId === primaryAppId,
+      (r) => r.appId && primaryCredential && r.appId === primaryCredential,
     )
     const dedicated = boundRows.filter(
-      (r) => r.appId && (!primaryAppId || r.appId !== primaryAppId),
+      (r) => r.appId && (!primaryCredential || r.appId !== primaryCredential),
     )
     html += '<div class="im-bindings-summary">'
-    html += `<span>主机器人 App ID：<code title="${esc(primaryAppId)}">${esc(_shortMono(primaryAppId) || '（未配置）')}</code></span>`
+    html += `<span>主机器人 ${credentialLabel}：<code title="${esc(primaryCredential)}">${esc(_shortMono(primaryCredential) || '（未配置）')}</code></span>`
     html += `<span>已绑定 ${boundRows.length} · 专属 ${dedicated.length} · 未绑定 ${unboundCount}</span>`
     if (hireable.length) html += `<span>可部署 ${hireable.length}</span>`
     if (orphans.length) html += `<span>仅通道账号 ${orphans.length}</span>`
     html += '</div>'
-    if (!primaryAppId && boundRows.length) {
+    if (ch === 'feishu' && !primaryCredential && boundRows.length) {
       html +=
         '<div class="im-bindings-warn" role="status">尚未配置右上角「个人助理主机器人」。当前仅有岗位专属机器人；入站会按岗位 App 路由，建议仍用右上角扫码配一只主机器人（与岗位 App ID 不同）。</div>'
     }
-    if (sharedWithPrimary.length) {
+    if (ch === 'feishu' && sharedWithPrimary.length) {
       const names = sharedWithPrimary.map((r) => r.name).join('、')
       html += `<div class="im-bindings-warn im-bindings-warn--bad" role="status">以下岗位的 App ID 与主机器人相同（${esc(names)}）：看起来像「绑到主机器人」。请解绑后在本表重新「扫码绑定」创建<strong>专属</strong>应用，或确认群里 @ 的是岗位机器人而非主机器人。</div>`
     }
@@ -182,40 +252,41 @@ async function refreshFeishuBindingsUi(channelName) {
     const allRows = [...unboundRows, ...hireable, ...boundRows, ...orphans]
     if (!allRows.length) {
       html +=
-        '<p class="im-field-hint" style="margin:0">暂无在岗员工。请先在「智能体」部署智能体，或点下方「部署并绑飞书」。本页右上角扫码仅配置全局主机器人（个人助理）。</p>'
+        '<p class="im-field-hint" style="margin:0">暂无在岗员工。请先在「智能体」部署智能体，或点下方对应按钮「部署并绑」。</p>'
       body.innerHTML = html
-      _bindFeishuRosterActions(body)
+      _bindIMRosterActions(body, ch)
       return
     }
 
     html += '<div class="im-bindings-table-wrap"><table class="im-bindings-table">'
-    html += '<thead><tr><th>岗位 / 智能体</th><th>状态</th><th>App ID</th><th>专属</th><th>操作</th></tr></thead><tbody>'
+    html += `<thead><tr><th>岗位 / 智能体</th><th>状态</th><th>${credentialLabel}</th><th>专属</th><th>操作</th></tr></thead><tbody>`
     for (const row of allRows) {
       const title = `${row.name} (${row.code})`
       let statusHtml = ''
       let actionHtml = '—'
       if (row.kind === 'hireable') {
         statusHtml = '<span class="im-bindings-badge im-bindings-badge--warn">未部署</span>'
-        actionHtml = `<button type="button" class="btn btn-sm btn-primary" data-feishu-act="hire-bind" data-code="${esc(row.code)}" data-name="${esc(row.name)}">部署并绑飞书</button>`
+        const chipLabel = ch === 'wecom' ? '企业微信' : '飞书'
+        actionHtml = `<button type="button" class="btn btn-sm btn-primary" data-im-act="hire-bind" data-channel="${esc(ch)}" data-code="${esc(row.code)}" data-name="${esc(row.name)}">部署并绑${esc(chipLabel)}</button>`
       } else if (row.kind === 'orphan') {
         statusHtml = '<span class="im-bindings-badge">仅通道</span>'
       } else if (row.bound) {
         statusHtml = row.inChannel
           ? '<span class="im-bindings-badge im-bindings-badge--ok">已绑定</span>'
           : '<span class="im-bindings-badge im-bindings-badge--warn">未同步</span>'
-        actionHtml = `<button type="button" class="btn btn-sm btn-outline" data-feishu-act="unbind" data-code="${esc(row.code)}" data-name="${esc(row.name)}">解绑</button>`
+        actionHtml = `<button type="button" class="btn btn-sm btn-outline" data-im-act="unbind" data-channel="${esc(ch)}" data-code="${esc(row.code)}" data-name="${esc(row.name)}">解绑</button>`
       } else {
         statusHtml = '<span class="im-bindings-badge im-bindings-badge--warn">未绑定</span>'
-        actionHtml = `<button type="button" class="btn btn-sm btn-primary" data-feishu-act="bind" data-code="${esc(row.code)}" data-name="${esc(row.name)}">扫码绑定</button>`
+        actionHtml = `<button type="button" class="btn btn-sm btn-primary" data-im-act="bind" data-channel="${esc(ch)}" data-code="${esc(row.code)}" data-name="${esc(row.name)}">扫码绑定</button>`
       }
       let dedicatedHtml = '—'
       if (row.bound && row.appId) {
-        if (primaryAppId && row.appId === primaryAppId) {
+        if (primaryCredential && row.appId === primaryCredential && ch === 'feishu') {
           dedicatedHtml =
             '<span class="im-bindings-badge im-bindings-badge--warn" title="与主机器人同一 App ID">与主相同</span>'
         } else {
           dedicatedHtml =
-            '<span class="im-bindings-badge im-bindings-badge--ok" title="独立 App，群里请 @ 此机器人">专属</span>'
+            '<span class="im-bindings-badge im-bindings-badge--ok" title="独立凭证，群里请 @ 此机器人">专属</span>'
         }
       }
       html += '<tr>'
@@ -229,22 +300,22 @@ async function refreshFeishuBindingsUi(channelName) {
     }
     html += '</tbody></table></div>'
 
-    const firstUnbound = listUnboundFeishuRoles(roles)[0]
-    if (firstUnbound || hireable.length) {
+    const firstUnbound = unboundRows[0]
+    if (firstUnbound && ch === 'feishu') {
       html += '<div class="im-bindings-footer">'
-      if (firstUnbound) {
-        const n = String(firstUnbound.role_name || firstUnbound.agent_code || '')
-        html += `<button type="button" class="btn btn-sm btn-primary" data-feishu-act="bind" data-code="${esc(firstUnbound.agent_code)}" data-name="${esc(n)}">继续绑定未绑岗位</button>`
-      }
+      html += `<button type="button" class="btn btn-sm btn-primary" data-im-act="bind" data-channel="${esc(ch)}" data-code="${esc(firstUnbound.code)}" data-name="${esc(firstUnbound.name)}">继续绑定未绑岗位</button>`
       html += '</div>'
     }
 
     body.innerHTML = html
-    _bindFeishuRosterActions(body)
+    _bindIMRosterActions(body, ch)
   } catch (e) {
     body.innerHTML = `<p class="im-field-hint" style="margin:0">无法加载绑定关系：${esc(String(e?.message || e))}</p>`
   }
 }
+
+// 旧名字保留 — 内部已泛化为 refreshIMBindingsUi。
+const refreshFeishuBindingsUi = (selName) => refreshIMBindingsUi('feishu')
 
 /** 飞书：展示网关记录的会话 chat_id（入站会话变化会更新；config 可固定覆盖），便于确认是否已提取。 */
 async function refreshFeishuInboundChatIdUi(channelName) {
@@ -520,9 +591,9 @@ function renderChannels(page, data) {
 
   // Form
   // Tab bar: 基础设置 / 岗位机器人名册（名册仅含多岗位机器人能力的平台显示，当前为飞书）
-  html += '<div class="im-tabs" id="im-tabs-bar"' + (selName === 'feishu' ? '' : ' style="display:none"') + '>'
+  html += '<div class="im-tabs" id="im-tabs-bar"' + (selName === 'feishu' || selName === 'wecom' ? '' : ' style="display:none"') + '>'
   html += '<button type="button" class="im-tab im-tab--active" data-im-tab="base">\u57fa\u7840\u8bbe\u7f6e</button>'
-  html += '<button type="button" class="im-tab" data-im-tab="bindings"' + (selName === 'feishu' ? '' : ' style="display:none"') + '>\u5c97\u4f4d\u673a\u5668\u4eba\u540d\u518c</button>'
+  html += '<button type="button" class="im-tab" data-im-tab="bindings"' + (selName === 'feishu' || selName === 'wecom' ? '' : ' style="display:none"') + '>\u5c97\u4f4d\u673a\u5668\u4eba\u540d\u518c</button>'
   html += '</div>'
 
   html += '<form class="im-form" id="im-config-form" data-channel="' + esc(selName) + '">'
@@ -538,7 +609,9 @@ function renderChannels(page, data) {
   html += '</div>'
   html += '</form>'
 
-  // 名册 pane（「岗位机器人名册」tab 内容；默认隐藏，由 tab 切换显示）
+  // 名册 pane（「岗位机器人名册」tab 内容；默认隐藏，由 tab 切换显示）。
+  // feishu / wecom 各自一个 panel，复用同一份样式 class（.im-feishu-bindings 是历史 class name，
+  // 不改名以免破坏既有 CSS）。
   html += '<div class="im-bindings-pane" id="im-bindings-pane" style="display:none">'
   html += '<div class="im-field-group im-feishu-bindings" id="feishu-bindings-panel">'
   html += '<div class="im-bindings-head">'
@@ -548,6 +621,15 @@ function renderChannels(page, data) {
   html +=
     '<p class="im-field-hint" style="margin:0">\u53f3\u4e0a\u89d2\u300c\u626b\u7801\u7ed1\u5b9a\u300d= \u4e2a\u4eba\u52a9\u7406\u4e3b\u673a\u5668\u4eba\u3002\u4e0b\u65b9\u540d\u518c = \u5404\u5c97\u4f4d\u4e13\u5c5e\u673a\u5668\u4eba\u3002\u62c9\u7fa4\u4e0e\u540c\u4e8b\u7528\u6cd5\u89c1\u4e0b\u65b9\u64cd\u4f5c\u6307\u5357\u3002</p>'
   html += '<div id="feishu-bindings-body" class="im-bindings-body" aria-live="polite">\u2014</div>'
+  html += '</div>'
+  html += '<div class="im-field-group im-feishu-bindings" id="wecom-bindings-panel">'
+  html += '<div class="im-bindings-head">'
+  html += '<label class="im-label" style="margin:0">\u4e0a\u5c97\u667a\u80fd\u4f53 \u00b7 \u4f01\u4e1a\u5fae\u4fe1\u534f\u4f5c</label>'
+  html += '<button type="button" class="btn btn-sm btn-outline" id="wecom-bindings-refresh">\u5237\u65b0</button>'
+  html += '</div>'
+  html +=
+    '<p class="im-field-hint" style="margin:0">\u53f3\u4e0a\u89d2\u300c\u626b\u7801\u7ed1\u5b9a\u300d= \u4e2a\u4eba\u52a9\u7406\u4e3b\u673a\u5668\u4eba\uff08\u4f01\u4e1a\u5fae\u4fe1\u9ed8\u8ba4\u5165\u53e3\uff09\u3002\u4e0b\u65b9\u540d\u518c = \u5404\u5c97\u4f4d\u4e13\u5c5e AI Bot\uff0c\u6bcf\u5458\u5de5\u72ec\u7acb\u3002\u62c9\u5230\u4e0d\u540c\u4f01\u4e1a\u5fae\u4fe1\u7fa4\u91cc\u5c31\u80fd\u8ba9\u5bf9\u5e94\u5c97\u4f4d\u5904\u7406\u3002</p>'
+  html += '<div id="wecom-bindings-body" class="im-bindings-body" aria-live="polite">\u2014</div>'
   html += '</div>'
   html += '</div>'
   html += '</main></div>'
@@ -571,16 +653,6 @@ function renderChannels(page, data) {
   html += '<div id="weixin-scan-qr-wrap" class="im-scan-qr-wrap"><div id="weixin-scan-loading">加载中...</div></div>'
   html += '<p id="weixin-scan-hint" class="im-scan-hint">使用手机微信扫描下方二维码</p>'
   html += '<div id="weixin-scan-status" class="im-scan-status" hidden></div>'
-  html += '</div></div></div>'
-
-  html += '<div class="im-scan-modal" id="wecom-scan-modal" hidden>'
-  html += '<div class="im-scan-overlay" id="wecom-scan-overlay"></div>'
-  html += '<div class="im-scan-dialog">'
-  html += '<div class="im-scan-header"><strong>企微扫码绑定（AI Bot）</strong><button type="button" class="im-scan-close" id="wecom-scan-close" aria-label="关闭">&times;</button></div>'
-  html += '<div class="im-scan-body">'
-  html += '<div id="wecom-scan-qr-wrap" class="im-scan-qr-wrap"><div id="wecom-scan-loading">加载中...</div></div>'
-  html += '<p id="wecom-scan-hint" class="im-scan-hint">使用企业微信扫描下方二维码</p>'
-  html += '<div id="wecom-scan-status" class="im-scan-status" hidden></div>'
   html += '</div></div></div>'
 
   html += '<div class="im-scan-modal" id="dingtalk-scan-modal" hidden>'
@@ -607,9 +679,21 @@ function renderChannels(page, data) {
   syncImCredentialUi(selName)
   loadChannelConfig(selName)
   void refreshFeishuInboundChatIdUi(selName)
-  void refreshFeishuBindingsUi(selName)
+  // 名册：每个有员工绑定能力的 channel 都画自己的 panel（feishu / wecom）。
+  // panel 显隐：当前 selName 对应的 panel 显示，另一个 panel 隐藏（避免「在飞书 tab 看见 wecom」）。
+  const showPanel = document.getElementById(`${selName}-bindings-panel`)
+  const hidePanel = document.getElementById(`${selName === 'wecom' ? 'feishu' : 'wecom'}-bindings-panel`)
+  if (showPanel) showPanel.style.display = ''
+  if (hidePanel) hidePanel.style.display = 'none'
+  // 两侧都刷：用户后续切 tab / 切渠道都能立即看到最新数据。
+  void refreshIMBindingsUi('feishu')
+  void refreshIMBindingsUi('wecom')
+
   contentEl.querySelector('#feishu-bindings-refresh')?.addEventListener('click', () => {
-    void refreshFeishuBindingsUi('feishu')
+    void refreshIMBindingsUi('feishu')
+  })
+  contentEl.querySelector('#wecom-bindings-refresh')?.addEventListener('click', () => {
+    void refreshIMBindingsUi('wecom')
   })
 
   // Tab 切换：基础设置 / 岗位机器人名册
@@ -624,8 +708,9 @@ function renderChannels(page, data) {
       if (target === 'bindings') {
         if (f) f.style.display = 'none'
         if (pane) pane.style.display = ''
-        // 进入名册 tab 时刷新内容
-        void refreshFeishuBindingsUi('feishu')
+        // 进入名册 tab 时刷新当前渠道的内容
+        if (selName === 'wecom') void refreshIMBindingsUi('wecom')
+        else void refreshIMBindingsUi('feishu')
       } else {
         if (f) f.style.display = ''
         if (pane) pane.style.display = 'none'
