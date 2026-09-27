@@ -642,6 +642,7 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         if thread_id:
             try:
                 from evoflow.runtime.ports import publish_kb_citations as _port_publish_kb_citations
+
                 _port_publish_kb_citations(
                     thread_id=thread_id,
                     query=query,
