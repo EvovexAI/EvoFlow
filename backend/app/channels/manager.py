@@ -2024,12 +2024,6 @@ class ChannelManager:
             else:
                 response_text = "(No response from agent)"
 
-        # Surface the model used for this turn so the user can see what answered them.
-        # Reads the authoritative model from run_config.configurable (matches lead_agent).
-        try:
-        except Exception:
-            pass
-
         if send_shortcut_hint:
             response_text = await self._append_im_shortcut_hint(msg, response_text)
 
@@ -2309,11 +2303,6 @@ class ChannelManager:
 
         if send_shortcut_hint and stream_error is None and not was_cancelled:
             response_text = await self._append_im_shortcut_hint(msg, response_text)
-
-        # Surface the model used for this turn so the user can see what answered them.
-        try:
-        except Exception:
-            pass
 
         logger.info(
             "[Manager] streaming response completed: channel=%s, thread_id=%s, artifacts=%d, error=%s, cancelled=%s, publish_count=%d, skip_same=%d, skip_throttle=%d\n--- assistant ---\n%s\n---",
