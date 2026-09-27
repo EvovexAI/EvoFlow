@@ -110,9 +110,12 @@ def model_supports_vision(model_name: str | None) -> bool:
 
     name = str(model_name or "").strip()
     if not name:
+        print("[Vision] model_supports_vision: empty model name -> False", flush=True)
         return False
     mc = get_app_config().get_model_config(name)
-    return bool(mc is not None and getattr(mc, "supports_vision", False))
+    result = bool(mc is not None and getattr(mc, "supports_vision", False))
+    print(f"[Vision] model_supports_vision name={name!r} config={mc} supports_vision_attr={getattr(mc, 'supports_vision', 'MISSING')} -> {result}", flush=True)
+    return result
 
 
 def main_model_supports_vision(runtime: Any | None) -> bool:

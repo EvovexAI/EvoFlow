@@ -387,6 +387,7 @@ def _build_human_input(msg: InboundMessage) -> dict[str, Any]:
     content = msg.text or ""
     message: dict[str, Any] = {"role": "human", "content": content}
     files = list(msg.files or [])
+    has_context_files = False
     if files:
         context_files: list[dict[str, Any]] = []
         for entry in files:
@@ -416,6 +417,21 @@ def _build_human_input(msg: InboundMessage) -> dict[str, Any]:
             context_files.append(cf_entry)
         if context_files:
             message["additional_kwargs"] = {"context_files": context_files}
+            has_context_files = True
+
+    logger.info(
+        "[Manager] _build_human_input channel=%s files=%d context_files=%s text=%.50s",
+        msg.channel_name,
+        len(files),
+        has_context_files,
+        (msg.text or "")[:50],
+    )
+    if has_context_files:
+        print(
+            f"[Manager] DEBUG context_files: {message['additional_kwargs']['context_files']}",
+            file=sys.stderr,
+            flush=True,
+        )
     return {"messages": [message]}
 
 
@@ -2032,6 +2048,8 @@ class ChannelManager:
                 stream_error = None
                 custom_text = ""
             try:
+                human_input = _build_human_input(msg)
+                print(f"[Manager] DEBUG _handle_streaming_chat input: {str(human_input)[:500]}", file=sys.stderr, flush=True)
                 async for chunk in client.runs.stream(
                     active_thread_id,
                     assistant_id,

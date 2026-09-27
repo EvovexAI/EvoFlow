@@ -215,9 +215,16 @@ class ContextFilesMiddleware(AgentMiddleware[ContextFilesMiddlewareState]):
 
     def _context_files_from_message(self, message: HumanMessage) -> list[dict] | None:
         raw = (message.additional_kwargs or {}).get("context_files")
+        ak_keys = list((message.additional_kwargs or {}).keys()) if message.additional_kwargs else []
+        logger.info(
+            "[ContextFiles] _context_files_from_message: additional_kwargs keys=%s has_context_files=%s",
+            ak_keys,
+            bool(raw),
+        )
         if not isinstance(raw, list) or not raw:
             return None
         out = [x for x in raw if isinstance(x, dict) and str(x.get("path") or "").strip()]
+        logger.info("[ContextFiles] _context_files_from_message: raw=%d valid=%d", len(raw), len(out))
         return out or None
 
     def _normalize_entries(self, raw: Any) -> list[dict] | None:
@@ -229,12 +236,17 @@ class ContextFilesMiddleware(AgentMiddleware[ContextFilesMiddlewareState]):
     def _entries_for_turn(self, state: ContextFilesMiddlewareState, messages: list[BaseMessage]) -> list[dict] | None:
         stored = self._normalize_entries(state.get("context_files"))
         if stored:
+            logger.info("[ContextFiles] _entries_for_turn: found %d from state.context_files", len(stored))
             return stored
+        found = 0
         for msg in reversed(messages):
             if isinstance(msg, HumanMessage):
                 entries = self._context_files_from_message(msg)
                 if entries:
+                    logger.info("[ContextFiles] _entries_for_turn: found %d from last HumanMessage.additional_kwargs", len(entries))
                     return entries
+                found += 1
+        logger.info("[ContextFiles] _entries_for_turn: checked %d HumanMessages, no context_files found", found)
         return None
 
     def _human_text(self, message: HumanMessage) -> str:
@@ -302,14 +314,25 @@ class ContextFilesMiddleware(AgentMiddleware[ContextFilesMiddlewareState]):
     def before_model(self, state: ContextFilesMiddlewareState, runtime: Runtime) -> dict | None:
         messages = list(state.get("messages", []))
         if not messages:
+            logger.info("[ContextFiles] before_model: no messages in state")
             return None
         last = messages[-1]
         if not isinstance(last, HumanMessage):
+            logger.info("[ContextFiles] before_model: last msg is not HumanMessage type=%s", type(last).__name__)
             return None
         if self._already_injected(last):
             return None
         entries = self._entries_for_turn(state, messages)
         if not entries:
+            # Log which keys were checked so we can diagnose why entries is empty.
+            state_files = state.get("context_files")
+            last_ak = getattr(last, "additional_kwargs", None)
+            logger.info(
+                "[ContextFiles] before_model: no entries found — state.context_files=%s last.additional_kwargs=%s last.content_type=%s",
+                type(state_files).__name__ if state_files is not None else "None",
+                type(last_ak).__name__ if last_ak is not None else "None",
+                type(getattr(last, "content", None)).__name__,
+            )
             return None
 
         ctx = runtime.context or {}
