@@ -965,15 +965,33 @@ class WecomChannel(Channel):
                 return None
 
         size = len(raw)
-        content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip() or "application/octet-stream"
+        raw_content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip()
         if kind == "image":
-            ext = self._guess_extension(source_url, content_type, fallback=self._detect_image_ext(raw))
+            # WeCom image proxies on COS frequently serve ``application/octet-stream``
+            # with no helpful URL suffix; instead of trusting those lies we sniff the
+            # bytes themselves so the LLM receives an actual image/* mime type.
+            detected_ext = self._detect_image_ext(raw)
+            if raw_content_type.startswith("image/"):
+                # Trust the server only when it actually claims image/*
+                ext = self._guess_extension(source_url, raw_content_type, fallback=detected_ext)
+                content_type = raw_content_type
+            else:
+                ext = detected_ext
+                content_type = self._mime_for_ext(detected_ext, fallback="image/jpeg")
+            self._diag_log(
+                "image_content_type_resolved",
+                server_content_type=raw_content_type,
+                resolved_ext=ext,
+                resolved_mime=content_type,
+                magic_bytes_hex=raw[:8].hex(),
+                bytes=len(raw),
+            )
             try:
                 path = self._cache_bytes(raw, ext)
             except Exception as exc:
                 logger.warning("[Wecom] rejected non-image bytes from %s: %s", source_url, exc)
                 return None
-            return path, content_type or self._mime_for_ext(ext, fallback="image/jpeg"), Path(path).name, size, source_url
+            return path, content_type, Path(path).name, size, source_url
 
         filename = self._guess_filename(source_url, headers.get("content-disposition"), content_type)
         try:
