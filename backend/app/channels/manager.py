@@ -373,7 +373,11 @@ def _enrich_channel_run_context(
         run_context.setdefault("user_message", body)
 
 
-def _build_human_input(msg: InboundMessage, run_context: dict[str, Any] | None = None) -> dict[str, Any]:
+def _build_human_input(
+    msg: InboundMessage,
+    run_context: dict[str, Any] | None = None,
+    run_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build the LangGraph ``runs.wait`` / ``runs.stream`` ``input`` dict.
 
     Beyond the plain-text user turn, we forward ``InboundMessage.files`` as
@@ -424,15 +428,31 @@ def _build_human_input(msg: InboundMessage, run_context: dict[str, Any] | None =
             message["additional_kwargs"] = {"context_files": context_files}
             has_context_files = True
 
+    # The authoritative model lives in run_config.configurable.model_name (lead_agent
+    # reads it via cfg.get("model_name")). Vision fallback overrides only run_context["model_name"].
+    run_configurable = (run_config or {}).get("configurable") if isinstance(run_config, dict) else {}
+    if not isinstance(run_configurable, dict):
+        run_configurable = {}
+    run_context_dict = run_context if isinstance(run_context, dict) else {}
+    configured_model = (
+        str(run_configurable.get("model_name") or "").strip()
+        or str(run_configurable.get("model") or "").strip()
+        or None
+    )
+    vision_override_model = str(run_context_dict.get("model_name") or "").strip() or None
+    effective_model = vision_override_model or configured_model
+
     _mgr_diag(
         "build_human_input",
         channel=msg.channel_name,
         files=len(files),
         has_context_files=has_context_files,
         text_preview=(msg.text or "")[:50],
-        current_model=str((run_context or {}).get("model_name") or "").strip() or None,
-        # Record which model will be used for this turn (original or vision-fallback).
-        effective_model=str(run_context.get("model_name") if run_context else "").strip() or None,
+        configured_model=configured_model,
+        vision_override_model=vision_override_model,
+        effective_model=effective_model,
+        agent_name=str(run_context_dict.get("agent_name") or "").strip() or None,
+        account_id=str((msg.metadata or {}).get("account_id") or "").strip() or None,
     )
 
     # Vision model fallback: if the inbound carries media but the session's
@@ -1898,7 +1918,7 @@ class ChannelManager:
             (msg.text or "").strip() or "(empty)",
         )
         result: dict[str, Any] | list | None = None
-        human_input = _build_human_input(msg, run_context)
+        human_input = _build_human_input(msg, run_context, run_config)
         for attempt in range(2):
             try:
                 result = await client.runs.wait(
@@ -2004,6 +2024,24 @@ class ChannelManager:
             else:
                 response_text = "(No response from agent)"
 
+        # Surface the model used for this turn so the user can see what answered them.
+        # Reads the authoritative model from run_config.configurable (matches lead_agent).
+        try:
+            _run_cfg = run_config if isinstance(run_config, dict) else {}
+            _run_cfg_dict = _run_cfg.get("configurable") if isinstance(_run_cfg, dict) else {}
+            if not isinstance(_run_cfg_dict, dict):
+                _run_cfg_dict = {}
+            _configured = str(_run_cfg_dict.get("model_name") or _run_cfg_dict.get("model") or "").strip()
+            _rc = run_context if isinstance(run_context, dict) else {}
+            _vision_override = str(_rc.get("model_name") or "").strip()
+            _effective = _vision_override or _configured
+            if _effective:
+                # Prepend (not append) so it's the first thing the user sees —
+                # avoids getting hidden in mid-reply text.
+                response_text = f"[本轮模型: {_effective}]\n\n{response_text}"
+        except Exception:
+            pass
+
         if send_shortcut_hint:
             response_text = await self._append_im_shortcut_hint(msg, response_text)
 
@@ -2086,7 +2124,7 @@ class ChannelManager:
                 stream_error = None
                 custom_text = ""
             try:
-                human_input = _build_human_input(msg, run_context)
+                human_input = _build_human_input(msg, run_context, run_config)
                 if human_input["messages"][0].get("additional_kwargs", {}).get("context_files"):
                     logger.info(
                         "[Manager] context_files injected into run: %s",
@@ -2283,6 +2321,21 @@ class ChannelManager:
 
         if send_shortcut_hint and stream_error is None and not was_cancelled:
             response_text = await self._append_im_shortcut_hint(msg, response_text)
+
+        # Surface the model used for this turn so the user can see what answered them.
+        try:
+            _run_cfg_dict = (run_config.get("configurable") if isinstance(run_config, dict) else None) or {}
+            if not isinstance(_run_cfg_dict, dict):
+                _run_cfg_dict = {}
+            _configured = str(_run_cfg_dict.get("model_name") or _run_cfg_dict.get("model") or "").strip()
+            _rc = run_context if isinstance(run_context, dict) else {}
+            _vision_override = str(_rc.get("model_name") or "").strip()
+            _effective = _vision_override or _configured
+            if _effective and (response_text or "").strip() and stream_error is None and not was_cancelled:
+                # Prepend so it's the first thing the user sees — avoids getting hidden in mid-reply text.
+                response_text = f"[本轮模型: {_effective}]\n\n{response_text}"
+        except Exception:
+            pass
 
         logger.info(
             "[Manager] streaming response completed: channel=%s, thread_id=%s, artifacts=%d, error=%s, cancelled=%s, publish_count=%d, skip_same=%d, skip_throttle=%d\n--- assistant ---\n%s\n---",
