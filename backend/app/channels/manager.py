@@ -1257,6 +1257,21 @@ class ChannelManager:
         self._assistant_id = assistant_id
         self._default_session = _as_dict(default_session)
         self._channel_sessions = dict(channel_sessions or {})
+        # Diagnostic dump: surface what accounts/sessions the manager actually sees
+        # on cold start so per-employee routing regressions are explainable from a
+        # single log file instead of having to reproduce in a debugger.
+        try:
+            for _chname, _chcfg in self._channel_sessions.items():
+                _accts = _chcfg.get("accounts") if isinstance(_chcfg, dict) else None
+                _keys = sorted(_accts.keys()) if isinstance(_accts, dict) else []
+                _mgr_diag(
+                    "manager_session_snapshot",
+                    channel=_chname,
+                    accounts=_keys,
+                    assistant_id=_chcfg.get("assistant_id") if isinstance(_chcfg, dict) else None,
+                )
+        except Exception:
+            pass
         self._client = None  # lazy init — langgraph_sdk async client
         self._semaphore: asyncio.Semaphore | None = None
         # IM 会话级：/claude 开启后走 ``claude_code_chat`` 图（与 EvoPanel agent:claude-code 对齐）
@@ -1359,6 +1374,28 @@ class ChannelManager:
             acc_session = self._account_session(msg.channel_name, account_id)
             if acc_session:
                 channel_layer = _merge_dicts(channel_layer, acc_session)
+                _mgr_diag(
+                    "route_account_hit",
+                    channel=msg.channel_name,
+                    account_id=account_id,
+                    assistant_id=acc_session.get("assistant_id") or account_id,
+                    resolved_from=f"channels.{msg.channel_name}.accounts[{account_id}].session",
+                )
+            else:
+                _mgr_diag(
+                    "route_account_miss",
+                    channel=msg.channel_name,
+                    account_id=account_id,
+                    note="no accounts[] block; falling back to channel default",
+                )
+        elif msg.channel_name in PER_EMPLOYEE_ACCOUNT_CHANNELS and not account_id:
+            _mgr_diag(
+                "route_primary",
+                channel=msg.channel_name,
+                account_id="",
+                chat_id=msg.chat_id,
+                note="empty account_id → channel default assistant (primary bot)",
+            )
         users_layer = _as_dict(channel_layer.get("users"))
         user_layer = _as_dict(users_layer.get(msg.user_id))
         return channel_layer, user_layer

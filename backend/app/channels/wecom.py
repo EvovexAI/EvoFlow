@@ -441,6 +441,18 @@ class WecomChannel(Channel):
             if msg.type == aiohttp.WSMsgType.TEXT:
                 payload = self._parse_json(msg.data)
                 if payload:
+                    cmd = str(payload.get("cmd") or "")
+                    body = payload.get("body") if isinstance(payload.get("body"), dict) else {}
+                    chat_id_peek = str(body.get("chatid") or "")[:24]
+                    sender_peek = str((body.get("from") or {}).get("userid") or "")[:12] if isinstance(body.get("from"), dict) else ""
+                    self._diag_log(
+                        "ws_recv",
+                        cmd=cmd,
+                        account_id=self._account_id or "primary",
+                        bot_id_prefix=self._bot_id[:8],
+                        chat_id=chat_id_peek,
+                        sender=sender_peek,
+                    )
                     await self._dispatch_payload(payload)
             elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSING}:
                 raise RuntimeError("WeCom websocket closed")
@@ -645,7 +657,7 @@ class WecomChannel(Channel):
         if message_type == InboundMessageType.CHAT and not text.startswith("/") and self._text_batch_delay_seconds > 0:
             self._enqueue_text_event(event)
         else:
-            self._diag_log("publish_inbound", chat_id=event.chat_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], kind=str(message_type))
+            self._diag_log("publish_inbound", chat_id=event.chat_id, account_id=self._account_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], kind=str(message_type))
             await self.bus.publish_inbound(event)
         # Files are now owned by the manager — see metadata["_owned_temp_paths"].
         # ``release_owned_temp_paths`` is the only thing that should unlink them.
@@ -747,7 +759,7 @@ class WecomChannel(Channel):
                 len(event.text or ""),
                 len(event.files or []),
             )
-            self._diag_log("publish_inbound_batch", chat_id=event.chat_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], files=len(event.files or []))
+            self._diag_log("publish_inbound_batch", chat_id=event.chat_id, account_id=self._account_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], files=len(event.files or []))
             await self.bus.publish_inbound(event)
         finally:
             if self._pending_text_batch_tasks.get(key) is current_task:

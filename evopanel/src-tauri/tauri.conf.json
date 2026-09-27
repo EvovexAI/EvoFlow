@@ -21,7 +21,8 @@
         "minHeight": 540,
         "decorations": false,
         "resizable": true,
-        "backgroundColor": "#f8f9fb"
+        "backgroundColor": "#f8f9fb",
+        "additionalBrowserArgs": "--use-fake-ui-for-media-stream --enable-features=MediaSession"
       }
     ],
     "withGlobalTauri": true,

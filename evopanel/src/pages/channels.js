@@ -1526,15 +1526,16 @@ function updateRightPanel(name, label, icon, status) {
   }
 
   syncImCredentialUi(name)
-  // 名册（多岗位机器人列表）当前仅飞书支持。切频道时重置到「基础设置」tab：
-  // 非飞书隐藏整个 tab 栏；飞书显示 tab 栏，名册 pane 默认收起（需点「岗位机器人名册」查看）。
+  // 名册（多岗位机器人列表）支持飞书 + 企业微信。切频道时重置到「基础设置」tab：
+  // 名册支持的渠道显示 tab 栏与「岗位机器人名册」按钮；其他渠道隐藏整个 tab 栏。
+  const supportsRoster = name === 'feishu' || name === 'wecom'
   const tabBar = main.querySelector('#im-tabs-bar')
   if (tabBar) {
-    tabBar.style.display = name === 'feishu' ? '' : 'none'
+    tabBar.style.display = supportsRoster ? '' : 'none'
     tabBar.querySelectorAll('.im-tab').forEach((tb) => {
       const isBindings = tb.getAttribute('data-im-tab') === 'bindings'
       tb.classList.toggle('im-tab--active', !isBindings)
-      if (isBindings) tb.style.display = name === 'feishu' ? '' : 'none'
+      if (isBindings) tb.style.display = supportsRoster ? '' : 'none'
       else tb.style.display = ''
     })
   }
@@ -1542,11 +1543,18 @@ function updateRightPanel(name, label, icon, status) {
   if (cfgFormEl) cfgFormEl.style.display = ''
   const bindingsPane = main.querySelector('#im-bindings-pane')
   if (bindingsPane) bindingsPane.style.display = 'none'
+  // 切换名册 panel 显示：当前渠道的 panel 显示，另一个隐藏（避免「在企微 tab 看见飞书」）。
+  const showPanel = main.querySelector(`#${name}-bindings-panel`)
+  const hidePanel = main.querySelector(`#${name === 'wecom' ? 'feishu' : 'wecom'}-bindings-panel`)
+  if (showPanel) showPanel.style.display = ''
+  if (hidePanel) hidePanel.style.display = 'none'
   main.querySelector('#im-app-id').value = ''
   main.querySelector('#im-app-secret').value = ''
   loadChannelConfig(name)
   void refreshFeishuInboundChatIdUi(name)
-  void refreshFeishuBindingsUi(name)
+  // 切频道时同时刷新两侧名册数据，避免用户切 tab 才看到旧数据。
+  void refreshIMBindingsUi('feishu')
+  void refreshIMBindingsUi('wecom')
 }
 
 async function loadChannelConfig(name) {
