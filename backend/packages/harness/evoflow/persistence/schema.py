@@ -315,6 +315,27 @@ CREATE TABLE IF NOT EXISTS "evoflow_channel_configs" (
     updated_at TEXT NOT NULL
 );
 
+-- Bot-per-agent bindings (1:1). Replaces the old channels.<platform>.accounts JSON blob.
+-- Each row = one IM bot bound to one EvoFlow agent (agent_code).
+-- platform: 'wecom', 'feishu', ...
+-- agent_code: EvoFlow smart-employee code (e.g. 'customer-service')
+-- bot_id: platform-assigned bot ID
+-- bot_secret: encrypted credentials
+-- session_config: JSON snapshot of the agent's runtime session overrides
+CREATE TABLE IF NOT EXISTS "evoflow_bot_bindings" (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform         TEXT    NOT NULL,
+    bot_id           TEXT    NOT NULL,
+    bot_secret       TEXT    NOT NULL DEFAULT '',
+    agent_code       TEXT    NOT NULL,
+    workspace_root   TEXT    NOT NULL DEFAULT '',
+    session_config   TEXT    NOT NULL DEFAULT '{}',  -- JSON
+    enabled          INTEGER NOT NULL DEFAULT 1,
+    bound_at         TEXT    NOT NULL DEFAULT '',
+    updated_at       TEXT    NOT NULL DEFAULT '',
+    UNIQUE(platform, bot_id)
+);
+
 CREATE TABLE IF NOT EXISTS evoflow_channel_push_log (
             id TEXT PRIMARY KEY,
             direction TEXT NOT NULL,

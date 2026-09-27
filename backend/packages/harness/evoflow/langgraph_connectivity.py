@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 def is_langgraph_connect_error(exc: BaseException | None) -> bool:
-    """True when LangGraph SDK/HTTP could not establish a TCP connection."""
+    """True when LangGraph SDK/HTTP could not establish a TCP connection, or
+    the SDK returned 5xx because the engine is still warming up."""
     if exc is None:
         return False
     name = type(exc).__name__
@@ -25,6 +26,23 @@ def is_langgraph_connect_error(exc: BaseException | None) -> bool:
         return True
     if name in {"ConnectError", "ConnectionError", "ConnectTimeout", "PoolTimeout"}:
         return True
+    # langgraph_sdk.errors.InternalServerError raised while the in-process
+    # Starlette app is still mounting graph/agent loaders (deferred mount).
+    # The Chinese error is "Agent 引擎仍在加载，请稍后重试"; English variant
+    # can be "Agent engine is still loading" / "Please retry later".
+    if name == "InternalServerError" and ("langgraph_sdk" in mod):
+        warming_tokens = (
+            "engine is still loading",
+            "agent 引擎仍在加载",
+            "still loading",
+            "still warming",
+            "warming up",
+            "not ready",
+            "initialising",
+            "请稍后重试",
+        )
+        if any(token in msg for token in warming_tokens):
+            return True
     return any(
         token in msg
         for token in (
@@ -71,14 +89,20 @@ async def create_langgraph_thread(
     attempts: int | None = None,
     retry_delay_seconds: float | None = None,
 ) -> dict[str, Any]:
-    """Create a LangGraph thread with short retries on transient connect failures."""
+    """Create a LangGraph thread with short retries on transient connect / warmup failures.
+
+    Retries cover both TCP-level connection failures and the in-process
+    ``InternalServerError: Agent 引擎仍在加载，请稍后重试`` that the SDK
+    returns while the backend's Starlette app is still mounting its agent
+    loaders on cold start.
+    """
     max_attempts = max(
         1,
-        int(attempts if attempts is not None else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRIES", "3")),
+        int(attempts if attempts is not None else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRIES", "5")),
     )
     delay = max(
         0.1,
-        float(retry_delay_seconds if retry_delay_seconds is not None else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRY_DELAY", "1.0")),
+        float(retry_delay_seconds if retry_delay_seconds is not None else os.getenv("EVOFLOW_LANGGRAPH_CREATE_RETRY_DELAY", "2.0")),
     )
     body = dict(metadata or {})
     last_exc: BaseException | None = None
@@ -90,12 +114,13 @@ async def create_langgraph_thread(
             if not is_langgraph_connect_error(exc) or attempt + 1 >= max_attempts:
                 raise
             logger.warning(
-                "langgraph threads.create connect failed (attempt %d/%d), retry in %.1fs",
+                "langgraph threads.create transient failure (attempt %d/%d, err=%s), retrying in %.1fs",
                 attempt + 1,
                 max_attempts,
+                type(exc).__name__,
                 delay,
             )
-            await asyncio.sleep(delay * (attempt + 1))
+            await asyncio.sleep(delay)
     if last_exc is not None:
         raise last_exc
     raise RuntimeError("langgraph threads.create failed without exception")

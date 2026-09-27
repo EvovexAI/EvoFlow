@@ -56,6 +56,11 @@ class InboundMessage:
     topic_id: str | None = None
     files: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # account_id: identifies which channel instance picked up the message
+    # (e.g. "" = primary bot, "customer-service" = a per-employee bot).
+    # Echoed verbatim onto the matching OutboundMessage so the bus can route
+    # the reply back to the same instance.
+    account_id: str = ""
     created_at: float = field(default_factory=time.time)
 
 
@@ -106,6 +111,11 @@ class OutboundMessage:
     thread_ts: str | None = None
     topic_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # account_id: identifies which channel instance should receive the
+    # reply (e.g. "" = primary bot, "customer-service" = per-employee bot).
+    # Bus routes outbound via ``(channel_name, account_id)`` so replies
+    # always go to the same instance that received the inbound.
+    account_id: str = ""
     created_at: float = field(default_factory=time.time)
 
 
@@ -126,8 +136,12 @@ class MessageBus:
 
     def __init__(self) -> None:
         self._inbound_queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
-        # One handler per IM channel (feishu/weixin/…); channel restart replaces in place.
-        self._outbound_by_channel: dict[str, OutboundCallback] = {}
+        # One handler per (channel_name, account_id) tuple. Multiple IM accounts
+        # may share a channel_name (e.g. primary bot + per-employee bots both
+        # named "wecom"), and each instance must own its own callback — otherwise
+        # the last-started instance overwrites the earlier ones and replies get
+        # sent by whichever bot happens to have started last.
+        self._outbound_by_account: dict[tuple[str, str], OutboundCallback] = {}
         # Ad-hoc listeners (tests, debug taps) receive every outbound message.
         self._outbound_listeners: list[OutboundCallback] = []
 
@@ -167,14 +181,20 @@ class MessageBus:
         callback: OutboundCallback,
         *,
         channel_name: str | None = None,
+        account_id: str = "",
     ) -> None:
         """Register an outbound handler.
 
-        When ``channel_name`` is set, only one handler per channel is kept (restarts replace).
-        Without ``channel_name``, the callback receives all outbound messages (tests).
+        With ``channel_name``, the handler is keyed by ``(channel_name, account_id)``
+        so multiple channel instances (e.g. a primary bot + several per-employee
+        bots all named ``"wecom"``) each get their own callback. Restarting one
+        instance only replaces its own slot — it does NOT clobber siblings.
+
+        Without ``channel_name``, the callback receives all outbound messages
+        (tests / debug taps).
         """
         if channel_name:
-            self._outbound_by_channel[channel_name] = callback
+            self._outbound_by_account[(channel_name, account_id)] = callback
             return
         self._outbound_listeners.append(callback)
 
@@ -183,10 +203,15 @@ class MessageBus:
         callback: OutboundCallback | None = None,
         *,
         channel_name: str | None = None,
+        account_id: str = "",
     ) -> None:
-        """Remove a channel handler or an ad-hoc listener."""
+        """Remove a channel handler or an ad-hoc listener.
+
+        ``channel_name`` + ``account_id`` identify the specific slot; the
+        callback argument is unused in that path but kept for listener mode.
+        """
         if channel_name:
-            self._outbound_by_channel.pop(channel_name, None)
+            self._outbound_by_account.pop((channel_name, account_id), None)
             return
         if callback is not None:
             self._outbound_listeners = [cb for cb in self._outbound_listeners if cb is not callback]
@@ -203,20 +228,30 @@ class MessageBus:
         from app.channels.channel_io_log import log_channel_outbound
 
         log_channel_outbound(msg)
-        channel_cb = self._outbound_by_channel.get(msg.channel_name)
+        # Route by (channel_name, account_id) so the reply lands on the same
+        # channel instance that received the inbound. Empty account_id means
+        # "primary bot" and is its own slot — it no longer catches replies
+        # meant for per-employee bots.
+        key = (msg.channel_name, msg.account_id or "")
+        channel_cb = self._outbound_by_account.get(key)
         listener_count = (1 if channel_cb else 0) + len(self._outbound_listeners)
         logger.info(
-            "[Bus] outbound dispatching: channel=%s, chat_id=%s, listeners=%d, text_len=%d",
+            "[Bus] outbound dispatching: channel=%s account_id=%s chat_id=%s listeners=%d text_len=%d",
             msg.channel_name,
+            msg.account_id or "",
             msg.chat_id,
             listener_count,
             len(msg.text),
         )
         if channel_cb is not None:
-            logger.info("[Bus] invoking channel callback for %s", msg.channel_name)
+            logger.info("[Bus] invoking channel callback for %s/%s", msg.channel_name, msg.account_id or "-")
             await self._invoke_outbound_callback(channel_cb, msg)
-            logger.info("[Bus] channel callback completed for %s (text_len=%d)", msg.channel_name, len(msg.text))
+            logger.info("[Bus] channel callback completed for %s/%s (text_len=%d)", msg.channel_name, msg.account_id or "-", len(msg.text))
         else:
-            logger.warning("[Bus] no outbound callback registered for channel=%s — message dropped", msg.channel_name)
+            logger.warning(
+                "[Bus] no outbound callback registered for channel=%s account_id=%s — message dropped",
+                msg.channel_name,
+                msg.account_id or "",
+            )
         for callback in self._outbound_listeners:
             await self._invoke_outbound_callback(callback, msg)

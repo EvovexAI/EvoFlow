@@ -336,6 +336,43 @@ def channel_row_to_doc(r: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
+# --- Bot bindings (1:1 per-agent) ---
+
+
+def bot_binding_doc_to_row(
+    platform: str,
+    bot_id: str,
+    doc: dict[str, Any],
+) -> dict[str, Any]:
+    """Serialize a bot binding doc to a DB row."""
+    return {
+        "platform": str(platform or "").strip(),
+        "bot_id": str(bot_id or "").strip(),
+        "bot_secret": str(doc.get("bot_secret") or "").strip(),
+        "agent_code": str(doc.get("agent_code") or "").strip(),
+        "workspace_root": str(doc.get("workspace_root") or "").strip(),
+        "session_config": _json_dumps(doc.get("session_config") or {}),
+        "enabled": _bool_int(doc.get("enabled", True)),
+        "bound_at": str(doc.get("bound_at") or "").strip(),
+        "updated_at": str(doc.get("updated_at") or "").strip(),
+    }
+
+
+def bot_binding_row_to_doc(r: dict[str, Any]) -> dict[str, Any]:
+    """Deserialize a DB row to a bot binding doc."""
+    return {
+        "platform": r.get("platform", ""),
+        "bot_id": r.get("bot_id", ""),
+        "bot_secret": r.get("bot_secret", ""),
+        "agent_code": r.get("agent_code", ""),
+        "workspace_root": r.get("workspace_root", ""),
+        "session_config": _json_loads(r.get("session_config")),
+        "enabled": bool(r.get("enabled", 1)),
+        "bound_at": r.get("bound_at", ""),
+        "updated_at": r.get("updated_at", ""),
+    }
+
+
 # --- Agents ---
 
 _AGENT_SCALAR_KEYS = frozenset(

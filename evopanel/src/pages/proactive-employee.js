@@ -1613,13 +1613,16 @@ function renderEmployeeConfigPanels(role, {
       ),
     )}
     ${field(
-      '飞书绑定',
+      'IM 通道',
       (() => {
-        const b = feishuBindingOf(role)
-        if (b.bound) {
-          return `<span title="${esc(b.app_id)}">已绑定${b.app_id ? ` · <code>${esc(b.app_id)}</code>` : ''}</span>`
-        }
-        return '<span class="pro-patrol-warn">未绑定</span>'
+        const bound = IM_CHANNELS.filter((ch) => imBindingOf(role, ch).bound)
+        if (!bound.length) return '<span class="pro-patrol-warn">未绑定</span>'
+        return bound.map((ch) => {
+          const label = IM_CHANNEL_LABELS[ch] || ch
+          const b = imBindingOf(role, ch)
+          const suffix = b.app_id_suffix || b.bot_id_suffix || b.client_id_suffix || (b.account_id ? `…${String(b.account_id).slice(-4)}` : '')
+          return `<span>${esc(label)}${suffix ? ` · <code>${esc(suffix)}</code>` : ''}</span>`
+        }).join('、')
       })(),
     )}
     ${field(
@@ -1684,13 +1687,16 @@ function renderEmployeeConfigPanels(role, {
               ),
             )}
             ${field(
-              '飞书绑定',
+              'IM 通道',
               (() => {
-                const b = feishuBindingOf(role)
-                if (b.bound) {
-                  return `<span title="${esc(b.app_id)}">已绑定${b.app_id ? ` · <code>${esc(b.app_id)}</code>` : ''}</span>`
-                }
-                return '<span class="pro-patrol-warn">未绑定</span>'
+                const bound = IM_CHANNELS.filter((ch) => imBindingOf(role, ch).bound)
+                if (!bound.length) return '<span class="pro-patrol-warn">未绑定</span>'
+                return bound.map((ch) => {
+                  const label = IM_CHANNEL_LABELS[ch] || ch
+                  const b = imBindingOf(role, ch)
+                  const suffix = b.app_id_suffix || b.bot_id_suffix || b.client_id_suffix || (b.account_id ? `…${String(b.account_id).slice(-4)}` : '')
+                  return `<span>${esc(label)}${suffix ? ` · <code>${esc(suffix)}</code>` : ''}</span>`
+                }).join('、')
               })(),
             )}
           </div>

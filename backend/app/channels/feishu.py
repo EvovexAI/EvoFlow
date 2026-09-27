@@ -925,7 +925,12 @@ class FeishuChannel(Channel):
         self._main_loop = asyncio.get_event_loop()
 
         self._running = True
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name)
+        # Feishu multiplexes multiple app accounts through one Channel instance
+        # via ``_account_clients``; the per-account routing lives in
+        # ``_resolve_outbound_account_id``. Subscribe with account_id="" so
+        # the bus has a stable slot to dispatch to; the instance then picks
+        # the right app credentials from msg.metadata["account_id"].
+        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id="")
 
         if ws_enabled:
             # Dedicated thread: WS connect/retry must not block gateway lifespan.
@@ -1177,7 +1182,7 @@ class FeishuChannel(Channel):
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name)
+        self.bus.unsubscribe_outbound(channel_name=self.name, account_id="")
         for key in list(self._stream_state_ts):
             self._clear_stream_state(key)
         for task in list(self._background_tasks):

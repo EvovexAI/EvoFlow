@@ -1,9 +1,9 @@
 """Per-employee WeCom (Enterprise WeChat) AI Bot binding helpers.
 
 Each smart employee can QR-scan (same flow as Settings → IM) to create/bind a
-dedicated WeCom bot. Credentials live on the role ``config_json`` and are
-synced into ``channels.wecom.accounts[<agent_code>]`` so the WeCom channel
-can run multiple WebSocket clients and route inbound chat to that agent.
+dedicated WeCom bot. Credentials live in ``evoflow_bot_bindings`` (flat 1:1 table)
+so the ChannelService and ChannelManager can load session config for a bot without
+parsing a nested JSON blob.
 
 Mirrors :mod:`evoflow.proactive.feishu_binding` so the panel needs only
 parameterise ``channel`` instead of duplicating glue per platform.
@@ -11,7 +11,6 @@ parameterise ``channel`` instead of duplicating glue per platform.
 
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Any
 
@@ -19,6 +18,10 @@ from evoflow.proactive.repositories import ProactiveRepository
 from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
 
 
 def wecom_binding_public(cfg: Any) -> dict[str, Any]:
@@ -36,67 +39,55 @@ def wecom_binding_public(cfg: Any) -> dict[str, Any]:
     }
 
 
-def _channels_section() -> dict[str, Any]:
-    from evoflow.config.app_config import get_app_config
-
-    cfg = get_app_config()
-    dumped = cfg.model_dump(mode="json") if hasattr(cfg, "model_dump") else {}
-    ch = dumped.get("channels") if isinstance(dumped, dict) else None
-    if isinstance(ch, dict):
-        return copy.deepcopy(ch)
-    extra = getattr(cfg, "model_extra", None) or {}
-    nested = extra.get("channels") if isinstance(extra, dict) else None
-    if isinstance(nested, dict):
-        return copy.deepcopy(nested)
-    attr = getattr(cfg, "channels", None)
-    if isinstance(attr, dict):
-        return copy.deepcopy(attr)
-    return {}
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 
-def _persist_wecom_accounts(accounts: dict[str, Any], *, ensure_enabled: bool = True) -> None:
-    """Write ``channels.wecom.accounts`` (and optionally enable the channel).
+def _iter_existing_bindings(platform: str):
+    """Yield (agent_code, binding_doc) from the new bot_bindings table.
 
-    Invariant 1: one bot is bound to **at most one** employee. ``bot_id`` collisions
-    across multiple ``accounts[*].bot_id`` are detected by the channel service on
-    restart, but we double-check here before writing so the panel surfaces a clear
-    error instead of an opaque start failure.
+    Gracefully returns an empty iterator if the table does not exist yet
+    (migration window).
     """
-    from evoflow.config.app_config import update_channels_section_and_save
+    try:
+        from evoflow.persistence.config_repositories import list_bot_bindings
 
-    # Sanity-check 1:1 invariant before writing to SQLite.
-    seen_bot_ids: dict[str, str] = {}
-    for code, acc in accounts.items():
-        bid = str(acc.get("bot_id") or "").strip()
-        if not bid:
-            continue
-        if bid in seen_bot_ids and seen_bot_ids[bid] != code:
-            raise ValueError(
-                f"wecom.accounts.bot_id duplicated between "
-                f"{seen_bot_ids[bid]!r} and {code!r}: every bot may bind at most one employee"
-            )
-        seen_bot_ids[bid] = code
+        for row in list_bot_bindings(platform):
+            yield row.get("agent_code", ""), row
+    except Exception:
+        pass  # table may not exist during initial migration
 
-    channels = _channels_section()
-    wecom = dict(channels.get("wecom") or {})
-    wecom["accounts"] = accounts
-    if ensure_enabled and accounts:
-        wecom["enabled"] = True
-    channels["wecom"] = wecom
-    update_channels_section_and_save(channels)
 
+def _sync_binding_to_channel_service(platform: str, bot_id: str, agent_code: str, secret: str) -> None:
+    """Push the new binding into ChannelService's in-memory config so it takes effect immediately."""
     try:
         from evoflow.runtime.ports import get_channel_service
 
         service = get_channel_service()
-        if service is not None:
-            cfg = dict(service._config.get("wecom") or {})
-            cfg["accounts"] = copy.deepcopy(accounts)
-            if ensure_enabled and accounts:
-                cfg["enabled"] = True
-            service._config["wecom"] = cfg
+        if service is None:
+            return
+        cfg: dict = dict(service._config.get(platform) or {})
+        accounts: dict = dict(cfg.get("accounts") or {})
+        if agent_code not in accounts:
+            accounts[agent_code] = {}
+        accounts[agent_code].update({
+            "bot_id": bot_id,
+            "secret": secret,
+            "enabled": True,
+            "session": {"assistant_id": agent_code},
+        })
+        cfg["accounts"] = accounts
+        cfg["enabled"] = True
+        service._config[platform] = cfg
+        logger.info("[wecom_binding] in-memory sync ok: agent_code=%s bot_id=%s", agent_code, bot_id)
     except Exception:
-        logger.debug("wecom_binding: sync ChannelService memory skipped", exc_info=True)
+        logger.debug("wecom_binding: _sync_binding_to_channel_service failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Write path: sync a role→bot binding to the flat table
+# ---------------------------------------------------------------------------
 
 
 def sync_role_account_to_channel(
@@ -106,7 +97,15 @@ def sync_role_account_to_channel(
     secret: str,
     role_name: str = "",
 ) -> dict[str, Any]:
-    """Upsert ``channels.wecom.accounts[agent_code]`` for this employee bot."""
+    """Upsert the bot→agent binding in ``evoflow_bot_bindings`` (1 row per bot).
+
+    Replaces the old ``channels.wecom.accounts`` JSON blob.  The row carries the
+    bot's credentials *and* the session_config in separate columns so a single
+    SELECT can return everything ChannelService or ChannelManager needs.
+
+    Returns the canonical account dict (mirrors the old JSON shape so callers
+    that depend on the return value are not broken).
+    """
     code = str(agent_code or "").strip()
     if not code:
         raise ValueError("agent_code is required")
@@ -115,44 +114,121 @@ def sync_role_account_to_channel(
     if not bid or not sec:
         raise ValueError("bot_id and secret are required")
 
-    channels = _channels_section()
-    wecom = dict(channels.get("wecom") or {})
-    accounts = dict(wecom.get("accounts") or {}) if isinstance(wecom.get("accounts"), dict) else {}
-
-    # Reject 1:1 violation that would arise from re-using an existing bot on a new employee.
-    for existing_code, existing_acc in accounts.items():
+    # 1:1 invariant check — no other agent may claim the same bot_id.
+    for existing_code, existing_binding in _iter_existing_bindings("wecom"):
         if existing_code == code:
             continue
-        if str(existing_acc.get("bot_id") or "").strip() == bid:
+        if str(existing_binding.get("bot_id") or "").strip() == bid:
             raise ValueError(
                 f"bot_id {bid!r} is already bound to employee {existing_code!r}; "
-                f"a WeCom bot may bind to at most one employee"
+                f"a WeCom bot may bind at most one employee"
             )
 
-    accounts[code] = {
+    # Write flat table.
+    from evoflow.persistence.config_repositories import upsert_bot_binding
+
+    upsert_bot_binding(
+        platform="wecom",
+        bot_id=bid,
+        agent_code=code,
+        bot_secret=sec,
+        workspace_root="",
+        session_config={"assistant_id": code},
+        enabled=True,
+        bound_at=utc_now_iso_z(),
+    )
+
+    # Hot-sync to in-memory ChannelService config so restart is not required.
+    _sync_binding_to_channel_service("wecom", bid, code, sec)
+
+    return {
         "bot_id": bid,
         "secret": sec,
         "enabled": True,
         "name": str(role_name or code).strip() or code,
         "session": {"assistant_id": code},
     }
-    _persist_wecom_accounts(accounts, ensure_enabled=True)
-    return accounts[code]
 
 
 def remove_role_account_from_channel(agent_code: str) -> bool:
-    """Remove employee account from ``channels.wecom.accounts``."""
+    """Remove the bot→agent binding from ``evoflow_bot_bindings``."""
     code = str(agent_code or "").strip()
     if not code:
         return False
-    channels = _channels_section()
-    wecom = dict(channels.get("wecom") or {})
-    accounts = dict(wecom.get("accounts") or {}) if isinstance(wecom.get("accounts"), dict) else {}
-    if code not in accounts:
+
+    # Look up the bot_id before deleting so we can clean the in-memory config.
+    try:
+        from evoflow.persistence.config_repositories import get_bot_binding_by_agent, delete_bot_binding
+
+        binding = get_bot_binding_by_agent("wecom", code)
+        if not binding:
+            return False
+        deleted = delete_bot_binding("wecom", binding["bot_id"])
+        if deleted:
+            _remove_binding_from_channel_service("wecom", binding["bot_id"])
+        return deleted
+    except Exception:
+        logger.debug("remove_role_account_from_channel: bot_bindings path failed, trying legacy JSON", exc_info=True)
+        return _remove_legacy_json(code)
+
+
+def _remove_binding_from_channel_service(platform: str, bot_id: str) -> None:
+    """Remove the account from ChannelService's in-memory config."""
+    try:
+        from evoflow.runtime.ports import get_channel_service
+
+        service = get_channel_service()
+        if service is None:
+            return
+        cfg: dict = dict(service._config.get(platform) or {})
+        accounts: dict = dict(cfg.get("accounts") or {})
+        # Remove by bot_id lookup (we don't have agent_code here directly).
+        key_to_remove = None
+        for k, v in accounts.items():
+            if str(v.get("bot_id") or "").strip() == bot_id:
+                key_to_remove = k
+                break
+        if key_to_remove:
+            del accounts[key_to_remove]
+            cfg["accounts"] = accounts
+            service._config[platform] = cfg
+            logger.info("[wecom_binding] removed from channel service: bot_id=%s", bot_id)
+    except Exception:
+        logger.debug("wecom_binding: _remove_binding_from_channel_service failed", exc_info=True)
+
+
+# Legacy JSON removal (migration bridge — can be deleted after one stable release).
+def _remove_legacy_json(agent_code: str) -> bool:
+    """Fallback: remove from the old channels.wecom.accounts JSON blob."""
+    try:
+        from evoflow.config.app_config import update_channels_section_and_save
+
+        channels: dict = {}
+        try:
+            from evoflow.config.app_config import get_app_config
+            cfg = get_app_config()
+            dumped = cfg.model_dump(mode="json") if hasattr(cfg, "model_dump") else {}
+            ch = dumped.get("channels") if isinstance(dumped, dict) else None
+            if isinstance(ch, dict):
+                channels = ch
+        except Exception:
+            pass
+        wecom: dict = dict(channels.get("wecom") or {})
+        accounts: dict = dict(wecom.get("accounts") or {})
+        if agent_code not in accounts:
+            return False
+        del accounts[agent_code]
+        wecom["accounts"] = accounts
+        channels["wecom"] = wecom
+        update_channels_section_and_save(channels)
+        return True
+    except Exception:
         return False
-    del accounts[code]
-    _persist_wecom_accounts(accounts, ensure_enabled=bool(accounts) or bool(wecom.get("enabled")))
-    return True
+
+
+# ---------------------------------------------------------------------------
+# Channel restart
+# ---------------------------------------------------------------------------
 
 
 async def restart_wecom_channel_if_possible() -> bool:
@@ -167,6 +243,11 @@ async def restart_wecom_channel_if_possible() -> bool:
     except Exception:
         logger.warning("wecom_binding: restart wecom channel failed", exc_info=True)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Apply / unbind high-level operations
+# ---------------------------------------------------------------------------
 
 
 async def apply_registration_to_role(
@@ -185,8 +266,6 @@ async def apply_registration_to_role(
     cfg.wecom_bot_id = str(bot_id or "").strip()
     cfg.wecom_secret = str(secret or "").strip()
     cfg.wecom_bound_at = utc_now_iso_z()
-    # Reset intro flags on (re-)bind so a fresh intro is sent (when push_employee_self_intro
-    # supports WeCom in a later release).
     cfg.wecom_intro_sent_at = ""
 
     role.config = cfg

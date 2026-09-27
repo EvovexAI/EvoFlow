@@ -174,13 +174,13 @@ class DingtalkChannel(Channel):
         self._stream_client.register_callback_handler(dingtalk_stream.ChatbotMessage.TOPIC, handler)
 
         self._running = True
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name)
+        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id="")
         self._stream_task = asyncio.create_task(self._run_stream(), name="dingtalk-stream")
         logger.info("[Dingtalk] channel started (client_id=%s)", self._client_id[:8])
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name)
+        self.bus.unsubscribe_outbound(channel_name=self.name, account_id="")
 
         websocket = getattr(self._stream_client, "websocket", None) if self._stream_client else None
         if websocket is not None:

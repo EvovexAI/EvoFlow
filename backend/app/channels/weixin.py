@@ -514,7 +514,7 @@ class WeixinChannel(Channel):
         self._session = aiohttp.ClientSession(trust_env=True, connector=make_ilink_aiohttp_connector())
         self._token_store.restore(self._account_id)
         self._running = True
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name)
+        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id=self._account_id)
 
         # Start poll loop in the current event loop
         self._thread = asyncio.create_task(self._poll_loop(), name="weixin-poll")
@@ -522,7 +522,7 @@ class WeixinChannel(Channel):
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name)
+        self.bus.unsubscribe_outbound(channel_name=self.name, account_id=self._account_id)
 
         if self._thread:
             self._thread.cancel()

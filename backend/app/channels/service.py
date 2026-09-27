@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Any
 
-from app.channels.manager import DEFAULT_GATEWAY_URL, DEFAULT_LANGGRAPH_URL, ChannelManager
+from app.channels.manager import DEFAULT_GATEWAY_URL, DEFAULT_LANGGRAPH_URL, ChannelManager, PER_EMPLOYEE_ACCOUNT_CHANNELS
 from app.channels.message_bus import MessageBus
 from app.channels.store import ChannelStore
 
@@ -360,6 +360,39 @@ class ChannelService:
 
         return True
 
+    def _migrate_legacy_accounts_to_table(self, platform: str, legacy_accounts: dict[str, Any]) -> None:
+        """One-time migration: copy legacy JSON accounts → evoflow_bot_bindings table."""
+        if not legacy_accounts:
+            return
+        try:
+            from evoflow.persistence.config_repositories import upsert_bot_binding, list_bot_bindings
+
+            existing = {r["bot_id"] for r in list_bot_bindings(platform)}
+            count = 0
+            for agent_code, acc in legacy_accounts.items():
+                bid = str(acc.get("bot_id") or "").strip()
+                if not bid or bid in existing:
+                    continue
+                upsert_bot_binding(
+                    platform=platform,
+                    bot_id=bid,
+                    agent_code=str(agent_code or "").strip(),
+                    bot_secret=str(acc.get("secret") or "").strip(),
+                    workspace_root="",
+                    session_config=acc.get("session") or {},
+                    enabled=bool(acc.get("enabled", True)),
+                    bound_at="",
+                )
+                existing.add(bid)
+                count += 1
+            if count:
+                logger.info(
+                    "[ChannelService] migrated %d legacy %s account(s) to evoflow_bot_bindings",
+                    count, platform,
+                )
+        except Exception:
+            logger.exception("[ChannelService] failed to migrate legacy accounts for %s", platform)
+
     async def _start_channel(self, name: str, config: dict[str, Any]) -> bool:
         """Instantiate and start a single channel.
 
@@ -369,6 +402,10 @@ class ChannelService:
         employee agent. The primary bot (``account_id == ""``) is always
         started when ``bot_id``/``secret`` (or channel equivalent) is
         populated, even if accounts are also defined.
+
+        New per-employee channels (wecom, feishu) read accounts from
+        ``evoflow_bot_bindings`` first; legacy JSON in config is used as a
+        fallback and migrated on first read.
         """
         import_path = _CHANNEL_REGISTRY.get(name)
         if not import_path:
@@ -383,8 +420,51 @@ class ChannelService:
             logger.exception("Failed to import channel class for %s", name)
             return False
 
-        accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
         accounts: list[tuple[str, dict[str, Any]]] = []
+
+        # New path: load from evoflow_bot_bindings (flat table).
+        # Fall back to legacy JSON in config only if the table has no rows.
+        if name in PER_EMPLOYEE_ACCOUNT_CHANNELS:
+            from evoflow.persistence.config_repositories import list_bot_bindings
+
+            table_bindings = list_bot_bindings(name)
+            if table_bindings:
+                for row in table_bindings:
+                    accounts.append((row["agent_code"], {
+                        "bot_id": row["bot_id"],
+                        "secret": row["bot_secret"],
+                        "enabled": row["enabled"],
+                        "session": row.get("session_config") or {},
+                    }))
+                logger.info(
+                    "[ChannelService] %s: loaded %d bot binding(s) from evoflow_bot_bindings",
+                    name, len(accounts),
+                )
+            else:
+                # No rows in the new table yet — try legacy JSON and migrate.
+                accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
+                if isinstance(accounts_cfg, dict):
+                    for aid, entry in accounts_cfg.items():
+                        aid_str = str(aid or "").strip()
+                        if not aid_str or not isinstance(entry, dict):
+                            continue
+                        accounts.append((aid_str, entry))
+                # Migrate any legacy accounts to the new table on startup.
+                if accounts:
+                    self._migrate_legacy_accounts_to_table(name, dict(accounts_cfg or {}))
+            # Also start the primary bot if it has credentials.
+            if _channel_has_primary_credentials(name, config):
+                await self._start_channel_instance(name, channel_cls, config, account_id="", instance_key=name)
+            for aid, acc_cfg in accounts:
+                merged_cfg = _merge_account_config(name, config, acc_cfg)
+                if not _channel_has_primary_credentials(name, merged_cfg):
+                    logger.warning("Account %s on channel %s has missing credentials, skipping", aid, name)
+                    continue
+                await self._start_channel_instance(name, channel_cls, merged_cfg, account_id=aid, instance_key=f"{name}:{aid}")
+            return True
+
+        # Legacy path for channels without per-employee accounts.
+        accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
         if isinstance(accounts_cfg, dict):
             for aid, entry in accounts_cfg.items():
                 aid_str = str(aid or "").strip()

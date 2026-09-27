@@ -63,7 +63,7 @@ class SlackChannel(Channel):
         self._socket_client.socket_mode_request_listeners.append(self._on_socket_event)
 
         self._running = True
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name)
+        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id="")
 
         # Start socket mode in background thread
         asyncio.get_event_loop().run_in_executor(None, self._socket_client.connect)
@@ -71,7 +71,7 @@ class SlackChannel(Channel):
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name)
+        self.bus.unsubscribe_outbound(channel_name=self.name, account_id="")
         if self._socket_client:
             self._socket_client.close()
             self._socket_client = None

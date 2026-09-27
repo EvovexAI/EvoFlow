@@ -55,7 +55,7 @@ class TelegramChannel(Channel):
 
         self._main_loop = asyncio.get_event_loop()
         self._running = True
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name)
+        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id="")
 
         # Build the application
         app = ApplicationBuilder().token(bot_token).build()
@@ -80,7 +80,7 @@ class TelegramChannel(Channel):
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name)
+        self.bus.unsubscribe_outbound(channel_name=self.name, account_id="")
         if self._tg_loop and self._tg_loop.is_running() and not self._tg_loop.is_closed():
             fut = asyncio.run_coroutine_threadsafe(self._shutdown_polling(), self._tg_loop)
             try:

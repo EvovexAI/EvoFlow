@@ -270,6 +270,119 @@ def upsert_channel_config(platform: str, document: dict[str, Any]) -> None:
     run_db_transaction(_write)
 
 
+# --- Bot per-agent bindings (1:1) -----------------------------------------
+# Replaces channels.<platform>.accounts[<agent_code>] JSON blobs with a
+# dedicated table. Each bot = one row, fields are independent columns.
+
+
+def upsert_bot_binding(
+    platform: str,
+    bot_id: str,
+    *,
+    agent_code: str,
+    bot_secret: str = "",
+    workspace_root: str = "",
+    session_config: dict[str, Any] | None = None,
+    enabled: bool = True,
+    bound_at: str = "",
+) -> None:
+    """Insert-or-replace a bot→agent binding."""
+    from evoflow.persistence.row_mappers import bot_binding_doc_to_row
+
+    doc = {
+        "agent_code": agent_code,
+        "bot_secret": bot_secret,
+        "workspace_root": workspace_root,
+        "session_config": session_config or {},
+        "enabled": enabled,
+        "bound_at": bound_at,
+        "updated_at": utc_now_iso_z(),
+    }
+    row = bot_binding_doc_to_row(platform, bot_id, doc)
+
+    def _write(db: Any) -> None:
+        db.execute(
+            """
+            INSERT INTO evoflow_bot_bindings
+                (platform, bot_id, agent_code, bot_secret, workspace_root,
+                 session_config, enabled, bound_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(platform, bot_id) DO UPDATE SET
+                agent_code      = excluded.agent_code,
+                bot_secret      = excluded.bot_secret,
+                workspace_root  = excluded.workspace_root,
+                session_config  = excluded.session_config,
+                enabled         = excluded.enabled,
+                bound_at        = excluded.bound_at,
+                updated_at      = excluded.updated_at
+            """,
+            (
+                row["platform"],
+                row["bot_id"],
+                row["agent_code"],
+                row["bot_secret"],
+                row["workspace_root"],
+                row["session_config"],
+                row["enabled"],
+                row["bound_at"],
+                row["updated_at"],
+            ),
+        )
+
+    run_db_transaction(_write)
+
+
+def get_bot_binding(platform: str, bot_id: str) -> dict[str, Any] | None:
+    """Return one binding row, or None."""
+    from evoflow.persistence.row_mappers import bot_binding_row_to_doc
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM evoflow_bot_bindings WHERE platform=? AND bot_id=?",
+        (str(platform), str(bot_id)),
+    ).fetchone()
+    if not row:
+        return None
+    return bot_binding_row_to_doc(dict(row))
+
+
+def get_bot_binding_by_agent(platform: str, agent_code: str) -> dict[str, Any] | None:
+    """Return the binding for a given agent_code, or None."""
+    from evoflow.persistence.row_mappers import bot_binding_row_to_doc
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM evoflow_bot_bindings WHERE platform=? AND agent_code=? AND enabled=1",
+        (str(platform), str(agent_code)),
+    ).fetchone()
+    if not row:
+        return None
+    return bot_binding_row_to_doc(dict(row))
+
+
+def list_bot_bindings(platform: str) -> list[dict[str, Any]]:
+    """List all enabled bindings for a platform."""
+    from evoflow.persistence.row_mappers import bot_binding_row_to_doc
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM evoflow_bot_bindings WHERE platform=? AND enabled=1 ORDER BY id",
+        (str(platform),),
+    ).fetchall()
+    return [bot_binding_row_to_doc(dict(r)) for r in rows]
+
+
+def delete_bot_binding(platform: str, bot_id: str) -> bool:
+    """Hard-delete a binding. Returns True if a row was deleted."""
+    conn = get_db()
+    cur = conn.execute(
+        "DELETE FROM evoflow_bot_bindings WHERE platform=? AND bot_id=?",
+        (str(platform), str(bot_id)),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 # --- MCP / skills registry ---
 
 

@@ -316,7 +316,10 @@ class WecomChannel(Channel):
 
         self._session = aiohttp.ClientSession(trust_env=True)
         self._running = True
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name)
+        # Route outbound callbacks by (channel_name, account_id) so this bot
+        # instance only receives its own replies — siblings with different
+        # account_ids are independent slots in MessageBus.
+        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id=self._account_id)
         self._diag_log("start_ok", bot_id=self._bot_id[:8], ws_url=self._ws_url, account_id=self._account_id)
 
         # WebSocket connect/retry runs in a background task — never blocks gateway boot.
@@ -326,7 +329,7 @@ class WecomChannel(Channel):
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name)
+        self.bus.unsubscribe_outbound(channel_name=self.name, account_id=self._account_id)
 
         if self._listen_task:
             self._listen_task.cancel()
@@ -441,18 +444,6 @@ class WecomChannel(Channel):
             if msg.type == aiohttp.WSMsgType.TEXT:
                 payload = self._parse_json(msg.data)
                 if payload:
-                    cmd = str(payload.get("cmd") or "")
-                    body = payload.get("body") if isinstance(payload.get("body"), dict) else {}
-                    chat_id_peek = str(body.get("chatid") or "")[:24]
-                    sender_peek = str((body.get("from") or {}).get("userid") or "")[:12] if isinstance(body.get("from"), dict) else ""
-                    self._diag_log(
-                        "ws_recv",
-                        cmd=cmd,
-                        account_id=self._account_id or "primary",
-                        bot_id_prefix=self._bot_id[:8],
-                        chat_id=chat_id_peek,
-                        sender=sender_peek,
-                    )
                     await self._dispatch_payload(payload)
             elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSING}:
                 raise RuntimeError("WeCom websocket closed")
@@ -627,11 +618,12 @@ class WecomChannel(Channel):
             topic_id=None,
             files=list(media_descriptors),
             # account_id is stamped on every inbound so ChannelManager can route
-            # per-employee bot messages to the right proactive role. Empty string
+            # per-employee bot messages to the right proactive role, AND so the
+            # bus can route the reply back to THIS channel instance. Empty string
             # means "primary bot, no employee bound" → default assistant_id.
+            account_id=self._account_id,
             metadata={
                 "chat_type": "group" if is_group else "dm",
-                "account_id": self._account_id,
                 # manager calls ``release_owned_temp_paths`` after the agent
                 # finishes so the file is alive when ContextFilesMiddleware
                 # reads it.  Without this, ``_cleanup_temp_paths`` would
@@ -657,7 +649,21 @@ class WecomChannel(Channel):
         if message_type == InboundMessageType.CHAT and not text.startswith("/") and self._text_batch_delay_seconds > 0:
             self._enqueue_text_event(event)
         else:
-            self._diag_log("publish_inbound", chat_id=event.chat_id, account_id=self._account_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], kind=str(message_type))
+            # account_id + bot_id identify which channel instance picked up
+            # this callback. Stamping them here means a tail of wecom-diag.log
+            # always tells you exactly which bot received and routed the
+            # message — without it the next layer can't distinguish a primary
+            # bot callback from a per-employee bot callback that happens to
+            # share the same chat_id namespace.
+            self._diag_log(
+                "publish_inbound",
+                account_id=self._account_id,
+                bot_id=self._bot_id[:8] if self._bot_id else "",
+                chat_id=event.chat_id,
+                text_len=len(event.text or ""),
+                text_preview=(event.text or "")[:300],
+                kind=str(message_type),
+            )
             await self.bus.publish_inbound(event)
         # Files are now owned by the manager — see metadata["_owned_temp_paths"].
         # ``release_owned_temp_paths`` is the only thing that should unlink them.
@@ -759,7 +765,15 @@ class WecomChannel(Channel):
                 len(event.text or ""),
                 len(event.files or []),
             )
-            self._diag_log("publish_inbound_batch", chat_id=event.chat_id, account_id=self._account_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], files=len(event.files or []))
+            self._diag_log(
+                "publish_inbound_batch",
+                account_id=self._account_id,
+                bot_id=self._bot_id[:8] if self._bot_id else "",
+                chat_id=event.chat_id,
+                text_len=len(event.text or ""),
+                text_preview=(event.text or "")[:300],
+                files=len(event.files or []),
+            )
             await self.bus.publish_inbound(event)
         finally:
             if self._pending_text_batch_tasks.get(key) is current_task:
@@ -1581,14 +1595,27 @@ class WecomChannel(Channel):
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send markdown to a WeCom chat via proactive ``aibot_send_msg`` / reply."""
-        self._diag_log("send_enter", chat_id=msg.chat_id, text_len=len(msg.text or ""), is_final=msg.is_final, text_preview=(msg.text or "")[:300])
+        # Always stamp account_id + bot_id on every send line so a tail of
+        # wecom-diag.log unambiguously identifies which channel instance
+        # issued the outbound — without these, the log line is ambiguous
+        # whenever two employees' bots happen to share the same chat_id
+        # or whenever the channel instance rebuilds itself.
+        self._diag_log(
+            "send_enter",
+            account_id=self._account_id,
+            bot_id=self._bot_id[:8] if self._bot_id else "",
+            chat_id=msg.chat_id,
+            text_len=len(msg.text or ""),
+            is_final=msg.is_final,
+            text_preview=(msg.text or "")[:300],
+        )
         if not msg.is_final:
-            self._diag_log("send_skip_non_final", chat_id=msg.chat_id)
+            self._diag_log("send_skip_non_final", account_id=self._account_id, bot_id=self._bot_id[:8] if self._bot_id else "", chat_id=msg.chat_id)
             return  # WeCom has no draft-streaming; only send complete messages.
 
         chat_id = msg.chat_id
         if not chat_id or not self._ws:
-            self._diag_log("send_skip_no_ws", chat_id=chat_id, ws_state="connected" if self._ws is not None else "none", running=self._running)
+            self._diag_log("send_skip_no_ws", account_id=self._account_id, bot_id=self._bot_id[:8] if self._bot_id else "", chat_id=chat_id, ws_state="connected" if self._ws is not None else "none", running=self._running)
             logger.warning("[Wecom] send skipped: chat_id=%s ws=%s running=%s", chat_id, "connected" if self._ws is not None else "none", self._running)
             return
 
@@ -1612,7 +1639,7 @@ class WecomChannel(Channel):
                     reply_req_id = cached
 
             chunks = self._split_text(text)
-            self._diag_log("send_chunks", chat_id=chat_id, chunk_count=len(chunks))
+            self._diag_log("send_chunks", account_id=self._account_id, bot_id=self._bot_id[:8] if self._bot_id else "", chat_id=chat_id, chunk_count=len(chunks), reply_req_id=reply_req_id or "")
             for chunk in chunks:
                 if reply_req_id:
                     await self._send_reply_markdown(reply_req_id, chunk)
@@ -1625,12 +1652,12 @@ class WecomChannel(Channel):
                             "markdown": {"content": chunk},
                         },
                     )
-            self._diag_log("send_done_ok", chat_id=chat_id, chunk_count=len(chunks))
+            self._diag_log("send_done_ok", account_id=self._account_id, bot_id=self._bot_id[:8] if self._bot_id else "", chat_id=chat_id, chunk_count=len(chunks))
         except TimeoutError:
-            self._diag_log("send_done_timeout", chat_id=chat_id)
+            self._diag_log("send_done_timeout", account_id=self._account_id, bot_id=self._bot_id[:8] if self._bot_id else "", chat_id=chat_id)
             logger.warning("[Wecom] timeout sending message to %s", chat_id)
         except Exception as exc:
-            self._diag_log("send_done_error", chat_id=chat_id, error=str(exc))
+            self._diag_log("send_done_error", account_id=self._account_id, bot_id=self._bot_id[:8] if self._bot_id else "", chat_id=chat_id, error=str(exc))
             logger.error("[Wecom] send failed: %s", exc)
 
     async def send_file(self, msg: OutboundMessage, attachment: ResolvedAttachment) -> bool:

@@ -927,26 +927,26 @@ function startChatWithAgent(id) {
 }
 
 function renderIMBindingsSection(role) {
-  const list = IM_CHANNELS.map((ch) => {
+  const bound = IM_CHANNELS.map((ch) => {
     const b = imBindingOf(role, ch)
+    if (!b.bound) return null
     const label = IM_CHANNEL_LABELS[ch] || ch
     const icon = IM_CHANNEL_ICONS[ch] || '💬'
-    if (!b.bound) {
-      return `<li class="role-im-row role-im-row--empty">
-        <span class="role-im-icon" aria-hidden="true">${icon}</span>
-        <span class="role-im-label">${escapeHtml(label)}</span>
-        <span class="role-im-state">未绑定</span>
-      </li>`
-    }
     const suffix = b.app_id_suffix || b.bot_id_suffix || b.client_id_suffix || (b.account_id ? `…${String(b.account_id).slice(-4)}` : '')
     return `<li class="role-im-row role-im-row--bound">
       <span class="role-im-icon" aria-hidden="true">${icon}</span>
       <span class="role-im-label">${escapeHtml(label)}</span>
       <span class="role-im-suffix">${escapeHtml(suffix || '已绑')}</span>
     </li>`
-  }).join('')
-  return `<ul class="role-im-list">${list}</ul>
-    <p class="role-im-hint">点击下方「扫码绑定 IM」按钮即可加新渠道或重新扫码。</p>`
+  }).filter(Boolean)
+
+  if (!bound.length) {
+    return `<ul class="role-im-list"><li class="role-im-row role-im-row--empty">
+      <span class="role-im-icon" aria-hidden="true">💬</span>
+      <span class="role-im-label">暂无绑定</span>
+    </li></ul>`
+  }
+  return `<ul class="role-im-list">${bound.join('')}</ul>`
 }
 
 async function connectAgentToIM(page, state, id) {

@@ -452,7 +452,7 @@ def _build_human_input(
         vision_override_model=vision_override_model,
         effective_model=effective_model,
         agent_name=str(run_context_dict.get("agent_name") or "").strip() or None,
-        account_id=str((msg.metadata or {}).get("account_id") or "").strip() or None,
+        account_id=ChannelManager._inbound_account_id(msg) or None,
     )
 
     # Vision model fallback: if the inbound carries media but the session's
@@ -1257,21 +1257,6 @@ class ChannelManager:
         self._assistant_id = assistant_id
         self._default_session = _as_dict(default_session)
         self._channel_sessions = dict(channel_sessions or {})
-        # Diagnostic dump: surface what accounts/sessions the manager actually sees
-        # on cold start so per-employee routing regressions are explainable from a
-        # single log file instead of having to reproduce in a debugger.
-        try:
-            for _chname, _chcfg in self._channel_sessions.items():
-                _accts = _chcfg.get("accounts") if isinstance(_chcfg, dict) else None
-                _keys = sorted(_accts.keys()) if isinstance(_accts, dict) else []
-                _mgr_diag(
-                    "manager_session_snapshot",
-                    channel=_chname,
-                    accounts=_keys,
-                    assistant_id=_chcfg.get("assistant_id") if isinstance(_chcfg, dict) else None,
-                )
-        except Exception:
-            pass
         self._client = None  # lazy init — langgraph_sdk async client
         self._semaphore: asyncio.Semaphore | None = None
         # IM 会话级：/claude 开启后走 ``claude_code_chat`` 图（与 EvoPanel agent:claude-code 对齐）
@@ -1291,7 +1276,7 @@ class ChannelManager:
             "chat_id": msg.chat_id,
             "topic_id": msg.topic_id or "",
             "thread_id": thread_id,
-            "account_id": str((msg.metadata or {}).get("account_id") or ""),
+            "account_id": ChannelManager._inbound_account_id(msg),
         }
         return meta
 
@@ -1369,55 +1354,45 @@ class ChannelManager:
         # Routes that bot to the employee agent of the same code instead of the
         # channel-wide default assistant. Applies to feishu and wecom (and any
         # future channel that adopts the ``accounts[].session`` schema).
-        account_id = str((msg.metadata or {}).get("account_id") or "").strip()
+        account_id = ChannelManager._inbound_account_id(msg)
         if account_id and msg.channel_name in PER_EMPLOYEE_ACCOUNT_CHANNELS:
             acc_session = self._account_session(msg.channel_name, account_id)
             if acc_session:
                 channel_layer = _merge_dicts(channel_layer, acc_session)
-                _mgr_diag(
-                    "route_account_hit",
-                    channel=msg.channel_name,
-                    account_id=account_id,
-                    assistant_id=acc_session.get("assistant_id") or account_id,
-                    resolved_from=f"channels.{msg.channel_name}.accounts[{account_id}].session",
-                )
-            else:
-                _mgr_diag(
-                    "route_account_miss",
-                    channel=msg.channel_name,
-                    account_id=account_id,
-                    note="no accounts[] block; falling back to channel default",
-                )
-        elif msg.channel_name in PER_EMPLOYEE_ACCOUNT_CHANNELS and not account_id:
-            _mgr_diag(
-                "route_primary",
-                channel=msg.channel_name,
-                account_id="",
-                chat_id=msg.chat_id,
-                note="empty account_id → channel default assistant (primary bot)",
-            )
         users_layer = _as_dict(channel_layer.get("users"))
         user_layer = _as_dict(users_layer.get(msg.user_id))
         return channel_layer, user_layer
 
     @staticmethod
     def _account_session(channel_name: str, account_id: str) -> dict[str, Any]:
-        """Load session overrides for an IM employee account (assistant_id = account_id by default).
+        """Load session overrides for an IM employee account.
 
-        Looks up ``channels.<channel_name>.accounts[<account_id>].session`` from
-        the live channel service config. If the account has an explicit
-        ``assistant_id`` in its session block, that wins. Otherwise the account
-        is routed to the custom agent whose name equals ``account_id``
-        (matching the proactive-employee convention).
+        Reads from ``evoflow_bot_bindings`` (new flat table) first, then falls
+        back to the legacy in-memory channel config JSON.  This keeps routing
+        working even when the table has not been populated yet (fresh install).
 
-        Returns an empty dict when the channel has no ``accounts`` block, the
-        account is unknown, or the channel service is not running — callers
-        should fall through to the channel-wide default.
+        Returns an empty dict when the account is unknown so callers fall through
+        to the channel-wide default.
         """
         cn = str(channel_name or "").strip()
         aid = str(account_id or "").strip()
         if not cn or not aid:
             return {}
+
+        # New path: read directly from the flat table.
+        try:
+            from evoflow.persistence.config_repositories import get_bot_binding_by_agent
+
+            binding = get_bot_binding_by_agent(cn, aid)
+            if binding:
+                session: dict[str, Any] = dict(binding.get("session_config") or {})
+                if not session.get("assistant_id"):
+                    session["assistant_id"] = aid
+                return session
+        except Exception:
+            logger.debug("[Manager] _account_session(%s, %s) table lookup failed, trying legacy", cn, aid)
+
+        # Legacy path: read from ChannelService in-memory config.
         try:
             from app.channels.service import get_channel_service
 
@@ -1461,8 +1436,9 @@ class ChannelManager:
     @staticmethod
     def _im_routing_key(msg: InboundMessage) -> str:
         parts = [str(msg.channel_name), str(msg.chat_id)]
-        account_id = str((msg.metadata or {}).get("account_id") or "").strip()
+        account_id = ChannelManager._inbound_account_id(msg)
         if account_id:
+            parts.append(f"acct:{account_id}")
             parts.append(f"acct:{account_id}")
         if msg.topic_id:
             parts.append(str(msg.topic_id))
@@ -1470,6 +1446,11 @@ class ChannelManager:
 
     @staticmethod
     def _inbound_account_id(msg: InboundMessage) -> str:
+        # Read from top-level field first (wecom now stamps it there).
+        # Fall back to metadata for feishu / legacy channel parity.
+        top = getattr(msg, "account_id", None) or ""
+        if str(top).strip():
+            return str(top).strip()
         return str((msg.metadata or {}).get("account_id") or "").strip()
 
     @classmethod
@@ -1984,14 +1965,34 @@ class ChannelManager:
         print(f"[Manager] RESULT: {str(result)[:2000]}", file=sys.stderr, flush=True)
         _mgr_diag("result_raw", channel=msg.channel_name, chat_id=msg.chat_id, has_result=result is not None, result_type=type(result).__name__, result_keys=list(result.keys()) if isinstance(result, dict) else (len(result) if isinstance(result, list) else "scalar"), messages_count=len(result.get("messages", []) if isinstance(result, dict) else []), ui_messages_count=len(result.get("ui_messages", []) if isinstance(result, dict) else []), artifacts_count=len(result.get("artifacts", []) if isinstance(result, dict) else []), result_summary=str(result)[:500] if result else "None")
 
+        # Decide whether the run actually produced usable output for *this* turn.
+        # Originally we only checked ``result["messages"]`` and ``result["ui_messages"]``
+        # lengths, but LangGraph ``runs.wait`` in a cold-start race (or a run that returned
+        # mid-tool) often yields a result dict whose ``messages`` list only carries the
+        # inbound ``human`` turn — there is no assistant message yet, yet
+        # ``_extract_response_text`` may still find a usable string in a tool result or a
+        # custom payload attached to the state.  Trust the extractor instead of guessing.
+        # If nothing renderable comes out, treat this as "no output" and let fallback 3
+        # surface the warmup-race notice so the user knows to retry.
+        _initial_response_text = _extract_response_text(result) if isinstance(result, (dict, list)) else ""
+        _run_produced_nothing = (
+            (result is None)
+            or not isinstance(result, (dict, list))
+            or not (str(_initial_response_text or "").strip())
+        )
+
         # Fallback: if messages is empty, try to get the latest checkpoint state from the thread.
         # This handles the case where CheckpointTranscriptSlimMiddleware cleared messages but
         # ui_messages survived (or messages were never checkpointed for this channel).
         response_text = _extract_response_text(result)
         if not response_text and isinstance(result, dict):
-            # Fallback 1: thread state (ui_messages may survive checkpoint slim)
+            # Fallback 1: thread state (ui_messages may survive checkpoint slim).
+            # NOTE: ``client.threads.get`` returns thread metadata only (thread_id,
+            # created_at, …) — it has no ``values`` field.  We need
+            # ``client.threads.get_state`` to read the latest checkpoint's state
+            # snapshot, which is where ``ui_messages`` lives after the run completes.
             try:
-                thread_state = await client.threads.get(thread_id)
+                thread_state = await client.threads.get_state(thread_id)
                 values = thread_state.get("values", {}) if isinstance(thread_state, dict) else {}
                 ui_from_thread = values.get("ui_messages", [])
                 print(f"[Manager] fallback 1: ui_messages from thread state: count={len(ui_from_thread) if isinstance(ui_from_thread, list) else 'n/a'}", file=sys.stderr, flush=True)
@@ -2021,7 +2022,17 @@ class ChannelManager:
             except Exception as exc:
                 print(f"[Manager] fallback 1 (thread state) failed: {exc}", file=sys.stderr, flush=True)
 
-            # Fallback 2: query DB for latest AI message (SSOT written by TranscriptMiddleware)
+            # Fallback 2: query DB for latest AI message (SSOT written by TranscriptMiddleware).
+            # We always run this when fallback 1 produced nothing — evoflow_chat_messages
+            # is the SSOT for assistant text (CheckpointTranscriptSlimMiddleware has stripped
+            # ``messages`` / ``ui_messages`` from the checkpoint), so this is the most
+            # reliable place to find the AI reply for *this* turn.  By design the row
+            # was appended before ``runs.wait`` returned, so the newest row belongs to
+            # this turn — we don't need to compare against the inbound to "guess" the
+            # boundary.  The previous version guarded against stale text by skipping this
+            # branch whenever the run produced nothing, but that guard was wrong: when
+            # checkpoint slim cleared both ``messages`` and ``ui_messages``, fallback 2
+            # was unreachable, leaving fallback 3 to send the "engine warmup" notice.
             if not response_text:
                 try:
                     from evoflow.persistence import chat_session_service as chat_svc
@@ -2041,6 +2052,57 @@ class ChannelManager:
                             print(f"[Manager] fallback 2: no AI rows in DB for session_key={sk}", file=sys.stderr, flush=True)
                 except Exception as exc2:
                     print(f"[Manager] fallback 2 (DB query) failed: {exc2}", file=sys.stderr, flush=True)
+            elif not response_text and _run_produced_nothing:
+                # Diagnostic only — this branch should be unreachable now that fallback 2
+                # always runs above.  Kept for one release so we notice if any caller
+                # relies on the old skip behaviour.
+                print(
+                    f"[Manager] fallback 2 SKIPPED: run produced nothing this turn "
+                    f"(should be unreachable after SSOT fix). channel={msg.channel_name} chat_id={msg.chat_id}",
+                    file=sys.stderr, flush=True,
+                )
+
+        # ── fallback 3: engine produced nothing this turn AND DB has no
+        # historical AI message for this session. Most often this is the
+        # LangGraph cold-start race ("Agent 引擎仍在加载") where the run
+        # returned empty. Do not silently surface stale text from a
+        # different session — tell the user the truth and bail out so the
+        # next message can actually be answered once the engine is warm.
+        if not response_text and _run_produced_nothing and not getattr(msg, "_fallback_engine_busy_logged", False):
+            # Surface the exact reason in stderr so we can distinguish
+            # cold-start race vs broken extraction in production logs.
+            print(
+                f"[Manager] fallback 3 firing channel={msg.channel_name} chat_id={msg.chat_id} "
+                f"thread_id={thread_id} | result_type={type(result).__name__} "
+                f"result_keys={list(result.keys()) if isinstance(result, dict) else 'n/a'} "
+                f"messages={len(result.get('messages') or []) if isinstance(result, dict) else 'n/a'} "
+                f"ui_messages={len(result.get('ui_messages') or []) if isinstance(result, dict) else 'n/a'}",
+                file=sys.stderr, flush=True,
+            )
+            logger.warning(
+                "[Manager] no AI output produced channel=%s chat_id=%s thread_id=%s — "
+                "likely LangGraph engine warmup race; not falling back to stale text",
+                msg.channel_name, msg.chat_id, thread_id,
+            )
+            try:
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel_name=msg.channel_name,
+                    chat_id=msg.chat_id,
+                    thread_id=thread_id or "",
+                    text="⚠️ 智能体引擎还在加载中，没能产出本轮回复。请稍后再发一条消息，或在右侧对话面板里直接发一次 —— 引擎 warmup 之后会正常工作。",
+                    is_final=True,
+                    thread_ts=msg.thread_ts or None,
+                    # Echo account_id back to the bus so the reply lands on
+                    # the same channel instance that received the inbound.
+                    account_id=msg.account_id or "",
+                ))
+                setattr(msg, "_fallback_engine_busy_logged", True)
+            except Exception:
+                logger.debug("[Manager] fallback 3 outbound publish failed", exc_info=True)
+            # fallback 3 already published an explanatory message — do NOT
+            # fall through to the generic "(No response from agent)" branch
+            # below, which would send a second, confusing message to the user.
+            return
         response_text = response_text or ""
         artifacts = _extract_artifacts(result)
         _mgr_diag("agent_response", channel=msg.channel_name, chat_id=msg.chat_id, text_len=len(response_text or ""), preview=(response_text or "")[:300])
@@ -2074,6 +2136,9 @@ class ChannelManager:
             thread_ts=msg.thread_ts,
             topic_id=msg.topic_id,
             metadata=self._outbound_metadata_from_inbound(msg),
+            # Echo account_id back to the bus so the reply lands on the
+            # same channel instance that received the inbound.
+            account_id=msg.account_id or "",
         )
         if self.bus is None:
             _mgr_diag("publish_skipped_no_bus", channel=msg.channel_name, chat_id=msg.chat_id)
@@ -2242,6 +2307,7 @@ class ChannelManager:
                             thread_ts=msg.thread_ts,
                             topic_id=msg.topic_id,
                             metadata=self._im_run_control_meta(msg, active_thread_id),
+                            account_id=msg.account_id or "",
                         )
                     )
                     last_published_text = latest_text
@@ -2371,6 +2437,7 @@ class ChannelManager:
                 thread_ts=msg.thread_ts,
                 topic_id=msg.topic_id,
                 metadata=self._outbound_metadata_from_inbound(msg),
+                account_id=msg.account_id or "",
             )
         )
         _finalize_channel_transcript_turn(sk, active_thread_id)
@@ -2444,6 +2511,7 @@ class ChannelManager:
                             thread_ts=msg.thread_ts,
                             topic_id=msg.topic_id,
                             metadata=self._outbound_metadata_from_inbound(msg),
+                            account_id=msg.account_id or "",
                         )
                     )
                     return
@@ -2512,6 +2580,7 @@ class ChannelManager:
             thread_ts=msg.thread_ts,
             topic_id=msg.topic_id,
             metadata=self._outbound_metadata_from_inbound(msg),
+            account_id=msg.account_id or "",
         )
         await self.bus.publish_outbound(outbound)
 
@@ -2548,5 +2617,6 @@ class ChannelManager:
             thread_ts=msg.thread_ts,
             topic_id=msg.topic_id,
             metadata=self._outbound_metadata_from_inbound(msg),
+            account_id=msg.account_id or "",
         )
         await self.bus.publish_outbound(outbound)

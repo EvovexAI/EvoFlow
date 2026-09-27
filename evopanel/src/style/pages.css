@@ -19872,12 +19872,3 @@ html.dark .users-pill--enforce {
   font-size: 12px;
   color: var(--accent, #2563eb);
 }
-.role-im-state {
-  font-size: 12px;
-  color: var(--text-tertiary, #888);
-}
-.role-im-hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--text-tertiary, #888);
-}

@@ -276,6 +276,10 @@ class FeishuStreamBridge:
                     "task_id": state.task_id,
                     "is_subtask": True,
                 },
+                # Feishu uses account_id="" as its primary bus slot; the
+                # per-account credentials are picked inside FeishuChannel.send
+                # via msg.metadata["account_id"] / _chat_account.
+                account_id="",
             )
 
             await self.bus.publish_outbound(outbound)
