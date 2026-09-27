@@ -770,6 +770,14 @@ class WecomChannel(Channel):
         """
         # Always log the raw body so we can see exactly what WeCom is sending.
         # This is the single most important diagnostic for "image not received" bugs.
+        try:
+            _mixed = body.get("mixed")
+            _mixed_items = (_mixed or {}).get("msg_item", []) if isinstance(_mixed, dict) else []
+            _mixed_types = [
+                str(item.get("msgtype") or "?") for item in _mixed_items if isinstance(item, dict)
+            ]
+        except Exception:
+            _mixed_types = []
         self._diag_log(
             "extract_media_body",
             msgtype=str(body.get("msgtype") or ""),
@@ -779,8 +787,10 @@ class WecomChannel(Channel):
             has_mixed=bool(body.get("mixed")),
             has_quote=bool(body.get("quote")),
             body_keys=list(body.keys()),
-            # Include first 200 chars of body for full context
-            body_preview=str(body)[:300],
+            mixed_types=_mixed_types,
+            mixed_count=len(_mixed_items),
+            # Include first 1500 chars of body so we see the mixed items themselves
+            body_preview=str(body)[:1500],
         )
         media_descriptors: list[dict[str, Any]] = []
         media_types: list[str] = []
