@@ -180,6 +180,15 @@ class ProactiveRoleConfig:
     # re-bind (same open_id) after an unbind will still send a fresh intro.
     feishu_intro_sent_at: str = ""
 
+    # ── Per-employee WeCom (Enterprise WeChat) AI Bot binding (QR scan) ──
+    # Mirror shape of the Feishu fields above; synced to channels.wecom.accounts.
+    # Invariant 1: at most one employee per (bot_id, secret) pair — enforced
+    # in :mod:`evoflow.proactive.wecom_binding` on apply.
+    wecom_bot_id: str = ""
+    wecom_secret: str = ""
+    wecom_bound_at: str = ""
+    wecom_intro_sent_at: str = ""
+
     # ── Validation constants ────────────────────────────────────
     # approval_timeout_by_type: 1 min ~ 1 week (10080 min)
     APPROVAL_TIMEOUT_MIN_MINUTES = 1

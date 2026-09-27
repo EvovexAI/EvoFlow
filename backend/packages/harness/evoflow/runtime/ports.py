@@ -401,6 +401,14 @@ def get_feishu_registration_client() -> Any | None:
     return get("channels.feishu_registration_client")
 
 
+def get_wecom_registration_client() -> Any | None:
+    return get("channels.wecom_registration_client")
+
+
+def get_dingtalk_registration_client() -> Any | None:
+    return get("channels.dingtalk_registration_client")
+
+
 def get_feishu_stream_bridge() -> Any | None:
     return get("channels.feishu_stream_bridge")
 

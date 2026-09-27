@@ -34,7 +34,15 @@ import {
   listUnboundFeishuRoles,
   startFeishuEmployeeScan,
   unbindFeishuEmployee,
+  imBindingOf,
+  imBindingCount,
+  startIMChannelScan,
+  unbindIMChannel,
+  IM_CHANNELS,
+  IM_CHANNEL_LABELS,
+  IM_CHANNEL_ICONS,
 } from '../lib/feishu-employee-bind.js'
+import { showIMChannelPicker } from '../components/IMChannelPickerModal.js'
 import { renderOutputItemCardsHtml, filterDeliverableOutputs } from '../lib/task-summary.js'
 import { bindTaskOutputCardActions } from '../lib/task-output-preview.js'
 import { HIRE_TEMPLATES, hireTemplateById } from '../lib/proactive-hire-templates.js'
@@ -2908,11 +2916,11 @@ function updateFeishuToolbar(page) {
   }
   const first = unbound[0]
   const name = String(first.role_name || first.agent_code || '').trim()
-  label.textContent = `飞书未绑 ${unbound.length}`
+  label.textContent = `IM 未绑 ${unbound.length}`
   label.title = `${FEISHU_COLLAB_HOWTO_SHORT}\n下一位：${name}`
   btn.dataset.code = String(first.agent_code || '').trim()
   btn.dataset.name = name
-  btn.title = `为「${name}」扫码绑定专属机器人`
+  btn.title = `为「${name}」扫码绑定 IM 机器人（飞书 / 企业微信 / 钉钉）`
   bar.removeAttribute('hidden')
 }
 
@@ -3025,10 +3033,24 @@ function renderRoles(roles) {
            <button type="button" class="pro-role-more-item" role="menuitem" data-action="dispatch" data-code="${esc(r.agent_code)}">派发任务</button>
            <button type="button" class="pro-role-more-item" role="menuitem" data-action="heartbeat" data-code="${esc(r.agent_code)}">现在开始工作</button>`
 
-    const feishuBound = feishuBindingOf(r).bound
-    const feishuMenu = feishuBound
-      ? `<button type="button" class="pro-role-more-item" role="menuitem" data-action="feishu-unbind" data-code="${esc(r.agent_code)}">解绑飞书</button>`
-      : `<button type="button" class="pro-role-more-item" role="menuitem" data-action="feishu-bind" data-code="${esc(r.agent_code)}">扫码绑定飞书</button>`
+    // Channel-aware menu entries: each bound channel shows its own "解绑 <渠道>"
+    // row; an always-available "扫码绑定 IM" opens the channel picker (works for
+    // both first-time bind and adding additional channels).
+    const boundChannels = IM_CHANNELS.filter((ch) => imBindingOf(r, ch).bound)
+    const imUnbindItems = boundChannels.length
+      ? boundChannels
+          .map(
+            (ch) =>
+              `<button type="button" class="pro-role-more-item" role="menuitem" data-action="im-unbind" data-channel="${esc(ch)}" data-code="${esc(r.agent_code)}">解绑 ${esc(IM_CHANNEL_LABELS[ch] || ch)}</button>`,
+          )
+          .join('')
+      : ''
+    const imMenu = `
+      <button type="button" class="pro-role-more-item" role="menuitem" data-action="bind-im" data-code="${esc(r.agent_code)}">
+        <span class="pro-role-more-item-icon" aria-hidden="true">📡</span>扫码绑定 IM${boundChannels.length ? `（${imBindingCount(r)}/${IM_CHANNELS.length}）` : ''}
+      </button>
+      ${imUnbindItems}
+    `
 
     return `
     <article class="pro-role-card pro-role-card--slim ${isPaused || isDraft ? 'pro-role-card--paused' : ''} ${!isPaused && !isDraft ? 'pro-role-card--active' : ''} ${isBusy ? 'pro-role-card--busy' : ''} ${isIdle ? 'pro-role-card--idle' : ''} ${pendingN ? 'pro-role-card--needs-you' : ''}" data-code="${esc(r.agent_code)}">
@@ -3048,7 +3070,7 @@ function renderRoles(roles) {
           <div class="pro-role-more-menu" role="menu" hidden>
             <button type="button" class="pro-role-more-item" role="menuitem" data-action="live" data-code="${esc(r.agent_code)}">工作过程</button>
             <button type="button" class="pro-role-more-item" role="menuitem" data-action="edit" data-code="${esc(r.agent_code)}">编辑岗位</button>
-            ${feishuMenu}
+            ${imMenu}
             ${dutyMenu}
             ${
               isSystemFrontDesk
@@ -3247,7 +3269,48 @@ function bindRoles(container) {
         if (page && role) void showEditRoleModal(page, role)
         return
       }
+      if (action === 'bind-im') {
+        const role = _rolesData.find((r) => String(r.agent_code) === String(code))
+        const roleName = role?.role_name || code
+        let chosen
+        try {
+          chosen = await showIMChannelPicker({
+            roleName,
+            currentBindings: role || null,
+          })
+        } catch (e) {
+          toast('打开渠道选择失败: ' + (e?.message || e), 'error')
+          return
+        }
+        if (!chosen) return
+        void startIMChannelScan({
+          channel: chosen,
+          agentCode: code,
+          roleName,
+          onBound: () => {
+            if (page) void loadAll(page)
+          },
+        })
+        return
+      }
+      if (action === 'im-unbind') {
+        const role = _rolesData.find((r) => String(r.agent_code) === String(code))
+        const name = role?.role_name || code
+        const ch = String(btn.dataset.channel || '').toLowerCase()
+        const label = IM_CHANNEL_LABELS[ch] || ch || '该渠道'
+        const ok = await showConfirm(
+          `确定解除「${name}」的${label}机器人绑定？\n\n解绑后该渠道上同事将无法再对话到此员工。`,
+        )
+        if (!ok) return
+        await unbindIMChannel(ch, code, {
+          onUnbound: () => {
+            if (page) void loadAll(page)
+          },
+        })
+        return
+      }
       if (action === 'feishu-bind') {
+        // Legacy alias kept so old bookmarks / older handlers still trigger Feishu.
         const role = _rolesData.find((r) => String(r.agent_code) === String(code))
         void startFeishuEmployeeScan(code, {
           roleName: role?.role_name || code,

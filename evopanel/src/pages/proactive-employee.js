@@ -47,7 +47,14 @@ import {
   feishuBindingOf,
   startFeishuEmployeeScan,
   unbindFeishuEmployee,
+  imBindingOf,
+  imBindingCount,
+  startIMChannelScan,
+  unbindIMChannel,
+  IM_CHANNELS,
+  IM_CHANNEL_LABELS,
 } from '../lib/feishu-employee-bind.js'
+import { showIMChannelPicker } from '../components/IMChannelPickerModal.js'
 import { diagnoseRole, renderRoleDiagnosisHtml } from '../lib/proactive-role-diagnosis.js'
 
 /** Map board Task status → work-log card status. */
@@ -2145,9 +2152,14 @@ function renderEmployeeShell(
   }
   moreItems.push(
     `<button type="button" class="pro-role-more-item" role="menuitem" data-act="edit">编辑岗位</button>`,
+    `<button type="button" class="pro-role-more-item" role="menuitem" data-act="bind-im">扫码绑定 IM${imBindingCount(role) ? `（${imBindingCount(role)}/${IM_CHANNELS.length}）` : ''}</button>`,
+    ...IM_CHANNELS.filter((ch) => imBindingOf(role, ch).bound).map(
+      (ch) =>
+        `<button type="button" class="pro-role-more-item" role="menuitem" data-act="im-unbind" data-channel="${esc(ch)}">解绑 ${esc(IM_CHANNEL_LABELS[ch] || ch)}</button>`,
+    ),
     feishuBound
-      ? `<button type="button" class="pro-role-more-item" role="menuitem" data-act="feishu-unbind">解绑飞书</button>`
-      : `<button type="button" class="pro-role-more-item" role="menuitem" data-act="feishu-bind">绑定飞书</button>`,
+      ? `<button type="button" class="pro-role-more-item" role="menuitem" data-act="feishu-unbind">解绑飞书（兼容）</button>`
+      : `<button type="button" class="pro-role-more-item" role="menuitem" data-act="feishu-bind">绑定飞书（兼容）</button>`,
     `<button type="button" class="pro-role-more-item" role="menuitem" data-act="refresh">刷新</button>`,
     `<button type="button" class="pro-role-more-item" role="menuitem" data-act="open-kanban">本岗进度看板</button>`,
     `<button type="button" class="pro-role-more-item" role="menuitem" data-act="open-tasks">本岗全部任务</button>`,
@@ -3986,6 +3998,53 @@ function bindEmployeePage(page, role, initiatives) {
       },
     })
   })
+  page.querySelector('[data-act="bind-im"]')?.addEventListener('click', async () => {
+    const roleName = role.role_name || role.agent_code
+    let chosen
+    try {
+      chosen = await showIMChannelPicker({ roleName, currentBindings: role })
+    } catch (e) {
+      toast('打开渠道选择失败: ' + (e?.message || e), 'error')
+      return
+    }
+    if (!chosen) return
+    void startIMChannelScan({
+      channel: chosen,
+      agentCode: role.agent_code,
+      roleName,
+      onBound: async () => {
+        const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
+        const next = await renderEmployeePage(role.agent_code)
+        if (next) {
+          next._worklogDay = keepDay || WORKLOG_RECENT2
+          paintEmployeeWorkBody(next, role, next._initiatives || [], {})
+          page.replaceWith(next)
+        }
+      },
+    })
+  })
+  page.querySelectorAll('[data-act="im-unbind"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const ch = String(btn.dataset.channel || '').toLowerCase()
+      const label = IM_CHANNEL_LABELS[ch] || ch || '该渠道'
+      const name = role.role_name || role.agent_code
+      const ok = await showConfirm(
+        `确定解除「${name}」的${label}机器人绑定？\n\n解绑后该渠道上同事将无法再对话到此员工。`,
+      )
+      if (!ok) return
+      await unbindIMChannel(ch, role.agent_code, {
+        onUnbound: async () => {
+          const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
+          const next = await renderEmployeePage(role.agent_code)
+          if (next) {
+            next._worklogDay = keepDay || WORKLOG_RECENT2
+            paintEmployeeWorkBody(next, role, next._initiatives || [], {})
+            page.replaceWith(next)
+          }
+        },
+      })
+    })
+  })
   page.querySelector('[data-act="feishu-unbind"]')?.addEventListener('click', async () => {
     const ok = await showConfirm(
       `确定解除「${role.role_name || role.agent_code}」的飞书机器人绑定？\n\n解绑后飞书侧将无法再对话到此员工。`,
@@ -4089,7 +4148,7 @@ function bindEmployeePage(page, role, initiatives) {
     }
     window.location.hash = '#/chat'
   })
-  ;['edit', 'feishu-bind', 'feishu-unbind', 'refresh', 'archive', 'delete', 'dispatch', 'heartbeat', 'stop-work'].forEach((act) => {
+  ;['edit', 'feishu-bind', 'feishu-unbind', 'bind-im', 'im-unbind', 'refresh', 'archive', 'delete', 'dispatch', 'heartbeat', 'stop-work'].forEach((act) => {
     page.querySelectorAll(`[data-act="${act}"]`).forEach((el) => {
       el.addEventListener('click', () => closeMore(), true)
     })

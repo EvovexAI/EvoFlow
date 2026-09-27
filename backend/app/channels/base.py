@@ -2,14 +2,44 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import sys
+import time
 from abc import ABC, abstractmethod
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from app.channels.message_bus import InboundMessage, InboundMessageType, MessageBus, OutboundMessage, ResolvedAttachment
 
 logger = logging.getLogger(__name__)
+
+_DIAG_LOG_PATH = Path(
+    os.environ.get("EVOFLOW_DIAG_LOG", r"C:\Users\admin\.evoflow-dev\logs\channel-diag.log")
+)
+
+
+def _diag_write(channel: str, event: str, **fields: Any) -> None:
+    """Append a JSON line to the channel diagnostic log.
+
+    Independent of uvicorn/logger pipeline so we can see traffic even when the
+    launcher drops stderr or the root logger isn't configured for the channel.
+    """
+    try:
+        _DIAG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(
+            {"ts": time.time(), "pid": os.getpid(), "channel": channel, "event": event, **fields},
+            ensure_ascii=False,
+            default=str,
+        )
+        with open(_DIAG_LOG_PATH, "a", encoding="utf-8") as fp:
+            fp.write(line + "\n")
+        # Also print to stderr so it shows up in the terminal
+        print(line, file=sys.stderr, flush=True)
+    except Exception:
+        pass
 
 
 class Channel(ABC):
@@ -27,6 +57,29 @@ class Channel(ABC):
         self.bus = bus
         self.config = config
         self._running = False
+
+    # -- diagnostic helpers (override in subclasses for richer payloads) ----
+
+    def _diag_outbound_enter(self, msg: OutboundMessage) -> None:
+        _diag_write(
+            self.name,
+            "outbound_enter",
+            chat_id=msg.chat_id,
+            text_len=len(msg.text or ""),
+            text_preview=(msg.text or "")[:300],
+            is_final=msg.is_final,
+            has_attachments=bool(msg.attachments),
+        )
+
+    def _diag_outbound_done(self, msg: OutboundMessage, *, ok: bool, error: str | None = None) -> None:
+        _diag_write(
+            self.name,
+            "outbound_done",
+            chat_id=msg.chat_id,
+            ok=ok,
+            error=error,
+            is_final=msg.is_final,
+        )
 
     @property
     def is_running(self) -> bool:
@@ -94,9 +147,12 @@ class Channel(ABC):
         partial deliveries (files without accompanying text).
         """
         if msg.channel_name == self.name:
+            self._diag_outbound_enter(msg)
             try:
                 await self.send(msg)
-            except Exception:
+                self._diag_outbound_done(msg, ok=True)
+            except Exception as exc:
+                self._diag_outbound_done(msg, ok=False, error=str(exc))
                 logger.exception("Failed to send outbound message on channel %s", self.name)
                 return  # Do not attempt file uploads when the text message failed
 

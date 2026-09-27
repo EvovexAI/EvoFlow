@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import mimetypes
 import os
 import re
+import sys
 import time
 import uuid
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,6 +26,26 @@ from app.channels.store import ChannelStore
 from evoflow.runtime.long_run_limits import LONG_RUN_RECURSION_LIMIT
 
 logger = logging.getLogger(__name__)
+
+_MGR_DIAG_PATH = Path(
+    os.environ.get("EVOFLOW_MGR_DIAG_LOG", r"C:\Users\admin\.evoflow-dev\logs\manager-diag.log")
+)
+
+
+def _mgr_diag(event: str, **fields: Any) -> None:
+    try:
+        _MGR_DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(
+            {"ts": time.time(), "pid": os.getpid(), "event": event, **fields},
+            ensure_ascii=False,
+            default=str,
+        )
+        with open(_MGR_DIAG_PATH, "a", encoding="utf-8") as fp:
+            fp.write(line + "\n")
+        print(line, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
 
 # Align with ``scripts/windows/backend-common.ps1``, ``langgraph_proxy``, ``automation_runner`` (127.0.0.1).
 # Single-process: LangGraph is mounted at /api/langgraph inside Gateway.
@@ -50,18 +73,11 @@ _IM_SHORTCUT_HINT_META_KEY = "im_shortcut_hint_sent"
 
 
 def _im_shortcut_commands_help_lines(*, include_bootstrap: bool = False) -> list[str]:
-    lines = [
-        "快捷指令",
-        "/new   - 开启全新对话（清空上下文）",
-        "/claude   - Claude Code 直连",
-        "/lead   - 切回主智能体",
-        "/goal <目标>   - 直接启动当前会话的目标任务",
-        "/status   - 查看当前模式与会话线程",
-        "/models   - 查看可用模型",
-        "/help   - 查看本说明",
-    ]
+    # IM 首条消息只放一行命令提示。其它指令入口保留在 /help 与 Web 桌面端。
+    # 群聊 / 小V 已被 _im_should_omit_shortcut_hint 过滤，不会走这里。
+    lines = ["/new 开新对话"]
     if include_bootstrap:
-        lines.insert(1, "/bootstrap <提示>   - 初始化工作区（首次配置）")
+        lines.insert(0, "/bootstrap <提示>   - 初始化工作区（首次配置）")
     return lines
 
 
@@ -164,6 +180,10 @@ CHANNEL_CAPABILITIES = {
     "dingtalk": {"supports_streaming": False},
 }
 IM_CHANNEL_NAMES = frozenset({"feishu", "slack", "telegram", "weixin", "wecom", "dingtalk"})
+# Channels that support per-employee bot binding via channels.<name>.accounts[<agent_code>].session.
+# Each employee-bound bot is routed to its own custom agent (default assistant_id = account_id)
+# instead of the channel-wide default. Add new channels here once they adopt the accounts schema.
+PER_EMPLOYEE_ACCOUNT_CHANNELS = frozenset({"feishu", "wecom"})
 
 _CHANNEL_SESSION_TITLE_LABEL: dict[str, str] = {
     "feishu": "飞书",
@@ -489,6 +509,7 @@ def _extract_response_text(result: dict | list) -> str:
     - Regular AI text responses
     - Clarification interrupts (``ask_clarification`` tool messages)
     - AI messages with tool_calls but no text content
+    - ``ui_messages`` field (when ``messages`` is cleared by CheckpointTranscriptSlimMiddleware)
     """
     if isinstance(result, list):
         messages = result
@@ -534,6 +555,35 @@ def _extract_response_text(result: dict | list) -> str:
                 text = "".join(parts)
                 if text:
                     return text
+
+    # Fallback: Check ui_messages (populated by UiMessagesSnapshotMiddleware and not cleared
+    # by CheckpointTranscriptSlimMiddleware on the returned result).
+    if isinstance(result, dict):
+        ui = result.get("ui_messages", [])
+        if isinstance(ui, list):
+            for msg in reversed(ui):
+                if not isinstance(msg, dict):
+                    continue
+                role = str(msg.get("role") or msg.get("type") or "").strip().lower()
+                # Skip human/tool/function messages
+                if role in ("human", "user", "tool", "function"):
+                    break
+                if role in ("ai", "assistant", ""):
+                    content = msg.get("content", "")
+                    if isinstance(content, str) and content.strip():
+                        return content
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text = block.get("text", "")
+                                if isinstance(text, str) and text.strip():
+                                    return text
+                            elif isinstance(block, str) and block.strip():
+                                return block
+                    text = msg.get("text", "")
+                    if isinstance(text, str) and text.strip():
+                        return text
+
     return ""
 
 
@@ -561,6 +611,50 @@ def _extract_text_content(content: Any) -> str:
             if isinstance(value, str):
                 return value
     return ""
+
+
+def _query_latest_ai_message_from_db(session_key: str, limit: int = 5) -> list[str]:
+    """Query evoflow_chat_messages for the latest assistant text responses.
+
+    This is the SSOT for AI messages (written by TranscriptMiddleware after_model).
+    We scan backward from the newest rows to find recent assistant messages.
+    """
+    try:
+        from evoflow.persistence.db import get_db
+
+        db = get_db()
+        rows = db.execute(
+            """
+            SELECT content_json FROM evoflow_chat_messages
+            WHERE session_key = ? AND role = 'assistant'
+            ORDER BY seq DESC LIMIT ?
+            """,
+            (str(session_key).strip(), max(1, int(limit))),
+        ).fetchall()
+
+        texts: list[str] = []
+        for row in rows:
+            try:
+                import json
+
+                payload = json.loads(str(row[0] or "{}"))
+                # Extract text from various possible payload structures
+                content = payload if isinstance(payload, str) else payload.get("content", "")
+                if isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text = str(block.get("text") or "").strip()
+                            if text:
+                                texts.append(text)
+                                break
+                elif isinstance(content, str) and content.strip():
+                    texts.append(content.strip())
+            except Exception:
+                pass
+        return texts
+    except Exception:
+        return []
+
 
 
 def _unwrap_custom_stream_payload(data: Any) -> Any:
@@ -1078,10 +1172,13 @@ class ChannelManager:
 
     def _resolve_session_layer(self, msg: InboundMessage) -> tuple[dict[str, Any], dict[str, Any]]:
         channel_layer = _as_dict(self._channel_sessions.get(msg.channel_name))
-        # Per-employee Feishu bot: channels.feishu.accounts[<agent_code>].session
+        # Per-employee IM bot: channels.<channel>.accounts[<agent_code>].session
+        # Routes that bot to the employee agent of the same code instead of the
+        # channel-wide default assistant. Applies to feishu and wecom (and any
+        # future channel that adopts the ``accounts[].session`` schema).
         account_id = str((msg.metadata or {}).get("account_id") or "").strip()
-        if account_id and msg.channel_name == "feishu":
-            acc_session = self._feishu_account_session(account_id)
+        if account_id and msg.channel_name in PER_EMPLOYEE_ACCOUNT_CHANNELS:
+            acc_session = self._account_session(msg.channel_name, account_id)
             if acc_session:
                 channel_layer = _merge_dicts(channel_layer, acc_session)
         users_layer = _as_dict(channel_layer.get("users"))
@@ -1089,31 +1186,52 @@ class ChannelManager:
         return channel_layer, user_layer
 
     @staticmethod
-    def _feishu_account_session(account_id: str) -> dict[str, Any]:
-        """Load session overrides for a Feishu employee account (assistant_id = agent_code)."""
+    def _account_session(channel_name: str, account_id: str) -> dict[str, Any]:
+        """Load session overrides for an IM employee account (assistant_id = account_id by default).
+
+        Looks up ``channels.<channel_name>.accounts[<account_id>].session`` from
+        the live channel service config. If the account has an explicit
+        ``assistant_id`` in its session block, that wins. Otherwise the account
+        is routed to the custom agent whose name equals ``account_id``
+        (matching the proactive-employee convention).
+
+        Returns an empty dict when the channel has no ``accounts`` block, the
+        account is unknown, or the channel service is not running — callers
+        should fall through to the channel-wide default.
+        """
+        cn = str(channel_name or "").strip()
+        aid = str(account_id or "").strip()
+        if not cn or not aid:
+            return {}
         try:
             from app.channels.service import get_channel_service
 
             service = get_channel_service()
             if service is None:
                 return {}
-            feishu = service._config.get("feishu") if isinstance(service._config, dict) else None
-            if not isinstance(feishu, dict):
+            ch_cfg = service._config.get(cn) if isinstance(service._config, dict) else None
+            if not isinstance(ch_cfg, dict):
                 return {}
-            accounts = feishu.get("accounts")
+            accounts = ch_cfg.get("accounts")
             if not isinstance(accounts, dict):
                 return {}
-            acc = accounts.get(account_id)
+            acc = accounts.get(aid)
             if not isinstance(acc, dict):
                 return {}
             session = _as_dict(acc.get("session"))
             # Default: route this bot to the employee agent of the same code.
             if not session.get("assistant_id"):
-                session = {**session, "assistant_id": account_id}
+                session = {**session, "assistant_id": aid}
             return session
         except Exception:
-            logger.debug("[Manager] feishu account session lookup failed", exc_info=True)
+            logger.debug("[Manager] %s account session lookup failed", cn, exc_info=True)
             return {}
+
+    # Keep the feishu-specific name as a thin wrapper so any direct call sites
+    # still work. New code should use _account_session(channel_name, account_id).
+    @staticmethod
+    def _feishu_account_session(account_id: str) -> dict[str, Any]:
+        return ChannelManager._account_session("feishu", account_id)
 
     @staticmethod
     def _outbound_metadata_from_inbound(msg: InboundMessage) -> dict[str, Any]:
@@ -1637,14 +1755,77 @@ class ChannelManager:
                     continue
                 raise
 
-        response_text = _extract_response_text(result)
-        artifacts = _extract_artifacts(result)
+        print(f"[Manager] result_raw channel={msg.channel_name} chat_id={msg.chat_id} type={type(result).__name__} keys={list(result.keys()) if isinstance(result, dict) else type(result)} messages={len(result.get('messages', []))} ui_messages={len(result.get('ui_messages', []))} artifacts={len(result.get('artifacts', []))}", file=sys.stderr, flush=True)
+        print(f"[Manager] RESULT: {str(result)[:2000]}", file=sys.stderr, flush=True)
+        _mgr_diag("result_raw", channel=msg.channel_name, chat_id=msg.chat_id, has_result=result is not None, result_type=type(result).__name__, result_keys=list(result.keys()) if isinstance(result, dict) else (len(result) if isinstance(result, list) else "scalar"), messages_count=len(result.get("messages", []) if isinstance(result, dict) else []), ui_messages_count=len(result.get("ui_messages", []) if isinstance(result, dict) else []), artifacts_count=len(result.get("artifacts", []) if isinstance(result, dict) else []), result_summary=str(result)[:500] if result else "None")
 
-        logger.info(
-            "[Manager] agent response received: thread_id=%s, artifacts=%d\n--- assistant ---\n%s\n---",
-            thread_id,
-            len(artifacts),
-            (response_text or "").strip() or "(empty)",
+        # Fallback: if messages is empty, try to get the latest checkpoint state from the thread.
+        # This handles the case where CheckpointTranscriptSlimMiddleware cleared messages but
+        # ui_messages survived (or messages were never checkpointed for this channel).
+        response_text = _extract_response_text(result)
+        if not response_text and isinstance(result, dict):
+            # Fallback 1: thread state (ui_messages may survive checkpoint slim)
+            try:
+                thread_state = await client.threads.get(thread_id)
+                values = thread_state.get("values", {}) if isinstance(thread_state, dict) else {}
+                ui_from_thread = values.get("ui_messages", [])
+                print(f"[Manager] fallback 1: ui_messages from thread state: count={len(ui_from_thread) if isinstance(ui_from_thread, list) else 'n/a'}", file=sys.stderr, flush=True)
+                if isinstance(ui_from_thread, list):
+                    for m in reversed(ui_from_thread):
+                        if not isinstance(m, dict):
+                            continue
+                        role = str(m.get("role") or m.get("type") or "").strip().lower()
+                        if role in ("human", "user", "tool", "function"):
+                            break
+                        if role in ("ai", "assistant", ""):
+                            content = m.get("content", "")
+                            if isinstance(content, str) and content.strip():
+                                response_text = content
+                                print(f"[Manager] fallback 1 FOUND text from ui_messages: {repr(content[:100])}", file=sys.stderr, flush=True)
+                                break
+                            if isinstance(content, list):
+                                for block in content:
+                                    if isinstance(block, dict) and block.get("type") == "text":
+                                        text = block.get("text", "")
+                                        if isinstance(text, str) and text.strip():
+                                            response_text = text
+                                            print(f"[Manager] fallback 1 FOUND text from ui_messages block: {repr(text[:100])}", file=sys.stderr, flush=True)
+                                            break
+                                if response_text:
+                                    break
+            except Exception as exc:
+                print(f"[Manager] fallback 1 (thread state) failed: {exc}", file=sys.stderr, flush=True)
+
+            # Fallback 2: query DB for latest AI message (SSOT written by TranscriptMiddleware)
+            if not response_text:
+                try:
+                    from evoflow.persistence import chat_session_service as chat_svc
+
+                    sk = str(session_key or "").strip()
+                    if sk:
+                        # Run in thread pool to avoid blocking the async loop
+                        import asyncio
+                        rows = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: _query_latest_ai_message_from_db(sk),
+                        )
+                        if rows:
+                            response_text = rows[0]
+                            print(f"[Manager] fallback 2 FOUND text from DB: {repr(response_text[:100])}", file=sys.stderr, flush=True)
+                        else:
+                            print(f"[Manager] fallback 2: no AI rows in DB for session_key={sk}", file=sys.stderr, flush=True)
+                except Exception as exc2:
+                    print(f"[Manager] fallback 2 (DB query) failed: {exc2}", file=sys.stderr, flush=True)
+        response_text = response_text or ""
+        artifacts = _extract_artifacts(result)
+        _mgr_diag("agent_response", channel=msg.channel_name, chat_id=msg.chat_id, text_len=len(response_text or ""), preview=(response_text or "")[:300])
+
+        # Print to stderr so it shows up in the terminal even when EVOFLOW_LOGS_DIR is set
+        print(
+            f"[Manager] agent_response channel={msg.channel_name} chat_id={msg.chat_id} "
+            f"thread_id={thread_id} text_len={len(response_text or '')} "
+            f"artifacts={len(artifacts)} | text={repr((response_text or '').strip()[:200])}",
+            file=sys.stderr, flush=True
         )
 
         response_text, attachments = _prepare_artifact_delivery(thread_id, response_text, artifacts)
@@ -1669,8 +1850,20 @@ class ChannelManager:
             topic_id=msg.topic_id,
             metadata=self._outbound_metadata_from_inbound(msg),
         )
-        logger.info("[Manager] publishing outbound message to bus: channel=%s, chat_id=%s", msg.channel_name, msg.chat_id)
-        await self.bus.publish_outbound(outbound)
+        if self.bus is None:
+            _mgr_diag("publish_skipped_no_bus", channel=msg.channel_name, chat_id=msg.chat_id)
+            print(f"[Manager] ERROR self.bus is None — cannot publish outbound channel={msg.channel_name} chat_id={msg.chat_id}", file=sys.stderr, flush=True)
+            return
+        _mgr_diag("publish_outbound_call", channel=msg.channel_name, chat_id=msg.chat_id, text_len=len(outbound.text or ""), preview=(outbound.text or "")[:300])
+        print(f"[Manager] publish_outbound channel={msg.channel_name} chat_id={msg.chat_id} text_len={len(outbound.text or '')}", file=sys.stderr, flush=True)
+        try:
+            await self.bus.publish_outbound(outbound)
+            _mgr_diag("publish_outbound_done", channel=msg.channel_name, chat_id=msg.chat_id, ok=True)
+            print(f"[Manager] publish_outbound DONE channel={msg.channel_name} chat_id={msg.chat_id}", file=sys.stderr, flush=True)
+        except Exception as exc:
+            _mgr_diag("publish_outbound_done", channel=msg.channel_name, chat_id=msg.chat_id, ok=False, error=str(exc))
+            print(f"[Manager] publish_outbound ERROR channel={msg.channel_name} chat_id={msg.chat_id} exc={exc}", file=sys.stderr, flush=True)
+            raise
         _finalize_channel_transcript_turn(session_key, thread_id)
 
     async def _handle_streaming_chat(

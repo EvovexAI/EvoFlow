@@ -2761,6 +2761,17 @@ export const api = {
   getRoleFeishuBinding: async (agentCode) =>
     gatewayProxy('GET', `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/feishu/binding`),
 
+  // 智能体员工 · 企业微信 AI Bot 绑定（复用 begin/poll，apply 写入岗位合同并同步 channels.wecom.accounts）
+  applyRoleWecomRegistration: async (agentCode, sessionId) =>
+    gatewayProxy(
+      'POST',
+      `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/wecom/registration/${encodeURIComponent(String(sessionId || ''))}/apply`,
+    ),
+  unbindRoleWecom: async (agentCode) =>
+    gatewayProxy('DELETE', `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/wecom/binding`),
+  getRoleWecomBinding: async (agentCode) =>
+    gatewayProxy('GET', `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/wecom/binding`),
+
   // 微信 iLink 扫码绑定（与飞书注册流程一致：begin → poll → apply）
   beginWeixinRegistration: async () => gatewayProxy('POST', '/channels/weixin/registration/begin'),
   pollWeixinRegistration: async (sessionId) => gatewayProxy('GET', `/channels/weixin/registration/${sessionId}/poll`),

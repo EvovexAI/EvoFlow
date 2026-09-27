@@ -118,7 +118,11 @@ class WeixinRegistrationApplyResponse(BaseModel):
 
 class WecomRegistrationBeginResponse(BaseModel):
     session_id: str
-    qr_url: str = Field(..., description="URL to render as QR (WeCom bot-creation flow)")
+    qr_url: str = Field(..., description="URL rendered into the QR. WeCom mobile app scans this directly.")
+    fallback_url: str = Field(
+        ...,
+        description="Human-openable HTML landing page URL. Keep as a '点此打开' fallback link in the UI for scanners that don't recognize qr_url as a deep link.",
+    )
     status: str = "pending"
 
 
@@ -136,6 +140,14 @@ class WecomRegistrationPollResponse(BaseModel):
 
 class WecomRegistrationApplyRequest(BaseModel):
     enabled: bool = Field(default=True, description="Whether to enable the WeCom channel after applying credentials")
+    agent_code: str = Field(
+        default="",
+        description=(
+            "If set, the resulting bot is bound to this proactive employee agent and stored "
+            "under ``channels.wecom.accounts[<agent_code>]`` so its messages route to that "
+            "agent. Empty string means the channel-wide primary bot."
+        ),
+    )
 
 
 class WecomRegistrationApplyResponse(BaseModel):
@@ -683,6 +695,7 @@ async def wecom_registration_begin(request: Request) -> WecomRegistrationBeginRe
     return WecomRegistrationBeginResponse(
         session_id=session.session_id,
         qr_url=session.qr_url,
+        fallback_url=session.fallback_url,
         status=session.status,
     )
 
@@ -742,14 +755,29 @@ async def wecom_registration_apply(
 
     save_wecom_credentials(bot_id=session.bot_id, secret=session.secret)
 
-    payload = {
-        "bot_id": session.bot_id,
-        "secret": session.secret,
-        "enabled": body.enabled,
-    }
-
     service = get_channel_service()
     if service is not None:
+        if body.agent_code:
+            # Per-employee binding: write to channels.wecom.accounts[<agent_code>]
+            # so the channel service expands this into a per-account instance and
+            # routes the bot's messages to that proactive employee agent.
+            from evoflow.persistence import config_repositories as cfg_repo
+
+            current_cfg = cfg_repo.get_channel_config("wecom") or {}
+            accounts = dict(current_cfg.get("accounts") or {})
+            accounts[body.agent_code] = {
+                **accounts.get(body.agent_code, {}),
+                "bot_id": session.bot_id,
+                "secret": session.secret,
+            }
+            payload = {"enabled": body.enabled, "accounts": accounts}
+        else:
+            payload = {
+                "bot_id": session.bot_id,
+                "secret": session.secret,
+                "enabled": body.enabled,
+            }
+
         success = await service.update_channel_config("wecom", payload)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to persist WeCom credentials")
@@ -765,7 +793,11 @@ async def wecom_registration_apply(
         _, _, running = service.get_channel_config("wecom")
         return WecomRegistrationApplyResponse(
             success=True,
-            message="WeCom credentials saved and channel started",
+            message=(
+                f"WeCom credentials saved and bound to employee {body.agent_code}"
+                if body.agent_code
+                else "WeCom credentials saved and channel started"
+            ),
             channel_running=running,
         )
 
@@ -774,13 +806,32 @@ async def wecom_registration_apply(
     cfg = get_app_config()
     channels = _channels_section_from_app_config(cfg) or {}
     wecom_cfg = dict(channels.get("wecom", {}))
-    wecom_cfg.update(payload)
+    if body.agent_code:
+        accounts = dict(wecom_cfg.get("accounts") or {})
+        accounts[body.agent_code] = {
+            **accounts.get(body.agent_code, {}),
+            "bot_id": session.bot_id,
+            "secret": session.secret,
+        }
+        wecom_cfg["accounts"] = accounts
+        wecom_cfg["enabled"] = body.enabled
+    else:
+        wecom_cfg.update({
+            "bot_id": session.bot_id,
+            "secret": session.secret,
+            "enabled": body.enabled,
+        })
     channels["wecom"] = wecom_cfg
     update_channels_section_and_save(channels)
 
     return WecomRegistrationApplyResponse(
         success=True,
-        message="WeCom credentials saved. Restart the Gateway to activate the channel.",
+        message=(
+            f"WeCom credentials saved and bound to employee {body.agent_code}. "
+            "Restart the Gateway to activate the channel."
+            if body.agent_code
+            else "WeCom credentials saved. Restart the Gateway to activate the channel."
+        ),
         channel_running=False,
     )
 

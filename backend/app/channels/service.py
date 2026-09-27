@@ -28,6 +28,56 @@ _CHANNELS_LANGGRAPH_URL_ENV = "EVOFLOW_CHANNELS_LANGGRAPH_URL"
 _CHANNELS_GATEWAY_URL_ENV = "EVOFLOW_CHANNELS_GATEWAY_URL"
 
 
+def _channel_has_primary_credentials(name: str, config: dict[str, Any]) -> bool:
+    """Per-channel credential check (returns False ⇒ service should skip starting the instance)."""
+    if not isinstance(config, dict):
+        return False
+    extra = config.get("extra") if isinstance(config.get("extra"), dict) else {}
+    if name == "wecom":
+        bot_id = str(extra.get("bot_id") or config.get("bot_id") or os.getenv("WECOM_BOT_ID", "")).strip()
+        secret = str(extra.get("secret") or config.get("secret") or os.getenv("WECOM_SECRET", "")).strip()
+        return bool(bot_id and secret)
+    if name == "feishu":
+        app_id = str(config.get("app_id") or "").strip()
+        app_secret = str(config.get("app_secret") or "").strip()
+        return bool(app_id and app_secret)
+    if name == "weixin":
+        return bool(str(config.get("bot_token") or config.get("token") or "").strip())
+    if name == "dingtalk":
+        return bool(str(config.get("client_id") or config.get("app_key") or "").strip())
+    if name == "slack":
+        return bool(str(config.get("bot_token") or "").strip())
+    if name == "telegram":
+        return bool(str(config.get("bot_token") or "").strip())
+    return True
+
+
+def _merge_account_config(name: str, base_config: dict[str, Any], account_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Merge a per-account config block on top of the channel-wide config.
+
+    Account-level keys win; the merged block is what the channel instance sees
+    as its top-level config. For WeCom, ``bot_id`` / ``secret`` come from the
+    account block; everything else (groups, dm_policy, etc.) is inherited.
+    """
+    import copy as _copy
+
+    merged = _copy.deepcopy(base_config) if isinstance(base_config, dict) else {}
+    if not isinstance(account_cfg, dict):
+        return merged
+    for key, value in account_cfg.items():
+        if key in {"bot_id", "secret", "websocket_url", "app_id", "app_secret", "bot_token", "token", "client_id", "app_key"}:
+            # Top-level credentials: copy straight across (channel reads config.get("bot_id") etc.).
+            merged[key] = value
+        else:
+            # Other keys go under ``extra`` so the channel can pull them via
+            # ``config.get("extra") or {}`` (matches wecom/feishu convention).
+            extra = merged.get("extra")
+            if not isinstance(extra, dict):
+                extra = {}
+                merged["extra"] = extra
+            extra[key] = value
+    return merged
+
 def resolve_channels_config_from_app() -> dict[str, Any]:
     """Load the ``channels`` subtree from :class:`AppConfig` (YAML extras, attribute, or dump)."""
     from evoflow.config.app_config import get_app_config
@@ -311,7 +361,15 @@ class ChannelService:
         return True
 
     async def _start_channel(self, name: str, config: dict[str, Any]) -> bool:
-        """Instantiate and start a single channel."""
+        """Instantiate and start a single channel.
+
+        Channels that support ``config.accounts`` (per-employee bots) are
+        expanded into one channel instance per account. Each instance receives
+        its own ``account_id`` so inbound messages can be routed to the
+        employee agent. The primary bot (``account_id == ""``) is always
+        started when ``bot_id``/``secret`` (or channel equivalent) is
+        populated, even if accounts are also defined.
+        """
         import_path = _CHANNEL_REGISTRY.get(name)
         if not import_path:
             logger.warning("Unknown channel type: %s", name)
@@ -325,17 +383,67 @@ class ChannelService:
             logger.exception("Failed to import channel class for %s", name)
             return False
 
+        accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
+        accounts: list[tuple[str, dict[str, Any]]] = []
+        if isinstance(accounts_cfg, dict):
+            for aid, entry in accounts_cfg.items():
+                aid_str = str(aid or "").strip()
+                if not aid_str or not isinstance(entry, dict):
+                    continue
+                accounts.append((aid_str, entry))
+
+        if accounts:
+            # Start primary (account_id == "") once if its own credentials are present.
+            if _channel_has_primary_credentials(name, config):
+                await self._start_channel_instance(name, channel_cls, config, account_id="", instance_key=name)
+            # Start one instance per account.
+            for aid, acc_cfg in accounts:
+                merged_cfg = _merge_account_config(name, config, acc_cfg)
+                if not _channel_has_primary_credentials(name, merged_cfg):
+                    logger.warning("Account %s on channel %s has missing credentials, skipping", aid, name)
+                    continue
+                await self._start_channel_instance(name, channel_cls, merged_cfg, account_id=aid, instance_key=f"{name}:{aid}")
+            return True
+
+        # Single-instance path (no accounts).
+        return await self._start_channel_instance(name, channel_cls, config, account_id="", instance_key=name)
+
+    async def _start_channel_instance(
+        self,
+        name: str,
+        channel_cls: Any,
+        config: dict[str, Any],
+        *,
+        account_id: str,
+        instance_key: str,
+    ) -> bool:
         try:
-            channel = channel_cls(bus=self.bus, config=config)
+            channel = channel_cls(bus=self.bus, config=config, account_id=account_id) if account_id else channel_cls(bus=self.bus, config=config)
             channel.store = self.store
             if name == "feishu":
                 channel._claude_code_chat_mode = self.manager._claude_code_chat_mode
             await channel.start()
-            self._channels[name] = channel
-            logger.info("Channel %s started", name)
+            self._channels[instance_key] = channel
+            logger.info("Channel %s started (account_id=%s)", instance_key, account_id or "-")
             return True
+        except TypeError as exc:
+            # Backwards compat: channel class doesn't accept ``account_id`` kwarg.
+            if "account_id" not in str(exc):
+                raise
+            try:
+                channel = channel_cls(bus=self.bus, config=config)
+                channel.store = self.store
+                if name == "feishu":
+                    channel._claude_code_chat_mode = self.manager._claude_code_chat_mode
+                await channel.start()
+                self._channels[instance_key] = channel
+                logger.info("Channel %s started (legacy, no account_id)", instance_key)
+                return True
+            except Exception:
+                logger.exception("Failed to start channel %s", instance_key)
+                return False
         except Exception:
-            logger.exception("Failed to start channel %s", name)
+            logger.exception("Failed to start channel %s", instance_key)
             return False
 
     def get_status(self) -> dict[str, Any]:
@@ -344,11 +452,23 @@ class ChannelService:
         for name in _CHANNEL_REGISTRY:
             config = self._config.get(name, {})
             enabled = isinstance(config, dict) and config.get("enabled", False)
-            running = name in self._channels and self._channels[name].is_running
-            channels_status[name] = {
-                "enabled": enabled,
-                "running": running,
-            }
+            # Channel is "running" if the primary key or any per-account instance is running.
+            running = (
+                name in self._channels and self._channels[name].is_running
+            ) or any(
+                k.startswith(f"{name}:") and getattr(self._channels[k], "is_running", False)
+                for k in self._channels
+            )
+            # Count bound instances (multi-account expansion).
+            bound_running = [
+                k[len(name) + 1 :]
+                for k in self._channels
+                if k.startswith(f"{name}:") and getattr(self._channels[k], "is_running", False)
+            ]
+            entry: dict[str, Any] = {"enabled": enabled, "running": running}
+            if bound_running:
+                entry["bound_accounts"] = sorted(bound_running)
+            channels_status[name] = entry
         return {
             "service_running": self._running,
             "channels": channels_status,
