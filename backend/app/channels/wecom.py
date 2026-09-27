@@ -768,6 +768,20 @@ class WecomChannel(Channel):
         Returns ``(file_descriptors, mime_types)`` so the caller can also
         react to media type without re-scanning the descriptors.
         """
+        # Always log the raw body so we can see exactly what WeCom is sending.
+        # This is the single most important diagnostic for "image not received" bugs.
+        self._diag_log(
+            "extract_media_body",
+            msgtype=str(body.get("msgtype") or ""),
+            has_image=bool(body.get("image")),
+            has_file=bool(body.get("file")),
+            has_appmsg=bool(body.get("appmsg")),
+            has_mixed=bool(body.get("mixed")),
+            has_quote=bool(body.get("quote")),
+            body_keys=list(body.keys()),
+            # Include first 200 chars of body for full context
+            body_preview=str(body)[:300],
+        )
         media_descriptors: list[dict[str, Any]] = []
         media_types: list[str] = []
         refs: list[tuple[str, dict[str, Any]]] = []
