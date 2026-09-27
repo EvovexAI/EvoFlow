@@ -828,10 +828,31 @@ class WecomChannel(Channel):
             refs.append(("file", quote["file"]))
 
         for kind, ref in refs:
+            self._diag_log(
+                "cache_media_attempt",
+                kind=kind,
+                has_url=bool(ref.get("url")),
+                has_aeskey=bool(ref.get("aeskey")),
+                has_base64=bool(ref.get("base64")),
+                ref_keys=list(ref.keys()),
+                url_preview=str(ref.get("url") or "")[:120],
+            )
             cached = await self._cache_media(kind, ref)
             if not cached:
+                self._diag_log(
+                    "cache_media_returned_none",
+                    kind=kind,
+                    url_preview=str(ref.get("url") or "")[:120],
+                )
                 continue
             path, content_type, filename, size, source_url = cached
+            self._diag_log(
+                "cache_media_ok",
+                kind=kind,
+                path=path,
+                mime=content_type,
+                size=size,
+            )
             descriptor = self._build_file_descriptor(
                 kind=kind,
                 path=path,
@@ -1258,13 +1279,30 @@ class WecomChannel(Channel):
     ) -> tuple[bytes, dict[str, str]]:
         if not self._session:
             raise RuntimeError("no aiohttp session")
-        async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-            response.raise_for_status()
-            headers = {key.lower(): value for key, value in response.headers.items()}
-            data = await response.read()
-            if len(data) > max_bytes:
-                raise ValueError(f"Remote media exceeds WeCom limit: {len(data)} bytes > {max_bytes} bytes")
-            return bytes(data), headers
+        try:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                status = response.status
+                response.raise_for_status()
+                headers = {key.lower(): value for key, value in response.headers.items()}
+                data = await response.read()
+                if len(data) > max_bytes:
+                    raise ValueError(f"Remote media exceeds WeCom limit: {len(data)} bytes > {max_bytes} bytes")
+                self._diag_log(
+                    "download_remote_bytes_ok",
+                    url_preview=url[:120],
+                    status=status,
+                    bytes=len(data),
+                    content_type=headers.get("content-type", ""),
+                )
+                return bytes(data), headers
+        except Exception as exc:
+            self._diag_log(
+                "download_remote_bytes_failed",
+                url_preview=url[:120],
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
 
     @staticmethod
     def _looks_like_url(media_source: str) -> bool:
