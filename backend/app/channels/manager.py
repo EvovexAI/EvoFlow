@@ -469,6 +469,8 @@ def _build_human_input(msg: InboundMessage, run_context: dict[str, Any] | None =
                     reason="no vision-capable model found in config",
                 )
 
+    return {"messages": [message]}
+
 
 def _release_channel_owned_paths(msg: InboundMessage) -> None:
     """Hand the inbound file lifecycle back to the originating channel.
