@@ -251,8 +251,6 @@ class WecomChannel(Channel):
     def _is_group_allowed(self, chat_id: str, sender_id: str) -> bool:
         if self._group_policy == "disabled":
             return False
-        if self._group_policy == "pairing":
-            return False
         if self._group_policy == "allowlist" and not _entry_matches(self._group_allow_from, chat_id):
             return False
 
@@ -260,6 +258,10 @@ class WecomChannel(Channel):
         sender_allow = _coerce_list(group_cfg.get("allow_from") or group_cfg.get("allowFrom"))
         if sender_allow:
             return _entry_matches(sender_allow, sender_id)
+        # Default (``pairing`` and ``open``): accept group messages from any sender.
+        # Pairing model in WeCom means the bot itself is "paired" with the group by the
+        # admin installing the bot into the group; once installed, everyone in the
+        # group can talk to it. Sender-level allowlists above still gate traffic.
         return True
 
     def _resolve_group_cfg(self, chat_id: str) -> dict[str, Any]:
@@ -593,13 +595,13 @@ class WecomChannel(Channel):
         text, reply_text = self._extract_text(body)
         if is_group and text:
             text = re.sub(r"^@\S+\s*", "", text).strip()
-        media_paths, media_types = await self._extract_media(body)
+        media_descriptors, media_types = await self._extract_media(body)
         message_type = self._derive_message_type(body, text, media_types)
 
-        if not text and reply_text and not media_paths:
+        if not text and reply_text and not media_descriptors:
             text = reply_text
 
-        if not text and not media_paths:
+        if not text and not media_descriptors:
             logger.debug("[Wecom] empty message skipped")
             return
 
@@ -611,13 +613,21 @@ class WecomChannel(Channel):
             msg_type=InboundMessageType.COMMAND if text.startswith("/") else InboundMessageType.CHAT,
             thread_ts=msg_id,
             topic_id=None,
-            files=[],
+            files=list(media_descriptors),
             # account_id is stamped on every inbound so ChannelManager can route
             # per-employee bot messages to the right proactive role. Empty string
             # means "primary bot, no employee bound" → default assistant_id.
             metadata={
                 "chat_type": "group" if is_group else "dm",
                 "account_id": self._account_id,
+                # manager calls ``release_owned_temp_paths`` after the agent
+                # finishes so the file is alive when ContextFilesMiddleware
+                # reads it.  Without this, ``_cleanup_temp_paths`` would
+                # unlink the file in a fire-and-forget task immediately
+                # after publish_inbound returns.
+                "_owned_temp_paths": [
+                    str(item.get("path") or "") for item in media_descriptors if item.get("path")
+                ],
             },
         )
         logger.info(
@@ -627,7 +637,7 @@ class WecomChannel(Channel):
             chat_id[:12],
             "group" if is_group else "dm",
             len(text or ""),
-            len(media_paths),
+            len(media_descriptors),
             text if text else "(no text)",
         )
 
@@ -637,8 +647,14 @@ class WecomChannel(Channel):
         else:
             self._diag_log("publish_inbound", chat_id=event.chat_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], kind=str(message_type))
             await self.bus.publish_inbound(event)
-        if media_paths:
-            asyncio.create_task(self._cleanup_temp_paths(list(media_paths)))
+        # Files are now owned by the manager — see metadata["_owned_temp_paths"].
+        # ``release_owned_temp_paths`` is the only thing that should unlink them.
+        if not event.files and media_descriptors:
+            # No manager will run (e.g. test path) — clean up immediately so we
+            # don't leak temp files when there's nothing downstream to release.
+            asyncio.create_task(self._cleanup_temp_paths(
+                [str(item.get("path") or "") for item in media_descriptors if item.get("path")]
+            ))
 
     # -- text batching (handles WeCom client-side 4000-char splits) ------
 
@@ -657,6 +673,27 @@ class WecomChannel(Channel):
         return f"{self._account_id or 'primary'}:{event.channel_name}:{event.chat_id}:{event.user_id}"
 
     def _enqueue_text_event(self, event: InboundMessage) -> None:
+        """Buffer a plain-text chat event; later events may append text/files.
+
+        Multi-modal flow: a user often fires *图片* then a follow-up *看看这张图*.
+        Each chunk arrives as a separate ``aibot_msg_callback``; without
+        merging, the first image is dispatched alone (manager commits the
+        temp file cleanup), and the follow-up text gets processed in a
+        second, unrelated turn — losing the visual context.
+
+        We coalesce:
+          - **text chunks**: appended to the buffered event's ``text`` (newline
+            separated), and the debounce timer resets so the trailing
+            message wins.  This matches WeCom's own client-side 4000-char
+            split behavior already covered by the original batching.
+          - **file chunks**: stashed in ``files``; the buffered event's
+            debounce timer also resets so any file is followed by a small
+            grace window for the user to type a follow-up.
+          - **commands**: never batched — bypass this path in the caller.
+
+        The flush eventually publishes one InboundMessage carrying the merged
+        text + files.  Cleanup ownership travels with that one event.
+        """
         key = self._text_batch_key(event)
         existing = self._pending_text_batches.get(key)
         chunk_len = len(event.text or "")
@@ -666,6 +703,25 @@ class WecomChannel(Channel):
         else:
             if event.text:
                 existing.text = f"{existing.text}\n{event.text}" if existing.text else event.text
+            if event.files:
+                # Preserve file-descriptor order (image first then follow-up text).
+                existing.files = list(existing.files or []) + list(event.files or [])
+                # Owned temp paths live on metadata; merge them so the manager
+                # releases every file once the merged event is processed.
+                owned = []
+                meta = existing.metadata if isinstance(existing.metadata, dict) else {}
+                if isinstance(meta.get("_owned_temp_paths"), list):
+                    owned = list(meta["_owned_temp_paths"])
+                new_owned = (
+                    list((event.metadata or {}).get("_owned_temp_paths") or [])
+                    if isinstance(event.metadata, dict)
+                    else []
+                )
+                if new_owned:
+                    existing.metadata = {
+                        **meta,
+                        "_owned_temp_paths": owned + [p for p in new_owned if p and p not in owned],
+                    }
             existing.__dict__["_last_chunk_len"] = chunk_len
 
         prior_task = self._pending_text_batch_tasks.get(key)
@@ -685,8 +741,13 @@ class WecomChannel(Channel):
             event = self._pending_text_batches.pop(key, None)
             if not event:
                 return
-            logger.info("[Wecom] flushing text batch %s (%d chars)", key, len(event.text or ""))
-            self._diag_log("publish_inbound_batch", chat_id=event.chat_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300])
+            logger.info(
+                "[Wecom] flushing text batch %s (text_len=%d files=%d)",
+                key,
+                len(event.text or ""),
+                len(event.files or []),
+            )
+            self._diag_log("publish_inbound_batch", chat_id=event.chat_id, text_len=len(event.text or ""), text_preview=(event.text or "")[:300], files=len(event.files or []))
             await self.bus.publish_inbound(event)
         finally:
             if self._pending_text_batch_tasks.get(key) is current_task:
@@ -694,9 +755,44 @@ class WecomChannel(Channel):
 
     # -- media -----------------------------------------------------------
 
-    async def _extract_media(self, body: dict[str, Any]) -> tuple[list[str], list[str]]:
-        """Best-effort extraction of inbound media to local cache paths."""
-        media_paths: list[str] = []
+    async def _extract_media(self, body: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+        """Best-effort extraction of inbound media into file descriptors.
+
+        Each returned dict carries the local cache path that downstream stages
+        (manager → LangGraph run input → ContextFilesMiddleware → multimodal
+        LLM) can read.  Lifecycle is owned by the channel until the manager
+        finishes processing the inbound message; ``_cleanup_temp_paths`` runs
+        only after the bus confirms the inbound was processed (see
+        ``release_owned_temp_paths``).
+
+        Returns ``(file_descriptors, mime_types)`` so the caller can also
+        react to media type without re-scanning the descriptors.
+        """
+        # Always log the raw body so we can see exactly what WeCom is sending.
+        # This is the single most important diagnostic for "image not received" bugs.
+        try:
+            _mixed = body.get("mixed")
+            _mixed_items = (_mixed or {}).get("msg_item", []) if isinstance(_mixed, dict) else []
+            _mixed_types = [
+                str(item.get("msgtype") or "?") for item in _mixed_items if isinstance(item, dict)
+            ]
+        except Exception:
+            _mixed_types = []
+        self._diag_log(
+            "extract_media_body",
+            msgtype=str(body.get("msgtype") or ""),
+            has_image=bool(body.get("image")),
+            has_file=bool(body.get("file")),
+            has_appmsg=bool(body.get("appmsg")),
+            has_mixed=bool(body.get("mixed")),
+            has_quote=bool(body.get("quote")),
+            body_keys=list(body.keys()),
+            mixed_types=_mixed_types,
+            mixed_count=len(_mixed_items),
+            # Include first 1500 chars of body so we see the mixed items themselves
+            body_preview=str(body)[:1500],
+        )
+        media_descriptors: list[dict[str, Any]] = []
         media_types: list[str] = []
         refs: list[tuple[str, dict[str, Any]]] = []
         msgtype = str(body.get("msgtype") or "").lower()
@@ -732,16 +828,98 @@ class WecomChannel(Channel):
             refs.append(("file", quote["file"]))
 
         for kind, ref in refs:
+            self._diag_log(
+                "cache_media_attempt",
+                kind=kind,
+                has_url=bool(ref.get("url")),
+                has_aeskey=bool(ref.get("aeskey")),
+                has_base64=bool(ref.get("base64")),
+                ref_keys=list(ref.keys()),
+                url_preview=str(ref.get("url") or "")[:120],
+            )
             cached = await self._cache_media(kind, ref)
-            if cached:
-                path, content_type = cached
-                media_paths.append(path)
-                media_types.append(content_type)
+            if not cached:
+                self._diag_log(
+                    "cache_media_returned_none",
+                    kind=kind,
+                    url_preview=str(ref.get("url") or "")[:120],
+                )
+                continue
+            path, content_type, filename, size, source_url = cached
+            self._diag_log(
+                "cache_media_ok",
+                kind=kind,
+                path=path,
+                mime=content_type,
+                size=size,
+            )
+            descriptor = self._build_file_descriptor(
+                kind=kind,
+                path=path,
+                mime=content_type,
+                filename=filename,
+                size=size,
+                url=source_url,
+            )
+            media_descriptors.append(descriptor)
+            media_types.append(content_type)
 
-        return media_paths, media_types
+        return media_descriptors, media_types
 
-    async def _cache_media(self, kind: str, media: dict[str, Any]) -> tuple[str, str] | None:
-        """Cache an inbound image/file/media reference to local storage."""
+    def _build_file_descriptor(
+        self,
+        *,
+        kind: str,
+        path: str,
+        mime: str,
+        filename: str,
+        size: int,
+        url: str,
+    ) -> dict[str, Any]:
+        """Build a normalized file descriptor consumed by ``InboundMessage.files``.
+
+        ``kind`` is one of ``image`` / ``file`` / ``audio`` / ``video`` and
+        matches the categories ContextFilesMiddleware branches on when
+        generating multimodal blocks.  ``mime`` follows the IANA type strings
+        (e.g. ``image/jpeg``) so the consumer can decide between native image
+        blocks and ``view_image`` tool calls.
+        """
+        kind_normalized = (
+            kind if kind in {"image", "file", "audio", "video"} else "file"
+        )
+        return {
+            "kind": kind_normalized,
+            "path": path,
+            "mime": str(mime or "application/octet-stream").split(";", 1)[0].strip(),
+            "filename": filename or Path(path).name,
+            "size": int(size or 0),
+            "url": url or "",
+            # account_id lets manager/router resolve an inbound file back to
+            # the originating bot when several employees share one gateway.
+            "account_id": self._account_id or "",
+        }
+
+    def release_owned_temp_paths(self, paths: list[str] | None) -> None:
+        """Public hook the manager calls after a message has been processed.
+
+        Avoids the previous race where the channel unlinked the temp file the
+        moment after ``publish_inbound`` returned — long before the agent or
+        ContextFilesMiddleware ever read it.  Idempotent and safe with an
+        empty/None input.
+        """
+        if not paths:
+            return
+        asyncio.create_task(self._cleanup_temp_paths(list(paths)))
+
+    async def _cache_media(self, kind: str, media: dict[str, Any]) -> tuple[str, str, str, int, str] | None:
+        """Cache an inbound image/file/media reference to local storage.
+
+        Returns ``(path, mime, filename, size, source_url)`` so the caller can
+        build a file descriptor without re-querying the media dictionary.
+        ``source_url`` is the platform-provided URL (or empty string for
+        base64-embedded payloads).
+        """
+        source_url = str(media.get("url") or "").strip()
         if "base64" in media and media.get("base64"):
             try:
                 raw = self._decode_base64(media["base64"])
@@ -749,25 +927,33 @@ class WecomChannel(Channel):
                 logger.debug("[Wecom] failed to decode %s base64 media: %s", kind, exc)
                 return None
 
+            size = len(raw)
             if kind == "image":
                 ext = self._detect_image_ext(raw)
                 try:
-                    return self._cache_bytes(raw, ext), self._mime_for_ext(ext, fallback="image/jpeg")
+                    path = self._cache_bytes(raw, ext)
+                    return path, self._mime_for_ext(ext, fallback="image/jpeg"), Path(path).name, size, source_url
                 except Exception as exc:
                     logger.warning("[Wecom] rejected image bytes: %s", exc)
                     return None
 
             filename = str(media.get("filename") or media.get("name") or "wecom_file")
-            return self._cache_bytes(raw, f".{filename.rsplit('.', 1)[-1] if '.' in filename else 'bin'}"), mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            ext = f".{filename.rsplit('.', 1)[-1] if '.' in filename else 'bin'}"
+            try:
+                path = self._cache_bytes(raw, ext)
+            except Exception as exc:
+                logger.warning("[Wecom] rejected file bytes: %s", exc)
+                return None
+            mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            return path, mime, filename, size, source_url
 
-        url = str(media.get("url") or "").strip()
-        if not url:
+        if not source_url:
             return None
 
         try:
-            raw, headers = await self._download_remote_bytes(url, max_bytes=ABSOLUTE_MAX_BYTES)
+            raw, headers = await self._download_remote_bytes(source_url, max_bytes=ABSOLUTE_MAX_BYTES)
         except Exception as exc:
-            logger.debug("[Wecom] failed to download %s from %s: %s", kind, url, exc)
+            logger.debug("[Wecom] failed to download %s from %s: %s", kind, source_url, exc)
             return None
 
         aes_key = str(media.get("aeskey") or "").strip()
@@ -775,20 +961,45 @@ class WecomChannel(Channel):
             try:
                 raw = self._decrypt_file_bytes(raw, aes_key)
             except Exception as exc:
-                logger.debug("[Wecom] failed to decrypt %s from %s: %s", kind, url, exc)
+                logger.debug("[Wecom] failed to decrypt %s from %s: %s", kind, source_url, exc)
                 return None
 
-        content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip() or "application/octet-stream"
+        size = len(raw)
+        raw_content_type = str(headers.get("content-type") or "").split(";", 1)[0].strip()
         if kind == "image":
-            ext = self._guess_extension(url, content_type, fallback=self._detect_image_ext(raw))
+            # WeCom image proxies on COS frequently serve ``application/octet-stream``
+            # with no helpful URL suffix; instead of trusting those lies we sniff the
+            # bytes themselves so the LLM receives an actual image/* mime type.
+            detected_ext = self._detect_image_ext(raw)
+            if raw_content_type.startswith("image/"):
+                # Trust the server only when it actually claims image/*
+                ext = self._guess_extension(source_url, raw_content_type, fallback=detected_ext)
+                content_type = raw_content_type
+            else:
+                ext = detected_ext
+                content_type = self._mime_for_ext(detected_ext, fallback="image/jpeg")
+            self._diag_log(
+                "image_content_type_resolved",
+                server_content_type=raw_content_type,
+                resolved_ext=ext,
+                resolved_mime=content_type,
+                magic_bytes_hex=raw[:8].hex(),
+                bytes=len(raw),
+            )
             try:
-                return self._cache_bytes(raw, ext), content_type or self._mime_for_ext(ext, fallback="image/jpeg")
+                path = self._cache_bytes(raw, ext)
             except Exception as exc:
-                logger.warning("[Wecom] rejected non-image bytes from %s: %s", url, exc)
+                logger.warning("[Wecom] rejected non-image bytes from %s: %s", source_url, exc)
                 return None
+            return path, content_type, Path(path).name, size, source_url
 
-        filename = self._guess_filename(url, headers.get("content-disposition"), content_type)
-        return self._cache_bytes(raw, f".{filename.rsplit('.', 1)[-1] if '.' in filename else 'bin'}"), content_type
+        filename = self._guess_filename(source_url, headers.get("content-disposition"), content_type)
+        try:
+            path = self._cache_bytes(raw, f".{filename.rsplit('.', 1)[-1] if '.' in filename else 'bin'}")
+        except Exception as exc:
+            logger.warning("[Wecom] rejected file bytes from %s: %s", source_url, exc)
+            return None
+        return path, content_type, filename, size, source_url
 
     def _cache_bytes(self, data: bytes, suffix: str) -> str:
         import tempfile
@@ -1084,15 +1295,55 @@ class WecomChannel(Channel):
         url: str,
         max_bytes: int,
     ) -> tuple[bytes, dict[str, str]]:
-        if not self._session:
-            raise RuntimeError("no aiohttp session")
-        async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-            response.raise_for_status()
-            headers = {key.lower(): value for key, value in response.headers.items()}
-            data = await response.read()
-            if len(data) > max_bytes:
-                raise ValueError(f"Remote media exceeds WeCom limit: {len(data)} bytes > {max_bytes} bytes")
-            return bytes(data), headers
+        # Hostile-environment agent note:
+        # The shared aiohttp session is created with ``trust_env=True`` so the
+        # WeCom WebSocket can honor ``HTTPS_PROXY`` / ``HTTP_PROXY``. That same
+        # proxy chain breaks HTTPS downloads of media through CONNECT tunnels
+        # (the aiohttp ProxyConnector can't wrap a second TLS context around
+        # an already-proxied socket, raising ``TLS-in-TLS``).
+        #
+        # Media downloads are short, low-frequency, and target known public
+        # CDNs (cos / qcloud). It's safer — and faster — to fetch them with a
+        # dedicated, no-proxy aiohttp session. The connector has to be built
+        # fresh every call so DNS picks up the public address; reusing one
+        # from the gateway boot session would inherit any cached DNS state.
+        try:
+            import aiohttp as _aiohttp  # local alias to keep top-level import intact
+            ssl_ctx = _aiohttp.TCPConnector(
+                ssl=True,
+                force_close=False,
+                enable_cleanup_closed=True,
+            )
+            async with _aiohttp.ClientSession(
+                connector=ssl_ctx,
+                trust_env=False,
+                timeout=_aiohttp.ClientTimeout(total=30),
+            ) as session:
+                async with session.get(url) as response:
+                    status = response.status
+                    response.raise_for_status()
+                    headers = {key.lower(): value for key, value in response.headers.items()}
+                    data = await response.read()
+                    if len(data) > max_bytes:
+                        raise ValueError(
+                            f"Remote media exceeds WeCom limit: {len(data)} bytes > {max_bytes} bytes"
+                        )
+                    self._diag_log(
+                        "download_remote_bytes_ok",
+                        url_preview=url[:120],
+                        status=status,
+                        bytes=len(data),
+                        content_type=headers.get("content-type", ""),
+                    )
+                    return bytes(data), headers
+        except Exception as exc:
+            self._diag_log(
+                "download_remote_bytes_failed",
+                url_preview=url[:120],
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            raise
 
     @staticmethod
     def _looks_like_url(media_source: str) -> bool:

@@ -381,7 +381,33 @@ def publish_kb_citations(
 
 
 def get_channel_service() -> Any | None:
+    """Return the running ChannelService singleton, or None.
+
+    Two implementations coexist on this port:
+
+    - **App layer adapter** registered by ``runtime_adapters.py`` with the
+      ``app.channels.service.get_channel_service`` factory function. We call it
+      once to resolve the singleton. ``app.channels.service.get_channel_service``
+      itself is sync (returns ``ChannelService | None``), so resolving is cheap
+      even if the gateway re-registers the factory across reloads.
+    - **Module-level instance** (legacy path): if the registration happens to be
+      the running instance already (e.g. tests injected it directly), we use it
+      as-is.
+
+    Returning ``None`` is fine — callers (``wecom_binding`` etc.) treat that as
+    "service not started yet" and skip the side-effect (restart), which is the
+    safe off-process fallback.
+    """
     impl = get("channels.service")
+    if impl is None:
+        return None
+    if callable(impl):
+        # Factory function: resolve once. ``app.channels.service.get_channel_service``
+        # is sync, so calling it from a sync context (proactive module) is safe.
+        try:
+            return impl()
+        except Exception:
+            return None
     return impl
 
 

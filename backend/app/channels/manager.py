@@ -73,11 +73,11 @@ _IM_SHORTCUT_HINT_META_KEY = "im_shortcut_hint_sent"
 
 
 def _im_shortcut_commands_help_lines(*, include_bootstrap: bool = False) -> list[str]:
-    # IM 首条消息只放一行命令提示。其它指令入口保留在 /help 与 Web 桌面端。
+    # 当前不输出任何日常 IM 快捷指令提示；入口保留在 Web 桌面端与 /help。
     # 群聊 / 小V 已被 _im_should_omit_shortcut_hint 过滤，不会走这里。
-    lines = ["/new 开新对话"]
+    lines: list[str] = []
     if include_bootstrap:
-        lines.insert(0, "/bootstrap <提示>   - 初始化工作区（首次配置）")
+        lines.append("/bootstrap <提示>   - 初始化工作区（首次配置）")
     return lines
 
 
@@ -371,6 +371,184 @@ def _enrich_channel_run_context(
     if body:
         run_context.setdefault("evf_user_question", body)
         run_context.setdefault("user_message", body)
+
+
+def _build_human_input(
+    msg: InboundMessage,
+    run_context: dict[str, Any] | None = None,
+    run_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the LangGraph ``runs.wait`` / ``runs.stream`` ``input`` dict.
+
+    Beyond the plain-text user turn, we forward ``InboundMessage.files`` as
+    ``additional_kwargs.context_files`` so ContextFilesMiddleware can pick
+    them up and feed images to the multimodal LLM.  Each entry is normalized
+    into the shape ContextFilesMiddleware expects (``path`` + ``name``).
+
+    When media is attached and the session model lacks vision support, this
+    function injects the best available vision model into ``run_context``
+    so ContextFilesMiddleware can emit native ``image_url`` blocks for this
+    turn only.
+
+    Returns ``{"messages": [{"role": "human", "content": ..., ...}]}`` — the
+    LangChain-style payload the SDK already understands.
+    """
+    content = msg.text or ""
+    message: dict[str, Any] = {"role": "human", "content": content}
+    files = list(msg.files or [])
+    has_context_files = False
+    if files:
+        context_files: list[dict[str, Any]] = []
+        for entry in files:
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path") or "").strip()
+            if not path:
+                continue
+            name = (
+                str(entry.get("filename") or "").strip()
+                or Path(path).name
+                or "attachment"
+            )
+            cf_entry: dict[str, Any] = {"path": path, "name": name}
+            mime = str(entry.get("mime") or "").strip()
+            if mime:
+                cf_entry["mime"] = mime
+            kind = str(entry.get("kind") or "").strip()
+            if kind:
+                cf_entry["kind"] = kind
+            size = entry.get("size")
+            if isinstance(size, (int, float)) and size > 0:
+                cf_entry["size"] = int(size)
+            url = str(entry.get("url") or "").strip()
+            if url:
+                cf_entry["url"] = url
+            context_files.append(cf_entry)
+        if context_files:
+            message["additional_kwargs"] = {"context_files": context_files}
+            has_context_files = True
+
+    # The authoritative model lives in run_config.configurable.model_name (lead_agent
+    # reads it via cfg.get("model_name")). Vision fallback overrides only run_context["model_name"].
+    run_configurable = (run_config or {}).get("configurable") if isinstance(run_config, dict) else {}
+    if not isinstance(run_configurable, dict):
+        run_configurable = {}
+    run_context_dict = run_context if isinstance(run_context, dict) else {}
+    configured_model = (
+        str(run_configurable.get("model_name") or "").strip()
+        or str(run_configurable.get("model") or "").strip()
+        or None
+    )
+    vision_override_model = str(run_context_dict.get("model_name") or "").strip() or None
+    effective_model = vision_override_model or configured_model
+
+    _mgr_diag(
+        "build_human_input",
+        channel=msg.channel_name,
+        files=len(files),
+        has_context_files=has_context_files,
+        text_preview=(msg.text or "")[:50],
+        configured_model=configured_model,
+        vision_override_model=vision_override_model,
+        effective_model=effective_model,
+        agent_name=str(run_context_dict.get("agent_name") or "").strip() or None,
+        account_id=str((msg.metadata or {}).get("account_id") or "").strip() or None,
+    )
+
+    # Vision model fallback: if the inbound carries media but the session's
+    # model does not support vision, inject the first available vision-capable
+    # model so ContextFilesMiddleware can inject native image blocks.
+    # This does NOT change the run_config.model (agent binding still wins);
+    # it only ensures the right model is used for this one multimodal turn.
+    if has_context_files and files:
+        from evoflow.tools.builtins.vision_analysis_core import model_supports_vision, resolve_vision_model_name
+
+        ctx = run_context or {}
+        current_model = str(ctx.get("model_name") or "").strip()
+        if not current_model or not model_supports_vision(current_model):
+            vision_model = resolve_vision_model_name(source="channel_multimodal")
+            if vision_model:
+                _mgr_diag(
+                    "vision_fallback",
+                    channel=msg.channel_name,
+                    current_model=current_model or "(unset)",
+                    vision_model=vision_model,
+                    reason="current model has no vision support",
+                )
+                if run_context is not None:
+                    run_context["model_name"] = vision_model
+                    run_context["_vision_fallback"] = True
+                else:
+                    run_context = {"model_name": vision_model, "_vision_fallback": True}
+            else:
+                _mgr_diag(
+                    "vision_fallback",
+                    channel=msg.channel_name,
+                    current_model=current_model or "(unset)",
+                    vision_model=None,
+                    reason="no vision-capable model found in config",
+                )
+
+    return {"messages": [message]}
+
+
+def _release_channel_owned_paths(msg: InboundMessage) -> None:
+    """Hand the inbound file lifecycle back to the originating channel.
+
+    The WeCom channel caches inbound media in temp files (for the agent to
+    read via ContextFilesMiddleware).  Without this hook, the channel would
+    unlink them immediately after ``publish_inbound`` returns, so we defer
+    release until the manager is done — this function is called from the
+    ``finally`` of ``_handle_message``.
+
+    Other channels (feishu / weixin / …) that don't yet cache files are a
+    no-op here.
+    """
+    meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+    raw_paths = meta.get("_owned_temp_paths")
+    if not isinstance(raw_paths, list) or not raw_paths:
+        return
+    paths = [str(p) for p in raw_paths if str(p or "").strip()]
+    if not paths:
+        return
+    channel_name = str(msg.channel_name or "").strip().lower()
+    channel = None
+    try:
+        from app.channels.service import get_channel_service
+
+        service = get_channel_service()
+    except Exception:
+        service = None
+    if service is not None:
+        # Primary bot runs as ``service._channels[name]``.  Per-account bots
+        # run under names like ``wecom:customer-service``.  The per-account
+        # handle is the one that actually owns the inbound message, so it
+        # wins over the primary namespace when both are registered.
+        candidate_keys: list[str] = []
+        meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+        account_id = str(meta.get("account_id") or "").strip()
+        if account_id:
+            candidate_keys.append(f"{channel_name}:{account_id}")
+        candidate_keys.append(channel_name)
+        channels_map = getattr(service, "_channels", None)
+        if isinstance(channels_map, dict):
+            for key in candidate_keys:
+                chan = channels_map.get(key)
+                if chan is not None:
+                    channel = chan
+                    break
+    if channel is None:
+        return
+    releaser = getattr(channel, "release_owned_temp_paths", None)
+    if callable(releaser):
+        try:
+            releaser(paths)
+        except Exception:
+            logger.debug(
+                "[Manager] channel %s release_owned_temp_paths failed",
+                channel_name,
+                exc_info=True,
+            )
 
 
 class InvalidChannelSessionConfigError(ValueError):
@@ -1538,56 +1716,65 @@ class ChannelManager:
     async def _handle_message(self, msg: InboundMessage) -> None:
         chat_lock = self._chat_locks.setdefault(self._chat_lock_key(msg), asyncio.Lock())
         async with chat_lock:
-            async with self._semaphore:
-                if msg.channel_name == "feishu" and str(msg.chat_id or "").strip():
-                    try:
-                        from app.channels.feishu_automation_learned_chat import remember_feishu_automation_chat_from_inbound
+            try:
+                async with self._semaphore:
+                    if msg.channel_name == "feishu" and str(msg.chat_id or "").strip():
+                        try:
+                            from app.channels.feishu_automation_learned_chat import remember_feishu_automation_chat_from_inbound
 
-                        meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-                        remember_feishu_automation_chat_from_inbound(
+                            meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+                            remember_feishu_automation_chat_from_inbound(
+                                msg.chat_id,
+                                str(meta.get("account_id") or "").strip(),
+                            )
+                        except Exception:
+                            logger.debug("[Manager] feishu automation learn chat_id skipped", exc_info=True)
+                    try:
+                        if msg.msg_type == InboundMessageType.COMMAND:
+                            await self._handle_command(msg)
+                        else:
+                            await self._handle_chat(msg)
+                    except InvalidChannelSessionConfigError as exc:
+                        logger.warning(
+                            "Invalid channel session config for %s (chat=%s): %s",
+                            msg.channel_name,
                             msg.chat_id,
-                            str(meta.get("account_id") or "").strip(),
+                            exc,
                         )
-                    except Exception:
-                        logger.debug("[Manager] feishu automation learn chat_id skipped", exc_info=True)
+                        vis = str(exc)
+                        self._record_im_channel_failure(msg, message=vis, user_visible=vis)
+                        if msg.channel_name in IM_CHANNEL_NAMES:
+                            await self._send_error(msg, self._im_rich_error_body(msg, fallback=vis))
+                        else:
+                            await self._send_error(msg, vis)
+                    except Exception as exc:
+                        logger.exception(
+                            "Error handling message from %s (chat=%s) thread_id=%s",
+                            msg.channel_name,
+                            msg.chat_id,
+                            self._resolve_stored_thread_id(msg) or "(none)",
+                        )
+                        self._record_im_channel_failure(
+                            msg,
+                            exc=exc,
+                            user_visible=self._im_rich_error_body(msg, exc=exc) if msg.channel_name in IM_CHANNEL_NAMES else str(exc),
+                        )
+                        if msg.channel_name in IM_CHANNEL_NAMES:
+                            await self._send_error(msg, self._im_rich_error_body(msg, exc=exc))
+                        else:
+                            hint = "若刚发送过 **/claude** 切换 Claude Code：请确认 LangGraph Server 已部署 ``claude_code_chat`` 图，且运行该图的 Python 环境已安装 ``claude-agent-sdk``；并查看服务端日志中本条上方的异常栈。"
+                            detail = ""
+                            if (os.getenv("EVOFLOW_IM_ERROR_DETAIL") or "").strip().lower() in ("1", "true", "yes", "on"):
+                                detail = "\n（调试：" + f"{type(exc).__name__}: {exc}"[:400] + "）"
+                            await self._send_error(msg, "处理失败，请稍后重试。\n" + hint + detail)
+            finally:
+                # Channel-owned temp files (WeCom caches inbound media so the
+                # multimodal LLM can read it).  Releasing in ``finally`` keeps
+                # cleanup deterministic even on the error paths above.
                 try:
-                    if msg.msg_type == InboundMessageType.COMMAND:
-                        await self._handle_command(msg)
-                    else:
-                        await self._handle_chat(msg)
-                except InvalidChannelSessionConfigError as exc:
-                    logger.warning(
-                        "Invalid channel session config for %s (chat=%s): %s",
-                        msg.channel_name,
-                        msg.chat_id,
-                        exc,
-                    )
-                    vis = str(exc)
-                    self._record_im_channel_failure(msg, message=vis, user_visible=vis)
-                    if msg.channel_name in IM_CHANNEL_NAMES:
-                        await self._send_error(msg, self._im_rich_error_body(msg, fallback=vis))
-                    else:
-                        await self._send_error(msg, vis)
-                except Exception as exc:
-                    logger.exception(
-                        "Error handling message from %s (chat=%s) thread_id=%s",
-                        msg.channel_name,
-                        msg.chat_id,
-                        self._resolve_stored_thread_id(msg) or "(none)",
-                    )
-                    self._record_im_channel_failure(
-                        msg,
-                        exc=exc,
-                        user_visible=self._im_rich_error_body(msg, exc=exc) if msg.channel_name in IM_CHANNEL_NAMES else str(exc),
-                    )
-                    if msg.channel_name in IM_CHANNEL_NAMES:
-                        await self._send_error(msg, self._im_rich_error_body(msg, exc=exc))
-                    else:
-                        hint = "若刚发送过 **/claude** 切换 Claude Code：请确认 LangGraph Server 已部署 ``claude_code_chat`` 图，且运行该图的 Python 环境已安装 ``claude-agent-sdk``；并查看服务端日志中本条上方的异常栈。"
-                        detail = ""
-                        if (os.getenv("EVOFLOW_IM_ERROR_DETAIL") or "").strip().lower() in ("1", "true", "yes", "on"):
-                            detail = "\n（调试：" + f"{type(exc).__name__}: {exc}"[:400] + "）"
-                        await self._send_error(msg, "处理失败，请稍后重试。\n" + hint + detail)
+                    _release_channel_owned_paths(msg)
+                except Exception:
+                    logger.debug("[Manager] _release_channel_owned_paths failed", exc_info=True)
 
     # -- chat handling -----------------------------------------------------
 
@@ -1731,12 +1918,13 @@ class ChannelManager:
             (msg.text or "").strip() or "(empty)",
         )
         result: dict[str, Any] | list | None = None
+        human_input = _build_human_input(msg, run_context, run_config)
         for attempt in range(2):
             try:
                 result = await client.runs.wait(
                     thread_id,
                     assistant_id,
-                    input={"messages": [{"role": "human", "content": msg.text}]},
+                    input=human_input,
                     config=run_config,
                     context=run_context,
                 )
@@ -1918,10 +2106,16 @@ class ChannelManager:
                 stream_error = None
                 custom_text = ""
             try:
+                human_input = _build_human_input(msg, run_context, run_config)
+                if human_input["messages"][0].get("additional_kwargs", {}).get("context_files"):
+                    logger.info(
+                        "[Manager] context_files injected into run: %s",
+                        human_input["messages"][0]["additional_kwargs"]["context_files"],
+                    )
                 async for chunk in client.runs.stream(
                     active_thread_id,
                     assistant_id,
-                    input={"messages": [{"role": "human", "content": msg.text}]},
+                    input=human_input,
                     config=run_config,
                     context=run_context,
                     stream_mode=["messages-tuple", "values", "custom"],
