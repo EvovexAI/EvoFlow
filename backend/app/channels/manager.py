@@ -424,18 +424,16 @@ def _build_human_input(msg: InboundMessage, run_context: dict[str, Any] | None =
             message["additional_kwargs"] = {"context_files": context_files}
             has_context_files = True
 
-    logger.info(
-        "[Manager] _build_human_input channel=%s files=%d context_files=%s text=%.50s",
-        msg.channel_name,
-        len(files),
-        has_context_files,
-        (msg.text or "")[:50],
+    _mgr_diag(
+        "build_human_input",
+        channel=msg.channel_name,
+        files=len(files),
+        has_context_files=has_context_files,
+        text_preview=(msg.text or "")[:50],
+        current_model=str((run_context or {}).get("model_name") or "").strip() or None,
+        # Record which model will be used for this turn (original or vision-fallback).
+        effective_model=str(run_context.get("model_name") if run_context else "").strip() or None,
     )
-    if has_context_files:
-        logger.info(
-            "[Manager] DEBUG context_files: %s",
-            message["additional_kwargs"]["context_files"],
-        )
 
     # Vision model fallback: if the inbound carries media but the session's
     # model does not support vision, inject the first available vision-capable
@@ -450,18 +448,26 @@ def _build_human_input(msg: InboundMessage, run_context: dict[str, Any] | None =
         if not current_model or not model_supports_vision(current_model):
             vision_model = resolve_vision_model_name(source="channel_multimodal")
             if vision_model:
-                logger.info(
-                    "[Manager] Vision fallback: current=%r -> vision_model=%r (files present but current model has no vision)",
-                    current_model or "(unset)",
-                    vision_model,
+                _mgr_diag(
+                    "vision_fallback",
+                    channel=msg.channel_name,
+                    current_model=current_model or "(unset)",
+                    vision_model=vision_model,
+                    reason="current model has no vision support",
                 )
                 if run_context is not None:
                     run_context["model_name"] = vision_model
                     run_context["_vision_fallback"] = True
                 else:
                     run_context = {"model_name": vision_model, "_vision_fallback": True}
-
-    return {"messages": [message]}
+            else:
+                _mgr_diag(
+                    "vision_fallback",
+                    channel=msg.channel_name,
+                    current_model=current_model or "(unset)",
+                    vision_model=None,
+                    reason="no vision-capable model found in config",
+                )
 
 
 def _release_channel_owned_paths(msg: InboundMessage) -> None:
