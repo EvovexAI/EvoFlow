@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import json
 from typing import Any
 
@@ -24,6 +25,9 @@ from evoflow.persistence.row_mappers import (
     tool_row_to_doc,
 )
 from evoflow.timeutil import utc_now_iso_z
+
+
+logger = logging.getLogger(__name__)
 
 
 def _dumps(obj: Any) -> str:
@@ -1088,6 +1092,9 @@ def mark_model_unavailable(
     reason_text = str(reason or "").strip() or "上游模型不可用"
     code_text = str(code or "").strip() or None
     now = utc_now_iso_z()
+    # Transient failures auto-expire (see _transient_unavailable_ttl /
+    # is_model_unavailable) so a passing rate-limit storm does not leave a
+    # model stuck "unavailable" until someone clicks clear in the panel.
 
     def _write(db: Any) -> bool:
         cur = db.execute(
@@ -1132,6 +1139,37 @@ def clear_model_unavailable(name: str) -> bool:
     return bool(run_db_transaction(_write))
 
 
+# Transient failure codes get a time-to-live on the unavailable mark so the
+# model auto-recovers once the storm passes (rate limit / overload / timeout /
+# 5xx). Persistent failures (auth, billing, model-not-found, format) keep the
+# manual-clear-only behavior.
+_TRANSIENT_UNAVAILABLE_CODES = frozenset(
+    {"rate_limit", "overloaded", "timeout", "server_error", "unknown"}
+)
+_TRANSIENT_UNAVAILABLE_TTL_SECONDS = 60.0
+
+
+def _expire_transient_unavailable(model_name: str, code: str | None, unavailable_at: str | None) -> bool:
+    """Clear the mark when a transient code is past its TTL. Returns True if cleared."""
+    from datetime import datetime, timezone
+
+    if code not in _TRANSIENT_UNAVAILABLE_CODES or not unavailable_at:
+        return False
+    try:
+        marked_at = datetime.fromisoformat(str(unavailable_at).replace("Z", "+00:00"))
+        if datetime.now(timezone.utc).timestamp() - marked_at.timestamp() < _TRANSIENT_UNAVAILABLE_TTL_SECONDS:
+            return False
+    except (ValueError, TypeError):
+        return False
+    try:
+        cleared = clear_model_unavailable(model_name)
+    except Exception:
+        return False
+    if cleared:
+        logger.info("Auto-cleared expired transient unavailable mark for %r (code=%s)", model_name, code)
+    return cleared
+
+
 def is_model_unavailable(name: str) -> bool:
     model_name = str(name or "").strip()
     if not model_name:
@@ -1139,14 +1177,18 @@ def is_model_unavailable(name: str) -> bool:
     row = (
         get_db()
         .execute(
-            "SELECT availability_status FROM evoflow_models WHERE name = ?",
+            "SELECT availability_status, unavailable_code, unavailable_at FROM evoflow_models WHERE name = ?",
             (model_name,),
         )
         .fetchone()
     )
     if not row:
         return False
-    return str(row[0] or "").strip().lower() == "unavailable"
+    if str(row[0] or "").strip().lower() != "unavailable":
+        return False
+    if _expire_transient_unavailable(model_name, str(row[1] or "").strip() or None, row[2]):
+        return False
+    return True
 
 
 def delete_model(name: str) -> bool:
