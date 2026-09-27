@@ -1277,24 +1277,47 @@ class WecomChannel(Channel):
         url: str,
         max_bytes: int,
     ) -> tuple[bytes, dict[str, str]]:
-        if not self._session:
-            raise RuntimeError("no aiohttp session")
+        # Hostile-environment agent note:
+        # The shared aiohttp session is created with ``trust_env=True`` so the
+        # WeCom WebSocket can honor ``HTTPS_PROXY`` / ``HTTP_PROXY``. That same
+        # proxy chain breaks HTTPS downloads of media through CONNECT tunnels
+        # (the aiohttp ProxyConnector can't wrap a second TLS context around
+        # an already-proxied socket, raising ``TLS-in-TLS``).
+        #
+        # Media downloads are short, low-frequency, and target known public
+        # CDNs (cos / qcloud). It's safer — and faster — to fetch them with a
+        # dedicated, no-proxy aiohttp session. The connector has to be built
+        # fresh every call so DNS picks up the public address; reusing one
+        # from the gateway boot session would inherit any cached DNS state.
         try:
-            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                status = response.status
-                response.raise_for_status()
-                headers = {key.lower(): value for key, value in response.headers.items()}
-                data = await response.read()
-                if len(data) > max_bytes:
-                    raise ValueError(f"Remote media exceeds WeCom limit: {len(data)} bytes > {max_bytes} bytes")
-                self._diag_log(
-                    "download_remote_bytes_ok",
-                    url_preview=url[:120],
-                    status=status,
-                    bytes=len(data),
-                    content_type=headers.get("content-type", ""),
-                )
-                return bytes(data), headers
+            import aiohttp as _aiohttp  # local alias to keep top-level import intact
+            ssl_ctx = _aiohttp.TCPConnector(
+                ssl=True,
+                force_close=False,
+                enable_cleanup_closed=True,
+            )
+            async with _aiohttp.ClientSession(
+                connector=ssl_ctx,
+                trust_env=False,
+                timeout=_aiohttp.ClientTimeout(total=30),
+            ) as session:
+                async with session.get(url) as response:
+                    status = response.status
+                    response.raise_for_status()
+                    headers = {key.lower(): value for key, value in response.headers.items()}
+                    data = await response.read()
+                    if len(data) > max_bytes:
+                        raise ValueError(
+                            f"Remote media exceeds WeCom limit: {len(data)} bytes > {max_bytes} bytes"
+                        )
+                    self._diag_log(
+                        "download_remote_bytes_ok",
+                        url_preview=url[:120],
+                        status=status,
+                        bytes=len(data),
+                        content_type=headers.get("content-type", ""),
+                    )
+                    return bytes(data), headers
         except Exception as exc:
             self._diag_log(
                 "download_remote_bytes_failed",
