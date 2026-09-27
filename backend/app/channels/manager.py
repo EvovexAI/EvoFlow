@@ -373,13 +373,18 @@ def _enrich_channel_run_context(
         run_context.setdefault("user_message", body)
 
 
-def _build_human_input(msg: InboundMessage) -> dict[str, Any]:
+def _build_human_input(msg: InboundMessage, run_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the LangGraph ``runs.wait`` / ``runs.stream`` ``input`` dict.
 
     Beyond the plain-text user turn, we forward ``InboundMessage.files`` as
     ``additional_kwargs.context_files`` so ContextFilesMiddleware can pick
     them up and feed images to the multimodal LLM.  Each entry is normalized
     into the shape ContextFilesMiddleware expects (``path`` + ``name``).
+
+    When media is attached and the session model lacks vision support, this
+    function injects the best available vision model into ``run_context``
+    so ContextFilesMiddleware can emit native ``image_url`` blocks for this
+    turn only.
 
     Returns ``{"messages": [{"role": "human", "content": ..., ...}]}`` — the
     LangChain-style payload the SDK already understands.
@@ -427,11 +432,35 @@ def _build_human_input(msg: InboundMessage) -> dict[str, Any]:
         (msg.text or "")[:50],
     )
     if has_context_files:
-        print(
-            f"[Manager] DEBUG context_files: {message['additional_kwargs']['context_files']}",
-            file=sys.stderr,
-            flush=True,
+        logger.info(
+            "[Manager] DEBUG context_files: %s",
+            message["additional_kwargs"]["context_files"],
         )
+
+    # Vision model fallback: if the inbound carries media but the session's
+    # model does not support vision, inject the first available vision-capable
+    # model so ContextFilesMiddleware can inject native image blocks.
+    # This does NOT change the run_config.model (agent binding still wins);
+    # it only ensures the right model is used for this one multimodal turn.
+    if has_context_files and files:
+        from evoflow.tools.builtins.vision_analysis_core import model_supports_vision, resolve_vision_model_name
+
+        ctx = run_context or {}
+        current_model = str(ctx.get("model_name") or "").strip()
+        if not current_model or not model_supports_vision(current_model):
+            vision_model = resolve_vision_model_name(source="channel_multimodal")
+            if vision_model:
+                logger.info(
+                    "[Manager] Vision fallback: current=%r -> vision_model=%r (files present but current model has no vision)",
+                    current_model or "(unset)",
+                    vision_model,
+                )
+                if run_context is not None:
+                    run_context["model_name"] = vision_model
+                    run_context["_vision_fallback"] = True
+                else:
+                    run_context = {"model_name": vision_model, "_vision_fallback": True}
+
     return {"messages": [message]}
 
 
@@ -1861,12 +1890,13 @@ class ChannelManager:
             (msg.text or "").strip() or "(empty)",
         )
         result: dict[str, Any] | list | None = None
+        human_input = _build_human_input(msg, run_context)
         for attempt in range(2):
             try:
                 result = await client.runs.wait(
                     thread_id,
                     assistant_id,
-                    input=_build_human_input(msg),
+                    input=human_input,
                     config=run_config,
                     context=run_context,
                 )
@@ -2048,12 +2078,16 @@ class ChannelManager:
                 stream_error = None
                 custom_text = ""
             try:
-                human_input = _build_human_input(msg)
-                print(f"[Manager] DEBUG _handle_streaming_chat input: {str(human_input)[:500]}", file=sys.stderr, flush=True)
+                human_input = _build_human_input(msg, run_context)
+                if human_input["messages"][0].get("additional_kwargs", {}).get("context_files"):
+                    logger.info(
+                        "[Manager] context_files injected into run: %s",
+                        human_input["messages"][0]["additional_kwargs"]["context_files"],
+                    )
                 async for chunk in client.runs.stream(
                     active_thread_id,
                     assistant_id,
-                    input=_build_human_input(msg),
+                    input=human_input,
                     config=run_config,
                     context=run_context,
                     stream_mode=["messages-tuple", "values", "custom"],
