@@ -2027,18 +2027,6 @@ class ChannelManager:
         # Surface the model used for this turn so the user can see what answered them.
         # Reads the authoritative model from run_config.configurable (matches lead_agent).
         try:
-            _run_cfg = run_config if isinstance(run_config, dict) else {}
-            _run_cfg_dict = _run_cfg.get("configurable") if isinstance(_run_cfg, dict) else {}
-            if not isinstance(_run_cfg_dict, dict):
-                _run_cfg_dict = {}
-            _configured = str(_run_cfg_dict.get("model_name") or _run_cfg_dict.get("model") or "").strip()
-            _rc = run_context if isinstance(run_context, dict) else {}
-            _vision_override = str(_rc.get("model_name") or "").strip()
-            _effective = _vision_override or _configured
-            if _effective:
-                # Prepend (not append) so it's the first thing the user sees —
-                # avoids getting hidden in mid-reply text.
-                response_text = f"[本轮模型: {_effective}]\n\n{response_text}"
         except Exception:
             pass
 
@@ -2324,16 +2312,6 @@ class ChannelManager:
 
         # Surface the model used for this turn so the user can see what answered them.
         try:
-            _run_cfg_dict = (run_config.get("configurable") if isinstance(run_config, dict) else None) or {}
-            if not isinstance(_run_cfg_dict, dict):
-                _run_cfg_dict = {}
-            _configured = str(_run_cfg_dict.get("model_name") or _run_cfg_dict.get("model") or "").strip()
-            _rc = run_context if isinstance(run_context, dict) else {}
-            _vision_override = str(_rc.get("model_name") or "").strip()
-            _effective = _vision_override or _configured
-            if _effective and (response_text or "").strip() and stream_error is None and not was_cancelled:
-                # Prepend so it's the first thing the user sees — avoids getting hidden in mid-reply text.
-                response_text = f"[本轮模型: {_effective}]\n\n{response_text}"
         except Exception:
             pass
 

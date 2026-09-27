@@ -657,10 +657,10 @@ def _hire_existing_agent(
     role_name = str(data.get("role_name") or "").strip() or str(agent_row.get("agent_name") or agent_code)
     position_code = str(data.get("position_code") or "").strip()
     heartbeat = str(data.get("heartbeat_rrule") or "FREQ=HOURLY;INTERVAL=2").strip()
-    from evoflow.proactive.prompt import validate_knowledge_vault_ids
+    from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
     try:
-        vault_ids = validate_knowledge_vault_ids(list(data.get("knowledge_vault_ids") or []))
+        vault_ids = validate_agent_knowledge_ids(list(data.get("knowledge_vault_ids") or []))
     except ValueError as e:
         raise ValidationError(str(e)) from e
 
@@ -767,12 +767,12 @@ def _hire_existing_agent(
             logger.debug("create_employee: dept sync skipped", exc_info=True)
 
     # Mirror kb_injection into agent's extra_json (per-employee toggle).
-    if data.get("kb_injection") is not None or cfg.kb_injection:
+    if data.get("kb_injection") is not None or config.kb_injection:
         _persist_agent_kb_injection(
-            role.agent_code, dict(data.get("kb_injection") or cfg.kb_injection or {}),
+            role.agent_code, dict(data.get("kb_injection") or config.kb_injection or {}),
         )
     # Mirror knowledge_vault_ids into extra_json so the live middleware sees them.
-    _persist_agent_kb_vault_ids(role.agent_code, list(cfg.knowledge_vault_ids or []))
+    _persist_agent_kb_vault_ids(role.agent_code, list(config.knowledge_vault_ids or []))
     try:
         from evoflow.config.agents_config import invalidate_agent_config_cache
 
@@ -837,10 +837,10 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
     if data.get("domain_scope") is not None:
         cfg.domain_scope = list(data.get("domain_scope") or [])
     if data.get("knowledge_vault_ids") is not None:
-        from evoflow.proactive.prompt import validate_knowledge_vault_ids
+        from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
         try:
-            cfg.knowledge_vault_ids = validate_knowledge_vault_ids(list(data.get("knowledge_vault_ids") or []))
+            cfg.knowledge_vault_ids = validate_agent_knowledge_ids(list(data.get("knowledge_vault_ids") or []))
         except ValueError as e:
             raise ValidationError(str(e)) from e
     if data.get("kb_injection") is not None:
