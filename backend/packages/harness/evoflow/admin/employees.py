@@ -277,9 +277,6 @@ def sync_employee_from_agent(agent_code: str) -> dict[str, Any]:
     if not tool_groups and agent_row.get("tools"):
         tool_groups = list(agent_row.get("tools") or [])
     cfg.tool_groups = tool_groups
-    model = str(agent_row.get("model") or "").strip()
-    if model:
-        cfg.model_name = model
     # Keep a description mirror for observability (not a native role field).
     extra = dict(cfg.extra_context or {}) if isinstance(cfg.extra_context, dict) else {}
     extra["agent_description"] = str(agent_row.get("description") or "")

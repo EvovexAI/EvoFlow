@@ -814,13 +814,13 @@ def _normalize_dashscope_thinking_vs_max_completion(model_settings: dict[str, An
 
 
 def _default_resolved_model_name(config: AppConfig) -> str:
-    """When callers omit ``name``, match ``_resolve_model_name`` semantics: ``primary_model`` then first listed model."""
-    if not config.models:
+    """When callers omit ``name``, consult the centralized resolver."""
+    from evoflow.models.resolver import NoChatModelConfiguredError, resolve_run_model
+
+    try:
+        return resolve_run_model(agent_code=None, cfg={})
+    except NoChatModelConfiguredError:
         raise ValueError("No chat models are configured. Add at least one model in Settings → Models.")
-    primary = (config.primary_model or "").strip()
-    if primary and config.get_model_config(primary):
-        return primary
-    return config.models[0].name
 
 
 def create_chat_model(

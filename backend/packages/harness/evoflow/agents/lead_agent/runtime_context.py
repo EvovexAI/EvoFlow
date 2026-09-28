@@ -334,6 +334,17 @@ def resolve_session_model_name_from_runtime(
         if name:
             return name
 
+    # Final fallback: consult the centralized resolver.
+    # This covers the "nothing found anywhere" path so callers never receive None
+    # and have to handle a broken model field on child tasks.
+    try:
+        from evoflow.models.resolver import NoChatModelConfiguredError, resolve_run_model
+        resolved = resolve_run_model(agent_code=None, cfg={}, require_configured=False)
+        if resolved:
+            return resolved
+    except Exception:  # noqa: BLE001 — resolver must not crash delegation
+        pass
+
     return None
 
 
