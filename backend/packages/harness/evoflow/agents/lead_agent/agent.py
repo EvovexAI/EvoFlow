@@ -495,24 +495,35 @@ def _refresh_chat_models_from_db() -> None:
     _last_models_revision = rev or _models_runtime_revision() or "reloaded"
 
 
-def _resolve_model_name(requested_model_name: str | None = None) -> str:
-    """Resolve a runtime model name safely, falling back to default if invalid."""
-    app_config = get_app_config()
-    if not app_config.models:
-        _refresh_chat_models_from_db()
-        app_config = get_app_config()
-    if not app_config.models:
-        raise ValueError("No chat models are configured. Add at least one model in Settings → Models.")
+def _resolve_model_name(requested_model_name: str | None = None, *, agent_code: str | None = None) -> str:
+    """Resolve the chat model name (deprecated thin wrapper).
 
-    # 优先使用配置的 primary_model，否则使用第一个模型
-    default_model_name = app_config.primary_model or app_config.models[0].name
+    .. deprecated::
+        Use :func:`evoflow.models.resolver.resolve_run_model` directly.
+        This wrapper exists only because a few call sites still pass a
+        positional ``requested_model_name``; the resolver is the single
+        source of truth, and every new caller should reach for it instead.
 
-    if requested_model_name and app_config.get_model_config(requested_model_name):
-        return requested_model_name
+    Resolution order is delegated to :func:`resolve_run_model`:
 
-    if requested_model_name and requested_model_name != default_model_name:
-        logger.warning(f"Model '{requested_model_name}' not found in config; fallback to default model '{default_model_name}'.")
-    return default_model_name
+    1. ``requested_model_name`` (highest)
+    2. ``AgentConfig.model`` for ``agent_code`` (only when ``agent_code``
+       is provided explicitly to this wrapper)
+    3. ``AppConfig.primary_model``
+    4. ``AppConfig.models[0].name``
+    """
+    from evoflow.models.resolver import NoChatModelConfiguredError, resolve_run_model
+
+    cfg: dict[str, Any] = {}
+    if requested_model_name:
+        cfg["model_name"] = str(requested_model_name).strip()
+    try:
+        return resolve_run_model(agent_code=agent_code, cfg=cfg)
+    except NoChatModelConfiguredError as e:
+        # Preserve the historical message so panel error toasts stay stable.
+        raise ValueError(
+            "No chat models are configured. Add at least one model in Settings → Models."
+        ) from e
 
 
 def _create_context_compaction_middleware():
@@ -1255,17 +1266,42 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             elif agent_config is None:
                 raise FileNotFoundError(f"Agent config not found in database: {agent_name!r}. Create the agent in「智能体」or hire a different employee.") from None
     custom_system_prompt = str(agent_config.system_prompt).strip() if agent_config and agent_config.system_prompt else ""
-    # Custom agent model or fallback to global/default model resolution
-    agent_model_name = agent_config.model if agent_config and agent_config.model else _resolve_model_name()
+    # Single source of truth for model resolution. Order: cfg.model_name (the
+    # slot proactive employees + front-end session UI write to) -> Agent.model
+    # -> primary_model -> models[0]. See ``evoflow.models.resolver``.
+    from evoflow.models.resolver import (
+        NoChatModelConfiguredError,
+        resolve_run_model,
+    )
 
-    # Final model name resolution with request override, then agent config, then global default
-    model_name = requested_model_name or agent_model_name
+    try:
+        model_name = resolve_run_model(
+            agent_code=str(agent_name) if agent_name else None,
+            cfg=cfg,
+        )
+    except NoChatModelConfiguredError:
+        # Empty configuration — let the dedicated error block below format the
+        # actionable message (it has live AppConfig at hand).
+        model_name = ""
+        model_config = None
+        app_config = get_app_config()
+        raise ValueError(
+            "No chat model could be resolved. Add at least one model in Settings → Models "
+            f"(primary_model={app_config.primary_model!r}, "
+            f"loaded={[m.name for m in app_config.models]}). "
+            "Models are stored in SQLite (evoflow_models). "
+            "If the table was cleared, re-add your provider API keys in the UI "
+            "and restart Gateway."
+        )
 
     app_config = get_app_config()
     model_config = app_config.get_model_config(model_name) if model_name else None
     if model_config is None and app_config.models:
+        # Last-resort fallback: resolver may have run against a stale AppConfig
+        # snapshot (e.g. between YAML reloads); re-check primary / first model
+        # against the live config and pick the first one that still exists.
         fallback = app_config.primary_model or app_config.models[0].name
-        if fallback and fallback != model_name:
+        if fallback and fallback != model_name and app_config.get_model_config(fallback):
             logger.warning(
                 "Model %r not found in AppConfig (%d models loaded); fallback to %r",
                 model_name,
