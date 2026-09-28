@@ -24,6 +24,25 @@
 5. 如果是代理访问，检查代理配置是否正确，代理服务器是否正常运行
 6. 查看 `logs/gateway.log` 中的详细错误日志，确认是网络问题还是鉴权问题
 
+### 问题：配置 OpenAI 兼容中转端点后连不通（404 / 模型不存在）
+
+用中转站（API 代理/聚合网关）接入模型时的专属坑。排查：
+
+1. **先绕开 EvoFlow 直接验证端点**：在同一台机器的终端里用 curl 打一次中转站，确认端点本身可用（把 `BASE_URL`、`KEY`、模型名换成自己的）：
+
+   ```bash
+   curl -s "$BASE_URL/chat/completions" \
+     -H "Authorization: Bearer $KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"model":"<模型名>","messages":[{"role":"user","content":"hi"}]}'
+   ```
+
+   curl 都不通的话，问题在中转端点或网络，与 EvoFlow 无关。
+2. **base_url 路径核对**：多数中转站要求以 `/v1` 结尾，也有站点是 `/v1beta` 或自定义前缀，以服务商文档为准，不要凭感觉拼路径。
+3. **模型名必须与端点实际提供的模型 ID 完全一致**：中转站的模型名常与官方名不同（带版本后缀或自定义别名），先请求 `GET $BASE_URL/models` 查看可用列表，照抄模型 ID 填进 EvoFlow。直接填官方名（如 `gpt-4o`）而中转站只提供 `gpt-4o-2024-08-06` 之类时，会报 404 / model not found。
+4. **代理端口变更**：本机代理客户端（Clash/v2rayN 等）重启或切换订阅后，混合代理端口可能变化，确认 EvoFlow 所依赖的代理端口仍在监听、系统代理指向正确。
+5. 以上都正常但 EvoFlow 内仍失败：重启 EvoFlow 客户端让网关重新加载配置，再看 `logs/gateway.log` 的具体报错。
+
 ### 问题：模型回复慢/超时
 
 排查：
