@@ -264,8 +264,12 @@ async def langgraph_thread_usable(thread_id: str) -> bool:
     return (await langgraph_thread_state(thread_id)) == "ok"
 
 
-def _default_session_context() -> dict[str, Any]:
-    primary = resolve_primary_model_name()
+def _default_session_context(agent_id: str = "main") -> dict[str, Any]:
+    """Build initial session context. Uses the centralized resolver so that
+    the employee's own model (from AgentConfig) takes priority over the global
+    primary_model when creating a new chat."""
+    from evoflow.models.resolver import resolve_run_model
+
     ctx: dict[str, Any] = {
         "session_mode": "agent",
         "thinking_type": "auto",
@@ -277,8 +281,20 @@ def _default_session_context() -> dict[str, Any]:
         "use_virtual_paths": False,
         "collab_phase": "idle",
     }
-    if primary:
-        ctx["primary_model_name"] = primary
+    try:
+        model_name = resolve_run_model(
+            agent_code=agent_id,
+            cfg={},
+            require_configured=False,
+        )
+        if model_name:
+            ctx["model_name"] = model_name
+            ctx["primary_model_name"] = model_name
+    except Exception:
+        # Fall back to global primary (preserve original behaviour on errors)
+        primary = resolve_primary_model_name()
+        if primary:
+            ctx["primary_model_name"] = primary
     return ctx
 
 
@@ -360,7 +376,7 @@ async def create_new_session(
     sk = str(session_key or "").strip() or make_new_session_key(agent_id)
     if sess_repo.is_session_deleted(sk):
         raise ValueError("session_key is deleted")
-    merged_ctx = {**_default_session_context(), **(context or {})}
+    merged_ctx = {**_default_session_context(agent_id), **(context or {})}
     now = _now_ms()
     sess_repo.upsert_session_row(
         sk,
