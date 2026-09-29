@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -41,15 +40,13 @@ _COPY_SUFFIXES = {
 
 
 def _repo_docs_user() -> Path | None:
-    """Locate ``docs/user`` next to the monorepo root."""
+    """Locate user docs in the source tree or the packaged Gateway assets."""
     here = Path(__file__).resolve()
     for parent in here.parents:
-        if (parent / "docs" / "user").is_dir():
-            candidate = parent / "docs" / "user"
-            if any(candidate.rglob("*.md")):
-                return candidate
-        if (parent / "mkdocs.yml").is_file() and (parent / "docs" / "user").is_dir():
-            candidate = parent / "docs" / "user"
+        for candidate in (
+            parent / "docs" / "user",
+            parent / "evoflow" / "assets" / "builtin_knowledge_vaults" / "user-guide",
+        ):
             if any(candidate.rglob("*.md")):
                 return candidate
     return None
