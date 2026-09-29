@@ -2,6 +2,8 @@
 
 Thank you for contributing. This guide is the **source-of-truth** for: environment setup, branch workflow, required checks, and how PRs get merged.
 
+> 中文读者：分支命名、提交规范与本地检查命令的中文速查见 [docs/contribute/branching-and-checks.md](docs/contribute/branching-and-checks.md)；全部中文贡献文档见 [docs/contribute/index.md](docs/contribute/index.md)。
+
 > **Note:** [EvovexAI/EvoFlow](https://github.com/EvovexAI/EvoFlow) ships documentation, desktop releases, and the full application source under the [PolyForm Noncommercial License 1.0.0](LICENSE). Follow the workflow below. Contributions are licensed under that same license.
 
 > **贡献者许可（CLA）：** 提交 Pull Request 前，请阅读并同意 [CLA.md](CLA.md)。提交贡献即视为你已接受该协议：你将贡献的著作权与专利权永久、免费、可再许可地授予版权人（景银泰/EvovexAI），版权人可用本项目当前或未来的任何许可（含商用）使用你的贡献。
