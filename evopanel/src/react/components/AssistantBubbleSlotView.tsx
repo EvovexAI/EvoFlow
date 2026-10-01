@@ -1,5 +1,13 @@
-import { memo, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { assistantBodiesLooselySame } from '../../lib/chat-normalize.js'
+import { collectTurnChangedFiles } from '../file-diff-util.js'
+import {
+  recordWorkspaceFileChange,
+  revertibleCountFor,
+  revertWorkspaceFiles,
+} from '../../lib/workspace-change-journal.js'
+import { showConfirm } from '../../components/modal.js'
+import { ChangedFilesSummaryRow } from './ChangedFilesSummaryRow.js'
 import type { AssistantBubbleDisplayPlan } from '../lib/message-row-display-plan.js'
 import { hasVisibleBodyBelowActivityChunk } from '../lib/message-row-stream-display.js'
 import { bubbleMarkdownText, visibleAssistantText, visibleExploringInnerText, visiblePreToolTimelineText } from '../lib/message-row-visible-text.js'
@@ -72,6 +80,41 @@ function AssistantBubbleSlotViewInner({
   const finalReplyChunkIndex = layout?.finalReplyChunkIndex ?? -1
   const pendingReasoningSegIndex = plan.pendingReasoningSegIndex
 
+  // ===== 回合文件变更聚合（「N 个文件已更改 +X −Y」+ 撤销） =====
+  const changedFiles = useMemo(
+    () => (isStreaming ? [] : collectTurnChangedFiles(tools)),
+    [tools, isStreaming],
+  )
+  const [revertibleCount, setRevertibleCount] = useState(0)
+  const [revertBusy, setRevertBusy] = useState(false)
+  useEffect(() => {
+    if (isStreaming || !sessionKey || compareSessionKey) return
+    for (const f of changedFiles) {
+      recordWorkspaceFileChange(sessionKey, f.path, {
+        toolCallId: f.toolCallId,
+        beforeContent: f.beforeContent,
+        deleted: f.deleted,
+      })
+    }
+    setRevertibleCount(revertibleCountFor(sessionKey, changedFiles.map((f) => f.path)))
+  }, [changedFiles, isStreaming, sessionKey, compareSessionKey])
+  const handleRevertFiles = async () => {
+    if (!sessionKey || revertBusy || changedFiles.length === 0) return
+    const yes = await showConfirm(
+      `撤销本回合对 ${changedFiles.length} 个文件的更改？\n仅还原本会话中文件工具产生的变更（以修改前快照为准），终端命令等其它改动不受影响。`,
+    )
+    if (!yes) return
+    setRevertBusy(true)
+    try {
+      await revertWorkspaceFiles(sessionKey, changedFiles)
+      setRevertibleCount(revertibleCountFor(sessionKey, changedFiles.map((f) => f.path)))
+    } catch {
+      /* toast 已由撤销执行器给出 */
+    } finally {
+      setRevertBusy(false)
+    }
+  }
+
   const renderChunk = (ci: number) => {
     const chunk = displayChunks[ci]
     if (!chunk) return null
@@ -105,6 +148,7 @@ function AssistantBubbleSlotViewInner({
           className={textClass}
           isStreaming={false}
           onOpenWorkspaceFile={onOpenFile}
+          enableCodeComments
         />
       )
     }
@@ -217,6 +261,7 @@ function AssistantBubbleSlotViewInner({
                 className="msg-text msg-ai-plan-text"
                 isStreaming={isStreaming}
                 onOpenWorkspaceFile={onOpenFile}
+                enableCodeComments
               />
             )
           case 'chunk':
@@ -239,6 +284,7 @@ function AssistantBubbleSlotViewInner({
                 className="msg-text msg-ai-final-reply msg-ai-final-reply--after-activity"
                 isStreaming={slot.isStreaming}
                 onOpenWorkspaceFile={onOpenFile}
+                enableCodeComments
               />
             )
           case 'plain-body':
@@ -249,6 +295,7 @@ function AssistantBubbleSlotViewInner({
                 className="msg-text msg-ai-final-reply"
                 isStreaming={slot.isStreaming}
                 onOpenWorkspaceFile={onOpenFile}
+                enableCodeComments
               />
             )
           case 'legacy-tools':
@@ -277,6 +324,7 @@ function AssistantBubbleSlotViewInner({
                 className="msg-text msg-ai-final-reply"
                 isStreaming={slot.isStreaming}
                 onOpenWorkspaceFile={onOpenFile}
+                enableCodeComments
               />
             )
           case 'orphan-tools':
@@ -330,6 +378,15 @@ function AssistantBubbleSlotViewInner({
             return null
         }
       })}
+      {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
+        <ChangedFilesSummaryRow
+          files={changedFiles}
+          onOpenFile={onOpenFile}
+          onRevert={handleRevertFiles}
+          revertibleCount={revertibleCount}
+          revertBusy={revertBusy}
+        />
+      ) : null}
     </>
   )
 }

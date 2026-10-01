@@ -26,6 +26,11 @@ def build_context_usage_snapshot(
     system_assets_tokens: int | None = None,
     system_memory_tokens: int | None = None,
     injected_sections: dict[str, str] | None = None,
+    # ZCode-style breakdown: list of {source, chars} for ring panel breakdown rows.
+    # When not provided, inferred from system_tokens / tools_tokens / message_tokens.
+    breakdown: list[dict[str, Any]] | None = None,
+    # ZCode-style cache: {hitRate} for ring panel cache line.
+    cache: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build UI + persist snapshot.
 
@@ -73,6 +78,29 @@ def build_context_usage_snapshot(
     if injected_sections:
         # Only store sections that have actual content.
         snap["injected_sections"] = {k: v for k, v in injected_sections.items() if v.strip()}
+
+    # ZCode-style breakdown: build from explicit tokens breakdown when not provided.
+    # Map legacy fields → ZCode source names.
+    _breakdown = breakdown
+    if _breakdown is None:
+        _items: list[dict[str, Any]] = []
+        if system_tokens is not None and int(system_tokens) >= 0:
+            _items.append({"source": "system_prompt", "chars": max(0, int(system_tokens))})
+        if tools_tokens is not None and int(tools_tokens) >= 0:
+            _items.append({"source": "tool_prompt", "chars": max(0, int(tools_tokens))})
+        if message_tokens is not None and int(message_tokens) >= 0:
+            _items.append({"source": "messages", "chars": max(0, int(message_tokens))})
+        if system_skills_tokens is not None and int(system_skills_tokens) >= 0:
+            _items.append({"source": "skills", "chars": max(0, int(system_skills_tokens))})
+        if _items:
+            _breakdown = _items
+    if _breakdown:
+        snap["breakdown"] = _breakdown
+
+    # ZCode-style cache stats.
+    if cache and isinstance(cache, dict):
+        snap["cache"] = cache
+
     return snap
 
 
@@ -144,6 +172,18 @@ def persist_session_context_usage(
             prev_sections = (prev or {}).get("injected_sections")
             if prev_sections and isinstance(prev_sections, dict) and prev_sections:
                 merged["injected_sections"] = prev_sections
+
+        # Carry forward ZCode-style breakdown/cache if the new snapshot didn't send them.
+        if "breakdown" not in merged or not merged.get("breakdown"):
+            prev = load_session_context_usage(sk)
+            prev_breakdown = (prev or {}).get("breakdown")
+            if prev_breakdown and isinstance(prev_breakdown, list) and prev_breakdown:
+                merged["breakdown"] = prev_breakdown
+        if "cache" not in merged or not merged.get("cache"):
+            prev = load_session_context_usage(sk)
+            prev_cache = (prev or {}).get("cache")
+            if prev_cache and isinstance(prev_cache, dict) and prev_cache:
+                merged["cache"] = prev_cache
 
         upsert_session_row(sk, context={"context_usage": merged})
     except Exception as exc:

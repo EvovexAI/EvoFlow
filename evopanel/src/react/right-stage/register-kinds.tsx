@@ -3,6 +3,8 @@ import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
 import { NewsDashboardKind } from './kinds/NewsDashboardKind.js'
 import { PlatformFeedbackKind } from './kinds/PlatformFeedbackKind.js'
 import { WebEmbedKind } from './kinds/WebEmbedKind.js'
+import { BrowserPanel } from '../components/BrowserPanel.js'
+import { closeBrowserStage } from '../../lib/browser-panel-store.js'
 
 let registered = false
 
@@ -33,6 +35,19 @@ export function ensureRightStageKindsRegistered() {
       >
         <NewsDashboardKind onClose={onClose} />
       </aside>
+    ),
+  })
+
+  registerRightStageKind({
+    kind: 'browser',
+    render: ({ onClose }) => (
+      <BrowserPanel
+        isOpen
+        onClose={() => {
+          closeBrowserStage()
+          onClose()
+        }}
+      />
     ),
   })
 

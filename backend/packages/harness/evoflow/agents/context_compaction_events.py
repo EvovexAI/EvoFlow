@@ -198,6 +198,10 @@ def emit_context_usage(
     system_assets_tokens: int | None = None,
     system_memory_tokens: int | None = None,
     injected_sections: dict[str, str] | None = None,
+    # ZCode-style breakdown: list of {source, chars} for ring panel breakdown rows.
+    breakdown: list[dict[str, Any]] | None = None,
+    # ZCode-style cache: {hitRate} for ring panel cache line.
+    cache: dict[str, Any] | None = None,
 ) -> None:
     """Push model-bound context fill + composition breakdown to the UI.
 
@@ -268,6 +272,8 @@ def emit_context_usage(
         system_assets_tokens=assets_tok,
         system_memory_tokens=memory_tok,
         injected_sections=injected_sections,
+        breakdown=breakdown,
+        cache=cache,
     )
     payload: dict[str, Any] = {
         "type": "context_usage",

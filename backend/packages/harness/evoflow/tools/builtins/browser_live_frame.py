@@ -38,7 +38,33 @@ def _cache_key(thread_id: str) -> str:
     return _safe_thread_segment(thread_id)
 
 
+def _engine_capture_png(thread_id: str) -> bytes | None:
+    """In-process engine screenshot (fast path, no subprocess)."""
+    try:
+        import base64
+
+        from evoflow.tools.builtins.browser_engine import browser_engine_enabled, get_browser_engine
+
+        if not browser_engine_enabled():
+            return None
+        engine = get_browser_engine()
+        if not engine.has_session(thread_id):
+            return None
+        result = engine.execute(thread_id, {"method": "screenshot"}, timeout=20)
+        if not result.get("ok"):
+            return None
+        raw = str((result.get("image") or {}).get("base64") or "")
+        return base64.b64decode(raw) if raw else None
+    except Exception as exc:
+        logger.debug("browser engine frame capture failed thread=%s: %s", thread_id, exc)
+        return None
+
+
 def capture_browser_viewport_png(thread_id: str, *, timeout: int | None = None) -> bytes | None:
+    engine_png = _engine_capture_png(thread_id)
+    if engine_png:
+        return engine_png
+
     from evoflow.tools.builtins.browser_tool import _run_browser_cli
 
     tmp_path = ""

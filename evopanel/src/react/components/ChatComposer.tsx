@@ -44,6 +44,7 @@ import {
   type ComposeAttachResult,
   type ComposePathEntry,
 } from '../lib/compose-attach.js'
+import { ContextUsageRing } from './ContextUsageRing.js'
 
 export type { MentionEmployeeOption }
 
@@ -210,12 +211,25 @@ export const ChatComposer = memo(function ChatComposer({
   onEnhancePrompt,
   placeholder = '输入消息…',
   renderBottomControls,
+  renderTrailingControls,
+  onOpenAttachmentMenu,
+  bottomMoreTriggerRef,
+  permissionPill,
+  onOpenPermissionMenu,
+  permissionMenuOpen,
+  permissionOptions,
+  onPickPermission,
   workspaceMention,
   attachedContextFileCount = 0,
   onAttachContextFiles,
   speechEnabled,
   onVoiceTranscribed,
   onDispatchEmployee,
+  contextUsage,
+  tokenTotals,
+  onManualCompact,
+  manualCompactDisabled,
+  compacting,
 }: {
   sessionReady: boolean
   /** False while Gateway Agent/LangGraph is still warming — UI stays browsable. */
@@ -261,6 +275,29 @@ export const ChatComposer = memo(function ChatComposer({
     pickDocFiles: () => void
     insertText: (next: string) => void
   }) => ReactNode
+  /** 工具栏右侧区域：模型选择器等（v4 风格放 trailing） */
+  renderTrailingControls?: () => ReactNode
+  /** 加号按钮点击回调（打开 v4 「更多」菜单：Agent 模式 / 技能 / 目标 / 员工 等） */
+  onOpenAttachmentMenu?: () => void
+  /** 加号按钮 DOM ref（用于 portal 菜单定位） */
+  bottomMoreTriggerRef?: React.RefObject<HTMLButtonElement | null>
+  /** 当前权限档位 pill 文本（请求批准 / 帮我批准 / 完全访问） */
+  permissionPill?: string
+  /** 点击权限 pill 打开三选一上拉 */
+  onOpenPermissionMenu?: () => void
+  /** 权限档位上拉当前是否打开（用于高亮 / 动画） */
+  permissionMenuOpen?: boolean
+  /** 权限档位候选（点 pill 时展开显示） */
+  permissionOptions?: Array<{
+    id: string
+    label: string
+    pillLabel: string
+    menuDesc: string
+    icon: 'hand' | 'shield' | 'full'
+    active: boolean
+  }>
+  /** 选择一个档位 */
+  onPickPermission?: (id: string) => void
   workspaceMention?: WorkspaceMentionConfig
   /** 输入框上方 @ 附加的工作区文件数量（允许仅附加文件时发送） */
   attachedContextFileCount?: number
@@ -268,6 +305,16 @@ export const ChatComposer = memo(function ChatComposer({
   onAttachContextFiles?: (entries: ComposePathEntry[]) => void
   /** `@员工名 任务` -> 派发任务给员工。命中时不走 onSend，主聊天不产生消息。 */
   onDispatchEmployee?: (agentCode: string, goal: string) => void | Promise<void>
+  /** ZCode-style 上下文容量圆环，显示在发送按钮左侧 */
+  contextUsage?: import('./lib/context-usage.js').ContextUsageSnapshot | null
+  /** Token totals for the context ring panel */
+  tokenTotals?: import('../chat-types.js').TokenTotals | null
+  /** 手动压缩上下文的回调 */
+  onManualCompact?: () => void
+  /** 压缩中禁用 */
+  manualCompactDisabled?: boolean
+  /** 压缩中状态 */
+  compacting?: boolean
 }) {
   const [text, setText] = useState(initialDraft)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -1235,7 +1282,7 @@ export const ChatComposer = memo(function ChatComposer({
           ))}
         </div>
       ) : null}
-      <div className="react-chat-composer-top-row">
+      <div className="react-chat-composer-shell">
         <div className="react-chat-input-wrap">
           <WorkspaceMentionMenu
             open={mentionOpen}
@@ -1397,113 +1444,213 @@ export const ChatComposer = memo(function ChatComposer({
             </button>
           ) : null}
         </div>
-        <div className="react-chat-composer-actions">
-          {speechEnabled && onVoiceTranscribed ? (
+        <div className="react-chat-composer-toolbar">
+          <div className="react-chat-composer-leading">
             <button
               type="button"
-              className={`react-chat-icon-voice-btn${
-                voiceRecording ? ' react-chat-icon-voice-btn--recording' : ''
-              }${voiceBusy ? ' react-chat-icon-voice-btn--busy' : ''}`}
-              disabled={!sessionReady || streaming || sending || voiceBusy}
+              className="react-chat-icon-attach-btn"
+              ref={bottomMoreTriggerRef}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                if (voiceBusy) return
-                if (voiceRecording || isVoiceCaptureActive()) {
-                  void stopVoiceRecordingAndSend()
-                } else {
-                  void startVoiceRecording('mic')
-                }
-              }}
-              title={`${micVoiceHintText()}；${voiceShortcutHintText()}`}
-              aria-label="语音输入"
+              onClick={() => onOpenAttachmentMenu?.()}
+              title="更多功能（Agent 模式 / 技能 / 目标 / 员工…）"
+              aria-label="更多"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
-                <path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
+                <path d="M5 12h14" />
+                <path d="M12 5v14" />
               </svg>
             </button>
-          ) : null}
-          {ttsSpeaking && !voiceRecording && !voiceBusy ? (
-            <button
-              type="button"
-              className="react-chat-icon-stop-tts-btn"
-              onClick={() => {
-                void import('../../lib/speech-client.js').then(({ stopAllAssistantSpeech }) =>
-                  stopAllAssistantSpeech(),
-                )
-                // 通知持续监听模式恢复 ASR（若 TTS 曾挂起 mic）
-                void import('../../lib/background-voice.js').then(({ notifyTTSStopped }) =>
-                  notifyTTSStopped(),
-                )
-              }}
-              title="停止播报"
-              aria-label="停止播报"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
-                <path d="M11 5 6 9H2v6h4l5 4V5z" />
-                <line x1="22" y1="9" x2="16" y2="15" />
-                <line x1="16" y1="9" x2="22" y2="15" />
-              </svg>
-            </button>
-          ) : null}
-          {streaming || sending ? (
-            <>
-              {pendingSendQueue[0] ? (
-                <button
-                  type="button"
-                  className="react-chat-icon-flush-btn"
-                  onClick={() => onFlushPendingSend?.(pendingSendQueue[0].id)}
-                  title="立即注入排队消息（下次工具前）"
-                  aria-label="立即注入排队消息"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" width="18" height="18" aria-hidden="true">
-                    <path d="M12 19V5" strokeLinecap="round" />
-                    <path d="M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              ) : null}
+            {permissionPill && onOpenPermissionMenu ? (
               <button
                 type="button"
-                className="react-chat-icon-stop-btn"
-                onClick={() => void onAbort()}
-                title="停止"
+                className={`react-chat-bottom-permission-pill react-chat-bottom-pill react-chat-bottom-pill--clickable react-chat-bottom-pill--toggleable${
+                  permissionPill === '完全访问'
+                    ? ' react-chat-bottom-permission-pill--full'
+                    : permissionPill === '请求批准'
+                    ? ' react-chat-bottom-permission-pill--readonly'
+                    : ' react-chat-bottom-permission-pill--default'
+                }${permissionMenuOpen ? ' react-chat-bottom-pill--open' : ''}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onOpenPermissionMenu?.()}
+                title={`权限：${permissionPill}（点击选择档位）`}
+                aria-label={`权限档位 ${permissionPill}，点击选择档位`}
+                aria-haspopup="menu"
+                aria-expanded={permissionMenuOpen ? 'true' : 'false'}
+                data-tauri-no-drag
               >
-                <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                <span className="react-chat-permission-pill-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {permissionPill === '完全访问' ? (
+                      <path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4z" strokeLinejoin="round" />
+                    ) : permissionPill === '帮我批准' ? (
+                      <>
+                        <path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4z" strokeLinejoin="round" />
+                        <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4z" strokeLinejoin="round" />
+                        <path d="M12 8v4" strokeLinecap="round" />
+                        <path d="M12 14v.01" strokeLinecap="round" />
+                      </>
+                    )}
+                  </svg>
+                </span>
+                <span className="react-chat-bottom-pill-text">{permissionPill}</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" aria-hidden="true" className="react-chat-bottom-pill-caret" style={{ marginLeft: 2, opacity: 0.65 }}>
+                  <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="react-chat-icon-send-btn"
-              disabled={!sessionReady || !engineReady}
-              onClick={() => {
-                const live = String(textareaRef.current?.value ?? text).trim()
-                if (pendingSendQueue[0] && !live && !pendingFiles.length) {
-                  onFlushPendingSend?.(pendingSendQueue[0].id)
-                  return
-                }
-                void handleSend()
-              }}
-              title={engineReady ? '发送（Enter）' : 'Agent 引擎加载中…'}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          )}
+            ) : null}
+            {permissionMenuOpen && permissionOptions && onPickPermission && permissionPill ? (
+              <div
+                className="react-chat-permission-menu"
+                role="menu"
+                aria-label="选择权限档位"
+              >
+                {permissionOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={opt.active}
+                    className={`react-chat-permission-menu-item${opt.active ? ' react-chat-permission-menu-item--active' : ''}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => onPickPermission?.(opt.id)}
+                    title={`切换到「${opt.pillLabel}」`}
+                  >
+                    <span className="react-chat-permission-menu-icon" aria-hidden="true">
+                      {opt.icon === 'full' ? (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4z" strokeLinejoin="round" /></svg>
+                      ) : opt.icon === 'shield' ? (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4z" strokeLinejoin="round" /><path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2 4 6v6c0 5 3.5 9.5 8 10 4.5-.5 8-5 8-10V6l-8-4z" strokeLinejoin="round" /><path d="M12 8v4" strokeLinecap="round" /><path d="M12 14v.01" strokeLinecap="round" /></svg>
+                      )}
+                    </span>
+                    <span className="react-chat-permission-menu-body">
+                      <span className="react-chat-permission-menu-title">{opt.pillLabel}</span>
+                      <span className="react-chat-permission-menu-desc">{opt.menuDesc}</span>
+                    </span>
+                    <span className="react-chat-permission-menu-check" aria-hidden="true">{opt.active ? '✓' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="react-chat-composer-trailing">
+            {ttsSpeaking && !voiceRecording && !voiceBusy ? (
+              <button
+                type="button"
+                className="react-chat-icon-stop-tts-btn"
+                onClick={() => {
+                  void import('../../lib/speech-client.js').then(({ stopAllAssistantSpeech }) =>
+                    stopAllAssistantSpeech(),
+                  )
+                  // 通知持续监听模式恢复 ASR（若 TTS 曾挂起 mic）
+                  void import('../../lib/background-voice.js').then(({ notifyTTSStopped }) =>
+                    notifyTTSStopped(),
+                  )
+                }}
+                title="停止播报"
+                aria-label="停止播报"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+                  <path d="M11 5 6 9H2v6h4l5 4V5z" />
+                  <line x1="22" y1="9" x2="16" y2="15" />
+                  <line x1="16" y1="9" x2="22" y2="15" />
+                </svg>
+              </button>
+            ) : null}
+            {contextUsage != null ? (
+              <ContextUsageRing
+                usage={contextUsage}
+                tokenTotals={tokenTotals}
+                compacting={compacting}
+                onManualCompact={onManualCompact}
+                manualCompactDisabled={manualCompactDisabled}
+              />
+            ) : null}
+            {renderTrailingControls?.()}
+            {speechEnabled && onVoiceTranscribed ? (
+              <button
+                type="button"
+                className={`react-chat-icon-voice-btn${
+                  voiceRecording ? ' react-chat-icon-voice-btn--recording' : ''
+                }${voiceBusy ? ' react-chat-icon-voice-btn--busy' : ''}`}
+                disabled={!sessionReady || streaming || sending || voiceBusy}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  if (voiceBusy) return
+                  if (voiceRecording || isVoiceCaptureActive()) {
+                    void stopVoiceRecordingAndSend()
+                  } else {
+                    void startVoiceRecording('mic')
+                  }
+                }}
+                title={`${micVoiceHintText()}；${voiceShortcutHintText()}`}
+                aria-label="语音输入"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+                  <path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </button>
+            ) : null}
+            {streaming || sending ? (
+              <>
+                {pendingSendQueue[0] ? (
+                  <button
+                    type="button"
+                    className="react-chat-icon-flush-btn"
+                    onClick={() => onFlushPendingSend?.(pendingSendQueue[0].id)}
+                    title="立即注入排队消息（下次工具前）"
+                    aria-label="立即注入排队消息"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" width="18" height="18" aria-hidden="true">
+                      <path d="M12 19V5" strokeLinecap="round" />
+                      <path d="M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="react-chat-icon-stop-btn"
+                  onClick={() => void onAbort()}
+                  title="停止"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="react-chat-icon-send-btn"
+                disabled={!sessionReady || !engineReady}
+                onClick={() => {
+                  const live = String(textareaRef.current?.value ?? text).trim()
+                  if (pendingSendQueue[0] && !live && !pendingFiles.length) {
+                    onFlushPendingSend?.(pendingSendQueue[0].id)
+                    return
+                  }
+                  void handleSend()
+                }}
+                title={engineReady ? '发送（Enter）' : 'Agent 引擎加载中…'}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
-
-      {renderBottomControls ? (
-        <div className="react-chat-composer-bottom-row">
-          {renderBottomControls({ pickFiles, pickDocFiles, insertText })}
-        </div>
-      ) : null}
     </footer>
   )
 })
+

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
   browserEmbedClose,
   browserEmbedSetBounds,
@@ -12,8 +12,32 @@ import {
   connectBrowserStream,
   restartBrowserStream,
 } from '../../lib/browser-stream-client.js'
+import {
+  getBrowserRuntimeSnapshot,
+  subscribeBrowserRuntime,
+} from '../../lib/browser-panel-store.js'
 
 export type BrowserStreamStatus = 'connecting' | 'live' | 'reconnecting' | 'error' | 'closed' | 'idle'
+
+/** Zoom presets ported from ZCode browser viewport zoom (fit + fixed percentages). */
+const ZOOM_OPTIONS = ['fit', '50', '75', '100', '125', '150', '200'] as const
+type ZoomOption = (typeof ZOOM_OPTIONS)[number]
+
+const ZOOM_ACTION_LABELS: Record<string, string> = {
+  open: '打开网页',
+  snapshot: '读取页面',
+  click: '点击',
+  fill: '输入',
+  press: '按键',
+  scroll: '滚动',
+  screenshot: '截图',
+  back: '后退',
+  close: '关闭',
+}
+
+function zoomActionLabel(action: string): string {
+  return ZOOM_ACTION_LABELS[String(action || '').trim().toLowerCase()] || ''
+}
 
 function formatDisplayUrl(raw: string): string {
   const url = String(raw || '').trim()
@@ -158,6 +182,11 @@ function BrowserChromeBar({
   streamStatus,
   refreshBusy,
   canRefresh,
+  operating,
+  operatingAction,
+  zoom,
+  zoomVisible,
+  onZoomChange,
   onRefresh,
   onClose,
 }: {
@@ -165,6 +194,11 @@ function BrowserChromeBar({
   streamStatus: BrowserStreamStatus
   refreshBusy?: boolean
   canRefresh?: boolean
+  operating?: boolean
+  operatingAction?: string
+  zoom?: ZoomOption
+  zoomVisible?: boolean
+  onZoomChange?: (zoom: ZoomOption) => void
   onRefresh?: () => void
   onClose: () => void
 }) {
@@ -177,6 +211,7 @@ function BrowserChromeBar({
         : streamStatus === 'error'
           ? 'is-error'
           : 'is-idle'
+  const actionLabel = zoomActionLabel(operatingAction || '')
 
   return (
     <header className="browser-panel-chrome" aria-label="Browser toolbar">
@@ -208,6 +243,27 @@ function BrowserChromeBar({
           {displayUrl || 'Waiting for page…'}
         </span>
       </div>
+      {operating ? (
+        <span className="browser-panel-op-indicator" role="status">
+          <span className="browser-panel-op-dot" aria-hidden />
+          Agent 正在操作{actionLabel ? `（${actionLabel}）` : '浏览器'}…
+        </span>
+      ) : null}
+      {zoomVisible ? (
+        <select
+          className="browser-panel-zoom"
+          value={zoom || 'fit'}
+          title="缩放实时画面"
+          aria-label="Zoom live view"
+          onChange={(event) => onZoomChange?.(event.target.value as ZoomOption)}
+        >
+          {ZOOM_OPTIONS.map((option) => (
+            <option key={option} value={option}>
+              {option === 'fit' ? '适应' : `${option}%`}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <span
         className={`browser-panel-stream-dot ${statusClass}`}
         title={streamStatusLabel(streamStatus)}
@@ -392,7 +448,7 @@ function BrowserEmbedHost({
   )
 }
 
-function BrowserLiveCanvas({ src }: { src: string }) {
+function BrowserLiveCanvas({ src, zoom = 'fit' }: { src: string; zoom?: ZoomOption }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const srcRef = useRef(src)
@@ -458,8 +514,19 @@ function BrowserLiveCanvas({ src }: { src: string }) {
     }
   }, [src])
 
+  const zoomStyle =
+    zoom === 'fit'
+      ? undefined
+      : ({ ['--browser-panel-zoom' as string]: String(Number(zoom) / 100) } as React.CSSProperties)
+
   return (
-    <div ref={stageRef} className="browser-panel-stage browser-panel-stage-live browser-panel-stage-fit">
+    <div
+      ref={stageRef}
+      className={`browser-panel-stage browser-panel-stage-live browser-panel-stage-fit${
+        zoom !== 'fit' ? ' is-zoomed' : ''
+      }`}
+      style={zoomStyle}
+    >
       <canvas ref={canvasRef} className="browser-panel-live-canvas" aria-hidden />
     </div>
   )
@@ -598,6 +665,14 @@ export const BrowserPanel = memo(function BrowserPanel({
   browserMode,
   onClose,
 }: BrowserPanelProps) {
+  const runtime = useSyncExternalStore(subscribeBrowserRuntime, getBrowserRuntimeSnapshot)
+  // Props win when a parent provides them; runtime store feeds the standalone right-stage mount.
+  const effectivePageUrl = String(pageUrl || runtime.pageUrl || '').trim() || undefined
+  const effectiveThreadId = String(streamThreadId || runtime.streamThreadId || '').trim()
+  const effectiveMode = browserMode || runtime.browserMode
+  const effectiveShared = sharedBrowser || runtime.sharedBrowser
+  const operating = runtime.operating
+  const [zoom, setZoom] = useState<ZoomOption>('fit')
   const [streamStatus, setStreamStatus] = useState<BrowserStreamStatus>('idle')
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [refreshBusy, setRefreshBusy] = useState(false)
@@ -624,23 +699,23 @@ export const BrowserPanel = memo(function BrowserPanel({
         setEmbedFailed(false)
       })
     }
-  }, [isOpen, streamThreadId])
+  }, [isOpen, effectiveThreadId])
 
-  const preferEmbeddedBrowser = embedSupported && Boolean(String(streamThreadId || '').trim())
+  const preferEmbeddedBrowser = embedSupported && Boolean(effectiveThreadId)
   const useEmbeddedBrowser = preferEmbeddedBrowser && embedReady && !embedFailed
   const streamPath = useMemo(() => {
     const direct = String(liveStreamUrl || '').trim()
     if (direct) return direct
-    const tid = String(streamThreadId || '').trim()
+    const tid = effectiveThreadId
     if (!tid) return ''
     return buildBrowserStreamPath(tid)
-  }, [liveStreamUrl, streamThreadId])
+  }, [liveStreamUrl, effectiveThreadId])
 
   const handleRefresh = useCallback(async () => {
     if (refreshBusy || !streamPath) return
     setRefreshBusy(true)
     setStreamStatus((prev) => (prev === 'live' ? 'reconnecting' : prev))
-    const tid = String(streamThreadId || '').trim()
+    const tid = effectiveThreadId
     if (tid) {
       try {
         await restartBrowserStream(tid)
@@ -650,7 +725,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     }
     setRefreshNonce((n) => n + 1)
     setRefreshBusy(false)
-  }, [refreshBusy, streamPath, streamThreadId])
+  }, [refreshBusy, streamPath, effectiveThreadId])
 
   // Screenshot completed — reconnect WS only (no restart API; backend already restored stream).
   useEffect(() => {
@@ -663,25 +738,37 @@ export const BrowserPanel = memo(function BrowserPanel({
   if (!isOpen) return null
 
   const hasStream = Boolean(streamPath) && (!preferEmbeddedBrowser || embedFailed || !embedReady)
-  const embedThreadId = String(streamThreadId || '').trim()
+  const embedThreadId = effectiveThreadId
   const showSharedBrowserHint =
     !useEmbeddedBrowser &&
     !preferEmbeddedBrowser &&
-    browserMode !== 'embed' &&
-    (sharedBrowser || browserMode === 'headed' || browserMode === 'cdp')
+    effectiveMode !== 'embed' &&
+    (effectiveShared || effectiveMode === 'headed' || effectiveMode === 'cdp')
   const sharedBrowserHint =
-    browserMode === 'cdp'
+    effectiveMode === 'cdp'
       ? '已连接你本机的 Chrome，请直接在那个窗口操作（与 Agent 共用同一浏览器）。'
       : 'Chrome 已在桌面打开，请直接在那个窗口操作（与 Agent 共用同一浏览器）。'
   const showStreamPreviewLabel = showSharedBrowserHint && hasStream
+  const zoomVisible = hasStream && !useEmbeddedBrowser
 
   return (
-    <aside className="react-chat-collab-exec-panel react-chat-browser-panel" role="region" aria-label="Browser">
+    <aside
+      className={`react-chat-collab-exec-panel react-chat-browser-panel${
+        operating ? ' is-agent-operating' : ''
+      }`}
+      role="region"
+      aria-label="Browser"
+    >
       <BrowserChromeBar
-        pageUrl={pageUrl}
+        pageUrl={effectivePageUrl}
         streamStatus={useEmbeddedBrowser ? 'live' : streamStatus}
         refreshBusy={refreshBusy}
         canRefresh={hasStream}
+        operating={operating}
+        operatingAction={runtime.operatingAction}
+        zoom={zoom}
+        zoomVisible={zoomVisible}
+        onZoomChange={setZoom}
         onRefresh={() => void handleRefresh()}
         onClose={onClose}
       />
@@ -696,7 +783,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           <BrowserEmbedHost
             isOpen={isOpen}
             threadId={embedThreadId}
-            pageUrl={pageUrl}
+            pageUrl={effectivePageUrl}
             onReady={() => setEmbedReady(true)}
             onFailed={() => setEmbedFailed(true)}
           />
@@ -714,7 +801,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           <BrowserEmbedHost
             isOpen={isOpen}
             threadId={embedThreadId}
-            pageUrl={pageUrl}
+            pageUrl={effectivePageUrl}
             onReady={() => setEmbedReady(true)}
             onFailed={() => setEmbedFailed(true)}
           />

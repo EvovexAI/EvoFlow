@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { formatWorkspacePathForDisplay } from '../../lib/workspace-api-scope.js'
 import {
   isWorkspaceAudioPath,
@@ -65,6 +65,72 @@ type Props = {
   onMarkdownChange?: (text: string) => void
   /** 读取失败时重试（预览弹窗）。 */
   onRetry?: () => void
+  /** 代码评论定位：打开后滚动并高亮该 1-based 行（endLine 缺省等于 startLine）。 */
+  focusLine?: number
+  focusEndLine?: number
+}
+
+/** 行号渲染上限：超过则只渲染目标行附近窗口，避免大文件整棵 DOM。 */
+const FOCUSED_CODE_MAX_LINES = 3000
+const FOCUSED_CODE_WINDOW = 400
+
+/**
+ * 行号版代码块（仅代码评论定位路径使用）：目标行区间高亮并滚动到位。
+ * 普通预览仍走原 <pre><code>，外观不变。
+ */
+function FocusedCodeBlock({
+  content,
+  focusLine,
+  focusEndLine,
+}: {
+  content: string
+  focusLine: number
+  focusEndLine?: number
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  const lines = useMemo(() => String(content || '').split('\n'), [content])
+  const windowed = lines.length > FOCUSED_CODE_MAX_LINES
+  const sliceStart = windowed ? Math.max(0, focusLine - 1 - FOCUSED_CODE_WINDOW / 2) : 0
+  const sliceEnd = windowed ? Math.min(lines.length, sliceStart + FOCUSED_CODE_WINDOW) : lines.length
+  const rendered = lines.slice(sliceStart, sliceEnd)
+  const endLine = Math.max(focusLine, Number(focusEndLine) || focusLine)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    // 内容挂载后下一帧再定位，避免容器尚未布局时 scrollIntoView 落空
+    const raf = requestAnimationFrame(() => {
+      const target = host.querySelector<HTMLElement>(`[data-line="${focusLine}"]`)
+      target?.scrollIntoView({ block: 'center' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [focusLine, content])
+
+  return (
+    <div ref={hostRef} className="react-chat-workspace-preview-code is-line-numbered">
+      {windowed ? (
+        <div className="react-chat-workspace-preview-hint">
+          大文件仅显示第 {sliceStart + 1}–{sliceEnd} 行（目标：第 {focusLine} 行）
+        </div>
+      ) : null}
+      {rendered.map((text, index) => {
+        const no = sliceStart + index + 1
+        const focused = no >= focusLine && no <= endLine
+        return (
+          <div
+            key={no}
+            data-line={no}
+            className={`react-chat-workspace-preview-code-line${focused ? ' is-focus-line' : ''}`}
+          >
+            <span className="react-chat-workspace-preview-code-line-no">{no}</span>
+            <span className="react-chat-workspace-preview-code-line-text">
+              {text === '' ? '\u00A0' : text}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function fileExtLabel(name: string, path: string): string {
@@ -98,7 +164,10 @@ export function WorkspaceFilePreviewPane({
   allowMarkdownEdit = false,
   onMarkdownChange,
   onRetry,
+  focusLine,
+  focusEndLine,
 }: Props) {
+  const focusLineNum = Number(focusLine) > 0 ? Number(focusLine) : 0
   const zoom = Math.min(2, Math.max(0.75, Number(contentZoom) || 1))
   const zoomStyle = { '--preview-zoom': String(zoom) } as CSSProperties
 
@@ -324,12 +393,16 @@ export function WorkspaceFilePreviewPane({
           </div>
         ) : isHtml ? (
           <div className="react-chat-workspace-preview-code-wrap">
-            <pre className="react-chat-workspace-preview-code">
-              <code>{displayContent}</code>
-              {streamDisplayActive ? (
-                <span className="react-chat-workspace-typewriter-cursor" aria-hidden />
-              ) : null}
-            </pre>
+            {focusLineNum > 0 ? (
+              <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} />
+            ) : (
+              <pre className="react-chat-workspace-preview-code">
+                <code>{displayContent}</code>
+                {streamDisplayActive ? (
+                  <span className="react-chat-workspace-typewriter-cursor" aria-hidden />
+                ) : null}
+              </pre>
+            )}
           </div>
         ) : isMarkdown ? (
           <div className="react-chat-workspace-preview-md-host">
@@ -350,12 +423,16 @@ export function WorkspaceFilePreviewPane({
             {preview.truncated ? (
               <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
             ) : null}
-            <pre className="react-chat-workspace-preview-code">
-              <code>{displayContent}</code>
-              {preview.streaming && streamBodyReady ? (
-                <span className="react-chat-workspace-typewriter-cursor" aria-hidden />
-              ) : null}
-            </pre>
+            {focusLineNum > 0 ? (
+              <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} />
+            ) : (
+              <pre className="react-chat-workspace-preview-code">
+                <code>{displayContent}</code>
+                {preview.streaming && streamBodyReady ? (
+                  <span className="react-chat-workspace-typewriter-cursor" aria-hidden />
+                ) : null}
+              </pre>
+            )}
           </div>
         )}
       </div>

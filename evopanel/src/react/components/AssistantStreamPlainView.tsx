@@ -31,6 +31,7 @@ export function AssistantStreamPlainView({
           className="msg-text msg-ai-final-reply"
           isStreaming
           onOpenWorkspaceFile={onOpenFile}
+          enableCodeComments
         />
       ) : showStreamThinkingCursor || systemActivityLabel ? (
         <ReasoningInlineBlock

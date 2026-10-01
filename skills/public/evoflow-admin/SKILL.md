@@ -388,6 +388,14 @@ JSON 示例：
 | `autonomy_level` | | `approval_for_all`（默认）/ `approval_for_risky` / `full_auto` |
 | `heartbeat_rrule` | | 如 `FREQ=HOURLY;INTERVAL=2` |
 | `status` | | `active` / `paused` / `draft` |
+| `thinking_enabled` | | `true` 启用 / `false` 禁用 / `null` 跟随默认（模型思考/推理过程） |
+| `model_name` | | 覆盖执行模型（空=用智能体默认） |
+| `inject_user_profile` | | 是否注入用户画像（`true`/`false`/`null`） |
+| `inject_memory` | | 是否注入对话记忆上下文（`true`/`false`/`null`） |
+| `inject_assets` | | 是否注入资产/经验库（`true`/`false`/`null`） |
+| `inject_skills` | | 是否注入技能描述（`true`/`false`/`null`） |
+| `inject_kb` | | 是否注入知识库检索（`true`/`false`/`null`） |
+| `inject_soul` | | 是否注入 SOUL.md 人设（`true`/`false`/`null`） |
 
 读观察结果时优先看：`busy`、`verdict`、`tool_counts`、`pending_approvals`。对用户自然语言总结，勿整段复述 JSON。
 

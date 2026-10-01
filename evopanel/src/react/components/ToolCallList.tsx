@@ -24,6 +24,7 @@ import {
   isTerminalToolFailed,
   firstMeaningfulShellOutputLine,
   isToolRunning,
+  parseBrowserStepToolOutput,
   parseMediaImagePreview,
   toolLabel,
   toolOmitFromChatPanel,
@@ -42,6 +43,7 @@ export type ToolApprovalHint = {
   args?: Record<string, unknown>
 }
 import {
+  BROWSER_ACTION_ZH,
   formatReadFileBriefWithSource,
   formatReadPathBrief,
   formatReadLineRangeLabel,
@@ -78,6 +80,7 @@ import {
 import { parsePlatformUiFeedbackFromTool } from '../../lib/right-stage/platform-feedback.js'
 import { PlatformActionResultCard } from './PlatformActionResultCard.js'
 import { MediaImagePreview } from './MediaImagePreview.js'
+import { BrowserScreenshotPreview } from './BrowserScreenshotPreview.js'
 import { toolBreaksExploringGroup } from '../lib/exploring-activity-group.js'
 import { ToolActivityFold } from './ToolActivityFold.js'
 import { FileEditDiffModal, type FileEditDiffModalPayload } from './FileEditDiffModal.js'
@@ -110,6 +113,52 @@ const ASSETS_ACTION_ZH: Record<string, string> = {
   list: '列出资产',
   note: '记录笔记',
   profile: '更新画像',
+}
+
+/** 浏览器步骤时间线行（ZCode cua-group 对齐）：序号 + 状态点 + 中文摘要 + 细节。 */
+function BrowserStepRow({ tool, index }: { tool: Record<string, unknown>; index: number }) {
+  const step = parseBrowserStepToolOutput(tool.output)
+  const inputObj = getToolInputObject(tool.input) as Record<string, unknown> | null
+  const act =
+    (typeof inputObj?.action === 'string' && inputObj.action.trim().toLowerCase()) ||
+    step?.action ||
+    ''
+  const actZh =
+    (BROWSER_ACTION_ZH as Record<string, string>)[act] || act || '浏览器操作'
+  const running = isToolRunning(tool)
+  const failed = Boolean(step && step.ok === false)
+  let host = ''
+  const url = step?.url || (act === 'open' && typeof inputObj?.url === 'string' ? inputObj.url : '')
+  if (url) {
+    try {
+      host = new URL(url).hostname
+    } catch {
+      host = url
+    }
+  }
+  const summary = failed
+    ? `${actZh} · 失败（${step?.error?.code || 'error'}）`
+    : step
+      ? act === 'open'
+        ? `${actZh} · ${host}`
+        : `${actZh}${step.ref ? ` [${step.ref.replace(/^@/, '')}]` : ''}${
+            step.element?.name ? ` "${step.element.name}"` : ''
+          }`
+      : running
+        ? `${actZh}…`
+        : actZh
+  const detail = step?.element?.selector || (step && step.url && act !== 'open' ? host : '')
+  return (
+    <div
+      className={`browser-step-row${running ? ' is-running' : ''}${failed ? ' is-failed' : ''}`}
+      title={step?.error?.message || detail || undefined}
+    >
+      <span className="browser-step-index">{index + 1}</span>
+      <span className="browser-step-status" aria-hidden />
+      <span className="browser-step-summary">{summary}</span>
+      {detail ? <span className="browser-step-detail">{detail}</span> : null}
+    </div>
+  )
 }
 
 /** 运行中工具名/摘要：逐字扫光；周期随字数变化，避免多波叠扫 */
@@ -843,6 +892,44 @@ function ToolCallListInner({
 
   const hasRunningTools = useMemo(() => list.some((tool) => isToolRunning(tool)), [list])
 
+  /** ZCode cua-group 对齐:连续 browser 步骤行(≥2、无审批、无沙箱拦截、非截图)聚合为时间线。 */
+  const browserStepGroups = useMemo(() => {
+    const memberOf = new Map<number, { start: number; end: number; total: number }>()
+    const actOf = (tool: Record<string, unknown>) => {
+      const inp = getToolInputObject(tool.input) as Record<string, unknown> | null
+      return String(inp?.action || '').trim().toLowerCase()
+    }
+    const isGroupableBrowserRow = (tool: Record<string, unknown>) => {
+      const rawName = tool.name ?? tool.tool_name ?? tool.toolName
+      const kind = safeToolKind(rawName)
+      if (kind !== 'browser' && !kind.startsWith('browser_')) return false
+      if (isToolPendingApproval(tool)) return false
+      if (hasSandboxBlock(tool)) return false
+      if (actOf(tool) === 'screenshot') return false
+      return true
+    }
+    let i = 0
+    while (i < list.length) {
+      const tool = list[i] as Record<string, unknown>
+      if (!isGroupableBrowserRow(tool)) {
+        i += 1
+        continue
+      }
+      let end = i
+      while (end + 1 < list.length && isGroupableBrowserRow(list[end + 1] as Record<string, unknown>)) {
+        end += 1
+      }
+      const total = end - i + 1
+      if (total >= 2) {
+        for (let k = i; k <= end; k += 1) {
+          memberOf.set(k, { start: i, end, total })
+        }
+      }
+      i = end + 1
+    }
+    return memberOf
+  }, [list])
+
   const hasLiveToolTicker = useMemo(() => {
     if (showToolTiming && hasRunningTools) return true
     for (const tool of list) {
@@ -1242,6 +1329,10 @@ function ToolCallListInner({
           toolKind === 'media_image_generate' || toolKind === 'media_task_wait'
             ? parseMediaImagePreview(t.output, toolName)
             : null
+        const browserScreenshotOutput =
+          toolKind === 'browser' || toolKind.startsWith('browser_')
+            ? t.output
+            : null
         const rawInput =
           getToolStreamingArgumentsRaw(t) ||
           t.input ||
@@ -1296,6 +1387,46 @@ function ToolCallListInner({
           if (pendingApproval && showInteractiveApproval) {
             const sum = String(approvalMeta?.summary || '').trim()
             if (sum) return briefFull(sum)
+          }
+          // ── browser：ZCode 风格步骤摘要（打开网页 · host / 点击元素 [e2] "提交"） ──
+          if (toolKind === 'browser' || toolKind.startsWith('browser_')) {
+            const step = parseBrowserStepToolOutput(t.output)
+            const act =
+              (typeof inputObj?.action === 'string' && inputObj.action.trim().toLowerCase()) ||
+              step?.action ||
+              ''
+            const actZh =
+              (BROWSER_ACTION_ZH as Record<string, string>)[act] || act
+            if (running && !step) {
+              const urlArg = typeof inputObj?.url === 'string' ? inputObj.url.trim() : ''
+              let host = ''
+              if (urlArg) {
+                try {
+                  host = new URL(urlArg).hostname
+                } catch {
+                  host = urlArg
+                }
+              }
+              return briefFull(`${actZh || '浏览器操作'}…${host ? ` ${host}` : ''}`)
+            }
+            if (step && step.ok === false) {
+              const code = step.error?.code || 'error'
+              return briefFull(`${actZh || step.action} · 失败（${code}）`)
+            }
+            if (step) {
+              if (act === 'open' && step.url) {
+                let host = ''
+                try {
+                  host = new URL(step.url).hostname
+                } catch {
+                  host = step.url
+                }
+                return briefFull(`${actZh || step.action} · ${host}`)
+              }
+              const refTag = step.ref ? ` [${step.ref.replace(/^@/, '')}]` : ''
+              const name = step.element?.name ? ` "${step.element.name}"` : ''
+              return briefFull(`${actZh || step.action}${refTag}${name}`)
+            }
           }
           // ── supervisor / task（带 action 的复杂工具） ──
           if (toolKind === 'supervisor') {
@@ -2172,6 +2303,24 @@ function ToolCallListInner({
             )
           }
         }
+        const groupInfo = browserStepGroups.get(i)
+        if (groupInfo) {
+          if (i !== groupInfo.start) return null
+          return (
+            <div key={key} className={`${entryClass} browser-step-group`}>
+              <div className="browser-step-group-header">
+                <span className="browser-step-group-title">浏览器操作</span>
+                <span className="browser-step-group-count">{groupInfo.total} 步</span>
+              </div>
+              <div className="browser-step-group-body">
+                {Array.from({ length: groupInfo.total }, (_, k) => {
+                  const memberTool = list[groupInfo.start + k] as Record<string, unknown>
+                  return <BrowserStepRow key={`browser-step-${groupInfo.start + k}`} tool={memberTool} index={k} />
+                })}
+              </div>
+            </div>
+          )
+        }
         return (
           <div key={key} className={entryClass}>
             {mediaImagePreview ? (
@@ -2181,6 +2330,7 @@ function ToolCallListInner({
                 toolName={toolName}
               />
             ) : null}
+            {browserScreenshotOutput ? <BrowserScreenshotPreview output={browserScreenshotOutput} /> : null}
             <ToolCallCollapsible
               toolKind={toolKind}
               running={running}

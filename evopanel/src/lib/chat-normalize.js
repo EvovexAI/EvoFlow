@@ -2671,6 +2671,84 @@ function browserScreenshotApiPath(imageUrl) {
   return u.startsWith('/') ? u : `/${u.replace(/^\/+/, '')}`
 }
 
+function _parseBrowserStepObject(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null
+  if (o.type !== 'browser_step') return null
+  const elementRaw = o.element && typeof o.element === 'object' ? o.element : null
+  const errorRaw = o.error && typeof o.error === 'object' ? o.error : null
+  return {
+    ok: o.ok === true,
+    action: typeof o.action === 'string' ? o.action : '',
+    ref: typeof o.ref === 'string' ? o.ref : '',
+    desc: typeof o.desc === 'string' ? o.desc : '',
+    url: typeof o.url === 'string' ? o.url : '',
+    title: typeof o.title === 'string' ? o.title : '',
+    element: elementRaw
+      ? {
+          ref: typeof elementRaw.ref === 'string' ? elementRaw.ref : '',
+          tag: typeof elementRaw.tag === 'string' ? elementRaw.tag : '',
+          role: typeof elementRaw.role === 'string' ? elementRaw.role : '',
+          name: typeof elementRaw.name === 'string' ? elementRaw.name : '',
+          selector: typeof elementRaw.selector === 'string' ? elementRaw.selector : '',
+        }
+      : null,
+    error: errorRaw
+      ? {
+          code: typeof errorRaw.code === 'string' ? errorRaw.code : 'execution_error',
+          message: typeof errorRaw.message === 'string' ? errorRaw.message : '',
+        }
+      : null,
+  }
+}
+
+function _extractBrowserStepJsonText(raw) {
+  const text = String(raw || '').trim()
+  if (!text) return ''
+  if (text.startsWith('{') && text.includes('"browser_step"')) return text
+  const marker = '"type":"browser_step"'
+  const markerSpaced = '"type": "browser_step"'
+  let idx = text.lastIndexOf(marker)
+  if (idx < 0) idx = text.lastIndexOf(markerSpaced)
+  if (idx < 0) return ''
+  const start = text.lastIndexOf('{', idx)
+  if (start < 0) return ''
+  const slice = text.slice(start)
+  let depth = 0
+  for (let i = 0; i < slice.length; i += 1) {
+    const ch = slice[i]
+    if (ch === '{') depth += 1
+    else if (ch === '}') {
+      depth -= 1
+      if (depth === 0) return slice.slice(0, i + 1)
+    }
+  }
+  return ''
+}
+
+/** Parse engine step output ({"type":"browser_step",...}) from a browser tool result. */
+export function parseBrowserStepToolOutput(value) {
+  if (value == null) return null
+  let raw = ''
+  if (typeof value === 'string') {
+    raw = stripAnsi(value).trim()
+  } else if (typeof value === 'object') {
+    return _parseBrowserStepObject(value)
+  }
+  if (!raw) return null
+  const candidates = [raw, _extractBrowserStepJsonText(raw)]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    try {
+      const parsed = JSON.parse(candidate)
+      const step = _parseBrowserStepObject(parsed)
+      if (step) return step
+    } catch {
+      /* not JSON */
+    }
+  }
+  return null
+}
+
 /** Resolve Gateway screenshot path for <img src> (Vite proxy or loopback Gateway). */
 export function resolveBrowserScreenshotSrc(imageUrl) {
   const path = browserScreenshotApiPath(imageUrl)

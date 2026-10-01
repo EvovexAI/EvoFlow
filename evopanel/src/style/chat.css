@@ -3566,3 +3566,180 @@ button.msg-file-card.msg-file-card--button:focus-visible {
   40% { opacity: 1; transform: scale(1.1); }
 }
 
+
+/* ===== 助手行内代码评论卡片（::code-comment 指令投影） ===== */
+.evf-code-comments {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.04));
+}
+.evf-code-comments-header {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.evf-code-comments-header:hover { background: var(--bg-tertiary, rgba(127, 127, 127, 0.08)); }
+.evf-code-comments-arrow {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-right: 1.5px solid var(--text-secondary, #888);
+  border-bottom: 1.5px solid var(--text-secondary, #888);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.evf-code-comments-arrow.is-open { transform: rotate(45deg); }
+.evf-code-comments-count { font-size: 0.92em; font-weight: 600; color: var(--text-primary, inherit); }
+.evf-code-comments-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.evf-code-comment-row-wrap { background: var(--bg-primary, transparent); }
+.evf-code-comment-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  cursor: pointer;
+  user-select: text;
+  white-space: nowrap;
+  transition: background-color 0.12s ease;
+}
+.evf-code-comment-row:hover { background: var(--bg-tertiary, rgba(127, 127, 127, 0.08)); }
+.evf-code-comment-row:focus-visible { outline: 2px solid var(--accent-primary, #2563eb); outline-offset: -2px; }
+.evf-code-comment-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-secondary, #888);
+}
+.evf-code-comment-badge--p0 {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+.evf-code-comment-title {
+  min-width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.evf-code-comment-location {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary, #888);
+  font-size: 0.9em;
+}
+
+/* ===== 回合末尾「N 个文件已更改」聚合行 + 撤销 ===== */
+.evf-changed-files {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.04));
+}
+.evf-changed-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 2px 6px 2px 4px;
+}
+.evf-changed-files-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.evf-changed-files-toggle:hover { background: var(--bg-tertiary, rgba(127, 127, 127, 0.08)); }
+.evf-changed-files-arrow {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-right: 1.5px solid var(--text-secondary, #888);
+  border-bottom: 1.5px solid var(--text-secondary, #888);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.evf-changed-files-arrow.is-open { transform: rotate(45deg); }
+.evf-changed-files-label { font-size: 0.92em; font-weight: 600; color: var(--text-primary, inherit); }
+.evf-changed-files-stat { display: inline-flex; gap: 6px; flex-shrink: 0; font-size: 0.88em; }
+.evf-diff-added { color: #16a34a; }
+.evf-diff-removed { color: #ef4444; }
+.evf-changed-files-revert {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.85em;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+}
+.evf-changed-files-revert:hover:not(:disabled) {
+  color: var(--text-primary, inherit);
+  background: var(--bg-tertiary, rgba(127, 127, 127, 0.08));
+}
+.evf-changed-files-revert:disabled { opacity: 0.45; cursor: not-allowed; }
+.evf-changed-files-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.evf-changed-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 4px 14px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.evf-changed-file-row:hover { background: var(--bg-tertiary, rgba(127, 127, 127, 0.08)); }
+.evf-changed-file-row.is-deleted { cursor: default; }
+.evf-changed-file-name {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.evf-changed-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary, #888);
+  font-size: 0.85em;
+}
+.evf-changed-file-deleted { flex-shrink: 0; color: #ef4444; font-size: 0.85em; }

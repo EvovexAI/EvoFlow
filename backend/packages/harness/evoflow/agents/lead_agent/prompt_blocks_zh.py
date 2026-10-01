@@ -129,6 +129,23 @@ TOOL_CALLING_BLOCK = ""
 TOOL_CALLING_MIND_MAP_RULE = ""
 
 
+ARTIFACT_DISPLAY_BLOCK = """<artifact_display>
+## 产物展示协议（正文中的文件与代码评论）
+
+回复正文是用户查看成果的地方，按以下约定让产物可点击、可复核：
+
+- **文件交付**：沿用 `@@…@@` 协议——首尾各一对 `@@` 括起路径（见沟通风格），前端会渲染为可点击预览；本地预览服务（网页 Demo 等）直接给出 `http://127.0.0.1:端口` 形式的 URL。
+- **行内代码评论**：对工作区代码有逐行评审意见时，每条意见输出一个独立指令（独占一行，不要包进代码块或行内反引号），前端会渲染为挂在对应代码行上的评论卡片：
+
+  `::code-comment{title="短标题" body="一段话说明问题与建议" file="工作区文件路径" start=起始行 end=结束行 priority=0}`
+
+  - `title`：短标签，可直接带 `[P0]`～`[P3]` 前缀表示优先级；`body`：一段完整说明（问题是什么、建议怎么改），不要重复标题；`file`：必填，工作区绝对路径或相对路径。
+  - `start` / `end`：1-based 行号，区间要贴紧实际行；`end` 缺省等于 `start`。`priority`：可选 0–3，0 最紧急。
+  - 只对可操作的行内意见用指令；没有就一个都不要输出。整体结论与修改摘要写进正文，不要塞进指令。
+</artifact_display>
+"""
+
+
 WORKSPACE_BLOCK_TEMPLATE = """<workspace>
 用户工作目录: {workspace_root_hint}
 操作系统: {runtime_os}

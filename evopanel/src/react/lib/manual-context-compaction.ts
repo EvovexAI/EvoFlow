@@ -1,4 +1,4 @@
-import type { ContextUsageSnapshot } from './context-usage.js'
+import type { ContextUsageSnapshot, ContextUsageBreakdownItem, ContextUsageCacheStats } from './context-usage.js'
 
 export type ManualContextCompactionResponse = {
   ok: boolean
@@ -33,6 +33,53 @@ function parseContextUsageFromApi(raw: Record<string, unknown> | null | undefine
   const updatedRaw = raw.updated_at_ms ?? raw.updatedAt
   const updatedAt =
     updatedRaw != null && Number.isFinite(Number(updatedRaw)) ? Number(updatedRaw) : Date.now()
+  const systemTokens = (() => {
+    const v = Number(raw.system_tokens ?? raw.systemTokens)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  const toolsTokens = (() => {
+    const v = Number(raw.tools_tokens ?? raw.toolsTokens)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  const messageTokens = (() => {
+    const v = Number(raw.message_tokens ?? raw.messageTokens ?? raw.history_tokens ?? raw.historyTokens)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  const toolCount = (() => {
+    const v = Number(raw.tool_count ?? raw.toolCount)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  const systemSkillsTokens = (() => {
+    const v = Number(raw.system_skills_tokens ?? raw.systemSkillsTokens)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  const systemAssetsTokens = (() => {
+    const v = Number(raw.system_assets_tokens ?? raw.systemAssetsTokens)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  const systemMemoryTokens = (() => {
+    const v = Number(raw.system_memory_tokens ?? raw.systemMemoryTokens)
+    return Number.isFinite(v) && v >= 0 ? v : null
+  })()
+  // ZCode-style breakdown (chars per source)
+  const breakdown: ContextUsageBreakdownItem[] | undefined = (() => {
+    const rawBreakdown = raw.breakdown
+    if (!Array.isArray(rawBreakdown)) return undefined
+    const items: ContextUsageBreakdownItem[] = []
+    for (const item of rawBreakdown) {
+      if (item && typeof item === 'object' && typeof (item as Record<string, unknown>).source === 'string' && typeof (item as Record<string, unknown>).chars === 'number') {
+        items.push(item as ContextUsageBreakdownItem)
+      }
+    }
+    return items.length > 0 ? items : undefined
+  })()
+  // ZCode-style cache stats
+  const cache: ContextUsageCacheStats | undefined = (() => {
+    const rawCache = raw.cache
+    if (!rawCache || typeof rawCache !== 'object') return undefined
+    const hitRate = Number((rawCache as Record<string, unknown>).hitRate)
+    return { hitRate: Number.isFinite(hitRate) ? hitRate : null }
+  })()
   return {
     usedTokens,
     windowTokens,
@@ -41,6 +88,15 @@ function parseContextUsageFromApi(raw: Record<string, unknown> | null | undefine
     beforeTokens,
     compacted: Boolean(raw.compacted),
     note: String(raw.note || ''),
+    systemTokens,
+    toolsTokens,
+    messageTokens,
+    toolCount,
+    systemSkillsTokens,
+    systemAssetsTokens,
+    systemMemoryTokens,
+    breakdown,
+    cache,
     updatedAt,
   }
 }

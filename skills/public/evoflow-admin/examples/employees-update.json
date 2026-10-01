@@ -11,5 +11,13 @@
   "max_turns": 15,
   "work_start_hour": 9,
   "work_end_hour": 21,
-  "autonomy_level": "approval_for_risky"
+  "autonomy_level": "approval_for_risky",
+  "thinking_enabled": true,
+  "model_name": "claude-sonnet-4-20250514",
+  "inject_user_profile": false,
+  "inject_memory": true,
+  "inject_assets": true,
+  "inject_skills": true,
+  "inject_kb": true,
+  "inject_soul": true
 }

@@ -1,6 +1,5 @@
 /* Asset Center — Design System (Indigo primary, desktop tool density) */
-@import "tailwindcss/theme" layer(theme);
-@import "tailwindcss/utilities" layer(utilities);
+@import "tailwindcss";
 
 .assets-center-root {
   /* Surfaces */

@@ -43,6 +43,9 @@ type Props = {
   path: string
   name?: string
   poll?: boolean
+  /** 代码评论定位：滚动并高亮该行区间（透传给预览面板）。 */
+  focusLine?: number
+  focusEndLine?: number
   onClose: () => void
 }
 
@@ -53,6 +56,8 @@ export function WorkspaceFilePreviewModal({
   path: rawPath,
   name: displayName,
   poll = false,
+  focusLine,
+  focusEndLine,
   onClose,
 }: Props) {
   const root = String(workspaceRoot || '').trim()
@@ -260,6 +265,8 @@ export function WorkspaceFilePreviewModal({
           workspaceRoot={root}
           threadId={tid}
           zoomControls={zoomControls}
+          focusLine={focusLine}
+          focusEndLine={focusEndLine}
           onRetry={() => {
             const ticket = ++ticketRef.current
             void fetchContent(ticket)

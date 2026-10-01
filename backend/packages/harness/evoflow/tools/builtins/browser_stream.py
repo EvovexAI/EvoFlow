@@ -130,9 +130,25 @@ def invalidate_browser_stream_cache(thread_id: str) -> None:
         _port_cache.pop(key, None)
 
 
+def _engine_stream_port(thread_id: str) -> int | None:
+    """In-process engine screencast port (preferred; no subprocess)."""
+    try:
+        from evoflow.tools.builtins.browser_engine import browser_engine_enabled, get_browser_engine
+
+        if not browser_engine_enabled():
+            return None
+        return get_browser_engine().stream_port(thread_id)
+    except Exception:
+        return None
+
+
 def restart_browser_stream(thread_id: str) -> int | None:
     """Restart screencast after viewport changes so live frames use the full layout size."""
     invalidate_browser_stream_cache(thread_id)
+    engine_port = _engine_stream_port(thread_id)
+    if engine_port:
+        _cache_put(thread_id, engine_port)
+        return engine_port
     session = browser_session_name(thread_id)
     _run_stream_cli(session, ["stream", "disable"])
     code, out, err = _run_stream_cli(session, ["stream", "enable"])
@@ -150,6 +166,11 @@ def resolve_browser_stream_port(thread_id: str) -> int | None:
     cached = _cache_get(thread_id)
     if cached:
         return cached
+
+    engine_port = _engine_stream_port(thread_id)
+    if engine_port:
+        _cache_put(thread_id, engine_port)
+        return engine_port
 
     from evoflow.tools.builtins.browser_live_frame import resolve_browser_thread_candidates
 
@@ -169,6 +190,11 @@ def resolve_browser_stream_port(thread_id: str) -> int | None:
 
 
 def ensure_browser_stream_port(thread_id: str) -> int | None:
+    engine_port = _engine_stream_port(thread_id)
+    if engine_port:
+        _cache_put(thread_id, engine_port)
+        return engine_port
+
     port = resolve_browser_stream_port(thread_id)
     if port:
         return port

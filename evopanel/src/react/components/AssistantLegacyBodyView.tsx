@@ -99,6 +99,7 @@ export function AssistantLegacyBodyView({
               text={text || ''}
               isStreaming={isStreaming}
               onOpenWorkspaceFile={onOpenFile}
+              enableCodeComments
             />
           ) : null}
           {showLegacyStreamCursor || systemActivityLabel ? (

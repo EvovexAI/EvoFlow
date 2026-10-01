@@ -17,9 +17,22 @@ export type ContextUsageSnapshot = {
   systemSkillsTokens?: number | null
   systemAssetsTokens?: number | null
   systemMemoryTokens?: number | null
+  /** Context breakdown items for ZCode-style ring panel. */
+  breakdown?: readonly ContextUsageBreakdownItem[]
+  /** Cache stats for ZCode-style ring panel. */
+  cache?: ContextUsageCacheStats
   /** Actual injected section content for the detail modal. */
   injectedSections?: Record<string, string>
   updatedAt: number
+}
+
+export interface ContextUsageBreakdownItem {
+  source: 'messages' | 'system_prompt' | 'meta_user_context' | 'skills' | 'tool_prompt' | 'system_tool_schemas' | 'mcp_tool_schemas'
+  chars: number
+}
+
+export interface ContextUsageCacheStats {
+  hitRate: number | null
 }
 
 export function formatContextTokenCount(n: number): string {
@@ -286,6 +299,25 @@ export function parseContextUsageFromSessionContext(
       }
       return undefined
     })(),
+    // ZCode-style breakdown (chars per source)
+    breakdown: (() => {
+      const raw = o.breakdown
+      if (!Array.isArray(raw)) return undefined
+      const items: ContextUsageBreakdownItem[] = []
+      for (const item of raw) {
+        if (item && typeof item === 'object' && typeof item.source === 'string' && typeof item.chars === 'number') {
+          items.push(item as ContextUsageBreakdownItem)
+        }
+      }
+      return items.length > 0 ? items : undefined
+    })(),
+    // ZCode-style cache stats
+    cache: (() => {
+      const raw = o.cache
+      if (!raw || typeof raw !== 'object') return undefined
+      const hitRate = Number((raw as Record<string, unknown>).hitRate)
+      return { hitRate: Number.isFinite(hitRate) ? hitRate : null }
+    })(),
     updatedAt,
   }
 }
@@ -307,5 +339,8 @@ export function mergeContextUsageSnapshots(
     systemAssetsTokens: next.systemAssetsTokens ?? prev.systemAssetsTokens ?? null,
     systemMemoryTokens: next.systemMemoryTokens ?? prev.systemMemoryTokens ?? null,
     injectedSections: next.injectedSections ?? prev.injectedSections ?? undefined,
+    // ZCode-style: prefer newer breakdown/cache when available
+    breakdown: next.breakdown ?? prev.breakdown ?? undefined,
+    cache: next.cache ?? prev.cache ?? undefined,
   }
 }

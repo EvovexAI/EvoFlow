@@ -3,7 +3,6 @@ import type { ContextUsageSnapshot } from '../lib/context-usage.js'
 import type { CollabTaskSnapshot, TokenTotals } from '../chat-types.js'
 import AgentAvatar from './AgentAvatar.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
-import { ContextOccupancyPanel } from './ContextOccupancyPanel.js'
 import {
   ArtifactContextMenuPortal,
   type ArtifactContextMenuState,
@@ -508,15 +507,6 @@ function AgentPane({
         busy={capabilityBusy}
         onPatch={onPatchCapabilities}
       />
-
-      <section className="react-chat-agent-context" aria-label="上下文占用">
-        <ContextOccupancyPanel
-          usage={contextUsage}
-          tokenTotals={tokenTotals}
-          onManualCompact={onManualCompact}
-          manualCompactDisabled={manualCompactDisabled}
-        />
-      </section>
 
       {onAssetQuickAction ? (
         <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
@@ -1338,15 +1328,6 @@ function EmployeePane({
         busy={capabilityBusy}
         onPatch={onPatchCapabilities}
       />
-
-      <section className="react-chat-agent-context" aria-label="上下文占用">
-        <ContextOccupancyPanel
-          usage={contextUsage || null}
-          tokenTotals={tokenTotals || null}
-          onManualCompact={onManualCompact}
-          manualCompactDisabled={manualCompactDisabled}
-        />
-      </section>
 
       {onAssetQuickAction ? (
         <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />

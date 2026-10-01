@@ -1,5 +1,10 @@
 import { parseBrowserLiveToolOutput } from './chat-normalize.js'
 import { buildBrowserStreamPath } from './browser-stream-client.js'
+import {
+  notifyBrowserToolEnd,
+  notifyBrowserToolResult,
+  notifyBrowserToolStart,
+} from './browser-panel-store.js'
 import type { BrowserPanelState } from './browser-panel-screenshots.js'
 
 export function isBrowserToolWireName(name: string): boolean {
@@ -135,4 +140,38 @@ export function shouldRefreshBrowserStreamAfterAction(action: string): boolean {
   const act = String(action || '').trim().toLowerCase()
   // Only screenshot reliably kills screencast — backend handles other actions.
   return act === 'screenshot'
+}
+
+/** Feed one AG-UI tool-call event into the browser panel runtime store.
+ *
+ * Returns true when the event belonged to a browser tool (caller marks stream changed).
+ */
+export function syncBrowserPanelFromAgUiEvent(
+  aguiEvent: BrowserPanelAgUiEvent,
+  toolCalls?: Map<string, BrowserAgUiToolCall> | null,
+): boolean {
+  const toolName = resolveBrowserToolNameFromAgUiEvent(aguiEvent, toolCalls)
+  if (!isBrowserToolWireName(toolName)) return false
+  const type = String(aguiEvent.type || '').toUpperCase()
+  const toolCallId = String(aguiEvent.toolCallId || '').trim()
+  const tc = toolCallId ? toolCalls?.get(toolCallId) : undefined
+  if (type === 'TOOL_CALL_START' || type === 'TOOL_CALL_ARGS') {
+    return notifyBrowserToolStart(toolCallId, tc?.argsText)
+  }
+  if (type === 'TOOL_CALL_RESULT') {
+    const result =
+      typeof tc?.result === 'string'
+        ? tc.result
+        : typeof (aguiEvent as { content?: string }).content === 'string'
+          ? (aguiEvent as { content?: string }).content
+          : null
+    const changed = notifyBrowserToolResult(toolCallId, result)
+    notifyBrowserToolEnd(toolCallId)
+    return changed
+  }
+  if (type === 'TOOL_CALL_END') {
+    notifyBrowserToolEnd(toolCallId)
+    return true
+  }
+  return false
 }

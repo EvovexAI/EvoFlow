@@ -14,6 +14,21 @@ evoflow employees update code-reviewer --file examples/employees-update.json
 evoflow employees pause|resume|archive code-reviewer
 ```
 
+### 岗位模型配置字段
+
+`employees hire/update` JSON 中可传：
+
+| 字段 | 说明 |
+|------|------|
+| `thinking_enabled` | `true` 启用 / `false` 禁用 / `null` 跟随默认（模型思考/推理过程） |
+| `model_name` | 覆盖执行模型（空=用智能体默认） |
+| `inject_user_profile` | 是否注入用户画像 |
+| `inject_memory` | 是否注入对话记忆上下文 |
+| `inject_assets` | 是否注入资产/经验库 |
+| `inject_skills` | 是否注入技能描述 |
+| `inject_kb` | 是否注入知识库检索 |
+| `inject_soul` | 是否注入 SOUL.md 人设 |
+
 ## 1. 今天谁在岗？
 
 ```bash

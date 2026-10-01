@@ -1,5 +1,6 @@
 import { getToolInputObjectFromRow } from '../lib/chat-normalize.js'
 import { resolveToolKey } from '../lib/tool-display.js'
+import { collectWorkerFileEntries } from './worker-file-tools.js'
 
 export type FileDiffSegment = { text: string; changed: boolean }
 
@@ -400,6 +401,103 @@ export function accumulateFileEditStatsFromTools(tools: unknown[]): { added: num
     removed += stats.removed
   }
   return { added, removed }
+}
+
+export type TurnChangedFile = {
+  path: string
+  added: number
+  removed: number
+  /** 该文件的最后动作是删除（无增删行可计） */
+  deleted: boolean
+  /**
+   * 撤销快照：字符串 = 本会话代理动手前的内容（撤销还原）；
+   * null = 会话内未见快照（代理新建，或删除前无内容可考）。
+   */
+  beforeContent: string | null
+  toolCallId?: string
+}
+
+/**
+ * 按文件聚合整轮变更（「N 个文件已更改 +X −Y」行）：
+ * 直接文件工具逐条累加；worker 批次下钻到 inner file tasks（search 除外）。
+ * 同文件多次编辑求和（与 Exploring 标题的整轮累加口径一致）。
+ */
+export function collectTurnChangedFiles(tools: unknown[]): TurnChangedFile[] {
+  const byPath = new Map<string, TurnChangedFile>()
+  const merge = (
+    path: string,
+    added: number,
+    removed: number,
+    deleted: boolean,
+    beforeContent: string | null,
+    toolCallId?: string,
+  ) => {
+    const prev = byPath.get(path)
+    if (!prev) {
+      byPath.set(path, {
+        path,
+        added,
+        removed,
+        deleted,
+        beforeContent,
+        ...(toolCallId ? { toolCallId } : {}),
+      })
+      return
+    }
+    prev.added += added
+    prev.removed += removed
+    if (deleted) prev.deleted = true
+    if (prev.beforeContent === null && typeof beforeContent === 'string') {
+      prev.beforeContent = beforeContent
+    }
+  }
+
+  for (const tool of tools || []) {
+    const t = tool as Record<string, unknown>
+    const toolKind = resolveToolKey(t)
+    if (toolKind === 'worker') {
+      // worker 批次：下钻到每个 file 任务（write/replace/delete），search 不算文件变更
+      for (const entry of collectWorkerFileEntries(t, tools)) {
+        if (entry.kind !== 'file' || !entry.path || !entry.filled || entry.running) continue
+        if (entry.ok === false) continue
+        const before = typeof entry.before_content === 'string' ? entry.before_content : null
+        if (entry.action === 'delete') {
+          merge(entry.path, 0, 0, true, before, entry.toolCallId)
+          continue
+        }
+        const view = resolveWorkerFileDiffView({
+          action: entry.action,
+          content: entry.content,
+          old_string: entry.old_string,
+          new_string: entry.new_string,
+          before_content: entry.before_content,
+          after_content: entry.after_content,
+        })
+        if (!view) {
+          merge(entry.path, 0, 0, false, before, entry.toolCallId)
+          continue
+        }
+        merge(entry.path, view.added, view.removed, false, before, entry.toolCallId)
+      }
+      continue
+    }
+    if (!isFileEditStatToolKind(toolKind)) continue
+    const action = fileEditActionFromToolKind(toolKind)
+    const inputObj = (getToolInputObjectFromRow(t) || {}) as Record<string, unknown>
+    const path = String(inputObj?.path || '').trim()
+    if (!path) continue
+    const toolCallId = String(t.tool_call_id ?? t.id ?? '').trim() || undefined
+    if (action === 'delete') {
+      merge(path, 0, 0, true, null, toolCallId)
+      continue
+    }
+    const stats = fileEditStatsFromTool(t)
+    if (!stats) continue
+    const beforeContent =
+      typeof inputObj?.before_content === 'string' ? inputObj.before_content : null
+    merge(path, stats.added, stats.removed, false, beforeContent, toolCallId)
+  }
+  return [...byPath.values()]
 }
 
 export function resolveWorkerFileDiffView(input: {

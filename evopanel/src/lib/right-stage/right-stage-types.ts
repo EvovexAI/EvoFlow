@@ -46,6 +46,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   'platform-feedback': '平台操作',
   'news-dashboard': '资讯',
   'web-embed': '网页',
+  browser: '浏览器',
 }
 
 /** Normalize panel kind aliases (legacy workspace-write / write-stream). */

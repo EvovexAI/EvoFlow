@@ -5,6 +5,13 @@ import { renderMarkdownAsync } from '../../lib/markdown-render-client.js'
 import { showChatLightbox } from '../../lib/chat-lightbox.js'
 import { isImagePathLike } from '../../lib/chat-image-src.js'
 import {
+  buildAssistantCodeCommentCards,
+  projectAssistantCodeComments,
+  type AssistantCodeCommentCard,
+} from '../../lib/assistant-code-comment.js'
+import { getChatWorkspaceRoot } from '../../lib/chat-workspace-context.js'
+import { AssistantCodeCommentCards } from './AssistantCodeCommentCards.js'
+import {
   buildStreamingPlainHtml,
   resolveReasoningStreamPaintMinMs,
   resolveStreamPlainPaintMinMs,
@@ -111,17 +118,34 @@ function MarkdownHtmlInner({
   isStreaming = false,
   /** 思考流：更短节流间隔 */
   streamProfile = 'default',
+  /** 助手正文：投影 `::code-comment{...}` 指令为评论卡片，协议原文不出现在正文里 */
+  enableCodeComments = false,
 }: {
   text?: string
   className?: string
-  /** 点击正文中的 @@绝对路径@@ / @@outputs/…@@（遗留相对） */
-  onOpenWorkspaceFile?: (rawPath: string, displayName?: string) => void
+  /** 点击正文中的 @@绝对路径@@ / @@outputs/…@@（遗留相对）；opts.line 用于代码评论定位 */
+  onOpenWorkspaceFile?: (
+    rawPath: string,
+    displayName?: string,
+    opts?: { line?: number; endLine?: number },
+  ) => void
   isStreaming?: boolean
   streamProfile?: 'default' | 'reasoning'
+  enableCodeComments?: boolean
 }) {
   const isReasoningStream = streamProfile === 'reasoning'
+  // 投影一次供正文渲染与卡片共用：visibleText 抹掉协议原文，comments 转结构化评论。
+  const projection = useMemo(() => {
+    if (!enableCodeComments) return null
+    return projectAssistantCodeComments(String(text || ''), { streaming: isStreaming })
+  }, [text, isStreaming, enableCodeComments])
+  const renderText = projection ? projection.visibleText : String(text || '')
+  const codeCommentCards = useMemo<AssistantCodeCommentCard[]>(() => {
+    if (!projection || projection.comments.length === 0) return []
+    return buildAssistantCodeCommentCards(projection.comments, getChatWorkspaceRoot(), 50)
+  }, [projection])
   const [displayHtml, setDisplayHtml] = useState(() => {
-    const raw = String(text || '')
+    const raw = renderText
     if (isStreaming) return buildStreamingPlainHtml(raw)
     return raw.length > FULL_MARKDOWN_WORKER_MIN_CHARS ? '' : renderMarkdown(raw)
   })
@@ -180,8 +204,8 @@ function MarkdownHtmlInner({
   }
 
   const mermaidSources = useMemo(
-    () => (isStreaming ? EMPTY_MERMAID_SOURCES : extractMermaidSources(text || '')),
-    [text, isStreaming],
+    () => (isStreaming ? EMPTY_MERMAID_SOURCES : extractMermaidSources(renderText)),
+    [renderText, isStreaming],
   )
   const mermaidApiRef = useRef<any>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -189,7 +213,7 @@ function MarkdownHtmlInner({
   const [previewScale, setPreviewScale] = useState(1)
 
   useEffect(() => {
-    const raw = String(text || '')
+    const raw = renderText
     textRef.current = raw
     if (!isStreaming) {
       if (streamPaintRafRef.current) {
@@ -269,7 +293,7 @@ function MarkdownHtmlInner({
         streamPaintTimerRef.current = 0
       }
     }
-  }, [text, isStreaming, streamProfile])
+  }, [renderText, isStreaming, streamProfile])
 
   const renderPendingMermaids = useCallback(async () => {
     if (isStreaming) return
@@ -470,6 +494,9 @@ function MarkdownHtmlInner({
   return (
     <>
       <div ref={rootRef} className={className} />
+      {codeCommentCards.length > 0 ? (
+        <AssistantCodeCommentCards cards={codeCommentCards} onOpenWorkspaceFile={onOpenWorkspaceFile} />
+      ) : null}
       {previewModal}
     </>
   )

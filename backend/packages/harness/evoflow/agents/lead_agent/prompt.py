@@ -822,6 +822,9 @@ def _assemble_system_prompt(
     blocks.append(_fmt_with_agent_name(static.ROLE_BLOCK_CHAT_TEMPLATE.strip(), agent_name))
     blocks.append((static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip())
     blocks.append((static.ENTITY_ASSETS_COMPACT_BLOCK if pure_chat else static.ENTITY_ASSETS_BLOCK).strip())
+    # 产物展示协议（@@ 文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
+    # 文件或评审代码（agent/code 场景的模块映射也落在 chat），无条件注入。
+    blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
     # TOOL_CALLING_BLOCK：不再注入；工具 schema / 模型能力已够用。
 
     if thinking_enabled:

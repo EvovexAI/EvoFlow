@@ -1,4 +1,14 @@
-"""Unified browser tool — wraps agent-browser CLI (single tool, multi-action).
+"""Unified browser tool — in-process Playwright engine first, agent-browser CLI fallback.
+
+Single tool, multi-action surface (unchanged for the agent):
+``open | snapshot | click | fill | press | scroll | screenshot | back | close``.
+
+Engine mode (default, ``EVOFLOW_BROWSER_ENGINE`` unset or ``playwright``) drives the
+page through :mod:`evoflow.tools.builtins.browser_engine` — an in-process Playwright
+executor speaking the ZCode-style browser command contract, with CDP screencast
+served in-process so EvoPanel's live canvas and the gateway proxy stay unchanged.
+CLI mode (``EVOFLOW_BROWSER_ENGINE=cli``) keeps the legacy bundled agent-browser CLI
+subprocess path verbatim.
 
 Deferred under agent mode: activate agent, then ``tool_search(query='select:browser')``.
 """
@@ -66,6 +76,212 @@ def _session_name(thread_id: str) -> str:
     if not tid or tid in {"default", "__default__"}:
         return _DEFAULT_SESSION
     return f"{_DEFAULT_SESSION}-{tid}"[:64]
+
+
+def _normalize_ref(ref: str | None) -> str | None:
+    """Accept both ``@e2`` (legacy CLI style) and ``e2`` (engine contract style)."""
+    value = str(ref or "").strip().lstrip("@")
+    return value or None
+
+
+# ---------------------------------------------------------------------------
+# Engine (Playwright, in-process)
+# ---------------------------------------------------------------------------
+
+
+def _engine_dispatch(thread_id: str, command: dict[str, Any], *, timeout: float) -> dict[str, Any]:
+    from evoflow.tools.builtins.browser_engine import get_browser_engine
+
+    return get_browser_engine().execute(thread_id, command, timeout=timeout)
+
+
+_BROWSER_STEP_LABELS = {
+    "open": "打开网页",
+    "snapshot": "读取页面",
+    "click": "点击元素",
+    "fill": "填写输入",
+    "type": "输入文本",
+    "press": "按键",
+    "scroll": "滚动页面",
+    "hover": "悬停元素",
+    "screenshot": "页面截图",
+    "back": "后退",
+    "close": "关闭浏览器",
+}
+
+
+def _step_desc(action: str, ref: str | None, element: dict[str, Any] | None) -> str:
+    label = _BROWSER_STEP_LABELS.get(action, action)
+    target = ""
+    if element:
+        name = str(element.get("name") or "").strip()
+        role = str(element.get("role") or element.get("tag") or "").strip()
+        if ref:
+            target += f" [{ref}]"
+        if name:
+            target += f' {role} "{name}"' if role else f' "{name}"'
+        elif role:
+            target += f" {role}"
+    elif ref:
+        target = f" [{ref}]"
+    return f"{label}{target}".strip()
+
+
+def _format_step_result(action: str, result: dict[str, Any], *, ref: str | None = None) -> str:
+    """Structured step output (ZCode parity): the chat UI renders this as a timeline step."""
+    payload: dict[str, Any] = {
+        "type": "browser_step",
+        "ok": bool(result.get("ok")),
+        "action": action,
+    }
+    if ref:
+        payload["ref"] = ref
+    if result.get("ok"):
+        element = result.get("element") or {}
+        slim_element = {
+            key: element[key]
+            for key in ("ref", "tag", "role", "name", "selector", "text")
+            if element.get(key)
+        }
+        if slim_element:
+            payload["element"] = slim_element
+        state = result.get("state") or {}
+        if state.get("url"):
+            payload["url"] = state.get("url")
+            payload["title"] = state.get("title") or ""
+        payload["desc"] = _step_desc(action, ref, slim_element or None)
+    else:
+        error = result.get("error") or {}
+        payload["error"] = {
+            "code": str(error.get("code") or "execution_error"),
+            "message": str(error.get("message") or ""),
+        }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _engine_error_message(result: dict[str, Any]) -> str | None:
+    error = result.get("error") or {}
+    message = str(error.get("message") or "").strip()
+    code = str(error.get("code") or "").strip()
+    if not message:
+        return None
+    return f"Error: [{code or 'execution_error'}] {message}"
+
+
+def _engine_open(thread_id: str, url: str) -> str:
+    _wait_for_embed_cdp(thread_id)
+    result = _engine_dispatch(thread_id, {"method": "navigate", "url": url}, timeout=_OPEN_TIMEOUT)
+    if not result.get("ok"):
+        message = _engine_error_message(result)
+        if message:
+            logger.warning("browser open failed (engine) thread=%s: %s", thread_id, message)
+        return message or "Error: browser open failed"
+    _remember_page_url(thread_id, result["state"]["url"] if result.get("state") else url)
+    from evoflow.tools.builtins.browser_stream import build_browser_live_metadata
+
+    live = build_browser_live_metadata(thread_id, page_url=url)
+    logger.info("browser open ok (engine) thread=%s url=%s", thread_id, url)
+    return json.dumps(live, ensure_ascii=False)
+
+
+def _engine_snapshot(thread_id: str) -> str:
+    from evoflow.tools.builtins.browser_contract import snapshot_to_text
+
+    result = _engine_dispatch(thread_id, {"method": "snapshot"}, timeout=_CLI_TIMEOUT)
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: snapshot failed"
+    snapshot = result.get("snapshot") or {}
+    if not snapshot:
+        return "Error: empty snapshot"
+    from evoflow.tools.builtins.browser_contract import BrowserSnapshot
+
+    return snapshot_to_text(BrowserSnapshot.model_validate(snapshot))
+
+
+def _engine_click(thread_id: str, ref: str) -> str:
+    target = _normalize_ref(ref)
+    result = _engine_dispatch(
+        thread_id, {"method": "click", "ref": target}, timeout=_CLI_TIMEOUT
+    )
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: click failed"
+    return _format_step_result("click", result, ref=target)
+
+
+def _engine_fill(thread_id: str, ref: str, text: str) -> str:
+    target = _normalize_ref(ref)
+    result = _engine_dispatch(
+        thread_id,
+        {"method": "fill", "ref": target, "value": str(text or "")},
+        timeout=_CLI_TIMEOUT,
+    )
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: fill failed"
+    return _format_step_result("fill", result, ref=target)
+
+
+def _engine_press(thread_id: str, key: str) -> str:
+    result = _engine_dispatch(thread_id, {"method": "press", "key": str(key or "")}, timeout=_CLI_TIMEOUT)
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: press failed"
+    return _format_step_result("press", result)
+
+
+def _engine_scroll(thread_id: str, direction: str, amount: int) -> str:
+    result = _engine_dispatch(
+        thread_id,
+        {"method": "scroll", "direction": str(direction or "down"), "amount": int(amount or 800)},
+        timeout=_CLI_TIMEOUT,
+    )
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: scroll failed"
+    return _format_step_result("scroll", result)
+
+
+def _engine_back(thread_id: str) -> str:
+    result = _engine_dispatch(thread_id, {"method": "back"}, timeout=_CLI_TIMEOUT)
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: back failed"
+    return _format_step_result("back", result)
+
+
+def _engine_screenshot(thread_id: str, *, full_page: bool) -> str:
+    result = _engine_dispatch(
+        thread_id, {"method": "screenshot", "fullPage": bool(full_page)}, timeout=_CLI_TIMEOUT
+    )
+    if not result.get("ok"):
+        return _engine_error_message(result) or "Error: screenshot failed"
+    image = result.get("image") or {}
+    base64_png = str(image.get("base64") or "")
+    if not base64_png:
+        return "Error: screenshot returned no image"
+    import base64
+
+    png_bytes = base64.b64decode(base64_png)
+    if not png_bytes:
+        return "Error: screenshot file empty"
+    meta = save_screenshot_png(
+        thread_id,
+        png_bytes,
+        page_url=_current_page_url(thread_id),
+        full_page=full_page,
+    )
+    return format_screenshot_tool_result(thread_id, meta)
+
+
+def _engine_close(thread_id: str) -> str | None:
+    try:
+        from evoflow.tools.builtins.browser_engine import get_browser_engine
+
+        get_browser_engine().close_session(thread_id)
+    except Exception as exc:
+        logger.debug("engine close session failed thread=%s: %s", thread_id, exc)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Legacy CLI path (fallback: EVOFLOW_BROWSER_ENGINE=cli, or engine unavailable)
+# ---------------------------------------------------------------------------
 
 
 def _resolve_agent_browser_cli() -> str | None:
@@ -340,10 +556,29 @@ def _wait_for_embed_cdp(thread_id: str, timeout_sec: float = 2.5) -> None:
         time.sleep(0.12)
 
 
+# ---------------------------------------------------------------------------
+# Actions — engine first, CLI fallback
+# ---------------------------------------------------------------------------
+
+
+def _use_engine() -> bool:
+    try:
+        from evoflow.tools.builtins.browser_engine import browser_engine_enabled
+
+        return browser_engine_enabled()
+    except Exception:
+        return False
+
+
 def _action_open(thread_id: str, url: str) -> str:
     page = str(url or "").strip()
     if not page:
         return "Error: action='open' requires url."
+    if _use_engine():
+        try:
+            return _engine_open(thread_id, page)
+        except Exception as exc:
+            logger.warning("browser engine open failed, falling back to CLI: %s", exc)
     _wait_for_embed_cdp(thread_id)
     session = _session_name(thread_id)
     logger.info("browser open start thread=%s session=%s url=%s", thread_id, session, page)
@@ -375,21 +610,36 @@ def _action_open(thread_id: str, url: str) -> str:
 
 
 def _action_snapshot(thread_id: str) -> str:
+    if _use_engine():
+        try:
+            return _engine_snapshot(thread_id)
+        except Exception as exc:
+            logger.warning("browser engine snapshot failed, falling back to CLI: %s", exc)
     return _run_browser_cli(thread_id, ["snapshot", "-c"])
 
 
 def _action_click(thread_id: str, ref: str) -> str:
-    target = str(ref or "").strip()
+    target = _normalize_ref(ref)
     if not target:
-        return "Error: action='click' requires ref (e.g. @e2 from snapshot)."
+        return "Error: action='click' requires ref (e.g. e2 from snapshot)."
+    if _use_engine():
+        try:
+            return _engine_click(thread_id, target)
+        except Exception as exc:
+            logger.warning("browser engine click failed, falling back to CLI: %s", exc)
     return _run_browser_cli(thread_id, ["click", target])
 
 
 def _action_fill(thread_id: str, ref: str, text: str) -> str:
-    target = str(ref or "").strip()
+    target = _normalize_ref(ref)
     value = str(text or "")
     if not target:
-        return "Error: action='fill' requires ref (e.g. @e3 from snapshot)."
+        return "Error: action='fill' requires ref (e.g. e3 from snapshot)."
+    if _use_engine():
+        try:
+            return _engine_fill(thread_id, target, value)
+        except Exception as exc:
+            logger.warning("browser engine fill failed, falling back to CLI: %s", exc)
     return _run_browser_cli(thread_id, ["fill", target, value])
 
 
@@ -397,24 +647,80 @@ def _action_press(thread_id: str, key: str) -> str:
     pressed = str(key or "").strip()
     if not pressed:
         return "Error: action='press' requires key (e.g. Enter, Tab)."
+    if _use_engine():
+        try:
+            return _engine_press(thread_id, pressed)
+        except Exception as exc:
+            logger.warning("browser engine press failed, falling back to CLI: %s", exc)
     return _run_browser_cli(thread_id, ["press", pressed])
 
 
 def _action_scroll(thread_id: str, direction: str, amount: int) -> str:
     dir_norm = str(direction or "down").strip().lower() or "down"
     amt = max(1, int(amount or 800))
+    if _use_engine():
+        try:
+            return _engine_scroll(thread_id, dir_norm, amt)
+        except Exception as exc:
+            logger.warning("browser engine scroll failed, falling back to CLI: %s", exc)
     return _run_browser_cli(thread_id, ["scroll", dir_norm, str(amt)])
 
 
 def _action_back(thread_id: str) -> str:
+    if _use_engine():
+        try:
+            return _engine_back(thread_id)
+        except Exception as exc:
+            logger.warning("browser engine back failed, falling back to CLI: %s", exc)
     return _run_browser_cli(thread_id, ["back"])
 
 
 def _action_close(thread_id: str) -> str:
+    if _use_engine():
+        with _state_lock:
+            _last_page_url.pop(thread_id, None)
+        engine_message = _engine_close(thread_id)
+        if engine_message is not None:
+            return engine_message
     result = _run_browser_cli(thread_id, ["close"])
     with _state_lock:
         _last_page_url.pop(thread_id, None)
     return result
+
+
+def _action_screenshot(thread_id: str, *, full_page: bool) -> str:
+    if _use_engine():
+        try:
+            return _engine_screenshot(thread_id, full_page=full_page)
+        except Exception as exc:
+            logger.warning("browser engine screenshot failed, falling back to CLI: %s", exc)
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp_path = tmp.name
+        subcommand = ["screenshot", tmp_path]
+        if full_page:
+            subcommand.append("--full-page")
+        cli_result = _run_browser_cli(thread_id, subcommand)
+        if cli_result.startswith("Error:"):
+            return cli_result
+        path = Path(tmp_path)
+        if not path.is_file():
+            return f"Error: screenshot file missing after CLI: {cli_result or '(no output)'}"
+        png_bytes = path.read_bytes()
+        if not png_bytes:
+            return "Error: screenshot file empty"
+        meta = save_screenshot_png(
+            thread_id,
+            png_bytes,
+            page_url=_current_page_url(thread_id),
+            full_page=full_page,
+        )
+        result = format_screenshot_tool_result(thread_id, meta)
+        return result
+    finally:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
 
 
 def _ensure_live_stream(thread_id: str, *, force_restart: bool = False) -> None:
@@ -480,36 +786,6 @@ def _restore_live_stream(thread_id: str) -> None:
     logger.warning("browser live stream restore failed thread=%s after retries", thread_id)
 
 
-def _action_screenshot(thread_id: str, *, full_page: bool) -> str:
-    tmp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp_path = tmp.name
-        subcommand = ["screenshot", tmp_path]
-        if full_page:
-            subcommand.append("--full-page")
-        cli_result = _run_browser_cli(thread_id, subcommand)
-        if cli_result.startswith("Error:"):
-            return cli_result
-        path = Path(tmp_path)
-        if not path.is_file():
-            return f"Error: screenshot file missing after CLI: {cli_result or '(no output)'}"
-        png_bytes = path.read_bytes()
-        if not png_bytes:
-            return "Error: screenshot file empty"
-        meta = save_screenshot_png(
-            thread_id,
-            png_bytes,
-            page_url=_current_page_url(thread_id),
-            full_page=full_page,
-        )
-        result = format_screenshot_tool_result(thread_id, meta)
-        return result
-    finally:
-        if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
-
-
 @tool("browser", parse_docstring=True)
 def browser_tool(
     runtime: ToolRuntime[ContextT, Any],
@@ -523,18 +799,22 @@ def browser_tool(
     amount: int | None = None,
     full_page: bool = False,
 ) -> str:
-    """Interactive browser automation via agent-browser (deferred under agent mode).
+    """Interactive browser automation (deferred under agent mode).
 
     Activate agent mode, then load this tool with tool_search(query="select:browser").
 
-    Prerequisite: Chromium must be installed locally. If missing, this tool returns
-    an error asking you to run ``agent-browser install`` via the terminal tool
-    (≈400MB, once), then retry. Do not invent alternate browsers.
+    Drives a Chromium engine in-process (Playwright + CDP). When EvoPanel's embedded
+    browser is open, the agent controls that same visible WebView; otherwise a shared
+    Chrome window is launched. Actions return refs like ``e1, e2, …`` from the latest
+    snapshot; use them to address elements.
+
+    Prerequisite: Chromium must be available locally (bundle, ``AGENT_BROWSER_EXECUTABLE_PATH``,
+    or ``python -m playwright install chromium``). Do not invent alternate browsers.
 
     Args:
         action: open | snapshot | click | fill | press | scroll | screenshot | back | close.
         url: Target URL (required for open).
-        ref: Element ref from snapshot, e.g. @e2 (required for click/fill).
+        ref: Element ref from snapshot, e.g. e2 or @e2 (required for click/fill).
         text: Input text (required for fill).
         key: Key name, e.g. Enter (required for press).
         direction: scroll direction, default down.
