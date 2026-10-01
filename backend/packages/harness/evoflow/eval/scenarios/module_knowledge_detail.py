@@ -37,7 +37,7 @@ def _run(home: Path) -> dict:
     listed_inbox = knowledge_admin.list_knowledge(vault_id=vault_id, prefix="00-Inbox", limit=50)
     inbox_paths = [str(e.get("path") or "") for e in (listed_inbox.get("entries") or []) if isinstance(e, dict)]
 
-    recalled = knowledge_admin.recall(token, vault_id=vault_id, mode="fulltext", limit=5)
+    recalled = knowledge_admin.recall(token, kb_id=vault_id, mode="fulltext", limit=5)
     hit_blob = str(recalled)
 
     deleted = knowledge_admin.delete_knowledge(note_path, vault_id=vault_id) if note_path else {}

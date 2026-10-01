@@ -367,9 +367,9 @@ def build_user_profile_injection_block(
     lines: list[str] = [f"<{root_tag}>"]
     if scope == "identity":
         if lang == "en":
-            lines.append("(Employee context — inject user identity only; preferences/persona omitted. Use assets(search) on user memory if task-specific prefs matter.)")
+            lines.append("(Employee context — inject user identity only; preferences/persona omitted. If task-specific prefs matter, search user memory/facts via the assets tool.)")
         else:
-            lines.append("（员工上下文 — 仅注入用户身份信息；偏好/行为画像不注入。若任务需要具体偏好，可用 assets(search) 查用户 memory/facts。）")
+            lines.append("（员工上下文 — 仅注入用户身份信息；偏好/行为画像不注入。若任务需要具体偏好，用 assets 工具搜索用户 memory/facts。）")
     for dim in active:
         text = (dims.get(dim.filename) or "").strip()
         lines.append(f"<{dim.tag}>")

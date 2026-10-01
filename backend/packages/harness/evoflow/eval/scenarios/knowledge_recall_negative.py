@@ -20,7 +20,7 @@ def _run(home: Path) -> dict:
     empty_err = ""
     empty_ok = False
     try:
-        knowledge_admin.recall("", vault_id=vault_id or None, mode="fulltext", limit=5)
+        knowledge_admin.recall("", kb_id=vault_id or None, mode="fulltext", limit=5)
         empty_err = "returned without ValidationError"
     except ValidationError as exc:
         empty_ok = True
@@ -32,7 +32,7 @@ def _run(home: Path) -> dict:
     fake_err = ""
     fake_ok = False
     try:
-        knowledge_admin.recall("anything", vault_id=fake_vault, mode="fulltext", limit=5)
+        knowledge_admin.recall("anything", kb_id=fake_vault, mode="fulltext", limit=5)
         fake_err = "returned without NotFoundError"
     except NotFoundError as exc:
         fake_ok = True

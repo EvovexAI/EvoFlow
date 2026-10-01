@@ -42,7 +42,7 @@ _PLAN_CLOSURE_SECTION = """## 5 执行与验收
 
 _DELIVERABLE_SECTION = """## 6 交付
 
-有文件/图/视频/链接等交付物：用 ``panel_set``（kind=``artifacts``，data.items=[{{type, path|url|content, name?}}]）呈报；并在回复正文里把文件路径用首尾各一对 `@@` 括起（绝对路径或 ``outputs/…``）以渲染为可点击文件。无文件：对话中明确结论。"""
+有文件/图/视频/链接等交付物：把文件路径在回复正文里用首尾各一对 `@@` 括起（绝对路径或 ``outputs/…``）以渲染为可点击文件。无文件：对话中明确结论。"""
 
 
 _PLAN_DISPATCH_SUMMARY = """用户点「开始执行」后网关已自动派发首波。你负责监控与补救：`monitor_execution_step` / `get_status`；失败用 `retry_subtask` / `continue_subtask_session`（同一 subtask_id）；仅当首波未派出时再 `start_execution`。DAG 后续波次由后端 auto follow-up。"""

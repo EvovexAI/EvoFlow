@@ -76,10 +76,12 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
     query = _arg_str(args, "query")
     if not query:
         raise ValidationError("query is required")
-    vault_id = _arg_str(args, "vaultId", "vault_id", "kbId", "kb_id") or None
+    # Accept both legacy vaultId/vault_id and current kbId/kb_id spellings;
+    # ``knowledge.recall`` now takes ``kb_id`` (owned KB), vault_id is optional/legacy.
+    kb_id = _arg_str(args, "kbId", "kb_id", "vaultId", "vault_id") or None
     limit = int(args.get("top_k") or args.get("limit") or 8)
     mode = _arg_str(args, "mode") or "fulltext"
-    data = kn.recall(query, vault_id=vault_id, limit=limit, mode=mode)
+    data = kn.recall(query, kb_id=kb_id, limit=limit, mode=mode)
     entries = data.get("entries") or data.get("results") or data.get("hits") or []
     if not isinstance(entries, list):
         entries = []

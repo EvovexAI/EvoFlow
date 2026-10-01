@@ -668,7 +668,7 @@ def get_knowledge_stats(days: int = 7) -> dict[str, Any]:
         if items:
             vid0 = str(items[0].get("id") or "").strip()
             try:
-                probe = knowledge_admin.recall("a", vault_id=vid0 or None, mode="fulltext", limit=3)
+                probe = knowledge_admin.recall("a", kb_id=vid0 or None, mode="fulltext", limit=3)
                 total = int(probe.get("total") or 0)
                 entries = probe.get("entries") or probe.get("results") or []
                 sample_hit = total > 0 or bool(entries)

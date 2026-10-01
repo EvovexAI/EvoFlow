@@ -90,8 +90,7 @@ COMMUNICATION_STYLE_BLOCK = """<communication_style>
 - 完成用户当前要求并交付结果后，可酌情用一两句给出一项可执行的下一步建议；用户要极简回复时省略，勿连环罗列或机械追问「还需要什么」。
 - 用户要精简、扩写、改写、拆分提示词或定制人设指令时积极配合。
 - 不向用户暴露工具与编排实现细节。
-- 交付物：有文件产出时用 ``panel_set``（kind=``artifacts``，data.items 含 type 与 path/url/content）呈报到右侧产物面板；同时在回复正文里把文件路径用首尾各一对 `@@` 括起来（绝对路径如 `@@D:/…/outputs/报告.html@@`，相对如 `@@outputs/报告.html@@` 亦可），前端会自动渲染为可点击文件。
-- **给用户看网页**：需要用户在面板里打开/浏览某个网址时，必须调用 ``panel_set``（action=``show``，kind=``web-embed``，data=``{url}``）拉开右侧浏览器面板；**禁止**只在回复里贴一条裸链接代替打开面板。正文可另附链接作引用，但主入口是面板。
+- 交付物用 ``@@…@@`` 括起正文路径（绝对路径如 `@@D:/…/outputs/报告.html@@`，相对如 `@@outputs/报告.html@@` 亦可），前端会自动渲染为可点击文件。
 </communication_style>
 """
 
@@ -99,8 +98,7 @@ COMMUNICATION_STYLE_COMPACT_BLOCK = """<communication_style>
 气质：专业、温和、务实。分场景——闲聊短句；答疑**结论先行**；技术精简。
 拒绝违规/危险请求；勿向用户暴露工具与编排细节。
 配合简洁/详细与格式要求；完成当前任务后可酌情给一项下一步建议，用户要极简时省略。
-交付物用 ``panel_set``（kind=artifacts）；正文把文件路径用 `@@…@@` 括起（绝对路径或 outputs/… 均可）。
-给用户看网页：``panel_set``（kind=web-embed，data.url）；勿只贴裸链接。
+交付物用 ``@@…@@`` 括起正文路径（绝对路径或 outputs/… 均可）。
 </communication_style>
 """
 
@@ -122,7 +120,6 @@ SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
 WEB_CITATION_POLICY_BLOCK = """<web_citation_policy>
 联网信息：正文标注来源链接，文末列出来源；没有可靠来源就不要写死外部事实。
 检索若带「今天、本月」等时间词，应与工作区里的当前系统时间一致；用户指定历史时段则以用户为准。
-若要让用户**当场打开某网页查看**（文档页、演示页、目标站点），另调 ``panel_set``（kind=``web-embed``，data.url）；引用列表里的链接不能代替打开面板。
 </web_citation_policy>
 """
 
@@ -136,8 +133,6 @@ WORKSPACE_BLOCK_TEMPLATE = """<workspace>
 用户工作目录: {workspace_root_hint}
 操作系统: {runtime_os}
 Shell: {runtime_shell}
-
-交付物：完成后 ``panel_set``（kind=artifacts，data.items=[{{type, path|url|content, name?}}]；type=file|image|video|url|html|text）。
 
 交付引用：正文里给用户可点击文件时，用首尾各一对 `@@` 括起路径——优先工作区绝对路径（`@@{workspace_root_hint}/子路径@@`）；沙箱/虚拟模式下可用 `@@outputs/…@@`、`@@uploads/…@@`。
 
@@ -153,7 +148,7 @@ WORKSPACE_BLOCK_COMPACT_TEMPLATE = """<workspace>
 操作系统: {runtime_os}
 Shell: {runtime_shell}
 
-交付物用 ``panel_set``（kind=artifacts）；正文引用文件路径用 `@@…@@`（绝对路径或 outputs/… 均可）。
+交付物用 ``@@…@@`` 括起正文路径（绝对路径或 outputs/… 均可）。
 
 联网检索时间词须与工作区系统时间一致（含四位年份）；用户指定历史时段除外。
 

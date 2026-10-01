@@ -760,6 +760,10 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             config_data["tool_groups"] = request.tool_groups
         if request.tools is not None:
             config_data["tools"] = _normalize_agent_tools_for_api(request.tools)
+        else:
+            # 未显式指定 tools 时，绝不能落成 None：运行时语义 ``None = 不限制 = 挂载全部工具``，
+            # 这会让新建 agent 意外获得全部工具。默认落显式空列表（无工具），由用户按需勾选。
+            config_data["tools"] = []
         if request.mcp_servers is not None:
             config_data["mcp_servers"] = request.mcp_servers
         if request.skills is not None:

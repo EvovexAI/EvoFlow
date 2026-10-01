@@ -1196,6 +1196,10 @@ def build_memory_injection_sections(
     query: str = "",
     include_query_recall: bool = False,
     principal_id: str = "",
+    # Injection toggles: None=注入, False=禁用
+    inject_user_profile: bool | None = None,
+    inject_memory: bool | None = None,
+    inject_assets: bool | None = None,
 ) -> str:
     """Build memory blocks for prompt injection.
 
@@ -1226,51 +1230,56 @@ def build_memory_injection_sections(
     sections: list[str] = []
     body_parts: list[str] = []
 
-    try:
-        from evoflow.assets.profile_injection import (
-            build_user_profile_injection_block,
-            resolve_profile_injection_scope,
-        )
+    # inject_user_profile: None=注入, False=禁用
+    if inject_user_profile is not False:
+        try:
+            from evoflow.assets.profile_injection import (
+                build_user_profile_injection_block,
+                resolve_profile_injection_scope,
+            )
 
-        pscope = resolve_profile_injection_scope(agent_name=agent_name)
-        profile_block = build_user_profile_injection_block(
-            prompt_language=prompt_language,
-            scope=pscope,
-            entity=profile_entity,
-        ).strip()
-        if profile_block:
-            safe_profile = scan_content(profile_block, source="user_profile").strip()
-            if safe_profile:
-                body_parts.append(safe_profile)
-    except Exception:
-        logger.debug("user profile injection skipped", exc_info=True)
+            pscope = resolve_profile_injection_scope(agent_name=agent_name)
+            profile_block = build_user_profile_injection_block(
+                prompt_language=prompt_language,
+                scope=pscope,
+                entity=profile_entity,
+            ).strip()
+            if profile_block:
+                safe_profile = scan_content(profile_block, source="user_profile").strip()
+                if safe_profile:
+                    body_parts.append(safe_profile)
+        except Exception:
+            logger.debug("user profile injection skipped", exc_info=True)
 
-    if memory_context.strip():
+    # inject_memory: None=注入, False=禁用 (memory_context already controlled by caller)
+    if memory_context.strip() and inject_memory is not False:
         safe_mem = scan_content(memory_context.strip(), source="memory_context").strip()
         if safe_mem:
             body_parts.append(safe_mem)
 
-    # runtime-aligned Asset Hub: standing + read_path guidance + catalog (Tier 0)
-    # Shared Entity-assets procedure is injected at most once (user first, else workspace).
-    procedure_emitted = False
-    try:
-        from evoflow.assets.guidance import (
-            build_session_asset_memory_block,
-            session_asset_block_includes_procedure,
-        )
+    # inject_assets: None=注入, False=禁用
+    if inject_assets is not False:
+        # runtime-aligned Asset Hub: standing + read_path guidance + catalog (Tier 0)
+        # Shared Entity-assets procedure is injected at most once (user first, else workspace).
+        procedure_emitted = False
+        try:
+            from evoflow.assets.guidance import (
+                build_session_asset_memory_block,
+                session_asset_block_includes_procedure,
+            )
 
-        asset_block = build_session_asset_memory_block(
-            agent_name=agent_name,
-            principal_id=principal_id,
-            include_procedure=True,
-        )
-        if asset_block.strip():
-            safe_asset = scan_content(asset_block.strip(), source="asset_memory").strip()
-            if safe_asset:
-                body_parts.append(safe_asset)
-                procedure_emitted = session_asset_block_includes_procedure(safe_asset)
-    except Exception:
-        logger.debug("asset memory injection skipped", exc_info=True)
+            asset_block = build_session_asset_memory_block(
+                agent_name=agent_name,
+                principal_id=principal_id,
+                include_procedure=True,
+            )
+            if asset_block.strip():
+                safe_asset = scan_content(asset_block.strip(), source="asset_memory").strip()
+                if safe_asset:
+                    body_parts.append(safe_asset)
+                    procedure_emitted = session_asset_block_includes_procedure(safe_asset)
+        except Exception:
+            logger.debug("asset memory injection skipped", exc_info=True)
 
     # Bound workspace: inject project catalog (compact asset-hub style).
     # No procedure / no discipline block — already covered by user memory's read_path.md.
@@ -1465,13 +1474,10 @@ def _archival_query_worthwhile(query: str) -> bool:
 
 
 def _truncate_skill_description(text: str, *, max_chars: int | None = None) -> str:
-    from evoflow.assets.injection_budget import TIER0_SKILL_DESC_CHARS
+    from evoflow.assets.injection_budget import TIER0_SKILL_DESC_CHARS, cap_text_chars
 
     cap = TIER0_SKILL_DESC_CHARS if max_chars is None else max_chars
-    raw = (text or "").strip()
-    if len(raw) <= cap:
-        return raw
-    return raw[: cap - 1].rstrip() + "…"
+    return cap_text_chars(text, cap)
 
 
 def get_skills_prompt_section(
@@ -1604,12 +1610,45 @@ def _build_skills_prompt_section(
         # Host-direct mode: install dir is outside the session workspace; use skill: URI.
         return f"{SKILL_URI_PREFIX}{skill.name}"
 
-    def _skill_description(skill) -> str:
+    def _skill_description(skill, *, capped: bool) -> str:
         desc = skill.description or ""
-        return _truncate_skill_description(desc) if compact else desc
+        if capped or compact:
+            return _truncate_skill_description(desc)
+        return desc
 
-    skill_items = "\n".join(f"    <skill>\n        <name>{skill.name}</name>\n        <description>{_skill_description(skill)}</description>\n        <location>{_skill_location(skill)}</location>\n    </skill>" for skill in skills)
-    skills_list = f"<available_skills>\n{skill_items}\n</available_skills>"
+    def _skills_list(*, with_descriptions: bool, capped: bool) -> str:
+        if with_descriptions:
+            items = "\n".join(
+                f"    <skill>\n        <name>{skill.name}</name>\n"
+                f"        <description>{_skill_description(skill, capped=capped)}</description>\n"
+                f"        <location>{_skill_location(skill)}</location>\n    </skill>"
+                for skill in skills
+            )
+        else:
+            items = "\n".join(
+                f"    <skill>\n        <name>{skill.name}</name>\n"
+                f"        <location>{_skill_location(skill)}</location>\n    </skill>"
+                for skill in skills
+            )
+        return f"<available_skills>\n{items}\n</available_skills>"
+
+    # Degradation ladder: full descriptions → sentence-capped → names-only, so
+    # an oversized catalog never ships half-cut prose (compact mode starts
+    # already capped; the ladder only tightens further from there).
+    try:
+        from evoflow.assets.injection_budget import TIER0_SKILLS_SECTION_CHARS
+
+        section_budget = TIER0_SKILLS_SECTION_CHARS
+    except Exception:
+        section_budget = 6000
+    skills_list = _skills_list(with_descriptions=True, capped=False)
+    if len(skills_list) > section_budget:
+        capped_list = _skills_list(with_descriptions=True, capped=True)
+        skills_list = (
+            capped_list
+            if len(capped_list) <= section_budget
+            else _skills_list(with_descriptions=False, capped=False)
+        )
 
     if compact:
         section = f"""<skill_system>
@@ -1818,14 +1857,14 @@ def _build_acp_section(*, use_virtual_paths: bool = False) -> str:
             "- ACP agents run in their own independent workspace (与当前工作空间隔离)\n"
             "- When writing prompts for ACP agents, describe the task only — do NOT reference current workspace paths\n"
             "- ACP agent results are accessible in ACP workspace (read-only) — use `ls`, `read_file`, or `bash cp` to retrieve output files\n"
-            "- To deliver ACP output to the user: copy into current workspace, then ``panel_set`` (kind=artifacts, data.items with path)"
+            "- To deliver ACP output to the user: copy into current workspace, then surface it to the right-side artifacts panel"
         )
     return (
         "\n**ACP Agent Tasks (invoke_acp_agent):**\n"
         "- ACP agents run in their own independent local workspace (not the user's upload/work directory).\n"
         "- When writing prompts for ACP agents, describe the task only — do NOT reference sandbox virtual paths.\n"
-        "- ACP agent results are accessible in the local ACP workspace (read-only) — use `ls` / `read_file` to retrieve output files.\n"
-        "- To deliver ACP output to the user: copy into the local workspace, then ``panel_set`` (kind=artifacts, data.items with path)."
+            "- ACP agent results are accessible in the local ACP workspace (read-only) — use `ls` / `read_file` to retrieve output files.\n"
+            "- To deliver ACP output to the user: copy into the local workspace, then surface it to the right-side artifacts panel."
     )
 
 
@@ -1858,6 +1897,13 @@ def apply_prompt_template(
     xiaomi_page_context: dict | None = None,
     principal_id: str | None = None,
     owner_scope_id: str | None = None,
+    # System prompt injection toggles (None = follow default / inject all)
+    inject_user_profile: bool | None = None,
+    inject_memory: bool | None = None,
+    inject_assets: bool | None = None,
+    inject_skills: bool | None = None,
+    inject_kb: bool | None = None,
+    inject_soul: bool | None = None,
 ) -> str:
     if isinstance(mission_state, dict) and not str(mission_state.get("task_type") or "").strip():
         from evoflow.exploration.task_router import classify_task_type_heuristic
@@ -1890,22 +1936,24 @@ def apply_prompt_template(
     n = max_concurrent_subagents
     subagent_section = _build_subagent_section(n, display_name, prompt_language=lang, intent_hint=intent) if include_subagent_system_prompt else ""
 
-    # Get skills section
+    # Get skills section (controlled by inject_skills: None=注入, False=禁用)
     _t_sk = time.perf_counter()
-    skills_section = get_skills_prompt_section(
-        available_skills,
-        use_virtual_paths=use_virtual_paths,
-        prompt_language=lang,
-        compact=pure_chat,
-        principal_id=principal_id,
-        session_scope_id=owner_scope_id,
-    )
-    try:
-        from evoflow.observability.run_latency_trace import record_phase
+    skills_section = ""
+    if inject_skills is not False:
+        skills_section = get_skills_prompt_section(
+            available_skills,
+            use_virtual_paths=use_virtual_paths,
+            prompt_language=lang,
+            compact=pure_chat,
+            principal_id=principal_id,
+            session_scope_id=owner_scope_id,
+        )
+        try:
+            from evoflow.observability.run_latency_trace import record_phase
 
-        record_phase("load_skills_prompt_ms", (time.perf_counter() - _t_sk) * 1000.0)
-    except Exception:
-        pass
+            record_phase("load_skills_prompt_ms", (time.perf_counter() - _t_sk) * 1000.0)
+        except Exception:
+            pass
     trae_section = _build_trae_section(loaded_tool_names, display_name, prompt_language=lang)
     worker_guidance_section = _build_worker_guidance_section(loaded_tool_names, prompt_language=lang)
     task_router_section = _build_task_router_section(loaded_tool_names, prompt_language=lang)
@@ -1922,7 +1970,8 @@ def apply_prompt_template(
     # Lead/main interactive sessions use compact user memory so Work/role narratives
     # (e.g.「验证岗」) don't outweigh the latest user ask. Specialized agents keep full.
     mem_profile = "chat_compact" if (pure_chat or _is_lead_agent_code(agent_name)) else "full"
-    if include_memory is False:
+    # inject_memory: None=注入, False=禁用
+    if include_memory is False or inject_memory is False:
         memory_context = ""
         workspace_memory_context = ""
         person_memory_context = ""

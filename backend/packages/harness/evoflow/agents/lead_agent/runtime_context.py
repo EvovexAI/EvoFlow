@@ -74,6 +74,13 @@ class LeadAgentRuntimeContext:
     proactive_initiative_id: str | None = None
     round_id: str | None = None
     is_plan_mode: bool | None = None
+    # System prompt injection toggles (from proactive role config)
+    inject_user_profile: bool | None = None
+    inject_memory: bool | None = None
+    inject_assets: bool | None = None
+    inject_skills: bool | None = None
+    inject_kb: bool | None = None
+    inject_soul: bool | None = None
 
     _EXTRA: dict[str, Any] = field(default_factory=dict)
 
@@ -160,6 +167,13 @@ MODEL_REQUEST_CONTEXT_KEYS: tuple[str, ...] = (
     "local_workspace_root",
     "use_virtual_paths",
     "model_name",
+    # Proactive role config injection toggles
+    "inject_user_profile",
+    "inject_memory",
+    "inject_assets",
+    "inject_skills",
+    "inject_kb",
+    "inject_soul",
 )
 
 

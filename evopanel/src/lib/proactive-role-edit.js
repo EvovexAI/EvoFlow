@@ -531,6 +531,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
   const cfg = role.config || {}
   const autonomy = cfg.autonomy_level || 'approval_for_risky'
   const thinkMode = cfg.think_mode || 'agent_loop'
+  const thinkingEnabled = cfg.thinking_enabled  // null=跟随默认, true=启用, false=禁用
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.join('\n') : ''
   const domain = Array.isArray(cfg.domain_scope) ? cfg.domain_scope.join('\n') : ''
   const workspacePath = String(cfg.workspace_path || '').trim()
@@ -541,6 +542,13 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
   const dailyBudget = Number(cfg.daily_budget_usd || 0) || 0
   const perRunBudget = Number(cfg.per_run_budget_usd || 0) || 0
   const budgetPolicy = String(cfg.budget_exceed_policy || 'skip_patrol').trim() || 'skip_patrol'
+  // System prompt injection toggles
+  const injectUserProfile = cfg.inject_user_profile  // null=默认, true=注入, false=不注入
+  const injectMemory = cfg.inject_memory
+  const injectAssets = cfg.inject_assets
+  const injectSkills = cfg.inject_skills
+  const injectKb = cfg.inject_kb
+  const injectSoul = cfg.inject_soul
   const [workspacePaths, chatModels, available, peerRoles, knowledgeVaults, departments] =
     await Promise.all([
       loadWorkspacePaths(),
@@ -663,6 +671,46 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
                 </div>
                 <p class="hire-chip-hint">深度可调工具；轻量为单次 LLM</p>
               </div>
+              <div class="hire-field">
+                <span>模型思考</span>
+                <div class="hire-chip-row" data-name="thinking_enabled" role="radiogroup">
+                  <button type="button" class="hire-chip${thinkingEnabled === null ? ' is-on' : ''}" data-value="">跟随默认</button>
+                  <button type="button" class="hire-chip${thinkingEnabled === true ? ' is-on' : ''}" data-value="true">启用思考</button>
+                  <button type="button" class="hire-chip${thinkingEnabled === false ? ' is-on' : ''}" data-value="false">禁用思考</button>
+                </div>
+                <p class="hire-chip-hint">控制模型的推理/思考过程（如 CoT、extended thinking）</p>
+              </div>
+              <div class="hire-field">
+                <span>系统提示词注入</span>
+                <p class="hire-chip-hint">控制哪些内容注入到该员工的系统提示词（留空=跟随全局默认）</p>
+                <div class="hire-inject-toggles">
+                  <label class="hire-toggle">
+                    <input type="checkbox" data-name="inject_user_profile" ${injectUserProfile === true ? 'checked' : ''} ${injectUserProfile === false ? 'disabled' : ''}>
+                    <span>用户画像</span>
+                  </label>
+                  <label class="hire-toggle">
+                    <input type="checkbox" data-name="inject_memory" ${injectMemory === true ? 'checked' : ''} ${injectMemory === false ? 'disabled' : ''}>
+                    <span>记忆</span>
+                  </label>
+                  <label class="hire-toggle">
+                    <input type="checkbox" data-name="inject_assets" ${injectAssets === true ? 'checked' : ''} ${injectAssets === false ? 'disabled' : ''}>
+                    <span>资产/经验</span>
+                  </label>
+                  <label class="hire-toggle">
+                    <input type="checkbox" data-name="inject_skills" ${injectSkills === true ? 'checked' : ''} ${injectSkills === false ? 'disabled' : ''}>
+                    <span>技能描述</span>
+                  </label>
+                  <label class="hire-toggle">
+                    <input type="checkbox" data-name="inject_kb" ${injectKb === true ? 'checked' : ''} ${injectKb === false ? 'disabled' : ''}>
+                    <span>知识库检索</span>
+                  </label>
+                  <label class="hire-toggle">
+                    <input type="checkbox" data-name="inject_soul" ${injectSoul === true ? 'checked' : ''} ${injectSoul === false ? 'disabled' : ''}>
+                    <span>SOUL 人设</span>
+                  </label>
+                </div>
+                <p class="hire-chip-hint" style="margin-top:4px">已勾选=注入；未勾选且非禁用=跟随默认</p>
+              </div>
             </div>
 
             <div class="hire-edit-panel" data-section="strategy" hidden>
@@ -775,6 +823,11 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
     const heartbeat_schedule = scheduleCtrl.getSchedule().cronExpr || roleScheduleExpr(role)
     const think_mode =
       overlay.querySelector('[data-name="think_mode"] .hire-chip.is-on')?.dataset.value || 'agent_loop'
+    // thinking_enabled: '' = 跟随默认, 'true' = 启用, 'false' = 禁用
+    const thinking_enabled_raw =
+      overlay.querySelector('[data-name="thinking_enabled"] .hire-chip.is-on')?.dataset.value || ''
+    const thinking_enabled =
+      thinking_enabled_raw === '' ? null : thinking_enabled_raw === 'true'
     const model_name = readModelName(overlay)
     const nextDaily = Number(overlay.querySelector('[data-name="daily_budget_usd"]')?.value || 0) || 0
     const nextPerRun = Number(overlay.querySelector('[data-name="per_run_budget_usd"]')?.value || 0) || 0
@@ -800,6 +853,11 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
     if (JSON.stringify(knowledge_vault_ids) !== JSON.stringify(selectedVaultIds)) changes.push('知识库关联已修改')
     if (model_name !== modelName) changes.push(`工作模型：${modelName || '默认'} → ${model_name || '默认'}`)
     if (think_mode !== thinkMode) changes.push(`工作方式：${THINK_MODE_LABELS[thinkMode] || thinkMode} → ${THINK_MODE_LABELS[think_mode] || think_mode}`)
+    // thinking_enabled 变更检测
+    if (thinking_enabled !== thinkingEnabled) {
+      const labels = { null: '跟随默认', true: '启用思考', false: '禁用思考' }
+      changes.push(`模型思考：${labels[thinkingEnabled]} → ${labels[thinking_enabled]}`)
+    }
     if (autonomy_level !== autonomy) {
       changes.push(
         `审批策略：${AUTONOMY_LABELS[autonomy] || autonomy} → ${AUTONOMY_LABELS[autonomy_level] || autonomy_level}`,
@@ -893,11 +951,45 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
         autonomy_level,
         heartbeat_schedule,
         think_mode,
+        thinking_enabled,
         model_name,
         daily_budget_usd: nextDaily,
         per_run_budget_usd: nextPerRun,
         budget_exceed_policy: nextPolicy,
       }
+      // System prompt injection toggles - only include if explicitly changed from default (null)
+      const readInjectToggle = (name, currentVal) => {
+        const cb = overlay.querySelector(`[data-name="${name}"]`)
+        if (!cb) return undefined
+        const checked = cb.checked
+        const disabled = cb.disabled  // was explicitly set to false
+        // 如果当前值是 null（默认），checkbox checked=true 表示要启用，checked=false 表示要禁用
+        // 如果当前值是 true/false，checkbox 被 disabled 且 checked 表示跟随默认
+        if (currentVal === null) {
+          // 跟随默认 -> 跟随默认：传 null 或不传
+          // 跟随默认 -> 启用：传 true
+          // 跟随默认 -> 禁用：传 false
+          return checked ? true : false
+        } else if (disabled) {
+          // 之前是 true/false，现在要跟随默认
+          return null
+        } else {
+          // 之前是 true/false，现在要保持
+          return checked
+        }
+      }
+      const injUserProfile = readInjectToggle('inject_user_profile', injectUserProfile)
+      const injMemory = readInjectToggle('inject_memory', injectMemory)
+      const injAssets = readInjectToggle('inject_assets', injectAssets)
+      const injSkills = readInjectToggle('inject_skills', injectSkills)
+      const injKb = readInjectToggle('inject_kb', injectKb)
+      const injSoul = readInjectToggle('inject_soul', injectSoul)
+      if (injUserProfile !== undefined) payload.inject_user_profile = injUserProfile
+      if (injMemory !== undefined) payload.inject_memory = injMemory
+      if (injAssets !== undefined) payload.inject_assets = injAssets
+      if (injSkills !== undefined) payload.inject_skills = injSkills
+      if (injKb !== undefined) payload.inject_kb = injKb
+      if (injSoul !== undefined) payload.inject_soul = injSoul
       if (nextAgent && nextAgent !== role.agent_code) {
         payload.new_agent_code = nextAgent
       }

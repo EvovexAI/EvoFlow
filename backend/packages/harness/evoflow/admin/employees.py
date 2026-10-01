@@ -121,6 +121,7 @@ _HIRE_KEYS = frozenset(
         "heartbeat_schedule",
         "soul_md",
         "think_mode",
+        "thinking_enabled",
         "model_name",
         "max_turns",
         "timeout_seconds",
@@ -135,6 +136,13 @@ _HIRE_KEYS = frozenset(
         "budget_exceed_policy",
         "status",
         "reports_to",
+        # System prompt injection toggles
+        "inject_user_profile",
+        "inject_memory",
+        "inject_assets",
+        "inject_skills",
+        "inject_kb",
+        "inject_soul",
     }
 )
 
@@ -357,6 +365,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "approval_timeout_minutes": cfg.approval_timeout_minutes,
             "soul_md": soul_md,
             "think_mode": cfg.think_mode,
+            "thinking_enabled": getattr(cfg, "thinking_enabled", None),
             "model_name": model_name,
             "max_turns": cfg.max_turns,
             "timeout_seconds": cfg.timeout_seconds,
@@ -371,6 +380,13 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "per_run_budget_usd": float(getattr(cfg, "per_run_budget_usd", 0) or 0),
             "budget_exceed_policy": str(getattr(cfg, "budget_exceed_policy", None) or "skip_patrol"),
             "reports_to": reports_to,
+            # System prompt injection toggles
+            "inject_user_profile": getattr(cfg, "inject_user_profile", None),
+            "inject_memory": getattr(cfg, "inject_memory", None),
+            "inject_assets": getattr(cfg, "inject_assets", None),
+            "inject_skills": getattr(cfg, "inject_skills", None),
+            "inject_kb": getattr(cfg, "inject_kb", None),
+            "inject_soul": getattr(cfg, "inject_soul", None),
         },
         "heartbeat_rrule": role.heartbeat_rrule,
         "heartbeat_schedule": resolve_role_cron(role),
@@ -446,6 +462,30 @@ def hire(data: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError(f"Agent '{agent_code}' not found; create it with agents.create before hiring") from e
 
     return _hire_existing_agent(agent_code, agent_row, data)
+
+
+def _coerce_responsibilities(value: Any) -> list[str]:
+    """Coerce ``responsibilities`` to a list[str] split by line / entry — never by char.
+
+    A bare string like ``"写代码\\n做测试"`` must become ``["写代码", "做测试"]``;
+    passing the raw string to ``list[str]`` would explode it into single characters.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [line.strip() for line in value.splitlines() if line.strip()]
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, str) and "\n" in item:
+                out.extend(part.strip() for part in item.splitlines() if part.strip())
+            else:
+                s = str(item or "").strip()
+                if s:
+                    out.append(s)
+        return out
+    s = str(value).strip()
+    return [s] if s else []
 
 
 def _slug_employee_code(role_name: str, explicit: str = "") -> str:
@@ -526,6 +566,12 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         agent_row = create_agent(agent_payload)
         created_agent = True
         agent_code = str(agent_row.get("agent_code") or agent_code).strip()
+    else:
+        # 同 agent_code 的 agent 已存在：保留其已有 soul / description / tools / skills 等
+        # 人设与能力配置，禁止 employees.create 静默覆盖用户已配置的 agent。
+        # 岗位能力（responsibilities / 排班等）落在 ProactiveRoleConfig 上，由下方 hire 写入，
+        # 不反写回 Agent 本体。
+        pass
 
     hire_payload = dict(data)
     hire_payload["agent_code"] = agent_code
@@ -686,7 +732,7 @@ def _hire_existing_agent(
     inherit = not (explicit_skills or explicit_tool_groups or bool(str(data.get("soul_md") or "").strip()))
 
     config = ProactiveRoleConfig(
-        responsibilities=list(data.get("responsibilities") or []),
+        responsibilities=_coerce_responsibilities(data.get("responsibilities")),
         workspace_path=_validate_workspace_path(data.get("workspace_path")),
         domain_scope=list(data.get("domain_scope") or []),
         knowledge_vault_ids=vault_ids,
@@ -698,6 +744,7 @@ def _hire_existing_agent(
         approval_timeout_minutes=int(data.get("approval_timeout_minutes") or 30),
         soul_md=soul_md_value,
         think_mode=str(data.get("think_mode") or "agent_loop").strip() or "agent_loop",
+        thinking_enabled=None if data.get("thinking_enabled") is None else bool(data.get("thinking_enabled")),
         model_name=model_name_value,
         max_turns=int(data.get("max_turns") or 10),
         timeout_seconds=int(data.get("timeout_seconds") or 300),
@@ -712,6 +759,12 @@ def _hire_existing_agent(
         per_run_budget_usd=float(data.get("per_run_budget_usd") or 0.0),
         budget_exceed_policy=str(data.get("budget_exceed_policy") or "skip_patrol").strip() or "skip_patrol",
         reports_to=_normalize_reports_to(agent_code, data.get("reports_to")),
+        inject_user_profile=None if data.get("inject_user_profile") is None else bool(data.get("inject_user_profile")),
+        inject_memory=None if data.get("inject_memory") is None else bool(data.get("inject_memory")),
+        inject_assets=None if data.get("inject_assets") is None else bool(data.get("inject_assets")),
+        inject_skills=None if data.get("inject_skills") is None else bool(data.get("inject_skills")),
+        inject_kb=None if data.get("inject_kb") is None else bool(data.get("inject_kb")),
+        inject_soul=None if data.get("inject_soul") is None else bool(data.get("inject_soul")),
         extra_context={
             "agent_description": str(agent_row.get("description") or ""),
             "agent_tags": list(agent_row.get("tags") or []),
@@ -862,6 +915,9 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         _mark_employee_override(cfg, override=True)
     if data.get("think_mode") is not None:
         cfg.think_mode = str(data.get("think_mode") or "agent_loop").strip() or "agent_loop"
+    if "thinking_enabled" in data:
+        val = data.get("thinking_enabled")
+        cfg.thinking_enabled = None if val is None else bool(val)
     if data.get("model_name") is not None:
         cfg.model_name = str(data.get("model_name") or "").strip()
         _mark_employee_override(cfg, override=True)
@@ -892,6 +948,27 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         if pol not in ("skip_patrol", "pause_role", "notify_only"):
             raise ValueError("budget_exceed_policy must be skip_patrol|pause_role|notify_only")
         cfg.budget_exceed_policy = pol
+
+    # System prompt injection toggles
+    if "inject_user_profile" in data:
+        val = data.get("inject_user_profile")
+        cfg.inject_user_profile = None if val is None else bool(val)
+    if "inject_memory" in data:
+        val = data.get("inject_memory")
+        cfg.inject_memory = None if val is None else bool(val)
+    if "inject_assets" in data:
+        val = data.get("inject_assets")
+        cfg.inject_assets = None if val is None else bool(val)
+    if "inject_skills" in data:
+        val = data.get("inject_skills")
+        cfg.inject_skills = None if val is None else bool(val)
+    if "inject_kb" in data:
+        val = data.get("inject_kb")
+        cfg.inject_kb = None if val is None else bool(val)
+    if "inject_soul" in data:
+        val = data.get("inject_soul")
+        cfg.inject_soul = None if val is None else bool(val)
+
     if "reports_to" in data:
         cfg.reports_to = _normalize_reports_to(code, data.get("reports_to"))
     # Legacy dnd_* → work schedule (only as fallback when new field is not passed)

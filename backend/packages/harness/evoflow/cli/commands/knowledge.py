@@ -180,7 +180,7 @@ def _remember(args: argparse.Namespace):
 def _recall(args: argparse.Namespace):
     return knowledge_admin.recall(
         args.query,
-        vault_id=args.vault,
+        kb_id=args.vault,
         category=args.category,
         limit=args.limit,
         mode=args.mode,

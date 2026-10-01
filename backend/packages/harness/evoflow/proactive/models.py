@@ -120,6 +120,8 @@ class ProactiveRoleConfig:
     soul_md: str = ""
     # Phase 2: agent-loop think configuration
     think_mode: str = "agent_loop"  # "agent_loop" | "prompt_only"
+    # Model thinking/reasoning toggle: None=跟随模型默认, True=启用思考, False=禁用思考
+    thinking_enabled: bool | None = None
     # Override model for this role's patrol / execute (empty = agent default / app primary)
     model_name: str = ""
     max_turns: int = 10
@@ -188,6 +190,16 @@ class ProactiveRoleConfig:
     wecom_secret: str = ""
     wecom_bound_at: str = ""
     wecom_intro_sent_at: str = ""
+
+    # ── System prompt injection toggles ──────────────────────────
+    # Control which sections are injected into the system prompt for this role.
+    # None/null means follow the global/system default.
+    inject_user_profile: bool | None = None  # 用户画像注入
+    inject_memory: bool | None = None  # 记忆注入
+    inject_assets: bool | None = None  # 资产/经验注入
+    inject_skills: bool | None = None  # 技能描述注入
+    inject_kb: bool | None = None  # 知识库检索结果注入
+    inject_soul: bool | None = None  # SOUL.md 人设注入
 
     # ── Validation constants ────────────────────────────────────
     # approval_timeout_by_type: 1 min ~ 1 week (10080 min)

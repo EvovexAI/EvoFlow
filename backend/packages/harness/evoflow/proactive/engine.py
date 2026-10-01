@@ -685,6 +685,15 @@ class ProactiveEngine:
         model_name = str(getattr(role.config, "model_name", None) or "").strip()
         if model_name:
             run_context["model_name"] = model_name
+        # thinking_enabled: None=跟随模型默认, True=启用思考, False=禁用思考
+        thinking_enabled = getattr(role.config, "thinking_enabled", None)
+        if thinking_enabled is not None:
+            run_context["thinking_enabled"] = bool(thinking_enabled)
+        # System prompt injection toggles
+        for inj_key in ("inject_user_profile", "inject_memory", "inject_assets", "inject_skills", "inject_kb", "inject_soul"):
+            inj_val = getattr(role.config, inj_key, None)
+            if inj_val is not None:
+                run_context[inj_key] = bool(inj_val)
         ws = (role.config.workspace_path or "").strip()
         if ws:
             run_context["local_workspace_root"] = ws

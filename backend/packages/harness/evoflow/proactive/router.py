@@ -160,6 +160,7 @@ class UpdateRoleRequest(BaseModel):
     heartbeat_schedule: str | None = None
     soul_md: str | None = None
     think_mode: str | None = None
+    thinking_enabled: bool | None = None  # None=跟随默认, True=启用思考, False=禁用思考
     model_name: str | None = None
     max_turns: int | None = None
     timeout_seconds: int | None = None
@@ -184,6 +185,13 @@ class UpdateRoleRequest(BaseModel):
         None,
         description="Rebind this duty role to another Agent (must exist and not already hired)",
     )
+    # System prompt injection toggles
+    inject_user_profile: bool | None = None  # 用户画像注入
+    inject_memory: bool | None = None  # 记忆注入
+    inject_assets: bool | None = None  # 资产/经验注入
+    inject_skills: bool | None = None  # 技能描述注入
+    inject_kb: bool | None = None  # 知识库检索结果注入
+    inject_soul: bool | None = None  # SOUL.md 人设注入
 
 
 class ApprovalDecisionRequest(BaseModel):
@@ -731,6 +739,9 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         cfg.soul_md = req.soul_md
     if req.think_mode is not None:
         cfg.think_mode = req.think_mode
+    # thinking_enabled: None=跟随默认, True=启用思考, False=禁用思考
+    if req.thinking_enabled is not None:
+        cfg.thinking_enabled = bool(req.thinking_enabled)
     if req.model_name is not None:
         cfg.model_name = str(req.model_name or "").strip()
     if req.max_turns is not None:
@@ -791,6 +802,20 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
     if req.dnd_end_hour is not None:
         # dnd_end_hour=9 → work_start_hour=9 (inverted semantics)
         cfg.work_start_hour = req.dnd_end_hour
+
+    # System prompt injection toggles
+    if req.inject_user_profile is not None:
+        cfg.inject_user_profile = bool(req.inject_user_profile)
+    if req.inject_memory is not None:
+        cfg.inject_memory = bool(req.inject_memory)
+    if req.inject_assets is not None:
+        cfg.inject_assets = bool(req.inject_assets)
+    if req.inject_skills is not None:
+        cfg.inject_skills = bool(req.inject_skills)
+    if req.inject_kb is not None:
+        cfg.inject_kb = bool(req.inject_kb)
+    if req.inject_soul is not None:
+        cfg.inject_soul = bool(req.inject_soul)
 
     role.config = cfg
     if schedule_changed:

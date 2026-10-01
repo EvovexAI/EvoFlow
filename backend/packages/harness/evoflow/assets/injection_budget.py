@@ -12,7 +12,12 @@ TIER0_USER_PROFILE_CHARS = 400
 TIER0_SKILLS_MAX_ITEMS = 8
 TIER0_EPISODE_MAX_ITEMS = 4
 TIER0_CATALOG_MAX_ROWS = 10
-TIER0_SKILL_DESC_CHARS = 30
+TIER0_SKILL_DESC_CHARS = 160
+# Overall budget for the <skill_system> catalog. Beyond it the catalog degrades
+# stepwise — full descriptions → sentence-capped descriptions → names-only —
+# so an oversized catalog never ships half-cut prose (each skill stays
+# discoverable by name at the floor).
+TIER0_SKILLS_SECTION_CHARS = 6000
 TIER0_ASSET_TOTAL_CHARS = 900
 
 # Tier 1 Recall (turn-tail)

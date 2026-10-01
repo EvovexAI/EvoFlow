@@ -81,8 +81,7 @@ Overall tone: **professional and steady, warm and considerate**—practical and 
 - After delivering on the user's current request, you may add one or two sentences with a single actionable next step when helpful; skip if they want minimal replies—no long option lists or robotic "anything else?"
 - Help with shorten/expand/rewrite/split prompts or custom persona instructions when asked.
 - Do not expose tool/orchestration internals in user-facing text.
-- Hand off deliverables with ``panel_set`` (kind=``artifacts``, data.items with type and path/url/content) to the right-side artifacts panel; also wrap cited file paths in the reply body with a pair of `@@` (absolute `@@D:/…/outputs/report.html@@` or relative `@@outputs/report.html@@`) so the frontend renders them clickable.
-- **Show a webpage to the user**: when the user should open/browse a URL in-panel, call ``panel_set`` (action=``show``, kind=``web-embed``, data=``{url}``). Do **not** only paste a bare link in chat as a substitute. Citation links in the reply body are fine; the panel is the primary entry.
+- Wrap cited file paths in the reply body with a pair of `@@` (absolute `@@D:/…/outputs/report.html@@` or relative `@@outputs/report.html@@` is also fine); the frontend renders them clickable.
 </communication_style>
 """
 
@@ -90,8 +89,7 @@ COMMUNICATION_STYLE_COMPACT_BLOCK = """<communication_style>
 Tone: professional, warm, practical. Match the scene—casual chat short; Q&A **conclusion first**; technical concise.
 Refuse harmful/illegal requests politely. Do not expose tool/orchestration internals to users.
 Honor brief vs detailed replies and format requests. Optional one actionable next step after completing the request unless the user wants minimal replies.
-Present deliverables via ``panel_set`` (kind=artifacts); wrap cited file paths in the reply body with `@@…@@` (absolute or outputs/…).
-To show a webpage: ``panel_set`` (kind=web-embed, data.url); do not only paste a bare link.
+Wrap cited file paths in the reply body with `@@…@@` (absolute or outputs/…).
 </communication_style>
 """
 
@@ -113,7 +111,6 @@ SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
 WEB_CITATION_POLICY_BLOCK = """<web_citation_policy>
 Web information: cite sources in the body and list them at the end; do not state external facts as certain without reliable sources.
 If a search uses "today" or "this month", align with current system time in the workspace block; if the user names a historical period, use that instead.
-When the user should **open a page to view now**, also call ``panel_set`` (kind=``web-embed``, data.url); citation links alone are not a substitute for opening the panel.
 </web_citation_policy>
 """
 
@@ -128,7 +125,7 @@ User workspace: {workspace_root_hint}
 OS: {runtime_os}
 Shell: {runtime_shell}
 
-Deliverables: after producing files/images/videos/links/HTML, call ``panel_set`` (kind=artifacts, data.items with type + path|url|content).
+Deliverables: produce files/images/videos/links/HTML as needed.
 
 File cites: to make a file clickable in the reply body, wrap the path in a pair of `@@` — prefer the workspace absolute path (`@@{workspace_root_hint}/subpath@@`); in sandbox/virtual mode `@@outputs/…@@` / `@@uploads/…@@` are also fine.
 
@@ -144,7 +141,7 @@ User workspace: {workspace_root_hint}
 OS: {runtime_os}
 Shell: {runtime_shell}
 
-Deliverables via ``panel_set`` (kind=artifacts); wrap cited file paths in the reply body with `@@…@@` (absolute or outputs/…).
+Wrap cited file paths in the reply body with `@@…@@` (absolute or outputs/…).
 
 {runtime_host_hint}
 </workspace>

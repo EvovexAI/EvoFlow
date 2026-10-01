@@ -4765,6 +4765,39 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+.hire-inject-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hire-inject-toggles .hire-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e0e0e0);
+  background: var(--surface, #fff);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.hire-inject-toggles .hire-toggle:hover {
+  border-color: var(--primary, #6366f1);
+}
+.hire-inject-toggles .hire-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.hire-inject-toggles .hire-toggle input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.hire-inject-toggles .hire-toggle input[type="checkbox"]:disabled + span {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
 @media (max-width: 720px) {
   .hire-edit-layout { grid-template-columns: 1fr; }
   .hire-edit-nav { flex-direction: row; flex-wrap: wrap; }

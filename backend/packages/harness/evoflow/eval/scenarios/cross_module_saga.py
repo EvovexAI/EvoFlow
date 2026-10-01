@@ -63,7 +63,7 @@ def _run(home: Path) -> dict:
         },
         vault_id=vault_id or None,
     )
-    recalled = knowledge_admin.recall(_TOKEN, vault_id=vault_id or None, mode="fulltext", limit=5)
+    recalled = knowledge_admin.recall(_TOKEN, kb_id=vault_id or None, mode="fulltext", limit=5)
     recall_blob = json.dumps(recalled, ensure_ascii=False, default=str)
     recall_hit = int(recalled.get("total") or 0) >= 1 or _TOKEN in recall_blob or bool(recalled.get("entries") or recalled.get("results") or recalled.get("hits"))
     steps.append({"step": 1, "module": "knowledge", "api": "vault+remember+recall", "vault_id": vault_id})

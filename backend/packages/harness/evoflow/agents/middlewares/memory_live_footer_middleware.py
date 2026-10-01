@@ -132,6 +132,10 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
                 query="",
                 include_query_recall=False,
                 principal_id=principal_id,
+                # Pass injection toggles from runtime context
+                inject_user_profile=ctx.get("inject_user_profile"),
+                inject_memory=ctx.get("inject_memory"),
+                inject_assets=ctx.get("inject_assets"),
             )
 
         standing = get_frozen_standing_memory(tid, _build_standing)

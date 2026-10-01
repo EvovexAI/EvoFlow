@@ -8,6 +8,7 @@ import { navigate } from '../router.js'
 import { startFeishuEmployeeScan, hireAndBindFeishu } from '../lib/feishu-employee-bind.js'
 import {
   imBindingCount,
+  imBindingOf,
   hireAndBindIMChannel,
   startIMChannelScan,
   IM_CHANNELS,
