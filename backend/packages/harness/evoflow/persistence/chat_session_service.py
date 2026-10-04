@@ -13,7 +13,7 @@ from evoflow.persistence import chat_message_repositories as msg_repo
 from evoflow.persistence import session_repositories as sess_repo
 from evoflow.persistence.db import get_db, run_db_with_retry
 from evoflow.persistence.session_context_fields import resolve_primary_model_name
-from evoflow.persistence.timestamps import coerce_to_epoch_ms
+from evoflow.persistence.timestamps import coerce_to_epoch_ms, now_iso_z
 
 logger = logging.getLogger(__name__)
 
@@ -1028,6 +1028,66 @@ async def persist_user_message(
         return None
 
 
+def _resolve_turn_timing(
+    session_key: str,
+    conn: Any,
+) -> tuple[str, int] | None:
+    """Turn start ISO + elapsed ms from the session's ``current_turn_started_at``."""
+    sk = str(session_key or "").strip()
+    if not sk:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT current_turn_started_at FROM evoflow_chat_sessions WHERE session_key = ?",
+            (sk,),
+        ).fetchone()
+        started_raw = str(row[0] or "").strip() if row else ""
+        if not started_raw:
+            return None
+        started_ms = coerce_to_epoch_ms(started_raw)
+        if started_ms <= 0:
+            return None
+        return started_raw, max(0, int(coerce_to_epoch_ms(now_iso_z()) - started_ms))
+    except Exception:
+        logger.debug("resolve turn timing failed session=%s", sk, exc_info=True)
+        return None
+
+
+def _stamp_turn_duration_on_assistant_tails(
+    session_key: str,
+    messages: list[dict[str, Any]],
+    conn: Any,
+) -> None:
+    """Stamp turn-tail assistant messages (no tool_calls) with turn start + duration.
+
+    Turn start = the session's ``current_turn_started_at`` (stamped at run start,
+    before any assistant row is persisted — the same source the live UI timer uses).
+    The frontend reads the last stamped row of a run as the 「已工作 X 分 X 秒」 label.
+    Explicit caller-provided values win; failures are non-fatal (transcript must win).
+    """
+    sk = str(session_key or "").strip()
+    if not sk or not messages:
+        return
+    timing = _resolve_turn_timing(sk, conn)
+    if not timing:
+        return
+    try:
+        started_raw, duration_ms = timing
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            if str(m.get("role") or "").strip().lower() != "assistant":
+                continue
+            if m.get("tool_calls"):
+                continue
+            if m.get("turn_duration_ms") is None:
+                m["turn_duration_ms"] = duration_ms
+            if not str(m.get("turn_started_at") or "").strip():
+                m["turn_started_at"] = started_raw
+    except Exception:
+        logger.debug("stamp turn duration failed session=%s", sk, exc_info=True)
+
+
 def append_message_and_touch_session(
     session_key: str,
     *,
@@ -1071,6 +1131,12 @@ def append_message_and_touch_session(
             (sk,),
         ).fetchone()
         prior_user_count = int(prior_user_row[0] or 0) if prior_user_row else 0
+        turn_timing = _resolve_turn_timing(sk, conn) if str(role or "").strip().lower() == "assistant" else None
+        if turn_timing and not flat_fields.get("tool_calls"):
+            started_raw, duration_ms = turn_timing
+            flat_fields.setdefault("turn_started_at", started_raw)
+            if flat_fields.get("turn_duration_ms") in (None, ""):
+                flat_fields["turn_duration_ms"] = duration_ms
         append_result = msg_repo.append_message(
             sk,
             role=role,
@@ -1180,6 +1246,7 @@ def append_messages_batch_and_touch_session(
                     stamp_session_ownership(sk, owner, force=False)
             except Exception:
                 logger.debug("stamp_session_ownership on batch append failed sk=%s", sk, exc_info=True)
+        _stamp_turn_duration_on_assistant_tails(sk, messages, conn)
         batch = msg_repo.append_messages_batch(
             sk,
             messages,

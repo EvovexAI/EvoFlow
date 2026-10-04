@@ -389,6 +389,7 @@ CREATE TABLE IF NOT EXISTS evoflow_chat_messages (
             total_tokens INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL, cache_read_tokens INTEGER, cache_creation_tokens INTEGER, cache_miss_tokens INTEGER, round_id TEXT,
+            turn_started_at TEXT, turn_duration_ms INTEGER,
             UNIQUE(session_key, seq)
         );
 
@@ -2005,6 +2006,10 @@ _LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
         ("org_id", "TEXT"),
         ("scope_id", "TEXT"),
         ("created_by", "TEXT"),
+    ),
+    "evoflow_chat_messages": (
+        ("turn_started_at", "TEXT"),
+        ("turn_duration_ms", "INTEGER"),
     ),
 }
 

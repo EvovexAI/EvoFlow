@@ -25,7 +25,8 @@ _SELECT_COLS = """
     message_id, content_json, tool_call_id, tool_name,
     model_name, input_tokens, output_tokens, total_tokens,
     cache_read_tokens, cache_creation_tokens, cache_miss_tokens,
-    round_id
+    round_id,
+    turn_started_at, turn_duration_ms
 """
 
 
@@ -206,6 +207,8 @@ def pack_row_from_message(
     cache_read_tokens: int | None = None,
     cache_creation_tokens: int | None = None,
     cache_miss_tokens: int | None = None,
+    turn_started_at: str | None = None,
+    turn_duration_ms: int | None = None,
     raw: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Normalize one transcript append into DB columns + ``content_json`` payload."""
@@ -227,9 +230,19 @@ def pack_row_from_message(
         cache_creation_tokens=cache_creation_tokens,
         cache_miss_tokens=cache_miss_tokens,
     )
+    src_turn_started = turn_started_at or (src.get("turn_started_at") if isinstance(src, dict) else None)
+    src_turn_duration = turn_duration_ms
+    if src_turn_duration is None and isinstance(src, dict):
+        raw_duration = src.get("turn_duration_ms")
+        try:
+            src_turn_duration = int(raw_duration) if raw_duration is not None else None
+        except (TypeError, ValueError):
+            src_turn_duration = None
     return {
         "role": r,
         "message_id": mid,
+        "turn_started_at": (str(src_turn_started).strip() or None) if src_turn_started else None,
+        "turn_duration_ms": src_turn_duration,
         "content_json": dumps_payload(payload),
         "payload": payload,
         "tool_call_id": tcid,
@@ -571,6 +584,8 @@ def _row_to_internal(row: tuple[Any, ...]) -> dict[str, Any]:
         cache_creation_tokens,
         cache_miss_tokens,
         round_id,
+        turn_started_at,
+        turn_duration_ms,
     ) = row
     payload = loads_payload(str(content_json or ""))
     out: dict[str, Any] = {
@@ -594,6 +609,8 @@ def _row_to_internal(row: tuple[Any, ...]) -> dict[str, Any]:
         "cache_creation_tokens": cache_creation_tokens,
         "cache_miss_tokens": cache_miss_tokens,
         "round_id": round_id,
+        "turn_started_at": turn_started_at,
+        "turn_duration_ms": turn_duration_ms,
     }
     tc = tool_calls(payload)
     if tc:
@@ -655,6 +672,8 @@ def append_message(
         cache_read_tokens=flat_kwargs.pop("cache_read_tokens", None) or flat_kwargs.pop("cacheReadTokens", None),
         cache_creation_tokens=flat_kwargs.pop("cache_creation_tokens", None) or flat_kwargs.pop("cacheCreationTokens", None),
         cache_miss_tokens=flat_kwargs.pop("cache_miss_tokens", None) or flat_kwargs.pop("cacheMissTokens", None),
+        turn_started_at=flat_kwargs.pop("turn_started_at", None) or flat_kwargs.pop("turnStartedAt", None),
+        turn_duration_ms=flat_kwargs.pop("turn_duration_ms", None) or flat_kwargs.pop("turnDurationMs", None),
     )
     r = fields["role"]
     payload = fields["payload"]
@@ -715,8 +734,8 @@ def append_message(
                 message_id, content_json, tool_call_id, tool_name,
                 model_name, input_tokens, output_tokens, total_tokens,
                 cache_read_tokens, cache_creation_tokens, cache_miss_tokens,
-                round_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                round_id, turn_started_at, turn_duration_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 sk,
@@ -739,6 +758,8 @@ def append_message(
                 fields.get("cache_creation_tokens"),
                 fields.get("cache_miss_tokens"),
                 rid_round,
+                fields.get("turn_started_at"),
+                fields.get("turn_duration_ms"),
             ),
         )
         out = {
@@ -962,6 +983,10 @@ def _row_to_display_dict(row: dict[str, Any]) -> dict[str, Any]:
         msg["cache_creation_tokens"] = row["cache_creation_tokens"]
     if row.get("cache_miss_tokens") is not None:
         msg["cache_miss_tokens"] = row["cache_miss_tokens"]
+    if row.get("turn_started_at"):
+        msg["turn_started_at"] = row["turn_started_at"]
+    if row.get("turn_duration_ms") is not None:
+        msg["turn_duration_ms"] = row["turn_duration_ms"]
     if row.get("tool_call_id"):
         msg["tool_call_id"] = row["tool_call_id"]
     if row.get("tool_name"):
