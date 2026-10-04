@@ -15,6 +15,10 @@ const BASE_FONT_SIZES = {
   '2xl': 24,
 }
 
+/** --ef-text-* 派生基座基准值（须与 variables.css 的 --ef-font-size 一致）。
+ *  该刻度覆盖 1217 处引用，必须随 fontScale 联动，否则用户调字号对它们无效。 */
+const EF_BASE_FONT_SIZE = 14
+
 function clampFontScale(value) {
   const n = Number(value)
   if (!Number.isFinite(n)) return DEFAULT_FONT_SCALE
@@ -59,6 +63,8 @@ export function applyFontSizePreference(value = getFontScalePreference()) {
   root.style.setProperty('--chat-font-size-sm', `${roundPx(11 * scale)}px`)
   root.style.setProperty('--chat-font-size-md', `${roundPx(12 * scale)}px`)
   root.style.setProperty('--chat-font-size-lg', `${roundPx(13 * scale)}px`)
+  // EF 新刻度基座：--ef-text-* 由它 calc 派生，改这一条整套联动
+  root.style.setProperty('--ef-font-size', `${roundPx(EF_BASE_FONT_SIZE * scale)}px`)
 }
 
 export function previewFontScale(value) {

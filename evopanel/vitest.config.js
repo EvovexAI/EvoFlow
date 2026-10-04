@@ -18,6 +18,7 @@ export default defineConfig({
     // 其余 tests/*.test.js 使用 node:test，由 `node --test` 单独运行
     include: [
       'tests/zcode-flat-reasoning.test.js',
+      'tests/font-size-tokens.test.js',
       'tests/compose-attach.test.js',
       'tests/web-embed-url.test.js',
       'tests/global-assistant.test.js',

@@ -37,6 +37,26 @@ EvoFlow 当前处于**字号体系迁移期**，两套刻度并存：
 - 图标/间距/圆角**不**跟随字号缩放
 - 内容层（代码、终端、Diff）保持独立 font-size，不受此约束
 
+### 用户字号缩放：两套刻度都挂在同一个 `fontScale` 上
+
+设置页「字体大小」滑块（`general.js`，范围 0.85–1.5，默认 0.9）写入
+`evopanel/src/lib/font-size.js` 的 `applyFontSizePreference()`，它同时设置两批变量：
+
+```
+--font-size-* / --chat-font-size-*   ← 旧刻度直接乘 scale
+--ef-font-size = 14px × scale        ← 新刻度基座，--ef-text-* 由它 calc 派生
+```
+
+**因此新增 `--ef-text-*` 引用会自动响应用户字号设置，不需要额外接线。**
+反过来说，若新增一个不挂在 `--ef-font-size` 上的字号变量，用户调滑块时它不会动。
+
+> ⚠️ 别把 `--ef-font-size` 写成 `var(--ef-text-base)`：`--ef-text-base`
+> 本身就是 `var(--ef-font-size)`，会形成循环引用导致整条刻度失效。
+> 它必须保持字面量。
+
+存量硬编码用 `npm run lint:font-size` 查看分布（当前约 1522 处，迁移期只报告不失败）；
+清完后改用 `npm run lint:font-size:strict` 接入 CI 阻断新增。
+
 ---
 
 ## 产品性格

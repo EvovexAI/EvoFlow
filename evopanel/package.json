@@ -49,6 +49,8 @@
     "kws:download": "node scripts/download-kws-model.js",
     "kws:ensure": "node scripts/ensure-kws-bundle.js",
     "test": "vitest run",
+    "lint:font-size": "node scripts/check-font-size-tokens.mjs",
+    "lint:font-size:strict": "node scripts/check-font-size-tokens.mjs --strict",
     "test:perf": "vitest run tests/client-perf.test.js tests/client-perf-scenarios.test.js tests/live-stream-path.test.js",
     "verify:perf": "node scripts/verify-perf.mjs",
     "verify:perf:stress": "node scripts/verify-perf.mjs --stress",
