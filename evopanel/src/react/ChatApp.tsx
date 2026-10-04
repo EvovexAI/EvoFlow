@@ -40,7 +40,6 @@ import {
   formatUsageTokenStr,
   flattenStreamDisplayText,
   mediaToolStatusFromOutput,
-  inferMediaAssetsFromToolEntries,
   assistantBodiesLooselySame,
   pickDisplayChatSceneFromScenarioResult,
   isGoalProposalToolName,
@@ -165,11 +164,20 @@ import {
 import { CollabExecutionPanel } from './components/CollabExecutionPanel.js'
 import { KnowledgeMapPanel } from './components/KnowledgeMapPanel.js'
 import { RightStageShell } from './components/RightStageShell.js'
+import { ChatSummaryPanel } from './components/ChatSummaryPanel.js'
 import {
-  ChatWorkspaceInfoRail,
+  EmployeePane,
+  TaskPane,
   type InfoRailTab,
   type EmployeeRailInfo,
 } from './components/ChatWorkspaceInfoRail.js'
+import { useLiveProcessSnapshot } from './lib/use-live-process-snapshot.js'
+import {
+  loadChatSummaryPrefs,
+  saveChatSummaryDisplayMode,
+  type ChatSummaryDisplayMode,
+} from './lib/chat-summary-panel-prefs.js'
+import type { ProcessItem } from './lib/chat-summary-panel-model.js'
 import { RightStageExtensionsToolbar } from './components/RightStageExtensionsToolbar.js'
 import { SidePanelBootShell } from './components/SidePanelBootShell.js'
 import { applyRightStageAgUiCustom, applyStageSetFromToolCall, STAGE_SET_APPLIED_EVENT, type StageSetPayload } from '../lib/right-stage/right-stage-agui.js'
@@ -250,11 +258,6 @@ import {
   unregisterVoicePartialHandler,
 } from '../lib/background-voice-bridge.js'
 import { setVoiceTrayState } from '../lib/background-voice.js'
-import {
-  resolveVoiceSpeechBodyFromParts,
-  shouldAdvanceVoiceSpeechSync,
-  toVoiceSpeechPlain,
-} from '../lib/voice-reply-speech.js'
 import { normalizeStreamActivityDetail, formatActivityDetailFromRunningToolCalls, resolveAssignedAgentDisplayName } from '../lib/tool-display.js'
 import {
   resolveComposerDockActivity,
@@ -389,16 +392,10 @@ import {
   shouldAcceptStreamTextPiece,
   shouldKeepStreamDeltaAfterStrip,
   streamTurnHasVisibleContent,
-  collectToolCallIdsFromTurn,
   filterStaleToolEntries,
-  drainStreamTurnRoundBuffer,
-  shouldReleaseStreamBufferBeforeEvent,
-  finalizedTurnToCompactedPart,
   mergeCompactedPartsIntoTurn,
   staleToolIdsExcludingTurnTools,
-  type StreamReleaseTrigger,
   type StreamTurnEvent,
-  type StreamTurnState,
 } from './lib/stream-turn-engine.js'
 import { parseStreamBlockWire, enforceSegmentDisplayOrder, type StreamBlockWire } from './lib/content-blocks.js'
 import { createStreamBumpScheduler } from './lib/stream-bump-scheduler.js'
@@ -431,8 +428,6 @@ import {
   streamProject,
 } from './lib/stream-state.js'
 import {
-  applyAgUiEvent,
-  cloneAgUiTurnState,
   emptyAgUiTurnState,
   projectAgUiToStreamTurnFields,
   sealOpenAgUiMessages,
@@ -482,10 +477,22 @@ import {
   EMPTY_PRIOR_TURN_STRIP as EMPTY_RT_PRIOR_STRIP,
   type SessionRuntime,
 } from './lib/session-runtime-store.js'
+import { rowHasVisibleContent } from './lib/display-row-content.js'
+import {
+  syncStreamMediaAssetsFromTools,
+  applyStreamTurnEvent,
+  applyAgUiWireEvent,
+  stripMidTurnPartialAssistantRows,
+  releaseStreamBufferIfNeeded,
+  buildPartialStreamAssistantRow,
+  sealStoppedStreamTurn,
+  filterStreamToolEntriesForRuntime,
+  priorStripForRuntime,
+  buildVoiceSpeechBodyForRuntime,
+} from './lib/chat-stream-apply.js'
 import {
   assistantPlainForTurnStrip,
   commitPriorTurnStripFromStreamTurn,
-  commitPriorTurnStripTextFromStreamTurn,
   EMPTY_PRIOR_TURN_STRIP,
   findAssistantRowAfterLastUser,
   findAssistantRowBeforeTrailingUser,
@@ -493,12 +500,8 @@ import {
   mergePriorTurnStripBundles,
   priorTurnStripBundleWithStream,
   seedSeenArtifactPathsFromRows,
-  stripPriorTurnPollutants,
   stripPriorTurnReasoningFromStream,
   fixReasoningStreamText,
-  stripLoosePriorBodyEcho,
-  stripLoosePriorReasoningEcho,
-  trimReasoningTextAgainstBody,
   stripThreadPanelReasoningPreview,
   sanitizeFinalizedTurnForPersist,
   type PriorTurnStripBundle,
@@ -835,181 +838,6 @@ function shortLogText(v: unknown, maxLen = 220): string {
   return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s
 }
 
-function syncStreamMediaAssetsFromTools(S: StreamState) {
-  const derived = inferMediaAssetsFromToolEntries(S.turn.tools || [])
-  S.turn.images = derived.images
-  if (derived.videos.length) S.turn.videos = derived.videos
-  if (derived.audios.length) S.turn.audios = derived.audios
-}
-
-function applyStreamTurnEvent(S: StreamState, event: StreamTurnEvent): void {
-  S.turn = reduceStreamTurn(S.turn, event)
-}
-
-function applyAgUiWireEvent(
-  S: StreamState,
-  event: AGUIEvent,
-  priorStrip: PriorTurnStripBundle = EMPTY_PRIOR_TURN_STRIP,
-): void {
-  if (event.type === EventType.RUN_STARTED) {
-    const incomingRunId = String((event as { runId?: string }).runId || '').trim()
-    const threadId = String((event as { threadId?: string }).threadId || '').trim()
-    const prevRunId = String(S.aguiTurn?.runId || S.runId || '').trim()
-    if (incomingRunId && (!S.aguiTurn || (prevRunId && prevRunId !== incomingRunId))) {
-      S.aguiTurn = emptyAgUiTurnState(incomingRunId, threadId)
-      S.runId = incomingRunId
-    }
-  }
-  if (!S.aguiTurn) {
-    S.aguiTurn = emptyAgUiTurnState(String(S.runId || ''), '')
-  }
-  let wireEvent: AGUIEvent = event
-  if (event.type === EventType.TEXT_MESSAGE_CONTENT) {
-    const delta = String((event as { delta?: string }).delta || '')
-    if (delta) {
-      const cleaned = stripLoosePriorBodyEcho(stripPriorTurnPollutants(delta, priorStrip), priorStrip.body)
-      // 勿用 trim：独立 ``\n\n`` delta 是 markdown 段落分隔，trim 后会被误丢。
-      if (!shouldKeepStreamDeltaAfterStrip(cleaned)) {
-        sfWarn('agui delta stripped empty', {
-          deltaPreview: delta.slice(0, 80),
-          priorBodyLen: String(priorStrip.body || '').length,
-        })
-        return
-      }
-      if (cleaned !== delta) wireEvent = { ...event, delta: cleaned }
-    }
-  }
-  if (event.type === EventType.REASONING_MESSAGE_CONTENT) {
-    const delta = fixReasoningStreamText(String((event as { delta?: string }).delta || ''))
-    if (delta) {
-      const cleaned = stripLoosePriorReasoningEcho(
-        stripPriorTurnReasoningFromStream(delta, priorStrip),
-        priorStrip.reasoning,
-      )
-      if (!shouldKeepStreamDeltaAfterStrip(cleaned)) return
-      if (cleaned !== delta) wireEvent = { ...event, delta: cleaned }
-    }
-  }
-  S.aguiTurn = applyAgUiEvent(S.aguiTurn, wireEvent)
-  const openBody = [...S.aguiTurn.messages.values()]
-    .filter((m) => !m.closed && m.role === 'assistant')
-    .map((m) => m.content)
-    .join('')
-  if (openBody.trim()) {
-    const trimmed = cloneAgUiTurnState(S.aguiTurn)
-    for (const msg of trimmed.messages.values()) {
-      if (msg.closed || msg.role !== 'reasoning') continue
-      msg.content = trimReasoningTextAgainstBody(msg.content, openBody)
-    }
-    S.aguiTurn = trimmed
-  }
-  S.turn = syncStreamTurnFromAgUi(S.turn, S.aguiTurn)
-}
-
-/** 去掉当前 user 轮内、尚未 final 的流式 partial assistant 行（多轮工具后已落库的中间段） */
-function stripMidTurnPartialAssistantRows(rows: DisplayRow[]): DisplayRow[] {
-  let lastUserIdx = -1
-  for (let i = rows.length - 1; i >= 0; i--) {
-    if (rows[i].role === 'user') {
-      lastUserIdx = i
-      break
-    }
-  }
-  if (lastUserIdx < 0) return rows
-  const head = rows.slice(0, lastUserIdx + 1)
-  const tail = rows.slice(lastUserIdx + 1).filter((row) => {
-    if (row.role !== 'assistant') return true
-    if (row.durationStr || row.tokenStr) return true
-    return row.incompleteStream === true && rowHasVisibleContent(row)
-  })
-  return [...head, ...tail]
-}
-
-/**
- * 下一条 SSE 处理前：封存已持久化段到 compactedParts，释放 turn 内存（仍合并进同一流式气泡）。
- */
-function releaseStreamBufferIfNeeded(
-  S: StreamState,
-  rt: SessionRuntime,
-  trigger: StreamReleaseTrigger,
-  _applyRowsUpdate: (updater: (r: DisplayRow[]) => DisplayRow[]) => void,
-  _runId?: string | null,
-): boolean {
-  if (S.aguiTurn) return false
-  if (!shouldReleaseStreamBufferBeforeEvent(S.turn, trigger)) return false
-  const { sealed, releasedToolIds, fresh } = drainStreamTurnRoundBuffer(S.turn)
-  rtAddStaleToolCallIds(rt, releasedToolIds)
-  if (streamTurnHasVisibleContent(sealed)) {
-    const fin = finalizeStreamTurn(sealed, '')
-    commitPriorTurnStripTextFromStreamTurn(rt, sealed)
-    if (!S.compactedParts) S.compactedParts = []
-    S.compactedParts.push(finalizedTurnToCompactedPart(fin))
-  }
-  S.turn = fresh
-  return true
-}
-
-/** 用户停止 / aborted：把已收到的流式片段封存为一条 assistant 历史行 */
-function buildPartialStreamAssistantRow(
-  turn: StreamTurnState,
-  runId?: string | null,
-  priorStrip: PriorTurnStripBundle = EMPTY_PRIOR_TURN_STRIP,
-): DisplayRow {
-  const fin = sanitizeFinalizedTurnForPersist(finalizeStreamTurn(turn, ''), priorStrip)
-  return {
-    role: 'assistant',
-    text: fin.text,
-    segments: fin.segments,
-    reasoningSegments: fin.reasoningSegments,
-    reasoningPreview: fin.reasoningPreview,
-    tools: [...fin.tools],
-    images: [...fin.images],
-    videos: [...fin.videos],
-    audios: [...fin.audios],
-    files: [...fin.files],
-    timestamp: Date.now(),
-    incompleteStream: true,
-    ...(runId ? { runId: String(runId) } : {}),
-  }
-}
-
-
-
-function sealStoppedStreamTurn(
-  rt: SessionRuntime,
-  turn: StreamTurnState,
-  runId: string | null | undefined,
-): void {
-  rtAddStaleToolCallIds(rt, collectToolCallIdsFromTurn(turn))
-  rtAddStoppedRun(rt, runId)
-}
-
-function filterStreamToolEntriesForRuntime(rt: SessionRuntime, entries: unknown[]): unknown[] {
-  return filterStaleToolEntries(entries, rt.staleToolCallIds)
-}
-
-function priorStripForRuntime(rt: SessionRuntime): PriorTurnStripBundle {
-  const s = rt.priorTurnStrip
-  if (!s?.body && !s?.reasoning && !(s?.toolIds?.length)) return EMPTY_PRIOR_TURN_STRIP
-  return { body: s.body, reasoning: s.reasoning, toolIds: s.toolIds || [] }
-}
-
-function stripBodyForRuntime(rt: SessionRuntime, text: string): string {
-  return stripPriorTurnPollutants(String(text || ''), priorStripForRuntime(rt))
-}
-
-function buildVoiceSpeechBodyForRuntime(
-  rt: SessionRuntime,
-  parts: {
-    hostedCaptureText?: string
-    segments?: unknown[]
-    text?: string
-    canonicalOutText?: string
-  },
-): string {
-  return stripBodyForRuntime(rt, resolveVoiceSpeechBodyFromParts(parts))
-}
-
 function emptyThreadPanel(): ThreadPanelState {
   return {
     title: null,
@@ -1108,17 +936,6 @@ function applyThreadStatePanelPatch(
 
 function parseClarificationFromTool(tool: unknown): { toolCallId?: string; preview?: string } | null {
   return clarificationPreviewFromTool(tool)
-}
-
-function rowHasVisibleContent(row: DisplayRow | undefined): boolean {
-  if (!row) return false
-  if (String(row.text || '').trim()) return true
-  if ((row.tools || []).length) return true
-  if ((row.images || []).length) return true
-  if ((row.videos || []).length) return true
-  if ((row.audios || []).length) return true
-  if ((row.files || []).length) return true
-  return false
 }
 
 function rowsHaveActionablePlan(rows: DisplayRow[]): boolean {
@@ -4663,6 +4480,18 @@ export default function ChatApp() {
   /** 右侧信息 Drawer：默认关闭；与 Right Stage 互斥 */
   const [infoRailOpen, setInfoRailOpen] = useState(true)
   const [infoRailTab, setInfoRailTab] = useState<InfoRailTab>('agent')
+  /** 状态面板三态（面板 / 胶囊 / 隐藏），与右侧信息栏开合同为一个开关 */
+  const [chatPanelMode, setChatPanelMode] = useState<ChatSummaryDisplayMode>(() => {
+    try {
+      return loadChatSummaryPrefs().displayMode
+    } catch {
+      return 'panel'
+    }
+  })
+  const setChatPanelDisplayMode = useCallback((mode: ChatSummaryDisplayMode) => {
+    setChatPanelMode(mode)
+    saveChatSummaryDisplayMode(mode)
+  }, [])
   const publishPlatformEntries = useCallback((entries: PlatformRunEntry[], focusEntryId?: string) => {
     turnPlatformEntriesRef.current = entries
     setTurnPlatformEntries([...entries])
@@ -12606,6 +12435,22 @@ export default function ChatApp() {
     isStillActive: () => isCollabSubtasksFetchActiveRef.current(),
   })
 
+  // 状态面板「进程」区：以 streamRef 为唯一真相源，按 chrome tick 取快照，
+  // 避免另开 state 漏掉切会话/终态收束时的终端清理。
+  const liveProcessSnapshot = useLiveProcessSnapshot(
+    streamRef,
+    infoRailOpen && !isHomeSurface && !!selectedSessionKey && !isMobileChat,
+  )
+
+  /** 点进程行：把右栏切到智能体区（详情由既有右栏能力承接，不另造 terminal 弹层） */
+  const handleOpenProcessItem = useCallback((item: ProcessItem) => {
+    if (!item) return
+    if (item.kind === 'agent' || item.kind === 'terminal') {
+      setInfoRailTab('agent')
+      setInfoRailOpen(true)
+    }
+  }, [])
+
   // 执行期间轮询：任务处于活跃执行状态时，定期 bump refreshKey 触发重新拉取 GET /tasks，
   // 弥补被移除的 task-progress 快照刷新逻辑（流式事件 task_running/task_completed 不保证到达）。
   const sharedCollabMainTaskStatus = sharedCollabMainTask?.status
@@ -15998,18 +15843,21 @@ export default function ChatApp() {
                 renderLegacy={renderRightStageLegacy}
               />
             ) : infoRailOpen && !isHomeSurface && selectedSessionKey && !isMobileChat ? (
-              <ChatWorkspaceInfoRail
-                tab={infoRailTab}
-                isEmployeeSession={isProactiveEmployeeSession}
+              <ChatSummaryPanel
+                displayMode={chatPanelMode}
+                onDisplayModeChange={setChatPanelDisplayMode}
+                isRunning={selectedTurnBusy}
                 sessionTitle={getDisplayLabel(
                   selectedSessionKey,
                   sessions.find((s) => String(s.sessionKey || '') === String(selectedSessionKey || ''))?.title,
                 )}
-                isRunning={selectedTurnBusy}
-                contextUsage={displayContextUsage}
-                tokenTotals={headerTokenTotals}
+                terminalStreams={liveProcessSnapshot.terminalStreams}
+                subagentTasks={liveProcessSnapshot.subagentTasks}
+                workflowSubtasks={sharedCollabSubtasks}
+                onOpenProcessItem={handleOpenProcessItem}
                 agentLabel={currentRoleLabel}
                 modelLabel={modelPillLabel}
+                modelName={effectiveModelName}
                 agentCode={
                   isProactiveEmployeeSession
                     ? employeeSessionAgentCode || currentRoleCodeForUi
@@ -16017,8 +15865,6 @@ export default function ChatApp() {
                 }
                 agentDescription={String(currentRoleAgent?.description || '').trim()}
                 agent={currentRoleAgent}
-                skillCount={currentAgentCapabilities.skillCount}
-                toolCount={currentAgentCapabilities.toolCount}
                 skillNames={currentAgentCapabilities.skillNames}
                 toolNames={currentAgentCapabilities.toolNames}
                 mcpServers={currentAgentCapabilities.mcpServers}
@@ -16029,7 +15875,12 @@ export default function ChatApp() {
                 }
                 onPatchCapabilities={patchCurrentAgentCapabilities}
                 capabilityBusy={capabilityPatchBusy}
-                modelName={effectiveModelName}
+                onSwitchAgent={() => setBottomRoleOpen(true)}
+                onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
+                tokenTotals={headerTokenTotals}
+                contextUsage={displayContextUsage}
+                onAssetQuickAction={handleAssetQuickAction}
+                assetQuickBusy={assetQuickBusy}
                 artifacts={sessionArtifacts}
                 recentArtifacts={turnArtifacts}
                 artifactFocusId={artifactFocusId}
@@ -16038,23 +15889,52 @@ export default function ChatApp() {
                 platformFocusEntryId={platformFocusEntryId}
                 onOpenArtifact={openSessionArtifact}
                 onRevealArtifact={revealSessionArtifact}
-                onTabChange={setInfoRailTab}
-                onSwitchAgent={() => setBottomRoleOpen(true)}
-                onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
-                onManualCompact={handleManualContextCompact}
-                manualCompactDisabled={manualContextCompacting}
-                onClose={() => setInfoRailOpen(false)}
-                onAssetQuickAction={handleAssetQuickAction}
-                assetQuickBusy={assetQuickBusy}
-                employeeInfo={isProactiveEmployeeSession ? employeeRoleDetail : null}
-                sessionKey={String(selectedSessionKey || '')}
-                liveTask={
-                  isProactiveEmployeeSession
-                    ? sidebarActiveView?.task || null
-                    : null
-                }
                 obsEnabled={obsEnabled}
                 threadId={selectedThreadId}
+                isEmployeeSession={isProactiveEmployeeSession}
+                employeePane={
+                  isProactiveEmployeeSession ? (
+                    <EmployeePane
+                      employeeInfo={employeeRoleDetail}
+                      sessionTitle={getDisplayLabel(selectedSessionKey, '')}
+                      isRunning={selectedTurnBusy}
+                      agentLabel={currentRoleLabel}
+                      modelLabel={modelPillLabel}
+                      agentCode={employeeSessionAgentCode || currentRoleCodeForUi}
+                      agentDescription={String(currentRoleAgent?.description || '').trim()}
+                      agent={currentRoleAgent}
+                      skillNames={currentAgentCapabilities.skillNames}
+                      toolNames={currentAgentCapabilities.toolNames}
+                      mcpServers={currentAgentCapabilities.mcpServers}
+                      knowledgeVaultIds={
+                        employeeRoleDetail?.knowledgeVaultIds ||
+                        currentAgentCapabilities.knowledgeVaultIds
+                      }
+                      onPatchCapabilities={patchCurrentAgentCapabilities}
+                      capabilityBusy={capabilityPatchBusy}
+                      modelName={effectiveModelName}
+                      contextUsage={displayContextUsage}
+                      tokenTotals={headerTokenTotals}
+                      onManualCompact={handleManualContextCompact}
+                      manualCompactDisabled={manualContextCompacting}
+                      onEditAgent={openCurrentAgentEditor}
+                      onAssetQuickAction={handleAssetQuickAction}
+                      assetQuickBusy={assetQuickBusy}
+                    />
+                  ) : null
+                }
+                taskPane={
+                  isProactiveEmployeeSession ? (
+                    <TaskPane
+                      sessionTitle={getDisplayLabel(selectedSessionKey, '')}
+                      isRunning={selectedTurnBusy}
+                      tokenTotals={headerTokenTotals}
+                      agentCode={employeeSessionAgentCode || currentRoleCodeForUi}
+                      sessionKey={String(selectedSessionKey || '')}
+                      liveTask={sidebarActiveView?.task || null}
+                    />
+                  ) : null
+                }
               />
             ) : null}
           </div>
