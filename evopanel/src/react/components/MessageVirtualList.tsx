@@ -153,7 +153,7 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
       <MemoMessageRow
         row={item.row}
         isStreaming={isContinuedStream}
-        showToolTiming={false}
+        showToolTiming
         onOpenFile={onOpenFile}
         onOpenKnowledgeMap={onOpenKnowledgeMap}
         onToolApproval={onToolApproval}
@@ -2188,7 +2188,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
               isStreaming
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}
-              showToolTiming={false}
+              showToolTiming
               onOpenFile={onOpenFile}
               onOpenKnowledgeMap={onOpenKnowledgeMap}
               onToolApproval={onToolApproval}

@@ -1668,9 +1668,23 @@ function maybeInferToolNameFromInput(target) {
   if (!isGenericToolName(inferred)) target.name = inferred
 }
 
+/** 工具时间戳解析：number(秒/毫秒) 或可被 Date 解析的字符串 → ms epoch；无效返回 null */
+function toolWireTsMs(value) {
+  if (value == null || value === '') return null
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1e12 ? Math.round(value * 1000) : Math.round(value)
+  }
+  const ts = new Date(String(value)).getTime()
+  return Number.isFinite(ts) ? ts : null
+}
+
 export function upsertTool(tools, entry) {
   if (!entry) return
   const eventTs = Date.now()
+  /* 盖章优先用条目自带时间（历史水合的工具带 DB 真实时间），仅流式无时间时退化为当前时刻 */
+  const entryStartTs =
+    entry._uiStartedAtMs || toolWireTsMs(entry.time ?? entry.messageTimestamp) || eventTs
+  const entryEndTs = entry._uiEndedAtMs || toolWireTsMs(entry.time ?? entry.messageTimestamp) || eventTs
   const id = entry.id || entry.tool_call_id
   let target = null
   if (id) target = tools.find((t) => t.id === id || t.tool_call_id === id)
@@ -1681,7 +1695,7 @@ export function upsertTool(tools, entry) {
   }
   if (target) {
     if (!target._uiStartedAtMs) {
-      target._uiStartedAtMs = entry._uiStartedAtMs || eventTs
+      target._uiStartedAtMs = entryStartTs
     }
     const wasRunning = isToolRunning(target)
     const nextName = resolveEntryToolName(entry)
@@ -1723,7 +1737,7 @@ export function upsertTool(tools, entry) {
     syncToolStatusFromEnvelope(target)
     maybeSyncTerminalToolStatusFromOutput(target)
     if (wasRunning && !isToolRunning(target) && !target._uiEndedAtMs) {
-      target._uiEndedAtMs = entry._uiEndedAtMs || eventTs
+      target._uiEndedAtMs = entryEndTs
     }
     if (entry.time) target.time = entry.time
     if (entry.truncated != null) target.truncated = entry.truncated
@@ -1740,8 +1754,8 @@ export function upsertTool(tools, entry) {
     return
   }
   const row = { ...entry }
-  if (!row._uiStartedAtMs) row._uiStartedAtMs = eventTs
-  if (!isToolRunning(row) && !row._uiEndedAtMs) row._uiEndedAtMs = eventTs
+  if (!row._uiStartedAtMs) row._uiStartedAtMs = entryStartTs
+  if (!isToolRunning(row) && !row._uiEndedAtMs) row._uiEndedAtMs = entryEndTs
   if (entry.tool_name != null && String(entry.tool_name).trim()) {
     row.tool_name = String(entry.tool_name).trim()
   }
@@ -1756,7 +1770,7 @@ export function upsertTool(tools, entry) {
   hydrateToolInputContentFromStreamingRaw(row)
   syncToolStatusFromEnvelope(row)
   maybeSyncTerminalToolStatusFromOutput(row)
-  if (!isToolRunning(row) && !row._uiEndedAtMs) row._uiEndedAtMs = eventTs
+  if (!isToolRunning(row) && !row._uiEndedAtMs) row._uiEndedAtMs = entryEndTs
   maybeSlimToolOutputForUi(row)
   tools.push(row)
 }
@@ -3998,6 +4012,12 @@ export function dedupeHistory(messages) {
       ...(subagentTasks ? { subagentTasks } : {}),
       segments,
       timestamp: normalizeTime(msg.timestamp) ?? normalizeTime(msg.created_at_ms) ?? undefined,
+      ...(role === 'assistant'
+        ? (() => {
+            const d = formatTurnDurationStrFromMs(msg.turn_duration_ms ?? msg.turnDurationMs)
+            return d ? { durationStr: d } : {}
+          })()
+        : {}),
       ...(msgId ? { messageId: String(msgId) } : {}),
       ...(historyRunId ? { runId: historyRunId } : {}),
       ...(reasoningPreview ? { reasoningPreview } : {}),
@@ -4007,6 +4027,16 @@ export function dedupeHistory(messages) {
   const out = enrichDisplayRowsRunIds(stripResolvedAskClarificationFromRows(deduped))
   for (const row of out) syncAssistantRowTextForHistoryDisplay(row)
   return out
+}
+
+/** 回合工作时长(ms)→ 展示串(12s / 1m05s);与 turn-timing.formatTurnDurationStr 同构 */
+function formatTurnDurationStrFromMs(durationMs) {
+  const totalSec = Math.round(Number(durationMs) / 1000)
+  if (!Number.isFinite(totalSec) || totalSec < 1) return ''
+  if (totalSec < 60) return `${totalSec}s`
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}m${s.toString().padStart(2, '0')}s`
 }
 
 function unwrapChatTupleLike(x) {

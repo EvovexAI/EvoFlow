@@ -46,6 +46,21 @@ type AssistantBodyDerivedBundle = {
 
 const assistantBodyCache = new WeakMap<DisplayRow, AssistantBodyCacheEntry>()
 
+/** 回合开始时间按 runId/messageId 记忆（流式→封存行对象重建时恢复，容量有限自动淘汰） */
+const turnStartMsByRunKey = new Map<string, number>()
+
+function rememberTurnStartMs(key: string, ms: number) {
+  turnStartMsByRunKey.set(key, ms)
+  if (turnStartMsByRunKey.size > 200) {
+    const oldest = turnStartMsByRunKey.keys().next().value
+    if (oldest != null) turnStartMsByRunKey.delete(oldest)
+  }
+}
+
+function recallTurnStartMs(key: string): number | null {
+  return turnStartMsByRunKey.get(key) ?? null
+}
+
 /**
  * 纯函数：计算 AssistantBody 所需的所有派生数据。
  * 注意：此函数必须保持纯净，仅依赖入参。
@@ -166,7 +181,11 @@ import { AssistantBubbleSlotView } from './AssistantBubbleSlotView.js'
 import { HoverBubble } from './HoverBubble.js'
 import { logStreamCompareUiDisplay, logStreamCompareUiChunks, logStreamCompareUiStreamTools } from '../lib/stream-compare-file-log.js'
 import { logStreamSourceConsoleIfChanged } from '../stream-console-mirror.js'
-import { resolveTurnDurationLabel } from '../lib/turn-timing.js'
+import {
+  formatTurnDurationStr,
+  parseTurnTimestampMs,
+  resolveTurnDurationLabel,
+} from '../lib/turn-timing.js'
 
 /** ask 工具在气泡内被隐藏；需识别「仍在进行」以显示「询问中…」，不能只依赖 isToolRunning（首帧常无 status） */
 function hasInFlightAskClarificationTools(tools: unknown[]) {
@@ -1081,6 +1100,53 @@ function AssistantBody({
     dockLabelCompat: liveActivityDockLabel,
   })
 
+  // 「已工作」时长：流式期间每秒滴答（回合开始 = 最早思考/工具时间戳，兜底为流式首帧）；
+  // 完成后优先 row.durationStr，缺数据时用回合开始到行封存时间估算。
+  const turnStartCandidateMs = (() => {
+    let start: number | null = null
+    for (const seg of displaySegments) {
+      if (seg.kind !== 'reasoning' || seg.startedAtMs == null) continue
+      if (start == null || seg.startedAtMs < start) start = seg.startedAtMs
+    }
+    for (const raw of tools) {
+      const t = raw as Record<string, unknown>
+      const s = parseTurnTimestampMs(t._uiStartedAtMs ?? t.time ?? t.messageTimestamp)
+      if (s != null && (start == null || s < start)) start = s
+    }
+    return start
+  })()
+  const [turnStartFallbackMs, setTurnStartFallbackMs] = useState<number | null>(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isStreaming) {
+      setTurnStartFallbackMs(null)
+      return
+    }
+    setTurnStartFallbackMs((prev) => prev ?? Date.now())
+    setNowTick(Date.now())
+    const timer = window.setInterval(() => setNowTick(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isStreaming])
+  const turnStartMs = turnStartCandidateMs ?? turnStartFallbackMs
+  // 流式→封存切换时行对象会重建，封存行可能丢时间戳：按 runId/messageId 记忆回合开始，
+  // 保证「已工作」头部在回合结束后不闪退。
+  const turnRunKey = String(row.runId || row.messageId || '')
+  if (turnRunKey && turnStartMs != null) rememberTurnStartMs(turnRunKey, turnStartMs)
+  const turnStartMsResolved =
+    turnStartMs ?? (turnRunKey ? recallTurnStartMs(turnRunKey) : null)
+  const workedDurationLabel = (() => {
+    if (isStreaming) {
+      if (turnStartMsResolved == null) return ''
+      const sec = Math.round((nowTick - turnStartMsResolved) / 1000)
+      return sec >= 1 ? formatTurnDurationStr(sec) : ''
+    }
+    if (durationLabel) return durationLabel
+    const rowTs = parseTurnTimestampMs(row.timestamp)
+    if (turnStartMsResolved == null || rowTs == null || rowTs <= turnStartMsResolved) return ''
+    const sec = Math.round((rowTs - turnStartMsResolved) / 1000)
+    return sec >= 1 ? formatTurnDurationStr(sec) : ''
+  })()
+
   return (
     <AssistantBubbleSlotView
       plan={plan}
@@ -1103,7 +1169,7 @@ function AssistantBody({
       suppressExploringFold={suppressExploringFold}
       sessionKey={sessionKey}
       compareSessionKey={compareSessionKey}
-      durationLabel={durationLabel}
+      durationLabel={workedDurationLabel}
       liveTokenStr={row.tokenStr}
       messageId={row.messageId}
     />

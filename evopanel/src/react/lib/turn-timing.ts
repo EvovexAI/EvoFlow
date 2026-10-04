@@ -111,11 +111,11 @@ export function formatReasoningDurationLabel(durationMs: number | null | undefin
 }
 
 /**
- * 回合完成态折叠头标签（ZCode 风格）：「已工作 5 分 22 秒」。
+ * 回合工作时长文本（ZCode 风格）：「5 分 22 秒」。
  * 入参为 formatTurnDurationStr 形态的时长串（``12s`` / ``1m05s`` / ``1h2m3s``），
- * 解析失败返回空串（调用方退回平铺）。
+ * 解析失败返回空串。
  */
-export function formatWorkedDurationLabel(durationLabel: string | null | undefined): string {
+export function formatWorkDurationText(durationLabel: string | null | undefined): string {
   const raw = String(durationLabel || '').trim()
   if (!raw) return ''
   const m = raw.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i)
@@ -128,7 +128,17 @@ export function formatWorkedDurationLabel(durationLabel: string | null | undefin
   if (h) parts.push(`${h} 小时`)
   if (min) parts.push(`${min} 分`)
   if (s) parts.push(`${s} 秒`)
-  return `已工作 ${parts.join(' ')}`
+  return parts.join(' ')
+}
+
+/**
+ * 回合完成态折叠头标签（ZCode 风格）：「已工作 5 分 22 秒」。
+ * 入参为 formatTurnDurationStr 形态的时长串（``12s`` / ``1m05s`` / ``1h2m3s``），
+ * 解析失败返回空串（调用方退回平铺）。
+ */
+export function formatWorkedDurationLabel(durationLabel: string | null | undefined): string {
+  const text = formatWorkDurationText(durationLabel)
+  return text ? `已工作 ${text}` : ''
 }
 
 /**

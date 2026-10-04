@@ -141,6 +141,7 @@ function ReasoningInlineBlockInner({
   hideChevron = false,
   durationMs = null,
   collapsible = false,
+  startedAtMs = null,
 }: {
   text: string
   isStreamingActive?: boolean
@@ -151,10 +152,25 @@ function ReasoningInlineBlockInner({
   durationMs?: number | null
   /** 完成段强制走 ZCode 可折叠样式（flat 时间线用；fold 内保持紧凑单行） */
   collapsible?: boolean
+  /** 本段思考开始时间（ms）；流式期间据此每秒滴答「· 持续了 X 秒」 */
+  startedAtMs?: number | null
   onOpenWorkspaceFile?: (rawUrl: string, name?: string) => void
 }) {
   const body = String(text || '').trim()
   const waitingOnly = isStreamingActive && !body
+
+  // 运行中的思考：每秒滴答「持续了 X 秒」（ZCode 同款）
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isStreamingActive || startedAtMs == null) return
+    setNowTick(Date.now())
+    const timer = window.setInterval(() => setNowTick(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isStreamingActive, startedAtMs])
+  const liveDurationLabel =
+    isStreamingActive && startedAtMs != null
+      ? formatReasoningDurationLabel(Math.max(0, nowTick - startedAtMs))
+      : ''
 
   const rawLabel = String(label || '').trim()
   const displayLabel = (() => {
@@ -206,6 +222,11 @@ function ReasoningInlineBlockInner({
               displayLabel
             )}
           </span>
+          {liveDurationLabel ? (
+            <span className="react-chat-inline-reasoning-toggle-duration">
+              · {liveDurationLabel}
+            </span>
+          ) : null}
           {waitingOnly ? null : (
             <span
               className={`react-chat-inline-reasoning-stream-line${

@@ -13,7 +13,7 @@ import { ChangedFilesSummaryRow } from './ChangedFilesSummaryRow.js'
 import type { AssistantBubbleDisplayPlan, AssistantBubbleSlot } from '../lib/message-row-display-plan.js'
 import { hasVisibleBodyBelowActivityChunk } from '../lib/message-row-stream-display.js'
 import { bubbleMarkdownText, visibleAssistantText, visibleExploringInnerText, visiblePreToolTimelineText } from '../lib/message-row-visible-text.js'
-import { formatWorkedDurationLabel } from '../lib/turn-timing.js'
+import { formatWorkDurationText } from '../lib/turn-timing.js'
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ExploringActivityChunk } from './ExploringActivityChunk.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
@@ -252,20 +252,25 @@ function AssistantBubbleSlotViewInner({
     )
   }
 
-  // ZCode 对齐：回合完成态把活动 chunk（思考/工具/旁白）收进「已工作 X 分 X 秒」折叠；
-  // 流式期间保持平铺，工作轨迹（suppressExploringFold）/无时长数据时退回平铺。
-  const workedLabel =
-    !isStreaming && plan.flatTimeline !== false && !suppressExploringFold
-      ? formatWorkedDurationLabel(durationLabel)
-      : ''
+  // ZCode 对齐（ConversationTurnGroup / conversationTurnWorkSegments 同构）：
+  // - 流式：头部从流式首帧即显示，「工作中 N 分 N 秒」每秒跳动，内容平铺展开；
+  // - 完成：「已工作 N 分 N 秒」定格收拢；完成但缺时长（旧历史）→「已处理」；
+  // - 工作轨迹（suppressExploringFold）/控制类回合退回平铺。
+  const workedText = formatWorkDurationText(durationLabel)
   const foldableSlotIdx: number[] = []
-  if (workedLabel) {
-    plan.slots.forEach((slot, i) => {
-      if (slot.kind === 'chunk' && slot.chunk.kind !== 'text') foldableSlotIdx.push(i)
-    })
-  }
+  plan.slots.forEach((slot, i) => {
+    if (slot.kind === 'chunk' && slot.chunk.kind !== 'text') foldableSlotIdx.push(i)
+  })
+  const workedLabel = (() => {
+    if (plan.flatTimeline === false || suppressExploringFold) return ''
+    if (isStreaming) return workedText ? `工作中 ${workedText}` : '工作中'
+    if (workedText) return `已工作 ${workedText}`
+    return foldableSlotIdx.length ? '已处理' : ''
+  })()
   const foldStartIdx = foldableSlotIdx.length ? foldableSlotIdx[0] : -1
   const foldableIdxSet = new Set(foldableSlotIdx)
+  /** 流式首帧还没有任何工作条目：先渲染独立头部（对齐 ZCode firstAssistantFlowItemIndex < 0 分支） */
+  const showStandaloneWorkHeader = !!workedLabel && isStreaming && foldStartIdx < 0
 
   const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
         switch (slot.kind) {
@@ -408,10 +413,18 @@ function AssistantBubbleSlotViewInner({
   return (
     <>
       {askInline}
+      {showStandaloneWorkHeader ? (
+        <TurnHistoryFold key="turn-history-standalone" label={workedLabel} messageId={messageId} headerOnly />
+      ) : null}
       {plan.slots.map((slot, si) => {
         if (si === foldStartIdx) {
           return (
-            <TurnHistoryFold key={`turn-history-${si}`} label={workedLabel} messageId={messageId}>
+            <TurnHistoryFold
+              key={`turn-history-${si}`}
+              label={workedLabel}
+              messageId={messageId}
+              forceOpen={isStreaming}
+            >
               {foldableSlotIdx.map((idx) => (
                 <Fragment key={`folded-${idx}`}>{renderSlot(plan.slots[idx], idx)}</Fragment>
               ))}

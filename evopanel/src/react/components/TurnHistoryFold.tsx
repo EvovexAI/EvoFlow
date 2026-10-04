@@ -2,22 +2,29 @@ import { memo, useEffect, useId, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 
 /**
- * ZCode 对齐：回合完成态的「已工作 X 分 X 秒」折叠头。
- * 流式期间平铺；回合结束后整轮活动（思考/工具/旁白）收进此折叠，默认收起，
- * 展开后按 flat 时间线平铺。头部弱化灰 + 悬停箭头，展开时箭头旋转 90°。
+ * ZCode 对齐：回合「已工作 X 分 X 秒」折叠头。
+ * 流式期间 forceOpen：头部持续跳动 + 内容平铺展开（可手动收起）；
+ * 回合结束后自动收拢为折叠头（默认关闭），展开后按 flat 时间线平铺。
  */
 function TurnHistoryFoldInner({
   label,
   messageId,
+  forceOpen = false,
+  headerOnly = false,
   children,
 }: {
   /** 如「已工作 5 分 22 秒」；空串时不渲染折叠（由调用方兜底平铺） */
   label: string
   /** 行 messageId，用于 data-testid（chat-assistant-history-trigger-{id}） */
   messageId?: string
-  children: ReactNode
+  /** 流式中强制展开（用户手动收起可覆盖） */
+  forceOpen?: boolean
+  /** 仅渲染头部（流式首帧还没有工作条目时） */
+  headerOnly?: boolean
+  children?: ReactNode
 }) {
-  const [expanded, setExpanded] = useState(false)
+  /** null = 未手动干预（跟随 forceOpen）；true/false = 用户手动展开/收起 */
+  const [manual, setManual] = useState<boolean | null>(null)
   /** 收起动画期间保持 body 挂载，动画结束再真正隐藏 */
   const [closing, setClosing] = useState(false)
   const bodyId = useId()
@@ -27,13 +34,14 @@ function TurnHistoryFoldInner({
     return () => window.clearTimeout(t)
   }, [closing])
   if (!label) return <>{children}</>
-  const showBody = expanded || closing
+  const expanded = manual ?? forceOpen
+  const showBody = !headerOnly && (expanded || closing)
   const toggle = () => {
     if (expanded) {
-      setExpanded(false)
+      setManual(false)
       setClosing(true)
     } else {
-      setExpanded(true)
+      setManual(true)
       setClosing(false)
     }
   }
