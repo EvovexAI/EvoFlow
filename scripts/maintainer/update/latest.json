@@ -1,11 +1,11 @@
 {
-  "version": "1.0.7",
-  "minAppVersion": "1.0.7",
+  "version": "1.0.8",
+  "minAppVersion": "1.0.8",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.7/EvoFlow_1.0.7_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.8/EvoFlow_1.0.8_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.0.7：知识库从 Obsidian 旧方案完全切换到 owned KB 单一路径；移除 vault 残留模块与 UI；角色编辑器可显式勾选/取消挂载任务/平台/侧边面板等系统级工具，工具面按角色逐人配置生效，不再被默认绑定。覆盖安装即可。",
-  "releasedAt": "2026-09-26"
+  "changelog": "EvoFlow 1.0.8：启动性能专项优化。CLI 冷启动移除模块级全量导入，torch/transformers 改为按需加载，启动提速约 2.7 秒；桌面端内置后端改为后台线程拉起，窗口创建不再被端口探测阻塞，拉起失败不再终止启动（fail-open）；移除 Google Fonts 外链（index.html 与登录页），WebView 首帧不再等待外部 DNS；构建拆出内容稳定的 vendor-react chunk，二次启动缓存命中率提升。界面：会话列左右留白改挂 scroller，回合导航轨可贴边对齐，正文列宽与中轴不变。字号体系：869 处硬编码字号迁入 --ef-text-* 令牌，并将新刻度接入用户「字体大小」设置，滑块现在能联动全部界面文字。覆盖安装即可。",
+  "releasedAt": "2026-10-04"
 }
