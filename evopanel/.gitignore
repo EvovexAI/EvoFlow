@@ -38,6 +38,8 @@ release_body.md.bak
 .tmp/
 scripts/build-r2-archive.sh
 r2-archives/
+# 本地一次性 UI 探测脚本（含明文调试凭据，勿入库）
+inspect-*.mjs
 
 # 内部开发文档（不入公开仓）
 BLOCKING_ISSUES_REPORT.md
