@@ -82,7 +82,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   cursor: pointer;
 }
@@ -106,7 +106,7 @@
   border-radius: 999px;
   background: var(--bg-card);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   outline: none;
   width: 180px;
   transition: border-color 0.15s ease, width 0.15s ease;
@@ -379,7 +379,7 @@
   border-radius: 999px;
   height: 30px;
   padding: 0 14px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   box-shadow: none;
 }
@@ -447,7 +447,7 @@
 .apps-empty-state p {
   margin: 0 auto 20px;
   max-width: 28em;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -484,7 +484,7 @@
 }
 
 .apps-tip-detail {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-primary);
 }
@@ -528,14 +528,14 @@
 
 .apps-template-info h4 {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: var(--text-primary);
 }
 
 .apps-template-info p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.4;
 }
@@ -594,7 +594,7 @@
 
 .apps-from-task-info h4 {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -604,7 +604,7 @@
 
 .apps-from-task-info p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.4;
   display: -webkit-box;
@@ -691,7 +691,7 @@
 
 .app-run-prompt-section-label {
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: #64748b;
   letter-spacing: 0.02em;
@@ -727,13 +727,13 @@
   background: transparent;
   padding: 6px 0 0;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #2563eb;
   cursor: pointer;
 }
 
 .app-run-prompt-mode-value {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 550;
   color: #0f172a;
 }
@@ -754,7 +754,7 @@
 }
 
 .app-run-prompt-fields-count {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: #64748b;
 }
@@ -782,7 +782,7 @@
 }
 
 .app-run-prompt-key {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #94a3b8;
   line-height: 1.35;
 }
@@ -797,7 +797,7 @@
 }
 
 .app-run-prompt-hint {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #94a3b8;
   line-height: 1.35;
 }
@@ -810,7 +810,7 @@
   border-radius: 8px;
   background: #fff;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.4;
   outline: none;
   box-sizing: border-box;
@@ -1114,7 +1114,7 @@ textarea.app-run-prompt-input {
 
 .apps-history-outputs-empty {
   margin: 8px 0 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-muted, #64748b);
 }
 
@@ -1206,7 +1206,7 @@ textarea.app-run-prompt-input {
 .apps-history-time {
   white-space: nowrap;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .apps-history-actions {
@@ -1258,7 +1258,7 @@ textarea.app-run-prompt-input {
 }
 
 .apps-history-pager-meta {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -1269,7 +1269,7 @@ textarea.app-run-prompt-input {
 }
 
 .apps-history-pager-page {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
   min-width: 4.5em;
@@ -1285,7 +1285,7 @@ textarea.app-run-prompt-input {
 
 .apps-history-empty-hint {
   margin: 8px 0 16px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 
@@ -1330,7 +1330,7 @@ textarea.app-run-prompt-input {
 }
 
 .apps-history-detail-titles strong {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
 }
 
@@ -1383,7 +1383,7 @@ textarea.app-run-prompt-input {
 }
 
 .apps-history-step-item strong {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1426,7 +1426,7 @@ textarea.app-run-prompt-input {
 
 .apps-history-step-empty {
   padding: 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -1544,7 +1544,7 @@ textarea.app-run-prompt-input {
 
 .app-settings-section-title {
   margin: 0 0 16px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: #0f172a;
 }
@@ -1575,7 +1575,7 @@ textarea.app-run-prompt-input {
   min-height: 40px;
   border-radius: 8px;
   border-color: #e5e7eb;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 
 .app-settings-modal textarea.form-input {
@@ -1585,7 +1585,7 @@ textarea.app-run-prompt-input {
 }
 
 .app-settings-counter {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #94a3b8;
   text-align: right;
 }
@@ -1666,7 +1666,7 @@ textarea.app-run-prompt-input {
 }
 
 .app-settings-mode-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: #0f172a;
 }
@@ -1682,7 +1682,7 @@ textarea.app-run-prompt-input {
 }
 
 .app-settings-mode-desc {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   color: #64748b;
 }
@@ -1701,7 +1701,7 @@ textarea.app-run-prompt-input {
 
 .app-settings-check-title {
   display: block;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 550;
   color: #0f172a;
 }
@@ -1709,7 +1709,7 @@ textarea.app-run-prompt-input {
 .app-settings-check-desc {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #64748b;
   line-height: 1.45;
 }
@@ -1727,14 +1727,14 @@ textarea.app-run-prompt-input {
 }
 
 .app-params-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: #0f172a;
 }
 
 .app-params-hint {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   color: #64748b;
 }
@@ -1788,7 +1788,7 @@ textarea.app-run-prompt-input {
 }
 
 .app-param-card-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: #0f172a;
 }
@@ -1812,7 +1812,7 @@ textarea.app-run-prompt-input {
 .app-param-card-meta,
 .app-param-card-line {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #64748b;
   line-height: 1.45;
   word-break: break-all;
@@ -1913,7 +1913,7 @@ textarea.app-run-prompt-input {
 }
 
 .app-param-field-hint {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #94a3b8;
   line-height: 1.35;
   margin-top: -2px;
@@ -1945,7 +1945,7 @@ textarea.app-run-prompt-input {
 
 .app-params-dsl {
   margin-top: 14px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: #94a3b8;
 }
 

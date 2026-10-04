@@ -438,7 +438,7 @@ html.dark .wf-studio-toolbar-win-sep {
 
 .wf-node-intro {
   color: var(--wf-node-desc) !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -582,7 +582,7 @@ html.dark .wf-studio-toolbar-win-sep {
 }
 
 .wf-status-summary {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--wf-node-desc);
 }
 

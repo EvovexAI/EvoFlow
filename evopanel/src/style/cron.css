@@ -1,4 +1,4 @@
-﻿/* ══════════════════════════════════════
+/* ══════════════════════════════════════
    自动化 / Automation 页面
    使用项目全局设计变量（亮/暗自适应）
    ══════════════════════════════════════ */
@@ -101,7 +101,7 @@ html[data-custom-bg='1'] .page.cron-page {
 
 .cron-runs-summary {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -258,7 +258,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 .cron-status-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   font-weight: 400;
 }
@@ -398,7 +398,7 @@ html[data-custom-bg='1'] .page.cron-page {
   text-align: left;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   cursor: pointer;
   color: var(--text-primary);
 }
@@ -448,7 +448,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 
 .cron-run-status {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
 }
 .cron-run-status--success { color: var(--success); }
@@ -514,7 +514,7 @@ html[data-custom-bg='1'] .page.cron-page {
 .cron-drawer-section { margin-bottom: 16px; }
 .cron-drawer-section h4 {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: .04em;
@@ -531,7 +531,7 @@ html[data-custom-bg='1'] .page.cron-page {
   display: grid;
   grid-template-columns: 72px 1fr;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 .cron-drawer-dl dt { color: var(--text-tertiary); margin: 0; }
 .cron-drawer-dl dd { margin: 0; color: var(--text-primary); }
@@ -542,7 +542,7 @@ html[data-custom-bg='1'] .page.cron-page {
   padding: 10px 12px;
   border: 1px dashed var(--border-secondary);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 .sched-advanced summary {
   cursor: pointer;
@@ -595,7 +595,7 @@ html[data-custom-bg='1'] .page.cron-page {
   padding: 12px 22px; margin-top: 0; flex-shrink: 0;
 }
 .cron-modal--hub .cron-btn { font-size: 12.5px; padding: 7px 12px; }
-.cron-modal--hub .cron-btn.sm { font-size: 12px; padding: 5px 10px; }
+.cron-modal--hub .cron-btn.sm { font-size: var(--ef-text-sm) ; padding: 5px 10px; }
 
 .cron-modal-layout {
   display: flex; flex: 1; min-height: 0; overflow: hidden;
@@ -619,7 +619,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 .cron-form-section-title {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: .02em;
@@ -814,7 +814,7 @@ html[data-custom-bg='1'] .page.cron-page {
 .cron-history-summary--muted { color: var(--text-tertiary); }
 .cron-history-error {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--error);
 }
 .cron-history-meta {
@@ -824,7 +824,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 .cron-history-diag {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 .cron-history-diag summary {
@@ -846,7 +846,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 .cron-history-chat-btn {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 4px 10px;
 }
 .cron-history-actions {
@@ -1002,7 +1002,7 @@ html[data-custom-bg='1'] .page.cron-page {
 .ampm-btn {
   padding: 6px 16px; border: none; border-radius: 7px;
   background: transparent; color: var(--text-tertiary);
-  font-size: 12px; font-weight: 700; cursor: pointer;
+  font-size: var(--ef-text-sm) ; font-weight: 700; cursor: pointer;
   transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s; letter-spacing: .5px;
 }
 .ampm-btn.on {
@@ -1149,7 +1149,7 @@ html[data-custom-bg='1'] .page.cron-page {
   min-width:100px;
 }
 .sched-once-quick-label {
-  font-size:10px; font-weight:700; text-transform:uppercase;
+  font-size: var(--ef-text-xs) ; font-weight:700; text-transform:uppercase;
   letter-spacing:.07em; color:var(--text-quaternary,#888); text-align:center; margin-bottom:2px;
 }
 .sched-once-quick-btn {
@@ -1233,7 +1233,7 @@ html[data-custom-bg='1'] .page.cron-page {
 }
 .sched-ai-hint {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.45;
 }
@@ -1254,7 +1254,7 @@ html[data-custom-bg='1'] .page.cron-page {
   color: var(--text-secondary);
   border-radius: 999px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.18s, color 0.18s, background 0.18s, box-shadow 0.18s;
@@ -1276,13 +1276,13 @@ html[data-custom-bg='1'] .page.cron-page {
   margin-top: 10px; padding: 8px 12px;
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), color-mix(in srgb, var(--accent-hover) 4%, transparent));
   border: 1px solid color-mix(in srgb, var(--accent) 14%, transparent); border-radius: var(--radius-lg);
-  font-size: 12px; color: var(--text-primary);
+  font-size: var(--ef-text-sm) ; color: var(--text-primary);
   display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap;
   font-weight: 500; letter-spacing: .01em;
   transition: background-color 0.2s, border-color 0.2s, color 0.2s, opacity 0.2s, transform 0.2s, box-shadow 0.2s;
 }
 .sched-summary-card:hover { border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
-.ss-icon { font-size: 14px; }
+.ss-icon { font-size: var(--ef-text-base) ; }
 
 /* ── 最近运行时间预览 ── */
 .sched-next-runs {
@@ -1316,7 +1316,7 @@ html[data-custom-bg='1'] .page.cron-page {
   background: var(--bg-primary);
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-primary);
 }
 .sched-next-runs-idx {
@@ -1327,7 +1327,7 @@ html[data-custom-bg='1'] .page.cron-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 700;
   background: var(--accent-muted);
   color: var(--accent);
@@ -1343,7 +1343,7 @@ html[data-custom-bg='1'] .page.cron-page {
   white-space: nowrap;
 }
 .sched-next-runs-empty {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   padding: 2px;
 }

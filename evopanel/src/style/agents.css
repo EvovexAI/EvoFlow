@@ -144,7 +144,7 @@
 }
 
 .role-team-card-count {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--accent, #6366f1);
 }
@@ -196,7 +196,7 @@
 }
 
 .role-breadcrumb-team {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -322,7 +322,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 
 .role-more-panel-head {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: var(--text-tertiary);
   margin-bottom: 8px;
@@ -391,7 +391,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 
 .role-active-filters-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -403,7 +403,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   color: var(--text-secondary);
   border-radius: 999px;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   cursor: pointer;
 }
 
@@ -466,7 +466,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 
 .skillhub-install-steps code {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--bg-secondary, #f1f5f9);
@@ -491,7 +491,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 
 .skillhub-install-example-label {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-tertiary, #94a3b8);
 }
@@ -499,7 +499,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 .skillhub-install-example-url {
   flex: 1 1 180px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   word-break: break-all;
   color: var(--text-primary, #0f172a);
 }
@@ -592,7 +592,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 
 .agent-tag-chip--readonly {
   cursor: default;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 4px 10px;
 }
 
@@ -632,7 +632,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 
 .react-chat-role-tag-bar .agent-tag-chip {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 4px 10px;
 }
 
@@ -738,7 +738,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   font-size: 11px;
 }
 .role-type-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   font-weight: 500;
 }
@@ -787,7 +787,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
@@ -804,7 +804,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   width: 100%;
 }
 .role-name {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: var(--text-primary);
   letter-spacing: -0.01em;
@@ -899,7 +899,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   padding-top: 4px;
 }
 .role-resource-line {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.4;
 }
@@ -988,7 +988,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   justify-content: center;
   min-height: 200px;
   color: var(--text-tertiary);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 
 .role-badge {
@@ -1146,7 +1146,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 .hire-agent-meta { min-width: 0; flex: 1; }
 .hire-agent-name {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: var(--text-primary);
   overflow: hidden;
@@ -1191,7 +1191,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -1268,7 +1268,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   border-radius: 9px;
   background: var(--bg-secondary, #fff);
   color: var(--text-secondary, #555);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -1420,7 +1420,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   border: 1px solid var(--border-primary, rgba(0,0,0,0.12));
   background: var(--bg-primary, #fff);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 550;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
@@ -1457,7 +1457,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   border-radius: 6px;
   border: 1px solid var(--border-primary, rgba(0,0,0,0.12));
   background: var(--bg-primary, #fff);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-primary);
   font-family: inherit;
 }
@@ -1499,7 +1499,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-primary);
   cursor: pointer;
@@ -1515,7 +1515,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   white-space: nowrap;
 }
 .hire-vault-item-id {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 450;
   color: var(--text-tertiary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1550,7 +1550,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   cursor: pointer;
   list-style: none;
   padding: 10px 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
   user-select: none;
@@ -1683,7 +1683,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   flex-shrink: 0;
 }
 .skill-card-name {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.2px;
@@ -1694,7 +1694,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 .skill-card-desc {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.55;
   color: var(--text-secondary);
   overflow: hidden;
@@ -1902,7 +1902,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 .agent-sheet-code {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   display: flex;
   flex-wrap: wrap;
@@ -1933,7 +1933,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: #0f766e;
   background: color-mix(in srgb, #0f766e 12%, transparent);
@@ -1946,7 +1946,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
 }
 
 .detail-value--lead {
-  font-size: 14px !important;
+  font-size: var(--ef-text-base) !important;
   line-height: 1.55;
   color: var(--text-primary) !important;
 }
@@ -2162,14 +2162,14 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   color: var(--accent, #4f46e5);
   font-style: normal;
   margin-right: 3px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 .re-bar-btns { display: flex; gap: 6px; }
 
 .re-hint {
   margin: 0 0 10px;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-secondary, #64748b);
   background: rgba(99, 102, 241, 0.06);
@@ -2263,7 +2263,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   gap: 8px;
   margin-top: 4px;
   padding: 6px 2px 2px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-primary, rgba(128, 128, 128, 0.12));
@@ -2319,7 +2319,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   color: var(--text-tertiary);
 }
 .detail-value {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   color: var(--text-primary);
   padding: 10px 14px;
   background: var(--bg-secondary, #f8f9fb);
@@ -2380,7 +2380,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   background: linear-gradient(135deg, #10b981, #059669);
   color: #fff;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 800;
 }
 
@@ -2449,7 +2449,7 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   margin: 8px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;

@@ -25,7 +25,7 @@
   width: 20px;
   height: 20px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -81,7 +81,7 @@
 
 .react-chat-platform-feedback-subtitle {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-secondary, #64748b);
 }
@@ -135,7 +135,7 @@
   color: var(--accent-hover, #4f53dd);
   border-radius: 999px;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   cursor: pointer;
 }
@@ -177,7 +177,7 @@
   color: var(--text-secondary, #64748b);
   border-radius: 999px;
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   cursor: pointer;
 }
@@ -248,7 +248,7 @@
 
 .react-chat-platform-run-time {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-secondary, #64748b);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -379,7 +379,7 @@ html[data-theme='dark'] .react-chat-platform-run-domain {
 }
 
 html[data-theme='dark'] .react-chat-info-rail-panel-title {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 4px;

@@ -69,7 +69,7 @@
 }
 
 .md-doc-preview.msg-text {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.72;
   color: var(--text-primary, #0f172a);
 }

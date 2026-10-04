@@ -31,7 +31,7 @@
     0 10px 24px rgba(0, 0, 0, 0.18),
     0 2px 8px rgba(0, 0, 0, 0.08);
   color: var(--text-primary, #111827);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
 }
 

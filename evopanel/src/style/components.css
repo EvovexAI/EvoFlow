@@ -665,7 +665,7 @@ mark {
 
 .modal-subtitle {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   color: var(--text-secondary, #64748b);
 }
@@ -789,7 +789,7 @@ mark {
   margin-bottom: 24px;
 }
 .login-card .login-input {
-  width: 100%; padding: 10px 14px; font-size: 14px;
+  width: 100%; padding: 10px 14px; font-size: var(--ef-text-base) ;
   border: 1px solid var(--border, #e4e4e7);
   border-radius: 8px; outline: none;
   background: var(--bg-secondary, #f4f4f5);
@@ -802,7 +802,7 @@ mark {
 }
 .login-card .login-btn {
   width: 100%; margin-top: 16px; padding: 10px 0;
-  font-size: 14px; font-weight: 500;
+  font-size: var(--ef-text-base) ; font-weight: 500;
   border: none; border-radius: 8px; cursor: pointer;
   background: var(--primary, #6366f1);
   color: #fff; transition: opacity 0.2s;
@@ -985,7 +985,7 @@ mark {
   line-height: 1.4;
 }
 .engage-section-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   text-align: center;
   margin-bottom: 12px;
@@ -1033,7 +1033,7 @@ mark {
 }
 .engage-today-dismiss,
 .engage-never {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   cursor: pointer;
   opacity: 0.6;
@@ -1081,7 +1081,7 @@ mark {
     border-radius: 8px;
   }
   .engage-qr-label {
-    font-size: 10px;
+    font-size: var(--ef-text-xs) ;
   }
 }
 
@@ -1132,7 +1132,7 @@ mark {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary, #18181b);
 }
@@ -1149,7 +1149,7 @@ mark {
 .task-dashboard-stats {
   display: flex;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .task-stat {
@@ -1250,7 +1250,7 @@ mark {
 }
 
 .task-overview-progress {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary, #71717a);
   min-width: 36px;
@@ -1310,7 +1310,7 @@ mark {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary, #fafafa);
 }
@@ -1561,7 +1561,7 @@ mark {
   text-align: center;
   padding: 40px 20px;
   color: var(--text-tertiary, #a1a1aa);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 
 .message {
@@ -1609,7 +1609,7 @@ mark {
 }
 
 .message-text {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -1644,7 +1644,7 @@ mark {
   padding: 10px 14px;
   border: 1px solid var(--border-primary, #e4e4e7);
   border-radius: 8px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   background: var(--bg-primary, #fff);
   color: var(--text-primary, #18181b);
   outline: none;
@@ -1667,7 +1667,7 @@ mark {
   color: #fff;
   border: none;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 500;
   cursor: pointer;
   transition: opacity 0.2s;
@@ -1698,7 +1698,7 @@ mark {
 }
 
 .floating-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary, #fafafa);
 }
@@ -1754,7 +1754,7 @@ mark {
   padding: 40px 20px;
   text-align: center;
   color: var(--text-tertiary);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 .ec-error { color: var(--error, #b91c1c); }
 .ec-market-scroll {
@@ -1768,7 +1768,7 @@ mark {
   padding: 4px 2px 16px;
 }
 .market-section-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: var(--text-tertiary);
   letter-spacing: 0.02em;
@@ -1786,7 +1786,7 @@ mark {
 }
 .market-badge {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 650;
   padding: 2px 7px;
   border-radius: 999px;
@@ -1832,7 +1832,7 @@ mark {
 }
 .ec-skill-card { cursor: pointer; }
 .ec-badge-warn {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: #b45309;
   background: rgba(245, 158, 11, 0.12);
@@ -1840,7 +1840,7 @@ mark {
   border-radius: 999px;
 }
 .ec-tech-type {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   color: var(--text-tertiary);
   padding: 2px 6px;

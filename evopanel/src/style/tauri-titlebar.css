@@ -64,7 +64,7 @@ html.evopanel-macos-titlebar .tauri-main-chrome {
 
 .tauri-main-chrome-status {
   pointer-events: none;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary, #52525b);
   white-space: nowrap;
   opacity: 0.9;

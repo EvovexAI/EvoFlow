@@ -83,7 +83,7 @@
   background: var(--error-muted, rgba(239, 68, 68, 0.08));
   border: 1px solid var(--error-border, rgba(239, 68, 68, 0.25));
   border-radius: var(--radius-lg, 12px);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-secondary);
   position: relative;

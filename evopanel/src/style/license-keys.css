@@ -50,7 +50,7 @@
 }
 
 .lk-banner code {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .lk-stat-strip {
@@ -89,7 +89,7 @@
 }
 
 .lk-stat__label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary, #636366);
 }
 
@@ -134,7 +134,7 @@
 }
 
 .lk-table th {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary, #636366);
   background: var(--bg-secondary, #f9f9fb);
@@ -164,20 +164,20 @@
 
 .lk-note {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary, #636366);
 }
 
 .lk-muted {
   color: var(--text-tertiary, #8e8e93);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .lk-mono,
 .lk-code-mask,
 .lk-code-full {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .lk-code-full {
@@ -200,7 +200,7 @@
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 560;
 }
 

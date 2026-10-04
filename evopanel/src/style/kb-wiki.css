@@ -78,7 +78,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   margin-top: auto;
 }
@@ -105,7 +105,7 @@
   border-radius: 6px;
   color: var(--error);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1;
   padding: 4px 8px;
 }
@@ -206,7 +206,7 @@
 }
 
 .kb-detail-stats {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   margin-top: 4px;
 }
@@ -294,7 +294,7 @@
 }
 
 .kb-wiki-tree-error {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--error);
   padding: 8px 4px;
   line-height: 1.5;
@@ -351,13 +351,13 @@
 }
 
 .kb-wiki-doc-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   margin-bottom: 4px;
 }
 
 .kb-wiki-doc-summary {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.5;
   margin-bottom: 6px;
@@ -368,7 +368,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-quaternary);
 }
 
@@ -399,7 +399,7 @@
 }
 
 .kb-search-options {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   margin-bottom: 16px;
 }
@@ -437,7 +437,7 @@
 }
 
 .kb-search-hit-score {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   flex-shrink: 0;
 }

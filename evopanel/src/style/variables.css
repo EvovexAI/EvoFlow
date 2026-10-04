@@ -283,7 +283,7 @@
    * ============================================================ */
 :root {
   /* [新] EF 单一派生基座 */
-  --ef-font-size: 14px;          /* 用户可调基准 */
+  --ef-font-size: 14px;          /* 用户可调基准（勿替换为 var()，会形成循环引用） */
   --ef-text-2xs:  calc(var(--ef-font-size) - 5px);  /* 仅限图表轴标签/通道码 */
   --ef-text-xs:    calc(var(--ef-font-size) - 4px);  /* tooltip快捷键、徽章、弱元数据 */
   --ef-text-sm:    calc(var(--ef-font-size) - 2px);  /* 次级说明、tooltip正文、markdown行内代码 */

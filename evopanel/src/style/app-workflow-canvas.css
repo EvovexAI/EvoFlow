@@ -205,7 +205,7 @@
 
 .app-wf-sidebar-desc {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   width: 100%;
   font-weight: 400;
@@ -425,7 +425,7 @@
 
 .wf-inspector-node-id {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -444,7 +444,7 @@
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--wf-control-bg, rgba(0, 0, 0, 0.04));
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 500;
   color: var(--text-secondary);
   line-height: 1.4;
@@ -609,7 +609,7 @@
 .wf-binding-key {
   flex: 0 0 80px;
   min-width: 0;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
 }
 
 .wf-binding-arrow {
@@ -620,7 +620,7 @@
 .wf-binding-value {
   flex: 1;
   min-width: 0;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   font-family: var(--font-mono, 'Fira Code', monospace);
 }
 
@@ -662,13 +662,13 @@
 .wf-schema-field-name {
   flex: 1;
   min-width: 0;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
 }
 
 .wf-schema-field-type {
   flex: 0 0 auto;
   width: 80px;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   padding: 4px 6px;
 }
 
@@ -689,7 +689,7 @@
 }
 
 .wf-schema-field-desc {
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
 }
 
 /* ── Debug Panel ── */
@@ -719,7 +719,7 @@
 
 .wf-debug-panel-head h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
 }
 
@@ -753,7 +753,7 @@
   border-bottom: 2px solid transparent;
   background: none;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
 }
@@ -822,7 +822,7 @@
   border-radius: 4px;
   background: rgba(220, 53, 69, 0.1);
   color: var(--danger, #dc3545);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
 }
 
@@ -837,7 +837,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .wf-debug-status-badge {
@@ -874,7 +874,7 @@
   align-items: center;
   gap: 4px;
   padding: 6px 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
@@ -902,7 +902,7 @@
 .wf-debug-result-row {
   display: flex;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 4px 0;
 }
 
@@ -914,7 +914,7 @@
 .wf-debug-schema-badge {
   padding: 1px 6px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
 }
 
@@ -986,12 +986,12 @@
 }
 
 .wf-mock-step-ref {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
 }
 
 .wf-mock-step-toggle {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-tertiary);
 }
 
@@ -1015,7 +1015,7 @@
   padding: 0 8px;
   border-radius: 999px;
   background: var(--wf-control-bg);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 
@@ -1136,7 +1136,7 @@
   z-index: 2;
   padding: 2px 7px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: 0.02em;
@@ -1408,7 +1408,7 @@
 .wf-node-extra {
   margin-top: var(--space-sm);
   padding-left: 32px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 
@@ -1474,7 +1474,7 @@
   padding: 6px 14px;
   border-top: 1px solid var(--border-primary);
   background: color-mix(in srgb, var(--bg-card) 88%, var(--bg-secondary));
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 
@@ -1570,7 +1570,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-primary);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   pointer-events: none;
   box-shadow: var(--shadow-sm);
 }
@@ -2023,7 +2023,7 @@
   border-radius: 8px;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
@@ -2252,7 +2252,7 @@
   border-radius: 9px;
   background: var(--wf-control-bg);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
@@ -2315,7 +2315,7 @@
   padding: 0 5px;
   border-radius: 999px;
   background: var(--wf-control-bg);
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   color: var(--text-tertiary);
 }
@@ -2359,7 +2359,7 @@
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--wf-control-bg);
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 500;
   color: var(--text-tertiary);
 }
@@ -2393,11 +2393,11 @@
 }
 
 .wf-drawer-lib-tile .wf-drawer-lib-name {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .wf-drawer-lib-tile .wf-drawer-lib-desc {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
 }
 
 .wf-drawer-lib-add {
@@ -2432,7 +2432,7 @@
   border-radius: 9px;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
@@ -2477,7 +2477,7 @@
 }
 
 .wf-drawer-empty span {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.45;
 }
@@ -2486,7 +2486,7 @@
   margin: 8px 0 10px;
   padding-left: 1.25em;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.55;
   color: var(--text-secondary);
   width: 100%;
@@ -2509,7 +2509,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-tertiary);
   line-height: 1.4;
@@ -2549,7 +2549,7 @@
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   line-height: 1.4;
   vertical-align: middle;
@@ -2629,13 +2629,13 @@
 }
 
 .wf-drawer-step-agent-name {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
 }
 
 .wf-drawer-step-sub {
   padding-left: 44px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.4;
 }
@@ -2655,7 +2655,7 @@
 
 .wf-drawer-panel-title {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -2668,7 +2668,7 @@
   padding: 12px;
   border: none;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -2703,7 +2703,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -2757,7 +2757,7 @@
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
 }
 
@@ -2818,7 +2818,7 @@
   border: none;
   background: none;
   color: var(--accent);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
 }
@@ -2841,7 +2841,7 @@
   border-radius: 8px;
   background: var(--wf-control-bg);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 8px 10px;
   outline: none;
   margin-bottom: 8px;
@@ -2921,7 +2921,7 @@
 
 .wf-agent-picker-tag-n {
   margin-left: 4px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 500;
   opacity: 0.55;
 }
@@ -3013,7 +3013,7 @@
 }
 
 .wf-agent-picker-mini-caps {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   line-height: 1.35;
   color: var(--text-tertiary);
   overflow: hidden;
@@ -3031,7 +3031,7 @@
 
 .wf-agent-picker-selected-desc {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   color: var(--text-secondary);
 }
@@ -3087,7 +3087,7 @@
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
@@ -3104,7 +3104,7 @@
 
 .wf-drawer-agent-caps-desc {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   color: var(--text-secondary);
 }
@@ -3224,7 +3224,7 @@
 }
 
 .wf-insert-chip-token {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--accent);
   background: transparent;
   padding: 0;
@@ -3388,7 +3388,7 @@
 }
 
 .wf-var-chip-count {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   color: var(--text-tertiary);
 }
@@ -3402,7 +3402,7 @@
   border-radius: 50%;
   background: transparent;
   color: color-mix(in srgb, var(--accent) 70%, var(--text-tertiary));
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1;
   cursor: pointer;
 }
@@ -3443,7 +3443,7 @@
 
 .wf-slash-var-menu--empty {
   padding: 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -3503,7 +3503,7 @@
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: var(--text-secondary);
 }
@@ -3541,7 +3541,7 @@
 }
 
 .wf-run-vars-req {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 650;
   color: var(--accent);
   padding: 1px 5px;
@@ -3565,7 +3565,7 @@
   padding: 12px;
   border: 1px dashed var(--border-primary);
   border-radius: 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   background: var(--bg-secondary);
 }
@@ -3743,7 +3743,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-api-access-hint--muted {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -3752,7 +3752,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-api-access-hint code {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
@@ -3767,7 +3767,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-api-base-row label {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -3780,7 +3780,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border: 1px solid var(--border-primary);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -3835,14 +3835,14 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-api-plaintext-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   margin-bottom: 6px;
 }
 
 .wf-api-plaintext code {
   display: block;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   word-break: break-all;
   user-select: all;
 }
@@ -3852,7 +3852,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-api-snippet-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   margin-bottom: 6px;
 }
@@ -3889,13 +3889,13 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-api-call-card-head h4 {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
 }
 
 .wf-api-call-card-head p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.45;
 }
@@ -3912,7 +3912,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   display: grid;
   gap: 6px;
   margin-bottom: 12px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .wf-api-call-meta > div {
@@ -3947,7 +3947,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   margin-bottom: 10px;
   border-radius: 8px;
   background: var(--bg-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 
@@ -3972,7 +3972,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 550;
 }
 
@@ -4018,7 +4018,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-api-call-resp-hint {
   margin: 8px 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -4475,7 +4475,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border-radius: 7px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
@@ -4489,7 +4489,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-debug-dock-btn--close {
   width: auto;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -4562,7 +4562,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   flex-shrink: 0;
   width: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.4;
   color: var(--text-tertiary);
 }
@@ -4575,7 +4575,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-debug-rail-glyph {
   flex-shrink: 0;
   width: 14px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   line-height: 1.45;
   color: var(--text-tertiary);
@@ -4602,7 +4602,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
@@ -4633,11 +4633,11 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-debug-io-row span:first-child {
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .wf-debug-io-row code {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   word-break: break-all;
 }
 
@@ -4678,7 +4678,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-debug-rail-copy strong {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   line-height: 1.35;
   display: -webkit-box;
@@ -4772,7 +4772,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-debug-pane-meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -4939,7 +4939,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: transparent;
   padding: 2px 4px;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--accent, #2563eb);
   cursor: pointer;
   text-decoration: none;
@@ -5048,7 +5048,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-debug-row-label {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   line-height: 1.2;
   margin: 0;
   color: var(--text-tertiary);
@@ -5079,7 +5079,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-debug-row--block .wf-debug-row-value {
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
 }
 
@@ -5151,7 +5151,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border: 1px solid var(--border-primary);
   font: inherit;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   border-radius: 12px !important;
   background: var(--bg-card) !important;
@@ -5204,14 +5204,14 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-run-chip-status {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: var(--text-primary);
 }
 
 .wf-run-chip-pct {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   min-width: 2.2em;
@@ -5243,7 +5243,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
 }
@@ -5256,7 +5256,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-run-chip-btn--close {
   width: 28px;
   padding: 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   color: var(--text-tertiary);
 }
 
@@ -5328,13 +5328,13 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-step-run-badge.is-paused { background: color-mix(in srgb, #d97706 16%, transparent); color: #b45309; }
 
 .wf-step-run-pct {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-variant-numeric: tabular-nums;
   color: var(--text-tertiary);
 }
 
 .wf-step-run-agent {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
 }
 
@@ -5361,7 +5361,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border: 1px solid color-mix(in srgb, var(--border-primary) 80%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-primary);
   font-family: inherit;
@@ -5458,7 +5458,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-debug-empty-hint {
   max-width: 36em;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   line-height: 1.5;
   color: var(--text-secondary) !important;
 }
@@ -5809,7 +5809,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-node-intro {
   color: var(--wf-node-desc) !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -5945,7 +5945,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-status-summary {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--wf-node-desc);
 }
 
@@ -6038,13 +6038,13 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-empty-template-name {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .wf-empty-template-desc {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.5;
 }
@@ -6059,7 +6059,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 
 .wf-empty-templates-footer {
   text-align: center;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   padding-top: 12px;
   border-top: 1px solid var(--border-primary);
@@ -6069,7 +6069,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 /* ========== 节点库智能体列表 ========== */
 
 .wf-drawer-section-hint {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-tertiary);
   margin: 0 0 8px;
   line-height: 1.35;
@@ -6098,7 +6098,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   border: 1px solid color-mix(in srgb, var(--border-primary) 85%, transparent);
   border-radius: 8px;
   background: var(--bg-card, #fff);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-primary);
   outline: none;
   box-sizing: border-box;
@@ -6221,7 +6221,7 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-drawer-lib-empty {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   text-align: center;
   padding: 16px 8px;

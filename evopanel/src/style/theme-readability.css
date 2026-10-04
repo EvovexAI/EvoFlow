@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 暗色 / 液态玻璃：全局文字可读性
  * 统一抬高 secondary/tertiary，避免流体背景下发灰看不清
  * （加载于 theme-surfaces.css 之后）
@@ -935,7 +935,7 @@ html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item,
 html:not([data-translucent-ui='1']) body .shell-aside-nav-item,
 html:not([data-translucent-ui='1']) body .shell-aside-new-chat-btn {
   border-radius: 8px !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 400 !important;
   letter-spacing: -0.01em !important;
   height: 30px !important;
@@ -1017,7 +1017,7 @@ html:not([data-translucent-ui='1']) body .react-chat-history-item-primary-row .r
 
 html:not([data-translucent-ui='1']) body .react-chat-history-item-meta,
 html:not([data-translucent-ui='1']) body .react-chat-history-item-time {
-  font-size: 10px !important;
+  font-size: var(--ef-text-xs) !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item:hover,

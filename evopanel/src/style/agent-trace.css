@@ -220,7 +220,7 @@
 
 .agent-trace-turn-btn-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
@@ -229,7 +229,7 @@
 .agent-trace-turn-btn-meta {
   display: block;
   margin-top: 2px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-tertiary);
 }
 
@@ -341,7 +341,7 @@
 }
 
 .agent-trace-thread-time {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-tertiary);
 }
 
@@ -384,7 +384,7 @@
 }
 
 .agent-trace-toolbar-meta {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   flex: 1;
   min-width: 0;
@@ -411,7 +411,7 @@
   max-height: min(160px, 28vh);
   overflow: auto;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-all;
@@ -518,7 +518,7 @@
 .agent-trace-user-input {
   margin: 0;
   padding: var(--space-md);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
@@ -531,7 +531,7 @@
 }
 
 .agent-trace-subcap {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary);
   margin: 12px 0 8px;
@@ -595,7 +595,7 @@
 .agent-trace-subtable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   margin-top: var(--space-sm);
 }
 
@@ -634,7 +634,7 @@
   background: var(--bg-secondary);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .agent-trace-tab:hover {
@@ -664,7 +664,7 @@
 .agent-trace-simple-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .agent-trace-simple-table th,
@@ -696,7 +696,7 @@
 
 /* 折叠 summary 内：场景 / 工具 / Token（与标题同列，非独立卡片） */
 .agent-trace-model-cycle-fold-metrics {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.5;
   color: var(--text-secondary);
   display: flex;
@@ -775,7 +775,7 @@
   gap: 6px 8px;
   flex: 0 0 auto;
   max-width: 55%;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   text-align: right;
 }
@@ -795,7 +795,7 @@
 }
 
 .agent-trace-model-cycle-fold-cause {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-secondary);
   line-height: 1.45;
@@ -826,7 +826,7 @@
 }
 
 .agent-trace-model-cycle-fold-meta {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
@@ -878,7 +878,7 @@
 
 .agent-trace-claude-session-meta {
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .agent-trace-claude-session-body {
@@ -930,7 +930,7 @@
   flex: 1;
   min-width: 0;
   margin-top: 8px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   line-height: 1.3;
   color: var(--text-tertiary);
@@ -942,7 +942,7 @@
   margin-top: 6px;
   margin-left: 0;
   padding-right: 2px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   line-height: 1.35;
   color: var(--text-tertiary);
 }
@@ -950,7 +950,7 @@
 .agent-trace-tl-rail-time-code {
   display: block;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-secondary);
   word-break: break-word;
 }
@@ -1065,7 +1065,7 @@
 .agent-trace-tl-badge {
   display: inline-flex;
   align-items: center;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 700;
   letter-spacing: 0.02em;
   padding: 4px 8px;
@@ -1089,7 +1089,7 @@
 .agent-trace-tl-card-head-meta {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-tertiary);
   white-space: nowrap;
@@ -1098,7 +1098,7 @@
 
 .agent-trace-tl-card-sub {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
 
@@ -1109,7 +1109,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
 }
 
@@ -1178,7 +1178,7 @@
 }
 
 .agent-trace-tl-meta {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -1190,14 +1190,14 @@
 
 .agent-trace-tl-inline-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .agent-trace-tl-details summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--accent);
   margin-top: 4px;
@@ -1236,7 +1236,7 @@
 .agent-trace-vendor-sys-head-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--accent);
 }
@@ -1256,7 +1256,7 @@
   overflow-y: auto;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -1279,7 +1279,7 @@ p.agent-trace-vendor-sys-none {
   align-items: baseline;
   gap: 8px 12px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.45;
 }
 
@@ -1294,7 +1294,7 @@ p.agent-trace-vendor-sys-none {
   min-width: 0;
   margin: 0;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-primary);
   background: transparent;
@@ -1312,7 +1312,7 @@ p.agent-trace-vendor-sys-none {
 
 .agent-trace-tl-foot-text {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -1372,7 +1372,7 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-thread-id-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   margin-top: 4px;
 }
@@ -1396,13 +1396,13 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-sum-dt {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   line-height: 1.35;
   margin-bottom: 6px;
 }
 
 .agent-trace-sum-dt .agent-trace-i18n {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -1416,7 +1416,7 @@ p.agent-trace-vendor-sys-none {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border-primary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -1454,7 +1454,7 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-timing-metric-v {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   color: var(--text-primary);
 }
 
@@ -1500,7 +1500,7 @@ p.agent-trace-vendor-sys-none {
   width: 100%;
   margin-top: 6px;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .agent-trace-wall-clock-table th,
@@ -1527,7 +1527,7 @@ p.agent-trace-vendor-sys-none {
 
 .agent-trace-tl-legend-text {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.55;
 }
@@ -1550,7 +1550,7 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-tl-badge-zh {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-primary);
@@ -1575,7 +1575,7 @@ p.agent-trace-vendor-sys-none {
 
 .agent-trace-tl-card-sub-more {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary);
   line-height: 1.45;
   word-break: break-word;
@@ -1601,7 +1601,7 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-detail-title-meta .agent-trace-i18n {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 
 .agent-trace-toolbar-note {
@@ -1729,7 +1729,7 @@ p.agent-trace-vendor-sys-none {
 
 .agent-trace-page .el-obs-rail-caption {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--el-text-secondary);
 }
 
@@ -1833,7 +1833,7 @@ p.agent-trace-vendor-sys-none {
   border-radius: var(--el-radius-base);
   background: transparent;
   color: var(--el-text-regular);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   text-align: left;
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
@@ -1954,7 +1954,7 @@ p.agent-trace-vendor-sys-none {
 
 .agent-trace-page .el-obs-stat-card__footer {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--el-text-secondary);
 }
 
@@ -2131,7 +2131,7 @@ p.agent-trace-vendor-sys-none {
 .agent-trace-page #at-models-table td:nth-child(2) {
   width: 8.75rem;
   max-width: 8.75rem;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -2140,7 +2140,7 @@ p.agent-trace-vendor-sys-none {
 .agent-trace-page #at-models-table td:nth-child(3) {
   width: 5.25rem;
   max-width: 5.25rem;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -2149,7 +2149,7 @@ p.agent-trace-vendor-sys-none {
 .agent-trace-page #at-models-table td:nth-child(4) {
   width: 6rem;
   max-width: 6rem;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -2167,7 +2167,7 @@ p.agent-trace-vendor-sys-none {
   width: 5.5rem;
   max-width: 5.5rem;
   text-align: right;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding-left: 6px;
   padding-right: 6px;
   white-space: nowrap;
@@ -2185,7 +2185,7 @@ p.agent-trace-vendor-sys-none {
   width: 3.75rem;
   max-width: 3.75rem;
   text-align: right;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding-left: 6px;
   padding-right: 6px;
 }
@@ -2195,7 +2195,7 @@ p.agent-trace-vendor-sys-none {
   width: 9rem;
   max-width: 9rem;
   min-width: 7rem;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding-left: 6px;
   padding-right: 6px;
   white-space: nowrap;
@@ -2246,7 +2246,7 @@ p.agent-trace-vendor-sys-none {
 .agent-trace-page #at-models-table td:nth-child(9) .agent-trace-json-modal-open,
 .agent-trace-page #at-models-table td:nth-child(10) .agent-trace-json-modal-open,
 .agent-trace-page #at-models-table td:nth-child(13) .agent-trace-json-modal-open {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .agent-trace-page .agent-trace-model-response-preview {
@@ -2274,7 +2274,7 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-page .agent-trace-model-tool-name {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
@@ -2292,7 +2292,7 @@ p.agent-trace-vendor-sys-none {
   background: none;
   color: var(--el-text-regular);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.4;
   text-align: left;
   cursor: pointer;
@@ -2315,7 +2315,7 @@ p.agent-trace-vendor-sys-none {
   text-align: center;
   padding: 40px 16px;
   color: var(--el-text-secondary);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
 }
 
 .agent-trace-page .el-tag {
@@ -2323,7 +2323,7 @@ p.agent-trace-vendor-sys-none {
   padding: 0 9px;
   height: 22px;
   line-height: 22px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   border-radius: var(--el-radius-base);
   border: 1px solid transparent;
   white-space: nowrap;
@@ -2402,12 +2402,12 @@ p.agent-trace-vendor-sys-none {
 }
 
 .agent-trace-page .el-obs-timeline-item__time {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--el-text-secondary);
 }
 
 .agent-trace-page .el-obs-timeline-item__title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--el-text-primary);
   margin: 4px 0;
@@ -2446,7 +2446,7 @@ p.agent-trace-vendor-sys-none {
 
 .agent-trace-page .el-obs-error-text {
   color: var(--el-color-danger);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   margin-top: 2px;
   word-break: break-word;
 }
@@ -2847,5 +2847,5 @@ button.agent-trace-json-modal-open:hover {
 .el-obs-tool-copy-err.el-obs-btn {
   padding: 0 8px;
   min-height: 26px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }

@@ -136,7 +136,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 800;
   color: #fff;
   background: var(--ef-d-grad);
@@ -245,7 +245,7 @@
 
 .ef-side-drawer__section h4 {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 750;
   letter-spacing: 0.04em;
   color: var(--ef-d-ink-2);
@@ -265,7 +265,7 @@
 
 .ef-side-drawer__hint {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--ef-d-muted);
   line-height: 1.45;
 }
@@ -307,7 +307,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--ef-d-ink-2);
 }

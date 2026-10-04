@@ -1,4 +1,4 @@
-﻿/* AI Roundtable — Visual Polish (dark glass stage) */
+/* AI Roundtable — Visual Polish (dark glass stage) */
 
 .ai-rt {
   --ai-rt-bg: #030610;
@@ -311,7 +311,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(8, 12, 28, 0.72);
   color: #fff;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
@@ -519,7 +519,7 @@
   justify-content: center;
   gap: 10px;
   align-self: center;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   letter-spacing: 0.36em;
   color: #7dd3fc;
   font-weight: 700;
@@ -983,7 +983,7 @@
 }
 
 .ai-rt__table-kicker {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   letter-spacing: 0.5em;
   color: rgba(147, 197, 253, 0.72);
   font-weight: 700;
@@ -1518,7 +1518,7 @@
   position: relative;
   z-index: 2;
   color: #fff;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 700;
   letter-spacing: 0.02em;
   border: none;
@@ -1569,7 +1569,7 @@
 }
 
 .ai-rt__name {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   color: #fff;
 }
@@ -1585,7 +1585,7 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: #94a3b8;
 }
 
@@ -1928,7 +1928,7 @@
     linear-gradient(180deg, rgba(18, 16, 42, 0.92), rgba(10, 14, 32, 0.9)) padding-box,
     var(--ai-rt-host-neon) border-box;
   color: #fff;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   box-shadow:
     -3px 0 12px rgba(192, 132, 252, 0.4),
@@ -2025,7 +2025,7 @@
   border-radius: 5px;
   background: linear-gradient(180deg, #8b5cf6, #7c3aed);
   box-shadow: 0 0 10px rgba(139, 92, 246, 0.45);
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-weight: 800;
   letter-spacing: 0.06em;
   color: #fff;
@@ -2037,14 +2037,14 @@
   z-index: 1;
   color: rgba(255, 255, 255, 0.85);
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .ai-rt__host-role {
   position: relative;
   z-index: 1;
   color: #fff;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -2286,7 +2286,7 @@
   border-radius: 16px;
   padding: 0 22px;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 750;
   letter-spacing: 0.01em;
   color: #fff;
@@ -2393,7 +2393,7 @@
   background: rgba(124, 58, 237, 0.08);
   color: #c4b5fd;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 0 12px;
   cursor: pointer;
   transition: 180ms ease;
@@ -2517,7 +2517,7 @@
   border: none;
   border-radius: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -2622,7 +2622,7 @@
   position: relative;
   margin: 0;
   max-width: 220px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   line-height: 1.6;
   color: #64748b;
 }
@@ -2738,7 +2738,7 @@
   display: block;
   text-align: center;
   color: #64748b;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 10px 8px;
   border-bottom: none;
   gap: 0;
@@ -2894,7 +2894,7 @@
 
 .ai-rt__consensus-count {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: #94a3b8;
   padding: 0;
@@ -2975,7 +2975,7 @@
     width: 92%;
   }
   .ai-rt__topic-text {
-    font-size: 14px;
+    font-size: var(--ef-text-base) ;
   }
   .ai-rt__table {
     width: 84%;
@@ -3017,10 +3017,10 @@
     padding: 12px 13px 13px;
   }
   .ai-rt__seat-bubble-who strong {
-    font-size: 14px;
+    font-size: var(--ef-text-base) ;
   }
   .ai-rt__seat-bubble-text {
-    font-size: 14px;
+    font-size: var(--ef-text-base) ;
     max-height: calc(1.55em * 7);
   }
   .ai-rt__node-wave {

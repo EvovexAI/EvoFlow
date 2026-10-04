@@ -123,7 +123,7 @@ body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble code
   border: 1px solid transparent !important;
   padding: 2px 6px !important;
   border-radius: 6px !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
 }
 
 body .msg.msg.turn.msg.turn--user.msg-user .msg-meta.msg-turn-user-meta {
@@ -347,7 +347,7 @@ body .msg-turn-assistant-content h4 {
 body .msg-ai .msg-bubble h1,
 body .msg-turn-assistant-content h1 { font-size: 16px !important; }
 body .msg-ai .msg-bubble h2,
-body .msg-turn-assistant-content h2 { font-size: 14px !important; }
+body .msg-turn-assistant-content h2 { font-size: var(--ef-text-base) !important; }
 body .msg-ai .msg-bubble h3,
 body .msg-turn-assistant-content h3 { font-size: 13px !important; }
 body .msg-ai .msg-bubble h4,
@@ -389,7 +389,7 @@ body .msg-turn-assistant-content table {
   width: 100% !important;
   border-collapse: collapse !important;
   margin: 14px 0 !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
 }
 
 body .msg-ai .msg-bubble th,

@@ -875,7 +875,7 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title-wrap {
 }
 
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title {
-  font-size: 14px !important;
+  font-size: var(--ef-text-base) !important;
   font-weight: 600 !important;
   color: var(--text-primary) !important;
   letter-spacing: 0 !important;
@@ -885,7 +885,7 @@ html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title {
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title small,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-title-wrap small,
 html[data-scifi-ui='1'] .react-chat-collab-exec-panel-header small {
-  font-size: 10px !important;
+  font-size: var(--ef-text-xs) !important;
   color: var(--accent) !important;
   background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
   padding: 3px 8px !important;
@@ -1166,7 +1166,7 @@ html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active::before {
 }
 
 html[data-scifi-ui='1'] .react-chat-artifacts-item-name {
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 600 !important;
   color: var(--text-primary) !important;
   letter-spacing: -0.1px !important;
@@ -1179,7 +1179,7 @@ html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active .react-chat-artifac
 }
 
 html[data-scifi-ui='1'] .react-chat-artifacts-item-status {
-  font-size: 10px !important;
+  font-size: var(--ef-text-xs) !important;
   color: var(--text-tertiary) !important;
   letter-spacing: 0.2px !important;
 }
@@ -1189,7 +1189,7 @@ html[data-scifi-ui='1'] .react-chat-artifacts-item.is-active .react-chat-artifac
 }
 
 html[data-scifi-ui='1'] .react-chat-artifacts-item-path {
-  font-size: 10px !important;
+  font-size: var(--ef-text-xs) !important;
   color: var(--text-quaternary, rgba(255, 255, 255, 0.42)) !important;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace !important;
   word-break: break-all;
@@ -1985,7 +1985,7 @@ html[data-scifi-ui='1'] .react-chat-asset-quick {
 
 html[data-scifi-ui='1'] .react-chat-asset-quick-label {
   color: var(--accent-secondary) !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0.4px !important;
   text-shadow: 0 0 12px color-mix(in srgb, var(--accent-secondary) 50%, transparent);
@@ -1998,7 +1998,7 @@ html[data-scifi-ui='1'] .react-chat-asset-quick-btn {
   border-radius: 10px !important;
   color: var(--text-primary) !important;
   padding: 8px 12px !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 -1px 0 rgba(0, 0, 0, 0.30),
@@ -2039,7 +2039,7 @@ html[data-scifi-ui='1'] .react-chat-ctx-meter {
 
 html[data-scifi-ui='1'] .react-chat-ctx-meter-headline {
   color: var(--accent) !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0.4px !important;
   text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);

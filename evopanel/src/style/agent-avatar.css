@@ -136,12 +136,12 @@
 }
 
 .agent-avatar-picker-reset {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .agent-avatar-picker-label {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary, #64748b);
 }

@@ -68,7 +68,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   height: 30px;
   border-radius: 8px;
   color: var(--text-primary, #1d1d1f);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 400;
   letter-spacing: -0.01em;
   gap: 8px;
@@ -109,7 +109,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 .shell-aside-new-chat-btn {
   height: 30px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   box-shadow: none;
 }
@@ -135,7 +135,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   min-height: 30px;
   max-height: 30px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   gap: 6px;
   padding: 0 6px;
 }
@@ -156,7 +156,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .react-chat-history-item-title {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 400;
   letter-spacing: -0.01em;
   color: var(--text-primary, #1d1d1f);
@@ -174,7 +174,7 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 
 .react-chat-history-item-meta,
 .react-chat-history-item-time {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-tertiary, #86868b);
 }
 
@@ -238,13 +238,13 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 .react-chat-conversation-col .msg-turn--assistant .msg-ai-head-time {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--chat-ai-muted, var(--text-tertiary, #8b929a));
 }
 
 .react-chat-conversation-col .msg-turn--assistant .msg-bubble,
 .react-chat-conversation-col .msg-turn--assistant .msg-ai-final-reply {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.7;
   color: var(--chat-ai-fg, var(--text-primary, #1f2329));
   max-width: 100%;
@@ -302,7 +302,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
   border: none;
   background: transparent;
   color: var(--text-tertiary, #9297a0);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
   list-style: none;
@@ -313,13 +313,13 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 }
 
 .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: inherit;
 }
 
 .react-chat-conversation-col .msg-turn--assistant .msg-tool-activity-fold-tools {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary, #9297a0);
   font-weight: 400;
 }
@@ -364,7 +364,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 
 .react-chat-platform-feedback-subtitle,
 .react-chat-platform-feedback-hint {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary, #656b73);
 }
 
@@ -374,7 +374,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
   border: 1px solid var(--border-default, #e6e8ec);
   background: var(--bg-surface, #fff);
   color: var(--text-secondary, #656b73);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   box-shadow: none;
 }
 
@@ -458,7 +458,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
 
 .msg-action-result-meta {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary, #9297a0);
   line-height: 1.4;
   overflow: hidden;
@@ -476,7 +476,7 @@ html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.m
   border-radius: 8px;
   background: var(--bg-surface, #fff);
   color: var(--text-secondary, #656b73);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   cursor: pointer;
   transition: background 150ms ease-out, color 150ms ease-out;
@@ -529,7 +529,7 @@ html.dark .msg-action-result-link {
 
 .react-chat-bottom-dock .react-chat-input {
   color: var(--text-primary, #202124);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.55;
   border: none;
   border-radius: 0;
@@ -694,7 +694,7 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
   border-bottom: 2px solid transparent;
   border-radius: 0;
   color: var(--text-secondary, #656b73);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 4px 8px 6px;
 }
 
@@ -707,14 +707,14 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
 
 /* Context section */
 .react-chat-ctx-meter-headline {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-primary, #202124);
 }
 
 .react-chat-ctx-meter-percent {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-primary, #202124);
 }
@@ -740,7 +740,7 @@ html.dark .react-chat-bottom-dock .react-chat-bottom-area {
 .react-chat-ctx-meter-details > summary {
   list-style: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 500;
   color: var(--text-secondary, #656b73);
   padding: 4px 0;
@@ -785,7 +785,7 @@ body .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
   color: var(--text-secondary, #656b73) !important;
   box-shadow: none !important;
   border: 1px solid var(--border-default, #e6e8ec) !important;
-  font-size: 12px !important;
+  font-size: var(--ef-text-sm) !important;
   font-weight: 600 !important;
 }
 

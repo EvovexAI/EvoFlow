@@ -106,7 +106,7 @@
 
 .webui-login-brand-kicker {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -185,7 +185,7 @@
 
 .webui-login-eyebrow {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -204,7 +204,7 @@
 
 .webui-login-panel-desc {
   margin: 10px 0 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.6;
   color: var(--login-slate);
   max-width: 42ch;
@@ -303,7 +303,7 @@
   margin-top: 28px;
   padding-top: 20px;
   border-top: 1px solid var(--login-line);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--login-slate);
   line-height: 1.55;
 }
@@ -340,7 +340,7 @@
 
 .webui-login-qr-text {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   color: var(--login-slate);
 }
 
@@ -368,7 +368,7 @@
   margin-top: 16px;
   padding: 11px 20px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   font-family: inherit;
   text-decoration: none;
@@ -404,7 +404,7 @@
   border: 1px solid var(--login-line);
   background: var(--login-paper);
   color: var(--login-ink);
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
@@ -428,7 +428,7 @@
   gap: 12px;
   margin: 18px 0 14px;
   color: #9aa7b5;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .webui-login-divider::before,

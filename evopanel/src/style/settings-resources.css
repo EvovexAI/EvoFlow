@@ -152,7 +152,7 @@
   border-radius: 999px;
   height: 26px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   cursor: pointer;
 }
 
@@ -240,7 +240,7 @@
 
 .sr-draft-title {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
 }
 
@@ -384,7 +384,7 @@
 
 .sr-inv-empty {
   padding: 10px 4px 6px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-muted, #94a3b8);
 }
 
@@ -440,7 +440,7 @@
 
 .sr-muted {
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .sr-btn {
@@ -503,7 +503,7 @@
 
 .sr-card-meta {
   color: var(--text-muted, #64748b);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 
 .sr-badge {
@@ -576,7 +576,7 @@
 }
 
 .sr-link-card span {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-muted, #64748b);
 }
 

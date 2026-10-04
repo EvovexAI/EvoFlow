@@ -90,7 +90,7 @@ html[data-theme='dark'] .sidebar-logo img {
 }
 
 .sidebar-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text-primary);
@@ -184,7 +184,7 @@ html[data-theme='dark'] .sidebar-logo img {
   white-space: nowrap;
 }
 .instance-badge {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   padding: 1px 5px;
   border-radius: 3px;
   background: var(--bg-tertiary);
@@ -208,13 +208,13 @@ html[data-theme='dark'] .sidebar-logo img {
   margin-bottom: 2px;
 }
 .instance-port {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   font-family: var(--font-mono);
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
 .instance-active-tag {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   padding: 0 5px;
   border-radius: 3px;
   background: rgba(99,102,241,.12);
@@ -293,7 +293,7 @@ html[data-theme='dark'] .sidebar-logo img {
   user-select: none;
 }
 .nav-item-badge {
-  font-size: 10px;
+  font-size: var(--ef-text-xs) ;
   color: var(--text-tertiary);
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   padding: 1px 6px;
@@ -1001,7 +1001,7 @@ html[data-theme='dark'] .sidebar-logo img {
 
 .mobile-me-account-hint {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary, #64748b);
 }
 
@@ -1065,7 +1065,7 @@ html[data-theme='dark'] .sidebar-logo img {
   color: var(--text-primary, #111);
 }
 .mobile-me-item-desc {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary, #8b90a0);
 }
 .mobile-me-item-chev {
@@ -1272,7 +1272,7 @@ html[data-theme='dark'] .sidebar-logo img {
   }
   .gw-banner-content {
     flex-wrap: wrap;
-    font-size: 12px;
+    font-size: var(--ef-text-sm) ;
     gap: 6px;
   }
   .update-banner-content {
@@ -1665,7 +1665,7 @@ html[data-theme='dark'] .sidebar-logo img {
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--bg-glass-hover, var(--bg-tertiary));
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
@@ -1685,7 +1685,7 @@ html[data-theme='dark'] .sidebar-logo img {
 
 .guide-quickstart__label,
 .guide-watchouts__label {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-primary);
@@ -1785,7 +1785,7 @@ html[data-theme='dark'] .help-section-text strong {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 700;
   color: #fff;
   background: var(--accent-color, #6366f1);
@@ -1795,7 +1795,7 @@ html[data-theme='dark'] .help-section-text strong {
 
 .guide-overview-card__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.01em;
@@ -1852,7 +1852,7 @@ html[data-theme='dark'] .help-section-text strong {
 }
 
 .help-panel-title {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
@@ -1921,7 +1921,7 @@ html[data-theme='dark'] .help-section-text strong {
 }
 
 .guide-tab-icon {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1;
 }
 
@@ -2035,12 +2035,12 @@ html[data-theme='dark'] .help-section-text strong {
   padding: 1px 5px;
   background: var(--bg-glass-hover);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .guide-step-tip {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   line-height: 1.5;
   padding: 6px 10px;
@@ -2130,7 +2130,7 @@ html[data-theme='dark'] .help-section-text strong {
   padding: 1px 5px;
   background: var(--bg-glass-hover);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
@@ -2188,7 +2188,7 @@ html[data-theme='dark'] .help-section-text strong {
   margin-top: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--border-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
   text-align: center;
   display: flex;
@@ -2250,7 +2250,7 @@ html[data-theme='dark'] .help-section-text strong {
   border-radius: 7px;
   background: var(--bg-primary, #fff);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -2263,7 +2263,7 @@ html[data-theme='dark'] .help-section-text strong {
 .guide-doc-viewer-title {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 650;
   color: var(--text-primary);
   overflow: hidden;
@@ -2313,7 +2313,7 @@ html[data-theme='dark'] .help-section-text strong {
 .guide-doc-md li { margin: 0.2em 0; }
 .guide-doc-md code {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--bg-tertiary, #f3f4f6);
@@ -2324,7 +2324,7 @@ html[data-theme='dark'] .help-section-text strong {
   overflow: auto;
   border-radius: 8px;
   background: var(--bg-tertiary, #f3f4f6);
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
 }
 .guide-doc-md pre.md-code-block code {
   padding: 0;

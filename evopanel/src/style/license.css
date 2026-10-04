@@ -85,7 +85,7 @@
 
 .premium-activate-desc {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   line-height: 1.6;
   color: var(--text-secondary, #a1a1aa);
 }
@@ -102,7 +102,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-secondary, #a1a1aa);
   border: 1px solid var(--border-secondary, var(--border-color, #333));
   border-radius: 8px;
@@ -164,7 +164,7 @@
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   color: var(--text-secondary, #a1a1aa);
 }
@@ -237,7 +237,7 @@
   margin-top: 18px;
   padding-top: 14px;
   border-top: 1px solid var(--border-secondary, var(--border-color, #333));
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-muted, #888);
   line-height: 1.5;
 }
@@ -250,7 +250,7 @@
 
 .premium-activate-advanced > summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 600;
   color: var(--text-secondary, #a1a1aa);
   list-style: none;
@@ -306,7 +306,7 @@
 }
 
 .license-status-card-tip {
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   color: var(--text-muted, #888);
   line-height: 1.4;
 }
@@ -357,7 +357,7 @@
   align-items: center;
   padding: 3px 10px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   font-weight: 650;
   line-height: 1.4;
 }
@@ -385,7 +385,7 @@
 }
 
 .license-mid-code {
-  font-size: 14px;
+  font-size: var(--ef-text-base) ;
   font-weight: 600;
   letter-spacing: 0.08em;
   padding: 10px 12px;
@@ -397,7 +397,7 @@
 
 .license-code-input {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--ef-text-sm) ;
   resize: vertical;
   border-radius: 10px;
 }
