@@ -10,7 +10,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from evoflow.authz.http_guard import require_org_admin, require_thread_visible
+from evoflow.authz.http_guard import (
+    require_org_admin,
+    require_thread_visible,
+    resolve_authz_from_request,
+)
 from evoflow.observability import analysis_report as obs_report
 from evoflow.observability import eval_metrics as obs_eval
 from evoflow.observability import latency_waterfall as obs_waterfall
@@ -23,9 +27,18 @@ def _obs_access_dep(request: Request) -> None:
 
     Session debug pane polls ``GET /models?thread_id=…`` while streaming. Requiring
     org_admin for every observability call made that UI spam ``org_admin required``.
+
+    The capability probe (``GET /status``) is the exception: it only reports whether
+    the local observability SQLite sink is switched on, and every non-admin caller
+    needs it to decide whether to show the 调试 tab. Gating it made the panel boot
+    with a 403 + unhandled rejection for members who could legitimately own threads.
     """
     path = str(request.url.path or "").rstrip("/")
     tid_q = str(request.query_params.get("thread_id") or "").strip()
+
+    # GET /status — boolean capability flag, no org data. Non-admins may read it.
+    if path.endswith("/status") and not path.endswith("/runtime-status"):
+        return
 
     # GET …/threads/{id}/timeline|insights  and  …/waterfall/{id}
     m = re.search(r"/(?:threads|waterfall)/([^/]+)(?:/(?:timeline|insights))?$", path)
@@ -40,7 +53,7 @@ def _obs_access_dep(request: Request) -> None:
         require_thread_visible(request, tid_q)
         return
 
-    # GET …/models/{row_id} — auth after row load (skip summary / reserved)
+    # GET /models/{row_id} — auth after row load (skip summary / reserved)
     m_detail = re.search(r"/models/([^/]+)$", path)
     if m_detail and m_detail.group(1) not in ("summary",):
         return
@@ -256,8 +269,17 @@ def _build_runtime_status_payload() -> dict[str, Any]:
 
 
 @router.get("/status")
-async def get_status() -> dict:
-    return await _obs_or_disk_full(obs_queries.observability_status)
+async def get_status(request: Request) -> dict:
+    """Observability capability probe.
+
+    Readable by any signed-in principal (the panel needs it to decide whether to
+    render the 调试 tab), but the on-disk ``sqlite_path`` is an install detail —
+    only org admins need it, so strip it for everyone else.
+    """
+    payload = await _obs_or_disk_full(obs_queries.observability_status)
+    if not bool(resolve_authz_from_request(request).get("is_admin")):
+        payload = {k: v for k, v in payload.items() if k != "sqlite_path"}
+    return payload
 
 
 @router.get("/mcp-status")
