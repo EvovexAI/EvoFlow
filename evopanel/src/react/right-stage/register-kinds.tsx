@@ -57,6 +57,25 @@ export function ensureRightStageKindsRegistered() {
       const data = surface.data || {}
       const url = String(data.url || data.href || data.link || '').trim()
       const extensionId = String(data.extensionId || data.extension_id || '').trim()
+      // 老 web-embed 浏览器已退役：非扩展（无 extensionId）一律路由到新 BrowserPanel。
+      // web-embed kind 仅保留给已安装的 UI 扩展应用（extensionId 存在）。
+      if (!extensionId) {
+        return (
+          <aside
+            className="react-chat-right-stage-panel react-chat-browser-panel"
+            role="region"
+            aria-label="浏览器"
+          >
+            <BrowserPanel
+              isOpen
+              onClose={() => {
+                closeBrowserStage()
+                onClose()
+              }}
+            />
+          </aside>
+        )
+      }
       // Default editable so AI-opened panels keep a working address bar (iframe often blocked).
       // Extension embeds stay read-only unless explicitly opted in.
       const editable = extensionId ? data.editable === true : data.editable !== false

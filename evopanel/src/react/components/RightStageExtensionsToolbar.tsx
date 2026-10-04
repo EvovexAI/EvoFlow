@@ -83,6 +83,8 @@ export const RightStageExtensionsToolbar = memo(function RightStageExtensionsToo
   activeExtensionId = '',
   onSelect,
   onOpenUiExtension,
+  onOpenBrowser,
+  browserActive = false,
 }: {
   activeKind: string | null
   /** Installed extension currently shown in the right-stage embed. */
@@ -90,6 +92,9 @@ export const RightStageExtensionsToolbar = memo(function RightStageExtensionsToo
   onSelect: (kind: UserStageExtensionKind) => void
   /** Open an installed UI extension in the right-stage browser embed. */
   onOpenUiExtension?: (extensionId: string) => void
+  /** 打开/关闭新浏览器面板（ZCode 式标签浏览器）。 */
+  onOpenBrowser?: () => void
+  browserActive?: boolean
 }) {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const [installed, setInstalled] = useState<InstalledExt[]>([])
@@ -217,6 +222,26 @@ export const RightStageExtensionsToolbar = memo(function RightStageExtensionsToo
         {extOpen ? (
           <div className="react-chat-stage-extensions-menu" role="menu">
             <div className="react-chat-stage-extensions-menu-head">扩展</div>
+            {onOpenBrowser ? (
+              <button
+                key='browser-panel'
+                type="button"
+                role="menuitem"
+                className={`react-chat-stage-extensions-menu-item${browserActive ? ' is-active' : ''}`}
+                onClick={() => {
+                  closeMenus()
+                  onOpenBrowser()
+                }}
+              >
+                <span className="react-chat-stage-extensions-menu-item-icon">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
+                </span>
+                <span className="react-chat-stage-extensions-menu-item-text">
+                  <span className="react-chat-stage-extensions-menu-item-label">浏览器</span>
+                  <span className="react-chat-stage-extensions-menu-item-desc">带标签的实时浏览器（与 Agent 共享）</span>
+                </span>
+              </button>
+            ) : null}
             {USER_STAGE_EXTENSIONS.map((entry) => {
               const active = activeKind === entry.kind && !activeExt
               return (

@@ -192,6 +192,78 @@ async def reset_browser_viewport_route(request: Request, thread_id: str) -> dict
     return {"thread_id": thread_id, "ok": True, "state": state}
 
 
+class _BrowserTabIndexBody(BaseModel):
+    index: int = Field(ge=0, le=64)
+
+
+class _BrowserTabNewBody(BaseModel):
+    url: str = Field(default="")
+
+
+@router.post(
+    "/{thread_id}/browser-tabs/list",
+    summary="List live browser tabs (url/title/active)",
+)
+async def browser_tabs_list_route(request: Request, thread_id: str) -> dict[str, object]:
+    require_thread_visible(request, thread_id)
+    result = await asyncio.to_thread(_dispatch_browser_command, thread_id, {"method": "tabList"})
+    if not result.get("ok"):
+        err = result.get("error") or {}
+        raise HTTPException(status_code=500, detail=err.get("message") or "tabList failed")
+    return {"thread_id": thread_id, "ok": True, "tabs": result.get("tabs") or []}
+
+
+@router.post(
+    "/{thread_id}/browser-tabs/select",
+    summary="Switch the active browser tab",
+)
+async def browser_tabs_select_route(
+    request: Request, thread_id: str, body: _BrowserTabIndexBody
+) -> dict[str, object]:
+    require_thread_visible(request, thread_id)
+    result = await asyncio.to_thread(
+        _dispatch_browser_command, thread_id, {"method": "tabSelect", "index": body.index}
+    )
+    if not result.get("ok"):
+        err = result.get("error") or {}
+        raise HTTPException(status_code=500, detail=err.get("message") or "tabSelect failed")
+    return {"thread_id": thread_id, "ok": True, "state": result.get("state") or {}}
+
+
+@router.post(
+    "/{thread_id}/browser-tabs/new",
+    summary="Open a new browser tab (optionally navigating to url)",
+)
+async def browser_tabs_new_route(
+    request: Request, thread_id: str, body: _BrowserTabNewBody
+) -> dict[str, object]:
+    require_thread_visible(request, thread_id)
+    result = await asyncio.to_thread(
+        _dispatch_browser_command, thread_id, {"method": "tabNew", "url": body.url}
+    )
+    if not result.get("ok"):
+        err = result.get("error") or {}
+        raise HTTPException(status_code=500, detail=err.get("message") or "tabNew failed")
+    return {"thread_id": thread_id, "ok": True, "state": result.get("state") or {}}
+
+
+@router.post(
+    "/{thread_id}/browser-tabs/close",
+    summary="Close a browser tab by index",
+)
+async def browser_tabs_close_route(
+    request: Request, thread_id: str, body: _BrowserTabIndexBody
+) -> dict[str, object]:
+    require_thread_visible(request, thread_id)
+    result = await asyncio.to_thread(
+        _dispatch_browser_command, thread_id, {"method": "tabClose", "index": body.index}
+    )
+    if not result.get("ok"):
+        err = result.get("error") or {}
+        raise HTTPException(status_code=500, detail=err.get("message") or "tabClose failed")
+    return {"thread_id": thread_id, "ok": True, "state": result.get("state") or {}}
+
+
 @router.post(
     "/{thread_id}/browser-click",
     summary="Click the live browser at (x, y) viewport CSS pixels",

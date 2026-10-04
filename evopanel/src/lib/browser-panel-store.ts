@@ -8,6 +8,7 @@
 import { parseBrowserLiveToolOutput } from './chat-normalize.js'
 import { rightStageStore, hideRightStageIfKind } from './right-stage/right-stage-store.js'
 import type { BrowserStreamFrameMetadata } from './browser-stream-client.js'
+import type { BrowserTabSummary } from './browser-viewport-client.js'
 import { dbgLog, dbgWarn } from './browser-debug-log.js'
 
 export type BrowserPanelMode = 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
@@ -23,6 +24,8 @@ export type BrowserRuntimeState = {
   operatingAction: string
   operatingToolCallId: string
   lastFrameMeta?: BrowserStreamFrameMetadata
+  /** 引擎实时标签页（tabList 轮询结果） */
+  tabs: BrowserTabSummary[]
 }
 
 const EMPTY: BrowserRuntimeState = {
@@ -32,6 +35,7 @@ const EMPTY: BrowserRuntimeState = {
   operating: false,
   operatingAction: '',
   operatingToolCallId: '',
+  tabs: [],
 }
 
 let state: BrowserRuntimeState = { ...EMPTY }
@@ -105,6 +109,11 @@ export function ensureBrowserStage() {
     action: 'show',
     surface: { id: 'primary', kind: 'browser', title: '浏览器', layout: 'wide', data: {} },
   })
+}
+
+/** 引擎标签页列表写入（面板轮询 tabList 后调用）。 */
+export function setBrowserTabs(tabs: BrowserTabSummary[]) {
+  patch({ tabs: Array.isArray(tabs) ? tabs : [] })
 }
 
 /** User-initiated close (panel X button). */

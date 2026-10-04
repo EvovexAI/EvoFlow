@@ -17,6 +17,10 @@ import {
   clickBrowserAt,
   scrollBrowserBy,
   sendBrowserCommand,
+  closeBrowserTab,
+  listBrowserTabs,
+  newBrowserTab,
+  selectBrowserTab,
   DEFAULT_BROWSER_VIEWPORT,
   setBrowserViewport,
   type BrowserViewportPresetId,
@@ -24,6 +28,7 @@ import {
 } from '../../lib/browser-viewport-client.js'
 import {
   getBrowserRuntimeSnapshot,
+  setBrowserTabs,
   subscribeBrowserRuntime,
 } from '../../lib/browser-panel-store.js'
 import {
@@ -41,21 +46,7 @@ export type BrowserStreamStatus = 'connecting' | 'live' | 'reconnecting' | 'erro
 const ZOOM_OPTIONS = ['fit', '50', '75', '100', '125', '150', '200'] as const
 type ZoomOption = (typeof ZOOM_OPTIONS)[number]
 
-const ZOOM_ACTION_LABELS: Record<string, string> = {
-  open: '打开网页',
-  snapshot: '读取页面',
-  click: '点击',
-  fill: '输入',
-  press: '按键',
-  scroll: '滚动',
-  screenshot: '截图',
-  back: '后退',
-  close: '关闭',
-}
 
-function zoomActionLabel(action: string): string {
-  return ZOOM_ACTION_LABELS[String(action || '').trim().toLowerCase()] || ''
-}
 
 function formatDisplayUrl(raw: string): string {
   const url = String(raw || '').trim()
@@ -200,8 +191,6 @@ function BrowserChromeBar({
   streamStatus,
   refreshBusy,
   canRefresh,
-  operating,
-  operatingAction,
   zoom,
   zoomVisible,
   viewportBusy,
@@ -222,8 +211,6 @@ function BrowserChromeBar({
   streamStatus: BrowserStreamStatus
   refreshBusy?: boolean
   canRefresh?: boolean
-  operating?: boolean
-  operatingAction?: string
   zoom?: ZoomOption
   zoomVisible?: boolean
   viewportBusy?: boolean
@@ -251,6 +238,7 @@ function BrowserChromeBar({
         : streamStatus === 'error'
           ? 'is-error'
           : 'is-idle'
+  const [moreOpen, setMoreOpen] = useState(false)
   const [dimWidth, setDimWidth] = useState<string>(
     viewport?.width ? String(viewport.width) : '',
   )
@@ -269,7 +257,6 @@ function BrowserChromeBar({
     if (w === viewport?.width && h === viewport?.height) return
     onViewportSizeChange({ width: w, height: h })
   }
-  const actionLabel = zoomActionLabel(operatingAction || '')
 
   useEffect(() => {
     setUrlDraft(displayUrl)
@@ -355,114 +342,228 @@ function BrowserChromeBar({
         </button>
         <button
           type="button"
-          className="browser-panel-tb-btn"
-          title="更多浏览器操作（即将支持）"
+          className={`browser-panel-tb-btn${moreOpen ? ' is-pressed' : ''}`}
+          title="更多浏览器操作"
           aria-label="更多浏览器操作"
-          disabled
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((v) => !v)}
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></svg>
         </button>
-      </form>
-      <div className="browser-panel-toolbar-sub">
-        {operating ? (
-          <span className="browser-panel-op-indicator" role="status">
-            <span className="browser-panel-op-dot" aria-hidden="true"></span>
-            Agent 正在操作{actionLabel ? `（${actionLabel}）` : '浏览器'}…
-          </span>
-        ) : null}
-        {onPresetChange ? (
-          <div className="browser-panel-viewport-presets" role="group" aria-label="Viewport preset">
-            {BROWSER_VIEWPORT_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`browser-panel-viewport-btn${activePreset === preset.id ? ' is-active' : ''}`}
-                title={`${preset.label} (${preset.width}×${preset.height})`}
-                aria-label={`${preset.label} ${preset.width}×${preset.height}`}
-                disabled={viewportBusy}
-                onClick={() => onPresetChange(preset.id, { width: preset.width, height: preset.height })}
-              >
-                {preset.label}
-              </button>
-            ))}
-            {onViewportSizeChange ? (
-              <span
-                className="browser-panel-viewport-dims"
-                title="自定义视口尺寸（Enter 应用，320–3840 × 320–2160）"
-              >
-                <input
-                  className="browser-panel-viewport-dim"
-                  inputMode="numeric"
-                  aria-label="视口宽度"
-                  value={dimWidth}
-                  disabled={viewportBusy}
-                  onChange={(e) => setDimWidth(e.target.value.replace(/[^0-9]/g, ''))}
-                  onKeyDown={(e) => e.key === 'Enter' && commitDims()}
-                  onBlur={commitDims}
-                />
-                <span className="browser-panel-viewport-dim-x" aria-hidden>×</span>
-                <input
-                  className="browser-panel-viewport-dim"
-                  inputMode="numeric"
-                  aria-label="视口高度"
-                  value={dimHeight}
-                  disabled={viewportBusy}
-                  onChange={(e) => setDimHeight(e.target.value.replace(/[^0-9]/g, ''))}
-                  onKeyDown={(e) => e.key === 'Enter' && commitDims()}
-                  onBlur={commitDims}
-                />
-              </span>
+      {moreOpen ? (
+        <>
+          <div className="browser-panel-menu-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true"></div>
+          <div className="browser-panel-menu" role="menu" aria-label="更多浏览器操作">
+            <div className="browser-panel-menu-section">
+              <div className="browser-panel-menu-title">浏览器状态</div>
+              <div className="browser-panel-menu-row">
+                <span className={`browser-panel-stream-dot ${statusClass}`} aria-hidden="true"></span>
+                <span>{streamStatusLabel(streamStatus)}</span>
+                {pageUrl ? (
+                  <a
+                    className="browser-panel-url-external"
+                    href={pageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="在系统浏览器打开"
+                    aria-label="在系统浏览器打开"
+                  >
+                    <ExternalLinkIcon />
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            {onPresetChange ? (
+              <div className="browser-panel-menu-section">
+                <div className="browser-panel-menu-title">视口</div>
+                <div className="browser-panel-menu-row browser-panel-viewport-presets" role="group" aria-label="Viewport preset">
+                  {BROWSER_VIEWPORT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`browser-panel-viewport-btn${activePreset === preset.id ? ' is-active' : ''}`}
+                      title={`${preset.label} (${preset.width}×${preset.height})`}
+                      disabled={viewportBusy}
+                      onClick={() => {
+                        onPresetChange(preset.id, { width: preset.width, height: preset.height })
+                        setMoreOpen(false)
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                {onViewportSizeChange ? (
+                  <span
+                    className="browser-panel-viewport-dims"
+                    title="自定义视口尺寸（Enter 应用，320–3840 × 320–2160）"
+                  >
+                    <input
+                      className="browser-panel-viewport-dim"
+                      inputMode="numeric"
+                      aria-label="视口宽度"
+                      value={dimWidth}
+                      disabled={viewportBusy}
+                      onChange={(e) => setDimWidth(e.target.value.replace(/[^0-9]/g, ''))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitDims() } }}
+                      onBlur={commitDims}
+                    />
+                    <span className="browser-panel-viewport-dim-x" aria-hidden>×</span>
+                    <input
+                      className="browser-panel-viewport-dim"
+                      inputMode="numeric"
+                      aria-label="视口高度"
+                      value={dimHeight}
+                      disabled={viewportBusy}
+                      onChange={(e) => setDimHeight(e.target.value.replace(/[^0-9]/g, ''))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitDims() } }}
+                      onBlur={commitDims}
+                    />
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {zoomVisible ? (
+              <div className="browser-panel-menu-section">
+                <div className="browser-panel-menu-title">缩放</div>
+                <select
+                  className="browser-panel-zoom"
+                  value={zoom || 'fit'}
+                  title="缩放实时画面"
+                  aria-label="Zoom live view"
+                  onChange={(event) => onZoomChange?.(event.target.value as ZoomOption)}
+                >
+                  {ZOOM_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'fit' ? '适应' : `${option}%`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {onToggleDebug ? (
+              <div className="browser-panel-menu-section">
+                <button
+                  type="button"
+                  className="browser-panel-menu-item"
+                  aria-pressed={debugOpen}
+                  onClick={() => {
+                    onToggleDebug()
+                    setMoreOpen(false)
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m8 8-4 4 4 4" /><path d="m16 8 4 4-4 4" /><path d="m13 5-2 14" /></svg>
+                  调试日志{debugOpen ? '（开）' : ''}
+                </button>
+              </div>
             ) : null}
           </div>
+        </>
         ) : null}
-        {zoomVisible ? (
-          <select
-            className="browser-panel-zoom"
-            value={zoom || 'fit'}
-            title="缩放实时画面"
-            aria-label="Zoom live view"
-            onChange={(event) => onZoomChange?.(event.target.value as ZoomOption)}
-          >
-            {ZOOM_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option === 'fit' ? '适应' : `${option}%`}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        <span
-          className={`browser-panel-stream-dot ${statusClass}`}
-          title={streamStatusLabel(streamStatus)}
-          aria-label={streamStatusLabel(streamStatus)}
-        />
-        {pageUrl ? (
-          <a
-            className="browser-panel-url-external"
-            href={pageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open in system browser"
-            aria-label="Open in system browser"
-          >
-            <ExternalLinkIcon />
-          </a>
-        ) : null}
-        {onToggleDebug ? (
-          <button
-            type="button"
-            className={`browser-panel-tb-btn${debugOpen ? ' is-pressed' : ''}`}
-            title="调试日志"
-            aria-label="调试日志"
-            aria-pressed={debugOpen}
-            onClick={onToggleDebug}
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m8 8-4 4 4 4" /><path d="m16 8 4 4-4 4" /><path d="m13 5-2 14" /></svg>
-          </button>
-        ) : null}
-      </div>
+      </form>
     </>
   )
 }
+
+/** 站点 favicon（origin/favicon.ico，失败回退 globe 图标）。 */
+function faviconUrlFor(url: string): string | null {
+  try {
+    return `${new URL(url).origin}/favicon.ico`
+  } catch {
+    return null
+  }
+}
+
+function BrowserTabChipInner({
+  tab,
+  engineIndex,
+  active,
+  draggable,
+  onSelect,
+  onClose,
+  onDragStartChip,
+  onDragOverChip,
+  onDropChip,
+}: {
+  tab: { url: string; title: string }
+  engineIndex: number
+  active: boolean
+  draggable: boolean
+  onSelect: (engineIndex: number) => void
+  onClose: (engineIndex: number) => void
+  onDragStartChip: (engineIndex: number) => void
+  onDragOverChip: (engineIndex: number) => void
+  onDropChip: () => void
+}) {
+  const [faviconFailed, setFaviconFailed] = useState(false)
+  const favSrc = faviconUrlFor(tab.url)
+  const label = tab.title || tab.url || '标签页'
+  return (
+    <div
+      className={`browser-panel-tabchip${active ? ' is-active' : ''}`}
+      title={tab.url || undefined}
+      role="button"
+      tabIndex={0}
+      draggable={draggable}
+      onDragStart={(e) => {
+        if (!draggable) return
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', String(engineIndex))
+        onDragStartChip(engineIndex)
+      }}
+      onDragOver={(e) => {
+        if (!draggable) return
+        e.preventDefault()
+        onDragOverChip(engineIndex)
+      }}
+      onDrop={(e) => {
+        if (!draggable) return
+        e.preventDefault()
+        onDropChip()
+      }}
+      onClick={() => {
+        if (!active) onSelect(engineIndex)
+      }}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !active) {
+          e.preventDefault()
+          onSelect(engineIndex)
+        }
+      }}
+    >
+      <span className="browser-panel-tabchip-icon" aria-hidden="true">
+        {favSrc && !faviconFailed ? (
+          <img
+            src={favSrc}
+            alt=""
+            className="browser-panel-tabchip-favicon"
+            draggable={false}
+            referrerPolicy="no-referrer"
+            onError={() => setFaviconFailed(true)}
+          />
+        ) : (
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
+        )}
+      </span>
+      <span className="browser-panel-tabchip-title">{label}</span>
+      <button
+        type="button"
+        className="browser-panel-tabchip-close"
+        title="关闭标签页"
+        aria-label={`关闭 ${label}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          onClose(engineIndex)
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+      </button>
+    </div>
+  )
+}
+
+const BrowserTabChip = memo(BrowserTabChipInner)
 
 function readEmbedBounds(el: HTMLElement | null) {
   if (!el) return null
@@ -1037,6 +1138,84 @@ export const BrowserPanel = memo(function BrowserPanel({
     }
   }, [effectiveThreadId, navBusy])
 
+  // 引擎标签页轮询：面板打开时拉取（含 agent 工具引起的页面变化），3s 节流
+  useEffect(() => {
+    const tid = effectiveThreadId
+    if (!isOpen || !tid) {
+      setBrowserTabs([])
+      return
+    }
+    let cancelled = false
+    const pull = async () => {
+      const res = await listBrowserTabs(tid)
+      if (!cancelled && res?.ok) setBrowserTabs(res.tabs)
+    }
+    void pull()
+    const timer = window.setInterval(() => void pull(), 3000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [isOpen, effectiveThreadId, refreshNonce])
+
+  const handleSelectTab = useCallback(
+    async (index: number) => {
+      const tid = effectiveThreadId
+      if (!tid) return
+      if (await selectBrowserTab(tid, index)) {
+        setRefreshNonce((n) => n + 1)
+      }
+    },
+    [effectiveThreadId],
+  )
+  const handleNewTab = useCallback(async () => {
+    const tid = effectiveThreadId
+    if (!tid) return
+    if (await newBrowserTab(tid)) setRefreshNonce((n) => n + 1)
+  }, [effectiveThreadId])
+  const handleCloseTab = useCallback(
+    async (index: number) => {
+      const tid = effectiveThreadId
+      if (!tid) return
+      if (await closeBrowserTab(tid, index)) setRefreshNonce((n) => n + 1)
+    },
+    [effectiveThreadId],
+  )
+
+  // 标签条：搜索弹层 + 拖拽排序（displayOrder = 显示位置 → 引擎 tab index）
+  const [tabSearchOpen, setTabSearchOpen] = useState(false)
+  const [tabDisplayOrder, setTabDisplayOrder] = useState<number[]>([])
+  const dragTabRef = useRef<number | null>(null)
+  useEffect(() => {
+    // 引擎标签数变化时重置显示顺序（关闭/新建后旧顺序失效）
+    setTabDisplayOrder((prev) => (prev.length === runtime.tabs.length ? prev : []))
+  }, [runtime.tabs.length])
+  const handleTabDragStart = useCallback((engineIndex: number) => {
+    dragTabRef.current = engineIndex
+  }, [])
+  const handleTabDragOver = useCallback(
+    (targetEngineIndex: number) => {
+      const from = dragTabRef.current
+      if (from == null || from === targetEngineIndex) return
+      setTabDisplayOrder((prev) => {
+        const base =
+          prev.length === runtime.tabs.length && prev.every((i) => i >= 0 && i < runtime.tabs.length)
+            ? [...prev]
+            : Array.from({ length: runtime.tabs.length }, (_, i) => i)
+        const fromPos = base.indexOf(from)
+        const toPos = base.indexOf(targetEngineIndex)
+        if (fromPos < 0 || toPos < 0) return prev
+        base.splice(fromPos, 1)
+        base.splice(toPos, 0, from)
+        return base
+      })
+    },
+    [runtime.tabs],
+  )
+  const handleTabDrop = useCallback(() => {
+    dragTabRef.current = null
+  }, [])
+
   const [streamError, setStreamError] = useState('')
   const handleStreamError = useCallback((message: string) => {
     setStreamError(String(message || '').trim())
@@ -1051,6 +1230,17 @@ export const BrowserPanel = memo(function BrowserPanel({
     }
   }, [pageUrl])
 
+  const tabsForRender = useMemo(() => {
+    const n = runtime.tabs.length
+    if (n <= 0) {
+      return [{ engineIndex: -1, tab: { url: pageUrl || '', title: tabTitle } }]
+    }
+    const order =
+      tabDisplayOrder.length === n && tabDisplayOrder.every((i) => i >= 0 && i < n)
+        ? tabDisplayOrder
+        : Array.from({ length: n }, (_, i) => i)
+    return order.map((engineIndex) => ({ engineIndex, tab: runtime.tabs[engineIndex] }))
+  }, [runtime.tabs, tabDisplayOrder, pageUrl, tabTitle])
   const handleViewportClick = useCallback(
     async (cssX: number, cssY: number) => {
       const tid = effectiveThreadId
@@ -1103,21 +1293,45 @@ export const BrowserPanel = memo(function BrowserPanel({
       aria-label="Browser"
     >
             <div className="browser-panel-tabstrip">
-        <div className="browser-panel-tabchip is-active" title={pageUrl || undefined}>
-          <span className="browser-panel-tabchip-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
-          </span>
-          <span className="browser-panel-tabchip-title">{tabTitle}</span>
-          <button
-            type="button"
-            className="browser-panel-tabchip-close"
-            title="关闭浏览器面板"
-            aria-label="关闭浏览器面板"
-            onClick={onClose}
-          >
-            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
-          </button>
-        </div>
+        <button
+          type="button"
+          className={`browser-panel-tb-btn${tabSearchOpen ? ' is-pressed' : ''}`}
+          title="搜索标签页"
+          aria-label="搜索标签页"
+          aria-haspopup="menu"
+          aria-expanded={tabSearchOpen}
+          onClick={() => setTabSearchOpen((v) => !v)}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m7 6 5 5 5-5" /><path d="m7 13 5 5 5-5" /></svg>
+        </button>
+        {tabsForRender.map(({ engineIndex, tab }) => (
+          <BrowserTabChip
+            key={engineIndex >= 0 ? runtime.tabs[engineIndex]?.tabId || `tab-${engineIndex}` : 'tab-current'}
+            tab={tab}
+            engineIndex={engineIndex}
+            active={engineIndex < 0 ? true : Boolean(runtime.tabs[engineIndex]?.active)}
+            draggable={runtime.tabs.length > 1}
+            onSelect={(i) => {
+              if (i >= 0) void handleSelectTab(i)
+            }}
+            onClose={(i) => {
+              if (i >= 0) void handleCloseTab(i)
+            }}
+            onDragStartChip={handleTabDragStart}
+            onDragOverChip={handleTabDragOver}
+            onDropChip={handleTabDrop}
+          />
+        ))}
+        <button
+          type="button"
+          className="browser-panel-tb-btn"
+          title="新建标签页"
+          aria-label="新建标签页"
+          onClick={() => void handleNewTab()}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+        </button>
+        <span className="browser-panel-tabstrip-spring" aria-hidden="true"></span>
         <button
           type="button"
           className="browser-panel-tb-btn"
@@ -1127,14 +1341,34 @@ export const BrowserPanel = memo(function BrowserPanel({
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /><path d="m8 9 3 3-3 3" /></svg>
         </button>
+        {tabSearchOpen ? (
+          <>
+            <div className="browser-panel-menu-backdrop" onClick={() => setTabSearchOpen(false)} aria-hidden="true"></div>
+            <div className="browser-panel-menu browser-panel-tabsearch" role="menu" aria-label="标签页列表">
+              <div className="browser-panel-menu-title">打开的标签页</div>
+              {tabsForRender.map(({ engineIndex, tab }) => (
+                <button
+                  key={engineIndex >= 0 ? runtime.tabs[engineIndex]?.tabId || `tab-${engineIndex}` : 'tab-current'}
+                  type="button"
+                  className="browser-panel-menu-item"
+                  onClick={() => {
+                    if (engineIndex >= 0) void handleSelectTab(engineIndex)
+                    setTabSearchOpen(false)
+                  }}
+                >
+                  <span className="browser-panel-menu-item-label">{tab.title || tab.url || '标签页'}</span>
+                  <span className="browser-panel-menu-item-hint">{tab.url ? new URL(tab.url).hostname : ''}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
       </div>
 <BrowserChromeBar
         pageUrl={effectivePageUrl}
         streamStatus={useEmbeddedBrowser ? 'live' : streamStatus}
         refreshBusy={refreshBusy}
         canRefresh={hasStream}
-        operating={operating}
-        operatingAction={runtime.operatingAction}
         zoom={zoom}
         zoomVisible={zoomVisible}
         viewportBusy={viewportBusy}
@@ -1176,6 +1410,12 @@ export const BrowserPanel = memo(function BrowserPanel({
         ) : hasStream ? (
           <div className={`browser-panel-live-host${showStreamPreviewLabel ? ' is-preview' : ''}`}>
             {showStreamPreviewLabel ? <div className="browser-panel-preview-label">侧栏预览</div> : null}
+            {operating ? (
+              <div className="browser-panel-op-float" role="status">
+                <span className="browser-panel-op-dot" aria-hidden="true"></span>
+                Agent 正在操作浏览器…
+              </div>
+            ) : null}
             {streamError && streamStatus !== 'live' ? (
               <div className="browser-panel-stream-notice is-error" role="alert">
                 <p className="browser-panel-stream-notice-msg">{streamError}</p>

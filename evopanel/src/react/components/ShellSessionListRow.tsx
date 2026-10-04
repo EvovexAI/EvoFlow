@@ -411,7 +411,7 @@ function ShellSessionListRowInner({
             aria-hidden="true"
           >
             {row.executing ? (
-              <ShellLoaderIcon size={16} className="react-chat-session-spinner-ic" />
+              <ShellLoaderIcon size={16} className="react-chat-session-spinner-ic animate-spin" />
             ) : useEmployeeTitle && proactiveAgentCode ? (
               <AssignedAgentAvatar
                 agentCode={proactiveAgentCode}

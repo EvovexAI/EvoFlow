@@ -37,6 +37,100 @@ async function postBrowserViewport(threadId: string, size: BrowserViewportSize, 
   }
 }
 
+export type BrowserTabSummary = {
+  tabId: string
+  url: string
+  title: string
+  active?: boolean | null
+}
+
+export type BrowserTabsResult = { ok: boolean; tabs: BrowserTabSummary[] }
+
+async function postBrowserTabs(
+  threadId: string,
+  action: 'list' | 'select' | 'new' | 'close',
+  payload: Record<string, unknown> = {},
+): Promise<BrowserTabsResult | null> {
+  const tid = String(threadId || '').trim()
+  if (!tid) return null
+  const path = `/api/threads/${encodeURIComponent(tid)}/browser-tabs/${action}`
+  try {
+    const url = await apiUrlAsync(path.replace(/^\/api\//, ''))
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { ok?: boolean; tabs?: BrowserTabSummary[] }
+    return {
+      ok: data?.ok !== false,
+      tabs: Array.isArray(data?.tabs) ? data.tabs : [],
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function listBrowserTabs(threadId: string): Promise<BrowserTabsResult | null> {
+  return postBrowserTabs(threadId, 'list')
+}
+
+export async function selectBrowserTab(threadId: string, index: number): Promise<boolean> {
+  const tid = String(threadId || '').trim()
+  if (!tid) return false
+  const path = `/api/threads/${encodeURIComponent(tid)}/browser-tabs/select`
+  try {
+    const url = await apiUrlAsync(path.replace(/^\/api\//, ''))
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function newBrowserTab(threadId: string, url = ''): Promise<boolean> {
+  const tid = String(threadId || '').trim()
+  if (!tid) return false
+  const path = `/api/threads/${encodeURIComponent(tid)}/browser-tabs/new`
+  try {
+    const target = await apiUrlAsync(path.replace(/^\/api\//, ''))
+    const res = await fetch(target, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function closeBrowserTab(threadId: string, index: number): Promise<boolean> {
+  const tid = String(threadId || '').trim()
+  if (!tid) return false
+  const path = `/api/threads/${encodeURIComponent(tid)}/browser-tabs/close`
+  try {
+    const url = await apiUrlAsync(path.replace(/^\/api\//, ''))
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export type BrowserNavMethod = 'navigate' | 'back' | 'forward'
 
 export async function sendBrowserCommand(

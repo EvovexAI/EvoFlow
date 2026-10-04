@@ -11,11 +11,7 @@ export type UserStageExtensionEntry = {
 
 /** 资讯热榜已从菜单移除；保留浏览器内嵌。扩展应用列表由工具栏动态加载。 */
 export const USER_STAGE_EXTENSIONS: UserStageExtensionEntry[] = [
-  {
-    kind: 'web-embed',
-    label: '浏览器',
-    description: '输入网址，在右侧内嵌浏览网页',
-  },
+  // 「浏览器」入口已由新 BrowserPanel 取代（browser 工具触发自动弹出 / browser kind surface）。
 ]
 
 const EXTENSION_KIND_SET = new Set<string>(USER_STAGE_EXTENSIONS.map((e) => e.kind))

@@ -182,7 +182,11 @@ import { RightStageExtensionsToolbar } from './components/RightStageExtensionsTo
 import { SidePanelBootShell } from './components/SidePanelBootShell.js'
 import { applyRightStageAgUiCustom, applyStageSetFromToolCall, STAGE_SET_APPLIED_EVENT, type StageSetPayload } from '../lib/right-stage/right-stage-agui.js'
 import { syncBrowserPanelFromAgUiEvent, isBrowserToolWireName } from '../lib/browser-panel-agui.js'
-import { setBrowserPanelThreadId } from '../lib/browser-panel-store.js'
+import {
+  closeBrowserStage,
+  ensureBrowserStage,
+  setBrowserPanelThreadId,
+} from '../lib/browser-panel-store.js'
 import { dbgLog } from '../lib/browser-debug-log.js'
 import { hideRightStageIfKind, rightStageStore } from '../lib/right-stage/right-stage-store.js'
 import {
@@ -12690,6 +12694,23 @@ export default function ChatApp() {
       activeExtensionId={activeStageUiExtensionId}
       onSelect={openStageExtension}
       onOpenUiExtension={openUiExtensionInStage}
+      onOpenBrowser={() => {
+        const surfaceKind = rightStageStore.getSnapshot().surface?.kind
+        if (surfaceKind === 'browser' && rightStageOpen) {
+          closeBrowserStage()
+        } else {
+          // 手动打开时绑定当前会话的 thread：面板命令（导航/标签/点击）才能落到引擎
+          const manualTid = String(
+            wsClient.getSessionThreadId(selectedSessionKey || '') || '',
+          ).trim()
+          if (manualTid) setBrowserPanelThreadId(manualTid)
+          ensureBrowserStage()
+          if (!isChatOverlayDeferActive()) {
+            scheduleBumpRef.current?.({ immediate: true })
+          }
+        }
+      }}
+      browserActive={rightStageOpen && rightStageSurface?.kind === 'browser'}
     />
   )
 

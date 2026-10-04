@@ -12,7 +12,7 @@ import {
   FolderPlus,
   Info,
   Layers,
-  Loader2,
+  Loader,
   MessageSquare,
   Pin,
   Plus,
@@ -154,7 +154,7 @@ export const ShellLoaderIcon = memo(function ShellLoaderIcon({
   size?: number
   className?: string
 }) {
-  return <ShellIcon icon={Loader2} size={size} className={className} />
+  return <ShellIcon icon={Loader} size={size} className={className} />
 })
 
 export function ShellErrorIcon({

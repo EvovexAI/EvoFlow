@@ -34,6 +34,7 @@ from evoflow.tools.builtins.browser_contract import (
     ErrorCode,
     SnapshotDomNode,
     SnapshotElement,
+    TabSummary,
     BrowserSnapshot,
     CommandResult,
     DialogInfo,
@@ -892,6 +893,105 @@ class BrowserEngine:
         delta_x = amount if direction == "right" else (-amount if direction == "left" else 0)
         await page.mouse.wheel(delta_x, delta_y)
         return CommandResult(ok=True, element=element, state=await self._page_state(session))
+
+    # -- tabs（ZCode parity：多标签） --------------------------------------
+
+    def _live_pages(self, session: "_Session") -> list[Any]:
+        if session.context is None:
+            return [session.page] if session.page else []
+        return [p for p in session.context.pages if not p.is_closed()]
+
+    async def _switch_tab(self, session: "_Session", page: Any) -> None:
+        """切换活动页：重绑 screencast 的 CDP session 到新 page。"""
+        if page is session.page:
+            return
+        # 停掉旧页的 screencast 并 detach 其 CDP session
+        if self.screencasting and session.cdp is not None:
+            try:
+                await session.cdp.send("Page.stopScreencast")
+            except Exception:
+                pass
+            session.screencasting = False
+        if session.cdp is not None:
+            try:
+                await session.cdp.detach()
+            except Exception:
+                pass
+            session.cdp = None
+        session.page = page
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
+        # 有客户端在看流时立即重绑；否则懒启动
+        if session.stream.clients:
+            await session.stream.ensure_screencast()
+
+    async def _cmd_tab_list(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+        pages = self._live_pages(session)
+        tabs = []
+        for i, p in enumerate(pages):
+            title = ""
+            try:
+                title = await p.title()
+            except Exception:
+                title = ""
+            tabs.append(
+                TabSummary(
+                    tabId=f"tab-{i}",
+                    url=p.url or "",
+                    title=title or "",
+                    viewport={},
+                    active=bool(p is session.page),
+                )
+            )
+        return CommandResult(ok=True, tabs=tabs)
+
+    async def _cmd_tab_select(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+        pages = self._live_pages(session)
+        index = int(command.get("index", -1))
+        if index < 0 or index >= len(pages):
+            return fail(ErrorCode.EXECUTION_ERROR, f"tab index out of range: {index}")
+        await self._switch_tab(session, pages[index])
+        return CommandResult(ok=True, state=await self._page_state(session))
+
+    async def _cmd_tab_new(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+        if session.context is None:
+            return fail(ErrorCode.CAPABILITY_UNSUPPORTED, "tabNew requires an owned browser context")
+        page = await session.context.new_page()
+        url = str(command.get("url") or "").strip()
+        if url:
+            try:
+                await page.goto(url, timeout=_NAVIGATE_TIMEOUT_MS, wait_until="domcontentloaded")
+            except Exception as exc:
+                logger.warning("tab_new goto failed: %s", exc)
+        try:
+            await page.set_viewport_size(
+                {"width": DEFAULT_AGENT_BROWSER_VIEWPORT["width"], "height": DEFAULT_AGENT_BROWSER_VIEWPORT["height"]}
+            )
+        except Exception:
+            pass
+        await self._switch_tab(session, page)
+        return CommandResult(ok=True, state=await self._page_state(session))
+
+    async def _cmd_tab_close(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+        pages = self._live_pages(session)
+        index = int(command.get("index", -1))
+        if index < 0 or index >= len(pages):
+            return fail(ErrorCode.EXECUTION_ERROR, f"tab index out of range: {index}")
+        closing = pages[index]
+        closing_current = closing is session.page
+        await closing.close()
+        remaining = self._live_pages(session)
+        if not remaining:
+            # 保底：不留死会话，重开一个空白页
+            if session.context is not None:
+                page = await session.context.new_page()
+                await self._switch_tab(session, page)
+            return CommandResult(ok=True, state=await self._page_state(session))
+        if closing_current:
+            await self._switch_tab(session, remaining[min(index, len(remaining) - 1)])
+        return CommandResult(ok=True, state=await self._page_state(session))
 
     async def _cmd_hover(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         page = session.page
