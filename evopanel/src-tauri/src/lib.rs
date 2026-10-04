@@ -114,9 +114,20 @@ pub fn run() {
             }
             commands::boot_cycle::init_boot_cycle();
             commands::boot_cycle::mark("desktop", "sidecar.ensure.begin", None);
-            backend::ensure_backend_sidecar(app.handle())
-                .map_err(|e| format!("启动内置后端失败: {e}"))?;
-            commands::boot_cycle::mark("desktop", "sidecar.ensure.returned", None);
+            // 修复依据：setup 回调里同步 ensure_backend_sidecar 会把端口检查/kill/3s 端口等待
+            // 与 800ms fast-path 就绪等待都压在窗口创建关键路径上（backend.rs 注释已确认会
+            // 拖累 WebView 首帧）；改为后台线程旁路后窗口立即创建，后端就绪状态由前端既有的
+            // /health 轮询与全局服务可用性 banner 暴露，拉起失败不再终止客户端启动（fail-open）。
+            let sidecar_boot_handle = app.handle().clone();
+            std::thread::Builder::new()
+                .name("backend-sidecar-boot".into())
+                .spawn(move || {
+                    if let Err(e) = backend::ensure_backend_sidecar(&sidecar_boot_handle) {
+                        eprintln!("[boot] 启动内置后端失败: {e}");
+                    }
+                    commands::boot_cycle::mark("desktop", "sidecar.ensure.returned", None);
+                })
+                .map_err(|e| format!("启动内置后端线程失败: {e}"))?;
             voice_hotkey::init_global_shortcut_plugin(app.handle())?;
             tray::setup_tray(app.handle())?;
             commands::boot_cycle::mark("desktop", "app.setup.done", None);

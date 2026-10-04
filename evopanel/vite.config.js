@@ -252,6 +252,17 @@ export default defineConfig(({ mode }) => {
           agentTrace: path.resolve(__dirname, 'agent-trace.html'),
           voiceOverlay: path.resolve(__dirname, 'voice-overlay.html'),
         },
+        output: {
+          // React 全家桶拆为稳定 vendor chunk：main/agent-trace/voice-overlay 三入口共享，
+          // 内容哈希不随业务代码变动，提升 Tauri 热更新与二次启动的缓存命中。
+          // 修复依据：此前无任何 manualChunks，业务代码改动会连带 vendor 一起换 hash。
+          manualChunks(id) {
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
+              return 'vendor-react'
+            }
+            return undefined
+          },
+        },
       },
     },
   }

@@ -6,7 +6,7 @@ import logging
 import json
 from typing import Any
 
-from evoflow.models.credential_sanitize import sanitize_model_document
+
 from evoflow.persistence.db import db_connection_lock, get_db, run_db_transaction, run_db_with_retry
 from evoflow.persistence.row_mappers import (
     agent_doc_to_parts,
@@ -1099,6 +1099,13 @@ def list_app_settings() -> dict[str, Any]:
 
 
 def upsert_model(document: dict[str, Any]) -> None:
+    # 修复依据：此前模块级 `from evoflow.models.credential_sanitize import ...` 会经
+    # models → models.factory 拉起 langchain → torch → transformers（实测 ≈1.6s），
+    # 导致 import 本模块的所有调用方（CLI/admin/agents 等）即使只做配置读写也要加载
+    # torch。唯一使用点在本函数内，延迟到调用时 import（sys.modules 命中为微秒级），
+    # torch 仅在真正 upsert 模型文档时才加载。
+    from evoflow.models.credential_sanitize import sanitize_model_document
+
     document = sanitize_model_document(document)
     name = str(document.get("name") or "").strip()
     if not name:
