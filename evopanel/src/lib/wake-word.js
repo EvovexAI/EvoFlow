@@ -70,6 +70,21 @@ function looksLikeJs(text) {
   return /function|var |let |const |\(function|\/\//.test(head)
 }
 
+/**
+ * The npm `sherpa-onnx` tarball only ships `sherpa-onnx-wasm-nodejs.js`, which is an
+ * emscripten NODERAWFS build: it hard-throws "NODERAWFS is currently only supported on
+ * Node.js environment." unless ENVIRONMENT_IS_NODE, and it has no WebAssembly.instantiate
+ * path at all. Forcing the env flags to false therefore only moves the failure, so treat
+ * a Node-only glue as "bundle unusable" and fall back to Web Speech instead of throwing.
+ */
+function looksLikeBrowserCapableWasmJs(text) {
+  const src = String(text || '')
+  if (!src) return false
+  if (/NODERAWFS is currently only supported on Node\.js environment/.test(src)) return false
+  // A web build must be able to fetch + instantiate the binary somehow.
+  return /WebAssembly\.(instantiate|instantiateStreaming|instantiateAsync)/.test(src)
+}
+
 async function probeAsset(url, minBytes = 256) {
   try {
     const res = await fetch(url, { method: 'GET', cache: 'no-store' })
@@ -80,7 +95,9 @@ async function probeAsset(url, minBytes = 256) {
       const view = new Uint8Array(buf)
       return view[0] === 0x00 && view[1] === 0x61 && view[2] === 0x73 && view[3] === 0x6d
     }
-    return looksLikeJs(new TextDecoder().decode(buf.slice(0, 160)))
+    const text = new TextDecoder().decode(buf)
+    if (url === KWS_WASM_JS) return looksLikeBrowserCapableWasmJs(text)
+    return looksLikeJs(text.slice(0, 160))
   } catch {
     return false
   }
@@ -263,7 +280,10 @@ async function ensureWasmRuntime() {
   wasmInitPromise = (async () => {
     const ok = await isKwsBundleAvailable()
     if (!ok) {
-      throw new Error('KWS bundle missing or invalid. Run: node scripts/download-kws-model.js')
+      throw new Error(
+        'KWS bundle missing, invalid, or a Node-only build. ' +
+          'Run: node scripts/download-kws-model.js (needs a browser-capable sherpa-onnx WASM build).',
+      )
     }
 
     await loadScriptOnce(KWS_GLUE_JS, 'glue')

@@ -43,6 +43,21 @@ function looksLikeWasm(name) {
   }
 }
 
+/**
+ * The npm `sherpa-onnx` package ships only `sherpa-onnx-wasm-nodejs.js`, an emscripten
+ * NODERAWFS build that hard-throws in a browser. A web build must be able to instantiate
+ * the binary. Shipping the node one produces a packaged app whose wake word never loads.
+ */
+function looksLikeBrowserWasmJs(name) {
+  try {
+    const src = readFileSync(join(PUBLIC_DIR, name), 'utf8')
+    if (/NODERAWFS is currently only supported on Node\.js environment/.test(src)) return false
+    return /WebAssembly\.(instantiate|instantiateStreaming|instantiateAsync)/.test(src)
+  } catch {
+    return false
+  }
+}
+
 const hasEncoder = okFile('encoder-epoch-12-avg-2-chunk-16-left-64.onnx', 1024)
 const hasDecoder = okFile('decoder-epoch-12-avg-2-chunk-16-left-64.onnx', 1024)
 const hasJoiner = okFile('joiner-epoch-12-avg-2-chunk-16-left-64.onnx', 1024)
@@ -50,7 +65,9 @@ const hasTokens = okFile('tokens.txt', 64)
 const hasKeywords = okFile('keywords.txt', 8)
 const hasGlue = okFile('sherpa-onnx-kws.js', 256) && looksLikeJs('sherpa-onnx-kws.js')
 const hasWasmJs =
-  okFile('sherpa-onnx-wasm-kws-main.js', 256) && looksLikeJs('sherpa-onnx-wasm-kws-main.js')
+  okFile('sherpa-onnx-wasm-kws-main.js', 256) &&
+  looksLikeJs('sherpa-onnx-wasm-kws-main.js') &&
+  looksLikeBrowserWasmJs('sherpa-onnx-wasm-kws-main.js')
 const hasWasmBin =
   okFile('sherpa-onnx-wasm-kws-main.wasm', 4096) && looksLikeWasm('sherpa-onnx-wasm-kws-main.wasm')
 
@@ -67,9 +84,10 @@ if (!modelOk) {
 
 if (!wasmOk) {
   const msg =
-    '[kws-ensure] WASM missing (sherpa-onnx-wasm-kws-main.js/wasm). ' +
+    '[kws-ensure] Browser-capable WASM missing or Node-only ' +
+    '(sherpa-onnx-wasm-kws-main.js/wasm). ' +
     'Offline KWS wake will not work for packaged installs; Web Speech fallback still works. ' +
-    'Run: node scripts/download-kws-model.js  then commit the two wasm files.'
+    'npm sherpa-onnx only ships a nodejs WASM build — supply a web build, then commit the two wasm files.'
   if (REQUIRE) {
     console.error(msg)
     process.exit(1)
