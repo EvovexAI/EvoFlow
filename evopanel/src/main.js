@@ -127,6 +127,7 @@ import './style/assets-page.css'
 import './style/theme-readability.css'
 import './style/ef-module-head.css'
 import './style/ef-panel-head.css'
+import './style/chat-summary-panel.css'
 
 // 初始化主题与面板设置（SQLite evoflow_app_settings / panel.ui）
 initTheme()
@@ -923,9 +924,25 @@ async function boot() {
         // 首次启动且没有配置模型,引导用户去配置
         navigate('/models')
 
-        // 显示友好提示
-        const { toast } = await import('./components/toast.js')
-        toast('👋 欢迎使用 EvoFlow! 请先配置至少一个 AI 模型', 'info', 5000)
+        // 欢迎引导 dialog（复刻 ZCode cloud-content-dialog 视觉）
+        try {
+          const { showCelebrateDialog } = await import('./components/celebrate-dialog.js')
+          showCelebrateDialog({
+            title: '欢迎使用 EvoFlow',
+            descHtml:
+              '<p>检测到尚未配置 AI 模型。先 <b>添加至少一个模型</b>，即可开始对话与任务。</p>',
+            heroCaption: '让我们开始吧',
+            icon: 'welcome',
+            actions: [
+              { label: '去配置模型', variant: 'primary' },
+              { label: '稍后再说', variant: 'secondary' },
+            ],
+          })
+        } catch {
+          /* dialog 加载失败则退回 toast */
+          const { toast } = await import('./components/toast.js')
+          toast('👋 欢迎使用 EvoFlow! 请先配置至少一个 AI 模型', 'info', 5000)
+        }
       }
     } catch {
       // 检测失败,静默忽略,不影响正常使用

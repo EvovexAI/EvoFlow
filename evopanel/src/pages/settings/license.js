@@ -7,6 +7,7 @@
  */
 import '../../style/license.css'
 import { toast } from '../../components/toast.js'
+import { showCelebrateDialog } from '../../components/celebrate-dialog.js'
 import {
   getLicenseStatus,
   refreshLicenseStatus,
@@ -252,6 +253,42 @@ function bind(root) {
       const days =
         typeof st?.days_remaining === 'number' ? `，剩余 ${st.days_remaining} 天` : ''
       toast(`激活成功${days}`, 'success')
+      if (st?.status === 'active' && st?.premium) {
+        const mid = st?.machine_id || getLicenseStatus()?.machine_id || ''
+        showCelebrateDialog({
+          title: '授权激活成功',
+          descHtml: '<p><b>任务中心 · 工作流 · 智能体员工</b> 已可使用。</p>',
+          heroCaption: '高级功能已解锁',
+          icon: 'unlock',
+          actions: [
+            {
+              label: '去体验任务中心',
+              variant: 'primary',
+              onClick: () =>
+                import('../../router.js')
+                  .then(({ navigate }) => navigate('/tasks'))
+                  .catch(() => {}),
+            },
+            {
+              label: '复制机器码',
+              variant: 'secondary',
+              closeOnClick: false,
+              onClick: async () => {
+                if (!mid) {
+                  toast('无机器码可复制', 'error')
+                  return
+                }
+                try {
+                  await navigator.clipboard.writeText(mid)
+                  toast('机器码已复制', 'success')
+                } catch {
+                  toast('复制失败，请手动选中复制', 'error')
+                }
+              },
+            },
+          ],
+        })
+      }
       try {
         const { refreshShellAsideNav } = await import('../../components/shell-aside.js')
         refreshShellAsideNav?.()
@@ -290,6 +327,7 @@ function bind(root) {
 }
 
 /**
+
  * @param {HTMLElement} container
  */
 export async function mountLicenseInto(container) {

@@ -1,0 +1,337 @@
+/* ==========================================================================
+   庆祝/引导型 Dialog（复刻 ZCode cloud-content-dialog 视觉）
+   公共样式，供 license / apps-detail / main 等多场景复用
+   依赖项目 design token：--accent / --text-primary / --text-tertiary /
+   --border-primary / --bg-secondary，暗色主题自动跟随
+   ========================================================================== */
+
+.evo-celebrate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.evo-celebrate-overlay > * {
+  pointer-events: auto;
+}
+
+.evo-celebrate-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+}
+
+.evo-celebrate-overlay.is-open .evo-celebrate-backdrop {
+  opacity: 1;
+}
+
+.evo-celebrate-overlay.is-closing .evo-celebrate-backdrop {
+  opacity: 0;
+  transition-duration: 160ms;
+}
+
+.evo-celebrate-dialog {
+  position: relative;
+  width: min(480px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border: 1px solid var(--border-primary, var(--border, #2a2a2e));
+  border-radius: 16px;
+  background: var(--bg-secondary, #18181b);
+  box-shadow:
+    0 24px 64px -12px rgba(0, 0, 0, 0.55),
+    0 0 0 1px color-mix(in srgb, var(--accent, #6366f1) 8%, transparent);
+  -webkit-app-region: no-drag;
+  opacity: 0;
+  transform: scale(0.96) translateY(4px);
+  transition:
+    opacity 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.evo-celebrate-overlay.is-open .evo-celebrate-dialog {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.evo-celebrate-overlay.is-closing .evo-celebrate-dialog {
+  opacity: 0;
+  transform: scale(0.97) translateY(2px);
+  transition-duration: 160ms;
+}
+
+/* ---- Hero：4:3 区，渐变 + 光环 + 图标 + 粒子 ---- */
+
+.evo-celebrate-hero {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 16px 16px 0 0;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 42%, color-mix(in srgb, var(--accent, #6366f1) 38%, transparent), transparent 70%),
+    radial-gradient(ellipse 120% 80% at 50% 120%, color-mix(in srgb, var(--accent, #6366f1) 22%, transparent), transparent 60%),
+    var(--bg-secondary, #0f0f12);
+  display: grid;
+  place-items: center;
+}
+
+.evo-celebrate-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 42%, transparent 30%, rgba(0, 0, 0, 0.28) 100%);
+  pointer-events: none;
+}
+
+.evo-celebrate-glow {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent, #6366f1) 60%, transparent);
+  opacity: 0;
+  animation: evo-celebrate-glow-pulse 1.8s ease-out 0.2s infinite;
+}
+
+.evo-celebrate-glow--2 {
+  animation-delay: 0.5s;
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 35%, transparent);
+}
+
+@keyframes evo-celebrate-glow-pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.7;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.evo-celebrate-icon {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent, #6366f1);
+  transform: scale(0);
+  opacity: 0;
+  animation: evo-celebrate-icon-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s forwards;
+  filter: drop-shadow(0 6px 18px color-mix(in srgb, var(--accent, #6366f1) 55%, transparent));
+}
+
+.evo-celebrate-icon svg {
+  width: 36px;
+  height: 36px;
+}
+
+@keyframes evo-celebrate-icon-in {
+  0% {
+    transform: scale(0) rotate(-12deg);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+.evo-celebrate-particle {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent, #6366f1) 85%, #fff 15%);
+  opacity: 0;
+  animation: evo-celebrate-particle 900ms ease-out 0.25s forwards;
+}
+
+@keyframes evo-celebrate-particle {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--px, 0), var(--py, 0)) scale(0.3);
+    opacity: 0;
+  }
+}
+
+.evo-celebrate-hero-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  text-align: center;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--accent, #6366f1) 70%, #fff 30%);
+  opacity: 0;
+  animation: evo-celebrate-fade-in 500ms ease-out 0.6s forwards;
+}
+
+@keyframes evo-celebrate-fade-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---- Body：标题 + 描述 ---- */
+
+.evo-celebrate-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 26px 24px 24px;
+  text-align: center;
+}
+
+.evo-celebrate-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary, #f4f4f5);
+}
+
+.evo-celebrate-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.evo-celebrate-desc b {
+  font-weight: 600;
+  color: var(--text-primary, #f4f4f5);
+}
+
+/* ---- Actions：CTA ---- */
+
+.evo-celebrate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.evo-celebrate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  max-width: 100%;
+  height: 40px;
+  padding: 0 22px;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out, transform 120ms ease-out;
+  white-space: nowrap;
+}
+
+.evo-celebrate-btn:active {
+  transform: scale(0.97);
+}
+
+.evo-celebrate-btn--primary {
+  background: var(--accent, #6366f1);
+  color: #fff;
+}
+
+.evo-celebrate-btn--primary:hover {
+  background: color-mix(in srgb, var(--accent, #6366f1) 82%, #000 18%);
+}
+
+.evo-celebrate-btn--secondary {
+  background: color-mix(in srgb, var(--text-tertiary, #9ca3af) 12%, transparent);
+  color: var(--text-primary, #f4f4f5);
+  border-color: var(--border-primary, var(--border, #2a2a2e));
+}
+
+.evo-celebrate-btn--secondary:hover {
+  background: color-mix(in srgb, var(--text-tertiary, #9ca3af) 20%, transparent);
+}
+
+/* ---- Close：右上角圆形 ---- */
+
+.evo-celebrate-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--text-tertiary, #9ca3af);
+  cursor: pointer;
+  transition: background 160ms ease-out, color 160ms ease-out;
+  -webkit-app-region: no-drag;
+}
+
+.evo-celebrate-close:hover {
+  background: color-mix(in srgb, var(--text-tertiary, #9ca3af) 18%, transparent);
+  color: var(--text-primary, #f4f4f5);
+}
+
+.evo-celebrate-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+html[data-theme='dark'] .evo-celebrate-dialog {
+  background: color-mix(in srgb, var(--bg-secondary, #18181b) 92%, #000);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .evo-celebrate-glow,
+  .evo-celebrate-icon,
+  .evo-celebrate-particle,
+  .evo-celebrate-hero-caption {
+    animation: none;
+  }
+  .evo-celebrate-icon {
+    transform: scale(1);
+    opacity: 1;
+  }
+  .evo-celebrate-hero-caption {
+    opacity: 1;
+  }
+}

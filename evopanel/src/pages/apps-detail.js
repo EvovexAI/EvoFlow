@@ -6,6 +6,7 @@
 import { api, getGatewayBaseUrl } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showModal, showConfirm, showContentModal } from '../components/modal.js'
+import { showCelebrateDialog } from '../components/celebrate-dialog.js'
 import { navigate, getCurrentRoute } from '../router.js'
 import { mountAppWorkflowCanvas } from '../components/app-workflow-canvas.js'
 import { mountAppStepTranscript } from '../components/app-step-transcript.js'
@@ -410,35 +411,18 @@ export async function render() {
     })
   }
 
-  /** 发布成功：引导填参运行或创建 API，而不是直接砸工程师弹窗 */
+  /** 发布成功：引导填参运行或创建 API（celebrate dialog） */
   function showPublishNextModal() {
-    const overlay = showContentModal({
+    showCelebrateDialog({
       title: '发布成功',
-      width: 440,
-      content: `
-        <p style="margin:0 0 12px;font-size:14px;line-height:1.55;color:var(--text-secondary)">
-          工作流已对外可用。下一步可以：
-        </p>
-        <ul style="margin:0;padding-left:1.2em;font-size:13px;line-height:1.7;color:var(--text-secondary)">
-          <li><strong>填参运行</strong> — 在运行页按表单启动（最常用）</li>
-          <li><strong>创建 API Key</strong> — 给外部系统 / 脚本调用</li>
-          <li>或关闭后继续在画布微调（保存不会掉发布）</li>
-        </ul>
-      `,
-      buttons: [
-        { label: '填参运行', className: 'btn btn-primary btn-sm', id: 'btn-pub-run' },
-        { label: '创建 API Key', className: 'btn btn-secondary btn-sm', id: 'btn-pub-api' },
+      descHtml:
+        '<p>工作流已对外可用。可以 <b>填参运行</b> 启动，或 <b>创建 API Key</b> 供外部系统调用。</p>',
+      heroCaption: '已对外可用',
+      icon: 'rocket',
+      actions: [
+        { label: '填参运行', variant: 'primary', onClick: () => navigate(`/apps/${appId}/run`) },
+        { label: '创建 API Key', variant: 'secondary', onClick: () => showApiAccessModal() },
       ],
-    })
-    const cancelBtn = overlay.querySelector('[data-action="cancel"]')
-    if (cancelBtn) cancelBtn.textContent = '继续编排'
-    overlay.querySelector('#btn-pub-run')?.addEventListener('click', () => {
-      overlay.close()
-      navigate(`/apps/${appId}/run`)
-    })
-    overlay.querySelector('#btn-pub-api')?.addEventListener('click', () => {
-      overlay.close()
-      showApiAccessModal()
     })
   }
 
