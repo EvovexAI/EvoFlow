@@ -1,6 +1,7 @@
 import { parseBrowserLiveToolOutput } from './chat-normalize.js'
 import { buildBrowserStreamPath } from './browser-stream-client.js'
 import {
+  ensureBrowserStage,
   notifyBrowserToolEnd,
   notifyBrowserToolResult,
   notifyBrowserToolStart,
@@ -15,7 +16,7 @@ export function isBrowserToolWireName(name: string): boolean {
 export type BrowserPanelPreview = {
   pageUrl?: string
   liveStreamUrl?: string
-  browserMode?: 'headed' | 'cdp' | 'headless' | 'embed'
+  browserMode?: 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
   sharedBrowser?: boolean
 }
 
@@ -63,10 +64,10 @@ export function previewPatchFromBrowserAgUiTool(
     if (live?.streamWs) {
       out.liveStreamUrl = live.streamWs
       if (live.pageUrl) out.pageUrl = live.pageUrl
-      if (live.mode === 'headed' || live.mode === 'cdp' || live.mode === 'headless' || live.mode === 'embed') {
+      if (live?.mode === 'evopanel' || live?.mode === 'headed' || live?.mode === 'cdp' || live?.mode === 'headless' || live?.mode === 'embed') {
         out.browserMode = live.mode
       }
-      if (live.headed || live.mode === 'headed' || live.mode === 'cdp' || live.mode === 'embed') {
+      if (live?.headed || live?.mode === 'headed' || live?.mode === 'cdp' || live?.mode === 'embed') {
         out.sharedBrowser = true
       }
     }
@@ -167,6 +168,19 @@ export function syncBrowserPanelFromAgUiEvent(
           : null
     const changed = notifyBrowserToolResult(toolCallId, result)
     notifyBrowserToolEnd(toolCallId)
+    // AG-UI can deliver TOOL_CALL_RESULT before the reducer has stored
+    // ``tc.result`` on the map entry. Re-read once on the next microtask so the
+    // live metadata (stream_ws / page_url) is not lost.
+    if (!result && toolCalls) {
+      queueMicrotask(() => {
+        const late = toolCalls.get(toolCallId)
+        const lateResult = typeof late?.result === 'string' ? late.result : null
+        if (lateResult) {
+          notifyBrowserToolResult(toolCallId, lateResult)
+          ensureBrowserStage()
+        }
+      })
+    }
     return changed
   }
   if (type === 'TOOL_CALL_END') {

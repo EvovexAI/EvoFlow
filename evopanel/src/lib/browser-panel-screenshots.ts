@@ -14,7 +14,7 @@ export type BrowserPanelState = {
   pageUrl?: string
   snapshotText?: string
   liveStreamUrl?: string
-  browserMode?: 'headed' | 'cdp' | 'headless' | 'embed'
+  browserMode?: 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
   sharedBrowser?: boolean
   screenshots: BrowserScreenshotEntry[]
   activityCount: number
@@ -46,7 +46,7 @@ function readBrowserMeta(tool: unknown): {
   pageUrl?: string
   snapshotText?: string
   liveStreamUrl?: string
-  browserMode?: 'headed' | 'cdp' | 'headless' | 'embed'
+  browserMode?: 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
   sharedBrowser?: boolean
 } {
   if (!tool || typeof tool !== 'object') return {}
@@ -63,13 +63,13 @@ function readBrowserMeta(tool: unknown): {
     pageUrl?: string
     snapshotText?: string
     liveStreamUrl?: string
-    browserMode?: 'headed' | 'cdp' | 'headless' | 'embed'
+    browserMode?: 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
     sharedBrowser?: boolean
   } = {}
   if (preservedLive?.streamWs) {
     out.liveStreamUrl = preservedLive.streamWs
     if (preservedLive.pageUrl) out.pageUrl = preservedLive.pageUrl
-    if (preservedLive.mode === 'headed' || preservedLive.mode === 'cdp' || preservedLive.mode === 'headless' || preservedLive.mode === 'embed') {
+    if (preservedLive.mode === 'evopanel' || preservedLive.mode === 'headed' || preservedLive.mode === 'cdp' || preservedLive.mode === 'headless' || preservedLive.mode === 'embed') {
       out.browserMode = preservedLive.mode
     }
     if (preservedLive.headed || preservedLive.mode === 'headed' || preservedLive.mode === 'cdp' || preservedLive.mode === 'embed') {

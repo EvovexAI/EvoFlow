@@ -62,12 +62,32 @@ _state_lock = threading.Lock()
 
 
 def _get_thread_id(runtime: ToolRuntime[ContextT, Any]) -> str:
-    ctx = getattr(runtime, "context", None) or {}
-    tid = ctx.get("thread_id") if isinstance(ctx, dict) else None
+    ctx = getattr(runtime, "context", None)
+    tid = None
+    if ctx is not None:
+        # ``context`` may be a mapping or a dataclass-like runtime context.
+        if isinstance(ctx, dict):
+            tid = ctx.get("thread_id")
+        else:
+            tid = getattr(ctx, "thread_id", None)
+    if not tid:
+        config = getattr(runtime, "config", None)
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        if isinstance(configurable, dict):
+            tid = configurable.get("thread_id")
+    if not tid:
+        state = getattr(runtime, "state", None)
+        if isinstance(state, dict):
+            tid = state.get("thread_id")
     if tid:
         from evoflow.tools.builtins.browser_screenshot_store import _safe_thread_segment
 
         return _safe_thread_segment(str(tid))
+    logger.warning(
+        "browser tool: no thread_id in runtime context/config — falling back to %s. "
+        "The live preview WS path will not match the panel's thread.",
+        _DEFAULT_SESSION,
+    )
     return _DEFAULT_SESSION
 
 

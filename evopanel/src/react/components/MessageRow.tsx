@@ -1,9 +1,9 @@
-import { useRef, useState, useLayoutEffect, useCallback } from 'react'
+import { useRef, useState, useLayoutEffect, useCallback, useEffect } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useLiveStreamOverlayRow } from '../hooks/useLiveStreamOverlayRow.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 import { AnimatedTokenInline } from './AnimatedTokenDisplay.js'
 import { MessageMedia } from './MessageMedia.js'
-import AgentAvatar from './AgentAvatar.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
 import {
   flattenStreamDisplayText,
@@ -56,6 +56,7 @@ function computeAssistantBodyBundle(
   suppressPlanExecPromptNoise: boolean,
   interactiveToolApproval: boolean,
   liveActivityDockLabel: string | undefined,
+  flatTimeline: boolean,
 ): AssistantBodyDerivedBundle {
   const rawTools = row.tools || []
   const rawSegments = row.segments as MessageSegment[] | undefined
@@ -131,6 +132,7 @@ function computeAssistantBodyBundle(
     plainBodyRaw: streamPlainLiveRaw,
     plainShowThinkingCursor,
     aguiTurn: row.aguiTurn ?? null,
+    flatTimeline,
   }
 
   const plan = buildAssistantBubbleDisplayPlan(planInput)
@@ -151,6 +153,7 @@ import { omitWorkerParentWhenExpanded, prepareWorkerToolsForDisplayRow } from '.
 import { visibleAssistantText, visibleExploringInnerText } from '../lib/message-row-visible-text.js'
 import { extractEvoAssetCitations } from '../lib/evo-asset-citation.js'
 import { AssetCitationChips } from './AssetCitationChips.js'
+import { AssistantSelectionMenu } from './AssistantSelectionMenu.js'
 import {
   extractAskClarificationBubbleHint,
   formatUserClarificationBubbleText,
@@ -241,6 +244,99 @@ function ScrollableUserText({
   return (
     <div key={text} className="msg-user-text-wrap">
       <div className={className}>{text}</div>
+    </div>
+  )
+}
+
+const USER_TEXT_COLLAPSED_MAX_HEIGHT_PX = 120
+const USER_TEXT_OVERFLOW_TOLERANCE_PX = 1
+
+/**
+ * ZCode 对齐（ConversationUserInputBody 同构）：用户长文本默认钳到 120px，
+ * 底部渐隐遮罩 + 悬浮圆形展开按钮；展开后完整显示，再点收起。
+ * ResizeObserver 以 RAF 合并测量，避免长会话多条消息同时布局抖动。
+ */
+function UserTextCollapsible({ text, className }: { text: string; className: string }) {
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const [contentScrollHeight, setContentScrollHeight] = useState(
+    USER_TEXT_COLLAPSED_MAX_HEIGHT_PX,
+  )
+  const [expandable, setExpandable] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [text])
+
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) {
+      setExpandable(false)
+      return
+    }
+    let rafId = 0
+    const update = () => {
+      const nextScrollHeight = content.scrollHeight
+      setContentScrollHeight((current) => (current === nextScrollHeight ? current : nextScrollHeight))
+      if (!expanded) {
+        const nextExpandable =
+          nextScrollHeight > USER_TEXT_COLLAPSED_MAX_HEIGHT_PX + USER_TEXT_OVERFLOW_TOLERANCE_PX
+        setExpandable((current) => (current === nextExpandable ? current : nextExpandable))
+      }
+    }
+    const schedule = () => {
+      if (rafId) return
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0
+        update()
+      })
+    }
+    schedule()
+    const observer =
+      typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null
+    observer?.observe(content)
+    window.addEventListener('resize', schedule)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', schedule)
+      if (rafId) window.cancelAnimationFrame(rafId)
+    }
+  }, [text, expanded])
+
+  const resolvedMaxHeight = expanded
+    ? Math.max(contentScrollHeight, USER_TEXT_COLLAPSED_MAX_HEIGHT_PX)
+    : USER_TEXT_COLLAPSED_MAX_HEIGHT_PX
+
+  return (
+    <div className="msg-user-input-collapsible" data-conversation-selectable="true">
+      <div
+        ref={contentRef}
+        data-v4-user-input-collapsible-content="true"
+        style={{ maxHeight: `${resolvedMaxHeight}px` }}
+        className={`msg-user-input-collapsible-content${
+          !expanded && expandable ? ' is-clamped' : ''
+        }`}
+      >
+        <ScrollableUserText text={text} className={className} />
+      </div>
+      {expandable ? (
+        <div className={`msg-user-input-collapse-toggle-row${expanded ? ' is-expanded' : ''}`}>
+          <button
+            type="button"
+            className="msg-user-input-collapse-toggle"
+            aria-label={expanded ? '收起' : '展开'}
+            aria-expanded={expanded}
+            title={expanded ? '收起' : '展开'}
+            onClick={() => setExpanded((current) => !current)}
+          >
+            {expanded ? (
+              <ChevronUp size={16} strokeWidth={1.5} aria-hidden />
+            ) : (
+              <ChevronDown size={16} strokeWidth={1.5} aria-hidden />
+            )}
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -551,6 +647,7 @@ export function MessageRow({
   showToolTiming = false,
   suppressPlanExecPromptNoise = false,
   suppressExploringFold = false,
+  flatTimeline = true,
   onOpenFile,
   onOpenKnowledgeMap,
   onToolApproval,
@@ -564,8 +661,6 @@ export function MessageRow({
   onRetry,
   onEdit,
   onFork,
-  assistantAgentLabel,
-  assistantAgent,
 }: {
   row: DisplayRow
   isStreaming?: boolean
@@ -574,6 +669,8 @@ export function MessageRow({
   suppressPlanExecPromptNoise?: boolean
   /** 工作轨迹：跳过 Exploring/Explored 折叠壳 */
   suppressExploringFold?: boolean
+  /** ZCode 式扁平内联时间线：activity chunk 不套「探索中」外壳（默认 true） */
+  flatTimeline?: boolean
   hideSubagentInnerTools?: boolean
   sessionKey?: string
   /** 与左侧会话列表同源：resolveLiveStreamActivity.dockLabel；undefined=未接入实时源 */
@@ -628,6 +725,14 @@ export function MessageRow({
     const hasUserText = String(userShown || '').trim().length > 0
     const preferredSkills = skillDisplay.preferredSkills || (skillDisplay.preferredSkill ? [skillDisplay.preferredSkill] : [])
     const contextFiles = Array.isArray(displayRow.contextFiles) ? displayRow.contextFiles : []
+    // ZCode 对齐：附件/引用/媒体外置到气泡上方，纯附件消息不渲染空气泡
+    const hasUserAttachments =
+      preferredSkills.length > 0 ||
+      contextFiles.length > 0 ||
+      [displayRow.images, displayRow.videos, displayRow.audios, displayRow.files].some(
+        (m) => Array.isArray(m) && m.length > 0,
+      )
+    const hasUserBubble = hasUserText || clarifySummary || approvalSummary
     const canInlineEdit = !!onEdit && !clarifySummary && !approvalSummary && !displayRow.pendingInject
     const mid = String(displayRow.messageId || '').trim() || undefined
 
@@ -646,48 +751,56 @@ export function MessageRow({
                 }}
               />
             ) : (
-              <div className="msg-bubble msg-turn-user-bubble">
-                {preferredSkills.length > 0 ? (
-                  <div className="msg-user-skill-pills">
-                    {preferredSkills.map((sk) => (
-                      <HoverBubble key={sk.name} text={`使用技能：${sk.label}`} side="top" align="start" maxWidth={320}>
-                        <div className="msg-user-skill-pill">
-                          <span className="msg-user-skill-pill-icon" aria-hidden>
-                            {sk.icon || '🧩'}
-                          </span>
-                          <span className="msg-user-skill-pill-label">{sk.label}</span>
-                        </div>
-                      </HoverBubble>
-                    ))}
+              <>
+                {hasUserAttachments ? (
+                  <div className="msg-user-attachments" data-v4-user-input-attachments="true">
+                    {preferredSkills.length > 0 ? (
+                      <div className="msg-user-skill-pills">
+                        {preferredSkills.map((sk) => (
+                          <HoverBubble key={sk.name} text={`使用技能：${sk.label}`} side="top" align="start" maxWidth={320}>
+                            <div className="msg-user-skill-pill">
+                              <span className="msg-user-skill-pill-icon" aria-hidden>
+                                {sk.icon || '🧩'}
+                              </span>
+                              <span className="msg-user-skill-pill-label">{sk.label}</span>
+                            </div>
+                          </HoverBubble>
+                        ))}
+                      </div>
+                    ) : null}
+                    {contextFiles.length > 0 ? (
+                      <div className="msg-user-context-files" aria-label="附加工作区文件">
+                        {contextFiles.map((f) => (
+                          <HoverBubble key={f.path} text={f.path} side="top" align="start" maxWidth={420}>
+                            <span className="msg-user-context-file-pill">
+                              @{f.name || f.path}
+                            </span>
+                          </HoverBubble>
+                        ))}
+                      </div>
+                    ) : null}
+                    <MessageMedia
+                      images={displayRow.images}
+                      videos={displayRow.videos}
+                      audios={displayRow.audios}
+                      files={displayRow.files}
+                      onOpenFile={onOpenFile}
+                    />
                   </div>
                 ) : null}
-                {contextFiles.length > 0 ? (
-                  <div className="msg-user-context-files" aria-label="附加工作区文件">
-                    {contextFiles.map((f) => (
-                      <HoverBubble key={f.path} text={f.path} side="top" align="start" maxWidth={420}>
-                        <span className="msg-user-context-file-pill">
-                          @{f.name || f.path}
-                        </span>
-                      </HoverBubble>
-                    ))}
+                {hasUserBubble ? (
+                  <div className="msg-bubble msg-turn-user-bubble" data-v4-user-input-bubble="true">
+                    {hasUserText ? (
+                      <UserTextCollapsible
+                        text={userShown}
+                        className={
+                          clarifySummary || approvalSummary ? 'msg-user-clarify-summary' : 'msg-user-text'
+                        }
+                      />
+                    ) : null}
                   </div>
                 ) : null}
-                <MessageMedia
-                  images={displayRow.images}
-                  videos={displayRow.videos}
-                  audios={displayRow.audios}
-                  files={displayRow.files}
-                  onOpenFile={onOpenFile}
-                />
-                {hasUserText ? (
-                  <ScrollableUserText
-                    text={userShown}
-                    className={
-                      clarifySummary || approvalSummary ? 'msg-user-clarify-summary' : 'msg-user-text'
-                    }
-                  />
-                ) : null}
-              </div>
+              </>
             )}
             {!userEditing ? (
               <div className="msg-meta msg-turn-user-meta">
@@ -726,26 +839,6 @@ export function MessageRow({
         }`}
         data-assistant-variant={assistantVariant}
       >
-        <header className="msg-ai-head msg-turn-assistant-header">
-          <span className="msg-ai-avatar" aria-hidden>
-            {assistantAgent ? (
-              <AgentAvatar
-                className="msg-ai-avatar-agent"
-                agent={assistantAgent}
-                agentCode={assistantAgent.agent_code || undefined}
-                size={18}
-              />
-            ) : (
-              <img className="msg-ai-avatar-logo" src="/images/logo.png" alt="" width="18" height="18" />
-            )}
-          </span>
-          <span className="msg-ai-head-label">
-            {assistantAgentLabel ||
-              String(assistantAgent?.agent_name || '').trim() ||
-              'EvoFlow · Agent'}
-          </span>
-          <span className="msg-ai-head-time">{formatTime(displayRow.timestamp)}</span>
-        </header>
         <div className="msg-bubble msg-turn-assistant-content" ref={bubbleRef}>
           <AssistantBody
             row={displayRow}
@@ -753,6 +846,7 @@ export function MessageRow({
             showToolTiming={showToolTiming}
             suppressPlanExecPromptNoise={suppressPlanExecPromptNoise}
             suppressExploringFold={suppressExploringFold}
+            flatTimeline={flatTimeline}
             onOpenFile={onOpenFile}
             onOpenKnowledgeMap={onOpenKnowledgeMap}
             onToolApproval={onToolApproval}
@@ -776,6 +870,7 @@ export function MessageRow({
                 return cites.length ? <AssetCitationChips entries={cites} /> : null
               })()
             : null}
+          {!isStreaming ? <AssistantSelectionMenu containerRef={bubbleRef} /> : null}
         </div>
         {(!isStreaming || displayRow.tokenStr) && (
           <div className="msg-meta msg-turn-assistant-meta">
@@ -887,6 +982,7 @@ function AssistantBody({
   showToolTiming = false,
   suppressPlanExecPromptNoise = false,
   suppressExploringFold = false,
+  flatTimeline = true,
   onOpenFile,
   onOpenKnowledgeMap,
   onToolApproval,
@@ -902,6 +998,8 @@ function AssistantBody({
   showToolTiming?: boolean
   suppressPlanExecPromptNoise?: boolean
   suppressExploringFold?: boolean
+  /** ZCode 式扁平内联时间线（默认 true） */
+  flatTimeline?: boolean
   hideSubagentInnerTools?: boolean
   sessionKey?: string
   /** 与左侧会话列表同源：resolveLiveStreamActivity.dockLabel */
@@ -943,6 +1041,7 @@ function AssistantBody({
       !!suppressPlanExecPromptNoise,
       !!interactiveToolApproval,
       liveActivityDockLabel,
+      flatTimeline !== false,
     )
     if (cacheable) {
       assistantBodyCache.set(row, {
@@ -1006,6 +1105,7 @@ function AssistantBody({
       compareSessionKey={compareSessionKey}
       durationLabel={durationLabel}
       liveTokenStr={row.tokenStr}
+      messageId={row.messageId}
     />
   )
 }

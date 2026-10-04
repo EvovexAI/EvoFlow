@@ -1,8 +1,21 @@
 /**
  * Gateway speech API client (Volcengine ASR/TTS for chat).
+ *
+ * 追踪日志（`[speech-queue] …` / `[speech-client] 已停止…`）默认静默 —— 它们是
+ * 每句 TTS、每个流式 chunk、每次 barge-in 都打一行，正常使用时会持续刷屏。
+ * 排查 TTS 播放 / 打断队列时打开：
+ *   localStorage.setItem('EVOFLOW_DEBUG_SPEECH', '1')
+ * `console.warn` 的异常（播放失败、连续失败、transcript 重对齐）不受此开关影响。
  */
 
 import { apiUrl } from './api-client.js'
+import { isDebugOn } from './debug-flag.js'
+
+/** TTS/ASR 追踪日志是否放行。默认 false。 */
+function _ttsLog(...args) {
+  if (!isDebugOn('EVOFLOW_DEBUG_SPEECH')) return
+  console.log(...args)
+}
 
 /** @type {boolean | null} */
 let _configuredCache = null
@@ -211,7 +224,7 @@ async function _fetchSentenceAudio(text, opts = {}) {
   // Non-stream /tts returns a complete mp3; HTMLAudioElement handles it more reliably
   // than a blob assembled from /tts/stream (truncated streams can hang without onended).
   const url = import.meta.env?.DEV ? '/api/speech/tts' : apiUrl('/speech/tts')
-  console.log(
+  _ttsLog(
     '[speech-queue] tts fetch',
     JSON.stringify(plain.slice(0, 40)),
     speaker ? `speaker=${speaker}` : 'speaker=default',
@@ -226,7 +239,7 @@ async function _fetchSentenceAudio(text, opts = {}) {
     body: JSON.stringify(body),
   })
   const blob = await _readTtsAudioBlob(res)
-  console.log('[speech-queue] tts ok bytes=', blob.size)
+  _ttsLog('[speech-queue] tts ok bytes=', blob.size)
   const objectUrl = URL.createObjectURL(blob)
   const audio = new Audio(objectUrl)
   return { objectUrl, audio }
@@ -276,7 +289,7 @@ async function _playPreparedAudio(prepared, opts = {}) {
           }
           if (asError) done(new Error(`TTS playback timeout (${ms}ms)`))
           else {
-            console.log('[speech-queue] play ended via duration fallback')
+            _ttsLog('[speech-queue] play ended via duration fallback')
             done()
           }
         }, ms)
@@ -284,13 +297,13 @@ async function _playPreparedAudio(prepared, opts = {}) {
       armHangTimer(timeoutMs, true)
 
       audio.onended = () => {
-        console.log('[speech-queue] play ended')
+        _ttsLog('[speech-queue] play ended')
         done()
       }
       audio.onerror = () => done(new Error('Audio playback failed'))
       audio.onloadedmetadata = () => {
         const dur = Number(audio.duration)
-        console.log('[speech-queue] play metadata duration=', dur)
+        _ttsLog('[speech-queue] play metadata duration=', dur)
         if (!Number.isFinite(dur) || dur <= 0) {
           done(new Error('TTS audio duration is 0'))
           return
@@ -299,7 +312,7 @@ async function _playPreparedAudio(prepared, opts = {}) {
         armHangTimer(Math.ceil(dur * 1000) + 1500, false)
       }
 
-      console.log('[speech-queue] play start')
+      _ttsLog('[speech-queue] play start')
       audio.play().catch((e) => done(e))
     })
   } finally {
@@ -530,7 +543,7 @@ const _speechQueue = {
 
       const chunk = clean.slice(pos, end).trim()
       if (chunk.length >= 2) {
-        console.log('[speech-queue] append chunk:', JSON.stringify(chunk), 'pos:', pos, '->', end)
+        _ttsLog('[speech-queue] append chunk:', JSON.stringify(chunk), 'pos:', pos, '->', end)
         this._enqueueChunk({
           id: `s-${this.sentences.length}`,
           text: chunk,
@@ -558,7 +571,7 @@ const _speechQueue = {
     }
     this._realignProcessedLength(clean)
     const remaining = clean.slice(this.lastProcessedLength).trim()
-    console.log(
+    _ttsLog(
       '[speech-queue] finalFlush: lastProcessedLength=',
       this.lastProcessedLength,
       'clean.length=',
@@ -577,7 +590,7 @@ const _speechQueue = {
       this.lastCleanSnapshot = clean
       enqueued = true
     } else if (remaining && remaining.length > 2 && this._isDuplicateTail(remaining)) {
-      console.log('[speech-queue] finalFlush: skip duplicate remaining, kick unplayed')
+      _ttsLog('[speech-queue] finalFlush: skip duplicate remaining, kick unplayed')
       this.lastProcessedLength = clean.length
       this.lastCleanSnapshot = clean
     } else {
@@ -774,7 +787,7 @@ export function stopAllAssistantSpeech() {
   clearAssistantSpeechPrefetch()
   // Ensure continuous-mode / follow-up idle hooks run on barge-in / UI stop.
   _notifySpeechQueueIdle()
-  console.log('[speech-client] 已停止所有语音播放，队列已清空')
+  _ttsLog('[speech-client] 已停止所有语音播放，队列已清空')
 }
 
 /** Duck TTS volume (barge-in phase 1: lower volume without stopping) */

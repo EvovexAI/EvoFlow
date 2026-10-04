@@ -75,7 +75,12 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: hue-rotate(var(--logo-hue-rotate, 0deg));
+  /* 单色 logo:亮色主题下深灰黑,暗色主题下白 */
+  filter: grayscale(1) brightness(0.25);
+}
+
+html[data-theme='dark'] .sidebar-logo img {
+  filter: grayscale(1) invert(0.92) brightness(1.05);
 }
 
 .sidebar-logo svg {

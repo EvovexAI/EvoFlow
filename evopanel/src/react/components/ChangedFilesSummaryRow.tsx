@@ -1,4 +1,5 @@
 import { memo, useState } from 'react'
+import { ChevronRight, Undo2 } from 'lucide-react'
 import type { TurnChangedFile } from '../file-diff-util.js'
 
 function leafName(path: string): string {
@@ -49,10 +50,16 @@ function ChangedFilesSummaryRowInner({
         <button
           type="button"
           className="evf-changed-files-toggle"
+          aria-label="展开已更改文件"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          <span className={`evf-changed-files-arrow${open ? ' is-open' : ''}`} aria-hidden="true" />
+          <ChevronRight
+            className={`evf-changed-files-arrow${open ? ' is-open' : ''}`}
+            size={14}
+            strokeWidth={1.5}
+            aria-hidden
+          />
           <span className="evf-changed-files-label">{files.length} 个文件已更改</span>
           <DiffStat added={totals.added} removed={totals.removed} />
         </button>
@@ -68,7 +75,8 @@ function ChangedFilesSummaryRowInner({
             }
             onClick={onRevert}
           >
-            {revertBusy ? '撤销中…' : '撤销'}
+            <Undo2 size={12} strokeWidth={1.5} aria-hidden />
+            <span>{revertBusy ? '撤销中…' : '撤销'}</span>
           </button>
         ) : null}
       </div>

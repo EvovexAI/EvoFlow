@@ -210,14 +210,39 @@ def ensure_browser_stream_port(thread_id: str) -> int | None:
     return port
 
 
+def _engine_screencast_active(thread_id: str) -> bool:
+    """True when the in-process Playwright engine owns the live browser for this thread.
+
+    The engine's persistent Chromium (per-thread profile) is what the agent and the
+    side-panel screencast both drive. It is *not* a separate desktop Chrome the
+    user has to find — EvoPanel is the host UI for that browser.
+    """
+    try:
+        from evoflow.tools.builtins.browser_engine import browser_engine_enabled, get_browser_engine
+
+        if not browser_engine_enabled():
+            return False
+        return get_browser_engine().has_session(thread_id)
+    except Exception:
+        return False
+
+
 def browser_headed_enabled() -> bool:
-    """Desktop default: visible Chrome window shared between agent and user."""
+    """Legacy desktop-default flag: True when no external CDP is configured.
+
+    Kept for non-engine paths (e.g. ``agent-browser`` CLI fallback). With the
+    in-process Playwright engine (the default), the browser is *not* a separate
+    desktop window the user must switch to — it lives inside EvoPanel.
+    """
     raw = str(__import__("os").getenv("EVOFLOW_BROWSER_HEADED", "")).strip().lower()
     if raw in ("1", "true", "yes"):
         return True
     if raw in ("0", "false", "no"):
         return False
-    return sys.platform in ("win32", "darwin")
+    # 默认无头：浏览器"住"在 EvoPanel 侧栏里（画布 + 点击/滚轮穿透），
+    # 不再向桌面弹出独立 Chrome 窗口。想要外窗（人机共用模式）显式设
+    # EVOFLOW_BROWSER_HEADED=1。
+    return False
 
 
 def browser_cdp_url() -> str:
@@ -236,10 +261,28 @@ def build_browser_live_metadata(
     page = str(page_url or "").strip()
     cdp = browser_cdp_url()
     embed_cdp = get_thread_cdp_url(thread_id)
+    engine_active = _engine_screencast_active(thread_id)
     headed = browser_headed_enabled()
+    logger.info(
+        "browser_live_meta thread=%s page=%s engine_active=%s embed_cdp=%s cdp=%s headed=%s",
+        thread_id,
+        page[:80],
+        engine_active,
+        bool(embed_cdp),
+        bool(cdp),
+        headed,
+    )
     if embed_cdp:
         mode = "embed"
         summary = "Browser embedded in EvoPanel. You and the agent share this WebView."
+    elif engine_active:
+        # In-process Playwright engine is the default. Browser lives in EvoPanel —
+        # there is no separate desktop Chrome window to switch to.
+        mode = "evopanel"
+        if cdp:
+            summary = "Connected to your Chrome via CDP. The right-side EvoPanel view mirrors it."
+        else:
+            summary = "Browser runs inside EvoPanel. Watch the right-side panel for the live view."
     elif cdp:
         mode = "cdp"
         summary = "Connected to your Chrome. Use that browser window — you and the agent share it."
@@ -255,15 +298,22 @@ def build_browser_live_metadata(
         summary = f"Browser opened: {page}. Live preview connects when the side panel opens."
     meta: dict[str, str] = {
         "type": "browser_live",
+        "thread_id": thread_id,
         "stream_ws": browser_live_ws_path(thread_id),
         "page_url": page,
         "summary": summary,
         "session": browser_session_name(thread_id),
         "mode": mode,
-        "headed": "true" if embed_cdp or headed or bool(cdp) else "false",
+        "headed": "true" if embed_cdp or (headed and not engine_active) or bool(cdp) else "false",
         "embed": "true" if embed_cdp else "false",
     }
     preview = str(preview_image_url or "").strip()
     if preview:
         meta["preview_image_url"] = preview
+    logger.info(
+        "browser_live_meta RESULT thread=%s mode=%s summary=%s",
+        thread_id,
+        meta["mode"],
+        meta["summary"],
+    )
     return meta

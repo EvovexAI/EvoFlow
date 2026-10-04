@@ -16,6 +16,7 @@ import { resolveMessageRowIsStreaming } from '../lib/message-row-streaming.js'
 import { getLiveStreamSnapshot, subscribeLiveStream } from '../lib/live-stream-store.js'
 import { isLiveStreamPathEnabled } from '../lib/stream-live-path-toggle.js'
 import { MessageRow } from './MessageRow.js'
+import { TurnNavigatorRail } from './TurnNavigatorRail.js'
 import { EvoFlowHomeDashboard } from './EvoFlowHomeDashboard.js'
 import type { DisplayRow, StreamState, SubagentStreamTask } from '../chat-types.js'
 import type { ChatArtifact } from '../lib/chat-artifact.js'
@@ -1437,6 +1438,51 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     }
   }, [syncScrollJumpButtons])
 
+  /** ZCode 对齐：回合导航条 —— 用户问题刻度（≥2 才显示，<864px 宽由 CSS 隐藏） */
+  const turnNavTurns = useMemo(() => {
+    const turns: Array<{ rowIndex: number; preview: string }> = []
+    historyItems.forEach((item, index) => {
+      if (item.row.role !== 'user') return
+      if (isHiddenToolApprovalUserMessage(item.row)) return
+      turns.push({
+        rowIndex: index,
+        preview: String(item.row.text || '').trim().slice(0, 200) || '（无文本）',
+      })
+    })
+    return turns
+  }, [historyItems])
+  const turnNavTurnsRef = useRef(turnNavTurns)
+  turnNavTurnsRef.current = turnNavTurns
+  const [activeNavIndex, setActiveNavIndex] = useState(-1)
+
+  /** 点击刻度：跳到对应用户问题行（虚拟/平铺双路径，与历史锚点滚动同款写法） */
+  const handleTurnNavJump = useCallback(
+    (rowIndex: number) => {
+      autoFollowRef.current = false
+      userScrolledAwayDuringStreamRef.current = streamActiveRef.current
+      lastProgrammaticScrollRef.current = Date.now()
+      const el = parentRef.current
+      if (!el) return
+      const useVirtual = historyItemsRef.current.length > HISTORY_FLAT_LIST_MAX_ROWS
+      if (useVirtual) {
+        virtualScrollToIndexRef.current?.(rowIndex, 'start')
+      }
+      const content = contentRef.current
+      const target = content?.querySelector(
+        `[data-history-index="${rowIndex}"]`,
+      ) as HTMLElement | null
+      if (target) {
+        const scrollerRect = el.getBoundingClientRect()
+        const itemRect = target.getBoundingClientRect()
+        const itemTopInContent = itemRect.top - scrollerRect.top + el.scrollTop - 12
+        el.scrollTo({ top: Math.max(0, itemTopInContent), behavior: 'smooth' })
+        lastScrollTopRef.current = el.scrollTop
+      }
+      syncScrollJumpButtons()
+    },
+    [syncScrollJumpButtons],
+  )
+
   useEffect(() => {
     installMessageListDebugGlobal()
   }, [])
@@ -1705,6 +1751,17 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       })
       setShowScrollTopBtn((prev) => (prev === showTop ? prev : showTop))
       setShowScrollBottomBtn((prev) => (prev === showBottom ? prev : showBottom))
+      // ZCode 对齐：当前回合刻度 = 视口顶可见行所归属的用户问题
+      const navTurns = turnNavTurnsRef.current
+      if (navTurns.length >= 2) {
+        const anchor = findAnchorHistoryIndexInViewport(contentRef.current, el)
+        let navActive = 0
+        for (let i = 0; i < navTurns.length; i += 1) {
+          if (navTurns[i].rowIndex <= anchor.index) navActive = i
+          else break
+        }
+        setActiveNavIndex((prev) => (prev === navActive ? prev : navActive))
+      }
       const inPrefetchZone = shouldPrefetchOlderHistory(el)
       if (!inPrefetchZone) {
         wasInOlderPrefetchZoneRef.current = false
@@ -2030,7 +2087,15 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     viewReady && hasContent && (showScrollTopBtn || showScrollBottomBtn)
 
   return (
-    <div className="react-vlist-scroll-wrap">
+    <div
+      className="react-vlist-scroll-wrap"
+      data-turn-nav={turnNavTurns.length >= 2 ? 'on' : undefined}
+    >
+      <TurnNavigatorRail
+        turns={turnNavTurns}
+        activeIndex={activeNavIndex}
+        onJump={handleTurnNavJump}
+      />
       {showScrollJumpBtns ? (
         <div className="react-chat-scroll-jump-group" aria-label="快速滚动">
           {showScrollTopBtn ? (

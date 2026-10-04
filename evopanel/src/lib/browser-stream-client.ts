@@ -15,6 +15,8 @@ export type BrowserStreamCallbacks = {
   onError?: (message: string) => void
 }
 
+import { dbgLog, dbgWarn } from './browser-debug-log.js'
+
 const MAX_BOOT_ATTEMPTS = 10
 const MAX_LIVE_RECONNECTS = 40
 const RETRY_BASE_MS = 1200
@@ -242,23 +244,29 @@ export function connectBrowserStream(streamPath: string, callbacks: BrowserStrea
     try {
       const url = await browserStreamWsUrl(streamPath)
       if (!url || cancelled) return
+      dbgLog(`[browser-stream] WS connect attempt=${bootAttempt} url=${url}`)
       ws = new WebSocket(url)
       ws.onopen = () => {
         if (cancelled) return
+        dbgLog(`[browser-stream] WS open attempt=${bootAttempt} receivedFrame=${receivedFrame}`)
         if (!receivedFrame) callbacks.onStatus?.('connecting')
       }
       ws.onmessage = (ev) => {
-        void (async () => {
-          if (typeof ev.data === 'string') {
-            handleMessage(ev.data)
-            return
+        if (typeof ev.data === 'string') {
+          // Lightweight first-message peek for diagnostics
+          if (!receivedFrame && ev.data.length > 0) {
+            const head = ev.data.slice(0, 80).replace(/\s+/g, ' ')
+            dbgLog(`[browser-stream] WS first msg ${head}…`)
           }
-          if (ev.data instanceof Blob) {
-            handleMessage(await ev.data.text())
-          }
-        })()
+          handleMessage(ev.data)
+          return
+        }
+        if (ev.data instanceof Blob) {
+          void ev.data.text().then(handleMessage)
+        }
       }
-      ws.onerror = () => {
+      ws.onerror = (ev) => {
+        dbgWarn(`[browser-stream] WS error attempt=${bootAttempt} ${JSON.stringify(ev)}`)
         if (cancelled) return
         if (receivedFrame) {
           callbacks.onStatus?.('reconnecting')
@@ -269,7 +277,10 @@ export function connectBrowserStream(streamPath: string, callbacks: BrowserStrea
           scheduleReconnect(RETRY_BASE_MS * Math.min(bootAttempt, 5))
         }
       }
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        dbgWarn(
+          `[browser-stream] WS close attempt=${bootAttempt} code=${ev.code} reason=${ev.reason || ''}`,
+        )
         if (cancelled) return
         if (receivedFrame) {
           callbacks.onStatus?.('reconnecting')

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import {
   browserEmbedClose,
   browserEmbedSetBounds,
@@ -13,9 +13,27 @@ import {
   restartBrowserStream,
 } from '../../lib/browser-stream-client.js'
 import {
+  BROWSER_VIEWPORT_PRESETS,
+  clickBrowserAt,
+  scrollBrowserBy,
+  sendBrowserCommand,
+  DEFAULT_BROWSER_VIEWPORT,
+  setBrowserViewport,
+  type BrowserViewportPresetId,
+  type BrowserViewportSize,
+} from '../../lib/browser-viewport-client.js'
+import {
   getBrowserRuntimeSnapshot,
   subscribeBrowserRuntime,
 } from '../../lib/browser-panel-store.js'
+import {
+  clearBrowserDebug,
+  dbgLog,
+  dbgWarn,
+  getBrowserDebugSnapshot,
+  subscribeBrowserDebug,
+  type BrowserDebugEntry,
+} from '../../lib/browser-debug-log.js'
 
 export type BrowserStreamStatus = 'connecting' | 'live' | 'reconnecting' | 'error' | 'closed' | 'idle'
 
@@ -186,9 +204,19 @@ function BrowserChromeBar({
   operatingAction,
   zoom,
   zoomVisible,
+  viewportBusy,
+  activePreset,
+  onPresetChange,
+  viewport,
+  onViewportSizeChange,
+  onNavigate,
+  onBack,
+  onForward,
+  navBusy,
   onZoomChange,
   onRefresh,
-  onClose,
+  debugOpen,
+  onToggleDebug,
 }: {
   pageUrl?: string
   streamStatus: BrowserStreamStatus
@@ -198,11 +226,23 @@ function BrowserChromeBar({
   operatingAction?: string
   zoom?: ZoomOption
   zoomVisible?: boolean
+  viewportBusy?: boolean
+  activePreset?: BrowserViewportPresetId
+  onPresetChange?: (preset: BrowserViewportPresetId, size: BrowserViewportSize) => void
+  viewport?: BrowserViewportSize
+  onViewportSizeChange?: (size: BrowserViewportSize) => void
+  onNavigate?: (url: string) => void
+  onBack?: () => void
+  onForward?: () => void
+  navBusy?: boolean
   onZoomChange?: (zoom: ZoomOption) => void
   onRefresh?: () => void
   onClose: () => void
+  debugOpen?: boolean
+  onToggleDebug?: () => void
 }) {
   const displayUrl = useMemo(() => formatDisplayUrl(pageUrl || ''), [pageUrl])
+  const [urlDraft, setUrlDraft] = useState(displayUrl)
   const statusClass =
     streamStatus === 'live'
       ? 'is-live'
@@ -211,88 +251,216 @@ function BrowserChromeBar({
         : streamStatus === 'error'
           ? 'is-error'
           : 'is-idle'
+  const [dimWidth, setDimWidth] = useState<string>(
+    viewport?.width ? String(viewport.width) : '',
+  )
+  const [dimHeight, setDimHeight] = useState<string>(
+    viewport?.height ? String(viewport.height) : '',
+  )
+  useEffect(() => {
+    setDimWidth(viewport?.width ? String(viewport.width) : '')
+    setDimHeight(viewport?.height ? String(viewport.height) : '')
+  }, [viewport?.width, viewport?.height])
+  const commitDims = () => {
+    if (!onViewportSizeChange) return
+    const w = Math.min(3840, Math.max(320, Number.parseInt(dimWidth || '0', 10) || 0))
+    const h = Math.min(2160, Math.max(320, Number.parseInt(dimHeight || '0', 10) || 0))
+    if (!w || !h) return
+    if (w === viewport?.width && h === viewport?.height) return
+    onViewportSizeChange({ width: w, height: h })
+  }
   const actionLabel = zoomActionLabel(operatingAction || '')
 
+  useEffect(() => {
+    setUrlDraft(displayUrl)
+  }, [displayUrl])
+  const viewportIsCustom = Boolean(
+    viewport && (viewport.width !== 1280 || viewport.height !== 720),
+  )
   return (
-    <header className="browser-panel-chrome" aria-label="Browser toolbar">
-      <button
-        type="button"
-        className={`browser-panel-url-refresh${refreshBusy ? ' is-busy' : ''}`}
-        title="Refresh live view"
-        aria-label="Refresh live view"
-        disabled={!canRefresh || refreshBusy}
-        onClick={onRefresh}
+    <>
+      <form
+        className="browser-panel-toolbar"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const next = urlDraft.trim()
+          if (!next) return
+          if (next === (pageUrl || '').trim()) {
+            onRefresh?.()
+            return
+          }
+          onNavigate?.(next)
+        }}
       >
-        <RefreshIcon />
-      </button>
-      <div className={`browser-panel-url-bar${displayUrl ? '' : ' is-empty'}`}>
-        <span className="browser-panel-url-favicon" aria-hidden>
-          {displayUrl ? (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18M12 3c2.5 2.8 3.8 6.2 3.8 9s-1.3 6.2-3.8 9M12 3c-2.5 2.8-3.8 6.2-3.8 9s1.3 6.2 3.8 9" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M8 12h8" strokeLinecap="round" />
-            </svg>
-          )}
-        </span>
-        <span className="browser-panel-url-text" title={pageUrl || undefined}>
-          {displayUrl || 'Waiting for page…'}
-        </span>
+        <button
+          type="button"
+          className="browser-panel-tb-btn"
+          title="后退"
+          aria-label="后退"
+          disabled={navBusy || !onBack}
+          onClick={() => onBack?.()}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+        <button
+          type="button"
+          className="browser-panel-tb-btn"
+          title="前进"
+          aria-label="前进"
+          disabled={navBusy || !onForward}
+          onClick={() => onForward?.()}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m9 18 6-6-6-6" /></svg>
+        </button>
+        <button
+          type="button"
+          className={`browser-panel-tb-btn${refreshBusy ? ' is-busy' : ''}`}
+          title="刷新"
+          aria-label="刷新"
+          disabled={!canRefresh || refreshBusy}
+          onClick={onRefresh}
+        >
+          <RefreshIcon />
+        </button>
+        <input
+          className="browser-panel-tb-url"
+          value={urlDraft}
+          placeholder="输入网址后回车"
+          spellCheck={false}
+          aria-label="地址栏"
+          onChange={(e) => setUrlDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setUrlDraft(pageUrl || '')
+          }}
+        />
+        <button
+          type="button"
+          className={`browser-panel-tb-btn is-secondary${viewportIsCustom ? ' is-pressed' : ''}`}
+          title="退出自由尺寸（恢复默认视口 1280×720）"
+          aria-label="退出自由尺寸"
+          aria-pressed={viewportIsCustom}
+          disabled={viewportBusy || !onViewportSizeChange}
+          onClick={() => onViewportSizeChange?.({ width: 1280, height: 720 })}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" /><path d="M10 19v-3.96 3.15" /><path d="M7 19h5" /><rect width="6" height="10" x="16" y="12" rx="2" /></svg>
+        </button>
+        <button
+          type="button"
+          className="browser-panel-tb-btn"
+          title="选择网页元素加入聊天（即将支持）"
+          aria-label="选择网页元素加入聊天"
+          disabled
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M14 4.1 12 6" /><path d="m5.1 8-2.9-.8" /><path d="m6 12-1.9 2" /><path d="M7.2 2.2 8 5.1" /><path d="M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" /></svg>
+        </button>
+        <button
+          type="button"
+          className="browser-panel-tb-btn"
+          title="更多浏览器操作（即将支持）"
+          aria-label="更多浏览器操作"
+          disabled
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></svg>
+        </button>
+      </form>
+      <div className="browser-panel-toolbar-sub">
+        {operating ? (
+          <span className="browser-panel-op-indicator" role="status">
+            <span className="browser-panel-op-dot" aria-hidden="true"></span>
+            Agent 正在操作{actionLabel ? `（${actionLabel}）` : '浏览器'}…
+          </span>
+        ) : null}
+        {onPresetChange ? (
+          <div className="browser-panel-viewport-presets" role="group" aria-label="Viewport preset">
+            {BROWSER_VIEWPORT_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`browser-panel-viewport-btn${activePreset === preset.id ? ' is-active' : ''}`}
+                title={`${preset.label} (${preset.width}×${preset.height})`}
+                aria-label={`${preset.label} ${preset.width}×${preset.height}`}
+                disabled={viewportBusy}
+                onClick={() => onPresetChange(preset.id, { width: preset.width, height: preset.height })}
+              >
+                {preset.label}
+              </button>
+            ))}
+            {onViewportSizeChange ? (
+              <span
+                className="browser-panel-viewport-dims"
+                title="自定义视口尺寸（Enter 应用，320–3840 × 320–2160）"
+              >
+                <input
+                  className="browser-panel-viewport-dim"
+                  inputMode="numeric"
+                  aria-label="视口宽度"
+                  value={dimWidth}
+                  disabled={viewportBusy}
+                  onChange={(e) => setDimWidth(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => e.key === 'Enter' && commitDims()}
+                  onBlur={commitDims}
+                />
+                <span className="browser-panel-viewport-dim-x" aria-hidden>×</span>
+                <input
+                  className="browser-panel-viewport-dim"
+                  inputMode="numeric"
+                  aria-label="视口高度"
+                  value={dimHeight}
+                  disabled={viewportBusy}
+                  onChange={(e) => setDimHeight(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => e.key === 'Enter' && commitDims()}
+                  onBlur={commitDims}
+                />
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {zoomVisible ? (
+          <select
+            className="browser-panel-zoom"
+            value={zoom || 'fit'}
+            title="缩放实时画面"
+            aria-label="Zoom live view"
+            onChange={(event) => onZoomChange?.(event.target.value as ZoomOption)}
+          >
+            {ZOOM_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option === 'fit' ? '适应' : `${option}%`}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <span
+          className={`browser-panel-stream-dot ${statusClass}`}
+          title={streamStatusLabel(streamStatus)}
+          aria-label={streamStatusLabel(streamStatus)}
+        />
+        {pageUrl ? (
+          <a
+            className="browser-panel-url-external"
+            href={pageUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in system browser"
+            aria-label="Open in system browser"
+          >
+            <ExternalLinkIcon />
+          </a>
+        ) : null}
+        {onToggleDebug ? (
+          <button
+            type="button"
+            className={`browser-panel-tb-btn${debugOpen ? ' is-pressed' : ''}`}
+            title="调试日志"
+            aria-label="调试日志"
+            aria-pressed={debugOpen}
+            onClick={onToggleDebug}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m8 8-4 4 4 4" /><path d="m16 8 4 4-4 4" /><path d="m13 5-2 14" /></svg>
+          </button>
+        ) : null}
       </div>
-      {operating ? (
-        <span className="browser-panel-op-indicator" role="status">
-          <span className="browser-panel-op-dot" aria-hidden />
-          Agent 正在操作{actionLabel ? `（${actionLabel}）` : '浏览器'}…
-        </span>
-      ) : null}
-      {zoomVisible ? (
-        <select
-          className="browser-panel-zoom"
-          value={zoom || 'fit'}
-          title="缩放实时画面"
-          aria-label="Zoom live view"
-          onChange={(event) => onZoomChange?.(event.target.value as ZoomOption)}
-        >
-          {ZOOM_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option === 'fit' ? '适应' : `${option}%`}
-            </option>
-          ))}
-        </select>
-      ) : null}
-      <span
-        className={`browser-panel-stream-dot ${statusClass}`}
-        title={streamStatusLabel(streamStatus)}
-        aria-label={streamStatusLabel(streamStatus)}
-      />
-      {pageUrl ? (
-        <a
-          className="browser-panel-url-external"
-          href={pageUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open in system browser"
-          aria-label="Open in system browser"
-        >
-          <ExternalLinkIcon />
-        </a>
-      ) : null}
-      <button
-        type="button"
-        className="browser-panel-chrome-close"
-        title="Close browser panel"
-        aria-label="Close browser panel"
-        onClick={onClose}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-          <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-        </svg>
-      </button>
-    </header>
+    </>
   )
 }
 
@@ -448,77 +616,87 @@ function BrowserEmbedHost({
   )
 }
 
-function BrowserLiveCanvas({ src, zoom = 'fit' }: { src: string; zoom?: ZoomOption }) {
+function BrowserDebugLog() {
+  const entries = useSyncExternalStore(subscribeBrowserDebug, getBrowserDebugSnapshot)
+  const logRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = logRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [entries])
+
+  if (!entries.length) {
+    return (
+      <div className="browser-panel-debug-empty">（暂无事件，触发浏览器工具后日志会显示在这里）</div>
+    )
+  }
+  const formatTs = (ts: number) => {
+    const d = new Date(ts)
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`
+  }
+  return (
+    <div ref={logRef} className="browser-panel-debug-log" role="log" aria-label="Browser debug log">
+      {entries.map((entry: BrowserDebugEntry, idx: number) => (
+        <div
+          key={`${entry.ts}-${idx}`}
+          className={`browser-panel-debug-row is-${entry.level}`}
+          title={entry.message}
+        >
+          <span className="browser-panel-debug-ts">{formatTs(entry.ts)}</span>
+          <span className="browser-panel-debug-msg">{entry.message}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BrowserLiveCanvas({
+  src,
+  zoom = 'fit',
+  viewport,
+  onClickViewport,
+  onWheelViewport,
+}: {
+  src: string
+  zoom?: ZoomOption
+  viewport?: BrowserViewportSize
+  onClickViewport?: (cssX: number, cssY: number) => void
+  onWheelViewport?: (deltaX: number, deltaY: number) => void
+}) {
   const stageRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const srcRef = useRef(src)
-  const lastGoodSrcRef = useRef('')
+  // Image natural dimensions are device pixels; we render at 1:1 and scale via CSS.
+  // The screen→viewport mapping uses the page's actual viewport (window.innerWidth/Height)
+  // captured in `viewport` prop, which mirrors the browser engine's viewport size.
+  const viewportRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    srcRef.current = src
-  }, [src])
+  useStageWheelPassthrough(stageRef, onWheelViewport)
 
-  useEffect(() => {
-    const stage = stageRef.current
-    const canvas = canvasRef.current
-    if (!stage || !canvas) return
-
-    let cancelled = false
-
-    const paint = (dataUrl: string) => {
-      if (!dataUrl || cancelled) return
-      const img = new Image()
-      img.decoding = 'async'
-      img.onload = () => {
-        if (cancelled) return
-        const cw = Math.max(1, stage.clientWidth)
-        const ch = Math.max(1, stage.clientHeight)
-        const iw = Math.max(1, img.naturalWidth)
-        const ih = Math.max(1, img.naturalHeight)
-        const scale = Math.min(cw / iw, ch / ih)
-        const drawW = Math.max(1, Math.round(iw * scale))
-        const drawH = Math.max(1, Math.round(ih * scale))
-        const offsetX = Math.round((cw - drawW) / 2)
-        const offsetY = Math.round((ch - drawH) / 2)
-
-        canvas.width = cw
-        canvas.height = ch
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
-        ctx.fillStyle = '#0b1220'
-        ctx.fillRect(0, 0, cw, ch)
-        ctx.drawImage(img, offsetX, offsetY, drawW, drawH)
-        lastGoodSrcRef.current = dataUrl
-      }
-      img.onerror = () => {
-        if (cancelled) return
-        const fallback = lastGoodSrcRef.current
-        if (fallback && fallback !== dataUrl) paint(fallback)
-      }
-      img.src = dataUrl
-    }
-
-    paint(srcRef.current)
-
-    const ro =
-      typeof ResizeObserver !== 'undefined'
-        ? new ResizeObserver(() => {
-            paint(srcRef.current || lastGoodSrcRef.current)
-          })
-        : null
-    ro?.observe(stage)
-
-    return () => {
-      cancelled = true
-      ro?.disconnect()
-    }
-  }, [src])
+  const handleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!onClickViewport) return
+      const stage = stageRef.current
+      if (!stage) return
+      const rect = stage.getBoundingClientRect()
+      const vw = viewport?.width || DEFAULT_BROWSER_VIEWPORT.width
+      const vh = viewport?.height || DEFAULT_BROWSER_VIEWPORT.height
+      if (rect.width <= 0 || rect.height <= 0) return
+      // Map client coords → viewport CSS px (same coordinate system the agent uses).
+      const cssX = Math.max(0, Math.min(vw, ((event.clientX - rect.left) / rect.width) * vw))
+      const cssY = Math.max(0, Math.min(vh, ((event.clientY - rect.top) / rect.height) * vh))
+      onClickViewport(cssX, cssY)
+    },
+    [onClickViewport, viewport],
+  )
 
   const zoomStyle =
     zoom === 'fit'
       ? undefined
       : ({ ['--browser-panel-zoom' as string]: String(Number(zoom) / 100) } as React.CSSProperties)
 
+  // Browser-native decoding via <img>. Bypass the Canvas 2D middle-man: the
+  // browser draws the JPEG straight to the GPU on layout. 3-5x lower paint
+  // cost than the previous drawImage path, plus we keep DOM events (click) live.
   return (
     <div
       ref={stageRef}
@@ -526,10 +704,36 @@ function BrowserLiveCanvas({ src, zoom = 'fit' }: { src: string; zoom?: ZoomOpti
         zoom !== 'fit' ? ' is-zoomed' : ''
       }`}
       style={zoomStyle}
+      onClick={onClickViewport ? handleClick : undefined}
+      role={onClickViewport ? 'button' : undefined}
+      aria-label={onClickViewport ? 'Live browser viewport — click to interact' : undefined}
     >
-      <canvas ref={canvasRef} className="browser-panel-live-canvas" aria-hidden />
+      <div ref={viewportRef} className="browser-panel-live-img-wrap">
+        {src ? <img src={src} alt="" draggable={false} className="browser-panel-live-img" /> : null}
+      </div>
     </div>
   )
+}
+
+/** 画布滚轮穿透：滚轮滚动 agent 页面（原生非 passive 监听，150ms 节流）。 */
+function useStageWheelPassthrough(
+  stageRef: RefObject<HTMLDivElement | null>,
+  onWheelViewport: ((deltaX: number, deltaY: number) => void) | undefined,
+) {
+  const lastSentRef = useRef(0)
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage || !onWheelViewport) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      const now = Date.now()
+      if (now - lastSentRef.current < 150) return
+      lastSentRef.current = now
+      onWheelViewport(event.deltaX, event.deltaY)
+    }
+    stage.addEventListener('wheel', onWheel, { passive: false })
+    return () => stage.removeEventListener('wheel', onWheel)
+  }, [stageRef, onWheelViewport])
 }
 
 function BrowserLiveViewer({
@@ -537,11 +741,23 @@ function BrowserLiveViewer({
   isOpen,
   refreshNonce,
   onStatusChange,
+  onFrameMeta,
+  viewport,
+  zoom,
+  onClickViewport,
+  onWheelViewport,
+  onStreamError,
 }: {
   streamPath: string
   isOpen: boolean
   refreshNonce?: number
   onStatusChange: (status: BrowserStreamStatus) => void
+  onFrameMeta?: (meta: import('../../lib/browser-stream-client.js').BrowserStreamFrameMetadata | undefined) => void
+  viewport?: BrowserViewportSize
+  zoom?: ZoomOption
+  onClickViewport?: (cssX: number, cssY: number) => void
+  onWheelViewport?: (deltaX: number, deltaY: number) => void
+  onStreamError?: (message: string) => void
 }) {
   const [frameSrc, setFrameSrc] = useState('')
   const [status, setStatus] = useState<BrowserStreamStatus>('connecting')
@@ -586,7 +802,7 @@ function BrowserLiveViewer({
     applyStatus(lastFrameRef.current ? 'reconnecting' : 'connecting')
 
     const disconnect = connectBrowserStream(streamPath, {
-      onFrame: (dataUrl) => {
+      onFrame: (dataUrl, meta) => {
         if (streamPathRef.current !== streamPath) return
         void (async () => {
           if (hasFrameRef.current && (await isMostlyBlankImage(dataUrl))) return
@@ -594,6 +810,7 @@ function BrowserLiveViewer({
           lastFrameRef.current = dataUrl
           setFrameSrc(dataUrl)
           setDisplaySrc(dataUrl)
+          if (meta) onFrameMeta?.(meta)
           applyStatus('live')
         })()
       },
@@ -601,8 +818,9 @@ function BrowserLiveViewer({
         if (streamPathRef.current !== streamPath) return
         applyStatus(next)
       },
-      onError: () => {
+      onError: (message?: string) => {
         if (streamPathRef.current !== streamPath) return
+        if (message) onStreamError?.(message)
         if (!hasFrameRef.current) applyStatus('error')
         else applyStatus('reconnecting')
       },
@@ -639,7 +857,13 @@ function BrowserLiveViewer({
 
   return (
     <>
-      <BrowserLiveCanvas src={displaySrc} />
+      <BrowserLiveCanvas
+        src={displaySrc}
+        zoom={zoom}
+        viewport={viewport}
+        onClickViewport={onClickViewport}
+        onWheelViewport={onWheelViewport}
+      />
     </>
   )
 }
@@ -651,7 +875,7 @@ export type BrowserPanelProps = {
   streamThreadId?: string
   streamKickNonce?: number
   sharedBrowser?: boolean
-  browserMode?: 'headed' | 'cdp' | 'headless' | 'embed'
+  browserMode?: 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
   onClose: () => void
 }
 
@@ -679,6 +903,10 @@ export const BrowserPanel = memo(function BrowserPanel({
   const [embedSupported, setEmbedSupported] = useState(false)
   const [embedReady, setEmbedReady] = useState(false)
   const [embedFailed, setEmbedFailed] = useState(false)
+  const [viewport, setViewport] = useState<BrowserViewportSize | undefined>(undefined)
+  const [viewportBusy, setViewportBusy] = useState(false)
+  const [activePreset, setActivePreset] = useState<BrowserViewportPresetId>('desktop')
+  const [debugOpen, setDebugOpen] = useState(false)
   const lastStreamKickRef = useRef(0)
 
   useEffect(() => {
@@ -713,19 +941,128 @@ export const BrowserPanel = memo(function BrowserPanel({
 
   const handleRefresh = useCallback(async () => {
     if (refreshBusy || !streamPath) return
+    dbgLog(`[browser-panel] refresh thread=${effectiveThreadId}`)
     setRefreshBusy(true)
     setStreamStatus((prev) => (prev === 'live' ? 'reconnecting' : prev))
     const tid = effectiveThreadId
     if (tid) {
       try {
         await restartBrowserStream(tid)
-      } catch {
-        // best-effort — still reconnect WS
+      } catch (err) {
+        dbgWarn(`[browser-panel] refresh restart failed ${String(err)}`)
       }
     }
     setRefreshNonce((n) => n + 1)
     setRefreshBusy(false)
   }, [refreshBusy, streamPath, effectiveThreadId])
+
+  // Frame metadata keeps the click overlay mapped to current viewport CSS px.
+  const handleFrameMeta = useCallback(
+    (meta: import('../../lib/browser-stream-client.js').BrowserStreamFrameMetadata | undefined) => {
+      if (!meta) return
+      if (typeof meta.deviceWidth === 'number' && typeof meta.deviceHeight === 'number') {
+        setViewport({ width: meta.deviceWidth, height: meta.deviceHeight })
+      }
+    },
+    [],
+  )
+
+  const applyViewport = useCallback(
+    async (size: BrowserViewportSize, presetId: BrowserViewportPresetId) => {
+      if (viewportBusy) return
+      const tid = effectiveThreadId
+      if (!tid) return
+      dbgLog(
+        `[browser-panel] applyViewport thread=${tid} preset=${presetId} ${size.width}x${size.height}`,
+      )
+      setViewportBusy(true)
+      setActivePreset(presetId)
+      try {
+        const ok = await setBrowserViewport(tid, size)
+        dbgLog(`[browser-panel] applyViewport ok=${ok}`)
+        if (ok) setViewport(size)
+      } finally {
+        setViewportBusy(false)
+      }
+    },
+    [effectiveThreadId, viewportBusy],
+  )
+
+  // 画布滚轮穿透：把滚轮增量转发给 agent 页面（引擎 scroll），150ms 节流
+  const wheelThrottleRef = useRef(0)
+  const handleWheelViewport = useCallback(
+    (deltaX: number, deltaY: number) => {
+      const tid = effectiveThreadId
+      if (!tid) return
+      const now = Date.now()
+      if (now - wheelThrottleRef.current < 150) return
+      wheelThrottleRef.current = now
+      void scrollBrowserBy(tid, deltaX, deltaY)
+    },
+    [effectiveThreadId],
+  )
+
+  const [navBusy, setNavBusy] = useState(false)
+  const handleNavigate = useCallback(
+    async (url: string) => {
+      const tid = effectiveThreadId
+      if (!tid || navBusy) return
+      setNavBusy(true)
+      try {
+        await sendBrowserCommand(tid, 'navigate', url)
+      } finally {
+        setNavBusy(false)
+      }
+    },
+    [effectiveThreadId, navBusy],
+  )
+  const handleBack = useCallback(async () => {
+    const tid = effectiveThreadId
+    if (!tid || navBusy) return
+    setNavBusy(true)
+    try {
+      await sendBrowserCommand(tid, 'back')
+    } finally {
+      setNavBusy(false)
+    }
+  }, [effectiveThreadId, navBusy])
+  const handleForward = useCallback(async () => {
+    const tid = effectiveThreadId
+    if (!tid || navBusy) return
+    setNavBusy(true)
+    try {
+      await sendBrowserCommand(tid, 'forward')
+    } finally {
+      setNavBusy(false)
+    }
+  }, [effectiveThreadId, navBusy])
+
+  const [streamError, setStreamError] = useState('')
+  const handleStreamError = useCallback((message: string) => {
+    setStreamError(String(message || '').trim())
+  }, [])
+  const tabTitle = useMemo(() => {
+    const raw = String(pageUrl || '').trim()
+    if (!raw) return '浏览器'
+    try {
+      return new URL(raw).hostname || '浏览器'
+    } catch {
+      return raw.slice(0, 40) || '浏览器'
+    }
+  }, [pageUrl])
+
+  const handleViewportClick = useCallback(
+    async (cssX: number, cssY: number) => {
+      const tid = effectiveThreadId
+      if (!tid) return
+      dbgLog(
+        `[browser-panel] click thread=${tid} viewport=(${viewport?.width},${viewport?.height}) click=(${cssX.toFixed(0)},${cssY.toFixed(0)})`,
+      )
+      // Fire-and-forget: live frames update naturally via CDP screencast.
+      void clickBrowserAt(tid, { x: cssX, y: cssY })
+    },
+    [effectiveThreadId, viewport],
+  )
 
   // Screenshot completed — reconnect WS only (no restart API; backend already restored stream).
   useEffect(() => {
@@ -739,11 +1076,17 @@ export const BrowserPanel = memo(function BrowserPanel({
 
   const hasStream = Boolean(streamPath) && (!preferEmbeddedBrowser || embedFailed || !embedReady)
   const embedThreadId = effectiveThreadId
+  // 'evopanel' = in-process Playwright engine. Browser lives in EvoPanel — there
+  // is no separate desktop Chrome window to switch to, so suppress the "Chrome
+  // opened on your desktop" hint. Only legacy `headed` / external `cdp` paths
+  // keep that copy.
+  const isExternalShared = effectiveMode === 'headed' || effectiveMode === 'cdp'
   const showSharedBrowserHint =
     !useEmbeddedBrowser &&
     !preferEmbeddedBrowser &&
     effectiveMode !== 'embed' &&
-    (effectiveShared || effectiveMode === 'headed' || effectiveMode === 'cdp')
+    effectiveMode !== 'evopanel' &&
+    (effectiveShared || isExternalShared)
   const sharedBrowserHint =
     effectiveMode === 'cdp'
       ? '已连接你本机的 Chrome，请直接在那个窗口操作（与 Agent 共用同一浏览器）。'
@@ -759,7 +1102,33 @@ export const BrowserPanel = memo(function BrowserPanel({
       role="region"
       aria-label="Browser"
     >
-      <BrowserChromeBar
+            <div className="browser-panel-tabstrip">
+        <div className="browser-panel-tabchip is-active" title={pageUrl || undefined}>
+          <span className="browser-panel-tabchip-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
+          </span>
+          <span className="browser-panel-tabchip-title">{tabTitle}</span>
+          <button
+            type="button"
+            className="browser-panel-tabchip-close"
+            title="关闭浏览器面板"
+            aria-label="关闭浏览器面板"
+            onClick={onClose}
+          >
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+          </button>
+        </div>
+        <button
+          type="button"
+          className="browser-panel-tb-btn"
+          title="收起浏览器面板"
+          aria-label="收起浏览器面板"
+          onClick={onClose}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /><path d="m8 9 3 3-3 3" /></svg>
+        </button>
+      </div>
+<BrowserChromeBar
         pageUrl={effectivePageUrl}
         streamStatus={useEmbeddedBrowser ? 'live' : streamStatus}
         refreshBusy={refreshBusy}
@@ -768,9 +1137,26 @@ export const BrowserPanel = memo(function BrowserPanel({
         operatingAction={runtime.operatingAction}
         zoom={zoom}
         zoomVisible={zoomVisible}
+        viewportBusy={viewportBusy}
+        activePreset={activePreset}
+        onPresetChange={(id, size) => void applyViewport(size, id)}
+        viewport={viewport}
+        onViewportSizeChange={(size) => void applyViewport(size, 'custom')}
+        onNavigate={(url) => void handleNavigate(url)}
+        onBack={() => void handleBack()}
+        onForward={() => void handleForward()}
+        navBusy={navBusy}
         onZoomChange={setZoom}
         onRefresh={() => void handleRefresh()}
         onClose={onClose}
+        debugOpen={debugOpen}
+        onToggleDebug={() => {
+          setDebugOpen((prev) => {
+            const next = !prev
+            if (next) dbgLog('[browser-panel] debug log opened')
+            return next
+          })
+        }}
       />
       <div className="react-chat-collab-exec-panel-body browser-panel-body browser-panel-body-live">
         {showSharedBrowserHint ? (
@@ -790,11 +1176,30 @@ export const BrowserPanel = memo(function BrowserPanel({
         ) : hasStream ? (
           <div className={`browser-panel-live-host${showStreamPreviewLabel ? ' is-preview' : ''}`}>
             {showStreamPreviewLabel ? <div className="browser-panel-preview-label">侧栏预览</div> : null}
+            {streamError && streamStatus !== 'live' ? (
+              <div className="browser-panel-stream-notice is-error" role="alert">
+                <p className="browser-panel-stream-notice-msg">{streamError}</p>
+                <button type="button" className="browser-panel-viewport-btn" onClick={() => { setStreamError(''); void handleRefresh() }}>
+                  重试
+                </button>
+              </div>
+            ) : streamStatus === 'connecting' || streamStatus === 'reconnecting' ? (
+              <div className="browser-panel-stream-notice" role="status">
+                <LiveSpinner />
+                <span>正在等待浏览器会话…（agent 首次打开页面后自动接入）</span>
+              </div>
+            ) : null}
             <BrowserLiveViewer
               streamPath={streamPath}
               isOpen={isOpen}
               refreshNonce={refreshNonce}
               onStatusChange={setStreamStatus}
+              onFrameMeta={handleFrameMeta}
+              viewport={viewport}
+              zoom={zoom}
+              onClickViewport={effectiveThreadId ? handleViewportClick : undefined}
+              onWheelViewport={effectiveThreadId ? handleWheelViewport : undefined}
+              onStreamError={handleStreamError}
             />
           </div>
         ) : preferEmbeddedBrowser && embedThreadId && !embedFailed ? (
@@ -810,6 +1215,22 @@ export const BrowserPanel = memo(function BrowserPanel({
             {preferEmbeddedBrowser || hasStream ? <LiveSpinner /> : <BrowserPanelIcon className="browser-panel-stage-icon" />}
           </div>
         )}
+        {debugOpen ? (
+          <div className="browser-panel-debug-pane" aria-label="Browser debug log panel">
+            <div className="browser-panel-debug-toolbar">
+              <span className="browser-panel-debug-title">Debug</span>
+              <button
+                type="button"
+                className="browser-panel-debug-clear"
+                onClick={() => clearBrowserDebug()}
+                title="Clear log"
+              >
+                清空
+              </button>
+            </div>
+            <BrowserDebugLog />
+          </div>
+        ) : null}
       </div>
     </aside>
   )

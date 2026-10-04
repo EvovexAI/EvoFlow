@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { formatWorkspacePathForDisplay } from '../../lib/workspace-api-scope.js'
 import {
   isWorkspaceAudioPath,
@@ -68,6 +68,15 @@ type Props = {
   /** 代码评论定位：打开后滚动并高亮该 1-based 行（endLine 缺省等于 startLine）。 */
   focusLine?: number
   focusEndLine?: number
+  /** 代码评论批注：渲染在目标行区间下方（标题/正文/优先级）。 */
+  focusAnnotation?: WorkspaceFocusAnnotation
+}
+
+/** 代码评论批注：定位行的区间下方渲染标题/正文/优先级。 */
+export type WorkspaceFocusAnnotation = {
+  title?: string
+  body?: string
+  priority?: number
 }
 
 /** 行号渲染上限：超过则只渲染目标行附近窗口，避免大文件整棵 DOM。 */
@@ -75,17 +84,19 @@ const FOCUSED_CODE_MAX_LINES = 3000
 const FOCUSED_CODE_WINDOW = 400
 
 /**
- * 行号版代码块（仅代码评论定位路径使用）：目标行区间高亮并滚动到位。
- * 普通预览仍走原 <pre><code>，外观不变。
+ * 行号版代码块（仅代码评论定位路径使用）：目标行区间高亮、滚动到位，
+ * 区间末行下方渲染评论批注块。普通预览仍走原 <pre><code>，外观不变。
  */
 function FocusedCodeBlock({
   content,
   focusLine,
   focusEndLine,
+  annotation,
 }: {
   content: string
   focusLine: number
   focusEndLine?: number
+  annotation?: WorkspaceFocusAnnotation
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const lines = useMemo(() => String(content || '').split('\n'), [content])
@@ -117,16 +128,34 @@ function FocusedCodeBlock({
         const no = sliceStart + index + 1
         const focused = no >= focusLine && no <= endLine
         return (
-          <div
-            key={no}
-            data-line={no}
-            className={`react-chat-workspace-preview-code-line${focused ? ' is-focus-line' : ''}`}
-          >
-            <span className="react-chat-workspace-preview-code-line-no">{no}</span>
-            <span className="react-chat-workspace-preview-code-line-text">
-              {text === '' ? '\u00A0' : text}
-            </span>
-          </div>
+          <Fragment key={no}>
+            <div
+              data-line={no}
+              className={`react-chat-workspace-preview-code-line${focused ? ' is-focus-line' : ''}`}
+            >
+              <span className="react-chat-workspace-preview-code-line-no">{no}</span>
+              <span className="react-chat-workspace-preview-code-line-text">
+                {text === '' ? '\u00A0' : text}
+              </span>
+            </div>
+            {no === endLine && annotation ? (
+              <div className="evf-code-annotation" data-testid="ws-code-annotation">
+                <div className="evf-code-annotation-head">
+                  {annotation.priority != null ? (
+                    <span
+                      className={`evf-code-annotation-badge${annotation.priority === 0 ? ' is-p0' : ''}`}
+                    >
+                      P{annotation.priority}
+                    </span>
+                  ) : null}
+                  <span className="evf-code-annotation-title">{annotation.title || '评论'}</span>
+                </div>
+                {annotation.body ? (
+                  <div className="evf-code-annotation-body">{annotation.body}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </Fragment>
         )
       })}
     </div>
@@ -166,6 +195,7 @@ export function WorkspaceFilePreviewPane({
   onRetry,
   focusLine,
   focusEndLine,
+  focusAnnotation,
 }: Props) {
   const focusLineNum = Number(focusLine) > 0 ? Number(focusLine) : 0
   const zoom = Math.min(2, Math.max(0.75, Number(contentZoom) || 1))
@@ -394,7 +424,7 @@ export function WorkspaceFilePreviewPane({
         ) : isHtml ? (
           <div className="react-chat-workspace-preview-code-wrap">
             {focusLineNum > 0 ? (
-              <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} />
+              <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} annotation={focusAnnotation} />
             ) : (
               <pre className="react-chat-workspace-preview-code">
                 <code>{displayContent}</code>
@@ -424,7 +454,7 @@ export function WorkspaceFilePreviewPane({
               <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
             ) : null}
             {focusLineNum > 0 ? (
-              <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} />
+              <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} annotation={focusAnnotation} />
             ) : (
               <pre className="react-chat-workspace-preview-code">
                 <code>{displayContent}</code>

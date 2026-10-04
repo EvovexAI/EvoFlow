@@ -24,7 +24,12 @@ function AssistantCodeCommentCardsInner({
   onOpenWorkspaceFile?: (
     rawPath: string,
     displayName?: string,
-    opts?: { line?: number; endLine?: number },
+    opts?: {
+      line?: number
+      endLine?: number
+      /** 评审批注内容：预览定位后渲染在目标行下方 */
+      annotation?: { title?: string; body?: string; priority?: number }
+    },
   ) => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -34,6 +39,7 @@ function AssistantCodeCommentCardsInner({
     onOpenWorkspaceFile?.(card.path, card.title || undefined, {
       line: card.startLine,
       endLine: card.endLine,
+      annotation: { title: card.title, body: card.body, priority: card.priority },
     })
   }
 

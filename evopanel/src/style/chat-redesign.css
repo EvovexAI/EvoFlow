@@ -595,3 +595,50 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] body .msg-turn-assist
   -webkit-backdrop-filter: none !important;
   border: none !important;
 }
+
+/* ==========================================================================
+   用户消息 ZCode 对齐（v4 ConversationRowView 同构）：
+   右对齐 surface 卡片、右上小尖角、1px 边框、12/16 内边距、≤36rem；
+   附件/技能/引用外置气泡上方；meta 行悬停显现。
+   ========================================================================== */
+
+body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
+  width: auto !important;
+  max-width: min(36rem, 100%) !important;
+  background: var(--bg-surface, #ffffff) !important;
+  border: 1px solid var(--border-subtle, rgba(15, 23, 42, 0.1)) !important;
+  border-radius: 12px !important;
+  border-top-right-radius: 2px !important;
+  padding: 12px 16px !important;
+  gap: 8px !important;
+}
+
+/* 附件/技能/上下文文件：外置行（对齐 data-v4-user-input-attachments） */
+.msg-user-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+  max-width: min(36rem, 100%);
+}
+
+.msg-user-attachments .msg-user-skill-pills,
+.msg-user-attachments .msg-user-context-files {
+  display: flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* meta（时间 + 复制/编辑）：悬停显现（对齐 group-hover/user-row:opacity-100） */
+body .msg.msg-turn.msg-turn--user.msg-user .msg-meta.msg-turn-user-meta {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+body .msg.msg-turn.msg-turn--user.msg-user:hover .msg-meta.msg-turn-user-meta,
+body .msg.msg-turn.msg-turn--user.msg-user .msg-meta.msg-turn-user-meta:focus-within {
+  opacity: 1;
+}

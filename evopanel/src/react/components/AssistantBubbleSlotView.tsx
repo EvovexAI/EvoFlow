@@ -1,6 +1,8 @@
-import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { assistantBodiesLooselySame } from '../../lib/chat-normalize.js'
 import { collectTurnChangedFiles } from '../file-diff-util.js'
+import { collectTurnDeliverables } from '../../lib/deliverable-mentions.js'
+import { DeliverableCards } from './DeliverableCards.js'
 import {
   recordWorkspaceFileChange,
   revertibleCountFor,
@@ -8,15 +10,17 @@ import {
 } from '../../lib/workspace-change-journal.js'
 import { showConfirm } from '../../components/modal.js'
 import { ChangedFilesSummaryRow } from './ChangedFilesSummaryRow.js'
-import type { AssistantBubbleDisplayPlan } from '../lib/message-row-display-plan.js'
+import type { AssistantBubbleDisplayPlan, AssistantBubbleSlot } from '../lib/message-row-display-plan.js'
 import { hasVisibleBodyBelowActivityChunk } from '../lib/message-row-stream-display.js'
 import { bubbleMarkdownText, visibleAssistantText, visibleExploringInnerText, visiblePreToolTimelineText } from '../lib/message-row-visible-text.js'
+import { formatWorkedDurationLabel } from '../lib/turn-timing.js'
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ExploringActivityChunk } from './ExploringActivityChunk.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 import { ReasoningInlineBlock } from './ReasoningInlineBlock.js'
 import { StreamRunStatusLine } from './StreamRunStatusLine.js'
 import { ToolCallList } from './ToolCallList.js'
+import { TurnHistoryFold } from './TurnHistoryFold.js'
 
 /** 按 display-plan slots 顺序渲染助手气泡内容（唯一 DOM 顺序出口） */
 function AssistantBubbleSlotViewInner({
@@ -42,6 +46,7 @@ function AssistantBubbleSlotViewInner({
   onOpenKnowledgeMap,
   durationLabel,
   liveTokenStr,
+  messageId,
 }: {
   plan: AssistantBubbleDisplayPlan
   displaySegments: MessageSegment[]
@@ -70,7 +75,11 @@ function AssistantBubbleSlotViewInner({
   onOpenKnowledgeMap?: () => void
   durationLabel?: string
   liveTokenStr?: string
+  /** 落库消息 id（完成态「已工作」折叠头的 data-testid 用） */
+  messageId?: string
 }) {
+  // ZCode 式扁平内联：plan.flatTimeline 为权威（MessageRow 默认 true，工作轨迹显式传 false）
+  const flatTimeline = plan.flatTimeline !== false && !suppressExploringFold
   const layout = plan.layout
   const displayChunks = layout?.displayChunks ?? []
   const lastReasoningSegIdx = layout?.lastReasoningSegIdx ?? -1
@@ -84,6 +93,10 @@ function AssistantBubbleSlotViewInner({
   const changedFiles = useMemo(
     () => (isStreaming ? [] : collectTurnChangedFiles(tools)),
     [tools, isStreaming],
+  )
+  const deliverables = useMemo(
+    () => (isStreaming ? [] : collectTurnDeliverables(rawText)),
+    [rawText, isStreaming],
   )
   const [revertibleCount, setRevertibleCount] = useState(0)
   const [revertBusy, setRevertBusy] = useState(false)
@@ -205,6 +218,7 @@ function AssistantBubbleSlotViewInner({
         chunkIndex={ci}
         chunkStartIndex={chunk.startIndex}
         activityPieces={chunk.pieces}
+        variant={flatTimeline ? 'flat' : 'fold'}
         tools={tools}
         isStreaming={isStreaming}
         lastReasoningSegIdx={lastReasoningSegIdx}
@@ -238,10 +252,22 @@ function AssistantBubbleSlotViewInner({
     )
   }
 
-  return (
-    <>
-      {askInline}
-      {plan.slots.map((slot, si) => {
+  // ZCode 对齐：回合完成态把活动 chunk（思考/工具/旁白）收进「已工作 X 分 X 秒」折叠；
+  // 流式期间保持平铺，工作轨迹（suppressExploringFold）/无时长数据时退回平铺。
+  const workedLabel =
+    !isStreaming && plan.flatTimeline !== false && !suppressExploringFold
+      ? formatWorkedDurationLabel(durationLabel)
+      : ''
+  const foldableSlotIdx: number[] = []
+  if (workedLabel) {
+    plan.slots.forEach((slot, i) => {
+      if (slot.kind === 'chunk' && slot.chunk.kind !== 'text') foldableSlotIdx.push(i)
+    })
+  }
+  const foldStartIdx = foldableSlotIdx.length ? foldableSlotIdx[0] : -1
+  const foldableIdxSet = new Set(foldableSlotIdx)
+
+  const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
         switch (slot.kind) {
           case 'top-reasoning':
             return (
@@ -377,6 +403,23 @@ function AssistantBubbleSlotViewInner({
           default:
             return null
         }
+  }
+
+  return (
+    <>
+      {askInline}
+      {plan.slots.map((slot, si) => {
+        if (si === foldStartIdx) {
+          return (
+            <TurnHistoryFold key={`turn-history-${si}`} label={workedLabel} messageId={messageId}>
+              {foldableSlotIdx.map((idx) => (
+                <Fragment key={`folded-${idx}`}>{renderSlot(plan.slots[idx], idx)}</Fragment>
+              ))}
+            </TurnHistoryFold>
+          )
+        }
+        if (foldableIdxSet.has(si)) return null
+        return <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
       })}
       {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
         <ChangedFilesSummaryRow
@@ -386,6 +429,9 @@ function AssistantBubbleSlotViewInner({
           revertibleCount={revertibleCount}
           revertBusy={revertBusy}
         />
+      ) : null}
+      {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
+        <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
       ) : null}
     </>
   )

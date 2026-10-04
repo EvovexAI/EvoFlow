@@ -155,6 +155,8 @@ export function cloneStreamTurn(s: StreamTurnState): StreamTurnState {
           ...(seg.id ? { id: seg.id } : {}),
           ...(seg.seq != null ? { seq: seg.seq } : {}),
           ...(seg.blockKind ? { blockKind: seg.blockKind } : {}),
+          ...(seg.startedAtMs != null ? { startedAtMs: seg.startedAtMs } : {}),
+          ...(seg.endedAtMs != null ? { endedAtMs: seg.endedAtMs } : {}),
           kind: 'reasoning' as const,
           text: seg.text,
         }
@@ -259,7 +261,12 @@ function capTimelineSegments(
       return { kind: 'text', text: capStreamTailText(seg.text, bodyCap) }
     }
     if (seg.kind === 'reasoning') {
-      return { kind: 'reasoning', text: capStreamTailText(seg.text, reasoningCap) }
+      return {
+        kind: 'reasoning',
+        text: capStreamTailText(seg.text, reasoningCap),
+        ...(seg.startedAtMs != null ? { startedAtMs: seg.startedAtMs } : {}),
+        ...(seg.endedAtMs != null ? { endedAtMs: seg.endedAtMs } : {}),
+      }
     }
     return seg
   })
@@ -448,6 +455,19 @@ function collectNewToolIds(tools: unknown[], entries: unknown[]): string[] {
   return out
 }
 
+/** 工具/正文到达时，把末尾仍开着的思考段关掉（盖 endedAtMs，已有则不动）。 */
+function sealTrailingReasoningSegment(timeline: MessageSegment[], now: number): MessageSegment[] {
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const seg = timeline[i]
+    if (seg.kind !== 'reasoning') continue
+    if (seg.endedAtMs != null) return timeline
+    const tl = [...timeline]
+    tl[i] = { ...seg, endedAtMs: now }
+    return tl
+  }
+  return timeline
+}
+
 function appendToolSegment(timeline: MessageSegment[], newIds: string[], tools: unknown[]): MessageSegment[] {
   const alreadyInTimeline = collectToolIdsFromTimeline(timeline)
   const ids = Array.from(
@@ -471,11 +491,11 @@ function appendToolSegment(timeline: MessageSegment[], newIds: string[], tools: 
       if (!toMerge.length) return tl
       const merged = Array.from(new Set([...last.ids.map((id) => String(id).trim()), ...toMerge]))
       tl[lastIdx] = { kind: 'tools', ids: merged }
-      return tl
+      return sealTrailingReasoningSegment(tl, Date.now())
     }
   }
   tl.push({ kind: 'tools', ids })
-  return tl
+  return sealTrailingReasoningSegment(tl, Date.now())
 }
 
 function usesBlockAuthority(state: StreamTurnState, block?: StreamBlockWire): boolean {
@@ -656,14 +676,24 @@ function trimReasoningOverlappingOpenText(
       if (idx >= 0) {
         const kept = rt.slice(0, idx).trim()
         if (kept.length < 20) return null
-        return { kind: 'reasoning' as const, text: kept }
+        return {
+          kind: 'reasoning' as const,
+          text: kept,
+          ...(seg.startedAtMs != null ? { startedAtMs: seg.startedAtMs } : {}),
+          ...(seg.endedAtMs != null ? { endedAtMs: seg.endedAtMs } : {}),
+        }
       }
       if (tail.length > 80 && rt.includes(tail.slice(0, 80))) {
         const bodyStart = rt.indexOf(tail.slice(0, 80))
         if (bodyStart >= 0) {
           const kept = rt.slice(0, bodyStart).trim()
           if (kept.length < 20) return null
-          return { kind: 'reasoning' as const, text: kept }
+          return {
+            kind: 'reasoning' as const,
+            text: kept,
+            ...(seg.startedAtMs != null ? { startedAtMs: seg.startedAtMs } : {}),
+            ...(seg.endedAtMs != null ? { endedAtMs: seg.endedAtMs } : {}),
+          }
         }
       }
       return seg
@@ -724,7 +754,11 @@ function applyTextPiece(
     blocks = patched.blocks
     blockOrder = patched.blockOrder
   }
-  return { ...state, openText, textPhase, blocks, blockOrder }
+  // legacy 时间线路径：正文开始输出 = 思考段结束（block 路径由 block_close 负责盖结束时间）
+  const timeline = hasBlockTimeline(blockOrder)
+    ? state.timeline
+    : sealTrailingReasoningSegment(state.timeline, Date.now())
+  return { ...state, openText, textPhase, blocks, blockOrder, timeline }
 }
 
 function findLastReasoningIndexBeforeTools(timeline: MessageSegment[]): number {
@@ -772,20 +806,25 @@ function applyReasoningPiece(
 
   const timeline = [...state.timeline]
   const hasToolsSeg = firstToolsSegmentIndex(timeline) >= 0
+  const now = Date.now()
 
   if (hasToolsSeg) {
     const postIdx = findLastReasoningIndexAfterTools(timeline)
     const preIdx = findLastReasoningIndexBeforeTools(timeline)
     if (postIdx >= 0 && timeline[postIdx].kind === 'reasoning') {
       const last = String(timeline[postIdx].text || '')
-      timeline[postIdx] = { kind: 'reasoning', text: mergeReasoningSameRound(last, r) }
+      timeline[postIdx] = {
+        kind: 'reasoning',
+        text: mergeReasoningSameRound(last, r),
+        startedAtMs: timeline[postIdx].startedAtMs ?? now,
+      }
     } else if (preIdx < 0) {
       // 工具已先到达且尚无任何思考：按到达序追加到末尾（不再插到首个 tools 之前，
       // 否则用户会看到思考突然跳到已输出工具上方）。
-      timeline.push({ kind: 'reasoning', text: r })
+      timeline.push({ kind: 'reasoning', text: r, startedAtMs: now })
     } else {
       // Had pre-tool reasoning already → this is a new post-tool round.
-      timeline.push({ kind: 'reasoning', text: r })
+      timeline.push({ kind: 'reasoning', text: r, startedAtMs: now })
     }
     return {
       ...state,
@@ -798,10 +837,14 @@ function applyReasoningPiece(
 
   const preIdx = findLastReasoningIndexBeforeTools(timeline)
   if (preIdx < 0) {
-    timeline.push({ kind: 'reasoning', text: r })
+    timeline.push({ kind: 'reasoning', text: r, startedAtMs: now })
   } else if (timeline[preIdx].kind === 'reasoning') {
     const last = String(timeline[preIdx].text || '')
-    timeline[preIdx] = { kind: 'reasoning', text: mergeReasoningSameRound(last, r) }
+    timeline[preIdx] = {
+      kind: 'reasoning',
+      text: mergeReasoningSameRound(last, r),
+      startedAtMs: timeline[preIdx].startedAtMs ?? now,
+    }
   }
   return {
     ...state,
@@ -1161,6 +1204,8 @@ export function finalizedTurnToCompactedPart(
       return {
         kind: 'reasoning' as const,
         text: capStreamTailText(seg.text, STREAM_REASONING_TEXT_CAP),
+        ...(seg.startedAtMs != null ? { startedAtMs: seg.startedAtMs } : {}),
+        ...(seg.endedAtMs != null ? { endedAtMs: seg.endedAtMs } : {}),
       }
     }
     return seg

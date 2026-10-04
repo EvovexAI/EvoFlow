@@ -23,6 +23,8 @@
  *   getServiceHealthState() — 当前状态快照（供初始化时使用）
  */
 
+import { isDebugOn } from './debug-flag.js'
+
 export const ServiceHealthState = Object.freeze({
   /** 未知：探针尚未执行或被禁用 */
   UNKNOWN: 'unknown',
@@ -233,7 +235,11 @@ export async function triggerServiceHealthCheck(opts = {}) {
     const { state, error } = await _probeOnce()
     _lastCheckedAt = Date.now()
     try {
-      console.info('[service-health] probe →', { state, error, manual: !!opts.manual })
+      // 30s 轮询下 `healthy` 是常态，只打不健康的状态（那才是要看的）；
+      // manual 是用户主动点重试，回显一下。排查用 EVOFLOW_DEBUG_SERVICE_HEALTH=1 全量输出。
+      if (isDebugOn('EVOFLOW_DEBUG_SERVICE_HEALTH') || opts.manual || state !== ServiceHealthState.HEALTHY) {
+        console.info('[service-health] probe →', { state, error, manual: !!opts.manual })
+      }
     } catch { /* ignore */ }
     if (state === ServiceHealthState.HEALTHY) {
       _okStreak += 1

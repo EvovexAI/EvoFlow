@@ -53,6 +53,7 @@ function ExploringActivityChunkInner({
   durationLabel,
   liveTokenStr,
   afterChunk,
+  variant = 'fold',
 }: {
   chunkIndex: number
   chunkStartIndex: number
@@ -96,23 +97,29 @@ function ExploringActivityChunkInner({
   /** 本轮流式累计 token 展示串 */
   liveTokenStr?: string
   afterChunk?: ReactNode
+  /** fold：默认「探索中」大折叠；flat：ZCode 式扁平内联（无外壳、无窗口裁剪、思考可折叠） */
+  variant?: 'fold' | 'flat'
 }) {
   const [showFullHistory, setShowFullHistory] = useState(false)
+  const flat = variant === 'flat'
 
   // 流式结束后恢复默认窗口行为（结束后本来就全量）
   useEffect(() => {
     if (!isStreaming) setShowFullHistory(false)
   }, [isStreaming])
 
+  // flat 模式不裁剪：ZCode 扁平时间线全量渲染，历史轮次不隐藏
   const windowed = useMemo(
     () =>
-      windowLiveExploringPieces({
-        pieces: activityPieces,
-        tools,
-        keepLastToolRounds: showFullHistory ? FULL_HISTORY_TOOL_ROUNDS : LIVE_TOOL_ROUND_WINDOW,
-        isStreaming: !!isStreaming,
-      }),
-    [activityPieces, tools, isStreaming, showFullHistory],
+      flat
+        ? { visiblePieces: activityPieces, hiddenToolRoundCount: 0 }
+        : windowLiveExploringPieces({
+            pieces: activityPieces,
+            tools,
+            keepLastToolRounds: showFullHistory ? FULL_HISTORY_TOOL_ROUNDS : LIVE_TOOL_ROUND_WINDOW,
+            isStreaming: !!isStreaming,
+          }),
+    [activityPieces, tools, isStreaming, showFullHistory, flat],
   )
 
   const renderPieces = windowed.visiblePieces
@@ -183,8 +190,14 @@ function ExploringActivityChunkInner({
                 key={`act-r-${chunkIndex}-${piece.segIndex}-${ord}`}
                 text={displayText}
                 inExploring
+                collapsible={flat}
                 label={reasoningLabelForActivityPiece(0, ord, true)}
                 isStreamingActive={isActiveReasoning}
+                durationMs={
+                  piece.startedAtMs != null && piece.endedAtMs != null
+                    ? Math.max(0, piece.endedAtMs - piece.startedAtMs)
+                    : null
+                }
                 onOpenWorkspaceFile={onOpenFile}
               />
             )
@@ -241,7 +254,23 @@ function ExploringActivityChunkInner({
     )
   }
 
-  if (!hasExploringContent || !hasVisibleFoldInner) {
+  if (!hasExploringContent) {
+    return (
+      <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>{afterChunk}</Fragment>
+    )
+  }
+
+  if (flat) {
+    // ZCode 式扁平内联：无折叠外壳、无窗口裁剪，思考/工具/旁白按到达顺序平铺
+    return (
+      <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>
+        <div className="msg-flat-activity-chunk">{renderActivityInner()}</div>
+        {afterChunk}
+      </Fragment>
+    )
+  }
+
+  if (!hasVisibleFoldInner) {
     return (
       <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>{afterChunk}</Fragment>
     )

@@ -3743,3 +3743,305 @@ button.msg-file-card.msg-file-card--button:focus-visible {
   font-size: 0.85em;
 }
 .evf-changed-file-deleted { flex-shrink: 0; color: #ef4444; font-size: 0.85em; }
+
+/* =====================================================================
+ * AI 回复排版增强（仅 .msg-ai 气泡；用户气泡与其余界面不受影响）
+ * 变量 --code-inline-bg / --chat-table-head-bg / --chat-table-stripe
+ * 与 --font-sans-chat 定义见 variables.css（明暗主题各一份）。
+ * ===================================================================== */
+
+/* 正文节奏：行高放宽，段落间距 8→10 */
+.msg-ai .msg-bubble {
+  line-height: 1.68;
+}
+.msg-ai .msg-bubble p {
+  margin: 0 0 10px 0;
+}
+
+/* 标题：上方留白拉开层次，首个标题贴顶 */
+.msg-ai .msg-bubble h1,
+.msg-ai .msg-bubble h2,
+.msg-ai .msg-bubble h3,
+.msg-ai .msg-bubble h4,
+.msg-ai .msg-bubble h5,
+.msg-ai .msg-bubble h6 {
+  margin: 16px 0 8px 0;
+  font-weight: 650;
+}
+.msg-ai .msg-bubble > :first-child {
+  margin-top: 0;
+}
+
+/* 列表：悬挂缩进（换行对齐文字而不是对齐序号），条目间距放宽 */
+.msg-ai .msg-bubble ul,
+.msg-ai .msg-bubble ol {
+  list-style-position: outside;
+  padding-inline-start: 1.45em;
+  margin: 6px 0 10px;
+}
+.msg-ai .msg-bubble li {
+  margin: 3px 0;
+}
+.msg-ai .msg-bubble li::marker {
+  color: var(--text-secondary, #888);
+}
+
+/* 行内代码：底色 + 圆角，一眼可辨（代码块内 code 由上方 pre code 规则覆盖回透明） */
+.msg-ai .msg-bubble code,
+.msg-text code,
+.msg-tool-markdown-content code {
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  background: var(--code-inline-bg, rgba(0, 0, 0, 0.055));
+}
+
+/* 表格：此前无任何样式，统一为圆角描边 + 表头底色 + 斑马纹 */
+.msg-ai .msg-bubble table {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.93em;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.msg-ai .msg-bubble th,
+.msg-ai .msg-bubble td {
+  padding: 7px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+}
+.msg-ai .msg-bubble thead th {
+  background: var(--chat-table-head-bg, rgba(0, 0, 0, 0.035));
+  font-weight: 600;
+}
+.msg-ai .msg-bubble tbody tr:last-child td {
+  border-bottom: none;
+}
+.msg-ai .msg-bubble tbody tr:nth-child(even) td {
+  background: var(--chat-table-stripe, rgba(0, 0, 0, 0.022));
+}
+
+/* 引用块：此前无任何样式 */
+.msg-ai .msg-bubble blockquote {
+  margin: 10px 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--border, rgba(0, 0, 0, 0.15));
+  color: var(--text-secondary, #888);
+}
+
+/* 分隔线 / 图片 */
+.msg-ai .msg-bubble hr {
+  border: none;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  margin: 14px 0;
+}
+.msg-ai .msg-bubble img {
+  border-radius: 8px;
+}
+
+/* ===== 工具卡片类别图标徽章（ToolCardIcon，按 tool kind 注册） ===== */
+.evf-tcard-icon {
+  --evf-tc-color: var(--text-secondary, #64748b);
+  flex-shrink: 0;
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--evf-tc-color);
+  background: color-mix(in srgb, var(--evf-tc-color) 14%, transparent);
+}
+.evf-tcard-icon svg { width: 12px; height: 12px; }
+.evf-tcard-icon.is-running { animation: evf-tcard-pulse 1.6s ease-in-out infinite; }
+@keyframes evf-tcard-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.evf-tcard-icon--terminal { --evf-tc-color: #f59e0b; }
+.evf-tcard-icon--file { --evf-tc-color: #3b82f6; }
+.evf-tcard-icon--search { --evf-tc-color: #10b981; }
+.evf-tcard-icon--browser { --evf-tc-color: #8b5cf6; }
+.evf-tcard-icon--knowledge { --evf-tc-color: #06b6d4; }
+.evf-tcard-icon--memory { --evf-tc-color: #f97316; }
+.evf-tcard-icon--plan { --evf-tc-color: #6366f1; }
+.evf-tcard-icon--collab { --evf-tc-color: #ec4899; }
+.evf-tcard-icon--media { --evf-tc-color: #14b8a6; }
+.evf-tcard-icon--system { --evf-tc-color: #64748b; }
+[data-theme="dark"] .evf-tcard-icon {
+  background: color-mix(in srgb, var(--evf-tc-color) 20%, transparent);
+}
+
+/* ===== 代码评论行内批注（预览定位后渲染在目标行下方） ===== */
+.evf-code-annotation {
+  margin: 4px 0 8px 52px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-primary, #2563eb);
+  border-radius: 8px;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.05));
+  min-width: 0;
+}
+.evf-code-annotation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.evf-code-annotation-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-secondary, #888);
+}
+.evf-code-annotation-badge.is-p0 {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+.evf-code-annotation-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.92em;
+}
+.evf-code-annotation-body {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary, #888);
+  font-size: 0.9em;
+  line-height: 1.55;
+}
+
+
+/* ===== 回合末尾交付物卡片墙（@@路径@@ 聚合） ===== */
+.evf-deliverables {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.04));
+}
+.evf-deliverables-header {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 12px;
+}
+.evf-deliverables-label { font-size: 0.92em; font-weight: 600; color: var(--text-primary, inherit); }
+.evf-deliverables-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+.evf-deliverable-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary, transparent);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.evf-deliverable-tile:hover {
+  background: var(--bg-tertiary, rgba(127, 127, 127, 0.08));
+  border-color: var(--accent-primary, #2563eb);
+}
+.evf-deliverable-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--evf-dlv-color, var(--text-secondary, #64748b));
+  background: color-mix(in srgb, var(--evf-dlv-color, #64748b) 13%, transparent);
+}
+.evf-deliverable-icon svg { width: 14px; height: 14px; }
+.evf-deliverable-icon--web { --evf-dlv-color: #8b5cf6; }
+.evf-deliverable-icon--image { --evf-dlv-color: #14b8a6; }
+.evf-deliverable-icon--video { --evf-dlv-color: #ec4899; }
+.evf-deliverable-icon--audio { --evf-dlv-color: #f59e0b; }
+.evf-deliverable-icon--doc { --evf-dlv-color: #3b82f6; }
+.evf-deliverable-icon--data { --evf-dlv-color: #06b6d4; }
+.evf-deliverable-icon--code { --evf-dlv-color: #10b981; }
+.evf-deliverable-icon--file { --evf-dlv-color: #64748b; }
+.evf-deliverable-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.evf-deliverable-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.92em;
+}
+.evf-deliverable-kind {
+  color: var(--text-secondary, #888);
+  font-size: 0.8em;
+}
+
+/* ===== 划词操作菜单（选中助手回复文字后浮出） ===== */
+.evf-sel-menu {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card, #fff);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  transform: translate(-50%, calc(-100% - 8px));
+}
+.evf-sel-menu-btn {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary, inherit);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.evf-sel-menu-btn:hover { background: var(--bg-tertiary, rgba(127, 127, 127, 0.1)); }
+.evf-sel-menu-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+
+/* ===== 数学公式（KaTeX） ===== */
+.evf-math { white-space: normal; }
+.evf-math--block {
+  display: block;
+  margin: 8px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+.evf-math .katex { font-size: 1.05em; }

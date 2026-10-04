@@ -2,11 +2,13 @@ import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
-  type SyntheticEvent,
 } from 'react'
+import { ChevronRight } from 'lucide-react'
 import {
   buildToolCallListRenderDiag,
   logStreamCompareToolRender,
@@ -22,7 +24,6 @@ import {
   getToolInputObjectFromRow,
   getToolStreamingArgumentsRaw,
   isTerminalToolFailed,
-  firstMeaningfulShellOutputLine,
   isToolRunning,
   parseBrowserStepToolOutput,
   parseMediaImagePreview,
@@ -44,8 +45,6 @@ export type ToolApprovalHint = {
 }
 import {
   BROWSER_ACTION_ZH,
-  formatReadFileBriefWithSource,
-  formatReadPathBrief,
   formatReadLineRangeLabel,
   formatSubagentTypeLabel,
   formatToolBriefDetail,
@@ -56,7 +55,6 @@ import {
   supervisorActionZh,
   isSubagentDelegationToolName,
   toolShortLabel,
-  workerFileActionBriefZh,
 } from '../../lib/tool-display.js'
 import { extractSubagentDisplayTextFromTool } from '../../lib/subagent-tool-display.js'
 import { dedupeToolsByCallId, expandToolsWithPostSearchReads } from '../post-search-read-tools.js'
@@ -67,9 +65,7 @@ import {
 } from '../lib/tool-filter-id-resolve.js'
 import {
   formatSubtaskOutcomeReportOutput,
-  formatSubtaskOutcomeReportTitle,
   formatSubtaskWorkChecklistOutput,
-  formatSubtaskWorkChecklistTitle,
 } from '../../lib/collab-tool-display.js'
 import type { SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { PlanExecConfirm, type PlanExecConfirmProps } from './PlanExecConfirmDock.js'
@@ -85,6 +81,8 @@ import { toolBreaksExploringGroup } from '../lib/exploring-activity-group.js'
 import { ToolActivityFold } from './ToolActivityFold.js'
 import { FileEditDiffModal, type FileEditDiffModalPayload } from './FileEditDiffModal.js'
 import { FileEditDiffStatBrief } from './FileEditDiffPanel.js'
+import { ToolCardIcon, resolveToolCardCategory } from './ToolCardIcon.js'
+import { ASSETS_ACTION_ZH, resolveRegisteredToolCardBrief } from '../tool-cards/briefs.js'
 import {
   computeFileEditDiffStats,
   formatFileEditDiffStatBrief,
@@ -107,14 +105,6 @@ import {
 import { expandWorkerFilterIds, omitWorkerParentWhenExpanded } from '../worker-file-tools.js'
 
 /** assets(action=…) 中文动作名（与后端 assets_tool 的 action 枚举一致） */
-const ASSETS_ACTION_ZH: Record<string, string> = {
-  search: '搜索资产',
-  read: '读取资产',
-  list: '列出资产',
-  note: '记录笔记',
-  profile: '更新画像',
-}
-
 /** 浏览器步骤时间线行（ZCode cua-group 对齐）：序号 + 状态点 + 中文摘要 + 细节。 */
 function BrowserStepRow({ tool, index }: { tool: Record<string, unknown>; index: number }) {
   const step = parseBrowserStepToolOutput(tool.output)
@@ -198,36 +188,6 @@ function ToolRunningScanText({
   )
 }
 
-function formatWorkerMultiTaskBrief(
-  tasks: unknown[],
-  briefFull: (s: string) => string,
-  running: boolean,
-): string {
-  const parts: string[] = []
-  for (const raw of tasks) {
-    if (!raw || typeof raw !== 'object') continue
-    const task = raw as Record<string, unknown>
-    const action = String(task.action || '').trim().toLowerCase()
-    const label =
-      (typeof task.query === 'string' && task.query.trim()) ||
-      (typeof task.path === 'string' && task.path.trim()) ||
-      (typeof task.instruction === 'string' && task.instruction.trim()) ||
-      ''
-    if (!label) continue
-    if (action === 'search' || action === 'locate') parts.push(`搜索 · ${briefFull(label)}`)
-    else if (action === 'write' || action === 'replace' || action === 'edit' || action === 'delete') {
-      parts.push(`${workerFileActionBriefZh(action)} · ${briefFull(label)}`)
-    } else {
-      parts.push(briefFull(label))
-    }
-  }
-  if (!parts.length) return running ? `${tasks.length} 项进行中` : `${tasks.length} 项`
-  if (parts.length === 1) return parts[0]
-  const head = parts.slice(0, 2).join(' · ')
-  const rest = parts.length - 2
-  return rest > 0 ? `${head} · +${rest}` : head
-}
-
 function isProcessToolKind(kind: string): boolean {
   const k = String(kind || '').trim().toLowerCase()
   return k === 'process' || k.startsWith('process_')
@@ -285,27 +245,6 @@ function tryWebSearchQueryFromOutput(output: unknown): string | null {
   }
 }
 
-/** 从 web_search 返回 JSON 解析结果条数（仅展示） */
-function tryWebSearchResultCount(output: unknown): number | null {
-  let obj: Record<string, unknown> | null = null
-  if (output != null && typeof output === 'object' && !Array.isArray(output)) {
-    obj = output as Record<string, unknown>
-  } else if (typeof output === 'string') {
-    const raw = output.trim()
-    if (!raw || raw[0] !== '{') return null
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) obj = parsed
-    } catch {
-      return null
-    }
-  }
-  if (!obj) return null
-  const results = obj.results
-  if (Array.isArray(results)) return results.length
-  if (typeof results === 'number' && Number.isFinite(results) && results >= 0) return results
-  return null
-}
 
 function formatTime(date: Date | number) {
   const d = date instanceof Date ? date : new Date(date)
@@ -640,6 +579,9 @@ function ToolCallCollapsible({
   foldInteractive = false,
   modalOnExpand,
   modalOpenWhileRunning = false,
+  toolName,
+  toolStatus,
+  toolCallId,
 }: {
   toolKind: string
   running: boolean
@@ -656,12 +598,45 @@ function ToolCallCollapsible({
   modalOnExpand?: () => void
   /** 执行中仍允许点击打开弹窗（文件 diff 流式预览） */
   modalOpenWhileRunning?: boolean
+  /** ZCode 对齐：data-tool-name / data-status / data-tool-call-id 观测属性 */
+  toolName?: string
+  toolStatus?: string
+  toolCallId?: string
 }) {
   const isPlan = toolKind === 'plan'
   const [open, setOpen] = useState(isPlan ? false : Boolean(defaultOpen))
+  /** 收起动画期间保持 body 挂载 + details open，动画结束再真正收起 */
+  const [closing, setClosing] = useState(false)
+  const bodyId = useId()
   useEffect(() => {
     if (defaultOpen && !modalOnExpand) queueMicrotask(() => setOpen(true))
   }, [defaultOpen, modalOnExpand])
+  useEffect(() => {
+    if (!closing) return
+    const t = window.setTimeout(() => setClosing(false), 190)
+    return () => window.clearTimeout(t)
+  }, [closing])
+  const toggle = () => {
+    if (modalOnExpand) {
+      if (!running || modalOpenWhileRunning) modalOnExpand()
+      return
+    }
+    if (open) {
+      setOpen(false)
+      setClosing(true)
+    } else {
+      setOpen(true)
+      setClosing(false)
+    }
+  }
+  // 拦截 summary 点击改为受控折叠：收起阶段先播动画，再真正关闭（ZCode collapsible-up 手感）
+  const handleDetailsClick = (e: ReactMouseEvent<HTMLDetailsElement>) => {
+    const target = e.target instanceof Element ? e.target : null
+    if (!target || !target.closest('summary')) return
+    if (target.closest('button, a, input, textarea, select, label')) return
+    e.preventDefault()
+    toggle()
+  }
   return (
     <details
       className={`msg-tool-item${running ? ' msg-tool-item--running' : ''}${
@@ -671,21 +646,84 @@ function ToolCallCollapsible({
       }${inActivityFold && !running ? ' msg-tool-item--in-fold-done' : ''}${
         foldInteractive ? ' msg-tool-item--fold-interactive' : ''
       }${modalOnExpand ? ' msg-tool-item--modal-trigger' : ''}`}
-      open={modalOnExpand ? false : open}
-      onToggle={(e: SyntheticEvent<HTMLDetailsElement>) => {
-        if (modalOnExpand) {
-          const wantsOpen = e.currentTarget.open
-          e.preventDefault()
-          e.currentTarget.open = false
-          if (wantsOpen && (!running || modalOpenWhileRunning)) modalOnExpand()
-          return
-        }
-        setOpen(e.currentTarget.open)
-      }}
+      data-state={open ? 'open' : 'closed'}
+      data-tool-name={toolName}
+      data-status={toolStatus}
+      data-tool-call-id={toolCallId}
+      data-testid={toolCallId ? `chat-tool-call-block-${toolCallId}` : undefined}
+      open={modalOnExpand ? false : open || closing}
+      onClick={handleDetailsClick}
     >
       {summary}
-      {!modalOnExpand && open ? <div className="msg-tool-body">{body}</div> : null}
+      {!modalOnExpand && (open || closing) ? (
+        <div
+          id={toolCallId ? `msg-tool-body-${toolCallId}` : bodyId}
+          className={`msg-tool-body${closing ? ' is-closing' : ''}`}
+        >
+          {body}
+        </div>
+      ) : null}
     </details>
+  )
+}
+
+/** ZCode 对齐：工具行内联展开详情（命令 + 输出 + 退出码），弹窗降级为「放大」入口 */
+function ToolInlineDetailBody({
+  command,
+  output,
+  exitCode = null,
+  failed = false,
+  running = false,
+  emptyText = '（无输出）',
+  onOpenDetail,
+  detailLabel = '放大查看',
+}: {
+  command?: string
+  output?: string
+  exitCode?: number | null
+  failed?: boolean
+  running?: boolean
+  emptyText?: string
+  onOpenDetail?: () => void
+  detailLabel?: string
+}) {
+  const outputText = String(output || '').trim()
+  return (
+    <div className="msg-tool-inline-detail">
+      {String(command || '').trim() ? (
+        <div className="msg-tool-inline-detail__section">
+          <div className="msg-tool-inline-detail__label">命令</div>
+          <pre className="msg-tool-inline-detail__cmd">
+            <code>{command}</code>
+          </pre>
+        </div>
+      ) : null}
+      <div className="msg-tool-inline-detail__section">
+        <div className="msg-tool-inline-detail__label">
+          <span>{running ? '输出（实时）' : '输出'}</span>
+          {exitCode != null ? (
+            <span
+              className={`msg-tool-inline-detail__exit${exitCode === 0 ? '' : ' is-failed'}`}
+              aria-label={`退出码 ${exitCode}`}
+            >
+              exit {exitCode}
+            </span>
+          ) : null}
+          {onOpenDetail ? (
+            <button
+              type="button"
+              className="msg-tool-inline-detail__expand"
+              onClick={onOpenDetail}
+            >
+              {detailLabel}
+            </button>
+          ) : null}
+        </div>
+        <pre className={`msg-tool-inline-detail__out${failed ? ' is-failed' : ''}`}>
+          {outputText || (running ? '…' : emptyText)}
+        </pre>
+      </div>
+    </div>
   )
 }
 
@@ -930,6 +968,70 @@ function ToolCallListInner({
     return memberOf
   }, [list])
 
+  /**
+   * ZCode toolGrouping 对齐：连续同类工具（终端/检索/只读文件族，≥2、无审批、无沙箱拦截）
+   * 合并为一行，展开后逐条紧凑渲染（嵌套 ToolCallList，每条仍可独立展开）。
+   * 写文件/审批/subagent 永不合并；browser cua-group 走上面的时间线；fold 内/子智能体内不合并。
+   */
+  const consecutiveKindGroups = useMemo(() => {
+    const memberOf = new Map<
+      number,
+      {
+        start: number
+        end: number
+        total: number
+        category: 'terminal' | 'search' | 'file-read'
+        iconKind: string
+      }
+    >()
+    if (nestedInExploring || variant === 'subagent-inner') return memberOf
+    /** 只读文件族（探索类读取）：写入/替换/删除类绝不进组 */
+    const READ_ONLY_FILE_KINDS = new Set(['read', 'read_file', 'ls', 'list_dir', 'find', 'find_file'])
+    const categoryOf = (tool: Record<string, unknown>): 'terminal' | 'search' | 'file-read' | null => {
+      const rawName = tool.name ?? tool.tool_name ?? tool.toolName
+      const kind = safeToolKind(rawName)
+      const category = resolveToolCardCategory(kind)
+      let groupCategory: 'terminal' | 'search' | 'file-read' | null = null
+      if (category === 'terminal') groupCategory = 'terminal'
+      else if (category === 'search') groupCategory = 'search'
+      else if (category === 'file' && READ_ONLY_FILE_KINDS.has(kind)) groupCategory = 'file-read'
+      if (!groupCategory) return null
+      const cid = String(tool.tool_call_id ?? tool.id ?? '').trim()
+      if (!cid) return null
+      if (isToolPendingApproval(tool)) return null
+      if (hasSandboxBlock(tool)) return null
+      return groupCategory
+    }
+    let i = 0
+    while (i < list.length) {
+      const tool = list[i] as Record<string, unknown>
+      const category = categoryOf(tool)
+      if (!category) {
+        i += 1
+        continue
+      }
+      let end = i
+      while (
+        end + 1 < list.length &&
+        categoryOf(list[end + 1] as Record<string, unknown>) === category
+      ) {
+        end += 1
+      }
+      const total = end - i + 1
+      if (total >= 2) {
+        const first = list[i] as Record<string, unknown>
+        const iconKind = safeToolKind(first.name ?? first.tool_name ?? first.toolName)
+        for (let k = i; k <= end; k += 1) {
+          memberOf.set(k, { start: i, end, total, category, iconKind })
+        }
+        i = end + 1
+        continue
+      }
+      i += 1
+    }
+    return memberOf
+  }, [list, nestedInExploring, variant])
+
   const hasLiveToolTicker = useMemo(() => {
     if (showToolTiming && hasRunningTools) return true
     for (const tool of list) {
@@ -1023,7 +1125,6 @@ function ToolCallListInner({
       ? (matched._writeProgress as Record<string, unknown>)
       : null
     if (!wp) return
-    const toolKind = resolveToolKey(matched)
     const inputObj = getToolInputObjectFromRow(matched) as Record<string, unknown> | null
     const content =
       (typeof wp?.content === 'string' ? wp.content : '') ||
@@ -1388,525 +1489,27 @@ function ToolCallListInner({
             const sum = String(approvalMeta?.summary || '').trim()
             if (sum) return briefFull(sum)
           }
-          // ── browser：ZCode 风格步骤摘要（打开网页 · host / 点击元素 [e2] "提交"） ──
-          if (toolKind === 'browser' || toolKind.startsWith('browser_')) {
-            const step = parseBrowserStepToolOutput(t.output)
-            const act =
-              (typeof inputObj?.action === 'string' && inputObj.action.trim().toLowerCase()) ||
-              step?.action ||
-              ''
-            const actZh =
-              (BROWSER_ACTION_ZH as Record<string, string>)[act] || act
-            if (running && !step) {
-              const urlArg = typeof inputObj?.url === 'string' ? inputObj.url.trim() : ''
-              let host = ''
-              if (urlArg) {
-                try {
-                  host = new URL(urlArg).hostname
-                } catch {
-                  host = urlArg
-                }
-              }
-              return briefFull(`${actZh || '浏览器操作'}…${host ? ` ${host}` : ''}`)
-            }
-            if (step && step.ok === false) {
-              const code = step.error?.code || 'error'
-              return briefFull(`${actZh || step.action} · 失败（${code}）`)
-            }
-            if (step) {
-              if (act === 'open' && step.url) {
-                let host = ''
-                try {
-                  host = new URL(step.url).hostname
-                } catch {
-                  host = step.url
-                }
-                return briefFull(`${actZh || step.action} · ${host}`)
-              }
-              const refTag = step.ref ? ` [${step.ref.replace(/^@/, '')}]` : ''
-              const name = step.element?.name ? ` "${step.element.name}"` : ''
-              return briefFull(`${actZh || step.action}${refTag}${name}`)
-            }
-          }
-          // ── supervisor / task（带 action 的复杂工具） ──
-          if (toolKind === 'supervisor') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action : ''
-            const actZh = act ? supervisorActionZh(act) : ''
-            // 监控类：只显示轮询/倒计时信息，不展示任务 id（避免把内部 id 暴露给用户）
-            if (act === 'monitor_execution_step' || act === 'monitor_execution') {
-              const stepSecRaw = inputObj?.monitor_step_seconds ?? inputObj?.monitorStepSeconds ?? inputObj?.monitor_poll_seconds ?? inputObj?.monitorPollSeconds
-              const stepSec = typeof stepSecRaw === 'number' ? stepSecRaw : (typeof stepSecRaw === 'string' ? Number(stepSecRaw) : NaN)
-              const baseTs = timeValue ? new Date(timeValue).getTime() : NaN
-              if (running && Number.isFinite(stepSec) && stepSec > 0 && Number.isFinite(baseTs)) {
-                const remain = Math.ceil(stepSec - (nowTs - baseTs) / 1000)
-                if (remain > 0) return `${actZh} · ${remain}s`
-              }
-              // 到 0 后不再显示秒数
-              return actZh || '监控执行进度'
-            }
-            if (act === 'create_task' || act === 'create_task_with_subtasks') {
-              const tn = typeof inputObj?.task_name === 'string' ? inputObj.task_name as string : ''
-              if (tn) return `${actZh} · ${briefFull(tn)}`
-              const td = typeof inputObj?.task_description === 'string' ? inputObj.task_description as string : ''
-              if (td) return `${actZh} · ${briefFull(td)}`
-            }
-            if (act === 'create_subtask') {
-              const sn = typeof inputObj?.subtask_name === 'string' ? inputObj.subtask_name as string : ''
-              if (sn) return `${actZh} · ${briefFull(sn)}`
-            }
-            if (act === 'create_subtasks') {
-              const subs = inputObj?.subtasks
-              if (Array.isArray(subs)) return `${actZh} · ${subs.length} 个子任务`
-            }
-            if (act === 'update_progress') {
-              const prog = inputObj?.progress
-              if (typeof prog === 'number') return `${actZh} · ${prog}%`
-              if (typeof prog === 'string') return `${actZh} · ${prog}%`
-            }
-            if (act === 'complete_subtask') {
-              const sid = typeof inputObj?.subtask_id === 'string' ? inputObj.subtask_id as string : ''
-              if (debugShowTaskIds && sid) return `${actZh} · ${briefFull(sid)}`
-              return actZh
-            }
-            if (act === 'start_execution') {
-              const tid = typeof inputObj?.task_id === 'string' ? inputObj.task_id as string : ''
-              if (debugShowTaskIds && tid) return `${actZh} · ${briefFull(tid)}`
-              return actZh
-            }
-            if (act === 'continue_subtask_session') {
-              const tid = typeof inputObj?.task_id === 'string' ? inputObj.task_id as string : ''
-              if (debugShowTaskIds && tid) return `${actZh} · ${briefFull(tid)}`
-              const msg = typeof inputObj?.agent_message === 'string' ? inputObj.agent_message as string : ''
-              if (msg) return `${actZh} · ${briefFull(msg)}`
-              return actZh
-            }
-            // get_status / list_subtasks / set_task_planned / set_task_state / monitor_execution_step / get_task_memory / monitor_execution
-            const tid = typeof inputObj?.task_id === 'string' ? inputObj.task_id as string : ''
-            const sid = typeof inputObj?.subtask_id === 'string' ? inputObj.subtask_id as string : ''
-            if (debugShowTaskIds && tid) return `${actZh} · ${briefFull(tid)}`
-            if (debugShowTaskIds && sid) return `${actZh} · ${briefFull(sid)}`
-            if (actZh) return actZh
-            if (act) return act
-          }
-          if (toolKind === 'subagent') {
-            const desc = typeof inputObj?.description === 'string' ? inputObj.description as string : ''
-            if (desc.trim()) return briefFull(desc)
-            const pr = typeof inputObj?.prompt === 'string' ? inputObj.prompt as string : ''
-            if (pr.trim()) return briefFull(pr)
-          }
-          if (toolKind === 'worker') {
-            const tasks = Array.isArray(inputObj?.tasks) ? inputObj.tasks : []
-            if (tasks.length === 1) {
-              const task = tasks[0] as Record<string, unknown>
-              const action = String(task.action || '').trim().toLowerCase()
-              const label =
-                (typeof task.query === 'string' && task.query.trim()) ||
-                (typeof task.path === 'string' && task.path.trim()) ||
-                (typeof task.instruction === 'string' && task.instruction.trim()) ||
-                ''
-              if (label) {
-                if (action === 'search' || action === 'locate') return `搜索 · ${briefFull(label)}`
-                if (action === 'write' || action === 'replace' || action === 'edit' || action === 'delete') {
-                  return `${workerFileActionBriefZh(action)} · ${briefFull(label)}`
-                }
-                return briefFull(label)
-              }
-            }
-            if (tasks.length > 1) {
-              return formatWorkerMultiTaskBrief(tasks, briefFull, running)
-            }
-          }
-          if (toolKind === 'invoke_acp_agent' || toolKind === 'invoke_acp_agent_tool') {
-            const agent = typeof inputObj?.agent === 'string' ? inputObj.agent : ''
-            const pr = typeof inputObj?.prompt === 'string' ? inputObj.prompt as string : ''
-            if (agent && pr) return `${briefFull(agent)}: ${briefFull(pr)}`
-            if (agent) return briefFull(agent)
-          }
-          // ── 实体资产 assets：优先入参摘要；历史落库只有 output 时从输出 JSON 回填 ──
-          if (toolKind === 'assets') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action.trim() : ''
-            if (act) {
-              const actZh = ASSETS_ACTION_ZH[act] || act
-              if (act === 'search') {
-                const q = typeof inputObj?.query === 'string' ? inputObj.query.trim() : ''
-                if (q) return briefFull(`${actZh} · ${q}`)
-              }
-              if (act === 'read' || act === 'list') {
-                const rel = typeof inputObj?.path === 'string' ? inputObj.path.trim() : ''
-                if (rel) return briefFull(`${actZh} · ${rel}`)
-              }
-              if (act === 'note') {
-                const text = (typeof inputObj?.content === 'string' && inputObj.content.trim())
-                  ? inputObj.content.trim()
-                  : (typeof inputObj?.query === 'string' && inputObj.query.trim() ? inputObj.query.trim() : '')
-                if (text) return briefFull(`${actZh} · ${text}`)
-              }
-              if (act === 'profile') {
-                const dim = typeof inputObj?.path === 'string' ? inputObj.path.trim() : ''
-                const text = (typeof inputObj?.content === 'string' && inputObj.content.trim())
-                  ? inputObj.content.trim()
-                  : (typeof inputObj?.query === 'string' && inputObj.query.trim() ? inputObj.query.trim() : '')
-                const bits = [actZh, dim && dim !== 'profile' ? dim : '', text].filter(Boolean)
-                if (bits.length) return briefFull(bits.join(' · '))
-              }
-              return briefFull(actZh)
-            }
-            // ── 历史回放：output 是 JSON 字符串，含 action / path / matches 等 ──
-            const rawOut = typeof t.output === 'string' ? t.output.trim() : ''
-            if (rawOut) {
-              let out: Record<string, unknown> | null = null
-              try {
-                const p = JSON.parse(rawOut)
-                if (p && typeof p === 'object' && !Array.isArray(p)) out = p
-              } catch { /* not json */ }
-              if (out) {
-                const outAct = String(out.action || '').trim()
-                const actZh = ASSETS_ACTION_ZH[outAct] || outAct
-                const pathOut = String(out.path || '').trim()
-                if (out.ok === false) {
-                  const err = String(out.error || '')
-                  return briefFull(err ? `${actZh || '资产'} · 失败：${err}` : `${actZh || '资产'} · 失败`)
-                }
-                if (outAct === 'search') {
-                  const matches = Array.isArray(out.matches) ? out.matches.length : 0
-                  const q = String(out.query || '').trim()
-                  const head = actZh ? actZh : 'search'
-                  if (matches > 0 && q) return briefFull(`${head} · ${q} · ${matches} 条`)
-                  if (matches > 0) return briefFull(`${head} · ${matches} 条`)
-                  if (q) return briefFull(`${head} · ${q} · 无结果`)
-                  return briefFull(`${head} · 无结果`)
-                }
-                if (outAct === 'read') {
-                  const body = String(out.content || '')
-                  const firstLine = body.split('\n').map((l) => l.trim()).find(Boolean)
-                  const brief = firstLine || pathOut
-                  return brief ? briefFull(`${actZh} · ${brief}`) : briefFull(actZh)
-                }
-                if (outAct === 'list') {
-                  const entries = Array.isArray(out.entries) ? out.entries.length : 0
-                  const head = pathOut ? `${actZh} · ${pathOut}` : actZh
-                  return briefFull(entries ? `${head} · ${entries} 项` : head)
-                }
-                if (pathOut) return briefFull(`${actZh} · ${pathOut}`)
-                if (actZh) return briefFull(actZh)
-              }
-              // 非 JSON 输出：取首行
-              const firstLine = rawOut.split('\n').map((l) => l.trim()).find(Boolean)
-              if (firstLine) return briefFull(firstLine)
-            }
-          }
-          // ── 任务看板 tasks：优先摘要；缺入参时从 output 回填后仍走此分支 ──
-          if (toolKind === 'tasks') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action.trim() : ''
-            const statusZh = typeof inputObj?.status_zh === 'string' ? inputObj.status_zh.trim() : ''
-            const status = typeof inputObj?.status === 'string' ? inputObj.status.trim() : ''
-            const summary = typeof inputObj?.summary === 'string' ? inputObj.summary.trim() : ''
-            const prog = inputObj?.progress
-            const bits = [
-              act,
-              prog != null && prog !== ''
-                ? `${Number.isFinite(Number(prog)) ? Number(prog) : prog}%`
-                : '',
-              statusZh || status,
-              summary,
-            ].filter(Boolean)
-            if (bits.length) return briefFull(bits.join(' · '))
-            const rawOut = typeof t.output === 'string' ? t.output.trim() : ''
-            if (rawOut) {
-              if (/重复调用|已拦截/.test(rawOut)) return '重复调用已拦截'
-              const firstLine = rawOut.split('\n').map((l) => l.trim()).find(Boolean)
-              if (firstLine) return briefFull(firstLine)
-            }
-          }
-          if (toolKind === 'platform') {
-            const preservedUi =
-              t.platform_ui && typeof t.platform_ui === 'object' && !Array.isArray(t.platform_ui)
-                ? (t.platform_ui as { title?: string })
-                : null
-            const preservedTitle = String(preservedUi?.title || '').trim()
-            if (preservedTitle) return briefFull(preservedTitle)
-            const rawOut = typeof t.output === 'string' ? t.output.trim() : ''
-            if (rawOut) {
-              try {
-                const parsed = JSON.parse(rawOut) as { ui?: { title?: string }; action?: string; pending_confirm?: boolean }
-                const uiTitle = String(parsed?.ui?.title || '').trim()
-                if (uiTitle) return briefFull(uiTitle)
-                if (parsed?.pending_confirm) {
-                  const act = typeof inputObj?.action === 'string' ? inputObj.action.trim() : String(parsed?.action || '').trim()
-                  return act ? `${act} · 待确认` : '待确认'
-                }
-              } catch {
-                /* ignore */
-              }
-            }
-            const act = typeof inputObj?.action === 'string' ? inputObj.action.trim() : ''
-            if (act) return briefFull(act)
-          }
-          // ── 命令类：完整命令交给 CSS ellipsis，title 保留全文 ──
-          if ((toolKind === 'bash' || toolKind === 'execute_command' || toolKind === 'terminal') && bashCommand) {
-            const cmd = briefFull(bashCommand.trim())
-            if (toolFailed) {
-              const exit = terminalStream?.exitCode ?? null
-              return exit != null && exit !== 0 ? `${cmd} · exit ${exit}` : `${cmd} · 失败`
-            }
-            return cmd
-          }
-          // 命令类 fallback：历史孤儿 tool result（无 input 仅有 output）时从 output 回填摘要
-          if (toolKind === 'bash' || toolKind === 'execute_command' || toolKind === 'terminal') {
-            const meaningful = firstMeaningfulShellOutputLine(t.output)
-            if (meaningful) {
-              return briefFull(toolFailed ? `失败 · ${meaningful}` : meaningful)
-            }
-          }
-          // ── 网络类 ──
-          if (toolKind === 'web_search' && query) {
-            if (running) return briefFull(query)
-            const n = tryWebSearchResultCount(t.output)
-            if (n != null) return n > 0 ? `${briefFull(query)} · ${n} 条` : `${briefFull(query)} · 无结果`
-            return briefFull(query)
-          }
-          if (toolKind === 'web_fetch' && url) return briefFull(url)
-          if (toolKind === 'preview_url' && url) return briefFull(url)
-          if (toolKind === 'media_image_generate') {
-            const pr = typeof inputObj?.prompt === 'string' ? inputObj.prompt.trim() : ''
-            const ar = typeof inputObj?.aspect_ratio === 'string' ? inputObj.aspect_ratio.trim() : ''
-            if (pr) return ar ? `${briefFull(pr)} · ${ar}` : briefFull(pr)
-            if (ar) return ar
-          }
-          if (toolKind === 'media_video_generate') {
-            const pr = typeof inputObj?.prompt === 'string' ? inputObj.prompt.trim() : ''
-            const mode = typeof inputObj?.mode === 'string' ? inputObj.mode.trim() : ''
-            const dur = inputObj?.duration != null ? String(inputObj.duration) : ''
-            const modeZh = mode === 'image2video' ? '图生视频' : mode === 'text2video' ? '文生视频' : mode
-            if (pr && modeZh && dur) return `${modeZh} · ${dur}s · ${briefFull(pr)}`
-            if (pr && modeZh) return `${modeZh} · ${briefFull(pr)}`
-            if (pr) return briefFull(pr)
-            if (modeZh) return modeZh
-          }
-          // ── 文件类 ──
-          if (toolKind === 'read' || toolKind === 'read_file') {
-            const brief = formatReadFileBriefWithSource(inputObj)
-            if (brief) return brief
-            if (path) return briefFull(path)
-          }
-          if (
-            isWriteOrEditTool ||
-            toolKind === 'delete' ||
-            toolKind === 'delete_file' ||
-            toolKind === 'ls' ||
-            toolKind === 'list_dir'
-          ) {
-            // Write/delete row briefs: show leaf filename so CSS ellipsis does not hide
-            // the target name behind a long directory prefix (esp. while streaming).
-            if (isWriteOrEditTool || toolKind === 'delete' || toolKind === 'delete_file') {
-              const leaf = path ? fileNameFromPath(path) : ''
-              return leaf ? briefFull(leaf) : ''
-            }
-            const brief = formatReadPathBrief(inputObj)
-            const pathBrief = brief || (path ? briefFull(path) : '')
-            if (pathBrief) return pathBrief
-          }
-          if (toolKind === 'view_image') {
-            const imgPath = typeof inputObj?.image_path === 'string' ? inputObj.image_path : path
-            if (imgPath) return briefFull(imgPath)
-          }
-          if (toolKind === 'subtask_work_checklist') {
-            const t = formatSubtaskWorkChecklistTitle(inputObj || {})
-            return t.replace(/^执行步骤 · /, '').trim() || '更新步骤'
-          }
-          if (toolKind === 'subtask_outcome_report') {
-            let outPreview = formatSubtaskOutcomeReportOutput(t.output, inputObj)
-            if (!String(outPreview || '').trim()) {
-              const rawOut = typeof t.output === 'string' ? String(t.output).trim() : ''
-              if (rawOut) outPreview = rawOut
-            }
-            if (String(outPreview || '').trim()) {
-              const firstLine = String(outPreview)
-                .split('\n')
-                .map((line) => line.trim())
-                .find(Boolean)
-              if (firstLine) return briefFull(firstLine)
-            }
-            const outcomeTitle = formatSubtaskOutcomeReportTitle(inputObj || {})
-            const stripped = outcomeTitle.replace(/^完成汇报 · /, '').trim() || '提交汇报'
-            if (stripped === shortLabel) return ''
-            return stripped
-          }
-          if (toolKind === 'plan') {
-            const g = typeof inputObj?.goal === 'string' ? inputObj.goal.trim() : ''
-            if (g) return briefFull(g)
-            let steps = inputObj?.steps
-            if (typeof steps === 'string') {
-              try { steps = JSON.parse(steps) } catch { steps = null }
-            }
-            if (Array.isArray(steps) && steps.length) return `${steps.length} 个步骤`
-            return '提交规划'
-          }
-          // ── 搜索类 ──
-          if (toolKind === 'search_code_index') {
-            const q = typeof inputObj?.query === 'string' ? inputObj.query.trim() : ''
-            const extra = Array.isArray(inputObj?.queries)
-              ? (inputObj.queries as unknown[])
-                  .map((x) => (typeof x === 'string' ? x.trim() : ''))
-                  .filter(Boolean)
-              : []
-            const merged = [q, ...extra.filter((t) => t !== q)].filter(Boolean)
-            const ro = typeof inputObj?.read_offset === 'number' ? inputObj.read_offset : 0
-            const rl = typeof inputObj?.read_limit === 'number' ? inputObj.read_limit : 0
-            const kw = merged.length ? briefFull(merged.join(' · ')) : ''
-            if (rl > 0) {
-              const range = formatReadLineRangeLabel({ offset: ro, limit: rl })
-              return kw ? `${kw} · ${range}` : range
-            }
-            if (merged.length > 1) return briefFull(merged.join(' · '))
-            if (merged.length === 1) return briefFull(merged[0])
-          }
-          if (toolKind === 'read_files' && Array.isArray(inputObj?.paths) && inputObj.paths.length) {
-            const paths = inputObj.paths as unknown[]
-            const first = paths.find((p) => typeof p === 'string') as string | undefined
-            if (first) {
-              const short = first.replace(/\\/g, '/').split('/').pop() || first
-              return paths.length > 1 ? `${briefFull(short)} +${paths.length - 1}` : briefFull(short)
-            }
-          }
-          if (toolKind === 'search_content' && typeof inputObj?.pattern === 'string') {
-            return briefFull(inputObj.pattern as string)
-          }
-          if (
-            (toolKind === 'rg' || toolKind === 'grep' || toolKind === 'find_file' || toolKind === 'find') &&
-            typeof inputObj?.pattern === 'string'
-          ) {
-            const pat = briefFull(inputObj.pattern as string)
-            const scopeRaw =
-              toolKind === 'find_file' || toolKind === 'find'
-                ? (typeof inputObj?.root === 'string' ? inputObj.root : '')
-                : (typeof inputObj?.path === 'string' ? inputObj.path : typeof inputObj?.glob === 'string' ? inputObj.glob : '')
-            const scope = String(scopeRaw || '').trim()
-            if (scope && scope !== '.') return `${pat} · ${briefFull(scope)}`
-            return pat
-          }
-          if (toolKind === 'tool_search' && query) return briefFull(query)
-          // ── 场景类 ──
-          if (
-            toolKind === 'mode_set' ||
-            toolKind === 'scenario' ||
-            toolKind === 'scenario_activation'
-          ) {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action : ''
-            const key =
-              typeof inputObj?.mode === 'string'
-                ? inputObj.mode
-                : typeof inputObj?.scenario_key === 'string'
-                  ? inputObj.scenario_key
-                  : ''
-            const rs = typeof inputObj?.reason === 'string' ? inputObj.reason : ''
-            if (act && key) return `${act} · ${key}`
-            if (act && rs) return `${act} · ${briefFull(rs)}`
-            if (act) return act
-            if (key) return key
-          }
-          if (toolKind === 'list_agents') {
-            const type = typeof inputObj?.task_type === 'string' ? inputObj.task_type : ''
-            const q = typeof inputObj?.query === 'string' ? inputObj.query : ''
-            if (type && q) return `${type} · ${briefFull(q)}`
-            if (type) return type
-            if (q) return briefFull(q)
-          }
-          // ── 记忆类 ──
-          if (toolKind === 'remember' && typeof inputObj?.title === 'string') return briefFull(inputObj.title as string)
-          if (toolKind === 'recall' && query) return briefFull(query)
-          // ── 待办/自动化 ──
-          if (toolKind === 'todo') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action : ''
-            const cnt = typeof inputObj?.content === 'string' ? inputObj.content as string : ''
-            if (act && cnt) return `${act}: ${briefFull(cnt)}`
-            if (act) return act
-          }
-          if (toolKind === 'automation') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action : ''
-            const nm = typeof inputObj?.name === 'string' ? inputObj.name as string : ''
-            const sched = typeof inputObj?.schedule === 'string' ? inputObj.schedule as string : ''
-            const aidRaw = inputObj?.id ?? inputObj?.task_id
-            const aid = typeof aidRaw === 'string' ? aidRaw : ''
-            if (act === 'create' && nm) return `${nm}${sched ? ` · ${briefFull(sched)}` : ''}`
-            if (act && aid) return `${act}: ${briefFull(aid)}`
-            if (act && nm) return `${act}: ${briefFull(nm)}`
-            if (act) return act
-          }
-          // ── 询问 ──
-          if (toolKind === 'ask_clarification' && typeof inputObj?.question === 'string') {
-            return briefFull(inputObj.question as string)
-          }
-          // ── Agent 相关 ──
-          if (toolKind === 'create_agent' || toolKind === 'update_agent') {
-            const code = typeof inputObj?.agent_code === 'string' ? inputObj.agent_code : ''
-            if (code) return briefFull(code)
-          }
-          if (toolKind === 'setup_agent' && typeof inputObj?.description === 'string') {
-            return briefFull(inputObj.description as string)
-          }
-          if (toolKind === 'skill_manager') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action : ''
-            const nm = typeof inputObj?.name === 'string' ? inputObj.name as string : ''
-            if (act && nm) return `${act}: ${briefFull(nm)}`
-            if (act) return act
-          }
-          if (toolKind === 'claude_session') {
-            const act = typeof inputObj?.action === 'string' ? inputObj.action : ''
-            if (act === 'send') {
-              const msg = typeof inputObj?.message === 'string' ? inputObj.message as string : ''
-              if (msg) return briefFull(msg)
-            }
-            if (act === 'create') {
-              const pp = typeof inputObj?.project_path === 'string' ? inputObj.project_path as string : ''
-              if (pp) return briefFull(pp)
-            }
-            if (act) return act
-          }
-          // ── External CLI (legacy wire id: trae_*) ──
-          if (toolKind === 'trae_delegate' && typeof inputObj?.prompt === 'string') return briefFull(inputObj.prompt as string)
-          if (toolKind === 'trae_switch_mode' && typeof inputObj?.mode === 'string') return briefFull(inputObj.mode as string)
-          if (toolKind === 'trae_start') {
-            const ws = typeof inputObj?.workspace === 'string' ? inputObj.workspace : ''
-            if (ws) return briefFull(ws)
-          }
-          // ── Process ──
-          if (isProcessStartKind(toolKind, inputObj)) {
-            const cmd =
-              bashCommand ||
-              (typeof inputObj?.command === 'string' ? inputObj.command : null)
-            if (cmd) return briefFull(cmd)
-          }
-          if (isProcessToolKind(toolKind) && !isProcessStartKind(toolKind, inputObj)) {
-            const sid =
-              processSessionId ||
-              (typeof inputObj?.session_id === 'string' ? inputObj.session_id : null)
-            if (sid) return briefFull(sid)
-          }
-          // ── Lint ──
-          if (toolKind === 'read_lints') {
-            const inv = String(inputObj?.invocation_source || '').trim().toLowerCase()
-            const p = typeof inputObj?.paths === 'string' ? inputObj.paths : (Array.isArray(inputObj?.paths) ? (inputObj.paths as string[]).join(', ') : '')
-            if (inv === 'post_edit') {
-              const short = p ? p.replace(/\\/g, '/').split('/').pop() || p : ''
-              return short ? `编辑后 · ${briefFull(short)}` : '编辑后诊断'
-            }
-            if (p) return briefFull(p)
-          }
-          // ── 思维导图 ──
-          if (toolKind === 'mind_map') {
-            const opsList = Array.isArray(inputObj?.ops) ? inputObj.ops : []
-            if (running) {
-              return opsList.length ? `${opsList.length} 个操作` : '更新导图…'
-            }
-            const outStr = typeof t.output === 'string' ? t.output : ''
-            const appliedM = outStr.match(/applied=(\d+)/)
-            if (appliedM) {
-              const applied = parseInt(appliedM[1])
-              return applied > 0 ? `已更新 ${applied} 个操作` : '无变更'
-            }
-            return opsList.length ? `${opsList.length} 个操作` : '更新导图'
-          }
+          // ── 注册表：全部工具族摘要已迁入 tool-cards/briefs.ts（未命中 null → 走兜底） ──
+          const registeredBrief = resolveRegisteredToolCardBrief({
+            toolKind,
+            inputObj,
+            path,
+            toolFailed,
+            bashCommand,
+            terminalExitCode: terminalStream?.exitCode ?? null,
+            output: t.output,
+            isWriteOrEditTool,
+            query,
+            running,
+            url,
+            processSessionId,
+            shortLabel,
+            nowTs,
+            timeValue,
+            debugShowTaskIds,
+            platformUi: (t as Record<string, unknown>).platform_ui,
+          })
+          if (registeredBrief != null) return registeredBrief
           // ── 兜底 ──
           const hasOutput = t.output != null && t.output !== '' && !(typeof t.output === 'object' && Object.keys(t.output as object).length === 0)
           if (running && !hasOutput) {
@@ -2030,7 +1633,13 @@ function ToolCallListInner({
               ? toolBriefTitleText.trim()
               : titleText
         const summary = (
-          <summary title={summaryTitle}>
+          <summary
+            title={summaryTitle}
+            aria-label="展开工具详情"
+            data-testid={toolCallId ? `tool-summary-trigger-${toolCallId}` : undefined}
+            aria-controls={toolCallId ? `msg-tool-body-${toolCallId}` : undefined}
+          >
+            <ToolCardIcon toolKind={toolKind} running={running} />
             <span className="msg-tool-short-label">
               {running ? (
                 <ToolRunningScanText text={shortLabel} className="tool-label-running" maxChars={32} />
@@ -2067,7 +1676,12 @@ function ToolCallListInner({
                 {elapsedText}
               </span>
             ) : null}
-            <span className="msg-tool-chevron" aria-hidden="true">›</span>
+            <ChevronRight
+              className="msg-tool-chevron"
+              size={16}
+              strokeWidth={1.5}
+              aria-hidden="true"
+            />
             {displayTimeText && !useActivityFold ? (
               <span className="msg-tool-time">{displayTimeText}</span>
             ) : null}
@@ -2190,12 +1804,8 @@ function ToolCallListInner({
             : undefined
         const canOpenToolDetailModal =
           Boolean(toolCallId) || toolHasPersistedDetailOutput(t as Record<string, unknown>)
-        const modalOnExpand =
-          openApprovalIfPending ??
-          openPlatformFeedbackPanel ??
-          (isMindMapTool && onOpenKnowledgeMap
-            ? onOpenKnowledgeMap
-            : isTerminalModalTool && (toolCallId || outputJson)
+        const terminalDetailOpener =
+          isTerminalModalTool && (toolCallId || outputJson)
             ? () =>
                 setTerminalModal({
                   toolCallId,
@@ -2208,19 +1818,59 @@ function ToolCallListInner({
                     : processModalCommand,
                   outputFallback: outputJson || '',
                 })
-            : isViewImageModalTool && (toolCallId || viewImagePath || outputJson)
-              ? () =>
-                  setViewImageModal({
-                    toolCallId,
-                    title: summaryTitle || titleText,
-                    imagePath: viewImagePath,
-                    outputText: outputJson || '',
-                  })
-              : isFileEditModalTool
-                ? openFileEditModal
-                : canOpenToolDetailModal
-                  ? openToolDetailModal
-                  : undefined)
+            : undefined
+        const viewImageDetailOpener =
+          isViewImageModalTool && (toolCallId || viewImagePath || outputJson)
+            ? () =>
+                setViewImageModal({
+                  toolCallId,
+                  title: summaryTitle || titleText,
+                  imagePath: viewImagePath,
+                  outputText: outputJson || '',
+                })
+            : undefined
+        // ZCode 对齐：主聊天（非折叠区）点击行内展开命令+输出；弹窗降级为 body 里的「放大」入口。
+        // 审批 / 平台反馈 / 知识图谱 / 图片 / 折叠区内行保持原弹窗行为。
+        let inlineDetail: ReactNode = null
+        if (!inFold && !showInteractiveApproval) {
+          if (isTerminalModalTool && (isShellTool || isProcessStartKind(toolKind, inputObj))) {
+            const liveOutput = terminalStream
+              ? [String(terminalStream.stdout || ''), String(terminalStream.stderr || '')]
+                  .filter((s) => s.trim())
+                  .join('\n')
+              : ''
+            inlineDetail = (
+              <ToolInlineDetailBody
+                command={
+                  isShellTool ? bashCommand || terminalStream?.command || '' : processModalCommand
+                }
+                output={liveOutput || outputJson}
+                exitCode={terminalStream?.exitCode ?? null}
+                failed={toolFailed}
+                running={running}
+                onOpenDetail={terminalDetailOpener}
+              />
+            )
+          } else if (outputJson && !running && !isViewImageModalTool && !isMindMapTool) {
+            inlineDetail = (
+              <ToolInlineDetailBody
+                output={outputJson}
+                failed={toolFailed}
+                running={running}
+                onOpenDetail={canOpenToolDetailModal ? openToolDetailModal : undefined}
+              />
+            )
+          }
+        }
+        let modalOnExpand: (() => void) | undefined
+        if (openApprovalIfPending) modalOnExpand = openApprovalIfPending
+        else if (openPlatformFeedbackPanel) modalOnExpand = openPlatformFeedbackPanel
+        else if (isMindMapTool && onOpenKnowledgeMap) modalOnExpand = onOpenKnowledgeMap
+        else if (inlineDetail) modalOnExpand = undefined
+        else if (terminalDetailOpener) modalOnExpand = terminalDetailOpener
+        else if (viewImageDetailOpener) modalOnExpand = viewImageDetailOpener
+        else if (isFileEditModalTool) modalOnExpand = openFileEditModal
+        else if (canOpenToolDetailModal) modalOnExpand = openToolDetailModal
         const foldInteractive = inFold && Boolean(modalOnExpand)
         if (isFileEditModalTool && !inFold) {
           const displayPath =
@@ -2243,6 +1893,7 @@ function ToolCallListInner({
                   openFileEditModal()
                 }}
               >
+                <ToolCardIcon toolKind={toolKind} running={running} />
                 <span className="msg-tool-short-label">
                   {running ? (
                     <ToolRunningScanText text={shortLabel} className="tool-label-running" maxChars={32} />
@@ -2321,6 +1972,71 @@ function ToolCallListInner({
             </div>
           )
         }
+        const kindGroupInfo = consecutiveKindGroups.get(i)
+        if (kindGroupInfo) {
+          if (i !== kindGroupInfo.start) return null
+          const memberIds = Array.from({ length: kindGroupInfo.total }, (_, k) => {
+            const mt = list[kindGroupInfo.start + k] as Record<string, unknown>
+            return String(mt.tool_call_id ?? mt.id ?? '')
+          }).filter(Boolean)
+          const anyRunning = Array.from(
+            { length: kindGroupInfo.total },
+            (_, k) => list[kindGroupInfo.start + k] as Record<string, unknown>,
+          ).some((mt) => !isToolPendingApproval(mt) && isToolRunning(mt))
+          const groupMeta =
+            kindGroupInfo.category === 'terminal'
+              ? { label: '终端', count: '条命令' }
+              : kindGroupInfo.category === 'search'
+                ? { label: '检索', count: '次检索' }
+                : { label: '读取', count: '次读取' }
+          return (
+            <details
+              key={key}
+              className={`${entryClass} msg-tool-kind-group msg-tool-item${
+                anyRunning ? ' msg-tool-item--running' : ''
+              }`}
+            >
+              <summary>
+                <ToolCardIcon toolKind={kindGroupInfo.iconKind} running={anyRunning} />
+                <span className="msg-tool-short-label">
+                  {anyRunning ? (
+                    <ToolRunningScanText text={groupMeta.label} maxChars={16} />
+                  ) : (
+                    groupMeta.label
+                  )}
+                </span>
+                <span className="msg-tool-brief">
+                  {kindGroupInfo.total} {groupMeta.count}
+                </span>
+                <ChevronRight
+                  className="msg-tool-chevron"
+                  size={16}
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
+              </summary>
+              <div className="msg-tool-kind-group-body">
+                <ToolCallList
+                  tools={list}
+                  filterIds={memberIds}
+                  subagentTasks={subagentTasks}
+                  terminalStreams={terminalStreams}
+                  onToolApproval={onToolApproval}
+                  toolApprovalBusy={toolApprovalBusy}
+                  interactiveToolApproval={interactiveToolApproval}
+                  hideSubagentInnerTools={hideSubagentInnerTools}
+                  nestedInExploring
+                  activityGrouped={false}
+                  isStreaming={isStreaming}
+                  showToolTiming={showToolTiming}
+                  sessionKey={sessionKey}
+                  compareSessionKey={compareSessionKey}
+                  onOpenKnowledgeMap={onOpenKnowledgeMap}
+                />
+              </div>
+            </details>
+          )
+        }
         return (
           <div key={key} className={entryClass}>
             {mediaImagePreview ? (
@@ -2339,9 +2055,12 @@ function ToolCallListInner({
               inActivityFold={inFold}
               foldInteractive={foldInteractive}
               summary={summary}
-              body={null}
+              body={inlineDetail}
               modalOnExpand={modalOnExpand}
               modalOpenWhileRunning={Boolean(modalOnExpand)}
+              toolName={toolName}
+              toolStatus={running ? 'running' : toolFailed ? 'failed' : 'completed'}
+              toolCallId={toolCallId || undefined}
             />
             {approvalPanel}
             {sandboxBlockedCard}

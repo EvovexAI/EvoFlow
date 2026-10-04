@@ -1,5 +1,7 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useId, useState } from 'react'
+import { Brain, ChevronRight } from 'lucide-react'
 import type { MessageSegment } from '../chat-types.js'
+import { formatReasoningDurationLabel } from '../lib/turn-timing.js'
 import {
   reasoningDisplayParagraphs,
   reasoningHeadForDisplay,
@@ -42,38 +44,79 @@ function ReasoningTextBody({ paragraphs, className }: { paragraphs: string[]; cl
   )
 }
 
+/**
+ * ZCode 风格可折叠思考块：脑图标 + 「思考」+ 可选「· 持续了 X 秒」，
+ * 箭头默认隐藏、悬停/聚焦显现，展开后旋转 90°；
+ * 内容容器常驻 DOM（closed 时 display:none，对齐 ZCode 的 hidden collapsible-content），
+ * 展开/收起均有动画。
+ */
 function CollapsedReasoningBlock({
   displayLabel,
-  preview,
+  durationMs,
   paragraphs,
 }: {
   displayLabel: string
-  preview: string
+  durationMs?: number | null
   paragraphs: string[]
 }) {
   const [expanded, setExpanded] = useState(false)
+  /** 收起动画期间保持 is-expanded，动画结束再真正折叠 */
+  const [closing, setClosing] = useState(false)
+  useEffect(() => {
+    if (!closing) return
+    const t = window.setTimeout(() => setClosing(false), 190)
+    return () => window.clearTimeout(t)
+  }, [closing])
+  const showBody = expanded || closing
+  const toggle = () => {
+    if (expanded) {
+      setExpanded(false)
+      setClosing(true)
+    } else {
+      setExpanded(true)
+      setClosing(false)
+    }
+  }
+  const durationLabel = formatReasoningDurationLabel(durationMs)
+  const contentId = useId()
   return (
-    <div className={`react-chat-inline-reasoning${expanded ? ' is-expanded' : ' is-collapsed'}`}>
+    <div className={`react-chat-inline-reasoning${showBody ? ' is-expanded' : ' is-collapsed'}`}>
       <button
         type="button"
         className="react-chat-inline-reasoning-toggle"
+        data-testid="chat-reasoning-trigger"
         aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        aria-controls={contentId}
+        onClick={toggle}
       >
-        <span className="react-chat-inline-reasoning-status-dot" aria-hidden />
+        <Brain className="react-chat-inline-reasoning-brain" size={16} strokeWidth={1.5} aria-hidden />
         <span className="react-chat-inline-reasoning-toggle-label">{displayLabel}</span>
-        <span
-          className={`react-chat-inline-reasoning-toggle-chevron msg-tool-activity-fold-chevron${
+        {durationLabel ? (
+          <>
+            <span className="react-chat-inline-reasoning-toggle-sep" aria-hidden>
+              ·
+            </span>
+            <span className="react-chat-inline-reasoning-toggle-duration">{durationLabel}</span>
+          </>
+        ) : null}
+        <ChevronRight
+          className={`react-chat-inline-reasoning-toggle-chevron-icon${
             expanded ? ' is-expanded' : ''
           }`}
+          size={16}
+          strokeWidth={1.5}
           aria-hidden
         />
       </button>
-      {!expanded && preview ? (
-        <p className="react-chat-inline-reasoning-preview">{preview}</p>
-      ) : null}
-      {expanded && paragraphs.length ? (
-        <div className="react-chat-inline-reasoning-body">
+      {paragraphs.length ? (
+        <div
+          id={contentId}
+          className={`react-chat-inline-reasoning-body${closing ? ' is-closing' : ''}`}
+          data-state={expanded ? 'open' : 'closed'}
+          data-reasoning-content="true"
+          data-reasoning-content-variant="default"
+          data-testid="chat-reasoning-content"
+        >
           <ReasoningTextBody
             paragraphs={paragraphs}
             className="react-chat-inline-reasoning-text react-chat-inline-reasoning-md"
@@ -86,8 +129,9 @@ function CollapsedReasoningBlock({
 
 /**
  * 思考展示：
- * - Exploring / 当前轮：永远「思考」+ 单行；正文在下方正常显示
- * - 气泡顶栏历史：可折叠看更多
+ * - 流式（当前轮 / flat 时间线）：单行扫描，正文在下方正常显示
+ * - 完成 + collapsible（ZCode flat 模式 / 历史气泡）：可折叠块，带「· 持续了 X 秒」
+ * - 完成 + 折叠区内（Exploring fold）：紧凑单行
  */
 function ReasoningInlineBlockInner({
   text,
@@ -95,12 +139,18 @@ function ReasoningInlineBlockInner({
   label = '思考',
   inExploring = false,
   hideChevron = false,
+  durationMs = null,
+  collapsible = false,
 }: {
   text: string
   isStreamingActive?: boolean
   label?: string
   inExploring?: boolean
   hideChevron?: boolean
+  /** 本段思考耗时（ms）；有值时折叠头显示「· 持续了 X 秒」 */
+  durationMs?: number | null
+  /** 完成段强制走 ZCode 可折叠样式（flat 时间线用；fold 内保持紧凑单行） */
+  collapsible?: boolean
   onOpenWorkspaceFile?: (rawUrl: string, name?: string) => void
 }) {
   const body = String(text || '').trim()
@@ -133,8 +183,8 @@ function ReasoningInlineBlockInner({
 
   if (!body && !isStreamingActive) return null
 
-  // 当前轮 / Exploring：思考只占一行
-  if (inExploring || isStreamingActive) {
+  // 流式思考：单行扫描
+  if (isStreamingActive || (inExploring && !collapsible)) {
     const line = body
       ? isStreamingActive
         ? reasoningStreamOneLine(body)
@@ -178,7 +228,7 @@ function ReasoningInlineBlockInner({
   return (
     <CollapsedReasoningBlock
       displayLabel={displayLabel}
-      preview={reasoningPreviewOneLine(body)}
+      durationMs={durationMs}
       paragraphs={reasoningDisplayParagraphs(reasoningHeadForDisplay(body))}
     />
   )

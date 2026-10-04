@@ -6,6 +6,7 @@
 
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
+import { transportLog } from './transport-log-gate.js'
 
 const APP_SERVER_EVENT = 'evoflow://app-server'
 
@@ -98,7 +99,7 @@ export async function ensureAppServer() {
 export async function prewarmAppServer() {
   try {
     await ensureAppServer()
-    console.info('[evoflow] app-server prewarm ok', { warm: _warm })
+    transportLog('app-server prewarm ok', { warm: _warm })
     return true
   } catch (err) {
     _warm = false
@@ -251,7 +252,7 @@ export async function appServerFetchStream(streamPath, options = {}) {
           headers['x-evoflow-stream-resume'] || headers['X-Evoflow-Stream-Resume'] || '1',
       },
     })
-    console.info('[evoflow] app-server turn/start accepted', { threadId, turnId, structured: !!onStreamEvent })
+    transportLog('app-server turn/start accepted', { threadId, turnId, structured: !!onStreamEvent })
   } catch (err) {
     stream.abort()
     try {
@@ -330,7 +331,7 @@ export async function appServerFetchGatewayStream(streamPath, options = {}) {
       headers,
       turnId,
     })
-    console.info('[evoflow] app-server gateway/stream accepted', { path, turnId })
+    transportLog('app-server gateway/stream accepted', { path, turnId })
   } catch (err) {
     stream.abort()
     throw err

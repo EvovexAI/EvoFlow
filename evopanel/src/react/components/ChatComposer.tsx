@@ -489,6 +489,23 @@ export const ChatComposer = memo(function ChatComposer({
     return () => window.removeEventListener('evopanel:composer-pick-files', onHomePick)
   }, [pickFiles])
 
+  // 划词引用追问：SelectionActionMenu 通过 window 事件投递引用文本。
+  // 草稿态在组件内部，由这里读当前 text 拼接（引用以 Markdown 引用块追加），而非整体替换。
+  useEffect(() => {
+    const onQuote = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ text?: string }>).detail
+      const raw = String(detail?.text || '').trim()
+      if (!raw) return
+      const quoted = raw.split('\n').map((line) => `> ${line}`).join('\n') + '\n\n'
+      const cur = String(text || '')
+      const next = cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${quoted}` : quoted
+      setTextAndNotify(next)
+      textareaRef.current?.focus()
+    }
+    window.addEventListener('evopanel:composer-quote', onQuote)
+    return () => window.removeEventListener('evopanel:composer-quote', onQuote)
+  }, [text, setTextAndNotify])
+
   function insertText(next: string) {
     setTextAndNotify(next)
     textareaRef.current?.focus()
@@ -1451,7 +1468,10 @@ export const ChatComposer = memo(function ChatComposer({
               className="react-chat-icon-attach-btn"
               ref={bottomMoreTriggerRef}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onOpenAttachmentMenu?.()}
+              onClick={() => {
+                console.log('[ChatComposer] 加号按钮点击', { onOpenAttachmentMenu: !!onOpenAttachmentMenu });
+                onOpenAttachmentMenu?.();
+              }}
               title="更多功能（Agent 模式 / 技能 / 目标 / 员工…）"
               aria-label="更多"
             >
@@ -1538,6 +1558,11 @@ export const ChatComposer = memo(function ChatComposer({
               </div>
             ) : null}
           </div>
+          {renderBottomControls?.({
+            pickFiles: () => pickFiles(),
+            pickDocFiles: () => pickDocFiles(),
+            insertText: (text) => insertText(text),
+          })}
           <div className="react-chat-composer-trailing">
             {ttsSpeaking && !voiceRecording && !voiceBusy ? (
               <button
@@ -1641,9 +1666,10 @@ export const ChatComposer = memo(function ChatComposer({
                 }}
                 title={engineReady ? '发送（Enter）' : 'Agent 引擎加载中…'}
               >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18" aria-hidden="true">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                {/* ZCode 对齐：圆形实心按钮 + 向上箭头 */}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18" aria-hidden="true">
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
                 </svg>
               </button>
             )}

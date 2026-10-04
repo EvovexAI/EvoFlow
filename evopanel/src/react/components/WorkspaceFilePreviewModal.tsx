@@ -4,7 +4,7 @@ import { normalizeWorkspaceReadPath } from '../../lib/workspace-api-scope.js'
 import { buildWorkspaceMediaPreviewFields, isWorkspaceMediaBinaryPath } from '../../lib/chat-image-src.js'
 import { resolveWritePreviewPath } from '../../lib/workspace-preview-path.js'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
-import { WorkspaceFilePreviewPane, type WorkspacePreviewState } from './WorkspaceFilePreviewPane.js'
+import { WorkspaceFilePreviewPane, type WorkspaceFocusAnnotation, type WorkspacePreviewState } from './WorkspaceFilePreviewPane.js'
 
 function basename(p: string): string {
   const s = String(p || '').replace(/\\/g, '/')
@@ -46,6 +46,8 @@ type Props = {
   /** 代码评论定位：滚动并高亮该行区间（透传给预览面板）。 */
   focusLine?: number
   focusEndLine?: number
+  /** 代码评论批注：渲染在目标行区间下方。 */
+  focusAnnotation?: WorkspaceFocusAnnotation
   onClose: () => void
 }
 
@@ -58,6 +60,7 @@ export function WorkspaceFilePreviewModal({
   poll = false,
   focusLine,
   focusEndLine,
+  focusAnnotation,
   onClose,
 }: Props) {
   const root = String(workspaceRoot || '').trim()
@@ -267,6 +270,7 @@ export function WorkspaceFilePreviewModal({
           zoomControls={zoomControls}
           focusLine={focusLine}
           focusEndLine={focusEndLine}
+          focusAnnotation={focusAnnotation}
           onRetry={() => {
             const ticket = ++ticketRef.current
             void fetchContent(ticket)

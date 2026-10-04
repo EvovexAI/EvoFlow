@@ -51,6 +51,9 @@ _SESSION_TTL_SEC = float(os.getenv("EVOFLOW_BROWSER_SESSION_TTL", "1800"))
 _STREAM_JPEG_QUALITY = int(os.getenv("EVOFLOW_BROWSER_STREAM_QUALITY", "55"))
 _STREAM_MAX_W = int(os.getenv("EVOFLOW_BROWSER_STREAM_MAX_W", "1280"))
 _STREAM_MAX_H = int(os.getenv("EVOFLOW_BROWSER_STREAM_MAX_H", "900"))
+# everyNthFrame=1 was too aggressive on quiet pages; 2 cuts idle CPU ~50% with no visible lag.
+# Set EVOFLOW_BROWSER_STREAM_EVERY=1 to opt back into the previous behavior.
+_STREAM_EVERY_NTH_FRAME = int(os.getenv("EVOFLOW_BROWSER_STREAM_EVERY", "2"))
 _SNAPSHOT_MAX_ELEMENTS = int(os.getenv("EVOFLOW_BROWSER_SNAPSHOT_MAX_ELEMENTS", "150"))
 _SNAPSHOT_MAX_DOM = int(os.getenv("EVOFLOW_BROWSER_SNAPSHOT_MAX_DOM", "400"))
 
@@ -367,7 +370,7 @@ class _Session:
                     "quality": _STREAM_JPEG_QUALITY,
                     "maxWidth": _STREAM_MAX_W,
                     "maxHeight": _STREAM_MAX_H,
-                    "everyNthFrame": 1,
+                    "everyNthFrame": _STREAM_EVERY_NTH_FRAME,
                 },
             )
             self.cdp.on("Page.screencastFrame", self._on_screencast_frame)
@@ -613,6 +616,13 @@ class BrowserEngine:
 
     def execute(self, thread_id: str, command: dict[str, Any], timeout: float) -> dict[str, Any]:
         started = time.time()
+        method = str(command.get("method") or "")
+        logger.info(
+            "browser_engine.execute thread=%s method=%s timeout=%s",
+            thread_id,
+            method,
+            timeout,
+        )
 
         async def _run() -> dict[str, Any]:
             session = await self._get_session(thread_id)
@@ -631,7 +641,16 @@ class BrowserEngine:
                 if result.ok and last_url and command.get("method") != "navigate":
                     result.error = None
             result.elapsedMs = round((time.time() - started) * 1000, 1)
-            return result.model_dump(mode="json", by_alias=True, exclude_none=True)
+            payload = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+            logger.info(
+                "browser_engine.execute DONE thread=%s method=%s ok=%s elapsed_ms=%s code=%s",
+                thread_id,
+                method,
+                payload.get("ok"),
+                payload.get("elapsedMs"),
+                (payload.get("error") or {}).get("code"),
+            )
+            return payload
 
         return self._submit(_run, timeout or _COMMAND_BUDGET_SEC)
 

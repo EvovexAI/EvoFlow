@@ -54,6 +54,7 @@ import {
   openAiMetaToStreamTurnEvents,
 } from '../react/lib/openai-stream-turn.ts'
 import { logStreamCompareSseRecv, markStreamCompareSession, markStreamCompareRun } from '../react/lib/stream-compare-file-log.ts'
+import { transportLog, transportRawLog, isTransportLogEnabled } from './transport-log-gate.js'
 
 /** ``agui`` (default) | ``openai`` | ``evf`` — override via localStorage EVOFLOW_STREAM_FORMAT */
 function resolveStreamWireFormat() {
@@ -913,10 +914,13 @@ async function gatewayProxyFetchStream(url, options = {}) {
 /**
  * Desktop stream transport:
  * - Chat ``/runs/stream`` (default): Rust ``gateway_proxy_stream`` — fast SSE bytes, no page port discovery.
- * - DEV 模式 或 evoflow-dev-network-debug=1: 直走浏览器 fetch → DevTools Network 可见
+ * - DEV 模式: 直走浏览器 fetch → DevTools Network 可见
  * - Opt-in stdio structured pipe: ``localStorage evoflow-desktop-pipe-chat=1`` (filtered; drops fat values).
  * - Other SSE: prefer warm app-server pipe; HTTP fallback.
  * - Web: same-origin ``fetch``.
+ *
+ * 传输选择日志默认静音（``localStorage EVOFLOW_DEBUG_TRANSPORT=1`` 打开），
+ * 否则每开一条 SSE 就刷一行。
  */
 export async function evoflowFetchStream(url, options = {}) {
   if (!isEvoflowTauri() || !url.startsWith('/')) {
@@ -928,7 +932,7 @@ export async function evoflowFetchStream(url, options = {}) {
 
   // DEV 模式：直走 Vite proxy fetch，DevTools Network 可见（SSE 也走 /api proxy，ws: true）
   if (import.meta.env.DEV) {
-    console.info('[evoflow] sse transport=dev-fetch', pathOnly)
+    transportLog('sse transport=dev-fetch', pathOnly)
     return fetch(url, options)
   }
 
@@ -945,7 +949,7 @@ export async function evoflowFetchStream(url, options = {}) {
   // Default chat path: Rust owns Gateway URL (isolation OK) and streams raw SSE (fast).
   if (isRunsStream && !forcePipeChat && !forceWebviewHttp) {
     try {
-      console.info('[evoflow] chat transport=gateway-proxy-stream', pathOnly)
+      transportLog('chat transport=gateway-proxy-stream', pathOnly)
       return await gatewayProxyFetchStream(url, options)
     } catch (err) {
       // Stale thread after LangGraph restart — let chatSend recreate; do not mask with pipe fallback.
@@ -961,23 +965,23 @@ export async function evoflowFetchStream(url, options = {}) {
       await mod.ensureAppServer().catch(() => null)
       if (forcePipeChat || mod.shouldUseAppServerChatPipe() || mod.isAppServerWarm()) {
         if (isRunsStream) {
-          console.info('[evoflow] chat transport=app-server-pipe', pathOnly, {
+          transportLog('chat transport=app-server-pipe', pathOnly, {
             structured: typeof options.onStreamEvent === 'function',
           })
           return await mod.appServerFetchStream(url, options)
         }
-        console.info('[evoflow] sse transport=app-server-pipe', pathOnly)
+        transportLog('sse transport=app-server-pipe', pathOnly)
         return await mod.appServerFetchGatewayStream(url, options)
       }
-      console.info('[evoflow] sse pipe not warm yet; fallback gateway-http', pathOnly)
+      transportLog('sse pipe not warm yet; fallback gateway-http', pathOnly)
     } catch (err) {
       console.warn('[evoflow] app-server stream pipe unavailable, fallback to Gateway fetch', err)
     }
   } else {
-    console.info('[evoflow] chat forced webview HTTP (localStorage)', pathOnly)
+    transportLog('chat forced webview HTTP (localStorage)', pathOnly)
   }
 
-  console.info('[evoflow] chat transport=gateway-http', pathOnly)
+  transportLog('chat transport=gateway-http', pathOnly)
   const base = await _getGatewayBaseUrl()
   const fullUrl = `${base}${url}`
   return _gatewayAuthFetch(fullUrl, options)
@@ -1028,7 +1032,28 @@ function _parsePanelSseBlocks(buf, onData) {
     }
     if (!dataLines.length) continue
     const payload = dataLines.join('\n')
-    if (payload && payload !== '{}') onData(payload)
+    if (payload && payload !== '{}') {
+      // Diagnostic: dump tool-call events that arrive over panel-stream so
+      // we can confirm the AG-UI event chain reaches the React layer.
+      // 默认静音（每个 TOOL_CALL 一行，非常吵）：EVOFLOW_DEBUG_TRANSPORT=1 打开。
+      // Gate 在 parse 之前：这是每个 SSE 帧的热路径，关着时连 JSON.parse 都不做。
+      if (isTransportLogEnabled()) {
+        try {
+          const parsed = JSON.parse(payload)
+          const t = String(parsed?.type || '')
+          if (t.startsWith('TOOL_CALL') || t === 'CUSTOM') {
+            const tn = String(parsed?.toolCallName || parsed?.name || '').trim().toLowerCase()
+            const id = String(parsed?.toolCallId || '').trim()
+            transportRawLog(
+              `${t} name=${tn || '(n/a)'} toolCallId=${id} payload=${payload.slice(0, 160)}`,
+            )
+          }
+        } catch {
+          /* not JSON */
+        }
+      }
+      onData(payload)
+    }
   }
   if (rest.length > 512 * 1024) rest = rest.slice(-64 * 1024)
   return rest
@@ -1990,7 +2015,7 @@ async function createThreadViaApi(sessionKey) {
         './app-server-client.js'
       )
       if (shouldUseAppServerChatPipe()) {
-        console.info('[evoflow] thread transport=app-server-pipe thread/start')
+        transportLog('thread transport=app-server-pipe thread/start')
         let out = await appServerThreadStart({
           sessionKey,
           threadId: desiredThreadId,
@@ -5971,7 +5996,7 @@ export class WsClient {
         path: String(f.path || '').trim(),
         name: String(f.name || '').trim() || String(f.path || '').trim(),
       }))
-      console.info('[evoflow] chatSend context_files', kwargs.context_files)
+      transportLog('chatSend context_files', kwargs.context_files)
     }
     if (uploadedFilesMeta.length) {
       kwargs.files = uploadedFilesMeta
@@ -6140,7 +6165,7 @@ export class WsClient {
               if (body.context && typeof body.context === 'object') {
                 body.context.thread_id = activeThreadId
               }
-              console.info('[evoflow] recreated stale LangGraph thread after restart', {
+              transportLog('recreated stale LangGraph thread after restart', {
                 sessionKey: key,
                 threadId: activeThreadId,
               })

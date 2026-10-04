@@ -48,7 +48,17 @@ export type ContentBlockKind = 'plan_text' | 'reasoning' | 'tools' | 'body_text'
 export type MessageSegment =
   | { id?: string; seq?: number; blockKind?: ContentBlockKind; kind: 'text'; text: string }
   | { id?: string; seq?: number; blockKind?: ContentBlockKind; kind: 'tools'; ids: string[] }
-  | { id?: string; seq?: number; blockKind?: ContentBlockKind; kind: 'reasoning'; text: string }
+  | {
+      id?: string
+      seq?: number
+      blockKind?: ContentBlockKind
+      kind: 'reasoning'
+      text: string
+      /** 本段思考首片到达时间（ms epoch；流式期间可得，历史重载通常缺失） */
+      startedAtMs?: number
+      /** 本段思考结束时间（ms epoch；后续 tools/text 到达或 block 关闭时补盖） */
+      endedAtMs?: number
+    }
 
 /** 消息区一行（含流式伪行 _stream） */
 export interface DisplayRow {

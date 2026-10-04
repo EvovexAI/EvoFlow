@@ -10,6 +10,7 @@ import {
   noteLiveness,
   resetWarmLatch,
 } from './gateway-warm-latch.js'
+import { isTransportLogEnabled, transportLog } from './transport-log-gate.js'
 
 const isTauri = !!window.__TAURI_INTERNALS__
 window.__yt_last_gateway_error = window.__yt_last_gateway_error || ''
@@ -238,7 +239,7 @@ export function prefetchModelCatalog(reason = 'engineReady') {
         gatewayProxy('GET', '/models/primary', null, null, { silent: true }).catch(() => null),
       ])
       try {
-        console.info('[evoflow] model catalog prefetched', { reason })
+        transportLog('model catalog prefetched', { reason })
       } catch {
         /* ignore */
       }
@@ -298,7 +299,7 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
       } = await import('./app-server-client.js')
       if (shouldUseAppServerApiPipe() && isAppServerWarm() && !preferGatewayHttp) {
         if (!silent) {
-          console.info('[evoflow] api transport=app-server-pipe', String(method || 'GET').toUpperCase(), apiPath)
+          transportLog('api transport=app-server-pipe', String(method || 'GET').toUpperCase(), apiPath)
         }
         const proxied = await appServerGatewayCall({
           method: String(method || 'GET').toUpperCase(),
@@ -369,8 +370,8 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
         },
       })
       if (preferGatewayHttp && !silent) {
-        console.info(
-          '[evoflow] api transport=gateway-proxy-http',
+        transportLog(
+          'api transport=gateway-proxy-http',
           String(method || 'GET').toUpperCase(),
           apiPath,
         )
@@ -750,6 +751,12 @@ let _auditId = 0
 
 /**
  * 记录一个完整的 Gateway HTTP 请求/响应。
+ *
+ * 结构化记录始终写入 `_gatewayAuditLog`（`window.__evoflow_gw_logs` /
+ * `getGatewayAuditLogs()` 可读，最多 200 条）——**唯一被裁掉的是 console 输出**：
+ * 每个请求一行会把控制台和 `~/.evoflow/logs/frontend-*.log` 一起刷爆。
+ * 需要逐条审计时打开 `localStorage.setItem('EVOFLOW_DEBUG_TRANSPORT', '1')`。
+ *
  * @param {{ method:string, path:string, body:any, status:number, ok:boolean, duration:number, transport:string, error?:string }} info
  */
 function logGatewayRequest(info) {
@@ -760,6 +767,7 @@ function logGatewayRequest(info) {
   }
   _gatewayAuditLog.push(entry)
   if (_gatewayAuditLog.length > MAX_AUDIT) _gatewayAuditLog.shift()
+  if (!isTransportLogEnabled()) return
   // Console 输出（不会触发 append_frontend_log，因为 main.js 已改为 PROD only）
   const icon = entry.ok ? '✅' : '❌'
   const dur = entry.duration ? `+${entry.duration}ms` : ''
@@ -1014,7 +1022,7 @@ export function kickAppServerPrewarm(reason = 'liveness') {
     .then((m) => m.prewarmAppServer())
     .then((ok) => {
       try {
-        console.info('[evoflow] app-server prewarm kick', { reason, ok: !!ok })
+        transportLog('app-server prewarm kick', { reason, ok: !!ok })
       } catch {
         /* ignore */
       }
@@ -1050,7 +1058,7 @@ function _setBackendReady(v) {
     _engineReadyStickyUntil = Date.now() + ENGINE_READY_STICKY_MS
   } else if (_backendReady === true && Date.now() < _engineReadyStickyUntil) {
     try {
-      console.info('[evoflow] engineReady sticky: ignore false (gateway warming)')
+      transportLog('engineReady sticky: ignore false (gateway warming)')
     } catch {
       /* ignore */
     }
@@ -1059,7 +1067,7 @@ function _setBackendReady(v) {
   if (_backendReady !== v) {
     _backendReady = v
     try {
-      console.info('[evoflow] engineReady=', !!v)
+      transportLog('engineReady=', !!v)
     } catch {
       /* ignore */
     }

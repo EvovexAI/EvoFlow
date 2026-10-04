@@ -173,7 +173,9 @@ import {
 import { RightStageExtensionsToolbar } from './components/RightStageExtensionsToolbar.js'
 import { SidePanelBootShell } from './components/SidePanelBootShell.js'
 import { applyRightStageAgUiCustom, applyStageSetFromToolCall, STAGE_SET_APPLIED_EVENT, type StageSetPayload } from '../lib/right-stage/right-stage-agui.js'
-import { syncBrowserPanelFromAgUiEvent } from '../lib/browser-panel-agui.js'
+import { syncBrowserPanelFromAgUiEvent, isBrowserToolWireName } from '../lib/browser-panel-agui.js'
+import { setBrowserPanelThreadId } from '../lib/browser-panel-store.js'
+import { dbgLog } from '../lib/browser-debug-log.js'
 import { hideRightStageIfKind, rightStageStore } from '../lib/right-stage/right-stage-store.js'
 import {
   normalizeWriteStreamMode,
@@ -233,6 +235,7 @@ import {
   onServiceHealthChange,
   triggerServiceHealthCheck,
 } from '../lib/service-health.js'
+import { isDebugOn } from '../lib/debug-flag.js'
 import { t as i18nT } from '../lib/i18n.js'
 import { loadSkillCatalog, subscribeSkillCatalog } from '../lib/skill-catalog.js'
 import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
@@ -1840,9 +1843,9 @@ export default function ChatApp() {
     startServiceHealthPoll()
     const unsubscribe = onServiceHealthChange((snap) => {
       setServiceHealth(snap.state)
-      // 调试日志：方便排查用户是否能看到 banner（控制台）
+      // 调试日志：排查 banner 是否可见。默认静默（healthy 时每次 emit 都打）。
       try {
-        console.info('[service-health]', snap)
+        if (isDebugOn('EVOFLOW_DEBUG_SERVICE_HEALTH')) console.info('[service-health]', snap)
       } catch { /* ignore */ }
       // 恢复时清掉 retry 标记
       if (snap.state === ServiceHealthState.HEALTHY) serviceHealthRetryRef.current = false
@@ -2645,6 +2648,7 @@ export default function ChatApp() {
     /** 代码评论定位行（1-based）；无则普通预览 */
     focusLine?: number
     focusEndLine?: number
+    focusAnnotation?: { title?: string; body?: string; priority?: number }
   } | null>(null)
   /** Chat @@dir/@@ → open workspace tree at this path */
   const [workspaceBrowseFocusPath, setWorkspaceBrowseFocusPath] = useState<string | null>(null)
@@ -3351,7 +3355,16 @@ export default function ChatApp() {
   ])
 
   const openWorkspaceFilePreview = useCallback(
-    (rawUrl: string, opts?: { poll?: boolean; name?: string; focusLine?: number; focusEndLine?: number }) => {
+    (
+      rawUrl: string,
+      opts?: {
+        poll?: boolean
+        name?: string
+        focusLine?: number
+        focusEndLine?: number
+        focusAnnotation?: { title?: string; body?: string; priority?: number }
+      },
+    ) => {
       const target = resolveWorkspacePreviewTarget(rawUrl, { name: opts?.name })
       if (!target?.path) return
       cancelPendingStreamUiBumpsRef.current()
@@ -3363,6 +3376,7 @@ export default function ChatApp() {
         poll: !!opts?.poll,
         focusLine: opts?.focusLine,
         focusEndLine: opts?.focusEndLine,
+        focusAnnotation: opts?.focusAnnotation,
       })
       void (async () => {
         try {
@@ -3399,7 +3413,15 @@ export default function ChatApp() {
   )
 
   const openMessageFilePreview = useCallback(
-    (rawUrl: string, name?: string, opts?: { line?: number; endLine?: number }) => {
+    (
+      rawUrl: string,
+      name?: string,
+      opts?: {
+        line?: number
+        endLine?: number
+        annotation?: { title?: string; body?: string; priority?: number }
+      },
+    ) => {
       const target = resolveWorkspacePreviewTarget(rawUrl, { name })
       if (!target?.path) {
         toast('无法在工作区预览该文件', 'warning')
@@ -3410,6 +3432,7 @@ export default function ChatApp() {
         poll: false,
         focusLine: opts?.line,
         focusEndLine: opts?.endLine,
+        focusAnnotation: opts?.annotation,
       })
     },
     [openWorkspaceFilePreview],
@@ -4650,11 +4673,16 @@ export default function ChatApp() {
       return Array.from(map.values()).sort((a, b) => b.appliedAt - a.appliedAt)
     })
     if (!entries.length) return
+    // 浏览器面板由 agent 实时驱动（画布/点击/滚轮穿透）。平台条目改走 Info Rail
+    // 呈报，不抢占 Right Stage——否则平台工具一发布条目，浏览器面板就被折叠。
+    const browserStageLive = rightStageStore.getSnapshot().surface?.kind === 'browser'
     if (rightStageHintTimerRef.current) {
       clearTimeout(rightStageHintTimerRef.current)
       rightStageHintTimerRef.current = 0
     }
-    rightStageStore.hide()
+    if (!browserStageLive) {
+      rightStageStore.hide()
+    }
     setInfoRailOpen(true)
     setInfoRailTab('platform')
     const focus = String(focusEntryId || latestPlatformRunEntryId(entries)).trim()
@@ -5164,6 +5192,7 @@ export default function ChatApp() {
   const bottomPermissionRootRef = useRef<HTMLDivElement | null>(null)
   const bottomMoreRootRef = useRef<HTMLDivElement | null>(null)
   const bottomMoreTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const renderBottomControlsLoggedRef = useRef(false)
   const [bottomMorePortalStyle, setBottomMorePortalStyle] = useState<CSSProperties | null>(null)
   const bottomWorkspaceRootRef = useRef<HTMLDivElement | null>(null)
 
@@ -6883,13 +6912,20 @@ export default function ChatApp() {
 
   // 「更多」上拉：挂到 body + fixed，避开输入区上拉后父级 overflow 裁切
   useLayoutEffect(() => {
+    console.log('[ChatApp] useLayoutEffect bottomMoreOpen:', bottomMoreOpen);
     if (!bottomMoreOpen || typeof window === 'undefined') {
+      console.log('[ChatApp] bottomMoreOpen 为 false 或 window 不存在，清除样式');
       setBottomMorePortalStyle(null)
       return
     }
+    console.log('[ChatApp] 计算下拉菜单位置...');
     const update = () => {
       const btn = bottomMoreTriggerRef.current
-      if (!btn) return
+      if (!btn) {
+        console.log('[ChatApp] bottomMoreTriggerRef.current 为 null');
+        return
+      }
+      console.log('[ChatApp] 按钮位置:', btn.getBoundingClientRect());
       const r = btn.getBoundingClientRect()
       const gap = 10
       const sidePad = 10
@@ -6906,10 +6942,10 @@ export default function ChatApp() {
         maxHeight: maxH,
         zIndex: 10060,
       })
+      console.log('[ChatApp] 计算的样式:', { left, bottom, maxH, minW });
     }
     update()
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
+    console.log('[ChatApp] 初始化完成，添加事件监听');
     return () => {
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
@@ -10433,7 +10469,40 @@ export default function ChatApp() {
           prevProj?.reasoningPreview !== nextProj?.reasoningPreview ||
           prevProj?.systemActivity !== nextProj?.systemActivity ||
           (Array.isArray(S.turn.tools) ? S.turn.tools.length : 0) !== prevToolsLen
-        if (aguiEvent.type === 'TOOL_CALL_START' || aguiEvent.type === 'TOOL_CALL_ARGS' || aguiEvent.type === 'TOOL_CALL_END' || aguiEvent.type === 'TOOL_CALL_RESULT') {
+        if (
+          aguiEvent.type === 'TOOL_CALL_START' ||
+          aguiEvent.type === 'TOOL_CALL_ARGS' ||
+          aguiEvent.type === 'TOOL_CALL_END' ||
+          aguiEvent.type === 'TOOL_CALL_RESULT'
+        ) {
+          const evToolCallId = String(
+            (aguiEvent as { toolCallId?: string }).toolCallId || '',
+          ).trim()
+          const evToolName = String(
+            (aguiEvent as { toolCallName?: string }).toolCallName ||
+              (evToolCallId ? S.aguiTurn?.toolCalls?.get(evToolCallId)?.toolCallName : '') ||
+              '',
+          )
+            .trim()
+            .toLowerCase()
+          // Diagnostic: surface every tool event so we can confirm browser tool
+          // events arrive at the React layer (the previous "no logs" symptom).
+          if (evToolName || aguiEvent.type === 'TOOL_CALL_START') {
+            dbgLog(
+              `[chat-app] tool ${aguiEvent.type} name=${evToolName} toolCallId=${evToolCallId}`,
+            )
+          }
+          // Publish the *real* chat thread id so browser panel can validate the
+          // browser tool metadata. Backend falls back to a literal "evoflow"
+          // session when its runtime lacks thread_id, which never matches us.
+          if (isBrowserToolWireName(evToolName)) {
+            const realTid = String(
+              (S.aguiTurn as { threadId?: string } | null | undefined)?.threadId ||
+                (aguiEvent as { threadId?: string }).threadId ||
+                '',
+            ).trim()
+            if (setBrowserPanelThreadId(realTid)) changed = true
+          }
           syncWorkspacePreviewFromTools(S.turn.tools)
           syncStreamMediaAssetsFromTools(S)
           if (syncBrowserPanelFromAgUiEvent(aguiEvent, S.aguiTurn?.toolCalls)) {
@@ -15618,7 +15687,9 @@ export default function ChatApp() {
                   />
                 )
               }}
-              onOpenAttachmentMenu={() => setBottomMoreOpen(true)}
+              onOpenAttachmentMenu={() => {
+                setBottomMoreOpen(true);
+              }}
               bottomMoreTriggerRef={bottomMoreTriggerRef}
               permissionPill={currentPermissionPillLabel}
               permissionMenuOpen={bottomPermissionOpen}
@@ -15633,12 +15704,22 @@ export default function ChatApp() {
               }))}
               onPickPermission={(id) => void pickPermissionPreset(id)}
               renderBottomControls={(ctrl) => {
+                if (!renderBottomControlsLoggedRef.current) {
+                  console.log('[ChatApp] renderBottomControls called (first render)')
+                  renderBottomControlsLoggedRef.current = true
+                }
                 const { pickFiles, pickDocFiles, insertText } = ctrl
                 // 手机对话：底栏简化
                 if (isMobileChat) {
                   return null
                 }
                 // portal 下拉菜单（通过 onOpenAttachmentMenu / setBottomMoreOpen 触发）
+                if (bottomMoreOpen) {
+                  console.log(
+                    '[ChatApp] bottom-more portal',
+                    Boolean(bottomMorePortalStyle),
+                  )
+                }
                 return bottomMoreOpen && typeof document !== 'undefined'
                   ? createPortal(
                     <div
@@ -15996,6 +16077,7 @@ export default function ChatApp() {
           poll={filePreviewModal.poll}
           focusLine={filePreviewModal.focusLine}
           focusEndLine={filePreviewModal.focusEndLine}
+          focusAnnotation={filePreviewModal.focusAnnotation}
           onClose={() => {
             setChatOverlayDefer('file-preview', false)
             setFilePreviewModal(null)

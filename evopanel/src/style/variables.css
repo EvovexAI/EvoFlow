@@ -85,6 +85,62 @@
   --chat-user-border: rgba(0, 0, 0, 0.04);
   --chat-code-inline-bg: #ececec;
   --chat-code-inline-fg: #353535;
+
+  /* === EF 轨迹角色色（同 ZCode 语义，按角色分配固定色相，禁止混用）=== */
+  /* user蓝 · assistant青 · reasoning紫 · tool-call琥珀 · tool-result天蓝 */
+  --ef-color-trajectory-user:        #2563eb;
+  --ef-color-trajectory-assistant:   #0f766e;
+  --ef-color-trajectory-reasoning:  #7c3aed;
+  --ef-color-trajectory-tool-call:   #d97706;
+  --ef-color-trajectory-tool-result: #0284c7;
+
+  /* === EF 语义状态色（浅色基准）=== */
+  --ef-color-success:      #26875a;
+  --ef-color-success-muted: rgba(38, 135, 90, 0.1);
+  --ef-color-warning:      #b7791f;
+  --ef-color-warning-muted: rgba(183, 121, 31, 0.1);
+  --ef-color-error:        #c94a4a;
+  --ef-color-error-muted:  rgba(201, 74, 74, 0.1);
+  --ef-color-danger:       #c94a4a;
+  --ef-color-info:         var(--accent);
+  --ef-color-info-muted:   rgba(99, 91, 255, 0.1);
+
+  /* 旧名 alias（向后兼容，逐步迁移） */
+  --success:      var(--ef-color-success);
+  --success-muted: var(--ef-color-success-muted);
+  --warning:      var(--ef-color-warning);
+  --warning-muted: var(--ef-color-warning-muted);
+  --error:        var(--ef-color-error);
+  --error-muted:  var(--ef-color-error-muted);
+  --danger:       var(--ef-color-danger);
+  --info:         var(--ef-color-info);
+  --info-muted:   var(--ef-color-info-muted);
+
+  /* === EF 工作流因果图（浅色）=== */
+  --ef-color-workflow-rule:         color-mix(in oklab, #000 5.5%, transparent);
+  --ef-color-workflow-trace:        color-mix(in oklab, #000 30%, transparent);
+  --ef-color-workflow-trace-strong:  color-mix(in oklab, #000 55%, transparent);
+
+  /* === EF Toast / Tooltip（浅色）=== */
+  --ef-color-toast:       #ffffff;
+  --ef-color-tooltip:     #1e1e1e;
+  --ef-color-tooltip-fg:  #e8e8ea;
+  --ef-color-tooltip-tag: rgba(99, 91, 255, 0.15);
+
+  /* === EF 等待确认态（统一绿色，禁止用 --success 冒充）=== */
+  /* 等待徽章（AskUserQuestion / 权限 / ExitPlanMode）统一绿色确认态 */
+  --ef-color-confirmation:      var(--ef-color-success);
+  --ef-color-confirmation-muted: var(--ef-color-success-muted);
+
+  /* === EF 找高亮 === */
+  --ef-color-find-highlight:       #fde68a;
+  --ef-color-find-highlight-active: #facc15;
+
+  /* === EF Diff 语义色 === */
+  --ef-color-diff-added:      #16a34a;
+  --ef-color-diff-added-bg:   rgba(22, 163, 74, 0.1);
+  --ef-color-diff-removed:     #dc2626;
+  --ef-color-diff-removed-bg:  rgba(220, 38, 38, 0.1);
 }
 
 /* Dark: IDE-like charcoal, avoid pure black panels */
@@ -114,6 +170,11 @@
   --border-focus: rgba(123, 116, 255, 0.35);
   --border: var(--border-primary);
   --border-color: var(--border-primary);
+
+  /* AI 回复排版增强（暗色对应值） */
+  --code-inline-bg: rgba(255, 255, 255, 0.09);
+  --chat-table-head-bg: rgba(255, 255, 255, 0.06);
+  --chat-table-stripe: rgba(255, 255, 255, 0.04);
 
   --text-primary: #e8e8ea;
   --text-secondary: #a8adb5;
@@ -166,12 +227,87 @@
   --chat-user-border: rgba(255, 255, 255, 0.08);
   --chat-code-inline-bg: rgba(255, 255, 255, 0.08);
   --chat-code-inline-fg: #d4d4d4;
+
+  /* === EF 轨迹角色色（深色）=== */
+  /* 轨迹角色保持同色相，明度随主题自动适配 */
+
+  /* === EF 语义状态色（深色）=== */
+  --ef-color-success:      #3d9b6c;
+  --ef-color-success-muted: rgba(61, 155, 108, 0.15);
+  --ef-color-warning:      #d4a017;
+  --ef-color-warning-muted: rgba(212, 160, 23, 0.15);
+  --ef-color-error:        #d46464;
+  --ef-color-error-muted:  rgba(212, 100, 100, 0.15);
+  --ef-color-danger:       #d46464;
+  --ef-color-info:         #7b74ff;
+  --ef-color-info-muted:   rgba(123, 116, 255, 0.15);
+
+  /* 旧名 alias（深色覆盖） */
+  --success:      var(--ef-color-success);
+  --success-muted: var(--ef-color-success-muted);
+  --warning:      var(--ef-color-warning);
+  --warning-muted: var(--ef-color-warning-muted);
+  --error:       var(--ef-color-error);
+  --error-muted:  var(--ef-color-error-muted);
+  --danger:       var(--ef-color-danger);
+  --info:         var(--ef-color-info);
+  --info-muted:   var(--ef-color-info-muted);
+
+  /* === EF Toast / Tooltip（深色）=== */
+  --ef-color-toast:       #2a2a2a;
+  --ef-color-tooltip:     #e8e8ea;
+  --ef-color-tooltip-fg:  #1e1e1e;
+  --ef-color-tooltip-tag: rgba(123, 116, 255, 0.25);
+
+  /* === EF 工作流因果图（深色）=== */
+  --ef-color-workflow-rule:        color-mix(in oklab, #fff 5.5%, transparent);
+  --ef-color-workflow-trace:       color-mix(in oklab, #fff 30%, transparent);
+  --ef-color-workflow-trace-strong: color-mix(in oklab, #fff 55%, transparent);
+
+  /* === EF Diff 语义色（深色）=== */
+  --ef-color-diff-added:      #4ade80;
+  --ef-color-diff-added-bg:   rgba(74, 222, 128, 0.12);
+  --ef-color-diff-removed:    #f87171;
+  --ef-color-diff-removed-bg: rgba(248, 113, 113, 0.12);
 }
 
-/* Shared (theme-invariant) */
+/* === EF Design System: UI font tokens (ZCode语义 · 单一派生基座) ===
+ * 用户改 --ef-font-size 时整套刻度联动。
+ * 规则：界面文字必须用 --ef-text-* 令牌；内容层（代码/终端）保持独立 font-size。
+ */
 :root {
+  --ef-font-size: 14px;          /* 用户可调基准 */
+  --ef-text-2xs:  calc(var(--ef-font-size) - 5px);  /* 仅限图表轴标签/通道码 */
+  --ef-text-xs:    calc(var(--ef-font-size) - 4px);  /* tooltip快捷键、徽章、弱元数据 */
+  --ef-text-sm:    calc(var(--ef-font-size) - 2px);  /* 次级说明、tooltip正文、markdown行内代码 */
+  --ef-text-base:  var(--ef-font-size);              /* 界面正文、按钮、workspace标题 */
+  --ef-text-lg:    calc(var(--ef-font-size) + 2px);  /* h2/二级阅读标题 */
+  --ef-text-xl:    calc(var(--ef-font-size) + 4px);  /* h1/一级阅读标题 */
+
+  /* Legacy aliases — 直接映射至新刻度，值不变，逐步迁移至 --ef-text-* */
+  --font-size-xs:   var(--ef-text-xs);
+  --font-size-sm:   var(--ef-text-sm);
+  --font-size-md:   var(--ef-text-base);
+  --font-size-lg:   var(--ef-text-lg);
+  --font-size-xl:   var(--ef-text-xl);
+  --font-size-2xl:  var(--ef-text-xl);  /* 2xl 与 xl 同级，不再独立递增 */
+
+  /* Chat 层别名（聊天气泡专用刻度） */
+  --chat-font-size-xs:   var(--ef-text-xs);
+  --chat-font-size-sm:   var(--ef-text-sm);
+  --chat-font-size-md:   var(--ef-text-sm);  /* md 与 sm 同级，统一语义 */
+  --chat-font-size-lg:   var(--ef-text-base);
+  --chat-font-size-base: var(--ef-text-base);
+
+  /* 层级别名（正文/元数据二分） */
+  --chat-tier-body: var(--ef-text-base);   /* 聊天气泡正文 */
+  --chat-tier-meta: var(--ef-text-sm);    /* 时间戳/元数据 */
+
+  /* Mobile input 安全字号（iOS 防止聚焦缩放） */
+  --ef-text-mobile-input-safe: 16px;
+
   --app-bg-image: none;
-  --app-bg-opacity: 0.35;
+  --app-bg-opacity: 0.35;   /* JS 动态覆盖，见 appearance-background.js */
   --app-bg-veil: 0.65;
 
   --space-xs: 4px;
@@ -182,38 +318,32 @@
   --space-2xl: 24px;
   --space-3xl: 32px;
 
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
-  --radius-2xl: 14px;
+  /* 圆角层级（按容器嵌套递减，首层固定 xl）
+   * 规则同 ZCode DESIGN.md：布局区域→对话气泡/卡片/工具块→嵌套内容→控件
+   *        xl(12px) → lg(10px) → md(8px) → sm(6px)
+   * 仅限 2xl(14px)：主聊天输入壳、通知浮层、对话框壳、品牌图标背板 */
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   10px;
+  --radius-xl:   12px;
+  --radius-2xl:  14px;
 
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
-  --font-sans-chat: 'Inter', 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', sans-serif;
+  --font-sans-chat: 'Inter', 'Segoe UI', system-ui, -apple-system, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --code-inline-bg: rgba(0, 0, 0, 0.055);
+  --chat-table-head-bg: rgba(0, 0, 0, 0.035);
+  --chat-table-stripe: rgba(0, 0, 0, 0.022);
   --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  --font-size-xs: 11px;
-  --font-size-sm: 12px;
-  --font-size-md: 13px;
-  --font-size-lg: 14px;
-  --font-size-xl: 16px;
-  --font-size-2xl: 20px;
-  --chat-font-size-base: 14px;
-  --chat-font-size-xs: 11px;
-  --chat-font-size-sm: 12px;
-  --chat-font-size-md: 12px;
-  --chat-font-size-lg: 13px;
-  --chat-tier-body: var(--chat-font-size-base);
-  --chat-tier-meta: var(--chat-font-size-md);
 
-  --transition-fast: 150ms ease-out;
+  --transition-fast:   150ms ease-out;
   --transition-normal: 180ms ease-out;
-  --transition-slow: 200ms ease-out;
+  --transition-slow:   200ms ease-out;
 
-  --sidebar-width: 232px;
-  --sidebar-collapsed: 60px;
-  --header-height: 52px;
+  --sidebar-width:      232px;
+  --sidebar-collapsed:    60px;
+  --header-height:       52px;
   --content-max-width: 1320px;
-  --agent-panel-width: 340px;
+  --agent-panel-width:   340px;
 
   /* === Shell sidebar shared tokens (zcode 紧凑 + workbuddy 柔色 + cursor 几何感) === */
   --shell-item-h: 30px;

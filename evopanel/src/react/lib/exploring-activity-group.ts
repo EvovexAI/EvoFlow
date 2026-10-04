@@ -393,7 +393,15 @@ export function exploringActivityStepCount(pieces: ActivityPiece[], _tools: unkn
 }
 
 export type ActivityPiece =
-  | { kind: 'reasoning'; text: string; segIndex: number; id?: string }
+  | {
+      kind: 'reasoning'
+      text: string
+      segIndex: number
+      id?: string
+      /** 本段思考起止（ms epoch；流式可得，历史重载通常缺失） */
+      startedAtMs?: number
+      endedAtMs?: number
+    }
   | { kind: 'text'; text: string; segIndex: number }
   | { kind: 'tools'; ids: string[]; segIndex: number }
 
@@ -513,6 +521,8 @@ function pushActivityPiece(
         text: seg.text,
         segIndex,
         ...(seg.id ? { id: seg.id } : {}),
+        ...(seg.startedAtMs != null ? { startedAtMs: seg.startedAtMs } : {}),
+        ...(seg.endedAtMs != null ? { endedAtMs: seg.endedAtMs } : {}),
       })
     }
     return

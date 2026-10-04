@@ -8,8 +8,9 @@
 import { parseBrowserLiveToolOutput } from './chat-normalize.js'
 import { rightStageStore, hideRightStageIfKind } from './right-stage/right-stage-store.js'
 import type { BrowserStreamFrameMetadata } from './browser-stream-client.js'
+import { dbgLog, dbgWarn } from './browser-debug-log.js'
 
-export type BrowserPanelMode = 'headed' | 'cdp' | 'headless' | 'embed'
+export type BrowserPanelMode = 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
 
 export type BrowserRuntimeState = {
   pageUrl: string
@@ -62,16 +63,32 @@ export function getBrowserRuntimeSnapshot(): BrowserRuntimeState {
   return state
 }
 
+const DEFAULT_TID = ''
+
+/** Backend falls back to a literal ``evoflow`` session when the tool runtime has no
+ * thread_id. That path never matches the panel's real thread, so reject it and keep
+ * whatever real thread id we already have. */
+const PLACEHOLDER_TIDS = new Set(['', 'evoflow', 'default', '__default__'])
+
 export function extractThreadIdFromStreamPath(streamWs: string): string {
   const raw = String(streamWs || '').trim()
-  if (!raw) return ''
+  if (!raw) return DEFAULT_TID
   const match = raw.match(/\/api\/threads\/([^/]+)\/browser-stream/i)
-  if (!match?.[1]) return ''
+  if (!match?.[1]) return DEFAULT_TID
+  let tid = ''
   try {
-    return decodeURIComponent(match[1]) || ''
+    tid = decodeURIComponent(match[1]) || ''
   } catch {
-    return match[1]
+    tid = match[1]
   }
+  return PLACEHOLDER_TIDS.has(tid.toLowerCase()) ? DEFAULT_TID : tid
+}
+
+/** Accept a thread id only when it looks like a real id (not a backend placeholder). */
+export function acceptThreadId(tid: string | null | undefined): string {
+  const raw = String(tid || '').trim()
+  if (PLACEHOLDER_TIDS.has(raw.toLowerCase())) return DEFAULT_TID
+  return raw
 }
 
 /** Show the browser right-stage surface (keeps existing data if already open). */
@@ -95,34 +112,80 @@ export function closeBrowserStage() {
   hideRightStageIfKind('browser')
 }
 
+/** Publish the panel's *real* thread id (from the chat session) so the browser
+ * tool metadata can be validated against it. Called by ChatApp on every
+ * browser tool event. */
+export function setBrowserPanelThreadId(threadId: string | null | undefined): boolean {
+  const tid = acceptThreadId(threadId)
+  if (!tid || tid === state.streamThreadId) return false
+  dbgLog(`[browser-panel-store] set threadId=${tid} (was ${state.streamThreadId || '(empty)'})`)
+  patch({ streamThreadId: tid })
+  return true
+}
+
 export function notifyBrowserToolStart(toolCallId: string, argsText?: string | null): boolean {
   const action = parseBrowserToolAction(argsText)
+  dbgLog(`[browser-panel-store] tool start toolCallId=${toolCallId} action=${action} argsText=${argsText || ''}`)
   patch({
     operating: true,
     operatingAction: action,
     operatingToolCallId: String(toolCallId || '').trim(),
   })
+  // For page-opening actions, raise the right stage *before* the result
+  // arrives so the user can see the live panel mount and the screencast
+  // connect while the agent is still working. The result event then
+  // patches the page URL on top.
+  if (action === 'open' || action === 'navigate' || action === 'snapshot') {
+    ensureBrowserStage()
+  }
   return true
 }
 
 export function notifyBrowserToolResult(toolCallId: string, resultText?: string | null): boolean {
   const live = parseBrowserLiveToolOutput(resultText)
+  const liveSummary = live
+    ? { mode: live.mode, pageUrl: live.pageUrl, streamWs: live.streamWs, headed: live.headed }
+    : null
+  dbgLog(
+    `[browser-panel-store] tool result toolCallId=${toolCallId} live=${JSON.stringify(liveSummary)} raw=${(resultText || '').slice(0, 160)}`,
+  )
+  if (resultText && !live) {
+    dbgWarn(`[browser-panel-store] live parse returned null for toolCallId=${toolCallId}`)
+  }
   const next: Partial<BrowserRuntimeState> = {
     operating: state.operatingToolCallId === String(toolCallId || '').trim() ? false : state.operating,
   }
   if (live) {
-    const tid = extractThreadIdFromStreamPath(String((live as { streamWs?: string }).streamWs || ''))
-    if (tid) next.streamThreadId = tid
+    const backendTid = extractThreadIdFromStreamPath(
+      String((live as { streamWs?: string }).streamWs || ''),
+    )
+    if (backendTid) {
+      next.streamThreadId = backendTid
+    } else {
+      dbgWarn(
+        `[browser-panel-store] backend streamWs=${String((live as { streamWs?: string }).streamWs || '')} has placeholder thread — keeping real threadId=${state.streamThreadId || '(empty)'}`,
+      )
+    }
     const pageUrl = String((live as { pageUrl?: string }).pageUrl || '').trim()
     if (pageUrl) next.pageUrl = pageUrl
     const mode = String((live as { mode?: string }).mode || '').trim()
-    if (mode === 'headed' || mode === 'cdp' || mode === 'headless' || mode === 'embed') {
+    if (
+      mode === 'evopanel' ||
+      mode === 'headed' ||
+      mode === 'cdp' ||
+      mode === 'headless' ||
+      mode === 'embed'
+    ) {
       next.browserMode = mode
     }
     const headed = Boolean((live as { headed?: boolean | string }).headed)
+    // In-process Playwright engine: browser lives in EvoPanel, *not* on the
+    // user's desktop. Only legacy headed / external CDP / WebView2 embed share
+    // the user's own browser, so we suppress the shared-browser flag there.
     next.sharedBrowser = headed || mode === 'headed' || mode === 'cdp' || mode === 'embed'
+    if (mode === 'evopanel') next.sharedBrowser = false
     // Agent opened a page → bring the browser stage up (ZCode side-pane behavior).
-    if (pageUrl || tid) ensureBrowserStage()
+    if (pageUrl || backendTid) ensureBrowserStage()
   }
   patch(next)
   return Boolean(live)

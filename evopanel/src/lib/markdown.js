@@ -3,6 +3,8 @@
  * 从 evoflow 移植，去掉 MEDIA 路径处理
  */
 
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import { linkifyWorkspaceAtMentions } from './workspace-file-mention-display.js'
 import { isImagePathLike, normalizeLocalImagePath, resolveChatImageSrc } from './chat-image-src.js'
 
@@ -200,6 +202,7 @@ export function renderMarkdown(text) {
   )
   html = protectMarkdownImagePaths(html)
   const mermaidBlocks = []
+  const codeBlocks = []
 
   // 代码块
   // Support both \n and Windows \r\n newlines.
@@ -214,16 +217,44 @@ export function renderMarkdown(text) {
     }
     const highlighted = highlightCode(code.trimEnd(), lang)
     const langAttr = lang ? ` data-lang="${escapeHtml(lang)}"` : ''
-    return `<pre class="md-code-block"${langAttr}>${MD_CODE_COPY_BTN}<code>${highlighted}</code></pre>`
+    // 令牌化而非内联 <pre>：数学/行内规则不得进入代码内容（$、*、_ 等）
+    const token = `__EVF_CODE_${codeBlocks.length}__`
+    codeBlocks.push(`<pre class="md-code-block"${langAttr}>${MD_CODE_COPY_BTN}<code>${highlighted}</code></pre>`)
+    return token
   })
+
+  // 行内代码：令牌化（先于数学），文末与数学占位一起还原
+  const codeSpans = []
+  html = html.replace(/`([^`\n]+)`/g, (_, code) => {
+    const token = `\x02evfcodespan${codeSpans.length}\x03`
+    codeSpans.push(`<code>${escapeHtml(code)}</code>`)
+    return token
+  })
+
+  // 数学公式（KaTeX）：围栏/行内代码已令牌化，此处不会进入代码内容；
+  // 占位符用 / 控制字符包裹，内联粗体/斜体等规则不会触碰，文末统一还原。
+  const mathTokens = []
+  const mathToken = (tex, displayMode) => {
+    const token = `evfmath${mathTokens.length}`
+    let inner
+    try {
+      inner = katex.renderToString(tex.trim(), { displayMode, throwOnError: false })
+    } catch {
+      inner = escapeHtml(tex)
+    }
+    mathTokens.push(`<span class="evf-math${displayMode ? ' evf-math--block' : ''}">${inner}</span>`)
+    return token
+  }
+  html = html.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => mathToken(tex, true))
+  html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => mathToken(tex, true))
+  html = html.replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => mathToken(tex, false))
+  // 行内 $...$：避免货币场景——开定界符前不能是空白/反斜杠/$，闭定界符前不能是空白，后继不能是数字
+  html = html.replace(/(?<!\\)\$(?!\s)(?!\d)([^\n$]+?)(?<![\s\\])\$(?!\d)/g, (_, tex) => mathToken(tex, false))
 
   // Protect evoflow-file links before inline-code pass (belt-and-suspenders if
   // a stray backtick still wraps a linkify result).
   const fileLinkGuard = protectWorkspaceFileLinks(html)
   html = fileLinkGuard.protectedText
-
-  // 行内代码
-  html = html.replace(/`([^`\n]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`)
 
   // Placeholders trapped as sole <code> content → free them (still placeholders)
   if (fileLinkGuard.slots.length) {
@@ -287,6 +318,15 @@ export function renderMarkdown(text) {
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i]
     const trimmed = String(line || '').trim()
+    const codeTokenMatch = String(line || '').trim().match(/^__EVF_CODE_(\d+)__$/)
+    if (codeTokenMatch) {
+      if (inList) { result.push(`</${listType}>`); inList = false }
+      const cIdx = Number(codeTokenMatch[1])
+      if (Number.isFinite(cIdx) && codeBlocks[cIdx]) {
+        result.push(codeBlocks[cIdx])
+      }
+      continue
+    }
     const tokenMatch = String(line || '').trim().match(/^__EVF_MERMAID_(\d+)__$/)
     if (tokenMatch) {
       if (inList) { result.push(`</${listType}>`); inList = false }
@@ -411,6 +451,12 @@ export function renderMarkdown(text) {
   let out = result.join('\n')
   if (fileLinkGuard.slots.length) {
     out = restoreWorkspaceFileLinks(out, fileLinkGuard.slots)
+  }
+  if (codeSpans.length) {
+    out = out.replace(/\x02evfcodespan(\d+)\x03/g, (_, idx) => codeSpans[Number(idx)] ?? '')
+  }
+  if (mathTokens.length) {
+    out = out.replace(/evfmath(\d+)/g, (_, idx) => mathTokens[Number(idx)] ?? '')
   }
   mdCacheSet(text, out)
   return out

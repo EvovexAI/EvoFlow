@@ -15,6 +15,10 @@ export type ContentBlock = {
   status: 'open' | 'closed'
   text?: string
   toolIds?: string[]
+  /** 首次创建时间（ms epoch；用于思考段「持续了 X 秒」） */
+  startedAtMs?: number
+  /** 关闭时间（ms epoch；block_close 时补盖） */
+  endedAtMs?: number
 }
 
 export function parseStreamBlockWire(raw: unknown): StreamBlockWire | null {
@@ -67,6 +71,10 @@ export function upsertBlockInState(
   patch: Partial<Pick<ContentBlock, 'text' | 'toolIds' | 'status'>>,
 ): { blocks: Record<string, ContentBlock>; blockOrder: string[] } {
   const prev = state.blocks[wire.blockId]
+  const now = Date.now()
+  const startedAtMs = prev?.startedAtMs ?? now
+  let endedAtMs = prev?.endedAtMs
+  if (patch.status === 'closed' && prev?.status !== 'closed') endedAtMs = endedAtMs ?? now
   const block: ContentBlock = {
     id: wire.blockId,
     kind: wire.blockKind,
@@ -74,6 +82,8 @@ export function upsertBlockInState(
     status: patch.status ?? prev?.status ?? 'open',
     text: patch.text ?? prev?.text ?? '',
     toolIds: patch.toolIds ?? prev?.toolIds ?? [],
+    startedAtMs,
+    endedAtMs,
   }
   const blocks = { ...state.blocks, [wire.blockId]: block }
   let blockOrder = state.blockOrder
@@ -131,7 +141,15 @@ export function segmentsFromBlockState(
     }
     if (b.kind === 'reasoning') {
       const text = String(b.text || '')
-      if (text.trim()) out.push({ ...meta, kind: 'reasoning', text })
+      if (text.trim()) {
+        out.push({
+          ...meta,
+          kind: 'reasoning',
+          text,
+          startedAtMs: b.startedAtMs,
+          endedAtMs: b.endedAtMs,
+        })
+      }
       continue
     }
     if (b.kind === 'plan_text' || b.kind === 'body_text') {

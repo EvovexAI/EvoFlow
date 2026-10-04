@@ -92,6 +92,46 @@ export function formatTurnElapsedSuffix(elapsedSec?: number): string {
 }
 
 /**
+ * 思考段折叠头标签（ZCode 风格）：「持续了 16 秒」「持续了 2 分 16 秒」。
+ * 不足 1 秒视为极短，返回空串（不展示时长）。
+ */
+export function formatReasoningDurationLabel(durationMs: number | null | undefined): string {
+  if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return ''
+  const totalSec = Math.round(durationMs / 1000)
+  if (totalSec < 1) return ''
+  if (totalSec < 60) return `持续了 ${totalSec} 秒`
+  const totalMin = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  if (totalMin < 60) {
+    return s ? `持续了 ${totalMin} 分 ${s.toString().padStart(2, '0')} 秒` : `持续了 ${totalMin} 分`
+  }
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return m ? `持续了 ${h} 小时 ${m} 分` : `持续了 ${h} 小时`
+}
+
+/**
+ * 回合完成态折叠头标签（ZCode 风格）：「已工作 5 分 22 秒」。
+ * 入参为 formatTurnDurationStr 形态的时长串（``12s`` / ``1m05s`` / ``1h2m3s``），
+ * 解析失败返回空串（调用方退回平铺）。
+ */
+export function formatWorkedDurationLabel(durationLabel: string | null | undefined): string {
+  const raw = String(durationLabel || '').trim()
+  if (!raw) return ''
+  const m = raw.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i)
+  if (!m) return ''
+  const h = Number(m[1] || 0)
+  const min = Number(m[2] || 0)
+  const s = Number(m[3] || 0)
+  if (!h && !min && !s) return ''
+  const parts: string[] = []
+  if (h) parts.push(`${h} 小时`)
+  if (min) parts.push(`${min} 分`)
+  if (s) parts.push(`${s} 秒`)
+  return `已工作 ${parts.join(' ')}`
+}
+
+/**
  * Compat only: reverse-parse a duration token from a composite dock/status string
  * like ``推理中 · 1m32s``. Prefer raw ``elapsedSec`` → ``formatTurnDurationStr``.
  */

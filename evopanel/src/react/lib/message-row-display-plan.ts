@@ -69,6 +69,11 @@ export type AssistantBubbleDisplayPlan = {
   slots: AssistantBubbleSlot[]
   /** 由 reasoning-pending 负责展示时，fold 内同 segIndex 须跳过，避免双份 */
   pendingReasoningSegIndex: number | null
+  /**
+   * ZCode 式扁平内联时间线：activity chunk 不套「探索中」折叠外壳，直接平铺。
+   * 工作轨迹（suppressExploringFold）/子任务弹窗传 false 保持旧渲染。
+   */
+  flatTimeline: boolean
 }
 
 export type AssistantBubblePlanInput = {
@@ -95,6 +100,8 @@ export type AssistantBubblePlanInput = {
   plainShowThinkingCursor: boolean
   /** AG-UI canonical turn — when set, display uses agui projection only */
   aguiTurn?: AgUiTurnState | null
+  /** ZCode 式扁平内联（默认 true；工作轨迹/子任务弹窗传 false） */
+  flatTimeline?: boolean
 }
 
 // @ts-ignore
@@ -454,6 +461,7 @@ function buildTimelinePlan(input: AssistantBubblePlanInput): AssistantBubbleDisp
     slots,
     pendingReasoningSegIndex:
       pendingReasoning?.kind === 'reasoning-pending' ? pendingReasoning.segIndex : null,
+    flatTimeline: input.flatTimeline !== false,
   }
 }
 
@@ -479,7 +487,7 @@ function buildPlainPlan(input: AssistantBubblePlanInput): AssistantBubbleDisplay
   }
   // 流式时无条件追加状态行到气泡底部；非流式时不追加。
   appendStreamingStatusSlot(slots, input)
-  return { path: 'plain', layout: null, slots, pendingReasoningSegIndex: null }
+  return { path: 'plain', layout: null, slots, pendingReasoningSegIndex: null, flatTimeline: input.flatTimeline !== false }
 }
 
 function buildLegacyPlan(input: AssistantBubblePlanInput): AssistantBubbleDisplayPlan {
@@ -495,7 +503,7 @@ function buildLegacyPlan(input: AssistantBubblePlanInput): AssistantBubbleDispla
   }
   // 流式时无条件追加状态行到气泡底部
   appendStreamingStatusSlot(slots, input)
-  return { path: 'legacy', layout: null, slots, pendingReasoningSegIndex: null }
+  return { path: 'legacy', layout: null, slots, pendingReasoningSegIndex: null, flatTimeline: input.flatTimeline !== false }
 }
 
 function resolveAgUiPlanSegments(segments: MessageSegment[]): MessageSegment[] {
@@ -659,7 +667,7 @@ function buildAgUiSequentialPlan(input: AssistantBubblePlanInput): AssistantBubb
   }
 
   appendStreamingStatusSlot(slots, input)
-  return { path: 'agui', layout, slots, pendingReasoningSegIndex: null }
+  return { path: 'agui', layout, slots, pendingReasoningSegIndex: null, flatTimeline: input.flatTimeline !== false }
 }
 
 function buildAgUiPlan(input: AssistantBubblePlanInput): AssistantBubbleDisplayPlan {

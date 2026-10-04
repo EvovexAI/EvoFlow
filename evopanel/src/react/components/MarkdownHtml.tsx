@@ -123,11 +123,15 @@ function MarkdownHtmlInner({
 }: {
   text?: string
   className?: string
-  /** 点击正文中的 @@绝对路径@@ / @@outputs/…@@（遗留相对）；opts.line 用于代码评论定位 */
+  /** 点击正文中的 @@绝对路径@@ / @@outputs/…@@（遗留相对）；opts.line/annotation 用于代码评论定位 */
   onOpenWorkspaceFile?: (
     rawPath: string,
     displayName?: string,
-    opts?: { line?: number; endLine?: number },
+    opts?: {
+      line?: number
+      endLine?: number
+      annotation?: { title?: string; body?: string; priority?: number }
+    },
   ) => void
   isStreaming?: boolean
   streamProfile?: 'default' | 'reasoning'
