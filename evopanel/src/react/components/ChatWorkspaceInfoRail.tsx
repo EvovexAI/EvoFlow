@@ -136,7 +136,8 @@ function EmptyHint({ children }: { children: ReactNode }) {
   return <div className="react-chat-info-rail-empty">{children}</div>
 }
 
-function AssetQuickActions({
+/** 资产沉淀（记录过程 / 沉淀经验 / 反思 / 查看资产中心）—— 状态面板智能体区复用 */
+export function AssetQuickActions({
   onAction,
   busy = false,
 }: {
@@ -254,7 +255,8 @@ function ArtifactList({
   )
 }
 
-function partitionArtifacts(items: ChatArtifact[], recentItems: ChatArtifact[], focusArtifactId: string) {
+/** 产物分区：最新 / 当前轮次 / 已有 —— 状态面板「更多」区复用 */
+export function partitionArtifacts(items: ChatArtifact[], recentItems: ChatArtifact[], focusArtifactId: string) {
   const all = items.filter((it) => it.type !== 'platform')
   const recent = recentItems.filter((it) => it.type !== 'platform')
   const recentIds = new Set(recent.map((it) => it.id))
@@ -581,7 +583,8 @@ function roleStatusLabel(
   return '空闲'
 }
 
-function TaskPane({
+/** 员工对话「当前任务」Pane —— 由状态面板「更多」区复用 */
+export function TaskPane({
   sessionTitle,
   isRunning,
   tokenTotals,
@@ -1157,7 +1160,8 @@ const AUTONOMY_ZH: Record<string, string> = {
   approval_for_all: '全部需审批',
 }
 
-function EmployeePane({
+/** 员工对话「岗位」Pane —— 由状态面板「更多」区复用 */
+export function EmployeePane({
   employeeInfo,
   sessionTitle: _sessionTitle,
   isRunning,

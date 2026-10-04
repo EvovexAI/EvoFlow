@@ -1,0 +1,646 @@
+/* 状态面板（ChatSummaryPanel）
+ *
+ * 对齐 ZCode 浮层形态：常驻右下的胶囊 / 可展开面板，两态靠 .is-capsule 切换。
+ * 面板态仍参与右栏布局（替换原 ChatWorkspaceInfoRail 的 340px 位置）。
+ *
+ * 令牌纪律：一律 --ef-text-* 字号，不写裸 px font-size。
+ */
+
+.chat-summary-panel {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+
+  /* 首层容器按 DESIGN.md 用 xl(12px)，不用 2xl */
+  border: 1px solid var(--border-default, #e6e8ec);
+  border-radius: 12px;
+  background: var(--bg-elevated, #ffffff);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(32, 33, 36, 0.06));
+
+  transition:
+    border-radius 300ms ease-in-out,
+    padding 300ms ease-in-out,
+    background-color 300ms ease-in-out,
+    box-shadow 300ms ease-in-out;
+}
+
+/* ── 面板态：占据右栏一条 ───────────────────────────── */
+/* 高度贴合内容：面板按自身内容收缩，超过父容器高度后内部滚动。
+   之前用 align-self:stretch 会被父级 align-items:stretch 拉满，
+   内容只有 160px 时也占满 854px，右侧留一大片空白。 */
+.chat-summary-panel.is-panel {
+  flex: 0 0 var(--agent-panel-width, 340px);
+  width: var(--agent-panel-width, 340px);
+  max-width: 360px;
+  min-width: 320px;
+  align-self: flex-start;
+  max-height: 100%;
+  z-index: 4;
+}
+
+/* ── 胶囊态：右下角浮层小条，不参与布局 ───────────────── */
+.chat-summary-panel.is-capsule {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: auto;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 1.5rem));
+  z-index: 40;
+}
+
+/* ── 头部操作区（··· / 收起） ─────────────────────────── */
+/* 自己占一行，不再 absolute 压在「进程」分区头上。
+   absolute 时它和第一个分区标题同处 y≈55，看着像属于那个分区，
+   也让分区头得预留 32px 右边距。独立成行后位置明确在右上角。 */
+.chat-summary-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 0 0 4px;
+}
+
+/* 胶囊态隐藏「收起」按钮，避免和展开语义打架 */
+.chat-summary-panel.is-capsule .chat-summary-panel-head [data-summary-action='collapse'] {
+  display: none;
+}
+
+.chat-summary-panel-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.chat-summary-panel-icon-btn:hover {
+  background: var(--bg-hover, #dde3ea);
+}
+
+.chat-summary-panel-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+}
+
+.chat-summary-panel-icon-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ── 滚动主体 ───────────────────────────────────────── */
+.chat-summary-panel-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* ── 折叠分区 ───────────────────────────────────────── */
+.chat-summary-section {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.chat-summary-section + .chat-summary-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle, #ecedef);
+}
+
+.chat-summary-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 0;
+  flex-shrink: 0;
+  /* 面板头已独立成行，这里不再需要为绝对定位按钮留位 */
+  padding: 0 8px;
+}
+
+.chat-summary-section-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--ef-text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-summary-section-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+}
+
+.chat-summary-section-trigger:hover {
+  color: var(--text-primary);
+}
+
+.chat-summary-section-title {
+  flex-shrink: 0;
+  font-size: var(--ef-text-base);
+}
+
+.chat-summary-section-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.chat-summary-section-trigger:hover .chat-summary-section-chevron,
+.chat-summary-section-trigger:focus-visible .chat-summary-section-chevron {
+  opacity: 1;
+}
+
+/* 计数：5/5 */
+.chat-summary-section-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-sm);
+}
+
+.chat-summary-section-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--ef-color-success, #26875a);
+}
+
+/* grid-rows 0fr→1fr 折叠：不依赖动画库，且不会像 max-height 那样限死展开高度 */
+.chat-summary-section-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 300ms ease-in-out;
+}
+
+.chat-summary-section.is-open > .chat-summary-section-content {
+  grid-template-rows: 1fr;
+}
+
+.chat-summary-section-content > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * 进程区限高：列表可能很长，滚动即可。
+ * 智能体 / 更多区不设上限 —— 技能/工具/MCP 清单本来就长，
+ * 套 12rem 会把它压成一小条，还得在里面再滚一层（套娃滚动，难受）。
+ * 整面板只有一个滚动容器（.chat-summary-panel-scroll），不制造嵌套滚动。
+ */
+.chat-summary-section-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding-right: 4px;
+}
+
+.chat-summary-section[data-summary-section='process'] > .chat-summary-section-content
+  > div
+  > .chat-summary-section-scroll {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+/* ── 进程列表 ───────────────────────────────────────── */
+.chat-summary-process-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chat-summary-process-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: var(--ef-text-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  border: 0;
+}
+
+.chat-summary-process-item:hover {
+  background: var(--bg-hover, #dde3ea);
+}
+
+.chat-summary-process-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+}
+
+.chat-summary-process-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--text-tertiary);
+}
+
+.chat-summary-process-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-summary-process-label {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--ef-text-base);
+  line-height: 1.25rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 已完成：删除线 + 弱化，对齐 ZCode 的 line-through */
+.chat-summary-process-item.is-completed .chat-summary-process-label {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.chat-summary-process-detail {
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 状态色 */
+.chat-summary-process-icon[data-state='running'] {
+  color: var(--accent, #635bff);
+}
+
+.chat-summary-process-icon[data-state='completed'] {
+  color: var(--ef-color-success, #26875a);
+}
+
+.chat-summary-process-icon[data-state='failed'] {
+  color: var(--ef-color-error, #c94a4a);
+}
+
+.chat-summary-process-icon[data-state='cancelled'],
+.chat-summary-process-icon[data-state='pending'] {
+  color: var(--text-tertiary, #9297a0);
+}
+
+.chat-summary-empty {
+  padding: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-sm);
+}
+
+/* ── 智能体区 ───────────────────────────────────────── */
+/* 智能体区：头像比胶囊态大一号，简介放开到 4 行，给能力清单留出纵向空间 */
+.chat-summary-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 8px 10px;
+}
+
+.chat-summary-agent-portrait {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+}
+
+.chat-summary-agent-live {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-elevated, #ffffff);
+  background: var(--ef-color-success, #26875a);
+}
+
+.chat-summary-agent-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-summary-agent-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-summary-agent-name {
+  margin: 0;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--ef-text-base);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-summary-agent-meta {
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-summary-agent-bio {
+  margin: 0;
+  padding: 0 8px 10px;
+  color: var(--text-secondary);
+  font-size: var(--ef-text-sm);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── 更多区（产物 / 平台 / 调试 / 岗位 / 任务） ─────── */
+.chat-summary-more-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex-wrap: wrap;
+  padding: 0 0 6px;
+}
+
+.chat-summary-more-tab {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--ef-text-sm);
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chat-summary-more-tab:hover {
+  background: var(--bg-hover, #dde3ea);
+  color: var(--text-primary);
+}
+
+.chat-summary-more-tab.is-active {
+  color: var(--text-primary);
+  background: var(--bg-hover, #dde3ea);
+}
+
+.chat-summary-more-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+}
+
+.chat-summary-more-body {
+  min-width: 0;
+}
+
+/* 产物三段分组的小标题（最新 / 当前轮次 / 已有） */
+.chat-summary-subsection-label {
+  padding: 6px 8px 2px;
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-xs);
+}
+
+/* 更多区里的岗位 / 任务卡沿用旧侧栏样式，去掉多余上边距 */
+.chat-summary-more-body .react-chat-current-task-pane,
+.chat-summary-more-body .react-chat-employee-pane,
+.chat-summary-more-body .react-chat-agent-pane {
+  padding: 0;
+}
+
+/*
+ * 复用 AgentCapabilityTabs：它原本在 340px 旧侧栏里是唯一主体，
+ * 搬进分区后需要补一点内边距，并让能力面板的 min-height 放开，
+ * 否则「技能/工具/MCP/知识库」四个 tab 全挤在一条窄缝里。
+ */
+.chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap {
+  padding: 0 8px;
+}
+
+.chat-summary-section[data-summary-section='agent'] .react-chat-agent-cap-panel {
+  min-height: 96px;
+}
+
+/* 能力清单展开态保持组件自身的 180px 内滚（已带 overscroll-behavior: contain），
+   不在这里改 max-height —— 拆掉它会让长清单把整个面板撑得过长。 */
+
+/* 资产沉淀复用旧侧栏的 .react-chat-asset-quick-*，这里只调边距与按钮尺寸 */
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick {
+  margin: 8px 8px 0;
+  padding: 8px;
+  /* 旧样式带 border-top 是因为它跟在长列表后面做分隔；
+     这里它下面是空的，去掉免得多一条无意义的横线。 */
+  border-top: none;
+  border: 1px solid var(--border-subtle, #ecedef);
+  border-radius: 10px;
+  background: var(--bg-secondary, #f4f6f8);
+}
+
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-actions {
+  gap: 4px;
+}
+
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn {
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: var(--ef-text-sm);
+  border-radius: 6px;
+}
+
+/* ── 胶囊态 ─────────────────────────────────────────── */
+.chat-summary-capsule-hit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 320px;
+  min-height: 32px;
+  padding: 4px 12px 4px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--ef-text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-summary-capsule-hit:hover {
+  background: var(--bg-hover, #dde3ea);
+}
+
+.chat-summary-capsule-hit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+}
+
+.chat-summary-capsule-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.chat-summary-capsule-icon svg {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.chat-summary-capsule-icon svg:first-child {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+
+.chat-summary-capsule-icon svg:last-child {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+/* hover：完成态图标淡出，展开图标浮起（ZCode 同款） */
+.chat-summary-capsule-hit:hover .chat-summary-capsule-icon svg:first-child,
+.chat-summary-capsule-hit:focus-visible .chat-summary-capsule-icon svg:first-child {
+  opacity: 0;
+}
+
+.chat-summary-capsule-hit:hover .chat-summary-capsule-icon svg:last-child,
+.chat-summary-capsule-hit:focus-visible .chat-summary-capsule-icon svg:last-child {
+  opacity: 1;
+}
+
+.chat-summary-capsule-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── 展开策略菜单 ───────────────────────────────────── */
+.chat-summary-policy-menu {
+  position: absolute;
+  right: 8px;
+  top: 36px;
+  z-index: 30;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border-default, #e6e8ec);
+  border-radius: 10px;
+  background: var(--bg-elevated, #ffffff);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgba(32, 33, 36, 0.08));
+}
+
+.chat-summary-policy-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--ef-text-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-summary-policy-item:hover {
+  background: var(--bg-hover, #dde3ea);
+}
+
+.chat-summary-policy-item:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+}
+
+.chat-summary-policy-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--accent, #635bff);
+}
+
+/* ── 窄屏：面板态也退化为浮层，不挤压对话列 ─────────── */
+@media (max-width: 1280px) {
+  .chat-summary-panel.is-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    flex: none;
+    box-shadow: -8px 0 24px color-mix(in srgb, #0f172a 8%, transparent);
+  }
+}
+
+@media (max-width: 720px) {
+  .chat-summary-panel.is-panel {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .chat-summary-panel.is-capsule {
+    right: 8px;
+    bottom: 8px;
+  }
+}
