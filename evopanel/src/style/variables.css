@@ -271,11 +271,18 @@
   --ef-color-diff-removed-bg: rgba(248, 113, 113, 0.12);
 }
 
-/* === EF Design System: UI font tokens (ZCode语义 · 单一派生基座) ===
- * 用户改 --ef-font-size 时整套刻度联动。
- * 规则：界面文字必须用 --ef-text-* 令牌；内容层（代码/终端）保持独立 font-size。
- */
-:root {
+  /* ============================================================
+   * 字号体系（两套并存，迁移期）
+   *
+   * [旧] --font-size-* / --chat-font-size-* / --chat-tier-*
+   *       历史值，视觉基线。迁移完成前保持原值不动。
+   *
+   * [新] --ef-text-*  ← 单一派生基座，ZCode 语义命名
+   *       仅新增，不改旧值。用户调 --ef-font-size 时整套联动。
+   *       新代码一律用这套；旧代码按「就近替换」逐步迁移。
+   * ============================================================ */
+
+  /* [新] EF 单一派生基座 */
   --ef-font-size: 14px;          /* 用户可调基准 */
   --ef-text-2xs:  calc(var(--ef-font-size) - 5px);  /* 仅限图表轴标签/通道码 */
   --ef-text-xs:    calc(var(--ef-font-size) - 4px);  /* tooltip快捷键、徽章、弱元数据 */
@@ -283,28 +290,22 @@
   --ef-text-base:  var(--ef-font-size);              /* 界面正文、按钮、workspace标题 */
   --ef-text-lg:    calc(var(--ef-font-size) + 2px);  /* h2/二级阅读标题 */
   --ef-text-xl:    calc(var(--ef-font-size) + 4px);  /* h1/一级阅读标题 */
+  --ef-text-mobile-input-safe: 16px;  /* iOS 聚焦防缩放 */
 
-  /* Legacy aliases — 直接映射至新刻度，值不变，逐步迁移至 --ef-text-* */
-  --font-size-xs:   var(--ef-text-xs);
-  --font-size-sm:   var(--ef-text-sm);
-  --font-size-md:   var(--ef-text-base);
-  --font-size-lg:   var(--ef-text-lg);
-  --font-size-xl:   var(--ef-text-xl);
-  --font-size-2xl:  var(--ef-text-xl);  /* 2xl 与 xl 同级，不再独立递增 */
-
-  /* Chat 层别名（聊天气泡专用刻度） */
-  --chat-font-size-xs:   var(--ef-text-xs);
-  --chat-font-size-sm:   var(--ef-text-sm);
-  --chat-font-size-md:   var(--ef-text-sm);  /* md 与 sm 同级，统一语义 */
-  --chat-font-size-lg:   var(--ef-text-base);
-  --chat-font-size-base: var(--ef-text-base);
-
-  /* 层级别名（正文/元数据二分） */
-  --chat-tier-body: var(--ef-text-base);   /* 聊天气泡正文 */
-  --chat-tier-meta: var(--ef-text-sm);    /* 时间戳/元数据 */
-
-  /* Mobile input 安全字号（iOS 防止聚焦缩放） */
-  --ef-text-mobile-input-safe: 16px;
+  /* [旧] Legacy 字号刻度 — 原值保留，勿改 */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 20px;
+  --chat-font-size-base: 14px;
+  --chat-font-size-xs: 11px;
+  --chat-font-size-sm: 12px;
+  --chat-font-size-md: 12px;
+  --chat-font-size-lg: 13px;
+  --chat-tier-body: var(--chat-font-size-base);
+  --chat-tier-meta: var(--chat-font-size-md);
 
   --app-bg-image: none;
   --app-bg-opacity: 0.35;   /* JS 动态覆盖，见 appearance-background.js */

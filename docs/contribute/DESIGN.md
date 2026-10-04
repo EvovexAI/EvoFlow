@@ -9,7 +9,11 @@ This file is meant for coding agents. When generating or editing UI in this repo
 
 ## 最高优先级 UI 约束：字号令牌
 
-所有界面文字**必须**使用 `--ef-text-*` 令牌：
+EvoFlow 当前处于**字号体系迁移期**，两套刻度并存：
+
+### [新] `--ef-text-*`（推荐，新代码一律用这套）
+
+单一派生基座，改 `--ef-font-size` 整套联动：
 
 | 令牌 | 公式 | 默认 | 用途 |
 | --- | --- | --- | --- |
@@ -19,18 +23,19 @@ This file is meant for coding agents. When generating or editing UI in this repo
 | `--ef-text-base` | `--ef-font-size` | 14px | 界面正文、按钮、workspace标题 |
 | `--ef-text-lg` | `--ef-font-size + 2px` | 16px | h2/二级阅读标题 |
 | `--ef-text-xl` | `--ef-font-size + 4px` | 18px | h1/一级阅读标题 |
+| `--ef-text-mobile-input-safe` | 固定 | 16px | iOS input 防聚焦缩放 |
+
+### [旧] `--font-size-*` / `--chat-font-size-*` / `--chat-tier-*`（历史值，勿改）
+
+`11 / 12 / 13 / 14 / 16 / 20px` 六档，另有 chat 专用四档。**这些值与新刻度不重合**（例如旧 `--font-size-lg` 是 14px，新 `--ef-text-lg` 是 16px），因此**不可用 alias 互相映射**——那会造成全局字号偏移。
 
 **规则：**
-- 禁止使用 `text-sm`、`text-xs`、`text-[13px]` 等 Tailwind 裸值
+- 新增代码 / 改动到的代码 → 改用 `--ef-text-*`
+- 未触及的旧代码 → 保留旧 token，**不要顺手改值**
 - 禁止内联 `font-size: 13px` 等任意值
-- 用户改 `--ef-font-size` 时整套刻度联动；图标/间距/圆角**不**跟随缩放
+- 禁止 Tailwind 裸值 `text-sm`、`text-[13px]`
+- 图标/间距/圆角**不**跟随字号缩放
 - 内容层（代码、终端、Diff）保持独立 font-size，不受此约束
-- iOS mobile input 用 `--ef-text-mobile-input-safe: 16px`（防止聚焦缩放）
-
-**旧 token 迁移路径：**
-- `--font-size-xs/sm/md/lg/xl/2xl` → `--ef-text-xs/sm/base/lg/xl`
-- `--chat-font-size-*` → `--ef-text-*`
-- `--chat-tier-body/meta` → `--ef-text-base/sm`
 
 ---
 
