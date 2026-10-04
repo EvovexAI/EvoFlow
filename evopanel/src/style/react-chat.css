@@ -5584,17 +5584,25 @@ html.dark .react-chat-conversation-col {
   max-width: var(--chat-composer-max, 840px) !important;
 }
 
+/* 左右留白挂在 scroller 上（而非 messages-wrap）：
+   这样 .react-vlist-scroll-wrap 的左缘 == 会话列左缘，回合导航轨可以
+   用正向 left 贴边排布，不必用负偏移（负值会被 messages-body 的 overflow:hidden 裁掉）。
+   两种写法的内容盒宽度完全一致（W - 2*gutter - scrollbar），正文列宽度/中轴不变。 */
 .react-chat-conversation-col .react-chat-messages-wrap {
-  padding-left: var(--chat-column-gutter, 24px);
-  padding-right: var(--chat-column-gutter, 24px);
+  padding-left: 0;
+  padding-right: 0;
   box-sizing: border-box;
 }
 
 .react-chat-conversation-col .react-vlist-scroll-wrap,
-.react-chat-conversation-col .react-chat-messages-body,
-.react-chat-conversation-col .react-vlist-scroller {
+.react-chat-conversation-col .react-chat-messages-body {
   padding-left: 0;
   padding-right: 0;
+}
+
+.react-chat-conversation-col .react-vlist-scroller {
+  padding-left: var(--chat-column-gutter, 24px);
+  padding-right: var(--chat-column-gutter, 24px);
 }
 
 .react-chat-conversation-col > .react-chat-bottom-dock {
@@ -30365,26 +30373,29 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
    ZCode 对齐：回合导航条（问题刻度轨） + 用户长文本折叠
    ========================================================================== */
 
-/* 回合导航条：左缘垂直居中刻度轨；≥2 回合且 ≥864px 宽才显示 */
+/* 回合导航条：贴会话列左缘、垂直居中刻度轨；≥2 回合且 ≥864px 宽才显示
+   轨占用 scroller 的 --chat-column-gutter 左留白（不额外给正文留 padding），
+   因此对话内容区的宽度与中轴完全不变，导航不再挤压正文显示区域 */
 .msg-turn-navigator {
   display: none;
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
+  /* 相对会话列左缘只留约 4px 空隙；轨宽 14px + hover 放大 ≈16px，仍留在 24px 留白内 */
+  left: 4px;
   z-index: 10;
-  width: 48px;
+  width: 14px;
   pointer-events: none;
 }
 
 .msg-turn-navigator-rail {
   pointer-events: auto;
   position: absolute;
-  left: 8px;
+  left: 0;
   top: 50%;
   transform: translateY(-50%);
   max-height: calc(100% - 6rem);
-  width: 36px;
+  width: 14px;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 4px 0;
@@ -30403,9 +30414,9 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
 .msg-turn-navigator-item {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   height: 10px;
-  width: 36px;
+  width: 14px;
   padding: 0;
   border: none;
   background: transparent;
@@ -30416,7 +30427,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
 .msg-turn-navigator-bar {
   display: block;
   height: 2px;
-  width: 12px;
+  width: 10px;
   border-radius: 999px;
   background: var(--text-tertiary, #9ca3af);
   opacity: 0.58;
@@ -30428,11 +30439,12 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
     background-color 150ms ease-out;
 }
 
+/* 悬停/聚焦放大：宽度上限 ≈ 16px，仍落在 --chat-column-gutter 留白内，不压到正文 */
 .msg-turn-navigator-item:hover .msg-turn-navigator-bar,
 .msg-turn-navigator-item:focus-visible .msg-turn-navigator-bar {
   background: var(--text-primary, #1f2329);
   opacity: 0.9;
-  transform: scaleX(1.5);
+  transform: scaleX(1.6);
 }
 
 .msg-turn-navigator-item.is-active .msg-turn-navigator-bar {
@@ -30445,8 +30457,9 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
     display: block;
   }
 
-  .react-vlist-scroll-wrap[data-turn-nav='on'] .react-vlist-scroller {
-    padding-left: 44px;
+  /* Running 进度块也贴左缘（4px），导航轨开启时向右让出轨道宽度，避免与刻度重叠 */
+  .react-vlist-scroll-wrap[data-turn-nav='on'] .msg-run-progress {
+    margin-left: 2px;
   }
 }
 

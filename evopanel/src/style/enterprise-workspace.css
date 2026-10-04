@@ -208,17 +208,24 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
 }
 
 /* ---- Message column（与输入框同宽同轴） ---- */
+/* 左右留白挂 scroller（而非 messages-wrap）：让 .react-vlist-scroll-wrap 左缘 == 会话列左缘，
+   回合导航轨才能贴边正向排布（负偏移会被 messages-body 的 overflow:hidden 裁掉）。
+   内容盒宽度与改前一致（wrapper padding → scroller padding），正文列宽度/中轴不变。 */
 .react-chat-conversation-col .react-chat-messages-wrap {
-  padding-left: var(--chat-column-gutter, 24px);
-  padding-right: var(--chat-column-gutter, 24px);
+  padding-left: 0;
+  padding-right: 0;
   box-sizing: border-box;
 }
 
 .react-chat-conversation-col .react-vlist-scroll-wrap,
-.react-chat-conversation-col .react-chat-messages-body,
-.react-chat-conversation-col .react-vlist-scroller {
+.react-chat-conversation-col .react-chat-messages-body {
   padding-left: 0;
   padding-right: 0;
+}
+
+.react-chat-conversation-col .react-vlist-scroller {
+  padding-left: var(--chat-column-gutter, 24px);
+  padding-right: var(--chat-column-gutter, 24px);
 }
 
 .react-chat-conversation-col .react-vlist-content {
