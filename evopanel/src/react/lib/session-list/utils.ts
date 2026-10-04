@@ -70,6 +70,36 @@ export function sortSessionRows<T extends { sessionKey?: string; isPinned?: bool
   ) as T[]
 }
 
+function mergePermissionFieldsIntoContext(
+  row: ChatSessionRow & { key?: string },
+  baseCtx: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const ctx: Record<string, unknown> =
+    baseCtx && typeof baseCtx === 'object' ? { ...baseCtx } : {}
+  const r = row as unknown as Record<string, unknown>
+  if (Object.prototype.hasOwnProperty.call(r, 'effectivePermissionPreset')) {
+    const v = String(r.effectivePermissionPreset || '').trim()
+    if (v) ctx.effective_permission_preset = v
+    else delete ctx.effective_permission_preset
+  }
+  if (Object.prototype.hasOwnProperty.call(r, 'permissionPreset')) {
+    const v = r.permissionPreset
+    if (v != null && String(v).trim()) ctx.permission_preset = String(v).trim()
+    else delete ctx.permission_preset
+  }
+  if (Object.prototype.hasOwnProperty.call(r, 'effectiveToolApprovalPolicy')) {
+    const v = String(r.effectiveToolApprovalPolicy || '').trim()
+    if (v) ctx.effective_tool_approval_policy = v
+    else delete ctx.effective_tool_approval_policy
+  }
+  if (Object.prototype.hasOwnProperty.call(r, 'toolApprovalPolicy')) {
+    const v = r.toolApprovalPolicy
+    if (v != null && String(v).trim()) ctx.tool_approval_policy = String(v).trim()
+    else delete ctx.tool_approval_policy
+  }
+  return ctx
+}
+
 export function sessionRowFromApi(
   row: ChatSessionRow & { key?: string },
   opts?: { bumpActivity?: boolean },
@@ -123,7 +153,7 @@ export function sessionRowFromApi(
       (row.context && typeof row.context === 'object'
         ? !!(row.context as { use_virtual_paths?: boolean }).use_virtual_paths
         : undefined),
-    context: row.context,
+    context: mergePermissionFieldsIntoContext(row, row.context),
   }
 }
 
@@ -202,9 +232,12 @@ export function mergeSessionsFromApi(
   currentSessionKey: string,
 ): ChatSessionRow[] {
   const cur = String(currentSessionKey || '').trim()
-  let next = dedupeSessionRows(stripDefaultMainSessionRows(apiRows)).filter(
-    (s) => !isDeletedChatSessionKey(String(s.sessionKey || '').trim()),
-  )
+  let next = dedupeSessionRows(
+    stripDefaultMainSessionRows(apiRows).map((s) => ({
+      ...s,
+      context: mergePermissionFieldsIntoContext(s, s.context),
+    })),
+  ).filter((s) => !isDeletedChatSessionKey(String(s.sessionKey || '').trim()))
 
   const prevMap = new Map<string, ChatSessionRow>()
   for (const s of prev) {

@@ -198,6 +198,7 @@ function ExploringActivityChunkInner({
                     ? Math.max(0, piece.endedAtMs - piece.startedAtMs)
                     : null
                 }
+                startedAtMs={piece.startedAtMs ?? null}
                 onOpenWorkspaceFile={onOpenFile}
               />
             )
