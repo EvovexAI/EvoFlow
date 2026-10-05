@@ -730,6 +730,20 @@ pub async fn browser_embed_upsert(
     let (screen_x, screen_y) = client_to_screen(&app, x, y)?;
 
     if let Some(existing) = app.get_webview_window(&label) {
+        // A reused window is not necessarily on screen. It reaches this branch
+        // after a previous close (the panel was dismissed and reopened), and
+        // `WebviewWindow::close()` is async on Windows: the HWND can linger,
+        // hidden, while being torn down. Positioning and resizing that HWND
+        // silently succeed while nothing is painted, and `set_size` is a
+        // no-op on a window that is already dying — which is why the window
+        // stayed 1440x756 instead of taking the reported bounds and no page
+        // ever appeared, while every log line still said "ready".
+        //
+        // `create_embed_window` bakes `.visible(true)` into the builder, so the
+        // fresh path never needed this. The reuse path did, and omitting it is
+        // what left the stage permanently blank.
+        let _ = existing.show();
+        let _ = existing.unminimize();
         existing
             .set_position(LogicalPosition::new(screen_x, screen_y))
             .map_err(|e| format!("position embedded browser failed: {e}"))?;
@@ -822,9 +836,19 @@ pub async fn browser_embed_set_bounds(
 ) -> Result<(), String> {
     let label = webview_label_for_thread(&thread_id);
     let Some(window) = app.get_webview_window(&label) else {
+        // Bounds tracking fires on every panel move. A missing window here means
+        // the embed was closed underneath us — swallowing that as success is
+        // what let a dead window look like a healthy one.
+        eprintln!("[browser-embed] set_bounds SKIPPED: window {label} not found");
         return Ok(());
     };
     let (screen_x, screen_y) = client_to_screen(&app, x, y)?;
+    // Same reuse hazard as `browser_embed_upsert`: bounds tracking runs on every
+    // panel move/resize, and a window that is hidden or mid-teardown accepts
+    // `set_position`/`set_size` without painting anything. Make it visible before
+    // placing it, so a bounds sync can never leave a live-but-invisible window.
+    let _ = window.show();
+    let _ = window.unminimize();
     window
         .set_position(LogicalPosition::new(screen_x, screen_y))
         .map_err(|e| format!("position embedded browser failed: {e}"))?;
