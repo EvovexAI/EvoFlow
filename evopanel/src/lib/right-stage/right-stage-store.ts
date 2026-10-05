@@ -9,7 +9,11 @@ import {
 } from './right-stage-types.js'
 
 export type RightStageSnapshot = {
+  /** 激活标签的投影——所有旧消费者按"单 surface"读取，保持零改动兼容。 */
   surface: RightStageSurface | null
+  /** 打开的标签（有序）；标签条 UI 直接消费。 */
+  tabs: RightStageSurface[]
+  activeKey: string | null
   rev: number
   streams: Map<string, RightStageStreamSession>
 }
@@ -20,7 +24,7 @@ const MAX_STREAM_CHUNKS = 800
 const MAX_STREAM_CHARS = 120_000
 
 function emptySnapshot(): RightStageSnapshot {
-  return { surface: null, rev: 0, streams: new Map() }
+  return { surface: null, tabs: [], activeKey: null, rev: 0, streams: new Map() }
 }
 
 function trimStreamSession(session: RightStageStreamSession) {
@@ -33,7 +37,9 @@ function trimStreamSession(session: RightStageStreamSession) {
 }
 
 export class RightStageStore {
-  private surface: RightStageSurface | null = null
+  /** 打开的标签（有序）。ZCode 式：多面板共存，激活者投影为 surface。 */
+  private tabs: RightStageSurface[] = []
+  private activeKey: string | null = null
   private rev = 0
   private streams = new Map<string, RightStageStreamSession>()
   private listeners = new Set<Listener>()
@@ -44,7 +50,14 @@ export class RightStageStore {
     return () => this.listeners.delete(fn)
   }
 
+  private tabKeyOf(surface: RightStageSurface): string {
+    return `${surface.kind}:${surface.id}`
+  }
+
   private rebuildSnapshot() {
+    const active =
+      this.tabs.find((t) => this.tabKeyOf(t) === this.activeKey) ?? this.tabs[this.tabs.length - 1] ?? null
+    this.activeKey = active ? this.tabKeyOf(active) : null
     const streams = new Map<string, RightStageStreamSession>()
     for (const [id, session] of this.streams) {
       streams.set(id, {
@@ -53,7 +66,9 @@ export class RightStageStore {
       })
     }
     this.cachedSnapshot = {
-      surface: this.surface ? { ...this.surface, data: { ...this.surface.data } } : null,
+      surface: active ? { ...active, data: { ...active.data } } : null,
+      tabs: this.tabs.map((t) => ({ ...t, data: { ...t.data } })),
+      activeKey: this.activeKey,
       rev: this.rev,
       streams,
     }
@@ -64,11 +79,11 @@ export class RightStageStore {
   }
 
   get isOpen(): boolean {
-    return this.surface !== null
+    return this.tabs.length > 0
   }
 
   get currentKind(): RightStageKind | null {
-    return this.surface?.kind ?? null
+    return (this.tabs.find((t) => this.tabKeyOf(t) === this.activeKey)?.kind ?? null) as RightStageKind | null
   }
 
   private bump() {
@@ -94,7 +109,12 @@ export class RightStageStore {
     if (!kind) return
     // 产物改由侧栏 Info Rail 呈报，禁止占用 Right Stage
     if (kind === 'artifacts') {
-      if (this.surface?.kind === 'artifacts') this.hide()
+      const existingArtifacts = this.tabs.find((t) => t.kind === 'artifacts')
+      if (existingArtifacts) {
+        this.tabs = this.tabs.filter((t) => t !== existingArtifacts)
+        if (this.activeKey === this.tabKeyOf(existingArtifacts)) this.activeKey = null
+        this.bump()
+      }
       return
     }
     const next: RightStageSurface = {
@@ -104,43 +124,83 @@ export class RightStageStore {
       layout: input.layout || defaultLayoutForKind(kind),
       data: { ...(input.data || {}) },
     }
-    const prev = this.surface
-    if (
-      prev &&
-      prev.id === next.id &&
-      prev.kind === next.kind &&
-      prev.title === next.title &&
-      prev.layout === next.layout &&
-      JSON.stringify(prev.data) === JSON.stringify(next.data)
-    ) {
-      return
+    const key = this.tabKeyOf(next)
+    const existingIdx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
+    if (existingIdx >= 0) {
+      const prev = this.tabs[existingIdx]
+      const same =
+        prev.title === next.title &&
+        prev.layout === next.layout &&
+        JSON.stringify(prev.data) === JSON.stringify(next.data)
+      if (same) {
+        // 仅激活
+        if (this.activeKey !== key) {
+          this.activeKey = key
+          this.bump()
+        }
+        return
+      }
+      this.tabs[existingIdx] = next
+    } else {
+      this.tabs = [...this.tabs, next]
     }
-    this.surface = next
+    this.activeKey = key
+    this.bump()
+  }
+
+  activateTab(key: string) {
+    if (this.activeKey === key) return
+    if (!this.tabs.some((t) => this.tabKeyOf(t) === key)) return
+    this.activeKey = key
+    this.bump()
+  }
+
+  closeTab(key: string) {
+    const idx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
+    if (idx < 0) return
+    const wasActive = this.activeKey === key
+    this.tabs = this.tabs.filter((t) => this.tabKeyOf(t) !== key)
+    if (wasActive) {
+      this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
+    }
     this.bump()
   }
 
   updateData(patch: Record<string, unknown>, opts?: { id?: string }) {
-    if (!this.surface) return
-    if (opts?.id && this.surface.id !== opts.id) return
-    const merged = { ...this.surface.data, ...patch }
-    if (JSON.stringify(merged) === JSON.stringify(this.surface.data)) return
-    this.surface = { ...this.surface, data: merged }
+    const target =
+      (opts?.id
+        ? this.tabs.find((t) => t.id === opts.id)
+        : this.tabs.find((t) => this.tabKeyOf(t) === this.activeKey)) ?? null
+    if (!target) return
+    const merged = { ...target.data, ...patch }
+    if (JSON.stringify(merged) === JSON.stringify(target.data)) return
+    this.tabs = this.tabs.map((t) =>
+      this.tabKeyOf(t) === this.tabKeyOf(target) ? { ...t, data: merged } : t,
+    )
     this.bump()
   }
 
+  /** 关闭激活标签（或指定 surface.id 的标签）；剩余标签自动补位激活。 */
   hide(id = 'primary') {
-    if (!this.surface) return
-    if (this.surface.id !== id) return
-    // TEMP 探针：定位浏览器面板被谁关闭（上线前移除）
-    ;(window as unknown as { __stageHideLog?: unknown[] }).__stageHideLog = (
-      window as unknown as { __stageHideLog?: unknown[] }
-    ).__stageHideLog || []
-    ;(window as unknown as { __stageHideLog?: unknown[] }).__stageHideLog.push({
-      t: Date.now(),
-      kind: this.surface.kind,
-      stack: new Error().stack?.split('\n').slice(2, 9).join(' | '),
-    })
-    this.surface = null
+    const matches = this.tabs.filter((t) => t.id === id)
+    if (!matches.length) {
+      // 兼容旧调用：id 默认 'primary' 但激活标签可能用了其他 id——关闭激活者
+      if (this.activeKey) {
+        const active = this.tabs.find((t) => this.tabKeyOf(t) === this.activeKey)
+        if (active && active.id === id) {
+          this.tabs = this.tabs.filter((t) => t !== active)
+          this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
+          this.bump()
+        }
+      }
+      return
+    }
+    const wasActive = matches.some((t) => this.tabKeyOf(t) === this.activeKey)
+    const removedKeys = new Set(matches.map((t) => this.tabKeyOf(t)))
+    this.tabs = this.tabs.filter((t) => !removedKeys.has(this.tabKeyOf(t)))
+    if (wasActive) {
+      this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
+    }
     this.bump()
   }
 
@@ -176,39 +236,27 @@ export class RightStageStore {
 
   appendStream(chunk: RightStageStreamChunk) {
     const streamId = String(chunk.streamId || 'default').trim() || 'default'
-    let session = this.streams.get(streamId)
-    if (!session) {
-      session = { streamId, format: 'plain', chunks: [], closed: false }
-      this.streams.set(streamId, session)
-    }
-    const body = String(chunk.text ?? '')
-    if (body || chunk.newline === false) {
-      session.chunks.push({
-        text: body,
-        newline: chunk.newline !== false,
-        level: chunk.level || 'info',
-        streamId,
-      })
-      trimStreamSession(session)
-    }
-    session.closed = false
+    const existing = this.streams.get(streamId)
+    if (!existing) return
+    existing.chunks = [...existing.chunks, { ...chunk }]
+    trimStreamSession(existing)
     this.bump()
   }
 
-  clearStream(streamId = 'default') {
+  closeStream(streamId: string) {
     const id = String(streamId || 'default').trim() || 'default'
-    const session = this.streams.get(id)
-    if (!session) return
-    session.chunks = []
-    session.closed = false
+    const existing = this.streams.get(id)
+    if (!existing) return
+    existing.closed = true
     this.bump()
   }
 
-  closeStream(streamId = 'default') {
+  clearStream(streamId: string) {
     const id = String(streamId || 'default').trim() || 'default'
-    const session = this.streams.get(id)
-    if (!session) return
-    session.closed = true
+    const existing = this.streams.get(id)
+    if (!existing) return
+    existing.chunks = []
+    existing.closed = false
     this.bump()
   }
 
@@ -224,15 +272,6 @@ export class RightStageStore {
     stream?: RightStageStreamChunk & { action?: string; format?: string; path?: string; title?: string }
   }) {
     const action = String(payload.action || '').trim().toLowerCase()
-    // TEMP 探针：记录所有远端 stage 指令（上线前移除）
-    ;(window as unknown as { __stageRemoteLog?: unknown[] }).__stageRemoteLog = (
-      window as unknown as { __stageRemoteLog?: unknown[] }
-    ).__stageRemoteLog || []
-    ;(window as unknown as { __stageRemoteLog?: unknown[] }).__stageRemoteLog.push({
-      t: Date.now(),
-      action,
-      kind: payload.surface?.kind ?? null,
-    })
     if (action === 'hide' || payload.surface === null) {
       this.hide()
       return
@@ -262,12 +301,14 @@ export class RightStageStore {
     if (!normalizedKind) return
     // 产物改由侧栏 Info Rail 呈报
     if (normalizedKind === 'artifacts') {
-      if (this.surface?.kind === 'artifacts') this.hide()
+      this.show({ kind: 'artifacts' })
       return
     }
     const surfNorm = { ...surf, kind: normalizedKind }
     if (action === 'update') {
-      if (!this.surface) {
+      const key = `${normalizedKind}:${String(surfNorm.id || 'primary').trim() || 'primary'}`
+      const existing = this.tabs.find((t) => this.tabKeyOf(t) === key)
+      if (!existing) {
         this.show({
           kind: surfNorm.kind,
           id: surfNorm.id,
@@ -276,10 +317,13 @@ export class RightStageStore {
           data: surfNorm.data || {},
         })
       } else {
-        this.surface = {
-          ...this.surface,
-          ...surfNorm,
-          data: { ...this.surface.data, ...(surfNorm.data || {}) },
+        this.tabs = this.tabs.map((t) =>
+          this.tabKeyOf(t) === key
+            ? { ...t, ...surfNorm, data: { ...t.data, ...(surfNorm.data || {}) } }
+            : t,
+        )
+        if (this.activeKey !== key) {
+          this.activeKey = key
         }
         this.bump()
       }
@@ -299,9 +343,9 @@ export class RightStageStore {
 export const rightStageStore = new RightStageStore()
 
 export function hideRightStageIfKind(...kinds: string[]) {
-  const current = rightStageStore.getSnapshot().surface?.kind
-  const normalized = kinds.map((k) => normalizeRightStageKind(k))
-  if (current && normalized.includes(current)) {
-    rightStageStore.hide()
-  }
+  const kindsNorm = kinds.map((k) => normalizeRightStageKind(k))
+  const matching = rightStageStore.getSnapshot().tabs.filter((t) =>
+    kindsNorm.includes(String(t.kind)),
+  )
+  for (const t of matching) rightStageStore.closeTab(`${t.kind}:${t.id}`)
 }

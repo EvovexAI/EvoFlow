@@ -18362,6 +18362,13 @@ html.dark .msg-tool--in-activity-fold {
   line-height: 1.6;
 }
 
+.msg-tool-name-sep {
+  opacity: 0.55;
+  font-weight: 400;
+  flex-shrink: 0;
+  color: var(--text-tertiary, #9ca3af);
+}
+
 .msg-tool--in-activity-fold .msg-tool-item--in-fold .msg-tool-brief {
   flex: 1 1 auto;
   min-width: 0;
@@ -18556,7 +18563,7 @@ html.dark .msg-tool--in-activity-fold {
 .msg-tool--in-activity-fold .msg-tool-item--in-fold:hover .msg-tool-chevron,
 .msg-tool--in-activity-fold .msg-tool-item--in-fold[open] .msg-tool-chevron,
 .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--fold-interactive .msg-tool-chevron {
-  opacity: 0.55;
+  opacity: 1;
 }
 
 .msg-tool--in-activity-fold .msg-tool-item--in-fold[open] {
@@ -31335,4 +31342,98 @@ html[data-theme="dark"] .group\/user-row .msg-user-context-file-pill {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ===== ZCode 式侧栏标签条（多面板共存） ===== */
+.react-chat-stage-tabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 6px;
+  gap: 4px;
+  background: var(--bg-secondary, #f8fafc);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  overflow: hidden;
+}
+html[data-theme='dark'] .react-chat-stage-tabs,
+html.dark .react-chat-stage-tabs {
+  background: var(--bg-secondary, #111827);
+}
+.react-chat-stage-tabs-viewport {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1 1 auto;
+}
+.react-chat-stage-tabs-viewport::-webkit-scrollbar { display: none; }
+.react-chat-stage-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 12rem;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: default;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.react-chat-stage-tab:hover { color: var(--text-primary, inherit); }
+.react-chat-stage-tab.is-active {
+  background: var(--bg-selected, var(--bg-secondary, rgba(127, 127, 127, 0.1)));
+  color: var(--text-primary, inherit);
+  border-color: var(--border);
+}
+html.dark .react-chat-stage-tab.is-active,
+html[data-theme='dark'] .react-chat-stage-tab.is-active {
+  border-color: var(--border-default, var(--border));
+  background: var(--bg-active, rgba(255, 255, 255, 0.08));
+}
+.react-chat-stage-tab-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+.react-chat-stage-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.react-chat-stage-tab .react-chat-stage-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.react-chat-stage-tab:hover .react-chat-stage-tab-close,
+.react-chat-stage-tab.is-active .react-chat-stage-tab-close {
+  opacity: 0.8;
+  pointer-events: auto;
+}
+.react-chat-stage-tab .react-chat-stage-tab-close:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.14));
+  opacity: 1;
 }

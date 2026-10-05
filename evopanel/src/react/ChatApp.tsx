@@ -12669,6 +12669,41 @@ export default function ChatApp() {
     </button>
   )
 
+  // 浏览器面板头部开关（ZCode 式：与工作流/思维导图并列的独立入口）
+  const browserStageOpen = rightStageOpen && rightStageSurface?.kind === 'browser'
+  const toggleBrowserStage = useCallback(() => {
+    if (browserStageOpen) {
+      closeBrowserStage()
+      return
+    }
+    // 手动打开时绑定当前会话的 thread：面板命令（导航/标签/点击）才能落到引擎
+    const manualTid = String(wsClient.getSessionThreadId(selectedSessionKey || '') || '').trim()
+    if (manualTid) setBrowserPanelThreadId(manualTid)
+    ensureBrowserStage()
+    if (!isChatOverlayDeferActive()) {
+      scheduleBumpRef.current?.({ immediate: true })
+    }
+  }, [browserStageOpen, selectedSessionKey])
+  const browserToggleTitle = browserStageOpen ? '隐藏浏览器' : '打开浏览器'
+  const browserToggleButton = (
+    <button
+      type="button"
+      className={`react-chat-toggle-sidebar-btn react-chat-browser-stage-toggle-btn${
+        browserStageOpen ? ' is-active' : ''
+      }`}
+      title={browserToggleTitle}
+      aria-label={browserToggleTitle}
+      aria-pressed={browserStageOpen}
+      onClick={toggleBrowserStage}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+        <path d="M2 12h20" />
+      </svg>
+    </button>
+  )
+
   const workspaceFolderToggleTitle = workspacePanelOpen ? '隐藏工作区文件' : '显示工作区文件'
 
   const workspaceFolderToggleButton = (
@@ -12691,26 +12726,7 @@ export default function ChatApp() {
   const stageExtensionsToolbar = (
     <RightStageExtensionsToolbar
       activeKind={activeStageExtensionKind}
-      activeExtensionId={activeStageUiExtensionId}
       onSelect={openStageExtension}
-      onOpenUiExtension={openUiExtensionInStage}
-      onOpenBrowser={() => {
-        const surfaceKind = rightStageStore.getSnapshot().surface?.kind
-        if (surfaceKind === 'browser' && rightStageOpen) {
-          closeBrowserStage()
-        } else {
-          // 手动打开时绑定当前会话的 thread：面板命令（导航/标签/点击）才能落到引擎
-          const manualTid = String(
-            wsClient.getSessionThreadId(selectedSessionKey || '') || '',
-          ).trim()
-          if (manualTid) setBrowserPanelThreadId(manualTid)
-          ensureBrowserStage()
-          if (!isChatOverlayDeferActive()) {
-            scheduleBumpRef.current?.({ immediate: true })
-          }
-        }
-      }}
-      browserActive={rightStageOpen && rightStageSurface?.kind === 'browser'}
     />
   )
 
@@ -15060,6 +15076,7 @@ export default function ChatApp() {
                     >
                       分享
                     </button>
+                    {browserToggleButton}
                     {collabExecToggleButton}
                     {knowledgeMapEnabled ? knowledgeMapToggleButton : null}
                     {stageExtensionsToolbar}
@@ -15124,6 +15141,7 @@ export default function ChatApp() {
                   >
                     分享
                   </button>
+                  {browserToggleButton}
                   {collabExecToggleButton}
                   {knowledgeMapEnabled ? knowledgeMapToggleButton : null}
                   {stageExtensionsToolbar}
