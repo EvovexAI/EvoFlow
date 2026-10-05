@@ -1356,14 +1356,20 @@ export const BrowserPanel = memo(function BrowserPanel({
     setRefreshNonce((n) => n + 1)
   }, [streamKickNonce, isOpen])
 
-  // The screencast fallback must stay out of the way while the embedded webview
-  // is still starting up. `embedReady` only becomes true *after* the embed host
-  // renders, so gating on it here would make the two branches mutually
-  // exclusive: screencast would win while `embedReady` is false and the embed
-  // host would never mount. Once the embed path is viable — and not known to
-  // have failed — it owns the stage, and the WS is closed so the two surfaces
-  // cannot both draw.
-  const embedPending = preferEmbeddedBrowser && !embedReady && !embedFailed
+  // The screencast fallback must stay out of the way the entire time the
+  // embedded webview is the intended surface — not merely while it boots.
+  //
+  // `embedReady` flips as soon as the CDP endpoint registers, which happens
+  // while the page is still blank. Gating only on "not ready yet" (the old
+  // `!embedReady && !embedFailed`) made `hasStream` revive the moment the
+  // channel came up, so BrowserLiveViewer seized the stage and the embed host
+  // never mounted. `streamPath` is non-empty in embed mode too (the backend
+  // always advertises stream_ws), which is what triggered it.
+  //
+  // The surface is chosen by intent, not by readiness: as soon as the embed
+  // path is viable and has not failed, it owns the stage. The WS is closed
+  // there, so the two surfaces can never both draw.
+  const embedPending = preferEmbeddedBrowser && !embedFailed
   const hasStream = Boolean(streamPath) && !embedPending
   const embedThreadId = effectiveThreadId
   // Surface-selection diagnostic. The three surfaces are mutually exclusive and
