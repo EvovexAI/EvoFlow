@@ -18,8 +18,23 @@ def resolve_model_max_output_tokens(raw: int | None) -> int:
 
 
 DEFAULT_MODEL_TEMPERATURE = 0.7
-DEFAULT_MODEL_REQUEST_TIMEOUT = 600.0
-DEFAULT_MODEL_MAX_RETRIES = 2
+# Ceiling for a single vendor request. The legacy 600s froze the UI on「生成中…」for
+# up to 10 minutes per attempt when a gateway accepted the socket but never streamed a
+# first token; with ``max_retries`` the worst case was 600s x 3 = 30 minutes. 120s
+# matches the sync-compaction ceiling (``_SYNC_COMPACTION_TIMEOUT_S``) so every
+# pre-model stage fails over on the same budget. Legitimate long generations keep
+# working: the timeout covers the whole stream, and observed healthy calls are 2-45s.
+DEFAULT_MODEL_REQUEST_TIMEOUT = 120.0
+# One retry still absorbs transient gateway blips (those fail fast) while halving the
+# worst-case stall versus the legacy value.
+DEFAULT_MODEL_MAX_RETRIES = 1
+# Hard cap. Rows written before this change stored the legacy 600 explicitly, so
+# lowering the default alone would not reach them — clamp on read instead. Operators who
+# genuinely need a longer ceiling should raise this constant, not a single row.
+_REQUEST_TIMEOUT_CEILING = 300.0
+# Rows written before this change stored the legacy 2 explicitly; clamp on read so a
+# wedged gateway cannot burn 3x the timeout.
+_MAX_RETRIES_CEILING = 2
 
 
 def resolve_model_temperature(raw: float | None) -> float:
@@ -30,17 +45,17 @@ def resolve_model_temperature(raw: float | None) -> float:
 
 
 def resolve_model_request_timeout(raw: float | None) -> float:
-    """Normalize DB/API request_timeout: unset → 600."""
+    """Normalize DB/API request_timeout: unset → 120, capped at 300."""
     if raw is None or raw <= 0:
         return DEFAULT_MODEL_REQUEST_TIMEOUT
-    return float(raw)
+    return min(float(raw), _REQUEST_TIMEOUT_CEILING)
 
 
 def resolve_model_max_retries(raw: int | None) -> int:
-    """Normalize DB/API max_retries: unset → 2."""
+    """Normalize DB/API max_retries: unset → 1."""
     if raw is None or raw < 0:
         return DEFAULT_MODEL_MAX_RETRIES
-    return int(raw)
+    return min(int(raw), _MAX_RETRIES_CEILING)
 
 
 class ModelConfig(BaseModel):
@@ -71,8 +86,8 @@ class ModelConfig(BaseModel):
     base_url: str | None = Field(default=None, description="Base URL for the API")
     api_key: str | None = Field(default=None, description="API key for authentication")
     # Model parameters
-    request_timeout: float | None = Field(default=None, description="Request timeout in seconds (default 600 when unset)")
-    max_retries: int | None = Field(default=None, description="Maximum number of retries (default 2 when unset)")
+    request_timeout: float | None = Field(default=None, description="Request timeout in seconds (default 120 when unset)")
+    max_retries: int | None = Field(default=None, description="Maximum number of retries (default 1 when unset)")
     max_tokens: int | None = Field(
         default=None,
         description="Maximum output tokens per completion (default 65536 when unset)",

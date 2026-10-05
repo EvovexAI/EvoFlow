@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from evoflow.authz.http_guard import require_org_admin
 from evoflow.config import get_app_config
+from evoflow.config.model_config import DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_REQUEST_TIMEOUT
 from evoflow.utils.model_context_length import context_length_from_model_config
 
 logger = logging.getLogger(__name__)
@@ -454,8 +455,14 @@ class ModelCreateRequest(BaseModel):
     api_key: str | None = Field(None, description="API key for the model")
     base_url: str | None = Field(None, description="Base URL for the API")
     use: str = Field(default="langchain_openai:ChatOpenAI", description="Provider class to use")
-    request_timeout: float = Field(default=600.0, description="Request timeout in seconds")
-    max_retries: int = Field(default=2, description="Maximum number of retries")
+    request_timeout: float = Field(
+        default=DEFAULT_MODEL_REQUEST_TIMEOUT,
+        description="Request timeout in seconds",
+    )
+    max_retries: int = Field(
+        default=DEFAULT_MODEL_MAX_RETRIES,
+        description="Maximum number of retries",
+    )
     max_tokens: int = Field(default=65536, description="Maximum output tokens per completion")
     context_length: int | None = Field(
         default=None,
