@@ -4547,8 +4547,8 @@
 }
 
 .pro-trail-turn .msg.msg-user {
-  align-self: stretch;
-  max-width: 100%;
+  align-self: flex-end;
+  max-width: max-content;
 }
 
 .pro-trail-turn .msg.msg-user .msg-bubble {

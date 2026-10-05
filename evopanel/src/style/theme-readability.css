@@ -1193,18 +1193,19 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-composer
 body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
 .react-chat-conversation-col .msg-turn--user .msg-turn-user-bubble,
 .react-chat-conversation-col .msg-turn--user .msg-bubble {
-  max-width: 100% !important;
-  width: 100% !important;
-  background: var(--chat-user-bubble, #f4f4f4) !important;
-  color: var(--chat-user-fg, #0d0d0d) !important;
-  border: 1px solid var(--chat-user-border, rgba(0, 0, 0, 0.06)) !important;
-  border-radius: 18px !important;
+  max-width: max-content !important;
+  width: fit-content !important;
+  background: var(--chat-user-bubble, var(--color-surface, #ffffff)) !important;
+  color: var(--chat-user-fg, var(--color-foreground, #0d0d0d)) !important;
+  border: 1px solid var(--chat-user-border, var(--color-border, rgba(0, 0, 0, 0.06))) !important;
+  border-radius: 12px !important;
+  border-top-right-radius: 3px !important;
   box-shadow: none !important;
 }
 
 html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
 html[data-theme='dark'] .react-chat-conversation-col .msg-turn--user .msg-bubble {
-  background: var(--chat-user-bubble, #2f3033) !important;
+  background: var(--chat-user-bubble, var(--color-surface, #1f2937)) !important;
   color: var(--chat-user-fg, #e6e6e8) !important;
   border-color: var(--chat-user-border, rgba(255, 255, 255, 0.06)) !important;
 }

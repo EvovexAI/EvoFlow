@@ -1,5 +1,5 @@
 import { useRef, useState, useLayoutEffect, useCallback, useEffect } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Copy, Pencil } from 'lucide-react'
 import { useLiveStreamOverlayRow } from '../hooks/useLiveStreamOverlayRow.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 import { AnimatedTokenInline } from './AnimatedTokenDisplay.js'
@@ -252,14 +252,8 @@ function formatTime(ts?: number | string) {
   return `${mon}-${day} ${h}:${m}`
 }
 
-/** 用户气泡正文：固定可视高度，过长时框内滚动（不再展开/收起） */
-function ScrollableUserText({
-  text,
-  className,
-}: {
-  text: string
-  className: string
-}) {
+/** 用户气泡正文：固定可视高度，过长时框内滚动 */
+function ScrollableUserText({ text, className }: { text: string; className: string }) {
   return (
     <div key={text} className="msg-user-text-wrap">
       <div className={className}>{text}</div>
@@ -270,11 +264,6 @@ function ScrollableUserText({
 const USER_TEXT_COLLAPSED_MAX_HEIGHT_PX = 120
 const USER_TEXT_OVERFLOW_TOLERANCE_PX = 1
 
-/**
- * ZCode 对齐（ConversationUserInputBody 同构）：用户长文本默认钳到 120px，
- * 底部渐隐遮罩 + 悬浮圆形展开按钮；展开后完整显示，再点收起。
- * ResizeObserver 以 RAF 合并测量，避免长会话多条消息同时布局抖动。
- */
 function UserTextCollapsible({ text, className }: { text: string; className: string }) {
   const contentRef = useRef<HTMLDivElement | null>(null)
   const [contentScrollHeight, setContentScrollHeight] = useState(
@@ -339,9 +328,13 @@ function UserTextCollapsible({ text, className }: { text: string; className: str
         <ScrollableUserText text={text} className={className} />
       </div>
       {expandable ? (
-        <div className={`msg-user-input-collapse-toggle-row${expanded ? ' is-expanded' : ''}`}>
+        <div
+          data-v4-user-input-collapsible-toggle-row="true"
+          className={`msg-user-input-collapse-toggle-row${expanded ? ' is-expanded' : ''}`}
+        >
           <button
             type="button"
+            data-v4-user-input-collapsible-toggle="true"
             className="msg-user-input-collapse-toggle"
             aria-label={expanded ? '收起' : '展开'}
             aria-expanded={expanded}
@@ -428,7 +421,7 @@ function UserMessageInlineEditor({
   const disabled = submitting || !!busy
 
   return (
-    <div className="msg-user-inline-edit" style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+    <div className="msg-user-inline-edit" style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 'fit-content', maxWidth: 'max-content', alignSelf: 'flex-end' }}>
       <textarea
         ref={taRef}
         className="msg-user-inline-edit-textarea"
@@ -437,7 +430,9 @@ function UserMessageInlineEditor({
         rows={3}
         aria-label="编辑消息"
         style={{
-          width: '100%',
+          width: 'fit-content',
+          minWidth: 200,
+          maxWidth: '100%',
           minHeight: 72,
           maxHeight: 280,
           boxSizing: 'border-box',
@@ -561,7 +556,7 @@ function UserMessageInlineEditor({
   )
 }
 
-/** 消息操作栏：hover 时浮现，支持复制/重试/编辑（同会话回溯）/分叉 */
+/** 消息操作栏：ZCode MessageActions 同款，hover 时浮现；按钮使用 Lucide 图标 */
 function MessageActionBar({
   role,
   text,
@@ -591,13 +586,13 @@ function MessageActionBar({
     }
     onCopy?.(t)
     setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
+    window.setTimeout(() => setCopied(false), 1200)
   }, [text, onCopy])
 
   if (isStreaming) return null
 
   return (
-    <div className="msg-action-bar" role="group" aria-label="消息操作">
+    <>
       <button
         type="button"
         className="msg-action-btn"
@@ -605,8 +600,25 @@ function MessageActionBar({
         title="复制"
         aria-label="复制消息"
       >
-        {copied ? '✓' : '⧉'}
+        {copied ? (
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        ) : (
+          <Copy size={16} strokeWidth={1.5} aria-hidden />
+        )}
       </button>
+      {role === 'user' && onEdit ? (
+        <button
+          type="button"
+          className="msg-action-btn"
+          onClick={onEdit}
+          title="编辑"
+          aria-label="编辑这条消息"
+        >
+          <Pencil size={16} strokeWidth={1.5} aria-hidden />
+        </button>
+      ) : null}
       {role === 'assistant' && onRetry ? (
         <button
           type="button"
@@ -615,29 +627,23 @@ function MessageActionBar({
           title="重新生成"
           aria-label="重新生成"
         >
-          ↻
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+            <path d="M8 16H3v5" />
+          </svg>
         </button>
       ) : null}
       {role === 'assistant' && onFork ? (
         <button
           type="button"
-          className="msg-action-btn msg-action-btn--fork"
+          className="msg-action-btn"
           onClick={onFork}
-          title="从当前对话分出新会话：复制到此处为止的历史，原会话不变"
-          aria-label="从当前对话分出新会话：复制到此处为止的历史，原会话不变"
+          title="从当前对话分出新会话"
+          aria-label="从当前对话分出新会话"
         >
-          <svg
-            className="msg-action-fork-icon"
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <line x1="6" y1="3" x2="6" y2="15" />
             <circle cx="18" cy="6" r="3" />
             <circle cx="6" cy="18" r="3" />
@@ -645,18 +651,7 @@ function MessageActionBar({
           </svg>
         </button>
       ) : null}
-      {role === 'user' && onEdit ? (
-        <button
-          type="button"
-          className="msg-action-btn"
-          onClick={onEdit}
-          title="编辑这条消息"
-          aria-label="编辑这条消息"
-        >
-          ✎
-        </button>
-      ) : null}
-    </div>
+    </>
   )
 }
 
@@ -756,88 +751,100 @@ export function MessageRow({
     const mid = String(displayRow.messageId || '').trim() || undefined
 
     return (
-      <article className={`msg msg-turn msg-turn--user msg-user${userEditing ? ' is-editing' : ''}`}>
-        <div className="msg-turn-user-row">
-          <div className="msg-turn-body msg-user-stack">
-            {userEditing ? (
-              <UserMessageInlineEditor
-                initialText={userText}
-                initialImages={displayRow.images}
-                onCancel={() => setUserEditing(false)}
-                onSubmit={async (nextText, images) => {
-                  await onEdit?.(nextText, mid, images)
-                  setUserEditing(false)
-                }}
-              />
-            ) : (
-              <>
-                {hasUserAttachments ? (
-                  <div className="msg-user-attachments" data-v4-user-input-attachments="true">
-                    {preferredSkills.length > 0 ? (
-                      <div className="msg-user-skill-pills">
-                        {preferredSkills.map((sk) => (
-                          <HoverBubble key={sk.name} text={`使用技能：${sk.label}`} side="top" align="start" maxWidth={320}>
-                            <div className="msg-user-skill-pill">
-                              <span className="msg-user-skill-pill-icon" aria-hidden>
-                                {sk.icon || '🧩'}
-                              </span>
-                              <span className="msg-user-skill-pill-label">{sk.label}</span>
-                            </div>
-                          </HoverBubble>
-                        ))}
-                      </div>
-                    ) : null}
-                    {contextFiles.length > 0 ? (
-                      <div className="msg-user-context-files" aria-label="附加工作区文件">
-                        {contextFiles.map((f) => (
-                          <HoverBubble key={f.path} text={f.path} side="top" align="start" maxWidth={420}>
-                            <span className="msg-user-context-file-pill">
-                              @{f.name || f.path}
-                            </span>
-                          </HoverBubble>
-                        ))}
-                      </div>
-                    ) : null}
-                    <MessageMedia
-                      images={displayRow.images}
-                      videos={displayRow.videos}
-                      audios={displayRow.audios}
-                      files={displayRow.files}
-                      onOpenFile={onOpenFile}
-                    />
-                  </div>
-                ) : null}
-                {hasUserBubble ? (
-                  <div className="msg-bubble msg-turn-user-bubble" data-v4-user-input-bubble="true">
-                    {hasUserText ? (
-                      <UserTextCollapsible
-                        text={userShown}
-                        className={
-                          clarifySummary || approvalSummary ? 'msg-user-clarify-summary' : 'msg-user-text'
-                        }
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
-              </>
-            )}
-            {!userEditing ? (
-              <div className="msg-meta msg-turn-user-meta">
-                <span className="msg-time">
-                  {displayRow.pendingInject ? <span className="msg-pending-badge">⏳ 待处理</span> : null}
-                  {formatTime(displayRow.timestamp)}
-                </span>
-                <MessageActionBar
-                  role="user"
-                  text={userText}
-                  isStreaming={false}
-                  onCopy={onCopy}
-                  onEdit={canInlineEdit ? () => setUserEditing(true) : undefined}
-                />
+      <article className={`msg msg-turn msg-turn--user msg-user${userEditing ? ' is-editing' : ''} group/user-row`}>
+        {/* ZCode 对齐：附件/引用/技能 → 气泡 → 状态 → 操作栏 依次堆叠 */}
+        {hasUserAttachments ? (
+          <div className="msg-user-attachments" data-v4-user-input-attachments="true">
+            {preferredSkills.length > 0 ? (
+              <div className="msg-user-skill-pills">
+                {preferredSkills.map((sk) => (
+                  <HoverBubble key={sk.name} text={`使用技能：${sk.label}`} side="top" align="end" maxWidth={320}>
+                    <div className="msg-user-skill-pill">
+                      <span className="msg-user-skill-pill-icon" aria-hidden>
+                        {sk.icon || '🧩'}
+                      </span>
+                      <span className="msg-user-skill-pill-label">{sk.label}</span>
+                    </div>
+                  </HoverBubble>
+                ))}
               </div>
             ) : null}
+            {contextFiles.length > 0 ? (
+              <div className="msg-user-context-files" aria-label="附加工作区文件">
+                {contextFiles.map((f) => (
+                  <HoverBubble key={f.path} text={f.path} side="top" align="end" maxWidth={420}>
+                    <span className="msg-user-context-file-pill">
+                      @{f.name || f.path}
+                    </span>
+                  </HoverBubble>
+                ))}
+              </div>
+            ) : null}
+            <MessageMedia
+              images={displayRow.images}
+              videos={displayRow.videos}
+              audios={displayRow.audios}
+              files={displayRow.files}
+              onOpenFile={onOpenFile}
+            />
           </div>
-        </div>
+        ) : null}
+
+        {userEditing ? (
+          /* ZCode 对齐：编辑态使用独立 textarea，不是气泡包裹 */
+          <div className="msg-user-edit-bubble">
+            <UserMessageInlineEditor
+              initialText={userText}
+              initialImages={displayRow.images}
+              onCancel={() => setUserEditing(false)}
+              onSubmit={async (nextText, images) => {
+                await onEdit?.(nextText, mid, images)
+                setUserEditing(false)
+              }}
+            />
+          </div>
+        ) : (
+          <>
+            {hasUserBubble ? (
+              <div className="msg-bubble msg-turn-user-bubble" data-v4-user-input-bubble="true">
+                {/* ZCode 对齐：气泡内嵌 ConversationUserInputBody 同款结构 */}
+                <div data-conversation-selectable="true">
+                  {hasUserText ? (
+                    <UserTextCollapsible
+                      text={userShown}
+                      className={
+                        clarifySummary || approvalSummary ? 'msg-user-clarify-summary' : 'msg-user-text'
+                      }
+                    />
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+
+        {/* ZCode 对齐：状态文本（⏳ 待处理等） */}
+        {displayRow.pendingInject ? (
+          <div className="msg-status" data-v4-user-input-status="true">
+            <span className="msg-pending-badge">⏳ 待处理</span>
+          </div>
+        ) : null}
+
+        {/* ZCode 对齐：操作栏（hover 浮现）+ 时间戳 */}
+        {!userEditing ? (
+          <div className="msg-action-bar" role="group" aria-label="消息操作">
+            <MessageActionBar
+              role="user"
+              text={userText}
+              isStreaming={false}
+              onCopy={onCopy}
+              onEdit={canInlineEdit ? () => setUserEditing(true) : undefined}
+            />
+            <span className="msg-time" style={{ marginLeft: 6 }}>
+              {formatTime(displayRow.timestamp)}
+            </span>
+          </div>
+        ) : null}
       </article>
     )
   }
@@ -893,15 +900,17 @@ export function MessageRow({
         </div>
         {(!isStreaming || displayRow.tokenStr) && (
           <div className="msg-meta msg-turn-assistant-meta">
-            {!isStreaming && displayRow.durationStr ? (
-              <span className="msg-duration">⏱ {displayRow.durationStr}</span>
-            ) : null}
-            {displayRow.tokenStr ? (
-              <>
-                {!isStreaming && displayRow.durationStr ? <span className="meta-sep">·</span> : null}
-                <AnimatedTokenInline tokenStr={displayRow.tokenStr} animate={!!isStreaming} />
-              </>
-            ) : null}
+            <div className="msg-assistant-actions">
+              {!isStreaming && displayRow.durationStr ? (
+                <span className="msg-duration">⏱ {displayRow.durationStr}</span>
+              ) : null}
+              {displayRow.tokenStr ? (
+                <>
+                  {!isStreaming && displayRow.durationStr ? <span className="meta-sep">·</span> : null}
+                  <AnimatedTokenInline tokenStr={displayRow.tokenStr} animate={!!isStreaming} />
+                </>
+              ) : null}
+            </div>
             <MessageActionBar
               role="assistant"
               text={String(displayRow.text || '')}

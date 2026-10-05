@@ -284,8 +284,8 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-ai-final-reply code:no
 }
 
 html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: var(--chat-user-bubble, #2f3033) !important;
-  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.06)) !important;
+  background: var(--chat-user-bubble, var(--color-surface, #1f2937)) !important;
+  border-color: var(--chat-user-border, var(--color-border, rgba(255, 255, 255, 0.06))) !important;
 }
 
 html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,
@@ -797,13 +797,16 @@ body .msg.msg-turn.msg-turn--user.msg-user .msg-user-avatar {
 }
 
 body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: var(--chat-user-bubble, #e8eaef) !important;
-  color: var(--chat-user-fg, #1f2329) !important;
-  border-radius: 18px !important;
-  border: 1px solid var(--chat-user-border, rgba(32, 33, 36, 0.06)) !important;
+  /* ZCode ConversationUserInputBubble: bg-surface, rounded-xl rounded-tr-xs */
+  background: var(--chat-user-bubble, var(--color-surface, #e8eaef)) !important;
+  color: var(--chat-user-fg, var(--color-foreground, #1f2329)) !important;
+  border-radius: 12px !important;
+  border-top-right-radius: 3px !important;
+  border: 1px solid var(--chat-user-border, var(--color-border, rgba(32, 33, 36, 0.06))) !important;
   box-shadow: none !important;
-  max-width: 100% !important;
-  width: 100% !important;
+  max-width: max-content !important;
+  width: fit-content !important;
+  padding: 12px 16px !important;
 }
 
 body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble,

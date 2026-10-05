@@ -13043,6 +13043,25 @@ export default function ChatApp() {
       permission_preset: result.permission_preset || presetId,
       effective_permission_preset: result.effective_permission_preset || presetId,
     })
+    const effPreset = result.effective_permission_preset || presetId
+    const explicitPreset = result.permission_preset || presetId
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (String(s.sessionKey || '') !== sk) return s
+        const ctx: Record<string, unknown> =
+          s.context && typeof s.context === 'object' ? { ...s.context } : {}
+        ctx.permission_preset = explicitPreset
+        ctx.effective_permission_preset = effPreset
+        if (result.tool_approval_policy) {
+          ctx.tool_approval_policy = result.tool_approval_policy
+        }
+        const effPolicy = result.effective_policy || result.tool_approval_policy
+        if (effPolicy) {
+          ctx.effective_tool_approval_policy = effPolicy
+        }
+        return { ...s, context: ctx }
+      }),
+    )
     setToolApprovalPolicyTick((n) => n + 1)
     toast(permissionPresetToast(presetId), 'success')
   }
@@ -13053,7 +13072,7 @@ export default function ChatApp() {
       ? sessions.find((s) => String(s.sessionKey || '') === selectedSessionKey) ?? null
       : null
     const ctx = (row?.context && typeof row.context === 'object') ? row.context : {}
-    return resolvePermissionPreset(ctx).id
+    return resolvePermissionPreset(ctx)
   }, [selectedSessionKey, sessions, toolApprovalPolicyTick])
 
   const currentPermissionPillLabel = useMemo(() => {

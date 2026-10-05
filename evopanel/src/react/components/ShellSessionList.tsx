@@ -40,8 +40,10 @@ import {
   ShellFolderPlusIcon,
   ShellPlusIcon,
   ShellRefreshIcon,
-  ShellSearchIcon,
   ShellWorkspaceIcon,
+  ShellFilterIcon,
+  ShellHashIcon,
+  ShellFolderIcon,
 } from './ShellSidebarIcons.js'
 import {
   WorkspaceFolderContextMenuPortal,
@@ -277,6 +279,13 @@ export function ShellSessionList({
   const [wsMenuOpen, setWsMenuOpen] = useState(false)
   /** chats = 普通对话；employees = 智能体员工会话 */
   const [listTab, setListTab] = useState<'chats' | 'employees'>('chats')
+  /** 视图切换：grouped = 分组视图（普通对话）；project = 项目视图（员工对话） */
+  const [viewMode, setViewMode] = useState<'grouped' | 'project'>('grouped')
+
+  // viewMode 和 listTab 联动
+  useEffect(() => {
+    setListTab(viewMode === 'grouped' ? 'chats' : 'employees')
+  }, [viewMode])
   const [focusedWorkspaceKey, setFocusedWorkspaceKey] = useState<string | null>(null)
   /** 员工 Tab：下拉选中的员工 code；空 = 全部员工 */
   const [focusedEmployeeCode, setFocusedEmployeeCode] = useState<string | null>(null)
@@ -945,57 +954,39 @@ export function ShellSessionList({
   return (
     <>
       <div className="react-chat-aside-history">
-        <div className="react-chat-aside-history-head">
-          <div className="react-chat-aside-segment" role="tablist" aria-label="会话类型">
+        {/* ZCode 风格头部布局 - 单行 */}
+        <div className="shell-view-header">
+          {/* 视图切换 Tabs */}
+          <div className="shell-view-tabs" role="tablist" aria-label="视图">
             <button
               type="button"
               role="tab"
-              aria-selected={listTab === 'chats'}
-              className={`react-chat-aside-segment-btn${listTab === 'chats' ? ' is-active' : ''}`}
-              onClick={() => setListTab('chats')}
+              aria-selected={viewMode === 'grouped'}
+              className={`shell-view-tab${viewMode === 'grouped' ? ' is-active' : ''}`}
+              onClick={() => setViewMode('grouped')}
             >
-              普通对话
+              <ShellHashIcon size={12} />
+              <span>任务</span>
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={listTab === 'employees'}
-              className={`react-chat-aside-segment-btn${listTab === 'employees' ? ' is-active' : ''}`}
-              onClick={() => {
-                setListTab('employees')
-                setFocusedWorkspaceKey(null)
-                setWsMenuOpen(false)
-              }}
+              aria-selected={viewMode === 'project'}
+              className={`shell-view-tab${viewMode === 'project' ? ' is-active' : ''}`}
+              onClick={() => setViewMode('project')}
             >
-              员工对话
+              <ShellFolderIcon size={12} />
+              <span>员工</span>
             </button>
           </div>
-          <div className="react-chat-aside-history-actions">
+
+          {/* 操作按钮 */}
+          <div className="shell-view-actions">
             <button
               type="button"
-              className={`react-chat-aside-history-icon-btn${refreshing ? ' is-refreshing' : ''}`}
-              title={refreshing ? '正在刷新…' : '刷新会话列表'}
-              aria-label={refreshing ? '正在刷新…' : '刷新会话列表'}
-              disabled={refreshing}
-              onClick={() => {
-                setRefreshing(true)
-                setFilterOpen(false)
-                void Promise.resolve(onRefreshSessionList())
-                  .catch(() => {
-                    /* 刷新失败也结束刷新态，避免按钮卡死 */
-                  })
-                  .finally(() => {
-                    setRefreshing(false)
-                  })
-              }}
-            >
-              <ShellRefreshIcon size={15} />
-            </button>
-            <button
-              type="button"
-              className={`react-chat-aside-history-icon-btn${filterOpen ? ' is-active' : ''}`}
-              title="搜索会话"
-              aria-label="搜索会话"
+              className={`shell-view-action-btn${filterOpen ? ' is-active' : ''}`}
+              title="筛选和排序"
+              aria-label="筛选和排序"
               aria-pressed={filterOpen}
               onClick={() => {
                 setFilterOpen((v) => {
@@ -1005,11 +996,29 @@ export function ShellSessionList({
                 })
               }}
             >
-              <ShellSearchIcon size={15} />
+              <ShellFilterIcon size={14} />
             </button>
             <button
               type="button"
-              className="react-chat-aside-history-icon-btn"
+              className={`shell-view-action-btn${refreshing ? ' is-refreshing' : ''}`}
+              title={refreshing ? '正在刷新…' : '刷新会话列表'}
+              aria-label={refreshing ? '正在刷新…' : '刷新会话列表'}
+              disabled={refreshing}
+              onClick={() => {
+                setRefreshing(true)
+                setFilterOpen(false)
+                void Promise.resolve(onRefreshSessionList())
+                  .catch(() => {})
+                  .finally(() => {
+                    setRefreshing(false)
+                  })
+              }}
+            >
+              <ShellRefreshIcon size={15} />
+            </button>
+            <button
+              type="button"
+              className="shell-view-action-btn"
               title={newSessionHint}
               aria-label={newSessionHint}
               onClick={handleNewSessionClick}
@@ -1017,14 +1026,16 @@ export function ShellSessionList({
               <ShellPlusIcon size={15} />
             </button>
           </div>
+
+          {/* 搜索框 */}
           <div className="react-chat-aside-history-search-wrap" hidden={!filterOpen}>
             <input
               ref={filterInputRef}
               type="search"
               className="react-chat-aside-history-search"
               id="shell-session-filter"
-              placeholder={isEmployeesTab ? '搜索员工会话…' : '搜索会话…'}
-              aria-label={isEmployeesTab ? '搜索员工会话' : '搜索会话'}
+              placeholder={isEmployeesTab ? '搜索员工…' : '搜索任务…'}
+              aria-label={isEmployeesTab ? '搜索员工' : '搜索任务'}
               value={sessionFilter || ''}
               onChange={(e) => onSessionFilterChange(e.target.value)}
               onKeyDown={(e) => {
@@ -1220,7 +1231,7 @@ export function ShellSessionList({
           {!listLoading && (recentVisibleRows.length > 0 || showDutyFold || flatHasMore || flatLoading) ? (
             <li
               className="react-chat-session-recent-block"
-              aria-label={isEmployeesTab ? '员工对话' : '普通对话'}
+              aria-label={isEmployeesTab ? '员工' : '任务'}
             >
               <ul className="react-chat-session-recent-list">
                 {recentVisibleRows.map((row) => renderSessionRow(row))}

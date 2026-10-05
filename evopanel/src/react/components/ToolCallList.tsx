@@ -269,7 +269,7 @@ function parseToolTimeMs(value: unknown): number | null {
 }
 
 function formatToolElapsedSeconds(startTs: number, endTs: number): string {
-  return `${Math.max(0, Math.floor((endTs - startTs) / 1000))}s`
+  return `${Math.max(0, Math.floor((endTs - startTs) / 1000))} 秒`
 }
 
 /** 行内待授权：展开「需要权限」面板 */

@@ -97,15 +97,17 @@ body .msg.msg-turn.msg-turn--user.msg-user .msg-turn-body {
 
 /* 用户气泡：与 AI 阅读列同宽铺满 */
 body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: var(--chat-user-bubble, #f4f4f4) !important;
-  color: var(--chat-user-fg, #0d0d0d) !important;
-  border-radius: 18px !important;
-  padding: 10px 14px !important;
+  /* ZCode ConversationUserInputBubble: bg-surface, rounded-xl rounded-tr-xs, border-border */
+  background: var(--chat-user-bubble, var(--color-surface, #ffffff)) !important;
+  color: var(--chat-user-fg, var(--color-foreground, #0d0d0d)) !important;
+  border-radius: 12px !important;
+  border-top-right-radius: 3px !important;
+  padding: 12px 16px !important;
   font-size: var(--font-size-sm, 13px) !important;
   line-height: 1.55 !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  border: 1px solid var(--chat-user-border, rgba(0, 0, 0, 0.06)) !important;
+  width: fit-content !important;
+  max-width: max-content !important;
+  border: 1px solid var(--chat-user-border, var(--color-border, rgba(0, 0, 0, 0.06))) !important;
   box-shadow: none !important;
   word-wrap: break-word !important;
   white-space: pre-wrap !important;
@@ -520,9 +522,9 @@ html[data-theme='dark'] body .msg-turn-assistant-content hr {
 
 /* 用户消息：深色 / 半透明下仍用柔灰气泡（DeepSeek），品牌紫留给 CTA */
 html[data-theme='dark'] body .msg.msg-turn.msg-turn--user.msg-user .msg-bubble.msg-turn-user-bubble {
-  background: var(--chat-user-bubble, #2f3033) !important;
-  color: var(--chat-user-fg, #e6e6e8) !important;
-  border-color: var(--chat-user-border, rgba(255, 255, 255, 0.06)) !important;
+  background: var(--chat-user-bubble, var(--color-surface, #1f2937)) !important;
+  color: var(--chat-user-fg, var(--color-foreground, #e6e6e8)) !important;
+  border-color: var(--chat-user-border, var(--color-border, rgba(255, 255, 255, 0.06))) !important;
   box-shadow: none !important;
 }
 

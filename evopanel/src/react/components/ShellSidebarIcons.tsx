@@ -21,6 +21,8 @@ import {
   Star,
   Users,
   X,
+  Hash,
+  ListFilter,
 } from 'lucide-react'
 
 /** 侧栏统一描边（对齐 ChatGPT 细线图标） */
@@ -227,4 +229,48 @@ export function ShellRefreshIcon({
   className?: string
 }) {
   return <ShellIcon icon={RefreshCw} size={size} className={className} />
+}
+
+/** 收起全部 */
+export function ShellMinimize2Icon({
+  size = 14,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  return <ShellIcon icon={Minimize2} size={size} className={className} />
+}
+
+/** 归档 */
+export function ShellArchiveIcon({
+  size = 14,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  return <ShellIcon icon={Archive} size={size} className={className} />
+}
+
+/** 筛选和排序 */
+export function ShellFilterIcon({
+  size = 14,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  return <ShellIcon icon={ListFilter} size={size} className={className} />
+}
+
+/** 分组视图图标 */
+export function ShellHashIcon({
+  size = 12,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  return <ShellIcon icon={Hash} size={size} className={className} />
 }

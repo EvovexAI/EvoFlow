@@ -215,12 +215,10 @@ function ReasoningInlineBlockInner({
         }`}
       >
         <div className="react-chat-inline-reasoning-stream-row" aria-live="polite">
+          <Brain className="react-chat-inline-reasoning-brain" size={16} strokeWidth={1.5} aria-hidden />
           <span className="react-chat-inline-reasoning-stream-label">
-            {isStreamingActive ? (
-              <RunningScanText text={displayLabel} maxChars={16} />
-            ) : (
-              displayLabel
-            )}
+            {displayLabel}
+            {isStreamingActive ? <ReasoningStreamDots /> : null}
           </span>
           {liveDurationLabel ? (
             <span className="react-chat-inline-reasoning-toggle-duration">
