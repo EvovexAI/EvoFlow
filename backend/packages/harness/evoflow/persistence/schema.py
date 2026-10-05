@@ -389,7 +389,7 @@ CREATE TABLE IF NOT EXISTS evoflow_chat_messages (
             total_tokens INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL, cache_read_tokens INTEGER, cache_creation_tokens INTEGER, cache_miss_tokens INTEGER, round_id TEXT,
-            turn_started_at TEXT, turn_duration_ms INTEGER,
+            turn_started_at TEXT, turn_duration_ms INTEGER, turn_state TEXT,
             UNIQUE(session_key, seq)
         );
 
@@ -2010,6 +2010,7 @@ _LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
     "evoflow_chat_messages": (
         ("turn_started_at", "TEXT"),
         ("turn_duration_ms", "INTEGER"),
+        ("turn_state", "TEXT"),
     ),
 }
 
@@ -2030,6 +2031,60 @@ def _backfill_legacy_columns(conn: sqlite3.Connection) -> None:
             len(added),
             ", ".join(f"{t}.{c}" for t, c in added),
         )
+    try:
+        _backfill_turn_durations(conn)
+    except Exception:
+        logger.debug("schema: turn duration backfill failed", exc_info=True)
+
+
+def _backfill_turn_durations(conn: sqlite3.Connection) -> None:
+    """One-time backfill: stamp turn timing on assistant rows written before the
+    ``turn_duration_ms`` column existed, so historical turns display 「已工作 X」.
+
+    Per (session_key, run_id): turn start = earliest assistant/tool row time,
+    end = latest row time. Idempotent — only rows with ``turn_duration_ms IS NULL``.
+    """
+    if not _table_exists(conn, "evoflow_chat_messages"):
+        return
+    cols = _existing_columns(conn, "evoflow_chat_messages")
+    if "turn_duration_ms" not in cols or "turn_started_at" not in cols:
+        return
+
+    def _iso_to_ms(value: str) -> int:
+        from evoflow.persistence.timestamps import coerce_to_epoch_ms
+
+        return coerce_to_epoch_ms(value)
+
+    groups = conn.execute(
+        """
+        SELECT session_key, run_id, MIN(created_at), MAX(created_at)
+        FROM evoflow_chat_messages
+        WHERE role IN ('assistant', 'tool') AND run_id IS NOT NULL
+          AND turn_duration_ms IS NULL
+        GROUP BY session_key, run_id
+        """
+    ).fetchall()
+    stamped = 0
+    for sk, rid, min_created, max_created in groups:
+        start_ms = _iso_to_ms(str(min_created or ""))
+        end_ms = _iso_to_ms(str(max_created or ""))
+        if start_ms <= 0 or end_ms <= 0:
+            continue
+        duration_ms = max(0, end_ms - start_ms)
+        cur = conn.execute(
+            """
+            UPDATE evoflow_chat_messages
+            SET turn_started_at = COALESCE(turn_started_at, ?),
+                turn_duration_ms = ?,
+                turn_state = COALESCE(turn_state, 'completed')
+            WHERE session_key = ? AND run_id = ? AND role = 'assistant'
+              AND turn_duration_ms IS NULL
+            """,
+            (str(min_created or ""), duration_ms, str(sk), str(rid)),
+        )
+        stamped += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    if stamped:
+        logger.info("schema: backfilled turn duration on %d assistant row(s)", stamped)
 
 
 # Legacy columns we know may be missing on pre-1.0.0 databases. Used by the

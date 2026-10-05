@@ -26,7 +26,7 @@ _SELECT_COLS = """
     model_name, input_tokens, output_tokens, total_tokens,
     cache_read_tokens, cache_creation_tokens, cache_miss_tokens,
     round_id,
-    turn_started_at, turn_duration_ms
+    turn_started_at, turn_duration_ms, turn_state
 """
 
 
@@ -586,6 +586,7 @@ def _row_to_internal(row: tuple[Any, ...]) -> dict[str, Any]:
         round_id,
         turn_started_at,
         turn_duration_ms,
+        turn_state,
     ) = row
     payload = loads_payload(str(content_json or ""))
     out: dict[str, Any] = {
@@ -611,6 +612,7 @@ def _row_to_internal(row: tuple[Any, ...]) -> dict[str, Any]:
         "round_id": round_id,
         "turn_started_at": turn_started_at,
         "turn_duration_ms": turn_duration_ms,
+        "turn_state": turn_state,
     }
     tc = tool_calls(payload)
     if tc:
@@ -987,6 +989,8 @@ def _row_to_display_dict(row: dict[str, Any]) -> dict[str, Any]:
         msg["turn_started_at"] = row["turn_started_at"]
     if row.get("turn_duration_ms") is not None:
         msg["turn_duration_ms"] = row["turn_duration_ms"]
+    if row.get("turn_state"):
+        msg["turn_state"] = row["turn_state"]
     if row.get("tool_call_id"):
         msg["tool_call_id"] = row["tool_call_id"]
     if row.get("tool_name"):

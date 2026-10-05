@@ -196,6 +196,37 @@ describe('TurnHistoryFold（已工作折叠头）', () => {
     expect(trigger?.getAttribute('data-history-open')).toBe('false')
   })
 
+  it('纯文本回合(无思考无工具)完成也显示已工作头部,文本保持可见', () => {
+    const input = buildInput({
+      isStreaming: false,
+      displaySegments: [{ kind: 'text', text: '这是一段纯文本回复。' }],
+      tools: [],
+      hasToolsInTurnEarly: false,
+      legacyHasTools: false,
+    })
+    const plan = buildAssistantBubbleDisplayPlan(input as never)
+    render(
+      <AssistantBubbleSlotView
+        plan={plan}
+        displaySegments={input.displaySegments as never}
+        tools={[]}
+        rawText=""
+        reasoningPreview=""
+        isStreaming={false}
+        askInline={null}
+        suppressPlanExecPromptNoise={false}
+        interactiveToolApproval={false}
+        durationLabel="8s"
+        messageId="msg_text_only"
+      />,
+    )
+    const trigger = screen.queryByTestId('chat-assistant-history-trigger-msg_text_only')
+    expect(trigger, '纯文本回合应显示已工作头部').toBeTruthy()
+    expect(trigger?.textContent).toContain('已工作 8 秒')
+    // 文本始终在头部下方可见
+    expect(screen.queryByText(/纯文本回复/)).toBeTruthy()
+  })
+
   it('完成后折叠头定格并默认收起', () => {
     const now = Date.now()
     const input = buildInput({

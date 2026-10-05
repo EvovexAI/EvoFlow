@@ -271,10 +271,11 @@ function AssistantBubbleSlotViewInner({
     if (workedText) return `已工作 ${workedText}`
     return foldableSlotIdx.length ? '已处理' : ''
   })()
+  // 纯文本回合:foldStartIdx < 0 时头部独立渲染在气泡顶部(文本始终在下方可见)
   const foldStartIdx = foldableSlotIdx.length ? foldableSlotIdx[0] : -1
   const foldableIdxSet = new Set(foldableSlotIdx)
   /** 流式首帧还没有任何工作条目：先渲染独立头部（对齐 ZCode firstAssistantFlowItemIndex < 0 分支） */
-  const showStandaloneWorkHeader = !!workedLabel && isStreaming && foldStartIdx < 0
+  const showStandaloneWorkHeader = !!workedLabel && foldStartIdx < 0
 
   const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
         switch (slot.kind) {

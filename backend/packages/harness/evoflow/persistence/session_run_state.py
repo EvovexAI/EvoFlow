@@ -255,6 +255,12 @@ def mark_session_run_ended(
 
     def _write(db: Any) -> None:
         # Keep last-activity updated_at intact (see mark_session_run_started).
+        prev_row = db.execute(
+            "SELECT current_run_id, current_turn_started_at FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
+            (sk,),
+        ).fetchone()
+        prev_run_id = str(prev_row[0] or "").strip() if prev_row else ""
+        started_raw = str(prev_row[1] or "").strip() if prev_row else ""
         db.execute(
             """
             UPDATE evoflow_chat_sessions
@@ -264,6 +270,35 @@ def mark_session_run_ended(
             """,
             (st, now, sk),
         )
+        # 兜底盖章:写入路径漏盖的回合尾(竞态/中断),按回合终态区分
+        # completed / interrupted(ZCode「已停止」),失败不阻断回合收尾。
+        if prev_run_id and started_raw:
+            try:
+                from evoflow.persistence.timestamps import coerce_to_epoch_ms
+
+                duration_ms = max(
+                    0, coerce_to_epoch_ms(now) - coerce_to_epoch_ms(started_raw)
+                )
+                state = (
+                    "interrupted"
+                    if st in (RUN_STATUS_CANCELLED, RUN_STATUS_ERROR, "fail", "aborted", "stopped")
+                    else "completed"
+                )
+                db.execute(
+                    """
+                    UPDATE evoflow_chat_messages
+                    SET turn_started_at = COALESCE(turn_started_at, ?),
+                        turn_duration_ms = COALESCE(turn_duration_ms, ?),
+                        turn_state = COALESCE(turn_state, ?)
+                    WHERE session_key = ? AND run_id = ? AND role = 'assistant'
+                      AND turn_state IS NULL
+                    """,
+                    (started_raw, duration_ms, state, sk, prev_run_id),
+                )
+            except Exception:
+                logger.debug(
+                    "mark_session_run_ended: turn stamp failed session=%s", sk, exc_info=True
+                )
 
     if conn is not None:
         _write(conn)
