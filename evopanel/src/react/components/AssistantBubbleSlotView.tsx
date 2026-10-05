@@ -286,6 +286,8 @@ function AssistantBubbleSlotViewInner({
                 text={slot.text}
                 label={slot.label}
                 isStreamingActive={slot.isStreamingActive}
+                durationMs={slot.endedAtMs != null && slot.startedAtMs != null ? Math.max(0, slot.endedAtMs - slot.startedAtMs) : null}
+                startedAtMs={slot.startedAtMs ?? null}
                 onOpenWorkspaceFile={onOpenFile}
               />
             )

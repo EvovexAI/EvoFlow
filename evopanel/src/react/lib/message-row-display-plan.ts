@@ -51,6 +51,8 @@ export type AssistantBubbleSlot =
       label: string
       isStreamingActive: boolean
       ord: number
+      startedAtMs?: number | null
+      endedAtMs?: number | null
     }
   | { kind: 'plan-top'; text: string }
   | { kind: 'chunk'; chunk: SegmentDisplayChunk; chunkIndex: number }
@@ -329,9 +331,22 @@ function resolveLiveTailSlot(opts: {
   return { text: bubbleMarkdownText(liveTailPreviewText), isStreaming }
 }
 
+function reasoningSegTimesFromDisplay(
+  segments: MessageSegment[],
+): ({ startedAtMs?: number | null; endedAtMs?: number | null })[] {
+  const out: ({ startedAtMs?: number | null; endedAtMs?: number | null })[] = []
+  for (const s of segments) {
+    if (s.kind === 'reasoning') {
+      out.push({ startedAtMs: s.startedAtMs ?? null, endedAtMs: s.endedAtMs ?? null })
+    }
+  }
+  return out
+}
+
 function topReasoningSlots(
   reasoningSegments: string[],
   isStreaming: boolean,
+  segTimes?: ({ startedAtMs?: number | null; endedAtMs?: number | null })[],
 ): AssistantBubbleSlot[] {
   return reasoningSegments.map((text, ord) => ({
     kind: 'top-reasoning' as const,
@@ -339,6 +354,8 @@ function topReasoningSlots(
     label: '思考',
     isStreamingActive: !!(isStreaming && ord === reasoningSegments.length - 1),
     ord,
+    startedAtMs: segTimes?.[ord]?.startedAtMs ?? null,
+    endedAtMs: segTimes?.[ord]?.endedAtMs ?? null,
   }))
 }
 
@@ -474,7 +491,7 @@ function buildPlainPlan(input: AssistantBubblePlanInput): AssistantBubbleDisplay
         ? [preview]
         : []
   const slots: AssistantBubbleSlot[] = [
-    ...topReasoningSlots(reasoningForSlots, input.isStreaming),
+    ...topReasoningSlots(reasoningForSlots, input.isStreaming, reasoningSegTimesFromDisplay(input.displaySegments)),
   ]
   const body = visibleAssistantText(
     input.plainBodyRaw,
@@ -493,7 +510,7 @@ function buildPlainPlan(input: AssistantBubblePlanInput): AssistantBubbleDisplay
 function buildLegacyPlan(input: AssistantBubblePlanInput): AssistantBubbleDisplayPlan {
   const slots: AssistantBubbleSlot[] = []
   if (input.legacyHasTools) slots.push({ kind: 'legacy-tools' })
-  slots.push(...topReasoningSlots(input.reasoningSegments, input.isStreaming))
+  slots.push(...topReasoningSlots(input.reasoningSegments, input.isStreaming, reasoningSegTimesFromDisplay(input.displaySegments)))
   if (input.legacyShowBody && input.textTrimmed) {
     slots.push({
       kind: 'legacy-body',

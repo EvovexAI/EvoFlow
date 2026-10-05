@@ -1640,8 +1640,11 @@ export function finalizeStreamTurn(
   }
 
   const blockSegments = useBlocks ? projectDisplayTimeline(work) : []
-  const finalTimeline = dedupeToolsTimelineSegments(
-    useBlocks ? blockSegments : timeline,
+  const finalTimeline = sealTrailingReasoningSegment(
+    dedupeToolsTimelineSegments(
+      useBlocks ? blockSegments : timeline,
+    ),
+    Date.now(),
   )
 
   const { segments: reasoningSegments, preview: reasoningPreview } = useBlocks

@@ -23,7 +23,7 @@ describe('formatReasoningDurationLabel（ZCode「持续了 X 秒」）', () => {
   })
 
   it('formats seconds', () => {
-    expect(formatReasoningDurationLabel(400)).toBe('')
+    expect(formatReasoningDurationLabel(400)).toBe('持续了 <1 秒')
     expect(formatReasoningDurationLabel(800)).toBe('持续了 1 秒')
     expect(formatReasoningDurationLabel(16_400)).toBe('持续了 16 秒')
     expect(formatReasoningDurationLabel(59_600)).toBe('持续了 1 分')

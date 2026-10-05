@@ -93,12 +93,12 @@ export function formatTurnElapsedSuffix(elapsedSec?: number): string {
 
 /**
  * 思考段折叠头标签（ZCode 风格）：「持续了 16 秒」「持续了 2 分 16 秒」。
- * 不足 1 秒视为极短，返回空串（不展示时长）。
+ * 不足 1 秒显示「<1 秒」。
  */
 export function formatReasoningDurationLabel(durationMs: number | null | undefined): string {
   if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) return ''
   const totalSec = Math.round(durationMs / 1000)
-  if (totalSec < 1) return ''
+  if (totalSec < 1) return '持续了 <1 秒'
   if (totalSec < 60) return `持续了 ${totalSec} 秒`
   const totalMin = Math.floor(totalSec / 60)
   const s = totalSec % 60

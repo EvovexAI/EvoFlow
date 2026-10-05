@@ -2380,7 +2380,7 @@ button.msg-file-card.msg-file-card--button:focus-visible {
   line-height: 1;
   color: var(--text-tertiary, #9ca3af);
   transition: transform 150ms ease, opacity 150ms ease;
-  width: 12px;
+  width: 16px;
   flex-shrink: 0;
   opacity: 0;
   margin-left: auto;
@@ -2406,7 +2406,7 @@ button.msg-file-card.msg-file-card--button:focus-visible {
 }
 
 .react-msg-tool .msg-tool-short-label {
-  font-weight: 600;
+  font-weight: 500;
   font-size: inherit;
   color: var(--text-tertiary, #9ca3af);
   letter-spacing: 0.02em;

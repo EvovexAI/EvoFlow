@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import time
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
 BLOCK_KIND_PLAN = "plan_text"
 BLOCK_KIND_REASONING = "reasoning"
@@ -58,6 +63,8 @@ class ContentBlockLedger:
             "status": "open",
             "text": "",
             "tool_ids": [],
+            "started_at_ms": _now_ms(),
+            "ended_at_ms": None,
         }
         self.order.append(bid)
         return BlockWireMeta(bid, kind, self.next_seq)
@@ -68,6 +75,8 @@ class ContentBlockLedger:
         blk = self.blocks.get(block_id)
         if blk and blk.get("status") == "open":
             blk["status"] = "closed"
+            if blk.get("ended_at_ms") is None:
+                blk["ended_at_ms"] = _now_ms()
             meta = self.meta_for(block_id)
             if meta:
                 self._pending_closes.append(meta)
@@ -233,7 +242,12 @@ class ContentBlockLedger:
             elif kind == BLOCK_KIND_REASONING:
                 text = str(blk.get("text") or "").strip()
                 if text:
-                    out.append({**base, "kind": "reasoning", "text": text})
+                    seg: dict[str, Any] = {**base, "kind": "reasoning", "text": text}
+                    if blk.get("started_at_ms") is not None:
+                        seg["startedAtMs"] = blk["started_at_ms"]
+                    if blk.get("ended_at_ms") is not None:
+                        seg["endedAtMs"] = blk["ended_at_ms"]
+                    out.append(seg)
             elif kind in {BLOCK_KIND_PLAN, BLOCK_KIND_BODY}:
                 text = str(blk.get("text") or "").strip()
                 if text:

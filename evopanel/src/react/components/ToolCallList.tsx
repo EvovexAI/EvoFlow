@@ -1647,6 +1647,9 @@ function ToolCallListInner({
                 shortLabel
               )}
             </span>
+            {toolBriefDisplay || showElapsedChip || (running && useActivityFold) ? (
+              <span className="msg-tool-name-sep" aria-hidden>·</span>
+            ) : null}
             {toolBriefDisplay ? (
               <span
                 className={`msg-tool-brief${
