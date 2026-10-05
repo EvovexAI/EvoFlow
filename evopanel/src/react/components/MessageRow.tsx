@@ -1140,12 +1140,18 @@ function AssistantBody({
       const sec = Math.round((nowTick - turnStartMsResolved) / 1000)
       return sec >= 1 ? formatTurnDurationStr(sec) : ''
     }
+    // 被打断的回合(ZCode「已停止」):标记优先于时长
+    if (String(row.turnState || '').trim() === 'interrupted') return 'stopped'
     if (durationLabel) return durationLabel
     const rowTs = parseTurnTimestampMs(row.timestamp)
     if (turnStartMsResolved == null || rowTs == null || rowTs <= turnStartMsResolved) return ''
     const sec = Math.round((rowTs - turnStartMsResolved) / 1000)
     return sec >= 1 ? formatTurnDurationStr(sec) : ''
   })()
+
+  /** 回合中断标记透传给折叠头(ZCode「已停止」) */
+  const turnInterrupted = workedDurationLabel === 'stopped' || String(row.turnState || '').trim() === 'interrupted'
+  const workedLabelOut = workedDurationLabel === 'stopped' ? '' : workedDurationLabel
 
   return (
     <AssistantBubbleSlotView
@@ -1169,7 +1175,8 @@ function AssistantBody({
       suppressExploringFold={suppressExploringFold}
       sessionKey={sessionKey}
       compareSessionKey={compareSessionKey}
-      durationLabel={workedDurationLabel}
+      durationLabel={workedLabelOut}
+      turnInterrupted={turnInterrupted}
       liveTokenStr={row.tokenStr}
       messageId={row.messageId}
     />

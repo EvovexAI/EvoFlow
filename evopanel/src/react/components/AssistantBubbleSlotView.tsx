@@ -47,6 +47,7 @@ function AssistantBubbleSlotViewInner({
   durationLabel,
   liveTokenStr,
   messageId,
+  turnInterrupted,
 }: {
   plan: AssistantBubbleDisplayPlan
   displaySegments: MessageSegment[]
@@ -77,6 +78,8 @@ function AssistantBubbleSlotViewInner({
   liveTokenStr?: string
   /** 落库消息 id（完成态「已工作」折叠头的 data-testid 用） */
   messageId?: string
+  /** 回合被打断（ZCode「已停止」） */
+  turnInterrupted?: boolean
 }) {
   // ZCode 式扁平内联：plan.flatTimeline 为权威（MessageRow 默认 true，工作轨迹显式传 false）
   const flatTimeline = plan.flatTimeline !== false && !suppressExploringFold
@@ -264,6 +267,7 @@ function AssistantBubbleSlotViewInner({
   const workedLabel = (() => {
     if (plan.flatTimeline === false || suppressExploringFold) return ''
     if (isStreaming) return workedText ? `工作中 ${workedText}` : '工作中'
+    if (turnInterrupted) return '已停止'
     if (workedText) return `已工作 ${workedText}`
     return foldableSlotIdx.length ? '已处理' : ''
   })()

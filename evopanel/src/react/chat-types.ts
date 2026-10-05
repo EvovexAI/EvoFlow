@@ -85,6 +85,8 @@ export interface DisplayRow {
   terminalStreams?: Record<string, TerminalStreamTask>
   timestamp?: number
   durationStr?: string
+  /** 后端回合终态标记：interrupted = 被打断（显示「已停止」），completed = 正常完成 */
+  turnState?: string
   tokenStr?: string
   /** 本轮 LangGraph run（与后端 run_id 对齐，用于轮次隔离与 plan 侧读历史） */
   runId?: string

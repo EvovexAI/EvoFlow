@@ -4015,7 +4015,11 @@ export function dedupeHistory(messages) {
       ...(role === 'assistant'
         ? (() => {
             const d = formatTurnDurationStrFromMs(msg.turn_duration_ms ?? msg.turnDurationMs)
-            return d ? { durationStr: d } : {}
+            const ts = String(msg.turn_state ?? msg.turnState ?? '').trim()
+            return {
+              ...(d ? { durationStr: d } : {}),
+              ...(ts ? { turnState: ts } : {}),
+            }
           })()
         : {}),
       ...(msgId ? { messageId: String(msgId) } : {}),

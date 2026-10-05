@@ -155,6 +155,47 @@ describe('TurnHistoryFold（已工作折叠头）', () => {
     expect(screen.queryByText(/echo hello/)).toBeNull()
   })
 
+  it('封存行缺 durationStr/思考时间戳时,用工具时间兜底仍显示头部', () => {
+    const now = Date.now()
+    // 模拟 ChatApp 封存:durStr 为空、segments 无 startedAtMs、工具只带 time
+    const input = buildInput({
+      isStreaming: false,
+      displaySegments: [
+        { kind: 'tools', ids: ['t1'], seq: 1 },
+        { kind: 'text', text: '最终回复', seq: 2 },
+      ],
+      tools: [
+        {
+          id: 't1',
+          name: 'bash',
+          input: { command: 'ls' },
+          status: 'ok',
+          output: 'ok',
+          time: now - 120_000,
+        },
+      ],
+    })
+    const plan = buildAssistantBubbleDisplayPlan(input as never)
+    render(
+      <AssistantBubbleSlotView
+        plan={plan}
+        displaySegments={input.displaySegments as never}
+        tools={input.tools as never}
+        rawText=""
+        reasoningPreview=""
+        isStreaming={false}
+        askInline={null}
+        suppressPlanExecPromptNoise={false}
+        interactiveToolApproval={false}
+        durationLabel="2m00s"
+        messageId="msg_seal_1"
+      />,
+    )
+    const trigger = screen.queryByTestId('chat-assistant-history-trigger-msg_seal_1')
+    expect(trigger, '封存行应显示已工作头部').toBeTruthy()
+    expect(trigger?.getAttribute('data-history-open')).toBe('false')
+  })
+
   it('完成后折叠头定格并默认收起', () => {
     const now = Date.now()
     const input = buildInput({

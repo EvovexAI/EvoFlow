@@ -613,70 +613,68 @@ function ChatSummaryPanelInner({
         </div>
       ) : (
         <>
+          {/* 智能体是面板主体，标题提到面板头部与 ··· / 收起 同行；
+              分区头（可折叠行）随之去掉，内容直接跟在标题行下。 */}
           <div className="chat-summary-panel-head">
-            <div ref={policyRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="chat-summary-panel-title"
+              onClick={() => toggleSection('agent')}
+              aria-expanded={sections.agent}
+              title={sections.agent ? '折叠智能体' : '展开智能体'}
+            >
+              <span className="chat-summary-panel-title-text">智能体</span>
+              <ChevronDown
+                className={`chat-summary-panel-title-caret${sections.agent ? ' is-open' : ''}`}
+                aria-hidden
+              />
+            </button>
+            <div className="chat-summary-panel-head-actions">
+              <div ref={policyRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="chat-summary-panel-icon-btn"
+                  aria-label="状态面板展开策略"
+                  aria-haspopup="menu"
+                  aria-expanded={policyOpen}
+                  onClick={() => setPolicyOpen((v) => !v)}
+                >
+                  <Ellipsis aria-hidden />
+                </button>
+                {policyOpen ? (
+                  <div className="chat-summary-policy-menu" role="menu" aria-label="展开策略">
+                    {EXPAND_POLICY_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        role="menuitem"
+                        className="chat-summary-policy-item"
+                        onClick={() => pickPolicy(opt.id)}
+                      >
+                        {opt.label}
+                        {policy === opt.id ? <Check className="chat-summary-policy-check" aria-hidden /> : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="chat-summary-panel-icon-btn"
-                aria-label="状态面板展开策略"
-                aria-haspopup="menu"
-                aria-expanded={policyOpen}
-                onClick={() => setPolicyOpen((v) => !v)}
+                data-summary-action="collapse"
+                aria-label="收起为胶囊"
+                onClick={goCapsule}
               >
-                <Ellipsis aria-hidden />
+                <Minimize2 aria-hidden />
               </button>
-              {policyOpen ? (
-                <div className="chat-summary-policy-menu" role="menu" aria-label="展开策略">
-                  {EXPAND_POLICY_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="menuitem"
-                      className="chat-summary-policy-item"
-                      onClick={() => pickPolicy(opt.id)}
-                    >
-                      {opt.label}
-                      {policy === opt.id ? <Check className="chat-summary-policy-check" aria-hidden /> : null}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
-            <button
-              type="button"
-              className="chat-summary-panel-icon-btn"
-              data-summary-action="collapse"
-              aria-label="收起为胶囊"
-              onClick={goCapsule}
-            >
-              <Minimize2 aria-hidden />
-            </button>
           </div>
 
           <div className="chat-summary-panel-scroll">
-            <Section
-              id="process"
-              title="进程"
-              open={sections.process}
-              onToggle={() => toggleSection('process')}
-              meta={<ProcessCount summary={summary} />}
-            >
-              <ProcessList summary={summary} onOpenItem={onOpenProcessItem} />
-            </Section>
-
-            <Section
-              id="agent"
-              title="智能体"
-              open={sections.agent}
-              onToggle={() => toggleSection('agent')}
-              meta={
-                <div className="chat-summary-section-meta">
-                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {displayName}
-                  </span>
-                </div>
-              }
-            >
+            {/* 智能体标题已提到面板头部，这里只留内容；折叠时整块不渲染。
+                进程 / 更多仍走可折叠 Section，排在智能体内容之后。 */}
+            {sections.agent ? (
+              <div className="chat-summary-agent-body">
               <div
                 className={`chat-summary-agent-header${onEditAgent ? ' is-editable' : ''}`}
                 role={onEditAgent ? 'button' : undefined}
@@ -751,6 +749,17 @@ function ChatSummaryPanelInner({
                   本轮 Token {formatCompactCount(tokenTotal)}
                 </div>
               ) : null}
+              </div>
+            ) : null}
+
+            <Section
+              id="process"
+              title="进程"
+              open={sections.process}
+              onToggle={() => toggleSection('process')}
+              meta={<ProcessCount summary={summary} />}
+            >
+              <ProcessList summary={summary} onOpenItem={onOpenProcessItem} />
             </Section>
 
             {hasMoreContent ? (

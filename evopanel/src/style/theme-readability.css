@@ -930,39 +930,44 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-info-rai
   }
 }
 
-/* 侧栏：更小更精致；列表标题多露字 */
+/* 侧栏：对齐 ZCode 侧栏的字号 / 图标 / 密度。
+   ZCode 实测基准：导航行 h-8(32px)、字号 text-ui-base(13px)、字重 400、
+   图标 size-4(16px)；会话行 13px、行高 32px。原先这里压到 11.6px/15px/30px，
+   整栏比 ZCode 小一号，且字重 500 在中文下发灰发紧。 */
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item,
 html:not([data-translucent-ui='1']) body .shell-aside-nav-item,
 html:not([data-translucent-ui='1']) body .shell-aside-new-chat-btn {
   border-radius: 8px !important;
-  font-size: var(--ef-text-sm) !important;
+  font-size: var(--ef-text-base) !important;
   font-weight: 400 !important;
   letter-spacing: -0.01em !important;
-  height: 30px !important;
+  height: 32px !important;
   gap: 8px !important;
   padding: 0 8px !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-toolbar-title {
-  font-size: 13px !important;
+  font-size: var(--ef-text-base) !important;
   font-weight: 400 !important;
   letter-spacing: -0.015em !important;
 }
 
+/* 图标回到 16px：ZCode 导航图标是 size-4，比原先 15px 更稳，行高 32px 也不挤 */
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-ic {
-  width: 15px !important;
-  height: 15px !important;
+  width: 16px !important;
+  height: 16px !important;
   opacity: 0.82;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-ic svg {
-  width: 15px !important;
-  height: 15px !important;
+  width: 16px !important;
+  height: 16px !important;
   stroke-width: 1.5 !important;
 }
 
+/* 会话标题同样回到 13px，否则导航 13px / 会话 11px 层级断裂 */
 html:not([data-translucent-ui='1']) body .react-chat-history-item-title {
-  font-size: 11px !important;
+  font-size: var(--ef-text-base) !important;
   font-weight: 400 !important;
   letter-spacing: -0.01em !important;
   overflow: hidden !important;
@@ -988,12 +993,15 @@ html[data-theme='dark']:not([data-translucent-ui='1']) body .react-chat-history-
   --history-fade-bg: var(--chrome-bg, #141414);
 }
 
+/* 会话行：ZCode 侧栏行高 32px（h-8），配合 13px 标题不挤。
+   文字色对齐 ZCode text-foreground：#4a4f5a 偏灰，ZCode 用近黑的 #202124。 */
 html:not([data-translucent-ui='1']) body .react-chat-history-item {
-  height: 30px !important;
-  min-height: 30px !important;
-  max-height: 30px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
   border-radius: 8px !important;
-  font-size: 11px !important;
+  font-size: var(--ef-text-base) !important;
+  color: var(--text-primary) !important;
   gap: 6px !important;
   padding: 0 6px !important;
 }
@@ -1028,7 +1036,8 @@ html:not([data-translucent-ui='1']) body .shell-aside-nav-item:hover {
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item.active,
 html:not([data-translucent-ui='1']) body .shell-aside-nav-item.active {
   background: rgba(15, 23, 42, 0.08) !important;
-  font-weight: 500 !important;
+  /* ZCode 激活态靠底色区分，不加粗：中文 500 会显得发紧发黑 */
+  font-weight: 400 !important;
 }
 
 html:not([data-translucent-ui='1']) body .react-chat-aside-nav-item.active::before {

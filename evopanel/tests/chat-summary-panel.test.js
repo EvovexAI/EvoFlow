@@ -46,7 +46,7 @@ describe('状态面板偏好', () => {
     expect(prefs.sections).toEqual({ process: false, agent: true, more: true })
   })
 
-  it('首次无存储时用默认分区：进程开、智能体/更多关', () => {
+  it('首次无存储时用默认分区：智能体开、进程/更多关', () => {
     const prefs = loadChatSummaryPrefs()
     expect(prefs.displayMode).toBe('panel')
     expect(prefs.sections).toEqual(DEFAULT_CHAT_SUMMARY_SECTIONS)
@@ -59,11 +59,31 @@ describe('状态面板偏好', () => {
   })
 
   it('sections 只接受布尔值，逐项补齐缺失键', () => {
+    // 缺省以 DEFAULT 为准：智能体开，进程/更多关
     expect(normalizeChatSummarySections({ agent: true })).toEqual({
-      process: true,
+      process: false,
       agent: true,
       more: false,
     })
+  })
+
+  // v1→v2 布局迁移：老用户 localStorage 里是 {process:true, agent:false}，
+  // 光改 DEFAULT 对他们无效，会一直卡在「进程展开、智能体收着」。
+  it('老用户 v1 的 sections 会被迁移到新默认（智能体展开）', () => {
+    localStorage.setItem('evopanel_chat_summary_sections_v1', JSON.stringify({ process: true, agent: false, more: false }))
+    const prefs = loadChatSummaryPrefs()
+    expect(prefs.sections).toEqual(DEFAULT_CHAT_SUMMARY_SECTIONS)
+    expect(prefs.sections.agent).toBe(true)
+    expect(prefs.sections.process).toBe(false)
+  })
+
+  it('迁移只发生一次，之后以用户显式设置为准', () => {
+    localStorage.setItem('evopanel_chat_summary_sections_v1', JSON.stringify({ process: true, agent: false, more: false }))
+    loadChatSummaryPrefs() // 触发迁移，落下 v2 stamp
+
+    // 用户随后自己调成「都收着」——不该被默认值顶回来
+    saveChatSummarySections({ process: false, agent: false, more: false })
+    expect(loadChatSummaryPrefs().sections).toEqual({ process: false, agent: false, more: false })
   })
 })
 

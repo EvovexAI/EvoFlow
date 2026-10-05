@@ -88,6 +88,7 @@ function mergeAssistantPair(a: DisplayRow, b: DisplayRow): DisplayRow {
     ...merged,
     tools: mergeToolsForPlanDetection(a.tools || [], b.tools || []),
     durationStr: b.durationStr || a.durationStr,
+    turnState: b.turnState || a.turnState,
     tokenStr: b.tokenStr || a.tokenStr,
     runId: b.runId || a.runId,
   }

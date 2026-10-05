@@ -37,32 +37,99 @@
   max-width: 360px;
   min-width: 320px;
   align-self: flex-start;
-  max-height: 100%;
+  /* 卡片四周留呼吸：顶部 8px、右侧 8px。
+     右侧留白让卡片不贴死容器右边，和 left 的对话区之间有个间隔；
+     flex-basis 固定 340px，margin 是在此之外额外加的，不会把卡片挤窄。 */
+  margin: 8px 8px 0 0;
+  max-height: calc(100% - 8px);
   z-index: 4;
 }
 
 /* ── 胶囊态：右下角浮层小条，不参与布局 ───────────────── */
+/* 胶囊态：右上角浮层小条，不参与布局。
+   从右下移到右上：右下角和输入区/发送按钮抢位置，
+   收起态的入口贴在那儿容易被误触，也挡住最后一条消息。
+   top 要让开 .react-chat-header（38px），否则胶囊压在顶栏上盖住标题/按钮。 */
 .chat-summary-panel.is-capsule {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  top: calc(38px + 8px);
   width: auto;
   min-width: 180px;
   max-width: min(320px, calc(100vw - 1.5rem));
   z-index: 40;
 }
 
-/* ── 头部操作区（··· / 收起） ─────────────────────────── */
-/* 自己占一行，不再 absolute 压在「进程」分区头上。
-   absolute 时它和第一个分区标题同处 y≈55，看着像属于那个分区，
-   也让分区头得预留 32px 右边距。独立成行后位置明确在右上角。 */
+/* ── 头部操作区（标题 / ··· / 收起） ─────────────────────── */
+/* 面板级标题行：左边「智能体」（可折叠），右边操作按钮。
+   原来只有按钮，智能体标题是滚动区里第一张卡的分区头，
+   视觉上像是内容的一部分而不是面板标题。 */
 .chat-summary-panel-head {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  /* 左右都留 8px，与滚动主体 padding 对齐，按钮和标题左右边缘齐平 */
+  padding: 6px 8px 4px;
+}
+
+.chat-summary-panel-head-actions {
+  display: flex;
+  align-items: center;
   gap: 2px;
   flex-shrink: 0;
-  padding: 0 0 4px;
+}
+
+/* 面板标题：可点击折叠智能体，行为对齐原来的分区 trigger。
+   视觉上刻意做轻：灰色 + 次级字号，因为它只是分组标签，
+   真正的内容主体是下面的头像/能力清单，太黑太大会跟内容抢。 */
+.chat-summary-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary, #9297a0);
+  font: inherit;
+  font-size: var(--ef-text-sm);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-summary-panel-title:hover {
+  color: var(--text-secondary, #6b7280);
+}
+
+.chat-summary-panel-title:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
+  border-radius: 6px;
+}
+
+.chat-summary-panel-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 折叠箭头：跟着字号走，不撑成 24px 按钮那么高。
+   lucide 图标默认 width/height=24，直接放着会比旁边的 11.6px 文字高一倍，
+   看着像多了一枚按钮。 */
+.chat-summary-panel-title-caret {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: var(--text-tertiary, #9297a0);
+  transition: transform 0.15s ease;
+}
+
+.chat-summary-panel-title-caret.is-open {
+  transform: rotate(180deg);
 }
 
 /* 胶囊态隐藏「收起」按钮，避免和展开语义打架 */
@@ -106,11 +173,13 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 8px;
+  /* 分区间距只由下面 .chat-summary-section 的 margin 负责，
+     这里给 0，避免和 margin/padding 叠成 24px 把卡片撑散。 */
+  gap: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px 8px 8px;
 }
 
 /* ── 折叠分区 ───────────────────────────────────────── */
@@ -119,9 +188,11 @@
   min-width: 0;
 }
 
+/* 相邻分区只留一条细分隔线 + 极小间距，对齐 ZCode 的紧凑排布。
+   不要在 margin / padding / flex gap 三处同时加间距，会叠成 24px。 */
 .chat-summary-section + .chat-summary-section {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid var(--border-subtle, #ecedef);
 }
 
@@ -334,6 +405,14 @@
 }
 
 /* ── 智能体区 ───────────────────────────────────────── */
+/* 标题已上移到面板头部，这里是纯内容块。
+   留 4px 上间距，和下面的「进程」分隔线拉开一点呼吸。 */
+.chat-summary-agent-body {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding-top: 4px;
+}
+
 /* 智能体区：头像比胶囊态大一号，简介放开到 4 行，给能力清单留出纵向空间 */
 .chat-summary-agent-header {
   display: flex;
@@ -641,6 +720,6 @@
 
   .chat-summary-panel.is-capsule {
     right: 8px;
-    bottom: 8px;
+    top: calc(38px + 8px);
   }
 }

@@ -11,6 +11,7 @@
 const MODE_KEY = 'evopanel_chat_summary_display_mode_v1'
 const POLICY_KEY = 'evopanel_chat_summary_expand_policy_v1'
 const SECTIONS_KEY = 'evopanel_chat_summary_sections_v1'
+const SECTIONS_LAYOUT_KEY = 'evopanel_chat_summary_sections_layout_v2'
 const DEBUG_KEY = 'EVOFLOW_CHAT_PANEL_DEBUG'
 
 /** 面板三态：胶囊（浮层小条）/ 面板（右栏）/ 隐藏（完全不占位） */
@@ -70,10 +71,10 @@ export function normalizeChatSummaryExpandPolicy(raw: unknown): ChatSummaryExpan
 
 const ALL_SECTIONS: ChatSummarySectionId[] = ['process', 'agent', 'more']
 
-/** 缺省：进程开、智能体关、更多关（与 ZCode 面板默认展开进程一致） */
+/** 缺省：智能体开（面板主体，放最上面）、进程关、更多关 */
 export const DEFAULT_CHAT_SUMMARY_SECTIONS: Record<ChatSummarySectionId, boolean> = {
-  process: true,
-  agent: false,
+  agent: true,
+  process: false,
   more: false,
 }
 
@@ -109,9 +110,30 @@ export type ChatSummaryPrefs = {
 export function loadChatSummaryPrefs(): ChatSummaryPrefs {
   const displayMode = normalizeChatSummaryDisplayMode(readRaw(MODE_KEY))
   const expandPolicy = normalizeChatSummaryExpandPolicy(readRaw(POLICY_KEY))
-  const sections = normalizeChatSummarySections(readRaw(SECTIONS_KEY))
+  const sections = loadSectionsWithLayoutMigration()
   trace('load', { displayMode, expandPolicy, sections })
   return { displayMode, expandPolicy, sections }
+}
+
+/**
+ * v1→v2 布局迁移：分区顺序和默认展开项都换了（进程在前 → 智能体在前且默认展开）。
+ * 老用户 localStorage 里存的是 { process:true, agent:false }，光改 DEFAULT 不生效，
+ * 他们会一直卡在旧形态（智能体收着、进程展开着）。
+ *
+ * 用一个独立 stamp 而不是改 SECTIONS_KEY 的版本号后缀：后者会把老值当脏数据丢掉，
+ * 无法区分「从没设置过」和「显式设成了 false」。这里只在 stamp 缺失时套用新默认，
+ * 之后用户再手动调都以他们的选择为准，不再覆盖。
+ */
+function loadSectionsWithLayoutMigration(): Record<ChatSummarySectionId, boolean> {
+  const raw = readRaw(SECTIONS_KEY)
+  const stamped = readRaw(SECTIONS_LAYOUT_KEY) === 'v2'
+  if (!raw || stamped) return normalizeChatSummarySections(raw)
+
+  trace('sections_layout_migrate_v1_to_v2', raw)
+  const migrated = { ...DEFAULT_CHAT_SUMMARY_SECTIONS }
+  writeRaw(SECTIONS_KEY, JSON.stringify(migrated))
+  writeRaw(SECTIONS_LAYOUT_KEY, 'v2')
+  return migrated
 }
 
 export function saveChatSummaryDisplayMode(mode: ChatSummaryDisplayMode): void {
@@ -130,4 +152,7 @@ export function saveChatSummarySections(sections: Record<ChatSummarySectionId, b
   const next = normalizeChatSummarySections(sections)
   trace('save_sections', next)
   writeRaw(SECTIONS_KEY, JSON.stringify(next))
+  // 用户显式设置即视为已在新布局下做过选择，钉住版本，
+  // 否则下次 load 又会被 v1→v2 迁移覆盖回默认值。
+  writeRaw(SECTIONS_LAYOUT_KEY, 'v2')
 }
