@@ -8,6 +8,8 @@ pub mod assistant;
 pub mod backend;
 pub mod boot_cycle;
 pub mod browser_embed;
+#[cfg(target_os = "windows")]
+pub mod browser_cdp;
 pub mod config;
 pub mod ui_extensions;
 pub mod gateway;

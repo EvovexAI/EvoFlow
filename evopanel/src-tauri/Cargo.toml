@@ -46,3 +46,14 @@ urlencoding = "2"
 url = "2"
 regex = "1"
 tokio = { version = "1", features = ["process", "time", "net", "io-util", "sync", "macros", "rt-multi-thread"] }
+
+# In-process CDP for the embedded browser webview. `Webview::with_webview`
+# hands us the raw `ICoreWebView2Controller`, and `ICoreWebView2` exposes
+# `CallDevToolsProtocolMethod` — the same in-process CDP channel Electron gets
+# from `webContents.debugger.attach()`. This replaces the previous
+# `--remote-debugging-port` + WS handshake, which needed a real TCP endpoint
+# (and leaked a debug port onto the main webview too).
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

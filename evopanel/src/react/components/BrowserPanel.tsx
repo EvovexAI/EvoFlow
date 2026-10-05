@@ -18,8 +18,8 @@ import {
   clickBrowserAt,
   scrollBrowserBy,
   sendBrowserCommand,
-  closeBrowserTab,
   listBrowserTabs,
+  closeBrowserTab,
   newBrowserTab,
   selectBrowserTab,
   DEFAULT_BROWSER_VIEWPORT,
@@ -469,7 +469,7 @@ function BrowserChromeBar({
   )
 }
 
-/** 站点 favicon（origin/favicon.ico，失败回退 globe 图标）。 */
+/** Site favicon (`origin/favicon.ico`); null falls back to the globe glyph. */
 function faviconUrlFor(url: string): string | null {
   try {
     return `${new URL(url).origin}/favicon.ico`
@@ -622,10 +622,17 @@ function BrowserEmbedHost({
   useLayoutEffect(() => {
     let cancelled = false
     const tid = String(threadId || '').trim()
+    // Unconditional: this is the only place that proves the embed host actually
+    // mounted, so every early-return path has to be visible.
+    dbgLog(
+      `[browser-embed] effect enter isOpen=${isOpen} tid=${tid || '(empty)'} ` +
+        `mountedRef=${mountedThreadRef.current || '(empty)'}`,
+    )
     if (!isOpen || !tid) {
       // Use requestAnimationFrame to defer state updates outside of effect body
       requestAnimationFrame(() => {
         if (!cancelled) {
+          dbgLog(`[browser-embed] effect idle-reset isOpen=${isOpen} tid=${tid || '(empty)'}`)
           setReady(false)
           setError('')
         }
@@ -637,9 +644,11 @@ function BrowserEmbedHost({
     // ~2.4s waiting for layout, and restarting on every unrelated prop change
     // means it never gets there.
     if (mountedThreadRef.current === tid) {
+      dbgLog(`[browser-embed] effect skip (already mounting) tid=${tid}`)
       return
     }
     mountedThreadRef.current = tid
+    dbgLog(`[browser-embed] effect start mount tid=${tid}`)
 
     const mount = async () => {
       const supported = await browserEmbedSupported()
@@ -661,7 +670,7 @@ function BrowserEmbedHost({
         return
       }
       dbgLog(
-        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(bounds)} url=${pageUrl || '(none)'}`,
+        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(bounds)} url=${pageUrl || '(none — boot blank, navigate on result)'}`,
       )
       const info = await browserEmbedUpsert({
         threadId: tid,
@@ -676,7 +685,7 @@ function BrowserEmbedHost({
         }
         return
       }
-      dbgLog(`[browser-embed] cdp ready thread=${tid} label=${info.webviewLabel} port=${info.debugPort}`)
+      dbgLog(`[browser-embed] cdp ready thread=${tid} label=${info.webviewLabel}`)
       const ok = await registerBrowserEmbedCdp(tid, info.cdpUrl)
       if (!ok) {
         dbgWarn(`[browser-embed] cdp register rejected by backend thread=${tid}`)
@@ -711,9 +720,18 @@ function BrowserEmbedHost({
     const tid = String(threadId || '').trim()
     const next = String(pageUrl || '').trim()
     if (!tid || !next || next === lastNavigatedRef.current) return
+    // Re-measure before re-pointing the window. Falling back to a hardcoded
+    // origin here used to fling the embedded browser into the top-left corner
+    // of the screen whenever the slot had not been laid out yet.
+    const bounds = readEmbedBounds(slotRef.current)
+    if (!bounds) {
+      // Deliberately do not record the url yet: a later re-render must be able to
+      // retry once layout settles.
+      dbgWarn(`[browser-embed] navigate deferred, slot has no layout box thread=${tid} url=${next}`)
+      return
+    }
     lastNavigatedRef.current = next
-    const bounds = readEmbedBounds(slotRef.current) || { x: 0, y: 0, width: 1280, height: 720 }
-    dbgLog(`[browser-embed] navigate thread=${tid} url=${next}`)
+    dbgLog(`[browser-embed] navigate thread=${tid} url=${next} bounds=${JSON.stringify(bounds)}`)
     void browserEmbedUpsert({ threadId: tid, url: next, ...bounds }).then((info) => {
       if (info?.cdpUrl) void registerBrowserEmbedCdp(tid, info.cdpUrl)
     })
@@ -1090,7 +1108,11 @@ export const BrowserPanel = memo(function BrowserPanel({
   }, [isOpen, effectiveThreadId])
 
   const preferEmbeddedBrowser = embedSupported && Boolean(effectiveThreadId)
-  const useEmbeddedBrowser = preferEmbeddedBrowser && embedReady && !embedFailed
+  // While the embed is mounting there is nothing else worth showing, so the host
+  // renders as soon as the path is viable. `embedReady` only gates the *screencast
+  // fallback*, never the embed host itself — gating the host on it would deadlock:
+  // the flag can only be set by a host that already mounted.
+  const useEmbeddedBrowser = preferEmbeddedBrowser && !embedFailed
   const streamPath = useMemo(() => {
     const direct = String(liveStreamUrl || '').trim()
     if (direct) return direct
@@ -1217,6 +1239,11 @@ export const BrowserPanel = memo(function BrowserPanel({
     }
   }, [isOpen, effectiveThreadId, refreshNonce])
 
+  const [streamError, setStreamError] = useState('')
+  const handleStreamError = useCallback((message: string) => {
+    setStreamError(String(message || '').trim())
+  }, [])
+
   const handleSelectTab = useCallback(
     async (index: number) => {
       const tid = effectiveThreadId
@@ -1241,12 +1268,14 @@ export const BrowserPanel = memo(function BrowserPanel({
     [effectiveThreadId],
   )
 
-  // 标签条：搜索弹层 + 拖拽排序（displayOrder = 显示位置 → 引擎 tab index）
+  // Tab bar: search overlay + drag-to-reorder. `tabDisplayOrder` maps display
+  // position -> engine tab index, so a reorder survives new tabs being appended.
   const [tabSearchOpen, setTabSearchOpen] = useState(false)
   const [tabDisplayOrder, setTabDisplayOrder] = useState<number[]>([])
   const dragTabRef = useRef<number | null>(null)
   useEffect(() => {
-    // 引擎标签数变化时重置显示顺序（关闭/新建后旧顺序失效）
+    // Reset the order when the engine tab count changes; a stale order would
+    // point at tabs that no longer exist.
     setTabDisplayOrder((prev) => (prev.length === runtime.tabs.length ? prev : []))
   }, [runtime.tabs.length])
   const handleTabDragStart = useCallback((engineIndex: number) => {
@@ -1275,10 +1304,6 @@ export const BrowserPanel = memo(function BrowserPanel({
     dragTabRef.current = null
   }, [])
 
-  const [streamError, setStreamError] = useState('')
-  const handleStreamError = useCallback((message: string) => {
-    setStreamError(String(message || '').trim())
-  }, [])
   const tabTitle = useMemo(() => {
     const raw = String(pageUrl || '').trim()
     if (!raw) return '浏览器'
@@ -1331,7 +1356,15 @@ export const BrowserPanel = memo(function BrowserPanel({
     setRefreshNonce((n) => n + 1)
   }, [streamKickNonce, isOpen])
 
-  const hasStream = Boolean(streamPath) && (!preferEmbeddedBrowser || embedFailed || !embedReady)
+  // The screencast fallback must stay out of the way while the embedded webview
+  // is still starting up. `embedReady` only becomes true *after* the embed host
+  // renders, so gating on it here would make the two branches mutually
+  // exclusive: screencast would win while `embedReady` is false and the embed
+  // host would never mount. Once the embed path is viable — and not known to
+  // have failed — it owns the stage, and the WS is closed so the two surfaces
+  // cannot both draw.
+  const embedPending = preferEmbeddedBrowser && !embedReady && !embedFailed
+  const hasStream = Boolean(streamPath) && !embedPending
   const embedThreadId = effectiveThreadId
   // Surface-selection diagnostic. The three surfaces are mutually exclusive and
   // picking the wrong one fails silently (blank stage, no error anywhere), so
@@ -1369,7 +1402,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       role="region"
       aria-label="Browser"
     >
-            <div className="browser-panel-tabstrip">
+      <div className="browser-panel-tabstrip">
         <button
           type="button"
           className={`browser-panel-tb-btn${tabSearchOpen ? ' is-pressed' : ''}`}
@@ -1441,7 +1474,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           </>
         ) : null}
       </div>
-<BrowserChromeBar
+      <BrowserChromeBar
         pageUrl={effectivePageUrl}
         streamStatus={useEmbeddedBrowser ? 'live' : streamStatus}
         refreshBusy={refreshBusy}
@@ -1476,15 +1509,7 @@ export const BrowserPanel = memo(function BrowserPanel({
             <p className="browser-panel-shared-hint-text">{sharedBrowserHint}</p>
           </div>
         ) : null}
-        {useEmbeddedBrowser && embedThreadId ? (
-          <BrowserEmbedHost
-            isOpen={isOpen}
-            threadId={embedThreadId}
-            pageUrl={effectivePageUrl}
-            onReady={handleEmbedReady}
-            onFailed={handleEmbedFailed}
-          />
-        ) : hasStream ? (
+        {hasStream ? (
           <div className={`browser-panel-live-host${showStreamPreviewLabel ? ' is-preview' : ''}`}>
             {showStreamPreviewLabel ? <div className="browser-panel-preview-label">侧栏预览</div> : null}
             {operating ? (

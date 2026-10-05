@@ -133,8 +133,8 @@ export function setBrowserPanelThreadId(threadId: string | null | undefined): bo
 }
 
 export function notifyBrowserToolStart(toolCallId: string, argsText?: string | null): boolean {
-  const action = parseBrowserToolAction(argsText)
-  dbgLog(`[browser-panel-store] tool start toolCallId=${toolCallId} action=${action} argsText=${argsText || ''}`)
+  const { action, url } = parseBrowserToolArgs(argsText)
+  dbgLog(`[browser-panel-store] tool start toolCallId=${toolCallId} action=${action} url=${url || '(none)'} argsText=${argsText || ''}`)
   patch({
     operating: true,
     operatingAction: action,
@@ -146,6 +146,15 @@ export function notifyBrowserToolStart(toolCallId: string, argsText?: string | n
   // patches the page URL on top.
   if (action === 'open' || action === 'navigate' || action === 'snapshot') {
     ensureBrowserStage()
+  }
+  // Publish the target URL now rather than waiting for the tool result. The
+  // embedded browser mounts as soon as the stage opens, so a late URL meant the
+  // window rendered on `about:blank` until the agent finished.
+  if (url && /^https?:\/\//i.test(url)) {
+    if (url !== state.pageUrl) {
+      dbgLog(`[browser-panel-store] seed pageUrl=${url} (from tool start)`)
+      patch({ pageUrl: url })
+    }
   }
   return true
 }
@@ -213,14 +222,24 @@ export function notifyBrowserFrameMetadata(meta?: BrowserStreamFrameMetadata) {
   patch({ lastFrameMeta: meta })
 }
 
-function parseBrowserToolAction(argsText?: string | null): string {
+/** Pull the requested URL out of the tool arguments, tolerating a partial
+ *  (streamed, truncated) JSON payload. The embedded browser boots as soon as the
+ *  stage opens — which happens on tool *start* — so waiting for the tool result to
+ *  reveal the URL left the window sitting on `about:blank` for the whole time the
+ *  agent was working. */
+function parseBrowserToolArgs(argsText?: string | null): { action: string; url: string } {
   const raw = String(argsText || '').trim()
-  if (!raw) return ''
+  if (!raw) return { action: '', url: '' }
   try {
-    const args = JSON.parse(raw) as { action?: string }
-    return String(args?.action || '').trim().toLowerCase()
+    const args = JSON.parse(raw) as { action?: string; url?: string }
+    return {
+      action: String(args?.action || '').trim().toLowerCase(),
+      url: String(args?.url || '').trim(),
+    }
   } catch {
-    const match = raw.match(/"action"\s*:\s*"([^"]+)"/i)
-    return String(match?.[1] || '').trim().toLowerCase()
+    const action = String(raw.match(/"action"\s*:\s*"([^"]+)"/i)?.[1] || '').trim().toLowerCase()
+    // Streamed args can end mid-string, so accept whatever was captured so far.
+    const url = String(raw.match(/"url"\s*:\s*"([^"]*)/i)?.[1] || '').trim()
+    return { action, url }
   }
 }

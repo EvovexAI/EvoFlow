@@ -26,6 +26,12 @@ pub fn run() {
             }
         }))
         .manage(browser_embed::BrowserEmbedState::default())
+        .manage(std::sync::Arc::new(
+            browser_embed::BrowserCdpBroker::default(),
+        ))
+        .manage(std::sync::Arc::new(
+            browser_embed::CdpBrokerState::default(),
+        ))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())

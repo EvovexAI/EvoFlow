@@ -3,7 +3,11 @@ import { apiUrlAsync } from './api-client.js'
 export type BrowserEmbedInfo = {
   threadId: string
   webviewLabel: string
-  debugPort: number
+  /**
+   * Loopback WebSocket endpoint that fronts the panel's in-process CDP channel.
+   * The backend's Playwright connects to this exactly as it would to Chrome's
+   * own debug port; no TCP debug port is opened on the webview.
+   */
   cdpUrl: string
   embed: boolean
 }
@@ -51,7 +55,10 @@ export async function browserEmbedUpsert(opts: {
   try {
     return await invokeTauri<BrowserEmbedInfo>('browser_embed_upsert', {
       threadId: opts.threadId,
-      url: opts.url || null,
+      // Never send `null`: a null here used to come back as "invalid port
+      // number" from Tauri's URL handling. The panel legitimately has no page
+      // yet on first open, and `about:blank` expresses that without ambiguity.
+      url: String(opts.url || '').trim() || 'about:blank',
       x: opts.x,
       y: opts.y,
       width: opts.width,
