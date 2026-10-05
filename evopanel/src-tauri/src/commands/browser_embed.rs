@@ -668,8 +668,21 @@ fn create_embed_window(
         .inner_size(width.max(120.0), height.max(80.0))
         .devtools(false)
         .build()
-        .map(|_| ())
         .map_err(|e| format!("create embedded browser failed: {e}"))
+        .map(|win| {
+            // The builder already asked for `.visible(true)`, but a brand-new
+            // WebView2 can still land hidden on first layout. Verify instead of
+            // assuming, and re-assert if it did.
+            log_window_state(&win, "create built");
+            if !win.is_visible().unwrap_or(false) {
+                eprintln!(
+                    "[browser-embed] create: window reported hidden right after build, re-asserting show()"
+                );
+                let _ = win.show();
+                let _ = win.unminimize();
+                log_window_state(&win, "create after re-assert");
+            }
+        })
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -750,6 +763,10 @@ pub async fn browser_embed_upsert(
         existing
             .set_size(LogicalSize::new(width.max(120.0), height.max(80.0)))
             .map_err(|e| format!("resize embedded browser failed: {e}"))?;
+        // Prove the reuse actually landed on screen. The bug this guards was
+        // invisible: `show()` above can fail silently, and `set_size` is a
+        // no-op on a dying HWND, so without this the operator only sees "ready".
+        log_window_state(&existing, "upsert/reuse after place+resize");
         if let Some(raw_url) = url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             let escaped = raw_url.replace('\\', "\\\\").replace('\'', "\\'");
             let _ = existing.eval(&format!("window.location.assign('{escaped}');"));
@@ -784,10 +801,19 @@ pub async fn browser_embed_upsert(
         let escaped = target_url.as_str().replace('\\', "\\\\").replace('\'', "\\'");
         match app.get_webview_window(&label) {
             Some(win) => match win.eval(&format!("window.location.assign('{escaped}');")) {
-                Ok(()) => eprintln!("[browser-embed] navigated {label} -> {escaped}"),
+                Ok(()) => {
+                    eprintln!("[browser-embed] navigated {label} -> {escaped}");
+                    log_window_state(&win, "after navigate");
+                }
                 Err(e) => eprintln!("[browser-embed] navigate FAILED {label} -> {escaped}: {e}"),
             },
             None => eprintln!("[browser-embed] navigate SKIPPED: window {label} vanished"),
+        }
+    } else {
+        // Booted directly on the target — still worth confirming it is on screen,
+        // since this is the path a first `open` with a real URL takes.
+        if let Some(win) = app.get_webview_window(&label) {
+            log_window_state(&win, "boot on target");
         }
     }
 
@@ -807,6 +833,21 @@ pub async fn browser_embed_upsert(
     let base = start_broker(app.clone()).await?;
     let cdp_ws_url = format!("{base}/{label}");
     eprintln!("[browser-embed] cdp ready label={label} url={cdp_ws_url}");
+
+    // Read the location back out of the live webview. `window.location.assign`
+    // returning Ok only proves the JS was dispatched, and every earlier log line
+    // here reported success while the stage was blank — this is the one probe
+    // that reports where the page actually ended up. A mismatch means the
+    // navigation was rejected or redirected; `about:blank` means it never ran.
+    if let Some(win) = app.get_webview_window(&label) {
+        let probe = r#"(function(){try{return JSON.stringify({href:location.href,ready:document.readyState,title:document.title,body:(document.body&&document.body.innerText||'').slice(0,60),w:innerWidth,h:innerHeight});}catch(e){return 'probe-error:'+e;}})()"#;
+        match win.eval(probe) {
+            Ok(source) => eprintln!(
+                "[browser-embed] page-probe label={label} want={target_url} eval={source:?} (read it via the CDP bridge; this line only confirms the probe was injected)"
+            ),
+            Err(e) => eprintln!("[browser-embed] page-probe FAILED label={label}: {e}"),
+        }
+    }
 
     let entry = EmbedEntry {
         cdp_ws_url: cdp_ws_url.clone(),
@@ -854,7 +895,67 @@ pub async fn browser_embed_set_bounds(
         .map_err(|e| format!("position embedded browser failed: {e}"))?;
     window
         .set_size(LogicalSize::new(width.max(120.0), height.max(80.0)))
-        .map_err(|e| format!("resize embedded browser failed: {e}"))
+        .map_err(|e| format!("resize embedded browser failed: {e}"))?;
+    // Bounds tracking runs on every pointer move, so reporting state each time
+    // would bury everything else. Only speak up when the outcome is wrong or
+    // when the window did not take the size it was just given — the second case
+    // is the signature of a dying HWND.
+    let (visible, minimized) = (
+        window.is_visible().unwrap_or(false),
+        window.is_minimized().unwrap_or(false),
+    );
+    let want = (width.max(120.0) as u32, height.max(80.0) as u32);
+    let got = window.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0));
+    if !visible || minimized || got != want {
+        log_window_state(&window, "set_bounds");
+        if visible && !minimized && got != want {
+            eprintln!(
+                "[browser-embed] set_bounds MISMATCH label={label} want={}x{} got={}x{} — window did not accept the resize",
+                want.0, want.1, got.0, got.1
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Report what the embed window actually looks like *right now*, after an
+/// operation ran.
+///
+/// Every other log line in this file narrates intent — "upsert: window ready",
+/// "navigated X -> Y", "cdp ready". Those are all written unconditionally after
+/// the request was issued, and all three stayed green while the window was
+/// `IsWindowVisible=false` at 1440x756 and the user saw a black stage. A log
+/// that only reports what we asked for cannot catch a request that silently did
+/// nothing, so this reports what the window actually is: visibility, minimized
+/// state, and the size/position the OS really holds.
+///
+/// Cheap enough to call on every upsert and bounds sync — it reads cached
+/// wrapper state, it does not round-trip to the compositor.
+fn log_window_state(win: &WebviewWindow, phase: &str) {
+    let visible = win.is_visible().unwrap_or_else(|e| {
+        eprintln!("[browser-embed] {phase} is_visible() error: {e}");
+        false
+    });
+    let minimized = win.is_minimized().unwrap_or_else(|e| {
+        eprintln!("[browser-embed] {phase} is_minimized() error: {e}");
+        false
+    });
+    let size = win
+        .inner_size()
+        .map(|s| format!("{}x{}", s.width, s.height))
+        .unwrap_or_else(|e| format!("<{e}>"));
+    let pos = win
+        .outer_position()
+        .map(|p| format!("({},{})", p.x, p.y))
+        .unwrap_or_else(|e| format!("<{e}>"));
+    // `ok` means the window is actually on screen. When it is false the stage
+    // stays blank no matter how many green lines precede it, so make that the
+    // loudest thing on the line rather than one field among four.
+    let ok = visible && !minimized;
+    eprintln!(
+        "[browser-embed] {phase} {} visible={visible} minimized={minimized} size={size} pos={pos}",
+        if ok { "ON-SCREEN" } else { "OFF-SCREEN <<<<" }
+    );
 }
 
 /// Translate a coordinate measured against the main webview's content area into
