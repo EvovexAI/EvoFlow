@@ -39,7 +39,6 @@ from evoflow.tools.builtins.browser_contract import (
     CommandResult,
     DialogInfo,
     PageState,
-    TabSummary,
     fail,
 )
 from evoflow.tools.builtins.browser_screenshot_store import _safe_thread_segment
@@ -306,6 +305,12 @@ class _StreamServer:
         async def handler(ws: Any) -> None:
             self.clients.add(ws)
             logger.info("browser engine stream client connected thread=%s total=%s", tid, len(self.clients))
+            # 客户端接入即启动 screencast：手动打开的面板 / 重连的客户端否则永远等不到画面
+            # （此前只有 agent 工具活动才会启动捕获）。带超时兜底，失败不阻断连接。
+            try:
+                await asyncio.wait_for(session.ensure_screencast(), timeout=8)
+            except Exception as exc:
+                logger.warning("screencast start on client connect failed thread=%s: %s", tid, exc)
             try:
                 await ws.wait_closed()
             finally:
@@ -346,6 +351,9 @@ class _Session:
         self.page: Any = None
         self.attached = False  # True → connect_over_cdp (browser outlives the session)
         self.launched = False  # True → we own a persistent context (close it on dispose)
+        # Which CDP endpoint this session is bound to. Lets a late-arriving panel
+        # CDP URL invalidate a session that was created against a private browser.
+        self.cdp_endpoint = ""
         self.refs: dict[str, str] = {}
         self.ref_meta: dict[str, dict[str, Any]] = {}
         self.next_ref_index = 0
@@ -359,11 +367,18 @@ class _Session:
     # -- screencast lifecycle ------------------------------------------------
 
     async def ensure_screencast(self) -> bool:
-        if self.screencasting or self.page is None:
-            return self.screencasting
+        if self.screencasting:
+            logger.info("screencast already active thread=%s", self.tid)
+            return True
+        if self.page is None:
+            logger.warning("screencast skipped: no page thread=%s", self.tid)
+            return False
         try:
             if self.cdp is None:
+                logger.info("screencast: creating CDP session thread=%s", self.tid)
                 self.cdp = await self.context.new_cdp_session(self.page)
+            logger.info("screencast: sending Page.startScreencast thread=%s quality=%s maxW=%s maxH=%s",
+                self.tid, _STREAM_JPEG_QUALITY, _STREAM_MAX_W, _STREAM_MAX_H)
             await self.cdp.send(
                 "Page.startScreencast",
                 {
@@ -376,6 +391,7 @@ class _Session:
             )
             self.cdp.on("Page.screencastFrame", self._on_screencast_frame)
             self.screencasting = True
+            logger.info("screencast started successfully thread=%s", self.tid)
             return True
         except Exception as exc:
             logger.warning("screencast start failed thread=%s: %s", self.tid, exc)
@@ -390,7 +406,11 @@ class _Session:
             except Exception:
                 self.screencasting = False
 
+    _screencast_frames_total = 0
+
     def _on_screencast_frame(self, event: dict[str, Any]) -> None:
+        _BrowserEngine._screencast_frames_total += 1
+        _frame_count = _BrowserEngine._screencast_frames_total
         metadata = event.get("metadata") or {}
         params = event.get("sessionId")
         payload = {
@@ -411,6 +431,16 @@ class _Session:
             asyncio.get_running_loop().create_task(
                 self._ack_screencast(params)
             )
+        if _frame_count <= 3:
+            logger.info(
+                "screencast frame #%s thread=%s size=%sB metadata=%s",
+                _frame_count,
+                self.tid,
+                len(event.get("data", "")),
+                metadata,
+            )
+        elif _frame_count % 30 == 0:
+            logger.info("screencast frame #%s thread=%s", _frame_count, self.tid)
 
     async def _ack_screencast(self, session_id: Any) -> None:
         try:
@@ -518,6 +548,7 @@ class BrowserEngine:
             session.context = context
             session.page = page
             session.attached = True
+            session.cdp_endpoint = cdp_url
             logger.info("browser engine attached over CDP thread=%s url=%s", tid, cdp_url)
         else:
             headed = browser_headed_enabled()
@@ -560,6 +591,7 @@ class BrowserEngine:
             session.page = page
             session.attached = False
             session.launched = True
+            session.cdp_endpoint = ""
             logger.info("browser engine launched chromium thread=%s headed=%s", tid, headed)
 
         await self._install_dialog_recorder(session)
@@ -664,6 +696,48 @@ class BrowserEngine:
         key = _safe_thread_segment(thread_id)
         session = self._sessions.get(key)
         return bool(session and session.page and not session.page.is_closed())
+
+    def drop_session_if_not_embedded(self, thread_id: str, cdp_url: str) -> bool:
+        """Discard a session that was created *without* the panel's embedded CDP.
+
+        Race this fixes: the agent can call a browser tool before the panel's
+        WebView2 registers its CDP URL. That first ``_get_session`` sees no
+        ``cdp_url`` and launches a private Chromium, caching a session whose page
+        is invisible to the user. Once the panel registers its CDP later, the
+        cached page still looks alive, so every later call re-uses it and the
+        user never sees the agent's work.
+
+        Dropping the private session forces the next call to re-resolve, and by
+        then ``get_thread_cdp_url`` returns the panel URL and the engine attaches
+        over CDP to the browser the user is actually looking at.
+
+        Returns True when a session was dropped.
+        """
+        key = _safe_thread_segment(thread_id)
+        session = self._sessions.get(key)
+        if session is None:
+            return False
+        # Already attached to this endpoint: keep it (idempotent re-register).
+        if session.attached and session.cdp_endpoint == cdp_url:
+            return False
+
+        async def _drop() -> None:
+            key2 = _safe_thread_segment(thread_id)
+            current = self._sessions.get(key2)
+            if current is not None:
+                self._sessions.pop(key2, None)
+                await self._dispose_session(current)
+
+        try:
+            self._submit(_drop, 15)
+        except Exception as exc:
+            logger.warning("browser engine drop stale session failed thread=%s: %s", thread_id, exc)
+            return False
+        logger.info(
+            "browser engine dropped stale session (embedded CDP arrived) thread=%s",
+            thread_id,
+        )
+        return True
 
     def close_session(self, thread_id: str) -> None:
         async def _close() -> None:
@@ -797,6 +871,10 @@ class BrowserEngine:
             url = f"https://{url}"
         await session.page.goto(url, wait_until="load", timeout=_NAVIGATE_TIMEOUT_MS)
         session.last_url = session.page.url
+        # Screencast 是懒启动的（等第一个 WS 客户端连接后才真正激活 CDP 录制）。
+        # 这里提前触发一次：若已有客户端则立即开始；若还没有，下次 WS 连接会补启动。
+        if session.stream.clients:
+            await session.ensure_screencast()
         return CommandResult(ok=True, state=await self._page_state(session))
 
     async def _cmd_back(self, session: _Session, command: dict[str, Any]) -> CommandResult:
@@ -902,32 +980,32 @@ class BrowserEngine:
         return [p for p in session.context.pages if not p.is_closed()]
 
     async def _switch_tab(self, session: "_Session", page: Any) -> None:
-        """切换活动页：重绑 screencast 的 CDP session 到新 page。"""
+        """切换活动页：screencast 重绑到新 page。
+
+        注意：不要对捕获中的 CDP session 调 detach()——screencast 活跃时 detach 会挂起
+        （实测 3 秒都不返回）。弃用旧 CDP 对象（screencast 先停），为新 page 建新 CDP；
+        旧 CDP 随页面关闭由 Playwright 回收。
+        """
         if page is session.page:
             return
-        # 停掉旧页的 screencast 并 detach 其 CDP session
-        if self.screencasting and session.cdp is not None:
-            try:
-                await session.cdp.send("Page.stopScreencast")
-            except Exception:
-                pass
-            session.screencasting = False
-        if session.cdp is not None:
-            try:
-                await session.cdp.detach()
-            except Exception:
-                pass
-            session.cdp = None
-        session.page = page
-        try:
-            await page.bring_to_front()
-        except Exception:
-            pass
-        # 有客户端在看流时立即重绑；否则懒启动
-        if session.stream.clients:
-            await session.stream.ensure_screencast()
 
-    async def _cmd_tab_list(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+        async def _guard(step: str, coro, timeout: float):
+            try:
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except Exception as exc:
+                logger.warning("switch_tab step=%s failed: %s", step, exc)
+                return None
+
+        if session.screencasting and session.cdp is not None:
+            await _guard("stopScreencast", session.cdp.send("Page.stopScreencast"), 3)
+            session.screencasting = False
+        # 弃用旧 CDP（不 detach）；无头模式无需 bring_to_front
+        session.cdp = None
+        session.page = page
+        if session.stream.clients:
+            await _guard("ensureScreencast", session.ensure_screencast(), 8)
+
+    async def _cmd_tabList(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
         pages = self._live_pages(session)
         tabs = []
         for i, p in enumerate(pages):
@@ -947,7 +1025,7 @@ class BrowserEngine:
             )
         return CommandResult(ok=True, tabs=tabs)
 
-    async def _cmd_tab_select(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+    async def _cmd_tabSelect(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
         pages = self._live_pages(session)
         index = int(command.get("index", -1))
         if index < 0 or index >= len(pages):
@@ -955,7 +1033,7 @@ class BrowserEngine:
         await self._switch_tab(session, pages[index])
         return CommandResult(ok=True, state=await self._page_state(session))
 
-    async def _cmd_tab_new(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+    async def _cmd_tabNew(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
         if session.context is None:
             return fail(ErrorCode.CAPABILITY_UNSUPPORTED, "tabNew requires an owned browser context")
         page = await session.context.new_page()
@@ -974,7 +1052,7 @@ class BrowserEngine:
         await self._switch_tab(session, page)
         return CommandResult(ok=True, state=await self._page_state(session))
 
-    async def _cmd_tab_close(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
+    async def _cmd_tabClose(self, session: "_Session", command: dict[str, Any]) -> CommandResult:
         pages = self._live_pages(session)
         index = int(command.get("index", -1))
         if index < 0 or index >= len(pages):
@@ -985,6 +1063,78 @@ class BrowserEngine:
         remaining = self._live_pages(session)
         if not remaining:
             # 保底：不留死会话，重开一个空白页
+            if session.context is not None:
+                page = await session.context.new_page()
+                await self._switch_tab(session, page)
+            return CommandResult(ok=True, state=await self._page_state(session))
+        if closing_current:
+            await self._switch_tab(session, remaining[min(index, len(remaining) - 1)])
+        return CommandResult(ok=True, state=await self._page_state(session))
+
+    # -- tabs（ZCode parity：多标签） --------------------------------------
+
+    def _live_pages(self, session: _Session) -> list[Any]:
+        if session.context is None:
+            return [session.page] if session.page else []
+        return [p for p in session.context.pages if not p.is_closed()]
+
+    async def _cmd_tabList(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        pages = self._live_pages(session)
+        tabs = []
+        for i, p in enumerate(pages):
+            title = ""
+            try:
+                title = await p.title()
+            except Exception:
+                title = ""
+            tabs.append(
+                TabSummary(
+                    tabId=f"tab-{i}",
+                    url=p.url or "",
+                    title=title or "",
+                    viewport={},
+                    active=bool(p is session.page),
+                )
+            )
+        return CommandResult(ok=True, tabs=tabs)
+
+    async def _cmd_tabSelect(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        pages = self._live_pages(session)
+        index = int(command.get("index", -1))
+        if index < 0 or index >= len(pages):
+            return fail(ErrorCode.EXECUTION_ERROR, f"tab index out of range: {index}")
+        await self._switch_tab(session, pages[index])
+        return CommandResult(ok=True, state=await self._page_state(session))
+
+    async def _cmd_tabNew(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        if session.context is None:
+            return fail(ErrorCode.CAPABILITY_UNSUPPORTED, "tabNew requires an owned browser context")
+        page = await session.context.new_page()
+        url = str(command.get("url") or "").strip()
+        if url:
+            try:
+                await page.goto(url, timeout=_NAVIGATE_TIMEOUT_MS, wait_until="domcontentloaded")
+            except Exception as exc:
+                logger.warning("tab_new goto failed: %s", exc)
+        try:
+            await page.set_viewport_size(
+                {"width": DEFAULT_AGENT_BROWSER_VIEWPORT["width"], "height": DEFAULT_AGENT_BROWSER_VIEWPORT["height"]}
+            )
+        except Exception:
+            pass
+        await self._switch_tab(session, page)
+        return CommandResult(ok=True, state=await self._page_state(session))
+
+    async def _cmd_tabClose(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        pages = self._live_pages(session)
+        index = int(command.get("index", -1))
+        if index < 0 or index >= len(pages):
+            return fail(ErrorCode.EXECUTION_ERROR, f"tab index out of range: {index}")
+        closing = pages[index]
+        closing_current = closing is session.page
+        await closing.close()
+        remaining = self._live_pages(session)
+        if not remaining:
             if session.context is not None:
                 page = await session.context.new_page()
                 await self._switch_tab(session, page)

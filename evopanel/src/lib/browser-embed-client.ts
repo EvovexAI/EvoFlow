@@ -12,6 +12,19 @@ function isDesktopTauri() {
   return typeof window !== 'undefined' && !!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
 }
 
+/**
+ * Synchronous capability probe.
+ *
+ * The panel must decide *synchronously* whether to open the screencast socket.
+ * Awaiting `invoke('browser_embed_supported')` leaves a window where the answer
+ * is still `false`, and during that window the panel connects the screencast —
+ * which makes the backend spawn a private Chromium nobody is looking at. The
+ * Tauri marker is already on `window`, so answer without a round trip.
+ */
+export function browserEmbedSupportedSync(): boolean {
+  return isDesktopTauri()
+}
+
 async function invokeTauri<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>(cmd, args)

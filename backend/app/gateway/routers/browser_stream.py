@@ -7,6 +7,8 @@ import logging
 import threading
 import time
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel, Field

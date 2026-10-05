@@ -75,6 +75,12 @@ export function decideRightStage(input: RightStageDecideInput): RightStageDecide
     if (current === 'platform-feedback') {
       return { action: 'noop', reason: 'platform-feedback-keep-on-finish' }
     }
+    // 浏览器面板是 agent 的持续控制面（画布/点击/滚轮穿透），不是本轮产物。
+    // 对话结束只代表 agent 停止动作，浏览器仍然开着、用户还要继续看/点，
+    // 所以 RUN_FINISHED 绝不能把它收走 —— 只能由用户显式关闭。
+    if (current === 'browser') {
+      return { action: 'noop', reason: 'browser-keep-on-finish' }
+    }
     if (pinned) {
       return { action: 'noop', reason: 'pinned-keep-on-idle-finish' }
     }

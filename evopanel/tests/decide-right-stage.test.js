@@ -114,6 +114,29 @@ describe('decideRightStage', () => {
     expect(r.reason).toBe('platform-feedback-keep-on-finish')
   })
 
+  it('run-finished keeps the browser panel open', () => {
+    // The browser is the agent's persistent control surface, not a per-run
+    // artifact: RUN_FINISHED must never collapse it.
+    const r = decideRightStage({
+      ...base,
+      intent: 'run-finished',
+      hasArtifacts: false,
+      currentKind: 'browser',
+    })
+    expect(r.action).toBe('noop')
+    expect(r.reason).toBe('browser-keep-on-finish')
+  })
+
+  it('run-finished with browser current still hides other kinds', () => {
+    const r = decideRightStage({
+      ...base,
+      intent: 'run-finished',
+      hasArtifacts: false,
+      currentKind: 'workspace-browse',
+    })
+    expect(r.action).toBe('hide')
+  })
+
   it('collab yields to active write', () => {
     const r = decideRightStage({
       ...base,

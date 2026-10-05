@@ -11,6 +11,14 @@ from starlette.websockets import WebSocketState
 
 logger = logging.getLogger(__name__)
 
+
+def _is_engine_port(port: int) -> bool:
+    """Heuristic: in-process engine ports live above 9100 (screencast uses
+    ws_endpoint port, which for the engine is typically in 91xx range)."""
+    return port >= 9100
+
+logger = logging.getLogger(__name__)
+
 _UPSTREAM_RETRY_DELAY_SEC = 0.45
 _MAX_UPSTREAM_WAIT_ATTEMPTS = 30
 
@@ -59,8 +67,14 @@ async def run_browser_stream_proxy(client_ws: WebSocket, thread_id: str) -> None
             logger.debug("browser stream client relay stopped: %s", exc)
             stop_event.set()
 
+    _frame_count = 0
+    _last_frame_at = 0.0
+
     async def relay_upstream_to_client(upstream) -> None:
         try:
+            import time
+
+            nonlocal _frame_count, _last_frame_at
             async for message in upstream:
                 if stop_event.is_set():
                     return
@@ -68,13 +82,29 @@ async def run_browser_stream_proxy(client_ws: WebSocket, thread_id: str) -> None
                     stop_event.set()
                     return
                 if isinstance(message, bytes):
+                    _frame_count += 1
+                    _last_frame_at = time.time()
+                    if _frame_count <= 3:
+                        logger.info(
+                            "browser stream ws frame thread=%s #%s size=%sB ts=%.3f",
+                            thread_id,
+                            _frame_count,
+                            len(message),
+                            _last_frame_at,
+                        )
                     await client_ws.send_bytes(message)
                 else:
                     await client_ws.send_text(str(message))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.debug("browser stream upstream relay stopped thread=%s: %s", thread_id, exc)
+            logger.debug(
+                "browser stream upstream relay stopped thread=%s frames=%s last=%.1fs ago: %s",
+                thread_id,
+                _frame_count,
+                time.time() - _last_frame_at if _last_frame_at else -1,
+                exc,
+            )
 
     try:
         upstream_losses = 0
@@ -103,7 +133,13 @@ async def run_browser_stream_proxy(client_ws: WebSocket, thread_id: str) -> None
 
             wait_attempts = 0
             upstream_url = f"ws://127.0.0.1:{port}"
-            logger.info("browser stream ws upstream thread=%s port=%s", thread_id, port)
+            logger.info(
+                "browser stream ws upstream thread=%s port=%s url=%s engine=%s",
+                thread_id,
+                port,
+                upstream_url,
+                _is_engine_port(port),
+            )
             try:
                 async with websockets.connect(
                     upstream_url,

@@ -3,6 +3,7 @@ import {
   browserEmbedClose,
   browserEmbedSetBounds,
   browserEmbedSupported,
+  browserEmbedSupportedSync,
   browserEmbedUpsert,
   clearBrowserEmbedCdp,
   registerBrowserEmbedCdp,
@@ -112,6 +113,8 @@ function RefreshIcon({ className }: { className?: string }) {
     <svg
       className={className}
       viewBox="0 0 24 24"
+      width="15"
+      height="15"
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -603,6 +606,10 @@ function BrowserEmbedHost({
   const slotRef = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
+  // Guards against remount churn: `pageUrl` changes on every agent navigation and
+  // `syncBounds` identity can drift, but neither should tear down a mount that is
+  // already in flight. Only a different thread genuinely needs a fresh mount.
+  const mountedThreadRef = useRef('')
 
   const syncBounds = useCallback(async () => {
     const tid = String(threadId || '').trim()
@@ -625,10 +632,19 @@ function BrowserEmbedHost({
       })
       return
     }
+    // Already mounting (or mounted) for this thread: let the in-flight mount
+    // finish instead of cancelling and restarting it. `mount()` spends up to
+    // ~2.4s waiting for layout, and restarting on every unrelated prop change
+    // means it never gets there.
+    if (mountedThreadRef.current === tid) {
+      return
+    }
+    mountedThreadRef.current = tid
 
     const mount = async () => {
       const supported = await browserEmbedSupported()
       if (!supported) {
+        dbgWarn(`[browser-embed] unsupported in this runtime thread=${tid}`)
         if (!cancelled) {
           setError('当前环境不支持内嵌浏览器')
           onFailed?.('embed unsupported')
@@ -637,32 +653,40 @@ function BrowserEmbedHost({
       }
       const bounds = await waitForEmbedBounds(slotRef.current)
       if (!bounds) {
+        dbgWarn(`[browser-embed] slot has no layout box yet thread=${tid}`)
         if (!cancelled) {
           setError('浏览器区域尚未就绪')
           onFailed?.('embed bounds unavailable')
         }
         return
       }
+      dbgLog(
+        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(bounds)} url=${pageUrl || '(none)'}`,
+      )
       const info = await browserEmbedUpsert({
         threadId: tid,
         url: pageUrl,
         ...bounds,
       })
       if (!info?.cdpUrl) {
+        dbgWarn(`[browser-embed] upsert returned no cdpUrl thread=${tid} info=${JSON.stringify(info)}`)
         if (!cancelled) {
           setError('内嵌浏览器启动失败')
           onFailed?.('embed upsert failed')
         }
         return
       }
+      dbgLog(`[browser-embed] cdp ready thread=${tid} label=${info.webviewLabel} port=${info.debugPort}`)
       const ok = await registerBrowserEmbedCdp(tid, info.cdpUrl)
       if (!ok) {
+        dbgWarn(`[browser-embed] cdp register rejected by backend thread=${tid}`)
         if (!cancelled) {
           setError('无法注册浏览器 CDP')
           onFailed?.('embed cdp register failed')
         }
         return
       }
+      dbgLog(`[browser-embed] ready thread=${tid}`)
       if (!cancelled) {
         setError('')
         setReady(true)
@@ -676,6 +700,24 @@ function BrowserEmbedHost({
       cancelled = true
     }
   }, [isOpen, threadId, pageUrl, onReady, onFailed, syncBounds])
+
+  // Once the webview exists, agent navigations only need to re-point the existing
+  // window — `browser_embed_upsert` detects the live label and navigates in place.
+  // A full remount here would destroy and recreate the browser (and lose scroll
+  // position / form state) on every link the agent clicks.
+  const lastNavigatedRef = useRef('')
+  useEffect(() => {
+    if (!ready) return
+    const tid = String(threadId || '').trim()
+    const next = String(pageUrl || '').trim()
+    if (!tid || !next || next === lastNavigatedRef.current) return
+    lastNavigatedRef.current = next
+    const bounds = readEmbedBounds(slotRef.current) || { x: 0, y: 0, width: 1280, height: 720 }
+    dbgLog(`[browser-embed] navigate thread=${tid} url=${next}`)
+    void browserEmbedUpsert({ threadId: tid, url: next, ...bounds }).then((info) => {
+      if (info?.cdpUrl) void registerBrowserEmbedCdp(tid, info.cdpUrl)
+    })
+  }, [ready, threadId, pageUrl])
 
   useEffect(() => {
     if (!isOpen || !ready) return
@@ -702,6 +744,8 @@ function BrowserEmbedHost({
     if (!tid) return
     void browserEmbedClose(tid)
     void clearBrowserEmbedCdp(tid)
+    // Panel is gone: allow a future mount for this thread to run again.
+    mountedThreadRef.current = ''
     // Defer state update to avoid cascading renders
     requestAnimationFrame(() => {
       setReady(false)
@@ -848,6 +892,7 @@ function BrowserLiveViewer({
   onClickViewport,
   onWheelViewport,
   onStreamError,
+  disabled = false,
 }: {
   streamPath: string
   isOpen: boolean
@@ -859,6 +904,8 @@ function BrowserLiveViewer({
   onClickViewport?: (cssX: number, cssY: number) => void
   onWheelViewport?: (deltaX: number, deltaY: number) => void
   onStreamError?: (message: string) => void
+  /** The embedded WebView2 owns the surface: never open the screencast socket. */
+  disabled?: boolean
 }) {
   const [frameSrc, setFrameSrc] = useState('')
   const [status, setStatus] = useState<BrowserStreamStatus>('connecting')
@@ -888,7 +935,11 @@ function BrowserLiveViewer({
   }, [streamPath])
 
   useEffect(() => {
-    if (!isOpen || !streamPath) {
+    // The embedded WebView2 *is* the browser the user is looking at; the agent
+    // drives it over CDP. Also opening the screencast socket would spawn a second,
+    // private Chromium in the backend and stream frames from a page nobody can see
+    // (status=live with frames=0 forever). Exactly one surface per panel.
+    if (disabled || !isOpen || !streamPath) {
       hasFrameRef.current = false
       lastFrameRef.current = ''
       // Defer state updates to avoid cascading renders
@@ -930,7 +981,7 @@ function BrowserLiveViewer({
     return () => {
       disconnect()
     }
-  }, [isOpen, streamPath, refreshNonce, applyStatus])
+  }, [isOpen, streamPath, refreshNonce, applyStatus, disabled])
 
   if (status === 'connecting' && !displaySrc) {
     return (
@@ -1001,7 +1052,11 @@ export const BrowserPanel = memo(function BrowserPanel({
   const [streamStatus, setStreamStatus] = useState<BrowserStreamStatus>('idle')
   const [refreshNonce, setRefreshNonce] = useState(0)
   const [refreshBusy, setRefreshBusy] = useState(false)
-  const [embedSupported, setEmbedSupported] = useState(false)
+  // Seeded synchronously: the Tauri marker is already on `window` at first render,
+  // so the very first commit already knows whether an embedded WebView2 is the
+  // surface. Starting at `false` would let the screencast socket open for one
+  // render before the async probe resolves.
+  const [embedSupported, setEmbedSupported] = useState(() => browserEmbedSupportedSync())
   const [embedReady, setEmbedReady] = useState(false)
   const [embedFailed, setEmbedFailed] = useState(false)
   const [viewport, setViewport] = useState<BrowserViewportSize | undefined>(undefined)
@@ -1012,8 +1067,12 @@ export const BrowserPanel = memo(function BrowserPanel({
 
   useEffect(() => {
     let cancelled = false
+    // Second confirmation of the synchronous seed: `__TAURI_INTERNALS__` can
+    // appear a tick late when the app boots straight into a chat route. Only
+    // ever upgrade to `true` here — never downgrade, or a slow probe would
+    // re-open the screencast on a surface that already picked the webview.
     void browserEmbedSupported().then((ok) => {
-      if (!cancelled) setEmbedSupported(ok)
+      if (!cancelled && ok) setEmbedSupported(true)
     })
     return () => {
       cancelled = true
@@ -1241,6 +1300,16 @@ export const BrowserPanel = memo(function BrowserPanel({
         : Array.from({ length: n }, (_, i) => i)
     return order.map((engineIndex) => ({ engineIndex, tab: runtime.tabs[engineIndex] }))
   }, [runtime.tabs, tabDisplayOrder, pageUrl, tabTitle])
+
+  // Stable identities for BrowserEmbedHost. Inline arrows here would be new
+  // references on every parent render, and since `mount()` is keyed on
+  // onReady/onFailed, each re-render would cancel the in-flight mount (via the
+  // effect cleanup) and start a fresh one. `mount()` awaits ~2.4s of rAF frames
+  // for layout, so it would be cancelled before it ever reached the upsert call
+  // and the embed would never become ready.
+  const handleEmbedReady = useCallback(() => setEmbedReady(true), [])
+  const handleEmbedFailed = useCallback(() => setEmbedFailed(true), [])
+
   const handleViewportClick = useCallback(
     async (cssX: number, cssY: number) => {
       const tid = effectiveThreadId
@@ -1262,10 +1331,18 @@ export const BrowserPanel = memo(function BrowserPanel({
     setRefreshNonce((n) => n + 1)
   }, [streamKickNonce, isOpen])
 
-  if (!isOpen) return null
-
   const hasStream = Boolean(streamPath) && (!preferEmbeddedBrowser || embedFailed || !embedReady)
   const embedThreadId = effectiveThreadId
+  // Surface-selection diagnostic. The three surfaces are mutually exclusive and
+  // picking the wrong one fails silently (blank stage, no error anywhere), so
+  // log the decision inputs whenever they change rather than after the fact.
+  useEffect(() => {
+    dbgLog(
+      `[browser-panel] surface embedSupported=${embedSupported} threadId=${effectiveThreadId || '(empty)'} ` +
+        `preferEmbed=${preferEmbeddedBrowser} embedReady=${embedReady} embedFailed=${embedFailed} ` +
+        `hasStream=${hasStream} mode=${effectiveMode || '(none)'}`,
+    )
+  }, [embedSupported, effectiveThreadId, preferEmbeddedBrowser, embedReady, embedFailed, hasStream, effectiveMode])
   // 'evopanel' = in-process Playwright engine. Browser lives in EvoPanel — there
   // is no separate desktop Chrome window to switch to, so suppress the "Chrome
   // opened on your desktop" hint. Only legacy `headed` / external `cdp` paths
@@ -1286,7 +1363,7 @@ export const BrowserPanel = memo(function BrowserPanel({
 
   return (
     <aside
-      className={`react-chat-collab-exec-panel react-chat-browser-panel${
+      className={`react-chat-collab-exec-panel react-chat-right-stage-panel react-chat-browser-panel${
         operating ? ' is-agent-operating' : ''
       }`}
       role="region"
@@ -1404,8 +1481,8 @@ export const BrowserPanel = memo(function BrowserPanel({
             isOpen={isOpen}
             threadId={embedThreadId}
             pageUrl={effectivePageUrl}
-            onReady={() => setEmbedReady(true)}
-            onFailed={() => setEmbedFailed(true)}
+            onReady={handleEmbedReady}
+            onFailed={handleEmbedFailed}
           />
         ) : hasStream ? (
           <div className={`browser-panel-live-host${showStreamPreviewLabel ? ' is-preview' : ''}`}>
@@ -1428,6 +1505,24 @@ export const BrowserPanel = memo(function BrowserPanel({
                 <LiveSpinner />
                 <span>正在等待浏览器会话…（agent 首次打开页面后自动接入）</span>
               </div>
+            ) : streamStatus === 'live' && !runtime.lastFrameMeta ? (
+              /* WS connected but the engine never produced a frame. Almost always
+                 means the stream is bound to the wrong thread id. */
+              <div className="browser-panel-stream-notice is-stale" role="status">
+                <p className="browser-panel-stream-notice-msg">
+                  已连接视频流，但引擎还没有送出画面。
+                </p>
+                <p className="browser-panel-stream-notice-hint">
+                  thread=<code>{effectiveThreadId || '(空)'}</code> · status=live · frames=0
+                </p>
+                <button
+                  type="button"
+                  className="browser-panel-viewport-btn"
+                  onClick={() => { setStreamError(''); void handleRefresh() }}
+                >
+                  重连
+                </button>
+              </div>
             ) : null}
             <BrowserLiveViewer
               streamPath={streamPath}
@@ -1440,6 +1535,7 @@ export const BrowserPanel = memo(function BrowserPanel({
               onClickViewport={effectiveThreadId ? handleViewportClick : undefined}
               onWheelViewport={effectiveThreadId ? handleWheelViewport : undefined}
               onStreamError={handleStreamError}
+              disabled={preferEmbeddedBrowser}
             />
           </div>
         ) : preferEmbeddedBrowser && embedThreadId && !embedFailed ? (
@@ -1447,8 +1543,8 @@ export const BrowserPanel = memo(function BrowserPanel({
             isOpen={isOpen}
             threadId={embedThreadId}
             pageUrl={effectivePageUrl}
-            onReady={() => setEmbedReady(true)}
-            onFailed={() => setEmbedFailed(true)}
+            onReady={handleEmbedReady}
+            onFailed={handleEmbedFailed}
           />
         ) : (
           <div className="browser-panel-stage browser-panel-stage-empty">

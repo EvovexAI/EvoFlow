@@ -25,8 +25,24 @@ async def put_browser_embed_cdp(thread_id: str, body: BrowserEmbedCdpBody) -> di
     if not url.startswith(("ws://", "wss://")):
         raise HTTPException(status_code=400, detail="cdp_url must be a WebSocket URL")
     await asyncio.to_thread(set_thread_cdp_url, thread_id, url)
-    logger.info("browser embed cdp stored thread=%s", thread_id)
-    return {"thread_id": thread_id, "cdp_url": url, "embed": True}
+    # The agent may have already opened a private browser for this thread before
+    # the panel existed. That session is invisible to the user, so drop it now
+    # that the panel's real browser is reachable; the next tool call re-attaches.
+    dropped = False
+    try:
+        from evoflow.tools.builtins.browser_engine import (
+            browser_engine_enabled,
+            get_browser_engine,
+        )
+
+        if browser_engine_enabled():
+            dropped = await asyncio.to_thread(
+                get_browser_engine().drop_session_if_not_embedded, thread_id, url
+            )
+    except Exception as exc:  # never fail the registration over a cleanup miss
+        logger.warning("browser embed cdp stale-session cleanup failed thread=%s: %s", thread_id, exc)
+    logger.info("browser embed cdp stored thread=%s stale_session_dropped=%s", thread_id, dropped)
+    return {"thread_id": thread_id, "cdp_url": url, "embed": True, "stale_session_dropped": dropped}
 
 
 @router.delete("/{thread_id}/browser-embed/cdp")
