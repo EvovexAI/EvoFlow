@@ -4,13 +4,14 @@
   box-sizing: border-box;
 }
 
+/* ZCode 对齐：html/body 透明，让 #app 的 var(--color-background) 填满 */
 html, body {
   height: 100%;
   overflow: hidden;
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -108,6 +109,8 @@ html[data-custom-bg='1'] .kv-graph-panel {
   max-width: 100%;
   overflow-x: hidden;
   box-sizing: border-box;
+  /* ZCode 对齐：背景使用 color-background，与 chrome-bg / --bg-app 同值 */
+  background: var(--color-background);
 }
 
 a { color: var(--accent); text-decoration: none; }

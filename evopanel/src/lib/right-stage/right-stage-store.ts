@@ -131,6 +131,15 @@ export class RightStageStore {
   hide(id = 'primary') {
     if (!this.surface) return
     if (this.surface.id !== id) return
+    // TEMP 探针：定位浏览器面板被谁关闭（上线前移除）
+    ;(window as unknown as { __stageHideLog?: unknown[] }).__stageHideLog = (
+      window as unknown as { __stageHideLog?: unknown[] }
+    ).__stageHideLog || []
+    ;(window as unknown as { __stageHideLog?: unknown[] }).__stageHideLog.push({
+      t: Date.now(),
+      kind: this.surface.kind,
+      stack: new Error().stack?.split('\n').slice(2, 9).join(' | '),
+    })
     this.surface = null
     this.bump()
   }
@@ -215,6 +224,15 @@ export class RightStageStore {
     stream?: RightStageStreamChunk & { action?: string; format?: string; path?: string; title?: string }
   }) {
     const action = String(payload.action || '').trim().toLowerCase()
+    // TEMP 探针：记录所有远端 stage 指令（上线前移除）
+    ;(window as unknown as { __stageRemoteLog?: unknown[] }).__stageRemoteLog = (
+      window as unknown as { __stageRemoteLog?: unknown[] }
+    ).__stageRemoteLog || []
+    ;(window as unknown as { __stageRemoteLog?: unknown[] }).__stageRemoteLog.push({
+      t: Date.now(),
+      action,
+      kind: payload.surface?.kind ?? null,
+    })
     if (action === 'hide' || payload.surface === null) {
       this.hide()
       return

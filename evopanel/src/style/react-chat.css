@@ -2809,13 +2809,39 @@ html[data-theme='dark'] .react-chat-history-item.active {
   color: var(--text-tertiary, #9ca3af);
 }
 
+/* ZCode 对齐：会话区 frame（section），右侧面板打开时有 rounded border */
+.react-chat-conversation-frame {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* 默认：无边框，融入 chrome 背景 */
+  background: var(--color-background);
+  border-radius: 0;
+  border: none;
+  overflow: hidden;
+}
+
+/* 右侧面板打开时：加圆角和边框，视觉上"浮"在 chrome 上 */
+.react-chat-conversation-frame.is-rounded {
+  border-radius: var(--radius-xl, 12px);
+  border: 1px solid var(--color-border);
+  background: var(--color-panel);
+}
+
+/* 右侧面板关闭时：顶栏底边框显现（由 frame border 承接已移除） */
+.react-chat-conversation-frame:not(.is-rounded) .react-chat-header {
+  border-bottom: 1px solid var(--color-border);
+}
+
 .react-chat-main-col {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-primary, #fff);
+  /* ZCode 对齐：背景由外层 section 承接，main-col 本身透明 */
+  background: transparent;
   position: relative;
   height: 100%;
   overflow: hidden;
@@ -3769,12 +3795,13 @@ html.dark .browser-panel-debug-pane {
   height: 38px;
   min-height: 38px;
   max-height: 38px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 85%, transparent);
+  border-bottom: 1px solid var(--color-border);
   gap: 10px;
   flex-shrink: 0;
   position: relative;
   z-index: 8;
-  background: var(--chrome-bg, var(--bg-primary, #f0f0f0));
+  /* ZCode 对齐：顶栏背景融入面板色，与 conversation section 保持一致 */
+  background: var(--color-panel);
 }
 
 /* macOS 原生标题栏：顶栏加高、内容下移为交通灯让位（其它平台维持 38px） */

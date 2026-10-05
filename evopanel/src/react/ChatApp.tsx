@@ -14922,6 +14922,18 @@ export default function ChatApp() {
       }${isMobileChat && mobileChatPane === 'thread' ? ' is-mobile-chat-thread' : ''}`}
     >
       <div className="react-chat-workspace react-chat-workspace--no-aside">
+        {/*
+         * ZCode 对齐：会话区包在 section 里，右侧面板打开时加 rounded border。
+         * data-workspace-conversation-frame 供 CSS 选择器精确定位。
+         */}
+        <section
+          data-workspace-conversation-frame="true"
+          className={`react-chat-conversation-frame${
+            anyRightPanelOpen && layoutResizeEnabled && rightPanelWidthPx != null
+              ? ' is-rounded'
+              : ''
+          }`}
+        >
         <div className={`chat-main react-chat-main-col${isHomeSurface ? ' react-chat-main-col--home' : ''}`}>
           <header
             className={`react-chat-header${isDesktopTauriRuntime() ? ' react-chat-header--tauri-chrome' : ''}${
@@ -15960,6 +15972,7 @@ export default function ChatApp() {
             ) : null}
           </div>
         </div>
+        </section>
       </div>
       {filePreviewModal ? (
         <WorkspaceFilePreviewModal

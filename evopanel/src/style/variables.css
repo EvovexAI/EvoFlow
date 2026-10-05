@@ -71,7 +71,17 @@
   --hl-type: #b7791f;
 
   /* Apple Reminders-like: cool chrome frame, pure white floating sheet */
-  --chrome-bg: #e8edf2;
+  /* ZCode 对齐：浅色 #f8f8f8 / 深色 #161616，与 --color-background 一致 */
+  --chrome-bg: #f8f8f8;
+  /* ZCode 色阶（供 Tailwind bg-background 等工具类使用） */
+  --color-background: #f8f8f8;
+  --color-panel: #ffffff;
+  --color-header: #ffffff;
+  --color-sidebar: #f0f0f0;
+  --color-border: rgba(13, 13, 13, 0.1);
+  --color-hover: rgba(13, 13, 13, 0.05);
+  --color-selected: rgba(13, 13, 13, 0.05);
+  --color-surface: rgba(13, 13, 13, 0.03);
   --chat-canvas: #ffffff;
   --page-canvas: #ffffff;
   --chat-sheet-radius: 16px;
@@ -215,7 +225,17 @@
   --hl-type: #fcd34d;
 
   /* Dark theme: near-black chrome, slightly lifted canvas */
-  --chrome-bg: #141414;
+  /* ZCode 对齐：深色 #161616，与 --color-background 一致 */
+  --chrome-bg: #161616;
+  /* ZCode 色阶（供 Tailwind bg-background 等工具类使用） */
+  --color-background: #161616;
+  --color-panel: #202020;
+  --color-header: #202020;
+  --color-sidebar: #161616;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-hover: rgba(255, 255, 255, 0.05);
+  --color-selected: rgba(255, 255, 255, 0.1);
+  --color-surface: rgba(255, 255, 255, 0.05);
   --chat-canvas: #212121;
   --page-canvas: #212121;
   --page-sheet-gap: 8px;
