@@ -2809,7 +2809,7 @@ html[data-theme='dark'] .react-chat-history-item.active {
   color: var(--text-tertiary, #9ca3af);
 }
 
-/* ZCode 对齐：会话区 frame（section），右侧面板打开时有 rounded border */
+/* 会话区 frame，右侧面板打开时有 rounded border */
 .react-chat-conversation-frame {
   flex: 1;
   display: flex;
@@ -2840,7 +2840,7 @@ html[data-theme='dark'] .react-chat-history-item.active {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  /* ZCode 对齐：背景由外层 section 承接，main-col 本身透明 */
+  /* 背景由外层 section 承接，main-col 本身透明 */
   background: transparent;
   position: relative;
   height: 100%;
@@ -3800,7 +3800,7 @@ html.dark .browser-panel-debug-pane {
   flex-shrink: 0;
   position: relative;
   z-index: 8;
-  /* ZCode 对齐：顶栏背景融入面板色，与 conversation section 保持一致 */
+  /* 顶栏背景融入面板色，与 conversation section 保持一致 */
   background: var(--color-panel);
 }
 

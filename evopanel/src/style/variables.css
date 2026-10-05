@@ -71,9 +71,7 @@
   --hl-type: #b7791f;
 
   /* Apple Reminders-like: cool chrome frame, pure white floating sheet */
-  /* ZCode 对齐：浅色 #f8f8f8 / 深色 #161616，与 --color-background 一致 */
   --chrome-bg: #f8f8f8;
-  /* ZCode 色阶（供 Tailwind bg-background 等工具类使用） */
   --color-background: #f8f8f8;
   --color-panel: #ffffff;
   --color-header: #ffffff;
@@ -96,7 +94,7 @@
   --chat-code-inline-bg: #ececec;
   --chat-code-inline-fg: #353535;
 
-  /* === EF 轨迹角色色（同 ZCode 语义，按角色分配固定色相，禁止混用）=== */
+  /* === EF 轨迹角色色（按角色分配固定色相，禁止混用）=== */
   /* user蓝 · assistant青 · reasoning紫 · tool-call琥珀 · tool-result天蓝 */
   --ef-color-trajectory-user:        #2563eb;
   --ef-color-trajectory-assistant:   #0f766e;
@@ -225,9 +223,7 @@
   --hl-type: #fcd34d;
 
   /* Dark theme: near-black chrome, slightly lifted canvas */
-  /* ZCode 对齐：深色 #161616，与 --color-background 一致 */
   --chrome-bg: #161616;
-  /* ZCode 色阶（供 Tailwind bg-background 等工具类使用） */
   --color-background: #161616;
   --color-panel: #202020;
   --color-header: #202020;
@@ -297,7 +293,7 @@
    * [旧] --font-size-* / --chat-font-size-* / --chat-tier-*
    *       历史值，视觉基线。迁移完成前保持原值不动。
    *
-   * [新] --ef-text-*  ← 单一派生基座，ZCode 语义命名
+   * [新] --ef-text-*  ← 单一派生基座，语义化命名
    *       仅新增，不改旧值。用户调 --ef-font-size 时整套联动。
    *       新代码一律用这套；旧代码按「就近替换」逐步迁移。
    * ============================================================ */
@@ -340,7 +336,7 @@
   --space-3xl: 32px;
 
   /* 圆角层级（按容器嵌套递减，首层固定 xl）
-   * 规则同 ZCode DESIGN.md：布局区域→对话气泡/卡片/工具块→嵌套内容→控件
+   * 规则：布局区域→对话气泡/卡片/工具块→嵌套内容→控件
    *        xl(12px) → lg(10px) → md(8px) → sm(6px)
    * 仅限 2xl(14px)：主聊天输入壳、通知浮层、对话框壳、品牌图标背板 */
   --radius-sm:   6px;
@@ -366,7 +362,7 @@
   --content-max-width: 1320px;
   --agent-panel-width:   340px;
 
-  /* === Shell sidebar shared tokens (zcode 紧凑 + workbuddy 柔色 + cursor 几何感) === */
+  /* === Shell sidebar shared tokens === */
   --shell-item-h: 30px;
   --shell-item-h-sm: 28px;
   --shell-item-radius: 6px;

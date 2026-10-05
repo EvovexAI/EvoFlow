@@ -3,7 +3,6 @@
   width: var(--sidebar-width);
   height: 100%;
   min-height: 0;
-  /* ZCode 对齐：背景用 --color-sidebar (#f0f0f0 light / #161616 dark) */
   background: var(--color-sidebar);
   border-right: 1px solid var(--color-border);
   display: flex;
@@ -362,7 +361,6 @@ html[data-theme='dark'] .sidebar-logo img {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* ZCode 对齐：背景与 #app 同色，padding=0（由内层容器自己加 p-1） */
   background: var(--color-background);
   overflow: hidden;
 }
@@ -374,7 +372,6 @@ html[data-theme='dark'] .sidebar-logo img {
   overflow: hidden;
   display: none;
   flex-direction: column;
-  /* ZCode 对齐：背景与 chrome 同色 */
   background: var(--color-background);
 }
 

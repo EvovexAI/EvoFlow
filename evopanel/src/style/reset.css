@@ -4,7 +4,6 @@
   box-sizing: border-box;
 }
 
-/* ZCode 对齐：html/body 透明，让 #app 的 var(--color-background) 填满 */
 html, body {
   height: 100%;
   overflow: hidden;
@@ -109,7 +108,6 @@ html[data-custom-bg='1'] .kv-graph-panel {
   max-width: 100%;
   overflow-x: hidden;
   box-sizing: border-box;
-  /* ZCode 对齐：背景使用 color-background，与 chrome-bg / --bg-app 同值 */
   background: var(--color-background);
 }
 
