@@ -1219,7 +1219,15 @@ export const BrowserPanel = memo(function BrowserPanel({
     }
   }, [effectiveThreadId, navBusy])
 
-  // 引擎标签页轮询：面板打开时拉取（含 agent 工具引起的页面变化），3s 节流
+  // 引擎标签页轮询：面板打开时拉取（含 agent 工具引起的页面变化），3s 节流。
+  //
+  // A failing tabList is NOT exceptional — the embed CDP path can be
+  // unavailable for stretches (before the WebView registers, after it is torn
+  // down). It must not be loud: a fixed 3s interval against a broken endpoint
+  // produces an endless 500 stream that buries real signals, and the panel
+  // silently keeps a stale tab list. Back off to 15s while failing, restore 3s
+  // once it recovers, and log each state transition exactly once instead of
+  // once per tick.
   useEffect(() => {
     const tid = effectiveThreadId
     if (!isOpen || !tid) {
@@ -1227,15 +1235,44 @@ export const BrowserPanel = memo(function BrowserPanel({
       return
     }
     let cancelled = false
+    let timer = 0
+    let failStreak = 0
+    let loggedDown = false
+    const PULL_OK_MS = 3000
+    const PULL_DOWN_MS = 15000
     const pull = async () => {
+      if (cancelled) return
       const res = await listBrowserTabs(tid)
-      if (!cancelled && res?.ok) setBrowserTabs(res.tabs)
+      if (cancelled) return
+      if (res?.ok) {
+        setBrowserTabs(res.tabs)
+        if (loggedDown) {
+          dbgLog('[browser-panel] tabList recovered')
+          loggedDown = false
+        }
+        failStreak = 0
+        schedule(PULL_OK_MS)
+        return
+      }
+      // Keep the last good list so the tabstrip does not flicker to empty on
+      // a transient failure; only a confirmed empty result clears it.
+      failStreak += 1
+      if (!loggedDown) {
+        dbgWarn(
+          `[browser-panel] tabList failing tid=${tid} — backing off to ${PULL_DOWN_MS / 1000}s ` +
+            '(backend 500; see "browser_tabs_list FAILED" in the gateway log for the cause)',
+        )
+        loggedDown = true
+      }
+      schedule(Math.min(PULL_DOWN_MS, PULL_OK_MS * Math.min(failStreak, 5)))
+    }
+    const schedule = (ms: number) => {
+      timer = window.setTimeout(() => void pull(), ms)
     }
     void pull()
-    const timer = window.setInterval(() => void pull(), 3000)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      window.clearTimeout(timer)
     }
   }, [isOpen, effectiveThreadId, refreshNonce])
 

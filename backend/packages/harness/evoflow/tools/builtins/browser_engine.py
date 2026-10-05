@@ -658,7 +658,38 @@ class BrowserEngine:
         )
 
         async def _run() -> dict[str, Any]:
-            session = await self._get_session(thread_id)
+            # `_get_session` is NOT wrapped in `_dispatch`, so any raise from it
+            # (e.g. Playwright refusing to `connect_over_cdp` into a Tauri
+            # WebView2) used to escape through `asyncio.to_thread` all the way
+            # to Starlette's unhandled-exception path: a bare 500 with an empty
+            # body and no CORS header. Callers in the browser panel then saw
+            # `net::ERR_FAILED` and learned nothing. Log the real cause here and
+            # degrade to a normal CommandResult so the transport stays typed.
+            try:
+                session = await self._get_session(thread_id)
+            except Exception as exc:
+                logger.warning(
+                    "browser_engine.execute session-acquire FAILED thread=%s method=%s: %s",
+                    thread_id,
+                    method,
+                    exc,
+                    exc_info=True,
+                )
+                result = fail(
+                    ErrorCode.BACKEND_UNAVAILABLE,
+                    f"browser session unavailable: {exc}",
+                )
+                result.elapsedMs = round((time.time() - started) * 1000, 1)
+                payload = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+                logger.info(
+                    "browser_engine.execute DONE thread=%s method=%s ok=%s elapsed_ms=%s code=%s",
+                    thread_id,
+                    method,
+                    payload.get("ok"),
+                    payload.get("elapsedMs"),
+                    (payload.get("error") or {}).get("code"),
+                )
+                return payload
             result = await self._dispatch(session, command)
             if not result.ok and result.error and result.error.code in (
                 ErrorCode.RENDERER_UNREACHABLE,

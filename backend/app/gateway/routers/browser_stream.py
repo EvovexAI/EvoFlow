@@ -211,8 +211,20 @@ async def browser_tabs_list_route(request: Request, thread_id: str) -> dict[str,
     result = await asyncio.to_thread(_dispatch_browser_command, thread_id, {"method": "tabList"})
     if not result.get("ok"):
         err = result.get("error") or {}
+        logger.warning(
+            "browser_tabs_list FAILED thread=%s code=%s msg=%s",
+            thread_id,
+            err.get("code"),
+            err.get("message"),
+        )
         raise HTTPException(status_code=500, detail=err.get("message") or "tabList failed")
-    return {"thread_id": thread_id, "ok": True, "tabs": result.get("tabs") or []}
+    tabs = result.get("tabs") or []
+    logger.info(
+        "browser_tabs_list OK thread=%s count=%s",
+        thread_id,
+        len(tabs) if isinstance(tabs, list) else "?",
+    )
+    return {"thread_id": thread_id, "ok": True, "tabs": tabs}
 
 
 @router.post(
