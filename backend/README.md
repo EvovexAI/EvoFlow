@@ -382,7 +382,7 @@ uv run pytest
 ## Documentation
 
 - [Configuration Guide](docs/CONFIGURATION.md)
-- [Architecture Details](docs/ARCHITECTURE.md)
+- [Architecture Details](./ARCHITECTURE.md)
 - [API Reference](docs/API.md)
 - [File Upload](docs/FILE_UPLOAD.md)
 - [Path Examples](docs/PATH_EXAMPLES.md)
