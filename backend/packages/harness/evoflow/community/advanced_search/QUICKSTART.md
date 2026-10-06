@@ -170,7 +170,7 @@ python advanced_search/tools.py "北京天气" 5
 ## 📁 文件位置
 
 - 📖 **设计文档**: [advanced-search-design.md](../../../advanced-search-design.md)
-- 🛠️ **源代码**: [tools.py](./tools.py)
+- 🛠️ **源代码**: [tools.py](./tools_fast_v2.py)
 - 📝 **使用指南**: [USAGE.md](./USAGE.md)
 - 📋 **测试报告**: [TEST_REPORT.md](./TEST_REPORT.md)
 - ⚙️ **配置示例**: [config.example.yaml](./config.example.yaml)
