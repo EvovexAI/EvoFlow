@@ -904,29 +904,35 @@ async function boot() {
   bootMark('routes registered')
 
   if (!authOnlyBoot) {
-    // License entitlements before shell nav (tasks/apps/proactive)
-    try {
-      const { refreshLicenseStatus } = await import('./lib/license.js')
-      await refreshLicenseStatus()
-    } catch (e) {
-      console.warn('[boot] license status unavailable', e)
-    }
-    initShellAside(document.getElementById('app-shell-aside'))
-    // 窄屏底部导航（宽屏不显示）
-    try {
-      const { initMobileTabbar } = await import('./components/mobile-tabbar.js')
-      initMobileTabbar()
-    } catch (e) {
-      console.warn('[boot] initMobileTabbar failed', e)
-    }
-    // v3.5: 当 `localStorage.evoflowV4Shell === '1'` 时,跳过 ChatApp 单例挂载,
-    // 改挂 V4ShellRoot 到 <main id="content">。整个主列都是 zcode 桌面新版,
-    // 不再是"老版 ChatApp 中间嵌 v4"。切回老版 = localStorage.removeItem +
-    // location.reload() → 重新走 boot(),`localStorage.evoflowV4Shell` 不等于
-    // '1' → 老 ChatApp 单例正常挂载。v4AtBoot 已在 boot() 顶部声明。
+    // v3.5: v4 模式 = 整客户端换壳,根本不让老版 initShellAside / initMobileTabbar
+    // 触碰 DOM。v3.5 阶段 B+ 修后还是"隐藏"级别(`display: none`),问题是
+    // initShellAside 内部 _applyCollapsed 会改 className,跟我们的 display:none
+    // 偶尔冲突(用户反馈"一会还是嵌套老页面")。改成"根本不调",DOM 里没有老版
+    // shell-aside / mobile-topbar / ChatApp 元素,自然不会嵌套,也不会乱闪。
     if (v4AtBoot) {
+      try {
+        const { refreshLicenseStatus } = await import('./lib/license.js')
+        await refreshLicenseStatus()
+      } catch (e) {
+        console.warn('[boot] license status unavailable', e)
+      }
       await mountV4ShellToContent()
     } else {
+      // License entitlements before shell nav (tasks/apps/proactive)
+      try {
+        const { refreshLicenseStatus } = await import('./lib/license.js')
+        await refreshLicenseStatus()
+      } catch (e) {
+        console.warn('[boot] license status unavailable', e)
+      }
+      initShellAside(document.getElementById('app-shell-aside'))
+      // 窄屏底部导航（宽屏不显示）
+      try {
+        const { initMobileTabbar } = await import('./components/mobile-tabbar.js')
+        initMobileTabbar()
+      } catch (e) {
+        console.warn('[boot] initMobileTabbar failed', e)
+      }
       // 侧栏 Portal 依赖 ChatApp 单例；须在 router 渲染 /chat 之前挂载，避免双实例各写一份列表
       await ensureChatAppMounted()
     }
@@ -952,7 +958,16 @@ async function boot() {
       console.warn('[boot] mountGlobalAssistant failed', e)
     }
   }
-  initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })
+  // v3.5 阶段 C+: v4 模式跳过 initRouter(避免 hashchange / 启动
+  // 默认路由 /chat 把 <main id="content"> 改写成 ChatApp 把 v4 shell
+  // 覆盖,导致用户反馈的"一会还是嵌套老页面")。v4 模式整个客户端
+  // 都被 zcode 桌面壳接管,hash 路由失去意义,用户行为都在 zcode 内
+  // 发生(activeTaskId / draft 切换等都是 zcode App.tsx 内部状态机)。
+  if (!v4AtBoot) {
+    initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })
+  } else {
+    bootMark('v4 shell mode: initRouter skipped (zcode owns navigation)')
+  }
   bootMark('initRouter done')
 
   if (isTauri) {
@@ -963,22 +978,9 @@ async function boot() {
 
     const mainCol = document.getElementById('main-col')
   if (!authOnlyBoot && mainCol) {
-    // v3.5: v4 shell 模式 = 隐藏左侧主导航(shell-aside)和 <main id="content">
-    // 上方的 update-banner / gw-banner 等老版 banner —— 让 zcode 桌面 UI
-    // 独占整个 <div id="app"> 容器,实现"切到新版 = 整个客户端都是新版"。
-    // BETA 横条 + 回到旧版按钮(由 EvoFlowV4HeaderToggle 提供)独立浮在
-    // 屏幕顶部,不依赖 #main-col。
-    if (v4AtBoot) {
-      const appShellAside = document.getElementById('app-shell-aside')
-      if (appShellAside) appShellAside.style.display = 'none'
-      const updateBanner = document.getElementById('update-banner')
-      if (updateBanner) updateBanner.style.display = 'none'
-      const gwBanner = document.getElementById('gw-banner')
-      if (gwBanner) gwBanner.style.display = 'none'
-      bootMark('v4 shell mode: shell-aside + banners hidden')
-      // v4 模式不建 mobile-topbar(老版 mobile 顶栏),zcode 自带顶栏
-      return
-    }
+    // v3.5 阶段 C+: v4 模式分支上移到上面 (if v4AtBoot 早 return 那块),
+    // 根本不让 initShellAside / initMobileTabbar / mobile-topbar
+    // 触碰 DOM。这里只剩老版 mobile-topbar + 桌面无边框 chrome。
     const topbar = document.createElement('div')
     topbar.className = 'mobile-topbar'
     topbar.id = 'mobile-topbar'
