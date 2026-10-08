@@ -88,46 +88,9 @@ window.setTimeout(() => {
   try { sessionStorage.removeItem(DYNAMIC_IMPORT_RECOVERY_KEY) } catch {}
 }, 15000)
 
-// 样式
-import './style/variables.css'
-import './style/reset.css'
-import './style/layout.css'
-import './style/components.css'
-import './style/pages.css'
-import './style/ef-side-drawer.css'
-import './style/app-workflow-canvas.css'
-import './style/app-workflow-studio-v2.css'
-import './style/apps.css'
-import './style/kb-wiki.css'
-import './style/list-pager.css'
-import './style/webui-login.css'
-import './style/chat.css'
-import './style/react-chat.css'
-import './style/platform-feedback.css'
-import './style/chat-redesign.css'
-import './style/enterprise-workspace.css'
-import './style/hover-bubble.css'
-import './style/agents.css'
-import './style/agent-avatar.css'
-import './style/debug.css'
-import './style/agent-trace.css'
-import './style/obs-dashboard.css'
-import './style/ai-drawer.css'
-import './style/cron.css'
-import './style/license-keys.css'
-import './style/tauri-titlebar.css'
-import './style/proactive.css'
-import './style/license.css'
-import './components/global-assistant/global-assistant.css'
-import './style/ai-roundtable.css'
-import './style/liquid-glass.css'
-import './style/sci-fi-theme.css'
-import './style/theme-surfaces.css'
-import './style/assets-page.css'
-import './style/theme-readability.css'
-import './style/ef-module-head.css'
-import './style/ef-panel-head.css'
-import './style/chat-summary-panel.css'
+// 样式（v3.5 阶段 F1 commit 1: 抽到 ./boot/0-styles.js,顺序敏感)
+// import './style/variables.css' ... 33 个 import 已抽到 0-styles.js
+import './boot/0-styles.js'
 
 // 初始化主题与面板设置（SQLite evoflow_app_settings / panel.ui）
 initTheme()
