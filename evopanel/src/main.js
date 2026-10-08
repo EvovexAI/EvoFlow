@@ -47,50 +47,13 @@ if (isTauri) initDesktopNotifications()
 if (isTauri) initDesktopContextMenu()
 if (isTauri) initDesktopDevtoolsHotkey()
 
-// Pause infinite CSS when the window is occluded (Mac battery / compositor).
-const syncAppOccluded = () => {
-  try {
-    const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden'
-    if (hidden) document.documentElement.setAttribute('data-app-occluded', '1')
-    else document.documentElement.removeAttribute('data-app-occluded')
-  } catch {
-    /* ignore */
-  }
-}
-syncAppOccluded()
-document.addEventListener('visibilitychange', syncAppOccluded)
-
-// 关掉历史遗留的 SkillHub 原生悬浮 WebView（曾遮挡整个客户端）
-if (isTauri) {
-  const killSkillhubEmbed = () =>
-    import('./lib/browser-embed-client.js')
-      .then((m) => m.browserEmbedClose('skillhub-store'))
-      .catch(() => {})
-  void killSkillhubEmbed()
-  window.addEventListener('hashchange', () => { void killSkillhubEmbed() })
-}
-
-// 动态 import 偶发失败（Vite HMR/缓存失效/网络抖动）时，自动重载一次避免页面卡死。
-const DYNAMIC_IMPORT_RECOVERY_KEY = 'evopanel_dynamic_import_recovered'
-window.addEventListener('unhandledrejection', (ev) => {
-  const msg = String((ev && ev.reason && (ev.reason.message || ev.reason)) || '')
-  if (!/Failed to fetch dynamically imported module/i.test(msg)) return
-  const recovered = sessionStorage.getItem(DYNAMIC_IMPORT_RECOVERY_KEY) === '1'
-  if (recovered) return
-  try {
-    sessionStorage.setItem(DYNAMIC_IMPORT_RECOVERY_KEY, '1')
-  } catch {}
-   
-  console.warn('[boot] dynamic import failed, reloading once:', msg)
-  window.location.reload()
-})
-window.setTimeout(() => {
-  try { sessionStorage.removeItem(DYNAMIC_IMPORT_RECOVERY_KEY) } catch {}
-}, 15000)
-
 // 样式（v3.5 阶段 F1 commit 1: 抽到 ./boot/0-styles.js,顺序敏感)
 // import './style/variables.css' ... 33 个 import 已抽到 0-styles.js
 import './boot/0-styles.js'
+
+// v3.5 阶段 F1 commit 2: 启动期 3 个兜底(visibility / SkillHub 杀进程 /
+// dynamic-import 失败 reload) 抽到 ./boot/3-recovery.js
+import './boot/3-recovery.js'
 
 // 初始化主题与面板设置（SQLite evoflow_app_settings / panel.ui）
 initTheme()
