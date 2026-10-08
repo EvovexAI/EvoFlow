@@ -565,165 +565,34 @@ import {
   shouldMergeFinalIntoPriorAssistant,
 } from './lib/collapse-same-turn-assistants.js'
 
-function turnBusyForSession(sessionKey: string | null | undefined): boolean {
-  return isSessionWireActive(sessionKey)
-}
-
-const STORAGE_SESSION_META_KEY = 'evopanel-chat-session-meta'
-const STORAGE_MODEL_KEY = 'evopanel-chat-selected-model'
-
-/** 模型切换分隔线持久化标记前缀（存为 user 消息，回放时识别并转成 system 分隔行） */
-export const MODEL_SWITCH_SEPARATOR_PREFIX = '[MODEL_SWITCH]'
-
-type ThinkingLevel = 'auto' | 'off' | 'low' | 'medium' | 'high'
-
-const THINKING_LEVEL_OPTIONS: { value: ThinkingLevel; label: string }[] = [
-  { value: 'auto', label: '自动' },
-  { value: 'off', label: '关闭' },
-  { value: 'low', label: '轻度' },
-  { value: 'medium', label: '中度' },
-  { value: 'high', label: '深度' },
-]
-
-function blockWireFromChatPayload(payload: Record<string, unknown>): StreamBlockWire | undefined {
-  return (
-    parseStreamBlockWire({
-      blockId: payload.blockId,
-      blockKind: payload.blockKind,
-      seq: payload.blockSeq ?? payload.seq,
-    }) ?? undefined
-  )
-}
-
-function flattenLiveSnapshotText(S: Parameters<typeof streamProject>[0]): string {
-  const proj = streamProject(S)
-  return flattenStreamDisplayText(proj.segments, proj.text)
-}
-
-function buildLiveRunSnapshotPayload(S: Parameters<typeof streamProject>[0]) {
-  const proj = streamProject(S)
-  const segments = Array.isArray(proj.segments) && proj.segments.length ? proj.segments : []
-  return {
-    partialText: flattenStreamDisplayText(proj.segments, proj.text),
-    partialDisplaySegments: segments,
-  }
-}
-
-function segmentTimelineHasTextBody(segments: MessageSegment[] | undefined): boolean {
-  return !!(segments || []).some(
-    (s) => s.kind === 'text' && String((s as { text?: string }).text || '').trim(),
-  )
-}
-
-/** 工具段之后是否还有正文（值班总结等）；仅有工具前 plan 不算 */
-function segmentTimelineHasPostToolText(segments: MessageSegment[] | undefined): boolean {
-  const list = segments || []
-  let lastTools = -1
-  for (let i = 0; i < list.length; i++) {
-    if (list[i]?.kind === 'tools') lastTools = i
-  }
-  if (lastTools < 0) return false
-  return list
-    .slice(lastTools + 1)
-    .some((s) => s.kind === 'text' && String((s as { text?: string }).text || '').trim())
-}
-
-function segmentTimelineHasInterleavedTools(segments: MessageSegment[] | undefined): boolean {
-  return !!(segments || []).some((s) => s.kind === 'tools')
-}
-
-function sortSegmentsBySeqIfPresent(segments: MessageSegment[]): MessageSegment[] {
-  return enforceSegmentDisplayOrder(segments)
-}
-
-function dedupSegmentsById(segments: MessageSegment[]): MessageSegment[] {
-  const seen = new Set<string>()
-  const out: MessageSegment[] = []
-  for (const s of segments) {
-    const key = String(s.id || s.seq || '').trim()
-    if (key && seen.has(key)) continue
-    if (key) seen.add(key)
-    out.push(s)
-  }
-  return out
-}
-
-function mergeAuthoritativeDisplaySegments(
-  fin: ReturnType<typeof finalizeStreamTurn>,
-  authSegsRaw: MessageSegment[],
-): MessageSegment[] {
-  const authSegs = dedupSegmentsById(sortSegmentsBySeqIfPresent(authSegsRaw))
-  if (!authSegs.length) return dedupSegmentsById(fin.segments || [])
-  const finSegs = dedupSegmentsById(sortSegmentsBySeqIfPresent(fin.segments || []))
-
-  const authHasText = segmentTimelineHasTextBody(authSegs)
-  const finHasText = segmentTimelineHasTextBody(finSegs)
-  const authHasTools = segmentTimelineHasInterleavedTools(authSegs)
-  const finHasTools = segmentTimelineHasInterleavedTools(finSegs)
-
-  // Payload snapshot often has reasoning+text but omits interleaved tools; keep live timeline.
-  if (authHasText && !authHasTools && finHasTools && finHasText) {
-    return finSegs
-  }
-
-  if (!authHasText && finHasText) {
-    const textSegs = finSegs.filter((s) => s.kind === 'text')
-    return sortSegmentsBySeqIfPresent([...authSegs, ...textSegs])
-  }
-  if (authHasText) return authSegs
-  if (finSegs.length) return finSegs
-  return authSegs
-}
-
-function authoritativeFinalFromPayload(
-  fin: ReturnType<typeof finalizeStreamTurn>,
-  payload: Record<string, unknown>,
-): ReturnType<typeof finalizeStreamTurn> {
-  const authSegsRaw = payload.displaySegments ?? payload.display_segments
-  if (
-    !Array.isArray(authSegsRaw) ||
-    !authSegsRaw.length ||
-    !authSegsRaw.every((s) => s && typeof (s as MessageSegment).seq === 'number')
-  ) {
-    return fin
-  }
-  const reasoningSegments = Array.isArray(payload.reasoningSegments)
-    ? (payload.reasoningSegments as string[]).map((s) => String(s || '')).filter(Boolean)
-    : fin.reasoningSegments
-  const reasoningPreview =
-    typeof payload.reasoningPreview === 'string' && payload.reasoningPreview.trim()
-      ? payload.reasoningPreview.trim()
-      : fin.reasoningPreview
-  const mergedSegments = mergeAuthoritativeDisplaySegments(fin, authSegsRaw as MessageSegment[])
-  const payloadText = String(
-    (payload.message as { content?: Array<{ type?: string; text?: string }> } | undefined)
-      ?.content?.find((c) => c?.type === 'text')
-      ?.text || '',
-  ).trim()
-  const textOut =
-    fin.text ||
-    (!segmentTimelineHasTextBody(mergedSegments) && payloadText ? payloadText : fin.text)
-  return {
-    ...fin,
-    segments: mergedSegments,
-    text: textOut,
-    reasoningSegments,
-    reasoningPreview,
-  }
-}
-
-const LS_LAST_SELECTED_SESSION = 'evopanel_last_selected_session'
-
-/** 路由未 cleanup 时可能残留多个 ChatApp；合并并发「新建会话」为一次 POST */
-let globalCreateSessionInflight: Promise<string | null> | null = null
-
-function coalesceCreateSession(work: () => Promise<string | null>): Promise<string | null> {
-  if (globalCreateSessionInflight) return globalCreateSessionInflight
-  globalCreateSessionInflight = work().finally(() => {
-    globalCreateSessionInflight = null
-  })
-  return globalCreateSessionInflight
-}
+// v3.5 阶段 F2 commit 1: module 顶层 helper 抽到 ./chat-app/utils/
+import {
+  STORAGE_SESSION_META_KEY,
+  STORAGE_MODEL_KEY,
+  LS_LAST_SELECTED_SESSION,
+  MODEL_SWITCH_SEPARATOR_PREFIX,
+  THINKING_LEVEL_OPTIONS,
+  type ThinkingLevel,
+} from './chat-app/utils/storage.js'
+import {
+  turnBusyForSession,
+  coalesceCreateSession,
+  getGlobalCreateSessionInflight,
+} from './chat-app/utils/session-busy.js'
+import {
+  flattenLiveSnapshotText,
+  buildLiveRunSnapshotPayload,
+  blockWireFromChatPayload,
+} from './chat-app/utils/stream-snapshot.js'
+import {
+  segmentTimelineHasTextBody,
+  segmentTimelineHasPostToolText,
+  segmentTimelineHasInterleavedTools,
+  sortSegmentsBySeqIfPresent,
+  dedupSegmentsById,
+  mergeAuthoritativeDisplaySegments,
+  authoritativeFinalFromPayload,
+} from './chat-app/utils/segments.js'
 
 /**
  * 模型调用 ``propose_goal`` 且本轮流式 ``final`` 到达后的行为（localStorage ``evopanel_hosted_propose_action``）：
@@ -13297,8 +13166,8 @@ export default function ChatApp() {
     }
     const sendSeq = chatSendSeqRef.current + 1
     chatSendSeqRef.current = sendSeq
-    if (pendingNewSessionRef.current && globalCreateSessionInflight) {
-      await globalCreateSessionInflight
+    if (pendingNewSessionRef.current && getGlobalCreateSessionInflight()) {
+      await getGlobalCreateSessionInflight()
     }
     let sessionKey = String(opts?.goalSessionKey || '').trim()
       || (sessionRef.current || selectedSessionKey || '').trim()
