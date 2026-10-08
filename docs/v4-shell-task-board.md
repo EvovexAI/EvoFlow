@@ -22,14 +22,45 @@
 | # | 任务 | 优先级 | 状态 | Owner | 备注 |
 |---|---|---|---|---|---|
 | T1 | LangGraph 主对话流双 emit v4 frames(H3-B-3) | P0 | 进行中(AI-A 2026-10-08) | AI-A | 关键路径:真实业务对话跑进 v4 shell |
-| T2 | abort/stop 命令(停止回合) | P1 | 待领 | — | 独立小任务,后端 hub 命令面 |
-| T3 | 会话列表 → v4 sessionId 映射(点旧会话用 v4 打开) | P1 | 待领 | — | 前端为主 |
+| T2 | abort/stop 命令(停止回合) | P1 | 已完成(AI-A 2026-10-08 23:00) | AI-A | (a)(b) 落地 + 5 单元测试通过 |
+| T3 | 会话列表 → v4 sessionId 映射(点旧会话用 v4 打开) | P1 | 已完成(AI-A 2026-10-08 22:55,c)待 T1) | AI-A | (a)(b) 落地；(c)等 T1 投影器 |
 | T4 | sessions-index 通道(侧栏会话列表活性) | P2 | 待领 | — | 依赖 T3 方向确认 |
 | T5 | 附件上传/读取/预览 | P2 | 待领 | — | attachmentPut/ReadV4 |
 | T6 | slash 命令 + commandsService | P2 | 待领 | — | 命令目录查询 |
 | T7 | 暗色主题验证与修复 | P2 | 待领 | — | 纯前端 |
 | T8 | 错误降级打磨(桩拒绝 → UI 状态而非 console 错误) | P3 | 待领 | — | 前端 |
 | T9 | workflow runs 只读面 | P3 | 待领 | — | 依赖 T1 落地后做 |
+
+---
+
+## v3.5 — 把 zcode 主对话 UI 全部搬进 v4 shell
+
+**Owner**: AI-A(进行中)
+**可触碰文件**:`evopanel/src/react/v4shell/*`、`evopanel/src/react/ChatApp.tsx`、
+`docs/v3.5-task.md`
+**目标**:当前 v4 shell (`V4ShellRoot` → `V4ChatPane`) 视觉是"光秃秃 chat 一片",
+只有 `V4ChatPane` 一个组件。要换成 zcode 桌面的 `WorkspaceShellLayout`,让用户看到
+zcode 桌面的完整"主对话 UI"(header + sidebar + chat + side pane + terminal 全套)。
+**验收标准**:
+1. `npx tsc --noEmit` 错数 ≤ 43(基线);
+2. `npx vitest run tests/v4-wire-conformance.test.ts` 3/3 通过;
+3. localStorage 切到 v4 后,看到 zcode 桌面风格(左侧栏 + 顶栏 + chat 主区),
+   不是"光秃秃 chat 一片";
+4. 侧栏点选 / "+ New Task" / 内部 createSession → EvoFlow selectedSessionKey 同步;
+5. 已有改动(T2 stop、T3 session 联动)在 v4 shell 下仍工作。
+
+**详细实施步骤 + 实时进度**:见 `docs/v3.5-task.md`。
+
+**进度记录**:
+- [AI-A 2026-10-08 23:30] ✅ 阶段 A 完成。
+  - 复制 zcode App.tsx (1280 行) → evopanel/src/zcode-ui/app-shell/EvoFlowApp.tsx
+  - 改函数签名(7 个 EvoFlow props + 30+ zcode props 用 noop 替代)
+  - 双向桥 useEffect:zcode store setActiveTaskId ↔ EvoFlow sessionId
+  - V4ShellRoot 改挂 <EvoFlowApp>
+  - tsc 43 错(= 基线,0 新增)✅
+  - vitest 3/3 通过 ✅
+  - vite dev 401ms 启动 ✅
+  - 下一步:用户在浏览器切 v4 shell 验证视觉(阶段 B 端到端)
 
 ---
 
@@ -58,6 +89,54 @@ v4 shell 订阅业务 session 的 topic(`conversation/{业务sessionKey}`)即可
 
 **进度记录**:
 - [AI-A 2026-10-08] 开始:探索 streaming tail 挂载点。
+- [AI-A 2026-10-08 23:00] ⚠ T2 已在 `backend/app/gateway/v4/conversation.py` 加：
+  - `_PHASE_INTERRUPTED = "completedInterrupted"` 常量
+  - `send_command` 的 `stop` / `abort` 分支
+  - `_run_turn` 的 `except CancelledError` 终态帧收尾
+  T1 整 hub 结构时请保留这三段（`_start_turn` 维持 `sess.turn_task = asyncio.create_task(...)`，
+  且 `_run_turn` 内 try/except CancelledError 必须写终态帧再 raise ——
+  这是 T2 验收"前端无报错"+"phase=completedInterrupted"的前提）。
+- [AI-A 2026-10-08 23:30] ✅ 关键路径 H3-B-3 落地（旁路挂载 + 适配器 + 关键 bug 修复）：
+  - `backend/app/gateway/agui_stream_normalizer.py`: 新增模块级 helper
+    `_bridge_v4_post_main(thread_id, payloads)`；`AgUiStreamNormalizer.feed_frame` /
+    `finish` 在生成 wire 之后调用该 helper（仅当 `EVOFLOW_V4_PROJECT=1`）。
+    POST 主流所有走 `AgUiStreamNormalizer` 的路径（StreamMiddleLayer、reflex 等）
+    自动覆盖 — 零侵入。
+  - `backend/app/gateway/routers/langgraph_proxy.py`: `_attach_ui_wire_frame`
+    在 `convert_evf_frames_to_agui` 之前旁路 `feed_evf_frames_to_v4(thread_id, [frame])`，
+    用独立的 encoder state（不污染 `agui_attach_state`，那是给前端 wire 用的）。
+    SSE attach / refresh 续挂路径自动覆盖。
+  - `backend/app/gateway/v4/langgraph_v4_bridge.py`: 新增 `feed_evf_frames_to_v4`
+    入口（接 evf frame bytes，与 `feed_payloads_to_v4` 共用 `_thread_bridge` 缓存）。
+    新增 `_HubSessionView` 适配层把 hub 的 `sess.rows` 暴露成 `rows_by_id`（translator
+    期望的 H1 demo writer 字段名）。
+  - `backend/app/gateway/v4/conversation.py`: **关键 bug 修复** —
+    `self._lock = asyncio.Lock()` 改 `threading.Lock()`。`ingest_*` 是从同步
+    代码（LangGraph 流泵）调入的，asyncio 锁不支持 `with` 上下文管理器，
+    flag=False 时被隐藏；flag=True 一开就立刻暴露。同时把 `subscribe` /
+    `resync` / `unsubscribe` 三处 `async with self._lock:` 改 `with self._lock:`
+    （临界区只有同步 dict 操作，async 路径无需 await 锁）。
+  - **端到端验证**（临时脚本）：
+    - flag=False: `AgUiStreamNormalizer` 走完整 turn，AG-UI wire 正常发 2 帧，
+      HUB 不落地（旁路 no-op）✅
+    - flag=True: text delta × 2 + block_close + run_end → hub session 落地，
+      `external=True`，1 turnHeader + 1 assistantText(text="hello world")✅
+    - 同 thread 第二轮 turn 干净复用 translator state，turnHeader 不重复
+      （`run_started` 永久置位的 edge case 已知，不在 H3-B-3 范围）✅
+  - **测试基线**:
+    - `pytest tests/test_v4_conversation_stop.py`: 5/5 pass ✅
+    - `pytest tests/`: 169 pass + 1 skip（剩余 14 failed 全部 pre-existing
+      —— channel/memory/wecom 模块，stash 全部改动后跑仍然 fail，与 v4 无关）
+  - **未做**:
+    - sendText 路由: T1 范围限于"读路径接入"（v4 shell 看到真实会话），
+      发送路由独立 H3-B-5。T1 期间 hub 的 `external` session 收到 sendText
+      会返回 `sendRoutingPending`（已写在 `send_command` 的 sendText 分支）。
+    - 前端 ChatApp: v3.5 task 已让 V4ShellRoot 直接消费 selectedSessionKey，
+      H3-B-3 无需前端变更。
+  - **状态**: 进行中(剩下两件旁路未做对端到端 demo 的影响：1. `_thread_bridge`
+    的 entry 在 run 终态不主动清理——长期运行会膨胀；2. 失败帧的 debug 日志
+    还没在生产里验证。验收基线已通过，等用户决定是切到 dev server 真实 E2E
+    还是先收口)。
 
 ---
 
@@ -76,7 +155,34 @@ abort 分支与 `_run_turn` 取消逻辑)、`docs/v4-shell-task-board.md`
 control 里。
 
 **进度记录**:
-- (待领)
+- [AI-A 2026-10-08 22:59] 领任务。约束：T1 当前还在探索 streaming tail 挂载点，未实质
+  改 conversation.py；abort 改动**仅限 send_command 加 stop 分支 + _run_turn
+  CancelledError 收尾**，与 T1 的 AG-UI→v4 双 emit（stream_resume_langgraph_tail.py +
+  agui_to_v4_projector.py）不重叠。等 T1 整体合入时如果他们想重整 hub，请他们
+  留意这两段改动。前端 Stop 链路 (`SessionPane.handleStop` → `dispatchCommand
+  ('stop', ...)` → `agentService.sendConversationCommandV4`) 已通，不动。
+  zod 协议已支持 turnHeader.state=`completedInterrupted` / snapshot.phase=
+  `completedInterrupted`，后端只是没写过这两条路径。
+- [AI-A 2026-10-08 23:00] 落地：
+  - `backend/app/gateway/v4/conversation.py`:
+    - 新增 `_PHASE_INTERRUPTED = "completedInterrupted"` 常量（zod 协议已定义）
+    - `send_command`: 加 `stop` / `abort` 分支（abort 为旧命名兼容）。
+      - 找 `sess.turn_task`，未在跑 → `noop/noRunningTurn`
+      - 在跑 → `sess.revision++` + `sess.turn_task.cancel()` + `accepted`
+      - session 不存在 → `rejected/sessionNotFound`
+    - `_run_turn`: `except CancelledError` 现在写三件终态帧：
+      assistantText.state=interrupted + turnHeader.state=completedInterrupted
+      + phase=completedInterrupted，再 `raise` 让 asyncio 链路知道 task 已取消。
+  - `backend/tests/test_v4_conversation_stop.py` (新): 5/5 单元测试通过
+    - stop 取消 running turn + 终态帧
+    - abort 别名等价
+    - 不存在 session → rejected
+    - idle session 收 stop → noop
+    - `_minimal_control(interrupted)` canStop=false
+  - 前端 v4 shell 不动：`SessionPane.handleStop` 早已 wired 到
+    `sendConversationCommandV4`，后端接通即生效。
+  - 风险：T1 落地时若改 hub 整体结构需保留这两段（stop 分支 + CancelledError
+    收尾）。progress 已在 `T1 进度记录`里加 cross-ref 提示。
 
 ---
 
@@ -95,7 +201,23 @@ control 里。
 旧消息 → v4 rows 的映射表在 `protocol-evolution-spec.md` §4。
 
 **进度记录**:
-- (待领)
+- [AI-A 2026-10-08 22:50] 领任务。范围拆三块：(a) 前端 selectedSessionKey → v4SessionId
+  联动（独立可做）；(b) `GET /api/v4/conversation/snapshot?sessionId=` 路由壳子
+  + 501 占位（不碰 hub，等 T1 ingest API）；(c) 旧业务消息 → v4 rows 投影——
+  **属 T1 AG-UI→v4 translator 范畴**（共享 parse 逻辑 + feature flag），不做。
+  T3 验收"显示历史"那一半 T1 落地后回头填。
+- [AI-A 2026-10-08 22:55] 落地 (a) + (b)：
+  - `evopanel/src/react/ChatApp.tsx`:1586 新增 useEffect 镜像 selectedSessionKey
+    → v4SessionId（v4ShellEnabled=true 时）。v4 shell 内部用 `V4ChatPane` 接收新
+    sessionId 触发 resubscribe，无 remount 成本。备注里说明：composer 草稿由
+    zcode 内部 `SessionDraft` 缓存（不归我们管）。
+  - `backend/app/gateway/v4/routes.py`: 新增 `GET /api/v4/conversation/snapshot`。
+    hub 里 session 存在 → 返回 `rows + atSeq + atRevision + atLogEpoch + phase + title`
+    （形状对齐 rows_range 顶层 + 状态字段，zcode assembler 可消费）；
+    不存在 → 返回 501 `projection_pending_t1`（不让 v4 shell 5xx 挂掉，前端能
+    走"暂未投影"友好分支）。
+  - tsc 基线：43 错（与看板要求一致），ChatApp 新 useEffect 0 关联错。
+  - 待 T1 落地：501 分支自动消失；新写的 snapshot 端点成为"打开历史会话"的入口。
 
 ---
 

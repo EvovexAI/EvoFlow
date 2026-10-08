@@ -1578,8 +1578,10 @@ export default function ChatApp() {
       return false
     }
   }, [])
-  /** v4 shell 首次 createSession 后固定 sessionId，避免 pane 回落草稿态。 */
-  const [v4SessionId, setV4SessionId] = useState<string | null>(null)
+  // v3.5: v4SessionId 中间 state 已删除 —— v4 shell (WorkspaceShellLayout) 直接消费
+  // selectedSessionKey,createSession/侧栏点选通过 onSelectSession 反向同步回
+  // selectedSessionKey 形成闭环。T3 当时加 v4SessionId 是怕 pane 回落草稿,现在
+  // WorkspaceShellLayout 主动消费 activeTaskId prop,不需要中间 state。
   /** 各会话侧栏/询问面板状态缓存（切换会话时恢复；后台会话询问不得写入当前 UI） */
   const threadPanelBySessionRef = useRef(new Map<string, ThreadPanelState>())
   const commitThreadPanelForSessionRef = useRef<
@@ -15332,8 +15334,13 @@ export default function ChatApp() {
               {v4ShellEnabled ? (
                 <V4ShellRoot
                   workspacePath={effectiveWorkspaceRoot || 'D:/evoflow'}
-                  sessionId={v4SessionId}
-                  onSessionCreated={setV4SessionId}
+                  sessionId={selectedSessionKey || null}
+                  onSelectSession={(nextId) => {
+                    // v3.5: zcode 侧栏点选 / "+ New Task" / 内部 createSession
+                    // 都会桥到这里。同步给 EvoFlow 旧 selectedSessionKey 让
+                    // 旧消息/侧栏联动更新（也反向驱动 v4 shell activeTaskId）。
+                    setSelectedSessionKey(nextId ?? '')
+                  }}
                 />
               ) : (
               <ChatMessageStreamPane
