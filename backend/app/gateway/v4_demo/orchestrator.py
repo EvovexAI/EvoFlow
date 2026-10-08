@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -194,6 +195,28 @@ class H1DemoOrchestrator:
             },
         )
 
+        # H3-A 可选真实 LLM 流（feature-flag）。默认 echo；设 ``EVOFLOW_V4_LLM=1`` 启用
+        # 用 OpenAI 兼容 provider（``EVOFLOW_LLM_BASE_URL`` / ``EVOFLOW_LLM_API_KEY``）。
+        if os.getenv("EVOFLOW_V4_LLM", "").strip() in ("1", "true", "yes"):
+            await _stream_real_llm(sess, assistant_rid, sess.user_text, now_ms)
+            sess.writer.emit_row_upserted(
+                sess.subscription_id,
+                {
+                    "rowId": sess.turn_header_row_id,
+                    "turnId": sess.turn_id,
+                    "kind": "turnHeader",
+                    "origin": "userInput",
+                    "state": "completedSuccess",
+                    "startedAt": now_ms,
+                    "endedAt": int(asyncio.get_event_loop().time() * 1000),
+                    "createdAt": now_ms,
+                    "createdAtSeq": 0,
+                },
+            )
+            sess.done_event.set()
+            logger.info("[h1-demo] real LLM turn complete session=%s", sess.session_id)
+            return
+
         # 流式 assistant text
         for i in range(0, len(assistant_target), 6):
             chunk = assistant_target[: i + 6]
@@ -238,6 +261,99 @@ class H1DemoOrchestrator:
         )
         sess.done_event.set()
         logger.info("[h1-demo] turn complete session=%s", sess.session_id)
+
+
+async def _stream_real_llm(
+    sess: _Session,
+    assistant_rid: int,
+    user_text: str,
+    now_ms: int,
+) -> None:
+    """H3-A: 用 OpenAI 兼容 provider 真实流式生成 assistantText。
+
+    Env:
+      EVOFLOW_LLM_BASE_URL  e.g. "http://127.0.0.1:11434/v1"
+      EVOFLOW_LLM_API_KEY   optional (绝大多数本地 server 不需要)
+      EVOFLOW_LLM_MODEL     e.g. "qwen2.5:7b" / "gpt-4o-mini"
+    """
+    import httpx  # 局部 import 避免硬依赖
+
+    base_url = os.getenv("EVOFLOW_LLM_BASE_URL", "").rstrip("/")
+    api_key = os.getenv("EVOFLOW_LLM_API_KEY", "").strip()
+    model = os.getenv("EVOFLOW_LLM_MODEL", "echo-model")
+    if not base_url:
+        sess.writer.emit_row_upserted(
+            sess.subscription_id,
+            {
+                "rowId": assistant_rid,
+                "turnId": sess.turn_id,
+                "kind": "assistantText",
+                "state": "complete",
+                "text": "EVOFLOW_V4_LLM=1 但 EVOFLOW_LLM_BASE_URL 未设置 — 退回 echo。",
+                "createdAt": now_ms,
+                "createdAtSeq": 3,
+            },
+        )
+        return  # turn_header 终态由调用方（_stream_assistant real-LLM 分支）负责
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": user_text}],
+        "stream": True,
+        "temperature": 0.7,
+    }
+
+    buf = ""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+            async with client.stream("POST", f"{base_url}/chat/completions", json=payload, headers=headers) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data:"):
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            obj = __import__("json").loads(data)
+                            delta = obj.get("choices", [{}])[0].get("delta", {}).get("content") or ""
+                            if delta:
+                                buf += delta
+                                sess.writer.emit_row_upserted(
+                                    sess.subscription_id,
+                                    {
+                                        "rowId": assistant_rid,
+                                        "turnId": sess.turn_id,
+                                        "kind": "assistantText",
+                                        "state": "streaming",
+                                        "text": buf,
+                                        "createdAt": now_ms,
+                                        "createdAtSeq": 3,
+                                    },
+                                )
+                        except Exception:
+                            continue
+        final_text = buf if buf else "(no content)"
+    except Exception as e:  # 网络/解析失败 → echo
+        logger.warning("[h1-demo] real LLM failed, falling back to echo: %s", e)
+        final_text = f"⚠️ LLM 不可达，退回 echo：你说了 ``{user_text}``。"
+
+    sess.writer.emit_row_upserted(
+        sess.subscription_id,
+        {
+            "rowId": assistant_rid,
+            "turnId": sess.turn_id,
+            "kind": "assistantText",
+            "state": "complete",
+            "text": final_text,
+            "createdAt": now_ms,
+            "createdAtSeq": 3,
+        },
+    )
 
 
 # 单例

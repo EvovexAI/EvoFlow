@@ -74,8 +74,16 @@ DevTools console:
 - [ ] 复制 `ConversationTimeline.tsx` + `ConversationRowView.tsx` (~5000) → 同名（H3+）
 - [ ] 接入 ChatApp：流式渲染路径换为 `<SessionPane />`，命令派发层按 ZCode 风格重写（H3+）
 
-## H3+ 待办（迁移）
+## H3+ 计划
 
-- 后端 SSE 路由 → v4 projection writer（替代 agui_stream_normalizer）
-- DB schema + 数据迁移
-- 业务面板（BrowserPanel / MeetingView / EvoFlowHomeDashboard / Plan / Proactive / GoalMode / WorkspaceFileTree / ToolCallList / ChatComposer / AppWorkflowCanvas）按 v4 shell 适配
+### H3-A（本 commit 落地）
+
+- [x] `v4_demo/orchestrator.py` 加 `EVOFLOW_V4_LLM=1` 真实 LLM 路径（OpenAI 兼容 SSE 流）
+- [x] `docs/h3-llm-stream.md` 落地说明
+
+### H3-B~E（推迟）
+
+- [ ] 后端 SSE 路由整体迁移到 v4 projection writer（替代 agui_stream_normalizer） — H4 sprint
+- [ ] DB schema v4 row storage + 历史 thread 迁移 — 等 H3-B 完成
+- [ ] 业务面板 v4 shell 适配 — 等 H3-B 完成
+- [ ] ChatComposer 派发改 `EvoFlowV4Transport.sendCommand` — 等业务面板做完
