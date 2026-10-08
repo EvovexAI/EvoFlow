@@ -656,6 +656,10 @@ fn create_embed_window(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
+    eprintln!(
+        "[browser-embed] create_embed_window: label={} url={} pos=({},{}) size={}x{}",
+        label, target_url, x, y, width, height
+    );
     WebviewWindow::builder(app, label, WebviewUrl::External(target_url.clone()))
         .parent(parent)
         .map_err(|e| format!("attach embedded browser parent failed: {e}"))?
@@ -834,6 +838,10 @@ pub async fn browser_embed_upsert(
         url.as_deref()
     );
     let target_url = normalize_target_url(url.as_deref().unwrap_or("about:blank"))?;
+    eprintln!(
+        "[browser-embed] upsert: normalized target_url={} scheme={}",
+        target_url, target_url.scheme()
+    );
     // `WebviewUrl::External` round-trips the URL through Tauri's URL parser,
     // which rejects `about:blank` with "invalid port number" (it looks for an
     // authority where a scheme-only URL has none). Build the window on a real
@@ -909,12 +917,17 @@ pub async fn browser_embed_upsert(
     // The window booted on a real origin; point it at the requested page now
     // that it exists. A failure here used to be discarded with `let _ =`, leaving
     // an on-screen but permanently blank window with no explanation anywhere.
+    eprintln!(
+        "[browser-embed] navigate check: boot_url={} target_url={} same={}",
+        boot_url, target_url, boot_url == target_url
+    );
     if boot_url != target_url {
         let escaped = target_url.as_str().replace('\\', "\\\\").replace('\'', "\\'");
+        eprintln!("[browser-embed] navigate: eval window.location.assign('{escaped}')");
         match app.get_webview_window(&label) {
             Some(win) => match win.eval(&format!("window.location.assign('{escaped}');")) {
                 Ok(()) => {
-                    eprintln!("[browser-embed] navigated {label} -> {escaped}");
+                    eprintln!("[browser-embed] navigated {label} -> {escaped} OK");
                     log_window_state(&win, "after navigate");
                 }
                 Err(e) => eprintln!("[browser-embed] navigate FAILED {label} -> {escaped}: {e}"),
@@ -922,6 +935,10 @@ pub async fn browser_embed_upsert(
             None => eprintln!("[browser-embed] navigate SKIPPED: window {label} vanished"),
         }
     } else {
+        eprintln!(
+            "[browser-embed] navigate: boot_url == target_url ({}), skipping eval — WebView2 is already on target URL",
+            target_url
+        );
         // Booted directly on the target — still worth confirming it is on screen,
         // since this is the path a first `open` with a real URL takes.
         if let Some(win) = app.get_webview_window(&label) {
