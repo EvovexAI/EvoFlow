@@ -171,29 +171,127 @@ pub fn call_cdp(
     let method = method.to_string();
     let params_json = params_json.to_string();
     eprintln!("[browser-cdp] call {method} params={}", truncate(&params_json, 400));
+    // Mirror the eprintln to a dedicated file so the trace is recoverable even
+    // when `pnpm dev:tauri` swallows the stderr stream. Without this the only
+    // way to see what's happening is to attach to the dev terminal — and the
+    // operator who just sent `open https://...` doesn't have that terminal open.
+    let trace_path = crate::commands::evoflow_dir().join("browser-cdp-trace.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&trace_path)
+    {
+        use std::io::Write as _;
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(
+            f,
+            "ts:{secs} tid:{label} method:{method} params={}",
+            truncate(&params_json, 400)
+        );
+        let _ = f.flush();
+    }
     // `with_webview` takes an `FnOnce` closure, so the result travels back
     // through a shared cell rather than being returned from the closure.
     let cell: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
     let cell_inner = cell.clone();
+    // Clone for the polling loop's error messages (closure moves `method`).
+    let method_for_closure = method.clone();
 
-    window
-        .with_webview(move |platform| {
-            let outcome = match core_webview2(&platform.controller()) {
-                Ok(webview) => dispatch_on_webview(&webview, &method, &params_json),
-                Err(e) => Err(e),
-            };
-            if let Ok(guard) = cell_inner.lock() {
-                eprintln!("[browser-cdp] <- {outcome:?}");
-                let mut guard = guard;
-                *guard = Some(outcome);
+    // `Webview::with_webview` is fire-and-forget at the wry layer: it posts a
+    // message to the UI thread's event loop and returns `Ok(())` as soon as
+    // the message is enqueued, *not* once the closure has run. On a freshly
+    // created WebView2 the COM controller may not exist for several seconds
+    // (the very first `with_webview` after `WebviewWindow::build()` waits for
+    // `NewWindow3` → `IWebView2WebView3::Environment` → `CoreWebView2` to be
+    // wired), and any call made before that point looks like "the UI thread
+    // never ran the closure" — the symptom is exactly
+    // `Err("... webview UI thread did not run")` after a fraction of a millisecond.
+    //
+    // The closure itself uses `recv_timeout(10s)` on its COM result, so the
+    // total budget for "the closure ran AND the COM call answered" is
+    // closure-delay + 10s. We give the UI thread 25s to even *reach* the
+    // closure, with progress logging so a stuck init is visible in the log.
+    if let Err(e) = window.with_webview(move |platform| {
+        let outcome = match core_webview2(&platform.controller()) {
+            Ok(webview) => dispatch_on_webview(&webview, &method_for_closure, &params_json),
+            Err(e) => {
+                eprintln!("[browser-cdp] core_webview2 failed: {e}");
+                Err(e)
             }
-        })
-        .map_err(|e| format!("with_webview dispatch failed: {e}"))?;
+        };
+        eprintln!("[browser-cdp] <- {outcome:?}");
+        if let Ok(mut guard) = cell_inner.lock() {
+            *guard = Some(outcome);
+        }
+    }) {
+        eprintln!("[browser-cdp] with_webview enqueue failed: {e}");
+        return Err(format!("with_webview enqueue failed: {e}"));
+    }
 
-    cell.lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
-        .unwrap_or_else(|| Err("CDP dispatch produced no result".into()))
+    // Poll the cell. `with_webview` returning `Ok(())` only proves the closure
+    // was *queued*, not that it has run — on a brand-new webview the COM
+    // controller can take 5–20 s before the closure is even dispatched.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+    let mut last_progress = std::time::Instant::now();
+    loop {
+        if let Some(outcome) = cell.lock().ok().and_then(|mut g| g.take()) {
+            // Mirror the closure outcome for the trace file.
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&trace_path)
+            {
+                use std::io::Write as _;
+                let secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = writeln!(
+                    f,
+                    "ts:{secs} tid:{label} method:{method} DONE outcome={:?}",
+                    outcome
+                );
+                let _ = f.flush();
+            }
+            return outcome;
+        }
+        if std::time::Instant::now() >= deadline {
+            eprintln!(
+                "[browser-cdp] timed out waiting for the {method} closure to run on label={label} \
+                 (with_webview enqueued successfully but the UI thread did not dispatch it in 25s)"
+            );
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&trace_path)
+            {
+                use std::io::Write as _;
+                let secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = writeln!(
+                    f,
+                    "ts:{secs} tid:{label} method:{method} TIMEOUT (UI thread did not dispatch in 25s)"
+                );
+                let _ = f.flush();
+            }
+            return Err(format!(
+                "{method} timed out waiting for the webview UI thread to dispatch the closure"
+            ));
+        }
+        if last_progress.elapsed() >= std::time::Duration::from_secs(5) {
+            eprintln!(
+                "[browser-cdp] still waiting for {method} on {label} ({:.1}s elapsed)",
+                deadline.elapsed().as_secs_f64().max(0.0)
+            );
+            last_progress = std::time::Instant::now();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
 }
 
 /// Keep CDP logs readable: screenshot payloads and DOM snapshots run to
@@ -418,6 +516,33 @@ pub fn browser_cdp_command(
     params_json: String,
 ) -> Result<Value, String> {
     let label = webview_label_for_thread(&thread_id);
+    // ZCode parity: the host process owns the webview.  When the agent (Python
+    // gateway) calls a CDP method for a thread whose WebView2 has not been
+    // mounted by the panel UI yet, spin up a hidden child window so the very
+    // first "navigate" lands on a real webview.  When the user later opens
+    // the panel, `browser_embed_upsert` finds the existing HWND and just
+    // `show()`s it — no remount, no double browser, no surprise.
+    #[cfg(target_os = "windows")]
+    {
+        use crate::commands::browser_embed::ensure_webview_for_cdp;
+        let boot_url = match method.as_str() {
+            "Page.navigate" => {
+                // Pull the target URL out of the params JSON, fall back to about:blank.
+                serde_json::from_str::<Value>(&params_json)
+                    .ok()
+                    .and_then(|v| v.get("url").and_then(|u| u.as_str()).map(str::to_string))
+                    .unwrap_or_else(|| "about:blank".to_string())
+            }
+            "Page.printToPDF" | "Browser.close" | "Browser.exit" => {
+                "about:blank".to_string()
+            }
+            _ => "about:blank".to_string(),
+        };
+        if let Err(e) = ensure_webview_for_cdp(&app, &thread_id, &boot_url) {
+            eprintln!("[browser-cdp] ensure_webview_for_cdp failed: {e}");
+            return Err(format!("auto-create embedded webview failed: {e}"));
+        }
+    }
     let body = call_cdp(&app, &label, &method, &params_json)?;
     serde_json::from_str(&body).map_err(|e| format!("CDP result parse failed: {e}"))
 }
@@ -425,9 +550,9 @@ pub fn browser_cdp_command(
 /// Return the HTTP port the CDP command server is listening on, starting it if
 /// needed.  Python reads this once per session (or from the well-known file).
 #[tauri::command]
-pub async fn browser_cdp_http_port(app: tauri::AppHandle) -> Result<u16, String> {
+pub fn browser_cdp_http_port(app: tauri::AppHandle) -> Result<u16, String> {
     use crate::commands::browser_cdp_server::ensure_http_server;
-    ensure_http_server(app).await
+    tauri::async_runtime::block_on(async move { ensure_http_server(app).await })
 }
 
 /// Start the CDP event subscription for a thread's embedded browser.  Python's

@@ -141,6 +141,64 @@ pub fn run() {
             tray::setup_tray(app.handle())?;
             commands::boot_cycle::mark("desktop", "app.setup.done", None);
 
+            // Start the WebView2 CDP HTTP bridge at boot so the agent can drive
+            // the embedded browser *before* the user opens the panel. Without
+            // this, the first `browser_cdp_command` would block on port-file
+            // discovery and the agent's `open` action would 503. ZCode parity:
+            // the host process owns the bridge; the renderer just shows the
+            // webview when the panel mounts.
+            #[cfg(target_os = "windows")]
+            {
+                fn log_boot(s: &str) {
+                    use std::io::Write as _;
+                    if let Some(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(commands::evoflow_dir().join("browser-cdp-bridge.log"))
+                        .ok()
+                    {
+                        let _ = writeln!(f, "ts:{} {s}", std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0));
+                        let _ = f.flush();
+                    }
+                }
+                log_boot("[boot] spawning browser-cdp-http-bridge thread");
+                let bridge_app = app.handle().clone();
+                match std::thread::Builder::new()
+                    .name("browser-cdp-http-bridge".into())
+                    .spawn(move || {
+                        log_boot("[boot] thread entered");
+                        let rt = match tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                        {
+                            Ok(rt) => rt,
+                            Err(e) => {
+                                eprintln!("[boot] build tokio runtime for CDP HTTP bridge failed: {e}");
+                                log_boot(&format!("[boot] build tokio runtime failed: {e}"));
+                                return;
+                            }
+                        };
+                        rt.block_on(async move {
+                            if let Err(e) =
+                                commands::browser_cdp_server::ensure_http_server(bridge_app).await
+                            {
+                                eprintln!("[boot] start CDP HTTP bridge failed: {e}");
+                                log_boot(&format!("[boot] ensure_http_server failed: {e}"));
+                            } else {
+                                log_boot("[boot] ensure_http_server returned Ok");
+                            }
+                        });
+                    }) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("[boot] 启动 CDP HTTP 桥接线程失败: {e}");
+                    }
+                }
+            }
+
             // 阻止系统进入睡眠状态，确保锁屏后客户端仍能正常运行
             power::prevent_system_sleep();
 

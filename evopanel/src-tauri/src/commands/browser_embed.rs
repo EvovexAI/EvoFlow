@@ -689,6 +689,116 @@ fn create_embed_window(
         })
 }
 
+/// Auto-create a hidden WebView2 child window for a thread that has none yet.
+///
+/// ZCode parity: in ZCode the Electron main process owns a `webContents` per
+/// thread from app start; the renderer simply `show()`s it when the user
+/// opens the panel.  EvoFlow has a separate Python gateway, but the same
+/// property — "the host process owns the webview, the user just sees it when
+/// they open the panel" — can be mirrored by spawning a hidden child window
+/// the moment the agent first drives the thread.
+///
+/// The window starts off-screen at 1280x800 and is invisible.  When the user
+/// later opens the panel, `browser_embed_upsert` finds the existing HWND via
+/// `get_webview_window(label)`, calls `show()` and resizes it to the panel
+/// slot — no remount, no double browser, the agent's first page becomes the
+/// page the user sees.
+#[cfg(target_os = "windows")]
+pub fn ensure_webview_for_cdp(
+    app: &tauri::AppHandle,
+    thread_id: &str,
+    url: &str,
+) -> Result<(), String> {
+    let label = webview_label_for_thread(thread_id);
+    if app.get_webview_window(&label).is_some() {
+        return Ok(());
+    }
+    let parent = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found")?;
+    let target = normalize_target_url(url)?;
+    let boot_url = if target.scheme() == "about" {
+        "https://example.com/".parse::<url::Url>().map_err(|e| e.to_string())?
+    } else {
+        target.clone()
+    };
+    // Hidden off-screen until the panel mounts.  The user never sees this
+    // size because the panel will `set_size`/`set_position` to the panel-slot
+    // rect on first upsert, which simply re-targets the existing HWND.
+    let win = WebviewWindow::builder(
+        app,
+        &label,
+        WebviewUrl::External(boot_url.clone()),
+    )
+    .parent(&parent)
+    .map_err(|e| format!("attach embedded browser parent failed: {e}"))?
+    .title("EvoFlow Browser")
+    .decorations(false)
+    .resizable(false)
+    .shadow(false)
+    .skip_taskbar(true)
+    .visible(false)
+    .focused(false)
+    .position(0.0, 0.0)
+    .inner_size(1280.0, 800.0)
+    .devtools(false)
+    .build()
+    .map_err(|e| format!("create hidden embedded browser failed: {e}"))?;
+    log_window_state(&win, "ensure_webview built (hidden)");
+
+    // Re-point to the real target URL if we booted on a placeholder.  The
+    // `eval` on a hidden window is a no-op visually but it pre-loads the URL
+    // so the first CDP `Page.navigate` after this lands on the right origin.
+    if boot_url != target {
+        let escaped = target.as_str().replace('\\', "\\\\").replace('\'', "\\'");
+        let _ = win.eval(&format!("window.location.assign('{escaped}');"));
+    }
+
+    // Register the embed entry so `browser_embed_upsert` from the panel UI
+    // finds the cached `cdp_ws_url` instead of computing a fresh one.
+    // NOTE: we deliberately do NOT call `subscribe_events()` here.
+    // `subscribe_events` calls `window.with_webview(...)` which requires the
+    // webview's UI thread to be pumping messages. A hidden, off-screen window
+    // (created with `.visible(false)`) has no message pump running — `with_webview`
+    // queues the closure but nothing ever dispatches it, and the thread that
+    // called `subscribe_events` hangs.  Event subscription is instead handled
+    // lazily on first CDP command that needs events, or by `browser_embed_upsert`
+    // when the panel UI first shows the window (at which point the window is
+    // visible and its message pump is running).
+
+    // Register the embed entry so `browser_embed_upsert` from the panel UI
+    // finds the cached `cdp_ws_url` instead of computing a fresh one.
+    if let Some(port) = browser_cdp_server::current_http_port().checked_sub(0).filter(|p| *p > 0) {
+        let _ = app
+            .state::<BrowserEmbedState>()
+            .entries
+            .lock()
+            .map(|mut m| {
+                m.insert(
+                    sanitize_thread_key(thread_id),
+                    EmbedEntry {
+                        cdp_ws_url: format!("ws://127.0.0.1:{port}{CDP_WS_PATH}"),
+                    },
+                )
+            });
+    }
+
+    eprintln!(
+        "[browser-embed] auto-created hidden webview label={label} url={} (panel will show() on first upsert)",
+        target
+    );
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ensure_webview_for_cdp(
+    _app: &tauri::AppHandle,
+    _thread_id: &str,
+    _url: &str,
+) -> Result<(), String> {
+    Err("embedded browser requires WebView2 on Windows".into())
+}
+
 #[cfg(not(target_os = "windows"))]
 fn create_embed_window(
     _app: &tauri::AppHandle,

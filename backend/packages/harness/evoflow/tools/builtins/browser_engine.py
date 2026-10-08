@@ -30,6 +30,7 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import threading
 import time
 from typing import Any, Awaitable, Callable
@@ -79,27 +80,103 @@ def _cdp_modifier_mask(mod: str) -> int:
 # port, and call `POST /browser-cdp/command?thread_id=...&method=...` for every
 # CDP request.
 
-_EVOFLOW_DIR = os.path.expanduser("~/.evoflow")
+
+def _resolve_evoflow_dir() -> str:
+    """Mirror the Rust ``commands::evoflow_dir`` logic.
+
+    Rust honours ``EVOFLOW_CONFIG_DIR`` (dev/prod isolation); debug builds fall
+    back to ``~/.evoflow-dev``, release builds to ``~/.evoflow``. Without this
+    mirror the agent in debug mode can read a stale port file from an earlier
+    release session and the desktop in debug builds can never be reached.
+    """
+    env = os.environ.get("EVOFLOW_CONFIG_DIR")
+    if env:
+        return env
+    home = os.path.expanduser("~")
+    # Mirror Rust's ``#[cfg(debug_assertions)]`` branch: debug build writes to
+    # ``~/.evoflow-dev``. We can't read the Rust target from Python, so probe
+    # both: prefer the debug variant when it exists, otherwise the release
+    # variant. Both directories can coexist on the same machine (one per
+    # build profile), so this is purely a "which one is the desktop using now
+    # question."
+    debug_dir = os.path.join(home, ".evoflow-dev")
+    if os.path.isdir(debug_dir):
+        return debug_dir
+    return os.path.join(home, ".evoflow")
+
+
+_EVOFLOW_DIR = _resolve_evoflow_dir()
 _WV2_PORT_FILE = os.path.join(_EVOFLOW_DIR, "browser-cdp-http-port")
-_WV2_PORT_CACHE: dict[str, int] = {}
+_WV2_PORT_CACHE: dict[str, tuple[int, float]] = {}
 _WV2_PORT_LOCK = threading.Lock()
+_WV2_PORT_CACHE_TTL_SEC = 30.0  # re-probe at most every 30s
+
+
+def _probe_cdp_bridge(port: int, timeout: float = 0.4) -> bool:
+    """TCP-probe the bridge on 127.0.0.1:port.  We don't speak HTTP here, the
+    bridge will reject the unknown request — but as long as the kernel hands
+    the connection to a live socket, we know the bridge is up.  This stops the
+    agent from hammering a port left behind by an earlier, now-dead desktop
+    process (the file persists across restarts)."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def _read_browser_cdp_http_port() -> int | None:
-    """Read the CDP HTTP server port from the well-known file, with caching."""
+    """Read the CDP HTTP server port from the well-known file, with caching.
+
+    Cache key is the file mtime so that a re-bind (new port + new file content)
+    invalidates the cache; the TTL additionally bounds how stale the cache can
+    get.  A cached port is verified with a quick TCP connect before being
+    returned — if the cached port is dead we drop the cache entry and fall
+    through to a fresh read."""
     with _WV2_PORT_LOCK:
         cached = _WV2_PORT_CACHE.get("port")
-    if cached:
-        return cached
+        if cached is not None:
+            cached_port, cached_mtime = cached
+            if _probe_cdp_bridge(cached_port):
+                return cached_port
+            # cached port is dead — drop it and continue
+            _WV2_PORT_CACHE.pop("port", None)
     try:
-        if os.path.exists(_WV2_PORT_FILE):
-            with open(_WV2_PORT_FILE) as f:
-                port = int(f.read().strip())
-            with _WV2_PORT_LOCK:
-                _WV2_PORT_CACHE["port"] = port
-            return port
+        if not os.path.exists(_WV2_PORT_FILE):
+            return None
+        with open(_WV2_PORT_FILE) as f:
+            text = f.read().strip()
+        port = int(text)
+        # use file mtime as cache key so a restart-of-evoflow gets a new key
+        try:
+            mtime = os.path.getmtime(_WV2_PORT_FILE)
+        except OSError:
+            mtime = 0.0
+        # always verify with a TCP probe before honouring the file
+        if not _probe_cdp_bridge(port):
+            return None
+        with _WV2_PORT_LOCK:
+            # only cache if no fresher entry has been installed
+            existing = _WV2_PORT_CACHE.get("port")
+            if existing is None or existing[1] < mtime:
+                _WV2_PORT_CACHE["port"] = (port, mtime)
+        return port
     except Exception:
-        pass
+        return None
+
+
+async def _read_browser_cdp_http_port_async(
+    attempts: int = 3, interval: float = 0.3
+) -> int | None:
+    """Read the port with a small retry: the desktop app writes the file
+    *after* it binds the loopback listener, and the agent may be called
+    before that write has landed.  The retry is bounded so a real outage
+    surfaces a clear error rather than hanging the agent thread."""
+    for _ in range(attempts):
+        port = _read_browser_cdp_http_port()
+        if port:
+            return port
+        await asyncio.sleep(interval)
     return None
 
 
@@ -113,16 +190,16 @@ async def _dispatch_run(
     gateway talks to the WebView2; everything else in :mod:`browser_engine`
     translates ZCode-style commands into one of these calls.
     """
-    port = _read_browser_cdp_http_port()
+    port = await _read_browser_cdp_http_port_async()
     if not port:
         raise RuntimeError(
             "WebView2 CDP bridge not running. "
-            "Open the browser panel so the desktop app can start the bridge."
+            "Is the EvoFlow desktop app running and has it finished booting?"
         )
 
     url = f"http://127.0.0.1:{port}/browser-cdp/command"
     params_json = json.dumps(params or {})
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         resp = await client.post(
             url,
             params={"thread_id": tid, "method": method},
@@ -853,6 +930,26 @@ class BrowserEngine:
                 active=True,
             )],
         )
+
+    # -- ZCode parity: no multi-tab. These were left over from the Playwright
+    # era and the gateway's tab routes still call them.  Map them onto the
+    # single WebView2 so the toolbar / address bar never 500s.
+    async def _wv2_tabList(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        return await self._wv2_list(session, command)
+
+    async def _wv2_tabSelect(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        # Only one tab; selection is a no-op but we still echo the page state.
+        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+
+    async def _wv2_tabNew(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        url = str(command.get("url") or "").strip()
+        if url:
+            return await self._wv2_navigate(session, {"url": url})
+        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+
+    async def _wv2_tabClose(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        # No multi-tab — close is a no-op that returns the current page.
+        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
 
 
 # ---------------------------------------------------------------------------

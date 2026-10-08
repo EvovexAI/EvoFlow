@@ -175,6 +175,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     # Same rule: register on the event loop, not a worker thread.
                     register_extended_routers(app)
                     await asyncio.sleep(0)
+                    # H1 demo: v4 protocol projection endpoints (dev only).
+                    from app.gateway.router_registry import register_v4_demo_router
+
+                    register_v4_demo_router(app)
                     app.state.extended_routers_registered = True
                     app.state.startup_phase = "ready"
                     _st_log("extended routers registered")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import sys
 import time
 from typing import Any
@@ -188,7 +189,18 @@ def register_extended_routers(app: FastAPI) -> None:
     startup_mark("register_extended_routers.done", phase="routers", extra={"route_count": len(app.routes)})
 
 
+def register_v4_demo_router(app: FastAPI) -> None:
+    """H1 demo: v4 protocol projection endpoints.
+
+    仅在 ``EVOFLOW_V4_DEMO`` 环境变量开启时挂载；生产构建不会带。
+    """
+    if not bool(int(os.environ.get("EVOFLOW_V4_DEMO", "0"))):
+        return
+    _include_module_router(app, "app.gateway.v4_demo.routes", label="v4-demo")
+
+
 def register_gateway_routers(app: FastAPI) -> None:
     """Mount all API routers (dev / non-deferred startup)."""
     register_core_routers(app)
     register_extended_routers(app)
+    register_v4_demo_router(app)

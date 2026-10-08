@@ -46,12 +46,17 @@
   min-height: 0;
   min-width: 0;
   height: 100%;
+  /* 防内容把 chain 顶出 viewport (100dvh 兜底) */
+  max-height: min(100dvh - 48px, 100%);
+  overflow: hidden;
 }
 
 .react-chat-workspace--no-aside {
   flex: 1;
   min-width: 0;
   height: 100%;
+  max-height: min(100dvh - 48px, 100%);
+  overflow: hidden;
 }
 
 /* 全局左侧壳（与 #main-col 并排，DOM 在 #app 内） */
@@ -2951,6 +2956,11 @@ html[data-theme='dark'] .react-chat-history-item.active {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* 关键：必须 height:100% + 兜底 max-height，否则 chat 内容(包括 4161px 的 vlist)
+     会让 conversation-frame 撑出 viewport,把 main-body 高度抬到 viewport 之外,
+     最终 main-body 的 overflow:hidden 把底部 composer 裁掉/推下视口 */
+  height: 100%;
+  max-height: 100%;
   /* 默认：无边框，融入 chrome 背景 */
   background: var(--color-background);
   border-radius: 0;
@@ -2976,6 +2986,9 @@ html[data-theme='dark'] .react-chat-history-item.active {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* 防 chat 长内容把 main-col 撑出 viewport */
+  height: 100%;
+  max-height: 100%;
   /* 背景由外层 section 承接，main-col 本身透明 */
   background: transparent;
   position: relative;
@@ -2990,6 +3003,10 @@ html[data-theme='dark'] .react-chat-history-item.active {
 .react-chat-main-body {
   flex: 1;
   min-height: 0;
+  /* 强兜底：用 min(100dvh - 48px, 100%) 把 chain 顶死到「视口 - 顶栏」，
+     防止任何子级把 chain 撑出 viewport。父级 height:100% 在 chain 算对时生效,
+     算错时 dvh 兜底。 */
+  max-height: min(100dvh - 48px, 100%);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -3012,6 +3029,8 @@ html[data-theme='dark'] .react-chat-history-item.active {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 兜底：整列不能撑出视口 */
+  max-height: 100%;
 }
 
 /* 右侧栏/信息栏均未占用布局时：对话区必须铺满整行，杜绝右侧残留空白
@@ -10111,11 +10130,14 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   padding: 10px 12px;
   border-radius: 18px;
   border: 1px solid var(--input-border, rgba(148, 163, 184, 0.28));
   background: var(--input-bg, rgba(248, 250, 252, 0.85));
+  box-sizing: border-box;
+  /* 显示完整候选词菜单，但不允许超出底部区 */
+  max-height: 100%;
   transition:
     border-color 160ms ease,
     background-color 160ms ease;
@@ -10130,10 +10152,20 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   background: var(--input-bg-focused, rgba(255, 255, 255, 0.95));
 }
 
-/* shell 内：input-wrap 不要拉满竖向空间 */
+/* shell 内：input-wrap 占据剩余空间，让 textarea 撑满 */
 .react-chat-composer-shell > .react-chat-input-wrap {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* shell 内：toolbar 永远贴在 composer-shell 底部，绝不被压缩 */
+.react-chat-composer-shell > .react-chat-composer-toolbar {
+  flex: 0 0 auto;
+  min-height: 32px;
 }
 
 /* 工具栏：leading 左对齐 flex-1，trailing 右对齐 ml-auto */
@@ -10189,13 +10221,22 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 }
 
 .react-chat-input-wrap {
-  flex: 1;
+  /* 在 composer-shell column flex 中撑满剩余空间；textarea 在其内自适应 */
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
+}
+
+.react-chat-input-wrap > .react-chat-input {
+  flex: 1 1 auto;
+  min-height: 44px;
+  max-height: 100%;
+  height: auto;
 }
 
 .react-chat-icon-enhance-btn--floating {
@@ -10220,8 +10261,7 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 }
 
 .react-chat-input-wrap .react-chat-input {
-  /* 输入框在垂直布局里不要把 flex 拉满 */
-  flex: 0;
+  /* 默认继承 .react-chat-input 自身规则；在 composer-shell grid 中由子选择器再覆盖 */
 }
 
 .react-chat-processing-bar {
@@ -15012,7 +15052,9 @@ body.theme-dark .tool-approval-panel__confirm {
   flex-direction: column;
   position: relative;
   z-index: 10;
-  overflow: visible;
+  /* 防被内容撑破 - 让父级 chain 的 overflow:hidden 兜底裁掉 */
+  min-height: 0;
+  max-height: 100%;
 }
 
 .react-chat-bottom-area:hover,
