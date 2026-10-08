@@ -54,6 +54,36 @@ def _dispatch_browser_command(thread_id: str, command: dict[str, object]) -> dic
     engine = get_browser_engine()
     return engine.execute(thread_id, command, timeout=20.0)
 
+
+def _browser_route_payload(
+    thread_id: str,
+    result: dict[str, object],
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the standard response body for browser command/tab endpoints.
+
+    Includes ``stream_ws`` and ``page_url`` so the EvoPanel can connect the
+    live screencast after a user-initiated navigation or tab action. Without
+    these, the panel only knew about engine sessions through the AG-UI
+    browser-tool event stream, so a manual URL typed into the address bar
+    would not refresh the on-screen page.
+    """
+    from evoflow.tools.builtins.browser_stream import browser_live_ws_path
+
+    state = result.get("state") or {}
+    payload: dict[str, object] = {
+        "thread_id": thread_id,
+        "ok": True,
+        "state": state if isinstance(state, dict) else {},
+        "stream_ws": browser_live_ws_path(thread_id),
+        "page_url": str(state.get("url") or "") if isinstance(state, dict) else "",
+        "page_title": str(state.get("title") or "") if isinstance(state, dict) else "",
+    }
+    if extra:
+        for key, value in extra.items():
+            payload[key] = value
+    return payload
+
 _RESTART_MIN_INTERVAL_SEC = 2.0
 _restart_last_at: dict[str, float] = {}
 _restart_lock = threading.Lock()
@@ -241,7 +271,7 @@ async def browser_tabs_select_route(
     if not result.get("ok"):
         err = result.get("error") or {}
         raise HTTPException(status_code=500, detail=err.get("message") or "tabSelect failed")
-    return {"thread_id": thread_id, "ok": True, "state": result.get("state") or {}}
+    return _browser_route_payload(thread_id, result)
 
 
 @router.post(
@@ -258,7 +288,7 @@ async def browser_tabs_new_route(
     if not result.get("ok"):
         err = result.get("error") or {}
         raise HTTPException(status_code=500, detail=err.get("message") or "tabNew failed")
-    return {"thread_id": thread_id, "ok": True, "state": result.get("state") or {}}
+    return _browser_route_payload(thread_id, result)
 
 
 @router.post(
@@ -275,7 +305,7 @@ async def browser_tabs_close_route(
     if not result.get("ok"):
         err = result.get("error") or {}
         raise HTTPException(status_code=500, detail=err.get("message") or "tabClose failed")
-    return {"thread_id": thread_id, "ok": True, "state": result.get("state") or {}}
+    return _browser_route_payload(thread_id, result)
 
 
 @router.post(
@@ -392,8 +422,7 @@ async def browser_command_route(
     if not result.get("ok"):
         err = result.get("error") or {}
         raise HTTPException(status_code=500, detail=err.get("message") or f"{body.method} failed")
-    state = result.get("state") or {}
-    return {"thread_id": thread_id, "ok": True, "state": state}
+    return _browser_route_payload(thread_id, result)
 
 
 @router.get(

@@ -3,6 +3,7 @@
   Dispatch,
   DragEvent as ReactDragEvent,
   MouseEvent as ReactMouseEvent,
+  ReactNode,
   SetStateAction,
 } from 'react'
 import {
@@ -17,6 +18,7 @@ import {
   startTransition,
 } from 'react'
 import { createPortal, flushSync } from 'react-dom'
+import { ChevronDown, Folder, FolderOpen, PanelRightOpen, Share } from 'lucide-react'
 import {
   wsClient,
   enqueuePendingInject,
@@ -162,8 +164,8 @@ import {
   logToolApprovalUserAction,
 } from '../lib/tool-approval-trace.js'
 import { CollabExecutionPanel } from './components/CollabExecutionPanel.js'
+import { BrowserPanel } from './components/BrowserPanel.js'
 import { KnowledgeMapPanel } from './components/KnowledgeMapPanel.js'
-import { RightStageShell } from './components/RightStageShell.js'
 import { ChatSummaryPanel } from './components/ChatSummaryPanel.js'
 import {
   EmployeePane,
@@ -4857,6 +4859,8 @@ export default function ChatApp() {
   /** 技能选择 pill（多选弹窗） */
   const [bottomSkillOpen, setBottomSkillOpen] = useState(false)
   const [shareSessionOpen, setShareSessionOpen] = useState(false)
+  /** 顶栏「在资源管理器打开」成组按钮的下拉开合态。 */
+  const [workspaceFolderMenuOpen, setWorkspaceFolderMenuOpen] = useState(false)
   const [skillList, setSkillList] = useState<Array<{ name: string; label: string; description: string; icon: string; enabled?: boolean }>>([])
   const [skillListLoading, setSkillListLoading] = useState(false)
   const [selectedSkills, setSelectedSkills] = useState<SkillSelection[]>([])
@@ -12240,7 +12244,7 @@ export default function ChatApp() {
   const infoRailHeaderToggle = (
     <button
       type="button"
-      className={`react-chat-header-panel-btn${infoRailOpen ? ' is-active' : ''}`}
+      className={`react-chat-header-icon-btn${infoRailOpen ? ' is-active' : ''}`}
       title={
         isProactiveEmployeeSession
           ? obsEnabled
@@ -12254,7 +12258,7 @@ export default function ChatApp() {
       aria-label={infoRailOpen ? '关闭侧栏' : '打开侧栏'}
       onClick={toggleInfoRail}
     >
-      侧栏
+      <PanelRightOpen className="react-chat-header-icon" aria-hidden />
     </button>
   )
 
@@ -12482,8 +12486,8 @@ export default function ChatApp() {
     bumpSubtasksApiRefresh,
   ])
 
-  const renderRightStageLegacy = useCallback(
-    (surface: RightStageSurface) => {
+  const renderRightStageBody = useCallback(
+    (surface: RightStageSurface): ReactNode => {
       const kind = surface.kind
       if (kind === 'workspace-browse' || kind === 'write') {
         const writePreviewMode = kind === 'write'
@@ -12621,7 +12625,7 @@ export default function ChatApp() {
   const collabExecToggleButton = (
     <button
       type="button"
-      className={`react-chat-toggle-sidebar-btn react-chat-collab-exec-toggle-btn${
+      className={`react-chat-header-icon-btn react-chat-collab-exec-toggle-btn${
         collabExecPanelOpen ? ' is-active' : ''
       }${collabExecPanelCanShow ? '' : ' is-idle'}`}
       title={collabExecToggleTitle}
@@ -12688,7 +12692,7 @@ export default function ChatApp() {
   const browserToggleButton = (
     <button
       type="button"
-      className={`react-chat-toggle-sidebar-btn react-chat-browser-stage-toggle-btn${
+      className={`react-chat-header-icon-btn react-chat-browser-stage-toggle-btn${
         browserStageOpen ? ' is-active' : ''
       }`}
       title={browserToggleTitle}
@@ -12709,7 +12713,7 @@ export default function ChatApp() {
   const workspaceFolderToggleButton = (
     <button
       type="button"
-      className={`react-chat-toggle-sidebar-btn react-chat-workspace-folder-btn${
+      className={`react-chat-header-icon-btn react-chat-workspace-folder-btn${
         workspacePanelOpen ? ' is-active' : ''
       }`}
       title={workspaceFolderToggleTitle}
@@ -12717,11 +12721,76 @@ export default function ChatApp() {
       aria-pressed={workspacePanelOpen}
       onClick={toggleWorkspacePanel}
     >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-        <path d="M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H9l-2 2H4a1 1 0 00-1 1v11a1 1 0 001 1z" />
-      </svg>
+      <Folder className="react-chat-header-icon" aria-hidden />
     </button>
   )
+
+  /**
+   * ZCode 式成组按钮：主按钮直接「在资源管理器中打开」，右侧 chevron 弹下拉给出
+   * 「显示工作区文件」等次级入口。两键共享一个描边圆角容器。
+   */
+  const workspaceFolderGroup = (
+    <div className="react-chat-header-btn-group">      <button
+        type="button"
+        className="react-chat-header-icon-btn react-chat-header-btn-group-main"
+        data-tauri-no-drag
+        title="在资源管理器中打开工作区"
+        aria-label="在资源管理器中打开工作区"
+        onClick={() => {
+          void openCurrentWorkspaceInFileManager()
+        }}
+      >
+        <FolderOpen className="react-chat-header-icon" aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="react-chat-header-icon-btn react-chat-header-btn-group-more"
+        data-tauri-no-drag
+        title="选择打开方式"
+        aria-label="选择打开方式"
+        aria-haspopup="menu"
+        aria-expanded={workspaceFolderMenuOpen}
+        onClick={() => setWorkspaceFolderMenuOpen((v) => !v)}
+      >
+        <ChevronDown className="react-chat-header-icon react-chat-header-icon--xs" aria-hidden />
+      </button>
+      {workspaceFolderMenuOpen ? (
+        <>
+          {/* 点击遮罩关闭：不用 Radix 是为了避免为一处下拉再引依赖，
+              这里用透明遮罩 + z-index 达到同样效果，Esc 由下面的 onKeyDown 兜底。 */}
+          <div
+            className="react-chat-header-menu-scrim"
+            onClick={() => setWorkspaceFolderMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="react-chat-header-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="react-chat-header-menu-item"
+              onClick={() => {
+                setWorkspaceFolderMenuOpen(false)
+                toggleWorkspacePanel()
+              }}
+            >
+              <Folder className="react-chat-header-icon" aria-hidden />
+              <span>{workspaceFolderToggleTitle}</span>
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+
+  // 顶栏下拉：Esc 关闭。遮罩只处理点击，键盘用户需要这条通路。
+  useEffect(() => {
+    if (!workspaceFolderMenuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setWorkspaceFolderMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [workspaceFolderMenuOpen])
 
   const stageExtensionsToolbar = (
     <RightStageExtensionsToolbar
@@ -15021,23 +15090,9 @@ export default function ChatApp() {
               </>
             ) : isDesktopTauriRuntime() ? (
               <>
+                {/* ZCode 式顶栏：左区「工作区路径 + 标题 + 更多」整体 no-drag，
+                    中间留大片 drag 空白，右侧动作区与窗控各自成组。 */}
                 <div className="react-chat-header-toolbar" {...TAURI_HEADER_CELL_DRAG_PROPS}>
-                  <button
-                    type="button"
-                    className="react-chat-toggle-sidebar-btn"
-                    data-tauri-no-drag
-                    title="展开侧栏"
-                    aria-label="展开侧栏"
-                    onClick={() => {
-                      toggleShellAsideCollapsed()
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-                      <line x1="3" y1="6" x2="21" y2="6" />
-                      <line x1="3" y1="12" x2="21" y2="12" />
-                      <line x1="3" y1="18" x2="21" y2="18" />
-                    </svg>
-                  </button>
                   <div className="react-chat-header-session" data-tauri-no-drag>
                     {isHomeSurface ? null : (
                       <>
@@ -15062,25 +15117,24 @@ export default function ChatApp() {
                 <div className="react-chat-header-right" {...TAURI_HEADER_CELL_DRAG_PROPS}>
                   {isHomeSurface ? null : (
                   <div className="react-chat-header-product-actions" data-tauri-no-drag>
-                    <div className="react-chat-header-action-group react-chat-header-action-group--panels">
-                    {infoRailHeaderToggle}
-                    </div>
+                    {workspaceFolderGroup}
                     <span className="react-chat-header-action-sep" aria-hidden />
                     <div className="react-chat-header-action-group react-chat-header-action-group--global">
-                    <button
-                      type="button"
-                      className="react-chat-header-share-btn"
-                      title="分享"
-                      disabled={!selectedSessionKey || isHomeSurface}
-                      onClick={() => setShareSessionOpen(true)}
-                    >
-                      分享
-                    </button>
-                    {browserToggleButton}
-                    {collabExecToggleButton}
-                    {knowledgeMapEnabled ? knowledgeMapToggleButton : null}
-                    {stageExtensionsToolbar}
-                    {workspaceFolderToggleButton}
+                      <button
+                        type="button"
+                        className="react-chat-header-icon-btn react-chat-header-share-btn"
+                        title="分享"
+                        aria-label="分享"
+                        disabled={!selectedSessionKey || isHomeSurface}
+                        onClick={() => setShareSessionOpen(true)}
+                      >
+                        <Share className="react-chat-header-icon" aria-hidden />
+                      </button>
+                      {browserToggleButton}
+                      {collabExecToggleButton}
+                      {knowledgeMapEnabled ? knowledgeMapToggleButton : null}
+                      {stageExtensionsToolbar}
+                      {infoRailHeaderToggle}
                     </div>
                   </div>
                   )}
@@ -15905,12 +15959,19 @@ export default function ChatApp() {
               />
             ) : null}
             {rightStageOpen ? (
-              <RightStageShell
-                surface={rightStageSurface}
-                booting={!sidePanelHeavyMount && !!rightStageSurface}
-                bootTitle={rightStageSurface?.title}
-                onClose={closeRightStage}
-                renderLegacy={renderRightStageLegacy}
+              <BrowserPanel
+                isOpen
+                onClose={closeBrowserStage}
+                bodySlot={(activeKind) => {
+                  if (activeKind === 'browser') return null
+                  return renderRightStageBody({
+                    id: rightStageSurface?.id || 'primary',
+                    kind: activeKind as RightStageSurface['kind'],
+                    title: rightStageSurface?.title || activeKind,
+                    layout: 'wide',
+                    data: {},
+                  })
+                }}
               />
             ) : infoRailOpen && !isHomeSurface && selectedSessionKey && !isMobileChat ? (
               <ChatSummaryPanel
@@ -15947,8 +16008,6 @@ export default function ChatApp() {
                 capabilityBusy={capabilityPatchBusy}
                 onSwitchAgent={() => setBottomRoleOpen(true)}
                 onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
-                tokenTotals={headerTokenTotals}
-                contextUsage={displayContextUsage}
                 onAssetQuickAction={handleAssetQuickAction}
                 assetQuickBusy={assetQuickBusy}
                 artifacts={sessionArtifacts}

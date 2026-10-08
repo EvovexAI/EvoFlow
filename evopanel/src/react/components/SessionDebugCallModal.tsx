@@ -24,7 +24,6 @@ import {
   type ContentStats,
 } from '../obs/lib/obs-text-stats.js'
 import type { RequestRecord } from '../obs/types/index.js'
-import { splitSystemPromptSections } from '../lib/system-prompt-sections.js'
 
 type ModalTab =
   | 'tools'
@@ -60,7 +59,7 @@ function DebugTextPanel({
   )
 }
 
-/** 按组装 XML 块拆开系统提示词，便于对照员工/主对话拼装逻辑 */
+/** 系统提示词面板：默认（且仅）显示全文 */
 function DebugSystemPromptPanel({
   value,
   stats,
@@ -72,88 +71,19 @@ function DebugSystemPromptPanel({
 }) {
   const text = String(value || '').trim()
   const resolvedStats = resolveContentStats(stats, text)
-  const sections = useMemo(() => splitSystemPromptSections(text), [text])
-  const [mode, setMode] = useState<'sections' | 'full'>('sections')
-  const [openIds, setOpenIds] = useState<Record<string, boolean>>({})
-
-  useEffect(() => {
-    // 默认展开前 3 块，避免一次铺开过长
-    const next: Record<string, boolean> = {}
-    sections.slice(0, 3).forEach((s) => {
-      next[s.id] = true
-    })
-    setOpenIds(next)
-    setMode(sections.length > 1 ? 'sections' : 'full')
-  }, [text])
 
   if (!text) {
     return <div className="react-chat-session-debug-modal-empty">{emptyHint}</div>
   }
 
-  const showSections = mode === 'sections' && sections.length > 1
-
   return (
     <div className="react-chat-session-debug-modal-text-panel">
       <div className="react-chat-session-debug-system-toolbar">
         <ContentStatsBar stats={resolvedStats} />
-        {sections.length > 1 ? (
-          <div className="react-chat-session-debug-system-mode" role="group" aria-label="系统提示词视图">
-            <button
-              type="button"
-              className={showSections ? 'is-active' : ''}
-              onClick={() => setMode('sections')}
-            >
-              组装块 ({sections.length})
-            </button>
-            <button
-              type="button"
-              className={!showSections ? 'is-active' : ''}
-              onClick={() => setMode('full')}
-            >
-              全文
-            </button>
-          </div>
-        ) : null}
       </div>
-      {showSections ? (
-        <div className="react-chat-session-debug-system-sections">
-          {sections.map((sec) => {
-            const open = Boolean(openIds[sec.id])
-            const short = estimateTextStats(sec.text)
-            return (
-              <section key={sec.id} className="react-chat-session-debug-system-section">
-                <button
-                  type="button"
-                  className={`react-chat-session-debug-system-section-head${open ? ' is-open' : ''}`}
-                  aria-expanded={open}
-                  onClick={() =>
-                    setOpenIds((prev) => ({ ...prev, [sec.id]: !prev[sec.id] }))
-                  }
-                >
-                  <span className="react-chat-session-debug-system-section-title">
-                    {sec.label}
-                    {sec.tag && !sec.tag.startsWith('_') ? (
-                      <code className="react-chat-session-debug-system-section-tag">&lt;{sec.tag}&gt;</code>
-                    ) : null}
-                  </span>
-                  <span className="react-chat-session-debug-system-section-meta">
-                    {short ? fmtContentStatsShort(short) : ''}
-                  </span>
-                </button>
-                {open ? (
-                  <pre className="react-chat-session-debug-modal-pre react-chat-session-debug-modal-pre--compact">
-                    {sec.text}
-                  </pre>
-                ) : null}
-              </section>
-            )
-          })}
-        </div>
-      ) : (
-        <pre className="react-chat-session-debug-modal-pre react-chat-session-debug-modal-pre--fill">
-          {text}
-        </pre>
-      )}
+      <pre className="react-chat-session-debug-modal-pre react-chat-session-debug-modal-pre--fill">
+        {text}
+      </pre>
     </div>
   )
 }

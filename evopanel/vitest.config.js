@@ -144,6 +144,7 @@ export default defineConfig({
       'tests/ui-extension-manifest.test.js',
       'tests/markdown-document-view.test.js',
       'tests/decide-right-stage.test.js',
+      'tests/right-stage-tab-layout.test.ts',
       'tests/platform-feedback.test.js',
       'tests/permission-tier.test.js',
       'tests/chat-host-route-toggle.test.js',

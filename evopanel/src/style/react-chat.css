@@ -353,6 +353,8 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   align-items: center;
   gap: 7px;
   min-width: 0;
+  cursor: pointer;
+  user-select: none;
 }
 
 .react-chat-aside-brand-logo {
@@ -3926,9 +3928,9 @@ html.dark .browser-panel-debug-pane {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
   border-bottom: 1px solid var(--color-border);
   gap: 10px;
   flex-shrink: 0;
@@ -3938,12 +3940,12 @@ html.dark .browser-panel-debug-pane {
   background: var(--color-panel);
 }
 
-/* macOS 原生标题栏：顶栏加高、内容下移为交通灯让位（其它平台维持 38px） */
+/* macOS 原生标题栏：顶栏加高、内容下移为交通灯让位（其它平台维持 48px） */
 html.evopanel-macos-titlebar .react-chat-header {
   padding: 26px 12px 0;
-  height: 64px;
-  min-height: 64px;
-  max-height: 64px;
+  height: 74px;
+  min-height: 74px;
+  max-height: 74px;
 }
 
 .react-chat-header-session {
@@ -4608,9 +4610,9 @@ html.evopanel-macos-titlebar .react-chat-header {
   align-items: stretch;
   gap: 6px;
   justify-content: stretch;
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
   box-sizing: border-box;
   padding: 0 0 0 8px;
   background: var(--bg-primary, #f6f7fb);
@@ -4674,7 +4676,7 @@ html[data-custom-bg='1'] .react-chat-header--tauri-chrome {
   display: flex;
   align-items: center;
   min-width: 0;
-  min-height: 36px;
+  min-height: 44px;
   padding: 4px 10px;
   border-radius: 10px;
   cursor: default;
@@ -17305,7 +17307,7 @@ html.evopanel-macos-titlebar .settings-modal-error-banner {
 
 .react-chat-inline-reasoning-stream-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
   max-width: 100%;
@@ -18367,6 +18369,13 @@ html.dark .msg-tool--in-activity-fold {
   font-weight: 400;
   flex-shrink: 0;
   color: var(--text-tertiary, #9ca3af);
+}
+
+.msg-tool-file-type-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .msg-tool--in-activity-fold .msg-tool-item--in-fold .msg-tool-brief {
@@ -27505,14 +27514,17 @@ html.dark .react-chat-header-win-sep {
 
 .react-chat-header--tauri-chrome .react-chat-header-right .ep-window-controls {
   height: 100%;
-  align-self: stretch;
+  align-self: center;
 }
 
 .react-chat-header--tauri-chrome .react-chat-header-right .ep-window-controls-btn {
-  width: 46px;
-  min-width: 46px;
+  /* ZCode：窗控与动作键同尺寸圆角方钮，不再贴右做 46px 长条 */
+  width: 28px;
+  min-width: 28px;
   min-height: 0;
-  height: 100%;
+  height: 28px;
+  align-self: center;
+  border-radius: 8px;
   font-size: 13px;
 }
 
@@ -28829,9 +28841,9 @@ html.dark .meeting-view {
    ═══════════════════════════════════════════════════════════ */
 
 .react-chat-header {
-  height: 38px;
-  min-height: 38px;
-  max-height: 38px;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
   box-sizing: border-box;
   padding: 0 10px 0 8px;
   gap: 6px;
@@ -28840,11 +28852,11 @@ html.dark .meeting-view {
   background: var(--bg-primary, #f6f7fb);
 }
 
-/* macOS 原生标题栏：本文件后段第二次定义 .react-chat-header，需同步让位（其它平台维持 38px） */
+/* macOS 原生标题栏：本文件后段第二次定义 .react-chat-header，需同步让位（其它平台维持 48px） */
 html.evopanel-macos-titlebar .react-chat-header {
-  height: 64px;
-  min-height: 64px;
-  max-height: 64px;
+  height: 74px;
+  min-height: 74px;
+  max-height: 74px;
   padding: 26px 10px 0 8px;
 }
 
@@ -31184,6 +31196,71 @@ html[data-theme="dark"] .group\/user-row .msg-user-context-file-pill {
 .react-chat-browser-panel .browser-panel-tabchip-close:hover { opacity: 1; }
 .react-chat-browser-panel .browser-panel-tabstrip-spring { flex: 1 1 auto; }
 .react-chat-browser-panel .browser-panel-toolbar { position: relative; }
+
+/* 第 2 行：sub-tabs（搜索 / page chip / +），仅浏览器 surface 渲染。 */
+.react-chat-browser-panel .browser-panel-subtabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 8px;
+  gap: 4px;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.16));
+  background: var(--bg-secondary, #f8fafc);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+html.dark .react-chat-browser-panel .browser-panel-subtabs,
+html[data-theme='dark'] .react-chat-browser-panel .browser-panel-subtabs {
+  background: var(--bg-secondary, #111827);
+  border-bottom-color: var(--border, #374151);
+}
+
+/* 在 BrowserPanel 内嵌 surface（工作流 / 思维导图 / 工作区）时，
+   隐藏它们自己重复渲染的 header / title / 关闭按钮 —— tabstrip 已经统一了。 */
+.react-chat-browser-panel.is-override-surface .react-chat-collab-exec-panel-header,
+.react-chat-browser-panel.is-override-surface .react-chat-knowledge-map-panel-header,
+.react-chat-browser-panel.is-override-surface .react-chat-workspace-panel > header {
+  display: none !important;
+}
+
+/* 导航失败提示：地址栏提交后，后端报 500 / engine 还没起时显示。
+   只在浏览器 surface 下出现。 */
+.react-chat-browser-panel .browser-panel-nav-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--error-color, #dc2626) 12%, var(--bg-secondary, #fef2f2));
+  color: var(--error-color, #dc2626);
+  border-bottom: 1px solid color-mix(in srgb, var(--error-color, #dc2626) 25%, transparent);
+}
+html.dark .react-chat-browser-panel .browser-panel-nav-error,
+html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
+  background: color-mix(in srgb, #ef4444 18%, #1f2937);
+  color: #fca5a5;
+  border-bottom-color: color-mix(in srgb, #ef4444 30%, transparent);
+}
+.react-chat-browser-panel .browser-panel-nav-error-text { flex: 1 1 auto; min-width: 0; }
+.react-chat-browser-panel .browser-panel-nav-error .browser-panel-tb-btn { color: inherit; }
+/* 思维导图 / 工作流的空状态提示保留（用户切过去就是想看截图本体）。*/
+.react-chat-browser-panel.is-override-surface .react-chat-collab-exec-panel,
+.react-chat-browser-panel.is-override-surface .react-chat-knowledge-map-panel,
+.react-chat-browser-panel.is-override-surface .react-chat-workspace-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.react-chat-browser-panel.is-override-surface .react-chat-collab-exec-panel-body,
+.react-chat-browser-panel.is-override-surface .react-chat-workspace-panel,
+.react-chat-browser-panel.is-override-surface aside {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .react-chat-browser-panel .browser-panel-menu-backdrop {
   position: fixed;
   inset: 0;
@@ -31344,17 +31421,22 @@ html[data-theme="dark"] .group\/user-row .msg-user-context-file-pill {
   white-space: nowrap;
 }
 
-/* ===== ZCode 式侧栏标签条（多面板共存） ===== */
+/* ===== ZCode 式侧栏标签条（多面板共存） =====
+ * 高度对齐 zcode h-12（48px）；tab 走「基准 156px 等宽弹性 → 60px 下限」，
+ * 空间不足时平均收缩而非让长标题独占宽度；再不足才出现横向滚动。 */
 .react-chat-stage-tabs {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  height: 40px;
-  padding: 0 6px;
+  height: 48px;
+  padding: 0 8px;
   gap: 4px;
   background: var(--bg-secondary, #f8fafc);
   border-bottom: 1px solid var(--border, #e5e7eb);
   overflow: hidden;
+  /* Tauri 无边框：标签条兼作窗口拖拽区，可交互子节点各自打 data-tauri-no-drag */
+  user-select: none;
+  -webkit-user-select: none;
 }
 html[data-theme='dark'] .react-chat-stage-tabs,
 html.dark .react-chat-stage-tabs {
@@ -31374,8 +31456,10 @@ html.dark .react-chat-stage-tabs {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  max-width: 12rem;
+  /* 基准 156px（9.75rem）可 grow/shrink，60px 触底后才交给外层滚动 */
+  flex: 1 1 156px;
+  min-width: 60px;
+  max-width: 156px;
   height: 28px;
   padding: 0 6px 0 8px;
   border: 1px solid transparent;
@@ -31386,6 +31470,7 @@ html.dark .react-chat-stage-tabs {
   font-weight: 500;
   white-space: nowrap;
   cursor: default;
+  overflow: hidden;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 .react-chat-stage-tab:hover { color: var(--text-primary, inherit); }
@@ -31405,11 +31490,31 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   align-items: center;
   justify-content: center;
 }
-.react-chat-stage-tab-title {
+/* 标题层：不做硬省略，改用 mask 渐隐；
+ * --tab-fade-offset 由 active/hover 抬到 1.25rem，给右侧关闭按钮让出淡出带。 */
+.react-chat-stage-tab-content {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right,
+    black calc(100% - var(--tab-fade-offset, 0px) - 0.5rem),
+    transparent calc(100% - var(--tab-fade-offset, 0px)));
+  mask-image: linear-gradient(to right,
+    black calc(100% - var(--tab-fade-offset, 0px) - 0.5rem),
+    transparent calc(100% - var(--tab-fade-offset, 0px)));
+}
+.react-chat-stage-tab-content > .react-chat-stage-tab-title {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.react-chat-stage-tab.is-active,
+.react-chat-stage-tab:hover,
+.react-chat-stage-tab:focus-within {
+  --tab-fade-offset: 1.25rem;
 }
 .react-chat-stage-tab .react-chat-stage-tab-close {
   display: inline-flex;
@@ -31436,4 +31541,228 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
 .react-chat-stage-tab .react-chat-stage-tab-close:hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.14));
   opacity: 1;
+}
+
+/* ── 新建 / 收起按钮：此前无任何样式定义，裸 button 会露 UA 默认外观 ── */
+.react-chat-stage-tab-new,
+.react-chat-stage-tab-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.react-chat-stage-tab-new:hover,
+.react-chat-stage-tab-collapse:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.14));
+  color: var(--text-primary, inherit);
+}
+
+/* 窗控容器：此前无高度，.ep-window-controls-btn 的 height:100% 会解析成 0 而塌陷 */
+.react-chat-stage-tab-win {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  height: 100%;
+}
+/* 标签条只 48px，窗控按钮宽度比主 chrome（46px）收窄，保证 tab 有可用空间 */
+.react-chat-stage-tab-win .ep-window-controls-btn {
+  width: 40px;
+  min-width: 40px;
+}
+
+/* 溢出渐隐：滚到两端时对应侧不显示，避免「像还能继续滚」的错觉 */
+.react-chat-stage-tabs-viewport[data-overflow-left='true'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 100%);
+}
+.react-chat-stage-tabs-viewport[data-overflow-right='true'] {
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 16px), transparent 100%);
+}
+.react-chat-stage-tabs-viewport[data-overflow-left='true'][data-overflow-right='true'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+}
+
+/* 条外固定区（+ / 收起 / 窗控）：溢出时「+」搬到这里，宽度全让给 tab */
+.react-chat-stage-tabs-tail {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+
+/* 拖拽中：原位降低不透明度并抬起，浮层负责真实位移 */
+.react-chat-stage-tab.is-dragging {
+  cursor: grabbing;
+}
+.react-chat-stage-tab.is-dragging-overlay {
+  width: 156px;
+  min-width: 156px;
+  max-width: 156px;
+  cursor: grabbing;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
+}
+
+/* ══════════════════════════════════════════════════════════
+ * ZCode 式顶栏动作区
+ * 结构：左「路径+标题+更多」no-drag / 中 drag 空白 / 右动作组 + 窗控
+ * 全部动作键统一 28px(size-7) 方钮 + 8px 圆角，与 ZCode 一致。
+ * ══════════════════════════════════════════════════════════ */
+.react-chat-header-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-primary, currentColor);
+  stroke-width: 1.5;
+}
+.react-chat-header-icon--xs { width: 14px; height: 14px; }
+
+.react-chat-header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary, inherit);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.react-chat-header-icon-btn:hover:not(:disabled) {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+  color: var(--text-primary, inherit);
+}
+.react-chat-header-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.react-chat-header-icon-btn.is-active {
+  background: var(--bg-selected, var(--bg-hover, rgba(127, 127, 127, 0.14)));
+}
+.react-chat-header-icon-btn:focus-visible {
+  outline: 2px solid var(--accent, #6366f1);
+  outline-offset: 1px;
+}
+
+/* 分享键在禁用态保留与图标键一致的占位，避免顶栏随会话状态左右跳动 */
+.react-chat-header-share-btn { margin-left: 10px; }
+
+/* 成组按钮（主键 + 下拉键共享描边容器） */
+.react-chat-header-btn-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-input, transparent);
+  overflow: visible;
+}
+.react-chat-header-btn-group:hover { border-color: var(--border-hover, var(--border)); }
+.react-chat-header-btn-group .react-chat-header-icon-btn {
+  border-radius: 0;
+  border: none;
+}
+.react-chat-header-btn-group .react-chat-header-btn-group-main { border-radius: 7px 0 0 7px; }
+.react-chat-header-btn-group .react-chat-header-btn-group-more {
+  width: 20px;
+  min-width: 20px;
+  border-left: 1px solid var(--border, #e5e7eb);
+  border-radius: 0 7px 7px 0;
+  color: var(--text-secondary, #6b7280);
+}
+
+/* 顶栏下拉：透明遮罩 + 浮层菜单 */
+.react-chat-header-menu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.react-chat-header-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 31;
+  min-width: 180px;
+  padding: 4px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--bg-primary, #fff);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+.react-chat-header-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary, inherit);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.react-chat-header-menu-item:hover { background: var(--bg-hover, rgba(127, 127, 127, 0.12)); }
+.react-chat-header-menu-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窗控键：与动作键同尺寸的圆角方钮（ZCode 不做贴边长条） */
+.ep-window-controls-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  align-self: center;
+  border-radius: 8px;
+  color: var(--text-primary, inherit);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.ep-window-controls-btn:hover { background: var(--bg-hover, rgba(127, 127, 127, 0.12)); }
+.ep-window-controls-btn--close:hover {
+  background: var(--destructive, #dc2626);
+  color: #fff;
+}
+.ep-window-controls-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+/* 顶栏右侧区：动作键 + 窗控之间留 0.5 单位缝，整体贴右不换行 */
+.react-chat-header--tauri-chrome > .react-chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+.react-chat-header--tauri-chrome .ep-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  margin-left: 4px;
 }

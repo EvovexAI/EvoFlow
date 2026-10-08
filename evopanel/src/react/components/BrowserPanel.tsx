@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import {
   browserEmbedClose,
   browserEmbedSetBounds,
@@ -29,9 +29,12 @@ import {
 } from '../../lib/browser-viewport-client.js'
 import {
   getBrowserRuntimeSnapshot,
+  applyBrowserCommandResponse,
   setBrowserTabs,
   subscribeBrowserRuntime,
 } from '../../lib/browser-panel-store.js'
+import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
+import { normalizeRightStageKind } from '../../lib/right-stage/right-stage-types.js'
 import {
   clearBrowserDebug,
   dbgLog,
@@ -478,47 +481,99 @@ function faviconUrlFor(url: string): string | null {
   }
 }
 
-function BrowserTabChipInner({
+type SurfaceTabKind = 'browser' | 'collab-workflow' | 'mind-map'
+
+interface SurfaceTabRender {
+  key: string
+  kind: SurfaceTabKind
+  /** engineIndex: -2 = home chip，-1 = 占位 / surface tab，>=0 = 浏览器引擎 tab。 */
+  engineIndex: number
+  title: string
+  url: string
+  active: boolean
+  /** 标识是不是 non-browser surface（工作流 / 思维导图），关闭按钮的行为不同。 */
+  isSurface?: boolean
+  /** 标识是不是浏览器 home chip：永远存在，不可拖拽，无关闭按钮。 */
+  isHome?: boolean
+}
+
+function SurfaceIcon({ kind }: { kind: SurfaceTabKind }) {
+  if (kind === 'collab-workflow') {
+    return (
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <rect x="3" y="3" width="6" height="6" rx="1" />
+        <rect x="15" y="3" width="6" height="6" rx="1" />
+        <rect x="3" y="15" width="6" height="6" rx="1" />
+        <rect x="15" y="15" width="6" height="6" rx="1" />
+        <path d="M9 6h6M9 18h6M6 9v6M18 9v6" />
+      </svg>
+    )
+  }
+  if (kind === 'mind-map') {
+    return (
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <circle cx="12" cy="12" r="3" />
+        <circle cx="4" cy="5" r="2" />
+        <circle cx="20" cy="5" r="2" />
+        <circle cx="4" cy="19" r="2" />
+        <circle cx="20" cy="19" r="2" />
+        <path d="M11 10 6 7M13 10l5-3M11 14l-5 3M13 14l5 3" />
+      </svg>
+    )
+  }
+  // browser fallback (shouldn't really happen — surfaceTabs for browser always has a favicon URL)
+  return (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+      <path d="M2 12h20" />
+    </svg>
+  )
+}
+
+function SurfaceTabChipInner({
   tab,
-  engineIndex,
-  active,
-  draggable,
   onSelect,
   onClose,
+  onCloseWebTab,
+  onSelectWebTab,
   onDragStartChip,
   onDragOverChip,
   onDropChip,
 }: {
-  tab: { url: string; title: string }
-  engineIndex: number
-  active: boolean
-  draggable: boolean
-  onSelect: (engineIndex: number) => void
-  onClose: (engineIndex: number) => void
+  tab: SurfaceTabRender
+  onSelect: (kind: SurfaceTabKind) => void
+  onClose: (kind: SurfaceTabKind) => void
+  onCloseWebTab: (engineIndex: number) => void
+  onSelectWebTab: (engineIndex: number) => void
   onDragStartChip: (engineIndex: number) => void
   onDragOverChip: (engineIndex: number) => void
   onDropChip: () => void
 }) {
+  const isWebTab = !tab.isSurface && !tab.isHome
+  const isHomeChip = !!tab.isHome
   const [faviconFailed, setFaviconFailed] = useState(false)
-  const favSrc = faviconUrlFor(tab.url)
-  const label = tab.title || tab.url || '标签页'
+  const favSrc = isWebTab ? faviconUrlFor(tab.url) : ''
+  const label = tab.title
+  const draggable = isWebTab
   return (
     <div
-      className={`browser-panel-tabchip${active ? ' is-active' : ''}`}
+      className={`browser-panel-tabchip${tab.active ? ' is-active' : ''}${tab.isSurface ? ' is-surface' : ''}`}
       title={tab.url || undefined}
-      role="button"
+      role="tab"
       tabIndex={0}
+      aria-selected={tab.active}
       draggable={draggable}
       onDragStart={(e) => {
         if (!draggable) return
         e.dataTransfer.effectAllowed = 'move'
-        e.dataTransfer.setData('text/plain', String(engineIndex))
-        onDragStartChip(engineIndex)
+        e.dataTransfer.setData('text/plain', String(tab.engineIndex))
+        onDragStartChip(tab.engineIndex)
       }}
       onDragOver={(e) => {
         if (!draggable) return
         e.preventDefault()
-        onDragOverChip(engineIndex)
+        onDragOverChip(tab.engineIndex)
       }}
       onDrop={(e) => {
         if (!draggable) return
@@ -526,47 +581,65 @@ function BrowserTabChipInner({
         onDropChip()
       }}
       onClick={() => {
-        if (!active) onSelect(engineIndex)
+        if (!tab.active) {
+          if (isWebTab) onSelectWebTab(tab.engineIndex)
+          else onSelect(tab.kind)
+        }
       }}
       onKeyDown={(e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && !active) {
+        if ((e.key === 'Enter' || e.key === ' ') && !tab.active) {
           e.preventDefault()
-          onSelect(engineIndex)
+          if (isWebTab) onSelectWebTab(tab.engineIndex)
+          else onSelect(tab.kind)
         }
       }}
     >
       <span className="browser-panel-tabchip-icon" aria-hidden="true">
-        {favSrc && !faviconFailed ? (
-          <img
-            src={favSrc}
-            alt=""
-            className="browser-panel-tabchip-favicon"
-            draggable={false}
-            referrerPolicy="no-referrer"
-            onError={() => setFaviconFailed(true)}
-          />
+        {isWebTab ? (
+          favSrc && !faviconFailed ? (
+            <img
+              src={favSrc}
+              alt=""
+              className="browser-panel-tabchip-favicon"
+              draggable={false}
+              referrerPolicy="no-referrer"
+              onError={() => setFaviconFailed(true)}
+            />
+          ) : (
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+              <path d="M2 12h20" />
+            </svg>
+          )
         ) : (
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>
+          <SurfaceIcon kind={tab.kind} />
         )}
       </span>
       <span className="browser-panel-tabchip-title">{label}</span>
-      <button
-        type="button"
-        className="browser-panel-tabchip-close"
-        title="关闭标签页"
-        aria-label={`关闭 ${label}`}
-        onClick={(e) => {
-          e.stopPropagation()
-          onClose(engineIndex)
-        }}
-      >
-        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
-      </button>
+      {!isHomeChip ? (
+        <button
+          type="button"
+          className="browser-panel-tabchip-close"
+          title={isWebTab ? '关闭标签页' : '关闭视图'}
+          aria-label={`关闭 ${label}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isWebTab) onCloseWebTab(tab.engineIndex)
+            else onClose(tab.kind)
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      ) : null}
     </div>
   )
 }
 
-const BrowserTabChip = memo(BrowserTabChipInner)
+const SurfaceTabChip = memo(SurfaceTabChipInner)
 
 function readEmbedBounds(el: HTMLElement | null) {
   if (!el) return null
@@ -1047,6 +1120,12 @@ export type BrowserPanelProps = {
   sharedBrowser?: boolean
   browserMode?: 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
   onClose: () => void
+  /**
+   * 当右栏外壳切换到非浏览器 surface（工作流 / 思维导图 / 工作区等）时，
+   * 通过 bodySlot 注入替代内容，浏览器 chrome + page-tabs 自动隐藏，
+   * BrowserStageTabstrip 仍保留作为顶层切换条。
+   */
+  bodySlot?: ReactNode | ((activeKind: string) => ReactNode)
 }
 
 export const BrowserPanel = memo(function BrowserPanel({
@@ -1058,6 +1137,7 @@ export const BrowserPanel = memo(function BrowserPanel({
   sharedBrowser = false,
   browserMode,
   onClose,
+  bodySlot,
 }: BrowserPanelProps) {
   const runtime = useSyncExternalStore(subscribeBrowserRuntime, getBrowserRuntimeSnapshot)
   // Props win when a parent provides them; runtime store feeds the standalone right-stage mount.
@@ -1185,25 +1265,70 @@ export const BrowserPanel = memo(function BrowserPanel({
   )
 
   const [navBusy, setNavBusy] = useState(false)
+  const [navError, setNavError] = useState('')
   const handleNavigate = useCallback(
     async (url: string) => {
       const tid = effectiveThreadId
-      if (!tid || navBusy) return
+      if (navBusy) return
+      if (!tid) {
+        // No engine session yet. The address bar is wired to the active chat
+        // session's browser engine, so the user must either (a) ask the agent
+        // to open a page or (b) wait for one to appear. Without that, any
+        // navigation we POST will 503.
+        setNavError(
+          '浏览器会话未启动：请先在聊天中让 agent 打开一个页面，地址栏会随后可用。',
+        )
+        dbgLog('[browser-panel] navigate aborted: no effectiveThreadId')
+        return
+      }
       setNavBusy(true)
+      setNavError('')
       try {
-        await sendBrowserCommand(tid, 'navigate', url)
+        // If the engine has no tab yet, open one first so navigate has a target.
+        // Engine sessions are created lazily on tabNew; without this guard the
+        // backend raises 500 and the user sees a silent failure in the address
+        // bar (input still shows the typed URL, page never loads).
+        const tabsBefore = runtime.tabs.length
+        let result = null
+        if (tabsBefore <= 0) {
+          result = await newBrowserTab(tid, url)
+          if (result) {
+            // Force a refresh so the new tab shows up in the tabstrip quickly.
+            setRefreshNonce((n) => n + 1)
+          }
+        } else {
+          result = await sendBrowserCommand(tid, 'navigate', url)
+        }
+        if (!result) {
+          setNavError(`导航失败：浏览器会话未建立（thread=${tid.slice(0, 8)}）。可点击工具栏的 ⟳ 重试。`)
+          return
+        }
+        applyBrowserCommandResponse({
+          threadId: result.threadId || tid,
+          pageUrl: result.pageUrl,
+          pageTitle: result.pageTitle,
+          streamWs: result.streamWs,
+        })
       } finally {
         setNavBusy(false)
       }
     },
-    [effectiveThreadId, navBusy],
+    [effectiveThreadId, navBusy, runtime.tabs.length],
   )
   const handleBack = useCallback(async () => {
     const tid = effectiveThreadId
     if (!tid || navBusy) return
     setNavBusy(true)
     try {
-      await sendBrowserCommand(tid, 'back')
+      const result = await sendBrowserCommand(tid, 'back')
+      if (result) {
+        applyBrowserCommandResponse({
+          threadId: result.threadId || tid,
+          pageUrl: result.pageUrl,
+          pageTitle: result.pageTitle,
+          streamWs: result.streamWs,
+        })
+      }
     } finally {
       setNavBusy(false)
     }
@@ -1213,7 +1338,15 @@ export const BrowserPanel = memo(function BrowserPanel({
     if (!tid || navBusy) return
     setNavBusy(true)
     try {
-      await sendBrowserCommand(tid, 'forward')
+      const result = await sendBrowserCommand(tid, 'forward')
+      if (result) {
+        applyBrowserCommandResponse({
+          threadId: result.threadId || tid,
+          pageUrl: result.pageUrl,
+          pageTitle: result.pageTitle,
+          streamWs: result.streamWs,
+        })
+      }
     } finally {
       setNavBusy(false)
     }
@@ -1286,6 +1419,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       const tid = effectiveThreadId
       if (!tid) return
       if (await selectBrowserTab(tid, index)) {
+        applyBrowserCommandResponse({ threadId: tid })
         setRefreshNonce((n) => n + 1)
       }
     },
@@ -1294,7 +1428,16 @@ export const BrowserPanel = memo(function BrowserPanel({
   const handleNewTab = useCallback(async () => {
     const tid = effectiveThreadId
     if (!tid) return
-    if (await newBrowserTab(tid)) setRefreshNonce((n) => n + 1)
+    const result = await newBrowserTab(tid)
+    if (result) {
+      applyBrowserCommandResponse({
+        threadId: result.threadId || tid,
+        pageUrl: result.pageUrl,
+        pageTitle: result.pageTitle,
+        streamWs: result.streamWs,
+      })
+      setRefreshNonce((n) => n + 1)
+    }
   }, [effectiveThreadId])
   const handleCloseTab = useCallback(
     async (index: number) => {
@@ -1437,18 +1580,96 @@ export const BrowserPanel = memo(function BrowserPanel({
   const showStreamPreviewLabel = showSharedBrowserHint && hasStream
   const zoomVisible = hasStream && !useEmbeddedBrowser
 
+  // 当前激活的 surface kind —— BrowserPanel 现在是右栏外壳，
+  // body 根据 kind 切换：browser → webview/流，其他 kind → ChatApp 注入的 bodySlot。
+  const activeKind = useSyncExternalStore(
+    (cb) => rightStageStore.subscribe(cb),
+    () => normalizeRightStageKind(String(rightStageStore.getSnapshot().surface?.kind || '')),
+  )
+  const isBrowserSurface = activeKind === 'browser'
+  const overrideBody =
+    !isBrowserSurface && bodySlot
+      ? typeof bodySlot === 'function'
+        ? bodySlot(activeKind)
+        : bodySlot
+      : null
+
+  // 统一标签页列表：浏览器 home chip 永远在最左，surface tabs 紧随其后，浏览器引擎页面排在右。
+  // 「切 surface」等价于「切标签页」——同一套 BrowserTabChip 渲染。
+  // 浏览器引擎没启动时，web tab 列表为空 —— + / × 都藏起来。
+  const surfaceTabs = useMemo(() => {
+    const list: SurfaceTabRender[] = []
+    // 1) 浏览器 home chip —— 永远在左。代表"浏览器 surface"。它不属于 web tab 列表。
+    list.push({
+      key: 'surface-browser',
+      kind: 'browser' as const,
+      engineIndex: -2, // sentinel: 表示这是 home chip，不是引擎 tab
+      title: '浏览器',
+      url: '',
+      active: isBrowserSurface,
+      isHome: true,
+    })
+    // 2) surface tabs
+    list.push({
+      key: 'surface-collab-workflow',
+      kind: 'collab-workflow' as const,
+      engineIndex: -1,
+      title: '工作流',
+      url: '',
+      active: activeKind === 'collab-workflow',
+      isSurface: true,
+    })
+    list.push({
+      key: 'surface-mind-map',
+      kind: 'mind-map' as const,
+      engineIndex: -1,
+      title: '思维导图',
+      url: '',
+      active: activeKind === 'mind-map',
+      isSurface: true,
+    })
+    // 3) 浏览器引擎里的 web tabs —— 只有引擎活跃（有 stream / embedded）时才显示。
+    if (hasStream) {
+      tabsForRender.forEach(({ engineIndex, tab }) => {
+        list.push({
+          key: `ws-tab-${engineIndex}`,
+          kind: 'browser' as const,
+          engineIndex,
+          title: tab.title || tab.url || '新标签页',
+          url: tab.url || '',
+          active: engineIndex < 0 ? false : Boolean(runtime.tabs[engineIndex]?.active),
+        })
+      })
+    }
+    return list
+  }, [tabsForRender, runtime.tabs, activeKind, isBrowserSurface, hasStream])
+
+  const handleSelectSurface = useCallback(
+    (kind: 'browser' | 'collab-workflow' | 'mind-map') => {
+      if (kind === 'browser') {
+        rightStageStore.show({ kind: 'browser', id: 'primary', title: '浏览器', layout: 'wide', data: {} })
+        return
+      }
+      const title = kind === 'collab-workflow' ? '工作流' : '思维导图'
+      rightStageStore.show({ kind, id: 'primary', title, layout: 'wide', data: {} })
+    },
+    [],
+  )
+
   return (
     <aside
       className={`react-chat-collab-exec-panel react-chat-right-stage-panel react-chat-browser-panel${
         operating ? ' is-agent-operating' : ''
-      }`}
+      }${isBrowserSurface ? ' is-browser-surface' : ' is-override-surface'}`}
       role="region"
       aria-label="Browser"
     >
-      <div className="browser-panel-tabstrip">
+      {/* 唯一一行标签条 —— 一套机制：所有标签页（surface + 浏览器内多个页面）都通过 BrowserTabChip 渲染。 */}
+      <div className="browser-panel-subtabs" role="tablist" aria-label="标签页">
         <button
           type="button"
           className={`browser-panel-tb-btn${tabSearchOpen ? ' is-pressed' : ''}`}
+          data-tauri-no-drag
           title="搜索标签页"
           aria-label="搜索标签页"
           aria-haspopup="menu"
@@ -1457,94 +1678,151 @@ export const BrowserPanel = memo(function BrowserPanel({
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m7 6 5 5 5-5" /><path d="m7 13 5 5 5-5" /></svg>
         </button>
-        {tabsForRender.map(({ engineIndex, tab }) => (
-          <BrowserTabChip
-            key={engineIndex >= 0 ? runtime.tabs[engineIndex]?.tabId || `tab-${engineIndex}` : 'tab-current'}
-            tab={tab}
-            engineIndex={engineIndex}
-            active={engineIndex < 0 ? true : Boolean(runtime.tabs[engineIndex]?.active)}
-            draggable={runtime.tabs.length > 1}
-            onSelect={(i) => {
-              if (i >= 0) void handleSelectTab(i)
+
+        {surfaceTabs.map((surfaceTab) => (
+          <SurfaceTabChip
+            key={surfaceTab.key}
+            tab={surfaceTab}
+            onSelect={(kind) => handleSelectSurface(kind)}
+            onClose={(kind) => {
+              if (kind === 'browser') {
+                // 关闭浏览器 surface 不允许（必须切换到另一个 surface）
+                return
+              }
+              // 关闭工作流/思维导图 surface = 切回浏览器
+              rightStageStore.show({ kind: 'browser', id: 'primary', title: '浏览器', layout: 'wide', data: {} })
             }}
-            onClose={(i) => {
-              if (i >= 0) void handleCloseTab(i)
-            }}
+            onCloseWebTab={(engineIndex) => void handleCloseTab(engineIndex)}
+            onSelectWebTab={(engineIndex) => void handleSelectTab(engineIndex)}
             onDragStartChip={handleTabDragStart}
             onDragOverChip={handleTabDragOver}
             onDropChip={handleTabDrop}
           />
         ))}
-        <button
-          type="button"
-          className="browser-panel-tb-btn"
-          title="新建标签页"
-          aria-label="新建标签页"
-          onClick={() => void handleNewTab()}
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M5 12h14" /><path d="M12 5v14" /></svg>
-        </button>
+
+        {hasStream ? (
+          <button
+            type="button"
+            className="browser-panel-tb-btn"
+            title="新建浏览器标签页"
+            aria-label="新建浏览器标签页"
+            onClick={() => void handleNewTab()}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+          </button>
+        ) : null}
+
         <span className="browser-panel-tabstrip-spring" aria-hidden="true"></span>
+
         <button
           type="button"
           className="browser-panel-tb-btn"
-          title="收起浏览器面板"
-          aria-label="收起浏览器面板"
+          data-tauri-no-drag
+          title="收起侧栏面板"
+          aria-label="收起侧栏面板"
           onClick={onClose}
         >
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M15 3v18" /><path d="m8 9 3 3-3 3" /></svg>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M15 3v18" />
+            <path d="m8 9 3 3-3 3" />
+          </svg>
         </button>
-        {tabSearchOpen ? (
-          <>
-            <div className="browser-panel-menu-backdrop" onClick={() => setTabSearchOpen(false)} aria-hidden="true"></div>
-            <div className="browser-panel-menu browser-panel-tabsearch" role="menu" aria-label="标签页列表">
-              <div className="browser-panel-menu-title">打开的标签页</div>
-              {tabsForRender.map(({ engineIndex, tab }) => (
-                <button
-                  key={engineIndex >= 0 ? runtime.tabs[engineIndex]?.tabId || `tab-${engineIndex}` : 'tab-current'}
-                  type="button"
-                  className="browser-panel-menu-item"
-                  onClick={() => {
-                    if (engineIndex >= 0) void handleSelectTab(engineIndex)
-                    setTabSearchOpen(false)
-                  }}
-                >
-                  <span className="browser-panel-menu-item-label">{tab.title || tab.url || '标签页'}</span>
-                  <span className="browser-panel-menu-item-hint">{tab.url ? new URL(tab.url).hostname : ''}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        ) : null}
       </div>
-      <BrowserChromeBar
-        pageUrl={effectivePageUrl}
-        streamStatus={useEmbeddedBrowser ? 'live' : streamStatus}
-        refreshBusy={refreshBusy}
-        canRefresh={hasStream}
-        zoom={zoom}
-        zoomVisible={zoomVisible}
-        viewportBusy={viewportBusy}
-        activePreset={activePreset}
-        onPresetChange={(id, size) => void applyViewport(size, id)}
-        viewport={viewport}
-        onViewportSizeChange={(size) => void applyViewport(size, 'custom')}
-        onNavigate={(url) => void handleNavigate(url)}
-        onBack={() => void handleBack()}
-        onForward={() => void handleForward()}
-        navBusy={navBusy}
-        onZoomChange={setZoom}
-        onRefresh={() => void handleRefresh()}
-        onClose={onClose}
-        debugOpen={debugOpen}
-        onToggleDebug={() => {
-          setDebugOpen((prev) => {
-            const next = !prev
-            if (next) dbgLog('[browser-panel] debug log opened')
-            return next
-          })
-        }}
-      />
+
+      {/* chrome —— 仅浏览器 surface 渲染。其它 surface body 不渲染 chrome，避免空地址栏。 */}
+      {isBrowserSurface ? (
+        <BrowserChromeBar
+          pageUrl={effectivePageUrl}
+          streamStatus={useEmbeddedBrowser ? 'live' : streamStatus}
+          refreshBusy={refreshBusy}
+          canRefresh={hasStream}
+          zoom={zoom}
+          zoomVisible={zoomVisible}
+          viewportBusy={viewportBusy}
+          activePreset={activePreset}
+          onPresetChange={(id, size) => void applyViewport(size, id)}
+          viewport={viewport}
+          onViewportSizeChange={(size) => void applyViewport(size, 'custom')}
+          onNavigate={(url) => void handleNavigate(url)}
+          onBack={() => void handleBack()}
+          onForward={() => void handleForward()}
+          navBusy={navBusy}
+          onZoomChange={setZoom}
+          onRefresh={() => void handleRefresh()}
+          onClose={onClose}
+          debugOpen={debugOpen}
+          onToggleDebug={() => {
+            setDebugOpen((prev) => {
+              const next = !prev
+              if (next) dbgLog('[browser-panel] debug log opened')
+              return next
+            })
+          }}
+        />
+      ) : null}
+      {navError ? (
+        <div className="browser-panel-nav-error" role="alert">
+          <span className="browser-panel-nav-error-text">{navError}</span>
+          <button
+            type="button"
+            className="browser-panel-tb-btn"
+            onClick={() => setNavError('')}
+            title="关闭提示"
+            aria-label="关闭提示"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden>
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+      ) : null}
+      {tabSearchOpen ? (
+        <>
+          <div className="browser-panel-menu-backdrop" onClick={() => setTabSearchOpen(false)} aria-hidden="true"></div>
+          <div className="browser-panel-menu browser-panel-tabsearch" role="menu" aria-label="标签页列表">
+            <div className="browser-panel-menu-title">打开的标签页</div>
+            {surfaceTabs.map((surfaceTab) => (
+              <button
+                key={surfaceTab.key}
+                type="button"
+                className={`browser-panel-menu-item${surfaceTab.active ? ' is-active' : ''}`}
+                onClick={() => {
+                  if (surfaceTab.isHome) {
+                    handleSelectSurface('browser')
+                  } else if (surfaceTab.isSurface) {
+                    handleSelectSurface(surfaceTab.kind)
+                  } else if (surfaceTab.engineIndex >= 0) {
+                    void handleSelectTab(surfaceTab.engineIndex)
+                  }
+                  setTabSearchOpen(false)
+                }}
+              >
+                <span className="browser-panel-menu-item-label">{surfaceTab.title}</span>
+                <span className="browser-panel-menu-item-hint">
+                  {surfaceTab.isHome
+                    ? '当前会话的浏览器主页'
+                    : surfaceTab.isSurface
+                      ? surfaceTab.kind === 'collab-workflow'
+                        ? '节点工作流视图'
+                        : '思维导图视图'
+                      : surfaceTab.url
+                        ? new URL(surfaceTab.url).hostname
+                        : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {overrideBody ? (
+        <div className="react-chat-collab-exec-panel-body browser-panel-body browser-panel-body-override">
+          {overrideBody}
+        </div>
+      ) : null}
+      {!overrideBody ? (
       <div className="react-chat-collab-exec-panel-body browser-panel-body browser-panel-body-live">
         {showSharedBrowserHint ? (
           <div className="browser-panel-shared-hint" role="status">
@@ -1636,11 +1914,14 @@ export const BrowserPanel = memo(function BrowserPanel({
           </div>
         ) : null}
       </div>
+      ) : null}
     </aside>
   )
 })
 
-/** Toolbar toggle icon — globe / network */
+/** ════════════════════════════════════════════════════════════
+ *  Toolbar toggle icon — globe / network
+ * ════════════════════════════════════════════════════════════ */
 export function BrowserToolbarIcon() {
   return <GlobeNetworkIcon />
 }

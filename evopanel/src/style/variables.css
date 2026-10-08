@@ -381,6 +381,28 @@
   --shell-active-fg: var(--accent, #635bff);
   --shell-text: var(--text-secondary, #4a4f5a);
   --shell-text-muted: var(--text-tertiary, #6f7682);
+
+  /* === Workspace file tree tokens (对齐 ZCode 一体化布局) === */
+  --tree-row-h:        28px;                  /* 行高固定 */
+  --tree-row-radius:   8px;                   /* rounded-lg */
+  --tree-row-gap:      6px;                   /* 行内三段间距 */
+  --tree-row-pad-x:    8px;                   /* 行左右内边距 */
+  --tree-row-pad-y:    4px;
+  --tree-indent-step:   12px;                  /* 每层缩进 0.75rem */
+  --tree-indent-base:  8px;                   /* 顶层最小左边距 */
+  --tree-font-size:    13px;
+  --tree-font-size-meta: 12px;
+  --tree-fg:           var(--text-primary, #202124);
+  --tree-fg-muted:     var(--text-tertiary, #9297a0);
+  --tree-fg-subtle:    var(--text-secondary, #656b73);
+  --tree-bg-hover:     color-mix(in srgb, var(--text-primary, #202124) 5%, transparent);
+  --tree-bg-active:    color-mix(in srgb, var(--text-primary, #202124) 8%, transparent);
+  --tree-bg-selected:  color-mix(in srgb, var(--accent, #635bff) 8%, transparent);
+  --tree-border-selected: var(--accent, #635bff);
+  --tree-icon-fg:      var(--text-tertiary, #9297a0);
+  --tree-icon-fg-dir:  var(--text-secondary, #656b73);
+  --tree-caret-size:   14px;
+  --tree-scroll-fade:  32px;                  /* 底部渐隐距离 */
 }
 
 /* ========== 浅色模式全局覆盖 ========== */

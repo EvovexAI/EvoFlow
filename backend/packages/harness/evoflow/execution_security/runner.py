@@ -22,7 +22,11 @@ from evoflow.execution_security.config import (
 )
 from evoflow.execution_security.errors import HelperUnavailable, SandboxDenied
 from evoflow.execution_security.helpers import HelperPaths, discover_helpers
-from evoflow.execution_security.profiles import permission_profile_to_json_str
+from evoflow.execution_security.profiles import (
+    PROFILE_DANGER_FULL_ACCESS,
+    normalize_profile_id,
+    permission_profile_to_json_str,
+)
 from evoflow.utils.subprocess_platform import (
     detect_shell,
     prepare_shell_command,
@@ -135,6 +139,17 @@ def wrap_argv_for_sandbox(
     config = cfg or get_execution_security_config()
     argv = [str(x) for x in command]
     if not is_execution_security_active(config):
+        return argv, "passthrough"
+
+    # danger-full-access means "no OS jail" by design (see permission_preset.py
+    # preset table: full-access -> disabled (no OS jail)). Short-circuit to
+    # passthrough so we never hand a {"type":"disabled"} profile to the sandbox
+    # helper — the Windows helper rejects non-managed profiles with
+    # "only managed permission profiles can be enforced by the Windows sandbox".
+    effective_profile = (
+        resolved_profile_id(config) if profile is None else normalize_profile_id(profile)
+    )
+    if effective_profile == PROFILE_DANGER_FULL_ACCESS:
         return argv, "passthrough"
 
     paths = helpers or discover_helpers(helper_dir=config.helper_dir)

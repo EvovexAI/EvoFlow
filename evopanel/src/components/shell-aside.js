@@ -401,6 +401,11 @@ function _bindShell(el) {
       if (aside) _applyCollapsed(!aside.classList.contains('collapsed'))
       return
     }
+    if (e.target.closest('.react-chat-aside-brand')) {
+      const aside = _resolveShellEl()
+      if (aside) _applyCollapsed(!aside.classList.contains('collapsed'))
+      return
+    }
     if (e.target.closest('#shell-footer-settings')) {
       void _openSettingsFromShell()
       _closeMobileShell()

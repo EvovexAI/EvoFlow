@@ -8,6 +8,13 @@ import {
   type RightStageSurface,
 } from './right-stage-types.js'
 
+export type RecentClosedRightStageTab = {
+  /** 关闭前的 tab key（`${kind}:${id}`），用于 reopen。 */
+  key: string
+  tab: RightStageSurface
+  closedAt: number
+}
+
 export type RightStageSnapshot = {
   /** 激活标签的投影——所有旧消费者按"单 surface"读取，保持零改动兼容。 */
   surface: RightStageSurface | null
@@ -16,15 +23,26 @@ export type RightStageSnapshot = {
   activeKey: string | null
   rev: number
   streams: Map<string, RightStageStreamSession>
+  /** 最近关闭的标签（倒序，最新在前）。 */
+  recentClosed: RecentClosedRightStageTab[]
 }
 
 type Listener = () => void
 
 const MAX_STREAM_CHUNKS = 800
 const MAX_STREAM_CHARS = 120_000
+/** 最近关闭标签保留条数；与标签总览弹层的展示需求一致。 */
+const MAX_RECENT_CLOSED = 10
 
 function emptySnapshot(): RightStageSnapshot {
-  return { surface: null, tabs: [], activeKey: null, rev: 0, streams: new Map() }
+  return {
+    surface: null,
+    tabs: [],
+    activeKey: null,
+    rev: 0,
+    streams: new Map(),
+    recentClosed: [],
+  }
 }
 
 function trimStreamSession(session: RightStageStreamSession) {
@@ -42,6 +60,7 @@ export class RightStageStore {
   private activeKey: string | null = null
   private rev = 0
   private streams = new Map<string, RightStageStreamSession>()
+  private recentClosed: RecentClosedRightStageTab[] = []
   private listeners = new Set<Listener>()
   private cachedSnapshot: RightStageSnapshot = emptySnapshot()
 
@@ -52,6 +71,14 @@ export class RightStageStore {
 
   private tabKeyOf(surface: RightStageSurface): string {
     return `${surface.kind}:${surface.id}`
+  }
+
+  /** 记录最近关闭：同 key 再次关闭时去重并置顶，避免总览里出现重复行。 */
+  private recordClosed(key: string, tab: RightStageSurface) {
+    this.recentClosed = [
+      { key, tab, closedAt: Date.now() },
+      ...this.recentClosed.filter((entry) => entry.key !== key),
+    ].slice(0, MAX_RECENT_CLOSED)
   }
 
   private rebuildSnapshot() {
@@ -71,6 +98,7 @@ export class RightStageStore {
       activeKey: this.activeKey,
       rev: this.rev,
       streams,
+      recentClosed: this.recentClosed,
     }
   }
 
@@ -156,14 +184,47 @@ export class RightStageStore {
   }
 
   closeTab(key: string) {
+    const target = this.tabs.find((t) => this.tabKeyOf(t) === key)
     const idx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
     if (idx < 0) return
+    if (target) this.recordClosed(key, target)
     const wasActive = this.activeKey === key
     this.tabs = this.tabs.filter((t) => this.tabKeyOf(t) !== key)
     if (wasActive) {
       this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
     }
     this.bump()
+  }
+
+  /**
+   * 拖拽排序：把 activeId 移到 overId 的位置。
+   * 命中自身或任一端缺失时静默返回——拖拽结束事件在越界落点也会触发。
+   */
+  reorderTab(activeId: string, overId: string) {
+    if (activeId === overId) return
+    const from = this.tabs.findIndex((t) => this.tabKeyOf(t) === activeId)
+    const to = this.tabs.findIndex((t) => this.tabKeyOf(t) === overId)
+    if (from < 0 || to < 0) return
+    const next = [...this.tabs]
+    const [moved] = next.splice(from, 1)
+    if (!moved) return
+    next.splice(to, 0, moved)
+    if (
+      next.length === this.tabs.length &&
+      next.every((t, i) => this.tabKeyOf(t) === this.tabKeyOf(this.tabs[i]))
+    ) {
+      return
+    }
+    this.tabs = next
+    this.bump()
+  }
+
+  /** 重新打开最近关闭的标签（总览弹层调用）；已存在则直接激活。 */
+  reopenClosedTab(key: string) {
+    const entry = this.recentClosed.find((e) => e.key === key)
+    if (!entry) return
+    this.recentClosed = this.recentClosed.filter((e) => e.key !== key)
+    this.show({ kind: entry.tab.kind, id: entry.tab.id, title: entry.tab.title, layout: entry.tab.layout, data: entry.tab.data })
   }
 
   updateData(patch: Record<string, unknown>, opts?: { id?: string }) {
@@ -188,6 +249,7 @@ export class RightStageStore {
       if (this.activeKey) {
         const active = this.tabs.find((t) => this.tabKeyOf(t) === this.activeKey)
         if (active && active.id === id) {
+          this.recordClosed(this.tabKeyOf(active), active)
           this.tabs = this.tabs.filter((t) => t !== active)
           this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
           this.bump()
@@ -197,6 +259,9 @@ export class RightStageStore {
     }
     const wasActive = matches.some((t) => this.tabKeyOf(t) === this.activeKey)
     const removedKeys = new Set(matches.map((t) => this.tabKeyOf(t)))
+    for (const t of matches) {
+      this.recordClosed(this.tabKeyOf(t), t)
+    }
     this.tabs = this.tabs.filter((t) => !removedKeys.has(this.tabKeyOf(t)))
     if (wasActive) {
       this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null

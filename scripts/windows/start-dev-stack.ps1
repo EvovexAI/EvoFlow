@@ -12,6 +12,9 @@ param(
     [switch] $InstallEvoPanel,
     [switch] $ExternalGateway,
     [switch] $ShowBackendLog,
+    # Pack 模式下 Gateway 是 Tauri 无窗口子进程,运行时日志只在文件里;
+    # 默认自动开一个日志尾随窗口,-NoTailLogs(或 EVOFLOW_NO_TAIL_LOGS=1)关闭。
+    [switch] $NoTailLogs,
     [int] $FrontendPort = 1421,
     [switch] $AutoFrontendPort = $true,
     [int] $GatewayPort = 0
@@ -210,6 +213,18 @@ if ($usePackDesktop -and -not $useDesktopWithLog) {
 
     Write-Host ""
     Write-Host "==> Starting frontend (tauri dev); sidecar starts inside the desktop process" -ForegroundColor Cyan
+
+    # Pack 模式没有 Gateway 控制台(子进程无窗口、stdout 是 JSON-RPC 管道),自动开日志尾随窗口。
+    $noTailEnv = "$env:EVOFLOW_NO_TAIL_LOGS".Trim().ToLower()
+    if (-not $NoTailLogs -and $noTailEnv -notin @('1', 'true', 'yes', 'on')) {
+        try {
+            Write-Host "==> Opening runtime log window (tail; -NoTailLogs to disable, tail-logs.ps1 -All for more)" -ForegroundColor Cyan
+            & (Join-Path $PSScriptRoot "tail-logs.ps1")
+        } catch {
+            Write-Host "    WARN: log tail window failed: $_" -ForegroundColor Yellow
+        }
+    }
+
 } else {
     if (-not $SkipBackend) {
         Write-Host ""

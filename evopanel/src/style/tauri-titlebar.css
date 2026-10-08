@@ -26,7 +26,7 @@ html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
   display: flex;
   align-items: stretch;
   flex-shrink: 0;
-  height: 38px;
+  height: 48px;
   position: relative;
   z-index: 20;
   background: var(--chrome-bg, #e8edf2);
@@ -38,9 +38,9 @@ html.evopanel-tauri-frameless #app-shell-aside.shell-aside-host {
 }
 
 /* macOS 原生标题栏（交通灯悬浮在 WebView 之上）：加高顶栏并让内容下移为其让位。
- * 仅在 html 置位 evopanel-macos-titlebar 时生效；Windows / Linux 维持上面的 38px 紧凑顶栏。 */
+ * 仅在 html 置位 evopanel-macos-titlebar 时生效；Windows / Linux 维持上面的 48px 紧凑顶栏。 */
 html.evopanel-macos-titlebar .tauri-main-chrome {
-  height: 64px;
+  height: 74px;
   padding-top: 26px;
 }
 

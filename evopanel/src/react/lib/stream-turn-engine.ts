@@ -468,6 +468,19 @@ function sealTrailingReasoningSegment(timeline: MessageSegment[], now: number): 
   return timeline
 }
 
+/** 流式结束（finalize）时，把所有仍开着的思考段都关掉（盖 endedAtMs）。 */
+function sealAllOpenReasoningSegments(timeline: MessageSegment[], now: number): MessageSegment[] {
+  let changed = false
+  const tl = timeline.map((seg) => {
+    if (seg.kind === 'reasoning' && seg.endedAtMs == null) {
+      changed = true
+      return { ...seg, endedAtMs: now }
+    }
+    return seg
+  })
+  return changed ? tl : timeline
+}
+
 function appendToolSegment(timeline: MessageSegment[], newIds: string[], tools: unknown[]): MessageSegment[] {
   const alreadyInTimeline = collectToolIdsFromTimeline(timeline)
   const ids = Array.from(
@@ -1640,7 +1653,7 @@ export function finalizeStreamTurn(
   }
 
   const blockSegments = useBlocks ? projectDisplayTimeline(work) : []
-  const finalTimeline = sealTrailingReasoningSegment(
+  const finalTimeline = sealAllOpenReasoningSegments(
     dedupeToolsTimelineSegments(
       useBlocks ? blockSegments : timeline,
     ),

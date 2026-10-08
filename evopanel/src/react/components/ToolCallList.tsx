@@ -82,6 +82,7 @@ import { ToolActivityFold } from './ToolActivityFold.js'
 import { FileEditDiffModal, type FileEditDiffModalPayload } from './FileEditDiffModal.js'
 import { FileEditDiffStatBrief } from './FileEditDiffPanel.js'
 import { ToolCardIcon, resolveToolCardCategory } from './ToolCardIcon.js'
+import { resolveFileIconSrc } from '../lib/file-icon-helpers.js'
 import { ASSETS_ACTION_ZH, resolveRegisteredToolCardBrief } from '../tool-cards/briefs.js'
 import {
   computeFileEditDiffStats,
@@ -1639,7 +1640,17 @@ function ToolCallListInner({
             data-testid={toolCallId ? `tool-summary-trigger-${toolCallId}` : undefined}
             aria-controls={toolCallId ? `msg-tool-body-${toolCallId}` : undefined}
           >
-            <ToolCardIcon toolKind={toolKind} running={running} />
+            {resolveToolCardCategory(toolKind) === 'file' && path ? (
+              <img
+                className="msg-tool-file-type-icon"
+                src={resolveFileIconSrc(path)}
+                alt=""
+                aria-hidden
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+              />
+            ) : (
+              <ToolCardIcon toolKind={toolKind} running={running} />
+            )}
             <span className="msg-tool-short-label">
               {running ? (
                 <ToolRunningScanText text={shortLabel} className="tool-label-running" maxChars={32} />

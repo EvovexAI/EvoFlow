@@ -49,21 +49,20 @@
 /* 胶囊态：右上角浮层小条，不参与布局。
    从右下移到右上：右下角和输入区/发送按钮抢位置，
    收起态的入口贴在那儿容易被误触，也挡住最后一条消息。
-   top 要让开 .react-chat-header（38px），否则胶囊压在顶栏上盖住标题/按钮。 */
+   top 要让开 .react-chat-header（48px），否则胶囊压在顶栏上盖住标题/按钮。 */
 .chat-summary-panel.is-capsule {
   position: fixed;
   right: 16px;
-  top: calc(38px + 8px);
+  top: calc(48px + 8px);
   width: auto;
   min-width: 180px;
   max-width: min(320px, calc(100vw - 1.5rem));
   z-index: 40;
 }
 
-/* ── 头部操作区（标题 / ··· / 收起） ─────────────────────── */
-/* 面板级标题行：左边「智能体」（可折叠），右边操作按钮。
-   原来只有按钮，智能体标题是滚动区里第一张卡的分区头，
-   视觉上像是内容的一部分而不是面板标题。 */
+/* ── 头部操作区（tab 条 / ··· / 收起） ─────────────────────── */
+/* 面板级标题行：左侧 tab 条（智能体 / 产物 / 平台 / 岗位 / 任务 / 调试），
+   右侧操作按钮。tab 条取代原「智能体」单一标题，与原「更多」区 tab 合并。 */
 .chat-summary-panel-head {
   display: flex;
   align-items: center;
@@ -81,56 +80,7 @@
   flex-shrink: 0;
 }
 
-/* 面板标题：可点击折叠智能体，行为对齐原来的分区 trigger。
-   视觉上刻意做轻：灰色 + 次级字号，因为它只是分组标签，
-   真正的内容主体是下面的头像/能力清单，太黑太大会跟内容抢。 */
-.chat-summary-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-tertiary, #9297a0);
-  font: inherit;
-  font-size: var(--ef-text-sm);
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-}
-
-.chat-summary-panel-title:hover {
-  color: var(--text-secondary, #6b7280);
-}
-
-.chat-summary-panel-title:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
-  border-radius: 6px;
-}
-
-.chat-summary-panel-title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 折叠箭头：跟着字号走，不撑成 24px 按钮那么高。
-   lucide 图标默认 width/height=24，直接放着会比旁边的 11.6px 文字高一倍，
-   看着像多了一枚按钮。 */
-.chat-summary-panel-title-caret {
-  flex-shrink: 0;
-  width: 13px;
-  height: 13px;
-  color: var(--text-tertiary, #9297a0);
-  transition: transform 0.15s ease;
-}
-
-.chat-summary-panel-title-caret.is-open {
-  transform: rotate(180deg);
-}
+/* 标题按钮样式已随「智能体」单标题移除（改为 tab 条），样式块清理见 487 行注释 */
 
 /* 胶囊态隐藏「收起」按钮，避免和展开语义打架 */
 .chat-summary-panel.is-capsule .chat-summary-panel-head [data-summary-action='collapse'] {
@@ -485,17 +435,17 @@
   overflow: hidden;
 }
 
-/* ── 更多区（产物 / 平台 / 调试 / 岗位 / 任务） ─────── */
-.chat-summary-more-tabs {
+/* ── 面板级 tab 条（原「更多」区 tab 上移至此） ─────── */
+.chat-summary-panel-head .chat-summary-more-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
   min-width: 0;
   flex-wrap: wrap;
-  padding: 0 0 6px;
+  padding: 0;
 }
 
-.chat-summary-more-tab {
+.chat-summary-panel-head .chat-summary-more-tab {
   padding: 2px 6px;
   border: 0;
   border-radius: 6px;
@@ -508,21 +458,22 @@
   white-space: nowrap;
 }
 
-.chat-summary-more-tab:hover {
+.chat-summary-panel-head .chat-summary-more-tab:hover {
   background: var(--bg-hover, #dde3ea);
   color: var(--text-primary);
 }
 
-.chat-summary-more-tab.is-active {
+.chat-summary-panel-head .chat-summary-more-tab.is-active {
   color: var(--text-primary);
   background: var(--bg-hover, #dde3ea);
 }
 
-.chat-summary-more-tab:focus-visible {
+.chat-summary-panel-head .chat-summary-more-tab:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--border-focus, rgba(99, 91, 255, 0.2));
 }
 
+/* ── 更多区内容主体（tab 条已上移到面板头部） ─────── */
 .chat-summary-more-body {
   min-width: 0;
 }
@@ -720,6 +671,6 @@
 
   .chat-summary-panel.is-capsule {
     right: 8px;
-    top: calc(38px + 8px);
+    top: calc(48px + 8px);
   }
 }

@@ -32,7 +32,6 @@ import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
 import { chatArtifactDisplayLabel, type ChatArtifact } from '../lib/chat-artifact.js'
 import {
-  formatCompactCount,
   formatInfoRailTime,
   infoRailScopeLabel,
   type InfoRailScope,
@@ -54,8 +53,7 @@ import {
   type ChatSummaryExpandPolicy,
   type ChatSummarySectionId,
 } from '../lib/chat-summary-panel-prefs.js'
-import type { ContextUsageSnapshot } from '../lib/context-usage.js'
-import type { CollabSubtaskSnapshot, SubagentStreamTask, TerminalStreamTask, TokenTotals } from '../chat-types.js'
+import type { CollabSubtaskSnapshot, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
 
 type Props = {
@@ -86,8 +84,6 @@ type Props = {
   capabilityBusy?: boolean
   onSwitchAgent?: () => void
   onEditAgent?: () => void
-  tokenTotals?: TokenTotals | null
-  contextUsage?: ContextUsageSnapshot | null
   /** 资产沉淀：记录过程 / 沉淀经验 / 反思 */
   onAssetQuickAction?: (kind: 'episode' | 'craft' | 'journal') => void
   assetQuickBusy?: boolean
@@ -182,24 +178,11 @@ function ArtifactRows({
   )
 }
 
-/** 「更多」分区头计数：只报有内容的项数，不复述 tab 名 */
-function MoreCount({
-  artifacts,
-  platformEntries,
-}: {
-  artifacts: ChatArtifact[]
-  platformEntries: PlatformRunEntry[]
-}) {
-  const n = artifacts.length + platformEntries.length
-  if (n === 0) return null
-  return (
-    <div className="chat-summary-section-meta">
-      <span className="chat-summary-section-count">{n}</span>
-    </div>
-  )
-}
+/** 面板级 tab：智能体 + 原「更多」内容合并进同一头部 */
+type PanelTab = 'agent' | 'artifacts' | 'platform' | 'debug' | 'employee' | 'task'
 
 function MorePane({
+  tab,
   artifacts,
   recentArtifacts = [],
   artifactFocusId = '',
@@ -211,10 +194,10 @@ function MorePane({
   obsEnabled,
   threadId = '',
   isRunning,
-  isEmployeeSession = false,
   employee,
   task,
 }: {
+  tab: PanelTab
   artifacts: ChatArtifact[]
   recentArtifacts?: ChatArtifact[]
   artifactFocusId?: string
@@ -226,24 +209,9 @@ function MorePane({
   obsEnabled?: boolean
   threadId?: string
   isRunning: boolean
-  isEmployeeSession?: boolean
   employee?: ReactNode
   task?: ReactNode
 }) {
-  type MoreTab = 'artifacts' | 'platform' | 'debug' | 'employee' | 'task'
-  const [tab, setTab] = useState<MoreTab>('artifacts')
-
-  // 观测关闭 / 切走员工会话时，若停在失效 tab 则回落，避免空白面板
-  useEffect(() => {
-    if (tab === 'debug' && !obsEnabled) setTab('artifacts')
-    if ((tab === 'employee' || tab === 'task') && !isEmployeeSession) setTab('artifacts')
-  }, [obsEnabled, tab, isEmployeeSession])
-
-  const visibleArtifacts = useMemo(
-    () => artifacts.filter((it) => it.type !== 'platform'),
-    [artifacts],
-  )
-
   // 沿用旧侧栏的三段分组（最新 / 当前轮次 / 已有），别把结构信息压平
   const grouped = useMemo(
     () => partitionArtifacts(artifacts, recentArtifacts, artifactFocusId),
@@ -251,40 +219,9 @@ function MorePane({
   )
   const latestId = grouped.latestId
 
-  const tabs = useMemo(() => {
-    // 计数为 0 时不显示「0」：空 tab 条本身已经说明没有内容，
-    // 再挂个「产物 0」只会让人以为是加载失败。
-    const withCount = (n: number, label: string) => (n > 0 ? `${label} ${n}` : label)
-    const list: Array<{ id: MoreTab; label: string }> = [
-      { id: 'artifacts', label: withCount(visibleArtifacts.length, '产物') },
-      { id: 'platform', label: withCount(platformEntries.length, '平台') },
-    ]
-    if (isEmployeeSession) {
-      if (employee) list.splice(1, 0, { id: 'employee', label: '岗位' })
-      if (task) list.splice(1, 0, { id: 'task', label: '任务' })
-    }
-    if (obsEnabled) list.push({ id: 'debug', label: '调试' })
-    return list
-  }, [visibleArtifacts.length, platformEntries.length, isEmployeeSession, employee, task, obsEnabled])
-
   return (
-    <>
-      <div className="chat-summary-more-tabs" role="tablist" aria-label="更多">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`chat-summary-more-tab${tab === t.id ? ' is-active' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div className="chat-summary-more-body">
-        {tab === 'artifacts' ? (
+    <div className="chat-summary-more-body">
+      {tab === 'artifacts' ? (
           <>
             {grouped.latestItem ? (
               <>
@@ -349,8 +286,7 @@ function MorePane({
         ) : null}
         {tab === 'employee' ? employee : null}
         {tab === 'task' ? task : null}
-      </div>
-    </>
+    </div>
   )
 }
 
@@ -474,7 +410,6 @@ function ChatSummaryPanelInner({
   capabilityBusy = false,
   onSwitchAgent,
   onEditAgent,
-  tokenTotals = null,
   onAssetQuickAction,
   assetQuickBusy = false,
   artifacts = [],
@@ -494,6 +429,7 @@ function ChatSummaryPanelInner({
   const [policy, setPolicy] = useState<ChatSummaryExpandPolicy>('auto-expand')
   const [policyOpen, setPolicyOpen] = useState(false)
   const [sections, setSections] = useState(DEFAULT_CHAT_SUMMARY_SECTIONS)
+  const [panelTab, setPanelTab] = useState<PanelTab>('agent')
   const policyRef = useRef<HTMLDivElement | null>(null)
   const hydrated = useRef(false)
 
@@ -534,13 +470,6 @@ function ChatSummaryPanelInner({
     [terminalStreams, subagentTasks, workflowSubtasks],
   )
 
-  const hasMoreContent =
-    artifacts.length > 0 ||
-    platformEntries.length > 0 ||
-    Boolean(obsEnabled) ||
-    Boolean(employeePane) ||
-    Boolean(taskPane)
-
   const toggleSection = useCallback((id: ChatSummarySectionId) => {
     setSections((prev) => {
       const next = { ...prev, [id]: !prev[id] }
@@ -566,12 +495,48 @@ function ChatSummaryPanelInner({
   const goPanel = useCallback(() => onDisplayModeChange('panel'), [onDisplayModeChange])
   const goCapsule = useCallback(() => onDisplayModeChange('capsule'), [onDisplayModeChange])
 
+  // 面板 tab：智能体固定在最前，产物 / 平台带计数，
+  // 岗位 / 任务仅在员工会话且对应 pane 存在时出现，调试仅在观测开启时出现。
+  // 计数为 0 时不显示「0」：空 tab 条本身已经说明没有内容，
+  // 再挂个「产物 0」只会让人以为是加载失败。
+  const withCount = useCallback(
+    (n: number, label: string) => (n > 0 ? `${label} ${n}` : label),
+    [],
+  )
+  const visibleArtifacts = useMemo(
+    () => artifacts.filter((it) => it.type !== 'platform'),
+    [artifacts],
+  )
+  const panelTabs = useMemo<Array<{ id: PanelTab; label: string }>>(
+    () => {
+      const list: Array<{ id: PanelTab; label: string }> = [
+        { id: 'agent', label: '智能体' },
+        { id: 'artifacts', label: withCount(visibleArtifacts.length, '产物') },
+        { id: 'platform', label: withCount(platformEntries.length, '平台') },
+      ]
+      if (isEmployeeSession) {
+        if (taskPane) list.splice(3, 0, { id: 'task', label: '任务' })
+        if (employeePane) list.splice(3, 0, { id: 'employee', label: '岗位' })
+      }
+      if (obsEnabled) list.push({ id: 'debug', label: '调试' })
+      return list
+    },
+    [withCount, visibleArtifacts, platformEntries, isEmployeeSession, employeePane, taskPane, obsEnabled],
+  )
+
+  // tab 失效时回落：观测关闭 / 员工会话切走后，停在失效 tab 会得到空白面板。
+  // 不用 effect 打 setState（会级联渲染），渲染期直接派生生效 tab。
+  const effectivePanelTab: PanelTab = useMemo(() => {
+    if (panelTab === 'debug' && !obsEnabled) return 'agent'
+    if ((panelTab === 'employee' || panelTab === 'task') && !isEmployeeSession) return 'agent'
+    return panelTab
+  }, [panelTab, obsEnabled, isEmployeeSession])
+
   if (effectiveMode === 'hidden') return null
 
   const isCapsule = effectiveMode === 'capsule'
   const displayName = String(agentLabel || '').trim() || '未选择 Agent'
   const bio = String(agentDescription || '').trim()
-  const tokenTotal = Number(tokenTotals?.total || 0)
   const modelText = String(modelLabel || modelName || '').trim()
   const sessionTitleText = String(sessionTitle || '').trim()
 
@@ -613,22 +578,23 @@ function ChatSummaryPanelInner({
         </div>
       ) : (
         <>
-          {/* 智能体是面板主体，标题提到面板头部与 ··· / 收起 同行；
-              分区头（可折叠行）随之去掉，内容直接跟在标题行下。 */}
+          {/* 头部：智能体 / 产物 / 平台 / 岗位 / 任务 / 调试 共用同一 tab 条，
+              右侧仍留 ··· / 收起。 */}
           <div className="chat-summary-panel-head">
-            <button
-              type="button"
-              className="chat-summary-panel-title"
-              onClick={() => toggleSection('agent')}
-              aria-expanded={sections.agent}
-              title={sections.agent ? '折叠智能体' : '展开智能体'}
-            >
-              <span className="chat-summary-panel-title-text">智能体</span>
-              <ChevronDown
-                className={`chat-summary-panel-title-caret${sections.agent ? ' is-open' : ''}`}
-                aria-hidden
-              />
-            </button>
+            <div className="chat-summary-more-tabs" role="tablist" aria-label="状态面板">
+              {panelTabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={effectivePanelTab === t.id}
+                  className={`chat-summary-more-tab${effectivePanelTab === t.id ? ' is-active' : ''}`}
+                  onClick={() => setPanelTab(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
             <div className="chat-summary-panel-head-actions">
               <div ref={policyRef} style={{ position: 'relative' }}>
                 <button
@@ -671,9 +637,7 @@ function ChatSummaryPanelInner({
           </div>
 
           <div className="chat-summary-panel-scroll">
-            {/* 智能体标题已提到面板头部，这里只留内容；折叠时整块不渲染。
-                进程 / 更多仍走可折叠 Section，排在智能体内容之后。 */}
-            {sections.agent ? (
+            {effectivePanelTab === 'agent' ? (
               <div className="chat-summary-agent-body">
               <div
                 className={`chat-summary-agent-header${onEditAgent ? ' is-editable' : ''}`}
@@ -744,12 +708,27 @@ function ChatSummaryPanelInner({
               {onAssetQuickAction ? (
                 <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
               ) : null}
-              {tokenTotal > 0 ? (
-                <div className="chat-summary-empty">
-                  本轮 Token {formatCompactCount(tokenTotal)}
-                </div>
-              ) : null}
+
               </div>
+            ) : null}
+
+            {effectivePanelTab !== 'agent' ? (
+              <MorePane
+                tab={effectivePanelTab}
+                artifacts={artifacts}
+                recentArtifacts={recentArtifacts}
+                artifactFocusId={artifactFocusId}
+                platformEntries={platformEntries}
+                recentPlatformEntries={recentPlatformEntries}
+                platformFocusEntryId={platformFocusEntryId}
+                onOpenArtifact={onOpenArtifact}
+                onRevealArtifact={onRevealArtifact}
+                obsEnabled={obsEnabled}
+                threadId={threadId}
+                isRunning={isRunning}
+                employee={employeePane}
+                task={taskPane}
+              />
             ) : null}
 
             <Section
@@ -761,35 +740,6 @@ function ChatSummaryPanelInner({
             >
               <ProcessList summary={summary} onOpenItem={onOpenProcessItem} />
             </Section>
-
-            {hasMoreContent ? (
-              <Section
-                id="more"
-                title="更多"
-                open={sections.more}
-                onToggle={() => toggleSection('more')}
-                // meta 不再复述 tab 名（产物 N / 平台 N / 调试），那正是下面 tab 条的内容，
-                // 重复一遍会让人以为坏了两套导航。这里只报「有内容的项数」。
-                meta={<MoreCount artifacts={artifacts} platformEntries={platformEntries} />}
-              >
-                <MorePane
-                  artifacts={artifacts}
-                  recentArtifacts={recentArtifacts}
-                  artifactFocusId={artifactFocusId}
-                  platformEntries={platformEntries}
-                  recentPlatformEntries={recentPlatformEntries}
-                  platformFocusEntryId={platformFocusEntryId}
-                  onOpenArtifact={onOpenArtifact}
-                  onRevealArtifact={onRevealArtifact}
-                  obsEnabled={obsEnabled}
-                  threadId={threadId}
-                  isRunning={isRunning}
-                  isEmployeeSession={isEmployeeSession}
-                  employee={employeePane}
-                  task={taskPane}
-                />
-              </Section>
-            ) : null}
           </div>
         </>
       )}

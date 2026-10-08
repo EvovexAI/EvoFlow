@@ -95,9 +95,12 @@ export async function selectBrowserTab(threadId: string, index: number): Promise
   }
 }
 
-export async function newBrowserTab(threadId: string, url = ''): Promise<boolean> {
+export async function newBrowserTab(
+  threadId: string,
+  url = '',
+): Promise<BrowserCommandResult | null> {
   const tid = String(threadId || '').trim()
-  if (!tid) return false
+  if (!tid) return null
   const path = `/api/threads/${encodeURIComponent(tid)}/browser-tabs/new`
   try {
     const target = await apiUrlAsync(path.replace(/^\/api\//, ''))
@@ -107,9 +110,11 @@ export async function newBrowserTab(threadId: string, url = ''): Promise<boolean
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     })
-    return res.ok
+    if (!res.ok) return null
+    const data = (await res.json()) as BrowserCommandResponse
+    return normalizeBrowserResponse(tid, data)
   } catch {
-    return false
+    return null
   }
 }
 
@@ -133,13 +138,60 @@ export async function closeBrowserTab(threadId: string, index: number): Promise<
 
 export type BrowserNavMethod = 'navigate' | 'back' | 'forward'
 
+export type BrowserCommandResult = {
+  ok: boolean
+  threadId: string
+  state: {
+    url?: string
+    title?: string
+    canGoBack?: boolean
+    canGoForward?: boolean
+    [k: string]: unknown
+  }
+  /** WebSocket path the EvoPanel can connect to. Always populated; may equal the
+   * current path when the engine reuses a session. */
+  streamWs: string
+  pageUrl: string
+  pageTitle: string
+}
+
+/** Browser command/tab response shape. Kept loose because the gateway may add
+ *  fields (e.g. ``tabs``) without a coordinated frontend rollout. */
+export type BrowserCommandResponse = Partial<BrowserCommandResult> & {
+  ok?: boolean
+  thread_id?: string
+  state?: { url?: string; title?: string; [k: string]: unknown }
+  stream_ws?: string
+  page_url?: string
+  page_title?: string
+}
+
+function normalizeBrowserResponse(
+  threadId: string,
+  raw: BrowserCommandResponse | null,
+): BrowserCommandResult | null {
+  if (!raw) return null
+  const state = (raw.state && typeof raw.state === 'object' ? raw.state : {}) as {
+    url?: string
+    title?: string
+  }
+  return {
+    ok: raw.ok !== false,
+    threadId: String(raw.thread_id || threadId || '').trim() || threadId,
+    state: state as BrowserCommandResult['state'],
+    streamWs: String(raw.stream_ws || '').trim(),
+    pageUrl: String(raw.page_url || state.url || '').trim(),
+    pageTitle: String(raw.page_title || state.title || '').trim(),
+  }
+}
+
 export async function sendBrowserCommand(
   threadId: string,
   method: BrowserNavMethod,
   url = '',
-): Promise<boolean> {
+): Promise<BrowserCommandResult | null> {
   const tid = String(threadId || '').trim()
-  if (!tid) return false
+  if (!tid) return null
   const path = `/api/threads/${encodeURIComponent(tid)}/browser-command`
   try {
     const url_ = await apiUrlAsync(path.replace(/^\/api\//, ''))
@@ -149,9 +201,11 @@ export async function sendBrowserCommand(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method, url }),
     })
-    return res.ok
+    if (!res.ok) return null
+    const data = (await res.json()) as BrowserCommandResponse
+    return normalizeBrowserResponse(tid, data)
   } catch {
-    return false
+    return null
   }
 }
 

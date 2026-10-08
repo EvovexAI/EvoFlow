@@ -132,6 +132,33 @@ export function setBrowserPanelThreadId(threadId: string | null | undefined): bo
   return true
 }
 
+/** Patch runtime from a direct browser-command/tab response (user-initiated
+ *  action that did NOT go through the AG-UI tool stream). Without this, typing
+ *  a URL into the address bar would succeed at the backend but the panel would
+ *  not refresh because it only listened for tool-result events. */
+export function applyBrowserCommandResponse(input: {
+  threadId?: string
+  pageUrl?: string
+  pageTitle?: string
+  streamWs?: string
+}): boolean {
+  const next: Partial<BrowserRuntimeState> = {}
+  const tid = acceptThreadId(input.threadId)
+  if (tid) next.streamThreadId = tid
+  const pageUrl = String(input.pageUrl || '').trim()
+  if (pageUrl) next.pageUrl = pageUrl
+  if (!Object.keys(next).length) return false
+  dbgLog(
+    `[browser-panel-store] apply browser-command response thread=${tid || state.streamThreadId} ` +
+      `url=${pageUrl || '(unchanged)'}`,
+  )
+  patch(next)
+  // Make sure the browser stage is mounted; it may have been opened straight
+  // from the address bar without the user clicking the toggle first.
+  ensureBrowserStage()
+  return true
+}
+
 export function notifyBrowserToolStart(toolCallId: string, argsText?: string | null): boolean {
   const { action, url } = parseBrowserToolArgs(argsText)
   dbgLog(`[browser-panel-store] tool start toolCallId=${toolCallId} action=${action} url=${url || '(none)'} argsText=${argsText || ''}`)

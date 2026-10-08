@@ -133,8 +133,10 @@ function appendStreamingStatusSlot(
   input: AssistantBubblePlanInput,
 ): void {
   if (!input.isStreaming) return
-  // 流式始终保留一行状态（缺省「生成中」），耗时/tools/tip 统一挂在这里
-  const label = resolveStreamStatusLabel(input) || '生成中'
+  // 流式状态行只在后端主动推送 systemActivityLabel 时显示；
+  // 无推送则整行不出现（不再用「生成中」兜底占位）。
+  const label = resolveStreamStatusLabel(input)
+  if (!label) return
   const last = slots[slots.length - 1]
   if (last && last.kind === 'thinking-wait') {
     last.label = label

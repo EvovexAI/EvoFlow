@@ -271,10 +271,12 @@ function AssistantBubbleSlotViewInner({
     if (workedText) return `已工作 ${workedText}`
     return foldableSlotIdx.length ? '已处理' : ''
   })()
-  // 纯文本回合:foldStartIdx < 0 时头部独立渲染在气泡顶部(文本始终在下方可见)
-  const foldStartIdx = foldableSlotIdx.length ? foldableSlotIdx[0] : -1
+  // 「已工作」头部恒置顶：只要 workedLabel 存在且本回合有可折叠工作条目，
+  // 折叠头就渲染在气泡最顶（索引 0），正文/工具一律排在它下方，
+  // 避免正文挤到头部上面。纯文本回合无可折叠条目时走下方独立头部渲染。
+  const foldStartIdx = workedLabel && foldableSlotIdx.length ? 0 : -1
   const foldableIdxSet = new Set(foldableSlotIdx)
-  /** 流式首帧还没有任何工作条目：先渲染独立头部（对齐 ZCode firstAssistantFlowItemIndex < 0 分支） */
+  /** 纯文本回合（无工作条目）：头部独立渲染在气泡顶部，正文始终在下方可见 */
   const showStandaloneWorkHeader = !!workedLabel && foldStartIdx < 0
 
   const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
