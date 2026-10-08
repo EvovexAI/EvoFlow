@@ -702,22 +702,89 @@ async function mountV4ShellToContent() {
     _v4ContainerEl.style.height = '100%'
     content.replaceChildren(_v4ContainerEl)
     _v4ReactRoot = createRoot(_v4ContainerEl)
+    // v3.5 阶段 C+: ErrorBoundary 包裹 V4ShellRoot。V4ShellRoot 内部
+    // zcode provider 树很复杂(17+ 层 provider + 自定义 hooks),任何
+    // 一处抛错都会让整个 root 变成空白页。用 ErrorBoundary 接住
+    // 渲染期错,触发降级 → removeItem + reload,不让用户卡在空白。
+    const V4ErrorBoundary = class extends React.Component {
+      constructor(props) { super(props); this.state = { err: null } }
+      static getDerivedStateFromError(err) { return { err } }
+      componentDidCatch(err, info) {
+        try { console.error('[v4shell] ErrorBoundary caught', err, info?.componentStack) } catch {}
+      }
+      componentDidUpdate(prev) {
+        // 第一次出现 err 状态时,给用户看 1 秒错误提示,然后 reload
+        // 回老版。ErrorBoundary 内的 setState 触发的二次 render 不会
+        // 再走 componentDidUpdate(因为 err 没变,getDerivedStateFromError
+        // 不会再次返回 err;但保险起见用 prev.state.err 比较)。
+        if (this.state.err && !prev.state.err) {
+          setTimeout(() => {
+            try { window.location.reload() } catch { /* 静默 */ }
+          }, 1000)
+        }
+      }
+      render() {
+        if (this.state.err) {
+          // ErrorBoundary 触发 → 触发降级(走外层 catch 也接不住,因为
+          // render 抛错是同步抛回 React 18 异步通道,不进 try/catch)
+          try {
+            localStorage.removeItem('evoflowV4Shell')
+          } catch { /* 静默 */ }
+          const msg = String(this.state.err?.message || this.state.err || 'unknown error')
+            .replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))
+          return React.createElement('div', {
+            style: { padding: 24, color: '#f87171', fontFamily: '-apple-system, system-ui', lineHeight: 1.6 }
+          },
+            React.createElement('h2', { style: { margin: '0 0 12px 0' } }, '新版运行时错误,已自动退回老版'),
+            React.createElement('p', { style: { margin: '0 0 8px 0', color: '#94a3b8' } }, '错误信息: ', msg),
+            React.createElement('p', { style: { margin: '0', color: '#94a3b8' } }, '1 秒后自动刷新...')
+          )
+        }
+        return this.props.children
+      }
+    }
     _v4ReactRoot.render(
-      React.createElement(V4ShellRoot, {
-        workspacePath: EVOFLOW_V4_WORKSPACE_PATH,
-        sessionId: null,
-        onSelectSession: () => {
-          /* v3.5: EvoFlow 旧侧栏 selectedSessionKey 桥 —— 当前 v4 shell
-             模式完全替代老版 ChatApp,旧侧栏已不渲染,这里 noop 即可。
-             后续 v3.6 接 sessions 列表时,改为切 activeTaskId 时
-             通知上层路由 / 弹层。 */
-        },
-      }),
+      React.createElement(V4ErrorBoundary, null,
+        React.createElement(V4ShellRoot, {
+          workspacePath: EVOFLOW_V4_WORKSPACE_PATH,
+          sessionId: null,
+          onSelectSession: () => {
+            /* v3.5: EvoFlow 旧侧栏 selectedSessionKey 桥 —— 当前 v4 shell
+               模式完全替代老版 ChatApp,旧侧栏已不渲染,这里 noop 即可。
+               后续 v3.6 接 sessions 列表时,改为切 activeTaskId 时
+               通知上层路由 / 弹层。 */
+          },
+        }),
+      ),
     )
     bootMark('mountV4ShellToContent done')
   } catch (e) {
     bootMark('mountV4ShellToContent failed', { error: String(e?.message || e) })
     console.warn('[boot] mountV4ShellToContent failed', e)
+    // v3.5 阶段 C+: 降级到老版 —— V4ShellRoot 挂载失败时(比如 provider
+    // 树里某个依赖报错 / react 19 vs 18 hook 顺序冲突 / 缺资源),
+    // 用户会看到空白 + 没入口回老版(BETA 横条在 V4ShellRoot 内,
+    // 都没渲染就谈不到点)。直接 removeItem + reload 重走 boot,
+    // localStorage.evoflowV4Shell !== '1' → 走老版 ChatApp 路径。
+    // 比"空白页 + 无回退"好得多。
+    try {
+      localStorage.removeItem('evoflowV4Shell')
+    } catch {
+      /* private mode 静默 */
+    }
+    // 给用户一个可视化兜底(在 reload 前),如果 reload 因为任何原因没成功
+    if (_v4ContainerEl) {
+      _v4ContainerEl.innerHTML = `
+        <div style="padding: 24px; color: #f87171; font-family: -apple-system, system-ui; line-height: 1.6;">
+          <h2 style="margin: 0 0 12px 0;">新版加载失败,已自动退回老版</h2>
+          <p style="margin: 0 0 8px 0; color: #94a3b8;">错误信息: ${String(e?.message || e).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</p>
+          <p style="margin: 0; color: #94a3b8;">1 秒后自动刷新...</p>
+        </div>
+      `
+    }
+    setTimeout(() => {
+      try { window.location.reload() } catch { /* 静默 */ }
+    }, 1000)
   }
 }
 
