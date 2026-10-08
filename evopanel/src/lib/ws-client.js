@@ -3667,6 +3667,15 @@ function isUserInterruptStreamError(code, message) {
 }
 
 function emitStreamUserInterruptAbort(self, key, runId, lane, { finalText = '' } = {}) {
+  console.warn('[evoflow] emitStreamUserInterruptAbort', {
+    sessionKey: key,
+    runId,
+    finalText,
+    laneDeltaCount: lane?.deltaCount,
+    laneFinalTextLen: lane?.finalText?.length,
+    laneTextDeltaCount: lane?.textDeltaCount,
+    laneReasoningDeltaCount: lane?.reasoningDeltaCount,
+  })
   lane.userInterrupt = true
   lane.lastError = ''
   if (_userStopSessionKeys.has(key)) _userStopSessionKeys.delete(key)
@@ -4406,12 +4415,32 @@ function dispatchEvfUiStreamEvent(self, key, runId, data, lane) {
   }
 
   if (t === 'aborted') {
+    console.warn('[evoflow] stream_aborted', {
+      sessionKey: key,
+      runId,
+      deltaCount: lane?.deltaCount,
+      finalTextLen: lane?.finalText?.length,
+      textDeltaCount: lane?.textDeltaCount,
+      reasoningDeltaCount: lane?.reasoningDeltaCount,
+      userInterrupt: lane?.userInterrupt,
+    })
     emitStreamUserInterruptAbort(self, key, runId, lane)
     return
   }
 
   if (t === 'error') {
     const { code, message } = parseEvfStreamError(data)
+    console.warn('[evoflow] stream_error', {
+      sessionKey: key,
+      runId,
+      code,
+      message,
+      deltaCount: lane?.deltaCount,
+      textDeltaCount: lane?.textDeltaCount,
+      reasoningDeltaCount: lane?.reasoningDeltaCount,
+      isUserInterrupt: isUserInterruptStreamError(code, message),
+      isUserStop: _userStopSessionKeys.has(key),
+    })
     if (isUserInterruptStreamError(code, message) || _userStopSessionKeys.has(key)) {
       emitStreamUserInterruptAbort(self, key, runId, lane)
       return
@@ -4771,6 +4800,14 @@ function dispatchChatWireSseFrame(self, opts) {
     const { code, message } = parseEvfStreamError(
       typeof data === 'object' && data ? data : { message: String(data || 'stream error') },
     )
+    console.warn('[evoflow] sse_error_event', {
+      sessionKey: key,
+      runId,
+      code,
+      message,
+      isUserInterrupt: isUserInterruptStreamError(code, message),
+      isUserStop: _userStopSessionKeys.has(key),
+    })
     if (isUserInterruptStreamError(code, message) || _userStopSessionKeys.has(key)) {
       if (evfLane) emitStreamUserInterruptAbort(self, key, runId, evfLane)
       return true

@@ -41,6 +41,13 @@ function notImplemented(method: string): Promise<never> {
   );
 }
 
+/** 空事件订阅桩：`(params?) => (listener?) => disposable` 任意调用深度都自带 dispose。 */
+const emptyEventSubscription: unknown = (() => {
+  const fn = (() => emptyEventSubscription) as unknown as { dispose(): void };
+  fn.dispose = () => {};
+  return fn;
+})();
+
 class EvoflowAgentService {
   // ── wire 握手（transport 首订阅前必经）──────────────────────────────────
 
@@ -79,11 +86,32 @@ class EvoflowAgentService {
 
   async resyncConversationV4(params: {
     subscriptionId: string;
-    base?: unknown;
+    base?: { logEpoch: string; seq: number } | null;
     forceSnapshot?: boolean;
-  } & WorkspaceTarget): Promise<never> {
-    // 同订阅 recovery：当前由客户端重订阅兜底，后端 resync 端点 H3-C 补齐。
-    return notImplemented("resyncConversationV4");
+  } & WorkspaceTarget): Promise<{ ack: { subscriptionId: string; mode: "snapshot" | "resume"; logEpoch: string } }> {
+    return v4Post("/api/v4/conversation/resync", {
+      subscriptionId: params.subscriptionId,
+      ...(params.base ? { base: params.base } : {}),
+      ...(params.forceSnapshot !== undefined ? { forceSnapshot: params.forceSnapshot } : {}),
+    });
+  }
+
+  async conversationRowsRangeV4(params: {
+    sessionId: string;
+    beforeRowId?: number;
+    limit: number;
+  } & WorkspaceTarget): Promise<{
+    rows: unknown[];
+    atSeq: number;
+    atRevision: number;
+    atLogEpoch: string;
+    hasMore: boolean;
+  }> {
+    return v4Post("/api/v4/conversation/rows_range", {
+      sessionId: params.sessionId,
+      ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
+      limit: params.limit,
+    });
   }
 
   // ── 命令 ────────────────────────────────────────────────────────────────
@@ -112,8 +140,10 @@ class EvoflowAgentService {
     return (listener) => ({ dispose: v4FrameConnection.onWire(listener) });
   }
 
-  onAgentRuntimeRestarted(_params?: WorkspaceTarget): Event<void> {
-    return Event.None;
+  /** 直接订阅模式：`(listener) => IDisposable`（transport 以
+   * ``agentService.onAgentRuntimeRestarted(listener)`` 调用，不走事件工厂二次调用）。 */
+  onAgentRuntimeRestarted(_listener: (event: void) => void): { dispose(): void } {
+    return { dispose() {} };
   }
 
   // 其余大面（rows range / plans / attachments / sessions-index / cua / ...）经 Proxy 拒绝。
@@ -121,14 +151,23 @@ class EvoflowAgentService {
 
 const implemented = new EvoflowAgentService() as unknown as Record<string, unknown>;
 
+/** 未实现方法的稳定桩缓存：ZCode hook 依赖数组需要稳定身份（见 evoflowServices 注释）。 */
+const stubMethodCache = new Map<string, unknown>();
+
 export const evoflowAgentService: IZCodeAgentService = new Proxy(implemented, {
   get(target, prop: string) {
     if (prop in target) return target[prop];
-    // `on*` 是事件订阅工厂（调用后立刻 `(listener)` 二次调用）：未接入的事件面返回
-    // 空事件流，语义是「永远不触发」而不是失败——transport 构造期就会订阅这些事件。
+    const cached = stubMethodCache.get(prop);
+    if (cached !== undefined) return cached;
+    let stub: unknown;
+    // `on*` 是事件订阅工厂：未接入的事件面返回空订阅，语义是「永远不触发」而不是
+    // 失败——transport 构造期就会订阅这些事件。
     if (prop.startsWith("on")) {
-      return () => Event.None;
+      stub = emptyEventSubscription;
+    } else {
+      stub = (...args: unknown[]) => notImplemented(prop);
     }
-    return (...args: unknown[]) => notImplemented(prop);
+    stubMethodCache.set(prop, stub);
+    return stub;
   },
 }) as unknown as IZCodeAgentService;

@@ -1,7 +1,9 @@
 /**
- * 临时生成器：用 zod 报错驱动的填充算法，产出最小合法 ConversationSnapshot JSON。
- * 产物作为后端 v4 conversation store 的快照基底模板。
- * 运行：npx vitest run tests/tmp-gen-minimal-snapshot.test.ts
+ * v4 wire 契约一致性测试：用 zod 报错驱动的填充算法，产出最小合法的
+ * ConversationSnapshot / 行 / 帧实例并验证 schema 接受——守护 vendored
+ * ``@zcode/shared/zcode-protocol-v4`` 与 EvoFlow 后端（``backend/app/gateway/v4/conversation.py``）
+ * 之间的 wire 契约不漂移。升级 vendored 协议后若此测试变红，后端模板需同步对齐。
+ * 运行：npx vitest run tests/v4-wire-conformance.test.ts
  */
 import { describe, expect, it } from "vitest";
 import {

@@ -1,24 +1,32 @@
 /**
  * EvoFlow v4 shell — ZCode 主对话 UI 的挂载根。
  *
- * 把 vendored ``zcode-ui`` 的 ``V4ChatPane``（SessionPane 全链路）包进它所需的最小
- * Provider 栈（见 docs/h2-v4-shell.md 的 H3-C 清单 + ZCode WorkspaceShellLayout 用法）：
+ * Provider 栈镜像 ZCode 应用根（``zcode-ui/Root.tsx`` 的挂载序），只保留 v4 聊天链路
+ * 必需的层：
  *
- *   PlatformProvider（平台能力） → ZCodeIntlProvider（i18n，50 文件消费）
+ *   LucideProvider（图标默认 strokeWidth=1.5，与 ZCode 视觉一致）
+ *   → TooltipProvider（Radix tooltip 全局共享；大会话性能要求根层唯一实例）
+ *   → ServiceProvider（IServiceAccessor = EvoFlow 服务壳）
+ *   → PlatformProvider（平台能力）
  *   → StoreProvider（zcode 全局 store，需 broadcastService）
  *   → TabStoreProvider（workspace/tab 上下文）
- *   → ServiceProvider（IServiceAccessor = EvoFlow 服务壳）
+ *   → DiffsWorkerPoolProvider（@pierre/diffs worker 池）
+ *   → ZCodeIntlProvider（i18n，50 文件消费）
  *   → V4ChatPane（= V4ConversationProvider → SessionPane）
  *
  * useTheme 是自包含 hook（localStorage + matchMedia），不需要 Provider。
  */
 
 import type { ReactNode } from "react";
+import { LucideProvider } from "lucide-react";
+import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { StoreProvider } from "@zcode/ui/store/StoreProvider.js";
 import { TabStoreProvider } from "@zcode/ui/store/TabStoreProvider.js";
+import { DiffsWorkerPoolProvider } from "@zcode/ui/root/DiffsWorkerPoolProvider.js";
+import { CodingPlanUpgradeDialogProvider } from "@zcode/ui/settings/CodingPlanUpgradeDialogProvider.js";
 import { V4ChatPane } from "@zcode/ui/v4/V4ChatPane.js";
 // ZCode ui 全套样式（tailwind v4 source(".") 扫描 zcode-ui 树 + shadcn/tw-animate 变体）。
 import "@zcode/ui/styles.css";
@@ -40,23 +48,29 @@ export function V4ShellRoot({
   onSessionCreated,
 }: V4ShellRootProps) {
   return (
-    <PlatformProvider platform={evoflowPlatform}>
-      <ZCodeIntlProvider initialLocale="zh-CN">
-        <StoreProvider broadcastService={evoflowServices.broadcastService}>
-          {/* 外层 base ServiceProvider：ZCode App 根部也有这一层，
-              V4ConversationProvider 自身在渲染期就会 useServices()（先于其内部覆写）。 */}
-          <ServiceProvider services={evoflowServices}>
-            <TabStoreProvider>
-              <V4ChatPane
-                workspacePath={workspacePath}
-                sessionId={sessionId}
-                isDesktop={false}
-                onSessionCreated={onSessionCreated}
-              />
-            </TabStoreProvider>
-          </ServiceProvider>
-        </StoreProvider>
-      </ZCodeIntlProvider>
-    </PlatformProvider>
+    <LucideProvider strokeWidth={1.5}>
+      <TooltipProvider>
+        <ServiceProvider services={evoflowServices}>
+          <PlatformProvider platform={evoflowPlatform}>
+            <StoreProvider broadcastService={evoflowServices.broadcastService}>
+              <TabStoreProvider>
+                <DiffsWorkerPoolProvider>
+                  <CodingPlanUpgradeDialogProvider>
+                    <ZCodeIntlProvider initialLocale="zh-CN">
+                      <V4ChatPane
+                        workspacePath={workspacePath}
+                        sessionId={sessionId}
+                        isDesktop={false}
+                        onSessionCreated={onSessionCreated}
+                      />
+                    </ZCodeIntlProvider>
+                  </CodingPlanUpgradeDialogProvider>
+                </DiffsWorkerPoolProvider>
+              </TabStoreProvider>
+            </StoreProvider>
+          </PlatformProvider>
+        </ServiceProvider>
+      </TooltipProvider>
+    </LucideProvider>
   );
 }

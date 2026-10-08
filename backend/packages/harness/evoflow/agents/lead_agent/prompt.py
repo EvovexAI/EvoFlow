@@ -1782,7 +1782,6 @@ def _proactive_employee_im_identity_block(agent_name: str | None) -> str:
             f"你在本产品中的岗位是「{role_name}」（agent_code=`{info.get('code') or code}`）。",
             f"用户问「你是谁」时：第一句必须是「我是{role_name}」，可再补一句本职职责；",
             "禁止自称底层模型名或厂商名（Agnes / GPT / Claude / Sapiens 等），也不要只说「编码智能体」而忽略岗位。",
-            "用户问「你能干嘛」时：用岗位职责列表白话回答，不要改成通用大模型能力清单。",
         ]
         dept = str(info.get("department") or "").strip()
         if dept:

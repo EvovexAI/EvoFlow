@@ -213,6 +213,15 @@ export default defineConfig(({ mode }) => {
         ignored: ['**/src-tauri/**', '**/target/**'],
       },
       proxy: {
+        // v4 conversation wire 帧流：长连 SSE，必须零超时（否则 15s 断连会触发
+        // 客户端故障恢复 → 重订阅 → 命令重放风暴）。
+        '/api/v4/conversation/frames': {
+          target: gatewayProxyTarget,
+          changeOrigin: true,
+          timeout: 0,
+          proxyTimeout: 0,
+          configure: configureGatewayProxy,
+        },
         '/api/langgraph': {
           target: gatewayProxyTarget,
           changeOrigin: true,

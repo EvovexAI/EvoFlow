@@ -350,18 +350,6 @@
        否则部分电脑启动页光斑/进度条静止，体验不一致。 */
   </style>
   <!-- entry: main.js via Vite -->
-  <!-- [v4shell-bringup] 临时诊断：收集 window error / unhandledrejection，浏览器控制台外可读（验证完移除） -->
-  <script>
-    window.__evErrors = [];
-    window.addEventListener('error', function (e) {
-      var stack = e.error && e.error.stack ? String(e.error.stack).split('\n').slice(0, 12).join(' | ') : '';
-      window.__evErrors.push('ERR: ' + e.message + ' @ ' + (e.filename || '') + ':' + e.lineno + (stack ? ' STACK: ' + stack : ''));
-    });
-    window.addEventListener('unhandledrejection', function (e) {
-      var r = e.reason;
-      window.__evErrors.push('REJ: ' + (r && r.stack ? String(r.stack).split('\n').slice(0, 12).join(' | ') : String(r)));
-    });
-  </script>
 </head>
 <body>
 

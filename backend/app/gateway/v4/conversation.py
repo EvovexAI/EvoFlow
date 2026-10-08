@@ -152,6 +152,69 @@ class V4ConversationHub:
             self._sessions[sid] = sess
         return sess
 
+    # -- 只读查询 -------------------------------------------------------------
+
+    def rows_range(
+        self,
+        session_id: str,
+        *,
+        before_row_id: int | None,
+        limit: int,
+    ) -> dict[str, Any]:
+        """rows/range 行分页：取 rowId < before_row_id 的尾部窗口（升序返回）。"""
+        sess = self._sessions.get(session_id)
+        if sess is None:
+            raise KeyError(session_id)
+        limit = max(1, min(int(limit), 200))
+        row_ids = sorted(sess.rows.keys())
+        if before_row_id is not None:
+            eligible = [rid for rid in row_ids if rid < int(before_row_id)]
+        else:
+            eligible = row_ids
+        window_ids = eligible[-limit:]
+        rows = [sess.rows[rid] for rid in window_ids]
+        return {
+            "rows": rows,
+            "atSeq": sess.seq,
+            "atRevision": sess.revision,
+            "atLogEpoch": sess.log_epoch,
+            "hasMore": len(eligible) > len(window_ids),
+        }
+
+    async def resync(
+        self,
+        *,
+        subscription_id: str,
+        base: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """同订阅恢复：重新投递完整 snapshot（deliveryKind=recovery，权威替换旧 assembly）。"""
+        async with self._lock:
+            sub = self._subscriptions.get(subscription_id)
+        if sub is None:
+            raise KeyError(subscription_id)
+        sess = self._sessions.get(sub.session_id)
+        if sess is None:
+            raise KeyError(sub.session_id)
+        sub.logical_frame_ordinal += 1
+        snapshot = self._build_snapshot(sess)
+        frame = {
+            "topic": sub.topic,
+            "subscriptionId": sub.subscription_id,
+            "fromSeq": 0,
+            "toSeq": sess.seq,
+            "sentAt": int(time.time() * 1000),
+            "payload": {"kind": "snapshot", "snapshot": snapshot},
+        }
+        sub.queue.append(self._wrap_wire(sub, frame, "recovery"))
+        sub.delivered_seq = sess.seq
+        return {
+            "ack": {
+                "subscriptionId": sub.subscription_id,
+                "mode": "snapshot",
+                "logEpoch": sess.log_epoch,
+            }
+        }
+
     # -- 订阅 ---------------------------------------------------------------
 
     async def subscribe(
@@ -171,6 +234,16 @@ class V4ConversationHub:
             topic=topic,
         )
         async with self._lock:
+            # 重订阅替换（对齐 zcode subscribeParams 注释：按 (connectionId, topic) 判定）。
+            # 草稿预热 → pane 接管会对同一 (conn, topic) 二次订阅；旧订阅继续广播
+            # 会在客户端产生"非本订阅所有权"的帧流，触发 fail-close 重连横幅。
+            for existing_id, existing in list(self._subscriptions.items()):
+                if (
+                    existing.connection_id == connection_id
+                    and existing.topic == topic
+                    and existing_id != subscription_id
+                ):
+                    del self._subscriptions[existing_id]
             self._subscriptions[subscription_id] = sub
         # 不变量 3：subscribe 后首帧必为完整 snapshot（base/resume 暂不支持，恒 snapshot）。
         self._enqueue_snapshot(sub, sess)
@@ -239,7 +312,7 @@ class V4ConversationHub:
             "sentAt": int(time.time() * 1000),
             "payload": {"kind": "snapshot", "snapshot": snapshot},
         }
-        sub.queue.append(self._wrap_wire(sub, frame))
+        sub.queue.append(self._wrap_wire(sub, frame, "initial"))
         sub.delivered_seq = sess.seq
 
     def _enqueue_deltas(
@@ -267,13 +340,25 @@ class V4ConversationHub:
         for sub in subs:
             per_sub = dict(frame)
             per_sub["subscriptionId"] = sub.subscription_id
-            sub.queue.append(self._wrap_wire(sub, per_sub))
+            sub.queue.append(self._wrap_wire(sub, per_sub, "online"))
             sub.delivered_seq = to_seq
 
-    def _wrap_wire(self, sub: _Subscription, frame: dict[str, Any]) -> dict[str, Any]:
+    def _wrap_wire(
+        self,
+        sub: _Subscription,
+        frame: dict[str, Any],
+        delivery_kind: str,
+    ) -> dict[str, Any]:
+        """包一层 ``ConversationTopicWireCandidate``。
+
+        ``deliveryKind`` 必须是 ``initial``/``online``/``recovery`` 之一——
+        assembler 的 parseDeliveryKind 对缺失/未知值直接打
+        ``proto.frameAssemblyMetadataMismatch`` fault。
+        """
         return {
             "wireVersion": V4_WIRE_PROTOCOL_VERSION,
             "kind": "complete",
+            "deliveryKind": delivery_kind,
             "logicalFrameId": f"lf-{uuid.uuid4().hex[:12]}",
             "logicalFrameOrdinal": sub.next_ordinal(),
             "topic": sub.topic,

@@ -40,7 +40,7 @@ export default defineConfig({
     environment: 'happy-dom',
     // 其余 tests/*.test.js 使用 node:test，由 `node --test` 单独运行
     include: [
-      'tests/tmp-gen-minimal-snapshot.test.ts',
+      'tests/v4-wire-conformance.test.ts',
       'tests/zcode-flat-reasoning.test.js',
       'tests/turn-history-fold.test.tsx',
       'tests/font-size-tokens.test.js',

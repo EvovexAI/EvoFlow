@@ -230,6 +230,39 @@ async def v4_conversation_command(body: dict[str, Any]) -> JSONResponse:
     return JSONResponse(ack)
 
 
+@conversation_router.post("/resync", summary="v4 conversation resync (same-sub recovery)")
+async def v4_conversation_resync(body: dict[str, Any]) -> JSONResponse:
+    """对齐 zcode ``resyncConversationV4``：重投完整 snapshot（recovery deliveryKind）。"""
+    subscription_id = str(body.get("subscriptionId") or "").strip()
+    if not subscription_id:
+        raise HTTPException(status_code=422, detail="subscriptionId is required")
+    base = body.get("base") if isinstance(body.get("base"), dict) else None
+    try:
+        result = await V4_CONVERSATION_HUB.resync(subscription_id=subscription_id, base=base)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown subscription {subscription_id}")
+    return JSONResponse(result)
+
+
+@conversation_router.post("/rows_range", summary="v4 conversation rows range query")
+async def v4_conversation_rows_range(body: dict[str, Any]) -> JSONResponse:
+    """对齐 zcode ``conversationRowsRangeV4``：按游标向上取一窗历史行（升序）。"""
+    session_id = str(body.get("sessionId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=422, detail="sessionId is required")
+    before_row_id = body.get("beforeRowId")
+    limit = int(body.get("limit") or 200)
+    try:
+        result = V4_CONVERSATION_HUB.rows_range(
+            session_id,
+            before_row_id=int(before_row_id) if before_row_id is not None else None,
+            limit=limit,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
+    return JSONResponse(result)
+
+
 @conversation_router.get("/frames", summary="v4 conversation wire frames (SSE)")
 async def v4_conversation_frames(
     connectionId: str = Query(..., description="Client connection id"),
