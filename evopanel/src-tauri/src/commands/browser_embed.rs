@@ -765,10 +765,8 @@ pub fn ensure_webview_for_cdp(
     // lazily on first CDP command that needs events, or by `browser_embed_upsert`
     // when the panel UI first shows the window (at which point the window is
     // visible and its message pump is running).
-
-    // Register the embed entry so `browser_embed_upsert` from the panel UI
-    // finds the cached `cdp_ws_url` instead of computing a fresh one.
-    if let Some(port) = browser_cdp_server::current_http_port().checked_sub(0).filter(|p| *p > 0) {
+    let http_port = browser_cdp_server::current_http_port();
+    if http_port > 0 {
         let _ = app
             .state::<BrowserEmbedState>()
             .entries
@@ -777,7 +775,7 @@ pub fn ensure_webview_for_cdp(
                 m.insert(
                     sanitize_thread_key(thread_id),
                     EmbedEntry {
-                        cdp_ws_url: format!("ws://127.0.0.1:{port}{CDP_WS_PATH}"),
+                        cdp_ws_url: format!("ws://127.0.0.1:{http_port}{CDP_WS_PATH}"),
                     },
                 )
             });

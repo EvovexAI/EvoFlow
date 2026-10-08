@@ -18,10 +18,10 @@ Architecture (post-mcp):
 - There is no second browser, no metadata, no tab model, no streaming — the
   user looks at the WebView2 they can see; the agent drives that exact page.
 
-Screencasts, persistent Chromium, the ``agent-browser`` CLI, multi-tab, the old
-``listen`` URL routing, and the Playwright/WS broker were all removed when this
-file collapsed to the ZCode shape. See ``git log packages/harness/evoflow/
-tools/builtins/browser_engine.py`` for the history.
+The agent-browser CLI, the Playwright/WS broker, screencasts, and the
+persistent Chromium were all removed when this file collapsed to the ZCode
+shape. See ``git log packages/harness/evoflow/tools/builtins/browser_engine.py``
+for the history.
 """
 
 from __future__ import annotations
@@ -33,21 +33,20 @@ import os
 import socket
 import threading
 import time
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 
 from evoflow.tools.builtins.browser_contract import (
     DEFAULT_AGENT_BROWSER_VIEWPORT,
-    ElementRect,
-    ErrorCode,
-    SnapshotDomNode,
-    SnapshotElement,
-    TabSummary,
     BrowserSnapshot,
     CommandResult,
     DialogInfo,
+    ErrorCode,
     PageState,
+    SnapshotElement,
+    TabSummary,
     fail,
 )
 
@@ -69,6 +68,66 @@ def _cdp_modifier_mask(mod: str) -> int:
         "Meta": 4,
         "Shift": 8,
     }.get(mod, 0)
+
+
+# Virtual key codes for the modifier keys themselves (used when we synthesize
+# keyDown/keyUp events for each modifier around a key press).
+_MODIFIER_VK = {"Control": 17, "Alt": 18, "Shift": 16, "Meta": 91}
+
+
+# Windows virtual key codes + DOM code names for Input.dispatchKeyEvent.
+# Without windowsVirtualKeyCode most keys are inert in real pages (Chrome only
+# synthesizes default actions for events carrying a real key code), and text
+# input needs the ``text`` field on keyDown.
+_KEY_SPECS: dict[str, tuple[str, int, str | None]] = {
+    # name -> (code, windowsVirtualKeyCode, text-for-keyDown)
+    "Enter": ("Enter", 13, "\r"),
+    "Tab": ("Tab", 9, None),
+    "Escape": ("Escape", 27, None),
+    "Backspace": ("Backspace", 8, None),
+    "Delete": ("Delete", 46, None),
+    "ArrowUp": ("ArrowUp", 38, None),
+    "ArrowDown": ("ArrowDown", 40, None),
+    "ArrowLeft": ("ArrowLeft", 37, None),
+    "ArrowRight": ("ArrowRight", 39, None),
+    "Home": ("Home", 36, None),
+    "End": ("End", 35, None),
+    "PageUp": ("PageUp", 33, None),
+    "PageDown": ("PageDown", 34, None),
+    "Insert": ("Insert", 45, None),
+    " ": ("Space", 32, " "),
+}
+for _vk, _name in ((112, "F1"), (113, "F2"), (114, "F3"), (115, "F4"), (116, "F5"),
+                   (117, "F6"), (118, "F7"), (119, "F8"), (120, "F9"), (121, "F10"),
+                   (122, "F11"), (123, "F12")):
+    _KEY_SPECS[_name] = (_name, _vk, None)
+for _char in "abcdefghijklmnopqrstuvwxyz":
+    _KEY_SPECS[_char] = (f"Key{_char.upper()}", ord(_char.upper()), _char)
+for _digit in "0123456789":
+    _KEY_SPECS[_digit] = (f"Digit{_digit}", ord(_digit), _digit)
+
+
+def _cdp_key_event(key: str, key_type: str) -> dict[str, Any]:
+    """Build an Input.dispatchKeyEvent params dict for one key phase."""
+    spec = _KEY_SPECS.get(key)
+    if spec is None and len(key) == 1:
+        # Printable ASCII punctuation: VK code is the uppercase ordinal, text
+        # carries the character itself so the browser inserts it verbatim.
+        spec = (f"Key_{key.upper()}" if not key.isalnum() else key.upper(), ord(key.upper()), key)
+    if spec is None:
+        # Unknown named key (Media*, etc.) — send as-is, Chrome may still map it.
+        return {"type": key_type, "key": key, "code": key}
+    code, vk, text = spec
+    event: dict[str, Any] = {
+        "type": key_type,
+        "key": key,
+        "code": code,
+        "windowsVirtualKeyCode": vk,
+        "nativeVirtualKeyCode": vk,
+    }
+    if key_type == "keyDown" and text is not None:
+        event["text"] = text
+    return event
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +169,18 @@ _WV2_PORT_FILE = os.path.join(_EVOFLOW_DIR, "browser-cdp-http-port")
 _WV2_PORT_CACHE: dict[str, tuple[int, float]] = {}
 _WV2_PORT_LOCK = threading.Lock()
 _WV2_PORT_CACHE_TTL_SEC = 30.0  # re-probe at most every 30s
+
+# One AsyncClient per process, created lazily on the engine loop. Every CDP
+# call used to build a fresh AsyncClient (new pool, new TLS contexts); with
+# one shared client the keep-alive pool serves the whole session.
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.AsyncClient(timeout=90.0)
+    return _HTTP_CLIENT
 
 
 def _probe_cdp_bridge(port: int, timeout: float = 0.4) -> bool:
@@ -199,13 +270,12 @@ async def _dispatch_run(
 
     url = f"http://127.0.0.1:{port}/browser-cdp/command"
     params_json = json.dumps(params or {})
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        resp = await client.post(
-            url,
-            params={"thread_id": tid, "method": method},
-            content=params_json,
-            headers={"Content-Type": "application/json"},
-        )
+    resp = await _get_http_client().post(
+        url,
+        params={"thread_id": tid, "method": method},
+        content=params_json,
+        headers={"Content-Type": "application/json"},
+    )
     if resp.status_code != 200:
         raise RuntimeError(f"WebView2 CDP HTTP error {resp.status_code}: {resp.text}")
     data = resp.json()
@@ -214,33 +284,20 @@ async def _dispatch_run(
     return data
 
 
-async def _wv2_status(tid: str) -> dict[str, Any]:
-    """Get WebView2 browser status via Rust HTTP server."""
-    port = _read_browser_cdp_http_port()
-    if not port:
-        return {}
-    url = f"http://127.0.0.1:{port}/browser-cdp/status"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, params={"thread_id": tid})
-        if resp.status_code != 200:
-            return {}
-        return resp.json() or {}
-    except Exception:
-        return {}
-
-
 # ---------------------------------------------------------------------------
 # Snapshot injection — bounded semantic DOM + interactive elements with refs.
 # Mirrors the ZCode `UnifiedBrowserView` ref model: each interactive element is
-# given a stable `eN` ref + a `SnapshotElement` descriptor.
+# given a stable `eN` ref + a `SnapshotElement` descriptor. The emitted shapes
+# are the contract in :mod:`browser_contract` (SnapshotElement / BrowserSnapshot);
+# tests pin this alignment.
 # ---------------------------------------------------------------------------
 
 _SNAPSHOT_JS = r"""
 (() => {
-    const MAX_ELEMENTS = arguments[0]?.maxElements ?? 150;
-    const MAX_DOM = arguments[0]?.maxDom ?? 400;
-    const includeHidden = arguments[0]?.includeHidden ?? false;
+    const opts = arguments[0] || {};
+    const MAX_ELEMENTS = opts.maxElements ?? 150;
+    const MAX_DOM = opts.maxDom ?? 400;
+    const includeHidden = opts.includeHidden ?? false;
     function isVisible(el) {
         if (!el) return false;
         const rect = el.getBoundingClientRect();
@@ -248,98 +305,172 @@ _SNAPSHOT_JS = r"""
         const style = getComputedStyle(el);
         return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) > 0;
     }
+    function viewportRect() {
+        return { left: 0, top: 0, right: window.innerWidth || 0, bottom: window.innerHeight || 0 };
+    }
+    const vp = viewportRect();
+    function inViewport(rect) {
+        return rect.x < vp.right && rect.y < vp.bottom &&
+               rect.x + rect.width > vp.left && rect.y + rect.height > vp.top;
+    }
+    function roleOf(el) {
+        const explicit = el.getAttribute('role');
+        if (explicit) return explicit;
+        const t = el.tagName;
+        if (t === 'A') return 'link';
+        if (t === 'BUTTON' || t === 'SUMMARY') return 'button';
+        if (t === 'SELECT') return 'combobox';
+        if (t === 'TEXTAREA') return 'textbox';
+        if (t === 'INPUT') {
+            const ty = (el.getAttribute('type') || 'text').toLowerCase();
+            if (ty === 'checkbox') return 'checkbox';
+            if (ty === 'radio') return 'radio';
+            if (ty === 'button' || ty === 'submit' || ty === 'reset') return 'button';
+            return 'textbox';
+        }
+        if (el.isContentEditable) return 'textbox';
+        return t.toLowerCase();
+    }
+    function accessibleName(el) {
+        const aria = el.getAttribute('aria-label') || '';
+        if (aria.trim()) return aria.trim().slice(0, 120);
+        const title = el.getAttribute('title') || '';
+        if (title.trim()) return title.trim().slice(0, 120);
+        const placeholder = el.getAttribute('placeholder') || '';
+        if (placeholder.trim()) return placeholder.trim().slice(0, 120);
+        let text = '';
+        try { text = (el.innerText || el.textContent || '').trim(); } catch (_) {}
+        return text.slice(0, 120);
+    }
+    function isInteractive(el) {
+        const t = el.tagName;
+        if (t === 'A' || t === 'BUTTON' || t === 'INPUT' || t === 'SELECT' ||
+            t === 'TEXTAREA' || t === 'SUMMARY') return true;
+        if (el.hasAttribute('contenteditable') || el.isContentEditable) return true;
+        const role = el.getAttribute('role');
+        if (role === 'button' || role === 'link' || role === 'checkbox' ||
+            role === 'radio' || role === 'tab' || role === 'switch' ||
+            role === 'menuitem' || role === 'option' || role === 'slider') return true;
+        return typeof el.onclick === 'function';
+    }
+    function cssSelector(el) {
+        if (el.id) { try { return '#' + CSS.escape(el.id); } catch (e) { return '#' + el.id; } }
+        const path = [];
+        let cur = el;
+        while (cur && cur !== document.body) {
+            const parent = cur.parentElement;
+            if (parent) {
+                const siblings = Array.from(parent.children).filter(c => c.tagName === cur.tagName);
+                const idx = siblings.indexOf(cur) + 1;
+                path.unshift(cur.tagName.toLowerCase() + (idx > 1 ? ':nth-of-type(' + idx + ')' : ''));
+            }
+            cur = parent;
+        }
+        return 'body > ' + path.join(' > ');
+    }
+    function xpathOf(el) {
+        const parts = [];
+        let cur = el;
+        while (cur && cur.nodeType === 1 && cur !== document.body) {
+            let idx = 1;
+            let sib = cur.previousElementSibling;
+            while (sib) { if (sib.tagName === cur.tagName) idx++; sib = sib.previousElementSibling; }
+            parts.unshift(cur.tagName.toLowerCase() + '[' + idx + ']');
+            cur = cur.parentElement;
+        }
+        return '//body/' + parts.join('/');
+    }
+    function elementToDict(el, index) {
+        const tag = el.tagName.toLowerCase();
+        const role = roleOf(el);
+        const name = accessibleName(el);
+        let text = '';
+        try { text = (el.innerText || '').trim().slice(0, 200); } catch (_) {}
+        let value = '';
+        try { value = (typeof el.value === 'string') ? el.value.slice(0, 200) : ''; } catch (_) {}
+        const checked = (role === 'checkbox' || role === 'radio') ? Boolean(el.checked) : null;
+        const disabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true');
+        const rect = el.getBoundingClientRect();
+        const attrs = {};
+        let attrCount = 0;
+        for (const a of el.attributes || []) {
+            if (attrCount >= 8) break;
+            if (a.value.length > 120) continue;
+            attrs[a.name] = a.value;
+            attrCount += 1;
+        }
+        return {
+            ref: 'e' + (index + 1),
+            tag,
+            role,
+            name,
+            text,
+            value,
+            checked,
+            disabled,
+            selector: cssSelector(el),
+            xpath: xpathOf(el),
+            rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+            inViewport: inViewport(rect),
+            attributes: attrs,
+        };
+    }
     function interactiveElements() {
         const out = [];
         const walker = document.createTreeWalker(
             document.body || document.documentElement,
             NodeFilter.SHOW_ELEMENT,
             { acceptNode: (el) => {
-                const t = el.tagName;
-                const interactive = (t === 'A' || t === 'BUTTON' || t === 'INPUT' ||
-                    t === 'SELECT' || t === 'TEXTAREA' || t === 'VIDEO' ||
-                    t === 'AUDIO' || el.hasAttribute('contenteditable') ||
-                    typeof el.onclick === 'function' ||
-                    el.getAttribute('role') === 'button' ||
-                    el.getAttribute('role') === 'link');
-                if (!interactive) return NodeFilter.FILTER_SKIP;
+                if (!isInteractive(el)) return NodeFilter.FILTER_SKIP;
                 if (!includeHidden && !isVisible(el)) return NodeFilter.FILTER_SKIP;
                 return NodeFilter.FILTER_ACCEPT;
             }}
         );
         let n;
-        let idx = 0;
-        while ((n = walker.nextNode()) && idx < MAX_ELEMENTS) {
+        while ((n = walker.nextNode())) {
             out.push(n);
-            idx += 1;
+            if (out.length >= MAX_ELEMENTS) break;
         }
         return out;
     }
-    function nodeToDict(el, index) {
-        const tag = el.tagName.toLowerCase();
-        const attrs = {};
-        for (const a of el.attributes || []) attrs[a.name] = a.value;
-        const role = el.getAttribute('role') || '';
-        const name = el.getAttribute('name') || el.getAttribute('aria-label') || el.getAttribute('title') || '';
-        const placeholder = el.getAttribute('placeholder') || '';
-        const type = el.getAttribute('type') || '';
-        let text = (el.textContent || '').trim().slice(0, 200);
-        let value = '';
-        try { value = (typeof el.value === 'string') ? el.value : ''; } catch (_) {}
-        let selector = '';
-        try {
-            if (el.id) selector = '#' + CSS.escape(el.id);
-            else {
-                const path = [];
-                let cur = el;
-                while (cur && cur !== document.body) {
-                    const parent = cur.parentElement;
-                    if (parent) {
-                        const siblings = Array.from(parent.children).filter(c => c.tagName === cur.tagName);
-                        const siblingIdx = siblings.indexOf(cur) + 1;
-                        path.unshift(cur.tagName.toLowerCase() + (siblingIdx > 1 ? ':nth-of-type(' + siblingIdx + ')' : ''));
-                    }
-                    cur = parent;
-                }
-                selector = 'body > ' + path.join(' > ');
-            }
-        } catch (e) {}
-        let xpath = '';
-        try {
-            const parts = [];
-            let cur = el;
-            while (cur && cur.nodeType === 1 && cur !== document.body) {
-                let idx = 1;
-                let sib = cur.previousElementSibling;
-                while (sib) { if (sib.tagName === cur.tagName) idx++; sib = sib.previousElementSibling; }
-                parts.unshift(cur.tagName.toLowerCase() + '[' + idx + ']');
-                cur = cur.parentElement;
-            }
-            xpath = '//body/' + parts.join('/');
-        } catch (e) {}
-        const rect = el.getBoundingClientRect();
-        return {
-            ref: 'e' + (index + 1),
-            tag,
-            role,
-            name,
-            placeholder,
-            type,
-            text,
-            value,
-            selector,
-            xpath,
-            attrs,
-            index: index + 1,
-            rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-        };
+    // Compact outline of readable content, aligned with SnapshotDomNode.
+    function domOutline() {
+        const tags = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','TH','TD','DT','DD','FIGCAPTION']);
+        const out = [];
+        const walker = document.createTreeWalker(
+            document.body || document.documentElement,
+            NodeFilter.SHOW_ELEMENT,
+            null
+        );
+        let depth = 0;
+        let node;
+        while ((node = walker.nextNode()) && out.length < MAX_DOM) {
+            depth = 0;
+            let anc = node.parentElement;
+            while (anc) { depth++; anc = anc.parentElement; }
+            if (!tags.has(node.tagName)) continue;
+            const text = (node.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+            if (!text) continue;
+            const rect = node.getBoundingClientRect();
+            out.push({
+                tag: node.tagName.toLowerCase(),
+                depth: Math.max(0, depth - 2),
+                inViewport: inViewport(rect),
+                text,
+            });
+        }
+        return out;
     }
-    const elements = interactiveElements().map(nodeToDict);
-    const domSnippet = (document.body || document.documentElement).innerHTML.slice(0, MAX_DOM);
+    const elements = interactiveElements().map(elementToDict);
+    const truncated = elements.length >= MAX_ELEMENTS;
+    const outline = domOutline();
     return {
         url: window.location.href,
         title: document.title || '',
         elements,
-        domSnippet,
+        truncated,
+        dom: outline,
+        domTruncated: outline.length >= MAX_DOM,
     };
 })()
 """
@@ -362,7 +493,7 @@ _INTERACTIVE_AT_POINT_JS = r"""
         const t = elInteractive.tagName;
         const role = elInteractive.getAttribute && elInteractive.getAttribute('role');
         const interactive = (t === 'A' || t === 'BUTTON' || t === 'INPUT' ||
-            t === 'SELECT' || t === 'TEXTAREA' || t === 'VIDEO' || t === 'AUDIO' ||
+            t === 'SELECT' || t === 'TEXTAREA' ||
             (elInteractive.getAttribute && elInteractive.getAttribute('contenteditable')) ||
             typeof elInteractive.onclick === 'function' || role === 'button' || role === 'link');
         if (interactive) break;
@@ -383,10 +514,31 @@ _INTERACTIVE_AT_POINT_JS = r"""
 })()
 """
 
+_PAGE_STATE_JS = (
+    "({url: location.href, title: document.title || '', "
+    "sx: window.scrollX || 0, sy: window.scrollY || 0, "
+    "vw: window.innerWidth || 0, vh: window.innerHeight || 0, "
+    "hl: history.length || 0})"
+)
+
 
 # ---------------------------------------------------------------------------
 # Session — pure state, no Playwright objects. WebView2 lives in Tauri.
 # ---------------------------------------------------------------------------
+
+
+class _CommandError(Exception):
+    """A command-level failure with a contract error code.
+
+    Distinct from RuntimeError (bridge/transport problems, mapped to
+    ``backend_unavailable``): command errors like an unknown ref surface with
+    their own code, ZCode parity for ``ref_not_found``.
+    """
+
+    def __init__(self, code: ErrorCode, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 class _Session:
@@ -540,7 +692,7 @@ class BrowserEngine:
                 result.elapsedMs = round((time.time() - started) * 1000, 1)
                 return result.model_dump(mode="json", by_alias=True, exclude_none=True)
             try:
-                result = await self._dispatch_wv2(session, command)
+                result = await self._wv2_command(session, command)
             except Exception as exc:
                 logger.warning(
                     "browser_engine.execute dispatch FAILED thread=%s method=%s: %s",
@@ -588,11 +740,6 @@ class BrowserEngine:
 
     # -- WebView2 dispatch ---------------------------------------------------
 
-    async def _dispatch_wv2(
-        self, session: _Session, command: dict[str, Any]
-    ) -> CommandResult:
-        return await self._wv2_command(session, command)
-
     async def _wv2_command(
         self, session: _Session, command: dict[str, Any]
     ) -> CommandResult:
@@ -602,6 +749,8 @@ class BrowserEngine:
             handler = getattr(self, f"_wv2_{method}", None)
             if handler is not None:
                 return await handler(session, command)
+        except _CommandError as exc:
+            return fail(exc.code, exc.message)
         except RuntimeError as exc:
             return fail(ErrorCode.BACKEND_UNAVAILABLE, str(exc))
         except Exception as exc:
@@ -612,7 +761,10 @@ class BrowserEngine:
     def _resolve_ref(self, session: _Session, ref: str) -> str:
         selector = session.refs.get(ref)
         if not selector:
-            raise RuntimeError(f"ref_not_found: unknown or stale ref '{ref}' (take a fresh snapshot)")
+            raise _CommandError(
+                ErrorCode.REF_NOT_FOUND,
+                f"ref_not_found: unknown or stale ref '{ref}' (take a fresh snapshot)",
+            )
         return selector
 
     def _element_of_ref(self, session: _Session, ref: str) -> SnapshotElement | None:
@@ -625,32 +777,18 @@ class BrowserEngine:
             return None
 
     async def _page_state(self, session: _Session, tid: str) -> PageState:
-        """Get the current page state via WebView2 Runtime.evaluate."""
+        """Read the page state in one Runtime.evaluate round trip."""
         try:
             raw = await _dispatch_run(
                 tid,
                 "Runtime.evaluate",
-                {
-                    "expression": (
-                        "({title: document.title || '', "
-                        "sx: window.scrollX || 0, "
-                        "sy: window.scrollY || 0, "
-                        "vw: window.innerWidth || 0, "
-                        "vh: window.innerHeight || 0, "
-                        "hl: history.length || 0})"
-                    ),
-                    "returnByValue": True,
-                },
+                {"expression": _PAGE_STATE_JS, "returnByValue": True},
             )
             info = raw.get("result", {}).get("value", {}) if isinstance(raw, dict) else {}
         except Exception:
             info = {}
-
-        status = await _wv2_status(tid)
-        url = status.get("url", "") if isinstance(status, dict) else ""
-
         return PageState(
-            url=str(url or ""),
+            url=str(info.get("url") or session.last_url or ""),
             title=str(info.get("title", "")),
             canGoBack=bool(info.get("hl", 0) > 1),
             canGoForward=False,
@@ -659,6 +797,29 @@ class BrowserEngine:
             viewportWidth=float(info.get("vw") or 0) or None,
             viewportHeight=float(info.get("vh") or 0) or None,
         )
+
+    async def _wait_document_ready(
+        self, tid: str, timeout_ms: int = 5000
+    ) -> None:
+        """Wait until the document reaches 'complete' (ZCode: the explicit
+        waitForLoadState after goto). Bounded — a hanging page never blocks the
+        tool longer than the deadline."""
+        deadline = time.monotonic() + max(0, timeout_ms) / 1000
+        while True:
+            try:
+                raw = await _dispatch_run(
+                    tid,
+                    "Runtime.evaluate",
+                    {"expression": "document.readyState", "returnByValue": True},
+                )
+                state = raw.get("result", {}).get("value") if isinstance(raw, dict) else None
+                if state in ("complete", "interactive"):
+                    return
+            except Exception:
+                return
+            if time.monotonic() >= deadline:
+                return
+            await asyncio.sleep(0.15)
 
     async def _take_snapshot(
         self,
@@ -685,13 +846,27 @@ class BrowserEngine:
         )
         result_val = raw.get("result", {}).get("value", {}) if isinstance(raw, dict) else {}
         if not result_val:
-            return BrowserSnapshot(url="", title="", domSnippet="", elements=[])
-        elements = result_val.get("elements", [])
-        session.refs = {el["ref"]: el.get("selector") or "" for el in elements}
-        session.ref_meta = {el["ref"]: el for el in elements}
+            return BrowserSnapshot(url="", title="", elements=[], truncated=False)
+        # Validate each element through the contract so a WebView2/JS drift
+        # surfaces as a per-element skip (logged) instead of a broken snapshot.
+        elements: list[SnapshotElement] = []
+        for el in result_val.get("elements", []):
+            try:
+                elements.append(SnapshotElement.model_validate(el))
+            except Exception as exc:
+                logger.warning("snapshot element dropped (contract drift): %s", exc)
+        session.refs = {el.ref: el.selector for el in elements}
+        session.ref_meta = {el.ref: el.model_dump() for el in elements}
         session.next_ref_index = len(session.refs)
-        session.last_url = result_val.get("url") or ""
-        return BrowserSnapshot.model_validate(result_val)
+        session.last_url = result_val.get("url") or session.last_url
+        return BrowserSnapshot(
+            url=str(result_val.get("url") or ""),
+            title=str(result_val.get("title") or ""),
+            elements=elements,
+            truncated=bool(result_val.get("truncated")),
+            dom=result_val.get("dom"),
+            domTruncated=bool(result_val.get("domTruncated")),
+        )
 
     # -- command handlers ----------------------------------------------------
 
@@ -703,23 +878,39 @@ class BrowserEngine:
             url = f"https://{url}"
         await _dispatch_run(session.tid, "Page.navigate", {"url": url})
         session.last_url = url
+        await self._wait_document_ready(session.tid)
         return CommandResult(ok=True, state=await self._page_state(session, session.tid))
 
     async def _wv2_back(self, session: _Session, command: dict[str, Any]) -> CommandResult:
-        await _dispatch_run(session.tid, "Page.navigate", {"url": ""})
-        # Use the history navigation API for "back".
-        try:
-            await _dispatch_run(session.tid, "Page.goBack", {})
-        except Exception:
-            pass
-        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+        tid = session.tid
+        # CDP has no Page.goBack — walk the session history explicitly.
+        history = await _dispatch_run(tid, "Page.getNavigationHistory", {})
+        index = int(history.get("index", 0)) if isinstance(history, dict) else 0
+        entries = history.get("entries") or [] if isinstance(history, dict) else []
+        if index <= 0 or index >= len(entries):
+            return CommandResult(ok=True, state=await self._page_state(session, tid))
+        await _dispatch_run(
+            tid, "Page.navigateToHistoryEntry", {"entryId": entries[index - 1]["id"]}
+        )
+        await self._wait_document_ready(tid)
+        return CommandResult(ok=True, state=await self._page_state(session, tid))
 
     async def _wv2_forward(self, session: _Session, command: dict[str, Any]) -> CommandResult:
-        await _dispatch_run(session.tid, "Page.goForward", {})
-        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+        tid = session.tid
+        history = await _dispatch_run(tid, "Page.getNavigationHistory", {})
+        index = int(history.get("index", 0)) if isinstance(history, dict) else 0
+        entries = history.get("entries") or [] if isinstance(history, dict) else []
+        if index + 1 >= len(entries) or index < 0:
+            return CommandResult(ok=True, state=await self._page_state(session, tid))
+        await _dispatch_run(
+            tid, "Page.navigateToHistoryEntry", {"entryId": entries[index + 1]["id"]}
+        )
+        await self._wait_document_ready(tid)
+        return CommandResult(ok=True, state=await self._page_state(session, tid))
 
     async def _wv2_reload(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         await _dispatch_run(session.tid, "Page.reload", {})
+        await self._wait_document_ready(session.tid)
         return CommandResult(ok=True, state=await self._page_state(session, session.tid))
 
     async def _wv2_snapshot(self, session: _Session, command: dict[str, Any]) -> CommandResult:
@@ -788,22 +979,33 @@ class BrowserEngine:
         return CommandResult(ok=True, element=element, state=await self._page_state(session, tid))
 
     async def _wv2_fill(self, session: _Session, command: dict[str, Any]) -> CommandResult:
+        """Fill via focus + select-all + Input.insertText.
+
+        Setting ``el.value`` directly bypasses React's value tracker — the
+        controlled-component state never updates and the next render wipes
+        the text. The keyboard path (insertText over a selection) produces
+        real beforeinput/input events, which every framework sees.
+        """
         ref = command.get("ref")
         if not ref:
             return fail(ErrorCode.EXECUTION_ERROR, "fill requires ref")
         selector = self._resolve_ref(session, str(ref))
         element = self._element_of_ref(session, str(ref))
         value = str(command.get("value") or "")
-        js = (
+        focus_js = (
             "(function(){const el=document.querySelector(" + json.dumps(selector) + ");"
             "if(!el)throw new Error('element not found');"
-            "el.focus();"
-            "el.value=" + json.dumps(value) + ";"
-            "el.dispatchEvent(new Event('input',{bubbles:true}));"
-            "el.dispatchEvent(new Event('change',{bubbles:true}));"
+            "el.scrollIntoView({block:'center'});el.focus();"
+            "if(el.select){el.select();}"
+            "else if(el.setSelectionRange){try{el.setSelectionRange(0, el.value.length);}catch(e){}}"
+            "else if(el.isContentEditable){"
+            "const r=document.createRange();r.selectNodeContents(el);"
+            "const s=window.getSelection();s.removeAllRanges();s.addRange(r);}"
             "return true;})()"
         )
-        await _dispatch_run(session.tid, "Runtime.evaluate", {"expression": js, "returnByValue": True})
+        await _dispatch_run(session.tid, "Runtime.evaluate", {"expression": focus_js, "returnByValue": True})
+        if value:
+            await _dispatch_run(session.tid, "Input.insertText", {"text": value})
         return CommandResult(ok=True, element=element, state=await self._page_state(session, session.tid))
 
     async def _wv2_type(self, session: _Session, command: dict[str, Any]) -> CommandResult:
@@ -828,24 +1030,38 @@ class BrowserEngine:
         modifiers = command.get("modifiers") or []
         tid = session.tid
         for mod in modifiers:
+            mod_vk = _MODIFIER_VK.get(mod, 0)
             await _dispatch_run(tid, "Input.dispatchKeyEvent", {
-                "type": "keyDown", "modifiers": _cdp_modifier_mask(mod),
+                "type": "keyDown", "key": mod, "code": mod,
+                "windowsVirtualKeyCode": mod_vk,
+                "nativeVirtualKeyCode": mod_vk,
+                "modifiers": _cdp_modifier_mask(mod),
             })
-        await _dispatch_run(tid, "Input.dispatchKeyEvent", {"type": "keyDown", "key": key})
-        await _dispatch_run(tid, "Input.dispatchKeyEvent", {"type": "keyUp", "key": key})
+        await _dispatch_run(tid, "Input.dispatchKeyEvent", _cdp_key_event(key, "keyDown"))
+        await _dispatch_run(tid, "Input.dispatchKeyEvent", _cdp_key_event(key, "keyUp"))
         for mod in reversed(modifiers):
+            mod_vk = _MODIFIER_VK.get(mod, 0)
             await _dispatch_run(tid, "Input.dispatchKeyEvent", {
-                "type": "keyUp", "modifiers": _cdp_modifier_mask(mod),
+                "type": "keyUp", "key": mod, "code": mod,
+                "windowsVirtualKeyCode": mod_vk,
+                "nativeVirtualKeyCode": mod_vk,
             })
         return CommandResult(ok=True, state=await self._page_state(session, tid))
 
     async def _wv2_scroll(self, session: _Session, command: dict[str, Any]) -> CommandResult:
-        direction = str(command.get("direction") or "down").lower()
-        amount = int(command.get("amount") or 800)
-        delta_x = amount if direction == "right" else (-amount if direction == "left" else 0)
-        delta_y = amount if direction in ("down", "right") else -amount
+        # Direct wheel deltas when provided (panel route), direction/amount
+        # fallback for the agent tool surface.
+        scroll_x = command.get("scrollX")
+        scroll_y = command.get("scrollY")
+        if scroll_x is None and scroll_y is None:
+            direction = str(command.get("direction") or "down").lower()
+            amount = int(command.get("amount") or 800)
+            scroll_x = amount if direction == "right" else (-amount if direction == "left" else 0)
+            scroll_y = amount if direction in ("down", "right") else -amount
+        delta_x = float(scroll_x or 0)
+        delta_y = float(scroll_y or 0)
         await _dispatch_run(session.tid, "Input.dispatchMouseEvent", {
-            "type": "mouseWheel", "x": 0, "y": 0, "deltaX": float(delta_x), "deltaY": float(delta_y),
+            "type": "mouseWheel", "x": 0, "y": 0, "deltaX": delta_x, "deltaY": delta_y,
         })
         return CommandResult(ok=True, state=await self._page_state(session, session.tid))
 
@@ -858,7 +1074,9 @@ class BrowserEngine:
         return CommandResult(ok=True, state=await self._page_state(session, session.tid))
 
     async def _wv2_screenshot(self, session: _Session, command: dict[str, Any]) -> CommandResult:
-        params: dict[str, Any] = {"format": "png", "quality": 100, "fromSurface": True}
+        params: dict[str, Any] = {"format": "png", "fromSurface": True}
+        if command.get("fullPage"):
+            params["captureBeyondViewport"] = True
         clip = command.get("clip")
         if clip:
             params["clip"] = {
@@ -901,8 +1119,22 @@ class BrowserEngine:
 
     async def _wv2_evaluate(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         expr = str(command.get("expression") or "")
-        await _dispatch_run(session.tid, "Runtime.evaluate", {"expression": expr, "returnByValue": True})
-        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+        raw = await _dispatch_run(
+            session.tid, "Runtime.evaluate", {"expression": expr, "returnByValue": True}
+        )
+        # Surface both the value and page-side errors (zcode parity: evaluate
+        # results reach the model; a throwing page expression is an error, not
+        # a silent ok).
+        details = raw.get("exceptionDetails") if isinstance(raw, dict) else None
+        if details:
+            text = str(details.get("exception", {}).get("description") or details.get("text") or "page evaluate failed")
+            return fail(ErrorCode.EXECUTION_ERROR, text)
+        value = raw.get("result", {}).get("value") if isinstance(raw, dict) else None
+        return CommandResult(
+            ok=True,
+            value=value,
+            state=await self._page_state(session, session.tid),
+        )
 
     async def _wv2_close(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         # WebView2 has no engine-side close — the panel owns the window. Clear

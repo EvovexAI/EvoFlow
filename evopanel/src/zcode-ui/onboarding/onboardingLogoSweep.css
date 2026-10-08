@@ -1,0 +1,41 @@
+/* 掩膜只保留 1px 描边，旋转光场不影响品牌图标本体。 */
+.onboarding-logo-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.onboarding-logo-sweep > div {
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 240deg,
+    rgb(255 255 255 / 8%) 280deg,
+    rgb(255 255 255 / 65%) 350deg,
+    transparent 360deg
+  );
+  animation: onboarding-logo-border-sweep 5s linear infinite;
+}
+
+@keyframes onboarding-logo-border-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-logo-sweep {
+    display: none;
+  }
+  .onboarding-logo-sweep > div {
+    animation: none;
+  }
+}

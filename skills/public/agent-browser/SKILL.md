@@ -1,135 +1,75 @@
 ---
 name: agent-browser
-description: Browser automation via the deferred ``browser`` tool (open/snapshot/click/fill/screenshot) or agent-browser CLI via terminal. Use for interactive web browsing, login flows, or dynamic pages.
+description: Interactive browser automation via the deferred ``browser`` tool (open/snapshot/click/fill/press/scroll/screenshot/back/close). The agent drives the same WebView2 page the user sees in the EvoPanel browser side panel. Use for dynamic pages, login flows, and anything needing clicks or forms.
 ---
 
 # Agent Browser
 
-Interactive browser control uses the unified **`browser`** tool (recommended) or the [agent-browser](https://github.com/vercel-labs/agent-browser) CLI via **`terminal`**.
+Interactive browser control uses the unified **`browser`** tool. The agent drives the
+**EvoPanel embedded WebView2** — the same page the user watches in the browser side
+panel (ZCode model: one host-owned browser, no second window, no screencast).
 
-## Recommended: `browser` tool (deferred)
+## Loading the tool (deferred)
 
 1. Activate agent mode: `scenario(action='activate', scenario_key='agent')`
 2. Load the tool schema: `tool_search(query='select:browser')`
-3. Run actions on one session:
+
+## Core workflow (snapshot + ref)
 
 ```
-browser(action='open', url='https://example.com')   # opens live view in EvoPanel browser side panel
-browser(action='snapshot')
-browser(action='click', ref='@e2')
-browser(action='fill', ref='@e3', text='search text')
+browser(action='open', url='https://example.com')   # live view appears in the EvoPanel side panel
+browser(action='snapshot')                           # read the page → refs e1, e2, …
+browser(action='click', ref='e2')
+browser(action='fill', ref='e3', text='search text')
 browser(action='press', key='Enter')
-browser(action='snapshot')
-browser(action='screenshot')   # optional still capture for history
+browser(action='snapshot')                           # page changed → refs are stale
+browser(action='screenshot')                         # optional — pixels, shown to the user
 browser(action='close')
 ```
 
 Actions: `open`, `snapshot`, `click`, `fill`, `press`, `scroll`, `screenshot`, `back`, `close`.
 
-## Fallback: terminal + agent-browser CLI
+## Discipline (do not skip)
 
-There are no legacy built-in `browser_*` tools — run CLI commands in the same terminal session for a multi-step flow.
+1. **Always `snapshot` before choosing refs.** Refs (`e1`, `e2`, …) come from the latest
+   snapshot and are invalidated by navigation and by clicks that change the page.
+2. **Re-snapshot after navigation or state-changing clicks.** A stale ref returns
+   `ref_not_found` — that is the signal to take a fresh snapshot, not to retry.
+3. **Never guess CSS selectors, labels, or placeholders.** Build clicks and fills only
+   from facts in the latest snapshot. If a locator target is ambiguous, take a fresh
+   snapshot and narrow it instead of guessing.
+4. **One state-changing action per observation.** After acting, judge success by the
+   expected effect (URL, page state, next snapshot) — not by absence of errors.
+5. **`snapshot` is how you read the page.** It returns URL, title, interactive elements
+   with refs, and a compact content outline. Use `screenshot` only when pixels matter.
 
-## Prerequisites
-
-```bash
-npm install -g agent-browser
-agent-browser install
-```
-
-Desktop installs bundle `tools/agent-browser/`; dev: `make setup-agent-browser`.
-
-Optional CDP (logged-in Chrome): `EVOFLOW_BROWSER_CDP_URL=http://127.0.0.1:9222`
-
-## Core workflow (snapshot + ref)
-
-Use one terminal session and reuse `--session evoflow` (or any fixed name):
-
-```bash
-agent-browser --session evoflow open https://example.com
-agent-browser --session evoflow snapshot -c
-agent-browser --session evoflow click @e2
-agent-browser --session evoflow fill @e3 "search text"
-agent-browser --session evoflow press Enter
-agent-browser --session evoflow snapshot -c
-agent-browser --session evoflow close
-```
-
-Rules:
-
-1. **Always snapshot** before choosing refs (`@e1`, `@e2`, …).
-2. **Re-snapshot** after navigation or clicks that change the page.
-3. Prefer refs from the latest snapshot over guessing CSS selectors.
-
-## Common commands
-
-| Command | Purpose |
-|---------|---------|
-| `open <url>` | Navigate |
-| `snapshot -c` | Compact aria tree with refs (**primary way to “see” the page**) |
-| `click @eN` | Click element |
-| `fill @eN "text"` | Clear and type |
-| `type @eN "text"` | Append text |
-| `press Enter` | Keyboard |
-| `scroll down 800` | Scroll |
-| `screenshot <path>` | PNG capture (**pixels only — see below**) |
-| `back` | History back |
-| `close` | End session |
-
-JSON output (for scripting): append `--json` before the subcommand, e.g. `agent-browser --session evoflow --json snapshot -c`.
-
-## Seeing the page: snapshot vs screenshot
-
-**Default — use `snapshot -c` (text)**
-
-The compact snapshot returns an aria tree with `@e1`, `@e2`, … refs. The main agent reads this **text** to click, fill, and judge page state. Use this for almost all interactive browsing.
-
-**When you need pixels — `screenshot` + `view_image`**
-
-`terminal` running `screenshot` only saves a file and returns **text output** (path/status). It does **not** inject image pixels into the model context.
-
-To let the main agent **see** a screenshot:
-
-1. Activate agent mode if needed: `scenario(activate, agent)` (loads `view_image`).
-2. Save under session outputs (absolute path or virtual path):
-
-```bash
-agent-browser --session evoflow screenshot /mnt/user-data/outputs/page.png
-```
-
-On Windows, use the resolved outputs path from the workspace block, e.g. `D:\...\outputs\page.png`.
-
-3. Immediately call **`view_image`** with the same path (not another terminal command):
-
-```
-view_image(image_path="/mnt/user-data/outputs/page.png")
-```
-
-`ViewImageMiddleware` injects the PNG into the next model turn as multimodal input.
-
-- Remote http/https image URLs are also supported by `view_image(image_path="https://…")`.
-
-**When to screenshot**
+## When to screenshot
 
 | Need | Use |
 |------|-----|
-| Click, fill, read structure | `snapshot -c` |
-| CAPTCHA, dense layout, visual-only UI | `screenshot` → `view_image` |
-| Deliver a picture to the user | `screenshot` → cite `@@outputs/…@@` |
+| Click, fill, read structure | `snapshot` |
+| CAPTCHA, dense layout, visual-only UI | `screenshot` (then judge from the returned image info) |
+| Deliver a picture to the user | `screenshot(full_page=…)` — the image is shown in the chat UI |
 
-## When to use what
+The screenshot image is rendered for the user in the chat timeline; the tool result
+itself stays compact (no base64 in context).
 
-| Task | Approach |
-|------|----------|
-| Read article / static page | `web_fetch` first (cheaper) |
-| Login, forms, multi-step UI | This skill + `terminal` + `snapshot -c` |
-| Visual proof / layout check | `screenshot` → `view_image` |
-| One-shot page text | `open` → `snapshot -c` → `close` |
+## Prerequisites
+
+- The EvoFlow desktop app must be running — the tool drives its embedded WebView2.
+  If the engine is unreachable the tool returns a structured
+  `backend_unavailable` error; report it instead of trying other browsers.
+- Do not invent alternate browsers or CLIs. The legacy `agent-browser` CLI path was
+  removed; terminal-based browsing recipes are obsolete.
 
 ## Tips
 
-- Keep the same `--session` name across steps in one user task.
-- Prefer **`snapshot -c`** over screenshot unless pixels are required.
-- After **`screenshot`**, always follow with **`view_image`** if you need to understand the image yourself.
-- Call `close` when done to free the browser.
-- Do not use `agent-browser chat` unless the user explicitly wants the standalone AI mode (separate from EvoFlow's model).
+- `fill` goes through the keyboard path (focus + insertText), so React/Vue controlled
+  inputs work as if the user typed.
+- `press` accepts `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, arrow keys,
+  `Home`/`End`/`PageUp`/`PageDown`, single characters, and `modifiers` (e.g. Ctrl).
+- `scroll` takes `direction` (`down`/`up`/`left`/`right`) and `amount` in CSS pixels.
+- `back` walks the WebView2 session history; `close` ends the agent session (the user
+  keeps the panel and can close it from the UI).
+- The user can interact with the panel too (address bar, clicks). Treat unexpected page
+  changes as user actions: re-snapshot before continuing.

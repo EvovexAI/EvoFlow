@@ -1,9 +1,7 @@
 /**
  * SSE frame splitting + batched dispatch so burst reads do not monopolize the main thread.
  *
- * Two scheduling strategies:
- *  - 前台可见时走 requestAnimationFrame，跟随浏览器节奏；
- *  - 文档隐藏（hidden）时降级到 setTimeout(0)，避免后台标签 ~1Hz rAF 节流把 SSE 帧压在队列里。
+ * 调度：一律 setTimeout(0)（rAF 在被遮挡/未合成的窗口里会停摆，见 schedule() 注释）。
  *
  * `flush()` 必须真正取消已挂的 rAF / timeout，否则末尾残块（dispatchSseFrame(buffer.replace…)）
  * 与排队回调可能乱序投递，导致历史末段被新增 delta 覆盖。
@@ -15,14 +13,6 @@ export function takeCompleteSseFrames(raw) {
   const parts = normalized.split('\n\n')
   const rest = parts.pop() ?? ''
   return { frames: parts, rest }
-}
-
-function isDocumentHidden() {
-  try {
-    return typeof document !== 'undefined' && document.visibilityState === 'hidden'
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -95,12 +85,13 @@ export function createSseFrameQueue(dispatchFrame, { maxPerSlice = 16, maxQueueS
 
   const schedule = () => {
     if (rafHandle || timeoutHandle) return
-    // 文档隐藏时 rAF 会被浏览器节流到 ~1Hz；用 setTimeout(0) 保持流式连续写入。
-    if (isDocumentHidden() || typeof requestAnimationFrame !== 'function') {
-      timeoutHandle = setTimeout(runSlice, 0)
-    } else {
-      rafHandle = requestAnimationFrame(runSlice)
-    }
+    // 一律用 setTimeout(0)，不用 requestAnimationFrame：
+    // rAF 绑定合成器绘制周期——窗口被遮挡/最小化/未参与合成（如后台 webview pane）时
+    // rAF 会长期停摆，而 document.visibilityState 仍是 'visible'，走不到 hidden 分支，
+    // 队列被压住不排空 → 流式文本直到流结束 flush 才一次性上屏。
+    // setTimeout(0) 与 stream-bump-scheduler 的既有决策一致：嵌套节流 ~4ms，
+    // 每片仍限 maxPerSlice 帧，不会垄断主线程。
+    timeoutHandle = setTimeout(runSlice, 0)
   }
 
   const cancelScheduled = () => {

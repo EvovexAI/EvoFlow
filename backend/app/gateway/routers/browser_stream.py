@@ -1,17 +1,24 @@
-"""Live browser viewport stream (agent-browser WebSocket proxy)."""
+"""Browser routes: panel live-view interactions + legacy stream status stubs.
+
+ZCode parity: the live view is the panel's embedded WebView2 itself — there is
+no separate screencast service. The panel's user-driven interactions (address
+bar, viewport, click/scroll on the page) dispatch through the same engine the
+agent uses, so the user and the agent always share one page. The old
+``browser-stream`` screencast routes remain only so older panel builds degrade
+gracefully; they report the stream as unavailable instead of pretending a
+screencast exists.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import threading
-import time
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -21,27 +28,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/threads", tags=["browser-stream"])
 
-
-class _BrowserViewportBody(BaseModel):
-    width: int = Field(ge=320, le=3840)
-    height: int = Field(ge=320, le=2160)
-
-
-class _BrowserClickBody(BaseModel):
-    """Click on the live viewport at viewport-CSS-pixel coordinates."""
-
-    x: float = Field(ge=0)
-    y: float = Field(ge=0)
-    button: str = Field(default="left")
-    double_click: bool = Field(default=False)
-
-
-
-class _BrowserScrollBody(BaseModel):
-    """Scroll the live viewport by wheel deltas (CSS px)."""
-
-    delta_x: float = Field(default=0)
-    delta_y: float = Field(default=0)
+_NO_STREAM_DETAIL = (
+    "Browser live streaming is not part of the engine anymore — the live view "
+    "is the EvoPanel embedded browser itself."
+)
 
 
 def _dispatch_browser_command(thread_id: str, command: dict[str, object]) -> dict[str, object]:
@@ -64,11 +54,8 @@ def _browser_route_payload(
 ) -> dict[str, object]:
     """Build the standard response body for browser command/tab endpoints.
 
-    Includes ``stream_ws`` and ``page_url`` so the EvoPanel can connect the
-    live screencast after a user-initiated navigation or tab action. Without
-    these, the panel only knew about engine sessions through the AG-UI
-    browser-tool event stream, so a manual URL typed into the address bar
-    would not refresh the on-screen page.
+    Includes ``stream_ws`` and ``page_url`` so the EvoPanel can bind the live
+    view after a user-initiated navigation or tab action.
     """
     from evoflow.tools.builtins.browser_stream import browser_live_ws_path
 
@@ -86,81 +73,31 @@ def _browser_route_payload(
             payload[key] = value
     return payload
 
-_RESTART_MIN_INTERVAL_SEC = 2.0
-_restart_last_at: dict[str, float] = {}
-_restart_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Live-view interactions (panel) — dispatched through the same engine as the agent
+# ---------------------------------------------------------------------------
 
 
-@router.get(
-    "/{thread_id}/browser-stream/status",
-    summary="Get browser live stream status",
-)
-async def get_browser_stream_status(request: Request, thread_id: str) -> dict[str, object]:
-    require_thread_visible(request, thread_id)
-    from evoflow.tools.builtins.browser_stream import (
-        browser_live_ws_path,
-        resolve_browser_stream_port,
-    )
-
-    port = await asyncio.to_thread(resolve_browser_stream_port, thread_id)
-    if not port:
-        raise HTTPException(status_code=404, detail="No active browser stream")
-    return {
-        "thread_id": thread_id,
-        "port": port,
-        "stream_ws": browser_live_ws_path(thread_id),
-        "live": True,
-    }
+class _BrowserViewportBody(BaseModel):
+    width: int = Field(ge=320, le=3840)
+    height: int = Field(ge=320, le=2160)
 
 
-@router.post(
-    "/{thread_id}/browser-stream/restart",
-    summary="Restart browser live screencast",
-)
-async def restart_browser_stream_route(request: Request, thread_id: str) -> dict[str, object]:
-    require_thread_visible(request, thread_id)
-    from evoflow.tools.builtins.browser_screenshot_store import _safe_thread_segment
-    from evoflow.tools.builtins.browser_stream import (
-        browser_live_ws_path,
-        restart_browser_stream,
-    )
+class _BrowserClickBody(BaseModel):
+    """Click on the live viewport at viewport-CSS-pixel coordinates."""
 
-    key = _safe_thread_segment(thread_id)
-    now = time.time()
-    with _restart_lock:
-        last = _restart_last_at.get(key, 0.0)
-        if now - last < _RESTART_MIN_INTERVAL_SEC:
-            raise HTTPException(status_code=429, detail="Browser stream restart rate limited")
-        _restart_last_at[key] = now
-
-    port = await asyncio.to_thread(restart_browser_stream, thread_id)
-    if not port:
-        raise HTTPException(status_code=404, detail="No active browser stream to restart")
-    return {
-        "thread_id": thread_id,
-        "port": port,
-        "stream_ws": browser_live_ws_path(thread_id),
-        "live": True,
-    }
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    button: str = Field(default="left")
+    double_click: bool = Field(default=False)
 
 
-@router.websocket("/{thread_id}/browser-stream")
-async def browser_stream_ws(websocket: WebSocket, thread_id: str) -> None:
-    from fastapi import HTTPException
+class _BrowserScrollBody(BaseModel):
+    """Scroll the live viewport by wheel deltas (CSS px)."""
 
-    try:
-        require_thread_visible(websocket, thread_id)  # type: ignore[arg-type]
-    except HTTPException:
-        await websocket.close(code=1008, reason="forbidden")
-        return
-    from app.gateway.streaming.browser_stream_proxy import run_browser_stream_proxy
-
-    try:
-        await run_browser_stream_proxy(websocket, thread_id)
-    except WebSocketDisconnect:
-        return
-    except Exception as exc:
-        logger.warning("browser stream websocket failed thread=%s: %s", thread_id, exc)
+    delta_x: float = Field(default=0)
+    delta_y: float = Field(default=0)
 
 
 @router.post(
@@ -374,16 +311,12 @@ async def scroll_browser_route(
     dy = float(body.delta_y)
     if abs(dx) < 1 and abs(dy) < 1:
         return {"thread_id": thread_id, "ok": True}
-    # 主轴判定：|dx| 占优走横向，否则纵向；量取主轴绝对值并限幅
-    direction = "down" if dy > 0 else "up"
-    if abs(dx) > abs(dy):
-        direction = "right" if dx > 0 else "left"
-    amount = int(min(3000, max(1, round(max(abs(dx), abs(dy))))))
-    logger.info("browser_scroll thread=%s direction=%s amount=%d", thread_id, direction, amount)
+    # Direct wheel deltas (ZCode CUA parity) — no direction quantization.
+    logger.info("browser_scroll thread=%s dx=%.1f dy=%.1f", thread_id, dx, dy)
     result = await asyncio.to_thread(
         _dispatch_browser_command,
         thread_id,
-        {"method": "scroll", "direction": direction, "amount": amount},
+        {"method": "scroll", "scrollX": dx, "scrollY": dy},
     )
     if not result.get("ok"):
         err = result.get("error") or {}
@@ -427,6 +360,45 @@ async def browser_command_route(
     return _browser_route_payload(thread_id, result)
 
 
+# ---------------------------------------------------------------------------
+# Legacy screencast routes — honest "removed" answers (panel degrades gracefully)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{thread_id}/browser-stream/status",
+    summary="Get browser live stream status (streaming removed — always unavailable)",
+)
+async def get_browser_stream_status(request: Request, thread_id: str) -> dict[str, object]:
+    require_thread_visible(request, thread_id)
+    raise HTTPException(status_code=404, detail=_NO_STREAM_DETAIL)
+
+
+@router.post(
+    "/{thread_id}/browser-stream/restart",
+    summary="Restart browser live screencast (streaming removed — always unavailable)",
+)
+async def restart_browser_stream_route(request: Request, thread_id: str) -> dict[str, object]:
+    require_thread_visible(request, thread_id)
+    raise HTTPException(status_code=404, detail=_NO_STREAM_DETAIL)
+
+
+@router.websocket("/{thread_id}/browser-stream")
+async def browser_stream_ws(websocket: WebSocket, thread_id: str) -> None:
+    try:
+        require_thread_visible(websocket, thread_id)  # type: ignore[arg-type]
+    except HTTPException:
+        await websocket.close(code=1008, reason="forbidden")
+        return
+    # Fail fast with the honest status instead of retrying an upstream that
+    # no longer exists (the panel's native embed is the live view).
+    await websocket.accept()
+    await websocket.send_json({"type": "status", "screencasting": False, "reason": "removed"})
+    await websocket.send_json({"type": "error", "message": _NO_STREAM_DETAIL})
+    await websocket.close(code=1000)
+    logger.info("browser stream ws rejected (streaming removed) thread=%s", thread_id)
+
+
 @router.get(
     "/{thread_id}/browser-live-frame",
     summary="Deprecated — polling disabled to avoid blocking Gateway",
@@ -436,21 +408,31 @@ async def get_browser_live_frame(request: Request, thread_id: str) -> Response:
     require_thread_visible(request, thread_id)
     return Response(
         status_code=410,
-        content="browser-live-frame polling is disabled; use WebSocket stream or tool screenshots.",
+        content="browser-live-frame polling is disabled; use tool screenshots.",
         media_type="text/plain",
     )
 
 
-# -- Browser CDP via Rust (EvoPanel WebView2) -----------------------------------
+# ---------------------------------------------------------------------------
+# Browser CDP via Rust (EvoPanel WebView2)
+# ---------------------------------------------------------------------------
+# The agent path is browser_engine → the Rust HTTP bridge (browser_cdp_server.rs).
+# These routes expose the same bridge to authenticated callers and feed the
+# panel's embed status queries.
 
 _PORT_FILE_LOCK = threading.Lock()
 _CACHED_PORT: dict[str, int] = {}
 
 
 def _read_browser_cdp_port() -> int | None:
-    """Read the CDP HTTP server port from the well-known file."""
-    evoflow_dir = os.path.expanduser("~/.evoflow")
-    port_file = os.path.join(evoflow_dir, "browser-cdp-http-port")
+    """Read the CDP HTTP server port from the well-known file.
+
+    Resolves the EvoFlow home dir the same way the engine does (EVOFLOW_CONFIG_DIR
+    and the debug-build ~/.evoflow-dev variant), not a hardcoded ~/.evoflow.
+    """
+    from evoflow.tools.builtins.browser_engine import _resolve_evoflow_dir
+
+    port_file = os.path.join(_resolve_evoflow_dir(), "browser-cdp-http-port")
     try:
         with open(port_file) as f:
             return int(f.read().strip())
@@ -497,8 +479,7 @@ async def browser_embed_command(
 ) -> _EmbedCommandResponse:
     """Forward a CDP method call to the Rust WebView2 CDP handler via HTTP.
 
-    This path bypasses the Playwright WS broker entirely and gives the Python
-    browser engine direct control of the user's embedded WebView2 window — the same
+    Direct CDP access to the user's embedded WebView2 — the same
     architecture as ZCode's Electron `<webview>` + `debugger.attach()` pipeline.
     """
     require_thread_visible(request, thread_id)
@@ -523,7 +504,7 @@ async def browser_embed_command(
         return _EmbedCommandResponse.model_validate(resp.json())
     except httpx.RequestError as exc:
         logger.warning("browser_embed_command network error thread=%s method=%s: %s", thread_id, body.method, exc)
-        raise HTTPException(status_code=503, detail=f"CDP server unreachable: {exc}")
+        raise HTTPException(status_code=503, detail=f"CDP server unreachable: {exc}") from exc
 
 
 @router.get(

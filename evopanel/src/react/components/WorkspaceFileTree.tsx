@@ -1027,33 +1027,6 @@ export function WorkspaceFileTree({
           </div>
 
           <div className="kv-browse-extras">
-            <div
-              className="kv-browse-meta kv-browse-meta--inline"
-              title={root || tid || '单击展开/预览；@ 附加；右键更多；方向键导航'}
-            >
-              <span className="kv-browse-meta-path">
-                {isSearchMode
-                  ? `搜索：${searchQuery.trim()}`
-                  : `路径 ${relPath === '.' ? '/' : formatWorkspacePathForDisplay(relPath)}`}
-              </span>
-              {parent != null && !isSearchMode ? (
-                <>
-                  <span aria-hidden="true"> · </span>
-                  <button
-                    type="button"
-                    className="kv-browse-filter__clear"
-                    style={{ display: 'inline', width: 'auto', height: 'auto', padding: 0 }}
-                    disabled={loading}
-                    onClick={() => void load(parent)}
-                    title="返回上级"
-                  >
-                    上级
-                  </button>
-                </>
-              ) : null}
-              <span aria-hidden="true"> · </span>
-              <span className="kv-browse-meta-hint">单击展开/预览；@ 附加；右键更多；方向键导航</span>
-            </div>
             <label
               className="react-chat-workspace-tree-watch-toggle"
               title="开启后后台监听工作区文件变更并更新搜索索引；大仓库可能占用 CPU"

@@ -294,7 +294,7 @@ _ROLE_LABELS_ZH = {
 
 
 def snapshot_to_text(snapshot: BrowserSnapshot, *, max_dom_lines: int = 60) -> str:
-    """Render a snapshot the way the agent-browser CLI did (compact, ref-addressed)."""
+    """Render a snapshot as compact ref-addressed text for the model."""
     lines: list[str] = [f"URL: {snapshot.url}", f"Title: {snapshot.title}", ""]
     for el in snapshot.elements:
         role = el.role or el.tag or "generic"

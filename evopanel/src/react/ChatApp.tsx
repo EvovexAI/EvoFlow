@@ -63,7 +63,6 @@ import {
 } from './lib/session-mode.js'
 import { ModelCatalogMenu } from './components/ModelCatalogMenu.js'
 import { PermissionPresetMenu } from './components/PermissionPresetMenu.js'
-import { MiniSessionPane } from './v4_demo/MiniSessionPane.js'
 import {
   buildModelConnNameMap,
   defaultModelFromCatalog,
@@ -1554,17 +1553,6 @@ export default function ChatApp() {
   })
   /** 当前选中会话 key（同步 ref，供 useMemo/回调在 state 未提交前读取） */
   const sessionRef = useRef(selectedSessionKey)
-  /**
-   * H1 demo: 在 `localStorage.evoflowH1V4Demo === "1"` 时挂载 ``MiniSessionPane``。
-   * 仅开发时启用；生产构建不会触发（与后端 ``EVOFLOW_V4_DEMO`` 对偶）。
-   */
-  const h1DemoEnabled = useMemo(() => {
-    try {
-      return localStorage.getItem('evoflowH1V4Demo') === '1'
-    } catch {
-      return false
-    }
-  }, [])
   /** 各会话侧栏/询问面板状态缓存（切换会话时恢复；后台会话询问不得写入当前 UI） */
   const threadPanelBySessionRef = useRef(new Map<string, ThreadPanelState>())
   const commitThreadPanelForSessionRef = useRef<
@@ -10186,6 +10174,16 @@ export default function ChatApp() {
       if (state === 'agui_event') {
         const aguiEvent = (payload as { aguiEvent?: AGUIEvent }).aguiEvent
         if (!aguiEvent) return
+        // [STREAM-DEBUG] 进入 ChatApp 的 wire 事件 + 闸门判定
+        {
+          const aguiT = String((aguiEvent as { type?: string }).type || '')
+          if (aguiT === 'TEXT_MESSAGE_CONTENT' || aguiT === 'RUN_STARTED' || aguiT === 'RUN_FINISHED' || aguiT === 'TEXT_MESSAGE_START') {
+            const dbgActive = String((rt as unknown as { activeChatRunId?: string }).activeChatRunId || '')
+            const dbgPhase = String((rt as unknown as { turnPhase?: string }).turnPhase || '')
+            const dbgLive = String((rt as unknown as { liveRunStatus?: string }).liveRunStatus || '')
+            console.info(`[STREAM-DEBUG][app] type=${aguiT} payloadRunId=${String(runId || '')} active=${dbgActive} phase=${dbgPhase} live=${dbgLive}`)
+          }
+        }
 
         // chatSend 先绑 client UUID；AG-UI wire run-{hex} 须在 gate 前接管，否则整轮事件被丢弃
         const aguiRunId =
@@ -16187,7 +16185,6 @@ export default function ChatApp() {
         onWorkspaceFocus={onShellWorkspaceFocus}
         onOpenWorkspaceFolder={handleOpenWorkspaceFolder}
       />
-      {h1DemoEnabled ? <MiniSessionPane enabled={h1DemoEnabled} /> : null}
 
     </div>
     </HoverBubbleProvider>

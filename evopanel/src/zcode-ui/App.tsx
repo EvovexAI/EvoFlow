@@ -1,0 +1,1280 @@
+/* eslint-disable max-lines -- App 当前集中编排 workspace 级状态、导航、Git 派生数据和 shell wiring；已将新增 side pane memory 桥接抽出，剩余拆分需要按 shell 边界单独重构。 */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import type { GitChangeSourceId, WorkspacePurpose } from "@zcode/shared";
+import { useZCodeStore } from "@/store/StoreProvider.js";
+import { getVisibleTaskMetas, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { useTaskQueryCacheStore } from "@/store/taskQueryCacheStore.js";
+import { useAppPanels } from "@/hooks/useAppPanels.js";
+import { useGitAutoRefresh } from "@/hooks/useGitAutoRefresh.js";
+import { useGitRepository } from "@/hooks/useGitRepository.js";
+import { useAppKeyboard } from "@/hooks/useAppKeyboard.js";
+import { usePlatform } from "@/hooks/usePlatform.js";
+import { useWorkspaceActiveTaskState } from "@/hooks/useWorkspaceActiveTaskState.js";
+import { useEnsureWorkspaceMcpLoaded } from "@/hooks/useEnsureWorkspaceMcpLoaded.js";
+import { useTabStore } from "@/store/TabStoreProvider.js";
+import { isWorkspaceReadOnly, isWorkspaceTab } from "@/store/tabStore.js";
+import type { TaskChatMessage as TestChatMessage } from "@/lib/taskChatMessageTypes.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
+import { getPathLeaf } from "@/lib/path.js";
+import {
+  addPluginStoreOpenListener,
+  type PluginStoreOpenTarget,
+} from "@/lib/pluginStoreNavigation.js";
+import { resolveWorkspaceSwitchDraftProvider } from "@/lib/workspaceDraftProvider.js";
+import { useTestActions } from "@/test-actions.js";
+import type { TestActions } from "@/test-actions.js";
+import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
+import type { TaskFindDialogProps } from "@/quickpick/TaskFindDialog.js";
+import {
+  changeTaskFindSelection,
+  createTaskFindNavigationState,
+  navigateTaskFindSelection,
+} from "@/quickpick/taskFindNavigationState.js";
+import { createQuickPickCommands } from "@/quickpick/quickPickCommands.js";
+import { CommandCenterDialog } from "@/command-center/CommandCenterDialog.js";
+import { FeedbackHost } from "@/feedback/FeedbackHost.js";
+import { useFeedbackStore } from "@/feedback/feedbackStore.js";
+import {
+  resolveQuickPickConversationNavigation,
+  selectQuickPickConversationTaskIds,
+} from "@/lib/quickPickConversationNavigation.js";
+import {
+  setPendingSettingsPluginIntent,
+  setPendingSettingsSection,
+  type SettingsSectionId,
+} from "@/lib/settingsNavigation.js";
+import { runWorkspaceVisibleCommand } from "@/lib/workspaceVisibleCommand.js";
+import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
+import appLogoUrl from "@/assets/provider-icons/logo-zai.svg";
+import { resolveTheme } from "@/useTheme.js";
+import { WorkspaceShellLayout } from "@/app-shell/WorkspaceShellLayout.js";
+import { useAppChromeState } from "@/app-shell/useAppChromeState.js";
+import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload.js";
+import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
+import { useWorkspaceShellZCodeState } from "@/app-shell/useWorkspaceShellZCodeState.js";
+import { useWorkspaceMainViewSettingsExit } from "@/app-shell/useWorkspaceMainViewSettingsExit.js";
+import {
+  useWorkspaceTaskNavigation,
+  type AutomationsNavigationTarget,
+} from "@/app-shell/useWorkspaceTaskNavigation.js";
+import { useTaskSidePaneMemoryBridge } from "@/app-shell/useTaskSidePaneMemoryBridge.js";
+import { resolveAppWorkspaceRpcTarget } from "@/app-shell/workspaceRpcTarget.js";
+import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
+import { useWorkspaceTerminalTaskNotifications } from "@/hooks/useTaskNotifications.js";
+import { useOffPeakTaskNotifications } from "@/hooks/useOffPeakTaskNotifications.js";
+import type { AppProps, WorkspaceMainView } from "@/app-shell/types.js";
+import type {
+  ChatSearchResultHighlightRequest,
+  ChatViewSummaryPanelVariant,
+  ConversationFindMatchState,
+} from "@/v4/legacyChatViewTypes.js";
+import { getActiveSidePaneTab } from "@/lib/workspaceSidePane.js";
+import { logger } from "@/logger.js";
+import { taskListE2EActions } from "@/lib/taskListE2EActions.js";
+import {
+  CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
+  getCloseActiveContextSidePaneTab,
+} from "@/lib/closeActiveContext.js";
+import { usePaneLayoutStore } from "@/v4/paneLayoutStore.js";
+import { useWorkbenchGroupStore } from "@/v4/workbenchGroupStore.js";
+import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
+import { startMemoryDiagnosticsLogger } from "@/lib/memoryDiagnostics.js";
+
+const EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY: NonNullable<
+  AppProps["reconnectingRemoteWorkspaceLogsByWorkspaceKey"]
+> = {};
+const EMPTY_REMOTE_CONNECTION_LOGS: NonNullable<AppProps["remoteConnectionLogs"]> = [];
+const EMPTY_REMOTE_WORKSPACE_SESSIONS: NonNullable<AppProps["remoteWorkspaceSessions"]> = [];
+
+export function App({
+  services,
+  baseFeedbackService,
+  onConnectRemote,
+  onSelectRemoteProject,
+  onCancelRemoteProject,
+  onReconnectRemoteWorkspace,
+  onLogout,
+  onLogin,
+  user,
+  reconnectingRemoteWorkspaceKeys,
+  remoteWorkspaceErrorByWorkspaceKey,
+  reconnectingRemoteWorkspaceLogsByWorkspaceKey = EMPTY_RECONNECTING_REMOTE_WORKSPACE_LOGS_BY_WORKSPACE_KEY,
+  remoteConnectionLogs = EMPTY_REMOTE_CONNECTION_LOGS,
+  onCreateTask,
+  onCreateConversationTask,
+  onResolveConversationWorkspace,
+  onOpenWorkspace,
+  onOpenFolderFromWorkspaceMenu,
+  onOpenRemoteWorkspace,
+  onCreateScratchWorkspace,
+  remoteConnectionInProgress = false,
+  onReturnToWorkspace,
+  allowOpenWorkspace = true,
+  allowRemoteWorkspace = true,
+  remoteWorkspaceSessions = EMPTY_REMOTE_WORKSPACE_SESSIONS,
+  workspaceAbsPath,
+  workspaceRemoteSessionId,
+  workspaceIdentity: explicitWorkspaceIdentity,
+  isWorkspaceVisible = true,
+  isDesktop,
+  isMacDesktop,
+  isWindowsDesktop,
+  supportsEmbeddedBrowser: explicitSupportsEmbeddedBrowser,
+}: AppProps) {
+  // 展示 label 统一从快捷键生效表取（用户改键后 tooltip 同步更新），不再硬编码键位。
+  const toggleSidebarShortcutLabel = useShortcutCommandLabel("toggleSidebar");
+  const newTaskShortcutLabel = useShortcutCommandLabel("newTask");
+  const goBackShortcutLabel = useShortcutCommandLabel("navigateBack");
+  const goForwardShortcutLabel = useShortcutCommandLabel("navigateForward");
+  const toggleTerminalShortcutLabel = useShortcutCommandLabel("toggleTerminal");
+  const toggleSidePaneShortcutLabel = useShortcutCommandLabel("toggleSidePane");
+  const openWorkspaceShortcutLabel = useShortcutCommandLabel("openWorkspace");
+  const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
+  const supportsEmbeddedBrowser = explicitSupportsEmbeddedBrowser ?? Boolean(isDesktop);
+  const { intl, locale, setLocale } = useZCodeIntl();
+  const isOfficeMode = useIsOfficeMode();
+  const platform = usePlatform();
+  // 进程内存本地诊断日志：每窗口一个 60s 采样器，
+  // 经门控后写桌面主日志；Web 端无日志桥时为 no-op。同一次读数还经 preload 桥把 heap 送 main 的
+  // renderer_main 资源事件，无桥时同样 no-op。
+  const reportRendererHeapSample = platform.reportRendererHeapSample;
+  useEffect(() => {
+    const memoryDiagnosticsLogger = startMemoryDiagnosticsLogger({
+      reportHeapSample: reportRendererHeapSample,
+    });
+    return () => memoryDiagnosticsLogger.stop();
+  }, [reportRendererHeapSample]);
+  const activeWorkspaceRpcTarget = useTabStore(
+    useShallow((state) => {
+      if (!state.activeTabId) {
+        return {
+          workspaceIdentity: undefined,
+          remoteSessionId: undefined,
+          remoteTarget: undefined,
+        };
+      }
+
+      const activeTab = state.tabs.find((tab) => tab.id === state.activeTabId);
+      if (
+        !activeTab ||
+        !isWorkspaceTab(activeTab) ||
+        activeTab.workspacePath !== workspaceAbsPath
+      ) {
+        return {
+          workspaceIdentity: undefined,
+          remoteSessionId: undefined,
+          remoteTarget: undefined,
+        };
+      }
+
+      return {
+        workspaceIdentity: activeTab.workspaceIdentity,
+        remoteSessionId: activeTab.remoteSessionId,
+        remoteTarget: activeTab.remoteTarget,
+      };
+    }),
+  );
+  const workspaceRpcTarget = resolveAppWorkspaceRpcTarget({
+    activeTarget: activeWorkspaceRpcTarget,
+    explicitWorkspaceIdentity,
+    explicitRemoteSessionId: workspaceRemoteSessionId,
+  });
+  // Settings tab 覆盖 workspace 时 active tab 不是 workspace tab。
+  // 这里必须使用 Root 传入的 workspaceIdentity 兜底，否则远程断连态会把 /home/... 当成本地 base workspace 预热。
+  const workspaceIdentity = workspaceRpcTarget.workspaceIdentity;
+  const { rpcReady: workspaceRpcReady } = useWorkspaceServicesResolution(
+    workspaceAbsPath,
+    workspaceRpcTarget.remoteSessionId,
+    workspaceIdentity,
+    workspaceRpcTarget.remoteTarget,
+  );
+  const workspaceReadOnly = useTabStore((state) =>
+    isWorkspaceReadOnly(state, workspaceAbsPath, workspaceIdentity),
+  );
+  const workspaceReadOnlyReason = workspaceReadOnly
+    ? intl.formatMessage({ id: "workspaceSidebar.unavailableLocalDirectory" })
+    : undefined;
+  const { workspaceShellZCodeState, reloadSessionDisabled } = useWorkspaceShellZCodeState(
+    workspaceAbsPath,
+    workspaceIdentity,
+  );
+  const activeTaskId = workspaceShellZCodeState.activeTaskId;
+  // 右侧栏按对话隔离的归属 id：草稿态 activeTaskId 为 null，用 draftSessionId 兜底
+  //（draftSessionId 稳定、每个新对话唯一、发首条消息后会变成 activeTaskId），
+  // 从而新建对话不会串到上一个对话/草稿留下的 tab，且草稿转正后 tab 归属无缝衔接。
+  const draftSessionId = useZCodeSessionStore(
+    (state) => state.getWorkspaceState(workspaceAbsPath, workspaceIdentity).draftSessionId,
+  );
+  const sidePaneOwnerId = activeTaskId ?? draftSessionId ?? null;
+  const [summaryPanelVariantOverride, setSummaryPanelVariantOverride] =
+    useState<ChatViewSummaryPanelVariant | null>(null);
+  const draftFocusVersion = workspaceShellZCodeState.draftFocusVersion;
+  const {
+    isTerminalOpen,
+    setIsTerminalOpen,
+    sidePaneState,
+    recentClosedSidePaneTabs,
+    isSidePaneCollapsed,
+    setIsSidePaneCollapsed,
+    isSidebarVisible,
+    browserNavigationRequest,
+    setBrowserNavigationRequest,
+    handleOpenCodeViewer,
+    handleOpenCodeViewers,
+    handleOpenBrowserUrl,
+    handleToggleBrowser,
+    handleOpenBrowserTab,
+    handleToggleGit,
+    handleOpenGit,
+    handleOpenTreemapping,
+    handleOpenWhiteboard,
+    handleOpenDeveloperTools,
+    handleOpenTerminalTab,
+    handleOpenSubagentSession,
+    handleOpenBackgroundBash,
+    handleOpenSubagentDirectory,
+    handleSyncSubagentSessionTabs,
+    handleOpenSelectionSideChat,
+    handleOpenPlanDetail,
+    handleOpenWorkflowRun,
+    handleOpenWorkflowRunDirectory,
+    handleOpenWorkflowActorSession,
+    handleOpenWorkflowWorkspace,
+    handleOpenWorkflowArtifact,
+    handleToggleTerminal,
+    handleToggleSidebar,
+    handleToggleSidePaneCollapse,
+    handleCloseCodeViewer,
+    handleCloseGit,
+    handleActivateSidePaneTab,
+    handleReorderSidePaneTab,
+    handleCloseSidePaneTab,
+    handleCloseOtherSidePaneTabs,
+    handleCloseAllSidePaneTabs,
+    handleReopenClosedSidePaneTab,
+    handleBrowserNavigationRequestHandled,
+    handleBrowserPageMetadataChange,
+  } = useAppPanels({
+    workspaceAbsPath,
+    workspaceIdentity,
+    workspaceRemoteSessionId,
+    activeTaskId,
+    sidePaneOwnerId,
+    isDesktop,
+    isWorkspaceVisible,
+    supportsEmbeddedBrowser,
+    platform,
+    defaultWhiteboardNamePrefix: intl.formatMessage({
+      id: "whiteboard.defaultName",
+    }),
+  });
+  const workspaceKey = workspaceIdentity?.trim() || workspaceAbsPath;
+  const notificationEnabled = useZCodeStore((s) => s.notificationEnabled);
+  useWorkspaceTerminalTaskNotifications({
+    workspacePath: workspaceAbsPath,
+    ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    ...(workspaceRemoteSessionId ? { endpointKey: workspaceRemoteSessionId } : {}),
+    enabled: notificationEnabled,
+    rpcReady: workspaceRpcReady,
+    platform,
+    formatMessage: intl.formatMessage,
+  });
+  // 闲时任务终态/等确认通知：仅桌面本地链路，main 进程按 status:taskId 去重多窗口重复。
+  useOffPeakTaskNotifications({
+    offPeakTaskService: services.offPeakTaskService,
+    platform,
+    enabled: Boolean(notificationEnabled && isDesktop),
+    formatMessage: intl.formatMessage,
+  });
+  const lastHandledDraftSidePaneCloseRef = useRef({
+    workspaceKey,
+    draftFocusVersion,
+  });
+
+  useEffect(() => {
+    const previous = lastHandledDraftSidePaneCloseRef.current;
+    if (previous.workspaceKey !== workspaceKey) {
+      lastHandledDraftSidePaneCloseRef.current = {
+        workspaceKey,
+        draftFocusVersion,
+      };
+      return;
+    }
+
+    if (previous.draftFocusVersion === draftFocusVersion) {
+      return;
+    }
+
+    lastHandledDraftSidePaneCloseRef.current = {
+      workspaceKey,
+      draftFocusVersion,
+    };
+    if (draftFocusVersion === 0) {
+      return;
+    }
+
+    // 新建任务只会把 activeTaskId 切到 draft，不会触发 side pane 的 workspace 级内存切换。
+    // 因此用 startDraft 递增的版本号统一收起右侧面板，覆盖按钮、菜单、快捷键和远控入口。
+    const sidePaneTabCount = sidePaneState?.tabs.length ?? 0;
+    if (!isSidePaneCollapsed) {
+      logger.info(
+        `[App] 新建任务时收起右侧面板 workspace=${workspaceAbsPath} tabs=${sidePaneTabCount}`,
+      );
+      setIsSidePaneCollapsed(true);
+    }
+  }, [
+    draftFocusVersion,
+    isSidePaneCollapsed,
+    setIsSidePaneCollapsed,
+    sidePaneState,
+    workspaceAbsPath,
+    workspaceKey,
+  ]);
+  const [testMessages, setTestMessages] = useState<TestChatMessage[] | null>(null);
+  const [isQuickPickOpen, setIsQuickPickOpen] = useState(false);
+  const [isTaskFindOpen, setIsTaskFindOpen] = useState(false);
+  const [taskFindFocusRequestId, setTaskFindFocusRequestId] = useState(0);
+  const [conversationFindState, setConversationFindState] = useState(createTaskFindNavigationState);
+  const [conversationFindMatchCount, setConversationFindMatchCount] = useState(0);
+  const searchResultHighlightRequestIdRef = useRef(0);
+  const [searchResultHighlightRequest, setSearchResultHighlightRequest] =
+    useState<ChatSearchResultHighlightRequest | null>(null);
+  const [fileChangeFindState, setFileChangeFindState] = useState(createTaskFindNavigationState);
+  const [fileChangeFindMatchCount, setFileChangeFindMatchCount] = useState(0);
+  const [canOpenCommunityFromQuickPick, setCanOpenCommunityFromQuickPick] = useState(false);
+  const [gitSelectedSourceId, setGitSelectedSourceId] = useState<GitChangeSourceId>("unstaged");
+  const [gitRefreshVersion, setGitRefreshVersion] = useState(0);
+  const { browserRestoreUrls, handleBrowserUrlChange } = useTaskSidePaneMemoryBridge({
+    activeTaskId,
+    gitSelectedSourceId,
+    setGitSelectedSourceId,
+    workspaceAbsPath,
+    workspaceIdentity,
+  });
+  const theme = useZCodeStore((s) => s.theme);
+  const setTheme = useZCodeStore((s) => s.setTheme);
+  const {
+    isMacFullscreen,
+    desktopWindowChromeState,
+    macWindowControlsLeftPaddingPx,
+    windowsWindowControlsRightPaddingPx,
+    updateReadyVersion,
+    updateState,
+    sidebarContainerRef,
+  } = useAppChromeState({
+    isDesktop,
+    isMacDesktop,
+    isWindowsDesktop,
+    platform,
+    workspaceAbsPath,
+  });
+  const tabs = useTabStore((s) => s.tabs);
+  const addTab = useTabStore((s) => s.addTab);
+  const activateTabByPath = useTabStore((s) => s.activateTabByPath);
+
+  const {
+    resolvedActiveTaskMeta,
+    activeTraceId,
+    activeSessionId,
+    activeTaskProvider,
+    activeTaskChangeSummary,
+    activeTaskTitle,
+    taskNativeSessionLogFile,
+    taskSessionFile,
+  } = useWorkspaceActiveTaskState({
+    workspaceAbsPath,
+    activeTaskId,
+    workspaceRemoteSessionId,
+    workspaceIdentity,
+    selectedProvider: workspaceShellZCodeState.selectedProvider,
+    intl,
+  });
+  const workspaceTabs = useMemo(
+    () =>
+      tabs.filter(isWorkspaceTab).map((tab) => ({
+        workspacePath: tab.workspacePath,
+        label: tab.label,
+        remoteSessionId: tab.remoteSessionId,
+        remoteTarget: tab.remoteTarget,
+        workspaceIdentity: tab.workspaceIdentity,
+        workspacePurpose: tab.workspacePurpose,
+        localWorkspacePath: tab.localWorkspacePath,
+        availability: tab.availability,
+      })),
+    [tabs],
+  );
+  const commandCenterWorkspaceTabs = useMemo(() => tabs.filter(isWorkspaceTab), [tabs]);
+  const activeSidePaneTab = useMemo(() => getActiveSidePaneTab(sidePaneState), [sidePaneState]);
+  const isBrowserOpen = activeSidePaneTab?.type === "browser";
+  const isGitOpen = activeSidePaneTab?.type === "git";
+  const hasGitTab = sidePaneState?.tabs.some((tab) => tab.type === "git") ?? false;
+  const handleRefreshGit = useCallback(() => {
+    setGitRefreshVersion((value) => value + 1);
+  }, []);
+  const openSettingsTab = useTabStore((state) => state.openSettingsTab);
+  const gitState = useGitRepository({
+    workspacePath: workspaceAbsPath,
+    activeTaskId,
+    includeExtendedData: hasGitTab,
+    // 关键逻辑：真实 Git 只在 workspace 变化、Git pane 打开、或用户显式点刷新时重拉。
+    // task 切换 / last-turn 摘要变化只更新本地衍生数据，不再顺带重跑 Git 命令。
+    refreshToken: gitRefreshVersion,
+    remoteSessionId: workspaceRpcTarget.remoteSessionId ?? null,
+    remoteTarget: workspaceRpcTarget.remoteTarget,
+    workspaceIdentity,
+  });
+  useGitAutoRefresh({
+    workspacePath: workspaceAbsPath,
+    workspaceIdentity,
+    remoteSessionId: workspaceRpcTarget.remoteSessionId ?? null,
+    gitSummary: gitState.summary,
+    gitSummaryWorkspaceKey: gitState.workspaceKey,
+    enabled: isWorkspaceVisible,
+    onRefreshGit: handleRefreshGit,
+  });
+  const activeGitSourceId =
+    gitState.sourceOptions.find((option) => option.id === gitSelectedSourceId)?.id ??
+    gitState.sourceOptions[0]?.id ??
+    "unstaged";
+  const gitChangeSummaryBySourceId = useMemo(() => {
+    // 关键业务逻辑：workspace header 和 Git pane 都依赖同一套来源统计，
+    // 这里先把各来源的 +/- 汇总成稳定映射，避免不同位置各自重复计算后出现展示不一致。
+    return Object.fromEntries(
+      gitState.sourceOptions.map((option) => {
+        const dataset = gitState.datasets[option.id] ?? gitState.datasets.unstaged;
+        const summary = dataset.sections
+          .flatMap((section) => section.changes)
+          .reduce(
+            (result, change) => {
+              result.added += change.added;
+              result.removed += change.removed;
+              return result;
+            },
+            { added: 0, removed: 0 },
+          );
+        return [option.id, summary];
+      }),
+    ) as Record<GitChangeSourceId, { added: number; removed: number }>;
+  }, [gitState.datasets, gitState.sourceOptions]);
+  const gitWorktreeChangeSummary = useMemo(() => {
+    const unstaged = gitChangeSummaryBySourceId.unstaged ?? {
+      added: 0,
+      removed: 0,
+    };
+    const staged = gitChangeSummaryBySourceId.staged ?? {
+      added: 0,
+      removed: 0,
+    };
+    return {
+      added: unstaged.added + staged.added,
+      removed: unstaged.removed + staged.removed,
+    };
+  }, [gitChangeSummaryBySourceId]);
+  const gitWorktreeReviewSourceId = useMemo<GitChangeSourceId | null>(() => {
+    const unstaged = gitChangeSummaryBySourceId.unstaged ?? {
+      added: 0,
+      removed: 0,
+    };
+    const staged = gitChangeSummaryBySourceId.staged ?? {
+      added: 0,
+      removed: 0,
+    };
+    if (unstaged.added + unstaged.removed > 0) {
+      return "unstaged";
+    }
+    if (staged.added + staged.removed > 0) {
+      return "staged";
+    }
+    return null;
+  }, [gitChangeSummaryBySourceId]);
+  const handleOpenGitReview = useCallback(
+    (sourceId?: GitChangeSourceId) => {
+      if (workspaceReadOnlyReason) {
+        return;
+      }
+      if (sourceId) {
+        setGitSelectedSourceId(sourceId);
+      }
+      handleOpenGit();
+    },
+    [handleOpenGit, workspaceReadOnlyReason],
+  );
+  const isSidePaneOpen = !isSidePaneCollapsed;
+  useEffect(() => {
+    const handleCloseActiveContextRequest = (event: Event) => {
+      const activeTab = getCloseActiveContextSidePaneTab({
+        isWorkspaceVisible,
+        isSidePaneCollapsed,
+        sidePaneState,
+      });
+      if (!activeTab) {
+        return;
+      }
+
+      // 桌面菜单的 Cmd/Ctrl+W 会先到 main 进程。
+      // 这里在可见 workspace 层拦下请求，确保右侧 side pane 打开时关闭的是 active tab，
+      // 而不是让 Root fallback 继续关闭整个窗口。
+      event.preventDefault();
+      handleCloseSidePaneTab(activeTab.id);
+    };
+
+    window.addEventListener(CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT, handleCloseActiveContextRequest);
+    return () => {
+      window.removeEventListener(
+        CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT,
+        handleCloseActiveContextRequest,
+      );
+    };
+  }, [handleCloseSidePaneTab, isSidePaneCollapsed, isWorkspaceVisible, sidePaneState]);
+  const handleToggleSidePane = useCallback(() => {
+    // 交互说明：toggle panel 只改变右侧容器显隐，不隐式创建或切换任何 tab。
+    // 之前无 tab 时会按 diff/browser 兜底自动开内容，导致用户只是想打开 side pane
+    // 却得到一个新 Browser 或 Review。现在空内容统一交给 Open tab 空态承接。
+    handleToggleSidePaneCollapse();
+  }, [handleToggleSidePaneCollapse]);
+  const runVisibleWorkspaceCommand = useCallback(
+    (run: () => void) => {
+      runWorkspaceVisibleCommand({
+        isWorkspaceVisible,
+        onReturnToWorkspace,
+        run,
+      });
+    },
+    [isWorkspaceVisible, onReturnToWorkspace],
+  );
+  const handleCreateTaskIfWritable = useCallback(
+    (request?: Parameters<typeof onCreateTask>[0]) => {
+      if (!workspaceReadOnlyReason) {
+        onCreateTask(request);
+      }
+    },
+    [onCreateTask, workspaceReadOnlyReason],
+  );
+  const handleToggleTerminalIfWritable = useCallback(() => {
+    if (!workspaceReadOnlyReason) {
+      handleToggleTerminal();
+    }
+  }, [handleToggleTerminal, workspaceReadOnlyReason]);
+  const handleOpenTerminalTabIfWritable = useCallback(() => {
+    if (!workspaceReadOnlyReason) {
+      handleOpenTerminalTab();
+    }
+  }, [handleOpenTerminalTab, workspaceReadOnlyReason]);
+  const handleOpenGitIfWritable = useCallback(() => {
+    if (!workspaceReadOnlyReason) {
+      handleOpenGit();
+    }
+  }, [handleOpenGit, workspaceReadOnlyReason]);
+  const handleToggleGitIfWritable = useCallback(() => {
+    if (!workspaceReadOnlyReason) {
+      handleToggleGit();
+    }
+  }, [handleToggleGit, workspaceReadOnlyReason]);
+  const handleOpenCodeViewerIfWritable = useCallback(
+    (...args: Parameters<typeof handleOpenCodeViewer>) => {
+      if (!workspaceReadOnlyReason) {
+        handleOpenCodeViewer(...args);
+      }
+    },
+    [handleOpenCodeViewer, workspaceReadOnlyReason],
+  );
+  const handleAutoOpenAssistantPptx = useCallback(
+    (request: AssistantPreviewCardsAutoOpenRequest) => {
+      if (!isDesktop || workspaceReadOnlyReason) {
+        return;
+      }
+      handleOpenCodeViewers(request.sources);
+    },
+    [handleOpenCodeViewers, isDesktop, workspaceReadOnlyReason],
+  );
+  const handleOpenTreemappingIfWritable = useCallback(
+    (...args: Parameters<typeof handleOpenTreemapping>) => {
+      if (!workspaceReadOnlyReason) {
+        handleOpenTreemapping(...args);
+      }
+    },
+    [handleOpenTreemapping, workspaceReadOnlyReason],
+  );
+  const projectName = getPathLeaf(workspaceAbsPath);
+  const handleOpenTaskFind = useCallback(() => {
+    // Cmd/Ctrl+F 语义是“查找对话”，之前误复用了 Cmd/Ctrl+P 的文件搜索入口，
+    // 导致用户在 quick pick 里点 Find 或按快捷键时会跳到打开文件。这里拆成独立状态，避免影响文件搜索链路。
+    runVisibleWorkspaceCommand(() => {
+      setTaskFindFocusRequestId((requestId) => requestId + 1);
+      setIsTaskFindOpen(true);
+    });
+  }, [runVisibleWorkspaceCommand]);
+  const handleTaskFindOpenChange = useCallback((open: boolean) => {
+    setIsTaskFindOpen(open);
+    if (!open) {
+      setConversationFindState((state) => changeTaskFindSelection(state, "", -1));
+      setConversationFindMatchCount(0);
+      setFileChangeFindState((state) => changeTaskFindSelection(state, "", -1));
+      setFileChangeFindMatchCount(0);
+    }
+  }, []);
+  const handleConversationFindChange = useCallback((query: string, activeIndex: number) => {
+    setConversationFindState((state) => changeTaskFindSelection(state, query, activeIndex));
+  }, []);
+  const handleConversationFindNavigate = useCallback((query: string, activeIndex: number) => {
+    // 单命中时上/下/Enter 都会回到同一 index；独立版本确保重复导航仍触发滚动。
+    setConversationFindState((state) => navigateTaskFindSelection(state, query, activeIndex));
+  }, []);
+  const handleConversationFindMatchStateChange = useCallback(
+    (state: ConversationFindMatchState) => {
+      setConversationFindMatchCount(state.matchCount);
+      if (state.activeIndex !== undefined) {
+        setConversationFindState((current) =>
+          changeTaskFindSelection(current, current.query, state.activeIndex ?? -1),
+        );
+      }
+    },
+    [],
+  );
+  const handleSearchResultHighlightRequest = useCallback(
+    (request: Omit<ChatSearchResultHighlightRequest, "requestId">) => {
+      searchResultHighlightRequestIdRef.current += 1;
+      setSearchResultHighlightRequest({
+        ...request,
+        requestId: searchResultHighlightRequestIdRef.current,
+      });
+    },
+    [],
+  );
+  const handleSearchResultHighlightDone = useCallback((requestId: number) => {
+    setSearchResultHighlightRequest((current) =>
+      current?.requestId === requestId ? null : current,
+    );
+  }, []);
+  const handleFileChangeFindChange = useCallback((query: string, activeIndex: number) => {
+    setFileChangeFindState((state) => changeTaskFindSelection(state, query, activeIndex));
+  }, []);
+  const handleFileChangeFindNavigate = useCallback((query: string, activeIndex: number) => {
+    // 文件变更范围也可能只有一个命中；重复导航必须重新展开并聚焦同一处。
+    setFileChangeFindState((state) => navigateTaskFindSelection(state, query, activeIndex));
+  }, []);
+  const handleOpenQuickPick = useCallback(() => {
+    setIsQuickPickOpen((open) => !open);
+  }, []);
+  const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
+  const openFeedbackTickets = useFeedbackStore((state) => state.openTickets);
+  const isLoggedIn = Boolean(user);
+  const handleOpenFeedback = useCallback(() => {
+    void platform.openFeedback();
+  }, [platform]);
+
+  useEffect(() => {
+    // 内置反馈中心合并了"提交反馈 / 我的反馈"两个 Tab，
+    // 老的 OpenTicketsPanel IPC 仍然兼容（直接打开列表），未来如果还需要单独入口可以复用。
+    const disposeFeedbackDialog = platform.onOpenFeedbackDialog?.(() => {
+      openFeedbackSubmit();
+    });
+    const disposeTicketsPanel = platform.onOpenTicketsPanel?.(() => {
+      openFeedbackTickets();
+    });
+    return () => {
+      disposeFeedbackDialog?.();
+      disposeTicketsPanel?.();
+    };
+  }, [openFeedbackSubmit, openFeedbackTickets, platform]);
+  const handleOpenCommunity = useCallback(() => platform.openCommunity(), [platform]);
+  const handleOpenProductDocs = useCallback(() => {
+    platform.openExternal(ZCODE_PRODUCT_DOCS_URL);
+  }, [platform]);
+  const themeTarget = resolveTheme(theme) === "dark" ? "light" : "dark";
+  const handleSwitchTheme = useCallback(() => {
+    setTheme(themeTarget);
+  }, [setTheme, themeTarget]);
+  const handleOpenSettingsSection = useCallback(
+    (section: SettingsSectionId) => {
+      setPendingSettingsSection(section);
+      openSettingsTab();
+    },
+    [openSettingsTab],
+  );
+  const { reloadSessionPending, handleReloadSession } = useWorkspaceSessionReload({
+    intl,
+    services,
+    workspaceAbsPath,
+    reloadSessionDisabled,
+  });
+  const handleStartDraftInWorkspace = useCallback(
+    (
+      targetWorkspacePath: string,
+      targetWorkspaceIdentity?: string,
+      targetWorkspacePurpose?: WorkspacePurpose,
+      createSource?: import("@zcode/shared").SessionCreateSource,
+    ) => {
+      const store = useZCodeSessionStore.getState();
+      const resolvedTargetWorkspaceIdentity =
+        targetWorkspaceIdentity ??
+        tabs.filter(isWorkspaceTab).find((tab) => tab.workspacePath === targetWorkspacePath)
+          ?.workspaceIdentity;
+      if (isWorkspaceReadOnly({ tabs }, targetWorkspacePath, resolvedTargetWorkspaceIdentity)) {
+        return;
+      }
+      const targetSelectedProvider = resolveWorkspaceSwitchDraftProvider({
+        currentSelectedProvider: workspaceShellZCodeState.selectedProvider,
+        targetWorkspacePath,
+        targetWorkspaceIdentity: resolvedTargetWorkspaceIdentity,
+        workspaces: store.workspaces,
+      });
+      const currentWorkspaceState = store.getWorkspaceState(workspaceAbsPath, workspaceIdentity);
+      const groupedDraftPlacement =
+        currentWorkspaceState.activeTaskId === null
+          ? currentWorkspaceState.groupedDraftTask?.placement
+          : undefined;
+
+      // 空态里的 workspace 选择器要表达"在这个项目里开始工作"，
+      // 目标 workspace 如果已经记住了自己的 Agent，切过去后应当继续沿用那份选择；
+      // 只有首次进入、还没建立 workspace UI 状态时，才继承当前空态里正在看的 Agent。
+      // 否则来回切项目时会把目标项目刚用过的 Agent 覆盖掉，看起来就像“总是重置成默认值”。
+      // 另外 Home 这类固定入口并不保证已经存在于 tab 列表里，之前直接 activateTabByPath 会静默失败，
+      // 看起来就像"点了没反应"。这里先确保目标 workspace 已打开，再把当前空态的 provider 一并传给 startDraft，
+      // 保证首次进入的新 workspace 也能继续沿用当前上下文。
+      const targetTabOptions =
+        resolvedTargetWorkspaceIdentity || targetWorkspacePurpose
+          ? {
+              ...(resolvedTargetWorkspaceIdentity
+                ? { workspaceIdentity: resolvedTargetWorkspaceIdentity }
+                : {}),
+              ...(targetWorkspacePurpose ? { workspacePurpose: targetWorkspacePurpose } : {}),
+            }
+          : undefined;
+      if (targetWorkspacePurpose) {
+        // purpose 是分类元数据；即使 tab 已存在也要合并，避免首次从项目解绑时被默认成 project。
+        addTab(targetWorkspacePath, targetTabOptions);
+      } else if (
+        !activateTabByPath(
+          targetWorkspacePath,
+          resolvedTargetWorkspaceIdentity
+            ? { workspaceIdentity: resolvedTargetWorkspaceIdentity }
+            : undefined,
+        )
+      ) {
+        addTab(targetWorkspacePath, targetTabOptions);
+      }
+      // workspace 行“新建对话”以前由叶子组件直接 activateTab + startDraft，
+      // 没有退出重启恢复的 workbench group/pane。group primary binding 因而仍可覆盖草稿。
+      // 所有显式新建入口统一先回到单 primary pane。
+      useWorkbenchGroupStore.getState().deactivateActiveGroup();
+      usePaneLayoutStore.getState().resetToPrimaryPane();
+      store.startDraft(
+        targetWorkspacePath,
+        targetSelectedProvider,
+        resolvedTargetWorkspaceIdentity,
+        {
+          groupedDraftPlacement,
+          createSource: createSource ?? (groupedDraftPlacement ? "group" : "project"),
+        },
+      );
+      if (
+        groupedDraftPlacement &&
+        (workspaceIdentity?.trim() || workspaceAbsPath) !==
+          (resolvedTargetWorkspaceIdentity?.trim() || targetWorkspacePath)
+      ) {
+        // grouped 左侧 New task 行表示用户选择的创建位置，切 workspace 只是修改草稿目标。
+        // 迁移到目标 workspace 后清理来源桶，避免切回旧 workspace 时出现两个临时 New task 行。
+        store.clearGroupedDraftTask(workspaceAbsPath, workspaceIdentity);
+      }
+    },
+    [
+      activateTabByPath,
+      addTab,
+      tabs,
+      workspaceAbsPath,
+      workspaceIdentity,
+      workspaceShellZCodeState.selectedProvider,
+    ],
+  );
+
+  useWorkspaceShellLifecycle({
+    workspaceAbsPath,
+    workspaceIdentity,
+    services,
+    setBrowserNavigationRequest,
+    setTestMessages,
+  });
+
+  useEnsureWorkspaceMcpLoaded(workspaceAbsPath, workspaceIdentity, workspaceRpcReady);
+
+  const testActions = useMemo<TestActions>(
+    () => ({
+      ...taskListE2EActions,
+      getTheme: () => theme,
+      setTheme,
+      getLocale: () => locale,
+      setLocale,
+      setChatMessages: (messages) => {
+        setTestMessages([...messages]);
+      },
+      getChatMessageCount: () => testMessages?.length ?? 0,
+      getPluginsOverview: (params) => services.zcodeAgentService.getPluginsOverview(params),
+      addPluginMarketplace: (params) => services.zcodeAgentService.addPluginMarketplace(params),
+      updatePluginMarketplace: (params) =>
+        services.zcodeAgentService.updatePluginMarketplace(params),
+      installPlugin: (params) => services.zcodeAgentService.installPlugin(params),
+      listPlugins: (params) => services.zcodeAgentService.listPlugins(params),
+      getPluginReferenceCatalog: (params) =>
+        services.zcodeAgentService.getPluginReferenceCatalog(params),
+    }),
+    [locale, services.zcodeAgentService, setLocale, theme, setTheme, testMessages],
+  );
+  useTestActions(testActions);
+  const [workspaceMainView, setWorkspaceMainView] = useState<WorkspaceMainView>("chat");
+  const [openAutomationId, setOpenAutomationId] = useState<string | null>(null);
+  const [openAutomationTab, setOpenAutomationTab] = useState<NonNullable<
+    AutomationsNavigationTarget["automationTab"]
+  > | null>(null);
+  const [pluginStoreReturnScopeKey, setPluginStoreReturnScopeKey] = useState("user");
+  const [pluginStoreOpenVersion, setPluginStoreOpenVersion] = useState(0);
+  const handleNavigateToTaskMain = useCallback(() => {
+    setWorkspaceMainView("chat");
+  }, []);
+  const { preserveNextSettingsExit } = useWorkspaceMainViewSettingsExit({
+    isWorkspaceVisible,
+    workspaceMainView,
+    onExitSettings: handleNavigateToTaskMain,
+  });
+  const handleNavigateToAutomationsMain = useCallback((target: AutomationsNavigationTarget) => {
+    setOpenAutomationId(target.automationId ?? null);
+    setOpenAutomationTab(target.automationTab ?? null);
+    setWorkspaceMainView("automations");
+  }, []);
+  const handleNavigateToPluginStoreMain = useCallback(() => {
+    // 通用入口没有 scope 上下文，默认回到 User；Settings 显式带 scope 的入口会在
+    // 导航完成后覆盖这次默认值，避免沿用上一次 Workspace scope。
+    setPluginStoreReturnScopeKey("user");
+    setPluginStoreOpenVersion((version) => version + 1);
+    preserveNextSettingsExit();
+    setWorkspaceMainView("plugin-store");
+  }, [preserveNextSettingsExit]);
+  const handleOpenAutomationConsumed = useCallback(() => {
+    setOpenAutomationId(null);
+    setOpenAutomationTab(null);
+  }, []);
+  const {
+    handleSelectTask,
+    handleOpenAutomations,
+    handleOpenPluginStore,
+    handleTaskNavBack,
+    handleTaskNavForward,
+    canGoBack,
+    canGoForward,
+    canTaskNavBack,
+    canTaskNavForward,
+  } = useWorkspaceTaskNavigation({
+    intl,
+    workspaceAbsPath,
+    workspaceIdentity,
+    activateTabByPath,
+    onNavigateToTask: handleNavigateToTaskMain,
+    onNavigateToAutomations: handleNavigateToAutomationsMain,
+    onNavigateToPluginStore: handleNavigateToPluginStoreMain,
+  });
+  const handleOpenPluginStoreForScope = useCallback(
+    (_target: PluginStoreOpenTarget = {}) => {
+      // Workspace Marketplace 已收敛为全局入口。兼容旧事件中的 Workspace key，但返回
+      // 目标统一归一为 User，避免旧 sessionStorage/同窗口事件把设置页带回失效 scope。
+      const returnScopeKey = "user";
+      if (workspaceMainView === "plugin-store") {
+        setPluginStoreReturnScopeKey(returnScopeKey);
+        setPluginStoreOpenVersion((version) => version + 1);
+        return;
+      }
+      handleOpenPluginStore();
+      setPluginStoreReturnScopeKey(returnScopeKey);
+    },
+    [handleOpenPluginStore, workspaceMainView],
+  );
+  useEffect(
+    () => addPluginStoreOpenListener(handleOpenPluginStoreForScope),
+    [handleOpenPluginStoreForScope],
+  );
+  const handleSelectAdjacentConversation = useCallback(
+    (direction: "previous" | "next") => {
+      runVisibleWorkspaceCommand(() => {
+        const sessionState = useZCodeSessionStore.getState();
+        const workspaceState = sessionState.getWorkspaceState(workspaceAbsPath, workspaceIdentity);
+        const fallbackTaskIds = getVisibleTaskMetas(workspaceState).map((task) => task.taskId);
+        const taskQueryCacheState = useTaskQueryCacheStore.getState();
+        // 性能修复：task meta 在恢复和流式事件期间会高频写入 query cache。
+        // 上/下一个会话只在快捷键触发时需要最新快照，不能让 App 订阅整个 cache 后带动 shell 重渲染。
+        const quickPickConversationNavigation = resolveQuickPickConversationNavigation({
+          taskIds: selectQuickPickConversationTaskIds({
+            workspacePath: workspaceAbsPath,
+            workspaceIdentity,
+            resultsByQueryKey: taskQueryCacheState.resultsByQueryKey,
+            taskMetaByEntityKey: taskQueryCacheState.taskMetaByEntityKey,
+            fallbackTaskIds,
+          }),
+          activeTaskId,
+        });
+        const targetTaskId =
+          direction === "previous"
+            ? quickPickConversationNavigation.previousTaskId
+            : quickPickConversationNavigation.nextTaskId;
+        if (!targetTaskId) {
+          return;
+        }
+
+        handleSelectTask(workspaceAbsPath, targetTaskId, workspaceIdentity);
+      });
+    },
+    [
+      activeTaskId,
+      handleSelectTask,
+      runVisibleWorkspaceCommand,
+      workspaceAbsPath,
+      workspaceIdentity,
+    ],
+  );
+  const handleSelectPreviousConversation = useCallback(() => {
+    handleSelectAdjacentConversation("previous");
+  }, [handleSelectAdjacentConversation]);
+  const handleSelectNextConversation = useCallback(() => {
+    handleSelectAdjacentConversation("next");
+  }, [handleSelectAdjacentConversation]);
+  const handleManageInstalledPlugins = useCallback(() => {
+    setPendingSettingsPluginIntent("plugins", {
+      origin: "plugin-store",
+      scopeKey: pluginStoreReturnScopeKey,
+    });
+    openSettingsTab();
+  }, [openSettingsTab, pluginStoreReturnScopeKey]);
+  const handlePrimaryNavigationBack =
+    workspaceMainView === "plugin-store" ? handleManageInstalledPlugins : handleTaskNavBack;
+  const canPrimaryNavigationBack = workspaceMainView === "plugin-store" || canTaskNavBack;
+  const shellPanelIds = useMemo(() => ["sidebar", "content"], []);
+
+  useAppKeyboard({
+    openCommandCenter: handleOpenQuickPick,
+    // 打开设置页：与设置入口按钮共用 tabStore.openSettingsTab；默认 ⌘,/Ctrl+,（系统惯例）
+    openSettings: openSettingsTab,
+    findInTask: handleOpenTaskFind,
+    toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
+    switchTheme: handleSwitchTheme,
+    toggleTerminal: () => runVisibleWorkspaceCommand(handleToggleTerminalIfWritable),
+    // ⌥⌘B 与 header 最右侧按钮共用同一条 toggle 入口，
+    // 避免快捷键和按钮行为漂移；空面板的展示统一由 Open tab 空态承接。
+    toggleSidePane: () => runVisibleWorkspaceCommand(handleToggleSidePane),
+    previousConversation: handleSelectPreviousConversation,
+    nextConversation: handleSelectNextConversation,
+    navigateBack: canPrimaryNavigationBack
+      ? () => runVisibleWorkspaceCommand(handlePrimaryNavigationBack)
+      : null,
+    navigateForward: canTaskNavForward
+      ? () => runVisibleWorkspaceCommand(handleTaskNavForward)
+      : null,
+  });
+
+  useEffect(() => {
+    let disposed = false;
+
+    void platform.canOpenCommunity(locale).then(
+      (visible) => {
+        if (!disposed) {
+          setCanOpenCommunityFromQuickPick(visible);
+        }
+      },
+      () => {
+        if (!disposed) {
+          setCanOpenCommunityFromQuickPick(false);
+        }
+      },
+    );
+
+    return () => {
+      disposed = true;
+    };
+  }, [locale, platform]);
+
+  const quickPickCommands = useMemo(
+    () =>
+      createQuickPickCommands({
+        supportsTerminal: !isOfficeMode,
+        supportsReview: !isOfficeMode,
+        allowOpenWorkspace,
+        canOpenCommunity: canOpenCommunityFromQuickPick,
+        isSidebarVisible,
+        supportsEmbeddedBrowser,
+        // quick pick 命令只关心登录态布尔值。
+        // 如果依赖完整 user 对象，auth store 返回等价新引用时会重建整组 command/run 闭包。
+        isLoggedIn,
+        themeTarget,
+        shortcuts: {
+          newTask: newTaskShortcutLabel,
+          openWorkspace: openWorkspaceShortcutLabel,
+          toggleSidebar: toggleSidebarShortcutLabel,
+          toggleTerminal: toggleTerminalShortcutLabel,
+        },
+        handlers: {
+          createTask: () => runVisibleWorkspaceCommand(() => handleCreateTaskIfWritable()),
+          openWorkspace: () => runVisibleWorkspaceCommand(onOpenWorkspace),
+          openSettings: openSettingsTab,
+          openSkillsSettings: () => {
+            setPendingSettingsPluginIntent("skills");
+            openSettingsTab();
+          },
+          openMcpSettings: () => {
+            setPendingSettingsPluginIntent("mcps");
+            openSettingsTab();
+          },
+          switchTheme: handleSwitchTheme,
+          openFeedback: handleOpenFeedback,
+          openCommunity: handleOpenCommunity,
+          openProductDocs: handleOpenProductDocs,
+          login: onLogin,
+          logout: onLogout,
+          toggleSidebar: () => runVisibleWorkspaceCommand(handleToggleSidebar),
+          toggleTerminal: () => runVisibleWorkspaceCommand(handleToggleTerminalIfWritable),
+          togglePreview: () => runVisibleWorkspaceCommand(handleToggleBrowser),
+          openTerminalTab: () => runVisibleWorkspaceCommand(handleOpenTerminalTabIfWritable),
+          openBrowserTab: () => runVisibleWorkspaceCommand(handleOpenBrowserTab),
+          openReviewTab: () => runVisibleWorkspaceCommand(handleOpenGitIfWritable),
+        },
+      }),
+    [
+      allowOpenWorkspace,
+      isOfficeMode,
+      canOpenCommunityFromQuickPick,
+      handleOpenCommunity,
+      handleOpenFeedback,
+      handleOpenProductDocs,
+      handleOpenSettingsSection,
+      handleSwitchTheme,
+      handleOpenBrowserTab,
+      handleOpenGitIfWritable,
+      handleOpenTerminalTabIfWritable,
+      handleToggleBrowser,
+      handleToggleSidebar,
+      handleToggleTerminalIfWritable,
+      isLoggedIn,
+      isSidebarVisible,
+      newTaskShortcutLabel,
+      handleCreateTaskIfWritable,
+      onLogin,
+      onLogout,
+      onOpenWorkspace,
+      runVisibleWorkspaceCommand,
+      openSettingsTab,
+      openWorkspaceShortcutLabel,
+      supportsEmbeddedBrowser,
+      toggleSidebarShortcutLabel,
+      toggleTerminalShortcutLabel,
+      themeTarget,
+    ],
+  );
+  const taskFindDialogProps = useMemo<TaskFindDialogProps>(
+    () => ({
+      open: isTaskFindOpen,
+      focusRequestId: taskFindFocusRequestId,
+      isMacDesktop,
+      isWindowsDesktop,
+      isLinuxDesktop,
+      conversationMatchCount: conversationFindMatchCount,
+      conversationMatchIndex: conversationFindState.activeIndex,
+      fileChangeMatchCount: fileChangeFindMatchCount,
+      fileChangeMatchIndex: fileChangeFindState.activeIndex,
+      onOpenChange: handleTaskFindOpenChange,
+      onConversationFindChange: handleConversationFindChange,
+      onConversationFindNavigate: handleConversationFindNavigate,
+      onFileChangeFindChange: handleFileChangeFindChange,
+      onFileChangeFindNavigate: handleFileChangeFindNavigate,
+      onOpenFileChanges: handleOpenGitIfWritable,
+    }),
+    [
+      conversationFindMatchCount,
+      conversationFindState.activeIndex,
+      fileChangeFindMatchCount,
+      fileChangeFindState.activeIndex,
+      handleConversationFindChange,
+      handleConversationFindNavigate,
+      handleFileChangeFindChange,
+      handleFileChangeFindNavigate,
+      handleOpenGitIfWritable,
+      handleTaskFindOpenChange,
+      isLinuxDesktop,
+      isMacDesktop,
+      isTaskFindOpen,
+      isWindowsDesktop,
+      taskFindFocusRequestId,
+    ],
+  );
+
+  return (
+    <>
+      <CommandCenterDialog
+        open={isQuickPickOpen}
+        commands={quickPickCommands}
+        workspaceAbsPath={workspaceAbsPath}
+        workspaceIdentity={workspaceIdentity}
+        activeTaskId={activeTaskId}
+        activeTaskChangeSummary={activeTaskChangeSummary}
+        workspaceTabs={commandCenterWorkspaceTabs}
+        onOpenChange={setIsQuickPickOpen}
+        onSelectTask={handleSelectTask}
+        onSearchResultHighlightRequest={handleSearchResultHighlightRequest}
+        onOpenCodeViewer={handleOpenCodeViewerIfWritable}
+      />
+      {/* 反馈是应用级能力，必须固定走本机 base host；SSH session 连接中或断开时，
+          workspace-scoped services 会切成断连代理，不能让反馈提交跟随远程 session 失效。 */}
+      <FeedbackHost feedbackService={baseFeedbackService} platform={platform} />
+      <WorkspaceShellLayout
+        services={services}
+        workspaceReadOnlyReason={workspaceReadOnlyReason}
+        workspaceMainView={workspaceMainView}
+        pluginStoreOpenVersion={pluginStoreOpenVersion}
+        openAutomationId={openAutomationId}
+        openAutomationTab={openAutomationTab}
+        onWorkspaceMainViewChange={setWorkspaceMainView}
+        onOpenAutomationConsumed={handleOpenAutomationConsumed}
+        handleOpenAutomations={handleOpenAutomations}
+        handleOpenPluginStore={handleOpenPluginStoreForScope}
+        handleManageInstalledPlugins={handleManageInstalledPlugins}
+        onConnectRemote={onConnectRemote}
+        onSelectRemoteProject={onSelectRemoteProject}
+        onCancelRemoteProject={onCancelRemoteProject}
+        onReconnectRemoteWorkspace={onReconnectRemoteWorkspace}
+        onLogout={onLogout}
+        onLogin={onLogin}
+        user={user}
+        reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
+        remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
+        reconnectingRemoteWorkspaceLogsByWorkspaceKey={
+          reconnectingRemoteWorkspaceLogsByWorkspaceKey
+        }
+        remoteConnectionLogs={remoteConnectionLogs}
+        onCreateTask={handleCreateTaskIfWritable}
+        onCreateConversationTask={onCreateConversationTask}
+        onResolveConversationWorkspace={onResolveConversationWorkspace}
+        onOpenWorkspace={onOpenWorkspace}
+        onOpenFolderFromWorkspaceMenu={onOpenFolderFromWorkspaceMenu}
+        onOpenRemoteWorkspace={onOpenRemoteWorkspace}
+        onCreateScratchWorkspace={onCreateScratchWorkspace}
+        remoteConnectionInProgress={remoteConnectionInProgress}
+        allowOpenWorkspace={allowOpenWorkspace}
+        allowRemoteWorkspace={allowRemoteWorkspace}
+        remoteWorkspaceSessions={remoteWorkspaceSessions}
+        workspaceAbsPath={workspaceAbsPath}
+        workspaceRemoteSessionId={workspaceRemoteSessionId}
+        workspaceIdentity={workspaceIdentity}
+        isWorkspaceVisible={isWorkspaceVisible}
+        isDesktop={isDesktop}
+        isMacDesktop={isMacDesktop}
+        isWindowsDesktop={isWindowsDesktop}
+        workspaceShellZCodeState={workspaceShellZCodeState}
+        theme={theme}
+        isMacFullscreen={isMacFullscreen}
+        desktopWindowChromeState={desktopWindowChromeState}
+        macWindowControlsLeftPaddingPx={macWindowControlsLeftPaddingPx}
+        windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
+        updateReadyVersion={updateReadyVersion}
+        updateState={updateState}
+        sidebarContainerRef={sidebarContainerRef}
+        toggleSidebarShortcutLabel={toggleSidebarShortcutLabel}
+        newTaskShortcutLabel={newTaskShortcutLabel}
+        goBackShortcutLabel={goBackShortcutLabel}
+        goForwardShortcutLabel={goForwardShortcutLabel}
+        toggleSidePaneShortcutLabel={toggleSidePaneShortcutLabel}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        canTaskNavBack={canTaskNavBack}
+        canTaskNavForward={canTaskNavForward}
+        isTerminalOpen={isTerminalOpen}
+        isSidebarVisible={isSidebarVisible}
+        isBrowserOpen={isBrowserOpen}
+        supportsEmbeddedBrowser={supportsEmbeddedBrowser}
+        isGitOpen={isGitOpen}
+        isSidePaneOpen={isSidePaneOpen}
+        summaryPanelVariantOverride={summaryPanelVariantOverride}
+        onSummaryPanelVariantOverrideChange={setSummaryPanelVariantOverride}
+        sidePaneState={sidePaneState}
+        recentClosedSidePaneTabs={recentClosedSidePaneTabs}
+        shellPanelIds={shellPanelIds}
+        projectName={projectName}
+        workspaceTabs={workspaceTabs}
+        activeTaskId={activeTaskId}
+        sidePaneOwnerId={sidePaneOwnerId}
+        activeTraceId={activeTraceId}
+        activeSessionId={activeSessionId}
+        activeTaskProvider={activeTaskProvider}
+        resolvedActiveTaskMeta={resolvedActiveTaskMeta}
+        activeTaskTitle={activeTaskTitle}
+        activeTaskChangeSummary={activeTaskChangeSummary}
+        gitWorktreeReviewSourceId={gitWorktreeReviewSourceId}
+        gitWorktreeChangeSummary={gitWorktreeChangeSummary}
+        activeGitSourceId={activeGitSourceId}
+        gitState={gitState}
+        browserNavigationRequest={browserNavigationRequest}
+        browserRestoreUrls={browserRestoreUrls}
+        taskNativeSessionLogFile={taskNativeSessionLogFile}
+        taskSessionFile={taskSessionFile}
+        testMessages={testMessages}
+        conversationFindActiveIndex={conversationFindState.activeIndex}
+        conversationFindNavigationRequestId={conversationFindState.navigationRequestId}
+        conversationFindQuery={conversationFindState.query}
+        onConversationFindMatchStateChange={handleConversationFindMatchStateChange}
+        searchResultHighlightRequest={searchResultHighlightRequest}
+        onSearchResultHighlightDone={handleSearchResultHighlightDone}
+        fileChangeFindActiveIndex={fileChangeFindState.activeIndex}
+        fileChangeFindNavigationRequestId={fileChangeFindState.navigationRequestId}
+        fileChangeFindQuery={fileChangeFindState.query}
+        onFileChangeFindMatchCountChange={setFileChangeFindMatchCount}
+        appLogoUrl={appLogoUrl}
+        platform={platform}
+        reloadSessionDisabled={reloadSessionDisabled}
+        reloadSessionPending={reloadSessionPending}
+        handleReloadSession={handleReloadSession}
+        handleSelectTask={handleSelectTask}
+        handleTaskNavBack={handleTaskNavBack}
+        handleTaskNavForward={handleTaskNavForward}
+        handleStartDraftInWorkspace={handleStartDraftInWorkspace}
+        handleOpenCommandCenter={handleOpenQuickPick}
+        handleRefreshGit={handleRefreshGit}
+        handleOpenGitReview={handleOpenGitReview}
+        handleBrowserUrlChange={handleBrowserUrlChange}
+        handleBrowserPageMetadataChange={handleBrowserPageMetadataChange}
+        handleToggleSidebar={handleToggleSidebar}
+        handleToggleTerminal={handleToggleTerminalIfWritable}
+        handleToggleBrowser={handleToggleBrowser}
+        handleOpenBrowserTab={handleOpenBrowserTab}
+        handleOpenTreemapping={handleOpenTreemappingIfWritable}
+        handleOpenWhiteboard={handleOpenWhiteboard}
+        handleOpenDeveloperTools={handleOpenDeveloperTools}
+        handleOpenTerminalTab={handleOpenTerminalTabIfWritable}
+        handleToggleGit={handleToggleGitIfWritable}
+        handleToggleSidePane={handleToggleSidePane}
+        handleOpenBrowserUrl={handleOpenBrowserUrl}
+        handleOpenCodeViewer={handleOpenCodeViewerIfWritable}
+        handleAutoOpenAssistantPptx={handleAutoOpenAssistantPptx}
+        handleOpenSubagentSession={handleOpenSubagentSession}
+        handleOpenBackgroundBash={handleOpenBackgroundBash}
+        handleOpenSubagentDirectory={handleOpenSubagentDirectory}
+        handleSyncSubagentSessionTabs={handleSyncSubagentSessionTabs}
+        handleOpenSelectionSideChat={handleOpenSelectionSideChat}
+        handleOpenPlanDetail={handleOpenPlanDetail}
+        handleOpenWorkflowRun={handleOpenWorkflowRun}
+        handleOpenWorkflowRunDirectory={handleOpenWorkflowRunDirectory}
+        handleOpenWorkflowActorSession={handleOpenWorkflowActorSession}
+        handleOpenWorkflowWorkspace={handleOpenWorkflowWorkspace}
+        handleOpenWorkflowArtifact={handleOpenWorkflowArtifact}
+        handleCloseCodeViewer={handleCloseCodeViewer}
+        handleCloseGit={handleCloseGit}
+        handleActivateSidePaneTab={handleActivateSidePaneTab}
+        handleReorderSidePaneTab={handleReorderSidePaneTab}
+        handleCloseSidePaneTab={handleCloseSidePaneTab}
+        handleCloseOtherSidePaneTabs={handleCloseOtherSidePaneTabs}
+        handleCloseAllSidePaneTabs={handleCloseAllSidePaneTabs}
+        handleReopenClosedSidePaneTab={handleReopenClosedSidePaneTab}
+        handleBrowserNavigationRequestHandled={handleBrowserNavigationRequestHandled}
+        setIsTerminalOpen={setIsTerminalOpen}
+        setGitSelectedSourceId={setGitSelectedSourceId}
+        // taskFindDialogProps 是对象 prop，内联创建会让 shell 在流式刷新中每轮都看到新引用。
+        taskFindDialogProps={taskFindDialogProps}
+      />
+    </>
+  );
+}

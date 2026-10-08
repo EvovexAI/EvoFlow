@@ -90,13 +90,13 @@ export function initUiZoom() {
     },
     { passive: false },
   )
-  // Ctrl + 滚轮缩放
+  // Ctrl + 滚轮：只拦截不缩放（桌面客户端不需要滚轮缩放；
+  // 若不 preventDefault，WebView2 会走原生浏览器缩放，整个界面照样变大变小）
   window.addEventListener(
     'wheel',
     (e) => {
       if (!e.ctrlKey || e.altKey || e.metaKey) return
       e.preventDefault()
-      setScale(_scale + (e.deltaY < 0 ? 0.05 : -0.05))
     },
     { passive: false },
   )

@@ -622,6 +622,9 @@ pub fn browser_cdp_status(
 
 #[cfg(test)]
 mod tests {
+    use super::FORWARDED_EVENTS;
+    use std::collections::HashSet;
+
     /// receivers for it, so the callback fires twice and Playwright sees
     /// duplicated lifecycle events. `DOM.documentUpdated` was listed twice.
     #[test]

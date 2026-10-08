@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // vendored ZCode 树按 lib es2024+ 编写（toSorted / Promise.withResolvers 等）。
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
@@ -13,12 +14,31 @@
     "strict": true,
     "allowJs": true,
     "checkJs": false,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    // vendored ZCode 树（~48 万行）不满足 no-unused 检查；EvoFlow 旧代码本就有存量违例。
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/react/*"]
+      // ZCode ui 包内别名 `@/...` 指向 vendored 树（EvoFlow 自有代码不使用 @/，无冲突）。
+      "@/*": ["src/zcode-ui/*"],
+      // ZCode workspace 包 → vendored 源码树。
+      "@zcode/ui": ["src/zcode-ui/index.ts"],
+      "@zcode/ui/*": ["src/zcode-ui/*"],
+      "@zcode/shared": ["src/zcode-shared/index.ts"],
+      "@zcode/shared/*": ["src/zcode-shared/*"],
+      "@zcode/rpc": ["src/zcode-rpc/index.ts"],
+      "@zcode/rpc/*": ["src/zcode-rpc/*"],
+      "@zcode/provider": ["src/zcode-provider/index.ts"],
+      "@zcode/provider/*": ["src/zcode-provider/*"],
+      "@zcode/provider-node": ["src/zcode-provider-node/index.ts"],
+      "@zcode/provider-node/*": ["src/zcode-provider-node/*"],
+      "@zcode/services": ["src/zcode-services/index.ts"],
+      "@zcode/services/*": ["src/zcode-services/*"],
+      "@zcode/model-option-map": ["src/zcode-model-option-map/index.ts"],
+      "@zcode/model-option-map/*": ["src/zcode-model-option-map/*"],
+      // services 包内部的 `#src/...` subpath imports（其 package.json "imports" 字段）。
+      "#src/*": ["src/zcode-services/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"]

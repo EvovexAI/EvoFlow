@@ -82,6 +82,10 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
   if (!data || typeof data !== 'object') return
   const t = String(data.type || '').trim()
   if (!t) return
+  // [STREAM-DEBUG] 每个到达 ws-client 的 AG-UI wire 事件
+  if (t === 'TEXT_MESSAGE_CONTENT' || t === 'RUN_STARTED' || t === 'RUN_FINISHED' || t === 'MESSAGES_SNAPSHOT' || t === 'TEXT_MESSAGE_START') {
+    console.info(`[STREAM-DEBUG][ws] type=${t} key=${key} runId=${runId} laneDelta=${lane?.deltaCount ?? '-'}`)
+  }
 
   logStreamCompareSseRecv({
     sessionKey: key,
@@ -6428,6 +6432,14 @@ export class WsClient {
       }
 
       const dispatchParsedStreamEvent = (eventName, data, dataRaw = '') => {
+          // [STREAM-DEBUG] 主循环派发入口：每 20 个记一条，RUN_*/TEXT_MESSAGE_* 全记
+          {
+            const _t = data && typeof data === 'object' ? String(data.type || '') : ''
+            dispatchParsedStreamEvent._n = (dispatchParsedStreamEvent._n || 0) + 1
+            if (_t.startsWith('RUN_') || _t.startsWith('TEXT_MESSAGE') || dispatchParsedStreamEvent._n % 20 === 1) {
+              console.info(`[STREAM-DEBUG][parse] n=${dispatchParsedStreamEvent._n} ev=${eventName} type=${_t || String(dataRaw || '').slice(0, 40)}`)
+            }
+          }
           if (dataRaw === '[DONE]' || data === '[DONE]') {
             if (evfLane.openAiStreamMode) {
               dispatchOpenAiWireSseFrame(this, key, runId, eventName, '[DONE]', null, evfLane)

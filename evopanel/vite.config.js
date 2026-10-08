@@ -9,6 +9,14 @@ import path from 'path'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const reactSrcDir = path.resolve(__dirname, 'src/react')
 const sanitizeUrlShim = path.resolve(__dirname, 'src/lib/shims/sanitize-url.mjs')
+// Vendored ZCode frontend trees (see scripts/vendor-zcode.cjs for provenance).
+const zcodeUiDir = path.resolve(__dirname, 'src/zcode-ui')
+const zcodeSharedDir = path.resolve(__dirname, 'src/zcode-shared')
+const zcodeRpcDir = path.resolve(__dirname, 'src/zcode-rpc')
+const zcodeProviderDir = path.resolve(__dirname, 'src/zcode-provider')
+const zcodeProviderNodeDir = path.resolve(__dirname, 'src/zcode-provider-node')
+const zcodeServicesDir = path.resolve(__dirname, 'src/zcode-services')
+const zcodeModelOptionMapDir = path.resolve(__dirname, 'src/zcode-model-option-map')
 
 /** pnpm folder prefix: `@scope/pkg` → `@scope+pkg@` */
 function pnpmFolderPrefix(pkgName) {
@@ -136,7 +144,25 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: [
-        { find: '@', replacement: reactSrcDir },
+        // ZCode ui 包内别名 `@/...`（EvoFlow 自有代码不使用 @/）。必须放在裸包名规则之前。
+        { find: '@', replacement: zcodeUiDir },
+        // Vendored @zcode workspace 包：根导入指到各自 index，子路径按目录解析。
+        { find: /^@zcode\/ui$/, replacement: path.join(zcodeUiDir, 'index.ts') },
+        { find: /^@zcode\/ui\/(.*)$/, replacement: path.join(zcodeUiDir, '$1') },
+        { find: /^@zcode\/shared$/, replacement: path.join(zcodeSharedDir, 'index.ts') },
+        { find: /^@zcode\/shared\/(.*)$/, replacement: path.join(zcodeSharedDir, '$1') },
+        { find: /^@zcode\/rpc$/, replacement: path.join(zcodeRpcDir, 'index.ts') },
+        { find: /^@zcode\/rpc\/(.*)$/, replacement: path.join(zcodeRpcDir, '$1') },
+        { find: /^@zcode\/provider$/, replacement: path.join(zcodeProviderDir, 'index.ts') },
+        { find: /^@zcode\/provider\/(.*)$/, replacement: path.join(zcodeProviderDir, '$1') },
+        { find: /^@zcode\/provider-node$/, replacement: path.join(zcodeProviderNodeDir, 'index.ts') },
+        { find: /^@zcode\/provider-node\/(.*)$/, replacement: path.join(zcodeProviderNodeDir, '$1') },
+        { find: /^@zcode\/services$/, replacement: path.join(zcodeServicesDir, 'index.ts') },
+        { find: /^@zcode\/services\/(.*)$/, replacement: path.join(zcodeServicesDir, '$1') },
+        { find: /^@zcode\/model-option-map$/, replacement: path.join(zcodeModelOptionMapDir, 'index.ts') },
+        { find: /^@zcode\/model-option-map\/(.*)$/, replacement: path.join(zcodeModelOptionMapDir, '$1') },
+        // services 包内部 `#src/...` subpath imports。
+        { find: /^#src\/(.*)$/, replacement: path.join(zcodeServicesDir, '$1') },
         // `@braintree/sanitize-url` ships CJS only; shim re-exports named ESM for Mermaid.
         { find: /^@braintree\/sanitize-url$/, replacement: sanitizeUrlShim },
         { find: 'braintree-sanitize-url-dist', replacement: braintreeSanitizeUrlDist },

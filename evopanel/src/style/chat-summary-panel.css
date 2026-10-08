@@ -36,7 +36,10 @@
   width: var(--agent-panel-width, 340px);
   max-width: 360px;
   min-width: 320px;
-  align-self: flex-start;
+  /* 不写 align-self，继承父容器的 stretch（默认）；
+     高度由 .is-panel 的 max-height + 父级 align-items:stretch 决定，
+     让面板真正延伸到容器底部，避免底部出现「空条」。 */
+  align-self: stretch;
   /* 卡片四周留呼吸：顶部 8px、右侧 8px。
      右侧留白让卡片不贴死容器右边，和 left 的对话区之间有个间隔；
      flex-basis 固定 340px，margin 是在此之外额外加的，不会把卡片挤窄。 */

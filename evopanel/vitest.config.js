@@ -5,18 +5,42 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const zcodeUiDir = path.resolve(__dirname, 'src/zcode-ui')
+const zcodeSharedDir = path.resolve(__dirname, 'src/zcode-shared')
+const zcodeRpcDir = path.resolve(__dirname, 'src/zcode-rpc')
+const zcodeProviderDir = path.resolve(__dirname, 'src/zcode-provider')
+const zcodeProviderNodeDir = path.resolve(__dirname, 'src/zcode-provider-node')
+const zcodeServicesDir = path.resolve(__dirname, 'src/zcode-services')
+const zcodeModelOptionMapDir = path.resolve(__dirname, 'src/zcode-model-option-map')
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src/react'),
-    },
+    alias: [
+      // 与 vite.config.js / tsconfig.json 保持一致（vendored ZCode 树，见 scripts/vendor-zcode.cjs）。
+      { find: '@', replacement: zcodeUiDir },
+      { find: /^@zcode\/ui$/, replacement: path.join(zcodeUiDir, 'index.ts') },
+      { find: /^@zcode\/ui\/(.*)$/, replacement: path.join(zcodeUiDir, '$1') },
+      { find: /^@zcode\/shared$/, replacement: path.join(zcodeSharedDir, 'index.ts') },
+      { find: /^@zcode\/shared\/(.*)$/, replacement: path.join(zcodeSharedDir, '$1') },
+      { find: /^@zcode\/rpc$/, replacement: path.join(zcodeRpcDir, 'index.ts') },
+      { find: /^@zcode\/rpc\/(.*)$/, replacement: path.join(zcodeRpcDir, '$1') },
+      { find: /^@zcode\/provider$/, replacement: path.join(zcodeProviderDir, 'index.ts') },
+      { find: /^@zcode\/provider\/(.*)$/, replacement: path.join(zcodeProviderDir, '$1') },
+      { find: /^@zcode\/provider-node$/, replacement: path.join(zcodeProviderNodeDir, 'index.ts') },
+      { find: /^@zcode\/provider-node\/(.*)$/, replacement: path.join(zcodeProviderNodeDir, '$1') },
+      { find: /^@zcode\/services$/, replacement: path.join(zcodeServicesDir, 'index.ts') },
+      { find: /^@zcode\/services\/(.*)$/, replacement: path.join(zcodeServicesDir, '$1') },
+      { find: /^@zcode\/model-option-map$/, replacement: path.join(zcodeModelOptionMapDir, 'index.ts') },
+      { find: /^@zcode\/model-option-map\/(.*)$/, replacement: path.join(zcodeModelOptionMapDir, '$1') },
+      { find: /^#src\/(.*)$/, replacement: path.join(zcodeServicesDir, '$1') },
+    ],
   },
   test: {
     environment: 'happy-dom',
     // 其余 tests/*.test.js 使用 node:test，由 `node --test` 单独运行
     include: [
+      'tests/tmp-gen-minimal-snapshot.test.ts',
       'tests/zcode-flat-reasoning.test.js',
       'tests/turn-history-fold.test.tsx',
       'tests/font-size-tokens.test.js',

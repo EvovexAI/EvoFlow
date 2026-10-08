@@ -1,0 +1,2053 @@
+@import "tailwindcss" source(".");
+@import "tw-animate-css";
+@import "tailwind-scrollbar-hide/v4";
+@import "shadcn/tailwind.css";
+@import "@xterm/xterm/css/xterm.css";
+@import "katex/dist/katex.min.css";
+@source "../../../node_modules/streamdown/dist/*.js"; /* 显式扫描 streamdown 的运行时类名 */
+
+@plugin "@tailwindcss/typography";
+
+/*  KaTeX 会同时输出 MathML 辅助层和 HTML 视觉层；缺少 katex CSS 时两层都会显示，
+ * 行内公式和块级公式就会看起来“渲染一遍又普通文本一遍”。 */
+
+/*  Linux desktop 的窗口标题栏由 renderer 自绘，部分 overlay 需要只在该平台避开标题栏点击区。 */
+@custom-variant platform-linux-desktop (&:where(.platform-linux-desktop, .platform-linux-desktop *));
+@custom-variant platform-linux-window-maximized (&:where(.platform-linux-desktop.window-maximized, .platform-linux-desktop.window-maximized *));
+
+/*  macOS desktop 使用 hidden 原生标题栏，右上角浮层操作必须避开其原生命中区域。 */
+@custom-variant platform-mac-desktop (&:where(.platform-mac-desktop, .platform-mac-desktop *));
+
+/*  Windows desktop 的原生 titleBarOverlay 占用右上角，图片 lightbox 等深层 overlay
+ * 通过独立平台 variant 使用真实 Window Controls Overlay 安全区；普通 Web 不继承该规则。 */
+@custom-variant platform-windows-desktop (&:where(.platform-windows-desktop, .platform-windows-desktop *));
+
+/*
+ * 当前 UI 直接使用了 shadcn 的 radix-mira 风格组件源码，这些组件大量依赖
+ * data-active / data-horizontal / data-vertical 这类语义 variant。
+ * 上游并不是靠单个组件手写 data-[state=active]，而是通过 shadcn/tailwind.css 里的
+ * @custom-variant 把 Radix 的 data-state、data-orientation 统一映射过来。
+ * 之前仓库只引了 tailwindcss，本地编译就只会匹配裸 data-active 属性，
+ * 导致 Tabs、Separator、ScrollArea、ButtonGroup 等一批组件样式“类名在、效果不在”。
+ * 这里按官方 registry 的接法补上 shadcn/tailwind.css 和 tw-animate-css，
+ * 让这批组件一次性恢复和上游一致的编译语义与动画工具类。
+ */
+
+/*
+ * styles.css 是从 @zcode/ui 包里被 web/desktop 间接引入的，Tailwind v4 在这种工作区场景下
+ * 仅靠 source(".") 不能稳定把 UI 包里的 TSX 组件都加入扫描，像 Select 这类新组件用到的
+ * bg-popover、shadow-md、overflow-x-hidden 等 utility 会直接缺席，页面就只剩下一部分“碰巧命中”的通用类。
+ * 这里显式补一条 @source，让 Tailwind 始终扫描 UI 包源码，避免下拉框、菜单这类组件渲染成半残状态。
+ */
+@source "./**/*.{ts,tsx}";
+/* 云端模板常用样式的构建保障，不是运行时 class 白名单。 */
+@source inline("text-center text-ui-base/relaxed text-foreground-subtle font-semibold font-normal text-foreground whitespace-nowrap underline decoration-foreground-subtle decoration-dashed underline-offset-4");
+
+/* 磨砂玻璃效果：html/body 需要透明背景，让 Electron vibrancy 透出来 */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: transparent !important;
+}
+
+:root {
+  --ui-font-size: 14px;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+/* 中文模板描述按单字断行会拆开“简报”等词组，并把标点挤到下一行。
+ * Chromium 支持时启用短语级换行；其它环境保留正常断行，避免 keep-all 在窄屏产生溢出。 */
+.text-wrap-phrase {
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: strict;
+  text-wrap: pretty;
+}
+
+@supports (word-break: auto-phrase) {
+  .text-wrap-phrase {
+    word-break: auto-phrase;
+  }
+}
+
+.side-pane-open-tab-shell {
+  container: side-pane-open-tab / inline-size;
+}
+
+@container side-pane-open-tab (min-width: 480px) {
+  .side-pane-open-tab-content {
+    max-width: 34rem;
+  }
+
+  .side-pane-open-tab-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  }
+
+  .side-pane-open-tab-button {
+    flex-direction: column;
+    gap: 0.375rem;
+    height: 5.5rem;
+    justify-content: center;
+  }
+
+  .side-pane-open-tab-button-label {
+    flex: 0 1 auto;
+    text-align: center;
+  }
+}
+
+#root {
+  /*  Windows 桌面窗口拉伸后，根节点如果只靠内容撑开，Chromium 偶发会把新尺寸区域留给宿主底层。
+   * 这里把 React 挂载点固定成完整动态视口，让桌面/Web/手机端都从根节点开始明确铺满可视区。 */
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/*
+ *  部分浏览器 / Electron 运行环境会在 focus-visible 时叠加系统级高亮边框，
+ * 表现为和产品主题无关的黄色描边，看起来像“随机冒出来的无障碍样式”。
+ * 这里在全局层同时清掉 outline 和 focus ring 对应的 box-shadow，避免系统高亮和组件局部 ring 混用。
+ */
+*:focus,
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+@media (forced-colors: active) {
+  *:focus,
+  *:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* === 主题变量 === */
+
+@theme {
+  /* Windows 的 Consolas 不含中文字形，Tailwind 默认栈最终会让中文落到宋体。
+   * 保留各平台西文等宽字体，并在通用 monospace 前显式加入各平台 CJK 无衬线字体。 */
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace;
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  /* 例外刻度：仅限工作流图轴面（刻度标签、通道码、单位后缀），不得用于内容文本。
+   * 见 DESIGN.md「UI font tokens」。 */
+  --text-ui-2xs: calc(var(--ui-font-size) - 5px);
+  /* 大写等宽微标签（CAUSALITY GRAPH / TIMEBASE / KEY）在 9-10px 需要加宽字距。 */
+  --tracking-wf-label: 0.09em;
+  /* iOS Safari 会缩放小于 16px 的聚焦输入；该平台下限不能跟随界面字号降低。 */
+  --text-mobile-input-safe: 16px;
+  --animated-gradient-text-strong: rgba(10, 10, 10, 1);
+  --animated-gradient-text-soft: rgba(10, 10, 10, 0.22);
+  --color-background: var(--color-neutral-50);
+  --color-background-alt: color-mix(in oklab, var(--color-neutral-100) 60%, transparent);
+  --color-background-win-alt: var(--color-neutral-200);
+  --color-brand: var(--color-sky-400);
+  --color-icon-blue: var(--color-terminal-bright-blue);
+  --color-trajectory-user: #2563eb;
+  --color-trajectory-assistant: #0f766e;
+  --color-trajectory-reasoning: #7c3aed;
+  --color-trajectory-tool-call: #d97706;
+  --color-trajectory-tool-result: #0284c7;
+  /* 工作流因果图仪表化渲染：
+   * rule 比 --color-border 更弱——刻度与空闲轨道每图重复约 40 次，10% 会积成灰雾。 */
+  --color-workflow-rule: color-mix(in oklab, var(--color-neutral-950) 5.5%, transparent);
+  --color-workflow-trace: color-mix(in oklab, var(--color-neutral-950) 30%, transparent);
+  --color-workflow-trace-strong: color-mix(in oklab, var(--color-neutral-950) 55%, transparent);
+  --color-accent: var(--color-sky-50);
+  --color-find-highlight: #fde68a;
+  --color-find-highlight-active: #facc15;
+  --color-border: color-mix(in oklab, var(--color-neutral-950) 10%, transparent);
+  --color-border-hover: color-mix(in oklab, var(--color-neutral-950) 20%, transparent);
+  --color-hover: var(--color-neutral-200);
+  --color-selected: color-mix(in oklab, var(--color-neutral-950) 10%, transparent);
+  --color-header: var(--color-neutral-100);
+  --color-panel: var(--color-neutral-100);
+  --color-sidebar: var(--color-neutral-100);
+  --color-surface: color-mix(in oklab, var(--color-neutral-950) 3%, transparent);
+  --color-surface-hover: color-mix(in oklab, var(--color-neutral-950) 5%, transparent);
+  --color-markdown-inline-code: var(--color-tag);
+  --color-card: var(--color-white);
+  --color-card-selected: var(--color-neutral-200);
+  --color-card-border: var(--color-border);
+  --color-popover: var(--color-white);
+  /* 修复：浮层组件已使用 text-popover-foreground，但变量缺失会让暗色主题日志浮层继承黑色文本。 */
+  --color-popover-foreground: var(--color-foreground);
+  --color-popover-header: var(--color-neutral-100);
+  --color-popover-border: var(--color-border);
+  --color-input: var(--color-white);
+  --color-input-focused: var(--color-neutral-50);
+  --color-input-border: var(--color-border);
+  --color-input-border-hover: var(--color-border-hover);
+  --color-input-border-focused: var(--color-brand);
+  --color-terminal-bg: var(--color-neutral-50);
+  --color-terminal-fg: var(--color-neutral-950);
+  --color-terminal-cursor: var(--color-neutral-950);
+  --color-terminal-cursor-accent: var(--color-neutral-50);
+  --color-terminal-selection: color-mix(in oklab, var(--color-sky-500) 32%, transparent);
+  --color-terminal-selection-inactive: color-mix(in oklab, var(--color-sky-500) 22%, transparent);
+  --color-terminal-black: var(--color-neutral-700);
+  --color-terminal-red: var(--color-red-500);
+  --color-terminal-green: var(--color-green-500);
+  --color-terminal-yellow: var(--color-yellow-500);
+  --color-terminal-blue: var(--color-sky-500);
+  --color-terminal-magenta: var(--color-fuchsia-500);
+  --color-terminal-cyan: var(--color-cyan-500);
+  --color-terminal-white: var(--color-neutral-500);
+  --color-terminal-bright-black: var(--color-neutral-500);
+  --color-terminal-bright-red: var(--color-red-500);
+  --color-terminal-bright-green: var(--color-green-500);
+  --color-terminal-bright-yellow: var(--color-yellow-500);
+  --color-terminal-bright-blue: var(--color-sky-500);
+  --color-terminal-bright-magenta: var(--color-fuchsia-500);
+  --color-terminal-bright-cyan: var(--color-cyan-500);
+  --color-terminal-bright-white: var(--color-neutral-950);
+  /* 应用用量图表使用独立色板，避免复用终端 ANSI 色造成红黄绿高饱和堆叠。 */
+  --color-usage-chart-1: var(--color-sky-600);
+  --color-usage-chart-2: var(--color-teal-600);
+  --color-usage-chart-3: var(--color-violet-600);
+  --color-usage-chart-4: var(--color-rose-500);
+  --color-usage-chart-5: var(--color-indigo-500);
+  --color-usage-chart-6: var(--color-cyan-600);
+  /* Context breakdown 使用接近参考 UI 的单一蓝色阶，避免小弹窗里出现高饱和彩虹色。 */
+  --color-context-breakdown-1: var(--color-sky-600);
+  --color-context-breakdown-2: var(--color-sky-500);
+  --color-context-breakdown-3: var(--color-sky-400);
+  --color-context-breakdown-4: var(--color-sky-300);
+  --color-context-breakdown-5: var(--color-sky-200);
+  --color-context-breakdown-6: var(--color-sky-100);
+  --color-context-breakdown-7: color-mix(in oklab, var(--color-sky-100) 72%, var(--color-white));
+  /*  热力图之前复用 brand 色，Zai 主题下 brand 是黑/白，无法保持 sky 语义。 */
+  --color-usage-heatmap-0: color-mix(in oklab, var(--color-sky-500) 0%, var(--color-surface));
+  --color-usage-heatmap-1: color-mix(in oklab, var(--color-sky-500) 18%, var(--color-surface));
+  --color-usage-heatmap-2: color-mix(in oklab, var(--color-sky-500) 36%, var(--color-surface));
+  --color-usage-heatmap-3: color-mix(in oklab, var(--color-sky-600) 58%, var(--color-surface));
+  --color-usage-heatmap-4: color-mix(in oklab, var(--color-sky-700) 82%, var(--color-surface));
+  --color-tab: var(--color-neutral-100);
+  --color-tab-active: var(--color-white);
+  --color-tab-border: var(--color-border);
+  --color-menu: var(--color-white);
+  --color-menu-hover: var(--color-neutral-100);
+  --color-primary: var(--color-neutral-950);
+  --color-primary-foreground: var(--color-neutral-50);
+  --color-secondary: var(--color-neutral-300);
+  --color-interaction-ask-surface: var(--color-sky-50);
+  --color-interaction-ask-foreground: var(--color-sky-700);
+  --color-interaction-ask-fill: color-mix(in oklab, var(--color-green-500) 20%, transparent);
+  --color-interaction-confirmation-surface: var(--color-green-50);
+  --color-interaction-confirmation-foreground: var(--color-green-700);
+  --color-foreground: var(--color-neutral-700);
+  --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-700) 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-700) 40%, transparent);
+  --color-foreground-inverse: var(--color-white);
+  --color-success: var(--color-green-600);
+  --color-success-foreground: var(--color-foreground-inverse);
+  --color-idle-task: var(--color-violet-600);
+  --color-idle-task-surface: var(--color-violet-50);
+  --color-destructive: var(--color-red-600);
+  --color-destructive-foreground: var(--color-foreground-inverse);
+  --color-warning: var(--color-yellow-600);
+  --color-feedback-privacy-hint: var(--color-yellow-600);
+  --color-warning-foreground: var(--color-foreground-inverse);
+  --color-diff-added: var(--color-green-600);
+  --color-diff-added-foreground: var(--color-foreground-inverse);
+  --color-diff-removed: var(--color-red-600);
+  --color-diff-removed-foreground: var(--color-foreground-inverse);
+  --color-git-none: var(--color-foreground);
+  --color-git-modified: var(--color-amber-600);
+  --color-git-added: var(--color-teal-600);
+  --color-git-deleted: var(--color-red-600);
+  --color-git-renamed: var(--color-sky-600);
+  --color-git-untracked: var(--color-teal-600);
+  --color-git-ignored: var(--color-foreground-subtlest);
+  --color-git-descendant: var(--color-amber-600);
+  --color-toast: var(--color-white);
+  --color-tooltip: var(--color-neutral-100);
+  --color-tooltip-foreground: var(--color-neutral-950);
+  --color-tooltip-tag: var(--color-neutral-200);
+  --color-tooltip-tag-foreground: color-mix(in oklab, var(--color-neutral-950) 60%, transparent);
+  --color-tag: var(--color-neutral-200);
+  --color-file-node: color-mix(in oklab, var(--color-sky-600) 14%, transparent);
+  --color-file-node-hover: color-mix(in oklab, var(--color-sky-600) 20%, transparent);
+  --color-file-node-foreground: var(--color-sky-600);
+  --color-skill-node: color-mix(in oklab, var(--color-violet-600) 14%, transparent);
+  --color-skill-node-hover: color-mix(in oklab, var(--color-violet-600) 20%, transparent);
+  --color-skill-node-foreground: var(--color-violet-600);
+  --color-command-node: color-mix(in oklab, var(--color-slate-500) 14%, transparent);
+  --color-command-node-hover: color-mix(in oklab, var(--color-slate-500) 20%, transparent);
+  --color-command-node-foreground: var(--color-slate-600);
+  --color-subagent-node: color-mix(in oklab, #6f7a2f 14%, transparent);
+  --color-subagent-node-hover: color-mix(in oklab, #6f7a2f 20%, transparent);
+  --color-subagent-node-foreground: #6f7a2f;
+  --color-session-node: color-mix(in oklab, var(--color-teal-600) 14%, transparent);
+  --color-session-node-hover: color-mix(in oklab, var(--color-teal-600) 20%, transparent);
+  --color-session-node-foreground: var(--color-teal-600);
+  --color-plugin-node: color-mix(in oklab, var(--color-amber-600) 14%, transparent);
+  --color-plugin-node-hover: color-mix(in oklab, var(--color-amber-600) 20%, transparent);
+  --color-plugin-node-foreground: var(--color-amber-600);
+  --color-plugin-paid-plan-badge: #ffe3c8;
+  --color-plugin-paid-plan-badge-foreground: #4b280f;
+}
+
+.dark {
+  --animated-gradient-text-strong: rgba(255, 255, 255, 1);
+  --animated-gradient-text-soft: rgba(255, 255, 255, 0.2);
+  --color-background: var(--color-neutral-900);
+  --color-background-alt: color-mix(in oklab, var(--color-neutral-800) 60%, transparent);
+  --color-background-win-alt: var(--color-neutral-800);
+  --color-brand: var(--color-sky-500);
+  --color-trajectory-user: #60a5fa;
+  --color-trajectory-assistant: #2dd4bf;
+  --color-trajectory-reasoning: #a78bfa;
+  --color-trajectory-tool-call: #f59e0b;
+  --color-trajectory-tool-result: #38bdf8;
+  --color-workflow-rule: color-mix(in oklab, var(--color-white) 6.5%, transparent);
+  --color-workflow-trace: color-mix(in oklab, var(--color-white) 35%, transparent);
+  --color-workflow-trace-strong: color-mix(in oklab, var(--color-white) 60%, transparent);
+  --color-accent: color-mix(in oklab, var(--color-sky-950) 50%, transparent);
+  --color-find-highlight: #713f12;
+  --color-find-highlight-active: #a16207;
+  --color-border: color-mix(in oklab, var(--color-neutral-50) 10%, transparent);
+  --color-border-hover: color-mix(in oklab, var(--color-neutral-50) 30%, transparent);
+  --color-hover: var(--color-surface-hover);
+  --color-selected: color-mix(in oklab, var(--color-white) 10%, transparent);
+  --color-header: var(--color-neutral-900);
+  --color-panel: var(--color-neutral-900);
+  --color-sidebar: var(--color-neutral-950);
+  --color-surface: color-mix(in oklab, var(--color-white) 5%, transparent);
+  --color-surface-hover: color-mix(in oklab, var(--color-white) 10%, transparent);
+  --color-card: var(--color-neutral-800);
+  --color-card-selected: var(--color-neutral-700);
+  --color-card-border: var(--color-border);
+  --color-popover: var(--color-neutral-800);
+  --color-popover-foreground: var(--color-foreground);
+  --color-popover-header: var(--color-neutral-700);
+  --color-popover-border: var(--color-border);
+  --color-input: var(--color-neutral-800);
+  --color-input-focused: var(--color-neutral-950);
+  --color-input-border: var(--color-border);
+  --color-input-border-hover: var(--color-border-hover);
+  --color-input-border-focused: var(--color-brand);
+  --color-terminal-bg: var(--color-neutral-950);
+  --color-terminal-fg: var(--color-neutral-50);
+  --color-terminal-cursor: var(--color-neutral-50);
+  --color-terminal-cursor-accent: var(--color-neutral-950);
+  --color-terminal-selection: color-mix(in oklab, var(--color-sky-500) 26%, transparent);
+  --color-terminal-selection-inactive: color-mix(
+    in oklab,
+    var(--color-neutral-50) 16%,
+    transparent
+  );
+  --color-terminal-black: var(--color-neutral-800);
+  --color-terminal-red: var(--color-red-600);
+  --color-terminal-green: var(--color-green-600);
+  --color-terminal-yellow: var(--color-yellow-600);
+  --color-terminal-blue: var(--color-sky-600);
+  --color-terminal-magenta: var(--color-fuchsia-600);
+  --color-terminal-cyan: var(--color-cyan-600);
+  --color-terminal-white: var(--color-neutral-200);
+  --color-terminal-bright-black: var(--color-neutral-500);
+  --color-terminal-bright-red: var(--color-red-600);
+  --color-terminal-bright-green: var(--color-green-600);
+  --color-terminal-bright-yellow: var(--color-yellow-600);
+  --color-terminal-bright-blue: var(--color-sky-600);
+  --color-terminal-bright-magenta: var(--color-fuchsia-600);
+  --color-terminal-bright-cyan: var(--color-cyan-600);
+  --color-terminal-bright-white: var(--color-neutral-50);
+  --color-usage-chart-1: var(--color-sky-500);
+  --color-usage-chart-2: var(--color-teal-400);
+  --color-usage-chart-3: var(--color-violet-400);
+  --color-usage-chart-4: var(--color-rose-400);
+  --color-usage-chart-5: var(--color-indigo-400);
+  --color-usage-chart-6: var(--color-cyan-400);
+  --color-context-breakdown-1: var(--color-sky-400);
+  --color-context-breakdown-2: var(--color-sky-300);
+  --color-context-breakdown-3: var(--color-sky-200);
+  --color-context-breakdown-4: color-mix(in oklab, var(--color-sky-200) 84%, var(--color-white));
+  --color-context-breakdown-5: color-mix(in oklab, var(--color-sky-200) 72%, var(--color-white));
+  --color-context-breakdown-6: color-mix(in oklab, var(--color-sky-200) 60%, var(--color-white));
+  --color-context-breakdown-7: color-mix(in oklab, var(--color-sky-200) 48%, var(--color-white));
+  --color-usage-heatmap-0: color-mix(in oklab, var(--color-sky-400) 0%, var(--color-surface));
+  --color-usage-heatmap-1: color-mix(in oklab, var(--color-sky-400) 24%, var(--color-surface));
+  --color-usage-heatmap-2: color-mix(in oklab, var(--color-sky-400) 42%, var(--color-surface));
+  --color-usage-heatmap-3: color-mix(in oklab, var(--color-sky-400) 62%, var(--color-surface));
+  --color-usage-heatmap-4: color-mix(in oklab, var(--color-sky-300) 78%, var(--color-surface));
+  --color-tab: var(--color-neutral-800);
+  --color-tab-active: var(--color-neutral-950);
+  --color-tab-border: var(--color-border);
+  --color-menu: var(--color-neutral-950);
+  --color-menu-hover: var(--color-neutral-900);
+  --color-primary: var(--color-neutral-50);
+  --color-primary-foreground: var(--color-neutral-950);
+  --color-secondary: var(--color-neutral-700);
+  --color-interaction-ask-surface: color-mix(in oklab, var(--color-sky-950) 50%, transparent);
+  --color-interaction-ask-foreground: var(--color-sky-300);
+  --color-interaction-ask-fill: color-mix(in oklab, var(--color-green-400) 24%, transparent);
+  --color-interaction-confirmation-surface: color-mix(
+    in oklab,
+    var(--color-green-950) 45%,
+    transparent
+  );
+  --color-interaction-confirmation-foreground: var(--color-green-300);
+  --color-foreground: var(--color-neutral-200);
+  --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-200) 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-200) 30%, transparent);
+  --color-foreground-inverse: var(--color-white);
+  --color-success: var(--color-green-500);
+  --color-success-foreground: var(--color-foreground-inverse);
+  --color-idle-task: var(--color-violet-400);
+  --color-idle-task-surface: color-mix(in oklab, var(--color-violet-950) 50%, transparent);
+  --color-destructive: var(--color-red-500);
+  --color-destructive-foreground: var(--color-foreground-inverse);
+  --color-warning: var(--color-yellow-500);
+  --color-feedback-privacy-hint: var(--color-yellow-300);
+  --color-warning-foreground: var(--color-foreground-inverse);
+  --color-diff-added: var(--color-green-500);
+  --color-diff-added-foreground: var(--color-foreground-inverse);
+  --color-diff-removed: var(--color-red-500);
+  --color-diff-removed-foreground: var(--color-foreground-inverse);
+  --color-git-none: var(--color-foreground);
+  --color-git-modified: var(--color-amber-400);
+  --color-git-added: var(--color-teal-400);
+  --color-git-deleted: var(--color-red-400);
+  --color-git-renamed: var(--color-sky-400);
+  --color-git-untracked: var(--color-teal-400);
+  --color-git-ignored: var(--color-foreground-subtlest);
+  --color-git-descendant: var(--color-amber-400);
+  --color-toast: var(--color-neutral-900);
+  --color-tooltip: var(--color-neutral-900);
+  --color-tooltip-foreground: var(--color-neutral-50);
+  --color-tooltip-tag: var(--color-neutral-800);
+  --color-tooltip-tag-foreground: color-mix(in oklab, var(--color-neutral-50) 60%, transparent);
+  --color-tag: var(--color-neutral-700);
+  --color-file-node: color-mix(in oklab, var(--color-sky-400) 18%, transparent);
+  --color-file-node-hover: color-mix(in oklab, var(--color-sky-400) 24%, transparent);
+  --color-file-node-foreground: var(--color-sky-300);
+  --color-skill-node: color-mix(in oklab, var(--color-violet-400) 18%, transparent);
+  --color-skill-node-hover: color-mix(in oklab, var(--color-violet-400) 24%, transparent);
+  --color-skill-node-foreground: var(--color-violet-300);
+  --color-command-node: color-mix(in oklab, var(--color-slate-300) 16%, transparent);
+  --color-command-node-hover: color-mix(in oklab, var(--color-slate-300) 22%, transparent);
+  --color-command-node-foreground: var(--color-slate-300);
+  --color-subagent-node: color-mix(in oklab, #b7bd75 18%, transparent);
+  --color-subagent-node-hover: color-mix(in oklab, #b7bd75 24%, transparent);
+  --color-subagent-node-foreground: #b7bd75;
+  --color-session-node: color-mix(in oklab, var(--color-teal-400) 18%, transparent);
+  --color-session-node-hover: color-mix(in oklab, var(--color-teal-400) 24%, transparent);
+  --color-session-node-foreground: var(--color-teal-300);
+  --color-plugin-node: color-mix(in oklab, var(--color-amber-400) 18%, transparent);
+  --color-plugin-node-hover: color-mix(in oklab, var(--color-amber-400) 24%, transparent);
+  --color-plugin-node-foreground: var(--color-amber-300);
+  --color-plugin-paid-plan-badge: #5a341b;
+  --color-plugin-paid-plan-badge-foreground: #ffd8b8;
+}
+
+.theme-zai-light {
+  --animated-gradient-text-strong: rgba(13, 13, 13, 1);
+  --animated-gradient-text-soft: rgba(13, 13, 13, 0.22);
+  --color-background: #f8f8f8;
+  --color-background-win-alt: #ececee;
+  --color-background-alt: color-mix(in oklab, var(--color-background) 70%, transparent);
+  --color-brand: #000000;
+  --color-trajectory-user: #2563eb;
+  --color-trajectory-assistant: #0f766e;
+  --color-trajectory-reasoning: #7c3aed;
+  --color-trajectory-tool-call: #d97706;
+  --color-trajectory-tool-result: #0284c7;
+  --color-workflow-rule: rgba(13, 13, 13, 0.055);
+  --color-workflow-trace: rgba(13, 13, 13, 0.3);
+  --color-workflow-trace-strong: rgba(13, 13, 13, 0.55);
+  --color-accent: #ebf4ff;
+  --color-find-highlight: #fff4eb;
+  --color-find-highlight-active: #ffb26b;
+  --color-border: rgba(13, 13, 13, 0.1);
+  --color-border-hover: rgba(13, 13, 13, 0.15);
+  --color-hover: rgba(13, 13, 13, 0.05);
+  --color-selected: rgba(13, 13, 13, 0.05);
+  --color-header: #ffffff;
+  --color-panel: #ffffff;
+  --color-sidebar: #f0f0f0;
+  --color-surface: rgba(13, 13, 13, 0.03);
+  --color-surface-hover: rgba(13, 13, 13, 0.05);
+  --color-card: #ffffff;
+  --color-card-selected: var(--color-input);
+  --color-card-border: var(--color-border);
+  --color-popover: #ffffff;
+  --color-popover-foreground: var(--color-foreground);
+  --color-popover-header: #f8f8f8;
+  --color-popover-border: var(--color-border);
+  --color-input: #ffffff;
+  --color-input-focused: var(--color-input);
+  --color-input-border: var(--color-border);
+  --color-input-border-hover: var(--color-border-hover);
+  --color-input-border-focused: var(--color-border-hover);
+  --color-terminal-bg: var(--color-background);
+  --color-terminal-fg: var(--color-foreground);
+  --color-terminal-cursor: #0d0d0d;
+  --color-terminal-cursor-accent: var(--color-background);
+  --color-terminal-selection: rgba(11, 127, 255, 0.22);
+  --color-terminal-selection-inactive: rgba(13, 13, 13, 0.1);
+  --color-terminal-black: #5c5c5c;
+  --color-terminal-red: #e03131;
+  --color-terminal-green: #1e8a3e;
+  --color-terminal-yellow: #e07b00;
+  --color-terminal-blue: #0b7fff;
+  --color-terminal-magenta: #9e77ed;
+  --color-terminal-cyan: #0aa7a7;
+  --color-terminal-white: #adadad;
+  --color-terminal-bright-black: #888888;
+  --color-terminal-bright-red: #e03131;
+  --color-terminal-bright-green: #1e8a3e;
+  --color-terminal-bright-yellow: #e07b00;
+  --color-terminal-bright-blue: #0066dd;
+  --color-terminal-bright-magenta: #9e77ed;
+  --color-terminal-bright-cyan: #0aa7a7;
+  --color-terminal-bright-white: #0d0d0d;
+  --color-usage-chart-1: #0b7fff;
+  --color-usage-chart-2: #1e8a3e;
+  --color-usage-chart-3: #9e77ed;
+  --color-usage-chart-4: #e03131;
+  --color-usage-chart-5: #e07b00;
+  --color-usage-chart-6: #0aa7a7;
+  --color-context-breakdown-1: #0b7fff;
+  --color-context-breakdown-2: #338fff;
+  --color-context-breakdown-3: #5ca7ff;
+  --color-context-breakdown-4: #85bbff;
+  --color-context-breakdown-5: #acd0ff;
+  --color-context-breakdown-6: #c8ddff;
+  --color-context-breakdown-7: #e0ecff;
+  --color-usage-heatmap-0: color-mix(in oklab, #0b7fff 0%, var(--color-surface));
+  --color-usage-heatmap-1: color-mix(in oklab, #0b7fff 18%, var(--color-surface));
+  --color-usage-heatmap-2: color-mix(in oklab, #0b7fff 36%, var(--color-surface));
+  --color-usage-heatmap-3: color-mix(in oklab, #0b7fff 58%, var(--color-surface));
+  --color-usage-heatmap-4: color-mix(in oklab, #0066dd 82%, var(--color-surface));
+  --color-tab: #f0f0f0;
+  --color-tab-active: #ffffff;
+  --color-tab-border: var(--color-border);
+  --color-menu: #ffffff;
+  --color-menu-hover: #f0f0f0;
+  --color-primary: #000000;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e6e6e6;
+  --color-interaction-ask-surface: #ebf4ff;
+  --color-interaction-ask-foreground: #0066dd;
+  --color-interaction-ask-fill: rgba(70, 191, 114, 0.2);
+  --color-interaction-confirmation-surface: #eaf7ee;
+  --color-interaction-confirmation-foreground: #166b32;
+  --color-foreground: var(--color-neutral-800);
+  --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-800) 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-800) 40%, transparent);
+  --color-foreground-inverse: #ffffff;
+  --color-success: #1e8a3e;
+  --color-success-foreground: #ffffff;
+  --color-idle-task: #9e77ed;
+  --color-idle-task-surface: #f5f3ff;
+  --color-destructive: #e03131;
+  --color-destructive-foreground: #ffffff;
+  --color-warning: #e07b00;
+  --color-feedback-privacy-hint: var(--color-yellow-600);
+  --color-warning-foreground: #ffffff;
+  --color-diff-added: #1e8a3e;
+  --color-diff-added-foreground: #ffffff;
+  --color-diff-removed: #e03131;
+  --color-diff-removed-foreground: #ffffff;
+  --color-git-none: var(--color-foreground);
+  --color-git-modified: #e07b00;
+  --color-git-added: #1e8a3e;
+  --color-git-deleted: #e03131;
+  --color-git-renamed: #0b7fff;
+  --color-git-untracked: #1e8a3e;
+  --color-git-ignored: var(--color-foreground-subtlest);
+  --color-git-descendant: #e07b00;
+  --color-toast: #ffffff;
+  --color-tooltip: #f0f0f0;
+  --color-tooltip-foreground: #0d0d0d;
+  --color-tooltip-tag: #e6e6e6;
+  --color-tooltip-tag-foreground: #5c5c5c;
+  --color-tag: #e6e6e6;
+  --color-file-node: rgba(26, 112, 184, 0.1);
+  --color-file-node-hover: rgba(26, 112, 184, 0.16);
+  --color-file-node-foreground: #1a70b8;
+  --color-skill-node: rgba(116, 83, 176, 0.1);
+  --color-skill-node-hover: rgba(116, 83, 176, 0.16);
+  --color-skill-node-foreground: #7453b0;
+  --color-command-node: rgba(86, 98, 112, 0.1);
+  --color-command-node-hover: rgba(86, 98, 112, 0.16);
+  --color-command-node-foreground: #566270;
+  --color-subagent-node: rgba(111, 122, 47, 0.1);
+  --color-subagent-node-hover: rgba(111, 122, 47, 0.16);
+  --color-subagent-node-foreground: #6f7a2f;
+  --color-session-node: rgba(20, 128, 122, 0.1);
+  --color-session-node-hover: rgba(20, 128, 122, 0.16);
+  --color-session-node-foreground: #14807a;
+  --color-plugin-node: rgba(184, 122, 26, 0.1);
+  --color-plugin-node-hover: rgba(184, 122, 26, 0.16);
+  --color-plugin-node-foreground: #b87a1a;
+  --color-plugin-paid-plan-badge: #ffe3c8;
+  --color-plugin-paid-plan-badge-foreground: #4b280f;
+}
+
+.theme-zai-dark {
+  --animated-gradient-text-strong: rgba(255, 255, 255, 1);
+  --animated-gradient-text-soft: rgba(255, 255, 255, 0.22);
+  --color-background: #161616;
+  --color-background-win-alt: #2b2b2b;
+  --color-background-alt: color-mix(in oklab, var(--color-background-win-alt) 60%, transparent);
+  --color-brand: #ffffff;
+  --color-trajectory-user: #60a5fa;
+  --color-trajectory-assistant: #2dd4bf;
+  --color-trajectory-reasoning: #a78bfa;
+  --color-trajectory-tool-call: #f59e0b;
+  --color-trajectory-tool-result: #38bdf8;
+  --color-workflow-rule: rgba(255, 255, 255, 0.065);
+  --color-workflow-trace: rgba(255, 255, 255, 0.35);
+  --color-workflow-trace-strong: rgba(255, 255, 255, 0.6);
+  --color-accent: #001d3d;
+  --color-find-highlight: #542500;
+  --color-find-highlight-active: #ff8a30;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-hover: rgba(255, 255, 255, 0.15);
+  --color-hover: rgba(255, 255, 255, 0.05);
+  --color-selected: rgba(255, 255, 255, 0.1);
+  --color-header: #202020;
+  --color-panel: #202020;
+  --color-sidebar: #161616;
+  --color-surface: rgba(255, 255, 255, 0.05);
+  --color-surface-hover: rgba(255, 255, 255, 0.1);
+  --color-card: #2b2b2b;
+  --color-card-selected: var(--color-input);
+  --color-card-border: var(--color-border);
+  --color-popover: #2b2b2b;
+  --color-popover-foreground: var(--color-foreground);
+  --color-popover-header: #202020;
+  --color-popover-border: var(--color-border);
+  --color-input: #2b2b2b;
+  --color-input-focused: var(--color-input);
+  --color-input-border: var(--color-border);
+  --color-input-border-hover: var(--color-border-hover);
+  --color-input-border-focused: var(--color-border-hover);
+  --color-terminal-bg: var(--color-background);
+  --color-terminal-fg: var(--color-foreground);
+  --color-terminal-cursor: #f8f8f8;
+  --color-terminal-cursor-accent: #161616;
+  --color-terminal-selection: rgba(64, 153, 255, 0.28);
+  --color-terminal-selection-inactive: rgba(255, 255, 255, 0.1);
+  --color-terminal-black: #363636;
+  --color-terminal-red: #ff5c5c;
+  --color-terminal-green: #46bf72;
+  --color-terminal-yellow: #ff8a30;
+  --color-terminal-blue: #4099ff;
+  --color-terminal-magenta: #7b5ce5;
+  --color-terminal-cyan: #42c8c8;
+  --color-terminal-white: #adadad;
+  --color-terminal-bright-black: #747474;
+  --color-terminal-bright-red: #ff9999;
+  --color-terminal-bright-green: #87d9a4;
+  --color-terminal-bright-yellow: #ffb26b;
+  --color-terminal-bright-blue: #80beff;
+  --color-terminal-bright-magenta: #a888f2;
+  --color-terminal-bright-cyan: #8ee5e5;
+  --color-terminal-bright-white: #f8f8f8;
+  --color-usage-chart-1: #4099ff;
+  --color-usage-chart-2: #46bf72;
+  --color-usage-chart-3: #7b5ce5;
+  --color-usage-chart-4: #ff5c5c;
+  --color-usage-chart-5: #ff8a30;
+  --color-usage-chart-6: #42c8c8;
+  --color-context-breakdown-1: #4099ff;
+  --color-context-breakdown-2: #66adff;
+  --color-context-breakdown-3: #80beff;
+  --color-context-breakdown-4: #9dceff;
+  --color-context-breakdown-5: #b9ddff;
+  --color-context-breakdown-6: #d0e8ff;
+  --color-context-breakdown-7: #e4f1ff;
+  --color-usage-heatmap-0: color-mix(in oklab, #4099ff 0%, var(--color-surface));
+  --color-usage-heatmap-1: color-mix(in oklab, #4099ff 24%, var(--color-surface));
+  --color-usage-heatmap-2: color-mix(in oklab, #4099ff 42%, var(--color-surface));
+  --color-usage-heatmap-3: color-mix(in oklab, #4099ff 62%, var(--color-surface));
+  --color-usage-heatmap-4: color-mix(in oklab, #80beff 78%, var(--color-surface));
+  --color-tab: #202020;
+  --color-tab-active: #161616;
+  --color-tab-border: var(--color-border);
+  --color-menu: #2b2b2b;
+  --color-menu-hover: #363636;
+  --color-primary: #ffffff;
+  --color-primary-foreground: #000000;
+  --color-secondary: #363636;
+  --color-interaction-ask-surface: #001d3d;
+  --color-interaction-ask-foreground: #80beff;
+  --color-interaction-ask-fill: rgba(70, 191, 114, 0.24);
+  --color-interaction-confirmation-surface: rgba(70, 191, 114, 0.16);
+  --color-interaction-confirmation-foreground: #87d9a4;
+  --color-foreground: var(--color-neutral-300);
+  --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-300) 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-300) 30%, transparent);
+  --color-foreground-inverse: #000000;
+  --color-success: #46bf72;
+  --color-success-foreground: #000000;
+  --color-idle-task: #7b5ce5;
+  --color-idle-task-surface: #160d38;
+  --color-destructive: #ff5c5c;
+  /* Zai Dark 曾把 destructive 前景设为黑色，与红色危险按钮的固定白字设计冲突。 */
+  --color-destructive-foreground: #ffffff;
+  --color-warning: #ff8a30;
+  --color-feedback-privacy-hint: var(--color-yellow-300);
+  --color-warning-foreground: #000000;
+  --color-diff-added: #46bf72;
+  --color-diff-added-foreground: #000000;
+  --color-diff-removed: #ff5c5c;
+  --color-diff-removed-foreground: #000000;
+  --color-git-none: var(--color-foreground);
+  --color-git-modified: #ff8a30;
+  --color-git-added: #46bf72;
+  --color-git-deleted: #ff5c5c;
+  --color-git-renamed: #4099ff;
+  --color-git-untracked: #46bf72;
+  --color-git-ignored: var(--color-foreground-subtlest);
+  --color-git-descendant: #ff8a30;
+  --color-toast: #2b2b2b;
+  --color-tooltip: #2b2b2b;
+  --color-tooltip-foreground: #f8f8f8;
+  --color-tooltip-tag: #363636;
+  --color-tooltip-tag-foreground: #adadad;
+  --color-tag: #363636;
+  --color-file-node: rgba(112, 174, 224, 0.16);
+  --color-file-node-hover: rgba(112, 174, 224, 0.22);
+  --color-file-node-foreground: #8fc5ef;
+  --color-skill-node: rgba(166, 137, 218, 0.16);
+  --color-skill-node-hover: rgba(166, 137, 218, 0.22);
+  --color-skill-node-foreground: #bda5e6;
+  --color-command-node: rgba(154, 166, 180, 0.14);
+  --color-command-node-hover: rgba(154, 166, 180, 0.2);
+  --color-command-node-foreground: #b5c0cc;
+  --color-subagent-node: rgba(183, 189, 117, 0.16);
+  --color-subagent-node-hover: rgba(183, 189, 117, 0.22);
+  --color-subagent-node-foreground: #c8cd90;
+  --color-session-node: rgba(104, 196, 188, 0.16);
+  --color-session-node-hover: rgba(104, 196, 188, 0.22);
+  --color-session-node-foreground: #93d8d2;
+  --color-plugin-node: rgba(224, 174, 112, 0.16);
+  --color-plugin-node-hover: rgba(224, 174, 112, 0.22);
+  --color-plugin-node-foreground: #efc58f;
+  --color-plugin-paid-plan-badge: #5a341b;
+  --color-plugin-paid-plan-badge-foreground: #ffd8b8;
+}
+
+/*
+ * 之前只有 task 列表单独定制了滚动条，其他面板、下拉列表、代码区仍然保留系统默认样式，
+ * 同一套界面里会出现粗细、圆角和轨道背景都不一致的问题。这里把这套透明轨道 + 圆角 thumb
+ * 提升成全局原生滚动条样式，让 desktop/web、明暗主题下的视觉表现保持统一。
+ */
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  min-width: 32px;
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background: var(--color-border);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/*
+ * xterm 自己的 viewport 会吃到全局滚动条样式，在终端右侧露出一条独立滚动条。
+ * 终端滚动仍交给 xterm 内部处理，这里只隐藏原生滚动条，避免终端面板出现额外视觉噪音。
+ */
+.terminal-xterm-shell .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.terminal-xterm-shell .xterm-viewport::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/*
+ * pptx 幻灯片按固有尺寸渲染后用 transform 缩放展示，文本框等内部元素的轻微溢出
+ * 会命中上面的全局滚动条样式，在幻灯片内部露出滚动条。幻灯片内容不存在用户滚动交互，
+ * 这里整体隐藏渲染表面内部的原生滚动条。
+ */
+[data-zcode-pptx-render-surface] * {
+  scrollbar-width: none;
+}
+
+[data-zcode-pptx-render-surface] *::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@layer utilities {
+  .button-gradient {
+    background-image: linear-gradient(to bottom right, #191a1d, #747689);
+  }
+
+  .dark .button-gradient {
+    background-image: none;
+    background-color: #484a58;
+  }
+
+  .animated-gradient-text {
+    display: inline-block;
+    background: linear-gradient(
+      90deg,
+      var(--animated-gradient-text-strong) 0%,
+      var(--animated-gradient-text-strong) 34%,
+      var(--animated-gradient-text-soft) 50%,
+      var(--animated-gradient-text-strong) 66%,
+      var(--animated-gradient-text-strong) 100%
+    );
+    background-size: 300% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: gradient-flow 4s linear infinite;
+    will-change: background-position;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
+  .animated-gradient-text-subtle {
+    --animated-gradient-text-strong: var(--color-foreground-subtle);
+  }
+
+  .cua-group-gradient-text {
+    display: inline-block;
+    background: linear-gradient(
+      90deg,
+      var(--animated-gradient-text-strong) 0%,
+      var(--animated-gradient-text-soft) 40%,
+      var(--animated-gradient-text-soft) 60%,
+      var(--animated-gradient-text-strong) 100%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: cua-group-gradient-flow 1s linear infinite;
+    animation-delay: 0.5s;
+    will-change: background-position;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
+  @keyframes cua-group-gradient-flow {
+    0% {
+      background-position: 100% 0;
+    }
+
+    100% {
+      background-position: -100% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cua-group-gradient-text {
+      animation: none;
+    }
+  }
+
+  @keyframes gradient-flow {
+    0% {
+      background-position: 100% 0;
+    }
+
+    50% {
+      background-position: 0% 0;
+    }
+
+    100% {
+      background-position: 0% 0;
+    }
+  }
+}
+
+@keyframes zcode-stream-text-in {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes zcode-draft-prompt-waterfall {
+  from {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-12px);
+  }
+
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
+  }
+}
+
+.zcode-draft-prompt-waterfall {
+  animation: zcode-draft-prompt-waterfall 260ms cubic-bezier(0.22, 1, 0.36, 1)
+    var(--zcode-draft-prompt-waterfall-delay, 0ms) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zcode-draft-prompt-waterfall {
+    animation: none;
+  }
+}
+
+@keyframes markdown-image-loading-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.markdown-image-loading-shimmer {
+  background-color: var(--color-card);
+  background-image: linear-gradient(
+    135deg,
+    var(--color-card) 0%,
+    var(--color-background) 50%,
+    var(--color-card) 100%
+  );
+  background-size: 240% 100%;
+  animation: markdown-image-loading-shimmer 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-image-loading-shimmer {
+    animation: none;
+  }
+}
+
+@keyframes zcode-stream-marker-in {
+  0% {
+    color: transparent;
+  }
+
+  100% {
+    color: var(--color-foreground-subtlest);
+  }
+}
+
+[data-zcode-stream-animate="true"] {
+  animation: zcode-stream-text-in 900ms cubic-bezier(0.16, 1, 0.3, 1)
+    var(--zcode-stream-animation-delay, 0ms) both;
+  will-change: opacity;
+}
+
+[data-zcode-stream-marker-animate="true"]::marker {
+  animation: zcode-stream-marker-in 900ms cubic-bezier(0.16, 1, 0.3, 1)
+    var(--zcode-stream-animation-delay, 0ms) both;
+}
+
+[data-zcode-tool-stream-animate="true"],
+[data-zcode-chat-loading-animate="true"] {
+  animation: zcode-stream-text-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity;
+}
+
+/*  Radix Collapsible 在测量 closed 高度时会写入 inline animation-name:none。
+   assistant 历史区自动结束收起需要在延迟卸载期间继续播放高度动画，
+   所以这里用 !important 覆盖 Radix 的 inline style，只作用于显式标记的收起窗口。 */
+[data-zcode-collapsible-animate-close="true"][data-state="closed"] {
+  animation: zcode-collapsible-up 300ms ease-in-out forwards !important;
+}
+
+[data-zcode-collapsible-animate-close="true"][data-state="closed"] > * {
+  animation: zcode-collapsible-fade-out 300ms ease-in-out forwards !important;
+}
+
+@keyframes zcode-collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+
+  to {
+    height: 0;
+  }
+}
+
+@keyframes zcode-collapsible-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-zcode-stream-animate="true"],
+  [data-zcode-stream-marker-animate="true"]::marker,
+  [data-zcode-tool-stream-animate="true"],
+  [data-zcode-chat-loading-animate="true"],
+  [data-zcode-collapsible-animate-close="true"][data-state="closed"],
+  [data-zcode-collapsible-animate-close="true"][data-state="closed"] > * {
+    animation: none;
+  }
+}
+
+/* 点赞/点踩选中时的反馈动画：参考微信/X 的做法，只做图标回弹 + 细小粒子飞散两段，
+   粒子用 box-shadow 画在 ::after 上且跟随 currentColor，零额外 DOM、不引入新颜色。 */
+.zcode-reaction-burst {
+  position: relative;
+  display: inline-flex;
+}
+
+.zcode-reaction-burst > svg {
+  animation: zcode-reaction-pop 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.zcode-reaction-burst::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  animation: zcode-reaction-particles 560ms cubic-bezier(0.16, 1, 0.3, 1) 60ms forwards;
+}
+
+.animate-zcode-alarm-ring {
+  animation: zcode-alarm-ring 600ms ease-in-out infinite;
+}
+
+@keyframes zcode-alarm-ring {
+  0%,
+  100% {
+    transform: rotate(-10deg);
+  }
+
+  50% {
+    transform: rotate(10deg);
+  }
+}
+
+@keyframes zcode-reaction-pop {
+  0% {
+    transform: scale(0);
+  }
+
+  45% {
+    transform: scale(1.3);
+  }
+
+  70% {
+    transform: scale(0.95);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes zcode-reaction-particles {
+  0% {
+    opacity: 0;
+    box-shadow:
+      7.7px 2.1px 0 0,
+      2.1px 7.7px 0 0,
+      -5.7px 5.7px 0 0,
+      -7.7px -2.1px 0 0,
+      -2.1px -7.7px 0 0,
+      5.7px -5.7px 0 0;
+  }
+
+  20% {
+    opacity: 0.7;
+  }
+
+  100% {
+    opacity: 0;
+    box-shadow:
+      15.5px 4.1px 0 -1px,
+      4.1px 15.5px 0 -1px,
+      -11.3px 11.3px 0 -1px,
+      -15.5px -4.1px 0 -1px,
+      -4.1px -15.5px 0 -1px,
+      11.3px -11.3px 0 -1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zcode-reaction-burst > svg,
+  .zcode-reaction-burst::after {
+    animation: none;
+  }
+}
+
+@keyframes workspace-remote-connecting-breathe {
+  0%,
+  100% {
+    background-color: color-mix(in oklab, var(--color-brand) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand) 10%, transparent);
+  }
+
+  50% {
+    background-color: color-mix(in oklab, var(--color-brand) 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand) 18%, transparent);
+  }
+}
+
+@keyframes zcode-task-interaction-countdown {
+  from {
+    transform: scaleX(var(--zcode-interaction-progress, 1));
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.zcode-task-interaction-countdown-fill {
+  animation: zcode-task-interaction-countdown var(--zcode-interaction-remaining-ms, 240000ms) linear
+    forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zcode-task-interaction-countdown-fill {
+    animation: none;
+    transform: scaleX(var(--zcode-interaction-progress, 1));
+  }
+}
+
+.workspace-remote-connecting-breathe {
+  animation: workspace-remote-connecting-breathe 1.8s ease-in-out infinite;
+}
+
+.zcode-update-charge-progress [data-slot="progress-indicator"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.zcode-update-charge-progress [data-slot="progress-indicator"]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  top: 0;
+  width: min(3.5rem, 70%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-primary-foreground) 62%, transparent),
+    transparent
+  );
+  animation: zcode-update-charge-sweep 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  transform: translateX(-120%);
+}
+
+@keyframes zcode-update-charge-sweep {
+  0% {
+    opacity: 0.35;
+    transform: translateX(-120%);
+  }
+
+  50% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0.35;
+    transform: translateX(260%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zcode-update-charge-progress [data-slot="progress-indicator"]::after {
+    animation: none;
+    opacity: 0.2;
+    transform: none;
+  }
+}
+
+/*
+ *  通用 animate-pulse 只让 14px 的 SVG 以 2 秒周期改变透明度，运行时虽然处于 running，
+ * 但视觉上几乎像静止。把专用呼吸动画挂到图标外层，同时改变透明度和缩放，确保操作状态可感知。
+ */
+@keyframes browser-use-operation-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.9);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+.browser-use-operation-breathe {
+  transform-origin: center;
+  animation: browser-use-operation-breathe 900ms ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+/*
+ * Browser Use 执行期间发生 resize 时，直接降低 webview guest 的亮度，让提示不会只浮在复杂网页上。
+ * filter 不增加点击遮罩，地址栏也不在该节点内，因此自动操作与用户控制仍保持可用。
+ */
+.browser-use-viewport {
+  transition: filter 160ms ease-out;
+}
+
+.browser-use-viewport[data-browser-resize-dimmed="true"] {
+  filter: brightness(0.88);
+  will-change: filter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-use-operation-breathe {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    will-change: auto;
+  }
+
+  .browser-use-viewport {
+    transition: none;
+  }
+}
+
+@keyframes task-search-result-highlight {
+  0% {
+    background-color: color-mix(in oklab, var(--color-brand) 20%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand) 28%, transparent);
+  }
+
+  45% {
+    background-color: color-mix(in oklab, var(--color-brand) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand) 20%, transparent);
+  }
+
+  100% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
+.task-search-result-highlight {
+  animation: task-search-result-highlight 1.2s ease-out both;
+}
+
+@keyframes fork-highlight-pulse {
+  0% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+  20% {
+    background-color: color-mix(in oklab, var(--color-brand) 24%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand) 32%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
+[data-fork-highlight="true"] {
+  animation: fork-highlight-pulse 1.6s ease-out 1;
+  border-radius: 0.5rem;
+}
+
+/* 走马灯文字从两侧进出时只保留右侧渐隐，左边缘会出现硬切。 */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .task-title-marquee:hover .task-title-marquee-track {
+    will-change: transform;
+  }
+}
+
+/* 工作流图·行进边：控制流进入正在运行的站所走的
+ * 那条边**亮着、不动**——它说的是过去（控制流走了这条边），动作属于正在运行的灯（下面的 wf-beat）。
+ * 光是灯的颜色，在灯那一头最亮、朝控制流来的方向淡去，像灯照亮了自己来的路。之前是一条沿边滚动的
+ * 警示色虚线，读起来像「还在从上一站往这一站赶路」。
+ * 平轨道是一条 border，光叠在 ::after 上：1.5px、圆头，从远端的全透明到 80% 处的满色，右端越过轨道
+ * 末端 4px 好贴到光晕上。SVG 里的边（弧、分叉与汇合曲线、脊线的曲线）由 WorkflowMarchLight.tsx 画一条
+ * .wf-lit 路径，描边是沿路径首尾铺的渐变。全是静止的墨，reduced-motion 下无需改动。
+ */
+.wf-rail-march::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: -4px;
+  top: -1.25px;
+  height: 1.5px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, transparent, var(--color-warning) 80%);
+}
+.wf-lit {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* 侧栏脊线：行进段是两截 1.5px 的竖条，按
+ * data-rail-position 选渐变——上一节的下半截从透明淡入到七成，运行那一节的上半截从七成涨到满、一直亮进
+ * 灯里，整节穿过的 full 是平的七成。脊线的灯与卡上的灯同一个类（wf-lamp-running），一起搏动。
+ */
+.wf-spine-march[data-rail-position="below"] {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in oklab, var(--color-warning) 70%, transparent)
+  );
+}
+.wf-spine-march[data-rail-position="above"] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-warning) 70%, transparent),
+    var(--color-warning)
+  );
+}
+.wf-spine-march[data-rail-position="full"] {
+  background: color-mix(in oklab, var(--color-warning) 70%, transparent);
+}
+
+/* 工作流时间线·运动词汇：四个时长
+ * 一条曲线，卡片、确认窗与侧栏清单共用。到场 / 弹入 / 展开 / 换词只动 opacity 与 transform，
+ * 灯与墨迹只动颜色；从不动布局属性。reduced-motion 下全部归零，循环停在静止帧。
+ */
+.wf-motion {
+  --wf-t-fast: 120ms;
+  --wf-t-base: 160ms;
+  --wf-t-enter: 200ms;
+  --wf-t-ink: 320ms;
+  --wf-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* 正在运行的灯的心跳周期；脊线与卡共用。 */
+  --wf-beat: 1.6s;
+}
+.wf-pill {
+  box-shadow: inset 0 0 0 1px transparent;
+  transition:
+    background-color var(--wf-t-base) var(--wf-ease),
+    box-shadow var(--wf-t-base) var(--wf-ease),
+    transform var(--wf-t-fast) var(--wf-ease);
+}
+.wf-pill-avatar {
+  transition:
+    transform var(--wf-t-base) var(--wf-ease),
+    background-color var(--wf-t-base) var(--wf-ease);
+}
+.wf-pill-name {
+  transition: color var(--wf-t-base) var(--wf-ease);
+}
+.wf-pill-go {
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity var(--wf-t-base) var(--wf-ease),
+    transform var(--wf-t-base) var(--wf-ease),
+    color var(--wf-t-base) var(--wf-ease);
+}
+.wf-pill-open:hover,
+.wf-pill-open:focus-visible {
+  background-color: var(--color-surface-hover);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in oklab, var(--wf-avatar, var(--color-border-hover)) 35%, transparent);
+}
+/* 代理胶囊仅用底色反馈悬停，避免彩色描边抢占状态层级。 */
+.wf-agent-pill:hover {
+  box-shadow: none;
+}
+.wf-pill-open:hover .wf-pill-avatar,
+.wf-pill-open:focus-visible .wf-pill-avatar {
+  transform: scale(1.08);
+  background-color: color-mix(
+    in oklab,
+    var(--wf-avatar, var(--color-border-hover)) 30%,
+    transparent
+  );
+}
+.wf-pill-open:hover .wf-pill-name,
+.wf-pill-open:focus-visible .wf-pill-name {
+  color: var(--color-foreground);
+}
+.wf-pill-open:hover .wf-pill-go,
+.wf-pill-open:focus-visible .wf-pill-go {
+  opacity: 1;
+  transform: none;
+  color: var(--color-foreground-subtle);
+}
+/* 产物药丸的方形瓦片：墨灰，悬停时抬到 hover 色、字形转前景色；不像头像那样
+ * 放大——形状说「什么」，不抢颜色说「谁」的戏。 */
+.wf-pill-tile {
+  transition:
+    background-color var(--wf-t-base) var(--wf-ease),
+    color var(--wf-t-base) var(--wf-ease);
+}
+.wf-pill-open:hover .wf-pill-tile,
+.wf-pill-open:focus-visible .wf-pill-tile {
+  background-color: var(--color-hover);
+  color: var(--color-foreground);
+}
+/* 尾槽里 ↗ 顶替状态标记：标记缩出、箭头缩入，同一格、同一拍。 */
+.wf-pill-open:hover .wf-mark,
+.wf-pill-open:focus-visible .wf-mark {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.wf-pill-open:active {
+  transform: scale(0.985);
+}
+/* 「还有 n 个」那一行（追记「五枚药丸与一扇门」）：三张脸叠成一叠、各带一圈底色描边好分开，悬停时
+ * 扇开两格。它是一扇门不是状态，所以 ↗ 不等悬停就在（没有状态标记可让位，空尾槽读作「没东西」）。 */
+.wf-more-face {
+  border-radius: 35%;
+  box-shadow: 0 0 0 1.5px var(--color-background);
+  transition: margin-left var(--wf-t-base) var(--wf-ease);
+}
+.wf-more-deck > * + * {
+  margin-left: -5px;
+}
+.wf-more-row:hover .wf-more-deck > * + *,
+.wf-more-row:focus-visible .wf-more-deck > * + * {
+  margin-left: -2px;
+}
+.wf-pill-go-rest {
+  opacity: 1;
+  transform: none;
+}
+/* 迷你量条（追记「阶段名册」）的段宽随计数过渡，读作「又结算了几个」。 */
+.wf-meter-seg {
+  transition: flex-grow var(--wf-t-ink) var(--wf-ease);
+}
+/* 完成卡的产物瓦片：悬停时预览框的边
+ * 抬到 hover 色、说明行的 kind 瓦片与名字转前景、尾槽里 ↗ 顶替版本号——与药丸同一套语法，
+ * 只是「抬起」落在预览框上而不是整块底色上。
+ * 结构（见 WorkflowArtifactTile 文件头说明）：预览框是按钮的**兄弟**，按钮用 ::after 铺满整张瓦片
+ * 接住点击；所以框的悬停态从瓦片容器上用 :has() 读按钮的状态，焦点环也画在容器上。
+ */
+.wf-tile-hit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 0.5rem;
+}
+.wf-tile:has(.wf-tile-hit:focus-visible) {
+  outline: 2px solid color-mix(in oklab, var(--color-ring) 40%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+.wf-tile-frame {
+  transition:
+    border-color var(--wf-t-base) var(--wf-ease),
+    transform var(--wf-t-fast) var(--wf-ease);
+}
+.wf-tile:has(.wf-tile-open:hover) .wf-tile-frame,
+.wf-tile:has(.wf-tile-open:focus-visible) .wf-tile-frame {
+  border-color: var(--color-border-hover);
+}
+.wf-tile-open:hover .wf-pill-tile,
+.wf-tile-open:focus-visible .wf-pill-tile {
+  background-color: var(--color-hover);
+  color: var(--color-foreground);
+}
+.wf-tile-open:hover .wf-pill-go,
+.wf-tile-open:focus-visible .wf-pill-go {
+  opacity: 1;
+  transform: none;
+  color: var(--color-foreground-subtle);
+}
+.wf-tile-open:hover .wf-mark,
+.wf-tile-open:focus-visible .wf-mark {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.wf-tile:has(.wf-tile-open:active) .wf-tile-frame {
+  transform: scale(0.99);
+}
+/* 产物索引的行：交付物行之后的其余产物是一行行
+ * 文字，不是框。悬停 / 聚焦时整行填 surface-hover（像侧栏行），kind 图标转前景，尾槽里 ↗ 顶替版本号——
+ * 与药丸同一套语法，只是没有底色也没有描边：一行文字的抬起只需要一层填色。「还有 N 个」那一行是
+ * 一扇门，↗ 不等悬停就在（wf-pill-go-rest）。
+ */
+.wf-line {
+  transition: background-color var(--wf-t-base) var(--wf-ease);
+}
+.wf-line-icon {
+  transition: color var(--wf-t-base) var(--wf-ease);
+}
+.wf-line-open:hover,
+.wf-line-open:focus-visible {
+  background-color: var(--color-surface-hover);
+}
+.wf-line-open:hover .wf-line-icon,
+.wf-line-open:focus-visible .wf-line-icon {
+  color: var(--color-foreground);
+}
+.wf-line-open:hover .wf-pill-go,
+.wf-line-open:focus-visible .wf-pill-go {
+  opacity: 1;
+  transform: none;
+  color: var(--color-foreground-subtle);
+}
+.wf-line-open:hover .wf-mark,
+.wf-line-open:focus-visible .wf-mark {
+  opacity: 0;
+  transform: scale(0.6);
+}
+/* 预览区里的文档缩略：按 2× 排版再缩到一半——是内容的缩略，不是把界面字号调小。
+ * 盒子的宽**和高**都按倍数放大再缩回框内：只放宽不放高，缩后的盒子只盖住框的上半截，下半截空白。 */
+.wf-preview-doc {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200%;
+  height: 200%;
+  transform: scale(0.5);
+  transform-origin: top left;
+  padding: 22px 26px;
+  overflow: hidden;
+  animation: wf-arrive var(--wf-t-ink, 320ms) var(--wf-ease, ease);
+}
+.wf-station {
+  transition: color var(--wf-t-base) var(--wf-ease);
+}
+.wf-lamp {
+  transition:
+    background-color var(--wf-t-ink) var(--wf-ease),
+    border-color var(--wf-t-ink) var(--wf-ease),
+    box-shadow var(--wf-t-base) var(--wf-ease);
+}
+/*
+ * 正在运行的灯：常亮的 3px 光晕，加每 1.6s 一下心跳（wf-beat）——灯鼓到 1.12 倍
+ * 再落回，同时从光晕边缘放出一圈环，涨到灯外 8px 时淡尽。环是第二层 box-shadow，静止时透明；灯是页面上
+ * 唯一在走时钟的东西。reduced-motion 下只剩常亮的光晕。
+ */
+.wf-lamp-running {
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-warning) 20%, transparent),
+    0 0 0 3px transparent;
+}
+.wf-station-open:hover .wf-lamp[data-lamp="pending"] {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-foreground) 10%, transparent);
+}
+.wf-station-open:hover .wf-lamp[data-lamp="done"] {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-success) 18%, transparent);
+}
+.wf-station-open:hover .wf-lamp[data-lamp="failed"] {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-destructive) 18%, transparent);
+}
+.wf-ink {
+  transition:
+    stroke var(--wf-t-ink) var(--wf-ease),
+    fill var(--wf-t-ink) var(--wf-ease),
+    border-color var(--wf-t-ink) var(--wf-ease);
+}
+/* 入场动画不带 fill：只声明 from 帧，播完即交还给悬停过渡（标记让位、按下缩放）。 */
+.wf-arrive {
+  animation: wf-arrive var(--wf-t-enter) var(--wf-ease);
+}
+.wf-mark {
+  transform-origin: center;
+  animation: wf-mark 180ms var(--wf-ease);
+  transition:
+    opacity var(--wf-t-base) var(--wf-ease),
+    transform var(--wf-t-base) var(--wf-ease);
+}
+.wf-unfold {
+  animation: wf-unfold var(--wf-t-enter) var(--wf-ease);
+}
+.wf-swap {
+  display: inline-block;
+  animation: wf-swap var(--wf-t-enter) var(--wf-ease);
+}
+.wf-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: wf-draw 420ms var(--wf-ease) forwards;
+}
+.wf-caret {
+  animation: wf-caret 1s step-end infinite;
+}
+/* 草稿的笔：轨道段从左伸出、灯落地，然后名字逐字写出。 */
+.wf-rail-grow {
+  transform-origin: left center;
+  animation: wf-rail-grow var(--wf-t-base) var(--wf-ease);
+}
+.wf-land {
+  animation: wf-land var(--wf-t-enter) var(--wf-ease);
+}
+/* 轮尾摘要：展开 / 收起时外框高度在两个值之间过渡；展开时药丸挂载、依次
+ * 落地（wf-arrive + 30 ms 错位），收起时只收高度。 */
+.wf-digest-plot {
+  transition: height var(--wf-t-ink) var(--wf-ease);
+}
+/* 边檐：时间线自由滚动，原生滚动条隐藏；
+ * 折到檐上的站在内容里淡出（160 ms 后 visibility 才切，淡出期间不可点也不可聚焦）；檐上的灯悬停
+ * 放大 1.25；底部 2px 滚动条静止时隐形，指针在时间线上或正在滚 / 拖时露出，悬停轨道加粗到 4px。
+ */
+.wf-scroller {
+  scrollbar-width: none;
+}
+.wf-scroller::-webkit-scrollbar {
+  display: none;
+}
+.wf-foldable {
+  transition:
+    opacity var(--wf-t-base) var(--wf-ease),
+    visibility 0s linear 0s;
+}
+.wf-folded {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--wf-t-base) var(--wf-ease),
+    visibility 0s linear var(--wf-t-base);
+}
+.wf-ledge-lamp {
+  transition: transform var(--wf-t-base) var(--wf-ease);
+}
+.wf-ledge-lamp:hover,
+.wf-ledge-lamp:focus-visible {
+  transform: scale(1.25);
+}
+.wf-sb {
+  opacity: 0;
+  transition:
+    opacity var(--wf-t-base) var(--wf-ease),
+    height var(--wf-t-fast) var(--wf-ease);
+}
+.wf-timeline:hover .wf-sb,
+.wf-sb[data-scrolling="true"],
+.wf-sb[data-dragging="true"] {
+  opacity: 1;
+}
+.wf-sb:hover,
+.wf-sb[data-dragging="true"] {
+  height: 4px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wf-lamp-running {
+    animation: wf-beat var(--wf-beat, 1.6s) var(--wf-ease, ease-in-out) infinite;
+  }
+}
+/* 工作区 transcript：
+ * 条目依次到场（wf-arrive + 每张错 24 ms，封顶 360 ms）；章头的横线从左长出；命令输出的尾巴
+ * 与展开面板从上方落下；落点那个条目到位后底色亮一下再退回（一次，不是常驻的焦点带）；
+ * 运行中的动词扫光；状态词换值时旧词退场新词进场（wf-swap）。全部只动 opacity / transform /
+ * background-color；reduced-motion 下到场、落点与扫光都归零。
+ */
+.wf-ws-entry {
+  transition: background-color var(--wf-t-base) var(--wf-ease);
+}
+.wf-ws-landed {
+  animation: wf-ws-land 1.4s var(--wf-ease) 1;
+}
+/* 详情页的落点：节头到位后底色持 400 ms 再用 800 ms 退回，一次。 */
+.wf-landed {
+  animation: wf-land 1.2s var(--wf-ease) 1;
+}
+@keyframes wf-land {
+  0%,
+  33% {
+    background-color: var(--color-surface-hover);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-landed {
+    animation: none;
+  }
+}
+.wf-ws-body {
+  animation: wf-unfold var(--wf-t-enter) var(--wf-ease);
+}
+.wf-ws-peek {
+  animation: wf-unfold var(--wf-t-enter) var(--wf-ease);
+  -webkit-mask-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.35), #000 40%),
+    linear-gradient(90deg, #000 82%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.35), #000 40%),
+    linear-gradient(90deg, #000 82%, transparent);
+  mask-composite: intersect;
+}
+.wf-ws-rule {
+  transform-origin: left center;
+  animation: wf-rail-grow var(--wf-t-ink) var(--wf-ease);
+}
+.wf-ws-shine {
+  color: transparent;
+  background: linear-gradient(
+    90deg,
+    var(--color-foreground-subtle) 0%,
+    var(--color-foreground) 40%,
+    var(--color-foreground-subtle) 80%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: wf-ws-shine 2.4s linear infinite;
+}
+@keyframes wf-ws-land {
+  0% {
+    background-color: transparent;
+  }
+  20% {
+    background-color: var(--color-surface-hover);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes wf-ws-shine {
+  to {
+    background-position: 200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-ws-landed,
+  .wf-ws-body,
+  .wf-ws-peek,
+  .wf-ws-rule {
+    animation: none;
+  }
+  .wf-ws-shine {
+    animation: none;
+    color: var(--color-foreground-subtle);
+    background: none;
+  }
+}
+/* 瓦片脸：身份色不随表情改变，动作只作用于眼睛，机身始终静止。 */
+.wf-face {
+  min-width: 20px;
+  min-height: 20px;
+  flex-shrink: 0;
+  --wf-face-body: #54b9a6;
+  --wf-face-eye: #ffffff;
+  --wf-face-x: 0px;
+  --wf-face-y: 0px;
+}
+.wf-face-eyes {
+  transform: translate(var(--wf-face-x), var(--wf-face-y));
+  transition: transform 360ms ease-in-out;
+}
+.wf-face-lids {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.wf-face [data-eye-expression] {
+  display: none;
+}
+.wf-face[data-expression="dots"] [data-eye-expression="dots"],
+.wf-face[data-expression="pill"] [data-eye-expression="pill"] {
+  display: inline;
+}
+.wf-face[data-expression="happy"] [data-eye-expression="happy"] {
+  display: inline;
+}
+.wf-face[data-expression="sleepy"] [data-eye-expression="sleepy"] {
+  display: inline;
+}
+.wf-face[data-expression="focused"] [data-eye-expression="focused"] {
+  display: inline;
+}
+.wf-face[data-expression="sad"] [data-eye-expression="sad"] {
+  display: inline;
+}
+.wf-face[data-expression="confused"] [data-eye-expression="confused"] {
+  display: inline;
+}
+
+.wf-face[data-motion="blink"] .wf-face-lids {
+  animation: wf-face-blink var(--wf-face-blink-time, 230ms) ease-in-out var(--wf-face-blinks, 2);
+}
+.wf-face[data-motion="morph"] .wf-face-lids {
+  animation: wf-face-morph 180ms ease-in-out;
+}
+.wf-face[data-motion="hop"] .wf-face-bounce {
+  animation: wf-face-hop 240ms ease-in-out var(--wf-face-hops, 2);
+}
+.wf-face-closed {
+  opacity: 0;
+}
+.wf-face[data-motion="blink"] .wf-face-closed {
+  animation: wf-face-closed-blink var(--wf-face-blink-time, 230ms) ease-in-out
+    var(--wf-face-blinks, 2);
+}
+.wf-face[data-motion="morph"] .wf-face-closed {
+  animation: wf-face-closed-morph 180ms ease-in-out;
+}
+@keyframes wf-face-blink {
+  0%,
+  70%,
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  35% {
+    transform: scaleY(0.333333);
+    opacity: 0;
+  }
+}
+@keyframes wf-face-closed-blink {
+  0%,
+  70%,
+  100% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+@keyframes wf-face-morph {
+  0%,
+  100% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  40%,
+  50% {
+    transform: scaleY(0.333333);
+    opacity: 0;
+  }
+}
+@keyframes wf-face-closed-morph {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  40%,
+  50% {
+    opacity: 1;
+  }
+}
+.wf-face[data-motion="float"] .wf-face-bounce {
+  animation: wf-face-float 600ms ease-in-out var(--wf-face-floats, 1);
+}
+.wf-face[data-motion="shake"] .wf-face-bounce {
+  animation: wf-face-shake 90ms linear var(--wf-face-shakes, 3);
+}
+@keyframes wf-face-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-0.5px);
+  }
+  70% {
+    transform: translateY(0.5px);
+  }
+}
+@keyframes wf-face-shake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-0.9px, -0.35px);
+  }
+  75% {
+    transform: translate(0.9px, 0.35px);
+  }
+}
+.wf-face[data-motion="dots-wave"] [data-eye-expression="dots"] circle {
+  animation: wf-face-dot-float 500ms ease-in-out both;
+}
+.wf-face[data-motion="dots-wave"] [data-eye-expression="dots"] circle:nth-child(2) {
+  animation-delay: 200ms;
+}
+.wf-face[data-motion="dots-wave"] [data-eye-expression="dots"] circle:nth-child(3) {
+  animation-delay: 400ms;
+}
+@keyframes wf-face-dot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+@keyframes wf-face-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-1px);
+  }
+  70% {
+    transform: translateY(0.7px);
+  }
+}
+@keyframes wf-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes wf-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes wf-unfold {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+@keyframes wf-swap {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@keyframes wf-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes wf-caret {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes wf-rail-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes wf-land {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes wf-beat {
+  0% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 3px color-mix(in oklab, var(--color-warning) 20%, transparent),
+      0 0 0 3px color-mix(in oklab, var(--color-warning) 35%, transparent);
+  }
+  12% {
+    transform: scale(1.12);
+  }
+  40% {
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    box-shadow:
+      0 0 0 3px color-mix(in oklab, var(--color-warning) 20%, transparent),
+      0 0 0 8px color-mix(in oklab, var(--color-warning) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-arrive,
+  .wf-mark,
+  .wf-unfold,
+  .wf-swap,
+  .wf-draw,
+  .wf-caret,
+  .wf-rail-grow,
+  .wf-land {
+    animation: none;
+  }
+  .wf-draw {
+    stroke-dashoffset: 0;
+  }
+  .wf-pill,
+  .wf-pill-avatar,
+  .wf-pill-tile,
+  .wf-pill-name,
+  .wf-pill-go,
+  .wf-mark,
+  .wf-station,
+  .wf-lamp,
+  .wf-ink,
+  .wf-tile-frame,
+  .wf-line,
+  .wf-line-icon,
+  .wf-meter-seg,
+  .wf-digest-plot,
+  .wf-foldable,
+  .wf-folded,
+  .wf-ledge-lamp,
+  .wf-sb {
+    transition: none;
+  }
+  .wf-preview-doc {
+    animation: none;
+  }
+  /* 瓦片脸：动作归零、不跟随指针；表情本身仍按状态显示——它是信息不是装饰。 */
+  .wf-face [data-eye-expression="dots"] circle,
+  .wf-face-body,
+  .wf-face-lids,
+  .wf-face-closed,
+  .wf-face-eyes,
+  .wf-face-bounce {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Mention 图标不进入 TextNode DOM，避免首部 img/svg 截断 Lexical 原生选区映射。 */
+.prompt-mention::before {
+  content: "";
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  background: var(--mention-icon-color, transparent) var(--mention-image, none) center / contain
+    no-repeat;
+  mask: var(--mention-mask, none) center / contain no-repeat;
+}
+
+.prompt-mention[data-mention-category="plugins"]::before {
+  border-radius: var(--radius-sm);
+}

@@ -20,10 +20,9 @@ from app.gateway.logging_setup import configure_gateway_file_logging
 from app.gateway.middleware import setup_middleware
 
 try:
-    from evoflow.utils.bundled_tools import apply_agent_browser_to_path, apply_evoflow_cli_to_path
+    from evoflow.utils.bundled_tools import apply_evoflow_cli_to_path
 
     apply_evoflow_cli_to_path()
-    apply_agent_browser_to_path()
 except Exception:
     pass
 
@@ -122,10 +121,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.debug("Gateway listen-socket failure handler skipped", exc_info=True)
     try:
-        from evoflow.utils.bundled_tools import apply_agent_browser_to_path, apply_evoflow_cli_to_path
+        from evoflow.utils.bundled_tools import apply_evoflow_cli_to_path
 
         apply_evoflow_cli_to_path()
-        apply_agent_browser_to_path()
     except Exception:
         logger.debug("evoflow CLI PATH setup skipped", exc_info=True)
 

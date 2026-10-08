@@ -46,8 +46,10 @@
   min-height: 0;
   min-width: 0;
   height: 100%;
-  /* 防内容把 chain 顶出 viewport (100dvh 兜底) */
-  max-height: min(100dvh - 48px, 100%);
+  /* 防内容把 chain 顶出 viewport (100dvh 兜底)。
+     注意：48px 的 .react-chat-header 在 main-col 内部（无边框窗口标题栏嵌在聊天顶栏），
+     工作区链本身从视口顶部开始，这里不能再 -48，否则底部多出 48px 灰条。 */
+  max-height: min(100dvh, 100%);
   overflow: hidden;
 }
 
@@ -55,7 +57,7 @@
   flex: 1;
   min-width: 0;
   height: 100%;
-  max-height: min(100dvh - 48px, 100%);
+  max-height: min(100dvh, 100%);
   overflow: hidden;
 }
 
@@ -22643,7 +22645,10 @@ html.dark .kvft-row.is-focused {
   min-height: 0;
 }
 
-.react-chat-main-body          { min-height: 100%; }
+/* min-height 不能给 100%：main-body 在 48px header 之下，
+   100% = 父级全高，会把它顶出 main-col 48px，composer 底部被裁。
+   flex:1 + max-height 兜底已足够撑满。 */
+.react-chat-main-body          { min-height: 0; }
 .react-chat-collab-exec-panel-body,
 .browser-panel-body,
 .react-chat-workspace-drawer-inner,
@@ -31663,6 +31668,25 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
 .react-chat-browser-panel.is-override-surface aside {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* ==========================================================================
+   右侧舞台嵌套 surface 修复：工作区面板挂进舞台 body（flex column）后，
+   旧横排尺寸（is-tree-browse-mode 的 flex-basis 260px，以及 is-layout-custom-width
+   的 flex: 0 0 var(--chat-right-panel-width) !important）会作用到高度上，
+   把面板压成 260px 高的小方块，舞台下半区全空。
+   嵌套态一律纵向撑满舞台 body，宽度交给舞台外壳统一控制。
+   （工作流/思维导图 surface 的 flex-grow ≥ 1 天然撑满，无需此修复。）
+   ========================================================================== */
+@media (min-width: 769px) {
+  .react-chat-main-body .react-chat-collab-exec-panel-body > .react-chat-workspace-panel,
+  .react-chat-main-body.is-layout-custom-width .react-chat-collab-exec-panel-body > .react-chat-workspace-panel {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    border-left: none;
+  }
 }
 .react-chat-browser-panel .browser-panel-menu-backdrop {
   position: fixed;

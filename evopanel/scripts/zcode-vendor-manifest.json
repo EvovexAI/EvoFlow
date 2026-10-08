@@ -1,0 +1,15 @@
+{
+  "source": "D:/dev/github/ZCode",
+  "revision": "29628c9acdb81b703bbd4080c207a0e7ce5e276e",
+  "vendoredAt": "2026-10-08T07:17:39.106Z",
+  "packages": {
+    "src/zcode-ui": 1550,
+    "src/zcode-shared": 226,
+    "src/zcode-rpc": 16,
+    "src/zcode-provider": 23,
+    "src/zcode-provider-node": 17,
+    "src/zcode-services": 326,
+    "src/zcode-model-option-map": 8,
+    "vendor/zcode-cua": 26
+  }
+}
