@@ -70,6 +70,7 @@ import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
 import appLogoUrl from "@/assets/provider-icons/logo-zai.svg";
 import { resolveTheme } from "@/useTheme.js";
 import { WorkspaceShellLayout } from "@/app-shell/WorkspaceShellLayout.js";
+import { EvoFlowV4HeaderToggle } from "./EvoFlowV4HeaderToggle.js";
 import { useAppChromeState } from "@/app-shell/useAppChromeState.js";
 import { useWorkspaceSessionReload } from "@/app-shell/useWorkspaceSessionReload.js";
 import { useWorkspaceShellLifecycle } from "@/app-shell/useWorkspaceShellLifecycle.js";
@@ -1274,6 +1275,20 @@ export function EvoFlowApp(props: EvoFlowAppProps) {
 
   return (
     <>
+      {/* v3.5: 顶栏切换条（zcode 桌面壳上方）。默认隐藏,仅在
+          `localStorage.evoflowV4Shell === '1'` 时显示,提供"回到旧版"
+          出口。EvoFlow 切旧版 = localStorage.removeItem + reload。
+          见 docs/v3.5-task.md 阶段 A 实施。 */}
+      <EvoFlowV4HeaderToggle
+        onSwitchToOld={() => {
+          try {
+            localStorage.removeItem('evoflowV4Shell')
+          } catch {
+            /* ignore */
+          }
+          window.location.reload()
+        }}
+      />
       <CommandCenterDialog
         open={isQuickPickOpen}
         commands={quickPickCommands}

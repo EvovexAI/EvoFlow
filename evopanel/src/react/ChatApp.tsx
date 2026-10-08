@@ -15250,6 +15250,28 @@ export default function ChatApp() {
                 {isHomeSurface ? null : collabVerifyingBadge}
               </div>
               <div className="react-chat-header-right">
+                {/* v3.5: 切换到 zcode 桌面新版 (v4 shell)。点击后写
+                    localStorage.evoflowV4Shell='1' + reload — 落地
+                    详情见 docs/v3.5-task.md。Home surface 也可点,体验
+                    新版时不需要进入某个会话。 */}
+                <button
+                  type="button"
+                  className="react-chat-header-icon-btn react-chat-header-v4-toggle-btn"
+                  title="切换到新版客户端(zcode 桌面风格)"
+                  aria-label="切换到新版"
+                  data-tauri-no-drag
+                  onClick={() => {
+                    try {
+                      localStorage.setItem('evoflowV4Shell', '1')
+                    } catch {
+                      /* private mode 等写不进去时静默 */
+                    }
+                    window.location.reload()
+                  }}
+                >
+                  <span className="react-chat-header-v4-toggle-badge">NEW</span>
+                  <span className="react-chat-header-v4-toggle-text">体验新版</span>
+                </button>
                 {isHomeSurface ? null : (
                 <div className="react-chat-header-product-actions">
                   <div className="react-chat-header-action-group react-chat-header-action-group--panels">
