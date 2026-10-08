@@ -150,6 +150,7 @@ def register_extended_routers(app: FastAPI) -> None:
     _include_module_router(app, "app.gateway.routers.a2a", label="a2a")
     _include_module_router(app, "app.gateway.routers.meetings", label="meetings")
     _include_module_router(app, "app.gateway.routers.eval", label="eval")
+    _include_module_router(app, "app.gateway.v4.routes", label="v4_sessions", include_in_schema=False)
     _include_module_router(
         app,
         "app.gateway.routers.client_trace",
