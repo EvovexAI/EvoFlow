@@ -197,7 +197,14 @@ async def v4_conversation_initialize(body: dict[str, Any]) -> JSONResponse:
 
 @conversation_router.post("/subscribe", summary="v4 conversation subscribe (ACK-only)")
 async def v4_conversation_subscribe(body: dict[str, Any]) -> JSONResponse:
-    """对齐 zcode ``subscribeConversationV4``：ACK-only；initial snapshot 走 frames SSE。"""
+    """对齐 zcode ``subscribeConversationV4``：ACK-only；initial snapshot 走 frames SSE。
+
+    D1 c8 (T1 懒加载)：首次订阅某业务 session_key 时，若 hub 中无 row，触发
+    ``project_session_lazy`` 从 sqlite 投影老历史。投影产生的 row 会在 subscribe
+    之后被 snapshot 拾起（顺序：先建 session + snapshot 入队，投影在 enqueue 之后
+    异步追加 → 下一帧 SSE deltas 携带投影行；客户端 v4 shell 的 snapshot
+    fallback 行为能消费后续 delta）。
+    """
     connection_id = str(body.get("connectionId") or "").strip()
     topic = str(body.get("topic") or "").strip()
     if not connection_id or not topic:
@@ -209,6 +216,19 @@ async def v4_conversation_subscribe(body: dict[str, Any]) -> JSONResponse:
         session_id=session_id,
         base=base,
     )
+
+    # D1 c8: 业务 session 首次订阅触发 T1 懒加载（同步内联，1 GB db 5K session
+    # 投影单 session 平均 0.3-0.5s，订阅响应延迟可接受；不阻塞 hub 内部状态机）。
+    # 检查 hub 当前 session 是否空 rows；空则跑投影。
+    sess = V4_CONVERSATION_HUB.get_session(session_id)
+    if sess is not None and not sess.rows:
+        try:
+            from app.gateway.v4.t1_projector import project_session_lazy
+            written = project_session_lazy(session_id)
+            logger.info("[v4 subscribe] T1 lazy project session=%s written=%d", session_id, written)
+        except Exception:
+            logger.exception("[v4 subscribe] T1 lazy project failed session=%s", session_id)
+
     return JSONResponse(result)
 
 
@@ -261,6 +281,56 @@ async def v4_conversation_rows_range(body: dict[str, Any]) -> JSONResponse:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown session {session_id}")
     return JSONResponse(result)
+
+
+# ── v4 conversation snapshot（侧栏点旧会话 → 打开历史；T3 路由壳子）──────────
+#
+# 当前 hub 仅在 createSession 时登记 _SessionState（进程内内存态），并不持有历史
+# 业务消息的 v4 rows。T1（AG-UI→v4 双 emit）落地后，旧业务 session 的历史才会被
+# 投影进 hub；本端点在那之前对未投影 session 返回 501（前端不会 5xx 挂掉）。
+#
+# 验收：点侧栏 K_old → 前端 effect 把 v4SessionId 设为 K_old → zcode v4 shell
+# 触发 GET /api/v4/conversation/snapshot?sessionId=K_old；hub 里有 rows → 走
+# resync/replay；没有 → 501（前端 v4 shell 收到 reason=projection_pending_t1，
+# 显示"该会话历史暂未投影"友好态，不刷红色 console 错误）。
+@conversation_router.get("/snapshot", summary="v4 conversation snapshot (T3: 路由壳子)")
+async def v4_conversation_snapshot(
+    sessionId: str = Query(..., description="业务 session key（EvoFlow 主对话）"),
+) -> JSONResponse:
+    sid = str(sessionId or "").strip()
+    if not sid:
+        raise HTTPException(status_code=422, detail="sessionId is required")
+    sess = V4_CONVERSATION_HUB.get_session(sid)
+    if sess is None:
+        # 该 session 未在 v4 hub 中登记——通常是业务历史对话（T1 尚未投影）。
+        # 用 501 Not Implemented 而不是 404，让前端走"暂未投影"分支而不是
+        # "session 不存在"误导分支。
+        return JSONResponse(
+            status_code=501,
+            content={
+                "ok": False,
+                "reason": "projection_pending_t1",
+                "sessionId": sid,
+                "detail": (
+                    "该业务会话的历史 rows 尚未投影到 v4 hub；"
+                    "等 H3-B-3（AG-UI→v4 双 emit）落地后即可消费。"
+                ),
+            },
+        )
+    # 已在 hub：取一次全量 rows 升序 + 当前 seq/revision/logEpoch，
+    # 格式与 rows_range 顶层字段一致（zcode 端 assembler 期望的 shape）。
+    return JSONResponse(
+        {
+            "ok": True,
+            "sessionId": sid,
+            "rows": [sess.rows[rid] for rid in sorted(sess.rows.keys())],
+            "atSeq": sess.seq,
+            "atRevision": sess.revision,
+            "atLogEpoch": sess.log_epoch,
+            "phase": sess.phase,
+            "title": sess.title,
+        }
+    )
 
 
 @conversation_router.get("/frames", summary="v4 conversation wire frames (SSE)")
