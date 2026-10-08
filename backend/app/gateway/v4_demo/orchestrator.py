@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .projection import ConversationProjectionWriter
+from .writer_registry import get_or_create_writer  # H3-B-1
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class H1DemoOrchestrator:
         # 初始 turn_header + user_input 是空的；让用户先 send_text
         sess = _Session(
             session_id=session_id,
-            writer=ConversationProjectionWriter(session_id),
+            writer=get_or_create_writer(session_id),
             subscription_id=subscription_id,
             turn_id="",
             user_input_row_id=0,

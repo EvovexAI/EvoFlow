@@ -55,6 +55,13 @@ class ConversationProjectionWriter:
             self._state.next_row_id += 1
             return rid
 
+    def peek_next_row_id(self) -> int:
+        """H3-B-1: read the next row id without bumping (used when callers
+        pre-compute ids for batch emit / translator state tracking).
+        """
+        with self._lock:
+            return self._state.next_row_id
+
     def _bump_seq(self) -> int:
         with self._lock:
             self._state.seq += 1
@@ -149,6 +156,34 @@ class ConversationProjectionWriter:
             from_seq = self._state.seq
             to_seq = self._bump_seq()
             payload_body = {"deltas": [{"op": "row.removed", "fromRowId": int(row_id)}]}
+            payload_dict = self._make_payload("conversationDeltas", payload_body)
+            frame = ConversationTopicFrame(
+                subscriptionId=subscription_id,
+                logEpoch=self._state.log_epoch,
+                fromSeq=from_seq,
+                toSeq=to_seq,
+                payload=payload_dict,
+            )
+            self._pending.setdefault(subscription_id, []).append(frame)
+            return frame
+
+    def emit_state_patch(
+        self,
+        subscription_id: str,
+        patch: dict[str, Any],
+    ) -> ConversationTopicFrame:
+        """H3-B-1: emit ``state.updated`` delta with a control/meta/usage/queue
+        patch dict (see ``evopanel/src/react/v4/protocol/zcode-protocol-v4/delta.ts``
+        ``statePatchSchema``).
+
+        Used by LangGraph -> v4 translator (H3-B-2) to surface per-turn state
+        like ``control.canStop`` / ``control.activeWorks`` / ``usage.contextWindow``
+        so the future verbatim ``EvoFlowV4SessionPane`` can render them.
+        """
+        with self._lock:
+            from_seq = self._state.seq
+            to_seq = self._bump_seq()
+            payload_body = {"deltas": [{"op": "state.updated", "patch": patch}]}
             payload_dict = self._make_payload("conversationDeltas", payload_body)
             frame = ConversationTopicFrame(
                 subscriptionId=subscription_id,
