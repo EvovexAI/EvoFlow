@@ -824,6 +824,11 @@ async function boot() {
   const initialPath = (window.location.hash.slice(1) || '/chat').split('?')[0]
   const authOnlyBoot = !isTauri && isAuthRoute(initialPath)
 
+  // v3.5: 提前在 boot() 顶层算 v4AtBoot,后续两处引用(分流 mount + 隐藏
+  // 老版 shell-aside / banners)都能拿到。不能在 else-if 块内 const,
+  // 块作用域外 line 967 那个 if 块读不到。
+  const v4AtBoot = isV4ShellEnabled()
+
   setDefaultRoute('/chat')
   // 先注册所有路由，立即渲染 UI（不等后端检测）
   // 只使用 React 版本的 ChatApp
@@ -918,8 +923,7 @@ async function boot() {
     // 改挂 V4ShellRoot 到 <main id="content">。整个主列都是 zcode 桌面新版,
     // 不再是"老版 ChatApp 中间嵌 v4"。切回老版 = localStorage.removeItem +
     // location.reload() → 重新走 boot(),`localStorage.evoflowV4Shell` 不等于
-    // '1' → 老 ChatApp 单例正常挂载。
-    const v4AtBoot = isV4ShellEnabled()
+    // '1' → 老 ChatApp 单例正常挂载。v4AtBoot 已在 boot() 顶部声明。
     if (v4AtBoot) {
       await mountV4ShellToContent()
     } else {
