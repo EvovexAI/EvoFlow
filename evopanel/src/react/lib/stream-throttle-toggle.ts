@@ -15,10 +15,10 @@ function readStoredThrottleEnabled(): boolean | null {
 
 /**
  * 流式 UI 节流总开关。
- * 默认开启——多会话并发流式时降低主线程压力，保持鼠标/点击响应。
- * 关闭后可观察不节流时的原始渲染效果（调试用）。
+ * 默认关闭——让对话实时逐字显示，用户体验更流畅。
+ * 开启后可降低多会话并发流式时的主线程压力（调试用）。
  */
-let throttleEnabled = readStoredThrottleEnabled() ?? true
+let throttleEnabled = readStoredThrottleEnabled() ?? false
 const listeners = new Set<() => void>()
 
 export function isStreamThrottleEnabled(): boolean {

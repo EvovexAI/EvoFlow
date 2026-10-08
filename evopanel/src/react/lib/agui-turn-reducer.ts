@@ -414,6 +414,7 @@ function applyToolResultFromSnapshotMessage(state: AgUiTurnState, msg: AgUiSnaps
 /** Rebuild chronological order from terminal MESSAGES_SNAPSHOT (block ledger authority). */
 function orderFromMessagesSnapshot(msgs: AgUiSnapshotMessage[]): AgUiOrderEntry[] {
   const order: AgUiOrderEntry[] = []
+  const seenKeys = new Set<string>()
   for (const msg of msgs) {
     if (!msg || typeof msg !== 'object') continue
     const messageId = String(msg.id || '').trim()
@@ -426,12 +427,19 @@ function orderFromMessagesSnapshot(msgs: AgUiSnapshotMessage[]): AgUiOrderEntry[
       for (const tc of toolCalls) {
         const o = tc as { id?: string; tool_call_id?: string }
         const toolCallId = String(o.id || o.tool_call_id || '').trim()
-        if (toolCallId) order.push({ kind: 'tool', toolCallId, ...blockMeta })
+        if (!toolCallId) continue
+        const key = `tc:${toolCallId}`
+        if (seenKeys.has(key)) continue
+        seenKeys.add(key)
+        order.push({ kind: 'tool', toolCallId, ...blockMeta })
       }
       continue
     }
     const content = String(msg.content || '').trim()
     if (!content) continue
+    const key = `msg:${messageId}`
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
     if (role === 'reasoning') order.push({ kind: 'reasoning', messageId, ...blockMeta })
     else if (role === 'assistant') order.push({ kind: 'text', messageId, ...blockMeta })
   }

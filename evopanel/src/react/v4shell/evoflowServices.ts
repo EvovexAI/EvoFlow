@@ -43,6 +43,10 @@ function rejectingService(name: string): unknown {
     {
       get(_target, prop: string) {
         if (prop === "then" || prop === "toJSON" || typeof prop === "symbol") return undefined;
+        // `on*` 事件工厂返回空事件流（构造期订阅不能炸）；其余方法调用时才拒绝。
+        if (prop.startsWith("on")) {
+          return () => Event.None;
+        }
         return () =>
           Promise.reject(
             new Error(`[v4shell] services.${name}.${prop} 尚未接入 EvoFlow 后端（H3-C+）`),

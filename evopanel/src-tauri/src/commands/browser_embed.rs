@@ -660,6 +660,7 @@ fn create_embed_window(
         "[browser-embed] create_embed_window: label={} url={} pos=({},{}) size={}x{}",
         label, target_url, x, y, width, height
     );
+    eprintln!("[browser-embed] create_embed_window: calling WebviewWindow::build()...");
     WebviewWindow::builder(app, label, WebviewUrl::External(target_url.clone()))
         .parent(parent)
         .map_err(|e| format!("attach embedded browser parent failed: {e}"))?
@@ -690,6 +691,13 @@ fn create_embed_window(
                 let _ = win.unminimize();
                 log_window_state(&win, "create after re-assert");
             }
+            // Poll until the WebView2 COM controller is actually reachable.
+            // On a freshly created window, `win.eval()` returns
+            // "failed to receive message from webview" until the WebView2
+            // runtime has finished initialising.  Spin here so callers that
+            // immediately do `window.location.assign` are guaranteed a live
+            // webview and not a silent no-op.
+            wait_webview2_ready(&win, label);
         })
 }
 
@@ -1056,6 +1064,46 @@ pub async fn browser_embed_set_bounds(
         }
     }
     Ok(())
+}
+
+/// Poll `win.eval()` until it succeeds, indicating the WebView2 COM controller
+/// is reachable.  On a fresh window the runtime may take 1–5 s to initialise,
+/// and callers that immediately run `window.location.assign` need this to succeed
+/// or the navigation silently does nothing.
+fn wait_webview2_ready(win: &WebviewWindow, label: &str) {
+    let probe = "1"; // cheapest possible JS that returns a value
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut saw_error = false;
+    loop {
+        match win.eval(probe) {
+            Ok(()) => {
+                if saw_error {
+                    eprintln!(
+                        "[browser-embed] wait_webview2_ready {label} OK (recovered after initial errors)"
+                    );
+                } else {
+                    eprintln!("[browser-embed] wait_webview2_ready {label} OK (was already ready)")
+                }
+                break;
+            }
+            Err(e) => {
+                saw_error = true;
+                if std::time::Instant::now() >= deadline {
+                    eprintln!(
+                        "[browser-embed] wait_webview2_ready {label} TIMED OUT after 30s: {e}"
+                    );
+                    break;
+                }
+                // Only log periodically to avoid flooding the log.
+                if !e.to_string().contains("failed to receive message") {
+                    eprintln!(
+                        "[browser-embed] wait_webview2_ready {label} eval error: {e}"
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
 }
 
 /// Report what the embed window actually looks like *right now*, after an

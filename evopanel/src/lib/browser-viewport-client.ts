@@ -204,7 +204,8 @@ export async function sendBrowserCommand(
     if (!res.ok) return null
     const data = (await res.json()) as BrowserCommandResponse
     return normalizeBrowserResponse(tid, data)
-  } catch {
+  } catch (err) {
+    console.warn('[browser-viewport] sendBrowserCommand failed', tid, method, err)
     return null
   }
 }

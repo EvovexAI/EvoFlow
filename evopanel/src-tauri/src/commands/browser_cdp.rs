@@ -168,37 +168,16 @@ pub fn call_cdp(
         .get_webview_window(label)
         .ok_or_else(|| format!("embedded webview '{label}' not found"))?;
 
-    let method = method.to_string();
-    let params_json = params_json.to_string();
-    eprintln!("[browser-cdp] call {method} params={}", truncate(&params_json, 400));
-    // Mirror the eprintln to a dedicated file so the trace is recoverable even
-    // when `pnpm dev:tauri` swallows the stderr stream. Without this the only
-    // way to see what's happening is to attach to the dev terminal — and the
-    // operator who just sent `open https://...` doesn't have that terminal open.
     let trace_path = crate::commands::evoflow_dir().join("browser-cdp-trace.log");
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&trace_path)
-    {
-        use std::io::Write as _;
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let _ = writeln!(
-            f,
-            "ts:{secs} tid:{label} method:{method} params={}",
-            truncate(&params_json, 400)
-        );
-        let _ = f.flush();
-    }
+    eprintln!("[browser-cdp] TRACE_FILE={}", trace_path.display());
+    eprintln!("[browser-cdp] call {method} params={}", truncate(params_json, 400));
     // `with_webview` takes an `FnOnce` closure, so the result travels back
     // through a shared cell rather than being returned from the closure.
     let cell: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
     let cell_inner = cell.clone();
-    // Clone for the polling loop's error messages (closure moves `method`).
-    let method_for_closure = method.clone();
+    // Clone so the closure owns the data (closure requires 'static lifetime).
+    let method_for_closure = method.to_string();
+    let params_json_owned = params_json.to_string();
 
     // `Webview::with_webview` is fire-and-forget at the wry layer: it posts a
     // message to the UI thread's event loop and returns `Ok(())` as soon as
@@ -216,7 +195,7 @@ pub fn call_cdp(
     // closure, with progress logging so a stuck init is visible in the log.
     if let Err(e) = window.with_webview(move |platform| {
         let outcome = match core_webview2(&platform.controller()) {
-            Ok(webview) => dispatch_on_webview(&webview, &method_for_closure, &params_json),
+            Ok(webview) => dispatch_on_webview(&webview, &method_for_closure, &params_json_owned),
             Err(e) => {
                 eprintln!("[browser-cdp] core_webview2 failed: {e}");
                 Err(e)

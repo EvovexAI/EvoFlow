@@ -115,6 +115,7 @@ import {
 import { useCollabSubtasksFromApi } from './hooks/useCollabSubtasksFromApi.js'
 import { skTail, ssLog } from '../lib/session-list-debug.js'
 import { ChatMessageStreamPane } from './components/ChatMessageStreamPane.js'
+import { V4ShellRoot } from './v4shell/V4ShellRoot.js'
 import { HistoryFetchSpinner } from './components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from './components/ChatComposer.js'
 import { PendingSteersStrip } from './components/PendingSteersStrip.js'
@@ -635,13 +636,26 @@ function sortSegmentsBySeqIfPresent(segments: MessageSegment[]): MessageSegment[
   return enforceSegmentDisplayOrder(segments)
 }
 
+function dedupSegmentsById(segments: MessageSegment[]): MessageSegment[] {
+  const seen = new Set<string>()
+  const out: MessageSegment[] = []
+  for (const s of segments) {
+    const key = String(s.id || s.seq || '').trim()
+    if (key && seen.has(key)) continue
+    if (key) seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
 function mergeAuthoritativeDisplaySegments(
   fin: ReturnType<typeof finalizeStreamTurn>,
   authSegsRaw: MessageSegment[],
 ): MessageSegment[] {
-  const authSegs = sortSegmentsBySeqIfPresent(authSegsRaw)
-  if (!authSegs.length) return fin.segments || []
-  const finSegs = sortSegmentsBySeqIfPresent(fin.segments || [])
+  const authSegs = dedupSegmentsById(sortSegmentsBySeqIfPresent(authSegsRaw))
+  if (!authSegs.length) return dedupSegmentsById(fin.segments || [])
+  const finSegs = dedupSegmentsById(sortSegmentsBySeqIfPresent(fin.segments || []))
+
   const authHasText = segmentTimelineHasTextBody(authSegs)
   const finHasText = segmentTimelineHasTextBody(finSegs)
   const authHasTools = segmentTimelineHasInterleavedTools(authSegs)
@@ -1553,6 +1567,19 @@ export default function ChatApp() {
   })
   /** 当前选中会话 key（同步 ref，供 useMemo/回调在 state 未提交前读取） */
   const sessionRef = useRef(selectedSessionKey)
+  /**
+   * H3-C: `localStorage.evoflowV4Shell === "1"` 时主聊天列切到 vendored ZCode v4 shell
+   * （V4ChatPane/SessionPane 全链路，后端 /api/v4/conversation/*）。旧渲染路径保留可回切。
+   */
+  const v4ShellEnabled = useMemo(() => {
+    try {
+      return localStorage.getItem('evoflowV4Shell') === '1'
+    } catch {
+      return false
+    }
+  }, [])
+  /** v4 shell 首次 createSession 后固定 sessionId，避免 pane 回落草稿态。 */
+  const [v4SessionId, setV4SessionId] = useState<string | null>(null)
   /** 各会话侧栏/询问面板状态缓存（切换会话时恢复；后台会话询问不得写入当前 UI） */
   const threadPanelBySessionRef = useRef(new Map<string, ThreadPanelState>())
   const commitThreadPanelForSessionRef = useRef<
@@ -9428,7 +9455,6 @@ export default function ChatApp() {
       if (msg.event !== 'chat') return
       const payload = msg.payload
       if (!payload) return
-      // 必须使用 payload 中携带的 sessionKey，禁止 fallback 到 sessionRef.current
       const eventSk = String(payload.sessionKey || '').trim()
       const activeSk = String(sessionRef.current || '').trim()
       const uiSk = String(sessionRef.current || selectedSessionKey || '').trim()
@@ -10174,16 +10200,6 @@ export default function ChatApp() {
       if (state === 'agui_event') {
         const aguiEvent = (payload as { aguiEvent?: AGUIEvent }).aguiEvent
         if (!aguiEvent) return
-        // [STREAM-DEBUG] 进入 ChatApp 的 wire 事件 + 闸门判定
-        {
-          const aguiT = String((aguiEvent as { type?: string }).type || '')
-          if (aguiT === 'TEXT_MESSAGE_CONTENT' || aguiT === 'RUN_STARTED' || aguiT === 'RUN_FINISHED' || aguiT === 'TEXT_MESSAGE_START') {
-            const dbgActive = String((rt as unknown as { activeChatRunId?: string }).activeChatRunId || '')
-            const dbgPhase = String((rt as unknown as { turnPhase?: string }).turnPhase || '')
-            const dbgLive = String((rt as unknown as { liveRunStatus?: string }).liveRunStatus || '')
-            console.info(`[STREAM-DEBUG][app] type=${aguiT} payloadRunId=${String(runId || '')} active=${dbgActive} phase=${dbgPhase} live=${dbgLive}`)
-          }
-        }
 
         // chatSend 先绑 client UUID；AG-UI wire run-{hex} 须在 gate 前接管，否则整轮事件被丢弃
         const aguiRunId =
@@ -15313,6 +15329,13 @@ export default function ChatApp() {
               </div>
             ) : null}
             <div className="react-chat-messages-body">
+              {v4ShellEnabled ? (
+                <V4ShellRoot
+                  workspacePath={effectiveWorkspaceRoot || 'D:/evoflow'}
+                  sessionId={v4SessionId}
+                  onSessionCreated={setV4SessionId}
+                />
+              ) : (
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}
@@ -15363,6 +15386,7 @@ export default function ChatApp() {
                 assistantAgent={currentRoleAgent}
                 assistantAgentLabel={assistantReplyLabel}
               />
+              )}
             </div>
           </div>
           <SessionSidebar
@@ -15640,6 +15664,7 @@ export default function ChatApp() {
               threadId={wsClient.getSessionThreadId(selectedSessionKey || '') || ''}
               refreshKey={`${selectedSessionKey || ''}:${memoryRecallRefreshKey}`}
             />
+            {!v4ShellEnabled ? (
             <ChatComposer
               sessionReady
               engineReady={engineReady}
@@ -15999,6 +16024,7 @@ export default function ChatApp() {
                     : '输入消息，@ 提及员工，# 引用文件'
               }
             />
+            ) : null}
               </div>
             </div>
           </div>

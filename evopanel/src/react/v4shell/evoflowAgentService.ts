@@ -124,6 +124,11 @@ const implemented = new EvoflowAgentService() as unknown as Record<string, unkno
 export const evoflowAgentService: IZCodeAgentService = new Proxy(implemented, {
   get(target, prop: string) {
     if (prop in target) return target[prop];
+    // `on*` 是事件订阅工厂（调用后立刻 `(listener)` 二次调用）：未接入的事件面返回
+    // 空事件流，语义是「永远不触发」而不是失败——transport 构造期就会订阅这些事件。
+    if (prop.startsWith("on")) {
+      return () => Event.None;
+    }
     return (...args: unknown[]) => notImplemented(prop);
   },
 }) as unknown as IZCodeAgentService;

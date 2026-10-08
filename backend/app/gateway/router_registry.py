@@ -32,6 +32,10 @@ def _include_module_router(
     mod = importlib.import_module(module)
     router = getattr(mod, "router")
     app.include_router(router, **include_kwargs)
+    # v4 routes 模块附带独立前缀的 conversation_router（ZCode v4 wire，H3-C）。
+    extra_router = getattr(mod, "conversation_router", None)
+    if extra_router is not None:
+        app.include_router(extra_router, **include_kwargs)
     ms = (time.perf_counter() - t0) * 1000.0
     if ms >= slow_ms:
         startup_mark(

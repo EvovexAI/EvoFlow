@@ -323,9 +323,23 @@ function BrowserChromeBar({
           aria-label="地址栏"
           onChange={(e) => setUrlDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') setUrlDraft(pageUrl || '')
+            if (e.key === 'Enter') {
+              console.log('[browser-panel] Enter key pressed, urlDraft:', urlDraft)
+              e.preventDefault()
+              e.stopPropagation()
+              const next = urlDraft.trim()
+              if (!next) return
+              if (next === (pageUrl || '').trim()) {
+                onRefresh?.()
+                return
+              }
+              onNavigate?.(next)
+            } else if (e.key === 'Escape') {
+              setUrlDraft(pageUrl || '')
+            }
           }}
         />
+        <button type="submit" style={{ display: 'none' }} />
         <button
           type="button"
           className={`browser-panel-tb-btn is-secondary${viewportIsCustom ? ' is-pressed' : ''}`}
@@ -1284,24 +1298,40 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavBusy(true)
       setNavError('')
       try {
-        // ZCode parity: re-call browserEmbedUpsert with the new URL. Tauri
-        // detects the live label and re-points the existing WebView2 window
-        // (no remount, no Playwright tab dance). The BrowserEmbedHost effect
-        // also re-binds on pageUrl changes so the address-bar and the agent
-        // navigation funnel into the same single-webview surface.
-        const info = await browserEmbedUpsert({
-          threadId: tid,
-          url,
-          x: 0,
-          y: 0,
-          width: 1280,
-          height: 720,
-        })
+        console.error(`[nav] === START tid=${tid} url=${url}`)
+        let info
+        try {
+          info = await browserEmbedUpsert({
+            threadId: tid,
+            url,
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 720,
+          })
+        } catch (err) {
+          console.error(`[nav] browserEmbedUpsert THREW: ${String(err)}`)
+          setNavBusy(false)
+          setNavError(`导航异常：${String(err)}`)
+          return
+        }
+        console.error(`[nav] browserEmbedUpsert OK cdpUrl=${info?.cdpUrl || 'MISSING'}`)
         if (!info?.cdpUrl) {
+          console.error(`[nav] FAIL: no cdpUrl`)
           setNavError(`导航失败：浏览器会话未建立（thread=${tid.slice(0, 8)}）。可点击工具栏的 ⟳ 重试。`)
           return
         }
-        await registerBrowserEmbedCdp(tid, info.cdpUrl)
+        const navUrl = url.startsWith('http') ? url : 'https://' + url
+        console.error(`[nav] browserEmbedUpsert done, url=${navUrl} — applying result directly`)
+
+        applyBrowserCommandResponse({
+          threadId: tid,
+          pageUrl: navUrl,
+          pageTitle: '',
+          streamWs: '',
+        })
+
+        console.error(`[nav] === DONE`)
       } finally {
         setNavBusy(false)
       }

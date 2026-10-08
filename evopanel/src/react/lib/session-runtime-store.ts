@@ -197,7 +197,8 @@ function fireSessionNotify(sk: string): void {
   clearSessionNotifyTimers(sk)
   const state = sessionNotifyTimers.get(sk)
   if (state) state.coalesced = false
-  sessionEpochs.set(sk, (sessionEpochs.get(sk) ?? 0) + 1)
+  const oldEpoch = sessionEpochs.get(sk) ?? 0
+  sessionEpochs.set(sk, oldEpoch + 1)
   sessionListeners.get(sk)?.forEach((fn) => {
     try {
       fn()
@@ -219,7 +220,9 @@ function notifySession(sessionKey: string, opts?: NotifyOptions): void {
     state = { coalesced: false, rafId: 0, timeoutId: 0 }
     sessionNotifyTimers.set(sk, state)
   }
-  if (state.coalesced) return
+  if (state.coalesced) {
+    return
+  }
   state.coalesced = true
   state.rafId = requestAnimationFrame(() => {
     state!.rafId = 0

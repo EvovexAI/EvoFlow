@@ -15,10 +15,13 @@
 
 import type { ReactNode } from "react";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
+import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { StoreProvider } from "@zcode/ui/store/StoreProvider.js";
 import { TabStoreProvider } from "@zcode/ui/store/TabStoreProvider.js";
 import { V4ChatPane } from "@zcode/ui/v4/V4ChatPane.js";
+// ZCode ui 全套样式（tailwind v4 source(".") 扫描 zcode-ui 树 + shadcn/tw-animate 变体）。
+import "@zcode/ui/styles.css";
 import { evoflowServices } from "./evoflowServices.js";
 import { evoflowPlatform } from "./evoflowPlatform.js";
 
@@ -40,14 +43,18 @@ export function V4ShellRoot({
     <PlatformProvider platform={evoflowPlatform}>
       <ZCodeIntlProvider initialLocale="zh-CN">
         <StoreProvider broadcastService={evoflowServices.broadcastService}>
-          <TabStoreProvider>
-            <V4ChatPane
-              workspacePath={workspacePath}
-              sessionId={sessionId}
-              isDesktop={false}
-              onSessionCreated={onSessionCreated}
-            />
-          </TabStoreProvider>
+          {/* 外层 base ServiceProvider：ZCode App 根部也有这一层，
+              V4ConversationProvider 自身在渲染期就会 useServices()（先于其内部覆写）。 */}
+          <ServiceProvider services={evoflowServices}>
+            <TabStoreProvider>
+              <V4ChatPane
+                workspacePath={workspacePath}
+                sessionId={sessionId}
+                isDesktop={false}
+                onSessionCreated={onSessionCreated}
+              />
+            </TabStoreProvider>
+          </ServiceProvider>
         </StoreProvider>
       </ZCodeIntlProvider>
     </PlatformProvider>
