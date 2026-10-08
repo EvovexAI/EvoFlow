@@ -66,6 +66,7 @@ export function EvoFlowV4ChatPane({
                         workspacePath={workspacePath}
                         workspaceIdentity={workspaceIdentity}
                         sessionId={sessionKey}
+                        readOnly
                       />
                     </ZCodeIntlProvider>
                   </CodingPlanUpgradeDialogProvider>
