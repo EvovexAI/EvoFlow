@@ -68,7 +68,7 @@ export function shouldUseStreamingPlainMarkdown(_charLen: number): boolean {
 }
 
 /** Min new chars before a catch-up paint after worker was still busy. */
-export const STREAM_PLAIN_REPAIN_MIN_DELTA_CHARS = 384
+export const STREAM_PLAIN_REPAIN_MIN_DELTA_CHARS = 48
 
 /** Keep only the live tail for paint/overlay. Store/history keep the full string. */
 export function liveStreamDisplayTail(text: string, maxChars = STREAM_PLAIN_DISPLAY_MAX_CHARS): string {

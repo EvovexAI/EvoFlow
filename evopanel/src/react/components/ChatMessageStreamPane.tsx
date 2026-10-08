@@ -75,8 +75,11 @@ export type ChatMessageStreamPaneProps = {
 }
 
 /**
- * 旧 useStreamChromeTick (stream-chrome-tick) 已删；改订阅 session-runtime 通知。
- * 任何流式字段（writeProgress / subagentTasks / 计数）变化都会触发 re-render。
+ * useStreamChromeTick 订阅 session-runtime 通知（writeProgress / subagentTasks / 计数等），
+ * 用于驱动流式气泡外壳（计时、活动标签等）的更新。
+ *
+ * 注意：真正的流式正文驱动依赖的是 MessageVirtualList 中的 useStreamSnapshotSeq +
+ * ChatApp 的 commitStreamSnapshot(seq++)，不是这个 sessionEpoch。
  */
 function useStreamChromeTick(sk: string): number {
   return useSyncExternalStore(

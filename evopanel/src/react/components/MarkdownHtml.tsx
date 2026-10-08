@@ -13,14 +13,9 @@ import { getChatWorkspaceRoot } from '../../lib/chat-workspace-context.js'
 import { AssistantCodeCommentCards } from './AssistantCodeCommentCards.js'
 import {
   buildStreamingPlainHtml,
-  resolveReasoningStreamPaintMinMs,
-  resolveStreamPlainPaintMinMs,
   streamingPlainDisplayText,
-  STREAM_PLAIN_REPAIN_MIN_DELTA_CHARS,
-  STREAM_REASONING_REPAIN_MIN_DELTA_CHARS,
   FULL_MARKDOWN_WORKER_MIN_CHARS,
 } from '../lib/markdown-stream-paint.js'
-import { isStreamThrottleEnabled } from '../lib/stream-throttle-toggle.js'
 
 function extractMermaidSources(rawText: string): string[] {
   const src = String(rawText || '').replace(/\r\n/g, '\n')
@@ -155,34 +150,11 @@ function MarkdownHtmlInner({
   })
   const textRef = useRef(String(text || ''))
   const streamPaintRafRef = useRef(0)
-  const streamPaintTimerRef = useRef(0)
   const lastStreamPaintRef = useRef(0)
-  const pendingRepaintRef = useRef(false)
-  const lastPaintCharLenRef = useRef(0)
   const plainStreamActiveRef = useRef(false)
   /** 上次已应用到 DOM 的 displayHtml；相同则跳过全拆重建（mermaid 回调引用变化会重触发本 effect） */
   const lastAppliedHtmlRef = useRef<string | null>(null)
-  const repainMinDeltaRef = useRef(STREAM_PLAIN_REPAIN_MIN_DELTA_CHARS)
   const rootRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    repainMinDeltaRef.current = isReasoningStream
-      ? STREAM_REASONING_REPAIN_MIN_DELTA_CHARS
-      : STREAM_PLAIN_REPAIN_MIN_DELTA_CHARS
-  }, [isReasoningStream])
-
-  const shouldCoalesceCatchUpPaint = (charLen: number) => {
-    if (!isStreamThrottleEnabled()) return false
-    const delta = charLen - lastPaintCharLenRef.current
-    return delta < repainMinDeltaRef.current
-  }
-
-  const resolveStreamingPaintMinMs = (charLen: number) =>
-    isStreamThrottleEnabled()
-      ? isReasoningStream
-        ? resolveReasoningStreamPaintMinMs(charLen)
-        : resolveStreamPlainPaintMinMs(charLen)
-      : 0
 
   const paintPlainStreamDom = (raw: string) => {
     const root = rootRef.current
@@ -216,88 +188,76 @@ function MarkdownHtmlInner({
   const [previewSvg, setPreviewSvg] = useState('')
   const [previewScale, setPreviewScale] = useState(1)
 
+  /**
+   * Effect 1（生命周期）：建立/销毁流式 paint 调度器。
+   * 只在 isStreaming / streamProfile / isReasoningStream 变化时执行（进入/退出流式）。
+   * 不依赖 renderText，避免每次 delta 都 teardown + setup。
+   */
   useEffect(() => {
-    const raw = renderText
-    textRef.current = raw
-    if (!isStreaming) {
-      if (streamPaintRafRef.current) {
-        cancelAnimationFrame(streamPaintRafRef.current)
-        streamPaintRafRef.current = 0
-      }
-      if (streamPaintTimerRef.current) {
-        clearTimeout(streamPaintTimerRef.current)
-        streamPaintTimerRef.current = 0
-      }
-      // 仅「刚从流式结束」时保留 plain，避免 Markdown 未就绪时空闪；冷加载历史仍走 MD
-      const holdPlain =
-        plainStreamActiveRef.current ||
-        !!rootRef.current?.querySelector('pre.msg-stream-plain')
-      if (holdPlain) {
-        paintPlainStreamDom(raw)
-      } else {
-        plainStreamActiveRef.current = false
-      }
-      if (raw.length > FULL_MARKDOWN_WORKER_MIN_CHARS) {
-        let cancelled = false
-        void renderMarkdownAsync(raw).then((html) => {
-          if (!cancelled) setDisplayHtml(html)
-        })
-        return () => {
-          cancelled = true
-        }
-      }
-      queueMicrotask(() => setDisplayHtml(renderMarkdown(raw)))
-      return
-    }
-
     const runPaint = () => {
       streamPaintRafRef.current = 0
-      const charLen = textRef.current.length
-      const wait = resolveStreamingPaintMinMs(charLen) - (Date.now() - lastStreamPaintRef.current)
-      if (wait > 0) {
-        if (!streamPaintTimerRef.current) {
-          streamPaintTimerRef.current = window.setTimeout(() => {
-            streamPaintTimerRef.current = 0
-            runPaint()
-          }, wait)
-        }
-        return
-      }
       lastStreamPaintRef.current = Date.now()
-      lastPaintCharLenRef.current = charLen
       if (!paintPlainStreamDom(textRef.current)) {
         setDisplayHtml(buildStreamingPlainHtml(textRef.current))
-      }
-      if (pendingRepaintRef.current) {
-        pendingRepaintRef.current = false
-        if (!shouldCoalesceCatchUpPaint(textRef.current.length)) schedulePaint()
       }
     }
 
     const schedulePaint = () => {
-      if (streamPaintRafRef.current || streamPaintTimerRef.current) {
-        pendingRepaintRef.current = true
-        return
-      }
+      if (streamPaintRafRef.current) return
       streamPaintRafRef.current = requestAnimationFrame(runPaint)
     }
 
-    schedulePaint()
+    // 暴露给 Effect 2 调用
+    scheduleStreamPaintRef.current = schedulePaint
 
     return () => {
-      pendingRepaintRef.current = false
-      // 切勿在 text 更新 cleanup 里清 plainStreamActiveRef：否则 displayHtml effect
-      // 会用陈旧 displayHtml 拆掉 live pre，高度塌缩再被 paint 撑开 → 页面上下抖。
       if (streamPaintRafRef.current) {
         cancelAnimationFrame(streamPaintRafRef.current)
         streamPaintRafRef.current = 0
       }
-      if (streamPaintTimerRef.current) {
-        clearTimeout(streamPaintTimerRef.current)
-        streamPaintTimerRef.current = 0
+    }
+  }, [isStreaming, streamProfile, isReasoningStream])
+
+  /**
+   * Effect 2（正文增长）：每次 renderText 变化时触发 paint。
+   * 不 teardown 调度器，只更新 textRef + 调度 paint。
+   * deps 只有 renderText 和 isStreaming，保证每个 delta 都能触发。
+   */
+  const scheduleStreamPaintRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    if (!isStreaming) return
+    textRef.current = renderText
+    scheduleStreamPaintRef.current()
+  }, [renderText, isStreaming])
+
+  /**
+   * Effect 3（结束落 MD）：非流式时把 plain 转成完整 markdown。
+   * 复用原有的 isStreaming → false 后的处理逻辑。
+   */
+  useEffect(() => {
+    if (isStreaming) return
+    const raw = renderText
+    textRef.current = raw
+    // 仅「刚从流式结束」时保留 plain，避免 Markdown 未就绪时空闪；冷加载历史仍走 MD
+    const holdPlain =
+      plainStreamActiveRef.current ||
+      !!rootRef.current?.querySelector('pre.msg-stream-plain')
+    if (holdPlain) {
+      paintPlainStreamDom(raw)
+    } else {
+      plainStreamActiveRef.current = false
+    }
+    if (raw.length > FULL_MARKDOWN_WORKER_MIN_CHARS) {
+      let cancelled = false
+      void renderMarkdownAsync(raw).then((html) => {
+        if (!cancelled) setDisplayHtml(html)
+      })
+      return () => {
+        cancelled = true
       }
     }
-  }, [renderText, isStreaming, streamProfile])
+    queueMicrotask(() => setDisplayHtml(renderMarkdown(raw)))
+  }, [renderText, isStreaming])
 
   const renderPendingMermaids = useCallback(async () => {
     if (isStreaming) return

@@ -36,6 +36,7 @@ import {
   SCROLL_EDGE_SLACK,
   isFoldInducedScrollAway,
 } from '../lib/fold-induced-scroll-away.js'
+import { useStreamSnapshotSeq } from '../lib/stream-snapshot-store.js'
 
 /**
  * AI 回复流式贴底时，在真正底部上方留一点余量，让最新内容「吸附」在底部偏上，
@@ -788,6 +789,12 @@ export const MessageVirtualList = memo(function MessageVirtualList({
    * 会话切换时不触发（避免打开/切到流式会话时误锁滚动、停在中间）。
    */
   const sessionKeyForSend = String(sessionKey || '')
+  /**
+   * ★ 关键修复：订阅 stream-snapshot-store 的 seq 增长。
+   * ChatApp 的 applyAgUiWireEvent → commitStreamSnapshot(seq++) 后，
+   * 这里会收到通知并重算 streamRow，保证每个 delta 都能触发重新渲染。
+   */
+  const streamSnapshotSeq = useStreamSnapshotSeq(sessionKeyForSend)
   if (lastSessionKeyForSendRef.current !== sessionKeyForSend) {
     lastSessionKeyForSendRef.current = sessionKeyForSend
     lastSendScrollTailRef.current = ''
@@ -940,6 +947,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
      */
     streamActive,
     streamRef,
+    streamSnapshotSeq,
     liveTurnTokenStr,
     suppressStreamFiles,
     rows,
