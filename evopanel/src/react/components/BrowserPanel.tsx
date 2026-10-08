@@ -19,9 +19,9 @@ import {
   scrollBrowserBy,
   sendBrowserCommand,
   listBrowserTabs,
-  closeBrowserTab,
   newBrowserTab,
   selectBrowserTab,
+  closeBrowserTab,
   DEFAULT_BROWSER_VIEWPORT,
   setBrowserViewport,
   type BrowserViewportPresetId,
@@ -1284,36 +1284,29 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavBusy(true)
       setNavError('')
       try {
-        // If the engine has no tab yet, open one first so navigate has a target.
-        // Engine sessions are created lazily on tabNew; without this guard the
-        // backend raises 500 and the user sees a silent failure in the address
-        // bar (input still shows the typed URL, page never loads).
-        const tabsBefore = runtime.tabs.length
-        let result = null
-        if (tabsBefore <= 0) {
-          result = await newBrowserTab(tid, url)
-          if (result) {
-            // Force a refresh so the new tab shows up in the tabstrip quickly.
-            setRefreshNonce((n) => n + 1)
-          }
-        } else {
-          result = await sendBrowserCommand(tid, 'navigate', url)
-        }
-        if (!result) {
+        // ZCode parity: re-call browserEmbedUpsert with the new URL. Tauri
+        // detects the live label and re-points the existing WebView2 window
+        // (no remount, no Playwright tab dance). The BrowserEmbedHost effect
+        // also re-binds on pageUrl changes so the address-bar and the agent
+        // navigation funnel into the same single-webview surface.
+        const info = await browserEmbedUpsert({
+          threadId: tid,
+          url,
+          x: 0,
+          y: 0,
+          width: 1280,
+          height: 720,
+        })
+        if (!info?.cdpUrl) {
           setNavError(`导航失败：浏览器会话未建立（thread=${tid.slice(0, 8)}）。可点击工具栏的 ⟳ 重试。`)
           return
         }
-        applyBrowserCommandResponse({
-          threadId: result.threadId || tid,
-          pageUrl: result.pageUrl,
-          pageTitle: result.pageTitle,
-          streamWs: result.streamWs,
-        })
+        await registerBrowserEmbedCdp(tid, info.cdpUrl)
       } finally {
         setNavBusy(false)
       }
     },
-    [effectiveThreadId, navBusy, runtime.tabs.length],
+    [effectiveThreadId, navBusy],
   )
   const handleBack = useCallback(async () => {
     const tid = effectiveThreadId

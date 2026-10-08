@@ -268,8 +268,10 @@ function roleDisplayName(code) {
 function roleCardTitle(role) {
   const code = sanitizeRoleLabel(role?.agent_code, '')
   const roleName = sanitizeRoleLabel(role?.role_name, '')
-  // 只显示岗位名；禁止 agent_name / 英文 agent_code
+  const agentName = sanitizeRoleLabel(role?.agent_name, '')
+  // 优先岗位名；无岗位名则 fallback 到智能体名；两者都没有才降级
   if (roleName && roleName !== code) return roleName
+  if (agentName && agentName !== code) return agentName
   return '未命名岗位'
 }
 
@@ -975,7 +977,7 @@ async function showDispatchModal(page, role) {
       <header class="hire-sheet-head">
         <div>
           <p class="hire-sheet-kicker">派发任务</p>
-          <h2 id="dispatch-title" class="hire-sheet-title">派发给「${esc(role.role_name || role.agent_code)}」</h2>
+          <h2 id="dispatch-title" class="hire-sheet-title">派发给「${esc(role.role_name || role.agent_name || role.agent_code)}」</h2>
         </div>
         <button type="button" class="hire-sheet-close" data-act="close" aria-label="关闭">&times;</button>
       </header>
@@ -983,7 +985,7 @@ async function showDispatchModal(page, role) {
       <div class="hire-agent-card">
         <div class="hire-agent-avatar" data-avatar-agent="${esc(role.agent_code)}" aria-hidden="true"></div>
         <div class="hire-agent-meta">
-          <div class="hire-agent-name">${esc(role.role_name || role.agent_code)}</div>
+          <div class="hire-agent-name">${esc(role.role_name || role.agent_name || role.agent_code)}</div>
           <div class="hire-agent-code">${esc(role.agent_code)}</div>
         </div>
         <span class="hire-agent-pill">员工将围绕任务工作</span>
@@ -1036,7 +1038,7 @@ async function showDispatchModal(page, role) {
     if (btn) { btn.disabled = true; btn.textContent = '派发中…' }
     try {
       await api.proactiveDispatchTask(role.agent_code, { goal, description, priority, source: 'employee_page' })
-      toast(`已派发给「${role.role_name || role.agent_code}」，正在打开工作过程`, 'success')
+      toast(`已派发给「${role.role_name || role.agent_name || role.agent_code}」，正在打开工作过程`, 'success')
       close()
       navigate(
         `/proactive/${encodeURIComponent(role.agent_code)}?live=1&goal=${encodeURIComponent(goal.slice(0, 120))}`,
@@ -1044,7 +1046,7 @@ async function showDispatchModal(page, role) {
     } catch (e) {
       const msg = String(e?.message || e || '')
       if (/already running|正在巡检|正在工作|busy|执行任务/i.test(msg)) {
-        toast(msg || `「${role.role_name || role.agent_code}」正在执行任务`, 'warning')
+        toast(msg || `「${role.role_name || role.agent_name || role.agent_code}」正在执行任务`, 'warning')
         close()
         navigate(`/proactive/${encodeURIComponent(role.agent_code)}?live=1`)
       } else {
@@ -1346,7 +1348,7 @@ async function loadTabData(page) {
       const newCount = currentCount - _prevApprovalCount
       const first = _approvalsData[0]
       const roleName =
-        first?.role_name || roleDisplayName(first?.role_agent_code) || first?.role_agent_code || ''
+        first?.role_name || first?.agent_name || roleDisplayName(first?.role_agent_code) || first?.role_agent_code || ''
       const titleHint = first?.initiative_title || first?.initiative_id || ''
       const highlightId = String(first?.id || '').trim()
       const highlightInit = String(first?.initiative_id || '').trim()
@@ -1655,8 +1657,8 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
 function _sortOrgForest(nodes) {
   const list = Array.isArray(nodes) ? [...nodes] : []
   list.sort((a, b) => {
-    const an = String(a.role_name || a.agent_code || '')
-    const bn = String(b.role_name || b.agent_code || '')
+    const an = String(a.role_name || a.agent_name || a.agent_code || '')
+    const bn = String(b.role_name || b.agent_name || b.agent_code || '')
     return an.localeCompare(bn, 'zh-CN')
   })
   for (const n of list) {
@@ -1825,7 +1827,7 @@ function renderOrgDetail(flatRoles, forest) {
     : null
   const mgrStatus = _orgStatusLabel(mgrRole?.status)
   const mgrLabel = mgrRole
-    ? `${String(mgrRole.role_name || mgrRole.agent_code || currentMgr).trim()}${mgrStatus ? `（${mgrStatus}）` : ''}`
+    ? `${String(mgrRole.role_name || mgrRole.agent_name || mgrRole.agent_code || currentMgr).trim()}${mgrStatus ? `（${mgrStatus}）` : ''}`
     : currentMgr || '（无 · 顶层）'
   const selfStatus = _orgStatusLabel(flat.status)
   const dutyLabel =
@@ -2824,7 +2826,7 @@ function renderHealthDashboard(dash, roles) {
       <article class="pro-health-card${idle ? ' pro-health-card--idle' : ''}${zombie > 5 ? ' pro-health-card--alert' : ''}" data-code="${esc(r.agent_code)}">
         <div class="pro-health-card-head">
           <div>
-            <strong>${esc(r.role_name || r.agent_code)}</strong>
+            <strong>${esc(r.role_name || r.agent_name || r.agent_code)}</strong>
             <span class="pro-meta-chip">${esc(r.status === 'active' ? '在岗' : r.status === 'paused' ? '请假' : r.status)}</span>
             ${idle ? `<span class="pro-meta-chip pro-meta-chip--warn">疑似空转×${esc(String(r.consecutive_noop_count || 0))}</span>` : ''}
             ${r.budget_warn ? '<span class="pro-meta-chip pro-meta-chip--warn">预算告警</span>' : ''}
@@ -2915,7 +2917,7 @@ function updateFeishuToolbar(page) {
     return
   }
   const first = unbound[0]
-  const name = String(first.role_name || first.agent_code || '').trim()
+    const name = String(first.role_name || first.agent_name || first.agent_code || '').trim()
   label.textContent = `IM 未绑 ${unbound.length}`
   label.title = `${FEISHU_COLLAB_HOWTO_SHORT}\n下一位：${name}`
   btn.dataset.code = String(first.agent_code || '').trim()

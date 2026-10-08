@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { showConfirm } from '../../components/modal.js'
 import { toast } from '../../components/toast.js'
@@ -1070,15 +1070,15 @@ export function WorkspaceFileTree({
             </label>
           </div>
 
-          {error ? <div className="kv-empty-inline">{error}</div> : null}
-          {loading && !isSearchMode ? <div className="kv-empty-inline">正在加载文件夹结构…</div> : null}
-          {isSearchMode && searchLoading ? <div className="kv-empty-inline">搜索中…</div> : null}
+          {error ? <div className="kvft-empty">{error}</div> : null}
+          {loading && !isSearchMode ? <div className="kvft-empty">正在加载文件夹结构…</div> : null}
+          {isSearchMode && searchLoading ? <div className="kvft-empty">搜索中…</div> : null}
           {isSearchMode && !searchLoading && searchIndexNote ? (
-            <div className="kv-empty-inline">{searchIndexNote}</div>
+            <div className="kvft-empty">{searchIndexNote}</div>
           ) : null}
 
           <div
-            className="kv-browse-tree"
+            className="kv-browse-tree kvft-scroll"
             role="tree"
             tabIndex={0}
             onKeyDown={handleKeyDown}
@@ -1118,7 +1118,7 @@ export function WorkspaceFileTree({
             ) : null}
 
             {!loading && !searchLoading && !error && flatNodes.length === 0 ? (
-              <div className="kv-empty-inline">
+              <div className="kvft-empty">
                 {isSearchMode ? searchIndexNote || '没有匹配的文件' : '此目录为空'}
               </div>
             ) : null}
@@ -1133,19 +1133,24 @@ export function WorkspaceFileTree({
               const isExpanded = isDir && expandedPaths.has(path)
               const isLoadingDir = isDir && loadingDirs.has(path)
               const isFocused = i === focusedIdx
-              const pad = isDir ? 8 + node.depth * 16 : 12 + node.depth * 16
+              const depthStyle = { ['--kvft-depth' as string]: String(node.depth) } as CSSProperties
               if (isDir) {
                 return (
                   <div
                     key={`${path}:${i}`}
-                    className={`kv-tree-folder-row${isExpanded ? ' is-open' : ''}${
+                    role="treeitem"
+                    aria-expanded={isExpanded}
+                    aria-selected={isFocused}
+                    tabIndex={isFocused ? 0 : -1}
+                    data-testid={`workspace-file-tree-row-${path}`}
+                    className={`kvft-row kvft-row--dir${isExpanded ? ' is-open' : ''}${
                       isFocused ? ' is-focused' : ''
                     }`}
-                    style={{ paddingLeft: Math.max(4, pad - 4) }}
+                    style={depthStyle}
                   >
                     <button
                       type="button"
-                      className="kv-tree-expand"
+                      className="kvft-caret"
                       aria-expanded={isExpanded}
                       aria-label={isExpanded ? `折叠 ${ent.name}` : `展开 ${ent.name}`}
                       title={isExpanded ? '折叠' : '展开'}
@@ -1160,28 +1165,34 @@ export function WorkspaceFileTree({
                     </button>
                     <button
                       type="button"
-                      className="kv-tree-folder-head"
+                      className="kvft-name"
                       onClick={() => {
                         setFocusedIdx(i)
                         onRowClick(ent)
                       }}
                       onContextMenu={(e) => onRowContextMenu(e, ent)}
                     >
-                      <KvFolderIcon name={isExpanded ? 'folder-open' : 'folder'} size={15} />
-                      <span className="kv-tree-label">{ent.name}</span>
-                      {isLoadingDir ? <span className="kv-tree-meta">…</span> : null}
+                      <KvFolderIcon
+                        name={isExpanded ? 'folder-open' : 'folder'}
+                        size={15}
+                      />
+                      <span className="kvft-name-text">{ent.name}</span>
+                      {isLoadingDir ? <span className="kvft-meta">…</span> : null}
                     </button>
                   </div>
                 )
               }
               return (
-                <button
+                <div
                   key={`${path}:${i}`}
-                  type="button"
-                  className={`kv-tree-file${attached ? ' is-attached' : ''}${
+                  role="treeitem"
+                  aria-selected={isPreviewing || isFocused}
+                  tabIndex={isFocused ? 0 : -1}
+                  data-testid={`workspace-file-tree-row-${path}`}
+                  className={`kvft-row kvft-row--file${attached ? ' is-attached' : ''}${
                     isPreviewing ? ' is-previewing is-selected' : ''
                   }${isFocused ? ' is-focused' : ''}`}
-                  style={{ paddingLeft: pad }}
+                  style={depthStyle}
                   draggable
                   onDragStart={(e) => {
                     const abs = String(ent.path || path || '').trim()
@@ -1197,37 +1208,33 @@ export function WorkspaceFileTree({
                   }}
                   onContextMenu={(e) => onRowContextMenu(e, ent)}
                 >
-                  <KvFolderIcon name="file" size={15} />
-                  <span className="kv-tree-label">
-                    {isSearchMode && ent.path !== ent.name ? (
-                      <>
-                        {ent.name}
-                        <span className="kv-tree-label-sub">
-                          {formatWorkspacePathForDisplay(ent.path)}
-                        </span>
-                      </>
-                    ) : (
-                      ent.name
-                    )}
-                  </span>
-                  {ent.size != null || ent.mtime ? (
-                    <span className="kv-tree-meta">
-                      {formatSize(ent.size)}
-                      {ent.size != null && ent.mtime ? ' · ' : ''}
-                      {formatTime(ent.mtime)}
+                  <span className="kvft-caret kvft-caret--placeholder" aria-hidden="true" />
+                  <span className="kvft-name">
+                    <KvFolderIcon name="file" size={15} />
+                    <span className="kvft-name-text">
+                      {isSearchMode && ent.path !== ent.name ? (
+                        <>
+                          {ent.name}
+                          <span className="kvft-name-sub">
+                            {formatWorkspacePathForDisplay(ent.path)}
+                          </span>
+                        </>
+                      ) : (
+                        ent.name
+                      )}
                     </span>
-                  ) : null}
+                  </span>
                   {attached ? (
-                    <span className="kv-tree-attach" title="已附加到会话">
+                    <span className="kvft-attach" title="已附加到会话" aria-label="已附加到会话">
                       @
                     </span>
                   ) : null}
-                </button>
+                </div>
               )
             })}
 
             {truncatedCount > 0 ? (
-              <div className="kv-empty-inline">
+              <div className="kvft-empty">
                 还有 {truncatedCount} 个项目未显示，请折叠部分目录或使用搜索
               </div>
             ) : null}

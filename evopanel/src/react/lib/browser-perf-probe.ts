@@ -3,7 +3,7 @@
  * Used by Playwright bench — no backend / SSE required when paired with bench page.
  */
 import { getClientPerfSnapshot, percentile, resetClientPerf } from './client-perf.js'
-import { publishLiveStream } from './live-stream-store.js'
+import { commitStreamSnapshot } from './stream-snapshot-store.js'
 import { setLiveStreamPathEnabled } from './stream-live-path-toggle.js'
 
 export const BROWSER_PERF_BUDGETS = {
@@ -203,7 +203,7 @@ export class BrowserPerfProbe {
 
 export function checkBrowserBenchBudgets(
   result: BrowserBenchResult,
-  budgets: typeof BROWSER_PERF_BUDGETS = BROWSER_PERF_BUDGETS,
+  budgets: typeof BROWSER_PERF_BUDGETS | typeof BROWSER_DUAL_SESSION_BUDGETS = BROWSER_PERF_BUDGETS,
 ): { ok: boolean; failures: string[] } {
   const failures: string[] = []
   if (result.longTasks > budgets.longTasksMax) {
@@ -288,6 +288,7 @@ export async function runBrowserStreamBench(opts?: BrowserBenchOpts): Promise<Br
   const sk = String(opts?.sessionKey || 'bench-stream-perf').trim()
   const deltaCount = opts?.deltaCount ?? BROWSER_PERF_BUDGETS.streamBenchDeltaCount
   const chunkChars = opts?.chunkChars ?? 12
+  void chunkChars
   const livePath = opts?.livePath ?? true
   const stress = !!opts?.stress
   const rate = opts?.chunksPerSec && opts.chunksPerSec > 0 ? opts.chunksPerSec : 0
@@ -319,7 +320,7 @@ export async function runBrowserStreamBench(opts?: BrowserBenchOpts): Promise<Br
     if (text.length % 47 === 0) text += '**md** '
     const publishText = tailChars > 0 && text.length > tailChars ? text.slice(-tailChars) : text
     publishAttempts += 1
-    publishLiveStream(sk, { text: publishText, streaming: true })
+    commitStreamSnapshot(sk, { text: publishText, streaming: true, seq: i })
     if (opts?.probeInputDuring && i > 0 && i % probeEvery === 0) {
       await probe.probeInput(document.getElementById('bench-probe-target'))
     }
@@ -374,7 +375,7 @@ export async function runBrowserRouteSwitchBench(opts?: {
   const startedAt = now()
   for (let i = 0; i < deltaCount; i += 1) {
     text += 'bg '
-    publishLiveStream(sk, { text, streaming: true })
+    commitStreamSnapshot(sk, { text, streaming: true, seq: i })
     if (i % 30 === 0) await probe.probeInput(document.body)
     if (i % 3 === 0) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
@@ -428,8 +429,8 @@ export async function runBrowserDualSessionSwitchBench(
       if (textA.length % 41 === 0) textA += '**md** '
       if (textB.length % 43 === 0) textB += '**md** '
       publishAttempts += 2
-      publishLiveStream(skA, { text: textA, streaming: true })
-      publishLiveStream(skB, { text: textB, streaming: true })
+      commitStreamSnapshot(skA, { text: textA, streaming: true, seq: i })
+      commitStreamSnapshot(skB, { text: textB, streaming: true, seq: i })
       if (probeDuring && i > 0 && i % 16 === 0) {
         await probe.probeInput(document.getElementById('bench-probe-target'))
       }

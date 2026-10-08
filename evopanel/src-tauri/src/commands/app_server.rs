@@ -126,29 +126,47 @@ fn handle_rpc_line(app: &AppHandle, line: &str) {
         Ok(v) => v,
         Err(_) => return,
     };
-    if let Some(id) = parsed.get("id").and_then(|v| v.as_u64()).or_else(|| {
-        parsed
-            .get("id")
-            .and_then(|v| v.as_i64())
-            .map(|n| n as u64)
-    }) {
-        if parsed.get("method").is_none() {
-            if let Ok(mut guard) = state().lock() {
-                if let Some(pending) = guard.pending.remove(&id) {
-                    if let Some(err) = parsed.get("error") {
-                        let msg = err
-                            .get("message")
-                            .and_then(|m| m.as_str())
-                            .unwrap_or("app-server error");
-                        let _ = pending.tx.send(Err(msg.to_string()));
-                    } else {
-                        let _ = pending
-                            .tx
-                            .send(Ok(parsed.get("result").cloned().unwrap_or(Value::Null)));
+    // `id` may be a JSON int or string. Coerce to u64; we use sequential u64 ids,
+    // but string ids are accepted so the Python side can use uuid-derived ids if
+    // it wants.
+    let id_opt: Option<u64> = parsed
+        .get("id")
+        .and_then(|v| v.as_u64())
+        .or_else(|| parsed.get("id").and_then(|v| v.as_i64()).map(|n| n.max(0) as u64))
+        .or_else(|| parsed.get("id").and_then(|v| v.as_str()).and_then(|s| s.parse::<u64>().ok()));
+
+    if let Some(id) = id_opt {
+        let method = parsed.get("method").and_then(|v| v.as_str()).map(|s| s.to_string());
+        match method {
+            None => {
+                // Response to a Tauri-initiated request.
+                if let Ok(mut guard) = state().lock() {
+                    if let Some(pending) = guard.pending.remove(&id) {
+                        if let Some(err) = parsed.get("error") {
+                            let msg = err
+                                .get("message")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("app-server error");
+                            let _ = pending.tx.send(Err(msg.to_string()));
+                        } else {
+                            let _ = pending
+                                .tx
+                                .send(Ok(parsed.get("result").cloned().unwrap_or(Value::Null)));
+                        }
                     }
                 }
+                return;
             }
-            return;
+            Some(method) => {
+                // Request FROM Python back into Tauri. Dispatch synchronously and
+                // write the response back over the same stdio line. This is the
+                // ZCode-style bidirectional RPC: the agent (Python) drives the
+                // host process (Tauri) through the same pipe the host uses to
+                // drive the agent.
+                let params = parsed.get("params").cloned().unwrap_or(Value::Null);
+                handle_python_to_tauri_request(app, id, &method, params);
+                return;
+            }
         }
     }
     let _ = app.emit(
@@ -158,6 +176,95 @@ fn handle_rpc_line(app: &AppHandle, line: &str) {
             "message": parsed,
         }),
     );
+}
+
+/// Dispatch a request that originated in Python back into a Tauri command and
+/// write the JSON-RPC response back to the gateway's stdin.  Synchronous so
+/// the gateway can `await` on a oneshot with no separate thread per call.
+fn handle_python_to_tauri_request(app: &AppHandle, id: u64, method: &str, params: Value) {
+    let outcome = dispatch_tauri_command_from_python(app, method, &params);
+    let response = match outcome {
+        Ok(value) => json!({ "id": id, "result": value }),
+        Err(msg) => json!({ "id": id, "error": { "code": -32000, "message": msg } }),
+    };
+    let line = response.to_string();
+    let writer = {
+        let guard = match state().lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        guard.write_tx.clone()
+    };
+    if let Some(tx) = writer {
+        if let Err(e) = tx.send(line) {
+            eprintln!("[app-server] python→tauri response write failed id={id}: {e}");
+        }
+    } else {
+        eprintln!("[app-server] python→tauri dropped (no writer) id={id} method={method}");
+    }
+}
+
+/// Look up a Tauri command by name and invoke it with the provided JSON params.
+/// Coerces the params Value into the typed arguments each command expects;
+/// each entry in `invoke` documents its own parameter object.
+fn dispatch_tauri_command_from_python(
+    app: &AppHandle,
+    method: &str,
+    params: &Value,
+) -> Result<Value, String> {
+    match method {
+        // ZCode parity: Python drives the panel's WebView2 CDP directly through
+        // this single Tauri command. No HTTP server, no port file, no Playwright.
+        "browser_cdp_command" => {
+            let thread_id = params
+                .get("thread_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "browser_cdp_command: thread_id required".to_string())?
+                .to_string();
+            let inner_method = params
+                .get("method")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "browser_cdp_command: method required".to_string())?
+                .to_string();
+            let params_json = params
+                .get("params_json")
+                .and_then(|v| v.as_str())
+                .unwrap_or("{}")
+                .to_string();
+            let value = crate::commands::browser_cdp::browser_cdp_command(
+                app.clone(),
+                thread_id,
+                inner_method,
+                params_json,
+            )?;
+            Ok(value)
+        }
+        "browser_cdp_subscribe" => {
+            let thread_id = params
+                .get("thread_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "browser_cdp_subscribe: thread_id required".to_string())?
+                .to_string();
+            let label = crate::commands::browser_cdp::browser_cdp_subscribe(
+                app.clone(),
+                thread_id,
+            )?;
+            Ok(json!(label))
+        }
+        "browser_cdp_status" => {
+            let thread_id = params
+                .get("thread_id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "browser_cdp_status: thread_id required".to_string())?
+                .to_string();
+            let value = crate::commands::browser_cdp::browser_cdp_status(
+                app.clone(),
+                thread_id,
+            )?;
+            Ok(value)
+        }
+        _ => Err(format!("unknown method: {method}")),
+    }
 }
 
 fn start_stdio_pump(app: AppHandle, stdin: ChildStdin, stdout: ChildStdout) -> Result<(), String> {

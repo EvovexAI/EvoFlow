@@ -61,8 +61,14 @@ export type MessageSegment =
     }
 
 /** 消息区一行（含流式伪行 _stream） */
+export type StreamRowState = 'streaming' | 'closed'
 export interface DisplayRow {
   role: 'user' | 'assistant' | 'system' | '_stream'
+  /**
+   * `_stream` / 流式期间的 assistant 行的渲染状态：`streaming` 显示光标 / 计时条，
+   * `closed` 显示终态 UI。replay 终态时由 buildStreamDisplayRow 写入。
+   */
+  state?: StreamRowState
   text?: string
   /** 模型推理/思考内容（用于在 AI 回复气泡内展示，可选；多轮时由 reasoningSegments 拼接） */
   reasoningPreview?: string | null

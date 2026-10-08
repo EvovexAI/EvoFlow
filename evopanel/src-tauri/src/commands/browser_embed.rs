@@ -26,6 +26,8 @@ use tauri::WebviewUrl;
 use super::browser_cdp;
 #[cfg(target_os = "windows")]
 pub use super::browser_cdp::CdpBrokerState;
+#[cfg(target_os = "windows")]
+use super::browser_cdp_server;
 
 /// Non-Windows builds have no WebView2 COM channel. The broker still compiles so
 /// the shared WebSocket plumbing stays honest, but nothing ever attaches to it.
@@ -112,6 +114,7 @@ pub struct BrowserEmbedInfo {
     pub embed: bool,
 }
 
+/// Sanitize a thread_id into a safe window label segment (no path separators).
 fn sanitize_thread_key(thread_id: &str) -> String {
     let raw = thread_id.trim();
     if raw.is_empty() {
@@ -133,7 +136,8 @@ fn sanitize_thread_key(thread_id: &str) -> String {
     }
 }
 
-fn webview_label_for_thread(thread_id: &str) -> String {
+/// Derive the WebView2 window label for a given thread.
+pub(crate) fn webview_label_for_thread(thread_id: &str) -> String {
     format!("browser-embed-{}", sanitize_thread_key(thread_id))
 }
 
@@ -833,6 +837,17 @@ pub async fn browser_embed_upsert(
     let base = start_broker(app.clone()).await?;
     let cdp_ws_url = format!("{base}/{label}");
     eprintln!("[browser-embed] cdp ready label={label} url={cdp_ws_url}");
+
+    // Start the lightweight HTTP CDP server so the Python backend can drive
+    // this WebView2 directly via httpx without going through Playwright's
+    // fragile WebSocket broker.  The server is idempotent: a second call is a
+    // no-op as long as the port file is still on disk.
+    match browser_cdp_server::ensure_http_server(app.clone()).await {
+        Ok(http_port) => eprintln!(
+            "[browser-embed] http cdp server up on 127.0.0.1:{http_port} label={label}"
+        ),
+        Err(e) => eprintln!("[browser-embed] http cdp server start FAILED: {e}"),
+    }
 
     // Read the location back out of the live webview. `window.location.assign`
     // returning Ok only proves the JS was dispatched, and every earlier log line

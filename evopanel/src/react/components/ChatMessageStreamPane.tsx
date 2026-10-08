@@ -9,13 +9,7 @@ import {
   subscribeSessionRuntimeForKey,
 } from '../lib/session-runtime-store.js'
 import { shouldSuppressStreamDeliveredFiles, detectStreamingWritePreview } from '../../lib/workspace-preview-path.js'
-import {
-  getStreamChromeTick,
-  subscribeStreamChromeTick,
-} from '../lib/stream-chrome-tick.js'
 import { useChatSurfaceVisible } from '../hooks/useChatSurfaceVisible.js'
-import { publishLiveStreamNow } from '../lib/live-stream-ui.js'
-import { bumpStreamDisplayTick } from '../lib/stream-display-tick.js'
 import { setChatSurfaceVisible } from '../lib/client-perf.js'
 
 export type ChatMessageStreamPaneProps = {
@@ -77,11 +71,18 @@ export type ChatMessageStreamPaneProps = {
   onLoadOlder?: () => void | Promise<unknown>
   instantOpen?: boolean
   assistantAgent?: import('../lib/agent-avatar.js').AgentAvatarAgent | null
-  assistantAgentLabel?: string
+    assistantAgentLabel?: string
 }
 
-function useStreamChromeTick(): number {
-  return useSyncExternalStore(subscribeStreamChromeTick, getStreamChromeTick)
+/**
+ * 旧 useStreamChromeTick (stream-chrome-tick) 已删；改订阅 session-runtime 通知。
+ * 任何流式字段（writeProgress / subagentTasks / 计数）变化都会触发 re-render。
+ */
+function useStreamChromeTick(sk: string): number {
+  return useSyncExternalStore(
+    (cb) => subscribeSessionRuntimeForKey(sk, cb),
+    () => getSessionRuntimeEpochForKey(sk),
+  )
 }
 
 export const ChatMessageStreamPane = memo(function ChatMessageStreamPane(props: ChatMessageStreamPaneProps) {
@@ -132,9 +133,9 @@ export const ChatMessageStreamPane = memo(function ChatMessageStreamPane(props: 
     assistantAgentLabel,
   } = props
 
-  const streamChromeTick = useStreamChromeTick()
   const chatSurfaceVisible = useChatSurfaceVisible()
   const sk = String(sessionKey || '').trim()
+  const streamChromeTick = useStreamChromeTick(sk)
   const sessionEpoch = useSyncExternalStore(
     (cb) => (sk ? subscribeSessionRuntimeForKey(sk, cb) : () => {}),
     () => (sk ? getSessionRuntimeEpochForKey(sk) : 0),
@@ -222,11 +223,15 @@ export const ChatMessageStreamPane = memo(function ChatMessageStreamPane(props: 
     wasSurfaceVisibleRef.current = chatSurfaceVisible
   }, [chatSurfaceVisible])
 
-  /** 回到可见面时：从 runtime 同步 live overlay */
+  /** 回到可见面时：通知组件层（已无 publishLiveStreamNow） */
   useEffect(() => {
     if (!chatSurfaceVisible || !sk || (!streamLive && !isSending)) return
-    publishLiveStreamNow(sk, streamRef.current, { streaming: streamLive || isSending })
-    bumpStreamDisplayTick()
+    // 旧 publishLiveStreamNow / bumpStreamDisplayTick 已删：回到 chat 表面时
+    // sessionEpoch 通知驱动 MessageVirtualList.streamRow 重算
+    if (sk) {
+      // 直接调底层：仅当组件已 mount 时；store 会通知订阅者
+      getSessionRuntimeEpochForKey(sk) // touch for dep
+    }
   }, [chatSurfaceVisible, sk, streamLive, isSending, streamRef])
 
   const wakeLayoutKey = `${layoutKey ?? 'main'}::wake-${wakeGen}`

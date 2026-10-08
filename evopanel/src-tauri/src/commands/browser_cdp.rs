@@ -25,7 +25,7 @@
 #![cfg(target_os = "windows")]
 
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc::RecvTimeoutError, Arc, Mutex};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -38,6 +38,9 @@ use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 // `Interface`/`Param` traits they need come from that crate rather than
 // `windows`, even though both are version 0.61.
 use windows_core::{PCWSTR, PWSTR};
+
+/// Label derivation shared with `browser_embed`.
+use crate::browser_embed::webview_label_for_thread;
 
 /// label -> sink for unsolicited protocol events.
 type EventSink = Arc<dyn Fn(&str) + Send + Sync>;
@@ -214,54 +217,68 @@ fn dispatch_on_webview(
     method: &str,
     params_json: &str,
 ) -> Result<String, String> {
-    let (tx, rx) = mpsc::channel::<Result<String, String>>();
-    // The COM callback must be `'static`, so capture an owned method name rather
-    // than borrowing the caller's `&str`.
     let method_name = method.to_string();
-    // Per `webview2-com`'s `ClosureArg` impls, the completed callback receives
-    // `HRESULT` already converted to `Result<()>` and the payload as `String`.
+    let params_json_owned = params_json.to_string();
+    let webview_owned = webview.clone();
+
+    // std::sync::mpsc::sync_channel: sender lives in `init`, receiver here.
+    // `rx.recv_timeout` is the last statement so the sender is dropped
+    // when the timeout fires — not before.  Previously a bare channel was
+    // dropped on function return, disconnecting the sender before the
+    // callback could use it.  Using sync_channel with buf=1 and keeping
+    // `tx` in scope until after recv_timeout ensures the sender outlives
+    // the pump.
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<String, String>>(1);
+    let tx_for_completed = tx;
+
+    let method_name_for_completed = method_name.clone();
     let completed: CompletedClosure<windows_core::HRESULT, PCWSTR> =
         Box::new(move |error_code, raw_json| {
-            match error_code {
-                Ok(()) => {
-                    let _ = tx.send(Ok(raw_json));
-                }
-                Err(err) => {
-                    let _ = tx.send(Err(format!("{method_name} failed: {err}")));
-                }
-            }
-            Ok(())
+            let outcome = match &error_code {
+                Ok(()) => Ok(raw_json),
+                Err(err) => Err(format!("{method_name_for_completed} failed: {err}")),
+            };
+            let _ = tx_for_completed.send(outcome);
+            error_code
         });
 
-    let method_arg = method.to_string();
-    let params_arg = params_json.to_string();
-    let webview_owned = webview.clone();
-    let init: Box<dyn FnOnce(_) -> webview2_com::Result<()>> = Box::new(move |handler| {
-        // WebView2's generated bindings take `&PCWSTR` (CopyType), so the
-        // strings must be materialised as CoTaskMem PWSTRs, not HSTRINGs.
-        let method_pw = CoTaskMemPWSTR::from(method_arg.as_str());
-        let params_pw = CoTaskMemPWSTR::from(params_arg.as_str());
-        unsafe {
-            webview_owned
-                .CallDevToolsProtocolMethod(
-                    *method_pw.as_ref().as_pcwstr(),
-                    *params_pw.as_ref().as_pcwstr(),
-                    &handler,
-                )
-                .map_err(webview2_com::Error::WindowsError)
-        }
-    });
+    let init: Box<dyn FnOnce(_) -> webview2_com::Result<()>> =
+        Box::new(move |handler| {
+            let method_pw = CoTaskMemPWSTR::from(method_name.as_str());
+            let params_pw = CoTaskMemPWSTR::from(params_json_owned.as_str());
+            unsafe {
+                webview_owned
+                    .CallDevToolsProtocolMethod(
+                        *method_pw.as_ref().as_pcwstr(),
+                        *params_pw.as_ref().as_pcwstr(),
+                        &handler,
+                    )
+                    .map_err(webview2_com::Error::WindowsError)
+            }
+        });
 
-    // Pumps the UI thread's message loop until the completion handler fires, so
-    // by the time this returns the channel already holds the payload.
+    // Pumps the UI thread message loop until `completed` fires, then returns.
     if let Err(err) =
         CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(init, completed)
     {
         return Err(format!("{method} wait failed: {err}"));
     }
 
-    rx.recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap_or_else(|e| Err(format!("{method} produced no payload: {e}")))
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(e)) => Err(e),
+        Err(RecvTimeoutError::Timeout) => {
+            Err(format!("{method} timed out waiting for CDP result"))
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            // Sender was dropped without sending — the COM call itself failed
+            // silently (e.g. WebView2 not initialised yet). Surface the error
+            // so the broker can reply with a CDP error frame instead of hanging.
+            Err(format!(
+                "{method} CDP channel disconnected before result (WebView2 may not be ready)"
+            ))
+        }
+    }
 }
 
 /// Register a receiver for every event in `FORWARDED_EVENTS`, routing payloads
@@ -387,12 +404,99 @@ fn event_receiver(
         .map_err(|e| format!("GetDevToolsProtocolEventReceiver failed: {e}"))
 }
 
+// -- Public Tauri commands (used by Python backend over HTTP invoke) ------------
+
+/// Call a single CDP method against the embedded browser's WebView2, returning
+/// the JSON result.  This is the "direct" path that replaces the WS broker:
+/// Python calls this over HTTP (browser_cdp_server) rather than over
+/// `playwright.chromium.connect_over_cdp(ws://127.0.0.1:…/devtools/browser/…)`.
+#[tauri::command]
+pub fn browser_cdp_command(
+    app: tauri::AppHandle,
+    thread_id: String,
+    method: String,
+    params_json: String,
+) -> Result<Value, String> {
+    let label = webview_label_for_thread(&thread_id);
+    let body = call_cdp(&app, &label, &method, &params_json)?;
+    serde_json::from_str(&body).map_err(|e| format!("CDP result parse failed: {e}"))
+}
+
+/// Return the HTTP port the CDP command server is listening on, starting it if
+/// needed.  Python reads this once per session (or from the well-known file).
+#[tauri::command]
+pub async fn browser_cdp_http_port(app: tauri::AppHandle) -> Result<u16, String> {
+    use crate::commands::browser_cdp_server::ensure_http_server;
+    ensure_http_server(app).await
+}
+
+/// Start the CDP event subscription for a thread's embedded browser.  Python's
+/// gateway SSE endpoint calls this once per thread; Tauri streams each CDP event
+/// as a JSON line until the `browser_cdp_unsubscribe` call arrives.
+#[tauri::command]
+pub fn browser_cdp_subscribe(
+    app: tauri::AppHandle,
+    thread_id: String,
+) -> Result<String, String> {
+    let label = webview_label_for_thread(&thread_id);
+    // Trigger event registration synchronously (re-registration is idempotent).
+    let cdp_state = app.state::<Arc<CdpBrokerState>>().inner().clone();
+    subscribe_events(&app, &label, cdp_state)?;
+    Ok(label)
+}
+
+/// Tear down the event subscription for a thread.  Called when the Python
+/// SSE stream ends (browser tab closed / thread switched).
+#[tauri::command]
+pub fn browser_cdp_unsubscribe(
+    app: tauri::AppHandle,
+    thread_id: String,
+) -> Result<(), String> {
+    let label = webview_label_for_thread(&thread_id);
+    let cdp_state = app.state::<Arc<CdpBrokerState>>().inner().clone();
+    cdp_state.clear(&label);
+    Ok(())
+}
+
+/// Check whether a thread has an active embedded browser and return its current
+/// URL + page title.  Used by Python to detect "browser not open" without
+/// sending a CDP command.
+#[tauri::command]
+pub fn browser_cdp_status(
+    app: tauri::AppHandle,
+    thread_id: String,
+) -> Result<Value, String> {
+    let label = webview_label_for_thread(&thread_id);
+
+    // Use CDP Runtime.evaluate instead of `win.eval()` — Tauri 2's eval is fire-and-forget
+    // and cannot return values.  CDP gives us {href, title, readyState} in one round-trip.
+    let eval_js = r#"JSON.stringify({href:location.href,title:document.title,readyState:document.readyState})"#;
+    let body = call_cdp(&app, &label, "Runtime.evaluate", &format!(r#"{{"expression":{}}}"#, serde_json::to_string(eval_js).map_err(|e| e.to_string())?))?;
+
+    let parsed: Value = serde_json::from_str(&body)
+        .map_err(|e| format!("CDP result parse failed: {e}"))?;
+
+    // Result wraps in a CDP EvaluateResponse: {result: {type, value}}
+    let result_obj = parsed.get("result").ok_or("CDP response missing 'result'")?;
+    let value_str = result_obj
+        .get("value")
+        .and_then(|v| v.as_str())
+        .ok_or("CDP result.value is not a string")?;
+
+    let state: Value = serde_json::from_str(value_str)
+        .map_err(|e| format!("browser state JSON parse failed: {e}"))?;
+
+    let href = state.get("href").and_then(|v| v.as_str()).unwrap_or("");
+    Ok(serde_json::json!({
+        "url": href,
+        "title": state.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+        "readyState": state.get("readyState").and_then(|v| v.as_str()).unwrap_or(""),
+        "label": label,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::HashSet;
-
-    /// Registering the same event name twice makes WebView2 hand out two
     /// receivers for it, so the callback fires twice and Playwright sees
     /// duplicated lifecycle events. `DOM.documentUpdated` was listed twice.
     #[test]

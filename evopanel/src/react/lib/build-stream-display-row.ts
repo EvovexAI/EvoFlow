@@ -1,5 +1,5 @@
-import type { MutableRefObject } from 'react'
-import type { DisplayRow, StreamState } from '../chat-types.js'
+import type { StreamState } from '../chat-types.js'
+import type { DisplayRow, MessageSegment } from '../chat-types.js'
 import type { AgUiTurnState } from './agui-turn-reducer.js'
 import { projectAgUiToStreamTurnFields, timelineWithOpenAgUiReasoning, timelineWithOpenAgUiAssistantText } from './agui-turn-reducer.js'
 import { normalizeAssistantSegmentTimelineOrder } from '../../lib/chat-normalize.js'
@@ -16,6 +16,49 @@ import {
 import { EMPTY_PRIOR_TURN_STRIP } from './session-runtime-store.js'
 import { SESSION_RUNNING_ACTIVITY_LABEL } from './resolve-live-stream-activity.js'
 import { logStreamCompareAgUiInternals } from './stream-compare-file-log.js'
+import {
+  liveStreamDisplayTail,
+  STREAM_PLAIN_DISPLAY_MAX_CHARS,
+  STREAM_REASONING_DISPLAY_MAX_CHARS,
+} from './markdown-stream-paint.js'
+
+export type StreamRowState = 'streaming' | 'closed'
+
+/**
+ * Tail-window the trailing open text + reasoning segment of a streaming row so
+ * React/Markdown DOM stay bounded. The full body still lives in aguiTurn/turn
+ * for tool-call, copy, finalize. Closed rows are never tailed (markdown renders
+ * the whole body).
+ *
+ * This replaces the old ``applyLiveStreamOverlay`` external store path.
+ */
+function tailWindowOpenSegments(
+  segments: MessageSegment[] | undefined,
+  state: StreamRowState,
+): MessageSegment[] | undefined {
+  if (!Array.isArray(segments) || !segments.length || state !== 'streaming') return segments
+  const out = segments.slice()
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    const seg = out[i]
+    if (!seg) continue
+    if (seg.kind === 'text') {
+      const tailed = liveStreamDisplayTail(String(seg.text || ''), STREAM_PLAIN_DISPLAY_MAX_CHARS)
+      if (tailed === seg.text) break
+      out[i] = { ...seg, text: tailed }
+      break
+    }
+    if (seg.kind === 'reasoning') {
+      const tailed = liveStreamDisplayTail(
+        String(seg.text || ''),
+        STREAM_REASONING_DISPLAY_MAX_CHARS,
+      )
+      if (tailed === seg.text) break
+      out[i] = { ...seg, text: tailed }
+      break
+    }
+  }
+  return out
+}
 
 function turnStateForStreamDisplay(s: StreamState) {
   if (s.aguiTurn) {
@@ -163,6 +206,13 @@ function readTextReasoningLens(s: StreamState): { textLen: number; reasoningLen:
   }
 }
 
+function resolveStreamRowState(s: StreamState): StreamRowState {
+  if (s.aguiTurn) return s.aguiTurn.finished ? 'closed' : 'streaming'
+  // Legacy path: agui absent means reducer already sealed at finalizeStreamTurn.
+  if (s.turn.timeline.length > 0 || s.turn.openText) return 'closed'
+  return 'streaming'
+}
+
 function finalizeStreamRow(
   s: StreamState,
   p: ReturnType<typeof isolateStreamProjection>,
@@ -187,10 +237,13 @@ function finalizeStreamRow(
   const liveToolIds = collectToolCallIdsFromToolList(p.tools)
   const st = filterSubagentTasksForToolIds(s.subagentTasks, liveToolIds)
   const tt = filterTerminalStreamsForToolIds(s.terminalStreams, liveToolIds)
-  const segments = p.segments
+  const state = resolveStreamRowState(s)
+  // 旧 applyLiveStreamOverlay 的职责：仅在 streaming 时把最后一段 text/reasoning 做 tail-windowing
+  const segments = tailWindowOpenSegments(p.segments, state)
   const runId = String(s.runId || '').trim() || undefined
   return {
     role: '_stream',
+    state,
     ...(runId ? { runId } : {}),
     text: p.text,
     reasoningPreview: p.reasoningPreview,
@@ -211,16 +264,22 @@ function finalizeStreamRow(
   }
 }
 
-/** Build the live `_stream` display row from the current in-memory stream turn only. */
+/**
+ * Build the live `_stream` display row from the current in-memory stream snapshot.
+ *
+ * Single source of truth: tail-windowing and ``state`` are computed here so the
+ * downstream ``MessageRow`` is a pure consumer. Cache key is structural+meta+lens
+ * — same key returns the same row reference (stable for React).
+ */
 export function buildStreamDisplayRow(
-  streamRef: MutableRefObject<StreamState>,
+  streamSnapshot: StreamState | null | undefined,
   liveTurnTokenStr: string,
   suppressStreamFiles: boolean,
   isSending: boolean,
   priorTurnStrip: PriorTurnStripBundle = EMPTY_PRIOR_TURN_STRIP,
   sessionKey?: string,
 ): DisplayRow | null {
-  const s = streamRef?.current
+  const s = streamSnapshot
   if (!s) return null
   const sk = structuralKey(s)
   const mk = metaKey(liveTurnTokenStr, suppressStreamFiles, isSending, priorTurnStrip)
@@ -260,6 +319,7 @@ export function buildStreamDisplayRow(
     )
     const row: DisplayRow = {
       role: '_stream',
+      state: 'streaming',
       ...(resolvedRunId ? { runId: resolvedRunId } : {}),
       text: placeholderFields.text,
       reasoningPreview: placeholderFields.reasoningPreview || undefined,
@@ -286,8 +346,43 @@ export function buildStreamDisplayRow(
     textLen >= cached.textLen &&
     reasoningLen >= cached.reasoningLen
   ) {
+    // 纯文本/纯推理增量：复用 cached.row，仅就地 mutate 文本类字段。
+    // 这样下游 React.memo 可以基于 row 引用相等跳过整树重渲染，避免每条 SSE
+    // delta 让 MessageRow/AssistantBody/工具列表整树重渲造成视觉抖动。
     const p = isolateStreamProjection(turnStateForStreamDisplay(s), priorTurnStrip)
-    const row = finalizeStreamRow(s, p, priorTurnStrip, liveTurnTokenStr, suppressStreamFiles, isSending)
+    const cleaned = sanitizeLiveStreamDisplayFields(
+      {
+        text: p.text,
+        reasoningPreview: p.reasoningPreview,
+        reasoningSegments: [...p.reasoningSegments],
+      },
+      priorTurnStrip,
+    )
+    const state = resolveStreamRowState(s)
+    const segments = tailWindowOpenSegments(p.segments, state)
+    const resolvedActivity =
+      String(p.systemActivity || '').trim() || (isSending ? SESSION_RUNNING_ACTIVITY_LABEL : null)
+    const liveToolIds = collectToolCallIdsFromToolList(p.tools)
+    const st = filterSubagentTasksForToolIds(s.subagentTasks, liveToolIds)
+    const tt = filterTerminalStreamsForToolIds(s.terminalStreams, liveToolIds)
+    const row = cached.row
+    row.text = cleaned.text
+    row.reasoningPreview = cleaned.reasoningPreview
+    row.reasoningSegments = cleaned.reasoningSegments
+    row.segments = segments
+    row.streamTailDedupeSegments = segments
+    row.tools = p.tools
+    row.streamTextPhase = p.streamTextPhase
+    row.systemActivity = resolvedActivity
+    row.images = p.images
+    row.videos = p.videos
+    row.audios = p.audios
+    row.files = suppressStreamFiles ? [] : p.files
+    if (st) row.subagentTasks = st
+    if (tt) row.terminalStreams = tt
+    if (s.aguiTurn) row.aguiTurn = s.aguiTurn
+    cached.textLen = textLen
+    cached.reasoningLen = reasoningLen
     if (sessionKey && row?.role === '_stream') {
       logStreamCompareAgUiInternals({
         sessionKey,
@@ -297,7 +392,6 @@ export function buildStreamDisplayRow(
         label: 'compacted+agui',
       })
     }
-    rowBuildCache.set(s, { structuralKey: sk, metaKey: mk, textLen, reasoningLen, row })
     return row
   }
 

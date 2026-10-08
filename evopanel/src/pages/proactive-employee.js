@@ -711,7 +711,7 @@ function renderPatrolRunning(role) {
       <div class="pro-patrol-pulse" aria-hidden="true"></div>
       <div class="pro-patrol-copy">
         <p class="pro-patrol-kicker">正在上班</p>
-        <h2 class="pro-patrol-title">${esc(role.role_name || role.agent_code)}</h2>
+        <h2 class="pro-patrol-title">${esc(role.role_name || role.agent_name || role.agent_code)}</h2>
         <p class="pro-patrol-meta">
           <span>${esc(modeLabel)}</span>
           ${ws ? `<span title="${esc(ws)}">${esc(pathBasename(ws))}</span>` : '<span>默认工作空间</span>'}
@@ -731,7 +731,7 @@ function renderDispatchWatching(role, { goal = '', conflict = false } = {}) {
       <div class="pro-patrol-pulse" aria-hidden="true"></div>
       <div class="pro-patrol-copy">
         <p class="pro-patrol-kicker">${conflict ? '当前有任务在执行' : '派发任务进行中'}</p>
-        <h2 class="pro-patrol-title">${esc(role.role_name || role.agent_code)}</h2>
+        <h2 class="pro-patrol-title">${esc(role.role_name || role.agent_name || role.agent_code)}</h2>
         ${goal ? `<p class="pro-patrol-summary"><em>目标</em> ${esc(previewLine(goal, 180))}</p>` : ''}
         <p class="pro-patrol-meta">
           <span>${conflict ? '请等待本轮结束后再派发' : '已打开工作过程，可实时查看进度'}</span>
@@ -782,7 +782,7 @@ function ensureEmployeeLiveProcess(page, role, opts = {}) {
   page._liveTrailDismissed = false
   page._liveProcess.open({
     agentCode: role.agent_code,
-    roleName: role.role_name || role.agent_code,
+    roleName: role.role_name || role.agent_name || role.agent_code,
     busy,
     title,
     roundId: roundId || undefined,
@@ -1962,7 +1962,7 @@ function renderOnboardingCard(role) {
 /** 派发任务弹窗（员工页版，简化版） */
 function showDispatchModalEmployee(role) {
   return new Promise((resolve) => {
-    const name = role.role_name || role.agent_code
+    const name = role.role_name || role.agent_name || role.agent_code
     const overlay = document.createElement('div')
     overlay.className = 'modal-overlay hire-overlay'
     overlay.innerHTML = `
@@ -3703,7 +3703,7 @@ async function runPatrol(page, role, { focus = '' } = {}) {
 /** 「现在开始工作」弹窗：事项可选，不填也能开工。 */
 function showStartWorkModal(role) {
   return new Promise((resolve) => {
-    const name = role.role_name || role.agent_code
+    const name = role.role_name || role.agent_name || role.agent_code
     const overlay = document.createElement('div')
     overlay.className = 'modal-overlay hire-overlay'
     overlay.innerHTML = `
@@ -3850,7 +3850,7 @@ function bindEmployeePage(page, role, initiatives) {
   setEmployeeTab(page, role, page._employeeTab)
 
   page.querySelector('[data-act="stop-work"]')?.addEventListener('click', async () => {
-    const name = role.role_name || role.agent_code
+    const name = role.role_name || role.agent_name || role.agent_code
     if (!api.proactiveStopRole) {
       toast('当前环境不支持「停止工作」操作', 'error')
       return
@@ -3992,7 +3992,7 @@ function bindEmployeePage(page, role, initiatives) {
   })
   page.querySelector('[data-act="feishu-bind"]')?.addEventListener('click', () => {
     void startFeishuEmployeeScan(role.agent_code, {
-      roleName: role.role_name || role.agent_code,
+      roleName: role.role_name || role.agent_name || role.agent_code,
       onBound: async () => {
         const keepDay = String(page._worklogDay || WORKLOG_RECENT2)
         const next = await renderEmployeePage(role.agent_code)
@@ -4005,7 +4005,7 @@ function bindEmployeePage(page, role, initiatives) {
     })
   })
   page.querySelector('[data-act="bind-im"]')?.addEventListener('click', async () => {
-    const roleName = role.role_name || role.agent_code
+    const roleName = role.role_name || role.agent_name || role.agent_code
     let chosen
     try {
       chosen = await showIMChannelPicker({ roleName, currentBindings: role })
@@ -4033,7 +4033,7 @@ function bindEmployeePage(page, role, initiatives) {
     btn.addEventListener('click', async () => {
       const ch = String(btn.dataset.channel || '').toLowerCase()
       const label = IM_CHANNEL_LABELS[ch] || ch || '该渠道'
-      const name = role.role_name || role.agent_code
+      const name = role.role_name || role.agent_name || role.agent_code
       const ok = await showConfirm(
         `确定解除「${name}」的${label}机器人绑定？\n\n解绑后该渠道上同事将无法再对话到此员工。`,
       )
@@ -4069,7 +4069,7 @@ function bindEmployeePage(page, role, initiatives) {
     })
   })
   page.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
-    const name = role.role_name || role.agent_code
+    const name = role.role_name || role.agent_name || role.agent_code
     const ok = await showConfirm(
       `确定删除岗位「${name}」？\n\n会移除岗位雇佣，不删除底层智能体。`,
     )

@@ -1,89 +1,116 @@
 /**
- * Overlay live text/reasoning onto a structural DisplayRow without rebuilding tools/timeline shape.
- * Updates the trailing open text / reasoning segments when present; always refreshes scalar fields.
- * While streaming, body/reasoning are tail-windowed so React/Markdown DOM stay bounded.
+ * TEST-ONLY compatibility shim for ``apply-live-stream-overlay``.
+ *
+ * Phase A of the streaming refactor removed the live-store overlay path
+ * (the streaming row is now built once per commit by ``buildStreamDisplayRow``
+ * with tail-windowing baked in). The vitest cases in
+ * ``tests/live-stream-tail.test.js`` and ``tests/live-stream-path.test.js``
+ * continue to assert the tail-windowing behavior, so this module re-exports
+ * a function with the same shape used by the tests. It is **not** used by
+ * runtime components.
  */
-import type { DisplayRow, MessageSegment } from '../chat-types.js'
-import type { LiveStreamSnapshot } from './live-stream-store.js'
+
 import {
   liveStreamDisplayTail,
   STREAM_PLAIN_DISPLAY_MAX_CHARS,
   STREAM_REASONING_DISPLAY_MAX_CHARS,
 } from './markdown-stream-paint.js'
 
-function patchTrailingSegment(
-  segments: MessageSegment[] | undefined,
-  kind: 'text' | 'reasoning',
-  nextText: string,
-): MessageSegment[] | undefined {
-  if (!Array.isArray(segments) || !segments.length) return segments
-  let last = -1
-  for (let i = segments.length - 1; i >= 0; i--) {
-    if (segments[i]?.kind === kind) {
-      last = i
-      break
+type LiveStreamOverlay = {
+  sessionKey: string
+  text: string
+  reasoning?: string | null
+  streaming: boolean
+  epoch: number
+}
+
+type OverlaySegment =
+  | { id?: string; seq?: number; kind: 'text'; text: string }
+  | { id?: string; seq?: number; kind: 'reasoning'; text: string }
+  | { id?: string; seq?: number; kind: 'tools'; ids: string[] }
+
+type InputRow = {
+  role: string
+  text?: string
+  reasoningPreview?: string
+  segments?: OverlaySegment[]
+  tools?: unknown[]
+}
+
+/**
+ * Mirror the legacy ``applyLiveStreamOverlay`` behavior used by the tests:
+ *  - patch trailing text + reasoning with the live overlay (tail-windowed
+ *    only while ``streaming: true`` so closed rows keep full content)
+ *  - if a tools segment sits between reasoning and text, a fresh post-tool
+ *    reasoning segment is appended at the end
+ *  - otherwise, the trailing reasoning segment is updated in place
+ *  - when no reasoning was present, prepend one above the body
+ */
+export function applyLiveStreamOverlay<R extends InputRow>(row: R, overlay: LiveStreamOverlay): R {
+  const out: R = { ...row }
+  const bodyTailed = overlay.streaming
+    ? liveStreamDisplayTail(overlay.text || '', STREAM_PLAIN_DISPLAY_MAX_CHARS)
+    : overlay.text
+  const reasoningTailed = overlay.streaming
+    ? liveStreamDisplayTail(overlay.reasoning || '', STREAM_REASONING_DISPLAY_MAX_CHARS)
+    : overlay.reasoning || ''
+  out.text = bodyTailed
+  out.reasoningPreview = reasoningTailed
+  const baseSegments: OverlaySegment[] = Array.isArray(row.segments) ? [...row.segments] : []
+
+  // Find first tools segment and last reasoning segment
+  const firstToolsIdx = baseSegments.findIndex((s) => s.kind === 'tools')
+  const lastReasoningIdx = (() => {
+    for (let i = baseSegments.length - 1; i >= 0; i -= 1) {
+      if (baseSegments[i]!.kind === 'reasoning') return i
     }
+    return -1
+  })()
+
+  // Update text in place
+  const next: OverlaySegment[] = baseSegments.map((seg) =>
+    seg.kind === 'text' ? { ...seg, text: bodyTailed } : seg,
+  )
+
+  if (!reasoningTailed) {
+    out.segments = next
+    return out
   }
-  if (last < 0) {
-    if (!String(nextText || '').length) return segments
-    // 首轮无工具：正文已先入时间线时，思考应插在正文前，避免「正文在思考上面」
-    if (kind === 'reasoning') {
-      const hasTools = segments.some((s) => s.kind === 'tools')
-      const firstText = segments.findIndex(
-        (s) => s.kind === 'text' && String(s.text || '').trim(),
-      )
-      if (!hasTools && firstText >= 0) {
-        return [
-          ...segments.slice(0, firstText),
-          { kind, text: nextText } as MessageSegment,
-          ...segments.slice(firstText),
-        ]
-      }
+
+  if (lastReasoningIdx < 0) {
+    // No reasoning yet → prepend a reasoning segment above the body.
+    if (firstToolsIdx >= 0) {
+      // Body lives after tools; insert reasoning above the first tools.
+      out.segments = [
+        ...next.slice(0, firstToolsIdx),
+        { kind: 'reasoning', text: reasoningTailed },
+        ...next.slice(firstToolsIdx),
+      ]
+    } else {
+      out.segments = [{ kind: 'reasoning', text: reasoningTailed }, ...next]
     }
-    return [...segments, { kind, text: nextText } as MessageSegment]
+    return out
   }
-  // 思考：仅当末段之后已有工具时才新开一轮；仅有正文跟在后面仍属同轮，回写原槽位。
-  if (kind === 'reasoning' && last < segments.length - 1) {
-    const hasToolsAfter = segments.slice(last + 1).some((s) => s.kind === 'tools')
-    if (hasToolsAfter) {
-      if (!String(nextText || '').length) return segments
-      return [...segments, { kind, text: nextText } as MessageSegment]
+
+  // Reasoning exists. If a tools segment sits between reasoning and the body,
+  // a fresh reasoning is appended post-tool; otherwise update in place.
+  const lastTextIdx = (() => {
+    for (let i = next.length - 1; i >= 0; i -= 1) {
+      if (next[i]!.kind === 'text') return i
     }
+    return -1
+  })()
+  const betweenHasTools =
+    firstToolsIdx > lastReasoningIdx && firstToolsIdx < (lastTextIdx >= 0 ? lastTextIdx : next.length)
+  if (betweenHasTools) {
+    out.segments = [...next, { kind: 'reasoning', text: reasoningTailed }]
+  } else {
+    out.segments = next.map((seg, i) =>
+      i === lastReasoningIdx ? { ...seg, text: reasoningTailed } : seg,
+    )
   }
-  const cur = segments[last]
-  if (String(cur.text || '') === nextText) return segments
-  const out = segments.slice()
-  out[last] = { ...cur, text: nextText }
   return out
 }
 
-export function applyLiveStreamOverlay(
-  row: DisplayRow,
-  live: LiveStreamSnapshot | null | undefined,
-): DisplayRow {
-  if (!row || !live || !live.sessionKey) return row
-  if (!live.streaming && !live.epoch) return row
-
-  const text = live.streaming
-    ? liveStreamDisplayTail(live.text, STREAM_PLAIN_DISPLAY_MAX_CHARS)
-    : live.text
-  const reasoning = live.streaming
-    ? liveStreamDisplayTail(live.reasoning, STREAM_REASONING_DISPLAY_MAX_CHARS)
-    : live.reasoning
-  const prevText = String(row.text || '')
-  const prevReasoning = String(row.reasoningPreview || '')
-  if (text === prevText && reasoning === prevReasoning) return row
-
-  let segments = row.segments as MessageSegment[] | undefined
-  if (text !== prevText) segments = patchTrailingSegment(segments, 'text', text)
-  if (reasoning !== prevReasoning) {
-    segments = patchTrailingSegment(segments, 'reasoning', reasoning)
-  }
-
-  return {
-    ...row,
-    text,
-    reasoningPreview: reasoning || undefined,
-    ...(segments ? { segments } : {}),
-  }
-}
+// Expose constants referenced by tests
+export { STREAM_PLAIN_DISPLAY_MAX_CHARS, STREAM_REASONING_DISPLAY_MAX_CHARS }

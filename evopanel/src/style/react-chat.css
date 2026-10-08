@@ -10735,13 +10735,13 @@ html.dark .react-chat-icon-attach-btn:hover:not(:disabled) {
 }
 
 .react-chat-icon-send-btn:not(:disabled) {
-  color: var(--accent, #2563eb);
+  color: #0a0a0a;
 }
 
 .react-chat-icon-send-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.14);
-  color: #2563eb;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12);
+  background: rgba(0, 0, 0, 0.07);
+  color: #0a0a0a;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 .react-chat-icon-stop-tts-btn {
@@ -10795,9 +10795,9 @@ html.dark .react-chat-icon-voice-btn:hover:not(:disabled):not(.react-chat-icon-v
 
 html[data-theme='dark'] .react-chat-icon-send-btn:hover:not(:disabled),
 html.dark .react-chat-icon-send-btn:hover:not(:disabled) {
-  background: rgba(96, 165, 250, 0.16);
-  color: #93c5fd;
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.14);
+  background: rgba(255, 255, 255, 0.12);
+  color: #e5e7eb;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 html[data-theme='dark'] .react-chat-icon-stop-btn:hover,
@@ -22389,6 +22389,367 @@ html[data-custom-bg='1'] .react-chat-main-col--home {
   box-sizing: border-box;
 }
 
+/* === Workspace file tree (kvft-*) — 对齐 ZCode 一体化布局 === */
+.kvft-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+  scrollbar-gutter: stable;
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc(100% - var(--tree-scroll-fade, 32px)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0,
+    #000 calc(100% - var(--tree-scroll-fade, 32px)),
+    transparent 100%
+  );
+}
+
+.kvft-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tree-row-gap, 6px);
+  height: var(--tree-row-h, 28px);
+  min-width: 0;
+  padding: 0 var(--tree-row-pad-x, 8px);
+  padding-left: calc(
+    var(--tree-indent-base, 8px) + var(--kvft-depth, 0) * var(--tree-indent-step, 12px)
+  );
+  border: 1px solid transparent;
+  border-radius: var(--tree-row-radius, 8px);
+  color: var(--tree-fg);
+  font-size: var(--tree-font-size, 13px);
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+}
+
+.kvft-row:hover {
+  background: var(--tree-bg-hover);
+}
+
+.kvft-row.is-focused {
+  background: var(--tree-bg-active);
+  border-color: var(--tree-border-selected, var(--accent, #635bff));
+}
+
+.kvft-row.is-selected,
+.kvft-row.is-previewing {
+  background: var(--tree-bg-selected);
+  border-color: var(--tree-border-selected, var(--accent, #635bff));
+  color: var(--tree-fg);
+}
+
+.kvft-row.is-attached .kvft-name-text {
+  color: var(--tree-fg);
+  font-weight: 500;
+}
+
+.kvft-caret {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--tree-icon-fg);
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.kvft-caret:hover {
+  color: var(--tree-icon-fg-dir);
+  background: var(--tree-bg-hover);
+}
+
+.kvft-caret svg.kv-icon--caret {
+  transition: transform 120ms ease-out;
+}
+
+/* KvTreeCaret 的两个 SVG path 不一致；统一用 CSS 旋转实现"展开"翻折 */
+.kvft-caret[aria-expanded="true"] svg.kv-icon--caret {
+  transform: rotate(90deg);
+}
+
+/* 兜底：如果 aria-expanded 没传过来，也用 .is-open 父级选择器 */
+.kvft-row.is-open > .kvft-caret svg.kv-icon--caret {
+  transform: rotate(90deg);
+}
+
+.kvft-caret--placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.kvft-name {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kvft-name > svg {
+  flex: 0 0 15px;
+  color: var(--tree-icon-fg-dir);
+}
+
+.kvft-row.is-open .kvft-name > svg {
+  color: var(--accent, #635bff);
+}
+
+.kvft-name-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kvft-name-sub {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: var(--tree-font-size-meta, 12px);
+  color: var(--tree-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+  vertical-align: bottom;
+}
+
+.kvft-meta {
+  flex: 0 0 auto;
+  font-size: var(--tree-font-size-meta, 12px);
+  color: var(--tree-fg-muted);
+}
+
+.kvft-attach {
+  flex: 0 0 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--accent, #635bff);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.kvft-empty {
+  padding: 8px 10px;
+  font-size: var(--tree-font-size-meta, 12px);
+  color: var(--tree-fg-muted);
+}
+
+.kvft-empty + .kvft-empty,
+.kvft-row + .kvft-empty {
+  margin-top: 4px;
+}
+
+/* 暗色微调：透明叠加在 token 上即可，token 自身已处理 */
+html[data-theme='dark'] .kvft-row.is-focused,
+html.dark .kvft-row.is-focused {
+  border-color: color-mix(in srgb, var(--accent, #635bff) 60%, transparent);
+}
+
+/* 最小化兜底：父容器让 kvft-scroll 拿到正确高度 */
+.react-chat-workspace-tree .kv-browse-body,
+.react-chat-workspace-tree.kv-folder-tree-host .kv-browse-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.react-chat-workspace-tree .kv-browse-tree.kvft-scroll {
+  flex: 1 1 auto;
+}
+
+/* 高度链：让 main 容器 → drawer → tree 撑开 */
+.react-chat-main-body,
+.react-chat-collab-exec-panel-body,
+.browser-panel-body,
+.react-chat-workspace-panel.is-tree-browse-mode,
+.react-chat-workspace-drawer,
+.react-chat-workspace-drawer-inner,
+.react-chat-workspace-tree-col,
+.react-chat-workspace-tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.react-chat-main-body          { min-height: 100%; }
+.react-chat-collab-exec-panel-body,
+.browser-panel-body,
+.react-chat-workspace-drawer-inner,
+.react-chat-workspace-tree-col,
+.react-chat-workspace-tree     { flex: 1 1 auto; }
+.react-chat-workspace-panel.is-tree-browse-mode { flex: 0 0 260px; }
+
+/* kv-browse-body 拿到 full 高度传给 kvft-scroll */
+.react-chat-workspace-tree .kv-browse-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.react-chat-workspace-tree .kv-browse-tree.kvft-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 工具栏/筛选条/操作按钮的最小化兜底 */
+.react-chat-workspace-tree .kv-browse-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 4px;
+}
+
+.react-chat-workspace-tree .kv-browse-filter {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border, #e6e8ec);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  color: var(--tree-fg);
+}
+
+.react-chat-workspace-tree .kv-browse-filter:focus-within {
+  border-color: var(--accent, #635bff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #635bff) 18%, transparent);
+}
+
+.react-chat-workspace-tree .kv-browse-filter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: inherit;
+}
+
+.react-chat-workspace-tree .kv-browse-filter__clear {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--tree-fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+
+.react-chat-workspace-tree .kv-browse-refresh,
+.react-chat-workspace-tree .kv-browse-action {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border, #e6e8ec);
+  background: var(--bg-primary, #fff);
+  color: var(--tree-fg-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.react-chat-workspace-tree .kv-browse-refresh:hover,
+.react-chat-workspace-tree .kv-browse-action:hover {
+  background: var(--tree-bg-hover);
+  color: var(--tree-fg);
+}
+
+.react-chat-workspace-tree .kv-browse-refresh:disabled,
+.react-chat-workspace-tree .kv-browse-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 状态行：路径 + 上级 + 提示 + watch 开关 */
+.react-chat-workspace-tree .kv-browse-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 6px 8px;
+  font-size: 12px;
+  color: var(--tree-fg-muted);
+}
+
+.react-chat-workspace-tree .kv-browse-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.react-chat-workspace-tree .kv-browse-meta-path {
+  font-weight: 500;
+  color: var(--tree-fg-subtle);
+}
+
+.react-chat-workspace-tree .kv-browse-meta-hint {
+  color: var(--tree-fg-muted);
+}
+
+/* 新建文件/文件夹行（inline input） */
+.react-chat-workspace-tree .kv-tree-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: var(--tree-row-h, 28px);
+  padding: 0 8px;
+  background: var(--tree-bg-active);
+  border: 1px solid var(--tree-border-selected, var(--accent, #635bff));
+  border-radius: var(--tree-row-radius, 8px);
+}
+
+.react-chat-workspace-tree .kv-tree-folder-head input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+}
+
 /* Keep expand carets visible on glass / translucent right rail */
 .react-chat-workspace-tree .kv-tree-expand {
   color: #64748b !important;
@@ -30268,7 +30629,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
 }
 
 /* ==========================================================================
-   Composer 发送/停止按钮 ZCode 对齐：圆形实心态
+   Composer 发送/停止按钮 ZCode 对齐：圆形实心态（黑色 bg-brand 风格）
    （!important + 双类特异性，压过 enterprise-workspace / sci-fi 主题覆盖）
    ========================================================================== */
 .react-chat-composer-toolbar .react-chat-icon-send-btn {
@@ -30278,14 +30639,14 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-chrome {
 }
 
 .react-chat-composer-toolbar .react-chat-icon-send-btn:not(:disabled) {
-  background: var(--accent, #635bff) !important;
+  background: #0a0a0a !important;
   color: #fff !important;
   box-shadow: none !important;
   transform: none !important;
 }
 
 .react-chat-composer-toolbar .react-chat-icon-send-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent, #635bff) 86%, #000) !important;
+  background: color-mix(in srgb, #0a0a0a 84%, #fff) !important;
   color: #fff !important;
   transform: none !important;
 }

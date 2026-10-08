@@ -6,15 +6,12 @@ import {
   useCallback,
   useMemo,
   useState,
-  useSyncExternalStore,
   type CSSProperties,
   type MutableRefObject,
   type RefObject,
 } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { resolveMessageRowIsStreaming } from '../lib/message-row-streaming.js'
-import { getLiveStreamSnapshot, subscribeLiveStream } from '../lib/live-stream-store.js'
-import { isLiveStreamPathEnabled } from '../lib/stream-live-path-toggle.js'
 import { MessageRow } from './MessageRow.js'
 import { TurnNavigatorRail } from './TurnNavigatorRail.js'
 import { EvoFlowHomeDashboard } from './EvoFlowHomeDashboard.js'
@@ -24,10 +21,6 @@ import { chatArtifactDisplayLabel } from '../lib/chat-artifact.js'
 import { FileText, Image, Video, Link, Globe, FileCode2, Database, Package } from 'lucide-react'
 import { buildStreamDisplayRow } from '../lib/build-stream-display-row.js'
 import { SESSION_RUNNING_ACTIVITY_LABEL } from '../lib/resolve-live-stream-activity.js'
-import {
-  getStreamDisplayTick,
-  subscribeStreamDisplayTick,
-} from '../lib/stream-display-tick.js'
 import { mergeAssistantRowWithStreamRow, assistantRowAcceptsStreamContinuation } from '../lib/merge-assistant-stream-row.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import {
@@ -657,11 +650,6 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   assistantAgent?: import('../lib/agent-avatar.js').AgentAvatarAgent | null
   assistantAgentLabel?: string
 }) {
-  const streamDisplayTick = useSyncExternalStore(
-    subscribeStreamDisplayTick,
-    getStreamDisplayTick,
-    getStreamDisplayTick,
-  )
   const parentRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const autoFollowRef = useRef(true)
@@ -829,17 +817,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   }, [withinGrace, graceTick])
   const streamActiveRef = useRef(streamActive)
   streamActiveRef.current = streamActive
-  const liveStreamPaintEpoch = useSyncExternalStore(
-    (cb) =>
-      isLiveStreamPathEnabled() && streamActive && sessionKeyForSend
-        ? subscribeLiveStream(sessionKeyForSend, cb)
-        : () => {},
-    () =>
-      isLiveStreamPathEnabled() && streamActive && sessionKeyForSend
-        ? getLiveStreamSnapshot(sessionKeyForSend).epoch
-        : 0,
-    () => 0,
-  )
+  // 旧 liveStreamPaintEpoch（live-stream-store epoch）已删除；新
+  // stream-snapshot-store 的通知由 ChatApp 推送的 streamRef.current 引用
+  // 变化 + SessionEpoch 联合驱动，见下方 streamRow 依赖。
   /** 上一帧 streamActive，用于检测 true→false 跳变并设置 post-stream 贴底窗口 */
   const prevStreamActiveRef = useRef(false)
   const liveActivityDockLabel =
@@ -886,16 +866,21 @@ export const MessageVirtualList = memo(function MessageVirtualList({
    * 用 ref 记住上一次非空的 row，在「streamActive && 当前帧建空但内容尚未提交」时复用。
    */
   const lastStreamRowRef = useRef<DisplayRow | null>(null)
-  const streamRow = useMemo(() => {
-    if (!showStreamSlot) {
+  const streamRow = useMemo(() => {    if (!showStreamSlot) {
       lastStreamRowRef.current = null
       return null
     }
     const built = buildStreamDisplayRow(
-      streamRef,
+      streamRef.current,
       liveTurnTokenStr,
       suppressStreamFiles,
-      isSending,
+      /**
+       * stableSending：构建 streamRow 时使用 streamActive（含 1200ms grace）
+       * 而非 props.isSending（selectedTurnBusy 会在 SSE delta 间隙瞬时归零）。
+       * 否则 useMemo 重算 → buildStreamDisplayRow 走 placeholder 路径 →
+       * 返回 null → _stream pin 闪一下不见 → 体感"loading 图标出现又消失"。
+       */
+      streamActive,
       streamPriorTurnStrip,
       sessionKeyForSend,
     )
@@ -949,9 +934,11 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     return null
   }, [
     showStreamSlot,
-    streamDisplayTick,
+    /**
+     * streamActive（含 1200ms grace）替代 props.isSending 作 deps，
+     * 让 streamRow 不在 selectedTurnBusy 短暂归零时重算。
+     */
     streamActive,
-    isSending,
     streamRef,
     liveTurnTokenStr,
     suppressStreamFiles,
@@ -1908,8 +1895,6 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     syncScrollToBottom()
     setShowNewMsgBtn(false)
   }, [
-    streamDisplayTick,
-    liveStreamPaintEpoch,
     streamRow,
     viewReady,
     streamActive,

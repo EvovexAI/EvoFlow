@@ -9,6 +9,9 @@ use commands::{
     app_server, assistant, backend, boot_cycle, browser_embed, config, gateway, logs, mcp_market,
     ui_extensions, update, voice_overlay,
 };
+/// Windows-only: expose WebView2 CDP commands directly to Python over HTTP invoke.
+#[cfg(target_os = "windows")]
+use commands::browser_cdp;
 use tauri::{Manager, WindowEvent};
 
 pub fn run() {
@@ -226,6 +229,17 @@ pub fn run() {
             assistant::read_clipboard_image,
             assistant::copy_image_to_clipboard,
             assistant::reveal_path_in_file_manager,
+            // 浏览器（EvoPanel WebView2 — Python 通过 Tauri invoke 直接控制，无需 WS broker）
+            #[cfg(target_os = "windows")]
+            browser_cdp::browser_cdp_command,
+            #[cfg(target_os = "windows")]
+            browser_cdp::browser_cdp_http_port,
+            #[cfg(target_os = "windows")]
+            browser_cdp::browser_cdp_subscribe,
+            #[cfg(target_os = "windows")]
+            browser_cdp::browser_cdp_unsubscribe,
+            #[cfg(target_os = "windows")]
+            browser_cdp::browser_cdp_status,
             // 前端热更新
             update::check_frontend_update,
             update::download_frontend_update,

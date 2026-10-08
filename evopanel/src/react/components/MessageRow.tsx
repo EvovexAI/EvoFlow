@@ -1,6 +1,5 @@
-import { useRef, useState, useLayoutEffect, useCallback, useEffect } from 'react'
+import { useRef, useState, useLayoutEffect, useCallback, useEffect, useMemo, memo } from 'react'
 import { ChevronDown, ChevronUp, Copy, Pencil } from 'lucide-react'
-import { useLiveStreamOverlayRow } from '../hooks/useLiveStreamOverlayRow.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 import { AnimatedTokenInline } from './AnimatedTokenDisplay.js'
 import { MessageMedia } from './MessageMedia.js'
@@ -557,7 +556,7 @@ function UserMessageInlineEditor({
 }
 
 /** 消息操作栏：ZCode MessageActions 同款，hover 时浮现；按钮使用 Lucide 图标 */
-function MessageActionBar({
+function MessageActionBarInner({
   role,
   text,
   isStreaming,
@@ -655,9 +654,17 @@ function MessageActionBar({
   )
 }
 
+/**
+ * props 引用稳定（text / onCopy / onEdit / isStreaming）时跳过整函数体重渲染。
+ * 避免了用户行/已封存 assistant 行在 SSE delta 期间跟随 MessageRow rerender
+ * 而触发不必要的重画——但 MessageActionBar 内部「复制成功」等 useState 状态仍
+ * 保留在 hook 作用域，rAF/React 19 下 memo 跳过整函数不会丢失状态。
+ */
+const MessageActionBar = memo(MessageActionBarInner)
+
 export function MessageRow({
   row,
-  isStreaming,
+  isStreaming: _isStreamingDeprecated,
   showToolTiming = false,
   suppressPlanExecPromptNoise = false,
   suppressExploringFold = false,
@@ -677,6 +684,10 @@ export function MessageRow({
   onFork,
 }: {
   row: DisplayRow
+  /**
+   * @deprecated ZCode v4 对齐后不再使用；保留只在调用方为非 streaming 路径时
+   * 兼容传 false（MessageVirtualList 已停传，由 row.state 单一来源决定）。
+   */
   isStreaming?: boolean
   showToolTiming?: boolean
   /** 下方面板已有计划条时，隐藏助手复述的「计划已落库/开始执行」类话术 */
@@ -714,15 +725,31 @@ export function MessageRow({
   assistantAgent?: AgentAvatarAgent | null
 }) {
   const bubbleRef = useRef<HTMLDivElement>(null)
-  const displayRow = useLiveStreamOverlayRow(row, sessionKey, !!isStreaming)
+  // 单一真相源：row 自身已经包含所有渲染所需信息（state / text / segments
+  // / reasoning），由 buildStreamDisplayRow 在 commit 时一次性投影完成。
+  // 旧 applyLiveStreamOverlay 二次 patch 已删除，避免 row 引用与新 live 值错位。
+  const displayRow = row
+  // row.state 是单一真相源；弃用 prop 仅保持向后兼容（默认 false）。
+  const isStreamingEffective = row.state === 'streaming' || (row.state === undefined && false)
+
   const [userEditing, setUserEditing] = useState(false)
 
+  /**
+   * 稳定回调：onFork 每次 MessageRow rerender 都新建 arrow 会让 MessageActionBar memo
+   * 失效；这里 memo 化，让非流式行（即 assistant ActionBar）props 引用保持稳定，
+   * 避免 SSE delta 期间 AssistantBody 子树被无效重画。
+   */
+  const forkHandler = useMemo(
+    () => (onFork ? () => onFork(String(displayRow.messageId || '').trim() || undefined) : undefined),
+    [onFork, displayRow.messageId],
+  )
+
   useLayoutEffect(() => {
-    if (!isStreaming) return
+    if (!isStreamingEffective) return
     const el = bubbleRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [isStreaming, displayRow.text, displayRow.reasoningPreview, displayRow.segments])
+  }, [isStreamingEffective, displayRow.text, displayRow.reasoningPreview, displayRow.segments])
 
   if (displayRow.role === 'user') {
     const fromText = String(displayRow.text || '')
@@ -795,7 +822,7 @@ export function MessageRow({
           <div className="msg-user-edit-bubble">
             <UserMessageInlineEditor
               initialText={userText}
-              initialImages={displayRow.images}
+              initialImages={displayRow.images as Array<{ mediaType: string; data?: string; url?: string }> | undefined}
               onCancel={() => setUserEditing(false)}
               onSubmit={async (nextText, images) => {
                 await onEdit?.(nextText, mid, images)
@@ -853,22 +880,22 @@ export function MessageRow({
     const hasTools = Array.isArray(displayRow.tools) && displayRow.tools.length > 0
     const hasFinalText = String(displayRow.text || '').trim().length > 0
     const assistantVariant =
-      isStreaming && (hasTools || !hasFinalText)
+      isStreamingEffective && (hasTools || !hasFinalText)
         ? 'running'
-        : !isStreaming && hasTools && hasFinalText
+        : !isStreamingEffective && hasTools && hasFinalText
           ? 'delivery'
           : 'normal'
     return (
       <article
         className={`msg msg-turn msg-turn--assistant msg-ai msg-turn--${assistantVariant}${
-          isStreaming ? ' msg-ai-streaming' : ''
+          isStreamingEffective ? ' msg-ai-streaming' : ''
         }`}
         data-assistant-variant={assistantVariant}
       >
         <div className="msg-bubble msg-turn-assistant-content" ref={bubbleRef}>
           <AssistantBody
             row={displayRow}
-            isStreaming={isStreaming}
+            isStreaming={isStreamingEffective}
             showToolTiming={showToolTiming}
             suppressPlanExecPromptNoise={suppressPlanExecPromptNoise}
             suppressExploringFold={suppressExploringFold}
@@ -890,38 +917,34 @@ export function MessageRow({
             files={displayRow.files}
             onOpenFile={onOpenFile}
           />
-          {!isStreaming
+          {!isStreamingEffective
             ? (() => {
                 const cites = extractEvoAssetCitations(String(displayRow.text || '')).entries
                 return cites.length ? <AssetCitationChips entries={cites} /> : null
               })()
             : null}
-          {!isStreaming ? <AssistantSelectionMenu containerRef={bubbleRef} /> : null}
+          {!isStreamingEffective ? <AssistantSelectionMenu containerRef={bubbleRef} /> : null}
         </div>
-        {(!isStreaming || displayRow.tokenStr) && (
+        {(!isStreamingEffective || displayRow.tokenStr) && (
           <div className="msg-meta msg-turn-assistant-meta">
             <div className="msg-assistant-actions">
-              {!isStreaming && displayRow.durationStr ? (
+              {!isStreamingEffective && displayRow.durationStr ? (
                 <span className="msg-duration">⏱ {displayRow.durationStr}</span>
               ) : null}
               {displayRow.tokenStr ? (
                 <>
-                  {!isStreaming && displayRow.durationStr ? <span className="meta-sep">·</span> : null}
-                  <AnimatedTokenInline tokenStr={displayRow.tokenStr} animate={!!isStreaming} />
+                  {!isStreamingEffective && displayRow.durationStr ? <span className="meta-sep">·</span> : null}
+                  <AnimatedTokenInline tokenStr={displayRow.tokenStr} animate={!!isStreamingEffective} />
                 </>
               ) : null}
             </div>
             <MessageActionBar
               role="assistant"
               text={String(displayRow.text || '')}
-              isStreaming={!!isStreaming}
+              isStreaming={isStreamingEffective}
               onCopy={onCopy}
               onRetry={onRetry}
-              onFork={
-                onFork
-                  ? () => onFork(String(displayRow.messageId || '').trim() || undefined)
-                  : undefined
-              }
+              onFork={forkHandler}
             />
           </div>
         )}

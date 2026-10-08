@@ -1,3 +1,17 @@
+/**
+ * Live-stream path toggle (no-store version).
+ *
+ * Replaces the original localStorage + listeners that toggled a runtime flag
+ * used by ``live-stream-ui``/``live-stream-store``. The refactor collapsed those
+ * into ``stream-snapshot-store`` + ``buildStreamDisplayRow``, so this file
+ * only keeps:
+ *  - the persisted enabled flag (read once on module load), and
+ *  - the React subscription hook used by perf/UI panels.
+ *
+ * Mutators (``setLiveStreamPathEnabled``) are kept for bench/scenario parity
+ * but no longer push to a live-stream channel.
+ */
+
 import { useSyncExternalStore } from 'react'
 
 const LS_KEY = 'evopanel_live_stream_path'
@@ -13,10 +27,6 @@ function readStored(): boolean | null {
   return null
 }
 
-/**
- * Phase 0：文本/思考走 LiveStream store + rAF，不 bump 整表 streamDisplayTick。
- * 默认开启；localStorage ``evopanel_live_stream_path=0`` 可回退旧路径。
- */
 let enabled = readStored() ?? true
 const listeners = new Set<() => void>()
 

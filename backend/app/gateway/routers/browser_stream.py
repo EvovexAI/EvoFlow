@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import threading
 import time
-
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -437,3 +439,122 @@ async def get_browser_live_frame(request: Request, thread_id: str) -> Response:
         content="browser-live-frame polling is disabled; use WebSocket stream or tool screenshots.",
         media_type="text/plain",
     )
+
+
+# -- Browser CDP via Rust (EvoPanel WebView2) -----------------------------------
+
+_PORT_FILE_LOCK = threading.Lock()
+_CACHED_PORT: dict[str, int] = {}
+
+
+def _read_browser_cdp_port() -> int | None:
+    """Read the CDP HTTP server port from the well-known file."""
+    evoflow_dir = os.path.expanduser("~/.evoflow")
+    port_file = os.path.join(evoflow_dir, "browser-cdp-http-port")
+    try:
+        with open(port_file) as f:
+            return int(f.read().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+async def _get_browser_cdp_url() -> str:
+    """Get or discover the CDP HTTP server base URL."""
+    with _PORT_FILE_LOCK:
+        cached = _CACHED_PORT.get("cdp")
+        if cached:
+            return f"http://127.0.0.1:{cached}"
+
+    port = await asyncio.to_thread(_read_browser_cdp_port)
+    if port:
+        with _PORT_FILE_LOCK:
+            _CACHED_PORT["cdp"] = port
+        return f"http://127.0.0.1:{port}"
+    return ""
+
+
+class _EmbedCommandBody(BaseModel):
+    """CDP command forwarded to the Rust WebView2 handler."""
+
+    method: str
+    params_json: str = "{}"
+
+
+class _EmbedCommandResponse(BaseModel):
+    ok: bool = True
+    result: dict[str, object] | None = None
+    error: str | None = None
+
+
+@router.post(
+    "/{thread_id}/browser-embed/command",
+    summary="Send a CDP command to the EvoPanel embedded browser (Rust WebView2)",
+)
+async def browser_embed_command(
+    request: Request,
+    thread_id: str,
+    body: _EmbedCommandBody,
+) -> _EmbedCommandResponse:
+    """Forward a CDP method call to the Rust WebView2 CDP handler via HTTP.
+
+    This path bypasses the Playwright WS broker entirely and gives the Python
+    browser engine direct control of the user's embedded WebView2 window — the same
+    architecture as ZCode's Electron `<webview>` + `debugger.attach()` pipeline.
+    """
+    require_thread_visible(request, thread_id)
+
+    base_url = await _get_browser_cdp_url()
+    if not base_url:
+        raise HTTPException(
+            status_code=503,
+            detail="EvoPanel CDP HTTP server not available (is the browser panel open?)",
+        )
+
+    url = f"{base_url}/browser-cdp/command?thread_id={thread_id}&method={body.method}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            resp = await client.post(url, content=body.params_json)
+        if resp.status_code != 200:
+            logger.warning(
+                "browser_embed_command HTTP %s thread=%s method=%s: %s",
+                resp.status_code, thread_id, body.method, resp.text[:200],
+            )
+            raise HTTPException(status_code=502, detail=f"CDP server error: {resp.text[:200]}")
+        return _EmbedCommandResponse.model_validate(resp.json())
+    except httpx.RequestError as exc:
+        logger.warning("browser_embed_command network error thread=%s method=%s: %s", thread_id, body.method, exc)
+        raise HTTPException(status_code=503, detail=f"CDP server unreachable: {exc}")
+
+
+@router.get(
+    "/{thread_id}/browser-embed/status",
+    summary="Check if the EvoPanel embedded browser is open and get its current URL",
+)
+async def browser_embed_status(request: Request, thread_id: str) -> dict[str, object]:
+    """Ask the Rust side whether a WebView2 window exists for this thread."""
+    require_thread_visible(request, thread_id)
+
+    base_url = await _get_browser_cdp_url()
+    if not base_url:
+        return {"ok": False, "available": False, "error": "CDP HTTP server not running"}
+
+    url = f"{base_url}/browser-cdp/status?thread_id={thread_id}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            resp = await client.get(url)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "ok": True,
+                "available": True,
+                "url": data.get("url", ""),
+                "title": data.get("title", ""),
+                "readyState": data.get("readyState", ""),
+                "label": data.get("label", ""),
+            }
+        elif resp.status_code == 500 and "not found" in resp.text.lower():
+            return {"ok": True, "available": False, "error": "no embedded browser for this thread"}
+        else:
+            return {"ok": False, "available": False, "error": resp.text[:200]}
+    except httpx.RequestError as exc:
+        return {"ok": False, "available": False, "error": str(exc)}

@@ -1093,8 +1093,20 @@ def _role_summary(role: ProactiveRole, *, busy_codes: set[str]) -> dict[str, Any
         system_front_desk = is_xiaomi_agent(code)
     except Exception:
         system_front_desk = False
+
+    # Pull agent_name for display fallback when role_name is empty.
+    agent_name = ""
+    try:
+        from evoflow.admin.agents import get_agent
+
+        agent_row = get_agent(code)
+        agent_name = str(agent_row.get("agent_name") or "")
+    except Exception:
+        agent_name = ""
+
     return {
         "agent_code": code,
+        "agent_name": agent_name,
         "role_name": role.role_name,
         "department": role.department,
         "status": role.status,

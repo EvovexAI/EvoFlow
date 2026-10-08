@@ -4,18 +4,15 @@
  * 为什么不把 terminalStreams 复制成 React state：
  * streamRef.terminalStreams 有多处清理点（切会话 / 换任务 / 终态收束），
  * 另开一份 state 必然漏清、留下幽灵终端行。这里沿用 ChatMessageStreamPane 的
- * 既成模式：ref 为唯一真相源，按 chrome tick 重算快照。
+ * 既成模式：ref 为唯一真相源，按 session-runtime 通知重算快照。
  *
  * 注意：mergeTerminalStreamEvent / mergeSubagentStreamEvent 都是「原地改对象」，
  * map 本身的引用永不变化，所以这里每次都重建新 map，不能用引用比较去重。
- *
- * chrome tick 已按 200~450ms 节流（见 lib/stream-chrome-tick.ts），
- * 因此这里不会因 terminal 高频 stdout 造成额外主线程压力。
  */
 
 import { useEffect, useState, type MutableRefObject } from 'react'
 import type { StreamState, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
-import { subscribeStreamChromeTick } from './stream-chrome-tick.js'
+import { subscribeStreamSnapshot } from './stream-snapshot-store.js'
 
 export type LiveProcessSnapshot = {
   terminalStreams: Record<string, TerminalStreamTask>
@@ -27,12 +24,14 @@ const EMPTY: LiveProcessSnapshot = { terminalStreams: {}, subagentTasks: {} }
 export function useLiveProcessSnapshot(
   streamRef: MutableRefObject<StreamState> | null | undefined,
   enabled: boolean,
+  sessionKey?: string,
 ): LiveProcessSnapshot {
   const [snapshot, setSnapshot] = useState<LiveProcessSnapshot>(EMPTY)
 
   useEffect(() => {
     if (!enabled || !streamRef) return
     let cancelled = false
+    const sk = String(sessionKey || '').trim()
 
     const read = () => {
       if (cancelled) return
@@ -45,12 +44,13 @@ export function useLiveProcessSnapshot(
     }
 
     read()
-    const unsubscribe = subscribeStreamChromeTick(read)
+    // 旧 stream-chrome-tick 已删：改为订阅 stream-snapshot-store
+    const unsubscribe = subscribeStreamSnapshot(sk, read)
     return () => {
       cancelled = true
       unsubscribe()
     }
-  }, [streamRef, enabled])
+  }, [streamRef, enabled, sessionKey])
 
   return snapshot
 }

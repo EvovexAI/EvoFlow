@@ -65,8 +65,14 @@ function parseJsonBlobFromToolResult(raw) {
 export function parseToolRowOutput(row) {
   if (!row || typeof row !== 'object') return null
   const t = /** @type {Record<string, unknown>} */ (row)
+  // maybeSlimToolOutputForUi 裁剪大 output 时把 output 置为 ''（保留 content + output_truncated）。
+  // ?? 不跳过空串，会误判"无 output"→ mergeToolRowPair 用 prev 老 output 覆盖新结果。
+  // 裁剪场景下跳过空 output，fallback 到 content（含完整结果）。
+  const skipEmptyOutput = t.output_truncated === true || t.outputTruncated === true
+  const outputVal =
+    skipEmptyOutput && String(t.output || '').trim() === '' ? undefined : t.output
   return parseJsonBlobFromToolResult(
-    t.output ??
+    outputVal ??
       t.output_text ??
       t.result ??
       t.content ??
@@ -268,7 +274,13 @@ function mergeToolRowPair(prev, next) {
   }
   const prevOut = parseToolRowOutput(prev)
   const nextOut = parseToolRowOutput(next)
-  if (!nextOut && prevOut) {
+  // next 是裁剪工具（output_truncated）时保留其截断标记，不用 prev 老 output 覆盖——
+  // 多轮工具交界处 buffer release 后老结果会顶掉新结果（content 含新结果，output 被回填为老值）。
+  const nextTruncated =
+    next != null &&
+    typeof next === 'object' &&
+    (next.output_truncated === true || next.outputTruncated === true)
+  if (!nextOut && prevOut && !nextTruncated) {
     if (prev.output != null) out.output = prev.output
     else if (prev.output_text != null) out.output = prev.output_text
   }

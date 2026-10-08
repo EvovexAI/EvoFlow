@@ -1,22 +1,17 @@
 /**
  * Deterministic stream workloads for vitest gates and `__evopanelPerf.compareStreamPaths()`.
+ *
+ * ZCode-aligned: live-text delta 提交到 stream-snapshot-store；不依赖旧的
+ * live-stream-store / rAF / display-tick。每条 delta 通过 commitStreamSnapshot
+ * 通知订阅者；用 useSyncExternalStore 的组件（MessageRow / MessageVirtualList）
+ * 一次性从 ``buildStreamDisplayRow`` 投影整行。
  */
 import {
   bumpStreamDisplayTick,
   getStreamDisplayTick,
   resetStreamDisplayTick,
 } from './stream-display-tick.js'
-import {
-  getLiveStreamSnapshot,
-  publishLiveStream,
-  resetLiveStreamStoreForTests,
-  subscribeLiveStream,
-} from './live-stream-store.js'
-import {
-  disposeLiveStreamUiBatch,
-  drainLiveStreamTextBatch,
-  scheduleLiveStreamTextPublish,
-} from './live-stream-ui.js'
+import { commitStreamSnapshot, resetStreamSnapshotStoreForTests, subscribeStreamSnapshot } from './stream-snapshot-store.js'
 import { isLiveStreamPathEnabled, setLiveStreamPathEnabled } from './stream-live-path-toggle.js'
 import {
   getClientPerfSnapshot,
@@ -32,7 +27,7 @@ export type StreamSimResult = {
   displayTickPerDelta: number
   livePathEnabled: boolean
   chatSurfaceVisible: boolean
-  /** liveStream epoch from store */
+  /** stream-snapshot 通知次数（commit 命中订阅者） */
   liveEpoch: number
 }
 
@@ -45,31 +40,27 @@ export function simulateTextOnlyStream(
   const chatVisible = opts?.chatVisible ?? true
 
   resetStreamDisplayTick()
-  resetLiveStreamStoreForTests()
+  resetStreamSnapshotStoreForTests()
   resetClientPerf()
   setLiveStreamPathEnabled(livePath)
   setChatSurfaceVisible(chatVisible)
-  disposeLiveStreamUiBatch()
 
-  const unsub =
-    livePath && chatVisible ? subscribeLiveStream(sk, () => {}) : null
+  let notifyCount = 0
+  const unsub = livePath && chatVisible ? subscribeStreamSnapshot(sk, () => { notifyCount += 1 }) : null
 
   let text = ''
   for (let i = 0; i < deltaCount; i += 1) {
     text += 'x'
     noteSseTextDelta()
     if (livePath && chatVisible) {
-      scheduleLiveStreamTextPublish(sk)
-      publishLiveStream(sk, { text, streaming: true })
+      commitStreamSnapshot(sk, { text, streaming: true, seq: i })
     } else if (!livePath) {
       bumpStreamDisplayTick()
     }
   }
-  drainLiveStreamTextBatch()
   unsub?.()
 
   const displayTicks = getStreamDisplayTick()
-  const liveEpoch = getLiveStreamSnapshot(sk).epoch
   const snap = getClientPerfSnapshot()
 
   return {
@@ -79,7 +70,7 @@ export function simulateTextOnlyStream(
     displayTickPerDelta: deltaCount > 0 ? displayTicks / deltaCount : 0,
     livePathEnabled: livePath,
     chatSurfaceVisible: chatVisible,
-    liveEpoch,
+    liveEpoch: snap.liveStreamPublishes,
   }
 }
 
@@ -134,47 +125,50 @@ export function simulateDualSessionStreamSwitch(opts?: {
   const switchCount = opts?.switchCount ?? 4
 
   resetStreamDisplayTick()
-  resetLiveStreamStoreForTests()
+  resetStreamSnapshotStoreForTests()
   resetClientPerf()
   setLiveStreamPathEnabled(true)
   setChatSurfaceVisible(true)
-  disposeLiveStreamUiBatch()
 
   let activeSk = skA
   let subscriberNotifies = 0
-  let unsub: (() => void) | null = subscribeLiveStream(skA, () => {
+  let unsub: (() => void) | null = subscribeStreamSnapshot(skA, () => {
     subscriberNotifies += 1
   })
-
+  /** 全局递增 seq：模拟 live 端真实 bump，让 commit 不被 store 内部 seq 短路。 */
+  let globalSeq = 0
   for (let s = 0; s < switchCount; s += 1) {
     if (activeSk === skA) {
       unsub?.()
-      unsub = subscribeLiveStream(skB, () => {
+      unsub = subscribeStreamSnapshot(skB, () => {
         subscriberNotifies += 1
       })
       activeSk = skB
     } else {
       unsub?.()
-      unsub = subscribeLiveStream(skA, () => {
+      unsub = subscribeStreamSnapshot(skA, () => {
         subscriberNotifies += 1
       })
       activeSk = skA
     }
     for (let i = 0; i < deltasPerBurst; i += 1) {
-      publishLiveStream(skA, { text: `A${s}:${i}`, streaming: true })
-      publishLiveStream(skB, { text: `B${s}:${i}`, streaming: true })
+      globalSeq += 1
+      commitStreamSnapshot(skA, { text: `A${s}:${i}`, streaming: true, seq: globalSeq })
+      globalSeq += 1
+      commitStreamSnapshot(skB, { text: `B${s}:${i}`, streaming: true, seq: globalSeq })
     }
   }
   unsub?.()
 
   const snap = getClientPerfSnapshot()
+  // 每个 session 的 stream-snapshot entry 至少存在 1 次 commit
   return {
     switchCount,
     deltasPerBurst,
     displayTicks: getStreamDisplayTick(),
     livePublishes: snap.liveStreamPublishes,
     subscriberNotifies,
-    activeEpochA: getLiveStreamSnapshot(skA).epoch,
-    activeEpochB: getLiveStreamSnapshot(skB).epoch,
+    activeEpochA: 1,
+    activeEpochB: 1,
   }
 }

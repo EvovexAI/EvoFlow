@@ -149,6 +149,7 @@ export default defineConfig({
       'tests/permission-tier.test.js',
       'tests/chat-host-route-toggle.test.js',
       'tests/shell-session-select-defer.test.js',
+      'tests/stream-snapshot-store.test.js',
     ],
   },
 })

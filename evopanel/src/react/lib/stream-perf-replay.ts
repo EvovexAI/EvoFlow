@@ -7,19 +7,8 @@ import {
   getStreamDisplayTick,
   resetStreamDisplayTick,
 } from './stream-display-tick.js'
-import {
-  getLiveStreamSnapshot,
-  publishLiveStream,
-  resetLiveStreamStoreForTests,
-} from './live-stream-store.js'
-import {
-  disposeLiveStreamUiBatch,
-  drainLiveStreamTextBatch,
-  isAgUiLiveTextEvent,
-  isStreamTurnLiveTextEvent,
-  prepareLiveStreamStructuralUpdate,
-  scheduleLiveStreamTextPublish,
-} from './live-stream-ui.js'
+import { isAgUiLiveTextEvent, isStreamTurnLiveTextEvent } from './agui-live-routes.js'
+import { commitStreamSnapshot, resetStreamSnapshotStoreForTests } from './stream-snapshot-store.js'
 import { setLiveStreamPathEnabled } from './stream-live-path-toggle.js'
 import {
   getClientPerfSnapshot,
@@ -59,21 +48,34 @@ function applyTextDelta(
   }
 }
 
-function routeEvent(sessionKey: string, type: string, livePath: boolean, text: { body: string; reasoning: string }): 'live' | 'structural' | 'skip' {
+function routeEvent(
+  sessionKey: string,
+  type: string,
+  livePath: boolean,
+  text: { body: string; reasoning: string },
+  seq: number,
+): 'live' | 'structural' | 'skip' {
   if (LIFECYCLE.has(type)) return 'skip'
   if (isLiveTextEvent(type)) {
-    if (livePath && scheduleLiveStreamTextPublish(sessionKey)) {
-      publishLiveStream(sessionKey, {
+    if (livePath) {
+      commitStreamSnapshot(sessionKey, {
         text: text.body,
         reasoning: text.reasoning,
         streaming: true,
+        seq,
       })
       return 'live'
     }
     bumpStreamDisplayTick()
     return 'live'
   }
-  prepareLiveStreamStructuralUpdate(sessionKey)
+  // structural：旧 prepareLiveStreamStructuralUpdate 已删
+  commitStreamSnapshot(sessionKey, {
+    text: text.body,
+    reasoning: text.reasoning,
+    streaming: true,
+    seq,
+  })
   bumpStreamDisplayTick()
   return 'structural'
 }
@@ -86,11 +88,10 @@ export function replayStreamEvents(
   const sk = String(opts?.sessionKey || 'perf-replay').trim()
 
   resetStreamDisplayTick()
-  resetLiveStreamStoreForTests()
+  resetStreamSnapshotStoreForTests()
   resetClientPerf()
   setLiveStreamPathEnabled(livePath)
   setChatSurfaceVisible(opts?.chatVisible ?? true)
-  disposeLiveStreamUiBatch()
 
   const text = { body: '', reasoning: '' }
   let textDeltaCount = 0
@@ -103,11 +104,10 @@ export function replayStreamEvents(
       textDeltaCount += 1
       applyTextDelta(ev, text)
     }
-    const route = routeEvent(sk, type, livePath, text)
+    const route = routeEvent(sk, type, livePath, text, textDeltaCount)
     if (route === 'structural') structuralCount += 1
   }
 
-  drainLiveStreamTextBatch()
   const displayTicks = getStreamDisplayTick()
   const snap = getClientPerfSnapshot()
 
@@ -117,15 +117,15 @@ export function replayStreamEvents(
     structuralCount,
     displayTicks,
     livePublishes: snap.liveStreamPublishes,
-    liveEpoch: getLiveStreamSnapshot(sk).epoch,
+    liveEpoch: snap.liveStreamPublishes,
     displayTickPerTextDelta: textDeltaCount > 0 ? displayTicks / textDeltaCount : 0,
     livePathEnabled: livePath,
   }
 }
 
 /** Reasonix-style deterministic filler stream (shape only, no real content). */
-export function generateTextDeltaEvents(charCount: number, chunkChars = 12): Array<{ type: string; delta: string }> {
-  const events: Array<{ type: string; delta: string }> = [
+export function generateTextDeltaEvents(charCount: number, chunkChars = 12): Array<{ type: string; delta?: string }> {
+  const events: Array<{ type: string; delta?: string }> = [
     { type: 'RUN_STARTED' },
     { type: 'TEXT_MESSAGE_START' },
   ]
@@ -146,8 +146,8 @@ export function generateReasoningThenAnswerEvents(
   reasoningChars: number,
   answerChars: number,
   chunkChars = 12,
-): Array<{ type: string; delta: string }> {
-  const events: Array<{ type: string; delta: string }> = [{ type: 'RUN_STARTED' }]
+): Array<{ type: string; delta?: string }> {
+  const events: Array<{ type: string; delta?: string }> = [{ type: 'RUN_STARTED' }]
   const emit = (kind: 'reasoning' | 'text', target: number) => {
     if (target <= 0) return
     if (kind === 'reasoning') {
@@ -181,10 +181,10 @@ export function generateReasoningThenAnswerEvents(
 export function generateMultiToolRoundEvents(
   rounds: number,
   opts?: { textCharsPerRound?: number; chunkChars?: number },
-): Array<{ type: string; delta?: string; toolCallId?: string; toolCallName?: string }> {
+): Array<{ type: string; delta?: string; toolCallId?: string; toolCallName?: string; messageId?: string; content?: string }> {
   const textChars = opts?.textCharsPerRound ?? 48
   const chunkChars = opts?.chunkChars ?? 12
-  const events: Array<{ type: string; delta?: string; toolCallId?: string; toolCallName?: string }> =
+  const events: Array<{ type: string; delta?: string; toolCallId?: string; toolCallName?: string; messageId?: string; content?: string }> =
     [{ type: 'RUN_STARTED' }]
 
   for (let r = 0; r < rounds; r += 1) {

@@ -415,11 +415,29 @@ html[data-theme='dark'] .sidebar-logo img {
   overflow: hidden;
 }
 
-/* 智能体员工：铺满主内容区，避免左右大留白 */
+/* 智能体员工：铺满主内容区，避免左右大留白；
+   顶层 .page 同时作为窗口滚动容器（避免 #content overflow:hidden 锁死） */
 #content > .page.proactive-page {
   max-width: none;
   width: 100%;
   margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+/* 智能体员工详情/事项页（继承 proactive-page 的滚动容器） */
+#content > .page.proactive-page.pro-employee-page,
+#content > .page.proactive-page.pro-item-page,
+#content > .page.proactive-page.pro-work-item-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 工作过程完整页 */
@@ -496,18 +514,31 @@ html[data-theme='dark'] .sidebar-logo img {
   box-sizing: border-box;
 }
 
-/* 应用中心列表：宽屏铺满，避免右侧大留白 */
+/* 应用中心列表：宽屏铺满，避免右侧大留白；
+   顶层 .page 同时作为窗口滚动容器（避免 #content overflow:hidden 锁死） */
 #content > .page.apps-page {
   max-width: none;
   width: 100%;
   margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
-/* 智能体中心：同宽铺满 */
+/* 智能体中心：同宽铺满；顶层 .page 同时作为窗口滚动容器 */
 #content > .page.expert-page {
   max-width: none;
   width: 100%;
   margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
 }
 
 .page {

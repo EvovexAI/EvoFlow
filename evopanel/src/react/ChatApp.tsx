@@ -406,20 +406,8 @@ import {
 import { parseStreamBlockWire, enforceSegmentDisplayOrder, type StreamBlockWire } from './lib/content-blocks.js'
 import { createStreamBumpScheduler } from './lib/stream-bump-scheduler.js'
 import { resolveStreamBumpMinIntervalMs, STREAM_BUMP_INTERVAL_MS, STREAM_REASONING_BUMP_INTERVAL_MS } from './lib/stream-bump-interval.js'
-import { bumpStreamDisplayTick } from './lib/stream-display-tick.js'
-import { bumpStreamChromeTick } from './lib/stream-chrome-tick.js'
 import { isStreamThrottleEnabled } from './lib/stream-throttle-toggle.js'
-import {
-  endLiveStreamSession,
-  isAgUiLiveTextEvent,
-  isStreamTurnLiveTextEvent,
-  prepareLiveStreamStructuralUpdate,
-  publishLiveStreamNow,
-  scheduleLiveStreamTextPublish,
-  drainLiveStreamTextBatch,
-  disposeLiveStreamUiBatch,
-} from './lib/live-stream-ui.js'
-import { deleteLiveStream, pruneLiveStreams } from './lib/live-stream-store.js'
+import { isAgUiLiveTextEvent, isStreamTurnLiveTextEvent } from './lib/agui-live-routes.js'
 import {
   endClientPerfTurn,
   getChatSurfaceVisible,
@@ -483,6 +471,7 @@ import {
   EMPTY_PRIOR_TURN_STRIP as EMPTY_RT_PRIOR_STRIP,
   type SessionRuntime,
 } from './lib/session-runtime-store.js'
+import { commitStreamSnapshot, pruneStreamSnapshots } from './lib/stream-snapshot-store.js'
 import { rowHasVisibleContent } from './lib/display-row-content.js'
 import {
   syncStreamMediaAssetsFromTools,
@@ -1612,6 +1601,17 @@ export default function ChatApp() {
     return String(wsClient.getSessionThreadId(sk) || '').trim()
   }, [selectedSessionKey, sessions])
   const streamRef = useRef<StreamState>(emptyStream())
+  /**
+   * stream-snapshot-store seq 计数器：每次 commit 都递增，让 React 端
+   * ``useStreamSnapshotSeq`` 能感知 mutable streamRef 内部 mutation。
+   * 切换会话或清空时复 0。
+   */
+  const streamSeqRef = useRef(0)
+  /**
+   * streamRef.current 当前绑定的会话 key。流式 bump / session 通知以此为准，
+   * 替代旧的 streamDisplayTick (跨 session 通知)。
+   */
+  const streamRefKeyRef = useRef('')
   /** 每会话 rows/stream 真相源；切换只 mount，不 clone / 不全量 reload 覆盖 */
   const executingListEpoch = useSyncExternalStore(
     subscribeExecutingListRuntime,
@@ -2018,11 +2018,13 @@ export default function ChatApp() {
         const liveRows = runId
           ? markResumeAnchorAssistantIncomplete([...rt.rows], runId)
           : [...rt.rows]
-        setRows(liveRows)
-        publishLiveStreamNow(sk, rt.stream, { streaming: true })
+        // 等价于当前 rows 时复用 prev 引用，避免 SSE delta 期间 baseHistoryItems 反复重算。
+        setRows((prev) => (displayRowsEquivalent(prev, liveRows) ? prev : liveRows))
+        // 旧 publishLiveStreamNow 已删：resume 时由 buildStreamDisplayRow 直接读 rt.stream
       }
     } else {
       streamRef.current = emptyStream()
+      streamRefKeyRef.current = ''
       seenRunIdsRef.current = new Set()
       activeChatRunIdRef.current = null
     }
@@ -3829,6 +3831,8 @@ export default function ChatApp() {
   const onCoalescedStreamBumpRef = useRef<() => void>(() => {})
 
   const bumpStreamChromeThrottled = useCallback(() => {
+    const sk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
+    if (!sk) return
     streamChromeBumpPendingRef.current = true
     const minInterval = isChatOverlayDeferActive()
       ? STREAM_OVERLAY_DEFER_CHROME_MS
@@ -3839,7 +3843,7 @@ export default function ChatApp() {
     if (elapsed >= minInterval) {
       streamChromeBumpPendingRef.current = false
       streamChromeLastBumpRef.current = Date.now()
-      bumpStreamChromeTick()
+      bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
       return
     }
     if (streamChromeBumpTimerRef.current) return
@@ -3848,12 +3852,13 @@ export default function ChatApp() {
       if (!streamChromeBumpPendingRef.current) return
       streamChromeBumpPendingRef.current = false
       streamChromeLastBumpRef.current = Date.now()
-      bumpStreamChromeTick()
+      bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
     }, minInterval - elapsed)
   }, [])
 
   const onCoalescedStreamBump = useCallback(() => {
-    bumpStreamDisplayTick()
+    const sk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
+    if (sk) bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
     bumpStreamChromeThrottled()
   }, [bumpStreamChromeThrottled])
   onCoalescedStreamBumpRef.current = onCoalescedStreamBump
@@ -3919,7 +3924,7 @@ export default function ChatApp() {
     workerFileBumpSchedulerRef.current?.dispose()
     reasoningBumpSchedulerRef.current?.dispose()
     bgRuntimeNotifySchedulerRef.current?.dispose()
-    disposeLiveStreamUiBatch()
+    // 旧 disposeLiveStreamUiBatch 已删：rAF batch 不存在了
     if (streamChromeBumpTimerRef.current) {
       clearTimeout(streamChromeBumpTimerRef.current)
       streamChromeBumpTimerRef.current = 0
@@ -4001,7 +4006,7 @@ export default function ChatApp() {
       const sk = String(selectedSessionKey || '').trim()
       const dbOnly = Boolean(opt?.dbOnly)
       if (dbOnly && sk) {
-        endLiveStreamSession(sk)
+        // 旧 endLiveStreamSession 已删：live-stream-store 没了
         resetSessionLiveStreamDisplay(sk, streamRef)
         deleteLiveRunSnapshotBestEffort(sk)
         markSessionResumeCatchupReplay(sk, false)
@@ -7027,11 +7032,9 @@ export default function ChatApp() {
     if (opts?.immediate) {
       streamBumpSchedulerRef.current?.cancelPending?.()
       reasoningBumpSchedulerRef.current?.cancelPending?.()
-      // MessageVirtualList rebuilds the live `_stream` row from streamDisplayTick
-      // (not ChatApp streamTick). Skipping the display tick freezes write progress /
-      // tool-row labels even though streamRef already has the latest `_writeProgress`.
-      bumpStreamDisplayTick()
-      bumpStreamChromeThrottled()
+      // 流式写进度 / tool 标签更新：沿 session-runtime 通知（替代旧 streamDisplayTick）。
+      const targetSk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
+      if (targetSk) bumpSessionRuntimeNotifyForKey(targetSk, { immediate: true })
       return
     }
     const throttleFloor = isStreamThrottleEnabled()
@@ -7065,8 +7068,9 @@ export default function ChatApp() {
     if (opts?.immediate) {
       reasoningBumpSchedulerRef.current?.cancelPending?.()
       streamBumpSchedulerRef.current?.cancelPending?.()
-      bumpStreamDisplayTick()
-      bumpStreamChromeThrottled()
+      // 写进度 / tool 标签更新：会话级通知驱动 MessageVirtualList 重算
+      const targetSk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
+      if (targetSk) bumpSessionRuntimeNotifyForKey(targetSk, { immediate: true })
       return
     }
     reasoningBumpSchedulerRef.current?.schedule(opts)
@@ -7083,24 +7087,32 @@ export default function ChatApp() {
       if (!sk) return
       const skipLiveUi =
         chatStreamBgApplyRef.current || !chatSurfaceVisibleRef.current
+      // 整块替换 + 递增 seq：作为「事实存储」，下游 React 端由 session-runtime
+      // notify（scheduleBump 触发）单链路到达，避免双路通知造成每条 SSE delta
+      // 触发两次 React rerender，从而消除 MessageVirtualList / MessageRow 闪烁。
+      streamSeqRef.current += 1
+      commitStreamSnapshot(sk, stream, { seq: streamSeqRef.current })
       if (opts.liveTextOnly) {
         if (skipLiveUi) return
-        if (opts.immediate) {
-          drainLiveStreamTextBatch()
-          publishLiveStreamNow(sk, stream, { streaming: true })
-          return
-        }
-        if (scheduleLiveStreamTextPublish(sk)) return
-        if (opts.reasoning) scheduleReasoningBump(opts.immediate ? { immediate: true } : undefined)
-        else scheduleBump(opts.immediate ? { immediate: true } : undefined)
+        // 纯文本/纯推理增量：永远走 coalesced 节流，不立即触发。
+        // createStreamBumpScheduler 内 setTimeout(0) → scheduleLater → 等待
+        // minInterval (= STREAM_BUMP_INTERVAL_MS 200ms / 80ms reasoning) 合并
+        // 高频 SSE delta；多条 delta 在一帧内只引发一次 React rerender。
+        if (opts.reasoning) scheduleReasoningBump()
+        else scheduleBump()
+        return
+      }
+      // structural 变化：新 tool / 新 image / 新 segment 出现。
+      // 走 coalesced 路径按需立即或合并，保证视觉但避免每条都全量重渲染。
+      if (opts.immediate) {
+        scheduleBump({ immediate: true })
         return
       }
       if (skipLiveUi) {
-        scheduleBump(opts.immediate ? { immediate: true } : undefined)
+        scheduleBump()
         return
       }
-      prepareLiveStreamStructuralUpdate(sk, stream)
-      scheduleBump(opts.immediate ? { immediate: true } : undefined)
+      scheduleBump()
     },
     [scheduleBump, scheduleReasoningBump],
   )
@@ -7637,7 +7649,7 @@ export default function ChatApp() {
           for (const k of allKeys) {
             removeSessionFromList(k)
             clearSessionRuntime(k)
-            deleteLiveStream(k)
+            // 旧 deleteLiveStream 已删：live-stream-store 没了
             seenArtifactsRef.current.delete(k)
           }
         }
@@ -7647,6 +7659,7 @@ export default function ChatApp() {
           setSelectedSessionKey('')
           setNewChatButtonActive(true)
           streamRef.current = emptyStream()
+          streamRefKeyRef.current = ''
           seenRunIdsRef.current = new Set()
           rowsRef.current = []
           setRows([])
@@ -9236,7 +9249,9 @@ export default function ChatApp() {
         }
 
         if (!isBackgroundThreadState && turnBusyForSession(activeSk)) {
-          bumpStreamDisplayTick()
+          // 旧 bumpStreamDisplayTick 已删：会话级通知已驱动 streamRow 重算
+          const sk = String(streamRefKeyRef.current || sessionRef.current || activeSk || '').trim()
+          if (sk) bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
         }
 
         if (newTitle) {
@@ -9466,6 +9481,7 @@ export default function ChatApp() {
         (turnBusyForSession(targetSk) || isTurnBusy(rt))
       ) {
         streamRef.current = S
+        streamRefKeyRef.current = targetSk
       }
 
       if (runId && rtIsStoppedRun(rt, runId) && state !== 'aborted') {
@@ -10242,10 +10258,32 @@ export default function ChatApp() {
             // 把已完成的工具（如 read）立刻并进 incomplete 气泡，避免下一轮 delete
             // 待审批 final 时只带上 delete、把上一轮步骤冲掉。
             applyRowsUpdate((rows) => {
-              const idx = findFirstAssistantAfterRealUser(rows)
+              // 找 lastRealUser 之后的最后一个 assistant 行（与 MessageVirtualList
+              // continuationTargetIndex 一致）。原来用 findFirstAssistantAfterRealUser 找第一个，
+              // 多 assistant 行时与 continuationTargetIndex（最后一个）错位：第一个非 incomplete →
+              // return rows 不更新，最后一个保持终态 → streamContinuesAssistant=false →
+              // streamRow 不合并 → 新轮次工具不显示。
+              let lastRealUser = -1
+              for (let i = rows.length - 1; i >= 0; i--) {
+                if (
+                  rows[i]?.role === 'user' &&
+                  !isHiddenToolApprovalUserMessage(String(rows[i].text || ''))
+                ) {
+                  lastRealUser = i
+                  break
+                }
+              }
+              if (lastRealUser < 0) return rows
+              let idx = -1
+              for (let i = rows.length - 1; i > lastRealUser; i--) {
+                if (rows[i]?.role === 'assistant') {
+                  idx = i
+                  break
+                }
+              }
               if (idx < 0) return rows
               const row = rows[idx]
-              if (row?.role !== 'assistant' || row.incompleteStream !== true) return rows
+              if (row?.role !== 'assistant') return rows
               const patch: DisplayRow = {
                 role: 'assistant',
                 text: String(sealed.text || ''),
@@ -10813,7 +10851,7 @@ export default function ChatApp() {
       }
 
       if (state === 'final') {
-        endLiveStreamSession(targetSk)
+        // 旧 endLiveStreamSession 已删：live-stream-store 没了
         endClientPerfTurn(String(runId || rt.activeChatRunId || targetSk))
         markRunSealing(rt)
         dispatchSessionTurnEvent(targetSk, { type: 'SEALING' })
@@ -11158,7 +11196,7 @@ export default function ChatApp() {
             (payload as { displaySegments: unknown[] }).displaySegments.length > 0
           )
             ? buildStreamDisplayRow(
-                { current: S },
+                S,
                 tokenStr,
                 stripFileCardsAfterWrite,
                 true,
@@ -13504,6 +13542,7 @@ export default function ChatApp() {
     const noActiveSession = !activeSk
     if (isCurrentSession || noActiveSession) {
       streamRef.current = rtSend.stream
+      streamRefKeyRef.current = sessionKey
       // 如果当前没有活跃会话但我们正在发送消息，立即同步 sessionRef 到目标会话
       // 这确保后续流事件能正确路由
       if (noActiveSession) {
@@ -13760,6 +13799,7 @@ export default function ChatApp() {
         clearSessionExecutionStateForEnded(sessionKey)
         if (String(sessionRef.current || '').trim() === sessionKey) {
           streamRef.current = rtSend.stream
+          streamRefKeyRef.current = sessionKey
           setRows([...preSendRows])
           setSessions((prev) => patchSessionListRunEnded(prev, sessionKey, { terminalStatus: 'fail' }))
           setLiveTurnAssistantRunId(null)
@@ -14456,6 +14496,7 @@ export default function ChatApp() {
 
   function resetChatSurfaceForNewDraft() {
     streamRef.current = emptyStream()
+    streamRefKeyRef.current = ''
     setLiveTurnAssistantRunId(null)
     rowsRef.current = []
     setRows([])
@@ -14696,7 +14737,7 @@ export default function ChatApp() {
       // 侧栏先去掉条目（含搜索缓存），避免 refresh 合并草稿时从 prev 粘回（agent:*:new-*）
       removeSessionFromList(targetKey)
       clearSessionRuntime(targetKey)
-      deleteLiveStream(targetKey)
+      // 旧 deleteLiveStream 已删：live-stream-store 没了
       seenArtifactsRef.current.delete(targetKey)
       setMoreMenuKey((mk) => (mk === targetKey ? null : mk))
 
@@ -14705,6 +14746,7 @@ export default function ChatApp() {
         setSelectedSessionKey('')
         setNewChatButtonActive(true)
         streamRef.current = emptyStream()
+        streamRefKeyRef.current = ''
         seenRunIdsRef.current = new Set()
         rowsRef.current = []
         setRows([])
@@ -14741,7 +14783,8 @@ export default function ChatApp() {
     const active = String(selectedSessionKey || sessionRef.current || '').trim()
     if (active) keep.add(active)
     pruneSessionRuntimes(keep)
-    pruneLiveStreams(keep)
+    // 等价旧 pruneLiveStreams：用 stream-snapshot-store 的 prune 接口
+    pruneStreamSnapshots(keep)
     for (const sk of [...seenArtifactsRef.current.keys()]) {
       if (!keep.has(sk)) seenArtifactsRef.current.delete(sk)
     }

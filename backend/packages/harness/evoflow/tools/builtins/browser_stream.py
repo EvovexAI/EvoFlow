@@ -131,15 +131,13 @@ def invalidate_browser_stream_cache(thread_id: str) -> None:
 
 
 def _engine_stream_port(thread_id: str) -> int | None:
-    """In-process engine screencast port (preferred; no subprocess)."""
-    try:
-        from evoflow.tools.builtins.browser_engine import browser_engine_enabled, get_browser_engine
+    """In-process engine screencast port (preferred; no subprocess).
 
-        if not browser_engine_enabled():
-            return None
-        return get_browser_engine().stream_port(thread_id)
-    except Exception:
-        return None
+    ZCode parity: there is no separate screencast — the user looks at the
+    panel's WebView2 directly. This helper stays for legacy callers but always
+    returns ``None`` because the engine no longer owns a screencast server.
+    """
+    return None
 
 
 def restart_browser_stream(thread_id: str) -> int | None:
@@ -211,11 +209,11 @@ def ensure_browser_stream_port(thread_id: str) -> int | None:
 
 
 def _engine_screencast_active(thread_id: str) -> bool:
-    """True when the in-process Playwright engine owns the live browser for this thread.
+    """True when the in-process engine owns a live browser for this thread.
 
-    The engine's persistent Chromium (per-thread profile) is what the agent and the
-    side-panel screencast both drive. It is *not* a separate desktop Chrome the
-    user has to find — EvoPanel is the host UI for that browser.
+    ZCode parity: there is no separate screencast and no persistent Chromium.
+    The user looks at the panel's WebView2 directly; ``has_session`` only
+    tracks whether the agent has ref state for this thread.
     """
     try:
         from evoflow.tools.builtins.browser_engine import browser_engine_enabled, get_browser_engine

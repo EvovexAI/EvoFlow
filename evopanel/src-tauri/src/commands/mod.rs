@@ -10,6 +10,8 @@ pub mod boot_cycle;
 pub mod browser_embed;
 #[cfg(target_os = "windows")]
 pub mod browser_cdp;
+#[cfg(target_os = "windows")]
+pub mod browser_cdp_server;
 pub mod config;
 pub mod ui_extensions;
 pub mod gateway;
