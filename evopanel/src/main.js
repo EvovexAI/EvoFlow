@@ -637,6 +637,91 @@ async function ensureChatAppMounted() {
 }
 
 /**
+ * v3.5: 读 `localStorage.evoflowV4Shell` 决定 boot 时是否进 zcode 桌面新版。
+ * 切到新版 = shell-aside.js 的"切到新版"按钮写 '1' + reload;切回老版 =
+ * EvoFlowV4HeaderToggle 删 key + reload。默认 '0' / 没设 = 老版,符合
+ * 用户"默认还是老版"的要求。
+ */
+function isV4ShellEnabled() {
+  try {
+    return window.localStorage.getItem('evoflowV4Shell') === '1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * v3.5: 把 `<V4ShellRoot>` 挂到 `<main id="content">`,独占主列,完全替代
+ * 老版 ChatApp。原本 `#chat-persistent-host` 隐藏,`<main id="content">`
+ * 显示(老版是 ChatApp 挂到 persistent-host 里 hide 掉,content 装别的页面
+ * —— 新版反一反:persistent-host 不挂,content 装 V4ShellRoot)。
+ *
+ * V4ShellRoot 内部自带完整的 provider 栈(Lucide / Tooltip / Service /
+ * Platform / Store / TabStore / DiffsWorker / CodingPlanUpgradeDialog /
+ * ZCodeIntl) + EvoFlowApp(zcode App.tsx 适配版),用户看到的就是 zcode
+ * 桌面 UI 全套 —— 不再是"老版 ChatApp 中间嵌 v4"那种割裂感。
+ *
+ * sessionId 暂传 null(v4 草稿态);EvoFlow 当前无 workspace 概念,
+ * workspacePath 传 const EMPTY_WORKSPACE_PATH 占位。后续 v3.6+ 接
+ * EvoFlow 真实 sessions list 注入 V4ShellRoot。
+ */
+const EVOFLOW_V4_WORKSPACE_PATH = '/evoflow/main'
+let _v4ReactRoot = null
+let _v4ContainerEl = null
+
+async function mountV4ShellToContent() {
+  const content = document.getElementById('content')
+  if (!content) return
+  // 隐藏 chat-persistent-host 防止 ChatApp 单例被意外 mount
+  const host = document.getElementById('chat-persistent-host')
+  if (host) {
+    host.hidden = true
+    host.style.display = 'none'
+  }
+  bootMark('mountV4ShellToContent begin')
+  try {
+    const { createRoot } = await import('react-dom/client')
+    const React = await import('react')
+    const { V4ShellRoot } = await import('./react/v4shell/V4ShellRoot.tsx')
+
+    // 已挂则不重复
+    if (_v4ReactRoot && _v4ContainerEl?.isConnected && _v4ContainerEl.parentElement === content) {
+      return
+    }
+    if (_v4ReactRoot) {
+      try {
+        _v4ReactRoot.unmount()
+      } catch {
+        /* ignore */
+      }
+      _v4ReactRoot = null
+      _v4ContainerEl = null
+    }
+    _v4ContainerEl = document.createElement('div')
+    _v4ContainerEl.id = 'v4-shell-host'
+    _v4ContainerEl.style.height = '100%'
+    content.replaceChildren(_v4ContainerEl)
+    _v4ReactRoot = createRoot(_v4ContainerEl)
+    _v4ReactRoot.render(
+      React.createElement(V4ShellRoot, {
+        workspacePath: EVOFLOW_V4_WORKSPACE_PATH,
+        sessionId: null,
+        onSelectSession: () => {
+          /* v3.5: EvoFlow 旧侧栏 selectedSessionKey 桥 —— 当前 v4 shell
+             模式完全替代老版 ChatApp,旧侧栏已不渲染,这里 noop 即可。
+             后续 v3.6 接 sessions 列表时,改为切 activeTaskId 时
+             通知上层路由 / 弹层。 */
+        },
+      }),
+    )
+    bootMark('mountV4ShellToContent done')
+  } catch (e) {
+    bootMark('mountV4ShellToContent failed', { error: String(e?.message || e) })
+    console.warn('[boot] mountV4ShellToContent failed', e)
+  }
+}
+
+/**
  * 在 document.body 顶层注入一个 vanilla DOM 服务健康 banner。
  *
  * 设计动机：ChatApp 是按需懒加载（用户在非聊天路由时根本不 mount），
@@ -829,8 +914,18 @@ async function boot() {
     } catch (e) {
       console.warn('[boot] initMobileTabbar failed', e)
     }
-    // 侧栏 Portal 依赖 ChatApp 单例；须在 router 渲染 /chat 之前挂载，避免双实例各写一份列表
-    await ensureChatAppMounted()
+    // v3.5: 当 `localStorage.evoflowV4Shell === '1'` 时,跳过 ChatApp 单例挂载,
+    // 改挂 V4ShellRoot 到 <main id="content">。整个主列都是 zcode 桌面新版,
+    // 不再是"老版 ChatApp 中间嵌 v4"。切回老版 = localStorage.removeItem +
+    // location.reload() → 重新走 boot(),`localStorage.evoflowV4Shell` 不等于
+    // '1' → 老 ChatApp 单例正常挂载。
+    const v4AtBoot = isV4ShellEnabled()
+    if (v4AtBoot) {
+      await mountV4ShellToContent()
+    } else {
+      // 侧栏 Portal 依赖 ChatApp 单例；须在 router 渲染 /chat 之前挂载，避免双实例各写一份列表
+      await ensureChatAppMounted()
+    }
     try {
       const { installClientPerfHook } = await import('./react/lib/client-perf-hook.js')
       installClientPerfHook()
@@ -862,9 +957,24 @@ async function boot() {
 
   // 全屏开场层见 index.html #boot-splash，由 router 首屏渲染后再淡出移除
 
-  const mainCol = document.getElementById('main-col')
+    const mainCol = document.getElementById('main-col')
   if (!authOnlyBoot && mainCol) {
-    // 移动端顶栏（汉堡菜单 + 标题）
+    // v3.5: v4 shell 模式 = 隐藏左侧主导航(shell-aside)和 <main id="content">
+    // 上方的 update-banner / gw-banner 等老版 banner —— 让 zcode 桌面 UI
+    // 独占整个 <div id="app"> 容器,实现"切到新版 = 整个客户端都是新版"。
+    // BETA 横条 + 回到旧版按钮(由 EvoFlowV4HeaderToggle 提供)独立浮在
+    // 屏幕顶部,不依赖 #main-col。
+    if (v4AtBoot) {
+      const appShellAside = document.getElementById('app-shell-aside')
+      if (appShellAside) appShellAside.style.display = 'none'
+      const updateBanner = document.getElementById('update-banner')
+      if (updateBanner) updateBanner.style.display = 'none'
+      const gwBanner = document.getElementById('gw-banner')
+      if (gwBanner) gwBanner.style.display = 'none'
+      bootMark('v4 shell mode: shell-aside + banners hidden')
+      // v4 模式不建 mobile-topbar(老版 mobile 顶栏),zcode 自带顶栏
+      return
+    }
     const topbar = document.createElement('div')
     topbar.className = 'mobile-topbar'
     topbar.id = 'mobile-topbar'
