@@ -49,6 +49,16 @@ const assistantBodyCache = new WeakMap<DisplayRow, AssistantBodyCacheEntry>()
 const turnStartMsByRunKey = new Map<string, number>()
 
 function rememberTurnStartMs(key: string, ms: number) {
+  // v5.7 修复：tool call 期间 displaySegments/_uiStartedAtMs 可能引入"新时间戳"，
+  //   覆盖了真实回合开始 → 折叠头「工作中」会从 8 秒跳回 0 秒。
+  //   改为：只在第一次设定时锁定，不再被后续"更晚"或"更早"的时间戳覆盖。
+  //   真正的回合开始 = 第一次看到该 runId 时的最早时间戳。
+  const existing = turnStartMsByRunKey.get(key)
+  if (existing != null) {
+    // 已锁定：仅当新值显著更早（>1s）才更新（防御性，正常不会发生）
+    if (ms < existing - 1000) turnStartMsByRunKey.set(key, ms)
+    return
+  }
   turnStartMsByRunKey.set(key, ms)
   if (turnStartMsByRunKey.size > 200) {
     const oldest = turnStartMsByRunKey.keys().next().value
@@ -178,7 +188,13 @@ import { resolveUserMessageSkillDisplay } from '../lib/preferred-skill-display.j
 import type { DisplayRow, MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { AssistantBubbleSlotView } from './AssistantBubbleSlotView.js'
 import { HoverBubble } from './HoverBubble.js'
-import { logStreamCompareUiDisplay, logStreamCompareUiChunks, logStreamCompareUiStreamTools } from '../lib/stream-compare-file-log.js'
+import {
+  logStreamCompareUiDisplay,
+  logStreamCompareUiChunks,
+  logStreamCompareUiStreamTools,
+  logStreamCompareDomView,
+} from '../lib/stream-compare-file-log.js'
+import { buildAssistantDomView } from '../lib/assistant-dom-view.js'
 import { logStreamSourceConsoleIfChanged } from '../stream-console-mirror.js'
 import {
   formatTurnDurationStr,
@@ -1188,10 +1204,17 @@ function AssistantBody({
   const turnStartMs = turnStartCandidateMs ?? turnStartFallbackMs
   // 流式→封存切换时行对象会重建，封存行可能丢时间戳：按 runId/messageId 记忆回合开始，
   // 保证「已工作」头部在回合结束后不闪退。
+  // v5.7 修复：tool call 期间 displaySegments 的 _uiStartedAtMs 可能引入"新时间戳"，
+  //   导致 turnStartCandidateMs 在回合中跳到 tool 开始时间（晚于真实回合开始），
+  //   让「工作中 N 秒」在 tool 触发瞬间跳回 0~1 秒。
+  //   修复：先 recall（已锁定的回合开始），有就锁定；没有才用 turnStartMs 初始化记忆。
+  //   这样 turnStartMsResolved 在整回合内单调。
   const turnRunKey = String(row.runId || row.messageId || '')
-  if (turnRunKey && turnStartMs != null) rememberTurnStartMs(turnRunKey, turnStartMs)
-  const turnStartMsResolved =
-    turnStartMs ?? (turnRunKey ? recallTurnStartMs(turnRunKey) : null)
+  const rememberedStart = turnRunKey ? recallTurnStartMs(turnRunKey) : null
+  const turnStartMsResolved = rememberedStart ?? turnStartMs
+  if (turnRunKey && turnStartMs != null && rememberedStart == null) {
+    rememberTurnStartMs(turnRunKey, turnStartMs)
+  }
   const workedDurationLabel = (() => {
     if (isStreaming) {
       if (turnStartMsResolved == null) return ''
@@ -1210,6 +1233,62 @@ function AssistantBody({
   /** 回合中断标记透传给折叠头(ZCode「已停止」) */
   const turnInterrupted = workedDurationLabel === 'stopped' || String(row.turnState || '').trim() === 'interrupted'
   const workedLabelOut = workedDurationLabel === 'stopped' ? '' : workedDurationLabel
+
+  // v5.9 compare-log：DOM 视角 1:1 快照。
+  // 覆盖：_stream / assistant 助手行，工作中 + 已工作都写。
+  // 折叠态 = !isStreaming；spinner gear 仅流式。fileChanges 暂不写（DOM 边栏在
+  // AssistantBubbleSlotView 渲染时取，本地拿不到）。
+  if (row.role === '_stream' || row.role === 'assistant') {
+    const domView = buildAssistantDomView({
+      row,
+      plan,
+      isStreaming: !!isStreaming,
+      workedLabel: workedLabelOut
+        ? isStreaming
+          ? `工作中 ${workedLabelOut}`
+          : `已工作 ${workedLabelOut}`
+        : '',
+    })
+  logStreamCompareDomView({
+      sessionKey: compareSessionKey,
+      runId: row.runId,
+      foldOpen: domView.foldOpen,
+      head: domView.head,
+      gear: domView.gear,
+      chunks: domView.chunks,
+      fileChanges: domView.fileChanges,
+      diag: {
+        rowRole: row.role,
+        rowState: row.state,
+        isStreamingEffective: !!isStreaming,
+        turnStartMsResolved,
+        // v5.9：plan.slots 的内容（每段 kind/text[head]）便于诊断「正文不流畅」时
+        // dom-view chunks 为何与 plan.slots 不一致。
+        slots: plan.slots.map((s) => {
+          if (s.kind === 'chunk') {
+            const c = s.chunk
+            return `chunk#${s.chunkIndex} ${c.kind}${c.kind === 'text' ? ` len=${String(c.text || '').length}` : ''}`
+          }
+          if (s.kind === 'plain-body' || s.kind === 'live-tail' || s.kind === 'plan-top' ||
+              s.kind === 'top-reasoning' || s.kind === 'reasoning-pending' || s.kind === 'legacy-body') {
+            return `${s.kind} len=${String(s.text || '').length}`
+          }
+          if (s.kind === 'tool-row') {
+            return `tool-row[${s.toolCallIds.length}]`
+          }
+          return s.kind
+        }),
+        segmentsCount: Array.isArray(row.segments) ? row.segments.length : 0,
+        rowTextLen: String(row.text || '').length,
+        rawTextLen: String(rawText || '').length,
+        toolsCount: Array.isArray(row.tools) ? row.tools.length : 0,
+        segmentsToolIds: Array.isArray(row.segments)
+          ? row.segments.filter((s) => s.kind === 'tools').map((s) => s.ids?.length || 0)
+          : [],
+        toolStatus: Array.isArray(row.tools) ? row.tools.map((t) => String(t?.status || '?')) : [],
+      },
+    })
+  }
 
   return (
     <AssistantBubbleSlotView

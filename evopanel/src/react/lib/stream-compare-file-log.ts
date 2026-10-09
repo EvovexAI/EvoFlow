@@ -37,14 +37,15 @@ const LS_KEY = 'EVOFLOW_STREAM_COMPARE_LOG'
 const MAX_LINE = 48_000
 const UI_SNAPSHOT_CLOSE_MS = 48
 
-/** 默认关闭；localStorage='1' / 'true' 时开启 */
+/** v5.8 起默认开启；localStorage='0' / 'false' 时关闭；未设值时按 ON 走 */
 export function isStreamCompareFileLogOn(): boolean {
   try {
-    if (typeof localStorage === 'undefined') return false
+    if (typeof localStorage === 'undefined') return true
     const v = localStorage.getItem(LS_KEY)
-    return v === '1' || v === 'true'
+    if (v == null) return true
+    return v !== '0' && v !== 'false'
   } catch {
-    return false
+    return true
   }
 }
 
@@ -208,37 +209,38 @@ function ensureRunBuffers(sessionLogId: string, runLogId: string, turnNo: number
   return sessionBuf.runs[runLogId]
 }
 
-async function appendFileLine(
+function appendFileLine(
   sessionLogId: string,
   runLogId: string,
   channel: CompareChannel,
   line: string,
-): Promise<void> {
+): void {
   const sid = String(sessionLogId || '').trim()
   const rid = sanitizeRunLogId(runLogId)
   if (!sid || !rid) return
   const text = String(line || '').slice(0, MAX_LINE)
   if (!text) return
-  if (isTauriDesktop()) {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('append_stream_compare_log', {
-        channel,
-        sessionKey: sid,
-        runId: rid,
-        message: text,
-      })
-    } catch {
-      /* best-effort */
-    }
-    return
-  }
+  // 同步 push 到内存缓冲（Tauri 落盘是 fire-and-forget）
   const runBuf = ensureRunBuffers(sid, rid, ensureSessionBuffers(sid).runs[rid]?.turnNo || 0)
   const key = channel === 'sse-recv' ? 'sseRecv' : 'uiDisplay'
   runBuf[key].push(text)
   const tag = channel === 'sse-recv' ? '[sse-recv]' : '[ui-display]'
-   
+
   console.log(tag, `[${sid}/${rid}]`, text)
+  if (isTauriDesktop()) {
+    try {
+      void import('@tauri-apps/api/core').then((m) =>
+        m.invoke('append_stream_compare_log', {
+          channel,
+          sessionKey: sid,
+          runId: rid,
+          message: text,
+        }),
+      )
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 function showEnableBannerOnce(): void {
@@ -249,7 +251,7 @@ function showEnableBannerOnce(): void {
     : 'window.__evoflowStreamCompare.sessions（非 Tauri）'
    
   console.log(
-    `[stream-compare] 已开启，每个会话 2 个文件 → ${home}；关闭：localStorage.removeItem('${LS_KEY}')`,
+    `[stream-compare] 默认已开启，每个会话 2 个文件 → ${home}；关闭：localStorage.setItem('${LS_KEY}','0')`,
   )
 }
 
@@ -295,9 +297,37 @@ function appendUiSnapshotPart(sessionLogId: string, runLogId: string, section: s
   }
   const text = String(body || '').trim()
   if (!text) return
-  acc.parts.push(`${section}\n${text}`)
+  // internal-mirror-* 段（老 plain-path 内部自省）走独立直接 flush，不进 dom-view 的 acc 列表
+  // —— dom-view 是「用户看到什么」的事实源，必须保持一个完整块不被切碎。
+  if (section.startsWith('[internal-mirror') || section.startsWith('[file-changes]')) {
+    flushStandaloneSection(sid, rid, section, text)
+    return
+  }
+  // 同 section 名覆盖（最后一次胜出），不同 section 累加 —— 否则同一 dom-view 每次 render
+  // 都会把整段重复写入 uiDisplay buffer。
+  const sameSectionIdx = acc.parts.findIndex((p) => p.startsWith(`${section}\n`))
+  if (sameSectionIdx >= 0) {
+    acc.parts[sameSectionIdx] = `${section}\n${text}`
+    // 其后多余的同 section 副本（被错误 push 进来的）清掉
+    for (let i = acc.parts.length - 1; i > sameSectionIdx; i--) {
+      if (acc.parts[i].startsWith(`${section}\n`)) acc.parts.splice(i, 1)
+    }
+  } else {
+    acc.parts.push(`${section}\n${text}`)
+  }
   acc.sig = acc.parts.join('\n')
   scheduleUiSnapshotClose(sid, rid)
+}
+
+/** 独立直写 ui-display 一行块，不走 acc 合并 —— 供 internal-mirror / file-changes 用 */
+function flushStandaloneSection(
+  sessionLogId: string,
+  runLogId: string,
+  section: string,
+  body: string,
+): void {
+  const block = ['---', `${section}\n${body}`, '---'].join('\n')
+  void appendFileLine(sessionLogId, runLogId, 'ui-display', formatCompareLine(sessionLogId, runLogId, block))
 }
 
 /** 会话开始/切换时调用（chat send / resume attach） */
@@ -444,15 +474,20 @@ function formatCompactedPartsMirror(parts: CompactedStreamPart[] | undefined): s
     .join('\n\n')
 }
 
-/** buildStreamDisplayRow / drain：AG-UI 内部态 + compacted 封存段 */
+/** buildStreamDisplayRow / drain：AG-UI 内部态 + compacted 封存段
+ * v5.9 默认 no-op：dom-view 已经覆盖了"用户看到什么"，这里再写一份 internal-mirror 重复
+ * 且按帧打会爆日志。调用方传 `forceWrite: true` 仍能写（比如 compact 后 drain 想看封存快照）。
+ */
 export function logStreamCompareAgUiInternals(opts: {
   sessionKey?: string
   runId?: string
   aguiTurn?: AgUiTurnState | null
   compactedParts?: CompactedStreamPart[]
   label?: string
+  forceWrite?: boolean
 }): void {
   if (!isStreamCompareFileLogOn()) return
+  if (!opts.forceWrite) return
   const target = resolveLogTarget(opts.sessionKey, opts.runId)
   if (!target) return
   const label = String(opts.label || 'agui-internals').trim()
@@ -462,7 +497,12 @@ export function logStreamCompareAgUiInternals(opts: {
     chunks.push('compactedParts:\n' + formatCompactedPartsMirror(opts.compactedParts))
   }
   if (!chunks.length) return
-  appendUiSnapshotPart(target.sessionLogId, target.runLogId, `[${label}]`, chunks.join('\n\n'))
+  appendUiSnapshotPart(
+    target.sessionLogId,
+    target.runLogId,
+    `[internal-mirror ${label}]`,
+    chunks.join('\n\n'),
+  )
 }
 
 /** drainAgUiCompletedRound 封存瞬间 */
@@ -483,7 +523,7 @@ export function logStreamCompareAgUiDrain(opts: {
       ? formatSegmentListBrief(opts.sealed.segments, opts.sealed.tools || [])
       : '  (empty)',
   ].join('\n')
-  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[agui-drain]', body)
+  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[internal-mirror agui-drain]', body)
 }
 
 function formatChunkDetail(chunk: SegmentDisplayChunk, chunkIndex: number): string {
@@ -614,13 +654,219 @@ function toolRowChip(tool: unknown): string {
   return `${name}:${tail}(${st})${preview ? ` ${preview}` : ''}`
 }
 
-/** MessageRow：当前气泡完整展示快照 */
+/**
+ * v5.9 MessageRow：DOM 视角 1:1 快照
+ * 由 MessageRow 在 render 时构造「用户看到的样子」并传入 —— 这是日志的**权威**字段，
+ * 替代之前由 plan/row 反推的 plain path timeline / agui-order 等老格式（那些降级到
+ * [internal-mirror] section，只用于排障对照，不再作为「用户看到什么」的事实来源）。
+ *
+ * 典型输入（折叠态默认）：
+ *   {
+ *     foldOpen: false,                       // data-history-open
+ *     head: '已工作 32 秒',                    // msg-turn-history-fold-label
+ *     gear: 'off' | 'streaming' | 'spinner',  // StreamRunStatusLine
+ *     chunks: [
+ *       { kind: 'flat-activity', pieces: [
+ *           { kind: 'tools', role: 'latest', tools: [{name,status,file,diff,elapsed,time}, …] },
+ *           { kind: 'text',   role: 'latest', text: '…' },
+ *         ] },
+ *       { kind: 'msg-text',   role: 'final-reply',  text: '…', markdown: {p, table, ul} },
+ *       { kind: 'msg-text',   role: 'plan-text',    text: '…' },
+ *     ],
+ *     fileChanges: ['simple.md', …],          // 底部 ChangedFilesSummaryRow
+ *   }
+ */
+export function logStreamCompareDomView(opts: {
+  sessionKey?: string
+  runId?: string
+  turnNo?: number
+  foldOpen: boolean
+  head: string
+  gear: 'off' | 'streaming' | 'spinner'
+  chunks: UiDomChunk[]
+  fileChanges?: string[]
+  /** v5.9：让 log 能直接看到调用点的 row 状态，便于诊断「齿轮抖/stop 流但 SSE 还在来」。 */
+  diag?: {
+    rowRole?: string
+    rowState?: string
+    isStreamingEffective?: boolean
+    turnStartMsResolved?: number | null
+  }
+}): void {
+  if (!isStreamCompareFileLogOn()) return
+  const target = resolveLogTarget(opts.sessionKey, opts.runId)
+  if (!target) return
+  ensureSessionBuffers(target.sessionLogId)
+  const body = formatDomView(opts.foldOpen, opts.head, opts.gear, opts.chunks, opts.fileChanges)
+  if (!body.trim()) return
+  // diag 字段不参与 section 名 —— 否则同一 row.role/turnStartMs 的覆盖会被 diag 抖动打破，
+  // 同一 `---` 块里堆 3 个不同 turnStartMs 的 dom-view。diag 写到 body 首行作为注释。
+  const header = [
+    `turn=${opts.turnNo ?? ensureSessionBuffers(target.sessionLogId).runs[target.runLogId]?.turnNo ?? '-'}`,
+    `session=${target.sessionLogId}`,
+    `run=${target.runLogId}`,
+  ].join(' | ')
+  const diagHeader = [
+    opts.diag?.rowRole ? `row.role=${opts.diag.rowRole}` : '',
+    opts.diag?.rowState != null ? `row.state=${JSON.stringify(opts.diag.rowState)}` : '',
+    opts.diag?.isStreamingEffective != null
+      ? `isStreamingEff=${opts.diag.isStreamingEffective ? 1 : 0}`
+      : '',
+    opts.diag?.turnStartMsResolved != null
+      ? `turnStartMs=${opts.diag.turnStartMsResolved}`
+      : '',
+    opts.diag?.segmentsCount != null ? `segsN=${opts.diag.segmentsCount}` : '',
+    opts.diag?.rowTextLen != null ? `rowTextLen=${opts.diag.rowTextLen}` : '',
+    opts.diag?.rawTextLen != null ? `rawTextLen=${opts.diag.rawTextLen}` : '',
+    opts.diag?.toolsCount != null ? `toolsN=${opts.diag.toolsCount}` : '',
+    opts.diag?.segmentsToolIds != null
+      ? `segToolIds=[${opts.diag.segmentsToolIds.join(',')}]`
+      : '',
+    opts.diag?.toolStatus != null ? `toolStatus=[${opts.diag.toolStatus.join(',')}]` : '',
+    opts.diag?.slots && opts.diag.slots.length
+      ? `slots=[${opts.diag.slots.join('|')}]`
+      : opts.diag?.slots
+        ? `slots=[]`
+        : '',
+  ]
+    .filter(Boolean)
+    .join(' | ')
+  const bodyWithDiag = diagHeader ? `# diag: ${diagHeader}\n${body}` : body
+  appendUiSnapshotPart(target.sessionLogId, target.runLogId, header, bodyWithDiag)
+  // fileChanges 也单独写一份，便于 grep
+  if (opts.fileChanges && opts.fileChanges.length) {
+    appendUiSnapshotPart(
+      target.sessionLogId,
+      target.runLogId,
+      '[file-changes]',
+      opts.fileChanges.map((p, i) => `  #${i} ${p}`).join('\n'),
+    )
+  }
+}
+
+export type UiDomChunk =
+  | {
+      kind: 'flat-activity'
+      pieces: UiDomPiece[]
+    }
+  | {
+      kind: 'msg-text'
+      role: 'final-reply' | 'plan-text' | 'live-tail' | 'plain-body' | 'top-reasoning' | 'reasoning-pending' | 'pending-text'
+      text: string
+      markdown?: { paragraphs: number; tables: number; lists: number; codeBlocks: number }
+    }
+  | {
+      kind: 'legacy-tools'
+      tools: { name: string; status: string; id: string }[]
+    }
+  | {
+      kind: 'spinner'
+      label: string
+    }
+
+export type UiDomPiece =
+  | {
+      kind: 'tools'
+      role: 'latest' | 'history'
+      tools: { name: string; status: string; file?: string; diff?: string; elapsed?: string; time?: string; id: string }[]
+    }
+  | {
+      kind: 'text'
+      role: 'latest' | 'history'
+      text: string
+    }
+  | {
+      kind: 'reasoning'
+      role: 'latest' | 'history'
+      text: string
+      durationLabel?: string
+    }
+
+function formatDomView(
+  foldOpen: boolean,
+  head: string,
+  gear: 'off' | 'streaming' | 'spinner',
+  chunks: UiDomChunk[],
+  fileChanges?: string[],
+): string {
+  const out: string[] = []
+  out.push(`[fold=${foldOpen ? 'open' : 'closed'}] [gear=${gear}]`)
+  out.push(`head: ${head || '(empty)'}`)
+  if (!chunks.length) {
+    out.push('body: (empty)')
+  } else {
+    out.push('body:')
+    chunks.forEach((c, i) => {
+      if (c.kind === 'flat-activity') {
+        if (!c.pieces.length) {
+          out.push(`  chunk#${i} flat-activity-chunk (empty)`)
+          return
+        }
+        out.push(`  chunk#${i} flat-activity-chunk`)
+        c.pieces.forEach((p, pi) => {
+          if (p.kind === 'tools') {
+            out.push(
+              `    piece#${pi} tools  role=${p.role}  count=${p.tools.length}${p.role === 'history' ? '  [hidden when fold=closed]' : ''}`,
+            )
+            for (const t of p.tools) {
+              const file = t.file ? ` file=${t.file}` : ''
+              const diff = t.diff ? ` ${t.diff}` : ''
+              const elapsed = t.elapsed ? ` ${t.elapsed}` : ''
+              const time = t.time ? `  ${t.time}` : ''
+              out.push(`      - ${t.name}(${t.status}) id=${t.id}${file}${diff}${elapsed}${time}`)
+            }
+          } else if (p.kind === 'reasoning') {
+            const preview = oneLine(p.text || '').slice(0, 240)
+            out.push(
+              `    piece#${pi} reasoning  role=${p.role}  dur=${p.durationLabel ?? '-'}${p.role === 'history' ? '  [hidden when fold=closed]' : ''}`,
+            )
+            out.push(`      text: ${preview || '(empty)'}`)
+          } else {
+            const preview = oneLine(p.text || '').slice(0, 240)
+            out.push(
+              `    piece#${pi} ${p.kind}  role=${p.role}${p.role === 'history' ? '  [hidden when fold=closed]' : ''}`,
+            )
+            out.push(`      text: ${preview || '(empty)'}`)
+          }
+        })
+      } else if (c.kind === 'msg-text') {
+        const md = c.markdown
+        const mdTag = md
+          ? ` p=${md.paragraphs} table=${md.tables} list=${md.lists} code=${md.codeBlocks}`
+          : ''
+        const preview = oneLine(c.text || '').slice(0, 360)
+        out.push(`  chunk#${i} msg-text role=${c.role}${mdTag}`)
+        out.push(`    text: ${preview || '(empty)'}`)
+      } else if (c.kind === 'legacy-tools') {
+        out.push(`  chunk#${i} legacy-tools count=${c.tools.length}`)
+        for (const t of c.tools.slice(0, 24)) {
+          out.push(`    - ${t.name}(${t.status}) id=${t.id}`)
+        }
+        if (c.tools.length > 24) out.push(`    …+${c.tools.length - 24}`)
+      } else if (c.kind === 'spinner') {
+        out.push(`  chunk#${i} spinner label="${c.label}"`)
+      }
+    })
+  }
+  if (fileChanges && fileChanges.length) {
+    out.push(`file-changes: ${fileChanges.length} 项 → ${fileChanges.map((p) => shrink(p, 80)).join(', ')}`)
+  }
+  return out.join('\n')
+}
+
+/**
+ * v5.8 老格式：DisplayRow 推演的 plain path timeline / agui-order 等内省字段。
+ * v5.9 起降级为 [internal-mirror]，**不**作为「用户看到什么」的事实来源；
+ * 用户视角的 DOM 视图由 logStreamCompareDomView 写入。
+ */
 export function logStreamCompareUiDisplay(opts: {
   row: DisplayRow
   plan: AssistantBubbleDisplayPlan
   sessionKey?: string
+  forceWrite?: boolean
 }): void {
   if (!isStreamCompareFileLogOn()) return
+  if (!opts.forceWrite) return
   if (opts.row.role !== '_stream' && opts.row.role !== 'assistant') return
   const target = resolveLogTarget(opts.sessionKey, opts.row.runId)
   if (!target) return
@@ -635,7 +881,7 @@ export function logStreamCompareUiDisplay(opts: {
     reasoningSegments: opts.row.reasoningSegments,
   })
   const header = [
-    turnNo ? `turn=${turnNo}` : '',
+    `[internal-mirror] turn=${turnNo ?? '-'}`,
     `session=${target.sessionLogId}`,
     `run=${target.runLogId}`,
     `path=${opts.plan.path}`,
@@ -646,12 +892,12 @@ export function logStreamCompareUiDisplay(opts: {
     .join(' | ')
   appendUiSnapshotPart(target.sessionLogId, target.runLogId, header, formatSlotsBySection(opts.plan, opts.row.tools || []))
   const tl = String(timeline || '').trim()
-  if (tl) appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[timeline]', tl)
+  if (tl) appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[internal-mirror timeline]', tl)
   if (opts.row.aguiTurn) {
     appendUiSnapshotPart(
       target.sessionLogId,
       target.runLogId,
-      '[agui-order]',
+      '[internal-mirror agui-order]',
       formatAgUiTurnOrderMirror(opts.row.aguiTurn),
     )
   }
@@ -663,8 +909,10 @@ export function logStreamCompareUiStreamTools(opts: {
   tools: unknown[]
   sessionKey?: string
   isStreaming?: boolean
+  forceWrite?: boolean
 }): void {
   if (!isStreamCompareFileLogOn()) return
+  if (!opts.forceWrite) return
   if (opts.row.role !== '_stream' && opts.row.role !== 'assistant') return
   const target = resolveLogTarget(opts.sessionKey, opts.row.runId)
   if (!target) return
@@ -678,7 +926,7 @@ export function logStreamCompareUiStreamTools(opts: {
     `streaming=${opts.isStreaming ? 1 : 0} total=${allTools.length} visible=${visibleTools.length}`,
     chips.length ? chips.map((c) => `  ${c}`).join('\n') + more : '  (empty)',
   ].join('\n')
-  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[工具摘要]', body)
+  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[internal-mirror 工具摘要]', body)
 }
 
 /** displayChunks 明细（并入 ui-display） */
@@ -686,15 +934,17 @@ export function logStreamCompareUiChunks(opts: {
   row: DisplayRow
   plan: AssistantBubbleDisplayPlan
   sessionKey?: string
+  forceWrite?: boolean
 }): void {
   if (!isStreamCompareFileLogOn()) return
+  if (!opts.forceWrite) return
   if (opts.row.role !== '_stream' && opts.row.role !== 'assistant') return
   const target = resolveLogTarget(opts.sessionKey, opts.row.runId)
   if (!target) return
   const chunks = opts.plan.layout?.displayChunks ?? []
   if (!chunks.length) return
   const body = chunks.map((c, i) => formatChunkDetail(c, i)).join('\n\n')
-  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[chunks/layout]', body)
+  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[internal-mirror chunks/layout]', body)
 }
 
 export type ToolCallListRenderDiag = {
@@ -816,8 +1066,10 @@ export function logStreamCompareToolRender(opts: {
   runId?: string
   source: string
   diag: ToolCallListRenderDiag
+  forceWrite?: boolean
 }): void {
   if (!isStreamCompareFileLogOn()) return
+  if (!opts.forceWrite) return
   if (!opts.diag.isStreaming) return
   const target = resolveLogTarget(opts.sessionKey, opts.runId)
   if (!target) return
@@ -841,7 +1093,7 @@ export function logStreamCompareToolRender(opts: {
   ]
     .filter(Boolean)
     .join('\n')
-  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[工具渲染]', body)
+  appendUiSnapshotPart(target.sessionLogId, target.runLogId, '[internal-mirror 工具渲染]', body)
 }
 
 /** 浏览器 dev：导出内存缓冲供复制对比 */
@@ -852,22 +1104,53 @@ export function dumpStreamCompareBuffers(sessionKey?: string, runId?: string): {
   runLogId: string
 } {
   const store = ensureStore()
-  const target = resolveLogTarget(sessionKey || store.activeSessionLogId, runId)
-  if (!target) {
+  // dump 场景下 explicit runId 优先于 activeRunBySession（active 永远指向最新 run，
+  // 调试旧轮次需要按 explicit 拿到旧 buffer）
+  const sessionLogId = resolveLogSessionId(sessionKey || store.activeSessionLogId)
+  if (!sessionLogId) {
     return { sseRecv: [], uiDisplay: [], sessionLogId: '', runLogId: '' }
   }
-  const runBuf = store.sessions[target.sessionLogId]?.runs[target.runLogId]
+  const explicit = sanitizeRunLogId(String(runId || '').trim())
+  const active = activeRunBySession.get(sessionLogId) || ''
+  const runLogId = explicit || active || 'pending'
+  const runBuf = store.sessions[sessionLogId]?.runs[runLogId]
   return {
     sseRecv: runBuf ? [...runBuf.sseRecv] : [],
     uiDisplay: runBuf ? [...runBuf.uiDisplay] : [],
-    sessionLogId: target.sessionLogId,
-    runLogId: target.runLogId,
+    sessionLogId,
+    runLogId,
   }
 }
 
 if (typeof window !== 'undefined') {
   const w = window as Window & {
     __evoflowStreamCompareDump?: (sessionKey?: string) => ReturnType<typeof dumpStreamCompareBuffers>
+    __evoflowStreamCompareFlush?: () => void
+    __evoflowStreamCompareResetForTest?: () => void
   }
   w.__evoflowStreamCompareDump = dumpStreamCompareBuffers
+  /** 测试 / 调试：立刻把当前未刷新的 ui-display 段落 flush 到内存缓冲（48ms 防抖外） */
+  function flushAllUiSnapshots(): void {
+    for (const [snapKey, acc] of uiSnapshotByRun.entries()) {
+      if (acc.closeTimer) {
+        clearTimeout(acc.closeTimer)
+        acc.closeTimer = null
+      }
+      uiSnapshotByRun.delete(snapKey)
+      if (!acc.parts.length) continue
+      if (lastUiSigByRun.get(snapKey) === acc.sig) continue
+      lastUiSigByRun.set(snapKey, acc.sig)
+      const [sid, rid] = snapKey.split('/')
+      const block = ['---', ...acc.parts, '---'].join('\n')
+      void appendFileLine(sid, rid, 'ui-display', formatCompareLine(sid, rid, block))
+    }
+  }
+  w.__evoflowStreamCompareFlush = flushAllUiSnapshots
+  /** 测试用：清模块级 run 缓存，确保 beforeEach 后 markStreamCompareRun 总能 push TURN header */
+  w.__evoflowStreamCompareResetForTest = () => {
+    activeRunBySession.clear()
+    lastSseSigByRun.clear()
+    lastUiSigByRun.clear()
+    uiSnapshotByRun.clear()
+  }
 }
