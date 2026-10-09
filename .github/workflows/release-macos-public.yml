@@ -33,8 +33,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: evopanel/package-lock.json
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -76,10 +92,10 @@ jobs:
         run: |
           set -euo pipefail
           for i in 1 2 3; do
-            if npm ci --maxsockets 1000 --no-audit --no-fund; then
+            if pnpm install --frozen-lockfile; then
               exit 0
             fi
-            echo "npm ci attempt $i failed, retrying..."
+            echo "pnpm install attempt $i failed, retrying..."
             rm -rf node_modules
             sleep 15
           done
@@ -107,7 +123,7 @@ jobs:
       # public/kws ONNX+WASM are omitted from git; download before package (also in prebuild:desktop:mac)
       - name: Download KWS wake-word assets
         working-directory: evopanel
-        run: npm run kws:download
+        run: pnpm run kws:download
 
       - name: Build DMG (${{ matrix.arch_label }})
         working-directory: evopanel
@@ -115,7 +131,7 @@ jobs:
           TAURI_BUILD_TARGET: ${{ matrix.tauri_target }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_DMG_ATTEMPTS: "5"
-        run: npm run build:desktop:mac
+        run: pnpm run build:desktop:mac
 
       - name: Verify DMG artifact
         shell: bash
