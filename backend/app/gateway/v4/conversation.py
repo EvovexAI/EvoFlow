@@ -565,9 +565,10 @@ class V4ConversationHub:
                 f"Echo from EvoFlow v4 shell: 我收到了「{text}」。"
                 "这是 ZCode v4 协议链路（wire v3 → topicWireDecoder → projection store）。"
             )
-            for i in range(0, len(target), 6):
-                self._append_text_delta(sess, assistant_rid, "text", target[i : i + 6])
-                await asyncio.sleep(0.03)
+            # chunk 64 字符 / 8ms = ~8KB/s，肉眼跟得上但不耗 CPU。
+            for i in range(0, len(target), 64):
+                self._append_text_delta(sess, assistant_rid, "text", target[i : i + 64])
+                await asyncio.sleep(0.008)
             return target
 
         import httpx  # 局部 import 避免硬依赖

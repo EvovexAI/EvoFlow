@@ -279,9 +279,13 @@ async def v4_conversation_frames(
         last_hb = time.monotonic()
         while True:
             frames = V4_CONVERSATION_HUB.poll_frames(connection_id)
-            for f in frames:
-                yield f"event: v4.wire\ndata: {json.dumps(f, ensure_ascii=False)}\n\n"
-            await asyncio.sleep(0.04)
+            if frames:
+                for f in frames:
+                    yield f"event: v4.wire\ndata: {json.dumps(f, ensure_ascii=False)}\n\n"
+                # 让出事件循环，turn 协程才有 CPU 写队列（之前裸 continue 会饿死同 loop）。
+                await asyncio.sleep(0)
+                continue
+            await asyncio.sleep(0.008)
             now = time.monotonic()
             if now - last_hb > _SSE_HEARTBEAT_INTERVAL_S:
                 yield ": heartbeat\n\n"
