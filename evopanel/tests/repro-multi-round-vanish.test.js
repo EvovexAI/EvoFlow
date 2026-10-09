@@ -10,7 +10,7 @@
 // 验证：跑到第 4 个工具 done + 第 5 个工具 running 时，dom-view 应显示 ≥ 4 个 tool piece。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { applyAgUiEvent, emptyAgUiTurnState, shouldReleaseAgUiBufferBeforeToolStart, drainAgUiCompletedRound } from '../src/react/lib/agui-turn-reducer.ts'
@@ -19,12 +19,15 @@ import { buildAssistantBubbleDisplayPlan } from '../src/react/lib/message-row-di
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURE_PATH = join(__dirname, 'fixtures', 'agui', 'run-133609527d1f-sse.jsonl')
+const DEV_FIXTURE_PATH = join(__dirname, 'fixtures', 'agui', 'run-71a2bbc501cf-sse.jsonl')
 
-function loadRealRunEvents() {
-  const raw = readFileSync(FIXTURE_PATH, 'utf8')
+function loadFixtureEvents(path) {
+  if (!existsSync(path)) return []
+  const raw = readFileSync(path, 'utf8')
   return raw
     .split(/\r?\n/)
     .filter(Boolean)
+    .filter((l) => !l.startsWith('========'))
     .map((line) => {
       try {
         return JSON.parse(line)
@@ -33,6 +36,14 @@ function loadRealRunEvents() {
       }
     })
     .filter(Boolean)
+}
+
+function loadRealRunEvents() {
+  return loadFixtureEvents(FIXTURE_PATH)
+}
+
+function loadDevRunEvents() {
+  return loadFixtureEvents(DEV_FIXTURE_PATH)
 }
 
 function buildDomView(s, proj, isStreaming) {
@@ -454,5 +465,111 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     // 验证 6 个 sealed ids + 1 fresh delete id 都在
     const allIds = toolsSegs.flatMap((seg) => (seg.kind === 'tools' ? seg.ids : []))
     expect(new Set(allIds).size, '7 个 unique ids').toBe(7)
+  })
+
+  it('dev 端 run-71a2bbc501cf 真实 SSE 7 工具串行：sealed 阶段应 1 段 7 ids', async () => {
+    // 用 dev 端 23:15 真实 SSE log（run-71a2bbc501cf）作为 fixture：
+    // 7 工具串行，TOOL_CALL_START 带 blockId=...b1，TOOL_CALL_RESULT 不带 blockId。
+    // 模拟 ChatApp 真实流：每次 START 触发 drain 推 1 个 sealed part 到 compactedParts。
+    // sealed 阶段 mergeCompactedPartsIntoTurn → timeline 应 2 段 7 ids（6 合并 + 1 fresh）。
+    // 这是用户反馈「4 个工具后最新的工具不显示」的真实 run 复现。
+    const { mergeCompactedPartsIntoTurn } = await import(
+      '../src/react/lib/stream-turn-engine.ts'
+    )
+    const events = loadDevRunEvents()
+    if (!events.length) {
+      console.log('  (dev fixture 不存在，跳过)')
+      return
+    }
+    expect(events.length, `dev fixture 应 ≥ 14 events，实际 ${events.length}`).toBeGreaterThanOrEqual(14)
+
+    let s = emptyAgUiTurnState('run-71a2bbc501cf', 'c98622f1-6149-4abc-b0b6-dd00e94657e9')
+    const compactedParts = []
+    for (const ev of events) {
+      vi.setSystemTime(new Date(Date.now() + 30))
+      if (
+        ev.type === 'TOOL_CALL_START' &&
+        shouldReleaseAgUiBufferBeforeToolStart(s, ev)
+      ) {
+        const { sealed, fresh } = drainAgUiCompletedRound(s)
+        s = fresh
+        if (sealed) compactedParts.push(sealed)
+      }
+      s = applyAgUiEvent(s, ev)
+    }
+
+    // 7 工具串行 6 drains → 6 compacted parts
+    expect(
+      compactedParts.length,
+      `dev run 应 6 compacted parts, 实际 ${compactedParts.length}`,
+    ).toBe(6)
+
+    // sealed turn = live state.compatSegments + 6 sealed parts
+    const sealedTurn = {
+      timeline: [...s.compatSegments],
+      openText: '',
+      textPhase: 'pre_tools',
+      tools: [...s.compatTools],
+      reasoningPendingNewRound: false,
+      images: [],
+      videos: [],
+      audios: [],
+      files: [],
+      systemActivity: null,
+      systemActivityKind: null,
+      systemActivityStartedAt: null,
+      blocks: {},
+      blockOrder: [],
+      phaseHistory: [],
+    }
+    const merged = mergeCompactedPartsIntoTurn(compactedParts, sealedTurn)
+    const toolsSegs = merged.timeline.filter((seg) => seg.kind === 'tools')
+    const segIdsLens = toolsSegs.map((s) => (s.kind === 'tools' ? s.ids.length : 0))
+
+    // 期望：6 个 1-id sealed → 1 段 6 ids; live 1-id 段 → 1 段 1 id = 2 段
+    expect(
+      toolsSegs.length,
+      `dev run sealed merge 后应 = 2 tools 段（1 sealed 合并 + 1 live），实际 ${toolsSegs.length} 段 segIds=[${segIdsLens.join(',')}]`,
+    ).toBe(2)
+    const totalIds = toolsSegs.reduce(
+      (acc, seg) => acc + (seg.kind === 'tools' ? seg.ids.length : 0),
+      0,
+    )
+    expect(totalIds, `7 unique ids, 实际 ${totalIds}`).toBe(7)
+  })
+
+  it('dev 端 run-71a2bbc501cf streaming 阶段 4 tools done: dom-view 应 ≥ 4 tools', () => {
+    // streaming 阶段：3 tools sealed + 1 live = 4 tools 全部可见
+    const events = loadDevRunEvents()
+    if (!events.length) return
+    let s = emptyAgUiTurnState('run-71a2bbc501cf', 'c98622f1-6149-4abc-b0b6-dd00e94657e9')
+    let resultCount = 0
+    let startCount = 0
+    let stop = false
+    for (const ev of events) {
+      if (stop) break
+      vi.setSystemTime(new Date(Date.now() + 30))
+      s = applyAgUiEvent(s, ev)
+      if (ev.type === 'TOOL_CALL_START') startCount++
+      if (ev.type === 'TOOL_CALL_RESULT') {
+        resultCount++
+        if (resultCount >= 4 && startCount >= 5) stop = true
+      }
+    }
+
+    expect(
+      s.compatTools.length,
+      `4 done + 1 running 应 ≥ 5 compatTools, 实际 ${s.compatTools.length}`,
+    ).toBeGreaterThanOrEqual(5)
+
+    const toolsSegs = s.compatSegments.filter((seg) => seg.kind === 'tools')
+    const totalIds = toolsSegs.reduce(
+      (acc, seg) => acc + (seg.kind === 'tools' ? seg.ids.length : 0),
+      0,
+    )
+    expect(
+      totalIds,
+      `streaming 阶段 4 tools done 应 = 4+ unique ids, 实际 ${totalIds} (segments=${toolsSegs.length})`,
+    ).toBeGreaterThanOrEqual(4)
   })
 })
