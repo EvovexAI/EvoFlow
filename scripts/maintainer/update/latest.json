@@ -6,6 +6,6 @@
   "hash": "",
   "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.0.8/EvoFlow_1.0.8_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.0.8：启动性能专项优化。CLI 冷启动移除模块级全量导入，torch/transformers 改为按需加载，启动提速约 2.7 秒；桌面端内置后端改为后台线程拉起，窗口创建不再被端口探测阻塞，拉起失败不再终止启动（fail-open）；移除 Google Fonts 外链（index.html 与登录页），WebView 首帧不再等待外部 DNS；构建拆出内容稳定的 vendor-react chunk，二次启动缓存命中率提升。界面：会话列左右留白改挂 scroller，回合导航轨可贴边对齐，正文列宽与中轴不变。字号体系：869 处硬编码字号迁入 --ef-text-* 令牌，并将新刻度接入用户「字体大小」设置，滑块现在能联动全部界面文字。覆盖安装即可。",
+  "changelog": "EvoFlow 1.0.8 启动性能专项优化：CLI 冷启动移除模块级全量导入（torch/transformers 按需加载），提速约 2.7 秒；桌面端内置后端改为后台线程拉起，窗口创建不再被端口探测阻塞；移除 Google Fonts 外链，WebView 首帧不再等待外部 DNS；构建拆出 vendor-react chunk，二次启动缓存命中率提升。字体大小：869 处硬编码字号迁入 --ef-text-* 令牌，设置中的字体大小滑块现在联动全部界面文字。新增：内嵌浏览器面板（右侧舞台 CDP 控制）、UI 缩放（Ctrl+=/-/0、Ctrl+滚轮、设置面板）、128K/2M 模型预设、知识库角色级自动注入、全局助手可调大小、工具卡片系统 + EF 设计令牌。修复：聊天流式文本丢失/有序列表截断、企业微信图文混合消息、Anthropic 请求超时映射、GLM-5.3 thinking 默认跟随模型、健康探测路径、聊天编辑图片增删同步等。覆盖安装即可。",
   "releasedAt": "2026-10-04"
 }
