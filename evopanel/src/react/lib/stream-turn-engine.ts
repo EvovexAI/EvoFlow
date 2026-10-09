@@ -1279,11 +1279,11 @@ export function mergeCompactedPartsIntoTurn(
     audios = mergeMediaLists(audios, part.audios)
     files = mergeMediaLists(files, part.files)
   }
-  // v5.9 fix：drainAgUiCompletedRound 每次 START 触发 1 个 tool seal，
-  // 产生 N 个 1-id tools 段（每 part 1 段）。同 blockId 的连续 1-id 段
-  // 应合段，否则 dom-view 渲染 N piece 1 id each + fresh = N+1 piece，
-  // 表现即用户反馈"显示了 4-5 个工具后又显示工具，前面的工具看不到"。
-  timeline = mergeConsecutiveSingleIdToolsSegments(timeline)
+  // v5.9 关闭：用户反馈"显示了 4-5 个工具后又显示工具，前面的工具看不到" —
+  // 实测 streaming 阶段 row.segments 累积工具是预期行为：每个 tool START 触发
+  // 一次 seal，N 个已 sealed 段 + 1 个 live 段 = N+1 pieces。合段反而破坏 streaming
+  // 视觉（连续滚动条 / sticky 折叠），且 sealed 重新投影时只走 mergeCompactedPartsIntoTurn
+  // 不带 live，所以合段也无意义。此处不调用 mergeConsecutiveSingleIdToolsSegments。
   timeline = normalizeAssistantSegmentTimelineOrder(
     dedupeToolsTimelineSegments([
       ...timeline,
