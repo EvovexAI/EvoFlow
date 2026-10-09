@@ -235,9 +235,8 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     }
   })
 
-  it('同 blockId 6 单 id 段：mergeCompactedPartsIntoTurn 后保持 3 段 (v5.9 关闭合段)', async () => {
-    // v5.9 关闭：streaming 阶段 N+1 pieces 是预期行为，不合段。
-    // 3 个 1-id 段（id 均为 'block:1'） merge 后保持 3 段 1 id each, 3 unique ids。
+  it('同 blockId 6 单 id 段：mergeCompactedPartsIntoTurn 后应合段为 1 段多 ids', async () => {
+    // v5.9 fix：mergeConsecutiveSingleIdToolsSegments 把连续同 id-blockId 单 id 段合并
     const { mergeCompactedPartsIntoTurn } = await import(
       '../src/react/lib/stream-turn-engine.ts'
     )
@@ -295,12 +294,12 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     }
     const merged = mergeCompactedPartsIntoTurn(sealed, turn)
     const toolsSegs = merged.timeline.filter((s) => s.kind === 'tools')
-    expect(toolsSegs.length, `3 单 id 段同 id-blockId 应保持 3 段 (v5.9 关闭合段), 实际 ${toolsSegs.length} 段`).toBe(3)
+    expect(toolsSegs.length, `3 单 id 段同 id-blockId 应合段为 1 段，实际 ${toolsSegs.length} 段`).toBe(1)
     const totalIds = toolsSegs.reduce(
       (acc, s) => acc + (s.kind === 'tools' ? s.ids.length : 0),
       0,
     )
-    expect(totalIds, `ids 总数应 = 3 (3 段 1 id each), 实际 ${totalIds}`).toBe(3)
+    expect(totalIds, `合段后 ids 应 = 3，实际 ${totalIds}`).toBe(3)
   })
 
   it('真实 sealed 阶段：7 工具串行 6 parts + 1 fresh 完整 dom-view 7 tools', async () => {
@@ -349,14 +348,13 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     }
     const merged = mergeCompactedPartsIntoTurn(compactedParts, sealedTurn)
     const toolsSegs = merged.timeline.filter((seg) => seg.kind === 'tools')
-    // v5.9 关闭：streaming 阶段 N+1 pieces 是预期行为，不合段。
-    // 6 个 1-id sealed + 1 个 fresh 1-id 段 = 7 段 1 id each (7 unique ids)
+    // 6 个 1-id sealed → merge 1 段 6 ids; live 1-id 段保留 = 2 段
     expect(
       toolsSegs.length,
-      `merge 后应 = 7 tools 段 (6 sealed 1-id + 1 fresh 1-id), 实际 ${toolsSegs.length} 段: segToolIds=[${toolsSegs
+      `merge 后应 = 2 tools 段（1 sealed 合并 + 1 live），实际 ${toolsSegs.length} 段: segToolIds=[${toolsSegs
         .map((s) => s.kind === 'tools' ? s.ids.length : 0)
         .join(',')}]`,
-    ).toBe(7)
+    ).toBe(2)
     const totalIds = toolsSegs.reduce(
       (acc, seg) => acc + (seg.kind === 'tools' ? seg.ids.length : 0),
       0,
@@ -364,10 +362,11 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     expect(totalIds, `7 unique ids, 实际 ${totalIds}`).toBe(7)
   })
 
-  it('不同 seg.id 7 单 id 段：mergeCompactedPartsIntoTurn 后保持 7 段 (不合段)', async () => {
-    // v5.9 关闭合并：streaming 阶段 N+1 pieces 是预期行为。
-    // sealed parts 各 1 段 1 id，seg.id 不同是常态 (entry.blockId || tools-{id} fallback)
-    // — 不合段。dev 端预期 7 段 1 id each, 7 unique ids。
+  it('不同 seg.id 7 单 id 段：mergeCompactedPartsIntoTurn 后应合段为 1 段多 ids', async () => {
+    // v5.9 强化：real run 中 sealed parts 各 1 段 1 id，但 seg.id 可能是
+    //   entry.blockId（如果 blockId 缺失）or "tools-{tool_call_id}"（fallback）
+    // 若 blockId 缺失，sealed 段 seg.id 各自不同 → 旧版「要求 seg.id 相同」
+    //   的合段逻辑不触发，dev 端 log 仍 7 段 1 id each。修复：不要求 seg.id 相同。
     const { mergeCompactedPartsIntoTurn } = await import(
       '../src/react/lib/stream-turn-engine.ts'
     )
@@ -401,18 +400,17 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     }
     const merged = mergeCompactedPartsIntoTurn(sealed, turn)
     const toolsSegs = merged.timeline.filter((s) => s.kind === 'tools')
-    expect(toolsSegs.length, `7 不同 seg.id 1-id 段应保持 7 段, 实际 ${toolsSegs.length} 段`).toBe(7)
+    expect(toolsSegs.length, `7 不同 seg.id 1-id 段应合段为 1 段，实际 ${toolsSegs.length} 段`).toBe(1)
     const totalIds = toolsSegs.reduce(
       (acc, s) => acc + (s.kind === 'tools' ? s.ids.length : 0),
       0,
     )
-    expect(totalIds, `ids 总数应 = 7 (7 段 1 id each), 实际 ${totalIds}`).toBe(7)
+    expect(totalIds, `合段后 ids 应 = 7，实际 ${totalIds}`).toBe(7)
   })
 
-  it('真实 run-133609527d1f 6 个 1-id sealed + 1 fresh：merge 后保持 7 段 (不合段)', async () => {
+  it('真实 run-133609527d1f 6 个 1-id sealed + 1 fresh：merge 后应 1 段 7 ids (含 fresh delete)', async () => {
     // 完整端到端：模拟 ChatApp 路径（每 START 触发 drain，drain 替换 fresh），
-    // 然后 merge 6 sealed part + fresh turn。
-    // v5.9 关闭合段：6 个 1-id sealed + 1 fresh 1-id = 7 段 1 id each, 7 unique ids。
+    // 然后 merge 6 sealed part + fresh turn，验证 timeline = 1 段 7 ids。
     const { mergeCompactedPartsIntoTurn } = await import(
       '../src/react/lib/stream-turn-engine.ts'
     )
@@ -453,22 +451,23 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     }
     const merged = mergeCompactedPartsIntoTurn(sealedParts, freshTurn)
     const toolsSegs = merged.timeline.filter((seg) => seg.kind === 'tools')
-    // v5.9 关闭合段：6 sealed 1-id + 1 fresh 1-id = 7 段 1 id each, 7 unique ids
+    // 6 sealed 1-id 段 (同 id-blockId) → 1 段 6 ids; fresh 段 (1 id delete) → 1 段 1 id
+    // dedupe 后：2 段 (1 段 6 ids + 1 段 1 id delete) = 7 unique ids
     expect(
       toolsSegs.length,
-      `merge 后应 = 7 tools 段 (6 sealed 1-id + 1 fresh 1-id), 实际 ${toolsSegs.length} 段`,
-    ).toBe(7)
+      `merge 后应 = 2 tools 段（1 sealed 合并 + 1 fresh delete），实际 ${toolsSegs.length} 段`,
+    ).toBe(2)
     const totalIds = toolsSegs.reduce(
       (acc, seg) => acc + (seg.kind === 'tools' ? seg.ids.length : 0),
       0,
     )
     expect(totalIds, `ids 总数应 = 7，实际 ${totalIds}`).toBe(7)
-    // 验证 7 个 unique ids (6 sealed + 1 fresh)
+    // 验证 6 个 sealed ids + 1 fresh delete id 都在
     const allIds = toolsSegs.flatMap((seg) => (seg.kind === 'tools' ? seg.ids : []))
     expect(new Set(allIds).size, '7 个 unique ids').toBe(7)
   })
 
-  it('dev 端 run-71a2bbc501cf 真实 SSE 7 工具串行：sealed 阶段应 7 段 1-id each (不合段)', async () => {
+  it('dev 端 run-71a2bbc501cf 真实 SSE 7 工具串行：sealed 阶段应 1 段 7 ids', async () => {
     // 用 dev 端 23:15 真实 SSE log（run-71a2bbc501cf）作为 fixture：
     // 7 工具串行，TOOL_CALL_START 带 blockId=...b1，TOOL_CALL_RESULT 不带 blockId。
     // 模拟 ChatApp 真实流：每次 START 触发 drain 推 1 个 sealed part 到 compactedParts。
@@ -527,11 +526,11 @@ describe('v5.9 regression: 多轮工具流式期不应消失', () => {
     const toolsSegs = merged.timeline.filter((seg) => seg.kind === 'tools')
     const segIdsLens = toolsSegs.map((s) => (s.kind === 'tools' ? s.ids.length : 0))
 
-    // v5.9 关闭合段：6 个 1-id sealed + 1 个 fresh 1-id = 7 段 1 id each
+    // 期望：6 个 1-id sealed → 1 段 6 ids; live 1-id 段 → 1 段 1 id = 2 段
     expect(
       toolsSegs.length,
-      `dev run sealed merge 后应 = 7 tools 段 (6 sealed 1-id + 1 live 1-id), 实际 ${toolsSegs.length} 段 segIds=[${segIdsLens.join(',')}]`,
-    ).toBe(7)
+      `dev run sealed merge 后应 = 2 tools 段（1 sealed 合并 + 1 live），实际 ${toolsSegs.length} 段 segIds=[${segIdsLens.join(',')}]`,
+    ).toBe(2)
     const totalIds = toolsSegs.reduce(
       (acc, seg) => acc + (seg.kind === 'tools' ? seg.ids.length : 0),
       0,
