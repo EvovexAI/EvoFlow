@@ -188,28 +188,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             warm_task = asyncio.create_task(run_post_ready_warmups(app, _st_log, _st))
             app.state.startup_background_tasks.extend([heavy_task, warm_task])
             logger.info("Post-ready heavy init + KB/vault warmups scheduled (background)")
-
-            # D1 c9: T1 全量投影钩子（EVOFLOW_T1_LAUNCH=1 启动）。H3-B-3 T1 把 EvoFlow
-            # 业务会话历史（5,068 sessions × 34 平均 = 173,421 messages）从 sqlite 一次
-            # 性投影进 v4 HUB in-memory dict。跑完预计 3-5 分钟；启动期间 RAM 涨 几 GB
-            # （hub rows dict 持有全部 row）。失败非致命（懒加载仍可在 subscribe 时补
-            # 漏单 session）。
-            async def _t1_full_project() -> None:
-                if os.getenv("EVOFLOW_T1_LAUNCH", "").strip() not in ("1", "true", "yes"):
-                    return
-                try:
-                    from app.gateway.v4.t1_projector import project_all_sessions, _enabled as _t1_enabled
-                    if not _t1_enabled():
-                        return
-                    logger.info("[t1] 启动全量投影 (EVOFLOW_T1_LAUNCH=1)...")
-                    results = await asyncio.to_thread(project_all_sessions)
-                    logger.info("[t1] 启动全量投影完成 sessions=%d", len(results))
-                except Exception:
-                    logger.exception("[t1] 启动全量投影失败 (非致命)")
-
-            t1_task = asyncio.create_task(_t1_full_project())
-            app.state.startup_background_tasks.append(t1_task)
-            logger.info("T1 full projector scheduled (EVOFLOW_T1_LAUNCH=%s)", os.getenv("EVOFLOW_T1_LAUNCH", "0"))
         except Exception as exc:
             app.state.startup_error = str(exc)
             app.state.startup_phase = "failed"
