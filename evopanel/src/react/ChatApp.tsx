@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   CSSProperties,
   Dispatch,
   DragEvent as ReactDragEvent,
@@ -118,7 +118,6 @@ import { ChatMessageStreamPane } from './components/ChatMessageStreamPane.js'
 import { V4ShellRoot } from './v4shell/V4ShellRoot.js'
 import { HistoryFetchSpinner } from './components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from './components/ChatComposer.js'
-import { EvoFlowV4ChatPane } from './v4shell/EvoFlowV4ChatPane.js'
 import { PendingSteersStrip } from './components/PendingSteersStrip.js'
 import { mergeInterruptedComposerDraft } from './lib/merge-interrupted-composer-draft.js'
 import { ContextUsageRing } from './components/ContextUsageRing.js'
@@ -15213,11 +15212,55 @@ export default function ChatApp() {
                   }}
                 />
               ) : (
-              <EvoFlowV4ChatPane
-                workspacePath={effectiveWorkspaceRoot || 'D:/evoflow'}
-                sessionKey={selectedSessionKey || null}
+              <ChatMessageStreamPane
+                rows={renderRows}
+                streamRef={streamRef}
+                historyLoading={historyLoading}
+                showHomeDashboard={isHomeSurface}
+                homeWorkspaceLabel={homeWorkspaceLabel}
+                homeWorkspacePath={effectiveWorkspaceRoot}
                 isSending={selectedTurnBusy}
-                errorText={null}
+                streamLive={selectedSessionLive}
+                resumeAttachActive={selectedResumeAttach}
+                resumeStreamHoldActive={selectedResumeStreamHold}
+                onViewReady={handleHistoryViewReady}
+                sessionKey={selectedSessionKey}
+                onQuickPrompt={handleQuickPrompt}
+                suppressPlanExecPromptNoise={!!planExecConfirmAnchor}
+                onToolApproval={onToolApprovalStable}
+                toolApprovalBusy={toolApprovalInFlight}
+                toolApprovalUiDisabled={toolApprovalUiDisabled}
+                hideSubagentInnerTools={
+                  !!threadPanelState.collabTask?.executionAuthorized ||
+                  threadPanelState.collabPhase === 'executing'
+                }
+                inlineSubagentTasks={threadPanelState.subagentTasks}
+                onOpenFile={openMessageFilePreview}
+                onOpenKnowledgeMap={knowledgeMapEnabled ? openKnowledgeMapPanel : undefined}
+                recentArtifacts={turnArtifacts}
+                onOpenArtifact={openSessionArtifact}
+                liveTurnAssistantRunId={liveTurnAssistantRunId}
+                liveTurnTokenStr={liveTurnTokenStr}
+                liveTurnTimingActive={liveTurnTimingActive || goalExecutionTiming}
+                executionToolTiming={executionToolTiming}
+                goalExecutionTiming={goalExecutionTiming}
+                hostedGoalActive={goal.goal.ui.goalActive}
+                lastAssistantRowIndex={lastAssistantRowIndex}
+                streamPriorTurnStrip={selectedStreamPriorTurnStrip}
+                resolveLiveStreamActivity={resolveLiveStreamActivityForSession}
+                streamingWritePreview={streamingWritePreview}
+                workspacePanelWritePreview={workspacePanelWritePreview}
+                layoutKey={rightStageOpen ? 'right-stage-open' : 'right-stage-closed'}
+                onCopy={handleCopyMessage}
+                onRetry={handleRetryMessage}
+                onEdit={handleEditMessage}
+                onFork={handleForkFromMessage}
+                historyHasMore={historyHasMore}
+                historyLoadingOlder={historyLoadingOlder}
+                onLoadOlder={loadOlderHistory}
+                instantOpen={historyInstantPaint && !historyLoading}
+                assistantAgent={currentRoleAgent}
+                assistantAgentLabel={assistantReplyLabel}
               />
               )}
             </div>
