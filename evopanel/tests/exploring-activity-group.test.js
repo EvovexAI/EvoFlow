@@ -757,4 +757,90 @@ describe('worker search in Exploring layout', () => {
     )
     expect(folded?.pieces.map((p) => p.kind)).toEqual(['tools', 'reasoning', 'reasoning'])
   })
+
+  it('REAL_PIPELINE_DUP_BODY_DEBUG: 真实回合走完整 pipeline 不应产生重复正文', async () => {
+    const {
+      groupSegmentsForExploringDisplay,
+      coalesceAdjacentActivityChunks,
+      mergeOrphanToolsOnlyActivityChunks,
+      dedupeStandaloneToolChunks,
+      collapseTurnToSingleExploringChunk,
+    } = await import('../src/react/lib/exploring-activity-group.ts')
+    // 真实回合：plan-top + tools (batch1) + inter text + tools (batch2) + final
+    // batch1 = 2 tools, batch2 = 7 tools → 真实回合的 batch 切分由 groupSegments
+    //   在 line 595-610 的 hidden-only tools 切分触发。模拟这种切分。
+    const segments = [
+      { kind: 'text', text: '好的，开始做冒烟测试。' },
+      { kind: 'tools', ids: ['t1', 't2'] },
+      { kind: 'reasoning', text: '工作区正常' },  // 模拟 reasoning 切 chunk
+      { kind: 'tools', ids: ['t3', 't4', 't5', 't6', 't7', 't8', 't9'] },
+      { kind: 'text', text: '冒烟测试全部通过，5/5。' },
+    ]
+    const tools = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9'].map((id) => ({
+      id,
+      name: 'bash',
+      status: 'ok',
+      input: { command: id },
+      output: 'ok',
+      time: Date.now(),
+    }))
+
+    const summarize = (chunks) =>
+      chunks.map((c) => ({
+        kind: c.kind,
+        ...(c.kind === 'activity'
+          ? {
+              pieces: c.pieces.map((p) =>
+                p.kind + (p.kind === 'text' ? ':' + (p.text || '').slice(0, 20) : ''),
+              ),
+            }
+          : { text: (c.text || '').slice(0, 20) }),
+      }))
+
+    const grp = groupSegmentsForExploringDisplay(segments, tools, true, false)
+    const coa = coalesceAdjacentActivityChunks(grp, true)
+    const mrg = mergeOrphanToolsOnlyActivityChunks(coa, tools)
+    const ddp = dedupeStandaloneToolChunks(mrg)
+    const col = collapseTurnToSingleExploringChunk(ddp)
+    // v5.6 修复验证：streaming 跑完整 pipeline → 1 个 activity chunk
+    const acts = col.filter((c) => c.kind === 'activity')
+    expect(acts).toHaveLength(1)
+    // 1 个 activity 含 9 tools + 1 reasoning = 10 pieces
+    expect(acts[0].pieces.filter((p) => p.kind === 'tools').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('v5.6 非流式：相邻 activity chunks 应合并为 1 个（避免 2 个 msg-flat-activity-chunk 重复）', async () => {
+    const { coalesceAdjacentActivityChunks } = await import(
+      '../src/react/lib/exploring-activity-group.ts'
+    )
+    // 真实回合：2 个相邻 activity chunk（被 toolsSegmentIsHiddenOnly 切分）
+    const raw = [
+      {
+        kind: 'activity',
+        pieces: [{ kind: 'tools', ids: ['t1', 't2'], segIndex: 0 }],
+        startIndex: 0,
+      },
+      {
+        kind: 'activity',
+        pieces: [
+          { kind: 'text', text: '工作区正常', segIndex: 1 },
+          { kind: 'tools', ids: ['t3'], segIndex: 2 },
+        ],
+        startIndex: 1,
+      },
+      {
+        kind: 'activity',
+        pieces: [{ kind: 'tools', ids: ['t4'], segIndex: 3 }],
+        startIndex: 3,
+      },
+    ]
+    // 不 streaming：3 个 activity chunks 应合并为 1 个
+    const merged = coalesceAdjacentActivityChunks(raw, false)
+    const activities = merged.filter((c) => c.kind === 'activity')
+    expect(activities).toHaveLength(1)
+    // 流式时：3 个 activity chunks 保持独立（避免吞并多轮 reasoning）
+    const streamingMerged = coalesceAdjacentActivityChunks(raw, true)
+    const streamingActs = streamingMerged.filter((c) => c.kind === 'activity')
+    expect(streamingActs).toHaveLength(3)
+  })
 })

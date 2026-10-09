@@ -203,7 +203,7 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
         (
             # "worker",  # temporarily unregistered (code retained)
             "process",
-            "browser",
+            # "browser",  # unregistered — use the agent-browser skill (CLI/MCP) instead
             "web_search",
             "fetch_url",
             "subagent",
@@ -396,11 +396,11 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("search_code_index",),
     },
     "web_research": {
-        "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器（browser 工具，延迟激活）；截图理解用 view_image",
+        "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图理解用 view_image",
         "tools": (
             "web_search",
             "fetch_url",
-            "browser",
+            # "browser",  # unregistered — use the agent-browser skill (CLI/MCP) instead
             "view_image",
         ),
     },

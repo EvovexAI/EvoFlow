@@ -1,4 +1,4 @@
-/* React 聊天页：与 chat.css 变量、.msg* 气泡对齐 */
+﻿/* React 聊天页：与 chat.css 变量、.msg* 气泡对齐 */
 
 .chat-react-outlet {
   display: flex;
@@ -3660,6 +3660,133 @@ html.dark .browser-panel-stage {
 .browser-panel-stage-empty {
   align-items: center;
   justify-content: center;
+}
+
+/* ===== Arc 风格浏览器 "首页" (subtabs 下方的入口卡) ===== */
+.browser-panel-home {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary);
+}
+.browser-panel-home-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 0;
+}
+.browser-panel-home-title {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.browser-panel-home-title-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--accent-primary, #2563eb);
+}
+.browser-panel-home-title-line {
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.browser-panel-home-title-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 2px;
+}
+.browser-panel-home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.browser-panel-home-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #6b7280);
+  text-transform: uppercase;
+  padding: 0 4px;
+}
+.browser-panel-home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.browser-panel-home-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.16));
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.05s ease;
+  color: var(--text-primary);
+}
+.browser-panel-home-card:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+  border-color: var(--accent-primary, #2563eb);
+}
+.browser-panel-home-card:active {
+  transform: scale(0.99);
+}
+.browser-panel-home-card .react-chat-stage-tab-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--bg-secondary, rgba(127, 127, 127, 0.08));
+  color: var(--accent-primary, #2563eb);
+}
+.browser-panel-home-card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.browser-panel-home-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.browser-panel-home-card-hint {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.browser-panel-home-foot {
+  margin-top: auto;
+  padding: 12px 8px 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-secondary, #94a3b8);
+  border-top: 1px dashed var(--border, rgba(127, 127, 127, 0.16));
+}
+.browser-panel-home-foot p { margin: 0; }
+html.dark .browser-panel-home,
+html[data-theme='dark'] .browser-panel-home {
+  background: var(--bg-secondary, #111827);
 }
 
 .browser-panel-stage-fit {
@@ -18161,19 +18288,8 @@ html.dark .msg-ai .msg-bubble .msg-tool-activity-fold-scroll {
 
 /* === 工具行交互：running 左强调条 + hover 底色 === */
 
-/* running 工具行：左侧 2px 内阴影强调条（蓝色），不动布局 */
-.msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--running > summary {
-  box-shadow: inset 2px 0 0 #3b82f6;
-}
-
-.msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--failed > summary {
-  box-shadow: inset 2px 0 0 #ef4444;
-}
-
-html[data-theme='dark'] .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--failed > summary,
-html.dark .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--failed > summary {
-  box-shadow: inset 2px 0 0 #f87171;
-}
+/* v5.2 反馈：去掉运行中 / 失败工具行左侧的 2px 竖线——视觉上干扰且不必要。
+   保留文字颜色 + brief 颜色等弱反馈即可。 */
 
 .msg-tool-item--failed .msg-tool-brief {
   color: var(--error, #ef4444);
@@ -18182,11 +18298,6 @@ html.dark .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--fai
 html[data-theme='dark'] .msg-tool-item--failed .msg-tool-brief,
 html.dark .msg-tool-item--failed .msg-tool-brief {
   color: #f87171;
-}
-
-html[data-theme='dark'] .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--running > summary,
-html.dark .msg-tool--in-activity-fold .msg-tool-item--in-fold.msg-tool-item--running > summary {
-  box-shadow: inset 2px 0 0 #60a5fa;
 }
 
 /* 工具行 hover 底色 */
@@ -18333,6 +18444,19 @@ html.dark .msg-tool-activity-fold-steps {
 
 .msg-tool-activity-fold.is-expanded .msg-tool-activity-fold-inner > * {
   opacity: 1;
+}
+
+/* v5.3 「已工作」默认折叠时，最新一轮 piece 永远可见；历史 piece 默认隐藏。
+   外层 TurnHistoryFold 根 .msg-turn-history-fold 折叠态 (data-history-open=false) 时
+   history piece 隐藏。展开时 (data-history-open=true) 全部可见。 */
+.msg-flat-activity-chunk .msg-tool-activity-piece[data-piece-role="history"] {
+  /* 默认（外层未包折叠）：照常显示，避免无折叠场景被误藏 */
+  display: block;
+}
+.msg-turn-history-fold[data-history-open="false"]
+  .msg-flat-activity-chunk
+  .msg-tool-activity-piece[data-piece-role="history"] {
+  display: none;
 }
 
 .msg-tool--in-activity-fold {
@@ -30807,6 +30931,15 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   opacity: 1;
 }
 
+/* headerOnly（独立状态条）模式：button disabled，禁掉 hover 反馈 / cursor 变化 */
+.msg-turn-history-fold-trigger:disabled {
+  cursor: default;
+  color: var(--text-secondary, #6b7280);
+}
+.msg-turn-history-fold-trigger:disabled:hover {
+  color: var(--text-secondary, #6b7280);
+}
+
 .msg-turn-history-fold-body {
   display: flex;
   flex-direction: column;
@@ -31600,10 +31733,79 @@ html[data-theme="dark"] .group\/user-row .msg-user-context-file-pill {
   max-width: 12rem;
   height: 28px;
 }
-.react-chat-browser-panel .browser-panel-tabchip-close { opacity: 0.75; }
-.react-chat-browser-panel .browser-panel-tabchip-close:hover { opacity: 1; }
+/* 注：close 按钮的最终 opacity 由下方 Stage 5 段控制（默认 0.8 / active 1 / hover 1），
+   这块不再重复声明，避免和 Stage 5 形成顺序耦合的死代码。 */
 .react-chat-browser-panel .browser-panel-tabstrip-spring { flex: 1 1 auto; }
 .react-chat-browser-panel .browser-panel-toolbar { position: relative; }
+
+/* 第 1 行：顶 tab (Cursor 风格) — 4 个固定面板入口全常驻 */
+.react-chat-browser-panel .browser-panel-toptabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 6px;
+  gap: 2px;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.16));
+  background: var(--bg-secondary, #f8fafc);
+  overflow: hidden;
+}
+html.dark .react-chat-browser-panel .browser-panel-toptabs,
+html[data-theme='dark'] .react-chat-browser-panel .browser-panel-toptabs {
+  background: var(--bg-secondary, #111827);
+}
+
+/* 第 1 行：等宽顶 tab 按钮 */
+.react-chat-browser-panel .browser-panel-toptab {
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.react-chat-browser-panel .browser-panel-toptab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.react-chat-browser-panel .browser-panel-toptab:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+  color: var(--text-primary, inherit);
+}
+/* 激活态：背景高亮 + 顶部细高亮条 */
+.react-chat-browser-panel .browser-panel-toptab.is-active {
+  color: var(--text-primary, inherit);
+  background: var(--bg-primary, #ffffff);
+  box-shadow:
+    inset 0 2px 0 0 var(--accent-primary, #2563eb),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+}
+html.dark .react-chat-browser-panel .browser-panel-toptab.is-active,
+html[data-theme='dark'] .react-chat-browser-panel .browser-panel-toptab.is-active {
+  background: var(--bg-primary, #0b1220);
+}
+
+/* 焦点态：键盘可达 */
+.react-chat-browser-panel .browser-panel-toptab:focus-visible {
+  outline: 2px solid var(--accent-primary, #2563eb);
+  outline-offset: -2px;
+}
 
 /* 第 2 行：sub-tabs（搜索 / page chip / +），仅浏览器 surface 渲染。 */
 .react-chat-browser-panel .browser-panel-subtabs {
@@ -31618,8 +31820,7 @@ html[data-theme="dark"] .group\/user-row .msg-user-context-file-pill {
   background: var(--bg-secondary, #f8fafc);
   overflow-x: auto;
   overflow-y: hidden;
-}
-html.dark .react-chat-browser-panel .browser-panel-subtabs,
+}html.dark .react-chat-browser-panel .browser-panel-subtabs,
 html[data-theme='dark'] .react-chat-browser-panel .browser-panel-subtabs {
   background: var(--bg-secondary, #111827);
   border-bottom-color: var(--border, #374151);
@@ -31780,6 +31981,8 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
 
 .msg-stream-run-spinner {
   color: var(--accent, #635bff);
+  animation: react-chat-spinner-rotate 0.8s linear infinite;
+  transform-origin: 50% 50%;
 }
 
 /* flat 时间线：思考标识与下方工具行贴近（去掉思考块自身下边距 + 收紧行距） */
@@ -31812,24 +32015,52 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
   border-radius: 3px;
   object-fit: contain;
 }
-/* 悬浮关闭：默认隐藏，chip 悬浮/聚焦/激活时显现（ZCode 行为） */
+/* 关闭按钮：始终常显，把可关闭的 affordance 摊在台面上（之前 hover 才出，
+   surface chip 不在 hover 时关闭按钮就是空气）。 */
 .react-chat-browser-panel .browser-panel-tabchip .browser-panel-tabchip-close {
-  opacity: 0;
-  pointer-events: none;
-}
-.react-chat-browser-panel .browser-panel-tabchip:hover .browser-panel-tabchip-close,
-.react-chat-browser-panel .browser-panel-tabchip:focus-within .browser-panel-tabchip-close,
-.react-chat-browser-panel .browser-panel-tabchip.is-active .browser-panel-tabchip-close {
   opacity: 0.8;
   pointer-events: auto;
 }
+.react-chat-browser-panel .browser-panel-tabchip.is-active .browser-panel-tabchip-close {
+  opacity: 1;
+}
 .react-chat-browser-panel .browser-panel-tabchip .browser-panel-tabchip-close:hover { opacity: 1; }
+/* chip 内子项布局：icon | title (撑开 + ellipsis) | close —— 关闭按钮恒贴右，
+   不再"挤在 title 后面看着像在中间"。title 必须 flex:1 + min-width:0 才能 ellipsis。 */
+.react-chat-browser-panel .browser-panel-tabchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.react-chat-browser-panel .browser-panel-tabchip-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.react-chat-browser-panel .browser-panel-tabchip-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.react-chat-browser-panel .browser-panel-tabchip-close {
+  flex-shrink: 0;
+}
 .react-chat-browser-panel .browser-panel-tabchip:not(.is-active):hover {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
   color: var(--text-primary, inherit);
 }
 .react-chat-browser-panel .browser-panel-tabchip[draggable='true'] { cursor: grab; }
 .react-chat-browser-panel .browser-panel-tabchip[draggable='true']:active { cursor: grabbing; }
+/* surface chip（非浏览器 surface：工作流 / 思维导图）和 web chip 视觉区分 —— 边框 + 更浅底
+   让"这两个不是浏览器内页，是侧栏另外两个视图"显式可见，避免被认成浏览器标签。 */
+.react-chat-browser-panel .browser-panel-tabchip.is-surface {
+  background: transparent;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.16));
+}
+.react-chat-browser-panel .browser-panel-tabchip.is-surface.is-active {
+  background: var(--bg-selected, var(--bg-secondary, rgba(127, 127, 127, 0.08)));
+}
 .react-chat-browser-panel .browser-panel-tabsearch { left: 44px; right: auto; min-width: 260px; }
 .react-chat-browser-panel .browser-panel-menu-item-label {
   min-width: 0;

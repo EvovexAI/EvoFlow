@@ -1309,7 +1309,7 @@ def _get_skill_metadata() -> list[SkillInfo]:
         "video-generation": "🎬",
         "image-generation": "🖼️",
         "ppt-generation": "📊",
-        "browser": "🌐",
+        # "browser": "🌐",  # tool unregistered — see agent-browser skill (CLI/MCP)
         "github-deep-research": "💻",
         "consulting-analysis": "📋",
         "chart-visualization": "📉",

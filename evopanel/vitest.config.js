@@ -174,6 +174,8 @@ export default defineConfig({
       'tests/chat-host-route-toggle.test.js',
       'tests/shell-session-select-defer.test.js',
       'tests/stream-snapshot-store.test.js',
+      'tests/repro-later-round-tools-vanish.test.js',
+      'tests/replay-real-session-tools.test.js',
     ],
   },
 })

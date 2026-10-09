@@ -185,7 +185,7 @@ fn launch_edge_fallback() -> u16 {
     // pass them as `flag=value` to avoid the parser merging them wrong.
     let remote_debug_flag = format!("--remote-debugging-port={edge_port}");
     let user_data_flag = format!("--user-data-dir={user_data_dir_str}");
-    let mut child = match std::process::Command::new(edge_exe)
+    let child = match std::process::Command::new(edge_exe)
         .args([
             &remote_debug_flag,
             &user_data_flag,

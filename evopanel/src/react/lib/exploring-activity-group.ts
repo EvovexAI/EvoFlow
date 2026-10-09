@@ -756,7 +756,11 @@ export function coalesceAdjacentActivityChunks(
   chunks: SegmentDisplayChunk[],
   messageStreaming = false,
 ): SegmentDisplayChunk[] {
-  if (!messageStreaming || !chunks.length) return chunks
+  if (!chunks.length) return chunks
+  // v5.6 修复：原条件 `!messageStreaming` 早 return 反了逻辑——
+  //   流式期间 chunk 切分频繁（每个 reasoning round 都切），应保持独立；
+  //   非流式（结束后）应合并相邻 activity chunks，避免 2 个 msg-flat-activity-chunk 重复。
+  // 修：去掉早 return，stream 时继续走"双方都无 tools 才合并"的窄逻辑，nostream 时全部合并。
   const out: SegmentDisplayChunk[] = []
   for (const c of chunks) {
     if (c.kind === 'activity') {
@@ -764,9 +768,10 @@ export function coalesceAdjacentActivityChunks(
       if (prev?.kind === 'activity') {
         const prevHasTools = prev.pieces.some((p) => p.kind === 'tools')
         const curHasTools = c.pieces.some((p) => p.kind === 'tools')
-        if (!prevHasTools && !curHasTools) {
-          // 流式期间保持 reasoning 批次独立，避免 chunk#0 吞并多轮思考
-          if (!messageStreaming) {
+        if (messageStreaming) {
+          // 流式：只有双方都没有 tools（连续 reasoning batch）才合并；
+          // 其他情况保持独立，避免吞并多轮思考 + 工具。
+          if (!prevHasTools && !curHasTools) {
             out[out.length - 1] = {
               kind: 'activity',
               pieces: [...prev.pieces, ...c.pieces],
@@ -774,6 +779,14 @@ export function coalesceAdjacentActivityChunks(
             }
             continue
           }
+        } else {
+          // 非流式：合并所有相邻 activity chunk（避免重复渲染）。
+          out[out.length - 1] = {
+            kind: 'activity',
+            pieces: [...prev.pieces, ...c.pieces],
+            startIndex: prev.startIndex,
+          }
+          continue
         }
       }
     }

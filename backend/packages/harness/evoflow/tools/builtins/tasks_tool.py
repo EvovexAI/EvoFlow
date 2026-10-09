@@ -24,7 +24,8 @@ action: create | progress | state | delete | list | get。
 - delete: task_id + confirm=true
 outputs: 文档路径 [{type,key,value}]；handlers: [{agent_code,content,read_outputs[]}]
 
-任务 id 见 <proactive_live_tasks> 或看板。list 默认 20 条。
+任务 id 见 <proactive_live_tasks> 或看板。list 默认只返回最新 10 条主任务（不含子任务）；翻页用 offset，
+需要子任务行时显式传 subtasks_only=false / include_subtasks=true。
 """
 
 tasks_ui_metadata = {
@@ -253,7 +254,8 @@ def tasks_tool(
     round_id: str = "",
     confirm: bool = False,
     subtasks_only: bool = False,
-    limit: int = 20,
+    include_subtasks: bool = False,
+    limit: int = 10,
     offset: int = 0,
 ) -> str:
     """Manage duty Task board (policy in tool description)."""
@@ -266,20 +268,25 @@ def tasks_tool(
 
     try:
         if act == "list":
-            raw_limit = int(limit) if limit is not None else 20
-            if raw_limit < 0:
-                raw_limit = 20
+            raw_limit = int(limit) if limit is not None else 10
+            if raw_limit <= 0:
+                # 0/-1 previously meant "no cap" and dumped the whole board into context.
+                # Treat it as "default page" — use offset for paging instead.
+                raw_limit = 10
             # Cap tool pages so a single call cannot dump the whole board into context.
-            list_limit = min(raw_limit, 100) if raw_limit > 0 else 0
+            list_limit = min(raw_limit, 100)
             list_offset = max(0, int(offset or 0))
+            with_subtasks = bool(include_subtasks) and not bool(subtasks_only)
+            if bool(subtasks_only):
+                with_subtasks = True
             data = tasks_admin.list_tasks(
                 assignee=str(assignee or "").strip() or None,
                 role=str(role or "").strip() or None,
                 status=str(status or "").strip() or None,
                 source=str(source or "").strip() or None,
                 main_task_id=str(main_task_id or "").strip() or None,
-                include_subtasks=not subtasks_only,
-                limit=list_limit if list_limit > 0 else None,
+                include_subtasks=with_subtasks,
+                limit=list_limit,
                 offset=list_offset,
             )
             return _ok({"action": act, "result": data})

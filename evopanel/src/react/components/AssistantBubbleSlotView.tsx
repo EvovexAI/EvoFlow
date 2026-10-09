@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { assistantBodiesLooselySame } from '../../lib/chat-normalize.js'
 import { collectTurnChangedFiles } from '../file-diff-util.js'
 import { collectTurnDeliverables } from '../../lib/deliverable-mentions.js'
@@ -254,12 +254,11 @@ function AssistantBubbleSlotViewInner({
     )
   }
 
-  // v4：单 TurnHistoryFold 包裹整个回合（plan.slots + changed files + deliverables）。
-  //   - wrapInHistoryFold=true && showStandaloneWorkHeader=true  → 仅显 headerOnly 状态条
-  //   - wrapInHistoryFold=true && showStandaloneWorkHeader=false → 完整可折叠面板
-  //       - 工作中：defaultOpen=true → 看到完整轨迹
-  //       - 已工作 / 已停止：defaultOpen=false → 只看头部「已工作 X」/「⏹ 已停止」
-  //   - wrapInHistoryFold=false (无 workedLabel) → 按原路径平铺（无状态条 / 走原 plan）
+  // v5.2 折叠：唯一折叠入口是「工作中 / 已工作 X / ⏹ 已停止」头部。
+  //   - 工作中（isStreaming=true）→ defaultOpen=true：用户实时看完整轨迹
+  //   - 已工作 / 已停止（isStreaming=false）→ defaultOpen=false：默认折叠，点 chevron 展开看全部
+  //   - ExploringActivityChunk 内所有 piece 平铺到 body（无二级「过程 N 项」折叠头）。
+  // 效果：用户点 chevron 一次性看全部历史；不展开只看干净的"已工作 1分56秒"标签。
   const workedText = formatWorkDurationText(durationLabel)
   const workedLabel = (() => {
     if (plan.flatTimeline === false || suppressExploringFold) return ''
@@ -268,29 +267,23 @@ function AssistantBubbleSlotViewInner({
     if (workedText) return `已工作 ${workedText}`
     return '已工作'
   })()
-  // 是否需要套 TurnHistoryFold 折叠面板:
-  //   有 workedLabel → 套, defaultOpen 跟着 isStreaming
-  //   无 workedLabel (工作轨迹 / 控制类) → 不套, 直接平铺
-  const wrapInHistoryFold = !!workedLabel
-  const historyFoldDefaultOpen = isStreaming
-  /** "有 work 类条目"= plan.slots 中存在 chunk.activity / chunk.tools-standalone /
-   *  legacy-tools / orphan-tools / tool-row / reasoning-pending 之一。
-   *  若都没有（含纯文本/无 slot 回合），只显独立 headerOnly 状态条。 */
-  const hasWorkContent = plan.slots.some((s) => {
-    switch (s.kind) {
-      case 'chunk':
-        return s.chunk.kind !== 'text'
-      case 'legacy-tools':
-      case 'orphan-tools':
-      case 'tool-row':
-      case 'reasoning-pending':
-        return true
-      default:
-        return false
+
+  // 【调试】追踪 isStreaming 和齿轮渲染
+  const prevIsStreamingRef = useRef(isStreaming)
+  useEffect(() => {
+    const prev = prevIsStreamingRef.current
+    if (prev !== isStreaming) {
+      const now = new Date().toISOString()
+      console.log(
+        `[GearDebug] AssistantBubbleSlotView isStreaming: ${prev} → ${isStreaming}`,
+        '| timestamp:', now,
+        '| workedLabel:', workedLabel,
+        '| plan.slots.length:', plan.slots.length,
+        '| gear will show:', isStreaming,
+      )
+      prevIsStreamingRef.current = isStreaming
     }
-  })
-  /** 纯文本回合（无工作条目）：按原路径走，头部独立 headerOnly 渲染 */
-  const showStandaloneWorkHeader = wrapInHistoryFold && !hasWorkContent
+  }, [isStreaming, workedLabel, plan.slots.length])
 
   const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
         switch (slot.kind) {
@@ -417,98 +410,59 @@ function AssistantBubbleSlotViewInner({
                 onOpenKnowledgeMap={onOpenKnowledgeMap}
               />
             )
-          case 'thinking-wait':
-            return (
-              <StreamRunStatusLine
-                key={`thinking-wait-${si}`}
-                label={slot.label}
-                durationLabel={durationLabel}
-                toolCount={Array.isArray(tools) ? tools.length : 0}
-                showTip={!!isStreaming}
-              />
-            )
           default:
             return null
         }
   }
 
-  // v4：单 TurnHistoryFold 包裹整个回合（plan.slots + changed files + deliverables）。
-  //   - 工作中：defaultOpen=true → 看到完整轨迹
-  //   - 已工作 / 已停止：defaultOpen=false → 只看头部「已工作 X」/「⏹ 已停止」
-  //   - 无 workedLabel：按原路径平铺（plan.slots 单独显示，无折叠）
-  //   - 纯文本回合（无工作条目）：头部独立 headerOnly 渲染 + plan.slots 平铺
+  // v5.2 反馈：唯一的折叠入口是「工作中 / 已工作 X / ⏹ 已停止」这个头部。
+  //   - 工作中（isStreaming=true）→ defaultOpen=true：用户实时看完整轨迹
+  //   - 已工作 / 已停止（isStreaming=false）→ defaultOpen=false：默认折叠，点 chevron 展开看全部
+  //   - 之前 v5 用 headerOnly 把头部退化成静态标签，砍掉了折叠能力。
+  //   - 之前 v5 chunk 内还塞了个「过程 N 项」二级折叠头，过于啰嗦，已删除。
   return (
     <>
       {askInline}
-      {wrapInHistoryFold ? (
-        showStandaloneWorkHeader ? (
-          <>
-            {/* 纯文本回合（无工作条目）：仅显独立 headerOnly 状态条 + slots 平铺 */}
-            <TurnHistoryFold
-              key="turn-history-status"
-              label={workedLabel}
-              messageId={messageId}
-              headerOnly
-            />
-            {plan.slots.map((slot, si) => (
-              <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
-            ))}
-            {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
-              <ChangedFilesSummaryRow
-                files={changedFiles}
-                onOpenFile={onOpenFile}
-                onRevert={handleRevertFiles}
-                revertibleCount={revertibleCount}
-                revertBusy={revertBusy}
-              />
-            ) : null}
-            {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
-              <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
-            ) : null}
-          </>
-        ) : (
-          <TurnHistoryFold
-            key="turn-history-fold"
-            label={workedLabel}
-            messageId={messageId}
-            defaultOpen={historyFoldDefaultOpen}
-          >
-            {plan.slots.map((slot, si) => (
-              <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
-            ))}
-            {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
-              <ChangedFilesSummaryRow
-                files={changedFiles}
-                onOpenFile={onOpenFile}
-                onRevert={handleRevertFiles}
-                revertibleCount={revertibleCount}
-                revertBusy={revertBusy}
-              />
-            ) : null}
-            {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
-              <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
-            ) : null}
-          </TurnHistoryFold>
-        )
-      ) : (
-        <>
+      {workedLabel ? (
+        <TurnHistoryFold
+          key="turn-history-status"
+          label={workedLabel}
+          messageId={messageId}
+          defaultOpen={isStreaming}
+          // v5.3：已工作默认折叠时，最新一轮 piece 仍要外露。
+          // body 永远渲染，由 children 自身用 CSS 决定哪些 piece 可见。
+          bodyAlwaysRendered={!isStreaming}
+        >
           {plan.slots.map((slot, si) => (
             <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
           ))}
-          {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
-            <ChangedFilesSummaryRow
-              files={changedFiles}
-              onOpenFile={onOpenFile}
-              onRevert={handleRevertFiles}
-              revertibleCount={revertibleCount}
-              revertBusy={revertBusy}
+          {/* v5.2 反馈：齿轮必须绑 SSE 实时状态（isStreaming），不能绑 slot kind（thinking-wait 消失齿轮就消失）。 */}
+          {isStreaming ? (
+            <StreamRunStatusLine
+              key="stream-tail-spinner"
+              label="生成中"
+              showTip={false}
             />
           ) : null}
-          {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
-            <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
-          ) : null}
-        </>
+        </TurnHistoryFold>
+      ) : (
+        // 无 workedLabel（无 workedLabel 的纯文本回合）：按原路径平铺，不折叠。
+        plan.slots.map((slot, si) => (
+          <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
+        ))
       )}
+      {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
+        <ChangedFilesSummaryRow
+          files={changedFiles}
+          onOpenFile={onOpenFile}
+          onRevert={handleRevertFiles}
+          revertibleCount={revertibleCount}
+          revertBusy={revertBusy}
+        />
+      ) : null}
+      {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
+        <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
+      ) : null}
     </>
   )
 }

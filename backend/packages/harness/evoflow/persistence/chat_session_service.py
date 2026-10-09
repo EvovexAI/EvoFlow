@@ -40,7 +40,48 @@ EXECUTOR_SESSION_KEY_PREFIX = "agent:executor:"
 
 # In single-process mode, LangGraph is mounted in-process at /api/langgraph on the Gateway.
 # Override with EVOFLOW_LANGGRAPH_URL to use an external LangGraph instance.
-LANGGRAPH_BASE_URL = os.getenv("EVOFLOW_LANGGRAPH_URL", "http://127.0.0.1:8070/api/langgraph").rstrip("/")
+#
+# H3-B-2 fix: when this module is imported from a Gateway worker process, always route
+# LangGraph HTTP calls through the **same** Gateway HTTP endpoint that the frontend uses
+# (via Vite proxy or Tauri IPC).  Previously the default fell back to
+# http://127.0.0.1:8070 which is wrong when the Gateway is listening on a different
+# port (e.g. 8071) — threads created on 8070 would 404 when the frontend streams
+# through the Vite proxy to 8071.
+#
+# Resolution order:
+#   1. EVOFLOW_LANGGRAPH_URL (explicit override for external LangGraph)
+#   2. Gateway self URL + /api/langgraph (in-process mount — keeps store in sync)
+#   3. http://127.0.0.1:8070/api/langgraph (legacy dev fallback)
+def _resolve_langgraph_base_url() -> str:
+    explicit = (os.getenv("EVOFLOW_LANGGRAPH_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    # In-process mode: resolve the Gateway's own HTTP address so that
+    # chat_session_service thread creation hits the SAME LangGraph store that
+    # the frontend stream requests go through.
+    try:
+        from evoflow.langgraph_deployment import _gateway_self_base_url
+
+        gw_self = _gateway_self_base_url()
+        if gw_self:
+            return f"{gw_self.rstrip('/')}/api/langgraph"
+    except Exception:
+        pass
+    return "http://127.0.0.1:8070/api/langgraph"
+
+
+# H3-B-2 fix: resolve at call time so the Gateway can inject
+# ``EVOFLOW_LANGGRAPH_URL`` during lifespan startup after the worker bound to
+# its port.  ``LANGGRAPH_BASE_URL`` is kept as a backward-compat snapshot for
+# any external caller that imports it; runtime callers should use
+# ``_get_langgraph_base_url()`` to pick up post-startup URL overrides.
+LANGGRAPH_BASE_URL = _resolve_langgraph_base_url().rstrip("/")
+
+
+def _get_langgraph_base_url() -> str:
+    return _resolve_langgraph_base_url().rstrip("/")
+
+
 _HOP_BY_HOP = {"connection", "keep-alive", "host", "content-length", "transfer-encoding"}
 
 
@@ -126,7 +167,9 @@ async def _langgraph_request(
     json_body: dict | None = None,
     params: dict | None = None,
 ) -> httpx.Response | None:
-    url = f"{LANGGRAPH_BASE_URL}/{path.lstrip('/')}"
+    # H3-B-2: resolve at call time so lifespan-injected URL takes effect.
+    base_url = _get_langgraph_base_url()
+    url = f"{base_url}/{path.lstrip('/')}"
     logger.debug("[chat-session] >>> %s %s json=%s", method, url, json_body is not None)
     try:
         async with httpx.AsyncClient(timeout=_timeout()) as client:
@@ -209,7 +252,8 @@ async def create_langgraph_thread(session_key: str) -> str | None:
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    logger.debug("[chat-session] create_langgraph_thread key=%s base_url=%s", sk, LANGGRAPH_BASE_URL)
+    base_url = _get_langgraph_base_url()
+    logger.debug("[chat-session] create_langgraph_thread key=%s base_url=%s", sk, base_url)
     from evoflow.runtime.long_run_limits import LONG_RUN_WALL_MS, LONG_RUN_WALL_SECONDS
 
     body = {

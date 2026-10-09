@@ -171,6 +171,7 @@ pub fn call_cdp(
     let trace_path = crate::commands::evoflow_dir().join("browser-cdp-trace.log");
     eprintln!("[browser-cdp] TRACE_FILE={}", trace_path.display());
     eprintln!("[browser-cdp] call {method} params={}", truncate(params_json, 400));
+    eprintln!("[browser-cdp] about to call with_webview...");
     // `with_webview` takes an `FnOnce` closure, so the result travels back
     // through a shared cell rather than being returned from the closure.
     let cell: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
@@ -193,6 +194,7 @@ pub fn call_cdp(
     // total budget for "the closure ran AND the COM call answered" is
     // closure-delay + 10s. We give the UI thread 25s to even *reach* the
     // closure, with progress logging so a stuck init is visible in the log.
+    eprintln!("[browser-cdp] about to call with_webview for {method} on {label}...");
     if let Err(e) = window.with_webview(move |platform| {
         let outcome = match core_webview2(&platform.controller()) {
             Ok(webview) => dispatch_on_webview(&webview, &method_for_closure, &params_json_owned),
@@ -213,7 +215,7 @@ pub fn call_cdp(
     // Poll the cell. `with_webview` returning `Ok(())` only proves the closure
     // was *queued*, not that it has run — on a brand-new webview the COM
     // controller can take 5–20 s before the closure is even dispatched.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut last_progress = std::time::Instant::now();
     loop {
         if let Some(outcome) = cell.lock().ok().and_then(|mut g| g.take()) {
@@ -494,7 +496,13 @@ pub fn browser_cdp_command(
     method: String,
     params_json: String,
 ) -> Result<Value, String> {
+    crate::commands::browser_cdp_server::log_line(&format!(
+        "[browser-cdp] browser_cdp_command ENTER thread={thread_id} method={method}"
+    ));
     let label = webview_label_for_thread(&thread_id);
+    crate::commands::browser_cdp_server::log_line(&format!(
+        "[browser-cdp] browser_cdp_command label={label}"
+    ));
     // ZCode parity: the host process owns the webview.  When the agent (Python
     // gateway) calls a CDP method for a thread whose WebView2 has not been
     // mounted by the panel UI yet, spin up a hidden child window so the very
@@ -518,11 +526,18 @@ pub fn browser_cdp_command(
             _ => "about:blank".to_string(),
         };
         if let Err(e) = ensure_webview_for_cdp(&app, &thread_id, &boot_url) {
-            eprintln!("[browser-cdp] ensure_webview_for_cdp failed: {e}");
+            crate::commands::browser_cdp_server::log_line(&format!(
+                "[browser-cdp] ensure_webview_for_cdp failed: {e}"
+            ));
             return Err(format!("auto-create embedded webview failed: {e}"));
         }
+        crate::commands::browser_cdp_server::log_line(
+            "[browser-cdp] ensure_webview_for_cdp ok",
+        );
     }
+    crate::commands::browser_cdp_server::log_line("[browser-cdp] about to call_cdp");
     let body = call_cdp(&app, &label, &method, &params_json)?;
+    crate::commands::browser_cdp_server::log_line("[browser-cdp] call_cdp returned");
     serde_json::from_str(&body).map_err(|e| format!("CDP result parse failed: {e}"))
 }
 

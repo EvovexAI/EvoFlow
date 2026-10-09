@@ -1279,6 +1279,11 @@ export function mergeCompactedPartsIntoTurn(
     audios = mergeMediaLists(audios, part.audios)
     files = mergeMediaLists(files, part.files)
   }
+  // v5.9 fix：drainAgUiCompletedRound 每次 START 触发 1 个 tool seal，
+  // 产生 N 个 1-id tools 段（每 part 1 段）。同 blockId 的连续 1-id 段
+  // 应合段，否则 dom-view 渲染 N piece 1 id each + fresh = N+1 piece，
+  // 表现即用户反馈"显示了 4-5 个工具后又显示工具，前面的工具看不到"。
+  timeline = mergeConsecutiveSingleIdToolsSegments(timeline)
   timeline = normalizeAssistantSegmentTimelineOrder(
     dedupeToolsTimelineSegments([
       ...timeline,
@@ -1295,6 +1300,59 @@ export function mergeCompactedPartsIntoTurn(
     audios: mergeMediaLists(audios, turn.audios),
     files: mergeMediaLists(files, turn.files),
   }
+}
+
+/**
+ * 合并连续单 id 的 tools 段 → 1 段多 ids。
+ * 触发场景：drainAgUiCompletedRound 每次 START 触发 1 tool seal，
+ * 产生 N 个 1-id tools 段（每 part 1 段）。这些 1-id 段本质是同一批
+ * sealed tools 跨 N 个 part 投影的碎片，应合段。
+ * 算法：找连续 tools 段（ids.length === 1，不限 seg.id 是否相同），
+ * 合并为 1 段多 ids。
+ */
+function mergeConsecutiveSingleIdToolsSegments(
+  segments: MessageSegment[],
+): MessageSegment[] {
+  const out: MessageSegment[] = []
+  let runStartIdx = -1
+  const flushRun = (endIdx: number) => {
+    if (runStartIdx < 0) return
+    const run = out.slice(runStartIdx, endIdx + 1)
+    if (run.length <= 1) {
+      runStartIdx = -1
+      return
+    }
+    const allIds: string[] = []
+    for (const seg of run) {
+      if (seg.kind === 'tools') allIds.push(...seg.ids)
+    }
+    const first = run[0]
+    if (first.kind === 'tools') {
+      out[runStartIdx] = { ...first, ids: allIds }
+      for (let i = runStartIdx + 1; i <= endIdx; i++) {
+        out[i] = undefined as unknown as MessageSegment
+      }
+    }
+    runStartIdx = -1
+  }
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    out.push(seg)
+    if (seg.kind !== 'tools' || seg.ids.length !== 1) {
+      // 结束当前 run
+      if (runStartIdx >= 0) flushRun(i - 1)
+      continue
+    }
+    // 1-id tools 段：开新 run 或继续当前 run（不要求 seg.id 相同）
+    if (runStartIdx < 0) {
+      runStartIdx = i
+      continue
+    }
+    // 继续 run（不结束）
+  }
+  // flush tail
+  if (runStartIdx >= 0) flushRun(out.length - 1)
+  return out.filter((s) => s != null)
 }
 
 /** 前一轮 strip 包（用于 merged stream 过滤 stale 工具 id） */
