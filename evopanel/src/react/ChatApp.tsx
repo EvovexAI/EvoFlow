@@ -115,7 +115,6 @@ import {
 import { useCollabSubtasksFromApi } from './hooks/useCollabSubtasksFromApi.js'
 import { skTail, ssLog } from '../lib/session-list-debug.js'
 import { ChatMessageStreamPane } from './components/ChatMessageStreamPane.js'
-import { V4ShellRoot } from './v4shell/V4ShellRoot.js'
 import { HistoryFetchSpinner } from './components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from './components/ChatComposer.js'
 import { PendingSteersStrip } from './components/PendingSteersStrip.js'
@@ -1436,22 +1435,7 @@ export default function ChatApp() {
   })
   /** 当前选中会话 key（同步 ref，供 useMemo/回调在 state 未提交前读取） */
   const sessionRef = useRef(selectedSessionKey)
-  /**
-   * H3-C: `localStorage.evoflowV4Shell === "1"` 时主聊天列切到 vendored ZCode v4 shell
-   * （V4ChatPane/SessionPane 全链路，后端 /api/v4/conversation/*）。旧渲染路径保留可回切。
-   */
-  const v4ShellEnabled = useMemo(() => {
-    try {
-      return localStorage.getItem('evoflowV4Shell') === '1'
-    } catch {
-      return false
-    }
-  }, [])
-  // v3.5: v4SessionId 中间 state 已删除 —— v4 shell (WorkspaceShellLayout) 直接消费
-  // selectedSessionKey,createSession/侧栏点选通过 onSelectSession 反向同步回
-  // selectedSessionKey 形成闭环。T3 当时加 v4SessionId 是怕 pane 回落草稿,现在
-  // WorkspaceShellLayout 主动消费 activeTaskId prop,不需要中间 state。
-  /** 各会话侧栏/询问面板状态缓存（切换会话时恢复；后台会话询问不得写入当前 UI） */
+  // 各会话侧栏/询问面板状态缓存(切换会话时恢复;后台会话询问不得写入当前 UI)
   const threadPanelBySessionRef = useRef(new Map<string, ThreadPanelState>())
   const commitThreadPanelForSessionRef = useRef<
     (sessionKey: string, updater: (prev: ThreadPanelState) => ThreadPanelState) => void
@@ -15200,18 +15184,6 @@ export default function ChatApp() {
               </div>
             ) : null}
             <div className="react-chat-messages-body">
-              {v4ShellEnabled ? (
-                <V4ShellRoot
-                  workspacePath={effectiveWorkspaceRoot || 'D:/evoflow'}
-                  sessionId={selectedSessionKey || null}
-                  onSelectSession={(nextId) => {
-                    // v3.5: zcode 侧栏点选 / "+ New Task" / 内部 createSession
-                    // 都会桥到这里。同步给 EvoFlow 旧 selectedSessionKey 让
-                    // 旧消息/侧栏联动更新（也反向驱动 v4 shell activeTaskId）。
-                    setSelectedSessionKey(nextId ?? '')
-                  }}
-                />
-              ) : (
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}
@@ -15262,7 +15234,6 @@ export default function ChatApp() {
                 assistantAgent={currentRoleAgent}
                 assistantAgentLabel={assistantReplyLabel}
               />
-              )}
             </div>
           </div>
           <SessionSidebar
@@ -15540,7 +15511,6 @@ export default function ChatApp() {
               threadId={wsClient.getSessionThreadId(selectedSessionKey || '') || ''}
               refreshKey={`${selectedSessionKey || ''}:${memoryRecallRefreshKey}`}
             />
-            {!v4ShellEnabled ? (
             <ChatComposer
               sessionReady
               engineReady={engineReady}
@@ -15900,7 +15870,6 @@ export default function ChatApp() {
                     : '输入消息，@ 提及员工，# 引用文件'
               }
             />
-            ) : null}
               </div>
             </div>
           </div>

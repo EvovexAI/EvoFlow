@@ -410,15 +410,6 @@ function _bindShell(el) {
       void _openSettingsFromShell()
       _closeMobileShell()
     }
-    if (e.target.closest('#shell-footer-v4-toggle')) {
-      try {
-        localStorage.setItem('evoflowV4Shell', '1')
-      } catch {
-        /* private mode 静默 */
-      }
-      _closeMobileShell()
-      window.location.reload()
-    }
   })
 }
 
@@ -526,21 +517,6 @@ export function initShellAside(el) {
     <div id="shell-chat-panel" class="shell-aside-recent"></div>
     <div class="react-chat-aside-footer shell-aside-bottom-bar">
       <div class="shell-aside-account-mount" id="shell-aside-account-mount"></div>
-      <button
-        type="button"
-        class="shell-footer-icon-btn"
-        id="shell-footer-v4-toggle"
-        title="切换到 EvoFlow 新版(zcode 桌面风格)"
-        aria-label="切换到 EvoFlow 新版"
-      >
-        <span class="react-chat-aside-nav-ic" aria-hidden>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-            <path d="M3 12a9 9 0 1 0 9-9" />
-            <path d="M3 4v5h5" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-        </span>
-      </button>
       <button type="button" class="shell-footer-icon-btn" id="shell-footer-settings" title="设置" aria-label="设置">
         <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('settings')}</span>
       </button>

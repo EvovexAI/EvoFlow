@@ -357,158 +357,13 @@ async function ensureChatAppMounted() {
 }
 
 /**
- * v3.5: 读 `localStorage.evoflowV4Shell` 决定 boot 时是否进 zcode 桌面新版。
- * 切到新版 = shell-aside.js 的"切到新版"按钮写 '1' + reload;切回老版 =
- * EvoFlowV4HeaderToggle 删 key + reload。默认 '0' / 没设 = 老版,符合
- * 用户"默认还是老版"的要求。
+ * v3.5 H3-C 期间曾挂过 V4 shell(zcode 桌面)的整套入口(读
+ * localStorage.evoflowV4Shell → mountV4ShellToContent 占满主列)。
+ * 现已整体下线:侧栏"切到 v4"按钮移除,ChatApp.tsx 的 v4ShellEnabled
+ * 分支也去掉,只剩老版 ChatApp 渲染路径。boot() 直接走老版分支,
+ * 因此本文件不再保留 `isV4ShellEnabled` / `mountV4ShellToContent`
+ * 等中间变量。
  */
-function isV4ShellEnabled() {
-  try {
-    return window.localStorage.getItem('evoflowV4Shell') === '1'
-  } catch {
-    return false
-  }
-}
-
-/**
- * v3.5: 把 `<V4ShellRoot>` 挂到 `<main id="content">`,独占主列,完全替代
- * 老版 ChatApp。原本 `#chat-persistent-host` 隐藏,`<main id="content">`
- * 显示(老版是 ChatApp 挂到 persistent-host 里 hide 掉,content 装别的页面
- * —— 新版反一反:persistent-host 不挂,content 装 V4ShellRoot)。
- *
- * V4ShellRoot 内部自带完整的 provider 栈(Lucide / Tooltip / Service /
- * Platform / Store / TabStore / DiffsWorker / CodingPlanUpgradeDialog /
- * ZCodeIntl) + EvoFlowApp(zcode App.tsx 适配版),用户看到的就是 zcode
- * 桌面 UI 全套 —— 不再是"老版 ChatApp 中间嵌 v4"那种割裂感。
- *
- * sessionId 暂传 null(v4 草稿态);EvoFlow 当前无 workspace 概念,
- * workspacePath 传 const EMPTY_WORKSPACE_PATH 占位。后续 v3.6+ 接
- * EvoFlow 真实 sessions list 注入 V4ShellRoot。
- */
-const EVOFLOW_V4_WORKSPACE_PATH = '/evoflow/main'
-let _v4ReactRoot = null
-let _v4ContainerEl = null
-
-async function mountV4ShellToContent() {
-  const content = document.getElementById('content')
-  if (!content) return
-  // 隐藏 chat-persistent-host 防止 ChatApp 单例被意外 mount
-  const host = document.getElementById('chat-persistent-host')
-  if (host) {
-    host.hidden = true
-    host.style.display = 'none'
-  }
-  bootMark('mountV4ShellToContent begin')
-  try {
-    const { createRoot } = await import('react-dom/client')
-    const React = await import('react')
-    const { V4ShellRoot } = await import('./react/v4shell/V4ShellRoot.tsx')
-
-    // 已挂则不重复
-    if (_v4ReactRoot && _v4ContainerEl?.isConnected && _v4ContainerEl.parentElement === content) {
-      return
-    }
-    if (_v4ReactRoot) {
-      try {
-        _v4ReactRoot.unmount()
-      } catch {
-        /* ignore */
-      }
-      _v4ReactRoot = null
-      _v4ContainerEl = null
-    }
-    _v4ContainerEl = document.createElement('div')
-    _v4ContainerEl.id = 'v4-shell-host'
-    _v4ContainerEl.style.height = '100%'
-    content.replaceChildren(_v4ContainerEl)
-    _v4ReactRoot = createRoot(_v4ContainerEl)
-    // v3.5 阶段 C+: ErrorBoundary 包裹 V4ShellRoot。V4ShellRoot 内部
-    // zcode provider 树很复杂(17+ 层 provider + 自定义 hooks),任何
-    // 一处抛错都会让整个 root 变成空白页。用 ErrorBoundary 接住
-    // 渲染期错,触发降级 → removeItem + reload,不让用户卡在空白。
-    const V4ErrorBoundary = class extends React.Component {
-      constructor(props) { super(props); this.state = { err: null } }
-      static getDerivedStateFromError(err) { return { err } }
-      componentDidCatch(err, info) {
-        try { console.error('[v4shell] ErrorBoundary caught', err, info?.componentStack) } catch {}
-      }
-      componentDidUpdate(prev) {
-        // 第一次出现 err 状态时,给用户看 1 秒错误提示,然后 reload
-        // 回老版。ErrorBoundary 内的 setState 触发的二次 render 不会
-        // 再走 componentDidUpdate(因为 err 没变,getDerivedStateFromError
-        // 不会再次返回 err;但保险起见用 prev.state.err 比较)。
-        if (this.state.err && !prev.state.err) {
-          setTimeout(() => {
-            try { window.location.reload() } catch { /* 静默 */ }
-          }, 1000)
-        }
-      }
-      render() {
-        if (this.state.err) {
-          // ErrorBoundary 触发 → 触发降级(走外层 catch 也接不住,因为
-          // render 抛错是同步抛回 React 18 异步通道,不进 try/catch)
-          try {
-            localStorage.removeItem('evoflowV4Shell')
-          } catch { /* 静默 */ }
-          const msg = String(this.state.err?.message || this.state.err || 'unknown error')
-            .replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))
-          return React.createElement('div', {
-            style: { padding: 24, color: '#f87171', fontFamily: '-apple-system, system-ui', lineHeight: 1.6 }
-          },
-            React.createElement('h2', { style: { margin: '0 0 12px 0' } }, '新版运行时错误,已自动退回老版'),
-            React.createElement('p', { style: { margin: '0 0 8px 0', color: '#94a3b8' } }, '错误信息: ', msg),
-            React.createElement('p', { style: { margin: '0', color: '#94a3b8' } }, '1 秒后自动刷新...')
-          )
-        }
-        return this.props.children
-      }
-    }
-    _v4ReactRoot.render(
-      React.createElement(V4ErrorBoundary, null,
-        React.createElement(V4ShellRoot, {
-          workspacePath: EVOFLOW_V4_WORKSPACE_PATH,
-          sessionId: null,
-          onSelectSession: () => {
-            /* v3.5: EvoFlow 旧侧栏 selectedSessionKey 桥 —— 当前 v4 shell
-               模式完全替代老版 ChatApp,旧侧栏已不渲染,这里 noop 即可。
-               后续 v3.6 接 sessions 列表时,改为切 activeTaskId 时
-               通知上层路由 / 弹层。 */
-          },
-        }),
-      ),
-    )
-    bootMark('mountV4ShellToContent done')
-  } catch (e) {
-    bootMark('mountV4ShellToContent failed', { error: String(e?.message || e) })
-    console.warn('[boot] mountV4ShellToContent failed', e)
-    // v3.5 阶段 C+: 降级到老版 —— V4ShellRoot 挂载失败时(比如 provider
-    // 树里某个依赖报错 / react 19 vs 18 hook 顺序冲突 / 缺资源),
-    // 用户会看到空白 + 没入口回老版(BETA 横条在 V4ShellRoot 内,
-    // 都没渲染就谈不到点)。直接 removeItem + reload 重走 boot,
-    // localStorage.evoflowV4Shell !== '1' → 走老版 ChatApp 路径。
-    // 比"空白页 + 无回退"好得多。
-    try {
-      localStorage.removeItem('evoflowV4Shell')
-    } catch {
-      /* private mode 静默 */
-    }
-    // 给用户一个可视化兜底(在 reload 前),如果 reload 因为任何原因没成功
-    if (_v4ContainerEl) {
-      _v4ContainerEl.innerHTML = `
-        <div style="padding: 24px; color: #f87171; font-family: -apple-system, system-ui; line-height: 1.6;">
-          <h2 style="margin: 0 0 12px 0;">新版加载失败,已自动退回老版</h2>
-          <p style="margin: 0 0 8px 0; color: #94a3b8;">错误信息: ${String(e?.message || e).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</p>
-          <p style="margin: 0; color: #94a3b8;">1 秒后自动刷新...</p>
-        </div>
-      `
-    }
-    setTimeout(() => {
-      try { window.location.reload() } catch { /* 静默 */ }
-    }, 1000)
-  }
-}
-
-
 
 async function boot() {
   bootMark('boot() enter')
@@ -528,11 +383,6 @@ async function boot() {
   }
   const initialPath = (window.location.hash.slice(1) || '/chat').split('?')[0]
   const authOnlyBoot = !isTauri && isAuthRoute(initialPath)
-
-  // v3.5: 提前在 boot() 顶层算 v4AtBoot,后续两处引用(分流 mount + 隐藏
-  // 老版 shell-aside / banners)都能拿到。不能在 else-if 块内 const,
-  // 块作用域外 line 967 那个 if 块读不到。
-  const v4AtBoot = isV4ShellEnabled()
 
   setDefaultRoute('/chat')
   // 先注册所有路由，立即渲染 UI（不等后端检测）
@@ -609,28 +459,14 @@ async function boot() {
   bootMark('routes registered')
 
   if (!authOnlyBoot) {
-    // v3.5: v4 模式 = 整客户端换壳,根本不让老版 initShellAside / initMobileTabbar
-    // 触碰 DOM。v3.5 阶段 B+ 修后还是"隐藏"级别(`display: none`),问题是
-    // initShellAside 内部 _applyCollapsed 会改 className,跟我们的 display:none
-    // 偶尔冲突(用户反馈"一会还是嵌套老页面")。改成"根本不调",DOM 里没有老版
-    // shell-aside / mobile-topbar / ChatApp 元素,自然不会嵌套,也不会乱闪。
-    if (v4AtBoot) {
-      try {
-        const { refreshLicenseStatus } = await import('./lib/license.js')
-        await refreshLicenseStatus()
-      } catch (e) {
-        console.warn('[boot] license status unavailable', e)
-      }
-      await mountV4ShellToContent()
-    } else {
-      // License entitlements before shell nav (tasks/apps/proactive)
-      try {
-        const { refreshLicenseStatus } = await import('./lib/license.js')
-        await refreshLicenseStatus()
-      } catch (e) {
-        console.warn('[boot] license status unavailable', e)
-      }
-      initShellAside(document.getElementById('app-shell-aside'))
+    // License entitlements before shell nav (tasks/apps/proactive)
+    try {
+      const { refreshLicenseStatus } = await import('./lib/license.js')
+      await refreshLicenseStatus()
+    } catch (e) {
+      console.warn('[boot] license status unavailable', e)
+    }
+    initShellAside(document.getElementById('app-shell-aside'))
       // 窄屏底部导航（宽屏不显示）
       try {
         const { initMobileTabbar } = await import('./components/mobile-tabbar.js')
@@ -640,7 +476,6 @@ async function boot() {
       }
       // 侧栏 Portal 依赖 ChatApp 单例；须在 router 渲染 /chat 之前挂载，避免双实例各写一份列表
       await ensureChatAppMounted()
-    }
     try {
       const { installClientPerfHook } = await import('./react/lib/client-perf-hook.js')
       installClientPerfHook()
@@ -663,16 +498,8 @@ async function boot() {
       console.warn('[boot] mountGlobalAssistant failed', e)
     }
   }
-  // v3.5 阶段 C+: v4 模式跳过 initRouter(避免 hashchange / 启动
-  // 默认路由 /chat 把 <main id="content"> 改写成 ChatApp 把 v4 shell
-  // 覆盖,导致用户反馈的"一会还是嵌套老页面")。v4 模式整个客户端
-  // 都被 zcode 桌面壳接管,hash 路由失去意义,用户行为都在 zcode 内
-  // 发生(activeTaskId / draft 切换等都是 zcode App.tsx 内部状态机)。
-  if (!v4AtBoot) {
-    initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })
-  } else {
-    bootMark('v4 shell mode: initRouter skipped (zcode owns navigation)')
-  }
+
+  initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })
   bootMark('initRouter done')
 
   if (isTauri) {
@@ -683,9 +510,6 @@ async function boot() {
 
     const mainCol = document.getElementById('main-col')
   if (!authOnlyBoot && mainCol) {
-    // v3.5 阶段 C+: v4 模式分支上移到上面 (if v4AtBoot 早 return 那块),
-    // 根本不让 initShellAside / initMobileTabbar / mobile-topbar
-    // 触碰 DOM。这里只剩老版 mobile-topbar + 桌面无边框 chrome。
     const topbar = document.createElement('div')
     topbar.className = 'mobile-topbar'
     topbar.id = 'mobile-topbar'
