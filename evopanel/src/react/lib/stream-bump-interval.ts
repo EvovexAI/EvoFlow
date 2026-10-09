@@ -1,14 +1,18 @@
 import type { StreamState } from '../chat-types.js'
 
 /** Faster coalesce for live reasoning/thinking (SSE reasoning deltas). */
-export const STREAM_REASONING_BUMP_INTERVAL_MS = 80
+export const STREAM_REASONING_BUMP_INTERVAL_MS = 16
 
-/** Default coalesce interval for stream UI bumps (SSE deltas / tools). */
-export const STREAM_BUMP_INTERVAL_MS = 200
+/** Default coalesce interval for stream UI bumps (SSE deltas / tools).
+ *  Lowered from 200ms → 50ms → 16ms to make stream updates feel real-time
+ *  (was 5fps, now ~60fps). Still coalesces to one bump per animation frame
+ *  to avoid React rerender storms.
+ */
+export const STREAM_BUMP_INTERVAL_MS = 16
 
 /** Slower paint when live turn payload is large (less main-thread churn). */
-export const STREAM_BUMP_INTERVAL_MEDIUM_MS = 350
-export const STREAM_BUMP_INTERVAL_LARGE_MS = 500
+export const STREAM_BUMP_INTERVAL_MEDIUM_MS = 33
+export const STREAM_BUMP_INTERVAL_LARGE_MS = 50
 
 const STREAM_BUMP_SCORE_MEDIUM = 80_000
 const STREAM_BUMP_SCORE_LARGE = 200_000

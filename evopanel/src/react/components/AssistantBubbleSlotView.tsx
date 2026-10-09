@@ -250,34 +250,31 @@ function AssistantBubbleSlotViewInner({
           isStreaming,
         })}
         durationLabel={durationLabel}
-        liveTokenStr={liveTokenStr}
       />
     )
   }
 
-  // ZCode 对齐（ConversationTurnGroup / conversationTurnWorkSegments 同构）：
-  // - 流式：头部从流式首帧即显示，「工作中 N 分 N 秒」每秒跳动，内容平铺展开；
-  // - 完成：「已工作 N 分 N 秒」定格收拢；完成但缺时长（旧历史）→「已处理」；
-  // - 工作轨迹（suppressExploringFold）/控制类回合退回平铺。
+  // 折叠头 v3：作为「当前回合状态条」独立显示在气泡最顶，仅显 header，不包 body。
+  // 折叠 body（历史轮次）下放到每个 ExploringActivityChunk 内部：chunk 把自己的
+  // activityPieces 按 findLatestDisplayRoundStart 切成 live/history，history 进
+  // chunk 内的内层 TurnHistoryFold（默认收起），live 直接外露。
+  // 效果：当前轮的最新思考/正文/工具永远可见，历史轮次由用户点开看。
+  // - 流式：    「工作中 1m23s」            独立 header
+  // - 封存：    「已工作 9m40s」            独立 header
+  // - 打断：    「⏹ 已停止」                独立 header
+  // - 缺时长：  「已处理」                  独立 header
+  // - 工作轨迹 / 控制类回合 / 纯文本回合：按原路径走（无状态条 / 走原 plan）
   const workedText = formatWorkDurationText(durationLabel)
-  const foldableSlotIdx: number[] = []
-  plan.slots.forEach((slot, i) => {
-    if (slot.kind === 'chunk' && slot.chunk.kind !== 'text') foldableSlotIdx.push(i)
-  })
   const workedLabel = (() => {
     if (plan.flatTimeline === false || suppressExploringFold) return ''
     if (isStreaming) return workedText ? `工作中 ${workedText}` : '工作中'
-    if (turnInterrupted) return '已停止'
+    if (turnInterrupted) return '⏹ 已停止'
     if (workedText) return `已工作 ${workedText}`
-    return foldableSlotIdx.length ? '已处理' : ''
+    return ''
   })()
-  // 「已工作」头部恒置顶：只要 workedLabel 存在且本回合有可折叠工作条目，
-  // 折叠头就渲染在气泡最顶（索引 0），正文/工具一律排在它下方，
-  // 避免正文挤到头部上面。纯文本回合无可折叠条目时走下方独立头部渲染。
-  const foldStartIdx = workedLabel && foldableSlotIdx.length ? 0 : -1
-  const foldableIdxSet = new Set(foldableSlotIdx)
-  /** 纯文本回合（无工作条目）：头部独立渲染在气泡顶部，正文始终在下方可见 */
-  const showStandaloneWorkHeader = !!workedLabel && foldStartIdx < 0
+  // v3：状态条独立 headerOnly 渲染（不再包 body），仅显「工作中/已工作/已停止/已处理」。
+  // body 下放到 ExploringActivityChunk 内部历史折叠——头部不参与折叠语义。
+  const showWorkHeader = !!workedLabel
 
   const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
         switch (slot.kind) {
@@ -422,27 +419,12 @@ function AssistantBubbleSlotViewInner({
   return (
     <>
       {askInline}
-      {showStandaloneWorkHeader ? (
-        <TurnHistoryFold key="turn-history-standalone" label={workedLabel} messageId={messageId} headerOnly />
+      {showWorkHeader ? (
+        <TurnHistoryFold key="turn-history-status" label={workedLabel} messageId={messageId} headerOnly />
       ) : null}
-      {plan.slots.map((slot, si) => {
-        if (si === foldStartIdx) {
-          return (
-            <TurnHistoryFold
-              key={`turn-history-${si}`}
-              label={workedLabel}
-              messageId={messageId}
-              forceOpen={isStreaming}
-            >
-              {foldableSlotIdx.map((idx) => (
-                <Fragment key={`folded-${idx}`}>{renderSlot(plan.slots[idx], idx)}</Fragment>
-              ))}
-            </TurnHistoryFold>
-          )
-        }
-        if (foldableIdxSet.has(si)) return null
-        return <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
-      })}
+      {plan.slots.map((slot, si) => (
+        <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
+      ))}
       {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
         <ChangedFilesSummaryRow
           files={changedFiles}

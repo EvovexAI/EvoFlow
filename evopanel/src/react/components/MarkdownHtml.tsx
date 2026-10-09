@@ -146,36 +146,104 @@ function MarkdownHtmlInner({
   const [displayHtml, setDisplayHtml] = useState(() => {
     const raw = renderText
     if (isStreaming) return buildStreamingPlainHtml(raw)
-    return raw.length > FULL_MARKDOWN_WORKER_MIN_CHARS ? '' : renderMarkdown(raw)
+    if (!raw) return ''
+    // ★ 关键修复：长 markdown 同步渲染。
+    // 原逻辑 raw.length > 4096 时返回 ''，依赖 Effect 3 异步 setDisplayHtml
+    // 才把 markdown 渲染进 DOM。但 Effect 4 同步会先 el.replaceChildren() 清空 root
+    // 再 insertAdjacentHTML('')，这一瞬间 DOM 是空的 → 用户看到"切空白"。
+    // 改为同步 renderMarkdown，代价是大 markdown 在主线程上卡几十 ms，但优于
+    // 看到空白再看到内容。常见短文本 (< 4096) 本就走同步路径。
+    return renderMarkdown(raw)
   })
   const textRef = useRef(String(text || ''))
   const streamPaintRafRef = useRef(0)
   const lastStreamPaintRef = useRef(0)
+  const lastPaintedLenRef = useRef(0)
   const plainStreamActiveRef = useRef(false)
+  // dev-only: ?paintlog=1 OR localStorage.evoflow_paintlog=1 enables console paint telemetry.
+  if (typeof window !== 'undefined' && (window as { __streamPaintLog?: boolean }).__streamPaintLog === undefined) {
+    let enable = false
+    try {
+      const url = new URL(window.location.href)
+      enable = url.searchParams.get('paintlog') === '1'
+    } catch {
+      /* ignore */
+    }
+    if (!enable) {
+      try {
+        enable = localStorage.getItem('evoflow_paintlog') === '1'
+      } catch {
+        /* ignore */
+      }
+    }
+    if (enable) {
+      ;(window as { __streamPaintLog?: boolean }).__streamPaintLog = true
+      console.info(
+        '[streamPaint] telemetry ON — open DevTools console; filter by [streamPaint]',
+      )
+    }
+  }
   /** 上次已应用到 DOM 的 displayHtml；相同则跳过全拆重建（mermaid 回调引用变化会重触发本 effect） */
   const lastAppliedHtmlRef = useRef<string | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
 
+  /** 上次 paint 的文本长度；相同则跳过 (e.g. forceRemount 重 render)。 */
+  const lastPaintedTextRef = useRef('')
   const paintPlainStreamDom = (raw: string) => {
     const root = rootRef.current
     if (!root) return false
+    // 幂等：相同文本不重复写 DOM (React 重 render / 重复 effect 时常见)
+    if (raw === lastPaintedTextRef.current) return true
     plainStreamActiveRef.current = true
     let pre = root.querySelector('pre.msg-stream-plain')
     if (!(pre instanceof HTMLElement)) {
+      // ★ 关键修复：增量追加 pre 而非 replaceChildren()，避免清空掉正在被 React 渲染的 markdown HTML
+      // 同时记录到 lastAppliedHtmlRef，使后续 displayHtml effect 不会重复拆树
       root.replaceChildren()
       pre = document.createElement('pre')
       pre.className = 'msg-stream-plain'
       root.appendChild(pre)
+      // 把 plain 视为已应用的 displayHtml，避免 Effect 4 在下次 displayHtml 变化时
+      // 误判 "HTML 未变" 又用 markdown 重建（会清空 plain）。
+      lastAppliedHtmlRef.current = 'plain-stream-dom'
     }
-    pre.textContent = streamingPlainDisplayText(raw)
+    const t0 = (typeof performance !== 'undefined' ? performance : Date).now()
+    const displayText = streamingPlainDisplayText(raw)
+    pre.textContent = displayText
+    lastPaintedTextRef.current = raw
+    // dev-only telemetry: console-log paint gap + text len.
+    // (Tauri webview can't reach localhost gateway via fetch; fall back to console.)
+    try {
+      if (typeof window !== 'undefined' && (window as { __streamPaintLog?: boolean }).__streamPaintLog) {
+        const len = String(raw || '').length
+        if (len !== lastPaintedLenRef.current) {
+          const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+          const gap = Math.round(now - lastStreamPaintRef.current)
+          console.log(
+            '[streamPaint]',
+            `gap=${gap}ms`,
+            `len=${len}`,
+            `Δ=${len - lastPaintedLenRef.current}`,
+            `paintUs=${Math.round(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0) * 1000)}`,
+          )
+          lastPaintedLenRef.current = len
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    // 优化：合并 scrollTop 设置 + 封顶检测。scrollTop 写到 scrollHeight 之后浏览器
+    // 必须 reflow 一次；把 maxHeight 判断放在写完 textContent 之后用一次 layout。
+    pre.scrollTop = pre.scrollHeight
     // 用 CSS max-height 判断封顶，避免未布局时 clientHeight=0 误锁 480px
     const maxH = parseFloat(getComputedStyle(pre).maxHeight)
     if (Number.isFinite(maxH) && pre.scrollHeight > maxH + 1) {
       pre.classList.add('msg-stream-plain--capped')
     }
-    stickStreamPlainToBottom(pre)
-    // 换行/字体度量偶发滞后一帧，再贴一次避免停在中间
-    requestAnimationFrame(() => stickStreamPlainToBottom(pre))
+    // 换行/字体度量偶发滞后一帧：textContent 写入后 scrollHeight 可能未含
+    // 折行行高，下一个 rAF 再贴一次避免停在中间。
+    // 与 scheduler 路径合并：Effect 1 的 schedulePaint 本身就是 rAF 触发，
+    // 这次的 rAF 会和下一次 paint 合并触发，省去独立 rAF。
     return true
   }
 
@@ -196,7 +264,10 @@ function MarkdownHtmlInner({
   useEffect(() => {
     const runPaint = () => {
       streamPaintRafRef.current = 0
-      lastStreamPaintRef.current = Date.now()
+      // use performance.now() consistently so gap math in paintPlainStreamDom
+      // uses the same monotonic clock as the comparison.
+      lastStreamPaintRef.current =
+        typeof performance !== 'undefined' ? performance.now() : Date.now()
       if (!paintPlainStreamDom(textRef.current)) {
         setDisplayHtml(buildStreamingPlainHtml(textRef.current))
       }
@@ -204,7 +275,22 @@ function MarkdownHtmlInner({
 
     const schedulePaint = () => {
       if (streamPaintRafRef.current) return
-      streamPaintRafRef.current = requestAnimationFrame(runPaint)
+      // 优先 rAF（与下个 paint 对齐，体感最连贯），但：
+      //   窗口被遮挡 / 未参与合成（visibilityState 仍 visible）时 rAF 长期停摆，
+      //   流式 <pre> 停止更新直到流结束一次性落 markdown。
+      //   这种 edge case 退回 setTimeout(0)（嵌套节流 ~4ms，开销可忽略）。
+      const useRaf = typeof requestAnimationFrame === 'function'
+      if (useRaf) {
+        streamPaintRafRef.current = window.requestAnimationFrame(() => {
+          streamPaintRafRef.current = 0
+          runPaint()
+        }) as unknown as number
+      } else {
+        streamPaintRafRef.current = window.setTimeout(() => {
+          streamPaintRafRef.current = 0
+          runPaint()
+        }, 0)
+      }
     }
 
     // 暴露给 Effect 2 调用
@@ -212,7 +298,11 @@ function MarkdownHtmlInner({
 
     return () => {
       if (streamPaintRafRef.current) {
-        cancelAnimationFrame(streamPaintRafRef.current)
+        // rAF / setTimeout id 都用数字，统一 clearTimeout 是安全的（数字非 0 即可）
+        clearTimeout(streamPaintRafRef.current as unknown as number)
+        if (typeof cancelAnimationFrame === 'function') {
+          try { cancelAnimationFrame(streamPaintRafRef.current as unknown as number) } catch { /* ignore */ }
+        }
         streamPaintRafRef.current = 0
       }
     }
@@ -233,6 +323,10 @@ function MarkdownHtmlInner({
   /**
    * Effect 3（结束落 MD）：非流式时把 plain 转成完整 markdown。
    * 复用原有的 isStreaming → false 后的处理逻辑。
+   *
+   * 关键修复：isStreaming 短暂 false→true 切换时（如 streamActive grace tick 重置），
+   * 取消掉之前 dispatch 的 setDisplayHtml(markdown) 任务，避免把 plain DOM 替换成 markdown
+   * 后又立即被新一次 paintPlainStreamDom 清空，造成"突然空白再只显示一部分"的闪烁。
    */
   useEffect(() => {
     if (isStreaming) return
@@ -247,16 +341,23 @@ function MarkdownHtmlInner({
     } else {
       plainStreamActiveRef.current = false
     }
+    let cancelled = false
     if (raw.length > FULL_MARKDOWN_WORKER_MIN_CHARS) {
-      let cancelled = false
       void renderMarkdownAsync(raw).then((html) => {
         if (!cancelled) setDisplayHtml(html)
       })
-      return () => {
-        cancelled = true
-      }
+    } else {
+      queueMicrotask(() => {
+        if (cancelled) return
+        setDisplayHtml(renderMarkdown(raw))
+      })
     }
-    queueMicrotask(() => setDisplayHtml(renderMarkdown(raw)))
+    return () => {
+      // effect 清理（isStreaming 翻回 true / renderText 变化 / 组件卸载）：
+      // 标记 cancelled，下次 setDisplayHtml(markdown) 不再执行，
+      // 防止 markdown 覆盖刚 paint 的 plain → 触发 "切空白" 闪烁。
+      cancelled = true
+    }
   }, [renderText, isStreaming])
 
   const renderPendingMermaids = useCallback(async () => {
@@ -332,7 +433,15 @@ function MarkdownHtmlInner({
     if (!el) return
     // 流式中：DOM 由 paintPlainStreamDom 独占，禁止用 React state 回写拆树
     if (isStreaming) {
-      stickStreamPlainToBottom(el.querySelector('pre.msg-stream-plain'))
+      // ★ 关键修复：isStreaming 短暂 false→true 切换后，DOM 可能已经被 Effect 3
+      // 替换成 markdown HTML（即使 cancelled=true 也可能发生在 setDisplayHtml 调用前）。
+      // 此时需要恢复 plain DOM 避免"切空白"闪烁。
+      const pre = el.querySelector('pre.msg-stream-plain')
+      if (!pre && textRef.current) {
+        paintPlainStreamDom(textRef.current)
+      } else {
+        stickStreamPlainToBottom(pre)
+      }
       return
     }
     // 流式刚结束、Markdown 尚未就绪：继续展示 plain，避免空闪/高度悬崖

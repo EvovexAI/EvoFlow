@@ -2,22 +2,22 @@
 export const STREAM_MARKDOWN_MAX_CHARS = 12_000
 
 /** Default min interval between streaming markdown paints. */
-export const STREAM_PAINT_MIN_MS = 120
+export const STREAM_PAINT_MIN_MS = 16
 
 /** Slower plain paint when stream body is medium-large. */
-export const STREAM_PAINT_MIN_MEDIUM_MS = 220
+export const STREAM_PAINT_MIN_MEDIUM_MS = 33
 
 /** Plain-text streaming: no worker; throttle harder to cut DOM churn. */
-export const STREAM_PLAIN_PAINT_MIN_MS = 400
+export const STREAM_PLAIN_PAINT_MIN_MS = 50
 
 /** Extra-slow paint once live body exceeds the display tail window. */
-export const STREAM_PLAIN_PAINT_TAIL_MS = 520
+export const STREAM_PLAIN_PAINT_TAIL_MS = 100
 
 /** Live reasoning/thinking: plain DOM, minimal paint interval. */
-export const STREAM_REASONING_PAINT_MIN_MS = 48
+export const STREAM_REASONING_PAINT_MIN_MS = 16
 
 /** Slower reasoning paint when chunk is very long. */
-export const STREAM_REASONING_PAINT_MEDIUM_MS = 80
+export const STREAM_REASONING_PAINT_MEDIUM_MS = 33
 
 /** Min new chars before a catch-up reasoning paint after worker/plain was busy. */
 export const STREAM_REASONING_REPAIN_MIN_DELTA_CHARS = 64

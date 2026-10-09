@@ -15,10 +15,14 @@ function AnimatedTokenNums({
   cacheRead = 0,
   animate,
 }: TokenNums & { animate: boolean }) {
-  const animIn = useAnimatedCount(input, { enabled: animate })
-  const animOut = useAnimatedCount(output, { enabled: animate })
-  const animTotal = useAnimatedCount(total, { enabled: animate })
-  const animCache = useAnimatedCount(cacheRead, { enabled: animate })
+  // When animate is on (live stream), the upstream `tokenStr` flips every SSE delta,
+  // which would re-run the 4 animation effects each frame — burning the main thread.
+  // Use `enabled: !animate` so useAnimatedCount returns the target value directly and
+  // skips its RAF loop during streaming. Animation resumes for non-streaming re-renders.
+  const animIn = useAnimatedCount(input, { enabled: !animate })
+  const animOut = useAnimatedCount(output, { enabled: !animate })
+  const animTotal = useAnimatedCount(total, { enabled: !animate })
+  const animCache = useAnimatedCount(cacheRead, { enabled: !animate })
 
   if (input > 0 || output > 0) {
     return (

@@ -1,4 +1,9 @@
-export type StreamBumpOptions = { immediate?: boolean }
+export type StreamBumpOptions = { 
+  /** Skip coalescing, fire immediately on next microtask */
+  immediate?: boolean
+  /** Use rAF instead of setTimeout for lower latency (default: false) */
+  lowLatency?: boolean
+}
 
 type MinIntervalMs = number | (() => number)
 
@@ -10,6 +15,7 @@ function resolveMinIntervalMs(minIntervalMs: MinIntervalMs): number {
 /** Coalesce high-frequency stream UI bumps (SSE deltas/tools) to at most ~minIntervalMs. */
 export function createStreamBumpScheduler(bump: () => void, minIntervalMs: MinIntervalMs = 100) {
   let timeoutId = 0
+  let rafId = 0
   let pending = false
   let lastBumpAt = 0
 
@@ -17,6 +23,10 @@ export function createStreamBumpScheduler(bump: () => void, minIntervalMs: MinIn
     if (timeoutId) {
       clearTimeout(timeoutId)
       timeoutId = 0
+    }
+    if (rafId) {
+      cancelAnimationFrame(rafId)
+      rafId = 0
     }
   }
 
@@ -54,10 +64,33 @@ export function createStreamBumpScheduler(bump: () => void, minIntervalMs: MinIn
         return
       }
       pending = true
-      if (timeoutId) return
-      // 用 setTimeout(0) 替代 requestAnimationFrame：
-      // rAF 绑定浏览器绘制周期，主线程被高频 SSE 事件占满时回调被持续推迟，
-      // 导致思考内容被缓冲不显示，直到工具/正文事件触发额外重渲染才刷出。
+      if (timeoutId || rafId) return
+
+      if (opts?.lowLatency) {
+        // rAF for smooth streaming: fires before next paint, lowest latency
+        // Suitable for high-frequency text/reasoning updates.
+        // 之前是 rAF → scheduleLater() → setTimeout(wait) 链路，最坏 16ms(rAF) + 16ms(setTimeout) = 32ms。
+        // 优化：rAF 触发后直接根据 elapsed 决定立即 runBump 还是 setTimeout(wait) 一次。
+        //   - elapsed ≥ minIntervalMs → 立即 runBump
+        //   - 否则等剩余时间（保持 throttle，又不重复 vsync）
+        rafId = requestAnimationFrame(() => {
+          rafId = 0
+          if (!pending) return
+          const wait = resolveMinIntervalMs(minIntervalMs) - (Date.now() - lastBumpAt)
+          if (wait <= 0) {
+            runBump()
+          } else {
+            timeoutId = window.setTimeout(() => {
+              timeoutId = 0
+              if (!pending) return
+              runBump()
+            }, wait)
+          }
+        })
+        return
+      }
+
+      // Default: setTimeout(0) coalescing path
       // setTimeout(0) 在当前宏任务结束后立即执行，不受绘制周期阻塞。
       timeoutId = window.setTimeout(() => {
         timeoutId = 0

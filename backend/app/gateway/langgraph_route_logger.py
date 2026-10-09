@@ -644,6 +644,238 @@ class LangGraphRouteLoggerMiddleware:
         is_post_run_stream = method == "POST" and lg_thread_id and "/runs/" in path and "stream" in path
 
         upstream_task: asyncio.Task[None] | None = None
+        # === H3-B-1: 404 thread-missing transparent retry ============================
+        # 当 LangGraph 返回 404 'Thread or assistant not found'（通常由进程重启、
+        # in-memory store 清空导致）时，gateway 中间件主动调用
+        # ``ensure_session_thread(force_recreate=True)`` 重建线程，然后用新
+        # thread_id 透明重发上游请求；客户端无感，避免前端多次重试（原先路径下
+        # 一次发送会触发 2–3 次 404 + 重新建连）。
+        _retried_with_new_thread = False
+        captured_start: dict | None = None
+        captured_body_chunks: list[bytes] = []
+        thread_missing_detected = False
+
+        async def _recover_thread_and_retry() -> bool:
+            """Try to recreate a fresh LangGraph thread and resend upstream request.
+
+            Returns True when a successful re-dispatch completed (or was attempted);
+            False when recovery was skipped (no session_key / recreate failed).
+            The function absorbs the captured first-error messages and never
+            forwards them to the client.
+            """
+            nonlocal _retried_with_new_thread, lg_thread_id, lg_run_id, ui_transform
+            if _retried_with_new_thread:
+                return False
+            _retried_with_new_thread = True
+            if not lg_thread_id:
+                return False
+            # Extract session_key from body (context.session_key / config.configurable.session_key).
+            sk = ""
+            if body_chunks:
+                try:
+                    parsed = json.loads(b"".join(body_chunks))
+                    if isinstance(parsed, dict):
+                        ctx = parsed.get("context") or {}
+                        if isinstance(ctx, dict):
+                            sk = str(ctx.get("session_key") or ctx.get("sessionKey") or "").strip()
+                        if not sk:
+                            cfg = parsed.get("config") or {}
+                            if isinstance(cfg, dict):
+                                cg = cfg.get("configurable") or {}
+                                if isinstance(cg, dict):
+                                    sk = str(cg.get("session_key") or cg.get("sessionKey") or "").strip()
+                except Exception:
+                    logger.debug(
+                        "404 fallback: parse body for session_key error",
+                        exc_info=True,
+                    )
+            if not sk:
+                logger.warning(
+                    "[LG-ROUTE] 404 thread-missing fallback skipped: no session_key in body thread=%s",
+                    lg_thread_id,
+                )
+                return False
+            try:
+                from evoflow.persistence import chat_session_service as chat_svc
+
+                new_thread_id = await chat_svc.ensure_session_thread(sk, force_recreate=True)
+            except Exception as e:
+                logger.warning(
+                    "[LG-ROUTE] 404 thread-missing fallback: ensure_session_thread failed sk=%s: %s",
+                    sk,
+                    e,
+                    exc_info=True,
+                )
+                return False
+            new_thread_id = str(new_thread_id or "").strip()
+            if not new_thread_id or new_thread_id == lg_thread_id:
+                logger.warning(
+                    "[LG-ROUTE] 404 thread-missing fallback: ensure_session_thread returned same/empty thread sk=%s old=%s new=%s",
+                    sk,
+                    lg_thread_id,
+                    new_thread_id,
+                )
+                return False
+            # Rewrite body: replace thread_id occurrences (top-level + nested).
+            new_body_bytes = b""
+            try:
+                parsed = json.loads(b"".join(body_chunks))
+                if isinstance(parsed, dict):
+                    parsed["thread_id"] = new_thread_id
+                    cfg = parsed.get("config")
+                    if isinstance(cfg, dict):
+                        cg = cfg.get("configurable")
+                        if isinstance(cg, dict) and isinstance(cg.get("thread_id"), str):
+                            cg["thread_id"] = new_thread_id
+                    new_body_bytes = json.dumps(parsed, ensure_ascii=False).encode("utf-8")
+            except Exception:
+                logger.warning(
+                    "[LG-ROUTE] 404 fallback: body rewrite failed, will use raw bytes",
+                    exc_info=True,
+                )
+                new_body_bytes = b"".join(body_chunks)
+            new_path = path.replace(f"/threads/{lg_thread_id}/", f"/threads/{new_thread_id}/", 1)
+            new_scope = dict(scope)
+            new_scope["path"] = new_path
+            new_headers = []
+            for k, v in scope.get("headers") or []:
+                kl = k.decode("latin-1").lower()
+                if kl in ("content-length",):
+                    new_headers.append((k, str(len(new_body_bytes)).encode("latin-1")))
+                else:
+                    new_headers.append((k, v))
+            if not any(k.decode("latin-1").lower() == "content-length" for k, _ in new_headers):
+                new_headers.append((b"content-length", str(len(new_body_bytes)).encode("latin-1")))
+            new_scope["headers"] = new_headers
+
+            # Build a fresh replay receive for the new upstream call.
+            import collections as _recover_collections
+
+            _recover_replay = _recover_collections.deque()
+            _recover_replay.append({"type": "http.request", "body": new_body_bytes, "more_body": False})
+
+            async def _recover_receive() -> dict:
+                if _recover_replay:
+                    return _recover_replay.popleft()
+                return await _orig_receive()
+
+            old_tid = lg_thread_id
+            lg_thread_id = new_thread_id
+            lg_run_id = None  # run_id will be re-extracted from new response
+            # Re-bind ui_transform to the new thread_id so SSE frames and mirror
+            # bookkeeping use the rebound thread, not the stale one.
+            if ui_transform is not None:
+                try:
+                    from app.gateway.streaming.session_stream_inject import (
+                        end_thread_inject,
+                    )
+                    end_thread_inject(old_tid)
+                except Exception:
+                    logger.debug(
+                        "404 fallback: end_thread_inject(old) failed",
+                        exc_info=True,
+                    )
+                try:
+                    setattr(ui_transform, "thread_id", new_thread_id)
+                    if getattr(ui_transform, "normalizer", None) is not None:
+                        setattr(ui_transform.normalizer, "thread_id", new_thread_id)
+                except Exception:
+                    logger.debug(
+                        "404 fallback: re-bind ui_transform thread_id failed",
+                        exc_info=True,
+                    )
+                try:
+                    from app.gateway.streaming.session_stream_inject import (
+                        begin_thread_inject,
+                    )
+                    begin_thread_inject(new_thread_id)
+                except Exception:
+                    logger.debug(
+                        "404 fallback: begin_thread_inject(new) failed",
+                        exc_info=True,
+                    )
+
+            # Tell downstream the new thread_id (response header).
+            new_headers_extra: list[tuple[bytes, bytes]] = [
+                (b"x-evoflow-new-thread-id", new_thread_id.encode("latin-1")),
+                (b"x-evoflow-old-thread-id", old_tid.encode("latin-1")),
+            ]
+
+            async def _recover_send(msg: dict) -> None:
+                if msg.get("type") == "http.response.start":
+                    hdrs = list(msg.get("headers") or [])
+                    hdrs.extend(new_headers_extra)
+                    msg = {**msg, "headers": hdrs}
+                await _dispatch_send(msg)
+
+            print(
+                f"[LG-ROUTE] 404 thread-missing fallback: rebuild thread old={old_tid} new={new_thread_id} sk={sk}",
+                file=sys.stderr,
+                flush=True,
+            )
+            logger.warning(
+                "[LG-ROUTE] 404 thread-missing fallback: rebuild thread old=%s new=%s sk=%s",
+                old_tid,
+                new_thread_id,
+                sk,
+            )
+
+            # Re-dispatch to upstream (always direct — no mirror middle layer).
+            try:
+                await self.app(new_scope, _recover_receive, _recover_send)
+            except Exception:
+                logger.debug(
+                    "404 fallback re-dispatch exception thread=%s",
+                    new_thread_id,
+                    exc_info=True,
+                )
+                raise
+            return True
+
+        async def _capturing_dispatch_send(msg: dict) -> None:
+            """Wrap _dispatch_send to absorb a 404 Thread-or-assistant-not-found response.
+
+            Captured 404 messages are stored locally (no forward to client). When
+            thread_missing_detected becomes True and recovery succeeds, the client
+            never sees the 404.
+            """
+            nonlocal captured_start, thread_missing_detected
+            if msg.get("type") == "http.response.start":
+                try:
+                    status = int(msg.get("status") or 0)
+                except Exception:
+                    status = 0
+                if (
+                    status == 404
+                    and not thread_missing_detected
+                    and not _retried_with_new_thread
+                    and is_post_run_stream
+                ):
+                    captured_start = msg
+                    return
+            elif msg.get("type") == "http.response.body":
+                if captured_start is not None and not thread_missing_detected:
+                    captured_body_chunks.append(msg.get("body") or b"")
+                    if not msg.get("more_body", False):
+                        body_text = b"".join(captured_body_chunks).decode("utf-8", errors="replace")
+                        if "thread or assistant not found" in body_text.lower():
+                            thread_missing_detected = True
+                            return
+                    return
+            await _dispatch_send(msg)
+
+        async def _forward_captured_404_to_client() -> None:
+            """Forward the captured 404 to the client (recovery fallback path)."""
+            if captured_start is not None:
+                await _safe_send(captured_start)
+            for chunk in captured_body_chunks:
+                await _safe_send(
+                    {"type": "http.response.body", "body": chunk, "more_body": True}
+                )
+            await _safe_send(
+                {"type": "http.response.body", "body": b"", "more_body": False}
+            )
+
         try:
             heartbeat_task = asyncio.create_task(_heartbeat())
             if middle_layer is not None:
@@ -658,8 +890,32 @@ class LangGraphRouteLoggerMiddleware:
                     client_gone=lambda: client_gone,
                 )
             else:
-                upstream_task = asyncio.create_task(self.app(scope, receive, _dispatch_send))
+                if is_post_run_stream:
+                    upstream_task = asyncio.create_task(
+                        self.app(scope, receive, _capturing_dispatch_send)
+                    )
+                else:
+                    upstream_task = asyncio.create_task(self.app(scope, receive, _dispatch_send))
                 await upstream_task
+
+                if thread_missing_detected and not _retried_with_new_thread and not client_gone:
+                    try:
+                        ok = await _recover_thread_and_retry()
+                        if not ok:
+                            await _forward_captured_404_to_client()
+                    except Exception:
+                        logger.debug(
+                            "404 fallback: recovery raised after first dispatch",
+                            exc_info=True,
+                        )
+                        try:
+                            await _forward_captured_404_to_client()
+                        except Exception:
+                            logger.debug(
+                                "404 fallback forward captured 404 failed",
+                                exc_info=True,
+                            )
+                        raise
         except asyncio.CancelledError:
             client_gone = True
             if middle_layer is None:

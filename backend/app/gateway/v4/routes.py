@@ -119,7 +119,7 @@ async def stream_v4_session(
 
         last_hb = time.monotonic()
         while True:
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.02)  # 20ms poll interval for smoother streaming
             pending = w.drain_pending(subscriptionId)
             for f in pending:
                 if f.from_seq <= last_seq:

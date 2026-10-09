@@ -11,8 +11,12 @@ export function useAnimatedCount(target: number, options?: { durationMs?: number
   useEffect(() => {
     targetRef.current = target
     if (!enabled) {
-      displayRef.current = target
-      queueMicrotask(() => setDisplay(target))
+      // Skip the microtask+setDisplay churn that would otherwise re-fire this
+      // effect on every render and pin the main thread during streaming.
+      if (displayRef.current !== target) {
+        displayRef.current = target
+        setDisplay(target)
+      }
       return
     }
 

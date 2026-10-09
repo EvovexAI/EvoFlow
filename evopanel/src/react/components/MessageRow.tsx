@@ -744,11 +744,18 @@ export function MessageRow({
     [onFork, displayRow.messageId],
   )
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!isStreamingEffective) return
     const el = bubbleRef.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
+    // 流式正文增长：把 bubble 贴底。原 useLayoutEffect 同步写 scrollTop 触发
+    // 同步 reflow（layout thrashing），每 token 一次 render 都阻塞 paint。
+    // 改 rAF 异步贴底：等本帧 layout 完成后再读 scrollHeight，避免和 React 提交
+    // 抢 layout 通道。
+    const raf = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight
+    })
+    return () => cancelAnimationFrame(raf)
   }, [isStreamingEffective, displayRow.text, displayRow.reasoningPreview, displayRow.segments])
 
   if (displayRow.role === 'user') {

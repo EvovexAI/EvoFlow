@@ -1,6 +1,10 @@
-import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 import type { ActivityPiece } from '../lib/exploring-activity-group.js'
-import { toolsForActivityPieces, reasoningPiecesInActivity } from '../lib/exploring-activity-group.js'
+import {
+  toolsForActivityPieces,
+  reasoningPiecesInActivity,
+} from '../lib/exploring-activity-group.js'
+import { findLatestDisplayRoundStart } from '../lib/window-live-exploring-pieces.js'
 import {
   reasoningLabelForActivityPiece,
 } from '../lib/message-row-reasoning-display.js'
@@ -10,19 +14,23 @@ import {
   activityFoldHasVisibleInnerContent,
   isReasoningPieceActivelyStreaming,
 } from '../lib/message-row-reasoning-render.js'
-import {
-  LIVE_TOOL_ROUND_WINDOW,
-  windowLiveExploringPieces,
-} from '../lib/window-live-exploring-pieces.js'
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ReasoningInlineBlock } from './ReasoningInlineBlock.js'
-import { ToolActivityFold } from './ToolActivityFold.js'
 import { ToolCallList } from './ToolCallList.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
+import { TurnHistoryFold } from './TurnHistoryFold.js'
 
-/** 展开完整过程时不再裁剪工具轮次 */
-const FULL_HISTORY_TOOL_ROUNDS = 10_000
-
+/**
+ * 单个「探索中」段落（思考 + 工具 + 旁白）。
+ *
+ * v3 设计：把 activityPieces 按 findLatestDisplayRoundStart 切成两段：
+ *   - livePieces   = 工具后第一个新思考/正文 起的所有 piece → 外露（最新轮）
+ *   - historyPieces = 它之前的所有 piece → 进内层 TurnHistoryFold（默认收起）
+ *
+ * 视觉效果：
+ *   - 当前正在流式的最新思考/正文/工具/旁白 永远可见；
+ *   - 更早的轮次（历史）默认收在「历史 N 项」折叠里，用户点开看完整轨迹。
+ */
 function ExploringActivityChunkInner({
   chunkIndex,
   chunkStartIndex,
@@ -50,10 +58,10 @@ function ExploringActivityChunkInner({
   compareSessionKey,
   onOpenKnowledgeMap,
   hasFinalReplyBelow = false,
-  durationLabel,
-  liveTokenStr,
+  durationLabel: _durationLabel = undefined,
+  liveTokenStr: _liveTokenStr = undefined,
   afterChunk,
-  variant = 'fold',
+  variant = 'flat',
 }: {
   chunkIndex: number
   chunkStartIndex: number
@@ -92,42 +100,15 @@ function ExploringActivityChunkInner({
   compareSessionKey?: string
   onOpenKnowledgeMap?: () => void
   hasFinalReplyBelow?: boolean
-  /** 运行时长等用户层摘要，如 9m40s */
+  /** 运行时长等用户层摘要，如 9m40s（v2 折叠头已自取，本组件不再用） */
   durationLabel?: string
-  /** 本轮流式累计 token 展示串 */
+  /** 本轮流式累计 token 展示串（v2 折叠头已自取，本组件不再用） */
   liveTokenStr?: string
   afterChunk?: ReactNode
-  /** fold：默认「探索中」大折叠；flat：ZCode 式扁平内联（无外壳、无窗口裁剪、思考可折叠） */
+  /** v2 仅保留 flat 路径；'fold' 已被外层 TurnHistoryFold 接管 */
   variant?: 'fold' | 'flat'
 }) {
-  const [showFullHistory, setShowFullHistory] = useState(false)
-  const flat = variant === 'flat'
-
-  // 流式结束后恢复默认窗口行为（结束后本来就全量）
-  useEffect(() => {
-    if (!isStreaming) setShowFullHistory(false)
-  }, [isStreaming])
-
-  // flat 模式不裁剪：ZCode 扁平时间线全量渲染，历史轮次不隐藏
-  const windowed = useMemo(
-    () =>
-      flat
-        ? { visiblePieces: activityPieces, hiddenToolRoundCount: 0 }
-        : windowLiveExploringPieces({
-            pieces: activityPieces,
-            tools,
-            keepLastToolRounds: showFullHistory ? FULL_HISTORY_TOOL_ROUNDS : LIVE_TOOL_ROUND_WINDOW,
-            isStreaming: !!isStreaming,
-          }),
-    [activityPieces, tools, isStreaming, showFullHistory, flat],
-  )
-
-  const renderPieces = windowed.visiblePieces
-  const hiddenEarlierRounds = windowed.hiddenToolRoundCount
-  const preferLazyDuringStream = !showFullHistory && hiddenEarlierRounds > 0
-  const showHistoryToggle = !!isStreaming && (hiddenEarlierRounds > 0 || showFullHistory)
-
-  // 标题步数 / 可见性判断仍用全量 pieces；children 只用窗口（或完整过程）
+  // 标题步数 / 可见性判断仍用全量 pieces；children 直接全量
   const activityTools = toolsForActivityPieces(activityPieces, tools)
   const hasToolPiecesInActivity = activityPieces.some(
     (p) => p.kind === 'tools' && p.ids.some((id) => String(id).trim()),
@@ -161,11 +142,26 @@ function ExploringActivityChunkInner({
       rawText,
     })
 
-  const renderActivityInner = () => {
+  // v3：把 activityPieces 按 findLatestDisplayRoundStart 切成历史 / 最新两段。
+  // 历史 = 工具之后再次出现新思考/正文 之前的所有 piece
+  // 最新 = 那个边界起（含）到结尾的所有 piece
+  // 边界 = 0 表示整段是同一轮（没有切分点），历史为空。
+  const roundStart = isStreaming ? findLatestDisplayRoundStart(activityPieces) : 0
+  const livePieces = activityPieces.slice(roundStart)
+  const historyPieces = activityPieces.slice(0, roundStart)
+  // history 里有意义的轮次数 = 历史里 tools piece 的段数
+  const historyToolRoundCount = historyPieces.filter(
+    (p) => p.kind === 'tools' && p.ids.some((id) => String(id).trim()),
+  ).length
+  const historyFoldLabel = historyToolRoundCount > 0
+    ? `历史 ${historyToolRoundCount} 轮`
+    : '历史过程'
+
+  const renderActivityInner = (pieces: ActivityPiece[]) => {
     let reasoningOrd = 0
     return (
       <div className="msg-tool-activity-fold-inner">
-        {renderPieces.map((piece, pi) => {
+        {pieces.map((piece, pi) => {
           if (piece.kind === 'reasoning') {
             if (skipReasoningSegIndex != null && piece.segIndex === skipReasoningSegIndex) {
               return null
@@ -190,7 +186,7 @@ function ExploringActivityChunkInner({
                 key={`act-r-${chunkIndex}-${piece.segIndex}-${ord}`}
                 text={displayText}
                 inExploring
-                collapsible={flat}
+                collapsible
                 label={reasoningLabelForActivityPiece(0, ord, true)}
                 isStreamingActive={isActiveReasoning}
                 durationMs={
@@ -261,42 +257,27 @@ function ExploringActivityChunkInner({
     )
   }
 
-  if (flat) {
-    // ZCode 式扁平内联：无折叠外壳、无窗口裁剪，思考/工具/旁白按到达顺序平铺
-    return (
-      <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>
-        <div className="msg-flat-activity-chunk">{renderActivityInner()}</div>
-        {afterChunk}
-      </Fragment>
-    )
-  }
-
   if (!hasVisibleFoldInner) {
     return (
       <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>{afterChunk}</Fragment>
     )
   }
 
+  // v3：fold / flat 两条路径合并为同一条平铺；variant 保留仅为向后兼容。
+  // 历史轮次进内层 TurnHistoryFold（默认收起），最新轮永远外露。
   return (
     <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>
-      <ToolActivityFold
-        key={`exploring-fold-${chunkIndex}-${chunkStartIndex}`}
-        tools={activityTools}
-        turnTools={tools}
-        activityPieces={activityPieces}
-        isStreaming={!!isStreaming}
-        hasFinalReplyBelow={hasFinalReplyBelow}
-        preferLazyDuringStream={preferLazyDuringStream}
-        durationLabel={durationLabel}
-        liveTokenStr={liveTokenStr}
-        earlierRoundCount={hiddenEarlierRounds}
-        showFullHistory={showFullHistory}
-        onToggleFullHistory={
-          showHistoryToggle ? () => setShowFullHistory((v) => !v) : undefined
-        }
-      >
-        {renderActivityInner()}
-      </ToolActivityFold>
+      {historyPieces.length > 0 ? (
+        <TurnHistoryFold
+          key={`exploring-history-${chunkIndex}-${chunkStartIndex}`}
+          label={historyFoldLabel}
+        >
+          {renderActivityInner(historyPieces)}
+        </TurnHistoryFold>
+      ) : null}
+      <div className={`msg-flat-activity-chunk${variant === 'fold' ? ' is-legacy-fold' : ''}`}>
+        {renderActivityInner(livePieces)}
+      </div>
       {afterChunk}
     </Fragment>
   )

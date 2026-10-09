@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { buildAssistantBubbleDisplayPlan } from '../src/react/lib/message-row-display-plan.ts'
 import { AssistantBubbleSlotView } from '../src/react/components/AssistantBubbleSlotView.tsx'
 
@@ -31,7 +31,7 @@ function buildInput(overrides: Record<string, unknown> = {}) {
 afterEach(() => cleanup())
 
 describe('TurnHistoryFold（已工作折叠头）', () => {
-  it('流式期间显示「已工作」头部且内容展开', () => {
+  it('流式期间显示「工作中」状态条(仅 header),不包 body;当前轮工具/思考/正文外露', () => {
     const now = Date.now()
     const input = buildInput({
       isStreaming: true,
@@ -70,10 +70,14 @@ describe('TurnHistoryFold（已工作折叠头）', () => {
       />,
     )
     const trigger = screen.queryByTestId('chat-assistant-history-trigger-msg_test_1')
-    expect(trigger, '流式期间应渲染已工作折叠头').toBeTruthy()
-    expect(trigger?.getAttribute('data-history-open')).toBe('true')
+    expect(trigger, '流式期间应渲染工作中状态条').toBeTruthy()
     expect(trigger?.textContent).toContain('工作中 30 秒')
-    // 展开态:工具行可见
+    // v3 设计:状态条仅 header(headerOnly),永远不收 body。
+    // 当前轮的工具/思考/正文永远外露,点 chevron 不会展开任何额外内容。
+    expect(trigger?.getAttribute('data-history-open')).toBe('false')
+    fireEvent.click(trigger!)
+    expect(trigger.getAttribute('data-history-open')).toBe('false')
+    // 当前轮工具行直接外露
     expect(screen.queryByText(/ls -la/)).toBeTruthy()
   })
 
@@ -149,10 +153,14 @@ describe('TurnHistoryFold（已工作折叠头）', () => {
       />,
     )
     const trigger = screen.queryByTestId('chat-assistant-history-trigger-msg_hist_1')
-    expect(trigger, '历史行应渲染已工作折叠头').toBeTruthy()
+    expect(trigger, '历史行应渲染已工作状态条').toBeTruthy()
     expect(trigger?.textContent).toContain('已工作 10 分')
+    // v3:状态条仅 header,无 body;点 chevron 不展开
     expect(trigger?.getAttribute('data-history-open')).toBe('false')
-    expect(screen.queryByText(/echo hello/)).toBeNull()
+    fireEvent.click(trigger!)
+    expect(trigger.getAttribute('data-history-open')).toBe('false')
+    // 工具行直接外露(v3 当前轮永远可见)
+    expect(screen.queryByText(/echo hello/)).toBeTruthy()
   })
 
   it('封存行缺 durationStr/思考时间戳时,用工具时间兜底仍显示头部', () => {
@@ -266,10 +274,13 @@ describe('TurnHistoryFold（已工作折叠头）', () => {
       />,
     )
     const trigger = screen.queryByTestId('chat-assistant-history-trigger-msg_test_2')
-    expect(trigger, '完成后应渲染已工作折叠头').toBeTruthy()
+    expect(trigger, '完成后应渲染已工作状态条').toBeTruthy()
     expect(trigger?.textContent).toContain('已工作 9 分 28 秒')
+    // v3:状态条仅 header,无 body;点 chevron 不展开
     expect(trigger?.getAttribute('data-history-open')).toBe('false')
-    // 收起态:工具行不可见
-    expect(screen.queryByText(/ls/)).toBeNull()
+    fireEvent.click(trigger!)
+    expect(trigger.getAttribute('data-history-open')).toBe('false')
+    // 工具行直接外露(v3 当前轮永远可见)
+    expect(screen.queryByText(/ls/)).toBeTruthy()
   })
 })

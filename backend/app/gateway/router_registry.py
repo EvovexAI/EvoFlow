@@ -178,6 +178,7 @@ def register_extended_routers(app: FastAPI) -> None:
     _include_module_router(app, "app.gateway.routers.runtime_paths", label="runtime_paths")
     _include_module_router(app, "app.gateway.routers.debug_agent_trace", label="debug_agent_trace")
     _include_module_router(app, "app.gateway.routers.hang_diagnostics", label="hang_diagnostics")
+    _include_module_router(app, "app.gateway.routers.debug_stream_paint", label="debug_stream_paint")
     _include_module_router(app, "app.gateway.routers.observability", label="observability")
     _include_module_router(app, "app.gateway.routers.diagnostics", label="diagnostics")
     _include_module_router(app, "app.gateway.routers.platform", label="platform")
