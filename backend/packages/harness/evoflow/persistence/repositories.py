@@ -30,16 +30,47 @@ def list_task_bundle_ids() -> list[str]:
     return task_repo.list_task_bundle_ids()
 
 
-def list_root_task_summaries(*, main_task_id: str | None = None) -> list[dict[str, Any]]:
+def list_root_task_summaries(
+    *,
+    main_task_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
     from evoflow.persistence import task_repositories as task_repo
 
-    return task_repo.list_root_task_summaries(main_task_id=main_task_id)
+    return task_repo.list_root_task_summaries(main_task_id=main_task_id, limit=limit, offset=offset)
 
 
-def list_subtask_summaries(*, main_task_id: str | None = None) -> list[dict[str, Any]]:
+def list_subtask_summaries(
+    *,
+    main_task_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
     from evoflow.persistence import task_repositories as task_repo
 
-    return task_repo.list_subtask_summaries(main_task_id=main_task_id)
+    return task_repo.list_subtask_summaries(main_task_id=main_task_id, limit=limit, offset=offset)
+
+
+def count_root_task_summaries(*, main_task_id: str | None = None) -> int:
+    """Cheap COUNT of root tasks — pagination total without hydrating rows."""
+    from evoflow.persistence import task_repositories as task_repo
+
+    return task_repo.count_root_task_summaries(main_task_id=main_task_id)
+
+
+def list_bundle_summaries(*, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+    """Bundle-level summaries in one query (replaces the per-bundle N+1)."""
+    from evoflow.persistence import task_repositories as task_repo
+
+    return task_repo.list_bundle_summaries(limit=limit, offset=offset)
+
+
+def count_subtask_summaries(*, main_task_id: str | None = None) -> int:
+    """Cheap COUNT of subtasks — pagination total without hydrating rows."""
+    from evoflow.persistence import task_repositories as task_repo
+
+    return task_repo.count_subtask_summaries(main_task_id=main_task_id)
 
 
 def load_task_bundle(main_task_id: str) -> dict[str, Any] | None:

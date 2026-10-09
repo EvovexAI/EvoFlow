@@ -207,10 +207,33 @@ function readTextReasoningLens(s: StreamState): { textLen: number; reasoningLen:
 }
 
 function resolveStreamRowState(s: StreamState): StreamRowState {
-  if (s.aguiTurn) return s.aguiTurn.finished ? 'closed' : 'streaming'
+  let result: StreamRowState
+  if (s.aguiTurn) {
+    result = s.aguiTurn.finished ? 'closed' : 'streaming'
+    console.log(
+      `[GearDebug] resolveStreamRowState AG-UI: finished=${s.aguiTurn.finished} → state="${result}"`,
+      '| runId:', s.runId,
+      '| timeline items:', s.aguiTurn.timeline?.length ?? 0,
+      '| openText len:', s.aguiTurn.openText?.length ?? 0,
+    )
+    return result
+  }
   // Legacy path: agui absent means reducer already sealed at finalizeStreamTurn.
-  if (s.turn.timeline.length > 0 || s.turn.openText) return 'closed'
-  return 'streaming'
+  if (s.turn.timeline.length > 0 || s.turn.openText) {
+    result = 'closed'
+    console.log(
+      `[GearDebug] resolveStreamRowState Legacy→closed:`,
+      '| timeline.length:', s.turn.timeline.length,
+      '| openText:', s.turn.openText?.slice(0, 50),
+    )
+    return result
+  }
+  result = 'streaming'
+  console.log(
+    `[GearDebug] resolveStreamRowState Legacy→streaming:`,
+    '| timeline.length:', s.turn.timeline.length,
+  )
+  return result
 }
 
 function finalizeStreamRow(

@@ -215,3 +215,56 @@ class OmitTranscriptCheckpointer:
         if omit_transcript_on_checkpoint_put_enabled() and isinstance(checkpoint, dict):
             checkpoint = omit_transcript_channels(checkpoint)
         return await self._inner.aput(config, checkpoint, metadata, new_versions)
+
+    # ------------------------------------------------------------------
+    # Pass-through methods — explicitly declared so the LangGraph API
+    # checkpointer capability detection (``_is_overridden`` at class level)
+    # recognizes them. ``__getattr__`` is not consulted for class-level
+    # ``getattr`` lookups, so without these definitions the adapter reports
+    # ``has_adelete_thread=False`` and ``DELETE /threads/<id>`` raises
+    # ``RuntimeError: Please implement adelete_thread …`` at the gateway
+    # route level (e.g. session delete in chat_session_service).
+    # ------------------------------------------------------------------
+    async def aput_writes(
+        self,
+        config: Any,
+        writes: Any,
+        task_id: str,
+        task_path: str = "",
+    ) -> Any:
+        return await self._inner.aput_writes(config, writes, task_id, task_path)
+
+    async def alist(
+        self,
+        config: Any,
+        *,
+        filter: dict[str, Any] | None = None,
+        before: Any = None,
+        limit: int | None = None,
+    ) -> Any:
+        # ``alist`` is an async iterator; the return value is itself an
+        # ``AsyncIterator[CheckpointTuple]`` (or compatible async generator),
+        # NOT a coroutine, so we pass it through unchanged.
+        return self._inner.alist(config, filter=filter, before=before, limit=limit)
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        return await self._inner.adelete_thread(thread_id)
+
+    async def adelete_for_runs(self, run_ids: Any) -> None:
+        return await self._inner.adelete_for_runs(run_ids)
+
+    async def acopy_thread(self, source_thread_id: str, target_thread_id: str) -> Any:
+        return await self._inner.acopy_thread(source_thread_id, target_thread_id)
+
+    async def aprune(
+        self,
+        thread_ids: Any,
+        *,
+        strategy: str = "keep_latest",
+    ) -> Any:
+        return await self._inner.aprune(thread_ids, strategy=strategy)
+
+    async def aget_iter(self, config: Any) -> Any:
+        # ``aget_iter`` is an async iterator on LangGraph's BaseCheckpointSaver.
+        # Return the inner async generator directly (no await).
+        return self._inner.aget_iter(config)

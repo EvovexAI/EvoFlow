@@ -1,38 +1,67 @@
 ---
 name: agent-browser
-description: Interactive browser automation via the deferred ``browser`` tool (open/snapshot/click/fill/press/scroll/screenshot/back/close). The agent drives the same WebView2 page the user sees in the EvoPanel browser side panel. Use for dynamic pages, login flows, and anything needing clicks or forms.
+description: Interactive browser automation via the `agent-browser` CLI (single tool, multi-action — open/snapshot/click/fill/press/scroll/screenshot/back/close). Drives a real Chromium the user can see. The previous EvoPanel-embedded WebView2 ``browser`` tool was unregistered; use this skill instead.
 ---
 
 # Agent Browser
 
-Interactive browser control uses the unified **`browser`** tool. The agent drives the
-**EvoPanel embedded WebView2** — the same page the user watches in the browser side
-panel (ZCode model: one host-owned browser, no second window, no screencast).
+Interactive browser control via the **`agent-browser`** CLI (a real Chromium driven over
+CDP). The user runs the CLI on their own desktop, so they see the same browser window
+the agent drives.
 
-## Loading the tool (deferred)
+The legacy EvoPanel-embedded WebView2 ``browser`` tool was **unregistered** — the LLM
+tool surface no longer exposes `browser`. Use this skill (the CLI) instead.
+
+## Loading the tool (deferred, agent mode only)
 
 1. Activate agent mode: `scenario(action='activate', scenario_key='agent')`
-2. Load the tool schema: `tool_search(query='select:browser')`
+2. Reach the CLI through the **terminal** tool (or `evoflow` admin) — see "How the agent runs it" below.
+
+## How the agent runs it
+
+The agent does **not** call `agent-browser` directly. It uses the standard
+**`terminal`** tool (or `bash`):
+
+```
+terminal(command='agent-browser open https://example.com', timeout_ms=35000)
+terminal(command='agent-browser snapshot -c')
+terminal(command='agent-browser click @e2')
+```
+
+`agent-browser --session <name>` keeps state per thread (one session per chat).
+Always pass `--session` so multiple chats don't share a browser.
 
 ## Core workflow (snapshot + ref)
 
 ```
-browser(action='open', url='https://example.com')   # live view appears in the EvoPanel side panel
-browser(action='snapshot')                           # read the page → refs e1, e2, …
-browser(action='click', ref='e2')
-browser(action='fill', ref='e3', text='search text')
-browser(action='press', key='Enter')
-browser(action='snapshot')                           # page changed → refs are stale
-browser(action='screenshot')                         # optional — pixels, shown to the user
-browser(action='close')
+terminal(command='agent-browser --session <name> open https://example.com')
+terminal(command='agent-browser --session <name> snapshot -c')   # refs e1, e2, …
+terminal(command='agent-browser --session <name> click @e2')
+terminal(command='agent-browser --session <name> fill @e3 "search text"')
+terminal(command='agent-browser --session <name> press Enter')
+terminal(command='agent-browser --session <name> snapshot -c')   # page changed → refs stale
+terminal(command='agent-browser --session <name> screenshot /tmp/shot.png')  # optional pixels
+terminal(command='agent-browser --session <name> close')
 ```
 
 Actions: `open`, `snapshot`, `click`, `fill`, `press`, `scroll`, `screenshot`, `back`, `close`.
 
+Add `--json` to any subcommand for structured output (easier to parse):
+
+```
+agent-browser --session <name> --json open https://example.com
+```
+
+## Session naming
+
+Use one **agent-browser session per chat thread** so concurrent chats don't share a
+browser. Pick a stable session name per thread (e.g. the chat UUID or
+`evoflow-<thread-id>`).
+
 ## Discipline (do not skip)
 
-1. **Always `snapshot` before choosing refs.** Refs (`e1`, `e2`, …) come from the latest
-   snapshot and are invalidated by navigation and by clicks that change the page.
+1. **Always `snapshot` before choosing refs.** Refs (`e1`, `e2`, …) come from the
+   latest snapshot and are invalidated by navigation and by clicks that change the page.
 2. **Re-snapshot after navigation or state-changing clicks.** A stale ref returns
    `ref_not_found` — that is the signal to take a fresh snapshot, not to retry.
 3. **Never guess CSS selectors, labels, or placeholders.** Build clicks and fills only
@@ -48,28 +77,33 @@ Actions: `open`, `snapshot`, `click`, `fill`, `press`, `scroll`, `screenshot`, `
 | Need | Use |
 |------|-----|
 | Click, fill, read structure | `snapshot` |
-| CAPTCHA, dense layout, visual-only UI | `screenshot` (then judge from the returned image info) |
-| Deliver a picture to the user | `screenshot(full_page=…)` — the image is shown in the chat UI |
+| CAPTCHA, dense layout, visual-only UI | `screenshot` (then read the file with `read_file` or `view_image`) |
+| Deliver a picture to the user | `screenshot` and reference the saved PNG path in the chat reply |
 
-The screenshot image is rendered for the user in the chat timeline; the tool result
-itself stays compact (no base64 in context).
+## Prerequisites (one-time, on the user's machine)
 
-## Prerequisites
+Chromium must be installed locally. If `agent-browser open` returns an error like
+"browser engine not installed", tell the user to run:
 
-- The EvoFlow desktop app must be running — the tool drives its embedded WebView2.
-  If the engine is unreachable the tool returns a structured
-  `backend_unavailable` error; report it instead of trying other browsers.
-- Do not invent alternate browsers or CLIs. The legacy `agent-browser` CLI path was
-  removed; terminal-based browsing recipes are obsolete.
+```
+agent-browser install          # ~400MB, downloads to ~/.agent-browser/browsers
+```
+
+If `agent-browser` is not on PATH, use the bundled CLI:
+
+```
+tools/agent-browser/node_modules/.bin/agent-browser install
+```
+
+Do **not** invent alternate browsers or fall back to a generic Chromium.
 
 ## Tips
 
-- `fill` goes through the keyboard path (focus + insertText), so React/Vue controlled
+- `fill` types through the keyboard path (focus + insertText), so React/Vue controlled
   inputs work as if the user typed.
 - `press` accepts `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, arrow keys,
-  `Home`/`End`/`PageUp`/`PageDown`, single characters, and `modifiers` (e.g. Ctrl).
+  `Home`/`End`/`PageUp`/`PageDown`, single characters, and modifiers (e.g. `Ctrl+a`).
 - `scroll` takes `direction` (`down`/`up`/`left`/`right`) and `amount` in CSS pixels.
-- `back` walks the WebView2 session history; `close` ends the agent session (the user
-  keeps the panel and can close it from the UI).
-- The user can interact with the panel too (address bar, clicks). Treat unexpected page
-  changes as user actions: re-snapshot before continuing.
+- `back` walks the page history; `close` ends the session.
+- The user can interact with the same browser window. Treat unexpected page changes
+  as user actions: re-snapshot before continuing.

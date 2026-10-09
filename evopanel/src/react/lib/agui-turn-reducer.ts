@@ -1267,6 +1267,14 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
   }
 
   if (t === EventType.RUN_FINISHED) {
+    console.log(
+      `[GearDebug] AG-UI RUN_FINISHED event:`,
+      '| runId:', state.runId,
+      '| was finished:', state.finished,
+      '| current toolCalls:', state.toolCalls.size,
+      '| timeline before seal:', state.timeline.length,
+      '| openText before seal:', state.openText?.slice(0, 100),
+    )
     state.finished = true
     state.activity = null
     // 兜底：run 结束时若仍有工具卡在 args/running phase（TOOL_CALL_RESULT 未到或丢失），
@@ -1277,10 +1285,20 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
     // wire 偶发丢 TEXT_MESSAGE_END：不封存则 body 只留在 openText，
     // final 落库只用 closed timeline 时会丢掉「工具后总结」。
     sealOpenAgUiMessages(state)
+    console.log(
+      `[GearDebug] AG-UI RUN_FINISHED processed:`,
+      '| finished set to:', state.finished,
+      '| timeline after seal:', state.timeline.length,
+    )
     return syncAgUiCompatProjection(state)
   }
 
   if (t === EventType.RUN_ERROR) {
+    console.log(
+      `[GearDebug] AG-UI RUN_ERROR event:`,
+      '| runId:', state.runId,
+      '| error message:', (event as { message?: string }).message,
+    )
     state.finished = true
     state.activity = String((event as { message?: string }).message || 'error')
     // 同上：错误终止时也要把未完成的工具置为 done，否则 UI 会一直认为它在运行。

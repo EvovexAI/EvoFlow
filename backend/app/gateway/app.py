@@ -73,6 +73,72 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     init_startup_state(app)
     startup_mark("lifespan.enter", phase="lifespan")
     _st_log("lifespan enter")
+    # H3-B-2 fix: ensure EVOFLOW_LANGGRAPH_URL points to THIS Gateway process so
+    # chat_session_service thread creation hits the same LangGraph store the
+    # frontend stream requests reach via the Vite proxy / Tauri IPC pipe.
+    # Without this, threads can be created on a different Gateway process and
+    # the stream-side 404s with "Thread or assistant not found".
+    try:
+        if not (os.environ.get("EVOFLOW_LANGGRAPH_URL") or "").strip():
+            port = None
+            host = None
+            # 1. Try uvicorn's server config attached to app.state
+            uvicorn_cfg = getattr(app.state, "uvicorn_config", None) or getattr(
+                app, "_uvicorn_config", None
+            )
+            if uvicorn_cfg is not None:
+                host = getattr(uvicorn_cfg, "host", None) or None
+                port = getattr(uvicorn_cfg, "port", None) or None
+            # 2. Parse uvicorn's command line for --port / --host
+            if not port:
+                import sys as _sys
+                argv = _sys.argv[1:]
+                i = 0
+                while i < len(argv):
+                    a = argv[i]
+                    if a == "--port" and i + 1 < len(argv):
+                        try:
+                            port = int(argv[i + 1])
+                        except Exception:
+                            pass
+                        i += 2
+                        continue
+                    if a.startswith("--port="):
+                        try:
+                            port = int(a.split("=", 1)[1])
+                        except Exception:
+                            pass
+                    if a == "--host" and i + 1 < len(argv):
+                        host = argv[i + 1]
+                        i += 2
+                        continue
+                    if a.startswith("--host="):
+                        host = a.split("=", 1)[1]
+                    i += 1
+            # 3. Fallback: env hints
+            if not port:
+                port_raw = (
+                    os.environ.get("EVOFLOW_GATEWAY_PORT")
+                    or os.environ.get("PORT")
+                    or ""
+                ).strip()
+                if port_raw.isdigit():
+                    port = int(port_raw)
+            if port:
+                # Normalize 0.0.0.0 / :: / '*' to loopback for the in-process URL
+                if host in ("0.0.0.0", "::", "*", ""):
+                    norm_host = "127.0.0.1"
+                else:
+                    norm_host = host
+                url = f"http://{norm_host}:{port}/api/langgraph"
+                os.environ["EVOFLOW_LANGGRAPH_URL"] = url
+                # also expose the port to the rest of the harness so
+                # _gateway_self_base_url() can resolve
+                os.environ.setdefault("EVOFLOW_GATEWAY_PORT", str(port))
+                os.environ.setdefault("EVOFLOW_GATEWAY_HOST", norm_host)
+                logger.info("auto-set EVOFLOW_LANGGRAPH_URL=%s (in-process mount)", url)
+    except Exception:
+        logger.debug("EVOFLOW_LANGGRAPH_URL auto-set skipped", exc_info=True)
     # Register app→core runtime adapters before any router mounts (rule R1).
     try:
         from app.gateway.runtime_adapters import register_runtime_adapters

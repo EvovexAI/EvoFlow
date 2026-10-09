@@ -186,7 +186,6 @@ import { applyRightStageAgUiCustom, applyStageSetFromToolCall, STAGE_SET_APPLIED
 import { syncBrowserPanelFromAgUiEvent, isBrowserToolWireName } from '../lib/browser-panel-agui.js'
 import {
   closeBrowserStage,
-  ensureBrowserStage,
   setBrowserPanelThreadId,
 } from '../lib/browser-panel-store.js'
 import { dbgLog } from '../lib/browser-debug-log.js'
@@ -12541,91 +12540,16 @@ export default function ChatApp() {
       ? '显示子任务工作流'
       : '工作流（当前会话暂无）'
 
-  const collabExecToggleButton = (
-    <button
-      type="button"
-      className={`react-chat-header-icon-btn react-chat-collab-exec-toggle-btn${
-        collabExecPanelOpen ? ' is-active' : ''
-      }${collabExecPanelCanShow ? '' : ' is-idle'}`}
-      title={collabExecToggleTitle}
-      aria-label={collabExecToggleTitle}
-      aria-pressed={collabExecPanelOpen}
-      onClick={() => {
-        if (collabExecPanelOpen) closeCollabExecPanel()
-        else {
-          bumpSubtasksApiRefresh()
-          openCollabExecPanel({ clearDismiss: true })
-        }
-      }}
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-        <path d="M6 4v16M10 8h8M10 12h6M10 16h4" />
-        <circle cx="6" cy="8" r="1.5" fill="currentColor" />
-        <circle cx="6" cy="12" r="1.5" fill="currentColor" />
-        <circle cx="6" cy="16" r="1.5" fill="currentColor" />
-      </svg>
-    </button>
-  )
+  
 
   const knowledgeMapToggleTitle = knowledgeMapPanelOpen ? '隐藏思维导图' : '显示思维导图'
 
-  const knowledgeMapToggleButton = (
-    <button
-      type="button"
-      className={`react-chat-toggle-sidebar-btn react-chat-knowledge-map-toggle-btn${
-        knowledgeMapPanelOpen ? ' is-active' : ''
-      }`}
-      title={knowledgeMapToggleTitle}
-      aria-label={knowledgeMapToggleTitle}
-      aria-pressed={knowledgeMapPanelOpen}
-      onClick={() => {
-        if (knowledgeMapPanelOpen) closeKnowledgeMapPanel()
-        else openKnowledgeMapPanel()
-      }}
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-        <circle cx="6" cy="6" r="2.5" />
-        <circle cx="18" cy="6" r="2.5" />
-        <circle cx="12" cy="18" r="2.5" />
-        <path d="M8.2 7.5l3.3 8M15.8 7.5l-3.3 8M8.5 6h7" />
-      </svg>
-    </button>
-  )
+  
 
-  // 浏览器面板头部开关（ZCode 式：与工作流/思维导图并列的独立入口）
-  const browserStageOpen = rightStageOpen && rightStageSurface?.kind === 'browser'
-  const toggleBrowserStage = useCallback(() => {
-    if (browserStageOpen) {
-      closeBrowserStage()
-      return
-    }
-    // 手动打开时绑定当前会话的 thread：面板命令（导航/标签/点击）才能落到引擎
-    const manualTid = String(wsClient.getSessionThreadId(selectedSessionKey || '') || '').trim()
-    if (manualTid) setBrowserPanelThreadId(manualTid)
-    ensureBrowserStage()
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
-  }, [browserStageOpen, selectedSessionKey])
-  const browserToggleTitle = browserStageOpen ? '隐藏浏览器' : '打开浏览器'
-  const browserToggleButton = (
-    <button
-      type="button"
-      className={`react-chat-header-icon-btn react-chat-browser-stage-toggle-btn${
-        browserStageOpen ? ' is-active' : ''
-      }`}
-      title={browserToggleTitle}
-      aria-label={browserToggleTitle}
-      aria-pressed={browserStageOpen}
-      onClick={toggleBrowserStage}
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16" aria-hidden="true">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-        <path d="M2 12h20" />
-      </svg>
-    </button>
-  )
+  // 浏览器面板头部开关（暂时禁用，CDP 路由修复中）
+  // const browserStageOpen = rightStageOpen && rightStageSurface?.kind === 'browser'
+  // const browserToggleButton = (...) // 代码保留以便将来恢复
+  const browserToggleButton = null
 
   const workspaceFolderToggleTitle = workspacePanelOpen ? '隐藏工作区文件' : '显示工作区文件'
 
@@ -12711,67 +12635,7 @@ export default function ChatApp() {
     return () => window.removeEventListener('keydown', onKey)
   }, [workspaceFolderMenuOpen])
 
-  const stageExtensionsToolbar = (
-    <RightStageExtensionsToolbar
-      activeKind={activeStageExtensionKind}
-      onSelect={openStageExtension}
-    />
-  )
-
-  /** 本会话内进入执行（或主任务变活跃）时自动展开；点进已有工作流的会话只记 baseline，不默认展开 */
-  useEffect(() => {
-    if (!workflowTaskId) {
-      prevCollabExecPhaseRef.current = ''
-      return
-    }
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    const token = `${sk}:${workflowTaskId}`
-    const phase = String(threadPanelState.collabPhase || '').trim().toLowerCase()
-    const prev = prevCollabExecPhaseRef.current
-    const task = threadPanelState.collabTask
-    const planGoal = String(task?.planGoal || task?.boundPlanPreview || '').trim()
-
-    if (collabExecSessionBaselinedRef.current !== token) {
-      collabExecSessionBaselinedRef.current = token
-      prevCollabExecPhaseRef.current = phase
-      return
-    }
-
-    const shouldOpen =
-      collabExecPanelCanShow &&
-      shouldAutoOpenCollabExecPanel(task, {
-        collabPhase: phase,
-        boundPlanReady: task?.boundPlanReady,
-        hasPlanBody: !!task?.boundPlanReady || !!planGoal,
-      })
-    const enteredExec =
-      (phase === 'executing' || phase === 'verifying' || phase === 'reflecting') &&
-      prev !== phase &&
-      !['executing', 'verifying', 'reflecting'].includes(prev)
-
-    if ((shouldOpen && enteredExec) || (shouldOpen && phase === 'executing' && prev !== 'executing')) {
-      const dismissKey = collabExecPanelDismissKey()
-      if (!dismissKey || !collabExecDismissedKeysRef.current.has(dismissKey)) {
-        openCollabExecPanel({ clearDismiss: true })
-      }
-    }
-    prevCollabExecPhaseRef.current = phase
-  }, [
-    selectedSessionKey,
-    workflowTaskId,
-    threadPanelState.collabPhase,
-    threadPanelState.collabTask,
-    collabExecPanelCanShow,
-    collabExecPanelDismissKey,
-    openCollabExecPanel,
-  ])
-
-  useEffect(() => {
-    const preview = String(threadPanelState.clarification?.preview || threadPanelState.clarification?.content || '').trim()
-    if (preview) queueMicrotask(() => openSessionSidebar())
-  }, [threadPanelState.clarification, openSessionSidebar])
-
+  
   const planExecToolArrays = useMemo(() => [mergedPlanTools], [mergedPlanTools])
 
   const planExecConfirmAnchor = useMemo((): PlanExecConfirmAnchor | null => {
@@ -15044,20 +14908,7 @@ export default function ChatApp() {
                     {workspaceFolderGroup}
                     <span className="react-chat-header-action-sep" aria-hidden />
                     <div className="react-chat-header-action-group react-chat-header-action-group--global">
-                      <button
-                        type="button"
-                        className="react-chat-header-icon-btn react-chat-header-share-btn"
-                        title="分享"
-                        aria-label="分享"
-                        disabled={!selectedSessionKey || isHomeSurface}
-                        onClick={() => setShareSessionOpen(true)}
-                      >
-                        <Share className="react-chat-header-icon" aria-hidden />
-                      </button>
                       {browserToggleButton}
-                      {collabExecToggleButton}
-                      {knowledgeMapEnabled ? knowledgeMapToggleButton : null}
-                      {stageExtensionsToolbar}
                       {infoRailHeaderToggle}
                     </div>
                   </div>
@@ -15110,19 +14961,7 @@ export default function ChatApp() {
                   </div>
                   <span className="react-chat-header-action-sep" aria-hidden />
                   <div className="react-chat-header-action-group react-chat-header-action-group--global">
-                  <button
-                    type="button"
-                    className="react-chat-header-share-btn"
-                    title="分享"
-                    disabled={!selectedSessionKey || isHomeSurface}
-                    onClick={() => setShareSessionOpen(true)}
-                  >
-                    分享
-                  </button>
                   {browserToggleButton}
-                  {collabExecToggleButton}
-                  {knowledgeMapEnabled ? knowledgeMapToggleButton : null}
-                  {stageExtensionsToolbar}
                   {workspaceFolderToggleButton}
                   </div>
                 </div>
@@ -15519,7 +15358,10 @@ export default function ChatApp() {
               onDraftChange={handleComposerDraftChange}
               onComposerWarmup={handleComposerWarmup}
               sending={selectedTurnBusy}
-              streaming={selectedTurnBusy && streaming}
+              streaming={streaming || selectedTurnBusy}
+              // streaming 状态必须以 SSE 帧流（实时）为准，
+              // 不能被 selectedTurnBusy (DB row 状态，常有几秒延迟) 误掩为 false，
+              // 否则工具调用一结束 row 状态短暂回 idle → 「停止」按钮瞬间消失 → 误以为停机。
               // @ts-expect-error handleSend has extra ctxFiles param
               onSend={handleSend}
               onAbort={handleAbort}

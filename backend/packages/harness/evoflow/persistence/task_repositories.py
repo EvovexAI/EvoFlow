@@ -356,9 +356,88 @@ def list_task_bundle_ids() -> list[str]:
     return [str(r[0]) for r in rows]
 
 
+# Columns emitted by the bundle-summary query (mirrors ProjectStorage.list_projects).
+_BUNDLE_SUMMARY_COLS = (
+    "id",
+    "name",
+    "description",
+    "status",
+    "created_at",
+    "updated_at",
+    "task_count",
+)
+
+
+def list_bundle_summaries(
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Bundle-level summaries in ONE query — replaces the per-bundle N+1.
+
+    ``ProjectStorage.list_projects()`` used to call :func:`load_task_bundle` once per
+    bundle (2031 callers → 2031 × 8 full table scans ≈ 3138 rows read) just to emit
+    seven summary fields. This reads only the root rows instead.
+
+    Shape matches ``list_projects()`` exactly (same keys, same values); only the
+    ordering of *tied* ``updated_at`` values may differ, because the old path
+    ordered by ``MAX(updated_at)`` while this orders by the root row's
+    ``updated_at`` — for single-row bundles those are the same value, and ties are
+    now broken deterministically by ``main_task_id``.
+    """
+    from evoflow.persistence.db import run_db_read
+
+    # Root row carries the canonical bundle header (bundle_row_from_task_rows).
+    order_by = "ORDER BY COALESCE(NULLIF(t.updated_at, ''), NULLIF(t.created_at, ''), '') DESC, t.main_task_id DESC"
+    page_sql = ""
+    if limit is not None and int(limit) > 0:
+        page_sql = "\n        LIMIT ? OFFSET ?"
+
+    def _query(conn: Any) -> list[dict[str, Any]]:
+        params: tuple[Any, ...] = ()
+        if page_sql:
+            params = (int(limit), max(0, int(offset or 0)))
+        rows = conn.execute(
+            f"""
+            SELECT
+                t.main_task_id AS id,
+                t.name AS name,
+                t.description AS description,
+                t.status AS status,
+                t.created_at AS created_at,
+                t.updated_at AS updated_at,
+                (SELECT COUNT(*) FROM evoflow_collab_tasks c
+                  WHERE c.main_task_id = t.main_task_id) AS task_count
+            FROM evoflow_collab_tasks t
+            WHERE t.task_id = t.main_task_id
+            {order_by}{page_sql}
+            """,
+            params,
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = _row_dict(r)
+            out.append(
+                {
+                    "id": d.get("id"),
+                    "name": d.get("name"),
+                    "description": d.get("description"),
+                    "status": d.get("status"),
+                    "created_at": d.get("created_at"),
+                    "updated_at": d.get("updated_at"),
+                    "task_count": int(d.get("task_count") or 0),
+                }
+            )
+        return out
+
+    return run_db_read(_query)
+
+
 def list_root_task_summaries(
     *,
     main_task_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """List root collaborative tasks with one SQL query (no full-bundle hydrate).
 
@@ -367,6 +446,9 @@ def list_root_task_summaries(
 
     Omits heavy columns (``result_json``, plan mermaid/steps/validation) that the
     task-center list does not need — those dominate I/O when there are 1000+ roots.
+
+    ``limit`` / ``offset`` are pushed into SQL (``limit <= 0`` / ``None`` = all rows),
+    so agent/CLI callers can page without materializing 1000+ rows in memory.
     """
     from evoflow.persistence.db import run_db_read
 
@@ -387,25 +469,38 @@ def list_root_task_summaries(
         pass
     mid = str(main_task_id or "").strip()
 
+    # NULL-safe: an empty-string updated_at must not sort as "newest".
+    order_by = "ORDER BY COALESCE(NULLIF(updated_at, ''), NULLIF(created_at, ''), '') DESC"
+    page_sql = ""
+    if limit is not None and int(limit) > 0:
+        page_sql = "\n                LIMIT ? OFFSET ?"
+
     def _query(conn: Any) -> list[dict[str, Any]]:
         if mid:
+            params: list[Any] = [mid]
+            if page_sql:
+                params += [int(limit), max(0, int(offset or 0))]
             rows = conn.execute(
                 f"""
                 SELECT {cols}
                 FROM evoflow_collab_tasks
                 WHERE main_task_id = ? AND task_id = main_task_id
-                ORDER BY COALESCE(updated_at, created_at, '') DESC
+                {order_by}{page_sql}
                 """,
-                (mid,),
+                tuple(params),
             ).fetchall()
         else:
+            params = []
+            if page_sql:
+                params += [int(limit), max(0, int(offset or 0))]
             rows = conn.execute(
                 f"""
                 SELECT {cols}
                 FROM evoflow_collab_tasks
                 WHERE task_id = main_task_id
-                ORDER BY COALESCE(updated_at, created_at, '') DESC
-                """
+                {order_by}{page_sql}
+                """,
+                tuple(params),
             ).fetchall()
         out = []
         for r in rows:
@@ -417,6 +512,46 @@ def list_root_task_summaries(
                 summary["org_id"] = d.get("org_id")
             out.append(summary)
         return out
+
+    return run_db_read(_query)
+
+
+def count_root_task_summaries(*, main_task_id: str | None = None) -> int:
+    """COUNT root tasks (``task_id = main_task_id``) without hydrating rows."""
+    from evoflow.persistence.db import run_db_read
+
+    mid = str(main_task_id or "").strip()
+
+    def _query(conn: Any) -> int:
+        if mid:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM evoflow_collab_tasks WHERE main_task_id = ? AND task_id = main_task_id",
+                (mid,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM evoflow_collab_tasks WHERE task_id = main_task_id"
+            ).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    return run_db_read(_query)
+
+
+def count_subtask_summaries(*, main_task_id: str | None = None) -> int:
+    """COUNT collab subtasks without hydrating rows."""
+    from evoflow.persistence.db import run_db_read
+
+    mid = str(main_task_id or "").strip()
+
+    def _query(conn: Any) -> int:
+        if mid:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM evoflow_collab_subtasks WHERE main_task_id = ?",
+                (mid,),
+            ).fetchone()
+        else:
+            row = conn.execute("SELECT COUNT(*) FROM evoflow_collab_subtasks").fetchone()
+        return int(row[0] or 0) if row else 0
 
     return run_db_read(_query)
 
@@ -512,11 +647,15 @@ def task_visible_to_principal(
 def list_subtask_summaries(
     *,
     main_task_id: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
     """List collab subtasks with one SQL query (no full-bundle hydrate).
 
     Used by agent/CLI ``list_tasks(include_subtasks=True)`` so patrols do not
     N× ``load_project`` and stall on path absolutization.
+
+    ``limit`` / ``offset`` are pushed into SQL (``limit <= 0`` / ``None`` = all rows).
     """
     from evoflow.persistence.db import run_db_read
 
@@ -527,24 +666,36 @@ def list_subtask_summaries(
     """
     mid = str(main_task_id or "").strip()
 
+    order_by = "ORDER BY COALESCE(NULLIF(updated_at, ''), NULLIF(created_at, ''), '') DESC"
+    page_sql = ""
+    if limit is not None and int(limit) > 0:
+        page_sql = "\n                LIMIT ? OFFSET ?"
+
     def _query(conn: Any) -> list[dict[str, Any]]:
         if mid:
+            params: list[Any] = [mid]
+            if page_sql:
+                params += [int(limit), max(0, int(offset or 0))]
             rows = conn.execute(
                 f"""
                 SELECT {cols}
                 FROM evoflow_collab_subtasks
                 WHERE main_task_id = ?
-                ORDER BY COALESCE(updated_at, created_at, '') DESC
+                {order_by}{page_sql}
                 """,
-                (mid,),
+                tuple(params),
             ).fetchall()
         else:
+            params = []
+            if page_sql:
+                params += [int(limit), max(0, int(offset or 0))]
             rows = conn.execute(
                 f"""
                 SELECT {cols}
                 FROM evoflow_collab_subtasks
-                ORDER BY COALESCE(updated_at, created_at, '') DESC
-                """
+                {order_by}{page_sql}
+                """,
+                tuple(params),
             ).fetchall()
         return [m.collab_subtask_row_to_summary(_row_dict(r)) for r in rows]
 

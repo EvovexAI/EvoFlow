@@ -222,26 +222,15 @@ class ProjectStorage:
                 return False
 
     def list_projects(self) -> list[dict[str, Any]]:
-        """List all projects (summary info only)."""
+        """List all projects (summary info only).
+
+        One SQL query over root task rows — previously this called
+        :meth:`load_project` once per bundle, which read every table (8 scans per
+        bundle) just to emit seven summary fields.
+        """
         from evoflow.persistence import repositories as repo
 
-        with self._lock:
-            projects: list[dict[str, Any]] = []
-            for project_id in repo.list_task_bundle_ids():
-                project_data = self.load_project(project_id)
-                if project_data:
-                    projects.append(
-                        {
-                            "id": project_data.get("id"),
-                            "name": project_data.get("name"),
-                            "description": project_data.get("description"),
-                            "status": project_data.get("status"),
-                            "created_at": project_data.get("created_at"),
-                            "updated_at": project_data.get("updated_at"),
-                            "task_count": len(project_data.get("tasks", [])),
-                        }
-                    )
-            return projects
+        return repo.list_bundle_summaries()
 
 
 class TaskDetailStorage:

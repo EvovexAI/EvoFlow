@@ -73,7 +73,9 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
         "str_replace",
         "delete_file",
         "find_file",
-        # Legacy browser_* tools — use unified ``browser`` tool (deferred under agent mode).
+        # Unified ``browser`` tool unregistered — use the agent-browser skill (CLI/MCP) instead.
+        "browser",
+        # Legacy browser_* tools — use the agent-browser skill (CLI/MCP) instead.
         "preview_url",
         "browser_navigate",
         "browser_click",
@@ -157,7 +159,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     """Load built-in sandbox tools on first use (avoids eager import of 50+ tool modules)."""
     from evoflow.community.web_fetch.tools import web_fetch_tool as fetch_url_tool
     # assets_tool removed — memory/craft access via direct read/replace/write on
-    from evoflow.tools.builtins.browser_tool import browser_tool
+    # from evoflow.tools.builtins.browser_tool import browser_tool  # unregistered — use the agent-browser skill (CLI/MCP)
     from evoflow.tools.builtins.clarification_tool import ask_clarification_tool
     from evoflow.tools.builtins.collab_peer_tools import (
         collab_peer_read_tool,
@@ -196,7 +198,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         fetch_url_tool,
         view_image_tool,
         process_tool,
-        browser_tool,
+        # browser_tool,  # unregistered — use the agent-browser skill (CLI/MCP) instead
         read_lints_tool,
         bash_tool,
         read_file_tool,

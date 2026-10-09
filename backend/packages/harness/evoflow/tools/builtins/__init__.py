@@ -1,5 +1,4 @@
 from .automation_tool import automation_tool
-from .browser_tool import browser_tool
 from .catalog_tools import list_assignable_tools_tool, list_skills_catalog_tool
 from .clarification_tool import ask_clarification_tool
 from .collab_peer_tools import (
@@ -83,7 +82,7 @@ __all__ = [
     "experience_mark_used_tool",
     "experience_delete_tool",
     "process_tool",
-    "browser_tool",
+    # "browser_tool",  # unregistered — use the agent-browser skill (CLI/MCP) instead
     "read_lints_tool",
     "person_memory_edit_tool",
     "memory_remember_tool",

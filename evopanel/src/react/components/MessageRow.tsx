@@ -732,6 +732,25 @@ export function MessageRow({
   // row.state 是单一真相源；弃用 prop 仅保持向后兼容（默认 false）。
   const isStreamingEffective = row.state === 'streaming' || (row.state === undefined && false)
 
+  // 【调试】追踪 isStreamingEffective 变化（齿轮显示/消失）
+  const prevStreamingRef = useRef(isStreamingEffective)
+  useEffect(() => {
+    const prev = prevStreamingRef.current
+    if (prev !== isStreamingEffective) {
+      console.log(
+        `[GearDebug] isStreamingEffective changed: ${prev} → ${isStreamingEffective}`,
+        '| row.role:', row.role,
+        '| row.state:', row.state,
+        '| row.runId:', row.runId,
+        '| tools count:', Array.isArray(row.tools) ? row.tools.length : 'N/A',
+        '| text len:', (row.text || '').length,
+        '| segments count:', Array.isArray(row.segments) ? row.segments.length : 'N/A',
+        '| timestamp:', new Date().toISOString(),
+      )
+      prevStreamingRef.current = isStreamingEffective
+    }
+  }, [isStreamingEffective, row.role, row.state, row.runId, row.tools, row.text, row.segments])
+
   const [userEditing, setUserEditing] = useState(false)
 
   /**

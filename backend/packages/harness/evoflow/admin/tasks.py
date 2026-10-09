@@ -282,6 +282,8 @@ def list_tasks(
 
     ``limit`` / ``offset`` paginate the filtered result (newest ``updated_at`` first).
     ``limit is None`` or ``<= 0`` returns the full filtered list (CLI / internal callers).
+    When callers pass neither ``assignee``/``role``/``status``/``source`` filters, the
+    page is pushed down to SQL so a patrol listing does not hydrate the whole board.
 
     Uses one/two light SQL queries (root + optional subtasks) instead of N× full
     project bundles. List payloads skip filesystem path absolutization so agent
@@ -294,6 +296,8 @@ def list_tasks(
     status_filter = _normalize_status(status) or None
     source_filter = str(source or "").strip() or None
     mid = str(main_task_id or "").strip() or None
+    start = max(0, int(offset or 0))
+    limit_n = int(limit) if limit is not None else 0
 
     role_name_filter: str | None = None
     if role:
@@ -315,6 +319,56 @@ def list_tasks(
         role_name_filter = role_name_norm
 
     # Light path: no N× load_project / Path.resolve absolutization on list.
+    #
+    # When no Python-side filter is requested and the caller wants a single page,
+    # push ``limit``/``offset`` into SQL: a duty/agent ``tasks list`` must not read
+    # 2000+ root rows (each carrying description/outputs/plan fields) just to slice 10.
+    # Filters are applied in Python (``_row_matches``), so a filtered page cannot be
+    # pushed down without changing semantics — keep the hydrate-then-slice path there.
+    unfiltered = not (assignee_filter or status_filter or source_filter or role_name_filter)
+    sql_pushdown = bool(unfiltered and limit_n > 0)
+    if sql_pushdown:
+        rows: list[dict[str, Any]] = []
+        for task in repo.list_root_task_summaries(main_task_id=mid, limit=limit_n, offset=start):
+            tid = str(task.get("id") or "").strip()
+            if not tid:
+                continue
+            pid = str(task.get("main_task_id") or tid).strip() or tid
+            rows.append(
+                {
+                    "task_id": tid,
+                    "subtask_id": None,
+                    "name": task.get("name"),
+                    "description": str(task.get("description") or "").strip() or None,
+                    "plan_goal": str(task.get("plan_goal") or "").strip() or None,
+                    "status": _normalize_status(task.get("status")),
+                    "status_zh": _status_zh(task.get("status")),
+                    "progress": int(task.get("progress") or 0),
+                    "assigned_to": str(task.get("assigned_to") or "").strip() or None,
+                    **_task_role_fields(task),
+                    **_task_raiser_fields(task),
+                    **_task_parent_fields(task),
+                    **_task_source_fields(task),
+                    **_task_proactive_fields(task, absolutize_paths=False, enrich_handlers=False),
+                    "main_task_id": pid,
+                    "is_subtask": False,
+                    "created_at": task.get("created_at"),
+                    "updated_at": task.get("updated_at"),
+                    "started_at": task.get("started_at"),
+                    "completed_at": task.get("completed_at"),
+                }
+            )
+        total = repo.count_root_task_summaries(main_task_id=mid)
+        return {
+            "count": len(rows),
+            "total": total,
+            "limit": limit_n,
+            "offset": start,
+            "has_more": (start + len(rows)) < total,
+            "include_subtasks": False if not include_subtasks else include_subtasks,
+            "tasks": rows,
+        }
+
     root_tasks = repo.list_root_task_summaries(main_task_id=mid)
     rows: list[dict[str, Any]] = []
     for task in root_tasks:
@@ -395,8 +449,6 @@ def list_tasks(
         reverse=True,
     )
     total = len(rows)
-    start = max(0, int(offset or 0))
-    limit_n = int(limit) if limit is not None else 0
     if limit_n > 0:
         page = rows[start : start + limit_n]
     else:
@@ -407,6 +459,7 @@ def list_tasks(
         "limit": limit_n if limit_n > 0 else None,
         "offset": start,
         "has_more": (start + len(page)) < total,
+        "include_subtasks": include_subtasks,
         "tasks": page,
     }
 
