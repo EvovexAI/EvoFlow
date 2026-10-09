@@ -13,7 +13,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
-  ChevronDown,
   ChevronRight,
   CircleCheck,
   CircleDashed,
@@ -45,13 +44,10 @@ import {
   type ProcessSummary,
 } from '../lib/chat-summary-panel-model.js'
 import {
-  DEFAULT_CHAT_SUMMARY_SECTIONS,
   loadChatSummaryPrefs,
   saveChatSummaryExpandPolicy,
-  saveChatSummarySections,
   type ChatSummaryDisplayMode,
   type ChatSummaryExpandPolicy,
-  type ChatSummarySectionId,
 } from '../lib/chat-summary-panel-prefs.js'
 import type { CollabSubtaskSnapshot, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
@@ -120,10 +116,6 @@ const EXPAND_POLICY_OPTIONS: Array<{ id: ChatSummaryExpandPolicy; label: string 
   { id: 'sticky-collapsed', label: '保持收起为胶囊' },
 ]
 
-function sectionIdOf(name: ChatSummarySectionId): string {
-  return `chat-summary-${name}`
-}
-
 function ArtifactRows({
   items,
   recentIds,
@@ -178,8 +170,8 @@ function ArtifactRows({
   )
 }
 
-/** 面板级 tab：智能体 + 原「更多」内容合并进同一头部 */
-type PanelTab = 'agent' | 'artifacts' | 'platform' | 'debug' | 'employee' | 'task'
+/** 面板级 tab：智能体 + 进程 + 原「更多」内容合并进同一头部 */
+type PanelTab = 'agent' | 'process' | 'artifacts' | 'platform' | 'debug' | 'employee' | 'task'
 
 function MorePane({
   tab,
@@ -290,68 +282,6 @@ function MorePane({
   )
 }
 
-function Section({
-  id,
-  title,
-  open,
-  onToggle,
-  meta,
-  children,
-}: {
-  id: ChatSummarySectionId
-  title: string
-  open: boolean
-  onToggle: () => void
-  meta?: ReactNode
-  children: ReactNode
-}) {
-  const contentId = sectionIdOf(id)
-  const Icon = open ? ChevronDown : ChevronRight
-  return (
-    <section className={`chat-summary-section${open ? ' is-open' : ''}`} data-summary-section={id}>
-      <div className="chat-summary-section-head">
-        <button
-          type="button"
-          className="chat-summary-section-trigger"
-          aria-expanded={open}
-          aria-controls={contentId}
-          onClick={onToggle}
-        >
-          <span className="chat-summary-section-title">{title}</span>
-          <Icon className="chat-summary-section-chevron" aria-hidden />
-        </button>
-        {meta}
-      </div>
-      <div
-        id={contentId}
-        className="chat-summary-section-content"
-        // 收起时保留子树：grid 0fr 折叠动画需要真实高度可测量
-        aria-hidden={!open}
-      >
-        <div>
-          <div className="chat-summary-section-scroll">{children}</div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-/** 分区头计数：5/5 · 进行中 · 失败 */
-function ProcessCount({ summary }: { summary: ProcessSummary }) {
-  if (!summary.items.length) return null
-  return (
-    <div className="chat-summary-section-meta" aria-live="polite">
-      <span className="chat-summary-section-count">
-        {summary.completed}/{summary.total}
-      </span>
-      {summary.running > 0 ? <span>{summary.running} 进行中</span> : null}
-      {summary.failed > 0 ? (
-        <span style={{ color: 'var(--ef-color-error, #c94a4a)' }}>{summary.failed} 失败</span>
-      ) : null}
-    </div>
-  )
-}
-
 function ProcessList({
   summary,
   onOpenItem,
@@ -428,19 +358,17 @@ function ChatSummaryPanelInner({
 }: Props) {
   const [policy, setPolicy] = useState<ChatSummaryExpandPolicy>('auto-expand')
   const [policyOpen, setPolicyOpen] = useState(false)
-  const [sections, setSections] = useState(DEFAULT_CHAT_SUMMARY_SECTIONS)
   const [panelTab, setPanelTab] = useState<PanelTab>('agent')
   const policyRef = useRef<HTMLDivElement | null>(null)
   const hydrated = useRef(false)
 
-  // 分区展开态 / 展开策略在挂载时读一次偏好，之后由本组件持有并写回。
+  // 展开策略在挂载时读一次偏好，之后由本组件持有并写回。
   // displayMode 由 ChatApp 侧 useState 初始化读同一份偏好，这里不再重复对齐。
   useEffect(() => {
     if (hydrated.current) return
     hydrated.current = true
     const prefs = loadChatSummaryPrefs()
     setPolicy(prefs.expandPolicy)
-    setSections(prefs.sections)
   }, [])
 
   // 点外部 / Esc 关掉策略菜单
@@ -469,14 +397,6 @@ function ChatSummaryPanelInner({
       }),
     [terminalStreams, subagentTasks, workflowSubtasks],
   )
-
-  const toggleSection = useCallback((id: ChatSummarySectionId) => {
-    setSections((prev) => {
-      const next = { ...prev, [id]: !prev[id] }
-      saveChatSummarySections(next)
-      return next
-    })
-  }, [])
 
   const pickPolicy = useCallback((next: ChatSummaryExpandPolicy) => {
     setPolicy(next)
@@ -511,17 +431,18 @@ function ChatSummaryPanelInner({
     () => {
       const list: Array<{ id: PanelTab; label: string }> = [
         { id: 'agent', label: '智能体' },
+        { id: 'process', label: withCount(summary.items.length, '进程') },
         { id: 'artifacts', label: withCount(visibleArtifacts.length, '产物') },
         { id: 'platform', label: withCount(platformEntries.length, '平台') },
       ]
       if (isEmployeeSession) {
-        if (taskPane) list.splice(3, 0, { id: 'task', label: '任务' })
-        if (employeePane) list.splice(3, 0, { id: 'employee', label: '岗位' })
+        if (taskPane) list.splice(4, 0, { id: 'task', label: '任务' })
+        if (employeePane) list.splice(4, 0, { id: 'employee', label: '岗位' })
       }
       if (obsEnabled) list.push({ id: 'debug', label: '调试' })
       return list
     },
-    [withCount, visibleArtifacts, platformEntries, isEmployeeSession, employeePane, taskPane, obsEnabled],
+    [withCount, summary.items.length, visibleArtifacts, platformEntries, isEmployeeSession, employeePane, taskPane, obsEnabled],
   )
 
   // tab 失效时回落：观测关闭 / 员工会话切走后，停在失效 tab 会得到空白面板。
@@ -712,7 +633,13 @@ function ChatSummaryPanelInner({
               </div>
             ) : null}
 
-            {effectivePanelTab !== 'agent' ? (
+            {effectivePanelTab === 'process' ? (
+              <div className="chat-summary-process-body">
+                <ProcessList summary={summary} onOpenItem={onOpenProcessItem} />
+              </div>
+            ) : null}
+
+            {effectivePanelTab !== 'agent' && effectivePanelTab !== 'process' ? (
               <MorePane
                 tab={effectivePanelTab}
                 artifacts={artifacts}
@@ -730,16 +657,6 @@ function ChatSummaryPanelInner({
                 task={taskPane}
               />
             ) : null}
-
-            <Section
-              id="process"
-              title="进程"
-              open={sections.process}
-              onToggle={() => toggleSection('process')}
-              meta={<ProcessCount summary={summary} />}
-            >
-              <ProcessList summary={summary} onOpenItem={onOpenProcessItem} />
-            </Section>
           </div>
         </>
       )}

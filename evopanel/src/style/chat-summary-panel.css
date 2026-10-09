@@ -256,6 +256,13 @@
   overflow-y: auto;
 }
 
+/* ── 进程 tab 内容区 ────────────────────────────────── */
+/* 进程已从下方折叠分区并入顶部 tab，内容直接铺在滚动区里，
+   和智能体 tab 一样不再有分区标题行。 */
+.chat-summary-process-body {
+  min-width: 0;
+}
+
 /* ── 进程列表 ───────────────────────────────────────── */
 .chat-summary-process-list {
   list-style: none;
