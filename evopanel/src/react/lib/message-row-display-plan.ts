@@ -133,10 +133,9 @@ function appendStreamingStatusSlot(
   input: AssistantBubblePlanInput,
 ): void {
   if (!input.isStreaming) return
-  // 流式状态行只在后端主动推送 systemActivityLabel 时显示；
-  // 无推送则整行不出现（不再用「生成中」兜底占位）。
-  const label = resolveStreamStatusLabel(input)
-  if (!label) return
+  // v3 行为：流式期永远显示「正在处理」状态行（旋转齿轮），给用户"还活着"的信号。
+  // 文案优先用后端 / dockLabel 推送的 systemActivityLabel；无推送时回退到「正在处理」。
+  const label = resolveStreamStatusLabel(input) || '正在处理'
   const last = slots[slots.length - 1]
   if (last && last.kind === 'thinking-wait') {
     last.label = label
