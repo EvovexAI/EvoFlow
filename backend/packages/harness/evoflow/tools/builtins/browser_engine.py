@@ -40,6 +40,7 @@ import httpx
 
 from evoflow.tools.builtins.browser_contract import (
     DEFAULT_AGENT_BROWSER_VIEWPORT,
+    BrowserError,
     BrowserSnapshot,
     CommandResult,
     DialogInfo,
@@ -166,9 +167,15 @@ def _resolve_evoflow_dir() -> str:
 
 _EVOFLOW_DIR = _resolve_evoflow_dir()
 _WV2_PORT_FILE = os.path.join(_EVOFLOW_DIR, "browser-cdp-http-port")
+_TRANSPORT_FILE = os.path.join(_EVOFLOW_DIR, "browser-cdp-transport")
 _WV2_PORT_CACHE: dict[str, tuple[int, float]] = {}
 _WV2_PORT_LOCK = threading.Lock()
 _WV2_PORT_CACHE_TTL_SEC = 30.0  # re-probe at most every 30s
+
+# Edge fallback state (when system WebView2 is broken). One Edge process per
+# Python gateway, reused across calls. Lazily created on first dispatch.
+_EDGE_STATE_LOCK = threading.Lock()
+_EDGE_CONNECTIONS: dict[str, "_EdgeCdpConnection"] = {}
 
 # One AsyncClient per process, created lazily on the engine loop. Every CDP
 # call used to build a fresh AsyncClient (new pool, new TLS contexts); with
@@ -236,6 +243,113 @@ def _read_browser_cdp_http_port() -> int | None:
         return None
 
 
+def _read_transport_marker() -> str:
+    """Read which CDP transport is active: 'webview2' (default) or 'edge' (fallback)."""
+    try:
+        if not os.path.exists(_TRANSPORT_FILE):
+            return "webview2"
+        with open(_TRANSPORT_FILE) as f:
+            return f.read().strip() or "webview2"
+    except Exception:
+        return "webview2"
+
+
+class _EdgeCdpConnection:
+    """Lazy WebSocket connection to a fallback Edge browser's CDP endpoint.
+
+    One connection per thread. Reused across CDP calls. Reconnects on failure.
+
+    Edge exposes a single browser-level WebSocket; per-page commands
+    (Page.navigate, Runtime.evaluate, …) need a ``sessionId`` from
+    ``Target.attachToTarget``. We create one page per thread on first use
+    and reuse it across commands.
+    """
+
+    def __init__(self, thread_id: str) -> None:
+        self.thread_id = thread_id
+        self._lock = threading.Lock()
+        self._ws = None
+        self._msg_id = 0
+        self._port: int | None = None
+        # Per-thread page target — Edge's CDP needs a sessionId for any
+        # page-scoped method. We attach to the about:blank page Edge
+        # launched with.
+        self._session_id: str | None = None
+
+    def _ensure_port(self) -> int:
+        if self._port is not None:
+            return self._port
+        port_file = os.path.join(_EVOFLOW_DIR, "browser-cdp-http-port-edge")
+        if not os.path.exists(port_file):
+            raise RuntimeError("Edge fallback not yet launched by Rust")
+        with open(port_file) as f:
+            port = int(f.read().strip())
+        if not _probe_cdp_bridge(port):
+            raise RuntimeError(f"Edge debug port {port} unreachable")
+        self._port = port
+        return port
+
+    def _ensure_ws(self):
+        if self._ws is not None:
+            return self._ws
+        try:
+            import websockets
+        except ImportError:
+            raise RuntimeError(
+                "websockets package required for Edge fallback. "
+                "Run: pip install websockets"
+            )
+        port = self._ensure_port()
+        # Connect directly to the page-level WebSocket. Edge's per-page
+        # channel is keyed by target id (``/json/list`` returns one entry
+        # per target with its own ``webSocketDebuggerUrl``); speaking
+        # straight to the page channel avoids the sessionId dance the
+        # browser channel would require. We pick the first page-type
+        # target — Edge launches one with about:blank by default.
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=2) as r:
+            targets = json.loads(r.read().decode("utf-8"))
+        page_ws_url: str | None = None
+        for t in targets:
+            if t.get("type") == "page":
+                page_ws_url = t.get("webSocketDebuggerUrl")
+                if page_ws_url:
+                    break
+        if not page_ws_url:
+            raise RuntimeError("Edge: no page target found in /json/list")
+        self._ws = websockets.connect(page_ws_url)
+        return self._ws
+
+    async def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
+        with self._lock:
+            import websockets
+            try:
+                ws = await self._ensure_ws()
+            except Exception:
+                # Reset and retry once
+                self._ws = None
+                self._port = None
+                ws = await self._ensure_ws()
+            self._msg_id += 1
+            msg_id = self._msg_id
+            frame = json.dumps({"id": msg_id, "method": method, "params": params or {}})
+            try:
+                await ws.send(frame)
+                # Wait for matching response (with the same id)
+                while True:
+                    raw = await ws.recv()
+                    data = json.loads(raw)
+                    if data.get("id") == msg_id:
+                        if "error" in data:
+                            raise RuntimeError(str(data["error"]))
+                        return data.get("result", {})
+            except (websockets.ConnectionClosed, ConnectionError, OSError):
+                # Connection died, reset and let caller retry
+                self._ws = None
+                self._port = None
+                raise RuntimeError("Edge CDP connection lost")
+
+
 async def _read_browser_cdp_http_port_async(
     attempts: int = 3, interval: float = 0.3
 ) -> int | None:
@@ -254,13 +368,21 @@ async def _read_browser_cdp_http_port_async(
 async def _dispatch_run(
     tid: str, method: str, params: dict[str, Any] | None = None
 ) -> Any:
-    """Call a CDP command on the embedded WebView2 via the Rust HTTP bridge.
+    """Call a CDP command on the embedded browser.
 
-    The Rust side calls ``browser_cdp_command`` on the right child webview and
-    returns the parsed CDP result. This is the single point where the Python
-    gateway talks to the WebView2; everything else in :mod:`browser_engine`
-    translates ZCode-style commands into one of these calls.
+    Transport selection:
+    - If ``browser-cdp-transport`` marker is ``edge``, the Rust side has
+      crashed its WebView2 and is using system Edge (msedge.exe) as a fallback.
+      In that case we skip the Rust HTTP bridge entirely and speak CDP over
+      WebSocket directly to the Edge debug port (read from
+      ``browser-cdp-http-port-edge``).
+    - Otherwise we use the original WebView2 path: Rust HTTP server forwards
+      the command to its child WebView2.
     """
+    transport = _read_transport_marker()
+    if transport == "edge":
+        return await _dispatch_run_edge(tid, method, params)
+
     port = await _read_browser_cdp_http_port_async()
     if not port:
         raise RuntimeError(
@@ -282,6 +404,18 @@ async def _dispatch_run(
     if isinstance(data, dict) and "error" in data:
         raise RuntimeError(data["error"])
     return data
+
+
+async def _dispatch_run_edge(
+    tid: str, method: str, params: dict[str, Any] | None = None
+) -> Any:
+    """Dispatch a CDP method through the Edge fallback WebSocket connection."""
+    with _EDGE_STATE_LOCK:
+        conn = _EDGE_CONNECTIONS.get(tid)
+        if conn is None:
+            conn = _EdgeCdpConnection(tid)
+            _EDGE_CONNECTIONS[tid] = conn
+    return await conn.call(method, params)
 
 
 # ---------------------------------------------------------------------------
@@ -800,12 +934,20 @@ class BrowserEngine:
 
     async def _wait_document_ready(
         self, tid: str, timeout_ms: int = 5000
-    ) -> None:
-        """Wait until the document reaches 'complete' (ZCode: the explicit
-        waitForLoadState after goto). Bounded — a hanging page never blocks the
-        tool longer than the deadline."""
+    ) -> bool:
+        """Wait until document.readyState reaches 'complete' or 'interactive'.
+
+        Returns True when the document is ready, False on timeout or dispatch
+        failure. Callers must inspect the return value — silently treating a
+        stuck page as "ok" is what produced the auto-insurance-quoter retry
+        storm (browser navigate reported ok=True, then snapshot came back
+        empty, and the proactive worker kept retrying until the gateway
+        spike detector tripped on /execution/state at 30 hits/60s).
+        """
         deadline = time.monotonic() + max(0, timeout_ms) / 1000
+        attempt = 0
         while True:
+            attempt += 1
             try:
                 raw = await _dispatch_run(
                     tid,
@@ -814,11 +956,23 @@ class BrowserEngine:
                 )
                 state = raw.get("result", {}).get("value") if isinstance(raw, dict) else None
                 if state in ("complete", "interactive"):
-                    return
-            except Exception:
-                return
+                    return True
+            except Exception as exc:
+                # Dispatch failure (CDP broker gone / WebView2 stuck) — don't
+                # loop, the next navigate will reconnect the session.
+                logger.warning(
+                    "wait_document_ready dispatch FAILED tid=%s attempt=%s: %s",
+                    tid, attempt, exc,
+                )
+                return False
             if time.monotonic() >= deadline:
-                return
+                logger.warning(
+                    "wait_document_ready TIMEOUT tid=%s after %sms — "
+                    "document.readyState never reached complete; page may be "
+                    "blocked by anti-bot, slow CDN, or hanging script",
+                    tid, timeout_ms,
+                )
+                return False
             await asyncio.sleep(0.15)
 
     async def _take_snapshot(
@@ -876,10 +1030,43 @@ class BrowserEngine:
             return fail(ErrorCode.EXECUTION_ERROR, "navigate requires url")
         if not url.startswith(("http://", "https://", "file://", "about:", "data:")):
             url = f"https://{url}"
-        await _dispatch_run(session.tid, "Page.navigate", {"url": url})
+        try:
+            await _dispatch_run(session.tid, "Page.navigate", {"url": url})
+        except Exception as exc:
+            # Page.navigate itself failed (CDP broker gone, target destroyed, etc.).
+            # Surface as EXECUTION_ERROR so the agent sees a real error instead of
+            # silently proceeding to a broken WebView2 — that was the second half
+            # of the auto-insurance-quoter retry storm.
+            logger.warning(
+                "wv2_navigate Page.navigate FAILED tid=%s url=%s: %s",
+                session.tid, url, exc,
+            )
+            return fail(
+                ErrorCode.EXECUTION_ERROR,
+                f"Page.navigate rejected: {exc}",
+            )
         session.last_url = url
-        await self._wait_document_ready(session.tid)
-        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+        # 8s is enough for CDN-fronted pages and small SPAs; slow sites (esp.
+        # anti-bot gated ones like chuangzhan.com) still surface the timeout
+        # cleanly so the agent can decide to retry/abort rather than hammering
+        # a stuck page.
+        ready = await self._wait_document_ready(session.tid, timeout_ms=8000)
+        state = await self._page_state(session, session.tid)
+        if not ready:
+            return CommandResult(
+                ok=False,
+                state=state,
+                error=BrowserError(
+                    code=ErrorCode.TIMEOUT,
+                    message=(
+                        f"navigate to {url} did not reach document.readyState=complete "
+                        "within 8s — the page may be blocked, redirecting to a "
+                        "challenge/captcha, or behind an anti-bot wall. "
+                        "Verify the URL manually, or pre-set cookies/auth before retrying."
+                    ),
+                ),
+            )
+        return CommandResult(ok=True, state=state)
 
     async def _wv2_back(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         tid = session.tid
@@ -892,8 +1079,18 @@ class BrowserEngine:
         await _dispatch_run(
             tid, "Page.navigateToHistoryEntry", {"entryId": entries[index - 1]["id"]}
         )
-        await self._wait_document_ready(tid)
-        return CommandResult(ok=True, state=await self._page_state(session, tid))
+        ready = await self._wait_document_ready(tid, timeout_ms=8000)
+        state = await self._page_state(session, tid)
+        if not ready:
+            return CommandResult(
+                ok=False,
+                state=state,
+                error=BrowserError(
+                    code=ErrorCode.TIMEOUT,
+                    message="back navigation did not reach document.readyState=complete within 8s",
+                ),
+            )
+        return CommandResult(ok=True, state=state)
 
     async def _wv2_forward(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         tid = session.tid
@@ -905,13 +1102,33 @@ class BrowserEngine:
         await _dispatch_run(
             tid, "Page.navigateToHistoryEntry", {"entryId": entries[index + 1]["id"]}
         )
-        await self._wait_document_ready(tid)
-        return CommandResult(ok=True, state=await self._page_state(session, tid))
+        ready = await self._wait_document_ready(tid, timeout_ms=8000)
+        state = await self._page_state(session, tid)
+        if not ready:
+            return CommandResult(
+                ok=False,
+                state=state,
+                error=BrowserError(
+                    code=ErrorCode.TIMEOUT,
+                    message="forward navigation did not reach document.readyState=complete within 8s",
+                ),
+            )
+        return CommandResult(ok=True, state=state)
 
     async def _wv2_reload(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         await _dispatch_run(session.tid, "Page.reload", {})
-        await self._wait_document_ready(session.tid)
-        return CommandResult(ok=True, state=await self._page_state(session, session.tid))
+        ready = await self._wait_document_ready(session.tid, timeout_ms=8000)
+        state = await self._page_state(session, session.tid)
+        if not ready:
+            return CommandResult(
+                ok=False,
+                state=state,
+                error=BrowserError(
+                    code=ErrorCode.TIMEOUT,
+                    message="reload did not reach document.readyState=complete within 8s",
+                ),
+            )
+        return CommandResult(ok=True, state=state)
 
     async def _wv2_snapshot(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         snapshot = await self._take_snapshot(
