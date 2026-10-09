@@ -6975,12 +6975,12 @@ export default function ChatApp() {
       commitStreamSnapshot(sk, stream, { seq: streamSeqRef.current })
       if (opts.liveTextOnly) {
         if (skipLiveUi) return
-        // 纯文本/纯推理增量：永远走 coalesced 节流，不立即触发。
-        // createStreamBumpScheduler 内 setTimeout(0) → scheduleLater → 等待
-        // minInterval (= STREAM_BUMP_INTERVAL_MS 200ms / 80ms reasoning) 合并
-        // 高频 SSE delta；多条 delta 在一帧内只引发一次 React rerender。
-        if (opts.reasoning) scheduleReasoningBump()
-        else scheduleBump()
+        // v6.0 关闭正文/推理 SSE delta 节流：用户要求"sse 返回什么就显示什么"。
+        // 之前 STREAM_BUMP_INTERVAL_MS / REASONING_BUMP_INTERVAL_MS (16ms) + 调度器
+        // 仍然会在多 delta 突发时被合并到一帧，导致正文 1s 跳 386 字符。
+        // 改为 immediate：每个 delta 立即 commit + bump，单 delta → 1 次 React render。
+        // structural 路径（tool/segment/attachment 变化）仍走 coalesced，避免重渲染风暴。
+        scheduleBump({ immediate: true })
         return
       }
       // structural 变化：新 tool / 新 image / 新 segment 出现。
