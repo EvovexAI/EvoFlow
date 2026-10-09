@@ -2,33 +2,32 @@ import { memo, useEffect, useId, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 
 /**
- * 回合「已工作 X · Y tok / ⏹ 已停止 / 工作中 X · Y tok」折叠头。
+ * 回合「工作中 / 已工作 / ⏹ 已停止」折叠面板。
  *
- * v2 设计：折叠 = 静态信息条。
- * - 头部永远显示，承载回合级状态（时长 / token / 打断）；
- * - body 默认收起，仅当用户点击 chevron 展开后才显示下方的工具/思考/旁白；
- * - 流式期间不再强制展开——"工作中" 也是默认收起（正文仍外露在折叠外），
- *   让用户主动决定是否点开看明细。
- *
- * manual 状态在组件内持久化，会话内手动展开过的回合在 remount 前都保持展开。
+ * v4 设计：单层折叠，包裹整个回合（工具/思考/正文 + 文件变更 + 产物）。
+ * - 工作中（isStreaming）默认展开 —— 用户实时看完整轨迹。
+ * - 已工作 / 已停止（!isStreaming）默认收起 —— 只看头部状态条。
+ * - 任何状态都可手动展开/收起，manual 状态在组件内持久化。
+ * - 头部为 disabled 模式（headerOnly=true）时整个面板退化为状态条，不展开。
  */
 function TurnHistoryFoldInner({
   label,
   messageId,
   headerOnly = false,
+  defaultOpen = false,
   children,
 }: {
-  /** 如「工作中 1m23s · 1,204 tok」；空串时不渲染折叠（由调用方兜底平铺） */
+  /** 如「工作中 1m23s」；空串时不渲染折叠（由调用方兜底平铺） */
   label: string
   /** 行 messageId，用于 data-testid（chat-assistant-history-trigger-{id}） */
   messageId?: string
-  /** 仅渲染头部（流式首帧还没有工作条目时） */
+  /** 仅渲染头部（折叠面板退化为静态状态条） */
   headerOnly?: boolean
+  /** 初始展开态（手动展开/收起可覆盖） */
+  defaultOpen?: boolean
   children?: ReactNode
 }) {
-  /** null = 跟随默认（收起）；true/false = 用户手动展开/收起 */
   const [manual, setManual] = useState<boolean | null>(null)
-  /** 收起动画期间保持 body 挂载，动画结束再真正隐藏 */
   const [closing, setClosing] = useState(false)
   const bodyId = useId()
   useEffect(() => {
@@ -37,7 +36,8 @@ function TurnHistoryFoldInner({
     return () => window.clearTimeout(t)
   }, [closing])
   if (!label) return <>{children}</>
-  const expanded = manual === true
+  // 展开优先级: 手动 > defaultOpen。manual=null 跟随 defaultOpen。
+  const expanded = manual === true || (manual === null && defaultOpen)
   const showBody = !headerOnly && (expanded || closing)
   const toggle = () => {
     if (headerOnly) return

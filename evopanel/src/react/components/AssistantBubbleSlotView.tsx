@@ -254,27 +254,43 @@ function AssistantBubbleSlotViewInner({
     )
   }
 
-  // 折叠头 v3：作为「当前回合状态条」独立显示在气泡最顶，仅显 header，不包 body。
-  // 折叠 body（历史轮次）下放到每个 ExploringActivityChunk 内部：chunk 把自己的
-  // activityPieces 按 findLatestDisplayRoundStart 切成 live/history，history 进
-  // chunk 内的内层 TurnHistoryFold（默认收起），live 直接外露。
-  // 效果：当前轮的最新思考/正文/工具永远可见，历史轮次由用户点开看。
-  // - 流式：    「工作中 1m23s」            独立 header
-  // - 封存：    「已工作 9m40s」            独立 header
-  // - 打断：    「⏹ 已停止」                独立 header
-  // - 缺时长：  「已处理」                  独立 header
-  // - 工作轨迹 / 控制类回合 / 纯文本回合：按原路径走（无状态条 / 走原 plan）
+  // v4：单 TurnHistoryFold 包裹整个回合（plan.slots + changed files + deliverables）。
+  //   - wrapInHistoryFold=true && showStandaloneWorkHeader=true  → 仅显 headerOnly 状态条
+  //   - wrapInHistoryFold=true && showStandaloneWorkHeader=false → 完整可折叠面板
+  //       - 工作中：defaultOpen=true → 看到完整轨迹
+  //       - 已工作 / 已停止：defaultOpen=false → 只看头部「已工作 X」/「⏹ 已停止」
+  //   - wrapInHistoryFold=false (无 workedLabel) → 按原路径平铺（无状态条 / 走原 plan）
   const workedText = formatWorkDurationText(durationLabel)
   const workedLabel = (() => {
     if (plan.flatTimeline === false || suppressExploringFold) return ''
     if (isStreaming) return workedText ? `工作中 ${workedText}` : '工作中'
     if (turnInterrupted) return '⏹ 已停止'
     if (workedText) return `已工作 ${workedText}`
-    return ''
+    return '已工作'
   })()
-  // v3：状态条独立 headerOnly 渲染（不再包 body），仅显「工作中/已工作/已停止/已处理」。
-  // body 下放到 ExploringActivityChunk 内部历史折叠——头部不参与折叠语义。
-  const showWorkHeader = !!workedLabel
+  // 是否需要套 TurnHistoryFold 折叠面板:
+  //   有 workedLabel → 套, defaultOpen 跟着 isStreaming
+  //   无 workedLabel (工作轨迹 / 控制类) → 不套, 直接平铺
+  const wrapInHistoryFold = !!workedLabel
+  const historyFoldDefaultOpen = isStreaming
+  /** "有 work 类条目"= plan.slots 中存在 chunk.activity / chunk.tools-standalone /
+   *  legacy-tools / orphan-tools / tool-row / reasoning-pending 之一。
+   *  若都没有（含纯文本/无 slot 回合），只显独立 headerOnly 状态条。 */
+  const hasWorkContent = plan.slots.some((s) => {
+    switch (s.kind) {
+      case 'chunk':
+        return s.chunk.kind !== 'text'
+      case 'legacy-tools':
+      case 'orphan-tools':
+      case 'tool-row':
+      case 'reasoning-pending':
+        return true
+      default:
+        return false
+    }
+  })
+  /** 纯文本回合（无工作条目）：按原路径走，头部独立 headerOnly 渲染 */
+  const showStandaloneWorkHeader = wrapInHistoryFold && !hasWorkContent
 
   const renderSlot = (slot: AssistantBubbleSlot, si: number): ReactNode => {
         switch (slot.kind) {
@@ -416,27 +432,83 @@ function AssistantBubbleSlotViewInner({
         }
   }
 
+  // v4：单 TurnHistoryFold 包裹整个回合（plan.slots + changed files + deliverables）。
+  //   - 工作中：defaultOpen=true → 看到完整轨迹
+  //   - 已工作 / 已停止：defaultOpen=false → 只看头部「已工作 X」/「⏹ 已停止」
+  //   - 无 workedLabel：按原路径平铺（plan.slots 单独显示，无折叠）
+  //   - 纯文本回合（无工作条目）：头部独立 headerOnly 渲染 + plan.slots 平铺
   return (
     <>
       {askInline}
-      {showWorkHeader ? (
-        <TurnHistoryFold key="turn-history-status" label={workedLabel} messageId={messageId} headerOnly />
-      ) : null}
-      {plan.slots.map((slot, si) => (
-        <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
-      ))}
-      {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
-        <ChangedFilesSummaryRow
-          files={changedFiles}
-          onOpenFile={onOpenFile}
-          onRevert={handleRevertFiles}
-          revertibleCount={revertibleCount}
-          revertBusy={revertBusy}
-        />
-      ) : null}
-      {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
-        <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
-      ) : null}
+      {wrapInHistoryFold ? (
+        showStandaloneWorkHeader ? (
+          <>
+            {/* 纯文本回合（无工作条目）：仅显独立 headerOnly 状态条 + slots 平铺 */}
+            <TurnHistoryFold
+              key="turn-history-status"
+              label={workedLabel}
+              messageId={messageId}
+              headerOnly
+            />
+            {plan.slots.map((slot, si) => (
+              <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
+            ))}
+            {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
+              <ChangedFilesSummaryRow
+                files={changedFiles}
+                onOpenFile={onOpenFile}
+                onRevert={handleRevertFiles}
+                revertibleCount={revertibleCount}
+                revertBusy={revertBusy}
+              />
+            ) : null}
+            {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
+              <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
+            ) : null}
+          </>
+        ) : (
+          <TurnHistoryFold
+            key="turn-history-fold"
+            label={workedLabel}
+            messageId={messageId}
+            defaultOpen={historyFoldDefaultOpen}
+          >
+            {plan.slots.map((slot, si) => (
+              <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
+            ))}
+            {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
+              <ChangedFilesSummaryRow
+                files={changedFiles}
+                onOpenFile={onOpenFile}
+                onRevert={handleRevertFiles}
+                revertibleCount={revertibleCount}
+                revertBusy={revertBusy}
+              />
+            ) : null}
+            {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
+              <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
+            ) : null}
+          </TurnHistoryFold>
+        )
+      ) : (
+        <>
+          {plan.slots.map((slot, si) => (
+            <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
+          ))}
+          {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
+            <ChangedFilesSummaryRow
+              files={changedFiles}
+              onOpenFile={onOpenFile}
+              onRevert={handleRevertFiles}
+              revertibleCount={revertibleCount}
+              revertBusy={revertBusy}
+            />
+          ) : null}
+          {!isStreaming && !compareSessionKey && deliverables.length > 0 ? (
+            <DeliverableCards items={deliverables} onOpenFile={onOpenFile} />
+          ) : null}
+        </>
+      )}
     </>
   )
 }

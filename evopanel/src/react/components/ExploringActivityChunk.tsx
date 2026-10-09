@@ -4,7 +4,6 @@ import {
   toolsForActivityPieces,
   reasoningPiecesInActivity,
 } from '../lib/exploring-activity-group.js'
-import { findLatestDisplayRoundStart } from '../lib/window-live-exploring-pieces.js'
 import {
   reasoningLabelForActivityPiece,
 } from '../lib/message-row-reasoning-display.js'
@@ -18,18 +17,12 @@ import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../
 import { ReasoningInlineBlock } from './ReasoningInlineBlock.js'
 import { ToolCallList } from './ToolCallList.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
-import { TurnHistoryFold } from './TurnHistoryFold.js'
 
 /**
  * 单个「探索中」段落（思考 + 工具 + 旁白）。
  *
- * v3 设计：把 activityPieces 按 findLatestDisplayRoundStart 切成两段：
- *   - livePieces   = 工具后第一个新思考/正文 起的所有 piece → 外露（最新轮）
- *   - historyPieces = 它之前的所有 piece → 进内层 TurnHistoryFold（默认收起）
- *
- * 视觉效果：
- *   - 当前正在流式的最新思考/正文/工具/旁白 永远可见；
- *   - 更早的轮次（历史）默认收在「历史 N 项」折叠里，用户点开看完整轨迹。
+ * v4 简化：activityPieces 全量平铺；折叠由外层 AssistantBubbleSlotView 唯一承担。
+ * variant 仅作向后兼容 hook，不再有内层 TurnHistoryFold / 历史切分。
  */
 function ExploringActivityChunkInner({
   chunkIndex,
@@ -142,26 +135,15 @@ function ExploringActivityChunkInner({
       rawText,
     })
 
-  // v3：把 activityPieces 按 findLatestDisplayRoundStart 切成历史 / 最新两段。
-  // 历史 = 工具之后再次出现新思考/正文 之前的所有 piece
-  // 最新 = 那个边界起（含）到结尾的所有 piece
-  // 边界 = 0 表示整段是同一轮（没有切分点），历史为空。
-  const roundStart = isStreaming ? findLatestDisplayRoundStart(activityPieces) : 0
-  const livePieces = activityPieces.slice(roundStart)
-  const historyPieces = activityPieces.slice(0, roundStart)
-  // history 里有意义的轮次数 = 历史里 tools piece 的段数
-  const historyToolRoundCount = historyPieces.filter(
-    (p) => p.kind === 'tools' && p.ids.some((id) => String(id).trim()),
-  ).length
-  const historyFoldLabel = historyToolRoundCount > 0
-    ? `历史 ${historyToolRoundCount} 轮`
-    : '历史过程'
+  // v4 简化：撤销历史/最新切分，activityPieces 全量平铺。
+  // 折叠由外层 AssistantBubbleSlotView 唯一承担——单 TurnHistoryFold 包裹整个回合，
+  // 工作中默认展开，已工作默认收起。
 
-  const renderActivityInner = (pieces: ActivityPiece[]) => {
+  const renderActivityInner = () => {
     let reasoningOrd = 0
     return (
       <div className="msg-tool-activity-fold-inner">
-        {pieces.map((piece, pi) => {
+        {activityPieces.map((piece, pi) => {
           if (piece.kind === 'reasoning') {
             if (skipReasoningSegIndex != null && piece.segIndex === skipReasoningSegIndex) {
               return null
@@ -263,20 +245,12 @@ function ExploringActivityChunkInner({
     )
   }
 
-  // v3：fold / flat 两条路径合并为同一条平铺；variant 保留仅为向后兼容。
-  // 历史轮次进内层 TurnHistoryFold（默认收起），最新轮永远外露。
+  // v4：fold / flat 合并为同一条平铺，activityPieces 全量外露；
+  // variant 仅作向后兼容 hook，不再有内层 TurnHistoryFold。
   return (
     <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>
-      {historyPieces.length > 0 ? (
-        <TurnHistoryFold
-          key={`exploring-history-${chunkIndex}-${chunkStartIndex}`}
-          label={historyFoldLabel}
-        >
-          {renderActivityInner(historyPieces)}
-        </TurnHistoryFold>
-      ) : null}
       <div className={`msg-flat-activity-chunk${variant === 'fold' ? ' is-legacy-fold' : ''}`}>
-        {renderActivityInner(livePieces)}
+        {renderActivityInner()}
       </div>
       {afterChunk}
     </Fragment>
