@@ -469,6 +469,8 @@ def list_tasks(
 
 def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
     """Get one task (main or subtask) detail. ``task_id`` may itself be a subtask id."""
+    from evoflow.persistence import repositories as repo
+
     storage = get_project_storage()
     tid = str(task_id or "").strip()
     if not tid:
@@ -544,16 +546,7 @@ def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
                 "assigned_role": str(parent_task.get("assigned_role") or "").strip() or None,
                 "raised_by": str(parent_task.get("raised_by") or "").strip() or None,
             }
-    child_ids: list[str] = []
-    for summary in storage.list_projects():
-        proj = storage.load_project(summary["id"])
-        if not proj:
-            continue
-        for t in proj.get("tasks") or []:
-            if str(t.get("parent_task_id") or "").strip() == tid:
-                cid = str(t.get("id") or "").strip()
-                if cid:
-                    child_ids.append(cid)
+    child_ids: list[str] = repo.list_child_task_ids(tid)
     return {
         "task_id": tid,
         "subtask_id": None,

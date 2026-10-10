@@ -24,8 +24,9 @@ action: create | progress | state | delete | list | get。
 - delete: task_id + confirm=true
 outputs: 文档路径 [{type,key,value}]；handlers: [{agent_code,content,read_outputs[]}]
 
-任务 id 见 <proactive_live_tasks> 或看板。list 默认只返回最新 10 条主任务（不含子任务）；翻页用 offset，
-需要子任务行时显式传 subtasks_only=false / include_subtasks=true。
+任务 id 见 <proactive_live_tasks> 或看板。list 默认只返回最新 10 条主任务（不含子任务）、
+每条为索引卡（含 description 预览，不含 summary/outputs 等详情）；翻页用 offset，
+看详情用 get，需要子任务行时显式传 subtasks_only=false / include_subtasks=true。
 """
 
 tasks_ui_metadata = {
@@ -36,6 +37,56 @@ tasks_ui_metadata = {
 }
 
 _ACTIONS = frozenset({"list", "get", "create", "progress", "state", "delete"})
+
+# List is an index, not a record: heavy detail fields (summary/outputs/handlers/
+# plan_*/task_report) made even a 10-row page cost ~7.5k tokens and get truncated.
+# Full detail stays on ``action=get``.
+_LIST_INDEX_FIELDS = (
+    "task_id",
+    "subtask_id",
+    "name",
+    "status",
+    "status_zh",
+    "progress",
+    "assigned_to",
+    "assigned_role",
+    "raised_by",
+    "parent_task_id",
+    "source",
+    "source_zh",
+    "main_task_id",
+    "is_subtask",
+    "created_at",
+    "updated_at",
+    "completed_at",
+)
+
+_DESCRIPTION_PREVIEW_CHARS = 140
+
+
+def _lean_list_row(row: dict[str, Any], *, preview_chars: int = _DESCRIPTION_PREVIEW_CHARS) -> dict[str, Any]:
+    """Project one board row down to an index card (drop details, trim description)."""
+    out: dict[str, Any] = {k: row[k] for k in _LIST_INDEX_FIELDS if k in row}
+    # Drop noise: absent keys and values already implied by the row's own identity.
+    for key in ("subtask_id", "parent_task_id"):
+        if out.get(key) is None:
+            out.pop(key, None)
+    if out.get("main_task_id") == out.get("task_id"):
+        out.pop("main_task_id", None)
+    desc = " ".join(str(row.get("description") or "").split())
+    if desc:
+        out["description"] = desc[:preview_chars] + ("…" if len(desc) > preview_chars else "")
+    return out
+
+
+def _lean_list_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Apply the index projection to a ``list`` payload (keeps paging metadata)."""
+    if not isinstance(data, dict):
+        return data
+    rows = data.get("tasks")
+    if not isinstance(rows, list):
+        return data
+    return {**data, "tasks": [_lean_list_row(r) for r in rows if isinstance(r, dict)]}
 
 
 class TaskOutputItem(BaseModel):
@@ -289,7 +340,7 @@ def tasks_tool(
                 limit=list_limit,
                 offset=list_offset,
             )
-            return _ok({"action": act, "result": data})
+            return _ok({"action": act, "result": _lean_list_payload(data)})
 
         if act == "get":
             tid = str(task_id or "").strip()
