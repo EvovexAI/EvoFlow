@@ -691,6 +691,14 @@ export function logStreamCompareDomView(opts: {
     rowState?: string
     isStreamingEffective?: boolean
     turnStartMsResolved?: number | null
+    segmentsCount?: number
+    rowTextLen?: number
+    rawTextLen?: number
+    toolsCount?: number
+    segmentsToolIds?: number[]
+    toolStatus?: string[]
+    /** plan.slots 概要（诊断「正文不流畅」时 dom-view chunks 与 plan.slots 的差异） */
+    slots?: string[]
   }
 }): void {
   if (!isStreamCompareFileLogOn()) return
