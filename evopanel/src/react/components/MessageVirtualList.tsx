@@ -285,6 +285,15 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
       if (holdHistoryScrollRef.current) return true
       // 用户手势中改 scrollTop 会与手指/滚轮抢位置 → 卡顿抖动
       if (Date.now() - lastUserScrollAtRef.current < 160) return false
+      // 整回合刚封存（RUN_FINISHED 后 grace 窗口内）：无视 readingHistoryRef，
+      // 否则「整段从 1 段膨胀到 30 段」时 virtualizer 调正 scrollTop 把视口推回
+      // 用户当时的位置（如果用户碰过滚轮 → 视口被推回顶部 → 「页面跳到顶」）。
+      // 修法：postStreamFollowUntilRef 仍有效时强制走 autoFollow 路径，
+      // streamEnded 分支会在下一帧清掉 userScrolledAway + readingHistory 锁，
+      // 配合 schedulePostStreamScrollToBottom 把视口钉回底。
+      if (Date.now() <= postStreamFollowUntilRef.current) {
+        return autoFollowRef.current
+      }
       // 读历史且手势已停：允许测高校正，避免滚到一半卡住
       if (readingHistoryRef.current) return true
       return autoFollowRef.current
@@ -1554,6 +1563,41 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     }
     prevStreamActiveRef.current = streamActive
   }, [streamActive, beginPostStreamFollowWindow])
+
+  /**
+   * 早一拍预开 postStreamFollowWindow：isSending 翻 false（RUN_FINISHED 后
+   * ChatApp 立即关 session）比 streamActive 翻 false 早 ~1200ms（grace 期内）。
+   * v5.10 反馈：用户碰过滚轮（markUserScrollAway）后 RUN_FINISHED 触发整段
+   * 高度爆涨，virtualizer 在 grace 期内调正 scrollTop 把视口推回原位（顶）。
+   * 此时 streamActive 仍 true、userScrolledAwayDuringStreamRef 仍 true、
+   * postStreamFollowUntilRef 仍 0 → 跳到顶。在 isSending 翻 false 那一帧
+   * 预开 postStreamFollowWindow（5s）让 shouldAdjustScrollPositionOnItemSizeChange
+   * 走「post-stream 期间无视 readingHistoryRef」分支。
+   */
+  const prevIsSendingForPostWindowRef = useRef(isSending)
+  useLayoutEffect(() => {
+    const prev = prevIsSendingForPostWindowRef.current
+    prevIsSendingForPostWindowRef.current = isSending
+    if (prev && !isSending) {
+      // isSending 翻 false 即 RUN_FINISHED 信号。先开窗 + 同步贴底（首次），后
+      // 让 streamEnded 分支的 schedulePostStreamScrollToBottom 接续后续帧。
+      beginPostStreamFollowWindow()
+      userScrolledAwayDuringStreamRef.current = false
+      readingHistoryRef.current = false
+      autoFollowRef.current = true
+      cancelPendingScrollRaf(rafScheduledRef)
+      if (bottomSpacerRef.current) {
+        bottomSpacerRef.current.style.height = '0px'
+      }
+      const el = parentRef.current
+      if (el) {
+        lastProgrammaticScrollRef.current = Date.now()
+        el.scrollTop = el.scrollHeight
+        lastScrollTopRef.current = el.scrollTop
+        lastScrollHeightRef.current = el.scrollHeight
+      }
+    }
+  }, [isSending, beginPostStreamFollowWindow])
 
   /** 历史 API 重载：须重新 boot，不能沿用上次 sessionBootedRef（流式进行中跳过，避免整页闪白） */
   useLayoutEffect(() => {
