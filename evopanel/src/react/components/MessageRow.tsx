@@ -1304,7 +1304,9 @@ function AssistantBody({
         segmentsToolIds: Array.isArray(row.segments)
           ? row.segments.filter((s) => s.kind === 'tools').map((s) => s.ids?.length || 0)
           : [],
-        toolStatus: Array.isArray(row.tools) ? row.tools.map((t) => String(t?.status || '?')) : [],
+        toolStatus: Array.isArray(row.tools)
+          ? row.tools.map((t) => String((t as { status?: unknown } | null)?.status || '?'))
+          : [],
       },
     })
   }
@@ -1335,6 +1337,7 @@ function AssistantBody({
       turnInterrupted={turnInterrupted}
       liveTokenStr={row.tokenStr}
       messageId={row.messageId}
+      threadBusy={!!threadBusy}
     />
   )
 }

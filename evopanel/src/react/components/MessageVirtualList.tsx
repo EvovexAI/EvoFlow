@@ -147,7 +147,9 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
       <MemoMessageRow
         row={item.row}
         isStreaming={isContinuedStream}
-        threadBusy={isSending}
+        // v5.10：threadBusy（齿轮兜底源）只给「当前活跃行」（续流合并目标），
+        // 其余历史行恒 false —— 否则线程忙时每条旧 AI 回复都会挂一个齿轮。
+        threadBusy={item.i === streamContinuedRowIndex ? isSending : false}
         showToolTiming
         onOpenFile={onOpenFile}
         onOpenKnowledgeMap={onOpenKnowledgeMap}
@@ -226,6 +228,8 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
       ((index: number, align: 'start' | 'end') => void) | null
     >
     virtualScrollToOffsetRef: MutableRefObject<((offset: number) => void) | null>
+    /** RUN_FINISHED 后的贴底跟随窗口（47986170）：由 MessageVirtualList 声明并下传 */
+    postStreamFollowUntilRef?: MutableRefObject<number>
   },
 ) {
   const {
@@ -238,6 +242,7 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
     virtualBootScrollRef,
     virtualScrollToIndexRef,
     virtualScrollToOffsetRef,
+    postStreamFollowUntilRef,
     ...rowProps
   } = props
   const sk = String(rowProps.sessionKey || 'default')
@@ -291,7 +296,9 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
       // 修法：postStreamFollowUntilRef 仍有效时强制走 autoFollow 路径，
       // streamEnded 分支会在下一帧清掉 userScrolledAway + readingHistory 锁，
       // 配合 schedulePostStreamScrollToBottom 把视口钉回底。
-      if (Date.now() <= postStreamFollowUntilRef.current) {
+      // （47986170 曾直接引用外层 MessageVirtualList 的 ref —— 本组件作用域里
+      //   不存在，运行时 ReferenceError 让整个测高校正失效；现由父级下传。）
+      if (postStreamFollowUntilRef && Date.now() <= postStreamFollowUntilRef.current) {
         return autoFollowRef.current
       }
       // 读历史且手势已停：允许测高校正，避免滚到一半卡住
@@ -411,6 +418,8 @@ const HistoryBody = memo(function HistoryBody(
     >
     virtualScrollToOffsetRef: MutableRefObject<((offset: number) => void) | null>
     showApprovalPauseHint: boolean
+    /** RUN_FINISHED 后的贴底跟随窗口，透传给 VirtualHistoryBody */
+    postStreamFollowUntilRef?: MutableRefObject<number>
   },
 ) {
   const {
@@ -424,6 +433,7 @@ const HistoryBody = memo(function HistoryBody(
     virtualScrollToIndexRef,
     virtualScrollToOffsetRef,
     showApprovalPauseHint,
+    postStreamFollowUntilRef,
     ...rowProps
   } = props
   const useFlat = historyItems.length <= HISTORY_FLAT_LIST_MAX_ROWS
@@ -448,6 +458,7 @@ const HistoryBody = memo(function HistoryBody(
           virtualBootScrollRef={virtualBootScrollRef}
           virtualScrollToIndexRef={virtualScrollToIndexRef}
           virtualScrollToOffsetRef={virtualScrollToOffsetRef}
+          postStreamFollowUntilRef={postStreamFollowUntilRef}
           {...rowProps}
         />
       )}
@@ -2190,6 +2201,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           virtualBootScrollRef={virtualBootScrollRef}
           virtualScrollToIndexRef={virtualScrollToIndexRef}
           virtualScrollToOffsetRef={virtualScrollToOffsetRef}
+          postStreamFollowUntilRef={postStreamFollowUntilRef}
           sessionKey={sessionKey}
           historyLoading={historyLoading}
           toolApprovalHost={historyToolApprovalHost}
