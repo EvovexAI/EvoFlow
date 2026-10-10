@@ -119,8 +119,8 @@ AI 能记住你的偏好、过程与经验，跨会话复用。日常在对话�
 
 **想要更系统的学习路径？** 建议按以下顺序阅读：
 
-1. [项目介绍](../getting-started/introduction.md) [[getting-started/introduction|项目介绍]] → 了解 EvoFlow 是什么
-2. [5 分钟快速上手](../getting-started/quick-start.md) [[getting-started/quick-start|5 分钟快速上手]] → 马上用起来
+1. [项目介绍](../../getting-started/introduction.md) [[getting-started/introduction|项目介绍]] → 了解 EvoFlow 是什么
+2. [5 分钟快速上手](../../getting-started/quick-start.md) [[getting-started/quick-start|5 分钟快速上手]] → 马上用起来
 3. 本文 → 了解基础功能全局
 4. [Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]] → 学会多步协作
 5. [预设角色与团队](preset-roles.md) [[preset-roles|预设角色与团队]] → 了解专业角色分工
