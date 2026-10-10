@@ -215,53 +215,79 @@ fn dispatch_tauri_command_from_python(
     match method {
         // ZCode parity: Python drives the panel's WebView2 CDP directly through
         // this single Tauri command. No HTTP server, no port file, no Playwright.
+        // browser_cdp is Windows-only (WebView2); other platforms return a
+        // structured error so the Python side can fall back gracefully.
         "browser_cdp_command" => {
-            let thread_id = params
-                .get("thread_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "browser_cdp_command: thread_id required".to_string())?
-                .to_string();
-            let inner_method = params
-                .get("method")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "browser_cdp_command: method required".to_string())?
-                .to_string();
-            let params_json = params
-                .get("params_json")
-                .and_then(|v| v.as_str())
-                .unwrap_or("{}")
-                .to_string();
-            let value = crate::commands::browser_cdp::browser_cdp_command(
-                app.clone(),
-                thread_id,
-                inner_method,
-                params_json,
-            )?;
-            Ok(value)
+            #[cfg(target_os = "windows")]
+            {
+                let thread_id = params
+                    .get("thread_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "browser_cdp_command: thread_id required".to_string())?
+                    .to_string();
+                let inner_method = params
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "browser_cdp_command: method required".to_string())?
+                    .to_string();
+                let params_json = params
+                    .get("params_json")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}")
+                    .to_string();
+                let value = crate::commands::browser_cdp::browser_cdp_command(
+                    app.clone(),
+                    thread_id,
+                    inner_method,
+                    params_json,
+                )?;
+                Ok(value)
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = (app, params);
+                Err("browser_cdp_command: only available on Windows".to_string())
+            }
         }
         "browser_cdp_subscribe" => {
-            let thread_id = params
-                .get("thread_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "browser_cdp_subscribe: thread_id required".to_string())?
-                .to_string();
-            let label = crate::commands::browser_cdp::browser_cdp_subscribe(
-                app.clone(),
-                thread_id,
-            )?;
-            Ok(json!(label))
+            #[cfg(target_os = "windows")]
+            {
+                let thread_id = params
+                    .get("thread_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "browser_cdp_subscribe: thread_id required".to_string())?
+                    .to_string();
+                let label = crate::commands::browser_cdp::browser_cdp_subscribe(
+                    app.clone(),
+                    thread_id,
+                )?;
+                Ok(json!(label))
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = (app, params);
+                Err("browser_cdp_subscribe: only available on Windows".to_string())
+            }
         }
         "browser_cdp_status" => {
-            let thread_id = params
-                .get("thread_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "browser_cdp_status: thread_id required".to_string())?
-                .to_string();
-            let value = crate::commands::browser_cdp::browser_cdp_status(
-                app.clone(),
-                thread_id,
-            )?;
-            Ok(value)
+            #[cfg(target_os = "windows")]
+            {
+                let thread_id = params
+                    .get("thread_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| "browser_cdp_status: thread_id required".to_string())?
+                    .to_string();
+                let value = crate::commands::browser_cdp::browser_cdp_status(
+                    app.clone(),
+                    thread_id,
+                )?;
+                Ok(value)
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = (app, params);
+                Err("browser_cdp_status: only available on Windows".to_string())
+            }
         }
         _ => Err(format!("unknown method: {method}")),
     }
