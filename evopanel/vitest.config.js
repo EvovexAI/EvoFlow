@@ -176,6 +176,12 @@ export default defineConfig({
       'tests/stream-snapshot-store.test.js',
       'tests/repro-later-round-tools-vanish.test.js',
       'tests/replay-real-session-tools.test.js',
+      'tests/merge-assistant-round3-vanish.test.ts',
+      'tests/stream-compare-two-logs.test.ts',
+      'tests/turn-start-ms-lock.test.ts',
+      'tests/right-stage-hide-all.test.ts',
+      'tests/replay-real-run-133609527d1f.test.js',
+      'tests/replay-real-run-81320d61e8cc-diag.test.js',
     ],
   },
 })
