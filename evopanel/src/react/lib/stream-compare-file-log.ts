@@ -63,7 +63,7 @@ function isTauriDesktop(): boolean {
   }
 }
 
-type CompareChannel = 'sse-recv' | 'ui-display'
+type CompareChannel = 'sse-recv' | 'ui-display' | 'ui-display-visual'
 
 type RunBuffers = {
   sseRecv: string[]
@@ -242,6 +242,111 @@ function appendFileLine(
       /* best-effort */
     }
   }
+}
+
+/**
+ * v5.10 visual-mirror：把"页面长啥样"按行平铺写到 ui-display-visual.log。
+ * 设计目标：肉眼扫一遍就跟浏览流式页面一样 —— 每个 piece/工具/段落独立一行，
+ * 渲染高度变化 = 在 HEAD 行后跟一行 RENDER delta。
+ *
+ * 频率控制：只在 DOM 真正变化时写。用 sig = (head + fold + gear + 每个 piece 的
+ * 一行串) 的字符串 hash 比对，sig 一致 → 完全跳过。
+ *
+ * 与主 log (ui-display.log) 的差别：主 log 是分块 + 全文 dump（便于回溯 / grep），
+ * visual-mirror 是按事件序的行级流水（便于肉眼实时跟读 + 抓抖动的具体帧）。
+ */
+const visualMirrorLastSigByRun = new Map<string, string>()
+
+export function logStreamCompareVisualMirror(opts: {
+  sessionKey?: string
+  runId?: string
+  turnNo?: number
+  foldOpen: boolean
+  head: string
+  gear: 'off' | 'streaming' | 'spinner'
+  chunks: UiDomChunk[]
+  fileChanges?: string[]
+  /** 用于 sig 区分同帧不同 turn（同 runId 不同 turnStartMs 的 reseal） */
+  diag?: { turnStartMsResolved?: number | null; isStreamingEffective?: boolean }
+}): void {
+  if (!isStreamCompareFileLogOn()) return
+  const target = resolveLogTarget(opts.sessionKey, opts.runId)
+  if (!target) return
+
+  // 计算 sig：head + fold + gear + 每个 piece 一行串
+  const lines: string[] = []
+  lines.push(`[fold=${opts.foldOpen ? 'open' : 'closed'}] [gear=${opts.gear}] ${opts.head || '(empty head)'}`)
+
+  // fileChanges 总是写（便于追踪文件改动）
+  if (opts.fileChanges && opts.fileChanges.length) {
+    for (const p of opts.fileChanges) {
+      lines.push(`  file-change  ${p}`)
+    }
+  }
+
+  for (const c of opts.chunks) {
+    if (c.kind === 'flat-activity') {
+      if (!c.pieces.length) {
+        lines.push(`  flat-activity (empty)`)
+        continue
+      }
+      c.pieces.forEach((p, pi) => {
+        if (p.kind === 'tools') {
+          for (const t of p.tools) {
+            const file = t.file ? `  file=${t.file}` : ''
+            const diff = t.diff ? `  diff=${truncate(t.diff, 80)}` : ''
+            const time = t.time ? `  time=${t.time}` : ''
+            const elapsed = t.elapsed ? `  elapsed=${t.elapsed}` : ''
+            lines.push(
+              `  [${pi}] TOOL  ${t.name.padEnd(11)} status=${t.status.padEnd(7)} id=${t.id.slice(0, 24)}${file}${diff}${elapsed}${time}`,
+            )
+          }
+        } else if (p.kind === 'text') {
+          // 文本段落：把每行内容用单行串展示
+          const text = (p.text || '').replace(/\n/g, ' ⏎ ')
+          lines.push(`  [${pi}] TEXT  ${truncate(text, 240)}`)
+        } else if (p.kind === 'reasoning') {
+          const dur = p.durationLabel ? `  dur=${p.durationLabel}` : ''
+          const text = (p.text || '').replace(/\n/g, ' ⏎ ')
+          lines.push(`  [${pi}] REASON${dur}  ${truncate(text, 200)}`)
+        } else {
+          lines.push(`  [${pi}] ${(p as { kind: string }).kind}`)
+        }
+      })
+    } else if (c.kind === 'msg-text') {
+      const role = c.role
+      const md = c.markdown
+        ? `  md(p=${c.markdown.paragraphs},t=${c.markdown.tables},l=${c.markdown.lists},c=${c.markdown.codeBlocks})`
+        : ''
+      lines.push(`  MSG-TEXT  role=${role}${md}`)
+      const text = (c.text || '').replace(/\n/g, ' ⏎ ')
+      lines.push(`           ${truncate(text, 600)}`)
+    } else if (c.kind === 'legacy-tools') {
+      for (const t of c.tools) {
+        lines.push(`  LEGACY-TOOL  ${t.name}(${t.status}) id=${t.id}`)
+      }
+    } else if (c.kind === 'spinner') {
+      lines.push(`  SPINNER  ${c.label}`)
+    }
+  }
+
+  // sig = 整个页面的文本指纹
+  const sig = lines.join('\n')
+  const lastSig = visualMirrorLastSigByRun.get(target.dedupeKey)
+  if (sig === lastSig) return // 完全没变 → 跳过（避免每 0.5s 重写同样内容）
+  visualMirrorLastSigByRun.set(target.dedupeKey, sig)
+
+  // 写：每行一条独立 append（不打包，保留事件序）
+  const header = `[turn=${opts.turnNo ?? '-'}] [run=${target.runLogId}]`
+  for (const line of lines) {
+    appendFileLine(target.sessionLogId, target.runLogId, 'ui-display-visual', `${header} ${line}`)
+  }
+}
+
+/** 行级截断：保留头尾，不超过 max 字符 */
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, max - 8)}…(+${s.length - (max - 8)})`
 }
 
 function showEnableBannerOnce(): void {

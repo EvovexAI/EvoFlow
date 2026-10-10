@@ -156,6 +156,7 @@ pub fn append_stream_compare_log(
     let suffix = match channel.trim() {
         "sse-recv" => "sse-recv.log",
         "ui-display" => "ui-display.log",
+        "ui-display-visual" => "ui-display-visual.log",
         other => return Err(format!("unknown stream compare channel: {other}")),
     };
     fn sanitize_id(s: &str) -> String {
