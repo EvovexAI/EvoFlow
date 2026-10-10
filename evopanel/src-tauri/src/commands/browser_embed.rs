@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{LogicalPosition, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{Manager, State, WebviewWindow};
+#[cfg(target_os = "windows")]
+use tauri::{LogicalPosition, LogicalSize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
