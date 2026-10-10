@@ -48,6 +48,7 @@ function AssistantBubbleSlotViewInner({
   liveTokenStr,
   messageId,
   turnInterrupted,
+  threadBusy = false,
 }: {
   plan: AssistantBubbleDisplayPlan
   displaySegments: MessageSegment[]
@@ -80,6 +81,13 @@ function AssistantBubbleSlotViewInner({
   messageId?: string
   /** 回合被打断（ZCode「已停止」） */
   turnInterrupted?: boolean
+  /**
+   * v5.10 反馈：左下角齿轮生命周期必须与右下角停止按钮一致。threadBusy 由
+   * 调用方仅对「当前活跃行」（续流合并目标 / _stream pin）传 streamActive 或
+   * selectedTurnBusy，覆盖 isStreaming(row.state) 在 RUN_FINISHED→sealing 窗口
+   * 提前翻 false 的盲区；历史行恒为 false，不会误挂齿轮。
+   */
+  threadBusy?: boolean
 }) {
   // ZCode 式扁平内联：plan.flatTimeline 为权威（MessageRow 默认 true，工作轨迹显式传 false）
   const flatTimeline = plan.flatTimeline !== false && !suppressExploringFold
@@ -428,16 +436,21 @@ function AssistantBubbleSlotViewInner({
           key="turn-history-status"
           label={workedLabel}
           messageId={messageId}
-          defaultOpen={isStreaming}
+          // v5.10：折叠展开跟随齿轮同源条件（isStreaming || threadBusy）——
+          // sealing 窗口（RUN_FINISHED 后 final 落库前）isStreaming 已翻 false，
+          // threadBusy 仍亮，保持展开与齿轮直到线程真正空闲。
+          defaultOpen={isStreaming || threadBusy}
           // v5.3：已工作默认折叠时，最新一轮 piece 仍要外露。
           // body 永远渲染，由 children 自身用 CSS 决定哪些 piece 可见。
-          bodyAlwaysRendered={!isStreaming}
+          bodyAlwaysRendered={!isStreaming && !threadBusy}
         >
           {plan.slots.map((slot, si) => (
             <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
           ))}
-          {/* v5.2 反馈：齿轮必须绑 SSE 实时状态（isStreaming），不能绑 slot kind（thinking-wait 消失齿轮就消失）。 */}
-          {isStreaming ? (
+          {/* v5.2 反馈：齿轮必须绑 SSE 实时状态（isStreaming），不能绑 slot kind（thinking-wait 消失齿轮就消失）。
+              v5.10 反馈：齿轮生命周期 = 停止按钮生命周期 —— isStreaming(row.state) 在
+              RUN_FINISHED→sealing 窗口会提前熄灭，threadBusy（同停止按钮 OR 源）兜底。 */}
+          {isStreaming || threadBusy ? (
             <StreamRunStatusLine
               key="stream-tail-spinner"
               label="生成中"
