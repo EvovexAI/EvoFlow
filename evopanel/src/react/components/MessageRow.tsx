@@ -681,6 +681,7 @@ const MessageActionBar = memo(MessageActionBarInner)
 export function MessageRow({
   row,
   isStreaming: _isStreamingDeprecated,
+  threadBusy = false,
   showToolTiming = false,
   suppressPlanExecPromptNoise = false,
   suppressExploringFold = false,
@@ -705,6 +706,15 @@ export function MessageRow({
    * 兼容传 false（MessageVirtualList 已停传，由 row.state 单一来源决定）。
    */
   isStreaming?: boolean
+  /**
+   * 整 thread 是否还在跑（与左下「停止」按钮同源：sessionRuntime.turnPhase
+   * ∈ {outbound, live, reattaching, sealing}）。v5.10：用来决定 TurnHistoryFold
+   * 头部的 gear + foldOpen —— 旧实现把 foldOpen 绑在 per-row `isStreaming` 上，
+   * 2026-10-10 用户反馈：RUN_FINISHED 之后历史 row 整段折叠（final-reply 看不到）。
+   * 改 threadBusy 后：sealing 阶段整段保持展开直到 thread 真正结束。
+   * 默认 false。MessageVirtualList 顶层注入。
+   */
+  threadBusy?: boolean
   showToolTiming?: boolean
   /** 下方面板已有计划条时，隐藏助手复述的「计划已落库/开始执行」类话术 */
   suppressPlanExecPromptNoise?: boolean
@@ -938,6 +948,7 @@ export function MessageRow({
           <AssistantBody
             row={displayRow}
             isStreaming={isStreamingEffective}
+            threadBusy={threadBusy}
             showToolTiming={showToolTiming}
             suppressPlanExecPromptNoise={suppressPlanExecPromptNoise}
             suppressExploringFold={suppressExploringFold}
@@ -1072,6 +1083,7 @@ function assistantRowCacheSignature(row: DisplayRow): string {
 function AssistantBody({
   row,
   isStreaming,
+  threadBusy = false,
   showToolTiming = false,
   suppressPlanExecPromptNoise = false,
   suppressExploringFold = false,
@@ -1088,6 +1100,11 @@ function AssistantBody({
 }: {
   row: DisplayRow
   isStreaming?: boolean
+  /**
+   * 整 thread 是否还在跑（与左下「停止」按钮同源）。v5.10：透传到
+   * buildAssistantDomView 决定 gear + foldOpen。详见 MessageRow 顶部注释。
+   */
+  threadBusy?: boolean
   showToolTiming?: boolean
   suppressPlanExecPromptNoise?: boolean
   suppressExploringFold?: boolean
@@ -1236,13 +1253,15 @@ function AssistantBody({
 
   // v5.9 compare-log：DOM 视角 1:1 快照。
   // 覆盖：_stream / assistant 助手行，工作中 + 已工作都写。
-  // 折叠态 = !isStreaming；spinner gear 仅流式。fileChanges 暂不写（DOM 边栏在
-  // AssistantBubbleSlotView 渲染时取，本地拿不到）。
+  // 2026-10-10 反馈：foldOpen + gear 都跟 threadBusy 走（与左下「停止」按钮同源）。
+  //   旧实现 foldOpen = isStreaming 会让历史 row 在 RUN_FINISHED 之后立刻折叠，
+  //   用户看不到 final-reply。改 threadBusy 后：sealing 阶段整段保持展开。
   if (row.role === '_stream' || row.role === 'assistant') {
     const domView = buildAssistantDomView({
       row,
       plan,
       isStreaming: !!isStreaming,
+      threadBusy: !!threadBusy,
       workedLabel: workedLabelOut
         ? isStreaming
           ? `工作中 ${workedLabelOut}`

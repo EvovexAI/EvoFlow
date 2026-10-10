@@ -19,6 +19,16 @@ export function buildAssistantDomView(opts: {
   plan: AssistantBubbleDisplayPlan
   isStreaming: boolean
   workedLabel: string
+  /**
+   * 整 thread 是否还在跑（与左下「停止」按钮同源 = sessionRuntime.turnPhase
+   * ∈ {outbound, live, reattaching, sealing}）。v5.10 反馈：
+   *   - 旧实现 `gear = isStreaming` 会让历史 turn row 在 RUN_FINISHED 之后立刻 off
+   *   - 用户期望「整个对话跑完才不显示」= 跟停止按钮同步
+   *   也就是 sealing 阶段（RUN_FINISHED → turnPhase=idle 之间）齿轮也亮着
+   *   2026-10-10 用户追加反馈：foldOpen 也用同一信号 —— 否则历史 row 折叠后
+   *   内容（含 final-reply、tools、reasoning）全藏起来，看不到最新。
+   */
+  threadBusy?: boolean
   /** 已工作的回合默认折叠（已工作 / 已停止）；工作中（isStreaming）默认展开 */
   /** 收集触发本回合的 file changes（DOM 上显示在气泡底部） */
   fileChanges?: string[]
@@ -27,7 +37,7 @@ export function buildAssistantDomView(opts: {
   foldOpen: boolean
   gear: 'off' | 'streaming' | 'spinner'
   chunks: UiDomChunk[]
-  fileChanges: string[]
+    fileChanges: string[]
 } {
   const tools = (opts.row.tools as unknown[]) || []
   const displayChunks = opts.plan.layout?.displayChunks ?? []
@@ -35,15 +45,21 @@ export function buildAssistantDomView(opts: {
   for (const slot of opts.plan.slots) {
     pushSlot(slot, tools, displayChunks, chunks)
   }
-  // 底部 spinner：v5.2 反馈，isStreaming 始终挂一个生成中齿轮（绑 SSE，不绑 slot kind）
-  if (opts.isStreaming) {
+  // v5.10：gear + foldOpen 都跟 threadBusy 绑（与停止按钮同源）。
+  //  - threadBusy=true  → spinner（thread 还在跑：outbound/live/reattaching/sealing）
+  //  - threadBusy=false → off 且折叠（thread 已彻底结束，turnPhase=idle）
+  // 历史 row 在 sealing 阶段也保持展开，让用户看到 final-reply 正文（2026-10-10 反馈：
+  //   「封存后整段折叠，看不到最新文字」= 之前 foldOpen 只看 isStreaming）。
+  const turnAlive = !!opts.threadBusy
+  const gear = turnAlive ? 'spinner' : 'off'
+  const foldOpen = turnAlive
+  if (turnAlive) {
     chunks.push({ kind: 'spinner', label: '生成中' })
   }
   return {
     head: opts.workedLabel || '',
-    // 与 TurnHistoryFold 的 defaultOpen 同源：工作中=展开，已工作=折叠
-    foldOpen: !!opts.isStreaming,
-    gear: opts.isStreaming ? 'spinner' : 'off',
+    foldOpen,
+    gear,
     chunks,
     fileChanges: opts.fileChanges || [],
   }
@@ -170,14 +186,9 @@ function pushSlot(
 }
 
 function buildActivityPieces(pieces: ActivityPiece[], tools: unknown[]): UiDomPiece[] {
-  // 与 ExploringActivityChunk 的 piece-role 决策保持一致：
-  //   tools 永远 latest
-  //   最后一段 text = latest
-  //   其余 text / reasoning = history（折叠时 CSS 隐藏）
-  let lastTextIdx = -1
-  pieces.forEach((p, i) => {
-    if (p.kind === 'text') lastTextIdx = i
-  })
+  // 2026-10-10 反馈后：折叠态全量显示（v5.5「仅 last text = latest」规则下线）。
+  //   所有 piece 在 DOM 与日志中都标 latest，CSS 折叠时不再按 role 隐藏。
+  //   仍保留 [data-piece-role="history"] 隐藏逃生口（CSS 侧未删），便于未来按需开启。
   return pieces.map((p, pi) => {
     if (p.kind === 'tools') {
       const list: { name: string; status: string; file?: string; diff?: string; elapsed?: string; time?: string; id: string }[] = []
@@ -190,7 +201,7 @@ function buildActivityPieces(pieces: ActivityPiece[], tools: unknown[]): UiDomPi
     if (p.kind === 'text') {
       return {
         kind: 'text',
-        role: pi === lastTextIdx ? 'latest' : 'history',
+        role: 'latest',
         text: p.text || '',
       }
     }
