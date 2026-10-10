@@ -556,6 +556,33 @@ def count_subtask_summaries(*, main_task_id: str | None = None) -> int:
     return run_db_read(_query)
 
 
+def list_child_task_ids(parent_task_id: str) -> list[str]:
+    """Child main-task ids whose ``parent_task_id`` points at ``parent_task_id``.
+
+    ``parent_task_id`` lives inside ``extra_json`` (there is no dedicated column),
+    so filter with ``json_extract``. One query — the previous implementation walked
+    every bundle via ``list_projects()`` + ``load_task_bundle()`` (~2031 loads).
+    """
+    pid = str(parent_task_id or "").strip()
+    if not pid:
+        return []
+    from evoflow.persistence.db import run_db_read
+
+    def _query(conn: Any) -> list[str]:
+        rows = conn.execute(
+            """
+            SELECT task_id
+            FROM evoflow_collab_tasks
+            WHERE COALESCE(json_extract(extra_json, '$.parent_task_id'), '') = ?
+            ORDER BY COALESCE(updated_at, created_at, '') DESC
+            """,
+            (pid,),
+        ).fetchall()
+        return [str(r[0]).strip() for r in rows if str(r[0] or "").strip()]
+
+    return run_db_read(_query)
+
+
 def get_root_task_owner_scope(task_id: str) -> tuple[str | None, str | None, str | None]:
     tid = str(task_id or "").strip()
     if not tid:

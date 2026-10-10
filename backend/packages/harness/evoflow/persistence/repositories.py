@@ -73,6 +73,13 @@ def count_subtask_summaries(*, main_task_id: str | None = None) -> int:
     return task_repo.count_subtask_summaries(main_task_id=main_task_id)
 
 
+def list_child_task_ids(parent_task_id: str) -> list[str]:
+    """Child main-task ids whose ``parent_task_id`` points at ``parent_task_id``."""
+    from evoflow.persistence import task_repositories as task_repo
+
+    return task_repo.list_child_task_ids(parent_task_id)
+
+
 def load_task_bundle(main_task_id: str) -> dict[str, Any] | None:
     from evoflow.persistence import task_repositories as task_repo
 
