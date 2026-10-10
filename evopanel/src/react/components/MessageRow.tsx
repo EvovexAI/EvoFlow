@@ -193,6 +193,7 @@ import {
   logStreamCompareUiChunks,
   logStreamCompareUiStreamTools,
   logStreamCompareDomView,
+  logStreamCompareVisualMirror,
 } from '../lib/stream-compare-file-log.js'
 import { buildAssistantDomView } from '../lib/assistant-dom-view.js'
 import { logStreamSourceConsoleIfChanged } from '../stream-console-mirror.js'
@@ -1269,47 +1270,61 @@ function AssistantBody({
         : '',
     })
   logStreamCompareDomView({
-      sessionKey: compareSessionKey,
-      runId: row.runId,
-      foldOpen: domView.foldOpen,
-      head: domView.head,
-      gear: domView.gear,
-      chunks: domView.chunks,
-      fileChanges: domView.fileChanges,
-      diag: {
-        rowRole: row.role,
-        rowState: row.state,
-        isStreamingEffective: !!isStreaming,
-        turnStartMsResolved,
-        // v5.9：plan.slots 的内容（每段 kind/text[head]）便于诊断「正文不流畅」时
-        // dom-view chunks 为何与 plan.slots 不一致。
-        slots: plan.slots.map((s) => {
-          if (s.kind === 'chunk') {
-            const c = s.chunk
-            return `chunk#${s.chunkIndex} ${c.kind}${c.kind === 'text' ? ` len=${String(c.text || '').length}` : ''}`
-          }
-          if (s.kind === 'plain-body' || s.kind === 'live-tail' || s.kind === 'plan-top' ||
-              s.kind === 'top-reasoning' || s.kind === 'reasoning-pending' || s.kind === 'legacy-body') {
-            return `${s.kind} len=${String(s.text || '').length}`
-          }
-          if (s.kind === 'tool-row') {
-            return `tool-row[${s.toolCallIds.length}]`
-          }
-          return s.kind
-        }),
-        segmentsCount: Array.isArray(row.segments) ? row.segments.length : 0,
-        rowTextLen: String(row.text || '').length,
-        rawTextLen: String(rawText || '').length,
-        toolsCount: Array.isArray(row.tools) ? row.tools.length : 0,
-        segmentsToolIds: Array.isArray(row.segments)
-          ? row.segments.filter((s) => s.kind === 'tools').map((s) => s.ids?.length || 0)
-          : [],
-        toolStatus: Array.isArray(row.tools)
-          ? row.tools.map((t) => String((t as { status?: unknown } | null)?.status || '?'))
-          : [],
-      },
-    })
-  }
+    sessionKey: compareSessionKey,
+    runId: row.runId,
+    foldOpen: domView.foldOpen,
+    head: domView.head,
+    gear: domView.gear,
+    chunks: domView.chunks,
+    fileChanges: domView.fileChanges,
+    diag: {
+      rowRole: row.role,
+      rowState: row.state,
+      isStreamingEffective: !!isStreaming,
+      turnStartMsResolved,
+      // v5.9：plan.slots 的内容（每段 kind/text[head]）便于诊断「正文不流畅」时
+      // dom-view chunks 为何与 plan.slots 不一致。
+      slots: plan.slots.map((s) => {
+        if (s.kind === 'chunk') {
+          const c = s.chunk
+          return `chunk#${s.chunkIndex} ${c.kind}${c.kind === 'text' ? ` len=${String(c.text || '').length}` : ''}`
+        }
+        if (s.kind === 'plain-body' || s.kind === 'live-tail' || s.kind === 'plan-top' ||
+            s.kind === 'top-reasoning' || s.kind === 'reasoning-pending' || s.kind === 'legacy-body') {
+          return `${s.kind} len=${String(s.text || '').length}`
+        }
+        if (s.kind === 'tool-row') {
+          return `tool-row[${s.toolCallIds.length}]`
+        }
+        return s.kind
+      }),
+      segmentsCount: Array.isArray(row.segments) ? row.segments.length : 0,
+      rowTextLen: String(row.text || '').length,
+      rawTextLen: String(rawText || '').length,
+      toolsCount: Array.isArray(row.tools) ? row.tools.length : 0,
+      segmentsToolIds: Array.isArray(row.segments)
+        ? row.segments.filter((s) => s.kind === 'tools').map((s) => s.ids?.length || 0)
+        : [],
+      toolStatus: Array.isArray(row.tools)
+        ? row.tools.map((t) => String((t as { status?: unknown } | null)?.status || '?'))
+        : [],
+    },
+  })
+  // v5.10 visual-mirror：行级「页面长啥样」流水（sig 去重，变化才写）。
+  logStreamCompareVisualMirror({
+    sessionKey: compareSessionKey,
+    runId: row.runId,
+    foldOpen: domView.foldOpen,
+    head: domView.head,
+    gear: domView.gear,
+    chunks: domView.chunks,
+    fileChanges: domView.fileChanges,
+    diag: {
+      turnStartMsResolved,
+      isStreamingEffective: !!isStreaming,
+    },
+  })
+}
 
   return (
     <AssistantBubbleSlotView
@@ -1337,6 +1352,7 @@ function AssistantBody({
       turnInterrupted={turnInterrupted}
       liveTokenStr={row.tokenStr}
       messageId={row.messageId}
+      runId={row.runId}
       threadBusy={!!threadBusy}
     />
   )

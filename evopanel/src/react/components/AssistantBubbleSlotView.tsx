@@ -13,6 +13,7 @@ import { ChangedFilesSummaryRow } from './ChangedFilesSummaryRow.js'
 import type { AssistantBubbleDisplayPlan, AssistantBubbleSlot } from '../lib/message-row-display-plan.js'
 import { hasVisibleBodyBelowActivityChunk } from '../lib/message-row-stream-display.js'
 import { bubbleMarkdownText, visibleAssistantText, visibleExploringInnerText, visiblePreToolTimelineText } from '../lib/message-row-visible-text.js'
+import { isRecentlyStreamed } from '../lib/recently-streamed-runids.js'
 import { formatWorkDurationText } from '../lib/turn-timing.js'
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ExploringActivityChunk } from './ExploringActivityChunk.js'
@@ -47,6 +48,7 @@ function AssistantBubbleSlotViewInner({
   durationLabel,
   liveTokenStr,
   messageId,
+  runId,
   turnInterrupted,
   threadBusy = false,
 }: {
@@ -79,6 +81,8 @@ function AssistantBubbleSlotViewInner({
   liveTokenStr?: string
   /** 落库消息 id（完成态「已工作」折叠头的 data-testid 用） */
   messageId?: string
+  /** 流式 runId — 用于判断是否刚从流式封存而来（需保持展开） */
+  runId?: string
   /** 回合被打断（ZCode「已停止」） */
   turnInterrupted?: boolean
   /**
@@ -439,7 +443,7 @@ function AssistantBubbleSlotViewInner({
           // v5.10：折叠展开跟随齿轮同源条件（isStreaming || threadBusy）——
           // sealing 窗口（RUN_FINISHED 后 final 落库前）isStreaming 已翻 false，
           // threadBusy 仍亮，保持展开与齿轮直到线程真正空闲。
-          defaultOpen={isStreaming || threadBusy}
+          defaultOpen={isStreaming || threadBusy || isRecentlyStreamed(runId)}
           // v5.3：已工作默认折叠时，最新一轮 piece 仍要外露。
           // body 永远渲染，由 children 自身用 CSS 决定哪些 piece 可见。
           bodyAlwaysRendered={!isStreaming && !threadBusy}
