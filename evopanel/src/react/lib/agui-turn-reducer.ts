@@ -1267,13 +1267,17 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
   }
 
   if (t === EventType.RUN_FINISHED) {
+    // AgUiTurnState 上没有 timeline/openText 字段（那是 legacy StreamTurnState 的），
+    // 这里只能用 compat 投影取同口径数据；此前写成的 state.timeline.length 会在
+    // RUN_FINISHED 帧上抛 TypeError，导致 finished/sealOpenAgUiMessages 全部跳过。
+    const compatBefore = syncAgUiCompatProjection(state)
     console.log(
       `[GearDebug] AG-UI RUN_FINISHED event:`,
       '| runId:', state.runId,
       '| was finished:', state.finished,
       '| current toolCalls:', state.toolCalls.size,
-      '| timeline before seal:', state.timeline.length,
-      '| openText before seal:', state.openText?.slice(0, 100),
+      '| timeline before seal:', compatBefore.length,
+      '| openText before seal:', resolveLiveAssistantOpenText(state).slice(0, 100),
     )
     state.finished = true
     state.activity = null
@@ -1288,7 +1292,7 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
     console.log(
       `[GearDebug] AG-UI RUN_FINISHED processed:`,
       '| finished set to:', state.finished,
-      '| timeline after seal:', state.timeline.length,
+      '| timeline after seal:', state.compatSegments.length,
     )
     return syncAgUiCompatProjection(state)
   }
