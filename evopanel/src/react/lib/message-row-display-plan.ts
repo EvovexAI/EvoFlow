@@ -633,10 +633,21 @@ function buildAgUiSequentialPlan(input: AssistantBubblePlanInput): AssistantBubb
   }
 
   const slots: AssistantBubbleSlot[] = []
+  // 正文 text chunk 合并成单个 plain-body 连续累加渲染（避免像思考一样分段卡片化）。
+  // 被 activity（工具/思考折叠）分隔的 text chunk 各自独立段，保持工具间排序；
+  // 同段内连续的 text chunk 合并成一段，消除「一段一段卡片」。
+  let bodyTexts: string[] = []
+  const flushBodyTexts = () => {
+    if (!bodyTexts.length) return
+    const merged = bodyTexts.join('\n\n').trim()
+    bodyTexts = []
+    if (merged) slots.push({ kind: 'plain-body', text: merged, isStreaming: false })
+  }
   for (let ci = 0; ci < displayChunks.length; ci++) {
     const chunk = displayChunks[ci]
     if (chunk.kind === 'activity' || chunk.kind === 'tools-standalone') {
       // 工具 + 思考 + 工具间旁白：收进 Exploring 折叠
+      flushBodyTexts()
       slots.push({ kind: 'chunk', chunk, chunkIndex: ci })
       continue
     }
@@ -665,13 +676,15 @@ function buildAgUiSequentialPlan(input: AssistantBubblePlanInput): AssistantBubb
       firstActivityChunkIndex >= 0 &&
       ci > firstActivityChunkIndex
     )
-    if (useLiveTail) tailRepresented = true
-    slots.push({
-      kind: useLiveTail ? 'live-tail' : 'plain-body',
-      text: useLiveTail ? strippedTail : visible,
-      isStreaming: useLiveTail,
-    })
+    if (useLiveTail) {
+      tailRepresented = true
+      flushBodyTexts()
+      slots.push({ kind: 'live-tail', text: strippedTail, isStreaming: true })
+    } else {
+      bodyTexts.push(visible)
+    }
   }
+  flushBodyTexts()
 
   // 流式期间尾部正文尚未落盘成 chunk：兜底补一行 live-tail（仅未封存后缀）
   if (input.isStreaming && strippedTail && !tailRepresented) {
