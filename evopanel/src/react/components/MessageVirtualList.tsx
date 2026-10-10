@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { resolveMessageRowIsStreaming, shouldDropEmptyStreamPlaceholder } from '../lib/message-row-streaming.js'
+import { markRecentlyStreamed, clearRecentlyStreamed } from '../lib/recently-streamed-runids.js'
 import { MessageRow } from './MessageRow.js'
 import { TurnNavigatorRail } from './TurnNavigatorRail.js'
 import { EvoFlowHomeDashboard } from './EvoFlowHomeDashboard.js'
@@ -978,6 +979,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     continuationTargetIndex,
     lastHistoryRole,
   ])
+
+  if (streamRow?.runId) markRecentlyStreamed(streamRow.runId)
+  if (lastHistoryRole === 'user') clearRecentlyStreamed()
 
   // ★ 性能优化：拆分 baseHistoryItems 与流式合并，使流式 tick 期间非末行 item 引用保持稳定，
   // 避免所有 HistoryMessageRow 因 item prop 引用变化而打破 memo。
