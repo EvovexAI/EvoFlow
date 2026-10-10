@@ -1,5 +1,8 @@
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
+  msw: true
+  node-pty: true
+  protobufjs: true
 # pnpm v11 配置（overrides 新家；单包项目也在此声明）
 # mermaid 统一 11.15.0：11.17 引入的 fastdom (UMD) 在 vite dev 的 ESM 互操作下崩溃
 # （ZCode lockfile 无 fastdom，其 mermaid 即 11.15 系）。
