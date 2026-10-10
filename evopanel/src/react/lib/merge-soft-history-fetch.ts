@@ -25,10 +25,10 @@ export function mergeSoftHistoryFetch(
   // v5.10：本地正在流式时，尾部的 _stream pin 行绝不能被 fetched（DB 视图）替换掉
   // —— 否则流式气泡消失/折叠，直到下个 SSE 帧才恢复。空闲会话（keepStreamPin=false）
   // 不补 pin，避免把陈旧 pin 永久带回。
+  const curLast = current[current.length - 1]
   const trailingPin: DisplayRow[] = []
-  if (opts?.keepStreamPin) {
-    const curLast = current[current.length - 1]
-    if (curLast?.role === '_stream') trailingPin.push(curLast)
+  if (opts?.keepStreamPin && curLast?.role === '_stream') {
+    trailingPin.push(curLast)
   }
 
   const curLastKey = rowIdentity(curLast)
