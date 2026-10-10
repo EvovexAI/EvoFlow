@@ -485,11 +485,15 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         (historyBoundSessionKeyRef.current === sessionKey && rowsRef.current.length > 0)
 
       const liveStore = meta?.getLive?.() ?? null
+      // meta.liveRows 是 memo 缓存的旧数组引用（updateSessionRuntimeRows 为 immutable 更新，
+      // SSE delta 只写 runtime 不重算 memo）：runtime 已 not live（liveStore 新鲜判定）时，
+      // 该快照可能不含流式期间新增的本地行，覆盖会把页面打回旧记录。仅本地为空时兜底。
       const liveRowsActive =
         !dbOnly &&
         (liveStore?.live && liveStore.rows.length
           ? liveStore.rows
-          : meta?.liveRows && meta.liveRows.length && (meta.isHot || meta.liveSending)
+          : !rowsRef.current.length &&
+            meta?.liveRows && meta.liveRows.length && (meta.isHot || meta.liveSending)
             ? meta.liveRows
             : null)
       if (dbOnly) {
@@ -658,14 +662,21 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
 
         const metaLive = liveRef.current
         const storeLive = metaLive?.getLive?.() ?? null
+        if (!dbOnly && !dbTerminal && storeLive?.live && storeLive.rows.length) {
+          setRows(storeLive.rows)
+          return { rows: mergedRows, transcriptAnchor }
+        }
+        // storeLive 是 getLive() 新鲜判定：not live 即流已结束、final 已落库。
+        // 此时 memo 旧 liveRows 快照可能不含流式期间新增的本地行，覆盖会把
+        // 页面打回旧记录（新流一闪而过）；仅本地为空时才兜底。
         if (
           !dbOnly &&
           !dbTerminal &&
-          ((storeLive?.live && storeLive.rows.length) ||
-            (metaLive?.liveSending && metaLive.liveRows?.length))
+          metaLive?.liveSending &&
+          metaLive.liveRows?.length &&
+          !rowsRef.current.length
         ) {
-          if (storeLive?.live && storeLive.rows.length) setRows(storeLive.rows)
-          else if (metaLive?.liveSending && metaLive.liveRows?.length) setRows(metaLive.liveRows)
+          setRows(metaLive.liveRows)
           return { rows: mergedRows, transcriptAnchor }
         }
         // Soft reopen: skip setRows when transcript is visually unchanged — avoids virtualizer

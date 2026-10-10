@@ -1058,7 +1058,6 @@ async def task_tool(
         )
         if collab_lead_thread_id:
             subagent_extra_context["parent_thread_id"] = collab_lead_thread_id
-            subagent_extra_context = ctx_extra
 
     # Lead-graph stream writer: same ``task_*`` custom events as main chat (LangGraph + gateway SSE).
     parent_chat_writer = None

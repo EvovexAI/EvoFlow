@@ -224,9 +224,10 @@ function appendFileLine(
   const runBuf = ensureRunBuffers(sid, rid, ensureSessionBuffers(sid).runs[rid]?.turnNo || 0)
   const key = channel === 'sse-recv' ? 'sseRecv' : 'uiDisplay'
   runBuf[key].push(text)
-  const tag = channel === 'sse-recv' ? '[sse-recv]' : '[ui-display]'
-
-  console.log(tag, `[${sid}/${rid}]`, text)
+  // 注意：日志只走「内存缓冲 + Tauri 落盘」两条路。
+  // 早期版本每帧都 console.log，结果控制台被每条 SSE chunk 灌爆（sse-recv 一帧一行，
+  // TEXT_MESSAGE_CONTENT delta 也一行；调用方反馈「文件里已经写过了，console 不要」）。
+  // 这里保持沉默。如需本地实时观察，在文件侧看 sse-recv.log / ui-display.log。
   if (isTauriDesktop()) {
     try {
       void import('@tauri-apps/api/core').then((m) =>

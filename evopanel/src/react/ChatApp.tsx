@@ -10405,6 +10405,27 @@ export default function ChatApp() {
             aguiEvent.type === EventType.REASONING_START,
         })
         if (aguiEvent.type === 'RUN_FINISHED' || aguiEvent.type === 'RUN_ERROR') {
+          // 兜底：drain 仅在 TOOL_CALL_START 触发（ChatApp.tsx#10127 shouldReleaseAgUiBufferBeforeToolStart），
+          // 但每个 run 最后一轮完成后没有新 TOOL_CALL_START，那批 done 工具就永远滞留在 aguiTurn 里，
+          // 落库时 row.tools 只看到中间 drain 出的 N-1 批，最后一批被吞。表现为「UI 只显示前 4 个工具」。
+          // 在 RUN_FINISHED / RUN_ERROR 兜底把剩余 done 工具封到 compactedParts，让 finalize 阶段
+          // mergeCompactedPartsIntoTurn 一起并入。
+          if (S.aguiTurn) {
+            finalizeGhostRunningToolsBeforeNewRound(S.aguiTurn)
+            const drained = drainAgUiCompletedRound(S.aguiTurn)
+            if (drained.sealed) {
+              if (!S.compactedParts) S.compactedParts = []
+              S.compactedParts.push(drained.sealed)
+              S.aguiTurn = drained.fresh
+              S.turn = syncStreamTurnFromAgUi(S.turn, S.aguiTurn)
+              logStreamCompareAgUiDrain({
+                sessionKey: targetSk,
+                runId: String(S.runId || runId || '').trim() || undefined,
+                sealed: drained.sealed,
+                releasedToolIds: drained.releasedToolIds,
+              })
+            }
+          }
           // 流式结束后立即收尾 runtime 与 session row：
           // 后端通常先发 RUN_FINISHED 关 SSE，再异步把 session.runStatus='idle' 落库。
           // 不主动清会让「左下『运行中』+ 停止按钮」多亮 3-5s（等待下一次 refreshSessions
