@@ -211,6 +211,9 @@ export function mergeAssistantRowWithStreamRow(
     return {
       ...assistant,
       role: 'assistant',
+      // v5.10：续流合并行必须继承 _stream 行的 state（'streaming'），
+      // 否则 isStreamingEffective=false → 齿轮/折叠在 run 中途熄灭（停止按钮还亮着）。
+      ...(stream.state ? { state: stream.state } : {}),
       text: streamOwnsBody ? String(stream.text || '') : stream.text || assistant.text,
       segments,
       tools,
@@ -242,6 +245,7 @@ export function mergeAssistantRowWithStreamRow(
   return {
     ...assistant,
     role: 'assistant',
+    ...(stream.state ? { state: stream.state } : {}),
     text,
     segments,
     tools,
@@ -279,6 +283,8 @@ export function mergeStreamSnapIntoAssistantRow(
   return {
     ...merged,
     role: 'assistant',
+    // final 落库行不带流式 state（'closed' 对 DB 行无意义，isStreamingEffective 只认 'streaming'）
+    state: undefined,
     durationStr: assistant.durationStr ?? merged.durationStr,
     tokenStr: assistant.tokenStr ?? merged.tokenStr,
     incompleteStream: assistant.incompleteStream,

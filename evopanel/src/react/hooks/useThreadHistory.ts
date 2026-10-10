@@ -297,6 +297,22 @@ export function mergeLiveSnapshotRow(rows: DisplayRow[], snapshot: LiveRunSnapsh
       partialDisplaySegments?.length
         ? partialDisplaySegments
         : existing.segments
+    // v5.10 反馈「显示完之后就消失了」：patch 后的 row.text 必须单调增长。
+    // 旧逻辑 text = partialText.slice(dbText.length)（把整轮文本掐成尾窗）会
+    // 直接替换掉已有全文，流式期间表现为文本先显示后消失/只剩尾巴。
+    // 规则：segments 存在时 segments 是正文唯一来源（text 清空避免重复）；
+    // 否则在 existing.text 与 partial_text 之间取「覆盖者最长」的单调合并。
+    const mergedText = (() => {
+      if (partialDisplaySegments?.length) return ''
+      const cur = String(existing.text || '')
+      const inc = String(partialText || '')
+      if (!inc.trim()) return cur
+      const curT = cur.trim()
+      if (!curT) return inc
+      if (inc.startsWith(curT)) return inc
+      if (curT.startsWith(inc.trim())) return cur
+      return `${cur}\n${inc}`
+    })()
     const markIncomplete = incompleteStream || existing.incompleteStream === true
     out[existingIdx] = {
       ...existing,
@@ -306,7 +322,7 @@ export function mergeLiveSnapshotRow(rows: DisplayRow[], snapshot: LiveRunSnapsh
         Array.isArray(existing.tools) ? existing.tools : [],
         newTools,
       ) as DisplayRow['tools'],
-      text: appendText || existing.text || '',
+      text: mergedText || existing.text || '',
       ...(markIncomplete
         ? { incompleteStream: true as const, durationStr: undefined, tokenStr: undefined }
         : {}),
