@@ -178,8 +178,8 @@ export default defineConfig({
       'tests/replay-real-session-tools.test.js',
       'tests/merge-assistant-round3-vanish.test.ts',
       'tests/stream-compare-two-logs.test.ts',
-      'tests/turn-start-ms-lock.test.ts',
-      'tests/right-stage-hide-all.test.ts',
+      // 注：turn-start-ms-lock.test.ts / right-stage-hide-all.test.ts 曾被列入但
+      // 未提交即被并行会话的 git clean 清掉，内容未恢复，暂移出 include。
       'tests/replay-real-run-133609527d1f.test.js',
       'tests/replay-real-run-81320d61e8cc-diag.test.js',
     ],

@@ -121,6 +121,9 @@ export type AgUiToolCall = {
   platformOk?: boolean
   platformSettings?: Record<string, unknown>
   platformClientEffect?: string
+  /** v5.10：UI 侧计时（TOOL_CALL_START / TOOL_CALL_RESULT 到达时刻），透传到 tool entry 供耗时 chip */
+  _uiStartedAtMs?: number
+  _uiEndedAtMs?: number
 }
 
 export type AgUiStep = {
@@ -485,6 +488,8 @@ function toolEntryFromAgUi(tc: AgUiToolCall): Record<string, unknown> {
     _aguiArgsPreview: tc.argsPreview,
     _aguiPhase: tc.phase,
     _aguiTracked: true,
+    ...(tc._uiStartedAtMs != null ? { _uiStartedAtMs: tc._uiStartedAtMs } : {}),
+    ...(tc._uiEndedAtMs != null ? { _uiEndedAtMs: tc._uiEndedAtMs } : {}),
     ...(tc._writeProgress ? { _writeProgress: { ...tc._writeProgress } } : {}),
     ...(tc.platformUi ? { platform_ui: { ...tc.platformUi } } : {}),
     ...(tc.platformAction ? { platform_action: tc.platformAction } : {}),
@@ -901,6 +906,8 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
       argsPreview: prev?.argsPreview || '',
       phase: 'args',
       result: null,
+      // UI 侧计时起点（同批重 START 保留首计时）
+      ...(prev?._uiStartedAtMs != null ? { _uiStartedAtMs: prev._uiStartedAtMs } : { _uiStartedAtMs: Date.now() }),
       // Progress may arrive before START (custom write_file_progress); keep it.
       ...(prev?._writeProgress ? { _writeProgress: { ...prev._writeProgress } } : {}),
     })
@@ -1015,6 +1022,8 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
         delete tc.resultStatus
       }
       tc.phase = 'done'
+      // UI 侧计时终点（RESULT 到达即视为执行完成）
+      if (tc._uiEndedAtMs == null) tc._uiEndedAtMs = Date.now()
       if (truncated) {
         tc.resultTruncated = true
         if (contentBytes != null) tc.resultContentBytes = Number(contentBytes)
