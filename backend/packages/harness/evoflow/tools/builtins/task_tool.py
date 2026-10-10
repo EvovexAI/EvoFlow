@@ -94,6 +94,31 @@ def _merge_collab_subtask_tool_allowlist(
     return merged
 
 
+def _strip_collab_tool_disallow(config_overrides: dict) -> dict:
+    """Collab subtask workers MUST be able to report lifecycle state.
+
+    A role whose ``disallowed_tools`` bans any mandatory collab tool (e.g.
+    ``subtask_outcome_report``) would make task_tool inject the "you must call
+    subtask_outcome_report" mandate into the system prompt while the tool itself
+    is filtered out by SubagentExecutor._filter_tools — the worker can never
+    comply and the subtask falls back to auto-completion without a proper
+    outcome report. Strip such bans here: allowlist intent stays untouched, we
+    only guarantee the mandatory collab surface exists.
+    """
+    disallowed = config_overrides.get("disallowed_tools")
+    if not disallowed:
+        return config_overrides
+    banned_mandatory = [t for t in disallowed if t in _COLLAB_SUBTASK_MANDATORY_TOOLS]
+    if not banned_mandatory:
+        return config_overrides
+    config_overrides["disallowed_tools"] = [t for t in disallowed if t not in _COLLAB_SUBTASK_MANDATORY_TOOLS]
+    logger.warning(
+        "task_tool: stripped banned mandatory collab tools from subtask disallowed_tools: %s",
+        banned_mandatory,
+    )
+    return config_overrides
+
+
 def _resolve_effective_root(project_workspace_path: str | None = None) -> str:
     """Resolve effective root path for uploads/workspace/outputs directories.
 
@@ -982,6 +1007,7 @@ async def task_tool(
         )
         if merged is not None:
             overrides["tools"] = merged
+        _strip_collab_tool_disallow(overrides)
     if max_turns is not None:
         try:
             mt = int(max_turns)
