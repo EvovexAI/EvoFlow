@@ -237,7 +237,7 @@ def build_rollup_subtask_spec(
     validation_items = validation if isinstance(validation, list) else []
     validation_text = "\n".join(f"- {item}" for item in validation_items) if validation_items else "（未设置验收标准）"
 
-    goal_text = "你是这个工作流的收尾汇总员。所有步骤都已完成，请整合所有步骤的产出，生成最终报告并对照验收标准逐项检查。"
+    goal_text = "你是这个工作流的收尾汇总员。所有步骤都已完成，请给出用户可直接使用的最终结论。"
 
     instruction = f"""## 工作流目标
 {goal or "（未填写）"}
@@ -245,18 +245,16 @@ def build_rollup_subtask_spec(
 ## 验收标准
 {validation_text}
 
-## 你的任务
-1. 通读所有上游步骤的任务汇报（已在上下文的 "Upstream dependency output" 部分提供），理解整体产出与各步骤结论
-2. 对照上面的验收标准，逐项判断是否达成（通过 / 部分达成 / 未达成）
-3. 整合所有步骤的产出，生成一份完整的最终汇总报告
-4. 列出所有产出文件（合并各步骤的 outputs）
-5. 给出最终结论：通过 / 有保留通过 / 未通过，并说明理由
+## 你的任务（结果导向，不是再写一份报告）
+1. 通读所有上游步骤的任务汇报（已在上下文的 "Upstream dependency output" 部分提供）
+2. 识别用户的最终交付物：把对用户最有用的结果放在最前面（通常上游最后一步的成品就是答案）
+3. 对照验收标准逐项给出结论（通过 / 部分达成 / 未达成），只列关键保留项或风险，不展开过程复述
 
 ## 输出要求（最后必须调用 subtask_outcome_report）
 - outcome: completed（汇总动作完成，即使部分步骤失败也要输出汇总）
-- summary: 最终结论 + 核心要点（300 字以内，给任务中心列表展示用）
-- task_report: 完整的汇总报告（含验收核对、各步骤摘要、产出清单、最终结论）
-- outputs: 合并所有上游步骤的产出文件列表
+- summary: 最终结论 + 核心要点 + 最终交付物指引（300 字以内，给任务中心列表展示用；直接告诉用户去看哪个文件/结果）
+- task_report: 结论先行——先给最终结论和最终交付物，再用简短分节补充各步骤关键结论；不要复述各步骤全文，不要生成新的独立汇总文档
+- outputs: 只挂最终交付物（用户直接使用的结果文件）。中间过程的审核/分析文件不要重复挂出，它们已经留在各步骤的任务详情里可随时查看
 """
     if custom_instr:
         instruction += f"\n## 自定义补充说明\n{custom_instr}\n"

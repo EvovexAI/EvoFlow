@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { resolveMessageRowIsStreaming } from '../lib/message-row-streaming.js'
+import { resolveMessageRowIsStreaming, shouldDropEmptyStreamPlaceholder } from '../lib/message-row-streaming.js'
 import { MessageRow } from './MessageRow.js'
 import { TurnNavigatorRail } from './TurnNavigatorRail.js'
 import { EvoFlowHomeDashboard } from './EvoFlowHomeDashboard.js'
@@ -925,13 +925,13 @@ export const MessageVirtualList = memo(function MessageVirtualList({
         streamContinuationOpts,
       )
       if (
-        emptyPlaceholder &&
-        last?.role === 'assistant' &&
-        (last.durationStr || last.tokenStr) &&
-        !last.incompleteStream &&
-        !acceptsContinuation
+        shouldDropEmptyStreamPlaceholder(emptyPlaceholder, isSending, last, acceptsContinuation)
       ) {
         // 已落库 assistant 行已显示 token/计时 — 流式 slot 真没新内容了，清理 ref。
+        // 判定逻辑见 shouldDropEmptyStreamPlaceholder：仅 isSending=false（final 后
+        // streamActive grace 残留）时清理；多轮续跑（collab/goal）新一轮 run 开始、
+        // run_started 尚未写 runId 时 acceptsContinuation=false，isSending=true 期间
+        // 必须保持「运行中」骨架，否则新流 placeholder 一闪而过消失，页面回到旧记录。
         lastStreamRowRef.current = null
         return null
       }
