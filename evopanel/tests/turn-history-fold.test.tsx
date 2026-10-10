@@ -288,14 +288,13 @@ describe('TurnHistoryFold v5.2（外层状态条 = 唯一折叠入口，工作�
     // v5.2：默认折叠
     expect(trigger?.getAttribute('aria-expanded')).toBe('false')
     // v5.4：本段 input = reasoning + tools（text 是 sibling chunk 不进 ExploringActivityChunk）。
-    //       折叠时只显示"轮内正文" → 但本 chunk 内没有 text kind 的 piece，
-    //       全部 piece (reasoning + tools) 都是 history → 折叠时整段隐藏。
-    //       视觉上：折叠后用户看到"已工作 9分28秒"标签 + sibling msg-text 段（最终回复）。
+    // v5.10（432d4840）：piece role 全量 latest（v5.5 旧规则下线）——折叠态不再
+    // 只留最后 text，reasoning/tools 也不再标 history；CSS
+    // [data-piece-role=history]{display:none} 逃生口保留但当前无 history piece。
     const historyPieces = document.querySelectorAll('[data-piece-role="history"]')
     const latestPieces = document.querySelectorAll('[data-piece-role="latest"]')
-    expect(historyPieces.length).toBe(2)  // reasoning + tools 都是 history
-    expect(latestPieces.length).toBe(0)   // chunk 内无 text piece
-    // 折叠态下 reasoning + tools (ls) 都 CSS 隐藏
+    expect(historyPieces.length).toBe(0)  // 不再产生 history piece
+    expect(latestPieces.length).toBe(2)   // reasoning + tools 都是 latest
     const allText = document.body.textContent || ''
     // 展开
     fireEvent.click(trigger as HTMLElement)
@@ -399,17 +398,16 @@ describe('TurnHistoryFold v5.2（外层状态条 = 唯一折叠入口，工作�
     )
     const trigger = screen.queryByTestId('chat-assistant-history-trigger-msg_v5_5')
     expect(trigger?.getAttribute('aria-expanded')).toBe('false')
-    // v5.5：plan 切分后 ExploringActivityChunk 收到 5 段（3 tools + 2 text）
-    // 5 段中：3 tools + 1 中间 text = 4 history；1 最后 text = 1 latest
+    // v5.10（432d4840）：piece role 全量 latest（v5.5「只有最后 1 段 text 外露」
+    // 旧规则下线）——chunk 内所有 piece（2 tools + 中间 text）都标 latest，
+    // 不再产生 history piece。
     const historyPieces = document.querySelectorAll('[data-piece-role="history"]')
     const latestPieces = document.querySelectorAll('[data-piece-role="latest"]')
-    // 实际 chunk 切分由 plan 决定。1 text piece 总是 last text → 1 latest。
-    // history 数量 = ExploringActivityChunk 内所有非 last text piece。
-    expect(latestPieces.length).toBe(1)
-    expect(historyPieces.length).toBeGreaterThanOrEqual(2)  // 至少 2 tools
-    // 验证 latest 容器内是"第一段正文"（这 chunk 内唯一 text）
-    const latestText = latestPieces[0]?.textContent || ''
-    expect(latestText).toContain('第一段正文')
+    expect(historyPieces.length).toBe(0)
+    expect(latestPieces.length).toBe(3)  // 2 tools + 1 中间 text
+    // 正文（第一段正文）仍在 latest piece 里可见
+    const allLatestText = Array.from(latestPieces).map((p) => p.textContent || '').join('\n')
+    expect(allLatestText).toContain('第一段正文')
     // 展开
     fireEvent.click(trigger as HTMLElement)
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
