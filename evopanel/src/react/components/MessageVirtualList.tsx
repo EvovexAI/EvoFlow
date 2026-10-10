@@ -33,6 +33,7 @@ import { HISTORY_FLAT_LIST_MAX_ROWS, shouldPrefetchOlderHistory } from '../hooks
 import { historyItemStableKey } from '../lib/history-row-stable-key.js'
 import { installMessageListDebugGlobal } from '../../lib/message-list-debug.js'
 import { streamRefHasVisibleContent } from '../lib/stream-state.js'
+import { logStreamCompareVisualMirror } from '../lib/stream-compare-file-log.js'
 import {
   SCROLL_EDGE_SLACK,
   isFoldInducedScrollAway,
@@ -888,6 +889,28 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   }
   const streamContinuesAssistant =
     showStreamSlot && continuationTargetIndex >= 0 && !!continuationTargetRow
+  // [merge-probe] v5.10 流式不丝滑排查：合并态为何关闭（临时探针，走 visual-mirror；2s 心跳防去重）
+  if (rawStreamActive) {
+    const probe = [
+      `MERGE-PROBE t${Math.floor(Date.now() / 2000) % 100000}`,
+      `merge=${streamContinuesAssistant ? 1 : 0}`,
+      `showStreamSlot=${showStreamSlot ? 1 : 0}`,
+      `targetIdx=${continuationTargetIndex}`,
+      `rowIncomplete=${continuationTargetRow ? String(continuationTargetRow.incompleteStream === true) : 'n/a'}`,
+      `rowRun=${String(continuationTargetRow?.runId || '').slice(-12) || 'n/a'}`,
+      `liveRun=${streamRunId.slice(-12) || 'n/a'}`,
+      `lastRole=${String(lastHistoryRow?.role || 'n/a')}`,
+      `streamRunIdRaw=${String(streamRef.current?.runId || '').slice(-12) || 'empty'}`,
+    ].join(' ')
+    logStreamCompareVisualMirror({
+      sessionKey: sessionKeyForSend,
+      runId: streamRunId || undefined,
+      foldOpen: streamContinuesAssistant,
+      head: probe,
+      gear: 'off',
+      chunks: [],
+    })
+  }
   /**
    * 上一帧的 streamRow 记忆。streamRow 抖动场景：当 built.text 暂时为空但 streamActive 仍在时，
    * useMemo 会先返回 null 再变 object，导致 streamContinuedRowIndex 在 -1 / rows.length-1

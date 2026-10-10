@@ -14584,23 +14584,42 @@ export default function ChatApp() {
 
   // 自愈：SSE 会话变更事件偶尔丢失（窗口假死/后台标签错过推送）会让会话列表停在旧状态。
   // 窗口重新聚焦或每 60s 轻量刷新一次会话列表，保证列表最终一致。
+  // v5.10：选中的会话本地仍在流式时跳过单会话刷新 —— 该刷新走 dbOnly 强制重载，
+  // 会把 live 视图（pin 行 + 合并态）替换成 DB 视图，用户看到「最新内容消失」；
+  // 流式期间的 live 视图本就是最新数据，无需 DB 对账。
   useEffect(() => {
     let disposed = false
     const heal = () => {
       if (disposed) return
       void onShellRefreshSessionList().catch(() => {})
     }
+    const healSelectedSession = () => {
+      const sel = sessionRef.current
+      if (!sel) {
+        heal()
+        return
+      }
+      // 会话列表始终刷（轻量）；单会话对账仅在非流式时执行
+      void refreshSessionsRef.current?.().catch(() => {})
+      try {
+        const rt = getSessionRuntime(sel)
+        if (isSessionRuntimeLive(rt) || turnBusyForSession(sel)) return
+      } catch {
+        /* store 不可达时按原行为刷新 */
+      }
+      void runShellSessionRefreshRef.current?.(sel).catch(() => {})
+    }
     const onFocus = () => {
-      heal()
+      healSelectedSession()
     }
     window.addEventListener('focus', onFocus)
-    const timer = window.setInterval(heal, 60_000)
+    const timer = window.setInterval(healSelectedSession, 60_000)
     return () => {
       disposed = true
       window.removeEventListener('focus', onFocus)
       window.clearInterval(timer)
     }
-  }, [onShellRefreshSessionList])
+  }, [])
 
   const onShellStopSession = useCallback(async (k: string) => {
     setMoreMenuKey(null)

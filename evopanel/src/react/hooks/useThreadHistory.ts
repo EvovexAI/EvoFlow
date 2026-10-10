@@ -646,7 +646,10 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         }
 
         if (soft && rowsRef.current.length) {
-          mergedRows = mergeSoftHistoryFetch(rowsRef.current, mergedRows)
+          const storeLiveNow = meta?.getLive?.() ?? null
+          mergedRows = mergeSoftHistoryFetch(rowsRef.current, mergedRows, {
+            keepStreamPin: !!(storeLiveNow?.live || meta?.liveSending),
+          })
         }
         mergedRows = collapseSameTurnAssistantsInRows(mergedRows)
 
@@ -662,7 +665,11 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
 
         const metaLive = liveRef.current
         const storeLive = metaLive?.getLive?.() ?? null
-        if (!dbOnly && !dbTerminal && storeLive?.live && storeLive.rows.length) {
+        // v5.10：本地仍在流式（storeLive.live）时，无论 dbOnly 与否都不得用 DB 视图
+        // 覆盖 live 视图 —— 60s 会话列表自愈（heal → shell session refresh →
+        // dbOnly reload）曾借 !dbOnly 豁免走进 setRows(mergedRows)，把 pin 行和
+        // 合并态打掉，用户看到「最新内容消失 + 折叠收起」，下个 SSE 帧才恢复。
+        if (!dbTerminal && storeLive?.live && storeLive.rows.length) {
           setRows(storeLive.rows)
           return { rows: mergedRows, transcriptAnchor }
         }
