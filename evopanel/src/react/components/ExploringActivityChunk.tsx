@@ -233,20 +233,14 @@ function ExploringActivityChunkInner({
     return (
       <div className="msg-tool-activity-fold-inner">
         {(() => {
-          // v5.5 反馈：用户期望"折叠后只显示最新正文"，不是所有 text 都显示。
-          //   - 只有"最后一个 text piece"是 latest（永远显示）
-          //   - 前面所有 text piece + 所有 tools + 所有 reasoning = history（折叠时藏）
-          // 例：chunk 顺序 = tools / text① / tools / text② / tools / text③（最新）
-          //   → text① text② 都是 history，text③ 是 latest。
-          let lastTextPieceIndex = -1
-          pieces.forEach((p, i) => {
-            if (p.kind === 'text') lastTextPieceIndex = i
-          })
+          // 2026-10-10 反馈：v5.5「只留最后 text」体验割裂（折叠后只剩 1 段、其它全藏），
+          //   改为「折叠态全量显示」：所有 piece 标 latest，CSS 折叠时不再按 role 隐藏。
+          //   仍是 v5.4 单一折叠入口（外层 TurnHistoryFold 头部），不引入二级折叠。
+          //   注：CSS 仍保留 `[data-piece-role="history"] { display: none }` 规则作
+          //   「有显式 history 时仍可隐藏」逃生口；之后如要重新启用 v5.5 行为，
+          //   把这里改回「仅 last text → latest，其余 → history」即可。
           return pieces.map((piece, pi) => {
-            const role: 'latest' | 'history' =
-              piece.kind === 'text' && pi === lastTextPieceIndex
-                ? 'latest'
-                : 'history'
+            const role: 'latest' | 'history' = 'latest'
             const inner = renderPiece(piece, pi)
             if (inner == null) return null
             return (

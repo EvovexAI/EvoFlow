@@ -147,6 +147,7 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
       <MemoMessageRow
         row={item.row}
         isStreaming={isContinuedStream}
+        threadBusy={isSending}
         showToolTiming
         onOpenFile={onOpenFile}
         onOpenKnowledgeMap={onOpenKnowledgeMap}
@@ -2179,6 +2180,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
             <MemoMessageRow
               row={streamRow}
               isStreaming
+              threadBusy={streamActive}
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}
               showToolTiming
