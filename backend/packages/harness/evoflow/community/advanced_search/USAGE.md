@@ -405,7 +405,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 - [高级搜索设计文档](../../../advanced-search-design.md)
 - [配置示例](./config.example.yaml)
-- [源代码](./tools.py)
+- [源代码](./tools_fast_v2.py)
 
 ---
 
