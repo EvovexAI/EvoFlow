@@ -1,6 +1,6 @@
 # 桌面端 GUI 截图资源
 
-供根目录 [README.md](../../README.md)（中文主页）/ [README.en.md](../../README.en.md) 引用。
+供根目录 [README.md](../../README.md)（中文主页）/ [README.en.md](../../../README.en.md) 引用。
 
 **原则：** 截图必须对应当前 EvoPanel 侧栏与设置中心；过时图宁可不挂，也不要继续用旧「应用中心 / 顶栏模型页」画面误导用户。
 
