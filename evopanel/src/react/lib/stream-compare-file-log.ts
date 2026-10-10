@@ -330,8 +330,11 @@ export function logStreamCompareVisualMirror(opts: {
     }
   }
 
-  // sig = 整个页面的文本指纹
-  const sig = lines.join('\n')
+  // sig = 整个页面的文本指纹（head 行模糊化"工作中 Ns" / "已工作 Nm" → "工作中" / "已工作"，
+  // 这样同分钟内 DOM 内容不变时 sig 一致 → 跳过写盘；不丢信息，因为变化会被 fold/gear 或
+  // 下方 piece 行的变化触发）。
+  const sigHead = lines[0].replace(/工作中\s+\S+/g, '工作中').replace(/已工作\s+\S+/g, '已工作')
+  const sig = sigHead + '\n' + lines.slice(1).join('\n')
   const lastSig = visualMirrorLastSigByRun.get(target.dedupeKey)
   if (sig === lastSig) return // 完全没变 → 跳过（避免每 0.5s 重写同样内容）
   visualMirrorLastSigByRun.set(target.dedupeKey, sig)
