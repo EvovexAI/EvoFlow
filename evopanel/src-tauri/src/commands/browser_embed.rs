@@ -29,6 +29,13 @@ pub use super::browser_cdp::CdpBrokerState;
 #[cfg(target_os = "windows")]
 use super::browser_cdp_server;
 
+/// Non-Windows builds: the inline `mod browser_cdp` below defines the broker
+/// state in this file. Re-export it so the rest of `browser_embed` (and
+/// `commands::browser_embed::CdpBrokerState` lookups via `app.state::<...>`)
+/// can use the same path on every platform.
+#[cfg(not(target_os = "windows"))]
+pub use self::browser_cdp::CdpBrokerState;
+
 /// Non-Windows builds have no WebView2 COM channel. The broker still compiles so
 /// the shared WebSocket plumbing stays honest, but nothing ever attaches to it.
 #[cfg(not(target_os = "windows"))]
@@ -59,8 +66,6 @@ mod browser_cdp {
     ) -> Result<String, String> {
         Err("embedded browser requires WebView2 on Windows".into())
     }
-
-    pub use CdpBrokerState;
 }
 
 /// One attached Playwright client, kept alive for the webview's lifetime.
@@ -881,6 +886,13 @@ pub async fn browser_embed_upsert(
     width: f64,
     height: f64,
 ) -> Result<BrowserEmbedInfo, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, state, thread_id, url, x, y, width, height);
+        return Err("Embedded browser panel is only supported on Windows WebView2 builds".into());
+    }
+    #[cfg(target_os = "windows")]
+    {
     let key = sanitize_thread_key(&thread_id);
     let label = webview_label_for_thread(&thread_id);
     eprintln!(
@@ -1141,6 +1153,7 @@ pub async fn browser_embed_upsert(
         cdp_url: cdp_ws_url,
         embed: true,
     })
+    } // cfg(target_os = "windows") for browser_embed_upsert body
 }
 
 #[tauri::command]
@@ -1152,47 +1165,58 @@ pub async fn browser_embed_set_bounds(
     width: f64,
     height: f64,
 ) -> Result<(), String> {
-    let label = webview_label_for_thread(&thread_id);
-    let Some(window) = app.get_webview_window(&label) else {
-        // Bounds tracking fires on every panel move. A missing window here means
-        // the embed was closed underneath us — swallowing that as success is
-        // what let a dead window look like a healthy one.
-        eprintln!("[browser-embed] set_bounds SKIPPED: window {label} not found");
-        return Ok(());
-    };
-    let (screen_x, screen_y) = client_to_screen(&app, x, y)?;
-    // Same reuse hazard as `browser_embed_upsert`: bounds tracking runs on every
-    // panel move/resize, and a window that is hidden or mid-teardown accepts
-    // `set_position`/`set_size` without painting anything. Make it visible before
-    // placing it, so a bounds sync can never leave a live-but-invisible window.
-    let _ = window.show();
-    let _ = window.unminimize();
-    window
-        .set_position(LogicalPosition::new(screen_x, screen_y))
-        .map_err(|e| format!("position embedded browser failed: {e}"))?;
-    window
-        .set_size(LogicalSize::new(width.max(120.0), height.max(80.0)))
-        .map_err(|e| format!("resize embedded browser failed: {e}"))?;
-    // Bounds tracking runs on every pointer move, so reporting state each time
-    // would bury everything else. Only speak up when the outcome is wrong or
-    // when the window did not take the size it was just given — the second case
-    // is the signature of a dying HWND.
-    let (visible, minimized) = (
-        window.is_visible().unwrap_or(false),
-        window.is_minimized().unwrap_or(false),
-    );
-    let want = (width.max(120.0) as u32, height.max(80.0) as u32);
-    let got = window.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0));
-    if !visible || minimized || got != want {
-        log_window_state(&window, "set_bounds");
-        if visible && !minimized && got != want {
-            eprintln!(
-                "[browser-embed] set_bounds MISMATCH label={label} want={}x{} got={}x{} — window did not accept the resize",
-                want.0, want.1, got.0, got.1
-            );
-        }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, thread_id, x, y, width, height);
+        return Err("Embedded browser panel is only supported on Windows WebView2 builds".into());
     }
-    Ok(())
+    #[cfg(target_os = "windows")]
+    {
+        let label = webview_label_for_thread(&thread_id);
+        let Some(window) = app.get_webview_window(&label) else {
+            // Bounds tracking fires on every panel move. A missing window here means
+            // the embed was closed underneath us — swallowing that as success is
+            // what let a dead window look like a healthy one.
+            eprintln!("[browser-embed] set_bounds SKIPPED: window {label} not found");
+            return Ok(());
+        };
+        let (screen_x, screen_y) = client_to_screen(&app, x, y)?;
+        // Same reuse hazard as `browser_embed_upsert`: bounds tracking runs on every
+        // panel move/resize, and a window that is hidden or mid-teardown accepts
+        // `set_position`/`set_size` without painting anything. Make it visible before
+        // placing it, so a bounds sync can never leave a live-but-invisible window.
+        let _ = window.show();
+        let _ = window.unminimize();
+        window
+            .set_position(LogicalPosition::new(screen_x, screen_y))
+            .map_err(|e| format!("position embedded browser failed: {e}"))?;
+        window
+            .set_size(LogicalSize::new(width.max(120.0), height.max(80.0)))
+            .map_err(|e| format!("resize embedded browser failed: {e}"))?;
+        // Bounds tracking runs on every pointer move, so reporting state each time
+        // would bury everything else. Only speak up when the outcome is wrong or
+        // when the window did not take the size it was just given — the second case
+        // is the signature of a dying HWND.
+        let (visible, minimized) = (
+            window.is_visible().unwrap_or(false),
+            window.is_minimized().unwrap_or(false),
+        );
+        let want = (width.max(120.0) as u32, height.max(80.0) as u32);
+        let got = window
+            .inner_size()
+            .map(|s| (s.width, s.height))
+            .unwrap_or((0, 0));
+        if !visible || minimized || got != want {
+            log_window_state(&window, "set_bounds");
+            if visible && !minimized && got != want {
+                eprintln!(
+                    "[browser-embed] set_bounds MISMATCH label={label} want={}x{} got={}x{} — window did not accept the resize",
+                    want.0, want.1, got.0, got.1
+                );
+            }
+        }
+        Ok(())
+    } // cfg(target_os = "windows") for browser_embed_set_bounds body
 }
 
 /// Poll `WebviewWindow::with_webview` until its closure runs, indicating the
@@ -1209,6 +1233,7 @@ pub async fn browser_embed_set_bounds(
 /// On a fresh window this typically takes 1–5 s; on a busy system (first
 /// WebView2 ever created in the process, antivirus in the loop) it has
 /// been observed at 10–15 s. 60 s is the upper bound before we give up.
+#[cfg(target_os = "windows")]
 fn wait_webview2_ready(win: &WebviewWindow, label: &str) {
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut last_progress = std::time::Instant::now();
@@ -1297,6 +1322,7 @@ fn wait_webview2_ready(win: &WebviewWindow, label: &str) {
 ///
 /// Cheap enough to call on every upsert and bounds sync — it reads cached
 /// wrapper state, it does not round-trip to the compositor.
+#[cfg(target_os = "windows")]
 fn log_window_state(win: &WebviewWindow, phase: &str) {
     let visible = win.is_visible().unwrap_or_else(|e| {
         eprintln!("[browser-embed] {phase} is_visible() error: {e}");
@@ -1331,6 +1357,7 @@ fn log_window_state(win: &WebviewWindow, phase: &str) {
 /// content box. `WebviewWindow::position` interprets its arguments in screen
 /// coordinates, so passing the former straight through drops the embedded window
 /// at the top-left of the desktop — visible as a stray unstyled white panel.
+#[cfg(target_os = "windows")]
 fn client_to_screen(app: &tauri::AppHandle, x: f64, y: f64) -> Result<(f64, f64), String> {
     let parent = app
         .get_webview_window("main")
