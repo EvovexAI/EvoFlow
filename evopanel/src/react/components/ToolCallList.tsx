@@ -872,25 +872,23 @@ function ToolCallListInner({
         seenFilter.add(id)
         orderedIds.push(id)
       }
+      // v5.11 修复「4 个滑动窗口」bug：原实现「filter(Boolean) skip 找不到的 id → 只有 next.length===0
+      //   才造 stub」，导致 row.tools 只含当前 batch 的 4 个 id 时，老 id 全部消失。
+      //   修：每个 id 都尝试 resolve，找不到则造 stub（与原本 all-stub 路径同款），保证 filterIds 顺序全渲染。
       next = dedupeToolsByCallId(
-        orderedIds.map((fid) => resolveFilteredTool(fid)).filter(Boolean) as unknown[],
+        orderedIds.map((fid) => {
+          const hit = resolveFilteredTool(fid)
+          if (hit) return hit
+          return {
+            id: fid,
+            tool_call_id: fid,
+            name: '工具',
+            status: isStreaming ? 'running' : 'completed',
+            _streamToolPending: isStreaming,
+            _filterIdStub: !isStreaming,
+          }
+        }) as unknown[],
       )
-      if (!next.length) {
-        next = orderedIds
-          .map((fid) => {
-            const hit = resolveFilteredTool(fid)
-            if (hit) return hit
-            return {
-              id: fid,
-              tool_call_id: fid,
-              name: '工具',
-              status: isStreaming ? 'running' : 'completed',
-              _streamToolPending: isStreaming,
-              _filterIdStub: !isStreaming,
-            }
-          })
-          .filter(Boolean) as unknown[]
-      }
     }
     return next
   }, [tools, filterIds, isStreaming])
