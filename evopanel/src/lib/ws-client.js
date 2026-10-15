@@ -181,7 +181,11 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
     const name = String(data.name || '')
     const value = data.value
     if (name === 'display_segments' && Array.isArray(value) && value.length) {
-      lane.authoritativeDisplaySegments = value
+      // 后端 block ledger 派生可能缺 pending ToolMessage 的 tools 段,补齐(审批卡住 bug)。
+      lane.authoritativeDisplaySegments = ensurePendingApprovalToolsSegments(
+        value,
+        lane.aguiMessagesSnapshot,
+      )
       flushFinalAfterAgUiEvent = true
       sfLog('agui-wire display_segments', {
         sessionKey: key,
@@ -4016,6 +4020,20 @@ function finalTextFromDisplaySegments(segs) {
   return mergeTurnAssistantTextsForDisplay(parts)
 }
 
+/** 解析工具结果内容里的 ``_evoflow_tool`` 信封状态；非信封返回 null。 */
+function parseToolApprovalEnvelopeStatus(content) {
+  const t = String(content || '').trim()
+  if (!t || t[0] !== '{') return null
+  try {
+    const obj = JSON.parse(t)
+    const meta = obj && typeof obj === 'object' ? obj._evoflow_tool : null
+    const st = meta && typeof meta === 'object' ? String(meta.status || '').trim().toLowerCase() : ''
+    return st || null
+  } catch {
+    return null
+  }
+}
+
 export function agUiDisplaySegmentsFromMessagesSnapshot(messages) {
   if (!Array.isArray(messages) || !messages.length) return []
   const segs = []
@@ -4027,13 +4045,26 @@ export function agUiDisplaySegmentsFromMessagesSnapshot(messages) {
     const role = String(msg.role || '').trim().toLowerCase()
     const content = String(msg.content || '').trim()
     const toolCalls = msg.toolCalls || msg.tool_calls
-    if (!id) continue
-
-    // role:tool rows are tool results — never assistant body text
-    if (role === 'tool' || role === 'toolresult' || role === 'tool_result') continue
-
     const wireSeq =
       typeof msg.seq === 'number' && Number.isFinite(msg.seq) ? msg.seq : null
+    if (!id) continue
+
+    // role:tool rows are tool results — never assistant body text.
+    // 授权挂起例外:审批暂停时 pending ToolMessage 是独立的 role:tool 行
+    // (assistant 快照消息不带 tool_calls),必须产出 tools 段,否则 final
+    // 落行后审批卡片会从实时视图消失(工具审批卡住 bug,2026-10-15)。
+    if (role === 'tool' || role === 'toolresult' || role === 'tool_result') {
+      if (parseToolApprovalEnvelopeStatus(content) === 'pending_approval') {
+        const tcId = String(msg.toolCallId || msg.tool_call_id || '').trim()
+        if (tcId) {
+          const seq = wireSeq ?? ++fallbackSeq
+          fallbackSeq = Math.max(fallbackSeq, seq)
+          segs.push({ id, seq, kind: 'tools', ids: [tcId], block_kind: 'tools', blockKind: 'tools' })
+        }
+      }
+      continue
+    }
+
     const blockKindRaw = String(msg.blockKind || msg.block_kind || '').trim()
 
     if (Array.isArray(toolCalls) && toolCalls.length) {
@@ -4061,6 +4092,72 @@ export function agUiDisplaySegmentsFromMessagesSnapshot(messages) {
     }
   }
   return segs.sort((a, b) => (a?.seq ?? 0) - (b?.seq ?? 0))
+}
+
+/** 从快照消息提取 pending-approval 工具行（tool_call_id + seq）。 */
+function pendingApprovalToolRowsFromSnapshot(messages) {
+  if (!Array.isArray(messages)) return []
+  const rows = []
+  for (const msg of messages) {
+    if (!msg || typeof msg !== 'object') continue
+    const role = String(msg.role || '').trim().toLowerCase()
+    if (role !== 'tool' && role !== 'toolresult' && role !== 'tool_result') continue
+    if (parseToolApprovalEnvelopeStatus(msg.content) !== 'pending_approval') continue
+    const tcId = String(msg.toolCallId || msg.tool_call_id || '').trim()
+    if (tcId) {
+      rows.push({
+        tcId,
+        seq: typeof msg.seq === 'number' && Number.isFinite(msg.seq) ? msg.seq : null,
+        msgId: String(msg.id || '').trim(),
+      })
+    }
+  }
+  return rows
+}
+
+/**
+ * 保证权威显示段包含审批挂起的工具段。
+ *
+ * 后端 ``display_segments``（block ledger 派生）与旧版快照派生都可能缺
+ * pending ToolMessage 的 tools 段——缺了它，final 落行后审批卡片从实时
+ * 视图消失，用户无按钮可点（工具审批卡住 bug，2026-10-15）。
+ * 按 seq 有序插入，已覆盖的 tool_call_id 不重复。
+ */
+export function ensurePendingApprovalToolsSegments(segments, snapshotMessages) {
+  const list = Array.isArray(segments) ? segments : []
+  const rows = pendingApprovalToolRowsFromSnapshot(snapshotMessages)
+  if (!rows.length) return list
+  const covered = new Set()
+  for (const s of list) {
+    if (s && s.kind === 'tools' && Array.isArray(s.ids)) {
+      for (const x of s.ids) covered.add(String(x))
+    }
+  }
+  const missing = rows.filter((r) => !covered.has(r.tcId))
+  if (!missing.length) return list
+  let maxSeq = 0
+  for (const s of list) {
+    const q = Number(s && s.seq)
+    if (Number.isFinite(q) && q > maxSeq) maxSeq = q
+  }
+  const out = [...list]
+  for (const r of missing) {
+    const seg = {
+      id: r.msgId || `pending-approval-${r.tcId}`,
+      seq: r.seq != null ? r.seq : maxSeq + 0.5,
+      kind: 'tools',
+      ids: [r.tcId],
+      block_kind: 'tools',
+      blockKind: 'tools',
+    }
+    let at = out.length
+    if (r.seq != null) {
+      at = out.findIndex((s) => Number(s && s.seq) > r.seq)
+      if (at < 0) at = out.length
+    }
+    out.splice(at, 0, seg)
+  }
+  return out
 }
 
 function clearAgUiDeferredStreamFinalTimer(lane) {

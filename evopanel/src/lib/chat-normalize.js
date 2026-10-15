@@ -789,6 +789,14 @@ export const CHAT_PANEL_HIDDEN_TOOL_NAMES = new Set([
 /** 主气泡不展示（侧栏 / 专用 UI）；SSE 与 DB 历史均适用。 */
 export function toolOmitFromChatPanel(tool) {
   if (!tool || typeof tool !== 'object') return true
+  // 授权入口必须始终可见:pending 工具是审批卡的唯一载体,任何名称退化
+  // (管道中 name 退化为通用名 "tool")都不得把它从聊天面板滤掉,
+  // 否则用户没有可点击的批准按钮(工具审批卡住 bug,2026-10-15)。
+  const st = String(tool.status || '').trim().toLowerCase()
+  if (st === 'pending_approval') return false
+  if (st !== 'pending_approval' && envelopeStatusFromToolOutput(tool.output) === 'pending_approval') {
+    return false
+  }
   const n = String(resolveEffectiveToolName(tool) || '').trim().toLowerCase()
   if (!n || n === 'tool') return true
   if (n.startsWith('scheduler:')) return true

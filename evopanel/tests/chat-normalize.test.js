@@ -116,6 +116,23 @@ describe('toolOmitFromChatPanel (chat bubble denylist)', () => {
     expect(toolOmitFromChatPanel({ name: 'create_agent' })).toBe(false)
     expect(toolOmitFromChatPanel({ name: 'update_agent' })).toBe(false)
   })
+  it('never hides pending_approval tools (approval card must stay visible)', () => {
+    // 工具审批卡住 bug(2026-10-15):提交行工具名在管道中退化为通用名 "tool",
+    // denylist 把 pending 工具从聊天面板滤掉 → 审批卡消失,用户无按钮可点。
+    // 授权入口是必须可见的交互面,任何名称退化都不得隐藏它。
+    expect(
+      toolOmitFromChatPanel({ name: 'tool', status: 'pending_approval', tool_call_id: 'c1' }),
+    ).toBe(false)
+    expect(
+      toolOmitFromChatPanel({
+        name: 'tool',
+        status: 'pending_approval',
+        output: JSON.stringify({ _evoflow_tool: { status: 'pending_approval' } }),
+      }),
+    ).toBe(false)
+    // 非 pending 的通用名工具仍照旧隐藏
+    expect(toolOmitFromChatPanel({ name: 'tool' })).toBe(true)
+  })
   it('hides scheduler internal tools and prefetch reads', () => {
     expect(toolOmitFromChatPanel({ name: 'scheduler:post_search_read' })).toBe(true)
     expect(

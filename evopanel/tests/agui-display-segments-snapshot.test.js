@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { agUiDisplaySegmentsFromMessagesSnapshot } from '../src/lib/ws-client.js'
+import {
+  agUiDisplaySegmentsFromMessagesSnapshot,
+  ensurePendingApprovalToolsSegments,
+} from '../src/lib/ws-client.js'
+
+function pendingApprovalEnvelope(toolCallId, toolName = 'terminal') {
+  return JSON.stringify({
+    _evoflow_tool: { status: 'pending_approval' },
+    message: `[pending_approval] ${toolName}（…）尚未执行，等待用户授权。`,
+    approval: { title: '需要您的授权', tool_name: toolName, tool_call_id: toolCallId, risk: 'confirm' },
+  })
+}
 
 describe('agUiDisplaySegmentsFromMessagesSnapshot', () => {
   it('maps reasoning and assistant text in order', () => {
@@ -58,5 +69,59 @@ describe('agUiDisplaySegmentsFromMessagesSnapshot', () => {
     ])
     expect(segs.map((s) => s.kind)).toEqual(['tools', 'text', 'tools', 'text'])
     expect(segs.filter((s) => s.kind === 'tools')).toHaveLength(2)
+  })
+
+  it('emits a tools segment for a pending-approval tool row (approval hold)', () => {
+    // 复现审批卡住:快照 assistant 消息不带 toolCalls,pending ToolMessage 是独立 role:tool 行。
+    // 该行必须产出 tools 段,否则 final 落行后审批卡片从实时视图消失。
+    const segs = agUiDisplaySegmentsFromMessagesSnapshot([
+      { id: 'r1', role: 'reasoning', content: 'think' },
+      { id: 'ai1', role: 'assistant', content: '' },
+      { id: 'c9-result', role: 'tool', toolCallId: 'c9', content: pendingApprovalEnvelope('c9') },
+    ])
+    expect(segs.map((s) => s.kind)).toEqual(['reasoning', 'tools'])
+    expect(segs[1]).toMatchObject({ kind: 'tools', ids: ['c9'] })
+  })
+
+  it('still skips non-pending role:tool rows (result JSON must not leak)', () => {
+    const toolResult = JSON.stringify({ status: 'ok', output: '2026-10-15' })
+    const segs = agUiDisplaySegmentsFromMessagesSnapshot([
+      { id: 'ai1', role: 'assistant', content: '' },
+      { id: 'c1-result', role: 'tool', toolCallId: 'c1', content: toolResult },
+    ])
+    expect(segs).toEqual([])
+  })
+})
+
+describe('ensurePendingApprovalToolsSegments', () => {
+  it('inserts pending tools segment into backend display_segments by seq', () => {
+    const segs = ensurePendingApprovalToolsSegments(
+      [
+        { id: 'r1', seq: 1, kind: 'reasoning', text: 'think' },
+        { id: 'b1', seq: 3, kind: 'text', text: 'body' },
+      ],
+      [{ id: 'c9-result', role: 'tool', toolCallId: 'c9', seq: 2, content: pendingApprovalEnvelope('c9') }],
+    )
+    expect(segs.map((s) => s.kind)).toEqual(['reasoning', 'tools', 'text'])
+    expect(segs[1]).toMatchObject({ kind: 'tools', ids: ['c9'] })
+  })
+
+  it('does not duplicate when a tools segment already covers the id', () => {
+    const segs = ensurePendingApprovalToolsSegments(
+      [{ id: 't-slot', seq: 1, kind: 'tools', ids: ['c9'] }],
+      [{ id: 'c9-result', role: 'tool', toolCallId: 'c9', content: pendingApprovalEnvelope('c9') }],
+    )
+    expect(segs).toHaveLength(1)
+  })
+
+  it('returns segments unchanged when snapshot is missing or has no pending rows', () => {
+    const segs = [{ id: 'b1', seq: 1, kind: 'text', text: 'body' }]
+    expect(ensurePendingApprovalToolsSegments(segs, null)).toBe(segs)
+    expect(
+      ensurePendingApprovalToolsSegments(
+        segs,
+        [{ id: 'c1-result', role: 'tool', toolCallId: 'c1', content: JSON.stringify({ status: 'ok' }) }],
+      ),
+    ).toBe(segs)
   })
 })

@@ -66,6 +66,7 @@ export default defineConfig({
       'tests/workspace-html-preview.test.js',
       'tests/tool-approval.test.js',
       'tests/tool-approval-panel.test.tsx',
+      'tests/tool-call-list-live-approval.test.tsx',
       'tests/plan-exec-ui.test.js',
       'tests/collab-sidebar-tools.test.js',
       'tests/plan-pipeline.test.js',
