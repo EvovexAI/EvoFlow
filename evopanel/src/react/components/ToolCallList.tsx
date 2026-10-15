@@ -763,7 +763,7 @@ function ToolCallListInner({
   planExecConfirm,
   onToolApproval,
   toolApprovalBusy,
-  /** 仅当前可操作轮次为 true；历史落库轮次只显示「曾待授权」摘要 */
+  /** 仅当前可操作轮次为 true；历史落库轮次只显示「等待授权」摘要 */
   interactiveToolApproval = true,
   variant = 'default',
   hideSubagentInnerTools = false,
@@ -1497,7 +1497,7 @@ function ToolCallListInner({
             }
             return '生成参数中…'
           }
-          if (pendingApproval && !showInteractiveApproval) return '曾待授权，未执行'
+          if (pendingApproval && !showInteractiveApproval) return '等待授权，未执行'
           if (pendingApproval && showInteractiveApproval) {
             const sum = String(approvalMeta?.summary || '').trim()
             if (sum) return briefFull(sum)

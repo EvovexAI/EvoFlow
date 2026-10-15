@@ -18618,7 +18618,7 @@ html.dark .msg-tool-activity-fold-steps {
 /* 对话结束后折叠态：隐藏思考块和工具列表，只显示正文（plain-body/live-tail/legacy-body）。
    bodyAlwaysRendered=true 保证 body 在 DOM（展开不闪烁），由 CSS 控制可见性。
    豁免：待授权工具及其内联审批面板必须始终可见 —— 授权暂停时流已停，自动折叠
-   会把唯一可操作的审批入口一起藏掉，工具永远卡在「曾待授权，未执行」。 */
+   会把唯一可操作的审批入口一起藏掉，工具永远卡在「等待授权，未执行」。 */
 .msg-turn-history-fold[data-history-open="false"] .react-chat-inline-reasoning,
 .msg-turn-history-fold[data-history-open="false"]
   .msg-tool.react-msg-tool:not(:has(.msg-tool-entry--awaiting-approval)):not(
