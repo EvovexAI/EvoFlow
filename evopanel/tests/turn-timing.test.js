@@ -3,8 +3,10 @@ import {
   computeTurnElapsedSec,
   formatTurnDurationStr,
   formatTurnElapsedSuffix,
+  formatWorkedHeadLabel,
   isTurnTimingLive,
   parseTurnTimestampMs,
+  resolveStreamTailLabel,
   resolveTurnDurationLabel,
   resolveTurnStartMs,
   stripTurnDurationSuffix,
@@ -125,5 +127,41 @@ describe('turn-timing', () => {
         currentTurnEndedAt: '2026-06-23T10:00:45.000Z',
       }),
     ).toBe(false)
+  })
+})
+
+describe('formatWorkedHeadLabel（折叠头带最后一步）', () => {
+  it('已工作时长 + 最后一步文案', () => {
+    expect(formatWorkedHeadLabel('11m29s', '执行工具 web_search')).toBe(
+      '已工作 11 分 29 秒 · 执行工具 web_search',
+    )
+  })
+
+  it('无最后一步时退回纯「已工作」头', () => {
+    expect(formatWorkedHeadLabel('11m29s', '')).toBe('已工作 11 分 29 秒')
+    expect(formatWorkedHeadLabel('11m29s', null)).toBe('已工作 11 分 29 秒')
+  })
+
+  it('时长解析失败返回空串（调用方退回平铺）', () => {
+    expect(formatWorkedHeadLabel('', 'xx')).toBe('')
+    expect(formatWorkedHeadLabel(null, 'xx')).toBe('')
+  })
+})
+
+describe('resolveStreamTailLabel（流式尾部 spinner 文案）', () => {
+  it('剥离实时活动里的耗时后缀', () => {
+    expect(resolveStreamTailLabel('执行工具 web_search · 45s')).toBe('执行工具 web_search')
+    expect(resolveStreamTailLabel('推理中 · 1m32s')).toBe('推理中')
+  })
+
+  it('无耗时后缀的原样透传', () => {
+    expect(resolveStreamTailLabel('生成中…')).toBe('生成中…')
+    expect(resolveStreamTailLabel('正在联网搜索 BPM…')).toBe('正在联网搜索 BPM…')
+  })
+
+  it('空值退回默认「生成中」', () => {
+    expect(resolveStreamTailLabel('')).toBe('生成中')
+    expect(resolveStreamTailLabel(undefined)).toBe('生成中')
+    expect(resolveStreamTailLabel('· 45s')).toBe('生成中')
   })
 })

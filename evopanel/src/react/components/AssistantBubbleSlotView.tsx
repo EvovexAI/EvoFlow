@@ -14,7 +14,7 @@ import type { AssistantBubbleDisplayPlan, AssistantBubbleSlot } from '../lib/mes
 import { hasVisibleBodyBelowActivityChunk } from '../lib/message-row-stream-display.js'
 import { bubbleMarkdownText, visibleAssistantText, visibleExploringInnerText, visiblePreToolTimelineText } from '../lib/message-row-visible-text.js'
 
-import { formatWorkDurationText } from '../lib/turn-timing.js'
+import { formatWorkDurationText, formatWorkedHeadLabel, resolveStreamTailLabel } from '../lib/turn-timing.js'
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ExploringActivityChunk } from './ExploringActivityChunk.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
@@ -51,6 +51,8 @@ function AssistantBubbleSlotViewInner({
   runId,
   turnInterrupted,
   threadBusy = false,
+  liveActivityLabel,
+  lastStepLabel,
 }: {
   plan: AssistantBubbleDisplayPlan
   displaySegments: MessageSegment[]
@@ -92,6 +94,10 @@ function AssistantBubbleSlotViewInner({
    * 提前翻 false 的盲区；历史行恒为 false，不会误挂齿轮。
    */
   threadBusy?: boolean
+  /** 实时活动文案（dock copy，如「执行工具 web_search · 45s」）；驱动流式尾部 spinner */
+  liveActivityLabel?: string
+  /** 封存后折叠头「已工作 X · 最后一步」的最后一步文案（流式期间记忆） */
+  lastStepLabel?: string
 }) {
   // ZCode 式扁平内联：plan.flatTimeline 为权威（MessageRow 默认 true，工作轨迹显式传 false）
   const flatTimeline = plan.flatTimeline !== false && !suppressExploringFold
@@ -286,6 +292,10 @@ function AssistantBubbleSlotViewInner({
     // 「已工作」并自动收起——那会把唯一可操作的审批面板一起藏掉。
     if (interactiveToolApproval) return '等待授权'
     if (turnInterrupted) return '⏹ 已停止'
+    // 封存头带最后一步（「已工作 11 分 29 秒 · 执行工具 web_search」），
+    // 解析失败/无最后一步时退回原「已工作 X」。
+    const headWithStep = formatWorkedHeadLabel(durationLabel, lastStepLabel)
+    if (headWithStep) return headWithStep
     if (workedText) return `已工作 ${workedText}`
     return '已工作'
   })()
@@ -456,7 +466,7 @@ function AssistantBubbleSlotViewInner({
           {isStreaming || threadBusy ? (
             <StreamRunStatusLine
               key="stream-tail-spinner"
-              label="生成中"
+              label={resolveStreamTailLabel(liveActivityLabel)}
               showTip={false}
             />
           ) : null}

@@ -142,6 +142,29 @@ export function formatWorkedDurationLabel(durationLabel: string | null | undefin
 }
 
 /**
+ * 回合完成态折叠头（带最后一步）：「已工作 5 分 22 秒 · 执行工具 web_search」。
+ * lastStep 缺失/空白时退回纯「已工作 …」；时长解析失败返回空串（调用方退回平铺）。
+ */
+export function formatWorkedHeadLabel(
+  durationLabel: string | null | undefined,
+  lastStep: string | null | undefined,
+): string {
+  const base = formatWorkedDurationLabel(durationLabel)
+  if (!base) return ''
+  const step = stripTurnDurationSuffix(lastStep || '').trim()
+  return step ? `${base} · ${step}` : base
+}
+
+/**
+ * 流式尾部 spinner 文案：优先用实时活动文案（剥离耗时后缀），
+ * 空值或剥离后为空（如只有「· 45s」）退回默认「生成中」。
+ */
+export function resolveStreamTailLabel(liveLabel: string | null | undefined): string {
+  const core = stripTurnDurationSuffix(liveLabel || '').trim()
+  return core || '生成中'
+}
+
+/**
  * Compat only: reverse-parse a duration token from a composite dock/status string
  * like ``推理中 · 1m32s``. Prefer raw ``elapsedSec`` → ``formatTurnDurationStr``.
  */

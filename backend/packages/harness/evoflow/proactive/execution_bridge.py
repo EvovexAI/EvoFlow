@@ -55,6 +55,15 @@ class ExecutionBridge:
                 pass
             self._cached_client = None
 
+    def _emit_phase(self, thread_id: str, detail: str) -> None:
+        """Broadcast a run-phase panel:activity event (queued/finished/timeout)."""
+        try:
+            from evoflow.observability.agent_activity_stream import emit_panel_activity
+
+            emit_panel_activity(thread_id, kind="system", detail=detail, force=True)
+        except Exception:
+            logger.debug("proactive bridge: phase panel activity failed", exc_info=True)
+
     async def execute(self, initiative: Initiative) -> str:
         """Execute an approved initiative and return a result summary.
 
@@ -208,6 +217,23 @@ class ExecutionBridge:
             workspace_root=(role.config.workspace_path or "") if role else "",
         )
 
+        # 排队期反馈：run 尚未创建，先广播「任务已接受」让前端状态条立刻有内容
+        # （此前从下单到首帧之间界面完全静默，用户会以为卡死）。
+        try:
+            from evoflow.observability.agent_activity_stream import (
+                build_proactive_phase_detail,
+                emit_panel_activity,
+            )
+
+            emit_panel_activity(
+                thread_id,
+                kind="system",
+                detail=build_proactive_phase_detail("queued", role_name),
+                force=True,
+            )
+        except Exception:
+            logger.debug("proactive.execute: queued panel activity failed", exc_info=True)
+
         # Graph id is always lead_agent; bind employee via agent_name + context (not configurable).
         from evoflow.langgraph_run_config import merge_configurable_into_context
 
@@ -290,6 +316,7 @@ class ExecutionBridge:
                 timeout=timeout_seconds,
             )
         except TimeoutError:
+            self._emit_phase(thread_id, "执行超时，已停止本回合")
             finalize_proactive_chat_session(
                 session_key=session_key,
                 thread_id=thread_id,
@@ -297,6 +324,7 @@ class ExecutionBridge:
             )
             return f"Execution timed out after {timeout_seconds}s"
         except Exception:
+            self._emit_phase(thread_id, "本回合执行出错，已终止")
             finalize_proactive_chat_session(
                 session_key=session_key,
                 thread_id=thread_id,
@@ -304,6 +332,7 @@ class ExecutionBridge:
             )
             raise
         else:
+            self._emit_phase(thread_id, "本回合执行已结束")
             finalize_proactive_chat_session(
                 session_key=session_key,
                 thread_id=thread_id,

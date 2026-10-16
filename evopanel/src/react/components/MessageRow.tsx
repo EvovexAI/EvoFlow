@@ -71,6 +71,27 @@ function recallTurnStartMs(key: string): number | null {
 }
 
 /**
+ * 回合最后一步活动文案按 runId 记忆（流式期间持续刷新）。
+ * 用途：回合结束折叠成「已工作 X」摘要条时带上最后一步，用户不用展开
+ * 就知道这个回合最后停在哪（此前只有光秃秃的时长，长任务像卡死）。
+ */
+const turnLastActivityByRunKey = new Map<string, string>()
+
+function rememberTurnLastActivity(key: string, detail: string) {
+  const d = String(detail || '').trim()
+  if (!key || !d) return
+  turnLastActivityByRunKey.set(key, d)
+  if (turnLastActivityByRunKey.size > 200) {
+    const oldest = turnLastActivityByRunKey.keys().next().value
+    if (oldest != null) turnLastActivityByRunKey.delete(oldest)
+  }
+}
+
+function recallTurnLastActivity(key: string): string {
+  return turnLastActivityByRunKey.get(key) ?? ''
+}
+
+/**
  * 纯函数：计算 AssistantBody 所需的所有派生数据。
  * 注意：此函数必须保持纯净，仅依赖入参。
  */
@@ -199,8 +220,10 @@ import { buildAssistantDomView } from '../lib/assistant-dom-view.js'
 import { logStreamSourceConsoleIfChanged } from '../stream-console-mirror.js'
 import {
   formatTurnDurationStr,
+  formatWorkedHeadLabel,
   parseTurnTimestampMs,
   resolveTurnDurationLabel,
+  resolveStreamTailLabel,
 } from '../lib/turn-timing.js'
 
 /** ask 工具在气泡内被隐藏；需识别「仍在进行」以显示「询问中…」，不能只依赖 isToolRunning（首帧常无 status） */
@@ -1252,6 +1275,15 @@ function AssistantBody({
   const turnInterrupted = workedDurationLabel === 'stopped' || String(row.turnState || '').trim() === 'interrupted'
   const workedLabelOut = workedDurationLabel === 'stopped' ? '' : workedDurationLabel
 
+  // 最后一步活动：流式期间持续记忆；封存后取记忆喂给「已工作」折叠头。
+  const lastStepForHead = (() => {
+    if (isStreaming) {
+      rememberTurnLastActivity(turnRunKey, liveActivityDockLabel || '')
+      return ''
+    }
+    return recallTurnLastActivity(turnRunKey)
+  })()
+
   // v5.9 compare-log：DOM 视角 1:1 快照。
   // 覆盖：_stream / assistant 助手行，工作中 + 已工作都写。
   // 2026-10-10 反馈：foldOpen + gear 都跟 threadBusy 走（与左下「停止」按钮同源）。
@@ -1266,7 +1298,7 @@ function AssistantBody({
       workedLabel: workedLabelOut
         ? isStreaming
           ? `工作中 ${workedLabelOut}`
-          : `已工作 ${workedLabelOut}`
+          : formatWorkedHeadLabel(workedLabelOut, lastStepForHead) || `已工作 ${workedLabelOut}`
         : '',
     })
   logStreamCompareDomView({
@@ -1354,6 +1386,8 @@ function AssistantBody({
       messageId={row.messageId}
       runId={row.runId}
       threadBusy={!!threadBusy}
+      liveActivityLabel={liveActivityDockLabel}
+      lastStepLabel={lastStepForHead}
     />
   )
 }

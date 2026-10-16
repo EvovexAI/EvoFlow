@@ -9,6 +9,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# panel-stream 控制面事件：无 live runs/stream 的后台 run（proactive 值班等）
+# 用它把步骤进度广播给已订阅该 thread 的前端。
+PANEL_ACTIVITY_EVENT = "panel:activity"
+
 _last_detail_by_thread: dict[str, str] = {}
 _lock = threading.Lock()
 
@@ -98,6 +102,86 @@ def _schedule_http_inject(thread_id: str, payload: dict[str, Any]) -> None:
         logger.debug("agent_activity inject schedule failed", exc_info=True)
 
 
+async def _relay_panel_activity_http(thread_id: str, payload: dict[str, Any]) -> None:
+    """Off-process fallback: relay ``panel:activity`` through the gateway internal broadcast."""
+    secret = (os.getenv("INTERNAL_EVENTS_SECRET") or "").strip()
+    if not secret:
+        return
+    base = (os.getenv("EVOFLOW_GATEWAY_URL") or "http://127.0.0.1:8001").rstrip("/")
+    url = f"{base}/api/events/internal/broadcast"
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            await client.post(
+                url,
+                json={
+                    "event_type": PANEL_ACTIVITY_EVENT,
+                    "thread_id": thread_id,
+                    "data": payload,
+                },
+                headers={"X-Internal-Events-Secret": secret},
+            )
+    except Exception:
+        logger.debug("agent_activity panel relay failed thread=%s", thread_id, exc_info=True)
+
+
+async def _broadcast_panel_activity(thread_id: str, payload: dict[str, Any]) -> None:
+    """In-process EventBroadcaster first; off-process falls back to the HTTP relay."""
+    try:
+        from evoflow.runtime.ports import broadcast_event
+
+        if await broadcast_event(thread_id, PANEL_ACTIVITY_EVENT, payload):
+            return
+    except Exception:
+        logger.debug("agent_activity panel broadcast failed thread=%s", thread_id, exc_info=True)
+    await _relay_panel_activity_http(thread_id, payload)
+
+
+def _schedule_panel_activity_broadcast(thread_id: str, payload: dict[str, Any]) -> None:
+    # NEVER create_task on the LangGraph job loop (same rationale as _schedule_http_inject).
+    try:
+        from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
+
+        schedule_detached_poll(
+            _broadcast_panel_activity(thread_id, payload),
+            name="agent_activity_panel_broadcast",
+        )
+    except Exception:
+        logger.debug("agent_activity panel broadcast schedule failed", exc_info=True)
+
+
+def emit_panel_activity(
+    thread_id: str,
+    *,
+    kind: str,
+    detail: str,
+    force: bool = False,
+) -> None:
+    """Broadcast a ``panel:activity`` control-plane event for background runs.
+
+    proactive 值班等无 live ``runs/stream`` 的场景，前端经
+    ``/api/events/threads/{tid}/panel-stream`` 收到后驱动 spinner/状态文案。
+    """
+    tid = str(thread_id or "").strip()
+    d = str(detail or "").strip()
+    if not tid or not d:
+        return
+    if not force and not _detail_changed(tid, d):
+        return
+    _schedule_panel_activity_broadcast(tid, _payload(kind=kind, detail=d))
+
+
+def build_proactive_phase_detail(phase: str, role_name: str | None) -> str:
+    """proactive 执行桥的排队/收尾阶段文案（前端状态条直接展示）。"""
+    role = str(role_name or "").strip()
+    if phase == "queued":
+        return f"任务已接受 · 正在唤醒 {role or '值班 agent'}…"
+    if phase == "finished":
+        return "本回合执行已结束"
+    return str(phase or "").strip()
+
+
 def emit_agent_activity(
     thread_id: str,
     *,
@@ -127,11 +211,21 @@ def emit_agent_activity(
     if tool_calls:
         inject["tool_calls"] = [c for c in tool_calls if isinstance(c, dict)]
     try:
-        from evoflow.runtime.ports import middle_layer_covers_thread, schedule_inject_evf_frame
+        from evoflow.runtime.ports import (
+            asgi_stream_active,
+            middle_layer_covers_thread,
+            schedule_inject_evf_frame,
+        )
 
         if middle_layer_covers_thread(tid):
             schedule_inject_evf_frame(tid, inject)
             return
+        if asgi_stream_active(tid):
+            # live runs/stream 代理在场但没有 middle layer：保留既有 inject-evf 通路。
+            _schedule_http_inject(tid, inject)
+            return
     except Exception:
         logger.debug("agent_activity direct inject failed thread=%s", tid, exc_info=True)
-    _schedule_http_inject(tid, inject)
+    # 无 live 流的后台 run（proactive 直连等）：inject-evf 注不进任何流，
+    # 改走 panel-stream 控制面广播，前端才能拿到步骤文案。
+    _schedule_panel_activity_broadcast(tid, payload)

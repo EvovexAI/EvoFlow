@@ -8271,7 +8271,21 @@ useEffect(() => {
         unsubPanel = subscribeThreadPanelSse(tid, (dataJson: string) => {
           try {
             const ev = JSON.parse(String(dataJson || '{}'))
-            if (String(ev?.type || '').trim() !== 'panel:title_updated') return
+            const evType = String(ev?.type || '').trim()
+            if (evType === 'panel:activity') {
+              // 后台 run（proactive 值班等）无 live runs/stream：步骤进度经
+              // panel-stream 控制面到达。走与 thread_state 活动相同的管线，
+              // 驱动 session 状态条 + 流式行 spinner 文案（B1/B2 通路前端端）。
+              const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
+              const detail = String(data.detail || '').trim()
+              if (!detail) return
+              const kind = String(data.kind || 'system').trim().toLowerCase()
+              setSessionActivity(sk, kind === 'idle' ? 'system' : kind, detail)
+              applyStreamTurnEvent(streamRef.current, { type: 'system_activity', detail })
+              scheduleBumpRef.current?.({ immediate: true })
+              return
+            }
+            if (evType !== 'panel:title_updated') return
             const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
             const title = String(data.title || '').trim()
             const sessionKey = String(data.session_key || data.sessionKey || sk).trim()
