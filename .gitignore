@@ -246,9 +246,11 @@ test_final*.txt
 test_scheduler_agent.log
 
 # Temporary test scripts
-backend/test_*.py
-backend/run_comprehensive_tests.py
-backend/tests/test_*.py
+# NOTE: backend/tests/test_*.py 不可一刀切忽略 —— 该目录是正式单测的家
+# （conftest.py 与 9+ 个已 track 的 test_*.py）。临时脚本请显式命名
+# （backend/tests/tmp_*.py / backend/tests/_tmp_*.py）。
+backend/tests/tmp_*.py
+backend/tests/_tmp_*.py
 
 # Root-level temporary/development files
 /loop_*.py
