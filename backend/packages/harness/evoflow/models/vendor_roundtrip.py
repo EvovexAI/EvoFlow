@@ -658,6 +658,32 @@ def complete_vendor_roundtrip(
 class VendorRoundtripChatMixin:
     """Wrap sync/async generate and stream paths to flush vendor roundtrip logs."""
 
+    def _retry_once_stripping_thinking(self, e: Exception) -> bool:
+        """thinking.type=disabled 被厂商 400 拒绝 → 置位实例记忆，请求方重试一次。
+
+        Returns True when the caller should retry; the retry rebuilds the payload
+        via ``_get_request_payload`` which then strips all thinking params.
+        """
+        try:
+            from evoflow.models.thinking_disable_fallback import (
+                is_thinking_unsupported_400,
+                mark_thinking_disable_unsupported,
+                thinking_disable_unsupported,
+            )
+
+            if not is_thinking_unsupported_400(e):
+                return False
+            if thinking_disable_unsupported(self):
+                return False
+            mark_thinking_disable_unsupported(self)
+            logger.warning(
+                "vendor rejected thinking.type=disabled (%s) — retrying once without thinking params",
+                str(e)[:200],
+            )
+            return True
+        except Exception:
+            return False
+
     def _generate(
         self,
         messages: list[Any],
@@ -673,6 +699,16 @@ class VendorRoundtripChatMixin:
             complete_vendor_roundtrip(chat_result=res, latency_ms=(time.perf_counter() - t0) * 1000.0, error=None)
             return res
         except Exception as e:
+            if self._retry_once_stripping_thinking(e):
+                t0 = time.perf_counter()
+                try:
+                    res = _ensure_chat_result(
+                        super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)  # type: ignore[misc]
+                    )
+                    complete_vendor_roundtrip(chat_result=res, latency_ms=(time.perf_counter() - t0) * 1000.0, error=None)
+                    return res
+                except Exception as e2:
+                    e = e2
             _attach_model_to_exception(e, self)
             complete_vendor_roundtrip(chat_result=None, latency_ms=(time.perf_counter() - t0) * 1000.0, error=e)
             raise
@@ -706,6 +742,14 @@ class VendorRoundtripChatMixin:
                         )
             return res
         except Exception as e:
+            if self._retry_once_stripping_thinking(e):
+                t0 = time.perf_counter()
+                try:
+                    res = await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)  # type: ignore[misc]
+                    complete_vendor_roundtrip(chat_result=res, latency_ms=(time.perf_counter() - t0) * 1000.0, error=None)
+                    return res
+                except Exception as e2:
+                    e = e2
             _attach_model_to_exception(e, self)
             logger.warning(
                 "vendor _agenerate raised exception: %s: %s latency_ms=%.0f",
@@ -730,6 +774,9 @@ class VendorRoundtripChatMixin:
                     yield gen_chunk
             except Exception as e:
                 _attach_model_to_exception(e, self)
+                if self._retry_once_stripping_thinking(e) and attempt + 1 < attempts:
+                    # 已置位实例记忆，下一轮 attempt 的载荷会剥离 thinking 参数。
+                    continue
                 if _is_retriable_stream_error(e) and attempt + 1 < attempts:
                     logger.warning(
                         "vendor _stream retry %d/%d after %s: %s",
@@ -786,6 +833,9 @@ class VendorRoundtripChatMixin:
                     yield chunk
                 return
             except Exception as e:
+                if self._retry_once_stripping_thinking(e) and attempt + 1 < attempts:
+                    # 已置位实例记忆，下一轮 attempt 的载荷会剥离 thinking 参数。
+                    continue
                 if _is_retriable_stream_error(e) and attempt + 1 < attempts:
                     logger.warning(
                         "vendor _astream retry %d/%d after %s: %s",

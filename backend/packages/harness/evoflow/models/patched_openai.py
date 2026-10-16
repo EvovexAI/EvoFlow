@@ -29,6 +29,10 @@ from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 
 from evoflow.models.request_payload_logger import log_model_request_payload
+from evoflow.models.thinking_disable_fallback import (
+    strip_thinking_params,
+    thinking_disable_unsupported,
+)
 from evoflow.models.vendor_roundtrip import VendorRoundtripChatMixin
 from evoflow.models.vendor_thinking_payload import apply_vendor_thinking_request_payload
 
@@ -130,6 +134,10 @@ class PatchedChatOpenAI(VendorRoundtripChatMixin, ChatOpenAI):
             base_url=str(base_url or ""),
             model_instance=self,
         )
+        # 该模型被观测到拒绝显式 thinking disable（厂商 400）→ 剥离全部
+        # thinking 参数，让厂商默认生效（见 thinking_disable_fallback 模块）。
+        if thinking_disable_unsupported(self):
+            strip_thinking_params(payload)
 
         log_model_request_payload(
             provider="patched_openai",
