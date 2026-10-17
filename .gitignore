@@ -246,9 +246,12 @@ test_final*.txt
 test_scheduler_agent.log
 
 # Temporary test scripts
+# backend/ 根目录下的 test_*.py / run_comprehensive_tests.py 是一次性脚本，继续忽略。
+# backend/tests/ 是正式单测目录，不能用 test_*.py 一刀切；只忽略 tmp_ / _tmp_ 草稿。
 backend/test_*.py
 backend/run_comprehensive_tests.py
-backend/tests/test_*.py
+backend/tests/tmp_*.py
+backend/tests/_tmp_*.py
 
 # Root-level temporary/development files
 /loop_*.py
