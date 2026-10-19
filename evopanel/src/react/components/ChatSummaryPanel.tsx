@@ -22,6 +22,7 @@ import {
   CircleX,
   Ellipsis,
   Minimize2,
+  Pencil,
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react'
@@ -523,7 +524,8 @@ function ChatSummaryPanelInner({
   const panelTabs = useMemo<Array<{ id: PanelTab; label: string }>>(
     () => {
       const list: Array<{ id: PanelTab; label: string }> = [
-        { id: 'agent', label: '智能体' },
+        // 员工会话：首 tab 是当前岗位员工，不是「智能体」模板
+        { id: 'agent', label: isEmployeeSession ? '员工' : '智能体' },
         { id: 'process', label: withCount(summary.items.length, '进程') },
         { id: 'artifacts', label: withCount(visibleArtifacts.length, '产物') },
         { id: 'platform', label: withCount(platformEntries.length, '平台') },
@@ -596,7 +598,11 @@ function ChatSummaryPanelInner({
 
   if (effectiveMode === 'hidden') return null
 
-  const displayName = String(agentLabel || '').trim() || '未选择 Agent'
+  const displayName =
+    String(agentLabel || '').trim() || (isEmployeeSession ? '未选择员工' : '未选择 Agent')
+  const editTitle = isEmployeeSession ? '点击编辑此员工' : '点击编辑此智能体'
+  // 员工会话固定当前岗位，不提供切换入口（避免误当成选其他员工）
+  const canSwitchAgent = Boolean(onSwitchAgent) && !isEmployeeSession
   const bio = String(agentDescription || '').trim()
   const modelText = String(modelLabel || modelName || '').trim()
   const sessionTitleText = String(sessionTitle || '').trim()
@@ -694,7 +700,7 @@ function ChatSummaryPanelInner({
                   className={`chat-summary-agent-header${onEditAgent ? ' is-editable' : ''}`}
                   role={onEditAgent ? 'button' : undefined}
                   tabIndex={onEditAgent ? 0 : undefined}
-                  title={onEditAgent ? '点击编辑此智能体' : undefined}
+                  title={onEditAgent ? editTitle : undefined}
                   onClick={onEditAgent}
                   onKeyDown={
                     onEditAgent
@@ -721,13 +727,30 @@ function ChatSummaryPanelInner({
                       <span className="chat-summary-agent-name" title={displayName}>
                         {displayName}
                       </span>
-                      {onSwitchAgent ? (
+                      {onEditAgent ? (
+                        <button
+                          type="button"
+                          className="chat-summary-panel-icon-btn chat-summary-agent-edit-btn"
+                          aria-label={editTitle}
+                          title={editTitle}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onEditAgent()
+                          }}
+                        >
+                          <Pencil aria-hidden />
+                        </button>
+                      ) : null}
+                      {canSwitchAgent ? (
                         <button
                           type="button"
                           className="chat-summary-panel-icon-btn"
                           aria-label="切换 Agent"
                           title="切换 Agent"
-                          onClick={onSwitchAgent}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onSwitchAgent?.()
+                          }}
                           style={{ width: 20, height: 20 }}
                         >
                           <ChevronRight aria-hidden />

@@ -15,6 +15,7 @@ import {
   abortSessionTurnEnded,
 } from '../src/react/lib/session-execution/index.ts'
 import {
+  dispatchSessionTurnEvent,
   getSessionRuntime,
   markSessionSending,
   rtAddStoppedRun,
@@ -49,6 +50,22 @@ describe('session-execution', () => {
     expect(isSessionExecuting(sk)).toBe(true)
     expect(isSessionTurnPhaseBusy(sk)).toBe(true)
     expect(isSessionWireActive(sk)).toBe(true)
+  })
+
+  it('isSessionExecuting ignores stale DB/probe after local uiTurnSettled', () => {
+    const sk = 'agent:main:test-exec-settled'
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
+    dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-settled' })
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    const rt = getSessionRuntime(sk)
+    expect(rt.uiTurnSettled).toBe(true)
+    expect(rt.turnPhase).toBe('idle')
+    setSessionExecutionProbe(sk, { executing: true, goalActive: false, runStatus: 'running' })
+    expect(
+      isSessionExecuting(sk, {
+        sessionRow: { runStatus: 'running', currentRunId: 'run-settled' },
+      }),
+    ).toBe(false)
   })
 
   it('collectExecutingSessionKeys scans session list rows', () => {

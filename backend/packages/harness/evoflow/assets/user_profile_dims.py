@@ -378,9 +378,9 @@ def build_user_profile_injection_block(
         else:
             ask = dim.ask_en if lang == "en" else dim.ask_zh
             if lang == "en":
-                lines.append(f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when they have not already answered it, then save with `write` to profile file: {ask})")
+                lines.append(f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when they have not already answered it, then save with `assets` action=profile: {ask})")
             else:
-                lines.append(f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，得到回答后立刻用 `write`/`replace` 写入 profile 文件：{ask}）")
+                lines.append(f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，得到回答后立刻用 `assets` action=profile 更新用户画像：{ask}）")
         lines.append(f"</{dim.tag}>")
 
     if missing:
@@ -395,7 +395,7 @@ def build_user_profile_injection_block(
                     "MANDATORY: User identity is incomplete. You MUST proactively ask "
                     "(brief, friendly — not a long form) for missing fields in this conversation "
                     "if the user has not already provided them — e.g. " + gaps + ". After they answer, you MUST use "
-                    "`write`/`replace` on the profile file and confirm briefly. "
+                    "`assets` action=profile (user profile asset) and confirm briefly. "
                     "Do not only chat without writing."
                 )
             else:
@@ -405,7 +405,7 @@ def build_user_profile_injection_block(
                     "in this conversation, you MUST actively ask 1–2 short questions this turn or the "
                     "next natural turn — do not wait for them to volunteer. Example prompts: " + gaps + ".\n"
                     "2) As soon as they answer, you MUST persist with "
-                    "`write`/`replace` on the profile file "
+                    "`assets` action=profile (user profile asset) "
                     "and confirm in one short line.\n"
                     "3) Never finish the turn with only verbal acknowledgment and no profile write "
                     "when new stable facts were shared.\n"
@@ -419,8 +419,8 @@ def build_user_profile_injection_block(
             if scope == "identity":
                 lines.append(
                     "【强制】用户身份信息不完整。若本对话中用户尚未提供缺口信息，"
-                    "你必须主动、简短友好地询问（不要长问卷），例如：" + gaps + "。用户回答后，必须立刻调用 "
-                    "`write`/`replace` 写入 profile 文件，并简短确认已更新。"
+                    "你必须主动、简短友好地询问（不要长问卷），例如：" + gaps + "。用户回答后，必须立刻用 "
+                    "`assets` action=profile 更新用户画像资产，并简短确认已更新。"
                     "禁止只聊不写。"
                 )
             else:
@@ -430,7 +430,7 @@ def build_user_profile_injection_block(
                     "你必须在本回合或紧接着的自然回合主动提问（每轮最多 1～2 句），"
                     "不要等用户主动提起。可参考：" + gaps + "。\n"
                     "2）用户一旦回答，必须马上用 "
-                    "`write`/`replace` 写入 profile 文件"
+                    "`assets` action=profile 更新用户画像资产"
                     "，并用一句话确认已更新。\n"
                     "3）用户已透露稳定信息时，禁止只口头应承而不写 profile。\n"
                     "语气：友善、简短；不要像填表审问。"
@@ -441,28 +441,26 @@ def build_user_profile_injection_block(
         if lang == "en":
             lines.append("<profile_upkeep>")
             lines.append(
-                "MANDATORY upkeep: When the user shares new stable facts, preferences, or habits — "
-                "or corrects old ones — you MUST update the matching dimension via "
-                "`write`/`replace` on the profile file. "
-                "Default append; use replace only after confirmation if it contradicts existing text. "
-                "Do not only acknowledge verbally."
+                "When the user shares new stable facts, preferences, or habits — "
+                "or corrects old ones — update the user profile asset via `assets` action=profile. "
+                "How to call it is on the tool; do not edit profile files with write/replace."
             )
             lines.append("</profile_upkeep>")
         else:
             lines.append("<profile_upkeep>")
             lines.append(
-                "【强制维护】用户透露新的稳定信息（称呼、偏好、习惯）或更正旧画像时，"
-                "必须用 `write`/`replace` 主动更新 profile 文件；禁止只口头记下。"
+                "用户透露新的稳定信息（称呼、偏好、习惯）或更正旧画像时，"
+                "用 `assets` action=profile 更新用户画像资产；不要用 write/replace 改画像文件。"
             )
             lines.append("</profile_upkeep>")
     elif scope == "identity":
         if lang == "en":
             lines.append("<profile_upkeep>")
-            lines.append("When the user shares name, role, language, or timezone, use `write`/`replace` to update the profile file. Leave preferences/persona to dialogue agents.")
+            lines.append("When the user shares name, role, language, or timezone, update the user profile asset with `assets` action=profile. Leave preferences/persona to dialogue agents. Do not write profile files directly.")
             lines.append("</profile_upkeep>")
         else:
             lines.append("<profile_upkeep>")
-            lines.append("用户透露称呼、职业、语言、时区等身份信息时，用 `write`/`replace` 更新 profile 文件；偏好与行为画像由对话 Agent 维护，员工任务不必写入。")
+            lines.append("用户画像是用户资产。透露称呼、职业、语言、时区时，用 `assets` action=profile 更新；偏好与行为画像由对话 Agent 维护，员工任务不必写入。不要用 write/replace 改画像文件。")
             lines.append("</profile_upkeep>")
     lines.append(f"</{root_tag}>")
     return "\n".join(lines)

@@ -12,6 +12,7 @@ import {
   hydrateSessionRuntimeRowsIfIdle,
   isSessionRuntimeLive,
   isSessionRuntimeStreamVisible,
+  isTurnBusy,
   listLiveSessionRuntimeKeys,
   markSessionSending,
   mountSessionRuntime,
@@ -124,6 +125,27 @@ describe('session-runtime-store notify coalescing', () => {
 })
 
 describe('session-runtime-store', () => {
+  it('does not revive busy when SEALING arrives after early RUN_FINISHED idle', () => {
+    const sk = 'agent:main:early-idle-seal'
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
+    dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-1' })
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(getSessionRuntime(sk).turnPhase).toBe('idle')
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
+    dispatchSessionTurnEvent(sk, { type: 'SEALING' })
+    expect(getSessionRuntime(sk).turnPhase).toBe('idle')
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
+  })
+
+  it('still enters sealing from a live turn', () => {
+    const sk = 'agent:main:seal-from-live'
+    dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-2' })
+    dispatchSessionTurnEvent(sk, { type: 'SEALING' })
+    expect(getSessionRuntime(sk).turnPhase).toBe('sealing')
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
+  })
+
   it('keeps rows and stream on the same session entry', () => {
     const sk = 'agent:main:test-a'
     const streamRef = { current: emptyStream() }

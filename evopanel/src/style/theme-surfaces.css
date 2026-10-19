@@ -1680,24 +1680,29 @@ html[data-theme='dark']:not([data-translucent-ui='1']) :is(.hire-overlay, .role-
   --ef-field-surface-strong: color-mix(in srgb, var(--bg-secondary) 94%, #09090b);
 }
 
-/* 液态玻璃：编辑岗位 / 上班时间等控件透明描边 */
+/* 液态玻璃：表单控件可略透；sheet 本体必须够实，否则会透出黑色遮罩变成「黑底板」 */
 html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) {
-  --ef-field-surface: transparent;
-  --ef-field-surface-strong: color-mix(in srgb, var(--accent) 10%, transparent);
+  --ef-field-surface: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  --ef-field-surface-strong: color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary));
 }
 
 html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) :is(.hire-sheet, .role-editor-modal),
 html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay) :is(.hire-sheet, .role-editor-modal) {
-  background: var(--ef-field-surface-strong, color-mix(in srgb, var(--bg-secondary) 94%, #09090b)) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background: var(--ef-field-surface-strong, color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary))) !important;
+  backdrop-filter: blur(12px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.15) !important;
   border-color: var(--ef-glass-border, var(--border-primary)) !important;
   color: var(--text-primary);
   box-shadow: 0 24px 64px color-mix(in srgb, #000 42%, transparent) !important;
 }
 
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .role-editor-overlay) :is(.hire-sheet, .role-editor-modal) {
-  background: color-mix(in srgb, var(--bg-secondary) 96%, #09090b) !important;
+  background: color-mix(in srgb, var(--bg-secondary) 96%, var(--bg-primary)) !important;
+}
+
+/* 遮罩不要压成死黑：聊天页打开员工编辑时仍能隐约看到背后内容 */
+html[data-translucent-ui='1'] :is(.hire-overlay, .role-editor-overlay).modal-overlay {
+  background: color-mix(in srgb, #000 38%, transparent) !important;
 }
 
 html[data-theme='dark'] :is(.hire-overlay, .role-editor-overlay) :is(

@@ -527,6 +527,38 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
   text-overflow: ellipsis;
 }
 
+/* 名字旁常显铅笔：告知「可点编辑」，不要只靠整行 hover */
+.chat-summary-agent-header.is-editable {
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background 0.12s ease;
+}
+
+.chat-summary-agent-header.is-editable:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.chat-summary-agent-edit-btn {
+  flex-shrink: 0;
+  width: 22px !important;
+  height: 22px !important;
+  color: var(--text-tertiary);
+  opacity: 0.85;
+}
+
+.chat-summary-agent-edit-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.chat-summary-agent-header.is-editable:hover .chat-summary-agent-edit-btn,
+.chat-summary-agent-edit-btn:hover,
+.chat-summary-agent-edit-btn:focus-visible {
+  color: var(--accent, #5b5fef);
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent, #5b5fef) 10%, transparent);
+}
+
 .chat-summary-agent-meta {
   min-width: 0;
   color: var(--text-tertiary);

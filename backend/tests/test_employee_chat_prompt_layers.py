@@ -52,18 +52,15 @@ def test_different_soul_still_emits_system_prompt_only() -> None:
     assert text.count("<agent_system_prompt>") == 1
 
 
-def test_memory_policy_points_at_assets_tool() -> None:
+def test_memory_assets_region_is_content_only() -> None:
     text = _prompt()
-    assert "<memory_assets>" in text
-    assert "`assets`" in text
-    assert "note" in text
-    assert "profile" in text
-    assert "勿再 `write` 拼路径" in text or "勿用裸 `write`" in text or "勿再" in text
-    assert "YYYY-MM-DDTHH-MM-SS" not in text
-    assert "必须主动简短询问" not in text
-    assert "Phase2" in text
-    assert "用户喜欢结论先行" in text
-    assert "上次口令要登录" in text
+    body = text.split("<memory_assets>", 1)[-1].split("</memory_assets>", 1)[0]
+    assert "用户喜欢结论先行" in body
+    assert "上次口令要登录" in body
+    assert "记忆开关" not in text
+    assert "工具说明" not in body
+    assert "[experience]" not in body
+    assert "Phase2" not in body
 
 
 def test_model_switch_dropped_from_system_view_and_hydration() -> None:

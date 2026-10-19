@@ -76,6 +76,12 @@ export type SessionRuntime = {
   turnStartTs: number | null
   resumeCatchupReplay: boolean
   streamWireSource: StreamWireSource
+  /**
+   * Set when a local busy turn settles (TURN_IDLE / abort). Cleared on SEND /
+   * RUN_LIVE. While true, stop-button must not revive from stale DB/probe —
+   * early AG-UI RUN_FINISHED idles before checkpoint updates run_status.
+   */
+  uiTurnSettled: boolean
 }
 
 export type SessionTurnEvent =
@@ -350,6 +356,7 @@ export function createEmptySessionRuntime(): SessionRuntime {
     turnStartTs: null,
     resumeCatchupReplay: false,
     streamWireSource: null,
+    uiTurnSettled: false,
   }
 }
 
@@ -464,6 +471,11 @@ function clearTurnTiming(rt: SessionRuntime): void {
 }
 
 function applyTurnIdle(rt: SessionRuntime): void {
+  // Any transition into idle from a running turn stamps settled so late
+  // DB/probe/stream residue cannot revive the stop button.
+  if (rt.turnPhase !== 'idle') {
+    rt.uiTurnSettled = true
+  }
   rt.turnPhase = 'idle'
   rt.activity = { kind: 'idle', detail: '' }
   rt.streamWireSource = null
@@ -475,6 +487,7 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
   const rt = getSessionRuntime(sk)
   switch (event.type) {
     case 'SEND_STARTED':
+      rt.uiTurnSettled = false
       rt.turnPhase = 'outbound'
       rt.activeChatRunId = null
       rt.activity = { kind: 'idle', detail: '' }
@@ -482,6 +495,7 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
       rt.lastEventAt = Date.now()
       break
     case 'RUN_LIVE':
+      rt.uiTurnSettled = false
       rt.turnPhase = 'live'
       rt.activeChatRunId = String(event.runId || '').trim() || null
       if (event.threadId !== undefined) rt.attachedThreadId = event.threadId
@@ -490,6 +504,7 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
       if (!rt.turnStartTs) rt.turnStartTs = Date.now()
       break
     case 'REATTACH_STARTED':
+      rt.uiTurnSettled = false
       rt.turnPhase = 'reattaching'
       rt.activeChatRunId = String(event.runId || '').trim() || null
       if (event.threadId !== undefined) rt.attachedThreadId = event.threadId
@@ -497,6 +512,7 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
       if (!rt.turnStartTs) rt.turnStartTs = Date.now()
       break
     case 'REATTACH_LIVE':
+      rt.uiTurnSettled = false
       rt.turnPhase = 'live'
       rt.activeChatRunId = String(event.runId || '').trim() || null
       if (event.threadId !== undefined) rt.attachedThreadId = event.threadId
@@ -511,22 +527,36 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
       clearTurnTiming(rt)
       break
     case 'REATTACH_FAILED':
+      rt.uiTurnSettled = true
       rt.turnPhase = 'error'
       if (event.threadId !== undefined) rt.attachedThreadId = event.threadId
       rt.streamWireSource = null
       clearTurnTiming(rt)
       break
     case 'SEALING':
+      // Early AG-UI RUN_FINISHED already idled the turn. Late stream `final`
+      // still dispatches SEALING; do not revive busy or the stop button flashes
+      // back on for the checkpoint tail (~seconds after the last token).
+      if (
+        rt.turnPhase === 'idle' ||
+        rt.turnPhase === 'stopped' ||
+        rt.turnPhase === 'error'
+      ) {
+        rt.lastEventAt = Date.now()
+        break
+      }
       rt.turnPhase = 'sealing'
       rt.lastEventAt = Date.now()
       break
     case 'TURN_ABORTED':
+      rt.uiTurnSettled = true
       rt.turnPhase = 'stopped'
       rt.streamWireSource = null
       rt.lastEventAt = Date.now()
       clearTurnTiming(rt)
       break
     case 'SEND_FAILED':
+      rt.uiTurnSettled = true
       rt.turnPhase = 'error'
       rt.activeChatRunId = null
       rt.streamWireSource = null

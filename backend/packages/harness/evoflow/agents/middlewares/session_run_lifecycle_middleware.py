@@ -5,11 +5,17 @@ This closes the F5 gap where the browser SSE is gone but the run has finished:
 DB is updated from inside the graph without waiting for Gateway stream close.
 
 Gateway ``middle_layer._finish_layer`` remains a safety net (idempotent re-mark).
+
+UI note: the stop-button / spinner seals on ``session_run_lifecycle`` phases
+``model_final`` (no tool calls after model) and ``ended`` (after_agent). Emit
+those custom frames *before* SQLite work so checkpoint/transcript latency does
+not keep the turn looking busy.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 try:

@@ -447,11 +447,24 @@ def _is_subagent_leaked_text(state: AgUiEncoderState, piece: str) -> bool:
     return False
 
 
+def _custom_chunk(payload: dict[str, Any]) -> dict[str, Any]:
+    chunk = payload.get("chunk") if isinstance(payload.get("chunk"), dict) else payload
+    return chunk if isinstance(chunk, dict) else {}
+
+
+def _ui_turn_settled_for_thread(payload: dict[str, Any], thread_id: str) -> bool:
+    """Final model reply (no tool calls). Emitted inside the model node, before checkpoint."""
+    chunk = _custom_chunk(payload)
+    if str(chunk.get("type") or "").strip() != "ui_turn_settled":
+        return False
+    chunk_tid = str(chunk.get("thread_id") or "").strip()
+    tid = str(thread_id or "").strip()
+    return bool(chunk_tid) and bool(tid) and chunk_tid == tid
+
+
 def _lifecycle_ended_for_thread(payload: dict[str, Any], thread_id: str) -> bool:
     """True when this frame is the lead agent's after_agent completion signal."""
-    chunk = payload.get("chunk") if isinstance(payload.get("chunk"), dict) else payload
-    if not isinstance(chunk, dict):
-        return False
+    chunk = _custom_chunk(payload)
     if str(chunk.get("type") or "").strip() != "session_run_lifecycle":
         return False
     if str(chunk.get("phase") or "").strip() != "ended":
@@ -861,7 +874,9 @@ def evf_payload_to_agui_events(
         # Agent graph is done (after_agent). Upstream SSE stays open through
         # checkpoint put, which is the multi-second gap after the last token.
         # Seal the UI run now; the real run_end later only adds the snapshot.
-        if _lifecycle_ended_for_thread(payload, state.thread_id):
+        if _ui_turn_settled_for_thread(payload, state.thread_id) or _lifecycle_ended_for_thread(
+            payload, state.thread_id
+        ):
             _seal_agui_run(state, out)
         out.append({"type": CUSTOM, "name": t, "value": payload})
         return out

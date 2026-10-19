@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 
 def encode_agui_event(event: dict[str, Any]) -> bytes:
+    # Browser devtools timestamps are receive time. ``serverTs`` is when the
+    # gateway built the frame, so a gap between the two is queue/checkpoint delay.
+    if "serverTs" not in event:
+        event = {**event, "serverTs": int(time.time() * 1000)}
     body = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
     return f"event: ag-ui\ndata: {body}\n\n".encode()
 

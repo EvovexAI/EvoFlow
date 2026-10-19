@@ -399,6 +399,36 @@ class AguiEarlyRunFinishedTests(unittest.TestCase):
         self.assertFalse(state.run_finished)
         self.assertNotIn("b1", state.text_ended)
 
+    def test_ui_turn_settled_seals_same_thread_only(self) -> None:
+        from app.gateway.agui_stream_normalizer import AgUiEncoderState, evf_payload_to_agui_events
+
+        state = AgUiEncoderState(thread_id="t1", run_id="r1")
+        state.text_started.add("b1")
+        state.planning_step_open = True
+        events = evf_payload_to_agui_events(
+            {
+                "type": "custom",
+                "chunk": {"type": "ui_turn_settled", "thread_id": "t1", "server_ts_ms": 1},
+            },
+            state=state,
+        )
+        types = [e["type"] for e in events]
+        self.assertIn("RUN_FINISHED", types)
+        self.assertIn("STEP_FINISHED", types)
+        self.assertIn("b1", state.text_ended)
+
+        other = AgUiEncoderState(thread_id="parent", run_id="r1")
+        other.text_started.add("b1")
+        skipped = evf_payload_to_agui_events(
+            {
+                "type": "custom",
+                "chunk": {"type": "ui_turn_settled", "thread_id": "child", "server_ts_ms": 1},
+            },
+            state=other,
+        )
+        self.assertNotIn("RUN_FINISHED", [e["type"] for e in skipped])
+        self.assertFalse(other.run_finished)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9087,6 +9087,30 @@ html.dark .react-chat-current-task-expand,
   color: var(--agent-ink);
 }
 
+/* 名字旁常显铅笔：提示可点开编辑 */
+.react-chat-agent-edit-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--agent-soft, color-mix(in srgb, var(--text-primary) 5%, transparent));
+  color: var(--agent-mute, var(--text-tertiary));
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.react-chat-agent-edit-btn:hover,
+.react-chat-agent-edit-btn:focus-visible {
+  background: color-mix(in srgb, var(--accent, #5b5fef) 12%, transparent);
+  color: var(--accent, #5b5fef);
+}
+
 .react-chat-agent-switch {
   flex-shrink: 0;
   display: inline-flex;

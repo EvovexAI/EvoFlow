@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import logging
 import os
+import time
 from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutureTimeoutError
@@ -720,6 +721,44 @@ def _emit_post_model_context_usage(result: ModelCallResult, request: ModelReques
     logger.info("[post-model-ctx] emit done: context_length=%d, api_active=%d, session=%s", context_length, api_active, (session_key or "")[:24])
 
 
+def _emit_ui_turn_settled(result: ModelCallResult, request: ModelRequest) -> None:
+    """Tell the UI the reply is final before after_agent / checkpoint.
+
+    ``context_usage`` already leaves the model node immediately. ``RUN_FINISHED``
+    used to wait for graph exit (~seconds). A no-tool-call reply is the end of
+    the user-visible turn, so seal it on the same stream writer.
+    """
+    ai_msg = _ai_message_from_model_call_result(result)
+    if ai_msg is None:
+        return
+    if list(getattr(ai_msg, "tool_calls", None) or []) or list(getattr(ai_msg, "invalid_tool_calls", None) or []):
+        return
+    runtime = request.runtime
+    thread_id = _thread_id_from_runtime(runtime) if runtime is not None else ""
+    if not thread_id:
+        return
+    try:
+        from langgraph.config import get_stream_writer
+
+        writer = get_stream_writer()
+    except Exception:
+        return
+    if writer is None:
+        return
+    server_ts_ms = int(time.time() * 1000)
+    try:
+        writer(
+            {
+                "type": "ui_turn_settled",
+                "thread_id": thread_id,
+                "server_ts_ms": server_ts_ms,
+            }
+        )
+        logger.info("[ui-turn-settled] thread=%s server_ts_ms=%s", thread_id[:24], server_ts_ms)
+    except Exception:
+        logger.debug("[ui-turn-settled] stream write failed thread=%s", thread_id[:24], exc_info=True)
+
+
 def _emit_ephemeral_model_summary(
     original: list[BaseMessage],
     final: list[BaseMessage],
@@ -1425,6 +1464,7 @@ class ContextCompactionMiddleware(AgentMiddleware[AgentState]):
             _emit_bound_model_context_usage(req)
             result = self._invoke_model(req, handler)
             _emit_post_model_context_usage(result, req)
+            _emit_ui_turn_settled(result, req)
             return result
 
     @override
@@ -1437,7 +1477,9 @@ class ContextCompactionMiddleware(AgentMiddleware[AgentState]):
                 req = self._patch_empty_tool_messages(request)
                 bound_token = _BOUND_MODEL_MESSAGES.set(_messages_from_request(req))
                 try:
-                    return await handler(req)
+                    result = await handler(req)
+                    _emit_ui_turn_settled(result, req)
+                    return result
                 finally:
                     _BOUND_MODEL_MESSAGES.reset(bound_token)
             folded = await build_ephemeral_model_messages(messages, request.runtime)
@@ -1452,6 +1494,7 @@ class ContextCompactionMiddleware(AgentMiddleware[AgentState]):
             try:
                 result = await handler(req)
                 _emit_post_model_context_usage(result, req)
+                _emit_ui_turn_settled(result, req)
                 return result
             finally:
                 _BOUND_MODEL_MESSAGES.reset(bound_token)

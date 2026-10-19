@@ -40,6 +40,14 @@ export function isSessionExecuting(
   if (!sk) return false
   const rt = getSessionRuntime(sk)
   if (isTurnBusy(rt)) return true
+
+  // Local turn already settled (early RUN_FINISHED / abort). Stream buffer may
+  // still hold visible text until SSE `final`, and DB/probe may stay `running`
+  // through checkpoint — neither must revive the stop button.
+  if (rt.uiTurnSettled) {
+    return isSessionGoalActive(sk)
+  }
+
   if (isSessionRuntimeLive(rt)) return true
 
   // 用户停止后的 recovery 冷却：忽略 DB/probe 残留的 running（LangGraph 取消有延迟）

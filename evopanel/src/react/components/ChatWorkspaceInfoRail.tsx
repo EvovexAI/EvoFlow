@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Pencil } from 'lucide-react'
 import type { ContextUsageSnapshot } from '../lib/context-usage.js'
 import type { CollabTaskSnapshot, TokenTotals } from '../chat-types.js'
 import AgentAvatar from './AgentAvatar.js'
@@ -447,6 +448,20 @@ function AgentPane({
               <h2 className="react-chat-agent-profile-name" title={displayName}>
                 {displayName}
               </h2>
+              {onEditAgent ? (
+                <button
+                  type="button"
+                  className="react-chat-agent-edit-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditAgent()
+                  }}
+                  aria-label="点击编辑此智能体"
+                  title="点击编辑此智能体"
+                >
+                  <Pencil size={14} strokeWidth={1.75} aria-hidden />
+                </button>
+              ) : null}
               {onSwitchAgent ? (
                 <button
                   type="button"
@@ -1251,7 +1266,7 @@ export function EmployeePane({
           className={`react-chat-agent-profile-top${onEditAgent ? ' is-editable' : ''}`}
           role={onEditAgent ? 'button' : undefined}
           tabIndex={onEditAgent ? 0 : undefined}
-          title={onEditAgent ? '点击编辑绑定智能体' : undefined}
+          title={onEditAgent ? '点击编辑此员工' : undefined}
           onClick={onEditAgent}
           onKeyDown={
             onEditAgent
@@ -1283,6 +1298,20 @@ export function EmployeePane({
               <h2 className="react-chat-agent-profile-name" title={employeeName}>
                 {employeeName}
               </h2>
+              {onEditAgent ? (
+                <button
+                  type="button"
+                  className="react-chat-agent-edit-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditAgent()
+                  }}
+                  aria-label="点击编辑此员工"
+                  title="点击编辑此员工"
+                >
+                  <Pencil size={14} strokeWidth={1.75} aria-hidden />
+                </button>
+              ) : null}
             </div>
             <div className="react-chat-agent-profile-meta" title={roleName}>
               {department ? `${department} · ` : ''}

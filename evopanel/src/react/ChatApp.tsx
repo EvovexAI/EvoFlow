@@ -8709,9 +8709,42 @@ useEffect(() => {
   )
 
   const openCurrentAgentEditor = useCallback(() => {
-    const code = String(
-      (isProactiveEmployeeSession ? employeeSessionAgentCode : '') || currentRoleCodeForUi || '',
-    ).trim()
+    // 员工会话：打开「编辑员工」岗位 sheet，不打开智能体编辑器 / 不切换其他人
+    if (isProactiveEmployeeSession) {
+      const code = String(employeeSessionAgentCode || '').trim()
+      if (!code) {
+        toast('当前没有可编辑的员工', 'warning')
+        return
+      }
+      void Promise.all([
+        import('../lib/tauri-api.js'),
+        import('../lib/proactive-role-edit.js'),
+      ])
+        .then(async ([{ api }, { showEditRoleModal }]) => {
+          const res: any = await api.proactiveGetRole(code)
+          const role = res?.role || res
+          if (!role || typeof role !== 'object') {
+            toast('找不到当前员工', 'error')
+            return
+          }
+          await showEditRoleModal(role, {
+            sheetTitle: '编辑员工',
+            sheetKicker: '员工',
+            confirmLabel: '保存员工',
+            allowAgentRebind: false,
+            onSaved: async () => {
+              await refreshAgentsList()
+              setRoleUiNonce((n) => n + 1)
+            },
+          })
+        })
+        .catch((e) => {
+          toast(`无法打开编辑：${(e as Error)?.message || e}`, 'error')
+        })
+      return
+    }
+
+    const code = String(currentRoleCodeForUi || '').trim()
     if (!code) {
       toast('当前没有可编辑的智能体', 'warning')
       return
@@ -11150,8 +11183,12 @@ useEffect(() => {
       if (state === 'final') {
         // 旧 endLiveStreamSession 已删：live-stream-store 没了
         endClientPerfTurn(String(runId || rt.activeChatRunId || targetSk))
-        markRunSealing(rt)
-        dispatchSessionTurnEvent(targetSk, { type: 'SEALING' })
+        // Early AG-UI RUN_FINISHED already idled; late SSE `final` must not SEALING→busy
+        // or the stop button / gear flashes back on for the checkpoint tail.
+        if (isTurnBusy(rt)) {
+          markRunSealing(rt)
+          dispatchSessionTurnEvent(targetSk, { type: 'SEALING' })
+        }
         dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: Date.now() })
         flushPendingSessionTitle()
         const c = extractChatContent(payload.message)
@@ -13044,7 +13081,9 @@ useEffect(() => {
       }
       onPatchCapabilities={patchCurrentAgentCapabilities}
       capabilityBusy={capabilityPatchBusy}
-      onSwitchAgent={() => setBottomRoleOpen(true)}
+      onSwitchAgent={
+        isProactiveEmployeeSession ? undefined : () => setBottomRoleOpen(true)
+      }
       onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
       onAssetQuickAction={handleAssetQuickAction}
       assetQuickBusy={assetQuickBusy}

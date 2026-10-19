@@ -65,135 +65,91 @@ function prettyRrule(rrule) {
   return roleScheduleSummary({ heartbeat_schedule: rrule, schedule_summary: '' })
 }
 
+/**
+ * 知识库用法：只暴露「怎么用」三档，高级检索参数不进表单（保存时原样保留）。
+ * @param {object|null} existingConfig
+ */
 function renderKbInjectionField(existingConfig = null) {
     const cfg = existingConfig || {}
-    const mode = String(cfg.mode || 'auto')
-    const topK = parseInt(cfg.top_k ?? 24, 10) || 24
-    const agentTopK = parseInt(cfg.agent_top_k ?? 12, 10) || 12
-    const scoreThreshold = parseFloat(cfg.score_threshold ?? 0)
-    const maxTokens = parseInt(cfg.max_inject_tokens ?? 12000, 10) || 12000
-    const recallMul = parseInt(cfg.recall_multiplier ?? 6, 10) || 6
-    const retrieval = String(cfg.retrieval || 'hybrid')
-    const bm25Weight = parseFloat(cfg.bm25_weight ?? 0.3)
-    const reranker = String(cfg.reranker || 'none')
-    const timeout = parseInt(cfg.timeout_sec ?? 8, 10) || 8
-    const onFailure = String(cfg.on_failure || 'ignore')
-    const mountPlatformTools = cfg.mount_platform_tools === true
+    let mode = String(cfg.mode || 'auto')
+    // both 对普通用户难懂：界面归到「自动查阅」，但未改选前保存仍保留 both（见 read）
+    const uiMode = mode === 'both' ? 'auto' : mode
+    if (!['auto', 'agent', 'off'].includes(uiMode)) mode = 'auto'
 
     const modeOpts = [
-        ['auto', '自动注入(推荐)'],
-        ['agent', 'Agent 工具调用'],
-        ['both', '两者并行(自动注入 + 工具可用)'],
-        ['off', '关闭'],
-    ]
-    const retrievalOpts = [
-        ['hybrid', `混合(vec 0.7 + BM25 ${bm25Weight})`],
-        ['vector', '纯向量'],
-        ['rerank', '重排序(bge-reranker)'],
+        {
+            value: 'auto',
+            label: '自动查阅',
+            hint: '推荐。每次回答前系统先从绑定库找相关内容，员工直接带着资料答。',
+        },
+        {
+            value: 'agent',
+            label: '按需查阅',
+            hint: '不问则不查。员工判断需要时再自己去搜知识库。',
+        },
+        {
+            value: 'off',
+            label: '不使用',
+            hint: '本岗不查知识库（即便下面勾选了库也不会注入）。',
+        },
     ]
 
     return `
       <div class="hire-field" data-section="kb-injection">
-        <span>知识库检索配置</span>
-        <p class="hire-chip-hint">影响该岗位在绑定知识库上的检索行为。默认 auto:系统在 LLM 调用前自动检索并把相关片段注入上下文。</p>
-        <input type="hidden" data-name="kb_injection_mode" value="${esc(mode)}">
-        <input type="hidden" data-name="kb_injection_retrieval" value="${esc(retrieval)}">
-        <input type="hidden" data-name="kb_injection_reranker" value="${esc(reranker)}">
-        <input type="hidden" data-name="kb_injection_on_failure" value="${esc(onFailure)}">
-
-        <div class="hire-chip-row" data-name="kb_injection_mode" role="radiogroup">
+        <span>怎么用知识库</span>
+        <p class="hire-chip-hint">选一种即可。条数、算法等高级参数沿用系统默认，无需手调。</p>
+        <input type="hidden" data-name="kb_injection_mode" value="${esc(mode === 'both' ? 'both' : uiMode)}">
+        <div class="hire-chip-row hire-kb-mode-row" data-name="kb_injection_mode" role="radiogroup">
           ${modeOpts
-            .map(([v, label]) => `<button type="button" class="hire-chip${v === mode ? ' is-on' : ''}" data-value="${esc(v)}">${esc(label)}</button>`)
+            .map(
+              (o) =>
+                `<button type="button" class="hire-chip hire-kb-mode-chip${o.value === uiMode ? ' is-on' : ''}" data-value="${esc(o.value)}" title="${esc(o.hint)}">${esc(o.label)}</button>`,
+            )
             .join('')}
         </div>
-
-        <div class="hire-row-split">
-          <label class="hire-subfield">
-            <span>检索条数 (auto)</span>
-            <input type="number" min="1" max="64" data-name="kb_injection_top_k" value="${esc(topK)}">
-          </label>
-          <label class="hire-subfield">
-            <span>工具调用条数 (agent)</span>
-            <input type="number" min="1" max="32" data-name="kb_injection_agent_top_k" value="${esc(agentTopK)}">
-          </label>
-        </div>
-
-        <div class="hire-row-split">
-          <label class="hire-subfield">
-            <span>相似度阈值 [0.0-1.0]</span>
-            <input type="number" step="0.01" min="0" max="1" data-name="kb_injection_score_threshold" value="${esc(scoreThreshold)}">
-          </label>
-          <label class="hire-subfield">
-            <span>注入上限 (tokens)</span>
-            <input type="number" min="500" max="100000" data-name="kb_injection_max_tokens" value="${esc(maxTokens)}">
-          </label>
-        </div>
-
-        <div class="hire-row-split">
-          <label class="hire-subfield">
-            <span>召回倍数</span>
-            <input type="number" min="1" max="20" data-name="kb_injection_recall_mul" value="${esc(recallMul)}">
-          </label>
-          <label class="hire-subfield">
-            <span>检索超时 (秒)</span>
-            <input type="number" min="1" max="60" data-name="kb_injection_timeout" value="${esc(timeout)}">
-          </label>
-        </div>
-
-        <div class="hire-subfield">
-          <span>检索算法</span>
-          <div class="hire-chip-row" data-name="kb_injection_retrieval" role="radiogroup">
-            ${retrievalOpts
-              .map(([v, label]) => `<button type="button" class="hire-chip${v === retrieval ? ' is-on' : ''}" data-value="${esc(v)}">${esc(label)}</button>`)
-              .join('')}
-          </div>
-        </div>
-
-        <div class="hire-row-split">
-          <label class="hire-subfield">
-            <span>BM25 权重 (hybrid)</span>
-            <input type="number" step="0.05" min="0" max="1" data-name="kb_injection_bm25_weight" value="${esc(bm25Weight)}">
-          </label>
-          <label class="hire-subfield">
-            <span>失败策略</span>
-            <select data-name="kb_injection_on_failure">
-              <option value="ignore" ${onFailure === 'ignore' ? 'selected' : ''}>忽略(继续回答)</option>
-              <option value="abort" ${onFailure === 'abort' ? 'selected' : ''}>中止(告知用户)</option>
-            </select>
-          </label>
-        </div>
-
-        <label class="hire-subfield hire-toggle">
-          <input type="checkbox" data-name="kb_injection_mount_platform_tools" ${mountPlatformTools ? 'checked' : ''}>
-          <span>挂载平台工具 (platform / panel_set)</span>
-        </label>
-        <p class="hire-chip-hint">默认关闭：员工不需要「平台行政」与「侧边面板控制」工具。开启后该员工会获得 platform / panel_set 等系统管理工具(谨慎使用,通常只给 main)。</p>
+        <p class="hire-chip-hint" data-role="kb-mode-hint">${esc(
+          modeOpts.find((o) => o.value === uiMode)?.hint || modeOpts[0].hint,
+        )}</p>
       </div>`
 }
 
-function readKbInjectionConfig(overlay) {
+/**
+ * @param {HTMLElement} overlay
+ * @param {object} [existingConfig] 未在简化表单中暴露的字段原样保留
+ */
+function readKbInjectionConfig(overlay, existingConfig = {}) {
+    const prev = existingConfig && typeof existingConfig === 'object' ? { ...existingConfig } : {}
     const get = (n) => overlay.querySelector(`[data-name="${n}"]`)
-    const num = (n, d) => {
-        const v = parseFloat(get(n)?.value ?? '')
-        return Number.isFinite(v) ? v : d
-    }
+    const modeEl = get('kb_injection_mode')
+    const mode = (modeEl?.value || prev.mode || 'auto').trim() || 'auto'
     return {
-        mode: get('kb_injection_mode')?.value || 'auto',
-        top_k: num('kb_injection_top_k', 24),
-        agent_top_k: num('kb_injection_agent_top_k', 12),
-        score_threshold: num('kb_injection_score_threshold', 0.0),
-        max_inject_tokens: num('kb_injection_max_tokens', 12000),
-        recall_multiplier: num('kb_injection_recall_mul', 6),
-        retrieval: get('kb_injection_retrieval')?.value || 'hybrid',
-        bm25_weight: num('kb_injection_bm25_weight', 0.3),
-        reranker: get('kb_injection_reranker')?.value || 'none',
-        timeout_sec: num('kb_injection_timeout', 8),
-        on_failure: get('kb_injection_on_failure')?.value || 'ignore',
-        mount_platform_tools: !!overlay.querySelector('[data-name="kb_injection_mount_platform_tools"]')?.checked,
+        mode,
+        top_k: Number.isFinite(Number(prev.top_k)) ? Number(prev.top_k) : 24,
+        agent_top_k: Number.isFinite(Number(prev.agent_top_k)) ? Number(prev.agent_top_k) : 12,
+        score_threshold: Number.isFinite(Number(prev.score_threshold))
+            ? Number(prev.score_threshold)
+            : 0.0,
+        max_inject_tokens: Number.isFinite(Number(prev.max_inject_tokens))
+            ? Number(prev.max_inject_tokens)
+            : 12000,
+        recall_multiplier: Number.isFinite(Number(prev.recall_multiplier))
+            ? Number(prev.recall_multiplier)
+            : 6,
+        retrieval: String(prev.retrieval || 'hybrid'),
+        bm25_weight: Number.isFinite(Number(prev.bm25_weight)) ? Number(prev.bm25_weight) : 0.3,
+        reranker: String(prev.reranker || 'none'),
+        timeout_sec: Number.isFinite(Number(prev.timeout_sec)) ? Number(prev.timeout_sec) : 8,
+        on_failure: String(prev.on_failure || 'ignore'),
+        mount_platform_tools: prev.mount_platform_tools === true,
     }
 }
 
 function bindKbInjectionChipRows(overlay) {
+    const hints = {
+        auto: '推荐。每次回答前系统先从绑定库找相关内容，员工直接带着资料答。',
+        agent: '不问则不查。员工判断需要时再自己去搜知识库。',
+        off: '本岗不查知识库（即便下面勾选了库也不会注入）。',
+    }
     overlay
         .querySelectorAll('[data-section="kb-injection"] .hire-chip-row[data-name]')
         .forEach((row) => {
@@ -202,8 +158,10 @@ function bindKbInjectionChipRows(overlay) {
                 if (!chip) return
                 const value = chip.dataset.value || ''
                 row.querySelectorAll('.hire-chip').forEach((c) => c.classList.toggle('is-on', c === chip))
-                const hidden = overlay.querySelector(`[data-name="${row.dataset.name}"]`)
+                const hidden = overlay.querySelector(`input[data-name="${row.dataset.name}"]`)
                 if (hidden) hidden.value = value
+                const hintEl = overlay.querySelector('[data-role="kb-mode-hint"]')
+                if (hintEl && hints[value]) hintEl.textContent = hints[value]
             })
         })
 }
@@ -235,14 +193,14 @@ function renderKnowledgeVaultField(vaults, selectedIds) {
   if (!vaults.length) {
     return `
       <div class="hire-field">
-        <span>绑定知识库</span>
-        <p class="hire-chip-hint">暂无知识库。可在「知识库」页创建后回来绑定（支持多选）。</p>
+        <span>绑定哪些知识库</span>
+        <p class="hire-chip-hint">还没有知识库。先去侧栏「知识库」建一个，再回来勾选。</p>
       </div>`
   }
   return `
     <div class="hire-field">
-      <span>绑定知识库</span>
-      <p class="hire-chip-hint">可多选。绑定后值班系统提示会注入这些库，员工应优先用 knowledge 检索。</p>
+      <span>绑定哪些知识库</span>
+      <p class="hire-chip-hint">勾选后，本岗上班/对话可查阅这些库里的资料。可多选。</p>
       <div class="hire-vault-list" data-name="knowledge_vault_ids">
         ${vaults
           .map((v) => {
@@ -251,7 +209,6 @@ function renderKnowledgeVaultField(vaults, selectedIds) {
             return `<label class="hire-vault-item">
               <input type="checkbox" value="${esc(v.id)}"${on ? ' checked' : ''}>
               <span class="hire-vault-item-text">${esc(v.name || v.id)}${esc(flag)}</span>
-              <span class="hire-vault-item-id">${esc(v.id)}</span>
             </label>`
           })
           .join('')}
@@ -524,9 +481,21 @@ async function loadRebindableAgents(currentCode) {
 
 /**
  * @param {object} role
- * @param {{ onSaved?: (updated?: object) => void | Promise<void> }} [opts]
+ * @param {{
+ *   onSaved?: (updated?: object) => void | Promise<void>,
+ *   sheetTitle?: string,
+ *   sheetKicker?: string,
+ *   confirmLabel?: string,
+ *   allowAgentRebind?: boolean,
+ * }} [opts]
  */
-export async function showEditRoleModal(role, { onSaved } = {}) {
+export async function showEditRoleModal(role, {
+  onSaved,
+  sheetTitle = '编辑岗位',
+  sheetKicker = '智能体员工',
+  confirmLabel = '保存岗位',
+  allowAgentRebind = true,
+} = {}) {
   if (!role) return
   const cfg = role.config || {}
   const autonomy = cfg.autonomy_level || 'approval_for_risky'
@@ -597,10 +566,19 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
         <span class="hire-agent-pill">${selected.code === role.agent_code ? '当前绑定' : '将改绑'}</span>
       </div>`
 
+  const basicAgentBlock = allowAgentRebind
+    ? `<p class="hire-chip-hint">可改绑智能体；工具与人设请到「智能体」页修改。</p>
+              ${renderAgentPickField(available, selected.code)}
+              ${renderAgentCard()}`
+    : `<p class="hire-chip-hint">当前员工信息；工具与人设请到「智能体」页修改。</p>
+              ${renderAgentCard()}
+              <input type="hidden" data-name="agent_code" value="${esc(selected.code)}">`
+
   const sections = [
     { key: 'basic', label: '基本信息' },
+    { key: 'knowledge', label: '知识库' },
     { key: 'duty', label: '职责与汇报' },
-    { key: 'capability', label: '能力与知识' },
+    { key: 'capability', label: '能力与工作' },
     { key: 'strategy', label: '工作策略' },
     { key: 'schedule', label: '成本预算' },
   ]
@@ -611,8 +589,8 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
     <div class="hire-sheet hire-sheet--edit" role="dialog" aria-labelledby="hire-sheet-title">
       <header class="hire-sheet-head">
         <div>
-          <p class="hire-sheet-kicker">智能体员工</p>
-          <h2 id="hire-sheet-title" class="hire-sheet-title">编辑岗位</h2>
+          <p class="hire-sheet-kicker">${esc(sheetKicker)}</p>
+          <h2 id="hire-sheet-title" class="hire-sheet-title">${esc(sheetTitle)}</h2>
         </div>
         <button type="button" class="hire-sheet-close" data-act="close" aria-label="关闭">&times;</button>
       </header>
@@ -629,9 +607,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
           </nav>
           <div class="hire-edit-panels">
             <div class="hire-edit-panel" data-section="basic">
-              <p class="hire-chip-hint">可改绑智能体；工具与人设请到「智能体」页修改。</p>
-              ${renderAgentPickField(available, selected.code)}
-              ${renderAgentCard()}
+              ${basicAgentBlock}
               <div class="hire-field-row">
                 <label class="hire-field">
                   <span>岗位名称</span>
@@ -658,11 +634,15 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
               </label>
             </div>
 
+            <div class="hire-edit-panel" data-section="knowledge" hidden>
+              <p class="hire-chip-hint">两步：先勾库，再选怎么用。其余检索细节用系统默认即可。</p>
+              ${renderKnowledgeVaultField(knowledgeVaults, selectedVaultIds)}
+              ${renderKbInjectionField(existingKbInjection)}
+            </div>
+
             <div class="hire-edit-panel" data-section="capability" hidden>
               ${renderModelField(chatModels, modelName)}
               ${renderWorkspaceField(workspacePaths, workspacePath, domain)}
-              ${renderKnowledgeVaultField(knowledgeVaults, selectedVaultIds)}
-              ${renderKbInjectionField(existingKbInjection)}
               <div class="hire-field">
                 <span>工作方式</span>
                 <div class="hire-chip-row" data-name="think_mode" role="radiogroup">
@@ -699,10 +679,6 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
                   <label class="hire-toggle">
                     <input type="checkbox" data-name="inject_skills" ${injectSkills === true ? 'checked' : ''} ${injectSkills === false ? 'disabled' : ''}>
                     <span>技能描述</span>
-                  </label>
-                  <label class="hire-toggle">
-                    <input type="checkbox" data-name="inject_kb" ${injectKb === true ? 'checked' : ''} ${injectKb === false ? 'disabled' : ''}>
-                    <span>知识库检索</span>
                   </label>
                   <label class="hire-toggle">
                     <input type="checkbox" data-name="inject_soul" ${injectSoul === true ? 'checked' : ''} ${injectSoul === false ? 'disabled' : ''}>
@@ -757,7 +733,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
 
       <footer class="hire-sheet-foot">
         <button type="button" class="btn btn-secondary btn-sm" data-act="close">取消</button>
-        <button type="button" class="btn btn-sm hire-confirm" data-act="confirm">保存岗位</button>
+        <button type="button" class="btn btn-sm hire-confirm" data-act="confirm">${esc(confirmLabel)}</button>
       </footer>
     </div>
   `
@@ -796,15 +772,17 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
     mountEditAvatars(overlay, 48, agentByCode)
   }
 
-  bindHireDropdown(overlay, {
-    role: 'agent-dd',
-    onPick: (code) => {
-      const next = available.find((a) => a.code === code)
-      if (!next) return
-      selected = next
-      syncAgentCard()
-    },
-  })
+  if (allowAgentRebind) {
+    bindHireDropdown(overlay, {
+      role: 'agent-dd',
+      onPick: (code) => {
+        const next = available.find((a) => a.code === code)
+        if (!next) return
+        selected = next
+        syncAgentCard()
+      },
+    })
+  }
 
   overlay.querySelector('[data-act="confirm"]')?.addEventListener('click', async () => {
     const role_name = (overlay.querySelector('[data-name="role_name"]')?.value || '').trim()
@@ -836,7 +814,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
     const department = (overlay.querySelector('[data-name="department"]')?.value || '').trim()
     const reports_to = (overlay.querySelector('[data-name="reports_to"]')?.value || '').trim()
     const knowledge_vault_ids = readKnowledgeVaultIds(overlay)
-    const kb_injection = readKbInjectionConfig(overlay)
+    const kb_injection = readKbInjectionConfig(overlay, existingKbInjection)
 
     const changes = []
     if (role_name !== String(role.role_name || '')) changes.push(`岗位名称：${role.role_name || '—'} → ${role_name}`)
@@ -902,7 +880,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
       if (!contSave) {
         if (btn) {
           btn.disabled = false
-          btn.textContent = '保存岗位'
+          btn.textContent = confirmLabel
         }
         return
       }
@@ -922,7 +900,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
         if (!cont) {
           if (btn) {
             btn.disabled = false
-            btn.textContent = '保存岗位'
+            btn.textContent = confirmLabel
           }
           return
         }
@@ -934,7 +912,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
         if (!cont) {
           if (btn) {
             btn.disabled = false
-            btn.textContent = '保存岗位'
+            btn.textContent = confirmLabel
           }
           return
         }
@@ -1001,7 +979,7 @@ export async function showEditRoleModal(role, { onSaved } = {}) {
       toast('更新失败: ' + (e?.message || e), 'error')
       if (btn) {
         btn.disabled = false
-        btn.textContent = '保存岗位'
+        btn.textContent = confirmLabel
       }
     }
   })
