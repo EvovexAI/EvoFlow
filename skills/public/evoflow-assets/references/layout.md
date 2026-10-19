@@ -15,11 +15,11 @@ profile/
 
 memory/
   _inbox/
-    notes/                     # 写入入口：YYYY-MM-DDTHH-MM-SS-<slug>.md
-      YYYY-MM-DDTHH-MM-SS-<slug>.md
+    notes/                     # 写入入口：<slug>.md（时间在 frontmatter）
+      <slug>.md
     _done/                     # Phase2 合并后归档（从不销毁）
       <UTC>-raw_<thread>.md
-      notes/<UTC>-YYYY-MM-DDTHH-MM-SS-<slug>.md
+      notes/<UTC>-<slug>.md
     phase2_workspace_diff.md   # Phase2 diff 清单（自动生成）
     raw_memories.md            # Phase2 合并前原始材料合集（自动生成）
   archive/
@@ -78,6 +78,6 @@ memory/standing.md    # 项目启动摘要
 | 流程复盘 | `memory/episodic/<slug>-YYYY-MM-DD.md` | Phase2 或手动 |
 | 反思 | `memory/journal/reflection-YYYY-MM-DD.md` | Phase2 或手动 |
 | 可复用做法 | `craft/<name>/SKILL.md` | Phase2 或手动 |
-| 任何新记忆(先入) | `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md` | 首行 `[experience]` 等 |
+| 任何新记忆(先入) | `memory/_inbox/notes/<slug>.md` | 首行 `[experience]` 等；`created` 在 frontmatter |
 | 项目模块 | `<workspace>/.evoflow/module/<name>.md` | 直接写 |
 | 项目踩坑 | `<workspace>/.evoflow/gotcha/<pitfall>.md` | 直接写 |

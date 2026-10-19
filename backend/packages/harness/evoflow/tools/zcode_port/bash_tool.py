@@ -847,6 +847,12 @@ def bash_tool(
     """
     del dangerouslyDisableSandbox  # EvoFlow host-direct already runs on the host; flag is accepted for schema parity.
     cwd = _cwd(runtime)
+    try:
+        from evoflow.tools.host_direct.skill_command_paths import rewrite_skill_paths_in_command
+
+        command = rewrite_skill_paths_in_command(command)
+    except Exception:
+        pass
     explicit = _timeout_was_explicit(timeout)
     timeout_ms = _effective_timeout_ms(command, _semantic_timeout(timeout), explicit=explicit)
     tid = _thread_id(runtime)

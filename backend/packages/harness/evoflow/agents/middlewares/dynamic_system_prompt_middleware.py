@@ -54,7 +54,10 @@ _ROLE_DISK_SIG_TTL_S = 2.0
 # ---- System-prompt section extraction for the context-detail modal ----
 # Section regexes (same as model_request_token_estimate but capturing, not just counting).
 _RE_SKILL = re.compile(r"<skill_injection\b.*?</skill_injection>", re.DOTALL | re.IGNORECASE)
-_RE_ASSETS = re.compile(r"<entity_assets\b.*?</entity_assets>", re.DOTALL | re.IGNORECASE)
+_RE_ASSETS = re.compile(
+    r"<(?:memory_assets|entity_assets)\b.*?</(?:memory_assets|entity_assets)>",
+    re.DOTALL | re.IGNORECASE,
+)
 _RE_MEMORY = re.compile(r"<!--\s*memory\s*:.*?-->", re.IGNORECASE)
 _RE_SOUL = re.compile(r"<soul\b.*?</soul>", re.DOTALL | re.IGNORECASE)
 _RE_AGENT_PROMPT = re.compile(r"<agent_system_prompt\b.*?</agent_system_prompt>", re.DOTALL | re.IGNORECASE)

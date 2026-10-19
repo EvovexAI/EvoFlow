@@ -72,8 +72,11 @@ def current_gate_overhead_meta() -> dict[str, int] | None:
 # ---- Section markers used to split system-prompt tokens ----
 # Match <skill_injection> ... </skill_injection>
 _RE_SKILL_INJECTION = re.compile(r"<skill_injection\b.*?</skill_injection>", re.DOTALL | re.IGNORECASE)
-# Match <entity_assets> ... </entity_assets>
-_RE_ENTITY_ASSETS = re.compile(r"<entity_assets\b.*?</entity_assets>", re.DOTALL | re.IGNORECASE)
+# Match <memory_assets> / legacy <entity_assets>
+_RE_ENTITY_ASSETS = re.compile(
+    r"<(?:memory_assets|entity_assets)\b.*?</(?:memory_assets|entity_assets)>",
+    re.DOTALL | re.IGNORECASE,
+)
 # Match <!-- memory: ... -->  (also the reference-only variant)
 _RE_MEMORY_BLOCK = re.compile(r"<!--\s*memory\s*:.*?-->", re.IGNORECASE)
 

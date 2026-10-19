@@ -169,7 +169,7 @@ curl http://localhost:8080/api/proactive/memory/frontend_architect
 | `EVOFLOW_PROACTIVE_SCHEDULER` | `1` | 启用/禁用主动引擎（`0` 关闭） |
 | `EVOFLOW_PROACTIVE_MODEL` | 系统默认 | 思考引擎使用的 LLM 模型名 |
 | `EVOFLOW_PROACTIVE_ASSISTANT_ID` | `lead_agent` | 执行倡议时调用的 LangGraph assistant |
-| `EVOFLOW_PROACTIVE_EXECUTION_TIMEOUT` | `600` | 倡议执行超时（秒） |
+| `EVOFLOW_PROACTIVE_EXECUTION_TIMEOUT` | `3600` | 倡议执行超时（秒）；角色 `timeout_seconds=0` 表示 think 不设墙钟上限 |
 
 ---
 

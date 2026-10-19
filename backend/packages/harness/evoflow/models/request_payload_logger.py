@@ -279,6 +279,7 @@ def extract_system_prompt_full_from_vendor_payload(payload: dict[str, Any]) -> s
             piece = _message_content_to_plain_text(msg.get("content")).strip()
             if piece:
                 segments.append(piece)
+    segments = [s for s in segments if not s.lstrip().startswith("[MODEL_SWITCH]")]
     segments = _dedupe_identical_system_segments(segments)
     if not segments:
         return ""

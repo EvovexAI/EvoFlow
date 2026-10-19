@@ -240,14 +240,14 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
         if e.entity_type == "workspace":
             ws_path = resolve_workspace_path_for_entity_id(e.entity_id) or ""
             workspace_context_block = (
-                f"项目根 `{ws_path}` · 写入:`{ws_path}\\.evoflow\\memory\\_inbox\\notes\\<TS>-<slug>.md` · 标签 `[project]`"
+                f"项目根 `{ws_path}` · 写入只用 `assets`（note/search/read；标签 `[project]`）"
             )
             tail_block = ""
         else:
             workspace_context_block = ""
             tail_block = (
-                f"写入:`{base}/memory/_inbox/notes/<TS>-<slug>.md` · "
-                f"标签:`[experience]`/`[process]`/`[reflection]`/`[preference]` (首行)"
+                f"写入只用 `assets`（note/profile/search/read；根 `{base}`）· "
+                f"标签:`[experience]`/`[process]`/`[reflection]`/`[preference]`"
             )
 
         return render_memory_prompt(

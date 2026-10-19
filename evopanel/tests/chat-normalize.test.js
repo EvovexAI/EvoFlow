@@ -1892,6 +1892,25 @@ describe('chat image path normalization', () => {
     expect(src).toContain(encodeURIComponent('D:/github/EvoFlow/outputs/cat.png'))
   })
 
+  it('resolveChatImageSrc serves abs path under images/ without outputs marker', async () => {
+    const { setChatWorkspaceRoot } = await import('../src/lib/chat-workspace-context.js')
+    const { resolveChatImageSrc } = await import('../src/lib/chat-image-src.js')
+    setChatWorkspaceRoot('')
+    const abs =
+      'D:/dev/github/evo/edu/ai-demos/1004-douyin-video-pipeline/data/videos/7695735744219894378/images/01.jpeg'
+    const src = resolveChatImageSrc(abs)
+    expect(src).toContain('/api/workspaces/serve-file')
+    expect(src).toContain(encodeURIComponent(abs))
+    // No outputs/uploads → parent dir is serve-file root (never bare host path)
+    expect(src).toContain(
+      encodeURIComponent(
+        'D:/dev/github/evo/edu/ai-demos/1004-douyin-video-pipeline/data/videos/7695735744219894378/images',
+      ),
+    )
+    expect(src).not.toMatch(/^D:/)
+    setChatWorkspaceRoot('')
+  })
+
   it('resolveChatImageSrc maps local browser_snapshots path to gateway URL', async () => {
     const { resolveChatImageSrc } = await import('../src/lib/chat-image-src.js')
     const src = resolveChatImageSrc(

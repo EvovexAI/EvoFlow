@@ -1474,6 +1474,22 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         blocked.discard("")
         if blocked:
             tools = [t for t in tools if canonical_tool_name(str(getattr(t, "name", "") or "").strip().lower()) not in blocked]
+    # assets = memory write surface: always stay in ToolNode catalog. Per-turn visibility
+    # is gated by MemoryRuntimeControlMiddleware (session memory_enabled).
+    try:
+        from evoflow.agents.memory.runtime_overrides import ASSETS_TOOL_NAME
+        from evoflow.tools.tool_aliases import canonical_tool_name
+
+        if not any(canonical_tool_name(str(getattr(t, "name", "") or "")) == ASSETS_TOOL_NAME for t in tools):
+            from evoflow.tools.tools import get_builtin_tools
+
+            for _bt in get_builtin_tools():
+                if canonical_tool_name(str(getattr(_bt, "name", "") or "")) == ASSETS_TOOL_NAME:
+                    tools.append(_bt)
+                    logger.info("[Tools] kept assets in catalog for memory-gated binding agent=%s", agent_name)
+                    break
+    except Exception:
+        logger.debug("assets catalog keep failed", exc_info=True)
     # "All tools" baseline should respect whitelist boundary, but not scenario pruning.
     all_tools = list(tools)
     # Dynamic tool profile (two-phase):

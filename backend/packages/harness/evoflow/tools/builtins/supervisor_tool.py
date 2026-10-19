@@ -183,7 +183,8 @@ _TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
     # reviewed kept for legacy rows; treat as terminal success (maps to completed on write)
     "reviewed": set(),
     "completed": set(),
-    "failed": set(),
+    # Align with collab ALLOWED_TRANSITIONS: failed work items / steps can be retried.
+    "failed": {"pending", "executing"},
     "cancelled": set(),
 }
 

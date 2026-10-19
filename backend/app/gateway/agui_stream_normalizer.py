@@ -61,6 +61,9 @@ class AgUiEncoderState:
     subagent_nested_tool_call_ids: set[str] = field(default_factory=set)
     subagent_content_fingerprints: set[str] = field(default_factory=set)
     activity_message_id: str = "activity-0"
+    # Set once TEXT_MESSAGE_END + RUN_FINISHED have been emitted. The later
+    # upstream ``run_end`` still appends MESSAGES_SNAPSHOT.
+    run_snapshot_emitted: bool = False
 
 
 def _tool_name_from_tc(tc: dict[str, Any]) -> str:
@@ -444,6 +447,74 @@ def _is_subagent_leaked_text(state: AgUiEncoderState, piece: str) -> bool:
     return False
 
 
+def _lifecycle_ended_for_thread(payload: dict[str, Any], thread_id: str) -> bool:
+    """True when this frame is the lead agent's after_agent completion signal."""
+    chunk = payload.get("chunk") if isinstance(payload.get("chunk"), dict) else payload
+    if not isinstance(chunk, dict):
+        return False
+    if str(chunk.get("type") or "").strip() != "session_run_lifecycle":
+        return False
+    if str(chunk.get("phase") or "").strip() != "ended":
+        return False
+    chunk_tid = str(chunk.get("thread_id") or "").strip()
+    tid = str(thread_id or "").strip()
+    return not chunk_tid or not tid or chunk_tid == tid
+
+
+def _seal_agui_run(
+    state: AgUiEncoderState,
+    out: list[dict[str, Any]],
+    *,
+    usage: dict[str, Any] | None = None,
+) -> None:
+    """Emit TEXT_MESSAGE_END + RUN_FINISHED once.
+
+    Called from ``session_run_lifecycle phase=ended`` so the stop button does
+    not wait on checkpoint I/O after the model has already finished.
+    """
+    if state.run_finished:
+        return
+    state.run_finished = True
+    if isinstance(usage, dict) and usage:
+        out.append(
+            {
+                "type": CUSTOM,
+                "name": "usage",
+                "value": {"type": "usage", "usage": usage},
+            }
+        )
+    for bid in list(state.reasoning_message_started):
+        if bid not in state.reasoning_ended:
+            out.extend(_close_reasoning_block(state, bid))
+    for bid in list(state.text_started):
+        if bid not in state.text_ended:
+            state.text_ended.add(bid)
+            out.append({"type": TEXT_MESSAGE_END, "messageId": bid})
+    if state.planning_step_open:
+        state.planning_step_open = False
+        out.append({"type": STEP_FINISHED, "stepName": "planning"})
+    out.append({"type": RUN_FINISHED, "threadId": state.thread_id, "runId": state.run_id})
+
+
+def _append_run_snapshot(
+    state: AgUiEncoderState,
+    out: list[dict[str, Any]],
+    payload: dict[str, Any],
+    ledger: Any | None,
+) -> None:
+    if state.run_snapshot_emitted:
+        return
+    state.run_snapshot_emitted = True
+    messages: list[dict[str, Any]] = []
+    if ledger is not None and hasattr(ledger, "snapshot_agui_messages"):
+        messages = ledger.snapshot_agui_messages(_tool_registry(state))
+    if messages:
+        out.append({"type": MESSAGES_SNAPSHOT, "messages": messages})
+    segs = payload.get("display_segments")
+    if isinstance(segs, list) and segs:
+        out.append({"type": CUSTOM, "name": "display_segments", "value": segs})
+
+
 def evf_payload_to_agui_events(
     payload: dict[str, Any],
     *,
@@ -771,43 +842,11 @@ def evf_payload_to_agui_events(
         return out
 
     if t == "run_end":
-        if state.run_finished:
-            return out
-        state.run_finished = True
-        # Forward final usage as CUSTOM(name='usage') BEFORE RUN_FINISHED so the
-        # browser can update token totals even when intermediate usage frames
-        # were deduplicated upstream (UiStreamNormalizer.last_usage_emit_sig).
-        run_end_usage = payload.get("usage")
-        if isinstance(run_end_usage, dict) and run_end_usage:
-            out.append(
-                {
-                    "type": CUSTOM,
-                    "name": "usage",
-                    "value": {"type": "usage", "usage": run_end_usage},
-                }
-            )
-        # Close any open reasoning blocks
-        for bid in list(state.reasoning_message_started):
-            if bid not in state.reasoning_ended:
-                out.extend(_close_reasoning_block(state, bid))
-        # Close open text blocks
-        for bid in list(state.text_started):
-            if bid not in state.text_ended:
-                state.text_ended.add(bid)
-                out.append({"type": TEXT_MESSAGE_END, "messageId": bid})
-        if state.planning_step_open:
-            state.planning_step_open = False
-            out.append({"type": STEP_FINISHED, "stepName": "planning"})
-        out.append({"type": RUN_FINISHED, "threadId": state.thread_id, "runId": state.run_id})
-        messages: list[dict[str, Any]] = []
-        if ledger is not None and hasattr(ledger, "snapshot_agui_messages"):
-            messages = ledger.snapshot_agui_messages(_tool_registry(state))
-        if messages:
-            out.append({"type": MESSAGES_SNAPSHOT, "messages": messages})
-        # Preserve display_segments for history compat
-        segs = payload.get("display_segments")
-        if isinstance(segs, list) and segs:
-            out.append({"type": CUSTOM, "name": "display_segments", "value": segs})
+        # Spinner/stop button key off RUN_FINISHED. Seal as soon as we know the
+        # turn is over; a later upstream run_end must not emit a second one,
+        # but it still carries the transcript snapshot.
+        _seal_agui_run(state, out, usage=payload.get("usage"))
+        _append_run_snapshot(state, out, payload, ledger)
         return out
 
     if t in {"thread_state", "usage", "custom", "_debug_upstream"}:
@@ -819,6 +858,11 @@ def evf_payload_to_agui_events(
                 _ingest_delayed_tool_args(state, t, payload, out)
         elif t == "thread_state":
             _ingest_delayed_tool_args(state, t, payload, out)
+        # Agent graph is done (after_agent). Upstream SSE stays open through
+        # checkpoint put, which is the multi-second gap after the last token.
+        # Seal the UI run now; the real run_end later only adds the snapshot.
+        if _lifecycle_ended_for_thread(payload, state.thread_id):
+            _seal_agui_run(state, out)
         out.append({"type": CUSTOM, "name": t, "value": payload})
         return out
 

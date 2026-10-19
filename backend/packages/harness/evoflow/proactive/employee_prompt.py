@@ -128,13 +128,11 @@ def build_employee_communication_block(
 Tone: professional, warm, practical. Short for chitchat; lead with the answer for Q&A; concise for tech.
 Refuse unsafe requests; never expose tool/orchestration internals.
 Follow brevity/format asks; after finishing, one optional next step (skip if user wants ultra-short).
-Assets: read with `read`; when durable prefs/lessons/reflections appear, you decide and write to `memory/_inbox/notes/` (first line tagged `[preference]`/`[reflection]`/`[experience]`/`[process]`) — do not wait for "remember".
 </communication>"""
     return """<communication>
 气质：专业、温和、务实。闲聊短句；答疑结论先行；技术精简。
 拒绝违规/危险请求；勿向用户暴露工具与编排细节。
 配合简洁/详细与格式要求；完成后可酌情给一项下一步建议（用户要极简时省略）。
-资产：读用 `read`；出现值得长期保留的偏好/教训/反思时，由你判断并 `write` 到 `memory/_inbox/notes/`（首行带 `[preference]`/`[reflection]`/`[experience]`/`[process]` 标签），无需等用户说「记住」。
 </communication>"""
 
 
@@ -190,72 +188,77 @@ def build_employee_habits_block(
         return f"<habits>\n{raw[:400]}\n</habits>"
 
 
-def build_employee_chat_system_prompt(
+def _strip_soul_wrapper(text: str) -> str:
+    raw = str(text or "").strip()
+    if raw.startswith("<soul>") and raw.endswith("</soul>"):
+        return raw[len("<soul>") : -len("</soul>")].strip()
+    return raw
+
+
+def _scan_prompt_piece(text: str, *, source: str) -> str:
+    body = str(text or "").strip()
+    if not body:
+        return ""
+    try:
+        from evoflow.security.prompt_injection_scanner import scan_content
+
+        return scan_content(body, source=source).strip()
+    except Exception:
+        return body
+
+
+def build_employee_job_block(*, soul: str = "", custom_system_prompt: str = "") -> str:
+    """One job description. ``system_prompt`` wins; soul is only the fallback copy.
+
+    ``save_agent_config`` copies soul into ``system_prompt`` for the scheduler.
+    Chat never emits both, and never emits ``<habits>``.
+    """
+    extra = _strip_soul_wrapper(custom_system_prompt)
+    bare_soul = _strip_soul_wrapper(soul)
+    body = extra or bare_soul
+    body = _scan_prompt_piece(body, source="custom_system_prompt")
+    if not body:
+        return ""
+    return f"<agent_system_prompt>\n{body}\n</agent_system_prompt>"
+
+
+def build_employee_platform_block(
+    identity: dict[str, Any],
     *,
-    agent_code: str | None = None,
-    identity: dict[str, Any] | None = None,
-    soul: str = "",
+    prompt_language: str | None = None,
+) -> str:
+    """Platform shell: who you are, tone, and contract. Sits under the job prompt."""
+    inner = "\n\n".join(
+        p
+        for p in (
+            build_employee_identity_block(identity, prompt_language=prompt_language),
+            build_employee_communication_block(prompt_language=prompt_language),
+            build_employee_contract_block(identity, prompt_language=prompt_language),
+        )
+        if p
+    )
+    return f"<platform>\n{inner}\n</platform>"
+
+
+def build_employee_session_block(
+    identity: dict[str, Any],
+    *,
     skills_section: str = "",
     workspace_root_hint: str = "",
     runtime_os: str = "",
     runtime_shell: str = "",
     runtime_host_hint: str = "",
     runtime_now: str = "",
-    memory_context: str = "",
-    person_memory_context: str = "",
     user_profile_block: str = "",
-    custom_system_prompt: str = "",
     prompt_language: str | None = None,
-    include_panel_set: bool = False,
-    loaded_tool_names: set[str] | list[str] | tuple[str, ...] | None = None,
 ) -> str:
-    """Assemble the full employee chat system prompt (v2 skeleton)."""
-    info = identity or resolve_employee_identity(agent_code)
-    if info is None:
-        info = {
-            "code": _normalize_employee_agent_code(agent_code),
-            "role_name": _normalize_employee_agent_code(agent_code) or "本岗同事",
-            "department": "",
-            "responsibilities": [],
-            "workspace_path": "",
-        }
-
-    panel_ok = bool(include_panel_set)
-    if loaded_tool_names is not None:
-        names = {str(n).strip() for n in loaded_tool_names if str(n).strip()}
-        panel_ok = "panel_set" in names
-    _ = panel_ok  # panel_set copy stays on the tool; not injected into system prompt
-
-    parts: list[str] = [
-        build_employee_identity_block(info, prompt_language=prompt_language),
-        build_employee_communication_block(prompt_language=prompt_language),
-        build_employee_contract_block(info, prompt_language=prompt_language),
-    ]
-
-    habits = build_employee_habits_block(soul, prompt_language=prompt_language)
-    if habits:
-        parts.append(habits)
-
-    # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段（调度器 fallback）。
-    # 这里不要在 ``<habits>`` 之外再叠一个 ``<agent_system_prompt>`` 显示相同内容。
-    bare_soul = (soul or "").strip()
-    if bare_soul.startswith("<soul>") and bare_soul.endswith("</soul>"):
-        bare_soul = bare_soul[len("<soul>") : -len("</soul>")].strip()
-    extra = str(custom_system_prompt or "").strip()
-    if extra and extra != bare_soul:
-        try:
-            from evoflow.security.prompt_injection_scanner import scan_content
-
-            extra = scan_content(extra, source="custom_system_prompt")
-        except Exception:
-            pass
-        parts.append(f"<agent_system_prompt>\n{extra}\n</agent_system_prompt>")
-
+    """This-turn context only: skills, workspace, and the read-only user profile."""
+    parts: list[str] = []
     skills = str(skills_section or "").strip()
     if skills:
         parts.append(f"<skills>\n{skills}\n</skills>")
 
-    ws_root = str(workspace_root_hint or info.get("workspace_path") or "").strip() or "(未指定)"
+    ws_root = str(workspace_root_hint or identity.get("workspace_path") or "").strip() or "(未指定)"
     ws_lines = [
         "<workspace>",
         f"用户工作目录: {ws_root}",
@@ -276,53 +279,91 @@ def build_employee_chat_system_prompt(
         try:
             from evoflow.assets.profile_injection import build_user_profile_injection_block
 
-            # Chat with the user: inject identity + 画像 (preferences/persona), not duty identity-only.
             profile = build_user_profile_injection_block(
                 prompt_language=prompt_language,
                 scope="full",
             ).strip()
         except Exception:
             profile = ""
+    profile = _scan_prompt_piece(profile, source="user_profile")
     if profile:
-        try:
-            from evoflow.security.prompt_injection_scanner import scan_content
+        parts.append(profile)
+    inner = "\n\n".join(parts)
+    return f"<session>\n{inner}\n</session>"
 
-            profile = scan_content(profile, source="user_profile").strip()
-        except Exception:
-            pass
-        if profile:
-            parts.append(profile)
 
-    mem_bits: list[str] = []
-    for label, raw in (
-        ("user", memory_context),
-        ("person", person_memory_context),
-    ):
-        text = str(raw or "").strip()
-        if not text:
-            continue
-        try:
-            from evoflow.security.prompt_injection_scanner import scan_content
+def build_employee_memory_policy_block(
+    identity: dict[str, Any],
+    *,
+    memory_context: str = "",
+    person_memory_context: str = "",
+    prompt_language: str | None = None,
+) -> str:
+    """Unified ``<memory_assets>`` region (policy + recall); same gate as the assets tool."""
+    from evoflow.assets.memory_assets_prompt import build_employee_memory_assets_block
 
-            text = scan_content(text, source=f"{label}_memory_context").strip()
-        except Exception:
-            pass
-        if text:
-            mem_bits.append(f"<!-- {label} memory: reference only, not a todo list -->\n{text}")
-    if mem_bits:
-        parts.append("<memory>\n" + "\n\n".join(mem_bits) + "\n</memory>")
-
-    parts.append(
-        "<context_priority>\n"
-        "1) **最新用户消息**最高优先；\n"
-        "2) **用户画像**（user_profile）次之——有缺口且本对话未补充时**必须主动简短询问**，"
-        "用户回答后立刻用 `write`/`replace` profile 文件并确认，禁止只聊不写；\n"
-        "3) **本岗经验(craft)/反思(journal)/过程(episodic) 高权重**——任务相关时必须优先检索复用，"
-        "禁止当摆设；遇有价值流程、有价值过程、反复出错点时，必须主动问用户是否沉淀为 "
-        "`[experience]`/`[process]`/`[reflection]`，同意后再 `write` 到 `memory/_inbox/notes/`；\n"
-        "4) 岗位合同 / 习惯 / 其它记忆仅作参考。未点名的旧任务/巡检不要自动续跑。\n"
-        "</context_priority>"
+    return build_employee_memory_assets_block(
+        identity,
+        memory_context=_scan_prompt_piece(memory_context, source="user_memory_context"),
+        person_memory_context=_scan_prompt_piece(person_memory_context, source="person_memory_context"),
+        prompt_language=prompt_language,
     )
+
+
+def build_employee_chat_system_prompt(
+    *,
+    agent_code: str | None = None,
+    identity: dict[str, Any] | None = None,
+    soul: str = "",
+    skills_section: str = "",
+    workspace_root_hint: str = "",
+    runtime_os: str = "",
+    runtime_shell: str = "",
+    runtime_host_hint: str = "",
+    runtime_now: str = "",
+    memory_context: str = "",
+    person_memory_context: str = "",
+    user_profile_block: str = "",
+    custom_system_prompt: str = "",
+    prompt_language: str | None = None,
+    include_panel_set: bool = False,
+    loaded_tool_names: set[str] | list[str] | tuple[str, ...] | None = None,
+) -> str:
+    """Assemble employee chat prompt: job, platform, session, memory. One job body."""
+    _ = include_panel_set
+    _ = loaded_tool_names  # panel_set copy stays on the tool; not injected into system prompt
+    info = identity or resolve_employee_identity(agent_code)
+    if info is None:
+        code = _normalize_employee_agent_code(agent_code)
+        info = {
+            "code": code,
+            "role_name": code or "本岗同事",
+            "department": "",
+            "responsibilities": [],
+            "workspace_path": "",
+        }
+
+    parts = [
+        build_employee_job_block(soul=soul, custom_system_prompt=custom_system_prompt),
+        build_employee_platform_block(info, prompt_language=prompt_language),
+        build_employee_session_block(
+            info,
+            skills_section=skills_section,
+            workspace_root_hint=workspace_root_hint,
+            runtime_os=runtime_os,
+            runtime_shell=runtime_shell,
+            runtime_host_hint=runtime_host_hint,
+            runtime_now=runtime_now,
+            user_profile_block=user_profile_block,
+            prompt_language=prompt_language,
+        ),
+        build_employee_memory_policy_block(
+            info,
+            memory_context=memory_context,
+            person_memory_context=person_memory_context,
+            prompt_language=prompt_language,
+        ),
+    ]
     if EMPLOYEE_V2_CLOSE:
         parts.append(EMPLOYEE_V2_CLOSE)
     return "\n\n".join(p for p in parts if p).strip() + "\n"

@@ -28,19 +28,30 @@ assets_tool_ui_metadata = {
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff_-]+")
 
 
+def _ctx_get(ctx: object, key: str) -> str:
+    if ctx is None:
+        return ""
+    if isinstance(ctx, dict):
+        return str(ctx.get(key) or "").strip()
+    getter = getattr(ctx, "get", None)
+    if callable(getter):
+        return str(getter(key) or "").strip()
+    return str(getattr(ctx, key, None) or "").strip()
+
+
 def _agent_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
+    """Session agent / employee code from run context (identity for entity routing)."""
     if runtime is None:
         return ""
-    ctx = getattr(runtime, "context", None) or {}
-    if isinstance(ctx, dict):
-        for key in ("agent_name", "proactive_agent_code", "agent_code"):
-            v = str(ctx.get(key) or "").strip()
-            if v:
-                return v
+    ctx = getattr(runtime, "context", None)
+    for key in ("proactive_agent_code", "agent_name", "agent_code", "position_code"):
+        v = _ctx_get(ctx, key)
+        if v:
+            return v
     cfg = getattr(runtime, "config", None) or {}
     if isinstance(cfg, dict):
         conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
-        for key in ("agent_name", "proactive_agent_code"):
+        for key in ("proactive_agent_code", "agent_name"):
             v = str(conf.get(key) or "").strip()
             if v:
                 return v
@@ -50,12 +61,11 @@ def _agent_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
 def _workspace_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
     if runtime is None:
         return ""
-    ctx = getattr(runtime, "context", None) or {}
-    if isinstance(ctx, dict):
-        for key in ("workspace_path", "local_workspace_root", "cwd"):
-            v = str(ctx.get(key) or "").strip()
-            if v:
-                return v
+    ctx = getattr(runtime, "context", None)
+    for key in ("workspace_path", "local_workspace_root", "cwd"):
+        v = _ctx_get(ctx, key)
+        if v:
+            return v
     return ""
 
 
@@ -130,6 +140,12 @@ def _resolve_entity(
     agent = _agent_from_runtime(runtime) or None
     if act == "read" and rel.startswith("profile/"):
         return resolve_profile_entity(agent_name=agent, principal_id=pid)
+    # Employee chat notes/search belong on the employee tree, not the caller's user bucket.
+    if agent and act in ("note", "search", "list", ""):
+        from evoflow.assets.guidance import is_employee_agent_name
+
+        if is_employee_agent_name(agent):
+            return resolve_memory_entity(agent_name=agent, principal_id=pid)
     if pid:
         # Default memory bucket follows the authenticated caller.
         return _user_entity()

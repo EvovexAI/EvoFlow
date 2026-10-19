@@ -348,5 +348,57 @@ class AguiCuaDisplayWireTests(unittest.TestCase):
         self.assertEqual(state.tool_cua_displays["call-cua"], cua)
 
 
+class AguiEarlyRunFinishedTests(unittest.TestCase):
+    def test_lifecycle_ended_seals_before_checkpoint_run_end(self) -> None:
+        from app.gateway.agui_stream_normalizer import AgUiEncoderState, evf_payload_to_agui_events
+
+        state = AgUiEncoderState(thread_id="t1", run_id="r1")
+        state.text_started.add("b1")
+        early = evf_payload_to_agui_events(
+            {
+                "type": "custom",
+                "chunk": {
+                    "type": "session_run_lifecycle",
+                    "phase": "ended",
+                    "thread_id": "t1",
+                },
+            },
+            state=state,
+        )
+        types = [e["type"] for e in early]
+        self.assertIn("TEXT_MESSAGE_END", types)
+        self.assertIn("RUN_FINISHED", types)
+        self.assertTrue(state.run_finished)
+
+        late = evf_payload_to_agui_events(
+            {"type": "run_end", "display_segments": [{"kind": "text"}]},
+            state=state,
+        )
+        late_types = [e["type"] for e in late]
+        self.assertNotIn("RUN_FINISHED", late_types)
+        self.assertEqual(late_types.count("CUSTOM"), 1)
+        self.assertEqual(late[0]["name"], "display_segments")
+
+    def test_other_thread_lifecycle_does_not_seal(self) -> None:
+        from app.gateway.agui_stream_normalizer import AgUiEncoderState, evf_payload_to_agui_events
+
+        state = AgUiEncoderState(thread_id="parent", run_id="r1")
+        state.text_started.add("b1")
+        events = evf_payload_to_agui_events(
+            {
+                "type": "custom",
+                "chunk": {
+                    "type": "session_run_lifecycle",
+                    "phase": "ended",
+                    "thread_id": "child",
+                },
+            },
+            state=state,
+        )
+        self.assertNotIn("RUN_FINISHED", [e["type"] for e in events])
+        self.assertFalse(state.run_finished)
+        self.assertNotIn("b1", state.text_ended)
+
+
 if __name__ == "__main__":
     unittest.main()

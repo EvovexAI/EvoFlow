@@ -142,6 +142,34 @@ def _heal_role_schedule_if_needed(role: ProactiveRole) -> ProactiveRole:
     return role
 
 
+def _heal_role_timeout_if_needed(role: ProactiveRole, *, raw_config_json: str = "") -> ProactiveRole:
+    """Lazy persist: rewrite legacy hire default timeout_seconds=300 → 0 (unlimited).
+
+    ``ProactiveRoleConfig.from_json`` already remaps in memory; this writes it back
+    so subsequent reads / export stop showing the 5-minute kill switch.
+    """
+    try:
+        raw = json.loads(raw_config_json or "{}") if raw_config_json else {}
+        if not isinstance(raw, dict) or int(raw.get("timeout_seconds") or 0) != 300:
+            return role
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return role
+    role.config.timeout_seconds = 0
+    try:
+        ProactiveRepository.save_role(role)
+        logger.info(
+            "proactive: healed legacy timeout_seconds=300 → 0 code=%s",
+            getattr(role, "agent_code", ""),
+        )
+    except Exception:
+        logger.debug(
+            "proactive: timeout heal persist failed code=%s",
+            getattr(role, "agent_code", ""),
+            exc_info=True,
+        )
+    return role
+
+
 def _heal_role_display_name_if_needed(role: ProactiveRole, *, raw_role_name: str = "") -> ProactiveRole:
     """No-op: never persist agent_name into role_name (岗位名不可被智能体名回填)."""
     del raw_role_name
@@ -171,6 +199,7 @@ class ProactiveRepository:
             raw = _row_dict(r)
             role = _row_to_role(raw)
             role = _heal_role_display_name_if_needed(role, raw_role_name=_sanitize_role_text(raw.get("role_name")))
+            role = _heal_role_timeout_if_needed(role, raw_config_json=str(raw.get("config_json") or ""))
             out.append(_heal_role_schedule_if_needed(role))
         return out
 
@@ -189,6 +218,7 @@ class ProactiveRepository:
         raw = _row_dict(row)
         role = _row_to_role(raw)
         role = _heal_role_display_name_if_needed(role, raw_role_name=_sanitize_role_text(raw.get("role_name")))
+        role = _heal_role_timeout_if_needed(role, raw_config_json=str(raw.get("config_json") or ""))
         return _heal_role_schedule_if_needed(role)
 
     @staticmethod
@@ -543,7 +573,9 @@ class ProactiveRepository:
         )
         due: list[ProactiveRole] = []
         for r in rows:
-            role = _row_to_role(_row_dict(r))
+            raw = _row_dict(r)
+            role = _row_to_role(raw)
+            role = _heal_role_timeout_if_needed(role, raw_config_json=str(raw.get("config_json") or ""))
             code = str(role.agent_code or "").strip()
             if not code or code.lower() == "none":
                 continue

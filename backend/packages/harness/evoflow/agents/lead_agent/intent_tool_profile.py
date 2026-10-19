@@ -130,6 +130,9 @@ CORE_TOOL_NAMES: tuple[str, ...] = (
     # ZCode 插件运行时内核工具：browser-use / computer-use 启用时才真实存在
     # （build_node_repl_js_tool 条件返回），存在即 eager 绑定，未启用时自动缺席。
     "mcp__node_repl__js",
+    # Entity Asset Hub = memory write surface. Always in the graph catalog; visibility
+    # is gated each turn by MemoryRuntimeControlMiddleware (session memory_enabled).
+    "assets",
     # "mode_set",  # 暂不常驻：用户在界面切 plan/agent；逻辑保留在 scenario_activation
 )
 
@@ -215,7 +218,7 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
             # "find",  # retired — embedded search via Bash
             "view_image",
             "read_lints",
-            "assets",
+            # assets is CORE (memory-gated); not deferred
             # 不再默认绑定 — 由 agent 角色白名单决定是否挂载
             "tasks",
             "platform",

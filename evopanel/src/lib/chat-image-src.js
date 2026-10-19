@@ -1,6 +1,7 @@
 /**
  * Resolve image URLs for chat markdown / MessageMedia.
  * Prefer workspace absolute paths + Gateway serve-file; fall back to /mnt/user-data when unbound.
+ * Bare host paths are never returned as <img> src (browsers cannot load them).
  */
 
 import { apiUrl } from './api-client.js'
@@ -28,6 +29,16 @@ export function stripBrowserSnapshotFileMentions(text) {
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|svg|bmp)(\?|$)/i
 const OUTPUTS_MARKER = 'outputs'
 
+/** @type {((path: string) => string) | null} */
+let _convertFileSrc = null
+if (typeof window !== 'undefined') {
+  import('@tauri-apps/api/core')
+    .then((m) => {
+      _convertFileSrc = typeof m.convertFileSrc === 'function' ? m.convertFileSrc : null
+    })
+    .catch(() => {})
+}
+
 export function isImagePathLike(pathOrUrl) {
   return IMAGE_EXT_RE.test(String(pathOrUrl || '').trim())
 }
@@ -50,11 +61,88 @@ function _isUnixAbs(u) {
   return s.startsWith('/') && !s.startsWith('/mnt/user-data')
 }
 
-/** Infer workspace root from ``D:/project/outputs/file.png``. */
+/** Parent directory of an absolute path (POSIX-normalized). */
+function _parentDir(absPath) {
+  const n = String(absPath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+  const i = n.lastIndexOf('/')
+  if (i <= 0) return ''
+  // ``D:/file.png`` → ``D:/``
+  if (/^[a-zA-Z]:$/.test(n.slice(0, i))) return `${n.slice(0, i)}/`
+  return n.slice(0, i)
+}
+
+function _pathUnderRoot(root, filePath) {
+  const r = String(root || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase()
+  const f = String(filePath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .toLowerCase()
+  if (!r || !f) return false
+  return f === r || f.startsWith(`${r}/`)
+}
+
+function _tryConvertFileSrc(absPath) {
+  if (!_convertFileSrc) return ''
+  const p = String(absPath || '').trim()
+  if (!p) return ''
+  try {
+    const out = _convertFileSrc(p)
+    return typeof out === 'string' && out ? out : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Infer a usable serve-file root from an absolute file path.
+ * - ``…/outputs|uploads/…`` → project root above that marker
+ * - otherwise → parent directory of the file (Gateway allows abs path outside root)
+ */
 export function inferWorkspaceRootFromFilePath(filePath) {
   const norm = String(filePath || '').trim().replace(/\\/g, '/')
-  const m = /^([a-zA-Z]:)\/(.+?)\/(outputs|uploads)\//i.exec(norm)
-  if (m) return `${m[1]}/${m[2]}`.replace(/\/+$/, '')
+  const win = /^([a-zA-Z]:)\/(.+?)\/(outputs|uploads)\//i.exec(norm)
+  if (win) return `${win[1]}/${win[2]}`.replace(/\/+$/, '')
+  const posix = /^(\/.+?)\/(outputs|uploads)\//i.exec(norm)
+  if (posix) return posix[1].replace(/\/+$/, '')
+  return _parentDir(norm)
+}
+
+/** Pick serve-file root + optional Tauri asset URL for a host absolute path. */
+function _resolveAbsoluteLocalSrc(absPath) {
+  const u = String(absPath || '').trim()
+  if (!u) return ''
+  const chatRoot = String(getChatWorkspaceRoot() || '').trim()
+  const inferred = inferWorkspaceRootFromFilePath(u)
+
+  let serveRoot = ''
+  if (chatRoot && _pathUnderRoot(chatRoot, u)) serveRoot = chatRoot
+  else if (inferred) serveRoot = inferred
+  else if (chatRoot) serveRoot = chatRoot
+
+  // Outside bound workspace: prefer Tauri asset protocol when available.
+  if (chatRoot && !_pathUnderRoot(chatRoot, u)) {
+    const tauri = _tryConvertFileSrc(u)
+    if (tauri) return tauri
+  }
+
+  if (serveRoot) {
+    const url = _serveFileUrl(serveRoot, u)
+    if (url) return url
+  }
+
+  const tauri = _tryConvertFileSrc(u)
+  if (tauri) return tauri
+
+  // Last resort: parent dir as root (never return bare host path as img src).
+  const parent = _parentDir(u)
+  if (parent) return _serveFileUrl(parent, u) || ''
   return ''
 }
 
@@ -108,7 +196,7 @@ export function resolveChatImageSrc(rawPathOrUrl) {
   const snapshot = u.match(/(\/api\/threads\/[^/?#]+\/browser-snapshots\/[0-9a-f]{12,32})/i)
   if (snapshot) return apiUrl(snapshot[1].slice(4))
 
-  const root = getChatWorkspaceRoot() || inferWorkspaceRootFromFilePath(u)
+  const root = String(getChatWorkspaceRoot() || '').trim()
   const norm = u.replace(/\\/g, '/')
 
   // 模型正文常引用落盘绝对路径（~/.evoflow(-dev)/browser_snapshots/...）；
@@ -121,9 +209,7 @@ export function resolveChatImageSrc(rawPathOrUrl) {
   }
 
   if (_isWindowsAbs(u) || /^[a-zA-Z]:\//.test(norm) || _isUnixAbs(u)) {
-    const effectiveRoot = root || inferWorkspaceRootFromFilePath(u)
-    if (effectiveRoot) return _serveFileUrl(effectiveRoot, u)
-    return u
+    return _resolveAbsoluteLocalSrc(u)
   }
 
   if (u.startsWith('/mnt/user-data/')) return u

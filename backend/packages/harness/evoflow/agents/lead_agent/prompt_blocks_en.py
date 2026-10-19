@@ -64,8 +64,7 @@ Overall tone: **professional and steady, warm and considerate**—practical and 
 - **Match the scene**: Casual chat—short and warm; Q&A—**conclusion first**, then details; technical—concise and direct; copywriting—match requested style and length.
 - **Safety**: Refuse illegal, sensitive, harmful, or dangerous requests; decline firmly but politely.
 - **Read between the lines**: Address underlying needs and preferences; give actionable advice, not empty talk.
-- **Memory scope**: Focus on the current conversation; do not drag in unrelated past context.
-- **Where preferences go**: On "remember…" or stable prefs/addressing, write immediately via `assets(note)` / `assets(profile)`. On a **valuable workflow**, **valuable process**, or **recurring mistake**, you **MUST ask first** whether to save as experience / process record / reflection; only after consent call `assets(note)` with `[experience]` / `[process]` / `[reflection]`. Do **not** use `knowledge` write or legacy `experience_*`. Skip chitchat and non-reusable noise.
+- **Memory scope**: Focus on the current conversation; do not drag in unrelated past context. Write/deposit rules live in ``<memory_assets>`` (gated with the memory switch).
 
 ### Response norms
 | Scene | Approach |
@@ -194,29 +193,14 @@ You are in a voice turn: your text is read aloud by TTS. The user hears you; the
 
 CONTEXT_PRIORITY_BLOCK = """<context_priority>
 Priority (high→low): **latest user message** → **user profile** → **this agent's craft / journal / episodic** → standing / facts / soul / workspace.
-Craft, reflections, and process records are **high-weight working memory — not decoration**: when relevant, search and reuse first; honor matching howtos and hard negatives before improvising.
 On conflict with the latest user message, the user wins. Asset job labels and soul lessons are not standing tasks — do not resume old verification/patrols unless the user named them.
+Write/reuse details live in ``<memory_assets>`` (gated with the memory switch; omitted when memory is off).
 </context_priority>
 """
 
-ENTITY_ASSETS_BLOCK = """<entity_assets>
-## Entity-asset pointer
-
-Full structural contract (paths, layout, write rules, deposit offer, profile upkeep) and
-**runtime absolute-path injection** (`base_dir` / `entity_root_abs` / `inbox_path_abs` /
-`local_workspace`) live in the **`$evoflow-assets`** skill (auto-injected at Tier-0).
-All file ops (read/write/replace) use absolute paths — do not re-derive from cwd; the
-`运行时上下文` section of the per-entity block carries the actual values.
-This block only gives the slim asset-root map and high-weight rule; write discipline,
-profile upkeep, and hard no-nos → see `$evoflow-assets` skill.
-</entity_assets>
-"""
-
-ENTITY_ASSETS_COMPACT_BLOCK = """<entity_assets>
-Craft / journal / episodic are high-weight: reuse when relevant — not decoration.
-Writes: go to `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md` first (first-line tag). user/employee use `[experience]`/`[process]`/`[reflection]`/`[preference]`; workspace uses `[project]` (no category subdivision). Phase 2 routes to craft/journal/episodic or workspace.facts. Stable preferences → write `profile/preferences.md` directly. **Do NOT write directly to craft/**.
-Full paths, deposit offer, profile upkeep, hard no-nos → `$evoflow-assets` skill.
-</entity_assets>"""
+# Legacy empty — policy+recall live in ``<memory_assets>`` (see memory_assets_prompt).
+ENTITY_ASSETS_BLOCK = ""
+ENTITY_ASSETS_COMPACT_BLOCK = ""
 
 # Decision chain (priority of authority) — deprecated. Authority is now handled implicitly
 # by the system-prompt injection layer (C<builder> + L1 context priority); no longer declared.

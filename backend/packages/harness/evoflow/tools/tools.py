@@ -16,8 +16,8 @@ from evoflow.tools.builtins.tool_search import reset_deferred_registry
 logger = logging.getLogger(__name__)
 
 # Retired from the LLM tool surface — use unified ``browser`` tool or ``evoflow-admin`` skill + ``terminal`` + ``evoflow`` CLI.
-# Agent entity assets (memory / journal / craft / episodic): direct read/write via sandbox tools.
-# Legacy ``memory_remember`` / ``person_memory_edit`` / ``experience_*`` map to ``assets`` via tool_aliases.
+# Agent entity assets (memory / journal / craft / episodic): prefer unified ``assets`` tool
+# (runtime-bound entity: user / employee / workspace). Legacy memory_* / experience_* map via aliases.
 _ADMIN_CLI_REPLACED_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "remember",
@@ -163,7 +163,7 @@ def _filter_sandbox_superseded_for_host_direct(tools: list[BaseTool]) -> list[Ba
 def get_builtin_tools() -> tuple[BaseTool, ...]:
     """Load built-in sandbox tools on first use (avoids eager import of 50+ tool modules)."""
     from evoflow.community.web_fetch.tools import web_fetch_tool as fetch_url_tool
-    # assets_tool removed — memory/craft access via direct read/replace/write on
+    from evoflow.tools.builtins.assets_tool import assets_tool
     # from evoflow.tools.builtins.browser_tool import browser_tool  # unregistered — use the agent-browser skill (CLI/MCP)
     from evoflow.tools.builtins.clarification_tool import ask_clarification_tool
     from evoflow.tools.builtins.collab_peer_tools import (
@@ -186,6 +186,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     from evoflow.tools.builtins.view_image_tool import view_image_tool
 
     tools = [
+        assets_tool,
         plan_tool,
         ask_clarification_tool,
         propose_goal_tool,

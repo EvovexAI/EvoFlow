@@ -89,7 +89,7 @@ def _employee_to_json(code: str) -> dict[str, Any]:
             "responsibilities": list(getattr(cfg, "responsibilities", None) or []),
             "tool_groups": list(getattr(cfg, "tool_groups", None) or []),
             "max_turns": int(getattr(cfg, "max_turns", 10) or 10),
-            "timeout_seconds": int(getattr(cfg, "timeout_seconds", 300) or 300),
+            "timeout_seconds": int(getattr(cfg, "timeout_seconds", 0) or 0),
             "daily_budget_usd": float(getattr(cfg, "daily_budget_usd", 0) or 0),
         }
         hb = str(getattr(role, "heartbeat_rrule", "") or getattr(cfg, "heartbeat_rrule", "") or "")

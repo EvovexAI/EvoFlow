@@ -731,6 +731,13 @@ def _hire_existing_agent(
     # Inherit from Agent unless hire payload explicitly set capability fields.
     inherit = not (explicit_skills or explicit_tool_groups or bool(str(data.get("soul_md") or "").strip()))
 
+    # 0 = no wall-clock cap (engine treats falsy as unlimited). Never use ``or 300``:
+    # that forced a 5min kill and also turned an explicit 0 into 300.
+    _raw_timeout = data.get("timeout_seconds")
+    timeout_seconds_value = (
+        int(_raw_timeout) if _raw_timeout is not None and str(_raw_timeout).strip() != "" else 0
+    )
+
     config = ProactiveRoleConfig(
         responsibilities=_coerce_responsibilities(data.get("responsibilities")),
         workspace_path=_validate_workspace_path(data.get("workspace_path")),
@@ -747,7 +754,7 @@ def _hire_existing_agent(
         thinking_enabled=None if data.get("thinking_enabled") is None else bool(data.get("thinking_enabled")),
         model_name=model_name_value,
         max_turns=int(data.get("max_turns") or 10),
-        timeout_seconds=int(data.get("timeout_seconds") or 300),
+        timeout_seconds=timeout_seconds_value,
         tool_groups=tool_groups_value,
         skills=skills_value,
         kb_injection=_safe_kb_injection(data.get("kb_injection")),

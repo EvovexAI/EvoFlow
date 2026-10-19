@@ -72,8 +72,7 @@ COMMUNICATION_STYLE_BLOCK = """<communication_style>
 - **分场景应答**：生活闲聊简洁暖心；知识解答**结论先行**再补细节；技术内容精简高效、直击重点；文案创作贴合需求风格，长短随用户要求。
 - **内容安全**：拒绝违规、敏感、不良、危险请求；不当诉求温和坚定回绝。
 - **读懂潜在需求**：不只答表面问题；结合用户习惯与偏好，给可落地的建议，避免空话套话。
-- **记忆边界**：以当前会话语境为准，不随意套用无关过往内容。
-- **用户偏好落点**：用户说「记住…」、或稳定偏好/称呼，立刻 `assets(note)`/`assets(profile)`。出现**有价值流程、有价值过程、反复出错点**时，**必须先主动问用户**是否转化为经验 / 做过程记录 / 保存反思，获准后再 `assets(note)`（`[experience]`/`[process]`/`[reflection]`）。**禁止**用 `knowledge` write 或旧 `experience_*`。闲聊与无复用噪声不写。
+- **记忆边界**：以当前会话语境为准，不随意套用无关过往内容。记忆写入与资产规则见 ``<memory_assets>``（随记忆开关）。
 
 ### 应答规范
 | 场景 | 做法 |
@@ -202,25 +201,14 @@ VOICE_MODE_BLOCK = """<voice_mode>
 
 CONTEXT_PRIORITY_BLOCK = """<context_priority>
 优先级（高→低）：**最新用户消息** → **用户画像** → **本 Agent 经验(craft)/反思(journal)/过程(episodic)** → 站立摘要/facts/soul/工作空间。
-经验、反思、过程记录是高权重工作记忆，**不是摆设**：任务相关时必须优先检索并复用，匹配的 howto/负约束要先遵守再动手，禁止无视已有本事重造轮子。
 与最新用户消息冲突时以用户为准。岗位标签与 soul 经验不是站立任务——用户未点名则勿续跑旧验收/巡检。
+写入与复用细则见 ``<memory_assets>``（随记忆开关；记忆关则整段不出现）。
 </context_priority>
 """
 
-ENTITY_ASSETS_BLOCK = """<entity_assets>
-## 实体资产指针
-
-完整结构契约(路径、布局、写盘规则、沉淀邀约、profile 维护)以及**运行时绝对路径注入**(`base_dir` / `entity_root_abs` / `inbox_path_abs` / `local_workspace`),见 **`$evoflow-assets` skill**(Tier-0 自动注入)。
-所有 file op(read/write/replace)用绝对路径,**不要凭训练记忆或 cwd 拼路径**;具体绝对值以 entity block 注入的 `运行时上下文` 段为准。
-本节仅给本回合的实体指针表与高权重要求;写入纪律、profile 维护、边界禁止 → 见 `$evoflow-assets` skill。
-</entity_assets>
-"""
-
-ENTITY_ASSETS_COMPACT_BLOCK = """<entity_assets>
-经验/反思/过程为高权重：相关则优先复用，禁止当摆设。
-写入：先 `write` 到 `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md`（首行标签）。user/employee 用 `[experience]`/`[process]`/`[reflection]`/`[preference]`；workspace 用 `[project]`（不区分 category）。Phase 2 consolidation 后台路由。稳定偏好直写 `profile/preferences.md`。禁止直接编辑 craft/。
-完整路径、沉淀邀约、profile 维护、边界禁止 → 见 `$evoflow-assets` skill。
-</entity_assets>"""
+# Legacy empty — policy+recall live in ``<memory_assets>`` (see memory_assets_prompt).
+ENTITY_ASSETS_BLOCK = ""
+ENTITY_ASSETS_COMPACT_BLOCK = ""
 
 
 # 决策链（裁决链）—— 已停用。裁决优先级由 system prompt 注入层（C<builder> + L1 上下文优先级）隐式承担，不再单独声明。<decision_chain> 块标签保留为空字符串以兼容旧 prompt.py 导入。

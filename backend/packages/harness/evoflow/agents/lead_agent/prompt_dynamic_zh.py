@@ -87,24 +87,26 @@ SKILL_SYSTEM_INTRO = "你可以使用技能（skills）来执行特定任务。�
 SKILL_PROGRESSIVE_HEADER = "**渐进式加载：**"
 SKILL_RULE_1 = (
     '``<location>`` 为 ``skill:<技能名>``（推荐）或沙箱虚拟路径；要执行技能内具体步骤、或 metadata 不足以完成任务时再 ``read("<location>")``。'
-    '**只读文件**：``read("skill:<名>")`` 打开 SKILL.md；**目录**用 ``terminal``（如 dir / ls），禁止 ``read("skill:<名>/scripts")`` 等目录路径。'
+    '**只读文件**：``read("skill:<名>")`` 打开 SKILL.md；**目录**用 ``bash``（如 ``ls`` / ``dir``），禁止 ``read("skill:<名>/scripts")`` 等目录路径。'
     "同技能下其它文件用 ``skill:<技能名>/相对路径``（正斜杠，须为真实文件）。"
     "若用户只是产品自介绍/能力概览（如 evoflow-intro），且 ``<available_skills>`` 已有 name+description，**勿 read SKILL.md**，直接按 description 作答。"
 )
 SKILL_RULE_2 = (
     "按需读资源；遵守技能内步骤与边界。"
-    "执行技能内脚本：短命令用 ``terminal``，脚本/测试/长任务用 ``process(action='start', …)``，再用 ``log``/``wait``/``kill``；"
-    '``workdir="skill:<技能名>"``，命令写相对路径（勿用已废弃的 execute_command）。'
+    "执行技能内脚本用 ``bash``：命令里写 ``skill:<名>/scripts/...`` 或相对 ``scripts/...``（宿主会解析到技能安装目录）；"
+    "长任务设 ``run_in_background=true``，再用 ``taskoutput`` / ``taskstop`` 查看或停止。"
+    "勿再调用已废弃的 ``terminal`` / ``process`` / ``execute_command``。"
 )
 SKILL_RULE_3 = "使用技能按技能步骤调用工具；当前模式由界面决定，勿调用 mode_set/scenario。"
 SKILL_RULE_COMPACT = (
     "若本回合已注入 `<skill_injection>` 或 ``<available_skills>`` 描述已够，勿重复 read SKILL.md。"
     '技能**不在用户工作区**：读文件用 ``read("skill:<名>/路径")``；'
-    "跑脚本用 ``terminal`` 或 ``process(action='start')`` 并设 ``workdir=\"skill:<名>\"``（命令相对技能根，如 ``python scripts/foo.py``）。"
+    "跑脚本用 ``bash``（命令含 ``skill:<名>/...`` 或 ``scripts/...``）；长任务 ``run_in_background=true`` + ``taskoutput`` / ``taskstop``。"
     "禁止在工作区 find/grep ``skills/`` 或 ``SKILL.md``。"
 )
 MCP_RULE_COMPACT = (
-    "MCP 工具是**原生 function 工具**，名称为 ``mcp__<服务器>__<工具>``，直接调用。**禁止**用 ``terminal``、``mcp-terminal``、JSON-RPC 或 ``npx`` 调 MCP。Skills（``skill:<名>``）与 MCP 分离：技能=流程/文档/脚本；MCP=外部连接器。"
+    "MCP 工具是**原生 function 工具**，名称为 ``mcp__<服务器>__<工具>``，直接调用。**禁止**用 ``bash``、JSON-RPC 或 ``npx`` 调 MCP。"
+    "Skills（``skill:<名>``）与 MCP 分离：技能=流程/文档/脚本；MCP=外部连接器。"
 )
 SKILL_DIR_LABEL = "**技能目录位置（逻辑根；读写执行见 SKILL_RULE，勿对工作区使用安装目录绝对路径）：**"
 SKILL_EMPTY_COMMENT = "当前进程未加载到技能元数据列表（例如未启用技能目录或列表为空）。若侧栏仍列出技能，请用 ``skill:<name>`` 调用 read。"

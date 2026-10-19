@@ -1,3 +1,5 @@
+# Do not `from .assets_tool import assets_tool` here — that replaces the
+# submodule attribute on this package and breaks `import …assets_tool`.
 from .automation_tool import automation_tool
 from .catalog_tools import list_assignable_tools_tool, list_skills_catalog_tool
 from .clarification_tool import ask_clarification_tool

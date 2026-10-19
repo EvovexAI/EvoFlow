@@ -65,13 +65,15 @@ description: 资产库结构契约 — 记忆 / 经验 / 反思 / craft 沉淀,�
 |------|------|------|---------|
 | 1. 选 type | —— | —— | `experience` / `process` / `reflection` / `preference` |
 | 2. 问用户 | `ask_clarification` | —— | （见 §4 沉淀邀约） |
-| 3. 写 inbox | `write` | `memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md` | `[type]` |
+| 3. 写 inbox | `assets` `action=note` | 实体根 `memory/_inbox/notes/<slug>.md` | `[type]` |
 | 4. （可选）更新 MEMORY.md | `replace` | `memory/MEMORY.md` 末尾追加指针行 | `YYYY-MM-DD type title` |
 
 **Phase1 写入格式**（agent 对话中产生的新材料）：
-- 文件名：`YYYY-MM-DDTHH-MM-SS-<slug>.md`（冒号替换为 `-`，避免 Windows 文件名冲突）
+- 文件名：`<slug>.md`（只用主题 slug，便于检索；**不要**把时间戳放进文件名）
+- 时间：frontmatter `created: YYYY-MM-DDTHH:MM:SSZ`
 - 首行标签：`[experience]` / `[process]` / `[reflection]` / `[preference]`
-- slug 取自标题：转小写、`_` 替代非字母数字、不超过 48 字符
+- slug 取自标题：转小写、`-` 替代非字母数字、不超过 80 字符
+- 员工会话默认写入 `assets/employees/<code>/…`；用户偏好写用户桶，勿混写
 
 **Phase1 原始记忆格式**（会话结束时自动写入）：
 - 文件名：`raw_<thread_token>.md`（thread_token = UUID，agent 调用 phase1 系统时产生）
@@ -160,7 +162,7 @@ slug 取自标题：转小写、`_` 替代非字母数字、不超过 48 字符�
 
 **写盘**：
 ```
-write 到 memory/_inbox/notes/YYYY-MM-DDTHH-MM-SS-<slug>.md
+用 assets action=note 写入 memory/_inbox/notes/<slug>.md（时间在 frontmatter created）
 首行：[project] <短标题>
 例：[project] gateway 依赖 PyYAML >= 4.2b1
 ```

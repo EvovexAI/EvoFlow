@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LANGGRAPH_URL = os.getenv("EVOFLOW_LANGGRAPH_URL", "http://127.0.0.1:8070/api/langgraph")
 DEFAULT_ASSISTANT_ID = os.getenv("EVOFLOW_PROACTIVE_ASSISTANT_ID", "lead_agent")
-DEFAULT_TIMEOUT_SECONDS = int(os.getenv("EVOFLOW_PROACTIVE_EXECUTION_TIMEOUT", "600"))
+# Approved-initiative execute path still needs a wall-clock bound (polling loop).
+# 1h matches real agent work better than the old 10min default; override via env.
+DEFAULT_TIMEOUT_SECONDS = int(os.getenv("EVOFLOW_PROACTIVE_EXECUTION_TIMEOUT", "3600"))
 
 
 class ExecutionBridge:

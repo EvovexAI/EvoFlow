@@ -379,6 +379,18 @@ def _db_lc_has_compaction_summary(db_lc: list[BaseMessage]) -> bool:
     return False
 
 
+def _drop_model_switch_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Keep ``[MODEL_SWITCH]`` out of the model transcript (UI notice only)."""
+    kept: list[BaseMessage] = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            text = _human_message_text(getattr(msg, "content", None)).strip()
+            if text.startswith("[MODEL_SWITCH]"):
+                continue
+        kept.append(msg)
+    return kept
+
+
 def _is_injected_runtime_human_text(text: str) -> bool:
     t = str(text or "").strip()
     if not t:
@@ -730,6 +742,7 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
                 thread_id,
                 session_key,
             )
+        merged = _drop_model_switch_messages(merged)
 
         # Re-read watermark after load (inject/append may have advanced seq).
         max_seq_after, compaction_after = get_session_hydration_watermark(session_key)

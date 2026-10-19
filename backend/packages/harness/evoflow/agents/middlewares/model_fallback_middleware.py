@@ -254,7 +254,11 @@ def _persist_session_model_switch(
     to_model: str,
     reason: str,
 ) -> None:
-    """Update session model_name, emit SSE notice, and persist MODEL_SWITCH separator."""
+    """Update session model_name and emit an SSE notice.
+
+    Do not append a ``[MODEL_SWITCH]`` chat message — that text must not re-enter
+    the model context.
+    """
     tid = _runtime_thread_id(runtime)
     to_name = str(to_model or "").strip()
     if not to_name:
@@ -272,23 +276,6 @@ def _persist_session_model_switch(
             sk = sess_repo.find_session_key_by_thread_id(tid)
             if sk:
                 sess_repo.upsert_session_row(sk, context={"model_name": to_name})
-                try:
-                    from evoflow.persistence.chat_session_service import (
-                        append_message_and_touch_session,
-                    )
-
-                    append_message_and_touch_session(
-                        sk,
-                        role="user",
-                        content=f"[MODEL_SWITCH]{sep_text}",
-                        thread_id=tid,
-                    )
-                except Exception:
-                    logger.debug(
-                        "persist MODEL_SWITCH message failed session=%s",
-                        sk,
-                        exc_info=True,
-                    )
         except Exception:
             logger.debug("session model switch persist failed thread=%s", tid, exc_info=True)
 

@@ -2401,71 +2401,160 @@ async def batch_tasks(http_request: Request, request: BatchOperationRequest) -> 
     return {"success": True, "data": {"action": action, "total": len(task_ids), "succeeded": succeeded, "failed": failed, "results": results}}
 
 
-@router.post("/{task_id}/retry", summary="Retry Failed Subtasks", description="Retry failed subtasks of a task.")
+_RETRYABLE_FAILED_STATUSES = frozenset({"failed", "error", "timed_out"})
+
+
+def _is_retryable_failed_status(status: Any) -> bool:
+    return str(status or "").strip().lower() in _RETRYABLE_FAILED_STATUSES
+
+
+def _kick_work_item_retry(task_id: str, task: dict[str, Any]) -> None:
+    """Background re-dispatch for leaf / employee work items (no Plan subtasks)."""
+    import asyncio
+
+    tid = str(task_id or "").strip()
+    if not tid:
+        return
+    role_code = str(task.get("assigned_to") or task.get("agent_code") or "").strip() or "unknown"
+    try:
+        from evoflow.proactive.router import (
+            _log_create_task_result,
+            _safe_execute_approved_work_item,
+        )
+    except Exception:
+        logger.exception("retry: cannot import work-item executor for task=%s", tid)
+        return
+
+    try:
+        fut = asyncio.get_running_loop().create_task(
+            _safe_execute_approved_work_item(tid, role_code)
+        )
+        fut.add_done_callback(_log_create_task_result)
+        logger.info("retry: scheduled work-item re-dispatch task=%s role=%s", tid, role_code)
+    except Exception:
+        logger.exception("retry: failed to schedule work-item re-dispatch task=%s", tid)
+
+
+@router.post(
+    "/{task_id}/retry",
+    summary="Retry Failed Subtasks",
+    description="Retry failed subtasks, or re-dispatch a leaf/work-item task that failed as a whole.",
+)
 async def retry_task(http_request: Request, task_id: str, request: RetrySubtaskRequest) -> dict:
     require_task_visible(http_request, task_id)
-    """Retry failed subtasks of a task.
+    """Retry failed subtasks, or the main task when it is a leaf/work-item failure.
 
-    This endpoint allows retrying specific failed subtasks or all failed subtasks.
-    Retried subtasks are reset to 'pending' status and can be re-executed.
+    Plan tasks: reset ``failed``/``error``/``timed_out`` subtasks to ``pending``.
+    Employee work items (often no subtasks): reset the main task and re-dispatch.
     """
     storage = get_project_storage()
-    projects = storage.list_projects()
+    found = find_main_task(storage, str(task_id or "").strip(), bypass_cache=True)
+    if not found:
+        raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
 
-    for project_summary in projects:
-        project = storage.load_project(project_summary["id"])
-        if not project:
-            continue
+    project, task = found
+    subtasks = [s for s in (task.get("subtasks") or []) if isinstance(s, dict)]
+    retried: list[str] = []
+    failed_to_retry: list[dict[str, str]] = []
+    now = utc_now_iso_z()
 
-        for i, task in enumerate(project.get("tasks", [])):
-            if task.get("id") == task_id:
-                subtasks = task.get("subtasks", [])
-                retried = []
-                failed_to_retry = []
+    # ── Path A: Plan-style failed subtasks ──────────────────────────
+    subtasks_to_retry: list[dict[str, Any]] = []
+    if request.retry_all_failed:
+        subtasks_to_retry = [s for s in subtasks if _is_retryable_failed_status(s.get("status"))]
+    elif request.subtask_ids:
+        wanted = {str(x) for x in request.subtask_ids}
+        subtasks_to_retry = [s for s in subtasks if str(s.get("id") or "") in wanted]
 
-                # Determine which subtasks to retry
-                subtasks_to_retry = []
-                if request.retry_all_failed:
-                    subtasks_to_retry = [s for s in subtasks if s.get("status") == "failed"]
-                elif request.subtask_ids:
-                    subtasks_to_retry = [s for s in subtasks if s.get("id") in request.subtask_ids]
+    if subtasks_to_retry:
+        for subtask in subtasks_to_retry:
+            subtask_id = str(subtask.get("id") or "").strip()
+            current_status = str(subtask.get("status") or "").strip().lower()
+            if not _is_retryable_failed_status(current_status):
+                failed_to_retry.append(
+                    {
+                        "subtask_id": subtask_id,
+                        "error": f"Status is '{current_status}', not failed",
+                    }
+                )
+                continue
+            subtask["status"] = "pending"
+            subtask["previous_attempts"] = int(subtask.get("previous_attempts") or 0) + 1
+            subtask["retried_at"] = now
+            subtask.pop("error", None)
+            subtask.pop("failed_at", None)
+            subtask.pop("result", None)
+            if subtask_id:
+                retried.append(subtask_id)
 
-                if not subtasks_to_retry:
-                    raise_task_error(ErrorCode.SUBTASK_NOT_RETRYABLE, "没有可重试的子任务")
+        if _is_retryable_failed_status(task.get("status")) and retried:
+            task["status"] = "executing"
+            task["retry_attempts"] = int(task.get("retry_attempts") or 0) + 1
+            task["retried_at"] = now
+            task.pop("error", None)
+            task.pop("failed_at", None)
 
-                # Retry each subtask
-                for subtask in subtasks_to_retry:
-                    subtask_id = subtask.get("id")
-                    current_status = subtask.get("status")
+        task["subtasks"] = subtasks
+        task["updated_at"] = now
+        project["updated_at"] = now
+        # Persist via in-place mutation of the loaded project bundle.
+        mid = str(task.get("id") or task_id).strip()
+        tasks_list = list(project.get("tasks") or [])
+        for i, t in enumerate(tasks_list):
+            if isinstance(t, dict) and t.get("id") == mid:
+                tasks_list[i] = task
+                break
+        project["tasks"] = tasks_list
+        if not storage.save_project(project):
+            raise_task_error(ErrorCode.SAVE_FAILED, "保存任务失败")
+        return {
+            "success": True,
+            "data": {
+                "task_id": mid,
+                "retried_subtasks": retried,
+                "failed_to_retry": failed_to_retry,
+                "total_retried": len(retried),
+                "task_status": task.get("status"),
+                "mode": "subtasks",
+            },
+        }
 
-                    if current_status != "failed":
-                        failed_to_retry.append({"subtask_id": subtask_id, "error": f"Status is '{current_status}', not 'failed'"})
-                        continue
+    # ── Path B: Leaf / employee work item (no failed subtasks) ──────
+    # Formal-package employee tasks often fail as the main row with empty
+    # ``subtasks``; the old handler returned 400「没有可重试的子任务」.
+    if request.retry_all_failed and _is_retryable_failed_status(task.get("status")):
+        mid = str(task.get("id") or task_id).strip()
+        updates: dict[str, Any] = {
+            "status": "pending",
+            "progress": 0,
+            "retry_attempts": int(task.get("retry_attempts") or 0) + 1,
+            "retried_at": now,
+            "previous_attempts": int(task.get("previous_attempts") or 0) + 1,
+            "error": None,
+            "failed_at": None,
+            "result": None,
+        }
+        from evoflow.collab.storage import patch_collab_main_task_in_project_storage
 
-                    # Reset subtask to pending
-                    subtask["status"] = "pending"
-                    subtask["previous_attempts"] = subtask.get("previous_attempts", 0) + 1
-                    subtask["retried_at"] = utc_now_iso_z()
-                    # Clear failure info
-                    subtask.pop("error", None)
-                    subtask.pop("failed_at", None)
-                    subtask.pop("result", None)
+        if not patch_collab_main_task_in_project_storage(storage, mid, updates):
+            raise_task_error(ErrorCode.SAVE_FAILED, "保存任务失败")
+        # Refresh for kick payload
+        task = {**task, **{k: v for k, v in updates.items() if v is not None}}
+        task["status"] = "pending"
+        _kick_work_item_retry(mid, task)
+        return {
+            "success": True,
+            "data": {
+                "task_id": mid,
+                "retried_subtasks": [],
+                "failed_to_retry": [],
+                "total_retried": 1,
+                "task_status": "pending",
+                "mode": "main_task",
+            },
+        }
 
-                    retried.append(subtask_id)
-
-                # Update task status if it was failed
-                if task.get("status") == "failed" and retried:
-                    task["status"] = "executing"
-                    task["retry_attempts"] = task.get("retry_attempts", 0) + 1
-                    task["retried_at"] = utc_now_iso_z()
-
-                # Save project
-                project["tasks"][i] = task
-                if storage.save_project(project):
-                    return {"success": True, "data": {"task_id": task_id, "retried_subtasks": retried, "failed_to_retry": failed_to_retry, "total_retried": len(retried), "task_status": task.get("status")}}
-                raise_task_error(ErrorCode.SAVE_FAILED, "保存任务失败")
-
-    raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
+    raise_task_error(ErrorCode.SUBTASK_NOT_RETRYABLE, "没有可重试的子任务")
 
 
 async def _log_task_restart(

@@ -281,6 +281,18 @@ class ProactiveRoleConfig:
                     except (TypeError, ValueError):
                         continue
                 valid["approval_timeout_by_type"] = clamped
+        # Legacy hire default was 300s (admin/employees ``or 300``), which
+        # aborted most real tasks as ``员工执行失败：timeout``. Treat that exact
+        # baked-in default as unlimited; explicit other values keep a wall clock.
+        try:
+            ts = int(valid.get("timeout_seconds") or 0)
+        except (TypeError, ValueError):
+            ts = 0
+        if ts == 300:
+            _logger.info(
+                "ProactiveRoleConfig: migrating legacy timeout_seconds=300 → 0 (unlimited)"
+            )
+            valid["timeout_seconds"] = 0
         return cls(**valid)
 
 

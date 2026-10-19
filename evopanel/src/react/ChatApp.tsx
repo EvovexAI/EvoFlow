@@ -599,7 +599,6 @@ import {
   STORAGE_SESSION_META_KEY,
   STORAGE_MODEL_KEY,
   LS_LAST_SELECTED_SESSION,
-  MODEL_SWITCH_SEPARATOR_PREFIX,
   THINKING_LEVEL_OPTIONS,
   type ThinkingLevel,
 } from './chat-app/utils/storage.js'
@@ -16527,12 +16526,6 @@ useEffect(() => {
                     } catch { /* ignore */ }
                     const sepText = `已切换至 ${name} 模型`
                     setRows((prev) => [...(Array.isArray(prev) ? prev : []), { role: 'system' as const, text: sepText, timestamp: Date.now() } as DisplayRow])
-                    try {
-                      await gatewayApiFetch(`/chat/sessions/${encodeURIComponent(sk)}/messages`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ role: 'user', content: `${MODEL_SWITCH_SEPARATOR_PREFIX}${sepText}` }),
-                      })
-                    } catch { /* ignore */ }
                   })()
                 }
                 return (

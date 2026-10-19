@@ -821,7 +821,8 @@ def _assemble_system_prompt(
     blocks.append(static.DECISION_CHAIN_BLOCK.strip())
     blocks.append(_fmt_with_agent_name(static.ROLE_BLOCK_CHAT_TEMPLATE.strip(), agent_name))
     blocks.append((static.COMMUNICATION_STYLE_COMPACT_BLOCK if pure_chat else static.COMMUNICATION_STYLE_BLOCK).strip())
-    blocks.append((static.ENTITY_ASSETS_COMPACT_BLOCK if pure_chat else static.ENTITY_ASSETS_BLOCK).strip())
+    # ENTITY_ASSETS retired — policy + recall live in ``<memory_assets>`` (MemoryLiveFooter /
+    # build_memory_injection_sections), gated with the memory switch.
     # 产物展示协议（@@ 文件交付 + ::code-comment 行内评论）：任何场景都可能引用工作区
     # 文件或评审代码（agent/code 场景的模块映射也落在 chat），无条件注入。
     blocks.append(static.ARTIFACT_DISPLAY_BLOCK.strip())
@@ -1317,14 +1318,30 @@ def build_memory_injection_sections(
             logger.debug("workspace memory injection skipped", exc_info=True)
 
     if body_parts:
-        sections.append("<!-- ref memory -->\n" + "\n\n".join(body_parts))
+        sections.extend(body_parts)
 
     if include_query_recall:
         recall = build_memory_query_recall_sections(agent_name=agent_name, query=query)
         if recall.strip():
             sections.append(recall.strip())
 
-    return "\n\n".join(sections).strip()
+    # One region for policy + standing recall; stripped when memory_enabled=off.
+    # Always emit at least the write policy when this builder runs (memory on).
+    from evoflow.assets.guidance import is_employee_agent_name
+    from evoflow.assets.memory_assets_prompt import build_memory_assets_block
+
+    compact = str(injection_profile or "").strip().lower() == "chat_compact"
+    employee = is_employee_agent_name(agent_name)
+    scope = "employee" if employee else ("compact" if compact else "main")
+    code = str(agent_name or "").strip() if employee else ""
+    return build_memory_assets_block(
+        scope=scope,  # type: ignore[arg-type]
+        agent_code=code,
+        prompt_language=prompt_language,
+        extra_body_parts=sections or None,
+        include_pending_inbox=employee,
+        include_policy=True,
+    )
 
 
 def build_memory_query_recall_sections(

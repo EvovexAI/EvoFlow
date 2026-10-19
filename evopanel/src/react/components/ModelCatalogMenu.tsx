@@ -387,11 +387,9 @@ export function ModelCatalogMenu({
                         {group.rows.map((row) => {
                           const label = modelDisplayLabel(row)
                           const fullTitle =
-                            row.availabilityStatus === 'unavailable'
-                              ? row.unavailableReason || '模型当前不可用'
-                              : row.name && label !== row.name
-                                ? `${label}\n${row.name}`
-                                : label || row.name
+                            row.name && label !== row.name
+                              ? `${label}\n${row.name}`
+                              : label || row.name
                           return (
                             <button
                               key={row.name}
@@ -399,8 +397,6 @@ export function ModelCatalogMenu({
                               role="menuitem"
                               className={`react-chat-bottom-dropdown-item${
                                 row.name === selectedModel ? ' is-active' : ''
-                              }${
-                                row.availabilityStatus === 'unavailable' ? ' is-unavailable' : ''
                               }`}
                               title={fullTitle}
                               onClick={() => {
@@ -409,9 +405,6 @@ export function ModelCatalogMenu({
                               }}
                             >
                               <span className="react-chat-model-item-label">{label}</span>
-                              {row.availabilityStatus === 'unavailable' ? (
-                                <span className="react-chat-model-item-badge">不可用</span>
-                              ) : null}
                             </button>
                           )
                         })}
