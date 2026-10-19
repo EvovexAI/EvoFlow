@@ -101,6 +101,12 @@ def _parse_worklog_day(day: str | None) -> str:
     return day_s
 
 
+def _role_memory_enabled_from_hire_data(data: dict) -> bool:
+    from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
+
+    return role_memory_enabled_from_config(data)
+
+
 _HIRE_KEYS = frozenset(
     {
         "agent_code",
@@ -137,6 +143,7 @@ _HIRE_KEYS = frozenset(
         "status",
         "reports_to",
         # System prompt injection toggles
+        "memory_enabled",
         "inject_user_profile",
         "inject_memory",
         "inject_assets",
@@ -380,10 +387,8 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "per_run_budget_usd": float(getattr(cfg, "per_run_budget_usd", 0) or 0),
             "budget_exceed_policy": str(getattr(cfg, "budget_exceed_policy", None) or "skip_patrol"),
             "reports_to": reports_to,
-            # System prompt injection toggles
+            "memory_enabled": bool(getattr(cfg, "memory_enabled", True)),
             "inject_user_profile": getattr(cfg, "inject_user_profile", None),
-            "inject_memory": getattr(cfg, "inject_memory", None),
-            "inject_assets": getattr(cfg, "inject_assets", None),
             "inject_skills": getattr(cfg, "inject_skills", None),
             "inject_kb": getattr(cfg, "inject_kb", None),
             "inject_soul": getattr(cfg, "inject_soul", None),
@@ -766,9 +771,8 @@ def _hire_existing_agent(
         per_run_budget_usd=float(data.get("per_run_budget_usd") or 0.0),
         budget_exceed_policy=str(data.get("budget_exceed_policy") or "skip_patrol").strip() or "skip_patrol",
         reports_to=_normalize_reports_to(agent_code, data.get("reports_to")),
+        memory_enabled=_role_memory_enabled_from_hire_data(data),
         inject_user_profile=None if data.get("inject_user_profile") is None else bool(data.get("inject_user_profile")),
-        inject_memory=None if data.get("inject_memory") is None else bool(data.get("inject_memory")),
-        inject_assets=None if data.get("inject_assets") is None else bool(data.get("inject_assets")),
         inject_skills=None if data.get("inject_skills") is None else bool(data.get("inject_skills")),
         inject_kb=None if data.get("inject_kb") is None else bool(data.get("inject_kb")),
         inject_soul=None if data.get("inject_soul") is None else bool(data.get("inject_soul")),
@@ -956,16 +960,16 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("budget_exceed_policy must be skip_patrol|pause_role|notify_only")
         cfg.budget_exceed_policy = pol
 
-    # System prompt injection toggles
+    if "memory_enabled" in data:
+        cfg.memory_enabled = bool(data.get("memory_enabled"))
+    elif "inject_memory" in data or "inject_assets" in data:
+        if data.get("inject_memory") is False or data.get("inject_assets") is False:
+            cfg.memory_enabled = False
+        elif data.get("inject_memory") is True or data.get("inject_assets") is True:
+            cfg.memory_enabled = True
     if "inject_user_profile" in data:
         val = data.get("inject_user_profile")
         cfg.inject_user_profile = None if val is None else bool(val)
-    if "inject_memory" in data:
-        val = data.get("inject_memory")
-        cfg.inject_memory = None if val is None else bool(val)
-    if "inject_assets" in data:
-        val = data.get("inject_assets")
-        cfg.inject_assets = None if val is None else bool(val)
     if "inject_skills" in data:
         val = data.get("inject_skills")
         cfg.inject_skills = None if val is None else bool(val)

@@ -192,12 +192,18 @@ class ProactiveRoleConfig:
     wecom_bound_at: str = ""
     wecom_intro_sent_at: str = ""
 
-    # ── System prompt injection toggles ──────────────────────────
-    # Control which sections are injected into the system prompt for this role.
+    # ── Memory gate (canonical) ──────────────────────────────────
+    # When True (default): inject ``<memory_assets>`` + bind ``assets`` tool for duty
+    # and as the default for employee chat sessions (session column may override).
+    # Legacy ``inject_memory`` / ``inject_assets`` are read-compat only via
+    # ``role_memory_enabled_from_config``; prefer writing ``memory_enabled``.
+    memory_enabled: bool = True
+
+    # ── System prompt injection toggles (non-memory) ─────────────
     # None/null means follow the global/system default.
     inject_user_profile: bool | None = None  # 用户画像注入
-    inject_memory: bool | None = None  # 记忆注入
-    inject_assets: bool | None = None  # 资产/经验注入
+    inject_memory: bool | None = None  # deprecated → memory_enabled
+    inject_assets: bool | None = None  # deprecated → memory_enabled
     inject_skills: bool | None = None  # 技能描述注入
     inject_kb: bool | None = None  # 知识库检索结果注入
     inject_soul: bool | None = None  # SOUL.md 人设注入
@@ -293,6 +299,13 @@ class ProactiveRoleConfig:
                 "ProactiveRoleConfig: migrating legacy timeout_seconds=300 → 0 (unlimited)"
             )
             valid["timeout_seconds"] = 0
+        # Canonical memory gate: prefer memory_enabled; map legacy inject_* false → off.
+        if "memory_enabled" in valid and valid.get("memory_enabled") is not None:
+            valid["memory_enabled"] = bool(valid.get("memory_enabled"))
+        elif valid.get("inject_memory") is False or valid.get("inject_assets") is False:
+            valid["memory_enabled"] = False
+        else:
+            valid.setdefault("memory_enabled", True)
         return cls(**valid)
 
 

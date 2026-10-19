@@ -567,6 +567,35 @@ function isPinnedToBottom(el: HTMLDivElement, slack = 4) {
   return el.scrollHeight - (el.scrollTop + el.clientHeight) <= slack
 }
 
+/**
+ * Collapse the stream bottom spacer without a second snap.
+ * Near the bottom: one clamp to the new max. Away from the bottom: keep the
+ * same content in view by applying the height delta. A follow-up
+ * ``scrollTop = scrollHeight`` after fold/remeasure is what reads as
+ * 「先上移一点，再下移一点」.
+ */
+function settleScrollAfterStream(
+  el: HTMLDivElement | null,
+  spacer: HTMLDivElement | null,
+): boolean {
+  if (!el) return true
+  const dist = el.scrollHeight - (el.scrollTop + el.clientHeight)
+  const beforeTop = el.scrollTop
+  const beforeH = el.scrollHeight
+  if (spacer && spacer.style.height !== '0px') {
+    spacer.style.height = '0px'
+  }
+  const delta = el.scrollHeight - beforeH
+  if (dist <= 48) {
+    const max = Math.max(0, el.scrollHeight - el.clientHeight)
+    if (Math.abs(el.scrollTop - max) > 1) el.scrollTop = max
+    return true
+  }
+  const next = Math.max(0, beforeTop + delta)
+  if (Math.abs(el.scrollTop - next) > 1) el.scrollTop = next
+  return false
+}
+
 function cancelPendingScrollRaf(rafScheduledRef: MutableRefObject<number>) {
   if (!rafScheduledRef.current) return
   cancelAnimationFrame(rafScheduledRef.current)
@@ -1363,6 +1392,11 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       }
       const el = parentRef.current
       if (!el) return
+      if (isPinnedToBottom(el, 8)) {
+        lastScrollTopRef.current = el.scrollTop
+        lastScrollHeightRef.current = el.scrollHeight
+        return
+      }
       lastProgrammaticScrollRef.current = Date.now()
       el.scrollTop = el.scrollHeight
       lastScrollTopRef.current = el.scrollTop
@@ -1374,21 +1408,19 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const schedulePostStreamScrollToBottom = useCallback(() => {
     // 窗口未开启或已过期则不贴：禁止在 RO/rows 路径里偷偷续开窗口
     if (Date.now() > postStreamFollowUntilRef.current) return
-    // 先同步贴一次：收拢动画开始前就锁在底部，减少「闪到中间」
+    // 已贴底：收掉底部留白并夹住滚动，不再立刻 scrollHeight、也不再 48ms 补跳。
     if (!holdHistoryScrollRef.current && !userScrolledAwayDuringStreamRef.current) {
-      autoFollowRef.current = true
-      readingHistoryRef.current = false
-      postSendScrollAnchorRef.current = false
-      if (bottomSpacerRef.current) {
-        bottomSpacerRef.current.style.height = '0px'
-      }
       const elNow = parentRef.current
+      const pinned = settleScrollAfterStream(elNow, bottomSpacerRef.current)
       if (elNow) {
         lastProgrammaticScrollRef.current = Date.now()
-        elNow.scrollTop = elNow.scrollHeight
         lastScrollTopRef.current = elNow.scrollTop
         lastScrollHeightRef.current = elNow.scrollHeight
       }
+      if (pinned) return
+      autoFollowRef.current = true
+      readingHistoryRef.current = false
+      postSendScrollAnchorRef.current = false
     }
     if (postStreamScrollTimerRef.current) {
       window.clearTimeout(postStreamScrollTimerRef.current)
@@ -1741,20 +1773,14 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     const prev = prevIsSendingForPostWindowRef.current
     prevIsSendingForPostWindowRef.current = isSending
     if (prev && !isSending) {
-      // isSending 翻 false 即 RUN_FINISHED 信号。先开窗 + 同步贴底（首次），后
-      // 让 streamEnded 分支的 schedulePostStreamScrollToBottom 接续后续帧。
+      // RUN_FINISHED。只收底部留白并按高度差补偿，不把 scrollTop 打到 scrollHeight
+      //（stream 结束分支还会再贴一次，两次叠加就是先上后下）。
       beginPostStreamFollowWindow()
-      userScrolledAwayDuringStreamRef.current = false
-      readingHistoryRef.current = false
-      autoFollowRef.current = true
       cancelPendingScrollRaf(rafScheduledRef)
-      if (bottomSpacerRef.current) {
-        bottomSpacerRef.current.style.height = '0px'
-      }
       const el = parentRef.current
+      settleScrollAfterStream(el, bottomSpacerRef.current)
       if (el) {
         lastProgrammaticScrollRef.current = Date.now()
-        el.scrollTop = el.scrollHeight
         lastScrollTopRef.current = el.scrollTop
         lastScrollHeightRef.current = el.scrollHeight
       }
@@ -2198,24 +2224,23 @@ export const MessageVirtualList = memo(function MessageVirtualList({
 
     const streamEnded = wasActive && !streamActive
     if (streamEnded) {
-      // 结束后思考/工具会收拢缩高：先清误判锁，立刻贴底，再进入短窗口持续跟
-      userScrolledAwayDuringStreamRef.current = false
-      readingHistoryRef.current = false
-      autoFollowRef.current = true
-      postSendScrollAnchorRef.current = false
+      // 结束后思考/工具会收拢缩高。已贴底则只补偿高度差；离底才开后续贴底。
       cancelPendingScrollRaf(rafScheduledRef)
       beginPostStreamFollowWindow()
-      if (bottomSpacerRef.current) {
-        bottomSpacerRef.current.style.height = '0px'
-      }
       const el = parentRef.current
+      const pinned = settleScrollAfterStream(el, bottomSpacerRef.current)
       if (el) {
         lastProgrammaticScrollRef.current = Date.now()
-        el.scrollTop = el.scrollHeight
         lastScrollTopRef.current = el.scrollTop
         lastScrollHeightRef.current = el.scrollHeight
       }
-      schedulePostStreamScrollToBottom()
+      if (!pinned) {
+        userScrolledAwayDuringStreamRef.current = false
+        readingHistoryRef.current = false
+        autoFollowRef.current = true
+        postSendScrollAnchorRef.current = false
+        schedulePostStreamScrollToBottom()
+      }
       return
     }
 

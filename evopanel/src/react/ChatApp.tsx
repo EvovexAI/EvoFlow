@@ -8479,8 +8479,52 @@ useEffect(() => {
 
   useEffect(() => {
     if (!selectedSessionKey) return
-    const ctx = wsClient.getSessionContext(selectedSessionKey) as { memory_enabled?: boolean } | undefined
-    queueMicrotask(() => setMemoryEnabled(ctx?.memory_enabled !== false))
+    let cancelled = false
+    const sk = selectedSessionKey
+    const ctx = wsClient.getSessionContext(sk) as { memory_enabled?: boolean } | undefined
+    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
+    const pinned =
+      typeof ctx?.memory_enabled === 'boolean'
+        ? ctx.memory_enabled
+        : typeof row?.memoryEnabled === 'boolean'
+          ? row.memoryEnabled
+          : undefined
+    if (pinned === true || pinned === false) {
+      queueMicrotask(() => {
+        if (!cancelled) setMemoryEnabled(pinned)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+    // Session column unset → inherit role default for employee chats, else on.
+    void (async () => {
+      let next = true
+      if (sk.startsWith('proactive:')) {
+        try {
+          const rest = sk.slice('proactive:'.length)
+          const code = rest.split(':')[0]?.trim() || ''
+          if (code) {
+            const { api } = await import('../lib/tauri-api.js')
+            const role = (await api.proactiveGetRole(code)) as {
+              config?: { memory_enabled?: boolean; inject_memory?: boolean; inject_assets?: boolean }
+            }
+            const cfg = role?.config || {}
+            next = !(
+              cfg.memory_enabled === false ||
+              cfg.inject_memory === false ||
+              cfg.inject_assets === false
+            )
+          }
+        } catch {
+          next = true
+        }
+      }
+      if (!cancelled) setMemoryEnabled(next)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [selectedSessionKey, sessions, listLoading])
 
   useEffect(() => {
@@ -12308,14 +12352,22 @@ useEffect(() => {
     maybeEndTurnSendingState,
   ])
 
-  const streaming = selectedSessionKey
-    ? isSessionRuntimeStreamVisible(String(selectedSessionKey))
-    : false
+  // Composer 右下「停止」= streaming || selectedTurnBusy。
+  // 早封口后 turn 已 idle/settled，但 stream 缓冲要到 SSE final 才清空；
+  // 若仍把 streamVisible 当 streaming，停止按钮会多挂几秒（齿轮已灭）。
+  const streaming = (() => {
+    const sk = String(selectedSessionKey || '').trim()
+    if (!sk) return false
+    const rt = getSessionRuntime(sk)
+    if (rt.uiTurnSettled && !isTurnBusy(rt)) return false
+    return isSessionRuntimeStreamVisible(sk)
+  })()
 
   const selectedSessionLive = useMemo(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return false
     const rt = getSessionRuntime(sk)
+    if (rt.uiTurnSettled && !isTurnBusy(rt)) return false
     return isTurnBusy(rt) || isSessionRuntimeLive(rt)
   }, [selectedSessionKey, executingListEpoch])
   const selectedResumeAttach = useMemo(() => {
@@ -16521,9 +16573,8 @@ useEffect(() => {
               onComposerWarmup={handleComposerWarmup}
               sending={selectedTurnBusy}
               streaming={streaming || selectedTurnBusy}
-              // streaming 状态必须以 SSE 帧流（实时）为准，
-              // 不能被 selectedTurnBusy (DB row 状态，常有几秒延迟) 误掩为 false，
-              // 否则工具调用一结束 row 状态短暂回 idle → 「停止」按钮瞬间消失 → 误以为停机。
+              // streaming：进行中看 stream 缓冲；uiTurnSettled 后不再用缓冲顶住停止按钮
+              // （见上方 streaming 计算）。selectedTurnBusy 仍覆盖工具间隙短暂 idle。
               // @ts-expect-error handleSend has extra ctxFiles param
               onSend={handleSend}
               onAbort={handleAbort}

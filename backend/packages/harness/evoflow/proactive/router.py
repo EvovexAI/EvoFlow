@@ -185,10 +185,11 @@ class UpdateRoleRequest(BaseModel):
         None,
         description="Rebind this duty role to another Agent (must exist and not already hired)",
     )
-    # System prompt injection toggles
+    # Memory gate (canonical) + remaining prompt injection toggles
+    memory_enabled: bool | None = None  # 记忆总闸（默认 True）
     inject_user_profile: bool | None = None  # 用户画像注入
-    inject_memory: bool | None = None  # 记忆注入
-    inject_assets: bool | None = None  # 资产/经验注入
+    inject_memory: bool | None = None  # deprecated → memory_enabled
+    inject_assets: bool | None = None  # deprecated → memory_enabled
     inject_skills: bool | None = None  # 技能描述注入
     inject_kb: bool | None = None  # 知识库检索结果注入
     inject_soul: bool | None = None  # SOUL.md 人设注入
@@ -803,19 +804,27 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         # dnd_end_hour=9 → work_start_hour=9 (inverted semantics)
         cfg.work_start_hour = req.dnd_end_hour
 
-    # System prompt injection toggles
-    if req.inject_user_profile is not None:
-        cfg.inject_user_profile = bool(req.inject_user_profile)
-    if req.inject_memory is not None:
-        cfg.inject_memory = bool(req.inject_memory)
-    if req.inject_assets is not None:
-        cfg.inject_assets = bool(req.inject_assets)
-    if req.inject_skills is not None:
-        cfg.inject_skills = bool(req.inject_skills)
-    if req.inject_kb is not None:
-        cfg.inject_kb = bool(req.inject_kb)
-    if req.inject_soul is not None:
-        cfg.inject_soul = bool(req.inject_soul)
+    # Memory gate + remaining prompt injection toggles
+    if req.memory_enabled is not None:
+        cfg.memory_enabled = bool(req.memory_enabled)
+    elif req.inject_memory is not None or req.inject_assets is not None:
+        # Legacy clients: either false turns the unified gate off.
+        legacy_off = req.inject_memory is False or req.inject_assets is False
+        legacy_on = req.inject_memory is True or req.inject_assets is True
+        if legacy_off:
+            cfg.memory_enabled = False
+        elif legacy_on:
+            cfg.memory_enabled = True
+    # Allow explicit null to clear opt-in toggles back to "follow default".
+    fields_set = getattr(req, "model_fields_set", None) or set()
+    if "inject_user_profile" in fields_set:
+        cfg.inject_user_profile = None if req.inject_user_profile is None else bool(req.inject_user_profile)
+    if "inject_skills" in fields_set:
+        cfg.inject_skills = None if req.inject_skills is None else bool(req.inject_skills)
+    if "inject_kb" in fields_set:
+        cfg.inject_kb = None if req.inject_kb is None else bool(req.inject_kb)
+    if "inject_soul" in fields_set:
+        cfg.inject_soul = None if req.inject_soul is None else bool(req.inject_soul)
 
     role.config = cfg
     if schedule_changed:
@@ -2513,6 +2522,12 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             "budget_exceed_policy": str(getattr(role.config, "budget_exceed_policy", None) or "skip_patrol"),
             "auto_patrol_suspended": bool(getattr(role.config, "auto_patrol_suspended", False)),
             "reports_to": str(getattr(role.config, "reports_to", "") or "").strip(),
+            "memory_enabled": bool(getattr(role.config, "memory_enabled", True)),
+            "thinking_enabled": getattr(role.config, "thinking_enabled", None),
+            "inject_user_profile": getattr(role.config, "inject_user_profile", None),
+            "inject_skills": getattr(role.config, "inject_skills", None),
+            "inject_kb": getattr(role.config, "inject_kb", None),
+            "inject_soul": getattr(role.config, "inject_soul", None),
             "feishu_binding": _feishu_binding_for_role(role),
             "wecom_bot_id": getattr(role.config, "wecom_bot_id", "") or "",
             "wecom_secret": getattr(role.config, "wecom_secret", "") or "",

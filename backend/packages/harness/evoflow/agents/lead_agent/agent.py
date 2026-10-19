@@ -1690,10 +1690,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     )
 
     def _build_lead_graph() -> Any:
-        # Read injection toggles from cfg (set by proactive role config)
+        # Non-memory injection toggles from cfg (memory/assets gated by memory_enabled).
         _inject_user_profile = cfg.get("inject_user_profile")
-        _inject_memory = cfg.get("inject_memory")
-        _inject_assets = cfg.get("inject_assets")
         _inject_skills = cfg.get("inject_skills")
         _inject_kb = cfg.get("inject_kb")
         _inject_soul = cfg.get("inject_soul")
@@ -1723,8 +1721,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             principal_id=str(cfg.get("principal_id") or cfg.get("created_by") or "").strip() or None,
             owner_scope_id=str(cfg.get("owner_scope_id") or cfg.get("scope_id") or "").strip() or None,
             inject_user_profile=_inject_user_profile,
-            inject_memory=_inject_memory,
-            inject_assets=_inject_assets,
             inject_skills=_inject_skills,
             inject_kb=_inject_kb,
             inject_soul=_inject_soul,

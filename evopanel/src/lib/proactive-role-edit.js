@@ -511,10 +511,12 @@ export async function showEditRoleModal(role, {
   const dailyBudget = Number(cfg.daily_budget_usd || 0) || 0
   const perRunBudget = Number(cfg.per_run_budget_usd || 0) || 0
   const budgetPolicy = String(cfg.budget_exceed_policy || 'skip_patrol').trim() || 'skip_patrol'
-  // System prompt injection toggles
+  // Memory gate (canonical) + remaining prompt injection toggles
+  const memoryEnabled =
+    cfg.memory_enabled === false || cfg.inject_memory === false || cfg.inject_assets === false
+      ? false
+      : true
   const injectUserProfile = cfg.inject_user_profile  // null=默认, true=注入, false=不注入
-  const injectMemory = cfg.inject_memory
-  const injectAssets = cfg.inject_assets
   const injectSkills = cfg.inject_skills
   const injectKb = cfg.inject_kb
   const injectSoul = cfg.inject_soul
@@ -661,31 +663,30 @@ export async function showEditRoleModal(role, {
                 <p class="hire-chip-hint">控制模型的推理/思考过程（如 CoT、extended thinking）</p>
               </div>
               <div class="hire-field">
-                <span>系统提示词注入</span>
-                <p class="hire-chip-hint">控制哪些内容注入到该员工的系统提示词（留空=跟随全局默认）</p>
+                <span>记忆</span>
+                <div class="hire-chip-row" data-name="memory_enabled" role="radiogroup">
+                  <button type="button" class="hire-chip${memoryEnabled ? ' is-on' : ''}" data-value="true">开</button>
+                  <button type="button" class="hire-chip${!memoryEnabled ? ' is-on' : ''}" data-value="false">关</button>
+                </div>
+                <p class="hire-chip-hint">岗位默认；员工聊天可在会话底栏覆盖。开=注入记忆并挂载 assets 工具</p>
+              </div>
+              <div class="hire-field">
+                <span>系统提示词分项</span>
+                <p class="hire-chip-hint">与记忆总闸无关。勾选=强制注入；未勾选=跟随默认（不写入 false）</p>
                 <div class="hire-inject-toggles">
                   <label class="hire-toggle">
-                    <input type="checkbox" data-name="inject_user_profile" ${injectUserProfile === true ? 'checked' : ''} ${injectUserProfile === false ? 'disabled' : ''}>
+                    <input type="checkbox" data-name="inject_user_profile" ${injectUserProfile === true ? 'checked' : ''}>
                     <span>用户画像</span>
                   </label>
                   <label class="hire-toggle">
-                    <input type="checkbox" data-name="inject_memory" ${injectMemory === true ? 'checked' : ''} ${injectMemory === false ? 'disabled' : ''}>
-                    <span>记忆</span>
-                  </label>
-                  <label class="hire-toggle">
-                    <input type="checkbox" data-name="inject_assets" ${injectAssets === true ? 'checked' : ''} ${injectAssets === false ? 'disabled' : ''}>
-                    <span>资产/经验</span>
-                  </label>
-                  <label class="hire-toggle">
-                    <input type="checkbox" data-name="inject_skills" ${injectSkills === true ? 'checked' : ''} ${injectSkills === false ? 'disabled' : ''}>
+                    <input type="checkbox" data-name="inject_skills" ${injectSkills === true ? 'checked' : ''}>
                     <span>技能描述</span>
                   </label>
                   <label class="hire-toggle">
-                    <input type="checkbox" data-name="inject_soul" ${injectSoul === true ? 'checked' : ''} ${injectSoul === false ? 'disabled' : ''}>
+                    <input type="checkbox" data-name="inject_soul" ${injectSoul === true ? 'checked' : ''}>
                     <span>SOUL 人设</span>
                   </label>
                 </div>
-                <p class="hire-chip-hint" style="margin-top:4px">已勾选=注入；未勾选且非禁用=跟随默认</p>
               </div>
             </div>
 
@@ -836,6 +837,12 @@ export async function showEditRoleModal(role, {
       const labels = { null: '跟随默认', true: '启用思考', false: '禁用思考' }
       changes.push(`模型思考：${labels[thinkingEnabled]} → ${labels[thinking_enabled]}`)
     }
+    const memory_enabled_raw =
+      overlay.querySelector('[data-name="memory_enabled"] .hire-chip.is-on')?.dataset.value || 'true'
+    const memory_enabled = memory_enabled_raw !== 'false'
+    if (memory_enabled !== memoryEnabled) {
+      changes.push(`记忆：${memoryEnabled ? '开' : '关'} → ${memory_enabled ? '开' : '关'}`)
+    }
     if (autonomy_level !== autonomy) {
       changes.push(
         `审批策略：${AUTONOMY_LABELS[autonomy] || autonomy} → ${AUTONOMY_LABELS[autonomy_level] || autonomy_level}`,
@@ -934,40 +941,17 @@ export async function showEditRoleModal(role, {
         daily_budget_usd: nextDaily,
         per_run_budget_usd: nextPerRun,
         budget_exceed_policy: nextPolicy,
+        memory_enabled,
       }
-      // System prompt injection toggles - only include if explicitly changed from default (null)
-      const readInjectToggle = (name, currentVal) => {
+      // Prompt section toggles: checked → true; unchecked → null (follow default). Never write false on save.
+      const readInjectOptIn = (name) => {
         const cb = overlay.querySelector(`[data-name="${name}"]`)
         if (!cb) return undefined
-        const checked = cb.checked
-        const disabled = cb.disabled  // was explicitly set to false
-        // 如果当前值是 null（默认），checkbox checked=true 表示要启用，checked=false 表示要禁用
-        // 如果当前值是 true/false，checkbox 被 disabled 且 checked 表示跟随默认
-        if (currentVal === null) {
-          // 跟随默认 -> 跟随默认：传 null 或不传
-          // 跟随默认 -> 启用：传 true
-          // 跟随默认 -> 禁用：传 false
-          return checked ? true : false
-        } else if (disabled) {
-          // 之前是 true/false，现在要跟随默认
-          return null
-        } else {
-          // 之前是 true/false，现在要保持
-          return checked
-        }
+        return cb.checked ? true : null
       }
-      const injUserProfile = readInjectToggle('inject_user_profile', injectUserProfile)
-      const injMemory = readInjectToggle('inject_memory', injectMemory)
-      const injAssets = readInjectToggle('inject_assets', injectAssets)
-      const injSkills = readInjectToggle('inject_skills', injectSkills)
-      const injKb = readInjectToggle('inject_kb', injectKb)
-      const injSoul = readInjectToggle('inject_soul', injectSoul)
-      if (injUserProfile !== undefined) payload.inject_user_profile = injUserProfile
-      if (injMemory !== undefined) payload.inject_memory = injMemory
-      if (injAssets !== undefined) payload.inject_assets = injAssets
-      if (injSkills !== undefined) payload.inject_skills = injSkills
-      if (injKb !== undefined) payload.inject_kb = injKb
-      if (injSoul !== undefined) payload.inject_soul = injSoul
+      payload.inject_user_profile = readInjectOptIn('inject_user_profile')
+      payload.inject_skills = readInjectOptIn('inject_skills')
+      payload.inject_soul = readInjectOptIn('inject_soul')
       if (nextAgent && nextAgent !== role.agent_code) {
         payload.new_agent_code = nextAgent
       }

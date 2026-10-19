@@ -42,8 +42,12 @@ export function snapshotBusyReasons(
   const probe = getSessionExecutionProbe(sk)
   const reasons: string[] = []
   if (isTurnBusy(rt)) reasons.push(`turnPhase=${rt.turnPhase}`)
-  if (rt.uiTurnSettled) reasons.push('uiTurnSettled')
-  else {
+  const streamVisible = streamRefHasVisibleContent(rt.stream)
+  if (rt.uiTurnSettled) {
+    reasons.push('uiTurnSettled')
+    // Composer stop used to stick because streaming≔streamVisible after settle.
+    if (streamVisible) reasons.push('streamVisible(residue; composer should ignore)')
+  } else {
     if (isSessionRuntimeLive(rt) && !isTurnBusy(rt)) reasons.push('streamVisible(whileIdle)')
     if (probe?.executing) reasons.push('probe.executing')
     if (isSessionGoalRunning(sk) || probe?.goalActive) reasons.push('goalActive')
@@ -58,7 +62,7 @@ export function snapshotBusyReasons(
     uiTurnSettled: !!rt.uiTurnSettled,
     turnPhaseBusy: isTurnBusy(rt),
     streamLive: isSessionRuntimeLive(rt),
-    streamVisible: streamRefHasVisibleContent(rt.stream),
+    streamVisible,
     probeExecuting: probe?.executing === true,
     goalActive: isSessionGoalRunning(sk) || probe?.goalActive === true,
     dbRunStatus: st || '(none)',

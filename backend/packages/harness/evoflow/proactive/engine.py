@@ -689,8 +689,11 @@ class ProactiveEngine:
         thinking_enabled = getattr(role.config, "thinking_enabled", None)
         if thinking_enabled is not None:
             run_context["thinking_enabled"] = bool(thinking_enabled)
-        # System prompt injection toggles
-        for inj_key in ("inject_user_profile", "inject_memory", "inject_assets", "inject_skills", "inject_kb", "inject_soul"):
+        # Unified memory gate + remaining prompt injection toggles
+        from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
+
+        run_context["memory_enabled"] = role_memory_enabled_from_config(role.config)
+        for inj_key in ("inject_user_profile", "inject_skills", "inject_kb", "inject_soul"):
             inj_val = getattr(role.config, inj_key, None)
             if inj_val is not None:
                 run_context[inj_key] = bool(inj_val)

@@ -1164,7 +1164,16 @@ def get_session_context_for_run_config(session_key: str) -> dict[str, Any]:
     )
     if not row:
         return {}
-    return context_from_flat_row(_row_dict(row))
+    ctx = context_from_flat_row(_row_dict(row))
+    # Fill effective memory_enabled when session column is NULL (inherit role/default).
+    if ctx.get("memory_enabled") is None:
+        try:
+            from evoflow.agents.memory.runtime_overrides import resolve_memory_enabled
+
+            ctx["memory_enabled"] = resolve_memory_enabled(session_key=sk, runtime_ctx=ctx)
+        except Exception:
+            ctx["memory_enabled"] = True
+    return ctx
 
 
 def _next_pin_order(conn: Any) -> int:
