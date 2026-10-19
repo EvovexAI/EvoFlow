@@ -25,6 +25,7 @@ import { buildStreamDisplayRow } from '../lib/build-stream-display-row.js'
 import { SESSION_RUNNING_ACTIVITY_LABEL } from '../lib/resolve-live-stream-activity.js'
 import { mergeAssistantRowWithStreamRow, assistantRowAcceptsStreamContinuation } from '../lib/merge-assistant-stream-row.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
+import { isTaskNotificationUserText } from '../../lib/chat-normalize.js'
 import {
   resolveToolApprovalHost,
   toolApprovalInteractiveForItem,
@@ -41,6 +42,7 @@ import {
 import { useStreamSnapshotSeq } from '../lib/stream-snapshot-store.js'
 import {
   streamPerfBeginDelta,
+  streamPerfMark,
   streamPerfEndDelta,
   streamPerfTime,
   streamPerfCountRender,
@@ -909,6 +911,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
    */
   const streamSnapshotSeq = useStreamSnapshotSeq(sessionKeyForSend)
   streamPerfBeginDelta(streamSnapshotSeq)
+  streamPerfMark('delta:begin')
   useLayoutEffect(() => {
 
     streamPerfEndDelta()
@@ -974,7 +977,10 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i]
     if (row?.role === 'user') {
-      if (isHiddenToolApprovalUserMessage(String(row.text || ''))) continue
+      if (
+        isHiddenToolApprovalUserMessage(String(row.text || '')) ||
+        isTaskNotificationUserText(String(row.text || ''))
+      ) continue
       break
     }
     if (row?.role === 'assistant') {
@@ -1604,6 +1610,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     baseHistoryItems.forEach((item, index) => {
       if (item.row.role !== 'user') return
       if (isHiddenToolApprovalUserMessage(item.row)) return
+      if (isTaskNotificationUserText(String(item.row.text || ''))) return
       turns.push({
         rowIndex: index,
         preview: String(item.row.text || '').trim().slice(0, 200) || '（无文本）',

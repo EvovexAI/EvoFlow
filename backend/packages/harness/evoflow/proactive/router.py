@@ -102,7 +102,7 @@ class CreateRoleRequest(BaseModel):
     )
     max_initiatives_per_cycle: int = Field(3)
     risk_threshold: str = Field("medium", description="low|medium|high|critical")
-    approval_channels: list[str] = Field(default_factory=lambda: ["desktop", "feishu"])
+    approval_channels: list[str] = Field(default_factory=lambda: ["desktop"])
     approval_timeout_minutes: int = Field(30)
     heartbeat_rrule: str = Field(
         "",

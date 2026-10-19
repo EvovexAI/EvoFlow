@@ -1291,12 +1291,10 @@ async def get_pending_inject_status(request: Request, session_key: str) -> dict[
 
     try:
         from evoflow.persistence.pending_inject_repository import (
-            count_unconsumed_pending_injects,
             list_unconsumed_pending_injects,
             pending_inject_last_consumed_info,
         )
 
-        pending_count = count_unconsumed_pending_injects(key)
         last_consumed = pending_inject_last_consumed_info(key)
         items_raw = list_unconsumed_pending_injects(key)
     except Exception:
@@ -1311,6 +1309,16 @@ async def get_pending_inject_status(request: Request, session_key: str) -> dict[
             "consumedByRunId": last_consumed.get("consumedByRunId") or last_consumed.get("consumed_by_run_id"),
         }
 
+    def _visible_user_steer(it: dict[str, Any]) -> bool:
+        mid = str(it.get("message_id") or "").strip()
+        text = str(it.get("text") or "").lstrip()
+        if mid.startswith("bash-task-notification:"):
+            return False
+        if text.startswith("<task-notification>"):
+            return False
+        return bool(mid)
+
+    visible_raw = [it for it in items_raw if _visible_user_steer(it)]
     items = [
         {
             "messageId": str(it.get("message_id") or "").strip(),
@@ -1318,14 +1326,13 @@ async def get_pending_inject_status(request: Request, session_key: str) -> dict[
             "createdAt": it.get("created_at"),
             "runId": it.get("run_id"),
         }
-        for it in items_raw
-        if str(it.get("message_id") or "").strip()
+        for it in visible_raw
     ]
 
     return {
         "ok": True,
         "sessionKey": key,
-        "pendingCount": pending_count,
+        "pendingCount": len(visible_raw),
         "items": items,
         "lastConsumed": last_consumed,
     }

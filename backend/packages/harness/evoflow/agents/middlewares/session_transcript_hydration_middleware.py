@@ -398,6 +398,7 @@ def _is_injected_runtime_human_text(text: str) -> bool:
         "[tool:summary]",
         "__evf_tool_approval_v1__:",
         "__evf_tool_approval_replay_v1__:",
+        "<task-notification>",
     )
     return any(t.startswith(m) for m in markers)
 

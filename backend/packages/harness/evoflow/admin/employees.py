@@ -740,7 +740,7 @@ def _hire_existing_agent(
         autonomy_level=_parse_autonomy(data.get("autonomy_level")),
         max_initiatives_per_cycle=int(data.get("max_initiatives_per_cycle") or 3),
         risk_threshold=_parse_risk(data.get("risk_threshold")),
-        approval_channels=list(data.get("approval_channels") or ["desktop", "feishu"]),
+        approval_channels=list(data.get("approval_channels") or ["desktop"]),
         approval_timeout_minutes=int(data.get("approval_timeout_minutes") or 30),
         soul_md=soul_md_value,
         think_mode=str(data.get("think_mode") or "agent_loop").strip() or "agent_loop",

@@ -115,7 +115,8 @@ class ProactiveRoleConfig:
     autonomy_level: ProactiveAutonomyLevel = ProactiveAutonomyLevel.APPROVAL_FOR_ALL
     max_initiatives_per_cycle: int = 3
     risk_threshold: InitiativeRiskLevel = InitiativeRiskLevel.MEDIUM
-    approval_channels: list[str] = field(default_factory=lambda: ["desktop", "feishu"])
+    # Desktop-only until the employee binds an IM channel (bind flow adds feishu/wecom/…).
+    approval_channels: list[str] = field(default_factory=lambda: ["desktop"])
     approval_timeout_minutes: int = 30
     soul_md: str = ""
     # Phase 2: agent-loop think configuration

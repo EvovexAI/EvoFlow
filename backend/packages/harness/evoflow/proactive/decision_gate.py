@@ -110,7 +110,7 @@ class DecisionGate:
         Called by the engine when an initiative needs human decision.
         """
         approval_id = ProactiveRepository.new_approval_id()
-        channels = role.config.approval_channels or ["desktop", "feishu"]
+        channels = role.config.approval_channels or ["desktop"]
         channel_str = "both" if len(channels) > 1 else (channels[0] if channels else "desktop")
 
         approval = Approval(
@@ -164,7 +164,7 @@ class DecisionGate:
             return existing
 
         approval_id = ProactiveRepository.new_approval_id()
-        channels = role.config.approval_channels or ["desktop", "feishu"]
+        channels = role.config.approval_channels or ["desktop"]
         channel_str = "both" if len(channels) > 1 else (channels[0] if channels else "desktop")
 
         # Persist a bridge initiative so FK(initiative_id) and channel cards work.
@@ -473,8 +473,11 @@ class DecisionGate:
             role = ProactiveRepository.get_role(approval.role_agent_code)
             # If Feishu card never landed (channel down at create time), keep retrying
             # in background to avoid blocking the tick loop.
-            if role and initiative and not str(approval.feishu_message_id or "").strip() and "feishu" in {str(c).strip().lower() for c in (role.config.approval_channels or ["desktop", "feishu"])}:
-                asyncio.create_task(self._retry_push_feishu_background(role, initiative, approval))
+            if role and initiative and not str(approval.feishu_message_id or "").strip():
+                from evoflow.proactive.feishu_notify import _outbound_feishu_target
+
+                if _outbound_feishu_target(role):
+                    asyncio.create_task(self._retry_push_feishu_background(role, initiative, approval))
             timeout_mins = self._resolve_timeout_minutes(role, initiative)
             escalate_mins = timeout_mins * 0.5
 
@@ -529,23 +532,19 @@ class DecisionGate:
     ) -> None:
         """Push approval request to configured channels (Feishu / desktop).
 
-        Feishu interactive card is the default human gate — always attempted
-        unless the role explicitly opts out with approval_channels that omit
-        feishu *and* set a sentinel. In practice we always include feishu when
-        the list is empty/default, and still push feishu for handoff reviews.
+        Desktop is always notified. Feishu is attempted only when this employee
+        has a real push target. Channel-name defaults are not a binding, and
+        unbound roles must not record ``feishu_not_running``.
         """
-        configured = list(role.config.approval_channels or [])
-        # Default: desktop + feishu. If role only listed desktop historically,
-        # still push Feishu for approval cards (product default).
-        channels = set(configured) if configured else {"desktop", "feishu"}
-        channels.add("feishu")
-        channels.add("desktop")
+        from evoflow.proactive.feishu_notify import _outbound_feishu_target
+
+        want_feishu = _outbound_feishu_target(role) is not None
 
         # Push desktop and feishu concurrently so one slow channel
         # does not block the other.
         tasks: list[asyncio.Task] = []
         tasks.append(asyncio.create_task(self._push_desktop_safe(role, initiative, approval)))
-        if "feishu" in channels:
+        if want_feishu:
             tasks.append(asyncio.create_task(self._push_feishu_safe(role, initiative, approval)))
         if tasks:
             await asyncio.gather(*tasks)
@@ -558,8 +557,21 @@ class DecisionGate:
         *,
         triggered_by: str = "system",
     ) -> None:
-        """Push an interactive approval card with [同意] [拒绝] buttons to Feishu."""
+        """Push an interactive approval card with [同意] [拒绝] buttons to Feishu.
+
+        Employee cards go only to that role's binding. No gateway-default chat
+        fallback — that path was notifying people the employee was never bound to.
+        """
         from evoflow.persistence.channel_push_repositories import safe_record_push
+        from evoflow.proactive.feishu_notify import resolve_role_feishu_target
+
+        target = resolve_role_feishu_target(role)
+        if not target:
+            logger.debug(
+                "proactive.feishu.push: skip unbound role=%s",
+                getattr(role, "agent_code", ""),
+            )
+            return
 
         try:
             from evoflow.runtime.ports import get_channel_service
@@ -606,41 +618,7 @@ class DecisionGate:
                 )
                 return
 
-            # Prefer employee-bound bot + open_id when available
-            from evoflow.proactive.feishu_notify import resolve_role_feishu_target
-
-            target = resolve_role_feishu_target(role)
-            if not target:
-                from evoflow.runtime.ports import resolve_push_target
-
-                resolved = resolve_push_target(
-                    push_enabled=True,
-                    push_channel="feishu",
-                    push_target_id="",
-                )
-                if not resolved:
-                    logger.warning("proactive.feishu.push: no target resolved")
-                    safe_record_push(
-                        direction="outbound",
-                        channel="feishu",
-                        kind="approval_card",
-                        event="send_failed",
-                        transport="interactive_card",
-                        approval_id=approval.id,
-                        task_id=str(approval.task_id or ""),
-                        initiative_id=str(initiative.id or ""),
-                        role_agent_code=str(role.agent_code or ""),
-                        title=str(initiative.title or ""),
-                        content_summary="no Feishu push target resolved",
-                        status="error",
-                        error="no_target",
-                        triggered_by=triggered_by,
-                    )
-                    return
-                _, target_id = resolved
-                receive_id_type = "chat_id"
-            else:
-                target_id, receive_id_type = target
+            target_id, receive_id_type = target
 
             card_ref = str(approval.task_id or "").strip() or initiative.id
             if card_ref.startswith("task:"):

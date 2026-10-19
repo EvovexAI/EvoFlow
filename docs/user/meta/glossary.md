@@ -36,7 +36,8 @@
 | **系统前台** | 安装自带岗，偏催办全局待办。 |
 | **小V** | 全局助手：一员工一会话委派、工作台、飞书绑定。 |
 | **任务中心** | 跨来源任务驾驶舱（对话 / 智能体员工 / 工作流）。侧栏 `#/tasks`。 |
-| **应用 / 应用中心** | 已跑通的可填参再跑工作流产品。侧栏 `#/apps`。见 [应用中心](../guides/configuration/app-center.md) [[guides/configuration/app-center|应用中心]]。 |
+| **工作流（旧名：应用中心）** | 已跑通的可填参再跑工作流产品，侧栏现名「工作流」。侧栏 `#/apps`。见 [工作流](../guides/configuration/app-center.md) [[guides/configuration/app-center|工作流]]。注意与任务详情里的执行流程图 `#/workflow/:id` 区分。 |
+| **chip（小条）** | 界面上显示当前值、可点击切换的小控件。如左下角「当前工作目录」小条，点它弹出文件夹选择器来绑定工作目录。见 [工作空间](../guides/chat/workspace.md)。 |
 | **自动化** | 到点跑固定 Prompt（Cron），不是岗位合同。侧栏 `#/cron`。 |
 
 ## 技术与运行时
@@ -46,7 +47,7 @@
 | **Gateway** | FastAPI 服务，提供模型、MCP、技能、记忆、上传、任务、渠道等 HTTP API（`backend/app/gateway/`）。 |
 | **LangGraph Server** | Agent 运行时与线程状态服务（默认端口 `2024`，由 `langgraph dev` 等启动）。 |
 | **Harness** | 可发布的 `evoflow` Python 包，含 Agent、工具、沙箱、MCP、技能等（`backend/packages/harness/evoflow/`）。 |
-| **App** | 应用层代码，含 Gateway 与 IM 渠道（`backend/app/`）；**禁止**被 harness 反向依赖。与面板「应用中心」的「应用」不是同一概念。 |
+| **App** | 应用层代码，含 Gateway 与 IM 渠道（`backend/app/`）；**禁止**被 harness 反向依赖。与面板「工作流（旧名：应用中心）」的「应用」不是同一概念。 |
 | **Thread** | LangGraph 会话线程标识；本地文件与上传目录常按 `thread_id` 隔离。 |
 | **Sandbox** | Agent 命令与文件操作的执行环境（本地 / Docker / K8s 等），见 [沙箱模式配置](../guides/configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱模式配置]]。 |
 | **Skill** | `SKILL.md`（含 YAML 头信息）描述的可选能力包，见 [skill-system.md](../explanation/skill-system.md) [[explanation/skill-system|skill-system.md]]。 |

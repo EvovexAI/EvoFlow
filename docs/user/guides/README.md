@@ -1,11 +1,5 @@
 # 操作指南总目录
 
-> **先分清智能体和员工**
->
-> 1. **区别**：智能体管「会什么」（人设、模型、工具、技能、连接器 MCP）。员工管「何时主动干」（岗位、职责、部门与上级、上班时间、转交审批、工作空间、绑定知识库、预算）。聊天里 @ 智能体不会自动值班。
-> 2. **员工能配什么**：加人时填岗位名称、职责、部门、上级、知识库；更多设置里有能力来源、工作空间、关注子路径、工作模型、转交审批（全自动 / 平衡型 / 谨慎型）、自动上班。编辑岗位还可配工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。
-> 3. **怎么操作**：侧栏「员工」→「加人」→ 填岗位和至少一条职责 →「确认加人」→ 打开自动上班，或点「现在开始工作」，急活用小V 派活。交工后到任务中心确认或打回。字段见 [智能体员工](configuration/smart-employees.md)。
-
 > **面对这份文档目录，你可能想知道"我该先看哪个"**：
 >
 > - **第一次用**：从 [getting-started/](../getting-started/introduction.md) [[getting-started/introduction|介绍]] 开始，了解 EvoFlow 能做什么，然后下载安装
@@ -51,7 +45,7 @@
 | **资源中心 / 资源包** | [resource-packs.md](configuration/resource-packs.md) [[guides/configuration/resource-packs|资源包与资源市场]] |
 | 知识库 | [knowledge-base.md](configuration/knowledge-base.md) |
 | 旧上传文档 / 旧 Vault 入口 | [document-knowledge-base.md](configuration/document-knowledge-base.md) · [knowledge-vault.md](configuration/knowledge-vault.md) |
-| 应用中心 | [app-center.md](configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
+| 工作流（旧名「应用中心」） | [app-center.md](configuration/app-center.md) [[guides/configuration/app-center|工作流]] |
 | 沙箱配置 | [sandbox-config.md](configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱配置]] |
 
 ## IM 与渠道（integration/）

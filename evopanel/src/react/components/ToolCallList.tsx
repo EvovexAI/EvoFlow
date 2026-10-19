@@ -98,6 +98,7 @@ import {
 } from '../file-diff-util.js'
 import { ToolResultDetailModal, type ToolResultMetaBlock } from './ToolResultDetailModal.js'
 import { ViewImageDetailModal } from './ViewImageDetailModal.js'
+import { ViewImageInlinePreview } from './ViewImageInlinePreview.js'
 import { SubagentTranscriptModal } from './SubagentTranscriptModal.js'
 import { ensureTerminalStage } from '../../lib/right-stage/ensure-terminal-stage.js'
 import { SandboxBlockedCard } from './SandboxBlockedCard.js'
@@ -2130,14 +2131,6 @@ function ToolCallListInner({
         }
         return (
           <div key={key} className={entryClass}>
-            {mediaImagePreview ? (
-              <MediaImagePreview
-                key={String((mediaImagePreview as { cacheKey?: string }).cacheKey || key)}
-                output={t.output}
-                toolName={toolName}
-              />
-            ) : null}
-            {browserScreenshotOutput ? <BrowserScreenshotPreview output={browserScreenshotOutput} /> : null}
             <ToolCallCollapsible
               toolKind={toolKind}
               running={running}
@@ -2153,6 +2146,34 @@ function ToolCallListInner({
               toolStatus={running ? 'running' : toolFailed ? 'failed' : 'completed'}
               toolCallId={toolCallId || undefined}
             />
+            {isViewImageModalTool && viewImagePath && !running ? (
+              <div className="msg-tool-hang">
+                <ViewImageInlinePreview
+                  imagePath={viewImagePath}
+                  alt={summaryTitle || titleText || '图片'}
+                  caption={(() => {
+                    const text = String(outputJson || '').trim()
+                    if (!text) return undefined
+                    const first = text.split(/\r?\n/).find((line) => line.trim()) || ''
+                    return first.length > 120 ? `${first.slice(0, 120)}…` : first
+                  })()}
+                />
+              </div>
+            ) : null}
+            {mediaImagePreview ? (
+              <div className="msg-tool-hang">
+                <MediaImagePreview
+                  key={String((mediaImagePreview as { cacheKey?: string }).cacheKey || key)}
+                  output={t.output}
+                  toolName={toolName}
+                />
+              </div>
+            ) : null}
+            {browserScreenshotOutput ? (
+              <div className="msg-tool-hang">
+                <BrowserScreenshotPreview output={browserScreenshotOutput} />
+              </div>
+            ) : null}
             {approvalPanel}
             {sandboxBlockedCard}
           </div>

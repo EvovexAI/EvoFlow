@@ -55,6 +55,7 @@ import {
 } from '../react/lib/openai-stream-turn.ts'
 import { logStreamCompareSseRecv, markStreamCompareSession, markStreamCompareRun } from '../react/lib/stream-compare-file-log.ts'
 import { transportLog, transportRawLog, isTransportLogEnabled } from './transport-log-gate.js'
+import { streamPerfMark } from '../react/lib/stream-perf-trace.ts'
 
 /** ``agui`` (default) | ``openai`` | ``evf`` — override via localStorage EVOFLOW_STREAM_FORMAT */
 function resolveStreamWireFormat() {
@@ -843,6 +844,7 @@ async function gatewayProxyFetchStream(url, options = {}) {
   })
 
   onChunk.onmessage = (payload) => {
+    streamPerfMark('ws:recv')
     if (finished || !controller) return
     // First chunk or EOF ⇒ HTTP connect succeeded (Rust only sends after 2xx).
     markConnectOk()

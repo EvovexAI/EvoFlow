@@ -34,20 +34,6 @@ def schedule_bash_task_notification_turn(
             _DEDUP.add(mid)
 
     sk = str(session_key or "").strip()
-    if sk:
-        try:
-            from evoflow.persistence.pending_inject_repository import enqueue_pending_inject
-
-            enqueue_pending_inject(
-                sk,
-                message_id=mid,
-                content=text,
-                role="user",
-                tool_name="Bash",
-                thread_id=tid,
-            )
-        except Exception:
-            logger.debug("pending_inject for task-notification failed", exc_info=True)
 
     try:
         from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
@@ -132,8 +118,8 @@ async def _run_notification_turn(
                 message_id,
             )
         else:
-            # Worker already streaming this thread: pending_inject + enqueue will surface
-            # on the next drain; also try a direct runs.create enqueue.
+            # Worker already streaming this thread: enqueue a follow-up run.
+            # Do not put this on the user steer queue — that surfaces as 纠偏 / 用户气泡.
             try:
                 await client.runs.create(
                     thread_id,

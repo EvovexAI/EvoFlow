@@ -1,10 +1,6 @@
 # 自动化操作指南
 
-> **先分清智能体和员工**
->
-> 1. **区别**：智能体管「会什么」（人设、模型、工具、技能、连接器 MCP）。员工管「何时主动干」（岗位、职责、部门与上级、上班时间、转交审批、工作空间、绑定知识库、预算）。聊天里 @ 智能体不会自动值班。
-> 2. **员工能配什么**：加人时填岗位名称、职责、部门、上级、知识库；更多设置里有能力来源、工作空间、关注子路径、工作模型、转交审批（全自动 / 平衡型 / 谨慎型）、自动上班。编辑岗位还可配工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。
-> 3. **怎么操作**：侧栏「员工」→「加人」→ 填岗位和至少一条职责 →「确认加人」→ 打开自动上班，或点「现在开始工作」，急活用小V 派活。交工后到任务中心确认或打回。字段见 [智能体员工](../configuration/smart-employees.md)。
+> **新手可跳过**：这是进阶功能。等你需要「每天 9 点自动出日报」这类到点重复执行的任务时再来；日常一次性的事，用聊天或先计划 Plan 就够。
 
 > **比如你想让 EvoFlow 每天自动做这些事**：
 >
@@ -28,9 +24,9 @@
 |----------|---------|
 | **到点重复**固定指令（每天 9 点出日报） | **自动化**（本文） |
 | 复杂多角色、要看板观测的一次性工程 | [任务中心](task-center.md) [[guides/tasks/task-center|任务中心]] |
-| 流程已固定、只换参数再跑 | [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] |
+| 流程已固定、只换参数再跑 | [工作流](../configuration/app-center.md) [[guides/configuration/app-center|工作流]]（旧名「应用中心」） |
 | 岗位定时上班、审批与工作汇报 | [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] |
-| 单会话边聊边拆步 | [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]]（聊天顶栏） |
+| 单会话边聊边拆步 | [Plan 模式](../chat/plan-mode.md) [[guides/chat/plan-mode|先计划 Plan]]（聊天输入框底部的模式药丸） |
 | 开放长任务、聊天里自驱多轮 | [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]]（**实时聊天 Goal 模式**，不是任务中心，也不是本页） |
 
 自动化特征：**频率固定、内容相对稳定、不需要人盯**。
@@ -168,5 +164,5 @@ Prompt 宜具体，少寒暄。例：「汇总昨日本仓库 PR 与 Issue 变�
 - [任务中心](task-center.md) [[guides/tasks/task-center|任务中心]] — 多步骤协作任务看板
 - [目标 Agent](../chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] — 长程自驱任务
 - [智能体员工](../configuration/smart-employees.md) [[guides/configuration/smart-employees|智能体员工]] — 定时值班与审批
-- [应用中心](../configuration/app-center.md) [[guides/configuration/app-center|应用中心]] — 固定流程填参再跑
+- [工作流](../configuration/app-center.md) [[guides/configuration/app-center|工作流]]（旧名「应用中心」） — 固定流程填参再跑
 - [教程：自动化任务](../../tutorials/automation-task.md) [[tutorials/automation-task|自动化任务教程]]

@@ -132,7 +132,12 @@ def _is_injected_human(m: dict[str, Any]) -> bool:
             if isinstance(block, dict) and block.get("type") == "text":
                 head += str(block.get("text") or "")
     head = head.strip()
-    return head.startswith("[LOOP DETECTED]") or head.startswith("[FORCED STOP]") or head.startswith("<xiaomi_ui_context>")
+    return (
+        head.startswith("[LOOP DETECTED]")
+        or head.startswith("[FORCED STOP]")
+        or head.startswith("<xiaomi_ui_context>")
+        or head.startswith("<task-notification>")
+    )
 
 
 def _find_last_real_human_idx(messages: list[Any]) -> int:

@@ -796,7 +796,7 @@ def _request_handoff_approval(task: dict[str, Any]) -> dict[str, Any] | None:
     # SQLite connections and thread-local state (deadlock risk).
     gate = DecisionGate()
     approval_id = ProactiveRepository.new_approval_id()
-    channels = role.config.approval_channels or ["desktop", "feishu"]
+    channels = role.config.approval_channels or ["desktop"]
     channel_str = "both" if len(channels) > 1 else (channels[0] if channels else "desktop")
 
     # Persist bridge initiative (synchronous DB write)

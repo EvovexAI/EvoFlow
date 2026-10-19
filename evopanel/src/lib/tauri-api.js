@@ -11,6 +11,7 @@ import {
   resetWarmLatch,
 } from './gateway-warm-latch.js'
 import { isTransportLogEnabled, transportLog } from './transport-log-gate.js'
+import { streamPerfMark } from '../react/lib/stream-perf-trace.ts'
 
 const isTauri = !!window.__TAURI_INTERNALS__
 window.__yt_last_gateway_error = window.__yt_last_gateway_error || ''
@@ -783,7 +784,7 @@ export async function gatewayProxy(method, path, body = null, query = null, opti
   return work
 }
 
-function appendFrontendLog(level, message) {
+export function appendFrontendLog(level, message) {
   if (!window.__TAURI__ || !_invokeReady) return
   const tagged = String(message || '').includes(`[boot:${_bootId}]`)
     ? message
@@ -1091,6 +1092,7 @@ export { invalidate }
 
 // 函数声明：确保在 gatewayProxy 调用之前已定义（函数声明会被 hoisting）
 async function invoke(cmd, args = {}) {
+  streamPerfMark('tauri:invoke')
   const start = Date.now()
   if (_invokeReady && !WEB_ONLY_CMDS.has(cmd)) {
     const tauriInvoke = await _invokeReady

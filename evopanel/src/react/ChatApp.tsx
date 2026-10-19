@@ -45,6 +45,7 @@ import {
   assistantBodiesLooselySame,
   pickDisplayChatSceneFromScenarioResult,
   isGoalProposalToolName,
+  isTaskNotificationInject,
 } from '../lib/chat-normalize.js'
 import {
   MODE_TO_SCENARIO,
@@ -14852,8 +14853,12 @@ useEffect(() => {
         .then((res) => {
           const restored = Array.isArray(res?.restored) ? res.restored : []
           const restoredTexts = restored
-            .map((item: { text?: string }) => String(item?.text || '').trim())
-            .filter(Boolean)
+            .map((item: { text?: string; messageId?: string }) => ({
+              messageId: String(item?.messageId || '').trim(),
+              text: String(item?.text || '').trim(),
+            }))
+            .filter((item) => item.text && !isTaskNotificationInject(item))
+            .map((item) => item.text)
           const mergedParts = [...restoredTexts, ...queueTexts]
           if (!mergedParts.length) return
           if (String(sessionRef.current || '').trim() !== sk) return
@@ -15014,6 +15019,7 @@ useEffect(() => {
       const existingRows = Array.isArray(rt.rows) ? [...rt.rows] : []
       let changed = false
       for (const s of steers) {
+        if (isTaskNotificationInject(s)) continue
         if (existingRows.some((r) => r.messageId && r.messageId === s.messageId)) continue
         existingRows.push({
           role: 'user',
@@ -15173,7 +15179,10 @@ useEffect(() => {
                   messageId: String(it?.messageId || '').trim(),
                   text: String(it?.text || '').trim(),
                 }))
-                .filter((it: { messageId: string }) => it.messageId)
+                .filter(
+                  (it: { messageId: string; text: string }) =>
+                    it.messageId && !isTaskNotificationInject(it),
+                )
             }
           }
         } catch {
@@ -15212,7 +15221,7 @@ useEffect(() => {
             const keep = prev.filter((s) => s.sessionKey !== sk || pendingIds.has(s.messageId))
             const existing = new Set(keep.filter((s) => s.sessionKey === sk).map((s) => s.messageId))
             const add = statusItems
-              .filter((i) => !existing.has(i.messageId))
+              .filter((i) => !existing.has(i.messageId) && !isTaskNotificationInject(i))
               .map((i) => ({
                 id: i.messageId,
                 messageId: i.messageId,
@@ -15298,7 +15307,10 @@ useEffect(() => {
             text: String(it?.text || '').trim(),
             sessionKey: sk,
           }))
-          .filter((s: { messageId: string; text: string }) => s.messageId && s.text),
+          .filter(
+            (s: { messageId: string; text: string }) =>
+              s.messageId && s.text && !isTaskNotificationInject(s),
+          ),
       )
     })
     return () => {

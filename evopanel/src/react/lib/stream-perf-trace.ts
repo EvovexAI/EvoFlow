@@ -10,9 +10,10 @@
  *
  * 开关：?streamperf=1 或 localStorage.evoflow_streamperf=1
  *   也可热开（无需 reload）：window.__streamPerf.enable()
- *   开启后：单环节 > PHASE_WARN_MS 或 delta 总 > DELTA_WARN_MS 时 console.warn
- *   心跳：每 HEARTBEAT_MS 打一行当前帧上下文（历史行数 / 思考字数 / bump 间隔）
- *   聚合：window.__streamPerf.report() 打各环节 p50/p95/max + 多维诊断
+ *   开启后：超阈值指标 + 2 秒心跳 → ring buffer → 5 秒批量 flush →
+ *   Tauri append_frontend_log → log_dir()/frontend-YYYY-MM-DD.log
+ *   （控制台不再刷屏；事后 grep "streamperf batch" 排查时间趋势）
+ *   聚合：window.__streamPerf.report() 打各环节 p50/p95/max + 多维诊断（手动，仍走 console）
  *
  * 关闭时所有函数空操作，零开销。
  */
@@ -47,6 +48,77 @@ function detectEnabled(): boolean {
 }
 
 let enabled = detectEnabled()
+
+// === 文件日志：ring buffer + 5 秒批量 flush → Tauri append_frontend_log ===
+// 控制台临时性，刷新即失；写文件可事后排查"10 分钟后卡顿"的时间趋势。
+type PerfRecord = {
+  ts: string
+  kind: 'phase' | 'delta' | 'memo-fail' | 'degradation' | 'longtask' | 'heartbeat' | 'reasoning-paint'
+  seq?: number
+  total?: number
+  render?: number
+  visible?: number
+  memo?: number
+  degradation?: number
+  phases?: Record<string, number>
+  ctx?: StreamPerfLiveContext
+  extra?: Record<string, unknown>
+}
+
+const perfBuffer: PerfRecord[] = []
+const PERF_BUFFER_MAX = 800
+const PERF_FLUSH_MS = 5000
+let flushTimer: ReturnType<typeof setInterval> | null = null
+let flushInFlight = false
+
+function isoNow(): string {
+  try { return new Date().toISOString() } catch { return String(Date.now()) }
+}
+
+function pushPerf(rec: PerfRecord): void {
+  perfBuffer.push(rec)
+  if (perfBuffer.length > PERF_BUFFER_MAX) {
+    perfBuffer.splice(0, perfBuffer.length - PERF_BUFFER_MAX)
+  }
+  ensureFlushTimer()
+}
+
+function ensureFlushTimer(): void {
+  if (flushTimer || typeof setInterval === 'undefined') return
+  flushTimer = setInterval(() => { void flushPerfBuffer() }, PERF_FLUSH_MS)
+}
+
+// === 块边界 mark：long task 时报告"卡顿前最后一个 mark"，定位到哪一块 ===
+let lastMarkAt = 0
+let lastMarkName = ''
+
+export function streamPerfMark(name: string): void {
+  if (!enabled) return
+  lastMarkAt = now()
+  lastMarkName = name
+}
+
+async function flushPerfBuffer(): Promise<void> {
+  if (flushInFlight || perfBuffer.length === 0) return
+  flushInFlight = true
+  const batch = perfBuffer.splice(0, perfBuffer.length)
+  try {
+    const json = JSON.stringify(batch)
+    const mod = await import('../../lib/tauri-api.js') as unknown as {
+      appendFrontendLog?: (level: string, msg: string) => void
+    }
+    if (typeof mod.appendFrontendLog === 'function') {
+      mod.appendFrontendLog('warn', `streamperf batch: ${json}`)
+    }
+  } catch {
+    perfBuffer.unshift(...batch)
+    if (perfBuffer.length > PERF_BUFFER_MAX) {
+      perfBuffer.splice(0, perfBuffer.length - PERF_BUFFER_MAX)
+    }
+  } finally {
+    flushInFlight = false
+  }
+}
 
 export type StreamPerfLiveContext = {
   historyRows?: number
@@ -114,10 +186,11 @@ export function streamPerfSetEnabled(next: boolean): void {
     installLongTaskMonitor()
     lastHeartbeatAt = 0
     console.info(
-      '[streamperf] ON（热开）— filter console by "[streamperf]"; report: __streamPerf.report(); off: __streamPerf.disable()',
+      '[streamperf] ON（热开）— 日志写入 frontend 日志文件；report: __streamPerf.report(); off: __streamPerf.disable()',
     )
   } else {
     console.info('[streamperf] OFF')
+    void flushPerfBuffer()
   }
 }
 
@@ -135,9 +208,7 @@ export function streamPerfNoteReasoningPaint(ms: number, chars: number): void {
   if (ms > reasoningPaintMaxMs) reasoningPaintMaxMs = ms
   liveContext = { ...liveContext, reasoningChars: chars }
   if (ms > REASONING_PAINT_WARN_MS) {
-    console.warn(
-      `[streamperf] reasoning paint ${ms.toFixed(1)}ms · chars=${chars}`,
-    )
+    pushPerf({ ts: isoNow(), kind: 'reasoning-paint', extra: { ms: +ms.toFixed(1), chars } })
   }
 }
 
@@ -165,7 +236,7 @@ export function streamPerfTime<T>(phase: string, fn: () => T): T {
     currentDeltaPhases.set(phase, (currentDeltaPhases.get(phase) || 0) + ms)
   }
   if (ms > PHASE_WARN_MS) {
-    console.warn(`[streamperf] phase "${phase}" 慢: ${ms.toFixed(1)}ms`)
+    pushPerf({ ts: isoNow(), kind: 'phase', extra: { phase, ms: +ms.toFixed(1) } })
   }
   return result
 }
@@ -227,16 +298,18 @@ export function streamPerfEndDelta(): void {
   if (total > effectiveWarnMs) {
     const breakdown: Record<string, number> = {}
     for (const [phase, ms] of currentDeltaPhases) breakdown[phase] = +ms.toFixed(1)
-    const memoHitStr = visibleRowCountThisDelta > 1
-      ? `${(memoHitRate * 100).toFixed(0)}%`
-      : 'N/A'
-    console.warn(
-      `[streamperf] delta #${currentDeltaSeq} ${total.toFixed(1)}ms` +
-        ` | render=${renderCountThisDelta}/${visibleRowCountThisDelta}行` +
-        ` | memo命中=${memoHitStr}` +
-        ` | 恶化=${degradation.toFixed(1)}x`,
-      breakdown,
-    )
+    pushPerf({
+      ts: isoNow(),
+      kind: 'delta',
+      seq: currentDeltaSeq,
+      total: +total.toFixed(1),
+      render: renderCountThisDelta,
+      visible: visibleRowCountThisDelta,
+      memo: +memoHitRate.toFixed(2),
+      degradation: +degradation.toFixed(1),
+      phases: breakdown,
+      ctx: { ...liveContext },
+    })
   }
 
   if (
@@ -244,17 +317,25 @@ export function streamPerfEndDelta(): void {
     renderCountThisDelta > visibleRowCountThisDelta * 0.8 &&
     renderCountThisDelta >= 5
   ) {
-    console.warn(
-      `[streamperf] memo 大面积失效: ${renderCountThisDelta}/${visibleRowCountThisDelta} 行重渲染` +
-        `（命中率 ${(memoHitRate * 100).toFixed(0)}%）`,
-    )
+    pushPerf({
+      ts: isoNow(),
+      kind: 'memo-fail',
+      seq: currentDeltaSeq,
+      render: renderCountThisDelta,
+      visible: visibleRowCountThisDelta,
+      memo: +memoHitRate.toFixed(2),
+    })
   }
 
   if (degradation > 3 && total > DELTA_WARN_MS && renderCountThisDelta > 1) {
-    console.warn(
-      `[streamperf] 累积恶化: 当前 ${total.toFixed(1)}ms vs 基线 ${baselineDeltaTotal.toFixed(1)}ms` +
-        `（${degradation.toFixed(1)}x，基线 delta #${baselineDeltaSeq}）`,
-    )
+    pushPerf({
+      ts: isoNow(),
+      kind: 'degradation',
+      seq: currentDeltaSeq,
+      total: +total.toFixed(1),
+      degradation: +degradation.toFixed(1),
+      extra: { baselineMs: +baselineDeltaTotal.toFixed(1), baselineSeq: baselineDeltaSeq },
+    })
   }
 
   lastDeltaSnapshot = {
@@ -275,22 +356,21 @@ export function streamPerfEndDelta(): void {
     const heapMb = mem ? +(mem.usedJSHeapSize / 1048576).toFixed(1) : null
     const reasoningAvg =
       reasoningPaintSamples > 0 ? reasoningPaintSumMs / reasoningPaintSamples : 0
-    console.log('[streamperf] heartbeat', {
+    pushPerf({
+      ts: isoNow(),
+      kind: 'heartbeat',
       seq: currentDeltaSeq,
-      deltas: deltasSinceHeartbeat,
-      lastDeltaMs: +total.toFixed(1),
-      render: `${renderCountThisDelta}/${visibleRowCountThisDelta}`,
+      total: +total.toFixed(1),
+      render: renderCountThisDelta,
+      visible: visibleRowCountThisDelta,
       degradation: +degradation.toFixed(1),
-      heapMb,
-      historyRows: liveContext.historyRows ?? null,
-      reasoningChars: liveContext.reasoningChars ?? null,
-      textChars: liveContext.textChars ?? null,
-      tools: liveContext.toolCount ?? null,
-      segs: liveContext.segmentCount ?? null,
-      bumpMs: liveContext.bumpIntervalMs ?? null,
-      bumpScore: liveContext.bumpScore ?? null,
-      reasoningPaintAvgMs: +reasoningAvg.toFixed(2),
-      reasoningPaintMaxMs: +reasoningPaintMaxMs.toFixed(1),
+      ctx: { ...liveContext },
+      extra: {
+        deltas: deltasSinceHeartbeat,
+        heapMb,
+        reasoningPaintAvgMs: +reasoningAvg.toFixed(2),
+        reasoningPaintMaxMs: +reasoningPaintMaxMs.toFixed(1),
+      },
     })
     lastHeartbeatAt = tNow
     deltasSinceHeartbeat = 0
@@ -320,13 +400,22 @@ function installLongTaskMonitor(): void {
         const dur = entry.duration
         const snap = lastDeltaSnapshot
         if (snap && snap.visibleRows > 0) {
-          console.warn(
-            `[streamperf] long task ${dur.toFixed(0)}ms — delta #${snap.seq} ${snap.total}ms` +
-              ` | render=${snap.renderRows}/${snap.visibleRows}行 | 恶化=${snap.degradation}x`,
-            snap.phases,
-          )
+          pushPerf({
+            ts: isoNow(),
+            kind: 'longtask',
+            seq: snap.seq,
+            total: snap.total,
+            render: snap.renderRows,
+            visible: snap.visibleRows,
+            degradation: snap.degradation,
+            phases: snap.phases,
+            extra: {
+              durMs: +dur.toFixed(0),
+              lastMark: lastMarkName || null,
+              msSinceMark: lastMarkAt > 0 ? +(now() - lastMarkAt).toFixed(1) : null,
+            },
+          })
         }
-
       }
     })
     longTaskObserver.observe({ type: 'longtask', buffered: true })
@@ -405,6 +494,7 @@ export function streamPerfReset(): void {
   reasoningPaintSamples = 0
   reasoningPaintSumMs = 0
   reasoningPaintMaxMs = 0
+  perfBuffer.length = 0
 }
 
 export function installStreamPerfGlobal(): void {
@@ -428,6 +518,7 @@ export function installStreamPerfGlobal(): void {
     reset: streamPerfReset,
     enable: () => streamPerfSetEnabled(true),
     disable: () => streamPerfSetEnabled(false),
+    flush: () => { void flushPerfBuffer() },
     enabled: () => enabled,
     lastDelta: () => lastDeltaSnapshot,
     context: () => ({ ...liveContext }),

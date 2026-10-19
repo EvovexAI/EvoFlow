@@ -203,6 +203,7 @@ import {
   extractAskClarificationBubbleHint,
   formatUserClarificationBubbleText,
 } from '../lib/clarify-chat-display.js'
+import { isTaskNotificationUserText } from '../../lib/chat-normalize.js'
 import { formatUserToolApprovalBubbleText, isHiddenToolApprovalUserMessage } from '../../lib/tool-approval.js'
 import { sanitizeGoalClosureBody } from '../lib/goalClosureLocal.js'
 import { resolveUserMessageSkillDisplay } from '../lib/preferred-skill-display.js'
@@ -842,7 +843,7 @@ export function MessageRow({
     const fromText = String(displayRow.text || '')
     const fromSegments = flattenStreamDisplayText(displayRow.segments || [], '')
     const rawUserText = fromText || fromSegments
-    if (isHiddenToolApprovalUserMessage(rawUserText)) {
+    if (isHiddenToolApprovalUserMessage(rawUserText) || isTaskNotificationUserText(rawUserText)) {
       return null
     }
     const skillDisplay = resolveUserMessageSkillDisplay(displayRow)

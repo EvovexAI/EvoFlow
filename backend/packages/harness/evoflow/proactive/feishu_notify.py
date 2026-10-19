@@ -12,15 +12,35 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _role_wants_feishu(role: Any) -> bool:
-    """Check if role has feishu in approval_channels (legacy check).
-    
-    Note: This is transitional. After full P1 migration, use RolePushPolicy.should_push_to("feishu").
+def _approval_channels(role: Any) -> list[str]:
+    raw = list(getattr(getattr(role, "config", None), "approval_channels", None) or [])
+    return [str(c).strip().lower() for c in raw if str(c).strip()]
+
+
+def _feishu_channel_not_opted_out(role: Any) -> bool:
+    """False only when approval_channels is non-empty and omits feishu.
+
+    Empty list means "no explicit opt-out" — still requires a real binding
+    before any outbound card is attempted (see ``_outbound_feishu_target``).
     """
-    channels = list(getattr(getattr(role, "config", None), "approval_channels", None) or [])
+    channels = _approval_channels(role)
     if not channels:
-        channels = ["desktop", "feishu"]
+        return True
     return "feishu" in channels
+
+
+def _outbound_feishu_target(role: Any) -> tuple[str, str] | None:
+    """Resolve Feishu push target only when the role is actually bound.
+
+    Listing ``feishu`` in ``approval_channels`` is not a binding. Historical
+    defaults included it for every employee, which made unbound wrap-ups
+    record ``feishu_not_running``. A real target is ``feishu_open_id`` or a
+    valid RolePushPolicy binding. Explicit channel lists that omit feishu
+    stay opted out even if a stale open id remains.
+    """
+    if not _feishu_channel_not_opted_out(role):
+        return None
+    return resolve_role_feishu_target(role)
 
 
 def _send_account_for_target(role: Any, receive_id: str, receive_id_type: str) -> str:
@@ -86,10 +106,9 @@ def resolve_role_feishu_target(role: Any) -> tuple[str, str] | None:
         except Exception as e:
             logger.debug("[feishu_notify] failed to load RolePushPolicy for %s: %s", agent_code, e, exc_info=True)
     
-    # Step 3: Fallback failed
-    logger.warning(
-        "[feishu_notify] no valid push target found for role agent_code=%s "
-        "(role should bind feishu_open_id or configure RolePushPolicy)",
+    # Unbound is normal for desktop-only employees — not a warning.
+    logger.debug(
+        "[feishu_notify] no Feishu push target for agent_code=%s (unbound)",
         agent_code,
     )
     return None
@@ -292,14 +311,15 @@ async def push_review_card(
     summary: str = "",
 ) -> str | None:
     """Send「交工待验收」card after a work item reaches ``reviewed``."""
-    if not _role_wants_feishu(role):
-        return None
     tid = str(task_id or "").strip()
     if not tid:
         return None
+    target = _outbound_feishu_target(role)
+    if not target:
+        return None
     channel = _feishu_channel()
     if channel is None:
-        logger.debug("feishu_notify.review: channel unavailable")
+        logger.debug("feishu_notify.review: channel unavailable (bound role)")
         _log_notify(
             kind="review_card",
             role=role,
@@ -308,19 +328,6 @@ async def push_review_card(
             title=str(title or tid),
             content_summary="feishu channel unavailable",
             error="feishu_not_running",
-        )
-        return None
-    target = resolve_role_feishu_target(role)
-    if not target:
-        logger.warning("feishu_notify.review: no push target role=%s", getattr(role, "agent_code", ""))
-        _log_notify(
-            kind="review_card",
-            role=role,
-            ok=False,
-            task_id=tid,
-            title=str(title or tid),
-            content_summary="no Feishu push target",
-            error="no_target",
         )
         return None
     receive_id, receive_id_type = target
@@ -406,9 +413,10 @@ async def push_wrap_digest_card(
     role: Any,
     report: dict[str, Any] | None,
 ) -> str | None:
-    """Send duty-round digest card after a heartbeat/patrol ends."""
-    if not _role_wants_feishu(role):
-        return None
+    """Send duty-round digest card after a heartbeat/patrol ends.
+
+    Unbound roles skip silently — desktop work journal already holds the report.
+    """
     if not isinstance(report, dict):
         return None
     # Skip empty no-op rounds to avoid spam
@@ -428,6 +436,10 @@ async def push_wrap_digest_card(
     if not created and not pending and not completed and not failed and not executing and not think_summary and not has_named_item:
         return None
 
+    # Bind-first: never emit feishu_not_running for employees without a Feishu target.
+    target = _outbound_feishu_target(role)
+    if not target:
+        return None
     channel = _feishu_channel()
     if channel is None:
         _log_notify(
@@ -437,17 +449,6 @@ async def push_wrap_digest_card(
             title="工作汇报",
             content_summary="feishu channel unavailable",
             error="feishu_not_running",
-        )
-        return None
-    target = resolve_role_feishu_target(role)
-    if not target:
-        _log_notify(
-            kind="wrap_digest",
-            role=role,
-            ok=False,
-            title="工作汇报",
-            content_summary="no Feishu push target",
-            error="no_target",
         )
         return None
     receive_id, receive_id_type = target
@@ -518,14 +519,15 @@ async def push_running_work_card(
     title: str,
 ) -> str | None:
     """Send「处理中」control card when a work item starts executing."""
-    if not _role_wants_feishu(role):
-        return None
     tid = str(task_id or "").strip()
     if not tid:
         return None
+    target = _outbound_feishu_target(role)
+    if not target:
+        return None
     channel = _feishu_channel()
     if channel is None:
-        logger.debug("feishu_notify.running: channel unavailable")
+        logger.debug("feishu_notify.running: channel unavailable (bound role)")
         _log_notify(
             kind="running_work",
             role=role,
@@ -534,19 +536,6 @@ async def push_running_work_card(
             title=str(title or tid),
             content_summary="feishu channel unavailable",
             error="feishu_not_running",
-        )
-        return None
-    target = resolve_role_feishu_target(role)
-    if not target:
-        logger.warning("feishu_notify.running: no push target role=%s", getattr(role, "agent_code", ""))
-        _log_notify(
-            kind="running_work",
-            role=role,
-            ok=False,
-            task_id=tid,
-            title=str(title or tid),
-            content_summary="no Feishu push target",
-            error="no_target",
         )
         return None
     receive_id, receive_id_type = target

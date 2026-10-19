@@ -67,7 +67,7 @@ def migrate_push_bindings(db_path: str) -> None:
         feishu_oid = (cfg.get('feishu_open_id') or '').strip()
         feishu_appid = (cfg.get('feishu_app_id') or '').strip()
         feishu_secret = (cfg.get('feishu_app_secret') or '').strip()
-        push_enabled = 'feishu' in (cfg.get('approval_channels') or ['desktop', 'feishu'])
+        push_enabled = 'feishu' in (cfg.get('approval_channels') or [])
         
         # Determine target type and id
         feishu_target_type = 'open_id'

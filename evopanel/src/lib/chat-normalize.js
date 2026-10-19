@@ -3014,11 +3014,26 @@ export function extractModelSwitchSeparatorDisplayText(text) {
   return s.slice(MODEL_SWITCH_SEPARATOR_PREFIX.length).trimStart()
 }
 
+/** 后台 bash 完成续跑：给模型看，不进用户气泡 / 待发送纠偏。 */
+export function isTaskNotificationUserText(text) {
+  return String(text || '').trimStart().startsWith('<task-notification>')
+}
+
+export function isTaskNotificationInject(item) {
+  if (!item || typeof item !== 'object') return false
+  const mid = String(item.messageId || item.message_id || item.id || '').trim()
+  if (mid.startsWith('bash-task-notification:')) return true
+  return isTaskNotificationUserText(item.text || item.content || '')
+}
+
 function isInjectedHumanUiMessage(msg) {
   if (!msg || typeof msg !== 'object') return false
   const n = msg.name != null ? String(msg.name).trim() : ''
   if (n && INJECTED_HUMAN_MESSAGE_NAMES.has(n)) return true
+  const mid = String(msg.id || msg.message_id || msg.messageId || '').trim()
+  if (mid.startsWith('bash-task-notification:')) return true
   const head = peekRawTextForRoleHint(msg)
+  if (isTaskNotificationUserText(head)) return true
   if (head.startsWith('<xiaomi_ui_context>')) return true
   if (head.startsWith('[LOOP DETECTED]') || head.startsWith('[FORCED STOP]')) return true
   if (isHandoffSummaryHumanContent(head)) return true

@@ -1,4 +1,6 @@
-import { memo, type ReactNode } from 'react'
+import { memo, useState, type ReactNode, type SyntheticEvent } from 'react'
+import { showChatLightbox } from '../../lib/chat-lightbox.js'
+import { resolveMediaAssetSrc } from '../../lib/chat-normalize.js'
 import type { TurnDeliverable } from '../../lib/deliverable-mentions.js'
 
 /** 各交付物类型的 16×16 线性图标（lucide 风格，stroke 用 currentColor）。 */
@@ -59,9 +61,140 @@ const KIND_ICONS: Record<string, ReactNode> = {
   ),
 }
 
+function DeliverableFileTile({
+  item,
+  onOpenFile,
+}: {
+  item: TurnDeliverable
+  onOpenFile?: (rawPath: string, displayName?: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      className="evf-deliverable-tile"
+      title={item.path}
+      onClick={() => onOpenFile?.(item.path, item.name)}
+    >
+      <span className={`evf-deliverable-icon evf-deliverable-icon--${item.kind}`} aria-hidden="true">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {KIND_ICONS[item.kind] ?? KIND_ICONS.file}
+        </svg>
+      </span>
+      <span className="evf-deliverable-meta">
+        <span className="evf-deliverable-name">{item.name}</span>
+        <span className="evf-deliverable-kind">{item.label}</span>
+      </span>
+    </button>
+  )
+}
+
+function DeliverableImageCard({
+  item,
+  onOpenFile,
+}: {
+  item: TurnDeliverable
+  onOpenFile?: (rawPath: string, displayName?: string) => void
+}) {
+  const [broken, setBroken] = useState(false)
+  const src = resolveMediaAssetSrc(item.path)
+  if (!src || broken) {
+    return <DeliverableFileTile item={item} onOpenFile={onOpenFile} />
+  }
+  return (
+    <div className="evf-deliverable-media" data-testid="deliverable-image">
+      <button
+        type="button"
+        className="evf-deliverable-media-btn"
+        title={item.path}
+        aria-label={`放大查看 ${item.name}`}
+        onClick={() => showChatLightbox(src)}
+      >
+        <img
+          className="evf-deliverable-media-img"
+          src={src}
+          alt={item.name}
+          loading="lazy"
+          onError={(_e: SyntheticEvent<HTMLImageElement>) => setBroken(true)}
+        />
+      </button>
+      <button
+        type="button"
+        className="evf-deliverable-media-caption"
+        title={item.path}
+        onClick={() => onOpenFile?.(item.path, item.name)}
+      >
+        <span className="evf-deliverable-name">{item.name}</span>
+        <span className="evf-deliverable-kind">{item.label}</span>
+      </button>
+    </div>
+  )
+}
+
+function DeliverableVideoCard({
+  item,
+  onOpenFile,
+}: {
+  item: TurnDeliverable
+  onOpenFile?: (rawPath: string, displayName?: string) => void
+}) {
+  const src = resolveMediaAssetSrc(item.path)
+  if (!src) {
+    return <DeliverableFileTile item={item} onOpenFile={onOpenFile} />
+  }
+  return (
+    <div className="evf-deliverable-media" data-testid="deliverable-video">
+      <video className="evf-deliverable-media-video" src={src} controls preload="metadata" />
+      <button
+        type="button"
+        className="evf-deliverable-media-caption"
+        title={item.path}
+        onClick={() => onOpenFile?.(item.path, item.name)}
+      >
+        <span className="evf-deliverable-name">{item.name}</span>
+        <span className="evf-deliverable-kind">{item.label}</span>
+      </button>
+    </div>
+  )
+}
+
+function DeliverableAudioCard({
+  item,
+  onOpenFile,
+}: {
+  item: TurnDeliverable
+  onOpenFile?: (rawPath: string, displayName?: string) => void
+}) {
+  const src = resolveMediaAssetSrc(item.path)
+  if (!src) {
+    return <DeliverableFileTile item={item} onOpenFile={onOpenFile} />
+  }
+  return (
+    <div className="evf-deliverable-media evf-deliverable-media--audio" data-testid="deliverable-audio">
+      <audio className="evf-deliverable-media-audio" src={src} controls preload="metadata" />
+      <button
+        type="button"
+        className="evf-deliverable-media-caption"
+        title={item.path}
+        onClick={() => onOpenFile?.(item.path, item.name)}
+      >
+        <span className="evf-deliverable-name">{item.name}</span>
+        <span className="evf-deliverable-kind">{item.label}</span>
+      </button>
+    </div>
+  )
+}
+
 /**
- * 回合末尾的交付物卡片墙：@@路径@@ 聚合，ZCode 产物卡形态
- * （类型图标 + 文件名 + 类型角标），点击走 onOpenFile 打开预览。
+ * 回合末尾交付物：图片/视频/音频直接内嵌展示（ZCode 式直观预览），
+ * 其余类型保持文件卡，点击走 onOpenFile。
  */
 function DeliverableCardsInner({
   items,
@@ -71,6 +204,10 @@ function DeliverableCardsInner({
   onOpenFile?: (rawPath: string, displayName?: string) => void
 }) {
   if (items.length === 0) return null
+
+  const media = items.filter((it) => it.kind === 'image' || it.kind === 'video' || it.kind === 'audio')
+  const files = items.filter((it) => it.kind !== 'image' && it.kind !== 'video' && it.kind !== 'audio')
+
   return (
     <section className="evf-deliverables" data-testid="deliverable-cards">
       <div className="evf-deliverables-header">
@@ -78,35 +215,26 @@ function DeliverableCardsInner({
           {items.length === 1 ? '1 个产物' : `${items.length} 个产物`}
         </span>
       </div>
-      <div className="evf-deliverables-grid">
-        {items.map((it) => (
-          <button
-            key={it.path}
-            type="button"
-            className="evf-deliverable-tile"
-            title={it.path}
-            onClick={() => onOpenFile?.(it.path, it.name)}
-          >
-            <span className={`evf-deliverable-icon evf-deliverable-icon--${it.kind}`} aria-hidden="true">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                {KIND_ICONS[it.kind] ?? KIND_ICONS.file}
-              </svg>
-            </span>
-            <span className="evf-deliverable-meta">
-              <span className="evf-deliverable-name">{it.name}</span>
-              <span className="evf-deliverable-kind">{it.label}</span>
-            </span>
-          </button>
-        ))}
-      </div>
+      {media.length > 0 ? (
+        <div className="evf-deliverables-media">
+          {media.map((it) => {
+            if (it.kind === 'image') {
+              return <DeliverableImageCard key={it.path} item={it} onOpenFile={onOpenFile} />
+            }
+            if (it.kind === 'video') {
+              return <DeliverableVideoCard key={it.path} item={it} onOpenFile={onOpenFile} />
+            }
+            return <DeliverableAudioCard key={it.path} item={it} onOpenFile={onOpenFile} />
+          })}
+        </div>
+      ) : null}
+      {files.length > 0 ? (
+        <div className="evf-deliverables-grid">
+          {files.map((it) => (
+            <DeliverableFileTile key={it.path} item={it} onOpenFile={onOpenFile} />
+          ))}
+        </div>
+      ) : null}
     </section>
   )
 }

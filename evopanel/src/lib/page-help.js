@@ -164,6 +164,7 @@ const GUIDE = {
   '/proactive': {
     title: '员工',
     icon: '👥',
+    showAgentEmployeeNote: true,
     quickstart: '点「加人」填岗位与职责 →「确认加人」。页头打开「自动上班」，或卡片 ⋯「现在开始工作」。交工去任务中心确认。',
     watchouts: '· 加人时系统会自动准备能力，不必先去「智能体」页\n· 职责写成「好好工作」≈ 没写；要写可检查的事\n· 页头「自动上班」是全员总开关；单岗用请假/上班\n· 待审批主路径是「同意派发」，和任务中心「确认完成」不是一回事\n· 新手先加 1 个跑通，别一次加一堆',
     overview: {
@@ -352,6 +353,7 @@ const GUIDE = {
   '/expert': {
     title: '智能体中心',
     icon: '🎭',
+    showAgentEmployeeNote: true,
     quickstart: '「新建智能体」→ 填角色标识与中文名称 → 写系统提示词 / 人格 SOUL → 少勾工具与 MCP →「创建智能体」→ 聊天 `@` 试一句。要值班：卡片「加入员工」，或去「员工」加人。',
     watchouts: '· 页头三个 Tab：智能体 / 技能 / 连接器；日常排班不在这里\n· 角色标识创建后不可改\n· 连接器先在「连接器」Tab 添加，再在编辑里「MCP 服务」勾选\n· 改完人设请新开对话再 `@`',
     overview: {
@@ -386,6 +388,7 @@ const GUIDE = {
   '/agents': {
     title: '智能体',
     icon: '🎭',
+    showAgentEmployeeNote: true,
     quickstart: '侧栏「智能体」会进智能体中心。搜到目标 → ⋯「编辑」→ 保存 → 新开对话 `@` 试一句。不用的确认无员工/工作流引用再删。',
     watchouts: '· 主智能体不要删\n· 已部署为员工时，改能力影响下次执行\n· 旧地址 `#/agents` 会转到 `#/expert`',
     overview: {
@@ -1019,6 +1022,7 @@ const GUIDE = {
   '/proactive/:code': {
     title: '员工详情',
     icon: '👤',
+    showAgentEmployeeNote: true,
     overview: {
       what: '单个员工主页：状态（工作中 / 在岗 / 已停）+ 能力芯片 + 四个 Tab——**上班记录 · 成长 · 运行数据 · 配置**。\n\n这里改的是岗位合同（职责、节奏、审批、工作区、知识库）。人设、工具、连接器回「智能体」页。',
       when: '· 刚加人，要核对职责并试跑\n· 改上班时间表、工作区、转交审批、预算\n· 看近几轮干了啥、工作过程是否真调了工具\n· 派发、请假、绑 IM、删除岗位',
@@ -1064,6 +1068,7 @@ const GUIDE = {
   '/proactive/board': {
     title: '员工看板',
     icon: '📊',
+    showAgentEmployeeNote: true,
     overview: {
       what: '全员工作项作战墙。列：**待处理 · 进行中 · 待确认 · 已完成**。用 10 秒看谁忙、哪里堵。\n\n不负责加人配置（去员工详情）；也不替代任务中心全局筛选。',
       when: '早会复盘、值班交接、怀疑待确认堆高时。只有一两个员工时，直接进详情可能更快。',
@@ -1415,10 +1420,12 @@ function _renderTabContent(guide, tab) {
               <div class="guide-overview-card__body help-section-text">${_renderText(b.text)}</div>
             </article>
           `).join('')}
+          ${guide.showAgentEmployeeNote ? `
           <aside class="guide-watchouts" aria-label="智能体和员工">
             <div class="guide-watchouts__label">先分清智能体和员工</div>
             <div class="guide-watchouts__body help-section-text">${_renderText(AGENT_EMPLOYEE_NOTE)}</div>
           </aside>
+          ` : ''}
           ${watch ? `
             <aside class="guide-watchouts" aria-label="别点错">
               <div class="guide-watchouts__label">⚠ 别点错</div>
