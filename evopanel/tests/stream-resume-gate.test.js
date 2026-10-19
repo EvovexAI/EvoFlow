@@ -7,36 +7,29 @@ import {
   shouldSuppressAutoReattach,
 } from '../src/react/lib/stream-resume-gate.ts'
 import {
+  clearSessionRuntime,
+  dispatchSessionTurnEvent,
   getSessionRuntime,
   markSessionStreamWireSource,
 } from '../src/react/lib/session-runtime-store.js'
 
 describe('stream-resume-gate', () => {
-  it('shouldAutoStreamResume requires key and not sending', () => {
+  it('shouldAutoStreamResume requires key and not busy', () => {
+    clearSessionRuntime('sk1')
     expect(
       shouldAutoStreamResume({
         selectedSessionKey: '',
-        isSending: false,
       }),
     ).toBe(false)
     expect(
       shouldAutoStreamResume({
         selectedSessionKey: 'sk1',
-        isSending: true,
-        sessionRow: { sessionKey: 'sk1', runStatus: 'running' },
-      }),
-    ).toBe(false)
-    expect(
-      shouldAutoStreamResume({
-        selectedSessionKey: 'sk1',
-        isSending: false,
         sessionRow: { sessionKey: 'sk1', runStatus: 'running' },
       }),
     ).toBe(true)
     expect(
       shouldAutoStreamResume({
         selectedSessionKey: 'sk1',
-        isSending: false,
         executingSessionKeys: new Set(['sk1']),
       }),
     ).toBe(true)
@@ -74,6 +67,7 @@ describe('stream-resume-gate', () => {
   })
 
   it('shouldManualRefreshResumeStream resumes only when run or stream is active', () => {
+    clearSessionRuntime('sk1')
     expect(
       shouldManualRefreshResumeStream({
         sessionKey: 'sk1',
@@ -84,13 +78,6 @@ describe('stream-resume-gate', () => {
       shouldManualRefreshResumeStream({
         sessionKey: 'sk1',
         runStatus: 'running',
-      }),
-    ).toBe(true)
-    expect(
-      shouldManualRefreshResumeStream({
-        sessionKey: 'sk1',
-        runStatus: 'idle',
-        isForegroundSending: true,
       }),
     ).toBe(true)
     expect(
@@ -154,5 +141,33 @@ describe('stream-resume-gate', () => {
       }),
     ).toBe(false)
     markSessionStreamWireSource(sk, null)
+  })
+
+  it('blocks auto resume after early uiTurnSettled even when DB still running', () => {
+    const sk = 'agent:main:settled-no-resume'
+    clearSessionRuntime(sk)
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
+    dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-1' })
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(getSessionRuntime(sk).uiTurnSettled).toBe(true)
+
+    expect(
+      shouldSuppressAutoReattach({
+        sessionKey: sk,
+      }),
+    ).toBe(true)
+    expect(
+      shouldManualRefreshResumeStream({
+        sessionKey: sk,
+        runStatus: 'running',
+      }),
+    ).toBe(false)
+    expect(
+      shouldAutoStreamResume({
+        selectedSessionKey: sk,
+        sessionRow: { sessionKey: sk, runStatus: 'running' },
+      }),
+    ).toBe(false)
+    clearSessionRuntime(sk)
   })
 })

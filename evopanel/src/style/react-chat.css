@@ -6484,11 +6484,22 @@ html.dark .react-chat-conversation-col {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 10px;
-  margin: 6px 0 0;
+  /* Out of flow so the spinner disappearing at RUN_FINISHED does not shrink
+     the bubble and nudge a bottom-pinned transcript. */
+  position: absolute;
+  left: 0;
+  bottom: -18px;
+  margin: 0;
+  height: 18px;
   min-width: 0;
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--text-secondary, #6b7280);
+  pointer-events: none;
+}
+
+.msg-turn--assistant {
+  position: relative;
 }
 
 .msg-stream-run-status-dot {

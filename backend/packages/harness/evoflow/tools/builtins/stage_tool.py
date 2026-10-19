@@ -55,7 +55,7 @@ panel_set_ui_metadata = {
     "group": "hosted_panel",
     "description": (
         "打开/关闭 EvoPanel 右侧面板（产物、资讯、网页内嵌、写入内容、工作区等）。"
-        "交付物用 kind=artifacts；正文路径用 @@…@@ 括起。"
+        "交付物用 kind=artifacts。"
         "给用户看网页用 kind=web-embed + data.url，不要只在聊天里贴链接。"
         "与 mode_set 工具（激活 plan/agent 对话模式）无关；"
         "Agent 模式系统必带，无需 tool_search 加载"
@@ -67,7 +67,7 @@ stage_set_ui_metadata = panel_set_ui_metadata
 
 _PANEL_SET_TOOL_DESCRIPTION = """\
 Control EvoPanel right-side panels (NOT mode_set). action show|hide|update|stream.
-Deliverables: kind=artifacts, data.items[{type,path|url|content}]; wrap file paths in chat as @@…@@.
+Deliverables: kind=artifacts, data.items[{type,path|url|content}].
 Web for the user: kind=web-embed, data.url — do not only paste a bare link in chat.
 Do not auto-open write preview after write/replace — only when user asks.
 """

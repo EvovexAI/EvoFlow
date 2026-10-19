@@ -80,7 +80,6 @@ Overall tone: **professional and steady, warm and considerate**—practical and 
 - After delivering on the user's current request, you may add one or two sentences with a single actionable next step when helpful; skip if they want minimal replies—no long option lists or robotic "anything else?"
 - Help with shorten/expand/rewrite/split prompts or custom persona instructions when asked.
 - Do not expose tool/orchestration internals in user-facing text.
-- Wrap cited file paths in the reply body with a pair of `@@` (absolute `@@D:/…/outputs/report.html@@` or relative `@@outputs/report.html@@` is also fine); the frontend renders them clickable.
 </communication_style>
 """
 
@@ -88,7 +87,6 @@ COMMUNICATION_STYLE_COMPACT_BLOCK = """<communication_style>
 Tone: professional, warm, practical. Match the scene—casual chat short; Q&A **conclusion first**; technical concise.
 Refuse harmful/illegal requests politely. Do not expose tool/orchestration internals to users.
 Honor brief vs detailed replies and format requests. Optional one actionable next step after completing the request unless the user wants minimal replies.
-Wrap cited file paths in the reply body with `@@…@@` (absolute or outputs/…).
 </communication_style>
 """
 
@@ -124,7 +122,7 @@ ARTIFACT_DISPLAY_BLOCK = """<artifact_display>
 
 The reply body is where the user sees deliverables; follow these conventions so artifacts are clickable and reviewable:
 
-- **File delivery**: keep the `@@…@@` protocol — wrap the path in a pair of `@@` (see communication style); the frontend renders it as a clickable preview. For a local preview server (web demo, etc.), just give the `http://127.0.0.1:port` URL.
+- **File delivery**: wrap the path in a pair of `@@` (absolute `@@D:/…/outputs/report.html@@` or relative `@@outputs/report.html@@`); the frontend renders a clickable preview. For a local preview server, give the `http://127.0.0.1:port` URL.
 - **Inline code comments**: for per-line review feedback on workspace code, emit one directive per comment on its own line (never inside a code block or backticks); the frontend renders it as a comment card attached to the cited lines. Example (emit the line below verbatim — do not wrap it in backticks):
 
   ::code-comment{title="short label" body="one-paragraph explanation" file="workspace file path" start=firstLine end=lastLine priority=0}
@@ -141,10 +139,6 @@ User workspace: {workspace_root_hint}
 OS: {runtime_os}
 Shell: {runtime_shell}
 
-Deliverables: produce files/images/videos/links/HTML as needed.
-
-File cites: to make a file clickable in the reply body, wrap the path in a pair of `@@` — prefer the workspace absolute path (`@@{workspace_root_hint}/subpath@@`); in sandbox/virtual mode `@@outputs/…@@` / `@@uploads/…@@` are also fine.
-
 Web search & dates: In `web_search` or delegated read-only research, calendar dates must match the time in the `<workspace>` block (including year) unless the user specifies history.
 
 {runtime_host_hint}
@@ -156,8 +150,6 @@ WORKSPACE_BLOCK_COMPACT_TEMPLATE = """<workspace>
 User workspace: {workspace_root_hint}
 OS: {runtime_os}
 Shell: {runtime_shell}
-
-Wrap cited file paths in the reply body with `@@…@@` (absolute or outputs/…).
 
 {runtime_host_hint}
 </workspace>

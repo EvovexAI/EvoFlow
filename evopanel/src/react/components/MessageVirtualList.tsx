@@ -568,11 +568,10 @@ function isPinnedToBottom(el: HTMLDivElement, slack = 4) {
 }
 
 /**
- * Collapse the stream bottom spacer without a second snap.
- * Near the bottom: one clamp to the new max. Away from the bottom: keep the
- * same content in view by applying the height delta. A follow-up
- * ``scrollTop = scrollHeight`` after fold/remeasure is what reads as
- * 「先上移一点，再下移一点」.
+ * End-of-stream scroll.
+ * Already at the bottom: keep the follow inset and scrollTop — collapsing the
+ * 36px spacer is the leftover jump after the last token.
+ * Away from the bottom: drop the inset; caller may scroll back down.
  */
 function settleScrollAfterStream(
   el: HTMLDivElement | null,
@@ -580,19 +579,16 @@ function settleScrollAfterStream(
 ): boolean {
   if (!el) return true
   const dist = el.scrollHeight - (el.scrollTop + el.clientHeight)
-  const beforeTop = el.scrollTop
-  const beforeH = el.scrollHeight
+  if (dist <= 48) {
+    // Keep STREAM_FOLLOW_BOTTOM_INSET so bubble + spinner slot stay put.
+    if (spacer) spacer.style.height = `${STREAM_FOLLOW_BOTTOM_INSET_PX}px`
+    const gap = el.scrollHeight - (el.scrollTop + el.clientHeight)
+    if (gap > 1) el.scrollTop += gap
+    return true
+  }
   if (spacer && spacer.style.height !== '0px') {
     spacer.style.height = '0px'
   }
-  const delta = el.scrollHeight - beforeH
-  if (dist <= 48) {
-    const max = Math.max(0, el.scrollHeight - el.clientHeight)
-    if (Math.abs(el.scrollTop - max) > 1) el.scrollTop = max
-    return true
-  }
-  const next = Math.max(0, beforeTop + delta)
-  if (Math.abs(el.scrollTop - next) > 1) el.scrollTop = next
   return false
 }
 
@@ -854,8 +850,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   if (prevLayoutKeyRef.current !== layoutKey) {
     prevLayoutKeyRef.current = layoutKey
     // 流式中打开右栏（文件/终端）只改宽度：勿清贴底 follow，否则测高与贴底失步会整栏跳动。
-    const streamingNow = isSending || streamLive || resumeStreamHoldActive
-    if (!streamingNow) {
+    // 与齿轮 / 停止同一 busy 源（selectedTurnBusy → isSending）
+    if (!isSending) {
       autoFollowRef.current = false
       userScrolledAwayDuringStreamRef.current = false
       postSendScrollAnchorRef.current = false
@@ -882,56 +878,40 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const lastHistoryRole = rows[rows.length - 1]?.role
   const prevIsSendingPropRef = useRef(false)
   const lastSessionKeyForSendRef = useRef(sessionKey)
-  /**
-   * 反闪烁宽限：发送瞬间到 SSE 首帧之间，isSending 可能短暂被某个清理路径置 false
-   * 再回 true，导致 streamActive 0→1→0→1 → 光标 / 计时条 显示→隐藏→再显示。
-   * 这里把 streamActive 一旦点亮则至少保持 STREAM_ACTIVE_MIN_VISIBLE_MS，除非
-   * 历史 rows 已经出现「真正终态 assistant 行」（incompleteStream=false 且有时长/token）。
-   */
-  const STREAM_ACTIVE_MIN_VISIBLE_MS = 1200
-  const streamActiveSinceRef = useRef<number>(0)
-  const lastTerminalDigestRef = useRef<string>('')
-  // 监控终态指纹：assistant 行的 runId + durationStr + tokenStr。真正落库后这个值会变。
+  // 终态指纹：assistant 行的 runId + durationStr + tokenStr。真正落库后这个值会变。
   const lastRowForDigest = rows[rows.length - 1]
   const terminalAssistantSealed =
     lastRowForDigest?.role === 'assistant' &&
     !lastRowForDigest.incompleteStream &&
     !!(lastRowForDigest.durationStr || lastRowForDigest.tokenStr)
-  const currentTerminalDigest = terminalAssistantSealed
-    ? `${lastRowForDigest.runId || ''}|${lastRowForDigest.durationStr || ''}|${lastRowForDigest.tokenStr || ''}`
-    : ''
-  const justSawTerminal =
-    currentTerminalDigest !== '' && currentTerminalDigest !== lastTerminalDigestRef.current
-  if (currentTerminalDigest) lastTerminalDigestRef.current = currentTerminalDigest
-  /** final 已落库且 stream 内存已清空：勿再等 isSending 归零才撤 _stream pin（否则会闪占位 + 视口跳回用户消息） */
+  /** final 已落库且 stream 内存已清空：勿再等 isSending 归零才撤 _stream pin */
   const suppressStreamUiAfterSeal =
     terminalAssistantSealed && !streamRefHasVisibleContent(streamRef.current)
-  const rawStreamActive =
-    !suppressStreamUiAfterSeal && (isSending || streamLive || resumeStreamHoldActive)
   /**
-   * ★ 关键修复：在 render 阶段（所有 useLayoutEffect 之前）检测 isSending prop 的 false→true 跳变，
-   * 立即设 autoFollowRef=false + sendScrollLockUntilRef。不依赖 lastHistoryRole（rows 可能还没更新）。
-   * 这样 stream tick effect 等 useLayoutEffect 执行时 autoFollowRef 已为 false，不会滚到底部。
+   * 忙闲与左侧齿轮 / Composer 停止按钮同一套：props.isSending = selectedTurnBusy
+   * = isSessionExecuting。禁止再用 streamLive / resumeHold / 正文残留 / grace
+   * 把 streamActive 拉回 true（否则齿轮已灭、列表还在「流式中」）。
    */
-
-  if (rawStreamActive) {
-    if (!streamActiveSinceRef.current) streamActiveSinceRef.current = Date.now()
-  } else if (justSawTerminal) {
-    // 收到本轮真正终态 — 允许立即熄灭
-    streamActiveSinceRef.current = 0
-  }
-  const withinGrace =
-    !rawStreamActive &&
-    streamActiveSinceRef.current > 0 &&
-    Date.now() - streamActiveSinceRef.current < STREAM_ACTIVE_MIN_VISIBLE_MS &&
-    !justSawTerminal
-  const streamActive = rawStreamActive || withinGrace
-
+  const streamActive = !!isSending && !suppressStreamUiAfterSeal
+  void streamLive
+  void resumeStreamHoldActive
   /**
-   * ★ 关键修复：在 render 阶段（所有 useLayoutEffect 之前）检测 isSending prop 的 false→true 跳变，
-   * 立即设 autoFollowRef=false + sendScrollLockUntilRef。不依赖 lastHistoryRole（rows 可能还没更新）。
-   * 会话切换时不触发（避免打开/切到流式会话时误锁滚动、停在中间）。
+   * 提前 IDLE 到 final 落库之间：只挂残留气泡（非 busy），避免正文先卸再装。
+   * 不进入 streamActive，故不影响停止按钮 / 光标 / 「还在流」。
    */
+  const lastStreamRowRef = useRef<DisplayRow | null>(null)
+  /**
+   * final 落库前可能先 resetRuntimeStream（ref 已空、rows 尚未带上 assistant）。
+   * 用上一帧 stream 行撑住气泡，直到历史里出现本轮完整 assistant，避免中间空一帧。
+   * 注意：不要等 duration/token（terminalAssistantSealed）——否则会短暂双挂 pin+历史行。
+   */
+  const historyOwnsTurn =
+    lastRowForDigest?.role === 'assistant' && !lastRowForDigest.incompleteStream
+  const holdStreamResidue =
+    !streamActive &&
+    !historyOwnsTurn &&
+    (streamRefHasVisibleContent(streamRef.current) || lastStreamRowRef.current != null)
+
   const sessionKeyForSend = String(sessionKey || '')
   /**
    * ★ 关键修复：订阅 stream-snapshot-store 的 seq 增长。
@@ -942,7 +922,6 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   streamPerfBeginDelta(streamSnapshotSeq)
   streamPerfMark('delta:begin')
   useLayoutEffect(() => {
-
     streamPerfEndDelta()
   })
   useEffect(() => {
@@ -953,7 +932,6 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     lastSendScrollTailRef.current = ''
     prevIsSendingPropRef.current = isSending
   } else if (!prevIsSendingPropRef.current && isSending) {
-    // 发送后贴底：保持 autoFollow=true，短锁防止内容跳变时滚动监听器误判
     autoFollowRef.current = true
     postSendScrollAnchorRef.current = false
     sendScrollLockUntilRef.current = Date.now() + 500
@@ -961,25 +939,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   }
   prevIsSendingPropRef.current = isSending
 
-  if (!streamActive && streamActiveSinceRef.current) {
-    // 已超过宽限期且无新点亮，重置起点
-    streamActiveSinceRef.current = 0
-  }
-  // 宽限期到期前强制一次 re-render，让 streamActive 重新计算到 false
-  const [graceTick, setGraceTick] = useState(0)
-  useEffect(() => {
-    if (!withinGrace) return
-    const remain =
-      STREAM_ACTIVE_MIN_VISIBLE_MS - (Date.now() - streamActiveSinceRef.current)
-    if (remain <= 0) return
-    const t = window.setTimeout(() => setGraceTick((n) => n + 1), remain + 30)
-    return () => window.clearTimeout(t)
-  }, [withinGrace, graceTick])
   const streamActiveRef = useRef(streamActive)
   streamActiveRef.current = streamActive
-  // 旧 liveStreamPaintEpoch（live-stream-store epoch）已删除；新
-  // stream-snapshot-store 的通知由 ChatApp 推送的 streamRef.current 引用
-  // 变化 + SessionEpoch 联合驱动，见下方 streamRow 依赖。
   /** 上一帧 streamActive，用于检测 true→false 跳变并设置 post-stream 贴底窗口 */
   const prevStreamActiveRef = useRef(false)
   const liveActivityDockLabel =
@@ -991,14 +952,17 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       ? liveStreamActivity.elapsedSec
       : undefined
   const showStreamSlot =
-    streamActive &&
-    (lastHistoryRole === 'user' || lastHistoryRole === 'assistant' || !!liveStreamActivity)
+    (streamActive || holdStreamResidue) &&
+    (lastHistoryRole === 'user' ||
+      lastHistoryRole === 'assistant' ||
+      !!liveStreamActivity ||
+      holdStreamResidue)
   const lastHistoryRow = rows[rows.length - 1]
   const streamRunId = String(streamRef.current?.runId || '').trim()
   const streamContinuationOpts = {
     hostedGoalSameRun: hostedGoalActive,
     resumeAttachSameRun: resumeAttachActive,
-    liveStreamSameRun: rawStreamActive && !!streamRunId && lastHistoryRow?.role === 'assistant',
+    liveStreamSameRun: streamActive && !!streamRunId && lastHistoryRow?.role === 'assistant',
   }
   /** Skip trailing hidden replay user rows so approval continuation merges into incomplete assistant. */
   let continuationTargetIndex = -1
@@ -1028,9 +992,10 @@ export const MessageVirtualList = memo(function MessageVirtualList({
    * 之间反复切换，MessageRow.isStreaming 跟着 true ↔ false 跳变 → 光标闪烁、计时条闪烁。
    * 用 ref 记住上一次非空的 row，在「streamActive && 当前帧建空但内容尚未提交」时复用。
    */
-  const lastStreamRowRef = useRef<DisplayRow | null>(null)
-  const streamRow = useMemo(() => {    if (!showStreamSlot) {
-      lastStreamRowRef.current = null
+  const streamRow = useMemo(() => {
+    if (!showStreamSlot) {
+      // 历史已接管本轮：卸 pin。否则保留 ref，供 holdStreamResidue 撑住空窗。
+      if (historyOwnsTurn) lastStreamRowRef.current = null
       return null
     }
     const built = streamPerfTime('buildRow', () => buildStreamDisplayRow(
@@ -1075,12 +1040,19 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     }
     // built==null 且仍在 streamActive：优先复用上一帧 row 保持 isStreaming 稳定，
     // 避免气泡反复闪烁；仅 executing（isSending）时才展示「运行中」占位骨架。
-    if (streamActive && lastStreamRowRef.current) {
+    if ((streamActive || holdStreamResidue) && lastStreamRowRef.current) {
       // 新一轮 user 发送后 stream 已清空：勿复用上一轮 AI 正文（半旧半新）
       if (lastHistoryRole === 'user' && !streamRefHasVisibleContent(streamRef.current)) {
         lastStreamRowRef.current = null
       } else {
-        return lastStreamRowRef.current
+        const cached = lastStreamRowRef.current
+        // 残留帧勿再标 streaming，否则光标/折叠按 row.state 仍当直播
+        if (!streamActive && cached.state === 'streaming') {
+          const closed = { ...cached, state: 'closed' as const }
+          lastStreamRowRef.current = closed
+          return closed
+        }
+        return cached
       }
     }
     if (isSending) {
@@ -1102,6 +1074,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
      * 让 streamRow 不在 selectedTurnBusy 短暂归零时重算。
      */
     streamActive,
+    holdStreamResidue,
+    historyOwnsTurn,
     streamRef,
     streamSnapshotSeq,
     liveTurnTokenStr,
@@ -1387,12 +1361,16 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       autoFollowRef.current = true
       readingHistoryRef.current = false
       postSendScrollAnchorRef.current = false
-      if (bottomSpacerRef.current) {
-        bottomSpacerRef.current.style.height = '0px'
-      }
       const el = parentRef.current
       if (!el) return
-      if (isPinnedToBottom(el, 8)) {
+      const dist = el.scrollHeight - (el.scrollTop + el.clientHeight)
+      // 贴底附近只补掉缺口。整段 scrollTop=scrollHeight 会把「先缩后涨」再打成一次下跳。
+      if (dist <= 80) {
+        if (dist > 1) {
+          lastProgrammaticScrollRef.current = Date.now()
+          el.scrollTop += dist
+        }
+        settleScrollAfterStream(el, bottomSpacerRef.current)
         lastScrollTopRef.current = el.scrollTop
         lastScrollHeightRef.current = el.scrollHeight
         return
@@ -1434,11 +1412,14 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       autoFollowRef.current = true
       readingHistoryRef.current = false
       postSendScrollAnchorRef.current = false
-      if (bottomSpacerRef.current) {
-        bottomSpacerRef.current.style.height = '0px'
-      }
       const el = parentRef.current
       if (!el) return
+      if (settleScrollAfterStream(el, bottomSpacerRef.current)) {
+        lastScrollTopRef.current = el.scrollTop
+        lastScrollHeightRef.current = el.scrollHeight
+        syncScrollJumpButtons()
+        return
+      }
       lastProgrammaticScrollRef.current = Date.now()
       requestAnimationFrame(() => {
         if (userScrolledAwayDuringStreamRef.current) return
@@ -1749,11 +1730,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   useLayoutEffect(() => {
     if (prevStreamActiveRef.current && !streamActive) {
       beginPostStreamFollowWindow()
-      // 取消流式贴底 rAF，避免宽限期结束后仍写入 36px spacer 与 0 抢高度
       cancelPendingScrollRaf(rafScheduledRef)
-      if (bottomSpacerRef.current) {
-        bottomSpacerRef.current.style.height = '0px'
-      }
+      // 贴底时保留 36px 留白；勿收成 0（否则最后一字后整列再缩一次）
+      settleScrollAfterStream(parentRef.current, bottomSpacerRef.current)
     }
     prevStreamActiveRef.current = streamActive
   }, [streamActive, beginPostStreamFollowWindow])
@@ -2070,8 +2049,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           userScrolledAwayDuringStreamRef.current = false
           readingHistoryRef.current = false
           lastProgrammaticScrollRef.current = Date.now()
-          if (bottomSpacerRef.current && !streamActiveRef.current) {
-            bottomSpacerRef.current.style.height = '0px'
+          if (!streamActiveRef.current) {
+            settleScrollAfterStream(el, bottomSpacerRef.current)
           }
           el.scrollTop = el.scrollHeight
           lastScrollTopRef.current = el.scrollTop
@@ -2440,7 +2419,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
             <MemoMessageRow
               row={streamRow}
               isStreaming
-              threadBusy={streamActive}
+              threadBusy={streamActive || holdStreamResidue}
               isLatestTurn
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}

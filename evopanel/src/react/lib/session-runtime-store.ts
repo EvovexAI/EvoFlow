@@ -504,6 +504,12 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
       if (!rt.turnStartTs) rt.turnStartTs = Date.now()
       break
     case 'REATTACH_STARTED':
+      // Early AG-UI seal left UI idle while DB may still say running. Ignore
+      // reattach until the next SEND_STARTED so stop/layout do not bounce.
+      if (rt.uiTurnSettled) {
+        rt.lastEventAt = Date.now()
+        break
+      }
       rt.uiTurnSettled = false
       rt.turnPhase = 'reattaching'
       rt.activeChatRunId = String(event.runId || '').trim() || null
@@ -512,6 +518,10 @@ export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnE
       if (!rt.turnStartTs) rt.turnStartTs = Date.now()
       break
     case 'REATTACH_LIVE':
+      if (rt.uiTurnSettled) {
+        rt.lastEventAt = Date.now()
+        break
+      }
       rt.uiTurnSettled = false
       rt.turnPhase = 'live'
       rt.activeChatRunId = String(event.runId || '').trim() || null

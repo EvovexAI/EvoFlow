@@ -30,6 +30,9 @@ export function shouldSuppressAutoReattach(opts: {
   // paths used by visibility/online recovery (those still call manualForce).
   // Killing this wire mid-send shows up as client-abort and freezes the turn.
   if (rt.streamWireSource === 'run') return true
+  // Early AG-UI RUN_FINISHED already settled the UI; DB may stay ``running``
+  // through checkpoint. Reattach would clear uiTurnSettled and bounce the list.
+  if (rt.uiTurnSettled && !opts.manualForce) return true
   if (opts.manualForce) return false
   if (isSessionRecoveryCooldownActive(key)) return true
   if (isTurnBusy(rt)) return true
@@ -50,6 +53,7 @@ export function shouldAutoStreamResume(opts: {
   const key = String(opts.selectedSessionKey || '').trim()
   if (!key) return false
   const rt = getSessionRuntime(key)
+  if (rt.uiTurnSettled) return false
   if (isTurnBusy(rt)) return false
   const rowSt = String(opts.sessionRow?.runStatus || '').trim().toLowerCase()
   if (isActiveRunStatus(rowSt)) return true
@@ -96,6 +100,10 @@ export function shouldManualRefreshResumeStream(opts: {
   const key = String(opts.sessionKey || '').trim()
   if (!key) return false
 
+  const rt = opts.runtime ?? getSessionRuntime(key)
+  // Local early seal wins over stale DB ``running`` (checkpoint lag).
+  if (rt.uiTurnSettled) return false
+
   if (
     sessionLooksRunning({
       sessionKey: key,
@@ -106,7 +114,6 @@ export function shouldManualRefreshResumeStream(opts: {
     return true
   }
 
-  const rt = opts.runtime ?? getSessionRuntime(key)
   if (isTurnBusy(rt)) return true
   if (rt.streamWireSource === 'run' || rt.streamWireSource === 'stream-resume') return true
   if (isSessionRuntimeLive(rt)) return true

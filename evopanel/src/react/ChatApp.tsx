@@ -470,7 +470,6 @@ import {
   subscribeExecutingListRuntime,
   isSessionRuntimeLive,
   listBusySessionKeys,
-  isSessionRuntimeStreamVisible,
   mountSessionRuntime,
   updateSessionRuntimeRows,
   dispatchSessionTurnEvent,
@@ -12352,16 +12351,7 @@ useEffect(() => {
     maybeEndTurnSendingState,
   ])
 
-  // Composer 右下「停止」= streaming || selectedTurnBusy。
-  // 早封口后 turn 已 idle/settled，但 stream 缓冲要到 SSE final 才清空；
-  // 若仍把 streamVisible 当 streaming，停止按钮会多挂几秒（齿轮已灭）。
-  const streaming = (() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return false
-    const rt = getSessionRuntime(sk)
-    if (rt.uiTurnSettled && !isTurnBusy(rt)) return false
-    return isSessionRuntimeStreamVisible(sk)
-  })()
+  // Composer stop + sidebar gear + list isSending: selectedTurnBusy only.
 
   const selectedSessionLive = useMemo(() => {
     const sk = String(selectedSessionKey || '').trim()
@@ -16572,9 +16562,8 @@ useEffect(() => {
               onDraftChange={handleComposerDraftChange}
               onComposerWarmup={handleComposerWarmup}
               sending={selectedTurnBusy}
-              streaming={streaming || selectedTurnBusy}
-              // streaming：进行中看 stream 缓冲；uiTurnSettled 后不再用缓冲顶住停止按钮
-              // （见上方 streaming 计算）。selectedTurnBusy 仍覆盖工具间隙短暂 idle。
+              // 停止按钮与左侧齿轮同一套：selectedTurnBusy = isSessionExecuting
+              streaming={selectedTurnBusy}
               // @ts-expect-error handleSend has extra ctxFiles param
               onSend={handleSend}
               onAbort={handleAbort}

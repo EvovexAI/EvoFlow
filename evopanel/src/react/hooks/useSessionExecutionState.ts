@@ -18,7 +18,6 @@ import {
   isSessionWireActive,
   type SessionExecutionRow,
 } from '../lib/session-execution/index.js'
-import { logBusyReasonIfChanged } from '../lib/busy-reason-log.js'
 
 export type SessionExecutionView = {
   executing: boolean
@@ -49,11 +48,6 @@ export function useSessionExecutionState(
   return useMemo(() => {
     const goalActive = isSessionGoalActive(sessionKey)
     const executing = isSessionExecuting(sessionKey, { sessionRow })
-    logBusyReasonIfChanged(sessionKey, {
-      sessionRow,
-      executing,
-      source: 'useSessionExecutionState',
-    })
     return {
       executing,
       wireActive: isSessionWireActive(sessionKey),

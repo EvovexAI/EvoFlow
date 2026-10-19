@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   bumpSessionRuntimeNotify,
+  clearSessionRuntime,
   commitActiveSessionRuntime,
   deriveSessionRecoveryPhase,
   dispatchSessionTurnEvent,
@@ -138,12 +139,37 @@ describe('session-runtime-store', () => {
     expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
   })
 
+  it('ignores REATTACH after early uiTurnSettled while DB may still be running', () => {
+    const sk = 'agent:main:early-idle-no-reattach'
+    clearSessionRuntime(sk)
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
+    dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-settled' })
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(getSessionRuntime(sk).uiTurnSettled).toBe(true)
+    dispatchSessionTurnEvent(sk, {
+      type: 'REATTACH_STARTED',
+      runId: 'run-settled',
+    })
+    expect(getSessionRuntime(sk).turnPhase).toBe('idle')
+    expect(getSessionRuntime(sk).uiTurnSettled).toBe(true)
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
+    dispatchSessionTurnEvent(sk, {
+      type: 'REATTACH_LIVE',
+      runId: 'run-settled',
+    })
+    expect(getSessionRuntime(sk).turnPhase).toBe('idle')
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
+    clearSessionRuntime(sk)
+  })
+
   it('still enters sealing from a live turn', () => {
     const sk = 'agent:main:seal-from-live'
+    clearSessionRuntime(sk)
     dispatchSessionTurnEvent(sk, { type: 'RUN_LIVE', runId: 'run-2' })
     dispatchSessionTurnEvent(sk, { type: 'SEALING' })
     expect(getSessionRuntime(sk).turnPhase).toBe('sealing')
     expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
+    clearSessionRuntime(sk)
   })
 
   it('keeps rows and stream on the same session entry', () => {
