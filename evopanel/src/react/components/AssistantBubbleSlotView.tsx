@@ -14,7 +14,12 @@ import type { AssistantBubbleDisplayPlan, AssistantBubbleSlot } from '../lib/mes
 import { hasVisibleBodyBelowActivityChunk } from '../lib/message-row-stream-display.js'
 import { bubbleMarkdownText, visibleAssistantText, visibleExploringInnerText, visiblePreToolTimelineText } from '../lib/message-row-visible-text.js'
 
-import { formatWorkDurationText, formatWorkedHeadLabel, resolveStreamTailLabel } from '../lib/turn-timing.js'
+import {
+  formatWorkDurationText,
+  formatWorkedHeadLabel,
+  isGenericRunningStatusLabel,
+  resolveStreamTailLabel,
+} from '../lib/turn-timing.js'
 import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
 import { ExploringActivityChunk } from './ExploringActivityChunk.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
@@ -303,14 +308,17 @@ function AssistantBubbleSlotViewInner({
   const workedText = formatWorkDurationText(durationLabel)
   const workedLabel = (() => {
     if (plan.flatTimeline === false || suppressExploringFold) return ''
-    if (isStreaming) return workedText ? `工作中 ${workedText}` : '工作中'
+    // 工作中 / 运行中 与齿轮、停止按钮同源（threadBusy = selectedTurnBusy）
+    if (isStreaming || threadBusy) return workedText ? `工作中 ${workedText}` : '工作中'
     // 授权暂停（流已停、本行挂着待审批工具）：回合并未结束，折叠头不能显示
     // 「已工作」并自动收起——那会把唯一可操作的审批面板一起藏掉。
     if (interactiveToolApproval) return '等待授权'
     if (turnInterrupted) return '⏹ 已停止'
+    // 「运行中」兜底不能留在封存头上（停止已灭却仍显示「已工作 · 运行中」）
+    const sealedStep = isGenericRunningStatusLabel(lastStepLabel) ? '' : lastStepLabel
     // 封存头带最后一步（「已工作 11 分 29 秒 · 执行工具 web_search」），
     // 解析失败/无最后一步时退回原「已工作 X」。
-    const headWithStep = formatWorkedHeadLabel(durationLabel, lastStepLabel)
+    const headWithStep = formatWorkedHeadLabel(durationLabel, sealedStep)
     if (headWithStep) return headWithStep
     if (workedText) return `已工作 ${workedText}`
     return '已工作'
@@ -479,10 +487,9 @@ function AssistantBubbleSlotViewInner({
           {plan.slots.map((slot, si) => (
             <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
           ))}
-          {/* v5.2 反馈：齿轮必须绑 SSE 实时状态（isStreaming），不能绑 slot kind（thinking-wait 消失齿轮就消失）。
-              v5.10 反馈：齿轮生命周期 = 停止按钮生命周期 —— isStreaming(row.state) 在
-              RUN_FINISHED→sealing 窗口会提前熄灭，threadBusy（同停止按钮 OR 源）兜底。 */}
-          {isStreaming || threadBusy ? (
+          {/* 齿轮与右下停止按钮同源：只看 threadBusy（selectedTurnBusy）。
+              row.state 在提前 IDLE 后仍可能是 streaming，不能再单独点亮齿轮。 */}
+          {threadBusy ? (
             <StreamRunStatusLine
               key="stream-tail-spinner"
               label={resolveStreamTailLabel(liveActivityLabel)}

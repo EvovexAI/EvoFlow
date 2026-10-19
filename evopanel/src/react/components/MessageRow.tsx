@@ -222,6 +222,7 @@ import { logStreamSourceConsoleIfChanged } from '../stream-console-mirror.js'
 import {
   formatTurnDurationStr,
   formatWorkedHeadLabel,
+  isGenericRunningStatusLabel,
   parseTurnTimestampMs,
   resolveTurnDurationLabel,
   resolveStreamTailLabel,
@@ -1286,13 +1287,15 @@ function AssistantBody({
   const turnInterrupted = workedDurationLabel === 'stopped' || String(row.turnState || '').trim() === 'interrupted'
   const workedLabelOut = workedDurationLabel === 'stopped' ? '' : workedDurationLabel
 
-  // 最后一步活动：流式期间持续记忆；封存后取记忆喂给「已工作」折叠头。
+  // 最后一步活动：只记具体动作。「运行中」是忙闲兜底，跟齿轮/停止走，不写进封存头。
   const lastStepForHead = (() => {
-    if (isStreaming) {
-      rememberTurnLastActivity(turnRunKey, liveActivityDockLabel || '')
+    const live = String(liveActivityDockLabel || '').trim()
+    if (isStreaming || threadBusy) {
+      if (live && !isGenericRunningStatusLabel(live)) rememberTurnLastActivity(turnRunKey, live)
       return ''
     }
-    return recallTurnLastActivity(turnRunKey)
+    const recalled = recallTurnLastActivity(turnRunKey)
+    return isGenericRunningStatusLabel(recalled) ? '' : recalled
   })()
 
   // v5.9 compare-log：DOM 视角 1:1 快照。
@@ -1308,7 +1311,7 @@ function AssistantBody({
       threadBusy: !!threadBusy,
       isLatestTurn,
       workedLabel: workedLabelOut
-        ? isStreaming
+        ? isStreaming || threadBusy
           ? `工作中 ${workedLabelOut}`
           : formatWorkedHeadLabel(workedLabelOut, lastStepForHead) || `已工作 ${workedLabelOut}`
         : '',

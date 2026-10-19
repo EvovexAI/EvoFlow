@@ -1036,6 +1036,11 @@ export const MessageVirtualList = memo(function MessageVirtualList({
         return null
       }
       lastStreamRowRef.current = built
+      if (!streamActive && built.state === 'streaming') {
+        const closed = { ...built, state: 'closed' as const }
+        lastStreamRowRef.current = closed
+        return closed
+      }
       return built
     }
     // built==null 且仍在 streamActive：优先复用上一帧 row 保持 isStreaming 稳定，
@@ -2418,8 +2423,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           <div className="react-vlist-item react-vlist-item--turn react-vlist-stream-pin">
             <MemoMessageRow
               row={streamRow}
-              isStreaming
-              threadBusy={streamActive || holdStreamResidue}
+              isStreaming={streamActive}
+              threadBusy={streamActive}
               isLatestTurn
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}

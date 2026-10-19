@@ -4,6 +4,7 @@ import {
   formatTurnDurationStr,
   formatTurnElapsedSuffix,
   formatWorkedHeadLabel,
+  isGenericRunningStatusLabel,
   isTurnTimingLive,
   parseTurnTimestampMs,
   resolveStreamTailLabel,
@@ -163,5 +164,19 @@ describe('resolveStreamTailLabel（流式尾部 spinner 文案）', () => {
     expect(resolveStreamTailLabel('')).toBe('生成中')
     expect(resolveStreamTailLabel(undefined)).toBe('生成中')
     expect(resolveStreamTailLabel('· 45s')).toBe('生成中')
+  })
+})
+
+describe('isGenericRunningStatusLabel（忙闲兜底，不进封存头）', () => {
+  it('识别运行中/工作中等通用忙文案', () => {
+    expect(isGenericRunningStatusLabel('运行中')).toBe(true)
+    expect(isGenericRunningStatusLabel('运行中 · 1s')).toBe(true)
+    expect(isGenericRunningStatusLabel('工作中')).toBe(true)
+    expect(isGenericRunningStatusLabel('生成中')).toBe(true)
+  })
+
+  it('具体工具活动不算通用忙文案', () => {
+    expect(isGenericRunningStatusLabel('执行工具 web_search')).toBe(false)
+    expect(isGenericRunningStatusLabel('推理中')).toBe(false)
   })
 })

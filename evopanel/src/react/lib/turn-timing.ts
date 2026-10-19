@@ -155,6 +155,18 @@ export function formatWorkedHeadLabel(
   return step ? `${base} · ${step}` : base
 }
 
+/** 直播兜底文案（「运行中」等）。只在回合忙时展示，不能留在封存折叠头上。 */
+export function isGenericRunningStatusLabel(label: string | null | undefined): boolean {
+  const core = stripTurnDurationSuffix(label || '').trim()
+  return (
+    core === '运行中' ||
+    core === '工作中' ||
+    core === '生成中' ||
+    core === '思考中' ||
+    core === '正在思考'
+  )
+}
+
 /**
  * 流式尾部 spinner 文案：优先用实时活动文案（剥离耗时后缀），
  * 空值或剥离后为空（如只有「· 45s」）退回默认「生成中」。
