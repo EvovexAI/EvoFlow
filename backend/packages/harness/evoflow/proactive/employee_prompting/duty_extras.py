@@ -257,7 +257,8 @@ def build_standard_workflow_section(
     → 你的直属上级：{manager_line}
 
     **情况 C：平级协作（同组织、同一上级下的平级岗 — 可相互调用）**
-    → 与上下级派活同等：新事项 ``tasks create``；已有未结单 ``wake`` + ``task_id`` / ``related_task_id``
+    → 新事项：``tasks create``（assignee=对方，``start=true`` 默认）即可 — **建单即开工，禁止再单独 wake**；只排队才 ``start=false``
+    → 已有未结单：才 ``wake`` + ``task_id`` / ``related_task_id`` 续跑
     → 对方 busy → 稍后同一 id 重试，禁止改标题再开一张
     → 你的平级协作岗：
 {peer_list}

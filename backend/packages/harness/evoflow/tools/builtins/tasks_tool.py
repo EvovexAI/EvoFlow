@@ -10,7 +10,8 @@ import json
 import logging
 from typing import Annotated, Any, Literal
 
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
+from langgraph.typing import ContextT
 from pydantic import BaseModel, BeforeValidator, Field
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,12 @@ action: create | progress | state | delete | list | get。
 - state: task_id + status (completed/failed/cancelled) + summary；有下游 completed 时填 handlers
 - delete: task_id + confirm=true
 outputs: 文档路径 [{type,key,value}]；handlers: [{agent_code,content,read_outputs[]}]
+
+写权限：progress / state / delete 仅本岗（assigned_to=当前员工）；禁止改他人/上级状态。
+小V（系统前台）代用户可更新任意单。身份由运行时绑定，勿自报 agent_code。
+create：assignee/role=派给谁；raised_by 系统盖章勿传。
+start=true（默认）=建单即开工（系统叫醒对方），勿再单独 wake；start=false=只建单不叫醒。
+wake 仅用于续跑已有未结单 / busy 重试。
 
 任务 id 见 <proactive_live_tasks> 或看板。list 默认只返回最新 10 条主任务（不含子任务）、
 每条为索引卡（含 description 预览，不含 summary/outputs 等详情）；翻页用 offset，
@@ -184,8 +191,25 @@ def _resolve_employee_by_code(agent_code: str) -> tuple[str, str] | None:
     return name, code
 
 
-def _agent_from_duty_context() -> str:
-    """Best-effort employee agent_code during proactive duty runs."""
+def _bind_actor_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
+    """Resolve ambient agent actor from ToolRuntime (model never passes this)."""
+    from evoflow.authz.agent_actor import agent_actor_from_runtime, set_current_agent_actor
+
+    code = agent_actor_from_runtime(runtime)
+    set_current_agent_actor(code)
+    return code
+
+
+def _agent_from_duty_context(runtime: ToolRuntime[ContextT, dict] | None = None) -> str:
+    """Best-effort employee agent_code during proactive / employee runs."""
+    try:
+        from evoflow.authz.agent_actor import agent_actor_from_runtime, get_current_agent_actor
+
+        code = agent_actor_from_runtime(runtime) if runtime is not None else get_current_agent_actor()
+        if code:
+            return code
+    except Exception:
+        pass
     try:
         from evoflow.agents.middlewares.proactive_tool_middleware import (
             _resolve_proactive_agent_code,
@@ -196,8 +220,20 @@ def _agent_from_duty_context() -> str:
         return ""
 
 
-def _session_key_from_context() -> str:
-    """Current chat session_key from LangGraph config (if any)."""
+def _session_key_from_context(runtime: ToolRuntime[ContextT, dict] | None = None) -> str:
+    """Current chat session_key from runtime or LangGraph config (if any)."""
+    if runtime is not None:
+        ctx = getattr(runtime, "context", None)
+        if isinstance(ctx, dict):
+            sk = str(ctx.get("session_key") or "").strip()
+            if sk:
+                return sk
+        cfg = getattr(runtime, "config", None) or {}
+        if isinstance(cfg, dict):
+            conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+            sk = str(conf.get("session_key") or "").strip()
+            if sk:
+                return sk
     try:
         from langgraph.config import get_config
 
@@ -218,6 +254,7 @@ def _infer_duty_create_defaults(
     source: str | None,
     raised_by: str,
     round_id: str | None,
+    runtime: ToolRuntime[ContextT, dict] | None = None,
 ) -> tuple[str | None, str | None, str, str]:
     """Fill assignee/role/source/raised_by for duty patrol creates."""
     from evoflow.collab.task_noise import is_duty_patrol_task
@@ -225,7 +262,7 @@ def _infer_duty_create_defaults(
 
     assignee_norm = str(assignee or "").strip() or None
     role_nm = str(role_name or "").strip() or None
-    duty_code = _agent_from_duty_context()
+    duty_code = _agent_from_duty_context(runtime)
 
     if role_nm:
         canonical, code = _resolve_role_assignee(role_nm)
@@ -252,14 +289,10 @@ def _infer_duty_create_defaults(
         else:
             src = TASK_SOURCE_CHAT
 
-    raised = str(raised_by or "").strip()
-    if not raised or raised == "user":
-        if duty_code:
-            raised = duty_code
-        elif assignee_norm:
-            raised = assignee_norm
-        else:
-            raised = "user"
+    from evoflow.authz.agent_actor import stamp_raised_by
+
+    # Operator is always the raiser; model-supplied raised_by is ignored when actor bound.
+    raised = stamp_raised_by(actor=duty_code or None, raised_by_arg=raised_by)
     return assignee_norm, role_nm, src, raised
 
 
@@ -283,6 +316,7 @@ def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
 @tool("tasks", description=_TASKS_TOOL_DESCRIPTION, parse_docstring=False)
 def tasks_tool(
     action: Literal["list", "get", "create", "progress", "state", "delete"],
+    runtime: ToolRuntime[ContextT, dict],
     *,
     task_id: str = "",
     subtask_id: str = "",
@@ -304,6 +338,7 @@ def tasks_tool(
     action_type: str = "",
     round_id: str = "",
     confirm: bool = False,
+    start: bool = True,
     subtasks_only: bool = False,
     include_subtasks: bool = False,
     limit: int = 10,
@@ -312,6 +347,8 @@ def tasks_tool(
     """Manage duty Task board (policy in tool description)."""
     from evoflow.admin import tasks as tasks_admin
     from evoflow.admin.errors import NotFoundError, ValidationError
+
+    actor = _bind_actor_from_runtime(runtime)
 
     act = str(action or "").strip().lower()
     if act not in _ACTIONS:
@@ -360,6 +397,7 @@ def tasks_tool(
                 int(progress),
                 status=str(status or "").strip() or None,
                 subtask_id=str(subtask_id or "").strip() or None,
+                actor=actor,
             )
             return _ok({"action": act, "result": data})
 
@@ -378,6 +416,7 @@ def tasks_tool(
                     summary=str(summary or "").strip() or None,
                     outputs=_dump_models(outputs),
                     handlers=_dump_models(handlers),
+                    actor=actor,
                 )
             except ValidationError as exc:
                 # Agents often jump pending/planned → completed; machine requires executing.
@@ -403,6 +442,7 @@ def tasks_tool(
                         tid,
                         "executing",
                         subtask_id=str(subtask_id or "").strip() or None,
+                        actor=actor,
                     )
                     data = tasks_admin.set_task_state(
                         tid,
@@ -411,6 +451,7 @@ def tasks_tool(
                         summary=str(summary or "").strip() or None,
                         outputs=_dump_models(outputs),
                         handlers=_dump_models(handlers),
+                        actor=actor,
                     )
                     if isinstance(data, dict):
                         data = {
@@ -428,7 +469,7 @@ def tasks_tool(
                 return _err(act, "task_id is required")
             if not confirm:
                 return _err(act, "Refusing to delete without confirm=true (irreversible)")
-            data = tasks_admin.delete_task(tid)
+            data = tasks_admin.delete_task(tid, actor=actor)
             return _ok({"action": act, "result": data})
 
         # create
@@ -442,11 +483,12 @@ def tasks_tool(
             source=str(source or "").strip() or None,
             raised_by=str(raised_by or "").strip(),
             round_id=str(round_id or "").strip() or None,
+            runtime=runtime,
         )
         source_ref_v = str(source_ref or "").strip() or None
         # Stamp session_key so one conversation can associate many independent tasks.
         if not source_ref_v:
-            sk = _session_key_from_context()
+            sk = _session_key_from_context(runtime)
             if sk.startswith("proactive:"):
                 source_ref_v = sk
         round_v = str(round_id or "").strip() or None
@@ -464,6 +506,7 @@ def tasks_tool(
             action_type=str(action_type or "").strip() or None,
             round_id=round_v,
             parent_task_id=str(parent_task_id or "").strip() or None,
+            start=bool(start),
         )
         return _ok({"action": act, "result": data})
 

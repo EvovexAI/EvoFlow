@@ -280,9 +280,19 @@ _BOARD_TASK_LINE = re.compile(r"^-\s+`[^`]+`\s+\[(?P<status>[^\]]+)\]\s+\d+%\s+�
 
 
 def build_duty_beat_text(*, role_name: str, prompt: str, kind: str = "think") -> str:
-    """Short human-facing duty open line for the work-process timeline."""
+    """Short human-facing duty open line for the work-process timeline.
+
+    ``think`` / patrol open with「本轮值班开始」; ``execute`` is the same task's
+    second phase and must not re-announce a new duty shift (same task session).
+    """
     name = str(role_name or "").strip() or "智能体员工"
     body = str(prompt or "")
+    kind_l = str(kind or "").strip().lower()
+
+    # Execute continues an already-opened think/dispatch turn — different beat head.
+    if kind_l == "execute":
+        return f"开始执行 · {name}\n按已批计划执行并结案。"
+
     head = f"本轮值班开始 · {name}"
 
     if "### 用户派发任务" in body or "用户派发目标" in body:
@@ -325,9 +335,6 @@ def build_duty_beat_text(*, role_name: str, prompt: str, kind: str = "think") ->
 
     if "本岗看板暂无未结" in body or "暂无未结 Task" in body:
         return f"{head}\n看板暂无未结，本轮无事可做。"
-
-    if str(kind or "").strip().lower() == "execute":
-        return f"{head}\n按已批计划执行并结案。"
 
     return f"{head}\n对照职责巡检，有待办则推进并结案。"
 

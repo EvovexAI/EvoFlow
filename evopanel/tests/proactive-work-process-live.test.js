@@ -4,6 +4,8 @@ import {
   annotateLiveWorkProcessEvents,
   formatWorkProcessLiveBanner,
   formatWorkProcessLiveLine,
+  isDutyBeatText,
+  isSystemPromptLike,
   pickLatestWorkProcessLive,
 } from '../src/lib/proactive-work-process.js'
 
@@ -75,5 +77,11 @@ describe('work process live progress', () => {
       { live: true },
     )
     assert.match(line, /正在推进 · 最新：搜索资料/)
+  })
+
+  it('treats execute beat head as duty beat, not a second duty-start', () => {
+    assert.equal(isDutyBeatText('本轮值班开始 · AIGC\n推进用户派发：x'), true)
+    assert.equal(isDutyBeatText('开始执行 · AIGC\n按已批计划执行并结案。'), true)
+    assert.equal(isSystemPromptLike('开始执行 · AIGC\n按已批计划执行并结案。'), false)
   })
 })

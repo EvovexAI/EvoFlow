@@ -46,6 +46,7 @@ import {
   resolveBrowserScreenshotSrc,
   isStructuredToolSummaryText,
   stripStructuredToolSummaryFromDisplayText,
+  stripPseudoToolMarkupFromDisplayText,
   CHAT_MAIN_SESSION_KEY,
   stripLegacyEmbeddedReasoningPrefix,
   unwrapAssistantContentJsonEnvelope,
@@ -2387,6 +2388,32 @@ describe('collectBrowserScreenshotsFromRows', () => {
     expect(state.activityCount).toBe(1)
     expect(state.pageUrl).toBe('https://example.com')
     expect(state.screenshots).toHaveLength(0)
+  })
+})
+
+describe('stripPseudoToolMarkupFromDisplayText', () => {
+  it('keeps prose before DSML dump', () => {
+    const raw =
+      '我先读取任务要求的文件，了解需要生成的内容。\n\n' +
+      '<|DSML| calls> <|DSML| invoke name="tasks">'
+    expect(stripPseudoToolMarkupFromDisplayText(raw)).toBe(
+      '我先读取任务要求的文件，了解需要生成的内容。',
+    )
+  })
+
+  it('strips fullwidth-pipe DSML dumps', () => {
+    const raw = '准备执行。\n\n' + '\uFF5C\uFF5CDSML\uFF5C\uFF5C invoke name="execute"'
+    expect(stripPseudoToolMarkupFromDisplayText(raw)).toBe('准备执行。')
+  })
+
+  it('returns empty when body is only markup', () => {
+    expect(stripPseudoToolMarkupFromDisplayText('<tool_call>name=tasks</tool_call>')).toBe('')
+  })
+
+  it('leaves normal assistant text alone', () => {
+    expect(stripPseudoToolMarkupFromDisplayText('看板暂无未结，本轮结束。')).toBe(
+      '看板暂无未结，本轮结束。',
+    )
   })
 })
 

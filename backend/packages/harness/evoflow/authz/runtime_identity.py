@@ -174,7 +174,10 @@ def resolve_identity_from_agent(agent_code: str | None) -> dict[str, str]:
 
 
 def enrich_run_context_identity(run_context: dict[str, Any] | None) -> dict[str, Any]:
-    """Fill principal_id / created_by / owner_scope_id on a run context dict (idempotent)."""
+    """Fill principal_id / created_by / owner_scope_id on a run context dict (idempotent).
+
+    Also binds ambient employee/lead ``agent_actor`` (see ``authz.agent_actor``).
+    """
     ctx = dict(run_context or {})
     existing = str(ctx.get("principal_id") or ctx.get("created_by") or "").strip()
     if existing:
@@ -186,7 +189,13 @@ def enrich_run_context_identity(run_context: dict[str, Any] | None) -> dict[str,
             if filled.get("owner_scope_id"):
                 ctx["owner_scope_id"] = filled["owner_scope_id"]
         set_current_principal_id(existing)
-        return ctx
+        try:
+            from evoflow.authz.agent_actor import bind_agent_actor_into_context
+
+            return bind_agent_actor_into_context(ctx)
+        except Exception:
+            logger.debug("bind_agent_actor_into_context failed", exc_info=True)
+            return ctx
 
     identity: dict[str, str] = {}
     sk = str(ctx.get("session_key") or "").strip()
@@ -202,7 +211,13 @@ def enrich_run_context_identity(run_context: dict[str, Any] | None) -> dict[str,
         if v and not str(ctx.get(k) or "").strip():
             ctx[k] = v
     set_current_principal_id(str(identity.get("principal_id") or "").strip())
-    return ctx
+    try:
+        from evoflow.authz.agent_actor import bind_agent_actor_into_context
+
+        return bind_agent_actor_into_context(ctx)
+    except Exception:
+        logger.debug("bind_agent_actor_into_context failed", exc_info=True)
+        return ctx
 
 
 def stamp_session_from_identity(session_key: str | None, identity: dict[str, Any] | None) -> bool:

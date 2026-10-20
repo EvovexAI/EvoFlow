@@ -50,6 +50,28 @@ logger = logging.getLogger(__name__)
 _SUMMARY_MAX_LEN = 8000
 
 
+def _assigned_to_for_acl(row: dict[str, Any] | None, *, fallback: dict[str, Any] | None = None) -> str | None:
+    """Assignee used for mutate ACL (prefer row, else fallback main task)."""
+    for src in (row, fallback):
+        if not isinstance(src, dict):
+            continue
+        code = str(src.get("assigned_to") or "").strip()
+        if code:
+            return code
+    return None
+
+
+def _enforce_task_mutate_acl(
+    *,
+    assigned_to: str | None,
+    actor: str | None = None,
+) -> None:
+    """Hard-gate progress/state/delete to the assigned employee (小V/system exempt)."""
+    from evoflow.authz.agent_actor import assert_can_mutate_assigned_task
+
+    assert_can_mutate_assigned_task(actor=actor, assigned_to=assigned_to)
+
+
 # ── Status helpers (reuse supervisor_tool's state machine - single source of truth) ──
 
 
@@ -607,11 +629,14 @@ def update_progress(
     *,
     status: str | None = None,
     subtask_id: str | None = None,
+    actor: str | None = None,
 ) -> dict[str, Any]:
     """Update progress (0-100) and optionally set status (validated by state machine).
 
     If progress > 0 and the row is still ``pending``/``idle`` (and no status
     override), promote to ``executing`` so the board shows「处理中」not「待处理」.
+
+    ``actor`` overrides ambient agent actor for ACL (tests / explicit tool bind).
     """
     storage = get_project_storage()
     tid = str(task_id or "").strip()
@@ -638,6 +663,10 @@ def update_progress(
         if not sub:
             raise NotFoundError(f"Subtask '{sid}' not found")
         _project, main_task, subtask = sub
+        _enforce_task_mutate_acl(
+            assigned_to=_assigned_to_for_acl(subtask, fallback=main_task),
+            actor=actor,
+        )
         mtid = str(main_task.get("id") or "").strip()
         status_norm = _maybe_promote_executing(subtask.get("status"), explicit=status_norm) or status_norm
         if status_norm:
@@ -670,6 +699,7 @@ def update_progress(
     if not found:
         raise NotFoundError(f"Task '{tid}' not found")
     _project, task = found
+    _enforce_task_mutate_acl(assigned_to=_assigned_to_for_acl(task), actor=actor)
     status_norm = _maybe_promote_executing(task.get("status"), explicit=status_norm) or status_norm
     if status_norm:
         current = _normalize_status(task.get("status"))
@@ -923,6 +953,7 @@ def set_task_state(
     summary: str | None = None,
     outputs: Any = None,
     handlers: Any = None,
+    actor: str | None = None,
 ) -> dict[str, Any]:
     """Set task/subtask status. Validates against the state machine.
 
@@ -942,6 +973,8 @@ def set_task_state(
     uses ``completed``. Legacy ``reviewed`` maps to ``completed``.
 
     Employee-proposed handlers must target **direct reports** in the same org.
+
+    ``actor`` overrides ambient agent actor for ACL (tests / explicit tool bind).
     """
     storage = get_project_storage()
     tid = str(task_id or "").strip()
@@ -967,6 +1000,10 @@ def set_task_state(
         if not sub:
             raise NotFoundError(f"Subtask '{sid}' not found")
         _project, main_task, subtask = sub
+        _enforce_task_mutate_acl(
+            assigned_to=_assigned_to_for_acl(subtask, fallback=main_task),
+            actor=actor,
+        )
         mtid = str(main_task.get("id") or "").strip()
         current = _normalize_status(subtask.get("status"))
         if current == "reviewed" and target == "completed":
@@ -1016,6 +1053,7 @@ def set_task_state(
     if not found:
         raise NotFoundError(f"Task '{tid}' not found")
     _project, task = found
+    _enforce_task_mutate_acl(assigned_to=_assigned_to_for_acl(task), actor=actor)
     current = _normalize_status(task.get("status"))
     # Remap completed+existing handlers (caller omitted handlers=) → awaiting_close
     if target == "completed" and handlers_norm is None and task_handlers_of(task) and not str(task.get("handlers_dispatched_at") or "").strip():
@@ -1328,11 +1366,13 @@ def dispatch_confirmed_handlers(
 # ── delete_task ──────────────────────────────────────────────────────
 
 
-def delete_task(task_id: str) -> dict[str, Any]:
+def delete_task(task_id: str, *, actor: str | None = None) -> dict[str, Any]:
     """Hard-delete a main task (and its project if it becomes empty).
 
     Mirrors Gateway ``DELETE /tasks/{task_id}``. Does not cascade-delete
     separately linked parent/child main tasks in a handoff tree.
+
+    ``actor`` overrides ambient agent actor for ACL (tests / explicit tool bind).
     """
     storage = get_project_storage()
     tid = str(task_id or "").strip()
@@ -1344,6 +1384,7 @@ def delete_task(task_id: str) -> dict[str, Any]:
         raise NotFoundError(f"Task '{tid}' not found")
 
     project, task = found
+    _enforce_task_mutate_acl(assigned_to=_assigned_to_for_acl(task), actor=actor)
     project_id = str(project.get("id") or "").strip()
     tasks = list(project.get("tasks") or [])
     new_tasks = [t for t in tasks if str(t.get("id") or "").strip() != tid]
@@ -1407,6 +1448,7 @@ def create_task(
     round_id: str | None = None,
     parent_task_id: str | None = None,
     bypass_handoff_gate: bool = False,
+    start: bool = True,
 ) -> dict[str, Any]:
     """Create a task or subtask.
 
@@ -1416,10 +1458,15 @@ def create_task(
     ``parent_task_id`` links a **new main task** to an upstream main task for
     cross-role handoff trees. Distinct from collab ``subtasks[]``.
 
-    ``assigned_role`` stamps the 岗位显示名. ``raised_by`` is user or agent_code.
+    ``assigned_role`` stamps the 岗位显示名.
+    ``raised_by`` (派发人): when an employee/小V actor is ambient, stamped from
+    that operator (model/CLI guess ignored). Otherwise uses the arg or ``user``.
+    ``start``: when True (default), wake the assignee to begin work (建单即开工);
+    set False to only queue the board row. Self-assign never wakes.
     ``bypass_handoff_gate``: system dispatch may create children while parent
     still carries ``handlers_pending_approval``.
     """
+    from evoflow.authz.agent_actor import stamp_raised_by
     from evoflow.collab.task_source import (
         TASK_SOURCE_CHAT,
         TASK_SOURCE_ROLE,
@@ -1435,7 +1482,7 @@ def create_task(
     now = utc_now_iso_z()
     assignee_norm = str(assignee or "").strip() or None
     role_norm = str(assigned_role or "").strip() or None
-    raised_norm = str(raised_by or "").strip() or None
+    raised_norm = stamp_raised_by(raised_by_arg=raised_by) or None
     risk_norm = str(risk_level or "").strip() or None
     action_norm = str(action_type or "").strip() or None
     round_norm = str(round_id or "").strip() or None
@@ -1542,7 +1589,7 @@ def create_task(
     ok = storage.save_project(project)
     if not ok:
         raise ValidationError("Failed to create task")
-    return {
+    out = {
         "task_id": task["id"],
         "name": nm,
         "status": status_norm,
@@ -1560,3 +1607,22 @@ def create_task(
         "round_id": round_norm,
         "is_subtask": False,
     }
+    out["start"] = bool(start)
+    # 建单即开工：start=true 且派给他人时系统叫醒，无需再单独 wake。
+    if start:
+        try:
+            from evoflow.authz.agent_actor import get_current_agent_actor
+            from evoflow.proactive.task_startup_accelerator import maybe_wake_agent_for_new_task
+
+            woke = maybe_wake_agent_for_new_task(
+                {
+                    **out,
+                    "description": str(description or "").strip(),
+                },
+                actor=get_current_agent_actor() or None,
+            )
+            if woke:
+                out["auto_woke"] = True
+        except Exception:
+            logger.debug("create_task auto-wake failed task=%s", out.get("task_id"), exc_info=True)
+    return out

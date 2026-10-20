@@ -3,6 +3,7 @@ import { isPlanExecPromptAssistantNoise } from '../../lib/plan-exec-ui.js'
 import {
   assistantBodiesLooselySame,
   stripLegacyEmbeddedReasoningPrefix,
+  stripPseudoToolMarkupFromDisplayText,
   stripStructuredToolSummaryFromDisplayText,
   trimAssistantBubbleMarkdown,
 } from '../../lib/chat-normalize.js'
@@ -33,6 +34,7 @@ export function visibleAssistantText(
   isStreaming?: boolean,
 ): string {
   let text = stripLegacyEmbeddedReasoningPrefix(String(raw || ''))
+  text = stripPseudoToolMarkupFromDisplayText(text)
   if (suppressPlanExecPrompt && isPlanExecPromptAssistantNoise(text)) return ''
   if (isToolCallPreambleAssistantNoise(text, tools)) return ''
   if (isStreaming) text = stripStructuredToolSummaryFromDisplayText(text)
@@ -86,6 +88,7 @@ export function visibleExploringInnerText(
   tools?: unknown[],
 ): string {
   let text = stripLegacyEmbeddedReasoningPrefix(String(raw || ''))
+  text = stripPseudoToolMarkupFromDisplayText(text)
   if (suppressPlanExecPrompt && isPlanExecPromptAssistantNoise(text)) return ''
   if (isStreaming) text = stripStructuredToolSummaryFromDisplayText(text)
   text = stripAskClarificationLeakFromDisplayText(text, tools)

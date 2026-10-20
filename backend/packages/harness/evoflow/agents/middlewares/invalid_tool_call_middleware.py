@@ -64,6 +64,28 @@ def detect_pseudo_tool_markup(text: str) -> bool:
     return bool(_PSEUDO_TOOL_MARKUP_RE.search(s))
 
 
+_PSEUDO_MARKUP_CUT_RE = re.compile(
+    r"(?:"
+    r"(?:<\s*)?(?:[|\uff5c]+\s*)?DSML"
+    r"|(?:<\s*)?(?:tool_call|function_call|tool_calls)\b"
+    r"|(?:[|\uff5c]+\s*)?invoke\s+name\s*="
+    r"|\|+\s*invoke\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def strip_pseudo_tool_markup_keep_prose(text: str) -> str:
+    """Drop DSML / invoke dumps; keep any leading human prose."""
+    s = str(text or "")
+    if not s or not detect_pseudo_tool_markup(s):
+        return s.strip()
+    m = _PSEUDO_MARKUP_CUT_RE.search(s)
+    if not m:
+        return ""
+    return s[: m.start()].strip()
+
+
 def _parse_invalid_tool_args(raw: object) -> dict[str, object] | None:
     if isinstance(raw, dict):
         return dict(raw)
@@ -166,6 +188,19 @@ def _invalid_call_fields(inv: object) -> tuple[str, str, str]:
     return tc_id, name, err
 
 
+def _scrub_pseudo_markup_from_ai_content(last: AIMessage) -> AIMessage | None:
+    """When structured tool_calls exist but body still dumps DSML, keep prose only."""
+    text = _ai_content_as_text(getattr(last, "content", None))
+    if not detect_pseudo_tool_markup(text):
+        return None
+    prose = strip_pseudo_tool_markup_keep_prose(text)
+    if prose == text.strip():
+        return None
+    ak = dict(getattr(last, "additional_kwargs", None) or {})
+    ak["pseudo_tool_call_scrubbed"] = True
+    return last.model_copy(update={"content": prose, "additional_kwargs": ak})
+
+
 def _materialize_pseudo_tool_error(last: AIMessage) -> tuple[AIMessage, list[ToolMessage]] | None:
     """When content looks like a dumped tool call but nothing was parsed, surface an error."""
     existing_calls = list(getattr(last, "tool_calls", None) or [])
@@ -177,11 +212,15 @@ def _materialize_pseudo_tool_error(last: AIMessage) -> tuple[AIMessage, list[Too
         return None
     tc_id = f"pseudo_{uuid.uuid4().hex[:12]}"
     preview = text.strip().replace("\n", " ")[:180]
-    user_visible = (
+    prose = strip_pseudo_tool_markup_keep_prose(text)
+    notice = (
         "本轮工具调用写成了正文伪标签（如 DSML / invoke），系统未能解析执行，"
         "也不是风控拦截。请改用正常 tool_calls 重试。"
-        f"\n片段：{preview}"
     )
+    if prose:
+        user_visible = f"{prose}\n\n（系统提示：{notice}）"
+    else:
+        user_visible = f"{notice}\n片段：{preview}"
     err = (
         "Error: Tool call was written as plain text markup and was not executed "
         "(pseudo/DSML/invoke tags are not parsed). "
@@ -229,10 +268,14 @@ def _process_invalid_tool_calls(state: AgentState) -> dict | None:
     invalid = list(getattr(last, "invalid_tool_calls", None) or [])
     if not invalid:
         pseudo = _materialize_pseudo_tool_error(last)
-        if pseudo is None:
-            return None if not coerced_valid else {"messages": [*messages[:-1], last]}
-        updated_ai, tool_msgs = pseudo
-        return {"messages": [*messages[:-1], updated_ai, *tool_msgs]}
+        if pseudo is not None:
+            updated_ai, tool_msgs = pseudo
+            return {"messages": [*messages[:-1], updated_ai, *tool_msgs]}
+        # Structured tool_calls present, but body still leaked DSML — scrub for UI/transcript.
+        scrubbed = _scrub_pseudo_markup_from_ai_content(last)
+        if scrubbed is not None:
+            return {"messages": [*messages[:-1], scrubbed]}
+        return None if not coerced_valid else {"messages": [*messages[:-1], last]}
 
     tool_msgs: list[ToolMessage] = []
     repaired_calls: list[dict[str, object]] = []

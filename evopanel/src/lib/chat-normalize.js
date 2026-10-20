@@ -2175,6 +2175,25 @@ export function stripStructuredToolSummaryFromDisplayText(text) {
   return kept.join('\n').trim()
 }
 
+/**
+ * Strip model-dumped DSML / invoke / tool_call markup from assistant bubble text.
+ * Keeps leading human prose (e.g.「我先读取任务…」); empty when the whole body is markup.
+ */
+export function stripPseudoToolMarkupFromDisplayText(text) {
+  const s = String(text || '')
+  if (!s) return ''
+  const hasMarkup =
+    /DSML|\binvoke\s+name\s*=|<\s*(?:tool_call|function_call|tool_calls)\b|\uFF5C/i.test(s) &&
+    (/DSML|\binvoke\s+name\s*=|<\s*(?:tool_call|function_call|tool_calls)\b/i.test(s) ||
+      (/\uFF5C/.test(s) && /invoke|dsml/i.test(s)))
+  if (!hasMarkup) return s
+  const cutRe =
+    /(?:<\s*)?(?:[|\uFF5C]+\s*)?DSML|(?:<\s*)?(?:tool_call|function_call|tool_calls)\b|(?:[|\uFF5C]+\s*)?invoke\s+name\s*=|\|+\s*invoke\b/i
+  const m = cutRe.exec(s)
+  if (!m || m.index == null) return ''
+  return s.slice(0, m.index).trim()
+}
+
 function _extractSummaryField(text, key) {
   const m = String(text || '').match(new RegExp(`^${key}\\s*[:：]\\s*(.+)$`, 'im'))
   return m ? m[1].trim().split(/\r?\n/)[0] : ''

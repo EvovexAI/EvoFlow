@@ -1,7 +1,7 @@
 """Single org-chart prompt section (compact for chat, full for duty).
 
 Data from ``proactive.org``; collaboration copy aligned with product docs:
-formal handoff handlers = direct reports only; peers use create/wake/小V.
+formal handoff handlers = direct reports only; peers use create (auto-wake) / 小V.
 
 Solo posts (no manager / reports / peers) get a one-line org stub — no handoff essay.
 Job text owns identity; this block does not repeat「你是…」.
@@ -89,7 +89,7 @@ def build_employee_org_section(
         if self_key:
             tip = f"独立岗（同 workspace=`{self_key}`）；无上下级/平级名册。"
         else:
-            tip = "独立岗；未绑 workspace、无上下级/平级。需要跨岗协作时走派发 / wake / 小V。"
+            tip = "独立岗；未绑 workspace、无上下级/平级。需要跨岗协作时 ``tasks create``（系统自动叫醒）/ 小V。"
         return "\n".join([ORG_OPEN, tip, ORG_CLOSE])
 
     if self_key:
@@ -131,7 +131,7 @@ def build_employee_org_section(
     else:
         lines.append("- （无直属下级）")
 
-    lines.extend(["", "## 同组织平级岗位（可相互派活 / wake，与上下级协作同等）"])
+    lines.extend(["", "## 同组织平级岗位（可相互派活，与上下级协作同等）"])
     if peers_same_mgr:
         for r in peers_same_mgr:
             lines.append(
@@ -145,9 +145,10 @@ def build_employee_org_section(
             "",
             "## 协作要点",
             "- **向下（直属下级）**：本岗做完要下游继续 → 结案时 ``tasks state`` + **handlers**（系统建单并叫醒）；**禁止**对下级再 ``create``+``wake`` 做同一次交接。",
-            "- **平级（同一上级）**：可相互派活，和上下级协作一样——新事项 ``tasks create``；已有未结单 ``wake`` / ``related_task_id`` 续跑；对方 busy 用同一 id 重试。",
+            "- **平级（同一上级）**：新事项 ``tasks create``（assignee + ``start=true`` 默认）→ **建单即开工**，不必再 wake；只排队用 ``start=false``；已有未结单才 ``wake`` + ``task_id`` 续跑。",
             "- **向上**：叶子岗对本岗 Task ``completed`` 结案即可；禁止给上级新建验收单。",
-            "- 员工互 @ 聊天默认不叫醒；要叫醒走 Task/wake。小V 代用户派发不受组织边约束。",
+            "- **写权限**：本岗只能 ``tasks progress/state`` 自己的单（``assigned_to``=本岗）；禁止改他人/上级状态。小V 代用户不受此限。",
+            "- **wake 用途**：仅续跑/催办已有未结单；**禁止**「刚 create 完立刻再 wake」同一次派活。小V 代用户 ``create`` 同样自动叫醒。",
         ]
     )
 

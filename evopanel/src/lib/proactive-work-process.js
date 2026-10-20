@@ -434,12 +434,15 @@ function truncate(text, n = 120) {
   return s.length > n ? `${s.slice(0, n)}…` : s
 }
 
+/** think「本轮值班开始」+ execute「开始执行」— 可见节拍，非内部 brief */
+const DUTY_BEAT_HEAD_RE = /^(?:本轮值班开始|开始执行)\s*·/
+
 /** 系统派发 / 超长任务 brief，默认不进搜索全文、不默认展开 */
 export function isSystemPromptLike(text) {
   const s = String(text || '')
   if (s.length > 1800) return true
   const head = s.slice(0, 400)
-  if (/^本轮值班开始\s*·/.test(head.trim())) return false
+  if (DUTY_BEAT_HEAD_RE.test(head.trim())) return false
   return /^#\s*值班|##\s*本岗看板\s*Task|系统提示|system prompt|woken_by=|task_id=|工作指令|你是一名|续跑：|tasks\(action=/i.test(
     head,
   )
@@ -447,7 +450,7 @@ export function isSystemPromptLike(text) {
 
 /** 人话值班节拍（可见开场），非内部 brief */
 export function isDutyBeatText(text) {
-  return /^本轮值班开始\s*·/.test(String(text || '').trim())
+  return DUTY_BEAT_HEAD_RE.test(String(text || '').trim())
 }
 
 const WORK_PROCESS_WRAP_UP_RE =
