@@ -2955,6 +2955,7 @@ html[data-translucent-ui='1'] :is(.cron-modal-overlay, .cron-history-overlay, .c
 html[data-translucent-ui='1'] :is(
   .kv-modal,
   .ko-modal,
+  .ko-sheet,
   .apps-history-modal,
   .lk-modal,
   .engage-modal
@@ -2970,6 +2971,7 @@ html[data-translucent-ui='1'] :is(
 html[data-translucent-ui='1'] :is(
   .kv-modal-backdrop,
   .ko-modal-backdrop,
+  .ko-sheet-backdrop,
   .apps-history-modal-overlay,
   .lk-modal-backdrop
 ) {
@@ -3129,6 +3131,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(
   .cron-history-panel,
   .kv-modal,
   .ko-modal,
+  .ko-sheet,
   .apps-history-modal,
   .lk-modal,
   .engage-modal

@@ -84,16 +84,50 @@ def enqueue(
     return get_job(job_id) or {"id": job_id, "state": "queued"}
 
 
+def _doc_titles_for_kb(kb_id: str, doc_ids: list[Any]) -> dict[str, str]:
+    """Map doc_id → display title from the KB-local documents table."""
+    ids = sorted({str(x or "").strip() for x in doc_ids if str(x or "").strip()})
+    if not ids or not kb_id:
+        return {}
+    out: dict[str, str] = {}
+    try:
+        with db_for_kb(kb_id) as conn:
+            ph = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"SELECT id, title, file_name FROM kb_documents WHERE id IN ({ph})",
+                ids,
+            ).fetchall()
+        for row in rows:
+            title = str(row["title"] or "").strip() or str(row["file_name"] or "").strip()
+            if title:
+                out[str(row["id"])] = title
+    except Exception:
+        logger.debug("doc title lookup failed kb=%s", kb_id, exc_info=True)
+    return out
+
+
+def _enrich_jobs_with_titles(kb_id: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    titles = _doc_titles_for_kb(kb_id, [j.get("docId") or j.get("doc_id") for j in items])
+    for job in items:
+        did = str(job.get("docId") or job.get("doc_id") or "").strip()
+        job["docTitle"] = titles.get(did) or ""
+    return items
+
+
 def list_jobs(kb_id: str, *, limit: int = 50, states: list[str] | None = None) -> list[dict[str, Any]]:
     lim = max(1, min(int(limit or 50), 200))
     with db() as conn:
         if states:
             placeholders = ",".join("?" * len(states))
+            # Active ledger: running first, then priority / age (FIFO within priority).
             rows = conn.execute(
                 f"""
                 SELECT * FROM kb_jobs
                 WHERE kb_id=? AND state IN ({placeholders})
-                ORDER BY created_at DESC
+                ORDER BY
+                  CASE state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                  priority ASC,
+                  created_at ASC
                 LIMIT ?
                 """,
                 (kb_id, *states, lim),
@@ -108,7 +142,7 @@ def list_jobs(kb_id: str, *, limit: int = 50, states: list[str] | None = None) -
                 """,
                 (kb_id, lim),
             ).fetchall()
-    return [_job_row(r) for r in rows]
+    return _enrich_jobs_with_titles(kb_id, [_job_row(r) for r in rows])
 
 
 def job_stats(kb_id: str) -> dict[str, Any]:
@@ -148,6 +182,7 @@ def job_stats(kb_id: str) -> dict[str, Any]:
     except Exception:
         logger.debug("pending doc count skipped for kb=%s", kb_id, exc_info=True)
     by_state = {str(r["state"]): int(r["c"]) for r in rows}
+    errors = _enrich_jobs_with_titles(kb_id, [_job_row(row) for row in error_rows])
     return {
         "byState": by_state,
         "queued": by_state.get("queued", 0),
@@ -156,7 +191,7 @@ def job_stats(kb_id: str) -> dict[str, Any]:
         "error": by_state.get("error", 0),
         "pendingDocs": int(pending_docs or 0),
         "active": by_state.get("queued", 0) + by_state.get("running", 0),
-        "errors": [_job_row(row) for row in error_rows],
+        "errors": errors,
     }
 
 

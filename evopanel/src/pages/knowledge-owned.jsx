@@ -35,6 +35,47 @@ function statusBadge(status) {
   return { cls: "", label: s || "—" };
 }
 
+/** Human label for kb_jobs.type — index vs summary must stay distinct. */
+function jobTypeLabel(type) {
+  const t = String(type || "").trim();
+  if (t === "parse_index" || t === "reindex") return "索引";
+  if (t === "summary_doc") return "摘要";
+  if (t === "wiki_ingest" || t === "wiki_finalize") return "Wiki";
+  if (t === "kg_extract") return "图谱";
+  return t || "任务";
+}
+
+function jobTypeClass(type) {
+  const t = String(type || "").trim();
+  if (t === "parse_index" || t === "reindex") return "index";
+  if (t === "summary_doc") return "summary";
+  if (t === "wiki_ingest" || t === "wiki_finalize") return "wiki";
+  if (t === "kg_extract") return "kg";
+  return "other";
+}
+
+function jobProgressText(job) {
+  const p = job?.progress && typeof job.progress === "object" ? job.progress : {};
+  const msg = String(p.message || "").trim();
+  const pct = Number(p.percent);
+  if (msg && Number.isFinite(pct) && pct > 0) return `${msg} · ${Math.round(pct)}%`;
+  if (msg) return msg;
+  if (Number.isFinite(pct) && pct > 0) return `${Math.round(pct)}%`;
+  if (String(job?.state || "") === "running") return "处理中…";
+  return "等待中";
+}
+
+function jobDocLabel(job, docsById) {
+  const title = String(job?.docTitle || "").trim();
+  if (title) return title;
+  const did = String(job?.docId || job?.doc_id || "").trim();
+  if (did && docsById?.[did]) {
+    const d = docsById[did];
+    return String(d.title || d.fileName || did).trim() || did;
+  }
+  return did ? `文档 ${did.slice(0, 10)}…` : "库级任务";
+}
+
 function isPdfName(name) {
   return /\.pdf$/i.test(String(name || ""));
 }
@@ -834,6 +875,7 @@ export default function KnowledgeOwnedPage() {
   const [tagFilter, setTagFilter] = useState("");
   const [kbTags, setKbTags] = useState([]);
   const [jobStats, setJobStats] = useState(null);
+  const [jobItems, setJobItems] = useState([]);
   const [syncPopupDismissed, setSyncPopupDismissed] = useState(false);
   const [docCounts, setDocCounts] = useState({});
   const [selectedDocId, setSelectedDocId] = useState("");
@@ -870,6 +912,7 @@ export default function KnowledgeOwnedPage() {
   const [settingsKbId, setSettingsKbId] = useState("");
   const [settingsName, setSettingsName] = useState("");
   const [settingsDesc, setSettingsDesc] = useState("");
+  const [settingsChatModel, setSettingsChatModel] = useState("");
   const [settingsEmbRef, setSettingsEmbRef] = useState("");
   const [settingsRebind, setSettingsRebind] = useState(false);
   const [settingsSummary, setSettingsSummary] = useState(false);
@@ -921,9 +964,12 @@ export default function KnowledgeOwnedPage() {
   const [kbGlobalSettings, setKbGlobalSettings] = useState(null);
   const reloadKbGlobalSettings = useCallback(async () => {
     try {
-      setKbGlobalSettings((await api.getOwnedKnowledgeSettings()) || null);
+      const data = (await api.getOwnedKnowledgeSettings()) || null;
+      setKbGlobalSettings(data);
+      return data;
     } catch {
       setKbGlobalSettings(null);
+      return null;
     }
   }, []);
 
@@ -977,18 +1023,24 @@ export default function KnowledgeOwnedPage() {
       setFolders([]);
       setKbTags([]);
       setJobStats(null);
+      setJobItems([]);
       return;
     }
     try {
       const [res, tagsRes, jobsRes] = await Promise.all([
         api.listOwnedKnowledgeDocuments(kbId),
         api.listOwnedKnowledgeTags(kbId).catch(() => ({ items: [] })),
-        api.listOwnedKnowledgeJobs(kbId, { limit: 20 }).catch(() => ({ stats: null })),
+        // activeOnly: ledger of queued/running; stats still includes error counts + error rows
+        api.listOwnedKnowledgeJobs(kbId, { limit: 80, activeOnly: true }).catch(() => ({
+          stats: null,
+          items: [],
+        })),
       ]);
       setDocs(res.items || []);
       setFolders(res.folders || []);
       setKbTags(tagsRes.items || []);
       setJobStats(jobsRes.stats || null);
+      setJobItems(Array.isArray(jobsRes.items) ? jobsRes.items : []);
     } catch (e) {
       notify(e?.message || "加载文档失败");
     }
@@ -1188,6 +1240,41 @@ export default function KnowledgeOwnedPage() {
     [bases, settingsKbId, selected]
   );
 
+  const docsById = useMemo(() => {
+    const map = {};
+    for (const d of docs || []) {
+      if (d?.id) map[d.id] = d;
+    }
+    return map;
+  }, [docs]);
+
+  const jobLedger = useMemo(() => {
+    const running = [];
+    const queued = [];
+    for (const job of jobItems || []) {
+      const st = String(job?.state || "");
+      if (st === "running") running.push(job);
+      else if (st === "queued") queued.push(job);
+    }
+    const activeDocIds = new Set(
+      [...running, ...queued]
+        .map((j) => String(j.docId || j.doc_id || "").trim())
+        .filter(Boolean),
+    );
+    // Docs waiting on parse without an active job yet (orphan pending).
+    const pendingDocs = (docs || [])
+      .filter((d) => {
+        const ps = String(d.parseStatus || "");
+        return (ps === "pending" || ps === "processing") && !activeDocIds.has(String(d.id || ""));
+      })
+      .slice(0, 30);
+    return { running, queued, pendingDocs };
+  }, [jobItems, docs]);
+
+  const showJobLedger =
+    !!jobStats &&
+    (jobStats.active > 0 || jobStats.pendingDocs > 0 || jobStats.error > 0);
+
   // Current embedding binding of the base being edited (ref prefers model name).
   const settingsCurrentRef = String(
     settingsBase?.embeddingModelRef || settingsBase?.embeddingModel || ""
@@ -1210,6 +1297,12 @@ export default function KnowledgeOwnedPage() {
     return !!(next && next !== settingsCurrentRef);
   }, [settingsEmbRef, settingsCurrentRef]);
 
+  const settingsChatChanged = useMemo(() => {
+    const next = String(settingsChatModel || "").trim();
+    const prev = String(kbGlobalSettings?.chatModel || "").trim();
+    return next !== prev;
+  }, [settingsChatModel, kbGlobalSettings?.chatModel]);
+
   const settingsDirty = useMemo(() => {
     if (!settingsBase) return false;
     const name = String(settingsName || "").trim();
@@ -1218,9 +1311,17 @@ export default function KnowledgeOwnedPage() {
       name !== String(settingsBase.name || "").trim() ||
       desc !== String(settingsBase.description || "").trim() ||
       settingsEmbChanged ||
+      settingsChatChanged ||
       settingsSummary !== (settingsBase.summaryEnabled !== false)
     );
-  }, [settingsBase, settingsName, settingsDesc, settingsEmbChanged, settingsSummary]);
+  }, [
+    settingsBase,
+    settingsName,
+    settingsDesc,
+    settingsEmbChanged,
+    settingsChatChanged,
+    settingsSummary,
+  ]);
 
   // Hub Insight → open first base in Ask mode (optional pending prompt)
   useEffect(() => {
@@ -1571,7 +1672,8 @@ export default function KnowledgeOwnedPage() {
     setSettingsRebind(false);
     setSettingsSummary(base.summaryEnabled !== false);
     setSettingsOpen(true);
-    await reloadKbGlobalSettings();
+    const global = await reloadKbGlobalSettings();
+    setSettingsChatModel(String(global?.chatModel || "").trim());
   }
 
   async function renameBase(kbId, currentName) {
@@ -1608,9 +1710,13 @@ export default function KnowledgeOwnedPage() {
     const description = String(settingsDesc || "").trim();
     const prev = String(base?.embeddingModelRef || base?.embeddingModel || "").trim();
     const next = String(settingsEmbRef || "").trim();
+    const embChanged = !!(next && next !== prev);
+    const chatNext = String(settingsChatModel || "").trim();
+    const chatPrev = String(kbGlobalSettings?.chatModel || "").trim();
+    const chatChanged = chatNext !== chatPrev;
     const nameChanged = name !== String(base?.name || "").trim();
     const descChanged = description !== String(base?.description || "").trim();
-    const embChanged = !!(next && next !== prev);
+    const summaryChanged = settingsSummary !== (base?.summaryEnabled !== false);
 
     if (embChanged) {
       const ok = window.confirm(
@@ -1621,20 +1727,25 @@ export default function KnowledgeOwnedPage() {
 
     setBusy(true);
     try {
-      let res;
+      let res = null;
+      if (chatChanged) {
+        await api.setOwnedKnowledgeSettings({ chatModel: chatNext || null });
+      }
+
       const metaPatch = {};
       if (nameChanged) metaPatch.name = name;
       if (descChanged) metaPatch.description = description;
-      if (settingsSummary !== (base?.summaryEnabled !== false)) {
-        metaPatch.summaryEnabled = settingsSummary;
-      }
+      if (summaryChanged) metaPatch.summaryEnabled = settingsSummary;
 
       // Only touch embedding binding when it actually changed; a metadata-only
       // save must never trigger a reindex. In-place rebuild is a separate action.
-      res = await api.updateOwnedKnowledgeBase(kbId, {
-        ...metaPatch,
-        ...(embChanged ? { embeddingModelRef: next } : {}),
-      });
+      if (Object.keys(metaPatch).length || embChanged) {
+        res = await api.updateOwnedKnowledgeBase(kbId, {
+          ...metaPatch,
+          ...(embChanged ? { embeddingModelRef: next } : {}),
+        });
+      }
+
       setSettingsOpen(false);
       setSettingsKbId("");
       await loadBases();
@@ -2114,6 +2225,21 @@ export default function KnowledgeOwnedPage() {
               </button>
             </div>
             <div className="ko-actions" data-tauri-no-drag="">
+              {showJobLedger ? (
+                <button
+                  className={`ko-btn${jobStats.active > 0 || jobStats.pendingDocs > 0 ? " primary" : ""}`}
+                  onClick={() => setSyncPopupDismissed(false)}
+                  type="button"
+                  title="查看索引 / 摘要作业台账"
+                >
+                  处理进度
+                  {jobStats.active > 0 || jobStats.pendingDocs > 0
+                    ? ` ${jobStats.active || jobStats.pendingDocs || 0}`
+                    : jobStats.error
+                      ? ` · 失败 ${jobStats.error}`
+                      : ""}
+                </button>
+              ) : null}
               <button className="ko-btn" disabled={busy} onClick={() => openBaseSettings()} type="button">
                 库设置
               </button>
@@ -2197,9 +2323,7 @@ export default function KnowledgeOwnedPage() {
             </div>
           ) : null}
 
-          {jobStats &&
-          !syncPopupDismissed &&
-          (jobStats.active > 0 || jobStats.pendingDocs > 0 || jobStats.error > 0) ? (
+          {showJobLedger && !syncPopupDismissed ? (
             <div
               className={`ko-sync-popup ko-sync-popup--modal${
                 jobStats.active > 0 || jobStats.pendingDocs > 0 ? " is-active" : " is-idle"
@@ -2209,28 +2333,20 @@ export default function KnowledgeOwnedPage() {
               aria-modal="true"
               aria-labelledby="ko-sync-banner-title"
               style={{
-                // Inline-style fallback: the centered modal is invisibly
-                // clamped to ``max-width: 320px`` by the base
-                // ``.ko-sync-popup`` class — and that class wins on
-                // specificity because ``.ko-sync-popup--modal`` never
-                // re-declared ``max-width``. Force the override here so
-                // the modal works in both Vite dev AND in the bundled
-                // Tauri build, where the CSS file may be cached or
-                // reloaded out-of-band.
                 position: "fixed",
                 top: "50%",
                 left: "50%",
                 right: "auto",
                 bottom: "auto",
                 transform: "translate(-50%, -50%)",
-                width: "min(900px, calc(100vw - 80px))",
+                width: "min(720px, calc(100vw - 48px))",
                 maxWidth: "none",
-                maxHeight: "min(72vh, 560px)",
+                maxHeight: "min(78vh, 640px)",
               }}
             >
               <div className="ko-sync-popup__head">
                 <h3 id="ko-sync-banner-title">
-                  {jobStats.active > 0 || jobStats.pendingDocs > 0 ? "索引进行中" : "索引状态"}
+                  {jobStats.active > 0 || jobStats.pendingDocs > 0 ? "处理进度" : "处理状态"}
                 </h3>
                 <button
                   aria-label="关闭"
@@ -2242,15 +2358,11 @@ export default function KnowledgeOwnedPage() {
                 </button>
               </div>
               <div className="ko-sync-popup__body">
-                <strong>
-                  {jobStats.active > 0 || jobStats.pendingDocs > 0
-                    ? "解析/嵌入进度"
-                    : "任务汇总"}
-                </strong>
+                <strong>作业台账</strong>
                 <span>
                   {jobStats.active > 0 || jobStats.pendingDocs > 0
                     ? `排队 ${jobStats.queued || 0} · 进行 ${jobStats.running || 0} · 待解析 ${jobStats.pendingDocs || 0}`
-                    : `共 ${jobStats.error} 项任务失败，详情见下方列表`}
+                    : `共 ${jobStats.error} 项失败`}
                   {jobStats.error
                     ? `${jobStats.active > 0 || jobStats.pendingDocs > 0 ? " · " : ""}失败 ${jobStats.error}`
                     : null}
@@ -2262,7 +2374,7 @@ export default function KnowledgeOwnedPage() {
                       disabled={reindexingAll}
                       onClick={async () => {
                         if (!window.confirm(
-                          "将对当前知识库全部文档重新触发 parse_index，可能耗时较长，确定继续？",
+                          "将对当前知识库全部文档重新触发索引，可能耗时较长，确定继续？",
                         )) return;
                         setReindexingAll(true);
                         try {
@@ -2280,7 +2392,7 @@ export default function KnowledgeOwnedPage() {
                         }
                       }}
                       type="button"
-                      title="对当前知识库全部文档重新触发 parse_index"
+                      title="对当前知识库全部文档重新触发索引"
                     >
                       {reindexingAll ? "整库重试中…" : "重新解析整个 KB"}
                     </button>
@@ -2307,43 +2419,101 @@ export default function KnowledgeOwnedPage() {
                   </div>
                 ) : null}
               </div>
+
+              <div className="ko-sync-ledger">
+                {jobLedger.running.length ? (
+                  <section className="ko-sync-ledger__section">
+                    <h4>进行中 · {jobLedger.running.length}</h4>
+                    <ul className="ko-sync-ledger__list">
+                      {jobLedger.running.map((job) => {
+                        const pct = Number(job?.progress?.percent);
+                        return (
+                          <li className="ko-sync-job is-running" key={job.id}>
+                            <span className={`ko-sync-job__type is-${jobTypeClass(job.type)}`}>
+                              {jobTypeLabel(job.type)}
+                            </span>
+                            <div className="ko-sync-job__main">
+                              <strong>{jobDocLabel(job, docsById)}</strong>
+                              <span>{jobProgressText(job)}</span>
+                              {Number.isFinite(pct) && pct > 0 ? (
+                                <div className="ko-sync-job__bar" aria-hidden="true">
+                                  <i style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+                                </div>
+                              ) : null}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {jobLedger.queued.length ? (
+                  <section className="ko-sync-ledger__section">
+                    <h4>
+                      排队中 · {jobLedger.queued.length}
+                      {(jobStats.queued || 0) > jobLedger.queued.length
+                        ? `（显示前 ${jobLedger.queued.length} / 共 ${jobStats.queued}）`
+                        : ""}
+                    </h4>
+                    <ul className="ko-sync-ledger__list">
+                      {jobLedger.queued.slice(0, 40).map((job) => (
+                        <li className="ko-sync-job is-queued" key={job.id}>
+                          <span className={`ko-sync-job__type is-${jobTypeClass(job.type)}`}>
+                            {jobTypeLabel(job.type)}
+                          </span>
+                          <div className="ko-sync-job__main">
+                            <strong>{jobDocLabel(job, docsById)}</strong>
+                            <span>等待执行</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {jobLedger.pendingDocs.length ? (
+                  <section className="ko-sync-ledger__section">
+                    <h4>待解析文档 · {jobLedger.pendingDocs.length}</h4>
+                    <ul className="ko-sync-ledger__list">
+                      {jobLedger.pendingDocs.map((doc) => (
+                        <li className="ko-sync-job is-pending" key={doc.id}>
+                          <span className="ko-sync-job__type is-index">索引</span>
+                          <div className="ko-sync-job__main">
+                            <strong>{doc.title || doc.fileName || doc.id}</strong>
+                            <span>
+                              {String(doc.parseStatus) === "processing" ? "解析中（无活跃任务）" : "等待入队"}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {!jobLedger.running.length &&
+                !jobLedger.queued.length &&
+                !jobLedger.pendingDocs.length &&
+                !(jobStats.error && jobStats.errors?.length) ? (
+                  <p className="ko-sync-ledger__empty">暂无进行中的作业。</p>
+                ) : null}
+              </div>
+
               {jobStats.error && jobStats.errors?.length ? (
                 <div className="ko-sync-popup__errors">
+                  <h4 className="ko-sync-ledger__fail-title">失败 · {jobStats.errors.length}</h4>
                   {jobStats.errors.map((item) => {
                     const raw = String(item.error_message || "任务失败，但服务端没有返回详细原因。");
-                    // Backend packs ``<message>\n[traceback] <last_frame>`` so the
-                    // user sees the cause + the line that raised it without us
-                    // having to fetch the full traceback separately.
                     const split = raw.split("\n[traceback] ");
                     const headline = split[0] || raw;
                     const tail = split[1];
                     const docId = String(item.docId || "").trim();
                     const rowRetrying = docId && retryingDocs.has(docId);
                     return (
-                      <div
-                        className="ko-sync-error"
-                        key={item.id}
-                        style={{
-                          // Inline grid fallback so each error row keeps
-                          // its multi-column layout even if the bundled
-                          // CSS is cached. Grid areas match the CSS file
-                          // (``knowledge-owned.css``).
-                          display: "grid",
-                          gridTemplateColumns: "minmax(110px, 140px) minmax(0, 1fr) auto",
-                          gridTemplateAreas:
-                            '"type head meta" "body body body" "trace trace trace" "retry retry retry"',
-                          alignItems: "center",
-                          columnGap: 12,
-                          rowGap: 4,
-                          padding: "9px 12px",
-                          border: "1px solid color-mix(in srgb, var(--kb-error) 24%, var(--ko-line))",
-                          borderRadius: 7,
-                          background: "color-mix(in srgb, var(--kb-error) 6%, transparent)",
-                        }}
-                      >
+                      <div className="ko-sync-error" key={item.id}>
                         <div className="ko-sync-error__head">
-                          <strong>{item.type || "索引任务"}</strong>
-                          <span>{docId || "未关联文档"}</span>
+                          <strong>{jobTypeLabel(item.type)}</strong>
+                          <span>{jobDocLabel(item, docsById)}</span>
                         </div>
                         <p>{headline}</p>
                         {tail ? (
@@ -2368,9 +2538,7 @@ export default function KnowledgeOwnedPage() {
                               });
                               try {
                                 await api.retryOwnedDocument(selectedId, docId);
-                                notify(`已重新加入队列: ${docId.slice(0, 12)}…`);
-                                // Refresh banner stats so the row leaves the
-                                // failure list once the new job completes.
+                                notify(`已重新加入队列: ${jobDocLabel(item, docsById)}`);
                                 await loadDocs(selectedId);
                               } catch (e) {
                                 notify(e?.message || "重试失败");
@@ -2383,7 +2551,7 @@ export default function KnowledgeOwnedPage() {
                               }
                             }}
                             type="button"
-                            title="对该文档重新触发 parse_index 任务"
+                            title="对该文档重新触发索引任务"
                           >
                             {rowRetrying ? "重试中…" : "重试"}
                           </button>
@@ -2395,7 +2563,7 @@ export default function KnowledgeOwnedPage() {
               ) : null}
             </div>
           ) : null}
-          {jobStats && !syncPopupDismissed && (jobStats.error > 0) ? (
+          {showJobLedger && !syncPopupDismissed ? (
             <div
               className="ko-sync-overlay"
               onClick={() => setSyncPopupDismissed(true)}
@@ -3140,7 +3308,7 @@ export default function KnowledgeOwnedPage() {
 
       {settingsOpen && settingsBase ? (
         <div
-          className="ko-modal-backdrop"
+          className="ko-sheet-backdrop"
           onClick={() => {
             if (busy) return;
             setSettingsOpen(false);
@@ -3149,93 +3317,104 @@ export default function KnowledgeOwnedPage() {
           role="presentation"
         >
           <div
-            className="ko-modal"
+            className="ko-sheet"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="ko-settings-title"
           >
-            <h2 id="ko-settings-title">库设置 · {settingsBase.name}</h2>
-            <label className="ko-modal__field">
-              <span>名称</span>
-              <input
-                disabled={!!settingsBase.builtin}
-                onChange={(e) => setSettingsName(e.target.value)}
-                placeholder="知识库名称"
-                title={settingsBase.builtin ? "系统内置知识库不可重命名" : undefined}
-                type="text"
-                value={settingsName}
-              />
-            </label>
-            <label className="ko-modal__field">
-              <span>描述</span>
-              <textarea
-                onChange={(e) => setSettingsDesc(e.target.value)}
-                placeholder="可选：用途说明"
-                rows={3}
-                value={settingsDesc}
-              />
-            </label>
-            <div className="ko-modal__section">
-              <p className="ko-modal__hint">
-                问答与分析使用模型：
-                <strong>
-                  {kbGlobalSettings?.effectiveChatModel ||
-                    chatModels.find((m) => m.name === kbGlobalSettings?.chatModel)?.name ||
-                    "未配置（将回退默认对话模型）"}
-                </strong>
-                {kbGlobalSettings?.chatModel ? "（知识库专用）" : "（跟随全局默认对话模型）"}
-                <button
-                  className="ko-link-btn"
-                  onClick={openModelsEmbeddingSettings}
-                  type="button"
-                >
-                  管理对话模型
-                </button>
-              </p>
-              <label className="ko-modal__toggle">
-                <input
-                  checked={settingsSummary}
-                  disabled={busy}
-                  onChange={(e) => setSettingsSummary(e.target.checked)}
-                  type="checkbox"
-                />
-                <span>
-                  自动生成文档摘要（导入/更新文档后调用上面对话模型分析并生成摘要；关闭后仅在阅读页手动生成）
-                </span>
-              </label>
-              <p className="ko-modal__hint">
-                关闭后不会在索引完成时自动排队摘要任务，已生成的摘要保留；可在阅读页「生成摘要」手动触发。
-              </p>
-              <p className="ko-modal__hint">
-                当前向量：{settingsBase.embeddingMode === "local" ? "本地" : "云端"} ·{" "}
-                {settingsBase.embeddingModel || "—"}
-                {settingsBase.embeddingDim
-                  ? ` · ${settingsBase.embeddingDim} 维`
-                  : " · 维度未就绪（尚未向量化；模型未就绪时仍可关键词检索）"}
-              </p>
-              {settingsBase.builtin ? (
-                <label className="ko-modal__toggle">
+            <header className="ko-sheet__hero">
+              <span className="ko-sheet__eyebrow">LIBRARY SETTINGS</span>
+              <h2 id="ko-settings-title">库设置</h2>
+              <p className="ko-sheet__lead">{settingsBase.name}</p>
+              <button
+                aria-label="关闭"
+                className="ko-sheet__close"
+                disabled={busy}
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setSettingsKbId("");
+                }}
+                type="button"
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="ko-sheet__body">
+              <section className="ko-sheet__block">
+                <div className="ko-sheet__block-head">
+                  <h3>基本信息</h3>
+                </div>
+                <label className="ko-sheet__field">
+                  <span>名称</span>
                   <input
-                    checked={settingsRebind}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setSettingsRebind(on);
-                      // Un-checking means "keep current binding": drop any
-                      // pending selection so it no longer counts as a change.
-                      if (!on) setSettingsEmbRef(settingsCurrentRef);
-                    }}
-                    type="checkbox"
+                    disabled={busy || !!settingsBase.builtin}
+                    onChange={(e) => setSettingsName(e.target.value)}
+                    placeholder="知识库名称"
+                    title={settingsBase.builtin ? "系统内置知识库不可重命名" : undefined}
+                    type="text"
+                    value={settingsName}
                   />
-                  <span>切换为自定义向量模型（将清空现有向量并整库重建）</span>
                 </label>
-              ) : null}
-              {!settingsBase.builtin || settingsRebind ? (
-                <>
-                  {settingsEmbOptions.length ? (
-                    <label className="ko-modal__field">
+                <label className="ko-sheet__field">
+                  <span>介绍</span>
+                  <textarea
+                    disabled={busy}
+                    onChange={(e) => setSettingsDesc(e.target.value)}
+                    placeholder="用途说明，展示在知识库首页"
+                    rows={3}
+                    value={settingsDesc}
+                  />
+                </label>
+              </section>
+
+              <section className="ko-sheet__block">
+                <div className="ko-sheet__block-head">
+                  <h3>模型与解析</h3>
+                </div>
+                <label className="ko-sheet__field">
+                  <span>解析摘要模型</span>
+                  <select
+                    disabled={busy}
+                    onChange={(e) => setSettingsChatModel(e.target.value)}
+                    value={settingsChatModel}
+                  >
+                    <option value="">
+                      跟随全局默认
+                      {kbGlobalSettings?.effectiveChatModel && !kbGlobalSettings?.chatModel
+                        ? `（${kbGlobalSettings.effectiveChatModel}）`
+                        : ""}
+                    </option>
+                    {chatModels.map((m) => (
+                      <option key={m.name} value={m.name}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {settingsBase.builtin ? (
+                  <label className="ko-sheet__check">
+                    <input
+                      checked={settingsRebind}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setSettingsRebind(on);
+                        if (!on) setSettingsEmbRef(settingsCurrentRef);
+                      }}
+                      type="checkbox"
+                    />
+                    <span>更换向量模型</span>
+                  </label>
+                ) : null}
+
+                {!settingsBase.builtin || settingsRebind ? (
+                  settingsEmbOptions.length ? (
+                    <label className="ko-sheet__field">
                       <span>向量模型</span>
                       <select
+                        disabled={busy}
                         onChange={(e) => setSettingsEmbRef(e.target.value)}
                         value={settingsEmbRef}
                       >
@@ -3247,61 +3426,45 @@ export default function KnowledgeOwnedPage() {
                       </select>
                     </label>
                   ) : (
-                    <p className="ko-modal__hint">
-                      暂无可用向量模型。若已绑定 Agent Plan，请到「设置 → 模型 → 向量模型」确认套餐向量已出现；或点下方去管理。
-                      未就绪时不会强制向量化，文档仍可分块与关键词检索。
+                    <p className="ko-sheet__hint">
+                      暂无向量模型
+                      <button
+                        className="ko-link-btn"
+                        onClick={openModelsEmbeddingSettings}
+                        type="button"
+                      >
+                        去管理
+                      </button>
                     </p>
-                  )}
-                  {settingsEmbChanged ? (
-                    <p className="ko-modal__hint is-warn">
-                      ⚠ 已切换向量模型：保存将清空现有向量并按新模型整库重建。
-                    </p>
-                  ) : null}
-                  <p className="ko-modal__hint">
-                    列表来自「设置 → 模型 → 向量模型」（含 Agent Plan 绑定的套餐向量）。
-                    <button
-                      className="ko-link-btn"
-                      onClick={openModelsEmbeddingSettings}
-                      type="button"
-                    >
-                      管理向量模型
-                    </button>
-                  </p>
-                </>
-              ) : null}
+                  )
+                ) : (
+                  <label className="ko-sheet__field">
+                    <span>向量模型</span>
+                    <input disabled type="text" value={settingsBase.embeddingModel || "—"} />
+                  </label>
+                )}
+
+                {settingsEmbChanged ? (
+                  <p className="ko-sheet__hint is-warn">保存后将清空现有向量并整库重建。</p>
+                ) : null}
+
+                <label className={`ko-sheet__switch${settingsSummary ? " is-on" : ""}`}>
+                  <span className="ko-sheet__switch-copy">
+                    <strong>自动解析摘要</strong>
+                    <small>导入或更新文档后自动生成摘要</small>
+                  </span>
+                  <input
+                    checked={settingsSummary}
+                    disabled={busy}
+                    onChange={(e) => setSettingsSummary(e.target.checked)}
+                    type="checkbox"
+                  />
+                  <span aria-hidden="true" className="ko-sheet__switch-track" />
+                </label>
+              </section>
             </div>
-            {settingsBase.builtin ? (
-              <div className="ko-modal__vault-actions">
-                <button
-                  className="ko-btn ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    const nextHidden = !settingsBase.hidden;
-                    setSettingsOpen(false);
-                    setSettingsKbId("");
-                    setBaseHidden(settingsBase, nextHidden);
-                  }}
-                  type="button"
-                >
-                  {settingsBase.hidden ? "恢复显示此内置库" : "停用（从列表中隐藏）"}
-                </button>
-                <span className="ko-modal__hint">
-                  内置库不可删除；停用后不在默认列表展示，内容仍随版本自动同步。
-                </span>
-              </div>
-            ) : null}
-            <div className="ko-modal__actions">
-              <button
-                className="ko-btn"
-                disabled={busy}
-                onClick={() => {
-                  setSettingsOpen(false);
-                  setSettingsKbId("");
-                }}
-                type="button"
-              >
-                取消
-              </button>
+
+            <footer className="ko-sheet__foot">
               <button
                 className="ko-btn"
                 disabled={busy || !settingsCurrentRef}
@@ -3309,19 +3472,30 @@ export default function KnowledgeOwnedPage() {
                 title="按当前绑定的向量模型整库重建索引（不更换模型）"
                 type="button"
               >
-                {settingsBase.embeddingDim
-                  ? "按当前模型重建（不换模型）"
-                  : "按当前模型建立索引"}
+                {settingsBase.embeddingDim ? "重建索引" : "建立索引"}
               </button>
-              <button
-                className="ko-btn primary"
-                disabled={busy || !settingsDirty || !String(settingsName || "").trim()}
-                onClick={submitBaseSettings}
-                type="button"
-              >
-                {busy ? "保存中…" : settingsEmbChanged ? "保存并重建索引" : "保存"}
-              </button>
-            </div>
+              <div className="ko-sheet__foot-end">
+                <button
+                  className="ko-btn"
+                  disabled={busy}
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setSettingsKbId("");
+                  }}
+                  type="button"
+                >
+                  取消
+                </button>
+                <button
+                  className="ko-btn primary"
+                  disabled={busy || !settingsDirty || !String(settingsName || "").trim()}
+                  onClick={submitBaseSettings}
+                  type="button"
+                >
+                  {busy ? "保存中…" : settingsEmbChanged ? "保存并重建" : "保存"}
+                </button>
+              </div>
+            </footer>
           </div>
         </div>
       ) : null}

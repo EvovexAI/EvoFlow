@@ -132,15 +132,29 @@ export function KnowledgeStats({ bases, docCounts }) {
 
 function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, onSettings, onRevealDir, onToggleHidden }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  /** null = anchor to ⋯; {x,y} = fixed at cursor (right-click) */
+  const [menuPos, setMenuPos] = useState(null);
   const menuRef = useRef(null);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    setMenuPos(null);
+  };
 
   useEffect(() => {
     if (!menuOpen) return undefined;
     const onDoc = (e) => {
-      if (!menuRef.current?.contains(e.target)) setMenuOpen(false);
+      if (!menuRef.current?.contains(e.target)) closeMenu();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") closeMenu();
     };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [menuOpen]);
 
   const health = base.documentHealth || {};
@@ -157,8 +171,25 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
         ? `${ready} 个文档可检索`
         : "等待上传资料";
 
+  const openMenuAt = (clientX, clientY) => {
+    const pad = 8;
+    const w = 148;
+    const h = 220;
+    const x = Math.min(Math.max(pad, clientX), window.innerWidth - w - pad);
+    const y = Math.min(Math.max(pad, clientY), window.innerHeight - h - pad);
+    setMenuPos({ x, y });
+    setMenuOpen(true);
+  };
+
   return (
-    <li className="ko-data-list__item">
+    <li
+      className="ko-data-list__item"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenuAt(e.clientX, e.clientY);
+      }}
+    >
       <button className="ko-data-list__main" onClick={() => onOpen(base.id)} type="button">
         <div className="ko-data-list__icon" aria-hidden="true">
           <BookOpen size={18} />
@@ -195,17 +226,30 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
           className="ko-icon-btn"
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpen((v) => !v);
+            if (menuOpen && !menuPos) {
+              closeMenu();
+              return;
+            }
+            setMenuPos(null);
+            setMenuOpen(true);
           }}
           type="button"
         >
           <Ellipsis size={16} />
         </button>
         {menuOpen ? (
-          <div className="ko-data-list__dropdown" role="menu">
+          <div
+            className={`ko-data-list__dropdown${menuPos ? " is-context" : ""}`}
+            role="menu"
+            style={
+              menuPos
+                ? { position: "fixed", left: menuPos.x, top: menuPos.y, right: "auto" }
+                : undefined
+            }
+          >
             <button
               onClick={() => {
-                setMenuOpen(false);
+                closeMenu();
                 onOpen(base.id);
               }}
               role="menuitem"
@@ -217,7 +261,7 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
               <button
                 disabled={busy}
                 onClick={() => {
-                  setMenuOpen(false);
+                  closeMenu();
                   onRename?.(base.id, base.name);
                 }}
                 role="menuitem"
@@ -229,7 +273,7 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
             <button
               disabled={busy}
               onClick={() => {
-                setMenuOpen(false);
+                closeMenu();
                 onSettings?.(base);
               }}
               role="menuitem"
@@ -240,7 +284,7 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
             {base.resolvedStorageDir ? (
               <button
                 onClick={() => {
-                  setMenuOpen(false);
+                  closeMenu();
                   onRevealDir?.(base);
                 }}
                 role="menuitem"
@@ -253,7 +297,7 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
               <button
                 disabled={busy}
                 onClick={() => {
-                  setMenuOpen(false);
+                  closeMenu();
                   onDelete(base.id, base.name);
                 }}
                 role="menuitem"
@@ -266,7 +310,7 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
               <button
                 disabled={busy}
                 onClick={() => {
-                  setMenuOpen(false);
+                  closeMenu();
                   onToggleHidden?.(base, !base.hidden);
                 }}
                 role="menuitem"

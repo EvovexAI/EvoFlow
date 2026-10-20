@@ -153,7 +153,7 @@ export function computeDocHealth(doc, jobStats) {
     if (label === "健康") label = "部分失败";
     hints.push({
       kind: "err",
-      text: `知识库有 ${errorJobs} 个失败任务，可在「索引状态」弹窗看错误`,
+      text: `知识库有 ${errorJobs} 个失败任务，可在「处理进度」里查看`,
     });
   }
   if (runningJobs > 0 || pendingJobs > 0) {

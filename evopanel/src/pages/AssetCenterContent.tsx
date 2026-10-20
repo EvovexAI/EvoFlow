@@ -318,6 +318,7 @@ function initialMemoryKind(): MemoryKind {
   const q = parseHashQuery();
   const k = String(q.memoryKind || q.kind || "").trim().toLowerCase();
   // legacy deep-link memoryKind=graph → facts (asset-hub memory graph UI removed)
+  if (k === "graph") return "facts";
   if (k === "standing" || k === "facts" || k === "episodic") return k;
   const path = String(q.path || "").replace(/\\/g, "/");
   if (path.startsWith("memory/episodic/")) return "episodic";
