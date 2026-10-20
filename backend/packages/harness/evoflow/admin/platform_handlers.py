@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import json
 from typing import Any
 
 from evoflow.admin.errors import ValidationError
+
+
+def _run_coro_sync(coro: Any) -> Any:
+    """Run an async coroutine from sync platform handlers (may already be on a loop)."""
+
+    def _run() -> Any:
+        return asyncio.run(coro)
+
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is not None and running.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_run).result(timeout=120)
+    return _run()
 
 
 def _arg_str(args: dict[str, Any], *keys: str) -> str:
@@ -567,6 +585,22 @@ def settings_create_model(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "model": models_admin.create_model(args)}
 
 
+def settings_update_model(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin import models as models_admin
+
+    name = _arg_str(args, "model", "name", "modelName")
+    if not name:
+        raise ValidationError("model is required（要更新的模型名）")
+    skip = {"model", "name", "modelName", "model_name", "confirm", "principal_id"}
+    payload = {k: v for k, v in args.items() if k not in skip and v is not None}
+    api_key = payload.get("api_key")
+    if isinstance(api_key, str) and api_key.startswith("****"):
+        payload.pop("api_key", None)
+    if not payload:
+        raise ValidationError("至少提供一个要更新的字段（如 base_url / api_key / temperature）")
+    return {"ok": True, "model": models_admin.update_model(name, payload), "name": name}
+
+
 def settings_delete_model(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import models as models_admin
 
@@ -602,6 +636,76 @@ def assets_update_profile(args: dict[str, Any]) -> dict[str, Any]:
             mode=mode,
             principal_id=_arg_str(args, "principal_id"),
         ),
+    }
+
+
+def assets_init(_args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.assets.hub import ensure_assets_tree, list_entities
+
+    root = ensure_assets_tree()
+    return {"ok": True, "root": str(root.resolve()), "entities": list_entities()}
+
+
+def assets_migrate(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.assets.migrate import (
+        migrate_all,
+        migrate_experiences,
+        migrate_memory_namespaces,
+        migrate_slim_atoms,
+    )
+
+    dry = _arg_bool(args, "dry_run", False) or _arg_bool(args, "dryRun", False)
+    only = (_arg_str(args, "only", "scope") or "all").strip().lower()
+    if only == "experience":
+        data = migrate_experiences(dry_run=dry)
+    elif only == "memory":
+        data = migrate_memory_namespaces(dry_run=dry)
+    elif only == "slim":
+        data = migrate_slim_atoms(dry_run=dry)
+    elif only in {"agent-memory", "agent_memory"}:
+        from evoflow.assets.migrate_agent_memory import migrate_agent_memory_to_user
+
+        data = migrate_agent_memory_to_user(dry_run=dry)
+    else:
+        data = migrate_all(dry_run=dry)
+    return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "only": only, "dry_run": dry}
+
+
+def assets_export(args: dict[str, Any]) -> dict[str, Any]:
+    from pathlib import Path
+
+    from evoflow.assets.pack import export_entity_pack
+    from evoflow.assets.paths import EntityRef
+
+    entity_type = _arg_str(args, "entity_type", "type") or "user"
+    entity_id = _arg_str(args, "entity_id", "id") or "user"
+    out_raw = _arg_str(args, "output", "output_path", "path")
+    out = Path(out_raw).expanduser() if out_raw else None
+    data = export_entity_pack(EntityRef(entity_type, entity_id), output_path=out)
+    return {
+        "ok": True,
+        **(data if isinstance(data, dict) else {"result": data}),
+        "name": f"{entity_type}:{entity_id}",
+    }
+
+
+def assets_import(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.assets.pack import import_entity_pack
+    from evoflow.assets.paths import EntityRef
+
+    pack = _arg_str(args, "pack", "path", "pack_path")
+    entity_type = _arg_str(args, "entity_type", "type")
+    entity_id = _arg_str(args, "entity_id", "id")
+    if not pack:
+        raise ValidationError("pack path is required（.evoflow-pack）")
+    if not entity_type or not entity_id:
+        raise ValidationError("entity_type and entity_id are required")
+    conflict = _arg_str(args, "conflict") or "skip"
+    data = import_entity_pack(pack, EntityRef(entity_type, entity_id), conflict=conflict)
+    return {
+        "ok": True,
+        **(data if isinstance(data, dict) else {"result": data}),
+        "name": f"{entity_type}:{entity_id}",
     }
 
 
@@ -885,6 +989,42 @@ def employees_trail(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def employees_wake(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin import employees as emp
+
+    target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
+    if not target:
+        raise ValidationError("target is required（agent_code 或 role_name）")
+    data = emp.wake(
+        target,
+        _arg_str(args, "goal") or "",
+        from_agent=_arg_str(args, "from_agent", "fromAgent") or "",
+        task_id=_arg_str(args, "task_id", "taskId") or "",
+        description=_arg_str(args, "description") or "",
+        priority=_arg_str(args, "priority") or "normal",
+        source=_arg_str(args, "source") or "role",
+        round_id=_arg_str(args, "round_id", "roundId") or "",
+        resume_round=_arg_bool(args, "resume_round", False) or _arg_bool(args, "resumeRound", False),
+        fresh_round=_arg_bool(args, "fresh_round", False) or _arg_bool(args, "freshRound", False),
+        skip_done_guard=_arg_bool(args, "skip_done_guard", False) or _arg_bool(args, "skipDoneGuard", False),
+    )
+    return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "name": target}
+
+
+def employees_migrate(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.proactive.migrate_initiatives import migrate_actionable_initiatives_to_tasks
+
+    code = _arg_str(args, "agent_code", "agentCode", "code") or None
+    dry = _arg_bool(args, "dry_run", False) or _arg_bool(args, "dryRun", False)
+    data = migrate_actionable_initiatives_to_tasks(dry_run=dry, role_agent_code=code)
+    return {
+        "ok": True,
+        **(data if isinstance(data, dict) else {"result": data}),
+        "dry_run": dry,
+        "name": code or "all",
+    }
+
+
 # ── tasks ──────────────────────────────────────────────────────────────────
 
 
@@ -1068,6 +1208,149 @@ def tasks_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **tasks_admin.delete_task(tid)}
 
 
+def tasks_progress(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin import tasks as tasks_admin
+
+    tid = _arg_str(args, "task_id", "taskId", "id")
+    if not tid:
+        raise ValidationError("task_id is required")
+    if "progress" not in args:
+        raise ValidationError("progress is required（0-100）")
+    try:
+        progress = int(args.get("progress"))
+    except (TypeError, ValueError) as e:
+        raise ValidationError("progress must be an integer 0-100") from e
+    data = tasks_admin.update_progress(
+        tid,
+        progress,
+        status=_arg_str(args, "status", "state") or None,
+        subtask_id=_arg_str(args, "subtask_id", "subtaskId") or None,
+    )
+    return {"ok": True, **(data if isinstance(data, dict) else {}), "id": tid, "name": tid}
+
+
+def tasks_cleanup_noise(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.collab.task_noise import cleanup_noise_tasks
+
+    if "apply" in args:
+        dry_run = not _arg_bool(args, "apply", False)
+    elif "dry_run" in args:
+        dry_run = _arg_bool(args, "dry_run", True)
+    elif "dryRun" in args:
+        dry_run = _arg_bool(args, "dryRun", True)
+    else:
+        dry_run = True  # default preview
+    stuck_days = int(args.get("stuck_days") or args.get("stuckDays") or 3)
+    limit = int(args.get("limit") or 0)
+    data = cleanup_noise_tasks(dry_run=dry_run, stuck_days=stuck_days, limit=limit)
+    return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "dry_run": dry_run}
+
+
+def tasks_reclaim_zombies(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.collab.task_reclaim import reclaim_zombie_tasks
+
+    apply = _arg_bool(args, "apply", False)
+    if "apply" in args:
+        dry_run = not apply
+    elif "dry_run" in args:
+        dry_run = _arg_bool(args, "dry_run", True)
+    elif "dryRun" in args:
+        dry_run = _arg_bool(args, "dryRun", True)
+    else:
+        dry_run = True
+    data = reclaim_zombie_tasks(
+        dry_run=dry_run,
+        stuck_days=int(args.get("stuck_days") or args.get("stuckDays") or 3),
+        awaiting_close_days=int(args.get("awaiting_close_days") or args.get("awaitingCloseDays") or 3),
+        limit=int(args.get("limit") or 0),
+    )
+    return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "dry_run": dry_run}
+
+
+# ── eval（评测中心）─────────────────────────────────────────────────────────
+
+
+def eval_cases(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.eval import eval_engine as engine
+    from evoflow.persistence.db import get_db
+
+    get_db()
+    cat = _arg_str(args, "category") or None
+    return {"ok": True, **engine.list_eval_cases(category=cat)}
+
+
+def eval_run(args: dict[str, Any]) -> dict[str, Any]:
+    import time
+
+    from evoflow.eval import eval_engine as engine
+    from evoflow.persistence.db import get_db
+
+    get_db()
+    mode = _arg_str(args, "mode", "type") or "smoke"
+    name = _arg_str(args, "name") or f"platform {mode} {time.strftime('%Y-%m-%d %H:%M')}"
+    days = int(args.get("days") or 7)
+    async_mode = _arg_bool(args, "async", False) or _arg_bool(args, "async_mode", False)
+    wait = _arg_bool(args, "wait", True)
+    result = engine.run_eval(
+        name=name,
+        type=mode,
+        config={"mode": mode, "days": days},
+        async_mode=async_mode,
+    )
+    if async_mode and wait and isinstance(result, dict) and result.get("run_id"):
+        run_id = str(result["run_id"])
+        for _ in range(600):
+            prog = engine.get_eval_progress(run_id)
+            if prog.get("status") not in ("running", "queued"):
+                break
+            time.sleep(0.5)
+        result = engine.get_eval_run(run_id)
+    rid = ""
+    if isinstance(result, dict):
+        rid = str(result.get("run_id") or (result.get("run") or {}).get("run_id") or "")
+    return {"ok": True, **(result if isinstance(result, dict) else {"result": result}), "id": rid, "name": name}
+
+
+def eval_runs(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.eval import eval_engine as engine
+    from evoflow.persistence.db import get_db
+
+    get_db()
+    return {
+        "ok": True,
+        **engine.list_eval_runs(
+            limit=int(args.get("limit") or 20),
+            offset=int(args.get("offset") or 0),
+            type=_arg_str(args, "type", "mode") or None,
+            status=_arg_str(args, "status") or None,
+        ),
+    }
+
+
+def eval_get(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.eval import eval_engine as engine
+    from evoflow.persistence.db import get_db
+
+    get_db()
+    run_id = _arg_str(args, "run_id", "runId", "id")
+    if not run_id:
+        raise ValidationError("run_id is required")
+    data = engine.get_eval_run(run_id)
+    return {"ok": True, **(data if isinstance(data, dict) else {}), "id": run_id, "name": run_id}
+
+
+def eval_progress(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.eval import eval_engine as engine
+    from evoflow.persistence.db import get_db
+
+    get_db()
+    run_id = _arg_str(args, "run_id", "runId", "id")
+    if not run_id:
+        raise ValidationError("run_id is required")
+    data = engine.get_eval_progress(run_id)
+    return {"ok": True, **(data if isinstance(data, dict) else {}), "id": run_id}
+
+
 # ── skills ─────────────────────────────────────────────────────────────────
 
 
@@ -1132,6 +1415,70 @@ def mcp_get(_args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import mcp as mcp_admin
 
     return {"ok": True, **mcp_admin.get_mcp_config()}
+
+
+def mcp_list(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.mcp.cli_ops import mcp_list_servers
+
+    names = args.get("servers") or args.get("names") or args.get("server_names")
+    server_names: list[str] | None = None
+    if isinstance(names, str) and names.strip():
+        server_names = [n.strip() for n in names.split(",") if n.strip()]
+    elif isinstance(names, (list, tuple)):
+        server_names = [str(n).strip() for n in names if str(n).strip()]
+    return {"ok": True, **mcp_list_servers(server_names=server_names)}
+
+
+def mcp_add(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.mcp.cli_ops import mcp_add_server
+
+    name = _arg_str(args, "server", "name", "server_name")
+    if not name:
+        raise ValidationError("server/name is required")
+    document = _arg_json_value(args, "document", "config", "server_config")
+    if not isinstance(document, dict):
+        # Allow flat args as document (excluding identity keys).
+        skip = {"server", "name", "server_name", "document", "config", "server_config", "confirm", "principal_id"}
+        document = {k: v for k, v in args.items() if k not in skip}
+    if not document:
+        raise ValidationError("document/config is required（url 或 command+args）")
+    return {"ok": True, **mcp_add_server(name, document), "name": name}
+
+
+def mcp_remove(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.mcp.cli_ops import mcp_remove_server
+
+    name = _arg_str(args, "server", "name", "server_name")
+    if not name:
+        raise ValidationError("server/name is required")
+    return {"ok": True, **mcp_remove_server(name), "name": name}
+
+
+def mcp_test(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.mcp.cli_ops import mcp_test_server
+
+    name = _arg_str(args, "server", "name", "server_name")
+    if not name:
+        raise ValidationError("server/name is required")
+    return {"ok": True, **mcp_test_server(name), "name": name}
+
+
+def mcp_login(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.mcp.cli_ops import mcp_login_server
+
+    name = _arg_str(args, "server", "name", "server_name")
+    if not name:
+        raise ValidationError("server/name is required")
+    return {"ok": True, **mcp_login_server(name), "name": name}
+
+
+def mcp_logout(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.mcp.cli_ops import mcp_logout_server
+
+    name = _arg_str(args, "server", "name", "server_name")
+    if not name:
+        raise ValidationError("server/name is required")
+    return {"ok": True, **mcp_logout_server(name), "name": name}
 
 
 def mcp_set(args: dict[str, Any]) -> dict[str, Any]:
@@ -1835,3 +2182,825 @@ def appearance_patch(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin.appearance import patch_appearance
 
     return patch_appearance(args)
+
+
+# ── extensions（Agent应用 / UI 扩展；侧栏 #/extensions）─────────────────────
+
+
+def _map_extension_error(exc: Exception) -> None:
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.admin.ui_extensions_registry import (
+        ExtensionIOError,
+        ExtensionNotFoundError,
+        ExtensionValidationError,
+    )
+
+    if isinstance(exc, ExtensionNotFoundError):
+        raise NotFoundError(str(exc)) from exc
+    if isinstance(exc, (ExtensionValidationError, ExtensionIOError)):
+        raise ValidationError(str(exc)) from exc
+    raise exc
+
+
+def _remote_extension_manifest(*, ext_id: str, name: str, entry: str) -> dict[str, Any]:
+    from urllib.parse import urlparse
+
+    origin = ""
+    try:
+        parsed = urlparse(entry)
+        if parsed.scheme and parsed.netloc:
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+    except Exception:
+        origin = ""
+    return {
+        "schema": 1,
+        "id": ext_id,
+        "name": name or ext_id,
+        "version": "0.0.0",
+        "ui": {"kind": "webview", "entry": entry},
+        "permissions": ["embed"],
+        "service": {"mode": "none"},
+        "bridge": {"origin_allowlist": [origin] if origin else []},
+    }
+
+
+def extensions_list(_args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.ui_extensions_registry import read_registry, registry_path
+
+    try:
+        rows = read_registry()
+    except Exception as exc:
+        _map_extension_error(exc)
+        raise
+    return {
+        "ok": True,
+        "extensions": rows,
+        "count": len(rows),
+        "registry_path": str(registry_path()),
+    }
+
+
+def extensions_get(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.admin.ui_extensions_registry import get_row
+
+    ext_id = _arg_str(args, "id", "ext_id", "extension_id")
+    if not ext_id:
+        raise ValidationError("id is required")
+    try:
+        row = get_row(ext_id)
+    except Exception as exc:
+        _map_extension_error(exc)
+        raise
+    if row is None:
+        raise NotFoundError(f"扩展不存在: {ext_id}")
+    manifest = row.get("manifest") if isinstance(row.get("manifest"), dict) else {}
+    return {"ok": True, "extension": row, "id": ext_id, "name": _arg_str(manifest, "name") or ext_id}
+
+
+def extensions_install(args: dict[str, Any]) -> dict[str, Any]:
+    """Install Agent应用: local ``path``, remote ``id``+``url``/``entry``, or ``manifest``(+``install_path``)."""
+    from pathlib import Path
+
+    from evoflow.admin.ui_extensions_registry import (
+        read_manifest_from_dir,
+        register_directory,
+        upsert_row,
+    )
+
+    path = _arg_str(args, "path")
+    manifest = _arg_json_value(args, "manifest")
+    install_path = _arg_str(args, "install_path", "installPath")
+    entry = _arg_str(args, "url", "entry", "entry_url")
+    ext_id = _arg_str(args, "id", "ext_id", "extension_id")
+    name = _arg_str(args, "name")
+    link = args.get("link")
+    source = _arg_str(args, "source") or None
+
+    try:
+        if path:
+            src = Path(path).expanduser()
+            # Validate early for clearer errors; register_directory re-reads.
+            read_manifest_from_dir(src)
+            link_flag = None if link is None else _arg_bool(args, "link", False)
+            row = register_directory(src, link=link_flag, source=source)
+        elif isinstance(manifest, dict):
+            if not install_path:
+                ui = manifest.get("ui") if isinstance(manifest.get("ui"), dict) else {}
+                install_path = str(ui.get("entry") or "").strip()
+            if not install_path:
+                raise ValidationError("manifest 安装须提供 install_path（或 manifest.ui.entry）")
+            row = upsert_row(manifest, install_path, source or "api")
+        elif ext_id and entry:
+            built = _remote_extension_manifest(ext_id=ext_id, name=name, entry=entry)
+            row = upsert_row(built, entry, source or "remote")
+        else:
+            raise ValidationError(
+                "须提供 path（本地目录）、或 id+url/entry（远程入口）、或 manifest（+install_path）"
+            )
+    except Exception as exc:
+        _map_extension_error(exc)
+        raise
+
+    mid = str(row.get("id") or ext_id or "")
+    mname = _arg_str(row.get("manifest") or {}, "name") or mid
+    return {"ok": True, "extension": row, "id": mid, "name": mname, "installed": True}
+
+
+def extensions_enable(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.ui_extensions_registry import set_enabled
+
+    ext_id = _arg_str(args, "id", "ext_id", "extension_id")
+    if not ext_id:
+        raise ValidationError("id is required")
+    try:
+        out = set_enabled(ext_id, enabled=_arg_bool(args, "enabled", True))
+    except Exception as exc:
+        _map_extension_error(exc)
+        raise
+    return {"ok": True, **out, "name": ext_id}
+
+
+def extensions_uninstall(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.ui_extensions_registry import remove_row
+
+    ext_id = _arg_str(args, "id", "ext_id", "extension_id")
+    if not ext_id:
+        raise ValidationError("id is required")
+    try:
+        row = remove_row(ext_id)
+    except Exception as exc:
+        _map_extension_error(exc)
+        raise
+    return {"ok": True, "id": ext_id, "uninstalled": True, "extension": row, "name": ext_id}
+
+
+# ── plugins（ZCode 兼容插件市场：安装/启停/市场）────────────────────────────
+
+
+def _plugins_service():
+    from evoflow.plugins.service import PluginManagementService
+    from evoflow.plugins.storage import resolve_storage_root
+
+    return PluginManagementService(resolve_storage_root())
+
+
+def _map_plugin_error(exc: Exception) -> None:
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.plugins.manifest import PluginManifestError
+    from evoflow.plugins.sources import PluginSourceError
+
+    if isinstance(exc, (PluginManifestError, PluginSourceError)):
+        msg = str(exc)
+        lowered = msg.lower()
+        if "not found" in lowered or "not installed" in lowered:
+            raise NotFoundError(msg) from exc
+        raise ValidationError(msg) from exc
+    raise exc
+
+
+def plugins_overview(_args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        data = _plugins_service().overview()
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data}
+
+
+def plugins_list(_args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        data = _plugins_service().list_plugins()
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data}
+
+
+def plugins_describe(args: dict[str, Any]) -> dict[str, Any]:
+    marketplace = _arg_str(args, "marketplace", "marketplace_id")
+    name = _arg_str(args, "name", "pluginName", "plugin_name")
+    if not marketplace or not name:
+        raise ValidationError("marketplace and name are required")
+    try:
+        data = _plugins_service().describe_plugin(marketplace, name)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data, "name": name, "marketplace": marketplace}
+
+
+def plugins_install(args: dict[str, Any]) -> dict[str, Any]:
+    marketplace = _arg_str(args, "marketplace", "marketplace_id")
+    name = _arg_str(args, "pluginName", "plugin_name", "name")
+    scope = _arg_str(args, "scope") or "user"
+    if not marketplace or not name:
+        raise ValidationError("marketplace and pluginName/name are required")
+    try:
+        data = _plugins_service().install_plugin(marketplace, name, scope)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    plugin_id = f"{name}@{marketplace}"
+    return {"ok": True, **data, "id": plugin_id, "name": name, "pluginId": plugin_id}
+
+
+def plugins_enable(args: dict[str, Any]) -> dict[str, Any]:
+    plugin_id = _arg_str(args, "pluginId", "plugin_id", "id")
+    if not plugin_id:
+        raise ValidationError("pluginId is required（形如 name@marketplace）")
+    try:
+        data = _plugins_service().set_plugin_enabled(plugin_id, _arg_bool(args, "enabled", True))
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data, "id": plugin_id, "name": plugin_id}
+
+
+def plugins_update(args: dict[str, Any]) -> dict[str, Any]:
+    plugin_id = _arg_str(args, "pluginId", "plugin_id", "id")
+    if not plugin_id:
+        raise ValidationError("pluginId is required")
+    try:
+        data = _plugins_service().update_plugin(plugin_id)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data, "id": plugin_id, "name": plugin_id}
+
+
+def plugins_restore(args: dict[str, Any]) -> dict[str, Any]:
+    plugin_id = _arg_str(args, "pluginId", "plugin_id", "id")
+    if not plugin_id:
+        raise ValidationError("pluginId is required")
+    try:
+        data = _plugins_service().restore_builtin_plugin(plugin_id)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data, "id": plugin_id, "name": plugin_id}
+
+
+def plugins_uninstall(args: dict[str, Any]) -> dict[str, Any]:
+    plugin_id = _arg_str(args, "pluginId", "plugin_id", "id")
+    if not plugin_id:
+        raise ValidationError("pluginId is required")
+    if "removeCache" in args:
+        remove_cache = _arg_bool(args, "removeCache", True)
+    elif "remove_cache" in args:
+        remove_cache = _arg_bool(args, "remove_cache", True)
+    else:
+        remove_cache = True
+    try:
+        data = _plugins_service().uninstall_plugin(plugin_id, remove_cache)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, **data, "id": plugin_id, "name": plugin_id, "uninstalled": True}
+
+
+def plugins_marketplace_add(args: dict[str, Any]) -> dict[str, Any]:
+    source = _arg_str(args, "source")
+    if not source:
+        raise ValidationError("source is required（URL / git / owner/repo / 本地路径）")
+    try:
+        record, diagnostics = _plugins_service().add_marketplace(source)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {
+        "ok": True,
+        "marketplace": {"id": record.id, "name": record.name, "source": record.source},
+        "id": record.id,
+        "name": record.name,
+        "diagnostics": [d.to_json() if hasattr(d, "to_json") else d for d in (diagnostics or [])],
+    }
+
+
+def plugins_marketplace_remove(args: dict[str, Any]) -> dict[str, Any]:
+    marketplace_id = _arg_str(args, "marketplace", "marketplace_id", "id")
+    if not marketplace_id:
+        raise ValidationError("marketplace id is required")
+    try:
+        _plugins_service().remove_marketplace(marketplace_id)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {"ok": True, "id": marketplace_id, "name": marketplace_id, "removed": True}
+
+
+def plugins_marketplace_refresh(args: dict[str, Any]) -> dict[str, Any]:
+    marketplace_id = _arg_str(args, "marketplace", "marketplace_id", "id") or None
+    try:
+        updated, diagnostics = _plugins_service().refresh_marketplace(marketplace_id)
+    except Exception as exc:
+        _map_plugin_error(exc)
+        raise
+    return {
+        "ok": True,
+        "marketplaces": [{"id": r.id, "name": r.name, "pluginCount": r.pluginCount} for r in (updated or [])],
+        "id": marketplace_id or "",
+        "diagnostics": [d.to_json() if hasattr(d, "to_json") else d for d in (diagnostics or [])],
+    }
+
+
+# ── org（资源包 / Organization Pack）─────────────────────────────────────────
+
+
+def _org_source_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    source = _arg_json_value(args, "source")
+    if isinstance(source, dict) and source:
+        out = dict(source)
+        st = str(out.get("type") or "path").strip() or "path"
+        out["type"] = st
+        return out
+    path = _arg_str(args, "path")
+    url = _arg_str(args, "url")
+    if path:
+        is_zip = _arg_bool(args, "zip", False) or path.lower().endswith(".zip")
+        src_type = "market_path" if _arg_bool(args, "market", False) else ("zip_path" if is_zip else "path")
+        out = {"type": src_type, "path": path}
+        repo = _arg_str(args, "repo")
+        if repo:
+            out["repo"] = repo
+        return out
+    if url:
+        return {"type": "zip_url", "url": url, "repo": _arg_str(args, "repo") or None}
+    raise ValidationError("须提供 source 对象，或 path / url")
+
+
+def _org_install_options(args: dict[str, Any]) -> dict[str, Any]:
+    options = _arg_json_value(args, "options")
+    opts: dict[str, Any] = dict(options) if isinstance(options, dict) else {}
+    prefix = _arg_str(args, "id_prefix", "idPrefix")
+    if prefix:
+        opts["id_prefix"] = prefix
+    conflict = _arg_str(args, "conflict", "conflict_policy", "conflictPolicy")
+    if conflict:
+        opts["conflict_policy"] = conflict
+    return opts
+
+
+def org_preflight(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.organizations.installer import preflight_organization
+
+    return {
+        "ok": True,
+        **preflight_organization(
+            source=_org_source_from_args(args),
+            workspace_path=_arg_str(args, "workspace_path", "workspace") or None,
+            options=_org_install_options(args) or None,
+        ),
+    }
+
+
+def org_install(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.organizations.installer import OrganizationInstallError, install_organization
+
+    try:
+        data = install_organization(
+            source=_org_source_from_args(args),
+            workspace_path=_arg_str(args, "workspace_path", "workspace") or None,
+            options=_org_install_options(args) or None,
+        )
+    except OrganizationInstallError as exc:
+        raise ValidationError(f"{exc}（rolled_back={getattr(exc, 'rolled_back', None)}）") from exc
+    oid = _arg_str(data if isinstance(data, dict) else {}, "org_instance_id", "id")
+    return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "id": oid, "name": oid}
+
+
+def org_list(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.organizations.registry import list_org_instances
+
+    status = _arg_str(args, "status") or "active"
+    if status == "all":
+        status = ""
+    items = list_org_instances(status=status or None)
+    return {"ok": True, "items": items, "count": len(items)}
+
+
+def org_get(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.organizations.registry import get_org_instance
+
+    oid = _arg_str(args, "org_instance_id", "id", "org_id")
+    if not oid:
+        raise ValidationError("org_instance_id is required")
+    inst = get_org_instance(oid)
+    if not inst:
+        raise NotFoundError(f"Organization not found: {oid}")
+    pack = inst.get("pack") if isinstance(inst.get("pack"), dict) else {}
+    name = _arg_str(inst, "name") or _arg_str(pack, "name") or oid
+    return {"ok": True, "organization": inst, "id": oid, "name": name}
+
+
+def org_uninstall(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.organizations.installer import OrganizationInstallError, uninstall_organization
+
+    oid = _arg_str(args, "org_instance_id", "id", "org_id")
+    if not oid:
+        raise ValidationError("org_instance_id is required")
+    options = _arg_json_value(args, "options")
+    opts: dict[str, Any] = dict(options) if isinstance(options, dict) else {}
+    if "keep_primitives" in args:
+        opts["keep_primitives"] = _arg_bool(args, "keep_primitives", False)
+    elif "keepPrimitives" in args:
+        opts["keep_primitives"] = _arg_bool(args, "keepPrimitives", False)
+    if "delete_workspace" in args or "deleteWorkspace" in args:
+        delete_ws = (
+            _arg_bool(args, "delete_workspace", False)
+            if "delete_workspace" in args
+            else _arg_bool(args, "deleteWorkspace", False)
+        )
+        opts["keep_workspace"] = not delete_ws
+    elif "keep_workspace" in args:
+        opts["keep_workspace"] = _arg_bool(args, "keep_workspace", True)
+    elif "keepWorkspace" in args:
+        opts["keep_workspace"] = _arg_bool(args, "keepWorkspace", True)
+    try:
+        data = uninstall_organization(oid, options=opts or None)
+    except OrganizationInstallError as exc:
+        raise ValidationError(str(exc)) from exc
+    return {"ok": True, **(data if isinstance(data, dict) else {}), "id": oid, "name": oid, "uninstalled": True}
+
+
+def org_export(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.organizations.export import OrganizationExportError, export_organization
+
+    pack = _arg_json_value(args, "pack")
+    if not isinstance(pack, dict):
+        pack = {
+            "id": _arg_str(args, "pack_id", "id") or "exported-pack",
+            "name": _arg_str(args, "pack_name", "name") or "导出的资源包",
+            "version": _arg_str(args, "version") or "1.0.0",
+        }
+    include = _arg_json_value(args, "include")
+    if not isinstance(include, dict):
+        employees = _arg_str(args, "employees", "employee_codes")
+        apps = _arg_str(args, "apps", "app_ids")
+        include = {
+            "employee_codes": [x.strip() for x in employees.split(",") if x.strip()] if employees else [],
+            "app_ids": [x.strip() for x in apps.split(",") if x.strip()] if apps else [],
+        }
+    output = _arg_json_value(args, "output")
+    if not isinstance(output, dict):
+        out_dir = _arg_str(args, "output_dir", "dir", "output")
+        if not out_dir:
+            raise ValidationError("output.dir / output_dir is required")
+        output = {"dir": out_dir, "zip": _arg_bool(args, "zip", False)}
+    try:
+        data = export_organization(pack=pack, include=include, output=output)
+    except OrganizationExportError as exc:
+        raise ValidationError(str(exc)) from exc
+    return {"ok": True, **(data if isinstance(data, dict) else {}), "name": pack.get("name") or pack.get("id")}
+
+
+def org_market_catalog(_args: dict[str, Any]) -> dict[str, Any]:
+    import urllib.request
+
+    from evoflow.organizations.fetch import market_catalog_url
+
+    url = market_catalog_url()
+    empty = {
+        "ok": True,
+        "schema": 1,
+        "marketId": "evoflow-resource-market",
+        "packs": [],
+        "configured": bool(url),
+        "source": url or None,
+    }
+    if not url:
+        return empty
+
+    def _fetch() -> dict[str, Any]:
+        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        if not isinstance(data, dict):
+            raise ValidationError("catalog must be a JSON object")
+        data.setdefault("schema", 1)
+        data["source"] = url
+        data["configured"] = True
+        if not isinstance(data.get("packs"), list):
+            data["packs"] = []
+        return data
+
+    try:
+        return {"ok": True, **_fetch()}
+    except ValidationError:
+        raise
+    except Exception as exc:
+        raise ValidationError(f"Failed to fetch market catalog: {exc}") from exc
+
+
+def org_market_install(args: dict[str, Any]) -> dict[str, Any]:
+    path = _arg_str(args, "path", "pack_path")
+    if not path:
+        raise ValidationError("path is required（市场内相对路径，如 packs/foo）")
+    merged = dict(args)
+    merged["source"] = {
+        "type": "market_path",
+        "path": path,
+        "repo": _arg_str(args, "repo") or None,
+    }
+    if "conflict" not in merged and "conflict_policy" not in merged:
+        merged["conflict"] = "fail"
+    return org_install(merged)
+
+
+# ── channels（IM 渠道：飞书/企微/钉钉/微信）────────────────────────────────
+
+
+def _channels_service_or_none():
+    try:
+        from app.channels.service import get_channel_service
+
+        return get_channel_service()
+    except Exception:
+        return None
+
+
+def _channels_ensure_service():
+    service = _channels_service_or_none()
+    if service is not None:
+        return service
+    try:
+        from app.channels.service import start_channel_service
+
+        return _run_coro_sync(start_channel_service())
+    except Exception:
+        return None
+
+
+def channels_list(_args: dict[str, Any]) -> dict[str, Any]:
+    service = _channels_ensure_service()
+    if service is not None:
+        status = service.get_status()
+        return {"ok": True, **(status if isinstance(status, dict) else {"status": status})}
+    try:
+        from app.channels.service import registry_channel_status
+
+        return {"ok": True, **registry_channel_status(service_running=False)}
+    except Exception:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        configs = cfg_repo.get_all_channel_configs()
+        return {
+            "ok": True,
+            "service_running": False,
+            "channels": {
+                name: {"enabled": bool((cfg or {}).get("enabled")), "running": False, "config": cfg}
+                for name, cfg in (configs or {}).items()
+            },
+        }
+
+
+def channels_get(args: dict[str, Any]) -> dict[str, Any]:
+    name = _arg_str(args, "name", "channel", "platform")
+    if not name:
+        raise ValidationError("name is required（feishu|weixin|wecom|dingtalk）")
+    service = _channels_service_or_none()
+    if service is not None:
+        config, enabled, running = service.get_channel_config(name)
+        return {
+            "ok": True,
+            "name": name,
+            "enabled": enabled,
+            "running": running,
+            "config": config or {},
+        }
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    cfg = cfg_repo.get_all_channel_configs().get(name)
+    if cfg is None:
+        raise NotFoundError(f"Channel not found: {name}")
+    return {
+        "ok": True,
+        "name": name,
+        "enabled": bool(cfg.get("enabled")),
+        "running": False,
+        "config": cfg,
+        "hint": "Channel service 未运行；仅返回持久化配置",
+    }
+
+
+def channels_set_config(args: dict[str, Any]) -> dict[str, Any]:
+    name = _arg_str(args, "name", "channel", "platform")
+    if not name:
+        raise ValidationError("name is required")
+    config = _arg_json_value(args, "config")
+    if not isinstance(config, dict):
+        skip = {"name", "channel", "platform", "config", "merge", "confirm", "principal_id"}
+        config = {k: v for k, v in args.items() if k not in skip}
+    if not config:
+        raise ValidationError("config is required")
+    merge = _arg_bool(args, "merge", True)
+
+    service = _channels_service_or_none()
+    if service is not None:
+        payload = config
+        if merge:
+            existing, _, _ = service.get_channel_config(name)
+            payload = {**(existing or {}), **config}
+        ok = bool(_run_coro_sync(service.update_channel_config(name, payload)))
+        return {"ok": ok, "name": name, "success": ok, "config": payload}
+
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    existing = cfg_repo.get_all_channel_configs().get(name) or {}
+    doc = {**existing, **config} if merge else dict(config)
+    cfg_repo.upsert_channel_config(name, doc)
+    return {
+        "ok": True,
+        "name": name,
+        "success": True,
+        "config": doc,
+        "hint": "已写入配置；重启 Gateway 或 channels.restart 后生效",
+    }
+
+
+def channels_enable(args: dict[str, Any]) -> dict[str, Any]:
+    name = _arg_str(args, "name", "channel", "platform")
+    if not name:
+        raise ValidationError("name is required")
+    enabled = _arg_bool(args, "enabled", True)
+    service = _channels_ensure_service()
+    if service is None:
+        # Persist enabled flag even if runtime is down.
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        existing = cfg_repo.get_all_channel_configs().get(name) or {}
+        existing["enabled"] = enabled
+        cfg_repo.upsert_channel_config(name, existing)
+        return {
+            "ok": True,
+            "name": name,
+            "enabled": enabled,
+            "success": True,
+            "hint": "Channel service 未运行；仅写入 enabled，重启 Gateway 后生效",
+        }
+    ok = bool(_run_coro_sync(service.set_channel_enabled(name, enabled)))
+    return {"ok": ok, "name": name, "enabled": enabled, "success": ok}
+
+
+def channels_restart(args: dict[str, Any]) -> dict[str, Any]:
+    name = _arg_str(args, "name", "channel", "platform")
+    if not name:
+        raise ValidationError("name is required")
+    service = _channels_ensure_service()
+    if service is None:
+        raise ValidationError("Channel service is not running（请先启动 Gateway）")
+    ok = bool(_run_coro_sync(service.restart_channel(name)))
+    return {"ok": ok, "name": name, "success": ok, "restarted": ok}
+
+
+def channels_push_targets(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from app.gateway.channel_result_push import list_push_targets
+    except Exception as exc:
+        raise ValidationError(f"push targets unavailable: {exc}") from exc
+    limit = int(args.get("limit") or 200)
+    return {"ok": True, "targets": list_push_targets(limit=limit)}
+
+
+def _registration_client(channel: str):
+    ch = channel.strip().lower()
+    if ch == "feishu":
+        from app.channels.feishu_registration import get_registration_client
+
+        return get_registration_client(), ch
+    if ch in {"weixin", "wechat"}:
+        from app.channels.weixin_registration import get_weixin_registration_client
+
+        return get_weixin_registration_client(), "weixin"
+    if ch == "wecom":
+        from app.channels.wecom_registration import get_wecom_registration_client
+
+        return get_wecom_registration_client(), "wecom"
+    if ch in {"dingtalk", "dingding"}:
+        from app.channels.dingtalk_registration import get_dingtalk_registration_client
+
+        return get_dingtalk_registration_client(), "dingtalk"
+    raise ValidationError("name must be feishu|weixin|wecom|dingtalk")
+
+
+def channels_registration_begin(args: dict[str, Any]) -> dict[str, Any]:
+    name = _arg_str(args, "name", "channel", "platform") or "feishu"
+    client, channel = _registration_client(name)
+    try:
+        session = _run_coro_sync(client.begin())
+    except Exception as exc:
+        raise ValidationError(f"{channel} registration begin failed: {exc}") from exc
+    return {
+        "ok": True,
+        "name": channel,
+        "session_id": getattr(session, "session_id", None),
+        "qr_url": getattr(session, "qr_url", None) or "",
+        "status": getattr(session, "status", None),
+        "hint": "用对应 App 扫码；再 channels.registration_poll 轮询，完成后 registration_apply",
+    }
+
+
+def channels_registration_poll(args: dict[str, Any]) -> dict[str, Any]:
+    name = _arg_str(args, "name", "channel", "platform") or "feishu"
+    session_id = _arg_str(args, "session_id", "sessionId")
+    if not session_id:
+        raise ValidationError("session_id is required")
+    client, channel = _registration_client(name)
+    try:
+        session = _run_coro_sync(client.poll(session_id))
+    except Exception as exc:
+        raise ValidationError(f"{channel} registration poll failed: {exc}") from exc
+    status = getattr(session, "status", None)
+    out: dict[str, Any] = {
+        "ok": True,
+        "name": channel,
+        "session_id": session_id,
+        "status": status,
+    }
+    if status == "completed":
+        for key in ("app_id", "app_secret", "account_id", "token", "bot_id", "secret", "user_id", "base_url"):
+            val = getattr(session, key, None)
+            if val:
+                out[key] = val
+    if status in {"failed", "expired"}:
+        out["error"] = getattr(session, "error", None)
+    return out
+
+
+def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
+    """Apply completed registration credentials into channel config + start if possible."""
+    name = _arg_str(args, "name", "channel", "platform") or "feishu"
+    session_id = _arg_str(args, "session_id", "sessionId")
+    if not session_id:
+        raise ValidationError("session_id is required")
+    enabled = _arg_bool(args, "enabled", True)
+    client, channel = _registration_client(name)
+    session = client.get_session(session_id)
+    if session is None:
+        raise ValidationError("Registration session not found")
+    if getattr(session, "status", None) != "completed":
+        raise ValidationError(
+            f"Registration is not complete (status={getattr(session, 'status', None)})"
+        )
+
+    config: dict[str, Any] = {"enabled": enabled}
+    if channel == "feishu":
+        if not getattr(session, "app_id", None) or not getattr(session, "app_secret", None):
+            raise ValidationError("Registration completed but credentials are missing")
+        config.update({"app_id": session.app_id, "app_secret": session.app_secret})
+    elif channel == "weixin":
+        try:
+            from app.channels.weixin_setup import save_weixin_credentials
+
+            save_weixin_credentials(
+                getattr(session, "account_id", None),
+                getattr(session, "token", None),
+                getattr(session, "base_url", None),
+                getattr(session, "user_id", None),
+            )
+        except Exception as exc:
+            raise ValidationError(f"save weixin credentials failed: {exc}") from exc
+        service = _channels_ensure_service()
+        running = False
+        if service is not None:
+            _, _, running = service.get_channel_config("weixin")
+        return {
+            "ok": True,
+            "name": channel,
+            "success": True,
+            "channel_running": running,
+            "hint": "微信凭证已保存" + ("" if running else "；如未运行请 channels.restart"),
+        }
+    elif channel == "wecom":
+        try:
+            from app.channels.wecom_setup import save_wecom_credentials
+
+            save_wecom_credentials(getattr(session, "bot_id", None), getattr(session, "secret", None))
+        except Exception as exc:
+            raise ValidationError(f"save wecom credentials failed: {exc}") from exc
+        agent_code = _arg_str(args, "agent_code", "agentCode")
+        if agent_code:
+            # Binding is router-specific; surface for caller.
+            return {
+                "ok": True,
+                "name": channel,
+                "success": True,
+                "agent_code": agent_code,
+                "hint": "企微凭证已保存；如需绑定员工请在面板完成 agent_code 关联",
+            }
+        return {"ok": True, "name": channel, "success": True}
+    elif channel == "dingtalk":
+        # Persist whatever the session exposes.
+        for key in ("app_key", "app_secret", "client_id", "client_secret", "robot_code", "agent_id"):
+            val = getattr(session, key, None)
+            if val:
+                config[key] = val
+        if len(config) <= 1:
+            raise ValidationError("Registration completed but dingtalk credentials are missing")
+
+    return {
+        **channels_set_config({"name": channel, "config": config, "merge": True}),
+        "channel": channel,
+        "hint": "凭证已写入；可用 channels.restart 拉起渠道",
+    }

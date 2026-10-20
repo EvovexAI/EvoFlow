@@ -461,7 +461,8 @@ html[data-translucent-ui='1'] .react-chat-employee-responsibilities ul {
    ══════════════════════════════════════════════════════════ */
 
 html:not([data-translucent-ui='1']) .react-chat-bottom-dock .react-chat-bottom-area {
-  padding: 10px 12px 8px !important;
+  /* 顶侧略留呼吸，勿贴死边框，也不要回到原先大块空白 */
+  padding: 6px 12px 6px !important;
   background: var(--chat-canvas, #ffffff) !important;
   border: 1px solid rgba(15, 23, 42, 0.1) !important;
   border-radius: 16px !important;
@@ -1161,7 +1162,7 @@ html:not([data-translucent-ui='1']) body .react-chat-composer-stack .react-chat-
   border: 1px solid rgba(15, 23, 42, 0.1) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
-  padding: 10px 12px 8px !important;
+  padding: 6px 12px 6px !important;
   max-width: var(--chat-composer-max, 840px) !important;
   width: 100% !important;
   margin-left: auto !important;

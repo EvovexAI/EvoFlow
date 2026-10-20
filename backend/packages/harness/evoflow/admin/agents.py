@@ -24,14 +24,6 @@ from evoflow.persistence import config_repositories as cfg_repo
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
-    "evoflow-admin",
-    "evoflow-assets",
-    "create-plan",
-    "deep-research",
-    "article-writer",
-    "aihot",
-)
 
 _ALLOWED_AGENT_TYPES = frozenset({"custom", "subagent", "acp"})
 _AGENT_CODE_MAX_LEN = 64
@@ -207,15 +199,6 @@ def _agent_tags(agent_cfg: AgentConfig | None) -> list[str]:
         return []
     return normalize_tags(getattr(agent_cfg, "tags", []) or [])
 
-
-def _default_skills_for_new_custom_agent() -> list[str]:
-    try:
-        from evoflow.skills import load_skills
-
-        enabled_names = {s.name for s in load_skills(enabled_only=True)}
-    except Exception:
-        return []
-    return [name for name in _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT if name in enabled_names]
 
 
 def _validate_skills_list(skills: Any) -> list[str]:
@@ -550,14 +533,14 @@ def list_bindings_catalog(*, include_disabled_skills: bool = False) -> dict[str,
         },
         "defaults_on_create": {
             "tools": [],
-            "skills": list(_DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT),
+            "skills": [],
             "mcp_servers": [],
             "knowledge_vault_ids": [],
             "tools_inherit_all": "仅当显式传入 tools: null 时继承全部可配置工具（不推荐）",
         },
         "hint": (
             "创建前先看本目录再填白名单。"
-            "agents.create：省略 tools → []；skills 省略 → 精选默认；"
+            "agents.create：省略 tools → []；skills 省略 → []；"
             "mcp_servers / knowledge_vault_ids 省略 → []。"
             "也可 skills.list / mcp.get / knowledge.list。"
         ),
@@ -587,8 +570,7 @@ def _bindings_applied_summary(row: dict[str, Any], *, tools_mode: str) -> dict[s
 def create_agent(data: dict[str, Any]) -> dict[str, Any]:
     """Create a custom agent.
 
-    When ``skills`` is omitted, a curated default skill set is injected (intersection
-    with currently enabled skills). Pass ``skills: []`` for an empty allowlist.
+    When ``skills`` is omitted, the allowlist is empty ``[]`` (no skills injected).
 
     When ``tools`` is omitted, the allowlist is empty ``[]`` (not inherit-all).
     Pass ``tools: null`` only when you intentionally want every configurable tool.
@@ -652,7 +634,9 @@ def create_agent(data: dict[str, Any]) -> dict[str, Any]:
         else:
             config_data["skills"] = _validate_skills_list(data["skills"])
     else:
-        config_data["skills"] = _default_skills_for_new_custom_agent()
+        # 未显式指定 skills 时默认落空列表（与 tools 对齐）：新建 agent 不自动挂任何技能，
+        # 由用户按需勾选。
+        config_data["skills"] = []
 
     if data.get("tags") is not None:
         config_data["tags"] = normalize_tags(data.get("tags"))

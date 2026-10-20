@@ -1,19 +1,20 @@
 ---
 name: evoflow-admin
-description: EvoFlow 产品自介绍 + 系统治理。用户问「EvoFlow 是什么 / 你能做什么 / 怎么用」时用白话介绍（细则见 references/product-intro.md，description 够用勿整篇读 SKILL）。日常行政优先 platform（catalog→confirm→执行）；复杂/脚本化治理再 terminal + evoflow CLI。覆盖模型、联网搜索、技能、Agent、员工、工作流、事项、协作任务、审批、组织包、资产、知识库、MCP、会话、自动化、画像、日志诊断、系统验证。长期记忆与经验统一走 assets 工具 / evoflow-assets（旧 memory.* / evoflow memory / experience CLI 已退役）。外部 Agent 用 evoflow-admin-external。
+description: EvoFlow 产品自介绍 + 系统治理 + 资产库契约。用户问「EvoFlow 是什么 / 你能做什么 / 怎么用」时用白话介绍（细则见 references/product-intro.md）。长期记忆/经验/偏好/craft 走内置 assets 工具（契约见 references/assets-contract.md，布局见 assets-layout.md）。日常行政优先 platform（catalog→confirm→执行）；复杂/脚本化治理再 terminal + evoflow CLI。覆盖模型、联网搜索、技能、Agent应用、插件、资源包、IM渠道、Agent、员工、工作流、事项、协作任务、审批、资产、知识库、MCP、评测、会话、自动化、画像、日志诊断、系统验证。description 够用勿整篇读 SKILL。仅挂主 Agent（main）；外部 Agent 用 evoflow-admin-external。
 ---
 
-# EvoFlow Admin（自介绍 + 治理）
+# EvoFlow Admin（自介绍 + 治理 + 资产）
 
 ## 何时用哪一段
 
 | 用户意图 | 做法 |
 |----------|------|
 | 「是什么 / 能做什么 / 怎么用 / 介绍一下自己」 | 按 description + [`references/product-intro.md`](references/product-intro.md) 白话回答；**勿**向用户念 CLI |
+| 长期记忆 / 经验 / 偏好 / craft / 资产审计 | 内置 **`assets`**；细则 [`references/assets-contract.md`](references/assets-contract.md)、布局 [`assets-layout.md`](references/assets-layout.md) |
 | 日常平台行政（改模型、雇员工、事项…） | 内置 **`platform`**（先 `catalog`，写操作 `confirm=true`） |
 | 脚本化 / 批处理 / CLI 独有参数 | **`terminal` + `evoflow`**（下文命令参考） |
 
-已退役：分散工具 `create_agent`、`experience_*`、`memory_remember` / `remember`；旧 CLI `evoflow experience` / `evoflow memory`；旧 platform `memory.*` / `experience.*`。长期记忆与经验统一走 **`assets` 工具** / 技能 **`evoflow-assets`**（面板 `#/assets`）。
+已退役：分散工具 `create_agent`、`experience_*`、`memory_remember` / `remember`；旧 CLI `evoflow experience` / `evoflow memory`；旧 platform `memory.*` / `experience.*`；独立技能 **`evoflow-assets`** / **`evoflow-intro`**（已并入本技能）。长期记忆与经验统一走 **`assets` 工具**（面板 `#/assets`）。
 
 **runtime / Work Body / 无 EvoFlow 会话的 Agent**：安装独立发行包 **`evoflow-admin-external`**（GitHub Releases / 官网下载，或本地用 `package_release.py` 打出 zip），不要依赖本技能里的 `platform` / `terminal` 工具叙述，也不要用软链接代替整包拷贝。
 
@@ -25,19 +26,22 @@ description: EvoFlow 产品自介绍 + 系统治理。用户问「EvoFlow 是什
 |-------------|--------|------|
 | `knowledge.*` | `evoflow knowledge …` | vaults / create / enable / list / get / remember / recall / delete；platform 用 `ingest`/`notes`/`search` 等同义名 |
 | `workflow.*` | `evoflow workflow …` | CLI：**仅** list / get / run / stop / status。创建/发布/复制/版本/resume/list_runs → **只用 platform** 或 `POST /api/apps` |
-| `settings.*`（模型+画像+联网搜索） | `evoflow models …` + `profile …` | 联网搜索暂无 CLI，用 `platform`：`settings.get/patch/test_web_search` |
+| `settings.*`（模型+联网搜索） | `evoflow models …` | 含 `update_model`；联网搜索暂无 CLI，用 `platform`：`settings.get/patch/test_web_search` |
 | `appearance.*` | （暂无 CLI） | 主题/背景/液态玻璃：只用 `platform` |
 | `agents.*` | `evoflow agents …` | CLI 另有 `check`；**无** `agents seed` |
-| `employees.*` | `evoflow employees …` | CLI 另有 trail / dispatch / wake / stop / migrate；platform 有 stop，无 wake/migrate |
-| `tasks.*` | `evoflow tasks …` | 协作任务；CLI 另有 `progress` / `cleanup-noise` / `reclaim-zombies` |
+| `employees.*` | `evoflow employees …` | 含 wake / migrate；CLI 另有 dispatch |
+| `tasks.*` | `evoflow tasks …` | 含 progress / cleanup_noise / reclaim_zombies |
 | `items.*` | `evoflow items …` | **个人事项 ≠ tasks** |
-| `skills.*` / `mcp.*` / `automation.*` / `approvals.*` / `sessions.*` | 同名 CLI | MCP：platform 仅 get/set；CLI 另有 list/add/remove/test/login/logout；旧 `memory.*` / `experience.*` 已退役，记忆与 craft 走 `assets` 工具 |
+| `skills.*` / `mcp.*` / `automation.*` / `approvals.*` / `sessions.*` | 同名 CLI | MCP：platform 已有 list/add/remove/test/login/logout/get/set；旧 `memory.*` / `experience.*` 已退役，记忆与 craft 走 `assets` 工具 |
+| `extensions.*` | （暂无 CLI；`/api/ui-extensions`） | **Agent应用**（侧栏网页）：list/get/install/enable/uninstall；远程 `id+url` 或本地 `path` |
+| `plugins.*` | （暂无 CLI；`/api/plugins`） | 插件市场：overview/list/describe/install/enable/update/restore/uninstall + marketplace_* |
+| `org.*` | `evoflow org …` | 资源包：preflight / install / list / get / uninstall / export / market_* |
+| `channels.*` | （暂无 CLI；`/api/channels`） | IM 渠道：list/get/set_config/enable/restart/push_targets + 扫码 registration_* |
 | `diagnostics.*` | `evoflow logs …` | sources / scan / timeline；综合诊断 `diagnostics.run` **仅 platform** |
 | `verification.*` | （暂无 CLI，用 `platform` 或 `POST /api/platform`） | 技能 **`evoflow-system-verification`** |
-| （无） | `evoflow org …` | 组织/资源包：preflight / install / list / get / uninstall / export / market |
-| （无） | `evoflow assets …` | Entity Asset Hub：init / migrate / export / import |
-| （无） | `evoflow workspace memory …` | CLI 独有：show / status / clear / bootstrap / prune / seed |
-| （API `/api/eval`） | `evoflow eval …` | 评测中心：场景回归 + 观测指标 |
+| `assets.*` | `evoflow assets …` | 画像 + Asset Hub：init / migrate / export / import |
+| `eval.*` | `evoflow eval …` | 评测中心：cases / run / runs / get / progress |
+| （无） | `evoflow workspace memory …` | CLI 独有（刻意不对齐 platform）：show / status / clear / bootstrap / prune / seed |
 
 外部 Agent（runtime / 无 `platform` 工具）见技能 **`evoflow-admin-external`**。
 
@@ -180,7 +184,7 @@ evoflow mcp set --file mcp.json          # 整体替换（≈ platform mcp.set�
 
 旧 `evoflow memory …` 与 platform `memory.*` **已退役**（曾读写 SQLite facts，与默认注入脱节）。
 
-- 对话读写：内置 **`assets`** 工具 + 技能 **`evoflow-assets`**
+- 对话读写：内置 **`assets`** 工具；契约见 [`references/assets-contract.md`](references/assets-contract.md)
 - 面板：`#/assets`（侧栏「记忆」入口也进资产中心）
 - 迁移旧库：`evoflow assets migrate --only memory`
 - 项目级知识（仍独立）：`evoflow workspace memory …`
@@ -203,7 +207,7 @@ evoflow knowledge delete <path> [--vault kb_…]
 
 旧 CLI `evoflow experience …` **已退役**。沉淀踩坑经验：
 
-- 对话：内置 **`assets`** 工具写 craft / `[experience]` 笔记（见技能 **`evoflow-assets`**）
+- 对话：内置 **`assets`** 工具写 craft / `[experience]` 笔记（见 [`assets-contract.md`](references/assets-contract.md)）
 - 迁移旧库：`evoflow assets migrate --only experience`
 
 ### Workflows / Apps（对齐 platform workflow.*）
@@ -426,7 +430,7 @@ evoflow approvals reject <id> --reason "需补充验收标准"
 
 `approve` 后执行依赖 Gateway。platform：`approvals.list|approve|reject`（无 `request` 时用 CLI）。
 
-### Organization packs（资源包；仅 CLI / `/api/organizations`）
+### Organization packs（资源包；platform `org.*` / CLI / `/api/organizations`）
 
 ```bash
 evoflow org preflight ./packs/foo [--workspace …]
@@ -439,7 +443,7 @@ evoflow org market catalog
 evoflow org market install packs/foo [--repo owner/repo@branch]
 ```
 
-### Entity Asset Hub（仅 CLI / `/api/assets`）
+### Entity Asset Hub（platform `assets.*` / CLI / `/api/assets`）
 
 ```bash
 evoflow assets init
@@ -470,7 +474,7 @@ evoflow assets import ./pack.evoflow-pack
 
 ### Save experience after hard bugfix
 
-1. 用 **`assets`**（或读 **`evoflow-assets`**）写入 `[experience]` / craft 笔记
+1. 用 **`assets`**（细则见 [`assets-contract.md`](references/assets-contract.md)）写入 `[experience]` / craft 笔记
 2. 勿再调用 `evoflow experience …`
 
 ### Review today's AI employees
@@ -517,13 +521,14 @@ evoflow eval show <run_id>
 ## Product wording
 
 - 用户说「你是谁 / EvoFlow 是什么 / 能做什么」→ 白话自介绍（[`references/product-intro.md`](references/product-intro.md)）；勿甩 CLI/JSON。
+- 用户说「记住 / 记偏好 / 沉淀经验 / 审计资产」→ **`assets`** + [`assets-contract.md`](references/assets-contract.md)；勿再提已退役的 `evoflow-assets` 技能名。
 - 用户说「角色 / 新建助手」→ 用本技能 + CLI 创建 Agent，不是单轮扮演；也可触发 **`preset-role-assistant`**（同样落盘走 `agents create` / `platform`）。
 - 用户说「安排岗位 / 雇员工 / 改职责 KPI」→ `agents`（如需）+ `employees hire|update`。
 - 用户说「今天员工干了啥 / 谁在值班 / 让 XX 去查」→ `employees list|worklog|trail|dispatch|wake`。
 - 用户说「记待办 / 个人事项」→ `items`（或 platform `items.*`），不要建成协作 `tasks`。
 - 用户说「任务中心 / 结案 / 改进度」→ `tasks`（或 platform `tasks.*`）。
 - 用户说「审批 / 批一下」→ `approvals list|approve|reject`。
-- 用户说「装资源包 / 导出组织」→ `org …`（无 platform 域）。
+- 用户说「装资源包 / 导出组织」→ `platform` `org.*`（或 `evoflow org …`）。
 - 用户说「跑工作流 / App」→ 运行用 `workflow`；创建/发布用 platform `workflow.*` 或 `/api/apps`。
 - 用户说「评测 / 回归 / 发版前验证」→ `evoflow eval run --mode smoke` 或打开面板评测中心。
 - 对用户描述时用「系统设置 / 角色管理 / 专项能力包 / 智能体员工」，少提 CLI 与 JSON。

@@ -3335,6 +3335,11 @@ html.dark .react-chat-main-body.is-chat-summary-split {
   overflow: visible;
 }
 
+.react-chat-bottom-area.is-custom-height .react-chat-composer-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .react-chat-bottom-area.is-custom-height .react-chat-composer-top-row {
   flex: 1 1 auto;
   min-height: 0;
@@ -3357,7 +3362,7 @@ html.dark .react-chat-main-body.is-chat-summary-split {
 
 .react-chat-bottom-area.is-custom-height .react-chat-input-wrap .react-chat-input {
   flex: 1 1 auto;
-  min-height: 48px;
+  min-height: 72px;
   height: auto;
   max-height: none;
 }
@@ -4508,6 +4513,9 @@ html.evopanel-macos-titlebar .react-chat-header {
 .react-chat-bottom-dock .react-chat-composer-shell {
   border: none;
   background: transparent;
+  /* 外框由 bottom-area 承担，shell 不再叠顶/侧内边距，避免「线」与输入区脱节 */
+  padding: 0;
+  gap: 4px;
 }
 
 .react-chat-bottom-dock .react-chat-composer-shell:focus-within {
@@ -4516,11 +4524,11 @@ html.evopanel-macos-titlebar .react-chat-header {
 }
 
 .react-chat-bottom-dock .react-chat-input {
-  min-height: 32px;
-  max-height: 96px;
+  min-height: 72px;
+  max-height: 200px;
   font-size: var(--font-size-sm, 13px);
-  line-height: 1.5;
-  padding: 6px 2px;
+  line-height: 1.55;
+  padding: 4px 2px 4px;
 }
 
 /* 右侧信息 Drawer：默认关闭；打开约 320px；窄屏覆盖正文 */
@@ -10526,8 +10534,9 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  /* 略收紧外壳间距，把高度让给中间 textarea */
+  gap: 6px;
+  padding: 8px 12px 8px;
   border-radius: 18px;
   border: 1px solid var(--input-border, rgba(148, 163, 184, 0.28));
   background: var(--input-bg, rgba(248, 250, 252, 0.85));
@@ -10630,7 +10639,8 @@ html.evopanel-tauri .react-chat-main-col .msg-ai-ask-inline-md {
 
 .react-chat-input-wrap > .react-chat-input {
   flex: 1 1 auto;
-  min-height: 44px;
+  /* 约 3 行起跳，避免外框大、可打字区扁成一条 */
+  min-height: 72px;
   max-height: 100%;
   height: auto;
 }
@@ -12999,13 +13009,14 @@ html[data-app-occluded='1'] * {
   flex: 1;
   min-width: 0;
   resize: vertical;
-  min-height: 44px;
-  max-height: 160px;
-  padding: 10px 12px;
+  min-height: 72px;
+  max-height: 200px;
+  padding: 4px 4px;
   border: none;
   border-radius: var(--radius-md, 8px);
   font-size: var(--ef-text-base) ;
   font-family: inherit;
+  line-height: 1.55;
   background: transparent;
   color: var(--text-primary, #111827);
 }

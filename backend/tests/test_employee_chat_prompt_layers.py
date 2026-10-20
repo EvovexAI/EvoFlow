@@ -1,4 +1,4 @@
-"""Employee chat prompt: one job body, platform under it, employee memory root."""
+"""Employee chat prompt: one job body, no system platform shell, memory region."""
 
 from __future__ import annotations
 
@@ -33,13 +33,14 @@ def _prompt(**overrides: object) -> str:
     return build_employee_chat_system_prompt(**kwargs)  # type: ignore[arg-type]
 
 
-def test_job_once_before_platform_and_no_habits() -> None:
+def test_job_once_before_session_and_no_habits_or_platform() -> None:
     text = _prompt()
     job = "按流水线拆解抖音视频，汇报可抄的点。"
     assert text.count(job) == 1
     assert "<habits>" not in text
-    assert text.index("<agent_system_prompt>") < text.index("<platform>")
-    assert text.index("<platform>") < text.index("<session>")
+    assert "<platform>" not in text
+    assert "<contract>" not in text
+    assert text.index("<agent_system_prompt>") < text.index("<session>")
     assert text.index("<session>") < text.index("<memory_assets>")
     assert "<memory_policy>" not in text
     assert "<entity_assets>" not in text

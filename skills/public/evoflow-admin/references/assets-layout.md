@@ -1,6 +1,6 @@
 # 资产库布局详解
 
-> 本文件由 `evoflow-assets` skill 引用；如要修改契约，请同步更新 SKILL.md。
+> 本文件由 **evoflow-admin** 引用（`references/assets-contract.md`）；改布局请同步更新契约正文。
 >
 > 路径都按相对 entity root 列出。**绝对路径以运行时 entity block 注入的 `base_dir` / `entity_root_abs` 为准**,不要从相对路径拼绝对路径。
 

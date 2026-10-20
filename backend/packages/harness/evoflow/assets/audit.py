@@ -67,7 +67,7 @@ def _list_md(p: Path) -> list[Path]:
 
 
 # README files are 说明文档（directory-level orientation docs），按设计不进入 MEMORY.md。
-# 这是与 evoflow-assets skill §2「四类资产布局」一致的设计选择，不算「孤立资产」。
+# 这是与 evoflow-admin assets-contract「四类资产布局」一致的设计选择，不算「孤立资产」。
 _README_NAMES = frozenset({"README.md", "readme.md"})
 
 

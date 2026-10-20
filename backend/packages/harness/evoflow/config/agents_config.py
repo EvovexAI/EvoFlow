@@ -460,10 +460,9 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
 
 
 # 首次落盘「主会话 main + 通用子智能体 general-purpose」时写入 config.yaml 的技能 wishlist（与已安装且启用的技能求交）。
-# 含：自介绍、AI HOT、深度搜索、预设角色、技能编写；生图默认用官方 byted-ark-seedream-skill。
+# evoflow-admin（含原 evoflow-intro / evoflow-assets）仅挂 main，见 MAIN_ONLY_BASELINE_SKILLS。
 DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
     "evoflow-admin",
-    "evoflow-assets",
     "aihot",
     "deep-research",
     "preset-role-assistant",
@@ -471,12 +470,15 @@ DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
     "byted-ark-seedream-skill",
 )
 
-# 已有 main / general-purpose 落盘后仍应补上的基础技能（幂等合并，仅追加缺失项）
-# evoflow-intro 已并入 evoflow-admin，不再单独挂载
-BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-admin", "evoflow-assets")
+# 仅主 Agent（main）默认挂载；子智能体 / 自定义 Agent 不自动挂
+MAIN_ONLY_BASELINE_SKILLS: frozenset[str] = frozenset({"evoflow-admin"})
+
+# 已有 main 落盘后仍应补上的基础技能（幂等合并，仅追加缺失项）
+# evoflow-intro / evoflow-assets 已并入 evoflow-admin，不再单独挂载
+BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-admin",)
 
 # 合并基线时从 agent skills 列表剔除（技能已退役或并入其它技能）
-_RETIRED_BASELINE_SKILLS: frozenset[str] = frozenset({"evoflow-intro"})
+_RETIRED_BASELINE_SKILLS: frozenset[str] = frozenset({"evoflow-intro", "evoflow-assets"})
 
 
 def resolved_skills_for_materialize(wishlist: tuple[str, ...] | None = None) -> list[str]:
@@ -492,15 +494,29 @@ def resolved_skills_for_materialize(wishlist: tuple[str, ...] | None = None) -> 
     return [name for name in wl if name in enabled]
 
 
+def resolved_skills_for_subagent_materialize() -> list[str]:
+    """Lead-family wishlist without main-only skills (e.g. evoflow-admin)."""
+    return [n for n in resolved_skills_for_materialize() if n not in MAIN_ONLY_BASELINE_SKILLS]
+
+
 def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ...] | None = None) -> None:
-    """Append missing baseline skills and drop retired names (e.g. evoflow-intro → evoflow-admin)."""
+    """Append missing baseline skills (main only) and drop retired / main-only names on others."""
     from evoflow.persistence import config_repositories as cfg_repo
 
     codes = (agent_code or "").strip().lower()
     if not codes or not cfg_repo.agent_exists(codes):
         return
-    names = baseline if baseline is not None else BASELINE_SKILLS_ALWAYS_MERGE
-    if not names and not _RETIRED_BASELINE_SKILLS:
+    is_main = codes == "main"
+    if baseline is not None:
+        names = baseline
+    elif is_main:
+        names = BASELINE_SKILLS_ALWAYS_MERGE
+    else:
+        names = ()
+    drop: set[str] = set(_RETIRED_BASELINE_SKILLS)
+    if not is_main:
+        drop |= MAIN_ONLY_BASELINE_SKILLS
+    if not names and not drop:
         return
     try:
         from evoflow.skills import load_skills
@@ -514,11 +530,11 @@ def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ..
     except Exception:
         logger.warning("merge_baseline_skills: load_agent_config failed for %r", codes, exc_info=True)
         return
-    # skills None = no allowlist yet; still merge baseline for main/gp
+    # skills None = no allowlist yet; still merge baseline for main
     skills = list(cfg.skills or [])
-    dropped = [s for s in skills if s in _RETIRED_BASELINE_SKILLS]
+    dropped = [s for s in skills if s in drop]
     if dropped:
-        skills = [s for s in skills if s not in _RETIRED_BASELINE_SKILLS]
+        skills = [s for s in skills if s not in drop]
     merged: list[str] = []
     for name in reversed(names):
         if name in enabled and name not in skills:
@@ -538,12 +554,12 @@ def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ..
 
 
 def merge_baseline_skills_for_lead_family() -> None:
-    """Ensure main + general-purpose include baseline skills (idempotent).
+    """Ensure main has evoflow-admin; strip admin/assets/intro from general-purpose.
 
     小V（xiaomi）是系统前台，不挂普通技能面——见 :func:`enforce_xiaomi_front_desk_capabilities`。
     """
-    for code in ("main", "general-purpose"):
-        merge_baseline_skills_into_agent(code)
+    merge_baseline_skills_into_agent("main")
+    merge_baseline_skills_into_agent("general-purpose")
 
 
 def xiaomi_front_desk_capability_defaults() -> dict[str, list[str]]:
@@ -855,7 +871,7 @@ def materialize_builtin_agent_if_missing(agent_code: str) -> bool:
     if sub is None:
         return False
     try:
-        gp_skill_bundle = resolved_skills_for_materialize()
+        gp_skill_bundle = resolved_skills_for_subagent_materialize()
         save_agent_config(code, _payload_for_builtin_subagent(code, sub, gp_skill_bundle=gp_skill_bundle))
         if cfg_repo.get_agent_soul(code) is None:
             bundled = load_bundled_soul(code)
@@ -956,7 +972,8 @@ def ensure_builtin_agents_materialized() -> None:
 
     from evoflow.persistence import config_repositories as cfg_repo
 
-    gp_skill_bundle = resolved_skills_for_materialize()
+    main_skill_bundle = resolved_skills_for_materialize()
+    gp_skill_bundle = resolved_skills_for_subagent_materialize()
     builtin_subagents = _builtin_subagents_registry()
 
     for code, sub in builtin_subagents.items():
@@ -989,14 +1006,14 @@ def ensure_builtin_agents_materialized() -> None:
     merge_baseline_skills_for_lead_family()
 
     # ``main`` = general lead agent (do not hijack as 小V).
-    if not cfg_repo.agent_exists("main") and gp_skill_bundle:
+    if not cfg_repo.agent_exists("main") and main_skill_bundle:
         save_agent_config(
             "main",
             {
                 "agent_type": "custom",
                 "agent_name": "EvoFlow",
                 "description": "默认主智能体：问答、改代码、编排任务。",
-                "skills": list(gp_skill_bundle),
+                "skills": list(main_skill_bundle),
                 "avatar": _BUILTIN_AGENT_AVATARS.get("main"),
             },
         )

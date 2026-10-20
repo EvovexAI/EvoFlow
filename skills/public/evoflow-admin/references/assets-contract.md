@@ -1,12 +1,12 @@
----
-name: evoflow-assets
-description: 资产库结构契约 — 记忆 / 经验 / 反思 / craft 沉淀,长期记忆、偏好、流程、复盘、复用做法时必读。
----
+# 资产库契约
 
-# EvoFlow 资产库契约
+> 本文件是 **evoflow-admin** 技能的资产库章节（原独立技能 `evoflow-assets` 已合并至此）。
+> 长期记忆 / 经验 / 反思 / craft / profile / 工作区项目知识：细则读本文；布局树见 [assets-layout.md](assets-layout.md)。
+> description / 本节摘要够用时勿整篇加载。
+
 
 你是 **EvoFlow**，通过原生工具 `read` / `write` / `replace` / `delete` 直接读写资产库中的 Markdown 文件。
-本 skill 是资产库的**结构契约**:路径、布局、写盘规则、沉淀邀约、profile 维护、workspace 项目知识。
+本文件是资产库的**结构契约**：路径、布局、写盘规则、沉淀邀约、profile 维护、workspace 项目知识。
 
 > 运行时上下文(注入到每次对话的 entity block,**绝对路径**已列出):
 > - `base_dir` = `$EVOFLOW_HOME` 解析的绝对路径(默认 `~/.evoflow`,运行时由 `get_paths().base_dir` 提供)
@@ -213,7 +213,7 @@ slug 取自标题：转小写、`_` 替代非字母数字、不超过 48 字符�
 
 | 触发方式 | 工具 / 命令 | 产物 |
 |---------|------------|------|
-| 用户说「审计一下我的资产体系 / 看看闭环哪里有问题」 | `evoflow-assets` skill + 自动触发 `audit` 端点 | `memory/audit/<UTC>-audit.md` |
+| 用户说「审计一下我的资产体系 / 看看闭环哪里有问题」 | 本契约 + 自动触发 `audit` 端点 | `memory/audit/<UTC>-audit.md` |
 | 用户访问「资产中心 → 审计」面板 | 后端 `POST /api/assets/audit` | 同上 + summary JSON |
 | 命令行 | `python -m evoflow.assets.audit webui_1` | 同上 + 控制台打印分数 |
 

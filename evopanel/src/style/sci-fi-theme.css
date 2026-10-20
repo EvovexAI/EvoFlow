@@ -1306,7 +1306,8 @@ html[data-scifi-ui='1']:not([data-translucent-ui='1']) body .react-chat-composer
   border: 1.5px solid color-mix(in srgb, var(--accent) 100%, white 30%) !important;
   border-radius: 18px !important;
   background: linear-gradient(145deg, rgba(10, 14, 13, 0.92), rgba(15, 19, 18, 0.88)) !important;
-  padding: 8px !important;
+  /* 顶侧略留呼吸，勿贴死发光边框 */
+  padding: 6px 8px 6px !important;
   margin: 6px 0 !important;
   /* 内嵌光晕让边框看起来在"发光"——这是关键,光在边框里,不在边框外 */
   box-shadow:
@@ -1401,10 +1402,11 @@ html[data-scifi-ui='1'] textarea.react-chat-input {
   width: 100% !important;
   box-sizing: border-box !important;
   display: block !important;
-  height: 40px !important;
-  min-height: 0 !important;
-  max-height: 40px !important;
-  flex: 0 0 40px !important;
+  /* 与默认 composer 对齐：约 3 行起跳，允许随内容增高 */
+  height: auto !important;
+  min-height: 72px !important;
+  max-height: 200px !important;
+  flex: 1 1 auto !important;
 }
 
 /* Composer 外层 halo 死代码清理 — 之前 DEBUG v22 的 content: none 已删除,让 v29 的 halo 生效 */

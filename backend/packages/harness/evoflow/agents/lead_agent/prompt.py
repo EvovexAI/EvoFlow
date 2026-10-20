@@ -1249,7 +1249,16 @@ def build_memory_injection_sections(
     body_parts: list[str] = []
 
     # inject_user_profile: None=注入, False=禁用
-    if inject_user_profile is not False:
+    # Employees: profile/identity already lives in employee <session> — skip here so
+    # MemoryLiveFooter standing does not duplicate <user_identity> under <memory_assets>.
+    _skip_profile_for_employee = False
+    try:
+        from evoflow.assets.guidance import is_employee_agent_name
+
+        _skip_profile_for_employee = is_employee_agent_name(agent_name)
+    except Exception:
+        _skip_profile_for_employee = False
+    if inject_user_profile is not False and not _skip_profile_for_employee:
         try:
             from evoflow.assets.profile_injection import (
                 build_user_profile_injection_block,
@@ -1729,18 +1738,16 @@ def _load_agent_soul_text(agent_name: str | None) -> str:
     return soul
 
 
-def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = True) -> str:
+def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = False) -> str:
     """Return prompt blocks for Person Kernel L0 identity + L1 soul + presence.
 
-    When this agent is an employed smart-employee (proactive role), also inject a
-    compact duty card so Feishu/IM chats introduce as the **岗位** (not only the
-    underlying model / generic coding template).
+    Hired employees use ``employee_prompting`` (platform ``<identity>``); do not
+    stack a third ``<employee_posting>`` here. ``include_employee_posting`` is
+    kept for call-site compat and is ignored (always off).
 
     Tier 0 prefers ``soul-summary.md`` (≤300 chars) over full SOUL when available.
-
-    Employee chat v2 sets ``include_employee_posting=False`` — identity lives in
-    ``<employee><identity>`` instead of stacking ``<employee_posting>``.
     """
+    _ = include_employee_posting
     from evoflow.person_kernel import (
         format_identity_prompt_block,
         format_soul_prompt_block,
@@ -1756,12 +1763,6 @@ def get_agent_soul(agent_name: str | None, *, include_employee_posting: bool = T
     except Exception:
         identity = ""
     parts: list[str] = []
-    # IM / chat identity for employed roles only; lead assistant identity lives in <role>.
-    # Employee chat v2 owns identity — skip posting here to avoid double stack.
-    if include_employee_posting:
-        duty = _proactive_employee_im_identity_block(agent_name)
-        if duty:
-            parts.append(duty)
     id_block = format_identity_prompt_block(identity)
     if id_block:
         parts.append(id_block)
@@ -1795,40 +1796,9 @@ def _is_lead_agent_code(agent_name: str | None) -> bool:
 
 
 def _proactive_employee_im_identity_block(agent_name: str | None) -> str:
-    """IM/chat identity for employed roles (fallback when not using employee chat v2)."""
-    code = str(agent_name or "").strip()
-    if not code:
-        return ""
-    if code.lower() in {"main", "lead_agent"}:
-        return ""
-    try:
-        from evoflow.proactive.employee_prompt import resolve_employee_identity
-
-        info = resolve_employee_identity(code)
-        if info is None:
-            return ""
-        role_name = str(info.get("role_name") or code)
-        lines = [
-            "<employee_posting>",
-            f"你在本产品中的岗位是「{role_name}」（agent_code=`{info.get('code') or code}`）。",
-            f"用户问「你是谁」时：第一句必须是「我是{role_name}」，可再补一句本职职责；",
-            "禁止自称底层模型名或厂商名（Agnes / GPT / Claude / Sapiens 等），也不要只说「编码智能体」而忽略岗位。",
-        ]
-        dept = str(info.get("department") or "").strip()
-        if dept:
-            lines.append(f"所属：{dept}")
-        resp = list(info.get("responsibilities") or [])
-        if resp:
-            lines.append("本职职责：")
-            for item in resp[:8]:
-                lines.append(f"- {item}")
-        else:
-            lines.append("本职职责：（岗位职责尚未配置，请以岗位名与用户本轮意图为准协助。）")
-        lines.append("</employee_posting>")
-        return "\n".join(lines) + "\n"
-    except Exception:
-        logger.debug("proactive IM identity lookup failed for %s", code, exc_info=True)
-        return ""
+    """Deprecated no-op — hired identity lives in employee_prompting platform only."""
+    _ = agent_name
+    return ""
 
 
 def get_deferred_tools_prompt_section(
@@ -2057,13 +2027,13 @@ def apply_prompt_template(
         if not primary and not active and not done:
             bootstrap_mode = True
 
-    # Employee user-chat (proactive:{code}/:task:/:chat:) → dedicated v2 skeleton.
-    # Not duty handbook; not generic EvovexAI <role> + employee_posting stack.
+    # Employee user-chat (proactive:{code}/:task:/:chat:) → shared employee skeleton (mode=chat).
+    # Not duty extras; not generic EvovexAI <role> + employee_posting stack.
     employee_ok = False
     emp_identity = None
     if not _is_xiaomi_lead_run(agent_name):
         try:
-            from evoflow.proactive.employee_prompt import is_employee_chat_session
+            from evoflow.proactive.employee_prompting import is_employee_chat_session
 
             employee_ok, emp_identity = is_employee_chat_session(
                 prompt_session_key or session_key,
@@ -2073,10 +2043,10 @@ def apply_prompt_template(
             employee_ok, emp_identity = False, None
 
     if employee_ok and emp_identity is not None:
-        from evoflow.proactive.employee_prompt import build_employee_chat_system_prompt
+        from evoflow.proactive.employee_prompting import assemble_employee_system_prompt
 
         skills_blob = "\n\n".join(p for p in (str(skills_section or "").strip(), str(mcp_skill_section or "").strip()) if p)
-        # Employee chat: always inject user identity + 画像 (even when runtime clears SQLite memory).
+        # Employee chat: global user profile once in <session> when it has real facts.
         emp_user_profile = ""
         try:
             from evoflow.assets.profile_injection import build_user_profile_injection_block
@@ -2100,8 +2070,10 @@ def apply_prompt_template(
                 )
             except Exception:
                 emp_person_memory = ""
-        prompt = build_employee_chat_system_prompt(
+        prompt = assemble_employee_system_prompt(
+            mode="chat",
             identity=emp_identity,
+            agent_code=str(emp_identity.get("code") or agent_name or ""),
             soul=_load_agent_soul_text(agent_name),
             skills_section=skills_blob,
             workspace_root_hint=_resolve_workspace_root(local_workspace_root) or str(emp_identity.get("workspace_path") or ""),
@@ -2109,11 +2081,14 @@ def apply_prompt_template(
             runtime_shell=runtime_shell,
             runtime_host_hint=runtime_host_hint,
             runtime_now=runtime_now,
-            memory_context=memory_context,
-            person_memory_context=emp_person_memory,
+            memory_context=memory_context if include_memory is not False else "",
+            person_memory_context=emp_person_memory if include_memory is not False else "",
             user_profile_block=emp_user_profile,
             custom_system_prompt=(custom_system_prompt or "").strip(),
             prompt_language=lang,
+            # Pass through runtime-resolved gate (session override → role default).
+            # Do not remap True→None or session「开」会被岗位默认盖掉。
+            include_memory=include_memory,
             loaded_tool_names=loaded_tool_names,
         )
     else:

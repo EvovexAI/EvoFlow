@@ -79,19 +79,12 @@ def resolve_profile_injection_scope(
     agent_name: str | None = None,
     entity_type: str | None = None,
 ) -> ProfileInjectionScope:
-    """Employees get identity-only; main/custom-agent chat gets full profile."""
-    if str(entity_type or "").strip().lower() == "employee":
-        return "identity"
-    code = str(agent_name or "").strip().lower()
-    if not code or code in ("main", "user", "default", "lead_agent"):
-        return "full"
-    try:
-        from evoflow.assets.guidance import is_employee_agent_name
+    """One global user profile for everyone.
 
-        if is_employee_agent_name(agent_name):
-            return "identity"
-    except Exception:
-        pass
+    Empty dimensions are omitted at inject time (``build_user_profile_injection_block``).
+    ``agent_name`` / ``entity_type`` kept for call-site compat.
+    """
+    _ = (agent_name, entity_type)
     return "full"
 
 
@@ -212,10 +205,22 @@ def _placeholder_line_re():
 
         _PLACEHOLDER_LINE_RE = _re.compile(
             r"^\s*(?:[-*]\s*)?[（(]\s*(?:如|例|可选|例如|等待|希望|e\.g\.)[^）)]*[）)]\s*$"
-            r"|^[^\n]{0,12}填写后会注入[^\n]*$",
+            r"|^[^\n]{0,12}填写后会注入[^\n]*$"
+            # Agent-written "please fill" scaffolds — not real user identity.
+            r"|^\s*(?:[-*]\s*)?[（(][^）)]*(?:待补|尚未提供|尚未补充|未提供身份)[^）)]*[）)]\s*$"
+            r"|^\s*(?:[-*]\s*)?(?:待补|尚未提供)[：:].*$",
             _re.MULTILINE,
         )
     return _PLACEHOLDER_LINE_RE
+
+
+def _strip_yaml_frontmatter(text: str) -> str:
+    raw = str(text or "")
+    if not raw.lstrip().startswith("---"):
+        return raw
+    # Drop leading --- … --- metadata (last_used_at / use_count); not user identity.
+    m = re.match(r"^\s*---\s*\n[\s\S]*?\n---\s*\n?", raw)
+    return raw[m.end() :] if m else raw
 
 
 def _strip_orphaned_section_headings(text: str) -> str:
@@ -260,19 +265,19 @@ def _strip_orphaned_section_headings(text: str) -> str:
 
 
 def _strip_placeholder_body(text: str, *, filename: str) -> str:
-    raw = str(text or "").strip()
+    raw = _strip_yaml_frontmatter(str(text or "")).strip()
     if not raw:
         return ""
     default = _default_for_file(filename).strip()
     if raw == default:
         return ""
-    # Strip whole-line placeholder scaffolds (（如：…）/（可选；…）) instead of
+    # Strip whole-line placeholder scaffolds (（如：…）/（可选；…）/待补…) instead of
     # comparing total prose length — partial fills previously leaked the leftover
     # template examples into prompt injection as if they were real preferences.
     body = _placeholder_line_re().sub("", raw)
 
     # Strip orphaned section headings that no longer have any content below them
-    # (e.g. "## 回复风格\n" with no prose underneath after placeholder stripping).
+    # (e.g. "## 回复风格\n" / "## Agent 补充\n" with no prose underneath).
     body = _strip_orphaned_section_headings(body)
 
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
@@ -359,113 +364,28 @@ def build_user_profile_injection_block(
     scope: ProfileInjectionScope = "full",
     entity: EntityRef | None = None,
 ) -> str:
-    from evoflow.agents.lead_agent.prompt_language import resolve_prompt_language
+    """Inject **real** user profile facts only.
 
-    lang = resolve_prompt_language(prompt_language)
+    - Global user profile entity (one SoT); empty / scaffold dims are omitted.
+    - No EMPTY placeholders, no ``agent_behavior`` / ``profile_upkeep`` essays —
+      write/update usage lives on the ``assets`` tool description.
+    - Returns ``\"\"`` when nothing worth injecting.
+    """
+    _ = prompt_language
     ent = (entity or EntityRef("user", "user")).normalized()
     ensure_user_profile_files(ent)
     dims = read_user_profile_dimensions(entity=ent)
     active = profile_dimensions_for_scope(scope)
-    missing = [d for d in active if not (dims.get(d.filename) or "").strip()]
 
-    root_tag = "user_profile" if scope == "full" else "user_identity"
-    lines: list[str] = [f"<{root_tag}>"]
-    if scope == "identity":
-        if lang == "en":
-            lines.append("(Employee context — inject user identity only; preferences/persona omitted. If task-specific prefs matter, search user memory/facts via the assets tool.)")
-        else:
-            lines.append("（员工上下文 — 仅注入用户身份信息；偏好/行为画像不注入。若任务需要具体偏好，用 assets 工具搜索用户 memory/facts。）")
+    filled_parts: list[str] = []
     for dim in active:
         text = (dims.get(dim.filename) or "").strip()
-        lines.append(f"<{dim.tag}>")
-        if text:
-            lines.append(text)
-        else:
-            ask = dim.ask_en if lang == "en" else dim.ask_zh
-            if lang == "en":
-                lines.append(f"(EMPTY — REQUIRED: in this conversation you MUST ask the user this when they have not already answered it, then save with `assets` action=profile: {ask})")
-            else:
-                lines.append(f"（空 — 强制：本对话中若用户尚未补充该项，你必须主动向用户询问，得到回答后立刻用 `assets` action=profile 更新用户画像：{ask}）")
-        lines.append(f"</{dim.tag}>")
+        if not text:
+            continue
+        filled_parts.append(f"<{dim.tag}>\n{text}\n</{dim.tag}>")
 
-    if missing:
-        if lang == "en":
-            gaps = "; ".join(d.ask_en for d in missing[:3])
-            # Profile gaps are agent behavior directives, not user data; render under
-            # <agent_behavior> so the prompt parser does not mis-classify them as
-            # profile content and so the user-facing profile block stays clean.
-            lines.append("<agent_behavior>")
-            if scope == "identity":
-                lines.append(
-                    "MANDATORY: User identity is incomplete. You MUST proactively ask "
-                    "(brief, friendly — not a long form) for missing fields in this conversation "
-                    "if the user has not already provided them — e.g. " + gaps + ". After they answer, you MUST use "
-                    "`assets` action=profile (user profile asset) and confirm briefly. "
-                    "Do not only chat without writing."
-                )
-            else:
-                lines.append(
-                    "MANDATORY profile gap policy (non-negotiable):\n"
-                    "1) If any dimension below is empty and the user has NOT already supplied that info "
-                    "in this conversation, you MUST actively ask 1–2 short questions this turn or the "
-                    "next natural turn — do not wait for them to volunteer. Example prompts: " + gaps + ".\n"
-                    "2) As soon as they answer, you MUST persist with "
-                    "`assets` action=profile (user profile asset) "
-                    "and confirm in one short line.\n"
-                    "3) Never finish the turn with only verbal acknowledgment and no profile write "
-                    "when new stable facts were shared.\n"
-                    "Tone: warm and brief; never grill like a questionnaire."
-                )
-                lines.append("They can also edit under Asset Center → Profile (#/assets → 画像).")
-            lines.append("</agent_behavior>")
-        else:
-            gaps = "；".join(d.ask_zh for d in missing[:3])
-            lines.append("<agent_behavior>")
-            if scope == "identity":
-                lines.append(
-                    "【强制】用户身份信息不完整。若本对话中用户尚未提供缺口信息，"
-                    "你必须主动、简短友好地询问（不要长问卷），例如：" + gaps + "。用户回答后，必须立刻用 "
-                    "`assets` action=profile 更新用户画像资产，并简短确认已更新。"
-                    "禁止只聊不写。"
-                )
-            else:
-                lines.append(
-                    "【强制·用户画像缺口策略】不可省略：\n"
-                    "1）下列维度若仍为空，且用户在本对话中尚未补充对应信息，"
-                    "你必须在本回合或紧接着的自然回合主动提问（每轮最多 1～2 句），"
-                    "不要等用户主动提起。可参考：" + gaps + "。\n"
-                    "2）用户一旦回答，必须马上用 "
-                    "`assets` action=profile 更新用户画像资产"
-                    "，并用一句话确认已更新。\n"
-                    "3）用户已透露稳定信息时，禁止只口头应承而不写 profile。\n"
-                    "语气：友善、简短；不要像填表审问。"
-                )
-                lines.append("用户也可直接在 UI 智能体 Tab 维护 basic-info / preferences / persona。")
-            lines.append("</agent_behavior>")
-    elif scope == "full":
-        if lang == "en":
-            lines.append("<profile_upkeep>")
-            lines.append(
-                "When the user shares new stable facts, preferences, or habits — "
-                "or corrects old ones — update the user profile asset via `assets` action=profile. "
-                "How to call it is on the tool; do not edit profile files with write/replace."
-            )
-            lines.append("</profile_upkeep>")
-        else:
-            lines.append("<profile_upkeep>")
-            lines.append(
-                "用户透露新的稳定信息（称呼、偏好、习惯）或更正旧画像时，"
-                "用 `assets` action=profile 更新用户画像资产；不要用 write/replace 改画像文件。"
-            )
-            lines.append("</profile_upkeep>")
-    elif scope == "identity":
-        if lang == "en":
-            lines.append("<profile_upkeep>")
-            lines.append("When the user shares name, role, language, or timezone, update the user profile asset with `assets` action=profile. Leave preferences/persona to dialogue agents. Do not write profile files directly.")
-            lines.append("</profile_upkeep>")
-        else:
-            lines.append("<profile_upkeep>")
-            lines.append("用户画像是用户资产。透露称呼、职业、语言、时区时，用 `assets` action=profile 更新；偏好与行为画像由对话 Agent 维护，员工任务不必写入。不要用 write/replace 改画像文件。")
-            lines.append("</profile_upkeep>")
-    lines.append(f"</{root_tag}>")
-    return "\n".join(lines)
+    if not filled_parts:
+        return ""
+
+    root_tag = "user_profile" if scope == "full" else "user_identity"
+    return f"<{root_tag}>\n" + "\n".join(filled_parts) + f"\n</{root_tag}>"

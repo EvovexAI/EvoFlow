@@ -201,7 +201,7 @@ evoflow mcp set --file examples/mcp-set.json
 旧 `evoflow memory …` **已退役**。长期记忆在资产中心：
 
 - 面板：`#/assets`
-- 对话：`assets` 工具 + 技能 `evoflow-assets`
+- 对话：`assets` 工具 + `evoflow-admin` 资产契约（`references/assets-contract.md`）
 - 迁移：`evoflow assets migrate --only memory`
 - 项目知识仍用：`evoflow workspace memory …`
 
@@ -230,7 +230,7 @@ evoflow knowledge delete <path> [--vault kb_…]
 SoT：`~/.evoflow/assets/user/`（`profile/` · `memory/` · `craft/`）
 
 - 面板：`#/assets`
-- 对话：`assets` 工具（profile / note / search…）+ 技能 `evoflow-assets`
+- 对话：`assets` 工具（profile / note / search…）+ `evoflow-admin` 资产契约
 - 管理 API（画像）：`assets.get_profile` / `assets.update_profile`
 
 ```bash

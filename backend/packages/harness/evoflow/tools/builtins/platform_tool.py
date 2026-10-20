@@ -31,7 +31,7 @@ def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
 
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
-action format: domain.op (knowledge.*, workflow.*, settings.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, verification.*). Long-term memory → assets tool / evoflow-assets (not platform memory.*).
+action format: domain.op (knowledge.*, workflow.*, settings.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, verification.*). Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
 catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).

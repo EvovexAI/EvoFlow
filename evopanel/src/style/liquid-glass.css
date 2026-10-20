@@ -407,7 +407,7 @@ html[data-translucent-ui='1'] .react-chat-composer-stack.has-steer-strip .react-
 
 html[data-translucent-ui='1'] .react-chat-bottom-dock .react-chat-bottom-area {
   margin: 0;
-  padding: 10px 12px 8px !important;
+  padding: 6px 12px 6px !important;
   background: var(--ef-composer-surface) !important;
   backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.12)) saturate(1.06) brightness(var(--ef-glass-brightness, 1));
   -webkit-backdrop-filter: blur(calc(var(--ef-glass-blur) * 1.12)) saturate(1.06)

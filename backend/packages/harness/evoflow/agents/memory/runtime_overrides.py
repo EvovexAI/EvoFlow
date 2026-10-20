@@ -38,6 +38,8 @@ _MEMORY_POLICY_BLOCK_RE = re.compile(r"<memory_policy>\s*[\s\S]*?</memory_policy
 _ENTITY_ASSETS_BLOCK_RE = re.compile(r"<entity_assets>\s*[\s\S]*?</entity_assets>\s*", re.IGNORECASE)
 _WORKSPACE_MEMORY_BLOCK_RE = re.compile(r"<workspace_memory>\s*[\s\S]*?</workspace_memory>\s*", re.IGNORECASE)
 _PERSON_MEMORY_BLOCK_RE = re.compile(r"<person_memory>\s*[\s\S]*?</person_memory>\s*", re.IGNORECASE)
+_PERSON_CRAFT_BLOCK_RE = re.compile(r"<person_craft>\s*[\s\S]*?</person_craft>\s*", re.IGNORECASE)
+_PERSON_CRAFT_BLOCK_RE = re.compile(r"<person_craft>\s*[\s\S]*?</person_craft>\s*", re.IGNORECASE)
 _MEMORY_COMMENT_BLOCK_RE = re.compile(
     r"(?:<!--\s*█\s*MEMORY CONTENT[\s\S]*?<!--\s*█\s*END MEMORY CONTENT\s*█\s*-->|<!--\s*(?:memory:\s*reference only|ref memory)\s*-->\s*)",
     re.IGNORECASE,
@@ -238,4 +240,5 @@ def strip_memory_xml_blocks(text: str) -> str:
     cleaned = _ENTITY_ASSETS_BLOCK_RE.sub("", cleaned)
     cleaned = _MEMORY_BLOCK_RE.sub("", cleaned)
     cleaned = _WORKSPACE_MEMORY_BLOCK_RE.sub("", cleaned)
-    return _PERSON_MEMORY_BLOCK_RE.sub("", cleaned)
+    cleaned = _PERSON_MEMORY_BLOCK_RE.sub("", cleaned)
+    return _PERSON_CRAFT_BLOCK_RE.sub("", cleaned)

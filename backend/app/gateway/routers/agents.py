@@ -105,28 +105,6 @@ def _filter_agents_for_ui_list(agents: list[AgentResponse]) -> list[AgentRespons
     return out
 
 
-# 新建自定义智能体且请求未带 skills 时：写入下列「基础技能」与当前已启用技能的交集（顺序固定）
-_DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
-    "evoflow-admin",
-    "evoflow-assets",
-    "create-plan",
-    "deep-research",
-    "article-writer",
-    "aihot",  # AI HOT 中文资讯（skills/public/aihot，name: aihot）
-)
-
-
-def _default_skills_for_new_custom_agent() -> list[str]:
-    """Wishlist ∩ installed skills that are currently enabled (extensions + loader)."""
-    try:
-        from evoflow.skills import load_skills
-
-        enabled_names = {s.name for s in load_skills(enabled_only=True)}
-    except Exception:
-        logger.warning("load_skills failed while computing default skills for new agent", exc_info=True)
-        return []
-    return [name for name in _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT if name in enabled_names]
-
 
 def _load_main_agent_config() -> AgentConfig | None:
     """Load main agent config from agents/main/config.yaml.
@@ -768,7 +746,9 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
         if request.skills is not None:
             config_data["skills"] = request.skills
         else:
-            config_data["skills"] = _default_skills_for_new_custom_agent()
+            # 未显式指定 skills 时默认落空列表（与 tools 对齐）：新建 agent 不自动挂任何技能，
+            # 由用户按需勾选，避免意外注入与能力越权。
+            config_data["skills"] = []
         if request.knowledge_vault_ids is not None:
             from evoflow.proactive.prompt import validate_agent_knowledge_ids
 

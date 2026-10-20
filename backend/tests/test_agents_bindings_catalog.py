@@ -40,6 +40,23 @@ def test_create_agent_omitted_tools_is_empty_allowlist() -> None:
             pass
 
 
+def test_create_agent_omitted_skills_is_empty_allowlist() -> None:
+    code = f"bind-omit-skills-{uuid.uuid4().hex[:8]}"
+    try:
+        row = create_agent({"agent_code": code, "agent_name": "Omit Skills"})
+        assert row.get("skills") == []
+    finally:
+        try:
+            delete_agent(code, keep_employee=True)
+        except Exception:
+            pass
+
+
+def test_bindings_catalog_defaults_on_create_has_no_skills() -> None:
+    defaults = list_bindings_catalog().get("defaults_on_create", {})
+    assert defaults.get("skills") == []
+
+
 def test_create_agent_explicit_null_tools_inherits_all() -> None:
     code = f"bind-null-{uuid.uuid4().hex[:8]}"
     try:

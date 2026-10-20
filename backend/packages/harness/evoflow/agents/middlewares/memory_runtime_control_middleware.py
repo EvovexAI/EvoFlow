@@ -79,6 +79,7 @@ class MemoryRuntimeControlMiddleware(AgentMiddleware[AgentState]):
                 "<memory_policy",
                 "<entity_assets",
                 "<person_memory",
+                "<person_craft",
                 "<workspace_memory",
             )
         ):

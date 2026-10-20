@@ -49,8 +49,10 @@ import {
   streamPerfSetVisibleRows,
   streamPerfNoteContext,
   streamPerfEnabled,
+  streamPerfSpan,
   installStreamPerfGlobal,
 } from '../lib/stream-perf-trace.js'
+import { StreamPerfProfiler } from './StreamPerfProfiler.js'
 import {
   estimateStreamBumpScore,
   resolveStreamBumpMinIntervalMs,
@@ -361,6 +363,15 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
     getItemKey: (index) => getRowKey(index),
   })
 
+  const measureElementPerf = useCallback(
+    (node: Element | null) => {
+      streamPerfSpan('vlistMeasure', () => {
+        virtualizer.measureElement(node)
+      })
+    },
+    [virtualizer],
+  )
+
   /** 极长会话：boot 阶段由父级调用 scrollToIndex 贴底；流式期间随高度变化保持贴底 */
   useLayoutEffect(() => {
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => {
@@ -469,7 +480,7 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
                 ? 'react-vlist-item react-vlist-item--turn react-vlist-item--user'
                 : 'react-vlist-item react-vlist-item--turn'
             }
-            measureRef={virtualizer.measureElement}
+            measureRef={measureElementPerf as (node: HTMLDivElement | null) => void}
             measureIndex={vRow.index}
             style={getVRowStyle(vRow.start)}
           />
@@ -878,6 +889,27 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const lastHistoryRole = rows[rows.length - 1]?.role
   const prevIsSendingPropRef = useRef(false)
   const lastSessionKeyForSendRef = useRef(sessionKey)
+  /**
+   * 提前 IDLE 到 final 落库之间：只挂残留气泡（非 busy），避免正文先卸再装。
+   * 不进入 streamActive，故不影响停止按钮 / 光标 / 「还在流」。
+   */
+  const lastStreamRowRef = useRef<DisplayRow | null>(null)
+  const sessionKeyForSend = String(sessionKey || '')
+  // 换会话必须先清 pin 残留，否则空历史新对话仍会 showSeparateStreamPin
+  // 挂出上一会话的一小截 assistant（偶发盖住工作台首页）。
+  if (lastSessionKeyForSendRef.current !== sessionKeyForSend) {
+    lastSessionKeyForSendRef.current = sessionKeyForSend
+    lastStreamRowRef.current = null
+    lastSendScrollTailRef.current = ''
+    prevIsSendingPropRef.current = isSending
+  } else if (!prevIsSendingPropRef.current && isSending) {
+    autoFollowRef.current = true
+    postSendScrollAnchorRef.current = false
+    sendScrollLockUntilRef.current = Date.now() + 500
+    lastProgrammaticScrollRef.current = Date.now()
+  }
+  prevIsSendingPropRef.current = isSending
+
   // 终态指纹：assistant 行的 runId + durationStr + tokenStr。真正落库后这个值会变。
   const lastRowForDigest = rows[rows.length - 1]
   const terminalAssistantSealed =
@@ -896,23 +928,19 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   void streamLive
   void resumeStreamHoldActive
   /**
-   * 提前 IDLE 到 final 落库之间：只挂残留气泡（非 busy），避免正文先卸再装。
-   * 不进入 streamActive，故不影响停止按钮 / 光标 / 「还在流」。
-   */
-  const lastStreamRowRef = useRef<DisplayRow | null>(null)
-  /**
    * final 落库前可能先 resetRuntimeStream（ref 已空、rows 尚未带上 assistant）。
    * 用上一帧 stream 行撑住气泡，直到历史里出现本轮完整 assistant，避免中间空一帧。
    * 注意：不要等 duration/token（terminalAssistantSealed）——否则会短暂双挂 pin+历史行。
    */
   const historyOwnsTurn =
     lastRowForDigest?.role === 'assistant' && !lastRowForDigest.incompleteStream
+  const streamHasVisible = streamRefHasVisibleContent(streamRef.current)
   const holdStreamResidue =
     !streamActive &&
     !historyOwnsTurn &&
-    (streamRefHasVisibleContent(streamRef.current) || lastStreamRowRef.current != null)
+    // 空历史（新建对话 / 首页）禁止仅凭 lastStreamRowRef 撑 pin，否则会闪上一会话残影
+    (streamHasVisible || (rows.length > 0 && lastStreamRowRef.current != null))
 
-  const sessionKeyForSend = String(sessionKey || '')
   /**
    * ★ 关键修复：订阅 stream-snapshot-store 的 seq 增长。
    * ChatApp 的 applyAgUiWireEvent → commitStreamSnapshot(seq++) 后，
@@ -927,17 +955,6 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   useEffect(() => {
     installStreamPerfGlobal()
   }, [])
-  if (lastSessionKeyForSendRef.current !== sessionKeyForSend) {
-    lastSessionKeyForSendRef.current = sessionKeyForSend
-    lastSendScrollTailRef.current = ''
-    prevIsSendingPropRef.current = isSending
-  } else if (!prevIsSendingPropRef.current && isSending) {
-    autoFollowRef.current = true
-    postSendScrollAnchorRef.current = false
-    sendScrollLockUntilRef.current = Date.now() + 500
-    lastProgrammaticScrollRef.current = Date.now()
-  }
-  prevIsSendingPropRef.current = isSending
 
   const streamActiveRef = useRef(streamActive)
   streamActiveRef.current = streamActive
@@ -1250,20 +1267,22 @@ export const MessageVirtualList = memo(function MessageVirtualList({
 
   /** 流式贴底（同步）：无 rAF 延迟，在 useLayoutEffect / ResizeObserver 中直接执行 */
   const syncScrollToBottom = useCallback(() => {
-    if (holdHistoryScrollRef.current) return
-    if (userScrolledAwayDuringStreamRef.current) return
-    prepareStreamLiveEdgeFollow()
-    if (postSendScrollAnchorRef.current) return
-    if (readingHistoryRef.current) return
-    if (!autoFollowRef.current) return
-    if (Date.now() < sendScrollLockUntilRef.current) return
-    const el = parentRef.current
-    if (!el) return
-    lastProgrammaticScrollRef.current = Date.now()
-    applyStreamFollowBottomInset()
-    el.scrollTop = el.scrollHeight
-    lastScrollTopRef.current = el.scrollTop
-    lastScrollHeightRef.current = el.scrollHeight
+    streamPerfSpan('scrollCorrect', () => {
+      if (holdHistoryScrollRef.current) return
+      if (userScrolledAwayDuringStreamRef.current) return
+      prepareStreamLiveEdgeFollow()
+      if (postSendScrollAnchorRef.current) return
+      if (readingHistoryRef.current) return
+      if (!autoFollowRef.current) return
+      if (Date.now() < sendScrollLockUntilRef.current) return
+      const el = parentRef.current
+      if (!el) return
+      lastProgrammaticScrollRef.current = Date.now()
+      applyStreamFollowBottomInset()
+      el.scrollTop = el.scrollHeight
+      lastScrollTopRef.current = el.scrollTop
+      lastScrollHeightRef.current = el.scrollHeight
+    })
   }, [applyStreamFollowBottomInset, prepareStreamLiveEdgeFollow])
 
   /** 用户发送等场景：无视 autoFollow / 历史阅读锁，强制贴底并恢复跟随 */
@@ -2322,6 +2341,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     viewReady && hasContent && (showScrollTopBtn || showScrollBottomBtn)
 
   return (
+    <StreamPerfProfiler id="chat-stream">
     <div
       className="react-vlist-scroll-wrap"
       data-turn-nav={turnNavTurns.length >= 2 ? 'on' : undefined}
@@ -2509,5 +2529,6 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       ) : null}
       </div>
     </div>
+    </StreamPerfProfiler>
   )
 })

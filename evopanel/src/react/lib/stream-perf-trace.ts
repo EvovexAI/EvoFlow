@@ -1,5 +1,5 @@
 /**
- * 流式渲染性能追踪：多维指标交叉定位卡顿根因。
+ * 流式渲染性能追踪 + 卡顿归因（Stream Jank Attribution）。
  *
  * 指标维度：
  *   1. 耗时分解（各 phase ms）→ 哪个环节慢
@@ -7,13 +7,15 @@
  *   3. delta 频率（次/秒）→ 是否渲染风暴
  *   4. 轮次恶化（当前 / 基线）→ 是否累积型
  *   5. 内存趋势 → GC 压力
+ *   6. span 栈 + React Profiler + rAF → longtask/坏帧时输出带源文件 hint 的 verdict
  *
- * 开关：?streamperf=1 或 localStorage.evoflow_streamperf=1
- *   也可热开（无需 reload）：window.__streamPerf.enable()
+ * 默认开启（与 stream-compare 一致）：未设 localStorage 时 ON。
+ *   关闭：localStorage.evoflow_streamperf=0 / 'false'，或 __streamPerf.disable()
+ *   强制开：?streamperf=1 或 localStorage=1，或热开 __streamPerf.enable()
  *   开启后：超阈值指标 + 2 秒心跳 → ring buffer → 5 秒批量 flush →
  *   Tauri append_frontend_log → log_dir()/frontend-YYYY-MM-DD.log
- *   （控制台不再刷屏；事后 grep "streamperf batch" 排查时间趋势）
- *   聚合：window.__streamPerf.report() 打各环节 p50/p95/max + 多维诊断（手动，仍走 console）
+ *   关键事件另写一行 `streamperf verdict:`（可行动归因）
+ *   聚合：window.__streamPerf.report() 打各环节 p50/p95/max + topOffenders
  *
  * 关闭时所有函数空操作，零开销。
  */
@@ -25,35 +27,70 @@ const WINDOW_SIZE = 200
 const MEM_SAMPLE_INTERVAL = 50
 const HEARTBEAT_MS = 2000
 const REASONING_PAINT_WARN_MS = 8
+const BAD_FRAME_MS = 32
+const BAD_FRAME_STREAK_FOR_VERDICT = 2
+const PROFILER_TOP_N = 12
+const VERDICT_DEDUP_MS = 800
 
 function now(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now()
 }
 
 function detectEnabled(): boolean {
-  if (typeof window === 'undefined') return false
+  if (typeof window === 'undefined') return true
   try {
-    const stored = localStorage.getItem('evoflow_streamperf')
-    if (stored === '0') return false
-    if (stored === '1') return true
-  } catch {
-    /* ignore */
-  }
-  try {
+    if (new URLSearchParams(window.location.search).get('streamperf') === '0') return false
     if (new URLSearchParams(window.location.search).get('streamperf') === '1') return true
   } catch {
     /* ignore */
   }
-  return false
+  try {
+    const stored = localStorage.getItem('evoflow_streamperf')
+    if (stored == null) return true
+    return stored !== '0' && stored !== 'false'
+  } catch {
+    return true
+  }
 }
 
 let enabled = detectEnabled()
 
-// === 文件日志：ring buffer + 5 秒批量 flush → Tauri append_frontend_log ===
-// 控制台临时性，刷新即失；写文件可事后排查"10 分钟后卡顿"的时间趋势。
+// === span → 源文件注册表（verdict hint）===
+export const STREAM_PERF_SPAN_HINTS: Record<string, string> = {
+  delta: 'evopanel/src/react/components/MessageVirtualList.tsx',
+  buildRow: 'evopanel/src/react/components/MessageVirtualList.tsx',
+  'chat-stream': 'evopanel/src/react/components/MessageVirtualList.tsx',
+  vlistMeasure: 'evopanel/src/react/components/MessageVirtualList.tsx',
+  scrollCorrect: 'evopanel/src/react/components/MessageVirtualList.tsx',
+  messageRow: 'evopanel/src/react/components/MessageRow.tsx',
+  toolList: 'evopanel/src/react/components/ToolCallList.tsx',
+  markdown: 'evopanel/src/react/components/MarkdownHtml.tsx',
+  reasoningPaint: 'evopanel/src/react/components/ReasoningInlineBlock.tsx',
+  bumpThrottle: 'evopanel/src/react/lib/stream-bump-interval.ts',
+}
+
+export type StreamPerfVerdictClass =
+  | 'throttle'
+  | 'react-render'
+  | 'memo-fail'
+  | 'markdown'
+  | 'tools'
+  | 'layout'
+  | 'unknown'
+
 type PerfRecord = {
   ts: string
-  kind: 'phase' | 'delta' | 'memo-fail' | 'degradation' | 'longtask' | 'heartbeat' | 'reasoning-paint'
+  kind:
+    | 'phase'
+    | 'delta'
+    | 'memo-fail'
+    | 'degradation'
+    | 'longtask'
+    | 'heartbeat'
+    | 'reasoning-paint'
+    | 'bad-frame'
+    | 'bumpThrottle'
+    | 'verdict'
   seq?: number
   total?: number
   render?: number
@@ -72,7 +109,11 @@ let flushTimer: ReturnType<typeof setInterval> | null = null
 let flushInFlight = false
 
 function isoNow(): string {
-  try { return new Date().toISOString() } catch { return String(Date.now()) }
+  try {
+    return new Date().toISOString()
+  } catch {
+    return String(Date.now())
+  }
 }
 
 function pushPerf(rec: PerfRecord): void {
@@ -85,10 +126,47 @@ function pushPerf(rec: PerfRecord): void {
 
 function ensureFlushTimer(): void {
   if (flushTimer || typeof setInterval === 'undefined') return
-  flushTimer = setInterval(() => { void flushPerfBuffer() }, PERF_FLUSH_MS)
+  flushTimer = setInterval(() => {
+    void flushPerfBuffer()
+  }, PERF_FLUSH_MS)
 }
 
-// === 块边界 mark：long task 时报告"卡顿前最后一个 mark"，定位到哪一块 ===
+async function appendFrontendLine(level: string, msg: string): Promise<void> {
+  try {
+    const mod = (await import('../../lib/tauri-api.js')) as unknown as {
+      appendFrontendLog?: (level: string, msg: string) => void
+    }
+    if (typeof mod.appendFrontendLog === 'function') {
+      mod.appendFrontendLog(level, msg)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function flushPerfBuffer(): Promise<void> {
+  if (flushInFlight || perfBuffer.length === 0) return
+  flushInFlight = true
+  const batch = perfBuffer.splice(0, perfBuffer.length)
+  try {
+    const json = JSON.stringify(batch)
+    await appendFrontendLine('warn', `streamperf batch: ${json}`)
+  } catch {
+    perfBuffer.unshift(...batch)
+    if (perfBuffer.length > PERF_BUFFER_MAX) {
+      perfBuffer.splice(0, perfBuffer.length - PERF_BUFFER_MAX)
+    }
+  } finally {
+    flushInFlight = false
+  }
+}
+
+/** 关键 verdict 立即落盘，不等 5s batch */
+async function flushVerdictLine(line: string): Promise<void> {
+  await appendFrontendLine('warn', line)
+}
+
+// === 块边界 mark ===
 let lastMarkAt = 0
 let lastMarkName = ''
 
@@ -98,26 +176,350 @@ export function streamPerfMark(name: string): void {
   lastMarkName = name
 }
 
-async function flushPerfBuffer(): Promise<void> {
-  if (flushInFlight || perfBuffer.length === 0) return
-  flushInFlight = true
-  const batch = perfBuffer.splice(0, perfBuffer.length)
-  try {
-    const json = JSON.stringify(batch)
-    const mod = await import('../../lib/tauri-api.js') as unknown as {
-      appendFrontendLog?: (level: string, msg: string) => void
+// === Span 栈 ===
+type ActiveSpan = { name: string; t0: number }
+
+const activeSpans: ActiveSpan[] = []
+
+export function streamPerfBeginSpan(name: string): void {
+  if (!enabled) return
+  activeSpans.push({ name, t0: now() })
+  lastMarkAt = now()
+  lastMarkName = name
+}
+
+export function streamPerfEndSpan(name?: string): void {
+  if (!enabled || activeSpans.length === 0) return
+  if (name) {
+    for (let i = activeSpans.length - 1; i >= 0; i--) {
+      if (activeSpans[i].name === name) {
+        activeSpans.splice(i, 1)
+        return
+      }
     }
-    if (typeof mod.appendFrontendLog === 'function') {
-      mod.appendFrontendLog('warn', `streamperf batch: ${json}`)
-    }
-  } catch {
-    perfBuffer.unshift(...batch)
-    if (perfBuffer.length > PERF_BUFFER_MAX) {
-      perfBuffer.splice(0, perfBuffer.length - PERF_BUFFER_MAX)
-    }
-  } finally {
-    flushInFlight = false
+    return
   }
+  activeSpans.pop()
+}
+
+export function streamPerfSpan<T>(name: string, fn: () => T): T {
+  if (!enabled) return fn()
+  streamPerfBeginSpan(name)
+  try {
+    return fn()
+  } finally {
+    streamPerfEndSpan(name)
+  }
+}
+
+function snapshotSpanStack(): string[] {
+  return activeSpans.map((s) => s.name)
+}
+
+function spanHint(name: string | null | undefined): string | null {
+  if (!name) return null
+  return STREAM_PERF_SPAN_HINTS[name] || null
+}
+
+// === React Profiler top offenders ===
+type ProfilerSample = {
+  id: string
+  actualMs: number
+  baseMs: number
+  phase: string
+  at: number
+}
+
+const profilerSamples: ProfilerSample[] = []
+const PROFILER_SAMPLE_MAX = 80
+
+export function streamPerfOnProfilerRender(
+  id: string,
+  phase: 'mount' | 'update' | 'nested-update',
+  actualDuration: number,
+  baseDuration: number,
+): void {
+  if (!enabled) return
+  if (!(actualDuration > 0)) return
+  profilerSamples.push({
+    id: String(id || ''),
+    actualMs: +actualDuration.toFixed(2),
+    baseMs: +baseDuration.toFixed(2),
+    phase,
+    at: now(),
+  })
+  if (profilerSamples.length > PROFILER_SAMPLE_MAX) {
+    profilerSamples.splice(0, profilerSamples.length - PROFILER_SAMPLE_MAX)
+  }
+}
+
+function topProfilerOffenders(windowMs = 2000): ProfilerSample[] {
+  const cutoff = now() - windowMs
+  const recent = profilerSamples.filter((s) => s.at >= cutoff)
+  const byId = new Map<string, ProfilerSample>()
+  for (const s of recent) {
+    const prev = byId.get(s.id)
+    if (!prev || s.actualMs > prev.actualMs) byId.set(s.id, s)
+  }
+  return [...byId.values()].sort((a, b) => b.actualMs - a.actualMs).slice(0, PROFILER_TOP_N)
+}
+
+// === Verdict 分类与输出 ===
+type VerdictInput = {
+  trigger: 'longtask' | 'bad-frame' | 'memo-fail' | 'bumpThrottle'
+  durMs?: number
+  frameGapMs?: number
+  memoHit?: number
+  renderRows?: number
+  visibleRows?: number
+  degradation?: number
+  phases?: Record<string, number>
+}
+
+type VerdictResult = {
+  class: StreamPerfVerdictClass
+  top: string
+  hint: string
+  secondary: string
+  stack: string[]
+  bumpIntervalMs: number | null
+  longtaskMs: number | null
+}
+
+const verdictCounts: Record<string, number> = {}
+let lastVerdictAt = 0
+let lastVerdictSig = ''
+let recentLongtaskCount = 0
+let recentLongtaskWindowStart = 0
+
+function noteLongtaskForThrottleWindow(): void {
+  const t = now()
+  if (t - recentLongtaskWindowStart > 3000) {
+    recentLongtaskWindowStart = t
+    recentLongtaskCount = 0
+  }
+  recentLongtaskCount += 1
+}
+
+export function classifyStreamPerfVerdict(input: VerdictInput): VerdictResult {
+  const stack = snapshotSpanStack()
+  const stackTop = stack.length ? stack[stack.length - 1] : lastMarkName || null
+  const offenders = topProfilerOffenders()
+  const topProf = offenders[0] || null
+  const bumpIntervalMs =
+    liveContext.bumpIntervalMs != null && Number.isFinite(liveContext.bumpIntervalMs)
+      ? liveContext.bumpIntervalMs
+      : null
+
+  const memoHit =
+    input.memoHit != null
+      ? input.memoHit
+      : lastDeltaSnapshot
+        ? lastDeltaSnapshot.memoHitRate
+        : null
+  const renderRows = input.renderRows ?? lastDeltaSnapshot?.renderRows ?? 0
+  const visibleRows = input.visibleRows ?? lastDeltaSnapshot?.visibleRows ?? 0
+
+  let cls: StreamPerfVerdictClass = 'unknown'
+  let top = ''
+  let hint = ''
+
+  // 故意降帧：bump 档位抬高；bumpThrottle 事件强制归此类；longtask 触发时不伪装成 throttle
+  if (
+    input.trigger === 'bumpThrottle' ||
+    (bumpIntervalMs != null &&
+      bumpIntervalMs >= 33 &&
+      recentLongtaskCount <= 1 &&
+      input.trigger !== 'longtask' &&
+      input.trigger !== 'memo-fail')
+  ) {
+    cls = 'throttle'
+    top = `bumpIntervalMs=${bumpIntervalMs ?? liveContext.bumpIntervalMs ?? '?'}`
+    hint = STREAM_PERF_SPAN_HINTS.bumpThrottle
+  } else if (
+    memoHit != null &&
+    memoHit < 0.2 &&
+    renderRows >= 5 &&
+    visibleRows > 0 &&
+    renderRows >= visibleRows * 0.8
+  ) {
+    cls = 'memo-fail'
+    top = `HistoryMessageRow×${renderRows}/${visibleRows} memo=${memoHit.toFixed(2)}`
+    hint = STREAM_PERF_SPAN_HINTS.messageRow
+  } else if (topProf && (topProf.id === 'markdown' || topProf.id.includes('Markdown'))) {
+    cls = 'markdown'
+    top = `${topProf.id}:${topProf.actualMs}ms`
+    hint = STREAM_PERF_SPAN_HINTS.markdown
+  } else if (topProf && (topProf.id === 'toolList' || topProf.id.includes('Tool'))) {
+    cls = 'tools'
+    top = `${topProf.id}:${topProf.actualMs}ms`
+    hint = STREAM_PERF_SPAN_HINTS.toolList
+  } else if (
+    stackTop === 'vlistMeasure' ||
+    stackTop === 'scrollCorrect' ||
+    (topProf && topProf.id === 'chat-stream' && (stackTop === 'scrollCorrect' || stackTop === 'vlistMeasure'))
+  ) {
+    cls = 'layout'
+    top = `${stackTop || topProf?.id}:${(input.durMs ?? topProf?.actualMs ?? 0).toFixed?.(0) ?? input.durMs}`
+    hint = spanHint(stackTop) || STREAM_PERF_SPAN_HINTS.vlistMeasure
+  } else if (topProf && topProf.actualMs >= 8) {
+    cls = 'react-render'
+    const chain = offenders
+      .slice(0, 3)
+      .map((o) => o.id)
+      .join('>')
+    top = `${topProf.id}:${topProf.actualMs}ms (${chain || topProf.id})`
+    hint = spanHint(topProf.id) || STREAM_PERF_SPAN_HINTS.messageRow
+  } else if (stackTop) {
+    cls =
+      stackTop === 'markdown' || stackTop === 'reasoningPaint'
+        ? stackTop === 'markdown'
+          ? 'markdown'
+          : 'react-render'
+        : stackTop === 'toolList'
+          ? 'tools'
+          : stackTop === 'vlistMeasure' || stackTop === 'scrollCorrect'
+            ? 'layout'
+            : 'unknown'
+    const dur = input.durMs ?? input.frameGapMs ?? 0
+    top = `${stackTop}:${Math.round(dur)}ms`
+    hint = spanHint(stackTop) || STREAM_PERF_SPAN_HINTS.delta
+  } else {
+    const dur = input.durMs ?? input.frameGapMs ?? 0
+    top = `lastMark=${lastMarkName || 'none'}:${Math.round(dur)}ms`
+    hint = spanHint(lastMarkName) || STREAM_PERF_SPAN_HINTS.delta
+  }
+
+  const secondaryParts: string[] = []
+  if (renderRows > 0) secondaryParts.push(`render=${renderRows}/${visibleRows}`)
+  if (memoHit != null) secondaryParts.push(`memoHit=${(+memoHit).toFixed(2)}`)
+  if (bumpIntervalMs != null) secondaryParts.push(`bumpIntervalMs=${bumpIntervalMs}`)
+  if (input.durMs != null) secondaryParts.push(`longtask=${Math.round(input.durMs)}ms`)
+  if (input.frameGapMs != null) secondaryParts.push(`frameGap=${Math.round(input.frameGapMs)}ms`)
+  if (input.degradation != null) secondaryParts.push(`degradation=${input.degradation}x`)
+  if (offenders[1]) secondaryParts.push(`secondary=${offenders[1].id}:${offenders[1].actualMs}ms`)
+
+  return {
+    class: cls,
+    top,
+    hint,
+    secondary: secondaryParts.join(' '),
+    stack,
+    bumpIntervalMs,
+    longtaskMs: input.durMs ?? null,
+  }
+}
+
+export function formatStreamPerfVerdictLine(v: VerdictResult): string {
+  const stackStr = v.stack.length ? v.stack.join('>') : '(empty)'
+  return (
+    `streamperf verdict: class=${v.class} top=${v.top}` +
+    (v.secondary ? ` ${v.secondary}` : '') +
+    ` stack=${stackStr}` +
+    ` hint=${v.hint}`
+  )
+}
+
+function emitVerdict(input: VerdictInput): void {
+  if (!enabled) return
+  const v = classifyStreamPerfVerdict(input)
+  const sig = `${v.class}|${v.top}|${v.hint}`
+  const t = now()
+  if (sig === lastVerdictSig && t - lastVerdictAt < VERDICT_DEDUP_MS) return
+  lastVerdictSig = sig
+  lastVerdictAt = t
+  verdictCounts[v.class] = (verdictCounts[v.class] || 0) + 1
+
+  const line = formatStreamPerfVerdictLine(v)
+  pushPerf({
+    ts: isoNow(),
+    kind: 'verdict',
+    seq: lastDeltaSnapshot?.seq,
+    render: lastDeltaSnapshot?.renderRows,
+    visible: lastDeltaSnapshot?.visibleRows,
+    memo: lastDeltaSnapshot?.memoHitRate,
+    degradation: lastDeltaSnapshot?.degradation,
+    phases: lastDeltaSnapshot?.phases,
+    ctx: { ...liveContext },
+    extra: {
+      class: v.class,
+      top: v.top,
+      hint: v.hint,
+      secondary: v.secondary,
+      stack: v.stack,
+      trigger: input.trigger,
+      durMs: input.durMs,
+      frameGapMs: input.frameGapMs,
+    },
+  })
+  void flushVerdictLine(line)
+}
+
+/** bump 档位变化（ChatApp）：区分故意降帧 vs 真卡顿 */
+export function streamPerfNoteBumpThrottle(intervalMs: number, prevIntervalMs?: number): void {
+  if (!enabled) return
+  const prev = prevIntervalMs ?? liveContext.bumpIntervalMs
+  liveContext = { ...liveContext, bumpIntervalMs: intervalMs }
+  if (prev != null && prev === intervalMs) return
+  if (intervalMs < 33 && (prev == null || prev < 33)) return
+  pushPerf({
+    ts: isoNow(),
+    kind: 'bumpThrottle',
+    ctx: { ...liveContext },
+    extra: { intervalMs, prevIntervalMs: prev ?? null },
+  })
+  emitVerdict({ trigger: 'bumpThrottle' })
+}
+
+// === rAF 帧探针 ===
+let rafHandle = 0
+let lastRafAt = 0
+let badFrameStreak = 0
+let rafInstalled = false
+
+function rafTick(ts: number): void {
+  if (!enabled) {
+    rafInstalled = false
+    rafHandle = 0
+    return
+  }
+  if (lastRafAt > 0) {
+    const gap = ts - lastRafAt
+    if (gap > BAD_FRAME_MS) {
+      badFrameStreak += 1
+      pushPerf({
+        ts: isoNow(),
+        kind: 'bad-frame',
+        ctx: { ...liveContext },
+        extra: { gapMs: +gap.toFixed(1), streak: badFrameStreak, spanTop: activeSpans.at(-1)?.name || null },
+      })
+      if (badFrameStreak >= BAD_FRAME_STREAK_FOR_VERDICT) {
+        emitVerdict({ trigger: 'bad-frame', frameGapMs: gap })
+      }
+    } else {
+      badFrameStreak = 0
+    }
+  }
+  lastRafAt = ts
+  rafHandle = requestAnimationFrame(rafTick)
+}
+
+function installRafProbe(): void {
+  if (rafInstalled || typeof requestAnimationFrame === 'undefined') return
+  rafInstalled = true
+  lastRafAt = 0
+  badFrameStreak = 0
+  rafHandle = requestAnimationFrame(rafTick)
+}
+
+function stopRafProbe(): void {
+  rafInstalled = false
+  if (rafHandle && typeof cancelAnimationFrame !== 'undefined') {
+    cancelAnimationFrame(rafHandle)
+  }
+  rafHandle = 0
+  lastRafAt = 0
+  badFrameStreak = 0
 }
 
 export type StreamPerfLiveContext = {
@@ -184,23 +586,23 @@ export function streamPerfSetEnabled(next: boolean): void {
   }
   if (enabled) {
     installLongTaskMonitor()
+    installRafProbe()
     lastHeartbeatAt = 0
     console.info(
-      '[streamperf] ON（热开）— 日志写入 frontend 日志文件；report: __streamPerf.report(); off: __streamPerf.disable()',
+      '[streamperf] ON — verdict→frontend 日志；report: __streamPerf.report(); off: __streamPerf.disable()',
     )
   } else {
     console.info('[streamperf] OFF')
+    stopRafProbe()
     void flushPerfBuffer()
   }
 }
 
-/** 每帧由 MessageVirtualList 写入：历史长度 / 思考体量 / bump 节流，便于对照「越聊越卡」。 */
 export function streamPerfNoteContext(partial: StreamPerfLiveContext): void {
   if (!enabled) return
   liveContext = { ...liveContext, ...partial }
 }
 
-/** 思考行渲染耗时（ReasoningInlineBlock / RunningScanText 路径）。 */
 export function streamPerfNoteReasoningPaint(ms: number, chars: number): void {
   if (!enabled) return
   reasoningPaintSamples += 1
@@ -218,6 +620,8 @@ export function streamPerfBeginDelta(seq: number): void {
     currentDeltaPhases = null
     return
   }
+  // 上一帧若未走到 endDelta，先收掉残留 delta span，避免栈泄漏
+  if (activeSpans.some((s) => s.name === 'delta')) streamPerfEndSpan('delta')
   lastDeltaSeq = seq
   currentDeltaPhases = new Map()
   currentDeltaStart = now()
@@ -225,20 +629,23 @@ export function streamPerfBeginDelta(seq: number): void {
   renderCountThisDelta = 0
   visibleRowCountThisDelta = 0
   deltasSinceHeartbeat += 1
+  streamPerfBeginSpan('delta')
 }
 
 export function streamPerfTime<T>(phase: string, fn: () => T): T {
   if (!enabled) return fn()
-  const t0 = now()
-  const result = fn()
-  const ms = now() - t0
-  if (currentDeltaPhases) {
-    currentDeltaPhases.set(phase, (currentDeltaPhases.get(phase) || 0) + ms)
-  }
-  if (ms > PHASE_WARN_MS) {
-    pushPerf({ ts: isoNow(), kind: 'phase', extra: { phase, ms: +ms.toFixed(1) } })
-  }
-  return result
+  return streamPerfSpan(phase, () => {
+    const t0 = now()
+    const result = fn()
+    const ms = now() - t0
+    if (currentDeltaPhases) {
+      currentDeltaPhases.set(phase, (currentDeltaPhases.get(phase) || 0) + ms)
+    }
+    if (ms > PHASE_WARN_MS) {
+      pushPerf({ ts: isoNow(), kind: 'phase', extra: { phase, ms: +ms.toFixed(1) } })
+    }
+    return result
+  })
 }
 
 export function streamPerfCountRender(): void {
@@ -254,6 +661,7 @@ export function streamPerfSetVisibleRows(n: number): void {
 export function streamPerfEndDelta(): void {
   if (!enabled || !currentDeltaPhases) return
   const total = now() - currentDeltaStart
+  streamPerfEndSpan('delta')
 
   for (const [phase, ms] of currentDeltaPhases) {
     const s = ensureStats(phase)
@@ -267,9 +675,7 @@ export function streamPerfEndDelta(): void {
   if (renderCountThisDelta > renderCountStats.max) renderCountStats.max = renderCountThisDelta
 
   const memoHitRate =
-    visibleRowCountThisDelta > 0
-      ? 1 - renderCountThisDelta / visibleRowCountThisDelta
-      : 1
+    visibleRowCountThisDelta > 0 ? 1 - renderCountThisDelta / visibleRowCountThisDelta : 1
   memoHitRateStats.samples.push(memoHitRate)
   if (memoHitRateStats.samples.length > WINDOW_SIZE) memoHitRateStats.samples.shift()
 
@@ -325,6 +731,13 @@ export function streamPerfEndDelta(): void {
       visible: visibleRowCountThisDelta,
       memo: +memoHitRate.toFixed(2),
     })
+    emitVerdict({
+      trigger: 'memo-fail',
+      memoHit: memoHitRate,
+      renderRows: renderCountThisDelta,
+      visibleRows: visibleRowCountThisDelta,
+      degradation: +degradation.toFixed(1),
+    })
   }
 
   if (degradation > 3 && total > DELTA_WARN_MS && renderCountThisDelta > 1) {
@@ -370,6 +783,7 @@ export function streamPerfEndDelta(): void {
         heapMb,
         reasoningPaintAvgMs: +reasoningAvg.toFixed(2),
         reasoningPaintMaxMs: +reasoningPaintMaxMs.toFixed(1),
+        topOffenders: topProfilerOffenders(HEARTBEAT_MS).slice(0, 5),
       },
     })
     lastHeartbeatAt = tNow
@@ -398,22 +812,36 @@ function installLongTaskMonitor(): void {
     longTaskObserver = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         const dur = entry.duration
+        noteLongtaskForThrottleWindow()
         const snap = lastDeltaSnapshot
-        if (snap && snap.visibleRows > 0) {
-          pushPerf({
-            ts: isoNow(),
-            kind: 'longtask',
-            seq: snap.seq,
-            total: snap.total,
-            render: snap.renderRows,
-            visible: snap.visibleRows,
-            degradation: snap.degradation,
-            phases: snap.phases,
-            extra: {
-              durMs: +dur.toFixed(0),
-              lastMark: lastMarkName || null,
-              msSinceMark: lastMarkAt > 0 ? +(now() - lastMarkAt).toFixed(1) : null,
-            },
+        const stack = snapshotSpanStack()
+        pushPerf({
+          ts: isoNow(),
+          kind: 'longtask',
+          seq: snap?.seq,
+          total: snap?.total,
+          render: snap?.renderRows,
+          visible: snap?.visibleRows,
+          degradation: snap?.degradation,
+          phases: snap?.phases,
+          ctx: { ...liveContext },
+          extra: {
+            durMs: +dur.toFixed(0),
+            lastMark: lastMarkName || null,
+            msSinceMark: lastMarkAt > 0 ? +(now() - lastMarkAt).toFixed(1) : null,
+            spanStack: stack,
+            topOffenders: topProfilerOffenders(1500).slice(0, 5),
+          },
+        })
+        if (dur >= 50) {
+          emitVerdict({
+            trigger: 'longtask',
+            durMs: dur,
+            memoHit: snap?.memoHitRate,
+            renderRows: snap?.renderRows,
+            visibleRows: snap?.visibleRows,
+            degradation: snap?.degradation,
+            phases: snap?.phases,
           })
         }
       }
@@ -456,6 +884,8 @@ export function streamPerfReport(): Record<string, unknown> {
     }
   }
 
+  const topOffenders = topProfilerOffenders(10_000)
+
   return {
     phases: phaseReport,
     renderRows: {
@@ -472,6 +902,10 @@ export function streamPerfReport(): Record<string, unknown> {
     deltaRate: +deltaRate.toFixed(1),
     baseline: baselineDeltaTotal > 0 ? { seq: baselineDeltaSeq, total: +baselineDeltaTotal.toFixed(1) } : null,
     memTrend,
+    topOffenders,
+    verdictCounts: { ...verdictCounts },
+    spanStack: snapshotSpanStack(),
+    liveContext: { ...liveContext },
   }
 }
 
@@ -495,11 +929,21 @@ export function streamPerfReset(): void {
   reasoningPaintSumMs = 0
   reasoningPaintMaxMs = 0
   perfBuffer.length = 0
+  profilerSamples.length = 0
+  activeSpans.length = 0
+  for (const k of Object.keys(verdictCounts)) delete verdictCounts[k]
+  lastVerdictAt = 0
+  lastVerdictSig = ''
+  recentLongtaskCount = 0
+  badFrameStreak = 0
 }
 
 export function installStreamPerfGlobal(): void {
   if (typeof window === 'undefined') return
-  if (enabled) installLongTaskMonitor()
+  if (enabled) {
+    installLongTaskMonitor()
+    installRafProbe()
+  }
   const g = window as unknown as Record<string, unknown>
   g.__streamPerf = {
     report: () => {
@@ -511,16 +955,22 @@ export function installStreamPerfGlobal(): void {
         deltaRate: r.deltaRate,
         baseline: r.baseline,
         memTrend: r.memTrend,
-        liveContext,
+        topOffenders: r.topOffenders,
+        verdictCounts: r.verdictCounts,
+        liveContext: r.liveContext,
       })
       return r
     },
     reset: streamPerfReset,
     enable: () => streamPerfSetEnabled(true),
     disable: () => streamPerfSetEnabled(false),
-    flush: () => { void flushPerfBuffer() },
+    flush: () => {
+      void flushPerfBuffer()
+    },
     enabled: () => enabled,
     lastDelta: () => lastDeltaSnapshot,
     context: () => ({ ...liveContext }),
+    spans: () => snapshotSpanStack(),
+    offenders: () => topProfilerOffenders(10_000),
   }
 }

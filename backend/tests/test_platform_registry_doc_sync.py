@@ -8,15 +8,20 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
 
 # Keep in sync with 04-http-platform.md / defect-registry scale line.
-# Prior 103 − memory.* (4) = 99; domains 17 − memory = 16.
-EXPECTED_PLATFORM_ACTION_COUNT = 99
+# Prior 139 + assets hub(4) + employees(2) + tasks(3) + eval(5) = 153; domains 20 + 1 = 21.
+EXPECTED_PLATFORM_ACTION_COUNT = 153
 
 
 def test_assets_in_platform_domains() -> None:
     assert "assets" in PLATFORM_DOMAINS
+    assert "extensions" in PLATFORM_DOMAINS
+    assert "plugins" in PLATFORM_DOMAINS
+    assert "org" in PLATFORM_DOMAINS
+    assert "channels" in PLATFORM_DOMAINS
+    assert "eval" in PLATFORM_DOMAINS
     assert "experience" not in PLATFORM_DOMAINS
     assert "memory" not in PLATFORM_DOMAINS
-    assert len(PLATFORM_DOMAINS) == 16
+    assert len(PLATFORM_DOMAINS) == 21
 
 
 def test_registry_action_count() -> None:
@@ -84,6 +89,13 @@ def test_http_platform_doc_lists_registry_actions() -> None:
     assert "archive" not in emp_line
     assert "已退役" in text
     assert "`employees.delete`" in text
-    assert "99" in text
+    assert "153" in text
     assert "bindings" in text
+    assert "**extensions：**" in text
+    assert "**plugins：**" in text
+    assert "**org：**" in text
+    assert "**channels：**" in text
+    assert "**eval：**" in text
+    assert "update_model" in text
+    assert "employees.wake" in text or "wake" in text
     assert "**memory：**" not in text

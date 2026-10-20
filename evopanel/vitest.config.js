@@ -120,6 +120,7 @@ export default defineConfig({
       'tests/file-edit-tool-fetch.test.js',
       'tests/stream-bump-scheduler.test.js',
       'tests/stream-bump-interval.test.js',
+      'tests/stream-perf-verdict.test.ts',
       'tests/markdown-stream-paint.test.js',
       'tests/sse-frame-batch.test.js',
       'tests/stream-display-tick.test.js',

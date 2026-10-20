@@ -1396,7 +1396,7 @@ export const ChatComposer = memo(function ChatComposer({
           <textarea
             ref={textareaRef}
             className={`react-chat-input${voiceRecording ? ' react-chat-input--dictating' : ''}`}
-            rows={2}
+            rows={3}
             value={text}
             placeholder={
               voiceRecording

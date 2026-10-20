@@ -8,7 +8,7 @@ from evoflow.admin.errors import ValidationError
 
 _RETIRED_MSG = (
     "evoflow memory is retired. Long-term memory lives in Asset Hub "
-    "(panel #/assets, dialogue `assets` tool, skill evoflow-assets). "
+    "(panel #/assets, dialogue `assets` tool, skill evoflow-admin assets-contract). "
     "Migrate old SQLite facts: evoflow assets migrate --only memory. "
     "Workspace project memory remains: evoflow workspace memory …"
 )
@@ -17,7 +17,7 @@ _RETIRED_MSG = (
 def register(subparsers: argparse._SubParsersAction) -> None:
     memory_parser = subparsers.add_parser(
         "memory",
-        help="(retired) use Asset Hub / assets tool — see evoflow-assets",
+        help="(retired) use Asset Hub / assets tool — see evoflow-admin references/assets-contract.md",
         description=_RETIRED_MSG,
     )
     memory_sub = memory_parser.add_subparsers(dest="memory_cmd", required=False)

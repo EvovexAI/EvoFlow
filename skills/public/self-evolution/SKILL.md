@@ -32,10 +32,10 @@ description: 执行任务时持续改进技能、经验笔记与智能体配置�
 | 时机 | 动作 |
 |------|------|
 | 开工前像老问题 | `assets` 搜索 / 读 craft、`[experience]` 笔记 |
-| 难缠任务 / bugfix 完成后 | 评估是否用 `assets` 写入 `[experience]`（见 **evoflow-assets**） |
+| 难缠任务 / bugfix 完成后 | 评估是否用 `assets` 写入 `[experience]`（见 **evoflow-admin** 资产契约） |
 | 旧经验库迁移 | `evoflow assets migrate --only experience` |
 
-细则见 **evoflow-assets** 与 **evoflow-admin**「Experience / craft」小节。
+细则见 **evoflow-admin**「Experience / craft」与 `references/assets-contract.md`。
 
 ## 智能体（Agents）
 

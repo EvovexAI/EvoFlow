@@ -519,7 +519,7 @@ html.dark .msg-action-result-link {
   margin: 0 auto;
   max-width: var(--chat-composer-max, 840px);
   width: 100%;
-  padding: 10px 12px 8px;
+  padding: 6px 12px 6px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 16px;
   background: var(--chat-canvas, #ffffff);

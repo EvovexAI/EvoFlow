@@ -1,5 +1,6 @@
 import { memo, useEffect, useId, useState } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
+import { StreamPerfProfiler } from './StreamPerfProfiler.js'
 import type { MessageSegment } from '../chat-types.js'
 import { formatReasoningDurationLabel } from '../lib/turn-timing.js'
 import {
@@ -263,4 +264,12 @@ function ReasoningInlineBlockInner({
   )
 }
 
-export const ReasoningInlineBlock = memo(ReasoningInlineBlockInner)
+function ReasoningInlineBlockProfiled(props: Parameters<typeof ReasoningInlineBlockInner>[0]) {
+  return (
+    <StreamPerfProfiler id="reasoningPaint">
+      <ReasoningInlineBlockInner {...props} />
+    </StreamPerfProfiler>
+  )
+}
+
+export const ReasoningInlineBlock = memo(ReasoningInlineBlockProfiled)

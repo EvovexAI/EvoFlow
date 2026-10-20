@@ -433,6 +433,7 @@ import {
 import { parseStreamBlockWire, enforceSegmentDisplayOrder, type StreamBlockWire } from './lib/content-blocks.js'
 import { createStreamBumpScheduler } from './lib/stream-bump-scheduler.js'
 import { resolveStreamBumpMinIntervalMs, STREAM_BUMP_INTERVAL_MS, STREAM_REASONING_BUMP_INTERVAL_MS } from './lib/stream-bump-interval.js'
+import { streamPerfNoteBumpThrottle } from './lib/stream-perf-trace.js'
 import { isStreamThrottleEnabled } from './lib/stream-throttle-toggle.js'
 import { isAgUiLiveTextEvent, isStreamTurnLiveTextEvent } from './lib/agui-live-routes.js'
 import {
@@ -7281,10 +7282,12 @@ useEffect(() => {
     const throttleFloor = isStreamThrottleEnabled()
       ? resolveStreamBumpMinIntervalMs(streamRef.current)
       : STREAM_BUMP_INTERVAL_MS
-    streamBumpMinIntervalRef.current = Math.max(
-      STREAM_BUMP_INTERVAL_MS,
-      throttleFloor,
-    )
+    const nextInterval = Math.max(STREAM_BUMP_INTERVAL_MS, throttleFloor)
+    const prevInterval = streamBumpMinIntervalRef.current
+    streamBumpMinIntervalRef.current = nextInterval
+    if (nextInterval !== prevInterval) {
+      streamPerfNoteBumpThrottle(nextInterval, prevInterval)
+    }
     streamBumpSchedulerRef.current?.schedule(opts)
   }, [])
 

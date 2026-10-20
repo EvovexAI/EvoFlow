@@ -51,12 +51,16 @@ def test_strip_includes_memory_policy_and_entity_assets():
         "<memory_policy>secret</memory_policy>\n"
         "<entity_assets>paths</entity_assets>\n"
         "<memory>user mem</memory>\n"
+        "<person_memory>bio</person_memory>\n"
+        "<person_craft>craft</person_craft>\n"
     )
     cleaned = strip_memory_xml_blocks(text)
     assert "unified policy" not in cleaned
     assert "secret" not in cleaned
     assert "paths" not in cleaned
     assert "user mem" not in cleaned
+    assert "bio" not in cleaned
+    assert "craft" not in cleaned
     assert "<platform>x</platform>" in cleaned
 
 

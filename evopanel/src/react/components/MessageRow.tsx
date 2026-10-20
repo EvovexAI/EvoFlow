@@ -1,5 +1,6 @@
 import { useRef, useState, useLayoutEffect, useCallback, useEffect, useMemo, memo } from 'react'
 import { ChevronDown, ChevronUp, Copy, Pencil } from 'lucide-react'
+import { StreamPerfProfiler } from './StreamPerfProfiler.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 import { AnimatedTokenInline } from './AnimatedTokenDisplay.js'
 import { MessageMedia } from './MessageMedia.js'
@@ -704,29 +705,7 @@ function MessageActionBarInner({
  */
 const MessageActionBar = memo(MessageActionBarInner)
 
-export function MessageRow({
-  row,
-  isStreaming: _isStreamingDeprecated,
-  threadBusy = false,
-  showToolTiming = false,
-  suppressPlanExecPromptNoise = false,
-  suppressExploringFold = false,
-  flatTimeline = true,
-  onOpenFile,
-  onOpenKnowledgeMap,
-  onToolApproval,
-  toolApprovalBusy,
-  interactiveToolApproval = false,
-  hideSubagentInnerTools = false,
-  sessionKey,
-  liveActivityDockLabel,
-  liveTurnElapsedSec,
-  isLatestTurn = false,
-  onCopy,
-  onRetry,
-  onEdit,
-  onFork,
-}: {
+export function MessageRow(props: {
   row: DisplayRow
   /**
    * @deprecated ZCode v4 对齐后不再使用；保留只在调用方为非 streaming 路径时
@@ -787,6 +766,38 @@ export function MessageRow({
   /** 当前会话 Agent（头像） */
   assistantAgent?: AgentAvatarAgent | null
 }) {
+  return (
+    <StreamPerfProfiler id="messageRow">
+      <MessageRowInner {...props} />
+    </StreamPerfProfiler>
+  )
+}
+
+function MessageRowInner({
+  row,
+  isStreaming: _isStreamingDeprecated,
+  threadBusy = false,
+  showToolTiming = false,
+  suppressPlanExecPromptNoise = false,
+  suppressExploringFold = false,
+  flatTimeline = true,
+  onOpenFile,
+  onOpenKnowledgeMap,
+  onToolApproval,
+  toolApprovalBusy,
+  interactiveToolApproval = false,
+  hideSubagentInnerTools = false,
+  sessionKey,
+  liveActivityDockLabel,
+  liveTurnElapsedSec,
+  isLatestTurn = false,
+  onCopy,
+  onRetry,
+  onEdit,
+  onFork,
+  assistantAgentLabel,
+  assistantAgent,
+}: Parameters<typeof MessageRow>[0]) {
   const bubbleRef = useRef<HTMLDivElement>(null)
   // 单一真相源：row 自身已经包含所有渲染所需信息（state / text / segments
   // / reasoning），由 buildStreamDisplayRow 在 commit 时一次性投影完成。
@@ -795,7 +806,6 @@ export function MessageRow({
   // row.state 是单一真相源；弃用 prop 仅保持向后兼容（默认 false）。
   const isStreamingEffective = row.state === 'streaming' || (row.state === undefined && false)
 
-  
   const [userEditing, setUserEditing] = useState(false)
 
   /**

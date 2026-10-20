@@ -388,6 +388,18 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         text = brief.rstrip()
         if footer and _DUTY_FOOTER_TAG not in text:
             text = f"{text}\n\n{footer}"
+        # MemoryRuntimeControl runs outer (before this rebuild); strip here so
+        # session/role memory_enabled=off actually removes duty memory blocks.
+        try:
+            from evoflow.agents.memory.runtime_overrides import (
+                effective_memory_injection_enabled,
+                strip_memory_xml_blocks,
+            )
+
+            if not effective_memory_injection_enabled(request.runtime):
+                text = strip_memory_xml_blocks(text)
+        except Exception:
+            logger.debug("duty system: memory strip skipped", exc_info=True)
         agent_name_str = str(
             ctx.get("proactive_agent_code")
             or ctx.get("agent_name")

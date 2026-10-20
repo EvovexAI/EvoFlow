@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { StreamPerfProfiler } from './StreamPerfProfiler.js'
 import {
   buildAssistantCodeCommentCards,
   projectAssistantCodeComments,
@@ -365,4 +366,12 @@ function MarkdownHtmlInner({
   )
 }
 
-export const MarkdownHtml = memo(MarkdownHtmlInner)
+function MarkdownHtmlProfiled(props: Parameters<typeof MarkdownHtmlInner>[0]) {
+  return (
+    <StreamPerfProfiler id="markdown">
+      <MarkdownHtmlInner {...props} />
+    </StreamPerfProfiler>
+  )
+}
+
+export const MarkdownHtml = memo(MarkdownHtmlProfiled)

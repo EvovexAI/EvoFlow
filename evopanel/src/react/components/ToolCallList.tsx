@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react'
 import { ChevronRight } from 'lucide-react'
+import { StreamPerfProfiler } from './StreamPerfProfiler.js'
 import {
   buildToolCallListRenderDiag,
   logStreamCompareToolRender,
@@ -2348,7 +2349,15 @@ function ToolCallListInner({
   )
 }
 
-export const ToolCallList = memo(ToolCallListInner, areToolCallListPropsEqual)
+function ToolCallListProfiled(props: Parameters<typeof ToolCallListInner>[0]) {
+  return (
+    <StreamPerfProfiler id="toolList">
+      <ToolCallListInner {...props} />
+    </StreamPerfProfiler>
+  )
+}
+
+export const ToolCallList = memo(ToolCallListProfiled, areToolCallListPropsEqual)
 
 function _toolRowSig(tool: unknown): string {
   const t = (tool && typeof tool === 'object' ? tool : {}) as Record<string, unknown>
