@@ -721,16 +721,7 @@ export function ShellSessionList({
     ? rows.find((r) => String(r.sessionKey || '') === contextMenu.sessionKey) || null
     : null
 
-  /** 选中员工会话时对齐员工下拉 */
-  useEffect(() => {
-    if (!isEmployeesTab || !displaySelectedKey) return
-    const code = proactiveAgentCodeFromSessionKey(displaySelectedKey)
-    if (!code) return
-    setFocusedEmployeeCode((prev) => {
-      if (prev && prev.toLowerCase() === code.toLowerCase()) return prev
-      return code
-    })
-  }, [isEmployeesTab, displaySelectedKey])
+  // 员工筛选只跟下拉手动选择走：保持「全部员工」时点进某会话不应改写筛选。
 
   useEffect(() => {
     if (!empMenuOpen) return
