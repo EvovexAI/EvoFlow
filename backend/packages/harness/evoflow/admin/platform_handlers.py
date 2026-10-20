@@ -2712,7 +2712,7 @@ def org_market_install(args: dict[str, Any]) -> dict[str, Any]:
 
 def _channels_service_or_none():
     try:
-        from app.channels.service import get_channel_service
+        from evoflow.runtime.ports import get_channel_service
 
         return get_channel_service()
     except Exception:
@@ -2724,7 +2724,7 @@ def _channels_ensure_service():
     if service is not None:
         return service
     try:
-        from app.channels.service import start_channel_service
+        from evoflow.runtime.ports import start_channel_service
 
         return _run_coro_sync(start_channel_service())
     except Exception:
@@ -2737,21 +2737,24 @@ def channels_list(_args: dict[str, Any]) -> dict[str, Any]:
         status = service.get_status()
         return {"ok": True, **(status if isinstance(status, dict) else {"status": status})}
     try:
-        from app.channels.service import registry_channel_status
+        from evoflow.runtime.ports import registry_channel_status
 
-        return {"ok": True, **registry_channel_status(service_running=False)}
+        status = registry_channel_status(service_running=False)
+        if status is not None:
+            return {"ok": True, **status}
     except Exception:
-        from evoflow.persistence import config_repositories as cfg_repo
+        pass
+    from evoflow.persistence import config_repositories as cfg_repo
 
-        configs = cfg_repo.get_all_channel_configs()
-        return {
-            "ok": True,
-            "service_running": False,
-            "channels": {
-                name: {"enabled": bool((cfg or {}).get("enabled")), "running": False, "config": cfg}
-                for name, cfg in (configs or {}).items()
-            },
-        }
+    configs = cfg_repo.get_all_channel_configs()
+    return {
+        "ok": True,
+        "service_running": False,
+        "channels": {
+            name: {"enabled": bool((cfg or {}).get("enabled")), "running": False, "config": cfg}
+            for name, cfg in (configs or {}).items()
+        },
+    }
 
 
 def channels_get(args: dict[str, Any]) -> dict[str, Any]:
@@ -2856,29 +2859,32 @@ def channels_restart(args: dict[str, Any]) -> dict[str, Any]:
 
 def channels_push_targets(args: dict[str, Any]) -> dict[str, Any]:
     try:
-        from app.gateway.channel_result_push import list_push_targets
+        from evoflow.runtime.ports import list_push_targets
+
+        targets = list_push_targets(limit=int(args.get("limit") or 200))
     except Exception as exc:
         raise ValidationError(f"push targets unavailable: {exc}") from exc
-    limit = int(args.get("limit") or 200)
-    return {"ok": True, "targets": list_push_targets(limit=limit)}
+    if targets is None:
+        raise ValidationError("push targets unavailable: channel push adapter not registered")
+    return {"ok": True, "targets": targets}
 
 
 def _registration_client(channel: str):
     ch = channel.strip().lower()
     if ch == "feishu":
-        from app.channels.feishu_registration import get_registration_client
+        from evoflow.runtime.ports import get_feishu_registration_client
 
-        return get_registration_client(), ch
+        return get_feishu_registration_client(), ch
     if ch in {"weixin", "wechat"}:
-        from app.channels.weixin_registration import get_weixin_registration_client
+        from evoflow.runtime.ports import get_weixin_registration_client
 
         return get_weixin_registration_client(), "weixin"
     if ch == "wecom":
-        from app.channels.wecom_registration import get_wecom_registration_client
+        from evoflow.runtime.ports import get_wecom_registration_client
 
         return get_wecom_registration_client(), "wecom"
     if ch in {"dingtalk", "dingding"}:
-        from app.channels.dingtalk_registration import get_dingtalk_registration_client
+        from evoflow.runtime.ports import get_dingtalk_registration_client
 
         return get_dingtalk_registration_client(), "dingtalk"
     raise ValidationError("name must be feishu|weixin|wecom|dingtalk")
@@ -2951,14 +2957,16 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
         config.update({"app_id": session.app_id, "app_secret": session.app_secret})
     elif channel == "weixin":
         try:
-            from app.channels.weixin_setup import save_weixin_credentials
+            from evoflow.runtime.ports import save_weixin_credentials
 
-            save_weixin_credentials(
+            saved = save_weixin_credentials(
                 getattr(session, "account_id", None),
                 getattr(session, "token", None),
                 getattr(session, "base_url", None),
                 getattr(session, "user_id", None),
             )
+            if not saved:
+                raise ValidationError("weixin setup adapter not registered")
         except Exception as exc:
             raise ValidationError(f"save weixin credentials failed: {exc}") from exc
         service = _channels_ensure_service()
@@ -2974,9 +2982,11 @@ def channels_registration_apply(args: dict[str, Any]) -> dict[str, Any]:
         }
     elif channel == "wecom":
         try:
-            from app.channels.wecom_setup import save_wecom_credentials
+            from evoflow.runtime.ports import save_wecom_credentials
 
-            save_wecom_credentials(getattr(session, "bot_id", None), getattr(session, "secret", None))
+            saved = save_wecom_credentials(getattr(session, "bot_id", None), getattr(session, "secret", None))
+            if not saved:
+                raise ValidationError("wecom setup adapter not registered")
         except Exception as exc:
             raise ValidationError(f"save wecom credentials failed: {exc}") from exc
         agent_code = _arg_str(args, "agent_code", "agentCode")

@@ -453,6 +453,71 @@ def read_learned_feishu_automation_chat_id() -> str | None:
     return impl()
 
 
+def start_channel_service() -> Any | None:
+    """Start (or attach to) the channel service; None when adapter missing/off-process."""
+    impl = get("channels.start_service")
+    if impl is None:
+        return None
+    try:
+        return impl()
+    except Exception:
+        return None
+
+
+def registry_channel_status(*, service_running: bool = False) -> dict[str, Any] | None:
+    """Registry-only channel status fallback; None when adapter missing/off-process."""
+    impl = get("channels.registry_channel_status")
+    if impl is None:
+        return None
+    try:
+        return dict(impl(service_running=service_running))
+    except Exception:
+        return None
+
+
+def list_push_targets(*, limit: int = 200) -> list[dict[str, Any]] | None:
+    """Push targets from the app-layer routing table; None when adapter missing."""
+    impl = get("channels.list_push_targets")
+    if impl is None:
+        return None
+    try:
+        return list(impl(limit=limit))
+    except Exception:
+        return None
+
+
+def get_weixin_registration_client() -> Any | None:
+    return get("channels.weixin_registration_client")
+
+
+def save_weixin_credentials(
+    account_id: str | None,
+    token: str | None,
+    base_url: str | None,
+    user_id: str | None,
+) -> bool:
+    """Persist weixin credentials via the app-layer setup helper.
+
+    Returns ``False`` when the adapter is missing (off-process) — callers treat
+    that as "cannot save here" and surface the error upstream, mirroring the
+    legacy ``try: from app... except`` behavior.
+    """
+    impl = get("channels.weixin_setup_save")
+    if impl is None:
+        return False
+    impl(account_id, token, base_url, user_id)
+    return True
+
+
+def save_wecom_credentials(bot_id: str | None, secret: str | None) -> bool:
+    """Persist wecom credentials via the app-layer setup helper (False off-process)."""
+    impl = get("channels.wecom_setup_save")
+    if impl is None:
+        return False
+    impl(bot_id, secret)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # speech — volcengine TTS/ASR (app.gateway.speech.volcengine_speech)
 # ---------------------------------------------------------------------------

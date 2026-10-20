@@ -12,6 +12,7 @@ so the ports stay in their no-op / None degradation — exactly like the legacy
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,55 @@ def register_runtime_adapters() -> None:
         ports.register("channels.service", get_channel_service)
     except Exception:
         logger.debug("register channels.service failed", exc_info=True)
+
+    try:
+        from app.channels.service import registry_channel_status, start_channel_service
+
+        def _start_channel_service_sync():
+            """Run the async ``start_channel_service()`` from sync context.
+
+            Mirrors ``platform_handlers._run_coro_sync``: if already on a loop
+            (e.g. platform tool invoked from async gateway code), hop to a
+            worker thread with its own loop instead of deadlocking.
+            """
+            coro = start_channel_service()
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(coro)
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result(timeout=120)
+
+        ports.register("channels.start_service", _start_channel_service_sync)
+        ports.register("channels.registry_channel_status", registry_channel_status)
+    except Exception:
+        logger.debug("register channels.start/registry_status failed", exc_info=True)
+
+    try:
+        from app.gateway.channel_result_push import list_push_targets
+
+        ports.register("channels.list_push_targets", list_push_targets)
+    except Exception:
+        logger.debug("register channels.list_push_targets failed", exc_info=True)
+
+    try:
+        from app.channels.weixin_registration import get_weixin_registration_client
+
+        # Resolved singleton client (same rationale as the feishu/wecom ones).
+        ports.register("channels.weixin_registration_client", get_weixin_registration_client())
+    except Exception:
+        logger.debug("register channels.weixin_registration_client failed", exc_info=True)
+
+    try:
+        from app.channels.weixin_setup import save_weixin_credentials
+        from app.channels.wecom_setup import save_wecom_credentials
+
+        ports.register("channels.weixin_setup_save", save_weixin_credentials)
+        ports.register("channels.wecom_setup_save", save_wecom_credentials)
+    except Exception:
+        logger.debug("register channels setup saves failed", exc_info=True)
 
     try:
         from app.gateway.channel_result_push import resolve_push_target

@@ -101,9 +101,12 @@ async def _run_notification_turn(
     ).encode("utf-8")
 
     try:
-        from app.gateway.streaming.background_worker import StreamBackgroundWorker
+        from evoflow.runtime.ports import get_stream_background_worker_cls
 
-        worker, is_new = await StreamBackgroundWorker.get_or_create_with_langgraph(
+        WorkerCls = get_stream_background_worker_cls()
+        if WorkerCls is None:
+            raise RuntimeError("StreamBackgroundWorker adapter not registered")
+        worker, is_new = await WorkerCls.get_or_create_with_langgraph(
             thread_id=thread_id,
             langgraph_path=f"threads/{thread_id}/runs/stream",
             request_method="POST",
