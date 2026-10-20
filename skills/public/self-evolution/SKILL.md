@@ -1,6 +1,6 @@
 ---
 name: self-evolution
-description: 执行任务时持续改进技能、经验库与智能体配置。修补过时/错误的 SKILL.md、复杂任务后沉淀经验（experience save/list/mark-used）、缺能力时新建或调整自定义 Agent/技能。用户提到「优化技能」「保存经验」「上次怎么解决的」「给这个助手加能力」时使用；CLI 细节见 evoflow-admin，读本技能后按需 read skill:self-evolution 全文。
+description: 执行任务时持续改进技能、经验笔记与智能体配置。修补过时/错误的 SKILL.md、复杂任务后沉淀经验（assets 写 [experience]/craft）、缺能力时新建或调整自定义 Agent/技能。用户提到「优化技能」「保存经验」「上次怎么解决的」「给这个助手加能力」时使用；CLI 细节见 evoflow-admin，读本技能后按需 read skill:self-evolution 全文。
 ---
 
 # 自我进化
@@ -27,19 +27,19 @@ description: 执行任务时持续改进技能、经验库与智能体配置。�
 
 ## 经验（Experience）
 
-经验库记录「上次怎么解决的」。
+可复用「上次怎么解决的」写入实体资产（**勿**再用已退役的 `evoflow experience` CLI）。
 
 | 时机 | 动作 |
 |------|------|
-| 开工前像老问题 | `evoflow experience list --query "关键词"` |
-| 难缠任务 / bugfix 完成后 | 评估是否 `evoflow experience save --file …` |
-| 复用已有经验 | `evoflow experience mark-used <id>` |
+| 开工前像老问题 | `assets` 搜索 / 读 craft、`[experience]` 笔记 |
+| 难缠任务 / bugfix 完成后 | 评估是否用 `assets` 写入 `[experience]`（见 **evoflow-assets**） |
+| 旧经验库迁移 | `evoflow assets migrate --only experience` |
 
-命令与 JSON 格式见 **evoflow-admin**「Experience library」章节。
+细则见 **evoflow-assets** 与 **evoflow-admin**「Experience / craft」小节。
 
 ## 智能体（Agents）
 
-以下情况读 **evoflow-admin**，经 **terminal** 跑 `evoflow` CLI：
+以下情况读 **evoflow-admin**，经 **terminal** 跑 `evoflow` CLI（或日常用 `platform`）：
 
 - 角色常缺某类能力
 - 重复性工作适合专用助手
@@ -47,9 +47,3 @@ description: 执行任务时持续改进技能、经验库与智能体配置。�
 - 角色不再需要或要合并能力
 
 典型流程：`evoflow agents check` → `evoflow skills list --enabled-only` → `evoflow agents create/update --file …`
-
-## 纪律
-
-- **真落盘**：技能/Agent/经验要写入文件或 CLI，不要只口头说「已优化」。
-- **最小改动**：进化不等于大重构；一次解决一类问题。
-- **每次交互留意**：什么能复用、什么要修、什么能做得更好——需要时再读本技能，不必每轮复述流程。

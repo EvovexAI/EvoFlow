@@ -23,10 +23,7 @@ curl -X POST http://localhost:8080/api/proactive/roles \
       "代码质量保障",
       "性能优化"
     ],
-    "domain_scope": [
-      "evopanel/src/",
-      "backend/packages/harness/evoflow/tools/"
-    ],
+    "workspace_path": "/path/to/workspace",
     "kpis": [
       "构建耗时 < 30s",
       "Lighthouse 评分 > 90",

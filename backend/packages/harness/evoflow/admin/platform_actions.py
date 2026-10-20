@@ -34,7 +34,6 @@ PLATFORM_DOMAINS = (
     "mcp",
     "automation",
     "approvals",
-    "memory",
     "sessions",
     "diagnostics",
     "verification",
@@ -60,14 +59,14 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "not": "不是用户画像（用 assets.*_profile / 资产中心）；不是临时搜一句网页（那用 web_search）；配好后搜网页仍用 web_search",
     },
     "assets": {
-        "title": "资产中心（用户画像）",
+        "title": "资产中心（画像 / 记忆入口）",
         "when": "查看或更新用户画像（basic-info / preferences / persona）；用户说「我的画像」「记住我喜欢…」时",
-        "not": "不是长期记忆 facts（用 memory）；不是可复用经验（用 assets 工具 craft）；面板入口 #/assets → 画像",
+        "not": "长期记忆与经验笔记走对话内 assets 工具 / 技能 evoflow-assets（面板 #/assets）；旧 platform memory.* 已退役",
     },
     "agents": {
         "title": "智能体角色",
-        "when": "CRUD 智能体角色定义（soul/skills/model）时",
-        "not": "雇成值班岗用 employees；即时派活用 xiaomi_dispatch/wake（若有）",
+        "when": "CRUD 智能体角色（soul/skills/tools）；绑能力前先 agents.bindings",
+        "not": "雇成值班岗用 employees；勿省略 tools 指望拿到全部工具",
     },
     "employees": {
         "title": "智能体员工岗位",
@@ -103,11 +102,6 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "title": "审批",
         "when": "列出待审批、批准或拒绝审批单时",
         "not": "不是任务状态本身（用 tasks.set_state / tasks 工具）",
-    },
-    "memory": {
-        "title": "长期记忆",
-        "when": "查看各 Agent 记忆、读/清记忆、删单条事实时",
-        "not": "不是用户画像（用 assets.get_profile / assets.update_profile，或 #/assets → 画像）；不是可复用经验（用 assets 工具 craft）",
     },
     "sessions": {
         "title": "会话检索",
@@ -334,7 +328,24 @@ def _build_registry() -> dict[str, PlatformAction]:
         # agents
         _A("agents.list", "agents", "列出智能体角色", "read", "tag?, agent_name?, limit?, offset?, include_soul?", H.agents_list, "有哪些智能体"),
         _A("agents.get", "agents", "查看智能体详情", "read", "name/agent_code", H.agents_get, "main 配了啥"),
-        _A("agents.create", "agents", "创建智能体", "write", "agent_code, agent_name?, soul?, skills?, model?…", H.agents_create, "建个文案助手"),
+        _A(
+            "agents.bindings",
+            "agents",
+            "可绑定工具/技能/MCP/知识库目录（创建前先查；含简短说明）",
+            "read",
+            "include_disabled_skills?",
+            H.agents_bindings,
+            "建角色前有哪些工具、技能和知识库可绑",
+        ),
+        _A(
+            "agents.create",
+            "agents",
+            "创建智能体（省略 tools/knowledge_vault_ids→空；skills 省略→精选默认；先 agents.bindings）",
+            "write",
+            "agent_code, agent_name?, soul?, skills?, tools?, mcp_servers?, knowledge_vault_ids?, model?…",
+            H.agents_create,
+            "建个文案助手",
+        ),
         _A("agents.update", "agents", "更新智能体配置", "write", "name + 要改的字段", H.agents_update, "给文案助手换模型"),
         _A(
             "agents.delete",
@@ -349,7 +360,15 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?", H.employees_list, "现在有哪些员工"),
         _A("employees.get", "employees", "查看员工详情", "read", "agent_code, recent_limit?", H.employees_get, "拆解岗近况"),
         _A("employees.hire", "employees", "雇佣智能体为值班员工", "write", "agent_code, role_name?, heartbeat_rrule?…", H.employees_hire, "把文案助手雇成员工"),
-        _A("employees.create", "employees", "一次创建员工（能力+岗位）", "write", "role_name, agent_code?, department?, responsibilities?…", H.employees_create, "直接加人不用先建智能体"),
+        _A(
+            "employees.create",
+            "employees",
+            "一次创建员工（能力+岗位；工具/技能/知识库同 agents.create，先 agents.bindings）",
+            "write",
+            "role_name, agent_code?, skills?, tools?, mcp_servers?, knowledge_vault_ids?, department?, responsibilities?…",
+            H.employees_create,
+            "直接加人不用先建智能体",
+        ),
         _A("employees.update", "employees", "更新员工岗位配置", "write", "agent_code + 字段", H.employees_update, "改拆解岗心跳"),
         _A("employees.pause", "employees", "暂停员工值班", "write", "agent_code", H.employees_pause, "让拆解岗先休息"),
         _A("employees.resume", "employees", "恢复员工值班", "write", "agent_code", H.employees_resume, "恢复拆解岗"),
@@ -483,11 +502,6 @@ def _build_registry() -> dict[str, PlatformAction]:
         ),
         _A("approvals.approve", "approvals", "同意审批", "write", "id/task_id, comment?", H.approvals_approve, "这个批了"),
         _A("approvals.reject", "approvals", "驳回审批", "write", "id/task_id, reason", H.approvals_reject, "驳回并说明原因"),
-        # memory
-        _A("memory.agents", "memory", "列出有长期记忆的智能体", "read", "无", H.memory_agents, "谁有记忆"),
-        _A("memory.get", "memory", "查看长期记忆", "read", "agent?", H.memory_get, "main 记住了啥"),
-        _A("memory.clear", "memory", "清空长期记忆", "destructive", "agent?", H.memory_clear, "清空记忆"),
-        _A("memory.delete_fact", "memory", "删除单条记忆事实", "destructive", "fact_id, agent?", H.memory_delete_fact, "忘掉这条"),
         # sessions
         _A("sessions.search", "sessions", "按关键词搜历史会话", "read", "query, max_results?, max_age_days?, search_titles?", H.sessions_search, "上次聊英语单词是哪个会话"),
         # diagnostics（系统已知日志源 + 异常扫描 + 可转发时间线）

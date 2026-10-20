@@ -1,19 +1,16 @@
 ﻿/**
- * 流式对比日志（默认关闭，按会话 + 轮次分目录）：
+ * 流式对比日志（默认开启，按会话 + 轮次分目录）：
  *
- *   ~/.evoflow/logs/stream-compare/{sessionKey}/{runId}/sse-recv.log   — 每行一条 SSE data JSON
- *   ~/.evoflow/logs/stream-compare/{sessionKey}/{runId}/ui-display.log — 该轮 UI 展示快照
+ *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log
+ *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/ui-display.log
+ *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/ui-display-visual.log
  *
- * 每轮 RUN_STARTED 写入 `======== TURN n | run=... ========` 分隔头。
+ * 目录名前缀是该轮首次落盘时的本地时间（精确到秒），按文件名排序即时间序；
+ * 后缀仍保留逻辑 runId，便于和 SSE RUN_STARTED 对上。每轮用户对话各自一个目录。
  *
- * 开启（浏览器控制台执行一次即可，刷新后仍生效）：
- *   localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '1')
- * 关闭：
- *   localStorage.removeItem('EVOFLOW_STREAM_COMPARE_LOG')
+ * 每轮 RUN_STARTED 写入 `======== TURN n | run=... | dir=... ========` 分隔头。
  *
- * Tauri 桌面端落盘路径示例：
- *   ~/.evoflow/logs/stream-compare/{sessionKey}/{runId}/sse-recv.log
- *   ~/.evoflow/logs/stream-compare/{sessionKey}/{runId}/ui-display.log
+ * 关闭：localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '0')
  *
  * ui-display.log 含 [timeline]、[chunks/layout]、[agui-order]、[compacted] 等段，便于排查工具/思考顺序。
  */
@@ -70,6 +67,8 @@ type RunBuffers = {
   uiDisplay: string[]
   startedAtMs: number
   turnNo: number
+  /** 落盘子目录名：`YYYYMMDDHHmmss_{runId}`（内存索引仍用逻辑 runId） */
+  diskLogId: string
 }
 
 type SessionBuffers = {
@@ -130,13 +129,34 @@ const lastSseSigByRun = new Map<string, string>()
 const lastUiSigByRun = new Map<string, string>()
 const uiSnapshotByRun = new Map<string, UiSnapshotAcc>()
 
-/** runId → 落盘子目录名 */
+/** runId → 安全片段（不含时间戳前缀） */
 export function sanitizeRunLogId(runId: string): string {
   return String(runId || '')
     .trim()
     .replace(/:/g, '_')
     .replace(/[^a-zA-Z0-9_-]/g, '_')
     .slice(0, 80)
+}
+
+/** 本地时间 `YYYYMMDDHHmmss`，用于 run 目录前缀 */
+export function formatStreamCompareTurnStamp(at: Date = new Date()): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, '0')
+  return (
+    `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}` +
+    `${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`
+  )
+}
+
+/**
+ * 落盘子目录名：`{YYYYMMDDHHmmss}_{sanitizedRunId}`。
+ * 已带 14 位时间前缀的不再重复加（避免二次包装）。
+ */
+export function buildDiskRunLogId(logicalRunId: string, atMs?: number): string {
+  const logical = sanitizeRunLogId(logicalRunId)
+  if (!logical) return ''
+  if (/^\d{14}_/.test(logical)) return logical.slice(0, 96)
+  const stamp = formatStreamCompareTurnStamp(atMs != null ? new Date(atMs) : new Date())
+  return `${stamp}_${logical}`.slice(0, 96)
 }
 
 function runSnapshotKey(sessionLogId: string, runLogId: string): string {
@@ -156,13 +176,21 @@ function formatCompareLine(sessionLogId: string, runLogId: string, body: string)
   return `+${relMsForRun(sessionLogId, runLogId)}ms ${body}`.trim()
 }
 
-function resolveLogTarget(sessionKey?: string, runId?: string): LogTarget | null {
+function resolveLogTarget(
+  sessionKey?: string,
+  runId?: string,
+  opts?: { preferExplicit?: boolean },
+): LogTarget | null {
   const sessionLogId = resolveLogSessionId(sessionKey)
   if (!sessionLogId) return null
   const explicit = sanitizeRunLogId(String(runId || '').trim())
   const active = activeRunBySession.get(sessionLogId) || ''
-  // RUN_STARTED 后的服务端 run-xxx 优先于 ws 层仍携带的客户端 uuid
-  const runLogId = active || explicit || 'pending'
+  // SSE/wire：active 优先（RUN_STARTED 后的服务端 run-xxx 盖过 ws 仍携带的客户端 uuid）。
+  // UI 行渲染（MessageRow 传入 row.runId）：explicit 优先，避免历史回合被灌进当前 active run
+  // 的 ui-display / visual 日志（表现为同 run 文件里交替出现两轮正文，误诊为「页面闪空」）。
+  const runLogId = opts?.preferExplicit
+    ? explicit || active || 'pending'
+    : active || explicit || 'pending'
   return {
     sessionLogId,
     runLogId,
@@ -199,11 +227,13 @@ function ensureSessionBuffers(sessionLogId: string): SessionBuffers {
 function ensureRunBuffers(sessionLogId: string, runLogId: string, turnNo: number): RunBuffers {
   const sessionBuf = ensureSessionBuffers(sessionLogId)
   if (!sessionBuf.runs[runLogId]) {
+    const startedAtMs = Date.now()
     sessionBuf.runs[runLogId] = {
       sseRecv: [],
       uiDisplay: [],
-      startedAtMs: Date.now(),
+      startedAtMs,
       turnNo,
+      diskLogId: buildDiskRunLogId(runLogId, startedAtMs),
     }
   }
   return sessionBuf.runs[runLogId]
@@ -228,13 +258,15 @@ function appendFileLine(
   // 早期版本每帧都 console.log，结果控制台被每条 SSE chunk 灌爆（sse-recv 一帧一行，
   // TEXT_MESSAGE_CONTENT delta 也一行；调用方反馈「文件里已经写过了，console 不要」）。
   // 这里保持沉默。如需本地实时观察，在文件侧看 sse-recv.log / ui-display.log。
+  // 落盘目录用 diskLogId（带 YYYYMMDDHHmmss 前缀），内存索引仍用逻辑 rid。
+  const diskRid = runBuf.diskLogId || buildDiskRunLogId(rid, runBuf.startedAtMs)
   if (isTauriDesktop()) {
     try {
       void import('@tauri-apps/api/core').then((m) =>
         m.invoke('append_stream_compare_log', {
           channel,
           sessionKey: sid,
-          runId: rid,
+          runId: diskRid,
           message: text,
         }),
       )
@@ -270,7 +302,7 @@ export function logStreamCompareVisualMirror(opts: {
   diag?: { turnStartMsResolved?: number | null; isStreamingEffective?: boolean }
 }): void {
   if (!isStreamCompareFileLogOn()) return
-  const target = resolveLogTarget(opts.sessionKey, opts.runId)
+  const target = resolveLogTarget(opts.sessionKey, opts.runId, { preferExplicit: true })
   if (!target) return
 
   // 计算 sig：head + fold + gear + 每个 piece 一行串
@@ -353,11 +385,11 @@ function showEnableBannerOnce(): void {
   if (compareLogBannerShown || !isStreamCompareFileLogOn()) return
   compareLogBannerShown = true
   const home = isTauriDesktop()
-    ? '~/.evoflow/logs/stream-compare/{sessionKey}/{runId}/sse-recv.log + ui-display.log'
+    ? '~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log + ui-display*.log'
     : 'window.__evoflowStreamCompare.sessions（非 Tauri）'
-   
+
   console.log(
-    `[stream-compare] 默认已开启，每个会话 2 个文件 → ${home}；关闭：localStorage.setItem('${LS_KEY}','0')`,
+    `[stream-compare] 默认已开启，每轮独立目录（时间前缀）→ ${home}；关闭：localStorage.setItem('${LS_KEY}','0')`,
   )
 }
 
@@ -475,9 +507,11 @@ export function markStreamCompareRun(
   if (!sessionBuf.runs[rid]) {
     sessionBuf.turnCounter += 1
     const turnNo = sessionBuf.turnCounter
-    ensureRunBuffers(sid, rid, turnNo)
+    const runBuf = ensureRunBuffers(sid, rid, turnNo)
     const threadId = String(opts?.threadId || '').trim()
-    const header = `======== TURN ${turnNo} | run=${rid}${threadId ? ` | thread=${threadId}` : ''} ========`
+    const header =
+      `======== TURN ${turnNo} | run=${rid} | dir=${runBuf.diskLogId}` +
+      `${threadId ? ` | thread=${threadId}` : ''} ========`
     void appendFileLine(sid, rid, 'sse-recv', header)
     void appendFileLine(sid, rid, 'ui-display', formatCompareLine(sid, rid, header))
   }
@@ -808,7 +842,7 @@ export function logStreamCompareDomView(opts: {
   }
 }): void {
   if (!isStreamCompareFileLogOn()) return
-  const target = resolveLogTarget(opts.sessionKey, opts.runId)
+  const target = resolveLogTarget(opts.sessionKey, opts.runId, { preferExplicit: true })
   if (!target) return
   ensureSessionBuffers(target.sessionLogId)
   const body = formatDomView(opts.foldOpen, opts.head, opts.gear, opts.chunks, opts.fileChanges)
@@ -982,7 +1016,7 @@ export function logStreamCompareUiDisplay(opts: {
   if (!isStreamCompareFileLogOn()) return
   if (!opts.forceWrite) return
   if (opts.row.role !== '_stream' && opts.row.role !== 'assistant') return
-  const target = resolveLogTarget(opts.sessionKey, opts.row.runId)
+  const target = resolveLogTarget(opts.sessionKey, opts.row.runId, { preferExplicit: true })
   if (!target) return
   ensureSessionBuffers(target.sessionLogId)
   const layout = opts.plan.layout
@@ -1028,7 +1062,7 @@ export function logStreamCompareUiStreamTools(opts: {
   if (!isStreamCompareFileLogOn()) return
   if (!opts.forceWrite) return
   if (opts.row.role !== '_stream' && opts.row.role !== 'assistant') return
-  const target = resolveLogTarget(opts.sessionKey, opts.row.runId)
+  const target = resolveLogTarget(opts.sessionKey, opts.row.runId, { preferExplicit: true })
   if (!target) return
   const allTools = opts.tools || []
   const visibleTools = allTools.filter(
@@ -1053,7 +1087,7 @@ export function logStreamCompareUiChunks(opts: {
   if (!isStreamCompareFileLogOn()) return
   if (!opts.forceWrite) return
   if (opts.row.role !== '_stream' && opts.row.role !== 'assistant') return
-  const target = resolveLogTarget(opts.sessionKey, opts.row.runId)
+  const target = resolveLogTarget(opts.sessionKey, opts.row.runId, { preferExplicit: true })
   if (!target) return
   const chunks = opts.plan.layout?.displayChunks ?? []
   if (!chunks.length) return

@@ -89,7 +89,7 @@ SKILL_RULE_1 = (
     '``<location>`` 为 ``skill:<技能名>``（推荐）或沙箱虚拟路径；要执行技能内具体步骤、或 metadata 不足以完成任务时再 ``read("<location>")``。'
     '**只读文件**：``read("skill:<名>")`` 打开 SKILL.md；**目录**用 ``bash``（如 ``ls`` / ``dir``），禁止 ``read("skill:<名>/scripts")`` 等目录路径。'
     "同技能下其它文件用 ``skill:<技能名>/相对路径``（正斜杠，须为真实文件）。"
-    "若用户只是产品自介绍/能力概览（如 evoflow-intro），且 ``<available_skills>`` 已有 name+description，**勿 read SKILL.md**，直接按 description 作答。"
+    "若用户只是产品自介绍/能力概览（evoflow-admin），且 ``<available_skills>`` 已有 name+description，**勿 read 整篇 SKILL.md**，直接按 description 作答；细则才读 ``references/product-intro.md``。"
 )
 SKILL_RULE_2 = (
     "按需读资源；遵守技能内步骤与边界。"

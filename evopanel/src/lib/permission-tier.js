@@ -83,6 +83,15 @@ export function resolvePermissionPreset(ctx) {
   if (effective != null && String(effective).trim()) {
     return normalizePresetId(effective)
   }
+  // Legacy half-applied rows: grant_all policy must win over a stale default preset.
+  const override = getSessionToolApprovalOverride(c)
+  if (override === TOOL_APPROVAL_POLICY_GRANT_ALL) {
+    return PERMISSION_PRESET_FULL_ACCESS
+  }
+  const effPolicy = String(c.effective_tool_approval_policy || '').trim().toLowerCase()
+  if (effPolicy === TOOL_APPROVAL_POLICY_GRANT_ALL) {
+    return PERMISSION_PRESET_FULL_ACCESS
+  }
   const explicit =
     c.permission_preset ??
     c.permissionPreset ??
@@ -91,10 +100,8 @@ export function resolvePermissionPreset(ctx) {
   if (explicit != null && String(explicit).trim()) {
     return normalizePresetId(explicit)
   }
-  const override = getSessionToolApprovalOverride(c)
   if (override) return presetFromLegacyPolicy(override)
-  const eff = String(c.effective_tool_approval_policy || '').trim().toLowerCase()
-  if (eff) return presetFromLegacyPolicy(eff)
+  if (effPolicy) return presetFromLegacyPolicy(effPolicy)
   return presetFromLegacyPolicy(getCachedGlobalToolApprovalPolicy())
 }
 

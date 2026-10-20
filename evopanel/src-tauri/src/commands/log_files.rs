@@ -115,7 +115,7 @@ pub fn append_log_file_line(path: &Path, line: &str) -> Result<(), String> {
 // 流式对比日志（stream-compare）的保留策略
 // ---------------------------------------------------------------------------
 //
-// 日志布局：``{evoflow_home}/logs/stream-compare/{sessionKey?}/{runId}/{*.log}``。
+// 日志布局：``{evoflow_home}/logs/stream-compare/{sessionKey?}/{YYYYMMDDHHmmss}_{runId}/{*.log}``。
 // 每个 run 目录里放 sse-recv.log / ui-display.log / ui-display-visual.log，
 // 默认 2 天前的 run 目录会被清掉（由 ``prune_stream_compare_logs`` 实现）。
 //

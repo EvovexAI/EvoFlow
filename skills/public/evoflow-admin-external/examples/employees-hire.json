@@ -8,14 +8,13 @@
     "对可自动修复的小问题提出 code_change 事项"
   ],
   "workspace_path": "D:/path/to/workspace",
-  "domain_scope": ["frontend/", "backend/"],
   "kpis": [
     "ESLint 无新增 error",
     {"name": "构建可用", "target": "pass", "probe": "build_ok"}
   ],
   "autonomy_level": "approval_for_all",
   "risk_threshold": "medium",
-  "heartbeat_rrule": "FREQ=HOURLY;INTERVAL=2",
+  "heartbeat_schedule": "0 9-19/2 * * *",
   "status": "active",
   "max_turns": 12,
   "timeout_seconds": 400,

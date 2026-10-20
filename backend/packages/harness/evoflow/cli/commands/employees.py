@@ -34,7 +34,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
             "JSON payload fields:\n"
             "  agent_code (required)         Must already exist (evoflow agents create)\n"
             "  role_name                     Display name (default: agent_name)\n"
-            "  department, responsibilities, domain_scope, kpis\n"
+            "  department, responsibilities, kpis\n"
             "  reports_to                  Direct manager agent_code (empty = top-level)\n"
             "  workspace_path                Bound workspace absolute path\n"
             "  autonomy_level                full_auto|approval_for_risky|approval_for_all\n"

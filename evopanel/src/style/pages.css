@@ -11844,68 +11844,6 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   gap: var(--space-sm);
 }
 
-.memory-graph-host {
-  min-height: 360px;
-}
-
-.memory-graph-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.memory-graph-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.memory-graph-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: baseline;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.memory-graph-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(220px, 0.8fr);
-  gap: 12px;
-  min-height: 420px;
-}
-
-.memory-graph-canvas {
-  min-height: 420px;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--bg-secondary);
-}
-
-.memory-graph-side {
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-md);
-  padding: 12px;
-  background: var(--bg-secondary);
-  overflow: auto;
-  max-height: 480px;
-}
-
-.memory-graph-side h4 {
-  margin: 0 0 8px;
-  font-size: var(--ef-text-base) ;
-}
-
-@media (max-width: 900px) {
-  .memory-graph-body {
-    grid-template-columns: 1fr;
-  }
-}
-
 .memory-fact-card {
   display: flex;
   flex-wrap: wrap;

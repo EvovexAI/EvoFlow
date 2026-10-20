@@ -30,8 +30,8 @@ router = APIRouter(prefix="/api/knowledge/owned", tags=["knowledge-owned"])
 class CreateBaseBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str = ""
-    chunkSize: int = Field(512, ge=64, le=8192)
-    chunkOverlap: int = Field(80, ge=0, le=4096)
+    chunkSize: int = Field(2048, ge=64, le=8192)
+    chunkOverlap: int = Field(256, ge=0, le=4096)
     chunkStrategy: str = "recursive"
     embeddingModelRef: str = ""
     # Legacy fields (deprecated): prefer embeddingModelRef from Settings → 向量模型
@@ -103,6 +103,8 @@ class ResyncBody(BaseModel):
 class PrimaryBody(BaseModel):
     primary: Literal["owned", "auto"] | None = None
     defaultEmbeddingModel: str | None = None
+    chatModel: str | None = None
+    summaryDefaultEnabled: bool | None = None
 
 
 class CreateFolderBody(BaseModel):
@@ -420,6 +422,10 @@ async def put_owned_settings(request: Request, body: PrimaryBody) -> dict[str, A
             owned_settings.set_primary(data["primary"])
         if "defaultEmbeddingModel" in data:
             owned_settings.set_default_embedding_model(data["defaultEmbeddingModel"])
+        if "chatModel" in data:
+            owned_settings.set_chat_model(data["chatModel"])
+        if "summaryDefaultEnabled" in data and data["summaryDefaultEnabled"] is not None:
+            owned_settings.set_default_summary_enabled(bool(data["summaryDefaultEnabled"]))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return owned_settings.settings_payload()

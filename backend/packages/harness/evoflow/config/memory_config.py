@@ -1,38 +1,8 @@
 """Configuration for memory mechanism."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from evoflow.assets.pipeline_config import MemoryAssetsConfig
-
-
-class MemoryGraphConfig(BaseModel):
-    """Memory knowledge-graph extract / expand (unified mem_*). See design §13.3."""
-
-    extract_enabled: bool = Field(
-        default=True,
-        description="Schedule mem_kg_batch after remember (namespace-batched LLM extract)",
-    )
-    expand_hops: int = Field(default=0, ge=0, le=2, description="Recall graph expand hops; default 0")
-    batch_size: int = Field(
-        default=24,
-        ge=1,
-        le=80,
-        description="Max atoms per mem_kg_batch LLM call",
-    )
-    batch_debounce_seconds: int = Field(
-        default=45,
-        ge=0,
-        le=600,
-        description="Debounce before namespace batch extract after remember",
-    )
-    skip_section_llm: bool = Field(
-        default=True,
-        description="Do not LLM-extract section:* summary atoms in batch",
-    )
-    skip_bootstrap_source: bool = Field(
-        default=True,
-        description="Skip bootstrap/bootstrap-scan/migrate sourced atoms in batch LLM",
-    )
 
 
 class MemoryConsolidateConfig(BaseModel):
@@ -50,6 +20,8 @@ class MemoryConsolidateConfig(BaseModel):
 class MemoryConfig(BaseModel):
     """Configuration for global memory mechanism."""
 
+    model_config = ConfigDict(extra="ignore")  # drop retired keys e.g. legacy ``graph``
+
     assets: MemoryAssetsConfig = Field(
         default_factory=MemoryAssetsConfig,
         description="runtime-aligned Asset Hub Phase1/2 pipeline settings.",
@@ -61,10 +33,6 @@ class MemoryConfig(BaseModel):
     consolidate: MemoryConsolidateConfig = Field(
         default_factory=MemoryConsolidateConfig,
         description="Unified memory consolidate job settings",
-    )
-    graph: MemoryGraphConfig = Field(
-        default_factory=MemoryGraphConfig,
-        description="Memory graph extract / expand settings",
     )
     storage_path: str = Field(
         default="",

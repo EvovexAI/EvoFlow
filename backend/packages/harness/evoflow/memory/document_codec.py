@@ -233,12 +233,6 @@ def save_document(document: dict[str, Any], *, namespace: str) -> bool:
         if atom["id"] not in keep_ids:
             mem_store.soft_delete_atom(atom["id"])
     try:
-        from evoflow.memory.kg_extract import flush_kg_batch
-
-        flush_kg_batch(namespace)
-    except Exception:
-        pass
-    try:
         from evoflow.assets.memory_mirror import mirror_memory_document
 
         mirror_memory_document(namespace, document)

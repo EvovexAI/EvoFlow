@@ -136,8 +136,8 @@ async def run_parse_index(
 
     pieces = split_text(
         text,
-        chunk_size=int(base_d.get("chunk_size") or 512),
-        chunk_overlap=int(base_d.get("chunk_overlap") or 80),
+        chunk_size=int(base_d.get("chunk_size") or 2048),
+        chunk_overlap=int(base_d.get("chunk_overlap") or 256),
         strategy=str(base_d.get("chunk_strategy") or "recursive"),
     )
 
@@ -407,9 +407,14 @@ async def run_summary_doc(job: dict[str, Any]) -> None:
 
     try:
         from evoflow.context.internal_model_invoke import ainvoke_internal_chat_model
+        from evoflow.knowledge.owned import settings as owned_settings
         from evoflow.models import create_chat_model
 
-        model = create_chat_model(thinking_enabled=False, invocation_kind="kb_summary")
+        model = create_chat_model(
+            name=owned_settings.resolve_chat_model_name() or None,
+            thinking_enabled=False,
+            invocation_kind="kb_summary",
+        )
         resp = await ainvoke_internal_chat_model(model, [{"role": "user", "content": prompt}])
         text = str(getattr(resp, "content", "") or resp).strip()
         if not text:

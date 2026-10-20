@@ -66,22 +66,7 @@ def remember(
     if aid:
         if source != "migrate":
             _maybe_enqueue_threshold(namespace)
-            _schedule_kg_batch(aid, namespace)
     return aid
-
-
-def _schedule_kg_batch(atom_id: str, namespace: str) -> None:
-    try:
-        from evoflow.memory.kg_extract import schedule_kg_after_remember
-
-        schedule_kg_after_remember(atom_id, namespace)
-    except Exception as exc:
-        logger.debug("mem_kg_batch schedule skip: %s", exc)
-
-
-def _maybe_enqueue_kg_extract(atom_id: str, namespace: str) -> None:
-    """Back-compat alias → batch schedule."""
-    _schedule_kg_batch(atom_id, namespace)
 
 
 def _maybe_enqueue_threshold(namespace: str) -> None:
@@ -301,27 +286,6 @@ def recall(
         fused = kw[:top_k]
     else:
         fused = vec[:top_k]
-
-    # Optional graph expand (default hops=0 → no-op)
-    try:
-        from evoflow.config.memory_config import get_memory_config
-        from evoflow.memory.graph import expand_recall_atoms
-
-        hops = int(get_memory_config().graph.expand_hops)
-    except Exception:
-        hops = 0
-        expand_recall_atoms = None  # type: ignore
-    if hops > 0 and expand_recall_atoms is not None and fused:
-        neighbors = expand_recall_atoms(fused, hops=hops, limit=max(top_k * 3, 12))
-        if neighbors:
-            # Mild merge: keep seed order, append unseen neighbors, trim later
-            seen = {a["id"] for a in fused if a.get("id")}
-            for n in neighbors:
-                if n.get("id") in seen:
-                    continue
-                seen.add(n["id"])
-                fused.append(n)
-            fused = fused[: max(top_k * 2, top_k)]
 
     mem_store.touch_accessed([a["id"] for a in fused if a.get("id")])
     return _budget(_filter_archived(fused, q), max_chars)

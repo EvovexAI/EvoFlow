@@ -208,12 +208,12 @@ function chatDefaultApprovalSectionHtml(grantAllDefault) {
       新对话默认权限
     </div>
     <p class="form-hint">
-      只影响<strong>新建对话</strong>的默认值。日常请用聊天底部「请求批准 / 帮我批准 / 完全访问」；单会话改了档位后不再跟这里走。
+      控制全局默认权限。开启后：<strong>新建对话</strong>与仍停留在「帮我批准」软默认的对话会变为完全访问；已手动选过「请求批准 / 完全访问」的对话保持原档位。日常也可在聊天底部改单会话档位。
     </p>
     <div class="sec-toggle-row">
       <div class="sec-toggle-info">
         <span class="sec-toggle-label">新对话默认完全访问（不询问）</span>
-        <span class="sec-toggle-desc">开启后新对话自动跑终端 / 删文件等；关闭则为「帮我批准」（仅风险操作询问）</span>
+        <span class="sec-toggle-desc">开启后默认不询问工具审批；关闭则为「帮我批准」（仅风险操作询问）</span>
       </div>
       <label class="sec-switch">
         <input type="checkbox" id="sec-chat-grant-all-default" ${on ? 'checked' : ''} />

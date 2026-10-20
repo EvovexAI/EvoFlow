@@ -14064,7 +14064,22 @@ useEffect(() => {
 
   // 点击权限 pill：切换上拉菜单（与其他底部菜单互斥）
   function togglePermissionMenu(): void {
-    setBottomPermissionOpen((v) => !v)
+    setBottomPermissionOpen((v) => {
+      const next = !v
+      if (next) {
+        // 打开时再拉一次全局默认，避免设置页改过而聊天菜单开关仍停在旧缓存
+        void fetchGlobalToolApprovalPolicy().catch(() => {})
+        if (selectedSessionKey) {
+          void fetchSessionToolApprovalPolicy(selectedSessionKey)
+            .then((result) => {
+              wsClient.applySessionToolApprovalPolicy(selectedSessionKey, result)
+              setToolApprovalPolicyTick((n) => n + 1)
+            })
+            .catch(() => {})
+        }
+      }
+      return next
+    })
     setModeMenuOpen(false)
     setBottomModelOpen(false)
     setBottomMoreOpen(false)

@@ -30,7 +30,6 @@ def owned_memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_workspace_project_memory_isolated(owned_memory_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_kg_extract", lambda *_a, **_k: None)
     monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_threshold", lambda *_a, **_k: None)
 
     from evoflow.memory.facade import list_atoms
@@ -55,15 +54,15 @@ def test_workspace_project_memory_isolated(owned_memory_root: Path, tmp_path: Pa
 
 
 def test_recall_snapshot_records_hits(owned_memory_root: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_kg_extract", lambda *_a, **_k: None)
     monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_threshold", lambda *_a, **_k: None)
 
     from evoflow.agents.lead_agent.prompt import build_memory_query_recall_sections
+    from evoflow.memory.document_codec import namespace_for_agent_key
     from evoflow.memory.facade import remember
-    from evoflow.memory.namespaces import agent_ns
     from evoflow.memory.recall_snapshot import get_thread_recall
 
-    ns = agent_ns("main")
+    # Dialogue archival is user-scoped (namespace_for_agent_key → user:default)
+    ns = namespace_for_agent_key("main")
     remember(ns, "支付 API 重构结论是拆分 webhook", layer="episodic", confidence=0.9, source="manual")
     text = build_memory_query_recall_sections(
         agent_name="main",

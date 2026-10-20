@@ -43,7 +43,7 @@ description: >-
 **故意不真改（须 `skipped` + detail 写原因）：**
 
 - `settings.set_default_model` / `assets.update_profile` / `patch_web_search` / `create_model` / `delete_model`
-- `memory.clear` / `memory.delete_fact`（除非本轮可删测试事实）
+- 旧 `memory.*` 已退役；记忆核对走资产中心 / `assets`（勿再调 memory.clear）
 - 无待批时 `approvals.approve` / `reject`
 - 工作流已结束时 `workflow.stop`
 - `skills.install` / `skills.delete`（无沙箱时 skip；`skills.enable` 须 false→true 还原或 skip）
@@ -195,8 +195,7 @@ model + agentCode
 ### 4) Act D — 沉淀
 
 `knowledge.list` → 必要时 `create/enable` → `ingest` → `notes` → `note_get` → `search`  
-→ 经验沉淀改走 `assets` 工具 craft（旧 `experience.*` 已退役，本步 skipped 或用 assets note）  
-→ `memory.agents/get`（clear/delete_fact 默认 skipped）  
+→ 经验/记忆沉淀改走 `assets` 工具（旧 `experience.*` / `memory.*` 已退役）  
 → `sessions.search`
 
 ### 5) Act E — 定时与审批

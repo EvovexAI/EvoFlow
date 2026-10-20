@@ -421,6 +421,7 @@ function AskAiPanel({
   askListRef,
   askModel,
   chatModels,
+  effectiveChatModel,
   onAskModelChange,
   onClear,
   onHint,
@@ -455,6 +456,11 @@ function AskAiPanel({
           <span className="ko-ask__scope-dot" aria-hidden="true" />
           <span>{selectedTitle ? "当前文档" : "整个知识库"}</span>
         </div>
+        {!askModel && effectiveChatModel ? (
+          <span className="ko-ask__scope-dot" title="未选择时使用知识库默认对话模型">
+            {effectiveChatModel}
+          </span>
+        ) : null}
         {chatModels.length > 0 ? (
           <select
             className="ko-ask__model-select"
@@ -745,7 +751,7 @@ function SearchPanel({
   );
 }
 
-function KnowledgeHome({ base, docs, recentDocs, onAsk, onOpenDoc, onSearch, onUpload, onWrite }) {
+function KnowledgeHome({ base, docs, recentDocs, onAsk, onOpenDoc, onSearch, onUpload, onWrite, globalSettings }) {
   const baseName = String(base?.name || "知识库");
   const description = String(base?.description || "集中阅读、检索和维护团队知识");
   return (
@@ -765,6 +771,13 @@ function KnowledgeHome({ base, docs, recentDocs, onAsk, onOpenDoc, onSearch, onU
         <div><strong>{base?.vectorized ? "已就绪" : "待索引"}</strong><span>检索状态</span></div>
         <div><strong>{recentDocs.length}</strong><span>近期更新</span></div>
       </div>
+      <p className="ko-reader-home__runtime" data-testid="ko-runtime-models">
+        问答 / 摘要模型：
+        <strong>{globalSettings?.effectiveChatModel || "未配置"}</strong>
+        {globalSettings?.chatModel ? "（知识库专用）" : "（跟随全局默认）"}
+        <span aria-hidden="true"> · </span>
+        自动摘要：<strong>{base?.summaryEnabled ? "已开启" : "已关闭"}</strong>
+      </p>
       <section className="ko-reader-home__section">
         <div className="ko-reader-home__section-head"><h2>开始使用</h2><span>选择一个入口</span></div>
         <div className="ko-reader-home__actions">
@@ -859,6 +872,7 @@ export default function KnowledgeOwnedPage() {
   const [settingsDesc, setSettingsDesc] = useState("");
   const [settingsEmbRef, setSettingsEmbRef] = useState("");
   const [settingsRebind, setSettingsRebind] = useState(false);
+  const [settingsSummary, setSettingsSummary] = useState(false);
   const fileRef = useRef(null);
   const folderRef = useRef(null);
   const askListRef = useRef(null);
@@ -900,6 +914,17 @@ export default function KnowledgeOwnedPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Knowledge-scope settings (chat model + summary default) drive every
+  // "which model actually runs" hint in this page.
+  const [kbGlobalSettings, setKbGlobalSettings] = useState(null);
+  const reloadKbGlobalSettings = useCallback(async () => {
+    try {
+      setKbGlobalSettings((await api.getOwnedKnowledgeSettings()) || null);
+    } catch {
+      setKbGlobalSettings(null);
+    }
   }, []);
 
   const loadBases = useCallback(async (opts = {}) => {
@@ -972,6 +997,10 @@ export default function KnowledgeOwnedPage() {
   useEffect(() => {
     loadBases({ includeHidden: showHidden });
   }, [loadBases, showHidden]);
+
+  useEffect(() => {
+    reloadKbGlobalSettings();
+  }, [reloadKbGlobalSettings]);
 
   /** 停用/忽略内置库：隐藏后不在默认列表展示（仍随版本同步，可随时恢复）。 */
   async function setBaseHidden(base, nextHidden) {
@@ -1188,9 +1217,10 @@ export default function KnowledgeOwnedPage() {
     return (
       name !== String(settingsBase.name || "").trim() ||
       desc !== String(settingsBase.description || "").trim() ||
-      settingsEmbChanged
+      settingsEmbChanged ||
+      settingsSummary !== (settingsBase.summaryEnabled !== false)
     );
-  }, [settingsBase, settingsName, settingsDesc, settingsEmbChanged]);
+  }, [settingsBase, settingsName, settingsDesc, settingsEmbChanged, settingsSummary]);
 
   // Hub Insight → open first base in Ask mode (optional pending prompt)
   useEffect(() => {
@@ -1539,7 +1569,9 @@ export default function KnowledgeOwnedPage() {
     setSettingsDesc(base.description || "");
     setSettingsEmbRef(current);
     setSettingsRebind(false);
+    setSettingsSummary(base.summaryEnabled !== false);
     setSettingsOpen(true);
+    await reloadKbGlobalSettings();
   }
 
   async function renameBase(kbId, currentName) {
@@ -1593,6 +1625,9 @@ export default function KnowledgeOwnedPage() {
       const metaPatch = {};
       if (nameChanged) metaPatch.name = name;
       if (descChanged) metaPatch.description = description;
+      if (settingsSummary !== (base?.summaryEnabled !== false)) {
+        metaPatch.summaryEnabled = settingsSummary;
+      }
 
       // Only touch embedding binding when it actually changed; a metadata-only
       // save must never trigger a reindex. In-place rebuild is a separate action.
@@ -1603,6 +1638,7 @@ export default function KnowledgeOwnedPage() {
       setSettingsOpen(false);
       setSettingsKbId("");
       await loadBases();
+      await reloadKbGlobalSettings();
       if (res?.reindexQueued) {
         notify(`正在向量化 ${res.reindexQueued} 篇文档…`);
       } else {
@@ -2706,6 +2742,7 @@ export default function KnowledgeOwnedPage() {
                           askListRef={askListRef}
                           askModel={askModel}
                           chatModels={chatModels}
+                          effectiveChatModel={kbGlobalSettings?.effectiveChatModel || ""}
                           messages={askMessages}
                           onAsk={runAsk}
                           onAskModelChange={setAskModel}
@@ -2746,11 +2783,13 @@ export default function KnowledgeOwnedPage() {
                       onInput={setAskInput}
                       askModel={askModel}
                       chatModels={chatModels}
+                      effectiveChatModel={kbGlobalSettings?.effectiveChatModel || ""}
                       selectedTitle=""
                     />
                   ) : (
                     <KnowledgeHome
                       base={selected}
+                      globalSettings={kbGlobalSettings}
                       docs={docs}
                       recentDocs={recentDocs}
                       onAsk={() => setRightMode("ask")}
@@ -3138,6 +3177,36 @@ export default function KnowledgeOwnedPage() {
               />
             </label>
             <div className="ko-modal__section">
+              <p className="ko-modal__hint">
+                问答与分析使用模型：
+                <strong>
+                  {kbGlobalSettings?.effectiveChatModel ||
+                    chatModels.find((m) => m.name === kbGlobalSettings?.chatModel)?.name ||
+                    "未配置（将回退默认对话模型）"}
+                </strong>
+                {kbGlobalSettings?.chatModel ? "（知识库专用）" : "（跟随全局默认对话模型）"}
+                <button
+                  className="ko-link-btn"
+                  onClick={openModelsEmbeddingSettings}
+                  type="button"
+                >
+                  管理对话模型
+                </button>
+              </p>
+              <label className="ko-modal__toggle">
+                <input
+                  checked={settingsSummary}
+                  disabled={busy}
+                  onChange={(e) => setSettingsSummary(e.target.checked)}
+                  type="checkbox"
+                />
+                <span>
+                  自动生成文档摘要（导入/更新文档后调用上面对话模型分析并生成摘要；关闭后仅在阅读页手动生成）
+                </span>
+              </label>
+              <p className="ko-modal__hint">
+                关闭后不会在索引完成时自动排队摘要任务，已生成的摘要保留；可在阅读页「生成摘要」手动触发。
+              </p>
               <p className="ko-modal__hint">
                 当前向量：{settingsBase.embeddingMode === "local" ? "本地" : "云端"} ·{" "}
                 {settingsBase.embeddingModel || "—"}

@@ -15,6 +15,7 @@ from evoflow.knowledge.owned import activity as owned_activity
 from evoflow.knowledge.owned import blob_store, jobs
 from evoflow.knowledge.owned import kg as kg_store
 from evoflow.knowledge.owned.db import db
+from evoflow.knowledge.owned import settings as owned_settings
 from evoflow.knowledge.owned.embedding_bind import resolve_create_binding
 from evoflow.knowledge.owned.formats import (
     MAX_FILE_BYTES,
@@ -63,6 +64,9 @@ _CHUNK_SIZE_MIN = 64
 _CHUNK_SIZE_MAX = 8192
 _CHUNK_OVERLAP_MIN = 0
 _CHUNK_OVERLAP_MAX = 4096
+# Character budget defaults (not tokens). 512 was too fine for docs / RAG.
+_CHUNK_SIZE_DEFAULT = 2048
+_CHUNK_OVERLAP_DEFAULT = 256
 
 
 def _parse_int_field(raw: Any, *, field: str) -> int:
@@ -514,9 +518,15 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
     key_ref = ""
     api_key = binding.get("embedding_api_key") or ""
     raw_chunk_size = payload.get("chunkSize", payload.get("chunk_size", None))
-    chunk_size = 512 if raw_chunk_size is None else _validate_chunk_size(raw_chunk_size)
+    chunk_size = (
+        _CHUNK_SIZE_DEFAULT if raw_chunk_size is None else _validate_chunk_size(raw_chunk_size)
+    )
     raw_chunk_overlap = payload.get("chunkOverlap", payload.get("chunk_overlap", None))
-    chunk_overlap = 80 if raw_chunk_overlap is None else _validate_chunk_overlap(raw_chunk_overlap, chunk_size=chunk_size)
+    chunk_overlap = (
+        _CHUNK_OVERLAP_DEFAULT
+        if raw_chunk_overlap is None
+        else _validate_chunk_overlap(raw_chunk_overlap, chunk_size=chunk_size)
+    )
     # Registry-bound models keep credentials on the models page; only legacy
     # inline keys are stored per-KB.
     if not binding.get("from_registry") and api_key and str(api_key).strip() and mode != "local":
@@ -550,7 +560,7 @@ def create_base(payload: dict[str, Any]) -> dict[str, Any]:
                 base_url,
                 key_ref,
                 model_ref,
-                1 if payload.get("summaryEnabled", True) else 0,
+                1 if payload.get("summaryEnabled", owned_settings.get_default_summary_enabled()) else 0,
                 1 if payload.get("imageCaptionEnabled") else 0,
                 str(storage_dir),
                 _normalize_content_mode(payload.get("contentMode") or payload.get("content_mode")),
@@ -621,7 +631,11 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             sets.append("chunk_size=?")
             vals.append(_validate_chunk_size(chunk_size))
         if chunk_overlap is not None:
-            effective_size = _validate_chunk_size(chunk_size) if chunk_size is not None else int(existing.get("chunkSize") or 512)
+            effective_size = (
+                _validate_chunk_size(chunk_size)
+                if chunk_size is not None
+                else int(existing.get("chunkSize") or _CHUNK_SIZE_DEFAULT)
+            )
             sets.append("chunk_overlap=?")
             vals.append(_validate_chunk_overlap(chunk_overlap, chunk_size=effective_size))
         if chunk_strategy is not None:
@@ -1765,7 +1779,7 @@ async def ask(
         from evoflow.models import create_chat_model
 
         model = create_chat_model(
-            name=model_name if model_name else None,
+            name=model_name or owned_settings.resolve_chat_model_name() or None,
             thinking_enabled=False,
             invocation_kind="kb_ask",
         )

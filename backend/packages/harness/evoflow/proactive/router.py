@@ -87,7 +87,6 @@ class CreateRoleRequest(BaseModel):
     department: str = Field("", description="Department name")
     responsibilities: list[str] = Field(default_factory=list)
     workspace_path: str = Field("", description="Bound local workspace absolute path")
-    domain_scope: list[str] = Field(default_factory=list)
     knowledge_vault_ids: list[str] = Field(
         default_factory=list,
         description="Bound knowledge base ids (owned KBs only; Obsidian vault support removed)",
@@ -148,7 +147,6 @@ class UpdateRoleRequest(BaseModel):
     department: str | None = None
     responsibilities: list[str] | None = None
     workspace_path: str | None = None
-    domain_scope: list[str] | None = None
     knowledge_vault_ids: list[str] | None = None
     kpis: list[Any] | None = None
     autonomy_level: str | None = None
@@ -271,7 +269,6 @@ class EventEmitRequest(BaseModel):
 class OverlapCheckRequest(BaseModel):
     agent_code: str = Field("", description="Candidate agent_code (excluded from compare when editing)")
     responsibilities: list[str] = Field(default_factory=list)
-    domain_scope: list[str] = Field(default_factory=list)
     role_name: str = Field("")
     exclude_agent_code: str = Field("", description="Skip this role when editing self")
 
@@ -487,7 +484,6 @@ class CreateEmployeeRequest(BaseModel):
     department: str = Field("")
     responsibilities: list[str] = Field(default_factory=list)
     workspace_path: str = Field("")
-    domain_scope: list[str] = Field(default_factory=list)
     knowledge_vault_ids: list[str] = Field(default_factory=list)
     autonomy_level: str = Field("approval_for_all")
     heartbeat_schedule: str = Field("0 9-19/2 * * *")
@@ -573,7 +569,6 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
     config = ProactiveRoleConfig(
         responsibilities=req.responsibilities,
         workspace_path=str(req.workspace_path or "").strip(),
-        domain_scope=req.domain_scope,
         knowledge_vault_ids=vault_ids,
         kpis=req.kpis,
         autonomy_level=autonomy,
@@ -709,8 +704,6 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         cfg.responsibilities = req.responsibilities
     if req.workspace_path is not None:
         cfg.workspace_path = str(req.workspace_path or "").strip()
-    if req.domain_scope is not None:
-        cfg.domain_scope = req.domain_scope
     if req.knowledge_vault_ids is not None:
         from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
@@ -1184,7 +1177,6 @@ async def check_role_overlap(req: OverlapCheckRequest) -> dict[str, Any]:
         {
             "agent_code": req.agent_code,
             "responsibilities": req.responsibilities,
-            "domain_scope": req.domain_scope,
             "role_name": req.role_name,
         },
         roles,
@@ -2498,7 +2490,6 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
         "config": {
             "responsibilities": role.config.responsibilities,
             "workspace_path": role.config.workspace_path,
-            "domain_scope": role.config.domain_scope,
             "knowledge_vault_ids": list(getattr(role.config, "knowledge_vault_ids", None) or []),
             "kpis": role.config.kpis,
             "autonomy_level": role.config.autonomy_level.value,

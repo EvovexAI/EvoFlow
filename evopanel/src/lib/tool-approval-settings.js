@@ -165,7 +165,7 @@ function normalizeSessionPolicyResponse(data, sk) {
         ? null
         : String(data.permission_preset).trim(),
     effective_permission_preset: String(
-      data?.effective_permission_preset || data?.permission_preset || 'default',
+      data?.effective_permission_preset || data?.permission_preset || '',
     ).trim(),
   }
 }

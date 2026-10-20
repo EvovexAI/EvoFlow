@@ -105,8 +105,6 @@ class ProactiveRoleConfig:
     responsibilities: list[str] = field(default_factory=list)
     # Bound local workspace root — primary jurisdiction for think/execute tools.
     workspace_path: str = ""
-    # Optional focus paths/modules inside the workspace (relative snippets).
-    domain_scope: list[str] = field(default_factory=list)
     # Bound Knowledge Vault ids (multi). Injected into duty system prompt when set.
     knowledge_vault_ids: list[str] = field(default_factory=list)
     # Free-text strings and/or structured dicts (name/target/probe/…).
@@ -224,6 +222,8 @@ class ProactiveRoleConfig:
         if not raw:
             return cls()
         d = raw if isinstance(raw, dict) else json.loads(raw)
+        # Drop retired fields without warning (legacy config_json may still carry them).
+        d.pop("domain_scope", None)
         # Normalize enums
         al = d.get("autonomy_level")
         if isinstance(al, str):

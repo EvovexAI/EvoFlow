@@ -78,7 +78,6 @@ def ensure_xiaomi_proactive_role() -> dict[str, Any]:
     existing = ProactiveRepository.get_role(code)
     cfg = ProactiveRoleConfig(
         responsibilities=list(XIAOMI_RESPONSIBILITIES),
-        domain_scope=[],
         kpis=list(XIAOMI_KPIS),
         autonomy_level=ProactiveAutonomyLevel.FULL_AUTO,
         max_initiatives_per_cycle=3,

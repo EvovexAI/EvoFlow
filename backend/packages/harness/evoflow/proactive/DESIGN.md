@@ -73,7 +73,7 @@
 | `role_name` | 角色名称 | "前端架构负责人" |
 | `department` | 所属部门 | "技术部" |
 | `responsibilities` | 职责描述 | ["前端架构演进", "代码质量", "性能优化"] |
-| `domain_scope` | 管辖范围（文件/模块/项目） | ["evopanel/src/", "backend/packages/harness/"] |
+| `workspace_path` | 管辖工作空间根目录 | `/Users/me/project` |
 | `kpis` | 需要持续优化的指标 | ["代码覆盖率", "构建耗时", "Lighthouse评分"] |
 | `autonomy_level` | 自主权级 | `full_auto` / `approval_for_risky` / `approval_for_all` |
 | `heartbeat_schedule` | 心跳周期 | `"FREQ=HOURLY;INTERVAL=2"` (每2小时) |
@@ -104,7 +104,7 @@
 
 - 方案 / 报告 / 纪要 / 分析类 Markdown → **只写** `docs/roles/<agent_code>/<YYYYMMDD-HH>/…`
 - 小时戳为 **UTC、精确到小时**，避免同名覆盖、目录乱堆；同一小时内可多文件
-- 业务源码仍按 `domain_scope` 与仓库惯例落盘，不塞进 `docs/roles/`
+- 业务源码仍按 `workspace_path` 与仓库惯例落盘，不塞进 `docs/roles/`
 - 禁止写到仓库根、`docs/` 根、`outputs/` 根、他人目录，或无时间戳直接堆在岗位根下
 - 对话引用用工作区绝对路径，如 `@@/Users/me/project/docs/roles/code-agent/20260721-18/report.md@@`（禁止相对路径）
 
@@ -219,7 +219,7 @@ CREATE TABLE evoflow_proactive_roles (
     agent_code TEXT PRIMARY KEY,
     role_name TEXT NOT NULL,
     department TEXT NOT NULL DEFAULT '',
-    config_json TEXT NOT NULL,  -- responsibilities, domain_scope, kpis, autonomy_level, etc.
+    config_json TEXT NOT NULL,  -- responsibilities, workspace_path, kpis, autonomy_level, etc.
     heartbeat_rrule TEXT NOT NULL DEFAULT 'FREQ=HOURLY;INTERVAL=2',
     status TEXT NOT NULL DEFAULT 'active',  -- active / paused / archived
     last_heartbeat_at TEXT,
@@ -291,7 +291,7 @@ CREATE TABLE evoflow_proactive_memory (
 你是 {role_name}，{department} 的负责人。
 
 你的职责：{responsibilities}
-你管辖的范围：{domain_scope}
+你的工作空间：{workspace_path}
 你需要持续优化的指标：{kpis}
 
 你的工作方式：

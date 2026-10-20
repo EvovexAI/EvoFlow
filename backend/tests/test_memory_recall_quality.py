@@ -30,7 +30,6 @@ def owned_memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_get_core_excludes_knowledge_encyclopedia(owned_memory_root: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("evoflow.memory.facade._schedule_kg_batch", lambda *_a, **_k: None)
     monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_threshold", lambda *_a, **_k: None)
 
     from evoflow.memory.facade import get_core, remember
@@ -89,7 +88,6 @@ def test_standing_facts_skip_knowledge(owned_memory_root: Path):
 
 
 def test_chinese_keyword_recall_bigram(owned_memory_root: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("evoflow.memory.facade._schedule_kg_batch", lambda *_a, **_k: None)
     monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_threshold", lambda *_a, **_k: None)
 
     from evoflow.memory.facade import recall, remember
@@ -112,7 +110,6 @@ def test_chinese_keyword_recall_bigram(owned_memory_root: Path, monkeypatch: pyt
 
 
 def test_weak_query_skips_archival(owned_memory_root: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("evoflow.memory.facade._schedule_kg_batch", lambda *_a, **_k: None)
     monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_threshold", lambda *_a, **_k: None)
 
     from evoflow.agents.lead_agent.prompt import (
@@ -149,13 +146,16 @@ def test_weak_query_skips_archival(owned_memory_root: Path, monkeypatch: pytest.
 
 
 def test_memory_remember_tool_writes_mem(owned_memory_root: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("evoflow.memory.facade._schedule_kg_batch", lambda *_a, **_k: None)
     monkeypatch.setattr("evoflow.memory.facade._maybe_enqueue_threshold", lambda *_a, **_k: None)
+    # Default injection_mode=asset writes Asset Hub notes; exercise legacy mem_* path here.
+    from evoflow.config.memory_config import MemoryConfig, set_memory_config
+
+    set_memory_config(MemoryConfig(injection_mode="legacy"))
 
     import json
 
+    from evoflow.memory.document_codec import namespace_for_agent_key
     from evoflow.memory.facade import recall
-    from evoflow.memory.namespaces import agent_ns
     from evoflow.tools.builtins.memory_remember_tool import memory_remember_tool
 
     class _RT:
@@ -171,5 +171,6 @@ def test_memory_remember_tool_writes_mem(owned_memory_root: Path, monkeypatch: p
     )
     data = json.loads(out)
     assert data.get("ok") is True
-    hits = recall([agent_ns("main")], "青柠", top_k=5, max_chars=500)
+    assert data.get("atom_id")
+    hits = recall([namespace_for_agent_key("main")], "青柠", top_k=5, max_chars=500)
     assert any("青柠" in (h.get("content") or "") for h in hits)

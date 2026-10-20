@@ -554,7 +554,6 @@ def build_system_prompt(
     cfg: ProactiveRoleConfig = role.config
     responsibilities = "\n".join(f"  - {r}" for r in cfg.responsibilities) or "  - （暂未配置）"
     workspace = (cfg.workspace_path or "").strip() or "（暂未绑定工作空间）"
-    focus = "\n".join(f"  - {d}" for d in cfg.domain_scope)
     soul = (cfg.soul_md or "").strip()
     # Prefer Agent soul when employee inherits capabilities.
     try:
@@ -593,8 +592,6 @@ def build_system_prompt(
         user_profile_block = ""
 
     domain_block = f"工作空间根目录：{workspace}"
-    if focus:
-        domain_block += f"\n关注子路径 / 模块：\n{focus}"
 
     vault_block = ""
 

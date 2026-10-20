@@ -32,8 +32,13 @@ def get_global_default_policy() -> str:
     return POLICY_SESSION
 
 
-def reconcile_prompt_snapshots_with_global(global_policy: str | None = None) -> int:
-    """When global is grant_all, drop legacy ``prompt`` snapshots so sessions inherit global."""
+def reconcile_soft_session_overrides_with_global(global_policy: str | None = None) -> int:
+    """When global is ``grant_all``, clear soft session overrides so UI/runtime inherit.
+
+    Soft = ``permission_preset`` is null/default **and** ``tool_approval_policy`` is
+    null/session/prompt. Keeps explicit ``full-access`` / ``read-only`` (and matching
+    legacy policies) untouched so a user who picked those stays put.
+    """
     policy = normalize_policy(global_policy) if global_policy is not None else get_global_default_policy()
     if policy != POLICY_GRANT_ALL:
         return 0
@@ -41,19 +46,33 @@ def reconcile_prompt_snapshots_with_global(global_policy: str | None = None) -> 
     cur = conn.execute(
         """
         UPDATE evoflow_chat_sessions
-        SET tool_approval_policy = NULL
-        WHERE is_deleted = 0 AND tool_approval_policy = ?
+        SET tool_approval_policy = NULL,
+            permission_preset = NULL
+        WHERE is_deleted = 0
+          AND (
+            permission_preset IS NULL
+            OR TRIM(COALESCE(permission_preset, '')) = ''
+            OR LOWER(TRIM(permission_preset)) = 'default'
+          )
+          AND (
+            tool_approval_policy IS NULL
+            OR TRIM(COALESCE(tool_approval_policy, '')) = ''
+            OR LOWER(TRIM(tool_approval_policy)) IN ('session', 'prompt')
+          )
         """,
-        (POLICY_PROMPT,),
     )
     conn.commit()
     return int(cur.rowcount or 0)
 
 
+# Back-compat alias for older callers / tests.
+reconcile_prompt_snapshots_with_global = reconcile_soft_session_overrides_with_global
+
+
 def set_global_default_policy(mode: str) -> str:
     policy = normalize_policy(mode)
     cfg_repo.set_app_setting(APP_SETTING_KEY, {"mode": policy})
-    reconcile_prompt_snapshots_with_global(policy)
+    reconcile_soft_session_overrides_with_global(policy)
     return policy
 
 
@@ -78,36 +97,42 @@ def get_session_policy_raw(session_key: str) -> str | None:
 
 
 def set_session_policy(session_key: str, mode: str | None) -> str | None:
-    """Persist session-level policy (``None`` clears override → inherit global at read time)."""
+    """Persist session-level policy (``None`` clears override → inherit global at read time).
+
+    Always keeps ``permission_preset`` in lockstep via ``set_session_preset`` so a
+    legacy ``grant_all`` write cannot leave ``permission_preset=default`` winning
+    at read time (effective_preset prefers the preset column).
+    """
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    from evoflow.persistence.session_repositories import upsert_session_row
+    from evoflow.execution_security.permission_preset import preset_from_legacy_tool_policy
+    from evoflow.persistence.permission_preset_store import set_session_preset
 
     if mode is None or not str(mode).strip():
-        conn = get_db()
-        conn.execute(
-            """
-            UPDATE evoflow_chat_sessions
-            SET tool_approval_policy = NULL
-            WHERE session_key = ? AND is_deleted = 0
-            """,
-            (sk,),
-        )
-        conn.commit()
+        set_session_preset(sk, None)
         return None
 
     policy = normalize_policy(mode)
-    # Upsert so policy persists even when the session row was not created yet (e.g. UI set before first send).
-    upsert_session_row(sk, tool_approval_policy=policy)
+    set_session_preset(sk, preset_from_legacy_tool_policy(policy))
     return policy
 
 
 def effective_policy(session_key: str) -> str:
     """Resolved policy: runtime preset (if set) or session column or global default."""
     try:
-        from evoflow.persistence.permission_preset_store import effective_preset_spec
+        from evoflow.persistence.permission_preset_store import (
+            effective_preset_spec,
+            get_session_preset_raw,
+        )
 
+        # Prefer an explicit legacy policy column when the preset column is empty,
+        # so half-migrated rows (policy written, preset still null) still work.
+        if get_session_preset_raw(session_key) is None:
+            raw = get_session_policy_raw(session_key)
+            if raw:
+                return raw
+            return get_global_default_policy()
         return effective_preset_spec(session_key).tool_approval_policy
     except Exception:
         raw = get_session_policy_raw(session_key)

@@ -25,36 +25,19 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return inter / union if union else 0.0
 
 
-def _path_overlap(paths_a: list[str], paths_b: list[str]) -> float:
-    """Overlap for path prefixes: treat nested/sibling paths as related."""
-    a = [str(p or "").strip().replace("\\", "/").rstrip("/").lower() for p in paths_a if str(p or "").strip()]
-    b = [str(p or "").strip().replace("\\", "/").rstrip("/").lower() for p in paths_b if str(p or "").strip()]
-    if not a or not b:
-        return 0.0
-    hits = 0
-    for pa in a:
-        for pb in b:
-            if pa == pb or pa.startswith(pb + "/") or pb.startswith(pa + "/"):
-                hits += 1
-                break
-    return hits / max(len(a), len(b))
-
-
 def score_role_overlap(
     candidate: dict[str, Any],
     existing: ProactiveRole,
 ) -> dict[str, Any]:
     """Score overlap between a candidate config and an existing role.
 
-    ``candidate`` keys: responsibilities, domain_scope, role_name, agent_code.
+    ``candidate`` keys: responsibilities, role_name, agent_code.
     """
     cand_resp = candidate.get("responsibilities") or []
-    cand_domain = candidate.get("domain_scope") or []
     if isinstance(cand_resp, str):
         cand_resp = [x.strip() for x in cand_resp.splitlines() if x.strip()]
 
     exist_resp = list(existing.config.responsibilities or [])
-    exist_domain = list(existing.config.domain_scope or [])
 
     resp_tokens_a = set()
     for line in cand_resp:
@@ -63,20 +46,20 @@ def score_role_overlap(
     for line in exist_resp:
         resp_tokens_b |= _tokens(line)
 
-    resp_score = _jaccard(resp_tokens_a, resp_tokens_b)
-    domain_score = _path_overlap(list(cand_domain), exist_domain)
-    # Weighted blend: domain conflicts are more operationally painful
-    overall = round(0.45 * resp_score + 0.55 * domain_score, 3)
+    overall = round(_jaccard(resp_tokens_a, resp_tokens_b), 3)
 
     return {
         "agent_code": existing.agent_code,
         "role_name": existing.role_name,
         "status": existing.status,
-        "responsibilities_overlap": round(resp_score, 3),
-        "domain_overlap": round(domain_score, 3),
+        "responsibilities_overlap": overall,
         "overlap": overall,
         "high": overall >= 0.5,
-        "message": (f"与「{existing.role_name}」职责高度重叠（{int(overall * 100)}%），建议合并或明确分工" if overall >= 0.5 else ""),
+        "message": (
+            f"与「{existing.role_name}」职责高度重叠（{int(overall * 100)}%），建议合并或明确分工"
+            if overall >= 0.5
+            else ""
+        ),
     }
 
 

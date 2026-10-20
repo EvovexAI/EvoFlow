@@ -10,7 +10,7 @@
 |--------------|----------|--------|
 | 「帮我记一下」「备忘」「个人待办」「周五交报告」 | **`items`**（个人事项） | `tasks`、`todo`（对话内 checklist） |
 | 「任务中心那单」「结案」「改进度」「子任务」 | **`tasks`**（协作台账） | `items`（除非先记事再派工） |
-| 「建个角色 / 助手 / SOUL / 工具白名单」 | **`agents`** | 直接 `employees hire`（岗需要先有 Agent） |
+| 「建个角色 / 助手 / SOUL / 工具白名单」 | **`agents`**（先 `agents.bindings` 看可绑工具/技能/MCP/知识库） | 直接 `employees hire`（岗需要先有 Agent）；勿省略 `tools` 指望全开 |
 | 「雇成员工」「值班岗」「改职责 KPI」「今天谁在岗」 | **`employees`**（智能体员工 / 岗位） | 把员工拉进群聊互相对话 |
 | 「让 XX 去干」「@某岗」「唤醒同事」 | **`employees dispatch` / `wake`** 或 **`items dispatch`** | 只建 `tasks` 却不 wake |
 | 「批一下」「待审批」 | **`approvals`** | 直接改 task 状态绕过审批（除非用户明确跳过） |

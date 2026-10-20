@@ -24,9 +24,9 @@ def owned_memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_record_task_episode(owned_memory_root: Path):
+    from evoflow.memory.document_codec import namespace_for_agent_key
     from evoflow.memory.episodes import record_task_episode
     from evoflow.memory.facade import recall
-    from evoflow.memory.namespaces import agent_ns
 
     aid = record_task_episode(
         {
@@ -39,7 +39,7 @@ def test_record_task_episode(owned_memory_root: Path):
         outcome="completed",
     )
     assert aid
-    hits = recall([agent_ns("main")], "webhook 校验", top_k=5)
+    hits = recall([namespace_for_agent_key("main")], "webhook 校验", top_k=5)
     assert any("支付" in (h.get("content") or "") for h in hits)
 
 

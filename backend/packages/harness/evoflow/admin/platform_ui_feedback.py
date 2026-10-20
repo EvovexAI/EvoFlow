@@ -217,8 +217,6 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "automation.delete": f"已删除定时任务「{name}」",
         "approvals.approve": f"已批准「{name}」",
         "approvals.reject": f"已驳回「{name}」",
-        "memory.clear": f"已清空「{name or '全部'}」长期记忆",
-        "memory.delete_fact": "已删除一条记忆",
         "verification.start": f"已开启验证轮次「{name}」",
         "verification.init": f"已初始化验证轮次「{name}」",
         "verification.step": f"已记录验证步骤「{name}」",

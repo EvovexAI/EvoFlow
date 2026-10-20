@@ -699,6 +699,14 @@ def agents_get(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "agent": agents_admin.get_agent(name)}
 
 
+def agents_bindings(args: dict[str, Any]) -> dict[str, Any]:
+    """Catalog of assignable tools / skills / MCP for create & hire."""
+    from evoflow.admin import agents as agents_admin
+
+    include_disabled = _arg_bool(args, "include_disabled_skills", False)
+    return {"ok": True, **agents_admin.list_bindings_catalog(include_disabled_skills=include_disabled)}
+
+
 def agents_create(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import agents as agents_admin
 
@@ -1244,39 +1252,6 @@ def approvals_reject(args: dict[str, Any]) -> dict[str, Any]:
             decided_by=_arg_str(args, "decided_by") or "xiaomi",
         ),
     }
-
-
-# ── memory ─────────────────────────────────────────────────────────────────
-
-
-def memory_agents(_args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import memory as mem
-
-    return {"ok": True, **mem.list_memory_agents()}
-
-
-def memory_get(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import memory as mem
-
-    agent = _arg_str(args, "agent", "agent_code") or None
-    return {"ok": True, **mem.get_memory(agent=agent)}
-
-
-def memory_clear(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import memory as mem
-
-    agent = _arg_str(args, "agent", "agent_code") or None
-    return {"ok": True, **mem.clear_memory(agent=agent)}
-
-
-def memory_delete_fact(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import memory as mem
-
-    fact_id = _arg_str(args, "fact_id", "factId", "id")
-    if not fact_id:
-        raise ValidationError("fact_id is required")
-    agent = _arg_str(args, "agent", "agent_code") or None
-    return {"ok": True, **mem.delete_fact(fact_id, agent=agent)}
 
 
 # ── sessions ───────────────────────────────────────────────────────────────

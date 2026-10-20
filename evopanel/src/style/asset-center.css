@@ -280,33 +280,6 @@
   box-shadow: inset 0 0 0 2px var(--ac-primary-ring);
 }
 
-.assets-center-root .ac-graph-pane {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 12px 16px 16px;
-  background: var(--ac-surface);
-}
-
-.assets-center-root .ac-graph-pane .memory-graph-panel {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-.assets-center-root .ac-graph-pane .memory-graph-body {
-  flex: 1;
-  min-height: 0;
-}
-
-.assets-center-root .ac-graph-pane .memory-graph-canvas {
-  min-height: 360px;
-}
-
 /* ── Split workspace ───────────────────────────────────────────── */
 
 .assets-center-root .ac-content {

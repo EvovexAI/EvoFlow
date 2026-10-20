@@ -91,16 +91,9 @@ async def _dispatch(job: dict[str, Any]) -> None:
 
             await asyncio.to_thread(run_consolidate_job, job)
             jobs.complete(job["id"])
-        elif jtype == "mem_kg_extract":
-            from evoflow.memory.kg_extract import run_mem_kg_extract
-
-            await run_mem_kg_extract(job)
-            jobs.complete(job["id"])
-        elif jtype == "mem_kg_batch":
-            from evoflow.memory.kg_extract import run_mem_kg_batch
-
-            await run_mem_kg_batch(job)
-            jobs.complete(job["id"])
+        elif jtype in ("mem_kg_extract", "mem_kg_batch"):
+            # Memory entity-graph extract retired (Asset Hub is SoT; no UI/platform callers).
+            jobs.complete(job["id"], error="retired: mem_kg_* removed")
         else:
             jobs.complete(job["id"], error=f"unknown job type: {jtype}")
     except Exception as exc:

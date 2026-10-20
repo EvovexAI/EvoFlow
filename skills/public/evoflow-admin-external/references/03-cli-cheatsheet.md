@@ -196,16 +196,14 @@ evoflow mcp set --file examples/mcp-set.json
 
 ---
 
-## 13. memory — Agent 长期记忆
+## 13. memory — 已退役（改走 Asset Hub）
 
-```bash
-evoflow memory show [--agent main]
-evoflow memory status
-evoflow memory reload
-evoflow memory clear [--agent …]
-evoflow memory agents
-evoflow memory facts delete <fact_id> [--agent …]
-```
+旧 `evoflow memory …` **已退役**。长期记忆在资产中心：
+
+- 面板：`#/assets`
+- 对话：`assets` 工具 + 技能 `evoflow-assets`
+- 迁移：`evoflow assets migrate --only memory`
+- 项目知识仍用：`evoflow workspace memory …`
 
 ---
 
@@ -225,15 +223,15 @@ evoflow knowledge delete <path> [--vault kb_…]
 
 ---
 
-## 15. 用户画像 / 经验 craft — 资产中心
+## 15. 用户画像 / 记忆 / 经验 craft — 资产中心
 
-> 旧 `evoflow experience` 已退役。可复用经验写入 Asset Hub `craft/*.md`，对话用 `assets` 工具。
+> 旧 `evoflow experience` / `evoflow memory` / platform `memory.*` 已退役。画像、长期记忆、craft 统一 Asset Hub。
 
-SoT：`~/.evoflow/assets/user/profile/basic-info.md` · `preferences.md` · `persona.md`
+SoT：`~/.evoflow/assets/user/`（`profile/` · `memory/` · `craft/`）
 
-- 面板：`#/assets` → 画像
-- 对话：`assets(action=profile, path=preferences, content=喜欢简洁回复)`
-- 管理 API：`assets.get_profile` / `assets.update_profile`
+- 面板：`#/assets`
+- 对话：`assets` 工具（profile / note / search…）+ 技能 `evoflow-assets`
+- 管理 API（画像）：`assets.get_profile` / `assets.update_profile`
 
 ```bash
 evoflow assets init

@@ -108,10 +108,21 @@ def set_session_preset(session_key: str, preset_id: str | None) -> str | None:
 
 
 def effective_preset(session_key: str) -> str:
+    """Resolve runtime preset for UI + gates.
+
+    Prefer an explicit ``permission_preset``. If the legacy ``tool_approval_policy``
+    column is ``grant_all`` while the preset column still says ``default`` (half
+    applied by older writers), treat the session as full-access so approval
+    「全部授权」and settings stay consistent.
+    """
+    from evoflow.persistence.tool_approval_policy import POLICY_GRANT_ALL
+
     raw = get_session_preset_raw(session_key)
+    session_policy = get_session_policy_raw(session_key)
+    if session_policy == POLICY_GRANT_ALL:
+        return normalize_preset_id("full-access")
     if raw:
         return normalize_preset_id(raw)
-    session_policy = get_session_policy_raw(session_key)
     if session_policy:
         return preset_from_legacy_tool_policy(session_policy)
     return preset_from_legacy_tool_policy(get_global_default_policy())

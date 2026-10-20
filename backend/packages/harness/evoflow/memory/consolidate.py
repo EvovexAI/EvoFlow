@@ -226,12 +226,6 @@ def consolidate_namespace(
             )
             keep["content"] = merged
             mem_store.supersede_atom(drop["id"], keep["id"], source="consolidate_sim")
-            try:
-                from evoflow.memory.kg_extract import mark_atoms_kg_dirty
-
-                mark_atoms_kg_dirty(ns, [str(keep["id"])])
-            except Exception:
-                pass
             consumed.add(drop["id"])
             active_ids.discard(drop["id"])
             stats["similarity_merged"] += 1
@@ -271,12 +265,6 @@ def consolidate_namespace(
 
     stats["finished_at"] = now_iso
     stats["active_after"] = mem_store.count_active_atoms(ns)
-    try:
-        from evoflow.memory.kg_extract import flush_kg_batch
-
-        flush_kg_batch(ns)
-    except Exception:
-        logger.debug("consolidate kg batch schedule skipped", exc_info=True)
     logger.info(
         "mem consolidate ns=%s trigger=%s merged_subj=%s merged_sim=%s decayed=%s gc=%s",
         ns,

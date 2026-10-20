@@ -100,6 +100,9 @@ evoflow automation history <id>
 
 ## 8. 模型 / 技能 / MCP / 画像
 
+建角色/员工前先查可绑清单（含短说明）：`platform action=agents.bindings`（含 `knowledge_bases`；或 `skills.list` / `mcp.get` / `knowledge.list`）。  
+`agents.create` **省略 `tools` / `knowledge_vault_ids` → 空**（不是全开）；要全开工具须显式 `tools: null`（不推荐）。
+
 ```bash
 evoflow models create --file examples/model-create.json
 evoflow models primary set my-glm
@@ -119,8 +122,7 @@ evoflow mcp test fs
 evoflow knowledge create --name "英语单词库"   # 平台自有库；遗留 Vault 加 --legacy-vault
 evoflow knowledge remember --file examples/knowledge-remember.json
 evoflow knowledge recall "MCP 配置"
-# 可复用经验：对话用 assets 工具写 craft；或 evoflow assets migrate --only experience
-evoflow memory show --agent main
+# 记忆 / 经验：对话用 assets 工具；迁移旧库 evoflow assets migrate --only memory|experience
 evoflow sessions search -q "docker 端口" --titles
 evoflow workspace memory bootstrap D:/path/to/project
 ```

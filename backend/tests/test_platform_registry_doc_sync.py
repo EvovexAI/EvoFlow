@@ -8,14 +8,15 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
 
 # Keep in sync with 04-http-platform.md / defect-registry scale line.
-# Formula: ~106 − 4 experience − 2 (verification.list, appearance.get) + 2 deletes = 102.
-EXPECTED_PLATFORM_ACTION_COUNT = 102
+# Prior 103 − memory.* (4) = 99; domains 17 − memory = 16.
+EXPECTED_PLATFORM_ACTION_COUNT = 99
 
 
 def test_assets_in_platform_domains() -> None:
     assert "assets" in PLATFORM_DOMAINS
     assert "experience" not in PLATFORM_DOMAINS
-    assert len(PLATFORM_DOMAINS) == 17
+    assert "memory" not in PLATFORM_DOMAINS
+    assert len(PLATFORM_DOMAINS) == 16
 
 
 def test_registry_action_count() -> None:
@@ -33,6 +34,10 @@ def test_registry_has_no_retired_actions() -> None:
         "experience.get",
         "experience.save",
         "experience.delete",
+        "memory.agents",
+        "memory.get",
+        "memory.clear",
+        "memory.delete_fact",
         "verification.list",
         "appearance.get",
     ):
@@ -44,6 +49,10 @@ def test_registry_has_no_retired_actions() -> None:
         "experience_get",
         "experience_save",
         "experience_delete",
+        "memory_agents",
+        "memory_get",
+        "memory_clear",
+        "memory_delete_fact",
     ):
         assert not hasattr(H, attr), f"retired handler still present: {attr}"
 
@@ -56,6 +65,8 @@ def test_registry_has_knowledge_delete_and_assets() -> None:
     assert "assets.update_profile" in reg
     assert "employees.delete" in reg
     assert reg["employees.delete"].risk == "destructive"
+    assert "agents.bindings" in reg
+    assert reg["agents.bindings"].risk == "read"
 
 
 def test_http_platform_doc_lists_registry_actions() -> None:
@@ -73,4 +84,6 @@ def test_http_platform_doc_lists_registry_actions() -> None:
     assert "archive" not in emp_line
     assert "已退役" in text
     assert "`employees.delete`" in text
-    assert "102" in text
+    assert "99" in text
+    assert "bindings" in text
+    assert "**memory：**" not in text

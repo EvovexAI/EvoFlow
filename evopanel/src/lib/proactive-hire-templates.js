@@ -11,7 +11,6 @@
  *   responsibilities: string[],
  *   autonomy_level: 'full_auto'|'approval_for_risky'|'approval_for_all',
  *   heartbeat_schedule: string,
- *   domain_scope?: string[],
  * }} HireTemplate */
 
 /** @type {HireTemplate[]} */

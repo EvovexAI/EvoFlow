@@ -1543,7 +1543,6 @@ function renderEmployeeConfigPanels(role, {
   const thinkLabel = cfg.think_mode === 'prompt_only' ? '轻量工作' : '深度工作'
   const modelName = String(cfg.model_name || '').trim()
   const ws = workspaceOf(role)
-  const domain = Array.isArray(cfg.domain_scope) ? cfg.domain_scope.filter(Boolean) : []
   const scheduleLabel = roleScheduleSummary(role)
   const field = (label, valueHtml, span = false) =>
     `<div class="detail-field"${span ? ' style="grid-column:1/-1"' : ''}>
@@ -1588,15 +1587,6 @@ function renderEmployeeConfigPanels(role, {
       '管辖工作空间',
       ws ? `<span title="${esc(ws)}">${esc(pathBasename(ws))}</span>` : '<span class="pro-patrol-warn">未绑定</span>',
     )}
-    ${
-      domain.length
-        ? field(
-            '关注子路径',
-            `<div class="pro-role-tags">${domain.map((t) => `<span class="pro-tag">${esc(t)}</span>`).join('')}</div>`,
-            true,
-          )
-        : ''
-    }
     ${field('知识库', knowledgeHtml, true)}
     ${agent?.agent_name ? field('绑定智能体', esc(agent.agent_name)) : field('绑定智能体', `<code>${esc(code)}</code>`)}
   </div>`

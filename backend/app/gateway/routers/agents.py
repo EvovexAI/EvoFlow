@@ -107,7 +107,6 @@ def _filter_agents_for_ui_list(agents: list[AgentResponse]) -> list[AgentRespons
 
 # 新建自定义智能体且请求未带 skills 时：写入下列「基础技能」与当前已启用技能的交集（顺序固定）
 _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
-    "evoflow-intro",
     "evoflow-admin",
     "evoflow-assets",
     "create-plan",

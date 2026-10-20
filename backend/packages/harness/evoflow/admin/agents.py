@@ -25,7 +25,6 @@ from evoflow.persistence import config_repositories as cfg_repo
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT: tuple[str, ...] = (
-    "evoflow-intro",
     "evoflow-admin",
     "evoflow-assets",
     "create-plan",
@@ -425,11 +424,174 @@ def _assert_agent_name_unique(agent_name: str, *, exclude_code: str | None = Non
             raise ConflictError(f"agent_name '{agent_name}' is already used by agent '{row.get('agent_code')}'")
 
 
+def _validate_knowledge_vault_ids(raw: Any) -> list[str]:
+    """Validate owned KB ids for agent binding; raise ValidationError on unknown."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValidationError("knowledge_vault_ids must be a list of kb_… ids")
+    try:
+        from evoflow.proactive.prompt import validate_agent_knowledge_ids
+
+        return validate_agent_knowledge_ids([str(x) for x in raw])
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    except Exception as exc:
+        raise ValidationError(f"unable to validate knowledge_vault_ids: {exc}") from exc
+
+
+def _persist_agent_knowledge_vault_ids(agent_code: str, vault_ids: list[str]) -> None:
+    """Mirror vault ids into AgentConfig + extra_json (middleware reads both)."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return
+    cleaned = [str(v).strip() for v in (vault_ids or []) if str(v).strip()]
+    try:
+        cfg = load_agent_config(code)
+        data = cfg.model_dump(mode="python", exclude={"name"})
+        data["knowledge_vault_ids"] = cleaned
+        save_agent_config(code, data)
+    except Exception:
+        logger.warning("persist knowledge_vault_ids on AgentConfig failed code=%s", code, exc_info=True)
+    try:
+        existing = cfg_repo.get_agent_extra_json(code) or {}
+        merged = dict(existing)
+        merged["knowledge_vault_ids"] = cleaned
+        cfg_repo.upsert_agent_extra_json(code, merged)
+    except Exception:
+        logger.warning("persist knowledge_vault_ids extra_json failed code=%s", code, exc_info=True)
+
+
+def list_bindings_catalog(*, include_disabled_skills: bool = False) -> dict[str, Any]:
+    """Assignable tools / skills / MCP / knowledge bases for agent & employee create.
+
+    Call this before ``agents.create`` / ``employees.create`` — do not omit ``tools``
+    expecting "everything"; omit now means an empty tools allowlist.
+    """
+    tools_rows: list[dict[str, str]] = []
+    try:
+        from evoflow.tools.ui_metadata import collect_native_tool_specs_for_role_ui
+
+        for spec in collect_native_tool_specs_for_role_ui():
+            name = str(spec.get("name") or "").strip()
+            if not name:
+                continue
+            desc = str(spec.get("description") or spec.get("label") or "").replace("\n", " ").strip()[:280]
+            tools_rows.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "tier": str(spec.get("tool_type") or spec.get("tier") or ""),
+                }
+            )
+        tools_rows.sort(key=lambda r: r["name"])
+    except Exception as exc:
+        logger.warning("list_bindings_catalog tools failed: %s", exc)
+
+    skills_rows: list[dict[str, Any]] = []
+    try:
+        from evoflow.skills import load_skills
+
+        for s in load_skills(enabled_only=not include_disabled_skills):
+            skills_rows.append(
+                {
+                    "name": str(s.name),
+                    "description": (s.description or "").replace("\n", " ").strip()[:280],
+                    "enabled": True,
+                }
+            )
+        skills_rows.sort(key=lambda r: r["name"])
+    except Exception as exc:
+        logger.warning("list_bindings_catalog skills failed: %s", exc)
+
+    mcp_rows: list[dict[str, str]] = []
+    try:
+        from evoflow.config.extensions_config import get_extensions_config
+
+        for name, server in (get_extensions_config().mcp_servers or {}).items():
+            dump = server.model_dump() if hasattr(server, "model_dump") else {}
+            desc = str(dump.get("description") or dump.get("url") or dump.get("command") or "").strip()[:280]
+            mcp_rows.append({"name": str(name), "description": desc})
+        mcp_rows.sort(key=lambda r: r["name"])
+    except Exception as exc:
+        logger.warning("list_bindings_catalog mcp failed: %s", exc)
+
+    knowledge_rows: list[dict[str, str]] = []
+    try:
+        from evoflow.admin import knowledge as knowledge_admin
+
+        listed = knowledge_admin.list_bases()
+        for item in listed.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            kid = str(item.get("id") or item.get("kbId") or "").strip()
+            if not kid:
+                continue
+            desc = str(item.get("description") or item.get("summary") or "").replace("\n", " ").strip()[:280]
+            knowledge_rows.append(
+                {
+                    "id": kid,
+                    "name": str(item.get("name") or item.get("title") or kid).strip(),
+                    "description": desc,
+                }
+            )
+        knowledge_rows.sort(key=lambda r: r["name"].lower())
+    except Exception as exc:
+        logger.warning("list_bindings_catalog knowledge failed: %s", exc)
+
+    return {
+        "tools": tools_rows,
+        "skills": skills_rows,
+        "mcp_servers": mcp_rows,
+        "knowledge_bases": knowledge_rows,
+        "plugins": {
+            "note": "平台无独立 plugins 域；扩展能力走 skills 安装包或 MCP。面板「插件」与技能目录同源。",
+            "items": [],
+        },
+        "defaults_on_create": {
+            "tools": [],
+            "skills": list(_DEFAULT_SKILLS_FOR_NEW_CUSTOM_AGENT),
+            "mcp_servers": [],
+            "knowledge_vault_ids": [],
+            "tools_inherit_all": "仅当显式传入 tools: null 时继承全部可配置工具（不推荐）",
+        },
+        "hint": (
+            "创建前先看本目录再填白名单。"
+            "agents.create：省略 tools → []；skills 省略 → 精选默认；"
+            "mcp_servers / knowledge_vault_ids 省略 → []。"
+            "也可 skills.list / mcp.get / knowledge.list。"
+        ),
+    }
+
+
+def _bindings_applied_summary(row: dict[str, Any], *, tools_mode: str) -> dict[str, Any]:
+    tools = row.get("tools")
+    return {
+        "tools_mode": tools_mode,
+        "tools": tools,
+        "skills": row.get("skills"),
+        "mcp_servers": row.get("mcp_servers"),
+        "tool_groups": row.get("tool_groups"),
+        "knowledge_vault_ids": row.get("knowledge_vault_ids") or [],
+        "semantics": {
+            "tools_null": "继承全部可配置工具（危险，仅显式 tools:null）",
+            "tools_empty": "无业务工具白名单（运行时仍可能有模式注入的系统工具）",
+            "skills_empty": "不注入技能目录",
+            "mcp_empty": "不挂载 MCP",
+            "knowledge_empty": "未绑定知识库（检索不会注入该角色）",
+        },
+        "hint": "完整可选清单：platform action=agents.bindings（含 knowledge_bases；或 knowledge.list）",
+    }
+
+
 def create_agent(data: dict[str, Any]) -> dict[str, Any]:
     """Create a custom agent.
 
     When ``skills`` is omitted, a curated default skill set is injected (intersection
     with currently enabled skills). Pass ``skills: []`` for an empty allowlist.
+
+    When ``tools`` is omitted, the allowlist is empty ``[]`` (not inherit-all).
+    Pass ``tools: null`` only when you intentionally want every configurable tool.
     """
     if not isinstance(data, dict):
         raise ValidationError("Agent payload must be a JSON object")
@@ -441,6 +603,7 @@ def create_agent(data: dict[str, Any]) -> dict[str, Any]:
 
     agent_type = _validate_agent_type(data.get("agent_type") or "custom")
     config_data: dict[str, Any] = {"agent_code": normalized, "agent_type": agent_type}
+    tools_mode = "empty"
 
     # agent_name: reject empty string (incl. JSON duplicate-key last-write-wins "")
     if "agent_name" in data:
@@ -464,12 +627,30 @@ def create_agent(data: dict[str, Any]) -> dict[str, Any]:
         config_data["model"] = _validate_model_name(data["model"])
     if data.get("tool_groups") is not None:
         config_data["tool_groups"] = _dedupe_str_list(data["tool_groups"], field="tool_groups")
-    if data.get("tools") is not None:
-        config_data["tools"] = _validate_tools_list(data["tools"])
-    if data.get("mcp_servers") is not None:
-        config_data["mcp_servers"] = _validate_mcp_servers_list(data["mcp_servers"])
-    if data.get("skills") is not None:
-        config_data["skills"] = _validate_skills_list(data["skills"])
+    if "tools" in data:
+        if data["tools"] is None:
+            # Explicit null → inherit all configurable tools (opt-in, not default).
+            config_data["tools"] = None
+            tools_mode = "inherit_all"
+        else:
+            config_data["tools"] = _validate_tools_list(data["tools"])
+            tools_mode = "allowlist" if config_data["tools"] else "empty"
+    else:
+        # Omit → empty allowlist (must pick from agents.bindings).
+        config_data["tools"] = []
+        tools_mode = "empty"
+    if "mcp_servers" in data:
+        if data["mcp_servers"] is None:
+            config_data["mcp_servers"] = None
+        else:
+            config_data["mcp_servers"] = _validate_mcp_servers_list(data["mcp_servers"])
+    else:
+        config_data["mcp_servers"] = []
+    if "skills" in data:
+        if data["skills"] is None:
+            config_data["skills"] = []
+        else:
+            config_data["skills"] = _validate_skills_list(data["skills"])
     else:
         config_data["skills"] = _default_skills_for_new_custom_agent()
 
@@ -489,7 +670,27 @@ def create_agent(data: dict[str, Any]) -> dict[str, Any]:
         from evoflow.config.agents_config import save_agent_identity
 
         save_agent_identity(normalized, str(data.get("identity") or ""), reason="admin create")
-    return _agent_row(load_agent_config(normalized), include_soul=True)
+
+    if "knowledge_vault_ids" in data:
+        vault_ids = _validate_knowledge_vault_ids(data.get("knowledge_vault_ids"))
+    else:
+        vault_ids = []
+    _persist_agent_knowledge_vault_ids(normalized, vault_ids)
+
+    row = _agent_row(load_agent_config(normalized), include_soul=True)
+    row["bindings_applied"] = _bindings_applied_summary(row, tools_mode=tools_mode)
+    if tools_mode == "inherit_all":
+        row["warning"] = (
+            "tools:null → 继承全部可配置工具；如需收紧请 agents.update 传入 tools 白名单，"
+            "或先 agents.bindings 查看清单。"
+        )
+    elif tools_mode == "empty":
+        row["hint"] = (
+            "未指定 tools，已设为空白名单。请先 agents.bindings 选工具/知识库后再 agents.update，"
+            "或创建时传入 tools:[...] / knowledge_vault_ids:[...]。"
+            "skills 已按精选默认注入（可用 skills:[] 清空）。"
+        )
+    return row
 
 
 def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -569,6 +770,11 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
         from evoflow.config.agents_config import save_agent_identity
 
         save_agent_identity(normalized, str(data["identity"]), reason="admin update")
+    if "knowledge_vault_ids" in data:
+        _persist_agent_knowledge_vault_ids(
+            normalized,
+            _validate_knowledge_vault_ids(data.get("knowledge_vault_ids")),
+        )
 
     # Push shared capability fields to linked employee (unless employee opted out).
     try:

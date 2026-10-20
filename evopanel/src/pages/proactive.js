@@ -765,7 +765,7 @@ async function showHireModal(page) {
               </select>
               <p class="hire-chip-hint">默认自动创建；也可沿用尚未入职的能力配置（原「智能体」）。</p>
             </label>
-            ${renderWorkspaceField(workspacePaths, '', '')}
+            ${renderWorkspaceField(workspacePaths, '')}
             ${renderModelField(chatModels, '')}
             <div class="hire-field">
               <span>转交审批策略</span>
@@ -802,7 +802,6 @@ async function showHireModal(page) {
 
   const nameEl = overlay.querySelector('[data-name="role_name"]')
   const respEl = overlay.querySelector('[data-name="responsibilities"]')
-  const domainEl = overlay.querySelector('[data-name="domain_scope"]')
   const templateHint = overlay.querySelector('[data-role="template-hint"]')
   let lastPrefill = nameEl?.value || ''
 
@@ -834,9 +833,6 @@ async function showHireModal(page) {
       lastPrefill = tpl.role_name
     }
     if (respEl) respEl.value = (tpl.responsibilities || []).join('\n')
-    if (domainEl && Array.isArray(tpl.domain_scope)) {
-      domainEl.value = tpl.domain_scope.join('\n')
-    }
     setAutonomyChip(tpl.autonomy_level || 'approval_for_all')
     setHireSchedule(tpl.heartbeat_schedule || tpl.heartbeat_rrule || '0 9-19/2 * * *')
     const adv = overlay.querySelector('details.hire-advanced')
@@ -879,7 +875,6 @@ async function showHireModal(page) {
     const reports_to = (overlay.querySelector('[data-name="reports_to"]')?.value || '').trim()
     const responsibilities = parseLines(overlay.querySelector('[data-name="responsibilities"]')?.value)
     const workspace_path = readWorkspacePath(overlay)
-    const domain_scope = parseLines(overlay.querySelector('[data-name="domain_scope"]')?.value)
     const model_name = readModelName(overlay)
     if (status === 'active' && !responsibilities.length) {
       toast('请填写至少一条职责，或先选上方模板预填', 'warning')
@@ -907,7 +902,6 @@ async function showHireModal(page) {
         reports_to,
         responsibilities,
         workspace_path,
-        domain_scope,
         knowledge_vault_ids: readKnowledgeVaultIds(overlay),
         autonomy_level,
         heartbeat_schedule,
@@ -922,7 +916,6 @@ async function showHireModal(page) {
           .proactiveCheckOverlap({
             agent_code: bind_agent_code,
             responsibilities,
-            domain_scope,
             role_name,
           })
           .catch(() => null)

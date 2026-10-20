@@ -90,8 +90,8 @@ def _kind_for(text: str) -> str:
 def _split_recursive(
     text: str,
     *,
-    chunk_size: int = 512,
-    chunk_overlap: int = 80,
+    chunk_size: int = 2048,
+    chunk_overlap: int = 256,
     context_header: str = "",
     heading_path: str = "",
 ) -> list[ChunkPiece]:
@@ -208,8 +208,8 @@ _HEADING_LINE_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 def _split_by_heading(
     text: str,
     *,
-    chunk_size: int = 512,
-    chunk_overlap: int = 80,
+    chunk_size: int = 2048,
+    chunk_overlap: int = 256,
 ) -> list[ChunkPiece]:
     """Split on ATX headings; oversized sections fall back to recursive."""
     text = (text or "").strip()
@@ -268,8 +268,8 @@ def _split_by_heading(
 def split_text(
     text: str,
     *,
-    chunk_size: int = 512,
-    chunk_overlap: int = 80,
+    chunk_size: int = 2048,
+    chunk_overlap: int = 256,
     strategy: str = "recursive",
 ) -> list[ChunkPiece]:
     """Split text using recursive | heading | auto strategies."""

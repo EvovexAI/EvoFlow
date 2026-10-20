@@ -2621,81 +2621,7 @@ export const api = {
       conflict,
     }),
 
-  // 记忆 API（global：不传 agentId；per-agent：`agents/{id}/memory.json`）
-  /** @deprecated 智能体列表请用 listAgents()，与角色管理/聊天统一 */
-  getMemoryAgents: async () => gatewayProxy('GET', '/memory/agents'),
-  getMemory: async (agentId) => {
-    const q = agentId != null && String(agentId).trim() !== '' ? { agent: String(agentId).trim() } : null;
-    return gatewayProxy('GET', '/memory', null, q);
-  },
-  reloadMemory: async (agentId) => {
-    const q = agentId != null && String(agentId).trim() !== '' ? { agent: String(agentId).trim() } : null;
-    return gatewayProxy('POST', '/memory/reload', null, q);
-  },
-  clearMemory: async (agentId) => {
-    const q = agentId != null && String(agentId).trim() !== '' ? { agent: String(agentId).trim() } : null;
-    return gatewayProxy('DELETE', '/memory', null, q);
-  },
-  deleteMemoryFact: async (factId, agentId) => {
-    const q = agentId != null && String(agentId).trim() !== '' ? { agent: String(agentId).trim() } : null;
-    return gatewayProxy('DELETE', `/memory/facts/${encodeURIComponent(factId)}`, null, q);
-  },
-  getMemoryConfig: async () => gatewayProxy('GET', '/memory/config'),
-  getMemoryStatus: async (agentId) => {
-    const q = agentId != null && String(agentId).trim() !== '' ? { agent: String(agentId).trim() } : null;
-    return gatewayProxy('GET', '/memory/status', null, q);
-  },
-  listMemoryAtoms: async (agentId, opts = {}) => {
-    const q = {};
-    if (opts.namespace) q.namespace = String(opts.namespace);
-    else if (agentId != null && String(agentId).trim() !== '') q.agent = String(agentId).trim();
-    if (opts.layer) q.layer = opts.layer;
-    if (opts.pinned_only) q.pinned_only = true;
-    if (opts.limit != null) q.limit = opts.limit;
-    return gatewayProxy('GET', '/memory/atoms', null, q);
-  },
-  createMemoryAtom: async (body, agentId) => {
-    const q = agentId != null && String(agentId).trim() !== '' ? { agent: String(agentId).trim() } : null;
-    return gatewayProxy('POST', '/memory/atoms', body, q);
-  },
-  patchMemoryAtom: async (atomId, body) =>
-    gatewayProxy('PATCH', `/memory/atoms/${encodeURIComponent(atomId)}`, body),
-  deleteMemoryAtom: async (atomId) =>
-    gatewayProxy('DELETE', `/memory/atoms/${encodeURIComponent(atomId)}`),
-  recallMemory: async (body, agentId, opts = {}) => {
-    const q = {};
-    if (opts?.namespace) q.namespace = String(opts.namespace);
-    else if (agentId != null && String(agentId).trim() !== '') q.agent = String(agentId).trim();
-    return gatewayProxy('POST', '/memory/recall', body, Object.keys(q).length ? q : null);
-  },
-  getMemoryNamespaces: async () => gatewayProxy('GET', '/memory/namespaces'),
-  clearMemoryNamespace: async (namespace) =>
-    gatewayProxy('POST', '/memory/namespace/clear', { namespace: String(namespace || '') }),
-  getMemoryGraph: async (agentId, opts = {}) => {
-    const q = {};
-    if (agentId != null && String(agentId).trim() !== '') q.agent = String(agentId).trim();
-    if (opts.namespace) q.namespace = opts.namespace;
-    if (opts.center) q.center = opts.center;
-    if (opts.limit != null) q.limit = opts.limit;
-    return gatewayProxy('GET', '/memory/graph', null, q);
-  },
-  getMemoryGraphNodeAtoms: async (nodeId, opts = {}) => {
-    const q = {};
-    if (opts.limit != null) q.limit = opts.limit;
-    return gatewayProxy('GET', `/memory/graph/nodes/${encodeURIComponent(nodeId)}/atoms`, null, q);
-  },
-  rebuildMemoryGraph: async (agentId, opts = {}) => {
-    const q = {};
-    if (agentId != null && String(agentId).trim() !== '') q.agent = String(agentId).trim();
-    if (opts.namespace) q.namespace = opts.namespace;
-    if (opts.clear === false) q.clear = false;
-    return gatewayProxy('POST', '/memory/graph/rebuild', null, q);
-  },
-  syncAssetsToGraph: async (entityType, entityId, dryRun = false) => {
-    const q = { entity_type: entityType, entity_id: entityId, dry_run: dryRun };
-    return gatewayProxy('POST', '/memory/assets-sync', null, q);
-  },
-  consolidateMemory: async (body) => gatewayProxy('POST', '/memory/consolidate', body || {}),
+  // 记忆：Asset Hub 为主；聊天透明芯片 + 工作区项目记忆仍走下列 API
   getMemoryRecallSnapshot: async (threadId) => {
     const q = { thread_id: String(threadId || '').trim() };
     return gatewayProxy('GET', '/memory/recall-snapshot', null, q);
@@ -2707,13 +2633,6 @@ export const api = {
   },
   createWorkspaceProjectMemoryAtom: async (body) =>
     gatewayProxy('POST', '/memory/workspace/atoms', body || {}),
-
-  // 记忆文件
-  listMemoryFiles: (category, agentId) => cachedInvoke('list_memory_files', { category, agentId: agentId || null }),
-  readMemoryFile: (path, agentId) => cachedInvoke('read_memory_file', { path, agentId: agentId || null }, 5000),
-  writeMemoryFile: (path, content, category, agentId) => { invalidate('list_memory_files', 'read_memory_file'); return invoke('write_memory_file', { path, content, category: category || 'memory', agentId: agentId || null }) },
-  deleteMemoryFile: (path, agentId) => { invalidate('list_memory_files'); return invoke('delete_memory_file', { path, agentId: agentId || null }) },
-  exportMemoryZip: (category, agentId) => invoke('export_memory_zip', { category, agentId: agentId || null }),
 
   // 消息渠道管理
   readPlatformConfig: (platform) => invoke('read_platform_config', { platform }),

@@ -462,7 +462,6 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
 # 首次落盘「主会话 main + 通用子智能体 general-purpose」时写入 config.yaml 的技能 wishlist（与已安装且启用的技能求交）。
 # 含：自介绍、AI HOT、深度搜索、预设角色、技能编写；生图默认用官方 byted-ark-seedream-skill。
 DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
-    "evoflow-intro",
     "evoflow-admin",
     "evoflow-assets",
     "aihot",
@@ -473,7 +472,11 @@ DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
 )
 
 # 已有 main / general-purpose 落盘后仍应补上的基础技能（幂等合并，仅追加缺失项）
-BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-intro", "evoflow-admin", "evoflow-assets")
+# evoflow-intro 已并入 evoflow-admin，不再单独挂载
+BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-admin", "evoflow-assets")
+
+# 合并基线时从 agent skills 列表剔除（技能已退役或并入其它技能）
+_RETIRED_BASELINE_SKILLS: frozenset[str] = frozenset({"evoflow-intro"})
 
 
 def resolved_skills_for_materialize(wishlist: tuple[str, ...] | None = None) -> list[str]:
@@ -490,14 +493,14 @@ def resolved_skills_for_materialize(wishlist: tuple[str, ...] | None = None) -> 
 
 
 def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ...] | None = None) -> None:
-    """Append missing baseline skills (e.g. evoflow-intro) to an existing agent config."""
+    """Append missing baseline skills and drop retired names (e.g. evoflow-intro → evoflow-admin)."""
     from evoflow.persistence import config_repositories as cfg_repo
 
     codes = (agent_code or "").strip().lower()
     if not codes or not cfg_repo.agent_exists(codes):
         return
     names = baseline if baseline is not None else BASELINE_SKILLS_ALWAYS_MERGE
-    if not names:
+    if not names and not _RETIRED_BASELINE_SKILLS:
         return
     try:
         from evoflow.skills import load_skills
@@ -511,19 +514,27 @@ def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ..
     except Exception:
         logger.warning("merge_baseline_skills: load_agent_config failed for %r", codes, exc_info=True)
         return
-    # skills None = no allowlist yet; still merge baseline intro for main/gp
+    # skills None = no allowlist yet; still merge baseline for main/gp
     skills = list(cfg.skills or [])
+    dropped = [s for s in skills if s in _RETIRED_BASELINE_SKILLS]
+    if dropped:
+        skills = [s for s in skills if s not in _RETIRED_BASELINE_SKILLS]
     merged: list[str] = []
     for name in reversed(names):
         if name in enabled and name not in skills:
             skills.insert(0, name)
             merged.append(name)
-    if not merged:
+    if not merged and not dropped:
         return
     payload = cfg.model_dump(mode="python", exclude={"name"})
     payload["skills"] = skills
     save_agent_config(codes, payload)
-    logger.info("[BaselineSkills] merged into agent %r: %s", codes, merged)
+    logger.info(
+        "[BaselineSkills] agent %r merged=%s dropped=%s",
+        codes,
+        merged,
+        dropped,
+    )
 
 
 def merge_baseline_skills_for_lead_family() -> None:

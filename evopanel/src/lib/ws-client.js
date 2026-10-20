@@ -8747,13 +8747,15 @@ export class WsClient {
     } else {
       delete ctx.effective_tool_approval_policy
     }
-    const presetRaw = result.permission_preset ?? result.effective_permission_preset
-    if (presetRaw != null && String(presetRaw).trim()) {
-      ctx.permission_preset = String(presetRaw).trim()
+    // Keep explicit override vs effective separate — never copy effective into
+    // permission_preset or a later global default change cannot win in the UI.
+    const explicitPreset = result.permission_preset
+    if (explicitPreset != null && String(explicitPreset).trim()) {
+      ctx.permission_preset = String(explicitPreset).trim()
     } else {
       delete ctx.permission_preset
     }
-    const effPreset = String(result.effective_permission_preset || presetRaw || '').trim()
+    const effPreset = String(result.effective_permission_preset || '').trim()
     if (effPreset) {
       ctx.effective_permission_preset = effPreset
     } else {

@@ -83,7 +83,7 @@ SKILL_RULE_1 = (
     '``<location>`` is ``skill:<name>`` (preferred) or a sandbox virtual path; ``read("<location>")`` only when executing skill steps or metadata is insufficient. '
     '**Files only**: ``read("skill:<name>")`` for SKILL.md; **directories** via ``bash`` (e.g. ls / dir)—never ``read("skill:<name>/scripts")``. '
     "Other files in the same skill: ``skill:<name>/relative/path`` (forward slashes, must be a real file). "
-    "For product self-intro / capability overview (e.g. evoflow-intro) when ``<available_skills>`` already has name+description, **do not read SKILL.md**—answer from description. "
+    "For product self-intro / capability overview (evoflow-admin) when ``<available_skills>`` already has name+description, **do not read the full SKILL.md**—answer from description; read ``references/product-intro.md`` only for detail. "
 )
 SKILL_RULE_2 = (
     "Load resources as needed; follow skill steps and boundaries. "

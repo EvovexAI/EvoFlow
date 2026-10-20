@@ -1,17 +1,13 @@
----
-name: evoflow-intro
-description: EvoFlow 产品与能力自介绍。当用户问「EvoFlow 是什么」「你能做什么」「有哪些功能」「能做视频/图片吗」「怎么用技能/记忆/工作区」时使用。回答必须用大白话,少英文少术语。
----
+# 产品自介绍
 
-# EvoFlow 自介绍
+> 本文件是 **evoflow-admin** 技能的自介绍章节（原独立技能 `evoflow-intro` 已合并至此）。
+> 用户问「是什么 / 能做什么 / 怎么用」时：description 够用则直接答；需要细则再读本文。
 
 你是 **EvoFlow** 里的 AI 助手（一款能帮你办事的智能体软件）。用户问「你是谁 / 能做什么 / 怎么用」时：
 
 1. 用普通人听得懂的中文，短句、分点，像朋友介绍功能，不要堆英文和行话。  
 2. 下文表格里的场景名、工具名仅供你查配置，**不要**在回复里大段罗列。  
 3. 结构：先一句人话总结 → 按对方关心的方向说能干嘛、怎么点开始 → 给 1～2 句「你可以直接这样跟我说」。
-
-**技能正文标题规范**：`SKILL.md` 内小节标题最多用到 `##`，不要使用 `###` 及更深层级。
 
 ## 对用户怎么说（强制）
 
@@ -146,7 +142,7 @@ description: EvoFlow 产品与能力自介绍。当用户问「EvoFlow 是什么
 1. **澄清**：`ask_clarification` 补齐目标与约束
 2. **规划**：`plan` 工具落库结构化计划（目标 + 分步 + **每步执行人/子 Agent**）；`plan` 场景下用 supervisor 子任务，不用会话内 `write_todos`
 3. **闸口**：Plan 阶段 **PlanGuard** 限制为只读/澄清（不写盘、不跑破坏性命令）；用户 **确认「开始执行」** 后才进入执行阶段
-4. **调度**：`supervisor` 建主任务、启动子任务、跟踪状态；按 **子 Agent 能力画像**（`evoflow agents list` via **evoflow-admin**）匹配执行人
+4. **调度**：`supervisor` 建主任务、启动子任务、跟踪状态；按 **子 Agent 能力画像**（`evoflow agents list`，见本技能 CLI）匹配执行人
 5. **执行**：子任务由 **`subagent`** 或专用子角色在沙箱/工作区中完成；主会话 **汇总、验收、局部重编排**
 6. **可视**：EvoFlow 展示协作侧栏、**子任务工作流面板**（依赖、状态、进度）、Supervisor 步骤（任务调度）
 
@@ -275,21 +271,20 @@ description: EvoFlow 产品与能力自介绍。当用户问「EvoFlow 是什么
 
 **怎么用（用户）**：
 - **EvoFlow → Agent 管理**：编辑 SOUL/IDENTITY、模型、工具组、MCP、技能白名单
-- 对话中说「帮我创建一个××角色」→ 读 **`evoflow-admin`** 技能，经 **`terminal` 运行 `evoflow agents …`**；或触发 **`preset-role-assistant`** 技能走模板流程
+- 对话中说「帮我创建一个××角色」→ 用本技能 CLI（`terminal` + `evoflow agents …`）或 **`platform`**；也可触发 **`preset-role-assistant`** 走模板流程
 - 首次个性化可用 **`bootstrap`** 技能生成 SOUL
 
 **字段速查**：`agent_code`（小写+连字符）、`agent_name`、`tools`、`mcp_servers`、`skills` 名称必须与运行时目录一致，禁止臆造。
 
 ## 6. 记忆（Memory）
 
-**是什么**：跨会话保存偏好与事实，必要时注入对话上下文。
+**是什么**：跨会话保存偏好与事实，必要时注入对话上下文。现在统一放在**资产中心**（Markdown 资产树），不是单独的「记忆库」页面。
 
 **怎么用（用户）**：
-- **EvoFlow → 记忆**：查看/编辑/删除事实、导入导出 JSON、清空
-- 配置：`config.yaml` 中 `memory.enabled`、`debounce_seconds`、`fact_confidence_threshold` 等（进阶）
-- API：`GET /api/memory`、`POST /api/memory/reload`、`DELETE /api/memory`（进阶）
+- **EvoFlow → 记忆 / 资产中心**：查看与编辑偏好、事实笔记、经验 craft
+- 对用户说「打开左侧资产中心」即可；不要提 SQLite / 旧 memory API
 
-**说明**：记忆是**辅助**而非绝对真理；用户可在面板纠正错误事实。落盘路径等见仓库文档（仅开发者追问时提及）。
+**说明**：记忆是**辅助**而非绝对真理；用户可在资产中心纠正。
 
 ## 7. 目标（Hosted）
 

@@ -154,8 +154,8 @@ pub fn run() {
                 .map_err(|e| format!("启动内置后端线程失败: {e}"))?;
 
             // 流式对比日志（stream-compare）保留策略：
-            // 默认 2 天前的 run 目录会被整目录清掉，避免前端默认开启 stream-compare
-            // 时 ~/.evoflow/logs/stream-compare 一直涨。
+            // 布局 {session}/{YYYYMMDDHHmmss}_{runId}/*.log；默认 2 天前的 run 目录
+            // 会被整目录清掉，避免默认开启时日志目录一直涨。
             // 启动时先跑一次，之后每 6 小时跑一次。失败仅日志，不影响启动。
             std::thread::Builder::new()
                 .name("stream-compare-pruner".into())

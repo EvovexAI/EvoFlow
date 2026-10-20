@@ -217,7 +217,7 @@ describe('reduceStreamTurn reasoning_piece after tools', () => {
     s = reduceStreamTurn(s, {
       type: 'reasoning_piece',
       piece:
-        '用户要求正式介绍 EvoFlow 与自身能力边界。这正好命中 evoflow-intro 技能。我需要先读取该技能内容，然后按要求输出。',
+        '用户要求正式介绍 EvoFlow 与自身能力边界。这正好命中 evoflow-admin 技能的自介绍章节。我需要先读取该技能内容，然后按要求输出。',
     })
     s = reduceStreamTurn(s, {
       type: 'tools',

@@ -46,7 +46,13 @@ def _enrich_dataset(row: dict[str, Any]) -> dict[str, Any]:
         meta = {}
     out = dict(row)
     out["local_source_path"] = str(meta.get("local_source_path") or "").strip()
-    out["llm_index_enabled"] = bool(meta.get("llm_index_enabled", True))
+    # Missing key ⇒ follow the global default instead of always-on.
+    if "llm_index_enabled" in meta:
+        out["llm_index_enabled"] = bool(meta["llm_index_enabled"])
+    else:
+        from evoflow.knowledge.owned import settings as owned_settings
+
+        out["llm_index_enabled"] = owned_settings.get_default_summary_enabled()
     return out
 
 
@@ -136,7 +142,7 @@ async def create_dataset(
     top_k: int = 5,
     score_threshold: float = 0.3,
     local_source_path: str = "",
-    llm_index_enabled: bool = True,
+    llm_index_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new knowledge base dataset.
 
@@ -170,6 +176,11 @@ async def create_dataset(
 
     # Store settings in metadata_json
     import json
+
+    if llm_index_enabled is None:
+        from evoflow.knowledge.owned import settings as owned_settings
+
+        llm_index_enabled = owned_settings.get_default_summary_enabled()
 
     settings = json.dumps(
         {

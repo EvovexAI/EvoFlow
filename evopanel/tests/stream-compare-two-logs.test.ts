@@ -14,6 +14,8 @@ import {
   dumpStreamCompareBuffers,
   sanitizeSessionLogId,
   sanitizeRunLogId,
+  formatStreamCompareTurnStamp,
+  buildDiskRunLogId,
 } from '../src/react/lib/stream-compare-file-log.ts'
 import { buildAssistantBubbleDisplayPlan } from '../src/react/lib/message-row-display-plan.ts'
 import { buildAssistantDomView } from '../src/react/lib/assistant-dom-view.ts'
@@ -55,6 +57,17 @@ describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离',
     expect(sanitizeSessionLogId('lc_run:01a1209a/abc')).toBe('lc_run_01a1209a_abc')
     expect(sanitizeSessionLogId('a:b/c d')).toBe('a_b_c_d')
     expect(sanitizeRunLogId('run:01a1209a-54a7')).toBe('run_01a1209a-54a7')
+  })
+
+  it('落盘目录：YYYYMMDDHHmmss_runId，已带前缀不再重复包装', () => {
+    const at = new Date(2026, 9, 20, 14, 12, 5) // 本地 2026-10-20 14:12:05
+    expect(formatStreamCompareTurnStamp(at)).toBe('20261020141205')
+    expect(buildDiskRunLogId('run-045d5743217d', at.getTime())).toBe(
+      '20261020141205_run-045d5743217d',
+    )
+    expect(buildDiskRunLogId('20261020141205_run-045d5743217d')).toBe(
+      '20261020141205_run-045d5743217d',
+    )
   })
 
   it('v5.8 默认开启：未设 localStorage 即落盘；显式 0 才 no-op', () => {

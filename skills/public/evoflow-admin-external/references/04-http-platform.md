@@ -17,14 +17,14 @@ Content-Type: application/json
 
 ### 全量 action（与代码 registry 对齐）
 
-> 计数：`len(get_registry())` = **102**（17 域）。已退役不计：`experience.*`(4)、`verification.list`、`appearance.get`。
+> 计数：`len(get_registry())` = **99**（16 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
 
 **knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  
 **settings：** `list_models` `get_default_model` `set_default_model` `get_model` `create_model` `delete_model` `get_web_search` `patch_web_search` `test_web_search`  
 **assets：** `get_profile` `update_profile`（用户画像：basic-info / preferences / persona）  
 **appearance：** `patch`（读外观走面板 HTTP，非 platform）  
-**agents：** `list` `get` `create` `update` `delete`  
+**agents：** `list` `get` `bindings` `create` `update` `delete`（绑工具/技能/MCP/知识库前先 `bindings`；省略 `tools`/`knowledge_vault_ids`→空，勿默认全开）  
 **employees：** `list` `get` `hire` `create` `update` `pause` `resume` `stop` `delete` `worklog` `trail`  
 **tasks：** `list` `get` `execution_trail` `create` `set_state` `delete`  
 **items：** `list` `get` `create` `update` `delete` `dispatch`  
@@ -32,15 +32,14 @@ Content-Type: application/json
 **mcp：** `get` `set`  
 **automation：** `list` `get` `history` `create` `update` `set_status` `delete`  
 **approvals：** `list` `approve` `reject`  
-**memory：** `agents` `get` `clear` `delete_fact`  
 **sessions：** `search`  
 **diagnostics：** `sources` `scan` `timeline` `run`  
 **verification：** `catalog` `start` `init` `get` `step` `update` `conclude` `delete`
 
-> 已退役：`experience.*`（改走 assets craft）、`verification.list`、`appearance.get`。  
+> 已退役：`experience.*`、`memory.*`（长期记忆改走 Asset Hub / `assets` 工具 / `evoflow-assets`）、`verification.list`、`appearance.get`。  
 > 删除岗位用 `employees.delete`（可选 `delete_agent`）；停巡检用 `pause`/`stop`，不是 archive。
 
-CLI 独有、无 platform：`org` `assets` `eval` `workspace memory`；employees 的 `wake`/`migrate`；mcp 的 add/remove/test/login；tasks 的 progress/cleanup/reclaim。
+CLI 独有、无 platform：`org` `assets` `eval` `workspace memory`；employees 的 `wake`/`migrate`；mcp 的 add/remove/test/login；tasks 的 progress/cleanup/reclaim。旧 `evoflow memory` 已退役。
 
 ### 联网搜索（仅 platform）
 

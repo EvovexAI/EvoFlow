@@ -145,7 +145,8 @@ pub fn append_frontend_log(level: String, message: String) -> Result<(), String>
     super::log_files::append_daily_log_line(&dir, "frontend", &line)
 }
 
-/// 流式对比日志：``{sessionKey}/{runId}/sse-recv.log`` + ``ui-display.log``
+/// 流式对比日志：``{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log`` + ``ui-display*.log``
+/// （时间前缀由前端在首次落盘时生成，便于按目录名排序定位某轮对话。）
 #[tauri::command]
 pub fn append_stream_compare_log(
     channel: String,
@@ -163,7 +164,7 @@ pub fn append_stream_compare_log(
         s.trim()
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .take(80)
+            .take(96)
             .collect()
     }
     let run = sanitize_id(&run_id);

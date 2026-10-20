@@ -502,7 +502,6 @@ export async function showEditRoleModal(role, {
   const thinkMode = cfg.think_mode || 'agent_loop'
   const thinkingEnabled = cfg.thinking_enabled  // null=跟随默认, true=启用, false=禁用
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.join('\n') : ''
-  const domain = Array.isArray(cfg.domain_scope) ? cfg.domain_scope.join('\n') : ''
   const workspacePath = String(cfg.workspace_path || '').trim()
   const modelName = String(cfg.model_name || '').trim()
   const currentReportsTo = String(role.reports_to || cfg.reports_to || '').trim()
@@ -579,7 +578,6 @@ export async function showEditRoleModal(role, {
   const sections = [
     { key: 'basic', label: '基本信息' },
     { key: 'knowledge', label: '知识库' },
-    { key: 'duty', label: '职责与汇报' },
     { key: 'capability', label: '能力与工作' },
     { key: 'strategy', label: '工作策略' },
     { key: 'schedule', label: '成本预算' },
@@ -608,7 +606,7 @@ export async function showEditRoleModal(role, {
               .join('')}
           </nav>
           <div class="hire-edit-panels">
-            <div class="hire-edit-panel" data-section="basic">
+            <div class="hire-edit-panel hire-edit-panel--duty" data-section="basic">
               ${basicAgentBlock}
               <div class="hire-field-row">
                 <label class="hire-field">
@@ -620,9 +618,6 @@ export async function showEditRoleModal(role, {
                   ${departmentSelect}
                 </label>
               </div>
-            </div>
-
-            <div class="hire-edit-panel hire-edit-panel--duty" data-section="duty" hidden>
               <label class="hire-field">
                 <span>直属上级</span>
                 <select class="hire-input" data-name="reports_to">
@@ -632,7 +627,7 @@ export async function showEditRoleModal(role, {
               </label>
               <label class="hire-field hire-field--grow">
                 <span>职责</span>
-                <textarea class="hire-input hire-textarea hire-textarea--duty" data-name="responsibilities" rows="12" placeholder="每行一条，写清要主动推进的事">${esc(resp)}</textarea>
+                <textarea class="hire-input hire-textarea hire-textarea--duty" data-name="responsibilities" rows="8" placeholder="每行一条，写清要主动推进的事">${esc(resp)}</textarea>
               </label>
             </div>
 
@@ -644,7 +639,7 @@ export async function showEditRoleModal(role, {
 
             <div class="hire-edit-panel" data-section="capability" hidden>
               ${renderModelField(chatModels, modelName)}
-              ${renderWorkspaceField(workspacePaths, workspacePath, domain)}
+              ${renderWorkspaceField(workspacePaths, workspacePath)}
               <div class="hire-field">
                 <span>工作方式</span>
                 <div class="hire-chip-row" data-name="think_mode" role="radiogroup">
@@ -795,7 +790,6 @@ export async function showEditRoleModal(role, {
     const nextAgent =
       (overlay.querySelector('input[data-name="agent_code"]')?.value || '').trim() || selected.code
     const responsibilities = parseLines(overlay.querySelector('[data-name="responsibilities"]')?.value)
-    const domain_scope = parseLines(overlay.querySelector('[data-name="domain_scope"]')?.value)
     const autonomy_level =
       overlay.querySelector('[data-name="autonomy_level"] .hire-chip.is-on')?.dataset.value ||
       'approval_for_risky'
@@ -828,7 +822,6 @@ export async function showEditRoleModal(role, {
         `工作空间：${pathBasename(workspacePath) || '默认'} → ${pathBasename(workspace_path) || '默认'}`,
       )
     }
-    if (domain_scope.join('\n') !== parseLines(domain).join('\n')) changes.push('关注子路径已修改')
     if (JSON.stringify(knowledge_vault_ids) !== JSON.stringify(selectedVaultIds)) changes.push('知识库关联已修改')
     if (model_name !== modelName) changes.push(`工作模型：${modelName || '默认'} → ${model_name || '默认'}`)
     if (think_mode !== thinkMode) changes.push(`工作方式：${THINK_MODE_LABELS[thinkMode] || thinkMode} → ${THINK_MODE_LABELS[think_mode] || think_mode}`)
@@ -898,7 +891,6 @@ export async function showEditRoleModal(role, {
           agent_code: overlapCode,
           exclude_agent_code: role.agent_code,
           responsibilities,
-          domain_scope,
           role_name,
         })
         .catch(() => null)
@@ -930,7 +922,6 @@ export async function showEditRoleModal(role, {
         reports_to,
         responsibilities,
         workspace_path,
-        domain_scope,
         knowledge_vault_ids,
         kb_injection,
         autonomy_level,

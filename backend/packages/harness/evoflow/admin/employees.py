@@ -115,7 +115,6 @@ _HIRE_KEYS = frozenset(
         "department",
         "responsibilities",
         "workspace_path",
-        "domain_scope",
         "knowledge_vault_ids",
         "kpis",
         "autonomy_level",
@@ -410,7 +409,6 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
         "config": {
             "responsibilities": list(cfg.responsibilities or []),
             "workspace_path": cfg.workspace_path or "",
-            "domain_scope": list(cfg.domain_scope or []),
             "knowledge_vault_ids": list(getattr(cfg, "knowledge_vault_ids", None) or []),
             "kb_injection": dict(getattr(cfg, "kb_injection", None) or {}),
             "kpis": list(cfg.kpis or []),
@@ -609,12 +607,18 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
         }
         if data.get("model") is not None or data.get("model_name") is not None:
             agent_payload["model"] = str(data.get("model") or data.get("model_name") or "").strip()
-        if data.get("skills") is not None:
-            agent_payload["skills"] = list(data.get("skills") or [])
-        if data.get("tool_groups") is not None:
-            agent_payload["tool_groups"] = list(data.get("tool_groups") or [])
-        if data.get("tools") is not None:
-            agent_payload["tools"] = list(data.get("tools") or [])
+        # Pass through binding keys (including explicit null) so agents.create
+        # can distinguish omit vs tools:null (inherit-all).
+        if "skills" in data:
+            agent_payload["skills"] = data.get("skills")
+        if "tool_groups" in data:
+            agent_payload["tool_groups"] = data.get("tool_groups")
+        if "tools" in data:
+            agent_payload["tools"] = data.get("tools")
+        if "mcp_servers" in data:
+            agent_payload["mcp_servers"] = data.get("mcp_servers")
+        if "knowledge_vault_ids" in data:
+            agent_payload["knowledge_vault_ids"] = data.get("knowledge_vault_ids")
         if data.get("tags") is not None:
             agent_payload["tags"] = data.get("tags")
         agent_row = create_agent(agent_payload)
@@ -632,6 +636,17 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
     hire_payload["role_name"] = role_name
     detail = _hire_existing_agent(agent_code, agent_row, hire_payload)
     detail["agent_created"] = created_agent
+    if isinstance(agent_row, dict) and agent_row.get("bindings_applied"):
+        detail["bindings_applied"] = agent_row.get("bindings_applied")
+    if isinstance(agent_row, dict) and agent_row.get("hint"):
+        detail["hint"] = agent_row.get("hint")
+    if isinstance(agent_row, dict) and agent_row.get("warning"):
+        detail["warning"] = agent_row.get("warning")
+    elif created_agent:
+        detail["hint"] = (
+            (detail.get("hint") or "")
+            + " 能力清单：platform agents.bindings（工具/技能/MCP 含说明）。"
+        ).strip()
     return detail
 
 
@@ -795,7 +810,6 @@ def _hire_existing_agent(
     config = ProactiveRoleConfig(
         responsibilities=_coerce_responsibilities(data.get("responsibilities")),
         workspace_path=_validate_workspace_path(data.get("workspace_path")),
-        domain_scope=list(data.get("domain_scope") or []),
         knowledge_vault_ids=vault_ids,
         kpis=list(data.get("kpis") or []),
         autonomy_level=_parse_autonomy(data.get("autonomy_level")),
@@ -956,8 +970,6 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         cfg.responsibilities = list(data.get("responsibilities") or [])
     if data.get("workspace_path") is not None:
         cfg.workspace_path = _validate_workspace_path(data.get("workspace_path"))
-    if data.get("domain_scope") is not None:
-        cfg.domain_scope = list(data.get("domain_scope") or [])
     if data.get("knowledge_vault_ids") is not None:
         from evoflow.proactive.prompt import validate_agent_knowledge_ids
 

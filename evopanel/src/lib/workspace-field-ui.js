@@ -121,12 +121,8 @@ function renderWorkspaceFieldInner(paths, selectedPath = '') {
     </div>`
 }
 
-export function renderWorkspaceField(paths, selectedPath = '', domainText = '') {
-  return `${renderWorkspaceFieldInner(paths, selectedPath)}
-    <label class="hire-field">
-      <span>关注子路径（可选）</span>
-      <textarea class="hire-input hire-textarea" data-name="domain_scope" rows="2" placeholder="每行一条，相对工作空间，例如：&#10;evopanel/src/&#10;evopanel/scripts/">${esc(domainText)}</textarea>
-    </label>`
+export function renderWorkspaceField(paths, selectedPath = '') {
+  return renderWorkspaceFieldInner(paths, selectedPath)
 }
 
 export function renderWorkspaceFieldOnly(paths, selectedPath = '') {

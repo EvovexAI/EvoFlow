@@ -89,14 +89,14 @@ class _PermissionPresetStoreTestBase(unittest.TestCase):
         invalidate_session_select_cache()
         db_mod.reset_db_for_tests()
 
-
-class SetSessionPresetPersistenceTest(_PermissionPresetStoreTestBase):
-    """The full-access regression: pick → close session → reopen → still full-access."""
-
     def _create_session(self, session_key: str) -> None:
         from evoflow.persistence.session_repositories import upsert_session_row
 
         upsert_session_row(session_key, title="test", context={})
+
+
+class SetSessionPresetPersistenceTest(_PermissionPresetStoreTestBase):
+    """The full-access regression: pick → close session → reopen → still full-access."""
 
     def test_full_access_persists_across_simulated_refresh(self) -> None:
         from evoflow.persistence.permission_preset_store import (
@@ -215,6 +215,64 @@ class SetSessionPresetPersistenceTest(_PermissionPresetStoreTestBase):
         written = set_session_preset(sk, "read-only")
         self.assertEqual(written, "read-only")
         self.assertEqual(get_session_preset_raw(sk), "read-only")
+        self.assertEqual(effective_preset(sk), "read-only")
+
+
+class GlobalGrantAllReconcileTest(_PermissionPresetStoreTestBase):
+    """Turning on global grant_all must clear soft default/session stamps."""
+
+    def test_soft_default_inherits_after_global_grant_all(self) -> None:
+        from evoflow.persistence.permission_preset_store import (
+            effective_preset,
+            get_session_preset_raw,
+            set_session_preset,
+        )
+        from evoflow.persistence.tool_approval_policy import (
+            effective_policy,
+            get_session_policy_raw,
+            set_global_default_policy,
+            set_session_policy,
+        )
+
+        set_global_default_policy("session")
+        sk = "agent:main:test-reconcile-soft"
+        self._create_session(sk)
+        set_session_preset(sk, "default")
+        self.assertEqual(effective_preset(sk), "default")
+
+        set_global_default_policy("grant_all")
+        self.assertIsNone(get_session_preset_raw(sk))
+        self.assertIsNone(get_session_policy_raw(sk))
+        self.assertEqual(effective_preset(sk), "full-access")
+        self.assertEqual(effective_policy(sk), "grant_all")
+
+    def test_set_session_policy_grant_all_syncs_preset(self) -> None:
+        from evoflow.persistence.permission_preset_store import (
+            effective_preset,
+            get_session_preset_raw,
+            set_session_preset,
+        )
+        from evoflow.persistence.tool_approval_policy import set_session_policy
+
+        sk = "agent:main:test-policy-sync"
+        self._create_session(sk)
+        set_session_preset(sk, "default")
+        set_session_policy(sk, "grant_all")
+        self.assertEqual(get_session_preset_raw(sk), "full-access")
+        self.assertEqual(effective_preset(sk), "full-access")
+
+    def test_read_only_survives_global_grant_all(self) -> None:
+        from evoflow.persistence.permission_preset_store import (
+            effective_preset,
+            set_session_preset,
+        )
+        from evoflow.persistence.tool_approval_policy import set_global_default_policy
+
+        set_global_default_policy("session")
+        sk = "agent:main:test-reconcile-readonly"
+        self._create_session(sk)
+        set_session_preset(sk, "read-only")
+        set_global_default_policy("grant_all")
         self.assertEqual(effective_preset(sk), "read-only")
 
 

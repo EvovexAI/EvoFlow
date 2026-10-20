@@ -1,4 +1,4 @@
-﻿import React, { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   UserRound,
@@ -43,7 +43,7 @@ type AssetTab = "profile" | "memory" | "experience" | "journal" | "stats" | "exp
 
 type TreeTab = "memory" | "experience" | "journal";
 
-type MemoryKind = "standing" | "facts" | "episodic" | "graph";
+type MemoryKind = "standing" | "facts" | "episodic";
 
 type Entity = { entityType: string; entityId: string; label?: string; workspacePath?: string };
 
@@ -104,7 +104,6 @@ const MEMORY_KINDS: { id: MemoryKind; label: string; hint: string }[] = [
   { id: "standing", label: "站立摘要", hint: "memory/standing.md" },
   { id: "facts", label: "事实", hint: "memory/facts/" },
   { id: "episodic", label: "过程记录", hint: "memory/episodic/" },
-  { id: "graph", label: "图谱", hint: "实体关系图" },
 ];
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
@@ -318,7 +317,8 @@ function initialEntity(): { entityType: string; entityId: string } {
 function initialMemoryKind(): MemoryKind {
   const q = parseHashQuery();
   const k = String(q.memoryKind || q.kind || "").trim().toLowerCase();
-  if (k === "standing" || k === "facts" || k === "episodic" || k === "graph") return k;
+  // legacy deep-link memoryKind=graph → facts (asset-hub memory graph UI removed)
+  if (k === "standing" || k === "facts" || k === "episodic") return k;
   const path = String(q.path || "").replace(/\\/g, "/");
   if (path.startsWith("memory/episodic/")) return "episodic";
   if (path.includes("standing")) return "standing";
@@ -329,33 +329,6 @@ function initialMemoryKind(): MemoryKind {
 function initialOpenPath(): string {
   const q = parseHashQuery();
   return String(q.path || "").replace(/\\/g, "/").replace(/^\//, "").trim();
-}
-
-/** Map Asset Center entity → memory graph namespace / agent key. */
-// 记忆图谱为重型图渲染（react-force-graph-2d / d3-force），仅在切到「记忆 → 图谱」时
-// 才动态加载，避免打进资产中心首屏 chunk 导致打开慢。
-const LazyMemoryGraphPanel = React.lazy(() =>
-  import("../react/components/MemoryGraphPanel.jsx").then((m) => ({ default: m.default })),
-);
-
-function graphScopeForEntity(entityType: string, entityId: string): {
-  agentId: string | null;
-  namespace: string | null;
-} {
-  const et = String(entityType || "").trim().toLowerCase();
-  const eid = String(entityId || "").trim();
-  if (et === "workspace") {
-    const key = eid.startsWith("workspace:") ? eid : `workspace:${eid}`;
-    return { agentId: null, namespace: key };
-  }
-  if (et === "employee") {
-    return { agentId: null, namespace: `person:${eid.toLowerCase()}` };
-  }
-  if (et === "agent") {
-    return { agentId: null, namespace: `agent:${eid.toLowerCase()}` };
-  }
-  // user → default user namespace
-  return { agentId: null, namespace: "user:default" };
 }
 
 /* ── Main ────────────────────────────────────────────────────────── */
@@ -499,12 +472,6 @@ export default function AssetCenterContent() {
       setEditorContent("");
       setFileDirty(false);
       setFileLoading(false);
-      if (kind === "graph") {
-        setTreeEntries([]);
-        setTreePath("memory");
-        setTreeRoot("memory");
-        return;
-      }
       if (kind === "standing") {
         await loadTree("memory");
         try {
@@ -696,7 +663,6 @@ export default function AssetCenterContent() {
   // 目录树加载完成后，自动选中第一个文件；并预取首屏若干文档（悬停点击可秒开）
   useEffect(() => {
     if (tabLoading || activeTab === "profile" || activeTab === "export" || activeTab === "stats") return;
-    if (activeTab === "memory" && memoryKind === "graph") return;
     const pending = pendingOpenPath.current;
     if (pending) {
       pendingOpenPath.current = "";
@@ -720,11 +686,6 @@ export default function AssetCenterContent() {
       clearAssetFileCache(currentEntity);
     };
   }, [currentEntity]);
-
-  const graphScope = useMemo(
-    () => graphScopeForEntity(entityType, entityId),
-    [entityType, entityId],
-  );
 
 
   const profileFiles = useMemo<FileItem[]>(() => {
@@ -1052,31 +1013,6 @@ export default function AssetCenterContent() {
                   />
                 }
               />
-            ) : activeTab === "memory" && memoryKind === "graph" ? (
-              <div className="ac-graph-pane">
-                <React.Suspense
-                  fallback={
-                    <div className="ac-graph-loading" style={{ padding: 24, color: "var(--ac-text-faint)" }}>
-                      记忆图谱加载中…
-                    </div>
-                  }
-                >
-                  {createElement(
-                    LazyMemoryGraphPanel as React.ComponentType<{
-                      agentId?: string | null;
-                      namespace?: string | null;
-                      entityType?: string;
-                      entityId?: string;
-                    }>,
-                    {
-                      agentId: graphScope.agentId,
-                      namespace: graphScope.namespace,
-                      entityType: entityType,
-                      entityId: entityId,
-                    },
-                  )}
-                </React.Suspense>
-              </div>
             ) : (
               <TreeWorkspace
                 tab={activeTab as TreeTab}
@@ -1179,7 +1115,7 @@ function AssetHeader({
   setSearch: React.Dispatch<React.SetStateAction<string>>;
 }) {
   // 实体类型 Tab 始终展示（我/工作区/员工），仅隐藏无实体的类型；
-  // 内容隔离由下拉框过滤 + 图谱 scope + 实体作用域数据加载负责，Tab 只负责导航。
+  // 内容隔离由下拉框过滤 + 实体作用域数据加载负责，Tab 只负责导航。
   const isUserEntity = entityType === "user";
   const typeTabs = useMemo(() => {
     return ENTITY_GROUPS

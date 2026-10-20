@@ -569,7 +569,6 @@ def install_organization(
                     "skills",
                     "autonomy_level",
                     "responsibilities",
-                    "domain_scope",
                     "kpis",
                     "max_turns",
                     "timeout_seconds",

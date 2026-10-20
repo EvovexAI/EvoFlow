@@ -22,7 +22,7 @@
 
 - 会改坏本机默认配置：`settings.set_default_model` / `assets.update_profile` / `patch_web_search` / `create_model` / `delete_model`
 - 会改全局 MCP：`mcp.set`（可用「读回后原样 set」做无害往返，见 A 幕）
-- 清空记忆：`memory.clear` / `memory.delete_fact`（除非本轮写入了可删的测试 fact）
+- 旧 `memory.*` 已退役；勿再测清空 SQLite facts（记忆在资产中心）
 - 无待批单据时：`approvals.approve` / `reject`
 - 工作流已结束后：`workflow.stop`
 
@@ -144,11 +144,9 @@
 | D5 | knowledge.notes | vaultId | 含新笔记 |
 | D6 | knowledge.note_get | path | 关键词命中 |
 | D7 | knowledge.search | `AI工具提效` | hits 相关 |
-| D8 | assets craft（对话 `assets` 工具） | 引用 itemId/runId 写 craft；`experience.*` 已退役 | **craft 条目或 skipped** |
-| D9 | memory.agents | 列 | ok |
-| D10 | memory.get | main 或 agentCode | ok（空也算通） |
+| D8 | assets craft（对话 `assets` 工具） | 引用 itemId/runId 写 craft；`experience.*` / `memory.*` 已退役 | **craft 条目或 skipped** |
+| D9–D10 | （原 memory.*） | **skipped** — 已退役，记忆在 Asset Hub | — |
 | D11 | sessions.search | `[验证]` 或短视频 | ok（无命中不 fail） |
-| — | memory.clear / delete_fact | **skipped**（除非本轮可删测试事实） | — |
 
 ---
 

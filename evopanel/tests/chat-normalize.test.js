@@ -1566,7 +1566,7 @@ Read catalog:
   it('read_file markdown body is not kept in panel display', () => {
     const body = [
       '---',
-      'path: skills/public/evoflow-intro/SKILL.md',
+      'path: skills/public/evoflow-admin/references/product-intro.md',
       'status: draft',
       'core: EvoFlow 自介绍技能',
       '---',
