@@ -22,7 +22,7 @@ description: EvoFlow 系统治理 CLI — 复杂/脚本化治理时通过 termin
 | `employees.*` | `evoflow employees …` | CLI 另有 trail / dispatch / wake / stop / migrate；platform 有 stop，无 wake/migrate |
 | `tasks.*` | `evoflow tasks …` | 协作任务；CLI 另有 `progress` / `cleanup-noise` / `reclaim-zombies` |
 | `items.*` | `evoflow items …` | **个人事项 ≠ tasks** |
-| `skills.*` / `mcp.*` / `automation.*` / `approvals.*` / `memory.*` / `sessions.*` / `experience.*` | 同名 CLI | MCP：platform 仅 get/set；CLI 另有 list/add/remove/test/login/logout |
+| `skills.*` / `mcp.*` / `automation.*` / `approvals.*` / `memory.*` / `sessions.*` | 同名 CLI | MCP：platform 仅 get/set；CLI 另有 list/add/remove/test/login/logout；旧 `experience.*` 已退役，craft 走 `assets` 工具 |
 | `diagnostics.*` | `evoflow logs …` | sources / scan / timeline；综合诊断 `diagnostics.run` **仅 platform** |
 | `verification.*` | （暂无 CLI，用 `platform` 或 `POST /api/platform`） | 技能 **`evoflow-system-verification`** |
 | （无） | `evoflow org …` | 组织/资源包：preflight / install / list / get / uninstall / export / market |

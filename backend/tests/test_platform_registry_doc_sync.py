@@ -7,9 +7,23 @@ from pathlib import Path
 from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
 
+# Keep in sync with 04-http-platform.md / defect-registry scale line.
+# Formula: ~106 − 4 experience − 2 (verification.list, appearance.get) + 2 deletes = 102.
+EXPECTED_PLATFORM_ACTION_COUNT = 102
+
+
 def test_assets_in_platform_domains() -> None:
     assert "assets" in PLATFORM_DOMAINS
     assert "experience" not in PLATFORM_DOMAINS
+    assert len(PLATFORM_DOMAINS) == 17
+
+
+def test_registry_action_count() -> None:
+    reg = get_registry()
+    assert len(reg) == EXPECTED_PLATFORM_ACTION_COUNT, (
+        f"registry size drifted: got {len(reg)}, expected {EXPECTED_PLATFORM_ACTION_COUNT}; "
+        "update docs + EXPECTED_PLATFORM_ACTION_COUNT together"
+    )
 
 
 def test_registry_has_no_retired_actions() -> None:
@@ -23,6 +37,15 @@ def test_registry_has_no_retired_actions() -> None:
         "appearance.get",
     ):
         assert name not in reg, f"retired action still registered: {name}"
+    import evoflow.admin.platform_handlers as H
+
+    for attr in (
+        "experience_list",
+        "experience_get",
+        "experience_save",
+        "experience_delete",
+    ):
+        assert not hasattr(H, attr), f"retired handler still present: {attr}"
 
 
 def test_registry_has_knowledge_delete_and_assets() -> None:
@@ -50,3 +73,4 @@ def test_http_platform_doc_lists_registry_actions() -> None:
     assert "archive" not in emp_line
     assert "已退役" in text
     assert "`employees.delete`" in text
+    assert "102" in text

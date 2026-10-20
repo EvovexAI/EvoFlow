@@ -21,6 +21,17 @@ def _new_app_id() -> str:
     return f"App_{ts}_{uuid.uuid4().hex[:6]}"
 
 
+def _assert_dispatchable_step_agents(steps: list[Any]) -> None:
+    """Reject drafts/updates that would silently fall back at run time (CORE-WF-04)."""
+    if not steps:
+        return
+    from evoflow.collab.workflow_validator import collect_assigned_agent_errors
+
+    errs = collect_assigned_agent_errors(steps)
+    if errs:
+        raise ValidationError("; ".join(errs[:6]))
+
+
 def _normalize_plan_for_storage(document: dict[str, Any]) -> dict[str, Any]:
     """Split frontend ``plan`` into goal_template + steps + canvas for storage."""
     doc = dict(document)
@@ -226,6 +237,7 @@ def create_app(
     if isinstance(plan, dict):
         document["plan"] = plan
     document = _normalize_plan_for_storage(document)
+    _assert_dispatchable_step_agents(document.get("steps") or [])
     app_repositories.save_app(app_id, document)
     loaded = app_repositories.load_app(app_id)
     if loaded is None:
@@ -260,6 +272,7 @@ def update_app(app_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         updated["version"] = int(existing.get("version") or 1) + 1
     else:
         updated["version"] = int(existing.get("version") or 1)
+    _assert_dispatchable_step_agents(updated.get("steps") or [])
     app_repositories.save_app(aid, updated)
     loaded = app_repositories.load_app(aid)
     if loaded is None:

@@ -284,6 +284,42 @@ def cron_human_summary(expr: str) -> str:
     return f"{time_label} · 自定义计划"
 
 
+def _expand_cron_numeric(field: str, *, min_v: int, max_v: int) -> list[int] | None:
+    """Expand a cron numeric field into concrete values.
+
+    Supports ``N``, ``N,M``, ``A-B``, ``A-B/S``, ``*/S``. Returns ``None`` for
+    ``*``/``?`` (caller treats as "all"). Returns ``[]`` when the field is
+    present but unparseable.
+    """
+    f = str(field or "").strip()
+    if not f or f in ("*", "?"):
+        return None
+    m = re.fullmatch(r"\*/(\d+)", f)
+    if m:
+        step = max(1, int(m.group(1)))
+        return list(range(min_v, max_v + 1, step))
+    m = re.fullmatch(r"(\d+)\-(\d+)(?:/(\d+))?", f)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        step = max(1, int(m.group(3) or 1))
+        if a > b:
+            a, b = b, a
+        a = max(min_v, min(a, max_v))
+        b = max(min_v, min(b, max_v))
+        return list(range(a, b + 1, step))
+    if re.fullmatch(r"\d+(,\d+)*", f):
+        out: list[int] = []
+        for part in f.split(","):
+            try:
+                v = int(part, 10)
+            except ValueError:
+                continue
+            if min_v <= v <= max_v:
+                out.append(v)
+        return out
+    return []
+
+
 def cron_to_rrule(cron_expr: str) -> dict[str, Any]:
     raw = (cron_expr or "").strip()
     if not raw:
@@ -299,8 +335,34 @@ def cron_to_rrule(cron_expr: str) -> dict[str, Any]:
         return {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=SU", "scheduled_at": ""}
 
     minute, hour, dom, month, dow = _parse_cron_five(raw)
+    star_dom = dom in ("*", "?")
+    star_mon = month in ("*", "?")
+    star_dow = dow in ("*", "?")
+
+    # ``*/15 * * * *`` / ``5-50/5 * * * *`` — every N minutes (most common cadence).
+    if star_dom and star_mon and star_dow and hour in ("*", "?"):
+        min_vals = _expand_cron_numeric(minute, min_v=0, max_v=59)
+        if min_vals is not None and len(min_vals) >= 2:
+            # Prefer MINUTELY when values are an arithmetic progression with common step.
+            step = min_vals[1] - min_vals[0] if len(min_vals) >= 2 else 0
+            if (
+                step > 0
+                and min_vals == list(range(min_vals[0], min_vals[-1] + 1, step))
+                and min_vals[0] == 0
+                and min_vals[-1] + step > 59
+            ):
+                # Full-hour coverage from 0 with step → MINUTELY INTERVAL=step
+                return {"rrule": f"FREQ=MINUTELY;INTERVAL={step}", "scheduled_at": ""}
+            if re.fullmatch(r"\*/(\d+)", minute.strip()):
+                step = max(1, int(re.fullmatch(r"\*/(\d+)", minute.strip()).group(1)))
+                return {"rrule": f"FREQ=MINUTELY;INTERVAL={step}", "scheduled_at": ""}
+            return {
+                "rrule": "FREQ=HOURLY;INTERVAL=1;BYMINUTE=" + ",".join(str(v) for v in min_vals),
+                "scheduled_at": "",
+            }
+
     _hour_step_match = re.fullmatch(r"\*/(\d+)", hour)
-    if _hour_step_match and dom in ("*", "?") and month in ("*", "?") and dow in ("*", "?"):
+    if _hour_step_match and star_dom and star_mon and star_dow:
         step = int(_hour_step_match.group(1))
         mf = minute.strip()
         try:
@@ -312,7 +374,7 @@ def cron_to_rrule(cron_expr: str) -> dict[str, Any]:
             rrule += f";BYMINUTE={by_minute}"
         return {"rrule": rrule, "scheduled_at": ""}
 
-    is_hourly_slot = hour in ("*", "?") and dom in ("*", "?") and month in ("*", "?") and (dow in ("*", "?"))
+    is_hourly_slot = hour in ("*", "?") and star_dom and star_mon and star_dow
     if is_hourly_slot:
         mf = minute.strip()
         if mf in ("*", "?"):
@@ -320,21 +382,18 @@ def cron_to_rrule(cron_expr: str) -> dict[str, Any]:
         if mf.isdigit() or re.fullmatch(r"\d{1,2}(,\d{1,2})*", mf):
             return {"rrule": f"FREQ=HOURLY;INTERVAL=1;BYMINUTE={mf}", "scheduled_at": ""}
 
-    is_daily = hour != "*" and dom == "*" and month == "*" and (dow == "*" or dow == "?")
-    if is_daily:
-        # Keep multi-hour as cron-backed; rrule only approximates first hour for legacy readers.
-        try:
-            h = int(str(hour).split(",")[0], 10)
-        except ValueError:
-            h = 9
-        try:
-            m = 0 if minute == "*" else int(str(minute).split(",")[0], 10)
-        except ValueError:
-            m = 0
+    # Daily-ish with concrete hour(s): ``0 9 * * *``, ``0 9-19/2 * * *``
+    hour_vals = _expand_cron_numeric(hour, min_v=0, max_v=23)
+    if hour_vals and star_dom and star_mon and star_dow:
+        min_vals = _expand_cron_numeric(minute, min_v=0, max_v=59)
+        if min_vals is None:
+            min_vals = [0]
+        if not min_vals:
+            min_vals = [0]
         rule = "FREQ=DAILY;INTERVAL=1"
-        rule += f";BYHOUR={h}"
-        if m != 0:
-            rule += f";BYMINUTE={m}"
+        rule += ";BYHOUR=" + ",".join(str(h) for h in hour_vals)
+        if min_vals != [0]:
+            rule += ";BYMINUTE=" + ",".join(str(m) for m in min_vals)
         return {"rrule": rule, "scheduled_at": ""}
 
     # Yearly / monthly with DOM (and optional month): e.g. ``0 0 1 1 *`` → Jan 1 (CORE-AUTO-01).

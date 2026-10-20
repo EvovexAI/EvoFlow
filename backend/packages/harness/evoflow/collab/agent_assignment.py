@@ -43,9 +43,56 @@ _EMPTY_ASSIGNEE = frozenset(
 
 DEFAULT_ASSIGNEE_CODE = "general-purpose"
 
+# Lead / session shells — never valid ``assigned_agent`` for workflow steps (CORE-WF-04).
+_NON_DISPATCHABLE_WORKERS = frozenset(
+    {
+        "lead",
+        "main",
+        "claude-code",
+        "file-worker",
+    }
+)
+
 
 def normalize_agent_code_key(raw: str | None) -> str:
     return str(raw or "").strip().lower().replace("_", "-")
+
+
+def is_dispatchable_workflow_worker(raw: str | None) -> tuple[bool, str]:
+    """Return ``(ok, error_message)`` — used by create/update/publish validation."""
+    key = str(raw or "").strip()
+    if not key or key.lower() in _EMPTY_ASSIGNEE:
+        return False, "missing assigned_agent (use a dispatchable worker e.g. general-purpose)"
+    code = normalize_agent_code_key(key)
+    if code in _NON_DISPATCHABLE_WORKERS:
+        return (
+            False,
+            f"'{key}' is not a workflow worker; use general-purpose or a subagent code "
+            "(lead/main are session agents, not step workers)",
+        )
+    try:
+        from evoflow.config.acp_config import get_acp_agents
+
+        agents = get_acp_agents()
+        if code in {normalize_agent_code_key(k) for k in agents.keys()}:
+            return True, ""
+    except Exception:
+        pass
+    try:
+        from evoflow.subagents import get_available_subagent_names, get_subagent_config
+
+        if get_subagent_config(code) is not None:
+            return True, ""
+        # Display-name match against assignable index is OK only when code resolves to a worker.
+        idx = _assignable_index()
+        for ac, dn in idx.items():
+            if str(dn or "").strip() == key or normalize_agent_code_key(dn) == code:
+                if ac not in _NON_DISPATCHABLE_WORKERS and get_subagent_config(ac) is not None:
+                    return True, ""
+        available = ", ".join(get_available_subagent_names()[:16])
+        return False, f"unknown or non-dispatchable worker '{key}' (available: {available})"
+    except Exception as exc:
+        return False, f"unable to validate worker '{key}': {exc}"
 
 
 @lru_cache(maxsize=1)

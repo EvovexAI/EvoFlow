@@ -6,7 +6,6 @@ CRUD mirrors ``evopanel/scripts/dev-api.js`` so Web (dev-api) and Desktop (Gatew
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -14,6 +13,11 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Query, Request
 
 from app.gateway.automation_runner import _rewrite_automation_toml, _run_one_task, get_automation_scheduler_status, load_automation_toml
+from evoflow.admin.automation_schedule import (
+    cron_to_rrule,
+    is_five_field_cron_or_keyword as _is_five_field_cron_or_keyword,
+    schedule_for_payload as _schedule_for_toml,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,113 +101,6 @@ def _history_path(task_id: str) -> Any:
     del task_id
     return None  # legacy; history in SQLite
 
-
-def _is_five_field_cron_or_keyword(s: str) -> bool:
-    t = (s or "").strip()
-    if not t or "FREQ=" in t.upper():
-        return False
-    if t.startswith("@"):
-        return True
-    return len(t.split()) >= 5
-
-
-def _parse_cron_five(expr: str) -> tuple[str, str, str, str, str]:
-    parts = expr.strip().split()
-    if len(parts) >= 5:
-        return parts[0], parts[1], parts[2], parts[3], parts[4]
-    return "*", "*", "*", "*", "*"
-
-
-def cron_to_rrule(cron_expr: str) -> dict[str, Any]:
-    """Best-effort port of ``evopanel/scripts/dev-api.js`` ``cronToRrule``."""
-    raw = (cron_expr or "").strip()
-    if not raw:
-        return {"rrule": "FREQ=DAILY;INTERVAL=1;BYHOUR=9", "scheduled_at": ""}
-    if re.match(r"^\d{4}-\d{2}-\d{2}", raw):
-        return {"rrule": "", "scheduled_at": raw}
-    kw = raw.lower().strip()
-    if kw in ("@hourly", "每小时"):
-        return {"rrule": "FREQ=HOURLY;INTERVAL=1", "scheduled_at": ""}
-    if kw in ("@daily", "每天", "daily"):
-        return {"rrule": "FREQ=DAILY;INTERVAL=1", "scheduled_at": ""}
-    if kw in ("@weekly", "每周"):
-        return {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=SU", "scheduled_at": ""}
-
-    minute, hour, dom, month, dow = _parse_cron_five(raw)
-    # ``0 */2 * * *`` / ``0 */8 * * *`` — every N hours at given minute.
-    _hour_step_match = re.fullmatch(r"\*/(\d+)", hour)
-    if _hour_step_match and dom in ("*", "?") and month in ("*", "?") and dow in ("*", "?"):
-        step = int(_hour_step_match.group(1))
-        mf = minute.strip()
-        try:
-            by_minute = int(mf, 10) if mf not in ("*", "?") else 0
-        except ValueError:
-            by_minute = 0
-        rrule = f"FREQ=HOURLY;INTERVAL={step}"
-        if by_minute != 0:
-            rrule += f";BYMINUTE={by_minute}"
-        return {"rrule": rrule, "scheduled_at": ""}
-
-    # ``m * * * *`` / ``0,15,30,45 * * * *`` — every hour at given minute(s); hour field must be ``*``.
-    is_hourly_slot = hour in ("*", "?") and dom in ("*", "?") and month in ("*", "?") and (dow in ("*", "?"))
-    if is_hourly_slot:
-        mf = minute.strip()
-        if mf in ("*", "?"):
-            return {"rrule": "FREQ=HOURLY;INTERVAL=1", "scheduled_at": ""}
-        if mf.isdigit():
-            return {"rrule": f"FREQ=HOURLY;INTERVAL=1;BYMINUTE={mf}", "scheduled_at": ""}
-        if re.fullmatch(r"\d{1,2}(,\d{1,2})*", mf):
-            return {"rrule": f"FREQ=HOURLY;INTERVAL=1;BYMINUTE={mf}", "scheduled_at": ""}
-
-    is_daily = hour != "*" and dom == "*" and month == "*" and (dow == "*" or dow == "?")
-    if is_daily:
-        try:
-            h = int(hour, 10)
-        except ValueError:
-            h = 9
-        try:
-            m = 0 if minute == "*" else int(minute, 10)
-        except ValueError:
-            m = 0
-        rule = "FREQ=DAILY;INTERVAL=1"
-        rule += f";BYHOUR={h}"
-        if m != 0:
-            rule += f";BYMINUTE={m}"
-        return {"rrule": rule, "scheduled_at": ""}
-
-    is_weekly = (dow != "*" and dow != "?") or (dom != "*" and not dom.strip().isdigit() and "/" not in dom and "-" not in dom and "," not in dom)
-    if is_weekly:
-        dow_map = {"0": "SU", "1": "MO", "2": "TU", "3": "WE", "4": "TH", "5": "FR", "6": "SA"}
-        days: list[str] = []
-        if dow not in ("*", "?"):
-            for d in dow.split(","):
-                n = d.strip()
-                days.append(dow_map.get(n, n))
-        try:
-            h = int(hour, 10) if hour != "*" else 0
-        except ValueError:
-            h = 0
-        rule = "FREQ=WEEKLY;INTERVAL=1"
-        if days:
-            rule += ";BYDAY=" + ",".join(days)
-        rule += f";BYHOUR={h}"
-        return {"rrule": rule, "scheduled_at": ""}
-
-    try:
-        dh = int(hour, 10) if hour != "*" else 9
-    except ValueError:
-        dh = 9
-    return {"rrule": f"FREQ=DAILY;INTERVAL=1;BYHOUR={dh}", "scheduled_at": ""}
-
-
-def _schedule_for_toml(args: dict[str, Any], rrule: str, scheduled_at: str, schedule_fallback: str) -> str:
-    """Prefer a 5-field cron in ``schedule`` when EvoPanel sends both RRULE and cron so ``automation_tick`` can fire."""
-    raw = str(args.get("schedule") or "").strip()
-    if raw and _is_five_field_cron_or_keyword(raw):
-        return raw
-    if scheduled_at:
-        return scheduled_at
-    return schedule_fallback or rrule
 
 
 def _list_all_automations(request: Request | None = None) -> list[dict[str, Any]]:

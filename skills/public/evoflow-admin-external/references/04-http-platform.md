@@ -17,6 +17,8 @@ Content-Type: application/json
 
 ### 全量 action（与代码 registry 对齐）
 
+> 计数：`len(get_registry())` = **102**（17 域）。已退役不计：`experience.*`(4)、`verification.list`、`appearance.get`。
+
 **knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  
 **settings：** `list_models` `get_default_model` `set_default_model` `get_model` `create_model` `delete_model` `get_web_search` `patch_web_search` `test_web_search`  

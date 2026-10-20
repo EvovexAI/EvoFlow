@@ -40,6 +40,30 @@ def _as_str(value: Any, default: str = "") -> str:
     return str(value).strip()
 
 
+def collect_assigned_agent_errors(steps: list[Any]) -> list[str]:
+    """Blocking errors for non-dispatchable ``assigned_agent`` values (CORE-WF-04)."""
+    from evoflow.collab.agent_assignment import is_dispatchable_workflow_worker
+
+    errs: list[str] = []
+    if not isinstance(steps, list):
+        return errs
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        ref = _as_str(step.get("ref"))
+        step_name = _as_str(step.get("name"), ref or "?")
+        raw = _as_str(
+            step.get("assigned_agent")
+            or step.get("assignee")
+            or step.get("agent_code")
+            or step.get("agent")
+        )
+        ok, msg = is_dispatchable_workflow_worker(raw or None)
+        if not ok:
+            errs.append(f"Step {step_name} (ref={ref}): {msg}")
+    return errs
+
+
 def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
     """Run all static validation checks on an App definition.
 
@@ -270,6 +294,12 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
             check4_warnings.append(f"Step {step_name} (ref={ref}): missing 'goal' or 'description'")
     checks["required_fields"] = {"warnings": len(check4_warnings)}
     warnings.extend(check4_warnings)
+
+    # ── Check 4b: assigned_agent must be a dispatchable worker (CORE-WF-04) ──
+    # Reject lead/main/unknown so publish cannot silently fall back to general-purpose.
+    check4b_errors = collect_assigned_agent_errors(steps)
+    checks["assigned_agents"] = {"errors": len(check4b_errors)}
+    errors.extend(check4b_errors)
 
     # ── Check 5: Parameter placeholder integrity ─────────────────────
     check5_warnings: list[str] = []
