@@ -11,6 +11,16 @@ docs/h3-llm-stream.md
 docs/protocol-evolution-spec.md
 docs/v3.5-task.md
 docs/v4-shell-task-board.md
+# Internal legal / branch scratch / skill-author fixtures (not public)
+docs/legal/zcode-license-impact.md
+evopanel/docs/accent-theme-global-coverage.md
+backend/demo-file-ops.txt
+skills/public/superpowers-systematic-debugging/CREATION-LOG.md
+skills/public/superpowers-systematic-debugging/test-academic.md
+skills/public/superpowers-systematic-debugging/test-pressure-1.md
+skills/public/superpowers-systematic-debugging/test-pressure-2.md
+skills/public/superpowers-systematic-debugging/test-pressure-3.md
+skills/public/superpowers-writing-skills/examples/CLAUDE_MD_TESTING.md
 # oh-my-claudecode state
 .omc/
 # zcode local plan / scratch (root only — do NOT ignore evopanel/src/zcode-* source)

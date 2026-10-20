@@ -122,7 +122,7 @@ If EvoFlow helps you, consider supporting ongoing development and iteration (inc
 
 ## License
 
-Copyright © 2026 **景银泰（EvovexAI）**. [PolyForm Noncommercial License 1.0.0](LICENSE): source-available; personal, research, and non-commercial use allowed; **commercial use requires written authorization** ([cloud@evovexai.com](mailto:cloud@evovexai.com)). **Not an OSI open-source license.** Third-party terms: [NOTICE](NOTICE); for the practical impact of the ZCode (Apache-2.0) vendor on EvoFlow commercialization, see [docs/legal/zcode-license-impact.md](docs/legal/zcode-license-impact.md). Authorship and contributor rights: [AUTHORS.md](AUTHORS.md), [CLA.md](CLA.md).
+Copyright © 2026 **景银泰（EvovexAI）**. [PolyForm Noncommercial License 1.0.0](LICENSE): source-available; personal, research, and non-commercial use allowed; **commercial use requires written authorization** ([cloud@evovexai.com](mailto:cloud@evovexai.com)). **Not an OSI open-source license.** Third-party terms (including ZCode Apache-2.0): [NOTICE](NOTICE). Authorship and contributor rights: [AUTHORS.md](AUTHORS.md), [CLA.md](CLA.md).
 
 ---
 

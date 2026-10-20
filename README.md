@@ -124,7 +124,7 @@ Windows：`.\scripts\windows\dev-stack-isolated.bat`
 
 ## 授权
 
-版权所有 © 2026 **景银泰（EvovexAI）**。[PolyForm Noncommercial License 1.0.0](LICENSE)：源码可见（source-available），允许个人学习、研究与非商业使用；**商业使用须书面授权**（[cloud@evovexai.com](mailto:cloud@evovexai.com)）。**本许可证并非 OSI「开源」许可证。**第三方组件见 [NOTICE](NOTICE)；商业化与第三方许可证（含 zcode Apache-2.0）对 EvoFlow 的具体影响见 [docs/legal/zcode-license-impact.md](docs/legal/zcode-license-impact.md)；作者与贡献者权利见 [AUTHORS.md](AUTHORS.md)、[CLA.md](CLA.md)。
+版权所有 © 2026 **景银泰（EvovexAI）**。[PolyForm Noncommercial License 1.0.0](LICENSE)：源码可见（source-available），允许个人学习、研究与非商业使用；**商业使用须书面授权**（[cloud@evovexai.com](mailto:cloud@evovexai.com)）。**本许可证并非 OSI「开源」许可证。**第三方组件（含 ZCode Apache-2.0）见 [NOTICE](NOTICE)；作者与贡献者权利见 [AUTHORS.md](AUTHORS.md)、[CLA.md](CLA.md)。
 
 ---
 
