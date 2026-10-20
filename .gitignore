@@ -2,6 +2,15 @@
 docker/.cache/
 # Internal design/plan docs (not for version control)
 .internal-docs/
+# v4 shell / protocol planning drafts (not user-facing; keep local only)
+docs/h1-v4-demo.md
+docs/h2-v4-shell.md
+docs/h3-b-langgraph-v4-adapter.md
+docs/h3-c-v4-shell-bringup.md
+docs/h3-llm-stream.md
+docs/protocol-evolution-spec.md
+docs/v3.5-task.md
+docs/v4-shell-task-board.md
 # oh-my-claudecode state
 .omc/
 # zcode local plan / scratch (root only — do NOT ignore evopanel/src/zcode-* source)
