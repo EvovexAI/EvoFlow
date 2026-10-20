@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   Database,
@@ -130,11 +131,104 @@ export function KnowledgeStats({ bases, docCounts }) {
   );
 }
 
+function KnowledgeListItemMenu({
+  base,
+  busy,
+  onClose,
+  onOpen,
+  onDelete,
+  onRename,
+  onSettings,
+  onRevealDir,
+  onToggleHidden,
+  className,
+  style,
+  menuRef,
+}) {
+  return (
+    <div className={className} ref={menuRef} role="menu" style={style}>
+      <button
+        onClick={() => {
+          onClose();
+          onOpen(base.id);
+        }}
+        role="menuitem"
+        type="button"
+      >
+        打开
+      </button>
+      {base.builtin ? null : (
+        <button
+          disabled={busy}
+          onClick={() => {
+            onClose();
+            onRename?.(base.id, base.name);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          重命名
+        </button>
+      )}
+      <button
+        disabled={busy}
+        onClick={() => {
+          onClose();
+          onSettings?.(base);
+        }}
+        role="menuitem"
+        type="button"
+      >
+        设置
+      </button>
+      {base.resolvedStorageDir ? (
+        <button
+          onClick={() => {
+            onClose();
+            onRevealDir?.(base);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          打开所在目录
+        </button>
+      ) : null}
+      {base.builtin ? null : (
+        <button
+          disabled={busy}
+          onClick={() => {
+            onClose();
+            onDelete(base.id, base.name);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          删除
+        </button>
+      )}
+      {base.builtin ? (
+        <button
+          disabled={busy}
+          onClick={() => {
+            onClose();
+            onToggleHidden?.(base, !base.hidden);
+          }}
+          role="menuitem"
+          type="button"
+        >
+          {base.hidden ? "恢复显示" : "停用（隐藏）"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, onSettings, onRevealDir, onToggleHidden }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  /** null = anchor to ⋯; {x,y} = fixed at cursor (right-click) */
+  /** null = anchor to ⋯; {x,y} = viewport coords via portal (right-click) */
   const [menuPos, setMenuPos] = useState(null);
   const menuRef = useRef(null);
+  const portalMenuRef = useRef(null);
 
   const closeMenu = () => {
     setMenuOpen(false);
@@ -144,16 +238,21 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
   useEffect(() => {
     if (!menuOpen) return undefined;
     const onDoc = (e) => {
-      if (!menuRef.current?.contains(e.target)) closeMenu();
+      const t = e.target;
+      if (menuRef.current?.contains(t) || portalMenuRef.current?.contains(t)) return;
+      closeMenu();
     };
     const onKey = (e) => {
       if (e.key === "Escape") closeMenu();
     };
+    // Capture phase so we close before other handlers; skip the opening right-click.
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", closeMenu, true);
     return () => {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", closeMenu, true);
     };
   }, [menuOpen]);
 
@@ -179,6 +278,18 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
     const y = Math.min(Math.max(pad, clientY), window.innerHeight - h - pad);
     setMenuPos({ x, y });
     setMenuOpen(true);
+  };
+
+  const menuProps = {
+    base,
+    busy,
+    onClose: closeMenu,
+    onOpen,
+    onDelete,
+    onRename,
+    onSettings,
+    onRevealDir,
+    onToggleHidden,
   };
 
   return (
@@ -237,91 +348,27 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
         >
           <Ellipsis size={16} />
         </button>
-        {menuOpen ? (
-          <div
-            className={`ko-data-list__dropdown${menuPos ? " is-context" : ""}`}
-            role="menu"
-            style={
-              menuPos
-                ? { position: "fixed", left: menuPos.x, top: menuPos.y, right: "auto" }
-                : undefined
-            }
-          >
-            <button
-              onClick={() => {
-                closeMenu();
-                onOpen(base.id);
-              }}
-              role="menuitem"
-              type="button"
-            >
-              打开
-            </button>
-            {base.builtin ? null : (
-              <button
-                disabled={busy}
-                onClick={() => {
-                  closeMenu();
-                  onRename?.(base.id, base.name);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                重命名
-              </button>
-            )}
-            <button
-              disabled={busy}
-              onClick={() => {
-                closeMenu();
-                onSettings?.(base);
-              }}
-              role="menuitem"
-              type="button"
-            >
-              设置
-            </button>
-            {base.resolvedStorageDir ? (
-              <button
-                onClick={() => {
-                  closeMenu();
-                  onRevealDir?.(base);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                打开所在目录
-              </button>
-            ) : null}
-            {base.builtin ? null : (
-              <button
-                disabled={busy}
-                onClick={() => {
-                  closeMenu();
-                  onDelete(base.id, base.name);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                删除
-              </button>
-            )}
-            {base.builtin ? (
-              <button
-                disabled={busy}
-                onClick={() => {
-                  closeMenu();
-                  onToggleHidden?.(base, !base.hidden);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                {base.hidden ? "恢复显示" : "停用（隐藏）"}
-              </button>
-            ) : null}
-          </div>
+        {menuOpen && !menuPos ? (
+          <KnowledgeListItemMenu {...menuProps} className="ko-data-list__dropdown" />
         ) : null}
       </div>
+      {menuOpen && menuPos
+        ? createPortal(
+            <KnowledgeListItemMenu
+              {...menuProps}
+              className="ko-data-list__dropdown is-context"
+              menuRef={portalMenuRef}
+              style={{
+                position: "fixed",
+                left: menuPos.x,
+                top: menuPos.y,
+                right: "auto",
+                zIndex: 10000,
+              }}
+            />,
+            document.body,
+          )
+        : null}
     </li>
   );
 }

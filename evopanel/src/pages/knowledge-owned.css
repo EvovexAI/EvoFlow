@@ -3140,7 +3140,27 @@ button.ko-tag.is-active {
   gap: 2px;
 }
 .ko-data-list__dropdown.is-context {
-  z-index: 40;
+  /* Portaled to document.body — page-scoped --kb-* tokens are gone; use global theme. */
+  z-index: 10000;
+  margin: 0;
+  border-color: var(--border-primary, rgba(0, 0, 0, 0.12));
+  background: var(--bg-card, var(--bg-primary, #fff));
+  color: var(--text-primary, #1a1a1a);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.18),
+    0 0 0 1px color-mix(in srgb, var(--border-primary, #000) 12%, transparent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 1;
+}
+
+.ko-data-list__dropdown.is-context button {
+  color: var(--text-secondary, #555);
+}
+
+.ko-data-list__dropdown.is-context button:hover {
+  background: var(--accent-muted, rgba(0, 0, 0, 0.06));
+  color: var(--text-primary, #1a1a1a);
 }
 
 .ko-data-list__dropdown button {
