@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { enrichDisplayRowsRunIds, messagesToDisplayRows } from '../src/lib/chat-normalize.js'
-import { historyItemStableKey } from '../src/react/lib/history-row-stable-key.ts'
+import {
+  buildUniqueHistoryItemKeys,
+  historyItemStableKey,
+} from '../src/react/lib/history-row-stable-key.ts'
 
 describe('historyItemStableKey', () => {
   it('keeps optimistic user row key when runId is added on run_started', () => {
@@ -14,6 +17,28 @@ describe('historyItemStableKey', () => {
   it('prefers messageId when present', () => {
     const row = { role: 'user', text: 'hi', messageId: 'msg-1', runId: 'run-1', timestamp: 1 }
     expect(historyItemStableKey('s', row, 0)).toBe('s|mid|msg-1')
+  })
+
+  it('distinguishes same-ms user rows with different text of equal length', () => {
+    const sk = 'proactive:task:1'
+    const ts = 1_792_501_395_554
+    const a = { role: 'user', text: 'abcdefghij', timestamp: ts }
+    const b = { role: 'user', text: 'jihgfedcba', timestamp: ts }
+    expect(a.text.length).toBe(b.text.length)
+    expect(historyItemStableKey(sk, a, 0)).not.toBe(historyItemStableKey(sk, b, 1))
+  })
+
+  it('uniquifies true duplicate base keys for React list', () => {
+    const sk = 'proactive:task:1'
+    const ts = 1_792_501_395_554
+    const row = { role: 'user', text: 'same prompt body', timestamp: ts }
+    const keys = buildUniqueHistoryItemKeys(sk, [
+      { row, i: 0 },
+      { row: { ...row }, i: 2 },
+    ])
+    expect(keys[0]).toBe(historyItemStableKey(sk, row, 0))
+    expect(keys[1]).toBe(`${keys[0]}#1`)
+    expect(keys[0]).not.toBe(keys[1])
   })
 })
 

@@ -64,6 +64,13 @@ def test_strip_includes_memory_policy_and_entity_assets():
     assert "<platform>x</platform>" in cleaned
 
 
+def test_middleware_registers_assets_on_middleware_tools(memory_on):
+    """create_agent validation requires force-mounted tools on middleware.tools."""
+    mw = MemoryRuntimeControlMiddleware()
+    names = {getattr(t, "name", "") for t in (mw.tools or [])}
+    assert ASSETS_TOOL_NAME in names
+
+
 def test_middleware_hides_and_force_mounts_assets(memory_on):
     mw = MemoryRuntimeControlMiddleware()
     asset = MagicMock()

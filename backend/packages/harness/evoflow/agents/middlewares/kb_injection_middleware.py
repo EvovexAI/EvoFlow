@@ -1,38 +1,34 @@
-"""Inject Knowledge Vault context before each model call (auto-injection mode).
+"""Inject Knowledge Vault context for auto/both KB modes.
 
-This middleware intercepts the lead agent's message list and prepends a
-``HumanMessage(name="evf_kb_injection")`` with KB search results whenever:
+Placement (important)::
 
-1. The agent's ``kb_injection.mode`` is ``"auto"`` or ``"both"``.
-2. At least one vault is bound to the agent (``knowledge_vault_ids``).
-3. The user's message is non-empty.
+    [history…, user, <knowledge_context>, AI, tool, tool, …]
 
-The injection is parallel to the model call (fire-and-forget with timeout)
-and never blocks the agent on KB failures.
+KB is inserted **immediately after the triggering user HumanMessage**, not
+appended to the end of the list. Within a tool loop the injection is ephemeral
+(``request.override``) so each model call re-places it after that same user
+row; tool results stay newer than KB (chronological end = latest attention).
 
 Architecture::
 
     User message
         │
         ▼
-    KbInjectionMiddleware.wrap_model_call (sync / async)
-        ├─→ [parallel] kb_service.search(vault_id, query, top_k, mode)
-        ├─→ Assemble context string from top_k results
-        ├─→ Truncate at max_inject_tokens chars
-        └─→ Append HumanMessage(name="evf_kb_injection", content=context)
+    KbInjectionMiddleware.wrap_model_call
+        ├─→ search bound vaults (once per user query; tool rounds reuse cache)
+        ├─→ strip prior evf_kb_injection
+        └─→ insert HumanMessage(name="evf_kb_injection") right after latest real user
         │
         ▼
-    SkillsInjectionMiddleware.wrap_model_call (next in chain)
-        └─→ LLM call with KB context already in messages
+    LLM call (tools accumulate after KB)
 
 Contrast with the ``knowledge`` tool (agent-tool call path):
 
 - ``mode=agent``: Agent decides when to call ``knowledge(action=search)``.
-- ``mode=auto``: System pre-injects results; Agent *also* has the tool (mode=both).
+- ``mode=auto``: System pre-injects results after the user message.
 - ``mode=both``: Pre-injection + tool still available for follow-up queries.
 
-The middleware runs AFTER ``SkillsInjectionMiddleware`` in the LangChain chain
-(LangChain applies middlewares in list order; our insert point is right after it).
+Runs after ``SkillsInjectionMiddleware`` in the lead middleware list.
 Both ``wrap_model_call`` (sync) and ``awrap_model_call`` (async) are implemented.
 """
 
@@ -40,6 +36,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
 
 try:
@@ -70,8 +68,30 @@ logger = logging.getLogger(__name__)
 import time  # noqa: E402  (used for perf timing in summary logs)
 
 _KB_INJECTION_MESSAGE_NAME = "evf_kb_injection"
+# Other ephemeral HumanMessage.name values that must not be treated as the user query.
+_NON_USER_HUMAN_NAMES = frozenset(
+    {
+        _KB_INJECTION_MESSAGE_NAME,
+        "evf_skill_injection",
+        "evf_plugin_injection",
+        "external_memory_prefetch",
+        "todo_reminder",
+    }
+)
 # Approximate chars-to-tokens ratio for mixed Chinese/English text
 _CHARS_PER_TOKEN = 1.5
+
+
+@dataclass
+class _KbTurnCache:
+    """Per-async-task cache so tool-loop model calls reuse the same retrieval."""
+
+    query: str
+    context: str
+    results: list[dict[str, Any]] = field(default_factory=list)
+
+
+_kb_turn_cache: ContextVar[_KbTurnCache | None] = ContextVar("evf_kb_turn_cache", default=None)
 
 
 def _is_kb_injection_message(msg: Any) -> bool:
@@ -82,22 +102,67 @@ def _strip_kb_injection_messages(messages: list[Any]) -> list[Any]:
     return [m for m in messages if not _is_kb_injection_message(m)]
 
 
-def _latest_human_preview(messages: list[Any]) -> str:
-    """Extract the last user message text for use as the search query."""
-    for msg in reversed(messages or []):
-        t = str(getattr(msg, "type", None) or "").strip().lower()
-        if t not in {"human", "user"}:
-            continue
-        content = getattr(msg, "content", "")
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            parts: list[str] = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    parts.append(str(block.get("text") or ""))
-            return "\n".join(parts).strip()
+def _human_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts).strip()
     return ""
+
+
+def _is_real_user_human(msg: Any) -> bool:
+    """True for a user turn HumanMessage (not middleware injection footers)."""
+    t = str(getattr(msg, "type", None) or "").strip().lower()
+    if t not in {"human", "user"} and not isinstance(msg, HumanMessage):
+        return False
+    if t not in {"human", "user"} and isinstance(msg, HumanMessage):
+        t = "human"
+    if t not in {"human", "user"}:
+        return False
+    name = str(getattr(msg, "name", None) or "").strip()
+    if name in _NON_USER_HUMAN_NAMES:
+        return False
+    return True
+
+
+def _latest_real_human_index(messages: list[Any]) -> int:
+    for i in range(len(messages or []) - 1, -1, -1):
+        if _is_real_user_human(messages[i]):
+            return i
+    return -1
+
+
+def _latest_human_preview(messages: list[Any]) -> str:
+    """Extract the last real user message text for use as the search query."""
+    idx = _latest_real_human_index(messages or [])
+    if idx < 0:
+        return ""
+    return _human_content_text(getattr(messages[idx], "content", ""))
+
+
+def _last_message_is_real_user(messages: list[Any]) -> bool:
+    if not messages:
+        return False
+    return _is_real_user_human(messages[-1])
+
+
+def place_kb_after_latest_user(messages: list[Any], kb_msg: HumanMessage) -> list[Any]:
+    """Strip prior KB rows and insert ``kb_msg`` immediately after the latest real user.
+
+    Tool / AI / skill-footer messages that follow the user stay after the KB block
+    so the chronological end of the list remains the newest tool evidence.
+    """
+    cleaned = _strip_kb_injection_messages(list(messages or []))
+    idx = _latest_real_human_index(cleaned)
+    if idx < 0:
+        return [*cleaned, kb_msg]
+    return [*cleaned[: idx + 1], kb_msg, *cleaned[idx + 1 :]]
 
 
 def _emit_kb_activity(thread_id: str, kind: str, detail: str) -> None:
@@ -196,11 +261,11 @@ def _log_summary(
         return
 
     # decision ∈ {skip_mode_off, skip_no_vault, skip_empty_query,
-    #              skip_proactive_duty, no_hits, search_error}
+    #              skip_proactive_duty, no_hits, search_error, cache_hit}
     # ``no_hits`` is *legitimate* (vault has docs but query doesn't match) —
     # not a misconfig. Down-rank it to DEBUG so operators don't mistake
     # expected empty results for a fault.
-    if decision in {"skip_mode_off", "skip_no_vault", "skip_empty_query"}:
+    if decision in {"skip_mode_off", "skip_no_vault", "skip_empty_query", "cache_hit"}:
         logger.debug(line)
     elif decision == "no_hits":
         logger.debug(line)
@@ -525,162 +590,99 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
         request: ModelRequest,
         context: str,
     ) -> ModelRequest:
-        messages = _strip_kb_injection_messages(messages_from_model_request(request))
-        if context:
-            messages = [*messages, _build_kb_injection_message(context, [], KbInjectionConfig())]
-        return request.override(messages=messages)
+        """Place KB after the triggering user message (not at list end)."""
+        messages = messages_from_model_request(request)
+        if not context:
+            cleaned = _strip_kb_injection_messages(messages)
+            if len(cleaned) != len(messages):
+                return request.override(messages=cleaned)
+            return request
+        kb_msg = _build_kb_injection_message(context, [], KbInjectionConfig())
+        return request.override(messages=place_kb_after_latest_user(messages, kb_msg))
 
-    @override
-    def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
-        """Sync path — delegates to ``awrap_model_call`` via the running event loop.
+    def _resolve_cached_or_search_sync(
+        self,
+        *,
+        query: str,
+        config: KbInjectionConfig,
+        vault_ids: list[str],
+        messages: list[Any],
+    ) -> tuple[str, list[dict[str, Any]], str, BaseException | None]:
+        """Return ``(context, results, decision, err)``; tool rounds reuse turn cache.
 
-        ``asyncio.run()`` is NOT used here because it creates a nested event loop,
-        which deadlocks when ``_do_kb_search`` calls ``ensure_owned_kb_worker_started()``
-        (which is async and needs the outer loop to make forward progress).
-
-        Instead, ``asyncio.get_event_loop().run_until_complete()`` re-enters the
-        existing loop that LangGraph / uvicorn is already running.
+        User-turn model calls always re-search. Tool/AI continuations reuse the
+        cache for the same query so KB stays after the user without re-hitting
+        the index on every tool hop.
         """
-        should, query, config, vault_ids, thread_id = self._should_inject(request)
-        if not should or not query:
-            return handler(request)
+        cleaned = _strip_kb_injection_messages(messages)
+        cache = _kb_turn_cache.get()
+        if (
+            cache is not None
+            and cache.query == query
+            and cache.context
+            and not _last_message_is_real_user(cleaned)
+        ):
+            return cache.context, list(cache.results), "cache_hit", None
 
         context = ""
         results: list[dict[str, Any]] = []
         search_err: BaseException | None = None
-        t0 = time.perf_counter()
-
         try:
             try:
-                # Preferred: get the running loop (never raises RuntimeError for main-thread loops)
                 loop = asyncio.get_running_loop()
                 loop_is_running = True
             except RuntimeError:
-                # No running loop on this thread (e.g. stand-alone invocation).
                 loop = asyncio.get_event_loop()
                 loop_is_running = False
             if loop_is_running:
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+
                     def _call() -> tuple[str, list[dict[str, Any]]]:
                         async def _inner() -> tuple[str, list[dict[str, Any]]]:
                             return await _do_kb_search(query, vault_ids, config)
-                        # re-enter the running loop from the worker thread
+
                         return loop.run_until_complete(_inner())
+
                     future = ex.submit(_call)
                     context, results = future.result(timeout=config.timeout_sec + 1)
             else:
-                context, results = loop.run_until_complete(
-                    _do_kb_search(query, vault_ids, config)
-                )
+                context, results = loop.run_until_complete(_do_kb_search(query, vault_ids, config))
         except asyncio.TimeoutError:
             search_err = TimeoutError(f"kb search wall-clock exceeded {config.timeout_sec}s")
-            context, results = "", []
-        except concurrent.futures.TimeoutError:
-            search_err = TimeoutError(f"sync kb search wall-clock exceeded {config.timeout_sec + 1}s")
             context, results = "", []
         except Exception as exc:
             search_err = exc
             context, results = "", []
 
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        agent_code = _agent_code_from_runtime(request)
-
         if search_err is not None:
-            _log_summary(
-                agent_code=agent_code,
-                thread_id=thread_id,
-                query=query,
-                config=config,
-                vault_ids=vault_ids,
-                decision="search_error",
-                duration_ms=elapsed_ms,
-                err=search_err,
-            )
-        elif context and results:
-            _log_summary(
-                agent_code=agent_code,
-                thread_id=thread_id,
-                query=query,
-                config=config,
-                vault_ids=vault_ids,
-                decision="ok",
-                duration_ms=elapsed_ms,
-                results=results,
-                context_chars=len(context),
-            )
-        else:
-            _log_summary(
-                agent_code=agent_code,
-                thread_id=thread_id,
-                query=query,
-                config=config,
-                vault_ids=vault_ids,
-                decision="no_hits",
-                duration_ms=elapsed_ms,
-            )
+            return "", [], "search_error", search_err
+        if context and results:
+            _kb_turn_cache.set(_KbTurnCache(query=query, context=context, results=list(results)))
+            return context, results, "ok", None
+        _kb_turn_cache.set(None)
+        return "", [], "no_hits", None
 
-        # Activity trace
-        if thread_id:
-            from evoflow.observability.agent_activity_stream import emit_agent_activity
-            if context and results:
-                emit_agent_activity(
-                    thread_id,
-                    kind="middleware",
-                    detail=f"kb_injection 检索到 {len(results)} 条 ({len(context)} chars)",
-                    force=True,
-                )
-            else:
-                emit_agent_activity(
-                    thread_id,
-                    kind="middleware",
-                    detail="kb_injection 未命中（检索失败或 0 结果）",
-                    force=True,
-                )
+    async def _resolve_cached_or_search_async(
+        self,
+        *,
+        query: str,
+        config: KbInjectionConfig,
+        vault_ids: list[str],
+        messages: list[Any],
+    ) -> tuple[str, list[dict[str, Any]], str, BaseException | None]:
+        cleaned = _strip_kb_injection_messages(messages)
+        cache = _kb_turn_cache.get()
+        if (
+            cache is not None
+            and cache.query == query
+            and cache.context
+            and not _last_message_is_real_user(cleaned)
+        ):
+            return cache.context, list(cache.results), "cache_hit", None
 
-        # Citations
-        if thread_id:
-            try:
-                from evoflow.runtime.ports import publish_kb_citations as _port_publish_kb_citations
-
-                _port_publish_kb_citations(
-                    thread_id=thread_id,
-                    query=query,
-                    agent_code=agent_code,
-                    results=results,
-                )
-            except Exception as exc:
-                logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
-
-        req2 = self._patch_request(request, context) if context else request
-        result = handler(req2)
-
-        if context:
-            try:
-                prev = get_injected_sections()
-                merged = dict(prev) if prev else {}
-                merged["kb_injection"] = context
-                tok = set_injected_sections(merged)
-                try:
-                    _ = result
-                finally:
-                    reset_injected_sections(tok)
-            except Exception:
-                pass
-
-        return result
-
-    @override
-    async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
-        should, query, config, vault_ids, thread_id = self._should_inject(request)
-        if not should or not query:
-            return await handler(request)
-
-        context = ""
-        results: list[dict[str, Any]] = []
         search_err: BaseException | None = None
-        t0 = time.perf_counter()
-
         try:
             context, results = await _do_kb_search(query, vault_ids, config)
         except asyncio.TimeoutError:
@@ -690,10 +692,42 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
             search_err = exc
             context, results = "", []
 
-        elapsed_ms = (time.perf_counter() - t0) * 1000
-        agent_code = _agent_code_from_runtime(request)
-
         if search_err is not None:
+            return "", [], "search_error", search_err
+        if context and results:
+            _kb_turn_cache.set(_KbTurnCache(query=query, context=context, results=list(results)))
+            return context, results, "ok", None
+        _kb_turn_cache.set(None)
+        return "", [], "no_hits", None
+
+    def _emit_post_resolve(
+        self,
+        *,
+        request: ModelRequest,
+        thread_id: str,
+        query: str,
+        config: KbInjectionConfig,
+        vault_ids: list[str],
+        context: str,
+        results: list[dict[str, Any]],
+        decision: str,
+        elapsed_ms: float,
+        search_err: BaseException | None,
+    ) -> None:
+        agent_code = _agent_code_from_runtime(request)
+        if decision == "cache_hit":
+            _log_summary(
+                agent_code=agent_code,
+                thread_id=thread_id,
+                query=query,
+                config=config,
+                vault_ids=vault_ids,
+                decision="cache_hit",
+                duration_ms=elapsed_ms,
+                results=results,
+                context_chars=len(context) if context else None,
+            )
+        elif search_err is not None:
             _log_summary(
                 agent_code=agent_code,
                 thread_id=thread_id,
@@ -727,11 +761,19 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                 duration_ms=elapsed_ms,
             )
 
-        # Always emit activity so the UI gets a KB status update on every turn.
-        if thread_id:
+        if not thread_id:
+            return
+        try:
             from evoflow.observability.agent_activity_stream import emit_agent_activity
 
-            if context and results:
+            if decision == "cache_hit" and context:
+                emit_agent_activity(
+                    thread_id,
+                    kind="middleware",
+                    detail=f"kb_injection 复用本轮检索 ({len(results)} 条)",
+                    force=True,
+                )
+            elif context and results:
                 emit_agent_activity(
                     thread_id,
                     kind="middleware",
@@ -745,38 +787,97 @@ class KbInjectionMiddleware(AgentMiddleware[AgentState]):
                     detail="kb_injection 未命中（检索失败或 0 结果）",
                     force=True,
                 )
+        except Exception:
+            pass
 
-        # Publish citations to live SSE channel (both hits and errors; UI shows citation on ok).
-        if thread_id:
+        if decision == "cache_hit":
+            return
+        try:
+            from evoflow.runtime.ports import publish_kb_citations as _port_publish_kb_citations
+
+            _port_publish_kb_citations(
+                thread_id=thread_id,
+                query=query,
+                agent_code=agent_code,
+                results=results,
+            )
+        except Exception as exc:
+            logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
+
+    def _finish_with_injected_sections(self, context: str, result: ModelCallResult) -> ModelCallResult:
+        if not context:
+            return result
+        try:
+            prev = get_injected_sections()
+            merged = dict(prev) if prev else {}
+            merged["kb_injection"] = context
+            tok = set_injected_sections(merged)
             try:
-                from evoflow.runtime.ports import publish_kb_citations as _port_publish_kb_citations
+                return result
+            finally:
+                reset_injected_sections(tok)
+        except Exception:
+            return result
 
-                _port_publish_kb_citations(
-                    thread_id=thread_id,
-                    query=query,
-                    agent_code=agent_code,
-                    results=results,
-                )
-            except Exception as exc:
-                logger.debug("KbInjection: failed to publish citations thread=%s err=%s", thread_id, exc)
+    @override
+    def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
+        """Sync path — re-enters the running loop for KB search (no nested ``asyncio.run``)."""
+        should, query, config, vault_ids, thread_id = self._should_inject(request)
+        if not should or not query:
+            return handler(request)
 
-        # Patch request and call the next handler in the chain.
-        # ``context`` is only non-empty when search succeeded with hits.
+        t0 = time.perf_counter()
+        context, results, decision, search_err = self._resolve_cached_or_search_sync(
+            query=query,
+            config=config,
+            vault_ids=vault_ids,
+            messages=messages_from_model_request(request),
+        )
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        self._emit_post_resolve(
+            request=request,
+            thread_id=thread_id,
+            query=query,
+            config=config,
+            vault_ids=vault_ids,
+            context=context,
+            results=results,
+            decision=decision,
+            elapsed_ms=elapsed_ms,
+            search_err=search_err,
+        )
+
+        req2 = self._patch_request(request, context) if context else request
+        result = handler(req2)
+        return self._finish_with_injected_sections(context, result)
+
+    @override
+    async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
+        should, query, config, vault_ids, thread_id = self._should_inject(request)
+        if not should or not query:
+            return await handler(request)
+
+        t0 = time.perf_counter()
+        context, results, decision, search_err = await self._resolve_cached_or_search_async(
+            query=query,
+            config=config,
+            vault_ids=vault_ids,
+            messages=messages_from_model_request(request),
+        )
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        self._emit_post_resolve(
+            request=request,
+            thread_id=thread_id,
+            query=query,
+            config=config,
+            vault_ids=vault_ids,
+            context=context,
+            results=results,
+            decision=decision,
+            elapsed_ms=elapsed_ms,
+            search_err=search_err,
+        )
+
         req2 = self._patch_request(request, context) if context else request
         result = await handler(req2)
-
-        # Update injected_sections ContextVar so downstream code can read the KB context.
-        if context:
-            try:
-                prev = get_injected_sections()
-                merged = dict(prev) if prev else {}
-                merged["kb_injection"] = context
-                tok = set_injected_sections(merged)
-                try:
-                    _ = result
-                finally:
-                    reset_injected_sections(tok)
-            except Exception:
-                pass
-
-        return result
+        return self._finish_with_injected_sections(context, result)

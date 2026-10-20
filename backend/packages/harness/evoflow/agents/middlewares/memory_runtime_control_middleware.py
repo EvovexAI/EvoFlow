@@ -59,6 +59,17 @@ class MemoryRuntimeControlMiddleware(AgentMiddleware[AgentState]):
 
     state_schema = AgentState
 
+    def __init__(self) -> None:
+        super().__init__()
+        # LangChain validates ModelRequest.tools ⊆ create_agent tools ∪ middleware.tools.
+        # When memory is on we may force-mount ``assets`` even if the role whitelist
+        # omitted it (e.g. xiaomi curated catalog) — register here so the run does
+        # not crash with ``Middleware returned unknown tool names: ['assets']``.
+        asset = _load_assets_tool()
+        self.tools = [asset] if asset is not None else []
+        if asset is None:
+            logger.debug("memory gate: assets tool unavailable for middleware.tools")
+
     def _patch_system(self, request: ModelRequest) -> ModelRequest:
         rt = getattr(request, "runtime", None)
         if effective_memory_injection_enabled(rt):

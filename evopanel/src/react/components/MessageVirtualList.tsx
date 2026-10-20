@@ -32,7 +32,7 @@ import {
   isHiddenToolApprovalUserMessage,
 } from '../../lib/tool-approval.js'
 import { HISTORY_FLAT_LIST_MAX_ROWS, shouldPrefetchOlderHistory } from '../hooks/history-pagination.js'
-import { historyItemStableKey } from '../lib/history-row-stable-key.js'
+import { buildUniqueHistoryItemKeys, historyItemStableKey } from '../lib/history-row-stable-key.js'
 import { installMessageListDebugGlobal } from '../../lib/message-list-debug.js'
 import { streamRefHasVisibleContent } from '../lib/stream-state.js'
 import {
@@ -233,7 +233,10 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
     ...rowProps
   } = props
   const sk = String(props.sessionKey || 'default')
-
+  const uniqueKeys = useMemo(
+    () => buildUniqueHistoryItemKeys(sk, historyItems),
+    [sk, historyItems],
+  )
 
   return (
     <div className="react-vlist-inner react-vlist-inner--flat">
@@ -245,7 +248,7 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
         )
         return (
           <HistoryMessageRow
-            key={historyItemStableKey(sk, item.row, item.i)}
+            key={uniqueKeys[historyIndex] ?? historyItemStableKey(sk, item.row, item.i)}
             item={item}
             continuedRow={historyIndex === streamContinuedRowIndex ? streamContinuedRow : undefined}
             historyIndex={historyIndex}
@@ -328,15 +331,20 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
   const sk = String(rowProps.sessionKey || 'default')
   const historyItemsRef = useRef(historyItems)
   historyItemsRef.current = historyItems
-
-  const getRowKey = useCallback(
-    (index: number) => {
-      const item = historyItemsRef.current[index]
-      if (!item) return `missing-${index}`
-      return historyItemStableKey(sk, item.row, item.i)
-    },
-    [sk],
+  const uniqueKeys = useMemo(
+    () => buildUniqueHistoryItemKeys(sk, historyItems),
+    [sk, historyItems],
   )
+  const uniqueKeysRef = useRef(uniqueKeys)
+  uniqueKeysRef.current = uniqueKeys
+
+  const getRowKey = useCallback((index: number) => {
+    const keyed = uniqueKeysRef.current[index]
+    if (keyed) return keyed
+    const item = historyItemsRef.current[index]
+    if (!item) return `missing-${index}`
+    return historyItemStableKey(sk, item.row, item.i)
+  }, [sk])
 
   const virtualizer = useVirtualizer({
     count: historyItems.length,
