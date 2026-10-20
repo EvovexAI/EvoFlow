@@ -2570,6 +2570,30 @@ html[data-theme='dark'] .react-chat-history-item.active {
   mask-image: none;
 }
 
+/* 侧栏会话标题溢出：右侧渐隐 + hover 走马灯（对齐 zcode TaskTitleOverflowText） */
+.react-chat-history-item-title.react-chat-history-item-title--overflow {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+}
+
+.react-chat-session-title-marquee-track {
+  display: inline-flex;
+  width: max-content;
+  min-width: max-content;
+  align-items: center;
+  gap: 24px;
+}
+
+.react-chat-session-title-marquee-copy {
+  flex-shrink: 0;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .react-chat-session-title-marquee:hover .react-chat-session-title-marquee-track {
+    will-change: transform;
+  }
+}
+
 .react-chat-history-item-ws-badge {
   display: none;
 }

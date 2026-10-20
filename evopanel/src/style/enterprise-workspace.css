@@ -167,6 +167,11 @@ html.evopanel-macos-titlebar .react-chat-aside-toolbar {
   mask-image: none;
 }
 
+.react-chat-history-item-title.react-chat-history-item-title--overflow {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 1.5rem), transparent);
+}
+
 /* 编辑标题时取消右侧渐隐 */
 .react-chat-history-item:has(.react-chat-history-item-title-edit) .react-chat-history-item-text::after {
   display: none;

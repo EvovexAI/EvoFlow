@@ -24,6 +24,7 @@ import {
   ShellSessionIcon,
 } from './ShellSidebarIcons.js'
 import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
+import { SessionTitleOverflowText } from './SessionTitleOverflowText.js'
 
 type SessionContextMenuState = {
   sessionKey: string
@@ -467,15 +468,11 @@ function ShellSessionListRowInner({
           </div>
         ) : useEmployeeTitle ? (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
-            <span className="react-chat-history-item-title" title={employeeName}>
-              {employeeName}
-            </span>
+            <SessionTitleOverflowText>{employeeName}</SessionTitleOverflowText>
           </div>
         ) : (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
-            <span className="react-chat-history-item-title" title={row.title}>
-              {row.title}
-            </span>
+            <SessionTitleOverflowText>{row.title}</SessionTitleOverflowText>
           </div>
         )}
 
