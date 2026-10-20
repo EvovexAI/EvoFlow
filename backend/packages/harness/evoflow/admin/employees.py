@@ -150,6 +150,9 @@ _HIRE_KEYS = frozenset(
         "inject_skills",
         "inject_kb",
         "inject_soul",
+        # Applied on update (and hire where relevant)
+        "description",
+        "kb_injection",
     }
 )
 
@@ -170,17 +173,49 @@ def _proactive_api_base() -> str:
     return lg.rstrip("/") + "/api/proactive"
 
 
-def _fetch_gateway_status() -> dict[str, Any] | None:
-    """Live runner status (busy_roles). None when Gateway unreachable."""
+_GW_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "data": None, "ok": False}
+_GW_STATUS_TTL_S = 2.5
+
+
+def _fetch_gateway_status(*, force: bool = False) -> dict[str, Any] | None:
+    """Live runner status (busy_roles). None when Gateway unreachable.
+
+    Short TTL cache so consecutive ``employees.list`` calls (e.g. with/without
+    status filter) do not flap ``gateway_reachable`` (CORE-EMP-04).
+    """
+    import time
+
+    now = time.monotonic()
+    if (
+        not force
+        and _GW_STATUS_CACHE["ok"]
+        and (now - float(_GW_STATUS_CACHE["at"] or 0)) < _GW_STATUS_TTL_S
+    ):
+        data = _GW_STATUS_CACHE["data"]
+        return data if isinstance(data, dict) else None
     url = f"{_proactive_api_base()}/status"
     try:
         with httpx.Client(timeout=3.0) as client:
             r = client.get(url)
             if r.status_code == 200:
                 data = r.json()
-                return data if isinstance(data, dict) else None
+                payload = data if isinstance(data, dict) else None
+                _GW_STATUS_CACHE["at"] = now
+                _GW_STATUS_CACHE["data"] = payload
+                _GW_STATUS_CACHE["ok"] = payload is not None
+                return payload
     except Exception:
+        # Keep last good snapshot briefly so a single blip does not flip reachable→false.
+        if _GW_STATUS_CACHE["ok"] and (now - float(_GW_STATUS_CACHE["at"] or 0)) < _GW_STATUS_TTL_S * 2:
+            data = _GW_STATUS_CACHE["data"]
+            return data if isinstance(data, dict) else None
+        _GW_STATUS_CACHE["at"] = now
+        _GW_STATUS_CACHE["data"] = None
+        _GW_STATUS_CACHE["ok"] = False
         return None
+    _GW_STATUS_CACHE["at"] = now
+    _GW_STATUS_CACHE["data"] = None
+    _GW_STATUS_CACHE["ok"] = False
     return None
 
 
@@ -323,10 +358,12 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
     soul_md = (cfg.soul_md or "")[:500]
     tool_groups = list(cfg.tool_groups or [])
     model_name = cfg.model_name or ""
-    agent_description = ""
-    agent_tags: list[str] = []
-    agent_tools: list[str] = []
+    extra_ctx = cfg.extra_context if isinstance(cfg.extra_context, dict) else {}
+    agent_description = str(extra_ctx.get("agent_description") or "")
+    agent_tags: list[str] = list(extra_ctx.get("agent_tags") or []) if isinstance(extra_ctx.get("agent_tags"), list) else []
+    agent_tools: list[str] = list(extra_ctx.get("agent_tools") or []) if isinstance(extra_ctx.get("agent_tools"), list) else []
     inherits = _employee_inherits_agent(cfg)
+    agent_exists = True
 
     # Runtime prefer Agent when inheriting (effective view).
     if inherits:
@@ -347,7 +384,18 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             agent_tags = list(agent_row.get("tags") or [])
             agent_tools = tools
         except Exception:
-            pass
+            # Linked Agent gone → stop advertising inherit (CORE-AGENT-04).
+            inherits = False
+            agent_exists = False
+
+    # Heal contradictory schedule fields on read (CORE-EMP-02).
+    try:
+        from evoflow.proactive.schedule import ensure_role_schedule_fields
+
+        if ensure_role_schedule_fields(role):
+            ProactiveRepository.save_role(role)
+    except Exception:
+        pass
 
     return {
         "agent_code": role.agent_code,
@@ -356,6 +404,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
         "department": role.department,
         "reports_to": reports_to,
         "inherits_agent": inherits,
+        "agent_exists": agent_exists,
         "description": agent_description,
         "tags": agent_tags,
         "config": {
@@ -891,6 +940,18 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         )
 
     cfg = role.config
+    # Persist description on role extra + linked Agent (CORE-EMP-03).
+    if data.get("description") is not None:
+        desc = str(data.get("description") or "").strip()
+        extra = dict(cfg.extra_context or {}) if isinstance(cfg.extra_context, dict) else {}
+        extra["agent_description"] = desc
+        cfg.extra_context = extra
+        try:
+            from evoflow.admin import agents as agents_admin
+
+            agents_admin.update_agent(code, {"description": desc})
+        except Exception:
+            logger.debug("employees.update: agent description mirror skipped code=%s", code, exc_info=True)
     if data.get("responsibilities") is not None:
         cfg.responsibilities = list(data.get("responsibilities") or [])
     if data.get("workspace_path") is not None:
@@ -1045,20 +1106,53 @@ def stop_role(agent_code: str) -> dict[str, Any]:
         raise NotFoundError(f"Role '{code}' not found")
     gw = _fetch_gateway_status()
     busy_codes = {str(row.get("agent_code") or "").strip() for row in (list(gw.get("busy_roles") or []) if gw else []) if isinstance(row, dict)}
+    was_busy = code in busy_codes
     gw_resp = _try_gateway_post(f"/roles/{code}/stop")
-    if code not in busy_codes:
-        role.config.auto_patrol_suspended = True
-        role.next_heartbeat_at = None
-        role.updated_at = utc_now_iso_z()
-        ProactiveRepository.save_role(role)
+    # Always suspend auto-patrol; ``stopped`` only means an in-flight round was interrupted (CORE-EMP-05).
+    role.config.auto_patrol_suspended = True
+    role.next_heartbeat_at = None
+    role.updated_at = utc_now_iso_z()
+    ProactiveRepository.save_role(role)
     return {
         "ok": True,
         "agent_code": code,
         "status": role.status,
-        "stopped": code in busy_codes,
+        "stopped": was_busy,
+        "was_busy": was_busy,
         "auto_patrol_suspended": True,
+        "patrol_suspended": True,
         "gateway_notified": gw_resp is not None,
         **(gw_resp or {}),
+    }
+
+
+def delete_role(agent_code: str, *, delete_agent: bool = False) -> dict[str, Any]:
+    """Remove a duty role (and optionally its Agent). Destructive (CORE-EMP-06)."""
+    code = str(agent_code or "").strip()
+    if not code:
+        raise ValidationError("agent_code is required")
+    role = ProactiveRepository.get_role(code)
+    if not role:
+        raise NotFoundError(f"Role '{code}' not found")
+    try:
+        ok = ProactiveRepository.delete_role(code)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    agent_deleted = False
+    if delete_agent:
+        try:
+            from evoflow.admin import agents as agents_admin
+
+            agents_admin.delete_agent(code, confirm_cascade=False, keep_employee=True)
+            agent_deleted = True
+        except Exception as exc:
+            logger.warning("employees.delete: role removed but agent delete failed code=%s: %s", code, exc)
+    return {
+        "ok": True,
+        "deleted": bool(ok),
+        "agent_code": code,
+        "role_name": role.role_name,
+        "agent_deleted": agent_deleted,
     }
 
 
@@ -1218,7 +1312,8 @@ def list_roles(*, status: str | None = None) -> dict[str, Any]:
             st = normalize_role_status(st)
         except ValueError as e:
             raise ValidationError(str(e)) from e
-    roles = ProactiveRepository.list_roles(status=st)
+    all_roles = ProactiveRepository.list_roles(status=None)
+    roles = [r for r in all_roles if (st is None or str(r.status or "").strip().lower() == st)]
 
     gw = _fetch_gateway_status()
     busy_rows = list(gw.get("busy_roles") or []) if gw else []
@@ -1227,6 +1322,11 @@ def list_roles(*, status: str | None = None) -> dict[str, Any]:
     pending_by_role: Counter[str] = Counter()
     for a in pending:
         pending_by_role[a.role_agent_code] += 1
+
+    # Roster-wide counters stay stable under status filter (CORE-EMP-04).
+    all_summaries = [_role_summary(r, busy_codes=busy_codes) for r in all_roles]
+    active_count = sum(1 for r in all_summaries if r.get("status") == "active")
+    busy_count = sum(1 for r in all_summaries if r.get("busy"))
 
     items = []
     for role in roles:
@@ -1237,11 +1337,14 @@ def list_roles(*, status: str | None = None) -> dict[str, Any]:
     return {
         "roles": items,
         "count": len(items),
-        "active_count": sum(1 for r in items if r.get("status") == "active"),
-        "busy_count": sum(1 for r in items if r.get("busy")),
+        "total": len(all_roles),
+        "status_filter": st or "all",
+        "active_count": active_count,
+        "busy_count": busy_count,
         "pending_approvals": len(pending),
         "gateway_reachable": gw is not None,
-        "busy_roles": busy_rows,
+        "busy_roles": busy_rows if st is None else [b for b in busy_rows if str((b or {}).get("agent_code") or "").strip() in {r.agent_code for r in roles}],
+        "hint": "active_count/busy_count/total 为全量花名册；count 为当前 status_filter 命中条数",
     }
 
 
@@ -1249,6 +1352,7 @@ def worklog(
     agent_code: str,
     *,
     day: str | None = None,
+    days: int | None = None,
     limit: int = 80,
 ) -> dict[str, Any]:
     """Day work log: duty rounds (initiatives) ∪ board Tasks for the employee.
@@ -1256,6 +1360,9 @@ def worklog(
     ``day`` is interpreted in Asia/Shanghai. Initiative timestamps and Task
     created/updated/completed times are matched on the Beijing calendar day so
     UTC/Z vs ``+08:00`` storage does not empty the log.
+
+    ``days`` (when set and ``day`` omitted) aggregates the last N Beijing calendar
+    days inclusive of today (CORE-EMP-01).
     """
     code = str(agent_code or "").strip()
     if not code:
@@ -1264,31 +1371,65 @@ def worklog(
     if not role:
         raise NotFoundError(f"Role '{code}' not found")
 
-    day_s = _parse_worklog_day(day)
+    from datetime import datetime, timedelta
+
+    from evoflow.timeutil import BEIJING_TZ
 
     lim = max(1, min(int(limit), 200))
-    all_inits = ProactiveRepository.list_initiatives(role_agent_code=code, limit=max(lim, 80))
-    day_inits = [i for i in all_inits if _timestamp_on_beijing_day(getattr(i, "created_at", None), day_s)]
+    lookback = int(days) if days is not None else None
+    if lookback is not None and lookback <= 0:
+        raise ValidationError("days must be >= 1")
+    if lookback is not None:
+        lookback = min(lookback, 30)
+
+    if lookback and not day:
+        end = datetime.now(BEIJING_TZ).date()
+        day_list = [(end - timedelta(days=i)).isoformat() for i in range(lookback)]
+        day_list.reverse()
+    else:
+        day_list = [_parse_worklog_day(day)]
+
+    all_inits = ProactiveRepository.list_initiatives(role_agent_code=code, limit=max(lim * max(1, lookback or 1), 80))
+    day_inits: list[Any] = []
+    tasks: list[dict[str, Any]] = []
+    seen_task: set[str] = set()
+    for day_s in day_list:
+        day_inits.extend(i for i in all_inits if _timestamp_on_beijing_day(getattr(i, "created_at", None), day_s))
+        for t in _list_role_tasks_for_beijing_day(code, day_s, limit=lim):
+            tid = str(t.get("task_id") or "")
+            if tid and tid in seen_task:
+                continue
+            if tid:
+                seen_task.add(tid)
+            tasks.append(t)
+            if len(tasks) >= lim:
+                break
+        if len(tasks) >= lim:
+            break
     rounds = _group_rounds(day_inits)
-    tasks = _list_role_tasks_for_beijing_day(code, day_s, limit=lim)
+    tasks = tasks[:lim]
 
     # Two sources by design — do NOT treat round_count==0 as "no work":
     # rounds  = duty-patrol initiatives (created when a proactive round runs)
     # tasks   = board Tasks assigned that day (items.dispatch / proactive dispatch)
     activity_count = len(rounds) + len(tasks)
+    window = day_list[0] if len(day_list) == 1 else f"{day_list[0]}..{day_list[-1]}"
     if rounds and tasks:
-        hint = f"当日有 {len(rounds)} 个值班轮次、{len(tasks)} 个台账任务；看「干了啥」请同时读 rounds 与 tasks，勿只看 round_count。"
+        hint = f"{window} 有 {len(rounds)} 个值班轮次、{len(tasks)} 个台账任务；看「干了啥」请同时读 rounds 与 tasks，勿只看 round_count。"
     elif tasks and not rounds:
-        hint = f"当日无值班巡检轮次（round_count=0 正常），但有 {len(tasks)} 个台账任务；派发/执行工作请看 tasks[]，不要据此判定 worklog 为空。"
+        hint = f"{window} 无值班巡检轮次（round_count=0 正常），但有 {len(tasks)} 个台账任务；派发/执行工作请看 tasks[]，不要据此判定 worklog 为空。"
     elif rounds and not tasks:
-        hint = f"当日有 {len(rounds)} 个值班轮次，无台账任务记录。"
+        hint = f"{window} 有 {len(rounds)} 个值班轮次，无台账任务记录。"
     else:
-        hint = "当日暂无值班轮次与台账任务。"
+        hint = f"{window} 暂无值班轮次与台账任务。"
 
     return {
         "agent_code": code,
         "role_name": role.role_name,
-        "day": day_s,
+        "day": day_list[-1],
+        "days": lookback,
+        "day_from": day_list[0],
+        "day_to": day_list[-1],
         "timezone": "Asia/Shanghai",
         "round_count": len(rounds),
         "initiative_count": len(day_inits),
@@ -1303,6 +1444,7 @@ def worklog(
             "rounds": "值班巡检轮次（initiatives 聚合）；仅当员工跑过 proactive 轮次才有",
             "tasks": "当日指派给该员工的台账 Task（含 items.dispatch）",
             "note": "dispatch 不会写入 initiatives；round_count=0 且 task_count>0 表示有派发工作、无巡检轮次，不是 bug",
+            "days": "传整数 days=N 时汇总近 N 个北京日历日（含今天）；传 day=YYYY-MM-DD 时只查单日",
         },
         "watch_path": f"/proactive/{code}",
     }

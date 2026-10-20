@@ -37,8 +37,8 @@ ITEM_PRIORITIES = {p.value for p in ItemPriority}
 STATUS_LABEL_ZH = {
     ItemStatus.TODO: "待办",
     ItemStatus.IN_PROGRESS: "进行中",
-    # 已派给别人 / 对方跟进中（自己先等结果）
-    ItemStatus.WAITING: "处理中",
+    # 已派给别人 / 对方跟进中（自己先等结果）— 勿用「处理中」，易与 in_progress 混淆（CORE-TASK-04）
+    ItemStatus.WAITING: "等待中",
     ItemStatus.DONE: "完成",
     ItemStatus.PARKED: "搁置",
 }

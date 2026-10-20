@@ -315,22 +315,23 @@ def _normalize_canvas(raw: Any, steps: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _ensure_edges_from_depends_on(steps: list[dict[str, Any]], canvas: dict[str, Any]) -> dict[str, Any]:
-    """Rebuild canvas business edges from depends_on ONLY when canvas has zero edges.
+    """Ensure canvas has business edges implied by ``steps[].depends_on`` (CORE-WF-05).
 
-    If canvas already has edges (even only start->node), the user has been
-    editing the canvas and intentionally set the current edge set. We must
-    NOT silently restore deleted business edges from steps.depends_on,
-    otherwise the user cannot achieve parallel execution by deleting all
-    node-to-node connections (F7).
+    Adds missing step→step edges from depends_on and drops redundant
+    ``__start__→dependent`` edges once a real predecessor exists. Does **not**
+    remove existing business edges the user may have drawn (F7 parallel edits
+    clear depends_on via ``_sync_depends_on_from_canvas`` on the next save).
     """
     edges = [e for e in (canvas.get("edges") or []) if isinstance(e, dict)]
-    if edges:
-        # Canvas has edges (any kind) - respect user's current edge set
-        return canvas
-
     refs = {s["ref"] for s in steps}
-    rebuilt: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
+    for e in edges:
+        src = _as_str(e.get("source"))
+        tgt = _as_str(e.get("target"))
+        if src and tgt:
+            seen.add((src, tgt))
+
+    added: list[dict[str, Any]] = []
     for step in steps:
         tgt = step["ref"]
         for dep in step.get("depends_on") or []:
@@ -341,7 +342,7 @@ def _ensure_edges_from_depends_on(steps: list[dict[str, Any]], canvas: dict[str,
             if key in seen:
                 continue
             seen.add(key)
-            rebuilt.append(
+            added.append(
                 {
                     "source": src,
                     "target": tgt,
@@ -349,12 +350,29 @@ def _ensure_edges_from_depends_on(steps: list[dict[str, Any]], canvas: dict[str,
                     "targetHandle": "in",
                 }
             )
-    if not rebuilt:
+    if not added and not any(step.get("depends_on") for step in steps):
         return canvas
 
-    start_edges = [e for e in edges if _as_str(e.get("source")) == START_NODE_ID]
+    merged = edges + added
+    # Nodes with a business predecessor should not also hang off __start__.
+    business_targets = {
+        _as_str(e.get("target"))
+        for e in merged
+        if _as_str(e.get("source")) not in {"", START_NODE_ID, ANSWER_NODE_ID}
+        and _as_str(e.get("target")) not in {"", START_NODE_ID, ANSWER_NODE_ID}
+    }
+    pruned = [
+        e
+        for e in merged
+        if not (
+            _as_str(e.get("source")) == START_NODE_ID
+            and _as_str(e.get("target")) in business_targets
+        )
+    ]
+    if pruned == edges and not added:
+        return canvas
     out = dict(canvas)
-    out["edges"] = start_edges + rebuilt
+    out["edges"] = pruned
     return out
 
 

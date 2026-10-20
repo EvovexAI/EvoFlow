@@ -13,6 +13,7 @@ from evoflow.persistence import automation_repositories as auto_repo
 _UPDATE_KEYS = frozenset(
     {
         "name",
+        "description",
         "prompt",
         "schedule",
         "rrule",
@@ -263,7 +264,30 @@ def update_automation(task_id: str, data: dict[str, Any]) -> dict[str, Any]:
     updated["langgraph_run"] = True
     updated.pop("langgraph_assistant_id", None)
     auto_repo.save_automation(tid, updated)
-    return {"success": True, "id": tid}
+    # Surface silently-dropped keys so callers are not fooled by success (CORE-AUTO-03).
+    skip = {
+        "id",
+        "task_id",
+        "automation_id",
+        "confirm",
+        "confirmed",
+        "yes",
+        "cron_expr",
+        "workflow_id",
+        "parameters",
+    }
+    ignored = sorted(
+        k
+        for k in body
+        if k not in _UPDATE_KEYS
+        and k not in skip
+        and k not in {"app_id", "app_parameters", "schedule"}
+    )
+    out: dict[str, Any] = {"success": True, "id": tid}
+    if ignored:
+        out["ignored_keys"] = ignored
+        out["hint"] = f"未写入字段已忽略: {', '.join(ignored)}"
+    return out
 
 
 def delete_automation(task_id: str) -> dict[str, Any]:
@@ -273,11 +297,34 @@ def delete_automation(task_id: str) -> dict[str, Any]:
     return {"success": True, "id": tid}
 
 
+_ALLOWED_AUTOMATION_STATUSES = frozenset(
+    {
+        "active",
+        "enabled",
+        "running",
+        "paused",
+        "disabled",
+        "stopped",
+        "inactive",
+    }
+)
+
+
 def set_automation_status(task_id: str, *, status: str) -> dict[str, Any]:
     tid = task_id.strip()
     task = auto_repo.load_automation(tid)
     if task is None:
         raise NotFoundError(f"Automation '{tid}' not found")
-    task["status"] = status
+    st = str(status or "").strip().lower()
+    if st not in _ALLOWED_AUTOMATION_STATUSES:
+        raise ValidationError(
+            f"invalid automation status '{status}'; allowed: {sorted(_ALLOWED_AUTOMATION_STATUSES)}"
+        )
+    # Normalize aliases to stored forms used by runner/UI.
+    if st in {"enabled", "running"}:
+        st = "active"
+    elif st in {"disabled", "stopped", "inactive"}:
+        st = "paused"
+    task["status"] = st
     auto_repo.save_automation(tid, task)
-    return {"success": True, "id": tid, "status": status}
+    return {"success": True, "id": tid, "status": st}

@@ -862,7 +862,7 @@ async def delete_sessions_bulk(session_keys: list[str]) -> dict[str, Any]:
             db.execute("DELETE FROM evoflow_tool_approval_grants WHERE session_key = ?", (sk,))
             db.execute("DELETE FROM evoflow_session_scenario_trajectory WHERE session_key = ?", (sk,))
         # mark_session_deleted 是 upsert+delete 复合（tombstone），留在同一事务里逐个执行
-        now = utc_now_iso_z()
+        now = now_iso_z()
         for sk in keys:
             db.execute(
                 """

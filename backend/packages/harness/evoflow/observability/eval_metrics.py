@@ -12,7 +12,7 @@ from evoflow.observability.tool_filters import llm_tool_visibility_sql
 
 
 def fetch_invalid_tool_calls_summary(*, since_hours: float | None = 168) -> dict[str, Any]:
-    """Aggregate ``invalid_tool_calls_count`` from collab_cycle ``model_response`` trace rows."""
+    """Aggregate ``invalid_tool_calls_count`` / ``pseudo_tool_call_detected`` from collab_cycle traces."""
     st = q._store()
     if st is None:
         return {"enabled": False}
@@ -29,7 +29,11 @@ def fetch_invalid_tool_calls_summary(*, since_hours: float | None = 168) -> dict
                SUM(CASE WHEN CAST(json_extract(payload_json, '$.invalid_tool_calls_count') AS INTEGER) > 0
                         THEN 1 ELSE 0 END) AS responses_with_invalid,
                SUM(CAST(COALESCE(json_extract(payload_json, '$.invalid_tool_calls_count'), 0) AS INTEGER))
-                   AS total_invalid_tool_calls
+                   AS total_invalid_tool_calls,
+               SUM(CASE WHEN CAST(json_extract(payload_json, '$.pseudo_tool_call_detected') AS INTEGER) > 0
+                        THEN 1 ELSE 0 END) AS responses_with_pseudo,
+               SUM(CAST(COALESCE(json_extract(payload_json, '$.pseudo_tool_call_detected'), 0) AS INTEGER))
+                   AS total_pseudo_tool_calls
         FROM {T.TRACE_EVENTS}
         WHERE lane = 'collab_cycle' AND event = 'model_response'{trace_extra}
         """,
@@ -38,7 +42,10 @@ def fetch_invalid_tool_calls_summary(*, since_hours: float | None = 168) -> dict
     response_count = int(row["response_count"] or 0) if row else 0
     responses_with_invalid = int(row["responses_with_invalid"] or 0) if row else 0
     total_invalid = int(row["total_invalid_tool_calls"] or 0) if row else 0
+    responses_with_pseudo = int(row["responses_with_pseudo"] or 0) if row else 0
+    total_pseudo = int(row["total_pseudo_tool_calls"] or 0) if row else 0
     rate = (responses_with_invalid / response_count) if response_count else 0.0
+    pseudo_rate = (responses_with_pseudo / response_count) if response_count else 0.0
 
     by_thread = [
         q._row_to_dict(conn, r)
@@ -47,13 +54,15 @@ def fetch_invalid_tool_calls_summary(*, since_hours: float | None = 168) -> dict
             SELECT thread_id,
                    COUNT(*) AS model_responses,
                    SUM(CAST(COALESCE(json_extract(payload_json, '$.invalid_tool_calls_count'), 0) AS INTEGER))
-                       AS invalid_tool_calls
+                       AS invalid_tool_calls,
+                   SUM(CAST(COALESCE(json_extract(payload_json, '$.pseudo_tool_call_detected'), 0) AS INTEGER))
+                       AS pseudo_tool_calls
             FROM {T.TRACE_EVENTS}
             WHERE lane = 'collab_cycle' AND event = 'model_response'
               AND thread_id IS NOT NULL AND thread_id != ''{trace_extra}
             GROUP BY thread_id
-            HAVING invalid_tool_calls > 0
-            ORDER BY invalid_tool_calls DESC
+            HAVING invalid_tool_calls > 0 OR pseudo_tool_calls > 0
+            ORDER BY (invalid_tool_calls + pseudo_tool_calls) DESC
             LIMIT 20
             """,
             trace_p,
@@ -68,6 +77,9 @@ def fetch_invalid_tool_calls_summary(*, since_hours: float | None = 168) -> dict
         "responses_with_invalid_tool_calls": responses_with_invalid,
         "invalid_tool_call_rate": round(rate, 4),
         "total_invalid_tool_calls": total_invalid,
+        "responses_with_pseudo_tool_calls": responses_with_pseudo,
+        "pseudo_tool_call_rate": round(pseudo_rate, 4),
+        "total_pseudo_tool_calls": total_pseudo,
         "top_threads_by_invalid": by_thread,
     }
 

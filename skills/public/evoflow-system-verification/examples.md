@@ -13,7 +13,7 @@
 ```json
 {
   "action": "verification.init",
-  "args_json": "{\"title\":\"内容运营全流程\",\"domains\":[\"items\",\"workflow\",\"knowledge\",\"experience\",\"automation\",\"employees\",\"diagnostics\"],\"confirm\":true}"
+  "args_json": "{\"title\":\"内容运营全流程\",\"domains\":[\"items\",\"workflow\",\"knowledge\",\"automation\",\"employees\",\"diagnostics\"],\"confirm\":true}"
 }
 ```
 

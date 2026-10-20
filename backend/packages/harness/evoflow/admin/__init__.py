@@ -19,7 +19,6 @@ __all__ = [
     "apps",
     "automation",
     "employees",
-    "experience",
     "knowledge",
     "mcp",
     "memory",

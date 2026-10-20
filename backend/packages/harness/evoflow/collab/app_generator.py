@@ -58,8 +58,9 @@ def generate_app_from_plan(
         Complete App document dict ready for ``app_repositories.save_app()``.
     """
     # ── Step 1: Parameter extraction ──
-    if auto_extract and goal and steps:
-        rendered_plan, parameters = extract_parameters_from_plan(goal, steps, max_params=max_params)
+    # Extract when goal is present even if steps is empty (placeholders in goal alone).
+    if auto_extract and goal:
+        rendered_plan, parameters = extract_parameters_from_plan(goal, steps or [], max_params=max_params)
         goal_template = rendered_plan["goal_template"]
         param_steps = rendered_plan["steps"]
         param_count = rendered_plan["param_count"]

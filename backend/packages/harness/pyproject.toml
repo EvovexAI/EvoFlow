@@ -74,7 +74,9 @@ build-backend = "hatchling.build"
 packages = ["evoflow"]
 
 # Packaged default cutouts + shared preset gallery (served via agents avatar APIs).
+# prompts/: Asset Hub memory templates (Phase2 consolidation etc.).
 [tool.hatch.build.targets.wheel.force-include]
 "evoflow/assets/builtin_agent_avatars" = "evoflow/assets/builtin_agent_avatars"
 "evoflow/assets/avatar_presets" = "evoflow/assets/avatar_presets"
 "evoflow/assets/builtin_agent_souls" = "evoflow/assets/builtin_agent_souls"
+"evoflow/assets/prompts" = "evoflow/assets/prompts"

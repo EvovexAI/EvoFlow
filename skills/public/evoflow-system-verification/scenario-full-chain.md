@@ -31,7 +31,7 @@
 ## 设计原则
 
 1. **一条故事，不是 N 个孤岛**  
-2. **ID 接力**：`agentCode` → `itemId` → `taskId` → `runId` → `vaultId/notePath` → `experienceId` → `automationId`  
+2. **ID 接力**：`agentCode` → `itemId` → `taskId` → `runId` → `vaultId/notePath` → `automationId`  
 3. **先读后写，破坏性逆序清理或 skip**  
 4. **验收写进 `verification.step.result`**，不要只记 HTTP 200  
 5. **AI 运行单独等待**：`workflow.run` / `items.dispatch(wake_now)` 等启动后，必须独立轮询进度与 trail，审轨迹与提示词是否合理；禁止启动后立刻 stop 或只凭 HTTP 200 结案（详见 SKILL「AI 运行类步骤」）
@@ -133,7 +133,7 @@
 
 ---
 
-### Act D — 沉淀（knowledge / experience / memory / sessions）
+### Act D — 沉淀（knowledge / craft / memory / sessions）
 
 | 序 | API | 真实怎么做 | 产出/验收 |
 |----|-----|------------|-----------|
@@ -144,12 +144,10 @@
 | D5 | knowledge.notes | vaultId | 含新笔记 |
 | D6 | knowledge.note_get | path | 关键词命中 |
 | D7 | knowledge.search | `AI工具提效` | hits 相关 |
-| D8 | experience.save | 引用 itemId/runId | **experienceId** |
-| D9 | experience.get | id | ok |
-| D10 | experience.list | query=验证 | 含该条 |
-| D11 | memory.agents | 列 | ok |
-| D12 | memory.get | main 或 agentCode | ok（空也算通） |
-| D13 | sessions.search | `[验证]` 或短视频 | ok（无命中不 fail） |
+| D8 | assets craft（对话 `assets` 工具） | 引用 itemId/runId 写 craft；`experience.*` 已退役 | **craft 条目或 skipped** |
+| D9 | memory.agents | 列 | ok |
+| D10 | memory.get | main 或 agentCode | ok（空也算通） |
+| D11 | sessions.search | `[验证]` 或短视频 | ok（无命中不 fail） |
 | — | memory.clear / delete_fact | **skipped**（除非本轮可删测试事实） | — |
 
 ---
@@ -187,14 +185,13 @@
 | 序 | API |
 |----|-----|
 | G1 | automation.delete |
-| G2 | experience.delete |
-| G3 | knowledge.note_delete |
-| G4 | knowledge.enable false（自建库） |
-| G5 | tasks.delete（taskId / taskId2） |
-| G6 | items.delete |
-| G7 | employees.archive（仅验证号） |
-| G8 | agents.delete（仅验证号） |
-| G9 | skills.delete（仅本轮 install 的临时包） |
+| G2 | knowledge.note_delete |
+| G3 | knowledge.delete（自建临时库；confirm）或 enable false |
+| G4 | tasks.delete（taskId / taskId2） |
+| G5 | items.delete |
+| G6 | employees.delete（仅验证号；可选 delete_agent） |
+| G7 | agents.delete（仅验证号） |
+| G8 | skills.delete（仅本轮 install 的临时包） |
 
 ---
 
@@ -214,7 +211,7 @@ set_default_model, assets.update_profile, patch_web_search, create_model, delete
 list, get, create, update → **A**；delete → **G**
 
 ### employees（9）
-list, hire, get, update, pause, resume, stop, worklog → **A/B**；archive → **G**
+list, hire, get, update, pause, resume, stop, worklog, trail → **A/B**；delete → **G**
 
 ### tasks（5）
 create, get, list, set_state → **B**；delete → **G**
@@ -240,9 +237,6 @@ agents, get → **D**；clear, delete_fact → **skip（默认）**
 ### sessions（1）
 search → **D**
 
-### experience（4）
-save, get, list → **D**；delete → **G**
-
 ### diagnostics（3）
 sources, scan, timeline → **F**
 
@@ -258,7 +252,6 @@ model + agentCode
     → itemId → (dispatch) taskId
     → appId → runId
     → vaultId → notePath → search
-    → experienceId
     → automationId → paused → delete
     → diagnostics + worklog + sessions.search
 ```

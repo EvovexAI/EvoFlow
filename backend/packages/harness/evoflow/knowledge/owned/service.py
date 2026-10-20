@@ -28,6 +28,7 @@ from evoflow.knowledge.owned.pipeline import _model_config_for_base
 from evoflow.knowledge.owned.retrieve import (
     enrich_hits,
     purge_document_index,
+    rerank_by_query_match,
     rrf_fuse,
     search_keyword,
     search_title,
@@ -2328,13 +2329,14 @@ async def search_all(
 
     # Normalise back to the camelCase shape the API/UI expects.
     items: list[dict[str, Any]] = []
-    for h in fused[:top_k]:
+    for h in fused[: max(top_k * 2, 20)]:
         item = dict(h)
         item["chunkId"] = item.get("chunkId") or item.get("chunk_id")
         item["docId"] = item.get("docId") or item.get("doc_id")
         item["kbId"] = item.get("kbId") or item.get("kb_id")
         item["rrfScore"] = item.get("rrfScore", item.get("rrf_score"))
         items.append(item)
+    items = rerank_by_query_match(items, q)[:top_k]
     if record_activity:
         owned_activity.record(
             "",
@@ -2441,7 +2443,9 @@ async def search(
         fused = keyword_hits[:fetch_k]
         for i, h in enumerate(fused):
             h["rank"] = i + 1
-            h["rrf_score"] = 1.0 / (60 + i + 1)
+            # Prefer real keyword relevance when present; fall back to RRF rank term.
+            rel = float(h.get("score") or 0)
+            h["rrf_score"] = rel if rel > 0 else 1.0 / (60 + i + 1)
         if mode == "hybrid" and not vector_hits:
             degraded = True
     elif mode in ("semantic", "vector"):
@@ -2456,8 +2460,9 @@ async def search(
             keyword_hits,
             vector_hits,
             top_k=fetch_k,
-            w_kw=1.35,
-            w_vec=0.85,
+            # Prefer exact/keyword evidence over loose semantic neighbors (CORE-KB-02).
+            w_kw=1.8,
+            w_vec=0.65,
         )
 
     kg_boosted = False
@@ -2483,7 +2488,7 @@ async def search(
     items = enrich_hits(fused)
     if tag_filters:
         items = _filter_hits_by_tags(items, tag_filters)
-    items = items[:top_k]
+    items = rerank_by_query_match(items, query)[:top_k]
     out = {
         "items": items,
         "total": len(items),

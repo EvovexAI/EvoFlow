@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-20
+
+相对 **1.1.1** 以来的增量发布：官方插件 bundle 打包与 CI + 主动引擎与飞书通知 + 会话执行状态与忙因日志 + prompt 动态分层与 turn timing + 经验工具移除与 admin 路由整合 + lean gateway 打包硬化。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.1.2.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **官方插件 bundle 打包**：macOS + Windows 双平台 bundle 打包脚本 + CI workflows；`fetch-official-plugins-bundle` 无源时生成 stub bundle（10 目录 + placeholder）使构建继续；marketplace seed 硬化 + 同步脚本 + builtin 插件注册
+- **插件服务**：plugin service + builtin registration + catalog cache 细化（进程内缓存 + 并发去重 + subscribe/listener）
+- **主动引擎**：proactive engine + proactive timeout + proactive feishu notify（飞书投递可交付物卡片）；`supervisor tool` + `task retry leaf` + `assets memory gate`
+- **会话执行状态**：session execution state + busy reason log + context compaction + workspace info rail；`stream resume gate` 续流门控；`stage tool` 阶段工具
+- **prompt 动态分层 + turn timing**：prompt dynamic layers + prompt blocks + turn timing；message row rendering 更新
+- **内存与可观测**：memory live footer + session repos；`eval_metrics` 评估指标；`view image inline preview` 图片内联预览
+- **其他**：code comment cards + trae tool + deliverable cards + stream perf + docs refresh；`platform_registry_doc_sync` 测试
+
+### Changed
+
+- **经验工具移除**：删除 `admin/experience.py` / `cli/commands/experience.py` / `tools/builtins/experience_middleware.py`（旧经验库迁移至资产中心后下线）
+- **admin 路由整合**：agents / approvals / apps / automation / automation_schedule / employees / knowledge / skills / tasks / platform_* 路由与 handler 整合
+- **collab/app 生成器**：app_extractor / app_generator / app_runner / app_schema 更新
+- **lean gateway 打包**：`assert-lean-gateway-bundle` (sh/ps1) + `gateway-pyarmor.spec` / `gateway.spec` 打包规格硬化
+- **knowledge / assets**：owned retrieve / service + craft / migrate / user_profile_dims 更新
+- **中间件**：`collab_cycle_trace_middleware` / `invalid_tool_call_middleware` 更新
+- **前端**：`agui-turn-reducer` 更新；新增 `evopanel/public/logo.ico`
+- **文档**：`evoflow-admin-external`（README / cli-cheatsheet / http-platform / playbooks）+ `evoflow-system-verification`（SKILL / examples / scenario-full-chain）刷新
+
+### Fixed
+
+- **CI**：PS1 脚本中 em-dash / 箭道箭头 / 省略号等非 ASCII 字符在非 UTF-8 CI 中乱码破坏语法 → 清除非 ASCII
+- **CI**：无官方插件源时 `fetch-official-plugins-bundle` 改生成 stub bundle 不再 throw
+
+### Notes
+
+- 发版说明与版本线对齐 **1.1.2**
+- 建议从 **1.1.1** 覆盖安装至 **1.1.2**；无数据迁移
+
 ## [1.1.1] - 2026-10-18
 
 相对 **1.1.0** 以来的增量发布：浏览器内嵌面板能力补齐 + Computer Use 显示链路打通 + 会话执行停止可靠性修复 + 插件目录与性能优化。

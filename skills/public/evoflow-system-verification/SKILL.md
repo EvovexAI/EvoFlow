@@ -145,7 +145,6 @@ model + agentCode
   → itemId → (dispatch) taskId
   → appId → runId
   → vaultId → notePath → search
-  → experienceId
   → automationId → paused → (可选) delete
   → diagnostics + worklog + sessions.search
 ```
@@ -196,7 +195,7 @@ model + agentCode
 ### 4) Act D — 沉淀
 
 `knowledge.list` → 必要时 `create/enable` → `ingest` → `notes` → `note_get` → `search`  
-→ `experience.save/get/list`  
+→ 经验沉淀改走 `assets` 工具 craft（旧 `experience.*` 已退役，本步 skipped 或用 assets note）  
 → `memory.agents/get`（clear/delete_fact 默认 skipped）  
 → `sessions.search`
 
@@ -212,18 +211,18 @@ model + agentCode
 
 ### 7) Act G — 清理（仅 `cleanup=true`）
 
-逆序只删本轮对象：`automation.delete` → `experience.delete` → `knowledge.note_delete` →（自建库）`enable false` → `tasks.delete` → `items.delete` →（验证号）`employees.archive` / `agents.delete`
+逆序只删本轮对象：`automation.delete` → `knowledge.note_delete` →（自建库）`knowledge.delete`（confirm）→ `tasks.delete` → `items.delete` →（验证号）`employees.delete` / `agents.delete`
 
 ---
 
 ## 全量核对（78 业务 API，执行时勾完）
 
-- **knowledge(8)** create, enable, ingest, list, note_delete, note_get, notes, search  
+- **knowledge(9+)** create, enable, ingest, list, note_delete, note_get, notes, search ｜ delete→G（自建临时库）
 - **workflow(5)** get, list, run, run_status, stop  
 - **settings(9)** list_models, get_default_model, get_model, get_web_search, test_web_search ｜ *skip:* set_default_model, patch_web_search, create_model, delete_model  
 - **assets(2)** get_profile ｜ *skip:* update_profile  
 - **agents(5)** list, get, create, update ｜ delete→G  
-- **employees(9)** list, hire, get, update, pause, resume, stop, worklog ｜ archive→G  
+- **employees(10)** list, hire, get, update, pause, resume, stop, worklog, trail ｜ delete→G  
 - **tasks(5)** create, get, list, set_state ｜ delete→G  
 - **items(6)** create, get, update, list, dispatch ｜ delete→G  
 - **skills(5)** list, get, enable ｜ *skip/sandbox:* install, delete  
@@ -232,7 +231,6 @@ model + agentCode
 - **approvals(3)** list ｜ approve/reject 有单才跑  
 - **memory(4)** agents, get ｜ *skip:* clear, delete_fact  
 - **sessions(1)** search  
-- **experience(4)** save, get, list ｜ delete→G  
 - **diagnostics(3)** sources, scan, timeline  
 
 漏任一业务 API（未 passed/failed/skipped）→ **不得 conclude 为全绿**。

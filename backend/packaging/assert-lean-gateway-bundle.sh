@@ -78,6 +78,21 @@ else
   fi
 fi
 
+# Asset Hub memory templates (Phase2 consolidate). PyInstaller must ship prompts/.
+consolidation=""
+for candidate in \
+  "${GATEWAY_DIR}/_internal/evoflow/assets/prompts/memories/consolidation.md" \
+  "${GATEWAY_DIR}/evoflow/assets/prompts/memories/consolidation.md"
+do
+  if [[ -f "${candidate}" ]]; then
+    consolidation="${candidate}"
+    break
+  fi
+done
+if [[ -z "${consolidation}" ]]; then
+  fail "memory prompt missing: evoflow/assets/prompts/memories/consolidation.md (Phase2 FileNotFoundError on startup)"
+fi
+
 total_kb=$(du -sk "${GATEWAY_DIR}" 2>/dev/null | awk '{print $1}')
 total_mb=$(( total_kb / 1024 ))
 if [[ "${allow_chromium}" != "1" && "${allow_local_embed}" != "1" && "${allow_whisper}" != "1" && "${total_mb}" -gt 900 ]]; then

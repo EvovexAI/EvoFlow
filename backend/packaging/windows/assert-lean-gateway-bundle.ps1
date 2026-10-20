@@ -128,6 +128,12 @@ if (-not (Test-Path -LiteralPath $officialBundle)) {
   }
 }
 
+# Asset Hub memory templates (Phase2 consolidate). PyInstaller must ship prompts/.
+$consolidation = Join-Path $GatewayDir "_internal\evoflow\assets\prompts\memories\consolidation.md"
+if (-not (Test-Path -LiteralPath $consolidation)) {
+  $errors.Add("memory prompt missing: _internal/evoflow/assets/prompts/memories/consolidation.md (Phase2 FileNotFoundError on startup)")
+}
+
 # Soft size guard: lean sidecar should stay well under ~800MB uncompressed.
 $totalSum = (Get-ChildItem -LiteralPath $GatewayDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
 $totalMb = if ($null -ne $totalSum) { [math]::Round($totalSum / 1MB, 1) } else { 0 }

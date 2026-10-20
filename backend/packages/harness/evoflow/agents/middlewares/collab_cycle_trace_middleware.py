@@ -210,6 +210,14 @@ class CollabCycleTraceMiddleware(AgentMiddleware[AgentState]):
         preview = _msg_text(getattr(ai, "content", "")) if ai is not None else ""
         if not preview:
             preview = _structured_response_preview(result)
+        pseudo = False
+        if ai is not None and not tool_calls and not invalid_calls:
+            try:
+                from evoflow.agents.middlewares.invalid_tool_call_middleware import detect_pseudo_tool_markup
+
+                pseudo = detect_pseudo_tool_markup(_msg_text(getattr(ai, "content", ""), max_len=4000))
+            except Exception:
+                pseudo = False
         self._log(
             "model_response",
             {
@@ -219,6 +227,7 @@ class CollabCycleTraceMiddleware(AgentMiddleware[AgentState]):
                 "response_tool_calls": _tool_call_names(tool_calls),
                 "response_tool_calls_count": len(tool_calls),
                 "invalid_tool_calls_count": len(invalid_calls),
+                "pseudo_tool_call_detected": 1 if pseudo else 0,
                 "ai_preview": preview,
             },
         )
@@ -251,6 +260,14 @@ class CollabCycleTraceMiddleware(AgentMiddleware[AgentState]):
         preview = _msg_text(getattr(ai, "content", "")) if ai is not None else ""
         if not preview:
             preview = _structured_response_preview(result)
+        pseudo = False
+        if ai is not None and not tool_calls and not invalid_calls:
+            try:
+                from evoflow.agents.middlewares.invalid_tool_call_middleware import detect_pseudo_tool_markup
+
+                pseudo = detect_pseudo_tool_markup(_msg_text(getattr(ai, "content", ""), max_len=4000))
+            except Exception:
+                pseudo = False
         self._log(
             "model_response",
             {
@@ -260,6 +277,7 @@ class CollabCycleTraceMiddleware(AgentMiddleware[AgentState]):
                 "response_tool_calls": _tool_call_names(tool_calls),
                 "response_tool_calls_count": len(tool_calls),
                 "invalid_tool_calls_count": len(invalid_calls),
+                "pseudo_tool_call_detected": 1 if pseudo else 0,
                 "ai_preview": preview,
                 "async": True,
             },

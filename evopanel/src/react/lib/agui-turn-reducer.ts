@@ -804,6 +804,26 @@ export function sealOpenAgUiMessages(state: AgUiTurnState): void {
   }
 }
 
+const EMPTY_TURN_NOTICE =
+  '本轮没有可展示的回复，也没有工具调用。若你期望执行操作，可能是模型未发出有效输出（或把工具写成了正文伪标签）——请重试或换一种说法。'
+
+/** 无正文且无工具时补一条明确提示，避免界面像卡住 / 被静默拦截（DEF-01）。 */
+export function ensureEmptyTurnNotice(state: AgUiTurnState): void {
+  if (state.toolCalls.size > 0) return
+  for (const msg of state.messages.values()) {
+    if (msg.role === 'assistant' && String(msg.content || '').trim()) return
+  }
+  const noticeId = `empty-turn-notice-${String(state.runId || 'run').trim() || 'run'}`
+  if (state.messages.has(noticeId)) return
+  state.messages.set(noticeId, {
+    messageId: noticeId,
+    role: 'assistant',
+    content: EMPTY_TURN_NOTICE,
+    closed: true,
+  })
+  state.order.push({ kind: 'text', messageId: noticeId, blockKind: 'body_text' })
+}
+
 /**
  * compatSegments only include closed messages; inject open assistant text at wire seq
  * so tools-only + streaming body stays ordered (plan/tools/body without reasoning).
@@ -1491,6 +1511,7 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
     // wire 偶发丢 TEXT_MESSAGE_END：不封存则 body 只留在 openText，
     // final 落库只用 closed timeline 时会丢掉「工具后总结」。
     sealOpenAgUiMessages(state)
+    ensureEmptyTurnNotice(state)
     return syncAgUiCompatProjection(state)
   }
 
@@ -1502,6 +1523,7 @@ export function applyAgUiEvent(state: AgUiTurnState, event: AGUIEvent): AgUiTurn
       if (tc.phase !== 'done') tc.phase = 'done'
     }
     sealOpenAgUiMessages(state)
+    ensureEmptyTurnNotice(state)
     return syncAgUiCompatProjection(state)
   }
 

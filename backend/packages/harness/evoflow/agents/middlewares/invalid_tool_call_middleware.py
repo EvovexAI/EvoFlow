@@ -1,9 +1,16 @@
-"""Convert model ``invalid_tool_calls`` into error ToolMessages before ToolNode runs."""
+"""Convert model ``invalid_tool_calls`` into error ToolMessages before ToolNode runs.
+
+Also sniffs assistant content for pseudo tool-call markup (e.g. DSML / ``invoke name=``)
+that never lands in ``tool_calls`` / ``invalid_tool_calls`` — otherwise the turn ends
+silently with no tool execution and no error (DEF-01).
+"""
 
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from typing import Any
 
 try:
     from typing import override
@@ -18,6 +25,43 @@ from langgraph.runtime import Runtime
 from evoflow.tools.arg_coerce import coerce_plan_tool_call_args, parse_loose_json_object
 
 logger = logging.getLogger(__name__)
+
+# Fullwidth vertical line U+FF5C appears in some model "DSML" dumps; also plain | / XML-ish tags.
+_PSEUDO_TOOL_MARKUP_RE = re.compile(
+    r"(?:"
+    r"DSML"
+    r"|\binvoke\s+name\s*="
+    r"|<\s*(?:tool_call|function_call|tool_calls)\b"
+    r"|</\s*(?:tool_call|function_call|tool_calls)\s*>"
+    r"|\|+\s*invoke\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _ai_content_as_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for x in content:
+            if isinstance(x, str):
+                parts.append(x)
+            elif isinstance(x, dict) and isinstance(x.get("text"), str):
+                parts.append(x["text"])
+        return "".join(parts)
+    return str(content or "")
+
+
+def detect_pseudo_tool_markup(text: str) -> bool:
+    """True when assistant text looks like a dumped tool call that was never parsed."""
+    s = (text or "").strip()
+    if not s or len(s) < 8:
+        return False
+    # Fullwidth pipe dumps: ＜｜｜DSML｜｜…＞ style
+    if "\uff5c" in s and ("invoke" in s.lower() or "dsml" in s.lower()):
+        return True
+    return bool(_PSEUDO_TOOL_MARKUP_RE.search(s))
 
 
 def _parse_invalid_tool_args(raw: object) -> dict[str, object] | None:
@@ -122,6 +166,56 @@ def _invalid_call_fields(inv: object) -> tuple[str, str, str]:
     return tc_id, name, err
 
 
+def _materialize_pseudo_tool_error(last: AIMessage) -> tuple[AIMessage, list[ToolMessage]] | None:
+    """When content looks like a dumped tool call but nothing was parsed, surface an error."""
+    existing_calls = list(getattr(last, "tool_calls", None) or [])
+    invalid = list(getattr(last, "invalid_tool_calls", None) or [])
+    if existing_calls or invalid:
+        return None
+    text = _ai_content_as_text(getattr(last, "content", None))
+    if not detect_pseudo_tool_markup(text):
+        return None
+    tc_id = f"pseudo_{uuid.uuid4().hex[:12]}"
+    preview = text.strip().replace("\n", " ")[:180]
+    user_visible = (
+        "本轮工具调用写成了正文伪标签（如 DSML / invoke），系统未能解析执行，"
+        "也不是风控拦截。请改用正常 tool_calls 重试。"
+        f"\n片段：{preview}"
+    )
+    err = (
+        "Error: Tool call was written as plain text markup and was not executed "
+        "(pseudo/DSML/invoke tags are not parsed). "
+        "Call the tool via the normal tool_calls channel, not as message body. "
+        f"Fragment: {preview}"
+    )
+    tool_msg = ToolMessage(
+        content=err,
+        tool_call_id=tc_id,
+        name="pseudo_tool_call",
+        status="error",
+    )
+    # Keep tool_calls empty so ToolNode does not execute a fake call; mirror the
+    # invalid_tool_calls materialization path and replace body so SSE TEXT is visible.
+    ak = dict(getattr(last, "additional_kwargs", None) or {})
+    ak["pseudo_tool_call_detected"] = True
+    updated = last.model_copy(
+        update={
+            "content": user_visible,
+            "invalid_tool_calls": [
+                {
+                    "id": tc_id,
+                    "name": "pseudo_tool_call",
+                    "error": "pseudo_tool_call_detected",
+                    "args": {},
+                }
+            ],
+            "additional_kwargs": ak,
+        }
+    )
+    logger.info("invalid_tool_call_middleware: pseudo tool markup detected (no parsed tool_calls)")
+    return updated, [tool_msg]
+
+
 def _process_invalid_tool_calls(state: AgentState) -> dict | None:
     messages = list(state.get("messages") or [])
     if not messages:
@@ -134,7 +228,11 @@ def _process_invalid_tool_calls(state: AgentState) -> dict | None:
         messages = [*messages[:-1], last]
     invalid = list(getattr(last, "invalid_tool_calls", None) or [])
     if not invalid:
-        return None
+        pseudo = _materialize_pseudo_tool_error(last)
+        if pseudo is None:
+            return None if not coerced_valid else {"messages": [*messages[:-1], last]}
+        updated_ai, tool_msgs = pseudo
+        return {"messages": [*messages[:-1], updated_ai, *tool_msgs]}
 
     tool_msgs: list[ToolMessage] = []
     repaired_calls: list[dict[str, object]] = []

@@ -25,6 +25,7 @@ PLATFORM_DOMAINS = (
     "knowledge",
     "workflow",
     "settings",
+    "assets",
     "agents",
     "employees",
     "tasks",
@@ -35,7 +36,6 @@ PLATFORM_DOMAINS = (
     "approvals",
     "memory",
     "sessions",
-    "experience",
     "diagnostics",
     "verification",
     "appearance",
@@ -62,7 +62,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "assets": {
         "title": "资产中心（用户画像）",
         "when": "查看或更新用户画像（basic-info / preferences / persona）；用户说「我的画像」「记住我喜欢…」时",
-        "not": "不是长期记忆 facts（用 memory）；不是经验库（用 experience）；面板入口 #/assets → 画像",
+        "not": "不是长期记忆 facts（用 memory）；不是可复用经验（用 assets 工具 craft）；面板入口 #/assets → 画像",
     },
     "agents": {
         "title": "智能体角色",
@@ -71,7 +71,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "employees": {
         "title": "智能体员工岗位",
-        "when": "雇佣/暂停/恢复员工、改心跳、看工作日志时",
+        "when": "雇佣/暂停/恢复/删除员工、改心跳、看工作日志时",
         "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch",
     },
     "tasks": {
@@ -107,17 +107,12 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "memory": {
         "title": "长期记忆",
         "when": "查看各 Agent 记忆、读/清记忆、删单条事实时",
-        "not": "不是用户画像（用 assets.get_profile / assets.update_profile，或 #/assets → 画像）；不是经验库（用 experience）",
+        "not": "不是用户画像（用 assets.get_profile / assets.update_profile，或 #/assets → 画像）；不是可复用经验（用 assets 工具 craft）",
     },
     "sessions": {
         "title": "会话检索",
         "when": "按关键词检索历史会话时",
         "not": "不是当前对话内 todo",
-    },
-    "experience": {
-        "title": "经验库",
-        "when": "列出/查看/保存/删除可复用经验条目时",
-        "not": "不是运行时记忆（用 memory）",
     },
     "diagnostics": {
         "title": "日志与异常诊断",
@@ -228,8 +223,26 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("knowledge.notes", "knowledge", "列出库内笔记", "read", "vaultId?/kbId?, prefix?, limit?", H.knowledge_notes, "英语库里有哪些笔记"),
         _A("knowledge.note_get", "knowledge", "读取一篇笔记", "read", "path, vaultId?/kbId?", H.knowledge_note_get, "打开某篇笔记"),
         _A("knowledge.note_delete", "knowledge", "删除一篇笔记", "destructive", "path, vaultId?/kbId?", H.knowledge_note_delete, "删掉这篇笔记"),
+        _A(
+            "knowledge.delete",
+            "knowledge",
+            "删除平台自有知识库（软删；内置库不可删）",
+            "destructive",
+            "kbId",
+            H.knowledge_delete,
+            "删掉验证用临时知识库",
+        ),
         _A("knowledge.requeue", "knowledge", "重排队卡住的索引任务", "write", "kbId?, limit?", H.knowledge_requeue, "processing 一直不完成"),
-        _A("knowledge.reindex", "knowledge", "整库重索引（可改向量模型）", "write", "kbId, embeddingModelRef?, force?", H.knowledge_reindex, "改成 local 再重建向量"),
+        _A(
+            "knowledge.reindex",
+            "knowledge",
+            "整库重索引（可改向量模型；force 默认 false，true=强制全量重建）",
+            "write",
+            "kbId, embeddingModelRef?, force?",
+            H.knowledge_reindex,
+            "改成 local 再重建向量",
+            "force=true 全量重建",
+        ),
         # workflow
         _A("workflow.list", "workflow", "列出应用/工作流", "read", "status?, search?, limit?", H.workflow_list, "有哪些工作流"),
         _A("workflow.schema", "workflow", "查看创建工作流所需的步骤/参数模板", "read", "无", H.workflow_schema, "创建工作流要传什么参数"),
@@ -307,8 +320,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "测一下豆包搜索通不通",
             "测通后把推荐引擎设为首选",
         ),
-        # appearance（EvoPanel 主题 / 背景 / 液态玻璃）
-        _A("appearance.get", "appearance", "查看界面外观设置与可选值", "read", "无", H.appearance_get, "当前主题和背景是啥"),
+        # appearance（EvoPanel 主题 / 背景 / 液态玻璃；读设置走 HTTP，platform 仅 patch）
         _A(
             "appearance.patch",
             "appearance",
@@ -343,11 +355,20 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("employees.resume", "employees", "恢复员工值班", "write", "agent_code", H.employees_resume, "恢复拆解岗"),
         _A("employees.stop", "employees", "停止员工当前轮次", "write", "agent_code", H.employees_stop, "停掉他手头这轮"),
         _A(
+            "employees.delete",
+            "employees",
+            "删除员工岗位（可选一并删除智能体）",
+            "destructive",
+            "agent_code, delete_agent?",
+            H.employees_delete,
+            "删掉验证用员工岗位",
+        ),
+        _A(
             "employees.worklog",
             "employees",
-            "查看员工某日工作日志（rounds=值班轮次；tasks=台账任务；勿因 round_count=0 判空，请看 task_count/tasks/hint）",
+            "查看员工某日/近N日工作日志（rounds=值班轮次；tasks=台账任务；勿因 round_count=0 判空，请看 task_count/tasks/hint）",
             "read",
-            "agent_code, day?, limit?",
+            "agent_code, day?, days?, limit?",
             H.employees_worklog,
             "拆解岗今天干了啥",
         ),
@@ -364,11 +385,12 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "tasks.list",
             "tasks",
-            "列出协作 Task 台账（行政视角）",
+            "列出协作 Task 台账（行政视角；默认不含子任务，limit 默认 50、上限 200）",
             "read",
-            "status?, assignee?, role?, source?",
+            "status?, assignee?, role?, source?, limit?, offset?, include_subtasks?",
             H.tasks_list,
             "未结任务有哪些",
+            "最近 5 条主任务",
         ),
         _A("tasks.get", "tasks", "查看 Task 详情", "read", "task_id, subtask_id?", H.tasks_get, "这个任务怎么样了"),
         _A(
@@ -389,7 +411,16 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.tasks_create,
             "建个待办给前端岗",
         ),
-        _A("tasks.set_state", "tasks", "行政侧变更 Task 状态", "write", "task_id, state, summary?", H.tasks_set_state, "把这单标完成"),
+        _A(
+            "tasks.set_state",
+            "tasks",
+            "行政侧变更 Task 状态（合法流转：pending→executing→completed 等；非法时错误含 next_states）",
+            "write",
+            "task_id, state=pending|planned|executing|waiting_user|awaiting_close|completed|failed|cancelled|…, summary?",
+            H.tasks_set_state,
+            "把这单标完成",
+            "先改成 executing 再 completed",
+        ),
         _A("tasks.delete", "tasks", "删除 Task", "destructive", "task_id", H.tasks_delete, "删掉测试任务"),
         # items（用户个人事项，≠ 可执行 Task；≠ 对话内 todo）
         _A(
@@ -397,9 +428,10 @@ def _build_registry() -> dict[str, PlatformAction]:
             "items",
             "列出用户事项/备忘（持久化；≠ 对话 todo、≠ Task）",
             "read",
-            "status?, tag?, q?, include_done?",
+            "status?, priority?, tag?, q?, include_done?, page?, page_size?/limit?",
             H.items_list,
             "我有哪些待办事项",
+            "只要高优先级未完成",
         ),
         _A("items.get", "items", "查看事项详情", "read", "item_id", H.items_get, "这条事项详情"),
         _A(
@@ -440,7 +472,15 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("automation.set_status", "automation", "启用/停用自动化", "write", "id, status(active|paused|…)", H.automation_set_status, "暂停这个定时"),
         _A("automation.delete", "automation", "删除自动化", "destructive", "id", H.automation_delete, "删掉测试定时"),
         # approvals
-        _A("approvals.list", "approvals", "列出待审批/审批记录", "read", "status?, limit?", H.approvals_list, "有什么要我批"),
+        _A(
+            "approvals.list",
+            "approvals",
+            "列出审批（默认 pending；传 status=all 看全部）",
+            "read",
+            "status?, limit?",
+            H.approvals_list,
+            "有什么要我批",
+        ),
         _A("approvals.approve", "approvals", "同意审批", "write", "id/task_id, comment?", H.approvals_approve, "这个批了"),
         _A("approvals.reject", "approvals", "驳回审批", "write", "id/task_id, reason", H.approvals_reject, "驳回并说明原因"),
         # memory
@@ -450,11 +490,6 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("memory.delete_fact", "memory", "删除单条记忆事实", "destructive", "fact_id, agent?", H.memory_delete_fact, "忘掉这条"),
         # sessions
         _A("sessions.search", "sessions", "按关键词搜历史会话", "read", "query, max_results?, max_age_days?, search_titles?", H.sessions_search, "上次聊英语单词是哪个会话"),
-        # experience
-        _A("experience.list", "experience", "列出经验库条目", "read", "query?, category?, limit?", H.experience_list, "经验库有啥"),
-        _A("experience.get", "experience", "查看经验详情", "read", "id", H.experience_get, "这条经验细节"),
-        _A("experience.save", "experience", "保存经验", "write", "title, problem, solution, outcome, category, tags, steps, content", H.experience_save, "记一条经验"),
-        _A("experience.delete", "experience", "删除经验", "destructive", "id, permanent?", H.experience_delete, "删掉这条经验"),
         # diagnostics（系统已知日志源 + 异常扫描 + 可转发时间线）
         _A(
             "diagnostics.sources",
@@ -489,13 +524,12 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "diagnostics.run",
             "diagnostics",
-            "综合系统诊断：一次检查全模块健康状态（日志/知识库/模型/员工/定时任务）并输出诊断报告",
+            "综合系统诊断（日志/知识库/模型/员工/定时）；focus 可只跑对应模块：logs|knowledge|models|employees|automation 或中文别名",
             "read",
-            "focus?",
+            "focus?=logs|knowledge|models|employees|automation|员工|对话|定时|知识库|模型",
             H.diagnostics_run,
             "帮我查一下系统有什么问题",
             "员工跑不起来帮我诊断一下",
-            "对话消失了帮我查原因",
             "定时任务没触发帮我看看",
         ),
         # verification（系统验证轮次：进度/结论/异常 + 接口入参出参耗时）
@@ -528,15 +562,6 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.verification_init,
             "新一轮：把全平台接口初始化成待开始",
             "只初始化 knowledge 和 employees",
-        ),
-        _A(
-            "verification.list",
-            "verification",
-            "列出验证轮次",
-            "read",
-            "status?, query?, limit?",
-            H.verification_list,
-            "最近验证跑了几轮",
         ),
         _A(
             "verification.get",
@@ -614,7 +639,18 @@ def _domain_catalog_entry(domain: str, actions: list[PlatformAction]) -> dict[st
     }
 
 
-def build_catalog(*, domain: str | None = None, detailed: bool = False) -> dict[str, Any]:
+def build_catalog(
+    *,
+    domain: str | None = None,
+    detailed: bool = False,
+    summary: bool = False,
+) -> dict[str, Any]:
+    """Build platform catalog.
+
+    - No domain + not detailed: domain guides + one-line action list (default).
+    - ``summary=True``: only ``name`` + ``risk`` (+ domain) — cheap probe mode (DEF-04).
+    - domain set + detailed: full params/examples for that domain.
+    """
     reg = get_registry()
     dom = str(domain or "").strip().lower() or None
     actions = [a for a in reg.values() if not dom or a.domain == dom]
@@ -624,7 +660,18 @@ def build_catalog(*, domain: str | None = None, detailed: bool = False) -> dict[
             "error": f"unknown domain: {dom}",
             "domains": list(PLATFORM_DOMAINS),
             "guides": [domain_guide(d) for d in PLATFORM_DOMAINS],
-            "hint": "用 catalog 不带 domain 看域摘要，或指定某一域名看详版。",
+            "hint": "用 catalog 不带 domain 看域摘要，或指定某一域名看详版；也可 args_json 传 domain。",
+        }
+
+    if summary:
+        items = [{"name": a.name, "domain": a.domain, "risk": a.risk} for a in actions]
+        return {
+            "ok": True,
+            "mode": "summary",
+            "count": len(items),
+            "domain": dom,
+            "items": items,
+            "hint": "摘要模式只含 name/risk；详版：catalog + domain=…（勿传 summary）。",
         }
 
     # 无 domain：短目录 = 每域 when/not + 功能清单 + 全部 action 一行摘要
@@ -640,7 +687,11 @@ def build_catalog(*, domain: str | None = None, detailed: bool = False) -> dict[
             "domains": domain_summaries,
             "items": items,
             "routing": ("先按 domains[].when 选域，再选 domains[].actions[].name 作为 action。用户备忘→items；岗位工单推进→专用工具 tasks（或本工具 tasks.* 行政侧）；对话 checklist→todo。写/破坏性操作须用户确认后 confirm=true。"),
-            "hint": ("某域详版：action=catalog 且 domain=" + "|".join(PLATFORM_DOMAINS) + "。"),
+            "hint": (
+                "某域详版：action=catalog 且 domain="
+                + "|".join(PLATFORM_DOMAINS)
+                + "（domain 可用工具参数或 args_json）。摘要：args_json 传 summary=true。"
+            ),
         }
 
     guide = domain_guide(dom) if dom else None
@@ -735,10 +786,28 @@ def dispatch_platform_action(
         }
 
     key = act.lower()
+    # Parse args early so catalog/help can take domain/summary from args_json (DEF-04).
+    try:
+        early_args = _parse_args(args_json) if key in {"help", "manual", "说明书", "catalog", "list_actions", "目录", "domains"} else None
+    except ValidationError as exc:
+        return {"ok": False, "error": str(exc), "action": act}
+
     if key in {"help", "manual", "说明书"}:
-        return build_help(domain or None)
+        topic = domain or (str(early_args.get("domain") or early_args.get("topic") or "").strip() if early_args else "") or None
+        return build_help(topic)
     if key in {"catalog", "list_actions", "目录", "domains"}:
-        return build_catalog(domain=domain, detailed=bool(domain))
+        args = early_args or {}
+        dom_raw = domain or args.get("domain") or args.get("domains")
+        if isinstance(dom_raw, (list, tuple)):
+            dom_raw = dom_raw[0] if dom_raw else None
+        dom = str(dom_raw or "").strip() or None
+        summary = bool(args.get("summary")) or str(args.get("mode") or "").strip().lower() == "summary"
+        detailed_flag = args.get("detailed")
+        if detailed_flag is None:
+            detailed = bool(dom) and not summary
+        else:
+            detailed = bool(detailed_flag) and not summary
+        return build_catalog(domain=dom, detailed=detailed, summary=summary)
 
     reg = get_registry()
     entry = reg.get(act) or reg.get(key)
@@ -776,8 +845,8 @@ def dispatch_platform_action(
     if entry.handler is None:
         return {"ok": False, "error": "handler_missing", "action": entry.name}
 
-    # Thread caller identity into handlers that bucket per-user assets
-    # (experience.*). Extra key is inert for handlers that ignore it.
+    # Thread caller identity into handlers that bucket per-user assets.
+    # Extra key is inert for handlers that ignore it.
     pid = str(principal_id or "").strip()
     if pid:
         args = dict(args or {})

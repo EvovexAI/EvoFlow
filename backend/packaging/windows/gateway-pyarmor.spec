@@ -87,12 +87,24 @@ openapi_json = site_packages_dir / "openapi.json"
 if openapi_json.exists():
     datas.append((str(openapi_json), "."))
 
-# Non-.py package assets
+# Non-.py package assets (keep in sync with gateway.spec)
+# prompts/: Asset Hub memory templates — Phase2 consolidate needs consolidation.md
 _assets_root = _harness_evoflow / "assets"
-for _asset_subdir in ("builtin_agent_avatars", "avatar_presets", "builtin_agent_souls"):
+for _asset_subdir in (
+    "builtin_agent_avatars",
+    "avatar_presets",
+    "builtin_agent_souls",
+    "prompts",
+):
     _src = _assets_root / _asset_subdir
     if _src.is_dir():
         datas.append((str(_src), f"evoflow/assets/{_asset_subdir}"))
+_consolidation = _assets_root / "prompts" / "memories" / "consolidation.md"
+if not _consolidation.is_file():
+    raise SystemExit(
+        "gateway-pyarmor.spec: evoflow/assets/prompts/memories/consolidation.md missing "
+        "(Phase2 memory consolidate would FileNotFoundError on desktop install)"
+    )
 
 # System builtin Obsidian vaults
 _docs_user = backend_root.parent / "docs" / "user"

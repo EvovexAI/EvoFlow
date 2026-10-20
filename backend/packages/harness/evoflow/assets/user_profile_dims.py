@@ -117,13 +117,18 @@ def _append_profile_content(existing: str, addition: str, *, filename: str) -> s
     add = str(addition or "").strip()
     if not add:
         return existing
+    # Avoid ``- - item`` when caller already prefixed a markdown bullet (CORE-ASSET-04).
+    if add.startswith(("- ", "* ", "+ ")):
+        bullet = add
+    else:
+        bullet = f"- {add}"
     base = str(existing or "").strip() or _default_for_file(filename).strip()
-    if add in base:
+    if add in base or bullet in base:
         return base + "\n"
     section = "## Agent 补充"
     if section in base:
-        return base.rstrip() + f"\n- {add}\n"
-    return base.rstrip() + f"\n\n{section}\n- {add}\n"
+        return base.rstrip() + f"\n{bullet}\n"
+    return base.rstrip() + f"\n\n{section}\n{bullet}\n"
 
 
 def update_profile_dimension(

@@ -4,7 +4,7 @@
 默认 pretty JSON；脚本加 `--compact`。写 JSON：**`--file <路径>` 或 `--stdin`**（禁止把 JSON 字符串塞进 `--file`）。  
 **参数以 `evoflow <组> <子命令> -h` 为准。** 选组先读 [`00-concept-routing.md`](00-concept-routing.md)。
 
-顶层组（20）：`models` `skills` `agents` `employees` `org` `approvals` `mcp` `memory` `assets` `experience` `knowledge` `automation` `profile` `sessions` `tasks` `workflow` `items` `workspace` `eval` `logs`
+顶层组（19）：`models` `skills` `agents` `employees` `org` `approvals` `mcp` `memory` `assets` `knowledge` `automation` `profile` `sessions` `tasks` `workflow` `items` `workspace` `eval` `logs`
 
 ---
 
@@ -224,20 +224,9 @@ evoflow knowledge delete <path> [--vault kb_…]
 
 ---
 
-## 15. experience — 经验库
+## 15. 用户画像 / 经验 craft — 资产中心
 
-```bash
-evoflow experience list [--query …] [--category …] [--limit N]
-evoflow experience get <id>
-evoflow experience save --file examples/experience-save.json
-evoflow experience update <id> --file examples/experience-update.json
-evoflow experience mark-used <id>
-evoflow experience delete <id>
-```
-
----
-
-## 16. 用户画像 — 资产中心
+> 旧 `evoflow experience` 已退役。可复用经验写入 Asset Hub `craft/*.md`，对话用 `assets` 工具。
 
 SoT：`~/.evoflow/assets/user/profile/basic-info.md` · `preferences.md` · `persona.md`
 
@@ -304,6 +293,6 @@ evoflow logs timeline [--hours 24] [-s gateway] [--format markdown|json]
 
 | 需要 Gateway | 通常不需要 |
 |--------------|------------|
-| `employees dispatch/wake`、`approvals approve` 执行、`workflow run`、多数 automation 触发 | agents/items/skills/org CRUD、hire/update、list/get、experience、knowledge 本地读写 |
+| `employees dispatch/wake`、`approvals approve` 执行、`workflow run`、多数 automation 触发 | agents/items/skills/org CRUD、hire/update、list/get、assets craft、knowledge 本地读写 |
 
 示例文件索引：[`../examples/README.md`](../examples/README.md)。

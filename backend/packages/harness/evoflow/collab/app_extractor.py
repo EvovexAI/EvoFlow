@@ -334,6 +334,29 @@ def _generate_labels(param_names: list[str]) -> dict[str, str]:
     return {name: label_map.get(name, name.replace("_", " ").title()) for name in param_names}
 
 
+_EXISTING_PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+
+
+def _collect_existing_placeholders(goal: str, steps: list[dict]) -> list[str]:
+    """Harvest already-written ``{{name}}`` tokens (CORE-WF-08)."""
+    blobs: list[str] = [goal or ""]
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        for key in ("name", "goal", "inputs", "outputs", "acceptance", "instruction"):
+            blobs.append(str(step.get(key) or ""))
+    names: list[str] = []
+    seen: set[str] = set()
+    for blob in blobs:
+        for m in _EXISTING_PLACEHOLDER_RE.finditer(blob):
+            name = m.group(1)
+            if name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+    return names
+
+
 def extract_parameters_from_plan(
     goal: str,
     steps: list[dict],
@@ -353,6 +376,32 @@ def extract_parameters_from_plan(
     """
     if not isinstance(steps, list):
         steps = []
+
+    # Prefer explicit {{param}} already in the plan over heuristic value mining.
+    existing_names = _collect_existing_placeholders(goal or "", steps)
+    parameters: list[dict[str, Any]] = []
+    used_names: set[str] = set()
+    if existing_names:
+        labels = _generate_labels(existing_names[:max_params])
+        for pname in existing_names[:max_params]:
+            used_names.add(pname)
+            parameters.append(
+                {
+                    "name": pname,
+                    "label": labels.get(pname, pname),
+                    "type": "text",
+                    "required": True,
+                    "default": "",
+                    "description": f"Existing placeholder {{{{{pname}}}}}",
+                }
+            )
+        rendered_plan = {
+            "goal_template": goal or "",
+            "steps": list(steps),
+            "param_count": len(parameters),
+        }
+        return rendered_plan, parameters
+
     values_by_type = _collect_all_values(goal or "", steps)
     ranked = _rank_candidates(values_by_type)
 
@@ -373,7 +422,6 @@ def extract_parameters_from_plan(
 
     selected = _dedupe_substring_values(selected)[:max_params]
 
-    used_names: set[str] = set()
     param_map: dict[str, str] = {}  # value -> param_name
     # Replace longer values first to avoid partial clobber
     selected_for_replace = sorted(selected, key=lambda x: -len(x[0]))
@@ -381,7 +429,6 @@ def extract_parameters_from_plan(
         param_map[value] = _make_param_name(value, vtype, used_names)
 
     labels = _generate_labels(list(param_map.values()))
-    parameters: list[dict[str, Any]] = []
     for value, vtype in selected:
         pname = param_map[value]
         param: dict[str, Any] = {

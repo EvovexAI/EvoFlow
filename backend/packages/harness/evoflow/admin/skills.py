@@ -17,14 +17,50 @@ from evoflow.skills.loader import clear_skills_cache, get_skills_root_path
 logger = logging.getLogger(__name__)
 
 
-def _skill_row(skill: Any) -> dict[str, Any]:
-    return {
+def _skill_row(skill: Any, *, detail: bool = False) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "name": skill.name,
         "description": skill.description,
         "license": skill.license,
         "category": skill.category,
         "enabled": skill.enabled,
     }
+    if not detail:
+        return row
+    skill_dir = getattr(skill, "skill_dir", None)
+    files: list[str] = []
+    manifest: dict[str, Any] | None = None
+    if skill_dir is not None:
+        try:
+            root = Path(skill_dir)
+            row["path"] = str(root)
+            if root.is_dir():
+                for p in sorted(root.rglob("*")):
+                    if not p.is_file():
+                        continue
+                    rel = p.relative_to(root).as_posix()
+                    if rel.startswith(".") or "/." in rel:
+                        continue
+                    files.append(rel)
+                    if len(files) >= 80:
+                        break
+            skill_md = root / "SKILL.md"
+            if skill_md.is_file():
+                # Lightweight frontmatter peek for detail views (CORE-ASSET-06).
+                text = skill_md.read_text(encoding="utf-8", errors="replace")[:4000]
+                if text.startswith("---"):
+                    end = text.find("\n---", 3)
+                    if end > 0:
+                        manifest = {"frontmatter": text[3:end].strip(), "has_skill_md": True}
+                if manifest is None:
+                    manifest = {"has_skill_md": True, "preview": text[:240]}
+        except OSError:
+            logger.debug("skills detail scan failed for %s", getattr(skill, "name", ""), exc_info=True)
+    row["files"] = files
+    row["file_count"] = len(files)
+    if manifest is not None:
+        row["manifest"] = manifest
+    return row
 
 
 def _find_skill(name: str) -> Any:
@@ -79,7 +115,7 @@ def list_skills(*, enabled_only: bool = False) -> dict[str, Any]:
 
 
 def get_skill(name: str) -> dict[str, Any]:
-    return _skill_row(_find_skill(name))
+    return _skill_row(_find_skill(name), detail=True)
 
 
 def set_skill_enabled(name: str, *, enabled: bool) -> dict[str, Any]:
@@ -161,12 +197,25 @@ def install_skill_from_market(slug: str, owner_handle: str | None = None) -> dic
 
     tmp_path: str | None = None
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
             resp = client.get(url, headers={"User-Agent": "EvoFlow-CLI/1.0"})
-            resp.raise_for_status()
+            # Map common market misses to clear errors (CORE-ASSET-05).
+            if resp.status_code in {404, 410}:
+                raise NotFoundError(f"Skill slug '{clean}' not found on market")
+            if resp.status_code in {301, 302, 307, 308}:
+                loc = resp.headers.get("location") or ""
+                raise ValidationError(
+                    f"Market download redirected ({resp.status_code}) without a final body"
+                    + (f": {loc}" if loc else "")
+                    + f"; slug '{clean}' may not exist"
+                )
+            if resp.status_code >= 400:
+                raise ValidationError(
+                    f"Market download failed HTTP {resp.status_code} for slug '{clean}'"
+                )
             data = resp.content
         if len(data) < 64:
-            raise ValidationError("Empty or invalid download from market")
+            raise ValidationError(f"Empty or invalid download from market for slug '{clean}'")
         with tempfile.NamedTemporaryFile(suffix=".skill", delete=False) as tmp:
             tmp.write(data)
             tmp_path = tmp.name
@@ -181,8 +230,10 @@ def install_skill_from_market(slug: str, owner_handle: str | None = None) -> dic
             "skill_name": skill_name,
             "message": f"Skill '{skill_name}' installed from market slug '{clean}'",
         }
+    except (NotFoundError, ConflictError, ValidationError):
+        raise
     except httpx.HTTPError as e:
-        raise ValidationError(f"Market download failed: {e}") from e
+        raise ValidationError(f"Market download failed for slug '{clean}': {e}") from e
     finally:
         if tmp_path:
             try:

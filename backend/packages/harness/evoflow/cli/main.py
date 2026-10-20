@@ -1,4 +1,4 @@
-"""EvoFlow CLI — manage models, skills, agents, MCP, memory, experience, and more."""
+"""EvoFlow CLI — manage models, skills, agents, MCP, memory, assets, and more."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ _COMMAND_MODULES: dict[str, str] = {
     "mcp": "mcp",
     "memory": "memory",
     "assets": "assets",
-    "experience": "experience",
     "knowledge": "knowledge",
     "automation": "automation",
     "sessions": "sessions",
@@ -64,7 +63,7 @@ def build_parser(commands: list[str] | None = None) -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="evoflow",
-        description=("EvoFlow admin CLI — models, skills, agents, employees, workflow, items, knowledge, experience, automation, memory, eval, …"),
+        description=("EvoFlow admin CLI — models, skills, agents, employees, workflow, items, knowledge, assets, automation, memory, eval, …"),
     )
     parser.add_argument(
         "--config",

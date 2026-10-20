@@ -87,11 +87,24 @@ if openapi_json.exists():
 
 # Non-.py package assets: PyInstaller does not collect these via collect_submodules.
 # Without them, installed clients seed zero cutouts → UI falls back to name initials.
+# prompts/: Asset Hub memory templates (Phase2 consolidation etc.) — missing →
+# FileNotFoundError on every startup scan_and_run_phase2_on_startup.
 _assets_root = _harness_evoflow / "assets"
-for _asset_subdir in ("builtin_agent_avatars", "avatar_presets", "builtin_agent_souls"):
+for _asset_subdir in (
+    "builtin_agent_avatars",
+    "avatar_presets",
+    "builtin_agent_souls",
+    "prompts",
+):
     _src = _assets_root / _asset_subdir
     if _src.is_dir():
         datas.append((str(_src), f"evoflow/assets/{_asset_subdir}"))
+_consolidation = _assets_root / "prompts" / "memories" / "consolidation.md"
+if not _consolidation.is_file():
+    raise SystemExit(
+        "gateway.spec: evoflow/assets/prompts/memories/consolidation.md missing "
+        "(Phase2 memory consolidate would FileNotFoundError on desktop install)"
+    )
 
 # System builtin Obsidian vaults (docs/user → 用户指南; ContentOS 知识库 → 运营知识库).
 _docs_user = backend_root.parent / "docs" / "user"

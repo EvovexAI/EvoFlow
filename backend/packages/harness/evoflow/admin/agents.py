@@ -238,13 +238,22 @@ def _validate_skills_list(skills: Any) -> list[str]:
 
 def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[str, Any]:
     code = agent_cfg.agent_code
+    tools = _dedupe_list_inplace(list(agent_cfg.tools) if agent_cfg.tools is not None else None)
+    # Lead session agent always receives ``platform`` at runtime even when the
+    # configured allowlist omits it (CORE-AGENT-03).
+    is_main = str(code or "").strip().lower() == "main"
+    if is_main:
+        if tools is None:
+            tools = ["platform"]
+        elif "platform" not in tools:
+            tools = [*tools, "platform"]
     row: dict[str, Any] = {
         "agent_code": code,
         "agent_name": agent_cfg.agent_name,
         "description": agent_cfg.description or "",
         "model": agent_cfg.model,
         "tool_groups": _dedupe_list_inplace(list(agent_cfg.tool_groups) if agent_cfg.tool_groups is not None else None),
-        "tools": _dedupe_list_inplace(list(agent_cfg.tools) if agent_cfg.tools is not None else None),
+        "tools": tools,
         "mcp_servers": _dedupe_list_inplace(list(agent_cfg.mcp_servers) if agent_cfg.mcp_servers is not None else None),
         "skills": _dedupe_list_inplace(list(agent_cfg.skills) if agent_cfg.skills is not None else None),
         "system_prompt": agent_cfg.system_prompt,
@@ -253,6 +262,19 @@ def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[st
         "avatar": agent_cfg.avatar,
         "avatar_meta": agent_cfg.avatar_meta,
     }
+    if is_main:
+        row["tools_note"] = "tools 含配置白名单；lead(main) 运行时始终可用 platform"
+    # Surface KB bindings that live in extra_json / AgentConfig (CORE-AGENT-04).
+    try:
+        from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
+
+        vault_ids = get_agent_kb_vault_ids(code)
+        kb_inj = get_agent_kb_injection_config(code)
+        row["knowledge_vault_ids"] = vault_ids
+        row["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+    except Exception:
+        row["knowledge_vault_ids"] = list(getattr(agent_cfg, "knowledge_vault_ids", None) or [])
+        row["kb_injection"] = {}
     if include_soul:
         row["soul"] = load_agent_soul(code) or ""
         try:
@@ -270,20 +292,32 @@ def _main_agent_row(*, include_soul: bool = False) -> dict[str, Any]:
     except (FileNotFoundError, ValueError):
         agent_cfg = None
     if agent_cfg is None:
-        return {
+        row_fallback: dict[str, Any] = {
             "agent_code": "main",
             "agent_name": "EvoFlow",
             "description": "",
             "model": None,
             "tool_groups": None,
-            "tools": None,
+            "tools": ["platform"],
             "mcp_servers": None,
             "skills": None,
             "system_prompt": None,
             "agent_type": "custom",
             "tags": [],
+            "knowledge_vault_ids": [],
+            "kb_injection": {},
+            "tools_note": "tools 含配置白名单；lead(main) 运行时始终可用 platform",
             **({"soul": load_agent_soul("main") or ""} if include_soul else {}),
         }
+        try:
+            from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
+
+            row_fallback["knowledge_vault_ids"] = get_agent_kb_vault_ids("main")
+            kb_inj = get_agent_kb_injection_config("main")
+            row_fallback["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+        except Exception:
+            pass
+        return row_fallback
     row = _agent_row(agent_cfg, include_soul=include_soul)
     row["agent_code"] = "main"
     if not row.get("agent_name"):
@@ -336,6 +370,7 @@ def list_agents(
             raise ValidationError("offset must be an integer >= 0") from e
         if off < 0:
             raise ValidationError("offset must be >= 0")
+    total = len(agents)
     if off:
         agents = agents[off:]
     if limit is not None:
@@ -346,7 +381,15 @@ def list_agents(
         if lim < 0:
             raise ValidationError("limit must be >= 0")
         agents = agents[:lim]
-    return {"agents": agents, "count": len(agents)}
+    # ``count`` = page size; ``total`` = full filtered set (CORE-AGENT-01).
+    return {
+        "agents": agents,
+        "count": len(agents),
+        "total": total,
+        "limit": limit,
+        "offset": off,
+        "has_more": (off + len(agents)) < total,
+    }
 
 
 def get_agent(name: str) -> dict[str, Any]:
@@ -670,5 +713,19 @@ def delete_agent(
     if employee_removed:
         out["employee_removed"] = True
     elif linked_employee and keep_employee:
+        # Detach inherit flag so employees.get does not claim a missing Agent (CORE-AGENT-04).
+        try:
+            from evoflow.admin.employees import _mark_employee_override
+            from evoflow.proactive.repositories import ProactiveRepository
+            from evoflow.timeutil import utc_now_iso_z
+
+            kept = ProactiveRepository.get_role(normalized)
+            if kept is not None:
+                _mark_employee_override(kept.config, override=True)
+                kept.updated_at = utc_now_iso_z()
+                ProactiveRepository.save_role(kept)
+                out["employee_inherit_cleared"] = True
+        except Exception:
+            logger.debug("failed to clear inherits_agent after keep_employee delete=%s", normalized, exc_info=True)
         out["employee_kept"] = True
     return out

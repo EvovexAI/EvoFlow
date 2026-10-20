@@ -31,8 +31,10 @@ def _principal_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> str:
 
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
-action format: domain.op (knowledge.*, workflow.*, settings.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, memory.*, sessions.*, experience.*, diagnostics.*, appearance.*).
+action format: domain.op (knowledge.*, workflow.*, settings.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, memory.*, sessions.*, diagnostics.*, appearance.*, verification.*).
+catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
+Reusable craft/experience → assets tool (not platform experience.*).
 settings.* also covers web-search setup (Agent Plan Doubao Harness key / Tavily / Bocha…): prefer settings.get_web_search → follow assistant_guide → patch/test; do not push users into the complex Settings UI.
 """
 

@@ -135,14 +135,15 @@ def knowledge_reindex(args: dict[str, Any]) -> dict[str, Any]:
     data = kn.reindex_owned_base(
         kb_id,
         embedding_model_ref=_arg_str(args, "embeddingModelRef", "embedding_model_ref") or None,
-        force=_arg_bool(args, "force", True),
+        # Default false: omit force → incremental/cheaper path; force=true rebuilds all (DEF-06).
+        force=_arg_bool(args, "force", False),
     )
     return {
         "ok": True,
         **data,
         "kbId": kb_id,
         "vaultId": kb_id,
-        "hint": "已排队重索引；大文档切 local 时可传 embeddingModelRef=bge-small-zh。",
+        "hint": "已排队重索引；全量重建请传 force=true；大文档切 local 时可传 embeddingModelRef=bge-small-zh。",
     }
 
 
@@ -214,6 +215,16 @@ def knowledge_note_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **kn.delete_knowledge(path, vault_id=vault_id)}
 
 
+def knowledge_delete(args: dict[str, Any]) -> dict[str, Any]:
+    """Delete an owned knowledge base (destructive; requires confirm)."""
+    from evoflow.admin import knowledge as kn
+
+    kb_id = _arg_str(args, "kbId", "kb_id", "vaultId", "vault_id", "id")
+    if not kb_id:
+        raise ValidationError("kbId is required")
+    return {"ok": True, **kn.delete_owned_base(kb_id)}
+
+
 # ── workflow ───────────────────────────────────────────────────────────────
 
 
@@ -243,14 +254,12 @@ def workflow_get(args: dict[str, Any]) -> dict[str, Any]:
     if not app_id:
         raise ValidationError("appId is required")
     data = apps_admin.get_app(app_id)
-    app = data.get("app") if isinstance(data.get("app"), dict) else {}
+    # Avoid duplicating app fields at the top level (CORE-WF-06).
     return {
         "ok": True,
-        **data,
         "appId": app_id,
-        "goal_template": app.get("goal_template") or "",
-        "steps_preview": app.get("steps_preview") or [],
-        "steps_count": app.get("steps_count") or 0,
+        "app_id": app_id,
+        "app": data.get("app") if isinstance(data.get("app"), dict) else data,
     }
 
 
@@ -370,6 +379,11 @@ def workflow_update(args: dict[str, Any]) -> dict[str, Any]:
     if not app_id:
         raise ValidationError("appId is required")
     patch = {k: v for k, v in args.items() if k not in {"appId", "app_id", "id", "confirm", "confirmed", "yes"} and v is not None}
+    # Align with create: accept ``goal`` as alias of ``goal_template`` (CORE-WF-02).
+    if "goal" in patch and "goal_template" not in patch:
+        patch["goal_template"] = patch.pop("goal")
+    elif "goal" in patch and "goal_template" in patch:
+        patch.pop("goal", None)
     data = apps_admin.update_app(app_id, patch)
     return _workflow_app_result(data)
 
@@ -693,6 +707,7 @@ def agents_create(args: dict[str, Any]) -> dict[str, Any]:
 
 def agents_update(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import agents as agents_admin
+    from evoflow.admin.errors import NotFoundError as _NF
 
     name_key = _arg_str(args, "name")
     code_key = _arg_str(args, "agent_code", "agentCode")
@@ -702,7 +717,14 @@ def agents_update(args: dict[str, Any]) -> dict[str, Any]:
     if not name:
         raise ValidationError("name/agent_code is required")
     patch = {k: v for k, v in args.items() if k not in {"name", "agent_code", "agentCode", "confirm", "confirmed", "yes"}}
-    return {"ok": True, "agent": agents_admin.update_agent(name, patch)}
+    try:
+        return {"ok": True, "agent": agents_admin.update_agent(name, patch)}
+    except _NF:
+        # CORE-AGENT-02: callers often pass the *new* code as lookup key when trying to rename.
+        raise ValidationError(
+            f"Agent '{name}' not found. Pass name=<existing_agent_code> to update; "
+            "agent_code is immutable and cannot be used to rename."
+        ) from None
 
 
 def agents_delete(args: dict[str, Any]) -> dict[str, Any]:
@@ -795,6 +817,16 @@ def employees_stop(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **emp.stop_role(code)}
 
 
+def employees_delete(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.admin import employees as emp
+
+    code = _arg_str(args, "agent_code", "agentCode", "code", "name")
+    if not code:
+        raise ValidationError("agent_code is required")
+    delete_agent = _arg_bool(args, "delete_agent", False) or _arg_bool(args, "deleteAgent", False)
+    return {"ok": True, **emp.delete_role(code, delete_agent=delete_agent)}
+
+
 def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
@@ -802,14 +834,23 @@ def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
     if not code:
         raise ValidationError("agent_code is required")
     day = _arg_str(args, "day", "date") or None
-    # Accept legacy/typo ``days`` as a soft alias only when it looks like YYYY-MM-DD.
-    if not day:
-        raw_days = args.get("days")
+    raw_days = args.get("days")
+    # Integer/range ``days`` = look-back window (CORE-EMP-01); YYYY-MM-DD string stays day alias.
+    days_n: int | None = None
+    if not day and raw_days is not None:
         if isinstance(raw_days, str) and len(raw_days.strip()) == 10 and raw_days.strip()[4] == "-":
             day = raw_days.strip()
+        else:
+            try:
+                days_n = int(raw_days)
+            except (TypeError, ValueError) as e:
+                raise ValidationError("days must be a positive integer (look-back) or YYYY-MM-DD") from e
+            if days_n <= 0:
+                raise ValidationError("days must be >= 1")
+            days_n = min(days_n, 30)
     return {
         "ok": True,
-        **emp.worklog(code, day=day, limit=int(args.get("limit") or 20)),
+        **emp.worklog(code, day=day, days=days_n, limit=int(args.get("limit") or 20)),
     }
 
 
@@ -842,6 +883,22 @@ def employees_trail(args: dict[str, Any]) -> dict[str, Any]:
 def tasks_list(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import tasks as tasks_admin
 
+    # Default include_subtasks=false; hard-cap limit at 200 to avoid million-token dumps (DEF-03).
+    raw_limit = args.get("limit", args.get("max_results"))
+    limit: int | None
+    if raw_limit in (None, ""):
+        limit = 50
+    else:
+        try:
+            limit = max(1, min(int(raw_limit), 200))
+        except (TypeError, ValueError) as e:
+            raise ValidationError("limit must be an integer") from e
+    raw_offset = args.get("offset", 0)
+    try:
+        offset = max(0, int(raw_offset or 0))
+    except (TypeError, ValueError) as e:
+        raise ValidationError("offset must be an integer") from e
+
     return {
         "ok": True,
         **tasks_admin.list_tasks(
@@ -849,7 +906,9 @@ def tasks_list(args: dict[str, Any]) -> dict[str, Any]:
             assignee=_arg_str(args, "assignee", "agent_code", "agentCode") or None,
             role=_arg_str(args, "role", "role_name") or None,
             source=_arg_str(args, "source") or None,
-            include_subtasks=_arg_bool(args, "include_subtasks", True),
+            include_subtasks=_arg_bool(args, "include_subtasks", False),
+            limit=limit,
+            offset=offset,
         ),
     }
 
@@ -959,13 +1018,17 @@ def tasks_create(args: dict[str, Any]) -> dict[str, Any]:
         **tasks_admin.create_task(
             name=name,
             description=_arg_str(args, "description", "desc"),
-            assignee=_arg_str(args, "assignee", "agent_code", "agentCode") or None,
+            # Accept assigned_to as alias of assignee (CORE-TASK-03).
+            assignee=_arg_str(args, "assignee", "assigned_to", "agent_code", "agentCode") or None,
             assigned_role=_arg_str(args, "assigned_role", "role", "role_name") or None,
             main_task_id=_arg_str(args, "main_task_id", "mainTaskId") or None,
             initial_status=_arg_str(args, "status", "initial_status") or "pending",
             result=_arg_str(args, "result") or None,
             source=_arg_str(args, "source") or None,
             raised_by=_arg_str(args, "raised_by") or "xiaomi",
+            risk_level=_arg_str(args, "risk_level", "riskLevel") or None,
+            action_type=_arg_str(args, "action_type", "actionType") or None,
+            round_id=_arg_str(args, "round_id", "roundId") or None,
         ),
     }
 
@@ -1340,50 +1403,6 @@ def items_dispatch(args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-# ── experience ─────────────────────────────────────────────────────────────
-
-
-def experience_list(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import experience as exp
-
-    return {
-        "ok": True,
-        **exp.list_experiences(
-            category=_arg_str(args, "category"),
-            query=_arg_str(args, "query", "q"),
-            max_results=int(args.get("limit") or args.get("max_results") or 10),
-            principal_id=_arg_str(args, "principal_id"),
-        ),
-    }
-
-
-def experience_get(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import experience as exp
-
-    eid = _arg_str(args, "id", "experience_id")
-    if not eid:
-        raise ValidationError("id is required")
-    return {"ok": True, **exp.get_experience(eid)}
-
-
-def experience_save(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import experience as exp
-
-    return {"ok": True, **exp.save_experience(args)}
-
-
-def experience_delete(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import experience as exp
-
-    eid = _arg_str(args, "id", "experience_id")
-    if not eid:
-        raise ValidationError("id is required")
-    return {
-        "ok": True,
-        **exp.delete_experience(eid, permanent=_arg_bool(args, "permanent", False)),
-    }
-
-
 # ── diagnostics（日志异常）──────────────────────────────────────────────────
 
 
@@ -1427,11 +1446,52 @@ def diagnostics_timeline(args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
-    """综合系统诊断：一次调用检查全模块健康状态 + 日志异常，输出可读的诊断报告。
+def _diagnostics_focus_modules(focus: str) -> set[str] | None:
+    """Map focus string → module keys to run; None means all modules."""
+    f = str(focus or "").strip().lower()
+    if not f:
+        return None
+    aliases: dict[str, set[str]] = {
+        "logs": {"logs"},
+        "log": {"logs"},
+        "日志": {"logs"},
+        "对话": {"logs"},  # chat disappear often needs log scan
+        "chat": {"logs"},
+        "knowledge": {"knowledge"},
+        "知识库": {"knowledge"},
+        "kb": {"knowledge"},
+        "models": {"models"},
+        "model": {"models"},
+        "模型": {"models"},
+        "employees": {"employees"},
+        "employee": {"employees"},
+        "员工": {"employees"},
+        "智能体": {"employees"},
+        "automation": {"automation"},
+        "定时": {"automation"},
+        "定时任务": {"automation"},
+        "cron": {"automation"},
+    }
+    if f in aliases:
+        return set(aliases[f])
+    # comma / space separated
+    parts = {p.strip() for p in f.replace("，", ",").replace("|", ",").split(",") if p.strip()}
+    if not parts:
+        return None
+    out: set[str] = set()
+    for p in parts:
+        mapped = aliases.get(p)
+        if mapped:
+            out |= mapped
+        elif p in {"logs", "knowledge", "models", "employees", "automation"}:
+            out.add(p)
+    return out or None
 
-    可选传 ``focus`` 指定重点关注模块（如 "员工" / "对话" / "定时" / "知识库" / "模型"），
-    未指定时全量检查。
+
+def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
+    """综合系统诊断：检查模块健康状态 + 日志异常，输出可读诊断报告。
+
+    ``focus`` 为真过滤：只跑对应模块（logs/knowledge/models/employees/automation 或中文别名）。
     """
     import time
 
@@ -1443,139 +1503,155 @@ def diagnostics_run(args: dict[str, Any]) -> dict[str, Any]:
 
     t0 = time.time()
     focus = _arg_str(args, "focus")
+    want = _diagnostics_focus_modules(focus)
     modules: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
 
+    def _run(mod: str) -> bool:
+        return want is None or mod in want
+
     # ── 1. 日志异常扫描 ──────────────────────────────────────
-    try:
-        sources_scan = diag.scan_errors(hours=24, max_events=50)
-        err_sources = sources_scan.get("sources_with_errors") or []
-        event_count = sources_scan.get("event_count") or 0
-        modules.append(
-            {
-                "module": "logs",
-                "title": "系统日志",
-                "status": "error" if err_sources else "ok",
-                "detail": f"最近24小时有 {event_count} 条异常，来源: {', '.join(err_sources) if err_sources else '无'}",
-                "error_sources": err_sources,
-                "event_count": event_count,
-                "top_events": (sources_scan.get("events") or [])[:5],
-            }
-        )
-        if err_sources:
-            for src in err_sources:
-                issues.append(
-                    {
-                        "module": "logs",
-                        "severity": "high" if src in ("gateway", "langgraph") else "medium",
-                        "title": f"{src} 日志有异常",
-                        "detail": f"来源 {src} 在最近24小时有报错记录",
-                    }
-                )
-    except Exception as e:
-        modules.append({"module": "logs", "title": "系统日志", "status": "error", "detail": f"扫描失败: {e}"})
-        issues.append({"module": "logs", "severity": "high", "title": "日志扫描失败", "detail": str(e)})
+    if _run("logs"):
+        try:
+            sources_scan = diag.scan_errors(hours=24, max_events=50)
+            err_sources = sources_scan.get("sources_with_errors") or []
+            event_count = sources_scan.get("event_count") or 0
+            modules.append(
+                {
+                    "module": "logs",
+                    "title": "系统日志",
+                    "status": "error" if err_sources else "ok",
+                    "detail": f"最近24小时有 {event_count} 条异常，来源: {', '.join(err_sources) if err_sources else '无'}",
+                    "error_sources": err_sources,
+                    "event_count": event_count,
+                    "top_events": (sources_scan.get("events") or [])[:5],
+                }
+            )
+            if err_sources:
+                for src in err_sources:
+                    issues.append(
+                        {
+                            "module": "logs",
+                            "severity": "high" if src in ("gateway", "langgraph") else "medium",
+                            "title": f"{src} 日志有异常",
+                            "detail": f"来源 {src} 在最近24小时有报错记录",
+                        }
+                    )
+        except Exception as e:
+            modules.append({"module": "logs", "title": "系统日志", "status": "error", "detail": f"扫描失败: {e}"})
+            issues.append({"module": "logs", "severity": "high", "title": "日志扫描失败", "detail": str(e)})
 
     # ── 2. 知识库 ─────────────────────────────────────────────
-    try:
-        bases = kn.list_bases()
-        base_list = bases.get("items") or []
-        total_bases = len(base_list)
-        modules.append(
-            {
-                "module": "knowledge",
-                "title": "知识库",
-                "status": "ok" if total_bases else "warn",
-                "detail": f"共 {total_bases} 个平台自有知识库",
-                "total": total_bases,
-            }
-        )
-        if not total_bases:
-            issues.append(
+    if _run("knowledge"):
+        try:
+            bases = kn.list_bases()
+            base_list = bases.get("items") or []
+            total_bases = len(base_list)
+            modules.append(
                 {
                     "module": "knowledge",
-                    "severity": "low",
-                    "title": "尚未创建自有知识库",
-                    "detail": "可用 knowledge.create 或面板「知识库」新建",
+                    "title": "知识库",
+                    "status": "ok" if total_bases else "warn",
+                    "detail": f"共 {total_bases} 个平台自有知识库",
+                    "total": total_bases,
                 }
             )
-    except Exception as e:
-        modules.append({"module": "knowledge", "title": "知识库", "status": "error", "detail": f"检查失败: {e}"})
+            if not total_bases:
+                issues.append(
+                    {
+                        "module": "knowledge",
+                        "severity": "low",
+                        "title": "尚未创建自有知识库",
+                        "detail": "可用 knowledge.create 或面板「知识库」新建",
+                    }
+                )
+        except Exception as e:
+            modules.append({"module": "knowledge", "title": "知识库", "status": "error", "detail": f"检查失败: {e}"})
 
     # ── 3. 模型配置 ───────────────────────────────────────────
-    try:
-        primary = models_admin.get_primary_model()
-        model_list = models_admin.list_models()
-        models_data = model_list.get("models") or model_list.get("items") or []
-        modules.append(
-            {
-                "module": "models",
-                "title": "模型配置",
-                "status": "ok" if models_data else "warn",
-                "detail": f"共 {len(models_data)} 个模型，默认: {primary.get('model_name', primary.get('name', '未设置'))}",
-                "total": len(models_data),
-                "primary": primary.get("model_name") or primary.get("name"),
-            }
-        )
-        if not models_data:
-            issues.append({"module": "models", "severity": "high", "title": "无可用模型配置", "detail": "未配置任何模型，对话和员工均无法正常工作"})
-    except Exception as e:
-        modules.append({"module": "models", "title": "模型配置", "status": "error", "detail": f"检查失败: {e}"})
+    if _run("models"):
+        try:
+            primary = models_admin.get_primary_model()
+            model_list = models_admin.list_models()
+            models_data = model_list.get("models") or model_list.get("items") or []
+            modules.append(
+                {
+                    "module": "models",
+                    "title": "模型配置",
+                    "status": "ok" if models_data else "warn",
+                    "detail": f"共 {len(models_data)} 个模型，默认: {primary.get('model_name', primary.get('name', '未设置'))}",
+                    "total": len(models_data),
+                    "primary": primary.get("model_name") or primary.get("name"),
+                }
+            )
+            if not models_data:
+                issues.append(
+                    {
+                        "module": "models",
+                        "severity": "high",
+                        "title": "无可用模型配置",
+                        "detail": "未配置任何模型，对话和员工均无法正常工作",
+                    }
+                )
+        except Exception as e:
+            modules.append({"module": "models", "title": "模型配置", "status": "error", "detail": f"检查失败: {e}"})
 
     # ── 4. 员工/智能体 ────────────────────────────────────────
-    try:
-        emp_data = emp.list_roles(status=None)
-        emp_list = emp_data.get("roles") or emp_data.get("items") or emp_data.get("employees") or []
-        paused = [e for e in emp_list if str(e.get("status", "")).lower() in ("paused", "stopped", "inactive")]
-        modules.append(
-            {
-                "module": "employees",
-                "title": "员工/智能体",
-                "status": "warn" if paused else "ok",
-                "detail": f"共 {len(emp_list)} 个员工，{len(paused)} 个暂停/停止",
-                "total": len(emp_list),
-                "paused_count": len(paused),
-                "paused": [e.get("agent_code") or e.get("name", "?") for e in paused],
-            }
-        )
-        if paused:
-            issues.append(
+    if _run("employees"):
+        try:
+            emp_data = emp.list_roles(status=None)
+            emp_list = emp_data.get("roles") or emp_data.get("items") or emp_data.get("employees") or []
+            paused = [e for e in emp_list if str(e.get("status", "")).lower() in ("paused", "stopped", "inactive")]
+            modules.append(
                 {
                     "module": "employees",
-                    "severity": "medium",
-                    "title": f"{len(paused)} 个员工处于暂停/停止状态",
-                    "detail": ", ".join(e.get("agent_code") or e.get("name", "?") for e in paused),
+                    "title": "员工/智能体",
+                    "status": "warn" if paused else "ok",
+                    "detail": f"共 {len(emp_list)} 个员工，{len(paused)} 个暂停/停止",
+                    "total": len(emp_list),
+                    "paused_count": len(paused),
+                    "paused": [e.get("agent_code") or e.get("name", "?") for e in paused],
                 }
             )
-    except Exception as e:
-        modules.append({"module": "employees", "title": "员工/智能体", "status": "error", "detail": f"检查失败: {e}"})
+            if paused:
+                issues.append(
+                    {
+                        "module": "employees",
+                        "severity": "medium",
+                        "title": f"{len(paused)} 个员工处于暂停/停止状态",
+                        "detail": ", ".join(e.get("agent_code") or e.get("name", "?") for e in paused),
+                    }
+                )
+        except Exception as e:
+            modules.append({"module": "employees", "title": "员工/智能体", "status": "error", "detail": f"检查失败: {e}"})
 
     # ── 5. 定时任务/自动化 ────────────────────────────────────
-    try:
-        auto_data = auto_admin.list_automations()
-        auto_list = auto_data.get("automations") or auto_data.get("items") or []
-        disabled_auto = [a for a in auto_list if not a.get("enabled", True) and not a.get("is_active", True)]
-        modules.append(
-            {
-                "module": "automation",
-                "title": "定时任务",
-                "status": "warn" if disabled_auto else "ok",
-                "detail": f"共 {len(auto_list)} 个定时任务，{len(disabled_auto)} 个未启用",
-                "total": len(auto_list),
-                "disabled_count": len(disabled_auto),
-            }
-        )
-        if disabled_auto:
-            issues.append(
+    if _run("automation"):
+        try:
+            auto_data = auto_admin.list_automations()
+            auto_list = auto_data.get("automations") or auto_data.get("items") or []
+            disabled_auto = [a for a in auto_list if not a.get("enabled", True) and not a.get("is_active", True)]
+            modules.append(
                 {
                     "module": "automation",
-                    "severity": "low",
-                    "title": f"{len(disabled_auto)} 个定时任务未启用",
-                    "detail": ", ".join(a.get("name", a.get("id", "?")) for a in disabled_auto),
+                    "title": "定时任务",
+                    "status": "warn" if disabled_auto else "ok",
+                    "detail": f"共 {len(auto_list)} 个定时任务，{len(disabled_auto)} 个未启用",
+                    "total": len(auto_list),
+                    "disabled_count": len(disabled_auto),
                 }
             )
-    except Exception as e:
-        modules.append({"module": "automation", "title": "定时任务", "status": "error", "detail": f"检查失败: {e}"})
+            if disabled_auto:
+                issues.append(
+                    {
+                        "module": "automation",
+                        "severity": "low",
+                        "title": f"{len(disabled_auto)} 个定时任务未启用",
+                        "detail": ", ".join(a.get("name", a.get("id", "?")) for a in disabled_auto),
+                    }
+                )
+        except Exception as e:
+            modules.append({"module": "automation", "title": "定时任务", "status": "error", "detail": f"检查失败: {e}"})
 
     # ── 汇总 ──────────────────────────────────────────────────
     elapsed = round(time.time() - t0, 2)
@@ -1686,19 +1762,6 @@ def verification_init(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **started}
 
 
-def verification_list(args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin import verification as ver
-
-    return {
-        "ok": True,
-        **ver.list_rounds(
-            status=_arg_str(args, "status"),
-            query=_arg_str(args, "query", "q"),
-            limit=int(args.get("limit") or args.get("max_results") or 20),
-        ),
-    }
-
-
 def verification_get(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import verification as ver
 
@@ -1790,13 +1853,7 @@ def verification_delete(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **ver.delete_round(rid)}
 
 
-# ── appearance（EvoPanel 界面外观）──────────────────────────────────────────
-
-
-def appearance_get(_args: dict[str, Any]) -> dict[str, Any]:
-    from evoflow.admin.appearance import get_appearance_state
-
-    return get_appearance_state()
+# ── appearance（EvoPanel 界面外观；读设置走 HTTP）────────────────────────────
 
 
 def appearance_patch(args: dict[str, Any]) -> dict[str, Any]:

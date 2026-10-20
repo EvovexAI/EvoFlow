@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 # Minimal runnable step (linear DAG). Backend normalizes via app_schema.normalize_step.
+# Use a real bundled worker code — ``lead``/``main`` are not dispatchable (CORE-WF-04).
+_DEFAULT_WORKER = "general-purpose"
+
 WORKFLOW_STEP_MINIMAL: dict[str, Any] = {
     "ref": "s1",
     "name": "收集信息",
     "goal": "汇总用户给出的今日工作要点",
-    "assigned_agent": "lead",
+    "assigned_agent": _DEFAULT_WORKER,
 }
 
 WORKFLOW_STEP_CHAIN: list[dict[str, Any]] = [
@@ -17,13 +20,13 @@ WORKFLOW_STEP_CHAIN: list[dict[str, Any]] = [
         "ref": "collect",
         "name": "收集",
         "goal": "收集原始材料",
-        "assigned_agent": "lead",
+        "assigned_agent": _DEFAULT_WORKER,
     },
     {
         "ref": "summarize",
         "name": "汇总",
         "goal": "整理成结构化日报",
-        "assigned_agent": "lead",
+        "assigned_agent": _DEFAULT_WORKER,
         "depends_on": ["collect"],
     },
 ]
@@ -52,13 +55,13 @@ WORKFLOW_GENERATE_EXAMPLE: dict[str, Any] = {
             "ref": "research",
             "name": "调研",
             "goal": "检索并整理竞品信息",
-            "assigned_agent": "lead",
+            "assigned_agent": _DEFAULT_WORKER,
         },
         {
             "ref": "write",
             "name": "成稿",
             "goal": "输出结构化竞品速览",
-            "assigned_agent": "lead",
+            "assigned_agent": _DEFAULT_WORKER,
             "depends_on": ["research"],
         },
     ],
@@ -104,7 +107,10 @@ def build_workflow_platform_schema() -> dict[str, Any]:
                 "condition (分支节点时)",
                 "input_bindings / input_schema / output_schema",
             ],
-            "assigned_agent": ("智能体角色 code，如 lead、researcher；不确定时先用 lead，或 workflow.get 参考已有应用"),
+            "assigned_agent": (
+                "智能体角色 code（须为可派发 worker，如 general-purpose、xiaomi、code-agent）；"
+                "不要用 lead/main（不是 worker）。不确定时用 general-purpose，或 workflow.get 参考已有应用"
+            ),
             "depends_on_rule": "无依赖=可并行；链式流程用 depends_on 指向前序 ref",
             "minimal_example": WORKFLOW_STEP_MINIMAL,
             "linear_chain_example": WORKFLOW_STEP_CHAIN,

@@ -1,10 +1,10 @@
 {
-  "version": "1.1.1",
-  "minAppVersion": "1.1.1",
+  "version": "1.1.2",
+  "minAppVersion": "1.1.2",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.1/EvoFlow_1.1.1_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.2/EvoFlow_1.1.2_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.1.1（相对 1.1.0）：浏览器内嵌面板能力补齐——URL 安全（chrome-error 死循环修复）、tab history 后退/前进/重载、Ctrl+滚轮 zoom + toolbar 实时比例、跨平台编译兼容、多会话隔离；node_repl Playwright 命令面（domSnapshot/click/fill/type/press 等）+ 浏览器意图检测（纯 JS 不拉起面板）；CUA 预览卡（应用徽标 + 截图灯箱）贯穿 AG-UI + ZCode 渲染器；STOP-TRACE 取消补丁修复长任务 >240s「已停还在跑」；zcode_port 工具移植 + background bash + image staging；bash PowerShell 路由 + node_repl 窗口隐藏 + CUA PNG 归一化；全局插件目录缓存订阅；聊天摘要浮动卡 + 右栏互斥；会话列表 trailing refresh + 文件预览停轮询性能优化。修复：vendor package.json CI、知识库灰点、thinking.type=disabled 重试、审批卡消失、CDP awaitPromise、api-client 路径。覆盖安装即可。"
+  "changelog": "EvoFlow 1.1.2（相对 1.1.1）：官方插件 bundle 打包（macOS + Windows + CI workflows，无源时自动 stub）+ marketplace seed 硬化 + builtin 插件注册 + catalog cache 细化；主动引擎（proactive engine + 飞书通知投递可交付物卡片 + supervisor 工具 + 任务重试叶子 + 资产记忆门控）；会话执行状态（execution state + busy reason log + context compaction + workspace info rail + 续流门控 + 阶段工具）；prompt 动态分层 + turn timing + message row 渲染更新；memory live footer + session repos + eval_metrics + 图片内联预览 + code comment cards + trae tool + stream perf；经验工具移除（旧经验库已迁移资产中心，下线 experience admin/cli/middleware）；admin 路由整合 + collab/app 生成器更新 + lean gateway 打包硬化（assert 脚本 + pyarmor/gateway spec）；agui-turn-reducer 更新 + 新增 logo.ico；admin-external / system-verification 文档刷新。修复：PS1 非 ASCII 字符乱码破坏 CI 语法、无插件源时 fetch bundle 不再 throw。覆盖安装即可。"
 }

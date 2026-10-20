@@ -337,6 +337,57 @@ def cron_to_rrule(cron_expr: str) -> dict[str, Any]:
             rule += f";BYMINUTE={m}"
         return {"rrule": rule, "scheduled_at": ""}
 
+    # Yearly / monthly with DOM (and optional month): e.g. ``0 0 1 1 *`` → Jan 1 (CORE-AUTO-01).
+    is_yearly = (
+        dom not in ("*", "?")
+        and month not in ("*", "?")
+        and (dow in ("*", "?") or not dow)
+    )
+    if is_yearly:
+        try:
+            h = int(str(hour).split(",")[0], 10) if hour not in ("*", "?") else 0
+        except ValueError:
+            h = 0
+        try:
+            m = 0 if minute in ("*", "?") else int(str(minute).split(",")[0], 10)
+        except ValueError:
+            m = 0
+        try:
+            d = int(str(dom).split(",")[0], 10)
+        except ValueError:
+            d = 1
+        try:
+            mon = int(str(month).split(",")[0], 10)
+        except ValueError:
+            mon = 1
+        rule = f"FREQ=YEARLY;INTERVAL=1;BYMONTH={mon};BYMONTHDAY={d};BYHOUR={h}"
+        if m != 0:
+            rule += f";BYMINUTE={m}"
+        return {"rrule": rule, "scheduled_at": ""}
+
+    is_monthly = (
+        dom not in ("*", "?")
+        and month in ("*", "?")
+        and (dow in ("*", "?") or not dow)
+    )
+    if is_monthly:
+        try:
+            h = int(str(hour).split(",")[0], 10) if hour not in ("*", "?") else 0
+        except ValueError:
+            h = 0
+        try:
+            m = 0 if minute in ("*", "?") else int(str(minute).split(",")[0], 10)
+        except ValueError:
+            m = 0
+        try:
+            d = int(str(dom).split(",")[0], 10)
+        except ValueError:
+            d = 1
+        rule = f"FREQ=MONTHLY;INTERVAL=1;BYMONTHDAY={d};BYHOUR={h}"
+        if m != 0:
+            rule += f";BYMINUTE={m}"
+        return {"rrule": rule, "scheduled_at": ""}
+
     is_weekly = dow not in ("*", "?")
     if is_weekly:
         dow_map = {"0": "SU", "1": "MO", "2": "TU", "3": "WE", "4": "TH", "5": "FR", "6": "SA", "7": "SU"}

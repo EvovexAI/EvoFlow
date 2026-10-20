@@ -113,14 +113,13 @@ evoflow mcp test fs
 # 用户画像改走资产中心：#/assets → 画像，或 assets.update_profile
 ```
 
-## 9. 知识 / 经验 / 记忆 / 会话
+## 9. 知识 / 记忆 / 会话 / 经验 craft
 
 ```bash
 evoflow knowledge create --name "英语单词库"   # 平台自有库；遗留 Vault 加 --legacy-vault
 evoflow knowledge remember --file examples/knowledge-remember.json
 evoflow knowledge recall "MCP 配置"
-evoflow experience save --file examples/experience-save.json
-evoflow experience list --query "PATH"
+# 可复用经验：对话用 assets 工具写 craft；或 evoflow assets migrate --only experience
 evoflow memory show --agent main
 evoflow sessions search -q "docker 端口" --titles
 evoflow workspace memory bootstrap D:/path/to/project

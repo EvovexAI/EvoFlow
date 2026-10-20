@@ -1193,8 +1193,13 @@ def cancel_run(run_id: str, reason: str = "User cancelled") -> bool:
         except Exception:
             pass
 
-    # Update run record
-    app_repositories.update_run_status(run_id, "cancelled", error=reason)
+    # Update run record — cancel reason belongs in result_summary, not error (CORE-WF-07).
+    app_repositories.update_run_status(
+        run_id,
+        "cancelled",
+        result_summary=str(reason or "User cancelled")[:2000],
+        error=None,
+    )
     return True
 
 
@@ -1234,6 +1239,11 @@ def resume_run(run_id: str) -> bool:
     """Resume a paused application run and re-dispatch in-flight subtasks."""
     run = app_repositories.load_run(run_id)
     if run is None:
+        return False
+
+    # Only paused/interrupted runs may resume; cancelled/completed must not restart (CORE-WF-03).
+    st = str(run.get("status") or "").strip().lower()
+    if st not in {"paused", "interrupted", "pausing"}:
         return False
 
     from evoflow.persistence.task_repositories import load_task_bundle, save_task_bundle

@@ -61,7 +61,7 @@ def list_apps(
     search: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    lim = max(1, min(int(limit or 50), 200))
+    lim = max(1, min(int(limit or 50), 100))
     apps = app_repositories.list_apps(
         status=status,
         category=category,
@@ -76,14 +76,15 @@ def list_apps(
             {
                 "id": a.get("id"),
                 "name": a.get("name"),
-                "description": (str(a.get("description") or "")[:240] or None),
+                # Keep list payloads lean for tool output budgets (CORE-WF-06).
+                "description": (str(a.get("description") or "")[:120] or None),
                 "status": a.get("status"),
                 "category": a.get("category"),
                 "execution_mode": a.get("execution_mode"),
-                "tags": a.get("tags") or [],
+                "tags": (a.get("tags") or [])[:8],
             }
         )
-    return {"items": items, "count": len(items)}
+    return {"items": items, "count": len(items), "limit": lim}
 
 
 def get_app(app_id: str) -> dict[str, Any]:
@@ -244,21 +245,18 @@ def update_app(app_id: str, patch: dict[str, Any]) -> dict[str, Any]:
     data = _normalize_plan_for_storage(dict(patch or {}))
     skip = {"appId", "app_id", "id", "confirm", "confirmed", "yes"}
     data = {k: v for k, v in data.items() if k not in skip and v is not None}
-    structural = frozenset(
-        {
-            "steps",
-            "parameters",
-            "canvas",
-            "goal_template",
-            "execution_mode",
-            "validation_template",
-            "flowchart_mermaid",
-        }
-    )
-    has_structural = any(key in data and data[key] != existing.get(key) for key in structural)
+    # Always bump version when any field actually changes so revision history
+    # accumulates (CORE-WF-01). Previously non-structural edits reused the same
+    # version and INSERT OR REPLACE overwrote the prior snapshot.
+    changed = any(data.get(k) != existing.get(k) for k in data)
     for key, value in data.items():
         updated[key] = value
-    if has_structural:
+    # Steps changed without an explicit canvas patch → rebuild edges from depends_on (CORE-WF-05).
+    if "steps" in data and "canvas" not in data:
+        from evoflow.collab.app_canvas import canvas_from_steps
+
+        updated["canvas"] = canvas_from_steps(updated.get("steps") or [])
+    if changed:
         updated["version"] = int(existing.get("version") or 1) + 1
     else:
         updated["version"] = int(existing.get("version") or 1)
@@ -277,12 +275,43 @@ def delete_app(app_id: str) -> dict[str, Any]:
     existing = app_repositories.load_app(aid)
     if existing is None:
         raise NotFoundError(f"Application not found: {aid}")
+    # Cancel linked Tasks before wiping runs so board rows do not stay executing (CORE-WF-09).
+    cancelled_tasks: list[str] = []
+    try:
+        runs = app_repositories.list_runs(aid, limit=200)
+    except Exception:
+        runs = []
+    task_ids: list[str] = []
+    for run in runs or []:
+        if not isinstance(run, dict):
+            continue
+        tid = str(run.get("task_id") or "").strip()
+        if tid and tid not in task_ids:
+            task_ids.append(tid)
+    if task_ids:
+        try:
+            from evoflow.admin import tasks as tasks_admin
+
+            for tid in task_ids:
+                try:
+                    tasks_admin.set_task_state(tid, "cancelled", summary="app deleted")
+                    cancelled_tasks.append(tid)
+                except Exception:
+                    try:
+                        tasks_admin.delete_task(tid)
+                        cancelled_tasks.append(tid)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     ok = app_repositories.delete_app(aid)
     return {
         "deleted": bool(ok),
         "appId": aid,
         "app_id": aid,
         "name": existing.get("name"),
+        "cancelled_task_ids": cancelled_tasks,
+        "cancelled_task_count": len(cancelled_tasks),
     }
 
 
@@ -418,9 +447,19 @@ def resume_run(run_id: str) -> dict[str, Any]:
     rid = str(run_id or "").strip()
     if not rid:
         raise ValidationError("runId is required")
+    existing = app_repositories.load_run(rid)
+    if existing is None:
+        raise NotFoundError(f"Run not found: {rid}")
+    st = str(existing.get("status") or "").strip().lower()
+    if st in {"cancelled", "canceled", "completed", "failed", "success", "error"}:
+        raise ValidationError(
+            f"Run '{rid}' is terminal (status={st}) and cannot be resumed; start a new run instead"
+        )
     ok = app_runner.resume_run(rid)
     if not ok:
-        raise NotFoundError(f"Run not found or not resumable: {rid}")
+        raise ValidationError(
+            f"Run '{rid}' is not resumable (status={st}); only paused/interrupted runs can resume"
+        )
     return {"resumed": True, "runId": rid, "run_id": rid}
 
 

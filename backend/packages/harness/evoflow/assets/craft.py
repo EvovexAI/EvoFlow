@@ -210,9 +210,9 @@ def list_craft_experiences(
     *,
     category: str = "",
     query: str = "",
-    max_results: int = 10,
+    max_results: int = 50,
     entity: EntityRef | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     from evoflow.assets.hub import assets_root
 
     root = assets_root()
@@ -301,36 +301,93 @@ def list_craft_experiences(
                     _scan_craft_dir(emp_dir / "craft", "employee", emp_dir.name)
 
     hits.sort(key=lambda h: (h.get("confidence", 0), h.get("title", "")), reverse=True)
-    return hits[: max(1, min(max_results, 30))]
+    # Respect caller max_results; soft cap 500 to avoid unbounded scans (DEF-02).
+    # Always expose full matched ``total`` so callers are not fooled by page size (CORE-ASSET-03).
+    limit = max(1, min(int(max_results or 50), 500))
+    total = len(hits)
+    page = hits[:limit]
+    return {
+        "items": page,
+        "count": len(page),
+        "total": total,
+        "limit": limit,
+        "has_more": total > limit,
+        "query": q or None,
+        "category": cat_prefix or None,
+    }
+
+
+def _iter_craft_skill_files() -> list[tuple[Path, str, str]]:
+    """Yield ``(skill_md, entity_type, entity_id)`` under Asset Hub craft trees."""
+    from evoflow.assets.hub import assets_root
+
+    root = assets_root()
+    out: list[tuple[Path, str, str]] = []
+
+    def _collect(craft_dir: Path, entity_type: str, entity_id: str) -> None:
+        if not craft_dir.is_dir():
+            return
+        for skill_md in craft_dir.glob("*.md"):
+            if skill_md.name.upper() == "README.MD":
+                continue
+            out.append((skill_md, entity_type, entity_id))
+
+    _collect(root / "user" / "craft", "user", "user")
+    users_root = root / "users"
+    if users_root.is_dir():
+        for user_dir in users_root.iterdir():
+            if user_dir.is_dir() and not user_dir.name.startswith("."):
+                _collect(user_dir / "craft", "user", user_dir.name)
+    agents_root = root / "agents"
+    if agents_root.is_dir():
+        for agent_dir in agents_root.iterdir():
+            if agent_dir.is_dir():
+                _collect(agent_dir / "craft", "agent", agent_dir.name)
+    emp_root = root / "employees"
+    if emp_root.is_dir():
+        for emp_dir in emp_root.iterdir():
+            if emp_dir.is_dir():
+                _collect(emp_dir / "craft", "employee", emp_dir.name)
+    return out
 
 
 def get_craft_experience(experience_id: str) -> dict[str, Any] | None:
+    """Load one craft entry by id — direct file scan, not truncated list (DEF-02)."""
     eid = str(experience_id or "").strip()
     if not eid:
         return None
-    for row in list_craft_experiences(max_results=500):
-        if str(row.get("id") or "") != eid:
-            continue
-        from evoflow.assets.hub import assets_root, entity_root, read_text_file
-        from evoflow.assets.paths import EntityRef
+    from evoflow.assets.hub import assets_root, entity_root, read_text_file
+    from evoflow.assets.paths import EntityRef
 
-        ent = EntityRef(str(row["entityType"]), str(row["entityId"]))
-        root = assets_root()
-        rel_from_root = str(row.get("path") or "")
+    root = assets_root()
+    for skill_md, entity_type, entity_id in _iter_craft_skill_files():
         try:
-            full = (root / rel_from_root).resolve()
-            entity_rel = full.relative_to(entity_root(ent)).as_posix()
+            text = skill_md.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        meta, body = _parse_skill_frontmatter(text)
+        exp_id = str(meta.get("experience_id") or meta.get("id") or skill_md.stem)
+        if exp_id != eid and skill_md.stem != eid:
+            continue
+        ent = EntityRef(entity_type, entity_id)
+        try:
+            rel_from_root = skill_md.resolve().relative_to(root.resolve()).as_posix()
         except Exception:
-            entity_rel = rel_from_root.split("/", 2)[-1] if rel_from_root.count("/") >= 2 else rel_from_root
+            rel_from_root = skill_md.as_posix()
+        try:
+            entity_rel = skill_md.resolve().relative_to(entity_root(ent).resolve()).as_posix()
+        except Exception:
+            entity_rel = f"craft/{skill_md.name}"
         try:
             file_data = read_text_file(ent, entity_rel)
+            body_src = file_data.get("content") or text
         except Exception:
-            return None
-        meta, body = _parse_skill_frontmatter(file_data.get("content") or "")
+            body_src = text
+        meta, body = _parse_skill_frontmatter(body_src)
         sections = _sections_from_body(body)
         return {
             "id": eid,
-            "title": _body_title(body) or str(meta.get("description") or row.get("title") or eid),
+            "title": _body_title(body) or str(meta.get("description") or skill_md.stem),
             "category": str(meta.get("category") or "general"),
             "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [],
             "context": {
@@ -348,6 +405,8 @@ def get_craft_experience(experience_id: str) -> dict[str, Any] | None:
             "deprecated": False,
             "storage": "craft",
             "path": rel_from_root,
+            "entityType": entity_type,
+            "entityId": entity_id,
         }
     return None
 

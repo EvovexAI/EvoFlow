@@ -137,6 +137,27 @@ def _can_transition(current: str, target: str) -> bool:
     return target in allowed
 
 
+def _next_states(current: str) -> list[str]:
+    from evoflow.tools.builtins.supervisor_tool import _TASK_STATE_TRANSITIONS
+
+    allowed = _TASK_STATE_TRANSITIONS.get(current) or set()
+    return sorted(allowed)
+
+
+def _illegal_transition_message(current: str, target: str) -> str:
+    nxt = _next_states(current)
+    nxt_s = ", ".join(nxt) if nxt else "(none)"
+    hint = ""
+    if current in {"pending", "planned", "planning", "waiting_user"} and target in {
+        "completed",
+        "failed",
+        "awaiting_close",
+        "reviewed",
+    }:
+        hint = "; use progress or state=executing first, then completed"
+    return f"illegal state transition: {current} -> {target}{hint}; next_states=[{nxt_s}]"
+
+
 def _validate_target_state(target: str) -> None:
     from evoflow.tools.builtins.supervisor_tool import _ALLOWED_TASK_STATES
 
@@ -954,8 +975,7 @@ def set_task_state(
             pass
         elif not _can_transition(current, target):
             if not (raw_target == "reviewed" and _can_transition(current, "reviewed")):
-                hint = f"; use progress or state=executing first, then {target}" if current in {"pending", "planned", "planning", "waiting_user"} and target in {"completed", "failed", "awaiting_close", "reviewed"} else ""
-                raise ValidationError(f"illegal state transition: {current} -> {target}{hint}")
+                raise ValidationError(_illegal_transition_message(current, target))
         code = agent_code_for_task_row(subtask) or agent_code_for_task_row(main_task)
         ws = workspace_root_for_task_row(subtask) or workspace_root_for_task_row(main_task)
         outcome_updates = _outcome_patch(
@@ -1007,8 +1027,7 @@ def set_task_state(
     elif not _can_transition(current, target):
         # Employee may pass status=reviewed (mapped to completed); allow if reviewed was legal.
         if not (raw_target == "reviewed" and _can_transition(current, "reviewed")):
-            hint = f"; use progress or state=executing first, then {target}" if current in {"pending", "planned", "planning", "waiting_user"} and target in {"completed", "failed", "awaiting_close", "reviewed"} else ""
-            raise ValidationError(f"illegal state transition: {current} -> {target}{hint}")
+            raise ValidationError(_illegal_transition_message(current, target))
 
     ws = workspace_root_for_task_row(task)
     code = agent_code_for_task_row(task)

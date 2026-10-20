@@ -13,15 +13,17 @@ Content-Type: application/json
 
 写/破坏性操作：`"confirm": true`。也可用 `args_json` 字符串。
 
+`catalog` 过滤：工具参数 `domain` **或** `args_json` 里的 `{"domain":"mcp"}`；摘要模式 `{"summary":true}`（仅 name/risk）。
+
 ### 全量 action（与代码 registry 对齐）
 
-**knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete`  
+**knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  
 **settings：** `list_models` `get_default_model` `set_default_model` `get_model` `create_model` `delete_model` `get_web_search` `patch_web_search` `test_web_search`  
-**assets：** `get_profile` `update_profile`（用户画像：basic-info / preferences / persona）
-**appearance：** `get` `patch`  
+**assets：** `get_profile` `update_profile`（用户画像：basic-info / preferences / persona）  
+**appearance：** `patch`（读外观走面板 HTTP，非 platform）  
 **agents：** `list` `get` `create` `update` `delete`  
-**employees：** `list` `get` `hire` `update` `pause` `resume` `stop` `archive` `worklog` `trail`  
+**employees：** `list` `get` `hire` `create` `update` `pause` `resume` `stop` `delete` `worklog` `trail`  
 **tasks：** `list` `get` `execution_trail` `create` `set_state` `delete`  
 **items：** `list` `get` `create` `update` `delete` `dispatch`  
 **skills：** `list` `get` `enable` `install` `delete`  
@@ -30,9 +32,11 @@ Content-Type: application/json
 **approvals：** `list` `approve` `reject`  
 **memory：** `agents` `get` `clear` `delete_fact`  
 **sessions：** `search`  
-**experience：** `list` `get` `save` `delete`  
 **diagnostics：** `sources` `scan` `timeline` `run`  
-**verification：** `catalog` `start` `init` `list` `get` `step` `update` `conclude` `delete`
+**verification：** `catalog` `start` `init` `get` `step` `update` `conclude` `delete`
+
+> 已退役：`experience.*`（改走 assets craft）、`verification.list`、`appearance.get`。  
+> employees 无 archive action（下线用 `stop` / 面板流程）。
 
 CLI 独有、无 platform：`org` `assets` `eval` `workspace memory`；employees 的 `wake`/`migrate`；mcp 的 add/remove/test/login；tasks 的 progress/cleanup/reclaim。
 
@@ -52,7 +56,7 @@ CLI 独有、无 platform：`org` `assets` `eval` `workspace memory`；employees
 {"action":"workflow.run","args":{"appId":"App_xxx","parameters":{}},"confirm":true}
 ```
 
-## 常用 REST（CLI 覆盖不全）
+## 常用 REST（CLI 覆盖不全时）
 
 | 前缀 | 用途 |
 |------|------|

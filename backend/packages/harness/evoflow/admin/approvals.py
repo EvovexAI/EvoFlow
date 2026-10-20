@@ -100,7 +100,11 @@ def list_approvals(*, status: str = "pending", limit: int = 50) -> dict[str, Any
         "approvals": [_approval_row(a) for a in rows],
         "count": len(rows),
         "status_filter": st or "all",
-        "hint": "面板 #/proactive?tab=approvals；同意：evoflow approvals approve <task_id>",
+        "default_status": "pending",
+        "hint": (
+            "默认只返回 pending；传 status=all 查看全部。"
+            "面板 #/proactive?tab=approvals；同意：evoflow approvals approve <task_id>"
+        ),
     }
 
 

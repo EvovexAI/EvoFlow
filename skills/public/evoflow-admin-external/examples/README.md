@@ -23,8 +23,6 @@
 | [`automation-once.json`](automation-once.json) | `automation create` 一次性 |
 | [`automation-update.json`](automation-update.json) | `automation update` |
 | [`knowledge-remember.json`](knowledge-remember.json) | `knowledge remember` |
-| [`experience-save.json`](experience-save.json) | `experience save` |
-| [`experience-update.json`](experience-update.json) | `experience update` |
 | [`mcp-set.json`](mcp-set.json) | `mcp set` |
 
 ## 输出形状样例（只读对照）

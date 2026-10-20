@@ -37,10 +37,17 @@ class PlatformInvokeBody(BaseModel):
 
 
 @router.get("/catalog")
-def platform_catalog(request: Request, domain: str | None = None, detailed: bool = False) -> dict[str, Any]:
+def platform_catalog(
+    request: Request,
+    domain: str | None = None,
+    detailed: bool = False,
+    summary: bool = False,
+) -> dict[str, Any]:
     """Shortcut for platform catalog (same as action=catalog)."""
     require_org_admin(request)
-    return build_catalog(domain=domain, detailed=detailed or bool(domain))
+    if summary:
+        return build_catalog(domain=domain, detailed=False, summary=True)
+    return build_catalog(domain=domain, detailed=detailed or bool(domain), summary=False)
 
 
 @router.post("")

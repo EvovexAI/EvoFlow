@@ -78,6 +78,29 @@ def reindex_owned_base(
         raise ValidationError(str(exc)) from exc
 
 
+def delete_owned_base(kb_id: str) -> dict[str, Any]:
+    """Soft-delete a platform-owned knowledge base (destructive)."""
+    from evoflow.knowledge.owned import service as owned_service
+
+    kid = str(kb_id or "").strip()
+    if not kid.startswith("kb_"):
+        raise ValidationError("kbId must be an owned knowledge base id (kb_…)")
+    base = owned_service.get_base(kid)
+    if not base:
+        raise NotFoundError(f"Owned knowledge base '{kid}' not found")
+    try:
+        owned_service.delete_base(kid)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return {
+        "provider": "owned",
+        "kbId": kid,
+        "vaultId": kid,
+        "name": str(base.get("name") or kid),
+        "deleted": True,
+    }
+
+
 def requeue_owned_orphans(kb_id: str | None = None, *, limit: int = 200) -> dict[str, Any]:
     """Re-enqueue stuck parse jobs."""
     from evoflow.knowledge.owned import service as owned_service
@@ -290,11 +313,9 @@ def recall(
         for item in result.get("items") or []:
             merged.append({**item, "kbId": kid, "kbName": base.get("name"), "provider": "owned"})
 
-    merged.sort(
-        key=lambda x: float(x.get("rrfScore") or x.get("vectorScore") or x.get("score") or 0),
-        reverse=True,
-    )
-    entries = merged[:top_k]
+    from evoflow.knowledge.owned.retrieve import rerank_by_query_match
+
+    entries = rerank_by_query_match(merged, q)[:top_k]
     return {
         "provider": "owned",
         "query": q,
