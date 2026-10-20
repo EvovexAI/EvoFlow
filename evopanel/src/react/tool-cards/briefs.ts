@@ -232,7 +232,13 @@ function networkMediaBrief(ctx: ToolCardBriefContext): string | null {
 /** 图像查看（遗留链位于文件类之后；kind 独立无冲突）。 */
 function viewImageBrief(ctx: ToolCardBriefContext): string | null {
   if (ctx.toolKind !== 'view_image') return null
-  const imgPath = typeof ctx.inputObj?.image_path === 'string' ? ctx.inputObj.image_path : ctx.path
+  const raw = ctx.inputObj?.image_path
+  if (Array.isArray(raw)) {
+    const paths = raw.map((x) => String(x || '').trim()).filter(Boolean)
+    if (paths.length > 1) return briefFull(`${paths.length} 张图片`)
+    if (paths.length === 1) return briefFull(paths[0])
+  }
+  const imgPath = typeof raw === 'string' ? raw : ctx.path
   if (imgPath) return briefFull(imgPath)
   return null
 }

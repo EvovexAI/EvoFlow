@@ -1213,7 +1213,16 @@ export function formatToolDisplayTitle(tool) {
       pushBriefBit(bits, v, max)
     }
     push(args?.url || args?.query || args?.topic || args?.command || args?.pattern)
-    push(args?.path || args?.root || args?.glob || args?.image_path)
+    if (Array.isArray(args?.image_path) && args.image_path.length > 1) {
+      push(`${args.image_path.length} 张图片`)
+    } else {
+      push(
+        args?.path ||
+          args?.root ||
+          args?.glob ||
+          (Array.isArray(args?.image_path) ? args.image_path[0] : args?.image_path),
+      )
+    }
     if (!bits.length) return head
     return `${head} · ${bits.join(' · ')}`
   }
@@ -1273,7 +1282,16 @@ export function formatToolDisplayTitle(tool) {
     if (pathBrief) bits.push(pathBrief)
     else {
       push(args?.query || args?.pattern || args?.url || args?.command || args?.prompt || args?.title || args?.action)
-      push(args?.path || args?.root || args?.glob || args?.image_path)
+      if (Array.isArray(args?.image_path) && args.image_path.length > 1) {
+        push(`${args.image_path.length} 张图片`)
+      } else {
+        push(
+          args?.path ||
+            args?.root ||
+            args?.glob ||
+            (Array.isArray(args?.image_path) ? args.image_path[0] : args?.image_path),
+        )
+      }
     }
   }
 
@@ -1325,7 +1343,13 @@ export function formatToolBriefDetail(tool, titleText) {
   const pathBrief = formatReadPathBrief(args)
   if (pathBrief) return pathBrief
 
-  const url = pickFirstTrimmed(args.url, args.image_path)
+  if (Array.isArray(args.image_path) && args.image_path.length > 1) {
+    return `${args.image_path.length} 张图片`
+  }
+  const url = pickFirstTrimmed(
+    args.url,
+    Array.isArray(args.image_path) ? args.image_path[0] : args.image_path,
+  )
   if (url) return url
 
   const cmd = pickFirstTrimmed(args.command)

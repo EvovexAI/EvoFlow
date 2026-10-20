@@ -14,7 +14,10 @@ SEARCH_CODE_INDEX_DESCRIPTION = "Search workspace code index (symbols/FTS). Pipe
 
 TERMINAL_TOOL_DESCRIPTION = "Short shell command. workdir: path or skill:<name>. Long jobs → process."
 READ_LINTS_DESCRIPTION = "Run linter/diagnostics on one Python/JS/TS/Java source file."
-VIEW_IMAGE_DESCRIPTION = "Load or analyze a local image path or http(s) URL."
+VIEW_IMAGE_DESCRIPTION = (
+    "Load or analyze image(s): image_path is one local path / http(s) URL, "
+    "or a list of paths/URLs (up to 8) for multiple images in one call."
+)
 PROCESS_TOOL_DESCRIPTION = "Background shell start|log|wait|kill; start supports workdir skill:<name>."
 
 FETCH_URL_DESCRIPTION = "Fetch a URL and return readable markdown/text (http/https only)."

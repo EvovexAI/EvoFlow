@@ -1177,7 +1177,7 @@ _TOOL_UI_DISPLAY: dict[str, dict] = {
     "ask_clarification": {"label": "等待确认", "icon": "❔", "description": "等待用户确认后再继续"},
     "supervisor": {"label": "任务调度", "icon": "🧭", "description": "创建和管理子任务调度"},
     "task": {"label": "子任务", "icon": "⚡", "description": "委派子任务给其他智能体执行"},
-    "view_image": {"label": "查看图片", "icon": "🖼️", "description": "查看和分析图片文件"},
+    "view_image": {"label": "查看图片", "icon": "🖼️", "description": "查看和分析图片（支持一次传入多张路径/URL）"},
     "invoke_acp_agent": {"label": "ACP 子代理", "icon": "🤖", "description": "调用 ACP 外部代理"},
     "tool_search": {"label": "查找工具", "icon": "🔎", "description": "搜索并调用延迟加载的工具"},
     "read_file": {"label": "读取文件", "icon": "📄", "description": "读取工作区或本地文件内容"},

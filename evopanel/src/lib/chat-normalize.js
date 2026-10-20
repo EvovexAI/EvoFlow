@@ -2841,6 +2841,11 @@ export function formatToolOutputForUserDisplay(value, toolName) {
       const o = typeof value === 'string' ? JSON.parse(value) : value
       if (o && typeof o === 'object') {
         if (o.mode === 'native') {
+          const batchCount = Array.isArray(o.images) ? o.images.length : 0
+          if (batchCount > 1) {
+            if (o.cached) return `全部 ${batchCount} 张图片已在本会话加载，跳过重复识图`
+            return `已加载 ${batchCount} 张图片供主模型查看`
+          }
           if (o.cached) return '图片已在本会话加载，跳过重复识图'
           const ref = typeof o.image_ref === 'string' ? o.image_ref.trim() : ''
           return ref ? `已加载图片供主模型查看：${ref}` : '已加载图片供主模型查看'

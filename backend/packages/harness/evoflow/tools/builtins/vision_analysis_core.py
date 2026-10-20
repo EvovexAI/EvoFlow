@@ -307,6 +307,124 @@ def analyze_image_bytes(
         return {"error": f"视觉分析失败: {e}", "vision_model": vision_model}
 
 
+def analyze_images_bytes(
+    images: list[tuple[bytes, str, str]],
+    *,
+    user_prompt: str | None = None,
+    preferred_model: str | None = None,
+    source: str = "core",
+    runtime: Any | None = None,
+) -> dict[str, Any]:
+    """Run one vision call over multiple images.
+
+    ``images`` items are ``(bytes, mime_type, image_ref)``. Empty list returns an error.
+    A single-item list delegates to ``analyze_image_bytes``.
+    """
+    if not images:
+        return {"error": "Empty image list"}
+    if len(images) == 1:
+        img_bytes, mime_type, image_ref = images[0]
+        return analyze_image_bytes(
+            img_bytes,
+            mime_type,
+            user_prompt=user_prompt or _DEFAULT_USER_PROMPT,
+            preferred_model=preferred_model,
+            source=source,
+            image_ref=image_ref,
+            runtime=runtime,
+        )
+
+    prompt = (user_prompt or "").strip() or (
+        f"请依次描述这 {len(images)} 张图片的内容；若彼此相关请一并说明关系与差异。"
+    )
+    total_bytes = sum(len(b or b"") for b, _, _ in images)
+    refs = [ref for _, _, ref in images]
+    _vision_log(
+        "开始多图视觉分析",
+        source=source,
+        count=len(images),
+        image_refs=refs,
+        size_kb=round(total_bytes / 1024, 1),
+        main_model=resolve_model_name_from_runtime(runtime) or "（未知）",
+        main_supports_vision=main_model_supports_vision(runtime) if runtime is not None else None,
+    )
+
+    vision_model = resolve_vision_model_name(preferred=preferred_model, source=source)
+    if not vision_model:
+        return {
+            "error": (
+                "未配置支持视觉的模型。请在「设置 → 模型」为某个模型开启「视觉」，"
+                "或在「设置 → 通用」设置「默认视觉模型」。"
+            )
+        }
+
+    started = time.perf_counter()
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from evoflow.models import create_chat_model
+
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for idx, (img_bytes, mime_type, image_ref) in enumerate(images, start=1):
+            if not img_bytes:
+                return {"error": f"Empty image data for {image_ref or f'#{idx}'}"}
+            b64 = base64.b64encode(img_bytes).decode("ascii")
+            data_url = f"data:{mime_type};base64,{b64}"
+            content.append({"type": "text", "text": f"Image {idx}: {image_ref}"})
+            content.append({"type": "image_url", "image_url": {"url": data_url}})
+
+        _vision_log("正在调用视觉模型(多图)", source=source, model=vision_model, count=len(images))
+        model = create_chat_model(
+            name=vision_model,
+            thinking_enabled=False,
+            invocation_kind="vision",
+            timeout=_VISION_TIMEOUT,
+            max_tokens=_VISION_MAX_OUTPUT_TOKENS,
+            temperature=0.1,
+        )
+        response = model.invoke([HumanMessage(content=content)])
+        analysis = response.content if hasattr(response, "content") else str(response)
+        if isinstance(analysis, list):
+            parts: list[str] = []
+            for block in analysis:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(str(block.get("text") or ""))
+            analysis = "\n".join(p for p in parts if p.strip())
+        analysis_text = str(analysis or "").strip()
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        if not analysis_text:
+            return {"error": "视觉模型返回空分析结果", "vision_model": vision_model}
+        _vision_log(
+            "多图视觉分析完成",
+            source=source,
+            model=vision_model,
+            elapsed_ms=elapsed_ms,
+            chars=len(analysis_text),
+            count=len(images),
+        )
+        return {
+            "analysis": analysis_text,
+            "vision_model": vision_model,
+            "image_size_bytes": total_bytes,
+        }
+    except ImportError:
+        return {"error": "langchain_openai not installed. Install with: pip install langchain-openai"}
+    except Exception as e:
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+        _vision_log(
+            "多图视觉分析失败",
+            source=source,
+            level=logging.WARNING,
+            model=vision_model,
+            elapsed_ms=elapsed_ms,
+            error=str(e),
+        )
+        logger.debug("multi vision analysis traceback model=%s", vision_model, exc_info=True)
+        return {"error": f"视觉分析失败: {e}", "vision_model": vision_model}
+
+
 def prepare_image_bytes_for_native(
     img_bytes: bytes, mime_type: str, *, max_base64_bytes: int | None = None
 ) -> tuple[bytes, str]:
@@ -411,6 +529,29 @@ def format_native_tool_result(
     return json.dumps(body, ensure_ascii=False)
 
 
+def format_native_batch_tool_result(*, images: list[dict[str, Any]]) -> str:
+    """Batch native staging result — metadata only, never base64."""
+    n = len(images)
+    all_cached = bool(images) and all(bool(item.get("cached")) for item in images)
+    if all_cached:
+        message = f"All {n} images already attached in this thread; reuse prior analysis."
+    else:
+        message = f"Staged {n} images for the main vision model; pixels inject before the next model call."
+    body: dict[str, Any] = {
+        "mode": "native",
+        "count": n,
+        "images": images,
+        "cached": all_cached,
+        "message": message,
+    }
+    if n == 1:
+        only = images[0]
+        body["image_ref"] = only.get("image_ref")
+        body["mime_type"] = only.get("mime_type")
+        body["image_size_bytes"] = only.get("image_size_bytes")
+    return json.dumps(body, ensure_ascii=False)
+
+
 def format_vision_tool_result(payload: dict[str, Any], *, image_ref: str) -> str:
     """Serialize tool output for the main (possibly non-vision) agent."""
     if payload.get("error"):
@@ -428,3 +569,29 @@ def format_vision_tool_result(payload: dict[str, Any], *, image_ref: str) -> str
         },
         ensure_ascii=False,
     )
+
+
+def format_vision_batch_tool_result(
+    payload: dict[str, Any],
+    *,
+    image_refs: list[str],
+    load_errors: list[dict[str, str]] | None = None,
+) -> str:
+    """Serialize multi-image text-mode analysis (plus optional per-ref load errors)."""
+    errors = [e for e in (load_errors or []) if e.get("image_ref") and e.get("error")]
+    body: dict[str, Any] = {
+        "mode": "text",
+        "count": len(image_refs),
+        "image_refs": image_refs,
+        "vision_model": payload.get("vision_model"),
+    }
+    if payload.get("error"):
+        body["error"] = payload["error"]
+    else:
+        body["analysis"] = payload.get("analysis")
+        body["image_size_bytes"] = payload.get("image_size_bytes")
+    if len(image_refs) == 1:
+        body["image_ref"] = image_refs[0]
+    if errors:
+        body["load_errors"] = errors
+    return json.dumps(body, ensure_ascii=False)

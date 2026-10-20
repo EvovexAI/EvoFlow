@@ -1864,12 +1864,28 @@ function ToolCallListInner({
             tool: t as Record<string, unknown>,
           })
         const inFold = useActivityFold || nestedInExploring
-        const viewImagePath =
-          typeof inputObj?.image_path === 'string'
-            ? inputObj.image_path.trim()
-            : path
-              ? String(path).trim()
-              : ''
+        const viewImagePaths: string[] = (() => {
+          const raw = inputObj?.image_path
+          if (Array.isArray(raw)) {
+            return raw.map((x) => String(x || '').trim()).filter(Boolean)
+          }
+          if (typeof raw === 'string' && raw.trim()) {
+            const s = raw.trim()
+            if (s.startsWith('[')) {
+              try {
+                const parsed = JSON.parse(s)
+                if (Array.isArray(parsed)) {
+                  return parsed.map((x) => String(x || '').trim()).filter(Boolean)
+                }
+              } catch {
+                /* single path that happens to start with [ */
+              }
+            }
+            return [s]
+          }
+          return path ? [String(path).trim()].filter(Boolean) : []
+        })()
+        const viewImagePath = viewImagePaths[0] || ''
         const openApprovalIfPending = undefined
         const openPlatformFeedbackPanel =
           toolKind === 'platform' && canOpenPlatformFeedbackFromTool(t as Record<string, unknown>)
@@ -2147,18 +2163,29 @@ function ToolCallListInner({
               toolStatus={running ? 'running' : toolFailed ? 'failed' : 'completed'}
               toolCallId={toolCallId || undefined}
             />
-            {isViewImageModalTool && viewImagePath && !running ? (
+            {isViewImageModalTool && viewImagePaths.length > 0 && !running ? (
               <div className="msg-tool-hang">
-                <ViewImageInlinePreview
-                  imagePath={viewImagePath}
-                  alt={summaryTitle || titleText || '图片'}
-                  caption={(() => {
-                    const text = String(outputJson || '').trim()
-                    if (!text) return undefined
-                    const first = text.split(/\r?\n/).find((line) => line.trim()) || ''
-                    return first.length > 120 ? `${first.slice(0, 120)}…` : first
-                  })()}
-                />
+                {viewImagePaths.map((imgPath, idx) => (
+                  <ViewImageInlinePreview
+                    key={`${toolCallId || 'view'}-${idx}-${imgPath}`}
+                    imagePath={imgPath}
+                    alt={
+                      viewImagePaths.length > 1
+                        ? `${summaryTitle || titleText || '图片'} (${idx + 1}/${viewImagePaths.length})`
+                        : summaryTitle || titleText || '图片'
+                    }
+                    caption={
+                      idx === 0
+                        ? (() => {
+                            const text = String(outputJson || '').trim()
+                            if (!text) return undefined
+                            const first = text.split(/\r?\n/).find((line) => line.trim()) || ''
+                            return first.length > 120 ? `${first.slice(0, 120)}…` : first
+                          })()
+                        : undefined
+                    }
+                  />
+                ))}
               </div>
             ) : null}
             {mediaImagePreview ? (

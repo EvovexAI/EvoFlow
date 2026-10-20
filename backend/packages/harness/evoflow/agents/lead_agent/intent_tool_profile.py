@@ -425,7 +425,7 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": (),
     },
     "visual": {
-        "zh_description": "视觉理解：本地路径或 http/https 图片 URL 均用 view_image",
+        "zh_description": "视觉理解：本地路径或 http/https 图片 URL 均用 view_image（可一次传多张）",
         "tools": ("view_image",),
     },
     "messaging": {
