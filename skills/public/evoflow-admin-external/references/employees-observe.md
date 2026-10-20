@@ -11,7 +11,8 @@ evoflow agents check code-reviewer
 evoflow agents create --file examples/agent-create.json
 evoflow employees hire --file examples/employees-hire.json
 evoflow employees update code-reviewer --file examples/employees-update.json
-evoflow employees pause|resume|archive code-reviewer
+evoflow employees pause|resume|stop code-reviewer
+evoflow employees delete code-reviewer   # 仅删岗位；加 --delete-agent 一并删智能体
 ```
 
 ### 岗位模型配置字段

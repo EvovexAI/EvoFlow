@@ -45,7 +45,7 @@ workflow  = 面板 Apps（可发布、可重复跑的参数化流程）。
 | 是什么 | 配置：SOUL、技能、工具、模型 | 雇佣关系：职责、KPI、心跳、上下班 |
 | 命令 | `evoflow agents …` | `evoflow employees …` |
 | 顺序 | **先** `agents create` | **再** `employees hire`（同一 `agent_code`） |
-| 删除/归档 | `agents delete` 默认级联岗 | `employees archive` 不删 Agent |
+| 删除/归档 | `agents delete` 默认级联岗 | `employees delete` 删岗位（`--delete-agent` 可一并删 Agent） |
 
 「Lead / 主对话 / 小蜜」一般是 `main`（或产品配置的前台码），**不是**必须雇成 employees。  
 用户说「lcw / 岗位 / 值班 / 自动上班」→ 走 **employees**；说「角色配置 / 改提示词」→ 走 **agents**。

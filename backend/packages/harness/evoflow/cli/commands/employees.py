@@ -78,9 +78,28 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(resume_p)
     resume_p.set_defaults(handler=_resume)
 
+    delete_p = sub.add_parser(
+        "delete",
+        help="Delete duty role (岗位); optionally also delete the Agent",
+    )
+    delete_p.add_argument("agent_code")
+    delete_p.add_argument(
+        "--delete-agent",
+        action="store_true",
+        help="Also delete the linked Agent config (destructive)",
+    )
+    add_output_flags(delete_p)
+    delete_p.set_defaults(handler=_delete)
+
     worklog_p = sub.add_parser("worklog", help="Day work log grouped by duty round")
     worklog_p.add_argument("agent_code", help="Employee agent_code")
     worklog_p.add_argument("--day", default="", help="YYYY-MM-DD (default: today)")
+    worklog_p.add_argument(
+        "--days",
+        type=int,
+        default=0,
+        help="Look-back N Beijing calendar days (omit --day); max 30",
+    )
     worklog_p.add_argument("--limit", type=int, default=80, help="Max initiatives to scan")
     add_output_flags(worklog_p)
     worklog_p.set_defaults(handler=_worklog)
@@ -206,11 +225,20 @@ def _resume(args: argparse.Namespace):
     return employees_admin.resume_role(args.agent_code)
 
 
+def _delete(args: argparse.Namespace):
+    return employees_admin.delete_role(
+        args.agent_code,
+        delete_agent=bool(getattr(args, "delete_agent", False)),
+    )
+
+
 def _worklog(args: argparse.Namespace):
     day = str(getattr(args, "day", "") or "").strip() or None
+    days_n = int(getattr(args, "days", 0) or 0)
     return employees_admin.worklog(
         args.agent_code,
         day=day,
+        days=days_n if days_n > 0 else None,
         limit=int(getattr(args, "limit", 80) or 80),
     )
 

@@ -61,17 +61,18 @@ evoflow agents delete <code> [--keep-employee]
 先有 `agents`，再 `hire`。观察：[`employees-observe.md`](employees-observe.md)。
 
 ```bash
-evoflow employees list [--status active|paused|archived|draft] [--include-archived]
+evoflow employees list [--status active|paused|draft]
 evoflow employees get <agent_code> [--recent N]
 evoflow employees hire --file examples/employees-hire.json
 evoflow employees update <agent_code> --file examples/employees-update.json
-evoflow employees pause|resume|stop|archive <agent_code>
-# stop=停在途；pause=停巡检；archive=离岗名册
-evoflow employees worklog <agent_code> [--day YYYY-MM-DD] [--limit N]
+evoflow employees pause|resume|stop <agent_code>
+# stop=停在途并暂停巡检；pause=停巡检；resume=恢复
+evoflow employees delete <agent_code> [--delete-agent]
+evoflow employees worklog <agent_code> [--day YYYY-MM-DD | --days N] [--limit N]
 evoflow employees trail <agent_code> [--round-id id] [--max-steps N]
 evoflow employees dispatch <agent_code> --goal "…" [--description …] [--priority normal|high|low] [--task-id …] [--round-id …] [--force-new]
 evoflow employees wake <code_or_role_name> [--goal …] [--from <code>] [--task-id …]
-evoflow employees migrate [--agent-code …] [--dry-run]
+evoflow employees migrate-work-items [--agent-code …] [--dry-run]
 ```
 
 `dispatch` / `wake` **需 Gateway**。

@@ -45,5 +45,8 @@ def test_http_platform_doc_lists_registry_actions() -> None:
     text = doc.read_text(encoding="utf-8")
     assert "**experience：**" not in text
     assert "**knowledge：**" in text and "delete" in text
-    assert "employees：**" in text and "archive" not in text.split("**employees：**", 1)[-1].split("\n", 1)[0]
+    emp_line = text.split("**employees：**", 1)[-1].split("\n", 1)[0]
+    assert "delete" in emp_line
+    assert "archive" not in emp_line
     assert "已退役" in text
+    assert "`employees.delete`" in text

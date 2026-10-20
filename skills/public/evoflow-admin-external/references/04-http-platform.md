@@ -36,7 +36,7 @@ Content-Type: application/json
 **verification：** `catalog` `start` `init` `get` `step` `update` `conclude` `delete`
 
 > 已退役：`experience.*`（改走 assets craft）、`verification.list`、`appearance.get`。  
-> employees 无 archive action（下线用 `stop` / 面板流程）。
+> 删除岗位用 `employees.delete`（可选 `delete_agent`）；停巡检用 `pause`/`stop`，不是 archive。
 
 CLI 独有、无 platform：`org` `assets` `eval` `workspace memory`；employees 的 `wake`/`migrate`；mcp 的 add/remove/test/login；tasks 的 progress/cleanup/reclaim。
 
