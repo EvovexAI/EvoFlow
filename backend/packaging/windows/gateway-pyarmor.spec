@@ -106,10 +106,14 @@ if not _consolidation.is_file():
         "(Phase2 memory consolidate would FileNotFoundError on desktop install)"
     )
 
-# System builtin Obsidian vaults
+# System builtin user guide (docs/user → owned KB seed for 小V / 知识库).
 _docs_user = backend_root.parent / "docs" / "user"
-if _docs_user.is_dir():
-    datas.append((str(_docs_user), "evoflow/assets/builtin_knowledge_vaults/user-guide"))
+if not _docs_user.is_dir() or not any(_docs_user.rglob("*.md")):
+    raise SystemExit(
+        "gateway-pyarmor.spec: docs/user missing or has no .md "
+        "(builtin user-guide KB would seed empty on desktop install)"
+    )
+datas.append((str(_docs_user), "evoflow/assets/builtin_knowledge_vaults/user-guide"))
 _docs_knowledge = (
     backend_root.parent.parent / "ContentOS" / "docs" / "智能内容运营平台" / "知识库"
 )

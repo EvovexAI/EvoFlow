@@ -700,14 +700,18 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
         paintedFromKnownEmptyRef.current = false
         if (sessionKey) {
           const rt = getSessionRuntime(sessionKey)
-          const runStatusTerminal = !isActiveRunStatus(runStatus)
-          if (dbTerminal || runStatusTerminal) {
-            if (
-              isTurnBusy(rt) ||
-              rt.turnPhase === 'reattaching' ||
-              rt.turnPhase === 'degraded'
-            ) {
-              dispatchSessionTurnEvent(sessionKey, { type: 'TURN_IDLE' })
+          // live POST 仍开着：历史对账不得清 busy（否则切页回来只剩流式正文、运行态全灭）
+          if (rt.streamWireSource !== 'run') {
+            // 空 runStatus ≠ 终态；缺字段时勿把进行中的回合 idle 掉
+            const runStatusTerminal = !!runStatus && !isActiveRunStatus(runStatus)
+            if (dbTerminal || runStatusTerminal) {
+              if (
+                isTurnBusy(rt) ||
+                rt.turnPhase === 'reattaching' ||
+                rt.turnPhase === 'degraded'
+              ) {
+                dispatchSessionTurnEvent(sessionKey, { type: 'TURN_IDLE' })
+              }
             }
           }
         }

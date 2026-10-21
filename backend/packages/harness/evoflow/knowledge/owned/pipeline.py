@@ -214,6 +214,10 @@ async def run_parse_index(
         chunk_ids = [str(r["id"]) for r in rows]
 
     if skip_embedding:
+        # Keyword path must still publish chunks: search filters ``enabled=1`` and
+        # reads FTS/LIKE. Leaving staged (enabled=0) rows made lean installs
+        # (no embedding model yet) show "indexed" docs that return zero hits —
+        # including the builtin user guide used by 小V.
         reason = (skip_embedding_reason or "embedding 未就绪").strip()
         note = f"已分块并可关键词检索；向量化已跳过（{reason[:180]}）"
         now = utc_now()
@@ -224,6 +228,10 @@ async def run_parse_index(
                 conn.execute(f"DELETE FROM kb_chunk_embeddings WHERE chunk_id IN ({placeholders})", old_ids)
                 conn.execute(f"DELETE FROM kb_chunks_fts WHERE chunk_id IN ({placeholders})", old_ids)
                 conn.execute(f"DELETE FROM kb_chunks WHERE id IN ({placeholders})", old_ids)
+            conn.execute("UPDATE kb_chunks SET enabled=1 WHERE doc_id=? AND enabled=0", (doc_id,))
+            for cid, _kb, _doc, _ord, content, header, *_rest in chunk_rows:
+                fts_text = f"{header}\n{content}".strip() if header else content
+                index_fts(conn, chunk_id=cid, kb_id=kb_id, doc_id=doc_id, content=fts_text)
             conn.execute(
                 """
                 UPDATE kb_documents SET parse_status='completed', index_status='ready',

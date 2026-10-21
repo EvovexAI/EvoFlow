@@ -499,6 +499,8 @@ import {
   DEGRADED_SNAPSHOT_SYSTEM_TEXT,
   seenRunIdSet,
   EMPTY_PRIOR_TURN_STRIP as EMPTY_RT_PRIOR_STRIP,
+  reviveTurnBusyIfLivePostOpen,
+  markSessionStreamWireSource,
   type SessionRuntime,
 } from './lib/session-runtime-store.js'
 import { commitStreamSnapshot, pruneStreamSnapshots } from './lib/stream-snapshot-store.js'
@@ -6503,24 +6505,28 @@ useEffect(() => {
           try {
             const probe = await fetchAndCacheSessionExecutionState(sk)
             const rtAfter = getSessionRuntime(sk)
-            const stillBusy = isTurnBusy(rtAfter) || isSessionRuntimeLive(rtAfter)
-            const backendDone = probe ? !probe.executing && !probe.goalActive : true
-            if (stillBusy && backendDone) {
-              // 后端确认已结束：清 probe cache + dispatch TURN_IDLE 归位侧栏运行状态
-              logStreamStop({
-                sessionKey: sk,
-                runId: rtAfter.activeChatRunId || rtAfter.stream.runId,
-                trigger: 'refresh_backend_done',
-                hasEndMarker: false,
-                detail: {
-                  source: 'shell_session_refresh',
-                  turnPhase: rtAfter.turnPhase,
-                  probeExecuting: probe?.executing,
-                  probeGoalActive: probe?.goalActive,
-                },
-              })
-              clearSessionExecutionProbe(sk)
-              dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+            if (rtAfter.streamWireSource === 'run') {
+              // live POST 未关：probe 滞后不得清 busy
+            } else {
+              const stillBusy = isTurnBusy(rtAfter) || isSessionRuntimeLive(rtAfter)
+              const backendDone = probe ? !probe.executing && !probe.goalActive : true
+              if (stillBusy && backendDone) {
+                // 后端确认已结束：清 probe cache + dispatch TURN_IDLE 归位侧栏运行状态
+                logStreamStop({
+                  sessionKey: sk,
+                  runId: rtAfter.activeChatRunId || rtAfter.stream.runId,
+                  trigger: 'refresh_backend_done',
+                  hasEndMarker: false,
+                  detail: {
+                    source: 'shell_session_refresh',
+                    turnPhase: rtAfter.turnPhase,
+                    probeExecuting: probe?.executing,
+                    probeGoalActive: probe?.goalActive,
+                  },
+                })
+                clearSessionExecutionProbe(sk)
+                dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+              }
             }
           } catch {
             /* best-effort */
@@ -7449,6 +7455,10 @@ useEffect(() => {
       // turnPhase 停在 idle，后续 delta 全部被 !streamActive 守卫丢弃，流式显示冻结。
       clearActiveRun(rt)
       if (!isBackground) activeChatRunIdRef.current = null
+      // SSE final / 停止：POST wire 已关，显式清 marker（TURN_IDLE 会保留 'run' 以免误伤）
+      if (rt.streamWireSource === 'run') {
+        markSessionStreamWireSource(sessionKey, null)
+      }
       dispatchSessionRunEnded(sessionKey)
       if (!isBackground) {
         setStreamHealth(null)
@@ -8425,6 +8435,8 @@ useEffect(() => {
       } catch {
         /* ignore */
       }
+      const sk = String(sessionRef.current || '').trim()
+      if (sk) reviveTurnBusyIfLivePostOpen(sk)
       void loadModelCatalog({ silent: true, forceLive: true })
       refreshSpeechConfigured()
     }
@@ -11065,22 +11077,32 @@ useEffect(() => {
               })
             }
           }
-          // 运行态由本机 TURN_IDLE 收掉。这里重拉 workspace 会话列表只会在每个
-          // 内层 RUN_FINISHED 上打一轮 sessions?workspace_key，侧栏用不到。
+          // 运行态收尾：
+          // - RUN_ERROR：立刻 TURN_IDLE
+          // - RUN_FINISHED：若 live POST /runs/stream 仍开着（streamWireSource==='run'），
+          //   勿 idle。工具循环中间的 RUN_FINISHED 若提前 idle，侧栏/停止/「运行中」会灭，
+          //   但 agui_event 仍豁免写入 → holdStreamResidue 继续流式渲染（切去任务中心再回来尤甚）。
+          //   真正收尾交给 SSE final / 用户停止。
           if (rt && isTurnBusy(rt) && targetSk) {
-            const endTrigger =
-              String(aguiEvent.type) === 'RUN_ERROR' ? 'agui_run_error' : 'agui_run_finished'
-            logStreamStop({
-              sessionKey: targetSk,
-              runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
-              trigger: endTrigger,
-              hasEndMarker: true,
-              detail: {
-                aguiType: String(aguiEvent.type || ''),
-                wasBusy: true,
-              },
-            })
-            dispatchSessionTurnEvent(targetSk, { type: 'TURN_IDLE' })
+            const isRunError = String(aguiEvent.type) === 'RUN_ERROR'
+            const livePostOpen = rt.streamWireSource === 'run'
+            if (!isRunError && livePostOpen) {
+              dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: Date.now() })
+            } else {
+              const endTrigger = isRunError ? 'agui_run_error' : 'agui_run_finished'
+              logStreamStop({
+                sessionKey: targetSk,
+                runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
+                trigger: endTrigger,
+                hasEndMarker: true,
+                detail: {
+                  aguiType: String(aguiEvent.type || ''),
+                  wasBusy: true,
+                  livePostOpen,
+                },
+              })
+              dispatchSessionTurnEvent(targetSk, { type: 'TURN_IDLE' })
+            }
           }
           const hasArtifacts = turnRunArtifactsRef.current.length > 0
           const platformEntries = turnPlatformEntriesRef.current
@@ -16071,7 +16093,14 @@ useEffect(() => {
       void refreshSessionsRef.current?.().catch(() => {})
       try {
         const rt = getSessionRuntime(sel)
-        if (isSessionRuntimeLive(rt) || turnBusyForSession(sel)) return
+        // live POST 未关或本地仍 busy/live：dbOnly 刷新会清 pin / 误 TURN_IDLE
+        if (
+          isSessionRuntimeLive(rt) ||
+          turnBusyForSession(sel) ||
+          rt.streamWireSource === 'run'
+        ) {
+          return
+        }
       } catch {
         /* store 不可达时按原行为刷新 */
       }
@@ -16290,6 +16319,9 @@ useEffect(() => {
       } catch {
         /* ignore */
       }
+      // 任务中心等路由回来：若 live POST 仍开着但回合被误 idle，恢复「运行中」
+      const sk = String(sessionRef.current || '').trim()
+      if (sk) reviveTurnBusyIfLivePostOpen(sk)
     }
     const onShellSelectSession = (ev: Event) => {
       const key = String((ev as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey || '').trim()

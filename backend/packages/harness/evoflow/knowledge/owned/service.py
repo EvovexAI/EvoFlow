@@ -858,6 +858,93 @@ def requeue_orphan_parse_docs(
     }
 
 
+def requeue_unpublished_keyword_docs(
+    kb_id: str | None = None,
+    *,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Re-enqueue docs that look indexed but have no searchable (enabled) chunks.
+
+    Regression from the skip-embedding path: chunks stayed ``enabled=0`` and FTS
+    was never written, so keyword/hybrid search returned nothing while the UI
+    showed ``keyword_status=ready`` / ``parse_status=completed``.
+    """
+    ensure_owned_kb_worker_started()
+    kids: list[str] = []
+    if kb_id:
+        kids = [str(kb_id).strip()]
+    else:
+        with db() as conn:
+            rows = conn.execute(
+                "SELECT id FROM kb_bases WHERE deleted_at IS NULL ORDER BY updated_at DESC"
+            ).fetchall()
+        kids = [str(r["id"]) for r in rows if r["id"]]
+
+    queued = 0
+    scanned = 0
+    now = utc_now()
+    for kid in kids:
+        if queued >= limit:
+            break
+        try:
+            with db_for_kb(kid) as conn:
+                docs = conn.execute(
+                    """
+                    SELECT d.id AS doc_id
+                    FROM kb_documents d
+                    WHERE d.kb_id=? AND d.deleted_at IS NULL
+                      AND d.parse_status='completed'
+                      AND COALESCE(d.chunk_count, 0) > 0
+                      AND NOT EXISTS (
+                        SELECT 1 FROM kb_chunks c
+                        WHERE c.doc_id=d.id AND c.enabled=1
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM kb_chunks c
+                        WHERE c.doc_id=d.id AND c.enabled=0
+                      )
+                    LIMIT ?
+                    """,
+                    (kid, max(1, limit - queued)),
+                ).fetchall()
+        except Exception:
+            logger.debug("unpublished keyword scan skipped kb=%s", kid, exc_info=True)
+            continue
+        for row in docs:
+            doc_id = str(row["doc_id"] or "").strip()
+            if not doc_id:
+                continue
+            scanned += 1
+            with db_for_kb(kid) as conn:
+                conn.execute(
+                    """
+                    UPDATE kb_documents
+                    SET parse_status='pending', index_status='building',
+                        keyword_status='building', error_message='', updated_at=?
+                    WHERE id=? AND deleted_at IS NULL
+                    """,
+                    (now, doc_id),
+                )
+            try:
+                jobs.enqueue(kb_id=kid, doc_id=doc_id, type="parse_index", priority=85)
+                queued += 1
+            except Exception:
+                logger.debug("unpublished keyword requeue failed for %s", doc_id, exc_info=True)
+    if queued:
+        logger.info(
+            "requeued unpublished keyword docs scanned=%s queued=%s kb=%s",
+            scanned,
+            queued,
+            kb_id or "*",
+        )
+    return {
+        "ok": True,
+        "scanned": scanned,
+        "requeued": queued,
+        "kbId": kb_id,
+    }
+
+
 def retry_document_parse(kb_id: str, doc_id: str) -> dict[str, Any]:
     """Re-enqueue ``parse_index`` for a single failed/stuck document.
 

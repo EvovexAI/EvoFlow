@@ -108,6 +108,26 @@ if [[ -z "${consolidation}" ]]; then
   fail "memory prompt missing: evoflow/assets/prompts/memories/consolidation.md (Phase2 FileNotFoundError on startup)"
 fi
 
+# Builtin user guide for owned KB seed (小V knowledge search).
+user_guide=""
+for candidate in \
+  "${GATEWAY_DIR}/_internal/evoflow/assets/builtin_knowledge_vaults/user-guide" \
+  "${GATEWAY_DIR}/evoflow/assets/builtin_knowledge_vaults/user-guide"
+do
+  if [[ -d "${candidate}" ]]; then
+    user_guide="${candidate}"
+    break
+  fi
+done
+if [[ -z "${user_guide}" ]]; then
+  fail "builtin user-guide missing: evoflow/assets/builtin_knowledge_vaults/user-guide"
+else
+  md_count=$(find "${user_guide}" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${md_count}" -lt 1 ]]; then
+    fail "builtin user-guide has no .md files under ${user_guide}"
+  fi
+fi
+
 total_kb=$(du -sk "${GATEWAY_DIR}" 2>/dev/null | awk '{print $1}')
 total_mb=$(( total_kb / 1024 ))
 if [[ "${allow_chromium}" != "1" && "${allow_local_embed}" != "1" && "${allow_whisper}" != "1" && "${total_mb}" -gt 900 ]]; then

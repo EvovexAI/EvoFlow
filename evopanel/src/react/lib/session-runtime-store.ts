@@ -478,8 +478,38 @@ function applyTurnIdle(rt: SessionRuntime): void {
   }
   rt.turnPhase = 'idle'
   rt.activity = { kind: 'idle', detail: '' }
-  rt.streamWireSource = null
+  // Keep live POST marker so suppress-reattach / surface-wake can still see the
+  // open wire. Cleared on abort/error or explicit WIRE_SOURCE null when the
+  // POST stream actually closes (SSE final).
+  if (rt.streamWireSource !== 'run') {
+    rt.streamWireSource = null
+  }
   clearTurnTiming(rt)
+}
+
+/** Live browser-owned POST ``/runs/stream`` still open. */
+export function isLivePostStreamOpen(rt: SessionRuntime | undefined | null): boolean {
+  return !!rt && rt.streamWireSource === 'run'
+}
+
+/**
+ * Mid-turn AG-UI RUN_FINISHED (or a stale history/probe idle) left the turn idle
+ * while the live POST wire is still open. Revive busy so 「运行中」/停止与流式同步。
+ */
+export function reviveTurnBusyIfLivePostOpen(sessionKey: string): boolean {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return false
+  const rt = getSessionRuntime(sk)
+  if (!isLivePostStreamOpen(rt)) return false
+  if (isTurnBusy(rt)) return false
+  const runId =
+    String(rt.activeChatRunId || rt.stream.runId || '').trim() || 'live-wire'
+  dispatchSessionTurnEvent(sk, {
+    type: 'RUN_LIVE',
+    runId,
+    wireSource: 'run',
+  })
+  return true
 }
 
 export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnEvent): SessionRuntime {

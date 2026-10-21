@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -42,13 +43,35 @@ _COPY_SUFFIXES = {
 def _repo_docs_user() -> Path | None:
     """Locate user docs in the source tree or the packaged Gateway assets."""
     here = Path(__file__).resolve()
+    candidates: list[Path] = []
+    # Prefer package-adjacent assets (matches avatar/soul layout: evoflow/assets/…).
+    try:
+        candidates.append(
+            here.parents[2] / "assets" / "builtin_knowledge_vaults" / "user-guide"
+        )
+    except IndexError:
+        pass
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(
+            Path(meipass) / "evoflow" / "assets" / "builtin_knowledge_vaults" / "user-guide"
+        )
     for parent in here.parents:
-        for candidate in (
-            parent / "docs" / "user",
-            parent / "evoflow" / "assets" / "builtin_knowledge_vaults" / "user-guide",
-        ):
-            if any(candidate.rglob("*.md")):
+        candidates.append(parent / "docs" / "user")
+        candidates.append(
+            parent / "evoflow" / "assets" / "builtin_knowledge_vaults" / "user-guide"
+        )
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if candidate.is_dir() and any(candidate.rglob("*.md")):
                 return candidate
+        except OSError:
+            continue
     return None
 
 
@@ -248,6 +271,9 @@ def _create_fresh_builtin_base() -> dict[str, Any] | None:
     now = utc_now()
     name = BUILTIN_USER_GUIDE_VAULT_NAME
     description = "系统内置 · 随版本自动同步产品文档"
+    # Same storage prep as create_base — empty storage_dir still resolves, but
+    # stamping the path keeps documentCount / open-folder / migrate paths honest.
+    storage_dir = owned_service._prepare_kb_storage(BUILTIN_OWNED_USER_GUIDE_KB_ID, {})
     with db() as conn:
         conn.execute(
             """
@@ -256,10 +282,10 @@ def _create_fresh_builtin_base() -> dict[str, Any] | None:
               embedding_mode, embedding_model, embedding_base_url, embedding_api_key_ref,
               embedding_model_ref,
               vector_enabled, keyword_enabled, wiki_enabled, graph_enabled,
-              summary_enabled, image_caption_enabled,
+              summary_enabled, image_caption_enabled, storage_dir, content_mode,
               sync_source_type, sync_source_path, sync_vault_id,
               created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,0,0,0,0,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,0,0,0,0,?,?,?,?,?,?,?)
             """,
             (
                 BUILTIN_OWNED_USER_GUIDE_KB_ID,
@@ -273,6 +299,8 @@ def _create_fresh_builtin_base() -> dict[str, Any] | None:
                 str(binding.get("embedding_base_url") or ""),
                 "",
                 str(binding.get("embedding_model_ref") or ""),
+                str(storage_dir),
+                "copy",
                 "folder",
                 "",
                 BUILTIN_USER_GUIDE_VAULT_ID,
@@ -280,6 +308,7 @@ def _create_fresh_builtin_base() -> dict[str, Any] | None:
                 now,
             ),
         )
+    owned_service._write_kb_meta(BUILTIN_OWNED_USER_GUIDE_KB_ID, storage_dir, name=name)
     out = owned_service.get_base(BUILTIN_OWNED_USER_GUIDE_KB_ID)
     if out:
         from evoflow.knowledge.owned import activity as owned_activity
@@ -341,6 +370,8 @@ def ensure_builtin_owned_knowledge(*, force: bool = False) -> dict[str, Any]:
     needs_import = force or content_changed or not docs or (fingerprint and fingerprint != prev_fp) or str(base.get("syncSourcePath") or "") != str(path)
 
     if not needs_import:
+        # Heal installs that indexed under skip_embedding before chunks were published.
+        repair = owned_service.requeue_unpublished_keyword_docs(kb_id, limit=200)
         return {
             "ok": True,
             "action": "unchanged",
@@ -349,6 +380,7 @@ def ensure_builtin_owned_knowledge(*, force: bool = False) -> dict[str, Any]:
             "fingerprint": fingerprint,
             "docCount": len(docs),
             "contentUpdated": False,
+            "requeuedUnpublished": int(repair.get("requeued") or 0),
         }
 
     result = owned_service.import_local_folder(
@@ -369,13 +401,15 @@ def ensure_builtin_owned_knowledge(*, force: bool = False) -> dict[str, Any]:
     if fingerprint:
         _meta_set(_FP_META_KEY, fingerprint)
 
+    repair = owned_service.requeue_unpublished_keyword_docs(kb_id, limit=200)
     logger.info(
-        "seeded builtin owned user-guide kb=%s created=%s updated=%s unchanged=%s pruned=%s",
+        "seeded builtin owned user-guide kb=%s created=%s updated=%s unchanged=%s pruned=%s requeued_unpublished=%s",
         kb_id,
         result.get("created"),
         result.get("updated"),
         result.get("unchanged"),
         result.get("pruned"),
+        repair.get("requeued"),
     )
     return {
         "ok": True,
@@ -388,5 +422,6 @@ def ensure_builtin_owned_knowledge(*, force: bool = False) -> dict[str, Any]:
         "updated": result.get("updated"),
         "unchanged": result.get("unchanged"),
         "pruned": result.get("pruned"),
+        "requeuedUnpublished": int(repair.get("requeued") or 0),
         "path": str(path),
     }

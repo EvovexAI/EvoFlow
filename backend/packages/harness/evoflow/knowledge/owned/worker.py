@@ -132,11 +132,12 @@ async def _loop() -> None:
 
                     # Auto path: only pending/processing — never loop forever on failed.
                     result = owned_service.requeue_orphan_parse_docs(limit=50, include_failed=False)
-                    return int(result.get("requeued") or 0)
+                    unpublished = owned_service.requeue_unpublished_keyword_docs(limit=50)
+                    return int(result.get("requeued") or 0) + int(unpublished.get("requeued") or 0)
 
                 n = await asyncio.to_thread(_reconcile)
                 if n:
-                    logger.info("owned KB requeued %s orphan parse docs", n)
+                    logger.info("owned KB requeued %s orphan/unpublished parse docs", n)
             except Exception:
                 logger.debug("owned KB orphan reconcile skipped", exc_info=True)
         job = await asyncio.to_thread(jobs.claim_next, _WORKER_ID)

@@ -13,13 +13,16 @@ import {
   hydrateSessionRuntimeRowsIfIdle,
   isSessionRuntimeLive,
   isSessionRuntimeStreamVisible,
+  isLivePostStreamOpen,
   isTurnBusy,
   listLiveSessionRuntimeKeys,
   markSessionSending,
+  markSessionStreamWireSource,
   mountSessionRuntime,
   noteSessionEvent,
   recoveryPhaseLabel,
   resetRuntimeStream,
+  reviveTurnBusyIfLivePostOpen,
   rowsAlreadyStopSealedForTurn,
   rowsBaseForSend,
   subscribeSessionRuntime,
@@ -169,6 +172,28 @@ describe('session-runtime-store', () => {
     dispatchSessionTurnEvent(sk, { type: 'SEALING' })
     expect(getSessionRuntime(sk).turnPhase).toBe('sealing')
     expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
+    clearSessionRuntime(sk)
+  })
+
+  it('preserves live POST wire marker across TURN_IDLE and can revive busy', () => {
+    const sk = 'agent:main:live-wire-preserve'
+    clearSessionRuntime(sk)
+    dispatchSessionTurnEvent(sk, {
+      type: 'RUN_LIVE',
+      runId: 'run-wire',
+      wireSource: 'run',
+    })
+    expect(isLivePostStreamOpen(getSessionRuntime(sk))).toBe(true)
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
+    expect(isLivePostStreamOpen(getSessionRuntime(sk))).toBe(true)
+    expect(reviveTurnBusyIfLivePostOpen(sk)).toBe(true)
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
+    expect(getSessionRuntime(sk).streamWireSource).toBe('run')
+    markSessionStreamWireSource(sk, null)
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(isLivePostStreamOpen(getSessionRuntime(sk))).toBe(false)
+    expect(reviveTurnBusyIfLivePostOpen(sk)).toBe(false)
     clearSessionRuntime(sk)
   })
 

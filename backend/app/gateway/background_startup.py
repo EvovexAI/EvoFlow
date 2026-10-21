@@ -1109,12 +1109,18 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         from evoflow.knowledge.owned.embedding_bind import default_embedding_ref
         from evoflow.knowledge.owned.worker import ensure_owned_kb_worker_started
 
+        # Always start the worker: parse/chunk/FTS must run even when vectors are
+        # unavailable (lean desktop with no cloud embedding yet). Embedding is
+        # skipped per-job; keyword search still needs enabled chunks + FTS.
         emb_ref = default_embedding_ref()
+        ensure_owned_kb_worker_started()
         if not emb_ref:
-            st_log("post-ready owned KB worker skipped (no embedding model configured)")
-            logger.warning("Owned KB worker not started: no embedding model in registry (configure a cloud embedding model in Settings → 向量模型)")
+            st_log("post-ready owned KB worker started (keyword-only; no embedding model)")
+            logger.warning(
+                "Owned KB worker started without embedding model — keyword index only "
+                "(configure a cloud embedding model in Settings → 向量模型 for semantic search)"
+            )
         else:
-            ensure_owned_kb_worker_started()
             st_log("post-ready owned KB worker started")
             logger.info(
                 "Owned knowledge worker started (post-ready, delayed %.0fs, embedding=%s)",

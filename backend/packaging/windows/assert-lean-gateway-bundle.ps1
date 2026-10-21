@@ -147,6 +147,17 @@ if (-not (Test-Path -LiteralPath $consolidation)) {
   $errors.Add("memory prompt missing: _internal/evoflow/assets/prompts/memories/consolidation.md (Phase2 FileNotFoundError on startup)")
 }
 
+# Builtin user guide for owned KB seed (小V xiaomi_knowledge_search).
+$userGuide = Join-Path $GatewayDir "_internal\evoflow\assets\builtin_knowledge_vaults\user-guide"
+if (-not (Test-Path -LiteralPath $userGuide)) {
+  $errors.Add("builtin user-guide missing: _internal/evoflow/assets/builtin_knowledge_vaults/user-guide")
+} else {
+  $mdCount = @(Get-ChildItem -LiteralPath $userGuide -Recurse -Filter "*.md" -File -ErrorAction SilentlyContinue).Count
+  if ($mdCount -lt 1) {
+    $errors.Add("builtin user-guide has no .md files under $userGuide (seed would be empty)")
+  }
+}
+
 # Soft size guard: lean sidecar should stay well under ~800MB uncompressed.
 $totalSum = (Get-ChildItem -LiteralPath $GatewayDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
 $totalMb = if ($null -ne $totalSum) { [math]::Round($totalSum / 1MB, 1) } else { 0 }

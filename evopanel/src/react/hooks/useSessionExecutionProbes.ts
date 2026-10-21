@@ -13,6 +13,7 @@ import {
 import {
   dispatchSessionTurnEvent,
   getSessionRuntime,
+  isLivePostStreamOpen,
   isTurnBusy,
 } from '../lib/session-runtime-store.js'
 import { isSessionRecoveryCooldownActive } from '../lib/stream-reattach-cooldown.js'
@@ -124,6 +125,8 @@ export function useSessionExecutionProbes(
       try {
         const probe = await fetchAndCacheSessionExecutionState(fg)
         if (cancelled || !probe) return
+        // live POST 仍开着：后端 probe 滞后不得清 busy（与 RUN_FINISHED 提前 idle 同病）
+        if (isLivePostStreamOpen(getSessionRuntime(fg))) return
         const backendDone = !probe.executing && !probe.goalActive
         if (backendDone) {
           // 后端确认已结束：清 probe cache + dispatch TURN_IDLE 归位侧栏运行状态
