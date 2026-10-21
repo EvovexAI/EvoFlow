@@ -7,6 +7,7 @@ import {
   getSessionRuntime,
   resetRuntimeStream,
 } from '../session-runtime-store.js'
+import { logStreamStop } from '../stream-stop-log.js'
 import { commitPriorTurnStripFromStreamTurn } from '../turn-text-isolation.js'
 import { beginSessionUserStop, finishSessionRunIdle } from './commands.js'
 import { sealSessionPartialTurnOnStop } from './seal-partial-turn.js'
@@ -24,6 +25,17 @@ export async function stopSessionExecution(
 
   host.onUserStopStarted?.()
   const { runtime: rtAtStop, stopRunId: stopRunIdAtStop } = beginSessionUserStop(sk)
+  logStreamStop({
+    sessionKey: sk,
+    runId: stopRunIdAtStop,
+    trigger: 'ui_stop_button',
+    hasEndMarker: false,
+    fromUiStopButton: true,
+    detail: {
+      turnPhase: rtAtStop.turnPhase,
+      note: 'Composer/侧栏停止按钮入口；无法区分误触与故意',
+    },
+  })
   commitPriorTurnStripFromStreamTurn(rtAtStop, rtAtStop.stream.turn)
 
   void import('../../../lib/speech-client.js')

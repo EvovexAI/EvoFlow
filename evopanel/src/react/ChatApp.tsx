@@ -553,6 +553,11 @@ import {
   sfSummarizeRowsTail,
 } from './lib/stream-final-debug.js'
 import {
+  installStreamStopPageUnloadHook,
+  logStreamStop,
+  resetStreamStopLogDedupe,
+} from './lib/stream-stop-log.js'
+import {
   shouldManualRefreshResumeStream,
   shouldSuppressAutoReattach,
 } from './lib/stream-resume-gate.js'
@@ -6451,6 +6456,18 @@ useEffect(() => {
             const backendDone = probe ? !probe.executing && !probe.goalActive : true
             if (stillBusy && backendDone) {
               // 后端确认已结束：清 probe cache + dispatch TURN_IDLE 归位侧栏运行状态
+              logStreamStop({
+                sessionKey: sk,
+                runId: rtAfter.activeChatRunId || rtAfter.stream.runId,
+                trigger: 'refresh_backend_done',
+                hasEndMarker: false,
+                detail: {
+                  source: 'shell_session_refresh',
+                  turnPhase: rtAfter.turnPhase,
+                  probeExecuting: probe?.executing,
+                  probeGoalActive: probe?.goalActive,
+                },
+              })
               clearSessionExecutionProbe(sk)
               dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
             }
@@ -7182,6 +7199,7 @@ useEffect(() => {
       if (sending) {
         // 用户主动再发：清 stop 后的 recovery cooldown，避免新一轮 AG-UI 被丢弃
         clearStreamReattachCooldown(sk)
+        resetStreamStopLogDedupe(sk)
         dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED', turnStartTs: Date.now() })
       } else {
         dispatchSessionRunEnded(sk)
@@ -7199,6 +7217,18 @@ useEffect(() => {
         const stillBusy = isTurnBusy(rt) || isSessionRuntimeLive(rt)
         const backendDone = probe ? !probe.executing && !probe.goalActive : true
         if (stillBusy && backendDone) {
+          logStreamStop({
+            sessionKey: sk,
+            runId: rt.activeChatRunId || rt.stream.runId,
+            trigger: 'refresh_backend_done',
+            hasEndMarker: false,
+            detail: {
+              source: 'goal_refresh_chat_history',
+              turnPhase: rt.turnPhase,
+              probeExecuting: probe?.executing,
+              probeGoalActive: probe?.goalActive,
+            },
+          })
           clearSessionExecutionProbe(sk)
           dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
         }
@@ -7430,6 +7460,18 @@ useEffect(() => {
         },
       }).then((result) => {
         if (result === 'cleared' || result === 'forced') {
+          logStreamStop({
+            sessionKey: sk,
+            runId: rt.activeChatRunId || rt.stream.runId,
+            trigger: 'stale_sending_watchdog',
+            hasEndMarker: false,
+            detail: {
+              result,
+              silentMs: Date.now() - last,
+              turnPhase: rt.turnPhase,
+              note: '前端 90s 无事件后清 busy（非用户点停止）',
+            },
+          })
           void fetchSessionRuntimeStatus(sk).then((st) => {
             if (st?.attachRecommended === false) {
               refreshAttachAttemptedRef.current[sk] = String(st.threadId || wsClient.getSessionThreadId(sk) || '')
@@ -7460,11 +7502,38 @@ useEffect(() => {
         if (!last) continue
         if (Date.now() - last < 45000) continue
         invalidateSessionRuntimeStatusCache(sk)
-        void maybeEndTurnSendingState(sk, rt, true)
+        const silentMs = Date.now() - last
+        const runIdBefore = rt.activeChatRunId || rt.stream.runId
+        void maybeClearTurnSendingState({
+          sessionKey: sk,
+          wsClient,
+          onClear: () => {
+            clearTurnSendingState(sk, rt, true)
+            logStreamStop({
+              sessionKey: sk,
+              runId: runIdBefore,
+              trigger: 'stale_busy_poll_clear',
+              hasEndMarker: false,
+              detail: {
+                silentMs,
+                turnPhase: rt.turnPhase,
+                note: '全局 45s 无事件且后端确认不在跑后清 busy',
+              },
+            })
+          },
+          onResume: () => {
+            /* 续流仅用户刷新触发 */
+          },
+        })
       }
     }, 15000)
     return () => window.clearInterval(timer)
-  }, [maybeEndTurnSendingState])
+  }, [clearTurnSendingState])
+
+  /** 刷新/关窗时若仍 busy，落 page_unload（靠 frontend-*.log / LS ring 事后排查） */
+  useEffect(() => {
+    return installStreamStopPageUnloadHook(() => listBusySessionKeys())
+  }, [])
 
   const loadModelCatalog = useCallback(async (opts?: { silent?: boolean }) => {
     if (modelsLoadInflightRef.current) {
@@ -10911,6 +10980,18 @@ useEffect(() => {
           // 运行态由本机 TURN_IDLE 收掉。这里重拉 workspace 会话列表只会在每个
           // 内层 RUN_FINISHED 上打一轮 sessions?workspace_key，侧栏用不到。
           if (rt && isTurnBusy(rt) && targetSk) {
+            const endTrigger =
+              String(aguiEvent.type) === 'RUN_ERROR' ? 'agui_run_error' : 'agui_run_finished'
+            logStreamStop({
+              sessionKey: targetSk,
+              runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
+              trigger: endTrigger,
+              hasEndMarker: true,
+              detail: {
+                aguiType: String(aguiEvent.type || ''),
+                wasBusy: true,
+              },
+            })
             dispatchSessionTurnEvent(targetSk, { type: 'TURN_IDLE' })
           }
           const hasArtifacts = turnRunArtifactsRef.current.length > 0
@@ -11229,6 +11310,17 @@ useEffect(() => {
       if (state === 'final') {
         // 旧 endLiveStreamSession 已删：live-stream-store 没了
         endClientPerfTurn(String(runId || rt.activeChatRunId || targetSk))
+        logStreamStop({
+          sessionKey: targetSk,
+          runId: String(runId || rt.activeChatRunId || S.runId || '').trim() || null,
+          trigger: 'sse_final',
+          hasEndMarker: true,
+          detail: {
+            turnPhase: rt.turnPhase,
+            aguiFinished: !!S.aguiTurn?.finished,
+            isBackground,
+          },
+        })
         // Early AG-UI RUN_FINISHED already idled; late SSE `final` must not SEALING→busy
         // or the stop button / gear flashes back on for the checkpoint tail.
         if (isTurnBusy(rt)) {
@@ -12085,6 +12177,19 @@ useEffect(() => {
           // 断流/切后台等非用户主动停止：保留已收到的流式快照并标记降级，
           // 避免 live 投影随 turnPhase 归 idle 后消息区变空——这是「思考着思考着就没了」的根因。
           const stoppedRun = runId || S.runId || rt.activeChatRunId
+          logStreamStop({
+            sessionKey: targetSk,
+            runId: stoppedRun,
+            trigger: 'sse_aborted',
+            hasEndMarker: false,
+            detail: {
+              turnPhase: rt.turnPhase,
+              streamHealth: streamHealthRef.current,
+              isBackground,
+              hasVisibleContent: streamTurnHasVisibleContent(S.turn),
+              note: 'SSE aborted 且非停止按钮路径（断流/后端取消/超时等）',
+            },
+          })
           if (streamTurnHasVisibleContent(S.turn) && !rowsAlreadyStopSealedForTurn(rt.rows)) {
             sealStoppedStreamTurn(rt, S.turn, stoppedRun)
             applyRowsUpdate((r) => [
@@ -12112,6 +12217,14 @@ useEffect(() => {
         }
         // 不在此处重置 userInitiatedStopRef——由 stopSessionExecution finally 统一重置，
         // 避免过早重置导致后续迟到帧（如 run_started）穿透守卫重新激活流式状态
+        logStreamStop({
+          sessionKey: targetSk,
+          runId: runId || S.runId || rt.activeChatRunId,
+          trigger: 'sse_aborted_after_ui_stop',
+          hasEndMarker: false,
+          fromUiStopButton: true,
+          detail: { isBackground, suppressToast: suppressNextAbortToastRef.current },
+        })
         if (!turnBusyForSession(targetSk) && !streamTurnHasVisibleContent(S.turn)) {
           return
         }
@@ -12181,9 +12294,24 @@ useEffect(() => {
         if (healthStatus === 'disconnected') {
           if (!isBackground) streamHealthRef.current = 'disconnected'
           if (!isBackground) setStreamHealth('disconnected')
+          // 健康降级本身未必停轮；若随后无 final/abort，watchdog 会再打非正常停止
+          if (isTurnBusy(rt)) {
+            console.warn('[stream-stop] health_degraded status=disconnected', {
+              sessionKey: targetSk,
+              runId: runId || S.runId || rt.activeChatRunId,
+              turnPhase: rt.turnPhase,
+            })
+          }
         } else if (healthStatus === 'silent') {
           if (!isBackground) streamHealthRef.current = 'silent'
           if (!isBackground) setStreamHealth('silent')
+          if (isTurnBusy(rt)) {
+            console.warn('[stream-stop] health_degraded status=silent', {
+              sessionKey: targetSk,
+              runId: runId || S.runId || rt.activeChatRunId,
+              turnPhase: rt.turnPhase,
+            })
+          }
         }
         if ((healthStatus === 'disconnected' || healthStatus === 'silent') && streamTurnHasVisibleContent(S.turn)) {
           const liveSnap = buildLiveRunSnapshotPayload(S)
@@ -12226,6 +12354,17 @@ useEffect(() => {
             '',
         ).trim()
         if (/userinterrupt|user\s*interrupt/i.test(rawErr)) {
+          logStreamStop({
+            sessionKey: targetSk,
+            runId: runId || S.runId || rt.activeChatRunId,
+            trigger: 'user_interrupt_error',
+            hasEndMarker: false,
+            fromUiStopButton: true,
+            detail: {
+              rawErr: rawErr.slice(0, 200),
+              note: '后端报 user interrupt；通常紧随停止按钮，但也可能是别处 abort',
+            },
+          })
           dispatchSessionTurnEvent(targetSk, {
             type: 'REATTACH_DEGRADED',
             runId: null,
@@ -12256,6 +12395,19 @@ useEffect(() => {
         const now = Date.now()
         if (lastErrorRef.current.msg === errMsg && now - lastErrorRef.current.ts < 2000) return
         lastErrorRef.current = { msg: errMsg, ts: now }
+        logStreamStop({
+          sessionKey: targetSk,
+          runId: runId || S.runId || rt.activeChatRunId,
+          trigger: 'stream_error',
+          hasEndMarker: false,
+          detail: {
+            errMsg: errMsg.slice(0, 200),
+            rawErr: rawErr.slice(0, 200),
+            hasVisibleContent: streamTurnHasVisibleContent(S.turn),
+            turnPhase: rt.turnPhase,
+            isBackground,
+          },
+        })
         toast(errMsg, 'error')
         dispatchSessionTurnEvent(targetSk, { type: 'SEND_FAILED' })
         dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: now })
@@ -14440,6 +14592,7 @@ useEffect(() => {
     }
     // stop 后会 markSessionRecoveryCooldown；用户主动再发须清掉，否则 AG-UI run-* 接管被丢弃
     clearStreamReattachCooldown(sessionKey)
+    resetStreamStopLogDedupe(sessionKey)
     dispatchSessionTurnEvent(sessionKey, { type: 'SEND_STARTED', turnStartTs: Date.now() })
     dispatchSessionTurnEvent(sessionKey, { type: 'WIRE_SOURCE', source: 'run' })
     // 修复：发送消息时，如果目标会话就是当前活跃会话（或当前没有活跃会话，如新建会话过程中），
