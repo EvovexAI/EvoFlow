@@ -259,7 +259,9 @@
 }
 
 .role-filter-select,
-.role-filter-btn {
+.role-filter-btn,
+.role-filters-row .ef-dropdown-select--compact-filter,
+.role-filters-row .ef-dropdown-select--compact-filter .ef-dropdown-select__trigger {
   height: 36px;
   padding: 0 10px;
   border-radius: 8px;
@@ -273,8 +275,33 @@
   outline: none !important;
 }
 
+.role-filters-row .ef-dropdown-select--compact-filter {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  border: none !important;
+  background: transparent !important;
+  max-width: 148px;
+}
+
+.role-filters-row .ef-dropdown-select--compact-filter .ef-dropdown-select__trigger {
+  width: auto;
+  min-width: 0;
+  max-width: 148px;
+  box-sizing: border-box;
+}
+
+.role-filters-row .ef-dropdown-select--compact-filter .ef-dropdown-select__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .role-filter-select:focus,
-.role-filter-btn:focus {
+.role-filter-btn:focus,
+.role-filters-row .ef-dropdown-select--compact-filter .ef-dropdown-select__trigger:focus,
+.role-filters-row .ef-dropdown-select--compact-filter .ef-dropdown-select__trigger:focus-visible {
   outline: none !important;
   border-color: var(--accent, #6366f1) !important;
 }
@@ -341,9 +368,15 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   display: none !important;
 }
 
-.role-more-panel-section .role-filter-select {
+.role-more-panel-section .role-filter-select,
+.role-more-panel-section .ef-dropdown-select--compact-filter {
   max-width: none;
   flex: 1 1 140px;
+}
+
+.role-more-panel-section .ef-dropdown-select--compact-filter .ef-dropdown-select__trigger {
+  max-width: none;
+  width: 100%;
 }
 
 .role-more-panel-tags {

@@ -1676,28 +1676,6 @@ export default function KnowledgeOwnedPage() {
     setSettingsChatModel(String(global?.chatModel || "").trim());
   }
 
-  async function renameBase(kbId, currentName) {
-    const target = bases.find((b) => b.id === kbId);
-    if (target?.builtin) {
-      notify("系统内置知识库不可重命名");
-      return;
-    }
-    const next = window.prompt("重命名知识库", currentName || "");
-    if (next == null) return;
-    const name = String(next).trim();
-    if (!name || name === currentName) return;
-    setBusy(true);
-    try {
-      await api.updateOwnedKnowledgeBase(kbId, { name });
-      await loadBases();
-      notify(`已重命名为「${name}」`);
-    } catch (e) {
-      notify(e?.message || "重命名失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function submitBaseSettings() {
     const kbId = settingsKbId || selectedId;
     if (!kbId) return;
@@ -2122,7 +2100,6 @@ export default function KnowledgeOwnedPage() {
           onDelete={deleteBase}
           onFilterChange={setListFilter}
           onOpen={goOwnedDetail}
-          onRename={renameBase}
           onSettings={(base) => openBaseSettings(base)}
           onToggleHidden={setBaseHidden}
           showHidden={showHidden}

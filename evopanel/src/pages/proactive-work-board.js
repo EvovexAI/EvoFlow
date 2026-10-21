@@ -13,6 +13,10 @@ import {
 } from '../lib/proactive-role-tasks.js'
 import { formatTaskStatusZh, toUnifiedTaskStatus } from '../lib/task-status-label.js'
 import { formatTaskSourceZh } from '../lib/task-source.js'
+import {
+  mountEmployeeNavToChrome,
+  unmountEmployeeNavFromChrome,
+} from '../lib/proactive-nav-chrome.js'
 
 /**
  * 看板列：待处理 / 进行中 / 待确认 / 已完成
@@ -440,11 +444,8 @@ export async function render() {
     <div class="pro-page-nav">
       <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回智能体员工</button>
     </div>
-    <div class="pro-hero pro-hero--compact">
-      <div class="pro-hero-main">
-        <p class="pro-hero-kicker">智能体员工 · 工作项</p>
-        <h1 class="page-title">工作项看板</h1>
-      </div>
+    <div class="pro-kanban-title-row">
+      <h1 class="page-title">工作项看板</h1>
     </div>
     <div id="pro-kanban-toolbar-slot"></div>
     <div id="pro-kanban-board" class="pro-kanban-board">
@@ -453,6 +454,7 @@ export async function render() {
   `
 
   page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
+  mountEmployeeNavToChrome(page)
 
   let unbind = () => {}
   /** @type {Map<string, any>} */
@@ -589,6 +591,7 @@ export async function render() {
 
   _pageCleanup = () => {
     unbind()
+    unmountEmployeeNavFromChrome(page)
     page.querySelector('.pro-task-drawer-root')?.remove()
   }
 

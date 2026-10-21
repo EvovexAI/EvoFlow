@@ -28,6 +28,10 @@ import { formatTaskStatusZh, normalizeTaskStatusKey, toTaskStatusGroup } from '.
 import { formatTaskSourceZh } from '../lib/task-source.js'
 import { formatRaisedByLabel } from '../lib/task-raised-by.js'
 import {
+  mountEmployeeNavToChrome,
+  unmountEmployeeNavFromChrome,
+} from '../lib/proactive-nav-chrome.js'
+import {
   taskSummaryText,
   parseTaskResultSections,
   resolveTaskOutputItems,
@@ -3761,44 +3765,6 @@ function showStartWorkModal(role) {
   })
 }
 
-/**
- * 员工详情页操作栏「融入」Tauri 标题栏：
- * 用 CSS fixed 定位到标题栏那一行的视觉位置，与窗口控制按钮同一行。
- * DOM 仍保留在 page 内，保证 page.querySelector / 事件绑定等逻辑正常工作。
- * 离开页面时自动清理 class。
- */
-function mountEmployeeNavToChrome(page) {
-  if (typeof document === 'undefined') return
-  const chrome = document.getElementById('tauri-main-chrome')
-  if (!chrome) return // 非 Tauri 无边框环境，跳过
-
-  const nav = page.querySelector('.pro-page-nav')
-  if (!nav) return
-
-  // 标记：标题栏进入「员工页模式」（用于调整拖拽区等）
-  chrome.classList.add('tauri-main-chrome--employee-nav')
-  // 标记：页面操作栏已提升到标题栏行
-  page.classList.add('pro-employee-page--nav-in-chrome')
-
-  // 路由离开时清理：用 MutationObserver 监听 page 被移出文档
-  const observer = new MutationObserver(() => {
-    if (!document.body.contains(page)) {
-      unmountEmployeeNavFromChrome(page)
-      observer.disconnect()
-    }
-  })
-  observer.observe(document.body, { childList: true, subtree: true })
-  page._navChromeObserver = observer
-}
-
-function unmountEmployeeNavFromChrome(page) {
-  const chrome = document.getElementById('tauri-main-chrome')
-  if (chrome) {
-    chrome.classList.remove('tauri-main-chrome--employee-nav')
-  }
-  page.classList.remove('pro-employee-page--nav-in-chrome')
-}
-
 function bindEmployeePage(page, role, initiatives) {
   page._initiatives = Array.isArray(initiatives) ? initiatives : []
   if (page._worklogDay == null || page._worklogDay === '') page._worklogDay = WORKLOG_RECENT2
@@ -5394,6 +5360,11 @@ export function cleanup() {
   if (_currentPage) {
     try {
       _currentPage._employeeMoreDocClose?.()
+    } catch {
+      /* ignore */
+    }
+    try {
+      unmountEmployeeNavFromChrome(_currentPage)
     } catch {
       /* ignore */
     }

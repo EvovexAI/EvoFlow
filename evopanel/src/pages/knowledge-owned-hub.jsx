@@ -137,7 +137,6 @@ function KnowledgeListItemMenu({
   onClose,
   onOpen,
   onDelete,
-  onRename,
   onSettings,
   onRevealDir,
   onToggleHidden,
@@ -157,19 +156,6 @@ function KnowledgeListItemMenu({
       >
         打开
       </button>
-      {base.builtin ? null : (
-        <button
-          disabled={busy}
-          onClick={() => {
-            onClose();
-            onRename?.(base.id, base.name);
-          }}
-          role="menuitem"
-          type="button"
-        >
-          重命名
-        </button>
-      )}
       <button
         disabled={busy}
         onClick={() => {
@@ -223,7 +209,7 @@ function KnowledgeListItemMenu({
   );
 }
 
-function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, onSettings, onRevealDir, onToggleHidden }) {
+function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onSettings, onRevealDir, onToggleHidden }) {
   const [menuOpen, setMenuOpen] = useState(false);
   /** null = anchor to ⋯; {x,y} = viewport coords via portal (right-click) */
   const [menuPos, setMenuPos] = useState(null);
@@ -286,7 +272,6 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onRename, o
     onClose: closeMenu,
     onOpen,
     onDelete,
-    onRename,
     onSettings,
     onRevealDir,
     onToggleHidden,
@@ -383,7 +368,7 @@ function formatShortDate(iso) {
   }
 }
 
-export function KnowledgeList({ bases, docCounts, busy, onOpen, onDelete, onRename, onSettings, onRevealDir, onToggleHidden }) {
+export function KnowledgeList({ bases, docCounts, busy, onOpen, onDelete, onSettings, onRevealDir, onToggleHidden }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => readStoredPageSize(OWNED_KB_PAGE_SIZE_KEY));
   const baseKey = (bases || []).map((b) => b.id).join("|");
@@ -411,7 +396,6 @@ export function KnowledgeList({ bases, docCounts, busy, onOpen, onDelete, onRena
             key={b.id}
             onDelete={onDelete}
             onOpen={onOpen}
-            onRename={onRename}
             onSettings={onSettings}
             onRevealDir={onRevealDir}
             onToggleHidden={onToggleHidden}
@@ -617,7 +601,6 @@ export function KnowledgeHubLayout({
   onCreate,
   onOpen,
   onDelete,
-  onRename,
   onSettings,
   onRevealDir,
   onAssistantPrompt,
@@ -677,7 +660,6 @@ export function KnowledgeHubLayout({
                 docCounts={docCounts}
                 onDelete={onDelete}
                 onOpen={onOpen}
-                onRename={onRename}
                 onSettings={onSettings}
                 onRevealDir={onRevealDir}
                 onToggleHidden={onToggleHidden}

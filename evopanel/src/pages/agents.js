@@ -295,6 +295,12 @@ function syncFilterControls(page, state) {
   syncMoreFilterButton(page, state)
 }
 
+/** 筛选 select 若已被 DropdownSelect enhance，移动外壳而不是撕开原生 select。 */
+function filterControlHost(el) {
+  if (!el) return null
+  return el.closest?.('.ef-dropdown-select') || el
+}
+
 /**
  * 单行筛选：空间不足时把状态/用途/来源/部署收进「更多筛选」，避免换行。
  */
@@ -308,7 +314,8 @@ function layoutMineFilters(page) {
   // 先全部放回主行
   for (const id of [...COLLAPSE_FILTER_ORDER].reverse()) {
     const el = page.querySelector(`#${id}`)
-    if (el && el.parentElement !== inline) inline.appendChild(el)
+    const host = filterControlHost(el)
+    if (host && host.parentElement !== inline) inline.appendChild(host)
   }
   overflow.hidden = overflow.children.length === 0
 
@@ -321,8 +328,9 @@ function layoutMineFilters(page) {
   for (const id of COLLAPSE_FILTER_ORDER) {
     if (fits()) break
     const el = page.querySelector(`#${id}`)
-    if (!el || el.parentElement === overflow) continue
-    overflow.appendChild(el)
+    const host = filterControlHost(el)
+    if (!host || host.parentElement === overflow) continue
+    overflow.appendChild(host)
   }
   overflow.hidden = overflow.children.length === 0
 }

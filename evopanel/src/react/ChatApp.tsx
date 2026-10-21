@@ -2608,6 +2608,10 @@ export default function ChatApp() {
         ? detail.contextFiles.filter((f) => String(f?.path || '').trim())
         : []
       if (!text && !attachments?.length && !homeCtx.length) return
+      // 立刻离开工作台表面，避免「发完还停在首页 → 再切会话 → 再出消息」的三段感
+      flushSync(() => {
+        setSessionHadContent(true)
+      })
       void (async () => {
         if (Array.isArray(detail?.skills)) setSelectedSkills(detail.skills)
         if (Array.isArray(detail?.plugins)) setSelectedPlugins(detail.plugins)
@@ -2621,25 +2625,54 @@ export default function ChatApp() {
           }
           void patchPanelSettings({ lastSelectedModel: modelName })
         }
-        const code = String(detail?.agentCode || '').trim()
-        if (code) {
-          try {
-            await startNewChatWithPresetAgentRef.current(code)
-          } catch {
-            /* ignore — still send */
-          }
+        // 先确保会话，再并行写 agent/model（静默，不走带 toast 的角色切换）
+        let sk =
+          (sessionRef.current || '').trim() ||
+          (await ensureChatSessionKeyRef.current?.()) ||
+          ''
+        const code = String(detail?.agentCode || '').trim().toLowerCase()
+        const prep: Promise<unknown>[] = []
+        if (sk && code) {
+          prep.push(
+            (async () => {
+              try {
+                const { api } = await import('../lib/tauri-api.js')
+                if (code === 'claude-code') {
+                  await api.chatUpdateContext(sk, {
+                    use_claude_code_chat: true,
+                    agent_name: 'claude-code',
+                    collab_phase: 'idle',
+                    collab_task_id: null,
+                  })
+                } else if (code === 'main') {
+                  await api.chatUpdateContext(sk, {
+                    use_claude_code_chat: false,
+                    agent_name: 'main',
+                    agent_id: 'main',
+                    collab_phase: 'idle',
+                    collab_task_id: null,
+                  })
+                } else {
+                  await api.chatUpdateContext(sk, {
+                    use_claude_code_chat: false,
+                    agent_name: code,
+                    agent_id: code,
+                    collab_phase: 'idle',
+                    collab_task_id: null,
+                  })
+                }
+              } catch {
+                /* ignore — still send */
+              }
+            })(),
+          )
         }
-        if (modelName) {
-          try {
-            const sk =
-              (sessionRef.current || '').trim() ||
-              (await ensureChatSessionKeyRef.current?.()) ||
-              ''
-            if (sk) await wsClient.updateSessionContext(sk, { model_name: modelName })
-          } catch {
-            /* ignore */
-          }
+        if (sk && modelName) {
+          prep.push(
+            wsClient.updateSessionContext(sk, { model_name: modelName }).catch(() => undefined),
+          )
         }
+        if (prep.length) await Promise.all(prep)
         if (homeCtx.length) attachContextFilesRef.current?.(homeCtx)
         await handleSendRef.current(text, attachments, homeCtx.length ? homeCtx : undefined, {
           skillsOverride: Array.isArray(detail?.skills) ? detail.skills : undefined,
@@ -14701,25 +14734,29 @@ useEffect(() => {
       if (noActiveSession) {
         sessionRef.current = sessionKey
       }
-      setRows([...rtSend.rows])
-      setSessions((prev) =>
-        prev.map((s) =>
-          String(s.sessionKey || '') === sessionKey
-            ? {
-                ...s,
-                runStatus: 'running',
-                currentRunId: null,
-                currentTurnStartedAt: turnStartedIso,
-                currentTurnEndedAt: null,
-                ...(provisionalTitle && isReplaceableSessionTitle(s.title)
-                  ? { title: provisionalTitle }
-                  : {}),
-              }
-            : s,
-        ),
-      )
-      setLiveTurnAssistantRunId(null)
-      setLiveTurnTokens(null)
+      // flushSync：用户气泡同帧出现，工作台→对话不再「空等一拍」
+      flushSync(() => {
+        setSessionHadContent(true)
+        setRows([...rtSend.rows])
+        setSessions((prev) =>
+          prev.map((s) =>
+            String(s.sessionKey || '') === sessionKey
+              ? {
+                  ...s,
+                  runStatus: 'running',
+                  currentRunId: null,
+                  currentTurnStartedAt: turnStartedIso,
+                  currentTurnEndedAt: null,
+                  ...(provisionalTitle && isReplaceableSessionTitle(s.title)
+                    ? { title: provisionalTitle }
+                    : {}),
+                }
+              : s,
+          ),
+        )
+        setLiveTurnAssistantRunId(null)
+        setLiveTurnTokens(null)
+      })
       seenRunIdsRef.current = new Set()
       activeChatRunIdRef.current = null
     }
@@ -15707,16 +15744,30 @@ useEffect(() => {
       })
     }
     pendingNewSessionRef.current = true
-    // 立刻切到空白草稿态，避免等 POST 时侧栏像「点了没反应」
-    setSelectedSessionKey('')
+    // flushSync：侧栏「+」/新建必须同帧切到空白草稿，否则下一帧前像没点上
     sessionRef.current = ''
-    setNewChatButtonActive(true)
+    flushSync(() => {
+      setSelectedSessionKey('')
+      setNewChatButtonActive(true)
+      setSessionHadContent(false)
+      if (workspacePath) {
+        setLocalWorkspaceRoot(String(workspacePath).trim())
+      } else {
+        setLocalWorkspaceRoot('')
+      }
+    })
     resetChatSurfaceForNewDraft()
-    if (workspacePath) {
-      setLocalWorkspaceRoot(String(workspacePath).trim())
-    } else {
-      setLocalWorkspaceRoot('')
-    }
+    // 已在空工作台时视觉变化小：聚焦输入框，避免「点了没反应」
+    queueMicrotask(() => {
+      try {
+        const el = document.querySelector(
+          '.evo-home-composer__input, .react-chat-composer-input, textarea.react-chat-input',
+        ) as HTMLTextAreaElement | HTMLInputElement | null
+        el?.focus?.()
+      } catch {
+        /* ignore */
+      }
+    })
     ssLog('new.start', { oldSk: skTail(oldSk), workspace: workspacePath || '(default)' })
     void coalesceCreateSession(() => createSessionForChat({ workspaceRoot: workspacePath }))
       .then((key) => {

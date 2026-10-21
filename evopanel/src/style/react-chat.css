@@ -13155,7 +13155,7 @@ html[data-app-occluded='1'] * {
   text-align: center;
 }
 
-/* vanilla enhance：表单/筛选条里的 select 铺满宽度 */
+/* vanilla enhance：表单里的 select 铺满宽度 */
 .ef-dropdown-select--fill {
   width: 100%;
   display: flex;
@@ -13163,6 +13163,20 @@ html[data-app-occluded='1'] * {
 
 .ef-dropdown-select--fill > .ef-dropdown-select__trigger {
   width: 100%;
+}
+
+/* 工具栏筛选：内容自适应，勿被 --fill 拉满 */
+.ef-dropdown-select--compact-filter {
+  width: auto;
+  max-width: 148px;
+  display: inline-flex;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.ef-dropdown-select--compact-filter > .ef-dropdown-select__trigger {
+  width: auto;
+  max-width: 148px;
 }
 
 /* 隐藏被 enhance 的原生 select（保留在 DOM 供 FormData） */

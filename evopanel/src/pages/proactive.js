@@ -207,6 +207,8 @@ let _orgUi = {
 let _tabPinnedByHash = false
 let _rolesPage = 1
 let _rolesPageSize = readStoredPageSize(ROLES_PAGE_SIZE_KEY)
+/** 员工 Tab 名称搜索（匹配岗位名 / 智能体名 / 代号） */
+let _rolesSearchQuery = ''
 
 function readProactiveHashQuery() {
   const raw = String(window.location.hash || '').replace(/^#/, '')
@@ -359,22 +361,39 @@ export async function render() {
 
     <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
 
-    <div class="pro-tabs" role="tablist" aria-label="员工">
-      <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
-        待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
-      </button>
-      <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
-        员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
-      </button>
-      <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
-        组织 / 部门
-      </button>
-      <button type="button" class="pro-tab ${_currentTab === 'health' ? 'pro-tab--active' : ''}" data-tab="health" role="tab">
-        健康
-      </button>
-      <button type="button" class="pro-tab ${_currentTab === 'board' ? 'pro-tab--active' : ''}" data-tab="board" role="tab" title="按状态看全员岗位工作项">
-        工作项
-      </button>
+    <div class="pro-tabs-bar">
+      <div class="pro-tabs" role="tablist" aria-label="员工">
+        <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
+          待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
+        </button>
+        <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
+          员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
+        </button>
+        <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
+          组织 / 部门
+        </button>
+        <button type="button" class="pro-tab ${_currentTab === 'health' ? 'pro-tab--active' : ''}" data-tab="health" role="tab">
+          健康
+        </button>
+        <button type="button" class="pro-tab ${_currentTab === 'board' ? 'pro-tab--active' : ''}" data-tab="board" role="tab" title="按状态看全员岗位工作项">
+          工作项
+        </button>
+      </div>
+      <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
+        <span class="sr-only">搜索员工</span>
+        <svg class="pro-roles-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+        </svg>
+        <input
+          type="search"
+          class="pro-roles-search-input"
+          id="pro-roles-search"
+          placeholder="搜索员工…"
+          autocomplete="off"
+          value=""
+        />
+      </label>
     </div>
 
     <div class="pro-tab-content" id="pro-tab-content">
@@ -407,6 +426,46 @@ export async function render() {
   return page
 }
 
+function roleMatchesSearch(role, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return true
+  const hay = [
+    role?.role_name,
+    role?.agent_name,
+    role?.agent_code,
+    role?.department,
+  ]
+    .map((x) => String(x || '').toLowerCase())
+    .join(' ')
+  return hay.includes(q)
+}
+
+function filteredRolesList(roles = _rolesData) {
+  const q = _rolesSearchQuery
+  if (!String(q || '').trim()) return roles || []
+  return (roles || []).filter((r) => roleMatchesSearch(r, q))
+}
+
+function applyRolesSearch(page, raw) {
+  _rolesSearchQuery = String(raw || '')
+  _rolesPage = 1
+  const input = page.querySelector('#pro-roles-search')
+  if (input && input.value !== _rolesSearchQuery) input.value = _rolesSearchQuery
+
+  // 有关键字时切到「员工」Tab，方便立刻看到结果
+  if (String(_rolesSearchQuery).trim() && _currentTab !== 'roles') {
+    _currentTab = 'roles'
+    _tabPinnedByHash = true
+    page.querySelectorAll('.pro-tab').forEach((t) =>
+      t.classList.toggle('pro-tab--active', t.dataset.tab === 'roles'),
+    )
+  }
+
+  if (_currentTab === 'roles') {
+    reRenderRolesTab(page)
+  }
+}
+
 function bindHeader(page) {
   page.querySelector('#pro-refresh')?.addEventListener('click', () => loadAll(page))
   page.querySelector('#pro-hire')?.addEventListener('click', () => void showHireModal(page))
@@ -421,6 +480,18 @@ function bindHeader(page) {
         void loadAll(page)
       },
     })
+  })
+  const searchInput = page.querySelector('#pro-roles-search')
+  if (searchInput && _rolesSearchQuery) searchInput.value = _rolesSearchQuery
+  searchInput?.addEventListener('input', (e) => {
+    applyRolesSearch(page, e.target?.value)
+  })
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      applyRolesSearch(page, '')
+      searchInput.blur()
+    }
   })
   page.querySelectorAll('.pro-tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -1484,7 +1555,7 @@ function patchRoleBusyUi(page) {
 function reRenderRolesTab(page) {
   const container = page?.querySelector('#pro-tab-content')
   if (!container || _currentTab !== 'roles') return
-  container.innerHTML = renderRoles(_rolesData)
+  container.innerHTML = renderRoles(filteredRolesList(_rolesData))
   bindRoles(container)
   mountProactiveAvatars(container, 44)
   updateDecideStrip(page)
@@ -1503,7 +1574,7 @@ function renderTabContent(page) {
     void loadAndRenderOrg(page)
   } else {
     _currentTab = 'roles'
-    container.innerHTML = renderRoles(_rolesData)
+    container.innerHTML = renderRoles(filteredRolesList(_rolesData))
     bindRoles(container)
     mountProactiveAvatars(container, 44)
   }
@@ -2939,7 +3010,14 @@ function updateFeishuToolbar(page) {
 }
 
 function renderRoles(roles) {
+  const q = String(_rolesSearchQuery || '').trim()
   if (!roles.length) {
+    if (q) {
+      return `<div class="pro-empty">
+        <p class="pro-empty-title">没有匹配「${esc(q)}」的员工</p>
+        <p class="pro-empty-desc">试试岗位名、智能体名或代号</p>
+      </div>`
+    }
     return `<div class="pro-empty">
       <div class="pro-empty-ico" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5">

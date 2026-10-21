@@ -189,7 +189,11 @@ function createEnhancedInstance(selectEl, opts) {
 
   // Preserve layout hooks from the native select (width / filter bars / form fields).
   const selectClass = String(selectEl.className || '')
-  const fillWidth = /\b(form-input|hire-input|cron-select|cron-input|role-filter-select|tasks-filter-select|pro-kanban-select|pro-org-select|sec-select)\b/.test(
+  // 工具栏/筛选条（role-filter-select 等）保持内容自适应宽度，不要拉满 100%。
+  const fillWidth = /\b(form-input|hire-input|cron-select|cron-input|pro-org-select|sec-select)\b/.test(
+    selectClass,
+  )
+  const compactFilter = /\b(role-filter-select|tasks-filter-select|pro-kanban-select|ec-filter-select)\b/.test(
     selectClass,
   )
 
@@ -219,6 +223,7 @@ function createEnhancedInstance(selectEl, opts) {
       'ef-dropdown-select',
       `ef-dropdown-select--${config.variant}`,
       fillWidth ? 'ef-dropdown-select--fill' : '',
+      compactFilter ? 'ef-dropdown-select--compact-filter' : '',
       open ? 'is-open' : '',
       selectEl.disabled ? 'is-disabled' : '',
       config.className,
