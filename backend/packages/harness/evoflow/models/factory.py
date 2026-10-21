@@ -410,24 +410,19 @@ def _sanitize_openai_compat_reasoning_effort(model_class: type, model_config: An
 
 def _effective_max_output_tokens(model_config: Any, model_settings: dict[str, Any]) -> int:
     """Best-effort output cap from model row (``output_context_length`` / ``max_tokens``)."""
-    from evoflow.config.model_config import resolve_model_max_output_tokens
+    from evoflow.config.model_config import resolve_effective_max_output_tokens
 
-    candidates: list[int] = []
-    ocl = getattr(model_config, "output_context_length", None)
-    if ocl is not None:
-        try:
-            n = int(ocl)
-            if n > 0:
-                candidates.append(n)
-        except (TypeError, ValueError):
-            pass
     raw = model_settings.get("max_tokens")
     try:
         mt = int(raw) if raw is not None else None
     except (TypeError, ValueError):
         mt = None
-    candidates.append(resolve_model_max_output_tokens(mt))
-    return max(candidates) if candidates else resolve_model_max_output_tokens(None)
+    ocl = getattr(model_config, "output_context_length", None)
+    try:
+        ocl_int = int(ocl) if ocl is not None else None
+    except (TypeError, ValueError):
+        ocl_int = None
+    return resolve_effective_max_output_tokens(mt, ocl_int)
 
 
 def _volc_completion_reserve_tokens(max_out: int) -> int:
@@ -1000,22 +995,15 @@ def create_chat_model(
 
     _sanitize_vendor_thinking_settings(model_config, model_settings_from_config, kwargs)
     if not issubclass(model_class, runtimeChatModel):
-        from evoflow.config.model_config import resolve_model_max_output_tokens
+        from evoflow.config.model_config import resolve_effective_max_output_tokens
 
         raw_mt = model_settings_from_config.get("max_tokens")
         try:
             mt = int(raw_mt) if raw_mt is not None else None
         except (TypeError, ValueError):
             mt = None
-        model_settings_from_config["max_tokens"] = resolve_model_max_output_tokens(mt)
         ocl = getattr(model_config, "output_context_length", None)
-        if ocl is not None:
-            try:
-                ocl_int = int(ocl)
-                if ocl_int > int(model_settings_from_config["max_tokens"]):
-                    model_settings_from_config["max_tokens"] = ocl_int
-            except (TypeError, ValueError):
-                pass
+        model_settings_from_config["max_tokens"] = resolve_effective_max_output_tokens(mt, ocl)
     _finalize_thinking_max_tokens(model_config, model_settings_from_config, kwargs)
     _align_volcengine_thinking_output_budget(model_config, model_settings_from_config, kwargs)
     _normalize_dashscope_thinking_vs_max_completion(model_settings_from_config, model_config)

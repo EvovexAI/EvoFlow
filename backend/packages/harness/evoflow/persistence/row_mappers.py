@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from evoflow.config.model_config import (
-    resolve_model_max_output_tokens,
+    resolve_effective_max_output_tokens,
     resolve_model_max_retries,
     resolve_model_request_timeout,
 )
@@ -149,7 +149,6 @@ def model_row_to_doc(r: dict[str, Any]) -> dict[str, Any]:
     out["request_timeout"] = resolve_model_request_timeout(_float_or_none(r.get("request_timeout")))
     out["temperature"] = _float_or_none(r.get("temperature"))
     out["max_retries"] = resolve_model_max_retries(_int_or_none(r.get("max_retries")))
-    out["max_tokens"] = resolve_model_max_output_tokens(_int_or_none(r.get("max_tokens")))
     if r.get("use_responses_api") is not None:
         out["use_responses_api"] = bool(r["use_responses_api"])
     for key in ("supports_thinking", "supports_reasoning_effort", "supports_vision"):
@@ -169,6 +168,11 @@ def model_row_to_doc(r: dict[str, Any]) -> dict[str, Any]:
             val = _int_or_none(merged.get(key))
         if val is not None and val > 0:
             out[key] = val
+    # Prefer explicit panel output window over legacy bare-8192 → 64k remap.
+    out["max_tokens"] = resolve_effective_max_output_tokens(
+        _int_or_none(r.get("max_tokens")),
+        _int_or_none(out.get("output_context_length")),
+    )
     # Dedicated availability columns (v122); strip any stale extra_json copies.
     for key in (
         "availability_status",

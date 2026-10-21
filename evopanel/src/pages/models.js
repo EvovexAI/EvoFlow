@@ -25,6 +25,27 @@ function resolvePanelContextWindow(m) {
   return DEFAULT_MODEL_CONTEXT_WINDOW
 }
 
+/** OpenAI 官方/兼容渠道：许多模型输出上限约 16K–32K；默认 32K，避免默认 64K 被上游拒绝 */
+const OPENAI_SAFE_DEFAULT_OUTPUT_TOKENS = 32_768
+
+function isOpenAIChannelProvider(providerKey, provider) {
+  const key = String(providerKey || '').trim().toLowerCase()
+  if (key === 'openai' || key.startsWith('openai-') || key.startsWith('openai_')) return true
+  const base = String(provider?.baseUrl || '').trim().toLowerCase()
+  return base.includes('api.openai.com')
+}
+
+function defaultOutputContextForProvider(providerKey, provider) {
+  return isOpenAIChannelProvider(providerKey, provider)
+    ? OPENAI_SAFE_DEFAULT_OUTPUT_TOKENS
+    : DEFAULT_MODEL_MAX_OUTPUT_TOKENS
+}
+
+function outputContextHintHtml(providerKey, provider) {
+  if (!isOpenAIChannelProvider(providerKey, provider)) return ''
+  return `<div class="form-hint" style="margin-top:8px">OpenAI 官方多数模型输出上限约 16K–32K；默认 32K。选更大档位前请确认你的端点/模型支持，否则调用会被上游拒绝。</div>`
+}
+
 function modelSupportsVision(m) {
   if (!m || typeof m === 'string') return false
   const input = m.input
@@ -3326,7 +3347,7 @@ function addModel(page, state, providerKey) {
   }
 
   const defaultInputCtx = DEFAULT_MODEL_CONTEXT_WINDOW
-  const defaultOutputCtx = DEFAULT_MODEL_MAX_OUTPUT_TOKENS
+  const defaultOutputCtx = defaultOutputContextForProvider(providerKey, provider)
 
   // 远程模型拉取：仅 OpenAI 兼容接口支持（list-remote 后端约束）
   const providerApiLower = String(provider.api || 'openai-completions').toLowerCase()
@@ -3439,6 +3460,7 @@ function addModel(page, state, providerKey) {
             ${contextLengthPresetsHtml('outputContextLength', defaultOutputCtx, outputPresets)}
           </div>
         </div>
+        ${outputContextHintHtml(providerKey, provider)}
       </div>
 
       <div class="modal-actions models-edit-modal-actions">
@@ -3793,7 +3815,7 @@ function editModel(page, state, providerKey, idx) {
 
   // 读取现有值
   const inputCtxLen = m?.inputContextLength || m?.contextWindow || DEFAULT_MODEL_CONTEXT_WINDOW
-  const outputCtxLen = m?.outputContextLength || DEFAULT_MODEL_MAX_OUTPUT_TOKENS
+  const outputCtxLen = m?.outputContextLength || defaultOutputContextForProvider(providerKey, provider)
   const thinking = m?.thinking || {}
   const defaultLevel = readDefaultThinkingLevel(thinking)
   const defaultMode = readDefaultThinkingMode(thinking)
@@ -3897,6 +3919,7 @@ function editModel(page, state, providerKey, idx) {
             ${contextLengthPresetsHtml('outputContextLength', outputCtxLen, outputPresets)}
           </div>
         </div>
+        ${outputContextHintHtml(providerKey, provider)}
       </div>
 
       <div class="modal-actions models-edit-modal-actions">

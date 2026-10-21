@@ -140,7 +140,7 @@ def sanitize_model_connection_settings(settings: dict[str, Any]) -> None:
         settings["default_headers"] = sanitize_default_headers(settings.get("default_headers"))
 
 
-from evoflow.config.model_config import resolve_model_max_output_tokens  # noqa: E402
+from evoflow.config.model_config import resolve_effective_max_output_tokens  # noqa: E402
 
 
 def sanitize_model_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -163,7 +163,13 @@ def sanitize_model_document(document: dict[str, Any]) -> dict[str, Any]:
         mt = int(raw_mt) if raw_mt is not None else None
     except (TypeError, ValueError):
         mt = None
-    out["max_tokens"] = resolve_model_max_output_tokens(mt)
+    raw_ocl = out.get("output_context_length")
+    try:
+        ocl = int(raw_ocl) if raw_ocl is not None else None
+    except (TypeError, ValueError):
+        ocl = None
+    # Keep intentional panel 8K (ocl=8192); only bare legacy max_tokens=8192 lifts to 64k.
+    out["max_tokens"] = resolve_effective_max_output_tokens(mt, ocl)
     return out
 
 

@@ -9,12 +9,37 @@ _LEGACY_DEFAULT_MAX_OUTPUT_TOKENS = 8192
 
 
 def resolve_model_max_output_tokens(raw: int | None) -> int:
-    """Normalize DB/API max_tokens: unset or legacy 8192 → 64k."""
+    """Normalize DB/API max_tokens: unset or legacy 8192 → 64k.
+
+    Do **not** use this alone when ``output_context_length`` is set — an explicit
+    panel 8K choice also stores ``max_tokens=8192`` and must keep 8K. Prefer
+    :func:`resolve_effective_max_output_tokens`.
+    """
     if raw is None or raw <= 0:
         return DEFAULT_MODEL_MAX_OUTPUT_TOKENS
     if raw == _LEGACY_DEFAULT_MAX_OUTPUT_TOKENS:
         return DEFAULT_MODEL_MAX_OUTPUT_TOKENS
     return int(raw)
+
+
+def resolve_effective_max_output_tokens(
+    max_tokens: int | None = None,
+    output_context_length: int | None = None,
+) -> int:
+    """Effective single-turn output budget for a model row.
+
+    Panel ``output_context_length`` is authoritative when set (including intentional
+    8K / 8192). Otherwise fall back to :func:`resolve_model_max_output_tokens`
+    so bare legacy ``8192`` rows still upgrade to 64k.
+    """
+    if output_context_length is not None:
+        try:
+            ocl = int(output_context_length)
+            if ocl > 0:
+                return ocl
+        except (TypeError, ValueError):
+            pass
+    return resolve_model_max_output_tokens(max_tokens)
 
 
 DEFAULT_MODEL_TEMPERATURE = 0.7
