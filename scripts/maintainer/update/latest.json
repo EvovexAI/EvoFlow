@@ -1,10 +1,10 @@
 {
-  "version": "1.1.2",
-  "minAppVersion": "1.1.2",
+  "version": "1.1.3",
+  "minAppVersion": "1.1.3",
   "updateKind": "full",
   "assetKind": "installer",
   "hash": "",
-  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.2/EvoFlow_1.1.2_x64-setup.exe",
+  "url": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.1.3/EvoFlow_1.1.3_x64-setup.exe",
   "size": 0,
-  "changelog": "EvoFlow 1.1.2（相对 1.1.1）：官方插件 bundle 打包（macOS + Windows + CI workflows，无源时自动 stub）+ marketplace seed 硬化 + builtin 插件注册 + catalog cache 细化；主动引擎（proactive engine + 飞书通知投递可交付物卡片 + supervisor 工具 + 任务重试叶子 + 资产记忆门控）；会话执行状态（execution state + busy reason log + context compaction + workspace info rail + 续流门控 + 阶段工具）；prompt 动态分层 + turn timing + message row 渲染更新；memory live footer + session repos + eval_metrics + 图片内联预览 + code comment cards + trae tool + stream perf；经验工具移除（旧经验库已迁移资产中心，下线 experience admin/cli/middleware）；admin 路由整合 + collab/app 生成器更新 + lean gateway 打包硬化（assert 脚本 + pyarmor/gateway spec）；agui-turn-reducer 更新 + 新增 logo.ico；admin-external / system-verification 文档刷新。修复：PS1 非 ASCII 字符乱码破坏 CI 语法、无插件源时 fetch bundle 不再 throw。覆盖安装即可。"
+  "changelog": "EvoFlow 1.1.3（相对 1.1.2）：安装包内置真实官方插件，修复装完插件市场为空、浏览器/电脑控制不可用；工具审批支持完全访问与「新对话默认」；view_image 一次多图；联网搜索与配置热重载增强；侧栏会话标题走马灯；员工会话筛选与花名册同步更稳；新建自定义智能体默认不挂技能白名单；预设角色并入平台管理技能。覆盖安装即可；曾遇空插件市场的 1.1.2 升级后重启即可。"
 }
