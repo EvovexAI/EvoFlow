@@ -82,10 +82,8 @@ jobs:
       - name: Fetch official plugins bundle
         shell: pwsh
         env:
-          # Prefer a direct archive URL secret, else a release tag var
-          # (asset name: official-plugins-bundle.tar.gz). GITHUB_TOKEN covers
-          # private/same-repo release downloads when EVOFLOW_OFFICIAL_PLUGINS_TOKEN
-          # is unset (see fetch-official-plugins-bundle.sh).
+          # Default: unpack committed packaging/official-plugins-bundle.tar.gz.
+          # Optional overrides below are unused when the in-repo archive is present.
           EVOFLOW_OFFICIAL_PLUGINS_URL: ${{ secrets.EVOFLOW_OFFICIAL_PLUGINS_URL }}
           EVOFLOW_OFFICIAL_PLUGINS_RELEASE: ${{ vars.EVOFLOW_OFFICIAL_PLUGINS_RELEASE }}
           EVOFLOW_OFFICIAL_PLUGINS_TOKEN: ${{ secrets.EVOFLOW_OFFICIAL_PLUGINS_TOKEN }}

@@ -14,7 +14,7 @@ Environment variables (all default to "1" = enabled):
     CHECK_OFFICIAL_PLUGINS packaging/official-plugins-bundle product plugins
 
 CI: run packaging/fetch-official-plugins-bundle.sh before this script
-(set EVOFLOW_OFFICIAL_PLUGINS_URL or EVOFLOW_OFFICIAL_PLUGINS_RELEASE).
+(unpacks committed packaging/official-plugins-bundle.tar.gz by default).
 """
 
 from __future__ import annotations
@@ -355,6 +355,34 @@ _REQUIRED_OFFICIAL_PLUGINS = (
     "node-repl-host",
 )
 
+_PLUGIN_MANIFEST_RELS = (
+    ".zcode-plugin/plugin.json",
+    ".evoflow-plugin/plugin.json",
+)
+
+
+def _official_plugin_is_versioned(plugin_dir: Path) -> bool:
+    """Seed only lists ``<name>/<version>/`` trees; flat stubs yield an empty store."""
+    if not plugin_dir.is_dir():
+        return False
+    flat = plugin_dir / "plugin.json"
+    if flat.is_file():
+        try:
+            text = flat.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            text = ""
+        if "0.0.0-stub" in text or "stub - real plugin" in text:
+            return False
+    for version_dir in plugin_dir.iterdir():
+        if not version_dir.is_dir():
+            continue
+        if version_dir.name == "0.0.0-stub":
+            return False
+        for rel in _PLUGIN_MANIFEST_RELS:
+            if (version_dir / rel).is_file():
+                return True
+    return False
+
 
 def check_official_plugins_bundle() -> None:
     print(f"\n[{GREEN}4{RESET}] official-plugins-bundle product plugins")
@@ -382,13 +410,31 @@ def check_official_plugins_bundle() -> None:
     for name in missing:
         _e(f"required official plugin missing: {name}")
 
+    stubs = [
+        name
+        for name in _REQUIRED_OFFICIAL_PLUGINS
+        if (bundle / name).is_dir() and not _official_plugin_is_versioned(bundle / name)
+    ]
+    for name in stubs:
+        _e(
+            f"official plugin {name} is a stub or missing <version>/.zcode-plugin "
+            "(CI previously shipped stubs → empty marketplace). Sync real plugins "
+            "via EVOFLOW_OFFICIAL_PLUGINS_URL / _RELEASE / _SOURCE"
+        )
+
     helper_entry = bundle / "cua-helper" / "runtime" / "dist" / "windows-helper.js"
     helper_addon = bundle / "cua-helper" / "runtime" / "build" / "Release" / "ax_native.node"
     if not (helper_entry.is_file() and helper_addon.is_file()):
         _e("cua-helper runtime incomplete (need windows-helper.js + ax_native.node)")
+    elif helper_addon.stat().st_size <= 1024:
+        _e(
+            "cua-helper ax_native.node looks like a stub "
+            f"({helper_addon.stat().st_size} bytes) — need a real native addon"
+        )
 
-    if not missing and helper_entry.is_file() and helper_addon.is_file():
-        _ok(f"{len(plugin_dirs)} plugin dirs present under official-plugins-bundle")
+    if not missing and not stubs and helper_entry.is_file() and helper_addon.is_file():
+        if helper_addon.stat().st_size > 1024:
+            _ok(f"{len(plugin_dirs)} plugin dirs present under official-plugins-bundle")
 
     for sidecar in (
         HARNESS_ROOT / "evoflow" / "plugins" / "cua_exec.ps1",

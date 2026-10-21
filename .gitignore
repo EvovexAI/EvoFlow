@@ -319,8 +319,8 @@ website/**/dist/
 # Browser packaging caches (rebuilt by make setup-agent-browser / gateway build)
 backend/packaging/agent-browser-bundle/
 backend/packaging/ripgrep-bundle/
-# Official plugin archive for CI (upload as Release asset; blobs stay out of git)
-backend/packaging/official-plugins-bundle.tar.gz
+# Official plugins: commit the .tar.gz (~20MB); keep zip / unpacked tree out of git
+# (unpacked dir is gitignored via official-plugins-bundle/.gitignore)
 backend/packaging/official-plugins-bundle.zip
 # kb-mcp node_modules is ignored via backend/packaging/kb-mcp/.gitignore (removed)
 # Legacy Playwright bundle (no longer used by gateway builds)

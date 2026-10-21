@@ -117,14 +117,27 @@ if (-not (Test-Path -LiteralPath $officialBundle)) {
   $errors.Add("bundled_official missing under $GatewayDir (sync official-plugins-bundle before PyInstaller)")
 } else {
   foreach ($name in $requiredOfficial) {
-    if (-not (Test-Path -LiteralPath (Join-Path $officialBundle $name))) {
-      $errors.Add("official plugin missing from bundled_official: $name")
+    $pluginDir = Join-Path $officialBundle $name
+    $versioned = $false
+    if (Test-Path -LiteralPath $pluginDir) {
+      foreach ($ver in @(Get-ChildItem -LiteralPath $pluginDir -Directory -ErrorAction SilentlyContinue)) {
+        if ($ver.Name -eq "0.0.0-stub") { continue }
+        foreach ($rel in @(".zcode-plugin\plugin.json", ".evoflow-plugin\plugin.json")) {
+          if (Test-Path -LiteralPath (Join-Path $ver.FullName $rel)) { $versioned = $true; break }
+        }
+        if ($versioned) { break }
+      }
+    }
+    if (-not $versioned) {
+      $errors.Add("official plugin missing/stub in bundled_official: $name (need <version>/.zcode-plugin)")
     }
   }
   $helperEntry = Join-Path $officialBundle "cua-helper\runtime\dist\windows-helper.js"
   $helperAddon = Join-Path $officialBundle "cua-helper\runtime\build\Release\ax_native.node"
   if (-not ((Test-Path -LiteralPath $helperEntry) -and (Test-Path -LiteralPath $helperAddon))) {
     $errors.Add("cua-helper runtime incomplete under bundled_official (need windows-helper.js + ax_native.node)")
+  } elseif ((Get-Item -LiteralPath $helperAddon).Length -le 1024) {
+    $errors.Add("cua-helper ax_native.node looks like a stub under bundled_official")
   }
 }
 

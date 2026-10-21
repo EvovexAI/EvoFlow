@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Create official-plugins-bundle.tar.gz for CI / release asset upload.
+# Refresh packaging/official-plugins-bundle.tar.gz (committed in-repo for CI).
 #
 # Usage (from a machine that already has the synced bundle):
 #   bash backend/packaging/pack-official-plugins-bundle.sh
 #   # -> backend/packaging/official-plugins-bundle.tar.gz
-#
-# Upload that archive to a GitHub Release (asset name must match), then set
-# EVOFLOW_OFFICIAL_PLUGINS_RELEASE=owner/repo@tag in CI secrets/vars.
+# Then commit the refreshed archive so release builds unpack real plugins.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

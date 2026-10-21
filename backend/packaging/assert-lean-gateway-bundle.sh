@@ -67,14 +67,29 @@ if [[ -z "${official_bundle}" ]]; then
   fail "bundled_official missing under ${GATEWAY_DIR} (sync official-plugins-bundle before PyInstaller)"
 else
   for name in "${required_official[@]}"; do
-    if [[ ! -d "${official_bundle}/${name}" ]]; then
-      fail "official plugin missing from bundled_official: ${name}"
+    versioned=0
+    if [[ -d "${official_bundle}/${name}" ]]; then
+      shopt -s nullglob
+      for ver in "${official_bundle}/${name}"/*/; do
+        base="$(basename "${ver}")"
+        [[ "${base}" == "0.0.0-stub" ]] && continue
+        if [[ -f "${ver}.zcode-plugin/plugin.json" || -f "${ver}.evoflow-plugin/plugin.json" ]]; then
+          versioned=1
+          break
+        fi
+      done
+      shopt -u nullglob
+    fi
+    if [[ "${versioned}" -ne 1 ]]; then
+      fail "official plugin missing/stub in bundled_official: ${name} (need <version>/.zcode-plugin)"
     fi
   done
   helper_entry="${official_bundle}/cua-helper/runtime/dist/windows-helper.js"
   helper_addon="${official_bundle}/cua-helper/runtime/build/Release/ax_native.node"
   if [[ ! -f "${helper_entry}" || ! -f "${helper_addon}" ]]; then
     fail "cua-helper runtime incomplete under bundled_official (need windows-helper.js + ax_native.node)"
+  elif [[ "$(wc -c < "${helper_addon}" | tr -d ' ')" -le 1024 ]]; then
+    fail "cua-helper ax_native.node looks like a stub under bundled_official"
   fi
 fi
 

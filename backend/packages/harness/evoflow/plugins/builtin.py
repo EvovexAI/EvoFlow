@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 BUILTIN_DIR = Path(__file__).parent / "builtin"
 
-SEED_MANIFEST_VERSION = 14  # v14: empty marketplace must reseed; icons from local icons dir
+SEED_MANIFEST_VERSION = 15  # v15: reseed after stub-bundle releases so real packaged plugins appear
 
 # 面向用户展示的 listing 文案统一使用 EvoFlow 品牌（这是 EvoFlow 平台的市场）。
 # 仅替换文本字段；插件 name slug、icon URL 等标识保持原样。

@@ -85,6 +85,7 @@ jobs:
       - name: Fetch official plugins bundle
         shell: bash
         env:
+          # Default: unpack committed packaging/official-plugins-bundle.tar.gz.
           EVOFLOW_OFFICIAL_PLUGINS_URL: ${{ secrets.EVOFLOW_OFFICIAL_PLUGINS_URL }}
           EVOFLOW_OFFICIAL_PLUGINS_RELEASE: ${{ vars.EVOFLOW_OFFICIAL_PLUGINS_RELEASE }}
           EVOFLOW_OFFICIAL_PLUGINS_TOKEN: ${{ secrets.EVOFLOW_OFFICIAL_PLUGINS_TOKEN }}

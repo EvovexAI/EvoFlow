@@ -4,9 +4,9 @@
 # Sources (first hit wins):
 #   1. EVOFLOW_OFFICIAL_PLUGINS_SOURCE  — local directory (same as sync scripts)
 #   2. Existing non-empty packaging/official-plugins-bundle
-#   3. EVOFLOW_OFFICIAL_PLUGINS_URL     — http(s) URL to a .tar.gz / .zip archive
-#   4. EVOFLOW_OFFICIAL_PLUGINS_RELEASE — GitHub release that has
-#        official-plugins-bundle.tar.gz (format: owner/repo@tag or tag only)
+#   3. packaging/official-plugins-bundle.tar.gz  — committed in this repo (~20MB)
+#   4. EVOFLOW_OFFICIAL_PLUGINS_URL / _RELEASE   — optional remote override
+#   5. Local plugin cache via sync-official-plugins-bundle
 #
 # Optional:
 #   EVOFLOW_OFFICIAL_PLUGINS_TOKEN / GITHUB_TOKEN — private release downloads
@@ -29,15 +29,43 @@ REQUIRED=(
   skill-creator
 )
 
+# True when <name>/<version>/.zcode-plugin|/.evoflow-plugin/plugin.json exists.
+# Flat stubs (name/plugin.json with version 0.0.0-stub) fail — seed only lists
+# versioned dirs, so stubs produce an empty marketplace in installed builds.
+plugin_versioned() {
+  local dir="$1"
+  local ver
+  [[ -d "${dir}" ]] || return 1
+  if [[ -f "${dir}/plugin.json" ]]; then
+    if grep -qiE '0\.0\.0-stub|stub - real plugin' "${dir}/plugin.json" 2>/dev/null; then
+      return 1
+    fi
+  fi
+  shopt -s nullglob
+  for ver in "${dir}"/*/; do
+    if [[ -f "${ver}.zcode-plugin/plugin.json" || -f "${ver}.evoflow-plugin/plugin.json" ]]; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
+
 bundle_ready() {
   local root="$1"
   [[ -d "${root}" ]] || return 1
   local name
   for name in "${REQUIRED[@]}"; do
-    [[ -d "${root}/${name}" ]] || return 1
+    plugin_versioned "${root}/${name}" || return 1
   done
   [[ -f "${root}/cua-helper/runtime/dist/windows-helper.js" ]] || return 1
-  [[ -f "${root}/cua-helper/runtime/build/Release/ax_native.node" ]] || return 1
+  local addon="${root}/cua-helper/runtime/build/Release/ax_native.node"
+  [[ -f "${addon}" ]] || return 1
+  # Stub addon is a single null byte; real native addon is much larger.
+  local addon_size
+  addon_size="$(wc -c < "${addon}" | tr -d ' ')"
+  [[ "${addon_size}" -gt 1024 ]] || return 1
   return 0
 }
 
@@ -192,6 +220,19 @@ main() {
     return 0
   fi
 
+  # Default: unpack the archive committed in this repo (~20MB).
+  local repo_archive="${SCRIPT_DIR}/official-plugins-bundle.tar.gz"
+  if [[ -f "${repo_archive}" ]]; then
+    echo "[fetch-official-plugins] unpacking in-repo ${repo_archive}"
+    extract_archive "${repo_archive}"
+    if bundle_ready "${DEST}"; then
+      echo "[fetch-official-plugins] OK (from in-repo archive)"
+      return 0
+    fi
+    echo "[fetch-official-plugins] ERROR: in-repo archive left incomplete bundle" >&2
+    exit 1
+  fi
+
   local url="${EVOFLOW_OFFICIAL_PLUGINS_URL:-}"
   if [[ -z "${url}" && -n "${EVOFLOW_OFFICIAL_PLUGINS_RELEASE:-}" ]]; then
     url="$(resolve_release_asset_url "${EVOFLOW_OFFICIAL_PLUGINS_RELEASE}")"
@@ -236,34 +277,45 @@ main() {
   fi
 
   cat >&2 <<EOF
-[fetch-official-plugins] WARNING: official-plugins-bundle is empty and no source was configured.
-Generating stub bundle so the build can proceed without real plugin binaries.
+[fetch-official-plugins] ERROR: official-plugins-bundle is empty and no archive was found.
 
-To bundle real plugins, set one of:
-  - EVOFLOW_OFFICIAL_PLUGINS_URL to a .tar.gz/.zip of the bundle
-  - EVOFLOW_OFFICIAL_PLUGINS_RELEASE=owner/repo@tag (asset: official-plugins-bundle.tar.gz)
-  - EVOFLOW_OFFICIAL_PLUGINS_SOURCE to a local cache directory
-  - On a machine with ~/.evoflow-dev/data/plugins/cache/evoflow-plugins-official, run:
-      packaging/windows/sync-official-plugins-bundle.ps1
-      (or packaging/sync-official-plugins-bundle.sh)
+Expected committed archive:
+  backend/packaging/official-plugins-bundle.tar.gz
+
+Or set one of:
+  - EVOFLOW_OFFICIAL_PLUGINS_SOURCE / URL / RELEASE
+  - Or sync from a local plugin cache
+
+Dev-only escape hatch (NOT for release builds):
+  EVOFLOW_ALLOW_OFFICIAL_PLUGINS_STUB=1
 EOF
 
-  # Generate stub bundle: required dirs + placeholder files so Test-BundleReady passes.
+  case "${EVOFLOW_ALLOW_OFFICIAL_PLUGINS_STUB:-}" in
+    1|true|TRUE|yes|YES|on|ON) ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  # Explicit stub only — still versioned so seed can list entries (content remains fake).
+  echo "[fetch-official-plugins] WARNING: generating stub bundle (EVOFLOW_ALLOW_OFFICIAL_PLUGINS_STUB=1)" >&2
   mkdir -p "${DEST}"
   local name
   for name in "${REQUIRED[@]}"; do
-    mkdir -p "${DEST}/${name}"
+    mkdir -p "${DEST}/${name}/0.0.0-stub/.zcode-plugin"
     printf '{"name":"%s","version":"0.0.0-stub","description":"stub - real plugin not bundled"}\n' "${name}" \
-      > "${DEST}/${name}/plugin.json"
+      > "${DEST}/${name}/0.0.0-stub/.zcode-plugin/plugin.json"
   done
   mkdir -p "${DEST}/cua-helper/runtime/dist" "${DEST}/cua-helper/runtime/build/Release"
   printf '// stub\n' > "${DEST}/cua-helper/runtime/dist/windows-helper.js"
-  printf '\x00' > "${DEST}/cua-helper/runtime/build/Release/ax_native.node"
+  # Pad past the size check used by release asserts (still not a real native addon).
+  dd if=/dev/zero of="${DEST}/cua-helper/runtime/build/Release/ax_native.node" bs=1025 count=1 status=none 2>/dev/null \
+    || printf '%1025s' '' > "${DEST}/cua-helper/runtime/build/Release/ax_native.node"
   if [[ ! -f "${DEST}/.gitignore" ]]; then
     printf '%s\n' '# Populated by packaging sync/fetch (do not commit blobs).' '*' '!.gitignore' \
       > "${DEST}/.gitignore"
   fi
-  echo "[fetch-official-plugins] OK (stub bundle generated)"
+  echo "[fetch-official-plugins] OK (stub bundle generated — do not ship)"
   return 0
 }
 

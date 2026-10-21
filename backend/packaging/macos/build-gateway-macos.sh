@@ -31,17 +31,36 @@ required_official=(
   browser-use computer-use node-repl-host documents pdf
   presentations spreadsheets image-search plugin-creator skill-creator
 )
+plugin_versioned() {
+  local dir="$1" ver
+  [[ -d "${dir}" ]] || return 1
+  shopt -s nullglob
+  for ver in "${dir}"/*/; do
+    local base
+    base="$(basename "${ver}")"
+    [[ "${base}" == "0.0.0-stub" ]] && continue
+    if [[ -f "${ver}.zcode-plugin/plugin.json" || -f "${ver}.evoflow-plugin/plugin.json" ]]; then
+      shopt -u nullglob
+      return 0
+    fi
+  done
+  shopt -u nullglob
+  return 1
+}
 missing=()
 for name in "${required_official[@]}"; do
-  [[ -d "${OFFICIAL_BUNDLE}/${name}" ]] || missing+=("${name}")
+  plugin_versioned "${OFFICIAL_BUNDLE}/${name}" || missing+=("${name}")
 done
 helper_entry="${OFFICIAL_BUNDLE}/cua-helper/runtime/dist/windows-helper.js"
 helper_addon="${OFFICIAL_BUNDLE}/cua-helper/runtime/build/Release/ax_native.node"
 if [[ ! -f "${helper_entry}" || ! -f "${helper_addon}" ]]; then
   missing+=("cua-helper/runtime")
+elif [[ "$(wc -c < "${helper_addon}" | tr -d ' ')" -le 1024 ]]; then
+  missing+=("cua-helper/runtime(stub-addon)")
 fi
 if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "[gateway-build-macos] ERROR: official-plugins-bundle incomplete (missing: ${missing[*]})" >&2
+  echo "[gateway-build-macos] ERROR: official-plugins-bundle incomplete or stub (bad: ${missing[*]})" >&2
+  echo "  Sync real plugins (EVOFLOW_OFFICIAL_PLUGINS_URL / _RELEASE / sync-official-plugins-bundle)." >&2
   exit 1
 fi
 echo "[gateway-build-macos] official-plugins-bundle OK"

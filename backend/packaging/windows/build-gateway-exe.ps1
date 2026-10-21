@@ -103,16 +103,29 @@ try {
     "browser-use", "computer-use", "node-repl-host", "documents", "pdf",
     "presentations", "spreadsheets", "image-search", "plugin-creator", "skill-creator"
   )
+  function Test-OfficialPluginVersioned([string]$PluginDir) {
+    if (-not (Test-Path -LiteralPath $PluginDir)) { return $false }
+    $versions = @(Get-ChildItem -LiteralPath $PluginDir -Directory -ErrorAction SilentlyContinue)
+    foreach ($ver in $versions) {
+      if ($ver.Name -eq "0.0.0-stub") { return $false }
+      foreach ($rel in @(".zcode-plugin\plugin.json", ".evoflow-plugin\plugin.json")) {
+        if (Test-Path -LiteralPath (Join-Path $ver.FullName $rel)) { return $true }
+      }
+    }
+    return $false
+  }
   $missingOfficial = @($requiredOfficial | Where-Object {
-      -not (Test-Path -LiteralPath (Join-Path $OfficialBundle $_))
+      -not (Test-OfficialPluginVersioned (Join-Path $OfficialBundle $_))
     })
+  $helperAddon = Join-Path $OfficialBundle "cua-helper\runtime\build\Release\ax_native.node"
   $helperOk = (
     (Test-Path -LiteralPath (Join-Path $OfficialBundle "cua-helper\runtime\dist\windows-helper.js")) -and
-    (Test-Path -LiteralPath (Join-Path $OfficialBundle "cua-helper\runtime\build\Release\ax_native.node"))
+    (Test-Path -LiteralPath $helperAddon) -and
+    ((Get-Item -LiteralPath $helperAddon).Length -gt 1024)
   )
   if ($missingOfficial.Count -gt 0 -or -not $helperOk) {
     $hint = if (-not $helperOk) { $missingOfficial + @("cua-helper/runtime") } else { $missingOfficial }
-    throw "[gateway-build] official-plugins-bundle incomplete (missing: $($hint -join ', ')). Run packaging/windows/sync-official-plugins-bundle.ps1"
+    throw "[gateway-build] official-plugins-bundle incomplete or stub (bad: $($hint -join ', ')). Run packaging/windows/sync-official-plugins-bundle.ps1 / fetch with EVOFLOW_OFFICIAL_PLUGINS_URL"
   }
   Write-Host "[gateway-build] official-plugins-bundle OK ($($OfficialPluginDirs.Count) plugin dirs)"
 
