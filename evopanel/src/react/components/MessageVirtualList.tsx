@@ -81,8 +81,13 @@ type SharedHistoryProps = {
   toolApprovalHost: ReturnType<typeof resolveToolApprovalHost>
   streamToolApprovalHost: ReturnType<typeof resolveToolApprovalHost>
   streamContinuedRowIndex: number
-  /** 忙碌时是否由独立 _stream pin 挂齿轮（否则挂最后一条助手） */
-  showSeparateStreamPin: boolean
+  /**
+   * 齿轮挂独立 pin（true）还是某条助手（false）。
+   * 与停止按钮同一源 isSending；审批续流必须 false，避免齿轮跑到空 pin 上、工具气泡旁不转。
+   */
+  gearOnPin: boolean
+  /** 忙碌时挂齿轮的助手行下标；-1 表示无（由 pin 挂） */
+  gearHostAssistantIndex: number
   isSending: boolean
   lastAssistantRowIndex: number
   liveTurnAssistantRunId: string | null
@@ -125,7 +130,7 @@ type SharedHistoryProps = {
 
 type HistoryMessageRowProps = Omit<
   SharedHistoryProps,
-  'isSending' | 'streamContinuedRowIndex' | 'showSeparateStreamPin'
+  'isSending' | 'streamContinuedRowIndex' | 'gearOnPin' | 'gearHostAssistantIndex'
 > & {
   /** 流式气泡单独钉在列表外时，历史里的最后一条助手不再算「最后一轮」 */
   liveTurnSeparate?: boolean
@@ -245,7 +250,8 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
     liveTurnElapsedSec,
     isSending,
     streamContinuedRowIndex,
-    showSeparateStreamPin,
+    gearOnPin,
+    gearHostAssistantIndex,
     lastAssistantRowIndex,
     ...rowProps
   } = props
@@ -263,12 +269,12 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
           streamContinuedRowIndex,
           isSending,
         )
-        // 停止亮 ↔ 齿轮转：同一个 isSending。有独立 pin 时挂 pin，否则挂最后一条助手。
+        // 停止亮 ↔ 齿轮转：同一个 isSending。审批续流挂 continuation 助手（工具旁）。
         const threadBusy =
           !!isSending &&
-          !showSeparateStreamPin &&
-          item.row.role === 'assistant' &&
-          item.i === lastAssistantRowIndex
+          !gearOnPin &&
+          gearHostAssistantIndex >= 0 &&
+          item.i === gearHostAssistantIndex
         return (
           <HistoryMessageRow
             key={uniqueKeys[historyIndex] ?? historyItemStableKey(sk, item.row, item.i)}
@@ -284,7 +290,7 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
             lastAssistantRowIndex={lastAssistantRowIndex}
             isContinuedStream={isContinuedStream}
             threadBusy={threadBusy}
-            liveTurnSeparate={!!isSending && showSeparateStreamPin}
+            liveTurnSeparate={!!isSending && gearOnPin}
             liveActivityDockLabel={
               isContinuedStream || threadBusy ? liveActivityDockLabel : undefined
             }
@@ -470,9 +476,9 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
         )
         const threadBusy =
           !!rowProps.isSending &&
-          !rowProps.showSeparateStreamPin &&
-          item.row.role === 'assistant' &&
-          item.i === rowProps.lastAssistantRowIndex
+          !rowProps.gearOnPin &&
+          rowProps.gearHostAssistantIndex >= 0 &&
+          item.i === rowProps.gearHostAssistantIndex
         return (
           <HistoryMessageRow
             key={vRow.key}
@@ -486,7 +492,7 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
             isContinuedStream={isContinuedStream}
             threadBusy={threadBusy}
             lastAssistantRowIndex={rowProps.lastAssistantRowIndex}
-            liveTurnSeparate={!!rowProps.isSending && rowProps.showSeparateStreamPin}
+            liveTurnSeparate={!!rowProps.isSending && rowProps.gearOnPin}
             liveTurnAssistantRunId={rowProps.liveTurnAssistantRunId}
             liveTurnTimingActive={rowProps.liveTurnTimingActive}
             executionToolTiming={rowProps.executionToolTiming}
@@ -1029,7 +1035,23 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       break
     }
     if (row?.role === 'assistant') {
-      if (assistantRowAcceptsStreamContinuation(row, streamRunId, streamContinuationOpts)) {
+      const trailingOnlyApprovalReplay = rows.slice(i + 1).every((r) => {
+        if (r?.role === 'assistant') return false
+        if (r?.role !== 'user') return true
+        const t = String(r.text || '')
+        return isHiddenToolApprovalUserMessage(t) || isTaskNotificationUserText(t)
+      })
+      // 审批虚流：incomplete 可能已被清掉，但后面只有隐藏 replay user——仍视为同一回合，
+      // 齿轮必须挂在这条助手（工具轨迹旁），不能甩到空 pin。
+      const approvalReplaySameTurn =
+        !!isSending &&
+        trailingOnlyApprovalReplay &&
+        (row.incompleteStream === true ||
+          (Array.isArray(row.tools) && row.tools.length > 0))
+      if (
+        assistantRowAcceptsStreamContinuation(row, streamRunId, streamContinuationOpts) ||
+        approvalReplaySameTurn
+      ) {
         continuationTargetIndex = i
         continuationTargetRow = row
       }
@@ -1038,15 +1060,16 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   }
   const acceptsContinuationTarget =
     continuationTargetIndex >= 0 && !!continuationTargetRow
-  /** 忙碌且无可续写气泡 → 必须有独立 pin 挂齿轮（与停止按钮同亮） */
+  /** 忙碌且无可续写气泡 → 新开 pin（普通新消息）；审批续流走 acceptsContinuationTarget */
   const needsBusyPin = !!isSending && !acceptsContinuationTarget
   const showStreamSlot =
-    (streamActive || holdStreamResidue || needsBusyPin) &&
+    (streamActive || holdStreamResidue || needsBusyPin || acceptsContinuationTarget) &&
     (lastHistoryRole === 'user' ||
       lastHistoryRole === 'assistant' ||
       !!liveStreamActivity ||
       holdStreamResidue ||
-      needsBusyPin)
+      needsBusyPin ||
+      acceptsContinuationTarget)
   const streamContinuesAssistant =
     showStreamSlot && acceptsContinuationTarget
   /**
@@ -1219,9 +1242,17 @@ export const MessageVirtualList = memo(function MessageVirtualList({
 
   const streamContinuedRowIndex =
     streamContinuesAssistant && streamRow ? continuationTargetIndex : -1
-  // 有独立 pin 时齿轮挂 pin；否则挂最后一条助手。判定源只有 isSending（= 停止按钮）。
   const showSeparateStreamPin =
     (!!streamRow && !streamContinuesAssistant) || needsBusyPin
+  // 停止亮 ↔ 齿轮转。审批续流：挂 continuation 助手；普通新消息：挂 pin。
+  const gearOnPin =
+    !!isSending && showSeparateStreamPin && !!streamRow && !acceptsContinuationTarget
+  const gearHostAssistantIndex =
+    !!isSending && !gearOnPin
+      ? acceptsContinuationTarget
+        ? continuationTargetIndex
+        : lastAssistantRowIndex
+      : -1
 
   const hasContent = historyItems.length > 0 || showSeparateStreamPin
   historyItemsCountRef.current = historyItems.length
@@ -2463,8 +2494,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           toolApprovalHost={historyToolApprovalHost}
           streamToolApprovalHost={streamToolApprovalHost}
           streamContinuedRowIndex={streamContinuedRowIndex}
-          // 与下方 pin 实际是否渲染一致：pin 没画出来时齿轮仍挂最后一条助手
-          showSeparateStreamPin={showSeparateStreamPin && !!streamRow}
+          gearOnPin={gearOnPin}
+          gearHostAssistantIndex={gearHostAssistantIndex}
           isSending={isSending}
           lastAssistantRowIndex={lastAssistantRowIndex}
           liveTurnAssistantRunId={liveTurnAssistantRunId}
@@ -2494,8 +2525,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
             <MemoMessageRow
               row={streamRow}
               isStreaming={streamActive || !!isSending}
-              // 停止亮 ↔ 齿轮转：pin 上直接用 isSending，不再套其它条件
-              threadBusy={!!isSending}
+              // 仅「新消息开 pin」时 pin 挂齿轮；审批续流齿轮在助手气泡上（见 gearOnPin）
+              threadBusy={gearOnPin}
               isLatestTurn
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}
