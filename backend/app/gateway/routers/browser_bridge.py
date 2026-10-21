@@ -61,7 +61,7 @@ class BrowserLogBatch(BaseModel):
 
 @router.post("/log")
 async def append_browser_log(batch: BrowserLogBatch) -> dict[str, Any]:
-    """前端浏览器日志统一落盘到 browser-debug.log（三端汇聚，见 browser_debug_log）。"""
+    """前端浏览器日志统一落盘到 logs/plugin-control.log（三端汇聚，见 browser_debug_log）。"""
     from evoflow.tools.builtins.browser_debug_log import browser_debug_log, install_browser_debug_mirror
 
     # LangGraph lifespan 的 dictConfig 会摘掉 root 上的镜像 handler；每次浏览器

@@ -175,13 +175,21 @@ async def inject_collab_subtask_custom(main_task_id: str, data: dict[str, Any]) 
         return False
 
     if _is_gateway_sse_host():
+        # Same process as Gateway: inject directly. Do NOT fall through to HTTP —
+        # ``/internal/inject-custom`` re-enters this function and would recurse.
         try:
             from evoflow.runtime.ports import inject_langgraph_custom
 
-            if await inject_langgraph_custom(thread_id, data):
-                return True
-        except ImportError:
-            pass
+            return bool(await inject_langgraph_custom(thread_id, data))
+        except Exception:
+            logger.debug(
+                "in-process inject_langgraph_custom failed thread=%s main=%s",
+                thread_id,
+                mid,
+                exc_info=True,
+            )
+            _trace_relay_skip("in_process_inject_failed", mid, str(data.get("type") or ""))
+            return False
 
     secret = _internal_events_secret()
     if not secret:
@@ -194,9 +202,11 @@ async def inject_collab_subtask_custom(main_task_id: str, data: dict[str, Any]) 
         import httpx
 
         async with httpx.AsyncClient(timeout=3.0) as client:
+            # Relay from LangGraph / worker process: thread_id only (no main_task_id)
+            # so Gateway injects via session_stream_inject and does not re-enter this helper.
             resp = await client.post(
                 url,
-                json={"thread_id": thread_id, "main_task_id": mid, "data": data},
+                json={"thread_id": thread_id, "data": data},
                 headers={"X-Internal-Events-Secret": secret},
             )
             if resp.status_code >= 400:

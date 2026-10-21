@@ -111,7 +111,7 @@ async def execute(payload: CuaExecuteRequest) -> dict[str, Any]:
 
     method = payload.method
     started = asyncio.get_event_loop().time()
-    # 电脑控制 MCP 全量日志：完整输入进插件控制日志（[mcp:cua] 与内核工具同前缀族）。
+    # CUA MCP full I/O → logs/plugin-control.log ([mcp:cua], same family as kernel tools).
     browser_debug_log(
         "py",
         f"[mcp:cua] CALL start method={method} input="

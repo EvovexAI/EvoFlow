@@ -197,10 +197,12 @@ pub fn run() {
             {
                 fn log_boot(s: &str) {
                     use std::io::Write as _;
+                    let logs = commands::evoflow_dir().join("logs");
+                    let _ = std::fs::create_dir_all(&logs);
                     if let Some(mut f) = std::fs::OpenOptions::new()
                         .create(true)
                         .append(true)
-                        .open(commands::evoflow_dir().join("browser-cdp-bridge.log"))
+                        .open(logs.join("browser-cdp-bridge.log"))
                         .ok()
                     {
                         let _ = writeln!(f, "ts:{} {s}", std::time::SystemTime::now()

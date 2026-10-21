@@ -34,7 +34,7 @@ os.environ.setdefault("EVOFLOW_CONFIG_DIR", r"C:\Users\admin\.evoflow-dev")
 
 from evoflow.plugins.node_repl import call_node_repl_js  # noqa: E402
 
-LOG = Path(os.environ["EVOFLOW_CONFIG_DIR"]) / "插件控制日志.log"
+LOG = Path(os.environ["EVOFLOW_CONFIG_DIR"]) / "logs" / "plugin-control.log"
 BOOTSTRAP = """const browserPluginRoot = process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT;
 const { join } = await import("node:path");
 const { pathToFileURL } = await import("node:url");

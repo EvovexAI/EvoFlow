@@ -325,7 +325,7 @@ def create_app(*, defer_routers: bool = True) -> FastAPI:
     startup_mark("create_app.begin", phase="create_app")
     configure_gateway_file_logging(force=True)
     # 浏览器三端统一调试日志：把 logging 里 browser 相关记录镜像进
-    # {evoflow_dir}/browser-debug.log（Rust/前端也写同一个文件）。
+    # {evoflow_dir}/logs/plugin-control.log（Rust/前端也写同一个文件）。
     from evoflow.tools.builtins.browser_debug_log import install_browser_debug_mirror
 
     install_browser_debug_mirror()

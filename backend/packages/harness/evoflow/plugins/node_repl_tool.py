@@ -311,7 +311,7 @@ def _display_marker(payload: dict[str, Any]) -> str:
 
 
 def _mcp_log(message: str) -> None:
-    """MCP 工具调用日志 → 插件控制日志（与浏览器/电脑控制三端同文件）。"""
+    """MCP tool I/O → logs/plugin-control.log (shared with browser / CUA)."""
     try:
         from evoflow.tools.builtins.browser_debug_log import browser_debug_log
 

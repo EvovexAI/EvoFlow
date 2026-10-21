@@ -21,6 +21,7 @@ Adding a new port is fine — prefer grouping by domain in this file.
 
 from __future__ import annotations
 
+import inspect
 import threading
 from pathlib import Path
 from typing import Any
@@ -132,11 +133,22 @@ def schedule_inject_evf_frame(thread_id: str, payload: dict[str, Any]) -> None:
         impl(thread_id, payload)
 
 
-def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
+async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
+    """Queue a custom frame into the live ``runs/stream`` inject queue.
+
+    The Gateway adapter is async (``session_stream_inject.inject_langgraph_custom``).
+    A sync wrapper that did ``bool(coro)`` made callers ``await True`` →
+    ``TypeError: object bool can't be used in 'await' expression``, flooding
+    ``POST /api/events/internal/inject-custom`` with 500s and starving other turns
+    (visible on packaged desktop where ``EVOFLOW_GATEWAY_PROCESS=1``).
+    """
     impl = get("stream_inject.inject_langgraph_custom")
     if impl is None:
         return False
-    return bool(impl(thread_id, data))
+    result = impl(thread_id, data)
+    if inspect.isawaitable(result):
+        result = await result
+    return bool(result)
 
 
 def _has_pending_collab_subtasks(thread_id: str) -> bool:

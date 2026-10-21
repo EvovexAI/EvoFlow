@@ -180,7 +180,7 @@ export function syncBrowserPanelFromAgUiEvent(
   // node_repl 只有代码真的触碰浏览器才展开面板；forceOpen 只留给真浏览器工具。
   const isNodeRepl = toolName === 'mcp__node_repl__js'
   const nodeReplBrowser = isNodeRepl && nodeReplArgsTouchBrowser(tc?.argsText)
-  // 浏览器工具事件进统一日志（browser-debug.log），与后端引擎/内核桥时间线对齐。
+  // 浏览器工具事件进统一日志（logs/plugin-control.log），与后端引擎/内核桥时间线对齐。
   blog(
     'info',
     `[tool] ${type} tool=${toolName} id=${toolCallId} session=${sessionKey || '(none)'}` +

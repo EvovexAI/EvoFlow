@@ -5,7 +5,7 @@
 
 输出三段：
 1. 窗口枚举 —— EvoFlow 进程所有可见窗口的实时矩形（悬浮窗无所遁形）
-2. 异常记录 —— 插件控制日志.log 里全部 ANOMALY 行（含 last_writer 凶手）
+2. 异常记录 —— logs/plugin-control.log 里全部 ANOMALY 行（含 last_writer 凶手）
 3. 最近时间线 —— 统一日志最后 N 行（三端时间线对齐）
 """
 
@@ -106,7 +106,14 @@ def main() -> int:
     ap.add_argument("--tail", type=int, default=120)
     args = ap.parse_args()
 
-    log = evoflow_dir() / "插件控制日志.log"
+    log = evoflow_dir() / "logs" / "plugin-control.log"
+    # Legacy root-level Chinese / prior English names (pre logs/ migration).
+    if not log.is_file():
+        for legacy_name in ("插件控制日志.log", "browser-debug.log"):
+            legacy = evoflow_dir() / legacy_name
+            if legacy.is_file():
+                log = legacy
+                break
     print(f"=== 浏览器窗口取证 {datetime.now():%Y-%m-%d %H:%M:%S} ===")
     print(f"统一日志: {log}\n")
 

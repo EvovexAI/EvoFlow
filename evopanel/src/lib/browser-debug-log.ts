@@ -26,7 +26,7 @@ function notify() {
 function push(level: BrowserDebugEntry['level'], message: string) {
   entries = [...entries, { ts: Date.now(), level, message }].slice(-MAX_ENTRIES)
   notify()
-  // 同一份日志追加进统一文件 browser-debug.log（Rust/Python 也写它），
+  // 同一份日志追加进统一文件 logs/plugin-control.log（Rust/Python 也写它），
   // 三端时间线对齐后才能排出两窗口/贴合问题。
   void import('./browser-unified-log.js').then(({ blog }) => {
     blog(level === 'log' ? 'info' : level, message)

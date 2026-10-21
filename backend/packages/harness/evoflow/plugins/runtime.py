@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def _ulog(message: str) -> None:
-    """统一浏览器/插件调试日志（browser-debug.log，三端汇聚）。"""
+    """统一浏览器/插件调试日志（logs/plugin-control.log，三端汇聚）。"""
     try:
         from evoflow.tools.builtins.browser_debug_log import browser_debug_log
 

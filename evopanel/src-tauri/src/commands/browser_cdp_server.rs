@@ -67,7 +67,7 @@ pub(crate) fn log_line(s: &str) {
                 let mut file = std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open(evoflow_dir().join("插件控制日志.log"))
+                    .open(plugin_control_log_path())
                     .ok();
                 loop {
                     let Ok(first) = rx.recv() else { break };
@@ -91,13 +91,20 @@ pub(crate) fn log_line(s: &str) {
         if let Some(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(evoflow_dir().join("插件控制日志.log"))
+            .open(plugin_control_log_path())
             .ok()
         {
             write_log_line(&mut f, s);
             let _ = f.flush();
         }
     }
+}
+
+/// `{evoflow_dir}/logs/plugin-control.log` — English name under logs/ (was root-level Chinese).
+fn plugin_control_log_path() -> std::path::PathBuf {
+    let logs = evoflow_dir().join("logs");
+    let _ = std::fs::create_dir_all(&logs);
+    logs.join("plugin-control.log")
 }
 
 fn write_log_line(f: &mut std::fs::File, s: &str) {

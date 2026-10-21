@@ -1,7 +1,7 @@
 // 统一浏览器调试日志（前端上报）。
 //
 // 排「两个浏览器窗口 / 面板不贴合 / 导航不显示」需要把前端时间线和
-// Rust（browser-debug.log 里的 [rust] 行）、Python（[py] 行）对齐。
+// Rust（logs/plugin-control.log 里的 [rust] 行）、Python（[py] 行）对齐。
 // 这里把日志批量 POST 到 /api/browser/log，由网关追加进同一个文件。
 // 上报是 fire-and-forget：失败静默丢弃，绝不阻塞面板逻辑。
 

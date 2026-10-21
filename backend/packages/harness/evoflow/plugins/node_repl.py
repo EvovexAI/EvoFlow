@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _ulog(message: str) -> None:
-    """统一浏览器/插件调试日志（browser-debug.log，三端汇聚）。"""
+    """统一浏览器/插件调试日志（logs/plugin-control.log，三端汇聚）。"""
     try:
         from evoflow.tools.builtins.browser_debug_log import browser_debug_log
 
@@ -192,7 +192,7 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
       if (globalThis.__evoflowBrowserLog.length > 50) globalThis.__evoflowBrowserLog.shift();
     } catch {}
   };
-  // 内核侧诊断：进插件控制日志（source=kernel），用来确认 P0 能力是否真的走到。
+  // Kernel diagnostics → logs/plugin-control.log (source=kernel).
   const __bridgeLog = async (msg) => {
     try {
       await __gwFetch("/api/browser/log", {
@@ -561,7 +561,7 @@ ${textLines.length ? "text:" + String.fromCharCode(10) + textLines.join(String.f
     };
   } else {
     // 原生 broker 是权威通道但不落盘。包一层调用日志：每次 CUA 动作的
-    // method/输入/结果/耗时都进插件控制日志（[mcp:cua-native]），否则电脑控制
+    // method / input / result / duration → logs/plugin-control.log ([mcp:cua-native]); without it CUA
     // "动作被吞"时无法定位是哪一击出的问题。fire-and-forget 上报，绝不阻塞动作。
     const __nativeCua = globalThis[__cuaSymbol];
     if (__nativeCua && typeof __nativeCua.call === "function") {

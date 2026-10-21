@@ -109,11 +109,11 @@ def test_tabs_single_webview_model(client: TestClient, bridge_headers: dict[str,
 
 
 def test_log_endpoint_appends_to_unified_file(client: TestClient, tmp_path, monkeypatch) -> None:
-    """POST /api/browser/log 把前端日志追加进统一 browser-debug.log。"""
+    """POST /api/browser/log 把前端日志追加进统一 logs/plugin-control.log。"""
     from app.gateway.routers import browser_bridge as router
     from evoflow.tools.builtins import browser_debug_log
 
-    log_file = tmp_path / "browser-debug.log"
+    log_file = tmp_path / "logs" / "plugin-control.log"
     monkeypatch.setattr(browser_debug_log, "unified_log_path", lambda: log_file)
 
     tc, _captured = client
@@ -139,7 +139,7 @@ def test_browser_debug_log_creates_file(tmp_path, monkeypatch) -> None:
     """统一日志写入器：目录自动创建、多行按序追加。"""
     from evoflow.tools.builtins import browser_debug_log
 
-    log_file = tmp_path / "logs" / "browser-debug.log"
+    log_file = tmp_path / "logs" / "plugin-control.log"
     monkeypatch.setattr(browser_debug_log, "unified_log_path", lambda: log_file)
 
     browser_debug_log.browser_debug_log("rust", "upsert label=browser-embed-primary")
@@ -151,3 +151,31 @@ def test_browser_debug_log_creates_file(tmp_path, monkeypatch) -> None:
     assert "[rust]" in lines[0] and "upsert" in lines[0]
     assert "[web]" in lines[1]
     assert "[py]" in lines[2]
+
+
+def test_unified_log_path_under_logs_english(tmp_path, monkeypatch) -> None:
+    """Default path is ``{evoflow_dir}/logs/plugin-control.log`` (not Chinese root name)."""
+    from evoflow.tools.builtins import browser_debug_log
+
+    monkeypatch.setenv("EVOFLOW_CONFIG_DIR", str(tmp_path))
+    path = browser_debug_log.unified_log_path()
+    assert path.name == "plugin-control.log"
+    assert path.parent.name == "logs"
+    assert path.parent.parent == tmp_path
+
+
+def test_unified_log_migrates_legacy_chinese_root(tmp_path, monkeypatch) -> None:
+    """First write moves root-level ``插件控制日志.log`` into logs/plugin-control.log."""
+    from evoflow.tools.builtins import browser_debug_log
+
+    monkeypatch.setenv("EVOFLOW_CONFIG_DIR", str(tmp_path))
+    legacy = tmp_path / "插件控制日志.log"
+    legacy.write_text("legacy\n", encoding="utf-8")
+
+    browser_debug_log.browser_debug_log("py", "fresh")
+    dest = tmp_path / "logs" / "plugin-control.log"
+    assert dest.is_file()
+    text = dest.read_text(encoding="utf-8")
+    assert "legacy" in text
+    assert "fresh" in text
+    assert not legacy.exists()
