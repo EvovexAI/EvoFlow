@@ -10,7 +10,6 @@ import {
   type ShareMarkdownMessage,
 } from '../lib/session-share-markdown.js'
 import { DropdownSelect } from './DropdownSelect.js'
-import { DropdownSelect } from './DropdownSelect.js'
 
 type CreatedShare = {
   token: string
