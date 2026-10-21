@@ -9,6 +9,7 @@ import {
 } from '../../lib/browser-embed-client.js'
 import { ensureNativeEmbed, reportEmbedSlot } from '../../lib/browser-embed-surface.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
+import { DropdownSelect } from './DropdownSelect.js'
 import {
   buildBrowserStreamPath,
   connectBrowserStream,
@@ -377,8 +378,12 @@ function BrowserChromeBar({
         />
         <button type="submit" style={{ display: 'none' }} />
         {zoomVisible || onZoomChange ? (
-          <select
-            className="browser-panel-zoom"
+          <DropdownSelect
+            className="browser-panel-zoom-dropdown"
+            triggerClassName="browser-panel-zoom"
+            variant="pill"
+            placement="down"
+            portal
             value={
               liveZoomPercent != null && Number.isFinite(liveZoomPercent)
                 ? String(liveZoomPercent)
@@ -386,24 +391,23 @@ function BrowserChromeBar({
             }
             title="页面缩放，与内嵌网页的实际比例同步。Ctrl+滚轮或捏合也会改这里"
             aria-label="页面缩放"
-            onChange={(event) => {
-              const raw = event.target.value
+            options={[
+              ...(liveZoomPercent != null &&
+              Number.isFinite(liveZoomPercent) &&
+              !(ZOOM_OPTIONS as readonly string[]).includes(String(liveZoomPercent))
+                ? [{ value: String(liveZoomPercent), label: `${liveZoomPercent}%` }]
+                : []),
+              ...ZOOM_OPTIONS.map((option) => ({
+                value: option,
+                label: option === 'fit' ? '适应窗口' : `${option}%`,
+              })),
+            ]}
+            onChange={(raw) => {
               if ((ZOOM_OPTIONS as readonly string[]).includes(raw)) {
                 onZoomChange?.(raw as ZoomOption)
               }
             }}
-          >
-            {liveZoomPercent != null &&
-            Number.isFinite(liveZoomPercent) &&
-            !(ZOOM_OPTIONS as readonly string[]).includes(String(liveZoomPercent)) ? (
-              <option value={String(liveZoomPercent)}>{liveZoomPercent}%</option>
-            ) : null}
-            {ZOOM_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option === 'fit' ? '适应窗口' : `${option}%`}
-              </option>
-            ))}
-          </select>
+          />
         ) : null}
         <button
           type="button"

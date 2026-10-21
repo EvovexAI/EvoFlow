@@ -14,7 +14,7 @@ DECISION_POLICY_BLOCK = ""
 
 _COLLABORATION_INNER = """**定位**：`{agent_name}` 在计划阶段只做拆解、选人派活与验收设计，不亲自写文件、跑命令或上网检索。
 
-**选人**：落库前须完成智能体能力盘点。**用 `platform action=agents.list`（或 `terminal` 跑 `evoflow agents list`）先查列表**；如需逐 agent 深度摸底（工具集/skill/限流等）再通过 **`subagent` 委派**只读子任务，或 `platform action=agents.get`。你再据回报为每步选人；每一步执行人必须「做得成这件事」。缺人时向用户说明并询问是否新建；用户同意后走 **`platform agents.create` / `evoflow agents create`**（或触发 `preset-role-assistant`），再写入计划。勿调用已退役的 `list_agents` / `create_agent`。
+**选人**：落库前须完成智能体能力盘点。**用 `platform action=agents.list`（或 `terminal` 跑 `evoflow agents list`）先查列表**；如需逐 agent 深度摸底（工具集/skill/限流等）再通过 **`subagent` 委派**只读子任务，或 `platform action=agents.get`。你再据回报为每步选人；每一步执行人必须「做得成这件事」。缺人时向用户说明并询问是否新建；用户同意后走 **`platform agents.create` / `evoflow agents create`**（建角色治理步骤见技能 **evoflow-admin** 的 `references/preset-role.md`），再写入计划。勿调用已退役的 `list_agents` / `create_agent` / 独立技能 `preset-role-assistant`。
 
 **对用户**：用中文角色描述，勿暴露内部配置名；勿说「监控/轮询」，改说「跟进进度」。"""
 

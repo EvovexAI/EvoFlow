@@ -1,5 +1,6 @@
 /** Parse platform tool JSON result and apply Right Stage feedback panel. */
 
+import { syncEmployeesRosterFromToolResult } from '../employees-roster-sync.js'
 import { syncPanelAppearanceFromToolResult } from '../panel-appearance-sync.js'
 import type { RightStageSurface } from './right-stage-types.js'
 
@@ -584,9 +585,14 @@ export function applyPlatformFeedbackFromToolResult(
     argsText?: string
     toolCallId?: string
     existingEntries?: PlatformRunEntry[]
+    /** Live tool results only — history scan must not spam roster reloads. */
+    notifyEmployeesRoster?: boolean
   },
 ): { ui: PlatformUiFeedback; entries: PlatformRunEntry[] } | null {
   void syncPanelAppearanceFromToolResult(raw, { argsText: opts?.argsText })
+  if (opts?.notifyEmployeesRoster !== false) {
+    syncEmployeesRosterFromToolResult(raw, { argsText: opts?.argsText })
+  }
   const ui = parsePlatformUiFeedback(raw, opts?.argsText)
   if (!ui) return null
   const entry = platformUiToRunEntry(ui, opts?.toolCallId)
@@ -673,6 +679,7 @@ export function syncPlatformFeedbackFromTools(
       argsText,
       toolCallId,
       existingEntries: entries,
+      notifyEmployeesRoster: false,
     })
     if (!result) continue
 

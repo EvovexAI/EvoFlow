@@ -47,6 +47,7 @@ import { showIMChannelPicker } from '../components/IMChannelPickerModal.js'
 import { renderOutputItemCardsHtml, filterDeliverableOutputs } from '../lib/task-summary.js'
 import { bindTaskOutputCardActions } from '../lib/task-output-preview.js'
 import { HIRE_TEMPLATES, hireTemplateById } from '../lib/proactive-hire-templates.js'
+import { notifyEmployeesUpdated } from '../lib/employees-roster-sync.js'
 import { diagnoseRole, renderRoleDiagnosisHtml } from '../lib/proactive-role-diagnosis.js'
 import {
   loadWorkspacePaths,
@@ -940,6 +941,7 @@ async function showHireModal(page) {
           : `已加入「${role_name}」${code ? `（${code}）` : ''}`,
         'success',
       )
+      notifyEmployeesUpdated({ reason: 'proactive.create', agentCode: code })
       close()
       _currentTab = 'roles'
       _tabPinnedByHash = true
@@ -965,7 +967,15 @@ async function showHireModal(page) {
 
 async function showEditRoleModal(page, role) {
   if (!role) return
-  await openEditRoleModal(role, { onSaved: () => loadAll(page) })
+  await openEditRoleModal(role, {
+    onSaved: () => {
+      notifyEmployeesUpdated({
+        reason: 'proactive.update',
+        agentCode: String(role?.agent_code || '').trim(),
+      })
+      return loadAll(page)
+    },
+  })
 }
 
 // ── dispatch task modal ───────────────────────────────────
@@ -3376,6 +3386,7 @@ function bindRoles(container) {
         void api
           .proactivePauseRole(code)
           .then(() => {
+            notifyEmployeesUpdated({ reason: 'proactive.pause', agentCode: code })
             if (page) void loadStatus(page)
           })
           .catch((err) => {
@@ -3392,6 +3403,7 @@ function bindRoles(container) {
         try {
           await api.proactiveDeleteRole(code)
           toast(`已删除岗位 ${name}`, 'info')
+          notifyEmployeesUpdated({ reason: 'proactive.delete', agentCode: code })
           if (page) await loadAll(page)
         } catch (err) {
           toast(`删除失败: ${err?.message || err}`, 'error')
@@ -3409,6 +3421,7 @@ function bindRoles(container) {
           const label = roleCardTitle(role) || code
           if (role) role.status = 'active'
           await api.proactiveResumeRole(code)
+          notifyEmployeesUpdated({ reason: 'proactive.resume', agentCode: code })
           toast(wasDraft ? `已确认上班 ${label}` : `已上班 ${label}`, 'success')
         }
       } catch (err) {

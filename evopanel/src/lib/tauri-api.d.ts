@@ -16,6 +16,8 @@ export function getModelCatalogPrefetch(): Promise<{
   primary: string
 } | null> | null
 
+export function invalidateModelCatalogPrefetch(): void
+
 export function noteGatewayLiveness(ok: boolean): void
 export function noteGatewayProcessDown(): void
 export function resetGatewayWarmLatch(reason?: string): void
@@ -46,6 +48,7 @@ declare const _default: {
   probeGatewayBaseUrl: typeof probeGatewayBaseUrl
   checkGatewayHealth: typeof checkGatewayHealth
   getModelCatalogPrefetch: typeof getModelCatalogPrefetch
+  invalidateModelCatalogPrefetch: typeof invalidateModelCatalogPrefetch
   isGatewayWarming: typeof isGatewayWarming
   waitForBackendReady: typeof waitForBackendReady
   checkBackendReady: typeof checkBackendReady

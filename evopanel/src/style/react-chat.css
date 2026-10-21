@@ -12950,6 +12950,247 @@ html[data-app-occluded='1'] * {
   color: var(--text-primary, #111827);
 }
 
+/* ── DropdownSelect：产品风下拉（替代原生 select）── */
+.ef-dropdown-select {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.ef-dropdown-select--field {
+  width: 100%;
+  display: flex;
+}
+
+.ef-dropdown-select.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.ef-dropdown-select__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  font: inherit;
+  color: var(--text-primary, #111827);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.ef-dropdown-select__trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 35%, transparent);
+}
+
+.ef-dropdown-select__trigger--field {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-primary, var(--border, #e5e7eb));
+  background: var(--bg-card, var(--bg-secondary, #fff));
+  font-size: 13px;
+  text-align: left;
+}
+
+.ef-dropdown-select__trigger--field:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 35%, var(--border-primary, #e5e7eb));
+}
+
+.ef-dropdown-select__trigger--field.is-open {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 55%, var(--border-primary, #e5e7eb));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 18%, transparent);
+}
+
+.ef-dropdown-select__trigger--pill {
+  height: 32px;
+  max-width: 220px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-secondary, #fff);
+  font-size: var(--ef-text-sm);
+}
+
+.ef-dropdown-select__trigger--pill:hover:not(:disabled),
+.ef-dropdown-select__trigger--pill.is-open {
+  background: color-mix(in srgb, var(--text-primary, #111827) 6%, var(--bg-secondary, #fff));
+}
+
+.ef-dropdown-select__trigger.is-placeholder .ef-dropdown-select__value {
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.ef-dropdown-select__leading {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ef-dropdown-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ef-dropdown-select__caret {
+  flex-shrink: 0;
+  opacity: 0.55;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 0.12s ease;
+}
+
+.ef-dropdown-select.is-open .ef-dropdown-select__caret {
+  transform: rotate(180deg);
+}
+
+.ef-dropdown-select__menu {
+  z-index: 40;
+  box-sizing: border-box;
+  min-width: 100%;
+  max-width: min(360px, 92vw);
+  max-height: min(320px, 50vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 0;
+  background: var(--bg-primary, #fff);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.12);
+}
+
+.ef-dropdown-select__menu--down {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  bottom: auto;
+}
+
+.ef-dropdown-select__menu--up {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  top: auto;
+}
+
+.ef-dropdown-select__menu--portal {
+  position: fixed;
+}
+
+.ef-dropdown-select__group + .ef-dropdown-select__group,
+.ef-dropdown-select__group:not(:first-child) {
+  border-top: 1px solid var(--border-secondary, rgba(15, 23, 42, 0.08));
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.ef-dropdown-select__group-label {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.ef-dropdown-select__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  margin: 0;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary, #111827);
+  cursor: pointer;
+}
+
+.ef-dropdown-select__item:hover:not(:disabled):not(.ef-dropdown-select__item--active) {
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.ef-dropdown-select__item--active {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent, #2563eb);
+  font-weight: 700;
+}
+
+.ef-dropdown-select__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ef-dropdown-select__item-label {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ef-dropdown-select__item-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.ef-dropdown-select__empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-tertiary, #9ca3af);
+  text-align: center;
+}
+
+/* vanilla enhance：表单/筛选条里的 select 铺满宽度 */
+.ef-dropdown-select--fill {
+  width: 100%;
+  display: flex;
+}
+
+.ef-dropdown-select--fill > .ef-dropdown-select__trigger {
+  width: 100%;
+}
+
+/* 隐藏被 enhance 的原生 select（保留在 DOM 供 FormData） */
+.ef-dropdown-select > select.sr-only,
+.ef-dropdown-select > select[data-ef-enhanced='1'] {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  appearance: none !important;
+  pointer-events: none !important;
+}
+
+.cron-select-dropdown {
+  width: 100%;
+}
+
+.rv-mention-select.ef-dropdown-select,
+.rv-mention-select {
+  min-width: 140px;
+  max-width: 220px;
+}
+
 .employee-talk-resume-current {
   font-size: 11px;
   color: var(--text-muted, #9ca3af);
@@ -14537,6 +14778,48 @@ html.dark .msg-ai-ask-inline-label,
   color: #94a3b8;
   line-height: 1.35;
 }
+.tool-approval-panel__global {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 10px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.02);
+  cursor: pointer;
+  user-select: none;
+}
+.tool-approval-panel__global.is-on {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: rgba(15, 23, 42, 0.04);
+}
+.tool-approval-panel__global input {
+  margin-top: 2px;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: #0f172a;
+  cursor: pointer;
+}
+.tool-approval-panel__global-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tool-approval-panel__global-title {
+  font-size: var(--ef-text-base);
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.35;
+}
+.tool-approval-panel__global-desc {
+  font-size: var(--ef-text-sm);
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
 .tool-approval-panel__footer {
   display: flex;
   align-items: center;
@@ -14638,6 +14921,28 @@ body.theme-dark .tool-approval-panel__choice.is-selected,
 html.theme-dark .tool-approval-panel__choice:hover:not(:disabled),
 body.theme-dark .tool-approval-panel__choice:hover:not(:disabled) {
   background: rgba(148, 163, 184, 0.12);
+}
+:root[data-theme='dark'] .tool-approval-panel__global,
+html.theme-dark .tool-approval-panel__global,
+body.theme-dark .tool-approval-panel__global {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.06);
+}
+:root[data-theme='dark'] .tool-approval-panel__global.is-on,
+html.theme-dark .tool-approval-panel__global.is-on,
+body.theme-dark .tool-approval-panel__global.is-on {
+  border-color: rgba(148, 163, 184, 0.28);
+  background: rgba(148, 163, 184, 0.1);
+}
+:root[data-theme='dark'] .tool-approval-panel__global-title,
+html.theme-dark .tool-approval-panel__global-title,
+body.theme-dark .tool-approval-panel__global-title {
+  color: #e5e7eb;
+}
+:root[data-theme='dark'] .tool-approval-panel__global-desc,
+html.theme-dark .tool-approval-panel__global-desc,
+body.theme-dark .tool-approval-panel__global-desc {
+  color: #94a3b8;
 }
 :root[data-theme='dark'] .tool-approval-panel__confirm,
 html.theme-dark .tool-approval-panel__confirm,
@@ -16890,14 +17195,25 @@ html.evopanel-tauri .react-chat-subtask-modal-body .msg-ai .msg-bubble {
   color: var(--text-secondary, #475569);
 }
 
-.react-chat-share-field select {
+.react-chat-share-field select,
+.react-chat-share-field .ef-dropdown-select {
   flex: 1;
+  min-width: 0;
+}
+
+.react-chat-share-field .ef-dropdown-select__trigger--field {
   height: 32px;
   border-radius: 8px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  padding: 0 8px;
-  background: #fff;
-  font: inherit;
+}
+
+.evo-home-settings__select-dropdown {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.employee-talk-resume-dropdown,
+.employee-workspace-dropdown {
+  max-width: 220px;
 }
 
 .react-chat-share-link-box {
@@ -18862,26 +19178,28 @@ html.dark .msg-tool-activity-fold-steps {
   /* 默认（外层未包折叠）：照常显示，避免无折叠场景被误藏 */
   display: block;
 }
-/* 豁免：piece 内含待授权工具 / 内联审批面板时保持可见。collapseTurnToSingleExploringChunk
-   会把 tools-standalone（待审批工具的独立块）重新合并回 activity piece，全部 piece 都标
-   history —— 祖先 display:none 会让外层 .msg-tool 上的 :has() 豁免失效，审批面板照样被藏。 */
-.msg-turn-history-fold[data-history-open="false"]
-  .msg-flat-activity-chunk
-  .msg-tool-activity-piece[data-piece-role="history"]:not(:has(.msg-tool-entry--awaiting-approval)):not(
+/* 折叠态隐藏 history piece。本回合只要出现任一待授权面板，全部过程件保持可见：
+   否则只露出审批那一块，用户看不到前面已执行完的工具（collapseTurnToSingleExploringChunk
+   把多段 tools 合成多件 history piece 时尤其明显）。 */
+.msg-turn-history-fold[data-history-open="false"]:not(:has(.msg-tool-entry--awaiting-approval)):not(
     :has(.msg-tool-approval-inline)
-  ) {
+  )
+  .msg-flat-activity-chunk
+  .msg-tool-activity-piece[data-piece-role="history"] {
   display: none;
 }
 
 /* 对话结束后折叠态：隐藏思考块和工具列表，只显示正文（plain-body/live-tail/legacy-body）。
    bodyAlwaysRendered=true 保证 body 在 DOM（展开不闪烁），由 CSS 控制可见性。
-   豁免：待授权工具及其内联审批面板必须始终可见 —— 授权暂停时流已停，自动折叠
-   会把唯一可操作的审批入口一起藏掉，工具永远卡在「等待授权，未执行」。 */
-.msg-turn-history-fold[data-history-open="false"] .react-chat-inline-reasoning,
-.msg-turn-history-fold[data-history-open="false"]
-  .msg-tool.react-msg-tool:not(:has(.msg-tool-entry--awaiting-approval)):not(
+   有待授权时整段工具轨迹保持可见（含已完成项），避免只剩审批卡。 */
+.msg-turn-history-fold[data-history-open="false"]:not(:has(.msg-tool-entry--awaiting-approval)):not(
     :has(.msg-tool-approval-inline)
-  ) {
+  )
+  .react-chat-inline-reasoning,
+.msg-turn-history-fold[data-history-open="false"]:not(:has(.msg-tool-entry--awaiting-approval)):not(
+    :has(.msg-tool-approval-inline)
+  )
+  .msg-tool.react-msg-tool {
   display: none;
 }
 
@@ -31090,7 +31408,8 @@ html.dark .react-chat-inline-artifact-chip:hover,
   background: color-mix(in srgb, var(--accent, #2563eb) 6%, var(--bg-secondary, #f8fafc));
 }
 
-.browser-panel-zoom {
+.browser-panel-zoom,
+.browser-panel-zoom-dropdown .ef-dropdown-select__trigger {
   flex-shrink: 0;
   height: 24px;
   padding: 0 4px;
@@ -31102,9 +31421,15 @@ html.dark .react-chat-inline-artifact-chip:hover,
   line-height: 1;
   cursor: pointer;
   outline: none;
+  max-width: 88px;
 }
 
-.browser-panel-zoom:hover {
+.browser-panel-zoom-dropdown {
+  flex-shrink: 0;
+}
+
+.browser-panel-zoom:hover,
+.browser-panel-zoom-dropdown .ef-dropdown-select__trigger:hover {
   border-color: var(--accent, #2563eb);
 }
 

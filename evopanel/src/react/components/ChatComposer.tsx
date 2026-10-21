@@ -1648,7 +1648,7 @@ export const ChatComposer = memo(function ChatComposer({
                         新对话默认完全访问
                       </span>
                       <span className="react-chat-permission-menu-global-desc">
-                        与设置→安全中心同一开关；上面三项是当前对话档位
+                        与设置→安全中心同一开关；开启后本会话也会切到完全访问并放行待批准工具
                       </span>
                     </div>
                     <label

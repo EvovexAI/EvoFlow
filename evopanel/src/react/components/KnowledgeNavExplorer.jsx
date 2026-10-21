@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatCategoryLabel, truncateLabel } from "../../lib/knowledge-graph-layout.js";
+import { DropdownSelect } from "./DropdownSelect.js";
 
 /**
  * Left Knowledge Explorer — navigation, not decorative copy.
@@ -290,11 +291,17 @@ export function KnowledgeNavExplorer({
 
             <label className="kv-nav-explorer__slider">
               <span>关系密度</span>
-              <select value={edgeMode} onChange={(e) => onEdgeModeChange?.(e.target.value)}>
-                <option value="sparse">精简</option>
-                <option value="balanced">平衡</option>
-                <option value="full">完整</option>
-              </select>
+              <DropdownSelect
+                value={edgeMode}
+                onChange={(v) => onEdgeModeChange?.(v)}
+                portal
+                aria-label="关系密度"
+                options={[
+                  { value: "sparse", label: "精简" },
+                  { value: "balanced", label: "平衡" },
+                  { value: "full", label: "完整" },
+                ]}
+              />
             </label>
 
             <label className="kv-nav-explorer__slider">

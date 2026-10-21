@@ -2020,6 +2020,13 @@ let _batchTestAbort = null // 批量测试终止控制器
 
 function notifyModelsUpdated() {
   try {
+    // Drop Tauri startup prefetch so ChatApp forceLive / next load cannot replay stale rows.
+    void import('../lib/tauri-api.js')
+      .then((m) => m.invalidateModelCatalogPrefetch?.())
+      .catch(() => {})
+    // ChatApp / home listen for models-updated. Do NOT also fire models-changed here:
+    // this page itself reloads on models-changed (plans tab), and echoing it would
+    // re-loadConfig mid-edit after every autosave.
     window.dispatchEvent(new CustomEvent('evopanel:models-updated'))
   } catch {
     /* ignore */

@@ -13483,7 +13483,8 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 }
 
 .su-code-index-field select,
-.su-code-index-field input {
+.su-code-index-field input,
+.su-code-index-field .ef-dropdown-select__trigger--field {
   height: 34px;
   border-radius: 8px;
   border: 1px solid var(--border-primary);
@@ -13491,6 +13492,10 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   color: var(--text-primary);
   padding: 0 10px;
   font-size: 13px;
+}
+
+.su-code-index-field .ef-dropdown-select {
+  width: 100%;
 }
 
 .su-code-index-hint {

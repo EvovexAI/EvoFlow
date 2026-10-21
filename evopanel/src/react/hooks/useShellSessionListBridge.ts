@@ -54,6 +54,7 @@ export type UseShellSessionListBridgeOptions = {
     department?: string
     status?: string
   }> | null
+  onRefreshEmployeeRoles?: () => void | Promise<void>
   onNewWorkspace?: () => void
   onNewSessionInWorkspace?: (workspacePath: string | null) => void
   onDeleteWorkspace?: (group: ShellWorkspaceGroup) => void | Promise<void>
@@ -90,6 +91,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     onPrefetchSession,
     registeredWorkspacePaths,
     employeeRoles = null,
+    onRefreshEmployeeRoles,
     onNewWorkspace,
     onNewSessionInWorkspace,
     onDeleteWorkspace,
@@ -197,6 +199,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       onOpenWorkspaceFolder: (group) => void onOpenWorkspaceFolderRef.current?.(group),
       registeredWorkspacePaths,
       employeeRoles,
+      onRefreshEmployeeRoles,
     }
   }, [
     filteredSessions,
@@ -210,6 +213,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     sessionNamesTick,
     agents,
     employeeRoles,
+    onRefreshEmployeeRoles,
     runningSessionMap,
     resolveLiveStreamActivityForSession,
     setSessionFilter,

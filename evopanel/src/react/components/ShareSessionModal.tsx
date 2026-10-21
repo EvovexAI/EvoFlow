@@ -9,6 +9,8 @@ import {
   saveMarkdownExport,
   type ShareMarkdownMessage,
 } from '../lib/session-share-markdown.js'
+import { DropdownSelect } from './DropdownSelect.js'
+import { DropdownSelect } from './DropdownSelect.js'
 
 type CreatedShare = {
   token: string
@@ -310,18 +312,18 @@ export function ShareSessionModal({
             </label>
             <label className="react-chat-share-field">
               <span>有效期</span>
-              <select
+              <DropdownSelect
                 value={expiresDays == null ? 'never' : String(expiresDays)}
                 disabled={busy}
-                onChange={(e) => {
-                  const v = e.target.value
-                  setExpiresDays(v === 'never' ? null : Number(v))
-                }}
-              >
-                <option value="7">7 天</option>
-                <option value="30">30 天</option>
-                <option value="never">不过期</option>
-              </select>
+                portal
+                aria-label="有效期"
+                options={[
+                  { value: '7', label: '7 天' },
+                  { value: '30', label: '30 天' },
+                  { value: 'never', label: '不过期' },
+                ]}
+                onChange={(v) => setExpiresDays(v === 'never' ? null : Number(v))}
+              />
             </label>
             {absoluteUrl ? (
               <div className="react-chat-share-link-box">

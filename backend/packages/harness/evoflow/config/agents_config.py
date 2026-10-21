@@ -460,12 +460,11 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
 
 
 # 首次落盘「主会话 main + 通用子智能体 general-purpose」时写入 config.yaml 的技能 wishlist（与已安装且启用的技能求交）。
-# evoflow-admin（含原 evoflow-intro / evoflow-assets）仅挂 main，见 MAIN_ONLY_BASELINE_SKILLS。
+# evoflow-admin（含原 evoflow-intro / evoflow-assets / preset-role-assistant）仅挂 main，见 MAIN_ONLY_BASELINE_SKILLS。
 DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
     "evoflow-admin",
     "aihot",
     "deep-research",
-    "preset-role-assistant",
     "skill-creator",
     "byted-ark-seedream-skill",
 )
@@ -474,11 +473,13 @@ DEFAULT_LEAD_FAMILY_SKILLS_WISHLIST: tuple[str, ...] = (
 MAIN_ONLY_BASELINE_SKILLS: frozenset[str] = frozenset({"evoflow-admin"})
 
 # 已有 main 落盘后仍应补上的基础技能（幂等合并，仅追加缺失项）
-# evoflow-intro / evoflow-assets 已并入 evoflow-admin，不再单独挂载
+# evoflow-intro / evoflow-assets / preset-role-assistant 已并入 evoflow-admin，不再单独挂载
 BASELINE_SKILLS_ALWAYS_MERGE: tuple[str, ...] = ("evoflow-admin",)
 
 # 合并基线时从 agent skills 列表剔除（技能已退役或并入其它技能）
-_RETIRED_BASELINE_SKILLS: frozenset[str] = frozenset({"evoflow-intro", "evoflow-assets"})
+_RETIRED_BASELINE_SKILLS: frozenset[str] = frozenset(
+    {"evoflow-intro", "evoflow-assets", "preset-role-assistant"}
+)
 
 
 def resolved_skills_for_materialize(wishlist: tuple[str, ...] | None = None) -> list[str]:
@@ -554,7 +555,7 @@ def merge_baseline_skills_into_agent(agent_code: str, *, baseline: tuple[str, ..
 
 
 def merge_baseline_skills_for_lead_family() -> None:
-    """Ensure main has evoflow-admin; strip admin/assets/intro from general-purpose.
+    """Ensure main has evoflow-admin; strip admin/retired merged skills from general-purpose.
 
     小V（xiaomi）是系统前台，不挂普通技能面——见 :func:`enforce_xiaomi_front_desk_capabilities`。
     """

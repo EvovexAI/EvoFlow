@@ -107,6 +107,8 @@ export type ShellSessionListProps = {
     department?: string
     status?: string
   }> | null
+  /** 进员工 Tab / 打开员工下拉时重拉花名册（platform hire 后父级可能仍是 mount 快照） */
+  onRefreshEmployeeRoles?: () => void | Promise<void>
 }
 
 const SS_PENDING_SHELL_SESSION = 'evopanel_pending_shell_session'
@@ -269,7 +271,10 @@ export function ShellSessionList({
   onWorkspaceFocus,
   onOpenWorkspaceFolder,
   registeredWorkspacePaths = [],
+  onRefreshEmployeeRoles,
 }: ShellSessionListProps) {
+  const onRefreshEmployeeRolesRef = useRef(onRefreshEmployeeRoles)
+  onRefreshEmployeeRolesRef.current = onRefreshEmployeeRoles
   const [titleEditKey, setTitleEditKey] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
   /** 点击「刷新会话列表」按钮后的刷新中状态（列表未变化时给可见反馈） */
@@ -326,6 +331,18 @@ export function ShellSessionList({
   const [localEmployeeRoles, setLocalEmployeeRoles] = useState<
     Array<{ agent_code: string; role_name: string; agent_name?: string }>
   >([])
+
+  /** 切入员工 Tab：请父级重拉花名册（勿依赖 employeeRoles，否则会与 setState 循环） */
+  useEffect(() => {
+    if (!isEmployeesTab) return
+    void onRefreshEmployeeRolesRef.current?.()
+  }, [isEmployeesTab])
+
+  useEffect(() => {
+    if (!empMenuOpen) return
+    void onRefreshEmployeeRolesRef.current?.()
+  }, [empMenuOpen])
+
   useEffect(() => {
     if (!isEmployeesTab) return
     if (Array.isArray(employeeRoles) && employeeRoles.length > 0) return
@@ -357,6 +374,33 @@ export function ShellSessionList({
     return () => {
       cancelled = true
     }
+  }, [isEmployeesTab, employeeRoles])
+
+  useEffect(() => {
+    const onEmployeesUpdated = () => {
+      if (!isEmployeesTab) return
+      if (Array.isArray(employeeRoles) && employeeRoles.length > 0) return
+      void import('../../lib/tauri-api.js')
+        .then(async ({ api }) => api.proactiveListRoles('active'))
+        .then((res: { roles?: unknown[] } | unknown[]) => {
+          const raw = Array.isArray(res)
+            ? res
+            : Array.isArray((res as { roles?: unknown[] })?.roles)
+              ? (res as { roles: unknown[] }).roles
+              : []
+          const roles = raw
+            .map((r: any) => ({
+              agent_code: String(r?.agent_code || '').trim(),
+              role_name: String(r?.role_name || '').trim(),
+              agent_name: String(r?.agent_name || '').trim(),
+            }))
+            .filter((r) => r.agent_code)
+          setLocalEmployeeRoles(roles)
+        })
+        .catch(() => {})
+    }
+    window.addEventListener('evopanel:employees-updated', onEmployeesUpdated)
+    return () => window.removeEventListener('evopanel:employees-updated', onEmployeesUpdated)
   }, [isEmployeesTab, employeeRoles])
 
   const effectiveEmployeeRoles =

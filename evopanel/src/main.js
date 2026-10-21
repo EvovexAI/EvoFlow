@@ -30,6 +30,7 @@ import { bootMark, bootPrintSummary } from './lib/startup-trace.js'
 import { initDesktopNotifications } from './lib/desktop-notification.js'
 import { initDesktopContextMenu } from './lib/desktop-context-menu.js'
 import { initDesktopDevtoolsHotkey } from './lib/desktop-devtools-hotkey.js'
+import { initDropdownSelectEnhancer } from './lib/ef-dropdown-select.js'
 
 // === 全局服务可用性 banner 已抽到 ./boot/service-banner.js (v3.5 F1 c4) ===
 
@@ -40,6 +41,7 @@ bootMark('main module eval')
 if (isTauri) initDesktopNotifications()
 if (isTauri) initDesktopContextMenu()
 if (isTauri) initDesktopDevtoolsHotkey()
+initDropdownSelectEnhancer()
 
 // Register ASAP — agent CDP can emit before boot() finishes mounting ChatApp.
 // Directly upsert a WebView2 so ensure_webview_for_cdp finds a healthy HWND

@@ -134,6 +134,17 @@ export function assistantRowAcceptsStreamContinuation(
   // Tool-approval pause seals incompleteStream; client_stream_replay starts a new runId —
   // still continue the same bubble (ignore runId mismatch).
   if (row.incompleteStream === true) return true
+  // 审批暂停边角：个别路径未打 incompleteStream，但仍挂着待授权工具——续写到同一气泡，
+  // 否则虚流新 run 会另起 pin，左下角齿轮与工具轨迹拆开。
+  if (
+    Array.isArray(row.tools) &&
+    row.tools.some((t) => {
+      const st = String((t as { status?: string })?.status || '').toLowerCase()
+      return st === 'pending_approval' || st === 'awaiting_approval'
+    })
+  ) {
+    return true
+  }
   if (rowRun && liveRun && rowRun !== liveRun && !chatRunIdsSameTurn(rowRun, liveRun)) return false
   // 续流 attach：同 run 活跃会话切回/刷新，须合并到同一气泡，避免 separate _stream pin。
   if (opts?.resumeAttachSameRun && rowRun && liveRun && rowRun === liveRun) return true

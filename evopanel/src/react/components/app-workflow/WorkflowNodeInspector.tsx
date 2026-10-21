@@ -11,6 +11,7 @@ import {
 import { START_NODE_ID } from '../../lib/app-workflow-flow.ts'
 import WorkflowNodeAvatar from './WorkflowNodeAvatar.tsx'
 import { WorkspaceFolderInput } from './WorkspaceFolderInput.tsx'
+import { DropdownSelect } from '../DropdownSelect.js'
 
 type Props = {
   selectedId: string | null
@@ -200,15 +201,13 @@ function OutputSchemaEditor({
               placeholder="字段名"
               onChange={(e) => updateField(index, { name: e.target.value })}
             />
-            <select
+            <DropdownSelect
               className="wf-inspector-control wf-schema-field-type"
               value={field.type}
-              onChange={(e) => updateField(index, { type: e.target.value as OutputSchemaFieldType })}
-            >
-              {SCHEMA_FIELD_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              onChange={(v) => updateField(index, { type: v as OutputSchemaFieldType })}
+              portal
+              options={SCHEMA_FIELD_TYPES.map((t) => ({ value: t, label: t }))}
+            />
             <label className="wf-schema-field-required">
               <input
                 type="checkbox"
@@ -288,15 +287,13 @@ function InputSchemaEditor({
               placeholder="字段名"
               onChange={(e) => updateField(index, { name: e.target.value })}
             />
-            <select
+            <DropdownSelect
               className="wf-inspector-control wf-schema-field-type"
               value={field.type}
-              onChange={(e) => updateField(index, { type: e.target.value as OutputSchemaFieldType })}
-            >
-              {SCHEMA_FIELD_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              onChange={(v) => updateField(index, { type: v as OutputSchemaFieldType })}
+              portal
+              options={SCHEMA_FIELD_TYPES.map((t) => ({ value: t, label: t }))}
+            />
             <label className="wf-schema-field-required">
               <input
                 type="checkbox"
@@ -499,19 +496,21 @@ export function WorkflowNodeInspector({
                   <label className="wf-inspector-label" htmlFor="wf-schema-enforcement">
                     Schema Policy
                   </label>
-                  <select
-                    id="wf-schema-enforcement"
+                  <DropdownSelect
                     className="wf-inspector-control"
                     value={selectedStep.schema_enforcement || ''}
-                    onChange={(e) =>
-                      onStepChange({ schema_enforcement: e.target.value as '' | 'strict' | 'warn' | 'ignore' })
+                    aria-label="Schema Policy"
+                    portal
+                    onChange={(v) =>
+                      onStepChange({ schema_enforcement: v as '' | 'strict' | 'warn' | 'ignore' })
                     }
-                  >
-                    <option value="">默认（跟随工作流设置）</option>
-                    <option value="strict">strict（校验失败阻断）</option>
-                    <option value="warn">warn（校验失败警告）</option>
-                    <option value="ignore">ignore（不校验）</option>
-                  </select>
+                    options={[
+                      { value: '', label: '默认（跟随工作流设置）' },
+                      { value: 'strict', label: 'strict（校验失败阻断）' },
+                      { value: 'warn', label: 'warn（校验失败警告）' },
+                      { value: 'ignore', label: 'ignore（不校验）' },
+                    ]}
+                  />
                 </div>
               </div>
             </section>

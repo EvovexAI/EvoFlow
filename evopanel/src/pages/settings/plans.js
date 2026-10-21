@@ -4,7 +4,22 @@
 import { showConfirm } from '../../components/modal.js'
 import { toast } from '../../components/toast.js'
 import { openPlanBundleWizard } from '../../lib/plan-bundle.js'
-import { api } from '../../lib/tauri-api.js'
+import { api, invalidateModelCatalogPrefetch } from '../../lib/tauri-api.js'
+
+/** Tell console models tab + ChatApp composer to reload live catalog. */
+function notifyModelsUpdated() {
+  try {
+    invalidateModelCatalogPrefetch?.()
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent('evopanel:models-updated'))
+    window.dispatchEvent(new CustomEvent('evopanel:models-changed'))
+  } catch {
+    /* ignore */
+  }
+}
 
 const CATALOG_ID = 'volcengine.agent_plan'
 const PLAN_CHAT_BASE = 'https://ark.cn-beijing.volces.com/api/plan/v3'
@@ -564,7 +579,7 @@ async function loadState() {
       const embN = Number(updated?.materialized?.embedding_model_count || 0)
       if (embN > 0) {
         _state.embeddingModelCount = embN
-        window.dispatchEvent(new CustomEvent('evopanel:models-changed'))
+        notifyModelsUpdated()
         toast(`已自动补齐 ${embN} 个套餐向量模型到「向量模型」页`, 'success')
       }
     } catch {
@@ -591,7 +606,7 @@ function bindActions() {
         if (n > 0) bits.push(`${n} 个对话模型`)
         if (emb > 0) bits.push(`${emb} 个向量模型`)
         toast(bits.length ? `套餐已绑定：已配置 ${bits.join('、')}` : '套餐已绑定：对话 / 媒体 / 语音已接通', 'success')
-        window.dispatchEvent(new CustomEvent('evopanel:models-changed'))
+        notifyModelsUpdated()
         _verifyByCap = {}
         await reload()
       },
@@ -609,7 +624,7 @@ function bindActions() {
       if (n > 0) bits.push(`${n} 个对话模型`)
       if (emb > 0) bits.push(`${emb} 个向量模型`)
       toast(bits.length ? `已按套餐目录补齐：${bits.join('、')}` : '已重新接通套餐能力', 'success')
-      window.dispatchEvent(new CustomEvent('evopanel:models-changed'))
+      notifyModelsUpdated()
       await reload()
     } catch (e) {
       toast(`补齐失败：${e?.message || e}`, 'error')

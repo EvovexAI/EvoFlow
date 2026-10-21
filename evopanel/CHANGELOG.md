@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- 待授权弹出时折叠态不再只露出审批卡：同回合已完成工具保持可见
+- 「新对话默认完全访问」开启后同步当前会话为完全访问并放行挂起审批（此前只改全局默认，对话中仍反复询问）
+- 审批通过后虚流续跑：左下角齿轮与右下角停止按钮同源（isSending）；此前 streamActive 被 seal 压制时停止仍亮、齿轮消失
+
+### Changed
+
+- 「需要权限」面板：文案澄清「同名工具」范围；新增「完全访问」选项与「新对话默认完全访问」勾选
+
 ## [1.1.2] - 2026-10-20
 
 相对 **1.1.1** 以来的增量发布：官方插件 bundle 打包与 CI + 主动引擎与飞书通知 + 会话执行状态与忙因日志 + prompt 动态分层与 turn timing + 经验工具移除与 admin 路由整合 + lean gateway 打包硬化。

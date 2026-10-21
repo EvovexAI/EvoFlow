@@ -6,6 +6,34 @@ export function resolveMessageRowIsStreaming(
 ): boolean {
   return streamContinuedRowIndex >= 0 && rowIndex === streamContinuedRowIndex && streamActive
 }
+
+/**
+ * 左下角齿轮宿主：必须与右下角停止按钮同源（isSending = selectedTurnBusy）。
+ * 不跟 streamActive / suppressStreamUiAfterSeal 走——审批续流空窗里 stream UI 被压制时
+ * 停止按钮仍亮，齿轮也必须挂在同一活跃回合上。
+ */
+export function resolveMessageRowThreadBusy(
+  rowIndex: number,
+  gearHostRowIndex: number,
+  isSending: boolean,
+): boolean {
+  return !!isSending && gearHostRowIndex >= 0 && rowIndex === gearHostRowIndex
+}
+
+/**
+ * 忙碌时齿轮挂哪一行：优先续流合并目标；否则可续写的 incomplete/审批气泡；
+ * 都没有则 -1（由独立 _stream pin 挂齿轮）。
+ */
+export function resolveGearHostRowIndex(opts: {
+  isSending: boolean
+  streamContinuedRowIndex: number
+  continuationTargetIndex: number
+}): number {
+  if (!opts.isSending) return -1
+  if (opts.streamContinuedRowIndex >= 0) return opts.streamContinuedRowIndex
+  if (opts.continuationTargetIndex >= 0) return opts.continuationTargetIndex
+  return -1
+}
 /**
  * final 后 streamActive grace 残留的空占位清理判定。
  * 仅 isSending=false（本轮已结束）时允许清理；多轮续跑（collab/goal）新一轮

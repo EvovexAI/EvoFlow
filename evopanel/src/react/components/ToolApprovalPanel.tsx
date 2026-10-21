@@ -3,11 +3,23 @@ import {
   formatToolApprovalPrimaryLine,
   TOOL_APPROVAL_OP_ZH,
 } from '../../lib/tool-approval.js'
+import {
+  getCachedGlobalToolApprovalPolicy,
+  isToolApprovalDisabled,
+  patchGlobalToolApprovalPolicy,
+  TOOL_APPROVAL_POLICY_CHANGED,
+  TOOL_APPROVAL_POLICY_GRANT_ALL,
+  TOOL_APPROVAL_POLICY_SESSION,
+} from '../../lib/tool-approval-settings.js'
 
-export type ToolApprovalChoice = 'allow_once' | 'always_project' | 'deny'
+export type ToolApprovalChoice = 'allow_once' | 'always_project' | 'full_access' | 'deny'
 
 /** 点击后的乐观决策态：面板从「等待确认」切换为结果反馈（多工具审批时的点击回执） */
 export type ToolApprovalDecision = 'approved' | 'denied'
+
+/** 审批面板勾选「新对话默认完全访问」后，请 ChatApp 同步当前会话并放行 pending */
+export const TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS =
+  'evopanel:tool-approval-request-session-full-access'
 
 type Props = {
   toolName: string
@@ -31,7 +43,12 @@ const CHOICES: Array<{
   {
     id: 'always_project',
     title: '始终允许本项目',
-    desc: '本会话内同类操作不再询问',
+    desc: '本会话内同名工具不再询问（如全部 bash）',
+  },
+  {
+    id: 'full_access',
+    title: '完全访问',
+    desc: '本会话所有工具不再询问',
   },
   { id: 'deny', title: '拒绝', desc: '这次先拒绝' },
 ]
@@ -55,6 +72,10 @@ function ToolApprovalPanelInner({
   const labelId = useId()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const [selected, setSelected] = useState(0)
+  const [newChatDefault, setNewChatDefault] = useState(() =>
+    isToolApprovalDisabled(getCachedGlobalToolApprovalPolicy()),
+  )
+  const [globalBusy, setGlobalBusy] = useState(false)
   const primary = useMemo(
     () => formatToolApprovalPrimaryLine(toolName, summary),
     [toolName, summary],
@@ -64,6 +85,14 @@ function ToolApprovalPanelInner({
     const extra = String(detailExtra || '').trim()
     return extra ? `${detail} ${extra}` : detail
   }, [summary, primary, detailExtra])
+
+  useEffect(() => {
+    const sync = () => {
+      setNewChatDefault(isToolApprovalDisabled(getCachedGlobalToolApprovalPolicy()))
+    }
+    window.addEventListener(TOOL_APPROVAL_POLICY_CHANGED, sync)
+    return () => window.removeEventListener(TOOL_APPROVAL_POLICY_CHANGED, sync)
+  }, [])
 
   const move = useCallback((delta: number) => {
     setSelected((i) => {
@@ -77,6 +106,28 @@ function ToolApprovalPanelInner({
     const choice = CHOICES[selected]?.id || 'allow_once'
     onConfirm(choice)
   }, [busy, onConfirm, selected])
+
+  const toggleNewChatDefault = useCallback(async (next: boolean) => {
+    if (globalBusy) return
+    setGlobalBusy(true)
+    setNewChatDefault(next)
+    try {
+      await patchGlobalToolApprovalPolicy(
+        next ? TOOL_APPROVAL_POLICY_GRANT_ALL : TOOL_APPROVAL_POLICY_SESSION,
+      )
+      if (next) {
+        try {
+          window.dispatchEvent(new CustomEvent(TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS))
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      setNewChatDefault(!next)
+    } finally {
+      setGlobalBusy(false)
+    }
+  }, [globalBusy])
 
   useEffect(() => {
     if (!autoFocus || decided) return
@@ -114,7 +165,7 @@ function ToolApprovalPanelInner({
         submit()
         return
       }
-      if (e.key === '1' || e.key === '2' || e.key === '3') {
+      if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') {
         e.preventDefault()
         setSelected(Number(e.key) - 1)
       }
@@ -207,6 +258,25 @@ function ToolApprovalPanelInner({
           )
         })}
       </ol>
+
+      <label
+        className={`tool-approval-panel__global${newChatDefault ? ' is-on' : ''}`}
+        onMouseDown={(e) => e.preventDefault()}
+      >
+        <input
+          type="checkbox"
+          checked={newChatDefault}
+          disabled={busy || globalBusy}
+          onChange={(e) => void toggleNewChatDefault(e.target.checked)}
+          aria-label="新对话默认完全访问"
+        />
+        <span className="tool-approval-panel__global-body">
+          <span className="tool-approval-panel__global-title">新对话默认完全访问</span>
+          <span className="tool-approval-panel__global-desc">
+            与设置→安全中心同一开关；开启后本会话也会切到完全访问
+          </span>
+        </span>
+      </label>
 
       <div className="tool-approval-panel__footer">
         <p className="tool-approval-panel__hint">

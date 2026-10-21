@@ -423,6 +423,15 @@ export function getModelCatalogPrefetch() {
   return _modelCatalogPrefetch
 }
 
+/**
+ * Drop startup prefetch so the next catalog load hits live /models.
+ * Call after console model CRUD / plan rematerialize, otherwise ChatApp keeps
+ * replaying the engineReady snapshot forever.
+ */
+export function invalidateModelCatalogPrefetch() {
+  _modelCatalogPrefetch = null
+}
+
 async function gatewayProxyOnce(method, path, body = null, query = null, options = null) {
   const silent = !!(options && options.silent)
   const timeoutMs = Number(options?.timeoutMs)

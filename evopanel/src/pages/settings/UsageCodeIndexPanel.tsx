@@ -15,6 +15,7 @@ import {
   waitForCodeIndexReady,
 } from '../../react/obs/lib/code-index-api'
 import { api } from '../../lib/tauri-api.js'
+import { DropdownSelect } from '../../react/components/DropdownSelect.js'
 import type {
   CodeIndexStatus,
   IndexHit,
@@ -223,18 +224,17 @@ function UsageCodeIndexPanel() {
       <div className="su-code-index-toolbar">
         <label className="su-code-index-field">
           <span>工作空间</span>
-          <select
+          <DropdownSelect
             value={workspace}
-            onChange={(e) => setWorkspace(e.target.value)}
+            onChange={setWorkspace}
+            placeholder="选择工作空间…"
             aria-label="工作空间"
-          >
-            {!workspace && <option value="">选择工作空间…</option>}
-            {history.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+            portal
+            options={[
+              ...(!workspace ? [{ value: '', label: '选择工作空间…' }] : []),
+              ...history.map((p) => ({ value: p, label: p })),
+            ]}
+          />
         </label>
         <label className="su-code-index-field su-code-index-field--grow">
           <span>搜索</span>

@@ -1,14 +1,11 @@
----
-name: preset-role-assistant
-description: EvoFlow「快速创建预设角色」专用流程。当用户要在对话里新建预设角色、子智能体、智能体人设、agent_code、系统提示词、SOUL、勾选工具或技能、或说「按文档快速创建角色」「帮我设计一个角色配置」时使用。与侧栏「角色管理」写入同一套 agents 数据。落盘走 platform / evoflow agents（create_agent 等分散工具已退役）。不要 undertrigger——用户明确要新建角色而你不按本 Skill 先盘点工具/技能再落盘，容易写出非法工具名或未启用技能。
----
+# 预设角色创建流程（EvoFlow）
 
-# 预设角色助手（EvoFlow）
+> 本文件是 **evoflow-admin** 技能的「对话里快速创建预设角色」章节（原独立技能 `preset-role-assistant` 已合并至此）。
 
 在 EvoFlow 对话里创建角色时，**不要**调用已退役的 `create_agent` / `update_agent` / `list_agents` / `list_skills_catalog` / `list_assignable_tools`。统一走：
 
 1. 日常：内置工具 **`platform`**（`agents.*` / `skills.*`）
-2. 脚本或批处理：技能 **`evoflow-admin`** + **`terminal`** 跑 `evoflow agents …`
+2. 脚本或批处理：本技能 + **`terminal`** 跑 `evoflow agents …`
 
 ## 概念对齐（写进答复里，避免和用户对不上）
 
@@ -70,7 +67,7 @@ description: EvoFlow「快速创建预设角色」专用流程。当用户要在
 
 ## JSON 示例
 
-见 [`evoflow-admin/examples/agent-create.json`](../evoflow-admin/examples/agent-create.json)。可扩展字段：`system_prompt`、`tools`、`mcp_servers`、`agent_type`、`tags`。
+见 [`../examples/agent-create.json`](../examples/agent-create.json)。可扩展字段：`system_prompt`、`tools`、`mcp_servers`、`agent_type`、`tags`。
 
 ## 写作提示
 
@@ -79,6 +76,6 @@ description: EvoFlow「快速创建预设角色」专用流程。当用户要在
 
 ## 与产品文档的关系
 
-站点「快速创建角色」页描述的是**自然语言入口**；本 Skill 规定的是**落盘前必须执行的治理步骤**。二者同时成立：先按本 Skill 盘点再 `evoflow agents create` / `platform agents.create`，与用户在「角色管理」里手填等价。
+站点「快速创建角色」页描述的是**自然语言入口**；本章规定的是**落盘前必须执行的治理步骤**。二者同时成立：先按本章盘点再 `evoflow agents create` / `platform agents.create`，与用户在「角色管理」里手填等价。
 
-需要雇成值班岗位时，继续走 **`evoflow-admin`** 的 `employees hire`（先有 Agent，再有岗位）。
+需要雇成值班岗位时，继续走本技能的 `employees hire`（先有 Agent，再有岗位）。

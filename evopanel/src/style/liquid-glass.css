@@ -1122,7 +1122,9 @@ html[data-translucent-ui='1'] .employee-talk-hint {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--ef-glass-border)) !important;
 }
 
-html[data-translucent-ui='1'] .employee-talk-resume-select {
+html[data-translucent-ui='1'] .employee-talk-resume-select,
+html[data-translucent-ui='1'] .ef-dropdown-select__trigger--field,
+html[data-translucent-ui='1'] .ef-dropdown-select__trigger--pill {
   background: color-mix(in srgb, var(--bg-card) 52%, transparent) !important;
   border-color: var(--ef-glass-border) !important;
   backdrop-filter: blur(8px);
@@ -1130,7 +1132,8 @@ html[data-translucent-ui='1'] .employee-talk-resume-select {
 }
 
 html[data-translucent-ui='1'] .react-chat-mode-menu,
-html[data-translucent-ui='1'] .react-chat-bottom-dropdown {
+html[data-translucent-ui='1'] .react-chat-bottom-dropdown,
+html[data-translucent-ui='1'] .ef-dropdown-select__menu {
   background: color-mix(in srgb, var(--bg-card) 78%, transparent) !important;
   border-color: var(--ef-glass-border) !important;
   backdrop-filter: blur(12px);
@@ -1139,12 +1142,14 @@ html[data-translucent-ui='1'] .react-chat-bottom-dropdown {
 }
 
 html[data-translucent-ui='1'] .react-chat-mode-item:hover,
-html[data-translucent-ui='1'] .react-chat-bottom-dropdown-item:hover:not(.react-chat-bottom-dropdown-item--active) {
+html[data-translucent-ui='1'] .react-chat-bottom-dropdown-item:hover:not(.react-chat-bottom-dropdown-item--active),
+html[data-translucent-ui='1'] .ef-dropdown-select__item:hover:not(:disabled):not(.ef-dropdown-select__item--active) {
   background: color-mix(in srgb, var(--bg-tertiary) 55%, transparent) !important;
 }
 
 html[data-translucent-ui='1'] .react-chat-mode-item.active,
-html[data-translucent-ui='1'] .react-chat-bottom-dropdown-item--active {
+html[data-translucent-ui='1'] .react-chat-bottom-dropdown-item--active,
+html[data-translucent-ui='1'] .ef-dropdown-select__item--active {
   background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
 }
 

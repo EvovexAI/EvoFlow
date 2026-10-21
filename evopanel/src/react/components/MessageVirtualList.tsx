@@ -11,7 +11,12 @@
   type RefObject,
 } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { resolveMessageRowIsStreaming, shouldDropEmptyStreamPlaceholder } from '../lib/message-row-streaming.js'
+import {
+  resolveGearHostRowIndex,
+  resolveMessageRowIsStreaming,
+  resolveMessageRowThreadBusy,
+  shouldDropEmptyStreamPlaceholder,
+} from '../lib/message-row-streaming.js'
 import { markRecentlyStreamed, clearRecentlyStreamed } from '../lib/recently-streamed-runids.js'
 import { attachScrollbarReveal } from '../lib/scrollbar-reveal.js'
 import { MessageRow } from './MessageRow.js'
@@ -78,6 +83,8 @@ type SharedHistoryProps = {
   toolApprovalHost: ReturnType<typeof resolveToolApprovalHost>
   streamToolApprovalHost: ReturnType<typeof resolveToolApprovalHost>
   streamContinuedRowIndex: number
+  /** 齿轮宿主行（与停止按钮 isSending 同源；可为续流目标或 incomplete 审批气泡） */
+  gearHostRowIndex: number
   isSending: boolean
   lastAssistantRowIndex: number
   liveTurnAssistantRunId: string | null
@@ -118,7 +125,10 @@ type SharedHistoryProps = {
   assistantAgent?: import('../lib/agent-avatar.js').AgentAvatarAgent | null
 }
 
-type HistoryMessageRowProps = Omit<SharedHistoryProps, 'isSending' | 'streamContinuedRowIndex'> & {
+type HistoryMessageRowProps = Omit<
+  SharedHistoryProps,
+  'isSending' | 'streamContinuedRowIndex' | 'gearHostRowIndex'
+> & {
   /** 流式气泡单独钉在列表外时，历史里的最后一条助手不再算「最后一轮」 */
   liveTurnSeparate?: boolean
   item: HistoryItem
@@ -131,6 +141,8 @@ type HistoryMessageRowProps = Omit<SharedHistoryProps, 'isSending' | 'streamCont
   measureIndex?: number
   /** 父层预算：该行是否为当前流式续写行。非流式行恒 false，不随 isSending 变化 → memo 不被击穿 */
   isContinuedStream: boolean
+  /** 左下角齿轮：与停止按钮同源，可独立于 isContinuedStream（审批续流空窗） */
+  threadBusy: boolean
 }
 
 // resolveShowToolTiming removed (unused)
@@ -144,6 +156,7 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
   toolApprovalHost,
   streamToolApprovalHost,
   isContinuedStream,
+  threadBusy,
   toolApprovalUiDisabled,
   suppressPlanExecPromptNoise,
   hideSubagentInnerTools,
@@ -169,7 +182,8 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
   streamPerfCountRender()
   const sk = String(sessionKey || 'default')
   const effectiveItem = continuedRow ? { ...item, row: continuedRow } : item
-  const approvalHost = isContinuedStream ? streamToolApprovalHost : toolApprovalHost
+  // 审批续流空窗：threadBusy 可能仍亮而 isContinuedStream 暂 false——审批交互仍挂本行
+  const approvalHost = isContinuedStream || threadBusy ? streamToolApprovalHost : toolApprovalHost
   return (
     <div
       ref={measureRef}
@@ -181,9 +195,9 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
       <MemoMessageRow
         row={effectiveItem.row}
         isStreaming={isContinuedStream}
-        // v5.10：threadBusy（齿轮兜底源）只给「当前活跃行」（续流合并目标），
-        // 其余历史行恒 false —— 否则线程忙时每条旧 AI 回复都会挂一个齿轮。
-        threadBusy={isContinuedStream}
+        // 齿轮与停止按钮同源（isSending）；勿再用 isContinuedStream 兼作 threadBusy
+        // （suppressStreamUiAfterSeal / 审批虚流空窗会让后者先灭）。
+        threadBusy={threadBusy}
         showToolTiming
         onOpenFile={onOpenFile}
         onOpenKnowledgeMap={onOpenKnowledgeMap}
@@ -193,14 +207,17 @@ const HistoryMessageRow = memo(function HistoryMessageRow({
           toolApprovalUiDisabled
             ? false
             : toolApprovalInteractiveForItem(approvalHost, effectiveItem, {
-                continuedStreamRowIndex: isContinuedStream ? effectiveItem.i : -1,
+                continuedStreamRowIndex:
+                  isContinuedStream || threadBusy ? effectiveItem.i : -1,
               })
         }
         suppressPlanExecPromptNoise={suppressPlanExecPromptNoise}
         hideSubagentInnerTools={hideSubagentInnerTools}
         sessionKey={sk}
-        liveActivityDockLabel={isContinuedStream ? liveActivityDockLabel : undefined}
-        liveTurnElapsedSec={isContinuedStream ? liveTurnElapsedSec : undefined}
+        liveActivityDockLabel={
+          isContinuedStream || threadBusy ? liveActivityDockLabel : undefined
+        }
+        liveTurnElapsedSec={isContinuedStream || threadBusy ? liveTurnElapsedSec : undefined}
         isLatestTurn={
           !liveTurnSeparate &&
           (effectiveItem.row.role === 'assistant' || effectiveItem.row.role === '_stream') &&
@@ -230,6 +247,7 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
     liveTurnElapsedSec,
     isSending,
     streamContinuedRowIndex,
+    gearHostRowIndex,
     ...rowProps
   } = props
   const sk = String(props.sessionKey || 'default')
@@ -246,6 +264,7 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
           streamContinuedRowIndex,
           isSending,
         )
+        const threadBusy = resolveMessageRowThreadBusy(item.i, gearHostRowIndex, isSending)
         return (
           <HistoryMessageRow
             key={uniqueKeys[historyIndex] ?? historyItemStableKey(sk, item.row, item.i)}
@@ -259,10 +278,13 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
             }
             {...rowProps}
             isContinuedStream={isContinuedStream}
-            liveTurnSeparate={isSending && streamContinuedRowIndex < 0}
-            // 仅流式续写行接收 dock 计时，避免每秒计时击穿其余行 memo
-            liveActivityDockLabel={isContinuedStream ? liveActivityDockLabel : undefined}
-            liveTurnElapsedSec={isContinuedStream ? liveTurnElapsedSec : undefined}
+            threadBusy={threadBusy}
+            liveTurnSeparate={isSending && streamContinuedRowIndex < 0 && gearHostRowIndex < 0}
+            // 仅流式续写 / 齿轮宿主行接收 dock 计时，避免每秒计时击穿其余行 memo
+            liveActivityDockLabel={
+              isContinuedStream || threadBusy ? liveActivityDockLabel : undefined
+            }
+            liveTurnElapsedSec={isContinuedStream || threadBusy ? liveTurnElapsedSec : undefined}
           />
         )
       })}
@@ -442,6 +464,11 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
           rowProps.streamContinuedRowIndex,
           rowProps.isSending,
         )
+        const threadBusy = resolveMessageRowThreadBusy(
+          item.i,
+          rowProps.gearHostRowIndex,
+          rowProps.isSending,
+        )
         return (
           <HistoryMessageRow
             key={vRow.key}
@@ -453,8 +480,13 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
             toolApprovalHost={rowProps.toolApprovalHost}
             streamToolApprovalHost={rowProps.streamToolApprovalHost}
             isContinuedStream={isContinuedStream}
+            threadBusy={threadBusy}
             lastAssistantRowIndex={rowProps.lastAssistantRowIndex}
-            liveTurnSeparate={rowProps.isSending && rowProps.streamContinuedRowIndex < 0}
+            liveTurnSeparate={
+              rowProps.isSending &&
+              rowProps.streamContinuedRowIndex < 0 &&
+              rowProps.gearHostRowIndex < 0
+            }
             liveTurnAssistantRunId={rowProps.liveTurnAssistantRunId}
             liveTurnTimingActive={rowProps.liveTurnTimingActive}
             executionToolTiming={rowProps.executionToolTiming}
@@ -468,12 +500,12 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
             onToolApproval={rowProps.onToolApproval}
             toolApprovalBusy={rowProps.toolApprovalBusy}
             liveActivityDockLabel={
-              isContinuedStream
+              isContinuedStream || threadBusy
                 ? rowProps.liveActivityDockLabel
                 : undefined
             }
             liveTurnElapsedSec={
-              isContinuedStream
+              isContinuedStream || threadBusy
                 ? rowProps.liveTurnElapsedSec
                 : undefined
             }
@@ -976,18 +1008,13 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     Number.isFinite(liveStreamActivity.elapsedSec)
       ? liveStreamActivity.elapsedSec
       : undefined
-  const showStreamSlot =
-    (streamActive || holdStreamResidue) &&
-    (lastHistoryRole === 'user' ||
-      lastHistoryRole === 'assistant' ||
-      !!liveStreamActivity ||
-      holdStreamResidue)
   const lastHistoryRow = rows[rows.length - 1]
   const streamRunId = String(streamRef.current?.runId || '').trim()
   const streamContinuationOpts = {
     hostedGoalSameRun: hostedGoalActive,
     resumeAttachSameRun: resumeAttachActive,
-    liveStreamSameRun: streamActive && !!streamRunId && lastHistoryRow?.role === 'assistant',
+    // 齿轮 / 续写探测用 isSending：审批虚流空窗里 streamActive 可能被 seal 压制
+    liveStreamSameRun: !!isSending && !!streamRunId && lastHistoryRow?.role === 'assistant',
   }
   /** Skip trailing hidden replay user rows so approval continuation merges into incomplete assistant. */
   let continuationTargetIndex = -1
@@ -1009,8 +1036,19 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       break
     }
   }
+  const acceptsContinuationTarget =
+    continuationTargetIndex >= 0 && !!continuationTargetRow
+  /** 忙碌且无可续写气泡 → 必须有独立 pin 挂齿轮（与停止按钮同亮） */
+  const needsBusyPin = !!isSending && !acceptsContinuationTarget
+  const showStreamSlot =
+    (streamActive || holdStreamResidue || needsBusyPin) &&
+    (lastHistoryRole === 'user' ||
+      lastHistoryRole === 'assistant' ||
+      !!liveStreamActivity ||
+      holdStreamResidue ||
+      needsBusyPin)
   const streamContinuesAssistant =
-    showStreamSlot && continuationTargetIndex >= 0 && !!continuationTargetRow
+    showStreamSlot && acceptsContinuationTarget
   /**
    * 上一帧的 streamRow 记忆。streamRow 抖动场景：当 built.text 暂时为空但 streamActive 仍在时，
    * useMemo 会先返回 null 再变 object，导致 streamContinuedRowIndex 在 -1 / rows.length-1
@@ -1181,7 +1219,15 @@ export const MessageVirtualList = memo(function MessageVirtualList({
 
   const streamContinuedRowIndex =
     streamContinuesAssistant && streamRow ? continuationTargetIndex : -1
-  const showSeparateStreamPin = !!streamRow && !streamContinuesAssistant
+  const gearHostRowIndex = resolveGearHostRowIndex({
+    isSending,
+    streamContinuedRowIndex,
+    // streamRow 未建出 / streamActive 被 seal 压制时，仍把齿轮挂在可续写气泡上
+    continuationTargetIndex: acceptsContinuationTarget ? continuationTargetIndex : -1,
+  })
+  const showSeparateStreamPin =
+    (!!streamRow && !streamContinuesAssistant) ||
+    (needsBusyPin && gearHostRowIndex < 0)
 
   const hasContent = historyItems.length > 0 || showSeparateStreamPin
   historyItemsCountRef.current = historyItems.length
@@ -2423,7 +2469,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           toolApprovalHost={historyToolApprovalHost}
           streamToolApprovalHost={streamToolApprovalHost}
           streamContinuedRowIndex={streamContinuedRowIndex}
-          isSending={streamActive}
+          gearHostRowIndex={gearHostRowIndex}
+          isSending={isSending}
           lastAssistantRowIndex={lastAssistantRowIndex}
           liveTurnAssistantRunId={liveTurnAssistantRunId}
           liveTurnTimingActive={!!liveTurnTimingActive}
@@ -2451,8 +2498,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           <div className="react-vlist-item react-vlist-item--turn react-vlist-stream-pin">
             <MemoMessageRow
               row={streamRow}
-              isStreaming={streamActive}
-              threadBusy={streamActive}
+              isStreaming={streamActive || (!!isSending && gearHostRowIndex < 0)}
+              // 独立 pin 上的齿轮与停止按钮同源（isSending），不跟 streamActive/suppress 走
+              threadBusy={!!isSending && gearHostRowIndex < 0}
               isLatestTurn
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}

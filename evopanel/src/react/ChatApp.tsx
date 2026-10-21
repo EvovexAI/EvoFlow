@@ -163,9 +163,11 @@ import {
 } from '../lib/tool-approval-settings.js'
 import {
   PERMISSION_PRESETS,
+  PERMISSION_PRESET_FULL_ACCESS,
   resolvePermissionPreset,
   permissionPresetToast,
 } from '../lib/permission-tier.js'
+import { TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS } from './components/ToolApprovalPanel.js'
 import {
   logToolApprovalPendingDetected,
   logToolApprovalStreamFinal,
@@ -215,6 +217,7 @@ import {
   type WriteStreamMode,
 } from '../lib/right-stage/write-stream-mode.js'
 import { applyDecideRightStage } from '../lib/right-stage/apply-decide-right-stage.js'
+import { syncEmployeesRosterFromToolResult } from '../lib/employees-roster-sync.js'
 import { applyPlatformFeedbackFromToolResult, latestPlatformRunEntryId, openPlatformFeedbackFromTool, platformRunEntriesFromChatArtifacts, syncPlatformFeedbackFromTools, type PlatformRunEntry } from '../lib/right-stage/platform-feedback.js'
 import { registerPlatformFeedbackOpenHandler } from '../lib/right-stage/platform-feedback-bridge.js'
 import { normalizeRightStageKind } from '../lib/right-stage/right-stage-types.js'
@@ -2348,6 +2351,12 @@ export default function ChatApp() {
   const [_collabBusy, _setCollabBusy] = useState(false)
   /** 已通过行内/API 处理，避免历史/流式里残留的 pending_approval 再次显示 */
   const toolApprovalResolvedIdsRef = useRef<Set<string>>(new Set())
+  /** 审批面板勾选「新对话默认完全访问」时同步当前会话（避免 effect 闭包过期） */
+  const applyFullAccessToCurrentSessionRef = useRef<
+    (opts?: { quiet?: boolean }) => Promise<void>
+  >(async () => {})
+  /** applyFullAccess 内部 grant_all 时抑制重复 toast */
+  const suppressToolApprovalToastRef = useRef(false)
   const [toolApprovalPolicyTick, setToolApprovalPolicyTick] = useState(0)
   /** 审批 API 请求进行中（独立于轮次 busy 状态，避免待授权时按钮被禁用） */
   const [toolApprovalInFlight, setToolApprovalInFlight] = useState(false)
@@ -4694,6 +4703,15 @@ export default function ChatApp() {
 
   useEffect(() => {
     void loadProactiveRoles()
+  }, [loadProactiveRoles])
+
+  // platform employees.hire/create 等写操作 → employees-updated（见 employees-roster-sync）
+  useEffect(() => {
+    const onEmployeesUpdated = () => {
+      void loadProactiveRoles()
+    }
+    window.addEventListener('evopanel:employees-updated', onEmployeesUpdated)
+    return () => window.removeEventListener('evopanel:employees-updated', onEmployeesUpdated)
   }, [loadProactiveRoles])
 
 // 启动时若第一次失败，后端就绪后补拉，避免侧栏员工下拉塌成英文 agent_code
@@ -7535,10 +7553,12 @@ useEffect(() => {
     return installStreamStopPageUnloadHook(() => listBusySessionKeys())
   }, [])
 
-  const loadModelCatalog = useCallback(async (opts?: { silent?: boolean }) => {
+  const loadModelCatalog = useCallback(async (opts?: { silent?: boolean; forceLive?: boolean }) => {
+    const forceLive = !!opts?.forceLive
     if (modelsLoadInflightRef.current) {
       await modelsLoadInflightRef.current
-      return
+      // A concurrent non-force load may have finished on stale prefetch; forceLive must re-hit /models.
+      if (!forceLive) return
     }
     const silent = opts?.silent ?? modelCatalogLoadedRef.current
     const applyCatalog = (rowsRaw: any, primaryRaw: string) => {
@@ -7555,8 +7575,17 @@ useEffect(() => {
       return next
     }
     const work = (async () => {
-      // Prefer engineReady prefetch before flipping the label to 「加载中…」.
-      if (isDesktopTauriRuntime()) {
+      if (forceLive && isDesktopTauriRuntime()) {
+        try {
+          const prefetchMod = await import('../lib/tauri-api.js')
+          prefetchMod.invalidateModelCatalogPrefetch?.()
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Prefer engineReady prefetch only for the first paint — never after config CRUD.
+      if (!forceLive && isDesktopTauriRuntime()) {
         try {
           const prefetchMod = await import('../lib/tauri-api.js')
           const pref = prefetchMod.getModelCatalogPrefetch?.()
@@ -7670,11 +7699,21 @@ useEffect(() => {
     const onSessionChanged = () => {
       setToolApprovalPolicyTick((n) => n + 1)
     }
+    const onRequestSessionFullAccess = () => {
+      void applyFullAccessToCurrentSessionRef.current({ quiet: true }).then(() => {
+        toast('本会话已切换为完全访问', 'success')
+      })
+    }
     window.addEventListener(TOOL_APPROVAL_POLICY_CHANGED, onGlobalChanged)
     window.addEventListener(TOOL_APPROVAL_SESSION_POLICY_CHANGED, onSessionChanged)
+    window.addEventListener(TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS, onRequestSessionFullAccess)
     return () => {
       window.removeEventListener(TOOL_APPROVAL_POLICY_CHANGED, onGlobalChanged)
       window.removeEventListener(TOOL_APPROVAL_SESSION_POLICY_CHANGED, onSessionChanged)
+      window.removeEventListener(
+        TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS,
+        onRequestSessionFullAccess,
+      )
     }
   }, [scheduleRefreshSessions])
 
@@ -8337,7 +8376,7 @@ useEffect(() => {
     window.addEventListener('evopanel:session-title-updated', onPanelTitleUpdated)
 
     const onModelsUpdated = () => {
-      void loadModelCatalog({ silent: true })
+      void loadModelCatalog({ silent: true, forceLive: true })
     }
     const onMediaUpdated = () => {
       refreshSpeechConfigured()
@@ -8353,7 +8392,7 @@ useEffect(() => {
       } catch {
         /* ignore */
       }
-      void loadModelCatalog({ silent: true })
+      void loadModelCatalog({ silent: true, forceLive: true })
       refreshSpeechConfigured()
     }
     refreshSpeechConfigured()
@@ -8600,10 +8639,13 @@ useEffect(() => {
 
   useEffect(() => {
     if (!bottomModelOpen) return
-    if (modelsLoading) return
-    if (modelCatalog.length > 0) return
-    void loadModelCatalog()
-  }, [bottomModelOpen, modelCatalog.length, modelsLoading, loadModelCatalog])
+    // Re-hit live /models on each open so console CRUD shows up without remount.
+    // Depend only on open→true (not catalog length) to avoid a reload loop.
+    void loadModelCatalog({
+      silent: modelCatalogLoadedRef.current,
+      forceLive: true,
+    })
+  }, [bottomModelOpen, loadModelCatalog])
 
   const effectiveModelName = useMemo(() => {
     if (modelsLoading && !modelCatalog.length) return ''
@@ -10231,7 +10273,7 @@ useEffect(() => {
             /* ignore */
           }
           void patchPanelSettings({ lastSelectedModel: nextModel })
-          void loadModelCatalog({ silent: true })
+          void loadModelCatalog({ silent: true, forceLive: true })
         }
         if (!isBackground) {
           setRows((prev) => [
@@ -10858,10 +10900,12 @@ useEffect(() => {
             const argsText = typeof tc?.argsText === 'string' ? tc.argsText : undefined
             const toolCallId = String((aguiEvent as { toolCallId?: string }).toolCallId || '').trim()
             if (toolCallId && !platformFeedbackSeenRef.current.has(toolCallId)) {
+              // Roster notify runs on every TOOL_CALL_RESULT (incl. background); skip here.
               const feedback = applyPlatformFeedbackFromToolResult(resultContent, {
                 argsText,
                 toolCallId,
                 existingEntries: turnPlatformEntriesRef.current,
+                notifyEmployeesRoster: false,
               })
               if (feedback) {
                 platformFeedbackSeenRef.current.add(toolCallId)
@@ -10885,6 +10929,17 @@ useEffect(() => {
           )
             .trim()
             .toLowerCase()
+          if (toolName === 'platform') {
+            const tc = toolCallId ? S.aguiTurn?.toolCalls?.get(toolCallId) : undefined
+            const resultContent =
+              typeof (aguiEvent as { content?: string }).content === 'string'
+                ? (aguiEvent as { content?: string }).content
+                : typeof tc?.result === 'string'
+                  ? tc.result
+                  : undefined
+            const argsText = typeof tc?.argsText === 'string' ? tc.argsText : undefined
+            syncEmployeesRosterFromToolResult(resultContent, { argsText })
+          }
           if (toolName === 'mind_map') {
             bumpKnowledgeMapRefresh()
           }
@@ -14136,7 +14191,10 @@ useEffect(() => {
   }
   ensureChatSessionKeyRef.current = ensureChatSessionKey
 
-  async function applyMoreMenuSessionApprovalPolicy(presetId: string): Promise<void> {
+  async function applyMoreMenuSessionApprovalPolicy(
+    presetId: string,
+    opts?: { quiet?: boolean },
+  ): Promise<void> {
     const sk = (await ensureChatSessionKey()) || sessionRef.current || selectedSessionKey
     if (!sk) return
     const [{ patchSessionPermissionPreset }, { wsClient: wsClientMod }] = await Promise.all([
@@ -14180,7 +14238,9 @@ useEffect(() => {
       }),
     )
     setToolApprovalPolicyTick((n) => n + 1)
-    toast(permissionPresetToast(presetId as Parameters<typeof permissionPresetToast>[0]), 'success')
+    if (!opts?.quiet) {
+      toast(permissionPresetToast(presetId as Parameters<typeof permissionPresetToast>[0]), 'success')
+    }
   }
 
   // 当前 session 的有效权限档位（sessions 行 context + wsClient 会话映射）。
@@ -14254,14 +14314,46 @@ useEffect(() => {
     return isToolApprovalDisabled(getCachedGlobalToolApprovalPolicy())
   }, [toolApprovalPolicyTick])
 
+  /**
+   * 开启「完全访问」后立刻对本会话生效：切档位 + 放行已挂起的工具审批。
+   * 仅改全局默认而不动当前会话时，对话中仍会继续弹「需要权限」——用户会感觉开关没反应。
+   */
+  async function applyFullAccessToCurrentSession(opts?: { quiet?: boolean }): Promise<void> {
+    try {
+      await applyMoreMenuSessionApprovalPolicy(PERMISSION_PRESET_FULL_ACCESS, {
+        quiet: !!opts?.quiet,
+      })
+    } catch {
+      return
+    }
+    const pendingVisible = collectPendingApprovalsForDock({
+      streamTools: (streamRef.current?.turn.tools as unknown[]) || [],
+      rows: rowsRef.current,
+      isSending: turnBusyForSession(sessionRef.current),
+      excludeToolCallIds: toolApprovalResolvedIdsRef.current,
+    })
+    if (pendingVisible.length) {
+      suppressToolApprovalToastRef.current = true
+      try {
+        await handleToolApproval('grant_all')
+      } finally {
+        suppressToolApprovalToastRef.current = false
+      }
+    }
+  }
+  applyFullAccessToCurrentSessionRef.current = applyFullAccessToCurrentSession
+
   async function toggleNewChatGrantAllDefault(next: boolean): Promise<void> {
     const policy = next ? TOOL_APPROVAL_POLICY_GRANT_ALL : TOOL_APPROVAL_POLICY_SESSION
     try {
       await patchGlobalToolApprovalPolicy(policy)
-      toast(
-        next ? '新对话默认：完全访问（不询问）' : '新对话默认：帮我批准（风险操作询问）',
-        'success',
-      )
+      setToolApprovalPolicyTick((n) => n + 1)
+      if (next) {
+        await applyFullAccessToCurrentSession({ quiet: true })
+        toast('已开启：新对话默认完全访问；本会话已切换为完全访问', 'success')
+      } else {
+        toast('新对话默认：帮我批准（风险操作询问）', 'success')
+      }
     } catch (err) {
       toast(String((err as Error)?.message || err) || '保存失败', 'error')
       void fetchGlobalToolApprovalPolicy().catch(() => {})
@@ -14964,6 +15056,9 @@ useEffect(() => {
     })
     setToolApprovalInFlight(true)
     try {
+      const notify = (message: string, kind: 'info' | 'success' | 'error' = 'info') => {
+        if (!suppressToolApprovalToastRef.current) toast(message, kind)
+      }
       const res = await wsClient.postToolApproval(tid, {
         action: action === 'approve_remember' ? 'approve' : action,
         tool_call_id: toolCallId,
@@ -14987,10 +15082,20 @@ useEffect(() => {
           pendingVisible.map((p) => p.tool_call_id),
           'approved',
         )
+        if (action === 'grant_all') {
+          // 后端已落 grant_all；本地 pill / context 立刻对齐，避免仍显示「帮我批准」
+          try {
+            await applyMoreMenuSessionApprovalPolicy(PERMISSION_PRESET_FULL_ACCESS, {
+              quiet: true,
+            })
+          } catch {
+            /* 审批已成功；档位同步失败不阻断续流 */
+          }
+        }
       } else if (action === 'deny') {
         markResolved([tcKey])
         patchLocalToolApprovalStatus([tcKey], 'denied')
-        toast(res?.message || '已拒绝', 'info')
+        notify(res?.message || '已拒绝', 'info')
         scheduleBump({ immediate: true })
         return
       } else if (action === 'approve' || action === 'approve_remember') {
@@ -15002,7 +15107,7 @@ useEffect(() => {
         patchLocalToolApprovalStatus(ids, 'approved')
       }
       if (res?.client_stream_replay) {
-        toast(res?.message || '已批准，正在执行…', 'info')
+        notify(res?.message || '已批准，正在执行…', 'info')
         const ids =
           Array.isArray(res?.replay_tool_call_ids) && res.replay_tool_call_ids.length
             ? res.replay_tool_call_ids
@@ -15025,7 +15130,7 @@ useEffect(() => {
           }, 400)
         }
       } else if (res?.stream_resume_recommended) {
-        toast(res?.message || '已批准，正在执行…', 'info')
+        notify(res?.message || '已批准，正在执行…', 'info')
         // Do NOT pre-dispatch REATTACH_STARTED here: if reattach is skipped
         // (cooldown / missing runId), turnPhase would stick on reattaching.
         // requestManualStreamResume owns REATTACH_STARTED → TURN_IDLE.
@@ -15051,7 +15156,7 @@ useEffect(() => {
           }
         }, 8000)
       } else {
-        toast(res?.message || '已记录授权，同一条流继续…', 'info')
+        notify(res?.message || '已记录授权，同一条流继续…', 'info')
       }
       scheduleBump({ immediate: true })
     } catch (e) {
@@ -15885,11 +15990,14 @@ useEffect(() => {
 
   const onShellRefreshSessionList = useCallback(async () => {
     const sel = sessionRef.current
-    await refreshSessionsRef.current?.()
+    await Promise.all([
+      refreshSessionsRef.current?.(),
+      loadProactiveRoles(),
+    ])
     if (sel && sessionRef.current === sel) {
       await runShellSessionRefreshRef.current?.(sel)
     }
-  }, [])
+  }, [loadProactiveRoles])
 
   // 自愈：SSE 会话变更事件偶尔丢失（窗口假死/后台标签错过推送）会让会话列表停在旧状态。
   // 窗口重新聚焦或每 60s 轻量刷新一次会话列表，保证列表最终一致。
@@ -17198,6 +17306,7 @@ useEffect(() => {
         loadMoreGlobalRecentSessions={loadMoreGlobalRecentSessions}
         ensureWorkspaceExpanded={ensureWorkspaceExpanded}
         employeeRoles={proactiveRoles}
+        onRefreshEmployeeRoles={loadProactiveRoles}
         registeredWorkspacePaths={globalWorkspaceHistory}
         onNewWorkspace={onShellNewWorkspace}
         onNewSessionInWorkspace={onShellNewSessionInWorkspace}

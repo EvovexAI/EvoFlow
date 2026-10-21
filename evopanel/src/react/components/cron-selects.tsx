@@ -1,12 +1,10 @@
 /**
  * cron.js 编辑弹窗中「智能体」和「模型」两个下拉。
- *
- * 使用原生 <select> + 弹窗已有的 .cron-select 样式：
- * 在 overflow 滚动弹窗内不会出现 Radix Portal 跑到页面底部、被裁切等问题。
- * hidden input 保持与 saveFromForm 兼容（默认仍写空串）。
+ * 使用 DropdownSelect；hidden input 保持与 saveFromForm 兼容。
  */
 import * as React from 'react'
 import { createRoot, Root } from 'react-dom/client'
+import { DropdownSelect } from './DropdownSelect.js'
 
 /** API / saveFromForm 用空串表示「默认」；原生 select 可用空 value */
 const DEFAULT_VALUE = ''
@@ -35,7 +33,7 @@ function toSelectValue(raw: string | undefined): string {
   return raw && raw.trim() ? raw.trim() : DEFAULT_VALUE
 }
 
-function CronNativeSelect({
+function CronFieldSelect({
   label,
   value,
   options,
@@ -49,17 +47,14 @@ function CronNativeSelect({
   return (
     <div className="cron-form-group">
       <label className="cron-label">{label}</label>
-      <select
-        className="cron-select"
+      <DropdownSelect
+        className="cron-select-dropdown"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((opt) => (
-          <option key={opt.value || '__default__'} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        options={options}
+        onChange={onChange}
+        portal
+        aria-label={label}
+      />
     </div>
   )
 }
@@ -110,13 +105,13 @@ function CronSelectsApp({
 
   return (
     <>
-      <CronNativeSelect
+      <CronFieldSelect
         label="智能体"
         value={agentCode}
         options={agentOptions}
         onChange={setAgentCode}
       />
-      <CronNativeSelect
+      <CronFieldSelect
         label="模型"
         value={modelName}
         options={modelOptions}

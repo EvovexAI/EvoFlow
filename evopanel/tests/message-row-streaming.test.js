@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { resolveMessageRowIsStreaming } from '../src/react/lib/message-row-streaming.ts'
-import { shouldDropEmptyStreamPlaceholder } from '../src/react/lib/message-row-streaming.ts'
+import {
+  resolveGearHostRowIndex,
+  resolveMessageRowIsStreaming,
+  resolveMessageRowThreadBusy,
+  shouldDropEmptyStreamPlaceholder,
+} from '../src/react/lib/message-row-streaming.ts'
 
 describe('resolveMessageRowIsStreaming', () => {
   it('true only for continued row while stream active', () => {
@@ -8,6 +12,38 @@ describe('resolveMessageRowIsStreaming', () => {
     expect(resolveMessageRowIsStreaming(2, 2, false)).toBe(false)
     expect(resolveMessageRowIsStreaming(1, 2, true)).toBe(false)
     expect(resolveMessageRowIsStreaming(2, -1, true)).toBe(false)
+  })
+})
+
+describe('resolveMessageRowThreadBusy / resolveGearHostRowIndex（齿轮与停止按钮同源）', () => {
+  it('isSending=false → 无齿轮宿主', () => {
+    expect(resolveGearHostRowIndex({ isSending: false, streamContinuedRowIndex: 3, continuationTargetIndex: 3 })).toBe(
+      -1,
+    )
+    expect(resolveMessageRowThreadBusy(3, 3, false)).toBe(false)
+  })
+
+  it('优先 streamContinuedRowIndex（内容已合并的续写行）', () => {
+    expect(
+      resolveGearHostRowIndex({ isSending: true, streamContinuedRowIndex: 2, continuationTargetIndex: 5 }),
+    ).toBe(2)
+    expect(resolveMessageRowThreadBusy(2, 2, true)).toBe(true)
+    expect(resolveMessageRowThreadBusy(5, 2, true)).toBe(false)
+  })
+
+  it('审批虚流空窗：streamContinued=-1 时退回 incomplete 续写目标，齿轮仍亮', () => {
+    // suppressStreamUiAfterSeal 把 streamActive 压掉 → streamContinuedRowIndex=-1，
+    // 但 incomplete 审批气泡仍是 continuationTarget → 齿轮必须挂在那里（停止按钮仍亮）。
+    expect(
+      resolveGearHostRowIndex({ isSending: true, streamContinuedRowIndex: -1, continuationTargetIndex: 4 }),
+    ).toBe(4)
+    expect(resolveMessageRowThreadBusy(4, 4, true)).toBe(true)
+  })
+
+  it('无可续写气泡 → gearHost=-1（由独立 _stream pin 挂齿轮）', () => {
+    expect(
+      resolveGearHostRowIndex({ isSending: true, streamContinuedRowIndex: -1, continuationTargetIndex: -1 }),
+    ).toBe(-1)
   })
 })
 

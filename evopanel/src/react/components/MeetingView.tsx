@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { A2AClient, type MeetingMessage, type MeetingParticipant } from '../../lib/a2a-client'
 import { useGatewayBaseUrl } from '../hooks/useGatewayBaseUrl'
 import { resolveInitial, hashColor } from '../lib/agent-avatar'
+import { DropdownSelect } from './DropdownSelect.js'
 
 // ── Props ──────────────────────────────────────────────────
 
@@ -681,18 +682,21 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
             </div>
           </div>
           <div className="rv-composer-main">
-            <select
-              value={mentionTarget}
-              onChange={(e) => setMentionTarget(e.target.value)}
+            <DropdownSelect
               className="rv-mention-select"
-            >
-              <option value="">所有人（讨论）</option>
-              {participants.map((p) => (
-                <option key={p.agent_code} value={p.agent_code}>
-                  @{p.role_name || p.agent_code}
-                </option>
-              ))}
-            </select>
+              value={mentionTarget}
+              onChange={setMentionTarget}
+              portal
+              placement="up"
+              aria-label="提及对象"
+              options={[
+                { value: '', label: '所有人（讨论）' },
+                ...participants.map((p) => ({
+                  value: p.agent_code,
+                  label: `@${p.role_name || p.agent_code}`,
+                })),
+              ]}
+            />
             <input
               type="text"
               className="rv-input"

@@ -38,6 +38,7 @@ import { isTauri } from '../../lib/panel-login.js'
 import { loadSkillCatalog, subscribeSkillCatalog } from '../../lib/skill-catalog.js'
 import { api } from '../../lib/tauri-api.js'
 import { ObjectUrlImg } from './ObjectUrlImg.js'
+import { DropdownSelect } from './DropdownSelect.js'
 import { ImagePreviewModal, type ImagePreviewItem } from './ImagePreviewModal.js'
 import { isImagePathLike, resolveChatImageSrc } from '../../lib/chat-image-src.js'
 import {
@@ -379,58 +380,64 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
     return () => { unsub() }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    setModelsLoading(true)
-    void (async () => {
+  const reloadHomeModelCatalog = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent
+    if (!silent) setModelsLoading(true)
+    try {
+      const data = await api.listModels()
+      const rows = Array.isArray(data?.models)
+        ? data.models
+        : Array.isArray(data)
+          ? data
+          : []
+      const next = normalizeModelCatalogRows(rows)
+      setModelCatalog(next)
+
+      let primary = ''
       try {
-        const data = await api.listModels()
-        if (cancelled) return
-        const rows = Array.isArray(data?.models)
-          ? data.models
-          : Array.isArray(data)
-            ? data
-            : []
-        const next = normalizeModelCatalogRows(rows)
-        setModelCatalog(next)
-
-        let primary = ''
-        try {
-          const primaryInfo = await api.getPrimaryModel()
-          primary =
-            typeof primaryInfo?.primary_model === 'string'
-              ? primaryInfo.primary_model.trim()
-              : ''
-        } catch {
-          /* ignore */
-        }
-
-        try {
-          const conns = await api.listModelConnections()
-          const list = Array.isArray(conns) ? conns : conns?.connections || []
-          if (!cancelled) setModelConnNameMap(buildModelConnNameMap(list))
-        } catch {
-          /* ignore */
-        }
-
-        setSelectedModel((prev) => {
-          const cur = String(prev || '').trim()
-          if (cur && next.some((m) => m.name === cur)) return cur
-          return defaultModelFromCatalog(next, primary) || cur
-        })
-      } catch (e) {
-        if (!cancelled) {
-          setModelCatalog([])
-          toast(`模型列表加载失败：${(e as Error)?.message || e}`, 'error')
-        }
-      } finally {
-        if (!cancelled) setModelsLoading(false)
+        const primaryInfo = await api.getPrimaryModel()
+        primary =
+          typeof primaryInfo?.primary_model === 'string'
+            ? primaryInfo.primary_model.trim()
+            : ''
+      } catch {
+        /* ignore */
       }
-    })()
-    return () => {
-      cancelled = true
+
+      try {
+        const conns = await api.listModelConnections()
+        const list = Array.isArray(conns) ? conns : conns?.connections || []
+        setModelConnNameMap(buildModelConnNameMap(list))
+      } catch {
+        /* ignore */
+      }
+
+      setSelectedModel((prev) => {
+        const cur = String(prev || '').trim()
+        if (cur && next.some((m) => m.name === cur)) return cur
+        return defaultModelFromCatalog(next, primary) || cur
+      })
+    } catch (e) {
+      if (!silent) {
+        setModelCatalog([])
+        toast(`模型列表加载失败：${(e as Error)?.message || e}`, 'error')
+      }
+    } finally {
+      if (!silent) setModelsLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void reloadHomeModelCatalog()
+  }, [reloadHomeModelCatalog])
+
+  useEffect(() => {
+    const onModelsUpdated = () => {
+      void reloadHomeModelCatalog({ silent: true })
+    }
+    window.addEventListener('evopanel:models-updated', onModelsUpdated)
+    return () => window.removeEventListener('evopanel:models-updated', onModelsUpdated)
+  }, [reloadHomeModelCatalog])
 
   useEffect(() => {
     const onGoalUi = (event: Event) => {
@@ -1816,17 +1823,19 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
             </div>
           ))}
           <h4 className="evo-home-drawer-subtitle">默认时间范围</h4>
-          <select
-            className="evo-home-settings__select"
+          <DropdownSelect
+            className="evo-home-settings__select-dropdown"
             value={prefsDraft.defaultRange}
-            onChange={(e) =>
-              setPrefsDraft((p) => ({ ...p, defaultRange: e.target.value as HomeWorkbenchPrefs['defaultRange'] }))
+            aria-label="默认时间范围"
+            options={[
+              { value: '7d', label: '近 7 天' },
+              { value: '14d', label: '近 14 天' },
+              { value: '30d', label: '近 30 天' },
+            ]}
+            onChange={(v) =>
+              setPrefsDraft((p) => ({ ...p, defaultRange: v as HomeWorkbenchPrefs['defaultRange'] }))
             }
-          >
-            <option value="7d">近 7 天</option>
-            <option value="14d">近 14 天</option>
-            <option value="30d">近 30 天</option>
-          </select>
+          />
           <h4 className="evo-home-drawer-subtitle">列表数量</h4>
           <input
             className="evo-home-settings__select"

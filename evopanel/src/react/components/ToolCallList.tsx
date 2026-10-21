@@ -321,6 +321,10 @@ function ToolApprovalInline({
       void onToolApproval('deny', toolCallId)
       return
     }
+    if (choice === 'full_access') {
+      void onToolApproval('grant_all', toolCallId, hint)
+      return
+    }
     if (choice === 'always_project') {
       void onToolApproval('approve_remember', toolCallId, hint)
       return

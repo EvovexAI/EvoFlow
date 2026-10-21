@@ -5,6 +5,7 @@
 import { buildContextWindowFieldHtml, bindContextWindowPresets } from '../lib/model-context-field.js'
 import { applyModalTauriDragChrome, listenModalEscape } from '../lib/modal-chrome.js'
 import { trackGlobalOverlay } from '../lib/browser-embed-overlay.js'
+import { enhanceSelectsIn } from '../lib/ef-dropdown-select.js'
 
 // 转义 HTML 属性值，防止双引号等字符破坏 HTML 结构
 function escapeAttr(str) {
@@ -322,6 +323,7 @@ export function showModal({ title, fields, onConfirm, width, className = '' }) {
 
   document.body.appendChild(overlay)
   bindContextWindowPresets(overlay)
+  enhanceSelectsIn(overlay)
   applyModalTauriDragChrome(overlay)
   const releaseOverlay = trackGlobalOverlay('form')
 
@@ -406,8 +408,10 @@ export function showModal({ title, fields, onConfirm, width, className = '' }) {
     overlay.querySelector('[data-action="confirm"]')?.click()
   })
 
-  // 自动聚焦第一个输入框
-  const firstInput = overlay.querySelector('input, select, textarea')
+  // 自动聚焦第一个输入框（增强后的 select 用自定义 trigger）
+  const firstInput =
+    overlay.querySelector('input:not(.sr-only), textarea, .ef-dropdown-select__trigger') ||
+    overlay.querySelector('select:not([data-ef-enhanced="1"])')
   if (firstInput) firstInput.focus()
 }
 
@@ -465,6 +469,7 @@ export function showContentModal({
   `
 
   document.body.appendChild(overlay)
+  enhanceSelectsIn(overlay)
   applyModalTauriDragChrome(overlay)
   const releaseOverlay = trackGlobalOverlay('content')
 
@@ -482,7 +487,9 @@ export function showContentModal({
     btn.addEventListener('click', close)
   })
 
-  const firstInput = overlay.querySelector('input, textarea, select')
+  const firstInput =
+    overlay.querySelector('input:not(.sr-only), textarea, .ef-dropdown-select__trigger') ||
+    overlay.querySelector('select:not([data-ef-enhanced="1"])')
   if (firstInput) firstInput.focus()
 
   return overlay

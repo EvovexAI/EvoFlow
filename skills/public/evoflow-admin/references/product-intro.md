@@ -162,13 +162,13 @@
 **怎么用**：
 1. 顶栏选 **Plan**（`plan`）
 2. 用自然语言描述目标；助手应先出 **Plan** 等你确认，再 `supervisor` 派活
-3. 可为不同工种预先建好 **自定义子 Agent**（`preset-role-assistant`），便于 supervisor 点名分配
+3. 可为不同工种预先建好 **自定义子 Agent**（本技能 [`preset-role.md`](preset-role.md)），便于 supervisor 点名分配
 
 **对用户示例话术**（口语）：
 - 「这事比较大，你先列清楚要几步、谁干什么，我同意你再开始做」
 - 「先调研竞品，再写需求说明，再做页面草稿，每一步可以换不同的小助手」
 
-**相关技能**：`preset-role-assistant`（建角色）、`deep-research`（调研子任务）、`superpowers-*`（规格/计划/并行子代理纪律）。
+**相关技能**：`evoflow-admin`（含建角色流程）、`deep-research`（调研子任务）、`superpowers-*`（规格/计划/并行子代理纪律）。
 
 ---
 
@@ -229,7 +229,7 @@
 
 ## 3. 技能（Skills）
 
-**是什么**：`SKILL.md` 格式的领域工作流与指令包，启用后注入 Agent 系统提示，让助手在特定场景按专业流程行事（如 `deep-research`、`pdf`、`preset-role-assistant`）。
+**是什么**：`SKILL.md` 格式的领域工作流与指令包，启用后注入 Agent 系统提示，让助手在特定场景按专业流程行事（如 `deep-research`、`pdf`、`evoflow-admin`）。
 
 **目录**：`skills/public/`（内置）、`skills/custom/`（自定义，通常 gitignore）。
 
@@ -271,7 +271,7 @@
 
 **怎么用（用户）**：
 - **EvoFlow → Agent 管理**：编辑 SOUL/IDENTITY、模型、工具组、MCP、技能白名单
-- 对话中说「帮我创建一个××角色」→ 用本技能 CLI（`terminal` + `evoflow agents …`）或 **`platform`**；也可触发 **`preset-role-assistant`** 走模板流程
+- 对话中说「帮我创建一个××角色」→ 按 [`preset-role.md`](preset-role.md) 盘点后，用本技能 CLI（`terminal` + `evoflow agents …`）或 **`platform`** 落盘
 - 首次个性化可用 **`bootstrap`** 技能生成 SOUL
 
 **字段速查**：`agent_code`（小写+连字符）、`agent_name`、`tools`、`mcp_servers`、`skills` 名称必须与运行时目录一致，禁止臆造。
@@ -372,7 +372,7 @@
 | 短视频 / 海报 / 分镜制片 | `media-production` |
 | 长研发：脑暴→计划→TDD→收尾 | `superpowers-brainstorming`、`superpowers-writing-plans`、`superpowers-executing-plans` 等 |
 | 规划与编排下的调研子任务 | `deep-research` |
-| 创建/设计 Agent 角色（供 supervisor 分配） | `preset-role-assistant` |
+| 创建/设计 Agent 角色（供 supervisor 分配） | `evoflow-admin`（见 `references/preset-role.md`） |
 | 首次定义 AI 伙伴人格 | `bootstrap` |
 | 查找/安装更多技能 | `find-skills` |
 | 自己写技能 | `skill-creator` |

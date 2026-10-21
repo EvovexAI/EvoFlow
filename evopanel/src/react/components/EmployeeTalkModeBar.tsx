@@ -2,6 +2,7 @@
  * 智能体员工会话：只聊天 / 派任务 / 继续任务 三模式切换条。
  */
 import type { RefObject } from 'react'
+import { DropdownSelect } from './DropdownSelect.js'
 
 export type EmployeeTalkMode = 'chat' | 'dispatch' | 'resume'
 
@@ -121,19 +122,23 @@ export function EmployeeTalkModeBar({
         {mode === 'resume' ? (
           <label className="employee-talk-resume-select-wrap" title="选择要继续的未完任务">
             <span className="sr-only">继续的任务</span>
-            <select
-              className="employee-talk-resume-select"
+            <DropdownSelect
+              variant="pill"
+              placement="up"
+              portal
+              className="employee-talk-resume-dropdown"
               value={resumeTaskId}
-              onChange={(e) => onResumeTaskChange(e.target.value)}
-            >
-              <option value="">选择未完任务…</option>
-              {openTasks.map((t) => (
-                <option key={t.taskId} value={t.taskId}>
-                  {t.name || t.taskId}
-                  {t.status ? ` · ${t.status}` : ''}
-                </option>
-              ))}
-            </select>
+              placeholder="选择未完任务…"
+              aria-label="继续的任务"
+              options={[
+                { value: '', label: '选择未完任务…' },
+                ...openTasks.map((t) => ({
+                  value: t.taskId,
+                  label: `${t.name || t.taskId}${t.status ? ` · ${t.status}` : ''}`,
+                })),
+              ]}
+              onChange={onResumeTaskChange}
+            />
             {!openTasks.length ? (
               <span className="employee-talk-hint-muted">暂无未完任务</span>
             ) : (
