@@ -18,6 +18,7 @@ commands.allow = [
   "test_proxy",
   "apply_workspace_settings",
   "reload_gateway",
+  "reload_langgraph_runtime",
   "workspace_runtime_info",
   "get_gateway_base_url",
   "get_current_profile_id",

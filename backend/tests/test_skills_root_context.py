@@ -43,7 +43,26 @@ def test_default_root_and_profile_warning(fake_home: Path) -> None:
     assert ctx["active_source"].startswith("默认回退")
     paths = {c["path"]: c for c in ctx["candidates"]}
     assert paths[str(profile_root)]["custom_skills"] == 1
+    assert paths[str(profile_root)]["orphan_only_custom"] == 1
     assert any(str(profile_root) in w for w in ctx["warnings"])
+    assert any("skills.import_orphans" in w for w in ctx["warnings"])
+
+
+def test_no_warning_when_orphan_already_mirrored(fake_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inactive root still has the skill, but active already has a copy → no warning."""
+    active_root = fake_home / ".evoflow" / "profiles" / "default" / "skills"
+    orphan_root = fake_home / ".evoflow-dev" / "skills"
+    _make_custom_skill(active_root, "shared")
+    _make_custom_skill(orphan_root, "shared")
+    monkeypatch.setenv("EVOFLOW_SKILLS_PATH", str(active_root))
+
+    ctx = loader.describe_skills_root_context()
+
+    assert ctx["active"] == str(active_root)
+    paths = {c["path"]: c for c in ctx["candidates"]}
+    assert paths[str(orphan_root)]["custom_skills"] == 1
+    assert paths[str(orphan_root)]["orphan_only_custom"] == 0
+    assert ctx["warnings"] == []
 
 
 def test_env_skills_path_wins(fake_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:

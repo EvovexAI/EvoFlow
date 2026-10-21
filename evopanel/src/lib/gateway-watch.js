@@ -11,6 +11,8 @@
  *   - recovered               (down → ok edge)
  *   - guardian_external_wait  (operator-owned Gateway, skip fake reload)
  *   - guardian_reload         (owned sidecar reload)
+ *   - guardian_wedged_skip_reload (process alive, HTTP dead — do not kill)
+ *   - guardian_reload_langgraph (split model: restart Agent Runtime only)
  */
 
 const RING_MAX = 100
@@ -81,7 +83,13 @@ export function noteGatewayWatch(event, detail = {}, opts = {}) {
   else console.info(line)
 
   // Always file-log transitions; throttle probe_fail noise.
-  const isEdge = event === 'lost' || event === 'recovered' || event === 'guardian_external_wait' || event === 'guardian_reload'
+  const isEdge =
+    event === 'lost' ||
+    event === 'recovered' ||
+    event === 'guardian_external_wait' ||
+    event === 'guardian_reload' ||
+    event === 'guardian_wedged_skip_reload' ||
+    event === 'guardian_reload_langgraph'
   if (isEdge || opts.forceFile || level === 'error') {
     _appendFrontendFile(level === 'info' ? 'info' : level === 'error' ? 'error' : 'warn', line)
   }

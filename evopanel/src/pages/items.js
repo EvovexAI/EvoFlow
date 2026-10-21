@@ -130,29 +130,29 @@ function renderCardActions(it) {
   let menu = ''
   if (done) {
     menu = `
-      <button type="button" role="menuitem" data-act="restore" data-id="${esc(id)}">恢复任务</button>
-      <button type="button" role="menuitem" data-act="copy" data-id="${esc(id)}">复制任务</button>
+      <button type="button" role="menuitem" data-act="restore" data-id="${esc(id)}">恢复事项</button>
+      <button type="button" role="menuitem" data-act="copy" data-id="${esc(id)}">复制事项</button>
       <div class="im-more-sep" role="separator"></div>
-      <button type="button" role="menuitem" data-act="delete" data-id="${esc(id)}" class="is-danger">删除任务</button>`
+      <button type="button" role="menuitem" data-act="delete" data-id="${esc(id)}" class="is-danger">删除事项</button>`
   } else if (parked) {
     menu = `
-      <button type="button" role="menuitem" data-act="done" data-id="${esc(id)}">完成任务</button>
-      <button type="button" role="menuitem" data-act="restore" data-id="${esc(id)}">恢复任务</button>
-      <button type="button" role="menuitem" data-act="copy" data-id="${esc(id)}">复制任务</button>
+      <button type="button" role="menuitem" data-act="done" data-id="${esc(id)}">完成事项</button>
+      <button type="button" role="menuitem" data-act="restore" data-id="${esc(id)}">恢复事项</button>
+      <button type="button" role="menuitem" data-act="copy" data-id="${esc(id)}">复制事项</button>
       <div class="im-more-sep" role="separator"></div>
-      <button type="button" role="menuitem" data-act="delete" data-id="${esc(id)}" class="is-danger">删除任务</button>`
+      <button type="button" role="menuitem" data-act="delete" data-id="${esc(id)}" class="is-danger">删除事项</button>`
   } else {
     menu = `
-      <button type="button" role="menuitem" data-act="done" data-id="${esc(id)}">完成任务</button>
+      <button type="button" role="menuitem" data-act="done" data-id="${esc(id)}">完成事项</button>
       ${
         waiting
           ? `<button type="button" role="menuitem" data-act="nudge" data-id="${esc(id)}">催办</button>`
           : `<button type="button" role="menuitem" data-act="dispatch" data-id="${esc(id)}">派发</button>`
       }
       <button type="button" role="menuitem" data-act="park" data-id="${esc(id)}">搁置</button>
-      <button type="button" role="menuitem" data-act="copy" data-id="${esc(id)}">复制任务</button>
+      <button type="button" role="menuitem" data-act="copy" data-id="${esc(id)}">复制事项</button>
       <div class="im-more-sep" role="separator"></div>
-      <button type="button" role="menuitem" data-act="delete" data-id="${esc(id)}" class="is-danger">删除任务</button>`
+      <button type="button" role="menuitem" data-act="delete" data-id="${esc(id)}" class="is-danger">删除事项</button>`
   }
 
   return `
@@ -317,6 +317,8 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
     total: 0,
     pages: 1,
     loading: false,
+    /** 请求序号：只允许最后一次 refresh 的响应 paint，丢弃过期响应 */
+    reqSeq: 0,
     selected: new Set(),
     filterOpen: false,
     moreOpenId: '',
@@ -548,7 +550,7 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
 
   async function refreshFacets() {
     try {
-      const res = await api.listUserItems({ include_done: true, page: 1, page_size: 200 })
+      const res = await api.listUserItems({ include_done: true, page: 1, page_size: 200 }, { timeoutMs: 8000 })
       state.facets = computeFacets(res?.items || [])
     } catch {
       state.facets = emptyFacets()
@@ -556,6 +558,7 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
   }
 
   async function refresh() {
+    const seq = ++state.reqSeq
     state.loading = true
     paintList()
     try {
@@ -569,7 +572,9 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
         include_done: includeDone,
         page: state.page,
         page_size: state.pageSize,
-      })
+      }, { timeoutMs: 8000 })
+      // 过期响应丢弃：只让最后一次 refresh 的结果落地
+      if (seq !== state.reqSeq) return
       state.items = res?.items || []
       state.total = Number(res?.total || 0)
       state.page = Number(res?.page || state.page) || 1
@@ -578,14 +583,18 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
       const live = new Set(state.items.map((x) => String(x.id)))
       state.selected = new Set([...state.selected].filter((id) => live.has(id)))
     } catch (e) {
+      if (seq !== state.reqSeq) return
       toast(`加载事项失败：${e}`, 'error')
       state.items = []
       state.total = 0
       state.pages = 1
     } finally {
+      // 过期请求不得改 loading，否则会把后发请求的「加载中」提前熄掉
+      if (seq !== state.reqSeq) return
       state.loading = false
-      await refreshFacets()
       paint()
+      // 聚合统计不阻塞首屏渲染，也不 await
+      void refreshFacets()
     }
   }
 

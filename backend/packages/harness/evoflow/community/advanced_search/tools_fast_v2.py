@@ -201,7 +201,12 @@ class FastSearchEngineV2:
             from evoflow.community.baidu_search.tools import _api_licensed_search
 
             loop = asyncio.get_event_loop()
-            raw_results = await loop.run_in_executor(None, lambda: _api_licensed_search(query, max_results))
+
+            def _run():
+                hits, _meta = _api_licensed_search(query, max_results)
+                return hits
+
+            raw_results = await loop.run_in_executor(None, _run)
             return [
                 SearchResult(
                     title=r.get("title", ""),

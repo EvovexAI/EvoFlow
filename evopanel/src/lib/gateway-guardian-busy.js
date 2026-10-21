@@ -8,13 +8,21 @@ const _runHolds = new Set()
 let _reloadHoldUntil = 0
 
 /** 配置保存 / guardian 自身触发的 reload，sidecar 冷启动可能数十秒 */
-const RELOAD_HOLD_MS = 45_000
+const RELOAD_HOLD_MS = 90_000
 
 /**
  * 桌面冷启动：LG lifespan / DB preflight 可能冻结事件循环十余秒，
  * liveness 短暂超时会被 guardian 当成挂死并 reload，反而把「引擎加载中」拖到数分钟。
  */
-const COLD_START_HOLD_MS = 120_000
+const COLD_START_HOLD_MS = 180_000
+
+/** HTTP 不通但子进程仍活：短时 busy hold，避免立刻进入重启决策 */
+const WEDGED_HOLD_MS = 60_000
+
+export function markGatewayWedgedHold(durationMs = WEDGED_HOLD_MS) {
+  const ms = Math.max(15_000, Number(durationMs) || WEDGED_HOLD_MS)
+  _reloadHoldUntil = Math.max(_reloadHoldUntil, Date.now() + ms)
+}
 
 export function registerGatewayRunHold(runId) {
   const id = String(runId || '').trim()

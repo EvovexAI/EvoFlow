@@ -221,6 +221,46 @@ def build_web_search_assistant_guide(snapshot: dict[str, Any] | None = None) -> 
     }
 
 
+def resolve_web_search_setup_gate() -> dict[str, Any]:
+    """Tell ``web_search`` whether to fail-fast and ask the user for a Key.
+
+    When Agent Plan / paid engines need a Key but none is configured, hanging on
+    free ``ddgs`` (often 45s timeout) is worse than prompting via platform tools.
+    Explicit ``preferredBackend=ddgs`` still allows the free path.
+    """
+    try:
+        snap = get_web_search()
+        guide = snap.get("assistant_guide") if isinstance(snap.get("assistant_guide"), dict) else build_web_search_assistant_guide(snap)
+    except Exception as e:
+        logger.debug("resolve_web_search_setup_gate failed: %s", e)
+        return {
+            "needs_configuration": False,
+            "skip_slow_ddgs": False,
+            "assistant_guide": None,
+            "reason": f"gate_error:{e}",
+        }
+
+    status = str(guide.get("status") or "").strip()
+    preferred = str(guide.get("preferred_backend") or "").strip().lower()
+    needs = status in {"agent_plan_needs_doubao_key", "not_configured"}
+    # Always skip slow free ddgs when Keys are missing — prompting via platform is faster
+    # and more reliable than a 45s DuckDuckGo hang (common on restricted networks).
+    # After the user configures a Key (or SearXNG URL), needs=False and normal failover resumes.
+    skip_ddgs = bool(needs)
+    return {
+        "needs_configuration": needs,
+        "skip_slow_ddgs": skip_ddgs,
+        "assistant_guide": guide,
+        "reason": status or "ok",
+        "preferred_backend": preferred or None,
+        "platform_hint": (
+            "先向用户复述 assistant_guide.say_to_user；用户贴出 Key 后用 "
+            "platform(action='settings.patch_web_search', …, confirm=true) 写入，再 "
+            "settings.test_web_search 测通。不要让用户自己翻复杂设置页。"
+        ),
+    }
+
+
 def get_web_search() -> dict[str, Any]:
     """Masked settings + provider status for assistant / Gateway GET."""
     apply_runtime_env_to_environ()

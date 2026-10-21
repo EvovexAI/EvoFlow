@@ -178,6 +178,101 @@ def delete_skill(name: str) -> dict[str, Any]:
     }
 
 
+def import_orphan_custom_skills(*, dry_run: bool = True) -> dict[str, Any]:
+    """Copy custom skills that exist only under inactive roots into the active skills root.
+
+    Does **not** move or delete anything. Same-name skills already present under the active
+    ``custom/`` are skipped. Top-level skill folders (``SKILL.md`` next to ``public/``) under
+    an inactive root are imported into ``active/custom/<name>/``.
+    """
+    from evoflow.skills.loader import describe_skills_root_context
+
+    ctx = describe_skills_root_context()
+    active = Path(str(ctx.get("active") or get_skills_root_path())).resolve()
+    active_custom = active / "custom"
+    existing = {
+        d.name
+        for d in active_custom.iterdir()
+        if active_custom.is_dir() and d.is_dir() and (d / "SKILL.md").is_file()
+    } if active_custom.is_dir() else set()
+
+    planned: list[dict[str, str]] = []
+    for cand in ctx.get("candidates") or []:
+        if cand.get("active") or not cand.get("exists"):
+            continue
+        root = Path(str(cand.get("path") or ""))
+        if not root.is_dir():
+            continue
+        # Prefer explicit orphan list when present; otherwise scan custom/ + top-level.
+        names = list(cand.get("orphan_only_names") or [])
+        if not names and cand.get("custom_skills"):
+            custom = root / "custom"
+            if custom.is_dir():
+                names = [
+                    d.name
+                    for d in custom.iterdir()
+                    if d.is_dir() and (d / "SKILL.md").is_file() and d.name not in existing
+                ]
+        for name in names:
+            if name in existing:
+                continue
+            src_custom = root / "custom" / name
+            src_top = root / name
+            if src_custom.is_dir() and (src_custom / "SKILL.md").is_file():
+                src = src_custom
+            elif src_top.is_dir() and (src_top / "SKILL.md").is_file():
+                src = src_top
+            else:
+                continue
+            planned.append({"name": name, "from": str(src), "to": str(active_custom / name)})
+
+    # De-dupe by skill name (first candidate root wins).
+    seen: set[str] = set()
+    unique_plan: list[dict[str, str]] = []
+    for item in planned:
+        if item["name"] in seen:
+            continue
+        seen.add(item["name"])
+        unique_plan.append(item)
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "skills_root": str(active),
+            "would_copy": len(unique_plan),
+            "items": unique_plan,
+            "hint": "确认后再次调用 skills.import_orphans（confirm=true）执行复制（不删除源目录）",
+        }
+
+    active_custom.mkdir(parents=True, exist_ok=True)
+    copied: list[dict[str, str]] = []
+    skipped: list[str] = []
+    failed: list[dict[str, str]] = []
+    for item in unique_plan:
+        dest = Path(item["to"])
+        if dest.exists():
+            skipped.append(item["name"])
+            continue
+        try:
+            shutil.copytree(item["from"], dest)
+            copied.append(item)
+        except OSError as e:
+            failed.append({**item, "error": str(e)})
+
+    clear_skills_cache()
+    return {
+        "success": True,
+        "dry_run": False,
+        "skills_root": str(active),
+        "copied": len(copied),
+        "skipped": len(skipped),
+        "failed": failed,
+        "items": copied,
+        "message": f"已将 {len(copied)} 个孤儿 custom 技能复制到生效根（跳过 {len(skipped)}，失败 {len(failed)}）",
+    }
+
+
 _SKILLHUB_DOWNLOAD_BASE = "https://wry-manatee-359.convex.site/api/v1/download"
 
 

@@ -594,6 +594,16 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("skills.get", "skills", "查看技能详情", "read", "name", H.skills_get, "evoflow-admin 技能说啥"),
         _A("skills.enable", "skills", "启用/停用技能", "write", "name, enabled", H.skills_enable, "关掉某技能"),
         _A("skills.install", "skills", "安装技能（path 或市场 slug）", "write", "path 或 slug, owner?", H.skills_install, "装这个技能包"),
+        _A(
+            "skills.import_orphans",
+            "skills",
+            "把非生效技能根里「生效根没有」的 custom 技能复制进当前生效根（不删除源）",
+            "write",
+            "无（confirm=true 执行；默认 dry-run）",
+            H.skills_import_orphans,
+            "把装错目录的技能导入生效根",
+            "非生效根有技能但不加载",
+        ),
         _A("skills.delete", "skills", "删除自定义技能", "destructive", "name", H.skills_delete, "删掉自定义技能"),
         # extensions（Agent应用 / UI 扩展）
         _A(

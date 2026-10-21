@@ -38,8 +38,21 @@ def register_health_routes(app: FastAPI) -> None:
         return {"status": "healthy", "service": "evo-flow-gateway"}
 
     @app.get("/health/liveness", tags=["health"])
-    async def liveness_check() -> dict:
-        return {"status": "alive", "service": "evo-flow-gateway"}
+    def liveness_check() -> dict:
+        # Sync def → threadpool: still answer when the asyncio loop is briefly busy.
+        # Guardian must treat process-alive separately; this only helps under GIL stalls.
+        body: dict = {"status": "alive", "service": "evo-flow-gateway", "pid": os.getpid()}
+        try:
+            from app.gateway.hang_diagnostics import get_event_loop_lag_seconds, is_event_loop_overloaded
+
+            lag = get_event_loop_lag_seconds()
+            body["event_loop_lag_seconds"] = round(lag, 3)
+            if is_event_loop_overloaded():
+                body["degraded"] = True
+                body["reason"] = "event_loop_overloaded"
+        except Exception:
+            pass
+        return body
 
     @app.get("/health/app-server", tags=["health"])
     async def app_server_health(request: Request) -> dict:
@@ -85,6 +98,41 @@ def register_health_routes(app: FastAPI) -> None:
     @app.get("/health/proc", tags=["health"])
     def proc_liveness_check() -> dict:
         return {"status": "alive", "service": "evo-flow-gateway", "pid": os.getpid()}
+
+    @app.post("/health/soft-reload", tags=["health"], include_in_schema=False, response_model=None)
+    async def soft_reload_caches() -> dict | JSONResponse:
+        """In-process config cache refresh (desktop preferred over kill+spawn).
+
+        Always available on the health surface so the panel can soft-reload
+        before extended routers mount. Local / unauthenticated callers are
+        treated as admin elsewhere; this route intentionally has no auth gate.
+        """
+        try:
+            from evoflow.config.app_config import reload_app_config
+            from evoflow.config.extensions_config import reload_extensions_config
+            from evoflow.config.paths import reset_paths_cache
+
+            reset_paths_cache()
+            reload_app_config()
+            reload_extensions_config()
+            models_reloaded = False
+            try:
+                from evoflow.config import reload_models_from_db
+
+                reload_models_from_db()
+                models_reloaded = True
+            except Exception:
+                pass
+            return {
+                "status": "ok",
+                "mode": "soft",
+                "models_reloaded": models_reloaded,
+            }
+        except Exception as exc:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "mode": "soft", "error": str(exc)},
+            )
 
     @app.get("/health/startup", tags=["health"], include_in_schema=False)
     async def startup_timeline(request: Request) -> dict:

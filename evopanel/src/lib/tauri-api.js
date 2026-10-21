@@ -1286,7 +1286,8 @@ function _setBackendOnline(v) {
 }
 
 // 后端健康检查（须在 checkBackendReady 之前，避免 TDZ）
-const LIVENESS_TIMEOUT_MS = 1200
+/** Desktop: avoid treating a briefly wedged event loop as process death. */
+const LIVENESS_TIMEOUT_MS = 3500
 
 /** Once true during cold start, ignore transient false (event-loop stall / LG init). */
 let _engineReadyStickyUntil = 0
@@ -1610,17 +1611,127 @@ export async function checkGatewayHealth(options = {}) {
   }
 }
 
-// 配置保存后防抖重载 Gateway（3 秒内多次写入只触发一次重载）
+// 配置保存后防抖：默认 soft-reload（进程内刷新缓存）；仅 hard keys 才 kill+spawn
 let _reloadTimer = null
-function _debouncedReloadGateway() {
+let _pendingReloadHard = false
+
+async function _softReloadGatewayCaches() {
+  // /health/* is outside /api — JS gatewayProxy would wrongly prefix /api.
+  const timeoutMs = 8000
+  if (isTauri) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const proxied = await invoke('gateway_proxy', {
+        method: 'POST',
+        path: '/health/soft-reload',
+        body: null,
+        query: null,
+        headers: {},
+      })
+      if (proxied && proxied.ok) {
+        appendFrontendLog('info', `[boot:${_bootId}] soft-reload ok (/health/soft-reload)`)
+        return true
+      }
+    } catch {
+      /* fall through to /api/config/reload */
+    }
+  } else {
+    try {
+      const resp = await fetch('/health/soft-reload', {
+        method: 'POST',
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (resp.ok) {
+        appendFrontendLog('info', `[boot:${_bootId}] soft-reload ok (/health/soft-reload)`)
+        return true
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  // Fallback: extended router path (local unauthenticated → org_admin)
+  try {
+    await gatewayProxy('POST', '/config/reload', null, null, {
+      silent: true,
+      skipWarmLatch: true,
+      timeoutMs,
+    })
+    appendFrontendLog('info', `[boot:${_bootId}] soft-reload ok (/api/config/reload)`)
+    return true
+  } catch (e2) {
+    appendFrontendLog(
+      'warn',
+      `[boot:${_bootId}] soft-reload failed: ${String(e2?.message || e2 || '')}`,
+    )
+    return false
+  }
+}
+
+async function _hardReloadGatewayProcess(reason = 'hard_config') {
+  resetGatewayWarmLatch(reason)
+  try {
+    const { markGatewayReloadInProgress } = await import('./gateway-guardian-busy.js')
+    markGatewayReloadInProgress()
+  } catch {
+    /* ignore */
+  }
+  // Drain streaming holds briefly before kill (OpenClaw-style safe restart).
+  try {
+    const { isGatewayRunHoldActive } = await import('./gateway-guardian-busy.js')
+    const deadline = Date.now() + 30_000
+    while (isGatewayRunHoldActive() && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+  } catch {
+    /* ignore */
+  }
+  await invoke('reload_gateway')
+}
+
+function _debouncedReloadGateway({ hard = false } = {}) {
+  if (hard) _pendingReloadHard = true
   clearTimeout(_reloadTimer)
   _reloadTimer = setTimeout(() => {
-    resetGatewayWarmLatch('debounced_reload')
-    import('./gateway-guardian-busy.js')
-      .then(({ markGatewayReloadInProgress }) => markGatewayReloadInProgress())
-      .catch(() => {})
-    invoke('reload_gateway').catch(() => {})
+    const doHard = _pendingReloadHard
+    _pendingReloadHard = false
+    void (async () => {
+      if (doHard) {
+        appendFrontendLog('warn', `[boot:${_bootId}] hard reload (config hard keys)`)
+        try {
+          await _hardReloadGatewayProcess('debounced_hard_reload')
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      const ok = await _softReloadGatewayCaches()
+      if (!ok) {
+        // Soft failed (gateway down): do not kill a possibly warming sidecar.
+        appendFrontendLog('warn', `[boot:${_bootId}] soft-reload skipped hard fallback (gateway unreachable)`)
+      }
+    })()
   }, 3000)
+}
+
+/**
+ * After write_evoflow_config: soft by default; hard only when listen/storage keys change.
+ * @param {unknown} prev
+ * @param {unknown} next
+ */
+async function _scheduleConfigReloadAfterWrite(prev, next) {
+  try {
+    const { classifyConfigReload } = await import('./gateway-config-reload.js')
+    const decision = classifyConfigReload(prev, next)
+    _debouncedReloadGateway({ hard: decision.hard })
+    if (decision.hard) {
+      appendFrontendLog(
+        'info',
+        `[boot:${_bootId}] config hard keys: ${decision.changedHardKeys.slice(0, 8).join(',')}`,
+      )
+    }
+  } catch {
+    _debouncedReloadGateway({ hard: false })
+  }
 }
 
 // 导出 API
@@ -1652,16 +1763,26 @@ export const api = {
   systemVersion: () => cachedInvoke('get_version_info', {}, 30000),
   systemStatusSummary: () => cachedInvoke('get_status_summary', {}, 60000),
   readEvoflowConfig: () => (isTauri ? cachedInvoke('read_evoflow_config') : Promise.resolve({})),
-  writeEvoflowConfig: (config) => { invalidate('read_evoflow_config'); return invoke('write_evoflow_config', { config }).then(r => { _debouncedReloadGateway(); return r }) },
+  writeEvoflowConfig: async (config) => {
+    let prev = {}
+    try {
+      prev = await cachedInvoke('read_evoflow_config')
+    } catch {
+      prev = {}
+    }
+    invalidate('read_evoflow_config')
+    const result = await invoke('write_evoflow_config', { config })
+    await _scheduleConfigReloadAfterWrite(prev, config)
+    return result
+  },
   readMcpConfig: () => cachedInvoke('read_mcp_config'),
   writeMcpConfig: (config) => { invalidate('read_mcp_config'); return invoke('write_mcp_config', { config }) },
-  reloadGateway: () => {
-    resetGatewayWarmLatch('api_reload_gateway')
-    import('./gateway-guardian-busy.js')
-      .then(({ markGatewayReloadInProgress }) => markGatewayReloadInProgress())
-      .catch(() => {})
-    return invoke('reload_gateway')
+  reloadGateway: async () => {
+    await _hardReloadGatewayProcess('api_reload_gateway')
   },
+  /** Restart Agent Runtime only (split process model); Control Plane stays up. */
+  reloadLanggraphRuntime: () => invoke('reload_langgraph_runtime'),
+  softReloadGateway: () => _softReloadGatewayCaches(),
   // 测试模型连接（轻量 /models/test，不走 /models/invoke，不强制应用配置）
   testModel: async (baseUrl, apiKey, modelId, apiType = null, configName = null) => {
     const body = {
@@ -3143,7 +3264,7 @@ export const api = {
     return gatewayProxy('POST', '/items', body)
   },
   // ========== 用户事项（个人进度账本，≠ 可执行 Task）==========
-  listUserItems: async (query = null) => gatewayProxy('GET', '/items', null, query),
+  listUserItems: async (query = null, options = null) => gatewayProxy('GET', '/items', null, query, options),
   getUserItem: async (itemId) => gatewayProxy('GET', `/items/${encodeURIComponent(String(itemId || ''))}`),
   createUserItem: async (payload) => gatewayProxy('POST', '/items', payload || {}),
   updateUserItem: async (itemId, patch) =>

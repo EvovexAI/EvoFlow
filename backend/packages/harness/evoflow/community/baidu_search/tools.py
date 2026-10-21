@@ -138,16 +138,90 @@ def _ensure_non_empty_content(query: str, title: str, url: str, content: str) ->
     return f"与“{query}”相关的搜索结果，正文暂未提取成功。"
 
 
+def _web_search_setup_gate() -> dict:
+    """Best-effort setup gate; never raise into the tool path."""
+    try:
+        from evoflow.admin.web_search import resolve_web_search_setup_gate
+
+        return resolve_web_search_setup_gate()
+    except Exception as e:
+        logger.debug("web_search setup gate unavailable: %s", e)
+        return {
+            "needs_configuration": False,
+            "skip_slow_ddgs": False,
+            "assistant_guide": None,
+            "reason": "gate_unavailable",
+        }
+
+
+def _empty_search_payload(
+    query: str,
+    *,
+    ai_daily: str,
+    news_53ai: str,
+    gate: dict | None = None,
+    last_error: str = "",
+    tried: list[str] | None = None,
+) -> str:
+    """JSON for zero-hit web_search — prefer setup guidance over a dead-end note."""
+    g = gate if isinstance(gate, dict) else _web_search_setup_gate()
+    guide = g.get("assistant_guide") if isinstance(g.get("assistant_guide"), dict) else None
+    needs = bool(g.get("needs_configuration")) or bool(g.get("skip_slow_ddgs"))
+    payload: dict = {
+        "query": query,
+        "total_results": 0,
+        "engines": [],
+        "results": [],
+        "ai_daily": ai_daily,
+        "news_53ai": news_53ai,
+    }
+    if tried:
+        payload["tried_engines"] = list(tried)
+    if last_error:
+        payload["last_error"] = last_error
+    if needs and guide:
+        payload["needs_configuration"] = True
+        payload["assistant_guide"] = guide
+        payload["say_to_user"] = guide.get("say_to_user")
+        payload["platform_hint"] = g.get("platform_hint") or (
+            "用 platform → settings.get_web_search / settings.patch_web_search / settings.test_web_search 帮用户配置"
+        )
+        payload["_note"] = (
+            "联网搜索密钥未就绪，已跳过耗时免费兜底以免长时间卡住。"
+            "请把 assistant_guide.say_to_user 原话告诉用户；用户提供 Key 后走 platform 写入并测通。"
+        )
+    else:
+        payload["needs_configuration"] = False
+        payload["_note"] = (
+            "未搜到结果。若尚未配置联网引擎：用 platform settings.get_web_search 查看 assistant_guide，"
+            "再 settings.patch_web_search 写入 Key 并 settings.test_web_search 测通"
+            "（豆包联网 Key ≠ 对话 ark- Key）。也可改用博查 / Tavily / SearXNG。"
+        )
+    return json.dumps(payload, ensure_ascii=False)
+
+
 def _api_licensed_search(
     query: str,
     max_results: int,
     *,
     preferred: list[str] | None = None,
-) -> list[dict]:
-    """Hermes-style provider dispatch with failover (shared with settings test)."""
+) -> tuple[list[dict], dict]:
+    """Hermes-style provider dispatch with failover (shared with settings test).
+
+    Returns ``(hits, meta)``. ``meta`` may include setup-gate fields so the tool can
+    fail-fast and prompt for Keys instead of hanging on slow ``ddgs``.
+    """
     q = (query or "").strip()
+    meta: dict = {
+        "tried": [],
+        "last_error": "",
+        "needs_configuration": False,
+        "skip_slow_ddgs": False,
+        "assistant_guide": None,
+        "platform_hint": None,
+    }
     if not q:
-        return []
+        return [], meta
 
     from evoflow.community.web.registry import (
         _AUTO_PREFERENCE,
@@ -157,15 +231,23 @@ def _api_licensed_search(
         run_provider_search,
     )
 
+    gate = _web_search_setup_gate()
+    meta["needs_configuration"] = bool(gate.get("needs_configuration"))
+    meta["skip_slow_ddgs"] = bool(gate.get("skip_slow_ddgs"))
+    meta["assistant_guide"] = gate.get("assistant_guide")
+    meta["platform_hint"] = gate.get("platform_hint")
+
     preferred_backend = resolve_search_backend()
     # Extra failover from tool YAML (preferred_engines); Settings preferred always wins first.
     call_engines = [str(x).strip().lower() for x in (preferred or []) if str(x).strip()]
 
     logger.info(
-        "[联网搜索] 开始查询 query=%r max_results=%s 设置首选=%s",
+        "[联网搜索] 开始查询 query=%r max_results=%s 设置首选=%s setup=%s skip_ddgs=%s",
         q,
         max_results,
         preferred_backend or "（自动）",
+        gate.get("reason"),
+        meta["skip_slow_ddgs"],
     )
 
     candidates: list = []
@@ -198,9 +280,6 @@ def _api_licensed_search(
         if prov.is_available():
             _add(prov.name)
 
-    # Skip backends that advertise available=False unless settings-preferred or YAML-listed
-    explicit = set(call_engines)
-    resolved = str(preferred_backend or "")
     last_error = ""
     tried: list[str] = []
 
@@ -210,8 +289,15 @@ def _api_licensed_search(
     )
 
     for prov in candidates:
-        if not prov.is_available() and prov.name not in explicit and prov.name not in {resolved}:
+        # Never force-call an unavailable Key engine (was: preferred doubao w/o Key still tried).
+        if not prov.is_available():
             logger.info("[联网搜索] 跳过未配置渠道 channel=%s", prov.name)
+            continue
+        # When Keys are missing, skip slow free ddgs so the agent can prompt the user quickly.
+        if prov.name == "ddgs" and meta["skip_slow_ddgs"]:
+            logger.info(
+                "[联网搜索] 跳过耗时 ddgs 兜底（联网 Key 未就绪，改为提醒用户配置）"
+            )
             continue
         tried.append(prov.name)
         logger.info("[联网搜索] 正在请求渠道 channel=%s …", prov.name)
@@ -246,17 +332,22 @@ def _api_licensed_search(
                 len(deduped),
                 sample,
             )
-            return deduped
+            meta["tried"] = tried
+            meta["last_error"] = ""
+            return deduped, meta
         last_error = f"{prov.name} returned empty results"
         logger.info("[联网搜索] 渠道空结果 channel=%s，尝试下一个", prov.name)
 
+    meta["tried"] = tried
+    meta["last_error"] = last_error
     logger.warning(
-        "[联网搜索] 全部失败 query=%r 已尝试=%s last_error=%s",
+        "[联网搜索] 全部失败 query=%r 已尝试=%s last_error=%s needs_configuration=%s",
         q,
         tried or "（无可用渠道）",
         last_error or "（无）",
+        meta["needs_configuration"],
     )
-    return []
+    return [], meta
 
 
 @tool("web_search", description=WEB_SEARCH_DESCRIPTION, parse_docstring=False)
@@ -354,6 +445,7 @@ def web_search_tool(
     else:
         query_used = _normalize_news_query(query) if enable_query_rewrite else (query or "").strip()
 
+    search_meta: dict = {}
     if news_53ai_effective == "latest":
         logger.info("[联网搜索] 模式=53AI前沿列表 query=%r", query)
         merged_fast = _dedupe_results_by_url(_fetch_53ai_list_results(query=query, max_results=max_results))
@@ -364,12 +456,19 @@ def web_search_tool(
                 logger.info("[联网搜索] 模式=AI日报/官方源优先 query=%r", query_used)
                 merged_fast = list(_fetch_official_ai_news_rows(query=query_used, max_results=max_results))
             if not merged_fast:
-                merged_fast = _api_licensed_search(query_used, max_results, preferred=preferred_providers)
+                merged_fast, search_meta = _api_licensed_search(
+                    query_used, max_results, preferred=preferred_providers
+                )
             elif ai_daily_effective == "auto" and len(merged_fast) < tier1_min_results:
-                merged_fast = merged_fast + _api_licensed_search(query_used, max_results, preferred=preferred_providers)
+                more, search_meta = _api_licensed_search(
+                    query_used, max_results, preferred=preferred_providers
+                )
+                merged_fast = merged_fast + more
         else:
             logger.info("[联网搜索] 模式=泛搜 query=%r", query_used)
-            merged_fast = _api_licensed_search(query_used, max_results, preferred=preferred_providers)
+            merged_fast, search_meta = _api_licensed_search(
+                query_used, max_results, preferred=preferred_providers
+            )
 
     if merged_fast and ai_daily_effective == "auto" and news_53ai_effective != "latest":
         merged_fast = rebalance_ai_daily_rows(merged_fast, max_results=max_results, max_per_topic=2)
@@ -495,16 +594,16 @@ def web_search_tool(
             ensure_ascii=False,
         )
 
-    logger.warning("[联网搜索] 无结果 query=%r（见上方渠道尝试日志）", query)
-    return json.dumps(
-        {
-            "query": query,
-            "total_results": 0,
-            "engines": [],
-            "results": [],
-            "_note": ("No results: open Settings → 联网搜索, set preferred engine + API key (豆包搜索 / Tavily / Brave / Firecrawl / SearXNG), or install ddgs for free fallback. Baidu/Bing/Sogou HTML scraping has been removed."),
-            "ai_daily": ai_daily_effective,
-            "news_53ai": news_53ai_effective,
-        },
-        ensure_ascii=False,
+    logger.warning(
+        "[联网搜索] 无结果 query=%r needs_configuration=%s（见上方渠道尝试日志）",
+        query,
+        bool(search_meta.get("needs_configuration")),
+    )
+    return _empty_search_payload(
+        query,
+        ai_daily=ai_daily_effective,
+        news_53ai=news_53ai_effective,
+        gate=search_meta or None,
+        last_error=str(search_meta.get("last_error") or ""),
+        tried=list(search_meta.get("tried") or []),
     )

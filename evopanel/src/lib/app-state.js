@@ -45,8 +45,13 @@ let _execHoldFailureSince = null
 let _deferToastShown = false
 let _externalDownToastShown = false
 let _externalGatewayCached = null
+let _lgRestartInFlight = false
+let _lgConsecutiveDown = 0
+let _lastLgRestartTime = 0
 
 const GATEWAY_POLL_MS = 15000
+const LG_DOWN_RESTART_THRESHOLD = 2
+const LG_RESTART_COOLDOWN_MS = 60_000
 
 /** Operator-owned Gateway (EVOFLOW_GATEWAY_URL) — reload_gateway is a no-op. */
 async function _isExternalGateway() {
@@ -194,12 +199,114 @@ function _setGatewayRunning(val) {
   }
 }
 
+/** Sidecar child still owned by this panel (process-level, not HTTP). */
+async function _isSidecarProcessAlive() {
+  if (!isTauri) return null
+  try {
+    const info = await _workspaceRuntimeInfo()
+    if (info && typeof info.backendRunning === 'boolean') {
+      return !!info.backendRunning
+    }
+  } catch {
+    /* older builds */
+  }
+  return null
+}
+
+async function _workspaceRuntimeInfo() {
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke('workspace_runtime_info')
+}
+
+/**
+ * Split process model: Control Plane up + Agent Runtime down → restart LG only.
+ * Keeps settings / session list available while chat engine recovers.
+ */
+async function _maybeHealLanggraphRuntime() {
+  if (!isTauri || _userStopped || _lgRestartInFlight || _restartInFlight) return
+  let info
+  try {
+    info = await _workspaceRuntimeInfo()
+  } catch {
+    return
+  }
+  if (String(info?.processModel || '') !== 'split') {
+    _lgConsecutiveDown = 0
+    return
+  }
+  if (!info?.backendRunning) return
+  if (info.langgraphRunning) {
+    _lgConsecutiveDown = 0
+    return
+  }
+  // No LG port recorded → never spawned (inprocess fallback); skip.
+  if (!info.langgraphPort) return
+
+  _lgConsecutiveDown += 1
+  if (_lgConsecutiveDown < LG_DOWN_RESTART_THRESHOLD) return
+  const now = Date.now()
+  if (now - _lastLgRestartTime < LG_RESTART_COOLDOWN_MS) return
+
+  _lgRestartInFlight = true
+  _lastLgRestartTime = now
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    void import('./gateway-watch.js')
+      .then((m) =>
+        m.noteGatewayWatch?.(
+          'guardian_reload_langgraph',
+          { port: info.langgraphPort, attempt: _lgConsecutiveDown },
+          { level: 'warn', forceFile: true },
+        ),
+      )
+      .catch(() => {})
+    console.warn(
+      '[gateway-guardian] Agent Runtime (LangGraph) down — reload_langgraph_runtime (CP kept)',
+    )
+    await invoke('reload_langgraph_runtime')
+    _lgConsecutiveDown = 0
+  } catch (e) {
+    console.warn('[gateway-guardian] reload_langgraph_runtime failed:', e)
+  } finally {
+    _lgRestartInFlight = false
+  }
+}
+
+/** OpenClaw-style drain: wait for streaming run holds before killing sidecar. */
+async function _drainBeforeRestart(maxWaitMs = 30_000) {
+  const { isGatewayRunHoldActive } = await import('./gateway-guardian-busy.js')
+  const deadline = Date.now() + Math.max(0, Number(maxWaitMs) || 0)
+  while (isGatewayRunHoldActive() && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+}
+
 async function _tryAutoRestart(options = {}) {
   if (!isTauri || _userStopped || _restartInFlight) return
 
   const { evaluateAutoRestartAttempt } = await import('./gateway-guardian-policy.js')
-  const { markGatewayReloadInProgress } = await import('./gateway-guardian-busy.js')
+  const { markGatewayReloadInProgress, markGatewayWedgedHold } = await import('./gateway-guardian-busy.js')
   const now = Date.now()
+
+  // Process alive + HTTP dead ⇒ wedged loop, not a crash. Never kill.
+  const processAlive = await _isSidecarProcessAlive()
+  if (processAlive === true && !options.forceProcessDead) {
+    markGatewayWedgedHold()
+    void import('./gateway-watch.js')
+      .then((m) =>
+        m.noteGatewayWatch?.(
+          'guardian_wedged_skip_reload',
+          { processAlive: true },
+          { level: 'warn', forceFile: true },
+        ),
+      )
+      .catch(() => {})
+    console.warn(
+      '[gateway-guardian] sidecar process alive but HTTP unhealthy — skip reload (wedged/busy)',
+    )
+    return
+  }
+
   const decision = evaluateAutoRestartAttempt({
     now,
     lastRestartTime: _lastRestartTime,
@@ -273,7 +380,7 @@ async function _tryAutoRestart(options = {}) {
     }
 
     console.warn(
-      '[gateway-guardian] Gateway unhealthy, restarting sidecar silently (attempt',
+      '[gateway-guardian] Gateway process dead/unhealthy, restarting sidecar silently (attempt',
       _autoRestartCount,
       forceAfterHold ? ', after hold expired' : '',
       ')',
@@ -282,11 +389,12 @@ async function _tryAutoRestart(options = {}) {
       .then((m) =>
         m.noteGatewayWatch?.(
           'guardian_reload',
-          { attempt: _autoRestartCount, forceAfterHold },
+          { attempt: _autoRestartCount, forceAfterHold, processAlive },
           { level: 'warn', forceFile: true },
         ),
       )
       .catch(() => {})
+    await _drainBeforeRestart(30_000)
     markGatewayReloadInProgress()
     await invoke('reload_gateway')
     for (let i = 0; i < 20; i++) {
@@ -327,12 +435,21 @@ async function _pollGatewayOnce() {
   const ok = await checkBackendHealth()
   const hasHold = isPlanExecutionHoldActive()
   const hasBusyHold = isGatewayGuardianHoldActive()
+  let processAlive = null
+  if (!ok) {
+    processAlive = await _isSidecarProcessAlive()
+    if (processAlive === true) {
+      const { markGatewayWedgedHold } = await import('./gateway-guardian-busy.js')
+      markGatewayWedgedHold()
+    }
+  }
 
   try {
     const { noteGatewayProbeResult } = await import('./gateway-watch.js')
     noteGatewayProbeResult(!!ok, {
       source: 'guardian-poll',
       hold: !!(hasHold || hasBusyHold),
+      processAlive,
     })
   } catch {
     /* ignore */
@@ -352,11 +469,13 @@ async function _pollGatewayOnce() {
       resetAutoRestart()
       _runningSince = Date.now()
     }
+    // CP healthy: heal Agent Runtime alone when split model reports LG dead.
+    await _maybeHealLanggraphRuntime()
     return
   }
 
   _consecutiveFailures += 1
-  if (hasHold && !_execHoldFailureSince) {
+  if ((hasHold || processAlive === true) && !_execHoldFailureSince) {
     _execHoldFailureSince = Date.now()
   }
 
@@ -366,6 +485,7 @@ async function _pollGatewayOnce() {
     hasBusyHold,
     holdFailureSince: _execHoldFailureSince,
     now: Date.now(),
+    sidecarProcessAlive: processAlive,
   })
 
   if (failureDecision.defer) {
@@ -383,7 +503,10 @@ async function _pollGatewayOnce() {
 
   _runningSince = null
   _setGatewayRunning(false)
-  await _tryAutoRestart({ forceAfterHold: failureDecision.forceAfterHold })
+  await _tryAutoRestart({
+    forceAfterHold: failureDecision.forceAfterHold,
+    forceProcessDead: processAlive === false,
+  })
 }
 
 /** 刷新 Gateway 运行状态（轻量，仅查服务状态）

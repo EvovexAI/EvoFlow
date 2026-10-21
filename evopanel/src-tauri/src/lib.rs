@@ -278,6 +278,7 @@ pub fn run() {
             config::test_proxy,
             backend::apply_workspace_settings,
             backend::reload_gateway,
+            backend::reload_langgraph_runtime,
             backend::workspace_runtime_info,
             backend::get_gateway_base_url,
             backend::get_current_profile_id,

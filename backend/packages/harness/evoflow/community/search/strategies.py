@@ -31,7 +31,7 @@ class _HermesProviderEngine(SearchEngine):
         try:
             from evoflow.community.baidu_search.tools import _api_licensed_search
 
-            raw = _api_licensed_search(query, max_results=max_results)
+            raw, _meta = _api_licensed_search(query, max_results=max_results)
             results = [
                 SearchResult(
                     title=r.get("title", ""),

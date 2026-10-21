@@ -21,7 +21,12 @@ VIEW_IMAGE_DESCRIPTION = (
 PROCESS_TOOL_DESCRIPTION = "Background shell start|log|wait|kill; start supports workdir skill:<name>."
 
 FETCH_URL_DESCRIPTION = "Fetch a URL and return readable markdown/text (http/https only)."
-WEB_SEARCH_DESCRIPTION = "Search the web. Use ai_daily or news_53ai for AI-news feeds; otherwise generic API search."
+WEB_SEARCH_DESCRIPTION = (
+    "Search the web. Use ai_daily or news_53ai for AI-news feeds; otherwise generic API search. "
+    "If the result has needs_configuration=true: tell the user assistant_guide.say_to_user, "
+    "then help configure via platform settings.get_web_search / settings.patch_web_search / "
+    "settings.test_web_search (do not keep retrying web_search or send users into Settings UI)."
+)
 
 # Back-compat alias (prefer the named constants above).
 MINIMAL_TOOL_DESCRIPTION = ""

@@ -1399,6 +1399,16 @@ def skills_install(args: dict[str, Any]) -> dict[str, Any]:
     raise ValidationError("path or slug is required")
 
 
+def skills_import_orphans(args: dict[str, Any]) -> dict[str, Any]:
+    """Dry-run by default; platform confirm=true → execute copy into active skills root."""
+    from evoflow.admin import skills as skills_admin
+
+    # Platform write gate already passed when confirm=true; treat as execute.
+    # When called without confirm the dispatcher returns pending_confirm and never reaches here.
+    dry_run = _arg_bool(args, "dry_run", False)
+    return {"ok": True, **skills_admin.import_orphan_custom_skills(dry_run=dry_run)}
+
+
 def skills_delete(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import skills as skills_admin
 

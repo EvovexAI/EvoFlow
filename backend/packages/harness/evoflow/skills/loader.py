@@ -163,13 +163,22 @@ def get_skills_root_path() -> Path:
 
 def _count_custom_skills(skills_root: Path) -> int:
     """Count ``custom/<dir>/SKILL.md`` entries under one skills root (best-effort)."""
+    return len(_list_custom_skill_names(skills_root))
+
+
+def _list_custom_skill_names(skills_root: Path) -> set[str]:
+    """Directory names under ``custom/`` that contain ``SKILL.md``."""
     custom = skills_root / "custom"
     if not custom.is_dir():
-        return 0
+        return set()
     try:
-        return sum(1 for d in custom.iterdir() if d.is_dir() and (d / "SKILL.md").is_file())
+        return {
+            d.name
+            for d in custom.iterdir()
+            if d.is_dir() and (d / "SKILL.md").is_file()
+        }
     except OSError:
-        return 0
+        return set()
 
 
 def _candidate_profile_roots() -> list[Path]:
@@ -224,6 +233,7 @@ def describe_skills_root_context() -> dict[str, Any]:
             "sources": [source],
             "exists": resolved.is_dir(),
             "custom_skills": _count_custom_skills(resolved),
+            "custom_names": sorted(_list_custom_skill_names(resolved)),
             "active": resolved == active_resolved,
         }
 
@@ -249,14 +259,22 @@ def describe_skills_root_context() -> dict[str, Any]:
             "面板拉起的 gateway 走 profiles/<id>/skills，两者可能不是同一目录）"
         )
 
+    active_custom = _list_custom_skill_names(active_resolved)
     warnings: list[str] = []
     for cand in candidates.values():
         if cand["active"] or not cand["exists"] or not cand["custom_skills"]:
             continue
+        orphan_names = set(cand.get("custom_names") or []) - active_custom
+        # Already mirrored into the active root → no user action needed; keep count for doctor.
+        cand["orphan_only_custom"] = len(orphan_names)
+        cand["orphan_only_names"] = sorted(orphan_names)
+        if not orphan_names:
+            continue
         warnings.append(
-            f"发现非生效技能根 {cand['path']}（{'/'.join(cand['sources'])}）含 "
-            f"{cand['custom_skills']} 个 custom 技能；当前生效根是 {active_resolved}，"
-            "装在非生效根的技能不会被加载"
+            f"发现非生效技能根 {cand['path']}（{'/'.join(cand['sources'])}）有 "
+            f"{len(orphan_names)} 个 custom 技能未出现在生效根 {active_resolved}；"
+            "这些技能不会被加载。请用 skills.import_orphans（confirm=true）复制进生效根，"
+            "或把安装目标改到面板当前的 skills_root（勿装到裸 ~/.evoflow/skills）"
         )
 
     return {

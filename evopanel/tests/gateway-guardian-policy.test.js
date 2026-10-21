@@ -6,6 +6,7 @@ import {
   RESTART_COOLDOWN,
   STABLE_RUNNING_MS,
   UNHEALTHY_THRESHOLD,
+  BUSY_HOLD_FAILURE_THRESHOLD,
   EXEC_HOLD_FAILURE_THRESHOLD,
   EXEC_HOLD_MAX_MS,
   evaluateAutoRestartAttempt,
@@ -131,5 +132,47 @@ test('流式 run 或 reload 期间应 defer 自动重启', () => {
       now: 60_000,
     }),
     { shouldRestart: false, defer: true, reason: 'busy' },
+  )
+})
+
+test('sidecar 子进程仍存活时即使连续失败也不杀进程', () => {
+  assert.deepEqual(
+    evaluateHealthFailure({
+      consecutiveFailures: 20,
+      hasActivePlanExecution: false,
+      hasBusyHold: false,
+      holdFailureSince: 10_000,
+      now: 60_000,
+      sidecarProcessAlive: true,
+    }),
+    { shouldRestart: false, defer: true, reason: 'process_alive_busy' },
+  )
+})
+
+test('busy hold 超过阈值且进程未确认死亡时仍不杀', () => {
+  assert.deepEqual(
+    evaluateHealthFailure({
+      consecutiveFailures: BUSY_HOLD_FAILURE_THRESHOLD,
+      hasActivePlanExecution: false,
+      hasBusyHold: true,
+      holdFailureSince: null,
+      now: 200_000,
+      sidecarProcessAlive: null,
+    }),
+    { shouldRestart: false, defer: true, reason: 'busy_extended' },
+  )
+})
+
+test('busy hold 超时且进程已确认死亡才允许重启', () => {
+  assert.deepEqual(
+    evaluateHealthFailure({
+      consecutiveFailures: BUSY_HOLD_FAILURE_THRESHOLD,
+      hasActivePlanExecution: false,
+      hasBusyHold: true,
+      holdFailureSince: null,
+      now: 200_000,
+      sidecarProcessAlive: false,
+    }),
+    { shouldRestart: true, defer: false },
   )
 })

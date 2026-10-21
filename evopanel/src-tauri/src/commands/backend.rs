@@ -14,6 +14,8 @@ use tauri::Manager;
 use std::os::windows::process::CommandExt;
 
 static BACKEND_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+/// Agent Runtime (LangGraph) child — separate from Control Plane gateway when split mode is on.
+static LANGGRAPH_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static SIDECAR_STDIO: OnceLock<Mutex<Option<(ChildStdin, ChildStdout)>>> = OnceLock::new();
 static STARTUP_T0: OnceLock<Instant> = OnceLock::new();
 /// Serializes start/stop/reload (Codex daemon.lock analogue). Prevents concurrent
@@ -21,6 +23,58 @@ static STARTUP_T0: OnceLock<Instant> = OnceLock::new();
 static LIFECYCLE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 /// Monotonic generation for backend-runtime.json — background ready probes ignore stale gens.
 static RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn langgraph_child_slot() -> &'static Mutex<Option<Child>> {
+    LANGGRAPH_CHILD.get_or_init(|| Mutex::new(None))
+}
+
+/// Packaged/desktop default: Control Plane + Agent Runtime as two processes.
+/// Opt out with ``EVOFLOW_LANGGRAPH_INPROCESS=1`` (legacy single-process mount).
+fn prefer_split_langgraph() -> bool {
+    let raw = std::env::var("EVOFLOW_LANGGRAPH_INPROCESS").unwrap_or_default();
+    let v = raw.trim().to_ascii_lowercase();
+    !matches!(v.as_str(), "1" | "true" | "yes" | "on")
+}
+
+fn resolve_langgraph_port(gateway_port: u16) -> u16 {
+    if let Ok(s) = std::env::var("EVOFLOW_LANGGRAPH_PORT") {
+        if let Ok(p) = s.trim().parse::<u16>() {
+            if p > 0 && p != gateway_port {
+                return p;
+            }
+        }
+    }
+    // port+1 is reserved as EVOFLOW_APP_SERVER_PORT hint in gateway_entry.
+    gateway_port.saturating_add(2).max(1024)
+}
+
+fn internal_events_secret_path() -> PathBuf {
+    runtime_dir().join("internal-events.secret")
+}
+
+/// Stable secret shared by Control Plane + Agent Runtime across LG-only reloads.
+fn load_or_create_internal_events_secret() -> String {
+    let path = internal_events_secret_path();
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let trimmed = existing.trim().to_string();
+        if !trimmed.is_empty() {
+            return trimmed;
+        }
+    }
+    let secret = format!(
+        "evf_{:x}_{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        std::process::id(),
+    );
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, &secret);
+    secret
+}
 
 fn startup_elapsed_ms() -> u128 {
     STARTUP_T0
@@ -469,7 +523,23 @@ fn write_runtime_state_full(
     generation: u64,
     pid: Option<u32>,
 ) -> Result<(), String> {
+    write_runtime_state_full_ex(port, status, generation, pid, None, None, None)
+}
+
+fn write_runtime_state_full_ex(
+    port: u16,
+    status: &str,
+    generation: u64,
+    pid: Option<u32>,
+    langgraph_port: Option<u16>,
+    langgraph_pid: Option<u32>,
+    process_model: Option<&str>,
+) -> Result<(), String> {
     fs::create_dir_all(runtime_dir()).map_err(|e| format!("创建 runtime 目录失败: {e}"))?;
+    let existing_raw = fs::read_to_string(runtime_state_path()).ok();
+    let existing: Option<serde_json::Value> = existing_raw
+        .as_ref()
+        .and_then(|s| serde_json::from_str(s).ok());
     let mut payload = json!({
         "port": port,
         "baseUrl": format!("http://127.0.0.1:{port}"),
@@ -489,11 +559,55 @@ fn write_runtime_state_full(
             }
         }
     }
+    let lg_port = langgraph_port.or_else(|| {
+        existing
+            .as_ref()
+            .and_then(|v| v.get("langgraphPort"))
+            .and_then(|v| v.as_u64())
+            .and_then(|p| u16::try_from(p).ok())
+    });
+    if let Some(p) = lg_port {
+        payload["langgraphPort"] = json!(p);
+    }
+    if let Some(pid) = langgraph_pid {
+        payload["langgraphPid"] = json!(pid);
+    } else if let Some(v) = existing
+        .as_ref()
+        .and_then(|e| e.get("langgraphPid"))
+        .and_then(|v| v.as_u64())
+        .and_then(|p| u32::try_from(p).ok())
+    {
+        payload["langgraphPid"] = json!(v);
+    }
+    let model = process_model.or_else(|| {
+        existing
+            .as_ref()
+            .and_then(|v| v.get("processModel"))
+            .and_then(|v| v.as_str())
+    });
+    if let Some(m) = model {
+        payload["processModel"] = json!(m);
+    }
     fs::write(
         runtime_state_path(),
         serde_json::to_vec_pretty(&payload).map_err(|e| e.to_string())?,
     )
     .map_err(|e| format!("写入 runtime 状态失败: {e}"))
+}
+
+fn patch_runtime_langgraph_meta(lg_port: u16, lg_pid: Option<u32>, process_model: &str) {
+    let Some(state) = read_runtime_state() else {
+        return;
+    };
+    let _ = write_runtime_state_full_ex(
+        state.port,
+        &state.status,
+        state.generation,
+        state.pid,
+        Some(lg_port),
+        lg_pid,
+        Some(process_model),
+    );
 }
 
 /// Only advance status→ready when generation still matches (ignore stale background waits).
@@ -1171,21 +1285,56 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
     fs::create_dir_all(&work_dir).map_err(|e| format!("创建后端工作目录失败: {e}"))?;
     append_startup_log(&format!("backend work dir: {}", work_dir.display()));
 
-    // Generate a shared internal-events secret so LangGraph can relay subtask
-    // custom frames to the Gateway process's in-memory inject queue.
-    let internal_secret = format!(
-        "evf_{:x}_{}",
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos(),
-        std::process::id(),
-    );
+    // Shared internal-events secret so LangGraph can relay subtask custom
+    // frames to the Gateway inject queue (stable across LG-only reloads).
+    let internal_secret = load_or_create_internal_events_secret();
 
     // Prefer project config near the exe; packaged installs fall back to ~/.evoflow.
     let config_yaml = resolve_sidecar_config_yaml(&config_anchor)?;
     append_startup_log(&format!("resolved config.yaml: {}", config_yaml.display()));
 
     let gateway_url = format!("http://127.0.0.1:{port}");
+    let split_lg = prefer_split_langgraph();
+    let lg_port = resolve_langgraph_port(port);
+    let lg_url = format!("http://127.0.0.1:{lg_port}");
 
-    // native-style single child: HTTP Gateway + JSON-RPC on the same process stdio.
+    // Agent Runtime (LangGraph) as a sibling process — Control Plane stays lean.
+    let mut lg_pid_spawned: Option<u32> = None;
+    if split_lg {
+        if port_is_listening(lg_port) {
+            append_startup_log(&format!(
+                "langgraph port {lg_port} busy before spawn; killing listeners"
+            ));
+            kill_gateway_port(lg_port);
+            wait_port_free(lg_port, Duration::from_secs(3));
+        }
+        match spawn_langgraph_runtime_child(
+            &backend_exe,
+            &python_launch,
+            &work_dir,
+            &config_yaml,
+            &gateway_url,
+            &internal_secret,
+            lg_port,
+        ) {
+            Ok(pid) => {
+                lg_pid_spawned = Some(pid);
+                append_startup_log(&format!(
+                    "langgraph runtime spawned pid={pid} port={lg_port} (split process model)"
+                ));
+            }
+            Err(e) => {
+                append_startup_log(&format!(
+                    "langgraph runtime spawn failed ({e}); falling back to in-process LG"
+                ));
+            }
+        }
+    } else {
+        append_startup_log("langgraph in-process mode (EVOFLOW_LANGGRAPH_INPROCESS)");
+    }
+    let use_external_lg = split_lg && lg_pid_spawned.is_some();
+
+    // Control Plane child: HTTP Gateway + JSON-RPC on the same process stdio.
     // stdout is the RPC pipe (not a log file); logs go to stderr → daily log.
     let mut cmd = if let Some(ref exe) = backend_exe {
         let mut c = Command::new(exe);
@@ -1238,6 +1387,12 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
         .stderr(Stdio::from(stderr_log))
         .env("INTERNAL_EVENTS_SECRET", &internal_secret);
 
+    if use_external_lg {
+        cmd.env("EVOFLOW_LANGGRAPH_URL", &lg_url)
+            .env("EVOFLOW_LANGGRAPH_EXTERNAL", "1")
+            .env("EVOFLOW_LANGGRAPH_PORT", lg_port.to_string());
+    }
+
     // Python launch: keep import root as backend even if work_dir is EVOFLOW_HOME.
     if let Some((_, ref backend_dir, _)) = python_launch {
         apply_pythonpath_for_backend(&mut cmd, backend_dir);
@@ -1269,9 +1424,18 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
         *slot = Some((stdin, stdout));
     }
     *guard = Some(child);
-    write_runtime_state_full(port, "spawning", generation, Some(child_id))?;
+    let process_model = if use_external_lg { "split" } else { "inprocess" };
+    write_runtime_state_full_ex(
+        port,
+        "spawning",
+        generation,
+        Some(child_id),
+        if use_external_lg { Some(lg_port) } else { None },
+        lg_pid_spawned,
+        Some(process_model),
+    )?;
     append_startup_log(&format!(
-        "sidecar spawned pid={child_id} gen={generation} (stdio app-server), runtime status=spawning",
+        "sidecar spawned pid={child_id} gen={generation} model={process_model} (stdio app-server), runtime status=spawning",
     ));
     super::boot_cycle::mark_sidecar_spawn(child_id, port);
 
@@ -1383,6 +1547,29 @@ pub fn stop_backend_sidecar() -> Result<(), String> {
     stop_backend_sidecar_inner()
 }
 
+fn stop_langgraph_runtime_inner() {
+    let lg_port = read_runtime_state()
+        .and_then(|_| {
+            fs::read_to_string(runtime_state_path())
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v.get("langgraphPort").and_then(|p| p.as_u64()))
+                .and_then(|p| u16::try_from(p).ok())
+        });
+    if let Ok(mut guard) = langgraph_child_slot().lock() {
+        if let Some(mut child) = guard.take() {
+            let pid = child.id();
+            let _ = child.kill();
+            let _ = child.wait();
+            append_startup_log(&format!("langgraph runtime stopped pid={pid}"));
+        }
+    }
+    if let Some(port) = lg_port {
+        kill_gateway_port(port);
+        wait_port_free(port, Duration::from_secs(3));
+    }
+}
+
 fn stop_backend_sidecar_inner() -> Result<(), String> {
     // Drop any pending stdio handles so attach cannot race a dying child.
     if let Ok(mut slot) = sidecar_stdio_slot().lock() {
@@ -1403,6 +1590,8 @@ fn stop_backend_sidecar_inner() -> Result<(), String> {
     if let Some(port) = read_runtime_state_port() {
         let _ = write_runtime_state_full(port, "stopping", gen, None);
     }
+    // Stop Agent Runtime before Control Plane so proxy clients drain first.
+    stop_langgraph_runtime_inner();
     let slot = backend_child_slot();
     let mut guard = slot.lock().map_err(|_| "获取后端进程锁失败".to_string())?;
     if let Some(mut child) = guard.take() {
@@ -1421,6 +1610,158 @@ fn stop_backend_sidecar_inner() -> Result<(), String> {
         wait_port_free(port, Duration::from_secs(5));
         let _ = write_runtime_state_full(port, "stopped", gen, None);
     }
+    Ok(())
+}
+
+/// Spawn LangGraph Agent Runtime as a sibling of the Gateway Control Plane.
+fn spawn_langgraph_runtime_child(
+    backend_exe: &Option<PathBuf>,
+    python_launch: &Option<(PathBuf, PathBuf, PathBuf)>,
+    work_dir: &Path,
+    config_yaml: &Path,
+    gateway_url: &str,
+    internal_secret: &str,
+    lg_port: u16,
+) -> Result<u32, String> {
+    // Replace any previous LG child we still own.
+    if let Ok(mut guard) = langgraph_child_slot().lock() {
+        if let Some(mut prev) = guard.take() {
+            let _ = prev.kill();
+            let _ = prev.wait();
+        }
+    }
+
+    let stderr_log = super::log_files::open_daily_log(&logs_dir(), "evoflow-langgraph")?;
+    let mut cmd = if let Some(ref exe) = backend_exe {
+        let mut c = Command::new(exe);
+        c.arg("--mode")
+            .arg("langgraph")
+            .arg("--langgraph-port")
+            .arg(lg_port.to_string());
+        c
+    } else if let Some((ref python, ref backend_dir, ref entry)) = python_launch {
+        let mut c = Command::new(python);
+        c.arg("-u")
+            .arg(entry)
+            .arg("--mode")
+            .arg("langgraph")
+            .arg("--langgraph-port")
+            .arg(lg_port.to_string())
+            .env("PYTHONUNBUFFERED", "1")
+            .env("PYTHONUTF8", "1");
+        apply_pythonpath_for_backend(&mut c, backend_dir);
+        c
+    } else {
+        return Err("no backend exe for langgraph runtime".to_string());
+    };
+
+    let cwd = if let Some((_, ref backend_dir, _)) = python_launch {
+        backend_dir.as_path()
+    } else {
+        work_dir
+    };
+    cmd.current_dir(cwd)
+        .env("EVOFLOW_PROFILE", super::current_profile_id())
+        .env("EVOFLOW_HOME", work_dir)
+        .env(
+            "EVOFLOW_CONFIG_DIR",
+            super::evoflow_dir().to_string_lossy().to_string(),
+        )
+        .env("EVOFLOW_LOGS_DIR", logs_dir())
+        .env("EVOFLOW_CONFIG_PATH", config_yaml)
+        .env("EVOFLOW_GATEWAY_URL", gateway_url)
+        .env("INTERNAL_EVENTS_SECRET", internal_secret)
+        .env("PYTHONUNBUFFERED", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(stderr_log));
+
+    if let Some((_, ref backend_dir, _)) = python_launch {
+        apply_pythonpath_for_backend(&mut cmd, backend_dir);
+        cmd.env("PYTHONUTF8", "1");
+    }
+
+    super::apply_proxy_env(&mut cmd);
+    super::apply_windows_stdio_env(&mut cmd);
+    super::boot_cycle::apply_boot_cycle_env(&mut cmd);
+
+    #[cfg(target_os = "windows")]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("启动 LangGraph runtime 失败: {e}"))?;
+    let pid = child.id();
+    if let Ok(mut slot) = langgraph_child_slot().lock() {
+        *slot = Some(child);
+    }
+    patch_runtime_langgraph_meta(lg_port, Some(pid), "split");
+    Ok(pid)
+}
+
+/// Restart only the Agent Runtime (LangGraph) while keeping Control Plane up.
+#[tauri::command]
+pub fn reload_langgraph_runtime(app: tauri::AppHandle) -> Result<(), String> {
+    let _life = lifecycle_lock()
+        .lock()
+        .map_err(|_| "获取 Gateway 生命周期锁失败".to_string())?;
+    if env_gateway_base_url().is_some() {
+        append_startup_log("reload_langgraph_runtime: external Gateway — skip");
+        return Ok(());
+    }
+    if !prefer_split_langgraph() {
+        return Err("当前为 in-process LangGraph，请用 reload_gateway".to_string());
+    }
+    let port = read_runtime_state_port().ok_or_else(|| "无 gateway runtime port".to_string())?;
+    let lg_port = resolve_langgraph_port(port);
+    let work_dir = super::runtime_data_dir();
+    let gateway_url = format!("http://127.0.0.1:{port}");
+    let internal_secret = load_or_create_internal_events_secret();
+    let backend_exe = if prefer_dev_python_sidecar() {
+        None
+    } else {
+        resolve_backend_exe_path(&app)
+    };
+    let python_launch = if backend_exe.is_none() {
+        let backend_dir = resolve_dev_backend_dir()
+            .ok_or_else(|| "EVOFLOW_BACKEND_DIR missing".to_string())?;
+        let python = resolve_dev_python(&backend_dir)
+            .ok_or_else(|| "未找到 backend/.venv Python".to_string())?;
+        let entry = backend_dir.join("packaging/windows/gateway_entry.py");
+        if !entry.is_file() {
+            return Err(format!("缺少 gateway_entry.py: {}", entry.display()));
+        }
+        Some((python, backend_dir, entry))
+    } else {
+        None
+    };
+    let config_anchor = if let Some(ref exe) = backend_exe {
+        exe.clone()
+    } else if let Some((_, ref backend_dir, ref entry)) = python_launch {
+        entry
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| backend_dir.clone())
+    } else {
+        return Err("未找到内置网关可执行文件".to_string());
+    };
+    let config_yaml = resolve_sidecar_config_yaml(&config_anchor)?;
+    stop_langgraph_runtime_inner();
+    let pid = spawn_langgraph_runtime_child(
+        &backend_exe,
+        &python_launch,
+        &work_dir,
+        &config_yaml,
+        &gateway_url,
+        &internal_secret,
+        lg_port,
+    )?;
+    append_startup_log(&format!(
+        "reload_langgraph_runtime ok pid={pid} port={lg_port}"
+    ));
     Ok(())
 }
 
@@ -1581,6 +1922,12 @@ pub fn get_profile_info() -> serde_json::Value {
     let home = super::runtime_data_dir();
     let base_url = resolved_gateway_base_url();
     let external = env_gateway_base_url().is_some();
+    let split = prefer_split_langgraph();
+    let lg_port = if split {
+        Some(resolve_langgraph_port(port))
+    } else {
+        None
+    };
     json!({
         "profileId": id,
         "profileDir": profile_path.to_string_lossy().to_string(),
@@ -1591,6 +1938,8 @@ pub fn get_profile_info() -> serde_json::Value {
         // EVOFLOW_GATEWAY_URL set → operator owns uvicorn; guardian must not
         // pretend reload_gateway restarts it (that only resets warm latch).
         "externalGateway": external,
+        "processModel": if split { "split" } else { "inprocess" },
+        "langgraphPort": lg_port,
     })
 }
 
@@ -1638,6 +1987,37 @@ pub fn workspace_runtime_info() -> Result<serde_json::Value, String> {
         },
         Err(_) => false,
     };
+    let langgraph_running = match langgraph_child_slot().lock() {
+        Ok(mut guard) => match guard.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            None => false,
+        },
+        Err(_) => false,
+    };
+    let runtime_json: Option<serde_json::Value> =
+        fs::read_to_string(runtime_state_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
+    let langgraph_port = runtime_json
+        .as_ref()
+        .and_then(|v| v.get("langgraphPort"))
+        .and_then(|v| v.as_u64())
+        .and_then(|p| u16::try_from(p).ok());
+    let langgraph_pid = runtime_json
+        .as_ref()
+        .and_then(|v| v.get("langgraphPid"))
+        .and_then(|v| v.as_u64())
+        .and_then(|p| u32::try_from(p).ok());
+    let process_model = runtime_json
+        .as_ref()
+        .and_then(|v| v.get("processModel"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(if prefer_split_langgraph() {
+            "split"
+        } else {
+            "inprocess"
+        })
+        .to_string();
     let profile_id = super::current_profile_id();
 
     Ok(json!({
@@ -1653,5 +2033,9 @@ pub fn workspace_runtime_info() -> Result<serde_json::Value, String> {
         "checkpointsDbPath": checkpoints_db.to_string_lossy().to_string(),
         "checkpointsDbExists": checkpoints_exists,
         "backendRunning": backend_running,
+        "processModel": process_model,
+        "langgraphPort": langgraph_port,
+        "langgraphPid": langgraph_pid,
+        "langgraphRunning": langgraph_running,
     }))
 }
