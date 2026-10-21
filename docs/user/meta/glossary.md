@@ -34,11 +34,18 @@
 | **近期没干活** | 连续多轮无明显产出或空转偏高。 |
 | **卡住执行** | 执行超过约 45 分钟仍未结束（健康页）。 |
 | **系统前台** | 安装自带岗，偏催办全局待办。 |
-| **小V** | 全局助手：一员工一会话委派、工作台、飞书绑定。 |
-| **任务中心** | 跨来源任务驾驶舱（对话 / 智能体员工 / 工作流）。侧栏 `#/tasks`。 |
-| **工作流（旧名：应用中心）** | 已跑通的可填参再跑工作流产品，侧栏现名「工作流」。侧栏 `#/apps`。见 [工作流](../guides/configuration/app-center.md) [[guides/configuration/app-center|工作流]]。注意与任务详情里的执行流程图 `#/workflow/:id` 区分。 |
+| **小V** | 全局 AI 小秘书：待办管理、任务派发、进度查询、结果反馈与跨员工协调；一员工一会话委派、飞书绑定。**不是**某个 AI 员工。见 [任务中心概念](../explanation/task-center.md)。 |
+| **任务中心** | 用户待办 + AI 员工任务协作 + 执行追踪 + 结果交付的协同中心（对话 / 员工 / 工作流 / 自动化等）。侧栏 `#/tasks`。见 [概念](../explanation/task-center.md) · [操作](../guides/tasks/task-center.md)。 |
+| **我的事项（用户待办）** | 用户需要完成或关注的事；可自办或经小V / 派发转为协作任务。任务中心 `#/tasks?tab=items`。**不是**执行任务本身。 |
+| **协作任务（执行任务）** | 交给 AI 员工或流程处理的正式账：含用户派发、小V 分配、员工间 / 上下级派发与汇报。 |
+| **工作流（旧名：应用中心）** | 已跑通的可填参再跑工作流产品，侧栏现名「工作流」。侧栏 `#/apps`。见 [工作流](../guides/configuration/app-center.md) [[guides/configuration/app-center|工作流]]。注意与任务详情里的执行流程图 `#/workflow/:id` 区分。与任务中心联动含启动与进度 / 结果查询，**不含**业务参数传递能力位。 |
+| **Agent 应用 / Agent 应用中心** | 业务应用承载 + AI 底座连接：统一列表挂载静态页 / 服务器 Web / 本地服务 / 第三方嵌入，点击在面板内打开；可进一步集成工作流、AI 员工、知识库。侧栏 `#/extensions`。见 [概念](../explanation/agent-applications.md) · [操作](../guides/configuration/settings-capabilities.md)。**不是**工作流（旧名「应用中心」）。 |
+| **资产中心** | 统一管理记忆、画像、思考、反思与经验。用户记忆 ∥ 各 AI 员工独立记忆；**用户画像**可授权给员工复用；员工记忆互不共享。主 Agent 沉淀归用户侧。侧栏 `#/assets`。见 [概念](../explanation/asset-center.md)。 |
+| **用户画像** | 用户资产中的可共享认识（偏好、工作要求等）；AI 员工在授权范围内可读，用于统一服务风格。与员工各自的工作记忆不是一回事。 |
 | **chip（小条）** | 界面上显示当前值、可点击切换的小控件。如左下角「当前工作目录」小条，点它弹出文件夹选择器来绑定工作目录。见 [工作空间](../guides/chat/workspace.md)。 |
-| **自动化** | 到点跑固定 Prompt（Cron），不是岗位合同。侧栏 `#/cron`。 |
+| **自动化 / 自动化中心** | 到点执行的两种模式：**自动化任务**（提示词 + 可选在编员工/智能体）与 **定时自动化**（已发布工作流）。侧栏 `#/cron`。**不是**员工主动值班。见 [概念](../explanation/automation-center.md) · [操作](../guides/tasks/scheduled-tasks.md)。 |
+| **自动化任务** | 提示词驱动：编写 Prompt、选择执行 Agent/员工、按计划执行。 |
+| **定时自动化** | 工作流驱动：选择已发布工作流、配置定时规则、到点触发预设流程（无「业务参数传递」能力位）。 |
 
 ## 技术与运行时
 
@@ -60,6 +67,9 @@
 
 - [[getting-started/product-overview|产品总览]] — 功能地图与典型路径
 - [[explanation/agent-system|Agent 系统架构]] — 核心执行单元
+- [[explanation/agent-applications|Agent 应用中心]] — 业务承载与 AI 集成
+- [[explanation/task-center|任务中心]] — 待办、小V、员工协作派发
+- [[explanation/automation-center|自动化中心]] — 提示词 Agent / 定时工作流
 - [[explanation/smart-employees|智能体员工概念]] — 岗位协作
 - [[guides/configuration/agent-management|智能体管理指南]] — 配置与操作
 - [[tutorials/configure-models|配置模型教程]] — 模型配置

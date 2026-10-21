@@ -84,6 +84,8 @@
 
 侧栏 **Agent应用**。页头说明：把网页应用挂进 EvoFlow，可以是线上网址，也可以是带清单的本地目录 / zip（源码工程需写明启动方式）。
 
+**产品定位**：Agent 应用中心 = 业务应用承载中心 + AI 底座能力连接中心。多个不同来源的业务应用统一出现在**同一份应用列表**；用户点击即可在 EvoFlow 面板内打开并操作。嵌入网页是「承载」；真正调用工作流 / AI 员工 / 知识库才是「AI 集成」。完整定位、六大模块与 F4 架构说明见 [Agent 应用中心概念](../../explanation/agent-applications.md)。
+
 这是「扩展应用」的配置入口。装好后点卡片在面板里打开，不必另开浏览器标签。
 
 ### 三种装法
@@ -135,6 +137,7 @@
 
 ## 相关阅读
 
+- [[explanation/agent-applications|Agent 应用中心概念]] — 定位、六大模块、承载 vs AI 集成、F4 图
 - [[guides/configuration/tools-mcp|工具与连接器]] — MCP，不是插件市场
 - [[guides/configuration/knowledge-base|知识库]] — 向量模型用在哪
 - [[guides/configuration/install-own-project-as-extension|把自有项目装成 Agent 应用]] — 清单与本地服务

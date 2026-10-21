@@ -52,9 +52,9 @@ def _run(home: Path) -> dict:
     steps: list[dict] = []
 
     # ── 1. 知识库：vault → remember → recall ──
-    created_vault = knowledge_admin.create_managed_vault(name="跨模块Saga知识库")
-    vault = created_vault.get("vault") or created_vault
-    vault_id = str(vault.get("id") or created_vault.get("vault_id") or created_vault.get("id") or "").strip()
+    from evoflow.eval.scenarios._knowledge_fixture import create_base_id
+
+    vault_id = create_base_id("跨模块Saga知识库")
     knowledge_admin.remember(
         {
             "title": "Saga评测笔记",

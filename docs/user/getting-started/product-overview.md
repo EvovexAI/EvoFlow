@@ -56,17 +56,18 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 | 跟 Agent 聊清楚、试想法、改文件 | **实时聊天**（Ask / Agent） | — |
 | 多步任务要先对齐计划再动手 | **Plan 模式** | 目标 Agent、自动化 |
 | 软件类多角色交付（规划/实现/验收） | **Plan + 项目团队** | 智能体员工（那是值班岗） |
-| 要看板看进度、暂停/验收多任务 | **任务中心** | 聊天里的 Plan（Plan 是发起与主控对话） |
+| 记待办、小V 派给员工、看板看进度/验收、员工间协作 | **任务中心**（+ **小V**） | 聊天里的 Plan（Plan 是发起与主控对话）；勿与员工长期记忆共享混淆 |
 | 开放长任务、后台多轮自驱到边界 | **目标 Agent**（聊天 Goal） | 任务中心、自动化 |
-| 每天/每周到点跑固定指令 | **自动化** | 智能体员工、任务中心 |
+| 每天/每周到点跑提示词或已发布工作流 | **自动化**（提示词 Agent / 定时工作流） | 智能体员工主动值班、任务中心 |
 | 流程已跑通，以后只换参数再跑 | **工作流（旧名「应用中心」）** | 每次从零 Plan |
 | 岗位定时上班、审批、工作汇报写报告 | **智能体员工** | 自动化（无岗位合同/看板） |
-| 记得用户偏好、过程与经验 | **资产中心**（对话里说「记住 / 沉淀 / 反思」） | 知识库、上传文档 |
+| 记得用户偏好、过程与经验；员工各自沉淀岗位经验 | **资产中心**（用户记忆∥员工独立记忆；画像可共享） | 知识库、上传文档；勿当成员工间共享工作记忆 |
 | 把 PDF / Office / Markdown 做成可反复检索的资料 | **知识库**（新建库 → 上传 → 问 AI / 检索） | 资产中心、会话里拖文件 |
 | 当前这一轮附带几个文件 | **会话文件上传** | 知识库 |
 | 给人设、工具、技能、连接器（MCP） | **智能体** | 员工（加人之后才按点上班） |
 | 接 GitHub / 数据库等外部服务 | **智能体 → 连接器** | 在员工页安装插件 |
 | 在飞书里对话、收结果 | **消息渠道** | — |
+| 把现有业务网页/系统挂进面板统一打开，再接 AI | **Agent 应用** | 工作流（那是填参再跑的流程产品）；插件市场 |
 
 ---
 
@@ -75,19 +76,20 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 ```text
 聊天壳
 ├── 新建对话 ── Ask / Agent / Plan / Goal（目标）；底栏可绑工作空间
-├── 任务中心 ── 协作任务 + 我的事项；验收 / 同意派发
+├── 任务中心 ── 用户待办（我的事项）+ 协作任务；小V 派发；员工间/上下级协作；验收 / 同意派发
 ├── 工作流（旧名「应用中心」）── 多节点画布编排 → 发布 → ▶ 填参再跑（个人固定业务）
-├── 自动化   ── 到点 / 一次性固定 Prompt
+├── 自动化   ── 提示词 Agent 到点执行 ∥ 已发布工作流定时触发（`#/cron`）
 ├── 员工     ── 加人、值班、转交审批、工作汇报；小V 可临时委派
 ├── 智能体   ── 人设 / 技能 / 连接器（MCP 插件）
 ├── 资产中心 ── 画像 / 记忆 / 经验沉淀 / 反思过程 / 专长（`#/assets`）
 ├── 知识库   ── 自有文档库：上传、检索、问 AI（`#/knowledge`）
+├── Agent应用 ── 统一列表承载业务网页/系统；平台内打开；可接工作流/员工/知识库（`#/extensions`）
 └── 设置
     ├── 模型 · IM（含渠道多账号）· 通用（默认工作空间）
     ├── 安全中心 · 用户权限 · 企业 SSO（多账号体系）
     ├── 使用统计（费用）· 代码索引 · 资源中心 / 资源市场
     └── （运维观测面板另见 `#/observability`）
-全局助手小V ── 一员工一会话委派、进度与汇报、按需工作轨迹
+小V（全局 AI 小秘书）── 待办管理、任务派发、进度与结果反馈；一员工一会话委派、按需工作轨迹
 ```
 
 | 能力 | 一句话 | 操作指南 |
@@ -96,13 +98,15 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 | Plan | 先定稿再「开始执行」 | [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] |
 | 目标 | 聊天里长程自驱 | [目标 Agent](../guides/chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] |
 | 工作空间 | 项目目录绑定与读写边界 | [工作空间](../guides/chat/workspace.md) [[guides/chat/workspace|工作空间]] |
-| 任务中心 | 协作任务看板 + 我的事项；验收与同意派发 | [任务中心](../guides/tasks/task-center.md) |
+| 任务中心 | 用户待办 + 员工协作派发 + 追踪交付；小V 协调 | [概念](../explanation/task-center.md) · [操作](../guides/tasks/task-center.md) |
+| 小V | 全局 AI 小秘书：待办、派发、进度与结果反馈 | [任务中心概念](../explanation/task-center.md) · [EvoPanel 指南](../guides/configuration/evopanel-guide.md) |
 | 工作流（旧名「应用中心」） | 多节点工作流产品化 | [工作流](../guides/configuration/app-center.md) [[guides/configuration/app-center|工作流]] |
-| 自动化 | 定时触发 | [自动化](../guides/tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
+| 自动化 | 提示词 Agent 自动化 ∥ 定时工作流；调度与执行历史 | [概念](../explanation/automation-center.md) · [操作](../guides/tasks/scheduled-tasks.md) |
 | 智能体员工 | 编内值班岗 + 关键审批；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|指南]] · [教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|教程]] · [概念](../explanation/smart-employees.md) [[explanation/smart-employees|概念]] |
 | 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] |
-| 资产中心 | 画像 / 记忆 / 经验 / 反思（自我进化） | [概念](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] · [操作](../guides/configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] |
+| 资产中心 | 用户资产∥员工资产；画像可共享、记忆互不共享 | [概念](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] · [操作](../guides/configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] |
 | 知识库 | 上传文档后检索、问 AI，并可绑给员工 | [知识库](../guides/configuration/knowledge-base.md) |
+| Agent 应用 | 多来源业务应用统一列表，平台内打开；可接工作流 / AI 员工 / 知识库 | [概念](../explanation/agent-applications.md) · [操作](../guides/configuration/settings-capabilities.md) |
 | 设置治理套件 | 安全中心 · 费用 · 代码索引 · 资源市场 · 多用户/SSO | [设置](../guides/configuration/settings.md) [[guides/configuration/settings|设置]] · [资源市场](../guides/configuration/resource-packs.md) [[guides/configuration/resource-packs|资源包与资源市场]] · [生态对照](../explanation/ecosystem-comparison.md) [[explanation/ecosystem-comparison|生态对照]] |
 
 面板入口总表：[EvoPanel 指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoPanel 指南]]。
@@ -136,7 +140,7 @@ flowchart TD
 | **聊天 Plan → 任务中心** | 底部选 Plan → 定稿 →「开始执行」→ 右侧工作流；需要看板时打开任务中心「对话」 |
 | **Plan → 另存为应用** | 确认条「另存为应用」或任务详情沉淀 → 以后填参再跑 |
 | **加人 → 需要时再改智能体** | 员工页直接加人（自动创建能力）→ 要改工具或连接器时打开对应智能体勾选 → 再开一轮上班 |
-| **小V → 员工委派** | 打开小V → 左侧选员工 → 输入目标；进度与汇报在会话内，细节按需打开工作轨迹 |
+| **小V → 待办 / 员工委派** | 对小V说记待办或直接派活 → 左侧选员工下目标；进度与结果可回任务中心核对 |
 | **员工交工 → 任务中心** | 交工带任务总结；详情里「确认完成 / 要求修改」。转交用「同意派发 / 驳回」，别和验收混 |
 | **知识库 → 员工或聊天** | 新建库并上传 → 库里先「问 AI」验证 → 加人时绑定该库，或在智能体上勾选 |
 | **自动化 → IM** | 配好渠道 → 自动化开「完成后推送」→ 到点结果进飞书等 |
@@ -146,9 +150,9 @@ flowchart TD
 
 | 组 | 区别一句话 |
 |----|------------|
-| **Plan vs 目标 vs 自动化 vs 任务中心** | Plan=先计划再授权；目标=聊天长跑；自动化=到点固定 Prompt；任务中心=看板观测层 |
+| **Plan vs 目标 vs 自动化 vs 任务中心** | Plan=先计划再授权；目标=聊天长跑；自动化=到点提示词或工作流（≠员工值班）；任务中心=待办+协作派发+看板（小V 协调） |
 | **智能体 vs 员工** | 智能体=会什么（含连接器）；员工=何时主动干、职责、审批、绑定哪套知识库 |
-| **资产中心 vs 知识库 vs 会话上传** | 资产=偏好/经验/反思；知识库=你上传的文档；会话上传=仅本轮附件 |
+| **资产中心 vs 知识库 vs 会话上传** | 资产=用户记忆/画像∥员工独立记忆与经验（画像可共享）；知识库=你上传的文档；会话上传=仅本轮附件 |
 
 ---
 
@@ -164,7 +168,7 @@ flowchart TD
 ### 路径 B · 运营：每日汇总推飞书
 
 1. 配模型 + 飞书渠道  
-2. **自动化** 写清 Prompt、选每天时刻、开推送  
+2. **自动化** 选提示词（并选执行员工/智能体）或已发布工作流，配每天时刻  
 3. 点「运行」试一次 → 看历史 / 飞书是否收到  
 
 ### 路径 C · 小团队：岗位盯仓库

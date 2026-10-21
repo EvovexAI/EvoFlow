@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evoflow.eval.scenarios._harness import check, finalize, run_scenario
-from evoflow.eval.scenarios._persist import expect_vault_setting
+from evoflow.eval.scenarios._knowledge_fixture import expect_kb_base
 
 
 def _run(home: Path) -> dict:
@@ -13,13 +13,14 @@ def _run(home: Path) -> dict:
     from evoflow.admin import knowledge as knowledge_admin
     from evoflow.admin.errors import NotFoundError
 
-    created = knowledge_admin.create_managed_vault(name="评测知识库L2")
-    vault = created.get("vault") or created
-    vault_id = str(vault.get("id") or created.get("id") or "").strip()
+    from evoflow.eval.scenarios._knowledge_fixture import create_base_id, set_base_hidden
 
-    disabled = knowledge_admin.set_vault_enabled(vault_id, False)
-    enabled_flag = bool((disabled.get("vault") or {}).get("enabled", disabled.get("enabled")))
-    reenabled = knowledge_admin.set_vault_enabled(vault_id, True)
+    vault_id = create_base_id("评测知识库L2")
+
+    # 遗留 Vault 的 set_vault_enabled 已随「知识库归一」移除；等价语义 = 库的 hidden 标记（停用/忽略）。
+    disabled = set_base_hidden(vault_id, True)
+    enabled_flag = bool(disabled.get("hidden"))
+    reenabled = set_base_hidden(vault_id, False)
 
     token = "EvoFlowKbL2Token99"
     saved = knowledge_admin.remember(
@@ -52,20 +53,20 @@ def _run(home: Path) -> dict:
 
     assertions = [
         check(
-            "vault_disable_flag",
-            enabled_flag is False or disabled.get("enabled") is False,
-            inputs={"vault_id": vault_id, "enabled": False},
-            expected=False,
-            actual={"enabled": disabled.get("enabled"), "vault": disabled.get("vault")},
-            api="knowledge_admin.set_vault_enabled",
+            "base_disable_flag",
+            enabled_flag is True,
+            inputs={"kb_id": vault_id, "hidden": True},
+            expected=True,
+            actual=disabled.get("hidden"),
+            api="knowledge.owned.update_base(hidden)",
         ),
         check(
-            "vault_reenable",
-            bool(reenabled.get("enabled", True)),
-            inputs={"vault_id": vault_id, "enabled": True},
-            expected=True,
-            actual=reenabled.get("enabled"),
-            api="knowledge_admin.set_vault_enabled",
+            "base_reenable",
+            reenabled.get("hidden") is False,
+            inputs={"kb_id": vault_id, "hidden": False},
+            expected=False,
+            actual=reenabled.get("hidden"),
+            api="knowledge.owned.update_base(hidden)",
         ),
         check(
             "remember_path",
@@ -100,12 +101,12 @@ def _run(home: Path) -> dict:
             api="knowledge_admin.delete_knowledge",
         ),
     ]
-    persist = [expect_vault_setting(vault_id)] if vault_id else []
+    persist = [expect_kb_base(vault_id)] if vault_id else []
     return finalize(
         assertions + persist,
         metrics={"vault_id": vault_id, "note_path": note_path, "token": token},
         steps=[
-            {"step": 1, "api": "create_managed_vault + set_vault_enabled(false/true)"},
+            {"step": 1, "api": "create_owned_base + owned.update_base(hidden=true/false)"},
             {"step": 2, "api": "remember", "result": {"path": note_path}},
             {"step": 3, "api": "list_knowledge(prefix=L2) / recall"},
             {"step": 4, "api": "delete_knowledge", "result": {"gone": gone}},

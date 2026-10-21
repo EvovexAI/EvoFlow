@@ -26,9 +26,9 @@
 
 | 主题 | 文档 |
 |------|------|
-| 任务中心（驾驶舱 / 详情 / 工作流） | [task-center.md](tasks/task-center.md) [[guides/tasks/task-center|任务中心]] |
-| 自动化与通知推送 | [scheduled-tasks.md](tasks/scheduled-tasks.md) [[guides/tasks/scheduled-tasks|自动化]] |
-| 自动化调度（Automation） | [automation-scheduler.md](tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化调度]] |
+| 任务中心（待办 / 协作 / 小V / 员工派发） | 操作 [task-center.md](tasks/task-center.md) · 概念 [task-center.md](../explanation/task-center.md) |
+| 自动化（提示词 Agent ∥ 定时工作流） | 操作 [scheduled-tasks.md](tasks/scheduled-tasks.md) · 概念 [automation-center.md](../explanation/automation-center.md) |
+| 自动化调度（运维 / API） | [automation-scheduler.md](tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化调度]] |
 
 ## 配置与面板（configuration/）
 
@@ -46,6 +46,7 @@
 | 知识库 | [knowledge-base.md](configuration/knowledge-base.md) |
 | 旧上传文档 / 旧 Vault 入口 | [document-knowledge-base.md](configuration/document-knowledge-base.md) · [knowledge-vault.md](configuration/knowledge-vault.md) |
 | 工作流（旧名「应用中心」） | [app-center.md](configuration/app-center.md) [[guides/configuration/app-center|工作流]] |
+| **Agent 应用**（业务承载 + AI 连接） | 操作 [settings-capabilities.md](configuration/settings-capabilities.md) · 开发者 [install-own-project-as-extension.md](configuration/install-own-project-as-extension.md) · 概念 [agent-applications.md](../explanation/agent-applications.md) |
 | 沙箱配置 | [sandbox-config.md](configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱配置]] |
 
 ## IM 与渠道（integration/）

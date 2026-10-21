@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evoflow.eval.scenarios._harness import check, finalize, run_scenario
-from evoflow.eval.scenarios._persist import expect_vault_setting
+from evoflow.eval.scenarios._knowledge_fixture import expect_kb_base
 
 
 def _run(home: Path) -> dict:
@@ -13,9 +13,9 @@ def _run(home: Path) -> dict:
     from evoflow.admin import knowledge as knowledge_admin
     from evoflow.admin.errors import NotFoundError, ValidationError
 
-    created = knowledge_admin.create_managed_vault(name="评测负例知识库")
-    vault = created.get("vault") or created
-    vault_id = str(vault.get("id") or created.get("vault_id") or created.get("id") or "").strip()
+    from evoflow.eval.scenarios._knowledge_fixture import create_base_id
+
+    vault_id = create_base_id("评测负例知识库")
 
     empty_err = ""
     empty_ok = False
@@ -47,7 +47,7 @@ def _run(home: Path) -> dict:
             inputs={"name": "评测负例知识库"},
             expected="非空 vault_id",
             actual=vault_id,
-            api="knowledge_admin.create_managed_vault",
+            api="knowledge_admin.create_owned_base",
         ),
         check(
             "empty_query_rejected",
@@ -66,12 +66,12 @@ def _run(home: Path) -> dict:
             api="knowledge_admin.recall",
         ),
     ]
-    persist = [expect_vault_setting(vault_id)] if vault_id else []
+    persist = [expect_kb_base(vault_id)] if vault_id else []
     return finalize(
         assertions + persist,
         metrics={"vault_id": vault_id},
         steps=[
-            {"step": 1, "module": "knowledge", "api": "create_managed_vault", "vault_id": vault_id},
+            {"step": 1, "module": "knowledge", "api": "create_owned_base", "vault_id": vault_id},
             {"step": 2, "module": "knowledge", "api": "recall(empty) → ValidationError"},
             {"step": 3, "module": "knowledge", "api": "recall(unknown vault) → NotFoundError"},
         ],

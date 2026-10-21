@@ -1,6 +1,6 @@
 # 面板设置
 
-左下角齿轮打开设置。模型、联网搜索、插件市场的逐步操作见 [模型、联网搜索、插件与 Agent 应用](settings-capabilities.md)。侧栏 **Agent应用** 用来挂网页，不在这个弹窗里。
+左下角齿轮打开设置。模型、联网搜索、插件市场的逐步操作见 [模型、联网搜索、插件与 Agent 应用](settings-capabilities.md)。侧栏 **Agent应用** 用来挂网页（统一列表、面板内打开），不在这个弹窗里；定位见 [Agent 应用中心概念](../../explanation/agent-applications.md)。
 
 ---
 

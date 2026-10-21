@@ -6,16 +6,15 @@ import json
 from pathlib import Path
 
 from evoflow.eval.scenarios._harness import check, finalize, run_scenario
-from evoflow.eval.scenarios._persist import expect_vault_setting
+from evoflow.eval.scenarios._knowledge_fixture import expect_kb_base
 
 
 def _run(home: Path) -> dict:
     del home
     from evoflow.admin import knowledge as knowledge_admin
+    from evoflow.eval.scenarios._knowledge_fixture import create_base_id
 
-    created = knowledge_admin.create_managed_vault(name="评测知识库")
-    vault = created.get("vault") or created
-    vault_id = str(vault.get("id") or created.get("vault_id") or created.get("id") or "").strip()
+    vault_id = create_base_id("评测知识库")
 
     unique = "EvoFlowEvalUniqueToken42"
     remember_payload = {
@@ -29,7 +28,7 @@ def _run(home: Path) -> dict:
     )
     recalled = knowledge_admin.recall(
         unique,
-        vault_id=vault_id or None,
+        kb_id=vault_id or None,
         mode="fulltext",
         limit=5,
     )
@@ -46,7 +45,7 @@ def _run(home: Path) -> dict:
             inputs={"name": "评测知识库"},
             expected="非空 vault_id",
             actual=vault_id or str(created)[:120],
-            api="knowledge_admin.create_managed_vault",
+            api="knowledge_admin.create_owned_base",
         ),
         check(
             "remember_ok",
@@ -65,12 +64,12 @@ def _run(home: Path) -> dict:
             api="knowledge_admin.recall",
         ),
     ]
-    persist = [expect_vault_setting(vault_id)] if vault_id else []
+    persist = [expect_kb_base(vault_id)] if vault_id else []
     return finalize(
         assertions + persist,
         metrics={"vault_id": vault_id, "hit_count": total, "token": unique},
         steps=[
-            {"step": 1, "api": "create_managed_vault", "result": {"vault_id": vault_id}},
+            {"step": 1, "api": "create_owned_base", "result": {"vault_id": vault_id}},
             {"step": 2, "api": "remember", "inputs": remember_payload},
             {"step": 3, "api": "recall", "inputs": {"query": unique}, "result": {"total": total}},
         ],

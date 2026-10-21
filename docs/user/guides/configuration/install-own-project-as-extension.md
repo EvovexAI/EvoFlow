@@ -1,6 +1,8 @@
 # 将自己的项目安装为 EvoFlow Agent应用
 
 > 本文档面向**项目开发者**：你想把自研的 Web 应用（React/Vue/静态页/任何 http 服务）嵌入 EvoPanel，让它在侧栏「Agent应用」分组里出现，点击就能打开。
+>
+> **产品定位**：Agent 应用中心把多来源业务应用统一进一份列表、在面板内打开；嵌入只是「承载」，通过 Bridge / API 接工作流、AI 员工、知识库才是「AI 集成」。概念与 F4 架构见 [Agent 应用中心](../../explanation/agent-applications.md)。
 
 ---
 
@@ -572,6 +574,7 @@ curl -X DELETE http://127.0.0.1:<port>/api/ui-extensions/my-ops
 
 ## 相关阅读
 
+- [[explanation/agent-applications|Agent 应用中心概念]] — 定位、六大模块、承载 vs AI 集成
 - [[guides/configuration/evopanel-guide|EvoFlow 桌面端使用指南]] — 侧栏与Agent应用入口
 - [[guides/configuration/tools-mcp|工具与 MCP]] — Agent应用可用的 Bridge 协议
 - [[guides/configuration/settings|面板设置]] — Agent应用管理与配置

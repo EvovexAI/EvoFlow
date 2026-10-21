@@ -398,8 +398,20 @@ def expect_app_run(run_id: str | None = None, *, task_id: str | None = None, app
 
 
 def expect_vault_setting(vault_id: str) -> Assertion:
-    """Removed: Obsidian vault support removed. Returns a pass-through assertion."""
-    return check_db_absent(f"vault_removed_{vault_id}", "SELECT 1", ())
+    """Removed: Obsidian vault support removed. Returns a pass-through assertion.
+
+    2026-10-21 修复：原实现用 ``check_db_absent("SELECT 1")`` 断言「库里查不到任何行」，
+    但 ``SELECT 1`` 恒有结果，导致该断言恒假并毒化 5 个知识库相关场景的分数。
+    遗留 Vault 已不存在，此处只需恒通过（保留函数以兼容旧场景调用）。
+    """
+    return check(
+        f"vault_removed_{vault_id}",
+        True,
+        inputs={"vault_id": vault_id},
+        expected="legacy vault support removed (no-op)",
+        actual="no-op",
+        api="knowledge.legacy_vault_absent",
+    )
 
 
 def expect_user_item(item_id: str, *, status: str | None = None, title: str | None = None) -> Assertion:

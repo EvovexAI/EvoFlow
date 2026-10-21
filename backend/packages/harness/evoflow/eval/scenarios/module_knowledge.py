@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evoflow.eval.scenarios._harness import check, finalize, run_scenario
-from evoflow.eval.scenarios._persist import expect_vault_setting
+from evoflow.eval.scenarios._knowledge_fixture import expect_kb_base
 
 
 def _run(home: Path) -> dict:
@@ -13,12 +13,15 @@ def _run(home: Path) -> dict:
     from evoflow.admin import knowledge as knowledge_admin
     from evoflow.admin.errors import NotFoundError
 
-    created = knowledge_admin.create_managed_vault(name="评测模块知识库")
-    vault = created.get("vault") or created
-    vault_id = str(vault.get("id") or created.get("vault_id") or created.get("id") or "").strip()
+    from evoflow.eval.scenarios._knowledge_fixture import create_base_id
 
-    listed = knowledge_admin.list_vaults()
-    vault_ids = [str(v.get("id") or "") for v in (listed.get("items") or listed.get("vaults") or []) if isinstance(v, dict)]
+    vault_id = create_base_id("评测模块知识库")
+
+    listed = knowledge_admin.list_bases()
+    vault_ids = [
+        str(v.get("id") or "")
+        for v in (listed.get("bases") or listed.get("items") or []) if isinstance(v, dict)
+    ]
 
     saved = knowledge_admin.remember(
         {
@@ -64,7 +67,7 @@ def _run(home: Path) -> dict:
             inputs={"name": "评测模块知识库"},
             expected="非空 vault_id",
             actual=vault_id,
-            api="knowledge_admin.create_managed_vault",
+            api="knowledge_admin.create_owned_base",
         ),
         check(
             "vault_listed",
@@ -72,7 +75,7 @@ def _run(home: Path) -> dict:
             inputs={},
             expected=vault_id,
             actual=vault_ids[:20],
-            api="knowledge_admin.list_vaults",
+            api="knowledge_admin.list_bases",
         ),
         check(
             "note_remembered",
@@ -107,13 +110,13 @@ def _run(home: Path) -> dict:
             api="knowledge_admin.delete_knowledge",
         ),
     ]
-    persist = [expect_vault_setting(vault_id)] if vault_id else []
+    persist = [expect_kb_base(vault_id)] if vault_id else []
     return finalize(
         assertions + persist,
         metrics={"vault_id": vault_id, "note_path": note_path},
         steps=[
-            {"step": 1, "api": "create_managed_vault", "result": {"vault_id": vault_id}},
-            {"step": 2, "api": "list_vaults", "result": {"count": len(vault_ids)}},
+            {"step": 1, "api": "create_owned_base", "result": {"vault_id": vault_id}},
+            {"step": 2, "api": "list_bases", "result": {"count": len(vault_ids)}},
             {"step": 3, "api": "remember", "result": {"path": note_path}},
             {"step": 4, "api": "list_knowledge / get_knowledge"},
             {"step": 5, "api": "delete_knowledge", "result": {"gone": gone}},
