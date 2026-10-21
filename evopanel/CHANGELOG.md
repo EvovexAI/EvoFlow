@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- 左下角齿轮与右下角停止按钮共用同一判定（`isSending` / `selectedTurnBusy`）：停止亮则齿轮转；无折叠头时也渲染齿轮
+
 ## [1.1.3] - 2026-10-21
 
 相对 **1.1.2** 以来的增量发布：官方插件随仓库打包（空市场修复）+ 工具审批完全访问 + view_image 多图与联网搜索 + 会话标题走马灯与员工区交互 + 预设角色归并。

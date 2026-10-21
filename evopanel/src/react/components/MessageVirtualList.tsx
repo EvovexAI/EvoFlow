@@ -12,9 +12,7 @@
 } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
-  resolveGearHostRowIndex,
   resolveMessageRowIsStreaming,
-  resolveMessageRowThreadBusy,
   shouldDropEmptyStreamPlaceholder,
 } from '../lib/message-row-streaming.js'
 import { markRecentlyStreamed, clearRecentlyStreamed } from '../lib/recently-streamed-runids.js'
@@ -83,8 +81,8 @@ type SharedHistoryProps = {
   toolApprovalHost: ReturnType<typeof resolveToolApprovalHost>
   streamToolApprovalHost: ReturnType<typeof resolveToolApprovalHost>
   streamContinuedRowIndex: number
-  /** 齿轮宿主行（与停止按钮 isSending 同源；可为续流目标或 incomplete 审批气泡） */
-  gearHostRowIndex: number
+  /** 忙碌时是否由独立 _stream pin 挂齿轮（否则挂最后一条助手） */
+  showSeparateStreamPin: boolean
   isSending: boolean
   lastAssistantRowIndex: number
   liveTurnAssistantRunId: string | null
@@ -127,7 +125,7 @@ type SharedHistoryProps = {
 
 type HistoryMessageRowProps = Omit<
   SharedHistoryProps,
-  'isSending' | 'streamContinuedRowIndex' | 'gearHostRowIndex'
+  'isSending' | 'streamContinuedRowIndex' | 'showSeparateStreamPin'
 > & {
   /** 流式气泡单独钉在列表外时，历史里的最后一条助手不再算「最后一轮」 */
   liveTurnSeparate?: boolean
@@ -247,7 +245,8 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
     liveTurnElapsedSec,
     isSending,
     streamContinuedRowIndex,
-    gearHostRowIndex,
+    showSeparateStreamPin,
+    lastAssistantRowIndex,
     ...rowProps
   } = props
   const sk = String(props.sessionKey || 'default')
@@ -264,7 +263,12 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
           streamContinuedRowIndex,
           isSending,
         )
-        const threadBusy = resolveMessageRowThreadBusy(item.i, gearHostRowIndex, isSending)
+        // 停止亮 ↔ 齿轮转：同一个 isSending。有独立 pin 时挂 pin，否则挂最后一条助手。
+        const threadBusy =
+          !!isSending &&
+          !showSeparateStreamPin &&
+          item.row.role === 'assistant' &&
+          item.i === lastAssistantRowIndex
         return (
           <HistoryMessageRow
             key={uniqueKeys[historyIndex] ?? historyItemStableKey(sk, item.row, item.i)}
@@ -277,10 +281,10 @@ const FlatHistoryBody = memo(function FlatHistoryBody(
                 : 'react-vlist-item react-vlist-item--turn'
             }
             {...rowProps}
+            lastAssistantRowIndex={lastAssistantRowIndex}
             isContinuedStream={isContinuedStream}
             threadBusy={threadBusy}
-            liveTurnSeparate={isSending && streamContinuedRowIndex < 0 && gearHostRowIndex < 0}
-            // 仅流式续写 / 齿轮宿主行接收 dock 计时，避免每秒计时击穿其余行 memo
+            liveTurnSeparate={!!isSending && showSeparateStreamPin}
             liveActivityDockLabel={
               isContinuedStream || threadBusy ? liveActivityDockLabel : undefined
             }
@@ -464,11 +468,11 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
           rowProps.streamContinuedRowIndex,
           rowProps.isSending,
         )
-        const threadBusy = resolveMessageRowThreadBusy(
-          item.i,
-          rowProps.gearHostRowIndex,
-          rowProps.isSending,
-        )
+        const threadBusy =
+          !!rowProps.isSending &&
+          !rowProps.showSeparateStreamPin &&
+          item.row.role === 'assistant' &&
+          item.i === rowProps.lastAssistantRowIndex
         return (
           <HistoryMessageRow
             key={vRow.key}
@@ -482,11 +486,7 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
             isContinuedStream={isContinuedStream}
             threadBusy={threadBusy}
             lastAssistantRowIndex={rowProps.lastAssistantRowIndex}
-            liveTurnSeparate={
-              rowProps.isSending &&
-              rowProps.streamContinuedRowIndex < 0 &&
-              rowProps.gearHostRowIndex < 0
-            }
+            liveTurnSeparate={!!rowProps.isSending && rowProps.showSeparateStreamPin}
             liveTurnAssistantRunId={rowProps.liveTurnAssistantRunId}
             liveTurnTimingActive={rowProps.liveTurnTimingActive}
             executionToolTiming={rowProps.executionToolTiming}
@@ -1219,15 +1219,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
 
   const streamContinuedRowIndex =
     streamContinuesAssistant && streamRow ? continuationTargetIndex : -1
-  const gearHostRowIndex = resolveGearHostRowIndex({
-    isSending,
-    streamContinuedRowIndex,
-    // streamRow 未建出 / streamActive 被 seal 压制时，仍把齿轮挂在可续写气泡上
-    continuationTargetIndex: acceptsContinuationTarget ? continuationTargetIndex : -1,
-  })
+  // 有独立 pin 时齿轮挂 pin；否则挂最后一条助手。判定源只有 isSending（= 停止按钮）。
   const showSeparateStreamPin =
-    (!!streamRow && !streamContinuesAssistant) ||
-    (needsBusyPin && gearHostRowIndex < 0)
+    (!!streamRow && !streamContinuesAssistant) || needsBusyPin
 
   const hasContent = historyItems.length > 0 || showSeparateStreamPin
   historyItemsCountRef.current = historyItems.length
@@ -2469,7 +2463,8 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           toolApprovalHost={historyToolApprovalHost}
           streamToolApprovalHost={streamToolApprovalHost}
           streamContinuedRowIndex={streamContinuedRowIndex}
-          gearHostRowIndex={gearHostRowIndex}
+          // 与下方 pin 实际是否渲染一致：pin 没画出来时齿轮仍挂最后一条助手
+          showSeparateStreamPin={showSeparateStreamPin && !!streamRow}
           isSending={isSending}
           lastAssistantRowIndex={lastAssistantRowIndex}
           liveTurnAssistantRunId={liveTurnAssistantRunId}
@@ -2498,9 +2493,9 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           <div className="react-vlist-item react-vlist-item--turn react-vlist-stream-pin">
             <MemoMessageRow
               row={streamRow}
-              isStreaming={streamActive || (!!isSending && gearHostRowIndex < 0)}
-              // 独立 pin 上的齿轮与停止按钮同源（isSending），不跟 streamActive/suppress 走
-              threadBusy={!!isSending && gearHostRowIndex < 0}
+              isStreaming={streamActive || !!isSending}
+              // 停止亮 ↔ 齿轮转：pin 上直接用 isSending，不再套其它条件
+              threadBusy={!!isSending}
               isLatestTurn
               liveActivityDockLabel={liveActivityDockLabel}
               liveTurnElapsedSec={liveTurnElapsedSec}

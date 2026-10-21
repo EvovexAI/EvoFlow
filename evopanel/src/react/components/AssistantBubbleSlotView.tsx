@@ -460,6 +460,16 @@ function AssistantBubbleSlotViewInner({
   //   - 已工作 / 已停止（isStreaming=false）→ defaultOpen=false：默认折叠，点 chevron 展开看全部
   //   - 之前 v5 用 headerOnly 把头部退化成静态标签，砍掉了折叠能力。
   //   - 之前 v5 chunk 内还塞了个「过程 N 项」二级折叠头，过于啰嗦，已删除。
+  // 齿轮与右下停止按钮：同一个 boolean（threadBusy = isSending = selectedTurnBusy）。
+  // 不跟 workedLabel / 折叠头走——没有折叠头时也必须转，否则停止亮着齿轮却不出现。
+  const gear = threadBusy ? (
+    <StreamRunStatusLine
+      key="stream-tail-spinner"
+      label={resolveStreamTailLabel(liveActivityLabel)}
+      showTip={false}
+    />
+  ) : null
+
   return (
     <>
       {askInline}
@@ -487,21 +497,16 @@ function AssistantBubbleSlotViewInner({
           {plan.slots.map((slot, si) => (
             <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
           ))}
-          {/* 齿轮与右下停止按钮同源：只看 threadBusy（selectedTurnBusy）。
-              row.state 在提前 IDLE 后仍可能是 streaming，不能再单独点亮齿轮。 */}
-          {threadBusy ? (
-            <StreamRunStatusLine
-              key="stream-tail-spinner"
-              label={resolveStreamTailLabel(liveActivityLabel)}
-              showTip={false}
-            />
-          ) : null}
+          {gear}
         </TurnHistoryFold>
       ) : (
-        // 无 workedLabel（无 workedLabel 的纯文本回合）：按原路径平铺，不折叠。
-        plan.slots.map((slot, si) => (
-          <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
-        ))
+        // 无折叠头：正文平铺，忙碌时齿轮仍挂在回合末尾（与停止按钮同亮）。
+        <>
+          {plan.slots.map((slot, si) => (
+            <Fragment key={`slot-${si}`}>{renderSlot(slot, si)}</Fragment>
+          ))}
+          {gear}
+        </>
       )}
       {!isStreaming && !compareSessionKey && sessionKey && changedFiles.length > 0 ? (
         <ChangedFilesSummaryRow
