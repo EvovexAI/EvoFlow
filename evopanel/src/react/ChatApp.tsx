@@ -388,6 +388,9 @@ import { refreshPlanDockAfterStreamFinal as refreshPlanDockAfterStreamFinalImpl 
 import { sessionPersistedTokenTotals as buildSessionPersistedTokenTotals } from './chat-app/context/session-persisted-token-totals.js'
 import { collectCollabToolsForSidebar as collectCollabToolsForSidebarImpl } from './chat-app/collab/collect-collab-tools-for-sidebar.js'
 import { handleDeleteWorkspaceGroup as handleDeleteWorkspaceGroupImpl } from './chat-app/session/handle-delete-workspace-group.js'
+import { handleDeleteSession as handleDeleteSessionImpl } from './chat-app/session/handle-delete-session.js'
+import { authorizeExecutionInBackground as authorizeExecutionInBackgroundImpl } from './chat-app/plan-dock/authorize-execution-in-background.js'
+import { runUserExecutionStart as runUserExecutionStartImpl } from './chat-app/plan-dock/run-user-execution-start.js'
 // ============================================
 
 import type {
@@ -3675,97 +3678,46 @@ export default function ChatApp() {
     taskId: string,
     _threadIdHint: string,
   ): Promise<boolean> {
-    const tid = String(taskId || '').trim()
-    if (!tid) return false
-    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-    const threadId = await resolveLangGraphThreadIdForSession(sk)
-    try {
-      const auth = (await tasksAPI.authorizeTaskExecution(tid, {
-        authorized_by: 'user',
-        ...(threadId ? { thread_id: threadId } : {}),
-      })) as Record<string, unknown>
-      if (auth?.success === false) {
-        const msg = String(auth?.message || auth?.error || '授权失败').trim()
-        toast(`授权失败：${msg}`, 'error')
-        return false
-      }
-      if (threadId) {
-        const snap = (await wsClient.hydrateCollabSidebarSnapshot(threadId, tid)) as Record<
-          string,
-          unknown
-        > | null
-        if (snap) {
-          applyTaskProgressSnapshot(snap, {
-            sessionKey: String(sessionRef.current || selectedSessionKey || '').trim(),
-          })
-        }
-      }
-      const phase = String(auth?.collab_phase || 'awaiting_exec').trim().toLowerCase()
-      setThreadPanelState((prev) => ({
-        ...prev,
-        boundTaskId: tid,
-        collabPhase: phase === 'executing' ? 'executing' : 'awaiting_exec',
-        collabTask: {
-          ...(prev.collabTask || {}),
-          taskId: tid,
-          executionAuthorized: true,
-          status: phase === 'executing' ? 'executing' : prev.collabTask?.status || 'planned',
-        },
-      }))
-      suppressPlanExecDock(tid)
-      userAuthorizedTaskIdsRef.current.add(tid)
-      applyPlanDockApiView(
-        planDockApiHide('user_start_execution', 'execution_authorized', {
-          taskId: tid,
-          taskStatus: phase === 'executing' ? 'executing' : 'planned',
-        }) as PlanDockApiView,
-      )
-      openCollabExecPanel({ clearDismiss: true })
-      await ensureSubtasksVisibleForTask(tid)
-      return true
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err)
-      toast(`启动执行失败：${raw}`, 'error')
-      return false
-    }
+    return authorizeExecutionInBackgroundImpl(
+      {
+        sessionRef,
+        selectedSessionKey,
+        userAuthorizedTaskIdsRef,
+        setThreadPanelState,
+        resolveLangGraphThreadIdForSession,
+        hydrateCollabSidebarSnapshot: (threadId, tid) =>
+          wsClient.hydrateCollabSidebarSnapshot(threadId, tid) as Promise<
+            Record<string, unknown> | null
+          >,
+        applyTaskProgressSnapshot,
+        suppressPlanExecDock,
+        applyPlanDockApiView,
+        planDockApiHide,
+        openCollabExecPanel,
+        ensureSubtasksVisibleForTask,
+      },
+      taskId,
+      _threadIdHint,
+    )
   }
 
   /** 界面「开始执行」：REST 授权并自动派发首波，再发用户消息让 Lead 进入监控/验收轮次。 */
   async function runUserExecutionStart(taskId: string) {
-    if (planExecStartInFlightRef.current) return
-    planExecStartInFlightRef.current = true
-    setPlanExecStarting(true)
-    let tid = String(taskId || '').trim()
-    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-    try {
-      if (!tid && sk) {
-        const hit = extractLastPlanToolSuccessFromArrays(planExecToolArrays)
-        tid = await resolvePlanBoundTaskId({
-          sessionKey: sk,
-          // @ts-ignore
-          planOutput: (hit?.planOutput as Record<string, unknown> | undefined) ?? null,
-          hintTaskId: String(
-            threadPanelState.collabTask?.taskId ||
-              threadPanelState.boundTaskId ||
-              boundTaskId ||
-              threadPanelState.collabSubtasks?.[0]?.parentTaskId ||
-              '',
-          ).trim(),
-        })
-      }
-      if (tid) {
-        const threadId = await resolveLangGraphThreadIdForSession(sk)
-        const authorized = await authorizeExecutionInBackground(tid, threadId)
-        if (!authorized) return
-      } else {
-        toast('未找到可授权的任务 ID，请稍候或刷新后重试', 'warning')
-        return
-      }
-      await handleSend('开始执行')
-    } finally {
-      planExecStartInFlightRef.current = false
-      setPlanExecStarting(false)
-    }
+    await runUserExecutionStartImpl(
+      {
+        sessionRef,
+        selectedSessionKey,
+        planExecStartInFlightRef,
+        setPlanExecStarting,
+        planExecToolArrays,
+        threadPanelState,
+        boundTaskId,
+        resolveLangGraphThreadIdForSession,
+        authorizeExecutionInBackground,
+        handleSend,
+      },
+      taskId,
+    )
   }
 
   // NOTE: 已移除 scheduleCollabTaskProgressRefresh（不再通过 /task-progress 拉取侧栏快照）
@@ -11479,60 +11431,35 @@ export default function ChatApp() {
   startNewChatWithPresetAgentRef.current = startNewChatWithPresetAgent
 
   async function handleDeleteSession(key?: string) {
-    const targetKey = key || selectedSessionKey
-    if (!targetKey || deleteSessionConfirmInflightRef.current) return
-    deleteSessionConfirmInflightRef.current = true
-    // 先收起侧栏「···」菜单，避免确认框下方仍留着「删除会话」导致第一次点击被穿透/误触
-    setMoreMenuKey(null)
-    try {
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-        }, 0)
-      })
-      suppressModalBackdropDismiss(300)
-      const yes = await showConfirm('删除此会话？')
-      if (!yes) return
-
-      const { api } = await import('../lib/tauri-api.js')
-      const viewingDeleted =
-        targetKey === sessionRef.current || targetKey === selectedSessionKey
-
-      // 侧栏先去掉条目（含搜索缓存），避免 refresh 合并草稿时从 prev 粘回（agent:*:new-*）
-      removeSessionFromList(targetKey)
-      clearSessionRuntime(targetKey)
-      // 旧 deleteLiveStream 已删：live-stream-store 没了
-      seenArtifactsRef.current.delete(targetKey)
-      setMoreMenuKey((mk) => (mk === targetKey ? null : mk))
-
-      if (viewingDeleted) {
-        sessionRef.current = ''
-        setSelectedSessionKey('')
-        setNewChatButtonActive(true)
-        streamRef.current = emptyStream()
-        streamRefKeyRef.current = ''
-        seenRunIdsRef.current = new Set()
-        rowsRef.current = []
-        setRows([])
-        setTokenTotals(null)
-        setLiveTurnTokens(null)
-        setSubagentDockTasks({})
-        setSidebarTaskViews({})
-        setSidebarSelectedTaskId(null)
-        setThreadPanelState(emptyThreadPanel())
-        setHasReceivedTodos(false)
-        setBoundTaskId(null)
-        bumpStreamFullRef.current()
-      }
-
-      await api.chatSessionsDelete(targetKey, { clearWorkspaceHistory: false })
-      composerDraftsRef.current.delete(targetKey)
-      await refreshSessions({ skipAutoReselect: true })
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e), 'error')
-    } finally {
-      deleteSessionConfirmInflightRef.current = false
-    }
+    await handleDeleteSessionImpl(
+      {
+        selectedSessionKey,
+        deleteSessionConfirmInflightRef,
+        sessionRef,
+        streamRef,
+        streamRefKeyRef,
+        seenRunIdsRef,
+        rowsRef,
+        seenArtifactsRef,
+        composerDraftsRef,
+        bumpStreamFullRef,
+        setMoreMenuKey,
+        setSelectedSessionKey,
+        setNewChatButtonActive,
+        setRows,
+        setTokenTotals,
+        setLiveTurnTokens,
+        setSubagentDockTasks,
+        setSidebarTaskViews,
+        setSidebarSelectedTaskId,
+        setThreadPanelState,
+        setHasReceivedTodos,
+        setBoundTaskId,
+        removeSessionFromList,
+        refreshSessions,
+      },
+      key,
+    )
   }
 
   handleDeleteSessionRef.current = handleDeleteSession
