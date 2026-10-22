@@ -70,7 +70,6 @@ import {
   type ModelCatalogEntry,
 } from './lib/model-catalog.js'
 import { setChatWorkspaceRoot } from '../lib/chat-workspace-context.js'
-import { setWorkspaceRevertExecutor } from '../lib/workspace-change-journal.js'
 import { effectiveLocalWorkspaceRoot } from '../lib/workspace-api-scope.js'
 import { useThreadHistory, markResumeAnchorAssistantIncomplete } from './hooks/useThreadHistory.js'
 import { useSessionList } from './hooks/useSessionList.js'
@@ -248,8 +247,6 @@ import {
   detectStreamingWritePreview,
   isActiveWriteTool,
   isStreamAutoPreviewPath,
-  resolveOpenableWorkspaceFile,
-  resolveWorkspacePreviewTarget,
   shouldSuppressStreamDeliveredFiles,
   workspacePreviewTargetFromUrl,
 } from '../lib/workspace-preview-path.js'
@@ -295,6 +292,8 @@ import { useComposerDrafts } from './hooks/useComposerDrafts.js'
 import { usePendingSendQueue } from './hooks/usePendingSendQueue.js'
 import { useChatContextFiles } from './hooks/useChatContextFiles.js'
 import { useStreamingWritePreview } from './hooks/useStreamingWritePreview.js'
+import { useWorkspaceFileOpen } from './hooks/useWorkspaceFileOpen.js'
+import { useComposerSkillPluginSelection } from './hooks/useComposerSkillPluginSelection.js'
 import {
   formatAskClarificationForHosted,
   isClarificationPreviewRenderable,
@@ -2198,220 +2197,16 @@ export default function ChatApp() {
     workspacePanelOpen,
   ])
 
-  const openWorkspaceFilePreview = useCallback(
-    (
-      rawUrl: string,
-      opts?: {
-        poll?: boolean
-        name?: string
-        focusLine?: number
-        focusEndLine?: number
-        focusAnnotation?: { title?: string; body?: string; priority?: number }
-      },
-    ) => {
-      const target = resolveWorkspacePreviewTarget(rawUrl, { name: opts?.name })
-      if (!target?.path) return
-      // 流式中打开文件预览勿取消 bump，否则工具/思考衔接会停一拍再跳。
-      const fileId = String(target.path || '').replace(/\\/g, '/')
-      const showFileTab = (path: string, name: string) => {
-        const id = String(path || '').replace(/\\/g, '/')
-        rightStageStore.show({
-          kind: 'file',
-          id,
-          title: name || id.split('/').filter(Boolean).pop() || '文件',
-          layout: 'wide',
-          sessionKey: rightStageSessionKeyRef.current || undefined,
-          data: {
-            path: id,
-            name: name || '',
-            poll: !!opts?.poll,
-            focusLine: opts?.focusLine,
-            focusEndLine: opts?.focusEndLine,
-            focusAnnotation: opts?.focusAnnotation || null,
-          },
-        })
-      }
-      // 右栏标签打开；目录 cite 先落临时路径，解析到可打开文件后再换页。
-      showFileTab(fileId, target.name)
-      void (async () => {
-        try {
-          const scope = workspaceOpenScopeRef.current
-          const root = scope.root
-          const tid = root
-            ? undefined
-            : wsClient.getSessionThreadId(scope.sessionKey || '') || undefined
-          const openable = await resolveOpenableWorkspaceFile({
-            workspaceRoot: root,
-            path: target.path,
-            name: target.name,
-            threadId: tid,
-            workspaceScopeOpts: {
-              configuredRoot: scope.configuredRoot,
-              useVirtualPaths: scope.useVirtualPaths,
-            },
-          })
-          if (!openable?.path || openable.path === target.path) return
-          const nextId = String(openable.path || '').replace(/\\/g, '/')
-          if (nextId !== fileId) {
-            rightStageStore.closeTab(`file:${fileId}`)
-          }
-          showFileTab(nextId, openable.name || target.name)
-        } catch {
-          /* 保留原路径；预览面板会展示读取错误 */
-        }
-      })()
-    },
-    [],
-  )
-
-  const openMessageFilePreview = useCallback(
-    (
-      rawUrl: string,
-      name?: string,
-      opts?: {
-        line?: number
-        endLine?: number
-        annotation?: { title?: string; body?: string; priority?: number }
-      },
-    ) => {
-      const target = resolveWorkspacePreviewTarget(rawUrl, { name })
-      if (!target?.path) {
-        toast('无法在工作区预览该文件', 'warning')
-        return
-      }
-      openWorkspaceFilePreview(rawUrl, {
-        name: target.name,
-        poll: false,
-        focusLine: opts?.line,
-        focusEndLine: opts?.endLine,
-        focusAnnotation: opts?.annotation,
-      })
-    },
-    [openWorkspaceFilePreview],
-  )
-  // 撤销执行器：把变更日志里的快照写回工作区（有快照=还原内容；代理新建=删除）。
-  // 只覆盖文件工具产生的变更，终端命令等绕过工具的写入不在快照里。
-  useEffect(() => {
-    let cancelled = false
-    setWorkspaceRevertExecutor(
-      async (
-        sessionKey: string,
-        entries: Array<{ path: string; beforeContent: string | null; existed: boolean; deleted: boolean }>,
-      ) => {
-        const { api } = await import('../lib/tauri-api.js')
-        if (cancelled) return { restored: [], skipped: entries.map((e) => e.path) }
-        const scope = workspaceOpenScopeRef.current
-        const root = String(scope.root || '').trim()
-        const tid = root
-          ? undefined
-          : wsClient.getSessionThreadId(sessionKey || '') || undefined
-        const scopeOpts = root
-          ? undefined
-          : { configuredRoot: scope.configuredRoot, useVirtualPaths: scope.useVirtualPaths }
-        const restored: string[] = []
-        const skipped: string[] = []
-        for (const entry of entries) {
-          try {
-            // 保守策略：只做"还原到快照"，不删除任何文件——刷新后历史工具行不带快照，
-            // 若按"无快照=代理新建=删除"处理会误删用户文件。
-            if (entry.existed && typeof entry.beforeContent === 'string') {
-              await api.writeWorkspaceFile(root, entry.path, entry.beforeContent, tid, scopeOpts)
-              restored.push(entry.path)
-            } else {
-              skipped.push(entry.path)
-            }
-          } catch {
-            skipped.push(entry.path)
-          }
-        }
-        if (restored.length) toast(`已撤销 ${restored.length} 个文件的更改`)
-        if (skipped.length) toast(`${skipped.length} 个文件没有修改前快照，已跳过`, 'warning')
-        return { restored, skipped }
-      },
-    )
-    return () => {
-      cancelled = true
-      setWorkspaceRevertExecutor(null)
-    }
-  }, [])
-  const openWorkspaceFilePreviewRef = useRef(openWorkspaceFilePreview)
-  openWorkspaceFilePreviewRef.current = openWorkspaceFilePreview
-
-  const revealWorkspacePath = useCallback(async (rawPath: string) => {
-    const path = String(rawPath || '').trim()
-    if (!path) {
-      toast('没有可打开的本地路径', 'info')
-      return
-    }
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      const scope = workspaceOpenScopeRef.current
-      const root = String(scope.root || '').trim()
-      const tid = root
-        ? undefined
-        : wsClient.getSessionThreadId(scope.sessionKey || '') || undefined
-      let resolved = path
-      // Absolute path: resolveWorkspacePath; else resolve via workspace target
-      const looksAbs =
-        /^[a-zA-Z]:[\\/]/.test(path) || (path.startsWith('/') && !path.startsWith('//'))
-      if (looksAbs) {
-        try {
-          const info = await api.resolveWorkspacePath(path)
-          resolved = String(info?.resolved || path).trim() || path
-        } catch {
-          resolved = path
-        }
-      } else {
-        const info = await api.resolveWorkspaceTarget(root || undefined, path, tid, {
-          configuredRoot: scope.configuredRoot,
-          useVirtualPaths: scope.useVirtualPaths,
-        })
-        resolved = String(info?.resolved || path).trim() || path
-        if (info?.exists === false) {
-          toast(`文件不存在：${resolved}`, 'error')
-          return
-        }
-      }
-      await api.revealPathInFileManager(resolved)
-      toast('已在文件管理器中打开', 'success')
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e), 'error')
-    }
-  }, [])
-  const revealWorkspacePathRef = useRef(revealWorkspacePath)
-  revealWorkspacePathRef.current = revealWorkspacePath
-
-  const openSessionArtifact = useCallback(
-    (item: ChatArtifact) => {
-      if (item.url && !item.path) {
-        try {
-          window.open(item.url, '_blank', 'noopener,noreferrer')
-        } catch {
-          /* ignore */
-        }
-        return
-      }
-      if (item.path) {
-        openWorkspaceFilePreviewRef.current(item.path, { name: item.name })
-      }
-    },
-    [],
-  )
-
-  const revealSessionArtifact = useCallback(
-    (item: ChatArtifact) => {
-      if (item.url && !item.path) {
-        try {
-          window.open(item.url, '_blank', 'noopener,noreferrer')
-        } catch {
-          /* ignore */
-        }
-        return
-      }
-      if (item.path) void revealWorkspacePath(item.path)
-    },
-    [revealWorkspacePath],
-  )
+  const {
+    openWorkspaceFilePreview,
+    openMessageFilePreview,
+    openWorkspaceFilePreviewRef,
+    openSessionArtifact,
+    revealSessionArtifact,
+  } = useWorkspaceFileOpen({
+    workspaceOpenScopeRef,
+    rightStageSessionKeyRef,
+  })
 
   useEffect(() => {
     const sk = String(selectedSessionKey || '').trim()
@@ -3590,128 +3385,39 @@ useEffect(() => {
       }
     }
   }, [proactiveRolesDisplay, selectedSessionKey, setRows])
-  /** 技能选择 pill（多选弹窗） */
-  const [bottomSkillOpen, setBottomSkillOpen] = useState(false)
+  /** 技能/插件选择（多选弹窗 + sticky） */
   const [shareSessionOpen, setShareSessionOpen] = useState(false)
   /** 顶栏「在资源管理器打开」成组按钮的下拉开合态。 */
   const [workspaceFolderMenuOpen, setWorkspaceFolderMenuOpen] = useState(false)
-  const [skillList, setSkillList] = useState<Array<{ name: string; label: string; description: string; icon: string; enabled?: boolean }>>([])
-  const [skillListLoading, setSkillListLoading] = useState(false)
-  const [selectedSkills, setSelectedSkills] = useState<SkillSelection[]>([])
-
-  const persistSelectedSkills = useCallback(async (sk: string, skills: SkillSelection[]) => {
-    const key = String(sk || '').trim()
-    if (!key) return
-    const names = skills.map((s) => String(s.name || '').trim()).filter(Boolean)
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      await api.chatUpdateContext(key, { preferred_skills: names })
-    } catch {
-      /* best-effort session sticky */
-    }
-  }, [])
-
-  const removeSelectedSkill = useCallback(
-    (name: string) => {
-      setSelectedSkills((prev) => {
-        const next = prev.filter((s) => s.name !== name)
-        void persistSelectedSkills(String(selectedSessionKey || ''), next)
-        return next
-      })
-    },
-    [persistSelectedSkills, selectedSessionKey],
-  )
-  const addSelectedSkill = useCallback(
-    (sk: { name: string; label: string; icon: string }) => {
-      const name = String(sk.name || '').trim()
-      if (!name) return
-      setSelectedSkills((prev) => {
-        if (prev.some((s) => s.name === name)) return prev
-        const next = [
-          ...prev,
-          { name, label: sk.label || name, icon: sk.icon || '🧩' },
-        ]
-        void persistSelectedSkills(String(selectedSessionKey || ''), next)
-        return next
-      })
-    },
-    [persistSelectedSkills, selectedSessionKey],
-  )
-  /** 插件选择 pill（ZCode 插件语义：选中插件仅注入组件元数据；技能经 skill: URI 按需读取，命令按 /命令名 调用时才注入正文） */
-  /** + 号一键直达：锚定插件/添加快捷面板（ZCode ChatPromptActionMenu 交互复刻） */
-  const [bottomPluginPanelOpen, setBottomPluginPanelOpen] = useState(false)
-  const [pluginPanelStyle, setPluginPanelStyle] = useState<CSSProperties | null>(null)
-  const [pluginList, setPluginList] = useState<Array<{ id: string; name: string; label: string; description: string; version?: string; marketplace: string; componentTypes?: string[]; iconUrl?: string }>>([])
-  const [pluginListLoading, setPluginListLoading] = useState(false)
-  const [selectedPlugins, setSelectedPlugins] = useState<PluginSelection[]>([])
-  /** 已选插件 pills：仅在用户刚选择时展示，发送后隐藏（粘性选择仍保留并继续注入） */
-  const [pluginComposerPillsVisible, setPluginComposerPillsVisible] = useState(false)
-
-  const persistSelectedPlugins = useCallback(async (sk: string, plugins: PluginSelection[]) => {
-    const key = String(sk || '').trim()
-    if (!key) return
-    const ids = plugins.map((p) => String(p.id || '').trim()).filter(Boolean)
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      await api.chatUpdateContext(key, { preferred_plugins: ids })
-    } catch {
-      /* best-effort session sticky */
-    }
-  }, [])
-
-  const removeSelectedPlugin = useCallback(
-    (id: string) => {
-      setPluginComposerPillsVisible(true)
-      setSelectedPlugins((prev) => {
-        const next = prev.filter((p) => p.id !== id)
-        void persistSelectedPlugins(String(selectedSessionKey || ''), next)
-        return next
-      })
-    },
-    [persistSelectedPlugins, selectedSessionKey],
-  )
-
-  const addSelectedPlugin = useCallback(
-    (pl: { id: string; label: string; iconUrl?: string }) => {
-      const id = String(pl.id || '').trim()
-      if (!id) return
-      setPluginComposerPillsVisible(true)
-      setSelectedPlugins((prev) => {
-        if (prev.some((p) => p.id === id)) return prev
-        const next = [
-          ...prev,
-          { id, label: pl.label || id, iconUrl: pl.iconUrl },
-        ]
-        void persistSelectedPlugins(String(selectedSessionKey || ''), next)
-        return next
-      })
-    },
-    [persistSelectedPlugins, selectedSessionKey],
-  )
-
-  const refreshPluginCatalog = useCallback(async (force = false) => {
-    setPluginListLoading(true)
-    try {
-      const { loadPluginCatalog } = await import('../lib/plugin-catalog.js')
-      const rows = await loadPluginCatalog({ enabledOnly: true, force })
-      setPluginList(
-        rows.map((p) => ({
-          id: p.id,
-          name: p.name,
-          label: p.label,
-          description: p.description || '',
-          version: p.version,
-          marketplace: p.marketplace,
-          componentTypes: p.componentTypes,
-          iconUrl: p.iconUrl,
-        })),
-      )
-    } catch {
-      setPluginList([])
-    } finally {
-      setPluginListLoading(false)
-    }
-  }, [])
+  const {
+    bottomSkillOpen,
+    setBottomSkillOpen,
+    skillList,
+    setSkillList,
+    skillListLoading,
+    setSkillListLoading,
+    selectedSkills,
+    setSelectedSkills,
+    persistSelectedSkills,
+    removeSelectedSkill,
+    addSelectedSkill,
+    bottomPluginPanelOpen,
+    setBottomPluginPanelOpen,
+    pluginPanelStyle,
+    setPluginPanelStyle,
+    pluginList,
+    setPluginList,
+    pluginListLoading,
+    setPluginListLoading,
+    selectedPlugins,
+    setSelectedPlugins,
+    pluginComposerPillsVisible,
+    setPluginComposerPillsVisible,
+    persistSelectedPlugins,
+    removeSelectedPlugin,
+    addSelectedPlugin,
+    refreshPluginCatalog,
+  } = useComposerSkillPluginSelection({ selectedSessionKey })
 
   const workspaceMention = useMemo((): WorkspaceMentionConfig | undefined => {
     const root = effectiveWorkspaceRoot
