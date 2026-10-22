@@ -377,6 +377,11 @@ import {
   closeKnowledgeMapPanel as closeKnowledgeMapPanelImpl,
 } from './chat-app/right-stage/knowledge-map-panel.js'
 import { handleAssetQuickAction as handleAssetQuickActionImpl } from './chat-app/assets/handle-asset-quick-action.js'
+import { mergeHeaderTokenTotals } from './chat-app/context/merge-header-token-totals.js'
+import { resolveDisplayContextUsage } from './chat-app/context/resolve-display-context-usage.js'
+import { syncShellAsideForWorkspacePanel as syncShellAsideForWorkspacePanelImpl } from './chat-app/shell/sync-shell-aside-for-workspace.js'
+import { patchCurrentAgentCapabilities as patchCurrentAgentCapabilitiesImpl } from './chat-app/agents/patch-current-agent-capabilities.js'
+import { openCurrentAgentEditor as openCurrentAgentEditorImpl } from './chat-app/agents/open-current-agent-editor.js'
 // ============================================
 
 import type {
@@ -1529,17 +1534,14 @@ export default function ChatApp() {
   }, [])
   /** 右侧工作区展开时折叠左侧会话壳，关闭时恢复（与 header 文件夹按钮联动） */
   const syncShellAsideForWorkspacePanel = useCallback((open: boolean) => {
-    if (open) {
-      if (shellCollapsedBeforeWorkspaceRef.current === null) {
-        shellCollapsedBeforeWorkspaceRef.current = getShellAsideCollapsed()
-      }
-      setShellAsideCollapsed(true)
-      return
-    }
-    if (shellCollapsedBeforeWorkspaceRef.current !== null) {
-      setShellAsideCollapsed(shellCollapsedBeforeWorkspaceRef.current)
-      shellCollapsedBeforeWorkspaceRef.current = null
-    }
+    syncShellAsideForWorkspacePanelImpl(
+      {
+        shellCollapsedBeforeWorkspaceRef,
+        getShellAsideCollapsed,
+        setShellAsideCollapsed,
+      },
+      open,
+    )
   }, [])
 
   const {
@@ -5136,43 +5138,18 @@ export default function ChatApp() {
       mcp_servers?: string[] | null
       knowledge_vault_ids?: string[]
     }) => {
-      const code = String(
-        (isProactiveEmployeeSession ? employeeSessionAgentCode : '') || currentRoleCodeForUi || '',
-      ).trim()
-      if (!code) {
-        toast('当前没有可编辑的智能体', 'warning')
-        return
-      }
-      setCapabilityPatchBusy(true)
-      try {
-        const api = await getApi()
-        const agentPatch: Record<string, unknown> = {}
-        if (patch.skills !== undefined) agentPatch.skills = patch.skills
-        if (patch.tools !== undefined) agentPatch.tools = patch.tools
-        if (patch.mcp_servers !== undefined) agentPatch.mcp_servers = patch.mcp_servers
-
-        if (patch.knowledge_vault_ids !== undefined) {
-          if (isProactiveEmployeeSession) {
-            await api.proactiveUpdateRole(code, {
-              knowledge_vault_ids: patch.knowledge_vault_ids,
-            })
-            setRoleUiNonce((n) => n + 1)
-          } else {
-            agentPatch.knowledge_vault_ids = patch.knowledge_vault_ids
-          }
-        }
-
-        if (Object.keys(agentPatch).length > 0) {
-          await api.updateAgent(code, agentPatch)
-          await refreshAgentsList()
-        }
-        toast('已更新能力绑定', 'success')
-      } catch (e) {
-        toast(`更新失败：${(e as Error)?.message || e}`, 'error')
-        throw e
-      } finally {
-        setCapabilityPatchBusy(false)
-      }
+      await patchCurrentAgentCapabilitiesImpl(
+        {
+          currentRoleCodeForUi,
+          employeeSessionAgentCode,
+          isProactiveEmployeeSession,
+          getApi,
+          setCapabilityPatchBusy,
+          setRoleUiNonce,
+          refreshAgentsList,
+        },
+        patch,
+      )
     },
     [
       currentRoleCodeForUi,
@@ -5183,62 +5160,14 @@ export default function ChatApp() {
   )
 
   const openCurrentAgentEditor = useCallback(() => {
-    // 员工会话：打开「编辑员工」岗位 sheet，不打开智能体编辑器 / 不切换其他人
-    if (isProactiveEmployeeSession) {
-      const code = String(employeeSessionAgentCode || '').trim()
-      if (!code) {
-        toast('当前没有可编辑的员工', 'warning')
-        return
-      }
-      void Promise.all([
-        import('../lib/tauri-api.js'),
-        import('../lib/proactive-role-edit.js'),
-      ])
-        .then(async ([{ api }, { showEditRoleModal }]) => {
-          const res: any = await api.proactiveGetRole(code)
-          const role = res?.role || res
-          if (!role || typeof role !== 'object') {
-            toast('找不到当前员工', 'error')
-            return
-          }
-          await showEditRoleModal(role, {
-            sheetTitle: '编辑员工',
-            sheetKicker: '员工',
-            confirmLabel: '保存员工',
-            allowAgentRebind: false,
-            onSaved: async () => {
-              await refreshAgentsList()
-              setRoleUiNonce((n) => n + 1)
-            },
-          })
-        })
-        .catch((e) => {
-          toast(`无法打开编辑：${(e as Error)?.message || e}`, 'error')
-        })
-      return
-    }
-
-    const code = String(currentRoleCodeForUi || '').trim()
-    if (!code) {
-      toast('当前没有可编辑的智能体', 'warning')
-      return
-    }
-    void import('../pages/agents-role-ui.js')
-      .then(({ showEditRoleDialog }) => {
-        const page = document.querySelector('.role-page') || document.body
-        const state = {
-          agents: Array.isArray(agents) ? agents : [],
-          hiredCodes: new Set<string>(),
-          onRefresh: async () => {
-            await refreshAgentsList()
-            setRoleUiNonce((n) => n + 1)
-          },
-        }
-        return showEditRoleDialog(page, state, code)
-      })
-      .catch((e) => {
-        toast(`无法打开编辑：${(e as Error)?.message || e}`, 'error')
-      })
+    openCurrentAgentEditorImpl({
+      agents,
+      currentRoleCodeForUi,
+      employeeSessionAgentCode,
+      isProactiveEmployeeSession,
+      refreshAgentsList,
+      setRoleUiNonce,
+    })
   }, [
     agents,
     currentRoleCodeForUi,
@@ -9060,47 +8989,23 @@ export default function ChatApp() {
     }
   }, [selectedSessionKey, sessions])
 
-  const headerTokenTotals = useMemo((): TokenTotals | null => {
-    const base = tokenTotals ?? sessionPersistedTokenTotals
-    const live = liveTurnTokens
-    if (!live) return base
-    const mergedBase = base ?? { input: 0, output: 0, total: 0 }
-    const merged: TokenTotals = {
-      input: mergedBase.input + live.input,
-      output: mergedBase.output + live.output,
-      total: mergedBase.total + live.total,
-    }
-    const cacheRead = (mergedBase.cacheRead ?? 0) + (live.cacheRead ?? 0)
-    const cacheCreation = (mergedBase.cacheCreation ?? 0) + (live.cacheCreation ?? 0)
-    const cacheMiss = (mergedBase.cacheMiss ?? 0) + (live.cacheMiss ?? 0)
-    if (cacheRead > 0) merged.cacheRead = cacheRead
-    if (cacheCreation > 0) merged.cacheCreation = cacheCreation
-    if (cacheMiss > 0) merged.cacheMiss = cacheMiss
-    return merged.total > 0 ? merged : base
-  }, [tokenTotals, sessionPersistedTokenTotals, liveTurnTokens])
+  const headerTokenTotals = useMemo(
+    (): TokenTotals | null =>
+      mergeHeaderTokenTotals(tokenTotals, sessionPersistedTokenTotals, liveTurnTokens),
+    [tokenTotals, sessionPersistedTokenTotals, liveTurnTokens],
+  )
 
-  const displayContextUsage = useMemo((): ContextUsageSnapshot | null => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return null
-    const catalogWindow = modelCatalog.find((m) => m.name === effectiveModelName)?.contextLength
-    const sessionRow = sessions.find((s) => String(s.sessionKey || '').trim() === sk)
-    const persistedSnap = parseContextUsageFromSessionContext(sessionRow?.context)
-    const liveSnap = contextUsageBySession[sk]
-    const snap = liveSnap
-      ? mergeContextUsageSnapshots(persistedSnap ?? undefined, liveSnap)
-      : persistedSnap
-    // 无后端/持久化快照时不合成占位数据，避免工作台空圆环
-    if (!snap || snap.usedTokens <= 0) return null
-    if (catalogWindow && catalogWindow > 0 && catalogWindow !== snap.windowTokens) {
-      const pct = (snap.usedTokens / catalogWindow) * 100
-      return {
-        ...snap,
-        windowTokens: catalogWindow,
-        pct: Math.round(pct * 10) / 10,
-      }
-    }
-    return snap
-  }, [selectedSessionKey, contextUsageBySession, sessions, modelCatalog, effectiveModelName])
+  const displayContextUsage = useMemo(
+    (): ContextUsageSnapshot | null =>
+      resolveDisplayContextUsage({
+        selectedSessionKey,
+        contextUsageBySession,
+        sessions,
+        modelCatalog,
+        effectiveModelName,
+      }),
+    [selectedSessionKey, contextUsageBySession, sessions, modelCatalog, effectiveModelName],
+  )
 
   const [assetQuickBusy, setAssetQuickBusy] = useState(false)
   const handleAssetQuickAction = useCallback(
