@@ -8,6 +8,9 @@ import type { SessionMode } from '../../lib/session-mode.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
+import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
+import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
+import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
@@ -296,6 +299,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     voiceReplyPendingRef,
     voiceSpeechSyncedPlainRef,
     voiceStreamingStartedRef,
+    v4ComposerHostEl,
+    setV4ComposerHostEl,
     workspaceFolderGroup,
     workspaceFolderToggleButton,
     workspaceMention,
@@ -482,7 +487,9 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             }`}
           >
             <div
-              className="react-chat-conversation-col"
+              className={`react-chat-conversation-col${
+                isEvoflowChatV4Enabled() ? ' is-v4-unified-scroll' : ''
+              }`}
               ref={conversationColRef}
               onDragOver={handleConversationComposeDragOver}
               onDrop={handleConversationComposeDrop}
@@ -519,14 +526,32 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               </div>
             ) : null}
             <div className="react-chat-messages-body">
+              {/* V4：对话用 ConversationTimeline；工作台首页仍走老面板 EvoFlowHomeDashboard。
+                  仅 ?chatV4=0 时全程老面板。 */}
+              <V4StreamRowsBridge
+                enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
+                sessionId={
+                  /* threadId 优先取服务端会话列表（纯打开历史时本地 session map 未登记，
+                  wsClient.getSessionThreadId 会拿空） */
+                  String(
+                    sessions.find(
+                      (s) => String(s.sessionKey || '') === String(selectedSessionKey || ''),
+                    )?.threadId || '',
+                  ).trim() ||
+                  String(wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '') ||
+                  null
+                }
+              >
+                {(v4Payload, v4Phase) =>
+                  v4Phase === 'disabled' || isHomeSurface ? (
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}
+                isSending={selectedTurnBusy}
                 historyLoading={historyLoading}
                 showHomeDashboard={isHomeSurface}
                 homeWorkspaceLabel={homeWorkspaceLabel}
                 homeWorkspacePath={effectiveWorkspaceRoot}
-                isSending={selectedTurnBusy}
                 streamLive={selectedSessionLive}
                 resumeAttachActive={selectedResumeAttach}
                 resumeStreamHoldActive={selectedResumeStreamHold}
@@ -568,7 +593,27 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 instantOpen={historyInstantPaint && !historyLoading}
                 assistantAgent={currentRoleAgent}
                 assistantAgentLabel={assistantReplyLabel}
-              />
+                />
+                  ) : (
+                    <V4ZCodeTimeline
+                      payload={v4Payload}
+                      connecting={v4Phase === 'connecting'}
+                      evoflowSessionKey={selectedSessionKey}
+                      onOpenCodeViewer={(source) => {
+                        // ZCode CodeViewerSource → EvoFlow 文件预览（右侧面板）。
+                        // patch 源 v1 先打开目标文件；diff 视图待 right-stage 支持。
+                        void openMessageFilePreview?.(source.path, source.title);
+                      }}
+                      bottomDock={
+                        <div
+                          ref={setV4ComposerHostEl}
+                          data-v4-evoflow-composer-host="true"
+                          className="w-full min-w-0"
+                        />
+                      }
+                    />
+                  )}
+              </V4StreamRowsBridge>
             </div>
           </div>
           <SessionSidebar
@@ -638,6 +683,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               void startNewChatWithPresetAgent(code)
             }}
           />
+          {(() => {
+            const bottomDockNode = (
           <div
             className={`react-chat-bottom-dock${
               bottomDockHeightPx != null ? ' is-bottom-area-resizable' : ''
@@ -1285,6 +1332,16 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               </div>
             </div>
           </div>
+            )
+            // V4 对话：portal 进 timeline sticky bottomDock；工作台首页用自带输入，走兄弟 dock（CSS 隐藏）。
+            // host 未挂好时回落兄弟 dock，避免「新对话」短暂白屏。
+            if (isEvoflowChatV4Enabled() && !isHomeSurface) {
+              return v4ComposerHostEl
+                ? createPortal(bottomDockNode, v4ComposerHostEl)
+                : bottomDockNode
+            }
+            return bottomDockNode
+          })()}
             </div>
             {showChatSummaryFloat
               ? renderChatSummaryPanel(chatPanelMode === 'capsule' ? 'capsule' : 'panel')

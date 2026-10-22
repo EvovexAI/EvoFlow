@@ -8,6 +8,26 @@ export function getPathLeaf(path: string): string {
   return segments[segments.length - 1] ?? path;
 }
 
+/**
+ * 去掉 `git show` / 对象路径前缀（`HEAD:src/a.ts`、`main:README.md`）。
+ * Windows 盘符路径（`C:\...`）原样返回。
+ */
+export function stripGitObjectPathPrefix(path: string): string {
+  const trimmed = path.trim();
+  if (!trimmed || isAbsoluteFilePath(trimmed)) {
+    return trimmed || path;
+  }
+
+  const colonIndex = trimmed.indexOf(":");
+  // 盘符已由 isAbsoluteFilePath 处理；这里只剥 revision:path（revision 至少 2 字符，避免误伤）
+  if (colonIndex <= 1) {
+    return trimmed;
+  }
+
+  const afterRef = trimmed.slice(colonIndex + 1).trim();
+  return afterRef || trimmed;
+}
+
 export function getContainingDirectoryPath(path: string): string | null {
   const trimmedPath = path.trim().replace(/[\\/]+$/, "");
   if (!trimmedPath) {

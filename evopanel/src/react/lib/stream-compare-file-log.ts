@@ -2,11 +2,21 @@
  * 流式对比日志（默认开启，按会话 + 轮次分目录）：
  *
  *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log
+ *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/v4-recv.log
  *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/ui-display.log
  *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/ui-display-visual.log
+ *   ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/v4-ui-display.log
  *
  * 目录名前缀是该轮首次落盘时的本地时间（精确到秒），按文件名排序即时间序；
- * 后缀仍保留逻辑 runId，便于和 SSE RUN_STARTED 对上。每轮用户对话各自一个目录。
+ * 后缀仍保留逻辑 runId，便于和 SSE RUN_STARTED 对上。
+ *
+ * **一轮用户对话 = 一个目录**（`run-*`，含该轮内全部模型多轮调用/工具/返回）。
+ * - sse-recv：老 AG-UI wire（ws-client）
+ * - v4-recv：新协议帧（`/api/v4/conversation/frames`，与 sse-recv 同目录对账）
+ * - ui-display*：老 ChatMessageStreamPane 所见
+ * - v4-ui-display：ZCode ConversationTimeline 面板所见（页面画什么就记什么）
+ * UI 快照只写入 `markStreamCompareRun` 已打开的目录或当前 active；历史气泡的
+ * messageId/ULID **不得**再建子目录。
  *
  * 每轮 RUN_STARTED 写入 `======== TURN n | run=... | dir=... ========` 分隔头。
  *
@@ -60,11 +70,18 @@ function isTauriDesktop(): boolean {
   }
 }
 
-type CompareChannel = 'sse-recv' | 'ui-display' | 'ui-display-visual'
+type CompareChannel =
+  | 'sse-recv'
+  | 'v4-recv'
+  | 'ui-display'
+  | 'ui-display-visual'
+  | 'v4-ui-display'
 
 type RunBuffers = {
   sseRecv: string[]
+  v4Recv: string[]
   uiDisplay: string[]
+  v4UiDisplay: string[]
   startedAtMs: number
   turnNo: number
   /** 落盘子目录名：`YYYYMMDDHHmmss_{runId}`（内存索引仍用逻辑 runId） */
@@ -125,8 +142,12 @@ let activeSessionLogId = ''
 let activeSessionStartMs = 0
 let compareLogBannerShown = false
 const activeRunBySession = new Map<string, string>()
+/** LangGraph threadId → sessionLogId（v4 topic=`conversation/{threadId}` 回填到同一轮目录） */
+const sessionByThreadId = new Map<string, string>()
 const lastSseSigByRun = new Map<string, string>()
+const lastV4SigByRun = new Map<string, string>()
 const lastUiSigByRun = new Map<string, string>()
+const lastV4UiSigByRun = new Map<string, string>()
 const uiSnapshotByRun = new Map<string, UiSnapshotAcc>()
 
 /** runId → 安全片段（不含时间戳前缀） */
@@ -186,11 +207,22 @@ function resolveLogTarget(
   const explicit = sanitizeRunLogId(String(runId || '').trim())
   const active = activeRunBySession.get(sessionLogId) || ''
   // SSE/wire：active 优先（RUN_STARTED 后的服务端 run-xxx 盖过 ws 仍携带的客户端 uuid）。
-  // UI 行渲染（MessageRow 传入 row.runId）：explicit 优先，避免历史回合被灌进当前 active run
-  // 的 ui-display / visual 日志（表现为同 run 文件里交替出现两轮正文，误诊为「页面闪空」）。
-  const runLogId = opts?.preferExplicit
-    ? explicit || active || 'pending'
-    : active || explicit || 'pending'
+  // UI 行（preferExplicit）：只写入「本轮已 mark 的目录」或当前 active。
+  // 历史气泡常把 messageId/ULID 塞进 row.runId——若按 explicit 新建目录，一轮对话会炸出
+  // 几十个 UUID 文件夹。未 mark 过的 id 直接丢弃（不落盘、不建目录）。
+  let runLogId: string
+  if (opts?.preferExplicit) {
+    const existing = explicit ? ensureSessionBuffers(sessionLogId).runs[explicit] : null
+    if (explicit && (explicit === active || existing)) {
+      runLogId = explicit
+    } else if (!explicit && active) {
+      runLogId = active
+    } else {
+      return null
+    }
+  } else {
+    runLogId = active || explicit || 'pending'
+  }
   return {
     sessionLogId,
     runLogId,
@@ -230,13 +262,32 @@ function ensureRunBuffers(sessionLogId: string, runLogId: string, turnNo: number
     const startedAtMs = Date.now()
     sessionBuf.runs[runLogId] = {
       sseRecv: [],
+      v4Recv: [],
       uiDisplay: [],
+      v4UiDisplay: [],
       startedAtMs,
       turnNo,
       diskLogId: buildDiskRunLogId(runLogId, startedAtMs),
     }
+  } else {
+    // 热更新前已打开的 run buffer 补字段
+    if (!Array.isArray(sessionBuf.runs[runLogId].v4Recv)) {
+      sessionBuf.runs[runLogId].v4Recv = []
+    }
+    if (!Array.isArray(sessionBuf.runs[runLogId].v4UiDisplay)) {
+      sessionBuf.runs[runLogId].v4UiDisplay = []
+    }
   }
   return sessionBuf.runs[runLogId]
+}
+
+function bufferKeyForChannel(
+  channel: CompareChannel,
+): 'sseRecv' | 'v4Recv' | 'uiDisplay' | 'v4UiDisplay' {
+  if (channel === 'sse-recv') return 'sseRecv'
+  if (channel === 'v4-recv') return 'v4Recv'
+  if (channel === 'v4-ui-display') return 'v4UiDisplay'
+  return 'uiDisplay'
 }
 
 function appendFileLine(
@@ -252,12 +303,11 @@ function appendFileLine(
   if (!text) return
   // 同步 push 到内存缓冲（Tauri 落盘是 fire-and-forget）
   const runBuf = ensureRunBuffers(sid, rid, ensureSessionBuffers(sid).runs[rid]?.turnNo || 0)
-  const key = channel === 'sse-recv' ? 'sseRecv' : 'uiDisplay'
-  runBuf[key].push(text)
+  runBuf[bufferKeyForChannel(channel)].push(text)
   // 注意：日志只走「内存缓冲 + Tauri 落盘」两条路。
   // 早期版本每帧都 console.log，结果控制台被每条 SSE chunk 灌爆（sse-recv 一帧一行，
   // TEXT_MESSAGE_CONTENT delta 也一行；调用方反馈「文件里已经写过了，console 不要」）。
-  // 这里保持沉默。如需本地实时观察，在文件侧看 sse-recv.log / ui-display.log。
+  // 这里保持沉默。如需本地实时观察，在文件侧看 sse-recv.log / v4-recv.log / ui-display.log。
   // 落盘目录用 diskLogId（带 YYYYMMDDHHmmss 前缀），内存索引仍用逻辑 rid。
   const diskRid = runBuf.diskLogId || buildDiskRunLogId(rid, runBuf.startedAtMs)
   if (isTauriDesktop()) {
@@ -385,7 +435,7 @@ function showEnableBannerOnce(): void {
   if (compareLogBannerShown || !isStreamCompareFileLogOn()) return
   compareLogBannerShown = true
   const home = isTauriDesktop()
-    ? '~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv.log + ui-display*.log'
+    ? '~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/sse-recv + v4-recv + ui-display* + v4-ui-display.log'
     : 'window.__evoflowStreamCompare.sessions（非 Tauri）'
 
   console.log(
@@ -501,6 +551,8 @@ export function markStreamCompareRun(
   if (!sid || !rid) return
   const prevRun = activeRunBySession.get(sid)
   if (prevRun && prevRun !== rid) flushUiSnapshot(sid, prevRun)
+  const threadId = String(opts?.threadId || '').trim()
+  if (threadId) sessionByThreadId.set(threadId, sid)
   if (prevRun === rid) return
   activeRunBySession.set(sid, rid)
   const sessionBuf = ensureSessionBuffers(sid)
@@ -508,13 +560,116 @@ export function markStreamCompareRun(
     sessionBuf.turnCounter += 1
     const turnNo = sessionBuf.turnCounter
     const runBuf = ensureRunBuffers(sid, rid, turnNo)
-    const threadId = String(opts?.threadId || '').trim()
     const header =
       `======== TURN ${turnNo} | run=${rid} | dir=${runBuf.diskLogId}` +
       `${threadId ? ` | thread=${threadId}` : ''} ========`
     void appendFileLine(sid, rid, 'sse-recv', header)
+    void appendFileLine(sid, rid, 'v4-recv', header)
     void appendFileLine(sid, rid, 'ui-display', formatCompareLine(sid, rid, header))
+    void appendFileLine(sid, rid, 'v4-ui-display', formatCompareLine(sid, rid, header))
   }
+}
+
+/**
+ * ZCode ConversationTimeline 面板所见 → 同轮目录 `v4-ui-display.log`。
+ * 页面画什么就记什么：按 rows.window 顺序平铺 turnHeader / user / reasoning / tool / assistantText。
+ * sig 去重；connecting / 空快照也会落一条，便于排查「发送后白屏」。
+ */
+export function logStreamCompareV4PanelDisplay(opts: {
+  /** EvoFlow sessionKey；缺省走 active session。 */
+  sessionKey?: string
+  /** LangGraph threadId（= v4 sessionId）；用于 thread→session 回填。 */
+  threadId?: string
+  connecting?: boolean
+  phase?: string
+  rows: ReadonlyArray<Record<string, unknown>>
+  totalCount?: number
+  loadingOlder?: boolean
+}): void {
+  if (!isStreamCompareFileLogOn()) return
+  const threadId = String(opts.threadId || '').trim()
+  if (threadId) {
+    const mapped = sessionByThreadId.get(threadId)
+    if (!mapped && opts.sessionKey) {
+      sessionByThreadId.set(threadId, resolveLogSessionId(opts.sessionKey))
+    }
+  }
+  const sessionFromThread = threadId ? sessionByThreadId.get(threadId) || '' : ''
+  const target = resolveLogTarget(opts.sessionKey || sessionFromThread || undefined, undefined, {
+    preferExplicit: true,
+  })
+  // 尚无 active run（用户未发出本轮 / RUN_STARTED 前）：落到 pending，仍可观察打开历史。
+  const sid =
+    target?.sessionLogId ||
+    resolveLogSessionId(opts.sessionKey || sessionFromThread || activeSessionLogId)
+  if (!sid) return
+  const rid = target?.runLogId || activeRunBySession.get(sid) || 'pending'
+  ensureRunBuffers(sid, rid, ensureSessionBuffers(sid).runs[rid]?.turnNo || 0)
+
+  const rows = Array.isArray(opts.rows) ? opts.rows : []
+  const lines: string[] = []
+  lines.push(
+    `[v4-panel] phase=${opts.phase || (opts.connecting ? 'connecting' : 'ready')}` +
+      ` connecting=${opts.connecting ? 1 : 0}` +
+      ` rows=${rows.length}` +
+      ` totalCount=${opts.totalCount ?? rows.length}` +
+      ` loadingOlder=${opts.loadingOlder ? 1 : 0}` +
+      (threadId ? ` thread=${threadId}` : ''),
+  )
+
+  if (opts.connecting && rows.length === 0) {
+    lines.push(`  (empty) V4 连接中…`)
+  } else if (rows.length === 0) {
+    lines.push(`  (empty) 开始新的对话 / 无行`)
+  }
+
+  for (const raw of rows) {
+    const row = raw && typeof raw === 'object' ? raw : {}
+    const kind = String(row.kind || row._kind || '?')
+    const rowId = row.rowId ?? row.id ?? ''
+    const turnId = String(row.turnId || '').slice(0, 36)
+    if (kind === 'turnHeader') {
+      const state = String(row.state || '')
+      const fc = row.fileChanges as { files?: number; additions?: number; deletions?: number } | undefined
+      const fcBrief = fc
+        ? ` files=${fc.files ?? 0} +${fc.additions ?? 0}/-${fc.deletions ?? 0}`
+        : ''
+      lines.push(`  #${rowId} turnHeader state=${state} turn=${turnId}${fcBrief}`)
+    } else if (kind === 'userInput') {
+      lines.push(`  #${rowId} USER  ${shrink(row.text, 400)}`)
+    } else if (kind === 'reasoning') {
+      lines.push(
+        `  #${rowId} REASON state=${String(row.state || '')}  ${shrink(row.text, 240)}`,
+      )
+    } else if (kind === 'assistantText') {
+      lines.push(
+        `  #${rowId} TEXT  state=${String(row.state || '')}  ${shrink(row.text, 600)}`,
+      )
+    } else if (kind === 'toolCall') {
+      const status = String(row.status || '')
+      const name = String(row.toolName || 'tool')
+      const tcid = String(row.toolCallId || '').slice(0, 28)
+      const inputPreview = shrink(row.inputText, 160)
+      const out = row.output as { text?: string; display?: { kind?: string } } | undefined
+      const outText = out?.text != null ? shrink(out.text, 120) : ''
+      const displayKind = out?.display?.kind ? ` display=${out.display.kind}` : ''
+      lines.push(
+        `  #${rowId} TOOL  ${name.padEnd(12)} status=${status.padEnd(14)} id=${tcid}` +
+          (inputPreview ? `  in=${inputPreview}` : '') +
+          (outText ? `  out=${outText}` : '') +
+          displayKind,
+      )
+    } else {
+      lines.push(`  #${rowId} ${kind}  ${shrink(JSON.stringify(row), 200)}`)
+    }
+  }
+
+  const body = lines.join('\n')
+  const dedupeKey = runSnapshotKey(sid, rid)
+  if (lastV4UiSigByRun.get(dedupeKey) === body) return
+  lastV4UiSigByRun.set(dedupeKey, body)
+  const block = ['---', body, '---'].join('\n')
+  void appendFileLine(sid, rid, 'v4-ui-display', formatCompareLine(sid, rid, block))
 }
 
 function serializeSsePayload(opts: {
@@ -561,6 +716,92 @@ export function logStreamCompareSseRecv(opts: {
   if (lastSseSigByRun.get(target.dedupeKey) === payload) return
   lastSseSigByRun.set(target.dedupeKey, payload)
   void appendFileLine(target.sessionLogId, target.runLogId, 'sse-recv', payload)
+}
+
+/** 从 v4 topic `conversation/{threadId}` 抽出 threadId */
+export function threadIdFromV4Topic(topic: string): string {
+  const t = String(topic || '').trim()
+  if (!t.startsWith('conversation/')) return ''
+  return t.slice('conversation/'.length).trim()
+}
+
+/**
+ * V4 wire：每帧一行 JSON，写入与本轮 sse-recv 同目录的 v4-recv.log。
+ * topic → threadId → session；落盘到该 session 当前 active run（与 AG-UI 同轮对账）。
+ */
+export function logStreamCompareV4Recv(opts: {
+  topic: string
+  deliveryKind?: string
+  frame: {
+    fromSeq?: number
+    toSeq?: number
+    subscriptionId?: string
+    payload?: {
+      kind?: string
+      deltas?: unknown[]
+      snapshot?: { rows?: { window?: unknown[] } | unknown[] }
+    }
+  }
+  /** 可选：显式 sessionKey；缺省按 threadId 映射 / active session */
+  sessionKey?: string
+}): void {
+  if (!isStreamCompareFileLogOn()) return
+  const topic = String(opts.topic || '').trim()
+  if (!topic) return
+  const threadId = threadIdFromV4Topic(topic)
+  const mapped = threadId ? sessionByThreadId.get(threadId) || '' : ''
+  const sessionLogId = resolveLogSessionId(opts.sessionKey || mapped || activeSessionLogId)
+  if (!sessionLogId) return
+  if (threadId && !mapped) sessionByThreadId.set(threadId, sessionLogId)
+
+  const active = activeRunBySession.get(sessionLogId) || ''
+  const runLogId = active || 'pending'
+  const dedupeKey = runSnapshotKey(sessionLogId, runLogId)
+  ensureSessionBuffers(sessionLogId)
+
+  const payload = opts.frame?.payload
+  const kind = String(payload?.kind || '').trim() || 'unknown'
+  const fromSeq = Number(opts.frame?.fromSeq)
+  const toSeq = Number(opts.frame?.toSeq)
+  let body: Record<string, unknown> = {
+    topic,
+    deliveryKind: String(opts.deliveryKind || 'online'),
+    fromSeq: Number.isFinite(fromSeq) ? fromSeq : 0,
+    toSeq: Number.isFinite(toSeq) ? toSeq : 0,
+    kind,
+  }
+  if (opts.frame?.subscriptionId) body.subscriptionId = opts.frame.subscriptionId
+  if (kind === 'deltas' && Array.isArray(payload?.deltas)) {
+    body.ops = payload.deltas.length
+    body.deltas = payload.deltas
+  } else if (kind === 'snapshot' && payload?.snapshot) {
+    const rows = payload.snapshot.rows
+    const window = Array.isArray(rows)
+      ? rows
+      : rows && typeof rows === 'object' && Array.isArray((rows as { window?: unknown[] }).window)
+        ? (rows as { window: unknown[] }).window
+        : []
+    body.rows = window.length
+    // snapshot 可能极大：只记行 id/_kind，完整内容走 rows_range 对账
+    body.rowBrief = window.slice(0, 48).map((r) => {
+      const row = r && typeof r === 'object' ? (r as Record<string, unknown>) : {}
+      return {
+        id: shrink(String(row.rowId ?? row.id ?? ''), 40),
+        kind: String(row._kind ?? row.kind ?? ''),
+      }
+    })
+    if (window.length > 48) body.rowBriefMore = window.length - 48
+  }
+  let line = ''
+  try {
+    line = JSON.stringify(body)
+  } catch {
+    line = shrink(body, 4000)
+  }
+  if (!line) return
+  if (lastV4SigByRun.get(dedupeKey) === line) return
+  lastV4SigByRun.set(dedupeKey, line)
+  void appendFileLine(sessionLogId, runLogId, 'v4-recv', line.slice(0, MAX_LINE))
 }
 
 function formatSegmentListBrief(segments: MessageSegment[] | undefined, _tools: unknown[]): string {
@@ -1272,7 +1513,9 @@ export function logStreamCompareToolRender(opts: {
 /** 浏览器 dev：导出内存缓冲供复制对比 */
 export function dumpStreamCompareBuffers(sessionKey?: string, runId?: string): {
   sseRecv: string[]
+  v4Recv: string[]
   uiDisplay: string[]
+  v4UiDisplay: string[]
   sessionLogId: string
   runLogId: string
 } {
@@ -1281,7 +1524,7 @@ export function dumpStreamCompareBuffers(sessionKey?: string, runId?: string): {
   // 调试旧轮次需要按 explicit 拿到旧 buffer）
   const sessionLogId = resolveLogSessionId(sessionKey || store.activeSessionLogId)
   if (!sessionLogId) {
-    return { sseRecv: [], uiDisplay: [], sessionLogId: '', runLogId: '' }
+    return { sseRecv: [], v4Recv: [], uiDisplay: [], v4UiDisplay: [], sessionLogId: '', runLogId: '' }
   }
   const explicit = sanitizeRunLogId(String(runId || '').trim())
   const active = activeRunBySession.get(sessionLogId) || ''
@@ -1289,7 +1532,9 @@ export function dumpStreamCompareBuffers(sessionKey?: string, runId?: string): {
   const runBuf = store.sessions[sessionLogId]?.runs[runLogId]
   return {
     sseRecv: runBuf ? [...runBuf.sseRecv] : [],
+    v4Recv: runBuf ? [...runBuf.v4Recv] : [],
     uiDisplay: runBuf ? [...runBuf.uiDisplay] : [],
+    v4UiDisplay: runBuf ? [...runBuf.v4UiDisplay] : [],
     sessionLogId,
     runLogId,
   }
@@ -1322,8 +1567,11 @@ if (typeof window !== 'undefined') {
   /** 测试用：清模块级 run 缓存，确保 beforeEach 后 markStreamCompareRun 总能 push TURN header */
   w.__evoflowStreamCompareResetForTest = () => {
     activeRunBySession.clear()
+    sessionByThreadId.clear()
     lastSseSigByRun.clear()
+    lastV4SigByRun.clear()
     lastUiSigByRun.clear()
+    lastV4UiSigByRun.clear()
     uiSnapshotByRun.clear()
   }
 }

@@ -496,7 +496,16 @@ async def attach_run_stream(
             from app.gateway.agui_stream_normalizer import convert_evf_frames_to_agui
 
             out_bytes = convert_evf_frames_to_agui([frame.encode("utf-8")], state=agui_attach_state)
-            return [b.decode("utf-8") for b in out_bytes] if out_bytes else []
+            out = [b.decode("utf-8") for b in out_bytes] if out_bytes else []
+            if out:
+                # v4 镜像：attach 续流同样喂 v4 投影，刷新恢复后会话不缺行。
+                try:
+                    from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+
+                    mirror_feed_agui_wire(thread_id, out)
+                except Exception:
+                    pass
+            return out
 
         from evoflow.observability.poll_loop_log import log_poll_loop_end, log_poll_loop_start, log_poll_tick
 

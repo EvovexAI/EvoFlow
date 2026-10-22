@@ -1012,7 +1012,7 @@ function ReadonlyTurn({
   return (
     <section
       data-conversation-share-turn={unit.turnId}
-      className="mx-auto flex w-full flex-col gap-5 px-4 pb-5 pt-14 @md/conversation:px-6 [content-visibility:auto] [contain-intrinsic-size:0_420px]"
+      className="mx-auto flex w-full flex-col gap-5 px-4 pb-5 pt-14 [content-visibility:auto] [contain-intrinsic-size:0_420px]"
     >
       {unit.leadingBoundaryRows.map((row) =>
         renderReadonlyRow(

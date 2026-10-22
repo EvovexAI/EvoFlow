@@ -10,6 +10,7 @@ export function runHomeWindowListenersEffect(
   const homeCtx = {
     sessionRef: ctx.sessionRef,
     setSessionHadContent: ctx.setSessionHadContent,
+    setPreferHomeDashboard: ctx.setPreferHomeDashboard,
     setSelectedSkills: ctx.setSelectedSkills,
     setSelectedPlugins: ctx.setSelectedPlugins,
     setModelName: (name: string) => ctx.setModelNameRef.current(name),

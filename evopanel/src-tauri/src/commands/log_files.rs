@@ -116,11 +116,11 @@ pub fn append_log_file_line(path: &Path, line: &str) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 //
 // 日志布局：``{evoflow_home}/logs/stream-compare/{sessionKey?}/{YYYYMMDDHHmmss}_{runId}/{*.log}``。
-// 每个 run 目录里放 sse-recv.log / ui-display.log / ui-display-visual.log，
+// 每个 run 目录里放 sse-recv.log / v4-recv.log / ui-display.log / ui-display-visual.log，
 // 默认 2 天前的 run 目录会被清掉（由 ``prune_stream_compare_logs`` 实现）。
 //
 // 之所以按 run 目录整体删而不是按单个 .log 文件删：
-//   1) 一次会话的 3 个文件强相关、生命周期一致；
+//   1) 一次会话的 wire+UI 文件强相关、生命周期一致；
 //   2) 防止只删一两个导致残留空目录越积越多。
 //
 // 保留天数可通过环境变量 ``EVOFLOW_STREAM_COMPARE_RETENTION_DAYS`` 覆盖，

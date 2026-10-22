@@ -14,6 +14,7 @@ export type HomePluginSelection = { id?: string; [k: string]: unknown }
 export type HandleHomeEventsCtx = {
   sessionRef: { current: string }
   setSessionHadContent: (v: boolean) => void
+  setPreferHomeDashboard?: (v: boolean) => void
   setSelectedSkills: (skills: HomeSkillSelection[]) => void
   setSelectedPlugins: (plugins: HomePluginSelection[]) => void
   setModelName: (name: string) => void
@@ -57,6 +58,7 @@ export function handleHomeSendEvent(ctx: HandleHomeEventsCtx, event: Event): voi
   // 立刻离开工作台表面，避免「发完还停在首页 → 再切会话 → 再出消息」的三段感
   flushSync(() => {
     ctx.setSessionHadContent(true)
+    ctx.setPreferHomeDashboard?.(false)
   })
   void (async () => {
     if (Array.isArray(detail?.skills)) ctx.setSelectedSkills(detail.skills)

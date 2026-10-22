@@ -969,6 +969,8 @@ class AgUiStreamNormalizer:
         )
         if run_end:
             self._run_end_emitted = True
+        if out:
+            self._mirror_feed(out)
         return out
 
     def finish(self) -> list[bytes]:
@@ -980,7 +982,18 @@ class AgUiStreamNormalizer:
         )
         if run_end:
             self._run_end_emitted = True
+        if out:
+            self._mirror_feed(out)
         return out
+
+    def _mirror_feed(self, wire: list[bytes]) -> None:
+        """v4 镜像：AG-UI wire → ZCode v4 协议 delta（失败静默，不碰生产链路）。"""
+        try:
+            from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+
+            mirror_feed_agui_wire(self._state.thread_id, wire)
+        except Exception:
+            pass
 
     def bootstrap_wire_bytes(self) -> list[bytes]:
         """Immediate RUN_STARTED + activity frame — sent on SSE headers before upstream tokens."""
@@ -999,4 +1012,5 @@ class AgUiStreamNormalizer:
                 }
             )
         )
+        self._mirror_feed(out)
         return out

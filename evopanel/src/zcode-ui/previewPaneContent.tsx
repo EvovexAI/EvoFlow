@@ -24,6 +24,7 @@ import type { OfficeFilePreviewKind } from "@/lib/officeFilePreview.js";
 import { PreviewPaneOfficeContent } from "@/previewPaneOfficeContent.js";
 import type { PptxElementReferenceSource } from "@/lib/pptxElementReference.js";
 import type { MediaCodeViewerSource, PptxReferencePreviewNavigation } from "@/lib/codeViewer.js";
+import { stripGitObjectPathPrefix } from "@/lib/path.js";
 import { resolveCodeReviewContentProjection } from "@/previewPaneCodeReview.js";
 
 interface PreviewPaneContentProps {
@@ -145,16 +146,18 @@ export function PreviewPaneContent({
 
     // DiffViewer 是 memo 组件，预览 pane 父级滚动/加载状态刷新时，
     // JSX 内联 oldFile/newFile 会生成新对象并强制 diff 重新渲染。
+    // 去掉 git 对象前缀（HEAD:path）再交给 @pierre/diffs，避免 filetype 误判。
+    const fileName = stripGitObjectPathPrefix(source.path ?? source.title);
     return {
       oldFile: {
-        name: source.path ?? source.title,
+        name: fileName,
         contents: source.beforeContent,
-        cacheKey: `old:${source.path ?? source.title}:${source.beforeContent.length}:${source.beforeContent.slice(0, 100)}:${source.beforeContent.slice(-100)}`,
+        cacheKey: `old:${fileName}:${source.beforeContent.length}:${source.beforeContent.slice(0, 100)}:${source.beforeContent.slice(-100)}`,
       },
       newFile: {
-        name: source.path ?? source.title,
+        name: fileName,
         contents: source.afterContent,
-        cacheKey: `new:${source.path ?? source.title}:${source.afterContent.length}:${source.afterContent.slice(0, 100)}:${source.afterContent.slice(-100)}`,
+        cacheKey: `new:${fileName}:${source.afterContent.length}:${source.afterContent.slice(0, 100)}:${source.afterContent.slice(-100)}`,
       },
     };
   }, [

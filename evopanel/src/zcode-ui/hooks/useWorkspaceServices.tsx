@@ -1,13 +1,13 @@
 import type { IServiceAccessor } from "@zcode/services";
 import { Event, ProxyChannel, type IChannel } from "@zcode/rpc";
 import { useMemo } from "react";
-import { useOptionalServices, useServices } from "@/hooks/useServices.js";
+import { useOptionalServices } from "@/hooks/useServices.js";
 import {
   useRemoteWorkspaceSessionStore,
   type RemoteWorkspaceSession,
 } from "@/store/remoteWorkspaceSessionStore.js";
 import { useResolvedRemoteWorkspaceSessionId } from "@/hooks/useResolvedRemoteWorkspaceSessionId.js";
-import { useTabStore } from "@/store/TabStoreProvider.js";
+import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
 import { REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE } from "@/lib/remoteWorkspaceServiceError.js";
 
@@ -125,7 +125,8 @@ function resolveWorkspaceServiceIsRemoteTarget(params: {
 }
 
 export function useBaseWorkspaceServices(): IServiceAccessor {
-  const contextServices = useServices();
+  // 同 useWorkspaceServicesResolution：无 ServiceProvider 的独立挂载回退 stub 访问器。
+  const contextServices = useOptionalServices() ?? STANDALONE_STUB_SERVICES;
   const registeredBaseServices = useRemoteWorkspaceSessionStore((state) => state.baseServices);
 
   // App 会在当前激活 workspace 外层再套一层 ServiceProvider。
@@ -153,20 +154,36 @@ interface WorkspaceServicesResolution {
   rpcReady: boolean;
 }
 
+/**
+ * 独立挂载（无 ServiceProvider）场景的占位访问器：任意服务解构为 undefined，
+ * 由调用方各自降级（如 AssistantPreviewCards 跳过 stat 校验）。
+ */
+const STANDALONE_STUB_SERVICES: IServiceAccessor = new Proxy(
+  {},
+  {
+    get: () => undefined,
+  },
+) as unknown as IServiceAccessor;
+
 export function useWorkspaceServicesResolution(
   workspacePath: string | null | undefined,
   preferredRemoteSessionId?: string | null,
   workspaceIdentity?: string | null,
   remoteTarget?: unknown,
 ): WorkspaceServicesResolution {
-  const currentContextServices = useServices();
+  // EvoFlow V4 只读投影宿主等独立挂载场景没有 ServiceProvider：回退到 stub 访问器
+  // （任意服务解构为 undefined，调用方各自降级），而不是抛错炸掉整棵时间线。
+  // ZCode 宿主（SessionPane 等）Provider 在场时 useOptionalServices 返回真实访问器，行为不变。
+  const currentContextServices = useOptionalServices() ?? STANDALONE_STUB_SERVICES;
   const resolvedRemoteSessionId = useResolvedRemoteWorkspaceSessionId(
     workspacePath,
     preferredRemoteSessionId,
     workspaceIdentity,
     remoteTarget,
   );
-  const isRemoteTarget = useTabStore((state) =>
+  // 同 useResolvedRemoteWorkspaceSessionId：无 TabStoreProvider（EvoFlow V4 宿主）时
+  // 回退空 tab → isRemoteTarget=false，继续用当前 ServiceProvider 的局部 fileService。
+  const isRemoteTarget = useOptionalTabStore((state) =>
     resolveWorkspaceServiceIsRemoteTarget({
       workspacePath,
       workspaceIdentity,

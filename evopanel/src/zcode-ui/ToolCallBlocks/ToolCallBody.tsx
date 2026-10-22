@@ -3,7 +3,7 @@ import type { FileMediaPreview } from "@zcode/shared";
 import { CodeBlock } from "@/components/ai-elements/code-block.js";
 import { MessageResponse, type MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool.js";
-import { useServices } from "@/hooks/useServices.js";
+import { useOptionalServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type {
   CodeViewerSource,
@@ -133,11 +133,17 @@ function InlineCodeContent({
 }
 
 function InlineImageContent({ preview }: { preview: ImageCodeViewerSource }) {
-  const { fileService } = useServices();
+  // EvoFlow V4 宿主无 ServiceProvider：不能 useServices()，否则展开图片工具卡会拖垮 timeline。
+  const services = useOptionalServices();
+  const fileService = services?.fileService ?? null;
   const { intl } = useZCodeIntl();
   const [imagePreview, setImagePreview] = useState<FileMediaPreview | null>(null);
 
   useEffect(() => {
+    if (!fileService) {
+      setImagePreview(null);
+      return;
+    }
     let cancelled = false;
     void fileService.readMediaPreview({ path: preview.path }).then((mediaPreview) => {
       if (!cancelled) {
@@ -150,6 +156,9 @@ function InlineImageContent({ preview }: { preview: ImageCodeViewerSource }) {
     };
   }, [fileService, preview.path]);
 
+  if (!fileService) {
+    return <p>{intl.formatMessage({ id: "chat.toolCall.loading" })}</p>;
+  }
   if (!imagePreview) {
     return <p>{intl.formatMessage({ id: "chat.toolCall.loading" })}</p>;
   }

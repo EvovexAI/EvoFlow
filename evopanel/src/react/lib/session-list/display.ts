@@ -222,6 +222,27 @@ export function pickSessionRowTitle(
   })
 }
 
+/**
+ * 侧栏「运行中」时长文案：从本轮开始时刻起算，形如 `1分05秒` / `12秒` / `1时02分`。
+ * 无有效起点返回空串（调用方回落到普通时间）。
+ */
+export function formatRunningElapsed(
+  startMs: number | null | undefined,
+  nowMs: number = Date.now(),
+): string {
+  if (startMs == null) return ''
+  const start = Number(startMs)
+  if (!Number.isFinite(start) || start <= 0) return ''
+  const diff = Math.max(0, Math.floor((nowMs - start) / 1000))
+  const h = Math.floor(diff / 3600)
+  const m = Math.floor((diff % 3600) / 60)
+  const s = diff % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (h > 0) return `${h}时${pad(m)}分`
+  if (m > 0) return `${m}分${pad(s)}秒`
+  return `${s}秒`
+}
+
 function formatSessionTime(ts: number): string {
   const d = new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts)
   if (isNaN(d.getTime())) return ''

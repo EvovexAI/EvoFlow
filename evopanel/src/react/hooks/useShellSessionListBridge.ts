@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from 'react'
+import { useMemo, useRef, useEffect, useSyncExternalStore } from 'react'
 import type { ChatSessionRow } from '../chat-types.js'
 import { buildShellSidebarGroups } from '../lib/session-list/build-shell-rows.js'
 import { GLOBAL_RECENT_PAGINATION_KEY } from '../lib/session-list/constants.js'
@@ -10,6 +10,18 @@ import type { ShellSessionListProps } from '../components/ShellSessionList.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { RunningSessionSummary } from './useRunningSessionSummaries.js'
 import type { ShellWorkspaceGroup, WorkspaceGroupSummary } from '../lib/session-list/types.js'
+import {
+  getExecutingListRuntimeEpoch,
+  subscribeExecutingListRuntime,
+} from '../lib/session-runtime-store.js'
+import {
+  getSessionExecutionProbeEpoch,
+  subscribeSessionExecutionProbes,
+} from '../lib/session-execution/probe-cache.js'
+import {
+  getSessionGoalStateEpoch,
+  subscribeSessionGoalState,
+} from '../lib/session-execution/goal-mode-state.js'
 
 export type UseShellSessionListBridgeOptions = {
   filteredSessions: ChatSessionRow[]
@@ -144,7 +156,23 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     return () => window.removeEventListener('evopanel:shell-workspace-removed', onWorkspaceRemoved)
   }, [folderOrderWrapper])
 
+  // 与 Composer 停止按钮 / selectedTurnBusy 同源：isSessionExecuting 依赖这些 epoch。
+  // ShellSessionListHost 被 memo，父级 epoch 变化若未进 props 不会重绘；必须在此订阅，
+  // 否则右下角已停、左侧齿轮仍转。
+  const executingListEpoch = useSyncExternalStore(
+    subscribeExecutingListRuntime,
+    getExecutingListRuntimeEpoch,
+  )
+  const executionProbeEpoch = useSyncExternalStore(
+    subscribeSessionExecutionProbes,
+    getSessionExecutionProbeEpoch,
+  )
+  const goalStateEpoch = useSyncExternalStore(subscribeSessionGoalState, getSessionGoalStateEpoch)
+
   const shellListProps = useMemo((): ShellSessionListProps => {
+    void executingListEpoch
+    void executionProbeEpoch
+    void goalStateEpoch
     const sel = String(selectedSessionKey || '').trim()
     const built = buildShellSidebarGroups({
       filteredSessions,
@@ -232,6 +260,9 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     onWorkspaceFocus,
     onOpenWorkspaceFolder,
     folderOrderWrapper,
+    executingListEpoch,
+    executionProbeEpoch,
+    goalStateEpoch,
   ])
 
   return { shellListProps }

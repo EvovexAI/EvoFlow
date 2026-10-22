@@ -1304,7 +1304,9 @@ function ConversationTurnGroupImpl({
       data-turn-id={unit.turnId}
       data-turn-key={unit.key}
       className={cn(
-        "relative mx-auto flex w-full flex-col gap-5 px-4 @md/conversation:px-6 pb-5",
+        // 与 composer dock（ConversationTimeline `px-4`）左右对齐；
+        // 以前 @md 升到 px-6 会让 AI 正文比输入框多缩进 8px。
+        "relative mx-auto flex w-full flex-col gap-5 px-4 pb-5",
         startsWithWorkflowNotificationCard ? "pt-0" : "pt-14",
       )}
     >

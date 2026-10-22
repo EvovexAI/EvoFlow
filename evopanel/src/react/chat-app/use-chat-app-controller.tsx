@@ -562,6 +562,7 @@ import {
   resolveSelectedResumeStreamHold,
   resolveSidebarHistory,
 } from './session/resolve-selected-session-live.js'
+import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
 import { runOpenGoalPanelListenerEffect } from './goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -1155,6 +1156,11 @@ export function useChatAppController() {
   const [historyViewReady, setHistoryViewReady] = useState(false)
   /** 本会话本轮是否曾展示过消息；用于防止误进首页藏掉底部输入框 */
   const [sessionHadContent, setSessionHadContent] = useState(false)
+  /**
+   * 显式打开工作台仪表盘（侧栏「工作台」/ shell-open-home）。
+   * V4 下「新对话」空草稿不再自动进首页；只有 preferHomeDashboard 才挂 EvoFlowHomeDashboard。
+   */
+  const [preferHomeDashboard, setPreferHomeDashboard] = useState(false)
   useLayoutEffect(() => {
     rowsRef.current = rows
   }, [rows])
@@ -1162,7 +1168,10 @@ export function useChatAppController() {
     setSessionHadContent(false)
   }, [selectedSessionKey])
   useEffect(() => {
-    if (Array.isArray(rows) && rows.length > 0) setSessionHadContent(true)
+    if (Array.isArray(rows) && rows.length > 0) {
+      setSessionHadContent(true)
+      setPreferHomeDashboard(false)
+    }
   }, [rows])
 
   useLayoutEffect(() => {
@@ -1272,6 +1281,8 @@ export function useChatAppController() {
     return true
   })
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(() => getVoiceReplyEnabled())
+  /** V4 ConversationTimeline sticky bottomDock 挂载点：EvoFlow 输入区 portal 进去，与 ZCode 同滚动视口。 */
+  const [v4ComposerHostEl, setV4ComposerHostEl] = useState<HTMLElement | null>(null)
   const [knowledgeMapEnabled, setKnowledgeMapEnabled] = useState(
     () => getPanelSetting('knowledgeMapEnabled') !== false,
   )
@@ -1720,6 +1731,7 @@ export function useChatAppController() {
     return runHomeWindowListenersEffect({
       sessionRef,
       setSessionHadContent,
+      setPreferHomeDashboard,
       setSelectedSkills,
       setSelectedPlugins,
       setModelNameRef,
@@ -3293,18 +3305,6 @@ export function useChatAppController() {
   }, [selectedSessionKey, newChatButtonActive])
 
   useEffect(() => {
-    const onHome =
-      !historyLoading &&
-      !historyError &&
-      !sessionHadContent &&
-      Array.isArray(rows) &&
-      rows.length === 0
-    document.querySelectorAll('[data-shell-home="1"]').forEach((el) => {
-      el.classList.toggle('active', onHome)
-    })
-  }, [historyLoading, historyError, sessionHadContent, rows])
-
-  useEffect(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return
     const row = sessions.find((s) => String(s.sessionKey || '') === sk)
@@ -4393,17 +4393,32 @@ export function useChatAppController() {
     [rows],
   )
   /**
-   * 空会话才进「首页」：会隐藏底部输入条（首页自带输入）。
-   * 历史加载失败、或本会话曾有消息后又被清空时，绝不能进首页，否则底部输入框消失。
+   * 空会话「工作台」仪表盘：会隐藏底部输入条（首页自带输入）。
+   * - 非 V4：空草稿即首页（旧行为）
+   * - V4：仅 preferHomeDashboard（侧栏「工作台」）才进首页；会话列表「新对话」保持空白聊天+composer
+   * prefer 时忽略 historyLoading：新建空会话确认历史的窗口若等 loading 结束，会先闪 V4 白屏+composer。
    */
-  const isHomeSurface = resolveIsHomeSurface({
-    historyLoading,
-    historyError,
-    sessionHadContent,
-    renderRows,
-    selectedTurnBusy,
-  })
+  const emptyHomeEligible = preferHomeDashboard
+    ? !historyError &&
+      !sessionHadContent &&
+      renderRows.length === 0 &&
+      !selectedTurnBusy
+    : resolveIsHomeSurface({
+        historyLoading,
+        historyError,
+        sessionHadContent,
+        renderRows,
+        selectedTurnBusy,
+      })
+  const isHomeSurface =
+    emptyHomeEligible && (!isEvoflowChatV4Enabled() || preferHomeDashboard)
   isHomeSurfaceRef.current = isHomeSurface
+
+  useEffect(() => {
+    document.querySelectorAll('[data-shell-home="1"]').forEach((el) => {
+      el.classList.toggle('active', isHomeSurface)
+    })
+  }, [isHomeSurface])
   /** Only while a real network fetch has no rows yet — never gate on scroll boot (historyViewReady). */
   const showHistoryFetchOverlay =
     renderRows.length === 0 &&
@@ -5636,28 +5651,38 @@ export function useChatAppController() {
   }
 
   function handleNewSession() {
+    setPreferHomeDashboard(false)
     handleNewSessionImpl({
       startNewSessionWithWorkspace,
       resolveWorkspaceForNewSession,
     })
   }
 
-  /** 回到工作台：已在空会话仪表盘则不重复建会话；否则新开空会话以展示首页 */
+  /** 侧栏「工作台」：已在仪表盘则滚顶；否则新开空会话并挂 EvoFlowHomeDashboard */
   function handleOpenHome() {
-    handleOpenHomeImpl({
-      shouldStayOnHomeDashboard,
-      historyLoading,
-      historyError,
-      sessionHadContent,
-      rowsRef,
-      selectedTurnBusy,
-      scrollHomeMessagesToTop,
-      startNewSessionWithWorkspace,
-      resolveWorkspaceForNewSession,
+    // 必须在清行之前判断「是否已在工作台」——清行后再 shouldStay 会把带消息的会话误判成空首页并 return。
+    const alreadyOnHome =
+      preferHomeDashboard &&
+      !sessionHadContent &&
+      Array.isArray(rowsRef.current) &&
+      rowsRef.current.length === 0 &&
+      !selectedTurnBusy
+    // 同帧拉起 home：清掉当前行，避免 prefer=true 时仍带着旧 messages → isHomeSurface 算不成。
+    flushSync(() => {
+      setPreferHomeDashboard(true)
+      setSessionHadContent(false)
+      setRows([])
+      rowsRef.current = []
     })
+    if (alreadyOnHome) {
+      scrollHomeMessagesToTop()
+      return
+    }
+    startNewSessionWithWorkspace(resolveWorkspaceForNewSession())
   }
 
   function handleNewSessionInWorkspace(workspacePath: string | null) {
+    setPreferHomeDashboard(false)
     handleNewSessionInWorkspaceImpl(
       {
         shellIntentWorkspaceRef,
@@ -5826,6 +5851,7 @@ export function useChatAppController() {
           setMoreMenuKey,
           setSelectedSessionKey,
           setMobileChatPane,
+          setPreferHomeDashboard,
         },
         sessionKey,
       )
@@ -6171,6 +6197,8 @@ export function useChatAppController() {
     voiceReplyPendingRef,
     voiceSpeechSyncedPlainRef,
     voiceStreamingStartedRef,
+    v4ComposerHostEl,
+    setV4ComposerHostEl,
     workspaceFolderGroup,
     workspaceFolderToggleButton,
     workspaceMention,

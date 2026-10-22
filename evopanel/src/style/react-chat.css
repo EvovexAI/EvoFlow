@@ -2371,20 +2371,6 @@ html.dark .shell-account-menu {
   color: var(--shell-text, #202124);
 }
 
-.react-chat-history-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 7px;
-  bottom: 7px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--shell-brand, var(--accent));
-  opacity: 0;
-  transition: opacity 120ms ease;
-  pointer-events: none;
-}
-
 .react-chat-session-type-ic {
   flex-shrink: 0;
   display: inline-flex;
@@ -2450,10 +2436,6 @@ html.dark .shell-account-menu {
   box-shadow: none;
   transform: none;
   z-index: 3;
-}
-
-.react-chat-history-item.active::before {
-  opacity: 1;
 }
 
 .react-chat-history-item.session-menu-open {
@@ -6205,6 +6187,82 @@ html.dark .react-chat-conversation-col {
   position: relative;
   z-index: 2;
   background: var(--bg-primary, #fff);
+}
+
+/*
+ * V4 ConversationTimeline 挂进 EvoFlow 后：正文列默认吃 zcode 的 max-w-4xl/6xl，
+ * 与底部 composer-shell 外层（dock gutter 内、--chat-composer-max）错位。
+ * 这里强制同一中轴、同宽：滚动层 gutter = dock gutter；正文列与 composer-stack
+ * 都限宽 --chat-composer-max 并水平居中。
+ */
+.react-chat-conversation-col [data-v4-timeline-scroll="true"] {
+  padding-left: var(--chat-column-gutter, 24px);
+  padding-right: var(--chat-column-gutter, 24px);
+  box-sizing: border-box;
+}
+
+.react-chat-conversation-col [data-v4-timeline-content-column="true"] {
+  width: 100% !important;
+  max-width: var(--chat-composer-max, 840px) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  /* 取消 zcode 状态面板让位位移，避免相对输入框偏轴 */
+  transform: none !important;
+}
+
+.react-chat-conversation-col .react-chat-composer-stack {
+  width: 100%;
+  max-width: var(--chat-composer-max, 840px);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+/*
+ * V4 统一滚动：输入区 sticky 在 ConversationTimeline 视口底（portal 进 bottomDock）。
+ * messages-wrap 占满会话列；dock 不再是下方兄弟，避免「滚到底还有一块留给输入框的空白」。
+ */
+.react-chat-conversation-col.is-v4-unified-scroll > .react-chat-messages-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.react-chat-conversation-col.is-v4-unified-scroll > .react-chat-messages-wrap > .react-chat-messages-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* portal 进 sticky dock 后：去掉会话列兄弟 dock 的 gutter/底色，由 timeline 内容列承宽 */
+.react-chat-conversation-col [data-v4-evoflow-composer-host] .react-chat-bottom-dock {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-top: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* sticky dock 内容列：与正文 [data-v4-timeline-content-column] 同宽同轴 */
+.react-chat-conversation-col [data-v4-composer-dock-content="true"] {
+  width: 100% !important;
+  max-width: var(--chat-composer-max, 840px) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  transform: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-bottom: 12px !important;
+  box-sizing: border-box;
+}
+
+.react-chat-conversation-col [data-v4-composer-dock-content="true"] .react-chat-composer-stack {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .react-chat-conversation-col .react-vlist-item,

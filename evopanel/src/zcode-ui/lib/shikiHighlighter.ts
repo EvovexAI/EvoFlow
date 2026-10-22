@@ -35,7 +35,7 @@ export function shouldUseSyntaxHighlighting(language: string): boolean {
   return bundledLanguageIds.has(candidate) || bundledLanguageAliases.has(candidate);
 }
 
-function normalizeCodeLanguage(language: string): BundledLanguage {
+export function normalizeCodeLanguage(language: string): BundledLanguage {
   const candidate = language.trim().toLowerCase();
   if (!candidate) {
     return FALLBACK_CODE_LANGUAGE;

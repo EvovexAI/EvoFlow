@@ -243,6 +243,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     from app.gateway.router_registry import register_v4_demo_router
 
                     register_v4_demo_router(app)
+                    # V4 conversation wire 协议路由（生产主聊天流式订阅面）。
+                    from app.gateway.router_registry import register_v4_conversation_router
+
+                    register_v4_conversation_router(app)
                     _st_log("extended routers registered")
                 except Exception:
                     # Still clear the loading_extended gate: register_extended_routers

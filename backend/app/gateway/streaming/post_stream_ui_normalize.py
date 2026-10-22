@@ -306,6 +306,16 @@ class PostStreamUiTransform:
             self.normalizer: UiStreamNormalizer | OpenAiStreamNormalizer | AgUiStreamNormalizer = OpenAiStreamNormalizer(**norm_kwargs)
         else:
             self.normalizer = AgUiStreamNormalizer(**norm_kwargs, run_id=self.run_id)
+        if self.thread_id and self.stream_format == "agui":
+            # v4 镜像：记录本轮用户输入，RUN_STARTED 时随 turnHeader 落 userInput 行。
+            try:
+                from app.gateway.v4.agui_mirror import mirror_note_user_input
+
+                mirror_note_user_input(
+                    self.thread_id, str(norm_kwargs.get("user_input") or "")
+                )
+            except Exception:
+                pass
 
     def _ensure_prior_from_db(self) -> None:
         """Lazy DB prior-turn isolation — after bootstrap SSE has already flushed."""

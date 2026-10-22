@@ -9,6 +9,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2Icon } from "lucide-react";
 import type { FileContents, LineAnnotation, SupportedLanguages } from "@pierre/diffs";
+import { getFiletypeFromFileName } from "@pierre/diffs";
 import { File, type FileOptions } from "@pierre/diffs/react";
 import type { BundledTheme } from "shiki";
 
@@ -23,6 +24,11 @@ import {
   isAppleKeyboardPlatform,
   type KeyboardShortcutPlatformInfo,
 } from "@/lib/keyboardShortcuts.js";
+import { stripGitObjectPathPrefix } from "@/lib/path.js";
+import {
+  normalizeCodeLanguage,
+  shouldUseSyntaxHighlighting,
+} from "@/lib/shikiHighlighter.js";
 
 export interface CodeCommentLabels {
   addComment: string;
@@ -247,16 +253,57 @@ export function findCodeViewerCommentElement(
   return null;
 }
 
+/**
+ * Markdown fence / 工具预览常把 `HEAD:path/to/file.ts`、裸 `HEAD:` 等非语言 id
+ * 直接塞进 language。@pierre/diffs 的 FileRenderer 会拿它去 resolveLanguage，
+ * 未知 id 会抛未捕获 Promise 错误。这里先认合法语言，再按路径/扩展名推断，否则 plaintext。
+ */
+function resolveCodeViewerHighlightLanguage(
+  language: string,
+  enableSyntaxHighlighting: boolean,
+): SupportedLanguages {
+  if (!enableSyntaxHighlighting) {
+    return "text";
+  }
+
+  const trimmed = language.trim();
+  if (!trimmed) {
+    return "text";
+  }
+
+  if (shouldUseSyntaxHighlighting(trimmed)) {
+    return normalizeCodeLanguage(trimmed) as SupportedLanguages;
+  }
+
+  const fromName = getFiletypeFromFileName(trimmed);
+  if (fromName !== "text") {
+    return fromName;
+  }
+
+  // git show 风格 `HEAD:foo/bar.ts` / 裸 `HEAD:`（排除 Windows 盘符）
+  const stripped = stripGitObjectPathPrefix(trimmed);
+  if (stripped !== trimmed) {
+    const fromRefPath = getFiletypeFromFileName(stripped);
+    if (fromRefPath !== "text") {
+      return fromRefPath;
+    }
+  }
+
+  return "text";
+}
+
 function createCodeViewerFile(params: {
   code: string;
   enableSyntaxHighlighting: boolean;
   language: string;
   theme?: BundledTheme;
 }): FileContents {
-  const lang = params.enableSyntaxHighlighting
-    ? (params.language as SupportedLanguages)
-    : ("text" as SupportedLanguages);
-  const name = params.language ? `preview.${params.language}` : "preview.txt";
+  const lang = resolveCodeViewerHighlightLanguage(
+    params.language,
+    params.enableSyntaxHighlighting,
+  );
+  // 用归一化后的 lang 拼 name，避免 `preview.HEAD:` 这类非法扩展再污染 filetype 推断。
+  const name = lang === "text" ? "preview.txt" : `preview.${lang}`;
   const themeCacheKey = params.theme ?? "auto";
 
   return {

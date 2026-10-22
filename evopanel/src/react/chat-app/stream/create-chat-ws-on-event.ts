@@ -4,6 +4,7 @@
  */
 import { EventType } from '@ag-ui/core'
 import type { ChatWsPayload } from '../../chat-types.js'
+import { isEvoflowChatV4Enabled, isV4GatedAgUiEvent } from '../../v4/v4Gate.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -1418,6 +1419,14 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       if (state === 'agui_event') {
         const aguiEvent = (payload as { aguiEvent?: AGUIEvent }).aguiEvent
         if (!aguiEvent) return
+
+        // V4 双轨闸门：flag 开启时，逐 token 的显示事件（文本/推理/工具参数流）
+        // 不再进老显示管线（streamRef / rt.rows / bump —— 60fps × O(rows) 的来源），
+        // 显示由 V4 帧管线渲染。业务事件（TOOL_CALL_START/END/RESULT、RUN_*、平台
+        // 事件）保持放行：审批检测 / 工件 / plan / 协作逻辑依赖它们。
+        if (isEvoflowChatV4Enabled() && isV4GatedAgUiEvent(aguiEvent)) {
+          return
+        }
 
         // chatSend 先绑 client UUID；AG-UI wire run-{hex} 须在 gate 前接管，否则整轮事件被丢弃
         const aguiRunId =

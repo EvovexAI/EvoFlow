@@ -1,5 +1,5 @@
 import { computeLineChangeStat } from "@zcode/shared";
-import { getPathLeaf } from "@/lib/path.js";
+import { getPathLeaf, stripGitObjectPathPrefix } from "@/lib/path.js";
 import { resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
 import { buildUnifiedDiff } from "@/lib/toolDiffPreview.js";
 import {
@@ -92,7 +92,10 @@ function readDisplayFileDiffSummaries(...values: unknown[]): RawToolCallFileSumm
           removed:
             typeof display.deletions === "number" ? Math.max(0, Math.round(display.deletions)) : 0,
         },
-        patch: readDisplayStructuredPatch(display, getPathLeaf(path)),
+        patch: readDisplayStructuredPatch(
+          display,
+          getPathLeaf(stripGitObjectPathPrefix(path)),
+        ),
       });
     }
   }
@@ -208,11 +211,12 @@ export function readRawToolCallFileSummaries(
     } else if (changeType === "delete" && oldText !== undefined) {
       changeStat = computeLineChangeStat(oldText, "");
     }
-    const explicitPatch = normalizeSingleFilePatch(readUnifiedDiffField(change), getPathLeaf(path));
+    const fileLabel = getPathLeaf(stripGitObjectPathPrefix(path));
+    const explicitPatch = normalizeSingleFilePatch(readUnifiedDiffField(change), fileLabel);
     const patch =
       explicitPatch ??
       (oldText !== undefined || newText !== undefined
-        ? buildUnifiedDiff(oldText ?? "", newText ?? "", getPathLeaf(path))
+        ? buildUnifiedDiff(oldText ?? "", newText ?? "", fileLabel)
         : null);
 
     summaries.push({

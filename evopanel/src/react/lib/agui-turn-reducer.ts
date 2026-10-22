@@ -32,7 +32,7 @@ const STREAM_TOOL_ARGS_CAP = 262_144
  * ``old_string`` / ``new_string`` / ``content`` bodies (common for replace)
  * cannot steal or blank the real path.
  */
-function extractPartialJsonStringField(argsText: string, key: string): string {
+export function extractPartialJsonStringField(argsText: string, key: string): string {
   const text = String(argsText || '')
   if (!text) return ''
   const keyPat = `"${key}"`

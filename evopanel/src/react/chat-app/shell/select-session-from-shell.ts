@@ -13,6 +13,8 @@ export type SelectSessionFromShellCtx = {
   setMoreMenuKey: Dispatch<SetStateAction<string | null>>
   setSelectedSessionKey: (key: string) => void
   setMobileChatPane: (pane: 'list' | 'thread') => void
+  /** 离开工作台仪表盘意图（点历史会话） */
+  setPreferHomeDashboard?: (v: boolean) => void
 }
 
 export function selectSessionFromShell(
@@ -30,6 +32,7 @@ export function selectSessionFromShell(
   }
   ctx.sessionRef.current = k
   flushSync(() => {
+    ctx.setPreferHomeDashboard?.(false)
     ctx.setNewChatButtonActive(false)
     ctx.setMoreMenuKey(null)
     ctx.setSelectedSessionKey(k)

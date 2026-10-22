@@ -111,6 +111,9 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
       error: errorText,
       raw: {
         error: row.error,
+        // fileSummaries 的 readRawToolCallInput 优先读 rawInput——缺了它
+        // Write/Edit 会退化成整段 JSON 展示而不是文件 diff（fileSummaryTypes.ts 注释）。
+        ...(inputPreview.input !== undefined ? { rawInput: inputPreview.input } : {}),
         rawOutput: row.output?.text,
         outputPreview: row.outputPreview,
         outputTruncated: row.output?.truncated,

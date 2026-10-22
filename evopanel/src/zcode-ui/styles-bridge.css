@@ -55,8 +55,25 @@
   min-width: 0;
 }
 
+/*
+ * EvoFlow 宿主：强化「一轮一块」视觉隔离。
+ * ZCode ConversationTurnGroup 已是 section[data-turn-id]；在桥接里给相邻轮加分隔线，
+ * 用户气泡 / 助手区各自成块，避免长历史与本轮糊成一条流水账。
+ */
+.zcode-bridge-root section[data-turn-id] + section[data-turn-id] {
+  margin-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
 :root {
   --ui-font-size: 14px;
+}
+
+/* EvoFlow V4 面板字号：略小于 ZCode 默认（14px），对齐侧栏文字密度。
+ * 整个时间线（正文/工具卡/按钮/思考块）都从 --ui-font-size 等比缩放，
+ * 调整大小只改这一个数（ZCode 档位参考：14 默认 / 13 紧凑 / 12 最小）。 */
+.zcode-bridge-root {
+  --ui-font-size: 13.5px;
 }
 
 /* 中文模板描述按单字断行会拆开“简报”等词组，并把标点挤到下一行。

@@ -204,10 +204,12 @@ async def v4_conversation_subscribe(body: dict[str, Any]) -> JSONResponse:
         raise HTTPException(status_code=422, detail="connectionId and topic are required")
     session_id = _session_id_from_topic(topic)
     base = body.get("base") if isinstance(body.get("base"), dict) else None
+    client_mode = str(body.get("clientMode") or "").strip() or None
     result = await V4_CONVERSATION_HUB.subscribe(
         connection_id=connection_id,
         session_id=session_id,
         base=base,
+        client_mode=client_mode,
     )
     return JSONResponse(result)
 
@@ -241,6 +243,21 @@ async def v4_conversation_resync(body: dict[str, Any]) -> JSONResponse:
         result = await V4_CONVERSATION_HUB.resync(subscription_id=subscription_id, base=base)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"unknown subscription {subscription_id}")
+    return JSONResponse(result)
+
+
+@conversation_router.post("/file_changes", summary="v4 conversation per-turn file changes")
+async def v4_conversation_file_changes(body: dict[str, Any]) -> JSONResponse:
+    """对齐 zcode ``conversationFileChangesV4``：按 turn row 展开文件摘要与只读 diff。"""
+    session_id = str(body.get("sessionId") or "").strip()
+    target = body.get("target") if isinstance(body.get("target"), dict) else None
+    row_id = target.get("rowId") if target else None
+    if not session_id or row_id is None:
+        raise HTTPException(status_code=422, detail="sessionId and target.rowId are required")
+    try:
+        result = V4_CONVERSATION_HUB.file_changes(session_id, row_id=int(row_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session or turn row not found")
     return JSONResponse(result)
 
 

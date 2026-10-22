@@ -10,12 +10,12 @@ import {
   type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { formatRunningPreviewLine } from '../lib/session-list/build-shell-rows.js'
 import { positionMenuAboveAnchor, positionMenuAbovePoint } from '../lib/session-list/menu-position.js'
 import type { ShellSidebarSyncRow } from '../lib/session-list/types.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { RunningSessionSummary } from '../hooks/useRunningSessionSummaries.js'
 import { useShellSessionRunningPreview } from '../hooks/useShellSessionRunningPreview.js'
+import { useRunningElapsedLabel } from '../hooks/useRunningElapsedLabel.js'
 import { isProactiveSessionKey, proactiveAgentCodeFromSessionKey } from '../lib/session-list/workspace-groups.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 import {
@@ -270,7 +270,9 @@ function ShellSessionListRowInner({
   const resolveActivity =
     resolveLiveStreamActivity ||
     ((_sk: string, _sel: boolean) => null as ResolvedLiveStreamActivity | null)
-  const livePreview = useShellSessionRunningPreview({
+  // 运行中只显示齿轮 + 已运行时长；不展示工具/活动文案。
+  // 仍保留 hook 调用以维持 1Hz tick（驱动时长刷新），但不再读取其文案输出。
+  useShellSessionRunningPreview({
     sessionKey,
     executing: !!row.executing,
     isSelectedRow: active,
@@ -278,7 +280,7 @@ function ShellSessionListRowInner({
     runningSummary,
     resolveLiveStreamActivity: resolveActivity,
   })
-  const preview = formatRunningPreviewLine({ ...row, runningPreviewLine: livePreview })
+  const runningElapsed = useRunningElapsedLabel(row.executing ? row.runningStartedAtMs : undefined)
   const isPinned = !!row.isPinned
   const unseen = !!row.hasUnseenRunningUpdate && !active
 
@@ -479,12 +481,17 @@ function ShellSessionListRowInner({
         <div
           className={`react-chat-history-item-trailing${useEmployeeTitle ? ' react-chat-history-item-trailing--employee' : ''}`}
         >
-          {!editingTitle && (preview || row.time) ? (
+          {!editingTitle && row.executing && runningElapsed ? (
+            // 运行中：只显示已运行时长（左侧齿轮由标题区的 spinner 承担）
             <span
-              className={`react-chat-history-item-meta${preview ? ' is-live' : ''}`}
-              title={preview ? `${preview} · ${row.time || ''}` : row.time}
+              className="react-chat-history-item-meta is-live"
+              title={`已运行 ${runningElapsed}`}
             >
-              {preview || row.time}
+              {runningElapsed}
+            </span>
+          ) : !editingTitle && row.time ? (
+            <span className="react-chat-history-item-meta" title={row.time}>
+              {row.time}
             </span>
           ) : null}
           <div className="react-chat-session-more-wrap" data-session-more-root>

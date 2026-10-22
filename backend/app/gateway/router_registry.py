@@ -248,8 +248,21 @@ def register_v4_demo_router(app: FastAPI) -> None:
     _include_module_router(app, "app.gateway.v4_demo.routes", label="v4-demo")
 
 
+def register_v4_conversation_router(app: FastAPI) -> None:
+    """V4 conversation wire 协议路由（生产主聊天流式链路）。
+
+    默认挂载（``EVOFLOW_V4_ROUTES=0`` 可关）：/api/v4/conversation/* 是
+    AG-UI 镜像（``app.gateway.v4.agui_mirror``）的订阅面，客户端
+    EvoFlowV4ChatPane 依赖它做双轨灰度。
+    """
+    if os.environ.get("EVOFLOW_V4_ROUTES", "1").strip().lower() in {"0", "false", "off", "no"}:
+        return
+    _include_module_router(app, "app.gateway.v4.routes", label="v4-conversation")
+
+
 def register_gateway_routers(app: FastAPI) -> None:
     """Mount all API routers (dev / non-deferred startup)."""
     register_core_routers(app)
     register_extended_routers(app)
     register_v4_demo_router(app)
+    register_v4_conversation_router(app)

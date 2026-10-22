@@ -30,6 +30,7 @@ import { cn } from "@/components/lib/utils.js";
 import { runUserAction } from "@/lib/userActionTelemetry.js";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { attachScrollJitterDiag, detachScrollJitterDiag, recordScrollWrite } from "@/v4/scrollJitterDiag.js";
 import { logger } from "@/logger.js";
 import { ConversationTurnGroup } from "@/v4/ConversationTurnGroup.js";
 import { ConversationPendingGuideList } from "@/v4/ConversationPendingGuideList.js";
@@ -554,7 +555,10 @@ function ConversationTimelineImpl({
       resizeObserver = new ResizeObserver(syncShareSelectionPanelLayout);
       resizeObserver.observe(container);
       resizeObserver.observe(timelineRootRef.current ?? container);
-      if (scrollRef.current) resizeObserver.observe(scrollRef.current);
+      if (scrollRef.current) {
+        resizeObserver.observe(scrollRef.current);
+        attachScrollJitterDiag(scrollRef.current);
+      }
       resizeObserver.observe(dock);
     }
 
@@ -732,13 +736,15 @@ function ConversationTimelineImpl({
     scrollMargin: headerSlotHeight,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) => {
-    return shouldAdjustVirtualizerForItemSizeChange({
+    const adjust = shouldAdjustVirtualizerForItemSizeChange({
       suppressAdjustment: suppressVirtualizerAdjustmentDuringRestoreRef.current,
       following: followingRef.current,
       contentWidthChanging: isContentWidthChanging(),
       itemEnd: item.end,
       scrollTop: scrollRef.current?.scrollTop ?? 0,
     });
+    if (adjust) recordScrollWrite("virtualizerItemSizeAdjust", scrollRef.current);
+    return adjust;
   };
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
@@ -1040,6 +1046,7 @@ function ConversationTimelineImpl({
     markProgrammaticScroll();
     // 草稿安全居中允许内容在低高度下向下溢出；若沿用真实会话吸底，
     // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
+    recordScrollWrite("scrollToBottom", element);
     element.scrollTop = responsiveCenteredEmptyLayout ? 0 : element.scrollHeight;
     // 回读取钳制后的落点入账（浏览器会把赋值钳到最大可滚动距离）。
     lastObservedScrollTopRef.current = element.scrollTop;
@@ -1164,6 +1171,7 @@ function ConversationTimelineImpl({
       if (!element) return;
       clearUserScrollIntent();
       markProgrammaticScroll();
+      recordScrollWrite("scrollMemoryRestore", element);
       element.scrollTop = resolveChatSessionScrollRestoreTop(state, element);
       lastObservedScrollTopRef.current = element.scrollTop;
       followingRef.current = false;
@@ -1296,6 +1304,7 @@ function ConversationTimelineImpl({
           element.scrollTop +
           rowElement.getBoundingClientRect().top -
           element.getBoundingClientRect().top;
+        recordScrollWrite("scrollToQuery", element);
         if (behavior === "auto") {
           element.scrollTop = targetTop;
         } else {
@@ -1386,6 +1395,7 @@ function ConversationTimelineImpl({
           element.scrollTop +
           liveTail.getBoundingClientRect().top -
           element.getBoundingClientRect().top;
+        recordScrollWrite("scrollToQueryLiveTail", element);
         if (behavior === "auto") {
           element.scrollTop = targetTop;
         } else {

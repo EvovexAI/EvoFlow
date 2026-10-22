@@ -11,6 +11,9 @@ import {
   logStreamCompareAgUiDrain,
   logStreamCompareAgUiInternals,
   logStreamCompareDomView,
+  logStreamCompareVisualMirror,
+  logStreamCompareV4Recv,
+  threadIdFromV4Topic,
   dumpStreamCompareBuffers,
   sanitizeSessionLogId,
   sanitizeRunLogId,
@@ -225,6 +228,63 @@ describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离',
     expect(out2.sseRecv.some((l) => l.includes('run2 流'))).toBe(true)
     expect(out2.sseRecv.every((l) => !l.includes('run1 流'))).toBe(true)
     // 不同 run 互不污染
+  })
+
+  it('v4-recv：与 sse-recv 同轮目录；topic→thread 映射到 active run', () => {
+    setLs(true)
+    markStreamCompareSession('lc_run:v4sess')
+    markStreamCompareRun('lc_run:v4sess', 'run-v4deadbeef', {
+      threadId: 'thread-abc-001',
+    })
+    expect(threadIdFromV4Topic('conversation/thread-abc-001')).toBe('thread-abc-001')
+
+    logStreamCompareV4Recv({
+      topic: 'conversation/thread-abc-001',
+      deliveryKind: 'online',
+      frame: {
+        fromSeq: 0,
+        toSeq: 3,
+        subscriptionId: 'sub-1',
+        payload: {
+          kind: 'deltas',
+          deltas: [
+            { op: 'row.upserted', rowId: 'r1' },
+            { op: 'row.delta', rowId: 'r1', path: 'text' },
+            { op: 'row.state', rowId: 'r1' },
+          ],
+        },
+      },
+    })
+    logStreamCompareV4Recv({
+      topic: 'conversation/thread-abc-001',
+      deliveryKind: 'online',
+      frame: {
+        fromSeq: 0,
+        toSeq: 10,
+        subscriptionId: 'sub-1',
+        payload: {
+          kind: 'snapshot',
+          snapshot: {
+            rows: {
+              window: [
+                { rowId: 'r1', _kind: 'assistantMessage' },
+                { rowId: 'r2', _kind: 'toolCall' },
+              ],
+            },
+          },
+        },
+      },
+    })
+
+    const out = dumpStreamCompareBuffers('lc_run:v4sess', 'run-v4deadbeef')
+    expect(out.v4Recv.length).toBeGreaterThanOrEqual(3) // TURN header + 2 frames
+    expect(out.v4Recv.some((l) => l.includes('TURN') && l.includes('run-v4deadbeef'))).toBe(true)
+    expect(out.v4Recv.some((l) => l.includes('"kind":"deltas"') && l.includes('"ops":3'))).toBe(true)
+    expect(out.v4Recv.some((l) => l.includes('"kind":"snapshot"') && l.includes('"rows":2'))).toBe(
+      true,
+    )
+    // 仍在同一 run buffer，不另开目录
+    expect(out.runLogId).toBe('run-v4deadbeef')
   })
 
   it('drain / internals 也走 ui-display（多轮工具封存时序可追）', async () => {
@@ -599,5 +659,50 @@ describe('v5.9 DOM 视角 1:1 快照：buildAssistantDomView + logStreamCompareD
     // 不应重复出现多余的"已工作"块
     const foldMatches = all.match(/\[fold=closed\]/g) || []
     expect(foldMatches.length).toBe(1)
+  })
+
+  it('历史气泡 messageId 不新建目录：一轮只保留已 mark 的 run-*', () => {
+    markStreamCompareSession('lc_run:oneTurn')
+    markStreamCompareRun('lc_run:oneTurn', 'run-230539719c4f')
+
+    // 当前轮 UI（wire runId）→ 写入 run-* 目录
+    logStreamCompareDomView({
+      sessionKey: 'lc_run:oneTurn',
+      runId: 'run-230539719c4f',
+      foldOpen: true,
+      head: '工作中 3s',
+      gear: 'off',
+      chunks: [{ kind: 'msg-text', role: 'plain-body', text: '本轮正文' }],
+    })
+    // 历史助手行把 messageId/ULID 当 runId → 不得新建目录、不得污染本轮
+    const histMsgId = '01a161c2-0b1a-7b93-b0f9-9812f45c0e65'
+    logStreamCompareDomView({
+      sessionKey: 'lc_run:oneTurn',
+      runId: histMsgId,
+      foldOpen: false,
+      head: '已工作 1 分',
+      gear: 'off',
+      chunks: [{ kind: 'msg-text', role: 'final-reply', text: '历史正文不应落盘' }],
+    })
+    logStreamCompareVisualMirror({
+      sessionKey: 'lc_run:oneTurn',
+      runId: histMsgId,
+      foldOpen: false,
+      head: '已工作 1 分',
+      gear: 'off',
+      chunks: [{ kind: 'msg-text', role: 'final-reply', text: '历史 visual 也不应落盘' }],
+    })
+    ;(window as any).__evoflowStreamCompareFlush?.()
+
+    const store = (window as any).__evoflowStreamCompare
+    const runs = store?.sessions?.lc_run_oneTurn?.runs || {}
+    expect(Object.keys(runs)).toEqual(['run-230539719c4f'])
+
+    const live = dumpStreamCompareBuffers('lc_run:oneTurn', 'run-230539719c4f')
+    expect(live.uiDisplay.join('\n')).toContain('本轮正文')
+    expect(live.uiDisplay.join('\n')).not.toContain('历史正文不应落盘')
+
+    const hist = dumpStreamCompareBuffers('lc_run:oneTurn', histMsgId)
+    expect(hist.uiDisplay.length).toBe(0)
   })
 })

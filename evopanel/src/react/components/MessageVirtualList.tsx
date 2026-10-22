@@ -2409,6 +2409,14 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   }, [hasContent, historyLoading, viewReady])
 
   if (!hasContent) {
+    // 工作台意图优先于 historyLoading skeleton，否则「打开工作台」会先闪空白/骨架再出仪表盘
+    if (showHomeDashboard) {
+      return (
+        <div className="react-vlist-scroller chat-messages-inner chat-messages-inner--home">
+          <EvoFlowHomeDashboard onPrompt={onQuickPrompt} workspaceLabel={homeWorkspaceLabel} workspacePath={homeWorkspacePath} />
+        </div>
+      )
+    }
     if (historyLoading) {
       return (
         <div className="react-vlist-scroller chat-messages-inner react-chat-history-inner-quiet">
@@ -2420,18 +2428,11 @@ export const MessageVirtualList = memo(function MessageVirtualList({
         </div>
       )
     }
-    if (!showHomeDashboard) {
-      return (
-        <div className="react-vlist-scroller chat-messages-inner react-chat-history-inner-quiet">
-          <div className="react-chat-empty-thread" role="status">
-            暂无消息，可在下方继续输入
-          </div>
-        </div>
-      )
-    }
     return (
-      <div className="react-vlist-scroller chat-messages-inner chat-messages-inner--home">
-        <EvoFlowHomeDashboard onPrompt={onQuickPrompt} workspaceLabel={homeWorkspaceLabel} workspacePath={homeWorkspacePath} />
+      <div className="react-vlist-scroller chat-messages-inner react-chat-history-inner-quiet">
+        <div className="react-chat-empty-thread" role="status">
+          暂无消息，可在下方继续输入
+        </div>
       </div>
     )
   }
