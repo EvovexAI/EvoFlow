@@ -438,6 +438,11 @@ import { refreshAgentsList as refreshAgentsListImpl } from './chat-app/agents/re
 import { applySessionSwitchUiShell as applySessionSwitchUiShellImpl } from './chat-app/session/apply-session-switch-ui-shell.js'
 import { buildSessionStopHost } from './chat-app/session/build-session-stop-host.js'
 import { installShellSessionHeal } from './chat-app/shell/install-shell-session-heal.js'
+import { maybeSyncVoiceReplySpeech as maybeSyncVoiceReplySpeechImpl } from './chat-app/composer/maybe-sync-voice-reply-speech.js'
+import {
+  resetCollabPlanUiForSession as resetCollabPlanUiForSessionImpl,
+  resetCollabPlanUiForNewCycle as resetCollabPlanUiForNewCycleImpl,
+} from './chat-app/plan-dock/reset-collab-plan-ui.js'
 // ============================================
 
 import type {
@@ -1249,56 +1254,16 @@ export default function ChatApp() {
   const voiceSpeechSyncedPlainRef = useRef('')
   const maybeSyncVoiceReplySpeech = useCallback(
     (replySk: string, S: Parameters<typeof streamProject>[0], rt: SessionRuntime) => {
-      if (!voiceReplyPendingRef.current) return
-      const voiceSk = String(voiceSessionKeyRef.current || '').trim()
-      const sk = String(replySk || '').trim()
-      if (!voiceSk || sk !== voiceSk) return
-
-      const tools = (S.turn?.tools || []) as unknown[]
-      const proj = streamProject(S)
-      const speechBody = buildVoiceSpeechBodyForRuntime(rt, {
-        segments: proj.segments,
-        text: proj.text,
-      })
-
-      void import('../lib/voice-reply-speech.js').then(
-        ({
-          shouldMuteVoiceSpeech,
-          shouldAdvanceVoiceSpeechSync,
-          enqueueVoiceStreamSpeech,
-          enterVoiceToolMute,
-          exitVoiceToolMute,
-          isVoiceToolMuteActive,
-          clipVoiceSpeechForPlayback,
-          toVoiceSpeechPlain,
-        }) => {
-          if (!voiceReplyPendingRef.current) return
-          const voiceSkNow = String(voiceSessionKeyRef.current || '').trim()
-          if (!voiceSkNow || sk !== voiceSkNow) return
-
-          if (shouldMuteVoiceSpeech(tools)) {
-            enterVoiceToolMute((s) => setVoiceTrayState(s))
-            void setVoiceTrayState('running')
-            return
-          }
-          if (isVoiceToolMuteActive()) {
-            exitVoiceToolMute()
-          }
-
-          if (!speechBody) return
-          const speakable = clipVoiceSpeechForPlayback(speechBody)
-          if (
-            !speakable ||
-            !shouldAdvanceVoiceSpeechSync(speakable, voiceSpeechSyncedPlainRef.current)
-          ) {
-            return
-          }
-
-          voiceSpeechSyncedPlainRef.current = toVoiceSpeechPlain(speakable)
-          voiceStreamingStartedRef.current = true
-          void setVoiceTrayState('speaking')
-          enqueueVoiceStreamSpeech(speakable)
+      maybeSyncVoiceReplySpeechImpl(
+        {
+          voiceReplyPendingRef,
+          voiceSessionKeyRef,
+          voiceSpeechSyncedPlainRef,
+          voiceStreamingStartedRef,
         },
+        replySk,
+        S,
+        rt,
       )
     },
     [],
@@ -3138,64 +3103,81 @@ export default function ChatApp() {
   /** 切换/新建会话：清空 plan latch、协作侧栏与 suppress，避免串会话显示上一对话的计划/子任务。 */
   const resetCollabPlanUiForSession = useCallback(
     (opts?: { keepBoundTaskId?: boolean; closeSidebar?: boolean }) => {
-      resetPlanStreamSession()
-      suppressedPlanExecDockKeysRef.current.clear()
-      userAuthorizedTaskIdsRef.current.clear()
-      setPlanExecSuppressVersion((v) => v + 1)
-      setThreadPanelState(emptyThreadPanel())
-      planAppliedForRef.current = ''
-      planApiSyncInflightRef.current = null
-      historyCollabHydratedRef.current = ''
-      historyRowsBootstrappedRef.current = ''
-      planFromApiLoadedRef.current = ''
-      planDockApiViewRef.current = null
-      setPlanDockApiView(null)
-      threadCollabSnapshotRef.current = ''
-      sessionBoundTaskIdRef.current = ''
-      const leavingSk = String(sessionRef.current || selectedSessionKey || '').trim()
-      if (leavingSk) invalidatePlanApiCache(leavingSk)
-      if (!opts?.keepBoundTaskId) {
-        setBoundTaskId(null)
-      }
-      setSidebarTaskViews({})
-      setSidebarSelectedTaskId(null)
-      setHasReceivedTodos(false)
-      clearSidebarBackfillCaches()
-      if (opts?.closeSidebar !== false) {
-        setSessionSidebarOpen(false)
-      }
-      setCollabExecPanelOpen(false)
-      setKnowledgeMapPanelOpen(false)
-      prevCollabExecPhaseRef.current = ''
-      collabExecSessionBaselinedRef.current = ''
-      collabExecDismissedKeysRef.current.clear()
+      resetCollabPlanUiForSessionImpl(
+        {
+          sessionRef,
+          selectedSessionKey,
+          suppressedPlanExecDockKeysRef,
+          userAuthorizedTaskIdsRef,
+          planAppliedForRef,
+          planApiSyncInflightRef,
+          historyCollabHydratedRef,
+          historyRowsBootstrappedRef,
+          planFromApiLoadedRef,
+          planDockApiViewRef,
+          threadCollabSnapshotRef,
+          sessionBoundTaskIdRef,
+          lastPlanSyncSigRef,
+          planStreamLatchRef,
+          lastPlanPanelHitRef,
+          prevCollabExecPhaseRef,
+          collabExecSessionBaselinedRef,
+          collabExecDismissedKeysRef,
+          resetPlanStreamSession,
+          clearSidebarBackfillCaches,
+          setPlanExecSuppressVersion,
+          setThreadPanelState,
+          setPlanDockApiView,
+          setPlanStreamLatched,
+          setBoundTaskId,
+          setSidebarTaskViews,
+          setSidebarSelectedTaskId,
+          setHasReceivedTodos,
+          setSessionSidebarOpen,
+          setCollabExecPanelOpen,
+          setKnowledgeMapPanelOpen,
+        },
+        opts,
+      )
     },
-    [resetPlanStreamSession, clearSidebarBackfillCaches],
+    [resetPlanStreamSession, clearSidebarBackfillCaches, selectedSessionKey],
   )
 
   /** 同会话内开启新一轮 plan：保留会话/thread，清空上一轮 plan/执行侧栏 latch。 */
   const resetCollabPlanUiForNewCycle = useCallback(() => {
-    resetPlanStreamSession()
-    suppressedPlanExecDockKeysRef.current.clear()
-    userAuthorizedTaskIdsRef.current.clear()
-    setPlanExecSuppressVersion((v) => v + 1)
-    planAppliedForRef.current = ''
-    planApiSyncInflightRef.current = null
-    planFromApiLoadedRef.current = ''
-    lastPlanSyncSigRef.current = ''
-    planStreamLatchRef.current = null
-    setPlanStreamLatched(false)
-    planDockApiViewRef.current = null
-    setPlanDockApiView(null)
-    lastPlanPanelHitRef.current = null
-    setSidebarTaskViews({})
-    setSidebarSelectedTaskId(null)
-    setHasReceivedTodos(false)
-    clearSidebarBackfillCaches()
-    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-    if (sk) invalidatePlanApiCache(sk)
-    setThreadPanelState(emptyThreadPanel())
-    setBoundTaskId(null)
+    resetCollabPlanUiForNewCycleImpl({
+      sessionRef,
+      selectedSessionKey,
+      suppressedPlanExecDockKeysRef,
+      userAuthorizedTaskIdsRef,
+      planAppliedForRef,
+      planApiSyncInflightRef,
+      historyCollabHydratedRef,
+      historyRowsBootstrappedRef,
+      planFromApiLoadedRef,
+      planDockApiViewRef,
+      threadCollabSnapshotRef,
+      sessionBoundTaskIdRef,
+      lastPlanSyncSigRef,
+      planStreamLatchRef,
+      lastPlanPanelHitRef,
+      prevCollabExecPhaseRef,
+      collabExecSessionBaselinedRef,
+      collabExecDismissedKeysRef,
+      resetPlanStreamSession,
+      clearSidebarBackfillCaches,
+      setPlanExecSuppressVersion,
+      setThreadPanelState,
+      setPlanDockApiView,
+      setPlanStreamLatched,
+      setBoundTaskId,
+      setSidebarTaskViews,
+      setSidebarSelectedTaskId,
+      setHasReceivedTodos,
+      setSessionSidebarOpen,
+      setCollabExecPanelOpen,
+      setKnowledgeMapPanelOpen,
+    })
   }, [resetPlanStreamSession, selectedSessionKey, clearSidebarBackfillCaches])
 
   // collabSubtaskStatusSig removed (unused)

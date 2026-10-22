@@ -5,10 +5,13 @@
 import { toast } from '../../../components/toast.js'
 import { shouldArmVoiceReply } from '../../../lib/voice-reply-mode.js'
 
+/** 与 lib/background-voice.js setVoiceTrayState 的入参联合类型保持一致 */
+export type VoiceTrayState = 'idle' | 'recording' | 'processing' | 'running' | 'speaking'
+
 export type HandleVoiceTranscribedCtx = {
   voiceReplyEnabled: boolean
   pushComposerText: (text: string) => void
-  setVoiceTrayState: (s: string) => unknown
+  setVoiceTrayState: (s: VoiceTrayState) => void | Promise<void>
   handleSend: (
     text: string,
     attachments?: undefined,

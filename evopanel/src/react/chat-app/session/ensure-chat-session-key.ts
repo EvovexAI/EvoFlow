@@ -7,7 +7,9 @@ export type EnsureChatSessionKeyCtx = {
   selectedSessionKey: string
   setNewChatButtonActive: (v: boolean) => void
   resolveWorkspaceForNewSession: () => string | null
-  coalesceCreateSession: <T>(fn: () => Promise<T>) => Promise<T>
+  coalesceCreateSession: (
+    fn: () => Promise<string | null>,
+  ) => Promise<string | null>
   createSessionForChat: (opts?: { workspaceRoot?: string | null }) => Promise<string | null>
 }
 
