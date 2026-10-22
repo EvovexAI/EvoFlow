@@ -382,6 +382,9 @@ import { resolveDisplayContextUsage } from './chat-app/context/resolve-display-c
 import { syncShellAsideForWorkspacePanel as syncShellAsideForWorkspacePanelImpl } from './chat-app/shell/sync-shell-aside-for-workspace.js'
 import { patchCurrentAgentCapabilities as patchCurrentAgentCapabilitiesImpl } from './chat-app/agents/patch-current-agent-capabilities.js'
 import { openCurrentAgentEditor as openCurrentAgentEditorImpl } from './chat-app/agents/open-current-agent-editor.js'
+import { handleStopProcessItem as handleStopProcessItemImpl } from './chat-app/process/handle-stop-process-item.js'
+import { handleOpenProcessItem as handleOpenProcessItemImpl } from './chat-app/process/handle-open-process-item.js'
+import { refreshPlanDockAfterStreamFinal as refreshPlanDockAfterStreamFinalImpl } from './chat-app/plan-dock/refresh-plan-dock-after-stream-final.js'
 // ============================================
 
 import type {
@@ -3489,32 +3492,16 @@ export default function ChatApp() {
       retryUntilPlanned?: boolean
       fallback?: Record<string, unknown> | null
     }) => {
-      const captureSk = String(opts.sessionKey || sessionRef.current || selectedSessionKey || '').trim()
-      const fallbackPlan = opts.fallback ?? planStreamLatchRef.current?.planInput ?? null
-      const runSync = (source: string) =>
-        syncPlanPanelFromApi({
-          source,
-          sessionKey: captureSk,
-          hintTaskId: opts.hintTaskId,
-          bypassCache: true,
-          ...(fallbackPlan ? { fallback: fallbackPlan } : {}),
-        })
-      await runSync('stream_final')
-      if (planDockApiViewRef.current?.show) {
-        return
-      }
-      if (!opts.retryUntilPlanned) {
-        return
-      }
-      for (const delayMs of [600, 1500]) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
-        if (String(sessionRef.current || '').trim() !== captureSk) return
-        if (planDockApiViewRef.current?.show) return
-        await runSync('stream_final_retry')
-        if (planDockApiViewRef.current?.show) {
-          return
-        }
-      }
+      await refreshPlanDockAfterStreamFinalImpl(
+        {
+          sessionRef,
+          selectedSessionKey,
+          planStreamLatchRef,
+          planDockApiViewRef,
+          syncPlanPanelFromApi,
+        },
+        opts,
+      )
     },
     [syncPlanPanelFromApi, selectedSessionKey],
   )
@@ -9328,25 +9315,15 @@ export default function ChatApp() {
 
   const handleStopProcessItem = useCallback(
     (item: ProcessItem) => {
-      const workId = String(item?.workId || '').trim()
-      if (!workId) return
-      void stopBackgroundBashWork(workId)
-        .then(() => {
-          const S = streamRef.current
-          const row = S?.backgroundWorks?.[workId]
-          if (row) {
-            row.status = 'cancelled'
-            row.cancellable = false
-            row.endedAt = Date.now()
-          }
-          const sk = String(sessionRef.current || '').trim()
-          if (sk && S) {
-            streamSeqRef.current += 1
-            commitStreamSnapshot(sk, S, { seq: streamSeqRef.current })
-          }
-          scheduleBump({ immediate: true })
-        })
-        .catch(() => {})
+      handleStopProcessItemImpl(
+        {
+          streamRef,
+          sessionRef,
+          streamSeqRef,
+          scheduleBump,
+        },
+        item,
+      )
     },
     [scheduleBump],
   )
@@ -9354,86 +9331,19 @@ export default function ChatApp() {
   /** 点进程行：终端开右栏标签；智能体仍切到摘要区 */
   const handleOpenProcessItem = useCallback(
     (item: ProcessItem) => {
-      if (!item) return
-      if (item.kind === 'terminal') {
-        const src = item.source as { toolCallId?: string; command?: string; phase?: string }
-        const toolCallId = String(src?.toolCallId || item.workId || '').trim()
-        if (!toolCallId) {
-          setChatPanelDisplayMode('panel')
-          return
-        }
-        ensureTerminalStage({
-          toolCallId,
-          title: item.label || '终端',
-          command: String(src?.command || ''),
-          sessionKey: selectedSessionKey || undefined,
-          running: src?.phase === 'running' || item.state === 'running',
-        })
-        // ZCode BackgroundBashOutputSidePane：打开时拉输出快照；running 时 1s 轮询。
-        const workId = String(item.workId || '').trim()
-        if (workId) {
-          const prevPoll = backgroundOutputPollRef.current
-          if (prevPoll) {
-            window.clearInterval(prevPoll.timer)
-            backgroundOutputPollRef.current = null
-          }
-          const seed = async () => {
-            try {
-              const snap = await fetchBackgroundBashOutput(workId)
-              if (!snap?.output) return
-              const S = streamRef.current
-              if (!S) return
-              if (!S.terminalStreams) S.terminalStreams = {}
-              const existing = S.terminalStreams[toolCallId]
-              const prev = String(existing?.stdout || '')
-              if (!prev || prev.length < snap.output.length) {
-                S.terminalStreams[toolCallId] = {
-                  toolCallId,
-                  command: String(src?.command || existing?.command || ''),
-                  phase: snap.status === 'running' ? 'running' : existing?.phase || 'running',
-                  stdout: snap.output,
-                  stderr: existing?.stderr || '',
-                  chunks: existing?.chunks,
-                  startedAt: existing?.startedAt || item.startedAt || Date.now(),
-                }
-              }
-              const sk = String(selectedSessionKey || sessionRef.current || '').trim()
-              if (sk) {
-                streamSeqRef.current += 1
-                commitStreamSnapshot(sk, S, { seq: streamSeqRef.current })
-              }
-              scheduleBump({ immediate: true })
-              if (snap.status && snap.status !== 'running') {
-                const cur = backgroundOutputPollRef.current
-                if (cur?.workId === workId) {
-                  window.clearInterval(cur.timer)
-                  backgroundOutputPollRef.current = null
-                }
-              }
-            } catch {
-              /* ignore */
-            }
-          }
-          void seed()
-          if (item.state === 'running') {
-            const timer = window.setInterval(() => {
-              const cur = backgroundOutputPollRef.current
-              if (!cur || Date.now() > cur.stopAt) {
-                if (cur) window.clearInterval(cur.timer)
-                backgroundOutputPollRef.current = null
-                return
-              }
-              void seed()
-            }, 1000)
-            backgroundOutputPollRef.current = { workId, timer, stopAt: Date.now() + 600_000 }
-          }
-        }
-        return
-      }
-      if (item.kind === 'agent') {
-        setInfoRailTab('agent')
-        setChatPanelDisplayMode('panel')
-      }
+      handleOpenProcessItemImpl(
+        {
+          selectedSessionKey,
+          streamRef,
+          sessionRef,
+          streamSeqRef,
+          backgroundOutputPollRef,
+          scheduleBump,
+          setChatPanelDisplayMode,
+          setInfoRailTab,
+        },
+        item,
+      )
     },
     [selectedSessionKey, setChatPanelDisplayMode, scheduleBump],
   )
