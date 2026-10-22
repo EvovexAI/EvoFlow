@@ -391,6 +391,8 @@ import { handleDeleteWorkspaceGroup as handleDeleteWorkspaceGroupImpl } from './
 import { handleDeleteSession as handleDeleteSessionImpl } from './chat-app/session/handle-delete-session.js'
 import { authorizeExecutionInBackground as authorizeExecutionInBackgroundImpl } from './chat-app/plan-dock/authorize-execution-in-background.js'
 import { runUserExecutionStart as runUserExecutionStartImpl } from './chat-app/plan-dock/run-user-execution-start.js'
+import { runShellSessionRefresh as runShellSessionRefreshImpl } from './chat-app/session/run-shell-session-refresh.js'
+import { applyPlanToolSuccess as applyPlanToolSuccessImpl } from './chat-app/plan-dock/apply-plan-tool-success.js'
 // ============================================
 
 import type {
@@ -3471,15 +3473,7 @@ export default function ChatApp() {
       planOutput?: Record<string, unknown>
       boundPlanReady?: boolean
     }) => {
-      await syncPlanPanelFromApi({
-        source: 'tool_success',
-        hintTaskId: hit.taskId,
-        preview: hit.preview,
-        fallback: hit.planInput || null,
-        planOutput: hit.planOutput ?? null,
-        boundPlanReady: hit.boundPlanReady,
-        openSidebar: true,
-      })
+      await applyPlanToolSuccessImpl({ syncPlanPanelFromApi }, hit)
     },
     [syncPlanPanelFromApi],
   )
@@ -3534,130 +3528,33 @@ export default function ChatApp() {
   /** 侧栏单条刷新：messages 一次 + tasks 一次（reload 后再 sync，并挡住 session_enter 重复）。 */
   const runShellSessionRefresh = useCallback(
     async (sessionKey: string) => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return
-      if (sessionRefreshInFlightRef.current === sk) return
-      sessionRefreshInFlightRef.current = sk
-      const fetchSeq = sessionTasksFetchSeqRef.current
-      try {
-        if (!isActiveSessionFetch(sk, fetchSeq)) return
-
-        // 先刷新会话列表，获取最新 runStatus（续流门禁依赖此数据）
-        await refreshSessionsRef.current?.({ skipAutoReselect: true })
-        if (!isActiveSessionFetch(sk, fetchSeq)) return
-
-        if (sk) {
-          invalidatePlanApiCache(sk)
-        }
-
-        planAppliedForRef.current = ''
-        planFromApiLoadedRef.current = ''
-        threadCollabSnapshotRef.current = ''
-
-        const rowBefore = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
-        const rtBefore = getSessionRuntime(sk)
-        const suppressLivePost = shouldSuppressAutoReattach({
-          sessionKey: sk,
-          runtime: rtBefore,
-        })
-        const shouldResumeBefore =
-          !suppressLivePost &&
-          shouldManualRefreshResumeStream({
-            sessionKey: sk,
-            runStatus: rowBefore?.runStatus,
-            executingSessionKeys: executingSessionKeysRef.current,
-            runtime: rtBefore,
-          })
-        if (shouldResumeBefore) {
-          const runId = String(rtBefore.activeChatRunId || rowBefore?.currentRunId || '').trim()
-          if (runId) wsClient.abortStreamWire(sk, runId)
-          dispatchSessionTurnEvent(sk, {
-            type: 'REATTACH_STARTED',
-            runId: runId || '',
-          })
-        }
-
-        await reloadHistoryFromDb({ bypassCache: true, dbOnly: true })
-        if (!isActiveSessionFetch(sk, fetchSeq)) return
-
-        const row = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
-        const rt = getSessionRuntime(sk)
-        const shouldResume =
-          shouldResumeBefore ||
-          shouldManualRefreshResumeStream({
-            sessionKey: sk,
-            runStatus: row?.runStatus,
-            executingSessionKeys: executingSessionKeysRef.current,
-            runtime: rt,
-          })
-        srLog('shell session refresh', { sessionKey: sk, shouldResume, runStatus: row?.runStatus ?? null })
-        if (shouldResume) {
-          requestManualStreamResumeRef.current(sk, { refreshSessions: false })
-        } else {
-          // shouldResume=false：会话可能已结束但 probe cache/runtime 仍 stale。
-          // 主动查后端 execution/state 同步 probe cache，若已结束则清理本地运行状态。
-          try {
-            const probe = await fetchAndCacheSessionExecutionState(sk)
-            const rtAfter = getSessionRuntime(sk)
-            if (rtAfter.streamWireSource === 'run') {
-              // live POST 未关：probe 滞后不得清 busy
-            } else {
-              const stillBusy = isTurnBusy(rtAfter) || isSessionRuntimeLive(rtAfter)
-              const backendDone = probe ? !probe.executing && !probe.goalActive : true
-              if (stillBusy && backendDone) {
-                // 后端确认已结束：清 probe cache + dispatch TURN_IDLE 归位侧栏运行状态
-                logStreamStop({
-                  sessionKey: sk,
-                  runId: rtAfter.activeChatRunId || rtAfter.stream.runId,
-                  trigger: 'refresh_backend_done',
-                  hasEndMarker: false,
-                  detail: {
-                    source: 'shell_session_refresh',
-                    turnPhase: rtAfter.turnPhase,
-                    probeExecuting: probe?.executing,
-                    probeGoalActive: probe?.goalActive,
-                  },
-                })
-                clearSessionExecutionProbe(sk)
-                dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
-              }
-            }
-          } catch {
-            /* best-effort */
-          }
-        }
-
-        // 刷新目标状态（与续流独立，确保目标图标/步数/目标状态同步）
-        void refreshGoalStatusRef.current?.(sk)
-
-        const rowsForPlan = rowsRef.current.length ? rowsRef.current : rows
-        const planHit = rowsForPlan.length
-          ? extractLastPlanToolSuccessFromArrays(collectAssistantToolArraysFromRows(rowsForPlan))
-          : null
-        const ctx = wsClient.getSessionContext(sk) as { collab_task_id?: string } | undefined
-        const preferTaskId = String(
-          ctx?.collab_task_id ||
-            (planHit as { taskId?: string } | null)?.taskId ||
-            boundTaskId ||
-            '',
-        ).trim()
-
-        const syncOpts = {
-          source: 'session_refresh' as const,
-          sessionKey: sk,
-          hintTaskId: preferTaskId,
-          bypassCache: true,
-          fallback: (planHit as { planInput?: Record<string, unknown> } | null)?.planInput ?? null,
-          planOutput: (planHit as { planOutput?: Record<string, unknown> } | null)?.planOutput ?? null,
-          boundPlanReady: !!(planHit as { boundPlanReady?: boolean } | null)?.boundPlanReady,
-        }
-        await syncPlanPanelFromApi(syncOpts)
-        planSessionEnterRef.current = sk
-      } finally {
-        if (sessionRefreshInFlightRef.current === sk) sessionRefreshInFlightRef.current = ''
-      }
+      await runShellSessionRefreshImpl(
+        {
+          sessionRefreshInFlightRef,
+          sessionTasksFetchSeqRef,
+          sessionsRef,
+          executingSessionKeysRef,
+          planAppliedForRef,
+          planFromApiLoadedRef,
+          threadCollabSnapshotRef,
+          planSessionEnterRef,
+          rowsRef,
+          rows,
+          boundTaskId,
+          refreshSessionsRef,
+          requestManualStreamResumeRef,
+          refreshGoalStatusRef,
+          isActiveSessionFetch,
+          reloadHistoryFromDb,
+          syncPlanPanelFromApi,
+          abortStreamWire: (sk, runId) => wsClient.abortStreamWire(sk, runId),
+          getSessionContext: (sk) =>
+            wsClient.getSessionContext(sk) as { collab_task_id?: string } | undefined,
+        },
+        sessionKey,
+      )
     },
-    [syncPlanPanelFromApi, reloadHistoryFromDb, rows],
+    [syncPlanPanelFromApi, reloadHistoryFromDb, rows, boundTaskId],
   )
   const runShellSessionRefreshRef = useRef(runShellSessionRefresh)
   runShellSessionRefreshRef.current = runShellSessionRefresh
