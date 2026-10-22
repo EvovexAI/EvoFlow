@@ -352,6 +352,8 @@ import {
   syncPlanPanelFromApi as syncPlanPanelFromApiImpl,
   type SyncPlanPanelFromApiOpts,
 } from './chat-app/plan-dock/sync-plan-panel-from-api.js'
+import { syncPlanPanelImmediateFromTools as syncPlanPanelImmediateFromToolsImpl } from './chat-app/plan-dock/sync-plan-panel-immediate.js'
+import { collectPlanToolsForDetection as collectPlanToolsForDetectionImpl } from './chat-app/plan-dock/collect-plan-tools.js'
 // ============================================
 
 import type {
@@ -3454,28 +3456,16 @@ export default function ChatApp() {
 
   /** 底部 plan 条：流式中仅用 stream buffer，避免全历史合并冲掉当前 plan。 */
   const collectPlanToolsForDetection = useCallback((): unknown[] => {
-    const streamTools = streamRef.current.turn.tools as unknown[]
-    const rowTools = toolsFromLastAssistantRow(rows)
-    const historyTools = mergeAssistantToolsFromRows(rows)
-    const streamActive =
-      Array.isArray(streamTools) &&
-      streamTools.length > 0 &&
-      (selectedTurnBusy || streamRefHasVisibleContent(streamRef.current))
-    const persisted = persistedPlanInputRef.current
-    const enrich = (list: unknown[]) =>
-      enrichToolsWithCachedPlanInput(list, persisted ? { planInput: persisted } : null)
-    // 流式进行中只用当前轮 stream buffer，避免上一轮 8～9 个工具行把 plan 冲没（plan=0 hit=none）
-    if (streamActive) {
-      return enrich(mergePlanToolsForDetection(streamTools, rowTools, true))
-    }
-    const snap = lastPlanDetectionToolsRef.current
-    if (Array.isArray(snap) && snap.length > 0 && rows.length > 0) {
-      return enrich(mergeToolsForPlanDetection(snap, historyTools, rowTools))
-    }
-    if (!rows.length) {
-      return enrich([])
-    }
-    return enrich(mergeToolsForPlanDetection(historyTools, rowTools))
+    return collectPlanToolsForDetectionImpl(
+      {
+        streamRef,
+        persistedPlanInputRef,
+        lastPlanDetectionToolsRef,
+        streamRefHasVisibleContent,
+      },
+      rows,
+      selectedTurnBusy,
+    )
   }, [rows, selectedTurnBusy])
 
   const mergedPlanTools = useMemo(
@@ -3484,65 +3474,24 @@ export default function ChatApp() {
   )
 
   /** plan 工具入参/出参一到就立刻写 panel state（不等到 final / 刷新）。 */
-  const syncPlanPanelImmediateFromTools = useCallback((tools: unknown[]) => {
-    absorbPlanFromTools(tools)
-    const analyzed = analyzePlanTools(tools)
-    if (analyzed.planRows.length > 0) {
-      lastPlanDetectionToolsRef.current = tools
-      if (!planStreamLatchRef.current) {
-        planStreamLatchRef.current = {
-          planInput: analyzed.hit?.planInput,
-          boundPlanReady: analyzed.hit?.boundPlanReady,
-          taskId: analyzed.hit?.taskId,
-        }
-        setPlanStreamLatched(true)
-      }
-    }
-    const hit = analyzed.hit
-    if (hit?.newPlanCycle) {
-      resetCollabPlanUiForNewCycle()
-    }
-    if (!hit?.planInput && !hit?.boundPlanReady) return false
-    const goal = String(hit?.planInput?.goal || '').trim()
-    const stepN = Array.isArray(hit?.planInput?.steps) ? hit.planInput.steps.length : 0
-    const sig = `${hit?.boundPlanReady ? 'out' : 'in'}:${hit?.taskId || ''}:${goal}:${stepN}`
-    const prevStepN = planStructuredStepCount(lastPlanPanelHitRef.current?.planInput)
-    if (sig === lastPlanSyncSigRef.current && stepN <= prevStepN) return false
-    lastPlanSyncSigRef.current = sig
-    publishPlanPanelHit(hit)
-    lastPlanDetectionToolsRef.current = tools
-    setThreadPanelState((prev) => {
-      const authorized = !!prev.collabTask?.executionAuthorized
-      const phaseLc = String(prev.collabPhase || '')
-        .trim()
-        .toLowerCase()
-      const executing = phaseLc === 'executing' || phaseLc === 'awaiting_exec'
-      let nextPhase = prev.collabPhase
-      if (hit?.boundPlanReady && !authorized && !executing) {
-        nextPhase = 'plan_ready'
-      } else if (!hit?.boundPlanReady && phaseLc !== 'plan_ready' && phaseLc !== 'executing') {
-        nextPhase = 'planning'
-      }
-      return {
-        ...prev,
-        planInputFallback: hit?.planInput || prev.planInputFallback || null,
-        collabPhase: nextPhase,
-        clarification: hit?.boundPlanReady ? null : prev.clarification,
-        ...(hit?.boundPlanReady && !authorized && !executing
-          ? {
-              collabTask: {
-                ...(prev.collabTask || { taskId: String(hit.taskId || '').trim() || 'plan-pending' }),
-                ...(hit.taskId ? { taskId: hit.taskId } : {}),
-                status: 'planned',
-                boundPlanReady: true,
-                executionAuthorized: prev.collabTask?.executionAuthorized ?? false,
-              } as CollabTaskSnapshot,
-            }
-          : {}),
-      }
-    })
-    return true
-  }, [publishPlanPanelHit, absorbPlanFromTools, resetCollabPlanUiForNewCycle])
+  const syncPlanPanelImmediateFromTools = useCallback(
+    (tools: unknown[]) =>
+      syncPlanPanelImmediateFromToolsImpl(
+        {
+          planStreamLatchRef,
+          lastPlanDetectionToolsRef,
+          lastPlanPanelHitRef,
+          lastPlanSyncSigRef,
+          setPlanStreamLatched,
+          setThreadPanelState,
+          absorbPlanFromTools,
+          publishPlanPanelHit,
+          resetCollabPlanUiForNewCycle,
+        },
+        tools,
+      ),
+    [publishPlanPanelHit, absorbPlanFromTools, resetCollabPlanUiForNewCycle],
+  )
 
   const patchCollabThrottleRef = useRef(0)
   const patchCollabTimerRef = useRef(0)
