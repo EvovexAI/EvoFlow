@@ -468,6 +468,11 @@ import {
   createOnRefreshChatHistory,
 } from './chat-app/goal/goal-mode-callbacks.js'
 import {
+  createScheduleBump,
+  createScheduleReasoningBump,
+} from './chat-app/stream/schedule-stream-bumps.js'
+import { afterLiveOrStructuralBump as afterLiveOrStructuralBumpImpl } from './chat-app/stream/after-live-or-structural-bump.js'
+import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
 } from './chat-app/session/sync-session-workspace.js'
@@ -3831,72 +3836,26 @@ export default function ChatApp() {
     return () => window.removeEventListener('evopanel:open-goal-panel', onOpenGoalPanel as EventListener)
   }, [goal.goal])
 
-  const scheduleBump = useCallback((opts?: { immediate?: boolean }) => {
-    if (
-      chatStreamBgApplyRef.current ||
-      isChatOverlayDeferActive() ||
-      !chatSurfaceVisibleRef.current
-    ) {
-      if (opts?.immediate) {
-        bgRuntimeNotifySchedulerRef.current?.cancelPending?.()
-        let sk = String(bgRuntimeNotifySessionRef.current || '').trim()
-        if (!sk && !chatSurfaceVisibleRef.current) {
-          sk = String(sessionRef.current || '').trim()
-        }
-        if (sk) bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
-      } else {
-        bgRuntimeNotifySchedulerRef.current?.schedule(opts)
-      }
-      return
-    }
-    if (opts?.immediate) {
-      streamBumpSchedulerRef.current?.cancelPending?.()
-      reasoningBumpSchedulerRef.current?.cancelPending?.()
-      // 流式写进度 / tool 标签更新：沿 session-runtime 通知（替代旧 streamDisplayTick）。
-      const targetSk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
-      if (targetSk) bumpSessionRuntimeNotifyForKey(targetSk, { immediate: true })
-      return
-    }
-    const throttleFloor = isStreamThrottleEnabled()
-      ? resolveStreamBumpMinIntervalMs(streamRef.current)
-      : STREAM_BUMP_INTERVAL_MS
-    const nextInterval = Math.max(STREAM_BUMP_INTERVAL_MS, throttleFloor)
-    const prevInterval = streamBumpMinIntervalRef.current
-    streamBumpMinIntervalRef.current = nextInterval
-    if (nextInterval !== prevInterval) {
-      streamPerfNoteBumpThrottle(nextInterval, prevInterval)
-    }
-    streamBumpSchedulerRef.current?.schedule(opts)
-  }, [])
-
-  const scheduleReasoningBump = useCallback((opts?: { immediate?: boolean }) => {
-    if (
-      chatStreamBgApplyRef.current ||
-      isChatOverlayDeferActive() ||
-      !chatSurfaceVisibleRef.current
-    ) {
-      if (opts?.immediate) {
-        bgRuntimeNotifySchedulerRef.current?.cancelPending?.()
-        let sk = String(bgRuntimeNotifySessionRef.current || '').trim()
-        if (!sk && !chatSurfaceVisibleRef.current) {
-          sk = String(sessionRef.current || '').trim()
-        }
-        if (sk) bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
-      } else {
-        bgRuntimeNotifySchedulerRef.current?.schedule(opts)
-      }
-      return
-    }
-    if (opts?.immediate) {
-      reasoningBumpSchedulerRef.current?.cancelPending?.()
-      streamBumpSchedulerRef.current?.cancelPending?.()
-      // 写进度 / tool 标签更新：会话级通知驱动 MessageVirtualList 重算
-      const targetSk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
-      if (targetSk) bumpSessionRuntimeNotifyForKey(targetSk, { immediate: true })
-      return
-    }
-    reasoningBumpSchedulerRef.current?.schedule(opts)
-  }, [])
+  const scheduleBumpHost = {
+    STREAM_BUMP_INTERVAL_MS,
+    bgRuntimeNotifySchedulerRef,
+    bgRuntimeNotifySessionRef,
+    bumpSessionRuntimeNotifyForKey,
+    chatStreamBgApplyRef,
+    chatSurfaceVisibleRef,
+    isChatOverlayDeferActive,
+    isStreamThrottleEnabled,
+    reasoningBumpSchedulerRef,
+    resolveStreamBumpMinIntervalMs,
+    sessionRef,
+    streamBumpMinIntervalRef,
+    streamBumpSchedulerRef,
+    streamPerfNoteBumpThrottle,
+    streamRef,
+    streamRefKeyRef,
+  }
+  const scheduleBump = useCallback(createScheduleBump(scheduleBumpHost), [])
+  const scheduleReasoningBump = useCallback(createScheduleReasoningBump(scheduleBumpHost), [])
   scheduleBumpRef.current = scheduleBump
 
   const afterLiveOrStructuralBump = useCallback(
@@ -3905,37 +3864,19 @@ export default function ChatApp() {
       stream: StreamState,
       opts: { liveTextOnly: boolean; immediate?: boolean; reasoning?: boolean },
     ) => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return
-      const skipLiveUi =
-        chatStreamBgApplyRef.current || !chatSurfaceVisibleRef.current
-      // 整块替换 + 递增 seq：作为「事实存储」，下游 React 端由 session-runtime
-      // notify（scheduleBump 触发）单链路到达，避免双路通知造成每条 SSE delta
-      // 触发两次 React rerender，从而消除 MessageVirtualList / MessageRow 闪烁。
-      streamSeqRef.current += 1
-      commitStreamSnapshot(sk, stream, { seq: streamSeqRef.current })
-      if (opts.liveTextOnly) {
-        if (skipLiveUi) return
-        // v6.0 关闭正文/推理 SSE delta 节流：用户要求"sse 返回什么就显示什么"。
-        // 之前 STREAM_BUMP_INTERVAL_MS / REASONING_BUMP_INTERVAL_MS (16ms) + 调度器
-        // 仍然会在多 delta 突发时被合并到一帧，导致正文 1s 跳 386 字符。
-        // Keep every delta in the committed snapshot, but coalesce paints to one
-        // low-latency frame. Immediate React updates per token starve the main
-        // thread and make both reasoning and body text appear to stutter.
-        streamBumpSchedulerRef.current?.schedule({ lowLatency: true })
-        return
-      }
-      // structural 变化：新 tool / 新 image / 新 segment 出现。
-      // 走 coalesced 路径按需立即或合并，保证视觉但避免每条都全量重渲染。
-      if (opts.immediate) {
-        scheduleBump({ immediate: true })
-        return
-      }
-      if (skipLiveUi) {
-        scheduleBump()
-        return
-      }
-      scheduleBump()
+      afterLiveOrStructuralBumpImpl(
+        {
+          chatStreamBgApplyRef,
+          chatSurfaceVisibleRef,
+          commitStreamSnapshot,
+          scheduleBump,
+          streamBumpSchedulerRef,
+          streamSeqRef,
+        },
+        sessionKey,
+        stream,
+        opts,
+      )
     },
     [scheduleBump, scheduleReasoningBump],
   )
