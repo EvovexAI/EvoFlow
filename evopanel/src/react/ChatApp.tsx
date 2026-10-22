@@ -207,15 +207,10 @@ import { hideRightStageIfKind, rightStageStore } from '../lib/right-stage/right-
 import { closeSummaryStage } from '../lib/right-stage/ensure-summary-stage.js'
 import { ensureTerminalStage } from '../lib/right-stage/ensure-terminal-stage.js'
 import { filterRightStageTabsForSession } from '../lib/right-stage/right-stage-session-visibility.js'
-import {
-  normalizeWriteStreamMode,
-  shouldOpenWriteStreamPanel,
-  isAutoWorkPreviewEnabled,
-  type WriteStreamMode,
-} from '../lib/right-stage/write-stream-mode.js'
+import { isAutoWorkPreviewEnabled } from '../lib/right-stage/write-stream-mode.js'
 import { applyDecideRightStage } from '../lib/right-stage/apply-decide-right-stage.js'
 import { syncEmployeesRosterFromToolResult } from '../lib/employees-roster-sync.js'
-import { applyPlatformFeedbackFromToolResult, latestPlatformRunEntryId, openPlatformFeedbackFromTool, platformRunEntriesFromChatArtifacts, syncPlatformFeedbackFromTools, type PlatformRunEntry } from '../lib/right-stage/platform-feedback.js'
+import { applyPlatformFeedbackFromToolResult, latestPlatformRunEntryId, openPlatformFeedbackFromTool, platformRunEntriesFromChatArtifacts, type PlatformRunEntry } from '../lib/right-stage/platform-feedback.js'
 import { registerPlatformFeedbackOpenHandler } from '../lib/right-stage/platform-feedback-bridge.js'
 import { normalizeRightStageKind } from '../lib/right-stage/right-stage-types.js'
 import type { RightStageKind } from '../lib/right-stage/right-stage-types.js'
@@ -250,11 +245,9 @@ import { TerminalStagePanel } from './components/TerminalStagePanel.js'
 import { ImagePreviewModal, type ImagePreviewItem } from './components/ImagePreviewModal.js'
 import { isImagePathLike, resolveChatImageSrc } from '../lib/chat-image-src.js'
 import {
-  detectLatestWritePreviewFromTools,
   detectStreamingWritePreview,
   isActiveWriteTool,
   isStreamAutoPreviewPath,
-  isWriteToolInFlight,
   resolveOpenableWorkspaceFile,
   resolveWorkspacePreviewTarget,
   shouldSuppressStreamDeliveredFiles,
@@ -301,6 +294,7 @@ import { useClarificationPanel } from './hooks/useClarificationPanel.js'
 import { useComposerDrafts } from './hooks/useComposerDrafts.js'
 import { usePendingSendQueue } from './hooks/usePendingSendQueue.js'
 import { useChatContextFiles } from './hooks/useChatContextFiles.js'
+import { useStreamingWritePreview } from './hooks/useStreamingWritePreview.js'
 import {
   formatAskClarificationForHosted,
   isClarificationPreviewRenderable,
@@ -635,7 +629,6 @@ import {
   promptWorkspacePath,
   THREAD_STATE_EXPIRY_MS,
   QUICK_PROMPTS,
-  inferWriteStreamFormat,
 } from './chat-app/utils/desktop-workspace.js'
 import {
   resolveSessionAgentCodeForUi,
@@ -1531,18 +1524,8 @@ export default function ChatApp() {
     useVirtualPaths: false,
     sessionKey: '',
   })
-  const [streamingWritePreview, setStreamingWritePreview] = useState<{
-    path: string
-    name: string
-    content: string
-    streaming: boolean
-  } | null>(null)
-  const lastStreamWritePathRef = useRef<string | null>(null)
-  const lastWriteStreamLenRef = useRef(0)
   /** 用户手动打开/固定某一右侧场景时，写入流不得抢焦点 */
   const rightStageUserPinnedRef = useRef<RightStageKind | null>(null)
-  /** 用户主动关闭写入流后，本轮写入完成前不再自动弹出 */
-  const writeStreamDismissedRef = useRef(false)
   /** 本 run 内关掉过的 Right Stage kind（关闭冷却） */
   const dismissedRightStageKindsRef = useRef<Set<string>>(new Set())
   /** 当前对话轮次 id（发送时刷新） */
@@ -1563,50 +1546,6 @@ export default function ChatApp() {
     (opts?: { focusId?: string; hint?: string; force?: boolean }) => void
   >(() => {})
   const setSessionArtifactsRef = useRef<Dispatch<SetStateAction<ChatArtifact[]>>>(() => {})
-  const writeStreamModeRef = useRef<WriteStreamMode>(
-    normalizeWriteStreamMode(getPanelSetting('writeStreamMode')),
-  )
-  useEffect(() => {
-    const syncWriteStreamMode = () => {
-      writeStreamModeRef.current = normalizeWriteStreamMode(getPanelSetting('writeStreamMode'))
-    }
-    syncWriteStreamMode()
-    window.addEventListener('evopanel:panel-settings-loaded', syncWriteStreamMode)
-    window.addEventListener('evopanel:panel-settings-changed', syncWriteStreamMode)
-    return () => {
-      window.removeEventListener('evopanel:panel-settings-loaded', syncWriteStreamMode)
-      window.removeEventListener('evopanel:panel-settings-changed', syncWriteStreamMode)
-    }
-  }, [])
-  const streamingWritePreviewRef = useRef(streamingWritePreview)
-  streamingWritePreviewRef.current = streamingWritePreview
-  const pendingStreamingPreviewRef = useRef<typeof streamingWritePreview>(null)
-  const streamingPreviewFlushTimerRef = useRef(0)
-  const flushStreamingWritePreview = useCallback(() => {
-    streamingPreviewFlushTimerRef.current = 0
-    const pending = pendingStreamingPreviewRef.current
-    if (!pending) return
-    pendingStreamingPreviewRef.current = null
-    setStreamingWritePreview(pending)
-  }, [])
-  const queueStreamingWritePreview = useCallback(
-    (next: NonNullable<typeof streamingWritePreview>) => {
-      streamingWritePreviewRef.current = next
-      pendingStreamingPreviewRef.current = next
-      if (streamingPreviewFlushTimerRef.current) return
-      streamingPreviewFlushTimerRef.current = window.setTimeout(flushStreamingWritePreview, next.streaming ? 48 : 200)
-    },
-    [flushStreamingWritePreview],
-  )
-  useEffect(
-    () => () => {
-      if (streamingPreviewFlushTimerRef.current) {
-        clearTimeout(streamingPreviewFlushTimerRef.current)
-        streamingPreviewFlushTimerRef.current = 0
-      }
-    },
-    [],
-  )
   const workspacePanelOpenRef = useRef(workspacePanelOpen)
   workspacePanelOpenRef.current = workspacePanelOpen
   const collabExecPanelOpenRef = useRef(collabExecPanelOpen)
@@ -1630,6 +1569,34 @@ export default function ChatApp() {
       shellCollapsedBeforeWorkspaceRef.current = null
     }
   }, [])
+
+  const {
+    streamingWritePreview,
+    setStreamingWritePreview,
+    streamingWritePreviewRef,
+    lastStreamWritePathRef,
+    lastWriteStreamLenRef,
+    writeStreamDismissedRef,
+    writeStreamModeRef,
+    syncWorkspacePreviewFromTools,
+  } = useStreamingWritePreview({
+    sessionRef,
+    streamRef,
+    scheduleBumpRef,
+    rightStageUserPinnedRef,
+    dismissedRightStageKindsRef,
+    rightStageRunIdRef,
+    rightStageHintTimerRef,
+    platformFeedbackSeenRef,
+    turnPlatformEntriesRef,
+    publishPlatformEntriesRef,
+    openWriteStream,
+    openRightStageStream,
+    appendRightStageStream,
+    clearRightStageStream,
+    closeRightStageStream,
+    syncShellAsideForWorkspacePanel,
+  })
 
   const closeWorkspacePanel = useCallback(() => {
     const kind = normalizeRightStageKind(rightStageStore.getSnapshot().surface?.kind || '')
@@ -2488,231 +2455,6 @@ export default function ChatApp() {
     }
   }, [selectedSessionKey])
 
-  const syncWorkspacePreviewFromTools = useCallback((tools: unknown[]) => {
-    if (!Array.isArray(tools)) return
-
-    const { shown: platformShown, entries: platformEntries } = syncPlatformFeedbackFromTools(
-      tools,
-      platformFeedbackSeenRef.current,
-      {
-        existingEntries: turnPlatformEntriesRef.current,
-      },
-    )
-    if (platformEntries.length) {
-      publishPlatformEntriesRef.current(
-        platformEntries,
-        latestPlatformRunEntryId(platformEntries),
-      )
-    }
-    for (const ui of platformShown) {
-      toast(
-        ui.title,
-        ui.kind === 'warning' ? 'warning' : ui.kind === 'error' ? 'error' : 'success',
-      )
-    }
-
-    const mode = writeStreamModeRef.current
-    const autoPreview = isAutoWorkPreviewEnabled(mode)
-    const workspaceWritePanelOpen =
-      rightStageStore.getSnapshot().surface?.kind === 'write'
-    // 跟踪写入流：设置允许自动预览，或用户已在看写入面板
-    const trackWriteStream = autoPreview || workspaceWritePanelOpen
-    const writeInFlight = tools.some((t) => isWriteToolInFlight(t))
-    const hadStreaming = !!streamingWritePreviewRef.current?.streaming
-    const hitAny = detectStreamingWritePreview(tools, { requireReady: false })
-    const latestWrite = detectLatestWritePreviewFromTools(tools)
-    const pinned = rightStageUserPinnedRef.current
-    const currentKind = rightStageStore.currentKind
-
-    const decideOpenWrite = (): boolean => {
-      if (!autoPreview || writeStreamDismissedRef.current) return false
-      if (pinned && pinned !== 'write') return false
-      const decision = applyDecideRightStage(
-        {
-          intent: 'write',
-          kind: 'write',
-          runId: rightStageRunIdRef.current,
-          userPinned: pinned,
-          dismissedKindsThisRun: dismissedRightStageKindsRef.current,
-          autoPreviewEnabled: autoPreview,
-          currentKind,
-        },
-        {
-          data: {
-            streamId: 'write_file',
-            path: hitAny?.path || latestWrite?.path || lastStreamWritePathRef.current || '',
-            format: inferWriteStreamFormat(
-              hitAny?.path || latestWrite?.path || lastStreamWritePathRef.current || '',
-            ),
-          },
-          onHint: (r) => {
-            const path = String(hitAny?.path || latestWrite?.path || '').split(/[/\\]/).pop()
-            toast(path ? `正在写入 ${path}…` : '正在写入文件…', 'info')
-            void r
-          },
-          scheduleShow: (delayMs, run) => {
-            if (rightStageHintTimerRef.current) {
-              clearTimeout(rightStageHintTimerRef.current)
-            }
-            rightStageHintTimerRef.current = window.setTimeout(() => {
-              rightStageHintTimerRef.current = 0
-              run()
-              syncShellAsideForWorkspacePanel(true)
-            }, delayMs)
-          },
-        },
-      )
-      return decision.action === 'show' || decision.action === 'hint'
-    }
-
-    const mayShowWriteStream =
-      !writeStreamDismissedRef.current && (!pinned || pinned === 'write')
-
-    const ensureWriteStreamSession = (
-      path: string,
-      format: 'plain' | 'markdown' | 'code',
-      openPanel: boolean,
-    ) => {
-      if (!trackWriteStream || !path) return
-      if (lastStreamWritePathRef.current !== path) {
-        lastStreamWritePathRef.current = path
-        lastWriteStreamLenRef.current = 0
-      }
-      openRightStageStream({ streamId: 'write_file', format, path })
-      if (openPanel && mayShowWriteStream) {
-        // 已由 decide 调度 show；若当前已是 write 则直接确保面板
-        if (rightStageStore.currentKind === 'write') {
-          openWriteStream({ path, streamId: 'write_file', format, auto: true })
-        } else if (decideOpenWrite()) {
-          /* hint/show scheduled */
-        }
-      }
-    }
-
-    const appendWriteStreamDelta = (path: string, content: string) => {
-      if (!trackWriteStream || !path) return
-      const format = inferWriteStreamFormat(path)
-      const prevLen = lastWriteStreamLenRef.current
-      if (content.length > prevLen) {
-        ensureWriteStreamSession(
-          path,
-          format,
-          shouldOpenWriteStreamPanel({
-            mode,
-            contentLength: content.length,
-            prevContentLength: prevLen,
-          }),
-        )
-        appendRightStageStream({
-          streamId: 'write_file',
-          text: content.slice(prevLen),
-        })
-        lastWriteStreamLenRef.current = content.length
-      } else if (content.length < prevLen) {
-        clearRightStageStream('write_file')
-        ensureWriteStreamSession(path, format, false)
-        appendRightStageStream({ streamId: 'write_file', text: content })
-        lastWriteStreamLenRef.current = content.length
-      }
-    }
-
-    if (!writeInFlight) {
-      if (streamingPreviewFlushTimerRef.current) {
-        clearTimeout(streamingPreviewFlushTimerRef.current)
-        streamingPreviewFlushTimerRef.current = 0
-      }
-      pendingStreamingPreviewRef.current = null
-      const prev = streamingWritePreviewRef.current
-      const finalPath = latestWrite?.path ?? hitAny?.path ?? lastStreamWritePathRef.current
-      const finalContent = latestWrite?.content ?? hitAny?.content ?? prev?.content ?? ''
-      if (
-        !hadStreaming &&
-        !lastStreamWritePathRef.current &&
-        !(trackWriteStream && finalPath && finalContent)
-      ) {
-        return
-      }
-      if (prev?.path && isStreamAutoPreviewPath(prev.path) && workspaceWritePanelOpen) {
-        setStreamingWritePreview({
-          path: prev.path,
-          name: prev.name,
-          content: prev.content ?? '',
-          streaming: false,
-        })
-      } else if (!workspaceWritePanelOpen) {
-        setStreamingWritePreview(null)
-      }
-      if (trackWriteStream && finalPath && finalContent) {
-        appendWriteStreamDelta(finalPath, finalContent)
-      }
-      if (lastStreamWritePathRef.current) {
-        closeRightStageStream('write_file')
-      }
-      lastStreamWritePathRef.current = null
-      lastWriteStreamLenRef.current = 0
-      writeStreamDismissedRef.current = false
-      return
-    }
-
-    // 写入进行中
-    if (!hitAny) {
-      return
-    }
-
-    if (!trackWriteStream) {
-      if (shouldSuppressStreamDeliveredFiles(tools, {
-        streamingWritePreview: streamingWritePreviewRef.current,
-        suppressForSendingWriteTurn: turnBusyForSession(sessionRef.current),
-      })) {
-        if (streamRef.current.turn.files?.length) {
-          streamRef.current.turn.files = []
-          scheduleBumpRef.current?.()
-        }
-      }
-      return
-    }
-
-    const content = hitAny.content ?? ''
-    const path = hitAny.path
-    if (path) {
-      const format = inferWriteStreamFormat(path)
-      if (autoPreview && lastStreamWritePathRef.current !== path) {
-        ensureWriteStreamSession(path, format, true)
-      }
-      appendWriteStreamDelta(path, content)
-    }
-
-    if (shouldSuppressStreamDeliveredFiles(tools, {
-      streamingWritePreview: streamingWritePreviewRef.current,
-      suppressForSendingWriteTurn: turnBusyForSession(sessionRef.current),
-    })) {
-      if (streamRef.current.turn.files?.length) {
-        streamRef.current.turn.files = []
-        scheduleBumpRef.current?.()
-      }
-    }
-
-    if (hitAny.path && lastStreamWritePathRef.current !== hitAny.path) {
-      lastStreamWritePathRef.current = hitAny.path
-    }
-    // 仅侧栏已打开或允许自动预览时才推预览
-    if (workspaceWritePanelOpen || autoPreview) {
-      queueStreamingWritePreview({
-        path: hitAny.path,
-        name: hitAny.name,
-        content: hitAny.content ?? '',
-        streaming: true,
-      })
-    }
-  }, [
-    queueStreamingWritePreview,
-    openWriteStream,
-    openRightStageStream,
-    appendRightStageStream,
-    clearRightStageStream,
-    closeRightStageStream,
-    syncShellAsideForWorkspacePanel,
-  ])
   /** 子任务对话弹窗：协作执行面板与历史子任务卡片共用 */
   const [subtaskTranscriptModal, setSubtaskTranscriptModal] = useState<SubtaskTranscriptModalPayload | null>(null)
   // 绑定的协作任务 ID（从任务页跳转时设置）
