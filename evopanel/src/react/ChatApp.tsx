@@ -486,6 +486,8 @@ import { runNormalizeRowFileUrlsEffect } from './chat-app/session/run-normalize-
 import { runLoadEmployeeRoleDetailEffect } from './chat-app/agents/load-employee-role-detail.js'
 import { runBottomMenusDismissEffect } from './chat-app/composer/install-bottom-menus-dismiss.js'
 import { runSyncProactiveWorkspaceKindEffect } from './chat-app/session/sync-proactive-workspace-kind.js'
+import { runLoadSessionArtifactsEffect } from './chat-app/session/load-session-artifacts.js'
+import { commitThreadPanelForSession as commitThreadPanelForSessionImpl } from './chat-app/session/commit-thread-panel.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -1409,21 +1411,17 @@ export default function ChatApp() {
   const threadPanelStateRef = useRef<ThreadPanelState>(emptyThreadPanel())
   const commitThreadPanelForSession = useCallback(
     (sessionKey: string, updater: (prev: ThreadPanelState) => ThreadPanelState) => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return
-      const activeSk = String(sessionRef.current || selectedSessionKey || '').trim()
-      if (sk === activeSk) {
-        setThreadPanelState((prev) => {
-          const next = updater(prev)
-          if (next !== prev) threadPanelBySessionRef.current.set(sk, next)
-          return next
-        })
-        return
-      }
-      const prev = threadPanelBySessionRef.current.get(sk) || emptyThreadPanel()
-      const next = updater(prev)
-      if (next === prev) return
-      threadPanelBySessionRef.current.set(sk, next)
+      commitThreadPanelForSessionImpl(
+        {
+          sessionRef,
+          selectedSessionKey,
+          setThreadPanelState,
+          threadPanelBySessionRef,
+          emptyThreadPanel,
+        },
+        sessionKey,
+        updater,
+      )
     },
     [selectedSessionKey],
   )
@@ -1963,45 +1961,19 @@ export default function ChatApp() {
   })
 
   useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) {
-      setSessionArtifacts([])
-      setSessionPlatformEntries([])
-      turnPlatformEntriesRef.current = []
-      setPlatformFocusEntryId('')
-      setTurnArtifacts([])
-      setArtifactFocusId('')
-      setTurnPlatformEntries([])
-      return
-    }
-    let cancelled = false
-    setSessionArtifacts([])
-    setSessionPlatformEntries([])
-    turnPlatformEntriesRef.current = []
-    setPlatformFocusEntryId('')
-    setTurnArtifacts([])
-    setArtifactFocusId('')
-    setTurnPlatformEntries([])
-    void evoflowInvokeGatewayJson(`/api/chat/sessions/${encodeURIComponent(sk)}/artifacts`)
-      .then((data: { items?: unknown } | null) => {
-        if (cancelled) return
-        const all = normalizeChatArtifacts(data?.items)
-        const platformEntries = platformRunEntriesFromChatArtifacts(all.filter((it) => it.type === 'platform'))
-        turnPlatformEntriesRef.current = []
-        setTurnPlatformEntries([])
-        setSessionPlatformEntries(platformEntries)
-        setSessionArtifacts(all.filter((it) => it.type !== 'platform'))
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSessionArtifacts([])
-          setSessionPlatformEntries([])
-          turnPlatformEntriesRef.current = []
-        }
-      })
-    return () => {
-      cancelled = true
-    }
+    return runLoadSessionArtifactsEffect({
+      selectedSessionKey,
+      setSessionArtifacts,
+      setSessionPlatformEntries,
+      turnPlatformEntriesRef,
+      setPlatformFocusEntryId,
+      setTurnArtifacts,
+      setArtifactFocusId,
+      setTurnPlatformEntries,
+      evoflowInvokeGatewayJson,
+      normalizeChatArtifacts,
+      platformRunEntriesFromChatArtifacts,
+    })
   }, [selectedSessionKey])
 
   /** 子任务对话弹窗：协作执行面板与历史子任务卡片共用 */
