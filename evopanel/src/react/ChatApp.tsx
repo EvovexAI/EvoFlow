@@ -273,6 +273,7 @@ import { useWorkspaceFileOpen } from './hooks/useWorkspaceFileOpen.js'
 import { useComposerSkillPluginSelection } from './hooks/useComposerSkillPluginSelection.js'
 import { useChatLayoutResize } from './hooks/useChatLayoutResize.js'
 import { useComposerModelCatalog } from './hooks/useComposerModelCatalog.js'
+import { useSessionWorkspaceBind } from './hooks/useSessionWorkspaceBind.js'
 import { normalizeFileHrefForThread, normalizeRowFilesInPlace } from './chat-app/utils/file-href-normalize.js'
 import {
   formatAskClarificationForHosted,
@@ -605,7 +606,6 @@ import {
   _pathBasename,
   isDesktopTauriRuntime,
   TAURI_HEADER_CELL_DRAG_PROPS,
-  promptWorkspacePath,
   THREAD_STATE_EXPIRY_MS,
   QUICK_PROMPTS,
 } from './chat-app/utils/desktop-workspace.js'
@@ -2839,6 +2839,7 @@ export default function ChatApp() {
   const pendingNewSessionWorkspaceRef = useRef<{ sessionKey: string; path: string } | null>(null)
   /** 侧栏当前点选的工作空间；全局「新对话」优先用此目录 */
   const shellIntentWorkspaceRef = useRef<string | null | undefined>(undefined)
+  const startNewSessionWithWorkspaceRef = useRef<(workspacePath: string | null) => void>(() => {})
   useEffect(() => {
     localWorkspaceRootRef.current = localWorkspaceRoot
   }, [localWorkspaceRoot])
@@ -5585,203 +5586,28 @@ useEffect(() => {
     return apiRef.current
   }
 
-  const pickWorkspaceFolder = useCallback(async (): Promise<string | null> => {
-    const isDesktop = isDesktopTauriRuntime()
-    if (isDesktop) {
-      try {
-        const dlg = await import('@tauri-apps/plugin-dialog')
-        const picked = await dlg.open({
-          directory: true,
-          multiple: false,
-          title: '选择工作空间文件夹',
-        })
-        const p = Array.isArray(picked) ? picked[0] : picked
-        return p ? String(p) : null
-      } catch (err) {
-        toast(`打开系统目录选择失败：${String((err as Error)?.message || err)}`, 'error')
-        return null
-      }
-    }
-    const current = (localWorkspaceRoot || '').trim()
-    const next = await promptWorkspacePath(current)
-    return next || null
-  }, [localWorkspaceRoot])
-
-  const resolveWorkspacePathForSidebar = useCallback(async (raw: string): Promise<string | null> => {
-    const trimmed = String(raw || '').trim()
-    if (!trimmed) return null
-    try {
-      const api = await getApi()
-      const resolvedInfo = await api.resolveWorkspacePath(trimmed)
-      const resolved = String(resolvedInfo?.resolved || trimmed).trim()
-      if (!resolved) return null
-      if (resolvedInfo && resolvedInfo.exists === false) {
-        toast(`目录不存在：${resolved}`, 'error')
-        return null
-      }
-      if (resolvedInfo && resolvedInfo.is_dir === false) {
-        toast(`不是文件夹：${resolved}`, 'error')
-        return null
-      }
-      return resolved
-    } catch (err) {
-      toast(toUserFacingError((err as Error)?.message || err), 'error')
-      return null
-    }
-  }, [])
-
-  const handleNewWorkspace = useCallback(async () => {
-    const picked = await pickWorkspaceFolder()
-    if (!picked) return
-    const resolved = await resolveWorkspacePathForSidebar(picked)
-    if (!resolved) return
-    try {
-      await wsClient.registerGlobalWorkspacePath(resolved)
-      setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-      shellIntentWorkspaceRef.current = resolved
-      window.dispatchEvent(
-        new CustomEvent('evopanel:shell-expand-workspace', {
-          detail: { workspaceKey: normalizeWorkspacePathKey(resolved) },
-        }),
-      )
-      toast(`已添加工作空间：${_pathBasename(resolved)}`, 'success')
-    } catch (err) {
-      toast(toUserFacingError((err as Error)?.message || err), 'error')
-    }
-  }, [pickWorkspaceFolder, resolveWorkspacePathForSidebar])
-
-  /** 把当前会话绑到项目目录（没有会话则新建） */
-  const bindCurrentSessionToWorkspace = useCallback(
-    async (workspacePath: string) => {
-      const resolved = await resolveWorkspacePathForSidebar(workspacePath)
-      if (!resolved) return
-      const sk = String(selectedSessionKey || sessionRef.current || '').trim()
-      try {
-        await wsClient.registerGlobalWorkspacePath(resolved)
-        setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-        if (!sk) {
-          startNewSessionWithWorkspace(resolved)
-          setBottomWorkspaceOpen(false)
-          return
-        }
-        await wsClient.bindSessionWorkspace(sk, resolved, { userPinned: true })
-        setLocalWorkspaceRoot(resolved)
-        shellIntentWorkspaceRef.current = resolved
-        window.dispatchEvent(
-          new CustomEvent('evopanel:shell-expand-workspace', {
-            detail: { workspaceKey: normalizeWorkspacePathKey(resolved) },
-          }),
-        )
-        window.dispatchEvent(
-          new CustomEvent('evopanel:session-workspace-changed', {
-            detail: { sessionKey: sk, local_workspace_root: resolved },
-          }),
-        )
-        setBottomWorkspaceOpen(false)
-        toast(`已切换工作空间：${_pathBasename(resolved)}`, 'success')
-      } catch (err) {
-        toast(toUserFacingError((err as Error)?.message || err), 'error')
-      }
-    },
-    [resolveWorkspacePathForSidebar, selectedSessionKey],
-  )
-
-  const pickAndBindCurrentWorkspace = useCallback(async () => {
-    const picked = await pickWorkspaceFolder()
-    if (!picked) return
-    await bindCurrentSessionToWorkspace(picked)
-  }, [pickWorkspaceFolder, bindCurrentSessionToWorkspace])
-
-  const pickAndStartNewSessionWithWorkspace = useCallback(async () => {
-    const picked = await pickWorkspaceFolder()
-    if (!picked) return
-    const resolved = await resolveWorkspacePathForSidebar(picked)
-    if (!resolved) return
-    try {
-      await wsClient.registerGlobalWorkspacePath(resolved)
-      setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-    } catch {
-      /* still create */
-    }
-    setBottomWorkspaceOpen(false)
-    startNewSessionWithWorkspace(resolved)
-    toast(`已在「${_pathBasename(resolved)}」新建对话`, 'success')
-  }, [pickWorkspaceFolder, resolveWorkspacePathForSidebar])
-
-  const clearCurrentSessionWorkspace = useCallback(async () => {
-    const sk = String(selectedSessionKey || sessionRef.current || '').trim()
-    try {
-      if (sk) {
-        await wsClient.updateSessionContext(sk, {
-          local_workspace_root: null,
-          workspace_user_pinned: false,
-        })
-      }
-      setLocalWorkspaceRoot('')
-      shellIntentWorkspaceRef.current = null
-      setBottomWorkspaceOpen(false)
-      toast('已切回默认工作空间（应用数据目录）', 'success')
-    } catch (err) {
-      toast(toUserFacingError((err as Error)?.message || err), 'error')
-    }
-  }, [selectedSessionKey])
-
-  const openCurrentWorkspaceInFileManager = useCallback(async () => {
-    const raw = String(localWorkspaceRoot || runtimeDataDir || '').trim()
-    if (!raw) {
-      toast('没有可打开的本地目录', 'info')
-      return
-    }
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      const resolvedInfo = await api.resolveWorkspacePath(raw)
-      const resolved = String(resolvedInfo?.resolved || raw).trim()
-      await api.revealPathInFileManager(resolved)
-      toast('已在文件管理器中打开', 'success')
-    } catch (e) {
-      toast(String((e as Error)?.message || e), 'error')
-    }
-  }, [localWorkspaceRoot, runtimeDataDir])
-
-  const handleOpenWorkspaceFolder = useCallback(
-    async (group: ShellWorkspaceGroup) => {
-      let raw = resolveShellGroupWorkspacePath(group, globalWorkspaceHistory)
-      if (!raw && group.workspaceKey === WORKSPACE_GROUP_UNBOUND) {
-        raw = String(runtimeDataDir || '').trim()
-      }
-      if (!raw) {
-        toast('该工作空间没有可打开的本地文件夹', 'info')
-        return
-      }
-      try {
-        const { api } = await import('../lib/tauri-api.js')
-        const resolvedInfo = await api.resolveWorkspacePath(raw)
-        const resolved = String(resolvedInfo?.resolved || raw).trim()
-        if (!resolved) {
-          toast('无法解析文件夹路径', 'error')
-          return
-        }
-        if (resolvedInfo?.exists === false) {
-          toast(`目录不存在：${resolved}`, 'error')
-          return
-        }
-        if (resolvedInfo?.is_dir === false) {
-          toast(`不是文件夹：${resolved}`, 'error')
-          return
-        }
-        await api.revealPathInFileManager(resolved)
-        toast(
-          group.workspaceKey === WORKSPACE_GROUP_UNBOUND
-            ? '已打开默认数据目录'
-            : '已在文件管理器中打开',
-          'success',
-        )
-      } catch (e) {
-        toast(String((e as Error)?.message || e), 'error')
-      }
-    },
-    [globalWorkspaceHistory, runtimeDataDir],
-  )
+  const {
+    pickWorkspaceFolder,
+    resolveWorkspacePathForSidebar,
+    handleNewWorkspace,
+    bindCurrentSessionToWorkspace,
+    pickAndBindCurrentWorkspace,
+    pickAndStartNewSessionWithWorkspace,
+    clearCurrentSessionWorkspace,
+    openCurrentWorkspaceInFileManager,
+    handleOpenWorkspaceFolder,
+  } = useSessionWorkspaceBind({
+    selectedSessionKey,
+    localWorkspaceRoot,
+    setLocalWorkspaceRoot,
+    runtimeDataDir,
+    globalWorkspaceHistory,
+    setGlobalWorkspaceHistory,
+    setBottomWorkspaceOpen,
+    sessionRef,
+    shellIntentWorkspaceRef,
+    startNewSessionWithWorkspaceRef,
+  })
 
   const deleteWorkspaceInflightRef = useRef(false)
 
@@ -13020,6 +12846,8 @@ useEffect(() => {
         })
       })
   }
+
+  startNewSessionWithWorkspaceRef.current = startNewSessionWithWorkspace
 
   function resolveWorkspaceForNewSession(): string | null {
     if (shellIntentWorkspaceRef.current !== undefined) {
