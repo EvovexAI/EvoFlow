@@ -280,12 +280,6 @@ import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
 import {
   registerVoiceSendHandler,
   unregisterVoiceSendHandler,
-  registerVoicePartialBeginHandler,
-  registerVoicePartialEndHandler,
-  registerVoicePartialHandler,
-  unregisterVoicePartialBeginHandler,
-  unregisterVoicePartialEndHandler,
-  unregisterVoicePartialHandler,
 } from '../lib/background-voice-bridge.js'
 import { setVoiceTrayState } from '../lib/background-voice.js'
 import { normalizeStreamActivityDetail, formatActivityDetailFromRunningToolCalls, resolveAssignedAgentDisplayName } from '../lib/tool-display.js'
@@ -307,6 +301,7 @@ import {
 } from '../components/shell-aside.js'
 import { useGoalMode } from './hooks/useGoalMode.js'
 import { useClarificationPanel } from './hooks/useClarificationPanel.js'
+import { useComposerDrafts } from './hooks/useComposerDrafts.js'
 import {
   formatAskClarificationForHosted,
   isClarificationPreviewRenderable,
@@ -1074,16 +1069,19 @@ export default function ChatApp() {
 
   /** Monotonic id so aborted/stale handleSend cannot clear a newer round's stream state. */
   const chatSendSeqRef = useRef(0)
-  /** Per-session unsent composer text (restored when switching sessions). */
-  const composerDraftsRef = useRef(new Map<string, string>())
-  const composerTextRef = useRef('')
-  const composerDraftSnapshotRef = useRef('')
-  const savedDraftBeforeGlobalVoiceRef = useRef('')
-  const pendingComposerDraftCarryRef = useRef<string | null>(null)
+  const {
+    composerDraftsRef,
+    composerTextRef,
+    composerDraftSnapshotRef,
+    pendingComposerDraftCarryRef,
+    composerDraftVersion,
+    pushComposerText,
+    handleComposerDraftChange,
+    restoreComposerDraft,
+  } = useComposerDrafts({ selectedSessionKey, sessionRef })
   const handleEditMessageRef = useRef<
     (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => void | Promise<void>
   >(() => {})
-  const [composerDraftVersion, setComposerDraftVersion] = useState(0)
   const [speechEnabled, setSpeechEnabled] = useState(false)
   const [engineReady, setEngineReady] = useState(() => {
     // Desktop UI-first: unlock send on Gateway liveness ; LG may still warm.
@@ -1168,39 +1166,6 @@ export default function ChatApp() {
     return () => unregisterVoiceSendHandler()
   }, [])
 
-  const pushComposerText = useCallback((next: string) => {
-    composerTextRef.current = next
-    composerDraftSnapshotRef.current = next
-    setComposerDraftVersion((v) => v + 1)
-    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-    if (!sk) return
-    if (next) composerDraftsRef.current.set(sk, next)
-    else composerDraftsRef.current.delete(sk)
-  }, [selectedSessionKey])
-
-  // 持续监听 / 全局按住说话：把实时识别文字推到 Composer 输入框（与话筒按钮一致）
-  useEffect(() => {
-    registerVoicePartialBeginHandler(() => {
-      savedDraftBeforeGlobalVoiceRef.current = composerTextRef.current
-      pushComposerText('')
-    })
-    registerVoicePartialHandler((partialText: string) => {
-      pushComposerText(partialText)
-    })
-    registerVoicePartialEndHandler(({ cancelled }) => {
-      if (cancelled) {
-        pushComposerText(savedDraftBeforeGlobalVoiceRef.current)
-      } else {
-        pushComposerText('')
-      }
-      savedDraftBeforeGlobalVoiceRef.current = ''
-    })
-    return () => {
-      unregisterVoicePartialBeginHandler()
-      unregisterVoicePartialHandler()
-      unregisterVoicePartialEndHandler()
-    }
-  }, [pushComposerText])
   /** 本轮由语音输入发起 → 流式/结束时朗读 assistant 正文 */
   const voiceReplyPendingRef = useRef(false)
   /** 语音发起时绑定的 sessionKey（后台/隐藏窗口也播报） */
@@ -1407,14 +1372,6 @@ export default function ChatApp() {
     subtaskStreamDebugBannerOnce()
   }, [])
 
-  const handleComposerDraftChange = useCallback((next: string) => {
-    composerTextRef.current = next
-    const sk = (sessionRef.current || selectedSessionKey || '').trim()
-    if (!sk) return
-    if (next) composerDraftsRef.current.set(sk, next)
-    else composerDraftsRef.current.delete(sk)
-  }, [selectedSessionKey])
-
   const handleComposerWarmup = useCallback(() => {
     const sk = String(sessionRef.current || selectedSessionKey || '').trim()
     if (!sk) return
@@ -1423,11 +1380,6 @@ export default function ChatApp() {
     })
   }, [selectedSessionKey])
 
-  const restoreComposerDraft = useCallback((draft: string) => {
-    composerTextRef.current = draft
-    composerDraftSnapshotRef.current = draft
-    setComposerDraftVersion((v) => v + 1)
-  }, [])
   const [threadPanelState, setThreadPanelState] = useState<ThreadPanelState>(emptyThreadPanel())
   const threadPanelStateRef = useRef<ThreadPanelState>(emptyThreadPanel())
   const commitThreadPanelForSession = useCallback(
@@ -14175,12 +14127,6 @@ useEffect(() => {
       toast('未识别到语音内容', 'warning')
       pushComposerText('')
       return
-    }
-    const sk = String(selectedSessionKey || sessionRef.current || '').trim()
-    if (sk) {
-      composerDraftsRef.current.delete(sk)
-      composerDraftSnapshotRef.current = ''
-      setComposerDraftVersion((v) => v + 1)
     }
     pushComposerText('')
     if (opts?.global) {
