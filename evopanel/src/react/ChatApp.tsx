@@ -459,6 +459,14 @@ import { runSessionEnterPlanSyncEffect } from './chat-app/plan-dock/run-session-
 import { runSessionSwitchLayoutEffect } from './chat-app/session/run-session-switch-layout.js'
 import { runClarificationHydrateEffect } from './chat-app/session/run-clarification-hydrate.js'
 import { runPageLoadResumeEffect } from './chat-app/shell/run-page-load-resume.js'
+import { requestManualStreamResume } from './chat-app/shell/request-manual-stream-resume.js'
+import { runBackgroundWorksPollEffect } from './chat-app/process/install-background-works-poll.js'
+import { runCollabSubtasksPollEffect } from './chat-app/collab/install-collab-subtasks-poll.js'
+import {
+  createOnGoalRunningChange,
+  createOnGoalSendingChange,
+  createOnRefreshChatHistory,
+} from './chat-app/goal/goal-mode-callbacks.js'
 import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
@@ -3742,70 +3750,37 @@ export default function ChatApp() {
     })
   }, [])
 
-  const onGoalRunningChange = useCallback((running: boolean, sessionKey: string) => {
-    const sk = String(sessionKey || '').trim()
-    if (!sk) return
-    if (running) {
-      if (String(sessionRef.current || '').trim() === sk) {
-        setLiveTurnAssistantRunId(null)
-      }
-      return
-    }
-    if (String(sessionRef.current || '').trim() === sk) {
-      setLiveTurnAssistantRunId(null)
-    }
-  }, [])
+  const onGoalRunningChange = useCallback(
+    createOnGoalRunningChange({ sessionRef, setLiveTurnAssistantRunId }),
+    [],
+  )
 
   const goal = useGoalMode({
     sessionKey: selectedSessionKey,
     chatModelName: modelName,
     onGoalClosureReport,
     onGoalRunningChange,
-    onGoalSendingChange: (sending) => {
-      const sk = String(selectedSessionKey || '').trim()
-      if (!sk || String(sessionRef.current || '').trim() !== sk) return
-      if (sending) {
-        // 用户主动再发：清 stop 后的 recovery cooldown，避免新一轮 AG-UI 被丢弃
-        clearStreamReattachCooldown(sk)
-        resetStreamStopLogDedupe(sk)
-        dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED', turnStartTs: Date.now() })
-      } else {
-        dispatchSessionRunEnded(sk)
-      }
-    },
+    onGoalSendingChange: createOnGoalSendingChange({
+      selectedSessionKey,
+      sessionRef,
+      clearStreamReattachCooldown,
+      resetStreamStopLogDedupe,
+      dispatchSessionTurnEvent,
+      dispatchSessionRunEnded,
+    }),
     // @ts-ignore
-    onRefreshChatHistory: async () => {
-      const sk = String(sessionRef.current || '').trim()
-      await reloadHistoryFromDb({ bypassCache: true, dbOnly: true })
-      if (!sk) return
-      // 同步后端 execution/state：若 run 已结束但前端仍显示运行中，归位状态
-      try {
-        const probe = await fetchAndCacheSessionExecutionState(sk)
-        const rt = getSessionRuntime(sk)
-        // live POST 未关：probe 滞后不得清 busy（与 shell refresh / RUN_FINISHED 同病）
-        if (isLivePostStreamOpen(rt)) return
-        const stillBusy = isTurnBusy(rt) || isSessionRuntimeLive(rt)
-        const backendDone = probe ? !probe.executing && !probe.goalActive : true
-        if (stillBusy && backendDone) {
-          logStreamStop({
-            sessionKey: sk,
-            runId: rt.activeChatRunId || rt.stream.runId,
-            trigger: 'refresh_backend_done',
-            hasEndMarker: false,
-            detail: {
-              source: 'goal_refresh_chat_history',
-              turnPhase: rt.turnPhase,
-              probeExecuting: probe?.executing,
-              probeGoalActive: probe?.goalActive,
-            },
-          })
-          clearSessionExecutionProbe(sk)
-          dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
-        }
-      } catch {
-        /* best-effort */
-      }
-    },
+    onRefreshChatHistory: createOnRefreshChatHistory({
+      sessionRef,
+      reloadHistoryFromDb,
+      fetchAndCacheSessionExecutionState,
+      getSessionRuntime,
+      isLivePostStreamOpen,
+      isTurnBusy,
+      isSessionRuntimeLive,
+      logStreamStop,
+      clearSessionExecutionProbe,
+      dispatchSessionTurnEvent,
+    }),
     onSendGoalMessage: (prompt, sk) => sendGoalMessageRef.current(prompt, sk),
   })
 
@@ -4522,34 +4497,26 @@ export default function ChatApp() {
     manualReattachSessionKeyRef,
   })
   bumpReattachRetryRef.current = bumpReattachRetry
-  requestManualStreamResumeRef.current = (
-    sessionKey: string,
-    opts?: { refreshSessions?: boolean },
-  ) => {
-    const sk = String(sessionKey || '').trim()
-    if (!sk) return
-    const rt = getSessionRuntime(sk)
-    // Never abortStreamWire a live POST /runs/stream — that is the send itself.
-    if (shouldSuppressAutoReattach({ sessionKey: sk, runtime: rt })) {
-      srLog('stream resume skipped — live POST stream', { sessionKey: sk })
-      return
-    }
-    delete refreshAttachAttemptedRef.current[sk]
-    reattachRetryCountRef.current = 0
-    srLog('stream resume requested (user refresh)', { sessionKey: sk })
-    manualReattachSessionKeyRef.current = sk
-    const row = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
-    const runId = String(rt.activeChatRunId || row?.currentRunId || '').trim()
-    if (runId) wsClient.abortStreamWire(sk, runId)
-    if (sessionRef.current !== sk) {
-      sessionRef.current = sk
-      setSelectedSessionKey(sk)
-      setNewChatButtonActive(false)
-    }
-    if (opts?.refreshSessions !== false) {
-      void refreshSessionsRef.current?.({ skipAutoReselect: true })
-    }
-    bumpReattachRetryRef.current?.()
+  requestManualStreamResumeRef.current = (sessionKey, opts) => {
+    requestManualStreamResume(
+      {
+        bumpReattachRetryRef,
+        getSessionRuntime,
+        manualReattachSessionKeyRef,
+        reattachRetryCountRef,
+        refreshAttachAttemptedRef,
+        refreshSessionsRef,
+        sessionRef,
+        sessionsRef,
+        setNewChatButtonActive,
+        setSelectedSessionKey,
+        shouldSuppressAutoReattach,
+        srLog,
+        wsClient,
+      },
+      sessionKey,
+      opts,
+    )
   }
 
   /** F5 刷新页面：会话列表就绪后若 DB 仍 running，改为 history-watch（拉 messages）直至结束 */
@@ -5310,73 +5277,17 @@ export default function ChatApp() {
   )
 
   useEffect(() => {
-    if (!liveProcessPanelEnabled) return
-    backgroundWorksPollSigRef.current = ''
-    let cancelled = false
-    let timer: number | null = null
-    const clearTimer = () => {
-      if (timer != null) {
-        window.clearTimeout(timer)
-        timer = null
-      }
-    }
-    const tick = async () => {
-      timer = null
-      if (cancelled) return
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      try {
-        const works = await listBackgroundBashWorks({
-          runningOnly: true,
-          threadId: selectedThreadId || undefined,
-        })
-        if (cancelled) return
-        const S = streamRef.current
-        if (!S) return
-        if (!S.backgroundWorks) S.backgroundWorks = {}
-        const signature = works
-          .map((w) => `${w.workId}:${w.status}:${w.endedAt || 0}`)
-          .sort()
-          .join('|')
-        const changed = signature !== backgroundWorksPollSigRef.current
-        backgroundWorksPollSigRef.current = signature
-        if (changed) {
-          for (const w of works) {
-            S.backgroundWorks[w.workId] = {
-              workId: w.workId,
-              kind: 'bash',
-              title: w.title || w.command || w.workId,
-              status: w.status || 'running',
-              startedAt: w.startedAt || Date.now(),
-              endedAt: w.endedAt,
-              cancellable: w.status === 'running' && w.cancellable !== false,
-              toolCallId: w.toolCallId || w.workId,
-              command: w.command,
-            }
-          }
-          const sk = String(selectedSessionKey || '').trim()
-          if (sk) {
-            streamSeqRef.current += 1
-            commitStreamSnapshot(sk, S, { seq: streamSeqRef.current })
-          }
-        }
-        const stillRunning = works.some((w) => String(w.status || 'running') === 'running')
-        if (stillRunning && !cancelled) {
-          timer = window.setTimeout(() => void tick(), 2000)
-        }
-      } catch {
-        /* gateway may be down; a later background_work event retries */
-      }
-    }
-    watchBackgroundBashRef.current = () => {
-      if (cancelled || timer != null) return
-      void tick()
-    }
-    void tick()
-    return () => {
-      cancelled = true
-      watchBackgroundBashRef.current = null
-      clearTimer()
-    }
+    return runBackgroundWorksPollEffect({
+      backgroundWorksPollSigRef,
+      commitStreamSnapshot,
+      listBackgroundBashWorks,
+      liveProcessPanelEnabled,
+      selectedSessionKey,
+      selectedThreadId,
+      streamRef,
+      streamSeqRef,
+      watchBackgroundBashRef,
+    })
   }, [liveProcessPanelEnabled, selectedSessionKey, selectedThreadId])
 
   const handleStopProcessItem = useCallback(
@@ -5418,21 +5329,14 @@ export default function ChatApp() {
   // 弥补被移除的 task-progress 快照刷新逻辑（流式事件 task_running/task_completed 不保证到达）。
   const sharedCollabMainTaskStatus = sharedCollabMainTask?.status
   useEffect(() => {
-    if (!collabSubtasksFetchEnabled) return
-    const phaseLc = String(threadPanelState.collabPhase || '').trim().toLowerCase()
-    const isRunning =
-      isActiveExecTaskStatus(sharedCollabMainTaskStatus) ||
-      phaseLc === 'executing' ||
-      phaseLc === 'verifying' ||
-      phaseLc === 'reflecting' ||
-      selectedTurnBusy
-    if (!isRunning) return
-    const tick = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      bumpSubtasksApiRefresh()
-    }
-    const interval = window.setInterval(tick, 3000)
-    return () => window.clearInterval(interval)
+    return runCollabSubtasksPollEffect({
+      bumpSubtasksApiRefresh,
+      collabSubtasksFetchEnabled,
+      isActiveExecTaskStatus,
+      selectedTurnBusy,
+      sharedCollabMainTaskStatus,
+      threadPanelState,
+    })
   }, [
     collabSubtasksFetchEnabled,
     sharedCollabMainTaskStatus,
