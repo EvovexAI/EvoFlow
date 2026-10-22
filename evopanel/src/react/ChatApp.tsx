@@ -385,6 +385,9 @@ import { openCurrentAgentEditor as openCurrentAgentEditorImpl } from './chat-app
 import { handleStopProcessItem as handleStopProcessItemImpl } from './chat-app/process/handle-stop-process-item.js'
 import { handleOpenProcessItem as handleOpenProcessItemImpl } from './chat-app/process/handle-open-process-item.js'
 import { refreshPlanDockAfterStreamFinal as refreshPlanDockAfterStreamFinalImpl } from './chat-app/plan-dock/refresh-plan-dock-after-stream-final.js'
+import { sessionPersistedTokenTotals as buildSessionPersistedTokenTotals } from './chat-app/context/session-persisted-token-totals.js'
+import { collectCollabToolsForSidebar as collectCollabToolsForSidebarImpl } from './chat-app/collab/collect-collab-tools-for-sidebar.js'
+import { handleDeleteWorkspaceGroup as handleDeleteWorkspaceGroupImpl } from './chat-app/session/handle-delete-workspace-group.js'
 // ============================================
 
 import type {
@@ -3235,13 +3238,7 @@ export default function ChatApp() {
 
   /** 协作侧栏：流式 + 全历史 assistant 工具。 */
   const collectCollabToolsForSidebar = useCallback((): unknown[] => {
-    const streamTools = streamRef.current.turn.tools as unknown[]
-    const rowTools = mergeAssistantToolsFromRows(rows)
-    return mergePlanToolsForDetection(
-      Array.isArray(streamTools) ? streamTools : [],
-      rowTools,
-      false,
-    )
+    return collectCollabToolsForSidebarImpl({ streamRef }, rows)
   }, [rows])
 
   /** 底部 plan 条：流式中仅用 stream buffer，避免全历史合并冲掉当前 plan。 */
@@ -4625,100 +4622,36 @@ export default function ChatApp() {
 
   const handleDeleteWorkspaceGroup = useCallback(
     async (group: ShellWorkspaceGroup) => {
-      if (deleteWorkspaceInflightRef.current) return
-      const workspaceKey = group.workspaceKey
-      if (isSpecialWorkspaceGroupKey(workspaceKey)) {
-        return
-      }
-
-      const removePath =
-        String(group.path || '').trim() ||
-        (!isSpecialWorkspaceGroupKey(workspaceKey) ? workspaceKey : '')
-      const count = group.sessionCount || 0
-      const label = group.label || removePath
-      const confirmMsg =
-        count > 0
-          ? `该目录下还有 ${count} 个会话，是否一并删除？\n\n工作空间：${label}\n此操作不可恢复。`
-          : `从侧栏移除工作空间「${label}」？\n\n无会话，仅删除历史记录。`
-
-      deleteWorkspaceInflightRef.current = true
-      try {
-        const yes = await showConfirm(confirmMsg)
-        if (!yes) return
-
-        const { api } = await import('../lib/tauri-api.js')
-        const allKeys: string[] = []
-        let offset = 0
-        for (;;) {
-          const data = await api.chatSessionsList(SESSION_LIST_PAGE_SIZE, offset, workspaceKey)
-          const apiRows = (data?.sessions || []) as ChatSessionRow[]
-          for (const s of stripDefaultMainSessionRows(apiRows)) {
-            const k = String(s.sessionKey || '').trim()
-            if (k) allKeys.push(k)
-          }
-          if (apiRows.length < SESSION_LIST_PAGE_SIZE) break
-          offset += apiRows.length
-        }
-
-        const keysSet = new Set(allKeys)
-        const viewingDeleted = !!sessionRef.current && keysSet.has(sessionRef.current)
-
-        if (allKeys.length > 0) {
-          for (const k of allKeys) {
-            removeSessionFromList(k)
-            clearSessionRuntime(k)
-            // 旧 deleteLiveStream 已删：live-stream-store 没了
-            seenArtifactsRef.current.delete(k)
-          }
-        }
-
-        if (viewingDeleted) {
-          sessionRef.current = ''
-          setSelectedSessionKey('')
-          setNewChatButtonActive(true)
-          streamRef.current = emptyStream()
-          streamRefKeyRef.current = ''
-          seenRunIdsRef.current = new Set()
-          rowsRef.current = []
-          setRows([])
-          setTokenTotals(null)
-          setLiveTurnTokens(null)
-          setSubagentDockTasks({})
-          setSidebarTaskViews({})
-          setSidebarSelectedTaskId(null)
-          setThreadPanelState(emptyThreadPanel())
-          setHasReceivedTodos(false)
-          setBoundTaskId(null)
-          bumpStreamFullRef.current()
-        }
-
-        for (const k of allKeys) {
-          composerDraftsRef.current.delete(k)
-          await api.chatSessionsDelete(k, { clearWorkspaceHistory: false })
-        }
-
-        if (removePath) {
-          await wsClient.removeWorkspaceHistoryPath(removePath)
-        }
-        setGlobalWorkspaceHistory((prev) =>
-          prev.filter((p) => normalizeWorkspacePathKey(p) !== workspaceKey),
-        )
-        purgeWorkspaceFromSidebar(workspaceKey, { skipSessions: allKeys.length > 0 })
-
-        const expanded = loadExpandedWorkspaceKeys()
-        expanded.delete(workspaceKey)
-        saveExpandedWorkspaceKeys(expanded)
-
-        await refreshSessions({ skipAutoReselect: true, summariesOnly: true })
-        toast(
-          count > 0 ? `已删除工作空间及 ${count} 个会话` : '已从侧栏移除工作空间',
-          'success',
-        )
-      } catch (err) {
-        toast(toUserFacingError((err as Error)?.message || err), 'error')
-      } finally {
-        deleteWorkspaceInflightRef.current = false
-      }
+      await handleDeleteWorkspaceGroupImpl(
+        {
+          deleteWorkspaceInflightRef,
+          sessionRef,
+          streamRef,
+          streamRefKeyRef,
+          seenRunIdsRef,
+          rowsRef,
+          seenArtifactsRef,
+          composerDraftsRef,
+          bumpStreamFullRef,
+          setSelectedSessionKey,
+          setNewChatButtonActive,
+          setRows,
+          setTokenTotals,
+          setLiveTurnTokens,
+          setSubagentDockTasks,
+          setSidebarTaskViews,
+          setSidebarSelectedTaskId,
+          setThreadPanelState,
+          setHasReceivedTodos,
+          setBoundTaskId,
+          setGlobalWorkspaceHistory,
+          removeSessionFromList,
+          purgeWorkspaceFromSidebar,
+          refreshSessions,
+          removeWorkspaceHistoryPath: (p) => wsClient.removeWorkspaceHistoryPath(p),
+        },
+        group,
+      )
     },
     [
       refreshSessions,
@@ -8959,22 +8892,10 @@ export default function ChatApp() {
 
   const liveTurnTimingActive = !historyLoading && isTurnTimingLive(selectedSessionRow)
 
-  const sessionPersistedTokenTotals = useMemo((): TokenTotals | null => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return null
-    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
-    if (!row) return null
-    const total = Number(row.totalTokens) || 0
-    if (total <= 0) return null
-    return {
-      input: Number(row.inputTokens) || 0,
-      output: Number(row.outputTokens) || 0,
-      total,
-      ...(Number(row.cacheReadTokens) > 0 ? { cacheRead: Number(row.cacheReadTokens) } : {}),
-      ...(Number(row.cacheCreationTokens) > 0 ? { cacheCreation: Number(row.cacheCreationTokens) } : {}),
-      ...(Number(row.cacheMissTokens) > 0 ? { cacheMiss: Number(row.cacheMissTokens) } : {}),
-    }
-  }, [selectedSessionKey, sessions])
+  const sessionPersistedTokenTotals = useMemo(
+    (): TokenTotals | null => buildSessionPersistedTokenTotals(selectedSessionKey, sessions),
+    [selectedSessionKey, sessions],
+  )
 
   const headerTokenTotals = useMemo(
     (): TokenTotals | null =>
