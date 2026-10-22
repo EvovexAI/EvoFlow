@@ -360,6 +360,13 @@ import { closeRightStage as closeRightStageImpl } from './chat-app/right-stage/c
 import { closeRightStageTabByKey as closeRightStageTabByKeyImpl } from './chat-app/right-stage/close-right-stage-tab.js'
 import { forkSessionByKey as forkSessionByKeyImpl } from './chat-app/session/fork-session.js'
 import { resolveLangGraphThreadIdForSession as resolveLangGraphThreadIdForSessionImpl } from './chat-app/session/resolve-langgraph-thread-id.js'
+import { openStageExtension as openStageExtensionImpl } from './chat-app/right-stage/open-stage-extension.js'
+import { toggleWorkspacePanel as toggleWorkspacePanelImpl } from './chat-app/right-stage/toggle-workspace-panel.js'
+import {
+  collapseRightStageShell as collapseRightStageShellImpl,
+  expandRightStageShell as expandRightStageShellImpl,
+} from './chat-app/right-stage/collapse-expand-right-stage.js'
+import { mapAgentPickerRows } from './chat-app/agents/map-agent-picker-rows.js'
 // ============================================
 
 import type {
@@ -1839,38 +1846,25 @@ export default function ChatApp() {
 
   const openStageExtension = useCallback(
     (kind: UserStageExtensionKind) => {
-      if (rightStageSurface?.kind === kind && rightStageOpen) {
-        rightStageUserPinnedRef.current = null
-        hideRightStageIfKind(kind)
-        if (isUserStageExtensionKind(kind)) {
-          syncShellAsideForWorkspacePanel(false)
-        }
-        if (!isChatOverlayDeferActive()) {
-          scheduleBumpRef.current?.({ immediate: true })
-        }
-        return
-      }
-      cancelPendingStreamUiBumpsRef.current()
-      setChatOverlayDefer('workspace', false)
-      setChatOverlayDefer('workflow', false)
-      setChatOverlayDefer('knowledge-map', false)
-      syncShellAsideForWorkspacePanel(true)
-      flushSync(() => {
-        setWorkspacePanelOpen(false)
-        setWorkspaceTreePinned(false)
-        setStreamingWritePreview(null)
-        lastStreamWritePathRef.current = null
-        setCollabExecPanelOpen(false)
-        setKnowledgeMapPanelOpen(false)
-        writeStreamDismissedRef.current = false
-        rightStageUserPinnedRef.current = kind
-        const extensionData =
-          kind === 'web-embed' ? { url: '', editable: true } : undefined
-        showKind(kind, {
-          title: titleForUserStageExtension(kind),
-          data: extensionData,
-        })
-      })
+      openStageExtensionImpl(
+        {
+          rightStageSurfaceKind: rightStageSurface?.kind,
+          rightStageOpen,
+          rightStageUserPinnedRef,
+          scheduleBumpRef,
+          cancelPendingStreamUiBumpsRef,
+          lastStreamWritePathRef,
+          writeStreamDismissedRef,
+          syncShellAsideForWorkspacePanel,
+          showKind,
+          setWorkspacePanelOpen,
+          setWorkspaceTreePinned,
+          setStreamingWritePreview,
+          setCollabExecPanelOpen,
+          setKnowledgeMapPanelOpen,
+        },
+        kind,
+      )
     },
     [
       rightStageSurface?.kind,
@@ -1882,6 +1876,7 @@ export default function ChatApp() {
       syncShellAsideForWorkspacePanel,
     ],
   )
+
 
   const openUiExtensionInStage = useCallback(
     (extensionId: string) => {
@@ -1942,44 +1937,19 @@ export default function ChatApp() {
   }, [knowledgeMapEnabled, knowledgeMapPanelOpen, closeKnowledgeMapPanel])
 
   const toggleWorkspacePanel = useCallback(() => {
-    const snap = rightStageStore.getSnapshot()
-    const existing = snap.tabs.find((t) => {
-      const k = normalizeRightStageKind(t.kind)
-      return k === 'workspace-browse' || k === 'write'
-    })
-    if (existing) {
-      const key = `${normalizeRightStageKind(existing.kind)}:${existing.id}`
-      if (snap.activeKey === key) {
-        setChatOverlayDefer('workspace', false)
-        flushSync(() => {
-          rightStageUserPinnedRef.current = null
-          hideRightStageIfKind('workspace-browse', 'write')
-          setStreamingWritePreview(null)
-          lastStreamWritePathRef.current = null
-          setWorkspaceTreePinned(false)
-          syncShellAsideForWorkspacePanel(false)
-        })
-        if (!isChatOverlayDeferActive()) {
-          scheduleBumpRef.current?.({ immediate: true })
-        }
-        return
-      }
-      rightStageStore.activateTab(key)
-      return
-    }
-    cancelPendingStreamUiBumpsRef.current()
-    setChatOverlayDefer('workspace', true)
-    flushSync(() => {
-      syncShellAsideForWorkspacePanel(true)
-      rightStageUserPinnedRef.current = 'workspace-browse'
-      setWorkspacePanelOpen(true)
-      setWorkspaceTreePinned(true)
-      if (!streamingWritePreviewRef.current?.streaming) {
-        setStreamingWritePreview(null)
-        lastStreamWritePathRef.current = null
-      }
+    toggleWorkspacePanelImpl({
+      rightStageUserPinnedRef,
+      scheduleBumpRef,
+      cancelPendingStreamUiBumpsRef,
+      lastStreamWritePathRef,
+      streamingWritePreviewRef,
+      syncShellAsideForWorkspacePanel,
+      setWorkspacePanelOpen,
+      setWorkspaceTreePinned,
+      setStreamingWritePreview,
     })
   }, [setWorkspacePanelOpen, syncShellAsideForWorkspacePanel])
+
 
   useEffect(() => {
     syncShellAsideForWorkspacePanel(workspacePanelOpen)
@@ -5105,24 +5075,7 @@ export default function ChatApp() {
         const [agentResult] = await Promise.all([api.listAgents()])
         if (cancelled) return
         const list = Array.isArray(agentResult) ? agentResult : agentResult?.agents || []
-        setAgents(
-          list.map((a: AgentPickerRow) => ({
-            ...a,
-            agent_code: String(a?.agent_code || '').trim(),
-            skills: Array.isArray(a?.skills)
-              ? a.skills.map((s) => String(s || '').trim()).filter(Boolean)
-              : [],
-            tools: Array.isArray(a?.tools)
-              ? a.tools.map((t) => String(t || '').trim()).filter(Boolean)
-              : null,
-            mcp_servers: Array.isArray(a?.mcp_servers)
-              ? a.mcp_servers.map((m) => String(m || '').trim()).filter(Boolean)
-              : null,
-            knowledge_vault_ids: Array.isArray(a?.knowledge_vault_ids)
-              ? a.knowledge_vault_ids.map((k) => String(k || '').trim()).filter(Boolean)
-              : [],
-          })),
-        )
+        setAgents(mapAgentPickerRows(list))
         setAgentsDisplayCache(list)
       } catch {
         if (!cancelled) {
@@ -5140,22 +5093,7 @@ export default function ChatApp() {
       const api = await getApi()
       const agentResult = await api.listAgents()
       const list = Array.isArray(agentResult) ? agentResult : agentResult?.agents || []
-      const mapped = list.map((a: AgentPickerRow) => ({
-        ...a,
-        agent_code: String(a?.agent_code || '').trim(),
-        skills: Array.isArray(a?.skills)
-          ? a.skills.map((s) => String(s || '').trim()).filter(Boolean)
-          : [],
-        tools: Array.isArray(a?.tools)
-          ? a.tools.map((t) => String(t || '').trim()).filter(Boolean)
-          : null,
-        mcp_servers: Array.isArray(a?.mcp_servers)
-          ? a.mcp_servers.map((m) => String(m || '').trim()).filter(Boolean)
-          : null,
-        knowledge_vault_ids: Array.isArray(a?.knowledge_vault_ids)
-          ? a.knowledge_vault_ids.map((k) => String(k || '').trim()).filter(Boolean)
-          : [],
-      }))
+      const mapped = mapAgentPickerRows(list)
       setAgents(mapped)
       setAgentsDisplayCache(list)
       setRoleUiNonce((n) => n + 1)
@@ -10048,29 +9986,24 @@ export default function ChatApp() {
 
   /** 折叠侧栏：保留 tabs 缓存，对齐 ZCode collapse（不是 hideAll）。 */
   const handleCollapseRightStage = useCallback(() => {
-    rightStageUserPinnedRef.current = null
-    collapseRightStage()
-    setChatOverlayDefer('workspace', false)
-    setChatOverlayDefer('workflow', false)
-    setChatOverlayDefer('knowledge-map', false)
-    syncShellAsideForWorkspacePanel(false)
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    collapseRightStageShellImpl({
+      rightStageUserPinnedRef,
+      scheduleBumpRef,
+      collapseRightStage,
+      syncShellAsideForWorkspacePanel,
+    })
   }, [collapseRightStage, syncShellAsideForWorkspacePanel])
 
   const handleExpandRightStage = useCallback(() => {
-    // 专用侧栏与状态卡片互斥：开侧栏时把状态收成气泡偏好，避免关侧栏后又立刻弹回卡片。
-    if (chatPanelMode === 'panel') {
-      setChatPanelMode('capsule')
-      saveChatSummaryDisplayMode('capsule')
-    }
-    expandRightStage()
-    setInfoRailOpen(false)
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    expandRightStageShellImpl({
+      chatPanelMode,
+      scheduleBumpRef,
+      expandRightStage,
+      setChatPanelMode,
+      setInfoRailOpen,
+    })
   }, [expandRightStage, chatPanelMode])
+
 
   /**
    * 顶栏 PanelRight：对齐 ZCode 侧栏开关。
