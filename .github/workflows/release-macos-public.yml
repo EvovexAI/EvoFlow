@@ -144,6 +144,8 @@ jobs:
           TAURI_BUILD_TARGET: ${{ matrix.tauri_target }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_DMG_ATTEMPTS: "5"
+          # vite build OOMs at ~2GB default heap on macos runners (see v1.1.4 aarch64/x64)
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: pnpm run build:desktop:mac
 
       - name: Verify DMG artifact
