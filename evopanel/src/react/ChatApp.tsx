@@ -330,11 +330,9 @@ import {
   mergeToolsForPlanDetection,
   analyzePlanTools,
   enrichToolsWithCachedPlanInput,
-  absorbPlanInputFromTools,
   historyPastPlanExecutionGate,
 } from '../lib/plan-pipeline.js'
 import {
-  invalidatePlanApiCache,
   syncPlanDockStateFromApi,
 } from '../lib/plan-from-api.js'
 import {
@@ -443,6 +441,15 @@ import {
   resetCollabPlanUiForSession as resetCollabPlanUiForSessionImpl,
   resetCollabPlanUiForNewCycle as resetCollabPlanUiForNewCycleImpl,
 } from './chat-app/plan-dock/reset-collab-plan-ui.js'
+import { absorbPlanFromTools as absorbPlanFromToolsImpl } from './chat-app/plan-dock/absorb-plan-from-tools.js'
+import {
+  handleSessionWorkspaceUpdatedEvent,
+  startHydrateSessionWorkspaceHistory,
+} from './chat-app/session/sync-session-workspace.js'
+import {
+  installProjectCodeIndexWatch,
+  installVirtualCodeIndexWatch,
+} from './chat-app/session/install-code-index-watch.js'
 // ============================================
 
 import type {
@@ -1305,29 +1312,16 @@ export default function ChatApp() {
   }, [])
 
   const absorbPlanFromTools = useCallback((tools: unknown[]) => {
-    const next = absorbPlanInputFromTools(persistedPlanInputRef.current, tools)
-    const hit = analyzePlanTools(tools).hit
-    if (!next && !hit?.boundPlanReady) return
-    if (next) persistedPlanInputRef.current = next
-    const prevLatch = planStreamLatchRef.current
-    const mergedHit = {
-      planInput: next || prevLatch?.planInput,
-      boundPlanReady: !!(hit?.boundPlanReady || prevLatch?.boundPlanReady),
-      taskId: hit?.taskId || prevLatch?.taskId,
-      planOutput: (hit as Record<string, unknown>)?.planOutput || (prevLatch as Record<string, unknown>)?.planOutput,
-    }
-    planStreamLatchRef.current = mergedHit
-    setPlanStreamLatched(true)
-    if (next) {
-      setThreadPanelState((prev) => ({
-        ...prev,
-        planInputFallback: pickRicherStructuredPlanInput(next, prev.planInputFallback),
-      }))
-    }
-    if (mergedHit.planInput || mergedHit.boundPlanReady) {
-      // @ts-expect-error planOutput type mismatch
-      publishPlanPanelHit(mergedHit)
-    }
+    absorbPlanFromToolsImpl(
+      {
+        persistedPlanInputRef,
+        planStreamLatchRef,
+        setPlanStreamLatched,
+        setThreadPanelState,
+        publishPlanPanelHit,
+      },
+      tools,
+    )
   }, [publishPlanPanelHit])
   const planResolveInFlightRef = useRef(false)
   /** 同一会话+任务只拉一次 plan / collab 快照，避免多路 effect 重复请求导致面板闪烁 */
@@ -4781,18 +4775,18 @@ export default function ChatApp() {
 
   useEffect(() => {
     const onWorkspace = (ev: Event) => {
-      const d = (ev as CustomEvent<{ sessionKey?: string; local_workspace_root?: string }>).detail
-      if (!d?.sessionKey || d.sessionKey !== selectedSessionKey) return
-      const p = String(d.local_workspace_root || '').trim()
-      if (!p) return
-      setLocalWorkspaceRoot(p)
-      try {
-        setWorkspaceHistory(wsClient.getWorkspaceHistory(selectedSessionKey))
-        setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-      } catch {
-        /* ignore */
-      }
-      bumpStreamFullRef.current()
+      handleSessionWorkspaceUpdatedEvent(
+        {
+          selectedSessionKey,
+          setLocalWorkspaceRoot,
+          setWorkspaceHistory,
+          setGlobalWorkspaceHistory,
+          bumpStreamFull: () => bumpStreamFullRef.current(),
+          getWorkspaceHistory: (sk) => wsClient.getWorkspaceHistory(sk),
+          getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
+        },
+        ev,
+      )
     }
     window.addEventListener('evopanel:session-workspace-updated', onWorkspace as EventListener)
     return () => window.removeEventListener('evopanel:session-workspace-updated', onWorkspace as EventListener)
@@ -4800,85 +4794,34 @@ export default function ChatApp() {
 
   /** 切换会话时异步拉取工作空间历史（刷新后缓存为空时补全） */
   useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    let cancelled = false
-    void (async () => {
-      try {
-        await wsClient.hydrateGlobalWorkspaceHistoryOnce()
-        await wsClient.ensureSessionWorkspaceHistory(sk)
-        if (cancelled) return
-        const ctx = wsClient.getSessionContext(sk)
-        const root = String(ctx.local_workspace_root || '').trim()
-        if (root) setLocalWorkspaceRoot(root)
-        setWorkspaceHistory(wsClient.getWorkspaceHistory(sk))
-        setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-      } catch {
-        /* ignore */
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    return startHydrateSessionWorkspaceHistory({
+      selectedSessionKey,
+      setLocalWorkspaceRoot,
+      setWorkspaceHistory,
+      setGlobalWorkspaceHistory,
+      hydrateGlobalWorkspaceHistoryOnce: () => wsClient.hydrateGlobalWorkspaceHistoryOnce(),
+      ensureSessionWorkspaceHistory: (sk) => wsClient.ensureSessionWorkspaceHistory(sk),
+      getSessionContext: (sk) => wsClient.getSessionContext(sk) as Record<string, unknown>,
+      getWorkspaceHistory: (sk) => wsClient.getWorkspaceHistory(sk),
+      getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
+    })
   }, [selectedSessionKey])
 
   // Shared SQLite index per workspace root; background warm — gated by user toggle (default off).
   useEffect(() => {
-    if (!workspaceIndexWatchEnabled) return
-    if (useVirtualPaths) return
-    const root = effectiveWorkspaceRoot
-    if (!root) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const { api } = await import('../lib/tauri-api.js')
-        if (cancelled) return
-        void api.warmCodeIndex(root, false, undefined)
-        await api.startCodeIndexWatch(root, undefined)
-      } catch {
-        /* best-effort index warm-up */
-      }
-    })()
-    return () => {
-      cancelled = true
-      void (async () => {
-        try {
-          const { api } = await import('../lib/tauri-api.js')
-          await api.stopCodeIndexWatch(root, undefined)
-        } catch {
-          /* ignore */
-        }
-      })()
-    }
+    return installProjectCodeIndexWatch({
+      workspaceIndexWatchEnabled,
+      useVirtualPaths,
+      effectiveWorkspaceRoot,
+    })
   }, [effectiveWorkspaceRoot, useVirtualPaths, workspaceIndexWatchEnabled])
 
   useEffect(() => {
-    if (!workspaceIndexWatchEnabled) return
-    if (!useVirtualPaths) return
-    const threadId = String(wsClient.getSessionThreadId(selectedSessionKey) || '').trim()
-    if (!threadId) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const { api } = await import('../lib/tauri-api.js')
-        if (cancelled) return
-        void api.warmCodeIndex('', false, threadId)
-        await api.startCodeIndexWatch('', threadId)
-      } catch {
-        /* best-effort */
-      }
-    })()
-    return () => {
-      cancelled = true
-      void (async () => {
-        try {
-          const { api } = await import('../lib/tauri-api.js')
-          await api.stopCodeIndexWatch('', threadId)
-        } catch {
-          /* ignore */
-        }
-      })()
-    }
+    return installVirtualCodeIndexWatch({
+      workspaceIndexWatchEnabled,
+      useVirtualPaths,
+      threadId: String(wsClient.getSessionThreadId(selectedSessionKey) || '').trim(),
+    })
   }, [useVirtualPaths, selectedSessionKey, workspaceIndexWatchEnabled])
 
   /** 协作任务执行中：WebSocket 推送 phase / 侧栏 snapshot / 子任务进度（替代 HTTP 轮询）。 */
