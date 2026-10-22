@@ -447,6 +447,10 @@ import { createChatWsOnEventHandler } from './chat-app/stream/create-chat-ws-on-
 import { patchCollabFromStreamTools as patchCollabFromStreamToolsImpl } from './chat-app/collab/patch-collab-from-stream-tools.js'
 import { renderRightStageBody as renderRightStageBodyImpl } from './chat-app/right-stage/render-right-stage-body.js'
 import { runCollabUnifiedWsEffect } from './chat-app/collab/install-collab-unified-ws.js'
+import { runShellWindowListenersEffect } from './chat-app/shell/install-shell-window-listeners.js'
+import { runVisibilityReattachEffect } from './chat-app/shell/install-visibility-reattach.js'
+import { runChatMountBootstrapEffect } from './chat-app/shell/install-chat-mount-bootstrap.js'
+import { runThreadPanelSseEffect } from './chat-app/shell/install-thread-panel-sse.js'
 import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
@@ -4282,241 +4286,36 @@ export default function ChatApp() {
   }, [restoreComposerDraft])
 
   useEffect(() => {
-    try {
-      localStorage.removeItem('evopanel-chat-selected-session')
-    } catch {
-      /* ignore */
-    }
-    if (!wsClient.connected) wsClient.connect()
-    void loadModelCatalog()
-    // 从后端加载模式定义（动态控制显示项）
-    void (async () => {
-      try {
-        const api = await getApi()
-        const resp = await api.getSessionModes()
-        if (resp?.modes && Array.isArray(resp.modes)) {
-          setDynamicModes(
-            resp.modes.map((m: any) => ({
-              value: String(m.value || ''),
-              label: String(m.label || m.value || ''),
-              visible: m.visible !== false,
-              scenario: m.scenario ?? null,
-            })),
-          )
-        }
-      } catch {
-        /* 降级使用 DEFAULT_SESSION_MODES */
-      }
-    })()
-    // Let /messages + /models win the first seconds after mount (stdio/GIL contention).
-    scheduleRefreshSessions(1500)
-    const u1 = wsClient.onReady(() => {
-      scheduleRefreshSessions(1800)
+    return runChatMountBootstrapEffect({
+      getApi,
+      isPlaceholderSessionTitle,
+      loadModelCatalog,
+      patchSessionTitleInRows,
+      pickSessionRowTitle,
+      refreshSpeechConfigured,
+      reviveAllTurnBusyIfLivePostOpen,
+      scheduleRefreshSessions,
+      sessionsRef,
+      setChatSurfaceVisible,
+      setDynamicModes,
+      setSessionNamesTick,
+      setSessions,
+      setSessionTitle,
+      syncSessionRowRef,
+      wsClient,
     })
-
-    // 后台派发/值班新建员工会话时推 panel:session_upserted → 侧栏重拉
-    // 窗口隐藏时断开 shell panel SSE，避免 Mac 后台仍保活重连。
-    let unsubShellPanel: (() => void) | null = null
-    let shellPanelCancelled = false
-    const disconnectShellPanel = () => {
-      try {
-        unsubShellPanel?.()
-      } catch {
-        /* ignore */
-      }
-      unsubShellPanel = null
-    }
-    const connectShellPanel = () => {
-      if (shellPanelCancelled) return
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      disconnectShellPanel()
-      void import('../lib/ws-client.js').then(({ subscribeThreadPanelSse }) => {
-        if (shellPanelCancelled) return
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-        unsubShellPanel = subscribeThreadPanelSse('__evopanel_shell__', (dataJson: string) => {
-          try {
-            const ev = JSON.parse(String(dataJson || '{}'))
-            if (String(ev?.type || '').trim() !== 'panel:session_upserted') return
-            const data = ev?.data && typeof ev.data === 'object' ? ev.data : ev
-            const sk = String(data?.session_key || data?.sessionKey || '').trim()
-            if (!sk) return
-            if (sessionsRef.current.some((s) => String(s.sessionKey || '') === sk)) return
-            void syncSessionRowRef.current?.(sk)
-          } catch {
-            /* ignore */
-          }
-        })
-      })
-    }
-    const onShellPanelVisibility = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        disconnectShellPanel()
-      } else {
-        connectShellPanel()
-      }
-    }
-    connectShellPanel()
-    document.addEventListener('visibilitychange', onShellPanelVisibility)
-    
-    // 监听会话名称更新事件
-    const onNameUpdate = (ev?: Event) => {
-      setSessionNamesTick((t) => t + 1)
-      const detail = (ev as CustomEvent<{ sessionKey?: string; title?: string }> | undefined)?.detail
-      const sk = String(detail?.sessionKey || '').trim()
-      const title = String(detail?.title || '').trim()
-      if (sk && title) {
-        setSessions((prev) => patchSessionTitleInRows(prev, sk, title))
-        return
-      }
-      setSessions((prev) => {
-        let changed = false
-        const next = prev.map((s) => {
-          const key = String(s.sessionKey || '').trim()
-          if (!key) return s
-          const picked = pickSessionRowTitle(key, s.title, s.title)
-          if (picked && picked !== s.title) {
-            changed = true
-            return { ...s, title: picked }
-          }
-          return s
-        })
-        return changed ? next : prev
-      })
-    }
-    window.addEventListener('session-name-updated', onNameUpdate)
-
-    const onThreadRebound = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ sessionKey?: string; threadId?: string }>).detail
-      const sk = String(detail?.sessionKey || '').trim()
-      const tid = String(detail?.threadId || '').trim()
-      if (!sk || !tid) return
-      setSessions((prev) =>
-        prev.map((s) => (String(s.sessionKey || '') === sk ? { ...s, threadId: tid } : s)),
-      )
-    }
-    window.addEventListener('evopanel:session-thread-rebound', onThreadRebound)
-
-    const onPanelTitleUpdated = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ sessionKey?: string; title?: string }>).detail
-      const sk = String(detail?.sessionKey || '').trim()
-      const title = String(detail?.title || '').trim()
-      if (!sk || !title || isPlaceholderSessionTitle(title)) return
-      setSessionTitle(sk, title)
-      setSessions((prev) => patchSessionTitleInRows(prev, sk, title))
-    }
-    window.addEventListener('evopanel:session-title-updated', onPanelTitleUpdated)
-
-    const onModelsUpdated = () => {
-      void loadModelCatalog({ silent: true, forceLive: true })
-    }
-    const onMediaUpdated = () => {
-      refreshSpeechConfigured()
-    }
-    const onChatRouteShown = () => {
-      setChatSurfaceVisible(true)
-      try {
-        const host = document.getElementById('chat-persistent-host')
-        if (host) {
-          host.hidden = false
-          host.style.display = 'flex'
-        }
-      } catch {
-        /* ignore */
-      }
-      // 切回 #/chat：恢复所有仍挂着 live POST 却被误 idle 的会话（含后台「绘画」）
-      reviveAllTurnBusyIfLivePostOpen()
-      void loadModelCatalog({ silent: true, forceLive: true })
-      refreshSpeechConfigured()
-    }
-    refreshSpeechConfigured()
-    window.addEventListener('evopanel:models-updated', onModelsUpdated)
-    window.addEventListener('evopanel:media-updated', onMediaUpdated)
-    window.addEventListener('evopanel:chat-route-shown', onChatRouteShown)
-    
-    return () => {
-      shellPanelCancelled = true
-      u1()
-      document.removeEventListener('visibilitychange', onShellPanelVisibility)
-      disconnectShellPanel()
-      window.removeEventListener('session-name-updated', onNameUpdate)
-      window.removeEventListener('evopanel:session-thread-rebound', onThreadRebound)
-      window.removeEventListener('evopanel:session-title-updated', onPanelTitleUpdated)
-      window.removeEventListener('evopanel:models-updated', onModelsUpdated)
-      window.removeEventListener('evopanel:media-updated', onMediaUpdated)
-      window.removeEventListener('evopanel:chat-route-shown', onChatRouteShown)
-    }
   }, [refreshSessions, scheduleRefreshSessions, loadModelCatalog, refreshSpeechConfigured])
 
   useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
-    const tid = String(wsClient.getSessionThreadId(sk) || row?.threadId || '').trim()
-    if (!tid) return
-    let cancelled = false
-    let unsubPanel: (() => void) | null = null
-    const disconnectPanel = () => {
-      try {
-        unsubPanel?.()
-      } catch {
-        /* ignore */
-      }
-      unsubPanel = null
-    }
-    const connectPanel = () => {
-      if (cancelled) return
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      disconnectPanel()
-      void import('../lib/ws-client.js').then(({ subscribeThreadPanelSse }) => {
-        if (cancelled) return
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-        unsubPanel = subscribeThreadPanelSse(tid, (dataJson: string) => {
-          try {
-            const ev = JSON.parse(String(dataJson || '{}'))
-            const evType = String(ev?.type || '').trim()
-            if (evType === 'panel:activity') {
-              // 后台 run（proactive 值班等）无 live runs/stream：步骤进度经
-              // panel-stream 控制面到达。走与 thread_state 活动相同的管线，
-              // 驱动 session 状态条 + 流式行 spinner 文案（B1/B2 通路前端端）。
-              const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
-              const detail = String(data.detail || '').trim()
-              if (!detail) return
-              const kind = String(data.kind || 'system').trim().toLowerCase()
-              setSessionActivity(sk, kind === 'idle' ? 'system' : kind, detail)
-              applyStreamTurnEvent(streamRef.current, { type: 'system_activity', detail })
-              scheduleBumpRef.current?.({ immediate: true })
-              return
-            }
-            if (evType !== 'panel:title_updated') return
-            const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
-            const title = String(data.title || '').trim()
-            const sessionKey = String(data.session_key || data.sessionKey || sk).trim()
-            if (!title || !sessionKey) return
-            window.dispatchEvent(
-              new CustomEvent('evopanel:session-title-updated', {
-                detail: { sessionKey, title },
-              }),
-            )
-          } catch {
-            /* ignore malformed panel SSE */
-          }
-        })
-      })
-    }
-    const onVis = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        disconnectPanel()
-      } else {
-        connectPanel()
-      }
-    }
-    connectPanel()
-    document.addEventListener('visibilitychange', onVis)
-    return () => {
-      cancelled = true
-      document.removeEventListener('visibilitychange', onVis)
-      disconnectPanel()
-    }
+    return runThreadPanelSseEffect({
+      applyStreamTurnEvent,
+      scheduleBumpRef,
+      selectedSessionKey,
+      sessions,
+      setSessionActivity,
+      streamRef,
+      wsClient,
+    })
   }, [selectedSessionKey, sessions])
 
   /** null：尚未知（列表未加载或所选名不在目录）；true/false：是否支持多模态用户图（config supports_vision） */
@@ -4854,124 +4653,18 @@ export default function ChatApp() {
    */
   const hiddenSinceRef = useRef<number | null>(null)
   useEffect(() => {
-    let reattachTimer: ReturnType<typeof setTimeout> | null = null
-
-    const tryReattach = () => {
-      const sk = String(sessionRef.current || '').trim()
-      if (!sk) return
-      // Live POST /runs/stream: never reattach (would abortStreamWire the send).
-      if (shouldSuppressAutoReattach({ sessionKey: sk })) return
-      // Only resume when the session still looks like it needs a wire.
-      if (!shouldManualRefreshResumeStream({ sessionKey: sk })) return
-      if (isSessionRecoveryCooldownActive(sk)) return
-      void (async () => {
-        try {
-          const status = await wsClient.getSessionRunStatus(sk)
-          // 处理 recently_completed：如果 run 刚完成（60s 内），刷新消息列表并重置流状态
-          if (status.recently_completed) {
-            srLog('visibility reattach recently-completed', {
-              sessionKey: sk,
-              runId: status.recently_completed_run_id,
-              completedStatus: status.recently_completed_status,
-            })
-            // 刷新会话列表以获取最新状态
-            await refreshSessionsRef.current?.({ skipAutoReselect: true })
-            // 清理本地运行状态标记为 idle
-            try {
-              await evoflowFetch(`/api/chat/sessions/${encodeURIComponent(sk)}/run-idle`, {
-                method: 'POST',
-              })
-            } catch {
-              // best-effort
-            }
-            return
-          }
-          // R2-2: run 未在执行但有 runId，查询是否已完成
-          if (!status.executing && status.runId) {
-            try {
-              const checkResp = await evoflowFetch(
-                `/api/chat/sessions/${encodeURIComponent(sk)}/live-run/check`
-              )
-              if (checkResp.ok) {
-                const checkData = await checkResp.json()
-                if (checkData?.completed) {
-                  srLog('visibility reattach completed-run', {
-                    sessionKey: sk,
-                    runId: status.runId,
-                    completedStatus: checkData.status,
-                  })
-                  // 刷新消息列表获取最终结果
-                  await refreshSessionsRef.current?.({ skipAutoReselect: true })
-                  // 清理 live_run 记录
-                  await evoflowFetch(
-                    `/api/chat/sessions/${encodeURIComponent(sk)}/live-run`,
-                    { method: 'DELETE' }
-                  ).catch(() => {})
-                  return
-                }
-              }
-            } catch {
-              // best-effort: silent failure
-            }
-            // Run not completed but not executing - stale run, refresh messages
-            srLog('visibility reattach stale-run-refresh', {
-              sessionKey: sk,
-              runId: status.runId,
-              status: status.status,
-            })
-            await refreshSessionsRef.current?.({ skipAutoReselect: true })
-            return
-          }
-          srLog('visibility reattach', {
-            sessionKey: sk,
-            runId: status.runId,
-          })
-          requestManualStreamResumeRef.current?.(sk, { refreshSessions: false })
-        } catch {
-          // 静默失败
-        }
-      })()
-    }
-
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenSinceRef.current = Date.now()
-      } else {
-        const hiddenFor = hiddenSinceRef.current ? Date.now() - hiddenSinceRef.current : 0
-        hiddenSinceRef.current = null
-        // 仅在后台超过 5 秒时触发，避免快速切换干扰
-        if (hiddenFor < 5000) return
-
-        // R2-1: Send heartbeat to backend when returning from background
-        // This updates last_event_at so backend knows frontend is still alive
-        const sk = String(sessionRef.current || '').trim()
-        if (sk) {
-          void evoflowFetch(`/api/chat/sessions/${encodeURIComponent(sk)}/heartbeat`, {
-            method: 'POST',
-          }).catch(() => {
-            // best-effort: silent failure
-          })
-        }
-
-        // 延迟 500ms，避免与路由切换/组件重渲染竞争
-        if (reattachTimer) clearTimeout(reattachTimer)
-        reattachTimer = setTimeout(tryReattach, 500)
-      }
-    }
-
-    const handleOnline = () => {
-      // 网络恢复后延迟 1s 检测
-      if (reattachTimer) clearTimeout(reattachTimer)
-      reattachTimer = setTimeout(tryReattach, 1000)
-    }
-
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('online', handleOnline)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('online', handleOnline)
-      if (reattachTimer) clearTimeout(reattachTimer)
-    }
+    return runVisibilityReattachEffect({
+      evoflowFetch,
+      hiddenSinceRef,
+      isSessionRecoveryCooldownActive,
+      refreshSessionsRef,
+      requestManualStreamResumeRef,
+      sessionRef,
+      shouldManualRefreshResumeStream,
+      shouldSuppressAutoReattach,
+      srLog,
+      wsClient,
+    })
   }, [])
 
   useEffect(() => {
@@ -7127,79 +6820,17 @@ export default function ChatApp() {
   )
 
   useEffect(() => {
-    const onNew = () => {
-      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
-        setMobileChatPane('thread')
-      }
-      void handleNewSessionRef.current?.()
-    }
-    const onOpenHome = () => {
-      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
-        setMobileChatPane('list')
-        return
-      }
-      void handleOpenHomeRef.current?.()
-    }
-    const onMobileChatList = () => {
-      setMobileChatPane('list')
-    }
-    const onSettingsModalOpened = () => {
-      cancelPendingStreamUiBumpsRef.current()
-    }
-    const onSettingsModalClosed = () => {
-      if (!isChatOverlayDeferActive()) {
-        scheduleBumpRef.current?.({ immediate: true })
-      }
-    }
-    const onChatRouteShown = () => {
-      // 从知识库/菜单返回：强制解开消息面 + 确保常驻宿主可见
-      setChatSurfaceVisible(true)
-      try {
-        const host = document.getElementById('chat-persistent-host')
-        if (host) {
-          host.hidden = false
-          host.style.display = 'flex'
-        }
-      } catch {
-        /* ignore */
-      }
-      try {
-        const pending = sessionStorage.getItem('evopanel_pending_shell_session')
-        if (pending) {
-          sessionStorage.removeItem('evopanel_pending_shell_session')
-          selectSessionFromShellRef.current(pending)
-        }
-        if (sessionStorage.getItem('evopanel_pending_mobile_chat_list') === '1') {
-          sessionStorage.removeItem('evopanel_pending_mobile_chat_list')
-          setMobileChatPane('list')
-        }
-      } catch {
-        /* ignore */
-      }
-      // 任务中心等路由回来：恢复所有 live POST 仍开着却被误 idle 的会话
-      reviveAllTurnBusyIfLivePostOpen()
-    }
-    const onShellSelectSession = (ev: Event) => {
-      const key = String((ev as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey || '').trim()
-      if (!key) return
-      selectSessionFromShellRef.current(key)
-    }
-    window.addEventListener('evopanel:shell-new-session', onNew)
-    window.addEventListener('evopanel:shell-open-home', onOpenHome)
-    window.addEventListener('evopanel:mobile-chat-list', onMobileChatList)
-    window.addEventListener('evopanel:shell-select-session', onShellSelectSession)
-    window.addEventListener('evopanel:settings-modal-opened', onSettingsModalOpened)
-    window.addEventListener('evopanel:settings-modal-closed', onSettingsModalClosed)
-    window.addEventListener('evopanel:chat-route-shown', onChatRouteShown)
-    return () => {
-      window.removeEventListener('evopanel:shell-new-session', onNew)
-      window.removeEventListener('evopanel:shell-open-home', onOpenHome)
-      window.removeEventListener('evopanel:mobile-chat-list', onMobileChatList)
-      window.removeEventListener('evopanel:shell-select-session', onShellSelectSession)
-      window.removeEventListener('evopanel:settings-modal-opened', onSettingsModalOpened)
-      window.removeEventListener('evopanel:settings-modal-closed', onSettingsModalClosed)
-      window.removeEventListener('evopanel:chat-route-shown', onChatRouteShown)
-    }
+    return runShellWindowListenersEffect({
+      cancelPendingStreamUiBumpsRef,
+      handleNewSessionRef,
+      handleOpenHomeRef,
+      isChatOverlayDeferActive,
+      reviveAllTurnBusyIfLivePostOpen,
+      scheduleBumpRef,
+      selectSessionFromShellRef,
+      setChatSurfaceVisible,
+      setMobileChatPane,
+    })
   }, [])
 
   return (
