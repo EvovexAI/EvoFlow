@@ -439,7 +439,7 @@ import {
 } from './chat-app/plan-dock/reset-collab-plan-ui.js'
 import { absorbPlanFromTools as absorbPlanFromToolsImpl } from './chat-app/plan-dock/absorb-plan-from-tools.js'
 import { handleSend as handleSendImpl } from './chat-app/composer/handle-send.js'
-import { createChatWsOnEventHandler } from './chat-app/stream/create-chat-ws-on-event.js'
+import { runChatWsOnEventEffect } from './chat-app/stream/install-chat-ws-on-event.js'
 import { patchCollabFromStreamTools as patchCollabFromStreamToolsImpl } from './chat-app/collab/patch-collab-from-stream-tools.js'
 import { renderRightStageBody as renderRightStageBodyImpl } from './chat-app/right-stage/render-right-stage-body.js'
 import { runCollabUnifiedWsEffect } from './chat-app/collab/install-collab-unified-ws.js'
@@ -456,6 +456,9 @@ import {
   renderWorkspaceFolderToggleButton,
 } from './chat-app/view/header-chrome.js'
 import { runSessionEnterPlanSyncEffect } from './chat-app/plan-dock/run-session-enter-plan-sync.js'
+import { runSessionSwitchLayoutEffect } from './chat-app/session/run-session-switch-layout.js'
+import { runClarificationHydrateEffect } from './chat-app/session/run-clarification-hydrate.js'
+import { runPageLoadResumeEffect } from './chat-app/shell/run-page-load-resume.js'
 import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
@@ -1104,53 +1107,32 @@ export default function ChatApp() {
 
   /** 切换会话：selectedSessionKey 或用户 force 重选（同 key）时 mount stream */
   useLayoutEffect(() => {
-    const prev = prevSelectedSessionCleanupRef.current
-    const sk = String(selectedSessionKey || '').trim()
-    const rev = shellSelectRevision
-    if (prev === sk && rev === prevSwitchRevisionRef.current) return
-    prevSwitchRevisionRef.current = rev
-    ssLog('switch.layout', { from: skTail(prev ?? ''), to: skTail(sk), rev })
-    sessionSwitchFromRef.current = prev ? prev : ''
-    if (prev) {
-      const prevRt = getSessionRuntime(prev)
-      const activeSkNow = String(sessionRef.current || '').trim()
-      const streamForCommit =
-        streamRef.current === prevRt.stream || activeSkNow === prev
-          ? streamRef.current
-          : prevRt.stream
-      commitActiveSessionRuntime(prev, {
-        rows: rowsRef.current,
-        stream: streamForCommit,
-        seenRunIds: seenRunIdsRef.current,
-        activeChatRunId: activeChatRunIdRef.current,
-      })
-    }
-    delete refreshAttachAttemptedRef.current[sk]
-    reattachRetryCountRef.current = 0
-    if (sk) {
-      const rt = mountSessionRuntime(sk, {
-        streamRef,
-        seenRunIdsRef,
-        activeChatRunIdRef,
-      })
-      if (isSessionRuntimeLive(rt)) {
-        const runId =
-          String(rt.activeChatRunId || '').trim() ||
-          String(sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)?.currentRunId || '').trim()
-        const liveRows = runId
-          ? markResumeAnchorAssistantIncomplete([...rt.rows], runId)
-          : [...rt.rows]
-        // 等价于当前 rows 时复用 prev 引用，避免 SSE delta 期间 baseHistoryItems 反复重算。
-        setRows((prev) => (displayRowsEquivalent(prev, liveRows) ? prev : liveRows))
-        // 旧 publishLiveStreamNow 已删：resume 时由 buildStreamDisplayRow 直接读 rt.stream
-      }
-    } else {
-      streamRef.current = emptyStream()
-      streamRefKeyRef.current = ''
-      seenRunIdsRef.current = new Set()
-      activeChatRunIdRef.current = null
-    }
-    prevSelectedSessionCleanupRef.current = sk
+    runSessionSwitchLayoutEffect({
+      activeChatRunIdRef,
+      commitActiveSessionRuntime,
+      displayRowsEquivalent,
+      emptyStream,
+      getSessionRuntime,
+      isSessionRuntimeLive,
+      markResumeAnchorAssistantIncomplete,
+      mountSessionRuntime,
+      prevSelectedSessionCleanupRef,
+      prevSwitchRevisionRef,
+      reattachRetryCountRef,
+      refreshAttachAttemptedRef,
+      rowsRef,
+      seenRunIdsRef,
+      selectedSessionKey,
+      sessionRef,
+      sessionSwitchFromRef,
+      sessionsRef,
+      setRows,
+      shellSelectRevision,
+      ssLog,
+      skTail,
+      streamRef,
+      streamRefKeyRef,
+    })
   }, [selectedSessionKey, shellSelectRevision])
 
   /** Monotonic id so aborted/stale handleSend cannot clear a newer round's stream state. */
@@ -3568,77 +3550,25 @@ export default function ChatApp() {
 
   // Refresh/history hydration: hosted proposal + authoritative pending-clarification API
   useEffect(() => {
-    if (historyLoading) {
-      return
-    }
-    if (!selectedSessionKey) {
-      return
-    }
-    // 会话切换竞态守卫：切会话瞬间 rows 可能仍残留上一会话的数据，
-    // 若用旧会话的 rows 计算 clarification 会污染新会话的 threadPanelState
-    // （现象：A 的「询问」串显示到 B）。即时绘制时 rows 来自当前会话的
-    // live/idle 缓存（未走 reload），此时 historyBoundSessionKey 为空，放行；
-    // 否则要求 rows 已成功绑定当前会话才继续。
-    if (!historyInstantPaint && historyBoundSessionKey !== selectedSessionKey) {
-      return
-    }
-    const liveRows = rows || []
-    const awaiting = findAskClarificationAwaitingUserInRows(liveRows)
-    const rowsHaveAwaitingAsk = !!awaiting?.tool
-    const userJustSent =
-      selectedTurnBusy && rowsAwaitUserReplyAfterSend(liveRows) && !rowsHaveAwaitingAsk
-    const restored = extractLatestClarificationFromRows(liveRows)
-    const hostedProp = extractLatestGoalProposalFromRows(liveRows)
-    const suppressed = suppressedGoalProposalKeysRef.current
-    setThreadPanelState((prev) => {
-      const suppressClarify = shouldSuppressClarificationPanel(liveRows, prev)
-      let nextHosted: ThreadGoalProposal | null = prev.goalProposal
-      if (hostedProp) {
-        const k = goalProposalSuppressKey(hostedProp)
-        if (suppressed.has(k)) {
-          if (prev.goalProposal && goalProposalSuppressKey(prev.goalProposal) === k) {
-            nextHosted = null
-          }
-        } else if (!prev.goalProposal || goalProposalSuppressKey(prev.goalProposal) !== k) {
-          nextHosted = hostedProp
-        }
-      } else {
-        nextHosted = null
-      }
-      const nextClarification = suppressClarify || userJustSent
-        ? null
-        : mergeThreadPanelClarification(prev.clarification, restored, {
-            preferPrevWhileSending: selectedTurnBusy,
-            rowsHaveAwaitingAsk,
-          })
-      return {
-        ...prev,
-        clarification: nextClarification,
-        goalProposal: nextHosted,
-      }
-    })
-
-    if (userJustSent) {
-      return
-    }
-    const suppressClarify = shouldSuppressClarificationPanel(liveRows, threadPanelStateRef.current)
-    if (suppressClarify && !rowsHaveAwaitingAsk) {
-      return
-    }
-    if (!rowsHaveAwaitingAsk && !peekClarificationLatch(selectedSessionKey)) {
-      return
-    }
-    const toolCallId = awaiting?.tool
-      ? String(
-          (awaiting.tool as { id?: string; tool_call_id?: string }).id ||
-            (awaiting.tool as { tool_call_id?: string }).tool_call_id ||
-            '',
-        ).trim()
-      : peekClarificationLatch(selectedSessionKey)
-    scheduleClarificationPanelResolve(selectedSessionKey, {
-      toolCallId: toolCallId || undefined,
-      localTool: awaiting?.tool,
-      preferToolRetries: selectedTurnBusy,
+    runClarificationHydrateEffect({
+      findAskClarificationAwaitingUserInRows,
+      extractLatestClarificationFromRows,
+      extractLatestGoalProposalFromRows,
+      goalProposalSuppressKey,
+      historyBoundSessionKey,
+      historyInstantPaint,
+      historyLoading,
+      mergeThreadPanelClarification,
+      peekClarificationLatch,
+      rows,
+      rowsAwaitUserReplyAfterSend,
+      scheduleClarificationPanelResolve,
+      selectedSessionKey,
+      selectedTurnBusy,
+      setThreadPanelState,
+      shouldSuppressClarificationPanel,
+      suppressedGoalProposalKeysRef,
+      threadPanelStateRef,
     })
   }, [historyLoading, rows, selectedSessionKey, selectedTurnBusy, scheduleClarificationPanelResolve, historyBoundSessionKey, historyInstantPaint])
 
@@ -4624,30 +4554,15 @@ export default function ChatApp() {
 
   /** F5 刷新页面：会话列表就绪后若 DB 仍 running，改为 history-watch（拉 messages）直至结束 */
   useEffect(() => {
-    if (listLoading || pageLoadResumeDoneRef.current) return
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
-    const st = String(row?.runStatus || '').trim().toLowerCase()
-    if (st !== 'running' && st !== 'pending') {
-      pageLoadResumeDoneRef.current = true
-      return
-    }
-    pageLoadResumeDoneRef.current = true
-    // Check if the run is stale (no activity for > 10 minutes) before resuming.
-    // If stale, cancel instead of resuming — matches backend P0 stale-run threshold.
-    // Falls back to updatedAt (epoch-ms) when currentTurnStartedAt is absent.
-    const _STALE_RUN_THRESHOLD_MS = 10 * 60 * 1000
-    const _startedAt = row?.currentTurnStartedAt
-    const _startedMs = _startedAt ? new Date(_startedAt).getTime() : 0
-    const _updatedMs = typeof row?.updatedAt === 'number' ? row.updatedAt : 0
-    const _refMs = _updatedMs || _startedMs
-    if (_refMs && Date.now() - _refMs > _STALE_RUN_THRESHOLD_MS) {
-      toast('上次会话已超时，正在自动停止…', 'info')
-      void stopSessionExecutionRef.current?.(sk, { showToast: false })
-      return
-    }
-    requestManualStreamResumeRef.current(sk, { refreshSessions: false })
+    runPageLoadResumeEffect({
+      listLoading,
+      pageLoadResumeDoneRef,
+      requestManualStreamResumeRef,
+      selectedSessionKey,
+      sessions,
+      stopSessionExecutionRef,
+      toast,
+    })
   }, [listLoading, selectedSessionKey, sessions])
 
   /**
@@ -4673,12 +4588,7 @@ export default function ChatApp() {
   }, [])
 
   useEffect(() => {
-    if (unsubRef.current) {
-      unsubRef.current()
-      unsubRef.current = null
-    }
-    unsubRef.current = wsClient.onEvent(
-      createChatWsOnEventHandler({
+    return runChatWsOnEventEffect({
       DEGRADED_SNAPSHOT_SYSTEM_TEXT,
       EMPTY_RT_PRIOR_STRIP,
       NODE_REPL_BRIDGE_THREAD_ID,
@@ -4956,14 +4866,8 @@ export default function ChatApp() {
       workerFileBumpSchedulerRef,
       workspacePreviewTargetFromUrl,
       wsClient,
-      }),
-    )
-    return () => {
-      if (unsubRef.current) {
-        unsubRef.current()
-        unsubRef.current = null
-      }
-    }
+      unsubRef,
+    })
   }, [
     scheduleBump,
     scheduleReasoningBump,
@@ -4983,7 +4887,6 @@ export default function ChatApp() {
     clearTurnSendingState,
     maybeEndTurnSendingState,
   ])
-
   // Composer stop + sidebar gear + list isSending: selectedTurnBusy only.
 
   const selectedSessionLive = useMemo(() => {
