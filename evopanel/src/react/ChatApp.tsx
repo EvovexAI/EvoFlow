@@ -444,6 +444,9 @@ import {
 import { absorbPlanFromTools as absorbPlanFromToolsImpl } from './chat-app/plan-dock/absorb-plan-from-tools.js'
 import { handleSend as handleSendImpl } from './chat-app/composer/handle-send.js'
 import { createChatWsOnEventHandler } from './chat-app/stream/create-chat-ws-on-event.js'
+import { patchCollabFromStreamTools as patchCollabFromStreamToolsImpl } from './chat-app/collab/patch-collab-from-stream-tools.js'
+import { renderRightStageBody as renderRightStageBodyImpl } from './chat-app/right-stage/render-right-stage-body.js'
+import { runCollabUnifiedWsEffect } from './chat-app/collab/install-collab-unified-ws.js'
 import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
@@ -3238,110 +3241,26 @@ export default function ChatApp() {
     /** @internal bypass throttle for deferred flush */
     force?: boolean
   }) => {
-    const now = Date.now()
-    if (!opts?.force && now - patchCollabThrottleRef.current < 400) {
-      patchCollabPendingOptsRef.current = opts
-      if (!patchCollabTimerRef.current) {
-        patchCollabTimerRef.current = window.setTimeout(() => {
-          patchCollabTimerRef.current = 0
-          patchCollabThrottleRef.current = Date.now()
-          const pending = patchCollabPendingOptsRef.current
-          patchCollabPendingOptsRef.current = undefined
-          patchCollabFromStreamTools({ ...pending, force: true })
-        }, 400)
-      }
-      return
-    }
-    if (!opts?.force) patchCollabThrottleRef.current = now
-    const tools = collectCollabToolsForSidebar()
-    const built = buildCollabSidebarFromTools(tools) as {
-      main: CollabTaskSnapshot | null
-      subtasks: CollabSubtaskSnapshot[]
-      supervisorSteps: SupervisorStepSnapshot[]
-    }
-    if (!opts?.skipPlanPanel) {
-      const planTools = collectPlanToolsForDetection()
-      const planChanged = syncPlanPanelImmediateFromTools(planTools)
-      if (planChanged) {
-        const patchAnalyzed = analyzePlanTools(planTools)
-        tracePlanPipeline('patch', planTools, {
-          planHit: patchAnalyzed.hit || lastPlanPanelHitRef.current,
-          collabPhase: threadPanelState.collabPhase,
-          collabTask: threadPanelState.collabTask,
-          planInputFallback: threadPanelState.planInputFallback,
-          subtaskCount: threadPanelState.collabSubtasks?.length ?? 0,
-          isSuppressed: false,
-          streamPlanLatched: planStreamLatched || !!planStreamLatchRef.current,
-          latchedPlanInput: planStreamLatchRef.current?.planInput || null,
-        })
-      }
-    }
-
-    const hasAny =
-      !!(built.main?.taskId && String(built.main.taskId).trim()) ||
-      built.subtasks.length > 0 ||
-      built.supervisorSteps.length > 0
-    if (!hasAny) return
-    // 进度优化/快照功能下线后：子任务需要直接由工具结果驱动写入 state。
-    if (built.main?.taskId || built.subtasks.length || built.supervisorSteps.length) {
-      setThreadPanelState((prev) => {
-        const incomingTaskId = (built.main?.taskId || '').trim()
-        const prevTaskId = (prev.collabTask?.taskId || '').trim()
-        const switchedTask = !!incomingTaskId && !!prevTaskId && incomingTaskId !== prevTaskId
-        return {
-          ...prev,
-          ...(built.main?.taskId
-            ? {
-                boundTaskId: built.main.taskId,
-                collabTask: {
-                  ...(switchedTask ? {} : prev.collabTask || {}),
-                  ...built.main,
-                  ...(prev.collabTask?.status === 'planned' && !built.main?.status
-                    ? { status: 'planned' }
-                    : {}),
-                  ...(prev.collabTask?.boundPlanReady && !built.main?.boundPlanReady
-                    ? { boundPlanReady: true }
-                    : {}),
-                } as CollabTaskSnapshot,
-              }
-            : {}),
-          ...(built.subtasks.length
-            ? {
-                collabSubtasks: finalizeCollabSubtasksList(
-                  mergeCollabSubtasksStable(
-                    pruneSupersededPendingSubtasks(
-                      switchedTask ? [] : (prev.collabSubtasks || []),
-                      built.subtasks,
-                    ),
-                    built.subtasks,
-                  ),
-                  prev.subagentTasks,
-                ),
-              }
-            : switchedTask
-              ? { collabSubtasks: [] }
-              : {}),
-          ...(built.supervisorSteps.length
-            ? { supervisorSteps: built.supervisorSteps }
-            : switchedTask
-              ? { supervisorSteps: [] }
-              : {}),
-        }
-      })
-      upsertSidebarTaskView(built.main || null, built.subtasks, built.supervisorSteps)
-    }
-    const mainTid = String(
-      built.main?.taskId || threadPanelState.collabTask?.taskId || boundTaskId || '',
-    ).trim()
-    const createdSubtaskAction = (built.supervisorSteps || []).some((s) => {
-      const a = String((s as any)?.action || '').trim()
-      return a === 'create_task_with_subtasks' || a === 'create_subtasks' || a === 'create_subtask'
-    })
-    const hasPendingPlaceholders = built.subtasks.some((s) => isPendingSubtaskKey(s.subtaskId))
-    // 工具流已能展示列表；仅在占位 id 或解析不到子任务时查 API 补齐。
-    if (mainTid && (hasPendingPlaceholders || (createdSubtaskAction && built.subtasks.length === 0))) {
-      void ensureSubtasksVisibleForTask(mainTid)
-    }
+    patchCollabFromStreamToolsImpl(
+      {
+        patchCollabThrottleRef,
+        patchCollabPendingOptsRef,
+        patchCollabTimerRef,
+        lastPlanPanelHitRef,
+        planStreamLatchRef,
+        planStreamLatched,
+        boundTaskId,
+        threadPanelState,
+        collectCollabToolsForSidebar,
+        collectPlanToolsForDetection,
+        syncPlanPanelImmediateFromTools,
+        setThreadPanelState,
+        upsertSidebarTaskView,
+        ensureSubtasksVisibleForTask,
+        patchCollabFromStreamTools,
+      },
+      opts,
+    )
   }, [
     boundTaskId,
     collectCollabToolsForSidebar,
@@ -3349,6 +3268,8 @@ export default function ChatApp() {
     upsertSidebarTaskView,
     syncPlanPanelImmediateFromTools,
     collectPlanToolsForDetection,
+    planStreamLatched,
+    threadPanelState,
   ])
 
   const syncPlanPanelFromApi = useCallback(
@@ -4828,149 +4749,24 @@ export default function ChatApp() {
 
   /** 协作任务执行中：WebSocket 推送 phase / 侧栏 snapshot / 子任务进度（替代 HTTP 轮询）。 */
   useEffect(() => {
-    const key = selectedSessionKey
-    if (!key) return
-    const threadId = wsClient.getSessionThreadId(key)
-    if (!threadId) return
-
-    const taskId = String(
-      threadPanelState.collabTask?.taskId || boundTaskId || threadPanelState.boundTaskId || '',
-    ).trim()
-    const phase = String(threadPanelState.collabPhase || '').trim().toLowerCase()
-    const subs = threadPanelState.collabSubtasks || []
-    const needsBackfill =
-      !!taskId &&
-      (turnBusyForSession(key) || executingSessionKeysRef.current.has(key)) &&
-      subs.some((s) => isPendingSubtaskKey(s.subtaskId))
-    const needsPhaseSync =
-      collabOn &&
-      (turnBusyForSession(key) || executingSessionKeysRef.current.has(key) || isSessionGoalActive(key)) &&
-      (phase === 'executing' || phase === 'verifying' || phase === 'reflecting')
-
-    const isTaskActive = () => {
-      if (!turnBusyForSession(key) && !executingSessionKeysRef.current.has(key) && !isSessionGoalActive(key)) {
-        return false
-      }
-      const mainStatus = String(threadPanelState.collabTask?.status || '').trim().toLowerCase()
-      const terminalMainStatus = new Set(['completed', 'failed', 'cancelled'])
-      const activeMainStatus = new Set(['executing', 'in_progress', 'running', 'waiting_dispatch', 'waiting_user'])
-      const phaseActive = phase !== '' && phase !== 'idle' && phase !== 'done'
-      const statusTerminal = !!mainStatus && terminalMainStatus.has(mainStatus)
-      const statusActive = (!!mainStatus && !statusTerminal) || activeMainStatus.has(mainStatus)
-      return statusTerminal
-        ? phase === 'verifying'
-        : phaseActive || statusActive || (phase as string) === 'verifying'
-    }
-    const needsSidebar = isTaskActive()
-    const subRunning = subs.some((s) => {
-      const st = String(s.status || '')
-        .trim()
-        .toLowerCase()
-      return st === 'in_progress' || st === 'running' || st === 'executing' || st === 'active'
+    return runCollabUnifiedWsEffect({
+      applyTaskProgressSnapshot,
+      boundTaskId,
+      collabOn,
+      dispatchCollabCustomEvent,
+      ensureSubtasksVisibleForTask,
+      executingSessionKeysRef,
+      isActiveSessionFetch,
+      isPendingSubtaskKey,
+      isSessionGoalActive,
+      selectedSessionKey,
+      sessionTasksFetchSeqRef,
+      setThreadPanelState,
+      subscribeCollabThreadWs,
+      threadPanelState,
+      turnBusyForSession,
+      wsClient,
     })
-    const needsNodeStream =
-      collabOn &&
-      (!!taskId || subRunning) &&
-      (turnBusyForSession(key) ||
-        executingSessionKeysRef.current.has(key) ||
-        isSessionGoalActive(key) ||
-        subRunning ||
-        phase === 'executing' ||
-        phase === 'verifying')
-
-    if (!needsBackfill && !needsPhaseSync && !needsSidebar && !needsNodeStream) return
-
-    const fetchSeq = sessionTasksFetchSeqRef.current
-    let pollLogMod: typeof import('../lib/poll-loop-log.js') | null = null
-    void import('../lib/poll-loop-log.js').then((mod) => {
-      pollLogMod = mod
-      mod.logPollLoopStart('collab_unified_ws', {
-        sessionKey: key,
-        threadId,
-        phase,
-        needsPhaseSync,
-        needsSidebar,
-        needsBackfill,
-        needsNodeStream,
-      })
-    })
-
-    const pushSubagentStreamPayload = (payload: Record<string, unknown>) => {
-      const inner = String(payload?.type || '').trim()
-      if (!inner.startsWith('task_') && inner !== 'subagent_token_delta') return
-      dispatchCollabCustomEvent(key, payload)
-    }
-
-    const handleWsEvent = (ev: { type?: string; data?: Record<string, unknown> }) => {
-      if (!isActiveSessionFetch(key, fetchSeq)) return
-      const type = String(ev?.type || '').trim()
-      const data = ev?.data && typeof ev.data === 'object' ? ev.data : {}
-      pollLogMod?.logPollTick('collab_unified_ws', key, 30000, { phase, eventType: type })
-
-      if (type === 'collab:snapshot') {
-        applyTaskProgressSnapshot(data as Record<string, unknown>, { sessionKey: key })
-        return
-      }
-      if (type === 'collab:state') {
-        const serverPhase = String(data.collab_phase || '').trim().toLowerCase()
-        const bound = String(data.bound_task_id || '').trim()
-        if (serverPhase || bound) {
-          setThreadPanelState((prev) => ({
-            ...prev,
-            ...(serverPhase ? { collabPhase: serverPhase } : {}),
-            ...(bound ? { boundTaskId: bound } : {}),
-          }))
-          if (serverPhase) {
-            void import('../lib/tauri-api.js').then(({ api: chatApi }) => {
-              void chatApi.chatUpdateContext(key, { collab_phase: serverPhase })
-            })
-          }
-        }
-        return
-      }
-      // Workflow node live output (task_running with LangChain message chunks)
-      if (type === 'node:output') {
-        pushSubagentStreamPayload(data as Record<string, unknown>)
-        return
-      }
-      if (type === 'task:progress') {
-        const sid = String(data.collab_subtask_id || data.collabSubtaskId || data.task_id || '').trim()
-        if (sid) {
-          dispatchCollabCustomEvent(key, {
-            type: 'task_running',
-            collab_subtask_id: sid,
-            task_id: sid,
-            progress: data.progress,
-            status: data.status,
-            current_step: data.current_step || data.currentStep,
-          })
-        }
-        return
-      }
-      if (type.startsWith('task:')) {
-        const innerType = String(data.type || '').trim()
-        if (innerType.startsWith('task_') || innerType === 'subagent_token_delta') {
-          pushSubagentStreamPayload(data as Record<string, unknown>)
-        }
-        return
-      }
-      if (type === 'agent:custom' || type === 'agent:evf') {
-        pushSubagentStreamPayload(data as Record<string, unknown>)
-      }
-    }
-
-    const unsub = subscribeCollabThreadWs(threadId, {
-      mainTaskId: taskId || undefined,
-      onEvent: handleWsEvent,
-      onOpen: () => {
-        if (needsBackfill && taskId) void ensureSubtasksVisibleForTask(taskId)
-      },
-    })
-
-    return () => {
-      pollLogMod?.logPollLoopEnd('collab_unified_ws', { sessionKey: key })
-      unsub()
-    }
   }, [
     collabOn,
     selectedSessionKey,
@@ -6144,159 +5940,43 @@ export default function ChatApp() {
 
   const renderRightStageBody = useCallback(
     (surface: RightStageSurface): ReactNode => {
-      const kind = surface.kind
-      if (kind === 'summary') {
-        return null
-      }
-      if (kind === 'terminal') {
-        const data = surface.data || {}
-        const toolCallId = String(data.toolCallId || surface.id || '').trim()
-        const command = String(data.command || '').trim()
-        const streams = liveProcessSnapshot.terminalStreams || {}
-        const stream =
-          streams[toolCallId] ||
-          Object.values(streams).find(
-            (s) =>
-              String(s?.toolCallId || '') === toolCallId ||
-              String((s as { id?: string })?.id || '') === toolCallId,
-          ) ||
-          undefined
-        return (
-          <TerminalStagePanel
-            title={String(surface.title || data.title || '终端')}
-            command={command}
-            sessionKey={String(data.sessionKey || selectedSessionKey || '')}
-            toolCallId={toolCallId}
-            outputFallback={String(data.outputFallback || '')}
-            stream={stream}
-            running={!!data.running || stream?.phase === 'running'}
-          />
-        )
-      }
-      if (kind === 'file') {
-        const data = surface.data || {}
-        const path = String(data.path || surface.id || '').trim()
-        const name = String(data.name || surface.title || '').trim()
-        if (!path) return null
-        const focusAnnotation =
-          data.focusAnnotation && typeof data.focusAnnotation === 'object'
-            ? (data.focusAnnotation as { title?: string; body?: string; priority?: number })
-            : undefined
-        const scope = workspaceOpenScopeRef.current
-        const root = String(scope.root || effectiveWorkspaceRoot || '').trim()
-        return sidePanelHeavyMount ? (
-          <WorkspaceFilePreviewPanel
-            embedded
-            workspaceRoot={root}
-            threadId={
-              root ? undefined : wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
-            }
-            workspaceScopeOpts={{
-              configuredRoot: scope.configuredRoot,
-              useVirtualPaths: scope.useVirtualPaths,
-            }}
-            path={path}
-            name={name}
-            poll={!!data.poll}
-            focusLine={typeof data.focusLine === 'number' ? data.focusLine : undefined}
-            focusEndLine={typeof data.focusEndLine === 'number' ? data.focusEndLine : undefined}
-            focusAnnotation={focusAnnotation}
-            onClose={() => {
-              rightStageStore.closeTab(`file:${path.replace(/\\/g, '/')}`)
-            }}
-          />
-        ) : (
-          <SidePanelBootShell title={name || '文件预览'} className="react-chat-workspace-preview-stage" />
-        )
-      }
-      if (kind === 'workspace-browse' || kind === 'write') {
-        const writePreviewMode = kind === 'write'
-        return sidePanelHeavyMount ? (
-          <aside
-            className={`react-chat-workspace-panel react-chat-right-stage-panel${
-              writePreviewMode ? ' is-write-preview-mode' : ' is-tree-browse-mode'
-            }`}
-            role="region"
-            aria-label={writePreviewMode ? '写入内容' : '工作区文件'}
-          >
-            <WorkspaceFileTree
-              workspaceRoot={effectiveWorkspaceRoot}
-              threadId={wsClient.getSessionThreadId(selectedSessionKey || '') || undefined}
-              selected={contextFiles}
-              onToggleFile={toggleContextFile}
-              indexWatchEnabled={workspaceIndexWatchEnabled}
-              onIndexWatchEnabledChange={(enabled) => {
-                setWorkspaceIndexWatchEnabledState(enabled)
-                setWorkspaceIndexWatchEnabled(enabled)
-              }}
-              onOpenFilePreview={(path, opts) => {
-                openWorkspaceFilePreview(path, {
-                  name: opts?.name,
-                  poll: !!opts?.poll,
-                })
-              }}
-              streamingWritePreview={streamingWritePreviewForPane}
-              writePreviewMode={writePreviewMode}
-              treePinned={workspaceTreePinned}
-              onEscapeStreamPreview={() => closeWorkspacePanel()}
-              focusBrowsePath={workspaceBrowseFocusPath}
-              onFocusBrowsePathConsumed={() => setWorkspaceBrowseFocusPath(null)}
-            />
-          </aside>
-        ) : (
-          <SidePanelBootShell
-            title={writePreviewMode ? '写入内容' : '工作区文件'}
-            className={`react-chat-workspace-panel react-chat-right-stage-panel${
-              writePreviewMode ? ' is-write-preview-mode' : ' is-tree-browse-mode'
-            }`}
-          />
-        )
-      }
-      if (knowledgeMapEnabled && kind === 'mind-map') {
-        return sidePanelHeavyMount ? (
-          <KnowledgeMapPanel
-            sessionKey={selectedSessionKey}
-            isOpen={knowledgeMapPanelOpen}
-            refreshKey={knowledgeMapRefreshKey}
-            onClose={closeKnowledgeMapPanel}
-          />
-        ) : (
-          <SidePanelBootShell
-            title="思维导图"
-            className="react-chat-collab-exec-panel react-chat-knowledge-map-panel react-chat-right-stage-panel"
-          />
-        )
-      }
-      if (kind === 'collab-workflow') {
-        return sidePanelHeavyMount ? (
-          collabWorkflowApiReady ? (
-            <CollabExecutionPanel
-              isOpen={collabExecPanelOpen}
-              mainTaskId={collabSubtasksTaskId || sidebarActiveTaskId}
-              collabTask={sidebarActiveView?.task ?? threadPanelState.collabTask}
-              collabPhase={threadPanelState.collabPhase ?? undefined}
-              chatThreadId={chatThreadIdForSidebar}
-              apiMainTask={sharedCollabMainTask}
-              apiSubtasks={sharedCollabSubtasks}
-              liveSubtasks={threadPanelState.collabSubtasks || []}
-              subagentTasks={threadPanelState.subagentTasks}
-              agents={agents}
-              onClose={closeCollabExecPanel}
-              onSubtaskTranscriptOpen={setSubtaskTranscriptModal}
-              canvasFillContainer
-            />
-          ) : (
-            <aside className="react-chat-collab-exec-panel react-chat-right-stage-panel" role="region" aria-label="工作流">
-              <div className="react-chat-collab-exec-panel-body collab-wf-panel-body">
-                <div className="collab-exec-dag-empty">当前会话暂无工作流</div>
-              </div>
-            </aside>
-          )
-        ) : (
-          <SidePanelBootShell title="工作流" className="react-chat-right-stage-panel" />
-        )
-      }
-      return null
+      return renderRightStageBodyImpl(
+        {
+          agents,
+          chatThreadIdForSidebar,
+          closeCollabExecPanel,
+          closeKnowledgeMapPanel,
+          closeWorkspacePanel,
+          collabExecPanelOpen,
+          collabSubtasksTaskId,
+          collabWorkflowApiReady,
+          contextFiles,
+          effectiveWorkspaceRoot,
+          knowledgeMapEnabled,
+          knowledgeMapPanelOpen,
+          knowledgeMapRefreshKey,
+          liveProcessSnapshot,
+          openWorkspaceFilePreview,
+          selectedSessionKey,
+          setSubtaskTranscriptModal,
+          setWorkspaceBrowseFocusPath,
+          setWorkspaceIndexWatchEnabledState,
+          sharedCollabMainTask,
+          sharedCollabSubtasks,
+          sidePanelHeavyMount,
+          sidebarActiveTaskId,
+          sidebarActiveView,
+          streamingWritePreviewForPane,
+          threadPanelState,
+          toggleContextFile,
+          workspaceBrowseFocusPath,
+          workspaceIndexWatchEnabled,
+          workspaceOpenScopeRef,
+          workspaceTreePinned,
+          wsClient,
+        },
+        surface,
+      )
     },
     [
       sidePanelHeavyMount,
