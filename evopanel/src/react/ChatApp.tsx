@@ -435,6 +435,9 @@ import {
   handleHomeSetVoiceReplyEvent,
 } from './chat-app/composer/handle-home-events.js'
 import { refreshAgentsList as refreshAgentsListImpl } from './chat-app/agents/refresh-agents-list.js'
+import { applySessionSwitchUiShell as applySessionSwitchUiShellImpl } from './chat-app/session/apply-session-switch-ui-shell.js'
+import { buildSessionStopHost } from './chat-app/session/build-session-stop-host.js'
+import { installShellSessionHeal } from './chat-app/shell/install-shell-session-heal.js'
 // ============================================
 
 import type {
@@ -4751,132 +4754,47 @@ export default function ChatApp() {
   ])
 
   useEffect(() => {
-    // 切换会话：流式快照在上方 useLayoutEffect 已 persist/restore；此处只清 UI 壳层状态。
-    const fromKey = sessionSwitchFromRef.current
-    if (fromKey) {
-      const prevDraft = composerTextRef.current
-      if (prevDraft) composerDraftsRef.current.set(fromKey, prevDraft)
-      else composerDraftsRef.current.delete(fromKey)
-      threadPanelBySessionRef.current.set(fromKey, threadPanelStateRef.current)
-      planSessionEnterRef.current = ''
-    }
-    delete refreshAttachAttemptedRef.current[selectedSessionKey]
-
-    queueMicrotask(() => {
-      setStreamingWritePreview(null)
-      setWorkspacePanelOpen(false)
-      setWorkspaceTreePinned(false)
-      setSubagentDockTasks({})
+    applySessionSwitchUiShellImpl({
+      selectedSessionKey,
+      sessionSwitchFromRef,
+      composerTextRef,
+      composerDraftsRef,
+      threadPanelStateRef,
+      threadPanelBySessionRef,
+      planSessionEnterRef,
+      refreshAttachAttemptedRef,
+      lastStreamWritePathRef,
+      planResolveInFlightRef,
+      processedTaskIdRef,
+      boundTaskIdRef,
+      lastActivityRef,
+      pendingComposerDraftCarryRef,
+      pendingNewSessionWorkspaceRef,
+      sessionRef,
+      rowsRef,
+      bumpStreamFullRef,
+      setStreamingWritePreview,
+      setWorkspacePanelOpen,
+      setWorkspaceTreePinned,
+      setSubagentDockTasks,
+      setThreadPanelState,
+      setHasReceivedTodos,
+      setSessionMode,
+      setCollabOn,
+      setModeMenuOpen,
+      setLocalWorkspaceRoot,
+      setContextFiles,
+      setWorkspaceHistory,
+      setGlobalWorkspaceHistory,
+      shellIntentWorkspaceRef,
+      syncShellAsideForWorkspacePanel,
+      resetCollabPlanUiForSession,
+      maybeEndTurnSendingState,
+      restoreComposerDraft,
+      getSessionContext: (sk) => wsClient.getSessionContext(sk) as Record<string, unknown>,
+      getWorkspaceHistory: (sk) => wsClient.getWorkspaceHistory(sk),
+      getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
     })
-    lastStreamWritePathRef.current = null
-    resetStreamMirrorDedupe()
-    resetPlanTrace()
-    planResolveInFlightRef.current = false
-    syncShellAsideForWorkspacePanel(false)
-    const isTaskJump =
-      processedTaskIdRef.current && boundTaskIdRef.current === processedTaskIdRef.current
-    resetCollabPlanUiForSession({ keepBoundTaskId: !!isTaskJump, closeSidebar: true })
-    if (selectedSessionKey) {
-      // 切会话时立即校验：若新选中的会话看起来 busy，查 DB 确认是否真的还在运行
-      const switchSk = String(selectedSessionKey).trim()
-      const switchRt = getSessionRuntime(switchSk)
-      if (isTurnBusy(switchRt)) {
-        invalidateSessionRuntimeStatusCache(switchSk)
-        void maybeEndTurnSendingState(switchSk, switchRt, false)
-      }
-      lastActivityRef.current[selectedSessionKey] = Date.now()
-      clearClarificationLatch(selectedSessionKey)
-      const cachedPanel = threadPanelBySessionRef.current.get(selectedSessionKey)
-      const switchRows = switchRt.rows?.length ? switchRt.rows : rowsRef.current || []
-      let panelToRestore = cachedPanel || emptyThreadPanel()
-      if (
-        panelToRestore.clarification &&
-        !findAskClarificationAwaitingUserInRows(switchRows)
-      ) {
-        panelToRestore = clearThreadPanelClarification(panelToRestore)
-        threadPanelBySessionRef.current.set(selectedSessionKey, panelToRestore)
-      }
-      setThreadPanelState(panelToRestore)
-      if (Array.isArray(panelToRestore.todos) && panelToRestore.todos.length > 0) {
-        setHasReceivedTodos(true)
-      }
-    }
-    setSessionMode(getSessionModeFromMeta(selectedSessionKey))
-    setCollabOn(getSessionCollabModeFromMeta(selectedSessionKey))
-    setModeMenuOpen(false)
-    bumpStreamFullRef.current()
-
-    const carriedDraft = pendingComposerDraftCarryRef.current
-    if (carriedDraft !== null) {
-      pendingComposerDraftCarryRef.current = null
-      if (selectedSessionKey) {
-        if (carriedDraft) composerDraftsRef.current.set(selectedSessionKey, carriedDraft)
-        else composerDraftsRef.current.delete(selectedSessionKey)
-      }
-      restoreComposerDraft(carriedDraft)
-    } else if (selectedSessionKey) {
-      const draft = composerDraftsRef.current.get(selectedSessionKey) || ''
-      restoreComposerDraft(draft)
-    }
-
-    // 工作空间历史由壳层 hydrateGlobalWorkspaceHistoryOnce 写入缓存；切换会话只读缓存
-    try {
-      const ctx = wsClient.getSessionContext(selectedSessionKey)
-      const pendingWs = pendingNewSessionWorkspaceRef.current
-      let wsRoot = String(ctx.local_workspace_root || '').trim()
-      if (
-        pendingWs &&
-        pendingWs.sessionKey === selectedSessionKey &&
-        String(pendingWs.path || '').trim()
-      ) {
-        wsRoot = String(pendingWs.path).trim()
-        pendingNewSessionWorkspaceRef.current = null
-      }
-      setLocalWorkspaceRoot(wsRoot)
-      shellIntentWorkspaceRef.current = wsRoot || null
-      if (!wsRoot) {
-        // 智能体员工会话：context 未绑定 workspace 时，兜底取该员工绑定的 workspace_path
-        //（优先员工绑定，而非默认/上次选择；新会话由后端 prepare 写入，存量会话走此兜底）
-        const empCode = parseProactiveSessionKey(selectedSessionKey).agentCode
-        if (empCode) {
-          void (async () => {
-            try {
-              const { api } = await import('../lib/tauri-api.js')
-              const res = await api.proactiveGetRole(empCode)
-              const role = res?.role || res
-              const cfg = role && typeof role === 'object' ? role.config : null
-              const bound = String(
-                (cfg && typeof cfg === 'object' ? cfg.workspace_path || '' : '') || '',
-              ).trim()
-              if (
-                bound &&
-                String(sessionRef.current || '').trim() === String(selectedSessionKey || '').trim()
-              ) {
-                setLocalWorkspaceRoot(bound)
-                shellIntentWorkspaceRef.current = bound
-              }
-            } catch {
-              /* best-effort: 未绑定或查询失败时保持原逻辑 */
-            }
-          })()
-        }
-      }
-      const savedCtxFiles = Array.isArray(ctx.context_files) ? ctx.context_files : []
-      setContextFiles(
-        savedCtxFiles
-          .filter((f: unknown) => f && typeof f === 'object' && String((f as ContextFileEntry).path || '').trim())
-          .map((f: ContextFileEntry) => ({
-            path: String(f.path).trim(),
-            name: String(f.name || f.path).trim(),
-          })),
-      )
-      setWorkspaceHistory(wsClient.getWorkspaceHistory(selectedSessionKey))
-      setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-    } catch {
-      setLocalWorkspaceRoot('')
-      setWorkspaceHistory([])
-      setGlobalWorkspaceHistory([])
-    }
   }, [selectedSessionKey, resetCollabPlanUiForSession, restoreComposerDraft, maybeEndTurnSendingState])
 
   useEffect(() => {
@@ -10468,87 +10386,34 @@ export default function ChatApp() {
   }
 
   /** 停止会话执行：侧栏 / Composer 共用 session-execution.stopSessionExecution */
-  sessionStopHostRef.current = {
-    isForegroundSession: (sk) =>
-      sk === sessionRef.current || sk === String(selectedSessionKey || '').trim(),
-    onUserStopStarted: () => {
-      userInitiatedStopRef.current = true
-    },
-    onUserStopFinished: () => {
-      userInitiatedStopRef.current = false
-    },
-    onForegroundStopComplete: ({ sessionKey: sk }) => {
-      toolApprovalResolvedIdsRef.current = new Set()
-      const rt = getSessionRuntime(sk)
-      resetRuntimeStream(rt, streamRef)
-      setStreamHealth(null)
-      streamHealthRef.current = null
-      setSubagentDockTasks({})
-      setThreadPanelState(clearThreadPanelActivity)
-      setExpectedChatRunId(sk, null)
-      activeChatRunIdRef.current = null
-      setRows([...getSessionRuntime(sk).rows])
-      // Esc/立即发送: interrupt path already captured steer texts and will handleSend.
-      // Only pop server queue here (discard); do NOT push into pendingSendQueue or we
-      // get a duplicate user bubble when busy→idle also flushes the queue.
-      if (interruptSendSteersRef.current) {
-        interruptSendSteersRef.current = false
-        setPendingSteers((prev) => prev.filter((s) => s.sessionKey !== sk))
-        midTurnInjectRef.current = midTurnInjectRef.current.filter((x) => x.sessionKey !== sk)
-        void restorePendingInjects(sk).catch(() => {})
-        return
-      }
-      // runtime interrupt restore: merge steers + queue into composer (not scattered list rows)
-      const queueTexts = pendingSendQueueRef.current
-        .map((x) => String(x.text || '').trim())
-        .filter(Boolean)
-      setPendingSendQueue([])
-      setPendingSteers((prev) => prev.filter((s) => s.sessionKey !== sk))
-      midTurnInjectRef.current = midTurnInjectRef.current.filter((x) => x.sessionKey !== sk)
+  sessionStopHostRef.current = buildSessionStopHost({
+    selectedSessionKey,
+    sessionRef,
+    streamRef,
+    streamHealthRef,
+    toolApprovalResolvedIdsRef,
+    userInitiatedStopRef,
+    interruptSendSteersRef,
+    pendingSendQueueRef,
+    midTurnInjectRef,
+    activeChatRunIdRef,
+    composerTextRef,
+    refreshSessionsRef,
+    setStreamHealth,
+    setSubagentDockTasks,
+    setThreadPanelState,
+    setExpectedChatRunId,
+    setRows,
+    setPendingSteers,
+    setPendingSendQueue,
+    setSessions,
+    pushComposerText,
+    reloadHistoryFromDb,
+    scheduleBump,
+    deleteLiveRunSnapshotBestEffort,
+  })
 
-      void restorePendingInjects(sk)
-        .then((res) => {
-          const restored = Array.isArray(res?.restored) ? res.restored : []
-          const restoredTexts = restored
-            .map((item: { text?: string; messageId?: string }) => ({
-              messageId: String(item?.messageId || '').trim(),
-              text: String(item?.text || '').trim(),
-            }))
-            .filter((item) => item.text && !isTaskNotificationInject(item))
-            .map((item) => item.text)
-          const mergedParts = [...restoredTexts, ...queueTexts]
-          if (!mergedParts.length) return
-          if (String(sessionRef.current || '').trim() !== sk) return
-          pushComposerText(
-            mergeInterruptedComposerDraft(mergedParts, composerTextRef.current),
-          )
-          toast(`已恢复 ${mergedParts.length} 条到输入框`, 'info')
-        })
-        .catch(() => {
-          if (!queueTexts.length) return
-          if (String(sessionRef.current || '').trim() !== sk) return
-          pushComposerText(
-            mergeInterruptedComposerDraft(queueTexts, composerTextRef.current),
-          )
-        })
-    },
-    onBackgroundStopComplete: ({ sessionKey: sk, stopRunId }) => {
-      const rt = getSessionRuntime(sk)
-      if (stopRunId) rtAddStoppedRun(rt, stopRunId)
-    },
-    onRefreshSessions: () => void refreshSessionsRef.current?.(),
-    onReloadHistory: () => void reloadHistoryFromDb({ dbOnly: true, bypassCache: true }),
-    onScheduleRuntimeBump: () => scheduleBump({ immediate: true }),
-    deleteLiveRunSnapshot: (sk) => deleteLiveRunSnapshotBestEffort(sk),
-    onSessionRunEnded: (sk, opts) => {
-      clearSessionExecutionStateForEnded(sk)
-      setSessions((prev) =>
-        patchSessionListRunEnded(prev, sk, opts ?? { terminalStatus: 'cancelled', reason: 'user_stop' }),
-      )
-    },
-    toast: (message, kind) => toast(message, kind),
-  }
-
+  async function stopSessionExecution(sessionKey: string, opts?: { showToast?: boolean }) {
   async function stopSessionExecution(sessionKey: string, opts?: { showToast?: boolean }) {
     voiceReplyPendingRef.current = false
     voiceSessionKeyRef.current = ''
@@ -10765,44 +10630,13 @@ export default function ChatApp() {
   // 会把 live 视图（pin 行 + 合并态）替换成 DB 视图，用户看到「最新内容消失」；
   // 流式期间的 live 视图本就是最新数据，无需 DB 对账。
   useEffect(() => {
-    let disposed = false
-    const heal = () => {
-      if (disposed) return
-      void onShellRefreshSessionList().catch(() => {})
-    }
-    const healSelectedSession = () => {
-      const sel = sessionRef.current
-      if (!sel) {
-        heal()
-        return
-      }
-      // 会话列表始终刷（轻量）；单会话对账仅在非流式时执行
-      void refreshSessionsRef.current?.().catch(() => {})
-      try {
-        const rt = getSessionRuntime(sel)
-        // live POST 未关或本地仍 busy/live：dbOnly 刷新会清 pin / 误 TURN_IDLE
-        if (
-          isSessionRuntimeLive(rt) ||
-          turnBusyForSession(sel) ||
-          rt.streamWireSource === 'run'
-        ) {
-          return
-        }
-      } catch {
-        /* store 不可达时按原行为刷新 */
-      }
-      void runShellSessionRefreshRef.current?.(sel).catch(() => {})
-    }
-    const onFocus = () => {
-      healSelectedSession()
-    }
-    window.addEventListener('focus', onFocus)
-    const timer = window.setInterval(healSelectedSession, 60_000)
-    return () => {
-      disposed = true
-      window.removeEventListener('focus', onFocus)
-      window.clearInterval(timer)
-    }
+    return installShellSessionHeal({
+      sessionRef,
+      refreshSessions: () => refreshSessionsRef.current?.(),
+      runShellSessionRefresh: (sk) => runShellSessionRefreshRef.current?.(sk),
+      onShellRefreshSessionList,
+      turnBusyForSession,
+    })
   }, [])
 
   const onShellStopSession = useCallback(async (k: string) => {
