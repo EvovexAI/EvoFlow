@@ -352,6 +352,10 @@ import { syncPlanPanelImmediateFromTools as syncPlanPanelImmediateFromToolsImpl 
 import { collectPlanToolsForDetection as collectPlanToolsForDetectionImpl } from './chat-app/plan-dock/collect-plan-tools.js'
 import { reconcileLastAssistantFromDb as reconcileLastAssistantFromDbImpl } from './chat-app/utils/reconcile-last-assistant-from-db.js'
 import { openUiExtensionInStage as openUiExtensionInStageImpl } from './chat-app/right-stage/open-ui-extension-in-stage.js'
+import { handleDispatchEmployee as handleDispatchEmployeeImpl } from './chat-app/dispatch/handle-dispatch-employee.js'
+import { syncRemoteStageSet as syncRemoteStageSetImpl } from './chat-app/right-stage/sync-remote-stage-set.js'
+import { handleEnhancePrompt as handleEnhancePromptImpl } from './chat-app/composer/handle-enhance-prompt.js'
+import { handleManualContextCompact as handleManualContextCompactImpl } from './chat-app/context/handle-manual-context-compact.js'
 // ============================================
 
 import type {
@@ -1787,50 +1791,24 @@ export default function ChatApp() {
   }, [])
 
   const syncRemoteStageSet = useCallback((detail: StageSetPayload) => {
-    const kind = String(detail.surface?.kind || '').trim()
-    if (detail.action === 'hide' || !kind) {
-      rightStageUserPinnedRef.current = null
-      setChatOverlayDefer('workspace', false)
-      setChatOverlayDefer('knowledge-map', false)
-      setChatOverlayDefer('workflow', false)
-      syncShellAsideForWorkspacePanel(false)
-      if (!isChatOverlayDeferActive()) {
-        scheduleBumpRef.current?.({ immediate: true })
-      }
-      return
-    }
-    // 产物改由侧栏 Info Rail 呈报，不走 Right Stage
-    if (kind === 'artifacts') {
-      hideRightStageIfKind('artifacts')
-      const data = (detail.surface?.data || {}) as Record<string, unknown>
-      const incoming = normalizeChatArtifacts(data.items)
-      if (incoming.length) {
-        turnRunArtifactsRef.current = mergeChatArtifacts(turnRunArtifactsRef.current, incoming)
-        setSessionArtifactsRef.current((prev) => mergeChatArtifacts(prev, incoming))
-        publishArtifactsRef.current({
-          focusId: String(data.focusId || incoming[incoming.length - 1]?.id || ''),
-        })
-      }
-      return
-    }
-    cancelPendingStreamUiBumpsRef.current()
-    rightStageUserPinnedRef.current = kind as RightStageKind
-    setChatOverlayDefer('workspace', kind === 'workspace-browse' || kind === 'write')
-    setChatOverlayDefer('workflow', false)
-    setChatOverlayDefer('knowledge-map', kind === 'mind-map')
-    if (kind !== 'write') {
-      setStreamingWritePreview(null)
-      lastStreamWritePathRef.current = null
-    }
-    setWorkspaceTreePinned(kind === 'workspace-browse')
-    if (kind === 'mind-map') {
-      setKnowledgeMapRefreshKey((k) => k + 1)
-    }
-    if (kind === 'news-dashboard' || kind === 'web-embed') {
-      syncShellAsideForWorkspacePanel(true)
-    }
-    scheduleBumpRef.current?.({ immediate: true })
+    syncRemoteStageSetImpl(
+      {
+        rightStageUserPinnedRef,
+        scheduleBumpRef,
+        cancelPendingStreamUiBumpsRef,
+        lastStreamWritePathRef,
+        turnRunArtifactsRef,
+        setSessionArtifactsRef,
+        publishArtifactsRef,
+        syncShellAsideForWorkspacePanel,
+        setStreamingWritePreview,
+        setWorkspaceTreePinned,
+        setKnowledgeMapRefreshKey,
+      },
+      detail,
+    )
   }, [syncShellAsideForWorkspacePanel])
+
 
   useEffect(() => {
     const onStageSet = (ev: Event) => {
@@ -2827,78 +2805,19 @@ export default function ChatApp() {
 
   /** @员工名 任务 -> 派发给智能体员工，并跳转到该员工工作轨迹 */
   const handleDispatchEmployee = useCallback(async (agentCode: string, goal: string) => {
-    const { api } = await import('../lib/tauri-api.js')
-    const { toast } = await import('../components/toast.js')
-    const role = proactiveRolesDisplay.find((r) => r.agent_code === agentCode)
-    const name = role?.role_name || agentCode
-    const watchHash = `#/proactive/${encodeURIComponent(agentCode)}?live=1&goal=${encodeURIComponent(goal.slice(0, 120))}`
-    const goWatch = () => {
-      try {
-        window.location.hash = watchHash
-      } catch {
-        /* ignore */
-      }
-    }
-    try {
-      await api.proactiveDispatchTask(agentCode, { goal, source: 'chat_mention' })
-
-      // Insert a dispatch record + fixed reply into the chat flow so the user
-      // sees what happened (instead of the message "disappearing" into a toast).
-      const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-      if (sk) {
-        const now = Date.now()
-        const next = updateSessionRuntimeRows(sk, (r: DisplayRow[]) => [
-          ...r,
-          {
-            role: 'system' as const,
-            text: `📋 已派发给「${name}」：${goal}`,
-            timestamp: now,
-          },
-          {
-            role: 'assistant' as const,
-            text: `已派发给「${name}」，正在后台处理。\n\n已打开该员工工作页与工作轨迹，可直接查看进度与工作汇报。`,
-            timestamp: now + 1,
-          },
-        ])
-        if (next) {
-          setRows([...next])
-          rowsRef.current = next
-        }
-      }
-
-      toast(`已派发给「${name}」，正在打开工作轨迹`, 'success')
-      goWatch()
-    } catch (e: any) {
-      const msg = String(e?.message || e || '')
-      if (/already running|正在巡检|正在工作|busy|执行任务/i.test(msg)) {
-        toast(msg || `「${name}」正在执行任务，已打开工作轨迹`, 'warning')
-        const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-        if (sk) {
-          const now = Date.now()
-          const next = updateSessionRuntimeRows(sk, (r: DisplayRow[]) => [
-            ...r,
-            {
-              role: 'system' as const,
-              text: `⚠️ 「${name}」正忙，派发未受理：${goal}`,
-              timestamp: now,
-            },
-            {
-              role: 'assistant' as const,
-              text: `「${name}」当前有任务在执行，无法同时接新派发。\n\n已打开其工作轨迹，请等本轮结束后再派发。`,
-              timestamp: now + 1,
-            },
-          ])
-          if (next) {
-            setRows([...next])
-            rowsRef.current = next
-          }
-        }
-        goWatch()
-      } else {
-        toast(`派发失败：${msg}`, 'error')
-      }
-    }
+    await handleDispatchEmployeeImpl(
+      {
+        proactiveRolesDisplay,
+        sessionRef,
+        selectedSessionKey,
+        rowsRef,
+        setRows,
+      },
+      agentCode,
+      goal,
+    )
   }, [proactiveRolesDisplay, selectedSessionKey, setRows])
+
   /** 技能/插件选择（多选弹窗 + sticky） */
   const [shareSessionOpen, setShareSessionOpen] = useState(false)
   /** 顶栏「在资源管理器打开」成组按钮的下拉开合态。 */
@@ -5194,34 +5113,19 @@ export default function ChatApp() {
 
   // modelPillTitle removed (unused)
   const handleEnhancePrompt = useCallback(async (draft: string) => {
-    const text = String(draft || '').trim()
-    if (!text) return null
-    const recent = recentTranscriptForPromptEnhance(rowsRef.current)
-    try {
-      const { text: enhanced } = await wsClient.enhancePrompt(
-        text,
-        effectiveModelName || undefined,
-        recent.length ? recent : undefined,
-        selectedSessionKey || sessionRef.current || undefined,
-      )
-      const next = String(enhanced || '').trim()
-      if (!next || next === text) {
-        toast('提示词已足够清晰', 'info')
-        return text
-      }
-      toast('已优化提示词', 'success')
-      return next
-    } catch (err) {
-      const e = err as Error & { status?: number }
-      const msg = String(e?.message || err || '优化失败').toLowerCase()
-      if (e?.status === 404 || msg.includes('not found')) {
-        toast('提示词优化功能暂不可用，请稍后重试', 'error')
-      } else {
-        toast(toUserFacingError(e?.message || err, '优化失败，请稍后重试'), 'error')
-      }
-      return null
-    }
+    return handleEnhancePromptImpl(
+      {
+        rowsRef,
+        effectiveModelName,
+        selectedSessionKey,
+        sessionRef,
+        enhancePrompt: (text, model, recent, sessionKey) =>
+          wsClient.enhancePrompt(text, model, recent, sessionKey),
+      },
+      draft,
+    )
   }, [effectiveModelName, selectedSessionKey])
+
 
   useEffect(() => {
     let cancelled = false
@@ -9431,37 +9335,14 @@ export default function ChatApp() {
   }, [selectedSessionKey, isProactiveEmployeeSession])
 
   const handleManualContextCompact = useCallback(async () => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk || manualContextCompacting) return
-    setManualContextCompacting(true)
-    try {
-      const { snapshot, response } = await requestManualContextCompaction(sk)
-      if (snapshot) {
-        setContextUsageBySession((prev) => ({
-          ...prev,
-          [sk]: mergeContextUsageSnapshots(prev[sk], snapshot),
-        }))
-      }
-      if (response.changed) {
-        const saved =
-          response.beforeGateTokens > response.afterGateTokens
-            ? response.beforeGateTokens - response.afterGateTokens
-            : 0
-        toast(
-          saved > 0
-            ? `上下文已压缩（-${Math.round((saved / Math.max(response.beforeGateTokens, 1)) * 100)}%）`
-            : '上下文已压缩',
-          'success',
-        )
-      } else {
-        toast('当前上下文无需压缩', 'info')
-      }
-    } catch (err) {
-      toast(`压缩失败：${String((err as Error)?.message || err)}`, 'error')
-    } finally {
-      setManualContextCompacting(false)
-    }
+    await handleManualContextCompactImpl({
+      selectedSessionKey,
+      manualContextCompacting,
+      setManualContextCompacting,
+      setContextUsageBySession,
+    })
   }, [selectedSessionKey, manualContextCompacting])
+
 
   const liveTurnTokenStr = useMemo(() => {
     if (!liveTurnTokens || liveTurnTokens.total <= 0) return ''
