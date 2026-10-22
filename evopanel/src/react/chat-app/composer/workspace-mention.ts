@@ -54,7 +54,7 @@ export function buildWorkspaceMentionConfig(ctx: WorkspaceMentionCtx) {
         void ctx.persistContextFiles(next)
         return next
       })
-      void import('../../components/toast.js').then(({ toast }) => {
+      void import('../../../components/toast.js').then(({ toast }) => {
         toast(`已附加：${entry.name || ctx.basenameFromPath(path)}（发送后注入 Agent 上下文）`, 'info')
       })
     },
@@ -70,13 +70,13 @@ export function buildWorkspaceMentionConfig(ctx: WorkspaceMentionCtx) {
     })),
     onPickSkill: (sk: { label?: string }) => {
       ctx.addSelectedSkill(sk)
-      void import('../../components/toast.js').then(({ toast }) => {
+      void import('../../../components/toast.js').then(({ toast }) => {
         toast(`已选技能：${sk.label}`, 'info')
       })
     },
     onPickPlugin: (pl: { label?: string }) => {
       ctx.addSelectedPlugin(pl)
-      void import('../../components/toast.js').then(({ toast }) => {
+      void import('../../../components/toast.js').then(({ toast }) => {
         toast(`已选插件：${pl.label}`, 'info')
       })
     },
