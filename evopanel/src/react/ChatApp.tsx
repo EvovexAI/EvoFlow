@@ -306,22 +306,19 @@ import {
   toggleShellAsideCollapsed,
 } from '../components/shell-aside.js'
 import { useGoalMode } from './hooks/useGoalMode.js'
+import { useClarificationPanel } from './hooks/useClarificationPanel.js'
 import {
   formatAskClarificationForHosted,
-  isStaleClarificationPreview,
   isClarificationPreviewRenderable,
   isUserExecutionStartIntent,
-  clarificationPreviewFromTool,
 } from './lib/clarify-chat-display.js'
 import {
   findAskClarificationAwaitingUserInRows,
   isAskClarificationToolPending,
 } from '../lib/clarify-preview-resolve.js'
 import {
-  latchClarificationToolCall,
   clearClarificationLatch,
   peekClarificationLatch,
-  resolveClarificationPanelAuthoritative,
 } from './lib/clarify-tool-fetch.js'
 import { pushGoalClosureNotification } from './lib/session-notifications.js'
 import { getUseVirtualPaths } from '../lib/path-mode.js'
@@ -347,7 +344,6 @@ import {
 } from '../lib/collab-sidebar-from-tools.js'
 import {
   computePlanExecStripUi,
-  isPlanExecutionConfirmationClarification,
   resolvePlanBoundTaskId,
 } from '../lib/plan-exec-ui.js'
 import {
@@ -372,7 +368,6 @@ import {
   resolveSessionTaskId,
 } from '../lib/session-task-api-gate.js'
 import { planDockApiHide, planDockApiShow, tracePlanDockApi } from '../lib/plan-dock-api.js'
-import { readAskClarificationInput } from '../lib/clarify-preview-resolve.js'
 import {
   pickRicherStructuredPlanInput,
   planStructuredStepCount,
@@ -975,7 +970,6 @@ export default function ChatApp() {
   } = useThreadHistory(selectedSessionKey, historyLiveContext)
 
   const rowsRef = useRef<DisplayRow[]>(rows)
-  const clarifyResolveSeqRef = useRef<Map<string, number>>(new Map())
   const [historyViewReady, setHistoryViewReady] = useState(false)
   /** 本会话本轮是否曾展示过消息；用于防止误进首页藏掉底部输入框 */
   const [sessionHadContent, setSessionHadContent] = useState(false)
@@ -988,160 +982,6 @@ export default function ChatApp() {
   useEffect(() => {
     if (Array.isArray(rows) && rows.length > 0) setSessionHadContent(true)
   }, [rows])
-
-  const scheduleClarificationPanelResolve = useCallback(
-    (
-      sessionKey: string,
-      opts?: { toolCallId?: string; localTool?: unknown; preferToolRetries?: boolean },
-    ) => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return
-      const liveRows = rowsRef.current || []
-      if (
-        turnBusyForSession(sessionRef.current) &&
-        rowsAwaitUserReplyAfterSend(liveRows) &&
-        !findAskClarificationAwaitingUserInRows(liveRows)
-      ) {
-        return
-      }
-      const tcid = String(opts?.toolCallId || peekClarificationLatch(sk) || '').trim()
-      if (tcid) latchClarificationToolCall(sk, tcid)
-      const gen = (clarifyResolveSeqRef.current.get(sk) || 0) + 1
-      clarifyResolveSeqRef.current.set(sk, gen)
-      void resolveClarificationPanelAuthoritative(sk, {
-        toolCallId: tcid || undefined,
-        localTool: opts?.localTool,
-        preferToolRetries: opts?.preferToolRetries,
-      }).then((hit) => {
-        if (clarifyResolveSeqRef.current.get(sk) !== gen) return
-        const activeSk = String(sessionRef.current || selectedSessionKey || '').trim()
-        const rowsNow =
-          sk === activeSk ? rowsRef.current || [] : getSessionRuntime(sk).rows || []
-        const stillAwaiting = findAskClarificationAwaitingUserInRows(rowsNow)
-        if (
-          turnBusyForSession(sk) &&
-          rowsAwaitUserReplyAfterSend(rowsNow) &&
-          !stillAwaiting
-        ) {
-          commitThreadPanelForSessionRef.current(sk, (prev) => clearThreadPanelClarification(prev))
-          return
-        }
-        if (!hit?.preview || !isClarificationPreviewRenderable(hit.preview)) {
-          if (!stillAwaiting && !(opts?.preferToolRetries && tcid)) {
-            commitThreadPanelForSessionRef.current(sk, (prev) => {
-              if (shouldSuppressClarificationPanel(rowsNow, prev)) return prev
-              return clearThreadPanelClarification(prev)
-            })
-          }
-          return
-        }
-        const input = opts?.localTool ? readAskClarificationInput(opts.localTool) : null
-        if (isPlanExecutionConfirmationClarification(hit.preview, input)) {
-          commitThreadPanelForSessionRef.current(sk, (prev) => clearThreadPanelClarification(prev))
-          return
-        }
-        commitThreadPanelForSessionRef.current(sk, (prev) => {
-          if (shouldSuppressClarificationPanel(rowsNow, prev)) return prev
-          return {
-            ...prev,
-            clarification: hit,
-            activityKind: 'clarification',
-            activityDetail: getActivityHint('clarification') || '等你选择呢~',
-          }
-        })
-      })
-    },
-    [selectedSessionKey],
-  )
-  const scheduleClarificationPanelResolveRef = useRef(scheduleClarificationPanelResolve)
-  scheduleClarificationPanelResolveRef.current = scheduleClarificationPanelResolve
-
-  /**
-   * Shared clarification detection bridge — extracts ask_clarification from
-   * the current stream turn's tool entries, schedules the authoritative API
-   * resolve, and updates threadPanelState.clarification.
-   *
-   * Called from ALL SSE handlers that process tool events:
-   * state === 'tool', state === 'agui_event', state === 'stream_turn', state === 'delta'.
-   */
-  const detectAndScheduleClarificationFromStreamTurn = useCallback(
-    (
-      S: StreamState,
-      rt: SessionRuntime,
-      targetSk: string,
-      _isBackground: boolean,
-    ) => {
-      const rowsForClarify: DisplayRow[] = [...rt.rows]
-      if (streamTurnHasVisibleContent(S.turn)) {
-        rowsForClarify.push({
-          role: 'assistant',
-          text: '',
-          tools: S.turn.tools as DisplayRow['tools'],
-          timestamp: Date.now(),
-        })
-      }
-      const clarifyHit = extractLatestClarificationFromRows(rowsForClarify)
-      const awaitingAsk = findAskClarificationAwaitingUserInRows(rowsForClarify)
-      const clarifySk = String(targetSk || selectedSessionKey || '').trim()
-      const awaitingToolCallId = awaitingAsk?.tool
-        ? String(
-            (awaitingAsk.tool as { id?: string; tool_call_id?: string }).id ||
-              (awaitingAsk.tool as { tool_call_id?: string }).tool_call_id ||
-              '',
-          ).trim()
-        : ''
-      if (awaitingToolCallId && clarifySk) {
-        scheduleClarificationPanelResolveRef.current(clarifySk, {
-          toolCallId: awaitingToolCallId,
-          localTool: awaitingAsk?.tool,
-          preferToolRetries: true,
-        })
-      }
-      const toolPreview = formatActivityDetailFromRunningToolCalls(S.turn.tools as unknown[])
-      commitThreadPanelForSessionRef.current(clarifySk, (prev) => {
-        let nextClarification = clarifyHit
-        if (!nextClarification?.preview && awaitingAsk) {
-          nextClarification =
-            parseClarificationFromTool(awaitingAsk.tool) ?? prev.clarification ?? nextClarification
-        }
-        // 其它工具 SSE 更新时保留 thread_state / 已解析的询问表单，避免侧栏闪灭
-        if (!nextClarification) {
-          nextClarification = prev.clarification
-        }
-        const showClarify = !!(
-          nextClarification?.preview &&
-          (isClarificationPreviewRenderable(nextClarification.preview) ||
-            isStaleClarificationPreview(nextClarification.preview))
-        )
-        const nextActivityKind = showClarify
-          ? 'clarification'
-          : toolPreview
-            ? 'tools'
-            : prev.activityKind === 'tools'
-              ? 'thinking'
-              : prev.activityKind
-        const nextActivityDetail = showClarify
-          ? getActivityHint('clarification') || '等你选择呢~'
-          : toolPreview || (prev.activityKind === 'tools' ? getActivityHint('tools') : prev.activityDetail)
-        if (
-          nextClarification === prev.clarification &&
-          nextActivityKind === prev.activityKind &&
-          nextActivityDetail === prev.activityDetail
-        ) {
-          return prev
-        }
-        return {
-          ...prev,
-          clarification: nextClarification,
-          activityKind: nextActivityKind,
-          activityDetail: nextActivityDetail,
-        }
-      })
-    },
-    [selectedSessionKey],
-  )
-  const detectAndScheduleClarificationRef = useRef(detectAndScheduleClarificationFromStreamTurn)
-  detectAndScheduleClarificationRef.current = detectAndScheduleClarificationFromStreamTurn
 
   useLayoutEffect(() => {
     queueMicrotask(() => setHistoryViewReady(false))
@@ -1611,6 +1451,27 @@ export default function ChatApp() {
     [selectedSessionKey],
   )
   commitThreadPanelForSessionRef.current = commitThreadPanelForSession
+  /** Filled by handleSend (function decl hoisted); submit / home-send use .current */
+  const handleSendRef = useRef<(...args: any[]) => any>(async () => {})
+  const onClarificationSubmittedRef = useRef<
+    ((answerText: string) => void | Promise<void>) | undefined | null
+  >(null)
+  const {
+    bumpClarifyResolveSeq,
+    scheduleClarificationPanelResolve,
+    scheduleClarificationPanelResolveRef,
+    detectAndScheduleClarificationRef,
+    handleSubmitClarification,
+  } = useClarificationPanel({
+    selectedSessionKey,
+    sessionRef,
+    rowsRef,
+    commitThreadPanelForSessionRef,
+    setThreadPanelState,
+    handleSendRef,
+    onClarificationSubmittedRef,
+  })
+
   useEffect(() => {
     threadPanelStateRef.current = threadPanelState
     // 仅随 threadPanelState 写入缓存；勿依赖 selectedSessionKey，否则切会话时
@@ -1865,7 +1726,6 @@ export default function ChatApp() {
   }, [collabExecPanelDismissKey])
 
   // ★ 性能优化：稳定化回调引用，避免每次 re-render 生成新函数破坏 HistoryMessageRow memo
-  const handleSendRef = useRef(handleSend)
   handleSendRef.current = handleSend
   const handleQuickPrompt = useCallback((text: string) => { void handleSendRef.current(text) }, [])
   const startNewChatWithPresetAgentRef = useRef<(code: string) => Promise<void>>(async () => {})
@@ -2019,15 +1879,6 @@ export default function ChatApp() {
   const stopGoalRef = useRef<(() => void) | null>(null)
   const handleStartGoal = useCallback(() => { void startGoalRef.current?.() }, [])
   const handleStopGoal = useCallback(() => { void stopGoalRef.current?.() }, [])
-  const handleSubmitClarification = useCallback(
-    (answerText: string) => {
-      clearClarificationLatch(selectedSessionKey)
-      setThreadPanelState((prev) => ({ ...prev, clarification: null }))
-      void goalCaptureRef.current.onUserClarificationSubmitted?.(answerText)
-      void handleSend(answerText)
-    },
-    [selectedSessionKey, handleSend],
-  )
   const handleToolApprovalRef = useRef(handleToolApproval)
   handleToolApprovalRef.current = handleToolApproval
   const onToolApprovalStable = useCallback(
@@ -6580,6 +6431,9 @@ useEffect(() => {
   const applyGoalProposalRef = useRef(goal.goal.applyGoalProposal)
   const refreshGoalStatusRef = useRef(goal.goal.refreshGoalStatus)
   goalCaptureRef.current = goal.goalCapture
+  onClarificationSubmittedRef.current = (answerText: string) => {
+    void goalCaptureRef.current.onUserClarificationSubmitted?.(answerText)
+  }
   applyGoalProposalRef.current = goal.goal.applyGoalProposal
   refreshGoalStatusRef.current = goal.goal.refreshGoalStatus
   startGoalRef.current = goal.goal.startGoal
@@ -13769,10 +13623,7 @@ useEffect(() => {
       voiceSessionKeyRef.current = sessionKey
     }
     clearClarificationLatch(sessionKey)
-    clarifyResolveSeqRef.current.set(
-      sessionKey,
-      (clarifyResolveSeqRef.current.get(sessionKey) || 0) + 1,
-    )
+    bumpClarifyResolveSeq(sessionKey)
     // 选中技能时：UI 展示技能 pill；run context 传 preferred_skills 并入 available_skills
     let preferredSkillNames: string[] = []
     let preferredSkillsBadge: Array<{ name: string; label: string; icon: string }> = []
