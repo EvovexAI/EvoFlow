@@ -4361,26 +4361,32 @@ export function useChatAppController() {
       }),
     [selectedSessionKey, executingListEpoch],
   )
-  const selectedResumeAttach = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return false
-    const rt = getSessionRuntime(sk)
-    const attach = deriveAttachState(rt)
-    return attach === 'attaching' || attach === 'attached' || rt.turnPhase === 'reattaching'
-  }, [selectedSessionKey, executingListEpoch])
-  const selectedResumeStreamHold = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return false
-    const rt = getSessionRuntime(sk)
-    return rt.turnPhase === 'reattaching' || deriveAttachState(rt) === 'attaching'
-  }, [selectedSessionKey, executingListEpoch])
-  const sidebarHistory = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    return Object.values(sidebarTaskViews)
-      .filter((x) => !sk || !x.sessionKey || x.sessionKey === sk)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map((x) => x.task)
-  }, [sidebarTaskViews, selectedSessionKey])
+  const selectedResumeAttach = useMemo(
+    () =>
+      resolveSelectedResumeAttach({
+        selectedSessionKey,
+        getSessionRuntime,
+        deriveAttachState,
+      }),
+    [selectedSessionKey, executingListEpoch],
+  )
+  const selectedResumeStreamHold = useMemo(
+    () =>
+      resolveSelectedResumeStreamHold({
+        selectedSessionKey,
+        getSessionRuntime,
+        deriveAttachState,
+      }),
+    [selectedSessionKey, executingListEpoch],
+  )
+  const sidebarHistory = useMemo(
+    () =>
+      resolveSidebarHistory({
+        selectedSessionKey,
+        sidebarTaskViews,
+      }),
+    [sidebarTaskViews, selectedSessionKey],
+  )
 
   const renderRows = useMemo(
     () => rows,
@@ -5923,6 +5929,7 @@ export function useChatAppController() {
     bottomPluginPanelOpen,
     bottomRoleOpen,
     bottomSkillOpen,
+    bottomWorkspaceOpen,
     browserToggleButton,
     chatPanelMode,
     chatThreadIdForSidebar,
@@ -6021,16 +6028,19 @@ export function useChatAppController() {
     mainBodyStageClasses,
     manualContextCompacting,
     memoryEnabled,
+    memoryRecallRefreshKey,
     mobileChatPane,
     modeLabel,
     modelCatalog,
     modelConnNameMap,
     modelPillLabel,
     modelsLoading,
+    modeMenuOpen,
     moreMenuKey,
     moreSubOpen,
     newChatButtonActive,
     newChatGrantAllDefault,
+    onRightPanelResizePointerDown,
     onShellDeleteSession,
     onShellForkSession,
     onShellNewSessionInWorkspace,
