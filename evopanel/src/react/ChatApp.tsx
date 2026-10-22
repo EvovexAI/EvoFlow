@@ -488,6 +488,11 @@ import { runBottomMenusDismissEffect } from './chat-app/composer/install-bottom-
 import { runSyncProactiveWorkspaceKindEffect } from './chat-app/session/sync-proactive-workspace-kind.js'
 import { runLoadSessionArtifactsEffect } from './chat-app/session/load-session-artifacts.js'
 import { commitThreadPanelForSession as commitThreadPanelForSessionImpl } from './chat-app/session/commit-thread-panel.js'
+import { runHomeWindowListenersEffect } from './chat-app/composer/install-home-window-listeners.js'
+import {
+  runBottomMorePortalLayoutEffect,
+  runPluginPanelPortalLayoutEffect,
+} from './chat-app/composer/install-bottom-portal-layouts.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -1670,46 +1675,23 @@ export default function ChatApp() {
   const startNewChatWithPresetAgentRef = useRef<(code: string) => Promise<void>>(async () => {})
   const setModelNameRef = useRef<(name: string) => void>(() => {})
   useEffect(() => {
-    const homeCtx = {
+    return runHomeWindowListenersEffect({
       sessionRef,
       setSessionHadContent,
       setSelectedSkills,
       setSelectedPlugins,
-      setModelName: (name: string) => setModelNameRef.current(name),
+      setModelNameRef,
       setMemoryEnabled,
       setVoiceReplyEnabled,
-      ensureChatSessionKey: async () =>
-        (await ensureChatSessionKeyRef.current?.()) || null,
-      attachContextFiles: (files: ContextFileEntry[]) => {
-        attachContextFilesRef.current?.(files)
-      },
-      updateSessionContext: (sk: string, patch: Record<string, unknown>) =>
-        wsClient.updateSessionContext(sk, patch),
-      handleSend: (
-        text: string,
-        attachments?: ChatAttachment[],
-        ctxFiles?: ContextFileEntry[],
-        opts?: {
-          skillsOverride?: SkillSelection[]
-          pluginsOverride?: PluginSelection[]
-        },
-      ) => handleSendRef.current(text, attachments, ctxFiles, opts),
-    }
-    const onHomeSend = (event: Event) => handleHomeSendEvent(homeCtx, event)
-    const onHomeSelectModel = (event: Event) => handleHomeSelectModelEvent(homeCtx, event)
-    const onHomeSetMemory = (event: Event) => handleHomeSetMemoryEvent(homeCtx, event)
-    const onHomeSetVoiceReply = (event: Event) =>
-      handleHomeSetVoiceReplyEvent(homeCtx, event)
-    window.addEventListener('evopanel:home-send', onHomeSend)
-    window.addEventListener('evopanel:home-select-model', onHomeSelectModel)
-    window.addEventListener('evopanel:home-set-memory', onHomeSetMemory)
-    window.addEventListener('evopanel:home-set-voice-reply', onHomeSetVoiceReply)
-    return () => {
-      window.removeEventListener('evopanel:home-send', onHomeSend)
-      window.removeEventListener('evopanel:home-select-model', onHomeSelectModel)
-      window.removeEventListener('evopanel:home-set-memory', onHomeSetMemory)
-      window.removeEventListener('evopanel:home-set-voice-reply', onHomeSetVoiceReply)
-    }
+      ensureChatSessionKeyRef,
+      attachContextFilesRef,
+      wsClient,
+      handleSendRef,
+      handleHomeSendEvent,
+      handleHomeSelectModelEvent,
+      handleHomeSetMemoryEvent,
+      handleHomeSetVoiceReplyEvent,
+    })
   }, [])
   const handleCopyMessage = useCallback(() => {}, [])
   const handleRetryMessage = useCallback(() => {
@@ -3442,77 +3424,20 @@ export default function ChatApp() {
 
   // 「更多」上拉：挂到 body + fixed，避开输入区上拉后父级 overflow 裁切
   useLayoutEffect(() => {
-    console.log('[ChatApp] useLayoutEffect bottomMoreOpen:', bottomMoreOpen);
-    if (!bottomMoreOpen || typeof window === 'undefined') {
-      console.log('[ChatApp] bottomMoreOpen 为 false 或 window 不存在，清除样式');
-      setBottomMorePortalStyle(null)
-      return
-    }
-    console.log('[ChatApp] 计算下拉菜单位置...');
-    const update = () => {
-      const btn = bottomMoreTriggerRef.current
-      if (!btn) {
-        console.log('[ChatApp] bottomMoreTriggerRef.current 为 null');
-        return
-      }
-      console.log('[ChatApp] 按钮位置:', btn.getBoundingClientRect());
-      const r = btn.getBoundingClientRect()
-      const gap = 10
-      const sidePad = 10
-      const minW = 180
-      const left = Math.max(sidePad, Math.min(r.left, window.innerWidth - sidePad - minW))
-      const bottom = Math.max(sidePad, window.innerHeight - r.top + gap)
-      const maxH = Math.max(120, Math.min(window.innerHeight * 0.55, r.top - gap - sidePad))
-      setBottomMorePortalStyle({
-        position: 'fixed',
-        left,
-        bottom,
-        top: 'auto',
-        minWidth: minW,
-        maxHeight: maxH,
-        zIndex: 10060,
-      })
-      console.log('[ChatApp] 计算的样式:', { left, bottom, maxH, minW });
-    }
-    update()
-    console.log('[ChatApp] 初始化完成，添加事件监听');
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-    }
+    return runBottomMorePortalLayoutEffect({
+      bottomMoreOpen,
+      bottomMoreTriggerRef,
+      setBottomMorePortalStyle,
+    })
   }, [bottomMoreOpen])
 
   // 插件快捷面板：锚定 + 按钮上方（与 bottom-more 同一定位机制）
   useLayoutEffect(() => {
-    if (!bottomPluginPanelOpen || typeof window === 'undefined') {
-      setPluginPanelStyle(null)
-      return
-    }
-    const update = () => {
-      const btn = bottomMoreTriggerRef.current
-      if (!btn) return
-      const r = btn.getBoundingClientRect()
-      const gap = 10
-      const sidePad = 10
-      const left = Math.max(sidePad, Math.min(r.left, window.innerWidth - sidePad - 620))
-      const bottom = Math.max(sidePad, window.innerHeight - r.top + gap)
-      const maxH = Math.max(160, Math.min(window.innerHeight * 0.62, r.top - gap - sidePad))
-      setPluginPanelStyle({
-        position: 'fixed',
-        left,
-        bottom,
-        top: 'auto',
-        maxHeight: maxH,
-        zIndex: 10060,
-      })
-    }
-    update()
-    window.addEventListener('resize', update)
-    window.addEventListener('scroll', update, true)
-    return () => {
-      window.removeEventListener('resize', update)
-      window.removeEventListener('scroll', update, true)
-    }
+    return runPluginPanelPortalLayoutEffect({
+      bottomPluginPanelOpen,
+      bottomMoreTriggerRef,
+      setPluginPanelStyle,
+    })
   }, [bottomPluginPanelOpen])
 
   // 底部「模式 + 模型/创意/工作空间」上拉：互斥 + 点击外部 / Esc 全部关闭
