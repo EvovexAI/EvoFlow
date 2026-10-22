@@ -50,7 +50,6 @@ import {
   DEFAULT_SESSION_MODES,
   SHOW_SESSION_MODE_COLLAB_UI,
   modeLabel,
-  parseSceneFromModelPayload,
   getSessionModeFromMeta,
   setSessionModeInMeta,
   resolvedActivatedScenariosForOpenSession,
@@ -62,13 +61,7 @@ import {
 } from './lib/session-mode.js'
 import { ModelCatalogMenu } from './components/ModelCatalogMenu.js'
 import { PermissionPresetMenu } from './components/PermissionPresetMenu.js'
-import {
-  buildModelConnNameMap,
-  defaultModelFromCatalog,
-  modelDisplayLabel,
-  normalizeModelCatalogRows,
-  type ModelCatalogEntry,
-} from './lib/model-catalog.js'
+import { defaultModelFromCatalog } from './lib/model-catalog.js'
 import { setChatWorkspaceRoot } from '../lib/chat-workspace-context.js'
 import { effectiveLocalWorkspaceRoot } from '../lib/workspace-api-scope.js'
 import { useThreadHistory, markResumeAnchorAssistantIncomplete } from './hooks/useThreadHistory.js'
@@ -90,8 +83,6 @@ import {
   patchSessionPinInRows,
   patchSessionTitleInRows,
   prependNewSessionToList,
-  sessionRowFromApi,
-  sortSessionsForSidebar,
   stripDefaultMainSessionRows,
 } from './lib/session-list/utils.js'
 import { markSessionPinPending } from './lib/session-list/session-pin-pending.js'
@@ -281,6 +272,8 @@ import { useStreamingWritePreview } from './hooks/useStreamingWritePreview.js'
 import { useWorkspaceFileOpen } from './hooks/useWorkspaceFileOpen.js'
 import { useComposerSkillPluginSelection } from './hooks/useComposerSkillPluginSelection.js'
 import { useChatLayoutResize } from './hooks/useChatLayoutResize.js'
+import { useComposerModelCatalog } from './hooks/useComposerModelCatalog.js'
+import { normalizeFileHrefForThread, normalizeRowFilesInPlace } from './chat-app/utils/file-href-normalize.js'
 import {
   formatAskClarificationForHosted,
   isClarificationPreviewRenderable,
@@ -2694,7 +2687,6 @@ export default function ChatApp() {
   )
   /** TitleMiddleware 自动标题：流式进行中延迟写入，且必须绑定 sessionKey（避免新建对话后标题写到错会话） */
   const pendingAutoSessionTitleRef = useRef<{ sessionKey: string; title: string } | null>(null)
-  const [modelCatalog, setModelCatalog] = useState<ModelCatalogEntry[]>([])
   const [contextUsageBySession, setContextUsageBySession] = useState<
     Record<string, ContextUsageSnapshot>
   >({})
@@ -2736,27 +2728,9 @@ export default function ChatApp() {
       })
     })
   }, [selectedSessionKey, sessions])
-  /** config.yaml primary_model（与后端 _resolve_model_name 回落一致） */
-  const [primaryModelName, setPrimaryModelName] = useState<string>('')
-  const [modelName, setModelName] = useState<string>('')
-  setModelNameRef.current = setModelName
-  /** 用于模型↔会话同步：区分「切换会话」与「同会话内改药丸」，避免把上一会话的 modelName 写进新会话 context */
-  const syncModelSessionPrevKeyRef = useRef<string | null>(null)
-  /** 刷新后按 key 拉会话详情以恢复 model_name；每会话最多尝试一次，避免空模型新会话死循环 */
-  const modelHydrateAttemptedRef = useRef<string | null>(null)
-  const modelHydrateInflightRef = useRef<string | null>(null)
-  /** hydrate 完成后递增，驱动模型同步 effect 再跑一遍 */
-  const [modelHydrateTick, setModelHydrateTick] = useState(0)
-  const modelsLoadInflightRef = useRef<Promise<void> | null>(null)
-  const modelCatalogLoadedRef = useRef(false)
-  const modelNameRef = useRef(modelName)
-  modelNameRef.current = modelName
-  const [modelsLoading, setModelsLoading] = useState(false)
   const [agents, setAgents] = useState<AgentPickerRow[]>([])
   const [bottomModelOpen, setBottomModelOpen] = useState(false)
   const [bottomPermissionOpen, setBottomPermissionOpen] = useState(false)
-  /** 连接 key → 自定义展示名映射（来自 /model-connections + localStorage），用于级联菜单区分同厂商多套连接 */
-  const [modelConnNameMap, setModelConnNameMap] = useState<Record<string, string>>({})
   const [bottomMoreOpen, setBottomMoreOpen] = useState(false)
   /** 右侧信息 Drawer：默认关闭；与 Right Stage 互斥 */
   const [, setInfoRailOpen] = useState(true)
@@ -3256,78 +3230,6 @@ useEffect(() => {
       </span>
     ) : null
 
-  const normalizeFileHrefForThread = useCallback((_threadId: string, rawUrl: string) => {
-    const u = String(rawUrl || '').trim()
-    if (!u) return '#'
-    if (/^https?:\/\//i.test(u)) return u
-    // Windows absolute path (e.g. D:\repo\outputs\a.txt). Browser can't open it directly;
-    // map into /mnt/user-data/{outputs,uploads}/... so 1421 can serve it.
-    if (/^[a-zA-Z]:[\\/]/.test(u)) {
-      const norm = u.replace(/\\/g, '/')
-      const pickRel = (marker: string) => {
-        const idx = norm.toLowerCase().lastIndexOf(marker)
-        if (idx < 0) return null
-        const rel = norm.slice(idx + marker.length).replace(/^\/+/, '')
-        return rel ? rel : null
-      }
-      const relOut = pickRel('/outputs/')
-      if (relOut) {
-        return `/mnt/user-data/outputs/${relOut.split('/').map((seg) => encodeURIComponent(seg)).join('/')}`
-      }
-      const relUp = pickRel('/uploads/')
-      if (relUp) {
-        return `/mnt/user-data/uploads/${relUp.split('/').map((seg) => encodeURIComponent(seg)).join('/')}`
-      }
-      const relWs = pickRel('/workspace/')
-      if (relWs) {
-        return relWs
-      }
-      // Unknown absolute path: cannot safely infer; leave unchanged.
-      return u
-    }
-
-    const stripped0 = u.replace(/^\/+/, '')
-    // Accept: outputs/... | uploads/... | mnt/user-data/... | /mnt/user-data/...
-    const vpath = stripped0
-    if (vpath.startsWith('mnt/user-data/')) {
-      // ok
-      return `/${vpath.split('/').filter(Boolean).map((seg) => encodeURIComponent(seg)).join('/')}`
-    }
-    if (vpath.startsWith('outputs/') || vpath === 'outputs') {
-      const rest = vpath === 'outputs' ? '' : vpath.slice('outputs/'.length)
-      const enc = rest ? rest.split('/').filter(Boolean).map((seg) => encodeURIComponent(seg)).join('/') : ''
-      return `/mnt/user-data/outputs/${enc}`.replace(/\/+$/, '')
-    }
-    if (vpath.startsWith('uploads/') || vpath === 'uploads') {
-      const rest = vpath === 'uploads' ? '' : vpath.slice('uploads/'.length)
-      const enc = rest ? rest.split('/').filter(Boolean).map((seg) => encodeURIComponent(seg)).join('/') : ''
-      return `/mnt/user-data/uploads/${enc}`.replace(/\/+$/, '')
-    }
-    if (vpath.startsWith('workspace/') || vpath === 'workspace') {
-      const rest = vpath === 'workspace' ? '' : vpath.slice('workspace/'.length)
-      return rest || u
-    }
-    // Unknown local-ish path; don't rewrite.
-    return u
-  }, [])
-
-  const normalizeRowFilesInPlace = useCallback((threadId: string, r: any) => {
-    const files = Array.isArray(r?.files) ? r.files : null
-    if (!files || !threadId) return r
-    let changed = false
-    const nextFiles = files.map((f: any) => {
-      const url = String(f?.url || '').trim()
-      if (!url) return f
-      const nextUrl = normalizeFileHrefForThread(threadId, url)
-      if (nextUrl !== url) {
-        changed = true
-        return { ...f, url: nextUrl }
-      }
-      return f
-    })
-    return changed ? { ...r, files: nextFiles } : r
-  }, [normalizeFileHrefForThread])
-
   // History + stream tool-derived files may contain raw "D:\..." or "outputs/..." URLs; normalize them.
   useEffect(() => {
     const tid = wsClient.getSessionThreadId(selectedSessionKey)
@@ -3354,7 +3256,7 @@ useEffect(() => {
       S.turn.files = nextFiles
       scheduleBump()
     }
-  }, [selectedSessionKey, setRows, normalizeRowFilesInPlace, normalizeFileHrefForThread])
+  }, [selectedSessionKey, setRows])
   const [, setSubagentDockTasks] = useState<Record<string, SubagentStreamTask>>({})
   const [sidebarTaskViews, setSidebarTaskViews] = useState<Record<string, SidebarTaskView>>({})
   const [sidebarSelectedTaskId, setSidebarSelectedTaskId] = useState<string | null>(null)
@@ -3423,25 +3325,29 @@ useEffect(() => {
     return String(row?.model || '').trim()
   }, [currentRoleCodeForUi, agents])
 
-  /** 跟随智能体时的展示/回落模型名 */
-  const followResolvedModelName = useMemo(() => {
-    if (agentDefaultModelName) return agentDefaultModelName
-    return defaultModelFromCatalog(modelCatalog, primaryModelName) || String(primaryModelName || '').trim()
-  }, [agentDefaultModelName, modelCatalog, primaryModelName])
-
-  /** 会话是否已钉死 model_name（覆盖智能体默认） */
-  const sessionModelOverride = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return ''
-    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
-    const rowModel = String(row?.modelName || '').trim()
-    const ctxRaw = String(wsClient.getSessionContext(sk)?.model_name ?? '').trim()
-    return ctxRaw || rowModel
-    // modelHydrateTick / roleUiNonce：hydrate 与切角色后重读 context
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSessionKey, sessions, modelHydrateTick, roleUiNonce])
-
-
+  const {
+    modelCatalog,
+    primaryModelName,
+    modelName,
+    setModelName,
+    modelsLoading,
+    modelConnNameMap,
+    loadModelCatalog,
+    followResolvedModelName,
+    effectiveModelName,
+    modelPillLabel,
+    syncModelSessionPrevKeyRef,
+  } = useComposerModelCatalog({
+    selectedSessionKey,
+    sessions,
+    listLoading,
+    agentDefaultModelName,
+    roleUiNonce,
+    bottomModelOpen,
+    setSessions,
+    sessionsRef,
+  })
+  setModelNameRef.current = setModelName
 
   const currentRoleAgent = useMemo(() => {
     const code = currentRoleCodeForUi
@@ -5612,140 +5518,6 @@ useEffect(() => {
     return installStreamStopPageUnloadHook(() => listBusySessionKeys())
   }, [])
 
-  const loadModelCatalog = useCallback(async (opts?: { silent?: boolean; forceLive?: boolean }) => {
-    const forceLive = !!opts?.forceLive
-    if (modelsLoadInflightRef.current) {
-      await modelsLoadInflightRef.current
-      // A concurrent non-force load may have finished on stale prefetch; forceLive must re-hit /models.
-      if (!forceLive) return
-    }
-    const silent = opts?.silent ?? modelCatalogLoadedRef.current
-    const applyCatalog = (rowsRaw: any, primaryRaw: string) => {
-      const rows = Array.isArray(rowsRaw?.models)
-        ? rowsRaw.models
-        : Array.isArray(rowsRaw)
-          ? rowsRaw
-          : []
-      const primary = String(primaryRaw || '').trim()
-      if (primary) setPrimaryModelName(primary)
-      const next = normalizeModelCatalogRows(rows, parseSceneFromModelPayload)
-      setModelCatalog(next)
-      modelCatalogLoadedRef.current = next.length > 0
-      return next
-    }
-    const work = (async () => {
-      if (forceLive && isDesktopTauriRuntime()) {
-        try {
-          const prefetchMod = await import('../lib/tauri-api.js')
-          prefetchMod.invalidateModelCatalogPrefetch?.()
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // Prefer engineReady prefetch only for the first paint — never after config CRUD.
-      if (!forceLive && isDesktopTauriRuntime()) {
-        try {
-          const prefetchMod = await import('../lib/tauri-api.js')
-          const pref = prefetchMod.getModelCatalogPrefetch?.()
-          if (pref) {
-            const hit = await Promise.race([
-              pref.catch(() => null),
-              new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2500)),
-            ])
-            if (hit?.models) {
-              const p = hit.primary as unknown as { primary_model?: unknown } | null
-              const primary =
-                typeof p?.primary_model === 'string' ? p.primary_model.trim() : ''
-              applyCatalog(hit.models, primary)
-              if (!silent) setModelsLoading(false)
-              // Connections are display-only; never block catalog paint.
-              void (async () => {
-                try {
-                  const api = await getApi()
-                  const conns = await api.listModelConnections()
-                  const list = Array.isArray(conns) ? conns : (conns?.connections || [])
-                  setModelConnNameMap(buildModelConnNameMap(list))
-                } catch {
-                  /* ignore */
-                }
-              })()
-              return
-            }
-          }
-        } catch {
-          /* fall through */
-        }
-      }
-
-      if (!silent) setModelsLoading(true)
-      try {
-        const api = await getApi()
-        const fetchLive = async () => {
-          if (isDesktopTauriRuntime()) {
-            const [modelsData, primaryInfo] = await Promise.all([
-              api.listModels(),
-              api.getPrimaryModel().catch(() => null),
-            ])
-            return {
-              data: modelsData,
-              primary:
-                typeof primaryInfo?.primary_model === 'string'
-                  ? primaryInfo.primary_model.trim()
-                  : '',
-            }
-          }
-          const [resp, primaryInfo] = await Promise.all([
-            fetch('/api/models'),
-            api.getPrimaryModel().catch(() => null),
-          ])
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-          const data = await resp.json()
-          return {
-            data,
-            primary:
-              typeof primaryInfo?.primary_model === 'string'
-                ? primaryInfo.primary_model.trim()
-                : '',
-          }
-        }
-        const live = await Promise.race([
-          fetchLive(),
-          new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 12_000)),
-        ])
-        if (!live) {
-          if (!modelCatalogLoadedRef.current) {
-            setModelCatalog([])
-            modelCatalogLoadedRef.current = false
-          }
-          return
-        }
-        applyCatalog(live.data, live.primary)
-        void (async () => {
-          try {
-            const conns = await api.listModelConnections()
-            const list = Array.isArray(conns) ? conns : (conns?.connections || [])
-            setModelConnNameMap(buildModelConnNameMap(list))
-          } catch {
-            /* ignore */
-          }
-        })()
-      } catch {
-        if (!modelCatalogLoadedRef.current) {
-          setModelCatalog([])
-          modelCatalogLoadedRef.current = false
-        }
-      }
-    })()
-    modelsLoadInflightRef.current = work
-    try {
-      await work
-    } finally {
-      modelsLoadInflightRef.current = null
-      if (!silent) setModelsLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
     void fetchGlobalToolApprovalPolicy().catch(() => {})
   }, [])
@@ -6546,191 +6318,6 @@ useEffect(() => {
       disconnectPanel()
     }
   }, [selectedSessionKey, sessions])
-
-  useEffect(() => {
-    if (modelsLoading || !modelCatalog.length) return
-
-    if (!selectedSessionKey) {
-      syncModelSessionPrevKeyRef.current = null
-      const def = followResolvedModelName || defaultModelFromCatalog(modelCatalog, primaryModelName)
-      if (def) {
-        queueMicrotask(() => setModelName((prev) => ((prev || '').trim() === def ? prev : def)))
-      }
-      return
-    }
-
-    if (listLoading) return
-
-    const sk = selectedSessionKey
-    syncModelSessionPrevKeyRef.current = sk
-
-    const stored = sessionModelOverride
-    // 后端 stored 是用户选择模型的权威值：非空时一律保留（无论是否在当前 catalog 内），
-    // 避免 catalog 暂时不全/加载竞态时兜底成 primary 后无法回到用户实际选择的模型。
-    // 仅当 stored 为空（跟随智能体）时用智能体默认 → primary 做 UI 展示；
-    // 切勿把展示回落写回后端。
-    if (!stored && modelHydrateAttemptedRef.current !== sk) {
-      // 等按 key 拉取真实行完成后再决定是否跟随，避免刷新瞬间误判
-      return
-    }
-    const desired = stored || followResolvedModelName
-    if (!desired) return
-
-    setModelName((prev) => ((prev || '').trim() === desired ? prev : desired))
-  }, [
-    selectedSessionKey,
-    modelCatalog,
-    modelsLoading,
-    primaryModelName,
-    listLoading,
-    sessions,
-    modelHydrateTick,
-    sessionModelOverride,
-    followResolvedModelName,
-  ])
-
-  // 刷新/分页竞态：选中会话不在当前页或仅为占位行时，按 key 拉真实行以恢复 model_name
-  useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk || listLoading) return
-
-    const row = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
-    const rowModel = String(row?.modelName || '').trim()
-    const ctxModel = String(wsClient.getSessionContext(sk)?.model_name ?? '').trim()
-    if (rowModel || ctxModel) {
-      if (modelHydrateAttemptedRef.current !== sk) {
-        modelHydrateAttemptedRef.current = sk
-        setModelHydrateTick((n) => n + 1)
-      }
-      return
-    }
-    if (modelHydrateAttemptedRef.current === sk) return
-    if (modelHydrateInflightRef.current === sk) return
-    modelHydrateInflightRef.current = sk
-
-    let cancelled = false
-    void (async () => {
-      try {
-        const { api } = await import('../lib/tauri-api.js')
-        const got = await api.chatSessionsGet(sk)
-        if (cancelled) return
-        if (got) {
-          const next = sessionRowFromApi(got as ChatSessionRow & { key?: string })
-          if (next.sessionKey) {
-            setSessions((prev) => {
-              const rest = prev.filter((s) => String(s.sessionKey || '') !== next.sessionKey)
-              return sortSessionsForSidebar([next, ...rest])
-            })
-          }
-        }
-      } catch {
-        /* ignore — UI 回落 primary，且不会写回后端 */
-      } finally {
-        if (modelHydrateInflightRef.current === sk) modelHydrateInflightRef.current = null
-        if (!cancelled) {
-          modelHydrateAttemptedRef.current = sk
-          setModelHydrateTick((n) => n + 1)
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedSessionKey, listLoading, sessionsRef, setSessions])
-
-  useEffect(() => {
-    if (!selectedSessionKey) return
-    if (listLoading) return
-    const row = sessions.find((s) => String(s.sessionKey || '') === selectedSessionKey)
-    queueMicrotask(() => {
-      setSessionMode(resolveSessionModeForSession(selectedSessionKey, row))
-      setCollabOn(getSessionCollabModeFromMeta(selectedSessionKey))
-    })
-  }, [selectedSessionKey, listLoading, sessions])
-
-  useEffect(() => {
-    if (!selectedSessionKey) return
-    let cancelled = false
-    const sk = selectedSessionKey
-    const ctx = wsClient.getSessionContext(sk) as { memory_enabled?: boolean } | undefined
-    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
-    const pinned =
-      typeof ctx?.memory_enabled === 'boolean'
-        ? ctx.memory_enabled
-        : typeof row?.memoryEnabled === 'boolean'
-          ? row.memoryEnabled
-          : undefined
-    if (pinned === true || pinned === false) {
-      queueMicrotask(() => {
-        if (!cancelled) setMemoryEnabled(pinned)
-      })
-      return () => {
-        cancelled = true
-      }
-    }
-    // Session column unset → inherit role default for employee chats, else on.
-    void (async () => {
-      let next = true
-      if (sk.startsWith('proactive:')) {
-        try {
-          const rest = sk.slice('proactive:'.length)
-          const code = rest.split(':')[0]?.trim() || ''
-          if (code) {
-            const { api } = await import('../lib/tauri-api.js')
-            const role = (await api.proactiveGetRole(code)) as {
-              config?: { memory_enabled?: boolean; inject_memory?: boolean; inject_assets?: boolean }
-            }
-            const cfg = role?.config || {}
-            next = !(
-              cfg.memory_enabled === false ||
-              cfg.inject_memory === false ||
-              cfg.inject_assets === false
-            )
-          }
-        } catch {
-          next = true
-        }
-      }
-      if (!cancelled) setMemoryEnabled(next)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedSessionKey, sessions, listLoading])
-
-  useEffect(() => {
-    if (!bottomModelOpen) return
-    // Re-hit live /models on each open so console CRUD shows up without remount.
-    // Depend only on open→true (not catalog length) to avoid a reload loop.
-    void loadModelCatalog({
-      silent: modelCatalogLoadedRef.current,
-      forceLive: true,
-    })
-  }, [bottomModelOpen, loadModelCatalog])
-
-  const effectiveModelName = useMemo(() => {
-    if (modelsLoading && !modelCatalog.length) return ''
-    const pill = (modelName || '').trim()
-    // 保留会话已选 / 当前展示模型（即使 catalog 暂未就绪），避免刷新时瞬时回落成 primary
-    if (pill) return pill
-    return followResolvedModelName || defaultModelFromCatalog(modelCatalog, primaryModelName)
-  }, [modelName, modelCatalog, primaryModelName, modelsLoading, followResolvedModelName])
-
-  const modelPillLabel = useMemo(() => {
-    if (modelsLoading && !modelCatalog.length) return '加载中…'
-    const pill = (modelName || '').trim()
-    if (pill) {
-      const entry = modelCatalog.find((m) => m.name === pill)
-      return modelDisplayLabel(entry) || pill
-    }
-    if (effectiveModelName) {
-      const entry = modelCatalog.find((m) => m.name === effectiveModelName)
-      return modelDisplayLabel(entry) || effectiveModelName
-    }
-    const fallback = modelCatalog[0]
-    if (fallback) return modelDisplayLabel(fallback) || fallback.name
-    return primaryModelName.trim() || '默认模型'
-  }, [modelName, effectiveModelName, modelsLoading, primaryModelName, modelCatalog])
 
   /** null：尚未知（列表未加载或所选名不在目录）；true/false：是否支持多模态用户图（config supports_vision） */
   const effectiveModelSupportsVision = useMemo(() => {
