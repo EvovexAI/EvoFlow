@@ -367,6 +367,16 @@ import {
   expandRightStageShell as expandRightStageShellImpl,
 } from './chat-app/right-stage/collapse-expand-right-stage.js'
 import { mapAgentPickerRows } from './chat-app/agents/map-agent-picker-rows.js'
+import { closeWorkspacePanel as closeWorkspacePanelImpl } from './chat-app/right-stage/close-workspace-panel.js'
+import {
+  openCollabExecPanel as openCollabExecPanelImpl,
+  closeCollabExecPanel as closeCollabExecPanelImpl,
+} from './chat-app/right-stage/collab-exec-panel.js'
+import {
+  openKnowledgeMapPanel as openKnowledgeMapPanelImpl,
+  closeKnowledgeMapPanel as closeKnowledgeMapPanelImpl,
+} from './chat-app/right-stage/knowledge-map-panel.js'
+import { handleAssetQuickAction as handleAssetQuickActionImpl } from './chat-app/assets/handle-asset-quick-action.js'
 // ============================================
 
 import type {
@@ -1561,22 +1571,17 @@ export default function ChatApp() {
   })
 
   const closeWorkspacePanel = useCallback(() => {
-    const kind = normalizeRightStageKind(rightStageStore.getSnapshot().surface?.kind || '')
-    if (kind === 'write' || kind === 'workspace-browse') {
-      dismissedRightStageKindsRef.current.add(kind)
-      if (kind === 'write') writeStreamDismissedRef.current = true
-    }
-    setStreamingWritePreview(null)
-    lastStreamWritePathRef.current = null
-    lastWriteStreamLenRef.current = 0
-    setChatOverlayDefer('workspace', false)
-    rightStageUserPinnedRef.current = null
-    hideRightStageIfKind('workspace-browse', 'write')
-    setWorkspaceTreePinned(false)
-    syncShellAsideForWorkspacePanel(false)
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    closeWorkspacePanelImpl({
+      dismissedRightStageKindsRef,
+      writeStreamDismissedRef,
+      lastStreamWritePathRef,
+      lastWriteStreamLenRef,
+      rightStageUserPinnedRef,
+      scheduleBumpRef,
+      setStreamingWritePreview,
+      setWorkspaceTreePinned,
+      syncShellAsideForWorkspacePanel,
+    })
   }, [syncShellAsideForWorkspacePanel])
 
   const collabExecPanelDismissKey = useCallback(
@@ -1592,30 +1597,28 @@ export default function ChatApp() {
 
   const openCollabExecPanel = useCallback(
     (opts?: { clearDismiss?: boolean }) => {
-      cancelPendingStreamUiBumpsRef.current()
-      setChatOverlayDefer('workflow', true)
-      if (opts?.clearDismiss !== false) {
-        const key = collabExecPanelDismissKey()
-        if (key) collabExecDismissedKeysRef.current.delete(key)
-      }
-      flushSync(() => {
-        bumpSubtasksApiRefresh()
-        rightStageUserPinnedRef.current = 'collab-workflow'
-        setCollabExecPanelOpen(true)
-      })
+      openCollabExecPanelImpl(
+        {
+          cancelPendingStreamUiBumpsRef,
+          collabExecDismissedKeysRef,
+          rightStageUserPinnedRef,
+          collabExecPanelDismissKey,
+          bumpSubtasksApiRefresh,
+          setCollabExecPanelOpen,
+        },
+        opts,
+      )
     },
     [collabExecPanelDismissKey, bumpSubtasksApiRefresh, setCollabExecPanelOpen],
   )
 
   const closeCollabExecPanel = useCallback(() => {
-    const key = collabExecPanelDismissKey()
-    if (key) collabExecDismissedKeysRef.current.add(key)
-    setChatOverlayDefer('workflow', false)
-    rightStageUserPinnedRef.current = null
-    hideRightStageIfKind('collab-workflow')
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    closeCollabExecPanelImpl({
+      collabExecDismissedKeysRef,
+      rightStageUserPinnedRef,
+      scheduleBumpRef,
+      collabExecPanelDismissKey,
+    })
   }, [collabExecPanelDismissKey])
 
   // ★ 性能优化：稳定化回调引用，避免每次 re-render 生成新函数破坏 HistoryMessageRow memo
@@ -1782,23 +1785,20 @@ export default function ChatApp() {
   )
 
   const openKnowledgeMapPanel = useCallback(() => {
-    if (!knowledgeMapEnabled) return
-    cancelPendingStreamUiBumpsRef.current()
-    setChatOverlayDefer('knowledge-map', true)
-    flushSync(() => {
-      setKnowledgeMapRefreshKey((k) => k + 1)
-      rightStageUserPinnedRef.current = 'mind-map'
-      setKnowledgeMapPanelOpen(true)
+    openKnowledgeMapPanelImpl({
+      knowledgeMapEnabled,
+      cancelPendingStreamUiBumpsRef,
+      rightStageUserPinnedRef,
+      setKnowledgeMapRefreshKey,
+      setKnowledgeMapPanelOpen,
     })
   }, [knowledgeMapEnabled, setKnowledgeMapPanelOpen])
 
   const closeKnowledgeMapPanel = useCallback(() => {
-    setChatOverlayDefer('knowledge-map', false)
-    rightStageUserPinnedRef.current = null
-    hideRightStageIfKind('mind-map')
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    closeKnowledgeMapPanelImpl({
+      rightStageUserPinnedRef,
+      scheduleBumpRef,
+    })
   }, [])
 
   const syncRemoteStageSet = useCallback((detail: StageSetPayload) => {
@@ -9105,62 +9105,17 @@ export default function ChatApp() {
   const [assetQuickBusy, setAssetQuickBusy] = useState(false)
   const handleAssetQuickAction = useCallback(
     async (kind: 'episode' | 'craft' | 'journal') => {
-      // 一点即发：由当前会话 Agent 根据对话完成；用户不填表、不弹窗
-      const empCode = String(employeeSessionAgentCode || '').trim().toLowerCase()
-      const forEmployee = isProactiveEmployeeSession && !!empCode
-      // 从 /assets/entities 拿到「我」的真实桶（多用户安装为 users/<id>，legacy 为 user）。
-      // 拉不到时回落到 user，与后端 sanitize_user_asset_id 默认对齐。
-      let myUserRoot = 'user'
-      try {
-        const api = await getApi()
-        const payload = await api.assetsListEntities()
-        const rows = Array.isArray(payload?.entities) ? payload.entities : []
-        const myEntity = rows.find(
-          (e: { entityType?: unknown; entityId?: unknown }) => String(e?.entityType || '').toLowerCase() === 'user',
-        )
-        if (myEntity && String(myEntity.entityId || '').trim()) {
-          myUserRoot = String(myEntity.entityId).trim()
-        }
-      } catch {
-        // 网络失败时保持 legacy 'user' 回退，避免按钮报错卡死。
-      }
-      const ownerLine = forEmployee
-        ? `写入智能体员工「${empCode}」自己的资产目录（employees/${empCode}/，与用户同级），不要写到用户「我」的资产目录（assets/${myUserRoot}/）。`
-        : `写入用户「我」的资产目录（assets/${myUserRoot}/，多用户安装里形如 assets/users/<id>/）。`
-
-      const messages = {
-        episode: [
-          '请根据刚才整段对话，把「这次对话的过程」整理成一篇过程记录，写入资产（memory/episodic/{日期}-{slug}.md）。',
-          ownerLine,
-          '用途：给人以后回顾这段对话走过了什么、结论/约定是什么；不是沉淀经验（怎么做），也不是反思（日结/判断）。',
-          '文件必须带 YAML frontmatter：title + summary（短描述 10～30 字，能辨认即可，勿写长）+ 可选 tags；正文按时间线或要点写清过程。',
-          '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
-          '不要再问我要写什么；自行总结并保存。',
-        ].join('\n'),
-        journal: [
-          '请根据刚才的对话，直接写一段今日反思并沉淀到资产（memory/journal/{今天}.md）。',
-          ownerLine,
-          '文件必须带 YAML frontmatter：date + summary（短描述 10～30 字，能辨认即可，勿写长）+ 可选 tags；正文再写详细反思。',
-          '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
-          '不要再问我要写什么；自行总结并保存。',
-        ].join('\n'),
-        craft: [
-          '请把刚才对话里可复用的做法，直接沉淀成一条经验（craft/{name}/SKILL.md）。',
-          ownerLine,
-          'SKILL.md 必须带 frontmatter：name + description（短描述 10～30 字，能辨认即可，勿写长）；正文再写步骤/结论。',
-          '落盘前自检：soul 块内容若与 system_prompt 高度重叠，去重后再写——避免下一次注入时同义反复。',
-          '不要再问我要标题或正文；自行总结并保存。',
-        ].join('\n'),
-      } as const
-
-      if (selectedTurnBusy) {
-        toast('当前正在回复，请稍后再沉淀', 'warning')
-        return
-      }
-      setAssetQuickBusy(true)
-      void handleSendRef.current(messages[kind]).finally(() => {
-        setAssetQuickBusy(false)
-      })
+      await handleAssetQuickActionImpl(
+        {
+          employeeSessionAgentCode,
+          isProactiveEmployeeSession,
+          selectedTurnBusy,
+          getApi,
+          setAssetQuickBusy,
+          sendMessage: (text) => handleSendRef.current(text),
+        },
+        kind,
+      )
     },
     [isProactiveEmployeeSession, employeeSessionAgentCode, selectedTurnBusy, getApi],
   )
