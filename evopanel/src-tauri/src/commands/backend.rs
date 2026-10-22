@@ -1314,6 +1314,7 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
             &work_dir,
             &config_yaml,
             &gateway_url,
+            port,
             &internal_secret,
             lg_port,
         ) {
@@ -1380,7 +1381,10 @@ fn ensure_backend_sidecar_inner(app: &tauri::AppHandle) -> Result<(), String> {
         .env("EVOFLOW_LOGS_DIR", logs_dir())
         .env("EVOFLOW_CONFIG_PATH", &config_yaml)
         .env("EVOFLOW_APP_SERVER_STDIO", "1")
+        // URL + PORT together: browser bridge / node-repl / proactive must not
+        // fall back to legacy :8070 when only one of the two is present.
         .env("EVOFLOW_GATEWAY_URL", &gateway_url)
+        .env("EVOFLOW_GATEWAY_PORT", port.to_string())
         .env("PYTHONUNBUFFERED", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1620,6 +1624,7 @@ fn spawn_langgraph_runtime_child(
     work_dir: &Path,
     config_yaml: &Path,
     gateway_url: &str,
+    gateway_port: u16,
     internal_secret: &str,
     lg_port: u16,
 ) -> Result<u32, String> {
@@ -1670,6 +1675,9 @@ fn spawn_langgraph_runtime_child(
         .env("EVOFLOW_LOGS_DIR", logs_dir())
         .env("EVOFLOW_CONFIG_PATH", config_yaml)
         .env("EVOFLOW_GATEWAY_URL", gateway_url)
+        // Split LG process drives node-repl browser bridge → must know Gateway
+        // port (profile hash), not legacy 8070.
+        .env("EVOFLOW_GATEWAY_PORT", gateway_port.to_string())
         .env("INTERNAL_EVENTS_SECRET", internal_secret)
         .env("PYTHONUNBUFFERED", "1")
         .stdin(Stdio::null())
@@ -1756,6 +1764,7 @@ pub fn reload_langgraph_runtime(app: tauri::AppHandle) -> Result<(), String> {
         &work_dir,
         &config_yaml,
         &gateway_url,
+        port,
         &internal_secret,
         lg_port,
     )?;

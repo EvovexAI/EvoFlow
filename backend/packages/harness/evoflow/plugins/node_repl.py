@@ -606,6 +606,10 @@ _next_id = 3  # ids 1/2 reserved for the probe-free startup
 _responses: dict[int, dict[str, Any]] = {}
 _response_events: dict[int, threading.Event] = {}
 _reader_thread: threading.Thread | None = None
+# Gateway base baked into the kernel bridge JS at spawn time. If the desktop
+# rebinds (profile port / runtime file) we must respawn — the bridge does not
+# re-read env after boot.
+_kernel_gw_base: str | None = None
 
 
 def _meta_envelope(session_id: str | None = None) -> dict[str, Any]:
@@ -750,9 +754,22 @@ def _browser_docs_root(storage_root: Path) -> str:
 
 
 def _ensure_process() -> subprocess.Popen:
-    global _proc, _reader_thread
+    global _proc, _reader_thread, _kernel_gw_base
+    from evoflow.gateway_http import gateway_port_from_base, resolve_gateway_base_url
+
+    gw_url = resolve_gateway_base_url(allow_legacy_default=True) or "http://127.0.0.1:8070"
     if _proc is not None and _proc.poll() is None:
-        return _proc
+        if _kernel_gw_base and _kernel_gw_base.rstrip("/") == gw_url.rstrip("/"):
+            return _proc
+        # Gateway port moved (packaged rebind / env catch-up) — kill stale bridge.
+        _ulog(f"kernel gateway changed {_kernel_gw_base} -> {gw_url}; respawning")
+        try:
+            _proc.kill()
+        except Exception:
+            pass
+        _proc = None
+        _kernel_gw_base = None
+
     from .storage import resolve_storage_root
 
     server_js = resolve_host_server_js(resolve_storage_root())
@@ -764,22 +781,14 @@ def _ensure_process() -> subprocess.Popen:
 
     storage_root = _rsr()
     kernel_env = dict(os.environ)
-    gw_url = (os.getenv("EVOFLOW_GATEWAY_URL") or "").strip().rstrip("/")
-    gw_port = (os.getenv("EVOFLOW_GATEWAY_PORT") or "").strip()
-    if not gw_port and gw_url:
-        try:
-            from urllib.parse import urlparse
-
-            parsed = urlparse(gw_url if "://" in gw_url else f"http://{gw_url}")
-            if parsed.port:
-                gw_port = str(parsed.port)
-        except Exception:
-            gw_port = ""
-    if not gw_port:
-        gw_port = "8070"
-    kernel_env.setdefault("EVOFLOW_GATEWAY_PORT", gw_port)
-    if gw_url:
-        kernel_env.setdefault("EVOFLOW_GATEWAY_URL", gw_url)
+    # Packaged desktop: Gateway is on a hashed profile port (8100..8999), not
+    # :8070. Force-assign (do not setdefault) so a stale inherited 8070 cannot
+    # win over EVOFLOW_GATEWAY_URL / backend-runtime.json.
+    gw_port_n = gateway_port_from_base(gw_url)
+    gw_port = str(gw_port_n) if gw_port_n else "8070"
+    kernel_env["EVOFLOW_GATEWAY_URL"] = gw_url
+    kernel_env["EVOFLOW_GATEWAY_PORT"] = gw_port
+    _ulog(f"kernel gateway base={gw_url}")
     # 浏览器/CUA 桥命令面共享令牌：桥 JS 每次请求携带 X-EvoFlow-Bridge-Token 头，
     # 网关 _bridge_token_guard 强制校验（bridge_auth，持久化 token 重启稳定）。
     try:
@@ -845,7 +854,8 @@ def _ensure_process() -> subprocess.Popen:
     )
     _reader_thread = threading.Thread(target=_pump_stdout, args=(_proc,), daemon=True)
     _reader_thread.start()
-    logger.info("node-repl-host kernel started: %s", server_js)
+    _kernel_gw_base = gw_url
+    logger.info("node-repl-host kernel started: %s (gateway=%s)", server_js, gw_url)
     return _proc
 
 
@@ -978,8 +988,9 @@ def call_node_repl_js(
 
 
 def shutdown() -> None:
-    global _proc
+    global _proc, _kernel_gw_base
     with _lock:
         if _proc is not None and _proc.poll() is None:
             _proc.kill()
         _proc = None
+        _kernel_gw_base = None

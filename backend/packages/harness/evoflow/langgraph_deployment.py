@@ -26,16 +26,10 @@ def _parse_port(raw: str | None, *, default: int | None = None) -> int | None:
 
 def _gateway_self_base_url() -> str | None:
     """Best-effort Gateway HTTP base (host:port) for in-process LangGraph detection."""
-    explicit = (os.getenv("EVOFLOW_GATEWAY_URL") or "").strip().rstrip("/")
-    if explicit:
-        return explicit
-    port = _parse_port(os.getenv("EVOFLOW_GATEWAY_PORT"))
-    if port is None:
-        port = _parse_port(os.getenv("PORT"))
-    if port is None:
-        return None
-    host = (os.getenv("EVOFLOW_GATEWAY_HOST") or "127.0.0.1").strip() or "127.0.0.1"
-    return f"http://{host}:{port}"
+    from evoflow.gateway_http import resolve_gateway_base_url
+
+    # Do not invent :8070 here — callers treat None as "unknown self".
+    return resolve_gateway_base_url(allow_legacy_default=False)
 
 
 def langgraph_url_points_to_gateway_self() -> bool:

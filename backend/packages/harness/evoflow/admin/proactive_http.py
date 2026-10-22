@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-_DEFAULT_PROACTIVE = "http://127.0.0.1:8070/api/proactive"
+from evoflow.gateway_http import resolve_gateway_base_url
 
 
 def resolve_proactive_api_base() -> str:
@@ -17,36 +17,18 @@ def resolve_proactive_api_base() -> str:
 
     Priority:
     1. ``EVOFLOW_PROACTIVE_URL`` (explicit)
-    2. ``EVOFLOW_GATEWAY_URL`` + ``/api/proactive`` (packaged / split process)
-    3. ``EVOFLOW_GATEWAY_PORT`` (+ optional host)
-    4. Derive from ``EVOFLOW_LANGGRAPH_URL`` when it ends with ``/api/langgraph``
-       (in-process mount on the same Gateway host)
-    5. Legacy ``http://127.0.0.1:8070/api/proactive``
+    2. Shared ``resolve_gateway_base_url()`` + ``/api/proactive``
     """
     env = (os.getenv("EVOFLOW_PROACTIVE_URL") or "").strip()
     if env:
-        return env.rstrip("/")
+        text = env.rstrip("/")
+        if text.endswith("/api/proactive"):
+            return text
+        if text.endswith("/api/langgraph"):
+            return text[: -len("/api/langgraph")] + "/api/proactive"
+        if text.endswith("/api"):
+            return f"{text}/proactive"
+        return f"{text}/api/proactive"
 
-    gw = (os.getenv("EVOFLOW_GATEWAY_URL") or "").strip().rstrip("/")
-    if gw:
-        if gw.endswith("/api/proactive"):
-            return gw
-        if gw.endswith("/api/langgraph"):
-            return gw[: -len("/api/langgraph")] + "/api/proactive"
-        return f"{gw}/api/proactive"
-
-    port_raw = (os.getenv("EVOFLOW_GATEWAY_PORT") or "").strip()
-    if port_raw.isdigit():
-        host = (os.getenv("EVOFLOW_GATEWAY_HOST") or "127.0.0.1").strip() or "127.0.0.1"
-        return f"http://{host}:{port_raw}/api/proactive"
-
-    lg = (os.getenv("EVOFLOW_LANGGRAPH_URL") or "").strip().rstrip("/")
-    if lg.endswith("/api/langgraph"):
-        return lg[: -len("/api/langgraph")] + "/api/proactive"
-    if lg.endswith("/api/proactive"):
-        return lg
-    # Bare LG URL (e.g. http://127.0.0.1:8384) is the Agent Runtime host —
-    # proactive APIs live on Gateway, not on LangGraph. Do not append
-    # /api/proactive there.
-
-    return _DEFAULT_PROACTIVE
+    gw = resolve_gateway_base_url(allow_legacy_default=True) or "http://127.0.0.1:8070"
+    return f"{gw.rstrip('/')}/api/proactive"
