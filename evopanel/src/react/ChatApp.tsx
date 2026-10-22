@@ -18,7 +18,6 @@ import {
   startTransition,
 } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import { ChevronDown, Folder, FolderOpen, Globe, PanelRightClose, PanelRightOpen, Share } from 'lucide-react'
 import {
   wsClient,
   restorePendingInjects,
@@ -164,10 +163,7 @@ import {
 } from './components/RightStagePanel.js'
 import { switchRightStageSession } from '../lib/right-stage/right-stage-session-memory.js'
 import { KnowledgeMapPanel } from './components/KnowledgeMapPanel.js'
-import { ChatSummaryPanel } from './components/ChatSummaryPanel.js'
 import {
-  EmployeePane,
-  TaskPane,
   type InfoRailTab,
   type EmployeeRailInfo,
 } from './components/ChatWorkspaceInfoRail.js'
@@ -452,6 +448,14 @@ import { runVisibilityReattachEffect } from './chat-app/shell/install-visibility
 import { runChatMountBootstrapEffect } from './chat-app/shell/install-chat-mount-bootstrap.js'
 import { runThreadPanelSseEffect } from './chat-app/shell/install-thread-panel-sse.js'
 import { renderChatAppView } from './chat-app/view/chat-app-view.js'
+import { renderChatSummaryPanel as renderChatSummaryPanelImpl } from './chat-app/view/render-chat-summary-panel.js'
+import {
+  renderBrowserToggleButton,
+  renderInfoRailHeaderToggle,
+  renderWorkspaceFolderGroup,
+  renderWorkspaceFolderToggleButton,
+} from './chat-app/view/header-chrome.js'
+import { runSessionEnterPlanSyncEffect } from './chat-app/plan-dock/run-session-enter-plan-sync.js'
 import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
@@ -5534,103 +5538,51 @@ export default function ChatApp() {
     bumpSubtasksApiRefresh,
   ])
 
-  const renderChatSummaryPanel = (mode: 'panel' | 'capsule'): ReactNode => (
-    <ChatSummaryPanel
-      displayMode={mode}
-      onDisplayModeChange={setChatPanelDisplayMode}
-      isRunning={selectedTurnBusy}
-      sessionTitle={getDisplayLabel(
+  const renderChatSummaryPanel = (mode: 'panel' | 'capsule'): ReactNode =>
+    renderChatSummaryPanelImpl(
+      {
+        artifactFocusId,
+        assetQuickBusy,
+        capabilityPatchBusy,
+        currentAgentCapabilities,
+        currentRoleAgent,
+        currentRoleCodeForUi,
+        currentRoleLabel,
+        displayContextUsage,
+        effectiveModelName,
+        employeeRoleDetail,
+        employeeSessionAgentCode,
+        getDisplayLabel,
+        handleAssetQuickAction,
+        handleManualContextCompact,
+        handleOpenProcessItem,
+        handleStopProcessItem,
+        headerTokenTotals,
+        isProactiveEmployeeSession,
+        liveProcessSnapshot,
+        manualContextCompacting,
+        modelPillLabel,
+        obsEnabled,
+        openCurrentAgentEditor,
+        openSessionArtifact,
+        patchCurrentAgentCapabilities,
+        platformFocusEntryId,
+        revealSessionArtifact,
         selectedSessionKey,
-        sessions.find((s) => String(s.sessionKey || '') === String(selectedSessionKey || ''))?.title,
-      )}
-      terminalStreams={liveProcessSnapshot.terminalStreams}
-      subagentTasks={liveProcessSnapshot.subagentTasks}
-      workflowSubtasks={sharedCollabSubtasks}
-      backgroundWorks={liveProcessSnapshot.backgroundWorks}
-      onOpenProcessItem={handleOpenProcessItem}
-      onStopProcessItem={handleStopProcessItem}
-      agentLabel={currentRoleLabel}
-      modelLabel={modelPillLabel}
-      modelName={effectiveModelName}
-      agentCode={
-        isProactiveEmployeeSession
-          ? employeeSessionAgentCode || currentRoleCodeForUi
-          : currentRoleCodeForUi
-      }
-      agentDescription={String(currentRoleAgent?.description || '').trim()}
-      agent={currentRoleAgent}
-      skillNames={currentAgentCapabilities.skillNames}
-      toolNames={currentAgentCapabilities.toolNames}
-      mcpServers={currentAgentCapabilities.mcpServers}
-      knowledgeVaultIds={
-        isProactiveEmployeeSession
-          ? employeeRoleDetail?.knowledgeVaultIds || []
-          : currentAgentCapabilities.knowledgeVaultIds
-      }
-      onPatchCapabilities={patchCurrentAgentCapabilities}
-      capabilityBusy={capabilityPatchBusy}
-      onSwitchAgent={
-        isProactiveEmployeeSession ? undefined : () => setBottomRoleOpen(true)
-      }
-      onEditAgent={currentRoleCodeForUi || employeeSessionAgentCode ? openCurrentAgentEditor : undefined}
-      onAssetQuickAction={handleAssetQuickAction}
-      assetQuickBusy={assetQuickBusy}
-      artifacts={sessionArtifacts}
-      recentArtifacts={turnArtifacts}
-      artifactFocusId={artifactFocusId}
-      platformEntries={sessionPlatformEntries}
-      recentPlatformEntries={turnPlatformEntries}
-      platformFocusEntryId={platformFocusEntryId}
-      onOpenArtifact={openSessionArtifact}
-      onRevealArtifact={revealSessionArtifact}
-      obsEnabled={obsEnabled}
-      threadId={selectedThreadId}
-      isEmployeeSession={isProactiveEmployeeSession}
-      employeePane={
-        isProactiveEmployeeSession ? (
-          <EmployeePane
-            employeeInfo={employeeRoleDetail}
-            sessionTitle={getDisplayLabel(selectedSessionKey, '')}
-            isRunning={selectedTurnBusy}
-            agentLabel={currentRoleLabel}
-            modelLabel={modelPillLabel}
-            agentCode={employeeSessionAgentCode || currentRoleCodeForUi}
-            agentDescription={String(currentRoleAgent?.description || '').trim()}
-            agent={currentRoleAgent}
-            skillNames={currentAgentCapabilities.skillNames}
-            toolNames={currentAgentCapabilities.toolNames}
-            mcpServers={currentAgentCapabilities.mcpServers}
-            knowledgeVaultIds={
-              employeeRoleDetail?.knowledgeVaultIds ||
-              currentAgentCapabilities.knowledgeVaultIds
-            }
-            onPatchCapabilities={patchCurrentAgentCapabilities}
-            capabilityBusy={capabilityPatchBusy}
-            modelName={effectiveModelName}
-            contextUsage={displayContextUsage}
-            tokenTotals={headerTokenTotals}
-            onManualCompact={handleManualContextCompact}
-            manualCompactDisabled={manualContextCompacting}
-            onEditAgent={openCurrentAgentEditor}
-            onAssetQuickAction={handleAssetQuickAction}
-            assetQuickBusy={assetQuickBusy}
-          />
-        ) : null
-      }
-      taskPane={
-        isProactiveEmployeeSession ? (
-          <TaskPane
-            sessionTitle={getDisplayLabel(selectedSessionKey, '')}
-            isRunning={selectedTurnBusy}
-            tokenTotals={headerTokenTotals}
-            agentCode={employeeSessionAgentCode || currentRoleCodeForUi}
-            sessionKey={String(selectedSessionKey || '')}
-            liveTask={sidebarActiveView?.task || null}
-          />
-        ) : null
-      }
-    />
-  )
+        selectedThreadId,
+        selectedTurnBusy,
+        sessionArtifacts,
+        sessionPlatformEntries,
+        sessions,
+        setBottomRoleOpen,
+        setChatPanelDisplayMode,
+        sharedCollabSubtasks,
+        sidebarActiveView,
+        turnArtifacts,
+        turnPlatformEntries,
+      },
+      mode,
+    )
 
   const renderRightStageBody = useCallback(
     (surface: RightStageSurface): ReactNode => {
@@ -5770,21 +5722,11 @@ export default function ChatApp() {
       ensureBrowserStage,
     })
   }, [selectedSessionKey])
-  const browserToggleTitle = browserStageOpen ? '隐藏浏览器' : '打开浏览器'
-  const browserToggleButton = (
-    <button
-      type="button"
-      className={`react-chat-header-icon-btn react-chat-browser-stage-toggle-btn${
-        browserStageActive ? ' is-active' : ''
-      }`}
-      title={browserToggleTitle}
-      aria-label={browserToggleTitle}
-      aria-pressed={browserStageOpen}
-      onClick={toggleBrowserStage}
-    >
-      <Globe className="react-chat-header-icon" aria-hidden />
-    </button>
-  )
+  const browserToggleButton = renderBrowserToggleButton({
+    browserStageActive,
+    browserStageOpen,
+    toggleBrowserStage,
+  })
 
   /** 折叠侧栏：保留 tabs 缓存，对齐 ZCode collapse（不是 hideAll）。 */
   const handleCollapseRightStage = useCallback(() => {
@@ -5829,24 +5771,10 @@ export default function ChatApp() {
     !isMobileChat &&
     !!selectedSessionKey
 
-  const infoRailHeaderToggle = (
-    <button
-      type="button"
-      className={`react-chat-header-icon-btn${rightStageOpen ? ' is-active' : ''}`}
-      title={rightStageOpen ? '收起右侧面板' : '打开右侧面板'}
-      aria-pressed={rightStageOpen}
-      aria-label={rightStageOpen ? '收起右侧面板' : '打开右侧面板'}
-      data-info-rail-open={rightStageOpen ? 'true' : 'false'}
-      data-right-stage-open={rightStageOpen ? 'true' : 'false'}
-      onClick={toggleInfoRail}
-    >
-      {rightStageOpen ? (
-        <PanelRightClose className="react-chat-header-icon" aria-hidden />
-      ) : (
-        <PanelRightOpen className="react-chat-header-icon" aria-hidden />
-      )}
-    </button>
-  )
+  const infoRailHeaderToggle = renderInfoRailHeaderToggle({
+    rightStageOpen,
+    toggleInfoRail,
+  })
 
   const rightStageLauncherItems = useMemo(
     () =>
@@ -5937,77 +5865,21 @@ export default function ChatApp() {
     normalizeRightStageKind(rightStageSurface?.kind || '') === 'write'
   const workspaceFolderToggleTitle = workspacePanelOpen ? '隐藏工作区文件' : '显示工作区文件'
 
-  const workspaceFolderToggleButton = (
-    <button
-      type="button"
-      className={`react-chat-header-icon-btn react-chat-workspace-folder-btn${
-        workspaceStageActive ? ' is-active' : ''
-      }`}
-      title={workspaceFolderToggleTitle}
-      aria-label={workspaceFolderToggleTitle}
-      aria-pressed={workspacePanelOpen}
-      onClick={toggleWorkspacePanel}
-    >
-      <Folder className="react-chat-header-icon" aria-hidden />
-    </button>
-  )
+  const workspaceFolderToggleButton = renderWorkspaceFolderToggleButton({
+    workspaceStageActive,
+    workspacePanelOpen,
+    workspaceFolderToggleTitle,
+    toggleWorkspacePanel,
+  })
 
-  /**
-   * ZCode 式成组按钮：主按钮直接「在资源管理器中打开」，右侧 chevron 弹下拉给出
-   * 「显示工作区文件」等次级入口。两键共享一个描边圆角容器。
-   */
-  const workspaceFolderGroup = (
-    <div className="react-chat-header-btn-group">      <button
-        type="button"
-        className="react-chat-header-icon-btn react-chat-header-btn-group-main"
-        data-tauri-no-drag
-        title="在资源管理器中打开工作区"
-        aria-label="在资源管理器中打开工作区"
-        onClick={() => {
-          void openCurrentWorkspaceInFileManager()
-        }}
-      >
-        <FolderOpen className="react-chat-header-icon" aria-hidden />
-      </button>
-      <button
-        type="button"
-        className="react-chat-header-icon-btn react-chat-header-btn-group-more"
-        data-tauri-no-drag
-        title="选择打开方式"
-        aria-label="选择打开方式"
-        aria-haspopup="menu"
-        aria-expanded={workspaceFolderMenuOpen}
-        onClick={() => setWorkspaceFolderMenuOpen((v) => !v)}
-      >
-        <ChevronDown className="react-chat-header-icon react-chat-header-icon--xs" aria-hidden />
-      </button>
-      {workspaceFolderMenuOpen ? (
-        <>
-          {/* 点击遮罩关闭：不用 Radix 是为了避免为一处下拉再引依赖，
-              这里用透明遮罩 + z-index 达到同样效果，Esc 由下面的 onKeyDown 兜底。 */}
-          <div
-            className="react-chat-header-menu-scrim"
-            onClick={() => setWorkspaceFolderMenuOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="react-chat-header-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              className="react-chat-header-menu-item"
-              onClick={() => {
-                setWorkspaceFolderMenuOpen(false)
-                toggleWorkspacePanel()
-              }}
-            >
-              <Folder className="react-chat-header-icon" aria-hidden />
-              <span>{workspaceFolderToggleTitle}</span>
-            </button>
-          </div>
-        </>
-      ) : null}
-    </div>
-  )
+  /** ZCode 式成组按钮：主按钮「在资源管理器中打开」+ chevron 次级入口。 */
+  const workspaceFolderGroup = renderWorkspaceFolderGroup({
+    workspaceFolderMenuOpen,
+    workspaceFolderToggleTitle,
+    openCurrentWorkspaceInFileManager,
+    setWorkspaceFolderMenuOpen,
+    toggleWorkspacePanel,
+  })
 
   // 顶栏下拉：Esc 关闭。遮罩只处理点击，键盘用户需要这条通路。
   useEffect(() => {
@@ -6039,52 +5911,26 @@ export default function ChatApp() {
 
   // 切换/刷新会话：唯一入口 — GET /tasks?session_key=… 决定是否展示计划条
   useEffect(() => {
-    if (historyLoading || listLoading) return
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    if (sessionRefreshInFlightRef.current === sk) return
-
-    let cancelled = false
-    const fetchSeq = sessionTasksFetchSeqRef.current
-    void (async () => {
-      if (sessionRefreshInFlightRef.current === sk) return
-      if (cancelled || !isActiveSessionFetch(sk, fetchSeq)) return
-      if (planSessionEnterRef.current === sk) return
-      planSessionEnterRef.current = sk
-      historyCollabHydratedRef.current = sk
-
-      const sessionRow = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
-      const sessionTaskId = resolveSessionTaskId(
-        sessionRow as { collabTaskId?: string | null } | undefined,
-        boundTaskIdRef.current || '',
-      )
-      sessionBoundTaskIdRef.current = sessionTaskId
-
-      if (historyRowsBootstrappedRef.current !== sk) {
-        historyRowsBootstrappedRef.current = sk
-        if (sessionTaskId) {
-          patchCollabFromStreamTools({ skipPlanPanel: true, allowAutoOpen: false })
-        }
-      }
-
-      const planHit = rows.length
-        ? extractLastPlanToolSuccessFromArrays(collectAssistantToolArraysFromRows(rows))
-        : null
-      if (cancelled || !isActiveSessionFetch(sk, fetchSeq)) return
-      await syncPlanPanelFromApiRef.current({
-        source: 'session_enter',
-        sessionKey: sk,
-        bypassCache: true,
-        hintTaskId: sessionTaskId,
-        fallback: (planHit as { planInput?: Record<string, unknown> } | null)?.planInput ?? null,
-        planOutput: (planHit as { planOutput?: Record<string, unknown> } | null)?.planOutput ?? null,
-        boundPlanReady: !!(planHit as { boundPlanReady?: boolean } | null)?.boundPlanReady,
-      })
-    })()
-
-    return () => {
-      cancelled = true
-    }
+    return runSessionEnterPlanSyncEffect({
+      boundTaskIdRef,
+      collectAssistantToolArraysFromRows,
+      extractLastPlanToolSuccessFromArrays,
+      historyCollabHydratedRef,
+      historyLoading,
+      historyRowsBootstrappedRef,
+      isActiveSessionFetch,
+      listLoading,
+      patchCollabFromStreamTools,
+      planSessionEnterRef,
+      resolveSessionTaskId,
+      rows,
+      selectedSessionKey,
+      sessionBoundTaskIdRef,
+      sessionRefreshInFlightRef,
+      sessionTasksFetchSeqRef,
+      sessionsRef,
+      syncPlanPanelFromApiRef,
+    })
   }, [historyLoading, listLoading, selectedSessionKey, patchCollabFromStreamTools])
 
   useEffect(() => {
