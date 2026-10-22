@@ -406,6 +406,13 @@ import { applyFullAccessToCurrentSession as applyFullAccessToCurrentSessionImpl 
 import { startNewChatWithPresetAgent as startNewChatWithPresetAgentImpl } from './chat-app/agents/start-new-chat-with-preset-agent.js'
 import { applyMoreMenuSessionApprovalPolicy as applyMoreMenuSessionApprovalPolicyImpl } from './chat-app/session/apply-more-menu-session-approval-policy.js'
 import { toggleNewChatGrantAllDefault as toggleNewChatGrantAllDefaultImpl } from './chat-app/session/toggle-new-chat-grant-all-default.js'
+import { createSessionForChat as createSessionForChatImpl } from './chat-app/session/create-session-for-chat.js'
+import { resolveCurrentPermissionPresetId } from './chat-app/session/resolve-current-permission-preset.js'
+import {
+  resolveWorkspaceForNewSession as resolveWorkspaceForNewSessionImpl,
+  shouldStayOnHomeDashboard,
+  scrollHomeMessagesToTop,
+} from './chat-app/session/new-session-workspace.js'
 // ============================================
 
 import type {
@@ -9934,82 +9941,27 @@ export default function ChatApp() {
   )
 
   async function createSessionForChat(opts?: { workspaceRoot?: string | null }): Promise<string | null> {
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      const createContext: Record<string, unknown> = { memory_enabled: memoryEnabled }
-      const ws =
-        opts && 'workspaceRoot' in opts ? String(opts.workspaceRoot ?? '').trim() : ''
-      if (ws) {
-        createContext.local_workspace_root = ws
-        createContext.use_virtual_paths = false
-        createContext.workspace_user_pinned = true
-      }
-      const row = (await api.chatSessionsCreate('main', {
-        title: '新对话',
-        context: createContext,
-        ensureThread: false, // 不阻塞等待 LangGraph 线程创建；用户发消息时按需创建（已有超时保护）
-      })) as ChatSessionRow & { key?: string }
-      const key = String(row?.sessionKey || row?.key || '').trim()
-      if (!key) throw new Error('创建会话失败')
-      // Before adopt: known-empty latch keeps home surface mounted (no historyLoading skeleton).
-      markSessionKnownEmpty(key)
-      if (ws) {
-        try {
-          const bound = await wsClient.bindSessionWorkspace(key, ws, { userPinned: true })
-          const nextHist = Array.isArray(bound?.paths)
-            ? bound.paths.map((x: unknown) => String(x || '').trim()).filter(Boolean)
-            : [ws]
-          if (String(sessionRef.current || '').trim() === key) {
-            setWorkspaceHistory(nextHist)
-            setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-          }
-        } catch {
-          /* create context 已写入 workspace；bind 失败不阻断新建 */
-        }
-      }
-      ssLog('create.done', { key: skTail(key), sessionRefBefore: skTail(sessionRef.current), workspace: ws || '(default)' })
-      const enrichedRow = ws
-        ? {
-            ...row,
-            localWorkspaceRoot: ws,
-            useVirtualPaths: false,
-            context: {
-              ...(row.context && typeof row.context === 'object' ? row.context : {}),
-              local_workspace_root: ws,
-              use_virtual_paths: false,
-              workspace_user_pinned: true,
-            },
-          }
-        : row
-      prependNewSessionToList(setSessions, enrichedRow as ChatSessionRow & { key?: string })
-      // 新建会话默认 Agent 模式，不继承上一个会话的模式
-      setSessionModeInMeta(key, 'agent')
-      setSessionMode('agent')
-      const curSel = String(sessionRef.current || '').trim()
-      // pendingNew 时强制 adopt：列表刷新可能已把选中抢回历史会话
-      const forceAdopt = pendingNewSessionRef.current || !curSel
-      if (forceAdopt) {
-        ssLog('create.adopt', {
-          key: skTail(key),
-          forced: !!pendingNewSessionRef.current,
-          prev: skTail(curSel),
-        })
-        setSelectedSessionKey(key)
-        sessionRef.current = key
-        setRows([])
-        setTokenTotals(null)
-        setLiveTurnTokens(null)
-        setNewChatButtonActive(false)
-      } else {
-        ssLog('create.skip-adopt', { key: skTail(key), curSel: skTail(curSel) })
-      }
-      void finalizeNewSessionBackground(key)
-      return key
-    } catch (e) {
-      setNewChatButtonActive(true)
-      toast(toUserFacingError((e as Error)?.message || e), 'error')
-      return null
-    }
+    return createSessionForChatImpl(
+      {
+        memoryEnabled,
+        sessionRef,
+        pendingNewSessionRef,
+        setSessions,
+        setSessionMode,
+        setSelectedSessionKey,
+        setRows,
+        setTokenTotals,
+        setLiveTurnTokens,
+        setNewChatButtonActive,
+        setWorkspaceHistory,
+        setGlobalWorkspaceHistory,
+        markSessionKnownEmpty,
+        bindSessionWorkspace: (key, ws, o) => wsClient.bindSessionWorkspace(key, ws, o),
+        getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
+        finalizeNewSessionBackground,
+      },
+      opts,
+    )
   }
 
   async function ensureChatSessionKey(): Promise<string | null> {
@@ -10045,28 +9997,12 @@ export default function ChatApp() {
   // 响应覆盖回旧值（stale ctx）——wsClient 值优先，避免档位显示回跳。
   const currentPermissionPresetId = useMemo(() => {
     void toolApprovalPolicyTick
-    const row = selectedSessionKey
-      ? sessions.find((s) => String(s.sessionKey || '') === selectedSessionKey) ?? null
-      : null
-    const base: Record<string, unknown> =
-      row?.context && typeof row.context === 'object' ? { ...row.context } : {}
-    try {
-      const wsCtx = wsClient.getSessionContext(selectedSessionKey) as
-        | Record<string, unknown>
-        | null
-      for (const k of [
-        'effective_permission_preset',
-        'permission_preset',
-        'effective_tool_approval_policy',
-        'tool_approval_policy',
-      ]) {
-        const v = wsCtx ? wsCtx[k] : undefined
-        if (v != null && String(v).trim()) base[k] = v
-      }
-    } catch {
-      /* ignore */
-    }
-    return resolvePermissionPreset(base)
+    return resolveCurrentPermissionPresetId({
+      selectedSessionKey,
+      sessions,
+      getSessionContext: (sk) =>
+        wsClient.getSessionContext(sk) as Record<string, unknown> | null | undefined,
+    })
   }, [selectedSessionKey, sessions, toolApprovalPolicyTick])
 
   const currentPermissionPillLabel = useMemo(() => {
@@ -11151,12 +11087,10 @@ export default function ChatApp() {
   startNewSessionWithWorkspaceRef.current = startNewSessionWithWorkspace
 
   function resolveWorkspaceForNewSession(): string | null {
-    if (shellIntentWorkspaceRef.current !== undefined) {
-      const intent = String(shellIntentWorkspaceRef.current || '').trim()
-      return intent || null
-    }
-    const cur = String(localWorkspaceRootRef.current || '').trim()
-    return cur || null
+    return resolveWorkspaceForNewSessionImpl({
+      shellIntentWorkspaceRef,
+      localWorkspaceRootRef,
+    })
   }
 
   function handleNewSession() {
@@ -11165,21 +11099,16 @@ export default function ChatApp() {
 
   /** 回到工作台：已在空会话仪表盘则不重复建会话；否则新开空会话以展示首页 */
   function handleOpenHome() {
-    const onHome =
-      !historyLoading &&
-      !historyError &&
-      !sessionHadContent &&
-      Array.isArray(rowsRef.current) &&
-      rowsRef.current.length === 0 &&
-      !selectedTurnBusy
-    if (onHome) {
-      try {
-        document
-          .querySelector('.chat-messages-inner--home')
-          ?.scrollTo?.({ top: 0, behavior: 'smooth' })
-      } catch {
-        /* ignore */
-      }
+    if (
+      shouldStayOnHomeDashboard({
+        historyLoading,
+        historyError,
+        sessionHadContent,
+        rowsRef,
+        selectedTurnBusy,
+      })
+    ) {
+      scrollHomeMessagesToTop()
       return
     }
     startNewSessionWithWorkspace(resolveWorkspaceForNewSession())
