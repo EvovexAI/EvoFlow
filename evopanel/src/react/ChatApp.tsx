@@ -119,7 +119,6 @@ import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption }
 import { PendingSteersStrip } from './components/PendingSteersStrip.js'
 import { mergeInterruptedComposerDraft } from './lib/merge-interrupted-composer-draft.js'
 import { ContextUsageRing } from './components/ContextUsageRing.js'
-import { composeAttachDragOver, parseComposeDataTransfer } from './lib/compose-attach.js'
 import { basenameFromPath } from './lib/workspace-mention.js'
 import { GoalModePanel } from './components/GoalModePanel.js'
 import { GoalProposalDock } from './components/GoalProposalDock.js'
@@ -301,6 +300,7 @@ import { useGoalMode } from './hooks/useGoalMode.js'
 import { useClarificationPanel } from './hooks/useClarificationPanel.js'
 import { useComposerDrafts } from './hooks/useComposerDrafts.js'
 import { usePendingSendQueue } from './hooks/usePendingSendQueue.js'
+import { useChatContextFiles } from './hooks/useChatContextFiles.js'
 import {
   formatAskClarificationForHosted,
   isClarificationPreviewRenderable,
@@ -1078,6 +1078,19 @@ export default function ChatApp() {
     handleComposerDraftChange,
     restoreComposerDraft,
   } = useComposerDrafts({ selectedSessionKey, sessionRef })
+  const {
+    contextFiles,
+    setContextFiles,
+    contextImagePreviewIndex,
+    setContextImagePreviewIndex,
+    isHomeSurfaceRef,
+    persistContextFiles,
+    toggleContextFile,
+    attachContextFiles,
+    attachContextFilesRef,
+    handleConversationComposeDragOver,
+    handleConversationComposeDrop,
+  } = useChatContextFiles({ selectedSessionKey })
   const handleEditMessageRef = useRef<
     (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => void | Promise<void>
   >(() => {})
@@ -1600,9 +1613,6 @@ export default function ChatApp() {
   collabExecPanelOpenRef.current = collabExecPanelOpen
   /** 打开右侧分栏（工作区 / 协作执行）前左侧壳是否已折叠；关闭时恢复 */
   const shellCollapsedBeforeWorkspaceRef = useRef<boolean | null>(null)
-  const [contextFiles, setContextFiles] = useState<ContextFileEntry[]>([])
-  /** 拖入/路径引用的本地图片全屏预览：null=关闭，number=打开的索引（仅统计图片项） */
-  const [contextImagePreviewIndex, setContextImagePreviewIndex] = useState<number | null>(null)
   const openSessionSidebar = useCallback(() => {
     setSessionSidebarOpen(true)
   }, [])
@@ -2703,127 +2713,6 @@ export default function ChatApp() {
     closeRightStageStream,
     syncShellAsideForWorkspacePanel,
   ])
-  const persistContextFiles = useCallback(async (files: ContextFileEntry[], sessionKey?: string) => {
-    const sk = (sessionKey || selectedSessionKey || '').trim()
-    if (!sk) return
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      await api.chatUpdateContext(sk, { context_files: files })
-    } catch {
-      /* ignore */
-    }
-  }, [selectedSessionKey])
-
-  const toggleContextFile = useCallback(
-    (entry: ContextFileEntry) => {
-      setContextFiles((prev) => {
-        const path = String(entry.path || '').trim()
-        if (!path) return prev
-        const hit = prev.find((x) => x.path === path)
-        const next = hit ? prev.filter((x) => x.path !== path) : [...prev, { path, name: entry.name || path }]
-        void persistContextFiles(next)
-        return next
-      })
-    },
-    [persistContextFiles],
-  )
-
-  const attachContextFiles = useCallback(
-    (entries: Array<{ path: string; name?: string }>) => {
-      setContextFiles((prev) => {
-        const map = new Map(prev.map((f) => [f.path, f]))
-        const added: Array<{ path: string; name: string }> = []
-        for (const e of entries) {
-          const path = String(e.path || '').trim()
-          if (!path) continue
-          if (!map.has(path)) {
-            const name = String(e.name || '').trim() || path.replace(/^.*[/\\]/, '') || path
-            map.set(path, { path, name })
-            added.push({ path, name })
-          }
-        }
-        const next = [...map.values()]
-        if (next.length === prev.length) return prev
-        void persistContextFiles(next)
-        if (added.length) {
-          void import('../components/toast.js').then(({ toast }) => {
-            for (const f of added) {
-              toast(`已附加：${f.name}（发送后注入 Agent 上下文）`, 'info')
-            }
-          })
-        }
-        return next
-      })
-    },
-    [persistContextFiles],
-  )
-  const attachContextFilesRef = useRef(attachContextFiles)
-  attachContextFilesRef.current = attachContextFiles
-  const isHomeSurfaceRef = useRef(false)
-
-  const dispatchHomeContextAttach = useCallback((entries: Array<{ path: string; name: string }>) => {
-    if (!entries.length) return
-    window.dispatchEvent(
-      new CustomEvent('evopanel:home-attach-context', { detail: { contextFiles: entries } }),
-    )
-  }, [])
-
-  const routeContextFileAttach = useCallback(
-    (entries: Array<{ path: string; name?: string }>) => {
-      const cleaned = entries
-        .map((e) => {
-          const path = String(e.path || '').trim()
-          if (!path) return null
-          const name = String(e.name || '').trim() || path.replace(/^.*[/\\]/, '') || path
-          return { path, name }
-        })
-        .filter((x): x is { path: string; name: string } => !!x)
-      if (!cleaned.length) return
-      if (isHomeSurfaceRef.current) dispatchHomeContextAttach(cleaned)
-      else attachContextFilesRef.current(cleaned)
-    },
-    [dispatchHomeContextAttach],
-  )
-
-  const handleConversationComposeDragOver = useCallback((e: ReactDragEvent<HTMLElement>) => {
-    composeAttachDragOver(e)
-  }, [])
-
-  const handleConversationComposeDrop = useCallback(
-    (e: ReactDragEvent<HTMLElement>) => {
-      const result = parseComposeDataTransfer(e.dataTransfer, { fromPaste: false })
-      if (!result.handled) return
-      e.preventDefault()
-      e.stopPropagation()
-      if (result.contextFiles.length) routeContextFileAttach(result.contextFiles)
-    },
-    [routeContextFileAttach],
-  )
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined
-    let cancelled = false
-    void import('./lib/compose-attach.js')
-      .then(({ subscribeOsFileDrop, basenameFromPath }) =>
-        subscribeOsFileDrop((paths) => {
-          const entries = paths.map((path) => ({
-            path,
-            name: basenameFromPath(path),
-          }))
-          routeContextFileAttach(entries)
-        }),
-      )
-      .then((fn) => {
-        if (!fn) return
-        if (cancelled) fn()
-        else unlisten = fn
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-      unlisten?.()
-    }
-  }, [routeContextFileAttach])
   /** 子任务对话弹窗：协作执行面板与历史子任务卡片共用 */
   const [subtaskTranscriptModal, setSubtaskTranscriptModal] = useState<SubtaskTranscriptModalPayload | null>(null)
   // 绑定的协作任务 ID（从任务页跳转时设置）
@@ -3096,9 +2985,9 @@ export default function ChatApp() {
         })
         replaceSessionRuntimeRowsFromHistory(sk, mergedRows)
         if (sk === String(selectedSessionKey || '').trim()) {
-          // 主动刷新(bypassCache)时绕过等价守卫，强制用 DB 最新数据重渲染
-          const forceReplace = Boolean(opt?.bypassCache)
-          setRows((prev) => (forceReplace || !displayRowsEquivalent(prev, mergedRows) ? mergedRows : prev))
+          // bypassCache 只保证重新拉库；合并结果与当前画面等价则不 setRows，
+          // 避免流刚结束、DB 尚未写完时整页闪一下或被半截历史盖掉。
+          setRows((prev) => (displayRowsEquivalent(prev, mergedRows) ? prev : mergedRows))
         }
       }
       return result
