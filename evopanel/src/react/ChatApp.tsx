@@ -46,7 +46,6 @@ import {
   isTaskNotificationInject,
 } from '../lib/chat-normalize.js'
 import {
-  MODE_TO_SCENARIO,
   DEFAULT_SESSION_MODES,
   SHOW_SESSION_MODE_COLLAB_UI,
   modeLabel,
@@ -274,6 +273,8 @@ import { useComposerModelCatalog } from './hooks/useComposerModelCatalog.js'
 import { useSessionWorkspaceBind } from './hooks/useSessionWorkspaceBind.js'
 import { useProactiveRoles } from './hooks/useProactiveRoles.js'
 import { useContextUsageBySession } from './hooks/useContextUsageBySession.js'
+import { useSessionModeControls } from './hooks/useSessionModeControls.js'
+import { useCollabSidebarSync } from './hooks/useCollabSidebarSync.js'
 import { normalizeFileHrefForThread, normalizeRowFilesInPlace } from './chat-app/utils/file-href-normalize.js'
 import {
   formatAskClarificationForHosted,
@@ -342,6 +343,11 @@ import {
 } from '../lib/plan-from-task.js'
 import { tracePlanPipeline, resetPlanTrace } from '../lib/plan-trace.js'
 import type { StructuredPlanInput } from './components/PlanDetailView.js'
+import type {
+  PlanPanelHit,
+  PlanDockApiView,
+  PlanStreamLatch,
+} from './chat-app/plan-dock/types.js'
 // ============================================
 
 import type {
@@ -612,9 +618,7 @@ import {
 import {
   resolveSessionAgentCodeForUi,
   getSessionCollabModeFromMeta,
-  setSessionCollabModeInMeta,
   getThinkingLevelFromMeta,
-  setThinkingLevelInMeta,
 } from './chat-app/utils/session-meta.js'
 import {
   comparableAssistantText,
@@ -648,9 +652,6 @@ import {
   patchCollabSubtasksById,
   mergeCollabSubtasksStable,
   finalizeCollabSubtasksList,
-  mapSnapSupervisorSteps,
-  trimStepsToLatestTask,
-  type SidebarTaskView,
 } from './chat-app/collab/subtask-merge.js'
 
 ensureRightStageKindsRegistered()
@@ -1216,24 +1217,10 @@ export default function ChatApp() {
   const handleVoiceTranscribedRef = useRef<
     (text: string, opts?: { global?: boolean }) => Promise<void>
   >(async () => {})
-  /** 本轮已成功解析的 plan（避免历史工具合并 / stream 清空后 hit 变 none） */
-  type PlanPanelHit = {
-    planInput?: Record<string, unknown>
-    boundPlanReady?: boolean
-    taskId?: string
-    planOutput?: Record<string, unknown>
-    status?: string
-    preview?: string
-    boundPlanPersisted?: boolean
-  }
   const lastPlanPanelHitRef = useRef<PlanPanelHit | null>(null)
   const [planPanelHit, setPlanPanelHit] = useState<PlanPanelHit | null>(null)
   /** 流式中一旦出现 plan 即置位；final 合并丢 input 时仍展示计划面板 */
-  const planStreamLatchRef = useRef<{
-    planInput?: Record<string, unknown>
-    boundPlanReady?: boolean
-    taskId?: string
-  } | null>(null)
+  const planStreamLatchRef = useRef<PlanStreamLatch>(null)
   const [planStreamLatched, setPlanStreamLatched] = useState(false)
   const publishPlanPanelHit = useCallback((hit: PlanPanelHit | null) => {
     lastPlanPanelHitRef.current = hit
@@ -1292,27 +1279,6 @@ export default function ChatApp() {
   /** 同一会话+任务只拉一次 plan / collab 快照，避免多路 effect 重复请求导致面板闪烁 */
   const planAppliedForRef = useRef('')
   const planApiSyncInflightRef = useRef<Promise<void> | null>(null)
-  /** 计划确认条唯一展示态：仅 syncPlanPanelFromApi 写入 */
-  type PlanDockApiView =
-    | {
-        show: false
-        source: string
-        reason: string
-        taskId?: string
-        taskStatus?: string
-      }
-    | {
-        show: true
-        source: string
-        taskId: string
-        taskName?: string
-        taskStatus: string
-        statusLabel: string
-        showStartExecution: boolean
-        planStructured: StructuredPlanInput
-        subtaskCount: number
-        toolCallId: string
-      }
   const [planDockApiView, setPlanDockApiView] = useState<PlanDockApiView | null>(null)
   const planDockApiViewRef = useRef<PlanDockApiView | null>(null)
   const applyPlanDockApiView = useCallback((view: PlanDockApiView) => {
@@ -2627,7 +2593,6 @@ export default function ChatApp() {
   >(null)
   const boundTaskIdRef = useRef<string | null>(null)
   /** 协作主任务状态：用于系统通知去重（taskId → 上次 status） */
-  const collabTaskStatusNotifyRef = useRef(new Map<string, string>())
   const threadBoundTaskIdRef = useRef<string | null>(null)
   const ensureChatSessionKeyRef = useRef<(() => Promise<string | null>) | null>(null)
   /** 切换会话递增；异步 task 拉取前后校验，避免上一会话 in-flight 请求仍打到 API */
@@ -3156,8 +3121,27 @@ export default function ChatApp() {
     }
   }, [selectedSessionKey, setRows])
   const [, setSubagentDockTasks] = useState<Record<string, SubagentStreamTask>>({})
-  const [sidebarTaskViews, setSidebarTaskViews] = useState<Record<string, SidebarTaskView>>({})
-  const [sidebarSelectedTaskId, setSidebarSelectedTaskId] = useState<string | null>(null)
+  const {
+    sidebarTaskViews,
+    setSidebarTaskViews,
+    sidebarSelectedTaskId,
+    setSidebarSelectedTaskId,
+    parentTaskToSubtaskRef,
+    upsertSidebarTaskView,
+    ensureSubtasksVisibleForTask,
+    clearSidebarBackfillCaches,
+    applyTaskProgressSnapshot,
+  } = useCollabSidebarSync({
+    selectedSessionKey,
+    sessionRef,
+    sessionsRef,
+    streamRef,
+    setThreadPanelState,
+    bumpSubtasksApiRefresh,
+    setSubagentDockTasks,
+    planAppliedForRef,
+    planFromApiLoadedRef,
+  })
   const bottomModelRootRef = useRef<HTMLDivElement | null>(null)
   const bottomPermissionRootRef = useRef<HTMLDivElement | null>(null)
   const bottomMoreRootRef = useRef<HTMLDivElement | null>(null)
@@ -3388,92 +3372,6 @@ export default function ChatApp() {
     void wsClient.updateSessionContext(sk, patch).catch(() => {})
   }, [isProactiveEmployeeSession, selectedSessionKey])
 
-  const parentTaskToSubtaskRef = useRef<Record<string, string>>({})
-  const subtasksBackfillInFlightRef = useRef<Record<string, boolean>>({})
-  const subtasksBackfillLastAtRef = useRef<Record<string, number>>({})
-
-  const upsertSidebarTaskView = useCallback(
-    (
-      task: CollabTaskSnapshot | null | undefined,
-      subtasks?: CollabSubtaskSnapshot[],
-      steps?: SupervisorStepSnapshot[],
-    ) => {
-      const taskId = (task?.taskId || '').trim()
-      if (!taskId || !task) return
-      const sessionKey = String(sessionRef.current || selectedSessionKey || '').trim()
-      const normalizedSteps = trimStepsToLatestTask(steps)
-      setSidebarTaskViews((prev) => {
-        const cur = prev[taskId]
-        const mergedSubtasks = preferPersistedCollabSubtasks(
-          Array.isArray(subtasks)
-            ? mergeCollabSubtasksStable(cur?.subtasks || [], subtasks)
-            : cur?.subtasks || [],
-        )
-        return {
-          ...prev,
-          [taskId]: {
-            task: { ...(cur?.task || {}), ...task },
-            subtasks: mergedSubtasks,
-            steps: normalizedSteps ?? cur?.steps ?? [],
-            updatedAt: Date.now(),
-            sessionKey: sessionKey || cur?.sessionKey,
-          },
-        }
-      })
-      setSidebarSelectedTaskId(taskId)
-    },
-    [selectedSessionKey],
-  )
-
-  /** 强兜底：检测到任务调度相关工具执行但子任务未显示时，主动查任务接口补齐子任务列表。 */
-  const ensureSubtasksVisibleForTask = useCallback(
-    async (taskId: string) => {
-      const tid = String(taskId || '').trim()
-      if (!tid) return
-      const captureSk = String(sessionRef.current || selectedSessionKey || '').trim()
-      const now = Date.now()
-      const last = subtasksBackfillLastAtRef.current[tid] || 0
-      // Throttle repeated backfill triggers during dense stream chunks.
-      if (now - last < 4000) return
-      if (subtasksBackfillInFlightRef.current[tid]) return
-      subtasksBackfillInFlightRef.current[tid] = true
-      subtasksBackfillLastAtRef.current[tid] = now
-      try {
-        let threadId = captureSk ? wsClient.getSessionThreadId(captureSk) || '' : ''
-        if (!threadId || threadId.startsWith('agent:')) {
-          const rowHint = String(
-            sessionsRef.current.find((s) => String(s.sessionKey || '') === captureSk)?.threadId || '',
-          ).trim()
-          threadId = rowHint && !rowHint.startsWith('agent:') ? rowHint : ''
-        }
-        const mapped = await fetchCollabSubtasksForMainTask(tid, {
-          ...(threadId ? { threadId, preferTaskId: tid } : { preferTaskId: tid }),
-        })
-        if (String(sessionRef.current || '').trim() !== captureSk) return
-        if (!mapped.length) return
-        setThreadPanelState((prev) => {
-          if (String(sessionRef.current || '').trim() !== captureSk) return prev
-          const prevTaskId = String(prev.collabTask?.taskId || '').trim()
-          if (prevTaskId && prevTaskId !== tid) return prev
-          return {
-            ...prev,
-            collabSubtasks: finalizeCollabSubtasksList(
-              mergeCollabSubtasksStable(prev.collabSubtasks || [], mapped),
-              prev.subagentTasks,
-            ),
-          }
-        })
-        upsertSidebarTaskView({ taskId: tid }, mapped, undefined)
-        bumpSubtasksApiRefresh()
-      } catch {
-        // swallow
-      } finally {
-        subtasksBackfillInFlightRef.current[tid] = false
-      }
-    },
-    [upsertSidebarTaskView, selectedSessionKey, bumpSubtasksApiRefresh],
-  )
-
   /** 切换/新建会话：清空 plan latch、协作侧栏与 suppress，避免串会话显示上一对话的计划/子任务。 */
   const resetCollabPlanUiForSession = useCallback(
     (opts?: { keepBoundTaskId?: boolean; closeSidebar?: boolean }) => {
@@ -3499,8 +3397,7 @@ export default function ChatApp() {
       setSidebarTaskViews({})
       setSidebarSelectedTaskId(null)
       setHasReceivedTodos(false)
-      subtasksBackfillLastAtRef.current = {}
-      subtasksBackfillInFlightRef.current = {}
+      clearSidebarBackfillCaches()
       if (opts?.closeSidebar !== false) {
         setSessionSidebarOpen(false)
       }
@@ -3510,7 +3407,7 @@ export default function ChatApp() {
       collabExecSessionBaselinedRef.current = ''
       collabExecDismissedKeysRef.current.clear()
     },
-    [resetPlanStreamSession],
+    [resetPlanStreamSession, clearSidebarBackfillCaches],
   )
 
   /** 同会话内开启新一轮 plan：保留会话/thread，清空上一轮 plan/执行侧栏 latch。 */
@@ -3531,13 +3428,12 @@ export default function ChatApp() {
     setSidebarTaskViews({})
     setSidebarSelectedTaskId(null)
     setHasReceivedTodos(false)
-    subtasksBackfillLastAtRef.current = {}
-    subtasksBackfillInFlightRef.current = {}
+    clearSidebarBackfillCaches()
     const sk = String(sessionRef.current || selectedSessionKey || '').trim()
     if (sk) invalidatePlanApiCache(sk)
     setThreadPanelState(emptyThreadPanel())
     setBoundTaskId(null)
-  }, [resetPlanStreamSession, selectedSessionKey])
+  }, [resetPlanStreamSession, selectedSessionKey, clearSidebarBackfillCaches])
 
   // collabSubtaskStatusSig removed (unused)
 
@@ -3772,190 +3668,6 @@ export default function ChatApp() {
     syncPlanPanelImmediateFromTools,
     collectPlanToolsForDetection,
   ])
-
-  /** task-progress / 刷新 / 本轮 final 后：合并 collab_phase、bound_*、持久化 supervisor_steps 与主任务快照 */
-  const applyTaskProgressSnapshot = useCallback(
-    (snap: Record<string, unknown> | null, opts?: { sessionKey?: string }) => {
-      if (!snap) return
-      const captureSk = String(opts?.sessionKey || sessionRef.current || selectedSessionKey || '').trim()
-      const phase = typeof snap.collab_phase === 'string' ? snap.collab_phase : null
-      const boundTaskId =
-        typeof snap.bound_task_id === 'string' && snap.bound_task_id.trim()
-          ? snap.bound_task_id.trim()
-          : null
-      const stepsFromSnap = mapSnapSupervisorSteps(snap.supervisor_steps)
-
-      const mainRaw = snap.main_task
-      if (!mainRaw || typeof mainRaw !== 'object') {
-        if (String(sessionRef.current || '').trim() !== captureSk) return
-        setThreadPanelState((prev) => ({
-          ...prev,
-          ...(phase != null ? { collabPhase: phase } : {}),
-          ...(boundTaskId != null ? { boundTaskId } : {}),
-          ...(stepsFromSnap.length ? { supervisorSteps: stepsFromSnap } : {}),
-        }))
-        return
-      }
-      const main = mainRaw as Record<string, unknown>
-      const taskId = typeof main.taskId === 'string' ? main.taskId.trim() : ''
-      if (!taskId) {
-        if (String(sessionRef.current || '').trim() !== captureSk) return
-        setThreadPanelState((prev) => ({
-          ...prev,
-          ...(phase != null ? { collabPhase: phase } : {}),
-          ...(boundTaskId != null ? { boundTaskId } : {}),
-          ...(stepsFromSnap.length ? { supervisorSteps: stepsFromSnap } : {}),
-        }))
-        return
-      }
-      const subsRaw = snap.subtasks
-      const collabSubtasks: CollabSubtaskSnapshot[] = Array.isArray(subsRaw)
-        ? (subsRaw
-            .map((row) => {
-              const r = row as Record<string, unknown>
-              const sid = typeof r.subtaskId === 'string' ? r.subtaskId.trim() : ''
-              if (!sid) return null
-              const dn =
-                typeof (r as any).assignedAgentDisplay === 'string' &&
-                String((r as any).assignedAgentDisplay).trim()
-                  ? String((r as any).assignedAgentDisplay).trim()
-                  : typeof (r as any).assignedAgentName === 'string' && String((r as any).assignedAgentName).trim()
-                    ? String((r as any).assignedAgentName).trim()
-                    : typeof (r as any).assigned_agent_name === 'string' &&
-                        String((r as any).assigned_agent_name).trim()
-                      ? String((r as any).assigned_agent_name).trim()
-                      : ''
-              const assignedCode =
-                typeof r.assignedAgent === 'string' && r.assignedAgent.trim()
-                  ? r.assignedAgent.trim()
-                  : typeof (r as any).assigned_to === 'string' && String((r as any).assigned_to).trim()
-                    ? String((r as any).assigned_to).trim()
-                    : ''
-              const out: CollabSubtaskSnapshot = {
-                subtaskId: sid,
-                ...(typeof r.parentTaskId === 'string' ? { parentTaskId: r.parentTaskId } : {}),
-                ...(typeof r.name === 'string' ? { name: r.name } : {}),
-                ...(typeof r.description === 'string' ? { description: r.description } : {}),
-                ...(typeof r.status === 'string' ? { status: r.status } : {}),
-                ...(typeof r.progress === 'number' ? { progress: r.progress } : {}),
-                ...(assignedCode ? { assignedAgent: assignedCode } : {}),
-                ...(dn ? { assignedAgentDisplay: dn } : {}),
-                ...(typeof (r as any).currentStep === 'string'
-                  ? { currentStep: (r as any).currentStep }
-                  : typeof (r as any).current_step === 'string'
-                    ? { currentStep: (r as any).current_step }
-                    : {}),
-                ...(Array.isArray((r as any).workChecklist)
-                  ? { workChecklist: (r as any).workChecklist }
-                  : Array.isArray((r as any).work_checklist)
-                    ? { workChecklist: (r as any).work_checklist }
-                    : []),
-              }
-              return out
-            })
-            .filter(Boolean) as CollabSubtaskSnapshot[])
-        : []
-
-      const collabTask: CollabTaskSnapshot = {
-        taskId,
-        ...(typeof main.name === 'string' ? { name: main.name } : {}),
-        ...(typeof main.status === 'string' ? { status: main.status } : {}),
-        ...(typeof main.progress === 'number' ? { progress: main.progress } : {}),
-        ...(typeof main.executionAuthorized === 'boolean'
-          ? { executionAuthorized: main.executionAuthorized }
-          : typeof (main as { execution_authorized?: boolean }).execution_authorized === 'boolean'
-            ? { executionAuthorized: (main as { execution_authorized: boolean }).execution_authorized }
-            : {}),
-        ...(typeof main.lifecycleStage === 'string' ? { lifecycleStage: main.lifecycleStage } : {}),
-        ...(typeof main.lifecycleLabel === 'string' ? { lifecycleLabel: main.lifecycleLabel } : {}),
-        ...(typeof main.boundPlanPreview === 'string' ? { boundPlanPreview: main.boundPlanPreview } : {}),
-      }
-
-      const taskName = typeof collabTask.name === 'string' ? collabTask.name.trim() : ''
-      const nextTaskSt = String(collabTask.status || '')
-        .trim()
-        .toLowerCase()
-      const prevTaskSt = collabTaskStatusNotifyRef.current.get(taskId) || ''
-      if (nextTaskSt && nextTaskSt !== prevTaskSt) {
-        collabTaskStatusNotifyRef.current.set(taskId, nextTaskSt)
-        if (nextTaskSt === 'completed' && prevTaskSt !== 'completed') {
-          void notifyDesktopCompletion({
-            title: 'EvoFlow · 任务完成',
-            body: taskName ? `「${taskName}」已完成` : '协作任务已完成',
-            tag: `task:${taskId}:completed`,
-          })
-        } else if (nextTaskSt === 'failed' && prevTaskSt !== 'failed') {
-          void notifyDesktopCompletion({
-            title: 'EvoFlow · 任务失败',
-            body: taskName ? `「${taskName}」执行失败` : '协作任务执行失败',
-            tag: `task:${taskId}:failed`,
-          })
-        }
-      }
-
-      setThreadPanelState((prev) => {
-        if (String(sessionRef.current || '').trim() !== captureSk) return prev
-        const prevTaskId = (prev.collabTask?.taskId || '').trim()
-        const switchedTask = !!prevTaskId && prevTaskId !== taskId
-        if (switchedTask) {
-          // New task in the same chat session: clear previous subtask stream cache
-          // to avoid stale marquee from old task lingering in UI.
-          streamRef.current.subagentTasks = {}
-          streamRef.current.terminalStreams = {}
-          setSubagentDockTasks({})
-          parentTaskToSubtaskRef.current = {}
-        }
-        const nextSubtasks =
-          collabSubtasks.length > 0
-            ? finalizeCollabSubtasksList(collabSubtasks, prev.subagentTasks)
-            : switchedTask
-              ? []
-              : preferPersistedCollabSubtasks(prev.collabSubtasks || [])
-        const mergedCollabTask = switchedTask
-          ? collabTask
-          : {
-              ...(prev.collabTask || {}),
-              ...collabTask,
-              ...(prev.collabTask?.status === 'planned' && !collabTask.status
-                ? { status: 'planned' }
-                : {}),
-              ...(prev.collabTask?.boundPlanReady && !collabTask.boundPlanReady
-                ? { boundPlanReady: true }
-                : {}),
-            }
-        return {
-          ...prev,
-          collabPhase: phase ?? prev.collabPhase,
-          boundTaskId: boundTaskId ?? prev.boundTaskId,
-          // 如果快照缺少 progress（或进度暂时未返回），避免把旧的 progress 覆盖成空
-          // 只有在 taskId 切换时才重置为新快照的 collabTask。
-          collabTask: mergedCollabTask,
-          // monitor_execution_step 的紧凑快照可能不带 subtasks，不能把现有子任务清空。
-          collabSubtasks: nextSubtasks,
-          supervisorSteps: stepsFromSnap.length ? stepsFromSnap : switchedTask ? [] : prev.supervisorSteps,
-        }
-      })
-      upsertSidebarTaskView(collabTask, collabSubtasks.length > 0 ? collabSubtasks : undefined, stepsFromSnap)
-      if (collabSubtasks.length > 0) bumpSubtasksApiRefresh()
-
-      const planGoal = String(
-        (main as { planGoal?: string }).planGoal || main.boundPlanPreview || '',
-      ).trim()
-      const boundReady =
-        (main as { boundPlanReady?: boolean }).boundPlanReady === true ||
-        String(main.status || '')
-          .trim()
-          .toLowerCase() === 'planned'
-      if (planGoal || boundReady) {
-        if (!captureSk) return
-        const applyKey = `${captureSk}:${taskId}`
-        if (planAppliedForRef.current === applyKey) return
-        const loadKey = `${captureSk}:${taskId}:${planGoal.slice(0, 48)}`
-        if (planFromApiLoadedRef.current === loadKey) return
-      }
-    },
-    [upsertSidebarTaskView, publishPlanPanelHit, selectedSessionKey, bumpSubtasksApiRefresh],
-  )
 
   const syncPlanPanelFromApi = useCallback(
     async (opts: {
@@ -5615,155 +5327,22 @@ export default function ChatApp() {
     ],
   )
 
-  async function reconcileCollabWithMode(sessionKey: string) {
-    const api = await getApi()
-    const on = getSessionCollabModeFromMeta(sessionKey)
-    if (on) {
-      await api.chatUpdateContext(sessionKey, {
-        subagent_enabled: true,
-        is_plan_mode: true,
-        collab_phase: 'planning',
-        collab_task_id: null,
-      })
-    } else {
-      await api.chatUpdateContext(sessionKey, { collab_phase: 'idle', collab_task_id: null })
-      // 与 toggleCollab(off) 一致：把磁盘 thread collab 拉回 idle，否则中间件仍按 planning 注入 <collab_phase_context>
-      const threadId = await wsClient.ensureChatThread(sessionKey)
-      if (threadId) {
-        try {
-          await wsClient.putThreadCollabState(threadId, { collab_phase: 'idle', bound_task_id: null })
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  async function applySessionModePreset(sessionKey: string, mode: SessionMode) {
-    const api = await getApi()
-    const scenario = MODE_TO_SCENARIO[mode] ?? null
-    // 通过场景接口设置 activated_scenarios（chat/workspace/plan/null=auto）
-    await api.setSessionScenario(sessionKey, scenario)
-    // 兼容旧 context 字段：同步 session_mode（后端中间件仍可能读取）；思考由后端 AUTO 决策，不传 thinking_enabled
-    const contextUpdate: Record<string, any> = { session_mode: mode, thinking_type: 'auto', thinking_enabled: null, reasoning_effort: null }
-    // 切换模式时重置思考等级为自动
-    setThinkingLevel('auto')
-    setThinkingLevelInMeta(sessionKey, 'auto')
-    // 同步本地 ws-client session context
-    wsClient.updateSessionContext(sessionKey, contextUpdate)
-    if (mode === 'plan') {
-      contextUpdate.is_plan_mode = true
-      contextUpdate.subagent_enabled = true
-      contextUpdate.collab_phase = 'planning'
-    } else {
-      contextUpdate.is_plan_mode = false
-      contextUpdate.subagent_enabled = false
-    }
-    await api.chatUpdateContext(sessionKey, contextUpdate)
-    // plan 模式需要同步协作状态
-    if (mode === 'plan') {
-      if (!getSessionCollabModeFromMeta(sessionKey)) {
-        setSessionCollabModeInMeta(sessionKey, true)
-        setCollabOn(true)
-      }
-      await applyCollabServerPatch(sessionKey, true)
-    } else {
-      if (getSessionCollabModeFromMeta(sessionKey)) {
-        setSessionCollabModeInMeta(sessionKey, false)
-        setCollabOn(false)
-        await applyCollabServerPatch(sessionKey, false)
-      }
-    }
-    await reconcileCollabWithMode(sessionKey)
-  }
-
-  async function applyThinkingLevel(sessionKey: string, level: ThinkingLevel) {
-    if (!sessionKey) return
-    setThinkingLevelInMeta(sessionKey, level)
-    setThinkingLevel(level)
-    const api = await getApi()
-    let contextUpdate: Record<string, any>
-    if (level === 'auto') {
-      // auto 模式：交回后端 AUTO 决策
-      contextUpdate = { thinking_type: 'auto', thinking_enabled: null, reasoning_effort: null }
-      toast('思考模式：自动（由后端决策）', 'success')
-    } else if (level === 'off') {
-      contextUpdate = { thinking_type: 'manual', thinking_enabled: false, reasoning_effort: 'minimum' }
-      toast('思考模式：关闭', 'success')
-    } else {
-      const effortMap: Record<string, string> = { low: 'low', medium: 'medium', high: 'high' }
-      contextUpdate = {
-        thinking_type: 'manual',
-        thinking_enabled: true,
-        reasoning_effort: effortMap[level] || 'medium',
-      }
-      toast(`思考模式：${level === 'low' ? '轻度' : level === 'medium' ? '中度' : '深度'}思考`, 'success')
-    }
-    // 同步本地 ws-client session context（chatSend 从本地读取构建 runContext）
-    wsClient.updateSessionContext(sessionKey, contextUpdate)
-    // 同步后端 DB
-    await api.chatUpdateContext(sessionKey, contextUpdate)
-  }
-
-  async function applyCollabServerPatch(sessionKey: string, on: boolean) {
-    const threadId = on
-      ? await wsClient.ensureChatThread(sessionKey)
-      : (await wsClient.ensureChatThread(sessionKey).catch(() => wsClient.getSessionThreadId(sessionKey)))
-    if (!threadId) return
-    if (on) {
-      const collab = await wsClient.putThreadCollabState(threadId, { collab_phase: 'planning' })
-      const boundTaskId =
-        collab && typeof collab.bound_task_id === 'string' && collab.bound_task_id.trim()
-          ? collab.bound_task_id.trim()
-          : ''
-      if (boundTaskId) {
-        try {
-          const api = await getApi()
-          await api.chatUpdateContext(sessionKey, {
-            collab_task_id: boundTaskId,
-            is_plan_mode: true,
-            collab_phase: 'planning',
-          })
-        } catch {
-          /* ignore */
-        }
-      }
-    } else {
-      await wsClient.putThreadCollabState(threadId, {
-        collab_phase: 'idle',
-        bound_task_id: null,
-      })
-    }
-  }
-
-  async function setCollabPhaseForSession(sessionKey: string, phase: 'planning' | 'executing' | 'idle') {
-    const api = await getApi()
-    await api.chatUpdateContext(sessionKey, { collab_phase: phase })
-    const threadId = await wsClient.ensureChatThread(sessionKey)
-    if (!threadId) return
-    if (phase === 'idle') {
-      await wsClient.putThreadCollabState(threadId, { collab_phase: 'idle', bound_task_id: null })
-      return
-    }
-    await wsClient.putThreadCollabState(threadId, { collab_phase: phase })
-  }
-
-  async function setSessionModeAndApply(mode: SessionMode) {
-    if (mode === sessionMode) return
-    setSessionMode(mode)
-    const key = sessionRef.current || selectedSessionKey
-    if (!key) {
-      toast(`已切换为：${modeLabel(mode, dynamicModes || DEFAULT_SESSION_MODES)}`, 'success')
-      return
-    }
-    setSessionModeInMeta(key, mode)
-    try {
-      await applySessionModePreset(key, mode)
-      toast(`已切换为：${modeLabel(mode, dynamicModes || DEFAULT_SESSION_MODES)}`, 'success')
-    } catch (e) {
-      toast(`切换模式失败: ${String((e as Error)?.message || e)}`, 'error')
-    }
-  }
+  const {
+    reconcileCollabWithMode,
+    applySessionModePreset,
+    applyThinkingLevel,
+    applyCollabServerPatch,
+    setCollabPhaseForSession,
+    setSessionModeAndApply,
+  } = useSessionModeControls({
+    sessionMode,
+    setSessionMode,
+    setThinkingLevel,
+    setCollabOn,
+    dynamicModes,
+    selectedSessionKey,
+    sessionRef,
+  })
 
   // toggleCollab removed (unused)
 
