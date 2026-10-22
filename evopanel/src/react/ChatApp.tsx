@@ -473,9 +473,15 @@ import {
 } from './chat-app/stream/schedule-stream-bumps.js'
 import { afterLiveOrStructuralBump as afterLiveOrStructuralBumpImpl } from './chat-app/stream/after-live-or-structural-bump.js'
 import {
-  buildWorkspaceMentionConfig,
-  searchWorkspaceFilesForMention as searchWorkspaceFilesForMentionImpl,
-} from './chat-app/composer/workspace-mention.js'
+  clearTurnSendingState as clearTurnSendingStateImpl,
+  maybeEndTurnSendingState as maybeEndTurnSendingStateImpl,
+} from './chat-app/stream/turn-sending-state.js'
+import {
+  disposeStreamBumpSchedulers,
+  ensureStreamBumpSchedulers,
+} from './chat-app/stream/ensure-stream-bump-schedulers.js'
+import { buildWorkspaceMentionConfig } from './chat-app/composer/workspace-mention.js'
+import { buildChatRightStageLauncherItems } from './chat-app/right-stage/build-right-stage-launcher-items.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -2103,66 +2109,40 @@ export default function ChatApp() {
   }
 
   const streamBumpSchedulerRef = useRef<ReturnType<typeof createStreamBumpScheduler> | null>(null)
-  if (
-    !streamBumpSchedulerRef.current ||
-    typeof streamBumpSchedulerRef.current.cancelPending !== 'function'
-  ) {
-    streamBumpSchedulerRef.current?.dispose()
-    streamBumpSchedulerRef.current = createStreamBumpScheduler(
-      () => onCoalescedStreamBumpRef.current(),
-      () => streamBumpMinIntervalRef.current,
-    )
-  }
   const workerFileBumpSchedulerRef = useRef<ReturnType<typeof createStreamBumpScheduler> | null>(null)
-  if (
-    !workerFileBumpSchedulerRef.current ||
-    typeof workerFileBumpSchedulerRef.current.cancelPending !== 'function'
-  ) {
-    workerFileBumpSchedulerRef.current?.dispose()
-    workerFileBumpSchedulerRef.current = createStreamBumpScheduler(
-      () => onCoalescedStreamBumpRef.current(),
-      () => (isStreamThrottleEnabled() ? 400 : STREAM_BUMP_INTERVAL_MS),
-    )
-  }
   const reasoningBumpSchedulerRef = useRef<ReturnType<typeof createStreamBumpScheduler> | null>(null)
-  if (
-    !reasoningBumpSchedulerRef.current ||
-    typeof reasoningBumpSchedulerRef.current.cancelPending !== 'function'
-  ) {
-    reasoningBumpSchedulerRef.current?.dispose()
-    reasoningBumpSchedulerRef.current = createStreamBumpScheduler(
-      () => onCoalescedStreamBumpRef.current(),
-      () => STREAM_REASONING_BUMP_INTERVAL_MS,
-    )
-  }
   const bgRuntimeNotifySchedulerRef = useRef<ReturnType<typeof createStreamBumpScheduler> | null>(null)
-  if (
-    !bgRuntimeNotifySchedulerRef.current ||
-    typeof bgRuntimeNotifySchedulerRef.current.cancelPending !== 'function'
-  ) {
-    bgRuntimeNotifySchedulerRef.current?.dispose()
-    bgRuntimeNotifySchedulerRef.current = createStreamBumpScheduler(
-      () => {
-        let sk = String(bgRuntimeNotifySessionRef.current || '').trim()
-        if (!sk && !chatSurfaceVisibleRef.current) {
-          sk = String(sessionRef.current || '').trim()
-        }
-        if (sk) bumpSessionRuntimeNotifyForKey(sk)
-      },
-      () => (isChatOverlayDeferActive() ? STREAM_OVERLAY_DEFER_RUNTIME_NOTIFY_MS : STREAM_BG_RUNTIME_NOTIFY_MS),
-    )
-  }
-  useEffect(() => () => {
-    streamBumpSchedulerRef.current?.dispose()
-    workerFileBumpSchedulerRef.current?.dispose()
-    reasoningBumpSchedulerRef.current?.dispose()
-    bgRuntimeNotifySchedulerRef.current?.dispose()
-    // 旧 disposeLiveStreamUiBatch 已删：rAF batch 不存在了
-    if (streamChromeBumpTimerRef.current) {
-      clearTimeout(streamChromeBumpTimerRef.current)
-      streamChromeBumpTimerRef.current = 0
-    }
-  }, [])
+  ensureStreamBumpSchedulers({
+    STREAM_BG_RUNTIME_NOTIFY_MS,
+    STREAM_BUMP_INTERVAL_MS,
+    STREAM_OVERLAY_DEFER_RUNTIME_NOTIFY_MS,
+    STREAM_REASONING_BUMP_INTERVAL_MS,
+    bgRuntimeNotifySchedulerRef,
+    bgRuntimeNotifySessionRef,
+    bumpSessionRuntimeNotifyForKey,
+    chatSurfaceVisibleRef,
+    createStreamBumpScheduler,
+    isChatOverlayDeferActive,
+    isStreamThrottleEnabled,
+    onCoalescedStreamBumpRef,
+    reasoningBumpSchedulerRef,
+    sessionRef,
+    streamBumpMinIntervalRef,
+    streamBumpSchedulerRef,
+    workerFileBumpSchedulerRef,
+  })
+  useEffect(
+    () => () => {
+      disposeStreamBumpSchedulers({
+        bgRuntimeNotifySchedulerRef,
+        reasoningBumpSchedulerRef,
+        streamBumpSchedulerRef,
+        streamChromeBumpTimerRef,
+        workerFileBumpSchedulerRef,
+      })
+    },
+    [],
+  )
 
   const cancelPendingStreamUiBumps = useCallback(() => {
     streamBumpSchedulerRef.current?.cancelPending?.()
@@ -2637,20 +2617,6 @@ export default function ChatApp() {
     }
   }, [effectiveWorkspaceRoot, configuredWorkspaceRoot, useVirtualPaths, selectedSessionKey])
 
-  const searchWorkspaceFilesForMention = useCallback(
-    (query: string) =>
-      searchWorkspaceFilesForMentionImpl(
-        {
-          effectiveWorkspaceRoot,
-          selectedSessionKey,
-          wsClient,
-          basenameFromPath,
-        },
-        query,
-      ),
-    [effectiveWorkspaceRoot, selectedSessionKey],
-  )
-
   /** 智能体员工列表（active），供 @员工 派发与输入框岗位按钮 / 侧栏员工下拉使用 */
   const { proactiveRoles, loadProactiveRoles } = useProactiveRoles()
 
@@ -2736,7 +2702,6 @@ export default function ChatApp() {
     [
       effectiveWorkspaceRoot,
       persistContextFiles,
-      searchWorkspaceFilesForMention,
       selectedSessionKey,
       useVirtualPaths,
       proactiveRolesDisplay,
@@ -3822,21 +3787,19 @@ export default function ChatApp() {
     [scheduleBump, scheduleReasoningBump],
   )
 
+  const turnSendingStateHost = {
+    activeChatRunIdRef,
+    clearActiveRun,
+    dispatchSessionRunEnded,
+    markSessionStreamWireSource,
+    maybeClearTurnSendingState,
+    setStreamHealth,
+    streamHealthRef,
+    wsClient,
+  }
   const clearTurnSendingState = useCallback(
     (sessionKey: string, rt: ReturnType<typeof getSessionRuntime>, isBackground: boolean) => {
-      // 必须清 activeChatRunId：否则下一轮 run_started(runId 不同)会被 run gate 阻断，
-      // turnPhase 停在 idle，后续 delta 全部被 !streamActive 守卫丢弃，流式显示冻结。
-      clearActiveRun(rt)
-      if (!isBackground) activeChatRunIdRef.current = null
-      // SSE final / 停止：POST wire 已关，显式清 marker（TURN_IDLE 会保留 'run' 以免误伤）
-      if (rt.streamWireSource === 'run') {
-        markSessionStreamWireSource(sessionKey, null)
-      }
-      dispatchSessionRunEnded(sessionKey)
-      if (!isBackground) {
-        setStreamHealth(null)
-        streamHealthRef.current = null
-      }
+      clearTurnSendingStateImpl(turnSendingStateHost, sessionKey, rt, isBackground)
     },
     [],
   )
@@ -3848,19 +3811,7 @@ export default function ChatApp() {
       isBackground: boolean,
       opts: { force?: boolean } = {},
     ) => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return
-      void maybeClearTurnSendingState({
-        sessionKey: sk,
-        wsClient,
-        force: opts.force,
-        onClear: () => {
-          clearTurnSendingState(sk, rt, isBackground)
-        },
-        onResume: () => {
-          /* 续流仅用户刷新触发；run 仍 active 时保持 turn busy */
-        },
-      })
+      maybeEndTurnSendingStateImpl(turnSendingStateHost, sessionKey, rt, isBackground, opts)
     },
     [clearTurnSendingState],
   )
@@ -5467,31 +5418,20 @@ export default function ChatApp() {
 
   const rightStageLauncherItems = useMemo(
     () =>
-      buildDefaultRightStageLauncherItems({
-        onOpenBrowser: () => {
-          const manualTid = String(wsClient.getSessionThreadId(selectedSessionKey || '') || '').trim()
-          if (manualTid) setBrowserPanelThreadId(manualTid)
-          ensureBrowserStage({
-            forceNew: true,
-            sessionKey: selectedSessionKey || undefined,
-          })
-        },
-        onOpenWorkspace: () => {
-          rightStageUserPinnedRef.current = 'workspace-browse'
-          setWorkspacePanelOpen(true)
-          setWorkspaceTreePinned(true)
-          syncShellAsideForWorkspacePanel(true)
-        },
-        onOpenWorkflow: () => {
-          openCollabExecPanel()
-        },
-        onOpenSummary: () => {
-          setChatPanelDisplayMode('panel')
-        },
-        mindMapEnabled: knowledgeMapEnabled,
-        onOpenMindMap: () => {
-          openKnowledgeMapPanel()
-        },
+      buildChatRightStageLauncherItems({
+        buildDefaultRightStageLauncherItems,
+        wsClient,
+        selectedSessionKey,
+        setBrowserPanelThreadId,
+        ensureBrowserStage,
+        rightStageUserPinnedRef,
+        setWorkspacePanelOpen,
+        setWorkspaceTreePinned,
+        syncShellAsideForWorkspacePanel,
+        openCollabExecPanel,
+        setChatPanelDisplayMode,
+        knowledgeMapEnabled,
+        openKnowledgeMapPanel,
       }),
     [
       selectedSessionKey,

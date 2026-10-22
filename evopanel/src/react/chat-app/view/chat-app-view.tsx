@@ -1005,7 +1005,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                             setVoiceReplyEnabled(next)
                             await patchPanelSettings(voiceReplyModeToSettingsPatch(next))
                             if (!next) { voiceReplyPendingRef.current = false; voiceStreamingStartedRef.current = false; voiceSpeechSyncedPlainRef.current = ''
-                              void import('../../lib/speech-client.js').then(({ stopAllAssistantSpeech, resetStreamingSpeechQueue }) => { stopAllAssistantSpeech(); resetStreamingSpeechQueue() })
+                              void import('../../../lib/speech-client.js').then(({ stopAllAssistantSpeech, resetStreamingSpeechQueue }) => { stopAllAssistantSpeech(); resetStreamingSpeechQueue() })
                             }
                             toast(next ? '已开启语音播报' : '已关闭语音播报', 'success')
                           }}
@@ -1155,7 +1155,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           voiceReplyPendingRef.current = false
                           voiceStreamingStartedRef.current = false
                           voiceSpeechSyncedPlainRef.current = ''
-                          void import('../../lib/speech-client.js').then(({ stopAllAssistantSpeech, resetStreamingSpeechQueue }) => {
+                          void import('../../../lib/speech-client.js').then(({ stopAllAssistantSpeech, resetStreamingSpeechQueue }) => {
                             stopAllAssistantSpeech()
                             resetStreamingSpeechQueue()
                           })
