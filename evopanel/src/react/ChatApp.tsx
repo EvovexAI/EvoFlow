@@ -541,6 +541,28 @@ import {
 import { setChatPanelDisplayMode as setChatPanelDisplayModeImpl } from './chat-app/right-stage/set-chat-panel-display-mode.js'
 import { runCloseLeftoverSummaryStageEffect } from './chat-app/right-stage/run-close-leftover-summary-stage.js'
 import { runInfoRailOnSessionChangeEffect } from './chat-app/shell/run-info-rail-on-session-change.js'
+import { refreshSpeechConfigured as refreshSpeechConfiguredImpl } from './chat-app/composer/refresh-speech-configured.js'
+import { runVoiceSendHandlerEffect } from './chat-app/composer/install-voice-send-handler.js'
+import {
+  publishPlanPanelHit as publishPlanPanelHitImpl,
+  resetPlanStreamSession as resetPlanStreamSessionImpl,
+  applyPlanDockApiView as applyPlanDockApiViewImpl,
+} from './chat-app/plan-dock/publish-plan-panel-hit.js'
+import { resolveProactiveRolesDisplay } from './chat-app/agents/resolve-proactive-roles-display.js'
+import {
+  resolveSelectedSessionAgentId,
+  resolveCurrentRoleCodeForUi,
+  resolveAssistantReplyLabel,
+  resolveCurrentRoleLabel,
+  resolveAgentDefaultModelName,
+} from './chat-app/agents/resolve-session-role-ui.js'
+import {
+  resolveSelectedSessionLive,
+  resolveIsHomeSurface,
+  resolveSelectedResumeAttach,
+  resolveSelectedResumeStreamHold,
+  resolveSidebarHistory,
+} from './chat-app/session/resolve-selected-session-live.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -1288,37 +1310,7 @@ export default function ChatApp() {
   }, [shortcutHintTick])
 
   const refreshSpeechConfigured = useCallback(() => {
-    void (async () => {
-      try {
-        const { isVolcengineAsrEnabled } = await import('../lib/voice-asr-policy.js')
-        if (!isVolcengineAsrEnabled()) {
-          const { isWebSpeechCaptureAvailable } = await import('../lib/web-speech-capture.js')
-          if (isWebSpeechCaptureAvailable()) {
-            setSpeechEnabled(true)
-            return
-          }
-        }
-        const { fetchSpeechConfigured } = await import('../lib/speech-client.js')
-        setSpeechEnabled(!!(await fetchSpeechConfigured()))
-      } catch {
-        setSpeechEnabled(false)
-      }
-    })()
-  }, [])
-
-  useEffect(() => {
-    // ✅ 修复：只注册一次！不要依赖 selectedSessionKey，否则每次切会话就重新注册
-    // 我们用 sessionRef.current 读最新值，不需要放在依赖项里
-    registerVoiceSendHandler(async (text, opts) => {
-      if (opts?.global) {
-        const sk = String(selectedSessionKey || sessionRef.current || '').trim()
-        if (!sk) {
-          await ensureChatSessionKeyRef.current?.()
-        }
-      }
-      await handleVoiceTranscribedRef.current(text, opts)
-    })
-    return () => unregisterVoiceSendHandler()
+    refreshSpeechConfiguredImpl({ setSpeechEnabled })
   }, [])
 
   /** 本轮由语音输入发起 → 流式/结束时朗读 assistant 正文 */
@@ -1348,22 +1340,34 @@ export default function ChatApp() {
   const handleVoiceTranscribedRef = useRef<
     (text: string, opts?: { global?: boolean }) => Promise<void>
   >(async () => {})
+
+  useEffect(() => {
+    // ✅ 修复：只注册一次！不要依赖 selectedSessionKey，否则每次切会话就重新注册
+    // 我们用 sessionRef.current 读最新值，不需要放在依赖项里
+    return runVoiceSendHandlerEffect({
+      registerVoiceSendHandler,
+      unregisterVoiceSendHandler,
+      selectedSessionKey,
+      sessionRef,
+      ensureChatSessionKeyRef,
+      handleVoiceTranscribedRef,
+    })
+  }, [])
   const lastPlanPanelHitRef = useRef<PlanPanelHit | null>(null)
   const [planPanelHit, setPlanPanelHit] = useState<PlanPanelHit | null>(null)
   /** 流式中一旦出现 plan 即置位；final 合并丢 input 时仍展示计划面板 */
   const planStreamLatchRef = useRef<PlanStreamLatch>(null)
   const [planStreamLatched, setPlanStreamLatched] = useState(false)
   const publishPlanPanelHit = useCallback((hit: PlanPanelHit | null) => {
-    lastPlanPanelHitRef.current = hit
-    setPlanPanelHit(hit)
-    if (hit?.planInput || hit?.boundPlanReady) {
-      planStreamLatchRef.current = {
-        planInput: hit.planInput,
-        boundPlanReady: hit.boundPlanReady,
-        taskId: hit.taskId,
-      }
-      setPlanStreamLatched(true)
-    }
+    publishPlanPanelHitImpl(
+      {
+        lastPlanPanelHitRef,
+        setPlanPanelHit,
+        planStreamLatchRef,
+        setPlanStreamLatched,
+      },
+      hit,
+    )
   }, [])
   /** final 清空 stream 后仍用于 plan 检测的合并工具行（避免落库 name-only 覆盖流式入参） */
   const lastPlanDetectionToolsRef = useRef<unknown[]>([])
@@ -1372,13 +1376,15 @@ export default function ChatApp() {
   const lastPlanSyncSigRef = useRef('')
 
   const resetPlanStreamSession = useCallback(() => {
-    lastPlanPanelHitRef.current = null
-    setPlanPanelHit(null)
-    planStreamLatchRef.current = null
-    setPlanStreamLatched(false)
-    lastPlanDetectionToolsRef.current = []
-    persistedPlanInputRef.current = null
-    lastPlanSyncSigRef.current = ''
+    resetPlanStreamSessionImpl({
+      lastPlanPanelHitRef,
+      setPlanPanelHit,
+      planStreamLatchRef,
+      setPlanStreamLatched,
+      lastPlanDetectionToolsRef,
+      persistedPlanInputRef,
+      lastPlanSyncSigRef,
+    })
   }, [])
 
   const absorbPlanFromTools = useCallback((tools: unknown[]) => {
@@ -1400,15 +1406,14 @@ export default function ChatApp() {
   const [planDockApiView, setPlanDockApiView] = useState<PlanDockApiView | null>(null)
   const planDockApiViewRef = useRef<PlanDockApiView | null>(null)
   const applyPlanDockApiView = useCallback((view: PlanDockApiView) => {
-    planDockApiViewRef.current = view
-    tracePlanDockApi(view.show ? 'show' : 'hide', {
-      source: view.source,
-      reason: view.show ? undefined : view.reason,
-      taskId: view.taskId,
-      taskStatus: view.show ? view.taskStatus : view.taskStatus,
-      statusLabel: view.show ? view.statusLabel : undefined,
-    })
-    setPlanDockApiView(view)
+    applyPlanDockApiViewImpl(
+      {
+        planDockApiViewRef,
+        tracePlanDockApi,
+        setPlanDockApiView,
+      },
+      view,
+    )
   }, [])
   const historyCollabHydratedRef = useRef('')
   const planSessionEnterRef = useRef('')
@@ -2579,22 +2584,15 @@ export default function ChatApp() {
   const { proactiveRoles, loadProactiveRoles } = useProactiveRoles()
 
   /** 把岗位名替换为智能体名（agent_name），让菜单/派发提示显示智能体本身的名字。 */
-  const proactiveRolesDisplay = useMemo<MentionEmployeeOption[]>(() => {
-    if (!proactiveRoles.length) return proactiveRoles
-    return proactiveRoles.map((r) => {
-      const code = String(r.agent_code || '').trim()
-      const fromAgents = resolveAssignedAgentDisplayName(code, agents)
-      const agentName =
-        fromAgents && fromAgents !== code ? fromAgents : String(r.agent_name || '').trim()
-      if (!agentName) return r
-      // role_name 同步为智能体名，供 @员工 菜单沿用；另保留 agent_name 字段供侧栏专用
-      return {
-        ...r,
-        agent_name: agentName,
-        role_name: agentName !== r.role_name ? agentName : r.role_name,
-      }
-    })
-  }, [proactiveRoles, agents])
+  const proactiveRolesDisplay = useMemo<MentionEmployeeOption[]>(
+    () =>
+      resolveProactiveRolesDisplay({
+        proactiveRoles,
+        agents,
+        resolveAssignedAgentDisplayName,
+      }),
+    [proactiveRoles, agents],
+  )
 
   const [bottomRoleOpen, setBottomRoleOpen] = useState(false)
 
@@ -2737,61 +2735,55 @@ export default function ChatApp() {
   const bottomWorkspaceRootRef = useRef<HTMLDivElement | null>(null)
 
   const [roleUiNonce, setRoleUiNonce] = useState(0)
-  const selectedSessionAgentId = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return ''
-    const row = sessions.find((s) => String(s?.sessionKey || '').trim() === sk)
-    const fromRow = String(row?.agentId || '').trim().toLowerCase()
-    if (fromRow) return fromRow
-    const ctxAid = String((row?.context as { agent_id?: string } | undefined)?.agent_id || '').trim().toLowerCase()
-    return ctxAid
-  }, [sessions, selectedSessionKey])
-  const currentRoleCodeForUi = useMemo(() => {
-    if (!selectedSessionKey) return 'main'
-    // 员工会话：sessionKey 内 agent_code 优先于列表里可能过期的 agentId（常误为 main）。
-    if (isProactiveSessionKey(selectedSessionKey)) {
-      const code = String(parseProactiveSessionKey(selectedSessionKey).agentCode || '')
-        .trim()
-        .toLowerCase()
-      if (code) return code
-    }
-    // DB/list agentId wins over stale local agent_name / sessionKey embedding.
-    if (selectedSessionAgentId) return selectedSessionAgentId
-    return resolveSessionAgentCodeForUi(selectedSessionKey)
-  }, [selectedSessionKey, roleUiNonce, selectedSessionAgentId])
+  const selectedSessionAgentId = useMemo(
+    () =>
+      resolveSelectedSessionAgentId({
+        selectedSessionKey,
+        sessions,
+      }),
+    [sessions, selectedSessionKey],
+  )
+  const currentRoleCodeForUi = useMemo(
+    () =>
+      resolveCurrentRoleCodeForUi({
+        selectedSessionKey,
+        isProactiveSessionKey,
+        parseProactiveSessionKey,
+        selectedSessionAgentId,
+        resolveSessionAgentCodeForUi,
+      }),
+    [selectedSessionKey, roleUiNonce, selectedSessionAgentId],
+  )
 
   /** 对话气泡 AI 头：纯显示名（不含标签前缀） */
-  const assistantReplyLabel = useMemo(() => {
-    const code = currentRoleCodeForUi
-    const row = agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code)
-    const name = String(row?.agent_name || '').trim()
-    if (name) return name
-    if (code === 'main') return 'EvoFlow'
-    if (code === 'claude-code') return '代码助手'
-    return code || 'EvoFlow · Agent'
-  }, [currentRoleCodeForUi, agents])
+  const assistantReplyLabel = useMemo(
+    () =>
+      resolveAssistantReplyLabel({
+        currentRoleCodeForUi,
+        agents,
+      }),
+    [currentRoleCodeForUi, agents],
+  )
 
-  const currentRoleLabel = useMemo(() => {
-    const code = currentRoleCodeForUi
-    const row = agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code)
-    const dn = row && String(row.agent_name || '').trim()
-    const roleName = dn || (code === 'main' ? 'EvoFlow' : code === 'claude-code' ? '代码助手' : code)
-    // Skip meta source tags like「自定义 / 核心 / SkillHub」— they clutter the rail signature.
-    const META_PREFIX = new Set(['自定义', '核心', 'SkillHub', 'skillhub'])
-    const tagLabels = normalizeAgentTags(row?.tags).filter((t) => !META_PREFIX.has(t))
-    if (tagLabels.length > 0 && code !== 'main') {
-      return `${tagLabels[0]} · ${roleName}`
-    }
-    return roleName
-  }, [currentRoleCodeForUi, agents])
+  const currentRoleLabel = useMemo(
+    () =>
+      resolveCurrentRoleLabel({
+        currentRoleCodeForUi,
+        agents,
+        normalizeAgentTags,
+      }),
+    [currentRoleCodeForUi, agents],
+  )
 
   /** 当前会话绑定智能体的默认模型（空 = 跟全局 primary） */
-  const agentDefaultModelName = useMemo(() => {
-    const code = String(currentRoleCodeForUi || '').trim().toLowerCase()
-    if (!code) return ''
-    const row = agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code)
-    return String(row?.model || '').trim()
-  }, [currentRoleCodeForUi, agents])
+  const agentDefaultModelName = useMemo(
+    () =>
+      resolveAgentDefaultModelName({
+        currentRoleCodeForUi,
+        agents,
+      }),
+    [currentRoleCodeForUi, agents],
+  )
 
   const {
     modelCatalog,
@@ -4357,13 +4349,16 @@ export default function ChatApp() {
   ])
   // Composer stop + sidebar gear + list isSending: selectedTurnBusy only.
 
-  const selectedSessionLive = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return false
-    const rt = getSessionRuntime(sk)
-    if (rt.uiTurnSettled && !isTurnBusy(rt)) return false
-    return isTurnBusy(rt) || isSessionRuntimeLive(rt)
-  }, [selectedSessionKey, executingListEpoch])
+  const selectedSessionLive = useMemo(
+    () =>
+      resolveSelectedSessionLive({
+        selectedSessionKey,
+        getSessionRuntime,
+        isTurnBusy,
+        isSessionRuntimeLive,
+      }),
+    [selectedSessionKey, executingListEpoch],
+  )
   const selectedResumeAttach = useMemo(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return false
@@ -4393,12 +4388,13 @@ export default function ChatApp() {
    * 空会话才进「首页」：会隐藏底部输入条（首页自带输入）。
    * 历史加载失败、或本会话曾有消息后又被清空时，绝不能进首页，否则底部输入框消失。
    */
-  const isHomeSurface =
-    !historyLoading &&
-    !historyError &&
-    !sessionHadContent &&
-    renderRows.length === 0 &&
-    !selectedTurnBusy
+  const isHomeSurface = resolveIsHomeSurface({
+    historyLoading,
+    historyError,
+    sessionHadContent,
+    renderRows,
+    selectedTurnBusy,
+  })
   isHomeSurfaceRef.current = isHomeSurface
   /** Only while a real network fetch has no rows yet — never gate on scroll boot (historyViewReady). */
   const showHistoryFetchOverlay =
