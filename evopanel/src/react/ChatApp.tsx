@@ -393,6 +393,13 @@ import { authorizeExecutionInBackground as authorizeExecutionInBackgroundImpl } 
 import { runUserExecutionStart as runUserExecutionStartImpl } from './chat-app/plan-dock/run-user-execution-start.js'
 import { runShellSessionRefresh as runShellSessionRefreshImpl } from './chat-app/session/run-shell-session-refresh.js'
 import { applyPlanToolSuccess as applyPlanToolSuccessImpl } from './chat-app/plan-dock/apply-plan-tool-success.js'
+import { toggleBrowserStage as toggleBrowserStageImpl } from './chat-app/right-stage/toggle-browser-stage.js'
+import {
+  onShellPinSession as onShellPinSessionImpl,
+  onShellRefreshSession as onShellRefreshSessionImpl,
+  onShellRefreshSessionList as onShellRefreshSessionListImpl,
+  onShellStopSession as onShellStopSessionImpl,
+} from './chat-app/shell/shell-session-actions.js'
 // ============================================
 
 import type {
@@ -9488,25 +9495,14 @@ export default function ChatApp() {
   const browserStageActive =
     normalizeRightStageKind(rightStageSurface?.kind || '') === 'browser'
   const toggleBrowserStage = useCallback(() => {
-    const snap = rightStageStore.getSnapshot()
-    const existing = filterRightStageTabsForSession(snap.tabs, selectedSessionKey).find(
-      (t) => normalizeRightStageKind(t.kind) === 'browser',
-    )
-    if (existing) {
-      const key = `${normalizeRightStageKind(existing.kind)}:${existing.id}`
-      if (snap.activeKey === key) {
-        closeBrowserStage(existing.id)
-        return
-      }
-      rightStageStore.activateTab(key)
-      return
-    }
-    const manualTid = String(wsClient.getSessionThreadId(selectedSessionKey || '') || '').trim()
-    if (manualTid) setBrowserPanelThreadId(manualTid)
-    ensureBrowserStage({ sessionKey: selectedSessionKey || undefined })
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    toggleBrowserStageImpl({
+      selectedSessionKey,
+      scheduleBumpRef,
+      closeBrowserStage,
+      setBrowserPanelThreadId,
+      getSessionThreadId: (sk) => wsClient.getSessionThreadId(sk),
+      ensureBrowserStage,
+    })
   }, [selectedSessionKey])
   const browserToggleTitle = browserStageOpen ? '隐藏浏览器' : '打开浏览器'
   const browserToggleButton = (
@@ -11379,8 +11375,7 @@ export default function ChatApp() {
   }, [sessions, selectedSessionKey])
 
   const onShellPinSession = useCallback((key: string, pinned: boolean) => {
-    markSessionPinPending(key, pinned)
-    setSessions((prev) => patchSessionPinInRows(prev, key, pinned))
+    onShellPinSessionImpl(setSessions, key, pinned)
   }, [setSessions])
 
   const onShellDeleteSession = useCallback((k: string) => {
@@ -11388,23 +11383,30 @@ export default function ChatApp() {
   }, [])
 
   const onShellRefreshSession = useCallback(async (k: string) => {
-    setMoreMenuKey(null)
-    if (sessionRef.current !== k) {
-      sessionRef.current = k
-      setSelectedSessionKey(k)
-    }
-    await runShellSessionRefreshRef.current?.(k)
+    await onShellRefreshSessionImpl(
+      {
+        sessionRef,
+        setMoreMenuKey,
+        setSelectedSessionKey,
+        runShellSessionRefresh: async (sk) => {
+          await runShellSessionRefreshRef.current?.(sk)
+        },
+      },
+      k,
+    )
   }, [setMoreMenuKey, setSelectedSessionKey])
 
   const onShellRefreshSessionList = useCallback(async () => {
-    const sel = sessionRef.current
-    await Promise.all([
-      refreshSessionsRef.current?.(),
-      loadProactiveRoles(),
-    ])
-    if (sel && sessionRef.current === sel) {
-      await runShellSessionRefreshRef.current?.(sel)
-    }
+    await onShellRefreshSessionListImpl({
+      sessionRef,
+      refreshSessions: async () => {
+        await refreshSessionsRef.current?.()
+      },
+      loadProactiveRoles,
+      runShellSessionRefresh: async (sk) => {
+        await runShellSessionRefreshRef.current?.(sk)
+      },
+    })
   }, [loadProactiveRoles])
 
   // 自愈：SSE 会话变更事件偶尔丢失（窗口假死/后台标签错过推送）会让会话列表停在旧状态。
@@ -11454,12 +11456,15 @@ export default function ChatApp() {
   }, [])
 
   const onShellStopSession = useCallback(async (k: string) => {
-    setMoreMenuKey(null)
-    try {
-      await stopSessionExecutionRef.current?.(k)
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e), 'error')
-    }
+    await onShellStopSessionImpl(
+      {
+        setMoreMenuKey,
+        stopSessionExecution: async (sk) => {
+          await stopSessionExecutionRef.current?.(sk)
+        },
+      },
+      k,
+    )
   }, [setMoreMenuKey])
 
   const onShellNewWorkspace = useCallback(() => {
