@@ -482,6 +482,10 @@ import {
 } from './chat-app/stream/ensure-stream-bump-schedulers.js'
 import { buildWorkspaceMentionConfig } from './chat-app/composer/workspace-mention.js'
 import { buildChatRightStageLauncherItems } from './chat-app/right-stage/build-right-stage-launcher-items.js'
+import { runNormalizeRowFileUrlsEffect } from './chat-app/session/run-normalize-row-file-urls.js'
+import { runLoadEmployeeRoleDetailEffect } from './chat-app/agents/load-employee-role-detail.js'
+import { runBottomMenusDismissEffect } from './chat-app/composer/install-bottom-menus-dismiss.js'
+import { runSyncProactiveWorkspaceKindEffect } from './chat-app/session/sync-proactive-workspace-kind.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -2750,30 +2754,15 @@ export default function ChatApp() {
 
   // History + stream tool-derived files may contain raw "D:\..." or "outputs/..." URLs; normalize them.
   useEffect(() => {
-    const tid = wsClient.getSessionThreadId(selectedSessionKey)
-    if (!tid) return
-    setRows((prev) => {
-      if (!Array.isArray(prev) || prev.length === 0) return prev
-      let touched = false
-      const next = prev.map((r: any) => {
-        const nr = normalizeRowFilesInPlace(tid, r)
-        if (nr !== r) touched = true
-        return nr
-      })
-      return touched ? next : prev
+    runNormalizeRowFileUrlsEffect({
+      wsClient,
+      selectedSessionKey,
+      setRows,
+      normalizeRowFilesInPlace,
+      streamRef,
+      normalizeFileHrefForThread,
+      scheduleBump,
     })
-    // Also normalize current streaming files
-    const S = streamRef.current
-    if (S?.turn.files?.length) {
-      const nextFiles = S.turn.files.map((f: any) => {
-        const url = String(f?.url || '').trim()
-        if (!url) return f
-        const nextUrl = normalizeFileHrefForThread(tid, url)
-        return nextUrl !== url ? { ...f, url: nextUrl } : f
-      })
-      S.turn.files = nextFiles
-      scheduleBump()
-    }
   }, [selectedSessionKey, setRows])
   const [, setSubagentDockTasks] = useState<Record<string, SubagentStreamTask>>({})
   const {
@@ -2949,82 +2938,22 @@ export default function ChatApp() {
 
   const [employeeRoleDetail, setEmployeeRoleDetail] = useState<EmployeeRailInfo | null>(null)
   useEffect(() => {
-    let cancelled = false
-    if (!employeeSessionAgentCode) {
-      setEmployeeRoleDetail(null)
-      return () => {
-        cancelled = true
-      }
-    }
-    void import('../lib/tauri-api.js')
-      .then(({ api }) => api.proactiveGetRole(employeeSessionAgentCode))
-      .then((res: any) => {
-        if (cancelled) return
-        const role = res?.role || res
-        if (!role || typeof role !== 'object') {
-          setEmployeeRoleDetail(null)
-          return
-        }
-        const cfg = role.config && typeof role.config === 'object' ? role.config : {}
-        const think = String(cfg.think_mode || '').trim()
-        setEmployeeRoleDetail({
-          agentCode: String(role.agent_code || employeeSessionAgentCode).trim(),
-          roleName: String(role.role_name || role.agent_code || employeeSessionAgentCode).trim(),
-          department: String(role.department || '').trim(),
-          status: String(role.status || '').trim(),
-          responsibilities: Array.isArray(cfg.responsibilities)
-            ? cfg.responsibilities.map((x: unknown) => String(x || '').trim()).filter(Boolean)
-            : [],
-          workspacePath: String(cfg.workspace_path || '').trim(),
-          modelName: String(cfg.model_name || '').trim(),
-          autonomyLabel: String(cfg.autonomy_level || '').trim(),
-          thinkModeLabel: think === 'prompt_only' ? '轻量工作' : think ? '深度工作' : '',
-          knowledgeVaultIds: Array.isArray(cfg.knowledge_vault_ids)
-            ? cfg.knowledge_vault_ids.map((x: unknown) => String(x || '').trim()).filter(Boolean)
-            : [],
-        })
-      })
-      .catch(() => {
-        if (!cancelled) setEmployeeRoleDetail(null)
-      })
-    return () => {
-      cancelled = true
-    }
+    return runLoadEmployeeRoleDetailEffect({
+      employeeSessionAgentCode,
+      setEmployeeRoleDetail,
+    })
   }, [employeeSessionAgentCode, roleUiNonce])
 
   /** 进入员工会话时按 session_key 同步 workspace_kind，不再用底栏「只聊天/派任务」模式条 */
   useEffect(() => {
-    if (!isProactiveEmployeeSession) return
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    const parsed = parseProactiveSessionKey(sk)
-    const patch: Record<string, unknown> = {
-      source: 'proactive',
-      proactive_agent_code: parsed.agentCode || null,
-      employee_talk_mode: 'chat',
-    }
-    if (parsed.kind === 'task' && parsed.taskId) {
-      patch.workspace_kind = 'task'
-      patch.related_task_id = parsed.taskId
-    } else if (parsed.kind === 'chat') {
-      patch.workspace_kind = 'chat'
-      patch.related_task_id = null
-      // 与普通「新建对话」一致：未指定模式时默认 Agent（勿落到 ensure-thread 旧默认 ask）
-      const curMode = String(wsClient.getSessionContext(sk)?.session_mode || '')
-        .trim()
-        .toLowerCase()
-      if (!curMode) {
-        patch.session_mode = 'agent'
-        setSessionModeInMeta(sk, 'agent')
-        setSessionMode('agent')
-      }
-    } else if (parsed.kind === 'duty') {
-      patch.workspace_kind = 'duty'
-      patch.related_task_id = null
-    } else {
-      patch.workspace_kind = 'legacy'
-    }
-    void wsClient.updateSessionContext(sk, patch).catch(() => {})
+    runSyncProactiveWorkspaceKindEffect({
+      isProactiveEmployeeSession,
+      selectedSessionKey,
+      parseProactiveSessionKey,
+      wsClient,
+      setSessionModeInMeta,
+      setSessionMode,
+    })
   }, [isProactiveEmployeeSession, selectedSessionKey])
 
   /** 切换/新建会话：清空 plan latch、协作侧栏与 suppress，避免串会话显示上一对话的计划/子任务。 */
@@ -3617,52 +3546,27 @@ export default function ChatApp() {
   // 底部「模式 + 模型/创意/工作空间」上拉：互斥 + 点击外部 / Esc 全部关闭
   // 技能 / 角色已改为独立 modal，不参与此下拉互斥逻辑
   useEffect(() => {
-    const anyOpen = modeMenuOpen || bottomModelOpen || bottomPermissionOpen || bottomMoreOpen || bottomWorkspaceOpen || bottomPluginPanelOpen
-    if (!anyOpen) return
-    const closeAll = () => {
-      setModeMenuOpen(false)
-      setBottomModelOpen(false)
-      setBottomPermissionOpen(false)
-      setBottomMoreOpen(false)
-      setMoreSubOpen(null)
-      setBottomWorkspaceOpen(false)
-      setBottomRoleOpen(false)
-      setBottomSkillOpen(false)
-      setBottomPluginPanelOpen(false)
-    }
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null
-      if (!target) return
-      // 模式菜单 portal 到 body，需单独识别
-      if (target.closest('.react-chat-mode-menu--portal')) return
-      if (bottomModelRootRef.current?.contains(target)) return
-      if (bottomPermissionRootRef.current?.contains(target)) return
-      // 模型菜单 / 右侧 flyout portal 到 body，需单独识别
-      if (target.closest('.react-chat-bottom-dropdown--model-portal')) return
-      if (target.closest('.react-chat-model-flyout-portal')) return
-      if (target.closest('.react-chat-bottom-dropdown--permission-portal')) return
-      if (target.closest('.react-chat-permission-card--portal')) return
-      if (bottomMoreRootRef.current?.contains(target)) return
-      // 「更多」菜单 portal 到 body，需单独识别
-      if (target.closest('.react-chat-bottom-dropdown--more-portal')) return
-      // + 号按钮（v4 加号触发附件/更多下拉）也算「更多」菜单入口
-      if (target.closest('.react-chat-icon-attach-btn')) return
-      // 权限 pill（v4 风格点 pill 弹三选一菜单）
-      if (target.closest('.react-chat-bottom-permission-pill')) return
-      // 权限三选一上拉菜单本身（v4 新位置，不 portal）
-      if (target.closest('.react-chat-permission-menu')) return
-      if (bottomWorkspaceRootRef.current?.contains(target)) return
-      closeAll()
-    }
-    document.addEventListener('mousedown', onDown)
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape') closeAll()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
+    return runBottomMenusDismissEffect({
+      modeMenuOpen,
+      bottomModelOpen,
+      bottomPermissionOpen,
+      bottomMoreOpen,
+      bottomWorkspaceOpen,
+      bottomPluginPanelOpen,
+      setModeMenuOpen,
+      setBottomModelOpen,
+      setBottomPermissionOpen,
+      setBottomMoreOpen,
+      setMoreSubOpen,
+      setBottomWorkspaceOpen,
+      setBottomRoleOpen,
+      setBottomSkillOpen,
+      setBottomPluginPanelOpen,
+      bottomModelRootRef,
+      bottomPermissionRootRef,
+      bottomMoreRootRef,
+      bottomWorkspaceRootRef,
+    })
   }, [modeMenuOpen, bottomModelOpen, bottomPermissionOpen, bottomMoreOpen, bottomWorkspaceOpen])
 
   const onGoalClosureReport = useCallback((p: { sessionKey: string; outcome: string; body: string; ts?: number }) => {
