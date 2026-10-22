@@ -1083,7 +1083,7 @@ export function useChatAppController() {
   const liveRunPersistPendingRef = useRef<Record<string, { runId: string; threadId: string | null; status: string; partialText: string; partialTools: unknown[]; partialDisplaySegments: MessageSegment[]; lastEventAtMs: number } | null>>({})
 
   const gatewayApiFetch = useCallback(async (path: string, init?: RequestInit) => {
-    const { gatewayFetch } = await import('../lib/gateway-json.js')
+    const { gatewayFetch } = await import('../../lib/gateway-json.js')
     const p = path.startsWith('/api/') ? path : `/api${path.startsWith('/') ? path : `/${path}`}`
     return gatewayFetch(p, init)
   }, [])
@@ -1449,7 +1449,7 @@ export function useChatAppController() {
   const handleComposerWarmup = useCallback(() => {
     const sk = String(sessionRef.current || selectedSessionKey || '').trim()
     if (!sk) return
-    void import('./lib/composer-latency-warmup.js').then((mod) => {
+    void import('../lib/composer-latency-warmup.js').then((mod) => {
       void mod.warmComposerSession(sk)
     })
   }, [selectedSessionKey])
@@ -2182,7 +2182,7 @@ export function useChatAppController() {
   useEffect(() => {
     if (!isDesktopTauriRuntime()) return
     const warm = () => {
-      void import('../lib/tauri-api.js').catch(() => {})
+      void import('../../lib/tauri-api.js').catch(() => {})
     }
     if (typeof requestIdleCallback === 'function') {
       requestIdleCallback(warm, { timeout: 8000 })
@@ -2540,8 +2540,8 @@ export function useChatAppController() {
   useEffect(() => {
     void (async () => {
       try {
-        const { api } = await import('../lib/tauri-api.js')
-        const { getPanelSettingsSync } = await import('../lib/panel-settings.js')
+        const { api } = await import('../../lib/tauri-api.js')
+        const { getPanelSettingsSync } = await import('../../lib/panel-settings.js')
         const info = await api.workspaceRuntimeInfo()
         const dataDir = String(info?.runtimeDataDir || '').trim()
         if (dataDir) setRuntimeDataDir(dataDir)
@@ -2556,7 +2556,7 @@ export function useChatAppController() {
 
   useEffect(() => {
     const syncProjectRoot = () => {
-      void import('../lib/panel-settings.js').then(({ getPanelSettingsSync }) => {
+      void import('../../lib/panel-settings.js').then(({ getPanelSettingsSync }) => {
         const projectRoot = String(getPanelSettingsSync()?.defaultProjectWorkspaceRoot || '').trim()
         setConfiguredWorkspaceRoot(projectRoot)
       })
@@ -3621,7 +3621,7 @@ export function useChatAppController() {
 
   async function getApi() {
     if (apiRef.current) return apiRef.current
-    const mod = await import('../lib/tauri-api.js')
+    const mod = await import('../../lib/tauri-api.js')
     apiRef.current = mod.api
     return apiRef.current
   }
