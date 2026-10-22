@@ -275,6 +275,11 @@ import { useProactiveRoles } from './hooks/useProactiveRoles.js'
 import { useContextUsageBySession } from './hooks/useContextUsageBySession.js'
 import { useSessionModeControls } from './hooks/useSessionModeControls.js'
 import { useCollabSidebarSync } from './hooks/useCollabSidebarSync.js'
+import {
+  useSelectedStaleTurnWatchdog,
+  useGlobalStaleBusyPoll,
+  type UseStaleTurnWatchdogsCtx,
+} from './chat-app/session/use-stale-turn-watchdogs.js'
 import { normalizeFileHrefForThread, normalizeRowFilesInPlace } from './chat-app/utils/file-href-normalize.js'
 import {
   formatAskClarificationForHosted,
@@ -422,6 +427,14 @@ import { finalizeNewSessionBackground as finalizeNewSessionBackgroundImpl } from
 import { ensureChatSessionKey as ensureChatSessionKeyImpl } from './chat-app/session/ensure-chat-session-key.js'
 import { handleVoiceTranscribed as handleVoiceTranscribedImpl } from './chat-app/composer/handle-voice-transcribed.js'
 import { handleToolApproval as handleToolApprovalImpl } from './chat-app/session/handle-tool-approval.js'
+import { applyPendingShellSession as applyPendingShellSessionImpl } from './chat-app/shell/apply-pending-shell-session.js'
+import {
+  handleHomeSendEvent,
+  handleHomeSelectModelEvent,
+  handleHomeSetMemoryEvent,
+  handleHomeSetVoiceReplyEvent,
+} from './chat-app/composer/handle-home-events.js'
+import { refreshAgentsList as refreshAgentsListImpl } from './chat-app/agents/refresh-agents-list.js'
 // ============================================
 
 import type {
@@ -1669,122 +1682,36 @@ export default function ChatApp() {
   const startNewChatWithPresetAgentRef = useRef<(code: string) => Promise<void>>(async () => {})
   const setModelNameRef = useRef<(name: string) => void>(() => {})
   useEffect(() => {
-    const onHomeSend = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        text?: string
-        agentCode?: string
-        skills?: SkillSelection[]
-        plugins?: PluginSelection[]
-        modelName?: string
-        attachments?: ChatAttachment[]
-        contextFiles?: ContextFileEntry[]
-      }>).detail
-      const text = String(detail?.text || '').trim()
-      const attachments = Array.isArray(detail?.attachments) ? detail.attachments : undefined
-      const homeCtx = Array.isArray(detail?.contextFiles)
-        ? detail.contextFiles.filter((f) => String(f?.path || '').trim())
-        : []
-      if (!text && !attachments?.length && !homeCtx.length) return
-      // 立刻离开工作台表面，避免「发完还停在首页 → 再切会话 → 再出消息」的三段感
-      flushSync(() => {
-        setSessionHadContent(true)
-      })
-      void (async () => {
-        if (Array.isArray(detail?.skills)) setSelectedSkills(detail.skills)
-        if (Array.isArray(detail?.plugins)) setSelectedPlugins(detail.plugins)
-        const modelName = String(detail?.modelName || '').trim()
-        if (modelName) {
-          setModelNameRef.current(modelName)
-          try {
-            localStorage.setItem(STORAGE_MODEL_KEY, modelName)
-          } catch {
-            /* ignore */
-          }
-          void patchPanelSettings({ lastSelectedModel: modelName })
-        }
-        // 先确保会话，再并行写 agent/model（静默，不走带 toast 的角色切换）
-        let sk =
-          (sessionRef.current || '').trim() ||
-          (await ensureChatSessionKeyRef.current?.()) ||
-          ''
-        const code = String(detail?.agentCode || '').trim().toLowerCase()
-        const prep: Promise<unknown>[] = []
-        if (sk && code) {
-          prep.push(
-            (async () => {
-              try {
-                const { api } = await import('../lib/tauri-api.js')
-                if (code === 'claude-code') {
-                  await api.chatUpdateContext(sk, {
-                    use_claude_code_chat: true,
-                    agent_name: 'claude-code',
-                    collab_phase: 'idle',
-                    collab_task_id: null,
-                  })
-                } else if (code === 'main') {
-                  await api.chatUpdateContext(sk, {
-                    use_claude_code_chat: false,
-                    agent_name: 'main',
-                    agent_id: 'main',
-                    collab_phase: 'idle',
-                    collab_task_id: null,
-                  })
-                } else {
-                  await api.chatUpdateContext(sk, {
-                    use_claude_code_chat: false,
-                    agent_name: code,
-                    agent_id: code,
-                    collab_phase: 'idle',
-                    collab_task_id: null,
-                  })
-                }
-              } catch {
-                /* ignore — still send */
-              }
-            })(),
-          )
-        }
-        if (sk && modelName) {
-          prep.push(
-            wsClient.updateSessionContext(sk, { model_name: modelName }).catch(() => undefined),
-          )
-        }
-        if (prep.length) await Promise.all(prep)
-        if (homeCtx.length) attachContextFilesRef.current?.(homeCtx)
-        await handleSendRef.current(text, attachments, homeCtx.length ? homeCtx : undefined, {
-          skillsOverride: Array.isArray(detail?.skills) ? detail.skills : undefined,
-          pluginsOverride: Array.isArray(detail?.plugins) ? detail.plugins : undefined,
-        })
-      })()
+    const homeCtx = {
+      sessionRef,
+      setSessionHadContent,
+      setSelectedSkills,
+      setSelectedPlugins,
+      setModelName: (name: string) => setModelNameRef.current(name),
+      setMemoryEnabled,
+      setVoiceReplyEnabled,
+      ensureChatSessionKey: async () =>
+        (await ensureChatSessionKeyRef.current?.()) || null,
+      attachContextFiles: (files: ContextFileEntry[]) => {
+        attachContextFilesRef.current?.(files)
+      },
+      updateSessionContext: (sk: string, patch: Record<string, unknown>) =>
+        wsClient.updateSessionContext(sk, patch),
+      handleSend: (
+        text: string,
+        attachments?: ChatAttachment[],
+        ctxFiles?: ContextFileEntry[],
+        opts?: {
+          skillsOverride?: SkillSelection[]
+          pluginsOverride?: PluginSelection[]
+        },
+      ) => handleSendRef.current(text, attachments, ctxFiles, opts),
     }
-    const onHomeSelectModel = (event: Event) => {
-      const modelName = String(
-        (event as CustomEvent<{ modelName?: string }>).detail?.modelName || '',
-      ).trim()
-      if (!modelName) return
-      setModelNameRef.current(modelName)
-      void (async () => {
-        try {
-          const sk =
-            (sessionRef.current || '').trim() ||
-            (await ensureChatSessionKeyRef.current?.()) ||
-            ''
-          if (sk) await wsClient.updateSessionContext(sk, { model_name: modelName })
-        } catch {
-          /* ignore */
-        }
-      })()
-    }
-    const onHomeSetMemory = (event: Event) => {
-      const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled
-      if (typeof enabled !== 'boolean') return
-      setMemoryEnabled(enabled)
-    }
-    const onHomeSetVoiceReply = (event: Event) => {
-      const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled
-      if (typeof enabled !== 'boolean') return
-      setVoiceReplyEnabled(enabled)
-    }
+    const onHomeSend = (event: Event) => handleHomeSendEvent(homeCtx, event)
+    const onHomeSelectModel = (event: Event) => handleHomeSelectModelEvent(homeCtx, event)
+    const onHomeSetMemory = (event: Event) => handleHomeSetMemoryEvent(homeCtx, event)
+    const onHomeSetVoiceReply = (event: Event) =>
+      handleHomeSetVoiceReplyEvent(homeCtx, event)
     window.addEventListener('evopanel:home-send', onHomeSend)
     window.addEventListener('evopanel:home-select-model', onHomeSelectModel)
     window.addEventListener('evopanel:home-set-memory', onHomeSetMemory)
@@ -3653,78 +3580,16 @@ export default function ChatApp() {
 
   /** 从 MCP/技能等页点侧栏会话列表进入聊天时，shell-aside 写入待选会话 */
   useEffect(() => {
-    try {
-      const pendingSession = sessionStorage.getItem('evopanel_pending_shell_session')
-      const pendingThread = sessionStorage.getItem('evopanel_pending_shell_thread')
-      const pendingTaskId = sessionStorage.getItem('evopanel_pending_shell_task_id')
-
-      // 🔧 关键修复：只要存在 pendingTaskId 且未处理过，就应该设置 boundTaskId
-      if (pendingTaskId && processedTaskIdRef.current !== pendingTaskId) {
-        processedTaskIdRef.current = pendingTaskId
-        queueMicrotask(() => setBoundTaskId(pendingTaskId))
-        // Session 会自动通过 wsClient.getSessionThreadId 获取 threadId 来订阅流
-        // 🔧 标记这是从任务跳转过来的，防止 selectedSessionKey 变化时重置 boundTaskId
-        if (pendingSession) {
-          sessionRef.current = pendingSession
-        }
-      }
-
-      const pendingOpenWorkflow = sessionStorage.getItem('evopanel_pending_open_collab_workflow') === '1'
-
-      if (pendingSession) {
-        if (String(pendingSession).startsWith('automation:')
-          || String(pendingSession).includes(':duty:')) {
-          void getApi()
-            .then((api) => api.chatSessionSetHidden(pendingSession, false))
-            .then(() => refreshSessionsRef.current?.({ skipAutoReselect: true }))
-            .catch(() => {})
-        }
-        if (pendingThread) {
-          void wsClient
-            .bindSessionThread(pendingSession, pendingThread, {
-              context: {
-                taskRelated: true,
-                ...(pendingTaskId ? { collab_task_id: pendingTaskId } : {}),
-              },
-            })
-            .then(() => {
-              if (String(sessionRef.current || '').trim() === pendingSession) {
-                void reload({ bypassCache: true })
-              }
-            })
-            .catch((e: unknown) => {
-              console.warn('[ChatApp] bindSessionThread failed:', e)
-            })
-        }
-
-        if (pendingOpenWorkflow) {
-          openCollabExecPanel({ clearDismiss: true })
-        }
-
-        // 注意：useState 初始化时已经优先返回了 pendingSession
-        // 这里不需要再 setSelectedSessionKey，避免重复渲染
-        // 🔧 延迟清理 sessionStorage，避免 StrictMode 双重渲染问题
-        setTimeout(() => {
-          sessionStorage.removeItem('evopanel_pending_shell_session')
-          sessionStorage.removeItem('evopanel_pending_shell_thread')
-          sessionStorage.removeItem('evopanel_pending_shell_task_id')
-          sessionStorage.removeItem('evopanel_pending_open_collab_workflow')
-        }, 1000)
-      }
-
-      // 从“任务重新开始/开始执行”跳转到实时对话页时：run 可能尚未进入 running/pending。
-      // 续流仅由用户刷新页面/侧栏刷新按钮触发，此处不再自动 poll attach。
-      if (pendingSession && pendingThread && pendingTaskId) {
-        void reload({ bypassCache: true }).catch(() => {
-          dispatchSessionTurnEvent(pendingSession, {
-            type: 'REATTACH_FAILED',
-            threadId: pendingThread,
-          })
-        })
-      }
-    } catch (e) {
-      console.error('[ChatApp] 处理 pending session 失败:', e)
-    }
+    applyPendingShellSessionImpl({
+      processedTaskIdRef,
+      sessionRef,
+      setBoundTaskId,
+      getApi,
+      refreshSessions: (opts) => refreshSessionsRef.current?.(opts),
+      bindSessionThread: (sk, tid, opts) => wsClient.bindSessionThread(sk, tid, opts),
+      reload: (opts) => reload(opts),
+      openCollabExecPanel,
+    })
     // 空依赖数组：只在组件挂载时执行
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -4302,104 +4167,21 @@ export default function ChatApp() {
     [clearTurnSendingState],
   )
 
-  /** 僵尸 turn busy：reattach/attach 卡住但无新 SSE 事件时自动恢复 idle，避免整页空转。 */
-  useEffect(() => {
-    if (!selectedTurnBusy) return
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    let cancelled = false
-    const timer = window.setInterval(() => {
-      if (cancelled || !turnBusyForSession(sk)) return
-      const rt = getSessionRuntime(sk)
-      const last =
-        Number(rt.lastEventAt || 0) ||
-        parseTurnTimestampMs(
-          sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)?.currentTurnStartedAt,
-        ) ||
-        0
-      if (!last) return
-      if (Date.now() - last < 90000) return
-      void import('../lib/poll-loop-log.js').then(({ logPollLoopEnd }) => {
-        logPollLoopEnd('stale_sending_watchdog', { sessionKey: sk, silentMs: Date.now() - last })
-      })
-      void maybeClearTurnSendingState({
-        sessionKey: sk,
-        wsClient,
-        onClear: () => clearTurnSendingState(sk, rt, false),
-        onResume: () => {
-          /* 续流仅用户刷新触发 */
-        },
-      }).then((result) => {
-        if (result === 'cleared' || result === 'forced') {
-          logStreamStop({
-            sessionKey: sk,
-            runId: rt.activeChatRunId || rt.stream.runId,
-            trigger: 'stale_sending_watchdog',
-            hasEndMarker: false,
-            detail: {
-              result,
-              silentMs: Date.now() - last,
-              turnPhase: rt.turnPhase,
-              note: '前端 90s 无事件后清 busy（非用户点停止）',
-            },
-          })
-          void fetchSessionRuntimeStatus(sk).then((st) => {
-            if (st?.attachRecommended === false) {
-              refreshAttachAttemptedRef.current[sk] = String(st.threadId || wsClient.getSessionThreadId(sk) || '')
-            }
-          })
-        }
-      })
-    }, 30000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [selectedTurnBusy, selectedSessionKey, clearTurnSendingState])
-
-  /**
-   * 全局 stale busy 轮询兜底：不依赖事件，每 15s 扫描所有 busy 会话（含非选中）。
-   * 对 lastEventAt 超 45s 无新事件的会话，查 DB 确认是否真的还在运行；
-   * DB 说不在运行就强制清理 turn 状态。这是对事件驱动清理的兜底——
-   * 事件可能丢失/拦截/跳过，但轮询不会。
-   */
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      const busyKeys = listBusySessionKeys()
-      for (const sk of busyKeys) {
-        const rt = getSessionRuntime(sk)
-        const last = Number(rt.lastEventAt || 0)
-        if (!last) continue
-        if (Date.now() - last < 45000) continue
-        invalidateSessionRuntimeStatusCache(sk)
-        const silentMs = Date.now() - last
-        const runIdBefore = rt.activeChatRunId || rt.stream.runId
-        void maybeClearTurnSendingState({
-          sessionKey: sk,
-          wsClient,
-          onClear: () => {
-            clearTurnSendingState(sk, rt, true)
-            logStreamStop({
-              sessionKey: sk,
-              runId: runIdBefore,
-              trigger: 'stale_busy_poll_clear',
-              hasEndMarker: false,
-              detail: {
-                silentMs,
-                turnPhase: rt.turnPhase,
-                note: '全局 45s 无事件且后端确认不在跑后清 busy',
-              },
-            })
-          },
-          onResume: () => {
-            /* 续流仅用户刷新触发 */
-          },
-        })
-      }
-    }, 15000)
-    return () => window.clearInterval(timer)
-  }, [clearTurnSendingState])
+  // Stale turn-busy 看门狗（选中 90s / 全局 45s）已抽到
+  // chat-app/session/use-stale-turn-watchdogs.ts
+  const staleTurnWatchdogsCtx = useMemo<UseStaleTurnWatchdogsCtx>(
+    () => ({
+      selectedTurnBusy,
+      selectedSessionKey,
+      sessionsRef,
+      clearTurnSendingState,
+      refreshAttachAttemptedRef,
+      wsClient,
+    }),
+    [selectedTurnBusy, selectedSessionKey, clearTurnSendingState],
+  )
+  useSelectedStaleTurnWatchdog(staleTurnWatchdogsCtx)
+  useGlobalStaleBusyPoll(staleTurnWatchdogsCtx)
 
   /** 刷新/关窗时若仍 busy，落 page_unload（靠 frontend-*.log / LS ring 事后排查） */
   useEffect(() => {
@@ -4889,17 +4671,11 @@ export default function ChatApp() {
   }, [])
 
   const refreshAgentsList = useCallback(async () => {
-    try {
-      const api = await getApi()
-      const agentResult = await api.listAgents()
-      const list = Array.isArray(agentResult) ? agentResult : agentResult?.agents || []
-      const mapped = mapAgentPickerRows(list)
-      setAgents(mapped)
-      setAgentsDisplayCache(list)
-      setRoleUiNonce((n) => n + 1)
-    } catch {
-      /* keep previous agents */
-    }
+    await refreshAgentsListImpl({
+      getApi,
+      setAgents,
+      setRoleUiNonce,
+    })
   }, [])
 
   useEffect(() => {
