@@ -18,6 +18,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
   -PushGitTag
 ```
 
+**双击只打安装包（不上传）**：[`build-desktop-installer.bat`](./build-desktop-installer.bat)  
+（等价于下面的 `-BuildDesktopInstaller`；可选参数 `-InstallNpmDeps`。）
+
 Or piece-wise via `local-publish.ps1`:
 
 ```powershell
