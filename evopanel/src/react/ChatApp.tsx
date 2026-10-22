@@ -507,6 +507,22 @@ import { resolveStreamingWritePreviewForPane } from './chat-app/right-stage/reso
 import { runFlushPendingAutoTitleEffect } from './chat-app/session/run-flush-pending-auto-title.js'
 import { runInitialAgentsLoadEffect } from './chat-app/agents/run-initial-agents-load.js'
 import { runEngineReadyListenerEffect } from './chat-app/shell/install-engine-ready-listener.js'
+import { resolveCurrentAgentCapabilities } from './chat-app/agents/resolve-current-agent-capabilities.js'
+import { resolveLiveStreamActivityForSession as resolveLiveStreamActivityForSessionImpl } from './chat-app/stream/resolve-live-stream-activity-for-session.js'
+import { runToolApprovalPolicyListenersEffect } from './chat-app/session/install-tool-approval-policy-listeners.js'
+import { runFetchSessionToolApprovalEffect } from './chat-app/session/run-fetch-session-tool-approval.js'
+import { runMoreMenuDismissEffect } from './chat-app/shell/install-more-menu-dismiss.js'
+import { publishPlatformEntries as publishPlatformEntriesImpl } from './chat-app/right-stage/publish-platform-entries.js'
+import { publishArtifacts as publishArtifactsImpl } from './chat-app/right-stage/publish-artifacts.js'
+import { buildScenarioSessionHandlers } from './chat-app/session/build-scenario-session-handlers.js'
+import {
+  resolveSessionRowTaskId as resolveSessionRowTaskIdImpl,
+  resolveChatThreadIdForSidebar as resolveChatThreadIdForSidebarImpl,
+  resolveWorkflowTaskId as resolveWorkflowTaskIdImpl,
+  resolveCollabWorkflowApiReady as resolveCollabWorkflowApiReadyImpl,
+  resolveCollabExecPanelCanShow as resolveCollabExecPanelCanShowImpl,
+} from './chat-app/collab/resolve-collab-sidebar-derived.js'
+import { bumpStreamChromeThrottled as bumpStreamChromeThrottledImpl } from './chat-app/stream/bump-stream-chrome-throttled.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -2042,29 +2058,19 @@ export default function ChatApp() {
   const onCoalescedStreamBumpRef = useRef<() => void>(() => {})
 
   const bumpStreamChromeThrottled = useCallback(() => {
-    const sk = String(streamRefKeyRef.current || sessionRef.current || '').trim()
-    if (!sk) return
-    streamChromeBumpPendingRef.current = true
-    const minInterval = isChatOverlayDeferActive()
-      ? STREAM_OVERLAY_DEFER_CHROME_MS
-      : isStreamThrottleEnabled()
-        ? STREAM_CHROME_BUMP_MS
-        : STREAM_BUMP_INTERVAL_MS
-    const elapsed = Date.now() - streamChromeLastBumpRef.current
-    if (elapsed >= minInterval) {
-      streamChromeBumpPendingRef.current = false
-      streamChromeLastBumpRef.current = Date.now()
-      bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
-      return
-    }
-    if (streamChromeBumpTimerRef.current) return
-    streamChromeBumpTimerRef.current = window.setTimeout(() => {
-      streamChromeBumpTimerRef.current = 0
-      if (!streamChromeBumpPendingRef.current) return
-      streamChromeBumpPendingRef.current = false
-      streamChromeLastBumpRef.current = Date.now()
-      bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
-    }, minInterval - elapsed)
+    bumpStreamChromeThrottledImpl({
+      streamRefKeyRef,
+      sessionRef,
+      streamChromeBumpPendingRef,
+      isChatOverlayDeferActive,
+      STREAM_OVERLAY_DEFER_CHROME_MS,
+      isStreamThrottleEnabled,
+      STREAM_CHROME_BUMP_MS,
+      STREAM_BUMP_INTERVAL_MS,
+      streamChromeLastBumpRef,
+      bumpSessionRuntimeNotifyForKey,
+      streamChromeBumpTimerRef,
+    })
   }, [])
 
   const onCoalescedStreamBump = useCallback(() => {
@@ -2420,47 +2426,39 @@ export default function ChatApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount: drop leftover summary tab
   }, [])
   const publishPlatformEntries = useCallback((entries: PlatformRunEntry[], focusEntryId?: string) => {
-    turnPlatformEntriesRef.current = entries
-    setTurnPlatformEntries([...entries])
-    setSessionPlatformEntries((prev) => {
-      const map = new Map<string, PlatformRunEntry>()
-      for (const row of prev) map.set(row.id, row)
-      for (const row of entries) map.set(row.id, row)
-      return Array.from(map.values()).sort((a, b) => b.appliedAt - a.appliedAt)
-    })
-    if (!entries.length) return
-    // 浏览器面板由 agent 实时驱动（画布/点击/滚轮穿透）。平台条目改走 Info Rail
-    // 呈报，不抢占 Right Stage——否则平台工具一发布条目，浏览器面板就被折叠。
-    const browserStageLive = rightStageStore.getSnapshot().surface?.kind === 'browser'
-    if (rightStageHintTimerRef.current) {
-      clearTimeout(rightStageHintTimerRef.current)
-      rightStageHintTimerRef.current = 0
-    }
-    if (!browserStageLive) {
-      rightStageStore.hide()
-    }
-    setInfoRailOpen(true)
-    setInfoRailTab('platform')
-    const focus = String(focusEntryId || latestPlatformRunEntryId(entries)).trim()
-    if (focus) setPlatformFocusEntryId(focus)
+    publishPlatformEntriesImpl(
+      {
+        turnPlatformEntriesRef,
+        setTurnPlatformEntries,
+        setSessionPlatformEntries,
+        rightStageStore,
+        rightStageHintTimerRef,
+        setInfoRailOpen,
+        setInfoRailTab,
+        latestPlatformRunEntryId,
+        setPlatformFocusEntryId,
+      },
+      entries,
+      focusEntryId,
+    )
   }, [])
   const publishArtifacts = useCallback(
     (opts?: { focusId?: string; hint?: string; force?: boolean }) => {
-      const items = turnRunArtifactsRef.current
-      if (!items.length) return
-      setTurnArtifacts([...items])
-      const autoPreview = isAutoWorkPreviewEnabled(writeStreamModeRef.current)
-      if (!autoPreview && !opts?.force) return
-      if (rightStageHintTimerRef.current) {
-        clearTimeout(rightStageHintTimerRef.current)
-        rightStageHintTimerRef.current = 0
-      }
-      hideRightStageIfKind('artifacts')
-      setInfoRailOpen(true)
-      setInfoRailTab('artifacts')
-      const focus = String(opts?.focusId || items[items.length - 1]?.id || '').trim()
-      if (focus) setArtifactFocusId(focus)
-      if (opts?.hint) toast(opts.hint, 'info')
+      publishArtifactsImpl(
+        {
+          turnRunArtifactsRef,
+          setTurnArtifacts,
+          isAutoWorkPreviewEnabled,
+          writeStreamModeRef,
+          rightStageHintTimerRef,
+          hideRightStageIfKind,
+          setInfoRailOpen,
+          setInfoRailTab,
+          setArtifactFocusId,
+          toast,
+        },
+        opts,
+      )
     },
     [],
   )
@@ -2661,25 +2659,13 @@ export default function ChatApp() {
 
   const [roleSwitchBusy, setRoleSwitchBusy] = useState(false)
   const scenarioSessionHandlers = useMemo(
-    () => ({
-      sessionKey: String(selectedSessionKey || '').trim(),
-      onSessionModeChange: (mode: SessionMode) => setSessionMode(mode),
-      patchSessionScenarios: (sk: string, scenarios: string[]) => {
-        wsClient.patchSessionActivatedScenarios(sk, scenarios)
-        // sessionMode is the source of truth after v75; keep it in sync with
-        // the new scenario selection so resolveSessionModeForOpenSession stays
-        // consistent without waiting for the next API refresh.
-        const derivedMode =
-          scenarios.includes('plan') ? 'plan' : scenarios.includes('agent') ? 'agent' : 'ask'
-        setSessions((prev) =>
-          prev.map((s) =>
-            String(s.sessionKey || '') === sk
-              ? { ...s, activatedScenarios: scenarios, sessionMode: derivedMode }
-              : s,
-          ),
-        )
-      },
-    }),
+    () =>
+      buildScenarioSessionHandlers({
+        selectedSessionKey,
+        setSessionMode,
+        wsClient,
+        setSessions,
+      }),
     [selectedSessionKey, sessions],
   )
 
@@ -2823,40 +2809,15 @@ export default function ChatApp() {
     return agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code) ?? { agent_code: code }
   }, [currentRoleCodeForUi, agents])
 
-  const currentAgentCapabilities = useMemo(() => {
-    const summary = agentCapabilitySummary(currentRoleAgent, Number.MAX_SAFE_INTEGER)
-    const selectedNames = selectedSkills
-      .map((s) => String(s.name || s.label || '').trim())
-      .filter(Boolean)
-    // Agent 配置技能 ∪ 本会话勾选技能
-    const allSkills = Array.from(
-      new Set([
-        ...(Array.isArray(currentRoleAgent?.skills)
-          ? currentRoleAgent.skills.map((s) => String(s || '').trim()).filter(Boolean)
-          : []),
-        ...selectedNames,
-      ]),
-    )
-    const rawMcp = currentRoleAgent?.mcp_servers
-    const mcpServers: string[] | null = Array.isArray(rawMcp)
-      ? rawMcp.map((s) => String(s || '').trim()).filter(Boolean)
-      : null
-    const rawTools = currentRoleAgent?.tools
-    const toolNames: string[] | null = Array.isArray(rawTools)
-      ? rawTools.map((t) => String(t || '').trim()).filter(Boolean)
-      : null
-    const knowledgeVaultIds = Array.isArray(currentRoleAgent?.knowledge_vault_ids)
-      ? currentRoleAgent.knowledge_vault_ids.map((k) => String(k || '').trim()).filter(Boolean)
-      : []
-    return {
-      skillCount: allSkills.length,
-      toolCount: toolNames?.length ?? summary.toolTotal,
-      skillNames: allSkills,
-      toolNames,
-      mcpServers,
-      knowledgeVaultIds,
-    }
-  }, [currentRoleAgent, selectedSkills])
+  const currentAgentCapabilities = useMemo(
+    () =>
+      resolveCurrentAgentCapabilities({
+        agentCapabilitySummary,
+        currentRoleAgent,
+        selectedSkills,
+      }),
+    [currentRoleAgent, selectedSkills],
+  )
 
   const [capabilityPatchBusy, setCapabilityPatchBusy] = useState(false)
 
@@ -3391,24 +3352,7 @@ export default function ChatApp() {
 
   // 点击空白处关闭「···」菜单（须用 click 而非 mousedown：菜单 portal 到 body，mousedown 会先卸菜单导致 click 到不了「删除」）
   useEffect(() => {
-    if (!moreMenuKey) return
-    const onClick = (e: MouseEvent) => {
-      const target =
-        e.target instanceof Element
-          ? e.target
-          : (e.target as Node | null)?.parentElement ?? null
-      if (!target) return
-      if (
-        target.closest(
-          '[data-session-more-root], .modal-overlay, .react-chat-session-more-menu, .react-chat-session-context-menu',
-        )
-      ) {
-        return
-      }
-      setMoreMenuKey(null)
-    }
-    document.addEventListener('click', onClick)
-    return () => document.removeEventListener('click', onClick)
+    return runMoreMenuDismissEffect({ moreMenuKey, setMoreMenuKey })
   }, [moreMenuKey])
 
   // 「更多」上拉：挂到 body + fixed，避开输入区上拉后父级 overflow 裁切
@@ -3632,47 +3576,24 @@ export default function ChatApp() {
   }, [])
 
   useEffect(() => {
-    const onGlobalChanged = () => {
-      setToolApprovalPolicyTick((n) => n + 1)
-      scheduleRefreshSessions(0)
-    }
-    const onSessionChanged = () => {
-      setToolApprovalPolicyTick((n) => n + 1)
-    }
-    const onRequestSessionFullAccess = () => {
-      void applyFullAccessToCurrentSessionRef.current({ quiet: true }).then(() => {
-        toast('本会话已切换为完全访问', 'success')
-      })
-    }
-    window.addEventListener(TOOL_APPROVAL_POLICY_CHANGED, onGlobalChanged)
-    window.addEventListener(TOOL_APPROVAL_SESSION_POLICY_CHANGED, onSessionChanged)
-    window.addEventListener(TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS, onRequestSessionFullAccess)
-    return () => {
-      window.removeEventListener(TOOL_APPROVAL_POLICY_CHANGED, onGlobalChanged)
-      window.removeEventListener(TOOL_APPROVAL_SESSION_POLICY_CHANGED, onSessionChanged)
-      window.removeEventListener(
-        TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS,
-        onRequestSessionFullAccess,
-      )
-    }
+    return runToolApprovalPolicyListenersEffect({
+      setToolApprovalPolicyTick,
+      scheduleRefreshSessions,
+      applyFullAccessToCurrentSessionRef,
+      toast,
+      TOOL_APPROVAL_POLICY_CHANGED,
+      TOOL_APPROVAL_SESSION_POLICY_CHANGED,
+      TOOL_APPROVAL_REQUEST_SESSION_FULL_ACCESS,
+    })
   }, [scheduleRefreshSessions])
 
   useEffect(() => {
-    if (!selectedSessionKey) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const result = await fetchSessionToolApprovalPolicy(selectedSessionKey)
-        if (cancelled) return
-        wsClient.applySessionToolApprovalPolicy(selectedSessionKey, result)
-        setToolApprovalPolicyTick((n) => n + 1)
-      } catch {
-        /* Gateway 未就绪或会话尚未落库时沿用内存缓存 */
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    return runFetchSessionToolApprovalEffect({
+      selectedSessionKey,
+      fetchSessionToolApprovalPolicy,
+      wsClient,
+      setToolApprovalPolicyTick,
+    })
   }, [selectedSessionKey])
 
   useEffect(() => {
@@ -4475,28 +4396,22 @@ export default function ChatApp() {
   /** 流式「运行中」计时唯一标准：当前会话本轮 ``currentTurnStartedAt``（非整段 activity 环节）。 */
   const resolveLiveStreamActivityForSession = useCallback(
     (sessionKey: string, isSelectedRow: boolean): ResolvedLiveStreamActivity | null => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return null
-      const sessionRow = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
-      const executing = isSessionExecuting(sk, { sessionRow })
-      if (!executing) return null
-      const rt = getSessionRuntime(sk)
-      const selectedSk = String(selectedSessionKey || '').trim()
-      const useForegroundStream = isSelectedRow && sk === selectedSk
-      const panel = useForegroundStream
-        ? threadPanelStateRef.current
-        : threadPanelBySessionRef.current.get(sk) || emptyThreadPanel()
-      const streamTurn = useForegroundStream ? streamRef.current.turn : rt.stream.turn
-      const elapsedSec = computeTurnElapsedSec(sessionRow, {
-        fallbackStartMs: rt.turnStartTs,
-      })
-      return resolveComposerDockActivity({
-        activityKind: rt.activity.kind !== 'idle' ? rt.activity.kind : panel.activityKind,
-        activityDetail: rt.activity.detail || panel.activityDetail,
-        streamSystemActivity: streamTurn.systemActivity,
-        elapsedSec,
-        activeTurn: executing,
-      })
+      return resolveLiveStreamActivityForSessionImpl(
+        {
+          sessionsRef,
+          isSessionExecuting,
+          getSessionRuntime,
+          selectedSessionKey,
+          threadPanelStateRef,
+          threadPanelBySessionRef,
+          emptyThreadPanel,
+          streamRef,
+          computeTurnElapsedSec,
+          resolveComposerDockActivity,
+        },
+        sessionKey,
+        isSelectedRow,
+      )
     },
     [selectedSessionKey],
   )
@@ -4665,15 +4580,16 @@ export default function ChatApp() {
 
   const executionToolTiming = goalExecutionTiming || collabExecutionTiming
 
-  const sessionRowTaskId = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return ''
-    const row = sessions.find((s) => String(s.sessionKey || '') === sk)
-    return resolveSessionTaskId(
-      row as { collabTaskId?: string | null } | undefined,
-      boundTaskId || '',
-    )
-  }, [selectedSessionKey, sessions, boundTaskId])
+  const sessionRowTaskId = useMemo(
+    () =>
+      resolveSessionRowTaskIdImpl({
+        selectedSessionKey,
+        sessions,
+        resolveSessionTaskId,
+        boundTaskId,
+      }),
+    [selectedSessionKey, sessions, boundTaskId],
+  )
   sessionBoundTaskIdRef.current = sessionRowTaskId
 
   const sidebarActiveTaskId =
@@ -4684,71 +4600,64 @@ export default function ChatApp() {
     null
   const sidebarActiveView = sidebarActiveTaskId ? sidebarTaskViews[sidebarActiveTaskId] : undefined
 
-  const chatThreadIdForSidebar = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return null
-    const fromMap = wsClient.getSessionThreadId(sk)
-    if (fromMap && !fromMap.startsWith('agent:')) return fromMap
-    const fromRowRaw = String(
-      sessions.find((s) => String(s.sessionKey || '') === sk)?.threadId || '',
-    ).trim()
-    const fromRow =
-      resolveLanggraphLeadThreadId(fromRowRaw) ||
-      (fromRowRaw && !fromRowRaw.startsWith('agent:') ? fromRowRaw : '')
-    return fromRow || fromMap
-  }, [selectedSessionKey, sessions])
+  const chatThreadIdForSidebar = useMemo(
+    () =>
+      resolveChatThreadIdForSidebarImpl({
+        selectedSessionKey,
+        wsClient,
+        sessions,
+        resolveLanggraphLeadThreadId,
+      }),
+    [selectedSessionKey, sessions],
+  )
 
   /** 主任务 id：会话行、内存绑定、侧栏快照、子任务 parent 等多源合并（避免仅有 subtasks 时面板为空） */
-  const workflowTaskId = useMemo(() => {
-    const fromSubParent = String(
-      (threadPanelState.collabSubtasks || []).find((s) => String(s.parentTaskId || '').trim())
-        ?.parentTaskId || '',
-    ).trim()
-    return (
-      sessionRowTaskId ||
-      String(boundTaskId || '').trim() ||
-      String(threadPanelState.collabTask?.taskId || '').trim() ||
-      String(threadPanelState.boundTaskId || '').trim() ||
-      fromSubParent
-    )
-  }, [
-    sessionRowTaskId,
-    boundTaskId,
-    threadPanelState.collabTask?.taskId,
-    threadPanelState.boundTaskId,
-    threadPanelState.collabSubtasks,
-  ])
+  const workflowTaskId = useMemo(
+    () =>
+      resolveWorkflowTaskIdImpl({
+        threadPanelState,
+        sessionRowTaskId,
+        boundTaskId,
+      }),
+    [
+      sessionRowTaskId,
+      boundTaskId,
+      threadPanelState.collabTask?.taskId,
+      threadPanelState.boundTaskId,
+      threadPanelState.collabSubtasks,
+    ],
+  )
 
-  const collabWorkflowApiReady = useMemo(() => {
-    if (sessionRowTaskId) return true
-    const sk = String(selectedSessionKey || '').trim()
-    if (sk.startsWith('agent:')) return true
-    const thread = String(chatThreadIdForSidebar || '').trim()
-    return !!(thread && !thread.startsWith('agent:'))
-  }, [sessionRowTaskId, selectedSessionKey, chatThreadIdForSidebar])
+  const collabWorkflowApiReady = useMemo(
+    () =>
+      resolveCollabWorkflowApiReadyImpl({
+        sessionRowTaskId,
+        selectedSessionKey,
+        chatThreadIdForSidebar,
+      }),
+    [sessionRowTaskId, selectedSessionKey, chatThreadIdForSidebar],
+  )
 
   /** GET /tasks 查询主键：会话绑定 taskId 优先，其次内存 hint */
   const collabSubtasksTaskId = String(sessionRowTaskId || workflowTaskId || '').trim()
 
-  const collabExecPanelCanShow = useMemo(() => {
-    if (!collabWorkflowApiReady) return false
-    const task = threadPanelState.collabTask
-    const planGoal = String(task?.planGoal || task?.boundPlanPreview || '').trim()
-    const sidebarOpts = {
-      boundPlanReady: task?.boundPlanReady,
-      hasPlanBody: !!task?.boundPlanReady || !!planGoal,
-    }
-    const phase = String(threadPanelState.collabPhase || '').trim().toLowerCase()
-    if (phase === 'executing' || phase === 'verifying' || phase === 'reflecting') return true
-    if (task && isActiveExecTaskStatus(task.status)) return true
-    if (collabSubtasksTaskId && shouldShowCollabWorkflowPanel(task, sidebarOpts)) return true
-    return shouldShowCollabSubtaskSidebar(task, sidebarOpts)
-  }, [
-    collabWorkflowApiReady,
-    threadPanelState.collabTask,
-    threadPanelState.collabPhase,
-    collabSubtasksTaskId,
-  ])
+  const collabExecPanelCanShow = useMemo(
+    () =>
+      resolveCollabExecPanelCanShowImpl({
+        collabWorkflowApiReady,
+        threadPanelState,
+        collabSubtasksTaskId,
+        isActiveExecTaskStatus,
+        shouldShowCollabWorkflowPanel,
+        shouldShowCollabSubtaskSidebar,
+      }),
+    [
+      collabWorkflowApiReady,
+      threadPanelState.collabTask,
+      threadPanelState.collabPhase,
+      collabSubtasksTaskId,
+    ],
+  )
 
   const collabSubtasksFetchEnabled = !!(
     collabWorkflowApiReady &&
@@ -5987,169 +5896,272 @@ export default function ChatApp() {
   }, [])
 
   return renderChatAppView({
-      DEFAULT_SESSION_MODES,
-      PERMISSION_PRESETS,
-      QUICK_PROMPTS,
-      SHOW_SESSION_MODE_COLLAB_UI,
-      STORAGE_MODEL_KEY,
-      TAURI_HEADER_CELL_DRAG_PROPS,
-      THINKING_LEVEL_OPTIONS,
-      agents,
-      anyRightPanelOpen,
-      assistantReplyLabel,
-      bottomModelOpen,
-      bottomModelRootRef,
-      bottomMoreOpen,
-      bottomMorePortalStyle,
-      bottomMoreTriggerRef,
-      bottomPermissionOpen,
-      bottomRoleOpen,
-      browserToggleButton,
-      chatPanelMode,
-      chatThreadIdForSidebar,
-      collabOn,
-      collabVerifyingBadge,
-      createPortal,
-      currentPermissionPillLabel,
-      currentPermissionPresetId,
-      currentRoleAgent,
-      currentRoleCodeForUi,
-      currentRoleLabel,
-      displayContextUsage,
-      dynamicModes,
-      effectiveModelSupportsThinking,
-      effectiveModelSupportsVision,
-      effectiveWorkspaceRoot,
-      engineReady,
-      ensureChatSessionKey,
-      ensureChatSessionKeyRef,
-      executionToolTiming,
-      filterRightStageTabsForSession,
-      getApi,
-      getDisplayLabel,
-      globalWorkspaceHistory,
-      goal,
-      goalExecutionTiming,
-      goalProposalSuppressKey,
-      handleAbort,
-      handleCloseAllRightStageTabs,
-      handleCloseOtherRightStageTabs,
-      handleCloseRightStageTab,
-      handleCollapseRightStage,
-      handleComposerWarmup,
-      handleCopyMessage,
-      handleDeleteWorkspaceGroup,
-      handleDispatchEmployee,
-      handleEditMessage,
-      handleEnhancePrompt,
-      handleForkFromMessage,
-      handleHistoryViewReady,
-      handleManualContextCompact,
-      handleQuickPrompt,
-      handleRetryMessage,
-      handleSend,
-      handleStartGoal,
-      handleStopGoal,
-      handleVoiceTranscribed,
-      headerTokenTotals,
-      homeWorkspaceLabel,
-      infoRailHeaderToggle,
-      isDesktopTauriRuntime,
-      isHomeSurface,
-      isImagePathLike,
-      isProactiveEmployeeSession,
-      knowledgeMapEnabled,
-      lastAssistantRowIndex,
-      liveTurnAssistantRunId,
-      liveTurnTimingActive,
-      liveTurnTokenStr,
-      manualContextCompacting,
-      memoryEnabled,
-      modeLabel,
-      moreSubOpen,
-      newChatGrantAllDefault,
-      onShellDeleteSession,
-      onShellForkSession,
-      onShellNewSessionInWorkspace,
-      onShellNewWorkspace,
-      onShellPinSession,
-      onShellRefreshSession,
-      onShellRefreshSessionList,
-      onShellStopSession,
-      onShellWorkspaceFocus,
-      onToolApprovalStable,
-      openKnowledgeMapPanel,
-      patchPanelSettings,
-      pickPermissionPreset,
-      planDockApiView,
-      planExecConfirmAnchor,
-      prefetchSessionHistoryFromShell,
-      proactiveRolesDisplay,
-      renderBottomControlsLoggedRef,
-      renderChatSummaryPanel,
-      renderRightStageBody,
-      renderRows,
-      resolveChatImageSrc,
-      resolveLiveStreamActivityForSession,
-      rightStageLauncherItems,
-      roleSwitchBusy,
-      selectSessionFromShell,
-      selectedResumeAttach,
-      selectedResumeStreamHold,
-      selectedSessionKey,
-      selectedSessionLive,
-      selectedStreamPriorTurnStrip,
-      sessionMode,
-      sessionNamesTick,
-      sessionRef,
-      sessionSidebarOpen,
-      setBottomModelOpen,
-      setBottomMoreOpen,
-      setBottomPermissionOpen,
-      setBottomRoleOpen,
-      setBottomWorkspaceOpen,
-      setMemoryEnabled,
-      setModeMenuOpen,
-      setMoreSubOpen,
-      setRoleUiNonce,
-      setShareSessionOpen,
-      setSubtaskTranscriptModal,
-      setThreadPanelState,
-      setVoiceReplyEnabled,
-      shareSessionOpen,
-      showChatSummaryFloat,
-      showHistoryFetchOverlay,
-      showHistorySyncHint,
-      sidebarActiveTaskId,
-      sidebarActiveView,
-      sidebarHistory,
-      speechEnabled,
-      startNewChatWithPresetAgent,
-      streamHealth,
-      streamRef,
-      subtaskTranscriptModal,
-      suppressedGoalProposalKeysRef,
-      thinkingLevel,
-      threadPanelState,
-      toUserFacingError,
-      toast,
-      toggleNewChatGrantAllDefault,
-      togglePermissionMenu,
-      toggleShellAsideCollapsed,
-      toolApprovalInFlight,
-      toolApprovalUiDisabled,
-      turnArtifacts,
-      visibleRightStageTabs,
-      voiceReplyEnabled,
-      voiceReplyModeToSettingsPatch,
-      voiceReplyPendingRef,
-      voiceSpeechSyncedPlainRef,
-      voiceStreamingStartedRef,
-      workspaceFolderGroup,
-      workspaceFolderToggleButton,
-      workspaceMention,
-      workspacePanelWritePreview,
-      wsClient,
+    activateRightStageTab,
+    agents,
+    anyRightPanelOpen,
+    applyThinkingLevel,
+    assistantReplyLabel,
+    attachContextFiles,
+    bottomAreaLayoutStyle,
+    bottomAreaRef,
+    bottomDockHeightPx,
+    bottomDockResizeDragging,
+    bottomModelOpen,
+    bottomModelRootRef,
+    bottomMoreOpen,
+    bottomMorePortalStyle,
+    bottomMoreTriggerRef,
+    bottomPermissionOpen,
+    bottomPluginPanelOpen,
+    bottomRoleOpen,
+    bottomSkillOpen,
+    browserToggleButton,
+    chatPanelMode,
+    chatThreadIdForSidebar,
+    collabOn,
+    collabVerifyingBadge,
+    composerDraftSnapshotRef,
+    composerDraftVersion,
+    contextFiles,
+    contextImagePreviewIndex,
+    conversationColRef,
+    createPortal,
+    currentPermissionPillLabel,
+    currentPermissionPresetId,
+    currentRoleAgent,
+    currentRoleCodeForUi,
+    currentRoleLabel,
+    DEFAULT_SESSION_MODES,
+    displayContextUsage,
+    dynamicModes,
+    effectiveModelName,
+    effectiveModelSupportsThinking,
+    effectiveModelSupportsVision,
+    effectiveWorkspaceRoot,
+    engineReady,
+    ensureChatSessionKey,
+    ensureChatSessionKeyRef,
+    ensureWorkspaceExpanded,
+    executionToolTiming,
+    filteredSessions,
+    filterRightStageTabsForSession,
+    getApi,
+    getDisplayLabel,
+    globalWorkspaceHistory,
+    goal,
+    goalExecutionTiming,
+    goalProposalSuppressKey,
+    handleAbort,
+    handleBottomDockResizePointerDown,
+    handleCancelPendingSend,
+    handleCancelPendingSteer,
+    handleCloseAllRightStageTabs,
+    handleCloseOtherRightStageTabs,
+    handleCloseRightStageTab,
+    handleCollapseRightStage,
+    handleComposerDraftChange,
+    handleComposerWarmup,
+    handleConversationComposeDragOver,
+    handleConversationComposeDrop,
+    handleCopyMessage,
+    handleDeleteWorkspaceGroup,
+    handleDispatchEmployee,
+    handleEditMessage,
+    handleEditPendingSend,
+    handleEnhancePrompt,
+    handleFlushPendingSend,
+    handleForkFromMessage,
+    handleHistoryViewReady,
+    handleInterruptAndSendSteers,
+    handleManualContextCompact,
+    handleOpenWorkspaceFolder,
+    handleQueueWhileBusy,
+    handleQuickPrompt,
+    handleRetryMessage,
+    handleSend,
+    handleStartGoal,
+    handleSteerWhileBusy,
+    handleStopGoal,
+    handleSubmitClarification,
+    handleVoiceTranscribed,
+    headerTokenTotals,
+    historyError,
+    historyHasMore,
+    historyInstantPaint,
+    historyLoading,
+    historyLoadingOlder,
+    homeWorkspaceLabel,
+    infoRailHeaderToggle,
+    isDesktopTauriRuntime,
+    isHomeSurface,
+    isImagePathLike,
+    isMobileChat,
+    isProactiveEmployeeSession,
+    knowledgeMapEnabled,
+    lastAssistantRowIndex,
+    layoutResizeEnabled,
+    listLoading,
+    liveTurnAssistantRunId,
+    liveTurnTimingActive,
+    liveTurnTokenStr,
+    loadMoreGlobalRecentSessions,
+    loadMoreWorkspaceSessions,
+    loadOlderHistory,
+    loadProactiveRoles,
+    mainBodyLayoutStyle,
+    mainBodyRef,
+    mainBodyStageClasses,
+    manualContextCompacting,
+    memoryEnabled,
+    mobileChatPane,
+    modeLabel,
+    modelCatalog,
+    modelConnNameMap,
+    modelPillLabel,
+    modelsLoading,
+    moreMenuKey,
+    moreSubOpen,
+    newChatButtonActive,
+    newChatGrantAllDefault,
+    onShellDeleteSession,
+    onShellForkSession,
+    onShellNewSessionInWorkspace,
+    onShellNewWorkspace,
+    onShellPinSession,
+    onShellRefreshSession,
+    onShellRefreshSessionList,
+    onShellStopSession,
+    onShellWorkspaceFocus,
+    onToolApprovalStable,
+    openKnowledgeMapPanel,
+    openMessageFilePreview,
+    openSessionArtifact,
+    patchPanelSettings,
+    pendingSendQueue,
+    pendingSteers,
+    PERMISSION_PRESETS,
+    persistSelectedPlugins,
+    persistSelectedSkills,
+    pickPermissionPreset,
+    planDockApiView,
+    planExecConfirmAnchor,
+    pluginComposerPillsVisible,
+    pluginList,
+    pluginListLoading,
+    pluginPanelStyle,
+    prefetchSessionHistoryFromShell,
+    proactiveRoles,
+    proactiveRolesDisplay,
+    QUICK_PROMPTS,
+    removeSelectedPlugin,
+    removeSelectedSkill,
+    renderBottomControlsLoggedRef,
+    renderChatSummaryPanel,
+    renderRightStageBody,
+    renderRows,
+    reopenRightStageTab,
+    reorderRightStageTab,
+    resolveChatImageSrc,
+    resolveLiveStreamActivityForSession,
+    rightPanelResizeDragging,
+    rightPanelWidthPx,
+    rightStageActiveKey,
+    rightStageLauncherItems,
+    rightStageOpen,
+    rightStageRecentClosed,
+    roleSwitchBusy,
+    rows,
+    runningSessionMap,
+    selectedPlugins,
+    selectedResumeAttach,
+    selectedResumeStreamHold,
+    selectedSessionKey,
+    selectedSessionLive,
+    selectedSkills,
+    selectedStreamPriorTurnStrip,
+    selectedTurnBusy,
+    selectSessionFromShell,
+    sessionFilter,
+    sessionKey,
+    sessionMode,
+    sessionNamesTick,
+    sessionRef,
+    sessions,
+    sessionSidebarOpen,
+    sessionTitle,
+    setBottomModelOpen,
+    setBottomMoreOpen,
+    setBottomPermissionOpen,
+    setBottomPluginPanelOpen,
+    setBottomRoleOpen,
+    setBottomSkillOpen,
+    setBottomWorkspaceOpen,
+    setCollabPhaseForSession,
+    setContextImagePreviewIndex,
+    setMemoryEnabled,
+    setMobileChatPane,
+    setModelName,
+    setModeMenuOpen,
+    setMoreMenuKey,
+    setMoreSubOpen,
+    setPluginComposerPillsVisible,
+    setRoleUiNonce,
+    setRows,
+    setSelectedPlugins,
+    setSelectedSkills,
+    setSessionFilter,
+    setSessionModeAndApply,
+    setSessions,
+    setShareSessionOpen,
+    setSubtaskTranscriptModal,
+    setThreadPanelState,
+    setVoiceReplyEnabled,
+    sharedCollabSubtasks,
+    shareSessionOpen,
+    SHOW_SESSION_MODE_COLLAB_UI,
+    showChatSummaryFloat,
+    showHistoryFetchOverlay,
+    showHistorySyncHint,
+    sidebarActiveTaskId,
+    sidebarActiveView,
+    sidebarHistory,
+    skillList,
+    skillListLoading,
+    speechEnabled,
+    startNewChatWithPresetAgent,
+    STORAGE_MODEL_KEY,
+    streamHealth,
+    streamingWritePreview,
+    streamRef,
+    subtaskTranscriptModal,
+    suppressedGoalProposalKeysRef,
+    TAURI_HEADER_CELL_DRAG_PROPS,
+    THINKING_LEVEL_OPTIONS,
+    thinkingLevel,
+    threadPanelState,
+    toast,
+    toggleContextFile,
+    toggleNewChatGrantAllDefault,
+    togglePermissionMenu,
+    toggleShellAsideCollapsed,
+    tokenTotals,
+    toolApprovalInFlight,
+    toolApprovalUiDisabled,
+    toUserFacingError,
+    turnArtifacts,
+    visibleRightStageTabs,
+    voiceReplyEnabled,
+    voiceReplyModeToSettingsPatch,
+    voiceReplyPendingRef,
+    voiceSpeechSyncedPlainRef,
+    voiceStreamingStartedRef,
+    workspaceFolderGroup,
+    workspaceFolderToggleButton,
+    workspaceMention,
+    workspacePagination,
+    workspacePanelWritePreview,
+    workspaceSummaries,
+    wsClient,
     })
 }
 
