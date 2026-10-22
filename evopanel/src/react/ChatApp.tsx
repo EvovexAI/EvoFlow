@@ -404,6 +404,8 @@ import { selectSessionFromShell as selectSessionFromShellImpl } from './chat-app
 import { handleEditMessage as handleEditMessageImpl } from './chat-app/composer/handle-edit-message.js'
 import { applyFullAccessToCurrentSession as applyFullAccessToCurrentSessionImpl } from './chat-app/session/apply-full-access.js'
 import { startNewChatWithPresetAgent as startNewChatWithPresetAgentImpl } from './chat-app/agents/start-new-chat-with-preset-agent.js'
+import { applyMoreMenuSessionApprovalPolicy as applyMoreMenuSessionApprovalPolicyImpl } from './chat-app/session/apply-more-menu-session-approval-policy.js'
+import { toggleNewChatGrantAllDefault as toggleNewChatGrantAllDefaultImpl } from './chat-app/session/toggle-new-chat-grant-all-default.js'
 // ============================================
 
 import type {
@@ -10023,52 +10025,19 @@ export default function ChatApp() {
     presetId: string,
     opts?: { quiet?: boolean },
   ): Promise<void> {
-    const sk = (await ensureChatSessionKey()) || sessionRef.current || selectedSessionKey
-    if (!sk) return
-    const [{ patchSessionPermissionPreset }, { wsClient: wsClientMod }] = await Promise.all([
-      import('../lib/tool-approval-settings.js'),
-      import('../lib/ws-client.js'),
-    ])
-    let result
-    try {
-      result = await patchSessionPermissionPreset(sk, presetId)
-    } catch (err) {
-      // 静默失败会让用户以为已保存（刷新后回跳旧档位）——必须可见。
-      toast(
-        `权限档位保存失败：${toUserFacingError((err as Error)?.message || err)}`,
-        'error',
-      )
-      throw err
-    }
-    // Force local context so session-list refresh cannot fall back to global grant_all.
-    wsClientMod.applySessionToolApprovalPolicy(sk, {
-      ...result,
-      permission_preset: result.permission_preset || presetId,
-      effective_permission_preset: result.effective_permission_preset || presetId,
-    })
-    const effPreset = result.effective_permission_preset || presetId
-    const explicitPreset = result.permission_preset || presetId
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (String(s.sessionKey || '') !== sk) return s
-        const ctx: Record<string, unknown> =
-          s.context && typeof s.context === 'object' ? { ...s.context } : {}
-        ctx.permission_preset = explicitPreset
-        ctx.effective_permission_preset = effPreset
-        if (result.tool_approval_policy) {
-          ctx.tool_approval_policy = result.tool_approval_policy
-        }
-        const effPolicy = result.effective_policy || result.tool_approval_policy
-        if (effPolicy) {
-          ctx.effective_tool_approval_policy = effPolicy
-        }
-        return { ...s, context: ctx }
-      }),
+    await applyMoreMenuSessionApprovalPolicyImpl(
+      {
+        sessionRef,
+        selectedSessionKey,
+        ensureChatSessionKey,
+        setSessions,
+        setToolApprovalPolicyTick,
+        permissionPresetToast: (id) =>
+          permissionPresetToast(id as Parameters<typeof permissionPresetToast>[0]),
+      },
+      presetId,
+      opts,
     )
-    setToolApprovalPolicyTick((n) => n + 1)
-    if (!opts?.quiet) {
-      toast(permissionPresetToast(presetId as Parameters<typeof permissionPresetToast>[0]), 'success')
-    }
   }
 
   // 当前 session 的有效权限档位（sessions 行 context + wsClient 会话映射）。
@@ -10166,20 +10135,17 @@ export default function ChatApp() {
   applyFullAccessToCurrentSessionRef.current = applyFullAccessToCurrentSession
 
   async function toggleNewChatGrantAllDefault(next: boolean): Promise<void> {
-    const policy = next ? TOOL_APPROVAL_POLICY_GRANT_ALL : TOOL_APPROVAL_POLICY_SESSION
-    try {
-      await patchGlobalToolApprovalPolicy(policy)
-      setToolApprovalPolicyTick((n) => n + 1)
-      if (next) {
-        await applyFullAccessToCurrentSession({ quiet: true })
-        toast('已开启：新对话默认完全访问；本会话已切换为完全访问', 'success')
-      } else {
-        toast('新对话默认：帮我批准（风险操作询问）', 'success')
-      }
-    } catch (err) {
-      toast(String((err as Error)?.message || err) || '保存失败', 'error')
-      void fetchGlobalToolApprovalPolicy().catch(() => {})
-    }
+    await toggleNewChatGrantAllDefaultImpl(
+      {
+        setToolApprovalPolicyTick,
+        patchGlobalToolApprovalPolicy,
+        toolApprovalPolicyGrantAll: TOOL_APPROVAL_POLICY_GRANT_ALL,
+        toolApprovalPolicySession: TOOL_APPROVAL_POLICY_SESSION,
+        applyFullAccessToCurrentSession,
+        fetchGlobalToolApprovalPolicy,
+      },
+      next,
+    )
   }
 
   async function handleSend(
