@@ -44,7 +44,7 @@ import {
   type EmployeeBoardTask,
 } from '../lib/employee-current-task.js'
 
-/** 普通对话：Agent / 产物 / 调试 / 平台；员工对话：员工(岗位) / 任务 / 产物 / 运行 / 调试 / 平台 */
+/** 普通对话：Agent / 产物 / 调试 / 平台；员工对话：员工 / 任务 / 产物 / 运行 / 调试 / 平台 */
 export type InfoRailTab = 'artifacts' | 'context' | 'agent' | 'task' | 'run' | 'employee' | 'platform' | 'debug'
 
 export type EmployeeRailInfo = {
@@ -1176,7 +1176,7 @@ const AUTONOMY_ZH: Record<string, string> = {
   approval_for_all: '全部需审批',
 }
 
-/** 员工对话「岗位」Pane —— 由状态面板「更多」区复用 */
+/** 员工对话身份卡（含职责/审批）—— 状态面板「员工」Tab 复用 */
 export function EmployeePane({
   employeeInfo,
   sessionTitle: _sessionTitle,
@@ -1454,7 +1454,7 @@ function ChatWorkspaceInfoRailInner({
     : tab === 'context'
       ? 'task'
       : tab
-  // 员工：岗位（员工 tab）最左、任务紧挨其右；平台一律置后
+  // 员工：员工 tab 最左、任务紧挨其右；平台一律置后
   const tabs: InfoRailTab[] = isEmployeeSession
     ? [
         'employee',

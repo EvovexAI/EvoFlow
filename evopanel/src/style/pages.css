@@ -7425,6 +7425,24 @@ html.dark .config-section-title {
   font-weight: 600;
   color: var(--accent);
 }
+.models-primary-id-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+.models-primary-id-btn:hover:not(:disabled):not(.is-static) .models-primary-id {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.models-primary-id-btn:disabled,
+.models-primary-id-btn.is-static {
+  cursor: default;
+}
 .models-primary-meta {
   font-size: 11px;
   color: var(--text-tertiary);

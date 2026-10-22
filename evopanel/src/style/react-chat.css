@@ -5847,6 +5847,20 @@ html.dark .react-chat-context-ring.is-clickable:hover .react-chat-context-ring-p
   pointer-events: none;
 }
 
+/* 从知识库/任务中心切回时 --booting 白屏：给转圈，避免「无内容也无加载」 */
+.react-chat-vlist-boot-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-primary, #ffffff) 86%, transparent);
+}
+
 /*
  * Tauri 桌面：主会话区正文字号（chat.css 默认 14px；分两档收小以适配高 DPI / 系统缩放）
  */

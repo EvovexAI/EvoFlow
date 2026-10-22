@@ -73,6 +73,12 @@ def mount_langgraph_in_process() -> Starlette:
         os.environ["EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS"] = "1"
         os.environ["BG_JOB_ISOLATED_LOOPS"] = "true"
         logger.info("LangGraph BG_JOB_ISOLATED_LOOPS=true (per-job event loop isolation); set EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS=0 to share the Gateway loop")
+    try:
+        from evoflow.collab.subtask_stream_trace import log_multi_session_runtime_banner
+
+        log_multi_session_runtime_banner(source="langgraph_mount")
+    except Exception:
+        logger.debug("multi-session runtime banner skipped", exc_info=True)
     os.environ.setdefault("LANGGRAPH_DISABLE_FILE_PERSISTENCE", "false")
     os.environ.setdefault("N_JOBS_PER_WORKER", "10")
     if checkpointer:

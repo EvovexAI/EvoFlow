@@ -133,6 +133,9 @@ def schedule_inject_evf_frame(thread_id: str, payload: dict[str, Any]) -> None:
         impl(thread_id, payload)
 
 
+_inject_port_first_logged = False
+
+
 async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
     """Queue a custom frame into the live ``runs/stream`` inject queue.
 
@@ -142,13 +145,68 @@ async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
     ``POST /api/events/internal/inject-custom`` with 500s and starving other turns
     (visible on packaged desktop where ``EVOFLOW_GATEWAY_PROCESS=1``).
     """
+    global _inject_port_first_logged
     impl = get("stream_inject.inject_langgraph_custom")
     if impl is None:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "inject_port miss thread=%s type=%s (adapter not registered)",
+                thread_id,
+                str((data or {}).get("type") or "").strip() or "-",
+            )
+        except Exception:
+            pass
         return False
-    result = impl(thread_id, data)
-    if inspect.isawaitable(result):
-        result = await result
-    return bool(result)
+    try:
+        result = impl(thread_id, data)
+        awaited = inspect.isawaitable(result)
+        if awaited:
+            result = await result
+        ok = bool(result)
+        if not _inject_port_first_logged:
+            _inject_port_first_logged = True
+            try:
+                from evoflow.collab.subtask_stream_trace import multi_session_info
+
+                multi_session_info(
+                    "inject_port first_ok=%s awaited=%s thread=%s type=%s "
+                    "(awaitable_v1 — old sync bool(coro) would TypeError here)",
+                    int(ok),
+                    int(awaited),
+                    thread_id,
+                    str((data or {}).get("type") or "").strip() or "-",
+                    mirror=True,
+                )
+            except Exception:
+                pass
+        elif not ok:
+            try:
+                from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+                multi_session_warn(
+                    "inject_port ok=0 thread=%s type=%s (no live inject queue?)",
+                    thread_id,
+                    str((data or {}).get("type") or "").strip() or "-",
+                )
+            except Exception:
+                pass
+        return ok
+    except Exception as exc:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "inject_port ERROR %s thread=%s type=%s — %s",
+                type(exc).__name__,
+                thread_id,
+                str((data or {}).get("type") or "").strip() or "-",
+                exc,
+            )
+        except Exception:
+            pass
+        raise
 
 
 def _has_pending_collab_subtasks(thread_id: str) -> bool:

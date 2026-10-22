@@ -5,6 +5,7 @@ import type { ChatArtifact } from '../lib/chat-artifact.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { PriorTurnStrip } from '../lib/session-runtime-store.js'
 import {
+  bumpSessionRuntimeNotifyForKey,
   getSessionRuntimeEpochForKey,
   subscribeSessionRuntimeForKey,
 } from '../lib/session-runtime-store.js'
@@ -243,16 +244,11 @@ export const ChatMessageStreamPane = memo(function ChatMessageStreamPane(props: 
     wasSurfaceVisibleRef.current = chatSurfaceVisible
   }, [chatSurfaceVisible])
 
-  /** 回到可见面时：通知组件层（已无 publishLiveStreamNow） */
+  /** 回到可见面时：通知组件层重算 streamRow / 活动文案（停止、转圈、「绘画」） */
   useEffect(() => {
     if (!chatSurfaceVisible || !sk || (!streamLive && !isSending)) return
-    // 旧 publishLiveStreamNow / bumpStreamDisplayTick 已删：回到 chat 表面时
-    // sessionEpoch 通知驱动 MessageVirtualList.streamRow 重算
-    if (sk) {
-      // 直接调底层：仅当组件已 mount 时；store 会通知订阅者
-      getSessionRuntimeEpochForKey(sk) // touch for dep
-    }
-  }, [chatSurfaceVisible, sk, streamLive, isSending, streamRef])
+    bumpSessionRuntimeNotifyForKey(sk, { immediate: true })
+  }, [chatSurfaceVisible, sk, streamLive, isSending])
 
   const wakeLayoutKey = `${layoutKey ?? 'main'}::wake-${wakeGen}`
 

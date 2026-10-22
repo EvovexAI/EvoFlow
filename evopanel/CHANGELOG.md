@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **多会话卡死**：`ports.inject_langgraph_custom` 未 await 异步适配器，安装包 Gateway 上 `inject-custom` 连爆 500 拖垮事件循环；另一对话像被阻塞（开发环境多走 HTTP 旁路故不明显）
 - 左下角齿轮与右下角停止按钮共用同一判定（`isSending` / `selectedTurnBusy`）：停止亮则齿轮转；无折叠头时也渲染齿轮
 
+### Changed
+
+- **多会话诊断日志**：`logs/subtask-stream.trace.log` 增加 `[multi-session]` 行（运行时隔离指纹 / live stream 开闭 / inject 成败）；启动横幅与错误同步镜像到 `logs/plugin-control.log`（搜 `inject_port=awaitable_v1`）
+
 ## [1.1.3] - 2026-10-21
 
 相对 **1.1.2** 以来的增量发布：官方插件随仓库打包（空市场修复）+ 工具审批完全访问 + view_image 多图与联网搜索 + 会话标题走马灯与员工区交互 + 预设角色归并。

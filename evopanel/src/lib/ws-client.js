@@ -132,9 +132,18 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
   } else if (t === 'RUN_ERROR') {
     lane.evfRunEndSeen = true
     const errMsg = String(data.message || data.code || 'RUN_ERROR').trim()
+    const errCode = String(data.code || '').trim()
+    const chatRunId = String(lane.aguiChatRunId || runId || '').trim() || runId
+    // EVF ``aborted`` / LangGraph UserInterrupt is encoded as RUN_ERROR
+    // (code=USER_INTERRUPT|ABORTED, message=user_interrupt). Treat as abort —
+    // never surface raw 「生成中断：user_interrupt」.
+    if (isUserInterruptStreamError(errCode, errMsg) || _userStopSessionKeys.has(key)) {
+      emitStreamUserInterruptAbort(self, key, chatRunId, lane)
+      return
+    }
     self._emitEvent('chat', {
       sessionKey: key,
-      runId: String(lane.aguiChatRunId || runId || ''),
+      runId: chatRunId,
       state: 'error',
       errorMessage: errMsg,
       error: { message: errMsg },
@@ -4009,9 +4018,13 @@ function parseEvfStreamError(data) {
 }
 
 function isUserInterruptStreamError(code, message) {
-  const c = String(code || '').toLowerCase()
+  const c = String(code || '').toLowerCase().replace(/[\s-]+/g, '_')
   const m = String(message || '').toLowerCase()
-  return c === 'userinterrupt' || c.includes('user_interrupt') || /\buser\s*interrupt\b/.test(m)
+  // AG-UI maps EVF ``aborted`` → RUN_ERROR with code ABORTED / message user_interrupt
+  if (c === 'aborted' || c === 'user_interrupt' || c === 'userinterrupt') return true
+  if (c.includes('user_interrupt') || c.includes('userinterrupt')) return true
+  // Match user_interrupt / user interrupt / UserInterrupt / "User interrupted…"
+  return /user[_\s-]*interrupt/.test(m)
 }
 
 function emitStreamUserInterruptAbort(self, key, runId, lane, { finalText = '' } = {}) {

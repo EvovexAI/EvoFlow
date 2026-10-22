@@ -849,9 +849,15 @@ def evf_payload_to_agui_events(
         )
         return out
 
-    if t in {"error", "aborted"}:
+    if t == "aborted":
+        # Keep interrupt semantics discoverable on the wire: frontend maps
+        # USER_INTERRUPT / user_interrupt → chat ``aborted``, not a hard error.
+        msg = str(payload.get("reason") or payload.get("error") or "user_interrupt").strip() or "user_interrupt"
+        out.append({"type": RUN_ERROR, "message": msg, "code": "USER_INTERRUPT"})
+        return out
+    if t == "error":
         msg = str(payload.get("error") or payload.get("reason") or t)
-        out.append({"type": RUN_ERROR, "message": msg, "code": t.upper()})
+        out.append({"type": RUN_ERROR, "message": msg, "code": "ERROR"})
         return out
 
     if t == "run_end":

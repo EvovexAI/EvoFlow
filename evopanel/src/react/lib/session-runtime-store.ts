@@ -451,7 +451,7 @@ export function pruneSessionRuntimes(keepKeys: Iterable<string>): number {
   let removed = 0
   for (const [sk, rt] of store) {
     if (keep.has(sk)) continue
-    if (isTurnBusy(rt) || isSessionRuntimeLive(rt)) continue
+    if (isTurnBusy(rt) || isSessionRuntimeLive(rt) || isLivePostStreamOpen(rt)) continue
     store.delete(sk)
     removed += 1
   }
@@ -471,20 +471,23 @@ function clearTurnTiming(rt: SessionRuntime): void {
 }
 
 function applyTurnIdle(rt: SessionRuntime): void {
-  // Any transition into idle from a running turn stamps settled so late
-  // DB/probe/stream residue cannot revive the stop button.
+  // Live POST still open: mid-turn RUN_FINISHED / probe races may idle the phase
+  // while tokens keep arriving. Keep wire + activity + timing so stop/spinner /
+  // sidebar preview (e.g. 「绘画」) stay honest until SSE final clears the wire.
+  const keepLiveWire = rt.streamWireSource === 'run'
   if (rt.turnPhase !== 'idle') {
-    rt.uiTurnSettled = true
+    // Do not stamp settled while the browser-owned POST is still open — that
+    // locks out revive/reattach and hides stop until a full remount.
+    if (!keepLiveWire) {
+      rt.uiTurnSettled = true
+    }
   }
   rt.turnPhase = 'idle'
-  rt.activity = { kind: 'idle', detail: '' }
-  // Keep live POST marker so suppress-reattach / surface-wake can still see the
-  // open wire. Cleared on abort/error or explicit WIRE_SOURCE null when the
-  // POST stream actually closes (SSE final).
-  if (rt.streamWireSource !== 'run') {
+  if (!keepLiveWire) {
+    rt.activity = { kind: 'idle', detail: '' }
     rt.streamWireSource = null
+    clearTurnTiming(rt)
   }
-  clearTurnTiming(rt)
 }
 
 /** Live browser-owned POST ``/runs/stream`` still open. */
@@ -510,6 +513,15 @@ export function reviveTurnBusyIfLivePostOpen(sessionKey: string): boolean {
     wireSource: 'run',
   })
   return true
+}
+
+/** Revive every session whose live POST is still open but turn was left idle. */
+export function reviveAllTurnBusyIfLivePostOpen(): number {
+  let n = 0
+  for (const sk of store.keys()) {
+    if (reviveTurnBusyIfLivePostOpen(sk)) n += 1
+  }
+  return n
 }
 
 export function dispatchSessionTurnEvent(sessionKey: string, event: SessionTurnEvent): SessionRuntime {

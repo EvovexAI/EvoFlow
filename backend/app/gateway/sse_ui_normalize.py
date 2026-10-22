@@ -1661,7 +1661,17 @@ class UiStreamNormalizer:
         if ev == "error":
             err_obj = data if isinstance(data, dict) else {}
             err_code = str(err_obj.get("error") or "").strip()
-            if err_code == "UserInterrupt" or "UserInterrupt" in err_code:
+            err_msg = str(err_obj.get("message") or err_obj.get("detail") or "").strip()
+            code_l = err_code.lower().replace("-", "_").replace(" ", "_")
+            msg_l = err_msg.lower()
+            if (
+                code_l in {"userinterrupt", "user_interrupt"}
+                or "userinterrupt" in code_l
+                or "user_interrupt" in code_l
+                or "userinterrupt" in msg_l.replace(" ", "").replace("-", "")
+                or "user_interrupt" in msg_l
+                or "user interrupted" in msg_l
+            ):
                 return [{"type": "aborted", "reason": "user_interrupt"}]
             return [{"type": "error", "error": data}]
         if ev:

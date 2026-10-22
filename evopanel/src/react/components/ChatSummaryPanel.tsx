@@ -6,8 +6,8 @@
  * 与专用 Right Stage 互斥。
  * 两区：
  * - 进程：terminal + 子智能体 + 协作子任务 聚合成一条有序列表
- * - 智能体：复用 AgentCapabilityTabs（技能 / 工具 / MCP / 知识库）
- * - 更多：折叠收纳产物 / 平台 / 调试（保留旧侧栏能力，不丢功能）
+ * - 智能体 / 员工：普通会话为能力卡；员工会话用 EmployeePane（身份 + 职责合一）
+ * - 更多：折叠收纳产物 / 平台 / 调试 / 任务（保留旧侧栏能力，不丢功能）
  *
  * 不做「计划」区：计划确认条仍在输入区上方（PlanExecConfirm）。
  */
@@ -100,7 +100,10 @@ type Props = {
   obsEnabled?: boolean
   threadId?: string
 
-  /** 更多区：员工会话的岗位 / 任务（复用旧侧栏 Pane） */
+  /**
+   * 员工会话：employeePane 取代「智能体」身份卡（含职责/审批等），
+   * 不再单独挂「岗位」Tab；taskPane 仍在更多区。
+   */
   isEmployeeSession?: boolean
   employeePane?: ReactNode
   taskPane?: ReactNode
@@ -190,7 +193,6 @@ function MorePane({
   obsEnabled,
   threadId = '',
   isRunning,
-  employee,
   task,
 }: {
   tab: PanelTab
@@ -205,7 +207,6 @@ function MorePane({
   obsEnabled?: boolean
   threadId?: string
   isRunning: boolean
-  employee?: ReactNode
   task?: ReactNode
 }) {
   // 沿用旧侧栏的三段分组（最新 / 当前轮次 / 已有），别把结构信息压平
@@ -280,7 +281,6 @@ function MorePane({
         {tab === 'debug' && obsEnabled ? (
           <SessionDebugPane threadId={threadId} isRunning={isRunning} />
         ) : null}
-        {tab === 'employee' ? employee : null}
         {tab === 'task' ? task : null}
     </div>
   )
@@ -509,8 +509,8 @@ function ChatSummaryPanelInner({
     onDisplayModeChange('panel')
   }, [displayMode, effectiveMode, onDisplayModeChange])
 
-  // 面板 tab：智能体固定在最前，产物 / 平台带计数，
-  // 岗位 / 任务仅在员工会话且对应 pane 存在时出现，调试仅在观测开启时出现。
+  // 面板 tab：智能体/员工固定在最前，产物 / 平台带计数，
+  // 任务仅在员工会话且 pane 存在时出现，调试仅在观测开启时出现。
   // 计数为 0 时不显示「0」：空 tab 条本身已经说明没有内容，
   // 再挂个「产物 0」只会让人以为是加载失败。
   const withCount = useCallback(
@@ -524,27 +524,28 @@ function ChatSummaryPanelInner({
   const panelTabs = useMemo<Array<{ id: PanelTab; label: string }>>(
     () => {
       const list: Array<{ id: PanelTab; label: string }> = [
-        // 员工会话：首 tab 是当前岗位员工，不是「智能体」模板
+        // 员工会话：首 tab 用 EmployeePane（身份 + 职责），不再另挂「岗位」
         { id: 'agent', label: isEmployeeSession ? '员工' : '智能体' },
         { id: 'process', label: withCount(summary.items.length, '进程') },
         { id: 'artifacts', label: withCount(visibleArtifacts.length, '产物') },
         { id: 'platform', label: withCount(platformEntries.length, '平台') },
       ]
-      if (isEmployeeSession) {
-        if (taskPane) list.splice(4, 0, { id: 'task', label: '任务' })
-        if (employeePane) list.splice(4, 0, { id: 'employee', label: '岗位' })
+      if (isEmployeeSession && taskPane) {
+        list.splice(4, 0, { id: 'task', label: '任务' })
       }
       if (obsEnabled) list.push({ id: 'debug', label: '调试' })
       return list
     },
-    [withCount, summary.items.length, visibleArtifacts, platformEntries, isEmployeeSession, employeePane, taskPane, obsEnabled],
+    [withCount, summary.items.length, visibleArtifacts, platformEntries, isEmployeeSession, taskPane, obsEnabled],
   )
 
-  // tab 失效时回落：观测关闭 / 员工会话切走后，停在失效 tab 会得到空白面板。
+  // tab 失效时回落：观测关闭 / 员工会话切走 / 旧「岗位」tab → 员工身份卡。
   // 不用 effect 打 setState（会级联渲染），渲染期直接派生生效 tab。
   const effectivePanelTab: PanelTab = useMemo(() => {
     if (panelTab === 'debug' && !obsEnabled) return 'agent'
-    if ((panelTab === 'employee' || panelTab === 'task') && !isEmployeeSession) return 'agent'
+    // 旧「岗位」已并入员工身份卡
+    if (panelTab === 'employee') return 'agent'
+    if (panelTab === 'task' && !isEmployeeSession) return 'agent'
     return panelTab
   }, [panelTab, obsEnabled, isEmployeeSession])
 
@@ -695,94 +696,100 @@ function ChatSummaryPanelInner({
 
           <div className="chat-summary-panel-scroll">
             {effectivePanelTab === 'agent' ? (
-              <div className="chat-summary-agent-body">
-                <div
-                  className={`chat-summary-agent-header${onEditAgent ? ' is-editable' : ''}`}
-                  role={onEditAgent ? 'button' : undefined}
-                  tabIndex={onEditAgent ? 0 : undefined}
-                  title={onEditAgent ? editTitle : undefined}
-                  onClick={onEditAgent}
-                  onKeyDown={
-                    onEditAgent
-                      ? (e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            onEditAgent()
+              isEmployeeSession && employeePane ? (
+                <div className="chat-summary-agent-body chat-summary-employee-body">
+                  {employeePane}
+                </div>
+              ) : (
+                <div className="chat-summary-agent-body">
+                  <div
+                    className={`chat-summary-agent-header${onEditAgent ? ' is-editable' : ''}`}
+                    role={onEditAgent ? 'button' : undefined}
+                    tabIndex={onEditAgent ? 0 : undefined}
+                    title={onEditAgent ? editTitle : undefined}
+                    onClick={onEditAgent}
+                    onKeyDown={
+                      onEditAgent
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              onEditAgent()
+                            }
                           }
-                        }
-                      : undefined
-                  }
-                >
-                  <span className="chat-summary-agent-portrait">
-                    <AgentAvatar
-                      agent={agent}
-                      agentCode={agentCode || undefined}
-                      size={40}
-                      title={displayName}
-                    />
-                    <span className="chat-summary-agent-live" title={isRunning ? '执行中' : '在线'} />
-                  </span>
-                  <span className="chat-summary-agent-main">
-                    <span className="chat-summary-agent-name-row">
-                      <span className="chat-summary-agent-name" title={displayName}>
-                        {displayName}
+                        : undefined
+                    }
+                  >
+                    <span className="chat-summary-agent-portrait">
+                      <AgentAvatar
+                        agent={agent}
+                        agentCode={agentCode || undefined}
+                        size={40}
+                        title={displayName}
+                      />
+                      <span className="chat-summary-agent-live" title={isRunning ? '执行中' : '在线'} />
+                    </span>
+                    <span className="chat-summary-agent-main">
+                      <span className="chat-summary-agent-name-row">
+                        <span className="chat-summary-agent-name" title={displayName}>
+                          {displayName}
+                        </span>
+                        {onEditAgent ? (
+                          <button
+                            type="button"
+                            className="chat-summary-panel-icon-btn chat-summary-agent-edit-btn"
+                            aria-label={editTitle}
+                            title={editTitle}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onEditAgent()
+                            }}
+                          >
+                            <Pencil aria-hidden />
+                          </button>
+                        ) : null}
+                        {canSwitchAgent ? (
+                          <button
+                            type="button"
+                            className="chat-summary-panel-icon-btn"
+                            aria-label="切换 Agent"
+                            title="切换 Agent"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onSwitchAgent?.()
+                            }}
+                            style={{ width: 20, height: 20 }}
+                          >
+                            <ChevronRight aria-hidden />
+                          </button>
+                        ) : null}
                       </span>
-                      {onEditAgent ? (
-                        <button
-                          type="button"
-                          className="chat-summary-panel-icon-btn chat-summary-agent-edit-btn"
-                          aria-label={editTitle}
-                          title={editTitle}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onEditAgent()
-                          }}
-                        >
-                          <Pencil aria-hidden />
-                        </button>
-                      ) : null}
-                      {canSwitchAgent ? (
-                        <button
-                          type="button"
-                          className="chat-summary-panel-icon-btn"
-                          aria-label="切换 Agent"
-                          title="切换 Agent"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onSwitchAgent?.()
-                          }}
-                          style={{ width: 20, height: 20 }}
-                        >
-                          <ChevronRight aria-hidden />
-                        </button>
+                      {modelText ? (
+                        <span className="chat-summary-agent-meta" title={modelText}>
+                          {modelText}
+                        </span>
                       ) : null}
                     </span>
-                    {modelText ? (
-                      <span className="chat-summary-agent-meta" title={modelText}>
-                        {modelText}
-                      </span>
-                    ) : null}
-                  </span>
+                  </div>
+                  {bio ? (
+                    <p className="chat-summary-agent-bio" title={bio}>
+                      {bio}
+                    </p>
+                  ) : null}
+                  <AgentCapabilityTabs
+                    skillNames={skillNames}
+                    toolNames={toolNames}
+                    mcpServers={mcpServers}
+                    knowledgeVaultIds={knowledgeVaultIds}
+                    modelName={String(modelName || modelText)}
+                    editable={Boolean(onPatchCapabilities && agentCode)}
+                    busy={capabilityBusy}
+                    onPatch={onPatchCapabilities}
+                  />
+                  {onAssetQuickAction ? (
+                    <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
+                  ) : null}
                 </div>
-                {bio ? (
-                  <p className="chat-summary-agent-bio" title={bio}>
-                    {bio}
-                  </p>
-                ) : null}
-                <AgentCapabilityTabs
-                  skillNames={skillNames}
-                  toolNames={toolNames}
-                  mcpServers={mcpServers}
-                  knowledgeVaultIds={knowledgeVaultIds}
-                  modelName={String(modelName || modelText)}
-                  editable={Boolean(onPatchCapabilities && agentCode)}
-                  busy={capabilityBusy}
-                  onPatch={onPatchCapabilities}
-                />
-                {onAssetQuickAction ? (
-                  <AssetQuickActions onAction={onAssetQuickAction} busy={assetQuickBusy} />
-                ) : null}
-              </div>
+              )
             ) : null}
 
             {effectivePanelTab === 'process' ? (
@@ -809,7 +816,6 @@ function ChatSummaryPanelInner({
                 obsEnabled={obsEnabled}
                 threadId={threadId}
                 isRunning={isRunning}
-                employee={employeePane}
                 task={taskPane}
               />
             ) : null}

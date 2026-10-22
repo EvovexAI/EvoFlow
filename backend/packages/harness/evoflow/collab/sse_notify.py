@@ -180,14 +180,40 @@ async def inject_collab_subtask_custom(main_task_id: str, data: dict[str, Any]) 
         try:
             from evoflow.runtime.ports import inject_langgraph_custom
 
-            return bool(await inject_langgraph_custom(thread_id, data))
-        except Exception:
+            ok = bool(await inject_langgraph_custom(thread_id, data))
+            if not ok:
+                try:
+                    from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+                    multi_session_warn(
+                        "inject path=in_process ok=0 thread=%s main=%s type=%s",
+                        thread_id,
+                        mid,
+                        str(data.get("type") or ""),
+                    )
+                except Exception:
+                    pass
+            return ok
+        except Exception as exc:
             logger.debug(
                 "in-process inject_langgraph_custom failed thread=%s main=%s",
                 thread_id,
                 mid,
                 exc_info=True,
             )
+            try:
+                from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+                multi_session_warn(
+                    "inject path=in_process ERROR %s thread=%s main=%s type=%s — %s",
+                    type(exc).__name__,
+                    thread_id,
+                    mid,
+                    str(data.get("type") or ""),
+                    exc,
+                )
+            except Exception:
+                pass
             _trace_relay_skip("in_process_inject_failed", mid, str(data.get("type") or ""))
             return False
 
@@ -210,13 +236,38 @@ async def inject_collab_subtask_custom(main_task_id: str, data: dict[str, Any]) 
                 headers={"X-Internal-Events-Secret": secret},
             )
             if resp.status_code >= 400:
+                try:
+                    from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+                    multi_session_warn(
+                        "inject path=http status=%s thread=%s main=%s type=%s",
+                        resp.status_code,
+                        thread_id,
+                        mid,
+                        str(data.get("type") or ""),
+                    )
+                except Exception:
+                    pass
                 _trace_relay_skip(f"http_{resp.status_code}", mid, str(data.get("type") or ""))
                 return False
             try:
                 return bool(resp.json().get("ok"))
             except Exception:
                 return True
-    except Exception:
+    except Exception as exc:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "inject path=http ERROR %s thread=%s main=%s type=%s — %s",
+                type(exc).__name__,
+                thread_id,
+                mid,
+                str(data.get("type") or ""),
+                exc,
+            )
+        except Exception:
+            pass
         _trace_relay_skip("http_error", mid, str(data.get("type") or ""))
         return False
 

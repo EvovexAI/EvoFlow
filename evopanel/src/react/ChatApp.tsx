@@ -500,7 +500,9 @@ import {
   seenRunIdSet,
   EMPTY_PRIOR_TURN_STRIP as EMPTY_RT_PRIOR_STRIP,
   reviveTurnBusyIfLivePostOpen,
+  reviveAllTurnBusyIfLivePostOpen,
   markSessionStreamWireSource,
+  isLivePostStreamOpen,
   type SessionRuntime,
 } from './lib/session-runtime-store.js'
 import { commitStreamSnapshot, pruneStreamSnapshots } from './lib/stream-snapshot-store.js'
@@ -7271,6 +7273,8 @@ useEffect(() => {
       try {
         const probe = await fetchAndCacheSessionExecutionState(sk)
         const rt = getSessionRuntime(sk)
+        // live POST 未关：probe 滞后不得清 busy（与 shell refresh / RUN_FINISHED 同病）
+        if (isLivePostStreamOpen(rt)) return
         const stillBusy = isTurnBusy(rt) || isSessionRuntimeLive(rt)
         const backendDone = probe ? !probe.executing && !probe.goalActive : true
         if (stillBusy && backendDone) {
@@ -8435,8 +8439,8 @@ useEffect(() => {
       } catch {
         /* ignore */
       }
-      const sk = String(sessionRef.current || '').trim()
-      if (sk) reviveTurnBusyIfLivePostOpen(sk)
+      // 切回 #/chat：恢复所有仍挂着 live POST 却被误 idle 的会话（含后台「绘画」）
+      reviveAllTurnBusyIfLivePostOpen()
       void loadModelCatalog({ silent: true, forceLive: true })
       refreshSpeechConfigured()
     }
@@ -9962,6 +9966,10 @@ useEffect(() => {
       }
       try {
       if (!rt) return
+      // live POST 仍开着但 turn 被误 idle：立刻拉回 busy，避免后续 delta 被丢、侧栏停转
+      if (targetSk && isLivePostStreamOpen(rt) && !isTurnBusy(rt)) {
+        reviveTurnBusyIfLivePostOpen(targetSk)
+      }
       const S = rt.stream
       // 修复：streamRef 重绑定必须满足：
       // 1. 非后台事件
@@ -9974,7 +9982,7 @@ useEffect(() => {
         targetSk &&
         streamRef.current !== S &&
         String(sessionRef.current || '').trim() === targetSk &&
-        (turnBusyForSession(targetSk) || isTurnBusy(rt))
+        (turnBusyForSession(targetSk) || isTurnBusy(rt) || isLivePostStreamOpen(rt))
       ) {
         streamRef.current = S
         streamRefKeyRef.current = targetSk
@@ -9985,7 +9993,8 @@ useEffect(() => {
       }
 
       // 用户已停止：丢弃迟到的 delta/reasoning/tool（避免「正在处理中」与幽灵流式气泡）
-      const streamActive = isTurnBusy(rt)
+      // live POST 仍开着也视为 active（中途 RUN_FINISHED 误 idle 时不能丢帧）
+      const streamActive = isTurnBusy(rt) || isLivePostStreamOpen(rt)
       if (
         !isBackground &&
         !streamActive &&
@@ -12463,7 +12472,7 @@ useEffect(() => {
             (payload as Record<string, unknown>).error?.error ||
             '',
         ).trim()
-        if (/userinterrupt|user\s*interrupt/i.test(rawErr)) {
+        if (/user[_\s-]*interrupt/i.test(rawErr)) {
           logStreamStop({
             sessionKey: targetSk,
             runId: runId || S.runId || rt.activeChatRunId,
@@ -12667,10 +12676,8 @@ useEffect(() => {
     historyLoading &&
     !selectedSessionLive &&
     !selectedTurnBusy
-  const showHistorySyncHint =
-    renderRows.length > 0 &&
-    !historyViewReady &&
-    (historyLoading || selectedSessionLive || selectedTurnBusy)
+  // 有内容却未揭开（含从知识库/任务中心切回时 --booting）：始终给加载提示，避免白屏无反馈
+  const showHistorySyncHint = renderRows.length > 0 && !historyViewReady
 
   /** 与输入区右下角 processing dock 同源；会话列表 running 行复用 ``dockLabel``。 */
   /** 流式「运行中」计时唯一标准：当前会话本轮 ``currentTurnStartedAt``（非整段 activity 环节）。 */
@@ -16319,9 +16326,8 @@ useEffect(() => {
       } catch {
         /* ignore */
       }
-      // 任务中心等路由回来：若 live POST 仍开着但回合被误 idle，恢复「运行中」
-      const sk = String(sessionRef.current || '').trim()
-      if (sk) reviveTurnBusyIfLivePostOpen(sk)
+      // 任务中心等路由回来：恢复所有 live POST 仍开着却被误 idle 的会话
+      reviveAllTurnBusyIfLivePostOpen()
     }
     const onShellSelectSession = (ev: Event) => {
       const key = String((ev as CustomEvent<{ sessionKey?: string }>).detail?.sessionKey || '').trim()

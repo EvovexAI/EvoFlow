@@ -57,8 +57,10 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
 {
   // 无条件覆盖：宿主自带的桥依赖 ZCode 桌面 broker（无桌面即不可用），
   // EvoFlow 平台桥是本环境权威 provider，必须接管该全局。
+  // Prefer full Gateway URL (packaged desktop uses dynamic ports, not :8070).
+  const __gwBaseExplicit = (process.env.EVOFLOW_GATEWAY_URL || "").replace(/\/+$/, "");
   const __gwPort = process.env.EVOFLOW_GATEWAY_PORT || "8070";
-  const __gwBase = `http://127.0.0.1:${__gwPort}`;
+  const __gwBase = __gwBaseExplicit || `http://127.0.0.1:${__gwPort}`;
   // 浏览器/CUA 命令面共享令牌：网关 _bridge_token_guard 强制校验（缺头/不匹配 → 403）。
   const __bridgeToken = process.env.EVOFLOW_BROWSER_BRIDGE_TOKEN || "";
   // 内核 worker 是受限环境：无全局 fetch，只能用 node:* 内置模块。
@@ -762,7 +764,22 @@ def _ensure_process() -> subprocess.Popen:
 
     storage_root = _rsr()
     kernel_env = dict(os.environ)
-    kernel_env.setdefault("EVOFLOW_GATEWAY_PORT", os.getenv("EVOFLOW_GATEWAY_PORT", "8070"))
+    gw_url = (os.getenv("EVOFLOW_GATEWAY_URL") or "").strip().rstrip("/")
+    gw_port = (os.getenv("EVOFLOW_GATEWAY_PORT") or "").strip()
+    if not gw_port and gw_url:
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(gw_url if "://" in gw_url else f"http://{gw_url}")
+            if parsed.port:
+                gw_port = str(parsed.port)
+        except Exception:
+            gw_port = ""
+    if not gw_port:
+        gw_port = "8070"
+    kernel_env.setdefault("EVOFLOW_GATEWAY_PORT", gw_port)
+    if gw_url:
+        kernel_env.setdefault("EVOFLOW_GATEWAY_URL", gw_url)
     # 浏览器/CUA 桥命令面共享令牌：桥 JS 每次请求携带 X-EvoFlow-Bridge-Token 头，
     # 网关 _bridge_token_guard 强制校验（bridge_auth，持久化 token 重启稳定）。
     try:

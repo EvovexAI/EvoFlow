@@ -937,9 +937,14 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         logger.warning("Deferred agents materialize failed (non-fatal)", exc_info=True)
 
     try:
-        from evoflow.collab.subtask_stream_trace import stream_info, subtask_stream_trace_path
+        from evoflow.collab.subtask_stream_trace import (
+            log_multi_session_runtime_banner,
+            stream_info,
+            subtask_stream_trace_path,
+        )
 
         stream_info("trace_ready path=%s", subtask_stream_trace_path())
+        log_multi_session_runtime_banner(source="post_ready")
     except Exception:
         pass
 

@@ -430,5 +430,34 @@ class AguiEarlyRunFinishedTests(unittest.TestCase):
         self.assertFalse(other.run_finished)
 
 
+class AguiUserInterruptWireTests(unittest.TestCase):
+    def test_evf_aborted_maps_to_run_error_user_interrupt(self) -> None:
+        from app.gateway.agui_stream_normalizer import AgUiEncoderState, evf_payload_to_agui_events
+
+        state = AgUiEncoderState(thread_id="t1", run_id="r1")
+        events = evf_payload_to_agui_events(
+            {"type": "aborted", "reason": "user_interrupt"},
+            state=state,
+        )
+        err = next(e for e in events if e.get("type") == "RUN_ERROR")
+        self.assertEqual(err["code"], "USER_INTERRUPT")
+        self.assertEqual(err["message"], "user_interrupt")
+
+    def test_sse_error_user_interrupt_variants_become_aborted(self) -> None:
+        from app.gateway.sse_ui_normalize import UiStreamNormalizer
+
+        cases = [
+            {"error": "UserInterrupt"},
+            {"error": "user_interrupt"},
+            {"error": "UserInterrupt", "message": "User interrupted the run"},
+            {"message": "User interrupted the run", "error": ""},
+        ]
+        for data in cases:
+            with self.subTest(data=data):
+                norm = UiStreamNormalizer(thread_id="t1", anchored=True)
+                payloads = norm.feed_evf_payloads("error", data)
+                self.assertEqual(payloads, [{"type": "aborted", "reason": "user_interrupt"}])
+
+
 if __name__ == "__main__":
     unittest.main()

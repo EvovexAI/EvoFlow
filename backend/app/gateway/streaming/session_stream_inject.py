@@ -168,8 +168,23 @@ def begin_thread_inject(thread_id: str) -> None:
     if not tid:
         return
     _refcounts[tid] = _refcounts.get(tid, 0) + 1
-    if tid not in _inject_queues:
+    created = tid not in _inject_queues
+    if created:
         _inject_queues[tid] = asyncio.Queue(maxsize=512)
+    live = len(_inject_queues)
+    if created or live >= 2:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_info
+
+            multi_session_info(
+                "live_stream open thread=%s live=%s created=%s",
+                tid,
+                live,
+                int(created),
+                mirror=live >= 2,
+            )
+        except Exception:
+            pass
 
 
 def end_thread_inject(thread_id: str) -> None:
@@ -180,6 +195,13 @@ def end_thread_inject(thread_id: str) -> None:
     if n <= 0:
         _refcounts.pop(tid, None)
         _inject_queues.pop(tid, None)
+        live = len(_inject_queues)
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_info
+
+            multi_session_info("live_stream close thread=%s live=%s", tid, live)
+        except Exception:
+            pass
     else:
         _refcounts[tid] = n
 
@@ -280,6 +302,17 @@ async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
         return False
     q = _inject_queues.get(tid)
     if q is None:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "session_inject no_queue thread=%s type=%s live=%s",
+                tid,
+                str(data.get("type") or "").strip() or "-",
+                len(_inject_queues),
+            )
+        except Exception:
+            pass
         return False
     payload = dict(data)
     try:
@@ -293,6 +326,17 @@ async def inject_langgraph_custom(thread_id: str, data: dict[str, Any]) -> bool:
                 tid,
                 payload.get("type"),
             )
+            try:
+                from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+                multi_session_warn(
+                    "session_inject queue_full thread=%s type=%s live=%s",
+                    tid,
+                    str(payload.get("type") or "").strip() or "-",
+                    len(_inject_queues),
+                )
+            except Exception:
+                pass
             return False
     _invalidate_collab_pending_cache(tid)
     try:

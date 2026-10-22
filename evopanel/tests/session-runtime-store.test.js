@@ -23,6 +23,7 @@ import {
   recoveryPhaseLabel,
   resetRuntimeStream,
   reviveTurnBusyIfLivePostOpen,
+  reviveAllTurnBusyIfLivePostOpen,
   rowsAlreadyStopSealedForTurn,
   rowsBaseForSend,
   subscribeSessionRuntime,
@@ -183,10 +184,14 @@ describe('session-runtime-store', () => {
       runId: 'run-wire',
       wireSource: 'run',
     })
+    dispatchSessionTurnEvent(sk, { type: 'ACTIVITY', kind: 'tools', detail: '绘画' })
     expect(isLivePostStreamOpen(getSessionRuntime(sk))).toBe(true)
     dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
     expect(isTurnBusy(getSessionRuntime(sk))).toBe(false)
     expect(isLivePostStreamOpen(getSessionRuntime(sk))).toBe(true)
+    // live wire 未关：勿 stamp settled，保留 activity（侧栏「绘画」）
+    expect(getSessionRuntime(sk).uiTurnSettled).toBe(false)
+    expect(getSessionRuntime(sk).activity.detail).toBe('绘画')
     expect(reviveTurnBusyIfLivePostOpen(sk)).toBe(true)
     expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
     expect(getSessionRuntime(sk).streamWireSource).toBe('run')
@@ -195,6 +200,22 @@ describe('session-runtime-store', () => {
     expect(isLivePostStreamOpen(getSessionRuntime(sk))).toBe(false)
     expect(reviveTurnBusyIfLivePostOpen(sk)).toBe(false)
     clearSessionRuntime(sk)
+  })
+
+  it('reviveAllTurnBusyIfLivePostOpen restores every idle live-wire session', () => {
+    const a = 'agent:main:revive-all-a'
+    const b = 'agent:main:revive-all-b'
+    clearSessionRuntime(a)
+    clearSessionRuntime(b)
+    dispatchSessionTurnEvent(a, { type: 'RUN_LIVE', runId: 'ra', wireSource: 'run' })
+    dispatchSessionTurnEvent(b, { type: 'RUN_LIVE', runId: 'rb', wireSource: 'run' })
+    dispatchSessionTurnEvent(a, { type: 'TURN_IDLE' })
+    dispatchSessionTurnEvent(b, { type: 'TURN_IDLE' })
+    expect(reviveAllTurnBusyIfLivePostOpen()).toBe(2)
+    expect(isTurnBusy(getSessionRuntime(a))).toBe(true)
+    expect(isTurnBusy(getSessionRuntime(b))).toBe(true)
+    clearSessionRuntime(a)
+    clearSessionRuntime(b)
   })
 
   it('keeps rows and stream on the same session entry', () => {

@@ -296,22 +296,50 @@ async def internal_inject_custom(
     if not tid:
         raise HTTPException(status_code=400, detail="thread_id required")
     mid = str(body.main_task_id or "").strip()
-    if mid:
-        from evoflow.collab.sse_notify import inject_collab_subtask_custom
+    try:
+        if mid:
+            from evoflow.collab.sse_notify import inject_collab_subtask_custom
 
-        ok = await inject_collab_subtask_custom(mid, body.data)
-    else:
-        from app.gateway.streaming.session_stream_inject import inject_langgraph_custom
+            ok = await inject_collab_subtask_custom(mid, body.data)
+        else:
+            from app.gateway.streaming.session_stream_inject import inject_langgraph_custom
 
-        ok = await inject_langgraph_custom(tid, body.data)
-        collab_tid = str((body.data or {}).get("collab_task_id") or "").strip()
-        if collab_tid and str((body.data or {}).get("type") or "").startswith("task_"):
-            try:
-                from evoflow.collab.ws_notify import broadcast_subtask_stream_payload
+            ok = await inject_langgraph_custom(tid, body.data)
+            collab_tid = str((body.data or {}).get("collab_task_id") or "").strip()
+            if collab_tid and str((body.data or {}).get("type") or "").startswith("task_"):
+                try:
+                    from evoflow.collab.ws_notify import broadcast_subtask_stream_payload
 
-                await broadcast_subtask_stream_payload(collab_tid, body.data)
-            except Exception:
-                pass
+                    await broadcast_subtask_stream_payload(collab_tid, body.data)
+                except Exception:
+                    pass
+    except Exception as exc:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "http inject-custom ERROR %s thread=%s main=%s type=%s — %s",
+                type(exc).__name__,
+                tid,
+                mid or "-",
+                str((body.data or {}).get("type") or "").strip() or "-",
+                exc,
+            )
+        except Exception:
+            pass
+        raise
+    if not ok:
+        try:
+            from evoflow.collab.subtask_stream_trace import multi_session_warn
+
+            multi_session_warn(
+                "http inject-custom ok=0 thread=%s main=%s type=%s",
+                tid,
+                mid or "-",
+                str((body.data or {}).get("type") or "").strip() or "-",
+            )
+        except Exception:
+            pass
     return {"ok": ok}
 
 

@@ -338,6 +338,8 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
       ((index: number, align: 'start' | 'end') => void) | null
     >
     virtualScrollToOffsetRef: MutableRefObject<((offset: number) => void) | null>
+    /** 从 display:none 路由回来时由父级调用，强制重测行高 */
+    virtualMeasureRef?: MutableRefObject<(() => void) | null>
     /** RUN_FINISHED 后的贴底跟随窗口（47986170）：由 MessageVirtualList 声明并下传 */
     postStreamFollowUntilRef?: MutableRefObject<number>
     /** 流式活跃状态 ref：流式中 autoFollow=true 时禁用校正，避免 reasoning 折叠/工具出现
@@ -356,6 +358,7 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
     virtualBootScrollRef,
     virtualScrollToIndexRef,
     virtualScrollToOffsetRef,
+    virtualMeasureRef,
     postStreamFollowUntilRef,
     streamActiveRef,
     ...rowProps
@@ -453,10 +456,20 @@ const VirtualHistoryBody = memo(function VirtualHistoryBody(
     virtualScrollToOffsetRef.current = (offset: number) => {
       virtualizer.scrollToOffset(Math.max(0, offset), { align: 'start' })
     }
+    if (virtualMeasureRef) {
+      virtualMeasureRef.current = () => {
+        try {
+          virtualizer.measure()
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     return () => {
       virtualBootScrollRef.current = null
       virtualScrollToIndexRef.current = null
       virtualScrollToOffsetRef.current = null
+      if (virtualMeasureRef) virtualMeasureRef.current = null
     }
   })
 
@@ -550,6 +563,7 @@ const HistoryBody = memo(function HistoryBody(
       ((index: number, align: 'start' | 'end') => void) | null
     >
     virtualScrollToOffsetRef: MutableRefObject<((offset: number) => void) | null>
+    virtualMeasureRef?: MutableRefObject<(() => void) | null>
     showApprovalPauseHint: boolean
     /** RUN_FINISHED 后的贴底跟随窗口，透传给 VirtualHistoryBody */
     postStreamFollowUntilRef?: MutableRefObject<number>
@@ -568,6 +582,7 @@ const HistoryBody = memo(function HistoryBody(
     virtualBootScrollRef,
     virtualScrollToIndexRef,
     virtualScrollToOffsetRef,
+    virtualMeasureRef,
     showApprovalPauseHint,
     postStreamFollowUntilRef,
     streamActiveRef,
@@ -596,6 +611,7 @@ const HistoryBody = memo(function HistoryBody(
           virtualBootScrollRef={virtualBootScrollRef}
           virtualScrollToIndexRef={virtualScrollToIndexRef}
           virtualScrollToOffsetRef={virtualScrollToOffsetRef}
+          virtualMeasureRef={virtualMeasureRef}
           postStreamFollowUntilRef={postStreamFollowUntilRef}
           streamActiveRef={streamActiveRef}
           {...rowProps}
@@ -853,6 +869,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const readingHistoryRef = useRef(false)
   const prevLastHistoryTailKeyRef = useRef('')
   const virtualBootScrollRef = useRef<(() => void) | null>(null)
+  const virtualMeasureRef = useRef<(() => void) | null>(null)
   const virtualScrollToIndexRef = useRef<
     ((index: number, align: 'start' | 'end') => void) | null
   >(null)
@@ -1394,9 +1411,10 @@ export const MessageVirtualList = memo(function MessageVirtualList({
   const forceFollowBottomRef = useRef(forceFollowBottom)
   forceFollowBottomRef.current = forceFollowBottom
 
-  /** 右侧面板开/关：同步 UI 状态（贴底跟随已在 render 阶段解除） */
+  /** 右侧面板开/关 / 从其它路由 wake：重测虚拟列表（display:none 期间高度为 0） */
   useLayoutEffect(() => {
     setShowNewMsgBtn(false)
+    virtualMeasureRef.current?.()
   }, [layoutKey])
 
   const syncScrollJumpButtons = useCallback(() => {
@@ -2425,6 +2443,12 @@ export const MessageVirtualList = memo(function MessageVirtualList({
       className="react-vlist-scroll-wrap"
       data-turn-nav={turnNavTurns.length >= 2 ? 'on' : undefined}
     >
+      {awaitingBoot ? (
+        <div className="react-chat-vlist-boot-overlay" aria-busy="true" aria-live="polite">
+          <div className="page-loader-spinner" aria-hidden />
+          <div className="page-loader-text">加载中...</div>
+        </div>
+      ) : null}
       <TurnNavigatorRail
         turns={turnNavTurns}
         activeIndex={activeNavIndex}
@@ -2487,6 +2511,7 @@ export const MessageVirtualList = memo(function MessageVirtualList({
           virtualBootScrollRef={virtualBootScrollRef}
           virtualScrollToIndexRef={virtualScrollToIndexRef}
           virtualScrollToOffsetRef={virtualScrollToOffsetRef}
+          virtualMeasureRef={virtualMeasureRef}
           postStreamFollowUntilRef={postStreamFollowUntilRef}
           streamActiveRef={streamActiveRef}
           sessionKey={sessionKey}
