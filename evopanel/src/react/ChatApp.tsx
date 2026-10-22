@@ -309,7 +309,6 @@ import {
   isPendingSubtaskKey,
   mergeAssistantToolsFromRows,
   pruneSupersededPendingSubtasks,
-  toolsFromLastAssistantRow,
 } from '../lib/collab-sidebar-from-tools.js'
 import {
   computePlanExecStripUi,
@@ -337,10 +336,7 @@ import {
   resolveSessionTaskId,
 } from '../lib/session-task-api-gate.js'
 import { planDockApiHide, planDockApiShow, tracePlanDockApi } from '../lib/plan-dock-api.js'
-import {
-  pickRicherStructuredPlanInput,
-  planStructuredStepCount,
-} from '../lib/plan-from-task.js'
+import { pickRicherStructuredPlanInput } from '../lib/plan-from-task.js'
 import { tracePlanPipeline, resetPlanTrace } from '../lib/plan-trace.js'
 import type { StructuredPlanInput } from './components/PlanDetailView.js'
 import type {
@@ -354,6 +350,8 @@ import {
 } from './chat-app/plan-dock/sync-plan-panel-from-api.js'
 import { syncPlanPanelImmediateFromTools as syncPlanPanelImmediateFromToolsImpl } from './chat-app/plan-dock/sync-plan-panel-immediate.js'
 import { collectPlanToolsForDetection as collectPlanToolsForDetectionImpl } from './chat-app/plan-dock/collect-plan-tools.js'
+import { reconcileLastAssistantFromDb as reconcileLastAssistantFromDbImpl } from './chat-app/utils/reconcile-last-assistant-from-db.js'
+import { openUiExtensionInStage as openUiExtensionInStageImpl } from './chat-app/right-stage/open-ui-extension-in-stage.js'
 // ============================================
 
 import type {
@@ -569,7 +567,6 @@ import { warmSessionHistoryPrefetch } from './lib/warm-session-history-prefetch.
 import {
   displayRowsEquivalent,
   mergeDbOnlyHistoryRows,
-  reconcileLastAssistantInRows,
 } from './lib/reconcile-last-assistant-from-history.js'
 import { buildStreamDisplayRow } from './lib/build-stream-display-row.js'
 import { logStreamCompareAgUiDrain } from './lib/stream-compare-file-log.js'
@@ -1904,102 +1901,26 @@ export default function ChatApp() {
     ],
   )
 
-  /** Open installed UI extension in the shared right-stage browser embed (not full-page route). */
   const openUiExtensionInStage = useCallback(
     (extensionId: string) => {
-      const id = String(extensionId || '').trim()
-      if (!id) return
-
-      const surface = rightStageStore.getSnapshot().surface
-      const currentExt = String(
-        (surface?.data || {}).extensionId || (surface?.data || {}).extension_id || '',
-      ).trim()
-      if (surface?.kind === 'web-embed' && currentExt === id && rightStageOpen) {
-        rightStageUserPinnedRef.current = null
-        hideRightStageIfKind('web-embed')
-        syncShellAsideForWorkspacePanel(false)
-        if (!isChatOverlayDeferActive()) {
-          scheduleBumpRef.current?.({ immediate: true })
-        }
-        return
-      }
-
-      void (async () => {
-        try {
-          const { ensureUiExtensionReady, getUiExtension } = await import('../lib/ui-extensions.js')
-          const rowRaw = await getUiExtension(id)
-          const row =
-            rowRaw && typeof rowRaw === 'object' ? (rowRaw as Record<string, unknown>) : null
-          if (!row) {
-            toast('Agent应用未安装', 'error')
-            return
-          }
-          if (row.enabled === false) {
-            toast('Agent应用已禁用，请先在Agent应用中心启用', 'warning')
-            return
-          }
-          const manifest =
-            row.manifest && typeof row.manifest === 'object'
-              ? (row.manifest as Record<string, unknown>)
-              : {}
-          const ui =
-            manifest.ui && typeof manifest.ui === 'object'
-              ? (manifest.ui as Record<string, unknown>)
-              : {}
-          const nav =
-            manifest.nav && typeof manifest.nav === 'object'
-              ? (manifest.nav as Record<string, unknown>)
-              : {}
-          const title =
-            String(nav.title || manifest.name || id).trim() || id
-          let entry = String(ui.entry || '').trim()
-          const ready = (await ensureUiExtensionReady(id)) as {
-            entry?: string
-            state?: string
-          }
-          if (ready?.entry) entry = String(ready.entry).trim() || entry
-          if (!entry) {
-            toast('Agent应用缺少入口地址（ui.entry）', 'error')
-            return
-          }
-          const sandbox = Array.isArray(ui.sandbox)
-            ? (ui.sandbox as unknown[]).map((s) => String(s || '').trim()).filter(Boolean)
-            : [
-                'allow-scripts',
-                'allow-same-origin',
-                'allow-forms',
-                'allow-popups',
-              ]
-          cancelPendingStreamUiBumpsRef.current()
-          setChatOverlayDefer('workspace', false)
-          setChatOverlayDefer('workflow', false)
-          setChatOverlayDefer('knowledge-map', false)
-          syncShellAsideForWorkspacePanel(true)
-          flushSync(() => {
-            setWorkspacePanelOpen(false)
-            setWorkspaceTreePinned(false)
-            setStreamingWritePreview(null)
-            lastStreamWritePathRef.current = null
-            setCollabExecPanelOpen(false)
-            setKnowledgeMapPanelOpen(false)
-            writeStreamDismissedRef.current = false
-            rightStageUserPinnedRef.current = 'web-embed'
-            showKind('web-embed', {
-              title,
-              data: {
-                url: entry,
-                editable: false,
-                extensionId: id,
-                extensionManifest: manifest,
-                sandbox,
-                titleLabel: title,
-              },
-            })
-          })
-        } catch (e) {
-          toast(toUserFacingError((e as Error)?.message || e), 'error')
-        }
-      })()
+      openUiExtensionInStageImpl(
+        {
+          rightStageOpen,
+          rightStageUserPinnedRef,
+          scheduleBumpRef,
+          cancelPendingStreamUiBumpsRef,
+          lastStreamWritePathRef,
+          writeStreamDismissedRef,
+          syncShellAsideForWorkspacePanel,
+          showKind,
+          setWorkspacePanelOpen,
+          setWorkspaceTreePinned,
+          setStreamingWritePreview,
+          setCollabExecPanelOpen,
+          setKnowledgeMapPanelOpen,
+        },
+        extensionId,
+      )
     },
     [
       rightStageOpen,
@@ -3741,55 +3662,16 @@ export default function ChatApp() {
   /** 流式 final 后：拉 DB 最近几条对账，仅在正文不一致时静默替换 assistant（避免 all=1 整页闪）。 */
   const reconcileLastAssistantFromDb = useCallback(
     async (opts: { sessionKey: string; runId?: string | null }) => {
-      const sk = String(opts.sessionKey || '').trim()
-      const runId = String(opts.runId || '').trim() || null
-      if (!sk) return
-      const flightKey = `${sk}:${runId || '_'}`
-      const prev = reconcileInflightRef.current.get(flightKey)
-      if (prev) return prev
-
-      const work = (async () => {
-        const tryOnce = async (): Promise<'applied' | 'synced' | 'retry' | 'skip'> => {
-          try {
-            const { api } = await import('../lib/tauri-api.js')
-            const chatApi = (sessionKey: string, limit: number, historyOpts?: { all?: boolean }) =>
-              api.chatHistory(sessionKey, limit, historyOpts)
-            const result = await fetchSessionHistoryTailMessages(chatApi, sk, 24)
-            const built = buildHistoryViewFromRaw(result.messages)
-            const rt = getSessionRuntime(sk)
-            const localRows = rt.rows.length ? rt.rows : rowsRef.current
-            const outcome = reconcileLastAssistantInRows(localRows, built.rows, runId)
-            if (outcome.status === 'applied') {
-              updateSessionRuntimeRows(sk, () => outcome.rows)
-              replaceSessionRuntimeRowsFromHistory(sk, outcome.rows)
-              if (sk === String(sessionRef.current || selectedSessionKey || '').trim()) {
-                setRows((prevRows) => {
-                  if (displayRowsEquivalent(prevRows, outcome.rows)) return prevRows
-                  return outcome.rows
-                })
-              }
-              return 'applied'
-            }
-            return outcome.status
-          } catch {
-            return 'retry'
-          }
-        }
-        for (const delayMs of [800, 2000, 4000]) {
-          if (delayMs) await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
-          const rt = getSessionRuntime(sk)
-          if (isTurnBusy(rt)) return
-          const status = await tryOnce()
-          if (status === 'applied' || status === 'synced' || status === 'skip') return
-        }
-      })().finally(() => {
-        if (reconcileInflightRef.current.get(flightKey) === work) {
-          reconcileInflightRef.current.delete(flightKey)
-        }
-      })
-
-      reconcileInflightRef.current.set(flightKey, work)
-      return work
+      await reconcileLastAssistantFromDbImpl(
+        {
+          sessionRef,
+          selectedSessionKey,
+          rowsRef,
+          reconcileInflightRef,
+          setRows,
+        },
+        opts,
+      )
     },
     [selectedSessionKey, setRows],
   )
