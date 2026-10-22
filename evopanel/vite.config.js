@@ -229,8 +229,10 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
       // Tauri runs `cargo build` into src-tauri/target while beforeDevCommand starts Vite.
       // On Windows, watching evopanel_lib.dll during link throws EBUSY and kills dev.
+      // Installer/build scripts also write under .build-temp (temp dirs rename/delete while
+      // chokidar watches → EBUSY / UVException and beforeDevCommand exits non-zero).
       watch: {
-        ignored: ['**/src-tauri/**', '**/target/**'],
+        ignored: ['**/src-tauri/**', '**/target/**', '**/.build-temp/**'],
       },
       proxy: {
         // v4 conversation wire 帧流：长连 SSE，必须零超时（否则 15s 断连会触发
