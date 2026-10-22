@@ -416,6 +416,9 @@ import {
 import { resetChatSurfaceForNewDraft as resetChatSurfaceForNewDraftImpl } from './chat-app/session/reset-chat-surface-for-new-draft.js'
 import { startNewSessionWithWorkspace as startNewSessionWithWorkspaceImpl } from './chat-app/session/start-new-session-with-workspace.js'
 import { togglePermissionMenu as togglePermissionMenuImpl } from './chat-app/session/toggle-permission-menu.js'
+import { buildPlanExecConfirmAnchor } from './chat-app/plan-dock/build-plan-exec-confirm-anchor.js'
+import { handleAbort as handleAbortImpl } from './chat-app/session/handle-abort.js'
+import { finalizeNewSessionBackground as finalizeNewSessionBackgroundImpl } from './chat-app/session/finalize-new-session-background.js'
 // ============================================
 
 import type {
@@ -9772,43 +9775,20 @@ export default function ChatApp() {
   
   const planExecToolArrays = useMemo(() => [mergedPlanTools], [mergedPlanTools])
 
-  const planExecConfirmAnchor = useMemo((): PlanExecConfirmAnchor | null => {
-    if (!planDockApiView?.show) return null
-    const view = planDockApiView
-    const sk = String(selectedSessionKey || '').trim()
-    const toolCallId =
-      findLastSuccessfulPlanToolCallId(planExecToolArrays) || view.toolCallId || ''
-    return {
-      anchorToolCallId: toolCallId,
-      taskId: view.taskId,
-      taskName: view.taskName,
-      subtaskCount: view.subtaskCount,
-      planTitle: view.planStructured.goal,
-      planStructuredFallback: view.planStructured,
-      syncedSubtasks: undefined,
-      sessionKey: sk || undefined,
-      showStartExecution: view.showStartExecution,
-      statusLabel: view.statusLabel,
-      skipApiFetch: true,
-      busy: planExecStarting,
-      onStartExecution: (startTaskId) => {
-        const tid = String(startTaskId || view.taskId || '').trim()
-        void runUserExecutionStart(tid)
-      },
-      onDismiss: (dismissTaskId) => {
-        const tid = String(dismissTaskId || view.taskId || '').trim()
-        if (!tid) return
-        suppressPlanExecDock(tid)
-        userAuthorizedTaskIdsRef.current.add(tid)
-        applyPlanDockApiView(
-          planDockApiHide('user_dismiss', 'manually_dismissed', {
-            taskId: tid,
-            taskStatus: view.taskStatus,
-          }) as PlanDockApiView,
-        )
-      },
-    }
-  }, [planDockApiView, planExecToolArrays, planExecStarting, selectedSessionKey, sessions])
+  const planExecConfirmAnchor = useMemo(
+    (): PlanExecConfirmAnchor | null =>
+      buildPlanExecConfirmAnchor({
+        planDockApiView,
+        planExecToolArrays,
+        planExecStarting,
+        selectedSessionKey,
+        runUserExecutionStart,
+        suppressPlanExecDock,
+        userAuthorizedTaskIdsRef,
+        applyPlanDockApiView,
+      }),
+    [planDockApiView, planExecToolArrays, planExecStarting, selectedSessionKey, sessions],
+  )
 
   // 切换/刷新会话：唯一入口 — GET /tasks?session_key=… 决定是否展示计划条
   useEffect(() => {
@@ -9875,62 +9855,28 @@ export default function ChatApp() {
 
   const finalizeNewSessionBackground = useCallback(
     async (key: string) => {
-      // 新建会话默认 Agent 模式，不继承上一个会话的模式（Plan/Ask 等）
-      const modeForNew: SessionMode = 'agent'
-      try {
-        const { api } = await import('../lib/tauri-api.js')
-        const ctx = wsClient.getSessionContext(key)
-        const boundWs = String(ctx?.local_workspace_root || '').trim()
-        try {
-          await api.chatUpdateContext(key, { memory_enabled: memoryEnabled })
-        } catch {
-          /* ignore */
-        }
-        try {
-          await applySessionModePreset(key, modeForNew)
-        } catch (e) {
-          console.warn('[ChatApp] 应用会话模式失败:', e)
-        }
-        if (boundWs) {
-          setLocalWorkspaceRoot(boundWs)
-          try {
-            const bound = await wsClient.bindSessionWorkspace(key, boundWs, { userPinned: true })
-            const next = Array.isArray(bound?.paths)
-              ? bound.paths.map((x: string) => String(x || '').trim()).filter(Boolean)
-              : [boundWs]
-            setWorkspaceHistory(next)
-            setGlobalWorkspaceHistory(wsClient.getGlobalWorkspaceHistory())
-          } catch {
-            /* ignore */
-          }
-        }
-        const pill = (modelName || '').trim()
-        // 新建会话默认跟随智能体：不写 model_name。仅当用户已显式选过（且在 catalog 内）才钉死覆盖。
-        const explicitOverride =
-          pill &&
-          modelCatalog.some((m) => m.name === pill) &&
-          pill !== followResolvedModelName &&
-          pill !== agentDefaultModelName
-        if (explicitOverride) {
-          try {
-            await api.chatUpdateContext(key, { model_name: pill })
-            setModelName(pill)
-            syncModelSessionPrevKeyRef.current = key
-          } catch (e) {
-            console.warn('[ChatApp] 新会话模型覆盖写入失败:', e)
-          }
-        } else {
-          const display = followResolvedModelName || defaultModelFromCatalog(modelCatalog, primaryModelName)
-          if (display) setModelName(display)
-          syncModelSessionPrevKeyRef.current = key
-        }
-        // Defer list refresh so home dashboard first paint is not contending for Gateway.
-        window.setTimeout(() => {
-          void refreshSessions({ skipAutoReselect: true })
-        }, 300)
-      } catch {
-        /* ignore */
-      }
+      await finalizeNewSessionBackgroundImpl(
+        {
+          memoryEnabled,
+          modelName,
+          modelCatalog,
+          followResolvedModelName,
+          agentDefaultModelName,
+          primaryModelName,
+          syncModelSessionPrevKeyRef,
+          applySessionModePreset,
+          setLocalWorkspaceRoot,
+          setWorkspaceHistory,
+          setGlobalWorkspaceHistory,
+          setModelName,
+          getSessionContext: (k) =>
+            wsClient.getSessionContext(k) as { local_workspace_root?: string } | null | undefined,
+          bindSessionWorkspace: (k, ws, o) => wsClient.bindSessionWorkspace(k, ws, o),
+          getGlobalWorkspaceHistory: () => wsClient.getGlobalWorkspaceHistory(),
+          refreshSessions,
+        },
+        key,
+      )
     },
     [
       modelName,
@@ -10974,13 +10920,10 @@ export default function ChatApp() {
   stopSessionExecutionRef.current = stopSessionExecution
 
   async function handleAbort() {
-    const sessionKey = selectedSessionKey
-    if (!sessionKey) return
-    try {
-      await stopSessionExecution(sessionKey, { showToast: false })
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e), 'error')
-    }
+    await handleAbortImpl({
+      selectedSessionKey,
+      stopSessionExecution,
+    })
   }
 
   function resetChatSurfaceForNewDraft() {
