@@ -73,7 +73,15 @@
  * 整个时间线（正文/工具卡/按钮/思考块）都从 --ui-font-size 等比缩放，
  * 调整大小只改这一个数（ZCode 档位参考：14 默认 / 13 紧凑 / 12 最小）。 */
 .zcode-bridge-root {
-  --ui-font-size: 13.5px;
+  --ui-font-size: 12px;
+}
+
+/* 小V 等窄栏嵌入：主对话左侧 turn navigator 默认要 ≥864px container 才显示；
+ * 嵌入态强制露出，否则侧栏永远看不到左侧导航条。 */
+.zcode-bridge-root[data-v4-embedded="true"] [data-v4-turn-navigator="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 /* 中文模板描述按单字断行会拆开“简报”等词组，并把标点挤到下一行。

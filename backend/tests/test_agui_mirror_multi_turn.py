@@ -117,3 +117,100 @@ def test_tool_name_preserved_on_result_without_name(mirror_session: str) -> None
     tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
     assert tool["toolName"] == "write", tool
     assert tool["status"] == "success"
+
+
+def test_pending_approval_underscore_maps_to_pendingApproval(mirror_session: str) -> None:
+    """AG-UI 发 pending_approval（下划线）；镜像必须落成 pendingApproval，否则面板不弹授权。"""
+    tid = mirror_session + "-pending-approval"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "跑命令")
+    content = (
+        '{"_evoflow_tool":{"status":"pending_approval"},'
+        '"message":"[pending_approval] bash",'
+        '"approval":{"title":"需要您的授权","tool_name":"bash","summary":"{\\"command\\":\\"ls\\"}","risk":"confirm"}}'
+    )
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-pa"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-bash",
+                "toolCallName": "bash",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-bash",
+                "delta": '{"command":"ls"}',
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-bash"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-bash",
+                "content": content,
+                "status": "pending_approval",
+            },
+        ],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "pendingApproval", tool
+    assert tool["toolName"] == "bash"
+
+
+def test_hidden_tool_approval_user_text_not_mirrored(mirror_session: str) -> None:
+    """批准/续流内部标记不得落成可见 userInput（旧面板也不展示）。"""
+    tid = mirror_session + "-hidden-approval"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(
+        tid,
+        '__evf_tool_approval_v1__: {"action":"approve","tool_call_id":"tc1"}',
+    )
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-ha"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "继续"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-ha"},
+        ],
+    )
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert users == [], users
+    texts = [r for r in _rows(tid) if r.get("kind") == "assistantText"]
+    assert len(texts) == 1
+    assert texts[0]["text"] == "继续"
+
+
+def test_pending_approval_from_envelope_when_wire_status_ok(mirror_session: str) -> None:
+    """wire status 误标 success/ok 时，信封 _evoflow_tool.status 仍应强制 pendingApproval。"""
+    tid = mirror_session + "-pending-envelope"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "跑命令")
+    content = '{"_evoflow_tool":{"status":"pending_approval"},"message":"wait","approval":{"tool_name":"bash"}}'
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-pe"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-e",
+                "toolCallName": "bash",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-e"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-e",
+                "content": content,
+                "status": "ok",
+            },
+        ],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "pendingApproval", tool

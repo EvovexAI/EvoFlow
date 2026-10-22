@@ -306,7 +306,7 @@ function ClonedTableHost({ table }: { table: HTMLTableElement }) {
   return <div ref={hostRef} />
 }
 
-function MarkdownTableShell({ children, ...rest }: React.ComponentProps<'table'>) {
+export function MarkdownTableShell({ children, ...rest }: React.ComponentProps<'table'>) {
   const tableRef = useRef<HTMLTableElement | null>(null)
   const [open, setOpen] = useState(false)
   const [scale, setScale] = useState(1)

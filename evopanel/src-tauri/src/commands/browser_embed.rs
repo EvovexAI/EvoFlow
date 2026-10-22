@@ -1603,6 +1603,10 @@ pub fn ensure_webview_for_cdp(
             "[browser-embed] ensure_webview: window exists label={label} visible={} — no emit",
             existing.is_visible().unwrap_or(false)
         ));
+        // 已有窗但 COM stash / guest poll 丢了时，evaluate/截图会整串超时。
+        // 必须 SHOW：hidden 子 WebView2 不泵 with_webview。
+        let _ = existing.show();
+        browser_cdp::refresh_embed_cdp_handles(app, &existing, &label);
         return Ok(());
     }
     // tauri-agent pattern: emit to the instrumented main shell and wait for

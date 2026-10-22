@@ -32,12 +32,45 @@ _MIRROR_DISABLED = os.getenv("EVOFLOW_V4_MIRROR", "1").strip().lower() in {"0", 
 
 _AGUI_TO_TOOL_STATUS: dict[str, str] = {
     "inputstreaming": "inputStreaming",
+    # AG-UI / sse_ui_normalize 发的是 pending_approval（带下划线）；
+    # 去下划线后的 pendingapproval 一并收录，避免落成 success 导致面板不弹授权。
+    "pending_approval": "pendingApproval",
     "pendingapproval": "pendingApproval",
     "running": "running",
     "success": "success",
+    "ok": "success",
     "error": "error",
     "cancelled": "cancelled",
 }
+
+
+def _normalize_agui_tool_status(raw: object) -> str:
+    """AG-UI tool status → ZCode v4 toolCall.status。"""
+    key = str(raw or "success").strip().lower()
+    if key in _AGUI_TO_TOOL_STATUS:
+        return _AGUI_TO_TOOL_STATUS[key]
+    compact = key.replace("-", "").replace("_", "")
+    return _AGUI_TO_TOOL_STATUS.get(compact, "success")
+
+
+# 对齐面板 tool-approval.js ``isHiddenToolApprovalUserMessage``：
+# 批准/拒绝/续流内部标记不得落成可见 userInput 气泡。
+_TOOL_APPROVAL_MARKER = "__evf_tool_approval_v1__:"
+_TOOL_APPROVAL_REPLAY_MARKER = "__evf_tool_approval_replay_v1__:"
+
+
+def _is_hidden_tool_approval_user_text(text: object) -> bool:
+    s = str(text or "").strip()
+    if not s:
+        return False
+    lower = s.lower()
+    if lower.startswith(_TOOL_APPROVAL_MARKER):
+        return True
+    if lower.startswith(_TOOL_APPROVAL_REPLAY_MARKER):
+        return True
+    if s.startswith("用户工具授权操作："):
+        return True
+    return False
 
 # node_repl js 工具结果尾部的展示标记（见 plugins/node_repl_tool.py）。
 _CUA_DISPLAY_MARKER_PREFIX = "{evoflow-cua-display:"
@@ -251,10 +284,14 @@ class V4Mirror:
     def note_user_input(self, thread_id: str, text: str) -> None:
         """POST 路径解析到用户文本后先记下（RUN_STARTED 时落 userInput 行）。"""
         tid = str(thread_id or "").strip()
-        if not tid or not str(text or "").strip():
+        raw = str(text or "").strip()
+        if not tid or not raw:
+            return
+        # 工具审批内部标记（批准/续流）在旧面板不展示；镜像也不落 userInput。
+        if _is_hidden_tool_approval_user_text(raw):
             return
         st = self._state(tid)
-        st.user_text = str(text)
+        st.user_text = raw
 
     def feed_wire(self, thread_id: str, frames: list[bytes] | list[str]) -> int:
         """解析 AG-UI SSE wire 帧 → feed_events。返回消费的事件数。"""
@@ -359,6 +396,8 @@ class V4Mirror:
                 {
                     "rowId": rid,
                     "turnId": st.turn_id,
+                    # 面板「N 个文件已更改」展开依赖 ConversationRowTarget.entityId
+                    "entityId": st.turn_id,
                     "kind": "turnHeader",
                     "origin": "userInput",
                     "state": "running",
@@ -369,7 +408,7 @@ class V4Mirror:
             )
             user_text = st.user_text
             st.user_text = ""
-            if user_text:
+            if user_text and not _is_hidden_tool_approval_user_text(user_text):
                 self._hub.author_append_row(
                     tid,
                     {
@@ -564,9 +603,20 @@ class V4Mirror:
             rid = st.tool_row_ids.get(tcid)
             if rid is None:
                 return
-            agui_status = str(ev.get("status") or "success").strip().lower()
-            v4_status = _AGUI_TO_TOOL_STATUS.get(agui_status, "success")
             content = str(ev.get("content") or "")
+            v4_status = _normalize_agui_tool_status(ev.get("status") or "success")
+            # 内容信封里的 _evoflow_tool.status 优先（有时 wire status 仍是 ok）
+            if v4_status != "pendingApproval" and content.lstrip().startswith("{"):
+                try:
+                    envelope = json.loads(content)
+                    meta = envelope.get("_evoflow_tool") if isinstance(envelope, dict) else None
+                    if isinstance(meta, dict) and str(meta.get("status") or "").strip().lower() in {
+                        "pending_approval",
+                        "pendingapproval",
+                    }:
+                        v4_status = "pendingApproval"
+                except (TypeError, ValueError):
+                    pass
             tool_name = self._tool_name(st, tcid, ev)
             cua_display = None
             if "node_repl" in tool_name:
@@ -635,6 +685,7 @@ class V4Mirror:
                 {
                     "rowId": st.turn_header_row_id,
                     "turnId": st.turn_id,
+                    "entityId": st.turn_id,
                     "kind": "turnHeader",
                     "origin": "userInput",
                     "state": v4_state,

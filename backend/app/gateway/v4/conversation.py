@@ -254,23 +254,28 @@ class V4ConversationHub:
             raise KeyError(row_id)
         turn_id = str(header.get("turnId") or "")
         per_path: dict[str, dict[str, Any]] = {}
-        for row in sess.rows.values():
-            if row.get("kind") != "toolCall" or str(row.get("turnId") or "") != turn_id:
-                continue
-            display = (row.get("output") or {}).get("display") or {}
-            if not isinstance(display, dict) or display.get("kind") != "file_diff":
-                continue
+
+        def _absorb_display(display: dict[str, Any], tool_name: str) -> None:
+            if display.get("kind") != "file_diff":
+                return
             path = str(display.get("filePath") or "").strip()
             if not path:
-                continue
+                return
             entry = per_path.setdefault(
                 path,
-                {"path": path, "additions": 0, "deletions": 0, "writeCount": 0, "toolNames": [], "patches": []},
+                {
+                    "path": path,
+                    "additions": 0,
+                    "deletions": 0,
+                    "writeCount": 0,
+                    "toolNames": [],
+                    "patches": [],
+                },
             )
             entry["additions"] += int(display.get("additions") or 0)
             entry["deletions"] += int(display.get("deletions") or 0)
             entry["writeCount"] += 1
-            name = str(row.get("toolName") or "").strip()
+            name = str(tool_name or "").strip()
             if name and name not in entry["toolNames"]:
                 entry["toolNames"].append(name)
             for hunk in display.get("structuredPatch") or []:
@@ -285,12 +290,38 @@ class V4ConversationHub:
                         "lines": [str(line) for line in hunk.get("lines") or []],
                     }
                 )
+
+        from app.gateway.v4.agui_mirror import (
+            _WRITE_TOOL_NAMES,
+            _extract_diff_texts_from_args,
+            build_file_diff_display,
+        )
+
+        for row in sess.rows.values():
+            if row.get("kind") != "toolCall" or str(row.get("turnId") or "") != turn_id:
+                continue
+            tool_name = str(row.get("toolName") or "")
+            output = row.get("output") if isinstance(row.get("output"), dict) else {}
+            display = output.get("display") if isinstance(output, dict) else None
+            if isinstance(display, dict) and display.get("kind") == "file_diff":
+                _absorb_display(display, tool_name)
+                continue
+            # display 丢失时：从写类工具 inputText 现场重建（避免摘要有数、展开无列表）
+            if tool_name.lower() not in _WRITE_TOOL_NAMES:
+                continue
+            extracted = _extract_diff_texts_from_args(str(row.get("inputText") or ""))
+            if extracted is None:
+                continue
+            rebuilt = build_file_diff_display(*extracted)
+            if rebuilt is not None:
+                _absorb_display(rebuilt, tool_name)
+
         items = sorted(per_path.values(), key=lambda e: e["path"])
         return {
             "files": len(items),
             "additions": sum(e["additions"] for e in items),
             "deletions": sum(e["deletions"] for e in items),
-            "state": "active",
+            "state": str((header.get("fileChanges") or {}).get("state") or "active"),
             "items": items,
         }
 

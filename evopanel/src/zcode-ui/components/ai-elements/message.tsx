@@ -69,6 +69,11 @@ import {
   type MarkdownImageProps,
 } from "@/components/ai-elements/markdown-image.js";
 import { STREAMDOWN_CONTROLS } from "@/components/ai-elements/streamdown-controls.js";
+// EvoFlow V4 面板：表格渲染切换到 EvoFlow 自有表格壳（MD/CSV 复制 + 放大对话框），
+// 仅在 V4ZCodeTimeline 提供该变体；ZCode 宿主缺省仍用 MarkdownTable。
+// 旧壳经相对路径跨树引用（react/components 无 zcode-ui 依赖，无环）。
+import { MarkdownTableShell as EvoflowMarkdownTableShell } from "../../../react/components/StreamdownRenderer.js";
+import { MarkdownTableVariantContext, MarkdownTableVariantProvider } from "@/components/ai-elements/markdownTableVariant.js";
 import { resolveMessageLinkOpenTarget } from "@/embeddedBrowserHelpers.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import { persistLastSelectedEditorId, readLastSelectedEditorId } from "@/lib/editorPreference.js";
@@ -91,7 +96,7 @@ import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@/lib/codePreviewSettings.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { useOptionalPlatform, usePlatform } from "@/hooks/usePlatform.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { useFileContextActions } from "@/hooks/useFileContextActions.js";
 import { useWorkspaceOpenInEditorTarget } from "@/hooks/useWorkspaceOpenInEditorTarget.js";
 import { useOptionalServices } from "@/hooks/useServices.js";
@@ -1148,7 +1153,9 @@ interface MessageFileLinkProps {
 
 function MessageFileLink({ className, fileIconSrc, fileLink, onOpen }: MessageFileLinkProps) {
   const { intl } = useZCodeIntl();
-  const platform = usePlatform();
+  // 与 MessageExternalLink 一致：Share / EvoFlow Web 可能没有 Desktop PlatformProvider。
+  // 用 optional，缺席时只保留「打开」；不要抛错把整段 Markdown 降级成纯文本。
+  const platform = useOptionalPlatform();
   const services = useOptionalServices();
   const fileActions = useFileContextActions();
   const openInEditorContext = useWorkspaceOpenInEditorTarget({
@@ -1178,7 +1185,7 @@ function MessageFileLink({ className, fileIconSrc, fileLink, onOpen }: MessageFi
   }, [sortedEditors]);
 
   const loadEditors = useCallback(async () => {
-    if (editorsLoaded || loadingEditors) {
+    if (!platform || editorsLoaded || loadingEditors) {
       return;
     }
 
@@ -1198,11 +1205,11 @@ function MessageFileLink({ className, fileIconSrc, fileLink, onOpen }: MessageFi
   }, [editorsLoaded, fileLink.path, loadingEditors, platform]);
 
   const handleOpenInEditor = (editor: EditorInfo) => {
-    if (!services) {
+    if (!platform || !services) {
       logger.warn("[MessageResponse] 无法确认 markdown 链接文件类型", {
         editorId: editor.id,
         path: fileLink.path,
-        error: "workspace-file-service-unavailable",
+        error: !platform ? "platform-unavailable" : "workspace-file-service-unavailable",
       });
       return;
     }
@@ -1459,7 +1466,14 @@ export const MessageResponse = memo(
       workspaceIdentity,
       workspaceRemoteSessionId,
     ]);
-    const messageComponents = useMemo(
+    const tableVariant = useContext(MarkdownTableVariantContext);
+  const EvoflowTableShell = useCallback(
+    ({ children, ...rest }: React.ComponentProps<'table'>) => (
+      <EvoflowMarkdownTableShell {...rest}>{children}</EvoflowMarkdownTableShell>
+    ),
+    [],
+  );
+  const messageComponents = useMemo(
       () => ({
         a: ({
           children,
@@ -1618,7 +1632,9 @@ export const MessageResponse = memo(
         blockquote: MarkdownBlockquote,
         li: MarkdownListItem,
         ol: MarkdownOrderedList,
-        table: MarkdownTable,
+        table: tableVariant === "evoflow"
+          ? EvoflowTableShell
+          : MarkdownTable,
         tbody: MarkdownTableBody,
         td: MarkdownTableCell,
         th: MarkdownTableHead,
@@ -1642,6 +1658,7 @@ export const MessageResponse = memo(
         workspacePath,
         workspaceIdentity,
         workspaceRemoteSessionId,
+        tableVariant,
       ],
     );
 

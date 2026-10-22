@@ -557,7 +557,6 @@ function ConversationTimelineImpl({
       resizeObserver.observe(timelineRootRef.current ?? container);
       if (scrollRef.current) {
         resizeObserver.observe(scrollRef.current);
-        attachScrollJitterDiag(scrollRef.current);
       }
       resizeObserver.observe(dock);
     }
@@ -570,6 +569,14 @@ function ConversationTimelineImpl({
       resizeObserver?.disconnect();
     };
   }, [backgroundScrollLocked, selectionPanelLayoutContainerRef, syncShareSelectionPanelLayout]);
+
+  // 上滚抖动诊断必须挂在日常滚动层上（以前误挂在分享选区锁定分支，普通聊天永远无日志）。
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    attachScrollJitterDiag(el);
+    return () => detachScrollJitterDiag(el);
+  }, [sessionKey]);
 
   useEffect(() => {
     if (!hasRunningUnit) {
@@ -1328,12 +1335,14 @@ function ConversationTimelineImpl({
       if (target.unitIndex === liveUnitIndex) {
         const liveTail = liveTailRef.current;
         if (liveTail) {
+          recordScrollWrite("scrollToQueryLiveTailMount", element);
           element.scrollTop =
             element.scrollTop +
             liveTail.getBoundingClientRect().top -
             element.getBoundingClientRect().top;
         }
       } else {
+        recordScrollWrite("virtualizerScrollToIndex", element);
         virtualizer.scrollToIndex(target.unitIndex, {
           align: "start",
           behavior: "auto",
@@ -1405,6 +1414,8 @@ function ConversationTimelineImpl({
         syncTurnNavigatorViewport(element);
         return;
       }
+      const scrollElement = scrollRef.current;
+      if (scrollElement) recordScrollWrite("virtualizerScrollToIndex", scrollElement);
       virtualizer.scrollToIndex(unitIndex, { align: "start", behavior });
     },
     [clearUserScrollIntent, commitFollowing, liveUnitIndex, syncTurnNavigatorViewport, virtualizer],
@@ -1606,6 +1617,7 @@ function ConversationTimelineImpl({
     if (adjustment !== null && scrollRef.current) {
       const element = scrollRef.current;
       markLayoutScrollGuard();
+      recordScrollWrite("prependAnchorAdjust", element);
       element.scrollTop += adjustment;
       // 程序化平移同样入账，避免被下方贴底对账误读为「未观察滚动」。
       lastObservedScrollTopRef.current = element.scrollTop;
@@ -1751,12 +1763,16 @@ function ConversationTimelineImpl({
         onTouchMoveCapture={handleTouchMoveCapture}
         onTouchStartCapture={handleTouchStartCapture}
         onWheelCapture={handleWheelCapture}
+        // 必须在滚动端口自身关 overflow-anchor：仅关内容子树时，Chrome 仍会把
+        // sticky composer / 虚拟行换入换出当成锚点，上滚停住后把 scrollTop 单向拽回底部
+        //（diag 里表现为全 src=browser/native、往复 0、累计数百 px）。
+        style={{ overflowAnchor: "none" }}
         className={cn(
           // 原生滚动条按内容高度动态出现时会缩窄会话视口，导致消息与 composer
           // 横向跳动；稳定预留 gutter，让桌面与手机 Web 共用的滚动区宽度保持不变。
           // 只声明 overflow-y-auto 会让浏览器把横轴计算为 auto，宽内容会把
           // 整条 Conversation 撑出横向滚动；表格和代码块应由各自内部容器滚动。
-          "min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [--markdown-table-layout-left-inset:16px] [--markdown-table-layout-right-inset:16px] max-md:[--markdown-table-layout-left-inset:8px] max-md:[--markdown-table-layout-right-inset:8px]",
+          "min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] overscroll-behavior-y-contain [--markdown-table-layout-left-inset:16px] [--markdown-table-layout-right-inset:16px] max-md:[--markdown-table-layout-left-inset:8px] max-md:[--markdown-table-layout-right-inset:8px]",
           // 分享选择面板展开时改为 overflow-hidden：scrollTop 与 scrollbar-gutter 都保持不变，
           // 但原生滚动条、滚轮和键盘翻页都不再能移动背景，勾选目标不会漂走。
           backgroundScrollLocked && "!overflow-y-hidden",
@@ -1846,7 +1862,10 @@ function ConversationTimelineImpl({
                       // virtual history 的子项通过 absolute 定位，父级 padding 不会缩小
                       // 它们的 containing block；正文响应式内边距必须落在 turn wrapper 自身。
                       className="absolute left-0 top-0 w-full"
-                      style={{ transform: `translateY(${virtualRow.start - headerSlotHeight}px)` }}
+                      style={{
+                        transform: `translateY(${virtualRow.start - headerSlotHeight}px)`,
+                        overflowAnchor: "none",
+                      }}
                     >
                       <ConversationTurnGroup
                         unit={unit}
@@ -1871,6 +1890,7 @@ function ConversationTimelineImpl({
                   data-v4-turn-unit="true"
                   data-turn-id={liveUnit.turnId}
                   data-v4-timeline-content-column="true"
+                  style={{ overflowAnchor: "none" }}
                   className={cn(
                     // ≥1280px 面板让位时降级为只过渡 transform，避免大范围跳变叠加位移抖动。
                     "relative mx-auto w-full shrink-0 transition-[width,max-width,transform] duration-150 ease-out @min-[1280px]/conversation:transition-[transform]",
@@ -1917,6 +1937,8 @@ function ConversationTimelineImpl({
             <div
               ref={composerDockRef}
               data-v4-composer-dock="true"
+              // sticky 底栏极易被 Chrome 选作 scroll anchor；禁止参与锚定。
+              style={{ overflowAnchor: "none" }}
               className={cn(
                 // sticky dock 是 z-20 的全宽透明层，过去会盖住 z-10 rail
                 // 在 composer 左侧留白内的按钮。外壳不接事件，只让实际内容列恢复命中。

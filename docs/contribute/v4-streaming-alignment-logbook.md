@@ -126,6 +126,60 @@ LangGraph 上游 SSE
   逐 token 显示事件**不再进老数据管线**（streamRef/rt.rows/bump —— 嫌疑 1 的 60fps×O(n)
   由此消失）；TOOL_CALL_START/END/RESULT 与 RUN_*、平台事件照走（审批/工件/plan/协作）
 
+**审批交互回归（2026-10-22 深夜八轮，用户报告"授权弹窗没了"）**：根因 = ZCode 的审批走
+pendingInteractions（未投影），老授权模块（ToolCallList 按钮 + onToolApprovalStable →
+wsClient.postToolApproval）闲置。接法：V4ZCodeTimeline 扫描 rows 中 status=pendingApproval 的
+toolCall 行 → 底部悬浮审批卡（标题/工具名/摘要/风险 + 批准/拒绝/全部批准）→ 复用
+onToolApprovalStable（审批信息从行 output.text 的 _evoflow_tool/approval JSON 解析，
+摘要/参数兜底用 inputText）。批准后端执行 → 结果经镜像回流 V4 行 ✓；老 handler 的
+本地 patch/续流逻辑在 V4 模式无害（老 rows 不显示）。
+
+**workspacePath 根因（2026-10-22 深夜九轮，用户报"文件名显示 D"）**：DB 验证 args.path 是
+完整绝对路径（数据无缺），真凶 = 宿主 rowContext.workspacePath 传了空串——ZCode 的文件
+chip/摘要/diff 路径解析链全部依赖真实工作区根做相对化，空串让绝对 Windows 路径解析退化
+成盘符 "D"。修复：V4ZCodeTimeline 加 workspacePath prop，chat-app-view 传
+effectiveWorkspaceRoot（老面板 homeWorkspacePath 同源）。**教训：给 vendor 组件装配
+rowContext 时，所有"宿主环境"字段必须给真实值，空串会静默改变解析行为。**
+
+**Edit 工具卡全链路对齐（2026-10-22 深夜五轮）**：用户反馈参数/摘要/展开/右侧面板四处差距。
+①桥接层 `toolCallRowAdapter` 的 raw 补 `rawInput`（解析后的参数对象）——fileSummaries 的
+readRawToolCallInput 优先读它，缺了 Write/Edit 退化成整段 JSON 展示而非文件 diff
+（fileSummaryTypes.ts:91 注释明确此退化）。②`onOpenCodeViewer` 接线：rowContext 补该字段
+（edit.tsx 的文件 chip clickable 直接取决于它），V4ZCodeTimeline 加 prop，chat-app-view 传
+`openMessageFilePreview(source.path, source.title)` → EvoFlow 右侧面板文件预览；
+patch 源 v1 先打开目标文件，diff 视图待 right-stage 支持。
+
+**右侧面板 diff 对齐（2026-10-22 深夜十轮）**：Edit 卡文件 chip 点击原走
+openMessageFilePreview（EvoFlow 文件预览——无 diff 模式）。新增右侧面板 kind
+`codeViewer`（right-stage-types 加标签"代码对比"；render-right-stage-body 分支渲染
+新组件 `v4-code-viewer-side-pane.tsx`：头部文件标题+路径，内容用 vendor CodeViewer
+以 language:"diff" 渲染 patch 红绿行）。chat-app-view 的 onOpenCodeViewer 改为
+rightStageStore.show({kind:'codeViewer', data:{source}})——source 是 ZCode
+CodeViewerSource（buildEditCodeViewerSource 的 patch 产物）。多文件 diff
+（multi-file-diff 源）v1 未接。**踩坑：bash heredoc 里写 JS 正则会掉反斜杠层
+（\→\→坏），正则字面量必须用 Edit 工具修。**
+
+**右侧平台工具通知（2026-10-22 深夜六轮，用户报告"平台工具交互整块没了"）**：
+梳理结果——旧链路右侧能力的触发点大部分在放行清单里（CUSTOM → applyRightStageAgUiCustom /
+write_file_progress；TOOL_CALL_RESULT → publishArtifacts / platform 反馈 toast / applyStageSetFromToolCall；
+CUSTOM thread_state → SessionSidebar）。**唯一断点 = TOOL_CALL_ARGS 被无差别闸掉**：
+panel_set/stage_set/platform 工具的面板配置在参数里（TOOL_CALL_RESULT 分支从 aguiTurn 读
+argsText → applyStageSetFromToolCall(argsText) 配置右侧面板），参数断流 → 面板配不出来 → 通知整块消失。
+修复：闸门收窄（v4Gate.ts 重写）——TOOL_CALL_ARGS 只闸**文件写类工具**的重型参数流
+（START 时登记工具名，ARG 事件不带名字），平台工具参数放行；TEXT/REASONING 维持全闸。
+**放行清单**（旧链路继续承载的能力）：审批检测、工件发布、plan 检测、协作子任务、浏览器面板、
+knowledge map、语音、桌面完成通知、平台反馈 toast、右侧面板配置。待接：工具参数流式预览
+（platform 工具若未来有大参数流，按工具名单扩展闸门）。
+
+**表格渲染切回旧版（2026-10-22 深夜七轮，用户拍板"只有表格这一处换回来"）**：
+ZCode 表格（markdown-table.tsx 工具条+横向虚拟滚动）用户观感不如旧版壳。实现：变体开关——
+`zcode-ui/components/ai-elements/markdownTableVariant.tsx`（context，默认 "zcode"）+
+message.tsx 的 Streamdown `table:` 映射按变体切换（evoflow → 旧 MarkdownTableShell：
+MD/CSV 复制 + 放大对话框 + 滚轮缩放；相对路径跨树引 react/components/StreamdownRenderer.tsx
+——**三级 ../，四级会逃出 src**；该文件无 zcode-ui 依赖无环；ZCode 的 STREAMDOWN_CONTROLS
+已 table:false 无双控件）+ V4ZCodeTimeline 挂 MarkdownTableVariantProvider value="evoflow"。
+作用域精确：仅 V4 面板表格换壳，ZCode 宿主（SessionPane）保持 ZCode 表格。
+
 **轮尾文件审查卡（2026-10-22 深夜四轮）**：「N 个文件已更改」卡片展开的 per-file diff
 走 ZCode 的 `v4/conversation/fileChanges` 查询——此前 transport 是 throw 桩、后端无数据源。
 已实现：hub.file_changes(sessionId, rowId)（按 turnHeader 聚合同轮写类工具行的

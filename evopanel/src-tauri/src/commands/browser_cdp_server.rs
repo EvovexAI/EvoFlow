@@ -129,6 +129,21 @@ fn write_transport(marker: &str) {
     log_line(&format!("[browser-cdp] transport marker = {marker}"));
 }
 
+/// Non-blocking peek: port if the HTTP bridge is already up (0 = not started).
+pub fn http_server_port_if_running() -> Option<u16> {
+    let port = SERVER_PORT.load(Ordering::SeqCst);
+    if port != 0 {
+        return Some(port);
+    }
+    // Fall back to well-known file (another thread may have written it).
+    let path = evoflow_dir().join(PORT_FILE);
+    let Ok(s) = std::fs::read_to_string(&path) else {
+        return None;
+    };
+    let p: u16 = s.trim().parse().ok()?;
+    (p != 0).then_some(p)
+}
+
 /// Start the HTTP server (idempotent). Returns the port.
 ///
 /// The function is async only so callers (``#[tauri::command]``) can ``await``

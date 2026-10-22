@@ -5,6 +5,7 @@
 import type { ReactNode } from 'react'
 import type { RightStageSurface } from '../../../lib/right-stage/right-stage-types.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
+import { V4CodeViewerSidePane } from './v4-code-viewer-side-pane.js'
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
@@ -116,6 +117,19 @@ export function renderRightStageBody(
       />
     ) : (
       <SidePanelBootShell title={name || '文件预览'} className="react-chat-workspace-preview-stage" />
+    )
+  }
+  if (kind === 'codeViewer') {
+    const data = surface.data || {}
+    const source = data.source
+    if (!source) return null
+    return sidePanelHeavyMount ? (
+      <V4CodeViewerSidePane
+        source={source}
+        onClose={() => rightStageStore.closeTab(surface.id)}
+      />
+    ) : (
+      <SidePanelBootShell title={surface.title || '代码对比'} />
     )
   }
   if (kind === 'workspace-browse' || kind === 'write') {

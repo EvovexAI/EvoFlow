@@ -257,6 +257,9 @@ function ConversationToolGroupRow({
         renderCuaAssistantMessage={item.kind === "cuaGroup" ? renderAssistantMessage : undefined}
         renderCuaReasoning={item.kind === "cuaGroup" ? renderReasoning : undefined}
       />
+      {item.rows.map((child) => (
+        <div key={child.toolCallId}>{context.renderToolCallApproval?.(child.toolCallId)}</div>
+      ))}
     </div>
   );
 }
@@ -810,9 +813,13 @@ function ConversationTurnFlow({
     latestAssistantTextRow: unit.latestAssistantTextRow,
     workspacePath: context.workspacePath,
     workspaceHomePath: context.workspaceHomePath,
-    fileChangesTarget: unit.header?.entityId
-      ? { rowId: unit.header.rowId, entityId: unit.header.entityId }
-      : null,
+    fileChangesTarget:
+      unit.header && (unit.header.entityId || unit.header.turnId)
+        ? {
+            rowId: unit.header.rowId,
+            entityId: String(unit.header.entityId || unit.header.turnId),
+          }
+        : null,
     fileChangesState: unit.header?.fileChanges?.state,
     fetchFileChanges: context.fetchFileChanges,
   });
@@ -979,9 +986,13 @@ function ConversationBackgroundResultWork({
     latestAssistantTextRow,
     workspacePath: context.workspacePath,
     workspaceHomePath: context.workspaceHomePath,
-    fileChangesTarget: unit.header?.entityId
-      ? { rowId: unit.header.rowId, entityId: unit.header.entityId }
-      : null,
+    fileChangesTarget:
+      unit.header && (unit.header.entityId || unit.header.turnId)
+        ? {
+            rowId: unit.header.rowId,
+            entityId: String(unit.header.entityId || unit.header.turnId),
+          }
+        : null,
     fileChangesState: unit.header?.fileChanges?.state,
     fetchFileChanges: context.fetchFileChanges,
   });

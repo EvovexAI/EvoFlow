@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, Loader2Icon, Undo2Icon } from "lucide-react";
 import type {
   CommandAck,
@@ -97,47 +97,72 @@ export function ConversationFileSummaryPanel({
     header.actions?.canRewindFiles === true &&
     !isReverted;
   const items = details?.items ?? [];
-  const target = useMemo<ConversationRowTarget | null>(
-    () => (header.entityId ? { rowId: header.rowId, entityId: header.entityId } : null),
-    [header.entityId, header.rowId],
-  );
+  // EvoFlow 镜像 turnHeader 可能只有 turnId、无 entityId；rowId+稳定实体键即可拉详情。
+  const target = useMemo<ConversationRowTarget | null>(() => {
+    const entityId = String(header.entityId || header.turnId || "").trim();
+    if (!entityId) return null;
+    return { rowId: header.rowId, entityId };
+  }, [header.entityId, header.rowId, header.turnId]);
   const cachePolicy: ConversationFileChangesRequestOptions["cachePolicy"] =
     header.state === "running" ? "in-flight" : "terminal";
   const fileChangesState = summary?.state;
+  // 经 ref 读最新 fetch，避免宿主每帧换新函数时把 effect 打成「清空→重拉」闪烁环。
+  const fetchFileChangesRef = useRef(context.fetchFileChanges);
+  fetchFileChangesRef.current = context.fetchFileChanges;
+  const loadedKeyRef = useRef<string>("");
 
   useEffect(() => {
-    if (!open || !context.fetchFileChanges || !target) return;
+    const fetchFileChanges = fetchFileChangesRef.current;
+    if (!open || !fetchFileChanges || !target) return;
+
+    const requestKey = `${target.rowId}:${target.entityId}:${cachePolicy}:${fileChangesState ?? ""}`;
+    // 终态同 key 已有详情：不再清空重拉（展开时对话区高度稳定，避免整栏闪）。
+    if (cachePolicy === "terminal" && loadedKeyRef.current === requestKey && details) {
+      return;
+    }
 
     let disposed = false;
     // 运行中的 fileChanges 是某个 projection revision 的局部结果；turn
     // 进入终态后必须废弃局部 details，并用可持久缓存的终态策略重新读取。
-    setDetails(null);
-    setLoadingDetails(true);
-    void context
-      .fetchFileChanges(target, {
-        cachePolicy,
-        fileChangesState,
-      })
-      .then(
-        (result) => {
-          if (disposed) return;
-          setDetails(result);
-          setLoadingDetails(false);
-        },
-        (loadError: unknown) => {
-          if (disposed) return;
-          logger.warn("[ConversationFileSummaryPanel] 读取文件变更详情失败", {
-            error: loadError instanceof Error ? loadError.message : String(loadError),
-            rowId: target.rowId,
-          });
-          setLoadingDetails(false);
-        },
-      );
+    if (cachePolicy === "in-flight" || loadedKeyRef.current !== requestKey) {
+      setDetails(null);
+      setLoadingDetails(true);
+    }
+    void fetchFileChanges(target, {
+      cachePolicy,
+      fileChangesState,
+    }).then(
+      (result) => {
+        if (disposed) return;
+        loadedKeyRef.current = requestKey;
+        setDetails(result);
+        setLoadingDetails(false);
+      },
+      (loadError: unknown) => {
+        if (disposed) return;
+        logger.warn("[ConversationFileSummaryPanel] 读取文件变更详情失败", {
+          error: loadError instanceof Error ? loadError.message : String(loadError),
+          rowId: target.rowId,
+        });
+        // 失败也落空结果，避免展开后一片空白、用户以为「没文件」
+        loadedKeyRef.current = requestKey;
+        setDetails({
+          files: 0,
+          additions: 0,
+          deletions: 0,
+          state: "active",
+          items: [],
+        });
+        setLoadingDetails(false);
+      },
+    );
 
     return () => {
       disposed = true;
     };
-  }, [cachePolicy, context.fetchFileChanges, fileChangesState, open, target]);
+    // details 故意不进 deps：仅作终态短路缓存，避免写回后再触发一轮。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
+  }, [cachePolicy, fileChangesState, open, target]);
 
   const handlePreviewRewind = useCallback(async () => {
     if (!context.previewFileRewind || !target) return;
@@ -242,7 +267,7 @@ export function ConversationFileSummaryPanel({
                   id: "chat.changeSummary.rewindDialog.loading",
                 })}
               </div>
-            ) : details && items.length === 0 ? (
+            ) : !details || items.length === 0 ? (
               <div className="px-2 py-1.5 text-ui-base text-foreground-subtle">
                 {intl.formatMessage({
                   id: "chat.changeSummary.diffUnavailable",

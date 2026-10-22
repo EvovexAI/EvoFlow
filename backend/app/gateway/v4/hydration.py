@@ -230,6 +230,11 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 text = _text_from_message_content(payload)
                 if not text:
                     continue
+                # 工具审批内部标记不进可见 userInput（对齐旧面板 isHiddenToolApprovalUserMessage）
+                from app.gateway.v4.agui_mirror import _is_hidden_tool_approval_user_text
+
+                if _is_hidden_tool_approval_user_text(text):
+                    continue
                 row: dict[str, Any] = {
                     "rowId": next_row_id(),
                     "turnId": turn_id,
@@ -370,6 +375,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
         header_row: dict[str, Any] = {
             "rowId": header_row_id,
             "turnId": turn_id,
+            "entityId": turn_id,
             "kind": "turnHeader",
             "origin": "userInput",
             "state": "completedSuccess",

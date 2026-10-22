@@ -1,6 +1,7 @@
 // v4 行渲染上下文（ai-elements / ToolCallBlocks 回接所需的宿主注入面）。
 // 注入模式对齐 PermissionDialog（store 耦合剥离）：展示组件不自取 store，
 // theme / codePreviewSettings 在宿主（SessionPane）处取，向下走稳定 props。
+import type { ReactNode } from "react";
 import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
@@ -184,6 +185,11 @@ export interface ConversationRowRenderContext {
   readAttachmentRange?: (
     params: Parameters<ConversationTransport["attachmentReadRange"]>[0],
   ) => ReturnType<ConversationTransport["attachmentReadRange"]>;
+  /**
+   * EvoFlow 等宿主：在指定 toolCall 卡片正下方渲染授权 UI（对齐旧 MessageRow 行内审批）。
+   * 缺席则不渲染；不要用底部浮层代替，避免「乱弹」脱离对应命令行。
+   */
+  renderToolCallApproval?: (toolCallId: string) => ReactNode;
 }
 
 export interface ConversationFileChangesRequestOptions {

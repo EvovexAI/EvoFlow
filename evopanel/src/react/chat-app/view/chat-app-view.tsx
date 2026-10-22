@@ -600,10 +600,20 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       connecting={v4Phase === 'connecting'}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenCodeViewer={(source) => {
-                        // ZCode CodeViewerSource → EvoFlow 文件预览（右侧面板）。
-                        // patch 源 v1 先打开目标文件；diff 视图待 right-stage 支持。
-                        void openMessageFilePreview?.(source.path, source.title);
+                        // ZCode CodeViewerSource → 右侧 codeViewer 面板
+                        //（vendor CodeViewer 渲染 patch diff，对齐 ZCode 侧栏）。
+                        rightStageStore.show({
+                          kind: 'codeViewer',
+                          id: `codeViewer:${String(source.path || source.title || 'diff').replace(/\\/g, '/')}`,
+                          title: source.title || '代码对比',
+                          layout: 'wide',
+                          sessionKey: selectedSessionKey || undefined,
+                          data: { source },
+                        })
                       }}
+                      onToolApproval={onToolApprovalStable}
+                      workspacePath={effectiveWorkspaceRoot}
+                      toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={
                         <div
                           ref={setV4ComposerHostEl}
@@ -986,8 +996,20 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 )
               }}
               onOpenAttachmentMenu={() => {
-                // + 号一键直达插件/添加快捷面板（ZCode 交互复刻）
-                setBottomPluginPanelOpen(true);
+                // + 号切换插件/添加快捷面板：已开则收起（ZCode 交互复刻）
+                const next = !bottomPluginPanelOpen
+                // 打开时互斥收起其它底栏菜单，避免叠层
+                if (next) {
+                  setModeMenuOpen(false)
+                  setBottomModelOpen(false)
+                  setBottomPermissionOpen(false)
+                  setBottomMoreOpen(false)
+                  setMoreSubOpen(null)
+                  setBottomWorkspaceOpen(false)
+                  setBottomRoleOpen(false)
+                  setBottomSkillOpen(false)
+                }
+                setBottomPluginPanelOpen(next)
               }}
               bottomMoreTriggerRef={bottomMoreTriggerRef}
               permissionPill={currentPermissionPillLabel}

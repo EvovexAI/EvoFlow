@@ -9,10 +9,12 @@
 // - 分页：canLoadOlder/onLoadOlder 接 store 的 rows/range（hasOlderRows 判定）。
 // connecting 阶段（已订阅、快照未到）空态不渲染提示文案，只保持 V4 渲染不回落老链路。
 // 回调类能力（编辑/重试/fork/反馈）v1 不接——显示侧为只读投影。
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "@/styles-bridge.css";
 import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
+import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
+import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/markdownTableVariant.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
@@ -22,6 +24,23 @@ import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
+import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
+import {
+  ToolApprovalPanel,
+  type ToolApprovalChoice,
+} from "../components/ToolApprovalPanel.js";
+
+/**
+ * V4 行内授权何时展示（对齐旧链路 isToolPendingApproval + resolvedIds）：
+ * 1. 会话策略关闭授权 UI（grant_all）→ 不展示
+ * 2. 本会话已点过批准/拒绝的 toolCallId → 乐观消隐（防重复）
+ * 3. 已真正开跑/失败：running / error / cancelled → 不展示
+ * 4. status===pendingApproval → 展示
+ * 5. 信封 _evoflow_tool.status===pending_approval → 展示（含 status 被误标 success 的镜像滞后；
+ *    不要用「success 一律不弹」盖掉尚未审批的当前卡）
+ * 6. 信封已是 approved/denied/ok 等 → 不展示
+ */
+const V4_TOOL_STATUS_EXECUTING_OR_DONE = new Set(["running", "error", "cancelled"]);
 
 /**
  * 部分服务访问器：只实现 fileService（产物预览卡的文件存在性校验，走
@@ -60,43 +79,48 @@ export function V4ZCodeTimeline(props: {
   /** EvoFlow 会话 key：stream-compare 落盘目录名（与 sse/v4-recv 同轮对账）。 */
   evoflowSessionKey?: string | null;
   /**
+   * 窄栏嵌入（小V）：composer 在面板外，禁用空态居中；sessionKey 用 evoflow key 保持稳定，
+   * 避免 threadId 从无到有时 timeline 整树 remount 抖动；并露出左侧 turn navigator。
+   */
+  embedded?: boolean;
+  /**
    * EvoFlow 底部输入区：作为 ConversationTimeline sticky bottomDock 挂进同一滚动视口
    * （对齐 ZCode SessionPane），避免 messages 区单独滚动、下方空出「留给输入框」的空白。
    */
   bottomDock?: ReactNode;
   /** 工具卡/文件 chip 点击 → EvoFlow 右侧面板文件预览（ZCode CodeViewerSource 语义）。 */
   onOpenCodeViewer?: (source: import("@zcode/ui/lib/codeViewer.js").CodeViewerSource) => void;
+  /** 复用老授权模块：onToolApprovalStable（approve/deny → wsClient.postToolApproval，
+   * 批准后的执行结果经镜像回流成 V4 行）。 */
+  onToolApproval?: (
+    action: "approve" | "approve_all" | "deny" | "grant_all" | "approve_remember",
+    toolCallId?: string,
+    hint?: { tool_name?: string; summary?: string; args?: Record<string, unknown> },
+  ) => void;
+  /** 会话策略已 grant_all / 关闭授权 UI 时不展示行内审批（对齐 toolApprovalUiDisabled）。 */
+  toolApprovalUiDisabled?: boolean;
+  /** 会话工作区根（绝对路径）：文件 chip/摘要/diff 的路径相对化全依赖它——
+   * 传空会让绝对 Windows 路径解析退化（文件名显示成盘符 "D"）。 */
+  workspacePath?: string;
 }): React.JSX.Element {
-  const { payload, connecting, bottomDock, evoflowSessionKey, onOpenCodeViewer } = props;
+  const {
+    payload,
+    connecting,
+    bottomDock,
+    evoflowSessionKey,
+    embedded = false,
+    onOpenCodeViewer,
+    onToolApproval,
+    toolApprovalUiDisabled = false,
+    workspacePath,
+  } = props;
   const sessionId = payload?.sessionId ?? "";
   const snapshot: ConversationSnapshot | null = payload?.snapshot ?? null;
 
   // 宿主保证引用稳定（ConversationRowView/MessageResponse 的 memo 依赖 context 引用）。
-  // fetchFileChanges 闭包经 ref 读最新快照水位，rowContext 本身保持跨帧稳定。
+  // fetchFileChanges 闭包经 ref 读最新快照水位；待授权列表变时才允许 rowContext 换引用。
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
-  const rowContext = useMemo<ConversationRowRenderContext>(
-    () => ({
-      workspacePath: "",
-      theme: "system" as const,
-      codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
-      sessionId: sessionId || null,
-      onOpenCodeViewer,
-      fetchFileChanges: sessionId
-        ? async (target) => {
-            const snap = snapshotRef.current;
-            if (!snap) throw new Error("v4 snapshot not ready");
-            return await getEvoflowV4Transport().fileChanges({
-              sessionId,
-              target,
-              baseRevision: snap.seq,
-              baseLogEpoch: snap.logEpoch,
-            });
-          }
-        : undefined,
-    }),
-    [sessionId, onOpenCodeViewer],
-  );
 
   // 访问器按 session 建（thread_id 沙箱解析），会话切换即重建。
   const partialServices = useMemo(
@@ -105,6 +129,208 @@ export function V4ZCodeTimeline(props: {
   );
 
   const rows = snapshot?.rows.window ?? [];
+
+  type PendingApprovalItem = {
+    toolCallId: string;
+    toolName: string;
+    summary: string;
+    risk: string;
+    title: string;
+    args?: Record<string, unknown>;
+  };
+
+  // 本会话已点过的 toolCallId（对齐 toolApprovalResolvedIdsRef）；切会话清空。
+  const resolvedIdsRef = useRef<Set<string>>(new Set());
+  const [resolvedTick, setResolvedTick] = useState(0);
+  const resolvedScopeKey = String(evoflowSessionKey || sessionId || "").trim();
+  useEffect(() => {
+    resolvedIdsRef.current = new Set();
+    setResolvedTick((n) => n + 1);
+  }, [resolvedScopeKey]);
+
+  // 待审批：未点过 + 未开跑/失败 +（pendingApproval 或信封 pending）。
+  const pendingApprovals = useMemo(() => {
+    if (toolApprovalUiDisabled) return [] as PendingApprovalItem[];
+    const out: PendingApprovalItem[] = [];
+    const resolved = resolvedIdsRef.current;
+    for (const row of rows) {
+      if (row.kind !== "toolCall") continue;
+      const toolCallId = String(row.toolCallId || "").trim();
+      if (!toolCallId || resolved.has(toolCallId)) continue;
+      // 已开跑/失败：即使信封还留着 pending_approval 也不再交互
+      if (V4_TOOL_STATUS_EXECUTING_OR_DONE.has(row.status)) continue;
+
+      let summary = row.inputText || "";
+      let risk = "confirm";
+      let title = "需要您的授权";
+      let envelopePending = false;
+      let envelopeSettled = false;
+      try {
+        const parsed = JSON.parse(row.output?.text || "{}") as {
+          approval?: {
+            title?: string;
+            summary?: string;
+            risk?: string;
+            tool_name?: string;
+          };
+          _evoflow_tool?: { status?: string };
+        };
+        const metaSt = String(parsed._evoflow_tool?.status || "")
+          .trim()
+          .toLowerCase()
+          .replace(/[_-]/g, "");
+        if (metaSt === "pendingapproval") envelopePending = true;
+        if (
+          metaSt === "approved" ||
+          metaSt === "denied" ||
+          metaSt === "ok" ||
+          metaSt === "error" ||
+          metaSt === "blocked" ||
+          metaSt === "approvedwaiting" ||
+          metaSt === "awaitingotherapproval"
+        ) {
+          envelopeSettled = true;
+        }
+        if (parsed.approval) {
+          title = parsed.approval.title || title;
+          risk = parsed.approval.risk || risk;
+          if (parsed.approval.summary) summary = parsed.approval.summary;
+        }
+      } catch {
+        // output.text 非 JSON —— 用 inputText 兜底
+      }
+      if (envelopeSettled) continue;
+      // success + 信封仍 pending：镜像曾把 pending_approval 标成 success，必须仍展示
+      if (row.status !== "pendingApproval" && !envelopePending) continue;
+
+      let args: Record<string, unknown> | undefined;
+      try {
+        const parsedArgs = JSON.parse(row.inputText || "null");
+        if (parsedArgs && typeof parsedArgs === "object") {
+          args = parsedArgs as Record<string, unknown>;
+        }
+      } catch {
+        // 半截参数 —— 省略 args
+      }
+      out.push({
+        toolCallId,
+        toolName: row.toolName,
+        summary,
+        risk,
+        title,
+        args,
+      });
+    }
+    return out;
+    // resolvedTick：用户点选后强制重算，即使 rows 引用未变
+  }, [rows, toolApprovalUiDisabled, resolvedTick]);
+
+  const pendingById = useMemo(() => {
+    const map = new Map<string, PendingApprovalItem>();
+    for (const item of pendingApprovals) map.set(item.toolCallId, item);
+    return map;
+  }, [pendingApprovals]);
+
+  const markResolved = useCallback((ids: string[]) => {
+    let changed = false;
+    for (const id of ids) {
+      const k = String(id || "").trim();
+      if (!k || resolvedIdsRef.current.has(k)) continue;
+      resolvedIdsRef.current.add(k);
+      changed = true;
+    }
+    if (changed) setResolvedTick((n) => n + 1);
+  }, []);
+
+  const onApprovalChoice = useCallback(
+    (item: PendingApprovalItem, choice: ToolApprovalChoice) => {
+      const hint = {
+        tool_name: item.toolName,
+        summary: item.summary,
+        args: item.args,
+      };
+      // 乐观消隐：API 回灌前立刻从行内摘掉，避免重复点选 / 下一帧再弹
+      if (choice === "full_access") {
+        markResolved(pendingApprovals.map((p) => p.toolCallId));
+      } else {
+        markResolved([item.toolCallId]);
+      }
+      if (choice === "deny") {
+        onToolApproval?.("deny", item.toolCallId, hint);
+        return;
+      }
+      if (choice === "full_access") {
+        onToolApproval?.("grant_all", item.toolCallId, hint);
+        return;
+      }
+      if (choice === "always_project") {
+        onToolApproval?.("approve_remember", item.toolCallId, hint);
+        return;
+      }
+      onToolApproval?.("approve", item.toolCallId, hint);
+    },
+    [onToolApproval, markResolved, pendingApprovals],
+  );
+
+  // 审批/拉文件详情都经 ref 读最新值，回调身份保持稳定——否则每帧 SSE
+  // 都会换新的 rowContext，ConversationTimeline 整树 memo 失效 → 对话区闪烁。
+  const pendingByIdRef = useRef(pendingById);
+  pendingByIdRef.current = pendingById;
+  const onApprovalChoiceRef = useRef(onApprovalChoice);
+  onApprovalChoiceRef.current = onApprovalChoice;
+
+  const renderToolCallApproval = useCallback((toolCallId: string) => {
+    const item = pendingByIdRef.current.get(toolCallId);
+    if (!item) return null;
+    return (
+      <div className="msg-tool-approval-inline" data-tool-call-id={toolCallId}>
+        <ToolApprovalPanel
+          toolName={item.toolName}
+          summary={item.summary}
+          autoFocus
+          onConfirm={(choice) => onApprovalChoiceRef.current(item, choice)}
+        />
+      </div>
+    );
+  }, []);
+
+  const fetchFileChanges = useCallback(
+    async (
+      target: { rowId: number; entityId: string },
+      _options?: { cachePolicy?: string; fileChangesState?: string },
+    ) => {
+      if (!sessionId) throw new Error("v4 session not ready");
+      const snap = snapshotRef.current;
+      if (!snap) throw new Error("v4 snapshot not ready");
+      return await getEvoflowV4Transport().fileChanges({
+        sessionId,
+        target,
+        baseRevision: snap.seq,
+        baseLogEpoch: snap.logEpoch,
+      });
+    },
+    [sessionId],
+  );
+
+  // 审批列表变化时强制相关工具行重绘（rowContext 本身保持稳定，靠 tick 推一次）
+  const approvalRenderKey = pendingApprovals.map((p) => p.toolCallId).join(",");
+
+  const rowContext = useMemo<ConversationRowRenderContext>(
+    () => ({
+      workspacePath: workspacePath ?? "",
+      theme: "system" as const,
+      codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
+      sessionId: sessionId || null,
+      onOpenCodeViewer,
+      fetchFileChanges: sessionId ? fetchFileChanges : undefined,
+      // 贴在对应 bash/工具卡下方，不用底部浮层
+      renderToolCallApproval,
+    }),
+    // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
+    // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
+    [sessionId, onOpenCodeViewer, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey],
+  );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。
   // 依赖 snapshot.seq + windowCount：流式每帧 seq 变就会落盘；sig 去重避免同内容刷盘。
@@ -132,25 +358,41 @@ export function V4ZCodeTimeline(props: {
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
       {/*
+        MessageFileLink / useFileContextActions 强依赖 PlatformProvider；
+        EvoFlow 无桌面 window.zcode，挂 stub，避免 markdown 整段降级为纯文本。
+      */}
+      <PlatformProvider platform={evoflowStubPlatform}>
+      <MarkdownTableVariantProvider value="evoflow">
+      {/*
         对齐 SessionPane 会话壳：
         - zcode-bridge-root：styles-bridge 的 token / 滚动条 / 焦点规则作用域
         - @container/conversation：正文限宽与左侧 turn navigator 的 container query
         - flex min-h-0 flex-1：把 messages-body 的高度约束传给 timeline 滚动层
         - bottomDock：输入区 sticky 在滚动视口底，与正文同轴
       */}
-      <div className="zcode-bridge-root @container/conversation relative flex h-full min-h-0 flex-1 flex-col">
+      <div
+        className="zcode-bridge-root @container/conversation relative flex h-full min-h-0 flex-1 flex-col"
+        data-v4-embedded={embedded ? "true" : undefined}
+      >
         <ServiceProvider services={partialServices}>
         <ConversationTimeline
           rows={rows}
           totalCount={snapshot?.rows.totalCount ?? 0}
-          sessionKey={sessionId || "draft"}
+          // 嵌入态用 evoflowSessionKey，避免 threadId 晚到时 sessionKey 从 draft→uuid 整树 remount
+          sessionKey={
+            embedded
+              ? String(evoflowSessionKey || sessionId || "draft")
+              : sessionId || "draft"
+          }
           rowContext={rowContext}
           canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
           loadingOlder={payload?.loadingOlder ?? false}
           onLoadOlder={payload?.onLoadOlder}
           bottomDock={bottomDock}
-          // 空草稿：问候与输入框同轴居中（对齐 ZCode SessionPane 草稿态）
-          centerEmptyStateWithDock={!connecting && rows.length === 0}
+          // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局
+          centerEmptyStateWithDock={
+            embedded ? false : !connecting && rows.length === 0
+          }
           emptyState={
             // connecting 阶段不渲染任何提示，避免闪「V4 连接中…」
             connecting ? null : (
@@ -162,6 +404,8 @@ export function V4ZCodeTimeline(props: {
         />
         </ServiceProvider>
       </div>
+      </MarkdownTableVariantProvider>
+      </PlatformProvider>
     </ZCodeIntlProvider>
   );
 }

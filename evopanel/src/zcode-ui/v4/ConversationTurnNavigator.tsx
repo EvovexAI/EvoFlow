@@ -139,6 +139,7 @@ function ConversationTurnNavigatorImpl({
       aria-label={intl.formatMessage({ id: "chat.turnNavigator.label" })}
       aria-busy={isHydratingDirectory}
       data-testid={TID_V4_TURN_NAVIGATOR}
+      data-v4-turn-navigator="true"
       data-item-count={items.length}
       data-rendered-item-count={virtualRows.length}
       className="pointer-events-none invisible absolute inset-y-0 left-0 z-10 w-12 -translate-x-2 opacity-0 transition-[opacity,transform,visibility] duration-150 ease-out motion-reduce:transition-none @min-[864px]/conversation:visible @min-[864px]/conversation:translate-x-0 @min-[864px]/conversation:opacity-100"

@@ -199,6 +199,14 @@ fn install_embed_zoom_watch(app: &AppHandle, controller: &ICoreWebView2Controlle
     }
 }
 
+pub fn has_stashed_core_webview2(label: &str) -> bool {
+    core_webview_store()
+        .lock()
+        .ok()
+        .map(|g| g.contains_key(label))
+        .unwrap_or(false)
+}
+
 pub fn capture_core_webview2(app: &AppHandle, window: &WebviewWindow, label: &str) {
     let (tx, rx) = std::sync::mpsc::sync_channel::<bool>(1);
     let win = window.clone();
@@ -246,6 +254,34 @@ pub fn capture_core_webview2(app: &AppHandle, window: &WebviewWindow, label: &st
         crate::commands::browser_cdp_server::log_line(&format!(
             "[browser-cdp] CoreWebView2 capture timed out label={label}"
         ));
+    }
+}
+
+/// After navigate / ensure：补 stash + 重注 guest poll（新文档会清掉旧 poller）。
+/// COM stash 失败时 guest poll 是 Runtime.evaluate 的兜底；截图仍走 CallDevToolsProtocolMethod。
+pub fn refresh_embed_cdp_handles(app: &AppHandle, window: &WebviewWindow, label: &str) {
+    let _ = window.show();
+    if !has_stashed_core_webview2(label) {
+        crate::commands::browser_cdp_server::log_line(&format!(
+            "[browser-cdp] refresh: stash miss label={label}; capturing CoreWebView2"
+        ));
+        capture_core_webview2(app, window, label);
+    }
+    if let Some(port) = crate::commands::browser_cdp_server::http_server_port_if_running() {
+        let guest_js =
+            crate::commands::browser_embed_bridge::embed_guest_init_script(port, label);
+        match window.eval(&guest_js) {
+            Ok(()) => crate::commands::browser_cdp_server::log_line(&format!(
+                "[browser-cdp] refresh: reinjected guest poller label={label} port={port}"
+            )),
+            Err(e) => crate::commands::browser_cdp_server::log_line(&format!(
+                "[browser-cdp] refresh: guest reinject failed label={label}: {e}"
+            )),
+        }
+    } else {
+        crate::commands::browser_cdp_server::log_line(
+            "[browser-cdp] refresh: HTTP bridge port unknown; skip guest reinject",
+        );
     }
 }
 
@@ -489,6 +525,18 @@ fn call_cdp_locked(
     // Generic CDP: same main-thread + PeekMessage pump as ExecuteScript.
     crate::commands::browser_cdp_server::log_line(&format!("[browser-cdp] about to call with_webview for {method} on {label}..."));
     let outcome = call_cdp_on_main_thread(app, &window, method, params_json);
+    let outcome = match outcome {
+        Err(e) if e.contains("timed out waiting for the webview UI thread") => {
+            // UI 线程偶发堵（对话区重绘/贴窗）：补 stash + 短等再试一次。
+            crate::commands::browser_cdp_server::log_line(&format!(
+                "[browser-cdp] {method} UI-thread timeout; refresh+retry once label={label}"
+            ));
+            refresh_embed_cdp_handles(app, &window, label);
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            call_cdp_on_main_thread(app, &window, method, params_json)
+        }
+        other => other,
+    };
     write_cdp_trace(&trace_path, label, method, &outcome);
     outcome
 }
@@ -614,6 +662,20 @@ fn native_navigate(
     if let Some(bridge) = app.try_state::<crate::commands::browser_embed_bridge::EmbedBridge>() {
         bridge.note_url(label, &href);
     }
+    // 导航后文档换新：旧 guest poller 已死；若此前 stash 失败也再试一次。
+    // 不阻塞导航返回——异步补采，避免把 Page.navigate 拖成 3s+。
+    {
+        let app_bg = app.clone();
+        let win_bg = window.clone();
+        let label_bg = label.to_string();
+        let _ = std::thread::Builder::new()
+            .name("embed-cdp-refresh".into())
+            .spawn(move || {
+                // 给 NavigationCompleted / 新文档 init script 一点时间
+                std::thread::sleep(std::time::Duration::from_millis(350));
+                refresh_embed_cdp_handles(&app_bg, &win_bg, &label_bg);
+            });
+    }
     // CDP-shaped success payload so Python's browser_engine stays unchanged.
     Ok(json!({ "frameId": "evopanel", "loaderId": "evopanel" }).to_string())
 }
@@ -688,9 +750,30 @@ fn native_evaluate(
         }
         Err(e) => {
             crate::commands::browser_cdp_server::log_line(&format!(
-                "[browser-cdp] HTTP guest poll miss ({e})"
+                "[browser-cdp] HTTP guest poll miss ({e}); refresh+retry once"
             ));
-            Err(e)
+            // 导航后 guest 未起来 / stash 丢了：补采后各试一次。
+            refresh_embed_cdp_handles(app, window, label);
+            if let Ok(value) = execute_script_on_stashed(app, label, expr) {
+                crate::commands::browser_cdp_server::log_line(
+                    "[browser-cdp] native_evaluate retry via stashed CoreWebView2 ok",
+                );
+                return Ok(cdp_evaluate_result(value));
+            }
+            match bridge.request_eval_http(label, expr) {
+                Ok(value) => {
+                    crate::commands::browser_cdp_server::log_line(
+                        "[browser-cdp] native_evaluate retry via HTTP guest poll ok",
+                    );
+                    Ok(cdp_evaluate_result(value))
+                }
+                Err(e2) => {
+                    crate::commands::browser_cdp_server::log_line(&format!(
+                        "[browser-cdp] HTTP guest poll retry miss ({e2})"
+                    ));
+                    Err(e2)
+                }
+            }
         }
     }
 }

@@ -22,8 +22,8 @@ export function isEvoflowChatV4Enabled(): boolean {
 /**
  * flag 开启时，这些 AG-UI 事件不再进老显示管线（streamRef / rt.rows / bump）——
  * 它们是逐 token 热路径（60fps × O(rows) 的来源），显示由 V4 帧管线接管。
- * TOOL_CALL_START/END/RESULT 与 RUN_* 保持放行：审批检测 / 工件 / plan / 协作
- * 等业务逻辑依赖它们，且频率是"每次工具调用"而非"每 token"。
+ * TOOL_CALL_START/END/RESULT 与 RUN_*、CUSTOM、平台事件保持放行：审批检测 /
+ * 工件 / plan / 协作 / 右侧面板配置等业务逻辑依赖它们。
  */
 const V4_GATED_AGUI_DISPLAY_TYPES: ReadonlySet<string> = new Set([
   "TEXT_MESSAGE_START",
@@ -32,14 +32,61 @@ const V4_GATED_AGUI_DISPLAY_TYPES: ReadonlySet<string> = new Set([
   "REASONING_MESSAGE_START",
   "REASONING_MESSAGE_CONTENT",
   "REASONING_MESSAGE_END",
-  "TOOL_CALL_ARGS",
 ]);
+
+/**
+ * 重型参数流工具（小写）：只有它们的 TOOL_CALL_ARGS 才闸——参数逐 token 流式，
+ * 是 60fps 热路径的主要来源之一。平台工具（panel_set/stage_set/platform 等）
+ * 的参数是右侧面板配置/交互载荷且量小，必须放行旧链路：
+ * TOOL_CALL_RESULT 分支从 aguiTurn 读 argsText 配置面板，闸掉会让右侧通知整块消失。
+ * 名单与 agui-turn-reducer 的 write-progress 一致并补 edit/patch 族。
+ */
+const V4_GATED_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "write",
+  "write_file",
+  "write_to_file",
+  "edit",
+  "edit_file",
+  "replace",
+  "str_replace",
+  "replace_in_file",
+  "multi_edit",
+  "apply_patch",
+]);
+
+const V4_TOOL_NAME_MEMORY_MAX = 512;
+const v4ToolNameById = new Map<string, string>();
 
 export function isV4GatedAgUiDisplayEvent(type: unknown): boolean {
   return V4_GATED_AGUI_DISPLAY_TYPES.has(String(type || ""));
 }
 
-export function isV4GatedAgUiEvent(event: { type?: unknown } | null | undefined): boolean {
+export function isV4GatedAgUiEvent(
+  event: { type?: unknown; toolCallId?: unknown; toolCallName?: unknown } | null | undefined,
+): boolean {
   if (!event) return false;
-  return isV4GatedAgUiDisplayEvent(event.type);
+  const type = String(event.type || "");
+
+  // TOOL_CALL_START 永远放行（旧链路登记 + 平台交互），顺手登记工具名供 ARGS 判定
+  //（ARG 事件本身不带工具名）。
+  if (type === "TOOL_CALL_START") {
+    const tcid = String(event.toolCallId || "").trim();
+    const name = String(event.toolCallName || "").trim();
+    if (tcid && name) {
+      v4ToolNameById.set(tcid, name);
+      if (v4ToolNameById.size > V4_TOOL_NAME_MEMORY_MAX) {
+        const oldest = v4ToolNameById.keys().next().value;
+        if (oldest !== undefined) v4ToolNameById.delete(oldest);
+      }
+    }
+    return false;
+  }
+
+  if (type === "TOOL_CALL_ARGS") {
+    const tcid = String(event.toolCallId || "").trim();
+    const name = (tcid ? v4ToolNameById.get(tcid) : "") || "";
+    return V4_GATED_WRITE_TOOL_NAMES.has(name.toLowerCase());
+  }
+
+  return V4_GATED_AGUI_DISPLAY_TYPES.has(type);
 }

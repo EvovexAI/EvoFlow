@@ -2534,6 +2534,33 @@ function renderComposer(st) {
     </footer>`
 }
 
+/** V4 对话挂着时避免整段替换 composer：只同步 draft / 发送·停止钮，减少布局抖动。 */
+function patchXiaomiComposerSendButton(composerSlot, st) {
+  const box = composerSlot?.querySelector?.('.xm-composer-box')
+  if (!box) {
+    composerSlot.innerHTML = renderComposer(st)
+    return
+  }
+  const ta = box.querySelector('[data-draft]')
+  if (ta instanceof HTMLTextAreaElement) {
+    const nextDraft = String(contactDraft(st) ?? '')
+    if (document.activeElement !== ta && ta.value !== nextDraft) {
+      ta.value = nextDraft
+    }
+  }
+  const wantStop = !!st.streaming
+  const btn = box.querySelector('[data-act="send"], [data-act="stop"]')
+  const isStop = btn?.getAttribute('data-act') === 'stop'
+  if (btn && wantStop === isStop) return
+  const iconSend = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>`
+  const iconStop = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`
+  const html = wantStop
+    ? `<button type="button" class="xm-composer-send is-stop" data-act="stop" title="停止" aria-label="停止">${iconStop}</button>`
+    : `<button type="button" class="xm-composer-send" data-act="send" title="发送" aria-label="发送">${iconSend}</button>`
+  if (btn) btn.outerHTML = html
+  else box.insertAdjacentHTML('beforeend', html)
+}
+
 function renderFabHtml(st) {
   const badge = Number(st.badgeCount || 0)
   const shortcut = formatShortcutDisplay(getShortcutBinding('toggleXiaomiAssistant'))
@@ -2795,48 +2822,53 @@ function render() {
       } else if (!keepXmReactThread) {
         bodySlot.innerHTML = renderBody(st)
       }
-      const ta = composerSlot.querySelector('[data-draft]')
-      const prevDraft = ta instanceof HTMLTextAreaElement ? ta.value : null
-      const prevSelStart = ta instanceof HTMLTextAreaElement ? ta.selectionStart : null
-      const prevSelEnd = ta instanceof HTMLTextAreaElement ? ta.selectionEnd : null
-      const focused = ta instanceof HTMLTextAreaElement && document.activeElement === ta
-      const draftUnchanged = String(prevDraft ?? '') === String(contactDraft(st) ?? '')
-      const mt = composerSlot.querySelector('[data-meeting-topic]')
-      const mtPrev = mt instanceof HTMLTextAreaElement ? mt.value : null
-      const mtFocused = mt instanceof HTMLTextAreaElement && document.activeElement === mt
-      const mtSelStart = mt instanceof HTMLTextAreaElement ? mt.selectionStart : null
-      const mtSelEnd = mt instanceof HTMLTextAreaElement ? mt.selectionEnd : null
-      composerSlot.innerHTML = renderComposer(st)
-      if (focused) {
-        const nextTa = composerSlot.querySelector('[data-draft]')
-        if (nextTa instanceof HTMLTextAreaElement) {
-          nextTa.focus()
-          if (draftUnchanged && prevSelStart != null && prevSelEnd != null) {
-            try {
-              nextTa.setSelectionRange(prevSelStart, prevSelEnd)
-            } catch {
-              /* ignore */
-            }
-          } else {
-            const n = nextTa.value.length
-            try {
-              nextTa.setSelectionRange(n, n)
-            } catch {
-              /* ignore */
+      // V4 对话挂着时，流式每帧整段替换 composer 会撑布局抖动；只原地切换发送/停止钮。
+      if (keepXmReactThread && contactNow === 'xiaomi') {
+        patchXiaomiComposerSendButton(composerSlot, st)
+      } else {
+        const ta = composerSlot.querySelector('[data-draft]')
+        const prevDraft = ta instanceof HTMLTextAreaElement ? ta.value : null
+        const prevSelStart = ta instanceof HTMLTextAreaElement ? ta.selectionStart : null
+        const prevSelEnd = ta instanceof HTMLTextAreaElement ? ta.selectionEnd : null
+        const focused = ta instanceof HTMLTextAreaElement && document.activeElement === ta
+        const draftUnchanged = String(prevDraft ?? '') === String(contactDraft(st) ?? '')
+        const mt = composerSlot.querySelector('[data-meeting-topic]')
+        const mtPrev = mt instanceof HTMLTextAreaElement ? mt.value : null
+        const mtFocused = mt instanceof HTMLTextAreaElement && document.activeElement === mt
+        const mtSelStart = mt instanceof HTMLTextAreaElement ? mt.selectionStart : null
+        const mtSelEnd = mt instanceof HTMLTextAreaElement ? mt.selectionEnd : null
+        composerSlot.innerHTML = renderComposer(st)
+        if (focused) {
+          const nextTa = composerSlot.querySelector('[data-draft]')
+          if (nextTa instanceof HTMLTextAreaElement) {
+            nextTa.focus()
+            if (draftUnchanged && prevSelStart != null && prevSelEnd != null) {
+              try {
+                nextTa.setSelectionRange(prevSelStart, prevSelEnd)
+              } catch {
+                /* ignore */
+              }
+            } else {
+              const n = nextTa.value.length
+              try {
+                nextTa.setSelectionRange(n, n)
+              } catch {
+                /* ignore */
+              }
             }
           }
         }
-      }
-      if (mtFocused) {
-        const nextMt = composerSlot.querySelector('[data-meeting-topic]')
-        if (nextMt instanceof HTMLTextAreaElement) {
-          nextMt.value = String(st.meetingTopic ?? mtPrev ?? '')
-          nextMt.focus()
-          if (mtSelStart != null && mtSelEnd != null) {
-            try {
-              nextMt.setSelectionRange(mtSelStart, mtSelEnd)
-            } catch {
-              /* ignore */
+        if (mtFocused) {
+          const nextMt = composerSlot.querySelector('[data-meeting-topic]')
+          if (nextMt instanceof HTMLTextAreaElement) {
+            nextMt.value = String(st.meetingTopic ?? mtPrev ?? '')
+            nextMt.focus()
+            if (mtSelStart != null && mtSelEnd != null) {
+              try {
+                nextMt.setSelectionRange(mtSelStart, mtSelEnd)
+              } catch {
+                /* ignore */
+              }
             }
           }
         }
@@ -2848,7 +2880,9 @@ function render() {
 
   const contact = resolveSelectedContact(st)
   const scroll = _root.querySelector('[data-chat-scroll]')
-  if (scroll && st.activeView === 'chat' && contact === 'xiaomi') {
+  // V4 时间线自管贴底；外层再强行 scrollTop=scrollHeight 会和内部滚动抢权，发消息时整栏抖。
+  const v4ThreadMounted = !!scroll?.querySelector?.('[data-xm-chat-panel="v4"]')
+  if (scroll && st.activeView === 'chat' && contact === 'xiaomi' && !v4ThreadMounted) {
     scroll.scrollTop = scroll.scrollHeight
   }
   const empScroll = _root.querySelector('[data-emp-scroll]')

@@ -1201,7 +1201,8 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     setModelOpen(false)
-                    setPluginPanelOpen(true)
+                    // 再点一次收起面板
+                    setPluginPanelOpen((prev) => !prev)
                   }}
                   title="更多功能（插件 / 技能 / 目标 / 员工…）"
                   aria-label="更多"
