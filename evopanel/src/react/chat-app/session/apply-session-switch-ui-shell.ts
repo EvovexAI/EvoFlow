@@ -18,10 +18,8 @@ import {
 } from '../../lib/session-mode.js'
 import { getSessionCollabModeFromMeta } from '../utils/session-meta.js'
 import { emptyThreadPanel } from '../thread-panel/state.js'
-import {
-  clearThreadPanelClarification,
-  findAskClarificationAwaitingUserInRows,
-} from '../thread-panel/clarification.js'
+import { clearThreadPanelClarification } from '../thread-panel/clarification.js'
+import { findAskClarificationAwaitingUserInRows } from '../../../lib/clarify-preview-resolve.js'
 import type { ContextFileEntry } from '../../components/WorkspaceFileTree.js'
 import type { DisplayRow, ThreadPanelState } from '../../chat-types.js'
 
