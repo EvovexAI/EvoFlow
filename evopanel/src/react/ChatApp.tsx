@@ -273,6 +273,7 @@ import { useChatLayoutResize } from './hooks/useChatLayoutResize.js'
 import { useComposerModelCatalog } from './hooks/useComposerModelCatalog.js'
 import { useSessionWorkspaceBind } from './hooks/useSessionWorkspaceBind.js'
 import { useProactiveRoles } from './hooks/useProactiveRoles.js'
+import { useContextUsageBySession } from './hooks/useContextUsageBySession.js'
 import { normalizeFileHrefForThread, normalizeRowFilesInPlace } from './chat-app/utils/file-href-normalize.js'
 import {
   formatAskClarificationForHosted,
@@ -2686,47 +2687,13 @@ export default function ChatApp() {
   )
   /** TitleMiddleware 自动标题：流式进行中延迟写入，且必须绑定 sessionKey（避免新建对话后标题写到错会话） */
   const pendingAutoSessionTitleRef = useRef<{ sessionKey: string; title: string } | null>(null)
-  const [contextUsageBySession, setContextUsageBySession] = useState<
-    Record<string, ContextUsageSnapshot>
-  >({})
-  const [manualContextCompacting, setManualContextCompacting] = useState(false)
-
-  const hydrateContextUsageFromSessions = useCallback((rows: ChatSessionRow[]) => {
-    if (!Array.isArray(rows) || rows.length === 0) return
-    setContextUsageBySession((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const row of rows) {
-        const sk = String(row.sessionKey || '').trim()
-        if (!sk) continue
-        const snap = parseContextUsageFromSessionContext(row.context)
-        if (!snap) continue
-        const merged = mergeContextUsageSnapshots(prev[sk], snap)
-        if (merged !== prev[sk]) {
-          next[sk] = merged
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [])
-
+  const {
+    contextUsageBySession,
+    setContextUsageBySession,
+    hydrateContextUsageFromSessions,
+  } = useContextUsageBySession({ selectedSessionKey, sessions })
   hydrateContextUsageFromSessionsRef.current = hydrateContextUsageFromSessions
-
-  useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    const row = sessions.find((s) => String(s.sessionKey || '').trim() === sk)
-    const snap = parseContextUsageFromSessionContext(row?.context)
-    if (!snap) return
-    queueMicrotask(() => {
-      setContextUsageBySession((prev) => {
-        const merged = mergeContextUsageSnapshots(prev[sk], snap)
-        if (merged === prev[sk]) return prev
-        return { ...prev, [sk]: merged }
-      })
-    })
-  }, [selectedSessionKey, sessions])
+  const [manualContextCompacting, setManualContextCompacting] = useState(false)
   const [agents, setAgents] = useState<AgentPickerRow[]>([])
   const [bottomModelOpen, setBottomModelOpen] = useState(false)
   const [bottomPermissionOpen, setBottomPermissionOpen] = useState(false)
