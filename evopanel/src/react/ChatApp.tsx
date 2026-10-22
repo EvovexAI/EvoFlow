@@ -413,6 +413,9 @@ import {
   shouldStayOnHomeDashboard,
   scrollHomeMessagesToTop,
 } from './chat-app/session/new-session-workspace.js'
+import { resetChatSurfaceForNewDraft as resetChatSurfaceForNewDraftImpl } from './chat-app/session/reset-chat-surface-for-new-draft.js'
+import { startNewSessionWithWorkspace as startNewSessionWithWorkspaceImpl } from './chat-app/session/start-new-session-with-workspace.js'
+import { togglePermissionMenu as togglePermissionMenuImpl } from './chat-app/session/toggle-permission-menu.js'
 // ============================================
 
 import type {
@@ -10012,27 +10015,20 @@ export default function ChatApp() {
 
   // 点击权限 pill：切换上拉菜单（与其他底部菜单互斥）
   function togglePermissionMenu(): void {
-    setBottomPermissionOpen((v) => {
-      const next = !v
-      if (next) {
-        // 打开时再拉一次全局默认，避免设置页改过而聊天菜单开关仍停在旧缓存
-        void fetchGlobalToolApprovalPolicy().catch(() => {})
-        if (selectedSessionKey) {
-          void fetchSessionToolApprovalPolicy(selectedSessionKey)
-            .then((result) => {
-              wsClient.applySessionToolApprovalPolicy(selectedSessionKey, result)
-              setToolApprovalPolicyTick((n) => n + 1)
-            })
-            .catch(() => {})
-        }
-      }
-      return next
+    togglePermissionMenuImpl({
+      selectedSessionKey,
+      setBottomPermissionOpen,
+      setModeMenuOpen,
+      setBottomModelOpen,
+      setBottomMoreOpen,
+      setBottomWorkspaceOpen,
+      setBottomRoleOpen,
+      setToolApprovalPolicyTick,
+      fetchGlobalToolApprovalPolicy,
+      fetchSessionToolApprovalPolicy,
+      applySessionToolApprovalPolicy: (sk, result) =>
+        wsClient.applySessionToolApprovalPolicy(sk, result),
     })
-    setModeMenuOpen(false)
-    setBottomModelOpen(false)
-    setBottomMoreOpen(false)
-    setBottomWorkspaceOpen(false)
-    setBottomRoleOpen(false)
   }
 
   /** 选择一个档位：调用已有的 applyMoreMenuSessionApprovalPolicy 并关闭菜单 */
@@ -10988,100 +10984,46 @@ export default function ChatApp() {
   }
 
   function resetChatSurfaceForNewDraft() {
-    streamRef.current = emptyStream()
-    streamRefKeyRef.current = ''
-    setLiveTurnAssistantRunId(null)
-    rowsRef.current = []
-    setRows([])
-    setTokenTotals(null)
-    setLiveTurnTokens(null)
-    setSubagentDockTasks({})
-    setThreadPanelState(clearThreadPanelActivity(emptyThreadPanel()))
-    resetCollabPlanUiForSession({ closeSidebar: true })
-    processedTaskIdRef.current = null
-    // 新建会话统一回落 Agent 模式，不继承上一个会话的模式
-    setSessionMode('agent')
-    scheduleBump({ immediate: true })
+    resetChatSurfaceForNewDraftImpl({
+      streamRef,
+      streamRefKeyRef,
+      rowsRef,
+      processedTaskIdRef,
+      setLiveTurnAssistantRunId,
+      setRows,
+      setTokenTotals,
+      setLiveTurnTokens,
+      setSubagentDockTasks,
+      setThreadPanelState,
+      setSessionMode,
+      resetCollabPlanUiForSession,
+      scheduleBump,
+    })
   }
 
   function startNewSessionWithWorkspace(workspacePath: string | null) {
-    pendingComposerDraftCarryRef.current = composerTextRef.current
-    const oldSk = String(selectedSessionKey || sessionRef.current || '').trim()
-    if (oldSk) {
-      const prevRt = getSessionRuntime(oldSk)
-      commitActiveSessionRuntime(oldSk, {
-        rows: rowsRef.current,
-        stream:
-          streamRef.current === prevRt.stream || String(sessionRef.current || '').trim() === oldSk
-            ? streamRef.current
-            : prevRt.stream,
-        seenRunIds: seenRunIdsRef.current,
-        activeChatRunId: activeChatRunIdRef.current,
-      })
-    }
-    pendingNewSessionRef.current = true
-    // flushSync：侧栏「+」/新建必须同帧切到空白草稿，否则下一帧前像没点上
-    sessionRef.current = ''
-    flushSync(() => {
-      setSelectedSessionKey('')
-      setNewChatButtonActive(true)
-      setSessionHadContent(false)
-      if (workspacePath) {
-        setLocalWorkspaceRoot(String(workspacePath).trim())
-      } else {
-        setLocalWorkspaceRoot('')
-      }
-    })
-    resetChatSurfaceForNewDraft()
-    // 已在空工作台时视觉变化小：聚焦输入框，避免「点了没反应」
-    queueMicrotask(() => {
-      try {
-        const el = document.querySelector(
-          '.evo-home-composer__input, .react-chat-composer-input, textarea.react-chat-input',
-        ) as HTMLTextAreaElement | HTMLInputElement | null
-        el?.focus?.()
-      } catch {
-        /* ignore */
-      }
-    })
-    ssLog('new.start', { oldSk: skTail(oldSk), workspace: workspacePath || '(default)' })
-    void coalesceCreateSession(() => createSessionForChat({ workspaceRoot: workspacePath }))
-      .then((key) => {
-        ssLog('new.complete', { key: skTail(key || ''), sessionRef: skTail(sessionRef.current) })
-        if (key) {
-          setSelectedSessionKey(key)
-          sessionRef.current = key
-          setNewChatButtonActive(false)
-          if (workspacePath) {
-            const ws = String(workspacePath).trim()
-            pendingNewSessionWorkspaceRef.current = { sessionKey: key, path: ws }
-            setLocalWorkspaceRoot(ws)
-            window.dispatchEvent(
-              new CustomEvent('evopanel:shell-expand-workspace', {
-                detail: { workspaceKey: normalizeWorkspacePathKey(ws) },
-              }),
-            )
-          } else {
-            pendingNewSessionWorkspaceRef.current = null
-            setLocalWorkspaceRoot('')
-          }
-        } else {
-          setSelectedSessionKey('')
-          sessionRef.current = ''
-          setNewChatButtonActive(true)
-          resetChatSurfaceForNewDraft()
-        }
-      })
-      .finally(() => {
-        // 延后清 pending：避免 create 刚写完 sessionRef、React 尚未同步 selectedSessionKeyRef
-        // 时，在途的列表刷新走 first-selectable 把选中抢回历史会话。
-        queueMicrotask(() => {
-          window.setTimeout(() => {
-            pendingNewSessionRef.current = false
-            ssLog('new.inflight-end', { sessionRef: skTail(sessionRef.current) })
-          }, 0)
-        })
-      })
+    startNewSessionWithWorkspaceImpl(
+      {
+        selectedSessionKey,
+        sessionRef,
+        rowsRef,
+        streamRef,
+        seenRunIdsRef,
+        activeChatRunIdRef,
+        composerTextRef,
+        pendingComposerDraftCarryRef,
+        pendingNewSessionRef,
+        pendingNewSessionWorkspaceRef,
+        setSelectedSessionKey,
+        setNewChatButtonActive,
+        setSessionHadContent,
+        setLocalWorkspaceRoot,
+        resetChatSurfaceForNewDraft,
+        coalesceCreateSession,
+        createSessionForChat,
+      },
+      workspacePath,
+    )
   }
 
   startNewSessionWithWorkspaceRef.current = startNewSessionWithWorkspace
