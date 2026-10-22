@@ -356,6 +356,10 @@ import { handleDispatchEmployee as handleDispatchEmployeeImpl } from './chat-app
 import { syncRemoteStageSet as syncRemoteStageSetImpl } from './chat-app/right-stage/sync-remote-stage-set.js'
 import { handleEnhancePrompt as handleEnhancePromptImpl } from './chat-app/composer/handle-enhance-prompt.js'
 import { handleManualContextCompact as handleManualContextCompactImpl } from './chat-app/context/handle-manual-context-compact.js'
+import { closeRightStage as closeRightStageImpl } from './chat-app/right-stage/close-right-stage.js'
+import { closeRightStageTabByKey as closeRightStageTabByKeyImpl } from './chat-app/right-stage/close-right-stage-tab.js'
+import { forkSessionByKey as forkSessionByKeyImpl } from './chat-app/session/fork-session.js'
+import { resolveLangGraphThreadIdForSession as resolveLangGraphThreadIdForSessionImpl } from './chat-app/session/resolve-langgraph-thread-id.js'
 // ============================================
 
 import type {
@@ -1911,47 +1915,18 @@ export default function ChatApp() {
   )
 
   const closeRightStage = useCallback(() => {
-    const kind = normalizeRightStageKind(rightStageStore.getSnapshot().surface?.kind || '')
-    if (kind) dismissedRightStageKindsRef.current.add(kind)
-    if (kind === 'workspace-browse' || kind === 'write') {
-      closeWorkspacePanel()
-      return
-    }
-    if (kind === 'mind-map') {
-      closeKnowledgeMapPanel()
-      return
-    }
-    if (kind === 'collab-workflow') {
-      closeCollabExecPanel()
-      return
-    }
-    if (kind === 'write') {
-      writeStreamDismissedRef.current = true
-      lastWriteStreamLenRef.current = 0
-      clearRightStageStream('write_file')
-    }
-    if (kind === 'artifacts') {
-      hideRightStageIfKind('artifacts')
-      rightStageUserPinnedRef.current = null
-      if (!isChatOverlayDeferActive()) {
-        scheduleBumpRef.current?.({ immediate: true })
-      }
-      return
-    }
-    if (isUserStageExtensionKind(kind)) {
-      rightStageUserPinnedRef.current = null
-      hideRightStageIfKind(kind)
-      syncShellAsideForWorkspacePanel(false)
-      if (!isChatOverlayDeferActive()) {
-        scheduleBumpRef.current?.({ immediate: true })
-      }
-      return
-    }
-    rightStageUserPinnedRef.current = null
-    rightStageStore.hide()
-    if (!isChatOverlayDeferActive()) {
-      scheduleBumpRef.current?.({ immediate: true })
-    }
+    closeRightStageImpl({
+      dismissedRightStageKindsRef,
+      rightStageUserPinnedRef,
+      writeStreamDismissedRef,
+      lastWriteStreamLenRef,
+      scheduleBumpRef,
+      closeWorkspacePanel,
+      closeKnowledgeMapPanel,
+      closeCollabExecPanel,
+      clearRightStageStream,
+      syncShellAsideForWorkspacePanel,
+    })
   }, [
     closeWorkspacePanel,
     closeKnowledgeMapPanel,
@@ -3729,19 +3704,14 @@ export default function ChatApp() {
   runShellSessionRefreshRef.current = runShellSessionRefresh
 
   async function resolveLangGraphThreadIdForSession(sessionKey: string): Promise<string> {
-    const sk = String(sessionKey || '').trim()
-    if (!sk) return ''
-    const rowHintRaw = String(
-      sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)?.threadId || '',
-    ).trim()
-    const rowHint =
-      resolveLanggraphLeadThreadId(rowHintRaw) ||
-      (rowHintRaw && !rowHintRaw.startsWith('agent:') ? rowHintRaw : '')
-    const fromMap = wsClient.getSessionThreadId(sk)
-    const resolved = await wsClient.resolveSessionThreadId(sk, {
-      hintThreadId: rowHint || rowHintRaw || fromMap || undefined,
-    })
-    return String(resolved || '').trim()
+    return resolveLangGraphThreadIdForSessionImpl(
+      {
+        sessionsRef,
+        getSessionThreadId: (sk) => wsClient.getSessionThreadId(sk),
+        resolveSessionThreadId: (sk, opts) => wsClient.resolveSessionThreadId(sk, opts),
+      },
+      sessionKey,
+    )
   }
 
   /** REST authorize-execution：写 execution_authorized 并自动派发首波；失败时仍返回 false。 */
@@ -10185,35 +10155,21 @@ export default function ChatApp() {
   /** 标签 ×：按 kind 走既有清理，再 closeTab；不能只删列表项丢掉 write/dismiss 状态。 */
   const handleCloseRightStageTab = useCallback(
     (key: string) => {
-      const tab = rightStageStore.getSnapshot().tabs.find((t) => `${normalizeRightStageKind(t.kind)}:${t.id}` === key)
-      const kind = normalizeRightStageKind(tab?.kind || key.split(':')[0] || '')
-      if (kind) dismissedRightStageKindsRef.current.add(kind)
-      if (kind === 'workspace-browse' || kind === 'write') {
-        closeWorkspacePanel()
-        return
-      }
-      if (kind === 'collab-workflow') {
-        closeCollabExecPanel()
-        return
-      }
-      if (kind === 'mind-map') {
-        closeKnowledgeMapPanel()
-        return
-      }
-      if (kind === 'browser') {
-        closeBrowserStage(tab?.id || 'primary')
-        return
-      }
-      if (kind === 'summary') {
-        userClosedInfoRailRef.current = true
-        setInfoRailOpen(false)
-        closeSummaryStage()
-        return
-      }
-      closeRightStageTab(key)
-      if (rightStageUserPinnedRef.current === kind) {
-        rightStageUserPinnedRef.current = null
-      }
+      closeRightStageTabByKeyImpl(
+        {
+          dismissedRightStageKindsRef,
+          rightStageUserPinnedRef,
+          userClosedInfoRailRef,
+          closeWorkspacePanel,
+          closeCollabExecPanel,
+          closeKnowledgeMapPanel,
+          closeBrowserStage,
+          closeSummaryStage,
+          closeRightStageTab,
+          setInfoRailOpen,
+        },
+        key,
+      )
     },
     [
       closeWorkspacePanel,
@@ -12100,35 +12056,36 @@ export default function ChatApp() {
     const key = String(k || '').trim()
     if (!key) return
     setMoreMenuKey(null)
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      const data = await api.chatSessionsFork(key)
-      const newKey = String(data?.sessionKey || data?.session?.sessionKey || '').trim()
-      if (!newKey) throw new Error('分叉失败：未返回新会话')
-      await refreshSessionsRef.current?.({ skipAutoReselect: true })
-      selectSessionFromShellRef.current(newKey)
-      toast('已分叉会话', 'success')
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e || '分叉失败'), 'error')
-    }
+    await forkSessionByKeyImpl(
+      {
+        refreshSessions: async (opts) => {
+          await refreshSessionsRef.current?.(opts)
+        },
+        selectSession: (sessionKey) => selectSessionFromShellRef.current(sessionKey),
+      },
+      key,
+    )
   }, [setMoreMenuKey])
+
 
   const handleForkFromMessage = useCallback(async (messageId?: string) => {
     const key = String(selectedSessionKey || '').trim()
     if (!key) return
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      const mid = String(messageId || '').trim()
-      const data = await api.chatSessionsFork(key, mid ? { throughMessageId: mid } : {})
-      const newKey = String(data?.sessionKey || data?.session?.sessionKey || '').trim()
-      if (!newKey) throw new Error('分叉失败：未返回新会话')
-      await refreshSessionsRef.current?.({ skipAutoReselect: true })
-      selectSessionFromShellRef.current(newKey)
-      toast('已从此处分叉会话', 'success')
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e || '分叉失败'), 'error')
-    }
+    await forkSessionByKeyImpl(
+      {
+        refreshSessions: async (opts) => {
+          await refreshSessionsRef.current?.(opts)
+        },
+        selectSession: (sessionKey) => selectSessionFromShellRef.current(sessionKey),
+      },
+      key,
+      {
+        throughMessageId: messageId,
+        successToast: '已从此处分叉会话',
+      },
+    )
   }, [selectedSessionKey])
+
 
   handleEditMessageRef.current = async (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => {
     const draft = String(text || '').trim()
