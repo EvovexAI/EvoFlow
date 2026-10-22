@@ -98,8 +98,6 @@ import {
   normalizeWorkspacePathKey,
   parseProactiveSessionKey,
   proactiveAgentCodeFromSessionKey,
-  resolveShellGroupWorkspacePath,
-  WORKSPACE_GROUP_UNBOUND,
 } from './lib/session-list/workspace-groups.js'
 import { useCollabSubtasksFromApi } from './hooks/useCollabSubtasksFromApi.js'
 import { skTail, ssLog } from '../lib/session-list-debug.js'
@@ -274,6 +272,7 @@ import { useComposerSkillPluginSelection } from './hooks/useComposerSkillPluginS
 import { useChatLayoutResize } from './hooks/useChatLayoutResize.js'
 import { useComposerModelCatalog } from './hooks/useComposerModelCatalog.js'
 import { useSessionWorkspaceBind } from './hooks/useSessionWorkspaceBind.js'
+import { useProactiveRoles } from './hooks/useProactiveRoles.js'
 import { normalizeFileHrefForThread, normalizeRowFilesInPlace } from './chat-app/utils/file-href-normalize.js'
 import {
   formatAskClarificationForHosted,
@@ -2945,76 +2944,7 @@ export default function ChatApp() {
   )
 
   /** 智能体员工列表（active），供 @员工 派发与输入框岗位按钮 / 侧栏员工下拉使用 */
-  const [proactiveRoles, setProactiveRoles] = useState<MentionEmployeeOption[]>([])
-  const loadProactiveRoles = useCallback(async () => {
-    try {
-      const { api, isGatewayWarming, waitForBackendReady } = await import('../lib/tauri-api.js')
-      if (typeof isGatewayWarming === 'function' && isGatewayWarming()) {
-        await waitForBackendReady?.(90_000).catch(() => {})
-      }
-      const res = await api.proactiveListRoles('active')
-      // 兼容 { roles: [] } 与偶发裸数组
-      const raw = Array.isArray(res)
-        ? res
-        : Array.isArray(res?.roles)
-          ? res.roles
-          : []
-      const roles = raw
-        .map((r: any) => ({
-          agent_code: String(r.agent_code || '').trim(),
-          // 岗位名保持 API 原样（库里已有「代码助手」「产品经理」等）
-          role_name: String(r.role_name || '').trim(),
-          agent_name: String(r.agent_name || '').trim(),
-          department: String(r.department || ''),
-          status: String(r.status || 'active'),
-        }))
-        .filter((r: MentionEmployeeOption) => r.agent_code)
-      setProactiveRoles(roles)
-    } catch {
-      /* proactive 未启用 / 网关未就绪时静默；后端就绪后再拉 */
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadProactiveRoles()
-  }, [loadProactiveRoles])
-
-  // platform employees.hire/create 等写操作 → employees-updated（见 employees-roster-sync）
-  useEffect(() => {
-    const onEmployeesUpdated = () => {
-      void loadProactiveRoles()
-    }
-    window.addEventListener('evopanel:employees-updated', onEmployeesUpdated)
-    return () => window.removeEventListener('evopanel:employees-updated', onEmployeesUpdated)
-  }, [loadProactiveRoles])
-
-// 启动时若第一次失败，后端就绪后补拉，避免侧栏员工下拉塌成英文 agent_code
-// (展示名解析统一走 evopanel/src/react/lib/employee-display.ts)
-useEffect(() => {
-    let cancelled = false
-    let unsub: (() => void) | undefined
-    void import('../lib/tauri-api.js').then((mod) => {
-      if (cancelled) return
-      if (typeof mod.onBackendReadyChange === 'function') {
-        unsub = mod.onBackendReadyChange((ready: boolean) => {
-          if (ready) void loadProactiveRoles()
-        })
-      }
-      try {
-        if (mod.isBackendReady?.() === true) void loadProactiveRoles()
-      } catch {
-        /* ignore */
-      }
-    })
-    return () => {
-      cancelled = true
-      try {
-        unsub?.()
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [loadProactiveRoles])
+  const { proactiveRoles, loadProactiveRoles } = useProactiveRoles()
 
   /** 把岗位名替换为智能体名（agent_name），让菜单/派发提示显示智能体本身的名字。 */
   const proactiveRolesDisplay = useMemo<MentionEmployeeOption[]>(() => {
