@@ -249,7 +249,6 @@ import {
 } from '../lib/service-health.js'
 import { isDebugOn } from '../lib/debug-flag.js'
 import { t as i18nT } from '../lib/i18n.js'
-import { loadSkillCatalog, subscribeSkillCatalog } from '../lib/skill-catalog.js'
 import { notifyDesktopCompletion } from '../lib/desktop-notification.js'
 import {
   registerVoiceSendHandler,
@@ -630,7 +629,6 @@ import {
   findFirstAssistantAfterRealUser,
   collapseToolApprovalContinuationRows,
   recentTranscriptForPromptEnhance,
-  type SkillPickerRow,
 } from './chat-app/utils/transcript-rows.js'
 import {
   emptyThreadPanel,
@@ -3145,9 +3143,7 @@ useEffect(() => {
     bottomSkillOpen,
     setBottomSkillOpen,
     skillList,
-    setSkillList,
     skillListLoading,
-    setSkillListLoading,
     selectedSkills,
     setSelectedSkills,
     persistSelectedSkills,
@@ -3158,9 +3154,7 @@ useEffect(() => {
     pluginPanelStyle,
     setPluginPanelStyle,
     pluginList,
-    setPluginList,
     pluginListLoading,
-    setPluginListLoading,
     selectedPlugins,
     setSelectedPlugins,
     pluginComposerPillsVisible,
@@ -3168,7 +3162,6 @@ useEffect(() => {
     persistSelectedPlugins,
     removeSelectedPlugin,
     addSelectedPlugin,
-    refreshPluginCatalog,
   } = useComposerSkillPluginSelection({ selectedSessionKey })
 
   const workspaceMention = useMemo((): WorkspaceMentionConfig | undefined => {
@@ -5234,165 +5227,6 @@ useEffect(() => {
       document.removeEventListener('keydown', onKey)
     }
   }, [modeMenuOpen, bottomModelOpen, bottomPermissionOpen, bottomMoreOpen, bottomWorkspaceOpen])
-
-  /** 全局技能目录（与技能管理页共用缓存，进入聊天时预拉取） */
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => setSkillListLoading(true))
-    const unsub = subscribeSkillCatalog((rows: SkillPickerRow[]) => {
-      if (cancelled) return
-      setSkillList(rows.filter((s: SkillPickerRow) => s.enabled !== false))
-      setSkillListLoading(false)
-    })
-    void loadSkillCatalog({ enabledOnly: true }).catch((e) => {
-      if (cancelled) return
-      toast(`技能列表加载失败：${(e as Error)?.message || e}`, 'error')
-      setSkillListLoading(false)
-    })
-    return () => {
-      cancelled = true
-      unsub()
-    }
-  }, [])
-
-  /** 会话级粘性技能：切换会话时从 context 恢复，与发送时 preferred_skills 一致 */
-  useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) {
-      setSelectedSkills([])
-      return
-    }
-    const ctx = wsClient.getSessionContext(sk) as {
-      preferred_skills?: unknown
-      preferred_skill?: unknown
-    }
-    let names: string[] = []
-    if (Array.isArray(ctx?.preferred_skills)) {
-      names = ctx.preferred_skills.map((s) => String(s || '').trim()).filter(Boolean)
-    } else {
-      const one = String(ctx?.preferred_skill || '').trim()
-      if (one) names = [one]
-    }
-    if (!names.length) {
-      setSelectedSkills([])
-      return
-    }
-    setSelectedSkills(
-      names.map((name) => {
-        const hit = skillList.find((s) => s.name === name)
-        return hit
-          ? { name: hit.name, label: hit.label || hit.name, icon: hit.icon || '🧩' }
-          : { name, label: name, icon: '🧩' }
-      }),
-    )
-  }, [selectedSessionKey, skillList])
-
-  useEffect(() => {
-    if (!bottomSkillOpen) return
-    // 技能弹窗（SkillPickerModal）自带搜索框聚焦与 Esc/遮罩关闭，此处仅作状态同步
-  }, [bottomSkillOpen])
-
-  /** 会话级粘性插件：切换会话时从 context 恢复，与发送时 preferred_plugins 一致；恢复不展示 pills */
-  const pluginPillsSessionRef = useRef<string | null>(null)
-  useEffect(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    if (pluginPillsSessionRef.current !== sk) {
-      pluginPillsSessionRef.current = sk
-      setPluginComposerPillsVisible(false)
-    }
-    if (!sk) {
-      setSelectedPlugins([])
-      return
-    }
-    const ctx = wsClient.getSessionContext(sk) as { preferred_plugins?: unknown }
-    if (!Array.isArray(ctx?.preferred_plugins)) {
-      setSelectedPlugins([])
-      return
-    }
-    const ids = ctx.preferred_plugins.map((s) => String(s || '').trim()).filter(Boolean)
-    setSelectedPlugins((prev) =>
-      ids.map((id) => {
-        const cached = prev.find((p) => p.id === id && p.iconUrl)
-        if (cached) return cached
-        const hit = pluginList.find((p) => p.id === id)
-        return {
-          id,
-          label: hit?.label || hit?.name || id.split('@')[0] || id,
-          iconUrl: hit?.iconUrl,
-        }
-      }),
-    )
-  }, [selectedSessionKey, pluginList])
-
-  /** 给已有的 selectedPlugins 反查 iconUrl(pluginList 异步到达后补齐) */
-  useEffect(() => {
-    if (pluginList.length === 0) return
-    setSelectedPlugins((prev) => {
-      let dirty = false
-      const next = prev.map((p) => {
-        if (p.iconUrl) return p
-        const hit = pluginList.find((row) => row.id === p.id)
-        if (!hit?.iconUrl) return p
-        dirty = true
-        return { ...p, iconUrl: hit.iconUrl, label: p.label || hit.label || hit.name }
-      })
-      return dirty ? next : prev
-    })
-  }, [pluginList])
-
-  /** 进入对话即订阅/预加载插件目录（与技能目录同模式；点「+」不再现拉）。 */
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => setPluginListLoading(true))
-    let unsub = () => {}
-    type PluginCatalogRow = {
-      id: string
-      name: string
-      label: string
-      description: string
-      version?: string
-      marketplace: string
-      componentTypes?: string[]
-      iconUrl?: string
-      enabled: boolean
-    }
-    const toPickerItems = (rows: PluginCatalogRow[]) =>
-      rows
-        .filter((p) => p.enabled !== false)
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          label: p.label,
-          description: p.description || '',
-          version: p.version,
-          marketplace: p.marketplace,
-          componentTypes: p.componentTypes,
-          iconUrl: p.iconUrl,
-        }))
-    void import('../lib/plugin-catalog.js').then((mod) => {
-      if (cancelled) return
-      unsub = mod.subscribePluginCatalog((rows: PluginCatalogRow[]) => {
-        if (cancelled) return
-        setPluginList(toPickerItems(rows))
-        setPluginListLoading(false)
-      })
-      void mod.loadPluginCatalog({ enabledOnly: true }).catch(() => {
-        if (cancelled) return
-        setPluginList([])
-        setPluginListLoading(false)
-      })
-    })
-    return () => {
-      cancelled = true
-      unsub()
-    }
-  }, [])
-
-  /** 粘性 selectedPlugins 只有 id 时，目录尚未到达则强制拉一次补齐 iconUrl。 */
-  useEffect(() => {
-    if (selectedPlugins.length === 0 || pluginList.length > 0 || pluginListLoading) return
-    void refreshPluginCatalog()
-  }, [selectedPlugins.length, pluginList.length, pluginListLoading, refreshPluginCatalog])
 
   const onGoalClosureReport = useCallback((p: { sessionKey: string; outcome: string; body: string; ts?: number }) => {
     const sk = String(p.sessionKey || '').trim()
