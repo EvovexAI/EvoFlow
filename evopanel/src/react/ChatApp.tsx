@@ -493,6 +493,11 @@ import {
   runBottomMorePortalLayoutEffect,
   runPluginPanelPortalLayoutEffect,
 } from './chat-app/composer/install-bottom-portal-layouts.js'
+import {
+  handleNewSessionInWorkspace as handleNewSessionInWorkspaceImpl,
+  handleOpenHome as handleOpenHomeImpl,
+  pruneDeletedSessionCaches,
+} from './chat-app/session/new-session-actions.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -5842,25 +5847,27 @@ export default function ChatApp() {
 
   /** 回到工作台：已在空会话仪表盘则不重复建会话；否则新开空会话以展示首页 */
   function handleOpenHome() {
-    if (
-      shouldStayOnHomeDashboard({
-        historyLoading,
-        historyError,
-        sessionHadContent,
-        rowsRef,
-        selectedTurnBusy,
-      })
-    ) {
-      scrollHomeMessagesToTop()
-      return
-    }
-    startNewSessionWithWorkspace(resolveWorkspaceForNewSession())
+    handleOpenHomeImpl({
+      shouldStayOnHomeDashboard,
+      historyLoading,
+      historyError,
+      sessionHadContent,
+      rowsRef,
+      selectedTurnBusy,
+      scrollHomeMessagesToTop,
+      startNewSessionWithWorkspace,
+      resolveWorkspaceForNewSession,
+    })
   }
 
   function handleNewSessionInWorkspace(workspacePath: string | null) {
-    const ws = String(workspacePath || '').trim()
-    shellIntentWorkspaceRef.current = ws || null
-    startNewSessionWithWorkspace(ws || null)
+    handleNewSessionInWorkspaceImpl(
+      {
+        shellIntentWorkspaceRef,
+        startNewSessionWithWorkspace,
+      },
+      workspacePath,
+    )
   }
 
   const onShellWorkspaceFocus = useCallback((workspacePath: string | null) => {
@@ -5927,19 +5934,14 @@ export default function ChatApp() {
 
   /** 侧栏会话列表变化时释放已删除会话的 runtime / live-stream，避免长期泄漏 */
   useEffect(() => {
-    const keep = new Set<string>()
-    for (const s of sessions) {
-      const sk = String(s?.sessionKey || '').trim()
-      if (sk) keep.add(sk)
-    }
-    const active = String(selectedSessionKey || sessionRef.current || '').trim()
-    if (active) keep.add(active)
-    pruneSessionRuntimes(keep)
-    // 等价旧 pruneLiveStreams：用 stream-snapshot-store 的 prune 接口
-    pruneStreamSnapshots(keep)
-    for (const sk of [...seenArtifactsRef.current.keys()]) {
-      if (!keep.has(sk)) seenArtifactsRef.current.delete(sk)
-    }
+    pruneDeletedSessionCaches({
+      sessions,
+      selectedSessionKey,
+      sessionRef,
+      pruneSessionRuntimes,
+      pruneStreamSnapshots,
+      seenArtifactsRef,
+    })
   }, [sessions, selectedSessionKey])
 
   const onShellPinSession = useCallback((key: string, pinned: boolean) => {
