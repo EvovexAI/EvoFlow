@@ -10339,7 +10339,6 @@ export default function ChatApp() {
   })
 
   async function stopSessionExecution(sessionKey: string, opts?: { showToast?: boolean }) {
-  async function stopSessionExecution(sessionKey: string, opts?: { showToast?: boolean }) {
     voiceReplyPendingRef.current = false
     voiceSessionKeyRef.current = ''
     voiceStreamingStartedRef.current = false
