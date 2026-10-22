@@ -400,6 +400,8 @@ import {
   onShellRefreshSessionList as onShellRefreshSessionListImpl,
   onShellStopSession as onShellStopSessionImpl,
 } from './chat-app/shell/shell-session-actions.js'
+import { selectSessionFromShell as selectSessionFromShellImpl } from './chat-app/shell/select-session-from-shell.js'
+import { handleEditMessage as handleEditMessageImpl } from './chat-app/composer/handle-edit-message.js'
 // ============================================
 
 import type {
@@ -11482,24 +11484,17 @@ export default function ChatApp() {
   const selectSessionFromShellRef = useRef<(sessionKey: string) => void>(() => {})
   const selectSessionFromShell = useCallback(
     (sessionKey: string) => {
-      const k = String(sessionKey || '').trim()
-      if (!k) return
-      ssLog('shell.select', { key: skTail(k), from: skTail(sessionRef.current) })
-      setShellSelectRevision((r) => r + 1)
-      try {
-        sessionStorage.removeItem('evopanel_pending_shell_session')
-      } catch {
-        /* ignore */
-      }
-      sessionRef.current = k
-      flushSync(() => {
-        setNewChatButtonActive(false)
-        setMoreMenuKey(null)
-        setSelectedSessionKey(k)
-        if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
-          setMobileChatPane('thread')
-        }
-      })
+      selectSessionFromShellImpl(
+        {
+          sessionRef,
+          setShellSelectRevision,
+          setNewChatButtonActive,
+          setMoreMenuKey,
+          setSelectedSessionKey,
+          setMobileChatPane,
+        },
+        sessionKey,
+      )
     },
     [setNewChatButtonActive, setSelectedSessionKey, setMoreMenuKey],
   )
@@ -11541,64 +11536,20 @@ export default function ChatApp() {
 
 
   handleEditMessageRef.current = async (text: string, messageId?: string, images?: Array<{ mediaType: string; data?: string; url?: string }>) => {
-    const draft = String(text || '').trim()
-    const mid = String(messageId || '').trim()
-    const key = String(selectedSessionKey || sessionRef.current || '').trim()
-    if (!draft) return
-    if (!key) {
-      toast('当前没有选中会话', 'error')
-      throw new Error('no session')
-    }
-
-    // 无 messageId：无法安全截断（历史行缺 id 时刷新后再试）
-    if (!mid) {
-      toast('无法定位该消息，请刷新会话后再编辑', 'error')
-      throw new Error('missing messageId')
-    }
-
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      await api.chatSessionsTruncate(key, { fromMessageId: mid })
-
-      // 同一会话内截掉该条及之后的 UI 行
-      const prev = rowsRef.current || []
-      let cutIdx = prev.findIndex((r) => String(r.messageId || '').trim() === mid)
-      if (cutIdx < 0) {
-        // 兜底：按正文匹配最近一条 user（编辑后文案可能已变，尽量用原 id）
-        for (let i = prev.length - 1; i >= 0; i--) {
-          if (prev[i]?.role !== 'user') continue
-          if (String(prev[i]?.text || '').trim() === draft) {
-            cutIdx = i
-            break
-          }
-        }
-      }
-      if (cutIdx >= 0) {
-        const next = prev.slice(0, cutIdx)
-        rowsRef.current = next
-        setRows(next)
-        try {
-          const rt = getSessionRuntime(key)
-          commitActiveSessionRuntime(key, {
-            rows: next,
-            stream: rt.stream,
-            seenRunIds: seenRunIdsRef.current,
-            activeChatRunId: activeChatRunIdRef.current,
-          })
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // 用编辑后的正文重新发送（不塞底部输入框）；带留存/新加的图片
-      const attachments = (images || [])
-        .filter((img) => img.data)
-        .map((img) => ({ mimeType: img.mediaType || 'image/png', content: img.data! }))
-      await handleSendRef.current?.(draft, attachments)
-    } catch (e) {
-      toast(toUserFacingError((e as Error)?.message || e || '编辑失败'), 'error')
-      throw e
-    }
+    await handleEditMessageImpl(
+      {
+        selectedSessionKey,
+        sessionRef,
+        rowsRef,
+        seenRunIdsRef,
+        activeChatRunIdRef,
+        setRows,
+        handleSend: (draft, attachments) => handleSendRef.current?.(draft, attachments),
+      },
+      text,
+      messageId,
+      images,
+    )
   }
 
   const prefetchSessionHistoryFromShell = useCallback(
