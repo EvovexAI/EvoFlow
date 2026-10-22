@@ -523,6 +523,24 @@ import {
   resolveCollabExecPanelCanShow as resolveCollabExecPanelCanShowImpl,
 } from './chat-app/collab/resolve-collab-sidebar-derived.js'
 import { bumpStreamChromeThrottled as bumpStreamChromeThrottledImpl } from './chat-app/stream/bump-stream-chrome-throttled.js'
+import {
+  putLiveRunSnapshotBestEffort as putLiveRunSnapshotBestEffortImpl,
+  deleteLiveRunSnapshotBestEffort as deleteLiveRunSnapshotBestEffortImpl,
+} from './chat-app/session/live-run-snapshot-persist.js'
+import { buildHistoryLiveContext } from './chat-app/session/build-history-live-context.js'
+import {
+  resolveGoalExecutionTiming,
+  resolveCollabExecutionTiming,
+} from './chat-app/stream/resolve-execution-tool-timing.js'
+import { cancelPendingStreamUiBumps as cancelPendingStreamUiBumpsImpl } from './chat-app/stream/cancel-pending-stream-ui-bumps.js'
+import { resolveToolApprovalUiDisabled } from './chat-app/session/resolve-tool-approval-ui-disabled.js'
+import {
+  isPlanExecDockSuppressed as isPlanExecDockSuppressedImpl,
+  suppressPlanExecDock as suppressPlanExecDockImpl,
+} from './chat-app/plan-dock/plan-exec-dock-suppress.js'
+import { setChatPanelDisplayMode as setChatPanelDisplayModeImpl } from './chat-app/right-stage/set-chat-panel-display-mode.js'
+import { runCloseLeftoverSummaryStageEffect } from './chat-app/right-stage/run-close-leftover-summary-stage.js'
+import { runInfoRailOnSessionChangeEffect } from './chat-app/shell/run-info-rail-on-session-change.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -1048,58 +1066,45 @@ export default function ChatApp() {
 
   const putLiveRunSnapshotBestEffort = useCallback(
     (sessionKey: string, snapshot: { runId: string; threadId: string | null; status: string; partialText: string; partialTools: unknown[]; partialDisplaySegments?: MessageSegment[]; lastEventAtMs: number }) => {
-      const sk = String(sessionKey || '').trim()
-      const runId = String(snapshot.runId || '').trim()
-      if (!sk || !runId) return
-      // @ts-expect-error partialDisplaySegments may be undefined at runtime
-      liveRunPersistPendingRef.current[sk] = snapshot
-      const prevTimer = liveRunPersistTimerRef.current[sk]
-      if (prevTimer) clearTimeout(prevTimer)
-      liveRunPersistTimerRef.current[sk] = setTimeout(() => {
-        const latest = liveRunPersistPendingRef.current[sk]
-        liveRunPersistTimerRef.current[sk] = null
-        if (!latest) return
-        void gatewayApiFetch(`/chat/sessions/${encodeURIComponent(sk)}/live-run`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(latest),
-        }).catch(() => {})
-      }, 2000)
+      putLiveRunSnapshotBestEffortImpl(
+        {
+          liveRunPersistPendingRef,
+          liveRunPersistTimerRef,
+          gatewayApiFetch,
+        },
+        sessionKey,
+        snapshot,
+      )
     },
     [gatewayApiFetch],
   )
 
   const deleteLiveRunSnapshotBestEffort = useCallback(
     (sessionKey: string) => {
-      const sk = String(sessionKey || '').trim()
-      if (!sk) return
-      const prevTimer = liveRunPersistTimerRef.current[sk]
-      if (prevTimer) clearTimeout(prevTimer)
-      liveRunPersistTimerRef.current[sk] = null
-      liveRunPersistPendingRef.current[sk] = null
-      void gatewayApiFetch(`/chat/sessions/${encodeURIComponent(sk)}/live-run`, { method: 'DELETE' }).catch(() => {})
+      deleteLiveRunSnapshotBestEffortImpl(
+        {
+          liveRunPersistPendingRef,
+          liveRunPersistTimerRef,
+          gatewayApiFetch,
+        },
+        sessionKey,
+      )
     },
     [gatewayApiFetch],
   )
 
-  const historyLiveContext = useMemo(() => {
-    const sk = String(selectedSessionKey || '').trim()
-    const rt = sk ? getSessionRuntime(sk) : null
-    const live = isSessionRuntimeLive(rt) || executingSessionKeys.has(sk)
-    const sessionRow = sk ? sessions.find((s) => s.sessionKey === sk) : null
-    return {
-      isHot: live,
-      liveRows: rt?.rows?.length ? rt.rows : null,
-      liveSending: isTurnBusy(rt) || isSessionRuntimeLive(rt),
-      currentRunId: sessionRow?.currentRunId || null,
-      runStatus: sessionRow?.runStatus || null,
-      getLive: () => {
-        if (!sk) return null
-        const cur = getSessionRuntime(sk)
-        return { rows: cur.rows, live: isSessionRuntimeLive(cur) || executingSessionKeys.has(sk) }
-      },
-    }
-  }, [selectedSessionKey, executingSessionKeys, executingListEpoch, sessions])
+  const historyLiveContext = useMemo(
+    () =>
+      buildHistoryLiveContext({
+        selectedSessionKey,
+        getSessionRuntime,
+        isSessionRuntimeLive,
+        executingSessionKeys,
+        sessions,
+        isTurnBusy,
+      }),
+    [selectedSessionKey, executingSessionKeys, executingListEpoch, sessions],
+  )
 
   const selectedStreamPriorTurnStrip = useMemo(
     () => priorStripForRuntime(getSessionRuntime(selectedSessionKey)),
@@ -2123,14 +2128,13 @@ export default function ChatApp() {
   )
 
   const cancelPendingStreamUiBumps = useCallback(() => {
-    streamBumpSchedulerRef.current?.cancelPending?.()
-    reasoningBumpSchedulerRef.current?.cancelPending?.()
-    workerFileBumpSchedulerRef.current?.cancelPending?.()
-    if (streamChromeBumpTimerRef.current) {
-      clearTimeout(streamChromeBumpTimerRef.current)
-      streamChromeBumpTimerRef.current = 0
-    }
-    streamChromeBumpPendingRef.current = false
+    cancelPendingStreamUiBumpsImpl({
+      streamBumpSchedulerRef,
+      reasoningBumpSchedulerRef,
+      workerFileBumpSchedulerRef,
+      streamChromeBumpTimerRef,
+      streamChromeBumpPendingRef,
+    })
   }, [])
   cancelPendingStreamUiBumpsRef.current = cancelPendingStreamUiBumps
 
@@ -2348,22 +2352,28 @@ export default function ChatApp() {
 
   const isPlanExecDockSuppressed = useCallback(
     (taskId: string, subCount: number) => {
-      const tid = planExecSuppressToken(taskId)
-      const key = `${tid}:${subCount}`
-      const set = suppressedPlanExecDockKeysRef.current
-      if (set.has(tid) || set.has(key)) return true
-      for (const k of set) {
-        if (k.startsWith(`${tid}:`)) return true
-      }
-      return false
+      return isPlanExecDockSuppressedImpl(
+        {
+          planExecSuppressToken,
+          suppressedPlanExecDockKeysRef,
+        },
+        taskId,
+        subCount,
+      )
     },
     [planExecSuppressToken],
   )
 
   const suppressPlanExecDock = useCallback(
     (taskId: string) => {
-      suppressedPlanExecDockKeysRef.current.add(planExecSuppressToken(taskId))
-      setPlanExecSuppressVersion((v) => v + 1)
+      suppressPlanExecDockImpl(
+        {
+          planExecSuppressToken,
+          suppressedPlanExecDockKeysRef,
+          setPlanExecSuppressVersion,
+        },
+        taskId,
+      )
     },
     [planExecSuppressToken],
   )
@@ -2405,24 +2415,27 @@ export default function ChatApp() {
   })
   const setChatPanelDisplayMode = useCallback(
     (mode: ChatSummaryDisplayMode) => {
-      setChatPanelMode(mode)
-      saveChatSummaryDisplayMode(mode)
-      if (mode === 'panel') {
-        // 悬浮卡与专用侧栏互斥：展开卡片时关掉侧栏。
-        collapseRightStage()
-      }
+      setChatPanelDisplayModeImpl(
+        {
+          setChatPanelMode,
+          saveChatSummaryDisplayMode,
+          collapseRightStage,
+        },
+        mode,
+      )
     },
     [collapseRightStage],
   )
 
   // 摘要已改挂对话正文右上角，启动时卸掉右栏里残留的 summary 标签。
   useEffect(() => {
-    closeSummaryStage()
-    const remaining = filterRightStageTabsForSession(
-      rightStageStore.getSnapshot().tabs,
+    runCloseLeftoverSummaryStageEffect({
+      closeSummaryStage,
+      filterRightStageTabsForSession,
+      rightStageStore,
       selectedSessionKey,
-    )
-    if (remaining.length === 0) collapseRightStage()
+      collapseRightStage,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount: drop leftover summary tab
   }, [])
   const publishPlatformEntries = useCallback((entries: PlatformRunEntry[], focusEntryId?: string) => {
@@ -3600,13 +3613,17 @@ export default function ChatApp() {
     if (!selectedSessionKey) toolApprovalResolvedIdsRef.current = new Set()
   }, [selectedSessionKey])
 
-  const toolApprovalUiDisabled = useMemo(() => {
-    void toolApprovalPolicyTick
-    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-    if (!sk) return isEffectiveToolApprovalGrantAll({})
-    const ctx = wsClient.getSessionContext(sk) || {}
-    return isEffectiveToolApprovalGrantAll(ctx)
-  }, [selectedSessionKey, toolApprovalPolicyTick, listLoading])
+  const toolApprovalUiDisabled = useMemo(
+    () =>
+      resolveToolApprovalUiDisabled({
+        toolApprovalPolicyTick,
+        sessionRef,
+        selectedSessionKey,
+        isEffectiveToolApprovalGrantAll,
+        wsClient,
+      }),
+    [selectedSessionKey, toolApprovalPolicyTick, listLoading],
+  )
 
   async function getApi() {
     if (apiRef.current) return apiRef.current
@@ -4532,19 +4549,14 @@ export default function ChatApp() {
   // 不应把用户刚关掉的侧栏强行打开）。
   const prevSelectedSessionKeyForInfoRailRef = useRef(selectedSessionKey)
   useEffect(() => {
-    const sessionKeyChanged =
-      prevSelectedSessionKeyForInfoRailRef.current !== selectedSessionKey
-    prevSelectedSessionKeyForInfoRailRef.current = selectedSessionKey
-    if (sessionKeyChanged) {
-      userClosedInfoRailRef.current = false
-    }
-    if (userClosedInfoRailRef.current) {
-      // 用户在当前会话主动关过：尊重意图，保持关闭，仅同步 tab。
-      setInfoRailTab(isProactiveEmployeeSession ? 'task' : 'agent')
-      return
-    }
-    setInfoRailOpen(true)
-    setInfoRailTab(isProactiveEmployeeSession ? 'task' : 'agent')
+    runInfoRailOnSessionChangeEffect({
+      prevSelectedSessionKeyForInfoRailRef,
+      selectedSessionKey,
+      userClosedInfoRailRef,
+      setInfoRailTab,
+      setInfoRailOpen,
+      isProactiveEmployeeSession,
+    })
   }, [selectedSessionKey, isProactiveEmployeeSession])
 
   const handleManualContextCompact = useCallback(async () => {
@@ -4562,21 +4574,19 @@ export default function ChatApp() {
     return formatUsageTokenStr(liveTurnTokens)
   }, [liveTurnTokens])
 
-  const goalExecutionTiming = Boolean(
-    !historyLoading &&
-      selectedGoalActive &&
-      String(selectedSessionKey || '').trim().length > 0,
-  )
+  const goalExecutionTiming = resolveGoalExecutionTiming({
+    historyLoading,
+    selectedGoalActive,
+    selectedSessionKey,
+  })
 
-  const collabPhaseLc = String(threadPanelState.collabPhase || '').trim().toLowerCase()
-  const collabExecutionTiming = Boolean(
-    liveTurnTimingActive &&
-      !selectedTurnBusy &&
-      (collabPhaseLc === 'executing' ||
-        collabPhaseLc === 'awaiting_exec' ||
-        (String(selectedSessionKey || '').trim() &&
-          executingSessionKeys.has(String(selectedSessionKey || '').trim()))),
-  )
+  const collabExecutionTiming = resolveCollabExecutionTiming({
+    threadPanelState,
+    liveTurnTimingActive,
+    selectedTurnBusy,
+    selectedSessionKey,
+    executingSessionKeys,
+  })
 
   const executionToolTiming = goalExecutionTiming || collabExecutionTiming
 
@@ -6082,13 +6092,11 @@ export default function ChatApp() {
     selectedTurnBusy,
     selectSessionFromShell,
     sessionFilter,
-    sessionKey,
     sessionMode,
     sessionNamesTick,
     sessionRef,
     sessions,
     sessionSidebarOpen,
-    sessionTitle,
     setBottomModelOpen,
     setBottomMoreOpen,
     setBottomPermissionOpen,
