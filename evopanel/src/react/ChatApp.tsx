@@ -494,10 +494,19 @@ import {
   runPluginPanelPortalLayoutEffect,
 } from './chat-app/composer/install-bottom-portal-layouts.js'
 import {
+  handleNewSession as handleNewSessionImpl,
   handleNewSessionInWorkspace as handleNewSessionInWorkspaceImpl,
   handleOpenHome as handleOpenHomeImpl,
   pruneDeletedSessionCaches,
 } from './chat-app/session/new-session-actions.js'
+import { reloadHistoryFromDb as reloadHistoryFromDbImpl } from './chat-app/session/reload-history-from-db.js'
+import { runPendingNavFromStorageEffect } from './chat-app/shell/run-pending-nav-from-storage.js'
+import { runBrowserPanelRequestEffect } from './chat-app/right-stage/install-browser-panel-request.js'
+import { runForceEndTurnWhenSealedEffect } from './chat-app/stream/run-force-end-turn-when-sealed.js'
+import { resolveStreamingWritePreviewForPane } from './chat-app/right-stage/resolve-streaming-write-preview-for-pane.js'
+import { runFlushPendingAutoTitleEffect } from './chat-app/session/run-flush-pending-auto-title.js'
+import { runInitialAgentsLoadEffect } from './chat-app/agents/run-initial-agents-load.js'
+import { runEngineReadyListenerEffect } from './chat-app/shell/install-engine-ready-listener.js'
 import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
 import {
   runChatOverlayDeferEffect,
@@ -2167,72 +2176,47 @@ export default function ChatApp() {
 
   const reloadHistoryFromDb = useCallback(
     async (opt?: { bypassCache?: boolean; anchorRunId?: string | null; dbOnly?: boolean }) => {
-      const sk = String(selectedSessionKey || '').trim()
-      const dbOnly = Boolean(opt?.dbOnly)
-      if (dbOnly && sk) {
-        // 旧 endLiveStreamSession 已删：live-stream-store 没了
-        resetSessionLiveStreamDisplay(sk, streamRef)
-        deleteLiveRunSnapshotBestEffort(sk)
-        markSessionResumeCatchupReplay(sk, false)
-        if (sk === String(sessionRef.current || '').trim()) {
-          setThreadPanelState((prev) => clearThreadPanelActivity(prev))
-          const cached = threadPanelBySessionRef.current.get(sk)
-          if (cached) {
-            threadPanelBySessionRef.current.set(sk, clearThreadPanelActivity(cached))
-          }
-        }
-        bumpStreamFullRef.current()
-        sfWarn('reloadHistoryFromDb — clearing live stream', { sessionKey: sk, dbOnly })
-        srLog('reloadHistoryFromDb cleared live stream + header activity', { sessionKey: sk })
-      }
-      const result = await reload({ ...opt, dbOnly })
-      if (dbOnly && sk && Array.isArray(result?.rows)) {
-        const rt = getSessionRuntime(sk)
-        const localRows = rt.rows.length ? rt.rows : rowsRef.current
-        const lastAsst = [...localRows].reverse().find((r) => r?.role === 'assistant')
-        const runId = String(lastAsst?.runId || '').trim() || null
-        const mergedRows = mergeDbOnlyHistoryRows(localRows, result.rows, runId, Boolean(opt?.bypassCache))
-        sfLog('reloadHistoryFromDb replace rows', {
-          sessionKey: sk,
-          rowCount: mergedRows.length,
-          tail: sfSummarizeRowsTail(mergedRows),
-          preservedLocalIncomplete: mergedRows !== result.rows,
-        })
-        replaceSessionRuntimeRowsFromHistory(sk, mergedRows)
-        if (sk === String(selectedSessionKey || '').trim()) {
-          // bypassCache 只保证重新拉库；合并结果与当前画面等价则不 setRows，
-          // 避免流刚结束、DB 尚未写完时整页闪一下或被半截历史盖掉。
-          setRows((prev) => (displayRowsEquivalent(prev, mergedRows) ? prev : mergedRows))
-        }
-      }
-      return result
+      return reloadHistoryFromDbImpl(
+        {
+          selectedSessionKey,
+          resetSessionLiveStreamDisplay,
+          streamRef,
+          deleteLiveRunSnapshotBestEffort,
+          markSessionResumeCatchupReplay,
+          sessionRef,
+          setThreadPanelState,
+          clearThreadPanelActivity,
+          threadPanelBySessionRef,
+          bumpStreamFullRef,
+          sfWarn,
+          srLog,
+          reload,
+          getSessionRuntime,
+          rowsRef,
+          mergeDbOnlyHistoryRows,
+          sfLog,
+          sfSummarizeRowsTail,
+          replaceSessionRuntimeRowsFromHistory,
+          setRows,
+          displayRowsEquivalent,
+        },
+        opt,
+      )
     },
     [reload, selectedSessionKey, deleteLiveRunSnapshotBestEffort, setRows],
   )
 
-  const streamingWritePreviewForPane = useMemo(() => {
-    const tools = streamRef.current?.turn.tools as unknown[] | undefined
-    if (Array.isArray(tools) && tools.length) {
-      const live = detectStreamingWritePreview(tools, { requireReady: false })
-      if (live) return live
-    }
-    const streamSession = rightStageStore.getStream('write_file')
-    const streamText =
-      streamSession?.chunks?.map((chunk) => String(chunk.text || '')).join('') || ''
-    if (rightStageSurface?.kind === 'write' && (streamText || streamingWritePreview?.streaming)) {
-      const path = String(
-        streamSession?.path || rightStageSurface.data?.path || streamingWritePreview?.path || '',
-      )
-      const baseName = path.replace(/\\/g, '/').split('/').filter(Boolean).pop()
-      return {
-        path,
-        name: streamingWritePreview?.name || baseName || '写入中…',
-        content: streamText || streamingWritePreview?.content || '',
-        streaming: streamSession ? !streamSession.closed : !!streamingWritePreview?.streaming,
-      }
-    }
-    return streamingWritePreview
-  }, [streamTick, streamingWritePreview, rightStageSurface?.kind, rightStageSurface?.data, rightStageSnapshot.rev])
+  const streamingWritePreviewForPane = useMemo(
+    () =>
+      resolveStreamingWritePreviewForPane({
+        streamRef,
+        detectStreamingWritePreview,
+        rightStageStore,
+        rightStageSurface,
+        streamingWritePreview,
+      }),
+    [streamTick, streamingWritePreview, rightStageSurface?.kind, rightStageSurface?.data, rightStageSnapshot.rev],
+  )
 
   /** 侧栏宽屏：仅 Agent 写入/预览；点文件夹浏览工作区用窄栏 */
   const workspacePanelWritePreview = useMemo(() => {
@@ -3798,40 +3782,12 @@ export default function ChatApp() {
   // toggleCollab removed (unused)
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      let wantNew = false
-      let wantHome = false
-      let code = ''
-      let pendingDraft = ''
-      try {
-        wantNew = sessionStorage.getItem('evopanel_pending_new_session') === '1'
-        if (wantNew) sessionStorage.removeItem('evopanel_pending_new_session')
-        wantHome = sessionStorage.getItem('evopanel_pending_open_home') === '1'
-        if (wantHome) sessionStorage.removeItem('evopanel_pending_open_home')
-        code = String(sessionStorage.getItem('evopanel_pending_agent_switch') || '').trim()
-        if (code) sessionStorage.removeItem('evopanel_pending_agent_switch')
-        pendingDraft = String(sessionStorage.getItem('evopanel_pending_composer_draft') || '').trim()
-        if (pendingDraft) sessionStorage.removeItem('evopanel_pending_composer_draft')
-      } catch {
-        return
-      }
-      if (wantNew) await handleNewSessionRef.current?.()
-      else if (wantHome) await handleOpenHomeRef.current?.()
-      if (cancelled) return
-      if (code) {
-        try {
-          await startNewChatWithPresetAgent(code)
-        } catch {
-          /* ignore */
-        }
-      }
-      if (cancelled || !pendingDraft) return
-      restoreComposerDraft(pendingDraft)
-    })()
-    return () => {
-      cancelled = true
-    }
+    return runPendingNavFromStorageEffect({
+      handleNewSessionRef,
+      handleOpenHomeRef,
+      startNewChatWithPresetAgent,
+      restoreComposerDraft,
+    })
   }, [restoreComposerDraft])
 
   useEffect(() => {
@@ -3900,24 +3856,12 @@ export default function ChatApp() {
 
 
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const api = await getApi()
-        const [agentResult] = await Promise.all([api.listAgents()])
-        if (cancelled) return
-        const list = Array.isArray(agentResult) ? agentResult : agentResult?.agents || []
-        setAgents(mapAgentPickerRows(list))
-        setAgentsDisplayCache(list)
-      } catch {
-        if (!cancelled) {
-          setAgents([])
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    return runInitialAgentsLoadEffect({
+      getApi,
+      setAgents,
+      mapAgentPickerRows,
+      setAgentsDisplayCache,
+    })
   }, [])
 
   const refreshAgentsList = useCallback(async () => {
@@ -3929,30 +3873,10 @@ export default function ChatApp() {
   }, [])
 
   useEffect(() => {
-    let unsub: (() => void) | undefined
-    let cancelled = false
-    void import('../lib/tauri-api.js').then(async (mod) => {
-      const initial = mod.isBackendReady()
-      if (initial === true) setEngineReady(true)
-      else if (initial === false) setEngineReady(false)
-      else {
-        // 尚未探测：先拉一次，避免 UI-first 下误开发送
-        try {
-          const ok = await mod.checkBackendReady()
-          if (!cancelled) setEngineReady(!!ok)
-        } catch {
-          if (!cancelled) setEngineReady(false)
-        }
-      }
-      unsub = mod.onBackendReadyChange((v) => {
-        setEngineReady(!!v)
-        if (v) void refreshAgentsList()
-      })
+    return runEngineReadyListenerEffect({
+      setEngineReady,
+      refreshAgentsList,
     })
-    return () => {
-      cancelled = true
-      unsub?.()
-    }
   }, [refreshAgentsList])
 
   const patchCurrentAgentCapabilities = useCallback(
@@ -4578,54 +4502,29 @@ export default function ChatApp() {
   )
 
   useEffect(() => {
-    if (!selectedTurnBusy) return
-    const sk = String(selectedSessionKey || '').trim()
-    if (!sk) return
-    const rt = getSessionRuntime(sk)
-    if (streamRefHasVisibleContent(streamRef.current)) return
-    // 找最近一条已封口的 assistant（其后可能已有 ↑「待处理」用户行）
-    let sealedAssistant: (typeof renderRows)[number] | null = null
-    let pendingInjectAfterSeal = false
-    for (let i = renderRows.length - 1; i >= 0; i--) {
-      const r = renderRows[i]
-      if (r?.role === 'assistant') {
-        sealedAssistant = r
-        break
-      }
-      if (r?.role === 'user' && r.pendingInject) {
-        pendingInjectAfterSeal = true
-        continue
-      }
-      break
-    }
-    if (
-      !sealedAssistant ||
-      !(sealedAssistant.durationStr || sealedAssistant.tokenStr) ||
-      sealedAssistant.incompleteStream
-    ) {
-      return
-    }
-    const lastEventAt = Number(rt.lastEventAt || 0)
-    const eventStale = !lastEventAt || Date.now() - lastEventAt > 3000
-    // 有 ↑ 待处理 / sealing / 事件已停：强制 idle，避免 DB 残留 running 卡住 drain
-    const force =
-      pendingInjectAfterSeal || rt.turnPhase === 'sealing' || eventStale
-    maybeEndTurnSendingState(sk, rt, false, force ? { force: true } : undefined)
+    runForceEndTurnWhenSealedEffect({
+      selectedTurnBusy,
+      selectedSessionKey,
+      getSessionRuntime,
+      streamRefHasVisibleContent,
+      streamRef,
+      renderRows,
+      maybeEndTurnSendingState,
+    })
   }, [selectedTurnBusy, renderRows, selectedSessionKey, maybeEndTurnSendingState])
 
   /** stream 空闲后冲刷延迟写入的自动标题（绑定 sessionKey，避免串到新会话）。 */
   useEffect(() => {
-    const pending = pendingAutoSessionTitleRef.current
-    if (!pending?.sessionKey || !pending.title) return
-    const pendingRt = getSessionRuntime(pending.sessionKey)
-    const pendingStreaming =
-      isTurnBusy(pendingRt) ||
-      streamRefHasVisibleContent(pendingRt.stream) ||
-      (String(sessionRef.current || '').trim() === pending.sessionKey &&
-        (streamRefHasVisibleContent(streamRef.current) || selectedTurnBusy))
-    if (pendingStreaming) return
-    pendingAutoSessionTitleRef.current = null
-    persistSessionTitleIfMissing(pending.sessionKey, pending.title)
+    runFlushPendingAutoTitleEffect({
+      pendingAutoSessionTitleRef,
+      getSessionRuntime,
+      isTurnBusy,
+      streamRefHasVisibleContent,
+      sessionRef,
+      streamRef,
+      selectedTurnBusy,
+      persistSessionTitleIfMissing,
+    })
   }, [executingListEpoch, selectedTurnBusy, selectedSessionKey])
 
   const lastAssistantRowIndex = useMemo(() => {
@@ -4694,42 +4593,14 @@ export default function ChatApp() {
   // AG-UI TOOL_CALL_START has opened the side panel. Mount the bridge WebView2
   // immediately so ensure_webview_for_cdp can reuse a healthy HWND.
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return
-    let cancelled = false
-    let unlisten: (() => void) | undefined
-    void import('@tauri-apps/api/event')
-      .then(({ listen }) =>
-        listen<{ threadId?: string; url?: string }>('browser-panel-request', (ev) => {
-          if (cancelled) return
-          const tid =
-            String(ev.payload?.threadId || '').trim() || NODE_REPL_BRIDGE_THREAD_ID
-          const url = String(ev.payload?.url || '').trim()
-          dbgLog(`[chat-app] browser-panel-request thread=${tid} url=${url || '(none)'}`)
-          setBrowserPanelThreadId(tid)
-          if (url && /^https?:\/\//i.test(url)) {
-            applyBrowserCommandResponse({ threadId: tid, pageUrl: url })
-          } else {
-            ensureBrowserStage({
-              sessionKey: rightStageSessionKeyRef.current || undefined,
-            })
-          }
-        }),
-      )
-      .then((fn) => {
-        if (cancelled) {
-          fn()
-          return
-        }
-        unlisten = fn
-      })
-      .catch((err) => {
-        dbgLog(`[chat-app] browser-panel-request listen failed: ${String(err)}`)
-      })
-    return () => {
-      cancelled = true
-      unlisten?.()
-    }
+    return runBrowserPanelRequestEffect({
+      NODE_REPL_BRIDGE_THREAD_ID,
+      dbgLog,
+      setBrowserPanelThreadId,
+      applyBrowserCommandResponse,
+      ensureBrowserStage,
+      rightStageSessionKeyRef,
+    })
   }, [])
 
   useEffect(() => {
@@ -5842,7 +5713,10 @@ export default function ChatApp() {
   }
 
   function handleNewSession() {
-    startNewSessionWithWorkspace(resolveWorkspaceForNewSession())
+    handleNewSessionImpl({
+      startNewSessionWithWorkspace,
+      resolveWorkspaceForNewSession,
+    })
   }
 
   /** 回到工作台：已在空会话仪表盘则不重复建会话；否则新开空会话以展示首页 */

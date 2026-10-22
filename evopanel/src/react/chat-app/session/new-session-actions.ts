@@ -4,6 +4,10 @@
  */
 export type NewSessionActionsCtx = Record<string, any>
 
+export function handleNewSession(ctx: NewSessionActionsCtx): void {
+  ctx.startNewSessionWithWorkspace(ctx.resolveWorkspaceForNewSession())
+}
+
 export function handleOpenHome(ctx: NewSessionActionsCtx): void {
   if (
     ctx.shouldStayOnHomeDashboard({
