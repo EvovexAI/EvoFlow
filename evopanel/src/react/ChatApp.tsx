@@ -402,6 +402,8 @@ import {
 } from './chat-app/shell/shell-session-actions.js'
 import { selectSessionFromShell as selectSessionFromShellImpl } from './chat-app/shell/select-session-from-shell.js'
 import { handleEditMessage as handleEditMessageImpl } from './chat-app/composer/handle-edit-message.js'
+import { applyFullAccessToCurrentSession as applyFullAccessToCurrentSessionImpl } from './chat-app/session/apply-full-access.js'
+import { startNewChatWithPresetAgent as startNewChatWithPresetAgentImpl } from './chat-app/agents/start-new-chat-with-preset-agent.js'
 // ============================================
 
 import type {
@@ -10145,27 +10147,21 @@ export default function ChatApp() {
    * 仅改全局默认而不动当前会话时，对话中仍会继续弹「需要权限」——用户会感觉开关没反应。
    */
   async function applyFullAccessToCurrentSession(opts?: { quiet?: boolean }): Promise<void> {
-    try {
-      await applyMoreMenuSessionApprovalPolicy(PERMISSION_PRESET_FULL_ACCESS, {
-        quiet: !!opts?.quiet,
-      })
-    } catch {
-      return
-    }
-    const pendingVisible = collectPendingApprovalsForDock({
-      streamTools: (streamRef.current?.turn.tools as unknown[]) || [],
-      rows: rowsRef.current,
-      isSending: turnBusyForSession(sessionRef.current),
-      excludeToolCallIds: toolApprovalResolvedIdsRef.current,
-    })
-    if (pendingVisible.length) {
-      suppressToolApprovalToastRef.current = true
-      try {
-        await handleToolApproval('grant_all')
-      } finally {
-        suppressToolApprovalToastRef.current = false
-      }
-    }
+    await applyFullAccessToCurrentSessionImpl(
+      {
+        streamRef,
+        rowsRef,
+        sessionRef,
+        toolApprovalResolvedIdsRef,
+        suppressToolApprovalToastRef,
+        applyMoreMenuSessionApprovalPolicy,
+        permissionPresetFullAccess: PERMISSION_PRESET_FULL_ACCESS,
+        collectPendingApprovalsForDock,
+        turnBusyForSession,
+        handleToolApproval,
+      },
+      opts,
+    )
   }
   applyFullAccessToCurrentSessionRef.current = applyFullAccessToCurrentSession
 
@@ -11242,86 +11238,18 @@ export default function ChatApp() {
 
   /** 在当前会话切换预设角色（写入 context，不新开会话；与 main / Claude Code 一致） */
   async function startNewChatWithPresetAgent(agentCodeRaw: string) {
-    const code = (agentCodeRaw || '').trim().toLowerCase()
-    if (!code) return
-    setRoleSwitchBusy(true)
-    setBottomRoleOpen(false)
-    try {
-      const { api } = await import('../lib/tauri-api.js')
-      const sk = (selectedSessionKey || (await ensureChatSessionKey()) || '').trim()
-      if (!sk) return
-      if (isProactiveSessionKey(sk)) {
-        toast('智能体员工会话岗位已固定，不能切换角色', 'info')
-        return
-      }
-      if (resolveSessionAgentCodeForUi(sk) === code) {
-        toast('当前已是该角色', 'info')
-        return
-      }
-
-      const agentRow = agents.find(
-        (a: { agent_code?: string }) => String(a?.agent_code || '').trim().toLowerCase() === code,
-      )
-      const label =
-        (agentRow && String(agentRow.agent_name || '').trim()) ||
-        (code === 'main' ? 'EvoFlow' : code === 'claude-code' ? '代码助手' : code)
-
-      if (code === 'main') {
-        await api.chatUpdateContext(sk, {
-          use_claude_code_chat: false,
-          agent_name: 'main',
-          agent_id: 'main',
-          collab_phase: 'idle',
-          collab_task_id: null,
-          model_name: null,
-        })
-        setSessions((prev) =>
-          prev.map((s) =>
-            String(s.sessionKey || '') === sk ? { ...s, agentId: 'main', modelName: null } : s,
-          ),
-        )
-        setRoleUiNonce((n) => n + 1)
-        toast('已切换为 EvoFlow（当前会话）', 'success')
-        return
-      }
-      if (code === 'claude-code') {
-        await api.chatUpdateContext(sk, {
-          use_claude_code_chat: true,
-          agent_name: 'claude-code',
-          collab_phase: 'idle',
-          collab_task_id: null,
-          model_name: null,
-        })
-        setSessions((prev) =>
-          prev.map((s) =>
-            String(s.sessionKey || '') === sk ? { ...s, agentId: 'claude-code', modelName: null } : s,
-          ),
-        )
-        setRoleUiNonce((n) => n + 1)
-        toast('已切换为代码助手模式（当前会话）', 'success')
-        return
-      }
-
-      await api.chatUpdateContext(sk, {
-        use_claude_code_chat: false,
-        agent_name: code,
-        agent_id: code,
-        collab_phase: 'idle',
-        collab_task_id: null,
-        model_name: null,
-      })
-      setSessions((prev) =>
-        prev.map((s) =>
-          String(s.sessionKey || '') === sk ? { ...s, agentId: code, modelName: null } : s,
-        ),
-      )
-      setRoleUiNonce((n) => n + 1)
-      toast(`已切换为「${label}」（当前会话，历史消息保留）`, 'success')
-    } catch (e) {
-      toast(toUserFacingError((e as Record<string, unknown>)?.message || e || '切换角色失败', '切换角色失败'), 'error')
-    } finally {
-      setRoleSwitchBusy(false)
-    }
+    await startNewChatWithPresetAgentImpl(
+      {
+        selectedSessionKey,
+        agents,
+        setRoleSwitchBusy,
+        setBottomRoleOpen,
+        setRoleUiNonce,
+        setSessions,
+        ensureChatSessionKey,
+      },
+      agentCodeRaw,
+    )
   }
   startNewChatWithPresetAgentRef.current = startNewChatWithPresetAgent
 
