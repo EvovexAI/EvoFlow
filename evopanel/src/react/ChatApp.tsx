@@ -348,6 +348,10 @@ import type {
   PlanDockApiView,
   PlanStreamLatch,
 } from './chat-app/plan-dock/types.js'
+import {
+  syncPlanPanelFromApi as syncPlanPanelFromApiImpl,
+  type SyncPlanPanelFromApiOpts,
+} from './chat-app/plan-dock/sync-plan-panel-from-api.js'
 // ============================================
 
 import type {
@@ -3670,334 +3674,54 @@ export default function ChatApp() {
   ])
 
   const syncPlanPanelFromApi = useCallback(
-    async (opts: {
-      source: string
-      sessionKey?: string
-      hintTaskId?: string
-      preview?: string
-      fallback?: Record<string, unknown> | null
-      planOutput?: Record<string, unknown> | null
-      boundPlanReady?: boolean
-      bypassCache?: boolean
-      openSidebar?: boolean
-    }) => {
-      const source = String(opts.source || 'unknown').trim() || 'unknown'
-      const fetchSeq = sessionTasksFetchSeqRef.current
-      const captureSk = String(
-        opts.sessionKey || sessionRef.current || selectedSessionKey || '',
-      ).trim()
-      if (!isActiveSessionFetch(captureSk, fetchSeq)) return
-      let tid = String(opts.hintTaskId || '').trim()
-      tracePlanDockApi('sync_start', { source, sessionKey: captureSk, hintTaskId: tid })
-      const skipTaskResolve = !!tid || source === 'session_refresh' || !!opts.bypassCache
-      if (!skipTaskResolve && captureSk) {
-        tid = await resolvePlanBoundTaskId({
-          sessionKey: captureSk,
-          planOutput: opts.planOutput ?? null,
-          hintTaskId: String(threadPanelState.collabSubtasks?.[0]?.parentTaskId || '').trim(),
-        })
-        if (!isActiveSessionFetch(captureSk, fetchSeq)) return
-      }
-      if (!skipTaskResolve && !tid && opts.planOutput) {
-        tid = await resolvePlanBoundTaskId({
-          sessionKey: captureSk,
-          planOutput: opts.planOutput,
-          hintTaskId: String(threadPanelState.collabSubtasks?.[0]?.parentTaskId || '').trim(),
-        })
-        if (!isActiveSessionFetch(captureSk, fetchSeq)) return
-      }
-      if (!isActiveSessionFetch(captureSk, fetchSeq)) return
-      const applyKey = tid ? `${captureSk}:${tid}` : ''
-      if (!opts.bypassCache && applyKey && planAppliedForRef.current === applyKey) {
-        tracePlanDockApi('sync_skip_dedupe', { source, applyKey })
-        if (planDockApiViewRef.current) return
-      }
-
-      const run = async () => {
-        const hide = (reason: string, extra?: Record<string, unknown>) => {
-          applyPlanDockApiView(
-            planDockApiHide(source, reason, {
-              taskId: tid || undefined,
-              taskStatus: typeof extra?.taskStatus === 'string' ? extra.taskStatus : undefined,
-            }) as PlanDockApiView,
-          )
-        }
-
-        if (!captureSk) {
-          hide('no_session_key')
-          if (opts.fallback) {
-            setThreadPanelState((prev) => ({
-              ...prev,
-              planInputFallback: opts.fallback || prev.planInputFallback || null,
-              collabPhase: prev.collabPhase === 'executing' ? prev.collabPhase : 'planning',
-            }))
-          }
-          return
-        }
-
-        const fallbackStructured = opts.fallback
-          ? {
-              goal: String(opts.fallback.goal || ''),
-              flowchartMermaid: String(opts.fallback.flowchartMermaid || ''),
-              steps: (opts.fallback.steps || []) as Array<Record<string, unknown>>,
-              validation: opts.fallback.validation as string[] | undefined,
-              openQuestions: String(opts.fallback.openQuestions || '无'),
-            }
-          : null
-        if (!isActiveSessionFetch(captureSk, fetchSeq)) return
-        const sync = await syncPlanDockStateFromApi(
-          {
-            sessionKey: captureSk,
-            hintTaskId: tid,
-            fallback: fallbackStructured,
-          },
-          { bypassCache: !!opts.bypassCache },
-        )
-        if (!isActiveSessionFetch(captureSk, fetchSeq)) return
-        if (sync.taskId) tid = sync.taskId
-        const resolvedApplyKey = tid ? `${captureSk}:${tid}` : applyKey
-        if (resolvedApplyKey) {
-          planAppliedForRef.current = resolvedApplyKey
-          planFromApiLoadedRef.current = `${captureSk}:${tid}:${String(sync.plan?.goal || opts.fallback?.goal || '').slice(0, 48)}`
-        }
-
-        let collabAppliedFromSyncRow = false
-        const applyCollabOnceFromSyncRow = () => {
-          if (collabAppliedFromSyncRow || !(sync as Record<string, unknown>).taskRow || !tid) return
-          const snap = collabSnapshotFromTaskRow((sync as Record<string, unknown>).taskRow as Record<string, unknown>)
-          if (!snap) return
-          collabAppliedFromSyncRow = true
-          applyTaskProgressSnapshot(snap, { sessionKey: captureSk })
-        }
-        if (source === 'session_enter' && (sync as Record<string, unknown>).taskRow) {
-          applyCollabOnceFromSyncRow()
-          threadCollabSnapshotRef.current = captureSk
-        }
-
-        if (tid && sync.taskStatus === 'planned' && !sync.executionAuthorized) {
-          const suppressToken = planExecSuppressToken(tid)
-          const wasAuthorized = userAuthorizedTaskIdsRef.current.has(tid)
-          if (!wasAuthorized) {
-            suppressedPlanExecDockKeysRef.current.delete(suppressToken)
-            for (const k of [...suppressedPlanExecDockKeysRef.current]) {
-              if (k === suppressToken || k.startsWith(`${suppressToken}:`)) {
-                suppressedPlanExecDockKeysRef.current.delete(k)
-              }
-            }
-          }
-        }
-
-        const rowSubCount = Array.isArray(((sync as Record<string, unknown>).taskRow as { subtasks?: unknown[] } | null)?.subtasks)
-          ? (((sync as Record<string, unknown>).taskRow as { subtasks?: unknown[] }).subtasks?.length ?? 0)
-          : 0
-        const subCount = rowSubCount || threadPanelState.collabSubtasks?.length || 0
-        if (tid && isPlanExecDockSuppressed(tid, subCount)) {
-          hide('suppressed', { taskStatus: sync.taskStatus })
-          return
-        }
-
-        const fromApi = sync.plan
-          ? {
-              goal: String(sync.plan.goal || '').trim(),
-              flowchartMermaid: String(sync.plan.flowchartMermaid || '').trim(),
-              steps: (Array.isArray(sync.plan.steps) ? sync.plan.steps : []) as StructuredPlanInput['steps'],
-              validation: sync.plan.validation as string[] | undefined,
-              openQuestions: String(sync.plan.openQuestions || '无').trim(),
-            }
-          : null
-        const planInputForState = fromApi
-
-        if (!sync.showPlanDock || !planInputForState?.goal || !tid) {
-          if (
-            source === 'session_enter' &&
-            !(sync as Record<string, unknown>).taskRow &&
-            !tid &&
-            !sync.taskStatus
-          ) {
-            tracePlanDockApi('session_enter_idle', { source, sessionKey: captureSk, note: 'no bound task yet' })
-            return
-          }
-          if (
-            sync.taskStatus === 'planning' &&
-            !sync.executionAuthorized &&
-            (source === 'stream_final' || source.startsWith('stream_final_'))
-          ) {
-            tracePlanDockApi('sync_wait_planned', { source, sessionKey: captureSk, taskId: tid })
-            return
-          }
-          if (
-            planDockApiViewRef.current?.show &&
-            String(planDockApiViewRef.current.taskId || '').trim() === tid &&
-            sync.taskStatus === 'planned' &&
-            !sync.executionAuthorized
-          ) {
-            tracePlanDockApi('sync_keep_planned_dock', { source, taskId: tid })
-            return
-          }
-          hide(sync.pastPlanGate ? 'past_plan_gate' : !tid ? 'no_task_id' : 'not_planned', {
-            taskStatus: sync.taskStatus,
-          })
-          if (sync.pastPlanGate && tid) {
-            suppressPlanExecDock(tid)
-            setBoundTaskId(tid)
-            applyCollabOnceFromSyncRow()
-            if (rowSubCount > 0) bumpSubtasksApiRefresh()
-            // Task passed plan gate (executing/completed/authorized):
-            // clear stream latch + cached plan hit so subsequent non-plan turns
-            // don't keep planCtxAtFinal=true and re-trigger refreshPlanDockAfterStreamFinal.
-            planStreamLatchRef.current = null
-            lastPlanPanelHitRef.current = null
-            setPlanStreamLatched(false)
-            setPlanPanelHit(null)
-          }
-          return
-        }
-
-        const effectiveTaskStatus = sync.taskStatus || 'planned'
-        const effectiveExecutionAuthorized = sync.executionAuthorized
-        const stripUi = computePlanExecStripUi({
-          status: effectiveTaskStatus,
-          executionAuthorized: effectiveExecutionAuthorized,
-          boundPlanReady: true,
-          hasPlanToolSuccess: true,
-        })
-        const showStartExecution =
-          effectiveTaskStatus === 'planned' && !effectiveExecutionAuthorized
-            ? true
-            : stripUi.showStartExecution
-        const planStructured: StructuredPlanInput = {
-          goal: String(planInputForState.goal || sync.plan?.goal || '').trim(),
-          flowchartMermaid: String(planInputForState.flowchartMermaid || sync.plan?.flowchartMermaid || '').trim(),
-          steps: (planInputForState.steps || sync.plan?.steps || []) as StructuredPlanInput['steps'],
-          validation: (planInputForState.validation || sync.plan?.validation) as string[] | undefined,
-          openQuestions: String(planInputForState.openQuestions || sync.plan?.openQuestions || '无').trim(),
-        }
-        const suppressToken = planExecSuppressToken(tid)
-        suppressedPlanExecDockKeysRef.current.delete(suppressToken)
-        for (const k of [...suppressedPlanExecDockKeysRef.current]) {
-          if (k === suppressToken || k.startsWith(`${suppressToken}:`)) {
-            suppressedPlanExecDockKeysRef.current.delete(k)
-          }
-        }
-        applyPlanDockApiView(
-          planDockApiShow(source, {
-            taskId: tid,
-            taskName: threadPanelState.collabTask?.name,
-            taskStatus: effectiveTaskStatus,
-            statusLabel: stripUi.statusLabel,
-            showStartExecution,
-            planStructured,
-            subtaskCount: subCount,
-            toolCallId: '',
-          }) as PlanDockApiView,
-        )
-
-        publishPlanPanelHit({
-          planInput: planInputForState,
-          boundPlanReady: opts.boundPlanReady ?? true,
-          taskId: tid,
-          planOutput: opts.planOutput ?? undefined,
-        })
-        if (tid) setBoundTaskId(tid)
-        applyCollabOnceFromSyncRow()
-        // @ts-ignore
-        setThreadPanelState((prev) => {
-          if (String(sessionRef.current || '').trim() !== captureSk) return prev
-          const prevTid = String(prev.collabTask?.taskId || prev.boundTaskId || '').trim()
-          const alreadyAuthorized = !!prev.collabTask?.executionAuthorized
-          const executing =
-            String(prev.collabPhase || '')
-              .trim()
-              .toLowerCase() === 'executing' ||
-            String(prev.collabTask?.lifecycleStage || '')
-              .trim()
-              .toLowerCase() === 'executing'
-          if (alreadyAuthorized || executing) {
-            return {
-              ...prev,
-              boundTaskId: tid || prev.boundTaskId,
-              planInputFallback: planInputForState || prev.planInputFallback || null,
-              collabPhase: prev.collabPhase,
-              collabTask: {
-                ...(prev.collabTask || {}),
-                taskId: tid || prev.collabTask?.taskId,
-                executionAuthorized: true,
-                boundPlanPreview:
-                  String(opts.preview || prev.collabTask?.boundPlanPreview || '').trim() || undefined,
-              },
-            }
-          }
-          if (prevTid && tid && prevTid !== tid) {
-            for (const k of [...suppressedPlanExecDockKeysRef.current]) {
-              if (k.startsWith(`${prevTid}:`)) suppressedPlanExecDockKeysRef.current.delete(k)
-            }
-          }
-          return {
-            ...prev,
-            boundTaskId: tid || prev.boundTaskId,
-            planInputFallback: planInputForState || prev.planInputFallback || null,
-            collabPhase: 'plan_ready',
-            clarification: null,
-            collabTask: {
-              ...(prev.collabTask || {}),
-              taskId: tid || prev.collabTask?.taskId,
-              boundPlanReady: true,
-              boundPlanPreview:
-                String(
-                  opts.preview ||
-                    planStructured.goal ||
-                    prev.collabTask?.boundPlanPreview ||
-                    '',
-                ).trim() || undefined,
-              executionAuthorized: false,
-              status: effectiveTaskStatus,
-            },
-          }
-        })
-        if (opts.openSidebar) openSessionSidebar()
-      }
-
-      if (planApiSyncInflightRef.current) {
-        try {
-          await planApiSyncInflightRef.current
-        } catch {
-          /* ignore */
-        }
-        if (!opts.bypassCache && applyKey && planAppliedForRef.current === applyKey && planDockApiViewRef.current) {
-          tracePlanDockApi('sync_skip_after_inflight', { source, applyKey })
-          return
-        }
-      }
-      const promise = run()
-        .catch((e) => {
-          tracePlanDockApi('sync_error', { source, message: String((e as Error)?.message || e) })
-          applyPlanDockApiView(planDockApiHide(source, 'sync_error') as PlanDockApiView)
-        })
-        .finally(() => {
-          if (planApiSyncInflightRef.current === promise) {
-            planApiSyncInflightRef.current = null
-          }
-          tracePlanDockApi('sync_done', { source })
-        })
-      planApiSyncInflightRef.current = promise
-      return promise
+    async (opts: SyncPlanPanelFromApiOpts) => {
+      await syncPlanPanelFromApiImpl(
+        {
+          sessionRef,
+          selectedSessionKey,
+          sessionTasksFetchSeqRef,
+          planAppliedForRef,
+          planFromApiLoadedRef,
+          planApiSyncInflightRef,
+          planDockApiViewRef,
+          planStreamLatchRef,
+          lastPlanPanelHitRef,
+          threadCollabSnapshotRef,
+          suppressedPlanExecDockKeysRef,
+          userAuthorizedTaskIdsRef,
+          threadPanelState,
+          isActiveSessionFetch,
+          applyPlanDockApiView,
+          applyTaskProgressSnapshot,
+          publishPlanPanelHit,
+          setPlanStreamLatched,
+          setPlanPanelHit,
+          setThreadPanelState,
+          setBoundTaskId,
+          openSessionSidebar,
+          suppressPlanExecDock,
+          isPlanExecDockSuppressed,
+          planExecSuppressToken,
+          bumpSubtasksApiRefresh,
+        },
+        opts,
+      )
     },
     [
       applyPlanDockApiView,
       applyTaskProgressSnapshot,
       publishPlanPanelHit,
       selectedSessionKey,
-      threadPanelState.collabSubtasks,
-      threadPanelState.collabTask?.name,
+      threadPanelState,
       openSessionSidebar,
-      threadPanelState.collabPhase,
       suppressPlanExecDock,
       isPlanExecDockSuppressed,
       setBoundTaskId,
-      shouldShowCollabSubtaskSidebar,
       bumpSubtasksApiRefresh,
+      planExecSuppressToken,
     ],
   )
+
 
   const applyPlanToolSuccess = useCallback(
     async (hit: {
