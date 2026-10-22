@@ -22,10 +22,34 @@ function Get-UpdaterSigningKeyMaterial([string]$ProjectDir) {
   return ""
 }
 
+function Test-UpdaterKeyNeedsPassword([string]$material) {
+  # tauri/minisign encrypted keys decode to: "untrusted comment: rsign encrypted secret key"
+  if ([string]::IsNullOrWhiteSpace($material)) { return $false }
+  $raw = $material
+  try {
+    $compact = ($material -replace '\s', '')
+    $bytes = [Convert]::FromBase64String($compact)
+    $raw = [System.Text.Encoding]::UTF8.GetString($bytes)
+  } catch {
+    # not base64 - inspect as plain text
+  }
+  return [bool]($raw -match '(?i)encrypted\s+secret\s+key|rsign encrypted')
+}
+
 function Test-UpdaterSigningReady([string]$ProjectDir) {
   if ($env:EVOFLOW_SKIP_UPDATER_SIGN -eq "1") { return $false }
   $material = Get-UpdaterSigningKeyMaterial -ProjectDir $ProjectDir
   if ($material.Length -lt 280) { return $false }
+  # Encrypted key + no password => Tauri blocks on interactive "Password:" and
+  # hangs double-click bats. Skip unless caller opts into the prompt.
+  if (Test-UpdaterKeyNeedsPassword $material) {
+    $pw = $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+    if ([string]::IsNullOrWhiteSpace($pw)) {
+      if ($env:EVOFLOW_ALLOW_UPDATER_SIGN_PROMPT -eq "1") { return $true }
+      Write-Step "updater signing: encrypted key present but TAURI_SIGNING_PRIVATE_KEY_PASSWORD unset - skipping (set password or EVOFLOW_ALLOW_UPDATER_SIGN_PROMPT=1)"
+      return $false
+    }
+  }
   return $true
 }
 
@@ -43,10 +67,12 @@ function Set-UpdaterSigningEnv([string]$ProjectDir) {
     Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY_PATH -ErrorAction SilentlyContinue
     $len = (Get-UpdaterSigningKeyMaterial -ProjectDir $ProjectDir).Length
-    if ($len -gt 0 -and $len -lt 280) {
+    if ($env:EVOFLOW_SKIP_UPDATER_SIGN -eq "1") {
+      Write-Step "updater signing: disabled (EVOFLOW_SKIP_UPDATER_SIGN=1 - setup.exe only)"
+    } elseif ($len -gt 0 -and $len -lt 280) {
       Write-Step "updater signing: disabled (key too short: $len chars, need at least 350 - fix TAURI_SIGNING_PRIVATE_KEY secret)"
     } else {
-      Write-Step "updater signing: disabled (no valid key - exe only, no in-app one-click update)"
+      Write-Step "updater signing: disabled (no usable key/password - setup.exe only, no in-app one-click update)"
     }
     $env:EVOFLOW_UPDATER_SIGN_ENABLED = "0"
     return $false

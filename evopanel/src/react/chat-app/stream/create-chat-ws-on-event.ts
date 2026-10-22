@@ -2,6 +2,7 @@
 /**
  * Chat WS onEvent handler. Extracted from ChatApp.tsx (P81).
  */
+import { EventType } from '@ag-ui/core'
 import type { ChatWsPayload } from '../../chat-types.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
@@ -2159,12 +2160,18 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             isBackground,
           },
         })
-        // Early AG-UI RUN_FINISHED already idled; late SSE `final` must not SEALING→busy
-        // or the stop button / gear flashes back on for the checkpoint tail.
-        if (isTurnBusy(rt)) {
-          markRunSealing(rt)
-          dispatchSessionTurnEvent(targetSk, { type: 'SEALING' })
+        // SSE `final` = turn is over for the UI. Idle IMMEDIATELY — do not SEALING.
+        // SEALING kept selectedTurnBusy true through resetRuntimeStream, so React painted
+        // empty 「生成中」 (stream cleared, history setRows not committed yet) and then
+        // residue+spinner stuck for ~15s until a watchdog cleared busy.
+        clearSessionExecutionStateForEnded(targetSk)
+        seedSessionRuntimeStatusIdle(targetSk)
+        if (rt.streamWireSource === 'run') {
+          dispatchSessionTurnEvent(targetSk, { type: 'WIRE_SOURCE', source: null })
         }
+        maybeEndTurnSendingState(targetSk, rt, isBackground, { force: true })
+        if (!isBackground) activeChatRunIdRef.current = null
+        clearActiveRun(rt)
         dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: Date.now() })
         flushPendingSessionTitle()
         const c = extractChatContent(payload.message)
@@ -2354,9 +2361,9 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             ])
             void reloadRef.current?.({ bypassCache: true, dbOnly: true })
           }
-          resetRuntimeStream(rt, isBackground ? undefined : streamRef)
+          maybeEndTurnSendingState(targetSk, rt, isBackground, { force: true })
           clearActiveRun(rt)
-          maybeEndTurnSendingState(targetSk, rt, isBackground)
+          resetRuntimeStream(rt, isBackground ? undefined : streamRef)
           flushPendingSessionTitle()
           deleteLiveRunSnapshotBestEffort(targetSk)
           scheduleBump({ immediate: true })
@@ -2542,7 +2549,9 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             ...(deferGoalSeal || awaitingToolApproval
               ? { incompleteStream: true as const }
               : {
-                  durationStr: durStr || undefined,
+                  // Always stamp duration so MessageVirtualList.suppressStreamUiAfterSeal
+                  // can drop the _stream pin even if elapsedSec/tokenStr were empty.
+                  durationStr: durStr || '1s',
                   tokenStr: tokenStr || undefined,
                 }),
             ...(sealRunId ? { runId: sealRunId } : {}),
@@ -2743,14 +2752,9 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                   : prev.collabPhase,
           }))
         }
-        resetRuntimeStream(rt, isBackground ? undefined : streamRef)
-        clearActiveRun(rt)
-        sfLog('ChatApp final stream reset', {
-          sessionKey: targetSk,
-          runId,
-          rtRowsLen: rt.rows.length,
-        })
-        if (!isBackground) activeChatRunIdRef.current = null
+        // Idle / clear busy BEFORE emptying the live stream. Otherwise one React
+        // frame paints empty 「生成中」 (isSending + empty streamRef) and residue
+        // then re-pins the sealed text under a stuck spinner.
         if (awaitingToolApproval) {
           logToolApprovalStreamFinal({
             sessionKey: targetSk,
@@ -2787,6 +2791,14 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           maybeEndTurnSendingState(targetSk, rt, isBackground, { force: true })
         }
+        if (!isBackground) activeChatRunIdRef.current = null
+        clearActiveRun(rt)
+        resetRuntimeStream(rt, isBackground ? undefined : streamRef)
+        sfLog('ChatApp final stream reset', {
+          sessionKey: targetSk,
+          runId,
+          rtRowsLen: rt.rows.length,
+        })
         if (isBackground) {
           const bgTitle =
             String(
@@ -3307,9 +3319,10 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           if (!isBackground && (turnBusyForSession(targetSk) || streamRefHasVisibleContent(streamRef.current))) {
             const rtFin = targetSk ? getSessionRuntime(targetSk) : null
             if (rtFin) {
-              resetRuntimeStream(rtFin, streamRef)
+              // force：勿被 DB/probe 残留 running 拖住；先 idle 再清空 stream，避免空闪
+              maybeEndTurnSendingState(targetSk, rtFin, isBackground, { force: true })
               clearActiveRun(rtFin)
-              maybeEndTurnSendingState(targetSk, rtFin, isBackground)
+              resetRuntimeStream(rtFin, streamRef)
             } else {
               setStreamHealth(null)
               streamHealthRef.current = null

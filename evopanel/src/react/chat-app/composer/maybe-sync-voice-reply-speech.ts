@@ -3,10 +3,8 @@
  * Extracted from ChatApp.tsx (P75).
  */
 import { setVoiceTrayState } from '../../../lib/background-voice.js'
-import {
-  streamProject,
-  buildVoiceSpeechBodyForRuntime,
-} from '../../lib/chat-stream-apply.js'
+import { buildVoiceSpeechBodyForRuntime } from '../../lib/chat-stream-apply.js'
+import { streamProject } from '../../lib/stream-state.js'
 import type { SessionRuntime } from '../../lib/session-runtime-store.js'
 
 export type MaybeSyncVoiceReplySpeechCtx = {

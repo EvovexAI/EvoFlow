@@ -1149,8 +1149,14 @@ export const MessageVirtualList = memo(function MessageVirtualList({
     // built==null 且仍在 streamActive：优先复用上一帧 row 保持 isStreaming 稳定，
     // 避免气泡反复闪烁；仅 executing（isSending）时才展示「运行中」占位骨架。
     if ((streamActive || holdStreamResidue) && lastStreamRowRef.current) {
-      // 新一轮 user 发送后 stream 已清空：勿复用上一轮 AI 正文（半旧半新）
-      if (lastHistoryRole === 'user' && !streamRefHasVisibleContent(streamRef.current)) {
+      // 新一轮 user 发送后 stream 已清空：勿复用上一轮 AI 正文（半旧半新）。
+      // 但 final 封存瞬间 setRows 尚未提交、last role 仍是 user、stream 已 reset —
+      // 若这里清掉 residue，会空闪「生成中」一帧。仅在仍 busy（真的在发下一轮）时丢弃。
+      if (
+        lastHistoryRole === 'user' &&
+        !streamRefHasVisibleContent(streamRef.current) &&
+        (streamActive || isSending)
+      ) {
         lastStreamRowRef.current = null
       } else {
         const cached = lastStreamRowRef.current

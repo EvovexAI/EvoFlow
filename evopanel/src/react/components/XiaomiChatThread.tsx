@@ -7,6 +7,9 @@ import type { DisplayRow } from '../chat-types.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
 import { api } from '../../lib/tauri-api.js'
 
+/** 与主对话 MessageVirtualList 同值：流式尾部齿轮绝对定位 bottom:-18px，需要底部留白才可见 */
+const streamFollowBottomInsetPx = 36
+
 type XiaomiUiMessage = {
   id?: string
   role?: string
@@ -242,7 +245,10 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
 
   return (
     <div className="react-chat-conversation-col xm-react-thread">
-      <div className="msg-list xm-react-msg-list">
+      <div
+        className="msg-list xm-react-msg-list"
+        style={streaming ? { paddingBottom: streamFollowBottomInsetPx } : undefined}
+      >
         {messages.map((m, i) => {
           const key = String(m.id || `${String(m.role || '').toLowerCase()}-${i}`)
           if (i === liveIndex) {
