@@ -473,6 +473,15 @@ import {
 } from './chat-app/stream/schedule-stream-bumps.js'
 import { afterLiveOrStructuralBump as afterLiveOrStructuralBumpImpl } from './chat-app/stream/after-live-or-structural-bump.js'
 import {
+  buildWorkspaceMentionConfig,
+  searchWorkspaceFilesForMention as searchWorkspaceFilesForMentionImpl,
+} from './chat-app/composer/workspace-mention.js'
+import { runOpenGoalPanelListenerEffect } from './chat-app/goal/install-open-goal-panel-listener.js'
+import {
+  runChatOverlayDeferEffect,
+  runSidePanelHeavyMountEffect,
+} from './chat-app/shell/install-overlay-defer-effects.js'
+import {
   handleSessionWorkspaceUpdatedEvent,
   startHydrateSessionWorkspaceHistory,
 } from './chat-app/session/sync-session-workspace.js'
@@ -2168,18 +2177,14 @@ export default function ChatApp() {
   cancelPendingStreamUiBumpsRef.current = cancelPendingStreamUiBumps
 
   useEffect(() => {
-    const knowledgeMapVisible = knowledgeMapEnabled && knowledgeMapPanelOpen
-    // 右栏文件/终端与对话并排，取消 bump 会冻住流式绘制并在恢复时跳动；
-    // 仅遮罩对话区的侧栏才暂停 bump。
-    const coveringOverlay =
-      workspacePanelOpen || knowledgeMapVisible || collabExecPanelOpen
-    setChatOverlayDefer('workspace', workspacePanelOpen)
-    setChatOverlayDefer('knowledge-map', knowledgeMapVisible)
-    setChatOverlayDefer('workflow', collabExecPanelOpen)
-    setChatOverlayDefer('file-preview', false)
-    if (coveringOverlay) {
-      cancelPendingStreamUiBumpsRef.current()
-    }
+    runChatOverlayDeferEffect({
+      knowledgeMapEnabled,
+      knowledgeMapPanelOpen,
+      workspacePanelOpen,
+      collabExecPanelOpen,
+      setChatOverlayDefer,
+      cancelPendingStreamUiBumpsRef,
+    })
   }, [
     rightStageOpen,
     workspacePanelOpen,
@@ -2189,19 +2194,14 @@ export default function ChatApp() {
   ])
 
   useEffect(() => {
-    const knowledgeMapVisible = knowledgeMapEnabled && knowledgeMapPanelOpen
-    const anySidePanelOpen =
-      rightStageOpen ||
-      workspacePanelOpen ||
-      knowledgeMapVisible ||
-      collabExecPanelOpen
-    if (!anySidePanelOpen) {
-      queueMicrotask(() => setSidePanelHeavyMount(false))
-      return
-    }
-    queueMicrotask(() => setSidePanelHeavyMount(false))
-    const id = requestAnimationFrame(() => setSidePanelHeavyMount(true))
-    return () => cancelAnimationFrame(id)
+    return runSidePanelHeavyMountEffect({
+      knowledgeMapEnabled,
+      knowledgeMapPanelOpen,
+      rightStageOpen,
+      workspacePanelOpen,
+      collabExecPanelOpen,
+      setSidePanelHeavyMount,
+    })
   }, [
     rightStageOpen,
     workspacePanelOpen,
@@ -2638,30 +2638,16 @@ export default function ChatApp() {
   }, [effectiveWorkspaceRoot, configuredWorkspaceRoot, useVirtualPaths, selectedSessionKey])
 
   const searchWorkspaceFilesForMention = useCallback(
-    async (query: string) => {
-      const root = effectiveWorkspaceRoot
-      const threadId = String(wsClient.getSessionThreadId(selectedSessionKey || '') || '').trim()
-      if (!root && !threadId) return []
-      const q = String(query || '').trim()
-      if (!q) return []
-      try {
-        const { api } = await import('../lib/tauri-api.js')
-        const data = await api.searchWorkspaceFiles(root, q, 15, threadId || undefined)
-        return (Array.isArray(data?.files) ? data.files : [])
-          .map((f: { path?: string; name?: string }) => {
-            const path = String(f?.path || '').trim()
-            if (!path) return null
-            return {
-              path,
-              name: String(f?.name || basenameFromPath(path)),
-              detail: '文件',
-            }
-          })
-          .filter((x: { path: string; name: string; detail: string } | null): x is { path: string; name: string; detail: string } => x != null)
-      } catch {
-        return []
-      }
-    },
+    (query: string) =>
+      searchWorkspaceFilesForMentionImpl(
+        {
+          effectiveWorkspaceRoot,
+          selectedSessionKey,
+          wsClient,
+          basenameFromPath,
+        },
+        query,
+      ),
     [effectiveWorkspaceRoot, selectedSessionKey],
   )
 
@@ -2732,61 +2718,34 @@ export default function ChatApp() {
     addSelectedPlugin,
   } = useComposerSkillPluginSelection({ selectedSessionKey })
 
-  const workspaceMention = useMemo((): WorkspaceMentionConfig | undefined => {
-    const root = effectiveWorkspaceRoot
-    const threadId = String(wsClient.getSessionThreadId(selectedSessionKey || '') || '').trim()
-    if (!root && !threadId) return undefined
-    return {
-      enabled: true,
-      searchFiles: searchWorkspaceFilesForMention,
-      onAttachFile: (entry) => {
-        const path = String(entry.path || '').trim()
-        if (!path) return
-        setContextFiles((prev) => {
-          if (prev.some((x) => x.path === path)) return prev
-          const next = [...prev, { path, name: entry.name || basenameFromPath(path) }]
-          void persistContextFiles(next)
-          return next
-        })
-        void import('../components/toast.js').then(({ toast }) => {
-          toast(`已附加：${entry.name || basenameFromPath(path)}（发送后注入 Agent 上下文）`, 'info')
-        })
-      },
-      roles: proactiveRolesDisplay,
-      // `/` 触发器：注入技能 + 插件的搜索目录。`addSelected*` 会把命中项追加到
-      // `selectedSkills` / `selectedPlugins`，与加号面板的语义一致。
-      skills: skillList,
-      plugins: pluginList.map((p) => ({
-        id: p.id,
-        label: p.label || p.name,
-        iconUrl: p.iconUrl,
-        description: p.description,
-      })),
-      onPickSkill: (sk) => {
-        addSelectedSkill(sk)
-        void import('../components/toast.js').then(({ toast }) => {
-          toast(`已选技能：${sk.label}`, 'info')
-        })
-      },
-      onPickPlugin: (pl) => {
-        addSelectedPlugin(pl)
-        void import('../components/toast.js').then(({ toast }) => {
-          toast(`已选插件：${pl.label}`, 'info')
-        })
-      },
-    }
-  }, [
-    effectiveWorkspaceRoot,
-    persistContextFiles,
-    searchWorkspaceFilesForMention,
-    selectedSessionKey,
-    useVirtualPaths,
-    proactiveRolesDisplay,
-    skillList,
-    pluginList,
-    addSelectedSkill,
-    addSelectedPlugin,
-  ])
+  const workspaceMention = useMemo(
+    (): WorkspaceMentionConfig | undefined =>
+      buildWorkspaceMentionConfig({
+        effectiveWorkspaceRoot,
+        selectedSessionKey,
+        wsClient,
+        basenameFromPath,
+        setContextFiles,
+        persistContextFiles,
+        proactiveRolesDisplay,
+        skillList,
+        pluginList,
+        addSelectedSkill,
+        addSelectedPlugin,
+      }) as WorkspaceMentionConfig | undefined,
+    [
+      effectiveWorkspaceRoot,
+      persistContextFiles,
+      searchWorkspaceFilesForMention,
+      selectedSessionKey,
+      useVirtualPaths,
+      proactiveRolesDisplay,
+      skillList,
+      pluginList,
+      addSelectedSkill,
+      addSelectedPlugin,
+    ],
+  )
 
   const [roleSwitchBusy, setRoleSwitchBusy] = useState(false)
   const scenarioSessionHandlers = useMemo(
@@ -3815,25 +3774,7 @@ export default function ChatApp() {
   }, [goal.goal.ui.goalActive])
 
   useEffect(() => {
-    const onOpenGoalPanel = (event: Event) => {
-      const detail = (event as CustomEvent<{ open?: boolean }>).detail
-      if (typeof detail?.open === 'boolean') {
-        goal.goal.setPanelOpen(detail.open)
-        return
-      }
-      goal.goal.setPanelOpen((v) => !v)
-    }
-    window.addEventListener('evopanel:open-goal-panel', onOpenGoalPanel as EventListener)
-    // 从其它路由点击悬浮宠物跳转到 /chat 后，自动弹出目标面板
-    try {
-      if (sessionStorage.getItem('evopanel-open-goal-panel') === '1') {
-        sessionStorage.removeItem('evopanel-open-goal-panel')
-        goal.goal.setPanelOpen(true)
-      }
-    } catch {
-      /* ignore */
-    }
-    return () => window.removeEventListener('evopanel:open-goal-panel', onOpenGoalPanel as EventListener)
+    return runOpenGoalPanelListenerEffect({ goal })
   }, [goal.goal])
 
   const scheduleBumpHost = {
