@@ -33958,14 +33958,7 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   outline-offset: -1px;
 }
 
-.react-chat-session-ws-group-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  line-height: 1;
-  flex-shrink: 0;
-}
+
 
 .react-chat-session-ws-group-list {
   list-style: none;

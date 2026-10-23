@@ -16,7 +16,7 @@ import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/markdownTableVariant.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
-import { ConversationDraftEmptyState as V4DraftEmptyState } from "@zcode/ui/v4/ConversationDraftEmptyState.js";
+import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";

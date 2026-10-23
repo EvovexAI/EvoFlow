@@ -1434,9 +1434,8 @@ export function ShellSessionList({
                                 size={18}
                               />
                             ) : (
-                              <span className="react-chat-session-ws-group-icon" aria-hidden>
-                                📁
-                              </span>
+                              <ShellFolderIcon size={13} className="text-foreground-subtle" />
+                            )
                             )}
                             <span className="min-w-0 truncate font-medium">{section.label}</span>
                             <span className="react-chat-task-count">{section.rows.length}</span>
