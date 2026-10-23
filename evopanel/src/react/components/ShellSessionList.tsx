@@ -1435,7 +1435,6 @@ export function ShellSessionList({
                               />
                             ) : (
                               <ShellFolderIcon size={13} className="text-foreground-subtle" />
-                            )
                             )}
                             <span className="min-w-0 truncate font-medium">{section.label}</span>
                             <span className="react-chat-task-count">{section.rows.length}</span>
