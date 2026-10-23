@@ -1447,7 +1447,15 @@ export function ShellSessionList({
                                 type='button'
                                 className='flex h-6 w-6 shrink-0 items-center justify-center rounded text-foreground-subtle hover:bg-surface-hover hover:text-foreground'
                                 title={'新建对话'}
-                                onClick={(e) => { e.stopPropagation(); handleNewSessionClick() }}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  // 在被点击的工作空间下新建对话（不是全局焦点组）
+                                  const grp = groups.find((g) => g.workspaceKey === section.key)
+                                  const wsPath = grp && grp.workspaceKey !== WORKSPACE_GROUP_UNBOUND
+                                    ? resolveShellGroupWorkspacePath(grp, registeredWorkspacePaths)
+                                    : null
+                                  onNewSessionInWorkspace?.(wsPath)
+                                }}
                               >
                                 <ShellPlusIcon size={12} />
                               </button>
