@@ -130,11 +130,13 @@ class _ServerEntry:
         "error",
         "stale",
         "tools",
+        "call_timeout_sec",
     )
 
-    def __init__(self, name: str, config: dict[str, Any]) -> None:
+    def __init__(self, name: str, config: dict[str, Any], call_timeout_sec: float | None = None) -> None:
         self.name = name
         self.config = config
+        self.call_timeout_sec = call_timeout_sec
         self.client: MultiServerMCPClient | None = None
         self.session: Any = None
         self.host_task: asyncio.Task | None = None
@@ -274,7 +276,13 @@ class McpConnectionPool:
         with contextlib.suppress(KeyError):
             del self._entries[entry.name]
 
-    async def _ensure_entry_locked(self, name: str, config: dict[str, Any], timeout_sec: float) -> _ServerEntry:
+    async def _ensure_entry_locked(
+        self,
+        name: str,
+        config: dict[str, Any],
+        timeout_sec: float,
+        call_timeout_sec: float | None = None,
+    ) -> _ServerEntry:
         from langchain_mcp_adapters.tools import load_mcp_tools
 
         entry = self._entries.get(name)
@@ -287,7 +295,7 @@ class McpConnectionPool:
                 await self._teardown_entry(entry)
                 entry = None
         if entry is None:
-            entry = _ServerEntry(name, config)
+            entry = _ServerEntry(name, config, call_timeout_sec=call_timeout_sec)
             await self._connect_entry(entry, timeout_sec)
             self._entries[name] = entry
             try:
@@ -308,7 +316,11 @@ class McpConnectionPool:
 
     async def _invoke_tool(self, name: str, original: StructuredTool, kwargs: dict[str, Any]) -> Any:
         entry = self._entries.get(name)
+        # 调用超时优先级（对齐 Zcode）：per-server 配置（timeoutMs/timeout）覆盖
+        # 全局默认（descriptor.timeoutMs 覆盖默认值）；全局默认可用 env 调整。
         timeout = call_timeout_sec()
+        if entry is not None and entry.call_timeout_sec is not None:
+            timeout = entry.call_timeout_sec
         try:
             coro = original.coroutine(**kwargs)
             if timeout > 0:
@@ -328,7 +340,8 @@ class McpConnectionPool:
                     await self._teardown_entry(entry)
             raise RuntimeError(
                 f"MCP tool call timed out after {timeout:.0f}s "
-                f"(server may be hung; tune {_CALL_TIMEOUT_ENV})"
+                f"(server may be hung; tune the server's timeoutMs in mcp.json "
+                f"or {_CALL_TIMEOUT_ENV})"
             ) from None
         except Exception as exc:  # noqa: BLE001
             if looks_like_connection_error(exc) and entry is not None:
@@ -349,10 +362,21 @@ class McpConnectionPool:
     # ── 对外 API ────────────────────────────────────────────────
 
     async def ensure_server_tools(
-        self, name: str, config: dict[str, Any], *, timeout_sec: float = 45.0
+        self,
+        name: str,
+        config: dict[str, Any],
+        *,
+        timeout_sec: float = 45.0,
+        call_timeout_sec: float | None = None,
     ) -> list[BaseTool]:
-        """确保 server 的常驻会话可用，返回池绑定（任意 loop 可调）的工具列表。"""
-        await self.run_on_pool_loop(self._ensure_entry_locked(name, config, timeout_sec))
+        """确保 server 的常驻会话可用，返回池绑定（任意 loop 可调）的工具列表。
+
+        ``timeout_sec`` 为建连超时；``call_timeout_sec`` 为该 server 的调用
+        超时覆盖（``None`` 表示用池全局默认，见 ``call_timeout_sec()``）。
+        """
+        await self.run_on_pool_loop(
+            self._ensure_entry_locked(name, config, timeout_sec, call_timeout_sec)
+        )
         with self._registry_lock:
             entry = self._entries.get(name)
             originals = list(entry.tools) if entry else []

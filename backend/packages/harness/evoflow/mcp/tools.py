@@ -30,7 +30,12 @@ def _get_mcp_config_path() -> Path:
 
 
 def load_mcp_config() -> dict[str, Any]:
-    """Load MCP servers: SQLite (UI edits), with Cursor ``mcp.json`` import fallback."""
+    """Load MCP servers: SQLite (UI edits), with Cursor ``mcp.json`` import fallback.
+
+    Workspace（项目）级已通过信任门的 server 也在此合并（见
+    ``mcp/workspace_scope.py``）；用户级同名 server 优先，项目配置不能仿冒
+    用户已信任的 server。
+    """
     from evoflow.mcp.config_io import (
         is_bogus_mcp_server_map,
         load_mcp_json_from_files,
@@ -49,21 +54,48 @@ def load_mcp_config() -> dict[str, Any]:
         logger.warning("Failed to load MCP config from SQLite: %s", e)
 
     if sqlite_servers and not is_bogus_mcp_server_map(sqlite_servers):
-        return sqlite_servers
+        user_servers = sqlite_servers
+    else:
+        if is_bogus_mcp_server_map(sqlite_servers):
+            logger.warning("SQLite MCP config looks like a raw mcp.json wrapper (key 'mcpServers'); re-importing from mcp.json files")
 
-    if is_bogus_mcp_server_map(sqlite_servers):
-        logger.warning("SQLite MCP config looks like a raw mcp.json wrapper (key 'mcpServers'); re-importing from mcp.json files")
+        file_servers, file_path = load_mcp_json_from_files()
+        if file_servers:
+            try:
+                sync_mcp_servers_to_sqlite(file_servers)
+                logger.info("Synced MCP config from %s into SQLite", file_path)
+            except Exception as e:
+                logger.warning("Could not sync MCP file into SQLite: %s", e)
+            user_servers = file_servers
+        else:
+            user_servers = sqlite_servers
 
-    file_servers, file_path = load_mcp_json_from_files()
-    if file_servers:
-        try:
-            sync_mcp_servers_to_sqlite(file_servers)
-            logger.info("Synced MCP config from %s into SQLite", file_path)
-        except Exception as e:
-            logger.warning("Could not sync MCP file into SQLite: %s", e)
-        return file_servers
+    return _merge_trusted_project_servers(user_servers)
 
-    return sqlite_servers
+
+def _merge_trusted_project_servers(user_servers: dict[str, Any]) -> dict[str, Any]:
+    """合并 workspace（项目）级已信任 server；用户级同名优先（防项目仿冒）。"""
+    try:
+        from evoflow.mcp.workspace_scope import trusted_project_servers
+
+        project_servers = trusted_project_servers()
+    except Exception as e:
+        logger.warning("Failed to load workspace MCP config: %s", e)
+        return user_servers
+    if not project_servers:
+        return user_servers
+    merged = dict(user_servers)
+    for name, cfg in project_servers.items():
+        if name in merged:
+            logger.warning(
+                "Workspace MCP server %r ignored: user-level server with the same name takes precedence",
+                name,
+            )
+            continue
+        merged[name] = cfg
+    if len(merged) != len(user_servers):
+        logger.info("Merged %d trusted workspace MCP server(s)", len(merged) - len(user_servers))
+    return merged
 
 
 def mcp_config_fingerprint() -> str:
@@ -113,8 +145,14 @@ def _normalize_mcp_server_config(server_name: str, config: dict[str, Any]) -> di
         normalized["url"] = url
         if config.get("headers"):
             normalized["headers"] = config["headers"]
-        # timeout is meaningful for HTTP/SSE transports
-        if config.get("timeout") is not None:
+        # timeout is meaningful for HTTP/SSE transports. Zcode 风格 ``timeoutMs``
+        # （毫秒）优先，换算为适配器接受的 ``timeout``（秒）。
+        if config.get("timeoutMs") is not None:
+            try:
+                normalized["timeout"] = float(config["timeoutMs"]) / 1000.0
+            except (TypeError, ValueError):
+                pass
+        elif config.get("timeout") is not None:
             normalized["timeout"] = config["timeout"]
     else:
         # stdio 传输模式
@@ -196,6 +234,9 @@ def _make_sync_tool_wrapper(coro: Callable[..., Any], tool_name: str) -> Callabl
 
 
 def _per_server_timeout_sec(raw_cfg: dict[str, Any] | None = None) -> float:
+    """建连超时：接受 ``timeoutMs``（毫秒）/``timeout``（秒），地板语义只增不减。"""
+    from evoflow.mcp.pool import server_timeout_sec_from_config
+
     default = 45.0
     raw = os.environ.get("EVOFLOW_MCP_SERVER_TIMEOUT_SEC", "").strip()
     if raw:
@@ -203,13 +244,9 @@ def _per_server_timeout_sec(raw_cfg: dict[str, Any] | None = None) -> float:
             default = max(5.0, float(raw))
         except ValueError:
             pass
-    if raw_cfg:
-        t = raw_cfg.get("timeout")
-        if t is not None:
-            try:
-                return max(default, float(t))
-            except (TypeError, ValueError):
-                pass
+    per_server = server_timeout_sec_from_config(raw_cfg)
+    if per_server is not None:
+        return max(default, per_server)
     return default
 
 
@@ -244,7 +281,9 @@ def _mcp_error_hint(server_name: str, cfg: dict[str, Any], err_text: str) -> str
     transport = cfg.get("transport", "stdio")
 
     if "timed out" in lower:
-        hints.append("启动超时：可增大环境变量 EVOFLOW_MCP_SERVER_TIMEOUT_SEC 或配置里的 timeout（秒）")
+        hints.append(
+            "启动超时：可增大环境变量 EVOFLOW_MCP_SERVER_TIMEOUT_SEC 或配置里的 timeoutMs（毫秒）/ timeout（秒）"
+        )
     if transport == "stdio":
         if "not found" in lower or "winerror 2" in lower or "no such file" in lower:
             hints.append("找不到可执行文件：检查 command 是否在 PATH 中，Windows 上 npx/python 建议写全路径")
@@ -303,12 +342,16 @@ async def _load_tools_from_server(
     工具调用复用会话；连接级失败由池标记 stale 并在下次调用自动重建。
     返回 ``(tools, error_message)``。
     """
-    from evoflow.mcp.pool import get_mcp_connection_pool
+    from evoflow.mcp.pool import get_mcp_connection_pool, server_timeout_sec_from_config
 
     timeout_sec = _per_server_timeout_sec(raw_cfg)
+    # 调用超时（对齐 Zcode timeoutMs 语义）：per-server 显式配置即覆盖池全局默认。
+    per_server_call_timeout = server_timeout_sec_from_config(raw_cfg)
     pool = get_mcp_connection_pool()
     try:
-        tools = await pool.ensure_server_tools(name, cfg, timeout_sec=timeout_sec)
+        tools = await pool.ensure_server_tools(
+            name, cfg, timeout_sec=timeout_sec, call_timeout_sec=per_server_call_timeout
+        )
         _normalize_mcp_tool_names(tools, {name: cfg})
         # 登记协议 annotations（readOnlyHint/destructiveHint）供审批层分级。
         from evoflow.mcp.annotations import record_tools_annotations

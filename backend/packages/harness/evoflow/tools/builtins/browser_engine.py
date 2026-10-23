@@ -1454,11 +1454,14 @@ class BrowserEngine:
         nav_ms = int((time.monotonic() - t0) * 1000)
         session.last_url = url
         t_settle = time.monotonic()
-        # Wait until document ready *and* URL matches want (stale-page guard).
-        # Slightly longer than 2.5s so cold restore + redirect can land.
-        ready, state = await self._settle(session, session.tid, 4500)
+        # Soft-decouple: host Page.navigate already committed. FE panel place /
+        # HWND flaps must NOT block or fail the agent tool — settle is a short
+        # best-effort probe only (URL match / readyState). Always return ok
+        # after a successful navigate; the agent can snapshot/wait next turn.
+        ready, state = await self._settle(session, session.tid, 1200)
         settle_ms = int((time.monotonic() - t_settle) * 1000)
         total_ms = int((time.monotonic() - t0) * 1000)
+        detail = str(getattr(session, "last_settle_error", None) or "").strip()
         try:
             from evoflow.tools.builtins.browser_debug_log import browser_debug_log
 
@@ -1473,74 +1476,24 @@ class BrowserEngine:
                 f"[浏览器时间线] 后台导航｜引擎结算 tid={session.tid} "
                 f"文档就绪={ready} 导航耗时ms={nav_ms} 等待耗时ms={settle_ms} "
                 f"总耗时ms={total_ms} 链接={url}"
-                + (
-                    f" 结算异常={getattr(session, 'last_settle_error', None)!r}"
-                    if not ready
-                    else ""
-                ),
+                + (f" 结算备注={detail!r}" if (not ready and detail) else "")
+                + ("（Page.navigate 已成功；前台贴窗失败不阻断后台）" if not ready else ""),
             )
         except Exception:
             pass
         if not ready:
-            detail = str(getattr(session, "last_settle_error", None) or "").strip()
-            detail_l = detail.lower()
-            # Soft-decouple: Page.navigate already applied. Guest-poll / COM stash
-            # flaps (often while FE is placing HWND) must not burn 8–16s and fail
-            # the tool — the document is loading; agent can snapshot/wait next.
-            # Page.navigate already applied. FE place/recreate flaps often leave
-            # readyState=loading or transient evaluate errors — don't fail the tool.
-            # Never soft-ok a stale previous page — agent would snapshot the wrong URL.
-            if "stale_url" in detail_l:
-                soft = False
-            else:
-                soft = detail and any(
-                    s in detail_l
-                    for s in (
-                        "guest poll",
-                        "embed http bridge",
-                        "corewebview2 capture",
-                        "not ready",
-                        "webview",
-                        "readystate=",
-                        "loading",
-                        "blank_while_want",
-                        "about:blank",
-                    )
-                )
-            if soft:
-                logger.warning(
-                    "wv2_navigate settle soft-ok after Page.navigate tid=%s "
-                    "nav_ms=%s settle_ms=%s detail=%s",
-                    session.tid,
-                    nav_ms,
-                    settle_ms,
-                    detail[:200],
-                )
-                return CommandResult(
-                    ok=True,
-                    state=state.model_copy(update={"url": url}) if state else state,
-                )
-            if detail.startswith("readyState=") or detail.startswith("stale_url"):
-                message = (
-                    f"navigate to {url} timed out waiting for document ready "
-                    f"({detail}) within 4.5s. The page may still be loading, blocked, "
-                    "or behind a challenge — check the panel URL manually."
-                )
-            else:
-                message = (
-                    f"navigate to {url} did not become ready within 4.5s"
-                    + (f" ({detail})" if detail else "")
-                    + ". Check the right-side browser panel, or retry."
-                )
-            return CommandResult(
-                ok=False,
-                state=state,
-                error=BrowserError(
-                    code=ErrorCode.TIMEOUT,
-                    message=message,
-                ),
+            logger.warning(
+                "wv2_navigate settle soft-ok after Page.navigate tid=%s "
+                "nav_ms=%s settle_ms=%s detail=%s",
+                session.tid,
+                nav_ms,
+                settle_ms,
+                (detail or "timeout")[:200],
             )
-        return CommandResult(ok=True, state=state)
+        out_state = state
+        if state is not None and (not ready or not (state.url or "").strip()):
+            out_state = state.model_copy(update={"url": url})
+        return CommandResult(ok=True, state=out_state)
 
     async def _wv2_back(self, session: _Session, command: dict[str, Any]) -> CommandResult:
         tid = session.tid

@@ -81,7 +81,7 @@ Do **not** invent APIs like `tab.waitForLoadState` / `tab.domSnapshot` — use `
 - Screenshots: `await agent.documentation.get("screenshots")`
 - Recording / troubleshooting: `await agent.documentation.get("recording"|"browser-troubleshooting")`
 
-Do not call read (or view_image) on screenshots already staged into chat context.
+Do not call read on screenshots already staged into chat context.
 """
 
 
@@ -394,14 +394,13 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
                 f"Do not parse the image file for size. "
                 f"Batch the next click, type, and key in one js cell, then screenshot once."
             )
-        # 只给模型 API 地址。磁盘路径会让它在回复里写「截图文件：@@…png@@」，
-        # 前端再拦成 [Image blocked]。图已经在工具卡上。
+        # 只给模型 API 地址。图已经在工具卡上并 staged。
         banner = (
             f"[Screenshot captured: {image_entries[0]['url']} "
             f"({image_entries[0]['kb']}KB) — already shown on the tool card"
             f"{' and staged for your next context' if staged_entries else ''}. "
-            f"Do not mention the file path, filename, or @@...png@@ in your reply. "
-            f"Do NOT call read on these images (or view_image)."
+            f"Do not mention the file path or filename in your reply. "
+            f"Do NOT call read on these images."
             f"{pixel}]"
         )
         text = f"{banner}\n\n{text}".strip() if text.strip() else banner

@@ -178,14 +178,13 @@ export function reportEmbedSlot(stageId: string, slot: EmbedSlot, opts?: { url?:
       present: true,
     })
     if (retried) return
-    blog('warn', `[browser-embed-surface] set-bounds still missing stage=${id} — recreating`)
-    await ensureNativeEmbed({
-      // Recreate must not re-navigate agent pages — place/create only.
-      placeOnly: true,
-      slot,
-      stageId: id,
-      reason: 'recreate-missing',
-    })
+    // Soft-decouple: do NOT recreate here. Panel place failures must not tear
+    // down the agent WebView (that made backend navigate/settle fail). Next
+    // panel-mount / ensureNativeEmbed can place the existing HWND.
+    blog(
+      'warn',
+      `[browser-embed-surface] set-bounds still missing stage=${id} — leave agent window alone`,
+    )
   })()
 }
 

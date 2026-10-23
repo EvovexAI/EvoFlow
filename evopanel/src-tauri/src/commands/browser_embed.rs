@@ -1685,9 +1685,14 @@ fn create_embed_window(
         ));
         return Ok(());
     }
-    // Brief recheck — panel upsert can race agent Page.navigate/show and see
-    // None for one tick while the prewarm window is still alive.
-    std::thread::sleep(Duration::from_millis(50));
+    // Recheck — panel upsert can race agent Page.navigate/show and see None
+    // for a few ticks while the prewarm window is still alive (CDP window_ok).
+    for _ in 0..12 {
+        if app.get_webview_window(label).is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
     if let Some(win) = app.get_webview_window(label) {
         browser_cdp_server::log_line(&format!(
             "[browser-embed] create recheck hit existing label={label} — reuse"
@@ -1812,12 +1817,27 @@ fn create_embed_window(
             "[browser-embed] create hwnd wait failed label={label}: {e} — closing incomplete build"
         ));
         let _ = win.close();
-        // If a prior healthy window survived the failed build, keep it.
-        if app.get_webview_window(label).is_some() {
+        // Prefer a prior window only if it still has a live HWND. A label-only
+        // zombie makes setBounds storm "underlying handle is not available".
+        if let Some(prior) = app.get_webview_window(label) {
+            let _ = prior.show();
+            let _ = prior.unminimize();
+            if wait_embed_hwnd(&prior, label, Duration::from_secs(2)).is_ok() {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] create recovered prior window label={label}"
+                ));
+                if start_visible {
+                    if let Some(parent) = app.get_webview_window("main") {
+                        let _ = nest_embed_into_main(&prior, &parent);
+                        let _ = place_embed_client(&prior, &parent, x, y, width, height);
+                    }
+                }
+                return Ok(());
+            }
             browser_cdp_server::log_line(&format!(
-                "[browser-embed] create recovered prior window label={label}"
+                "[browser-embed] create prior is hwnd-zombie label={label} — destroy"
             ));
-            return Ok(());
+            destroy_zombie_embed(app, label);
         }
         return Err(format!("create embed hwnd never ready: {e}"));
     }

@@ -1,10 +1,70 @@
 """Unified extensions configuration for MCP servers and skills."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+logger = logging.getLogger(__name__)
+
+# Zcode 风格 mcp.json oauth 块的字段别名（camelCase → 内部 snake_case）。
+# 对齐 Zcode-vs-EvoFlow MCP 分析 #4：oauth 配置块直接写在 server 配置里。
+_ZCODE_OAUTH_KEY_ALIASES: dict[str, str] = {
+    "type": "grant_type",
+    "clientId": "client_id",
+    "clientSecret": "client_secret",
+    "tokenUrl": "token_url",
+    "refreshToken": "refresh_token",
+    "scopes": "scope",
+}
+
+
+def _normalize_oauth_block(oauth: Any) -> dict[str, Any] | None:
+    """Normalize a Zcode-style ``oauth`` block to :class:`McpOAuthConfig` fields.
+
+    - camelCase 别名（type/clientId/clientSecret/tokenUrl/refreshToken/scopes）
+      归一为内部 snake_case；``scopes`` 列表按空格拼接为 scope 字符串。
+    - ``authorization_code`` 需要浏览器交互授权，服务端无法完成：带
+      ``refresh_token`` 时降级为 ``refresh_token`` 刷新流，否则丢弃整个 oauth
+      块（返回 ``None``，server 仍按 headers/env 认证加载，不整台拒载）。
+    - ``client_credentials`` 缺 ``token_url``（Zcode 靠 discovery，EvoFlow 无
+      discovery 实现）时同样丢弃并告警。
+    """
+    if not isinstance(oauth, dict):
+        return oauth  # type: ignore[return-value]  # 非 dict 交给 pydantic 报错
+    out: dict[str, Any] = dict(oauth)
+    for alias, canonical in _ZCODE_OAUTH_KEY_ALIASES.items():
+        if alias not in out:
+            continue
+        if canonical not in out or out.get(canonical) in (None, ""):
+            out[canonical] = out.pop(alias)
+        else:
+            out.pop(alias)
+    if isinstance(out.get("scope"), (list, tuple)):
+        out["scope"] = " ".join(str(s) for s in out["scope"])
+    grant = str(out.get("grant_type") or "client_credentials")
+    if grant == "authorization_code":
+        if out.get("refresh_token"):
+            logger.info(
+                "MCP oauth grant 'authorization_code' downgraded to 'refresh_token' "
+                "(server-side interactive browser flow is not supported)"
+            )
+            out["grant_type"] = "refresh_token"
+        else:
+            logger.warning(
+                "Dropping MCP oauth block: grant_type 'authorization_code' requires an "
+                "interactive browser flow; provide refresh_token or use client_credentials"
+            )
+            return None
+    if not str(out.get("token_url") or "").strip():
+        logger.warning(
+            "Dropping MCP oauth block: token_url is required for machine token grants "
+            "(Zcode relies on discovery which EvoFlow does not implement)"
+        )
+        return None
+    return out
 
 
 class McpOAuthConfig(BaseModel):
@@ -43,6 +103,15 @@ class McpServerConfig(BaseModel):
     oauth: McpOAuthConfig | None = Field(default=None, description="OAuth configuration (for sse or http type)")
     description: str = Field(default="", description="Human-readable description of what this MCP server provides")
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_zcode_oauth_block(cls, data: Any) -> Any:
+        """Zcode 风格 mcp.json 的 oauth 块直接落在 server 配置上（别名归一/降级）。"""
+        if isinstance(data, dict) and "oauth" in data and isinstance(data["oauth"], dict):
+            data = dict(data)
+            data["oauth"] = _normalize_oauth_block(data["oauth"])
+        return data
 
 
 class SkillStateConfig(BaseModel):
