@@ -29,6 +29,51 @@ def langgraph_api_data_dir(home: Path | None = None) -> Path:
     return d
 
 
+def _resolve_n_jobs_per_worker() -> int:
+    """Match in-process Gateway mount (``lazy_langgraph`` default 10).
+
+    ``langgraph_api.cli.run_server`` forces ``N_JOBS_PER_WORKER=1`` when the
+    ``n_jobs_per_worker`` kwarg is omitted — that serializes *all* agent runs
+    on packaged/split desktop (second chat waits until the first finishes).
+    """
+    raw = (os.environ.get("N_JOBS_PER_WORKER") or "").strip()
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            logger.warning("invalid N_JOBS_PER_WORKER=%r; using 10", raw)
+    return 10
+
+
+def _apply_multi_session_concurrency_env() -> None:
+    """Parity with ``app.gateway.lazy_langgraph`` for split ``--mode langgraph``."""
+    import sys
+
+    # Multi-session: isolate each LG job loop so chat A does not starve chat B
+    # on a shared asyncio loop. Opt out with EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS=0.
+    _force_iso = (os.environ.get("EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS") or "1").strip().lower()
+    if _force_iso in ("0", "false", "no", "off"):
+        os.environ["EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS"] = "0"
+        if sys.platform == "win32":
+            os.environ["BG_JOB_ISOLATED_LOOPS"] = "false"
+        else:
+            os.environ.setdefault("BG_JOB_ISOLATED_LOOPS", "true")
+    else:
+        os.environ["EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS"] = "1"
+        os.environ["BG_JOB_ISOLATED_LOOPS"] = "true"
+
+    n_jobs = _resolve_n_jobs_per_worker()
+    os.environ["N_JOBS_PER_WORKER"] = str(n_jobs)
+    try:
+        from evoflow.collab.subtask_stream_trace import log_multi_session_runtime_banner
+
+        log_multi_session_runtime_banner(source="langgraph_split_runtime")
+    except Exception:
+        logger.debug("multi-session runtime banner skipped", exc_info=True)
+
+
 def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
     """Point LangGraph API at a sqlite file under ``EVOFLOW_HOME`` (not ``:memory:``).
 
@@ -41,6 +86,8 @@ def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
     # Register pydantic ToolRuntime.context warning filter before graph workers import tools.
     import evoflow.agents.lead_agent.runtime_context  # noqa: F401
 
+    _apply_multi_session_concurrency_env()
+
     data_dir = langgraph_api_data_dir(home)
     db_file = data_dir / "langgraph.db"
     db_uri = f"sqlite:///{db_file.as_posix()}"
@@ -48,13 +95,15 @@ def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
         "DATABASE_URI": db_uri,
         "REDIS_URI": "fake",
         "LANGGRAPH_DISABLE_FILE_PERSISTENCE": "false",
+        "N_JOBS_PER_WORKER": os.environ["N_JOBS_PER_WORKER"],
     }
     for k, v in env_patch.items():
         os.environ.setdefault(k, v)
     logger.info(
-        "LangGraph runtime env: DATABASE_URI=%s data_dir=%s",
+        "LangGraph runtime env: DATABASE_URI=%s data_dir=%s N_JOBS_PER_WORKER=%s",
         db_uri,
         data_dir,
+        os.environ.get("N_JOBS_PER_WORKER"),
     )
     # NOTE: apply_langgraph_command_patch() is NOT called here.
     # It must run AFTER ``import langgraph_api.server`` (below) so that
@@ -104,17 +153,24 @@ def load_langgraph_server_config() -> dict[str, Any]:
 
 
 def run_server_kwargs() -> dict[str, Any]:
-    """Keyword args for ``langgraph_api.cli.run_server`` (embedded / desktop LangGraph)."""
+    """Keyword args for ``langgraph_api.cli.run_server`` (embedded / desktop LangGraph).
+
+    Always pass ``n_jobs_per_worker``: upstream defaults the kwarg to ``1`` and
+    overwrites ``N_JOBS_PER_WORKER`` env, which breaks concurrent chats on
+    packaged split-process desktop.
+    """
     apply_langgraph_server_env()
     cfg = load_langgraph_server_config()
     graphs = cfg.get("graphs") if isinstance(cfg.get("graphs"), dict) else dict(_DEFAULT_GRAPHS)
     checkpointer = cfg.get("checkpointer")
+    n_jobs = _resolve_n_jobs_per_worker()
     out: dict[str, Any] = {
         "graphs": graphs,
         "reload": False,
         "open_browser": False,
         "allow_blocking": True,
         "server_level": "INFO",
+        "n_jobs_per_worker": n_jobs,
         "__database_uri__": os.environ.get("DATABASE_URI"),
         "__redis_uri__": os.environ.get("REDIS_URI", "fake"),
     }

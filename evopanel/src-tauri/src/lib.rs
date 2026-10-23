@@ -166,8 +166,28 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("backend-sidecar-boot".into())
                 .spawn(move || {
-                    if let Err(e) = backend::ensure_backend_sidecar(&sidecar_boot_handle) {
-                        eprintln!("[boot] 启动内置后端失败: {e}");
+                    // Lock contention (stale install / another window) must not
+                    // permanently strand the UI without a Gateway — retry until
+                    // the profile lock is free or a non-lock error persists.
+                    let mut attempt: u32 = 0;
+                    loop {
+                        match backend::ensure_backend_sidecar(&sidecar_boot_handle) {
+                            Ok(()) => break,
+                            Err(e) => {
+                                attempt = attempt.saturating_add(1);
+                                eprintln!("[boot] 启动内置后端失败 (attempt {attempt}): {e}");
+                                let lock_busy = e.contains("已被另一") || e.contains("sidecar.lock");
+                                if !lock_busy && attempt >= 5 {
+                                    break;
+                                }
+                                let wait_secs = if lock_busy {
+                                    3u64
+                                } else {
+                                    2u64.saturating_mul(attempt.min(5) as u64)
+                                };
+                                std::thread::sleep(std::time::Duration::from_secs(wait_secs));
+                            }
+                        }
                     }
                     commands::boot_cycle::mark("desktop", "sidecar.ensure.returned", None);
                 })

@@ -106,19 +106,42 @@ fn profile_lock_path() -> PathBuf {
     runtime_dir().join("sidecar.lock")
 }
 
-fn pid_alive(pid: u32) -> bool {
+/// True only when `pid` is a live **EvoFlow / EvoPanel desktop** process.
+///
+/// Bare `OpenProcess` success is not enough: after install/`taskkill /F` the
+/// lock file often still points at a dead PID, and Windows may reuse that PID
+/// for an unrelated process — which would permanently block sidecar spawn
+/// (blank UI waiting on Gateway). Match on image name to reclaim safely.
+fn pid_is_live_desktop_owner(pid: u32) -> bool {
     #[cfg(windows)]
     {
-        // Lightweight Win32 liveness check via the `windows` crate (already a dep).
+        use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Threading::{
-            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+            PROCESS_QUERY_LIMITED_INFORMATION,
         };
         unsafe {
-            // OpenProcess returns Result<HANDLE>; is_err() is true when the
-            // PID does not exist or we lack access. For our purpose ("is
-            // this PID still alive?") any successful open is good enough —
-            // we never query the handle further.
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).is_ok()
+            let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+                return false;
+            };
+            let mut buf = [0u16; 512];
+            let mut size = buf.len() as u32;
+            let ok = QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(buf.as_mut_ptr()),
+                &mut size,
+            )
+            .is_ok();
+            let _ = CloseHandle(handle);
+            if !ok || size == 0 {
+                return false;
+            }
+            let path = String::from_utf16_lossy(&buf[..size as usize]).to_ascii_lowercase();
+            path.ends_with("\\evoflow.exe")
+                || path.ends_with("\\evopanel.exe")
+                || path.ends_with("/evoflow.exe")
+                || path.ends_with("/evopanel.exe")
         }
     }
     #[cfg(not(windows))]
@@ -152,11 +175,10 @@ fn try_acquire_profile_lock() -> Result<(), String> {
         let _ = fs::create_dir_all(parent);
     }
 
-    // Stale-lock reclamation: if the recorded PID is not alive, we can take
-    // over. This is best-effort, not a hard correctness guarantee — but our
-    // data isolation (per-profile dirs + per-profile ports) is.
+    // Stale-lock reclamation: only block when another *desktop* instance still
+    // owns the profile. Dead PIDs / PID-reuse into unrelated processes → take over.
     if let Some(prev_pid) = read_lock_owner() {
-        if prev_pid != std::process::id() && pid_alive(prev_pid) {
+        if prev_pid != std::process::id() && pid_is_live_desktop_owner(prev_pid) {
             return Err(format!(
                 "profile '{}' sidecar 已被另一 EvoPanel 实例占用 (pid={}); 已存在 sidecar.lock={}",
                 super::current_profile_id(),
@@ -164,9 +186,11 @@ fn try_acquire_profile_lock() -> Result<(), String> {
                 path.display()
             ));
         }
-        append_startup_log(&format!(
-            "sidecar.lock stale (pid={prev_pid} dead); reclaiming"
-        ));
+        if prev_pid != std::process::id() {
+            append_startup_log(&format!(
+                "sidecar.lock stale (pid={prev_pid} not a live evoflow/evopanel); reclaiming"
+            ));
+        }
     }
 
     let file = fs::OpenOptions::new()
@@ -1679,6 +1703,14 @@ fn spawn_langgraph_runtime_child(
         // port (profile hash), not legacy 8070.
         .env("EVOFLOW_GATEWAY_PORT", gateway_port.to_string())
         .env("INTERNAL_EVENTS_SECRET", internal_secret)
+        // Concurrent chats: langgraph_api.run_server defaults n_jobs to 1 unless
+        // kwargs/env are set. Python run_server_kwargs() also forces 10; set env
+        // here so logs/banners match even before that module loads.
+        .env("N_JOBS_PER_WORKER", std::env::var("N_JOBS_PER_WORKER").unwrap_or_else(|_| "10".into()))
+        .env(
+            "EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS",
+            std::env::var("EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS").unwrap_or_else(|_| "1".into()),
+        )
         .env("PYTHONUNBUFFERED", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

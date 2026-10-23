@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - **Windows 安装包升版不再强制先卸载**：检测到已装旧版本时直接覆盖安装（与同版本重装一致）；仅 WiX 旧安装迁移仍走卸载
+- **安装/强杀后白屏（Gateway 起不来）**：清理陈旧 `sidecar.lock`；锁占用校验改为确认仍是 evoflow/evopanel 进程；启动抢锁失败会重试
+- **安装包多会话只能串行流式**：split LangGraph 未传 `n_jobs_per_worker`，上游默认成 1；现与开发环境一致默认 10，可同时多对话流式
 
 ## [1.1.5] - 2026-10-23
 
