@@ -310,6 +310,10 @@ async def _load_tools_from_server(
     try:
         tools = await pool.ensure_server_tools(name, cfg, timeout_sec=timeout_sec)
         _normalize_mcp_tool_names(tools, {name: cfg})
+        # 登记协议 annotations（readOnlyHint/destructiveHint）供审批层分级。
+        from evoflow.mcp.annotations import record_tools_annotations
+
+        record_tools_annotations(tools)
         return tools, None
     except TimeoutError:
         err = f"Timed out after {timeout_sec:.0f}s connecting to MCP server"

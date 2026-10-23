@@ -291,8 +291,9 @@ class McpConnectionPool:
             coro = original.coroutine(**kwargs)
             if timeout > 0:
                 # 超时在池侧计时：调用方取消不会让挂死调用泄漏在池 loop 上。
-                return await asyncio.wait_for(coro, timeout=timeout)
-            return await coro
+                raw = await asyncio.wait_for(coro, timeout=timeout)
+            else:
+                raw = await coro
         except TimeoutError:
             # 挂死的调用占用常驻 session；按连接级故障处理，下次调用重建会话。
             if entry is not None:
@@ -317,6 +318,11 @@ class McpConnectionPool:
                 with contextlib.suppress(Exception):
                     await self._teardown_entry(entry)
             raise
+        # 结果预算归一化（对齐 Zcode）：大图落盘换占位引用、超预算文本截断，
+        # 防止 MCP 返回的大 base64 图片 / 超长输出打爆 provider 请求体。
+        from evoflow.mcp.result_budget import normalize_mcp_tool_result
+
+        return normalize_mcp_tool_result(str(getattr(original, "name", "") or name), raw)
 
     # ── 对外 API ────────────────────────────────────────────────
 

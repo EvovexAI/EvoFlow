@@ -188,7 +188,14 @@ def _mcp_auto_allow_matched(tool_name: str) -> bool:
 
 
 def _mcp_tool_risk(tool_name: str) -> str | None:
-    """MCP 工具风险分级；非 MCP 工具返回 None 走原表。"""
+    """MCP 工具风险分级；非 MCP 工具返回 None 走原表。
+
+    分级对齐 Zcode 的 annotations 语义（core/src/mcp/index.ts）：
+    destructiveHint=true → high ≙ confirm；readOnlyHint=true → low ≙ auto；
+    无 annotations 的外部 MCP 工具保持能力未知时的 session 兜底。
+    env 显式放行名单（EVOFLOW_MCP_AUTO_TOOLS）优先级最高——用户显式声明的
+    信任不被 server 自报的 hints 推翻。
+    """
     name = str(tool_name or "").strip().lower()
     if not name.startswith(_MCP_TOOL_NAME_PREFIX):
         return None
@@ -199,6 +206,18 @@ def _mcp_tool_risk(tool_name: str) -> str | None:
         # Browser Use / Computer Use 内核：任意 JS 全权执行（可驱动浏览器、
         # 经 CUA 触达 OS），风险级别对齐 ZCode（≙Bash high risk）。
         return RISK_CONFIRM
+    # 读 MCP 协议 annotations（加载时由 mcp.annotations 登记）。
+    try:
+        from evoflow.mcp.annotations import get_tool_hints
+
+        hints = get_tool_hints(name)
+    except Exception:
+        hints = None
+    if hints:
+        if hints.get("destructiveHint") is True:
+            return RISK_CONFIRM
+        if hints.get("readOnlyHint") is True:
+            return RISK_AUTO
     # 其余外部 MCP 工具：能力未知，宁可用一次确认换边界。
     return RISK_SESSION
 
