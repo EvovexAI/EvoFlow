@@ -195,11 +195,11 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
     return target
 
 
-def _note_model_read(path: Path) -> None:
+def _note_model_read(path: Path, *, full_read: bool = True) -> None:
     try:
         from evoflow.tools.zcode_port.read_file_state import note_read
 
-        note_read(str(path))
+        note_read(str(path), full_read=full_read)
     except Exception:
         return
 
@@ -300,9 +300,23 @@ def read_file_hd(
             text += f"\n\n… [symbol '{symbol}' body is {total} lines; showing first {_SYMBOL_MAX_LINES}. Read the rest with offset={start + _SYMBOL_MAX_LINES}, limit={min(_SYMBOL_MAX_LINES, remaining)}]"
             return text
         text = "\n".join(f"{start + i}: {line}" for i, line in enumerate(body_lines))
-        _note_model_read(resolved)
+        _note_model_read(resolved, full_read=False)
         return text
+    # ZCode-style file_unchanged short-circuit: a full-text re-read of an
+    # unchanged file returns a one-line marker instead of resending content.
+    if offset is None and limit is None:
+        try:
+            from evoflow.tools.zcode_port.read_file_state import unchanged_since_last_read
+
+            if unchanged_since_last_read(resolved):
+                return (
+                    "Wasted call — file unchanged since your last Read. "
+                    "Refer to that earlier tool_result instead. "
+                    "If you intentionally want the content again, use offset=1."
+                )
+        except Exception:
+            pass
     text = read_file_content(str(resolved), offset=offset, limit=limit, use_cache=True)
     if not str(text).startswith("Error:"):
-        _note_model_read(resolved)
+        _note_model_read(resolved, full_read=(offset is None and limit is None))
     return text

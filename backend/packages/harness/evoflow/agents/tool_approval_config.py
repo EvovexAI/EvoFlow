@@ -46,6 +46,8 @@ RISK_CONFIRM = "confirm"  # irreversible / external — per-call confirmation
 TOOL_RISK_LEVELS: dict[str, str] = {
     # Auto — read-only, no side effects
     "read": RISK_AUTO,
+    "glob": RISK_AUTO,
+    "grep": RISK_AUTO,
     "search_code_index": RISK_AUTO,
     "glob": RISK_AUTO,
     "grep": RISK_AUTO,
@@ -239,6 +241,21 @@ def tool_risk_level(tool_name: str, args: dict[str, Any] | None = None) -> str:
 
     level = TOOL_RISK_LEVELS.get(name, RISK_AUTO)
 
+    # ZCode-style: read-only shell commands (per-command, flag-aware) run
+    # without approval — pyright / ruff check / rg / git log etc. work in
+    # plan mode and never hit the approval UI. Anything unclassified keeps
+    # the normal risk flow. Stricter execution_security (UNTRUSTED) wins.
+    if name in ("terminal", "process", "process_start", "bash") and level != RISK_AUTO:
+        command = str((args or {}).get("command") or "").strip()
+        if command:
+            try:
+                from evoflow.tools.zcode_port.bash_readonly_policy import is_readonly_shell_command
+
+                if is_readonly_shell_command(command) and not _shell_security_forces_confirm():
+                    return RISK_AUTO
+            except Exception:
+                pass
+
     # Bridge execution_security.approval onto shell tools so we
     # do not invent a second UI gate. Middleware still owns prompts.
     if name in ("terminal", "process", "process_start", "bash") and level != RISK_AUTO:
@@ -261,6 +278,23 @@ def tool_risk_level(tool_name: str, args: dict[str, Any] | None = None) -> str:
             pass
 
     return level
+
+
+def _shell_security_forces_confirm() -> bool:
+    """True when execution_security is active at UNTRUSTED — stricter setting wins
+    over the read-only auto-allow (NEVER already auto-allows everything)."""
+    try:
+        from evoflow.execution_security.approval import AskForApproval
+        from evoflow.execution_security.config import (
+            get_execution_security_config,
+            is_execution_security_active,
+            resolved_ask,
+        )
+
+        cfg = get_execution_security_config()
+        return bool(is_execution_security_active(cfg) and resolved_ask(cfg) is AskForApproval.UNTRUSTED)
+    except Exception:
+        return False
 
 
 def command_security_decision(

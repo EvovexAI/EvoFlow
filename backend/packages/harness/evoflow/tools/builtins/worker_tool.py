@@ -176,9 +176,9 @@ def build_file_worker_prompt(spec: WorkerTaskSpec, *, skip_lint: bool = False) -
         lines.append(spec.new_string)
     lines.append("")
     if skip_lint:
-        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, then summarize. Do NOT run read_lints — a unified lint will run after all same-file edits complete.")
+        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, then summarize. Do NOT run lint yourself — a unified lint will run after all same-file edits complete.")
     else:
-        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, optionally run read_lints, then summarize.")
+        lines.append("Constraints: only modify the path above; do not touch other files. Read the file first, apply the action, optionally run a lint via terminal (pyright / ruff), then summarize.")
     return "\n".join(lines)
 
 
@@ -505,7 +505,7 @@ Next (same or next turn): `worker` with **edit tasks only** (never mix search + 
 Rules:
 - If catalog-only (no <post_search_reads>): read_file the top 1-2 candidate paths to confirm before editing.
 - Use paths from <worker_code_reads> / Read catalog — do NOT search again unless a path is truly missing.
-- Do not reply with analysis only; apply the change, then verify (read_lints / terminal) when appropriate.
+- Do not reply with analysis only; apply the change, then verify (lint via terminal) when appropriate.
 - Skip edits only when the user explicitly wanted explanation/research with no code change.
 Candidate paths: {path_hint}
 </worker_search_next_step>"""
@@ -1124,7 +1124,7 @@ def _run_post_batch_lint(
     local_workspace_root: str | None,
     thread_id: str | None,
 ) -> dict[str, str]:
-    """Run read_lints on each path after all same-file edits complete. Returns {path: lint_output}."""
+    """Run lint (code_lint.lint_path) on each path after all same-file edits complete. Returns {path: lint_output}."""
     from evoflow.tools.code_lint import lint_path
     from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_path, runtime_with_workspace
 

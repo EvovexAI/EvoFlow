@@ -1,40 +1,73 @@
-"""Track files the Read tool has shown the model (ZCode readFileState, mtime only)."""
+"""Track files the Read tool has shown the model (ZCode readFileState).
+
+Two consumers:
+- ``stale_read_hint`` — paths whose mtime moved since Read (edit-before-read guard).
+- ``unchanged_since_last_read`` — ZCode-style ``file_unchanged`` short-circuit:
+  a re-read of an unchanged full-text file returns a one-line marker instead of
+  resending the content (token saving). Partial views (offset/limit/symbol)
+  never qualify, matching ZCode's ``isPartialView`` rule.
+"""
 
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 _LOCK = threading.Lock()
-_MTIME: dict[str, float] = {}
 _MAX_HINT_PATHS = 5
 
 
-def note_read(path: str) -> None:
+@dataclass(frozen=True)
+class _ReadEntry:
+    mtime: float
+    size: int
+    full_read: bool
+
+
+# resolved path -> last model-visible read
+_SEEN: dict[str, _ReadEntry] = {}
+
+
+def note_read(path: str, *, full_read: bool = True) -> None:
     raw = str(path or "").strip()
     if not raw:
         return
     file_path = Path(raw)
     try:
         resolved = str(file_path.resolve())
-        mtime = file_path.stat().st_mtime
+        stat = file_path.stat()
     except OSError:
         return
     with _LOCK:
-        _MTIME[resolved] = mtime
+        _SEEN[resolved] = _ReadEntry(mtime=stat.st_mtime, size=stat.st_size, full_read=full_read)
+
+
+def unchanged_since_last_read(path: str | Path) -> bool:
+    """True when *path* was fully read before and mtime + size are unchanged."""
+    try:
+        resolved = str(Path(path).resolve())
+        stat = Path(path).stat()
+    except OSError:
+        return False
+    with _LOCK:
+        entry = _SEEN.get(resolved)
+    if entry is None or not entry.full_read:
+        return False
+    return abs(stat.st_mtime - entry.mtime) <= 1e-6 and stat.st_size == entry.size
 
 
 def stale_read_hint() -> str:
     """Paths whose mtime moved since Read. Empty when nothing changed."""
     with _LOCK:
-        snapshot = list(_MTIME.items())
+        snapshot = list(_SEEN.items())
     changed: list[str] = []
-    for path, seen in snapshot:
+    for path, entry in snapshot:
         try:
             current = Path(path).stat().st_mtime
         except OSError:
             continue
-        if abs(current - seen) > 1e-6:
+        if abs(current - entry.mtime) > 1e-6:
             changed.append(path)
     if not changed:
         return ""

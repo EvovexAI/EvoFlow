@@ -153,6 +153,24 @@ threadId 经 rightStage data 从 chat-app-view（wsClient.getSessionThreadId）�
 **审查仍无响应时的检查点：canReview = patches>0 && onOpenCodeViewer，按钮 disabled
 即 patches 空——抓该轮 [v4.hydration]/fileChanges 响应发我。**
 
+**左侧会话列表分组（2026-10-22 深夜二十一轮，被并行覆盖待重做）**：ShellSessionList
+加了 groupedRecentSections（chats 按工作区分组头/员工 tab 按头像分组头 + 折叠）+ Fragment
+import——**被并行重写覆盖丢失**（文件从 1483→1588 行，subagentEntries 消失）。
+重做要点（结构已验证可行）：①recentVisibleRows 后加 groupedRecentSections useMemo
+（chats: groups.length>1 时按 row.workspaceKey 分组、label 取 groups 匹配；employees:
+按 proactiveAgentCodeFromSessionKey 分组、label 用 resolveEmployeeGroupLabel、组头
+AssignedAgentAvatar）；②recent-list 内条件渲染分组树（折叠头+组内行），单组/聚焦组
+保持平铺；③collapsedGroupKeys 本地 state + Fragment import。
+**教训：ShellSessionList 也是多人热点文件——分组功能改完必须立即提交。**
+
+**子代理入口接回完成（2026-10-22 深夜二十轮）**：按团队新形态接回——
+V4ZCodeTimeline 加 subagentTasks/onOpenSubagentTranscript props；subagentEntries
+（toolCall 行 ↔ subagentTasks 四键 resolve，同 ToolCallList 同键）经 ref 稳定性纪律
+（subagentTasksRef/onOpenSubagentTranscriptRef，回调身份跨帧稳定）；底部入口条渲染在
+div.zcode-bridge-root 内（ServiceProvider 后、绝对定位 bottom-2，与审批浮层同区不重叠）。
+点击 → onOpenSubagentTranscript → rightStage subagentTranscript 面板（transcript 轮询
++ liveOutput 兜底）。v4Session 订阅面板（V4SessionPaneBridge）作为后续升级路径保留。
+
 **v4Session 面板桥（2026-10-22 深夜十九轮，做了一半）**：
 ①新组件 `react/v4/V4SessionPaneBridge.tsx`——V4StreamRowsBridge + V4ZCodeTimeline readOnly，
 按 childSessionId 订阅子会话投影（ZCode drilldown 同机制，数据已由镜像捕获）；

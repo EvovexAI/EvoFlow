@@ -402,13 +402,9 @@ def _cached_resolve_tools(
         if not any(getattr(t, "name", "") == "tool_search" for t in tools):
             tools.append(tool_search_tool)
 
-    acp_tools: list[BaseTool] = []
-    try:
-        from evoflow.tools.builtins.invoke_acp_agent_tool import build_invoke_acp_agent_tool
-
-        acp_tools.append(build_invoke_acp_agent_tool())
-    except Exception as e:
-        logger.warning("Failed to load ACP tool: %s", e)
+    # ACP retired: invoke_acp_agent tool is no longer registered.
+    # Legacy modules (invoke_acp_agent_tool / config.acp_config) are kept but inactive;
+    # acp_agents entries in config.yaml are ignored.
 
     plug_memory_tools: list[BaseTool] = []
     try:
@@ -418,7 +414,7 @@ def _cached_resolve_tools(
     except Exception as e:
         logger.warning("Hermes external memory plugin tools not loaded: %s", e)
 
-    combined = _without_trae_agent_tools(tools + mcp_tools + acp_tools + plug_memory_tools)
+    combined = _without_trae_agent_tools(tools + mcp_tools + plug_memory_tools)
     return tuple(_finalize_tool_catalog(_apply_media_runtime_tool_schemas(combined), tools_mode=tools_mode))
 
 
@@ -565,14 +561,7 @@ def _load_host_direct_tools(
         if not any(getattr(t, "name", "") == "tool_search" for t in tools):
             tools.append(tool_search_tool)
 
-    # ACP tools
-    try:
-        from evoflow.tools.builtins.invoke_acp_agent_tool import build_invoke_acp_agent_tool
-
-        tools.append(build_invoke_acp_agent_tool())
-        logger.debug("HostDirect mode: Including invoke_acp_agent tool")
-    except Exception as e:
-        logger.warning(f"Failed to load ACP tool in HostDirect mode: {e}")
+    # ACP retired in HostDirect mode too: invoke_acp_agent is no longer registered.
 
     plug_memory_tools: list[BaseTool] = []
     try:

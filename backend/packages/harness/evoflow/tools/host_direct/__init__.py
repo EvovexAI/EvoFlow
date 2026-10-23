@@ -9,6 +9,7 @@ from evoflow.tools.host_direct.search_code_index import search_code_index_hd
 from evoflow.tools.host_direct.str_replace import str_replace_hd
 from evoflow.tools.host_direct.write_file import write_file_hd
 from evoflow.tools.zcode_port import zcode_shell_tools
+from evoflow.tools.zcode_port.glob_grep import glob_tool, grep_tool
 
 # find / rg / terminal 已由 ZCode Bash（embedded search）取代，实现文件保留但不注册。
 # from evoflow.tools.host_direct.find_file import find_file_hd
@@ -26,6 +27,8 @@ HOST_DIRECT_TOOLS = [
     # delete_file_hd,
     # find_file_hd,
     # rg_hd,
+    glob_tool,
+    grep_tool,
     search_code_index_hd,
     # terminal_tool,
     *zcode_shell_tools(),

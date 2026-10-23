@@ -1638,29 +1638,70 @@ fn create_embed_window(
     // a blocked main thread cannot run. Build on the caller thread (async
     // command worker or HTTP ensure path) instead; then wait_webview2_ready
     // hops onto main with an explicit PeekMessage pump.
-    // 窗口已在（引擎兜底先建出来）时，面板这次带来的才是槽位。估算调用不要再挪它。
-    if app.get_webview_window(label).is_some() {
-        if wait_embed_hwnd_label(app, label, Duration::from_secs(8)).is_err() {
-            destroy_zombie_embed(app, label);
-            // Fall through to a fresh build below.
-        } else if let Some(win) = app.get_webview_window(label) {
+    // Window already exists (boot-prewarm / agent navigate): reuse — never
+    // destroy+rebuild. Destroy-on-wait-fail raced Page.navigate and left
+    // "create embed hwnd never ready" while CDP still had the live page.
+    if let Some(win) = app.get_webview_window(label) {
+        mark_parked(label, false);
+        let _ = win.show();
+        let _ = win.unminimize();
+        if wait_embed_hwnd_label(app, label, Duration::from_secs(3)).is_err() {
+            // One more beat after show — offscreen park can lag hwnd().
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = win.show();
+        }
+        if wait_embed_hwnd_label(app, label, Duration::from_secs(5)).is_err() {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] create reuse: hwnd slow label={label} — keep existing (no destroy)"
+            ));
+            // Soft-decouple: still return Ok so panel mount does not fail the
+            // agent page. set_bounds / later place can recover HWND.
             if start_visible {
-                let parent = app
-                    .get_webview_window("main")
-                    .ok_or_else(|| "main window not found".to_string())?;
-                mark_parked(label, false);
-                let _ = win.show();
-                let _ = win.unminimize();
-                nest_embed_into_main(&win, &parent)?;
-                place_embed_client(&win, &parent, x, y, width, height)?;
-                log_region_diag("create-reuse", label, &parent, &win, (x, y, width, height));
-                if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
-                    map.insert(label.to_string(), (x, y, width.max(120.0), height.max(80.0)));
+                if let Some(parent) = app.get_webview_window("main") {
+                    let _ = nest_embed_into_main(&win, &parent);
+                    let _ = place_embed_client(&win, &parent, x, y, width, height);
                 }
-                note_writer(label, "panel-create-reuse");
             }
             return Ok(());
         }
+        if start_visible {
+            let parent = app
+                .get_webview_window("main")
+                .ok_or_else(|| "main window not found".to_string())?;
+            nest_embed_into_main(&win, &parent)?;
+            place_embed_client(&win, &parent, x, y, width, height)?;
+            log_region_diag("create-reuse", label, &parent, &win, (x, y, width, height));
+            if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
+                map.insert(label.to_string(), (x, y, width.max(120.0), height.max(80.0)));
+            }
+            note_writer(label, "panel-create-reuse");
+        } else {
+            // Keep off-screen but HWND-alive for CDP.
+            let _ = hide_embed_hwnd(&win);
+            mark_parked(label, true);
+        }
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] create reuse ok label={label} visible={start_visible}"
+        ));
+        return Ok(());
+    }
+    // Brief recheck — panel upsert can race agent Page.navigate/show and see
+    // None for one tick while the prewarm window is still alive.
+    std::thread::sleep(Duration::from_millis(50));
+    if let Some(win) = app.get_webview_window(label) {
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] create recheck hit existing label={label} — reuse"
+        ));
+        mark_parked(label, false);
+        let _ = win.show();
+        let _ = win.unminimize();
+        if start_visible {
+            if let Some(parent) = app.get_webview_window("main") {
+                let _ = nest_embed_into_main(&win, &parent);
+                let _ = place_embed_client(&win, &parent, x, y, width, height);
+            }
+        }
+        return Ok(());
     }
     let parent = app
         .get_webview_window("main")
@@ -1767,7 +1808,17 @@ fn create_embed_window(
         .map_err(|e| format!("create embedded browser failed: {e}"))?;
     // Build returns before tao always has the HWND — wait or nest fails hard.
     if let Err(e) = wait_embed_hwnd(&win, label, Duration::from_secs(8)) {
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] create hwnd wait failed label={label}: {e} — closing incomplete build"
+        ));
         let _ = win.close();
+        // If a prior healthy window survived the failed build, keep it.
+        if app.get_webview_window(label).is_some() {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] create recovered prior window label={label}"
+            ));
+            return Ok(());
+        }
         return Err(format!("create embed hwnd never ready: {e}"));
     }
     // 先登记槽位再贴位/显影，避免看门狗在中间看到「可见无 bounds」。

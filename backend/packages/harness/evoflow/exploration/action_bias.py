@@ -112,7 +112,7 @@ def _hint_body(task_type: str, read_count: int) -> str:
             "- If fixing a bug with multiple possible causes, **probe first** (temp logs, targeted reads) to confirm root cause before editing.\n"
             "- **Next act**: worker(tasks=[{{'action':'edit|replace', 'path':'...', 'instruction':'...'}}]) "
             "or one-shot replace/write when the patch is obvious.\n"
-            "- Then verify (read_lints / quick check) and reply briefly."
+            "- Then verify (lint via terminal / quick check) and reply briefly."
         )
     if tt == TASK_DATA_BUG:
         return (

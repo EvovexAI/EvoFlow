@@ -544,10 +544,13 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 }
               >
                 {(v4Payload, v4Phase) =>
-                  /* 仅两种情况走老面板：显式回滚，或真首页（未选中任何会话的 draft）。
-                  会话切换瞬间（threadId 未解析/快照未到）保持 V4 面板——回落老面板
-                  会先渲染一屏老样式历史再切 V4（闪烁 + 整树重测高抖动）。 */
-                  v4Phase === 'disabled' || !selectedSessionKey ? (
+                  /* 仅两种情况走老面板：显式回滚（disabled），或工作台首页（isHomeSurface，
+                  自带 EvoFlowHomeDashboard 输入条）。
+                  「新对话」草稿（selectedSessionKey 为空）必须留在 V4：点「+」后
+                  startNewSessionWithWorkspace 会 flushSync 清空选中，若此时回落老面板，
+                  输入框会先贴到底部（老链路兄弟 dock），等会话创建 + ensure-thread 完成
+                  （实测 2~3s）再跳回 V4 居中——这正是「先在下面、一会儿跑到中间」的成因。 */
+                  v4Phase === 'disabled' || isHomeSurface ? (
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}
@@ -601,7 +604,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   ) : (
                     <V4ZCodeTimeline
                       payload={v4Payload}
-                      connecting={v4Phase === 'connecting'}
+                      connecting={v4Phase === 'connecting' || v4Phase === 'no-thread'}
+                      /* 草稿空态 = 尚无任何行可显示（新会话创建中 / 等首帧快照）。
+                         与居中判定同源，避免问候语与 composer 分属两个阶段而闪烁。 */
+                      draftEmpty={v4Phase !== 'ready' || !v4Payload?.snapshot?.rows.totalCount}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenCodeViewer={(source) => {
                         // ZCode CodeViewerSource → 右侧 codeViewer 面板

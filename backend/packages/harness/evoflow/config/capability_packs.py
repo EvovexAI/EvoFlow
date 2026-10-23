@@ -75,6 +75,8 @@ CAPABILITY_PACKS: dict[str, CapabilityPack] = {
             "replace",
             # "delete",  # retired — 删除走 Bash rm（审批兜底），对齐 ZCode
             "search_code_index",
+            "glob",
+            "grep",
             # "read_lints",  # retired — 诊断走 Bash（pyright/ruff）
             "todo",
             "subagent",

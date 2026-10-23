@@ -16,6 +16,7 @@ import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/markdownTableVariant.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
+import { ConversationDraftEmptyState as V4DraftEmptyState } from "@zcode/ui/v4/ConversationDraftEmptyState.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
@@ -107,6 +108,12 @@ export function V4ZCodeTimeline(props: {
    */
   embedded?: boolean;
   /**
+   * 草稿态（新对话：会话已建但 threadId/首帧快照未到，或刚清空待创建）。
+   * 必须让空态与 composer 一起居中，否则点击「+」到 V4 挂载之间输入框会先贴在底部、
+   * 再跳到中间。草稿问候语也由本组件提供，不依赖 ZCode 会话壳。
+   */
+  draftEmpty?: boolean;
+  /**
    * EvoFlow 底部输入区：作为 ConversationTimeline sticky bottomDock 挂进同一滚动视口
    * （对齐 ZCode SessionPane），避免 messages 区单独滚动、下方空出「留给输入框」的空白。
    */
@@ -125,6 +132,15 @@ export function V4ZCodeTimeline(props: {
   /** 会话工作区根（绝对路径）：文件 chip/摘要/diff 的路径相对化全依赖它——
    * 传空会让绝对 Windows 路径解析退化（文件名显示成盘符 "D"）。 */
   workspacePath?: string;
+  /** 平台子代理任务（threadPanelState.subagentTasks 同源）：keyed by tool_call_id/task_id。 */
+  subagentTasks?: Record<string, unknown>;
+  /** 点击子代理条目 → 右侧面板查看流式输出全量（transcript 轮询）。 */
+  onOpenSubagentTranscript?: (
+    taskId: string,
+    title: string,
+    fallbackText?: string,
+    fallbackStatus?: string,
+  ) => void;
 }): React.JSX.Element {
   const {
     payload,
@@ -132,10 +148,13 @@ export function V4ZCodeTimeline(props: {
     bottomDock,
     evoflowSessionKey,
     embedded = false,
+    draftEmpty = false,
     onOpenCodeViewer,
     onToolApproval,
     toolApprovalUiDisabled = false,
     workspacePath,
+    subagentTasks,
+    onOpenSubagentTranscript,
   } = props;
   const sessionId = payload?.sessionId ?? "";
   const snapshot: ConversationSnapshot | null = payload?.snapshot ?? null;
@@ -255,6 +274,55 @@ export function V4ZCodeTimeline(props: {
     for (const item of pendingApprovals) map.set(item.toolCallId, item);
     return map;
   }, [pendingApprovals]);
+
+  // 子代理工具行 ↔ 平台子代理任务：与 ToolCallList 的 resolve 同键
+  //（toolCallId/taskId/taskExecId/collabSubtaskId）。命中即子代理调用，
+  // 底部入口条可点开右侧全量流式输出。
+  const subagentTasksRef = useRef(subagentTasks);
+  subagentTasksRef.current = subagentTasks;
+  const subagentEntries = useMemo(() => {
+    const tasks = subagentTasksRef.current;
+    if (!tasks || Object.keys(tasks).length === 0) return []
+    const resolve = (toolCallId: string): Record<string, unknown> | undefined => {
+      const direct = (tasks as Record<string, Record<string, unknown>>)[toolCallId]
+      if (direct) return direct
+      return Object.values(tasks as Record<string, Record<string, unknown>>).find(
+        (t) =>
+          String(t?.taskId || "") === toolCallId ||
+          String(t?.taskExecId || "") === toolCallId ||
+          String(t?.collabSubtaskId || "") === toolCallId,
+      )
+    }
+    const seen = new Set<string>()
+    const out: Array<{
+      taskId: string
+      label: string
+      phase: string
+      fallbackText?: string
+      fallbackStatus?: string
+    }> = []
+    for (const row of rows) {
+      if (row.kind !== "toolCall") continue
+      const task = resolve(row.toolCallId)
+      if (!task) continue
+      const taskId = String(task.taskExecId || task.taskId || row.toolCallId)
+      if (seen.has(taskId)) continue
+      seen.add(taskId)
+      out.push({
+        taskId,
+        label: String(task.subagentType || task.description || row.toolName || "子代理"),
+        phase: String(task.phase || "running"),
+        fallbackText: String(task.liveOutput || task.progressHint || ""),
+        fallbackStatus: String(task.phase || "running"),
+      })
+    }
+    return out
+  // rows 引用随快照帧变化——条目列表按帧重算（数组小，成本可忽略）
+  }, [rows]);
+  const subagentEntriesRef = useRef(subagentEntries);
+  subagentEntriesRef.current = subagentEntries;
+  const onOpenSubagentTranscriptRef = useRef(onOpenSubagentTranscript);
+  onOpenSubagentTranscriptRef.current = onOpenSubagentTranscript;
 
   const markResolved = useCallback((ids: string[]) => {
     let changed = false;
@@ -414,12 +482,18 @@ export function V4ZCodeTimeline(props: {
           loadingOlder={payload?.loadingOlder ?? false}
           onLoadOlder={payload?.onLoadOlder}
           bottomDock={bottomDock}
-          // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局
-          centerEmptyStateWithDock={
-            embedded ? false : !connecting && rows.length === 0
-          }
+          // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
+          // 草稿态（新对话、尚无 threadId）必须同样居中：点击「+」后会话创建 + ensure-thread
+          // 要 2~3s，期间若退回老面板的底部 dock，用户会看到输入框先在底部、随后跳到中间。
+          // 居中条件只认「当前没有可显示的行」：connecting / 等首帧快照期间也必须居中。
+          // 若把 connecting 排除在外，新对话会经历 居中 → 贴底 → 再居中 的三段跳。
+          centerEmptyStateWithDock={embedded ? false : rows.length === 0}
           emptyState={
-            // connecting 阶段不渲染任何提示，避免闪「V4 连接中…」
+            draftEmpty ? (
+              <div data-testid="v4-draft-empty" className="w-full">
+                <V4DraftEmptyState />
+              </div>
+            ) : // connecting 阶段不渲染任何提示，避免闪「V4 连接中…」
             connecting ? null : (
               <div className="flex h-full items-center justify-center text-ui-base text-foreground-subtlest">
                 开始新的对话
@@ -428,6 +502,40 @@ export function V4ZCodeTimeline(props: {
           }
         />
         </ServiceProvider>
+        {subagentEntriesRef.current.length > 0 ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-1.5 px-4">
+            {subagentEntriesRef.current.map((entry) => (
+              <button
+                key={entry.taskId}
+                type="button"
+                className="pointer-events-auto flex w-full max-w-2xl items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-left text-xs shadow-md hover:bg-hover"
+                onClick={() =>
+                  onOpenSubagentTranscriptRef.current?.(
+                    entry.taskId,
+                    entry.label,
+                    entry.fallbackText,
+                    entry.fallbackStatus,
+                  )
+                }
+              >
+                <span
+                  className={
+                    "rounded px-1.5 py-0.5 text-[10px] " +
+                    (entry.phase === "running"
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400")
+                  }
+                >
+                  {entry.phase === "running" ? "执行中" : "已完成"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-foreground">{entry.label}</span>
+                <span className="shrink-0 text-[10px] text-foreground-subtlest">
+                  查看流式输出 →
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       </MarkdownTableVariantProvider>
       </PlatformProvider>

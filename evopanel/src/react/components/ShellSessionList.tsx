@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getCurrentRoute, navigate } from '../../router.js'
 import {
   mutateSessionPinned,
@@ -940,6 +940,65 @@ export function ShellSessionList({
   const foldedDutyRows = employeeDutySplit.folded
   const showDutyFold = isEmployeesTab && !isSearching && foldedDutyRows.length > 0
 
+  // 工作区分组树（对齐 ZCode WorkspaceSidebar）：多工作区时 recent 列表按组折叠显示，
+  // 组头 = 图标 + 组名（员工 tab 用头像 + 员工名）+ 会话数；单组/聚焦组不折叠（保持原行为）。
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => new Set())
+  const groupedRecentSections = useMemo(() => {
+    if (isEmployeesTab && focusedEmployeeCode) return null
+    if (isEmployeesTab) {
+      // 员工 tab：按 agent_code 分组，组头 = 员工头像 + 员工名
+      const byCode = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
+      for (const row of recentVisibleRows) {
+        const code =
+          proactiveAgentCodeFromSessionKey(row.sessionKey) ||
+          String(row.workspaceKey || '').toLowerCase()
+        if (!code) continue
+        const entry = byCode.get(code) || { label: '', rows: [] }
+        if (!entry.label) {
+          entry.label = resolveEmployeeGroupLabel(code, effectiveEmployeeRoles, agents)
+        }
+        entry.rows.push(row)
+        byCode.set(code, entry)
+      }
+      if (byCode.size <= 1) return null
+      return Array.from(byCode.entries()).map(([key, value]) => ({
+        key,
+        label: value.label || key,
+        rows: value.rows,
+        avatarAgentCode: key,
+      }))
+    }
+    if (focusedWorkspaceKey) return null
+    if (groups.length <= 1) return null
+    const byKey = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
+    for (const row of recentVisibleRows) {
+      const key = String(row.workspaceKey || '').trim() || '__unbound__'
+      const label =
+        groups.find((g) => g.workspaceKey === key)?.label ||
+        String(row.workspaceLabel || '').trim() ||
+        key
+      const entry = byKey.get(key) || { label, rows: [] }
+      entry.rows.push(row)
+      byKey.set(key, entry)
+    }
+    if (byKey.size <= 1) return null
+    return Array.from(byKey.entries()).map(([key, value]) => ({
+      key,
+      label: value.label,
+      rows: value.rows,
+      avatarAgentCode: null,
+    }))
+  }, [recentVisibleRows, isEmployeesTab, focusedEmployeeCode, focusedWorkspaceKey, groups, effectiveEmployeeRoles, agents])
+
+  const toggleGroupCollapsed = useCallback((key: string) => {
+    setCollapsedGroupKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   const renderSessionRow = (row: ShellSidebarSyncRow) => {
     const sk = String(row.sessionKey || '')
     const active = onChatRoute && sk === displaySelectedKey
@@ -1357,52 +1416,98 @@ export function ShellSessionList({
               aria-label={isEmployeesTab ? '员工' : '任务'}
             >
               <ul className="react-chat-session-recent-list">
-                {recentVisibleRows.map((row) => renderSessionRow(row))}
-                {showDutyFold ? (
-                  <li className="react-chat-session-duty-fold">
-                    <button
-                      type="button"
-                      className={`react-chat-session-duty-fold-btn${dutyFoldOpen ? ' is-open' : ''}`}
-                      aria-expanded={dutyFoldOpen}
-                      onClick={() => setDutyFoldOpen((v) => !v)}
-                    >
-                      <ShellChevronIcon
-                        size={12}
-                        className={`react-chat-session-duty-fold-chevron${dutyFoldOpen ? ' is-open' : ''}`}
-                      />
-                      <span>
-                        {dutyFoldOpen
-                          ? '收起更早的值班记录'
-                          : `值班记录 · 还有 ${foldedDutyRows.length} 条`}
-                      </span>
-                    </button>
-                  </li>
-                ) : null}
-                {showDutyFold && dutyFoldOpen
-                  ? foldedDutyRows.map((row) => renderSessionRow(row))
-                  : null}
-                {flatLoading && !flatHasMore ? (
-                  <li className="react-chat-muted react-chat-session-workspace-loading">
-                    加载中…
-                  </li>
-                ) : null}
-                {flatHasMore ? (
-                  <li
-                    className="react-chat-session-workspace-load-more-sentinel"
-                    data-load-more-sentinel=""
-                    data-workspace-key={
-                      isEmployeesTab
-                        ? WORKSPACE_GROUP_PROACTIVE
-                        : focusedWorkspaceKey
-                          ? focusedGroup?.workspaceKey || focusedWorkspaceKey
-                          : '__global__'
-                    }
-                  >
-                    {flatLoading ? (
-                      <span className="react-chat-session-workspace-load-spinner" />
-                    ) : null}
-                  </li>
-                ) : null}
+                {groupedRecentSections
+                  ? groupedRecentSections.map((section) => {
+                      const collapsed = collapsedGroupKeys.has(section.key)
+                      return (
+                        <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
+                          <button
+                            type="button"
+                            className="react-chat-session-ws-group-header"
+                            aria-expanded={!collapsed}
+                            onClick={() => toggleGroupCollapsed(section.key)}
+                          >
+                            {isEmployeesTab && section.avatarAgentCode ? (
+                              <AssignedAgentAvatar
+                                agentCode={section.avatarAgentCode}
+                                agents={agents}
+                                size={18}
+                              />
+                            ) : (
+                              <span className="react-chat-session-ws-group-icon" aria-hidden>
+                                📁
+                              </span>
+                            )}
+                            <span className="min-w-0 truncate font-medium">{section.label}</span>
+                            <span className="react-chat-task-count">{section.rows.length}</span>
+                            <span
+                              className={`react-chat-session-duty-fold-chevron${collapsed ? '' : ' is-open'}`}
+                              aria-hidden
+                            >
+                              ›
+                            </span>
+                          </button>
+                          {!collapsed ? (
+                            <ul className="react-chat-session-ws-group-list">
+                              {section.rows.map((row) => renderSessionRow(row))}
+                            </ul>
+                          ) : null}
+                        </li>
+                      )
+                    })
+                  : [
+                        recentVisibleRows.map((row) => renderSessionRow(row)),
+                        showDutyFold ? (
+                          <li className="react-chat-session-duty-fold" key="duty-fold">
+                            <button
+                              type="button"
+                              className={`react-chat-session-duty-fold-btn${dutyFoldOpen ? ' is-open' : ''}`}
+                              aria-expanded={dutyFoldOpen}
+                              onClick={() => setDutyFoldOpen((v) => !v)}
+                            >
+                              <ShellChevronIcon
+                                size={12}
+                                className={`react-chat-session-duty-fold-chevron${dutyFoldOpen ? ' is-open' : ''}`}
+                              />
+                              <span>
+                                {dutyFoldOpen
+                                  ? '收起更早的值班记录'
+                                  : `值班记录 · 还有 ${foldedDutyRows.length} 条`}
+                              </span>
+                            </button>
+                          </li>
+                        ) : null,
+                        showDutyFold && dutyFoldOpen
+                          ? foldedDutyRows.map((row) => (
+                              <Fragment key={`duty-${row.sessionKey}`}>
+                                {renderSessionRow(row)}
+                              </Fragment>
+                            ))
+                          : null,
+                        flatLoading && !flatHasMore ? (
+                          <li className="react-chat-muted react-chat-session-workspace-loading" key="loading">
+                            加载中…
+                          </li>
+                        ) : null,
+                        flatHasMore ? (
+                          <li
+                            className="react-chat-session-workspace-load-more-sentinel"
+                            key="load-more"
+                            data-load-more-sentinel=""
+                            data-workspace-key={
+                              isEmployeesTab
+                                ? WORKSPACE_GROUP_PROACTIVE
+                                : focusedWorkspaceKey
+                                  ? focusedGroup?.workspaceKey || focusedWorkspaceKey
+                                  : '__global__'
+                            }
+                          >
+                            {flatLoading ? (
+                              <span className="react-chat-session-workspace-load-spinner" />
+                            ) : null}
+                          </li>
+                        ) : null,
+                      ]}
               </ul>
             </li>
           ) : null}

@@ -172,6 +172,8 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "replace",
         "write",
         # "delete",  # retired — 删除走 Bash rm（审批兜底），对齐 ZCode
+        "glob",
+        "grep",
         "search_code_index",
     ),
     "plan": PLAN_SCENARIO_EAGER_TOOL_NAMES,
@@ -396,8 +398,8 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         ),
     },
     "file_ops_read_present": {
-        "zh_description": "规划阶段只读检索：索引 search_code_index（大结果路径用 read；rg 在 workspace_baseline）",
-        "tools": ("search_code_index",),
+        "zh_description": "规划阶段只读检索：索引 search_code_index（大结果路径用 read；glob/grep 已注册为专用工具；rg 在 workspace_baseline）",
+        "tools": ("search_code_index", "glob", "grep"),
     },
     "web_research": {
         "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图/图片理解用 read",
@@ -432,8 +434,8 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("send_message",),
     },
     "external_agent": {
-        "zh_description": "外部 ACP 智能体调用",
-        "tools": ("invoke_acp_agent",),
+        "zh_description": "外部 ACP 智能体调用（invoke_acp_agent 已退役停用）",
+        "tools": (),
     },
     "hosted_panel": {
         "zh_description": "EvoPanel 目标方案卡片（无服务端副作用，用户在客户端确认后启动目标）",

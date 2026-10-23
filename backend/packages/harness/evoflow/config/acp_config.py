@@ -42,16 +42,18 @@ def get_acp_agents() -> dict[str, ACPAgentConfig]:
 def load_acp_config_from_dict(config_dict: Mapping[str, Mapping[str, object]] | None) -> None:
     """Load ACP agent configuration from a dictionary (typically from config.yaml).
 
+    ACP retired: entries in config.yaml are ignored (never loaded) so that
+    configuring acp_agents has no effect. Kept as a tolerant no-op so legacy
+    config.yaml files do not crash on the acp_agents key.
+
     Args:
-        config_dict: Mapping of agent name -> config fields.
+        config_dict: Mapping of agent name -> config fields (ignored).
     """
     global _acp_agents, _acp_logged_signature
-    if config_dict is None:
-        config_dict = {}
-    _acp_agents = {name: ACPAgentConfig(**cfg) for name, cfg in config_dict.items()}
-    signature = tuple(sorted(_acp_agents.keys()))
-    if signature != _acp_logged_signature:
-        _acp_logged_signature = signature
-        logger.info("ACP config loaded: %d agent(s): %s", len(_acp_agents), list(_acp_agents.keys()))
-    else:
-        logger.debug("ACP config unchanged: %s", list(_acp_agents.keys()))
+    if config_dict:
+        logger.warning(
+            "ACP retired: ignoring %d acp_agents config entry/entries: %s",
+            len(config_dict),
+            sorted(str(k) for k in config_dict.keys()),
+        )
+    _acp_agents = {}

@@ -142,7 +142,7 @@ MAIN_SUMMARY_PREFIX = (
     "## Verification rule for completed actions\n"
     "Claims in this summary that files were modified, logs were removed, or code was "
     "cleaned up are **unverified assertions by the previous context window**. Before "
-    "treating any such claim as fact, re-verify with tools (rg, read_lints, read_file) "
+    "treating any such claim as fact, re-verify with tools (rg, terminal, read_file) "
     "rather than trusting the summary. Do NOT skip verification because the summary says "
     "something is already done.\n"
     "\n"

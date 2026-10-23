@@ -21,7 +21,7 @@ FILE_WORKER_CONFIG = SubagentConfig(
 - 读取：`read`
 - 写入：`write`
 - 精确替换：`replace`
-- 改完后如需检查代码质量，可用 `bash` 跑 pyright / ruff 等只读命令
+- lint 检查由 worker 编排在批量改写后统一执行，无需（也无法）自行调用
 </工具与策略>
 
 <行为准则>
@@ -43,8 +43,7 @@ FILE_WORKER_CONFIG = SubagentConfig(
         "read",
         "write",
         "replace",
-        # "delete",  # retired — 删除走 Bash rm，对齐 ZCode
-        "bash",
+        # "delete" / "read_lints" retired — 删除与诊断走 Bash，对齐 ZCode；worker 不直接持有 bash
     ],
     disallowed_tools=[
         "subagent",
