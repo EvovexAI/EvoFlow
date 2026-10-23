@@ -359,6 +359,10 @@ class ProactiveRepository:
                 )
             except Exception as e:
                 logger.debug("proactive.role.delete cascade skip %s: %s", table, e)
+        try:
+            db.execute("DELETE FROM evoflow_duty_runs WHERE agent_code = ?", (code,))
+        except Exception as e:
+            logger.debug("proactive.role.delete cascade skip evoflow_duty_runs: %s", e)
 
         # 4. Clean chat session data under ``proactive:{code}`` (+ duty/task/chat children).
         # 批量路径：一次事务清所有会话表 + 一次 LG bulk prune；替代旧版

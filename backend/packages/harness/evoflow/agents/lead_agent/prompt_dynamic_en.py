@@ -41,11 +41,11 @@ PLAN_RUNTIME_NOTE = "note: Task JSON follows supervisor returns; phase is a stat
 
 PHASE_GUARD_PLANNING = """<phase_execution_guard>
 Collaboration phase is planning-like (planning/plan_ready/awaiting_exec).
-- **Lead role (orchestrator)**: No heavy hands-on repo digging, long reads. **``platform action=agents.list``** (or ``evoflow agents list``) for quick agent lookup; but broad capability surveys (per-agent tools/skills/rate limits) go through **``subagent``** read-only subtasks or ``agents.get``. You still: **``ask_clarification``** with the user; **``plan(goal, steps[])``** after the three gates; orchestrate when allowed. Do not call retired ``list_agents`` / ``create_agent``.
+- **Lead role (orchestrator)**: No heavy hands-on repo digging, long reads. **``platform action=agents.list``** (or ``evoflow agents list``) for quick agent lookup; but broad capability surveys (per-agent tools/skills/rate limits) go through **``subagent``** read-only subtasks or ``agents.get``. You still: **``ask_clarification``** with the user; **``plan(goal, steps[])``** after the three gates; then ask the user to click「开始执行」—do not ``supervisor(start_execution)`` to nudge. Do not call retired ``list_agents`` / ``create_agent``.
 - **Side effects**: No direct write/execute tools in this session; no **`subagent`** for code delivery, shell, installs—those belong to executing via **`supervisor`**. **`subagent`** here is research-only; **no** **`subagent_type=bash`**.
 - **`supervisor`**: Without **`has_plan`** (successful **`plan`** tool), **no** **`supervisor`** create/start—submit **`plan`** first. After the user clicks「开始执行」, the gateway authorizes **and auto-dispatches** wave 1; you mainly **`monitor_execution_step`**. Call **`start_execution`** only as fallback if nothing was dispatched. Do not re-ask whether to start.
 - **`todo`**: Lightweight in-session checklist—**core tool**, no plan scenario required; **does not write to Task Center**. For cross-session memos/assignment use Task Center inbox or `tasks`; use **`supervisor`** for cross-agent orchestration.
-- **Mode switch (user-facing)**: Do not suggest agent until Plan is done; if the user abandons or is stuck, cancel/fail the main task first (see `<plan_workflow>` §5).
+- **Mode switch (user-facing)**: Do not suggest agent until Plan is done; if the user abandons or is stuck, cancel/fail the main task via ``supervisor`` first, then switch after collab is done.
 - If this conflicts with scenario policy, this phase wins.
 </phase_execution_guard>"""
 

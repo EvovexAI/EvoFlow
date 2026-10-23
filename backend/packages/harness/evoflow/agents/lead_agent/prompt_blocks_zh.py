@@ -100,7 +100,7 @@ SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
 当前模式：{active_modes}
 
 - **调用前自检**：非核心工具须在本回合 `tools`/`activated_tools` 中；否则先 `tool_search`。
-- **工具→模式（路由）**：代码读写改查/命令/web_search→agent；plan/supervisor→plan；子任务委派→subagent（读 evoflow-subagent-delegation）；平台行政→`platform`（先 catalog 看各域 when+功能清单；用户备忘→items.*，协作工单行政→tasks.*，值班推进优先专用 `tasks`，对话 checklist→`todo`；系统报错/异常时间线→diagnostics.*；写操作 confirm）；复杂脚本化治理再读 evoflow-admin 技能 + terminal。
+- **工具→模式（路由）**：代码读写改查/命令/web_search→agent；plan/supervisor→plan；子任务委派→subagent（读 evoflow-subagent-delegation）；平台行政→`platform`（细则见 `<platform_tool>`）；复杂脚本化治理再读 evoflow-admin 技能 + terminal。
 - **模式切换**：勿调用 mode_set/scenario；需要 Plan 时请用户在界面切换模式。当前 `session_mode` 由界面决定。
 - **Plan 进行中**：主任务未 completed/failed/cancelled 前勿建议半途改走 Agent；须先取消或置失败当前 Plan。
 </session_mode_policy>
@@ -108,6 +108,13 @@ SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
 
 # 向后兼容别名（请用 SESSION_MODE_POLICY_BLOCK）。
 SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
+
+# 主智能体 / 小V 同源：平台行政统一走 ``platform``。标签勿用 ``<platform>``（员工身份壳占用）。
+PLATFORM_TOOL_BLOCK = """<platform_tool>
+平台行政走工具 `platform`（勿另开工具名）：不熟先 `catalog`/`help`，再 `action=域名.功能`；写操作先向用户确认，再 `confirm=true`。
+易混：`items`=备忘（不自动开跑）；`tasks`=协作工单；对话勾选=`todo`；`agents`=角色；`employees`=在岗员工。配联网搜索用 `settings.*`，临时搜网页用 `web_search`。报错看 `diagnostics`。对用户白话说结果，勿念 JSON。
+</platform_tool>
+"""
 
 
 WEB_CITATION_POLICY_BLOCK = """<web_citation_policy>

@@ -1626,16 +1626,49 @@ def round_trail(
                 break
 
     from evoflow.persistence.chat_message_repositories import list_messages_for_display_all
+    from evoflow.proactive.chat_session import resolve_work_session_key
+    from evoflow.proactive.duty_runs import get_duty_run_by_round, list_duty_runs
 
+    # Prefer duty_runs index (session_key + round) over legacy proactive:{code}.
     session_key = f"proactive:{code}"
+    duty_row = None
+    if rid:
+        duty_row = get_duty_run_by_round(code, rid)
+    if not duty_row:
+        recent_runs = list_duty_runs(code, limit=1)
+        duty_row = recent_runs[0] if recent_runs else None
+        if duty_row and not rid:
+            rid = str(duty_row.get("round_id") or "").strip() or None
+    if duty_row and str(duty_row.get("session_key") or "").strip():
+        session_key = str(duty_row["session_key"]).strip()
+    elif rid:
+        session_key = resolve_work_session_key(
+            agent_code=code,
+            kind="duty",
+            round_id=rid,
+        )
+
     result = list_messages_for_display_all(session_key, max_rows=200, round_id=rid)
     messages = list(result.get("messages") or [])
+    # Legacy contact session fallback when duty key is empty.
+    if not messages and session_key != f"proactive:{code}":
+        legacy = list_messages_for_display_all(f"proactive:{code}", max_rows=200, round_id=rid)
+        messages = list(legacy.get("messages") or [])
+        if messages:
+            session_key = f"proactive:{code}"
     steps = _extract_tool_steps(messages, max_steps=ms)
     tool_counts = Counter(s["tool"] for s in steps)
 
-    # Round scorecard from initiatives
+    # Round scorecard: duty_run outcome first, then initiatives.
     scorecard: dict[str, Any] = {}
-    if rid:
+    if duty_row:
+        scorecard = {
+            "goal": "定时上班" if duty_row.get("scheduled") else "值班轮次",
+            "outcome": str(duty_row.get("trigger_reason") or duty_row.get("skip_reason") or "").strip() or None,
+            "verdict": str(duty_row.get("status") or "").strip() or None,
+            "item_count": int(duty_row.get("tool_count") or 0),
+        }
+    if rid and not scorecard.get("outcome"):
         inits = [i for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=80) if str(i.round_id or "") == rid]
         rounds = _group_rounds(inits)
         if rounds:
@@ -1651,6 +1684,7 @@ def round_trail(
         "role_name": role.role_name,
         "session_key": session_key,
         "round_id": rid,
+        "duty_run_id": str((duty_row or {}).get("run_id") or "") or None,
         "message_count": len(messages),
         "tool_step_count": len(steps),
         "tool_counts": dict(tool_counts.most_common(20)),

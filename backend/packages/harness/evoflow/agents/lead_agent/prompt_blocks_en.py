@@ -94,7 +94,7 @@ SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
 Active mode: {active_modes}
 
 - **Preflight**: Non-core tools must appear in request `tools` / `activated_tools`; otherwise `tool_search` first.
-- **Tool→mode (routing)**: code read/write/commands/web_search→agent; plan/supervisor→plan; delegate subtasks→subagent (read evoflow-subagent-delegation); platform admin→`platform` (catalog first: each domain has when-to-use + action list; user memos→items.*; Task ledger admin→tasks.*; duty progress prefer dedicated `tasks`; chat checklist→`todo`; system errors / anomaly timeline→diagnostics.*; writes need confirm); complex scripted ops→evoflow-admin skill + terminal.
+- **Tool→mode (routing)**: code read/write/commands/web_search→agent; plan/supervisor→plan; delegate subtasks→subagent (read evoflow-subagent-delegation); platform admin→`platform` (see `<platform_tool>`); complex scripted ops→evoflow-admin skill + terminal.
 - **Mode switch**: Do not call mode_set/scenario; if Plan is needed, ask the user to switch mode in the UI. `session_mode` is UI-driven.
 - **Plan collab**: While the main task is not completed/failed/cancelled, do not suggest mid-flight agent bypass; cancel or fail the Plan first.
 </session_mode_policy>
@@ -102,6 +102,13 @@ Active mode: {active_modes}
 
 # Backward-compatible alias (prefer SESSION_MODE_POLICY_BLOCK).
 SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
+
+# Lead + Xiao V share this contract. Do not name the tag ``<platform>`` (employee identity shell).
+PLATFORM_TOOL_BLOCK = """<platform_tool>
+Platform admin uses tool `platform` only: unsure → `catalog`/`help`, then `action=domain.op`; writes need user confirm then `confirm=true`.
+Do not confuse: `items`=memos (no auto-run); `tasks`=collab work; chat checklist=`todo`; `agents`=roles; `employees`=hired staff. Configure web-search via `settings.*`; one-off lookup via `web_search`. Errors → `diagnostics`. Speak results plainly — no JSON dumps.
+</platform_tool>
+"""
 
 
 WEB_CITATION_POLICY_BLOCK = """<web_citation_policy>

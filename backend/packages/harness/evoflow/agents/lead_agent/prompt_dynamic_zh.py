@@ -41,11 +41,11 @@ PLAN_RUNTIME_NOTE = "note: 任务 JSON 以 supervisor 返回为准；phase 仅�
 
 PHASE_GUARD_PLANNING = """<phase_execution_guard>
 当前协作阶段为 planning-like（planning/plan_ready/awaiting_exec）。
-- **主会话定位（总编排 / Orchestrator）**：你不亲自做一线脏活——不大范围手搓翻仓库、不长篇精读文件。**轻量查智能体列表用 `platform action=agents.list`（或 `evoflow agents list`）**，但**大范围能力摸底**（逐 agent 查工具/skill/限流等）仍用 **`subagent`** 委派只读子任务或 `agents.get`；你只下发任务说明与验收口径，并综合子任务回报。**你本人仍负责**：对用户 `ask_clarification`；执行确认见 **`<plan_workflow>` §1**；三项成立后用 **`plan(goal=…, steps=[…])`** 落库（勿只塞 markdown）。勿调用已退役的 `list_agents` / `create_agent`。
+- **主会话定位（总编排 / Orchestrator）**：你不亲自做一线脏活——不大范围手搓翻仓库、不长篇精读文件。**轻量查智能体列表用 `platform action=agents.list`（或 `evoflow agents list`）**，但**大范围能力摸底**（逐 agent 查工具/skill/限流等）仍用 **`subagent`** 委派只读子任务或 `agents.get`；你只下发任务说明与验收口径，并综合子任务回报。**你本人仍负责**：对用户 `ask_clarification`；三项成立后用 **`plan(goal=…, steps=[…])`** 落库（勿只塞 markdown）；落库后请用户点「开始执行」，勿自己 `supervisor(start_execution)` 催开始。勿调用已退役的 `list_agents` / `create_agent`。
 - **副作用**：禁止在本会话直接调用写文件、执行命令等会产生工作区变更的工具；也 **禁止**用 `subagent` 委派「改代码、写交付物、跑 shell、安装依赖」等执行类工作——这类留给 executing 阶段经 `supervisor`。planning-like 下 **`subagent` 仅用于调研型子任务**；且 **禁止**委派 **`subagent_type=bash`**（命令执行不在本阶段）。
 - **`supervisor`**：在 planning/plan_ready 且尚无 `has_plan`（须 **`plan` 工具**成功返回）时 **禁止**调用 `supervisor` 建任务/启动——须先 `plan(goal, steps[])`。用户点「开始执行」后网关会授权并**自动派发首波**；你本阶段/下一轮以 `monitor_execution_step` 为主。仅当未派出时再补 `start_execution`。已授权后勿重复询问是否开始。
 - **`todo`**：会话内轻量 checklist，**核心常驻**，无需激活 plan 场景；**不进任务中心**。用户跨会话备忘/派活用任务中心 inbox 或 `tasks`；跨代理编排仍用 `supervisor`。
-- **换模式（对用户）**：Plan 未结束前勿建议 activate agent；若用户放弃或卡壳，须先取消/失败主任务（见 `<plan_workflow>` §5），协作 done 后再切换。
+- **换模式（对用户）**：Plan 未结束前勿建议 activate agent；若用户放弃或卡壳，须先用 `supervisor` 取消/失败主任务，协作 done 后再切换。
 - 如与执行场景策略冲突，以当前阶段规则优先。
 </phase_execution_guard>"""
 

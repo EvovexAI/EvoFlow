@@ -203,6 +203,40 @@ function tasksAsWorklogItems(tasks) {
   return out
 }
 
+/** Duty-run / synth rounds from work-board → worklog journal cards (trigger trail). */
+function roundsAsWorklogItems(rounds) {
+  const out = []
+  for (const r of Array.isArray(rounds) ? rounds : []) {
+    if (!r || typeof r !== 'object') continue
+    const rid = String(r.round_id || '').trim()
+    if (!rid) continue
+    const plan =
+      r.action_plan && typeof r.action_plan === 'object'
+        ? { ...r.action_plan, kind: 'round_log' }
+        : { kind: 'round_log', phase: 'wrap_up', source: 'duty_run' }
+    out.push({
+      id: String(r.id || `duty-round:${rid}`),
+      title: String(r.title || '值班轮次').trim() || '值班轮次',
+      description: String(r.description || '').trim(),
+      rationale: String(r.rationale || '').trim(),
+      action_type: 'report',
+      risk_level: 'low',
+      action_plan: plan,
+      status: String(r.status || 'completed').trim() || 'completed',
+      result: r.result == null ? null : r.result,
+      round_id: rid,
+      goal: String(r.goal || r.title || '').trim(),
+      outcome: String(r.outcome || '').trim(),
+      execution_result: '',
+      created_at: String(r.created_at || '').trim(),
+      updated_at: String(r.updated_at || r.created_at || '').trim(),
+      session_key: String(r.session_key || plan.session_key || '').trim(),
+      _is_duty_run: true,
+    })
+  }
+  return out
+}
+
 function esc(s) {
   if (s == null) return ''
   return String(s)
@@ -1084,7 +1118,11 @@ async function renderEmployeePage(code, { autoPatrol = false, autoLive = false, 
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
       tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-      initiatives = tasksAsWorklogItems(tasks)
+      // 上班记录 = duty_runs（定时/心跳触发）+ 板任务；缺 rounds 时至少仍有 tasks
+      initiatives = [
+        ...roundsAsWorklogItems(boardRes.rounds || []),
+        ...tasksAsWorklogItems(tasks),
+      ]
     } else {
       // Fallback for older gateways
       const tasksRes = await api.listAllTasks().catch(() => null)
@@ -3367,7 +3405,10 @@ async function refreshEmployeeWorkLog(page, role, highlightRoundId = '') {
   let initiatives
   if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
     tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-    initiatives = tasksAsWorklogItems(tasks)
+    initiatives = [
+      ...roundsAsWorklogItems(boardRes.rounds || []),
+      ...tasksAsWorklogItems(tasks),
+    ]
   } else {
     const tasksRes = await api.listAllTasks().catch(() => null)
     tasks = tasksFromListResponse(tasksRes)
@@ -3647,7 +3688,10 @@ async function runPatrol(page, role, { focus = '' } = {}) {
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
       tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-      initiatives = tasksAsWorklogItems(tasks)
+      initiatives = [
+        ...roundsAsWorklogItems(boardRes.rounds || []),
+        ...tasksAsWorklogItems(tasks),
+      ]
     } else {
       const tasksRes = await api.listAllTasks().catch(() => null)
       tasks = tasksFromListResponse(tasksRes)

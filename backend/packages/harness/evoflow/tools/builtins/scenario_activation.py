@@ -265,6 +265,10 @@ def sync_agent_scenario_after_plan_done(
 
     active = [str(s or "").strip().lower() for s in (get_activated_scenarios() or []) if str(s or "").strip()]
     if "agent" in active and "plan" not in active:
+        # 场景已是普通 agent，但仍可能磁盘残留 collab_phase=done + bound_task_id，
+        # 继续注入 <collab_phase_context>/<plan_runtime_stage> —— 强制拉回 idle。
+        if tid:
+            _idle_thread_collab_when_no_plan_scenario(list(active))
         return changes
 
     try:
@@ -272,6 +276,9 @@ def sync_agent_scenario_after_plan_done(
         changes.append("activated:agent")
         for key in cleared:
             changes.append(f"cleared:{key}")
+        # _add_scenario 在 cleared 含 plan 时会 idle；若本来就无 plan（仅补 agent）也清一次残留 done。
+        if tid and "plan" not in cleared:
+            _idle_thread_collab_when_no_plan_scenario(list(get_activated_scenarios() or []))
         logger.info(
             "[ScenarioActivation] plan collab done -> activated agent (cleared=%s) thread=%s phase=%s",
             cleared,
