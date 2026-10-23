@@ -26,6 +26,33 @@ logger = logging.getLogger(__name__)
 ADMIN_PRINCIPAL_ID = "local-admin"
 ADMIN_SCOPE = "personal:local-admin"
 
+
+def admin_target(conn: sqlite3.Connection) -> tuple[str, str]:
+    """Principal id + scope for unowned rows.
+
+    Prefers the primary WebUI admin: after ``bootstrap_admin_merge`` the
+    bootstrap ``local-admin`` is no longer an org admin, so stamping fresh
+    orphans to it would hide them from the only real administrator.
+    """
+    try:
+        row = conn.execute(
+            """
+            SELECT i.principal_id
+            FROM evoflow_webui_users u
+            JOIN evoflow_principal_identities i
+              ON i.provider = 'webui' AND i.external_id = CAST(u.id AS TEXT)
+            WHERE u.is_primary = 1
+            ORDER BY u.id ASC
+            LIMIT 1
+            """
+        ).fetchone()
+        pid = str(row[0] or "").strip() if row else ""
+        if pid and pid != ADMIN_PRINCIPAL_ID:
+            return pid, f"personal:{pid}"
+    except sqlite3.Error:
+        logger.debug("v136: admin_target lookup failed", exc_info=True)
+    return ADMIN_PRINCIPAL_ID, ADMIN_SCOPE
+
 _DEFAULT_BATCH = 5_000
 
 
@@ -39,6 +66,7 @@ def _stamp_orphan_sessions(conn: sqlite3.Connection, *, batch_size: int = _DEFAU
         return 0
     if not _has_column(conn, "evoflow_chat_sessions", "created_by"):
         return 0
+    owner_pid, owner_scope = admin_target(conn)
     total = 0
     while True:
         cur = conn.execute(
@@ -56,7 +84,7 @@ def _stamp_orphan_sessions(conn: sqlite3.Connection, *, batch_size: int = _DEFAU
                 LIMIT ?
             )
             """,
-            (ADMIN_SCOPE, ADMIN_PRINCIPAL_ID, int(batch_size)),
+            (owner_scope, owner_pid, int(batch_size)),
         )
         n = int(cur.rowcount or 0)
         total += n
@@ -80,6 +108,7 @@ def _stamp_orphan_usage_table(
         return 0
     if not _has_column(conn, table, "principal_id"):
         return 0
+    owner_pid, _owner_scope = admin_target(conn)
 
     # usage_daily has UNIQUE(..., principal_id). Stamping '' → local-admin can
     # collide with an existing admin row; drop conflicting orphans first.
@@ -100,7 +129,7 @@ def _stamp_orphan_usage_table(
                       AND admin.principal_id = ?
                   )
                 """,
-                (ADMIN_PRINCIPAL_ID,),
+                (owner_pid,),
             )
             conn.commit()
         except sqlite3.Error:
@@ -123,7 +152,7 @@ def _stamp_orphan_usage_table(
                     LIMIT ?
                 )
                 """,
-                (ADMIN_PRINCIPAL_ID, int(batch_size)),
+                (owner_pid, int(batch_size)),
             )
         except sqlite3.IntegrityError:
             # Last-resort: drop a batch of orphan daily rows rather than block open.

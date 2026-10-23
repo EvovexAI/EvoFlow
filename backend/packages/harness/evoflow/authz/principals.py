@@ -339,47 +339,78 @@ def ensure_webui_principal(
     return p
 
 
-def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
-    """Resolve the bootstrap local admin (localhost / no JWT)."""
-    p = resolve_principal_by_identity("local", "admin", org_id=org_id)
-    if p:
-        try:
-            from evoflow.authz.scope_paths import ensure_principal_home
+LOCAL_ADMIN_PRINCIPAL_ID = "local-admin"
 
-            ensure_principal_home(p)
-        except Exception:
-            logger.debug("ensure_principal_home for local admin failed", exc_info=True)
-        return p
-    # Prefer primary webui admin if present
+
+def _resolve_primary_webui_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal | None:
+    """Return the principal backing the primary WebUI login account.
+
+    This is the identity a localhost/no-JWT caller should use when the operator
+    has already set up the WebUI account: one person must not end up with two
+    separate identities (``admin`` for login, ``local-admin`` for localhost).
+    """
     row = (
         get_db()
         .execute(
             """
             SELECT p.*
-            FROM evoflow_admin_grants g
-            JOIN evoflow_principals p ON p.principal_id = g.principal_id
-            WHERE g.org_id = ? AND g.role = 'org_admin' AND g.scope_id = ?
-            ORDER BY g.created_at ASC
+            FROM evoflow_webui_users u
+            JOIN evoflow_principal_identities i
+              ON i.org_id = ? AND i.provider = 'webui' AND i.external_id = CAST(u.id AS TEXT)
+            JOIN evoflow_principals p
+              ON p.principal_id = i.principal_id AND p.org_id = i.org_id
+            WHERE u.is_primary = 1
+            ORDER BY u.id ASC
             LIMIT 1
             """,
-            (org_id, org_scope(org_id)),
+            (org_id,),
         )
         .fetchone()
     )
-    if row:
-        found = principal_from_row(row)
+    return principal_from_row(row) if row else None
+
+
+def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
+    """Resolve the localhost / no-JWT identity.
+
+    Order:
+    1. the primary WebUI login principal (the operator's real account);
+    2. any non-bootstrap org admin;
+    3. create the bootstrap principal as a last resort.
+    """
+    found = _resolve_primary_webui_admin(org_id=org_id)
+    if found is None:
+        row = (
+            get_db()
+            .execute(
+                """
+                SELECT p.*
+                FROM evoflow_admin_grants g
+                JOIN evoflow_principals p ON p.principal_id = g.principal_id
+                WHERE g.org_id = ? AND g.role = 'org_admin' AND g.scope_id = ?
+                  AND g.principal_id != ?
+                ORDER BY g.created_at ASC
+                LIMIT 1
+                """,
+                (org_id, org_scope(org_id), LOCAL_ADMIN_PRINCIPAL_ID),
+            )
+            .fetchone()
+        )
+        found = principal_from_row(row) if row else None
+    if found is not None:
         try:
             from evoflow.authz.scope_paths import ensure_principal_home
 
             ensure_principal_home(found)
         except Exception:
-            logger.debug("ensure_principal_home for admin failed", exc_info=True)
+            logger.debug("ensure_principal_home for local admin failed", exc_info=True)
         return found
-    # Last resort create
+    # Last resort create. Display name matches the default login username so the
+    # account chip never reads "Local Admin" on a fresh install.
     created = create_principal(
-        display_name="Local Admin",
+        display_name="admin",
         org_id=org_id,
-        principal_id="local-admin",
+        principal_id=LOCAL_ADMIN_PRINCIPAL_ID,
         attrs={"bootstrap": True},
     )
     try:
@@ -388,7 +419,7 @@ def get_or_create_local_admin(*, org_id: str = DEFAULT_ORG_ID) -> Principal:
         if not admin_mod.is_org_admin(str(created["principal_id"]), org_id=org_id):
             admin_mod.promote_org_admin(str(created["principal_id"]), granted_by=None, org_id=org_id)
     except Exception:
-        logger.debug("promote local-admin org_admin failed", exc_info=True)
+        logger.debug("promote %s org_admin failed", LOCAL_ADMIN_PRINCIPAL_ID, exc_info=True)
     return created
 
 

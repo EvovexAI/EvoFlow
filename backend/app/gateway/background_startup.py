@@ -205,6 +205,23 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             st_log(f"phase1.db.orphan_ownership_heal ({(_st.perf_counter() - _t_v136) * 1000:.0f}ms)")
         except Exception:
             logger.warning("orphan ownership heal failed (non-fatal)", exc_info=True)
+        # One-time: the bootstrap "local-admin" identity must not linger beside the
+        # real WebUI account — merge its data into the primary admin.
+        try:
+
+            def _merge_bootstrap_admin() -> None:
+                from evoflow.persistence.bootstrap_admin_merge import (
+                    merge_bootstrap_admin_into_primary,
+                )
+                from evoflow.persistence.db import get_db
+
+                merge_bootstrap_admin_into_primary(get_db())
+
+            _t_merge = _st.perf_counter()
+            await asyncio.to_thread(_merge_bootstrap_admin)
+            st_log(f"phase1.db.bootstrap_admin_merge ({(_st.perf_counter() - _t_merge) * 1000:.0f}ms)")
+        except Exception:
+            logger.warning("bootstrap admin merge failed (non-fatal)", exc_info=True)
         # ---- Database preflight: fast quick_check only (full integrity_check deferred) ----
         try:
             from evoflow.config.data_paths import (
