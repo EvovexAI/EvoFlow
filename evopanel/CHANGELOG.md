@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Windows 安装包升版不再强制先卸载**：检测到已装旧版本时直接覆盖安装（与同版本重装一致）；仅 WiX 旧安装迁移仍走卸载
+
 ## [1.1.5] - 2026-10-23
 
 相对 **1.1.4** 以来的增量发布：内嵌浏览器软解耦与稳定性 + 子代理流式侧栏 + 文件审查/打开与媒体内联 + 切会话闪烁修复（前后端同一版本号）。

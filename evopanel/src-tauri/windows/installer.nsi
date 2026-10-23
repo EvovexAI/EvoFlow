@@ -229,13 +229,24 @@ Function PageReinstall
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
+
+  ; EvoFlow: NSIS→NSIS version upgrades overwrite in place (same as same-version
+  ; reinstall). Upstream Tauri defaults the first radio to "uninstall before
+  ; installing", which forces a full uninstall cycle for every bump — skip that
+  ; page. PREINSTALL hook already stops processes and probes write locks.
+  ; WiX→NSIS migration still needs the uninstall path below.
+  ${If} $R0 = 1
+  ${AndIf} $WixMode <> 1
+    Abort
+  ${EndIf}
+
   ; Reinstalling the same version
   ${If} $R0 = 0
     StrCpy $R1 "$(alreadyInstalledLong)"
     StrCpy $R2 "$(addOrReinstall)"
     StrCpy $R3 "$(uninstallApp)"
     !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(chooseMaintenanceOption)"
-  ; Upgrading
+  ; Upgrading (WiX migration only — NSIS upgrades Abort above)
   ${ElseIf} $R0 = 1
     StrCpy $R1 "$(olderOrUnknownVersionInstalled)"
     StrCpy $R2 "$(uninstallBeforeInstalling)"
@@ -327,7 +338,8 @@ Function PageLeaveReinstall
     ${Else}                    ; User chose to uninstall
       Goto reinst_uninstall
     ${EndIf}
-  ${ElseIf} $R0 = 1 ; Upgrading
+  ${ElseIf} $R0 = 1 ; Upgrading (WiX path / rare interactive leftover)
+    ; Prefer in-place when user picks "do not uninstall"; WiX still forced above.
     ${If} $R1 = 1              ; User chose to uninstall
       Goto reinst_uninstall
     ${Else}

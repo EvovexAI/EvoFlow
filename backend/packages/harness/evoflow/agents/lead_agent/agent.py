@@ -538,9 +538,10 @@ def _create_context_compaction_middleware():
 def _create_todo_list_middleware() -> TodoMiddleware:
     """Create and configure the LangChain ``todo_write`` middleware.
 
-    Always mounted on the lead agent (zcode alignment: TodoWrite is a permanent
-    member of the core tool surface). Misuse is governed by prompt rules rather
-    than mounting conditions:
+    Mounted on demand — same semantics as ordinary configurable tools: the role
+    whitelist decides (gating in ``_build_middlewares``). When mounted, the
+    ``<todo_list_system>`` prompt section is injected together with the tool;
+    when not checked, nothing is injected. Misuse is governed by prompt rules:
     - simple tasks (< 3 steps) → work directly, skip the tool;
     - ``plan`` scenario → supervisor subtasks instead of in-session todos.
     """

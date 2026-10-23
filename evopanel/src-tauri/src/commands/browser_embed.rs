@@ -376,6 +376,40 @@ fn flush_embed_bounds_now(app: &tauri::AppHandle, reason: &str) {
     }
 }
 
+/// 主窗重新获得焦点（托盘还原 / Alt-Tab / 取消最小化）：前端槽位可能已变，
+/// 延迟 flush + 通知重测四角。不在 Focused 回调里直接 SetWindowPos。
+pub fn on_main_window_focus_gained(app: &tauri::AppHandle) {
+    let gen = REPOSITION_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("embed-focus-resync".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
+                return;
+            }
+            for _ in 0..20 {
+                if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
+                    return;
+                }
+                if !main_is_dragging() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
+                return;
+            }
+            flush_embed_bounds_now(&app, "focus-flush");
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.emit(
+                    "browser-embed-resync",
+                    serde_json::json!({ "reason": "focus" }),
+                );
+            }
+        });
+}
+
 /// 主窗口移动/缩放入口。
 ///
 /// **Moved 必须空操作**：WS_CHILD 跟父窗走。在 `on_window_event(Moved)` 里
@@ -2851,6 +2885,14 @@ pub async fn browser_embed_set_bounds(
             if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
                 map.insert(label.clone(), (x, y, width.max(120.0), height.max(80.0)));
             }
+            // 仍打对照日志：此时「期望槽位」已是新矩形，HWND 还停在旧位置 → delta 会很大。
+            log_region_diag(
+                "set-bounds-defer",
+                &label,
+                &main,
+                &window,
+                (x, y, width.max(120.0), height.max(80.0)),
+            );
             schedule_bounds_flush_after_drag(&app);
             return Ok(false);
         }
@@ -2915,6 +2957,125 @@ pub async fn browser_embed_set_bounds(
         }
         Ok(true)
     } // cfg(target_os = "windows") for browser_embed_set_bounds body
+}
+
+/// 调试：读原生 WebView 当前屏幕/客户区矩形，供前端与 HTML 槽位对照。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserEmbedCoordsProbe {
+    pub label: String,
+    pub kind: String,
+    pub visible: bool,
+    pub parked: bool,
+    pub webview_screen: Rect4,
+    pub webview_client: Rect4,
+    pub main_client: Size2,
+    pub origin_screen: Point2,
+    pub last_slot: Option<Rect4>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rect4 {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Size2 {
+    pub w: f64,
+    pub h: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Point2 {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[tauri::command]
+pub async fn browser_embed_probe_coords(
+    app: tauri::AppHandle,
+    thread_id: String,
+) -> Result<Option<BrowserEmbedCoordsProbe>, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, thread_id);
+        return Ok(None);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let label = webview_label_for_thread(&thread_id);
+        let Some(window) = app.get_webview_window(&label) else {
+            return Ok(None);
+        };
+        let Some(main) = app.get_webview_window("main") else {
+            return Ok(None);
+        };
+        let (ox, oy) = client_origin_physical(&main).unwrap_or((0, 0));
+        let (cw, ch) = main
+            .inner_size()
+            .map(|s| (s.width as f64, s.height as f64))
+            .unwrap_or((0.0, 0.0));
+        let (ax, ay) = window
+            .outer_position()
+            .map(|p| (p.x as f64, p.y as f64))
+            .unwrap_or((0.0, 0.0));
+        let (aw, ah) = window
+            .outer_size()
+            .map(|s| (s.width as f64, s.height as f64))
+            .unwrap_or((0.0, 0.0));
+        let client_x = ax - ox as f64;
+        let client_y = ay - oy as f64;
+        let last_slot = EMBED_LAST_BOUNDS
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&label).copied())
+            .map(|(x, y, w, h)| Rect4 { x, y, w, h });
+        let kind = if embed_is_ws_child(&window) {
+            "WS_CHILD"
+        } else {
+            "WS_POPUP/TOP"
+        };
+        // 同步推到控制台事件，方便只盯 browser-embed-coords。
+        if let Some(ref slot) = last_slot {
+            log_region_diag(
+                "probe",
+                &label,
+                &main,
+                &window,
+                (slot.x, slot.y, slot.w, slot.h),
+            );
+        }
+        Ok(Some(BrowserEmbedCoordsProbe {
+            label: label.clone(),
+            kind: kind.into(),
+            visible: window.is_visible().unwrap_or(false),
+            parked: is_parked(&label),
+            webview_screen: Rect4 {
+                x: ax,
+                y: ay,
+                w: aw,
+                h: ah,
+            },
+            webview_client: Rect4 {
+                x: client_x,
+                y: client_y,
+                w: aw,
+                h: ah,
+            },
+            main_client: Size2 { w: cw, h: ch },
+            origin_screen: Point2 {
+                x: ox as f64,
+                y: oy as f64,
+            },
+            last_slot,
+        }))
+    }
 }
 
 /// 内嵌浏览器页面缩放（WebView2 ZoomFactor）。默认约 0.75 便于小槽位看全页；

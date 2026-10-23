@@ -129,6 +129,34 @@ export async function browserEmbedSetBounds(opts: {
   }
 }
 
+export type BrowserEmbedCoordsProbe = {
+  label: string
+  kind: string
+  visible: boolean
+  parked: boolean
+  webviewScreen: { x: number; y: number; w: number; h: number }
+  webviewClient: { x: number; y: number; w: number; h: number }
+  mainClient: { w: number; h: number }
+  originScreen: { x: number; y: number }
+  lastSlot?: { x: number; y: number; w: number; h: number } | null
+}
+
+/** 读原生 WebView 当前矩形，和 HTML 槽位对照用。 */
+export async function browserEmbedProbeCoords(
+  threadId: string,
+): Promise<BrowserEmbedCoordsProbe | null> {
+  const tid = String(threadId || '').trim()
+  if (!isDesktopTauri() || !tid) return null
+  try {
+    return await invokeTauri<BrowserEmbedCoordsProbe | null>('browser_embed_probe_coords', {
+      threadId: tid,
+    })
+  } catch (err) {
+    console.warn('[browser-embed] probeCoords failed', err)
+    return null
+  }
+}
+
 /** 内嵌页 ZoomFactor（0.5–2.5）。与页面内 Ctrl+滚轮同一套缩放。 */
 export async function browserEmbedSetZoom(threadId: string, factor: number): Promise<boolean> {
   const tid = String(threadId || '').trim()

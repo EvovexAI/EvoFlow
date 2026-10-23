@@ -68,6 +68,14 @@ function setScale(next) {
     try {
       window.dispatchEvent(new CustomEvent('ui-zoom-change', { detail: { scale: _scale } }))
     } catch { /* ignore */ }
+    try {
+      // 动态 import 避免与 layout-chrome 循环依赖；失败则仅靠 ui-zoom-change。
+      import('./layout-chrome.js')
+        .then(({ notifyLayoutChromeChanged }) => {
+          notifyLayoutChromeChanged(`ui-zoom:${Math.round(_scale * 100)}`)
+        })
+        .catch(() => {})
+    } catch { /* ignore */ }
   })
   toast(`界面缩放 ${Math.round(_scale * 100)}%`)
 }

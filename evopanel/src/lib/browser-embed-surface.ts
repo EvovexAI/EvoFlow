@@ -153,31 +153,37 @@ export function endGlobalOverlay(reason = 'overlay') {
  * 槽位布局变了。只有这个 stageId 正是前台浏览器页且无全局遮罩时才贴位。
  * 窗口若已销毁（park/崩溃后），改走 ensure 重建，避免右侧空白。
  */
-export function reportEmbedSlot(stageId: string, slot: EmbedSlot, opts?: { url?: string; force?: boolean }) {
+export function reportEmbedSlot(
+  stageId: string,
+  slot: EmbedSlot,
+  opts?: { url?: string; force?: boolean },
+): Promise<boolean> {
   const id = String(stageId || '').trim()
-  if (!id || id !== visibleStageId || overlayDepth > 0) return
+  if (!id || id !== visibleStageId || overlayDepth > 0) return Promise.resolve(false)
   const key = `${id}:${slot.x},${slot.y},${slot.width}x${slot.height}:${slot.viewportWidth || 0}x${slot.viewportHeight || 0}`
-  if (!opts?.force && key === lastReportedSlotKey) return
+  if (!opts?.force && key === lastReportedSlotKey) return Promise.resolve(true)
   lastReportedSlotKey = key
-  void (async () => {
+  return (async () => {
     const applied = await browserEmbedSetBounds({
       threadId: NATIVE_EMBED_THREAD_ID,
       ...slot,
       present: true,
     })
-    if (applied) return
+    if (applied) return true
     // 失败后允许立刻重试，不要被上一次 key 卡住。
+    // （含：最大化 Moved 把 set_bounds defer 后返回 false）
     lastReportedSlotKey = ''
-    // Soft-decouple: HWND often flaps mid Page.navigate. Retry setBounds once
-    // before recreate — recreate was wiping the live agent page to blank.
     blog('warn', `[browser-embed-surface] set-bounds missed stage=${id} — retry`)
-    await new Promise((r) => setTimeout(r, 200))
+    await new Promise((r) => setTimeout(r, 250))
     const retried = await browserEmbedSetBounds({
       threadId: NATIVE_EMBED_THREAD_ID,
       ...slot,
       present: true,
     })
-    if (retried) return
+    if (retried) {
+      lastReportedSlotKey = key
+      return true
+    }
     // Soft-decouple: do NOT recreate here. Panel place failures must not tear
     // down the agent WebView (that made backend navigate/settle fail). Next
     // panel-mount / ensureNativeEmbed can place the existing HWND.
@@ -185,6 +191,7 @@ export function reportEmbedSlot(stageId: string, slot: EmbedSlot, opts?: { url?:
       'warn',
       `[browser-embed-surface] set-bounds still missing stage=${id} — leave agent window alone`,
     )
+    return false
   })()
 }
 

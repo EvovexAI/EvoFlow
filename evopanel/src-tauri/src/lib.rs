@@ -44,13 +44,33 @@ pub fn run() {
         .on_window_event(|window, event| {
             // Moved：只打拖动标记，绝不贴位（WS_CHILD 跟父走；Moved 里
             // SetWindowPos 会重入拖动消息泵卡死整窗）。Resized：延迟兜底弹窗。
-            if let WindowEvent::Moved(_) | WindowEvent::Resized(_) = event {
-                if window.label() == "main" {
-                    let resized = matches!(event, WindowEvent::Resized(_));
-                    commands::browser_embed::on_main_window_geometry(
-                        &window.app_handle(),
-                        resized,
-                    );
+            // ScaleFactorChanged / Focused：DPI 切换、跨屏、从托盘/最小化恢复后重贴。
+            if window.label() == "main" {
+                match event {
+                    WindowEvent::Moved(_) => {
+                        commands::browser_embed::on_main_window_geometry(
+                            &window.app_handle(),
+                            false,
+                        );
+                    }
+                    WindowEvent::Resized(_) => {
+                        commands::browser_embed::on_main_window_geometry(
+                            &window.app_handle(),
+                            true,
+                        );
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        commands::browser_embed::on_main_window_geometry(
+                            &window.app_handle(),
+                            true,
+                        );
+                    }
+                    WindowEvent::Focused(true) => {
+                        commands::browser_embed::on_main_window_focus_gained(
+                            &window.app_handle(),
+                        );
+                    }
+                    _ => {}
                 }
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -368,6 +388,7 @@ pub fn run() {
             browser_embed::browser_embed_exists,
             browser_embed::browser_embed_upsert,
             browser_embed::browser_embed_set_bounds,
+            browser_embed::browser_embed_probe_coords,
             browser_embed::browser_embed_set_zoom,
             browser_embed::browser_embed_park,
             browser_embed::browser_embed_close,

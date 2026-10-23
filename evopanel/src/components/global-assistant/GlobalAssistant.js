@@ -4,6 +4,7 @@
 import { navigate, getCurrentRoute } from '../../router.js'
 import { toast } from '../toast.js'
 import { getUiZoom } from '../../lib/ui-zoom.js'
+import { notifyLayoutChromeChanged } from '../../lib/layout-chrome.js'
 import { showConfirm } from '../modal.js'
 import {
   formatShortcutDisplay,
@@ -147,15 +148,18 @@ function xmDockSavedWidth() {
  * 但原生 WebView HWND 不跟 CSS——必须强制 reportEmbedSlot，否则会盖住小V。
  */
 function notifyXmDockLayoutChanged(reason = 'dock') {
+  const r = String(reason || 'dock')
   try {
     window.dispatchEvent(
       new CustomEvent('evopanel:xm-dock-layout', {
-        detail: { reason: String(reason || 'dock'), at: Date.now() },
+        detail: { reason: r, at: Date.now() },
       }),
     )
   } catch {
     /* ignore */
   }
+  // 统一壳层布局总线：BrowserPanel 四角绑定只认这一条也能跟上。
+  notifyLayoutChromeChanged(r.startsWith('dock') ? r : `dock:${r}`)
 }
 
 function syncDockChrome(st = getState()) {

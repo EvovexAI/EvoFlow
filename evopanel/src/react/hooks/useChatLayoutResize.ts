@@ -26,6 +26,7 @@ import {
   measureBottomAreaNaturalHeight,
   saveChatLayoutPrefs,
 } from '../../lib/chat-layout-storage.js'
+import { notifyLayoutChromeChanged } from '../../lib/layout-chrome.js'
 
 export function useChatLayoutResize(opts: {
   anyRightPanelOpen: boolean
@@ -207,7 +208,17 @@ export function useChatLayoutResize(opts: {
 
   const persistLayoutSizes = useCallback(() => {
     saveChatLayoutPrefs(layoutSizesRef.current)
+    // 拖宽结束：显式唤醒（拖拽中靠 BrowserPanel 的 RO/rAF 跟四角）。
+    notifyLayoutChromeChanged('chat-layout-persist')
+    window.setTimeout(() => notifyLayoutChromeChanged('chat-layout-settle'), 100)
   }, [])
+
+  useEffect(() => {
+    if (!anyRightPanelOpen) return
+    notifyLayoutChromeChanged('chat-right-open')
+    const t = window.setTimeout(() => notifyLayoutChromeChanged('chat-right-open-settle'), 160)
+    return () => window.clearTimeout(t)
+  }, [anyRightPanelOpen])
 
   const onRightPanelDragDelta = useCallback((delta: number) => {
     const el = mainBodyRef.current
