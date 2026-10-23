@@ -612,7 +612,11 @@ def evf_payload_to_agui_events(
                 if not tid or tid in state.subagent_nested_tool_call_ids:
                     continue
                 if tid in state.tool_started:
-                    _ingest_tool_call_args(state, tc, out)
+                    # Write sanitize emits growing *complete* JSON snapshots
+                    # ({"path":"D"} → {"path":"D:/…/file.ts"}). Without
+                    # snapshot=True, merges concatenate blobs and the UI
+                    # partial-JSON parser freezes on the first path="D".
+                    _ingest_tool_call_args(state, tc, out, snapshot=True)
                     continue
                 name = _tool_name_from_tc(tc)
                 state.tool_started.add(tid)
@@ -623,7 +627,7 @@ def evf_payload_to_agui_events(
                         payload,
                     )
                 )
-                _ingest_tool_call_args(state, tc, out)
+                _ingest_tool_call_args(state, tc, out, snapshot=True)
         return out
 
     if t == "tool_call_chunk":

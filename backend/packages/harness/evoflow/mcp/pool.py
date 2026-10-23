@@ -51,6 +51,28 @@ def call_timeout_sec() -> float:
     except ValueError:
         return _CALL_TIMEOUT_DEFAULT_SEC
 
+
+def server_timeout_sec_from_config(raw_cfg: dict[str, Any] | None) -> float | None:
+    """从 server 原始配置读取 per-server 超时（对齐 Zcode ``timeoutMs``）。
+
+    同时接受 Zcode 风格 ``timeoutMs``（毫秒）与 EvoFlow 旧字段 ``timeout``
+    （秒）；两者并存时 ``timeoutMs`` 优先（与 Zcode 的 descriptor 覆盖语义
+    一致）。未配置或值不可用时返回 ``None``，由调用方回退到各自的全局默认。
+    """
+    if not isinstance(raw_cfg, dict):
+        return None
+    for key, scale in (("timeoutMs", 1000.0), ("timeout", 1.0)):
+        value_raw = raw_cfg.get(key)
+        if value_raw is None:
+            continue
+        try:
+            value = float(value_raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value / scale
+    return None
+
 # 连接级错误特征：按异常类名识别（不 import anyio，避免版本耦合）。
 _CONNECTION_ERROR_TYPE_NAMES = frozenset(
     {

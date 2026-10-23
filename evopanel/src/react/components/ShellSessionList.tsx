@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Folder as FolderIcon, FolderOpen as FolderOpenIcon } from 'lucide-react'
 import { getCurrentRoute, navigate } from '../../router.js'
 import {
   mutateSessionPinned,
@@ -1423,33 +1424,32 @@ export function ShellSessionList({
                         <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
                           <button
                             type="button"
-                            className="react-chat-session-ws-group-header"
+                            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-start gap-2 rounded-lg border-none bg-transparent pl-2.5 pr-1 text-left outline-none hover:bg-transparent transition-colors"
                             aria-expanded={!collapsed}
                             onClick={() => toggleGroupCollapsed(section.key)}
                           >
-                            {isEmployeesTab && section.avatarAgentCode ? (
-                              <AssignedAgentAvatar
-                                agentCode={section.avatarAgentCode}
-                                agents={agents}
-                                size={18}
-                              />
-                            ) : (
-                              <ShellFolderIcon size={13} className="text-foreground-subtle" />
-                            )}
-                            <span className="min-w-0 truncate font-medium">{section.label}</span>
-                            <span className="react-chat-task-count">{section.rows.length}</span>
-                            <span
-                              className={`react-chat-session-duty-fold-chevron${collapsed ? '' : ' is-open'}`}
-                              aria-hidden
-                            >
-                              ›
+                            <span className="relative flex size-4 shrink-0 items-center justify-center">
+                              {isEmployeesTab && section.avatarAgentCode ? (
+                                <AssignedAgentAvatar
+                                  agentCode={section.avatarAgentCode}
+                                  agents={agents}
+                                  size={16}
+                                />
+                              ) : collapsed ? (
+                                <FolderIcon className="size-4 text-foreground-subtle" />
+                              ) : (
+                                <FolderOpenIcon className="size-4 text-foreground-subtle" />
+                              )}
+                            </span>
+                            <span className="min-w-0 truncate text-ui-base text-foreground-subtle">
+                              {section.label}
                             </span>
                           </button>
                           {!collapsed ? (
-                            <ul className="react-chat-session-ws-group-list">
-                              {section.rows.map((row) => renderSessionRow(row))}
-                            </ul>
-                          ) : null}
+                              <ul className="react-chat-session-ws-group-list">
+                                {section.rows.map((row) => renderSessionRow(row))}
+                              </ul>
+                            ) : null}
                         </li>
                       )
                     })

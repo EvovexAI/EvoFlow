@@ -162,16 +162,15 @@ function readPartialJsonObjectPreview(rawInput: string): Record<string, string> 
   return Object.keys(preview).length > 0 ? preview : null;
 }
 
-function readPartialJsonStringField(rawInput: string, key: string): string | undefined {
-  const match = new RegExp(`"${escapeRegExp(key)}"\\s*:\\s*"`).exec(rawInput);
-  if (!match) {
-    return undefined;
-  }
-
+function readPartialJsonStringFieldAt(
+  rawInput: string,
+  fieldPrefixIndex: number,
+  fieldPrefixLength: number,
+): string | undefined {
   let encoded = "";
   let escaped = false;
   let closed = false;
-  for (let index = match.index + match[0].length; index < rawInput.length; index += 1) {
+  for (let index = fieldPrefixIndex + fieldPrefixLength; index < rawInput.length; index += 1) {
     const char = rawInput[index] ?? "";
     if (escaped) {
       encoded += `\\${char}`;
@@ -193,6 +192,23 @@ function readPartialJsonStringField(rawInput: string, key: string): string | und
   }
 
   return decodeJsonStringSegment(encoded, closed);
+}
+
+function readPartialJsonStringField(rawInput: string, key: string): string | undefined {
+  // Write 流式 sanitize 曾把多份完整 JSON 拼成
+  // `{"path":"D"}{"path":"D:/…/file.ts"}`；只取首个匹配会把文件名冻成 "D"。
+  // 扫全部出现，优先更长的值（完整 Windows 路径赢过盘符前缀）。
+  const re = new RegExp(`"${escapeRegExp(key)}"\\s*:\\s*"`, "g");
+  let best: string | undefined;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(rawInput)) !== null) {
+    const value = readPartialJsonStringFieldAt(rawInput, match.index, match[0].length);
+    if (value === undefined) continue;
+    if (best === undefined || value.length >= best.length) {
+      best = value;
+    }
+  }
+  return best;
 }
 
 function decodeJsonStringSegment(encoded: string, closed: boolean): string {
