@@ -15,6 +15,7 @@ import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/markdownTableVariant.js";
+import { AssistantCodeCommentFeatureProvider } from "@zcode/ui/AssistantCodeCommentFeatureProvider.js";
 import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
 import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
@@ -465,6 +466,12 @@ export function V4ZCodeTimeline(props: {
       */}
       <TooltipProvider delayDuration={0}>
       {/*
+        ::code-comment{...} 指令卡片总开关（ZCode desktop 也恒开）：
+        ConversationTurnGroup 据此把助手正文里的指令投影成行内代码评审卡
+        （流式期间只隐藏指令原文，终态才落卡，卡片点击走 onOpenCodeViewer）。
+      */}
+      <AssistantCodeCommentFeatureProvider enabled>
+      {/*
         对齐 SessionPane 会话壳：
         - zcode-bridge-root：styles-bridge 的 token / 滚动条 / 焦点规则作用域
         - @container/conversation：正文限宽与左侧 turn navigator 的 container query
@@ -547,6 +554,7 @@ export function V4ZCodeTimeline(props: {
           </div>
         ) : null}
       </div>
+      </AssistantCodeCommentFeatureProvider>
       </TooltipProvider>
       </MarkdownTableVariantProvider>
       </PlatformProvider>
