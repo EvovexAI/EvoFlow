@@ -186,7 +186,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     from evoflow.tools.builtins.subtask_work_checklist_tool import subtask_work_checklist_tool
     from evoflow.tools.builtins.supervisor_tool import supervisor_tool
     from evoflow.tools.builtins.tasks_tool import tasks_tool
-    from evoflow.tools.builtins.todo_tool import todo_tool
+    # from evoflow.tools.builtins.todo_tool import todo_tool  # retired — 会话内清单由 TodoMiddleware 的 todo_write 提供（zcode TodoWrite 对齐）
     from evoflow.tools.builtins.view_image_tool import view_image_tool
 
     tools = [
@@ -203,7 +203,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         collab_peer_send_tool,
         collab_peer_read_tool,
         collab_peer_reply_tool,
-        todo_tool,
+        # todo_tool,  # retired — todo_write (TodoMiddleware) 替代，对齐 zcode
         stage_set_tool,
         fetch_url_tool,
         view_image_tool,

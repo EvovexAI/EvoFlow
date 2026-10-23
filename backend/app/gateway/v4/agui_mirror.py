@@ -117,6 +117,12 @@ def _wechat_summary(content: str) -> str | None:
 # 媒体工具（图片产物）→ CUA display 内联图片。视频/音频无内联渲染位，暂缓。
 _MEDIA_IMAGE_TOOL_NAMES = {"media_image_generate", "media_task_wait"}
 
+# 浏览器工具（截图内联显示：结果 JSON 有 image_url 指向 browser-snapshots API）
+_BROWSER_TOOL_NAMES = {
+    "browser", "browser_navigate", "browser_click", "browser_type",
+    "browser_screenshot", "browser_scroll", "browser_snapshot",
+}
+
 
 def _media_artifact_uri(thread_id: str, abs_path: str) -> str:
     """构造工作区文件的 inline 预览 URL（serve-file 支持绝对 path，root 由 thread 解析）。"""
@@ -702,6 +708,23 @@ class V4Mirror:
                 block = _cua_display_block(cua_display, content)
                 if block is not None:
                     tool_output["display"] = block
+            elif tool_name_l.lower() in _BROWSER_TOOL_NAMES and v4_status == "success":
+                # 浏览器截图：结果 JSON 有 image_url（同源 API 路径）→ CUA display
+                # media 内联渲染。浏览器截图走 ZCode 工具卡的 CUA media 通道。
+                try:
+                    blob = json.loads(content) if content.strip().startswith("{") else None
+                except ValueError:
+                    blob = None
+                if isinstance(blob, dict) and blob.get("type") == "browser_screenshot":
+                    image_url = str(blob.get("image_url") or "").strip()
+                    if image_url:
+                        tool_output["display"] = {
+                            "kind": "cua",
+                            "schemaVersion": 1,
+                            "toolName": tool_name_l,
+                            "status": "success",
+                            "media": [{"mimeType": "image/png", "artifactUri": image_url}],
+                        }
             elif tool_name_l.lower() in _MEDIA_IMAGE_TOOL_NAMES and v4_status == "success":
                 # 媒体工具产物图片 → CUA display 内联渲染（对齐 ZCode 工具卡图片能力）。
                 media_block = _media_image_cua_display(tid, content, tool_name_l)

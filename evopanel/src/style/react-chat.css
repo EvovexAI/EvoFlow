@@ -33193,8 +33193,10 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-nav-error {
 
 .msg-stream-run-spinner {
   color: var(--accent, #635bff);
-  animation: react-chat-spinner-rotate 0.8s linear infinite;
+  /* 与 V4 ChatLoading 同速：匀速 0.7s，比默认 1s 更顺、不显拖沓 */
+  animation: react-chat-spinner-rotate 0.7s linear infinite;
   transform-origin: 50% 50%;
+  backface-visibility: hidden;
 }
 
 /* flat 时间线：思考标识与下方工具行贴近（去掉思考块自身下边距 + 收紧行距） */

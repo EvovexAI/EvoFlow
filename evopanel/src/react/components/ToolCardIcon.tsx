@@ -69,6 +69,7 @@ const EXACT_KIND_CATEGORY: Record<string, ToolCardCategory> = {
   person_memory: 'memory',
 
   plan: 'plan',
+  todo_write: 'plan',
   write_todos: 'plan',
   todo: 'plan',
   mode_set: 'plan',

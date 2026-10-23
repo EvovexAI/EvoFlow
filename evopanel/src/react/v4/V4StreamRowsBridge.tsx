@@ -7,7 +7,14 @@
 //   V4ZCodeTimeline（ZCode ConversationTimeline）渲染——行视图/时间线/贴底
 //   全部是 ZCode 显示区域的正式实现，不经过任何行适配。
 // - payload = null：V4 未就绪（开关关闭/会话无 threadId/订阅中），调用方回落老链路。
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   SessionDataLayer,
   type SessionLease,
@@ -41,6 +48,27 @@ function getSharedLayer(): SessionDataLayer {
   return sharedLayer;
 }
 
+/**
+ * 悬停预热：acquire → 立刻 release，让 SessionDataLayer 进 keep-warm（默认 30s）。
+ * 点击时再次 acquire 可命中已订阅/已有快照，避免「本地 history 已到、V4 还冷」闪老面板。
+ */
+export function warmEvoflowV4Session(sessionId: string): void {
+  const id = String(sessionId || "").trim();
+  if (!id) return;
+  try {
+    const lease = getSharedLayer().acquire(id);
+    queueMicrotask(() => {
+      try {
+        lease.release();
+      } catch {
+        /* ignore */
+      }
+    });
+  } catch {
+    /* best effort */
+  }
+}
+
 export function V4StreamRowsBridge(props: {
   /** v4 session id = LangGraph threadId。 */
   sessionId: string | null;
@@ -51,7 +79,8 @@ export function V4StreamRowsBridge(props: {
   const layer = useMemo(() => getSharedLayer(), []);
   const [lease, setLease] = useState<SessionLease | null>(null);
 
-  useEffect(() => {
+  // layout：尽量在绘制前换租约，减少「新 sessionId + 旧 store」错配一帧。
+  useLayoutEffect(() => {
     if (!enabled || !sessionId) {
       setLease(null);
       return;
@@ -64,7 +93,10 @@ export function V4StreamRowsBridge(props: {
     };
   }, [layer, enabled, sessionId]);
 
-  const store = lease?.store ?? null;
+  // sessionId 已变但 effect 尚未提交时，绝不能读上一会话的 store（会 ready 错配 → 误 hold 老面板）。
+  const leaseForSession =
+    lease && sessionId && lease.sessionId === sessionId ? lease : null;
+  const store = leaseForSession?.store ?? null;
   const state: StoreState | null = useSyncExternalStore(
     (listener) => store?.subscribe(listener) ?? (() => {}),
     () => store?.getState() ?? NOT_READY,
@@ -78,7 +110,6 @@ export function V4StreamRowsBridge(props: {
     [store],
   );
 
-  // 显示数据源宣告：状态切换时打一条，让人一眼看清"现在以哪个为准"。
   const snapshot: ConversationSnapshot | null = state?.snapshot ?? null;
   const pathState = !enabled
     ? "legacy:off"
@@ -88,7 +119,7 @@ export function V4StreamRowsBridge(props: {
         ? "v4"
         : "v4-connecting";
   const lastPathLogRef = useRef("");
-  useEffect(() => {
+  useLayoutEffect(() => {
     const key = `${pathState}:${sessionId ?? ""}`;
     if (lastPathLogRef.current === key) return;
     lastPathLogRef.current = key;
@@ -99,7 +130,7 @@ export function V4StreamRowsBridge(props: {
       );
     } else if (pathState === "v4-connecting") {
       console.info(
-        `%c[v4-path] V4 已订阅，等首帧快照中（session=${sessionId}）——到达前回落老链路`,
+        `%c[v4-path] V4 已订阅，等首帧快照中（session=${sessionId}）——不回落老面板`,
         "color:#9333ea;font-weight:bold",
       );
     } else {
@@ -111,11 +142,10 @@ export function V4StreamRowsBridge(props: {
     }
   }, [pathState, sessionId, enabled]);
 
-  // 稳定 payload 引用：store 同快照重复 notify 时不给 timeline 换新对象。
   const status = state?.status ?? "connecting";
   const loadingOlder = state?.loadingOlder ?? false;
   const payload = useMemo<V4TimelinePayload | null>(() => {
-    if (!snapshot || !sessionId) return null;
+    if (!snapshot || !sessionId || !leaseForSession) return null;
     return {
       sessionId,
       snapshot,
@@ -123,11 +153,11 @@ export function V4StreamRowsBridge(props: {
       loadingOlder,
       onLoadOlder,
     };
-  }, [sessionId, snapshot, status, loadingOlder, onLoadOlder]);
+  }, [sessionId, snapshot, status, loadingOlder, onLoadOlder, leaseForSession]);
 
   if (!enabled || !sessionId) {
     return children(null, !enabled ? "disabled" : "no-thread");
   }
-  // 有 threadId 即锁定 V4 渲染（connecting 阶段由调用方渲染空态，不回落老链路）。
-  return children(payload, snapshot ? "ready" : "connecting");
+  // 有 threadId 即锁定 V4；租约未对齐或尚无快照 → connecting（调用方勿回落字墙老面板）。
+  return children(payload, payload ? "ready" : "connecting");
 }

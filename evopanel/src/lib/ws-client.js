@@ -1985,7 +1985,8 @@ function notifySessionThreadRebound(sessionKey, oldThreadId, threadId) {
   const sk = String(sessionKey || '').trim()
   const tid = String(threadId || '').trim()
   const old = String(oldThreadId || '').trim()
-  if (!sk || !tid || !old || old === tid) return
+  // 允许 old 为空：首条消息首次绑定 thread 时小V / 侧栏也要立刻拿到 sessionId 挂 V4
+  if (!sk || !tid || old === tid) return
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(
       new CustomEvent('evopanel:session-thread-rebound', {

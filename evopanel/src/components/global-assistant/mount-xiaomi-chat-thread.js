@@ -1,5 +1,6 @@
 /**
- * 小V 对话区：挂主对话同款 V4 面板（V4StreamRowsBridge → ConversationTimeline）。
+ * 小V 对话区：纯 V4（V4StreamRowsBridge → ConversationTimeline），与主对话同一显示管线。
+ * threadId / 会话切换由组件内订阅，不必每帧 remount。
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -32,7 +33,8 @@ export function mountXiaomiChatThread(host, props = {}) {
     _host = host
     _lastSessionKey = ''
   }
-  // 流式期间 GlobalAssistant 每帧 sync：sessionKey 未变则跳过 render，避免整栏抖。
+  // GlobalAssistant 每帧 sync：sessionKey 未变则跳过 render，避免整栏抖。
+  // 流式正文由组件内 subscribe(assistant-store) 驱动。
   if (!props.force && _lastSessionKey === sessionKey && _root) {
     return
   }

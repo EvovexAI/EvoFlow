@@ -769,13 +769,31 @@ function BrowserEmbedHost({
         `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(boundsLogged)} ` +
           `hwndReady=${hwndReady} placeOnly=true url=${pageUrlNow || '(none)'}`,
       )
-      const info = await ensureNativeEmbed({
-        placeOnly: true,
-        slot: bounds,
-        stageId: stageIdRef.current,
-        reason: 'panel-mount',
-      })
-      dbgLog(`[browser-embed] upsert done cdpUrl=${info?.cdpUrl ? 'OK' : 'MISSING'} label=${info?.webviewLabel || '-'}`)
+      // HMR / 冷启动时 create 常超时一次，但 HWND 晚几百 ms 才就绪；一次失败就
+      // embedFailed 会逼用户关再开。对齐 Rust late-ok：多试几次再认输。
+      let info: Awaited<ReturnType<typeof ensureNativeEmbed>> = null
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (cancelled && !readyRef.current) return
+        if (!surfaceActiveRef.current) return
+        info = await ensureNativeEmbed({
+          placeOnly: true,
+          slot: bounds,
+          stageId: stageIdRef.current,
+          reason: attempt === 1 ? 'panel-mount' : `panel-mount-retry-${attempt}`,
+        })
+        dbgLog(
+          `[browser-embed] upsert done attempt=${attempt} cdpUrl=${info?.cdpUrl ? 'OK' : 'MISSING'} label=${info?.webviewLabel || '-'}`,
+        )
+        if (info?.cdpUrl) break
+        // 超时后窗口可能刚建好：先问 exists，再等一把再 ensure。
+        const late = await browserEmbedExists(tid)
+        dbgWarn(
+          `[browser-embed] upsert miss attempt=${attempt} lateExists=${late} thread=${tid}`,
+        )
+        if (attempt < 3) {
+          await new Promise<void>((r) => window.setTimeout(r, 400 * attempt))
+        }
+      }
       if (!info?.cdpUrl) {
         dbgWarn(`[browser-embed] upsert returned no cdpUrl thread=${tid} info=${JSON.stringify(info)}`)
         failMount('embed upsert failed', '内嵌浏览器启动失败')
@@ -878,7 +896,17 @@ function BrowserEmbedHost({
         void syncBounds()
       }, 120)
     }
+    // 小V 侧栏开合/拖宽：#main-col margin 变了但 window.resize 不响；必须 force 贴位，
+    // 否则原生 WebView 仍占旧矩形，盖住右侧小V HTML 面板。
+    // 节流：dock-open/settle 连发时不要立刻刷 SetWindowPos，避免和 create 抢主线程。
+    const onXmDock = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        void syncBoundsRef.current()
+      }, 80)
+    }
     window.addEventListener('resize', schedule)
+    window.addEventListener('evopanel:xm-dock-layout', onXmDock)
     const ro =
       typeof ResizeObserver !== 'undefined' && slotRef.current
         ? new ResizeObserver(() => {
@@ -893,6 +921,7 @@ function BrowserEmbedHost({
       window.clearTimeout(timer)
       window.clearTimeout(t2)
       window.removeEventListener('resize', schedule)
+      window.removeEventListener('evopanel:xm-dock-layout', onXmDock)
       ro?.disconnect()
     }
   }, [isOpen, ready, surfaceActive, syncBounds])
@@ -1745,6 +1774,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       timer = window.setTimeout(apply, 120)
     }
     window.addEventListener('resize', schedule)
+    window.addEventListener('evopanel:xm-dock-layout', schedule)
     const ro =
       typeof ResizeObserver !== 'undefined' && panelRootRef.current
         ? new ResizeObserver(schedule)
@@ -1753,6 +1783,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     return () => {
       window.clearTimeout(timer)
       window.removeEventListener('resize', schedule)
+      window.removeEventListener('evopanel:xm-dock-layout', schedule)
       ro?.disconnect()
     }
   }, [preferEmbeddedBrowser, embedReady, surfaceActive, embedThreadId, effectiveThreadId, zoom])

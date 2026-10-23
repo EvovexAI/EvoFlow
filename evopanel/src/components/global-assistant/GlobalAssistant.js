@@ -142,16 +142,46 @@ function xmDockSavedWidth() {
   return n >= XM_DOCK_MIN ? Math.min(n, XM_DOCK_MAX) : 0
 }
 
+/**
+ * 小V 侧栏开合/改宽会改 #main-col margin，浏览器槽位 CSS 变了，
+ * 但原生 WebView HWND 不跟 CSS——必须强制 reportEmbedSlot，否则会盖住小V。
+ */
+function notifyXmDockLayoutChanged(reason = 'dock') {
+  try {
+    window.dispatchEvent(
+      new CustomEvent('evopanel:xm-dock-layout', {
+        detail: { reason: String(reason || 'dock'), at: Date.now() },
+      }),
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
 function syncDockChrome(st = getState()) {
   const docked = !!(st.isOpen && !st.isMinimized && resolvePanelLayout(st) === 'dock')
+  let changed = false
   try {
-    document.documentElement.classList.toggle('is-xm-docked', docked)
+    const root = document.documentElement
+    const wasDocked = root.classList.contains('is-xm-docked')
+    root.classList.toggle('is-xm-docked', docked)
     const saved = xmDockSavedWidth()
-    document.documentElement.style.setProperty('--xm-dock-width', docked ? (saved ? saved + 'px' : '400px') : '0px')
+    const nextW = docked ? (saved ? saved + 'px' : '400px') : '0px'
+    const prevW = root.style.getPropertyValue('--xm-dock-width').trim()
+    root.style.setProperty('--xm-dock-width', nextW)
+    changed = wasDocked !== docked || prevW !== nextW
   } catch {
     /* ignore */
   }
   syncShellXiaomiActive(docked || !!(st.isOpen && !st.isMinimized))
+  if (changed) {
+    // 布局要过一轮 paint 槽位 getBoundingClientRect 才准
+    requestAnimationFrame(() => {
+      notifyXmDockLayoutChanged(docked ? 'dock-open' : 'dock-close')
+      window.setTimeout(() => notifyXmDockLayoutChanged('dock-settle'), 80)
+      window.setTimeout(() => notifyXmDockLayoutChanged('dock-settle-late'), 280)
+    })
+  }
 }
 
 // 小V 侧栏左缘拖拽调宽（宽度持久化到 localStorage）
@@ -162,18 +192,30 @@ function initXmDockResize(panel) {
   handle.className = 'xm-dock-resize'
   handle.title = '拖拽调整宽度'
   panel.appendChild(handle)
+  let moveRaf = 0
   const onMove = (e) => {
     const zoom = getUiZoom() || 1
     const max = Math.min(640, Math.round((window.innerWidth * 0.7) / zoom))
     const w = Math.min(Math.max((window.innerWidth - e.clientX) / zoom, XM_DOCK_MIN), max)
     document.documentElement.style.setProperty('--xm-dock-width', w + 'px')
+    if (moveRaf) return
+    moveRaf = requestAnimationFrame(() => {
+      moveRaf = 0
+      notifyXmDockLayoutChanged('dock-resize')
+    })
   }
   const onUp = () => {
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
     document.body.classList.remove('xm-resizing')
+    if (moveRaf) {
+      cancelAnimationFrame(moveRaf)
+      moveRaf = 0
+    }
     const w = Math.round(panel.getBoundingClientRect().width)
     if (w >= XM_DOCK_MIN) localStorage.setItem('xm-dock-width', String(w))
+    notifyXmDockLayoutChanged('dock-resize-end')
+    window.setTimeout(() => notifyXmDockLayoutChanged('dock-resize-settle'), 100)
   }
   handle.addEventListener('mousedown', (e) => {
     e.preventDefault()
@@ -2534,7 +2576,7 @@ function renderComposer(st) {
     </footer>`
 }
 
-/** V4 对话挂着时避免整段替换 composer：只同步 draft / 发送·停止钮，减少布局抖动。 */
+/** React 对话挂着时避免整段替换 composer：只同步 draft / 发送·停止钮，减少布局抖动。 */
 function patchXiaomiComposerSendButton(composerSlot, st) {
   const box = composerSlot?.querySelector?.('.xm-composer-box')
   if (!box) {
@@ -2822,7 +2864,7 @@ function render() {
       } else if (!keepXmReactThread) {
         bodySlot.innerHTML = renderBody(st)
       }
-      // V4 对话挂着时，流式每帧整段替换 composer 会撑布局抖动；只原地切换发送/停止钮。
+      // React 对话挂着时，流式每帧整段替换 composer 会撑布局抖动；只原地切换发送/停止钮。
       if (keepXmReactThread && contactNow === 'xiaomi') {
         patchXiaomiComposerSendButton(composerSlot, st)
       } else {
@@ -2919,6 +2961,21 @@ function scheduleStreamRender() {
     _streamRenderFrame = 0
     if (!_streamRenderPending) return
     _streamRenderPending = false
+    // V4 已挂载时正文由帧管线自己画：流式期间不要整页 render（header/shell 全量重绘会抖）
+    const st = getState()
+    const v4Mounted = !!_root?.querySelector?.('[data-xm-chat-panel="v4"]')
+    const composerSlot = _root?.querySelector?.('[data-xm-composer-slot]')
+    if (
+      v4Mounted &&
+      st.isOpen &&
+      st.activeView === 'chat' &&
+      resolveSelectedContact(st) === 'xiaomi' &&
+      composerSlot
+    ) {
+      patchXiaomiComposerSendButton(composerSlot, st)
+      syncXiaomiReactThreadMount()
+      return
+    }
     render()
   }
   if (typeof requestAnimationFrame === 'function') {

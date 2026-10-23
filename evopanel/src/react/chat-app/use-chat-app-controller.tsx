@@ -789,6 +789,7 @@ import { useSessionExecutionProbes } from '../hooks/useSessionExecutionProbes.js
 import { buildHistoryViewFromRaw } from '../lib/chatHistoryView.js'
 import { fetchSessionHistoryTailMessages } from '../hooks/fetchSessionHistory.js'
 import { warmSessionHistoryPrefetch } from '../lib/warm-session-history-prefetch.js'
+import { warmEvoflowV4Session } from '../v4/V4StreamRowsBridge.js'
 import {
   displayRowsEquivalent,
   mergeDbOnlyHistoryRows,
@@ -5925,7 +5926,16 @@ export function useChatAppController() {
     (sessionKey: string) => {
       const sk = String(sessionKey || '').trim()
       if (!sk || sk === String(selectedSessionKey || '').trim()) return
+      // AG-UI history：点击瞬间 runtime.rows 已热（旧面板/对比用）。
       warmSessionHistoryPrefetch(sk)
+      // V4 帧：悬停即 acquire→keep-warm，点击时 Timeline 尽量已有快照，避免字墙闪一下。
+      if (!isEvoflowChatV4Enabled()) return
+      const threadId = String(
+        sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === sk)?.threadId ||
+          wsClient?.getSessionThreadId?.(sk) ||
+          '',
+      ).trim()
+      if (threadId) warmEvoflowV4Session(threadId)
     },
     [selectedSessionKey],
   )

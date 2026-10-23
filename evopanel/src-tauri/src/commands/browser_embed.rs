@@ -2492,9 +2492,34 @@ pub async fn browser_embed_upsert(
                 let _ = tx.send(r);
             })
             .map_err(|e| format!("spawn embed create failed: {e}"))?;
-        rx.recv_timeout(Duration::from_secs(15))
-            .map_err(|_| format!("embed create timed out for '{label}'"))?
-            ?;
+        // Mirror ensure_webview: WebView2::build often finishes after the wait.
+        // Hard-failing on timeout left HMR / cold-open permanently broken while
+        // the create thread still held EMBED_CREATE_LOCK and later succeeded.
+        match rx.recv_timeout(Duration::from_secs(15)) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                if app.get_webview_window(&label).is_some()
+                    && wait_embed_hwnd_label(&app, &label, Duration::from_secs(3)).is_ok()
+                {
+                    browser_cdp_server::log_line(&format!(
+                        "[browser-embed] upsert: create late ok label={label}"
+                    ));
+                } else {
+                    // One more beat — create thread may still be inside build().
+                    std::thread::sleep(Duration::from_millis(500));
+                    if app.get_webview_window(&label).is_some()
+                        && wait_embed_hwnd_label(&app, &label, Duration::from_secs(5)).is_ok()
+                    {
+                        browser_cdp_server::log_line(&format!(
+                            "[browser-embed] upsert: create late-ok after grace label={label}"
+                        ));
+                    } else {
+                        return Err(format!("embed create timed out for '{label}'"));
+                    }
+                }
+            }
+        }
     }
 
     browser_cdp_server::log_line(&format!(

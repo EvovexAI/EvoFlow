@@ -37,6 +37,24 @@ import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.j
 
 export type ChatAppViewCtx = Record<string, any>
 
+/** V4 window 是否已出现与本地尾部用户气泡同文的 userInput（用于乐观 hold，勿用 totalCount 比行数）。 */
+function v4WindowHasUserText(
+  snapshot: { rows?: { window?: ReadonlyArray<{ kind?: string; text?: string }> } } | null | undefined,
+  text: string,
+): boolean {
+  const needle = String(text || '').trim()
+  if (!needle || !snapshot?.rows?.window?.length) return false
+  const window = snapshot.rows.window
+  for (let i = window.length - 1; i >= 0; i--) {
+    const row = window[i]
+    if (String(row?.kind || '') !== 'userInput') continue
+    const t = String(row?.text || '').trim()
+    if (!t) return false
+    return t === needle || t.endsWith(needle) || needle.endsWith(t)
+  }
+  return false
+}
+
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   const {
     activateRightStageTab,
@@ -544,15 +562,44 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 }
               >
                 {(v4Payload, v4Phase) => {
-                  /* 老面板：显式回滚 / 工作台首页 / 本地行领先于 V4 快照。
-                     第三种是「发送后立刻看见气泡并等待回复」：乐观 setRows 早于 V4 帧，
-                     本地行数 > V4 时先走老面板（含整轮流式），追上后再切 V4。
-                     「新对话」空草稿（rows=0）必须留在 V4 居中，避免贴底再跳中间。 */
+                  /* 老面板：显式回滚 / 工作台首页 / 本轮刚发出的用户气泡尚未进 V4。
+                     禁止再用 rows.length > totalCount：本地只是窗口，长会话 totalCount 更大，
+                     发送后永远判不成 ahead → 干等 V4 帧 2～3s 才出气泡。
+                     闲置切历史 turnLive=false，不会 hold，避免字墙。 */
+                  const selectedThreadId = String(
+                    sessions.find(
+                      (s) => String(s.sessionKey || '') === String(selectedSessionKey || ''),
+                    )?.threadId || '',
+                  ).trim() ||
+                    String(wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '') ||
+                    ''
                   const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
+                  const v4SessionMatched =
+                    !!v4Payload &&
+                    String(v4Payload.sessionId || '').trim() === selectedThreadId
+                  const turnLive = selectedTurnBusy || selectedSessionLive
+                  const lastLocal =
+                    Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
+                  const lastLocalUserText =
+                    lastLocal && String(lastLocal.role || '') === 'user'
+                      ? String(lastLocal.text || '').trim()
+                      : ''
+                  const awaitingV4UserEcho =
+                    turnLive &&
+                    !!lastLocalUserText &&
+                    !v4WindowHasUserText(v4Payload?.snapshot, lastLocalUserText)
                   const localOptimisticHold =
-                    Array.isArray(rows) && rows.length > 0 && rows.length > v4RowCount
+                    awaitingV4UserEcho &&
+                    (v4Phase === 'ready'
+                      ? v4SessionMatched
+                      : v4Phase === 'connecting' || v4Phase === 'no-thread')
                   const useLegacyPane =
                     v4Phase === 'disabled' || isHomeSurface || localOptimisticHold
+                  /* connecting 等首帧：有本地历史时不要闪草稿问候语，空白等 V4 即可。 */
+                  const draftEmpty =
+                    !localOptimisticHold &&
+                    !(Array.isArray(rows) && rows.length > 0) &&
+                    (v4Phase !== 'ready' || !v4RowCount)
                   return useLegacyPane ? (
               <ChatMessageStreamPane
                 rows={renderRows}
@@ -608,9 +655,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     <V4ZCodeTimeline
                       payload={v4Payload}
                       connecting={v4Phase === 'connecting' || v4Phase === 'no-thread'}
-                      /* 草稿空态 = 尚无任何行可显示（新会话创建中 / 等首帧快照）。
-                         与居中判定同源，避免问候语与 composer 分属两个阶段而闪烁。 */
-                      draftEmpty={v4Phase !== 'ready' || !v4RowCount}
+                      draftEmpty={draftEmpty}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenCodeViewer={(source) => {
                         // ZCode CodeViewerSource → 右侧 codeViewer 面板

@@ -15,6 +15,7 @@ import { ZCodeIntlProvider } from "@zcode/ui/i18n/IntlProvider.js";
 import { ServiceProvider } from "@zcode/ui/hooks/useServices.js";
 import { PlatformProvider } from "@zcode/ui/hooks/usePlatform.js";
 import { MarkdownTableVariantProvider } from "@zcode/ui/components/ai-elements/markdownTableVariant.js";
+import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
 import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
@@ -104,7 +105,8 @@ export function V4ZCodeTimeline(props: {
   evoflowSessionKey?: string | null;
   /**
    * 窄栏嵌入（小V）：composer 在面板外，禁用空态居中；sessionKey 用 evoflow key 保持稳定，
-   * 避免 threadId 从无到有时 timeline 整树 remount 抖动；并露出左侧 turn navigator。
+   * 避免 threadId 从无到有时 timeline 整树 remount 抖动；并隐藏左侧 turn navigator
+   * （窄栏空间不够，选历史轮次对小V 多余）。
    */
   embedded?: boolean;
   /**
@@ -457,6 +459,11 @@ export function V4ZCodeTimeline(props: {
       <PlatformProvider platform={evoflowStubPlatform}>
       <MarkdownTableVariantProvider value="evoflow">
       {/*
+        ControlHintTooltip（复制等消息动作）默认 standalone=false，依赖祖先 TooltipProvider。
+        ZCode Root 有共享 Provider；EvoFlow 只嵌 ConversationTimeline，需在此补一层（同分享只读时间线）。
+      */}
+      <TooltipProvider delayDuration={0}>
+      {/*
         对齐 SessionPane 会话壳：
         - zcode-bridge-root：styles-bridge 的 token / 滚动条 / 焦点规则作用域
         - @container/conversation：正文限宽与左侧 turn navigator 的 container query
@@ -482,6 +489,8 @@ export function V4ZCodeTimeline(props: {
           loadingOlder={payload?.loadingOlder ?? false}
           onLoadOlder={payload?.onLoadOlder}
           bottomDock={bottomDock}
+          // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
+          hideTurnNavigator={embedded}
           // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
           // 草稿态（新对话、尚无 threadId）必须同样居中：点击「+」后会话创建 + ensure-thread
           // 要 2~3s，期间若退回老面板的底部 dock，用户会看到输入框先在底部、随后跳到中间。
@@ -537,6 +546,7 @@ export function V4ZCodeTimeline(props: {
           </div>
         ) : null}
       </div>
+      </TooltipProvider>
       </MarkdownTableVariantProvider>
       </PlatformProvider>
     </ZCodeIntlProvider>
