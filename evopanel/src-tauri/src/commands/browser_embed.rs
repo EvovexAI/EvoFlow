@@ -224,6 +224,10 @@ fn destroy_zombie_embed(app: &tauri::AppHandle, label: &str) {
 static UI_OP: AtomicU8 = AtomicU8::new(0);
 static UI_SINCE_MS: AtomicU64 = AtomicU64::new(0);
 static UI_STALL_LOGGED_SINCE: AtomicU64 = AtomicU64::new(0);
+/// 主窗正在被拖动（Moved）。看门狗在此期间禁止 SetWindowPos。
+static MAIN_DRAG_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+/// 缩放后的延迟贴位世代号：连发 Resized 只跑最后一次。
+static REPOSITION_GEN: AtomicU64 = AtomicU64::new(0);
 static STALL_PENDING: std::sync::LazyLock<Mutex<Vec<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -295,10 +299,30 @@ impl Drop for UiBusyGuard {
     }
 }
 
-/// 主窗口移动/缩放入口。计时包住兜底贴位；超过 80ms 打到控制台。
+/// 主窗口移动/缩放入口。
+///
+/// **Moved 必须空操作**：WS_CHILD 跟父窗走。在 `on_window_event(Moved)` 里
+/// 锁 mutex / GetWindowLong / SetWindowPos / wait_hwnd 都会重入拖动消息泵，
+/// 整窗卡死（用户「往上拖一下就死」）。HWND 暂不可用时旧逻辑还会把子窗
+/// 误判成弹窗并 SetWindowPos → 必现卡死。
 pub fn on_main_window_geometry(app: &tauri::AppHandle, resized: bool) {
-    let _guard = UiBusyGuard::enter(app, if resized { 2 } else { 1 });
-    reposition_embeds_after_main_move(app);
+    if !resized {
+        MAIN_DRAG_UNTIL_MS.store(now_ms().saturating_add(400), Ordering::Release);
+        return;
+    }
+    // Resized：离开 window-event 栈再贴，并合并连发。
+    let gen = REPOSITION_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("embed-reposition".into())
+        .spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
+                return;
+            }
+            let _guard = UiBusyGuard::enter(&app, 2);
+            reposition_embeds_after_main_move(&app);
+        });
 }
 
 fn start_embed_stall_probe() {
@@ -1303,10 +1327,16 @@ async fn start_broker(app: tauri::AppHandle) -> Result<String, String> {
 #[cfg(target_os = "windows")]
 fn embed_is_ws_child(embed: &WebviewWindow) -> bool {
     use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongW, GWL_STYLE, WS_CHILD};
+    // HWND 暂不可用时按子窗处理：宁可漏贴，也不要在拖动路径上走弹窗 SetWindowPos。
     let Ok(hwnd) = embed.hwnd() else {
-        return false;
+        return true;
     };
     unsafe { (GetWindowLongW(hwnd, GWL_STYLE) as u32) & WS_CHILD.0 != 0 }
+}
+
+fn main_is_dragging() -> bool {
+    let until = MAIN_DRAG_UNTIL_MS.load(Ordering::Acquire);
+    until != 0 && now_ms() < until
 }
 
 #[cfg(not(target_os = "windows"))]
