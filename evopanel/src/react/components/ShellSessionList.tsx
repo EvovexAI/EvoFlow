@@ -1423,7 +1423,7 @@ export function ShellSessionList({
                       return (
                         <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
                           <div
-                            className="group/ws flex h-8 min-w-0 cursor-pointer items-center rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover"
+                            className="group/ws flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover"
                             onClick={() => toggleGroupCollapsed(section.key)}
                           >
                             <span className="relative flex size-4 shrink-0 items-center justify-center">

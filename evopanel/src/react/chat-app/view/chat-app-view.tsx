@@ -606,8 +606,13 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       payload={v4Payload}
                       connecting={v4Phase === 'connecting' || v4Phase === 'no-thread'}
                       /* 草稿空态 = 尚无任何行可显示（新会话创建中 / 等首帧快照）。
-                         与居中判定同源，避免问候语与 composer 分属两个阶段而闪烁。 */
-                      draftEmpty={v4Phase !== 'ready' || !v4Payload?.snapshot?.rows.totalCount}
+                         与居中判定同源，避免问候语与 composer 分属两个阶段而闪烁。
+                         本地乐观行已有时（首页刚发出）不算草稿：强制贴底，等 V4 首帧。 */
+                      draftEmpty={
+                        !(Array.isArray(rows) && rows.length > 0) &&
+                        (v4Phase !== 'ready' || !v4Payload?.snapshot?.rows.totalCount)
+                      }
+                      forceBottomDock={Array.isArray(rows) && rows.length > 0}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenCodeViewer={(source) => {
                         // ZCode CodeViewerSource → 右侧 codeViewer 面板

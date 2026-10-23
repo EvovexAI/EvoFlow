@@ -5385,6 +5385,7 @@ export function useChatAppController() {
       alreadyInjected?: boolean
       skillsOverride?: SkillSelection[]
       pluginsOverride?: PluginSelection[]
+      leaveHomeOnPaint?: boolean
     },
   ) {
     await handleSendImpl(
@@ -5470,6 +5471,7 @@ export function useChatAppController() {
       setLiveTurnTokens,
       setPlatformFocusEntryId,
       setPluginComposerPillsVisible,
+      setPreferHomeDashboard,
       setRoleUiNonce,
       setRows,
       setSessionHadContent,

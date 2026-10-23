@@ -2,7 +2,6 @@
  * Home dashboard custom events → chat send / model / memory / voice.
  * Extracted from ChatApp.tsx (P69).
  */
-import { flushSync } from 'react-dom'
 import { patchPanelSettings } from '../../../lib/panel-settings.js'
 import { STORAGE_MODEL_KEY } from '../utils/storage.js'
 import type { ChatAttachment } from '../../chat-types.js'
@@ -33,6 +32,7 @@ export type HandleHomeEventsCtx = {
     opts?: {
       skillsOverride?: HomeSkillSelection[]
       pluginsOverride?: HomePluginSelection[]
+      leaveHomeOnPaint?: boolean
     },
   ) => Promise<unknown> | unknown
 }
@@ -55,11 +55,9 @@ export function handleHomeSendEvent(ctx: HandleHomeEventsCtx, event: Event): voi
     ? detail.contextFiles.filter((f) => String(f?.path || '').trim())
     : []
   if (!text && !attachments?.length && !homeCtx.length) return
-  // 立刻离开工作台表面，避免「发完还停在首页 → 再切会话 → 再出消息」的三段感
-  flushSync(() => {
-    ctx.setSessionHadContent(true)
-    ctx.setPreferHomeDashboard?.(false)
-  })
+  // 不要在这里先离开工作台：否则会露出底下空「新对话」居中输入框，
+  // 等 handleSend 乐观气泡 / V4 首帧到了再沉底，形成「中→下」闪一下。
+  // 离开首页与画出用户气泡放在 handleSend 的同一帧 flushSync（leaveHomeOnPaint）。
   void (async () => {
     if (Array.isArray(detail?.skills)) ctx.setSelectedSkills(detail.skills)
     if (Array.isArray(detail?.plugins)) ctx.setSelectedPlugins(detail.plugins)
@@ -121,6 +119,7 @@ export function handleHomeSendEvent(ctx: HandleHomeEventsCtx, event: Event): voi
     await ctx.handleSend(text, attachments, homeCtx.length ? homeCtx : undefined, {
       skillsOverride: Array.isArray(detail?.skills) ? detail.skills : undefined,
       pluginsOverride: Array.isArray(detail?.plugins) ? detail.plugins : undefined,
+      leaveHomeOnPaint: true,
     })
   })()
 }

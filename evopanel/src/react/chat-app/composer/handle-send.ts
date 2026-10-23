@@ -19,6 +19,8 @@ export type HandleSendOpts = {
   alreadyInjected?: boolean
   skillsOverride?: SkillSelection[]
   pluginsOverride?: PluginSelection[]
+  /** 工作台首页发送：与乐观用户气泡同帧离开首页，避免空草稿居中闪一下。 */
+  leaveHomeOnPaint?: boolean
 }
 
 /** Host bag from ChatApp — mechanical extract; fields match whitelist. */
@@ -114,6 +116,7 @@ export async function handleSend(
     setPlatformFocusEntryId,
     setPluginComposerPillsVisible,
     setRoleUiNonce,
+    setPreferHomeDashboard,
     setRows,
     setSessionHadContent,
     setSessions,
@@ -468,9 +471,12 @@ export async function handleSend(
       if (noActiveSession) {
         sessionRef.current = sessionKey
       }
-      // flushSync：用户气泡同帧出现，工作台→对话不再「空等一拍」
+      // flushSync：用户气泡同帧出现；首页发送时同帧离开工作台，避免空草稿居中闪一下
       flushSync(() => {
         setSessionHadContent(true)
+        if (opts?.leaveHomeOnPaint) {
+          setPreferHomeDashboard?.(false)
+        }
         setRows([...rtSend.rows])
         setSessions((prev) =>
           prev.map((s) =>
@@ -493,6 +499,12 @@ export async function handleSend(
       })
       seenRunIdsRef.current = new Set()
       activeChatRunIdRef.current = null
+    } else if (opts?.leaveHomeOnPaint) {
+      // 目标会话不是当前活跃会话时仍须离开首页，否则会卡在工作台
+      flushSync(() => {
+        setSessionHadContent(true)
+        setPreferHomeDashboard?.(false)
+      })
     }
     const keepPlanDetectionCache =
       preserveCollabOnSend ||
