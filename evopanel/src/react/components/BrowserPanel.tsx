@@ -534,6 +534,32 @@ let lastRegionKey = ''
 let lastCoordsConsoleAt = 0
 let lastCoordsPhase = ''
 
+/** 小V dock 面板左缘（CSS）。HWND 右缘必须 < 此值，否则会盖住小V。 */
+function xmDockClipRightCss(): number {
+  try {
+    if (!document.documentElement.classList.contains('is-xm-docked')) {
+      return window.innerWidth || 0
+    }
+    // 实测面板：dock 是 `right:10px`，不能只用 --xm-dock-width（那是按 right:0 算的，会偏进小V）。
+    // 让出量要覆盖：resize 条(left:-4/宽8)、阴影、dpr 取整误差。
+    const dockGap = 18
+    const panel = document.querySelector('.xm-panel.xm-panel--dock')
+    if (panel instanceof HTMLElement) {
+      const left = panel.getBoundingClientRect().left
+      if (left >= 80) {
+        return Math.max(120, Math.floor(left) - dockGap)
+      }
+    }
+    const raw = getComputedStyle(document.documentElement).getPropertyValue('--xm-dock-width').trim()
+    const dockW = Number.parseFloat(raw)
+    const w = Number.isFinite(dockW) && dockW >= 200 ? dockW : 400
+    // margin-right = dock+20，面板 right:10 → 内容区右缘约 vw-dock-20
+    return Math.max(120, Math.floor((window.innerWidth || 0) - w - 20) - dockGap)
+  } catch {
+    return window.innerWidth || 0
+  }
+}
+
 /** 主窗标题拖拽区底边。子 HWND 的 y 绝不能小于它，否则双击还原被原生窗吞掉。 */
 function chromeFloorY(): number {
   try {
@@ -563,16 +589,18 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
   const uiZoom = getUiZoom() || 1
   const vw = Math.max(8, window.innerWidth || rect.width)
   const vh = Math.max(8, window.innerHeight || rect.height)
-  // 先裁进视口：实测槽位 left+width 有时 > innerWidth，再 ×dpr 后必然撑爆主客户区，
-  // Rust clamp 会把 x 往左拽（Δ≈-503）。
-  let zx = Math.max(0, Math.min(rect.left * uiZoom, vw - 120))
+  // 小V dock：按面板真实 left 裁右缘。槽位 DOM 有时仍伸进 dock，HWND 又在最上，会盖住小V。
+  const maxRight = Math.max(120, Math.min(vw, xmDockClipRightCss()) * uiZoom)
+  let zx = Math.max(0, Math.min(rect.left * uiZoom, maxRight - 120))
   let zy = Math.max(0, Math.min(rect.top * uiZoom, vh - 80))
-  let zw = Math.min(rect.width * uiZoom, vw - zx)
+  let zw = Math.min(rect.width * uiZoom, maxRight - zx)
   let zh = Math.min(rect.height * uiZoom, vh - zy)
   // 右栏外壳有 1px 左边线，拖拽条还用负边距压进面板约 3px。
   // 原生 HWND 在所有 HTML 之上，贴齐槽位左缘就会盖住这条分隔线。
   // 左侧让出 4px，窗口才和「框定区域」重合，分隔线留在外面。
   const insetLeft = 4
+  // 有小V 时右侧再收 2px，避免 round/dpr 把右缘顶进 dock
+  const insetRight = maxRight < vw - 1 ? 2 : 0
   const floor = Math.ceil(chromeFloorY() * uiZoom)
   let y = Math.round(zy)
   let height = Math.round(zh)
@@ -581,10 +609,13 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
     height = Math.max(80, height - (floor - y))
     y = floor
   }
+  const x = Math.round(zx) + insetLeft
+  // dock 场景用 floor，防止 width 四舍五入多 1px × dpr 盖住小V
+  const widthRaw = (insetRight ? Math.floor(zw) : Math.round(zw)) - insetLeft - insetRight
   const bounds = {
-    x: Math.round(zx) + insetLeft,
+    x,
     y,
-    width: Math.max(120, Math.round(zw) - insetLeft),
+    width: Math.max(120, Math.min(widthRaw, Math.floor(maxRight) - x)),
     height: Math.max(80, height),
     // Rust 用主窗口客户区像素 / 这个视口，把 CSS 槽位换成 SetWindowPos 坐标。
     // 视口故意不乘 uiZoom：坐标已乘过，scale = iw/viewport 只承担 dpr。
@@ -605,7 +636,7 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
   return bounds
 }
 
-/** 控制台对照：① HTML 槽位 vs ② 原生 WebView。过滤 `[embed对比]` 即可。 */
+/** 控制台对照：① HTML→物理 vs ② WebView 客户区（同一套物理像素）。过滤 `[embed对比]`。 */
 async function logEmbedCompare(
   reason: string,
   slotEl: HTMLElement | null,
@@ -619,40 +650,49 @@ async function logEmbedCompare(
   } | null,
 ) {
   const raw = slotEl?.getBoundingClientRect()
-  const slotCss = raw
-    ? `(${Math.round(raw.left)},${Math.round(raw.top)} ${Math.round(raw.width)}x${Math.round(raw.height)})`
-    : '(无)'
-  const slotClient = bounds
-    ? `(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`
-    : '(无)'
-  console.log(`%c[embed对比] ${reason}`, 'color:#38bdf8;font-weight:bold')
-  console.log(
-    `  ①槽位(HTML) css=${slotCss} → 上报 client=${slotClient} dpr=${window.devicePixelRatio || 1}`,
-  )
   const probe = await browserEmbedProbeCoords(NATIVE_EMBED_THREAD_ID)
   if (!probe) {
+    console.log(`%c[embed对比] ${reason}`, 'color:#38bdf8;font-weight:bold')
     console.log('  ②WebView(原生) (读不到 — 窗口可能未创建)')
     return
   }
-  const wv = probe.webviewScreen
   const wc = probe.webviewClient
-  const last = probe.lastSlot
+  const mw = probe.mainClient?.w || 0
+  const mh = probe.mainClient?.h || 0
+  const vw = Math.max(8, bounds?.viewportWidth || window.innerWidth || 1)
+  const vh = Math.max(8, bounds?.viewportHeight || window.innerHeight || 1)
+  // 与 Rust to_client_px 同一口径：physical = css * (mainInner / viewport)
+  const sx = mw > 8 ? mw / vw : window.devicePixelRatio || 1
+  const sy = mh > 8 ? mh / vh : sx
+  const htmlPhys = bounds
+    ? {
+        x: bounds.x * sx,
+        y: bounds.y * sy,
+        w: bounds.width * sx,
+        h: bounds.height * sy,
+      }
+    : null
+  const dx = htmlPhys ? Math.round(wc.x - htmlPhys.x) : 0
+  const dy = htmlPhys ? Math.round(wc.y - htmlPhys.y) : 0
+  const dw = htmlPhys ? Math.round(wc.w - htmlPhys.w) : 0
+  const dh = htmlPhys ? Math.round(wc.h - htmlPhys.h) : 0
+  const ok =
+    !!htmlPhys &&
+    Math.abs(dx) <= 20 &&
+    Math.abs(dy) <= 20 &&
+    Math.abs(dw) <= 36 &&
+    Math.abs(dh) <= 36
+  const cssStr = raw
+    ? `(${Math.round(raw.left)},${Math.round(raw.top)} ${Math.round(raw.width)}x${Math.round(raw.height)})`
+    : '(无)'
+  console.log(`%c[embed对比] ${reason} → ${ok ? '对齐' : '错位!!!'}`, 'color:#38bdf8;font-weight:bold')
   console.log(
-    `  ②WebView(原生) screen=(${Math.round(wv.x)},${Math.round(wv.y)} ${Math.round(wv.w)}x${Math.round(wv.h)}) ` +
-      `client≈=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) kind=${probe.kind}`,
+    `  ①HTML css=${cssStr} → 物理≈(${htmlPhys ? `${Math.round(htmlPhys.x)},${Math.round(htmlPhys.y)} ${Math.round(htmlPhys.w)}x${Math.round(htmlPhys.h)}` : '无'}) scale=(${sx.toFixed(3)},${sy.toFixed(3)})`,
   )
-  // 跟 Rust 登记的物理槽位比（不要再 css×dpr，会和 to_client_px/clamp 双重口径打架）。
-  if (last) {
-    const dx = Math.round(wc.x - last.x)
-    const dy = Math.round(wc.y - last.y)
-    const dw = Math.round(wc.w - last.w)
-    const dh = Math.round(wc.h - last.h)
-    const ok = Math.abs(dx) <= 16 && Math.abs(dy) <= 16 && Math.abs(dw) <= 32 && Math.abs(dh) <= 32
-    console.log(
-      `  Rust登记槽位=(${Math.round(last.x)},${Math.round(last.y)} ${Math.round(last.w)}x${Math.round(last.h)}) ` +
-        `Δ=(${dx},${dy}) sizeΔ=(${dw},${dh}) → ${ok ? '对齐' : '错位!!!'}`,
-    )
-  }
+  console.log(
+    `  ②WebView 物理 client=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) screen=(${Math.round(probe.webviewScreen.x)},${Math.round(probe.webviewScreen.y)})`,
+  )
+  console.log(`  Δ(②−①) = (${dx},${dy}) sizeΔ=(${dw},${dh})`)
 }
 
 async function waitForEmbedBounds(el: HTMLElement | null, timeoutMs = 2400) {
@@ -1007,18 +1047,26 @@ function BrowserEmbedHost({
     const wake = (reason = 'wake') => {
       lastKey = ''
       backoffUntil = 0
-      // 不重置 lastCompareAt，否则 dock-open/settle 连发会打爆对照日志。
-      applyCorners(true, reason, true)
       clearSettles()
-      // 布局晚几拍再贴；settle 只 setBounds，不再 dumpCompare。
-      const settles =
-        /dock|sidebar|xm-dock|layout/i.test(reason)
-          ? [120, 400]
-          : [80, 250, 700, 1400]
-      for (const ms of settles) {
-        settleTimers.push(
-          window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`, false), ms),
-        )
+      const isDock = /dock|xm-dock/i.test(reason)
+      // dock 开合：等 margin/--xm-dock-width 生效后再量，避免量到开合前的旧 x（693→473）。
+      const start = () => {
+        applyCorners(true, reason, true)
+        const settles = isDock ? [160, 360, 640] : [80, 250, 700, 1400]
+        for (const ms of settles) {
+          settleTimers.push(
+            window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`, false), ms),
+          )
+        }
+      }
+      if (isDock) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            settleTimers.push(window.setTimeout(start, 40))
+          })
+        })
+      } else {
+        start()
       }
     }
 
