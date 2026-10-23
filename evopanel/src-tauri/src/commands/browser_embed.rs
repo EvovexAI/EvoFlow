@@ -226,6 +226,8 @@ static UI_SINCE_MS: AtomicU64 = AtomicU64::new(0);
 static UI_STALL_LOGGED_SINCE: AtomicU64 = AtomicU64::new(0);
 /// 主窗正在被拖动（Moved）。看门狗在此期间禁止 SetWindowPos。
 static MAIN_DRAG_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+/// 拖动期间 defer 的 set_bounds：拖完后按 EMBED_LAST_BOUNDS 真正贴一次。
+static BOUNDS_FLUSH_GEN: AtomicU64 = AtomicU64::new(0);
 /// 缩放后的延迟贴位世代号：连发 Resized 只跑最后一次。
 static REPOSITION_GEN: AtomicU64 = AtomicU64::new(0);
 static STALL_PENDING: std::sync::LazyLock<Mutex<Vec<String>>> =
@@ -299,6 +301,81 @@ impl Drop for UiBusyGuard {
     }
 }
 
+/// 拖动/最大化动画期间 set_bounds 只能把矩形记进 map；拖完后真正 SetWindowPos，
+/// 并通知前端按槽位四角再量一次（双击最大化：Moved 标记拖动 → HWND 停在旧左侧）。
+fn schedule_bounds_flush_after_drag(app: &tauri::AppHandle) {
+    let gen = BOUNDS_FLUSH_GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    let app = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("embed-bounds-flush".into())
+        .spawn(move || {
+            // 等 Moved 拖动标记过期；最大化会连发 Moved，所以多等几拍。
+            for _ in 0..40 {
+                if BOUNDS_FLUSH_GEN.load(Ordering::Relaxed) != gen {
+                    return;
+                }
+                if !main_is_dragging() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_millis(80));
+            if BOUNDS_FLUSH_GEN.load(Ordering::Relaxed) != gen {
+                return;
+            }
+            flush_embed_bounds_now(&app, "drag-flush");
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.emit(
+                    "browser-embed-resync",
+                    serde_json::json!({ "reason": "drag-flush" }),
+                );
+            }
+        });
+}
+
+/// 按 EMBED_LAST_BOUNDS 把可见 embed 贴回登记槽位（须在非拖动、非 window-event 栈上调用）。
+fn flush_embed_bounds_now(app: &tauri::AppHandle, reason: &str) {
+    if main_is_dragging() {
+        return;
+    }
+    let Some(parent) = app.get_webview_window("main") else { return };
+    if parent.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let Ok(phys) = parent.inner_size() else { return };
+    let iw = phys.width as f64;
+    let ih = phys.height as f64;
+    let snapshot: Vec<(String, f64, f64, f64, f64)> = match EMBED_LAST_BOUNDS.lock() {
+        Ok(map) => map
+            .iter()
+            .map(|(l, (x, y, w, h))| (l.clone(), *x, *y, *w, *h))
+            .collect(),
+        Err(_) => return,
+    };
+    for (label, x, y, w, h) in snapshot {
+        if is_parked(&label) {
+            continue;
+        }
+        let Some(window) = app.get_webview_window(&label) else { continue };
+        if !window.is_visible().unwrap_or(false) {
+            continue;
+        }
+        let (cx, cy, cw, ch) = clamp_rect(x, y, w, h, iw, ih);
+        let _ = nest_embed_into_main(&window, &parent);
+        if let Err(e) = place_embed_client(&window, &parent, cx, cy, cw, ch) {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] {reason} place failed label={label}: {e}"
+            ));
+            continue;
+        }
+        note_writer(&label, reason);
+        log_region_diag(reason, &label, &parent, &window, (cx, cy, cw, ch));
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] {reason} label={label} -> ({cx:.0},{cy:.0} {cw:.0}x{ch:.0})"
+        ));
+    }
+}
+
 /// 主窗口移动/缩放入口。
 ///
 /// **Moved 必须空操作**：WS_CHILD 跟父窗走。在 `on_window_event(Moved)` 里
@@ -308,6 +385,8 @@ impl Drop for UiBusyGuard {
 pub fn on_main_window_geometry(app: &tauri::AppHandle, resized: bool) {
     if !resized {
         MAIN_DRAG_UNTIL_MS.store(now_ms().saturating_add(400), Ordering::Release);
+        // 双击最大化也会冒泡 Moved：前端 set_bounds 被 defer 后必须拖完再贴。
+        schedule_bounds_flush_after_drag(app);
         return;
     }
     // Resized：离开 window-event 栈再贴，并合并连发。
@@ -320,8 +399,28 @@ pub fn on_main_window_geometry(app: &tauri::AppHandle, resized: bool) {
             if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
                 return;
             }
+            // 最大化：Resized + 一串 Moved，等拖动标记过后再贴 WS_CHILD。
+            for _ in 0..40 {
+                if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
+                    return;
+                }
+                if !main_is_dragging() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if REPOSITION_GEN.load(Ordering::Relaxed) != gen {
+                return;
+            }
             let _guard = UiBusyGuard::enter(&app, 2);
             reposition_embeds_after_main_move(&app);
+            flush_embed_bounds_now(&app, "resize-flush");
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.emit(
+                    "browser-embed-resync",
+                    serde_json::json!({ "reason": "resize" }),
+                );
+            }
         });
 }
 
@@ -380,21 +479,27 @@ pub fn reposition_embeds_after_main_move(app: &tauri::AppHandle) {
             Ok(m) => m,
             Err(_) => return,
         };
-        // 已登记且已是子窗口：什么都不做。槽位尺寸变化由前端 set_bounds 负责。
+        // 已登记的窗口：弹窗要 nest+贴；WS_CHILD 也要按最新槽位重贴——
+        // 双击最大化后父客户区变了，子窗不会自己改相对矩形，停在旧左侧。
         for (label, (x, y, w, h)) in map.iter() {
             if is_parked(label) {
                 continue;
             }
             let Some(window) = app.get_webview_window(label) else { continue };
-            if embed_is_ws_child(&window) {
-                continue;
-            }
             let (cx, cy, cw, ch) = clamp_rect(*x, *y, *w, *h, iw, ih);
             let _ = nest_embed_into_main(&window, &parent);
             let _ = place_embed_client(&window, &parent, cx, cy, cw, ch);
-            note_writer(label, "follow-main-move");
+            note_writer(
+                label,
+                if embed_is_ws_child(&window) {
+                    "follow-main-resize"
+                } else {
+                    "follow-main-move"
+                },
+            );
         }
-        // 全部已是子窗口时不要再枚举窗口。拖动时每个 WM_MOVE 都会进这里。
+        // 已全部处理完登记项时，不必再扫未登记窗口（避免拖动路径误入）。
+        // 最大化/Resized 调用方还会再 flush + 通知前端重测。
         let any_popup = map.iter().any(|(label, _)| {
             if is_parked(label) {
                 return false;
@@ -2737,7 +2842,8 @@ pub async fn browser_embed_set_bounds(
                 }
             }
         }
-        // 拖动中禁止 SetWindowPos（重入消息泵 → 整窗卡死）。槽位变化等拖完再贴。
+        // 拖动中禁止 SetWindowPos（重入消息泵 → 整窗卡死）。记入 map，拖完 flush；
+        // 返回 false 让前端不要以为已经贴好（否则 lastKey 卡住，HWND 停在最大化前左侧）。
         if main_is_dragging() {
             browser_cdp_server::log_line(&format!(
                 "[browser-embed] set_bounds defer label={label} (main dragging)"
@@ -2745,7 +2851,8 @@ pub async fn browser_embed_set_bounds(
             if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
                 map.insert(label.clone(), (x, y, width.max(120.0), height.max(80.0)));
             }
-            return Ok(true);
+            schedule_bounds_flush_after_drag(&app);
+            return Ok(false);
         }
         mark_parked(&label, false);
         let _ = window.show();

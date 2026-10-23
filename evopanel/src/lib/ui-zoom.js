@@ -63,10 +63,12 @@ function setScale(next) {
   if (v === _scale) return
   _scale = v
   localStorage.setItem(KEY, String(_scale))
-  apply()
-  try {
-    window.dispatchEvent(new CustomEvent('ui-zoom-change', { detail: { scale: _scale } }))
-  } catch { /* ignore */ }
+  // 等原生 ZoomFactor / CSS zoom 真正落地再通知：否则浏览器 HWND 会按旧布局贴位。
+  void Promise.resolve(apply()).finally(() => {
+    try {
+      window.dispatchEvent(new CustomEvent('ui-zoom-change', { detail: { scale: _scale } }))
+    } catch { /* ignore */ }
+  })
   toast(`界面缩放 ${Math.round(_scale * 100)}%`)
 }
 

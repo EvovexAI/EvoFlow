@@ -28,7 +28,16 @@ def assignable_tool_names(*, model_name: str | None = None) -> set[str]:
     from evoflow.tools import get_available_tools
 
     tools = get_available_tools(model_name=model_name, subagent_enabled=False)
-    return {str(getattr(t, "name", "") or "") for t in tools if getattr(t, "name", None)}
+    names = {str(getattr(t, "name", "") or "") for t in tools if getattr(t, "name", None)}
+    # Middleware-injected tools (todo_write) are mounted outside the registry but
+    # are legitimately referenceable from role whitelists / capability packs.
+    try:
+        from evoflow.tools.tool_catalog import MIDDLEWARE_TOOL_NAMES
+
+        names |= set(MIDDLEWARE_TOOL_NAMES)
+    except Exception:
+        pass
+    return names
 
 
 def valid_skill_names(*, enabled_only: bool = True) -> set[str]:

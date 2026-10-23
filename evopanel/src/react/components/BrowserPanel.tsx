@@ -10,6 +10,7 @@ import {
 } from '../../lib/browser-embed-client.js'
 import { ensureNativeEmbed, reportEmbedSlot } from '../../lib/browser-embed-surface.js'
 import { blogTimeline } from '../../lib/browser-unified-log.js'
+import { getUiZoom } from '../../lib/ui-zoom.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 import { DropdownSelect } from './DropdownSelect.js'
 import {
@@ -556,24 +557,32 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
   // 不要再乘 devicePixelRatio。实测 dpr=1.75 时 CSS 槽位已是 (894,97 532x706)，
   // 乘完变成 (1565,169 932x1236)，主客户区只有约 1440x810，窗口被推到主窗口外面。
   const dpr = window.devicePixelRatio || 1
+  // 主窗 set_webview_zoom（界面缩放）是 WebView2 ZoomFactor：嵌套 HWND 不在缩放树里。
+  // DOM 矩形常仍是未缩放 CSS；把四角乘上界面缩放，to_client_px 再用未缩放 viewport → 物理≈css·z·dpr。
+  const uiZoom = getUiZoom() || 1
+  const zx = rect.left * uiZoom
+  const zy = rect.top * uiZoom
+  const zw = rect.width * uiZoom
+  const zh = rect.height * uiZoom
   // 右栏外壳有 1px 左边线，拖拽条还用负边距压进面板约 3px。
   // 原生 HWND 在所有 HTML 之上，贴齐槽位左缘就会盖住这条分隔线。
   // 左侧让出 4px，窗口才和「框定区域」重合，分隔线留在外面。
   const insetLeft = 4
-  const floor = chromeFloorY()
-  let y = Math.round(rect.top)
-  let height = Math.round(rect.height)
+  const floor = Math.ceil(chromeFloorY() * uiZoom)
+  let y = Math.round(zy)
+  let height = Math.round(zh)
   // 顶栏地板：最大化后槽位若顶到标题条，把 y 压下来并缩短高度，保住双击还原。
   if (y < floor) {
     height = Math.max(80, height - (floor - y))
     y = floor
   }
   const bounds = {
-    x: Math.round(rect.left) + insetLeft,
+    x: Math.round(zx) + insetLeft,
     y,
-    width: Math.max(120, Math.round(rect.width) - insetLeft),
+    width: Math.max(120, Math.round(zw) - insetLeft),
     height,
     // Rust 用主窗口客户区像素 / 这个视口，把 CSS 槽位换成 SetWindowPos 坐标。
+    // 视口故意不乘 uiZoom：坐标已乘过，scale = iw/viewport 只承担 dpr。
     viewportWidth: Math.round(window.innerWidth || rect.width),
     viewportHeight: Math.round(window.innerHeight || rect.height),
   }
@@ -582,12 +591,12 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
   if (opts?.forceRegionLog || key !== lastRegionKey || now - lastRegionLogAt > 500) {
     lastRegionKey = key
     lastRegionLogAt = now
-    const screenLeft = Math.round((window.screenX || 0) + rect.left)
-    const screenTop = Math.round((window.screenY || 0) + rect.top)
+    const screenLeft = Math.round((window.screenX || 0) + bounds.x)
+    const screenTop = Math.round((window.screenY || 0) + bounds.y)
     const msg =
       `[右侧区域] css=(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}) ` +
       `screen≈=(${screenLeft},${screenTop} ${bounds.width}x${bounds.height}) ` +
-      `dpr=${dpr} viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`
+      `dpr=${dpr} uiZoom=${uiZoom} viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`
     dbgLog(`[browser-embed] ${msg}`)
     console.log(msg)
   }
@@ -886,45 +895,81 @@ function BrowserEmbedHost({
 
   useEffect(() => {
     if (!isOpen || !ready || !surfaceActive) return
-    // 缩放/布局变化：节流贴位。不要 force——拖动主窗时 RO/resize 若连发 force
-    // 会绕过槽位去重打到 SetWindowPos，和 Moved 重入叠在一起整窗卡死。
-    // 最大化后布局晚一拍用后面的延迟再贴一次即可。
-    let timer = 0
-    const schedule = () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        void syncBounds()
-      }, 120)
+    // 四角绑定：槽位 getBoundingClientRect 一变就 force 贴 HWND。
+    // ResizeObserver 只在尺寸变时响，最大化/侧栏/界面缩放常是「晚一拍」或只平移，
+    // 所以前台时用 rAF 持续对四角；事件只负责立刻唤醒，不替代轮询。
+    let lastKey = ''
+    let raf = 0
+    let settleTimers: number[] = []
+    let lastIpcAt = 0
+
+    const clearSettles = () => {
+      for (const t of settleTimers) window.clearTimeout(t)
+      settleTimers = []
     }
-    // 小V 侧栏开合/拖宽：#main-col margin 变了但 window.resize 不响；必须 force 贴位，
-    // 否则原生 WebView 仍占旧矩形，盖住右侧小V HTML 面板。
-    // 节流：dock-open/settle 连发时不要立刻刷 SetWindowPos，避免和 create 抢主线程。
-    const onXmDock = () => {
-      window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        void syncBoundsRef.current()
-      }, 80)
+
+    const applyCorners = (force = false) => {
+      if (!surfaceActiveRef.current) return
+      const bounds = readEmbedBounds(slotRef.current)
+      if (!bounds) return
+      const key =
+        `${bounds.x},${bounds.y},${bounds.width}x${bounds.height}:` +
+        `${bounds.viewportWidth}x${bounds.viewportHeight}`
+      if (!force && key === lastKey) return
+      // 拖动主窗时 SetWindowPos 会卡死；略微限频，仍远快于「等下一次 resize」。
+      const now = performance.now()
+      if (!force && now - lastIpcAt < 32) return
+      lastKey = key
+      lastIpcAt = now
+      reportEmbedSlot(stageIdRef.current, bounds, { force: true })
     }
-    window.addEventListener('resize', schedule)
-    window.addEventListener('evopanel:xm-dock-layout', onXmDock)
+
+    const wake = () => {
+      applyCorners(true)
+      clearSettles()
+      // 布局常在放大/最大化后多帧才稳定，连贴几次收口。
+      for (const ms of [80, 200, 400]) {
+        settleTimers.push(window.setTimeout(() => applyCorners(true), ms))
+      }
+    }
+
+    const loop = () => {
+      applyCorners(false)
+      raf = window.requestAnimationFrame(loop)
+    }
+    raf = window.requestAnimationFrame(loop)
+    wake()
+
+    window.addEventListener('resize', wake)
+    window.addEventListener('ui-zoom-change', wake)
+    window.addEventListener('evopanel:xm-dock-layout', wake)
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', wake)
+    vv?.addEventListener('scroll', wake)
+
     const ro =
-      typeof ResizeObserver !== 'undefined' && slotRef.current
+      typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
-            schedule()
+            applyCorners(true)
           })
         : null
     if (slotRef.current) ro?.observe(slotRef.current)
-    // 最大化切换后布局晚一拍，连贴两次确保顶栏地板生效。
-    schedule()
-    const t2 = window.setTimeout(schedule, 280)
+    const host = slotRef.current?.parentElement
+    if (host) ro?.observe(host)
+    const panelRoot = host?.closest('.browser-panel')
+    if (panelRoot instanceof HTMLElement) ro?.observe(panelRoot)
+
     return () => {
-      window.clearTimeout(timer)
-      window.clearTimeout(t2)
-      window.removeEventListener('resize', schedule)
-      window.removeEventListener('evopanel:xm-dock-layout', onXmDock)
+      window.cancelAnimationFrame(raf)
+      clearSettles()
+      window.removeEventListener('resize', wake)
+      window.removeEventListener('ui-zoom-change', wake)
+      window.removeEventListener('evopanel:xm-dock-layout', wake)
+      vv?.removeEventListener('resize', wake)
+      vv?.removeEventListener('scroll', wake)
       ro?.disconnect()
     }
-  }, [isOpen, ready, surfaceActive, syncBounds])
+  }, [isOpen, ready, surfaceActive])
 
   // Rust 回传 WebView 实际屏幕矩形 → 控制台对照右侧区域
   useEffect(() => {
@@ -1775,6 +1820,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     }
     window.addEventListener('resize', schedule)
     window.addEventListener('evopanel:xm-dock-layout', schedule)
+    window.addEventListener('ui-zoom-change', schedule)
     const ro =
       typeof ResizeObserver !== 'undefined' && panelRootRef.current
         ? new ResizeObserver(schedule)
@@ -1784,6 +1830,7 @@ export const BrowserPanel = memo(function BrowserPanel({
       window.clearTimeout(timer)
       window.removeEventListener('resize', schedule)
       window.removeEventListener('evopanel:xm-dock-layout', schedule)
+      window.removeEventListener('ui-zoom-change', schedule)
       ro?.disconnect()
     }
   }, [preferEmbeddedBrowser, embedReady, surfaceActive, embedThreadId, effectiveThreadId, zoom])

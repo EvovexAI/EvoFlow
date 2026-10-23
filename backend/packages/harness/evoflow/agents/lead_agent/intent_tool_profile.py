@@ -216,7 +216,7 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
             "web_search",
             "fetch_url",
             "subagent",
-            "todo",
+            # "todo",  # retired — 会话内清单由 TodoMiddleware 的 todo_write 恒挂载，非注册表工具
             # "find",  # retired — embedded search via Bash
             # "view_image",  # merged into ``read`` (image refs dispatch inside read)
             # "read_lints",  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
@@ -243,7 +243,7 @@ SESSION_MODE_DEFERRED_CATALOG: dict[str, tuple[str, ...]] = {
             "taskoutput",
             "taskstop",
             # "worker",  # temporarily unregistered (code retained)
-            "todo",
+            # "todo",  # retired — todo_write 由 TodoMiddleware 恒挂载（zcode 对齐）
             "knowledge",
         ),
         DEFERRED_SYSTEM_TOOL_NAMES,
@@ -372,14 +372,14 @@ def build_scenario_tools_payload(
 # 说明：这里只放"除基础能力之外"的工具。
 NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
     "workspace_baseline": {
-        "zh_description": "工作区基础：read/Bash/todo/subagent/tasks（须 activate workspace）",
+        "zh_description": "工作区基础：read/Bash/todo_write/subagent/tasks（须 activate workspace）",
         "tools": (
             "read",
             "bash",
             "taskoutput",
             "taskstop",
             # "worker",  # temporarily unregistered (code retained)
-            "todo",
+            "todo_write",
             "subagent",
         ),
     },

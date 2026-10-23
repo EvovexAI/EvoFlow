@@ -24,6 +24,24 @@ _BUILTIN_TOOL_UI_SOURCE_MODULES: dict[str, str] = {
     "propose_goal": "evoflow.tools.builtins.propose_goal_tool",
 }
 
+# 中间件注入工具（不在 get_available_tools 注册表里）的手工 UI spec：
+# todo_write 由 TodoMiddleware 挂载（zcode TodoWrite 对齐），主智能体恒挂载，
+# 子智能体按白名单勾选后由 SubagentExecutor 挂载。
+_MIDDLEWARE_TOOL_UI_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "todo_write",
+        "group": "planning",
+        "label": "待办事项",
+        "description": (
+            "会话内待办清单管理（zcode TodoWrite 对齐）：全量替换式更新任务清单，"
+            "结构化输出供前端待办面板与 V4 时间线清单卡片渲染。"
+            "按角色白名单按需注入：勾选后挂载工具并注入系统提示词段，"
+            "未配置白名单（全量继承）时默认挂载。"
+        ),
+        "icon": "📋",
+    },
+)
+
 
 def _read_tool_ui_metadata(name: str, tool_module: str | None) -> dict[str, Any]:
     import importlib
@@ -114,6 +132,13 @@ def collect_native_tool_specs_for_role_ui(*, model_name: str | None = None) -> l
                     prev["label"] = ui_meta.get("label")
                 if ui_meta.get("icon"):
                     prev["icon"] = ui_meta.get("icon")
+
+    # Merge middleware-provided tools (never in the registry) so the role editor
+    # can list them; registry entries win on conflict.
+    for spec in _MIDDLEWARE_TOOL_UI_SPECS:
+        name = str(spec.get("name") or "").strip()
+        if name and name not in by_name:
+            by_name[name] = dict(spec)
 
     from evoflow.tools.tool_catalog import (
         catalog_fields_for_tool_name,

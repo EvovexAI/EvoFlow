@@ -41,6 +41,15 @@ TODO_WRITE_TOOL_NAME = "todo_write"
 # 历史会话 checkpoint 里可能残留旧名 write_todos，检测/防护时一并识别。
 TODO_WRITE_TOOL_NAMES = frozenset({"todo_write", "write_todos"})
 
+# 未显式传入描述时的兜底（子智能体执行器复用 TodoMiddleware 时不带 lead agent 长文）。
+TODO_WRITE_DEFAULT_TOOL_DESCRIPTION = (
+    "Create and manage a structured todo list for complex multi-step work. "
+    'Each item: {"content": "...", "status": "pending|in_progress|completed", '
+    '"result": "optional outcome summary"}. Replaces the whole list on every call; '
+    "keep exactly one item in_progress and mark items completed immediately when done. "
+    "Skip the tool for simple tasks (< 3 steps)."
+)
+
 
 def _summarize_todos(todos: list[Todo]) -> dict[str, int]:
     return {
@@ -199,6 +208,7 @@ class TodoMiddleware(TodoListMiddleware):
         system_prompt: str = "",
         tool_description: str = "",
     ) -> None:
+        tool_description = tool_description or TODO_WRITE_DEFAULT_TOOL_DESCRIPTION
         super().__init__(system_prompt=system_prompt, tool_description=tool_description)
         # zcode 对齐：用结构化输出的 todo_write 替换 langchain 默认 write_todos。
         self.tools = [_build_todo_write_tool(tool_description)]

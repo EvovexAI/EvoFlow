@@ -59,7 +59,7 @@ CAPABILITY_PACKS: dict[str, CapabilityPack] = {
         id="duty",
         label_zh="值班运维",
         description="岗位工单与轻量只读；适合智能员工巡检交班。",
-        tools=("tasks", "todo", "read", "knowledge"),
+        tools=("tasks", "todo_write", "read", "knowledge"),
         risk="low",
     ),
     "coding": CapabilityPack(
@@ -78,7 +78,7 @@ CAPABILITY_PACKS: dict[str, CapabilityPack] = {
             "glob",
             "grep",
             # "read_lints",  # retired — 诊断走 Bash（pyright/ruff）
-            "todo",
+            "todo_write",
             "subagent",
         ),
         risk="high",

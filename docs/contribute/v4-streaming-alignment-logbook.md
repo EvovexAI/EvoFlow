@@ -134,6 +134,13 @@ onToolApprovalStable（审批信息从行 output.text 的 _evoflow_tool/approval
 摘要/参数兜底用 inputText）。批准后端执行 → 结果经镜像回流 V4 行 ✓；老 handler 的
 本地 patch/续流逻辑在 V4 模式无害（老 rows 不显示）。
 
+**浏览器截图内联（2026-10-22 深夜二十一轮）**：浏览器工具（browser_navigate/click 等）
+的截图结果 JSON 有 `image_url = /api/threads/{tid}/browser-snapshots/{sid}`（同源 API 直出
+图片）。镜像 TOOL_CALL_RESULT 对 browser 工具解析该 URL → cua display media artifactUri
+→ ZCode 工具卡内联渲染截图。电脑操作工具的截图同理（mirror 泛化处理任何含
+browser_screenshot 类型的结果）。**前端零改动**——CUA 卡的 media 渲染走
+artifactUri → browserScreenshotApiPath → apiUrlAsync 同源解析。
+
 **审查 diff 视图对齐（2026-10-22 深夜十六轮，用户报"整行底色没对齐"）**：审查按钮打开的
 patch 视图此前用 CodeViewer language:"diff"——只有字符高亮、没有 ZCode 的整行红绿底。
 已换成 vendor 的 HighlightedLightweightDiffPreview（EditInlineDiffContent 同款：

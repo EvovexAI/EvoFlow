@@ -288,6 +288,21 @@ class SubagentExecutor:
         middlewares = build_subagent_runtime_middlewares(lazy_init=True)
         middlewares.append(SubagentTurnLimitMiddleware(self.config.max_turns))
 
+        # todo_write is middleware-provided (not in the native registry): mount the
+        # TodoMiddleware when the role whitelist explicitly selects it so the
+        # checked tool actually exists at runtime (zcode TodoWrite alignment).
+        try:
+            allowed = {str(n).strip().lower() for n in (self.config.tools or [])}
+        except Exception:
+            allowed = set()
+        if "todo_write" in allowed:
+            try:
+                from evoflow.agents.middlewares.todo_middleware import TodoMiddleware
+
+                middlewares.append(TodoMiddleware())
+            except Exception:
+                logger.warning("failed to mount TodoMiddleware for subagent %s", self.config.name, exc_info=True)
+
         return create_agent(
             model=model,
             tools=self.tools,
