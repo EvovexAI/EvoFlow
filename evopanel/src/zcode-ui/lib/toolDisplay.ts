@@ -1,5 +1,5 @@
 import type { TaskChatToolCall as ChatToolCall } from "@/lib/taskChatMessageTypes.js";
-import {
+import { MediaCodeViewerSource,
   getToolCallCodeContentPreview,
   getToolCallCodePreview,
   type CodeViewerSource,
@@ -20,7 +20,8 @@ export type ToolInlinePreview =
   | { type: "none" }
   | { type: "text"; source: TextCodeViewerSource }
   | { type: "patch"; source: PatchCodeViewerSource }
-  | { type: "image"; source: ImageCodeViewerSource };
+  | { type: "image"; source: ImageCodeViewerSource }
+  | { type: "media"; source: MediaCodeViewerSource };
 
 export interface ToolPlanResult {
   plan: string;
@@ -93,6 +94,13 @@ function toInlinePreview(context: ToolDisplayContext, preferPatch: boolean): Too
   if (context.preview?.type === "image") {
     return {
       type: "image",
+      source: context.preview,
+    };
+  }
+
+  if (context.preview?.type === "media") {
+    return {
+      type: "media",
       source: context.preview,
     };
   }
@@ -254,6 +262,23 @@ const nodeReplToolStrategy: ToolDisplayStrategy = {
   },
 };
 
+const genericMediaStrategy: ToolDisplayStrategy = {
+  matches(context) {
+    return context.preview?.type === "media";
+  },
+  build(context) {
+    const inlinePreview = toInlinePreview(context, false);
+    const hasInlinePreview = inlinePreview.type !== "none";
+
+    return {
+      inlinePreview,
+      showInput: !hasInlinePreview,
+      showOutput: Boolean(context.errorText),
+      showKind: !hasInlinePreview,
+    };
+  },
+};
+
 const TOOL_DISPLAY_STRATEGIES: ToolDisplayStrategy[] = [
   diffToolStrategy,
   readToolStrategy,
@@ -262,6 +287,7 @@ const TOOL_DISPLAY_STRATEGIES: ToolDisplayStrategy[] = [
   searchToolStrategy,
   goalToolStrategy,
   nodeReplToolStrategy,
+  genericMediaStrategy,
   genericImageStrategy,
 ];
 

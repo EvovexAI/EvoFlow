@@ -111,7 +111,11 @@ REMOVED_LEGACY_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 # Sandbox builtins superseded by host-direct equivalents (avoid duplicate ``read_file`` / ``bash``).
-_HOST_DIRECT_SUPERSEDED_SANDBOX_NAMES: frozenset[str] = frozenset({"read_file", "read", "bash"})
+# ``view_image`` merged into host-direct ``read`` (image refs dispatch inside read);
+# sandbox mode keeps the standalone tool.
+_HOST_DIRECT_SUPERSEDED_SANDBOX_NAMES: frozenset[str] = frozenset(
+    {"read_file", "read", "bash", "view_image"}
+)
 
 
 def _tool_name(tool: BaseTool | object) -> str:
@@ -175,7 +179,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     from evoflow.tools.builtins.platform_tool import platform_tool
     # from evoflow.tools.builtins.process_tool import process_tool  # retired — Bash background tasks
     from evoflow.tools.builtins.propose_goal_tool import propose_goal_tool
-    from evoflow.tools.builtins.read_lints_tool import read_lints_tool
+    # from evoflow.tools.builtins.read_lints_tool import read_lints_tool  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
     from evoflow.tools.builtins.stage_tool import stage_set_tool
     from evoflow.tools.builtins.subtask_outcome_report_tool import subtask_outcome_report_tool
     from evoflow.tools.builtins.subtask_progress_tool import subtask_progress_report_tool
@@ -205,7 +209,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         view_image_tool,
         # process_tool,  # retired — ZCode Bash run_in_background + TaskOutput/TaskStop
         # browser_tool,  # unregistered — use the agent-browser skill (CLI/MCP) instead
-        read_lints_tool,
+        # read_lints_tool,  # retired — 诊断走 Bash（pyright/ruff/tsc），对齐 ZCode
         bash_tool,
         read_file_tool,
     ]

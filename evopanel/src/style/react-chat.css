@@ -32464,7 +32464,8 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   cursor: default;
 }
 
-/* 气泡主体（ZCode ConversationUserInputBubble 同款）：内容自适应宽度 */
+/* 气泡主体（ZCode ConversationUserInputBubble 同款）：内容自适应宽度。
+ * 字号跟桥接根 --ui-font-size（与助手正文同一档），勿写死 14px。 */
 .group\/user-row [data-v4-user-input-bubble] {
   display: flex;
   flex-direction: column;
@@ -32478,7 +32479,7 @@ html[data-theme='dark'] .react-chat-browser-panel .browser-panel-viewport-dim:fo
   border: 1px solid var(--color-border, #e5e7eb);
   background: var(--color-surface, #ffffff);
   color: var(--color-foreground, #111827);
-  font-size: 14px;
+  font-size: var(--ui-font-size, 14px);
   line-height: 1.55;
   box-sizing: border-box;
   word-wrap: break-word;

@@ -42,6 +42,9 @@ import {
  */
 const V4_TOOL_STATUS_EXECUTING_OR_DONE = new Set(["running", "error", "cancelled"]);
 
+/** connecting 态共用，避免 `?? []` 每帧新引用。 */
+const EMPTY_V4_ROWS: NonNullable<ConversationSnapshot["rows"]["window"]> = [];
+
 /**
  * 部分服务访问器：只实现 fileService（产物预览卡的文件存在性校验，走
  * GET /api/workspaces/resolve-target，按当前会话 thread 的沙箱工作区解析相对路径）；
@@ -68,6 +71,26 @@ function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
         );
         return results;
       },
+    },
+    async readMediaPreview(params: { path: string; maxBytes?: number }) {
+      // serve-file → dataURL（InlineImageContent 消费 {path, mediaType, dataBase64}）
+      const q = new URLSearchParams({ path: params.path });
+      if (sessionId) q.set("thread_id", sessionId);
+      const resp = await fetch(`/api/workspaces/serve-file?${q.toString()}`);
+      if (!resp.ok) throw new Error(`media preview failed: HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("media read failed"));
+        reader.readAsDataURL(blob);
+      });
+      return {
+        path: params.path,
+        mediaType: blob.type || "application/octet-stream",
+        dataBase64: dataUrl.split(",")[1] ?? "",
+        totalBytes: blob.size,
+      };
     },
   } as unknown as IServiceAccessor;
 }
@@ -128,7 +151,9 @@ export function V4ZCodeTimeline(props: {
     [sessionId],
   );
 
-  const rows = snapshot?.rows.window ?? [];
+  // connecting / 无快照时必须用稳定空数组，否则每 render 新 [] 会让
+  // ConversationTimeline 依赖 rows 的 layout effect 空转（叠侧栏开合易触发 #185）。
+  const rows = snapshot?.rows.window ?? EMPTY_V4_ROWS;
 
   type PendingApprovalItem = {
     toolCallId: string;

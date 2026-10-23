@@ -129,6 +129,8 @@ class PageState(BaseModel):
     scrollY: float | None = None
     viewportWidth: float | None = None
     viewportHeight: float | None = None
+    # document.readyState when known (complete / interactive / loading).
+    ready: str | None = None
 
 
 class DialogInfo(BaseModel):

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -315,29 +316,54 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
       const rawSel = () => String(act.locator?.selector || act.selector || "");
       if (an === "domSnapshot") {
         // 引擎 snapshot 返回结构化 {url,title,elements[],dom[]}；运行时契约要字符串。
-        // 交互元素给坐标；dom 大纲把标题/段落/单元格正文带回来（天气卡片不在 button 上）。
+        // 正文大纲必须排在交互元素之前：模型常对返回值 .slice(0,1000)，否则只剩顶栏链接会空转重试。
         const r = await engine({ method: "snapshot", maxElements: 400 });
         const snap = r.snapshot || {};
         const els = Array.isArray(snap.elements) ? snap.elements : [];
-        const lines = els.map((el) => {
+        const outline = Array.isArray(snap.dom) ? snap.dom.slice() : [];
+        outline.sort((a, b) => {
+          const av = a && a.inViewport ? 0 : 1;
+          const bv = b && b.inViewport ? 0 : 1;
+          if (av !== bv) return av - bv;
+          return (Number(a && a.depth) || 0) - (Number(b && b.depth) || 0);
+        });
+        const textLines = outline.slice(0, 100).map((node) => {
+          const pad = "  ".repeat(Math.min(Number(node.depth) || 0, 6));
+          return `${pad}${node.tag || "text"} "${String(node.text || "").slice(0, 160)}"`;
+        });
+        const maxInteractive = textLines.length ? 36 : 80;
+        const lines = els.slice(0, maxInteractive).map((el) => {
           const ref = el.ref ? `[${el.ref}]` : "";
           const geo = el.x != null ? ` x=${Math.round(el.x)},y=${Math.round(el.y)}` : "";
           const box = el.rect && el.rect.x != null ? ` x=${Math.round(el.rect.x)},y=${Math.round(el.rect.y)}` : geo;
           return `${ref} ${el.role || el.tag || "node"} "${String(el.name || el.text || "").slice(0, 80)}"${box}`.trim();
         });
-        const outline = Array.isArray(snap.dom) ? snap.dom : [];
-        const textLines = outline.slice(0, 80).map((node) => {
-          const pad = "  ".repeat(Math.min(Number(node.depth) || 0, 6));
-          return `${pad}${node.tag || "text"} "${String(node.text || "").slice(0, 160)}"`;
-        });
+        const more = els.length > maxInteractive ? `${String.fromCharCode(10)}... (${els.length - maxInteractive} more interactive)` : "";
         const value = `page: ${snap.url || ""} | ${snap.title || ""}
-${lines.join(String.fromCharCode(10))}
-${textLines.length ? "text:" + String.fromCharCode(10) + textLines.join(String.fromCharCode(10)) : ""}`;
+${textLines.length ? "text:" + String.fromCharCode(10) + textLines.join(String.fromCharCode(10)) + String.fromCharCode(10) : ""}interactive:
+${lines.join(String.fromCharCode(10))}${more}`;
         await __bridgeLog(`[browser-bridge] domSnapshot elements=${els.length} textNodes=${textLines.length} url=${snap.url || ""}`);
         return { ok: true, value };
       }
       if (an === "waitForLoadState") {
-        // 引擎 navigate 已等待 document.readyState=complete；这里直接确认。
+        // 真正等到 readyState，并给 SPA/动态正文一小段 settle（以前直接 return 导致 snapshot 读到空壳）。
+        const state = String(act.state || "load").toLowerCase();
+        const timeout = Math.min(Number(act.timeout) || Number(act.timeoutMs) || 15000, 30000);
+        const deadline = Date.now() + timeout;
+        let lastReady = "";
+        while (Date.now() < deadline) {
+          const st = await engine({ method: "getState" });
+          lastReady = String(st.state?.ready || st.state?.readyState || "");
+          if (state === "domcontentloaded" || state === "interactive") {
+            if (lastReady === "interactive" || lastReady === "complete") break;
+          } else if (lastReady === "complete") {
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        const settleMs = state === "networkidle" ? 1200 : 500;
+        await new Promise((r) => setTimeout(r, settleMs));
+        await __bridgeLog(`[browser-bridge] waitForLoadState state=${state} ready=${lastReady || "?"} settleMs=${settleMs}`);
         return { ok: true, value: true };
       }
       if (an === "waitForURL") {
@@ -599,6 +625,86 @@ ${textLines.length ? "text:" + String.fromCharCode(10) + textLines.join(String.f
   }
 }
 """
+
+# Models often skip the official skill bootstrap and write:
+#   const browser = require('browser-use')
+# or bare `browser.tabs...` → "browser is not defined".
+# Auto-load browser-client.mjs once per kernel, expose `browser` / `agent`,
+# and shim require('browser-use') to the same object.
+_BROWSER_AUTO_BOOTSTRAP_JS = r"""
+await (async () => {
+  // Re-wrap if an older kernel left browser without .bootstrap (frozen runtime object).
+  if (globalThis.__evoflowBrowserBootstrapped && typeof globalThis.browser?.bootstrap === "function") {
+    return;
+  }
+  const root = String(process.env.ZCODE_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT || "").trim();
+  if (!root) return;
+  try {
+    const { join } = await import("node:path");
+    const { pathToFileURL } = await import("node:url");
+    const clientUrl = pathToFileURL(join(root, "scripts", "browser-client.mjs")).href;
+    const { setupBrowserRuntime } = await import(clientUrl);
+    await setupBrowserRuntime({ globals: globalThis });
+    let b = globalThis.browser;
+    if (!b) {
+      try { b = await globalThis.agent.browsers.get("iab"); } catch (_) {
+        try { b = await globalThis.agent.browsers.getDefault(); } catch (_) { b = null; }
+      }
+    }
+    if (b) {
+      // Runtime objects are often non-extensible — Proxy so .bootstrap always exists.
+      const wrapped = new Proxy(b, {
+        get(target, prop, receiver) {
+          if (prop === "bootstrap") return async () => wrapped;
+          const v = Reflect.get(target, prop, receiver);
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+        has(target, prop) {
+          return prop === "bootstrap" || Reflect.has(target, prop);
+        },
+      });
+      globalThis.browser = wrapped;
+      try { global.browser = wrapped; } catch (_) {}
+      if (b.tabs) {
+        globalThis.tabs = b.tabs;
+        try { global.tabs = b.tabs; } catch (_) {}
+      }
+    }
+    try {
+      const Module = (await import("node:module")).default;
+      if (Module && typeof Module._load === "function" && !Module.__evoflowBrowserUseShim) {
+        const origLoad = Module._load;
+        Module._load = function (request, parent, isMain) {
+          if (request === "browser-use" || request === "@zcode/browser-use-plugin") {
+            return globalThis.browser || globalThis.agent?.browsers || {};
+          }
+          return origLoad.apply(this, arguments);
+        };
+        Module.__evoflowBrowserUseShim = true;
+      }
+    } catch (_) {}
+    globalThis.__evoflowBrowserBootstrapped = true;
+  } catch (err) {
+    globalThis.__evoflowBrowserBootstrapError = String((err && err.message) || err).slice(0, 300);
+  }
+})();
+"""
+
+
+# Strip invented calls the model keeps emitting even after host auto-bootstrap.
+_FAKE_BROWSER_BOOTSTRAP_RE = re.compile(
+    r"(?:await\s+)?(?:globalThis\.)?browser\.bootstrap\s*\(\s*\)\s*;?",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_model_browser_js(code: str) -> str:
+    """Drop no-op / invented browser.bootstrap() so the rest of the cell can run."""
+    text = str(code or "")
+    cleaned = _FAKE_BROWSER_BOOTSTRAP_RE.sub("", text)
+    if cleaned != text:
+        _ulog("stripped invented browser.bootstrap() from model js")
+    return cleaned
 
 _lock = threading.Lock()
 _proc: subprocess.Popen | None = None
@@ -919,12 +1025,19 @@ def call_node_repl_js_structured(
     租约；缺省回退 "evoflow-main"。
     """
     started = time.monotonic()
+    code = _sanitize_model_browser_js(code)
     preview = " ".join(code.split())[:160]
     _ulog(f"js call start ({len(code)} chars): {preview}")
     try:
         response = _request(
             "tools/call",
-            {"name": "js", "arguments": {"code": _BRIDGE_SETUP_JS + "\n" + code, "timeout_ms": min(int(timeout_ms), 120_000)}},
+            {
+                "name": "js",
+                "arguments": {
+                    "code": _BRIDGE_SETUP_JS + "\n" + _BROWSER_AUTO_BOOTSTRAP_JS + "\n" + code,
+                    "timeout_ms": min(int(timeout_ms), 120_000),
+                },
+            },
             timeout_sec=timeout_ms / 1000 + 15,
             session_id=session_id,
         )
@@ -977,9 +1090,11 @@ def call_node_repl_js(
 ) -> str:
     """Execute JavaScript in the node-repl-host kernel; returns the text result.
 
-    每次 call 都先注入浏览器桥 setup（幂等 ``??=``）：control-browser 技能的
-    bootstrap 读取 ``Symbol.for("zcode.node-repl.browser-control-bridge")``，
-    桥用 fetch 把 ZCode 浏览器命令转发给 EvoFlow Gateway（本地请求免鉴权）。
+    每次 call 都先注入：
+    1. 浏览器桥 setup（幂等）—— control-browser 读
+       ``Symbol.for("zcode.node-repl.browser-control-bridge")``；
+    2. browser-client 自动 bootstrap（幂等）—— 暴露 ``agent`` / ``browser``，
+       并 shim ``require('browser-use')``，避免模型跳过官方引导直接报错。
     """
     structured = call_node_repl_js_structured(code, timeout_ms, session_id=session_id)
     if structured["is_error"]:

@@ -5,6 +5,8 @@ from __future__ import annotations
 # Plan and legacy agent configs often use retired sandbox names; map to current catalog.
 _TOOL_NAME_ALIASES: dict[str, str] = {
     "read_file": "read",
+    # view_image merged into host-direct ``read``; old plan/agent configs keep resolving.
+    "view_image": "read",
     "write_file": "write",
     "write_to_file": "write",
     "str_replace": "replace",

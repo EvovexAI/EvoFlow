@@ -69,6 +69,10 @@ export function switchRightStageSession(
   if (from) saveRightStageSessionMemory(from)
   // 换入目标会话的标签缓存后，browser-embed-surface 根据激活页决定显示或隐藏。
   restoreRightStageSessionMemory(to || null)
+  // Re-evaluate native HWND: foreign bridge owner must stay parked on the new UI.
+  void import('../browser-embed-surface.js')
+    .then((m) => m.syncNativeEmbed('session-switch'))
+    .catch(() => {})
 }
 
 function emptyMemory(): RightStageSessionMemory {

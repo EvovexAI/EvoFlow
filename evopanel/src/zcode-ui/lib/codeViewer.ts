@@ -221,12 +221,27 @@ function extractContentText(value: unknown): string | undefined {
   ]);
 }
 
-function extractRawPath(value: unknown): string | undefined {
+function extractRawPath(value: unknown, depth = 0): string | undefined {
+  // EvoFlow 媒体工具把产物路径写在**结果 JSON 字符串**里（absolute_path 等）；
+  // 字符串产物先解析成对象再走字段查找，否则 media 工具永远拿不到预览路径。
+  if (typeof value === "string" && depth === 0) {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        return extractRawPath(JSON.parse(trimmed), depth + 1);
+      } catch {
+        return undefined;
+      }
+    }
+    return undefined;
+  }
   return findStringField(value, [
     "path",
     "filePath",
     "file_path",
     "filename",
+    "absolute_path",
+    "local_path",
     "targetPath",
     "target_path",
     "targetFile",
@@ -538,17 +553,29 @@ export function getToolCallCodePreview(
     return buildTextPreview(viewerTitle, resolvedPath, preferredContent);
   }
 
-  if (
-    resolvedPath &&
-    (isDiffTool || isReadTool || isWriteTool) &&
-    isImagePreviewPath(resolvedPath)
-  ) {
+  if (resolvedPath && isImagePreviewPath(resolvedPath)) {
+    // EvoFlow V4：媒体生成类工具（media_image_generate 等）不走 file 家族，
+    // 但产物路径是图片时同样应内联预览——按路径形态判定，不按工具族。
     return {
       type: "image",
       title: viewerTitle,
       path: resolvedPath,
       mediaType: inferImageMediaType(resolvedPath) ?? "application/octet-stream",
     };
+  }
+
+  if (resolvedPath) {
+    const mediaFormat = getMediaPreviewFormat(resolvedPath);
+    if (mediaFormat) {
+      // EvoFlow V4：视频/音频产物 → 内联媒体预览（ToolCallBody 渲染 video/audio 标签）。
+      return {
+        type: "media",
+        title: viewerTitle,
+        path: resolvedPath,
+        kind: mediaFormat.kind,
+        mediaType: mediaFormat.mediaType,
+      };
+    }
   }
 
   if (resolvedPath) {

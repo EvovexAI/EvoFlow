@@ -8,6 +8,7 @@ import {
 } from 'react'
 import type { ComponentProps } from 'react'
 import { createPortal } from 'react-dom'
+import { Check, Copy, Download, Maximize2, X } from 'lucide-react'
 import { Streamdown, defaultRemarkPlugins, defaultUrlTransform } from 'streamdown'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
@@ -339,30 +340,32 @@ export function MarkdownTableShell({ children, ...rest }: React.ComponentProps<'
     })
   }, [])
 
-  const openLabel = open ? '关闭' : '放大'
-  const copyMdLabel = copied === 'md' ? '已复制 MD' : '复制 MD'
-  const copyCsvLabel = copied === 'csv' ? '已复制 CSV' : '复制 CSV'
+  const openLabel = open ? '关闭预览' : '放大预览'
+  const copyMdLabel = copied === 'md' ? '已复制 Markdown' : '复制 Markdown'
+  const copyCsvLabel = copied === 'csv' ? '已复制 CSV' : '下载 CSV'
 
   return (
     <div className="msg-md-table">
       <div className="msg-md-table-actions" role="toolbar" aria-label="表格操作">
         <button
           type="button"
-          className="msg-md-table-action"
+          className={`msg-md-table-action${copied === 'md' ? ' is-copied' : ''}`}
           onClick={() => handleCopy('md')}
           title={copyMdLabel}
           aria-label={copyMdLabel}
         >
-          {copied === 'md' ? '✓' : 'MD'}
+          {copied === 'md' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          <span>MD</span>
         </button>
         <button
           type="button"
-          className="msg-md-table-action"
+          className={`msg-md-table-action${copied === 'csv' ? ' is-copied' : ''}`}
           onClick={() => handleCopy('csv')}
           title={copyCsvLabel}
           aria-label={copyCsvLabel}
         >
-          {copied === 'csv' ? '✓' : 'CSV'}
+          {copied === 'csv' ? <Check aria-hidden="true" /> : <Download aria-hidden="true" />}
+          <span>CSV</span>
         </button>
         <button
           type="button"
@@ -374,7 +377,7 @@ export function MarkdownTableShell({ children, ...rest }: React.ComponentProps<'
           title={openLabel}
           aria-label={openLabel}
         >
-          {open ? '×' : '⛶'}
+          {open ? <X aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
         </button>
       </div>
       <div className="msg-md-table-frame">

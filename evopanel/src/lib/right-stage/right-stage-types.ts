@@ -44,6 +44,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   write: '写入内容',
   file: '文件预览',
   codeViewer: '代码对比',
+  subagentTranscript: '子代理输出',
   summary: '摘要',
   terminal: '终端',
   artifacts: '本轮产物',

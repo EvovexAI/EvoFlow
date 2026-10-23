@@ -28,8 +28,10 @@ Contrast with the ``knowledge`` tool (agent-tool call path):
 - ``mode=auto``: System pre-injects results after the user message.
 - ``mode=both``: Pre-injection + tool still available for follow-up queries.
 
-Runs after ``SkillsInjectionMiddleware`` in the lead middleware list.
-Both ``wrap_model_call`` (sync) and ``awrap_model_call`` (async) are implemented.
+Runs after ``SkillsInjectionMiddleware`` in the lead middleware list
+(skills/plugins are already after the user; KB inserts between user and those
+rows). Both ``wrap_model_call`` (sync) and ``awrap_model_call`` (async) are
+implemented.
 """
 
 from __future__ import annotations

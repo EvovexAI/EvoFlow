@@ -25,25 +25,31 @@ def test_latest_human_skips_injection_footers():
 
 
 def test_place_kb_after_user_before_tools():
+    """KB inserts after user; skill/plugin (already after user) stay before tools."""
     user = HumanMessage(content="查一下退货政策")
+    skill = HumanMessage(content="skill", name="evf_skill_injection")
+    plugin = HumanMessage(content="plugin", name="evf_plugin_injection")
     ai = AIMessage(content="", tool_calls=[{"id": "c1", "name": "web_search", "args": {}}])
     tool = ToolMessage(content="search hits…", tool_call_id="c1")
-    skill = HumanMessage(content="skill", name="evf_skill_injection")
     kb = HumanMessage(content="<knowledge_context>政策片段</knowledge_context>", name=_KB_INJECTION_MESSAGE_NAME)
 
-    out = place_kb_after_latest_user([user, ai, tool, skill], kb)
+    # SkillsInjectionMiddleware places skill/plugin after user first; KB then
+    # inserts between the user and those rows.
+    out = place_kb_after_latest_user([user, skill, plugin, ai, tool], kb)
 
     assert [type(m).__name__ for m in out] == [
         "HumanMessage",
         "HumanMessage",
+        "HumanMessage",
+        "HumanMessage",
         "AIMessage",
         "ToolMessage",
-        "HumanMessage",
     ]
     assert out[0].content == "查一下退货政策"
     assert getattr(out[1], "name", None) == _KB_INJECTION_MESSAGE_NAME
-    assert out[-2].content == "search hits…"
-    assert getattr(out[-1], "name", None) == "evf_skill_injection"
+    assert getattr(out[2], "name", None) == "evf_skill_injection"
+    assert getattr(out[3], "name", None) == "evf_plugin_injection"
+    assert out[-1].content == "search hits…"
 
 
 def test_place_kb_replaces_stale_end_append():

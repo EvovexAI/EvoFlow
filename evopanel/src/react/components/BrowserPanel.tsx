@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import {
   browserEmbedClose,
+  browserEmbedExists,
   browserEmbedSetZoom,
   browserEmbedSupported,
   browserEmbedSupportedSync,
@@ -8,6 +9,7 @@ import {
   registerBrowserEmbedCdp,
 } from '../../lib/browser-embed-client.js'
 import { ensureNativeEmbed, reportEmbedSlot } from '../../lib/browser-embed-surface.js'
+import { blogTimeline } from '../../lib/browser-unified-log.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 import { DropdownSelect } from './DropdownSelect.js'
 import {
@@ -28,6 +30,8 @@ import {
 import {
   getBrowserRuntimeSnapshot,
   applyBrowserCommandResponse,
+  isUserNavigateIntent,
+  markUserNavigateIntent,
   pushBrowserTabHistory,
   setBrowserTabs,
   stepBrowserTabHistory,
@@ -36,6 +40,7 @@ import {
 import {
   isBrowserInternalErrorUrl,
   isNavigableBrowserUrl,
+  isSameBrowserLoad,
   sanitizeBrowserPageUrl,
 } from '../../lib/browser-page-url.js'
 import {
@@ -646,7 +651,8 @@ function BrowserEmbedHost({
     const bounds = readEmbedBounds(slotRef.current)
     if (!bounds) return
     const started = performance.now()
-    reportEmbedSlot(stageIdRef.current, bounds, { url: pageUrlRef.current, force })
+    // Soft-decouple: bounds sync never re-navigates — agent/CDP owns the URL.
+    reportEmbedSlot(stageIdRef.current, bounds, { force })
     const elapsed = Math.round(performance.now() - started)
     if (elapsed >= 200) {
       console.warn(
@@ -655,6 +661,9 @@ function BrowserEmbedHost({
     }
   }, [isOpen])
   syncBoundsRef.current = () => syncBounds(true)
+
+  // Shared with mount + navigate effects: avoid remount→navigate double ensure.
+  const lastNavigatedRef = useRef('')
 
   useLayoutEffect(() => {
     let cancelled = false
@@ -690,6 +699,10 @@ function BrowserEmbedHost({
     const failMount = (message: string, userError: string) => {
       if (mountedThreadRef.current === tid) mountedThreadRef.current = ''
       if (cancelled) return
+      blogTimeline(
+        '失败',
+        `窗口贴位失败 线程=${tid} 原因=${message} 界面提示=${userError}`,
+      )
       setError(userError)
       onFailedRef.current?.(message)
     }
@@ -702,6 +715,10 @@ function BrowserEmbedHost({
       setError('')
       setReady(true)
       readyRef.current = true
+      blogTimeline(
+        '窗口贴位',
+        `面板挂载完成 线程=${tid} 地址栏=${pageUrlRef.current || '(无)'}（槽位已显示；真正出字看「页面内容就绪」）`,
+      )
       onReadyRef.current?.()
       void syncBoundsRef.current()
       for (const delay of [300, 1000, 3000]) {
@@ -744,11 +761,16 @@ function BrowserEmbedHost({
         return
       }
       const boundsLogged = readEmbedBounds(slotRef.current, { forceRegionLog: true }) || bounds
+      // Soft-decouple: mount never navigates. Agent CDP owns Page.navigate;
+      // passing url here (when exists-check flaked false) rebuilt HWND mid-settle
+      // → guest-poll timeout (~8–17s). Place/create blank only; chrome URL is sync.
+      const hwndReady = await browserEmbedExists(tid)
       dbgLog(
-        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(boundsLogged)} url=${pageUrlNow || '(none — boot blank, navigate on result)'}`,
+        `[browser-embed] upsert thread=${tid} bounds=${JSON.stringify(boundsLogged)} ` +
+          `hwndReady=${hwndReady} placeOnly=true url=${pageUrlNow || '(none)'}`,
       )
       const info = await ensureNativeEmbed({
-        url: pageUrlNow,
+        placeOnly: true,
         slot: bounds,
         stageId: stageIdRef.current,
         reason: 'panel-mount',
@@ -759,6 +781,8 @@ function BrowserEmbedHost({
         failMount('embed upsert failed', '内嵌浏览器启动失败')
         return
       }
+      // Mark current URL so the navigate effect does not immediately re-ensure.
+      if (pageUrlNow) lastNavigatedRef.current = pageUrlNow
       dbgLog(`[browser-embed] cdp ready thread=${tid} label=${info.webviewLabel}`)
       const ok = await registerBrowserEmbedCdp(tid, info.cdpUrl)
       dbgLog(`[browser-embed] cdp register ok=${ok} url=${info.cdpUrl.slice(0, 60)}`)
@@ -785,43 +809,31 @@ function BrowserEmbedHost({
     // surfaceActive：后台 force-mount 时跳过抢 HWND；切到前台后再真正 upsert。
   }, [isOpen, threadId, surfaceActive])
 
-  // Once the webview exists, agent navigations only need to re-point the existing
-  // window — `browser_embed_upsert` detects the live label and navigates in place.
-  // A full remount here would destroy and recreate the browser (and lose scroll
-  // position / form state) on every link the agent clicks.
-  const lastNavigatedRef = useRef('')
+  // Soft-decouple: pageUrl from agent/getState is chrome-only. HWND navigation
+  // is owned by CDP (agent) or explicit user actions (address bar → engine
+  // navigate, back/forward / tab switch → ensureNativeEmbed). Never upsert-
+  // navigate here — that double-loaded every agent goto.
   useEffect(() => {
     if (!ready) return
-    const tid = String(threadId || '').trim()
     const next = String(pageUrl || '').trim()
-    if (!tid || !next || next === lastNavigatedRef.current) return
-    if (!surfaceActiveRef.current) return
-    // chrome-error:// 是导航失败后的内部页，再 navigate 只会死循环刷错页。
-    if (!isNavigableBrowserUrl(next)) {
-      dbgWarn(`[browser-embed] navigate skipped internal/error url=${next}`)
+    if (!next) return
+    if (next === lastNavigatedRef.current || isSameBrowserLoad(next, lastNavigatedRef.current)) {
       lastNavigatedRef.current = next
       return
     }
-    // Re-measure before re-pointing the window. Falling back to a hardcoded
-    // origin here used to fling the embedded browser into the top-left corner
-    // of the screen whenever the slot had not been laid out yet.
-    const bounds = readEmbedBounds(slotRef.current)
-    if (!bounds) {
-      // Deliberately do not record the url yet: a later re-render must be able to
-      // retry once layout settles.
-      dbgWarn(`[browser-embed] navigate deferred, slot has no layout box thread=${tid} url=${next}`)
+    if (!isNavigableBrowserUrl(next)) {
+      lastNavigatedRef.current = next
+      return
+    }
+    if (isUserNavigateIntent(next)) {
+      // User already drove HWND via sendBrowserCommand / ensureNativeEmbed;
+      // only sync the latch so we do not treat the next agent sync as new.
+      lastNavigatedRef.current = next
+      dbgLog(`[browser-embed] pageUrl follow (user intent) url=${next}`)
       return
     }
     lastNavigatedRef.current = next
-    dbgLog(`[browser-embed] navigate thread=${tid} url=${next} bounds=${JSON.stringify(bounds)}`)
-    void ensureNativeEmbed({
-      url: next,
-      slot: bounds,
-      stageId: stageIdRef.current,
-      reason: 'navigate',
-    }).then((info) => {
-      if (info?.cdpUrl) void registerBrowserEmbedCdp(tid, info.cdpUrl)
-    })
+    dbgLog(`[browser-embed] pageUrl follow (agent/chrome-only) url=${next}`)
   }, [ready, threadId, pageUrl])
 
   useEffect(() => {
@@ -943,7 +955,7 @@ function BrowserEmbedHost({
           unlistenCoords()
         }
       } catch (err) {
-        console.warn('[browser-embed] coords listen failed', err)
+        dbgWarn(`[browser-embed] coords listen failed ${String(err)}`)
       }
     })()
     return () => {
@@ -1442,6 +1454,7 @@ export const BrowserPanel = memo(function BrowserPanel({
           pageTitle: '',
           streamWs: '',
           pushHistory: true,
+          navigateIntent: true,
         })
         return
       }
@@ -1449,13 +1462,14 @@ export const BrowserPanel = memo(function BrowserPanel({
       setNavBusy(true)
       setNavError('')
       try {
-        // 先压逻辑栈并 seed URL，再让引擎/ HWND 导航。
+        // 先压逻辑栈并 seed URL，再让引擎 CDP 导航（面板不再二次 upsert）。
         applyBrowserCommandResponse({
           threadId: tid,
           pageUrl: normalized,
           pageTitle: '',
           streamWs: '',
           pushHistory: true,
+          navigateIntent: true,
         })
         const result = await sendBrowserCommand(tid, 'navigate', normalized)
         if (result) {
@@ -1491,6 +1505,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     setNavBusy(true)
     setNavError('')
     try {
+      markUserNavigateIntent(target)
       // 单 HWND：用 replace 跳到逻辑栈目标，不碰 window.history.back()。
       await ensureNativeEmbed({
         url: target,
@@ -1514,6 +1529,7 @@ export const BrowserPanel = memo(function BrowserPanel({
     setNavBusy(true)
     setNavError('')
     try {
+      markUserNavigateIntent(target)
       await ensureNativeEmbed({
         url: target,
         stageId,

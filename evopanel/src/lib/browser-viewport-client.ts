@@ -226,6 +226,12 @@ export async function sendBrowserCommand(
     return normalizeBrowserResponse(tid, data)
   } catch (err) {
     console.warn('[browser-viewport] sendBrowserCommand failed', tid, method, err)
+    void import('./browser-unified-log.js').then(({ blog }) => {
+      blog(
+        'warn',
+        `[viewport] sendBrowserCommand failed tid=${tid} method=${method} err=${err}`,
+      )
+    })
     return null
   }
 }

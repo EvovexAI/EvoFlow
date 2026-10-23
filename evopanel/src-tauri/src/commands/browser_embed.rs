@@ -84,14 +84,140 @@ fn is_parked(label: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Park embed off-screen while keeping it visible/pumpable.
+///
+/// Soft-decouple: `SW_HIDE` makes Tauri report "underlying handle is not
+/// available", so panel upsert waits, destroys the live agent page, and
+/// recreates `about:blank`. Off-screen + still visible keeps COM/guest alive.
 #[cfg(target_os = "windows")]
 fn hide_embed_hwnd(window: &WebviewWindow) -> Result<(), String> {
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
-    let hwnd = window.hwnd().map_err(|e| format!("embed hwnd: {e}"))?;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    };
+    let _ = window.show();
+    let _ = window.unminimize();
+    let hwnd = wait_embed_hwnd(window, window.label(), Duration::from_millis(800))?;
     unsafe {
-        let _ = ShowWindow(hwnd, SW_HIDE);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            -12800,
+            -12800,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
     }
     Ok(())
+}
+
+/// Poll until tao exposes a live HWND. Mid-build and zombie embeds both report
+/// "the underlying handle is not available" — callers must wait or destroy.
+#[cfg(target_os = "windows")]
+fn wait_embed_hwnd(
+    window: &WebviewWindow,
+    label: &str,
+    timeout: Duration,
+) -> Result<windows::Win32::Foundation::HWND, String> {
+    use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+    let deadline = std::time::Instant::now() + timeout;
+    let mut last_err = String::from("not ready");
+    while std::time::Instant::now() < deadline {
+        match window.hwnd() {
+            Ok(h) => {
+                if unsafe { IsWindow(Some(h)).as_bool() } {
+                    return Ok(h);
+                }
+                last_err = "IsWindow=false".into();
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] wait_hwnd TIMEOUT label={label} last={last_err}"
+    ));
+    Err(format!("embed hwnd: {last_err}"))
+}
+
+/// Re-fetch the window by label every poll. Concurrent upsert/ensure often hold a
+/// stale `WebviewWindow` for a mid-build label; meanwhile another task destroys
+/// and recreates under the same label. Polling the stale handle times out and
+/// then `destroy_zombie` kills the *new* healthy window (log: ON-SCREEN → triple
+/// destroy 2s later).
+#[cfg(target_os = "windows")]
+fn wait_embed_hwnd_label(
+    app: &tauri::AppHandle,
+    label: &str,
+    timeout: Duration,
+) -> Result<windows::Win32::Foundation::HWND, String> {
+    use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+    let deadline = std::time::Instant::now() + timeout;
+    let mut last_err = String::from("not ready");
+    while std::time::Instant::now() < deadline {
+        match app.get_webview_window(label) {
+            Some(window) => match window.hwnd() {
+                Ok(h) if unsafe { IsWindow(Some(h)).as_bool() } => return Ok(h),
+                Ok(_) => last_err = "IsWindow=false".into(),
+                Err(e) => last_err = e.to_string(),
+            },
+            None => last_err = "window missing".into(),
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] wait_hwnd_label TIMEOUT label={label} last={last_err}"
+    ));
+    Err(format!("embed hwnd: {last_err}"))
+}
+
+/// Serialize zombie teardown so three concurrent upserts cannot close the same
+/// label three times (second/third close races a fresh build → gone=false forever).
+#[cfg(target_os = "windows")]
+static ZOMBIE_DESTROY_LOCK: Mutex<()> = Mutex::new(());
+
+/// Tear down a label whose HWND never came up (hidden estimate build / dying close).
+/// Leaving it registered makes every later upsert/park/CDP fail the same way.
+#[cfg(target_os = "windows")]
+fn destroy_zombie_embed(app: &tauri::AppHandle, label: &str) {
+    let _guard = ZOMBIE_DESTROY_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Another waiter may have recreated a healthy window while we queued.
+    if wait_embed_hwnd_label(app, label, Duration::from_millis(300)).is_ok() {
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] destroy zombie SKIP (hwnd live) label={label}"
+        ));
+        return;
+    }
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] destroy zombie label={label}"
+    ));
+    browser_cdp_server::log_line(&format!(
+        "[浏览器时间线] 失败｜销毁僵尸窗口 label={label} \
+         （贴位时 HWND 不可用或并发建窗冲突 — 页面常会变空白/about:blank）"
+    ));
+    if let Some(win) = app.get_webview_window(label) {
+        let _ = win.close();
+    }
+    browser_cdp::clear_stashed_core_webview2(label);
+    if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
+        map.remove(label);
+    }
+    if let Ok(mut set) = EMBED_PARKED.lock() {
+        set.remove(label);
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if app.get_webview_window(label).is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] destroy zombie done label={label} gone={}",
+        app.get_webview_window(label).is_none()
+    ));
 }
 
 /// UI 线程正在处理拖动/贴位。卡死时这条线程出不了日志，由旁路线程读这两个原子。
@@ -552,6 +678,91 @@ fn normalize_target_url(raw: &str) -> Result<url::Url, String> {
     with_scheme
         .parse()
         .map_err(|e| format!("invalid host {trimmed:?}: {e}"))
+}
+
+/// True when FE upsert would only re-load the document CDP/agent already opened.
+///
+/// Typical race: `Page.navigate` → page redirects adding `?aid=` → panel `pageUrl`
+/// sync triggers upsert → `reuse navigate` reloads the same page (felt as
+/// "jumps / refreshes several times for one request").
+
+/// WebView2/Tauri reject `about:blank` as External boot URL.
+/// Prefer local blank page on the embed HTTP bridge.
+/// Never use example.com — that painted
+/// "Example Domain" whenever placeOnly recreated the HWND after agent navigate.
+fn is_embed_boot_placeholder(url: &str) -> bool {
+    let u = url.trim();
+    u.is_empty()
+        || u.starts_with("about:")
+        || u.starts_with("data:text/html")
+        || u.contains("/browser-embed/blank")
+        || u.contains("://example.com")
+        || u.contains("://example.org")
+}
+
+fn embed_boot_url(target: &url::Url, http_port: u16) -> Result<url::Url, String> {
+    if !(target.scheme() == "about" || is_embed_boot_placeholder(target.as_str())) {
+        return Ok(target.clone());
+    }
+    if http_port == 0 {
+        return Err(
+            "embed boot needs CDP HTTP bridge for blank page (about:blank unsupported)".into(),
+        );
+    }
+    format!("http://127.0.0.1:{http_port}/browser-embed/blank")
+        .parse::<url::Url>()
+        .map_err(|e| e.to_string())
+}
+
+/// Registrable-ish host: `www.bing.com` / `cn.bing.com` → `bing.com`.
+fn host_apex(host: Option<&str>) -> String {
+    let h = host.unwrap_or("").trim().to_ascii_lowercase();
+    if h.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<&str> = h.split('.').filter(|p| !p.is_empty()).collect();
+    if parts.len() >= 2 {
+        format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
+    } else {
+        h
+    }
+}
+
+fn urls_same_load(cached: &str, want: &url::Url) -> bool {
+    let Ok(cur) = normalize_target_url(cached) else {
+        return false;
+    };
+    if cur.as_str() == want.as_str() {
+        return true;
+    }
+    if cur.scheme() == want.scheme()
+        && host_apex(cur.host_str()) == host_apex(want.host_str())
+        && cur.port_or_known_default() == want.port_or_known_default()
+        && cur.path() == want.path()
+    {
+        let cq = cur.query().unwrap_or("");
+        let wq = want.query().unwrap_or("");
+        if cq == wq {
+            return true;
+        }
+        // Clean URL vs same path with tracking/session query (or vice versa).
+        if cq.is_empty() || wq.is_empty() {
+            return true;
+        }
+        // Query only grew (aid= / ie=) — still the same navigation.
+        if wq.starts_with(cq) || cq.starts_with(wq) {
+            return true;
+        }
+    }
+    let c = cur.as_str().trim_end_matches('/');
+    let w = want.as_str().trim_end_matches('/');
+    let prefix_ok = |shorter: &str, longer: &str| {
+        longer.starts_with(shorter)
+            && (longer.len() == shorter.len()
+                || longer.as_bytes().get(shorter.len()) == Some(&b'?')
+                || longer.as_bytes().get(shorter.len()) == Some(&b'#'))
+    };
+    prefix_ok(c, w) || prefix_ok(w, c)
 }
 
 /// Path prefix Playwright's `connect_over_cdp` uses for its websocket handshake.
@@ -1203,8 +1414,10 @@ fn nest_embed_into_main(embed: &WebviewWindow, main: &WebviewWindow) -> Result<(
         WS_CAPTION, WS_CHILD, WS_DLGFRAME, WS_EX_CLIENTEDGE, WS_EX_STATICEDGE, WS_EX_WINDOWEDGE,
         WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
     };
-    let child = embed.hwnd().map_err(|e| format!("embed hwnd: {e}"))?;
-    let owner = main.hwnd().map_err(|e| format!("main hwnd: {e}"))?;
+    let child = wait_embed_hwnd(embed, embed.label(), Duration::from_secs(8))?;
+    let owner = main
+        .hwnd()
+        .map_err(|e| format!("main hwnd: {e}"))?;
     unsafe {
         let style = GetWindowLongW(child, GWL_STYLE) as u32;
         // 去掉标题栏和客户区边框，否则 SetWindowPos 的外框会比槽位多出 1～数像素，
@@ -1340,7 +1553,7 @@ fn place_embed_client(
     } else {
         (x, y, w.max(120.0), h.max(80.0))
     };
-    let hwnd = window.hwnd().map_err(|e| format!("embed hwnd: {e}"))?;
+    let hwnd = wait_embed_hwnd(window, window.label(), Duration::from_secs(8))?;
     let (px, py) = if embed_is_ws_child(window) {
         (x as i32, y as i32)
     } else {
@@ -1426,23 +1639,28 @@ fn create_embed_window(
     // command worker or HTTP ensure path) instead; then wait_webview2_ready
     // hops onto main with an explicit PeekMessage pump.
     // 窗口已在（引擎兜底先建出来）时，面板这次带来的才是槽位。估算调用不要再挪它。
-    if let Some(win) = app.get_webview_window(label) {
-        if start_visible {
-            let parent = app
-                .get_webview_window("main")
-                .ok_or_else(|| "main window not found".to_string())?;
-            mark_parked(label, false);
-            let _ = win.show();
-            let _ = win.unminimize();
-            nest_embed_into_main(&win, &parent)?;
-            place_embed_client(&win, &parent, x, y, width, height)?;
-            log_region_diag("create-reuse", label, &parent, &win, (x, y, width, height));
-            if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
-                map.insert(label.to_string(), (x, y, width.max(120.0), height.max(80.0)));
+    if app.get_webview_window(label).is_some() {
+        if wait_embed_hwnd_label(app, label, Duration::from_secs(8)).is_err() {
+            destroy_zombie_embed(app, label);
+            // Fall through to a fresh build below.
+        } else if let Some(win) = app.get_webview_window(label) {
+            if start_visible {
+                let parent = app
+                    .get_webview_window("main")
+                    .ok_or_else(|| "main window not found".to_string())?;
+                mark_parked(label, false);
+                let _ = win.show();
+                let _ = win.unminimize();
+                nest_embed_into_main(&win, &parent)?;
+                place_embed_client(&win, &parent, x, y, width, height)?;
+                log_region_diag("create-reuse", label, &parent, &win, (x, y, width, height));
+                if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
+                    map.insert(label.to_string(), (x, y, width.max(120.0), height.max(80.0)));
+                }
+                note_writer(label, "panel-create-reuse");
             }
-            note_writer(label, "panel-create-reuse");
+            return Ok(());
         }
-        return Ok(());
     }
     let parent = app
         .get_webview_window("main")
@@ -1469,8 +1687,12 @@ fn create_embed_window(
     // 端口由调用方准备好。在 async 命令里 block_on 会和当前运行时互锁，
     // 面板这次创建永远回不来，窗口就停在引擎的估算矩形上。
     let guest_js = super::browser_embed_bridge::embed_guest_init_script(http_port, label);
-    if let Some(bridge) = app.try_state::<super::browser_embed_bridge::EmbedBridge>() {
-        bridge.note_url(label, target_url.as_str());
+    // Never stash boot placeholders — that wiped agent Page.navigate URLs and
+    // left the panel stuck on Example Domain after recreate-missing.
+    if !is_embed_boot_placeholder(target_url.as_str()) {
+        if let Some(bridge) = app.try_state::<super::browser_embed_bridge::EmbedBridge>() {
+            bridge.note_url(label, target_url.as_str());
+        }
     }
     // Distinct data_directory so this child does not share the main WebView2
     // environment. Evaluate goes through stashed ExecuteScript, not the debug port.
@@ -1528,9 +1750,11 @@ fn create_embed_window(
         .resizable(false)
         .shadow(false)
         .skip_taskbar(true)
-        // 面板触发的创建可见；估算边界（早处理器/引擎兜底）创建隐藏——
-        // 面板不开就不显示，set_bounds 接管时再 show。HTTP CDP 不依赖可见性。
-        .visible(start_visible)
+        // Always start visible. A `.visible(false)` WebView2 on Windows often
+        // never surfaces an HWND ("underlying handle is not available"), so
+        // nest/place/park/CDP all fail and leave a zombie label. Estimate path
+        // hides *after* nest once the HWND is live.
+        .visible(true)
         .focused(false)
         // wry 默认关掉 ZoomFactor。不打开则 Ctrl+滚轮 / 捏合都不会放大缩小整页。
         .zoom_hotkeys_enabled(true)
@@ -1541,6 +1765,11 @@ fn create_embed_window(
         .devtools(false)
         .build()
         .map_err(|e| format!("create embedded browser failed: {e}"))?;
+    // Build returns before tao always has the HWND — wait or nest fails hard.
+    if let Err(e) = wait_embed_hwnd(&win, label, Duration::from_secs(8)) {
+        let _ = win.close();
+        return Err(format!("create embed hwnd never ready: {e}"));
+    }
     // 先登记槽位再贴位/显影，避免看门狗在中间看到「可见无 bounds」。
     if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
         map.insert(
@@ -1552,9 +1781,7 @@ fn create_embed_window(
     place_embed_client(&win, &parent, x, y, width, height)?;
     log_region_diag("create", label, &parent, &win, (x, y, width, height));
     log_window_state(&win, "create built off main thread");
-    // 仅可见创建需要 re-assert show；隐藏创建（估算路径）保持隐藏，
-    // 由面板的 set_bounds → show 接管显影。
-    if start_visible && !win.is_visible().unwrap_or(false) {
+    if !win.is_visible().unwrap_or(false) {
         let _ = win.show();
         let _ = win.unminimize();
         log_window_state(&win, "create after re-assert");
@@ -1563,6 +1790,16 @@ fn create_embed_window(
     // Best-effort COM stash + HTTP poller (may no-op on child HWNDs).
     browser_cdp::capture_core_webview2(app, &win, label);
     let _ = win.eval(guest_js);
+    // Estimate / early upsert: park off-screen (still visible). Do NOT
+    // SW_HIDE or Tauri hide() — both can drop HWND ("underlying handle is
+    // not available") while leaving the label registered.
+    if !start_visible {
+        mark_parked(label, true);
+        let _ = hide_embed_hwnd(&win);
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] create estimate parked-offscreen label={label}"
+        ));
+    }
     Ok(())
 }
 
@@ -1598,92 +1835,46 @@ pub fn ensure_webview_for_cdp(
     // 窗口已存在：直接返回，绝不 emit。此前每次 Page.navigate 都无条件 emit
     // browser-panel-request，早/boot 两个处理器每 2 秒用估算边界重复 upsert，
     // 把面板贴好的窗口拽来拽去（"不受控浮窗"）。
-    if let Some(existing) = app.get_webview_window(&label) {
-        browser_cdp_server::log_line(&format!(
-            "[browser-embed] ensure_webview: window exists label={label} visible={} — no emit",
-            existing.is_visible().unwrap_or(false)
-        ));
-        // 已有窗但 COM stash / guest poll 丢了时，evaluate/截图会整串超时。
-        // 必须 SHOW：hidden 子 WebView2 不泵 with_webview。
-        let _ = existing.show();
-        browser_cdp::refresh_embed_cdp_handles(app, &existing, &label);
-        return Ok(());
-    }
-    // tauri-agent pattern: emit to the instrumented main shell and wait for
-    // the guest (main.js → browser_embed_upsert) to create the window label.
-    // Do NOT probe/destroy via with_webview — that COM path hangs on child
-    // embeds and races the panel upsert.
-    let payload = serde_json::json!({
-        "threadId": thread_id,
-        "url": url,
-        "source": "ensure_webview_for_cdp",
-    });
-    browser_cdp_server::log_line(&format!(
-        "[browser-embed] emit browser-panel-request thread={thread_id} url={url}"
-    ));
-    // Detached emit: never block this HTTP worker if a JS listener still awaits
-    // upsert (UI-pump deadlock). main.js handlers must also be fire-and-forget.
-    {
-        let app_emit = app.clone();
-        let payload_emit = payload.clone();
-        let _ = std::thread::Builder::new()
-            .name("browser-panel-emit".into())
-            .spawn(move || {
-                let _ = app_emit.emit("browser-panel-request", payload_emit);
-            });
-    }
-    {
-        let wait_deadline = std::time::Instant::now() + Duration::from_secs(8);
-        let mut last_nudge = std::time::Instant::now();
-        let key = sanitize_thread_key(thread_id);
-        while std::time::Instant::now() < wait_deadline {
-            if let Some(existing) = app.get_webview_window(&label) {
-                // 只等窗口存在（早处理器可能创建隐藏窗口——面板不开就不显示）。
-                // 这里不再 show/unminimize：把隐藏窗口拉出来 = 悬浮窗复发。
-                let registered = app
-                    .state::<BrowserEmbedState>()
-                    .entries
-                    .lock()
-                    .ok()
-                    .map(|m| m.contains_key(&key))
-                    .unwrap_or(false);
-                browser_cdp_server::log_line(&format!(
-                    "[browser-embed] ensure_webview panel ok label={label} registered={registered} visible={}",
-                    existing.is_visible().unwrap_or(false)
-                ));
-                return Ok(());
-            }
-            if last_nudge.elapsed() >= Duration::from_secs(2) {
-                let app_emit = app.clone();
-                let tid = thread_id.to_string();
-                let u = url.to_string();
-                let _ = std::thread::Builder::new()
-                    .name("browser-panel-emit-retry".into())
-                    .spawn(move || {
-                        let _ = app_emit.emit(
-                            "browser-panel-request",
-                            serde_json::json!({
-                                "threadId": tid,
-                                "url": u,
-                                "source": "ensure_webview_for_cdp_retry",
-                            }),
-                        );
-                    });
-                last_nudge = std::time::Instant::now();
-            }
-            std::thread::sleep(Duration::from_millis(100));
+    // Zombie (no HWND): destroy and fall through to panel wait / agent-create.
+    // Always re-resolve by label — concurrent recreate swaps the HWND under us.
+    if app.get_webview_window(&label).is_some() {
+        if wait_embed_hwnd_label(app, &label, Duration::from_secs(5)).is_err() {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] ensure_webview: zombie (no hwnd) label={label} — destroy+recreate"
+            ));
+            destroy_zombie_embed(app, &label);
+        } else if let Some(existing) = app.get_webview_window(&label) {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] ensure_webview: window exists label={label} visible={} — no emit",
+                existing.is_visible().unwrap_or(false)
+            ));
+            // Keep HWND pumpable for CDP even when the right stage is closed.
+            // Soft-decouple: do not un-park here — panel set_bounds / syncNativeEmbed
+            // owns on-slot visibility; forcing show yanked parked windows on-screen.
+            let _ = existing.show();
+            let _ = existing.unminimize();
+            browser_cdp::refresh_embed_cdp_handles(app, &existing, &label);
+            std::thread::sleep(Duration::from_millis(250));
+            browser_cdp_server::log_line(&format!(
+                "[browser-ready] ensure_existing label={label} visible={} parked={} stash={}",
+                existing.is_visible().unwrap_or(false),
+                is_parked(&label),
+                browser_cdp::has_stashed_core_webview2(&label)
+            ));
+            // UI hint only — panel opens stage / places slot; must not re-navigate.
+            emit_panel_request_hint(app, thread_id, url, "ensure_webview_exists");
+            return Ok(());
         }
     }
-    // Timed agent create: never block ENSURE_WEBVIEW_LOCK forever. A hung
-    // WebviewWindow::build previously pinned this lock and starved CDP.
+    // Soft-decouple: host creates first. Do NOT emit before build — FE upsert on
+    // the UI thread + off-thread WebviewWindow::build() deadlocks (seen as
+    // agent-create timed out while early/boot still mid-ensure).
     let target = normalize_target_url(url)?;
-    let boot_url = if target.scheme() == "about" {
-        "https://example.com/"
-            .parse::<url::Url>()
-            .map_err(|e| e.to_string())?
-    } else {
-        target.clone()
-    };
+    let http_port_boot = tauri::async_runtime::block_on(
+        browser_cdp_server::ensure_http_server(app.clone()),
+    )
+    .unwrap_or(0);
+    let boot_url = embed_boot_url(&target, http_port_boot)?;
     let parent = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
@@ -1696,11 +1887,18 @@ pub fn ensure_webview_for_cdp(
         Err(_) => (480.0, 96.0, 960.0, 720.0),
     };
     browser_cdp_server::log_line(&format!(
-        "[browser-embed] ensure_webview agent fallback (8s cap) label={label} \
+        "[browser-embed] ensure_webview agent-create FIRST (no emit yet) label={label} \
          bounds=({px:.0},{py:.0} {pw:.0}x{ph:.0})"
     ));
     let app_create = app.clone();
     let label_create = label.clone();
+    let boot_for_create = boot_url.clone();
+    // Prefer the agent-requested URL, never the blank boot placeholder.
+    let noted_url = if target.scheme() == "about" || is_embed_boot_placeholder(target.as_str()) {
+        String::new()
+    } else {
+        target.as_str().to_string()
+    };
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::Builder::new()
         .name("embed-agent-create".into())
@@ -1720,30 +1918,139 @@ pub fn ensure_webview_for_cdp(
                 &app_create,
                 &parent,
                 &label_create,
-                &boot_url,
+                &boot_for_create,
                 px,
                 py,
                 pw,
                 ph,
-                // 引擎兜底创建：估算边界 → 隐藏窗口（面板接管时显影）
-                false,
+                // Must start visible so COM/guest poll pumps. Panel syncNativeEmbed
+                // parks when the right stage is not the browser surface.
+                true,
                 http_port,
             );
             let _ = tx.send(r);
         })
         .map_err(|e| format!("spawn embed create failed: {e}"))?;
-    match rx.recv_timeout(Duration::from_secs(8)) {
-        Ok(Ok(())) => {
+
+    let agent_ok = match rx.recv_timeout(Duration::from_secs(8)) {
+        Ok(Ok(())) => true,
+        Ok(Err(e)) => {
             browser_cdp_server::log_line(&format!(
-                "[browser-embed] ensure_webview agent-create ok label={label}"
+                "[browser-embed] ensure_webview agent-create err={e} — panel fallback"
             ));
-            Ok(())
+            false
         }
-        Ok(Err(e)) => Err(format!("agent-create embed failed: {e}")),
-        Err(_) => Err(format!(
-            "agent-create embed timed out for '{thread_id}' (panel upsert also missed)"
-        )),
+        Err(_) => {
+            // Late success: build may have finished after the deadline.
+            if app.get_webview_window(&label).is_some()
+                && wait_embed_hwnd_label(app, &label, Duration::from_secs(2)).is_ok()
+            {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] ensure_webview agent-create late ok label={label}"
+                ));
+                true
+            } else {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] ensure_webview agent-create timed out label={label} — panel fallback"
+                ));
+                false
+            }
+        }
+    };
+
+    if agent_ok {
+        if let Some(win) = app.get_webview_window(&label) {
+            let _ = win.show();
+            let _ = win.unminimize();
+            browser_cdp::refresh_embed_cdp_handles(app, &win, &label);
+            if !noted_url.is_empty() {
+                if let Some(bridge) =
+                    app.try_state::<crate::commands::browser_embed_bridge::EmbedBridge>()
+                {
+                    bridge.note_url(&label, &noted_url);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(250));
+            browser_cdp_server::log_line(&format!(
+                "[browser-ready] after_agent_create label={label} visible={} stash={}",
+                win.is_visible().unwrap_or(false),
+                browser_cdp::has_stashed_core_webview2(&label)
+            ));
+        }
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] ensure_webview agent-create ok label={label}"
+        ));
+        // UI hint only after HWND exists — FE place-only, no re-navigate race.
+        emit_panel_request_hint(app, thread_id, url, "ensure_webview_after_create");
+        return Ok(());
     }
+
+    // Panel fallback: emit so early/boot upsert can create on the UI thread.
+    if app.get_webview_window(&label).is_some() {
+        destroy_zombie_embed(app, &label);
+    }
+    emit_panel_request_hint(app, thread_id, url, "ensure_webview_panel_fallback");
+    let wait_deadline = std::time::Instant::now() + Duration::from_secs(8);
+    let mut last_nudge = std::time::Instant::now();
+    while std::time::Instant::now() < wait_deadline {
+        if app.get_webview_window(&label).is_some() {
+            if wait_embed_hwnd_label(app, &label, Duration::from_secs(5)).is_err() {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] ensure_webview panel wait: zombie label={label}"
+                ));
+                destroy_zombie_embed(app, &label);
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            let Some(existing) = app.get_webview_window(&label) else {
+                continue;
+            };
+            let _ = existing.show();
+            let _ = existing.unminimize();
+            browser_cdp::refresh_embed_cdp_handles(app, &existing, &label);
+            std::thread::sleep(Duration::from_millis(250));
+            browser_cdp_server::log_line(&format!(
+                "[browser-ready] after_panel_fallback label={label} visible={} stash={}",
+                existing.is_visible().unwrap_or(false),
+                browser_cdp::has_stashed_core_webview2(&label)
+            ));
+            return Ok(());
+        }
+        if last_nudge.elapsed() >= Duration::from_secs(2) {
+            emit_panel_request_hint(app, thread_id, url, "ensure_webview_panel_fallback_retry");
+            last_nudge = std::time::Instant::now();
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err(format!(
+        "agent-create and panel upsert both missed for '{thread_id}'"
+    ))
+}
+
+/// Fire-and-forget UI hint so the chat shell can open the browser stage.
+/// Must never block CDP / ENSURE_WEBVIEW_LOCK.
+///
+/// Call on every agent `Page.navigate` — including when HWND already exists
+/// (boot-prewarm). Skipping emit after prewarm left the right stage closed.
+#[cfg(target_os = "windows")]
+pub(crate) fn emit_panel_request_hint(app: &tauri::AppHandle, thread_id: &str, url: &str, source: &str) {
+    let payload = serde_json::json!({
+        "threadId": thread_id,
+        "url": url,
+        "source": source,
+    });
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] emit browser-panel-request (hint) thread={thread_id} url={url} source={source}"
+    ));
+    browser_cdp_server::log_line(&format!(
+        "[浏览器时间线] 侧栏打开｜后台发出提示 source={source} 线程={thread_id} 链接={url}"
+    ));
+    let app_emit = app.clone();
+    let _ = std::thread::Builder::new()
+        .name("browser-panel-emit".into())
+        .spawn(move || {
+            let _ = app_emit.emit("browser-panel-request", payload);
+        });
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1774,6 +2081,21 @@ pub async fn browser_embed_supported() -> bool {
     cfg!(target_os = "windows")
 }
 
+/// True when the shared embed HWND/label already exists (panel can place-only).
+#[tauri::command]
+pub async fn browser_embed_exists(app: tauri::AppHandle, thread_id: String) -> bool {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, thread_id);
+        return false;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let label = webview_label_for_thread(&thread_id);
+        app.get_webview_window(&label).is_some()
+    }
+}
+
 #[tauri::command]
 pub async fn browser_embed_upsert(
     app: tauri::AppHandle,
@@ -1802,21 +2124,36 @@ pub async fn browser_embed_upsert(
         "[browser-embed] upsert: thread={thread_id} label={label} url={:?} bounds={x}x{y} {width}x{height}",
         url.as_deref()
     ));
-    let target_url = normalize_target_url(url.as_deref().unwrap_or("about:blank"))?;
-    browser_cdp_server::log_line(&format!(
-        "[browser-embed] upsert: normalized target_url={} scheme={}",
-        target_url, target_url.scheme()
-    ));
-    // `WebviewUrl::External` round-trips the URL through Tauri's URL parser,
-    // which rejects `about:blank` with "invalid port number" (it looks for an
-    // authority where a scheme-only URL has none). Build the window on a real
-    // https origin instead and navigate to the real target immediately after —
-    // `about:blank` is only ever a transient placeholder here anyway.
-    let boot_url = if target_url.scheme() == "about" {
-        "https://example.com/".parse::<url::Url>().map_err(|e| e.to_string())?
+    // Soft-decouple placeOnly: FE omits url so we only move HWND. Defaulting
+    // missing url → about:blank then navigating wiped the agent page (log:
+    // boot=example.com target=about:blank → navigate about:blank mid-settle).
+    let place_only = url
+        .as_deref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true);
+    let target_url = normalize_target_url(if place_only {
+        "about:blank"
     } else {
-        target_url.clone()
-    };
+        url.as_deref().unwrap_or("about:blank")
+    })?;
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] upsert: normalized target_url={} scheme={} place_only={}",
+        target_url,
+        target_url.scheme(),
+        place_only
+    ));
+    // Snapshot before create/destroy — create must not wipe agent URL with boot placeholder.
+    let restore_url = app
+        .try_state::<super::browser_embed_bridge::EmbedBridge>()
+        .and_then(|b| b.cached_url(&label))
+        .filter(|u| !is_embed_boot_placeholder(u));
+
+    // `WebviewUrl::External` rejects `about:blank`. Boot on a blank data-URL
+    // (not example.com — that used to paint "Example Domain" after recreate).
+    let http_port_boot = browser_cdp_server::ensure_http_server(app.clone())
+        .await
+        .unwrap_or(0);
+    let boot_url = embed_boot_url(&target_url, http_port_boot)?;
 
     let parent = app
         .get_webview_window("main")
@@ -1832,6 +2169,38 @@ pub async fn browser_embed_upsert(
     );
 
     // 这里的 x/y/width/height 已经是主窗口客户区像素。
+    // Mid-create or zombie: wait by label (survives concurrent recreate). Only
+    // destroy when the *current* label still has no HWND after show+retry.
+    // Soft-decouple: place_only / agent restore must NEVER destroy — that raced
+    // Page.navigate and recreated blank (then restore), burning cold opens.
+    if app.get_webview_window(&label).is_some() {
+        if wait_embed_hwnd_label(&app, &label, Duration::from_secs(2)).is_err() {
+            if let Some(w) = app.get_webview_window(&label) {
+                mark_parked(&label, false);
+                let _ = w.show();
+                let _ = w.unminimize();
+            }
+            if wait_embed_hwnd_label(&app, &label, Duration::from_secs(3)).is_err() {
+                if place_only || restore_url.is_some() {
+                    browser_cdp_server::log_line(&format!(
+                        "[browser-embed] upsert: no-hwnd keep window (place_only/agent) label={label}"
+                    ));
+                } else {
+                    browser_cdp_server::log_line(&format!(
+                        "[browser-embed] upsert: zombie/no-hwnd label={label} — destroy+recreate"
+                    ));
+                    browser_cdp_server::log_line(&format!(
+                        "[浏览器时间线] 失败｜贴位前 HWND 仍不可用，将销毁重建（可能冲掉已打开页面） label={label}"
+                    ));
+                    destroy_zombie_embed(&app, &label);
+                }
+            } else {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] upsert: hwnd recovered after show label={label}"
+                ));
+            }
+        }
+    }
     if let Some(existing) = app.get_webview_window(&label) {
         // A reused window is not necessarily on screen. It reaches this branch
         // after a previous close (the panel was dismissed and reopened), and
@@ -1845,9 +2214,12 @@ pub async fn browser_embed_upsert(
         // `create_embed_window` bakes `.visible(true)` into the builder, so the
         // fresh path never needed this. The reuse path did, and omitting it is
         // what left the stage permanently blank.
-        // 估算路径（managed_only=true）不显影：隐藏创建的窗口保持隐藏，
-        // 由面板的 set_bounds → show 接管显影；面板路径照常 show。
-        if !managed_only.unwrap_or(false) && !is_parked(&label) {
+        // Soft-decouple: boot-prewarm parks off-screen. Panel upsert MUST show
+        // even when parked — previously `!is_parked` skipped show, then place/
+        // wait_hwnd timed out and destroyed the live agent page into about:blank.
+        // 估算路径（managed_only=true）不显影：保持隐藏，由面板 set_bounds 接管。
+        if !managed_only.unwrap_or(false) {
+            mark_parked(&label, false);
             let _ = existing.show();
             let _ = existing.unminimize();
         }
@@ -1868,9 +2240,6 @@ pub async fn browser_embed_upsert(
                 is_parked(&label)
             ));
         } else {
-            if !managed_only.unwrap_or(false) {
-                mark_parked(&label, false);
-            }
             nest_embed_into_main(&existing, &parent)?;
             place_embed_client(&existing, &parent, x, y, width, height)?;
             log_region_diag(
@@ -1887,8 +2256,8 @@ pub async fn browser_embed_upsert(
             note_writer(&label, if managed_only.unwrap_or(false) { "estimate-upsert" } else { "panel-upsert" });
             if managed_only.unwrap_or(false) {
                 mark_parked(&label, true);
+                // Off-screen park — never Tauri hide() (drops HWND).
                 let _ = hide_embed_hwnd(&existing);
-                let _ = existing.hide();
                 browser_cdp_server::log_line(&format!(
                     "[browser-embed] upsert estimate kept hidden label={label}"
                 ));
@@ -1908,30 +2277,52 @@ pub async fn browser_embed_upsert(
         log_window_state(&existing, "upsert/reuse after place+resize");        // tauri-agent / native_navigate path: use WebviewWindow::navigate —
         // never with_webview ExecuteScript (hangs on child embeds).
         // replace_url：切签用 location.replace，避免多标签共用 HWND 时把后退栈串在一起。
+        // Skip when CDP/agent already opened this document — FE pageUrl sync must
+        // not force a second reload (double navigate / guest-ping boot storm).
         if let Some(raw_url) = url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             match normalize_target_url(raw_url) {
                 Ok(parsed) => {
-                    let use_replace = replace_url.unwrap_or(false);
-                    let nav_result = if use_replace {
-                        let href = parsed.as_str();
-                        let js = format!(
-                            "(function(){{try{{location.replace({});}}catch(e){{location.href={};}}return true;}})()",
-                            serde_json::to_string(href).unwrap_or_else(|_| "\"about:blank\"".into()),
-                            serde_json::to_string(href).unwrap_or_else(|_| "\"about:blank\"".into()),
-                        );
-                        existing.eval(js).map(|_| ()).map_err(|e| e.to_string())
+                    let cached = app
+                        .try_state::<crate::commands::browser_embed_bridge::EmbedBridge>()
+                        .and_then(|b| b.cached_url(&label));
+                    let skip = cached
+                        .as_deref()
+                        .map(|c| urls_same_load(c, &parsed))
+                        .unwrap_or(false);
+                    if skip {
+                        browser_cdp_server::log_line(&format!(
+                            "[browser-embed] reuse navigate SKIP same-load label={label} cached={} want={}",
+                            cached.as_deref().unwrap_or(""),
+                            parsed
+                        ));
                     } else {
-                        existing
-                            .navigate(parsed.clone())
-                            .map_err(|e| e.to_string())
-                    };
-                    match nav_result {
-                        Ok(()) => browser_cdp_server::log_line(&format!(
-                            "[browser-embed] reuse navigate ok label={label} replace={use_replace} -> {parsed}"
-                        )),
-                        Err(e) => browser_cdp_server::log_line(&format!(
-                            "[browser-embed] reuse navigate FAILED label={label} replace={use_replace} -> {parsed}: {e}"
-                        )),
+                        let use_replace = replace_url.unwrap_or(false);
+                        let nav_result = if use_replace {
+                            let href = parsed.as_str();
+                            let js = format!(
+                                "(function(){{try{{location.replace({});}}catch(e){{location.href={};}}return true;}})()",
+                                serde_json::to_string(href).unwrap_or_else(|_| "\"about:blank\"".into()),
+                                serde_json::to_string(href).unwrap_or_else(|_| "\"about:blank\"".into()),
+                            );
+                            existing.eval(js).map(|_| ()).map_err(|e| e.to_string())
+                        } else {
+                            existing
+                                .navigate(parsed.clone())
+                                .map_err(|e| e.to_string())
+                        };
+                        match nav_result {
+                            Ok(()) => {
+                                if let Some(bridge) = app.try_state::<crate::commands::browser_embed_bridge::EmbedBridge>() {
+                                    bridge.note_url(&label, parsed.as_str());
+                                }
+                                browser_cdp_server::log_line(&format!(
+                                    "[browser-embed] reuse navigate ok label={label} replace={use_replace} -> {parsed}"
+                                ));
+                            }
+                            Err(e) => browser_cdp_server::log_line(&format!(
+                                "[browser-embed] reuse navigate FAILED label={label} replace={use_replace} -> {parsed}: {e}"
+                            )),
+                        }
                     }
                 }
                 Err(e) => browser_cdp_server::log_line(&format!(
@@ -2002,32 +2393,73 @@ pub async fn browser_embed_upsert(
     // The window booted on a real origin; point it at the requested page now
     // that it exists. A failure here used to be discarded with `let _ =`, leaving
     // an on-screen but permanently blank window with no explanation anywhere.
+    // place_only / about:blank: never navigate — that destroys agent CDP loads.
     browser_cdp_server::log_line(&format!(
-        "[browser-embed] navigate check: boot_url={boot_url} target_url={target_url} same={}",
-        boot_url == target_url
+        "[browser-embed] navigate check: boot_url={boot_url} target_url={target_url} same={} place_only={}",
+        boot_url == target_url,
+        place_only
     ));
-    if let Some(bridge) = app.try_state::<super::browser_embed_bridge::EmbedBridge>() {
-        bridge.note_url(&label, target_url.as_str());
-    }
-    if boot_url != target_url {
-        match app.get_webview_window(&label) {
-            Some(win) => match win.navigate(target_url.clone()) {
-                Ok(()) => {
-                    browser_cdp_server::log_line(&format!(
-                        "[browser-embed] navigated {label} -> {target_url} OK"
-                    ));
-                    log_window_state(&win, "after navigate");
+    if place_only || target_url.scheme() == "about" {
+        // Soft-decouple: never navigate to about:blank. If HWND was recreated
+        // after agent Page.navigate, restore the pre-create cached URL.
+        if let Some(ref raw) = restore_url {
+            if let Ok(ru) = normalize_target_url(raw) {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] place_only restore navigate label={label} -> {ru}"
+                ));
+                if let Some(bridge) =
+                    app.try_state::<super::browser_embed_bridge::EmbedBridge>()
+                {
+                    bridge.note_url(&label, ru.as_str());
                 }
-                Err(e) => browser_cdp_server::log_line(&format!(
-                    "[browser-embed] navigate FAILED {label} -> {target_url}: {e}"
-                )),
-            },
-            None => browser_cdp_server::log_line(&format!(
-                "[browser-embed] navigate SKIPPED: window {label} vanished"
-            )),
+                if let Some(win) = app.get_webview_window(&label) {
+                    match win.navigate(ru.clone()) {
+                        Ok(()) => log_window_state(&win, "place-only restore"),
+                        Err(e) => browser_cdp_server::log_line(&format!(
+                            "[browser-embed] place_only restore FAILED {label}: {e}"
+                        )),
+                    }
+                }
+            } else {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] navigate SKIPPED place_only/blank label={label}"
+                ));
+                if let Some(win) = app.get_webview_window(&label) {
+                    log_window_state(&win, "place-only no navigate");
+                }
+            }
+        } else {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] navigate SKIPPED place_only/blank label={label}"
+            ));
+            if let Some(win) = app.get_webview_window(&label) {
+                log_window_state(&win, "place-only no navigate");
+            }
         }
-    } else if let Some(win) = app.get_webview_window(&label) {
-        log_window_state(&win, "boot on target");
+    } else {
+        if let Some(bridge) = app.try_state::<super::browser_embed_bridge::EmbedBridge>() {
+            bridge.note_url(&label, target_url.as_str());
+        }
+        if boot_url != target_url {
+            match app.get_webview_window(&label) {
+                Some(win) => match win.navigate(target_url.clone()) {
+                    Ok(()) => {
+                        browser_cdp_server::log_line(&format!(
+                            "[browser-embed] navigated {label} -> {target_url} OK"
+                        ));
+                        log_window_state(&win, "after navigate");
+                    }
+                    Err(e) => browser_cdp_server::log_line(&format!(
+                        "[browser-embed] navigate FAILED {label} -> {target_url}: {e}"
+                    )),
+                },
+                None => browser_cdp_server::log_line(&format!(
+                    "[browser-embed] navigate SKIPPED: window {label} vanished"
+                )),
+            }
+        } else if let Some(win) = app.get_webview_window(&label) {
+            log_window_state(&win, "boot on target");
+        }
     }
 
     // Give WebView2 a moment to finish creating its COM controller before the
@@ -2324,10 +2756,10 @@ fn client_origin_physical(parent: &WebviewWindow) -> Result<(i32, i32), String> 
     Ok((ip.x, ip.y))
 }
 
-/// 切走浏览器标签 / 切会话时隐藏原生窗口。
+/// 关闭右侧标签 / 切换会话时停靠原生窗。
 ///
-/// 子窗口坐标是相对父客户区的，挪到负数会被系统裁回可见区域，所以看起来「没消失」。
-/// 这里直接 `ShowWindow(SW_HIDE)`。回到该标签时由 set_bounds(present) 再显示。
+/// 从客户区挪到屏外并保持可见（不用 SW_HIDE），避免 HWND 丢失；
+/// 回到该标签时由 set_bounds(present) 贴回。
 #[tauri::command]
 pub async fn browser_embed_park(app: tauri::AppHandle, thread_id: String) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
@@ -2349,10 +2781,17 @@ pub async fn browser_embed_park(app: tauri::AppHandle, thread_id: String) -> Res
             "[browser-embed] park ENTER label={label} child={}",
             embed_is_ws_child(&window)
         ));
-        // 只用 ShowWindow(SW_HIDE)。Tauri hide() 在子 WebView2 上偶发把窗口从
-        // 管理表里摘掉，之后 set_bounds 找不到窗、右侧空白。
-        hide_embed_hwnd(&window)?;
-        browser_cdp_server::log_line(&format!("[browser-embed] park HIDDEN label={label}"));
+        // Soft-fail: zombie/mid-create has no HWND. Already marked parked above.
+        if let Err(e) = hide_embed_hwnd(&window) {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] park soft-fail (no hwnd) label={label}: {e}"
+            ));
+            // Soft-decouple: never Tauri hide() — drops HWND association.
+            return Ok(());
+        }
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] park OFFSCREEN label={label}"
+        ));
         Ok(())
     }
 }
@@ -2391,6 +2830,36 @@ mod tests {
         let url = normalize_target_url("").expect("empty must normalize");
         assert_eq!(url.as_str(), "about:blank");
         assert_eq!(url.scheme(), "about");
+    }
+
+    #[test]
+    fn same_load_skips_tracking_query_growth() {
+        let want = normalize_target_url(
+            "https://www.douyin.com/search/%E9%93%B6%E6%B3%B0AI%E5%AE%9E%E6%88%98?aid=a0a19e6f",
+        )
+        .expect("want");
+        assert!(urls_same_load(
+            "https://www.douyin.com/search/%E9%93%B6%E6%B3%B0AI%E5%AE%9E%E6%88%98",
+            &want
+        ));
+    }
+
+    #[test]
+    fn www_and_cn_bing_same_path_is_same_load() {
+        let want = normalize_target_url("https://www.bing.com/search?q=hi").expect("want");
+        assert!(urls_same_load(
+            "https://cn.bing.com/search?q=hi&FORM=BEHPTB",
+            &want
+        ));
+    }
+
+    #[test]
+    fn different_search_query_is_not_same_load() {
+        let want = normalize_target_url("https://www.baidu.com/s?wd=%E5%8C%97%E4%BA%AC").expect("want");
+        assert!(!urls_same_load(
+            "https://www.baidu.com/s?wd=%E4%B8%8A%E6%B5%B7",
+            &want
+        ));
     }
 
     #[test]

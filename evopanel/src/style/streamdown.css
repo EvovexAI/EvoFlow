@@ -253,27 +253,68 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
 
 /* === StreamdownRenderer 自渲染外壳（表格 / 代码块的工具栏与放大弹层） ===
  *
- * 自渲染组件透传 [data-streamdown="..."] 属性到内层元素；这里只负责外壳布局
- * （按钮、浮层），内部单元格/代码块观感由前面的接管规则控制。
+ * V4 / MessageResponse 走 MarkdownTableShell：外壳在此定稿；
+ * 单元格可能是 Streamdown 默认节点，也可能是 zcode MarkdownTableHead/Cell
+ * （只有 Tailwind class、无 data-streamdown cell 属性），所以这里要对
+ * .msg-md-table-frame th/td 做完整观感接管。
  */
 
 .msg-md-table {
+  --md-table-border: color-mix(
+    in srgb,
+    var(--color-border, var(--border-primary, #e6e8ec)) 88%,
+    transparent
+  );
+  --md-table-header-bg: color-mix(
+    in srgb,
+    var(--color-surface, var(--bg-tertiary, #eef1f5)) 92%,
+    var(--color-background, var(--bg-primary, #fff))
+  );
+  --md-table-zebra: color-mix(
+    in srgb,
+    var(--color-surface, var(--bg-tertiary, #f3f4f6)) 42%,
+    transparent
+  );
+  --md-table-hover: color-mix(
+    in srgb,
+    var(--color-hover, var(--bg-hover, #e9ebf0)) 58%,
+    transparent
+  );
   position: relative;
-  margin: 12px 0;
+  margin: 14px 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
 }
 
 .msg-md-table-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 4px;
-  align-self: flex-end;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--bg-secondary, #f4f5f8);
-  border: 1px solid var(--border-primary, #e6e8ec);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(
+    in srgb,
+    var(--color-card, var(--bg-primary, #fff)) 88%,
+    transparent
+  );
+  border: 1px solid var(--md-table-border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.msg-md-table:hover .msg-md-table-actions,
+.msg-md-table:focus-within .msg-md-table-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .msg-md-table-action {
@@ -281,30 +322,111 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   min-width: 28px;
-  height: 24px;
+  height: 28px;
   padding: 0 8px;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--text-secondary, #4a5160);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-foreground-subtle, var(--text-secondary, #4a5160));
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   user-select: none;
 }
 
+.msg-md-table-action svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .msg-md-table-action:hover {
-  background: var(--bg-hover, #e9ebf0);
-  color: var(--text-primary, #202124);
+  background: var(--color-hover, var(--bg-hover, #e9ebf0));
+  color: var(--color-foreground, var(--text-primary, #202124));
+}
+
+.msg-md-table-action.is-copied {
+  color: var(--color-success, #15803d);
 }
 
 .msg-md-table-frame {
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: auto;
-  max-height: 480px;
-  border: 1px solid var(--border-primary, #e6e8ec);
+  max-height: min(480px, 60vh);
+  border: 1px solid var(--md-table-border);
+  background: var(--color-card, var(--bg-primary, #ffffff));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--md-table-border) 40%, transparent),
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    0 8px 24px rgba(15, 23, 42, 0.045);
+}
+
+.msg-md-table-frame table {
+  width: 100% !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  table-layout: auto !important;
+  font-size: var(--ui-font-size, 12.5px) !important;
+  line-height: 1.5 !important;
+}
+
+.msg-md-table-frame :is(thead, tbody, tr) {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.msg-md-table-frame th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 14px !important;
+  background: var(--md-table-header-bg) !important;
+  color: var(--color-foreground-subtle, var(--text-secondary, #4b5563)) !important;
+  font-weight: 600 !important;
+  font-size: inherit !important;
+  letter-spacing: 0.01em;
+  text-align: left !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--md-table-border) !important;
+  box-shadow: 0 1px 0 var(--md-table-border);
+}
+
+.msg-md-table-frame td {
+  padding: 10px 14px !important;
+  background: transparent !important;
+  color: var(--color-foreground, var(--text-primary, #202124)) !important;
+  font-size: inherit !important;
+  font-weight: 400 !important;
+  text-align: left !important;
+  vertical-align: top !important;
+  line-height: 1.55 !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: normal !important;
+  border: 0 !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--md-table-border) 72%, transparent) !important;
+}
+
+.msg-md-table-frame tbody tr:nth-child(even) td {
+  background: var(--md-table-zebra) !important;
+}
+
+.msg-md-table-frame tbody tr:hover td {
+  background: var(--md-table-hover) !important;
+}
+
+.msg-md-table-frame tbody tr:last-child td {
+  border-bottom: 0 !important;
 }
 
 /* === 表格放大 Dialog === */
@@ -316,20 +438,20 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 17, 24, 0.55);
-  backdrop-filter: blur(2px);
+  background: rgba(15, 17, 24, 0.52);
+  backdrop-filter: blur(4px);
 }
 
 .msg-md-table-modal-panel {
   display: flex;
   flex-direction: column;
-  width: min(90vw, 1100px);
+  width: min(92vw, 1120px);
   max-height: 88vh;
-  background: var(--bg-primary, #ffffff);
-  color: var(--text-primary, #202124);
-  border: 1px solid var(--border-primary, #e6e8ec);
-  border-radius: 14px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  background: var(--color-card, var(--bg-primary, #ffffff));
+  color: var(--color-foreground, var(--text-primary, #202124));
+  border: 1px solid var(--md-table-border, var(--border-primary, #e6e8ec));
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
   overflow: hidden;
 }
 
@@ -337,9 +459,9 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-primary, #e6e8ec);
-  background: var(--bg-secondary, #f7f8fa);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--md-table-border, var(--border-primary, #e6e8ec));
+  background: var(--md-table-header-bg, var(--bg-secondary, #f7f8fa));
   font-size: 12.5px;
 }
 
@@ -348,25 +470,27 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 26px;
-  padding: 0 8px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 10px;
   font-size: 12.5px;
-  color: var(--text-primary, #202124);
-  background: var(--bg-primary, #ffffff);
-  border: 1px solid var(--border-primary, #e6e8ec);
-  border-radius: 6px;
+  color: var(--color-foreground, var(--text-primary, #202124));
+  background: var(--color-card, var(--bg-primary, #ffffff));
+  border: 1px solid var(--md-table-border, var(--border-primary, #e6e8ec));
+  border-radius: 8px;
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
 .msg-md-table-modal-toolbar button:hover {
-  background: var(--bg-hover, #eef0f4);
+  background: var(--color-hover, var(--bg-hover, #eef0f4));
 }
 
 .msg-md-table-modal-zoom {
-  min-width: 44px;
+  min-width: 48px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+  color: var(--color-foreground-subtle, var(--text-secondary, #4b5563));
 }
 
 .msg-md-table-modal-spacer {
@@ -376,8 +500,8 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
 .msg-md-table-modal-canvas {
   flex: 1;
   overflow: auto;
-  padding: 18px 22px;
-  background: var(--bg-primary, #ffffff);
+  padding: 20px 24px;
+  background: var(--color-background, var(--bg-primary, #ffffff));
 }
 
 .msg-md-table-modal-stage {
@@ -386,27 +510,43 @@ body :is(.msg-ai .msg-bubble, .msg-turn-assistant-content, .msg-text, .markdown-
 }
 
 .msg-md-table-modal-table {
-  border-collapse: collapse !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
   width: max-content !important;
   table-layout: auto !important;
+  font-size: 13px !important;
+  border: 1px solid var(--md-table-border, var(--border-primary, #e6e8ec)) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  background: var(--color-card, var(--bg-primary, #fff)) !important;
 }
 
 .msg-md-table-modal-table :is(th, td) {
-  padding: 8px 12px !important;
-  border: 1px solid var(--border-primary, #e6e8ec) !important;
-  font-size: 13px !important;
+  padding: 10px 14px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--md-table-border, var(--border-primary, #e6e8ec)) !important;
+  font-size: inherit !important;
   white-space: nowrap !important;
 }
 
 .msg-md-table-modal-table th {
-  background: var(--bg-tertiary, #ebeef2) !important;
+  background: var(--md-table-header-bg, var(--bg-tertiary, #ebeef2)) !important;
   font-weight: 600 !important;
+  color: var(--color-foreground-subtle, var(--text-secondary, #4b5563)) !important;
+}
+
+.msg-md-table-modal-table tbody tr:nth-child(even) td {
+  background: var(--md-table-zebra, color-mix(in srgb, #f3f4f6 42%, transparent)) !important;
+}
+
+.msg-md-table-modal-table tr:last-child :is(th, td) {
+  border-bottom: 0 !important;
 }
 
 .msg-md-table-modal-empty {
   padding: 24px;
   text-align: center;
-  color: var(--text-secondary, #6b7280);
+  color: var(--color-foreground-subtle, var(--text-secondary, #6b7280));
 }
 
 /* === 代码块外壳 + 放大 === */

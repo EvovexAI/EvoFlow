@@ -6,6 +6,8 @@ import type { ReactNode } from 'react'
 import type { RightStageSurface } from '../../../lib/right-stage/right-stage-types.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { V4CodeViewerSidePane } from './v4-code-viewer-side-pane.js'
+import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
+import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
@@ -119,6 +121,35 @@ export function renderRightStageBody(
       <SidePanelBootShell title={name || '文件预览'} className="react-chat-workspace-preview-stage" />
     )
   }
+  if (kind === 'v4Session') {
+    const childSessionId = String(data.childSessionId || '').trim()
+    if (!childSessionId) return null
+    return sidePanelHeavyMount ? (
+      <V4SessionPaneBridge
+        sessionId={childSessionId}
+        connecting={!!data.connecting}
+      />
+    ) : (
+      <SidePanelBootShell title={surface.title || '子会话'} />
+    )
+  }
+  if (kind === 'subagentTranscript') {
+    const data = surface.data || {}
+    const taskId = String(data.taskId || '').trim()
+    if (!taskId) return null
+    return sidePanelHeavyMount ? (
+      <V4SubagentTranscriptPane
+        taskId={taskId}
+        title={String(surface.title || data.title || '子代理')}
+        sessionKey={String(data.sessionKey || selectedSessionKey || '')}
+        fallbackText={typeof data.fallbackText === 'string' ? data.fallbackText : undefined}
+        fallbackStatus={typeof data.fallbackStatus === 'string' ? data.fallbackStatus : undefined}
+        onClose={() => rightStageStore.closeTab(surface.id)}
+      />
+    ) : (
+      <SidePanelBootShell title={surface.title || '子代理输出'} />
+    )
+  }
   if (kind === 'codeViewer') {
     const data = surface.data || {}
     const source = data.source
@@ -126,6 +157,7 @@ export function renderRightStageBody(
     return sidePanelHeavyMount ? (
       <V4CodeViewerSidePane
         source={source}
+        threadId={String(data.threadId || '')}
         onClose={() => rightStageStore.closeTab(surface.id)}
       />
     ) : (

@@ -182,6 +182,7 @@ import {
   applyBrowserCommandResponse,
   closeBrowserStage,
   ensureBrowserStage,
+  getBridgeOwnerSessionKey,
   NODE_REPL_BRIDGE_THREAD_ID,
   resetBrowserStageSwitchTracking,
   setBrowserPanelThreadId,
@@ -1282,7 +1283,11 @@ export function useChatAppController() {
   })
   const [voiceReplyEnabled, setVoiceReplyEnabled] = useState(() => getVoiceReplyEnabled())
   /** V4 ConversationTimeline sticky bottomDock 挂载点：EvoFlow 输入区 portal 进去，与 ZCode 同滚动视口。 */
-  const [v4ComposerHostEl, setV4ComposerHostEl] = useState<HTMLElement | null>(null)
+  const [v4ComposerHostEl, setV4ComposerHostElState] = useState<HTMLElement | null>(null)
+  // 回调 ref：同节点身份不 setState；避免 portal/侧栏开合时 null→el 空转触发 #185。
+  const setV4ComposerHostEl = useCallback((node: HTMLElement | null) => {
+    setV4ComposerHostElState((prev) => (prev === node ? prev : node))
+  }, [])
   const [knowledgeMapEnabled, setKnowledgeMapEnabled] = useState(
     () => getPanelSetting('knowledgeMapEnabled') !== false,
   )
@@ -4550,6 +4555,7 @@ export function useChatAppController() {
       setBrowserPanelThreadId,
       applyBrowserCommandResponse,
       ensureBrowserStage,
+      getBridgeOwnerSessionKey,
       rightStageSessionKeyRef,
     })
   }, [])

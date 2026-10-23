@@ -44,6 +44,17 @@ export async function browserEmbedSupported(): Promise<boolean> {
   }
 }
 
+/** Shared HWND already created (agent CDP path) — panel should place-only. */
+export async function browserEmbedExists(threadId: string): Promise<boolean> {
+  const tid = String(threadId || '').trim()
+  if (!isDesktopTauri() || !tid) return false
+  try {
+    return await invokeTauri<boolean>('browser_embed_exists', { threadId: tid })
+  } catch {
+    return false
+  }
+}
+
 export async function browserEmbedUpsert(opts: {
   threadId: string
   url?: string
@@ -113,6 +124,7 @@ export async function browserEmbedSetBounds(opts: {
     })
   } catch (err) {
     console.warn('[browser-embed] setBounds failed', err)
+    blog('warn', `[client] setBounds failed tid=${opts.threadId} err=${err}`)
     return false
   }
 }

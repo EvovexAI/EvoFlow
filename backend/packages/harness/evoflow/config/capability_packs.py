@@ -45,14 +45,14 @@ CAPABILITY_PACKS: dict[str, CapabilityPack] = {
         id="research",
         label_zh="调研检索",
         description="联网搜索与只读查阅；无写盘、无终端。",
-        tools=("web_search", "fetch_url", "view_image", "read", "knowledge"),
+        tools=("web_search", "fetch_url", "read", "knowledge"),
         risk="low",
     ),
     "writer": CapabilityPack(
         id="writer",
         label_zh="文案文档",
         description="读写文档与知识库；无终端、无删库级危险操作以外的 shell。",
-        tools=("read", "write", "replace", "knowledge", "view_image"),
+        tools=("read", "write", "replace", "knowledge"),
         risk="medium",
     ),
     "duty": CapabilityPack(
@@ -73,9 +73,9 @@ CAPABILITY_PACKS: dict[str, CapabilityPack] = {
             "read",
             "write",
             "replace",
-            "delete",
+            # "delete",  # retired — 删除走 Bash rm（审批兜底），对齐 ZCode
             "search_code_index",
-            "read_lints",
+            # "read_lints",  # retired — 诊断走 Bash（pyright/ruff）
             "todo",
             "subagent",
         ),

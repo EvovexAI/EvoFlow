@@ -41,7 +41,9 @@ _NODE_REPL_JS_DESCRIPTION = (
     "control a browser or computer. Owns the Browser Use and Computer Use bridges. "
     "Always provide the required `title` as a short user-facing description in the "
     "user's language that describes the intended action without implementation terms "
-    "such as js, JavaScript, or node_repl."
+    "such as js, JavaScript, or node_repl. "
+    "When reading a page, return the full domSnapshot() (text: section first) — "
+    "never snapshot.slice(...); if text already answers, stop and reply to the user."
 )
 
 _DISPLAY_MARKER_PREFIX = "{evoflow-cua-display:"
@@ -61,12 +63,14 @@ _EVOFLOW_COMPACT_BROWSER_DOCS = """# Selected Browser
 EvoFlow compact API guide (full ZCode dump omitted — this is the complete host guide).
 
 ## Fast path (prefer one js cell)
-1. Bootstrap `browser-client.mjs` via `ZCODE_PLUGIN_ROOT` (every fresh kernel).
-2. `const browser = await agent.browsers.getForUrl(url)` or `get("iab")`.
+1. Host auto-bootstraps `browser-client.mjs` (also shims `require('browser-use')`). Prefer still writing the bootstrap for clarity when unsure.
+2. `const browser = await agent.browsers.getForUrl(url)` or `get("iab")` (or use global `browser`).
 3. Navigate: `await agent.browsers.open(url)` **or** `const tab = await browser.tabs.get("tab-0"); await tab.goto(url)`.
 4. `await tab.playwright.waitForLoadState({ state: "domcontentloaded" })`.
 5. Read with `await tab.playwright.domSnapshot()`; act via getByRole/getByText/… from snapshot facts.
 6. Screenshot only when visual evidence is required: `nodeRepl.emitImage(await tab.screenshot())`.
+Do **not** invent APIs like `tab.waitForLoadState` / `tab.domSnapshot` — use `tab.playwright.*`.
+**Critical:** return the full `domSnapshot()` string (or answer the user from its `text:` section). Never `.slice()` / truncate it — the host already budgets the payload. If `text:` has the answer, stop and reply; do not re-open the same URL.
 
 ## Single-tab rules
 - One in-app WebView. Do **not** spend a dedicated js call only to `tabs.list()` or re-dump documentation after this guide.
@@ -77,7 +81,7 @@ EvoFlow compact API guide (full ZCode dump omitted — this is the complete host
 - Screenshots: `await agent.documentation.get("screenshots")`
 - Recording / troubleshooting: `await agent.documentation.get("recording"|"browser-troubleshooting")`
 
-Do not call view_image for screenshots already staged into chat context.
+Do not call read (or view_image) on screenshots already staged into chat context.
 """
 
 
@@ -397,7 +401,7 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
             f"({image_entries[0]['kb']}KB) — already shown on the tool card"
             f"{' and staged for your next context' if staged_entries else ''}. "
             f"Do not mention the file path, filename, or @@...png@@ in your reply. "
-            f"Do NOT call view_image."
+            f"Do NOT call read on these images (or view_image)."
             f"{pixel}]"
         )
         text = f"{banner}\n\n{text}".strip() if text.strip() else banner

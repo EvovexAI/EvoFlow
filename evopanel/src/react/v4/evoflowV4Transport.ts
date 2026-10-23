@@ -290,14 +290,28 @@ export class EvoFlowV4Transport implements ConversationTransport {
       `/api/v4/conversation/frames?connectionId=${encodeURIComponent(this.connectionId)}`,
     );
     es.addEventListener("v4.wire", (event) => {
+      let candidate: WireCandidate;
       try {
-        const candidate = JSON.parse((event as MessageEvent<string>).data) as WireCandidate;
-        this.handleCandidate(candidate);
+        candidate = JSON.parse((event as MessageEvent<string>).data) as WireCandidate;
       } catch (error) {
         v4Log("v4-rx", "wire parse failed", {
           error: error instanceof Error ? error.message : String(error),
         });
+        return;
       }
+      // 不在 EventSource 回调里同步跑 projection→React：侧栏开合/表格测宽的
+      // useLayoutEffect setState 会叠进同一嵌套更新计数，触发 React #185
+      //（Maximum update depth），且被旧 catch 误标成 wire parse failed。
+      queueMicrotask(() => {
+        if (this.disposed) return;
+        try {
+          this.handleCandidate(candidate);
+        } catch (error) {
+          v4Log("v4-rx", "frame dispatch failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
     });
     es.onerror = () => {
       // EventSource 自带指数退避重连；断线期缺帧由 store 断档恢复兜底。
@@ -347,7 +361,14 @@ export class EvoFlowV4Transport implements ConversationTransport {
 
   private dispatchFrame(frame: ConversationTopicFrame, deliveryKind: TopicFrameDeliveryKind): void {
     for (const listener of this.frameListeners) {
-      listener(frame, { deliveryKind });
+      try {
+        listener(frame, { deliveryKind });
+      } catch (error) {
+        // 单 listener（如某 session store）抛错不得拖死整条 SSE 扇出。
+        v4Log("v4-rx", "frame listener failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
@@ -370,6 +391,17 @@ let sharedTransport: EvoFlowV4Transport | null = null;
 export function getEvoflowV4Transport(): EvoFlowV4Transport {
   if (!sharedTransport) {
     sharedTransport = new EvoFlowV4Transport();
+    // 注册为 ZCode 侧栏框架的 transport 覆盖：SubagentSessionSidePane /
+    // 文件查看器等 vendor 面板经 workspaceConnectionRegistry 拿到本 transport，
+    // 无需 ZCode agentService RPC。
+    void (async () => {
+      try {
+        const { registerV4TransportOverride } = await import("@zcode/ui/v4/workspaceConnectionRegistry.js");
+        registerV4TransportOverride({ workspacePath: "" }, sharedTransport!);
+      } catch {
+        // 覆盖注册失败不影响直连使用
+      }
+    })();
   }
   return sharedTransport;
 }

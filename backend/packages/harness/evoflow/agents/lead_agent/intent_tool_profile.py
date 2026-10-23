@@ -171,7 +171,7 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "taskstop",
         "replace",
         "write",
-        "delete",
+        # "delete",  # retired — 删除走 Bash rm（审批兜底），对齐 ZCode
         "search_code_index",
     ),
     "plan": PLAN_SCENARIO_EAGER_TOOL_NAMES,
@@ -216,8 +216,8 @@ def _agent_mode_deferred_tool_names() -> tuple[str, ...]:
             "subagent",
             "todo",
             # "find",  # retired — embedded search via Bash
-            "view_image",
-            "read_lints",
+            # "view_image",  # merged into ``read`` (image refs dispatch inside read)
+            # "read_lints",  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
             # assets is CORE (memory-gated); not deferred
             # 不再默认绑定 — 由 agent 角色白名单决定是否挂载
             "tasks",
@@ -386,13 +386,13 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("plan", "supervisor", "subagent"),
     },
     "file_ops": {
-        "zh_description": "工作区写删与进程：read+replace/write/delete；多文件改写委派 subagent；search_code_index、read_lints、process",
+        "zh_description": "工作区写改：read+replace/write；删除与诊断走 Bash（rm / pyright），对齐 ZCode；多文件改写委派 subagent",
         "tools": (
             "write",
             "replace",
-            "delete",
+            # "delete",  # retired — 删除走 Bash rm
             "search_code_index",
-            "read_lints",
+            # "read_lints",  # retired — 诊断走 Bash
         ),
     },
     "file_ops_read_present": {
@@ -400,12 +400,11 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("search_code_index",),
     },
     "web_research": {
-        "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图理解用 view_image",
+        "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图/图片理解用 read",
         "tools": (
             "web_search",
             "fetch_url",
             # "browser",  # unregistered — use the agent-browser skill (CLI/MCP) instead
-            "view_image",
         ),
     },
     "orchestration": {
@@ -425,8 +424,8 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": (),
     },
     "visual": {
-        "zh_description": "视觉理解：本地路径或 http/https 图片 URL 均用 view_image（可一次传多张）",
-        "tools": ("view_image",),
+        "zh_description": "视觉理解：本地路径或 http/https 图片 URL 均用 read（可一次传多张）",
+        "tools": ("read",),
     },
     "messaging": {
         "zh_description": "跨平台消息发送：Telegram、Discord、Slack",

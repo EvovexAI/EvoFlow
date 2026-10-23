@@ -5,9 +5,13 @@
  * right-stage surface when the agent opens a page.
  */
 
+import {
+  getBridgeOwnerSessionKey,
+  setBridgeOwnerSessionKey,
+} from './browser-bridge-owner.js'
 import { ensureNativeEmbed } from './browser-embed-surface.js'
 import { parseBrowserLiveToolOutput } from './chat-normalize.js'
-import { sanitizeBrowserPageUrl } from './browser-page-url.js'
+import { isSameBrowserLoad, sanitizeBrowserPageUrl } from './browser-page-url.js'
 import {
   getCurrentRightStageSessionKey,
   upsertBrowserTabInSessionMemory,
@@ -17,6 +21,9 @@ import { normalizeRightStageKind } from './right-stage/right-stage-types.js'
 import type { BrowserStreamFrameMetadata } from './browser-stream-client.js'
 import type { BrowserTabSummary } from './browser-viewport-client.js'
 import { dbgLog, dbgWarn } from './browser-debug-log.js'
+import { blogTimeline } from './browser-unified-log.js'
+
+export { getBridgeOwnerSessionKey, setBridgeOwnerSessionKey } from './browser-bridge-owner.js'
 
 export type BrowserPanelMode = 'evopanel' | 'headed' | 'cdp' | 'headless' | 'embed'
 
@@ -38,6 +45,12 @@ export type BrowserRuntimeState = {
   /** null = unknown (enable button); false only after engine reports no history. */
   canGoBack: boolean | null
   canGoForward: boolean | null
+  /**
+   * Soft-decouple: last URL the *user* asked the HWND to load (address bar /
+   * history / tab switch). Agent/getState syncs must not clear this; BrowserPanel
+   * treats pageUrl changes without a matching user intent as chrome-only.
+   */
+  lastUserNavigateUrl: string
 }
 
 const EMPTY: BrowserRuntimeState = {
@@ -51,10 +64,34 @@ const EMPTY: BrowserRuntimeState = {
   tabs: [],
   canGoBack: null,
   canGoForward: null,
+  lastUserNavigateUrl: '',
+}
+
+/** Mark that the user (not the agent) is driving the next HWND navigation. */
+export function markUserNavigateIntent(url: string): void {
+  const clean = sanitizeBrowserPageUrl(url)
+  if (!clean) return
+  patch({ lastUserNavigateUrl: clean })
+}
+
+/** True when `url` matches the last user-driven navigate (same-load tolerant). */
+export function isUserNavigateIntent(url: string): boolean {
+  const clean = sanitizeBrowserPageUrl(url)
+  if (!clean || !state.lastUserNavigateUrl) return false
+  return clean === state.lastUserNavigateUrl || isSameBrowserLoad(clean, state.lastUserNavigateUrl)
 }
 
 let state: BrowserRuntimeState = { ...EMPTY }
 const listeners = new Set<() => void>()
+
+/** Resolve session for engine/panel-request writes: explicit → owner → current UI. */
+export function resolveBrowserUiSessionKey(explicit?: string | null): string {
+  const fromArg = String(explicit || '').trim()
+  if (fromArg) return fromArg
+  const owner = getBridgeOwnerSessionKey()
+  if (owner) return owner
+  return getCurrentRightStageSessionKey()
+}
 
 function emit() {
   for (const listener of listeners) {
@@ -67,6 +104,17 @@ function emit() {
 }
 
 function patch(next: Partial<BrowserRuntimeState>) {
+  let changed = false
+  for (const key of Object.keys(next) as Array<keyof BrowserRuntimeState>) {
+    const prev = state[key]
+    const val = next[key]
+    if (Object.is(prev, val)) continue
+    // tabs 常是新数组但内容相同；全量 stringify 避免无意义 emit 拖垮 ChatApp。
+    if (key === 'tabs' && JSON.stringify(prev) === JSON.stringify(val)) continue
+    changed = true
+    break
+  }
+  if (!changed) return
   state = { ...state, ...next }
   emit()
 }
@@ -286,6 +334,18 @@ function applyStageBrowserSurface(tabId: string, pageUrl: string, pageTitle: str
     canGoBack: index > 0,
     canGoForward: index >= 0 && index < stack.length - 1,
   })
+  // Another session owns the shared HWND (agent still driving). Do not navigate
+  // it to this session's URL — that would steal the page from the owner agent.
+  // syncNativeEmbed already parks on foreign-owner; chrome above still updates.
+  const uiSk = getCurrentRightStageSessionKey()
+  const ownerSk = getBridgeOwnerSessionKey()
+  if (ownerSk && uiSk && ownerSk !== uiSk) {
+    dbgLog(
+      `[browser-panel-store] skip HWND nav (foreign owner=${ownerSk} ui=${uiSk}) reason=${reason} url=${url}`,
+    )
+    return
+  }
+  markUserNavigateIntent(url)
   void ensureNativeEmbed({
     url,
     stageId: tabId,
@@ -338,12 +398,18 @@ export function ensureBrowserStage(opts?: {
   title?: string
   id?: string
   pageUrl?: string
+  /**
+   * Soft-decouple: raise/expand the right-stage browser chrome without
+   * upsert-navigating the HWND (agent CDP already owns the page).
+   */
+  skipHwndNav?: boolean
 }) {
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
   const id = opts?.forceNew
     ? newBrowserStageId()
     : String(opts?.id || 'primary').trim() || 'primary'
   const pageUrl = sanitizeBrowserPageUrl(String(opts?.pageUrl || state.pageUrl || '').trim(), 'about:blank')
+  const skipHwndNav = opts?.skipHwndNav === true
   const currentSk = getCurrentRightStageSessionKey()
 
   // 后台会话：不碰当前 UI 右栏。
@@ -364,7 +430,7 @@ export function ensureBrowserStage(opts?: {
     const uiSnap = rightStageStore.getSnapshot()
     const uiShowsBrowser =
       !uiSnap.collapsed && String(uiSnap.activeKey || '').startsWith('browser:')
-    if (!uiShowsBrowser && pageUrl && pageUrl !== 'about:blank') {
+    if (!skipHwndNav && !uiShowsBrowser && pageUrl && pageUrl !== 'about:blank') {
       void ensureNativeEmbed({
         url: pageUrl,
         stageId: id,
@@ -376,10 +442,16 @@ export function ensureBrowserStage(opts?: {
     return
   }
 
+  // Foreground open claims ownership so a prior background agent cannot keep the HWND parked forever.
+  if (sessionKey && (!currentSk || sessionKey === currentSk)) {
+    setBridgeOwnerSessionKey(sessionKey)
+  }
+
   const existing = rightStageStore.findTab(`browser:${id}`)
 
   if (opts?.forceNew) {
     // 新标签：空白页。单 HWND 必须立刻 navigate，否则仍显示上一标签的页面。
+    lastActiveBrowserKey = `browser:${id}`
     rightStageStore.show({
       kind: 'browser',
       id,
@@ -393,8 +465,7 @@ export function ensureBrowserStage(opts?: {
         historyIndex: 0,
       },
     })
-    lastActiveBrowserKey = `browser:${id}`
-    applyStageBrowserSurface(id, 'about:blank', '', 'force-new')
+    if (!skipHwndNav) applyStageBrowserSurface(id, 'about:blank', '', 'force-new')
     return
   }
 
@@ -402,6 +473,11 @@ export function ensureBrowserStage(opts?: {
   if (pageUrl && pageUrl !== 'about:blank') {
     nextData.pageUrl = pageUrl
   }
+  // Latch BEFORE show: show() notifies subscribers synchronously; if
+  // lastActiveBrowserKey is still empty, onRightStageBrowserChange treats this
+  // as stage-restore and upsert-navigates — undoing soft-decouple (CDP already
+  // owns the page; FE then rebuilds HWND → guest-poll / COM death).
+  lastActiveBrowserKey = `browser:${id}`
   rightStageStore.show({
     kind: 'browser',
     id,
@@ -410,8 +486,12 @@ export function ensureBrowserStage(opts?: {
     sessionKey,
     data: nextData,
   })
-  lastActiveBrowserKey = `browser:${id}`
-  if (pageUrl && pageUrl !== 'about:blank' && String(existing?.data?.pageUrl || '') !== pageUrl) {
+  if (
+    !skipHwndNav &&
+    pageUrl &&
+    pageUrl !== 'about:blank' &&
+    String(existing?.data?.pageUrl || '') !== pageUrl
+  ) {
     applyStageBrowserSurface(id, pageUrl, String(opts?.title || ''), 'ensure-nav')
   }
 }
@@ -424,11 +504,24 @@ export function setBrowserTabs(tabs: BrowserTabSummary[]) {
   if (active) {
     const url = sanitizeBrowserPageUrl(String(active.url || '').trim())
     const title = String(active.title || '').trim()
-    if (url) next.pageUrl = url
-    if (title) next.pageTitle = title
+    // 同趟加载（编码/尾斜杠差异）不刷 pageUrl，避免地址栏↔标签 chrome 来回 bump。
+    if (
+      url &&
+      url !== state.pageUrl &&
+      !isSameBrowserLoad(url, state.pageUrl)
+    ) {
+      next.pageUrl = url
+    }
+    if (title && title !== state.pageTitle) next.pageTitle = title
   }
+  const prevUrl = state.pageUrl
+  const prevTitle = state.pageTitle
   patch(next)
-  syncBrowserStageChrome(next.pageUrl || state.pageUrl, next.pageTitle || state.pageTitle)
+  const urlOut = next.pageUrl !== undefined ? next.pageUrl : prevUrl
+  const titleOut = next.pageTitle !== undefined ? next.pageTitle : prevTitle
+  if (urlOut !== prevUrl || titleOut !== prevTitle) {
+    syncBrowserStageChrome(urlOut, titleOut)
+  }
 }
 
 /** 只关浏览器这一页，其它 right-stage 标签保留。 */
@@ -461,35 +554,105 @@ export function applyBrowserCommandResponse(input: {
   canGoForward?: boolean
   /** 为 true 时压入当前标签逻辑历史（地址栏/站内导航）；切签后退不要传。 */
   pushHistory?: boolean
+  /**
+   * Soft-decouple: user chrome action (address bar). Seeds lastUserNavigateUrl.
+   * Agent / panel-request / getState sync must leave this false so BrowserPanel
+   * only updates the address bar and does not upsert-navigate the HWND.
+   */
+  navigateIntent?: boolean
+  /**
+   * Owning chat session. Engine `browser-panel-request` must pass the bridge
+   * owner (or omit to use {@link resolveBrowserUiSessionKey}) — never blindly
+   * write into whatever session the user is currently viewing.
+   */
+  sessionKey?: string
 }): boolean {
+  const sessionKey = resolveBrowserUiSessionKey(input.sessionKey) || undefined
+  const currentSk = getCurrentRightStageSessionKey()
+  const isBackground = Boolean(sessionKey && currentSk && sessionKey !== currentSk)
+
   const next: Partial<BrowserRuntimeState> = {}
   const tid = acceptThreadId(input.threadId)
-  if (tid) next.streamThreadId = tid
+  if (tid && tid !== state.streamThreadId) next.streamThreadId = tid
   const pageUrl = sanitizeBrowserPageUrl(input.pageUrl || '', state.pageUrl)
-  if (pageUrl) next.pageUrl = pageUrl
-  if (input.pageTitle !== undefined) {
-    next.pageTitle = String(input.pageTitle || '').trim()
+  const pageUrlChanged = Boolean(
+    pageUrl &&
+      !isBackground &&
+      pageUrl !== state.pageUrl &&
+      !isSameBrowserLoad(pageUrl, state.pageUrl),
+  )
+  if (pageUrlChanged) next.pageUrl = pageUrl
+  if (input.navigateIntent && pageUrl && !isBackground) {
+    if (pageUrl !== state.lastUserNavigateUrl) next.lastUserNavigateUrl = pageUrl
+  }
+  if (input.pageTitle !== undefined && !isBackground) {
+    const title = String(input.pageTitle || '').trim()
+    if (title !== state.pageTitle) next.pageTitle = title
   }
   // 工具栏以后退栈为准；引擎 canGo* 不再覆盖逻辑栈（除非未 push 且显式传入）。
-  if (!input.pushHistory) {
-    if (typeof input.canGoBack === 'boolean') next.canGoBack = input.canGoBack
-    if (typeof input.canGoForward === 'boolean') next.canGoForward = input.canGoForward
+  if (!input.pushHistory && !isBackground) {
+    if (typeof input.canGoBack === 'boolean' && input.canGoBack !== state.canGoBack) {
+      next.canGoBack = input.canGoBack
+    }
+    if (typeof input.canGoForward === 'boolean' && input.canGoForward !== state.canGoForward) {
+      next.canGoForward = input.canGoForward
+    }
   }
-  if (!Object.keys(next).length && !input.pushHistory) return false
-  dbgLog(
-    `[browser-panel-store] apply browser-command response thread=${tid || state.streamThreadId} ` +
-      `url=${pageUrl || '(unchanged)'} title=${next.pageTitle ?? '(unchanged)'} push=${Boolean(input.pushHistory)}`,
-  )
-  if (Object.keys(next).length) patch(next)
-  // 已有浏览器标签时绝不能 ensureBrowserStage()：默认会激活 primary，
-  // 把当前标签（如第二个新标签）上的导航写到第一个标签上。
   const snap = rightStageStore.getSnapshot()
   const hasBrowser = snap.tabs.some((t) => normalizeRightStageKind(t.kind) === 'browser')
-  if (!hasBrowser) ensureBrowserStage()
+  const activeIsBrowser = String(snap.activeKey || '').startsWith('browser:')
+  const needRaise = !isBackground && (!hasBrowser || snap.collapsed || !activeIsBrowser)
+
+  if (
+    !Object.keys(next).length &&
+    !input.pushHistory &&
+    !isBackground &&
+    !needRaise
+  ) {
+    return false
+  }
+  dbgLog(
+    `[browser-panel-store] apply browser-command response thread=${tid || state.streamThreadId} ` +
+      `session=${sessionKey || '(none)'} bg=${isBackground} ` +
+      `url=${pageUrl || '(unchanged)'} title=${next.pageTitle ?? '(unchanged)'} push=${Boolean(input.pushHistory)}`,
+  )
+
+  if (isBackground) {
+    // Keep CDP thread id; never touch foreground chrome / live pageUrl.
+    if (tid) patch({ streamThreadId: tid })
+    if (pageUrl) {
+      upsertBrowserTabInSessionMemory({
+        sessionKey: sessionKey!,
+        pageUrl,
+        pageTitle: String(input.pageTitle || '').trim() || undefined,
+        activate: true,
+      })
+    }
+    ensureBrowserStage({ sessionKey, pageUrl: pageUrl || undefined })
+    return true
+  }
+
+  if (Object.keys(next).length) patch(next)
   if (input.pushHistory && pageUrl) {
     pushBrowserTabHistory(pageUrl, state.pageTitle)
-  } else {
+  } else if (pageUrlChanged || next.pageTitle !== undefined) {
     syncBrowserStageChrome(state.pageUrl, state.pageTitle)
+  }
+  // Soft-decouple: agent/pageUrl sync must still *raise* the right stage (expand +
+  // activate browser tab). Previously we skipped ensure when a browser tab
+  // already existed — collapsed panels never re-opened. Always skipHwndNav here:
+  // HWND nav is CDP / sendBrowserCommand / tab-switch ensureNativeEmbed.
+  if (needRaise) {
+    ensureBrowserStage({
+      sessionKey,
+      pageUrl: pageUrl || undefined,
+      skipHwndNav: true,
+    })
+    blogTimeline(
+      '侧栏打开',
+      `来源=后台回写 会话=${sessionKey || '(无)'} 链接=${pageUrl || '(无)'} ` +
+        `此前折叠=${snap.collapsed ? '是' : '否'} 已有浏览器标签=${hasBrowser ? '是' : '否'}`,
+    )
   }
   return true
 }
@@ -509,6 +672,11 @@ export function notifyBrowserToolStart(
     `[browser-panel-store] tool start toolCallId=${toolCallId} tool=${toolName || '(n/a)'} ` +
       `session=${sessionKey || '(none)'} action=${action} url=${url || '(none)'} browserIntent=${nodeReplBrowser} argsText=${(argsText || '').slice(0, 200)}`,
   )
+  // Claim shared HWND ownership so engine panel-request / navigate land on this
+  // session's memory — not whatever chat the user switched to mid-run.
+  if (sessionKey && (nodeReplBrowser || !isNodeRepl || opts?.forceOpen)) {
+    setBridgeOwnerSessionKey(sessionKey)
+  }
   // node-repl / browser-use always drives the shared bridge WebView2. Bind the
   // panel to that session *before* ensureBrowserStage so the embed host mounts
   // the same HWND the agent is about to control.
@@ -542,7 +710,21 @@ export function notifyBrowserToolStart(
     action === 'navigate' ||
     action === 'snapshot'
   ) {
-    ensureBrowserStage({ sessionKey, pageUrl: url || undefined })
+    blogTimeline(
+      '工具准备开页',
+      `工具=${toolName || '(无)'} 动作=${action || '(无)'} 链接=${url || '(无)'} ` +
+        `会话=${sessionKey || '(无)'} 识别为浏览器调用=${nodeReplBrowser ? '是' : '否'}`,
+    )
+    // Soft-decouple: raise UI from tool args; CDP owns the real Page.navigate.
+    ensureBrowserStage({
+      sessionKey,
+      pageUrl: url || undefined,
+      skipHwndNav: true,
+    })
+    blogTimeline(
+      '侧栏打开',
+      `来源=工具开始 会话=${sessionKey || '(无)'} 链接=${url || state.pageUrl || '(无)'}`,
+    )
   }
   return true
 }

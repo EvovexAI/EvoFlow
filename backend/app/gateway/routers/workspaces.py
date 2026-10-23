@@ -650,7 +650,7 @@ async def resolve_workspace_target(
 @router.get("/serve-file")
 async def serve_workspace_file(
     request: Request,
-    root: str = Query(..., description="Bound workspace root directory"),
+    root: str | None = Query(None, description="Bound workspace root directory"),
     path: str = Query(..., description="Absolute or relative file path under workspace"),
     thread_id: str | None = Query(None),
 ) -> FileResponse:

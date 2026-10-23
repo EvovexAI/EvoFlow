@@ -50,6 +50,8 @@ const FORCE_MOUNT_KINDS = new Set([
   'web-embed',
   'platform-feedback',
   'news-dashboard',
+  'codeViewer',
+  'subagentTranscript',
 ])
 
 export type RightStageLauncherItemId =

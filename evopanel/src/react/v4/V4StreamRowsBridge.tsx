@@ -111,18 +111,23 @@ export function V4StreamRowsBridge(props: {
     }
   }, [pathState, sessionId, enabled]);
 
+  // 稳定 payload 引用：store 同快照重复 notify 时不给 timeline 换新对象。
+  const status = state?.status ?? "connecting";
+  const loadingOlder = state?.loadingOlder ?? false;
+  const payload = useMemo<V4TimelinePayload | null>(() => {
+    if (!snapshot || !sessionId) return null;
+    return {
+      sessionId,
+      snapshot,
+      status,
+      loadingOlder,
+      onLoadOlder,
+    };
+  }, [sessionId, snapshot, status, loadingOlder, onLoadOlder]);
+
   if (!enabled || !sessionId) {
     return children(null, !enabled ? "disabled" : "no-thread");
   }
-  const payload: V4TimelinePayload | null = snapshot
-    ? {
-        sessionId,
-        snapshot,
-        status: state?.status ?? "connecting",
-        loadingOlder: state?.loadingOlder ?? false,
-        onLoadOlder,
-      }
-    : null;
   // 有 threadId 即锁定 V4 渲染（connecting 阶段由调用方渲染空态，不回落老链路）。
   return children(payload, snapshot ? "ready" : "connecting");
 }

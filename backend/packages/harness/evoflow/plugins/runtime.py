@@ -7,11 +7,12 @@ service) and the conversation runtime:
   discovery pipeline (``skills/loader.py`` extra roots), so enabled plugin
   skills behave exactly like native skills: ``<available_skills>`` directory,
   ``$skill-name`` mentions, ``skill:<name>`` URIs in read/terminal tools.
-- ``build_plugin_injection_block`` renders the per-turn ``<plugin_injection>``
-  message for plugins picked in the chat composer (``preferred_plugins``).
-  It ships metadata only — command names/descriptions and skill
-  name/description/location — plus the markdown body of a command **only when
-  the user actually invokes it via ``/name`` in the current message**
+- ``build_plugin_injection_block`` renders the ``<plugin_injection>`` block for
+  plugins picked in the chat composer (``preferred_plugins``). SkillsInjection
+  places that HumanMessage **after the triggering user turn** (not at the
+  message-list tail). It ships metadata only — command names/descriptions and
+  skill name/description/location — plus the markdown body of a command **only
+  when the user actually invokes it via ``/name`` in the current message**
   (ZCode-style on-demand loading). SKILL.md bodies are never injected here:
   they stay on disk and are reached through ``skill:<name>`` URIs.
 """
@@ -230,14 +231,19 @@ def build_plugin_injection_block(
             "bootstrap + getForUrl/get(iab) + open(url) or tabs.get(\"tab-0\").goto(url) + "
             "waitForLoadState + domSnapshot — do not burn a dedicated round only for "
             "browser.documentation() (host returns a compact guide if you still dump it). "
+            "domSnapshot puts readable `text:` first — answer from that; NEVER "
+            "snapshot.slice(...) / truncate the return, and do not re-goto the same URL "
+            "when text already answers the question. "
             "After that, do NOT spend extra js calls only to list tabs or re-dump docs; "
             "reuse tab-0 / last tab id. Screenshots are already on the tool card and staged: "
-            "do NOT call view_image again, and do not mention screenshot file paths, "
+            "do NOT call read on those images again (or view_image), and do not mention screenshot file paths, "
             "filenames, or @@...png@@ in your reply.\n"
             "EvoFlow 只有一个内置浏览器页。优先第一枪就把 bootstrap、选浏览器、打开 URL、"
             "wait、domSnapshot 写进同一个 js；不要单独一轮只为 documentation（宿主会返回短指南）。"
+            "domSnapshot 正文在 `text:` 段，先据此回答；禁止对结果 .slice 截断，"
+            "已有答案时不要重复打开同一 URL。"
             "之后不要再为 tabs.list / 重复 dump 文档另开 js；用 tab-0。"
-            "截图已在工具卡上并 staged，勿再 view_image，也不要在回复里写截图文件名或 @@…png@@。\n"
+            "截图已在工具卡上并 staged，勿再 read 或 view_image，也不要在回复里写截图文件名或 @@…png@@。\n"
             "</evoflow_browser_runtime>\n"
         )
     cua_hint = ""
@@ -246,13 +252,12 @@ def build_plugin_injection_block(
             "\n<evoflow_computer_runtime>\n"
             "Computer Use screenshots returned by mcp__node_repl__js are staged into "
             "the next model context and already shown on the tool card. Do NOT call "
-            "view_image again, and do not mention screenshot file paths, filenames, "
-            "or @@...png@@ in your reply. Click/type coordinates are pixels of that "
+            "view_image again, and do not mention screenshot file paths, filenames, "            "or @@...png@@ in your reply. Click/type coordinates are pixels of that "
             "delivered screenshot (the WxH in the tool result), not the OS window "
             "bounds, and not a size parsed from the file header. Put one gesture — "
             "click, type, and key — in a single js cell and screenshot once at the end.\n"
             "电脑控制截图会自动进入下一轮视觉上下文，并已经画在工具卡上。"
-            "不要再对同一张图调 view_image，也不要在回复里写截图文件名或 @@…png@@。"
+            "不要再对同一张图调 read 或 view_image，也不要在回复里写截图文件名或 @@…png@@。"
             "点击坐标用结果里给出的截图像素宽高，不要读文件头，也不要用窗口 bounds。"
             "同一次手势（点击、输入、按键）写在同一个 js 里，最后再截一次图。\n"
             "</evoflow_computer_runtime>\n"

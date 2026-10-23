@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode , useMemo} from "react";
 import type { FileMediaPreview } from "@zcode/shared";
 import { CodeBlock } from "@/components/ai-elements/code-block.js";
 import { MessageResponse, type MessageFileLinkTarget } from "@/components/ai-elements/message.js";
@@ -8,6 +8,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type {
   CodeViewerSource,
   ImageCodeViewerSource,
+  MediaCodeViewerSource,
   TextCodeViewerSource,
 } from "@/lib/codeViewer.js";
 import type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
@@ -59,6 +60,12 @@ export function ToolCallBody({
           ) : null}
           {inlinePreview.type === "image" ? (
             <InlineImageContent preview={inlinePreview.source} />
+          ) : null}
+          {inlinePreview.type === "media" ? (
+            <InlineMediaContent
+              preview={inlinePreview.source}
+              workspacePath={workspacePath}
+            />
           ) : null}
           {displayModel.planResult ? (
             <InlinePlanResult
@@ -129,6 +136,38 @@ function InlineCodeContent({
     <div className="max-h-60 overflow-auto rounded-xl bg-muted/15">
       <CodeBlock code={preview.content} language={preview.language} appTheme={theme} />
     </div>
+  );
+}
+
+function InlineMediaContent({
+  preview,
+  workspacePath,
+}: {
+  preview: MediaCodeViewerSource;
+  workspacePath: string;
+}) {
+  // serve-file 流式直出（video 支持Range），不走 base64——大视频会撑爆内存。
+  const mediaUrl = useMemo(() => {
+    if (!workspacePath || !preview.path) return "";
+    const q = new URLSearchParams({
+      root: workspacePath,
+      path: preview.path,
+    });
+    return `/api/workspaces/serve-file?${q.toString()}`;
+  }, [preview.path, workspacePath]);
+
+  if (!mediaUrl) {
+    return null;
+  }
+  return preview.kind === "audio" ? (
+    <audio controls src={mediaUrl} className="w-full max-w-xl" preload="metadata" />
+  ) : (
+    <video
+      controls
+      src={mediaUrl}
+      preload="metadata"
+      className="max-h-96 w-full max-w-xl rounded-lg border border-border bg-black"
+    />
   );
 }
 

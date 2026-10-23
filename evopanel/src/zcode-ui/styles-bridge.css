@@ -69,11 +69,18 @@
   --ui-font-size: 14px;
 }
 
-/* EvoFlow V4 面板字号：略小于 ZCode 默认（14px），对齐侧栏文字密度。
- * 整个时间线（正文/工具卡/按钮/思考块）都从 --ui-font-size 等比缩放，
- * 调整大小只改这一个数（ZCode 档位参考：14 默认 / 13 紧凑 / 12 最小）。 */
+/* EvoFlow V4 面板字号：小于 ZCode 默认（14px），对齐侧栏文字密度。
+ * 调整大小只改 --ui-font-size；下方 --text-ui-* 必须在本作用域重声明，
+ * 否则会继承 :root 里已解析的 14px（@theme 的 var() 在 :root 算完再继承）。 */
 .zcode-bridge-root {
   --ui-font-size: 12px;
+  --text-ui-xl: calc(var(--ui-font-size) + 4px);
+  --text-ui-lg: calc(var(--ui-font-size) + 2px);
+  --text-ui-base: var(--ui-font-size);
+  --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-ui-sm: calc(var(--ui-font-size) - 2px);
+  --text-ui-xs: calc(var(--ui-font-size) - 4px);
+  --text-ui-2xs: calc(var(--ui-font-size) - 5px);
 }
 
 /* 小V 等窄栏嵌入：主对话左侧 turn navigator 默认要 ≥864px container 才显示；

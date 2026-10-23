@@ -801,7 +801,8 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
       attributes: true,
     });
 
-    measureViewportMaxWidth();
+    // 只走 rAF 测量：侧栏开合时大量表格同时挂载，若在 useLayoutEffect 里同步
+    // setState，会与 V4 投影帧的同步提交叠进同一嵌套更新计数 → React #185。
     scheduleMeasureAndWatchRect();
 
     if (typeof ResizeObserver === "undefined") {
@@ -1233,7 +1234,7 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
           <div
             // 表格已有边缘阴影提示横向溢出，显示系统滚动条会在消息块底部产生额外视觉噪音；
             // 外层宽度容器按 frame 宽度 + rightDistance 计算最大宽度，滚动 viewport 只占满该容器。
-            className="relative w-full overflow-hidden rounded-xl border border-border"
+            className="relative w-full overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03),0_8px_24px_rgba(15,23,42,0.045)]"
           >
             <div
               ref={scrollViewportRef}
@@ -1385,7 +1386,10 @@ export type MarkdownTableRowProps = ComponentProps<"tr"> & MarkdownTableNodeProp
 export function MarkdownTableRow({ className, node: _node, ...props }: MarkdownTableRowProps) {
   return (
     <tr
-      className={cn("transition-colors last:[&>td]:border-b-0 hover:bg-hover/20", className)}
+      className={cn(
+        "transition-colors even:bg-surface/45 last:[&>td]:border-b-0 hover:bg-hover/35",
+        className,
+      )}
       {...props}
     />
   );
@@ -1397,7 +1401,7 @@ export function MarkdownTableHead({ className, node: _node, ...props }: Markdown
   return (
     <th
       className={cn(
-        "border-border border-b px-3 py-2 text-left font-normal text-foreground-subtlest min-w-16 max-w-md whitespace-normal break-words",
+        "sticky top-0 z-[1] border-border border-b bg-surface px-3.5 py-2.5 text-left text-ui-sm font-semibold tracking-wide text-foreground-subtle min-w-16 max-w-md whitespace-normal break-words",
         className,
       )}
       {...props}
@@ -1411,7 +1415,7 @@ export function MarkdownTableCell({ className, node: _node, ...props }: Markdown
   return (
     <td
       className={cn(
-        "border-border border-b px-3 py-2 text-foreground align-top min-w-16 max-w-md whitespace-normal break-words",
+        "border-b border-border/70 px-3.5 py-2.5 text-foreground align-top leading-[1.55] min-w-16 max-w-md whitespace-normal break-words",
         className,
       )}
       {...props}

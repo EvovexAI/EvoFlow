@@ -1,4 +1,18 @@
-"""Inject selected skill SKILL.md bodies at the message tail each model call."""
+"""Inject selected skill / plugin context after the triggering user message.
+
+Placement (important)::
+
+    [history…, user, <skill_injection>?, <plugin_injection>?, AI, tool, …]
+
+Composer-selected skills and plugins are inserted **immediately after the
+triggering user HumanMessage**, not appended to the end of the list. Within a
+tool loop the injection is ephemeral (``request.override``) so each model call
+re-places it after that same user row; tool results stay newer than the
+injection (chronological end = latest attention).
+
+This matches ``KbInjectionMiddleware`` (which runs after this middleware and
+inserts KB between the user and these rows).
+"""
 
 from __future__ import annotations
 
@@ -36,6 +50,17 @@ _PLUGIN_INJECTION_MESSAGE_NAME = "evf_plugin_injection"
 
 _INJECTION_MESSAGE_NAMES = {_SKILL_INJECTION_MESSAGE_NAME, _PLUGIN_INJECTION_MESSAGE_NAME}
 
+# Other ephemeral HumanMessage.name values that must not be treated as the user query.
+_NON_USER_HUMAN_NAMES = frozenset(
+    {
+        _SKILL_INJECTION_MESSAGE_NAME,
+        _PLUGIN_INJECTION_MESSAGE_NAME,
+        "evf_kb_injection",
+        "external_memory_prefetch",
+        "todo_reminder",
+    }
+)
+
 
 def _is_injection_message(msg: Any) -> bool:
     return isinstance(msg, HumanMessage) and getattr(msg, "name", None) in _INJECTION_MESSAGE_NAMES
@@ -51,21 +76,65 @@ def _messages_from_request(request: ModelRequest) -> list[BaseMessage]:
     return messages_from_model_request(request)
 
 
-def _latest_human_preview(messages: list[Any]) -> str:
-    for msg in reversed(messages or []):
-        t = str(getattr(msg, "type", None) or "").strip().lower()
-        if t not in {"human", "user"}:
-            continue
-        content = getattr(msg, "content", "")
-        if isinstance(content, str):
-            return content.strip()
-        if isinstance(content, list):
-            parts: list[str] = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    parts.append(str(block.get("text") or ""))
-            return "\n".join(parts).strip()
+def _is_real_user_human(msg: Any) -> bool:
+    """True for a user turn HumanMessage (not middleware injection rows)."""
+    t = str(getattr(msg, "type", None) or "").strip().lower()
+    if t not in {"human", "user"} and not isinstance(msg, HumanMessage):
+        return False
+    if t not in {"human", "user"} and isinstance(msg, HumanMessage):
+        t = "human"
+    if t not in {"human", "user"}:
+        return False
+    name = str(getattr(msg, "name", None) or "").strip()
+    if name in _NON_USER_HUMAN_NAMES:
+        return False
+    return True
+
+
+def _latest_real_human_index(messages: list[Any]) -> int:
+    for i in range(len(messages or []) - 1, -1, -1):
+        if _is_real_user_human(messages[i]):
+            return i
+    return -1
+
+
+def _human_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts).strip()
     return ""
+
+
+def _latest_human_preview(messages: list[Any]) -> str:
+    idx = _latest_real_human_index(messages or [])
+    if idx < 0:
+        return ""
+    return _human_content_text(getattr(messages[idx], "content", ""))
+
+
+def place_injections_after_latest_user(
+    messages: list[Any],
+    injections: list[HumanMessage],
+) -> list[Any]:
+    """Strip prior skill/plugin rows and insert ``injections`` right after the latest real user.
+
+    Tool / AI / KB messages that follow the user stay after the injection block so
+    the chronological end of the list remains the newest tool evidence.
+    """
+    cleaned = _strip_injection_messages(list(messages or []))
+    if not injections:
+        return cleaned
+    idx = _latest_real_human_index(cleaned)
+    if idx < 0:
+        return [*cleaned, *injections]
+    return [*cleaned[: idx + 1], *injections, *cleaned[idx + 1 :]]
 
 
 def _resolve_turn_skills(request: ModelRequest) -> tuple[list, list[str], str, dict[str, Any]]:
@@ -98,7 +167,7 @@ def _resolve_turn_skills(request: ModelRequest) -> tuple[list, list[str], str, d
 
 
 class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
-    """Load SKILL.md for composer-selected / ``$mentioned`` skills (native-style turn injection)."""
+    """Load SKILL.md / plugin metadata for composer-selected turn context."""
 
     state_schema = AgentState
 
@@ -110,7 +179,8 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
         plugin_block: str,
         ctx: dict[str, Any],
     ) -> ModelRequest:
-        messages = _strip_injection_messages(_messages_from_request(request))
+        raw_messages = _messages_from_request(request)
+        messages = _strip_injection_messages(raw_messages)
 
         if hasattr(request.runtime, "context"):
             rt_ctx = request.runtime.context
@@ -120,7 +190,7 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
                 rt_ctx["evf_active_skills"] = names
 
         if not selected and not plugin_block.strip():
-            if len(messages) != len(_messages_from_request(request)):
+            if len(messages) != len(raw_messages):
                 return request.override(messages=messages)
             return request
 
@@ -137,7 +207,7 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
                 HumanMessage(content=plugin_block.strip(), name=_PLUGIN_INJECTION_MESSAGE_NAME)
             )
         if not extra_messages:
-            return request.override(messages=messages) if len(messages) != len(_messages_from_request(request)) else request
+            return request.override(messages=messages) if len(messages) != len(raw_messages) else request
 
         logger.info(
             "SkillsInjection: injecting %d skill(s): %s; plugin block: %s",
@@ -145,7 +215,7 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
             names,
             bool(plugin_block.strip()),
         )
-        return request.override(messages=[*messages, *extra_messages])
+        return request.override(messages=place_injections_after_latest_user(raw_messages, extra_messages))
 
     @override
     def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:

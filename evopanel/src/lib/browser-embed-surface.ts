@@ -26,8 +26,10 @@ import {
   browserEmbedUpsert,
   type BrowserEmbedInfo,
 } from './browser-embed-client.js'
+import { getBridgeOwnerSessionKey } from './browser-bridge-owner.js'
 import { isNavigableBrowserUrl, sanitizeBrowserPageUrl } from './browser-page-url.js'
 import { blog } from './browser-unified-log.js'
+import { getCurrentRightStageSessionKey } from './right-stage/right-stage-session-memory.js'
 import { rightStageStore } from './right-stage/right-stage-store.js'
 
 /** 与 browser-panel-store 的 NODE_REPL_BRIDGE_THREAD_ID 同一扇原生窗。 */
@@ -90,16 +92,25 @@ function placementKey(stageId: string, depth: number): string {
 export function syncNativeEmbed(reason = 'right-stage') {
   const stageId = browserStageIdFromSnapshot()
   desiredStageId = stageId
-  const canShow = Boolean(stageId) && overlayDepth === 0
+  // Shared HWND: only the owning chat session may show it. If the user switched
+  // to B while A's agent still drives the bridge, park — otherwise B sees A's page.
+  const uiSk = getCurrentRightStageSessionKey()
+  const ownerSk = getBridgeOwnerSessionKey()
+  const foreignOwner = Boolean(ownerSk && uiSk && ownerSk !== uiSk)
+  const canShow = Boolean(stageId) && overlayDepth === 0 && !foreignOwner
   const shownId = canShow ? stageId : ''
-  const key = placementKey(stageId, overlayDepth)
+  const key = foreignOwner
+    ? `hide:foreign-owner:${ownerSk}`
+    : placementKey(stageId, overlayDepth)
   if (key === lastPlacementKey) return
   lastPlacementKey = key
   visibleStageId = shownId
   // park / 换页后槽位必须重新上报，不能吃旧的 lastReportedSlotKey。
   lastReportedSlotKey = ''
   const active = rightStageStore.getSnapshot().activeKey || '(none)'
-  const line = `[browser-embed-surface] ${key} reason=${reason} active=${active} overlay=${overlayDepth}`
+  const line =
+    `[browser-embed-surface] ${key} reason=${reason} active=${active} ` +
+    `overlay=${overlayDepth} ui=${uiSk || '(none)'} owner=${ownerSk || '(none)'}`
   console.info(line)
   blog('info', line)
   if (typeof window !== 'undefined') {
@@ -111,6 +122,7 @@ export function syncNativeEmbed(reason = 'right-stage') {
           desiredId: stageId,
           overlayDepth,
           reason,
+          foreignOwner,
         },
       }),
     )
@@ -156,9 +168,20 @@ export function reportEmbedSlot(stageId: string, slot: EmbedSlot, opts?: { url?:
     if (applied) return
     // 失败后允许立刻重试，不要被上一次 key 卡住。
     lastReportedSlotKey = ''
-    blog('warn', `[browser-embed-surface] set-bounds missed stage=${id} — recreating`)
+    // Soft-decouple: HWND often flaps mid Page.navigate. Retry setBounds once
+    // before recreate — recreate was wiping the live agent page to blank.
+    blog('warn', `[browser-embed-surface] set-bounds missed stage=${id} — retry`)
+    await new Promise((r) => setTimeout(r, 200))
+    const retried = await browserEmbedSetBounds({
+      threadId: NATIVE_EMBED_THREAD_ID,
+      ...slot,
+      present: true,
+    })
+    if (retried) return
+    blog('warn', `[browser-embed-surface] set-bounds still missing stage=${id} — recreating`)
     await ensureNativeEmbed({
-      url: opts?.url,
+      // Recreate must not re-navigate agent pages — place/create only.
+      placeOnly: true,
       slot,
       stageId: id,
       reason: 'recreate-missing',
@@ -187,6 +210,14 @@ function slotFor(_stageId: string | undefined, slot: EmbedSlot | null | undefine
   return estimateEmbedSlot()
 }
 
+/** Coalesce storm: early+boot+chat-app+panel-mount+navigate all fire within ~100ms. */
+let ensureInflight: Promise<BrowserEmbedInfo | null> | null = null
+let ensureInflightKey = ''
+let ensureLastKey = ''
+let ensureLastAt = 0
+let ensureLastInfo: BrowserEmbedInfo | null = null
+const ENSURE_RECENT_MS = 750
+
 /**
  * 创建或导航那一扇原生窗。
  * 前台就是这个浏览器页且无全局遮罩：按槽位显示。
@@ -207,11 +238,20 @@ export async function ensureNativeEmbed(opts: {
    * （多会话共用 primary id 时，否则会误判 present=true。）
    */
   forceHidden?: boolean
+  /**
+   * Soft-decouple: place/show HWND without navigating (agent already drove CDP).
+   * Mount / early / boot should prefer this when the label exists.
+   */
+  placeOnly?: boolean
 }): Promise<BrowserEmbedInfo | null> {
   const stageId = String(opts.stageId || '').trim()
   const forceHidden = opts.forceHidden === true || opts.reason === 'background-session'
+  const uiSk = getCurrentRightStageSessionKey()
+  const ownerSk = getBridgeOwnerSessionKey()
+  const foreignOwner = Boolean(ownerSk && uiSk && ownerSk !== uiSk)
   const present =
     !forceHidden &&
+    !foreignOwner &&
     overlayDepth === 0 &&
     Boolean(desiredStageId) &&
     (!stageId || stageId === desiredStageId)
@@ -221,26 +261,85 @@ export async function ensureNativeEmbed(opts: {
   const placeNow = present && hasRealSlot
   // chrome-error:// 等内部页绝不能再 upsert，否则死循环刷错误页。
   const rawUrl = String(opts.url || '').trim()
-  const navUrl = isNavigableBrowserUrl(rawUrl) ? sanitizeBrowserPageUrl(rawUrl) : ''
-  if (rawUrl && !navUrl) {
+  const placeOnly = opts.placeOnly === true
+  const navUrl =
+    placeOnly || !rawUrl
+      ? ''
+      : isNavigableBrowserUrl(rawUrl)
+        ? sanitizeBrowserPageUrl(rawUrl)
+        : ''
+  if (rawUrl && !placeOnly && !navUrl) {
     blog('warn', `[browser-embed-surface] ensure skip bad url reason=${opts.reason} url=${rawUrl}`)
   }
+  // Key includes placeNow so managed-only storms collapse, but a later real-slot
+  // place is still allowed to run (different key).
+  const coalesceKey = `${navUrl || ''}|p=${placeNow ? 1 : 0}|h=${forceHidden ? 1 : 0}|r=${opts.replace ? 1 : 0}|o=${placeOnly ? 1 : 0}`
+  const now = Date.now()
+  if (ensureInflight && ensureInflightKey === coalesceKey) {
+    blog(
+      'info',
+      `[browser-embed-surface] ensure coalesce-inflight reason=${opts.reason} key=${coalesceKey}`,
+    )
+    return ensureInflight
+  }
+  if (
+    ensureLastKey === coalesceKey &&
+    now - ensureLastAt < ENSURE_RECENT_MS &&
+    ensureLastInfo
+  ) {
+    blog(
+      'info',
+      `[browser-embed-surface] ensure coalesce-recent reason=${opts.reason} age=${now - ensureLastAt}ms`,
+    )
+    return ensureLastInfo
+  }
+
   blog(
     'info',
-    `[browser-embed-surface] ensure reason=${opts.reason} present=${present} place=${placeNow} forceHidden=${forceHidden} stage=${stageId || '(any)'} visible=${visibleStageId || '(none)'} overlay=${overlayDepth}`,
+    `[browser-embed-surface] ensure reason=${opts.reason} present=${present} place=${placeNow} ` +
+      `placeOnly=${placeOnly} forceHidden=${forceHidden} foreignOwner=${foreignOwner} stage=${stageId || '(any)'} ` +
+      `visible=${visibleStageId || '(none)'} overlay=${overlayDepth} ui=${uiSk || '(none)'} owner=${ownerSk || '(none)'}`,
   )
-  const info = await browserEmbedUpsert({
-    threadId: NATIVE_EMBED_THREAD_ID,
-    url: navUrl || undefined,
-    ...slot,
-    respectManagedBounds: !placeNow,
-    // 切签/新标签：replace 进历史，避免单 HWND 多标签把后退栈串成「抖音↔百度」。
-    replaceUrl: opts.replace === true,
-  })
-  // 只有「不该显示」才 park。前台缺槽位时绝不能 park——会和随后的
-  // reportEmbedSlot/set_bounds 竞态，窗口被藏死后 lastReportedSlotKey 还挡重试。
-  if (!present) void browserEmbedPark(NATIVE_EMBED_THREAD_ID)
-  return info
+  // Foreign UI session opening its own stage must not yank the owner's page.
+  // Agent paths (background / early / boot) may still upsert+park for CDP.
+  const agentDrive =
+    forceHidden ||
+    opts.reason === 'background-session' ||
+    opts.reason === 'early' ||
+    opts.reason === 'boot'
+  if (foreignOwner && !agentDrive) {
+    void browserEmbedPark(NATIVE_EMBED_THREAD_ID)
+    return null
+  }
+
+  ensureInflightKey = coalesceKey
+  ensureInflight = (async () => {
+    const info = await browserEmbedUpsert({
+      threadId: NATIVE_EMBED_THREAD_ID,
+      url: navUrl || undefined,
+      ...slot,
+      respectManagedBounds: !placeNow,
+      // 切签/新标签：replace 进历史，避免单 HWND 多标签把后退栈串成「抖音↔百度」。
+      replaceUrl: opts.replace === true,
+    })
+    // 只有「不该显示」才 park。前台缺槽位时绝不能 park——会和随后的
+    // reportEmbedSlot/set_bounds 竞态，窗口被藏死后 lastReportedSlotKey 还挡重试。
+    if (!present) void browserEmbedPark(NATIVE_EMBED_THREAD_ID)
+    return info
+  })()
+
+  try {
+    const info = await ensureInflight
+    ensureLastKey = coalesceKey
+    ensureLastAt = Date.now()
+    ensureLastInfo = info
+    return info
+  } finally {
+    if (ensureInflightKey === coalesceKey) {
+      ensureInflight = null
+      ensureInflightKey = ''
+    }
+  }
 }
 
 rightStageStore.subscribe(() => {

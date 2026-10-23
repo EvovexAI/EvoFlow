@@ -10,6 +10,7 @@ import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
 import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
+import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
@@ -543,7 +544,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 }
               >
                 {(v4Payload, v4Phase) =>
-                  v4Phase === 'disabled' || isHomeSurface ? (
+                  /* 仅两种情况走老面板：显式回滚，或真首页（未选中任何会话的 draft）。
+                  会话切换瞬间（threadId 未解析/快照未到）保持 V4 面板——回落老面板
+                  会先渲染一屏老样式历史再切 V4（闪烁 + 整树重测高抖动）。 */
+                  v4Phase === 'disabled' || !selectedSessionKey ? (
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}
@@ -608,11 +612,32 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           title: source.title || '代码对比',
                           layout: 'wide',
                           sessionKey: selectedSessionKey || undefined,
-                          data: { source },
+                          data: {
+                            source,
+                            threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                          },
                         })
                       }}
                       onToolApproval={onToolApprovalStable}
                       workspacePath={effectiveWorkspaceRoot}
+                      subagentTasks={threadPanelState.subagentTasks}
+                      onOpenSubagentTranscript={(taskId, title, fallbackText, fallbackStatus) => {
+                        // 子代理流式输出 → 右侧面板（transcript 轮询 + liveOutput 兜底）
+                        rightStageStore.show({
+                          kind: 'subagentTranscript',
+                          id: `subagentTranscript:${taskId}`,
+                          title: title || '子代理输出',
+                          layout: 'wide',
+                          sessionKey: selectedSessionKey || undefined,
+                          data: {
+                            taskId,
+                            title,
+                            fallbackText,
+                            fallbackStatus,
+                            sessionKey: selectedSessionKey || undefined,
+                          },
+                        })
+                      }}
                       toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={
                         <div

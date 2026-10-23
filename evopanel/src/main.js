@@ -65,36 +65,70 @@ if (isTauri) {
             const {
               applyBrowserCommandResponse,
               ensureBrowserStage,
+              getBridgeOwnerSessionKey,
+              resolveBrowserUiSessionKey,
               setBrowserPanelThreadId,
               NODE_REPL_BRIDGE_THREAD_ID,
             } = await import('./lib/browser-panel-store.js')
-            const { registerBrowserEmbedCdp } = await import('./lib/browser-embed-client.js')
-            const { ensureNativeEmbed, estimateEmbedSlot } = await import(
+            const { browserEmbedExists, registerBrowserEmbedCdp } = await import(
+              './lib/browser-embed-client.js'
+            )
+            const { ensureNativeEmbed, estimateEmbedSlot, NATIVE_EMBED_THREAD_ID } = await import(
               './lib/browser-embed-surface.js'
             )
             const bridgeTid = tid || NODE_REPL_BRIDGE_THREAD_ID
+            const sessionKey = resolveBrowserUiSessionKey(getBridgeOwnerSessionKey()) || undefined
             setBrowserPanelThreadId(bridgeTid)
             if (!String(window.location.hash || '').includes('/chat')) {
               navigate('/chat')
             }
             const navUrl = url && /^https?:\/\//i.test(url) ? url : 'about:blank'
+            const source = String(payload.source || '').trim()
+            // Soft-decouple: host already has HWND (prewarm / after_create / navigate).
+            // Do NOT race panel-mount with early upsert — that waited HWND while
+            // parked, destroyed the live window, and recreated about:blank.
+            const hostOwns =
+              source.includes('after_create') ||
+              source.includes('exists') ||
+              source.includes('navigate_window_ok')
+            if (hostOwns || window.__EVOFLOW_CHAT_BROWSER_PANEL__) {
+              blog(
+                'info',
+                `[early] skip upsert (hostOwns=${hostOwns} chatOwns=${Boolean(window.__EVOFLOW_CHAT_BROWSER_PANEL__)}) source=${source || '(none)'}`,
+              )
+              if (window.__EVOFLOW_CHAT_BROWSER_PANEL__) return
+              // No chat-app yet: only raise stage chrome, panel-mount places HWND.
+              if (navUrl !== 'about:blank') {
+                applyBrowserCommandResponse({ threadId: bridgeTid, pageUrl: navUrl, sessionKey })
+              } else {
+                ensureBrowserStage({ sessionKey })
+              }
+              return
+            }
+            const exists = await browserEmbedExists(NATIVE_EMBED_THREAD_ID)
+            const placeOnly = exists || !source.includes('panel_fallback')
             const info = await ensureNativeEmbed({
-              url: navUrl,
+              url: placeOnly || navUrl === 'about:blank' ? undefined : navUrl,
+              placeOnly,
               slot: estimateEmbedSlot(),
               reason: 'early',
             })
             if (info?.cdpUrl) {
               await registerBrowserEmbedCdp(bridgeTid, info.cdpUrl)
               console.log('[browser-panel-request:early] upsert ok', info.webviewLabel || bridgeTid)
-              blog('info', `[early] upsert ok label=${info.webviewLabel || bridgeTid}`)
+              blog(
+                'info',
+                `[early] upsert ok label=${info.webviewLabel || bridgeTid} exists=${exists} placeOnly=${placeOnly} source=${source || '(none)'}`,
+              )
             } else {
               console.warn('[browser-panel-request:early] upsert returned no cdpUrl', info)
               blog('warn', '[early] upsert returned no cdpUrl')
             }
             if (navUrl !== 'about:blank') {
-              applyBrowserCommandResponse({ threadId: bridgeTid, pageUrl: navUrl })
+              // Chrome sync only — navigateIntent false (default).
+              applyBrowserCommandResponse({ threadId: bridgeTid, pageUrl: navUrl, sessionKey })
             } else {
-              ensureBrowserStage()
+              ensureBrowserStage({ sessionKey })
             }
           } catch (err) {
             console.warn('[browser-panel-request:early] failed', err)
@@ -703,37 +737,66 @@ async function boot() {
               const {
                 applyBrowserCommandResponse,
                 ensureBrowserStage,
+                getBridgeOwnerSessionKey,
+                resolveBrowserUiSessionKey,
                 setBrowserPanelThreadId,
                 NODE_REPL_BRIDGE_THREAD_ID,
               } = await import('./lib/browser-panel-store.js')
-              const { registerBrowserEmbedCdp } = await import('./lib/browser-embed-client.js')
-              const { ensureNativeEmbed, estimateEmbedSlot } = await import(
+              const { browserEmbedExists, registerBrowserEmbedCdp } = await import(
+                './lib/browser-embed-client.js'
+              )
+              const { ensureNativeEmbed, estimateEmbedSlot, NATIVE_EMBED_THREAD_ID } = await import(
                 './lib/browser-embed-surface.js'
               )
               const bridgeTid = tid || NODE_REPL_BRIDGE_THREAD_ID
+              const sessionKey = resolveBrowserUiSessionKey(getBridgeOwnerSessionKey()) || undefined
               setBrowserPanelThreadId(bridgeTid)
               if (!String(window.location.hash || '').includes('/chat')) {
                 navigate('/chat')
               }
-              // 不等面板布局。窗口是否显示由 browser-embed-surface 决定。
+              // Soft-decouple: don't race panel-mount upsert when host already owns HWND.
               const navUrl = url && /^https?:\/\//i.test(url) ? url : 'about:blank'
+              const source = String(payload.source || '').trim()
+              const hostOwns =
+                source.includes('after_create') ||
+                source.includes('exists') ||
+                source.includes('navigate_window_ok')
+              if (hostOwns || window.__EVOFLOW_CHAT_BROWSER_PANEL__) {
+                blog(
+                  'info',
+                  `[boot] skip upsert (hostOwns=${hostOwns} chatOwns=${Boolean(window.__EVOFLOW_CHAT_BROWSER_PANEL__)}) source=${source || '(none)'}`,
+                )
+                if (window.__EVOFLOW_CHAT_BROWSER_PANEL__) return
+                if (navUrl !== 'about:blank') {
+                  applyBrowserCommandResponse({ threadId: bridgeTid, pageUrl: navUrl, sessionKey })
+                } else {
+                  ensureBrowserStage({ sessionKey })
+                }
+                return
+              }
+              const exists = await browserEmbedExists(NATIVE_EMBED_THREAD_ID)
+              const placeOnly = exists || !source.includes('panel_fallback')
               const info = await ensureNativeEmbed({
-                url: navUrl,
+                url: placeOnly || navUrl === 'about:blank' ? undefined : navUrl,
+                placeOnly,
                 slot: estimateEmbedSlot(),
                 reason: 'boot',
               })
               if (info?.cdpUrl) {
                 await registerBrowserEmbedCdp(bridgeTid, info.cdpUrl)
                 console.log('[browser-panel-request] upsert ok', info.webviewLabel || bridgeTid)
-                blog('info', `[boot] upsert ok label=${info.webviewLabel || bridgeTid}`)
+                blog(
+                  'info',
+                  `[boot] upsert ok label=${info.webviewLabel || bridgeTid} exists=${exists} placeOnly=${placeOnly} source=${source || '(none)'}`,
+                )
               } else {
                 console.warn('[browser-panel-request] upsert returned no cdpUrl')
                 blog('warn', '[boot] upsert returned no cdpUrl')
               }
               if (navUrl !== 'about:blank') {
-                applyBrowserCommandResponse({ threadId: bridgeTid, pageUrl: navUrl })
+                applyBrowserCommandResponse({ threadId: bridgeTid, pageUrl: navUrl, sessionKey })
               } else {
-                ensureBrowserStage()
+                ensureBrowserStage({ sessionKey })
               }
             } catch (err) {
               console.warn('[browser-panel-request] handler failed', err)
@@ -1054,6 +1117,44 @@ async function checkWebuiRemoteAuth() {
       bootMark('boot() done')
       // 运行期 latch 提示窗口开启：boot 完成后的重扣（reload/自愈）才提示用户。
       window.__EVOFLOW_BOOT_DONE__ = true
+      // Soft-decouple: pre-create parked HWND + guest bridge at boot so the first
+      // agent goto only Page.navigate (no cold agent-create on the critical path).
+      void (async () => {
+        try {
+          const { blog } = await import('./lib/browser-unified-log.js')
+          const { browserEmbedExists, registerBrowserEmbedCdp } = await import(
+            './lib/browser-embed-client.js'
+          )
+          const { ensureNativeEmbed, estimateEmbedSlot, NATIVE_EMBED_THREAD_ID } = await import(
+            './lib/browser-embed-surface.js'
+          )
+          if (await browserEmbedExists(NATIVE_EMBED_THREAD_ID)) {
+            blog('info', '[boot] embed prewarm skip (hwnd already exists)')
+            return
+          }
+          const t0 = performance.now()
+          // Soft-decouple: do NOT forceHidden/SW_HIDE — that made HWND unavailable
+          // and panel mount destroyed the live page. Park is off-screen+visible now.
+          const info = await ensureNativeEmbed({
+            placeOnly: true,
+            slot: estimateEmbedSlot(),
+            reason: 'boot-prewarm',
+            forceHidden: false,
+          })
+          if (info?.cdpUrl) {
+            await registerBrowserEmbedCdp(NATIVE_EMBED_THREAD_ID, info.cdpUrl)
+          }
+          blog(
+            'info',
+            `[boot] embed prewarm ${info?.cdpUrl ? 'ok' : 'miss'} ` +
+              `label=${info?.webviewLabel || '-'} ms=${Math.round(performance.now() - t0)}`,
+          )
+        } catch (err) {
+          import('./lib/browser-unified-log.js')
+            .then(({ blog }) => blog('warn', `[boot] embed prewarm failed ${err}`))
+            .catch(() => {})
+        }
+      })()
     } else {
       backendOk = await healthPromise
       if (!backendOk) {

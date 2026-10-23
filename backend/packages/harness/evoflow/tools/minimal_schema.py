@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 # One-line purpose only — routing policy stays in the system prompt.
-READ_TOOL_DESCRIPTION = "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol."
+READ_TOOL_DESCRIPTION = (
+    "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol. "
+    "Image refs (jpg/jpeg/png/webp local paths, http(s) image URLs, browser-snapshot refs) are loaded "
+    "visually instead; accepts a single ref or a list of image refs (up to 8) in one call."
+)
 WRITE_TOOL_DESCRIPTION = "Write or append file content. Put path before content in tool arguments. Split very large files across calls with append=True."
 REPLACE_TOOL_DESCRIPTION = "Replace text in a file. Put path before old_string/new_string in tool arguments; old_string must be unique unless regex=True (dry_run to preview)."
 DELETE_TOOL_DESCRIPTION = "Delete a single file (not directories; system paths blocked)."

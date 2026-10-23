@@ -94,6 +94,74 @@ _WRITE_TOOL_NAMES = {
 
 _DIFF_MAX_LINES = 800
 
+# 微信工具 → 简洁摘要（对齐旧链路 formatToolOutputForUserDisplay 的微信分支）。
+_WECHAT_TOOL_NAMES = {"wechat_chat", "wechat_send", "send_wechat_message"}
+
+
+def _wechat_summary(content: str) -> str | None:
+    try:
+        blob = json.loads(content) if content else None
+    except ValueError:
+        blob = None
+    if not isinstance(blob, dict):
+        return None
+    contact = str(blob.get("contact") or "").strip()
+    msg = str(blob.get("message") or "").strip()
+    if blob.get("ok") is True and contact:
+        brief = msg[:40] + "…" if len(msg) > 40 else msg
+        return f"消息已发送给 {contact}：{brief}" if brief else f"消息已发送给 {contact}"
+    if blob.get("ok") is not True and blob.get("error"):
+        return f"微信发送失败：{str(blob.get('error')).strip()}"
+    return None
+
+# 媒体工具（图片产物）→ CUA display 内联图片。视频/音频无内联渲染位，暂缓。
+_MEDIA_IMAGE_TOOL_NAMES = {"media_image_generate", "media_task_wait"}
+
+
+def _media_artifact_uri(thread_id: str, abs_path: str) -> str:
+    """构造工作区文件的 inline 预览 URL（serve-file 支持绝对 path，root 由 thread 解析）。"""
+    try:
+        from urllib.parse import quote
+
+        from app.gateway.routers.workspaces import _resolve_workspace_root
+
+        root = _resolve_workspace_root(None, thread_id)
+        return f"/api/workspaces/serve-file?root={quote(root)}&path={quote(abs_path)}"
+    except Exception:
+        return ""
+
+
+def _media_image_cua_display(thread_id: str, content: str, tool_name: str) -> dict[str, Any] | None:
+    """media_* 工具结果 → CUA display（media[].artifactUri 指向 serve-file）。
+
+    ZCode 工具卡原生内联渲染 CUA media 截图/图片——media 工具对齐就落到这个结构。
+    """
+    try:
+        blob = json.loads(content) if content else None
+    except ValueError:
+        blob = None
+    if not isinstance(blob, dict) or blob.get("ok") is False:
+        return None
+    candidates = []
+    for key in ("absolute_path", "local_path", "url"):
+        value = str(blob.get(key) or "").strip()
+        if value:
+            candidates.append(value)
+    for value in blob.get("urls") or []:
+        if isinstance(value, str) and value.strip():
+            candidates.append(value.strip())
+    primary = next((c for c in candidates if c), "")
+    if not primary or primary.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v")):
+        return None
+    uri = _media_artifact_uri(thread_id, primary) or primary
+    return {
+        "kind": "cua",
+        "schemaVersion": 1,
+        "toolName": tool_name,
+        "status": "success",
+        "media": [{"mimeType": "image/png", "artifactUri": uri}],
+    }
+
 
 def build_file_diff_display(path: str, old_text: str, new_text: str) -> dict[str, Any] | None:
     """按 ZCode file_diff display 契约（toolDisplay.ts）构造结构化 diff。
@@ -623,11 +691,22 @@ class V4Mirror:
                 content, cua_display = _split_evoflow_cua_display(content)
             # 协议形状（toolDisplay.ts toolOutputSchema）：output = {text, display?}，
             # 错误在 row 顶层 error 字段（status=error 时必带）——不能包 kind:"text"/"error"。
+            tool_name_l = str(ev.get("toolName") or "").strip() or st.tool_names.get(tcid, "")
+            if tool_name_l.lower() in _WECHAT_TOOL_NAMES:
+                # 微信工具卡摘要对齐旧链路（简洁一句，而非原始 JSON）。
+                wechat_brief = _wechat_summary(content)
+                if wechat_brief:
+                    content = wechat_brief
             tool_output: dict[str, Any] = {"text": content}
             if cua_display is not None:
                 block = _cua_display_block(cua_display, content)
                 if block is not None:
                     tool_output["display"] = block
+            elif tool_name_l.lower() in _MEDIA_IMAGE_TOOL_NAMES and v4_status == "success":
+                # 媒体工具产物图片 → CUA display 内联渲染（对齐 ZCode 工具卡图片能力）。
+                media_block = _media_image_cua_display(tid, content, tool_name_l)
+                if media_block is not None:
+                    tool_output["display"] = media_block
             else:
                 if tool_name.lower() in _WRITE_TOOL_NAMES:
                     # ZCode 契约：Edit/Write 的可点击 diff 由 CLI 算好放进 output.display

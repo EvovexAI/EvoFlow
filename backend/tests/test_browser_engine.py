@@ -176,7 +176,10 @@ class FakeBridge:
             "title": self.title,
             "elements": [self._element(1), self._element(2, ref="e2", tag="input", role="textbox", name="Email", selector="#mail", xpath="//body/INPUT[1]", text="", value="")],
             "truncated": False,
-            "dom": [{"tag": "h1", "depth": 1, "inViewport": True, "text": "Hello"}],
+            "dom": [
+                {"tag": "h1", "depth": 1, "inViewport": True, "text": "Hello"},
+                {"tag": "div", "depth": 2, "inViewport": True, "text": "22°C 晴"},
+            ],
             "domTruncated": False,
         }
 
@@ -189,6 +192,7 @@ class FakeBridge:
             "vw": 1280,
             "vh": 720,
             "hl": 2,
+            "ready": "complete",
         }
 
     async def __call__(self, tid: str, method: str, params: dict | None = None):
@@ -249,6 +253,14 @@ def test_snapshot_returns_contract_valid_shape(bridge, engine):
     assert refs == {"e1", "e2"}
     assert validated.elements[0].role == "button"
     assert validated.dom and validated.dom[0].text == "Hello"
+    assert any(n.text == "22°C 晴" for n in (validated.dom or []))
+
+
+def test_get_state_includes_ready(bridge, engine):
+    result = _execute(engine, {"method": "getState"})
+    assert result["ok"], result
+    state = PageState.model_validate(result["state"])
+    assert state.ready == "complete"
 
 
 def test_snapshot_populates_refs_for_click(bridge, engine):
@@ -510,6 +522,72 @@ def test_navigate_succeeds_when_readyState_completes(bridge, engine):
     result = _execute(engine, {"method": "navigate", "url": "https://example.com/page"})
     assert result["ok"] is True, result
     assert result["state"]["url"] == "https://example.com/"
+
+
+def test_navigate_retries_settle_while_webview_mounts(monkeypatch, engine):
+    """Cold panel: first Runtime.evaluate fails with webview-not-ready; must retry, not abort in <1s."""
+    import evoflow.tools.builtins.browser_engine as engine_mod
+
+    class MountingBridge:
+        def __init__(self) -> None:
+            self.evals = 0
+
+        async def __call__(self, tid, method, params=None):
+            if method == "Page.navigate":
+                return {"frameId": "fake"}
+            if method == "Runtime.evaluate":
+                self.evals += 1
+                if self.evals < 3:
+                    raise RuntimeError(
+                        "embedded webview not ready for Runtime.evaluate "
+                        "(label=browser-embed-primary); Page.navigate first"
+                    )
+                return {
+                    "result": {
+                        "value": {
+                            "ready": "interactive",
+                            "url": "https://www.baidu.com/",
+                            "title": "百度",
+                            "sx": 0,
+                            "sy": 0,
+                            "vw": 1280,
+                            "vh": 720,
+                            "hl": 1,
+                            "canBack": False,
+                            "canForward": False,
+                        }
+                    }
+                }
+            return {}
+
+    monkeypatch.setattr(engine_mod, "_dispatch_run", MountingBridge())
+    result = _execute(engine, {"method": "navigate", "url": "https://www.baidu.com"})
+    assert result["ok"] is True, result
+    assert "baidu.com" in result["state"]["url"]
+
+
+def test_navigate_timeout_mentions_webview_not_ready(monkeypatch, engine):
+    """If embed never mounts, error text must say panel/webview — not anti-bot."""
+    import evoflow.tools.builtins.browser_engine as engine_mod
+
+    class NeverReadyBridge:
+        async def __call__(self, tid, method, params=None):
+            if method == "Page.navigate":
+                return {"frameId": "fake"}
+            raise RuntimeError("embedded webview not ready for Runtime.evaluate")
+
+    async def fast_settle(session, tid, timeout_ms):
+        # Exercise real settle with a short deadline.
+        return await engine_mod.BrowserEngine._settle(engine, session, tid, 250)
+
+    monkeypatch.setattr(engine_mod, "_dispatch_run", NeverReadyBridge())
+    monkeypatch.setattr(engine, "_settle", fast_settle)
+    result = _execute(engine, {"method": "navigate", "url": "https://www.baidu.com"})
+    assert result["ok"] is False
+    assert result["error"]["code"] == "timeout"
+    msg = result["error"]["message"]
+    assert "not ready" in msg.lower() or "panel" in msg.lower()
+    assert "anti-bot" not in msg.lower()
 
 
 def test_back_surfaces_timeout_when_readyState_never_completes(monkeypatch, engine):

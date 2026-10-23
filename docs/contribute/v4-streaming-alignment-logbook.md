@@ -134,6 +134,107 @@ onToolApprovalStable（审批信息从行 output.text 的 _evoflow_tool/approval
 摘要/参数兜底用 inputText）。批准后端执行 → 结果经镜像回流 V4 行 ✓；老 handler 的
 本地 patch/续流逻辑在 V4 模式无害（老 rows 不显示）。
 
+**审查 diff 视图对齐（2026-10-22 深夜十六轮，用户报"整行底色没对齐"）**：审查按钮打开的
+patch 视图此前用 CodeViewer language:"diff"——只有字符高亮、没有 ZCode 的整行红绿底。
+已换成 vendor 的 HighlightedLightweightDiffPreview（EditInlineDiffContent 同款：
+整行 color-mix 底色 + inset 色条 + 彩色行号 + 按文件扩展名语法高亮）——
+lines 用 getPlainTextPatchPreviewLines(patch)（剥 ---/+++ 头），theme 按
+prefers-color-scheme 解析 darkTheme/lightTheme。至此审查视图与 ZCode 的
+inline diff 渲染同源同款。
+
+**文件审查卡「审查/打开」对齐（2026-10-22 深夜十五轮）**：审查按钮（openDiff →
+onOpenCodeViewer type:"patch"）与打开按钮（OpenSplitButton →
+buildChangeSummaryFilePreviewSource 的 **type:"file"** 源）此前都通到
+onOpenCodeViewer，但 V4CodeViewerSidePane 对 type:"file" 只渲染"仅支持 patch"占位——
+打开即见未对齐空面板；审查若 patches 为空则按钮 disabled（数据侧 hub.file_changes
+已产 patches，重测确认）。修复：V4CodeViewerSidePane 对 type:"file" 源拉真实文件内容
+（serve-file?path&thread_id → text → CodeViewer 按扩展名高亮）+ loading/error 态；
+threadId 经 rightStage data 从 chat-app-view（wsClient.getSessionThreadId）穿到面板。
+**审查仍无响应时的检查点：canReview = patches>0 && onOpenCodeViewer，按钮 disabled
+即 patches 空——抓该轮 [v4.hydration]/fileChanges 响应发我。**
+
+**v4Session 面板桥（2026-10-22 深夜十九轮，做了一半）**：
+①新组件 `react/v4/V4SessionPaneBridge.tsx`——V4StreamRowsBridge + V4ZCodeTimeline readOnly，
+按 childSessionId 订阅子会话投影（ZCode drilldown 同机制，数据已由镜像捕获）；
+②render-right-stage-body 加 `v4Session` 分支（data.childSessionId）；
+③chat-app-view 已传 subagentTasks/onOpenSubagentTranscript（623-624 行）。
+**未完成（与团队并行重构撞车）**：V4ZCodeTimeline 正被重构成 renderToolCallApproval
+回调挂 rowContext 的新模式（审批浮层已改为按行渲染），我此前加的 subagentTasks/
+onOpenSubagentTranscript props 在重构中被移除，chat-app-view 的传参暂时悬空。
+**接续点**：按团队新形态把子代理入口接回去——仿 renderToolCallApproval 的
+context 回调模式（onOpenSubagentTranscript 挂 rowContext），入口条/工具卡点击 →
+打开 rightStage `v4Session` tab（data.childSessionId = 子代理线程）。
+子线程推导：collab 子任务 = `{lead}__sub__{subtaskId}`。
+
+**框架迁移钥匙孔落地（2026-10-22 深夜十八轮，用户拍板"先搬框架再逐个填"）**：
+`workspaceConnectionRegistry.ts` 加 **transport 覆盖注册表**（registerV4TransportOverride/
+clearV4TransportOverride，按 workspace scope 键）——acquireWorkspaceConnection 命中覆盖时
+用注册的 SSE transport 建/复用连接条目（同 refCount/keepWarm/dispose 语义），
+agentService 全程不触碰；RegistryEntry.agentService 类型放宽为 | null。
+evoflowV4Transport 模块级注册覆盖（workspacePath="" 键）。**这一把钥匙打开了整个
+ZCode 侧栏框架**：SubagentSessionSidePane（61 行，V4PaneConversationProvider +
+readOnly SessionPane，sessionId=子会话 threadId）等全部 vendor 面板现在可挂。
+**下一步（新工作包）**：①右侧面板框架从 rightStageStore 平移到 ZCode 侧栏体系
+（AnimatedSidePanePanel 54 props 属工作区 shell，对话侧栏用 SubagentSessionSidePane 模式）；
+②子代理卡片点击 → SessionPane drilldown（sessionId=子代理 threadId，逐 token 流式）；
+③逐面板填服务适配。**坑：RegistryEntry.agentService 非空类型要放宽；覆盖条目的
+reuse/dispose 语义要与原函数对齐（refCount/keepWarm/stale 清场）。
+
+**右侧面板体系审计（2026-10-22 深夜十七轮）**：对照 ZCode app-shell 侧栏体系逐项审计
+EvoFlow rightStage。已修：codeViewer/subagentTranscript 加入 FORCE_MOUNT_KINDS（此前切
+tab 卸载丢轮询/滚动状态；ZCode 按 tab 保活）。**未对齐清单（按工作量排序）**：
+①file kind 仍渲染 WorkspaceFilePreviewPanel（EvoFlow 文件预览，非 ZCode CodeViewer）——
+需在 V4 模式下换 ZCode 文件查看器（medium）；②tab 条 chrome 是 EvoFlow 自有样式
+（react-chat-stage-tab），ZCode 用 AnimatedSidePanePanel（动画/owner 徽标/最近关闭）——
+整体 UI 对齐是大项（large）；③"打开方式"下拉依赖 platform.getInstalledEditors（Tauri 能力），
+独立宿主下降级为空（acceptable）；④tab 体系架构差异：EvoFlow rightStageStore（轻量 tab 栈）
+vs ZCode workspaceSidePane 状态机（owner 域/路由/恢复）——架构级对齐属 v4 command 之后的大阶段。
+
+**视频/音频内联渲染（2026-10-22 深夜十四轮，媒体对齐收口）**：ZCode 本来就有
+MediaCodeViewerSource（type:"media"，kind audio/video，shared media-preview.ts 的
+getMediaPreviewFormat 识别 11 种扩展）——只差三段接线：①getToolCallCodePreview 在 image
+分支后加 media 分支（getMediaPreviewFormat 命中 → MediaCodeViewerSource）；②toolDisplay 的
+ToolInlinePreview 加 media 变体 + toInlinePreview 映射 + genericMediaStrategy 注册
+（nodeReplToolStrategy 后、genericImageStrategy 前）；③ToolCallBody 的 InlineMediaContent：
+serve-file URL（root=workspacePath, path=preview.path）直接 <video controls>/<audio controls>
+——**流式直出不走 base64**（Range 请求，大视频不撑内存）。
+另：extractRawPath 补 JSON 字符串递归（media 工具把产物路径写在结果 JSON 里，
+字符串直查字段永远 miss——顺带 absolute_path/local_path 进字段清单）。
+
+**媒体图片内联渲染落地（2026-10-22 深夜十三轮三）**：media 工具的图片现在走 ZCode
+原生的 InlineImageContent 内联预览——链路三件套：①vendor codeViewer.ts 的 image 门放宽
+（原 `isDiffTool||isReadTool||isWriteTool` 家族门挡住 media 工具 → 改为按路径形态判定
+isImagePreviewPath）；②宿主部分 fileService 补 `readMediaPreview`（fetch serve-file →
+dataURL，返回 {path, mediaType, dataBase64, totalBytes}——InlineImageContent 消费该形状）；
+③后端 serve-file 的 root 改可选（与 resolve-target 同款 thread_id 解析，实测 200）。
+链路：getToolCallCodePreview 从 input.path 解析（rawInput 已桥接）→ extractRawPath 命中
+→ InlineImageContent.readMediaPreview → serve-file。**视频/音频仍待接**（InlineImageContent
+只渲染 img；media 源 video 需扩 <video>/<audio> 渲染或专用 strip）。
+
+**微信摘要 + artifactUri 链路确认（2026-10-22 深夜十三轮二）**：微信工具
+（wechat_chat/wechat_send/send_wechat_message）卡摘要对齐旧链路——镜像在
+TOOL_CALL_RESULT 把 output.text 换成简洁一句（"消息已发送给 {contact}：{brief}"，
+同 chat-normalize.js:2916 分支）；媒体图片的 artifactUri 链路确认可渲染：
+NodeReplImageGrid → resolveBrowserScreenshotSrcAsync → browserScreenshotApiPath
+（/api/ 前缀剥离 + apiUrlAsync 回填 base）→ serve-file，img 直接显示。
+**视频/音频仍待接**（CUA 卡只有 img 渲染位，需扩展 <video>/<audio> 或专用 strip）。
+
+**媒体工具图片对齐（2026-10-22 深夜十三轮，进行中）**：旧链路媒体 = media_image_generate/
+media_task_wait/media_video_generate 的 JSON 产物（absolute_path/url）→ inferMediaAssetsFromToolEntries
+→ 消息气泡 media strip。V4 对齐：镜像在 TOOL_CALL_RESULT 对媒体工具解析产物 →
+`output.display = cua 块（media[].artifactUri = /api/workspaces/serve-file?root&path）`
+——ZCode 工具卡原生内联渲染 CUA media 图片，前端零改动（toolCallRowAdapter 已透传 display）。
+实测 artifactUri 正确。**未对齐剩余**：视频/音频（无内联渲染位，待扩展）、微信图标
+（需确认旧渲染形态）、链接（Streamdown 已原生渲染，待用户确认差距点）。
+
+**会话切换闪烁+抖动（2026-10-22 深夜十一轮）**：两个问题同根。①"先一屏黑字再看到历史"
+= 切换瞬间 threadId 未解析/快照未到时回落老面板，老 rows（DB 历史加载）先渲染一屏老样式，
+随后 V4 整树挂载——修复：回落条件从 `isHomeSurface`（V4 模式下老 rows 加载完才变 false，
+必然闪一屏）收紧为 `!selectedSessionKey`（只有真首页/草稿走老面板）。②抖动 = 首次订阅
+7s 冷导入触发看门狗 resync 双快照整树重挂——修复：hydration 模块链（chat/session_repositories
++ agui_mirror）预热挪到 `cold_start_prewarm.prewarm_gateway_before_event_loop`（事件循环前），
+首订阅回百毫秒级，无双快照。重测需重启网关（预热在启动期）。
+
 **workspacePath 根因（2026-10-22 深夜九轮，用户报"文件名显示 D"）**：DB 验证 args.path 是
 完整绝对路径（数据无缺），真凶 = 宿主 rowContext.workspacePath 传了空串——ZCode 的文件
 chip/摘要/diff 路径解析链全部依赖真实工作区根做相对化，空串让绝对 Windows 路径解析退化
@@ -148,6 +249,18 @@ readRawToolCallInput 优先读它，缺了 Write/Edit 退化成整段 JSON 展�
 （edit.tsx 的文件 chip clickable 直接取决于它），V4ZCodeTimeline 加 prop，chat-app-view 传
 `openMessageFilePreview(source.path, source.title)` → EvoFlow 右侧面板文件预览；
 patch 源 v1 先打开目标文件，diff 视图待 right-stage 支持。
+
+**子代理流式输出面板（2026-10-22 深夜十二轮，用户要求对齐 ZCode"点开子代理看全量流式"）**：
+数据链全在旧代码——`GET /api/tasks/subagent/{task_id}/transcript`（SubagentExecutor 内存快照，
+含 collab_subtask_id 解析）+ `messagesToSubtaskModalRows` + `SubtaskModalMessageRow` 渲染 +
+`liveOutput` 流式兜底（旧 SubagentTranscriptModal 弹窗整链）。接法：新增右侧面板 kind
+`subagentTranscript`（新组件 `v4-subagent-transcript-pane.tsx`：2s 轮询 + 贴底跟读 +
+终态停轮）；V4ZCodeTimeline 扫 toolCall 行 ↔ subagentTasks（同 ToolCallList 的
+resolve 四键：toolCallId/taskId/taskExecId/collabSubtaskId），命中即在底部入口条显示
+「执行中/已完成 · 点击查看流式输出」→ 打开右侧面板。chat-app-view 传
+threadPanelState.subagentTasks（task_* CUSTOM 事件未闸，数据照流）。
+**坑：chat-app-view 是 @ts-nocheck——rightStageStore 忘了 import 不会报类型错，
+运行时才 ReferenceError；@ts-nocheck 文件里新增全局符号引用必须自查 import。**
 
 **右侧面板 diff 对齐（2026-10-22 深夜十轮）**：Edit 卡文件 chip 点击原走
 openMessageFilePreview（EvoFlow 文件预览——无 diff 模式）。新增右侧面板 kind

@@ -35,6 +35,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -565,26 +566,67 @@ _SNAPSHOT_JS = r"""
         return out;
     }
     // Compact outline of readable content, aligned with SnapshotDomNode.
+    // Semantic tags + short leaf-ish containers (modern SPAs put copy in div/span).
+    function ownText(el) {
+        let t = '';
+        for (const c of el.childNodes || []) {
+            if (c.nodeType === 3) t += c.nodeValue || '';
+        }
+        return t.trim().replace(/\s+/g, ' ');
+    }
+    function bodyTextChunks() {
+        let raw = '';
+        try { raw = (document.body && document.body.innerText) || ''; } catch (_) {}
+        return raw.replace(/\r/g, '').split(/\n+/)
+            .map((s) => s.trim().replace(/\s+/g, ' '))
+            .filter((s) => s.length >= 2 && s.length <= 300);
+    }
     function domOutline() {
-        const tags = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','TH','TD','DT','DD','FIGCAPTION']);
+        const semantic = new Set(['H1','H2','H3','H4','H5','H6','P','LI','BLOCKQUOTE','PRE','TH','TD','DT','DD','FIGCAPTION','LABEL','LEGEND','SUMMARY','CAPTION']);
+        const containers = new Set(['DIV','SPAN','SECTION','ARTICLE','MAIN','ASIDE','HEADER','FOOTER','NAV','STRONG','EM','B','I','SMALL','MARK','TIME']);
         const out = [];
+        const seen = new Set();
+        // Seed body lines first so facts beat chrome structure (and survive model .slice).
+        for (const chunk of bodyTextChunks()) {
+            if (out.length >= Math.min(80, MAX_DOM)) break;
+            const key = chunk.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ tag: 'text', depth: 0, inViewport: true, text: chunk.slice(0, 200) });
+        }
         const walker = document.createTreeWalker(
             document.body || document.documentElement,
             NodeFilter.SHOW_ELEMENT,
             null
         );
-        let depth = 0;
         let node;
         while ((node = walker.nextNode()) && out.length < MAX_DOM) {
-            depth = 0;
+            const tag = node.tagName;
+            if (!semantic.has(tag) && !containers.has(tag)) continue;
+            if (!includeHidden && !isVisible(node)) continue;
+            let depth = 0;
             let anc = node.parentElement;
             while (anc) { depth++; anc = anc.parentElement; }
-            if (!tags.has(node.tagName)) continue;
-            const text = (node.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 200);
-            if (!text) continue;
+            let text = '';
+            if (semantic.has(tag)) {
+                text = (node.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+            } else {
+                text = ownText(node);
+                const childEls = node.children ? node.children.length : 0;
+                if ((!text || text.length < 2) && childEls <= 2) {
+                    text = (node.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+                }
+                // Skip fat page wrappers that would drown the outline.
+                if (childEls > 6) continue;
+                if (text.length > 180) continue;
+            }
+            if (!text || text.length < 2) continue;
+            const key = text.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
             const rect = node.getBoundingClientRect();
             out.push({
-                tag: node.tagName.toLowerCase(),
+                tag: tag.toLowerCase(),
                 depth: Math.max(0, depth - 2),
                 inViewport: inViewport(rect),
                 text,
@@ -742,6 +784,7 @@ class _Session:
         self.last_title = ""
         self.last_can_back = False
         self.last_can_forward = False
+        self.last_settle_error: str | None = None
         self.last_used = time.time()
 
 
@@ -861,6 +904,21 @@ class BrowserEngine:
             method,
             timeout,
         )
+        # Explicit unified-file line (not only logging mirror): navigate/settle
+        # triage must survive even if root handlers were rebuilt.
+        try:
+            from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+            url_hint = ""
+            raw_url = command.get("url") or (command.get("params") or {}).get("url")
+            if raw_url:
+                url_hint = f" url={str(raw_url)[:160]}"
+            browser_debug_log(
+                "py",
+                f"[browser-engine] execute START tid={thread_id} method={method}{url_hint}",
+            )
+        except Exception:
+            pass
 
         async def _run() -> dict[str, Any]:
             try:
@@ -897,6 +955,18 @@ class BrowserEngine:
                 payload.get("elapsedMs"),
                 (payload.get("error") or {}).get("code"),
             )
+            try:
+                from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                err = payload.get("error") or {}
+                browser_debug_log(
+                    "py",
+                    f"[browser-engine] execute DONE tid={thread_id} method={method} "
+                    f"ok={payload.get('ok')} elapsed_ms={payload.get('elapsedMs')} "
+                    f"code={err.get('code')} msg={str(err.get('message') or '')[:180]}",
+                )
+            except Exception:
+                pass
             return payload
 
         return self._submit(_run, timeout or _COMMAND_BUDGET_SEC)
@@ -995,6 +1065,8 @@ class BrowserEngine:
             session.last_title = title
         elif not title:
             title = session.last_title or ""
+        ready_raw = info.get("ready")
+        ready = str(ready_raw).strip() if isinstance(ready_raw, str) and ready_raw.strip() else None
         state = PageState(
             url=url,
             title=title if not _is_internal_error_url(raw_url) else (session.last_title or title),
@@ -1004,6 +1076,7 @@ class BrowserEngine:
             scrollY=float(info.get("sy") or 0),
             viewportWidth=float(info.get("vw") or 0) or None,
             viewportHeight=float(info.get("vh") or 0) or None,
+            ready=ready,
         )
         session.last_can_back = state.canGoBack
         session.last_can_forward = state.canGoForward
@@ -1043,6 +1116,61 @@ class BrowserEngine:
             return bool(value.get("url"))
         return False
 
+    @staticmethod
+    def _host_apex(host: str | None) -> str:
+        h = (host or "").strip().lower()
+        parts = [p for p in h.split(".") if p]
+        if len(parts) >= 2:
+            return f"{parts[-2]}.{parts[-1]}"
+        return h
+
+    @classmethod
+    def _urls_same_navigation(cls, want: str, cur: str) -> bool:
+        """True when ``cur`` is the navigated page (or same-load redirect).
+
+        Matches Rust ``urls_same_load`` loosely: www↔cn apex, query growth,
+        and site-root → landing redirects. Different search queries must not match.
+        """
+        want = (want or "").strip()
+        cur = (cur or "").strip()
+        if not want or not cur:
+            return False
+        if want == cur:
+            return True
+        try:
+            w = urlparse(want)
+            c = urlparse(cur)
+        except Exception:
+            return False
+        if w.scheme and c.scheme and w.scheme != c.scheme:
+            return False
+        if cls._host_apex(w.hostname) != cls._host_apex(c.hostname):
+            return False
+        w_port = w.port or (443 if w.scheme == "https" else 80 if w.scheme == "http" else None)
+        c_port = c.port or (443 if c.scheme == "https" else 80 if c.scheme == "http" else None)
+        if w_port != c_port:
+            return False
+        wpath = w.path or "/"
+        cpath = c.path or "/"
+        if wpath.rstrip("/") != cpath.rstrip("/"):
+            # Homepage / bare host → site landing (douyin.com → /jingxuan).
+            if wpath in ("/", "") and cpath not in ("/", ""):
+                pass
+            elif cpath.startswith(wpath.rstrip("/") + "/") or wpath.startswith(
+                cpath.rstrip("/") + "/"
+            ):
+                pass
+            else:
+                return False
+        wq = w.query or ""
+        cq = c.query or ""
+        if wq == cq or not wq or not cq:
+            return True
+        if cq.startswith(wq) or wq.startswith(cq):
+            return True
+        # Distinct search queries (q= / wd=) are different navigations.
+        return False
+
     async def _read_settle_once(self, tid: str) -> Any:
         raw = await _dispatch_run(
             tid,
@@ -1053,6 +1181,24 @@ class BrowserEngine:
             return None
         return raw.get("result", {}).get("value")
 
+    @staticmethod
+    def _settle_error_is_transient(exc: BaseException) -> bool:
+        """True when evaluate failed because the embed is still mounting."""
+        msg = str(exc).lower()
+        return any(
+            needle in msg
+            for needle in (
+                "not ready",
+                "guest poll",
+                "webview",
+                "timed out waiting",
+                "embed http bridge",
+                "backend_unavailable",
+                "no stashed",
+                "corewebview2 capture timed out",
+            )
+        )
+
     async def _settle(
         self, session: _Session, tid: str, timeout_ms: int
     ) -> tuple[bool, PageState]:
@@ -1060,31 +1206,158 @@ class BrowserEngine:
 
         COM evaluate is ~ms now; keep the loop so we still wait for load
         without the dead remote-CDP tax or a broken async Promise path.
+
+        Cold start: the panel may still be creating WebView2 when navigate
+        lands — evaluate then fails with ``webview not ready``. Retry until
+        the deadline instead of aborting on the first miss (that used to
+        surface as a bogus ``readyState=complete / anti-bot`` timeout in ~0.6s).
         """
         deadline = time.monotonic() + max(0, timeout_ms) / 1000
         last: Any = None
+        last_err: str | None = None
         attempt = 0
+        session.last_settle_error = None
+        try:
+            from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+            browser_debug_log(
+                "py",
+                f"[browser-ready] settle START tid={tid} timeout_ms={timeout_ms}",
+            )
+        except Exception:
+            pass
         while True:
             attempt += 1
             try:
                 last = await self._read_settle_once(tid)
+                last_err = None
             except Exception as exc:
+                last_err = str(exc)
                 logger.warning(
                     "settle dispatch FAILED tid=%s attempt=%s: %s", tid, attempt, exc
                 )
+                try:
+                    from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                    browser_debug_log(
+                        "py",
+                        f"[browser-ready] NOT_READY tid={tid} attempt={attempt} "
+                        f"reason=evaluate_failed err={last_err[:240]}",
+                    )
+                except Exception:
+                    pass
+                if self._settle_error_is_transient(exc) and time.monotonic() < deadline:
+                    await asyncio.sleep(0.15)
+                    continue
+                session.last_settle_error = last_err
                 return False, self._state_from_info(session, {})
             if self._ready_from_settle(last):
                 info = last if isinstance(last, dict) else {}
+                cur_url = str(info.get("url") or "") if isinstance(info, dict) else ""
+                want_url = str(getattr(session, "last_url", None) or "")
+                # FE placeOnly used to upsert→navigate about:blank mid-settle;
+                # never treat blank as ready when we just asked for a real page.
+                if want_url.startswith(("http://", "https://")) and (
+                    not cur_url
+                    or cur_url.startswith("about:")
+                    or "/browser-embed/blank" in cur_url
+                ):
+                    try:
+                        from evoflow.tools.builtins.browser_debug_log import (
+                            browser_debug_log,
+                        )
+
+                        browser_debug_log(
+                            "py",
+                            f"[browser-ready] NOT_READY tid={tid} attempt={attempt} "
+                            f"reason=blank_while_want_http cur={cur_url!r} want={want_url[:120]!r}",
+                        )
+                    except Exception:
+                        pass
+                    if time.monotonic() < deadline:
+                        await asyncio.sleep(0.15)
+                        continue
+                    session.last_settle_error = (
+                        f"settled on {cur_url or 'about:blank'} while wanting {want_url}"
+                    )
+                    return False, self._state_from_info(session, info)
+                # Stale page: readyState complete but still on previous URL
+                # (seen: navigate 南阳, READY still 上海 in 15ms).
+                if want_url.startswith(("http://", "https://")) and cur_url.startswith(
+                    ("http://", "https://")
+                ):
+                    if not self._urls_same_navigation(want_url, cur_url):
+                        try:
+                            from evoflow.tools.builtins.browser_debug_log import (
+                                browser_debug_log,
+                            )
+
+                            browser_debug_log(
+                                "py",
+                                f"[browser-ready] NOT_READY tid={tid} attempt={attempt} "
+                                f"reason=stale_url cur={cur_url[:140]!r} want={want_url[:120]!r}",
+                            )
+                        except Exception:
+                            pass
+                        if time.monotonic() < deadline:
+                            await asyncio.sleep(0.15)
+                            continue
+                        session.last_settle_error = (
+                            f"stale_url cur={cur_url!r} want={want_url!r}"
+                        )
+                        return False, self._state_from_info(session, info)
+                session.last_settle_error = None
+                ready_val = info.get("ready") if isinstance(info, dict) else last
+                try:
+                    from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                    browser_debug_log(
+                        "py",
+                        f"[browser-ready] READY tid={tid} attempt={attempt} "
+                        f"readyState={ready_val!r} url={(info.get('url') if isinstance(info, dict) else '')!s}",
+                    )
+                except Exception:
+                    pass
                 return True, self._state_from_info(session, info)
             if time.monotonic() >= deadline:
                 logger.warning(
-                    "settle TIMEOUT tid=%s after %sms ready=%s",
+                    "settle TIMEOUT tid=%s after %sms ready=%s last_err=%s",
                     tid,
                     timeout_ms,
                     last if not isinstance(last, dict) else last.get("ready"),
+                    last_err,
                 )
                 info = last if isinstance(last, dict) else {}
+                if last_err:
+                    session.last_settle_error = last_err
+                elif isinstance(last, dict):
+                    session.last_settle_error = f"readyState={last.get('ready')!r}"
+                elif isinstance(last, str):
+                    session.last_settle_error = f"readyState={last!r}"
+                try:
+                    from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                    browser_debug_log(
+                        "py",
+                        f"[browser-ready] TIMEOUT tid={tid} attempts={attempt} "
+                        f"detail={session.last_settle_error!r}",
+                    )
+                except Exception:
+                    pass
                 return False, self._state_from_info(session, info)
+            # Document still loading — log sparsely (every ~1s).
+            if attempt == 1 or attempt % 10 == 0:
+                ready_val = last.get("ready") if isinstance(last, dict) else last
+                try:
+                    from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                    browser_debug_log(
+                        "py",
+                        f"[browser-ready] WAITING tid={tid} attempt={attempt} "
+                        f"readyState={ready_val!r}",
+                    )
+                except Exception:
+                    pass
             await asyncio.sleep(0.1)
 
     async def _wait_document_ready(
@@ -1151,6 +1424,7 @@ class BrowserEngine:
             return fail(ErrorCode.EXECUTION_ERROR, "navigate requires url")
         if not url.startswith(("http://", "https://", "file://", "about:", "data:")):
             url = f"https://{url}"
+        t0 = time.monotonic()
         try:
             await _dispatch_run(session.tid, "Page.navigate", {"url": url})
         except Exception as exc:
@@ -1158,28 +1432,112 @@ class BrowserEngine:
             # Surface as EXECUTION_ERROR so the agent sees a real error instead of
             # silently proceeding to a broken WebView2 — that was the second half
             # of the auto-insurance-quoter retry storm.
+            nav_ms = int((time.monotonic() - t0) * 1000)
             logger.warning(
                 "wv2_navigate Page.navigate FAILED tid=%s url=%s: %s",
                 session.tid, url, exc,
             )
+            try:
+                from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+                browser_debug_log(
+                    "py",
+                    f"[browser-timing] navigate FAIL tid={session.tid} nav_ms={nav_ms} "
+                    f"settle_ms=0 total_ms={nav_ms} err={exc}",
+                )
+            except Exception:
+                pass
             return fail(
                 ErrorCode.EXECUTION_ERROR,
                 f"Page.navigate rejected: {exc}",
             )
+        nav_ms = int((time.monotonic() - t0) * 1000)
         session.last_url = url
-        ready, state = await self._settle(session, session.tid, 8000)
+        t_settle = time.monotonic()
+        # Wait until document ready *and* URL matches want (stale-page guard).
+        # Slightly longer than 2.5s so cold restore + redirect can land.
+        ready, state = await self._settle(session, session.tid, 4500)
+        settle_ms = int((time.monotonic() - t_settle) * 1000)
+        total_ms = int((time.monotonic() - t0) * 1000)
+        try:
+            from evoflow.tools.builtins.browser_debug_log import browser_debug_log
+
+            browser_debug_log(
+                "py",
+                f"[browser-timing] navigate tid={session.tid} ready={ready} "
+                f"nav_ms={nav_ms} settle_ms={settle_ms} total_ms={total_ms} "
+                f"url={url}",
+            )
+            browser_debug_log(
+                "py",
+                f"[浏览器时间线] 后台导航｜引擎结算 tid={session.tid} "
+                f"文档就绪={ready} 导航耗时ms={nav_ms} 等待耗时ms={settle_ms} "
+                f"总耗时ms={total_ms} 链接={url}"
+                + (
+                    f" 结算异常={getattr(session, 'last_settle_error', None)!r}"
+                    if not ready
+                    else ""
+                ),
+            )
+        except Exception:
+            pass
         if not ready:
+            detail = str(getattr(session, "last_settle_error", None) or "").strip()
+            detail_l = detail.lower()
+            # Soft-decouple: Page.navigate already applied. Guest-poll / COM stash
+            # flaps (often while FE is placing HWND) must not burn 8–16s and fail
+            # the tool — the document is loading; agent can snapshot/wait next.
+            # Page.navigate already applied. FE place/recreate flaps often leave
+            # readyState=loading or transient evaluate errors — don't fail the tool.
+            # Never soft-ok a stale previous page — agent would snapshot the wrong URL.
+            if "stale_url" in detail_l:
+                soft = False
+            else:
+                soft = detail and any(
+                    s in detail_l
+                    for s in (
+                        "guest poll",
+                        "embed http bridge",
+                        "corewebview2 capture",
+                        "not ready",
+                        "webview",
+                        "readystate=",
+                        "loading",
+                        "blank_while_want",
+                        "about:blank",
+                    )
+                )
+            if soft:
+                logger.warning(
+                    "wv2_navigate settle soft-ok after Page.navigate tid=%s "
+                    "nav_ms=%s settle_ms=%s detail=%s",
+                    session.tid,
+                    nav_ms,
+                    settle_ms,
+                    detail[:200],
+                )
+                return CommandResult(
+                    ok=True,
+                    state=state.model_copy(update={"url": url}) if state else state,
+                )
+            if detail.startswith("readyState=") or detail.startswith("stale_url"):
+                message = (
+                    f"navigate to {url} timed out waiting for document ready "
+                    f"({detail}) within 4.5s. The page may still be loading, blocked, "
+                    "or behind a challenge — check the panel URL manually."
+                )
+            else:
+                message = (
+                    f"navigate to {url} did not become ready within 4.5s"
+                    + (f" ({detail})" if detail else "")
+                    + ". Check the right-side browser panel, or retry."
+                )
             return CommandResult(
                 ok=False,
                 state=state,
                 error=BrowserError(
                     code=ErrorCode.TIMEOUT,
-                    message=(
-                        f"navigate to {url} did not reach document.readyState=complete "
-                        "within 8s — the page may be blocked, redirecting to a "
-                        "challenge/captcha, or behind an anti-bot wall. "
-                        "Verify the URL manually, or pre-set cookies/auth before retrying."
-                    ),
+                    message=message,
                 ),
             )
         return CommandResult(ok=True, state=state)

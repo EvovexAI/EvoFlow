@@ -94,12 +94,18 @@ class _BrowserMirrorHandler(logging.Handler):
         try:
             name = record.name.lower()
             msg = record.getMessage()
+            msg_l = msg.lower()
             relevant = (
                 "browser" in name
                 or "node_repl" in name
                 or "plugins" in name
                 or "cua" in name
-                or "browser" in msg.lower()
+                or "browser" in msg_l
+                or "guest poll" in msg_l
+                or "webview" in msg_l
+                or "hwnd" in msg_l
+                or "[browser-ready]" in msg_l
+                or "[browser-engine]" in msg_l
             )
             if not relevant:
                 return

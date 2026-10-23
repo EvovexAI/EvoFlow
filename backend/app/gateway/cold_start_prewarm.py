@@ -108,6 +108,25 @@ def prewarm_gateway_before_event_loop() -> None:
     t0 = time.perf_counter()
 
     try:
+        # V4 hydration 冷导入预热：chat_message_repositories 首次 import 链有
+        # 数秒开销，若留在首次订阅（hub.subscribe → hydrate）里会造成客户端
+        # 等待 7s + 看门狗 resync 双快照（切换会话抖动）。这里在事件循环前预热。
+        from app.gateway.v4 import agui_mirror as _v4_mirror_prewarm  # noqa: F401
+
+        t_v4 = time.perf_counter()
+        from evoflow.persistence import chat_message_repositories as _v4_msg_repo  # noqa: F401
+        from evoflow.persistence import session_repositories as _v4_sess_repo  # noqa: F401
+
+        startup_mark(
+            "prewarm.v4_hydration",
+            phase="prewarm",
+            extra={"ms": round((time.perf_counter() - t_v4) * 1000.0, 1)},
+        )
+    except Exception:
+        logger.exception("Gateway prewarm: v4 hydration modules failed (continuing)")
+        startup_mark("prewarm.v4_hydration_failed", phase="prewarm")
+
+    try:
         from evoflow.persistence.db import get_db
 
         t_db = time.perf_counter()

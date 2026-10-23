@@ -42,7 +42,17 @@ pub struct EmbedBridge {
 
 impl EmbedBridge {
     pub fn note_url(&self, webview_label: &str, url: &str) {
+        let url = url.trim();
         if url.is_empty() {
+            return;
+        }
+        // Ignore boot placeholders so recreate cannot wipe a real agent URL.
+        if url.starts_with("about:")
+            || url.starts_with("data:text/html")
+            || url.contains("/browser-embed/blank")
+            || url.contains("://example.com")
+            || url.contains("://example.org")
+        {
             return;
         }
         if let Ok(mut m) = self.last_urls.lock() {
@@ -179,8 +189,12 @@ pub fn embed_guest_init_script(http_port: u16, webview_label: &str) -> String {
   }}, true);
   function ping(msg) {{
     try {{
+      var href = '';
+      try {{ href = String(location.href || ''); }} catch (_e) {{}}
       var u = 'http://127.0.0.1:' + PORT + '/browser-cdp/guest-ping?label='
-        + encodeURIComponent(LABEL) + '&msg=' + encodeURIComponent(String(msg||''));
+        + encodeURIComponent(LABEL)
+        + '&msg=' + encodeURIComponent(String(msg||''))
+        + (href ? ('&url=' + encodeURIComponent(href)) : '');
       var i = new Image();
       i.src = u;
     }} catch (_e) {{}}
