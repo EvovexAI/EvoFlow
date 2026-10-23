@@ -1,0 +1,173 @@
+/**
+ * platform(action=domain.op) 工具卡：用注册表中文枚举，避免 Fallback 显示
+ * 「Platform / 工具调用 / 已执行」。
+ */
+import { Building2 } from "lucide-react";
+import { useCallback, useMemo } from "react";
+import {
+  platformActionShortLabelZh,
+  platformDomainLabelZh,
+} from "../../../lib/platform-action-labels.js";
+import { ToolCallBody } from "@/ToolCallBlocks/ToolCallBody.js";
+import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+import { ToolLayout } from "../ToolLayout.js";
+import type { ToolCallBlockRenderContext } from "../shared.js";
+
+const PLATFORM_TOOL_ICON = <Building2 className="size-4 shrink-0 text-foreground-subtle" />;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readTrimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** 从 platform 入参取出 action（含流式半截 JSON）。 */
+export function readPlatformToolAction(input: unknown): string {
+  if (isPlainRecord(input)) {
+    const direct = readTrimmedString(input.action);
+    if (direct) return direct;
+  }
+  if (typeof input === "string") {
+    const m = input.match(/"action"\s*:\s*"([^"]+)"/);
+    if (m?.[1]) return m[1].trim();
+  }
+  return "";
+}
+
+function parseArgsJson(input: Record<string, unknown>): Record<string, unknown> | null {
+  const raw = input.args_json ?? input.argsJson;
+  if (isPlainRecord(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  if (!t || t === "{}") return null;
+  try {
+    const parsed = JSON.parse(t) as unknown;
+    return isPlainRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 折叠条右侧摘要：query / name 等可读字段，不暴露 id。 */
+export function readPlatformToolBrief(input: unknown): string {
+  if (!isPlainRecord(input)) return "";
+  const payload = parseArgsJson(input) || {};
+  const candidates = [
+    payload.query,
+    payload.search,
+    payload.name,
+    payload.title,
+    payload.agent_name,
+    payload.role_name,
+    payload.status,
+    input.query,
+    input.domain,
+  ];
+  for (const c of candidates) {
+    const s = readTrimmedString(c);
+    if (s) return s.length > 40 ? `${s.slice(0, 40)}…` : s;
+  }
+  return "";
+}
+
+export function isPlatformToolCall(toolCall: {
+  toolName?: string | null;
+  kind?: string | null;
+}): boolean {
+  const name = String(toolCall.toolName || "").trim().toLowerCase();
+  const kind = String(toolCall.kind || "").trim().toLowerCase();
+  return name === "platform" || kind === "platform";
+}
+
+export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
+  const {
+    toolCallNode,
+    isRunning,
+    statusLabel,
+    errorText,
+    childToolList,
+    displayModel,
+    workspacePath,
+    theme,
+    codePreviewSettings,
+    onOpenCodeViewer,
+    onOpenFileLink,
+    onOpenBrowserUrl,
+  } = context;
+  const { toolCall } = toolCallNode;
+  const action = readPlatformToolAction(toolCall.input);
+  const domain = action.includes(".") ? action.slice(0, action.indexOf(".")) : "";
+  const actionLabel =
+    platformActionShortLabelZh(action, { max: 24 }) ||
+    platformDomainLabelZh(domain) ||
+    "平台管理";
+  const brief = readPlatformToolBrief(toolCall.input);
+  const kindLabel = context.kindLabelOverride ?? "平台";
+  const primaryText = brief ? `${actionLabel} · ${brief}` : actionLabel;
+
+  const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
+  const renderContent = useCallback(
+    () => (
+      <>
+        <ToolCallBody
+          childToolList={childToolList}
+          displayModel={displayModel}
+          toolCall={toolCall}
+          workspacePath={workspacePath}
+          theme={theme}
+          codePreviewSettings={codePreviewSettings}
+          onOpenCodeViewer={onOpenCodeViewer}
+          onOpenFileLink={onOpenFileLink}
+          onOpenBrowserUrl={onOpenBrowserUrl}
+        />
+        <ToolSnapshotFieldNotice
+          refs={toolCall.snapshotRefs ?? []}
+          onLoadFullToolCallFields={
+            handleLoadFullToolCallFields
+              ? () => handleLoadFullToolCallFields(toolCall.toolId)
+              : undefined
+          }
+        />
+      </>
+    ),
+    [
+      childToolList,
+      codePreviewSettings,
+      displayModel,
+      handleLoadFullToolCallFields,
+      onOpenBrowserUrl,
+      onOpenCodeViewer,
+      onOpenFileLink,
+      theme,
+      toolCall,
+      workspacePath,
+    ],
+  );
+
+  const primaryTextNode = useMemo(
+    () => <span className="min-w-0 truncate text-foreground-subtlest">{primaryText}</span>,
+    [primaryText],
+  );
+
+  return (
+    <ToolLayout
+      toolId={toolCall.toolId}
+      icon={PLATFORM_TOOL_ICON}
+      showIcon={context.showIcon !== false}
+      canToggle={context.canToggle ?? true}
+      forceOpen={context.forceOpen ?? false}
+      kindLabel={kindLabel}
+      sourceLabel={context.sourceLabel}
+      primaryText={primaryTextNode}
+      secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
+      statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
+      statusTooltip={toolCall.status === "failed" ? errorText : undefined}
+      showFailureStatus={toolCall.status === "failed"}
+      isRunning={isRunning}
+      title={primaryText}
+      renderContent={renderContent}
+    />
+  );
+}

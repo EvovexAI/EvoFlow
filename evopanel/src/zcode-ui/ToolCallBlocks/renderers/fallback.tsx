@@ -3,6 +3,16 @@ import { useCallback, type ReactNode } from "react";
 import { ToolCallBody } from "@/ToolCallBlocks/ToolCallBody.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import {
+  isPlatformToolCall,
+  PlatformToolCallBlock,
+  readPlatformToolAction,
+  readPlatformToolBrief,
+} from "@/ToolCallBlocks/renderers/platform.js";
+import {
+  platformActionShortLabelZh,
+  platformDomainLabelZh,
+} from "../../../lib/platform-action-labels.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
@@ -32,8 +42,22 @@ export function FallbackToolCallBlock(context: FallbackToolCallBlockProps) {
     onOpenBrowserUrl,
   } = context;
   const { toolCall } = toolCallNode;
-  const kindLabel =
-    toolCall.kind.length > 0
+  // 兜底：若 resolveRenderer 未认领到 platform，仍避免「Platform / 工具调用」
+  if (isPlatformToolCall(toolCall) && !context.summaryOnly) {
+    return <PlatformToolCallBlock {...context} />;
+  }
+  const platformAction = isPlatformToolCall(toolCall)
+    ? readPlatformToolAction(toolCall.input)
+    : "";
+  const platformLabel = platformAction
+    ? platformActionShortLabelZh(platformAction, { max: 24 }) ||
+      platformDomainLabelZh(platformAction.split(".")[0] || "") ||
+      "平台管理"
+    : "";
+  const platformBrief = platformAction ? readPlatformToolBrief(toolCall.input) : "";
+  const kindLabel = platformLabel
+    ? "平台"
+    : toolCall.kind.length > 0
       ? toolCall.kind[0]!.toUpperCase() + toolCall.kind.slice(1)
       : toolCall.kind;
   const hasInlinePreview = displayModel.inlinePreview.type !== "none";
@@ -94,7 +118,11 @@ export function FallbackToolCallBlock(context: FallbackToolCallBlockProps) {
       primaryText={
         context.summaryOnly
           ? (context.summaryTextOverride ?? null)
-          : (toolCall.title ?? intl.formatMessage({ id: "chat.toolCall.toolCall" }))
+          : platformLabel
+            ? platformBrief
+              ? `${platformLabel} · ${platformBrief}`
+              : platformLabel
+            : (toolCall.title ?? intl.formatMessage({ id: "chat.toolCall.toolCall" }))
       }
       secondaryText={context.summaryOnly || toolCall.status === "failed" ? undefined : statusLabel}
       statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
@@ -104,7 +132,7 @@ export function FallbackToolCallBlock(context: FallbackToolCallBlockProps) {
       title={
         context.summaryOnly && typeof context.summaryTextOverride === "string"
           ? context.summaryTextOverride
-          : toolCall.title
+          : platformLabel || toolCall.title
       }
       renderContent={renderContent}
     />

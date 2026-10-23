@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import {
+  Building2,
   ChevronRightIcon,
   FilePenLineIcon,
   FileTextIcon,
@@ -25,6 +26,13 @@ import {
   SquareTerminalIcon,
   WrenchIcon,
 } from "lucide-react";
+import {
+  platformActionShortLabelZh,
+} from "../../lib/platform-action-labels.js";
+import {
+  readPlatformToolAction,
+  readPlatformToolBrief,
+} from "@/ToolCallBlocks/renderers/platform.js";
 import { getCompactToolCallStatusMessageId, type Locale } from "@zcode/shared";
 import type {
   ArtifactRow,
@@ -382,11 +390,25 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
                 kindLabel: intl.formatMessage({ id: "chat.toolCall.kind.edit" }),
                 primaryText: statusLabel,
               }
-            : {
-                icon: <WrenchIcon className="size-4 shrink-0" aria-hidden="true" />,
-                kindLabel: row.toolName,
-                primaryText: statusLabel,
-              };
+            : String(row.toolName || "")
+                  .trim()
+                  .toLowerCase() === "platform"
+              ? (() => {
+                  const action = readPlatformToolAction(row.input);
+                  const label =
+                    platformActionShortLabelZh(action, { max: 24 }) || "平台管理";
+                  const brief = readPlatformToolBrief(row.input);
+                  return {
+                    icon: <Building2 className="size-4 shrink-0" aria-hidden="true" />,
+                    kindLabel: "平台",
+                    primaryText: brief ? `${label} · ${brief}` : label,
+                  };
+                })()
+              : {
+                  icon: <WrenchIcon className="size-4 shrink-0" aria-hidden="true" />,
+                  kindLabel: row.toolName,
+                  primaryText: statusLabel,
+                };
   const content: ReactNode = markdown ? (
     <MessageResponse
       theme={theme}
