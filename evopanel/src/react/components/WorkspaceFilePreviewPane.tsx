@@ -319,7 +319,12 @@ export function WorkspaceFilePreviewPane({
     (isWorkspaceMediaBinaryPath(preview.path)
       ? resolveWorkspaceRelMediaSrc(workspaceRoot, preview.path)
       : '')
-  const showImage = !!(mediaSrc && (preview.mediaKind === 'image' || isWorkspaceImagePath(preview.path)))
+  // SVG 走文本通道（渲染用 data URL + 源码切换），不进 <img mediaSrc> 分支
+  const showImage = !!(
+    mediaSrc &&
+    !isSvgDoc &&
+    (preview.mediaKind === 'image' || isWorkspaceImagePath(preview.path))
+  )
   const showVideo = !!(mediaSrc && (preview.mediaKind === 'video' || isWorkspaceVideoPath(preview.path)))
   const showAudio = !!(mediaSrc && (preview.mediaKind === 'audio' || isWorkspaceAudioPath(preview.path)))
   const showZoom = !embedded && zoomControls
@@ -329,6 +334,19 @@ export function WorkspaceFilePreviewPane({
     streaming: !!preview.streaming,
   })
   const view = resolvePreviewView(docKind, viewMode, { streaming: !!preview.streaming })
+  const renderLabel = previewRenderLabel(docKind)
+  const docKindLabel =
+    docKind === PREVIEW_DOC_CSV
+      ? 'CSV / TSV'
+      : docKind === PREVIEW_DOC_SVG
+        ? 'SVG'
+        : docKind === PREVIEW_DOC_MERMAID
+          ? 'Mermaid'
+          : docKind === PREVIEW_DOC_JSON
+            ? 'JSON'
+            : isMarkdown
+              ? 'Markdown'
+              : 'HTML'
   const canToggleWrap = !showImage && !showVideo && !showAudio && !preview.binary
   const hasLocalPath = !!(preview.path && !/^https?:\/\//i.test(preview.path))
   // Markdown 流式写入仍实时渲染预览（旧行为）；HTML 流式期间由 resolvePreviewView 固定为源码。
@@ -375,10 +393,10 @@ export function WorkspaceFilePreviewPane({
                 }`}
                 aria-pressed={view === 'render'}
                 data-testid="ws-preview-toggle-render"
-                title={isMarkdown ? '预览' : '渲染预览'}
+                title={`${renderLabel}（${preview.name || preview.path}）`}
                 onClick={() => setViewMode('preview')}
               >
-                {isMarkdown ? '预览' : '渲染'}
+                {renderLabel}
               </button>
               <button
                 type="button"
@@ -440,9 +458,7 @@ export function WorkspaceFilePreviewPane({
             <PopoverContent align="end" className="w-52 p-1" role="menu">
               {canToggleView ? (
                 <>
-                  <div className="react-chat-workspace-preview-menu-label">
-                    {isMarkdown ? 'Markdown' : 'HTML'}
-                  </div>
+                  <div className="react-chat-workspace-preview-menu-label">{docKindLabel}</div>
                   <button
                     type="button"
                     role="menuitemradio"
@@ -456,7 +472,7 @@ export function WorkspaceFilePreviewPane({
                       setMoreOpen(false)
                     }}
                   >
-                    {isMarkdown ? '预览' : '渲染预览'}
+                    {renderLabel}
                   </button>
                   <button
                     type="button"
@@ -641,6 +657,72 @@ export function WorkspaceFilePreviewPane({
               </pre>
             )}
           </div>
+        ) : isSvgDoc && showRenderView && svgSrc ? (
+          <div className="react-chat-workspace-preview-media-wrap" data-testid="ws-preview-svg">
+            <button
+              type="button"
+              className="msg-tool-screenshot-btn react-chat-workspace-preview-media-btn"
+              title="放大查看"
+              aria-label="放大查看图片"
+              onClick={() => showChatLightbox(svgSrc)}
+            >
+              <img
+                className="react-chat-workspace-preview-media-img"
+                src={svgSrc}
+                alt={preview.name || 'SVG 预览'}
+              />
+            </button>
+          </div>
+        ) : isJsonDoc && showRenderView && jsonPreview.ok ? (
+          <div className="react-chat-workspace-preview-code-wrap" data-testid="ws-preview-json">
+            {preview.truncated ? (
+              <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
+            ) : null}
+            <pre className="react-chat-workspace-preview-code">
+              <code dangerouslySetInnerHTML={{ __html: jsonHtml }} />
+            </pre>
+          </div>
+        ) : isCsvDoc && showRenderView && csvTable ? (
+          <div className="react-chat-workspace-preview-table-wrap" data-testid="ws-preview-table">
+            {preview.truncated ? (
+              <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
+            ) : null}
+            {csvTable.truncatedRows > 0 || csvTable.truncatedCols > 0 ? (
+              <div className="react-chat-workspace-preview-hint">
+                表格过大：仅显示前 {csvTable.rows.length} 行
+                {csvTable.truncatedCols > 0 ? ` / 前 ${csvTable.columns} 列` : ''}，完整内容请切换「源码」
+              </div>
+            ) : null}
+            <div className="react-chat-workspace-preview-table-scroll">
+              <table className="react-chat-workspace-preview-table">
+                {csvTable.rows.length ? (
+                  <thead>
+                    <tr>
+                      {csvTable.rows[0].map((cell, ci) => (
+                        <th key={`h-${ci}`}>{cell}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                ) : null}
+                <tbody>
+                  {csvTable.rows.slice(1).map((row, ri) => (
+                    <tr key={`r-${ri}`}>
+                      {row.map((cell, ci) => (
+                        <td key={`c-${ri}-${ci}`}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : isMermaidDoc && showRenderView && mermaidMarkdown ? (
+          <div className="react-chat-workspace-preview-md-host" data-testid="ws-preview-mermaid">
+            {preview.truncated ? (
+              <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
+            ) : null}
+            <StreamdownRenderer text={mermaidMarkdown} className="markdown-body" />
+          </div>
         ) : isMarkdown && showRenderView ? (
           <div className="react-chat-workspace-preview-md-host">
             {preview.truncated ? (
@@ -666,9 +748,14 @@ export function WorkspaceFilePreviewPane({
             </pre>
           </div>
         ) : (
-          <div className="react-chat-workspace-preview-code-wrap">
+          <div className="react-chat-workspace-preview-code-wrap" data-testid="ws-preview-source">
             {preview.truncated ? (
               <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
+            ) : null}
+            {isJsonDoc && showRenderView && !jsonPreview.ok && jsonPreview.error ? (
+              <div className="react-chat-workspace-preview-hint">
+                JSON 解析失败，已显示源码：{jsonPreview.error}
+              </div>
             ) : null}
             {focusLineNum > 0 ? (
               <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} annotation={focusAnnotation} />

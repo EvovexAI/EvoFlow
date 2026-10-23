@@ -24141,7 +24141,47 @@ html.dark .react-chat-workspace-preview-stage {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
   color: var(--text-primary, inherit);
 }
-/* 预览 / 源码 分段切换（HTML & Markdown 按文件格式自动出现） */
+/* CSV / TSV 表格预览 */
+.react-chat-workspace-preview-table-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.react-chat-workspace-preview-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 12px 12px;
+}
+.react-chat-workspace-preview-table {
+  border-collapse: collapse;
+  font-size: var(--ef-text-sm);
+  width: max-content;
+  min-width: 100%;
+}
+.react-chat-workspace-preview-table th,
+.react-chat-workspace-preview-table td {
+  border: 1px solid var(--border, #e5e7eb);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  max-width: 32rem;
+}
+.react-chat-workspace-preview-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary, #111827);
+  font-weight: 600;
+}
+.react-chat-workspace-preview-table tbody tr:nth-child(even) td {
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.04));
+}
+
+/* 预览 / 源码 分段切换（按文件格式自动出现） */
 .react-chat-workspace-preview-view-toggle {
   display: inline-flex;
   align-items: center;

@@ -83,8 +83,19 @@
   --text-ui-2xs: calc(var(--ui-font-size) - 5px);
 }
 
-/* 小V 等窄栏嵌入：主对话左侧 turn navigator 默认要 ≥864px container 才显示；
- * 嵌入态强制露出，否则侧栏永远看不到左侧导航条。 */
+/*
+ * V4 ConversationTurnNavigator 源码用 Tailwind 容器查询：
+ *   invisible … @min-[864px]/conversation:visible …
+ * 但 evopanel 构建未产出这套 utility，主对话左侧快捷进度条会永远 invisible。
+ * 小V 窄栏走 hideTurnNavigator（不挂载）；主对话在此强制露出。
+ */
+.zcode-bridge-root:not([data-v4-embedded="true"]) [data-v4-turn-navigator="true"] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* 嵌入态若未 hide、仍挂了 navigator，同样露出（兜底）。 */
 .zcode-bridge-root[data-v4-embedded="true"] [data-v4-turn-navigator="true"] {
   visibility: visible;
   opacity: 1;

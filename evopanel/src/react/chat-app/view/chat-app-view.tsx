@@ -692,6 +692,29 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           },
                         })
                       }}
+                      onAutoOpenCodeViewers={(sources) => {
+                        // 对话中自动触发（对齐 ZCode handleOpenCodeViewers）：
+                        // 逐个 show 进右侧面板（同 sourceKey 复用 tab），
+                        // 最后激活第一张（ZCode 批量打开 activeIndex=0 语义）。
+                        if (!sources?.length) return
+                        let firstKey: string | null = null
+                        for (const s of sources) {
+                          const id = `codeViewer:${String(s.path || s.title || 'diff').replace(/\\/g, '/')}`
+                          rightStageStore.show({
+                            kind: 'codeViewer',
+                            id,
+                            title: s.title || '代码对比',
+                            layout: 'wide',
+                            sessionKey: selectedSessionKey || undefined,
+                            data: {
+                              source: s,
+                              threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                            },
+                          })
+                          if (!firstKey) firstKey = `codeViewer:${id}`
+                        }
+                        if (firstKey) rightStageStore.activateTab(firstKey)
+                      }}
                       toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={
                         <div

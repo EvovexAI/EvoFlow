@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
   PREVIEW_DOC_CODE,
+  PREVIEW_DOC_CSV,
   PREVIEW_DOC_HTML,
+  PREVIEW_DOC_JSON,
   PREVIEW_DOC_MARKDOWN,
+  PREVIEW_DOC_MERMAID,
+  PREVIEW_DOC_SVG,
   canToggleSource,
+  isCsvPreviewPath,
   isHtmlPreviewPath,
+  isJsonPreviewPath,
   isMarkdownPreviewPath,
+  isMermaidPreviewPath,
+  isSvgPreviewPath,
   looksLikeHtmlContent,
+  looksLikeMermaidContent,
+  looksLikeSvgContent,
   previewDocKind,
+  previewRenderLabel,
   resolvePreviewView,
 } from '../src/lib/preview-view-mode.js'
 
@@ -96,5 +107,77 @@ describe('resolvePreviewView', () => {
 
   it('forces source for in-flight html writes (previous behaviour kept)', () => {
     expect(resolvePreviewView(PREVIEW_DOC_HTML, 'preview', { streaming: true })).toBe('source')
+  })
+})
+
+describe('新增可切换格式：SVG / JSON / CSV / Mermaid', () => {
+  it('detects each format by extension', () => {
+    expect(previewDocKind({ path: 'assets/logo.svg' })).toBe(PREVIEW_DOC_SVG)
+    expect(previewDocKind({ path: 'data/report.json' })).toBe(PREVIEW_DOC_JSON)
+    expect(previewDocKind({ path: 'data/report.JSONC' })).toBe(PREVIEW_DOC_JSON)
+    expect(previewDocKind({ path: 'data/rows.csv' })).toBe(PREVIEW_DOC_CSV)
+    expect(previewDocKind({ path: 'data/rows.tsv' })).toBe(PREVIEW_DOC_CSV)
+    expect(previewDocKind({ path: 'diagram/flow.mmd' })).toBe(PREVIEW_DOC_MERMAID)
+    expect(previewDocKind({ name: 'flow.mermaid' })).toBe(PREVIEW_DOC_MERMAID)
+  })
+
+  it('path extension wins over content sniffing', () => {
+    expect(previewDocKind({ path: 'a.json', content: '<svg></svg>' })).toBe(PREVIEW_DOC_JSON)
+    expect(previewDocKind({ path: 'a.md', content: '{"k":1}' })).toBe(PREVIEW_DOC_MARKDOWN)
+  })
+
+  it('sniffs svg / mermaid when path is unknown (streaming)', () => {
+    expect(previewDocKind({ content: '<svg viewBox="0 0 10 10"></svg>' })).toBe(PREVIEW_DOC_SVG)
+    expect(previewDocKind({ content: 'flowchart TD\n  A-->B' })).toBe(PREVIEW_DOC_MERMAID)
+    expect(previewDocKind({ content: 'sequenceDiagram\n  A->>B: hi' })).toBe(PREVIEW_DOC_MERMAID)
+  })
+
+  it('extension helpers stay narrow', () => {
+    expect(isSvgPreviewPath('a.svg')).toBe(true)
+    expect(isSvgPreviewPath('a.png')).toBe(false)
+    expect(isJsonPreviewPath('a.geojson')).toBe(true)
+    expect(isCsvPreviewPath('a.csv')).toBe(true)
+    expect(isCsvPreviewPath('a.xlsx')).toBe(false)
+    expect(isMermaidPreviewPath('a.mmd')).toBe(true)
+    expect(isMermaidPreviewPath('a.md')).toBe(false)
+  })
+
+  it('content sniffers ignore unrelated text', () => {
+    expect(looksLikeSvgContent('<div>x</div>')).toBe(false)
+    expect(looksLikeMermaidContent('hello world')).toBe(false)
+    expect(looksLikeSvgContent('  <svg></svg>')).toBe(true)
+  })
+
+  it('all new formats are toggleable and render by default', () => {
+    for (const kind of [
+      PREVIEW_DOC_SVG,
+      PREVIEW_DOC_JSON,
+      PREVIEW_DOC_CSV,
+      PREVIEW_DOC_MERMAID,
+    ]) {
+      expect(canToggleSource(kind, {})).toBe(true)
+      expect(resolvePreviewView(kind, 'preview')).toBe('render')
+      expect(resolvePreviewView(kind, 'code')).toBe('source')
+    }
+  })
+
+  it('executes-nothing-until-rendered formats stay source while streaming', () => {
+    for (const kind of [PREVIEW_DOC_SVG, PREVIEW_DOC_MERMAID]) {
+      expect(canToggleSource(kind, { streaming: true })).toBe(false)
+      expect(resolvePreviewView(kind, 'preview', { streaming: true })).toBe('source')
+    }
+    // JSON / CSV 流式仍可切换
+    expect(canToggleSource(PREVIEW_DOC_JSON, { streaming: true })).toBe(true)
+    expect(canToggleSource(PREVIEW_DOC_CSV, { streaming: true })).toBe(true)
+  })
+
+  it('gives format-specific toggle labels', () => {
+    expect(previewRenderLabel(PREVIEW_DOC_MARKDOWN)).toBe('预览')
+    expect(previewRenderLabel(PREVIEW_DOC_CSV)).toBe('表格')
+    expect(previewRenderLabel(PREVIEW_DOC_JSON)).toBe('格式化')
+    expect(previewRenderLabel(PREVIEW_DOC_MERMAID)).toBe('图表')
+    expect(previewRenderLabel(PREVIEW_DOC_SVG)).toBe('渲染')
+    expect(previewRenderLabel(PREVIEW_DOC_HTML)).toBe('渲染')
+    expect(previewRenderLabel(PREVIEW_DOC_CODE)).toBe('渲染')
   })
 })

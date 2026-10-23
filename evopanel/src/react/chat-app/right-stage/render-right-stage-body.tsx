@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react'
 import type { RightStageSurface } from '../../../lib/right-stage/right-stage-types.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
-import { V4CodeViewerSidePane } from './v4-code-viewer-side-pane.js'
+import { V4PreviewPane } from './v4-preview-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
@@ -154,11 +154,27 @@ export function renderRightStageBody(
     const data = surface.data || {}
     const source = data.source
     if (!source) return null
+    // ZCode 正式预览件（PreviewPane）：file/patch/code-review/text/image/media/
+    // pdf/pptx/multi-file-diff 全类型支持，数据加载在组件内经沙箱文件服务完成。
     return sidePanelHeavyMount ? (
-      <V4CodeViewerSidePane
+      <V4PreviewPane
         source={source}
         threadId={String(data.threadId || '')}
+        workspacePath={String(source.workspacePath || effectiveWorkspaceRoot || '') || undefined}
         onClose={() => rightStageStore.closeTab(surface.id)}
+        onOpenCodeViewer={(nextSource) => {
+          rightStageStore.show({
+            kind: 'codeViewer',
+            id: `codeViewer:${String(nextSource.path || nextSource.title || 'diff').replace(/\\/g, '/')}`,
+            title: nextSource.title || '代码对比',
+            layout: 'wide',
+            sessionKey: surface.sessionKey,
+            data: {
+              source: nextSource,
+              threadId: String(data.threadId || ''),
+            },
+          })
+        }}
       />
     ) : (
       <SidePanelBootShell title={surface.title || '代码对比'} />

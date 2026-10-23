@@ -634,7 +634,7 @@ fn clamp_rect(x: f64, y: f64, w: f64, h: f64, iw: f64, ih: f64) -> (f64, f64, f6
     // 先钉住左边/顶边（对齐 HTML 槽位），再缩短宽高。
     // 旧逻辑先把 w 撑满再 `x.clamp(0, iw-w)`，会把窗口整块拽到左侧
     // （日志：期望物理 x≈828，clamp 后变成 325，Δ≈-503）。
-    let mut x = x.clamp(0.0, (iw - 120.0).max(0.0));
+    let x = x.clamp(0.0, (iw - 120.0).max(0.0));
     let mut y = y.max(EMBED_CHROME_FLOOR_Y);
     y = y.clamp(EMBED_CHROME_FLOOR_Y, (ih - 80.0).max(EMBED_CHROME_FLOOR_Y));
     let max_w = (iw - x - 8.0).max(120.0);

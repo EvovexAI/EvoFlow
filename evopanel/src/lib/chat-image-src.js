@@ -261,9 +261,19 @@ export function resolveWorkspaceMediaKind(path) {
   return null
 }
 
+/**
+ * SVG 虽然是图片扩展名，但它是文本：预览面板要能读源码并做「渲染 / 源码」切换，
+ * 所以不进 media 直读通道（仍可通过 isWorkspaceImagePath 用于内联图片渲染）。
+ */
+export function isWorkspaceSvgPath(path) {
+  return /\.svg(\?|$)/i.test(String(path || '').trim())
+}
+
 /** Workspace-relative media file → inline preview fields (skip text read API). */
 export function buildWorkspaceMediaPreviewFields(workspaceRoot, relPath) {
   const path = String(relPath || '').trim()
+  // SVG 走文本读取（预览面板据此提供 渲染 / 源码 切换）
+  if (isWorkspaceSvgPath(path)) return null
   if (!isWorkspaceMediaBinaryPath(path)) return null
   const mediaKind = resolveWorkspaceMediaKind(path)
   const mediaSrc = resolveWorkspaceRelMediaSrc(workspaceRoot, path)

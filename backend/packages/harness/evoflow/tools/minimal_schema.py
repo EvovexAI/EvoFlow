@@ -24,7 +24,14 @@ VIEW_IMAGE_DESCRIPTION = (
 )
 PROCESS_TOOL_DESCRIPTION = "Background shell start|log|wait|kill; start supports workdir skill:<name>."
 
-FETCH_URL_DESCRIPTION = "Fetch a URL and return readable markdown/text (http/https only)."
+FETCH_URL_DESCRIPTION = (
+    "Fetches a URL, converts the page to markdown, and — when `prompt` is given — "
+    "answers the prompt against the page using a small fast model.\n"
+    "- Public http/https URLs only; private/internal network URLs are blocked.\n"
+    "- Cross-host redirects are returned to you rather than followed; call again with the redirect URL.\n"
+    "- Responses are cached for 15 minutes per URL.\n"
+    "- Prefer passing `prompt` so the conversation receives a distilled answer instead of the full page."
+)
 WEB_SEARCH_DESCRIPTION = (
     "Search the web. Use ai_daily or news_53ai for AI-news feeds; otherwise generic API search. "
     "If the result has needs_configuration=true: tell the user assistant_guide.say_to_user, "

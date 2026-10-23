@@ -31,6 +31,16 @@ const RENDERABLE_KINDS = new Set([
 /** 这些格式渲染 = 执行内容（iframe / 图片），流式半成品不值得实时渲染。 */
 const STREAM_SOURCE_ONLY_KINDS = new Set([PREVIEW_DOC_HTML, PREVIEW_DOC_SVG, PREVIEW_DOC_MERMAID])
 
+/** 文件名是否带扩展名（`outputs/report` 无，`a.py` 有）。 */
+export function hasFileExtension(pathOrName) {
+  const base = String(pathOrName || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .pop() || ''
+  return /\.[a-z0-9]+$/i.test(base)
+}
+
 /** 扩展名嗅探 Markdown。 */
 export function isMarkdownPreviewPath(pathOrName) {
   return /\.(md|markdown|mdx)$/i.test(String(pathOrName || '').trim())
@@ -96,8 +106,8 @@ export function previewDocKind({ path = '', name = '', content = '' } = {}) {
   if (isMermaidPreviewPath(path) || isMermaidPreviewPath(name)) return PREVIEW_DOC_MERMAID
   if (isJsonPreviewPath(path) || isJsonPreviewPath(name)) return PREVIEW_DOC_JSON
   if (isCsvPreviewPath(path) || isCsvPreviewPath(name)) return PREVIEW_DOC_CSV
-  // 无扩展名（或流式写入尚未拿到 path）时按内容兜底。
-  if (!path && !name) {
+  // 没有可用扩展名（流式写入尚未拿到 path，或文件名无后缀）时按内容兜底。
+  if (!hasFileExtension(path) && !hasFileExtension(name)) {
     if (looksLikeHtmlContent(content)) return PREVIEW_DOC_HTML
     if (looksLikeSvgContent(content)) return PREVIEW_DOC_SVG
     if (looksLikeMermaidContent(content)) return PREVIEW_DOC_MERMAID

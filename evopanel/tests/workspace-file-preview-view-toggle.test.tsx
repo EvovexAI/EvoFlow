@@ -65,3 +65,76 @@ describe('WorkspaceFilePreviewPane 视图切换', () => {
     expect(screen.queryByTestId('ws-preview-toggle-source')).toBeNull()
   })
 })
+
+describe('新增格式：SVG / JSON / CSV / Mermaid', () => {
+  it('renders SVG as image and can switch to source', () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>'
+    render(<WorkspaceFilePreviewPane preview={preview({ path: 'assets/logo.svg', name: 'logo.svg', content: svg })} />)
+    const img = document.querySelector('[data-testid="ws-preview-svg"] img') as HTMLImageElement | null
+    expect(img).not.toBeNull()
+    expect(img?.getAttribute('src') || '').toContain('data:image/svg+xml')
+
+    fireEvent.click(screen.getByTestId('ws-preview-toggle-source'))
+    expect(document.querySelector('[data-testid="ws-preview-svg"]')).toBeNull()
+    expect(screen.getByTestId('ws-preview-source').textContent).toContain('<rect')
+    expect(screen.getByTestId('ws-preview-toggle-render').textContent).toBe('渲染')
+  })
+
+  it('pretty-prints JSON and falls back to source when invalid', () => {
+    const { unmount } = render(
+      <WorkspaceFilePreviewPane
+        preview={preview({ path: 'data/a.json', name: 'a.json', content: '{"b":1}' })}
+      />,
+    )
+    expect(screen.getByTestId('ws-preview-toggle-render').textContent).toBe('格式化')
+    expect(window.document.querySelector('[data-testid="ws-preview-json"]')?.textContent).toContain('"b": 1')
+    unmount()
+
+    render(
+      <WorkspaceFilePreviewPane
+        preview={preview({ path: 'data/broken.json', name: 'broken.json', content: '{oops}' })}
+      />,
+    )
+    expect(document.querySelector('[data-testid="ws-preview-json"]')).toBeNull()
+    expect(screen.getByTestId('ws-preview-source').textContent).toContain('JSON 解析失败')
+  })
+
+  it('renders CSV as a table and switches back to raw text', () => {
+    render(
+      <WorkspaceFilePreviewPane
+        preview={preview({ path: 'data/rows.csv', name: 'rows.csv', content: ['name,age', 'Li,30', 'Wang,25'].join('\n') })}
+      />,
+    )
+    const table = document.querySelector('[data-testid="ws-preview-table"] table')
+    expect(table).not.toBeNull()
+    expect(table?.querySelectorAll('thead th')).toHaveLength(2)
+    expect(table?.querySelectorAll('tbody tr')).toHaveLength(2)
+    expect(screen.getByTestId('ws-preview-toggle-render').textContent).toBe('表格')
+
+    fireEvent.click(screen.getByTestId('ws-preview-toggle-source'))
+    expect(document.querySelector('[data-testid="ws-preview-table"]')).toBeNull()
+    expect(screen.getByTestId('ws-preview-source').textContent).toContain('name,age')
+  })
+
+  it('renders Mermaid source through the diagram renderer', () => {
+    render(
+      <WorkspaceFilePreviewPane
+        preview={preview({ path: 'diagram/flow.mmd', name: 'flow.mmd', content: ['flowchart TD', ' A-->B'].join('\n') })}
+      />,
+    )
+    expect(screen.getByTestId('ws-preview-toggle-render').textContent).toBe('图表')
+    expect(document.querySelector('[data-testid="ws-preview-mermaid"]')).not.toBeNull()
+    fireEvent.click(screen.getByTestId('ws-preview-toggle-source'))
+    expect(screen.getByTestId('ws-preview-source').textContent).toContain('flowchart TD')
+  })
+
+  it('keeps svg/mermaid source-only while streaming', () => {
+    render(
+      <WorkspaceFilePreviewPane
+        preview={preview({ path: 'assets/logo.svg', name: 'logo.svg', content: '<svg></svg>', streaming: true })}
+      />,
+    )
+    expect(screen.queryByTestId('ws-preview-toggle-source')).toBeNull()
+    expect(document.querySelector('[data-testid="ws-preview-svg"]')).toBeNull()
+  })
+})

@@ -30,6 +30,7 @@ export function isBackendReady(): boolean
 export function kickAppServerPrewarm(reason?: string): Promise<boolean>
 export function checkBackendReady(): Promise<boolean>
 export function waitForBackendReady(maxWaitMs?: number): Promise<boolean>
+export function markBackendReadyFromEvidence(reason?: string): void
 export function isExtendedReady(): boolean
 export function checkExtendedReady(): Promise<boolean>
 
@@ -51,6 +52,7 @@ declare const _default: {
   invalidateModelCatalogPrefetch: typeof invalidateModelCatalogPrefetch
   isGatewayWarming: typeof isGatewayWarming
   waitForBackendReady: typeof waitForBackendReady
+  markBackendReadyFromEvidence: typeof markBackendReadyFromEvidence
   checkBackendReady: typeof checkBackendReady
   isBackendReady: typeof isBackendReady
   onBackendReadyChange: typeof onBackendReadyChange

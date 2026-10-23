@@ -33,7 +33,7 @@ type DiffViewerMultiFileInput = {
 
 export type DiffViewerProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> &
   (DiffViewerPatchInput | DiffViewerMultiFileInput) & {
-    options?: FileDiffOptions<undefined>;
+    options?: FileDiffOptions<undefined, undefined>;
     disableWorkerPool?: boolean;
     diffClassName?: string;
     fontSizePx?: number;
@@ -75,7 +75,7 @@ function DiffViewerComponent(props: DiffViewerProps) {
     }),
     [fontSizePx, style],
   );
-  const options = useMemo<FileDiffOptions<undefined>>(
+  const options = useMemo<FileDiffOptions<undefined, undefined>>(
     () => ({
       diffStyle: "unified",
       diffIndicators: "bars",

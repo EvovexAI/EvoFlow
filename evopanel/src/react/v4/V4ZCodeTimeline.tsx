@@ -20,6 +20,13 @@ import { TooltipProvider } from "@zcode/ui/components/ui/tooltip.js";
 import { ConversationTimeline } from "@zcode/ui/v4/ConversationTimeline.js";
 import { V4DraftEmptyState } from "./V4DraftEmptyState.js";
 import { hasOlderRows } from "@zcode/ui/v4/conversationProjectionStore.js";
+import {
+  advanceAssistantPreviewPptxAutoOpenGate,
+  createAssistantPreviewPptxAutoOpenGateState,
+  resolveLatestCompletedAssistantPreviewTurn,
+} from "@zcode/ui/v4/assistantPreviewPptxAutoOpen.js";
+import type { AssistantPreviewCardsAutoOpenRequest } from "@zcode/ui/lib/assistantPreviewCards.js";
+import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
 import type { IServiceAccessor } from "@zcode/services";
@@ -49,12 +56,65 @@ const V4_TOOL_STATUS_EXECUTING_OR_DONE = new Set(["running", "error", "cancelled
 const EMPTY_V4_ROWS: NonNullable<ConversationSnapshot["rows"]["window"]> = [];
 
 /**
- * 部分服务访问器：只实现 fileService（产物预览卡的文件存在性校验，走
- * GET /api/workspaces/resolve-target，按当前会话 thread 的沙箱工作区解析相对路径）；
- * 其余服务 undefined，由各调用方降级。挂进 ServiceProvider 后
- * useWorkspaceServices 返回本访问器（AssistantPreviewCards 的 stat 校验因此可用）。
+ * 部分服务访问器：fileService / mediaPreviewService 全部走 EvoFlow 沙箱文件通道
+ * （GET /api/workspaces/serve-file，按当前会话 thread 解析相对路径）。
+ * PreviewPane 需要 fileService.stat / readTextFile / readFileRange / readMediaPreview
+ * 与 mediaPreviewService.prepare —— ZCode 桌面端这些是 host RPC，这里用 HTTP Range
+ * 请求等价实现（FileResponse 原生支持 Range）。
+ * 挂进 ServiceProvider 后 useWorkspaceServices 返回本访问器。
+ * 右侧 PreviewPane（V4PreviewPane）复用同一访问器。
  */
-function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
+export function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
+  const serveFileUrl = (path: string): string => {
+    const q = new URLSearchParams({ path });
+    if (sessionId) q.set("thread_id", sessionId);
+    return `/api/workspaces/serve-file?${q.toString()}`;
+  };
+  // stat：1 字节 Range 探测，从 Content-Range 读总大小；服务端不支持 Range 时退 blob.size。
+  const statFile = async (path: string): Promise<{ path: string; exists: boolean; isFile: boolean; size?: number }> => {
+    const resp = await fetch(serveFileUrl(path), { headers: { Range: "bytes=0-0" } });
+    if (resp.status === 404) throw new Error(`file not found: ${path}`);
+    if (!resp.ok) throw new Error(`stat failed: HTTP ${resp.status}`);
+    const contentRange = resp.headers.get("content-range");
+    if (resp.status === 206 && contentRange) {
+      const total = Number.parseInt(contentRange.split("/")[1] ?? "", 10);
+      if (Number.isFinite(total)) return { path, exists: true, isFile: true, size: total };
+    }
+    const blob = await resp.blob();
+    return { path, exists: true, isFile: true, size: blob.size };
+  };
+  // Range 读块；200（无 Range 支持）时整档读回后切片。
+  const readFileRange = async (params: { path: string; offset: number; length: number }): Promise<Uint8Array> => {
+    const { path, offset, length } = params;
+    const end = Math.max(offset, offset + Math.max(length, 1) - 1);
+    const resp = await fetch(serveFileUrl(path), { headers: { Range: `bytes=${offset}-${end}` } });
+    if (resp.status === 404) throw new Error(`file not found: ${path}`);
+    // 416：offset 已越界（文件被截断/竞态），按空块返回交给上层判完整性。
+    if (resp.status === 416) return new Uint8Array(0);
+    if (!resp.ok) throw new Error(`read failed: HTTP ${resp.status}`);
+    const buf = await resp.arrayBuffer();
+    if (resp.status === 206) return new Uint8Array(buf);
+    const whole = new Uint8Array(buf);
+    return whole.slice(offset, offset + length);
+  };
+  const readMediaPreview = async (params: { path: string; maxBytes?: number }) => {
+    const resp = await fetch(serveFileUrl(params.path));
+    if (resp.status === 404) throw new Error(`file not found: ${params.path}`);
+    if (!resp.ok) throw new Error(`media preview failed: HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("media read failed"));
+      reader.readAsDataURL(blob);
+    });
+    return {
+      path: params.path,
+      mediaType: blob.type || "application/octet-stream",
+      dataBase64: dataUrl.split(",")[1] ?? "",
+      totalBytes: blob.size,
+    };
+  };
   return {
     fileService: {
       async checkFilesExist(params: { paths: string[] }) {
@@ -74,26 +134,42 @@ function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
         );
         return results;
       },
+      stat: statFile,
+      readFileRange,
+      readMediaPreview,
+      async readTextFile(params: { path: string; offset: number; length: number }) {
+        const bytes = await readFileRange(params);
+        // NUL 字节启发式判二进制（UTF-8 合法文本不会含 NUL）。
+        let isBinary = false;
+        for (let i = 0; i < bytes.length; i += 1) {
+          if (bytes[i] === 0) {
+            isBinary = true;
+            break;
+          }
+        }
+        const content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        const stat = await statFile(params.path);
+        const totalBytes = stat.size ?? params.offset + bytes.length;
+        return {
+          path: params.path,
+          content,
+          offset: params.offset,
+          bytesRead: bytes.length,
+          totalBytes,
+          truncated: params.offset + bytes.length < totalBytes,
+          isBinary,
+        };
+      },
+    },
+    mediaPreviewService: {
+      // 直接给 serve-file 原始 URL：video/audio 走流式播放（FileResponse 支持 Range）。
+      async prepare(params: { path: string; expectedKind?: string }) {
+        return { url: serveFileUrl(params.path) };
+      },
+      async release() {},
     },
     async readMediaPreview(params: { path: string; maxBytes?: number }) {
-      // serve-file → dataURL（InlineImageContent 消费 {path, mediaType, dataBase64}）
-      const q = new URLSearchParams({ path: params.path });
-      if (sessionId) q.set("thread_id", sessionId);
-      const resp = await fetch(`/api/workspaces/serve-file?${q.toString()}`);
-      if (!resp.ok) throw new Error(`media preview failed: HTTP ${resp.status}`);
-      const blob = await resp.blob();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("media read failed"));
-        reader.readAsDataURL(blob);
-      });
-      return {
-        path: params.path,
-        mediaType: blob.type || "application/octet-stream",
-        dataBase64: dataUrl.split(",")[1] ?? "",
-        totalBytes: blob.size,
-      };
+      return readMediaPreview(params);
     },
   } as unknown as IServiceAccessor;
 }
@@ -144,6 +220,13 @@ export function V4ZCodeTimeline(props: {
     fallbackText?: string,
     fallbackStatus?: string,
   ) => void;
+  /**
+   * 对话中自动触发（对齐 ZCode SessionPane onAutoOpenAssistantPptx）：
+   * 轮次 running→completedSuccess 边沿 + 预览卡 stat 校验通过后，由
+   * AssistantPreviewCards 发起的批量自动打开（pptx 等产物）。
+   * 宿主负责逐个 show 进右侧面板并激活第一张。
+   */
+  onAutoOpenCodeViewers?: (sources: readonly CodeViewerSource[]) => void;
 }): React.JSX.Element {
   const {
     payload,
@@ -158,6 +241,7 @@ export function V4ZCodeTimeline(props: {
     workspacePath,
     subagentTasks,
     onOpenSubagentTranscript,
+    onAutoOpenCodeViewers,
   } = props;
   const sessionId = payload?.sessionId ?? "";
   const snapshot: ConversationSnapshot | null = payload?.snapshot ?? null;
@@ -194,6 +278,53 @@ export function V4ZCodeTimeline(props: {
     resolvedIdsRef.current = new Set();
     setResolvedTick((n) => n + 1);
   }, [resolvedScopeKey]);
+
+  // ---- 对话中自动触发（pptx 等产物预览）——对齐 ZCode SessionPane 的
+  // assistantPreviewPptxAutoOpenTarget gate：running 边沿武装；completedSuccess
+  // 且终态 assistant row 到齐后发布 target，ConversationTurnGroup 命中该轮时
+  // AssistantPreviewCards 携 stat 校验后的 sources 发起批量打开；key 去重防重弹。
+  const autoOpenedPptxKeysRef = useRef<Set<string>>(new Set());
+  const pptxAutoOpenGateRef = useRef(createAssistantPreviewPptxAutoOpenGateState());
+  const [assistantPreviewPptxAutoOpenTarget, setAssistantPreviewPptxAutoOpenTarget] = useState<{
+    turnId: string;
+    key: string;
+  } | null>(null);
+  useEffect(() => {
+    autoOpenedPptxKeysRef.current = new Set();
+  }, [resolvedScopeKey]);
+  const onAutoOpenCodeViewersRef = useRef(onAutoOpenCodeViewers);
+  onAutoOpenCodeViewersRef.current = onAutoOpenCodeViewers;
+  useEffect(() => {
+    const enabled = Boolean(onAutoOpenCodeViewers && sessionId && snapshot);
+    const result = advanceAssistantPreviewPptxAutoOpenGate(pptxAutoOpenGateRef.current, {
+      enabled,
+      scopeKey: resolvedScopeKey || sessionId || "draft",
+      logEpoch: snapshot?.logEpoch,
+      phase: snapshot?.control.phase,
+      completedTurn: resolveLatestCompletedAssistantPreviewTurn(rows),
+    });
+    pptxAutoOpenGateRef.current = result.state;
+    if (result.target !== undefined) {
+      setAssistantPreviewPptxAutoOpenTarget(result.target);
+    }
+  }, [
+    onAutoOpenCodeViewers,
+    resolvedScopeKey,
+    sessionId,
+    snapshot,
+    snapshot?.control.phase,
+    snapshot?.logEpoch,
+    rows,
+  ]);
+  const handleAutoOpenAssistantPptx = useCallback(
+    (request: AssistantPreviewCardsAutoOpenRequest) => {
+      if (!request.sources.length) return;
+      if (autoOpenedPptxKeysRef.current.has(request.key)) return;
+      autoOpenedPptxKeysRef.current.add(request.key);
+      onAutoOpenCodeViewersRef.current?.(request.sources);
+    },
+    [],
+  );
 
   // 待审批：未点过 + 未开跑/失败 +（pendingApproval 或信封 pending）。
   const pendingApprovals = useMemo(() => {
@@ -422,11 +553,14 @@ export function V4ZCodeTimeline(props: {
       fetchFileChanges: sessionId ? fetchFileChanges : undefined,
       // 贴在对应 bash/工具卡下方，不用底部浮层
       renderToolCallApproval,
+      // 对话中自动触发：预览卡终态批量打开（pptx 等）+ gate target 下发
+      onAutoOpenAssistantPptx: onAutoOpenCodeViewers ? handleAutoOpenAssistantPptx : undefined,
+      assistantPreviewPptxAutoOpenTarget,
     }),
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey],
+    [sessionId, onOpenCodeViewer, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。

@@ -32,7 +32,8 @@ export const RightStageShell = memo(function RightStageShell({
 
   const def = getRightStageKind(surface.kind)
   if (def) {
-    return def.render({ surface, onClose: _onClose })
+    // Single-surface shell: the mounted panel is always the active tab.
+    return def.render({ surface, onClose: _onClose, active: true })
   }
 
   if (renderLegacy) {
