@@ -873,4 +873,7 @@ __all__ = [
     "mirror_note_user_input",
     "mirror_feed_agui_wire",
     "_split_evoflow_cua_display",
+    "_cua_display_block",
+    "_media_image_cua_display",
+    "build_file_diff_display",
 ]

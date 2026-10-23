@@ -149,16 +149,7 @@ function xmDockSavedWidth() {
  */
 function notifyXmDockLayoutChanged(reason = 'dock') {
   const r = String(reason || 'dock')
-  try {
-    window.dispatchEvent(
-      new CustomEvent('evopanel:xm-dock-layout', {
-        detail: { reason: r, at: Date.now() },
-      }),
-    )
-  } catch {
-    /* ignore */
-  }
-  // 统一壳层布局总线：BrowserPanel 四角绑定只认这一条也能跟上。
+  // 只走统一总线，避免同时派 xm-dock + layout-chrome 让 BrowserPanel wake 两次刷日志。
   notifyLayoutChromeChanged(r.startsWith('dock') ? r : `dock:${r}`)
 }
 

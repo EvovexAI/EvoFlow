@@ -18,6 +18,9 @@ session 时，把旧链路的 transcript（``evoflow_chat_messages``，与
   turnHeader（历史轮一律 completedSuccess，无运行中的轮）；
 - assistant.tool_calls 先建 toolCall 行（running），随后同 turn 的 tool 行按
   tool_call_id 回填 status/output；
+- tool 结果：与 live ``agui_mirror`` 对齐，从正文尾部
+  ``{evoflow-cua-display:...}``（或 payload.cua_display）重建
+  ``output.display``（kind:"cua" + media），否则冷恢复后截图轮尾为空；
 - assistant.reasoning → reasoning 行；content 文本 → assistantText 行。
 
 幂等：仅当 session 全新（rows 空且 seq==0）才 hydrate；live 镜像先到则跳过。
@@ -87,6 +90,102 @@ def _tool_output_text_from_payload(payload: Any) -> str:
         except Exception:
             return ""
     return ""
+
+
+def _build_hydrated_tool_output(
+    *,
+    tool_name: str,
+    out_text: str,
+    status: str,
+    payload: dict[str, Any] | None = None,
+    msg: dict[str, Any] | None = None,
+    input_text: str = "",
+    thread_id: str = "",
+) -> dict[str, Any]:
+    """Build ``output = {text, display?}`` for a hydrated tool row.
+
+    Live 路径由 ``agui_mirror`` 把 CUA 标记剥成 ``output.display``；冷恢复必须
+    用同一逻辑，否则刷新后轮尾截图/应用徽标消失（正文仍在，面板无图）。
+    """
+    from app.gateway.v4.agui_mirror import (
+        _cua_display_block,
+        _extract_diff_texts_from_args_dict,
+        _media_image_cua_display,
+        _split_evoflow_cua_display,
+        build_file_diff_display,
+    )
+
+    text = out_text or ""
+    name_l = str(tool_name or "").strip().lower()
+    output: dict[str, Any] = {"text": text}
+
+    cua_display: dict[str, Any] | None = None
+    for bag in (msg, payload):
+        if not isinstance(bag, dict):
+            continue
+        raw = bag.get("cua_display")
+        if isinstance(raw, dict):
+            cua_display = raw
+            break
+    if cua_display is None:
+        # node_repl / 任意仍带标记的历史正文（瘦身预览若保留尾部也能命中）。
+        text, cua_display = _split_evoflow_cua_display(text)
+        output["text"] = text
+
+    if cua_display is not None:
+        block = _cua_display_block(cua_display, text)
+        if block is not None:
+            output["display"] = block
+            return output
+
+    if status == "error":
+        return output
+
+    # 浏览器截图 JSON（image_url → browser-snapshots API）。
+    if name_l in {
+        "browser",
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_screenshot",
+        "browser_scroll",
+        "browser_snapshot",
+    }:
+        try:
+            blob = json.loads(text) if text.strip().startswith("{") else None
+        except ValueError:
+            blob = None
+        if isinstance(blob, dict) and blob.get("type") == "browser_screenshot":
+            image_url = str(blob.get("image_url") or "").strip()
+            if image_url:
+                output["display"] = {
+                    "kind": "cua",
+                    "schemaVersion": 1,
+                    "toolName": tool_name,
+                    "status": "success",
+                    "media": [{"mimeType": "image/png", "artifactUri": image_url}],
+                }
+                return output
+
+    if name_l in {"media_image_generate", "media_task_wait"}:
+        media_block = _media_image_cua_display(thread_id, text, tool_name)
+        if media_block is not None:
+            output["display"] = media_block
+            return output
+
+    if name_l in _WRITE_TOOL_NAMES:
+        try:
+            args = json.loads(input_text or "{}")
+        except ValueError:
+            args = None
+        if isinstance(args, dict):
+            extracted = _extract_diff_texts_from_args_dict(args)
+            if extracted is not None:
+                diff = build_file_diff_display(*extracted)
+                if diff is not None:
+                    output["display"] = diff
+
+    return output
 
 
 def _load_raw_messages_by_thread(thread_id: str) -> list[dict[str, Any]]:
@@ -310,30 +409,29 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 if target is not None:
                     target["status"] = status
                     target["endedAt"] = created_at
-                    target["output"] = {"text": out_text}
+                    target["output"] = _build_hydrated_tool_output(
+                        tool_name=str(target.get("toolName") or "tool"),
+                        out_text=out_text,
+                        status=status,
+                        payload=payload_d,
+                        msg=msg,
+                        input_text=str(target.get("inputText") or ""),
+                        thread_id=tid,
+                    )
                     if status == "error":
-                        target["error"] = {"code": "tool_error", "message": out_text[:2000]}
-                    # 历史写类工具同样补 file_diff display（ZCode 契约：diff 由服务端
-                    # 算好放进 output.display，客户端点开渲染上下两段代码）。
-                    if status != "error" and target["toolName"].lower() in _WRITE_TOOL_NAMES:
-                        try:
-                            args = json.loads(target.get("inputText") or "{}")
-                        except ValueError:
-                            args = None
-                        if isinstance(args, dict):
-                            from app.gateway.v4.agui_mirror import (
-                                _extract_diff_texts_from_args_dict,
-                                build_file_diff_display,
-                            )
-
-                            extracted = _extract_diff_texts_from_args_dict(args)
-                            if extracted is not None:
-                                diff = build_file_diff_display(*extracted)
-                                if diff is not None:
-                                    target["output"]["display"] = diff
+                        err_text = str((target["output"] or {}).get("text") or out_text)
+                        target["error"] = {"code": "tool_error", "message": err_text[:2000]}
                     continue
                 # 孤儿 tool 行（call 不在本轮 assistant 里）：独立成行。
                 tname = str(msg.get("tool_name") or msg.get("name") or "tool").strip() or "tool"
+                orphan_output = _build_hydrated_tool_output(
+                    tool_name=tname,
+                    out_text=out_text,
+                    status=status,
+                    payload=payload_d,
+                    msg=msg,
+                    thread_id=tid,
+                )
                 row = {
                     "rowId": next_row_id(),
                     "turnId": turn_id,
@@ -346,10 +444,11 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     "createdAtSeq": 0,
                     "startedAt": created_at,
                     "endedAt": created_at,
-                    "output": {"text": out_text},
+                    "output": orphan_output,
                 }
                 if status == "error":
-                    row["error"] = {"code": "tool_error", "message": out_text[:2000]}
+                    err_text = str((orphan_output or {}).get("text") or out_text)
+                    row["error"] = {"code": "tool_error", "message": err_text[:2000]}
                 rows.append(row)
 
         # 真实轮起止：display 路径用 turn_started_at/turn_duration_ms，raw 路径用

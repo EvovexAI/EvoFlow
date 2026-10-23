@@ -561,10 +561,14 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
   // 主窗 set_webview_zoom（界面缩放）是 WebView2 ZoomFactor：嵌套 HWND 不在缩放树里。
   // DOM 矩形常仍是未缩放 CSS；把四角乘上界面缩放，to_client_px 再用未缩放 viewport → 物理≈css·z·dpr。
   const uiZoom = getUiZoom() || 1
-  const zx = rect.left * uiZoom
-  const zy = rect.top * uiZoom
-  const zw = rect.width * uiZoom
-  const zh = rect.height * uiZoom
+  const vw = Math.max(8, window.innerWidth || rect.width)
+  const vh = Math.max(8, window.innerHeight || rect.height)
+  // 先裁进视口：实测槽位 left+width 有时 > innerWidth，再 ×dpr 后必然撑爆主客户区，
+  // Rust clamp 会把 x 往左拽（Δ≈-503）。
+  let zx = Math.max(0, Math.min(rect.left * uiZoom, vw - 120))
+  let zy = Math.max(0, Math.min(rect.top * uiZoom, vh - 80))
+  let zw = Math.min(rect.width * uiZoom, vw - zx)
+  let zh = Math.min(rect.height * uiZoom, vh - zy)
   // 右栏外壳有 1px 左边线，拖拽条还用负边距压进面板约 3px。
   // 原生 HWND 在所有 HTML 之上，贴齐槽位左缘就会盖住这条分隔线。
   // 左侧让出 4px，窗口才和「框定区域」重合，分隔线留在外面。
@@ -581,25 +585,22 @@ function readEmbedBounds(el: HTMLElement | null, opts?: { forceRegionLog?: boole
     x: Math.round(zx) + insetLeft,
     y,
     width: Math.max(120, Math.round(zw) - insetLeft),
-    height,
+    height: Math.max(80, height),
     // Rust 用主窗口客户区像素 / 这个视口，把 CSS 槽位换成 SetWindowPos 坐标。
     // 视口故意不乘 uiZoom：坐标已乘过，scale = iw/viewport 只承担 dpr。
-    viewportWidth: Math.round(window.innerWidth || rect.width),
-    viewportHeight: Math.round(window.innerHeight || rect.height),
+    viewportWidth: Math.round(vw),
+    viewportHeight: Math.round(vh),
   }
   const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`
   const now = Date.now()
-  if (opts?.forceRegionLog || key !== lastRegionKey || now - lastRegionLogAt > 500) {
+  // 区域日志默认很安静；只有 force 或坐标变了且间隔够长才打。
+  if (opts?.forceRegionLog || (key !== lastRegionKey && now - lastRegionLogAt > 1200)) {
     lastRegionKey = key
     lastRegionLogAt = now
-    const screenLeft = Math.round((window.screenX || 0) + bounds.x)
-    const screenTop = Math.round((window.screenY || 0) + bounds.y)
     const msg =
       `[右侧区域] css=(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}) ` +
-      `screen≈=(${screenLeft},${screenTop} ${bounds.width}x${bounds.height}) ` +
       `dpr=${dpr} uiZoom=${uiZoom} viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`
     dbgLog(`[browser-embed] ${msg}`)
-    console.log(msg)
   }
   return bounds
 }
@@ -624,15 +625,9 @@ async function logEmbedCompare(
   const slotClient = bounds
     ? `(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`
     : '(无)'
-  const slotScreen = bounds
-    ? `(${Math.round((window.screenX || 0) + bounds.x)},${Math.round((window.screenY || 0) + bounds.y)} ${bounds.width}x${bounds.height})`
-    : '(无)'
+  console.log(`%c[embed对比] ${reason}`, 'color:#38bdf8;font-weight:bold')
   console.log(
-    `%c[embed对比] ${reason}`,
-    'color:#38bdf8;font-weight:bold',
-  )
-  console.log(
-    `  ①槽位(HTML区域) css=${slotCss} → 传给原生 client=${slotClient} screen≈${slotScreen} uiZoom=${getUiZoom() || 1} dpr=${window.devicePixelRatio || 1}`,
+    `  ①槽位(HTML) css=${slotCss} → 上报 client=${slotClient} dpr=${window.devicePixelRatio || 1}`,
   )
   const probe = await browserEmbedProbeCoords(NATIVE_EMBED_THREAD_ID)
   if (!probe) {
@@ -641,19 +636,21 @@ async function logEmbedCompare(
   }
   const wv = probe.webviewScreen
   const wc = probe.webviewClient
+  const last = probe.lastSlot
   console.log(
     `  ②WebView(原生) screen=(${Math.round(wv.x)},${Math.round(wv.y)} ${Math.round(wv.w)}x${Math.round(wv.h)}) ` +
-      `client≈=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) ` +
-      `kind=${probe.kind} visible=${probe.visible} parked=${probe.parked}`,
+      `client≈=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) kind=${probe.kind}`,
   )
-  if (bounds) {
-    const dx = Math.round(wc.x - bounds.x)
-    const dy = Math.round(wc.y - bounds.y)
-    const dw = Math.round(wc.w - bounds.width)
-    const dh = Math.round(wc.h - bounds.height)
-    const ok = Math.abs(dx) <= 12 && Math.abs(dy) <= 12 && Math.abs(dw) <= 24 && Math.abs(dh) <= 24
+  // 跟 Rust 登记的物理槽位比（不要再 css×dpr，会和 to_client_px/clamp 双重口径打架）。
+  if (last) {
+    const dx = Math.round(wc.x - last.x)
+    const dy = Math.round(wc.y - last.y)
+    const dw = Math.round(wc.w - last.w)
+    const dh = Math.round(wc.h - last.h)
+    const ok = Math.abs(dx) <= 16 && Math.abs(dy) <= 16 && Math.abs(dw) <= 32 && Math.abs(dh) <= 32
     console.log(
-      `  Δ(WebView客户区 − 槽位) = (${dx},${dy}) sizeΔ=(${dw},${dh}) → ${ok ? '对齐' : '错位!!!'}`,
+      `  Rust登记槽位=(${Math.round(last.x)},${Math.round(last.y)} ${Math.round(last.w)}x${Math.round(last.h)}) ` +
+        `Δ=(${dx},${dy}) sizeΔ=(${dw},${dh}) → ${ok ? '对齐' : '错位!!!'}`,
     )
   }
 }
@@ -969,8 +966,10 @@ function BrowserEmbedHost({
 
     const dumpCompare = (reason: string, bounds: ReturnType<typeof readEmbedBounds>) => {
       const now = performance.now()
-      // 对照日志可密一点，但别每帧刷；wake/错位时 force 由调用方保证间隔。
-      if (compareInflight || now - lastCompareAt < 180) return
+      // 对照日志：≥2s 一条；settle/+Nms 静默（只贴位不打 log）。
+      if (compareInflight || now - lastCompareAt < 2000) return
+      if (/^(raf|resize-observer|tick)/.test(reason)) return
+      if (/\+\d+ms$/.test(reason) || /settle/i.test(reason)) return
       lastCompareAt = now
       compareInflight = true
       void logEmbedCompare(reason, slotRef.current, bounds).finally(() => {
@@ -978,7 +977,7 @@ function BrowserEmbedHost({
       })
     }
 
-    const applyCorners = (force = false, reason = 'tick') => {
+    const applyCorners = (force = false, reason = 'tick', withCompare = false) => {
       if (!surfaceActiveRef.current) return
       const bounds = readEmbedBounds(slotRef.current)
       if (!bounds) return
@@ -990,9 +989,7 @@ function BrowserEmbedHost({
       if (!force && now < backoffUntil) return
       if (!force && now - lastIpcAt < 32) return
       lastIpcAt = now
-      if (force || key !== lastKey) {
-        dumpCompare(reason, bounds)
-      }
+      if (withCompare) dumpCompare(reason, bounds)
       // 只有贴位成功才锁 lastKey。最大化时 Moved 会 defer set_bounds 并返回 false，
       // 若此处先锁 key，HWND 停在旧左侧而右侧槽位已就位。
       void reportEmbedSlot(stageIdRef.current, bounds, { force: true }).then((ok) => {
@@ -1010,13 +1007,17 @@ function BrowserEmbedHost({
     const wake = (reason = 'wake') => {
       lastKey = ''
       backoffUntil = 0
-      lastCompareAt = 0
-      applyCorners(true, reason)
+      // 不重置 lastCompareAt，否则 dock-open/settle 连发会打爆对照日志。
+      applyCorners(true, reason, true)
       clearSettles()
-      // 最大化 / 跨屏 DPI / 侧栏：布局与拖动标记过期都偏晚，多拍收口。
-      for (const ms of [50, 120, 250, 450, 750, 1200, 1800]) {
+      // 布局晚几拍再贴；settle 只 setBounds，不再 dumpCompare。
+      const settles =
+        /dock|sidebar|xm-dock|layout/i.test(reason)
+          ? [120, 400]
+          : [80, 250, 700, 1400]
+      for (const ms of settles) {
         settleTimers.push(
-          window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`), ms),
+          window.setTimeout(() => applyCorners(true, `${reason}+${ms}ms`, false), ms),
         )
       }
     }
@@ -1030,7 +1031,6 @@ function BrowserEmbedHost({
 
     const onResize = () => wake('window-resize')
     const onUiZoom = () => wake('ui-zoom')
-    const onXmDock = () => wake('xm-dock')
     const onLayoutChrome = (ev: Event) => {
       const reason = String((ev as CustomEvent<{ reason?: string }>).detail?.reason || 'layout-chrome')
       wake(reason)
@@ -1040,7 +1040,7 @@ function BrowserEmbedHost({
     }
     window.addEventListener('resize', onResize)
     window.addEventListener('ui-zoom-change', onUiZoom)
-    window.addEventListener('evopanel:xm-dock-layout', onXmDock)
+    // 小V / 侧栏 / 右栏拖宽统一走 layout-chrome（不再双听 xm-dock）。
     window.addEventListener('evopanel:layout-chrome', onLayoutChrome)
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('pageshow', onResize)
@@ -1112,7 +1112,6 @@ function BrowserEmbedHost({
       clearSettles()
       window.removeEventListener('resize', onResize)
       window.removeEventListener('ui-zoom-change', onUiZoom)
-      window.removeEventListener('evopanel:xm-dock-layout', onXmDock)
       window.removeEventListener('evopanel:layout-chrome', onLayoutChrome)
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('pageshow', onResize)
@@ -1153,33 +1152,30 @@ function BrowserEmbedHost({
           const p = ev.payload || {}
           const phase = String(p.phase || '')
           const now = Date.now()
-          // 拖动主窗口时 follow 很密，控制台节流；贴位/创建立刻打
-          if (
-            phase.startsWith('follow') &&
-            now - lastCoordsConsoleAt < 200 &&
-            lastCoordsPhase === phase
-          ) {
+          // probe / set-bounds / follow 都很密：合并到 ≥1s，且对齐时只 dbg 不刷 console。
+          if (now - lastCoordsConsoleAt < 1000 && lastCoordsPhase === phase) {
             return
           }
           lastCoordsConsoleAt = now
           lastCoordsPhase = phase
           const slot = p.slotClient
           const wv = p.webviewScreen
-          console.log(`%c[embed对比] native:${phase || '?'}`, 'color:#a78bfa;font-weight:bold')
-          console.log(
-            slot
-              ? `  ①槽位(期望client)=(${Math.round(slot.x)},${Math.round(slot.y)} ${Math.round(slot.w)}x${Math.round(slot.h)})`
-              : '  ①槽位(期望client)=(无)',
-          )
-          console.log(
-            wv
-              ? `  ②WebView(screen)=(${Math.round(wv.x)},${Math.round(wv.y)} ${Math.round(wv.w)}x${Math.round(wv.h)}) kind=${p.kind || '?'}`
-              : '  ②WebView(screen)=(读不到)',
-          )
-          if (p.delta) {
-            console.log(
-              `  Δscreen=(${Math.round(p.delta.x || 0)},${Math.round(p.delta.y || 0)}) matches=${p.matchesSlot} fits=${p.fitsClient}`,
-            )
+          const aligned = p.matchesSlot === true
+          const line =
+            `[embed对比] native:${phase || '?'} ` +
+            (slot
+              ? `槽位=(${Math.round(slot.x)},${Math.round(slot.y)} ${Math.round(slot.w)}x${Math.round(slot.h)}) `
+              : '') +
+            (wv
+              ? `WebView=(${Math.round(wv.x)},${Math.round(wv.y)} ${Math.round(wv.w)}x${Math.round(wv.h)}) `
+              : '') +
+            (p.delta
+              ? `Δ=(${Math.round(p.delta.x || 0)},${Math.round(p.delta.y || 0)}) ${aligned ? '对齐' : '错位!!!'}`
+              : '')
+          if (aligned) {
+            dbgLog(line)
+          } else {
+            console.warn(line)
           }
         })
         unlisten = () => {
