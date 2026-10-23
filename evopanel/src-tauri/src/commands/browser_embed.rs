@@ -489,6 +489,10 @@ fn embed_watchdog_tick(app: &tauri::AppHandle) {
     if parent.is_minimized().unwrap_or(false) {
         return;
     }
+    // 拖动中禁止 snap：SetWindowPos 会卡死整窗。
+    if main_is_dragging() || UI_SINCE_MS.load(Ordering::Acquire) != 0 {
+        return;
+    }
     let bounds_map = match EMBED_LAST_BOUNDS.lock() {
         Ok(m) => m,
         Err(_) => return,
@@ -522,6 +526,9 @@ fn embed_watchdog_tick(app: &tauri::AppHandle) {
                     let px = p.x as f64;
                     let py = p.y as f64;
                     if (px - sx).abs() > 12.0 || (py - sy).abs() > 12.0 {
+                        if main_is_dragging() {
+                            continue;
+                        }
                         browser_cdp_server::log_line(&format!(
                             "[browser-embed] ANOMALY: visible window off slot — expected=({sx:.0},{sy:.0}) actual=({px:.0},{py:.0}) last_writer={writer} — snapping back"
                         ));
@@ -1574,6 +1581,10 @@ fn place_embed_client(
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     };
+    // 拖动主窗时任何路径的 SetWindowPos 都会重入消息泵 → 整窗卡死。
+    if main_is_dragging() {
+        return Ok(());
+    }
     let (iw, ih) = main
         .inner_size()
         .map(|s| (s.width as f64, s.height as f64))
@@ -2700,6 +2711,16 @@ pub async fn browser_embed_set_bounds(
                     }
                 }
             }
+        }
+        // 拖动中禁止 SetWindowPos（重入消息泵 → 整窗卡死）。槽位变化等拖完再贴。
+        if main_is_dragging() {
+            browser_cdp_server::log_line(&format!(
+                "[browser-embed] set_bounds defer label={label} (main dragging)"
+            ));
+            if let Ok(mut map) = EMBED_LAST_BOUNDS.lock() {
+                map.insert(label.clone(), (x, y, width.max(120.0), height.max(80.0)));
+            }
+            return Ok(true);
         }
         mark_parked(&label, false);
         let _ = window.show();

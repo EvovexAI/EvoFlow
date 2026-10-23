@@ -868,13 +868,14 @@ function BrowserEmbedHost({
 
   useEffect(() => {
     if (!isOpen || !ready || !surfaceActive) return
-    // 拖动/缩放/最大化：节流贴位；force 绕过相同槽位去重，避免最大化后旧 bounds
-    // 仍盖住标题条导致双击还原失效。
+    // 缩放/布局变化：节流贴位。不要 force——拖动主窗时 RO/resize 若连发 force
+    // 会绕过槽位去重打到 SetWindowPos，和 Moved 重入叠在一起整窗卡死。
+    // 最大化后布局晚一拍用后面的延迟再贴一次即可。
     let timer = 0
     const schedule = () => {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
-        void syncBounds(true)
+        void syncBounds()
       }, 120)
     }
     window.addEventListener('resize', schedule)

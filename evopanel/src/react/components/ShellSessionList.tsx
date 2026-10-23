@@ -1422,10 +1422,8 @@ export function ShellSessionList({
                       const collapsed = collapsedGroupKeys.has(section.key)
                       return (
                         <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
-                          <button
-                            type="button"
-                            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-start gap-2 rounded-lg border-none bg-transparent pl-2.5 pr-1 text-left outline-none hover:bg-transparent transition-colors"
-                            aria-expanded={!collapsed}
+                          <div
+                            className="group/ws flex h-8 min-w-0 cursor-pointer items-center rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover"
                             onClick={() => toggleGroupCollapsed(section.key)}
                           >
                             <span className="relative flex size-4 shrink-0 items-center justify-center">
@@ -1436,17 +1434,39 @@ export function ShellSessionList({
                                   size={14}
                                 />
                               ) : collapsed ? (
-                                <FolderIcon className="size-4 text-foreground-subtle" />
+                                <FolderIcon className='size-4 text-foreground-subtle' />
                               ) : (
-                                <FolderOpenIcon className="size-4 text-foreground-subtle" />
+                                <FolderOpenIcon className='size-4 text-foreground-subtle' />
                               )}
                             </span>
-                            <span className="min-w-0 truncate text-[13px] text-foreground-subtle">
+                            <span className='min-w-0 flex-1 truncate text-[13px] text-foreground-subtle'>
                               {section.label}
                             </span>
-                          </button>
+                            <span className='hidden shrink-0 items-center gap-0.5 group-hover/ws:flex'>
+                              <button
+                                type='button'
+                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded text-foreground-subtle hover:bg-surface-hover hover:text-foreground'
+                                title={'新建对话'}
+                                onClick={(e) => { e.stopPropagation(); handleNewSessionClick() }}
+                              >
+                                <ShellPlusIcon size={12} />
+                              </button>
+                              <button
+                                type='button'
+                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded text-foreground-subtle hover:bg-surface-hover hover:text-foreground'
+                                title={'打开文件夹'}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const grp = groups.find((g) => g.workspaceKey === section.key)
+                                  if (grp) onOpenWorkspaceFolder?.(grp)
+                                }}
+                              >
+                                <ShellFolderIcon size={12} />
+                              </button>
+                            </span>
+                          </div>
                           {!collapsed ? (
-                              <ul className="react-chat-session-ws-group-list">
+                              <ul className='react-chat-session-ws-group-list'>
                                 {section.rows.map((row) => renderSessionRow(row))}
                               </ul>
                             ) : null}

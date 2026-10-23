@@ -42,8 +42,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| {
-            // 仅给还没嵌成子窗口的弹窗兜底。WS_CHILD 跟随父窗口，
-            // 在 Moved 里 SetWindowPos 会重入拖动循环，把整个客户端卡死。
+            // Moved：只打拖动标记，绝不贴位（WS_CHILD 跟父走；Moved 里
+            // SetWindowPos 会重入拖动消息泵卡死整窗）。Resized：延迟兜底弹窗。
             if let WindowEvent::Moved(_) | WindowEvent::Resized(_) = event {
                 if window.label() == "main" {
                     let resized = matches!(event, WindowEvent::Resized(_));
