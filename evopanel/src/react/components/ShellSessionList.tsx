@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Folder as FolderIcon, FolderOpen as FolderOpenIcon } from 'lucide-react'
+import { Folder as FolderIcon, FolderOpen as FolderOpenIcon, Ellipsis, Plus } from 'lucide-react'
 import { getCurrentRoute, navigate } from '../../router.js'
 import {
   mutateSessionPinned,
