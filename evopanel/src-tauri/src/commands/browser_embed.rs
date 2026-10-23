@@ -3099,16 +3099,8 @@ pub async fn browser_embed_probe_coords(
         } else {
             "WS_POPUP/TOP"
         };
-        // 同步推到控制台事件，方便只盯 browser-embed-coords。
-        if let Some(ref slot) = last_slot {
-            log_region_diag(
-                "probe",
-                &label,
-                &main,
-                &window,
-                (slot.x, slot.y, slot.w, slot.h),
-            );
-        }
+        // 不在 probe 里 emit coords：前端 logEmbedCompare 会打一对①②，
+        // 再 emit 会变成「probe + set-bounds」双份刷屏。
         Ok(Some(BrowserEmbedCoordsProbe {
             label: label.clone(),
             kind: kind.into(),

@@ -1065,7 +1065,7 @@ function BrowserEmbedHost({
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
             lastKey = ''
-            applyCorners(true, 'resize-observer')
+            applyCorners(true, 'resize-observer', false)
           })
         : null
     if (slotRef.current) ro?.observe(slotRef.current)

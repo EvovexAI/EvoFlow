@@ -170,11 +170,9 @@ function syncDockChrome(st = getState()) {
   }
   syncShellXiaomiActive(docked || !!(st.isOpen && !st.isMinimized))
   if (changed) {
-    // 布局要过一轮 paint 槽位 getBoundingClientRect 才准
+    // 布局要过一轮 paint；BrowserPanel wake 内部已有 settle 连贴，这里只通知一次。
     requestAnimationFrame(() => {
       notifyXmDockLayoutChanged(docked ? 'dock-open' : 'dock-close')
-      window.setTimeout(() => notifyXmDockLayoutChanged('dock-settle'), 80)
-      window.setTimeout(() => notifyXmDockLayoutChanged('dock-settle-late'), 280)
     })
   }
 }
