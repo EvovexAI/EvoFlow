@@ -114,11 +114,6 @@ export function V4ZCodeTimeline(props: {
    */
   draftEmpty?: boolean;
   /**
-   * 本地已有乐观行（如工作台首页刚发出），但 V4 快照尚未到：强制贴底 dock，
-   * 避免空态居中 → 首帧到达再沉底的布局跳变。
-   */
-  forceBottomDock?: boolean;
-  /**
    * EvoFlow 底部输入区：作为 ConversationTimeline sticky bottomDock 挂进同一滚动视口
    * （对齐 ZCode SessionPane），避免 messages 区单独滚动、下方空出「留给输入框」的空白。
    */
@@ -154,7 +149,6 @@ export function V4ZCodeTimeline(props: {
     evoflowSessionKey,
     embedded = false,
     draftEmpty = false,
-    forceBottomDock = false,
     onOpenCodeViewer,
     onToolApproval,
     toolApprovalUiDisabled = false,
@@ -493,12 +487,9 @@ export function V4ZCodeTimeline(props: {
           // 要 2~3s，期间若退回老面板的底部 dock，用户会看到输入框先在底部、随后跳到中间。
           // 居中条件只认「当前没有可显示的行」：connecting / 等首帧快照期间也必须居中。
           // 若把 connecting 排除在外，新对话会经历 居中 → 贴底 → 再居中 的三段跳。
-          // forceBottomDock：首页发送已有本地乐观行、V4 快照未到时，禁止居中以免中→下跳。
-          centerEmptyStateWithDock={
-            embedded || forceBottomDock ? false : rows.length === 0
-          }
+          centerEmptyStateWithDock={embedded ? false : rows.length === 0}
           emptyState={
-            draftEmpty && !forceBottomDock ? (
+            draftEmpty ? (
               <div data-testid="v4-draft-empty" className="w-full">
                 <V4DraftEmptyState />
               </div>

@@ -29,6 +29,12 @@ class _ReadEntry:
 _SEEN: dict[str, _ReadEntry] = {}
 
 
+def reset_read_state() -> None:
+    """清空已读状态（测试隔离 / 诊断用；进程内全局注册表）。"""
+    with _LOCK:
+        _SEEN.clear()
+
+
 def note_read(path: str, *, full_read: bool = True) -> None:
     raw = str(path or "").strip()
     if not raw:

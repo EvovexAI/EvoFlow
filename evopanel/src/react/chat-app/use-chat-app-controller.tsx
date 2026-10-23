@@ -5386,6 +5386,7 @@ export function useChatAppController() {
       skillsOverride?: SkillSelection[]
       pluginsOverride?: PluginSelection[]
       leaveHomeOnPaint?: boolean
+      beforeWire?: () => Promise<unknown>
     },
   ) {
     await handleSendImpl(

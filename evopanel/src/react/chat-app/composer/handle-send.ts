@@ -21,6 +21,8 @@ export type HandleSendOpts = {
   pluginsOverride?: PluginSelection[]
   /** 工作台首页发送：与乐观用户气泡同帧离开首页，避免空草稿居中闪一下。 */
   leaveHomeOnPaint?: boolean
+  /** 乐观气泡画出后、真正 chatSend 前执行（如首页 agent/model 上下文写入）。 */
+  beforeWire?: () => Promise<unknown>
 }
 
 /** Host bag from ChatApp — mechanical extract; fields match whitelist. */
@@ -650,6 +652,10 @@ export async function handleSend(
     }
 
     try {
+      // 首页等：先让用户看到气泡，再等 agent/model 上下文写完，最后才上线
+      if (opts?.beforeWire) {
+        await opts.beforeWire().catch(() => {})
+      }
       // 本地 context + 本地 abort：不串行等待 Gateway PATCH/stop（否则「运行中」空转数秒才进「准备中」）
       await syncChatContextBeforeSend().catch(() => {})
       abortStaleChatStream()

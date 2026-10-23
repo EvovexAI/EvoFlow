@@ -33,6 +33,7 @@ export type HandleHomeEventsCtx = {
       skillsOverride?: HomeSkillSelection[]
       pluginsOverride?: HomePluginSelection[]
       leaveHomeOnPaint?: boolean
+      beforeWire?: () => Promise<unknown>
     },
   ) => Promise<unknown> | unknown
 }
@@ -55,9 +56,8 @@ export function handleHomeSendEvent(ctx: HandleHomeEventsCtx, event: Event): voi
     ? detail.contextFiles.filter((f) => String(f?.path || '').trim())
     : []
   if (!text && !attachments?.length && !homeCtx.length) return
-  // 不要在这里先离开工作台：否则会露出底下空「新对话」居中输入框，
-  // 等 handleSend 乐观气泡 / V4 首帧到了再沉底，形成「中→下」闪一下。
-  // 离开首页与画出用户气泡放在 handleSend 的同一帧 flushSync（leaveHomeOnPaint）。
+  // 离开首页与画出用户气泡在 handleSend 同帧（leaveHomeOnPaint）；
+  // agent/model 写入放到 beforeWire，先看见气泡再等上下文，避免「停在首页干等」。
   void (async () => {
     if (Array.isArray(detail?.skills)) ctx.setSelectedSkills(detail.skills)
     if (Array.isArray(detail?.plugins)) ctx.setSelectedPlugins(detail.plugins)
@@ -71,7 +71,7 @@ export function handleHomeSendEvent(ctx: HandleHomeEventsCtx, event: Event): voi
       }
       void patchPanelSettings({ lastSelectedModel: modelName })
     }
-    // 先确保会话，再并行写 agent/model（静默，不走带 toast 的角色切换）
+    // 先确保会话；agent/model 与发送并行准备，等乐观气泡后再 await（beforeWire）
     const sk =
       (ctx.sessionRef.current || '').trim() || (await ctx.ensureChatSessionKey()) || ''
     const code = String(detail?.agentCode || '').trim().toLowerCase()
@@ -114,12 +114,13 @@ export function handleHomeSendEvent(ctx: HandleHomeEventsCtx, event: Event): voi
     if (sk && modelName) {
       prep.push(ctx.updateSessionContext(sk, { model_name: modelName }).catch(() => undefined))
     }
-    if (prep.length) await Promise.all(prep)
     if (homeCtx.length) ctx.attachContextFiles(homeCtx)
+    const prepAll = prep.length ? Promise.all(prep) : Promise.resolve()
     await ctx.handleSend(text, attachments, homeCtx.length ? homeCtx : undefined, {
       skillsOverride: Array.isArray(detail?.skills) ? detail.skills : undefined,
       pluginsOverride: Array.isArray(detail?.plugins) ? detail.plugins : undefined,
       leaveHomeOnPaint: true,
+      beforeWire: () => prepAll,
     })
   })()
 }

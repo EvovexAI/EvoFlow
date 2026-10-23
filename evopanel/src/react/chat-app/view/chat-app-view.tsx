@@ -543,14 +543,17 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   null
                 }
               >
-                {(v4Payload, v4Phase) =>
-                  /* 仅两种情况走老面板：显式回滚（disabled），或工作台首页（isHomeSurface，
-                  自带 EvoFlowHomeDashboard 输入条）。
-                  「新对话」草稿（selectedSessionKey 为空）必须留在 V4：点「+」后
-                  startNewSessionWithWorkspace 会 flushSync 清空选中，若此时回落老面板，
-                  输入框会先贴到底部（老链路兄弟 dock），等会话创建 + ensure-thread 完成
-                  （实测 2~3s）再跳回 V4 居中——这正是「先在下面、一会儿跑到中间」的成因。 */
-                  v4Phase === 'disabled' || isHomeSurface ? (
+                {(v4Payload, v4Phase) => {
+                  /* 老面板：显式回滚 / 工作台首页 / 本地行领先于 V4 快照。
+                     第三种是「发送后立刻看见气泡并等待回复」：乐观 setRows 早于 V4 帧，
+                     本地行数 > V4 时先走老面板（含整轮流式），追上后再切 V4。
+                     「新对话」空草稿（rows=0）必须留在 V4 居中，避免贴底再跳中间。 */
+                  const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
+                  const localOptimisticHold =
+                    Array.isArray(rows) && rows.length > 0 && rows.length > v4RowCount
+                  const useLegacyPane =
+                    v4Phase === 'disabled' || isHomeSurface || localOptimisticHold
+                  return useLegacyPane ? (
               <ChatMessageStreamPane
                 rows={renderRows}
                 streamRef={streamRef}
@@ -606,13 +609,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       payload={v4Payload}
                       connecting={v4Phase === 'connecting' || v4Phase === 'no-thread'}
                       /* 草稿空态 = 尚无任何行可显示（新会话创建中 / 等首帧快照）。
-                         与居中判定同源，避免问候语与 composer 分属两个阶段而闪烁。
-                         本地乐观行已有时（首页刚发出）不算草稿：强制贴底，等 V4 首帧。 */
-                      draftEmpty={
-                        !(Array.isArray(rows) && rows.length > 0) &&
-                        (v4Phase !== 'ready' || !v4Payload?.snapshot?.rows.totalCount)
-                      }
-                      forceBottomDock={Array.isArray(rows) && rows.length > 0}
+                         与居中判定同源，避免问候语与 composer 分属两个阶段而闪烁。 */
+                      draftEmpty={v4Phase !== 'ready' || !v4RowCount}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenCodeViewer={(source) => {
                         // ZCode CodeViewerSource → 右侧 codeViewer 面板
@@ -658,7 +656,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         />
                       }
                     />
-                  )}
+                  )
+                }}
               </V4StreamRowsBridge>
             </div>
           </div>

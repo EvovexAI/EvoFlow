@@ -287,7 +287,7 @@ describe('action-router tool briefs (tasks / knowledge / platform)', () => {
           args_json: JSON.stringify({ query: '怎么配 MCP' }),
         },
       }),
-    ).toBe('Platform · knowledge.search · 怎么配 MCP')
+    ).toBe('检索知识库文档 · 怎么配 MCP')
     expect(
       formatToolDisplayTitle({
         name: 'platform',
@@ -296,7 +296,7 @@ describe('action-router tool briefs (tasks / knowledge / platform)', () => {
           args_json: JSON.stringify({ name: '下周发版' }),
         },
       }),
-    ).toBe('Platform · items.create · 下周发版')
+    ).toBe('用户事项/备忘 · 创建 · 下周发版')
     expect(
       formatToolDisplayTitle({
         name: 'platform',
@@ -305,7 +305,7 @@ describe('action-router tool briefs (tasks / knowledge / platform)', () => {
           args_json: JSON.stringify({ agent_code: 'code-agent', agent_name: '代码助手' }),
         },
       }),
-    ).toBe('Platform · employees.hire · 代码助手')
+    ).toBe('雇佣智能体为值班员工 · 代码助手')
     expect(
       formatToolDisplayTitle({
         name: 'platform',
@@ -314,7 +314,7 @@ describe('action-router tool briefs (tasks / knowledge / platform)', () => {
           args_json: JSON.stringify({ agent_code: 'code-agent' }),
         },
       }),
-    ).toBe('Platform · employees.hire')
+    ).toBe('雇佣智能体为值班员工')
   })
 })
 
@@ -487,6 +487,33 @@ describe('collab subtask tool output', () => {
     expect(formatActivityDetailFromToolCalls([{ name: 'search_code_index' }])).toBe(
       'calling: Search_code_index',
     )
+  })
+
+  it('platform tool uses action enum labels instead of generic Platform', () => {
+    expect(
+      formatToolDisplayTitle({
+        name: 'platform',
+        input: { action: 'agents.list' },
+      }),
+    ).toBe('列出智能体角色')
+    expect(
+      formatToolDisplayTitle({
+        name: 'platform',
+        input: { action: 'knowledge.search', args_json: '{"query":"MCP"}' },
+      }),
+    ).toMatch(/^检索知识库文档/)
+    expect(
+      formatActivityDetailFromToolCalls([
+        { name: 'platform', status: 'running', input: { action: 'employees.list' } },
+      ]),
+    ).toBe('calling: 列出智能体员工岗位')
+    // 未知 action：回退到「域 · 动词」
+    expect(
+      formatToolDisplayTitle({
+        name: 'platform',
+        input: { action: 'agents.unknown_op' },
+      }),
+    ).toBe('智能体角色 · unknown_op')
   })
 
   it('formatActivityDetailFromRunningToolCalls omits completed tools and keeps only latest', () => {

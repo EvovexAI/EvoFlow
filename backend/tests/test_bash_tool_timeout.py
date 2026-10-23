@@ -56,8 +56,14 @@ def test_large_stdout_is_persisted_with_short_preview(tmp_path, monkeypatch) -> 
 
 
 def test_stale_read_hint_after_mtime_change(tmp_path) -> None:
-    from evoflow.tools.zcode_port.read_file_state import note_read, stale_read_hint
+    from evoflow.tools.zcode_port.read_file_state import (
+        note_read,
+        reset_read_state,
+        stale_read_hint,
+    )
 
+    # 全局注册表被其它测试（host-direct 文件用例的已读记录）污染会让断言不稳定
+    reset_read_state()
     target = tmp_path / "watched.txt"
     import os
     import time
