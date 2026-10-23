@@ -13,13 +13,34 @@ import {
   isStreamWriteContentDisplayable,
 } from '../../lib/workspace-preview-path.js'
 import { prepareHtmlSrcDocForPreview } from '../../lib/workspace-html-preview.js'
+import {
+  PREVIEW_DOC_CODE,
+  PREVIEW_DOC_CSV,
+  PREVIEW_DOC_HTML,
+  PREVIEW_DOC_JSON,
+  PREVIEW_DOC_MARKDOWN,
+  PREVIEW_DOC_MERMAID,
+  PREVIEW_DOC_SVG,
+  canToggleSource,
+  previewDocKind,
+  previewRenderLabel,
+  resolvePreviewView,
+} from '../../lib/preview-view-mode.js'
+import {
+  clipTable,
+  detectCsvDelimiter,
+  formatJsonPreview,
+  parseCsvRows,
+  toMermaidMarkdown,
+} from '../../lib/preview-doc-parsers.js'
 import { useThrottledValue } from '../hooks/useThrottledValue.js'
 import { isStreamThrottleEnabled } from '../lib/stream-throttle-toggle.js'
-import {
-  isMarkdownDocumentPath,
-  MarkdownDocumentView,
-} from './MarkdownDocumentView.js'
+import { MarkdownDocumentView } from './MarkdownDocumentView.js'
+import { StreamdownRenderer } from './StreamdownRenderer.js'
+import { highlightCode } from '../../lib/markdown.js'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js'
+
+type PreviewViewMode = 'preview' | 'code'
 
 export type WorkspacePreviewState = {
   path: string
@@ -47,8 +68,6 @@ type PreviewZoomControls = {
   canReset: boolean
 }
 
-type MarkdownViewMode = 'preview' | 'code'
-
 type Props = {
   preview: WorkspacePreviewState | null
   onClose?: () => void
@@ -62,7 +81,7 @@ type Props = {
   /** 仅弹窗模式：缩放控件 */
   zoomControls?: PreviewZoomControls | null
   /**
-   * Markdown：是否允许编辑源码（与 ZCode 的「原文」查看分开；原文用 markdownViewMode=code）。
+   * Markdown：是否允许在渲染视图里直接编辑源码（菜单的「源码」是只读视图）。
    */
   allowMarkdownEdit?: boolean
   /** Markdown 编辑时回调（需配合 allowMarkdownEdit）。 */
@@ -175,17 +194,6 @@ function fileExtLabel(name: string, path: string): string {
   return 'FILE'
 }
 
-function previewLooksLikeHtml(preview: WorkspacePreviewState): boolean {
-  const path = preview.path || ''
-  const name = preview.name || ''
-  return (
-    /\.(html?|htm)$/i.test(path) ||
-    /\.(html?|htm)$/i.test(name) ||
-    (!!preview.streaming && /^\s*</.test(preview.content || '')) ||
-    /<!DOCTYPE|<html/i.test(preview.content || '')
-  )
-}
-
 export function WorkspaceFilePreviewPane({
   preview,
   onClose,
@@ -205,7 +213,8 @@ export function WorkspaceFilePreviewPane({
   const focusLineNum = Number(focusLine) > 0 ? Number(focusLine) : 0
   const zoom = Math.min(2, Math.max(0.75, Number(contentZoom) || 1))
   const zoomStyle = { '--preview-zoom': String(zoom) } as CSSProperties
-  const [markdownViewMode, setMarkdownViewMode] = useState<MarkdownViewMode>('preview')
+  // 渲染预览 / 源码；按文件格式决定哪些格式可切换（见 lib/preview-view-mode.js）
+  const [viewMode, setViewMode] = useState<PreviewViewMode>('preview')
   const [wrapLongLines, setWrapLongLines] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
 
@@ -232,18 +241,18 @@ export function WorkspaceFilePreviewPane({
     }
   }, [])
 
-  const isMarkdown = useMemo(
-    () =>
-      !!(
-        preview &&
-        (isMarkdownDocumentPath(preview.path) || isMarkdownDocumentPath(preview.name))
-      ),
-    [preview],
-  )
-  const isHtml = useMemo(
-    () => !!(preview && !preview.binary && !preview.error && !isMarkdown && previewLooksLikeHtml(preview)),
-    [preview, isMarkdown],
-  )
+  // 文档类型按文件格式判定（Markdown / HTML / SVG / JSON / CSV / Mermaid / 其它源码）。
+  const docKind = useMemo(() => {
+    if (!preview) return PREVIEW_DOC_CODE
+    return previewDocKind({
+      path: preview.path,
+      name: preview.name,
+      // 流式写入时扩展名可能缺失，用内容嗅探兜底。
+      content: preview.binary || preview.error ? '' : preview.content,
+    })
+  }, [preview])
+  const isMarkdown = docKind === PREVIEW_DOC_MARKDOWN
+  const isHtml = docKind === PREVIEW_DOC_HTML
 
   const rawContent = preview && !preview.loading && !preview.error && !preview.binary ? preview.content : ''
   const streamBodyReady = useMemo(
@@ -262,8 +271,39 @@ export function WorkspaceFilePreviewPane({
     () => (displayContent ? prepareHtmlSrcDocForPreview(displayContent) : ''),
     [displayContent],
   )
-  const htmlLivePreview = isHtml && !preview?.streaming
   const showStreamWaiting = !!(preview?.streaming && !preview.loading && !streamBodyReady && !isHtml)
+
+  const isSvgDoc = docKind === PREVIEW_DOC_SVG
+  const isJsonDoc = docKind === PREVIEW_DOC_JSON
+  const isCsvDoc = docKind === PREVIEW_DOC_CSV
+  const isMermaidDoc = docKind === PREVIEW_DOC_MERMAID
+
+  // SVG：内容读成文本后转 data URL 渲染（<img> 不执行脚本，比 iframe 更安全）。
+  const svgSrc = useMemo(
+    () =>
+      isSvgDoc && displayContent
+        ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(displayContent)}`
+        : '',
+    [isSvgDoc, displayContent],
+  )
+  const jsonPreview = useMemo(
+    () => (isJsonDoc ? formatJsonPreview(displayContent) : { ok: false, text: '', error: '' }),
+    [isJsonDoc, displayContent],
+  )
+  const jsonHtml = useMemo(
+    () => (jsonPreview.ok ? highlightCode(jsonPreview.text, 'json') : ''),
+    [jsonPreview],
+  )
+  const csvTable = useMemo(() => {
+    if (!isCsvDoc || !displayContent) return null
+    const ext = /\.tsv$/i.test(preview?.path || preview?.name || '') ? 'tsv' : 'csv'
+    const rows = parseCsvRows(displayContent, { delimiter: detectCsvDelimiter(displayContent, ext) })
+    return clipTable(rows)
+  }, [isCsvDoc, displayContent, preview?.path, preview?.name])
+  const mermaidMarkdown = useMemo(
+    () => (isMermaidDoc ? toMermaidMarkdown(displayContent) : ''),
+    [isMermaidDoc, displayContent],
+  )
 
   if (!preview) return null
 
@@ -283,11 +323,16 @@ export function WorkspaceFilePreviewPane({
   const showVideo = !!(mediaSrc && (preview.mediaKind === 'video' || isWorkspaceVideoPath(preview.path)))
   const showAudio = !!(mediaSrc && (preview.mediaKind === 'audio' || isWorkspaceAudioPath(preview.path)))
   const showZoom = !embedded && zoomControls
-  const canToggleMarkdown = isMarkdown && !preview.binary && !preview.error
+  const canToggleView = canToggleSource(docKind, {
+    binary: preview.binary,
+    error: preview.error || '',
+    streaming: !!preview.streaming,
+  })
+  const view = resolvePreviewView(docKind, viewMode, { streaming: !!preview.streaming })
   const canToggleWrap = !showImage && !showVideo && !showAudio && !preview.binary
   const hasLocalPath = !!(preview.path && !/^https?:\/\//i.test(preview.path))
-  const showMarkdownPreview = canToggleMarkdown && markdownViewMode === 'preview'
-  const showMarkdownSource = canToggleMarkdown && markdownViewMode === 'code'
+  // Markdown 流式写入仍实时渲染预览（旧行为）；HTML 流式期间由 resolvePreviewView 固定为源码。
+  const showRenderView = view === 'render'
 
   return (
     <div
@@ -317,6 +362,38 @@ export function WorkspaceFilePreviewPane({
           ) : null}
         </div>
         <div className="react-chat-workspace-preview-pane-header-actions">
+          {canToggleView ? (
+            <div
+              className="react-chat-workspace-preview-view-toggle"
+              role="group"
+              aria-label="视图模式"
+            >
+              <button
+                type="button"
+                className={`react-chat-workspace-preview-view-btn${
+                  view === 'render' ? ' is-active' : ''
+                }`}
+                aria-pressed={view === 'render'}
+                data-testid="ws-preview-toggle-render"
+                title={isMarkdown ? '预览' : '渲染预览'}
+                onClick={() => setViewMode('preview')}
+              >
+                {isMarkdown ? '预览' : '渲染'}
+              </button>
+              <button
+                type="button"
+                className={`react-chat-workspace-preview-view-btn${
+                  view === 'source' ? ' is-active' : ''
+                }`}
+                aria-pressed={view === 'source'}
+                data-testid="ws-preview-toggle-source"
+                title="查看源码"
+                onClick={() => setViewMode('code')}
+              >
+                源码
+              </button>
+            </div>
+          ) : null}
           {showZoom ? (
             <div className="react-chat-workspace-preview-zoom-inline" aria-label="显示比例">
               <button
@@ -361,36 +438,40 @@ export function WorkspaceFilePreviewPane({
               </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-52 p-1" role="menu">
-              {canToggleMarkdown ? (
+              {canToggleView ? (
                 <>
-                  <div className="react-chat-workspace-preview-menu-label">Markdown</div>
+                  <div className="react-chat-workspace-preview-menu-label">
+                    {isMarkdown ? 'Markdown' : 'HTML'}
+                  </div>
                   <button
                     type="button"
                     role="menuitemradio"
-                    aria-checked={markdownViewMode === 'preview'}
+                    aria-checked={view === 'render'}
+                    data-testid="ws-preview-mode-render"
                     className={`react-chat-workspace-preview-menu-item${
-                      markdownViewMode === 'preview' ? ' is-active' : ''
+                      view === 'render' ? ' is-active' : ''
                     }`}
                     onClick={() => {
-                      setMarkdownViewMode('preview')
+                      setViewMode('preview')
                       setMoreOpen(false)
                     }}
                   >
-                    预览
+                    {isMarkdown ? '预览' : '渲染预览'}
                   </button>
                   <button
                     type="button"
                     role="menuitemradio"
-                    aria-checked={markdownViewMode === 'code'}
+                    aria-checked={view === 'source'}
+                    data-testid="ws-preview-mode-source"
                     className={`react-chat-workspace-preview-menu-item${
-                      markdownViewMode === 'code' ? ' is-active' : ''
+                      view === 'source' ? ' is-active' : ''
                     }`}
                     onClick={() => {
-                      setMarkdownViewMode('code')
+                      setViewMode('code')
                       setMoreOpen(false)
                     }}
                   >
-                    原文
+                    源码
                   </button>
                   <div className="react-chat-workspace-preview-menu-sep" />
                 </>
@@ -534,7 +615,7 @@ export function WorkspaceFilePreviewPane({
           <div className="react-chat-workspace-preview-binary-hint">
             {getBinaryFilePreviewHint(preview.name, preview.path)}
           </div>
-        ) : isHtml && htmlLivePreview ? (
+        ) : isHtml && showRenderView ? (
           <div className="react-chat-workspace-preview-html-wrap">
             {preview.truncated ? (
               <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
@@ -548,7 +629,7 @@ export function WorkspaceFilePreviewPane({
             />
           </div>
         ) : isHtml ? (
-          <div className="react-chat-workspace-preview-code-wrap">
+          <div className="react-chat-workspace-preview-code-wrap" data-testid="ws-preview-source">
             {focusLineNum > 0 ? (
               <FocusedCodeBlock content={displayContent} focusLine={focusLineNum} focusEndLine={focusEndLine} annotation={focusAnnotation} />
             ) : (
@@ -560,7 +641,7 @@ export function WorkspaceFilePreviewPane({
               </pre>
             )}
           </div>
-        ) : showMarkdownPreview ? (
+        ) : isMarkdown && showRenderView ? (
           <div className="react-chat-workspace-preview-md-host">
             {preview.truncated ? (
               <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
@@ -575,8 +656,8 @@ export function WorkspaceFilePreviewPane({
               testIdPrefix="ws-md"
             />
           </div>
-        ) : showMarkdownSource || isMarkdown ? (
-          <div className="react-chat-workspace-preview-code-wrap">
+        ) : isMarkdown ? (
+          <div className="react-chat-workspace-preview-code-wrap" data-testid="ws-preview-source">
             {preview.truncated ? (
               <div className="react-chat-workspace-preview-hint">仅显示前 512KB，完整内容请用 Agent 读取</div>
             ) : null}

@@ -24141,6 +24141,42 @@ html.dark .react-chat-workspace-preview-stage {
   background: var(--bg-hover, rgba(127, 127, 127, 0.1));
   color: var(--text-primary, inherit);
 }
+/* 预览 / 源码 分段切换（HTML & Markdown 按文件格式自动出现） */
+.react-chat-workspace-preview-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  margin-right: 4px;
+  border-radius: 8px;
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.08));
+  flex-shrink: 0;
+}
+.react-chat-workspace-preview-view-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.react-chat-workspace-preview-view-btn:hover {
+  color: var(--text-primary, inherit);
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+}
+.react-chat-workspace-preview-view-btn.is-active {
+  background: var(--bg-elevated, #fff);
+  color: var(--text-primary, inherit);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
 .react-chat-workspace-preview-menu-label {
   padding: 4px 8px 2px;
   font-size: 11px;

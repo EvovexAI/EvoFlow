@@ -66,6 +66,8 @@ export default defineConfig({
       'tests/workspace-api-scope.test.js',
       'tests/workspace-stream-preview.test.js',
       'tests/workspace-html-preview.test.js',
+      'tests/preview-view-mode.test.js',
+      'tests/workspace-file-preview-view-toggle.test.tsx',
       'tests/tool-approval.test.js',
       'tests/tool-approval-panel.test.tsx',
       'tests/tool-call-list-live-approval.test.tsx',
