@@ -1428,20 +1428,20 @@ export function ShellSessionList({
                             aria-expanded={!collapsed}
                             onClick={() => toggleGroupCollapsed(section.key)}
                           >
-                            <span className="relative flex size-4 shrink-0 items-center justify-center">
+                            <span className="relative flex size-3.5 shrink-0 items-center justify-center">
                               {isEmployeesTab && section.avatarAgentCode ? (
                                 <AssignedAgentAvatar
                                   agentCode={section.avatarAgentCode}
                                   agents={agents}
-                                  size={16}
+                                  size={14}
                                 />
                               ) : collapsed ? (
-                                <FolderIcon className="size-4 text-foreground-subtle" />
+                                <FolderIcon className="size-3.5 text-foreground-subtle" />
                               ) : (
-                                <FolderOpenIcon className="size-4 text-foreground-subtle" />
+                                <FolderOpenIcon className="size-3.5 text-foreground-subtle" />
                               )}
                             </span>
-                            <span className="min-w-0 truncate text-ui-base text-foreground-subtle">
+                            <span className="min-w-0 truncate text-xs text-foreground-subtle">
                               {section.label}
                             </span>
                           </button>
