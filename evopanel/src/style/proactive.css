@@ -818,7 +818,11 @@
   margin-left: 0;
 }
 
-.pro-employee-page--nav-in-chrome > .pro-page-nav {
+/* 操作栏浮到标题栏行 —— 仅 Windows / Linux。
+   macOS 用系统原生 Overlay 标题栏：窗口拖动只认标题栏那一条（顶部 26px 交通灯
+   + 其下的自绘拖拽条），操作栏一旦 fixed 覆盖上去，整条拖拽区被吃掉，窗口就
+   「锁死」无法移动。所以 macOS 下让操作栏留在正常文档流里，不与标题栏争高。 */
+html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav {
   position: fixed;
   top: 0;
   /* left = 壳侧栏宽 + 内容区左边距，与下方页面内容左对齐
@@ -840,34 +844,43 @@
   /* 空白处穿透到下方 #tauri-main-chrome 拖拽区，否则整条顶栏无法拖窗口 */
   pointer-events: none;
 }
-.pro-employee-page--nav-in-chrome > .pro-page-nav .btn,
-.pro-employee-page--nav-in-chrome > .pro-page-nav .pro-role-more {
+html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav .btn,
+html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav .pro-role-more {
   pointer-events: auto;
 }
-.pro-employee-page--nav-in-chrome > .pro-page-nav .pro-page-nav-actions {
+html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav .pro-page-nav-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
   margin-left: auto;
 }
-.pro-employee-page--nav-in-chrome > .pro-page-nav .btn {
+html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav .btn {
   height: 32px;
   font-size: 13px;
 }
 /* 壳侧栏折叠为 icon rail 时，left 相应缩小 */
-#app-shell-aside.shell-aside-host.collapsed ~ #main-col .pro-employee-page--nav-in-chrome > .pro-page-nav {
+html:not(.evopanel-macos-titlebar)
+  #app-shell-aside.shell-aside-host.collapsed
+  ~ #main-col
+  .pro-employee-page--nav-in-chrome
+  > .pro-page-nav {
   left: calc(var(--shell-aside-collapsed, 60px) + var(--space-lg));
 }
 /* 移动端侧栏为抽屉（不占主列宽度），操作栏贴主列左缘 */
 @media (max-width: 768px) {
-  .pro-employee-page--nav-in-chrome > .pro-page-nav {
+  html:not(.evopanel-macos-titlebar) .pro-employee-page--nav-in-chrome > .pro-page-nav {
     left: var(--space-lg);
   }
 }
-/* 页面内容顶部不需要额外 padding（标题栏本身占 56px） */
+/* 页面内容顶部不需要额外 padding（标题栏本身已占位） */
 .pro-employee-page--nav-in-chrome {
   padding-top: var(--space-lg, 24px);
+}
+/* macOS：操作栏在文档流内（不再浮到标题栏），沿用 .page 的常规顶间距，
+   不再叠加悬浮布局那层额外 24px */
+html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
+  padding-top: var(--space-xl);
 }
 .pro-page-nav-actions {
   display: flex;
