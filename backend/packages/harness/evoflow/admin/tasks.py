@@ -570,6 +570,15 @@ def get_task(task_id: str, *, subtask_id: str | None = None) -> dict[str, Any]:
             "status_zh": _status_zh(st.get("status")),
             "progress": int(st.get("progress") or 0),
             "assigned_to": str(st.get("assigned_to") or "").strip() or None,
+            # Per-step output + timing: when the main task's rollup step never ran
+            # (workflow aborted at 汇总), the completed steps are the only real
+            # deliverable the operator can read. Without these the detail page
+            # showed "已完成" with nothing underneath.
+            "summary": str(st.get("summary") or "").strip() or None,
+            "result": st.get("result"),
+            "error": st.get("error") or st.get("error_text"),
+            "started_at": st.get("started_at"),
+            "completed_at": st.get("completed_at"),
             **_task_role_fields(st),
             **_task_raiser_fields(st),
             **_task_parent_fields(st),

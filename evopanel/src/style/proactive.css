@@ -2434,6 +2434,66 @@
   font-size: var(--ef-text-sm) ;
   color: var(--text-tertiary);
 }
+/* 执行中 / 耗时：让人一眼看出「在跑」「跑了多久」，而不是只有一个时间点 */
+.pro-worklog-round-dur {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.pro-worklog-round-dur.is-running {
+  color: var(--pro-teal);
+  font-weight: 600;
+}
+.pro-meta-chip--run {
+  color: #fff;
+  background: var(--pro-teal, #0f766e);
+  border-color: transparent;
+}
+.pro-meta-chip--dur {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--pro-teal, #0f766e) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pro-teal, #0f766e) 26%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+/* 执行中的列表行给一条左侧强调，扫视时能立刻定位 */
+.pro-worklog-listrow.is-running {
+  border-left: 3px solid var(--pro-teal, #0f766e);
+}
+.pro-worklog-listrow.is-running .pro-worklog-listrow-title::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--pro-teal, #0f766e);
+  animation: pro-pulse 1.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+@keyframes pro-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pro-worklog-listrow.is-running .pro-worklog-listrow-title::after {
+    animation: none;
+  }
+}
+/* 工作项卡片：执行中强调 */
+.pro-item-card--run {
+  border-left: 3px solid var(--pro-teal, #0f766e);
+}
+/* 子任务产出摘要（主任务汇总缺失时的唯一可见交付） */
+.pro-item-subtask-result {
+  margin: 4px 0 0;
+  font-size: var(--ef-text-sm);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  grid-column: 1 / -1;
+}
+/* 「已完成但结果为空」—— 用警示色区分，避免看起来像正常完成 */
+.td-card--result-empty {
+  border-left: 3px solid var(--warning, #d97706);
+}
 .pro-worklog-empty-items {
   margin: 0;
   padding: 8px 2px 0;
