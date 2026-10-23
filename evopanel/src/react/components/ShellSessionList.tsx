@@ -1442,34 +1442,35 @@ export function ShellSessionList({
                             <span className='min-w-0 flex-1 truncate text-[13px] text-foreground-subtle'>
                               {section.label}
                             </span>
-                            <span className='hidden shrink-0 items-center gap-0.5 group-hover/ws:flex'>
+                            <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>
                               <button
                                 type='button'
-                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded text-foreground-subtle hover:bg-surface-hover hover:text-foreground'
-                                title={'新建对话'}
+                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                title='新建任务'
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  // 在被点击的工作空间下新建对话（不是全局焦点组）
                                   const grp = groups.find((g) => g.workspaceKey === section.key)
-                                  const wsPath = grp && grp.workspaceKey !== WORKSPACE_GROUP_UNBOUND
-                                    ? resolveShellGroupWorkspacePath(grp, registeredWorkspacePaths)
+                                  const wsPath = grp && grp.workspaceKey !== '__unbound__'
+                                    ? grp.path || null
                                     : null
                                   onNewSessionInWorkspace?.(wsPath)
                                 }}
                               >
-                                <ShellPlusIcon size={12} />
+                                <Plus className='h-3.5 w-3.5' />
                               </button>
                               <button
                                 type='button'
-                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded text-foreground-subtle hover:bg-surface-hover hover:text-foreground'
-                                title={'打开文件夹'}
+                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                title='打开文件夹'
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   const grp = groups.find((g) => g.workspaceKey === section.key)
                                   if (grp) onOpenWorkspaceFolder?.(grp)
                                 }}
                               >
-                                <ShellFolderIcon size={12} />
+                                <Ellipsis className='h-3.5 w-3.5' />
                               </button>
                             </span>
                           </div>
