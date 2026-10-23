@@ -13,11 +13,15 @@
 // 语义对齐（与 verbatim store 的三条铁律配套）：
 // - ACK 前到达的本订阅帧暂存，activate(subscriptionId) 后按原序释放；
 //   含「SSE 首帧早于 HTTP ACK」竞态：按 subId 提前建 staging，ACK 时不得 set([]) 覆盖。
-// - SSE 断线由 EventSource 自动重连；重连后的缺帧由 store 的断档恢复
-//   （携水位 resync）自愈，transport 不做任何补偿猜测。
+// - SSE 断线自动重连；重连后的缺帧由 store 的断档恢复（携水位 resync）自愈，
+//   transport 不做任何补偿猜测。
 // - 对齐日志：`[v4-rx]`（帧级 fromSeq→toSeq）/ `[v4-tx]`（订阅生命周期），
 //   localStorage.evoflow_v4_debug='1' 打开逐帧输出。
 // - stream-compare：每帧落盘同轮目录的 `v4-recv.log`（与 sse-recv / ui-display 对账）。
+//
+// 桌面安装包：相对路径 EventSource('/api/...') 只会打到 WebView 静态资源，进不了
+// Gateway sidecar（与 panel-stream 同病）。POST/GET 一律走 evoflowFetch /
+// evoflowFetchStream（Tauri → gatewayProxy / gateway_proxy_stream）。
 import type {
   CommandAck,
   CommandEnvelope,
@@ -36,7 +40,11 @@ import type {
   V4ConversationUnsubscribeParams,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { ConversationTransport } from "@zcode/ui/v4/transport.js";
+import { evoflowFetch, evoflowFetchStream } from "../../lib/ws-client.js";
 import { logStreamCompareV4Recv } from "../lib/stream-compare-file-log.js";
+import { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
+
+export { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
 
 type FrameListener = (
   frame: ConversationTopicFrame,
@@ -69,7 +77,7 @@ function v4Log(channel: string, message: string, detail?: Record<string, unknown
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const resp = await fetch(url, {
+  const resp = await evoflowFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -82,6 +90,33 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 
 function unsupported(method: string): never {
   throw new Error(`EvoFlowV4Transport: ${method} 不支持（自有后端未实现该面）`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function silenceReaderCancel(reader: ReadableStreamDefaultReader<Uint8Array> | null): void {
+  if (!reader?.cancel) return;
+  void Promise.resolve(reader.cancel()).catch(() => {});
+}
+
+function isBenignV4StreamError(err: unknown): boolean {
+  if (!err) return true;
+  const e = err as { name?: string; message?: string };
+  if (e?.name === "AbortError") return true;
+  const msg = String(e?.message || err || "")
+    .trim()
+    .toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network error") ||
+    msg.includes("load failed") ||
+    msg.includes("aborted") ||
+    msg.includes("abort") ||
+    msg.includes("bodystreambuffer was aborted")
+  );
 }
 
 export class EvoFlowV4Transport implements ConversationTransport {
@@ -99,12 +134,18 @@ export class EvoFlowV4Transport implements ConversationTransport {
   /** subscriptionId → topic（unsubscribe 需要 topic，store 只回传 id）。 */
   private readonly topicBySubscription = new Map<string, string>();
   /** ACK 前暂存的本订阅帧；activate 后按原序释放。 */
-  private readonly stagedBySubscription = new Map<string, Array<{ frame: ConversationTopicFrame; deliveryKind: TopicFrameDeliveryKind }>>();
+  private readonly stagedBySubscription = new Map<
+    string,
+    Array<{ frame: ConversationTopicFrame; deliveryKind: TopicFrameDeliveryKind }>
+  >();
   private readonly activeSubscriptions = new Set<string>();
   /** 已退订的 subId：迟到帧不得再进 staging（否则会泄漏 / 污染下一次误 activate）。 */
   private readonly closedSubscriptions = new Set<string>();
-  private eventSource: EventSource | null = null;
   private disposed = false;
+  /** frames SSE 是否已拉起（单连接共享；dispose 后可再 ensure）。 */
+  private sseLoopStarted = false;
+  private sseAbort: AbortController | null = null;
+  private sseReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
   constructor() {
     this.connectionId = `evoflow-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
@@ -275,50 +316,110 @@ export class EvoFlowV4Transport implements ConversationTransport {
 
   dispose(): void {
     this.disposed = true;
-    this.eventSource?.close();
-    this.eventSource = null;
+    this.sseLoopStarted = false;
+    try {
+      this.sseAbort?.abort();
+    } catch {
+      /* ignore */
+    }
+    this.sseAbort = null;
+    silenceReaderCancel(this.sseReader);
+    this.sseReader = null;
     this.frameListeners.clear();
     this.assemblyFaultListeners.clear();
     this.runtimeRestartListeners.clear();
   }
 
-  // ── 内部：SSE 连接与帧分发 ──
+  // ── 内部：SSE 连接与帧分发（Tauri 走 gateway_proxy_stream，禁 EventSource） ──
 
   private ensureSse(): void {
-    if (this.eventSource || this.disposed) return;
-    const es = new EventSource(
-      `/api/v4/conversation/frames?connectionId=${encodeURIComponent(this.connectionId)}`,
-    );
-    es.addEventListener("v4.wire", (event) => {
-      let candidate: WireCandidate;
+    if (this.sseLoopStarted || this.disposed) return;
+    this.sseLoopStarted = true;
+    const path = `/api/v4/conversation/frames?connectionId=${encodeURIComponent(this.connectionId)}`;
+    v4Log("v4-tx", `sse loop start connectionId=${this.connectionId}`);
+    void this.runFramesLoop(path);
+  }
+
+  private async runFramesLoop(path: string): Promise<void> {
+    let backoffMs = 1000;
+    let loggedWarn = false;
+    while (!this.disposed) {
+      const ac = new AbortController();
+      this.sseAbort = ac;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
       try {
-        candidate = JSON.parse((event as MessageEvent<string>).data) as WireCandidate;
+        const res = await evoflowFetchStream(path, { method: "GET", signal: ac.signal });
+        if (!res?.ok || !res.body) {
+          if (!this.disposed && !loggedWarn) {
+            console.warn("[v4-tx] frames bad response", res?.status);
+            loggedWarn = true;
+          }
+          await sleep(backoffMs);
+          backoffMs = Math.min(backoffMs * 2, 30000);
+          continue;
+        }
+        backoffMs = 1000;
+        loggedWarn = false;
+        if (v4DebugEnabled()) {
+          v4Log("v4-tx", `sse connected connectionId=${this.connectionId}`);
+        }
+        reader = res.body.getReader();
+        this.sseReader = reader;
+        const dec = new TextDecoder();
+        let buf = "";
+        while (!this.disposed && !ac.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value && value.length) buf += dec.decode(value, { stream: true });
+          buf = parseV4WireSseBlocks(buf, (data) => this.onWireData(data));
+        }
+      } catch (e) {
+        if (this.disposed || ac.signal.aborted) break;
+        if (isBenignV4StreamError(e)) {
+          if (!loggedWarn) {
+            console.warn(
+              "[v4-tx] frames disconnected (will retry)",
+              e instanceof Error ? e.message : e,
+            );
+            loggedWarn = true;
+          }
+        } else if (!this.disposed) {
+          console.warn("[v4-tx] frames stream error", e);
+        }
+      } finally {
+        this.sseReader = null;
+        if (this.sseAbort === ac) this.sseAbort = null;
+        silenceReaderCancel(reader);
+      }
+      if (this.disposed) break;
+      await sleep(backoffMs);
+      backoffMs = Math.min(backoffMs * 2, 30000);
+    }
+  }
+
+  private onWireData(data: string): void {
+    let candidate: WireCandidate;
+    try {
+      candidate = JSON.parse(data) as WireCandidate;
+    } catch (error) {
+      v4Log("v4-rx", "wire parse failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    // 不在读循环里同步跑 projection→React：侧栏开合/表格测宽的
+    // useLayoutEffect setState 会叠进同一嵌套更新计数，触发 React #185
+    //（Maximum update depth），且被旧 catch 误标成 wire parse failed。
+    queueMicrotask(() => {
+      if (this.disposed) return;
+      try {
+        this.handleCandidate(candidate);
       } catch (error) {
-        v4Log("v4-rx", "wire parse failed", {
+        v4Log("v4-rx", "frame dispatch failed", {
           error: error instanceof Error ? error.message : String(error),
         });
-        return;
       }
-      // 不在 EventSource 回调里同步跑 projection→React：侧栏开合/表格测宽的
-      // useLayoutEffect setState 会叠进同一嵌套更新计数，触发 React #185
-      //（Maximum update depth），且被旧 catch 误标成 wire parse failed。
-      queueMicrotask(() => {
-        if (this.disposed) return;
-        try {
-          this.handleCandidate(candidate);
-        } catch (error) {
-          v4Log("v4-rx", "frame dispatch failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      });
     });
-    es.onerror = () => {
-      // EventSource 自带指数退避重连；断线期缺帧由 store 断档恢复兜底。
-      if (v4DebugEnabled()) v4Log("v4-rx", "sse error (auto-reconnect)");
-    };
-    this.eventSource = es;
-    v4Log("v4-tx", `sse connected connectionId=${this.connectionId}`);
   }
 
   private handleCandidate(candidate: WireCandidate): void {
@@ -404,4 +505,14 @@ export function getEvoflowV4Transport(): EvoFlowV4Transport {
     })();
   }
   return sharedTransport;
+}
+
+/** 测试 / HMR：丢掉单例，下次 get 重建（含新的 connectionId + SSE）。 */
+export function resetEvoflowV4TransportForTests(): void {
+  try {
+    sharedTransport?.dispose();
+  } catch {
+    /* ignore */
+  }
+  sharedTransport = null;
 }

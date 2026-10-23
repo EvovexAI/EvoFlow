@@ -214,3 +214,53 @@ def test_pending_approval_from_envelope_when_wire_status_ok(mirror_session: str)
     )
     tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
     assert tool["status"] == "pendingApproval", tool
+
+
+def test_node_repl_cua_display_field_becomes_output_display(mirror_session: str) -> None:
+    """TOOL_CALL_RESULT.cua_display（标记已被剥）必须投影到 output.display，供 V4 图标/截图。"""
+    tid = mirror_session + "-cua-display"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "打开飞书并截图")
+    shot = "/api/threads/t1/browser-snapshots/abc123def456"
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-cua"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-cua",
+                "toolCallName": "mcp__node_repl__js",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-cua"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-cua",
+                "toolName": "mcp__node_repl__js",
+                "content": f"[Screenshot captured: {shot} (40KB) — already shown on the tool card]",
+                "status": "success",
+                "cua_display": {
+                    "status": "success",
+                    "images": [{"url": shot, "kb": 40}],
+                    "target_app": {
+                        "app_key": "windows-exe:d:\\app\\feishu\\app\\feishu.exe",
+                        "display_name": "飞书",
+                    },
+                },
+            },
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-cua"},
+        ],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "success", tool
+    display = (tool.get("output") or {}).get("display")
+    assert isinstance(display, dict), tool
+    assert display.get("kind") == "cua"
+    media = display.get("media") or []
+    assert media and media[0].get("artifactUri") == shot
+    target = display.get("targetApp") or {}
+    assert target.get("displayName") == "飞书"
+    locs = target.get("iconLocators") or []
+    assert locs and locs[0].get("kind") == "windows-executable-path"
+    assert "feishu.exe" in str(locs[0].get("value") or "").lower()

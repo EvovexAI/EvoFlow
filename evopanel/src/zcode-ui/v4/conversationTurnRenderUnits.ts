@@ -161,13 +161,29 @@ function splitTurnTailRows(rows: readonly AssistantWorkRow[]): {
   };
 }
 
+function readToolCallVisualDisplay(row: Extract<AssistantWorkRow, { kind: "toolCall" }>) {
+  // 协议双通道：顶层 display（旧 Node REPL / browser_turn_end）与
+  // output.display（EvoFlow CUA / 文件 diff 等 canonical 位置）。
+  return row.display ?? row.output?.display;
+}
+
 function isBrowserTurnEndRow(row: AssistantWorkRow): boolean {
   // 自动截图以完成态 tool row 持久化在最终正文之后，旧分组只把
   // timeline boundary 识别为轮尾，导致截图被搬进上方“已工作”折叠区而不可见。
+  if (row.kind !== "toolCall") return false;
+  const display = readToolCallVisualDisplay(row);
+  if (
+    display?.kind === "node_repl_images" &&
+    display.source === "browser_turn_end"
+  ) {
+    return true;
+  }
+  // EvoFlow CUA：带 media 的截图卡若留在「已工作」里，回合结束后折叠就看不见。
+  // 提到轮尾（最终答复之后、操作栏之前），与 browser_turn_end 同理。
   return (
-    row.kind === "toolCall" &&
-    row.display?.kind === "node_repl_images" &&
-    row.display.source === "browser_turn_end"
+    display?.kind === "cua" &&
+    Array.isArray(display.media) &&
+    display.media.length > 0
   );
 }
 

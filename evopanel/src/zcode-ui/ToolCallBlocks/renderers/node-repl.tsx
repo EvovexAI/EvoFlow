@@ -1,5 +1,5 @@
-// NOT MOUNTED. 产品聊天里的 mcp__node_repl__js 卡片在
-// evopanel/src/react/components/ToolCallList.tsx，不在本文件。
+// V4 ConversationTimeline 挂载本卡（resolveRenderer → node-repl family）。
+// 老链路 ToolCallList 仍用 CuaSummaryLeadingIcon / CuaToolPreview 画图标与截图。
 import { useCallback, useEffect, useMemo } from "react";
 import { ChevronRightIcon, ExternalLinkIcon, SquareMousePointerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
@@ -402,7 +402,9 @@ export function NodeReplToolCallBlock(context: ToolCallBlockRenderContext) {
     ],
   );
 
+  // 轮尾截图：只出图片画廊，不要工具摘要行 / 「查看执行细节」下拉。
   if (model.displaySource === "browser_turn_end") {
+    if (model.images.length === 0) return null;
     return <NodeReplImageGrid images={model.images} resultImageLabel={resultImageLabel} />;
   }
 
@@ -414,7 +416,7 @@ export function NodeReplToolCallBlock(context: ToolCallBlockRenderContext) {
         showIcon={context.showIcon !== false}
         canToggle={canToggle}
         forceOpen={context.forceOpen ?? false}
-        kindLabel={null}
+        kindLabel={model.app?.displayName || null}
         sourceLabel={context.sourceLabel}
         primaryText={summaryText}
         statusLabel={formatMessage("chat.toolCall.nodeRepl.failed")}

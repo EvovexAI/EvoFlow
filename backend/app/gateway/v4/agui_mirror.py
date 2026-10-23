@@ -692,8 +692,14 @@ class V4Mirror:
                 except (TypeError, ValueError):
                     pass
             tool_name = self._tool_name(st, tcid, ev)
-            cua_display = None
-            if "node_repl" in tool_name:
+            # CUA 展示：sse_ui_normalize / agui_stream_normalizer 已把
+            # ``{evoflow-cua-display:...}`` 从 content 剥成 TOOL_CALL_RESULT.cua_display。
+            # 只扫正文会永远 miss → V4 NodeRepl 卡无飞书图标、无截图画廊。
+            cua_display: dict[str, Any] | None = None
+            raw_cua = ev.get("cua_display")
+            if isinstance(raw_cua, dict):
+                cua_display = raw_cua
+            elif "node_repl" in tool_name:
                 content, cua_display = _split_evoflow_cua_display(content)
             # 协议形状（toolDisplay.ts toolOutputSchema）：output = {text, display?}，
             # 错误在 row 顶层 error 字段（status=error 时必带）——不能包 kind:"text"/"error"。

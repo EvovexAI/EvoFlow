@@ -1,5 +1,6 @@
-// NOT MOUNTED. 产品聊天不读本文件。电脑控制展示改 react/components/ToolCallList.tsx。
+// V4 ConversationTimeline → NodeReplToolCallBlock 读本文件；老链路仍用 ToolCallList CUA 预览。
 import type { TaskChatToolCall as ChatToolCall } from "@/lib/taskChatMessageTypes.js";
+import { resolveEvoflowCuaDisplay } from "@/lib/chat-normalize.js";
 import { cuaIconLocatorsToAppKey } from "@/lib/cuaAppIconRequest.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
 
@@ -448,9 +449,37 @@ export function buildNodeReplDisplayModel(toolCall: ChatToolCall): NodeReplDispl
   // 实时 tool.updated 把 display 放在 raw.result 内，终态 snapshot 则把
   // completed part 的 metadata 直接作为 raw。只扫描 raw.result 会让对话结束后的图片消失。
   const evoflowCua = extractFromEvoflowCuaDisplay(toolCall);
+  // 网关偶发未把 kind:"cua" 写进 output.display 时，从 Screenshot banner / app: 行兜底还原。
+  const inferred =
+    evoflowCua.images.length === 0 && !evoflowCua.app && projectedText
+      ? resolveEvoflowCuaDisplay(projectedText)
+      : null;
+  const inferredImages: NodeReplDisplayImage[] = [];
+  if (inferred && Array.isArray(inferred.images)) {
+    for (const item of inferred.images) {
+      const url = typeof item?.url === "string" ? item.url.trim() : "";
+      if (url) inferredImages.push({ url, mimeType: "image/png" });
+    }
+  }
+  const inferredApp: NodeReplCuaApp | undefined = (() => {
+    const key = String(inferred?.target_app?.app_key || "").trim();
+    if (!key) return undefined;
+    const displayName = String(inferred?.target_app?.display_name || "").trim();
+    return { appKey: key, ...(displayName ? { displayName } : {}) };
+  })();
   const inlineImages = extractImages([...outputCandidates, toolCall.raw]);
-  const images = inlineImages.length > 0 ? inlineImages : evoflowCua.images;
-  const app = findCuaApp(toolCall.raw) ?? evoflowCua.app;
+  const images =
+    inlineImages.length > 0
+      ? inlineImages
+      : evoflowCua.images.length > 0
+        ? evoflowCua.images
+        : inferredImages;
+  const app = findCuaApp(toolCall.raw) ?? evoflowCua.app ?? inferredApp;
+  // CUA 截图：只当轮尾图片画廊渲染（无工具摘要 / 「查看执行细节」下拉）。
+  // 与 ZCode browser_turn_end 同形，避免整张 node_repl 工具卡堆在正文下方。
+  const cuaScreenshotOnly =
+    images.length > 0 &&
+    (evoflowCua.images.length > 0 || inferredImages.length > 0);
   const persisted = parsePersistedResult(
     removeProjectedImagePlaceholders(
       removeProjectedCompletionMarkers(projectedText),
@@ -464,10 +493,10 @@ export function buildNodeReplDisplayModel(toolCall: ChatToolCall): NodeReplDispl
     code: removeLeadingBlankLines(readInputString(inputs, ["code"])),
     moduleDirectory: readInputString(inputs, ["dir", "path"])?.trim(),
     ...persisted,
-    ...(hasBrowserTurnEndDisplay(toolCall.raw)
+    ...(hasBrowserTurnEndDisplay(toolCall.raw) || cuaScreenshotOnly
       ? { displaySource: "browser_turn_end" as const }
       : {}),
-    ...(app ? { app } : {}),
+    ...(app && !cuaScreenshotOnly ? { app } : {}),
     error:
       extractError(toolCall.error) ??
       (toolCall.status === "failed"
