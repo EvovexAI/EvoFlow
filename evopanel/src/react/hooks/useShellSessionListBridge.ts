@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useSyncExternalStore } from 'react'
+import { useMemo, useRef, useEffect, useState, useCallback, useSyncExternalStore } from 'react'
 import type { ChatSessionRow } from '../chat-types.js'
 import { buildShellSidebarGroups } from '../lib/session-list/build-shell-rows.js'
 import { GLOBAL_RECENT_PAGINATION_KEY } from '../lib/session-list/constants.js'
@@ -6,6 +6,10 @@ import {
   normalizeWorkspacePathKey,
   stabilizeShellWorkspaceGroupOrder,
 } from '../lib/session-list/workspace-groups.js'
+import {
+  loadWorkspaceGroupOrder,
+  saveWorkspaceGroupOrder,
+} from '../lib/session-list/workspace-order-storage.js'
 import type { ShellSessionListProps } from '../components/ShellSessionList.js'
 import type { ResolvedLiveStreamActivity } from '../lib/resolve-live-stream-activity.js'
 import type { RunningSessionSummary } from './useRunningSessionSummaries.js'
@@ -72,6 +76,8 @@ export type UseShellSessionListBridgeOptions = {
   onDeleteWorkspace?: (group: ShellWorkspaceGroup) => void | Promise<void>
   onWorkspaceFocus?: (workspacePath: string | null) => void
   onOpenWorkspaceFolder?: (group: ShellWorkspaceGroup) => void | Promise<void>
+  /** 拖拽工作区分组头后按目标组换序（任务 Tab） */
+  onReorderWorkspaceGroups?: (fromWorkspaceKey: string, toWorkspaceKey: string) => void
 }
 
 export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions) {
@@ -126,6 +132,35 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
   const loadMoreGlobalRecentSessionsRef = useRef(loadMoreGlobalRecentSessions)
   const folderOrderWrapper = useMemo(() => ({ current: [] as string[] }), [])
 
+  // 工作区手动排序：启动时恢复上次拖拽保存的顺序（localStorage，仅本机偏好）
+  const [workspaceOrderTick, bumpWorkspaceOrderTick] = useState(0)
+  useEffect(() => {
+    const saved = loadWorkspaceGroupOrder()
+    if (saved.length > 0) {
+      folderOrderWrapper.current = saved
+      bumpWorkspaceOrderTick((v) => v + 1)
+    }
+  }, [folderOrderWrapper])
+
+  const reorderWorkspaceGroups = useCallback(
+    (fromKey: string, toKey: string) => {
+      const from = normalizeWorkspacePathKey(fromKey)
+      const to = normalizeWorkspacePathKey(toKey)
+      if (!from || !to || from === to) return
+      const cur = folderOrderWrapper.current
+      const fi = cur.findIndex((k) => normalizeWorkspacePathKey(k) === from)
+      const ti = cur.findIndex((k) => normalizeWorkspacePathKey(k) === to)
+      if (fi < 0 || ti < 0) return
+      const next = [...cur]
+      const [item] = next.splice(fi, 1)
+      next.splice(ti, 0, item)
+      folderOrderWrapper.current = next
+      saveWorkspaceGroupOrder(next)
+      bumpWorkspaceOrderTick((v) => v + 1)
+    },
+    [folderOrderWrapper],
+  )
+
   // Sync callback refs in a single effect to avoid react-hooks/refs violations
   useEffect(() => {
     onNewWorkspaceRef.current = onNewWorkspace
@@ -173,6 +208,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     void executingListEpoch
     void executionProbeEpoch
     void goalStateEpoch
+    void workspaceOrderTick
     const sel = String(selectedSessionKey || '').trim()
     const built = buildShellSidebarGroups({
       filteredSessions,
@@ -187,6 +223,11 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       workspaceSummaries.length > 0 || !listLoading
         ? stabilizeShellWorkspaceGroupOrder(built, folderOrderWrapper)
         : built
+    // 新注册工作区出现在 stabilize 顺序里后同步持久化（幂等写；空顺序不写，
+    // 避免启动首帧把 localStorage 里已保存的顺序清掉——seed 在 effect 阶段才执行）
+    if (folderOrderWrapper.current.length > 0) {
+      saveWorkspaceGroupOrder(folderOrderWrapper.current)
+    }
     const rows = groups.flatMap((g) => g.sessions)
     const globalPag = workspacePagination[GLOBAL_RECENT_PAGINATION_KEY]
     return {
@@ -225,6 +266,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       onDeleteWorkspace: (group) => void onDeleteWorkspaceRef.current?.(group),
       onWorkspaceFocus: (path) => void onWorkspaceFocusRef.current?.(path),
       onOpenWorkspaceFolder: (group) => void onOpenWorkspaceFolderRef.current?.(group),
+      onReorderWorkspaceGroups: reorderWorkspaceGroups,
       registeredWorkspacePaths,
       employeeRoles,
       onRefreshEmployeeRoles,
@@ -260,6 +302,8 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     onWorkspaceFocus,
     onOpenWorkspaceFolder,
     folderOrderWrapper,
+    reorderWorkspaceGroups,
+    workspaceOrderTick,
     executingListEpoch,
     executionProbeEpoch,
     goalStateEpoch,

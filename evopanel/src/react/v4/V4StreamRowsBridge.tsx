@@ -23,9 +23,11 @@ import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import type { ConversationStoreState as StoreState } from "@zcode/ui/v4/conversationProjectionStore.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import {
+  bindV4OpenThread,
   describeV4NotRenderedYet,
   describeV4Rendered,
   logV4Life,
+  v4OpenSinceClickMs,
 } from "../lib/v4-lifecycle-log.js";
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
 
@@ -63,6 +65,23 @@ export function warmEvoflowV4Session(sessionId: string): void {
   if (!id) return;
   try {
     const lease = getSharedLayer().acquire(id);
+    const st = lease.store.getState();
+    const hasSnap = Boolean(st.snapshot);
+    const rowCount =
+      st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
+    logV4Life({
+      event: "open_warm",
+      threadId: id,
+      zh: hasSnap
+        ? `悬停预热命中已有快照（openKind=${lease.openKind}，行数≈${rowCount}）→ 点击应能立刻出历史。`
+        : `悬停预热开始订阅（openKind=${lease.openKind}，尚无快照）→ 后台等首帧；keep-warm 约 30s。`,
+      detail: {
+        openKind: lease.openKind,
+        hasSnapshot: hasSnap,
+        rowCount,
+        storeStatus: st.status,
+      },
+    });
     queueMicrotask(() => {
       try {
         lease.release();
@@ -91,7 +110,29 @@ export function V4StreamRowsBridge(props: {
       setLease(null);
       return;
     }
+    bindV4OpenThread(sessionId);
     const acquired = layer.acquire(sessionId);
+    const st = acquired.store.getState();
+    const hasSnap = Boolean(st.snapshot);
+    const rowCount =
+      st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
+    const since = v4OpenSinceClickMs({ threadId: sessionId });
+    logV4Life({
+      event: "open_acquire",
+      threadId: sessionId,
+      zh: hasSnap
+        ? `点击后租约已挂上：命中缓存快照（openKind=${acquired.openKind}，行数≈${rowCount}）→ 应几乎立刻上屏。`
+        : `点击后租约已挂上：无缓存快照（openKind=${acquired.openKind}，store=${st.status}）→ 需等 subscribe/首帧，这是「慢」的主路径。`,
+      detail: {
+        openKind: acquired.openKind,
+        hasSnapshot: hasSnap,
+        rowCount,
+        storeStatus: st.status,
+        subscriptionId: st.subscriptionId,
+        ...(since != null ? { sinceClickMs: since } : {}),
+      },
+      skipDedupe: true,
+    });
     setLease(acquired);
     return () => {
       acquired.release();

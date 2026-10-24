@@ -1,8 +1,8 @@
 /**
  * V4 会话打开 / 订阅 / 首帧生命周期诊断。
  *
- * ## 落点（排查「有历史却空白 / 卡在等首帧」）
- * 1. DevTools Console：过滤 `[v4-life]`
+ * ## 落点（排查「有历史却空白 / 卡在等首帧 / 特别慢」）
+ * 1. DevTools Console：过滤 `[v4-life]` 或 `[v4-open]`
  * 2. 桌面端：`~/.evoflow/logs/frontend-YYYY-MM-DD.log`
  *    （`append_frontend_log`，不依赖 PROD console 镜像）
  * 3. 若 stream-compare 开着：同会话 `…/pending/v4-recv.log`（或当前 active run）
@@ -10,9 +10,8 @@
  *
  * 关闭：localStorage.setItem('EVOFLOW_V4_LIFE_LOG', '0')
  *
- * 日志行优先带中文 `zh` 字段，方便直接回答：
- * - 点开会话后，历史页何时渲染出来
- * - 若没渲染出来，卡在哪、因为什么
+ * 日志行优先带中文 `zh` 字段；打开链路还会带 `sinceClickMs`（距侧栏点击的毫秒），
+ * 方便直接拆：点开 → acquire → ACK → SSE 大包拼装 → 首帧 → 上屏 各卡多久。
  */
 import { logStreamCompareV4Lifecycle } from './stream-compare-file-log.js'
 
@@ -34,12 +33,36 @@ export type V4LifeEvent =
   | 'sse_bad_response'
   | 'sse_disconnected'
   | 'sse_error'
+  | 'sse_frame_assemble'
   | 'frame_early_stage'
   | 'frame_snapshot'
   | 'frame_deltas'
+  | 'open_acquire'
+  | 'open_warm'
+  | 'open_ready'
+  | 'connecting_tick'
   | 'connecting_stuck'
   | 'wire_parse_failed'
   | 'dispatch_failed'
+
+/** 一次「点开历史」的计时锚点（下一次点击会覆盖）。 */
+type V4OpenTrace = {
+  sessionKey: string
+  threadId?: string
+  startedAt: number
+}
+
+let openTrace: V4OpenTrace | null = null
+
+function normalizeThreadId(raw: string | null | undefined): string | undefined {
+  const t = String(raw || '').trim()
+  if (!t) return undefined
+  if (t.startsWith('conversation/')) {
+    const id = t.slice('conversation/'.length).trim()
+    return id || t
+  }
+  return t
+}
 
 export type V4LifeLogInput = {
   event: V4LifeEvent | string
@@ -49,6 +72,57 @@ export type V4LifeLogInput = {
   threadId?: string | null
   level?: 'info' | 'warn' | 'error'
   detail?: Record<string, unknown>
+  /** 为 true 时不做 2.5s 去重（进度 tick / 大包拼装必须条条留下）。 */
+  skipDedupe?: boolean
+}
+
+/** 侧栏点开会话时打点：后续各阶段日志带 sinceClickMs。 */
+export function markV4OpenTrace(opts: {
+  sessionKey: string
+  threadId?: string | null
+}): void {
+  const sessionKey = String(opts.sessionKey || '').trim()
+  if (!sessionKey) return
+  const threadId = normalizeThreadId(opts.threadId)
+  openTrace = {
+    sessionKey,
+    ...(threadId ? { threadId } : {}),
+    startedAt: Date.now(),
+  }
+}
+
+/** bridge / transport 拿到 threadId 后绑到当前打开 trace。 */
+export function bindV4OpenThread(threadId: string | null | undefined): void {
+  if (!openTrace) return
+  const id = normalizeThreadId(threadId)
+  if (!id) return
+  openTrace.threadId = id
+}
+
+/**
+ * 距「本次点开」的毫秒。threadId/sessionKey 对不上当前 trace 时返回 null
+ *（避免把上一会话的耗时写到下一会话日志里）。
+ */
+export function v4OpenSinceClickMs(opts?: {
+  sessionKey?: string | null
+  threadId?: string | null
+}): number | null {
+  if (!openTrace) return null
+  const sk = String(opts?.sessionKey || '').trim()
+  const tid = normalizeThreadId(opts?.threadId)
+  if (sk && sk !== openTrace.sessionKey) return null
+  if (tid && openTrace.threadId && tid !== openTrace.threadId) return null
+  return Math.max(0, Date.now() - openTrace.startedAt)
+}
+
+function attachOpenTiming(
+  detail: Record<string, unknown> | undefined,
+  sessionKey?: string,
+  threadId?: string,
+): Record<string, unknown> | undefined {
+  const since = v4OpenSinceClickMs({ sessionKey, threadId })
+  if (since == null) return detail
+  return { ...(detail || {}), sinceClickMs: since }
 }
 
 export type V4LifeRecord = {
@@ -113,16 +187,6 @@ function pushRing(rec: V4LifeRecord): void {
   }
 }
 
-function normalizeThreadId(raw: string | null | undefined): string | undefined {
-  const t = String(raw || '').trim()
-  if (!t) return undefined
-  if (t.startsWith('conversation/')) {
-    const id = t.slice('conversation/'.length).trim()
-    return id || t
-  }
-  return t
-}
-
 /** 根据桥接 path / store 状态生成「为何还没渲染历史」的中文原因。 */
 export function describeV4NotRenderedYet(opts: {
   path?: string | null
@@ -185,14 +249,21 @@ export function logV4Life(input: V4LifeLogInput): void {
   const sessionKey = String(input.sessionKey || '').trim() || undefined
   const threadId = normalizeThreadId(input.threadId)
   const level = input.level || 'info'
-  const detail = input.detail && typeof input.detail === 'object' ? input.detail : undefined
+  const detail = attachOpenTiming(
+    input.detail && typeof input.detail === 'object' ? { ...input.detail } : undefined,
+    sessionKey,
+    threadId,
+  )
 
-  const dedupeKey = `${event}|${sessionKey || ''}|${threadId || ''}|${zh || ''}|${safeJson(detail || {}).slice(0, 100)}`
+  if (!input.skipDedupe) {
+    const dedupeKey = `${event}|${sessionKey || ''}|${threadId || ''}|${zh || ''}|${safeJson(detail || {}).slice(0, 100)}`
+    const now = Date.now()
+    const last = recent.get(dedupeKey)
+    if (last != null && now - last < DEDUPE_MS) return
+    recent.set(dedupeKey, now)
+  }
+
   const now = Date.now()
-  const last = recent.get(dedupeKey)
-  if (last != null && now - last < DEDUPE_MS) return
-  recent.set(dedupeKey, now)
-
   const rec: V4LifeRecord = {
     at: new Date(now).toISOString(),
     atMs: now,
@@ -205,7 +276,8 @@ export function logV4Life(input: V4LifeLogInput): void {
   }
   pushRing(rec)
 
-  const line = zh ? `${PREFIX} ${zh}` : `${PREFIX} ${event}`
+  const since = detail && typeof detail.sinceClickMs === 'number' ? ` +${detail.sinceClickMs}ms` : ''
+  const line = zh ? `${PREFIX}${since} ${zh}` : `${PREFIX}${since} ${event}`
   const payload = {
     event,
     ...(zh ? { zh } : {}),

@@ -147,9 +147,28 @@ export class EvoFlowV4Transport implements ConversationTransport {
   private sseLoopStarted = false;
   private sseAbort: AbortController | null = null;
   private sseReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  /** 大包拼装进度：已越过的阈值（KB），避免同一帧刷屏。 */
+  private sseAssembleLoggedKb = 0;
 
   constructor() {
     this.connectionId = `evoflow-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  }
+
+  private noteSseAssembleProgress(restBytes: number): void {
+    // 只在跨 chunk 拼大包时打点：≥256KiB 起，每翻一倍或每 +512KiB 记一条。
+    if (restBytes < 256 * 1024) return;
+    const kb = Math.floor(restBytes / 1024);
+    const step = kb >= 2048 ? 512 : kb >= 1024 ? 256 : 128;
+    const bucket = Math.floor(kb / step) * step;
+    if (bucket <= this.sseAssembleLoggedKb) return;
+    this.sseAssembleLoggedKb = bucket;
+    logV4Life({
+      event: "sse_frame_assemble",
+      level: restBytes >= 512 * 1024 ? "warn" : "info",
+      zh: `frames SSE 正在拼装超大未完成帧（已缓冲约 ${kb}KiB，尚未收到事件结尾）——大会话 snapshot 常见；若之后无 frame_snapshot 再查是否被截断/代理中断。`,
+      detail: { restBytes, restKiB: kb, connectionId: this.connectionId },
+      skipDedupe: true,
+    });
   }
 
   async subscribe(params: SubscribeParams): Promise<V4ConversationSubscribeResult> {
@@ -161,7 +180,9 @@ export class EvoFlowV4Transport implements ConversationTransport {
       threadId: params.topic,
       zh: "开始订阅 V4 会话（等待服务端 ACK；首帧 snapshot 稍后经 frames SSE 下发）。",
       detail: { connectionId: this.connectionId, base: params.base ?? null },
+      skipDedupe: true,
     });
+    const httpStarted = Date.now();
     const result = await postJson<{ ack: V4ConversationSubscribeResult["ack"] }>(
       "/api/v4/conversation/subscribe",
       {
@@ -172,6 +193,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
         clientMode: "desktop-continuous",
       },
     );
+    const subscribeHttpMs = Date.now() - httpStarted;
     const subscriptionId = result.ack.subscriptionId;
     this.closedSubscriptions.delete(subscriptionId);
     this.topicBySubscription.set(subscriptionId, params.topic);
@@ -189,17 +211,19 @@ export class EvoFlowV4Transport implements ConversationTransport {
       threadId: params.topic,
       zh:
         earlyStaged > 0
-          ? `订阅 ACK 已返回（mode=${result.ack.mode}），且 ACK 前已暂存 ${earlyStaged} 帧，即将 activate 释放。`
-          : `订阅 ACK 已返回（mode=${result.ack.mode}），正在等 frames SSE 的首帧 snapshot。`,
+          ? `订阅 ACK 已返回（mode=${result.ack.mode}，HTTP ${subscribeHttpMs}ms），且 ACK 前已暂存 ${earlyStaged} 帧，即将 activate 释放。`
+          : `订阅 ACK 已返回（mode=${result.ack.mode}，HTTP ${subscribeHttpMs}ms），正在等 frames SSE 的首帧 snapshot。`,
       detail: {
         subscriptionId,
         connectionId: this.connectionId,
         mode: result.ack.mode,
         logEpoch: result.ack.logEpoch,
         earlyStaged,
+        subscribeHttpMs,
         snapshotRowCount: openTiming?.snapshotRowCount ?? null,
         sessionRuntimeState: openTiming?.sessionRuntimeState ?? null,
       },
+      skipDedupe: true,
     });
     return result;
   }
@@ -415,11 +439,24 @@ export class EvoFlowV4Transport implements ConversationTransport {
         this.sseReader = reader;
         const dec = new TextDecoder();
         let buf = "";
+        this.sseAssembleLoggedKb = 0;
         while (!this.disposed && !ac.signal.aborted) {
           const { done, value } = await reader.read();
           if (done) break;
           if (value && value.length) buf += dec.decode(value, { stream: true });
-          buf = parseV4WireSseBlocks(buf, (data) => this.onWireData(data));
+          buf = parseV4WireSseBlocks(buf, (data) => this.onWireData(data), {
+            onIncompleteRest: (bytes) => this.noteSseAssembleProgress(bytes),
+            onFrameBytes: (bytes) => {
+              this.sseAssembleLoggedKb = 0;
+              if (bytes < 256 * 1024) return;
+              logV4Life({
+                event: "sse_frame_assemble",
+                zh: `frames SSE 解出完整大帧（约 ${Math.round(bytes / 1024)}KiB），即将 JSON.parse → 投影。`,
+                detail: { frameBytes: bytes, frameKiB: Math.round(bytes / 1024) },
+                skipDedupe: true,
+              });
+            },
+          });
         }
       } catch (e) {
         if (this.disposed || ac.signal.aborted) break;
@@ -462,6 +499,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
   }
 
   private onWireData(data: string): void {
+    const wireBytes = data.length;
     let candidate: WireCandidate;
     try {
       candidate = JSON.parse(data) as WireCandidate;
@@ -472,10 +510,17 @@ export class EvoFlowV4Transport implements ConversationTransport {
       logV4Life({
         event: "wire_parse_failed",
         level: "warn",
-        detail: { error: error instanceof Error ? error.message : String(error) },
+        detail: {
+          error: error instanceof Error ? error.message : String(error),
+          wireBytes,
+          wireKiB: Math.round(wireBytes / 1024),
+        },
+        skipDedupe: true,
       });
       return;
     }
+    // 把体积挂到 candidate 上，供 logFrameLife 使用（不进协议字段）。
+    (candidate as WireCandidate & { __wireBytes?: number }).__wireBytes = wireBytes;
     // 不在读循环里同步跑 projection→React：侧栏开合/表格测宽的
     // useLayoutEffect setState 会叠进同一嵌套更新计数，触发 React #185
     //（Maximum update depth），且被旧 catch 误标成 wire parse failed。
@@ -504,6 +549,10 @@ export class EvoFlowV4Transport implements ConversationTransport {
     if (!candidate?.frame || !candidate.subscriptionId) return;
     const deliveryKind: TopicFrameDeliveryKind =
       candidate.deliveryKind ?? "online";
+    const wireBytes =
+      typeof (candidate as WireCandidate & { __wireBytes?: number }).__wireBytes === "number"
+        ? (candidate as WireCandidate & { __wireBytes?: number }).__wireBytes
+        : undefined;
     const payload = candidate.frame.payload;
     if (v4DebugEnabled()) {
       const seq =
@@ -535,7 +584,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
         candidate.subscriptionId,
         candidate.frame,
         deliveryKind,
-        { via: "early_stage", stagedIndex: staged.length },
+        { via: "early_stage", stagedIndex: staged.length, wireBytes },
       );
       this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind);
       staged.push({ frame: candidate.frame, deliveryKind });
@@ -546,7 +595,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
       candidate.subscriptionId,
       candidate.frame,
       deliveryKind,
-      { via: "live" },
+      { via: "live", wireBytes },
     );
     this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind);
     this.dispatchFrame(candidate.frame, deliveryKind);
@@ -582,7 +631,11 @@ export class EvoFlowV4Transport implements ConversationTransport {
     } else if (via === "activate_release" && isSnapshot) {
       zh = `activate 释放暂存 snapshot（行数≈${rowCount ?? "?"}）→ 此时应开始渲染历史时间线。`;
     } else if (isSnapshot) {
-      zh = `收到 snapshot 帧（delivery=${deliveryKind}，行数≈${rowCount ?? "?"}）→ 投影替换，历史页应随之渲染。`;
+      const kib =
+        typeof extra.wireBytes === "number"
+          ? `，约 ${Math.round(Number(extra.wireBytes) / 1024)}KiB`
+          : "";
+      zh = `收到 snapshot 帧（delivery=${deliveryKind}，行数≈${rowCount ?? "?"}${kib}）→ 投影替换，历史页应随之渲染。`;
     }
     logV4Life({
       event,
@@ -600,6 +653,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
             }),
         ...extra,
       },
+      skipDedupe: isSnapshot,
     });
   }
 

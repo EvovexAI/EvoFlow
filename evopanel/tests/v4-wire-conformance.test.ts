@@ -233,4 +233,19 @@ describe("parseV4WireSseBlocks", () => {
     parseV4WireSseBlocks('event: other\ndata: {"x":1}\n\n', (d) => frames.push(d));
     expect(frames).toEqual([]);
   });
+
+  it("does not truncate an in-flight large v4.wire frame above 512KiB", () => {
+    // 回归：旧 512KiB 截断会毁掉跨 chunk 的大会话 snapshot，导致 ACK 后无首帧。
+    const frames: string[] = [];
+    const bigJson = `{"topic":"conversation/t1","subscriptionId":"s1","rows":"${"x".repeat(700_000)}"}`;
+    const header = "event: v4.wire\ndata: ";
+    const chunk1 = header + bigJson.slice(0, 600_000);
+    const chunk2 = bigJson.slice(600_000) + "\n\n";
+    let rest = parseV4WireSseBlocks(chunk1, (d) => frames.push(d));
+    expect(frames).toEqual([]);
+    expect(rest.length).toBeGreaterThan(512 * 1024);
+    rest = parseV4WireSseBlocks(rest + chunk2, (d) => frames.push(d));
+    expect(frames).toEqual([bigJson]);
+    expect(rest).toBe("");
+  });
 });

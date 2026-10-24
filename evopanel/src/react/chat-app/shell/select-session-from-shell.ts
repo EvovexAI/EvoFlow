@@ -5,7 +5,7 @@
 import { flushSync } from 'react-dom'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { skTail, ssLog } from '../../../lib/session-list-debug.js'
-import { logV4Life } from '../../lib/v4-lifecycle-log.js'
+import { logV4Life, markV4OpenTrace } from '../../lib/v4-lifecycle-log.js'
 
 export type SelectSessionFromShellCtx = {
   sessionRef: MutableRefObject<string>
@@ -26,11 +26,13 @@ export function selectSessionFromShell(
   if (!k) return
   const from = String(ctx.sessionRef.current || '').trim()
   ssLog('shell.select', { key: skTail(k), from: skTail(from) })
+  markV4OpenTrace({ sessionKey: k })
   logV4Life({
     event: 'session_click',
     sessionKey: k,
-    zh: `用户点击侧栏会话，开始打开历史。session=${k}${from && from !== k ? `（从 ${from} 切过来）` : ''}`,
+    zh: `用户点击侧栏会话，开始打开历史。session=${k}${from && from !== k ? `（从 ${from} 切过来）` : ''}（计时锚点已打，后续看 sinceClickMs）`,
     detail: { from: from || null },
+    skipDedupe: true,
   })
   ctx.setShellSelectRevision((r) => r + 1)
   try {

@@ -246,8 +246,9 @@ export default defineConfig(({ mode }) => {
         'd3-scale',
         'd3-shape',
         'topojson-client',
-        'us-atlas',
-        'world-atlas',
+        // 注意：us-atlas / world-atlas 是纯 JSON 数据包（无 main/module/exports 入口），
+        // 不能进 optimizeDeps（否则预打包报 "Failed to resolve entry"）。
+        // react-xlsx 的 dist 构建时已内联其 JSON，运行时不会裸引用这两个包。
       ],
       // Mermaid brings ESM-only deps (e.g. @mermaid-js/parser) that can break esbuild pre-bundle
       // in some environments (Tauri beforeDevCommand on Windows). Now we pre-bundle mermaid itself
