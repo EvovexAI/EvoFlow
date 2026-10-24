@@ -2451,6 +2451,25 @@ def _kick_work_item_retry(task_id: str, task: dict[str, Any]) -> None:
 
 
 @router.post(
+    "/{task_id}/recover",
+    summary="Recover Workflow From Breakpoint",
+    description=(
+        "Heal zombie executing / requeue failed steps from DB, then advance the App DAG "
+        "(workflow_runtime). Prefer this after gateway restart; distinct from pause resume."
+    ),
+)
+async def recover_workflow_task(http_request: Request, task_id: str, reason: str = "api") -> dict:
+    require_task_visible(http_request, task_id)
+    from evoflow.admin import apps as apps_admin
+    from evoflow.admin.errors import ValidationError
+
+    try:
+        return await apps_admin.recover_task_async(task_id, reason=reason or "api")
+    except ValidationError as e:
+        raise_task_error(ErrorCode.INVALID_PARAMETERS, str(e))
+
+
+@router.post(
     "/{task_id}/retry",
     summary="Retry Failed Subtasks",
     description="Retry failed subtasks, or re-dispatch a leaf/work-item task that failed as a whole.",

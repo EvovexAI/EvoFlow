@@ -297,6 +297,15 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("workflow.run", "workflow", "启动一次运行", "write", "appId, parameters?", H.workflow_run, "跑一下拆解流程"),
         _A("workflow.stop", "workflow", "取消或暂停运行", "write", "runId, reason?, pause?", H.workflow_stop, "停掉刚才的运行"),
         _A("workflow.resume", "workflow", "恢复已暂停运行", "write", "runId", H.workflow_resume, "继续刚才暂停的运行"),
+        _A(
+            "workflow.recover",
+            "workflow",
+            "从断点/失败节点续跑（读库纠状态后重派）",
+            "write",
+            "runId|taskId, reason?",
+            H.workflow_recover,
+            "服务重启后从这个节点接着跑",
+        ),
         _A("workflow.run_status", "workflow", "查看运行状态", "read", "runId", H.workflow_run_status, "那个运行到哪了"),
         _A("workflow.list_runs", "workflow", "查看应用运行历史", "read", "appId, limit?, page?", H.workflow_list_runs, "这个应用跑过几次"),
         # settings

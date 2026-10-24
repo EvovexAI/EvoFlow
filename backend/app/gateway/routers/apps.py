@@ -618,3 +618,22 @@ def resume_run_endpoint(run_id: str) -> dict[str, bool]:
     if not success:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return {"success": success}
+
+
+@router.post("/runs/{run_id}/recover")
+async def recover_run_endpoint(run_id: str, reason: str = "api") -> dict:
+    """Recover a crashed / failed-node app run from persisted DAG state.
+
+    Heals zombie ``executing`` rows (lease/epoch) and requeues failed steps under
+    auto-retry budget, then calls WorkflowRuntime ``retry_wave`` / ``start``.
+    Distinct from ``/resume`` (pause-only).
+    """
+    from evoflow.admin import apps as apps_admin
+    from evoflow.admin.errors import NotFoundError, ValidationError
+
+    try:
+        return await apps_admin.recover_run_async(run_id, reason=reason or "api")
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

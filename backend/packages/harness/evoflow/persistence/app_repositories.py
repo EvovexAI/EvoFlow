@@ -730,6 +730,40 @@ def list_runs(app_id: str, limit: int = 20, offset: int = 0) -> list[dict[str, A
     return results
 
 
+_OPEN_RUN_STATUSES = (
+    "running",
+    "executing",
+    "paused",
+    "pausing",
+    "interrupted",
+    "failed",
+    "error",
+)
+
+
+def list_open_runs(*, limit: int = 50) -> list[dict[str, Any]]:
+    """App runs that may need crash/node recover (most recently updated first)."""
+    lim = max(1, min(int(limit or 50), 200))
+    conn = get_db()
+    placeholders = ",".join("?" for _ in _OPEN_RUN_STATUSES)
+    cur = conn.execute(
+        f"""
+        SELECT * FROM evoflow_app_runs
+        WHERE lower(coalesce(status, '')) IN ({placeholders})
+        ORDER BY coalesce(started_at, created_at) DESC
+        LIMIT ?
+        """,
+        (*_OPEN_RUN_STATUSES, lim),
+    )
+    cols = [d[0] for d in cur.description]
+    results = []
+    for row in cur.fetchall():
+        doc = dict(zip(cols, row, strict=False))
+        doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
+        results.append(doc)
+    return results
+
+
 def list_runs_page(
     app_id: str,
     *,

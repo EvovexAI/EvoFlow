@@ -84,6 +84,12 @@ def claim_subtasks_for_delegation(
                 continue
             st["started_at"] = st.get("started_at") or now
             st["updated_at"] = now
+            try:
+                from evoflow.collab.runner_epoch import current_runner_epoch
+
+                st["runner_epoch"] = current_runner_epoch()
+            except Exception:
+                pass
             claimed.append(sid)
 
         if claimed:

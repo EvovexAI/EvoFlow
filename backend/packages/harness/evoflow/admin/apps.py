@@ -466,7 +466,8 @@ def resume_run(run_id: str) -> dict[str, Any]:
     st = str(existing.get("status") or "").strip().lower()
     if st in {"cancelled", "canceled", "completed", "failed", "success", "error"}:
         raise ValidationError(
-            f"Run '{rid}' is terminal (status={st}) and cannot be resumed; start a new run instead"
+            f"Run '{rid}' is terminal (status={st}) and cannot be resumed; "
+            f"use workflow.recover for failed/zombie runs, or start a new run"
         )
     ok = app_runner.resume_run(rid)
     if not ok:
@@ -474,6 +475,101 @@ def resume_run(run_id: str) -> dict[str, Any]:
             f"Run '{rid}' is not resumable (status={st}); only paused/interrupted runs can resume"
         )
     return {"resumed": True, "runId": rid, "run_id": rid}
+
+
+def _await_coro(coro: Any) -> Any:
+    """Run a coroutine from sync admin/CLI (safe if a loop is already running)."""
+    import asyncio
+    import concurrent.futures
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result(timeout=600)
+
+
+def _format_recover_result(report: dict[str, Any], *, run_id: str | None = None) -> dict[str, Any]:
+    if not report.get("ok"):
+        raise ValidationError(str(report.get("error") or "recover_failed"))
+    out: dict[str, Any] = {
+        "recovered": True,
+        "taskId": report.get("taskId"),
+        "action": report.get("action"),
+        "healed": report.get("healed") or [],
+        "report": report,
+    }
+    if run_id:
+        out["runId"] = run_id
+        out["run_id"] = run_id
+    return out
+
+
+def recover_run(run_id: str, *, reason: str = "manual") -> dict[str, Any]:
+    """Crash / node-failure recover: heal DB zombies then retry_wave / start.
+
+    Unlike ``resume_run`` (pause-only), this accepts running/failed/interrupted
+    app runs and re-dispatches from broken steps using persisted DAG state.
+    """
+    rid = str(run_id or "").strip()
+    if not rid:
+        raise ValidationError("runId is required")
+    existing = app_repositories.load_run(rid)
+    if existing is None:
+        raise NotFoundError(f"Run not found: {rid}")
+    st = str(existing.get("status") or "").strip().lower()
+    if st in {"cancelled", "canceled", "completed", "success"}:
+        raise ValidationError(
+            f"Run '{rid}' is finished (status={st}) and cannot be recovered; start a new run"
+        )
+
+    from evoflow.collab.workflow_reconciler import reconcile_run
+
+    report = _await_coro(reconcile_run(rid, reason=str(reason or "manual")))
+    return _format_recover_result(report, run_id=rid)
+
+
+async def recover_run_async(run_id: str, *, reason: str = "manual") -> dict[str, Any]:
+    """Async recover for gateway handlers."""
+    rid = str(run_id or "").strip()
+    if not rid:
+        raise ValidationError("runId is required")
+    existing = app_repositories.load_run(rid)
+    if existing is None:
+        raise NotFoundError(f"Run not found: {rid}")
+    st = str(existing.get("status") or "").strip().lower()
+    if st in {"cancelled", "canceled", "completed", "success"}:
+        raise ValidationError(
+            f"Run '{rid}' is finished (status={st}) and cannot be recovered; start a new run"
+        )
+
+    from evoflow.collab.workflow_reconciler import reconcile_run
+
+    report = await reconcile_run(rid, reason=str(reason or "manual"))
+    return _format_recover_result(report, run_id=rid)
+
+
+def recover_task(task_id: str, *, reason: str = "manual") -> dict[str, Any]:
+    """Recover by main task id (workflow-bound)."""
+    tid = str(task_id or "").strip()
+    if not tid:
+        raise ValidationError("taskId is required")
+
+    from evoflow.collab.workflow_reconciler import reconcile_task
+
+    report = _await_coro(reconcile_task(tid, reason=str(reason or "manual")))
+    return _format_recover_result(report)
+
+
+async def recover_task_async(task_id: str, *, reason: str = "manual") -> dict[str, Any]:
+    tid = str(task_id or "").strip()
+    if not tid:
+        raise ValidationError("taskId is required")
+    from evoflow.collab.workflow_reconciler import reconcile_task
+
+    report = await reconcile_task(tid, reason=str(reason or "manual"))
+    return _format_recover_result(report)
 
 
 def list_app_revisions(app_id: str, *, limit: int = 50) -> dict[str, Any]:

@@ -1075,6 +1075,23 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         logger.exception("Zombie run sweeper failed (non-fatal)")
 
     try:
+        from app.gateway.workflow_reconcile_runner import (
+            run_workflow_reconcile_scheduler,
+            workflow_reconcile_enabled,
+        )
+
+        if workflow_reconcile_enabled():
+            stop_ev = asyncio.Event()
+            task = asyncio.create_task(run_workflow_reconcile_scheduler(stop_ev))
+            app.state.startup_background_tasks.append(task)
+            # Keep stop event reachable for graceful shutdown if caller stores it later.
+            if not hasattr(app.state, "workflow_reconcile_stop"):
+                app.state.workflow_reconcile_stop = stop_ev
+            logger.info("Workflow reconciler spawned (post-ready)")
+    except Exception:
+        logger.exception("Workflow reconciler failed (non-fatal)")
+
+    try:
         from evoflow.config.paths import get_paths
         from evoflow.persistence.db import run_deferred_full_preflight
 

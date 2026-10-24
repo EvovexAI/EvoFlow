@@ -11,8 +11,11 @@ from evoflow.cli.common import add_json_input_flags, add_output_flags, load_json
 def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "workflow",
-        help="Manage apps / workflows (list / get / run / stop / status)",
-        description=("Operate panel 「工作流」apps. Mirrors platform actions:\n  workflow.list / .get / .run / .stop / .run_status"),
+        help="Manage apps / workflows (list / get / run / stop / resume / recover / status)",
+        description=(
+            "Operate panel 「工作流」apps. Mirrors platform actions:\n"
+            "  workflow.list / .get / .run / .stop / .resume / .recover / .run_status"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="workflow_cmd", required=True)
@@ -47,6 +50,21 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(stop_p)
     stop_p.set_defaults(handler=_stop)
 
+    resume_p = sub.add_parser("resume", help="Resume a paused run (platform: workflow.resume)")
+    resume_p.add_argument("run_id", help="Run id")
+    add_output_flags(resume_p)
+    resume_p.set_defaults(handler=_resume)
+
+    recover_p = sub.add_parser(
+        "recover",
+        help="Recover from crash/failed node using DB state (platform: workflow.recover)",
+    )
+    recover_p.add_argument("run_id", nargs="?", default="", help="Run id (or use --task-id)")
+    recover_p.add_argument("--task-id", default="", help="Main task id instead of run id")
+    recover_p.add_argument("--reason", default="cli", help="Reason stamped on heal rows")
+    add_output_flags(recover_p)
+    recover_p.set_defaults(handler=_recover)
+
     status_p = sub.add_parser("status", help="Get run status (platform: workflow.run_status)")
     status_p.add_argument("run_id", help="Run id")
     add_output_flags(status_p)
@@ -76,6 +94,21 @@ def _stop(args: argparse.Namespace):
     if args.pause:
         return apps_admin.pause_run(args.run_id, reason=reason)
     return apps_admin.cancel_run(args.run_id, reason=reason)
+
+
+def _resume(args: argparse.Namespace):
+    return apps_admin.resume_run(args.run_id)
+
+
+def _recover(args: argparse.Namespace):
+    reason = str(args.reason or "cli").strip() or "cli"
+    task_id = str(getattr(args, "task_id", None) or "").strip()
+    run_id = str(args.run_id or "").strip()
+    if task_id:
+        return apps_admin.recover_task(task_id, reason=reason)
+    if not run_id:
+        raise SystemExit("recover requires run_id or --task-id")
+    return apps_admin.recover_run(run_id, reason=reason)
 
 
 def _status(args: argparse.Namespace):

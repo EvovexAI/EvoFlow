@@ -211,6 +211,7 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "workflow.run": f"已启动工作流「{name}」",
         "workflow.stop": "已停止工作流运行",
         "workflow.resume": "已恢复工作流运行",
+        "workflow.recover": "已从断点续跑工作流",
         "workflow.create": f"已创建工作流「{name}」",
         "workflow.generate": f"已生成工作流「{name}」",
         "workflow.update": f"已更新工作流「{name}」",
@@ -433,6 +434,12 @@ def _progress_open_stage_action(
     return None
 
 
+def _entity_removed_by_action(action: str) -> bool:
+    """Delete/archive/clear: entity is gone — do not offer 「查看xxx」 deep links."""
+    verb = _action_verb(action)
+    return verb in {"delete", "archive", "clear", "note_delete"}
+
+
 def _build_actions(
     action: str,
     domain: str,
@@ -444,6 +451,10 @@ def _build_actions(
     progress = _progress_open_stage_action(action, domain, entity_id, args, result)
     if progress:
         actions.append(progress)
+
+    # 删除类操作：仍发平台通知，但不挂「查看员工/任务/…」——目标已不存在。
+    if _entity_removed_by_action(action):
+        return actions
 
     app_id = _first_str(result.get("appId"), result.get("app_id"))
     run_id = _first_str(result.get("runId"), result.get("run_id"))

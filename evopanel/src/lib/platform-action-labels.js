@@ -178,6 +178,7 @@ export const PLATFORM_ACTION_ZH = {
   'workflow.publish': '发布工作流',
   'workflow.restore_revision': '从历史版本恢复',
   'workflow.resume': '恢复已暂停运行',
+  'workflow.recover': '从断点续跑',
   'workflow.revisions': '查看历史版本',
   'workflow.run': '启动一次运行',
   'workflow.run_status': '查看运行状态',

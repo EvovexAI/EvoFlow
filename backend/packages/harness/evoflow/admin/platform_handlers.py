@@ -507,6 +507,20 @@ def workflow_resume(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **apps_admin.resume_run(run_id)}
 
 
+def workflow_recover(args: dict[str, Any]) -> dict[str, Any]:
+    """Crash / failed-node recover from DB state (not pause-only resume)."""
+    from evoflow.admin import apps as apps_admin
+
+    run_id = _arg_str(args, "runId", "run_id")
+    task_id = _arg_str(args, "taskId", "task_id")
+    reason = _arg_str(args, "reason") or "platform"
+    if run_id:
+        return {"ok": True, **apps_admin.recover_run(run_id, reason=reason)}
+    if task_id:
+        return {"ok": True, **apps_admin.recover_task(task_id, reason=reason)}
+    raise ValidationError("runId or taskId is required")
+
+
 def workflow_revisions(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import apps as apps_admin
 
