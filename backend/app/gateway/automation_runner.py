@@ -48,6 +48,10 @@ _langgraph_semaphore: asyncio.Semaphore | None = None
 
 # Scheduler state key holding the ISO timestamp of the last completed tick.
 _SCHEDULER_LAST_TICK_KEY = "scheduler_last_tick_at"
+# Catch-up (missed-run compensation) tuning.
+_CATCHUP_GAP_MINUTES_DEFAULT = 3
+_CATCHUP_LOOKBACK_MINUTES_DEFAULT = 1440
+_CATCHUP_MAX_RUNS_DEFAULT = 3
 
 
 def _scheduler_owner_id() -> str:
