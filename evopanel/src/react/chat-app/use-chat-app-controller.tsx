@@ -4446,8 +4446,16 @@ export function useChatAppController() {
         renderRows,
         selectedTurnBusy,
       })
+  /**
+   * V4 下 preferHomeDashboard 只该管「首屏空草稿」（还没落下 sessionKey）或用户显式点「工作台」。
+   * startNewSessionWithWorkspace 新建出真实会话后没有任何地方把它置回 false，
+   * 残留 true 会让每个空的新会话都被判成首页仪表盘（输入框跟着仪表盘居中，
+   * 而不是贴在底部 dock）。这里要求会话 key 为空，切到新会话/带历史的会话即自动失效。
+   */
+  const preferHomeDraftActive =
+    preferHomeDashboard && !String(selectedSessionKey || '').trim()
   const isHomeSurface =
-    emptyHomeEligible && (!isEvoflowChatV4Enabled() || preferHomeDashboard)
+    emptyHomeEligible && (!isEvoflowChatV4Enabled() || preferHomeDraftActive)
   isHomeSurfaceRef.current = isHomeSurface
 
   useEffect(() => {
