@@ -208,6 +208,20 @@ def _persist_workflow_dispatch_outcome(
     row["updated_at"] = now
     if not storage.save_project(row):
         logger.warning("app_runner: persist dispatch outcome failed task_id=%s", tid)
+        return
+    try:
+        from evoflow.collab.app_run_events import emit_app_run_from_main_task
+
+        emit_app_run_from_main_task(task, reason="persist_workflow_dispatch_outcome")
+    except Exception:
+        logger.debug("app_runner: emit_app_run after dispatch failed task_id=%s", tid, exc_info=True)
+        return
+    try:
+        from evoflow.collab.app_run_events import emit_app_run_from_main_task
+
+        emit_app_run_from_main_task(task, reason="workflow_dispatch_outcome")
+    except Exception:
+        logger.debug("app_runner: emit_app_run after dispatch failed task_id=%s", tid, exc_info=True)
 
 
 def _schedule_unattended_queue_advance(task_id: str) -> None:
@@ -1088,14 +1102,18 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
 
     if task_id:
         try:
-            # 应用运行无 lead 收尾：轮询时补一次 rollup，全部子任务成功 → 100% completed
-            try:
-                from evoflow.collab.storage import get_project_storage
-                from evoflow.collab.task_progress import sync_main_task_from_subtasks
+            # Safety net only: write-path (app_run_events / sync after subtask terminal)
+            # owns completion. GET still rollups while the run looks active so
+            # unattended apps without a lead turn can finish; skip when already terminal.
+            run_st_peek = str(run.get("status") or "").strip().lower()
+            if run_st_peek not in _RUN_TERMINAL:
+                try:
+                    from evoflow.collab.storage import get_project_storage
+                    from evoflow.collab.task_progress import sync_main_task_from_subtasks
 
-                sync_main_task_from_subtasks(get_project_storage(), str(task_id))
-            except Exception:
-                pass
+                    sync_main_task_from_subtasks(get_project_storage(), str(task_id))
+                except Exception:
+                    pass
 
             bundle = load_task_bundle(task_id)
             if bundle and bundle.get("tasks"):

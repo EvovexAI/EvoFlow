@@ -224,6 +224,20 @@ async def _send_message(
         }
 
     if expect_reply:
+        from evoflow.collab.subtask_state_machine import is_terminal_subtask_status
+
+        # completed+outcome already auto-replied above. Other terminals must not
+        # schedule PeerWake (wake path would no-op after async work / risk revival).
+        if is_terminal_subtask_status(recv_status):
+            return {
+                "ok": True,
+                "messageId": message_id,
+                "threadKey": thread_key,
+                "toSubtaskId": to_sid,
+                "wakeSkipped": True,
+                "reason": f"target_terminal:{recv_status}",
+            }
+
         from evoflow.collab.peer.scheduler import schedule_peer_wake
 
         schedule_peer_wake(

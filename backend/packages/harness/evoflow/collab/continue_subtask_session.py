@@ -71,6 +71,21 @@ async def continue_subtask_session(
             "error": f"Subtask '{subtask_id}' not found in task '{task_id}'",
         }
 
+    from evoflow.collab.subtask_state_machine import (
+        advance_subtask_row_status,
+        is_terminal_subtask_status,
+    )
+
+    if is_terminal_subtask_status(target_subtask.get("status")):
+        return {
+            "success": False,
+            "action": "continue_subtask_session",
+            "taskId": task_id,
+            "subtaskId": subtask_id,
+            "error": f"cannot continue session: terminal status {target_subtask.get('status')}",
+            "status": target_subtask.get("status"),
+        }
+
     assigned = str(target_subtask.get("assigned_to") or "").strip().lower().replace("_", "-")
     is_acp = assigned in _acp_agent_names()
     if not is_acp:
@@ -158,7 +173,16 @@ async def continue_subtask_session(
     )
 
     now = utc_now_iso_z()
-    target_subtask["status"] = "in_progress"
+    ok_adv, adv_reason = advance_subtask_row_status(target_subtask, "in_progress")
+    if not ok_adv:
+        return {
+            "success": False,
+            "action": "continue_subtask_session",
+            "taskId": task_id,
+            "subtaskId": subtask_id,
+            "error": f"cannot continue session: {adv_reason}",
+            "status": target_subtask.get("status"),
+        }
     target_subtask["updated_at"] = now
     target_subtask.pop("session_closed_at", None)
     storage.save_project(project)
@@ -180,7 +204,7 @@ async def continue_subtask_session(
     )
     send_obj = json.loads(send_raw) if isinstance(send_raw, str) else {}
     if not bool(send_obj.get("ok")):
-        target_subtask["status"] = "failed"
+        advance_subtask_row_status(target_subtask, "failed")
         target_subtask["updated_at"] = utc_now_iso_z()
         target_subtask["error"] = str(send_obj.get("error") or "acp send failed")
         storage.save_project(project)
@@ -201,7 +225,7 @@ async def continue_subtask_session(
 
     reply_text = str(send_obj.get("result") or "").strip()
     target_subtask["updated_at"] = utc_now_iso_z()
-    target_subtask["status"] = "in_progress"
+    advance_subtask_row_status(target_subtask, "in_progress")
     target_subtask["progress"] = max(0, min(99, int(target_subtask.get("progress") or 0) or 10))
     if not keep_session_open:
         target_subtask["current_step"] = "ACP 本轮已结束（会话可关），待 Lead 验收或 subtask_outcome_report"

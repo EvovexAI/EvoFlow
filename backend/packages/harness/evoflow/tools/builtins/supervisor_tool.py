@@ -68,10 +68,10 @@ from evoflow.tools.builtins.supervisor.display import (  # noqa: F401
     _subtask_row_dict,
     _subtask_worker_profile_suffix,
 )
+from evoflow.collab.step_runner import run_steps
 from evoflow.tools.builtins.supervisor.execution import (  # noqa: F401
     _resolved_subagent_type_for_subtask,
     auto_delegate_collab_followup_wave,
-    delegate_collab_subtasks_for_start_execution,
 )
 from evoflow.tools.builtins.supervisor.memory import (  # noqa: F401
     _broadcast_task_event,
@@ -1714,6 +1714,12 @@ async def supervisor_tool(
                 t_mark["updated_at"] = _now
                 storage.save_project(proj_mark)
                 logger.info("[supervisor_tool] 子任务启动时间已保存")
+                try:
+                    from evoflow.collab.app_run_events import emit_app_run_from_main_task
+
+                    emit_app_run_from_main_task(t_mark, reason="start_execution")
+                except Exception:
+                    logger.debug("start_execution: emit_app_run failed task_id=%s", task_id, exc_info=True)
 
         # 与 HTTP authorize-execution 对齐：必须把该聊天线程的 collab_phase 推进到 executing，
         # 否则 CollabPhaseMiddleware 仍提示「等待执行」。随后对本批子任务并行调用 task 工具，子智能体开始实际执行。
@@ -1729,7 +1735,7 @@ async def supervisor_tool(
         if to_run:
             logger.info(f"[supervisor_tool] 正在委派 {len(to_run)} 个子任务给子智能体执行")
             try:
-                delegated = await delegate_collab_subtasks_for_start_execution(
+                delegated = await run_steps(
                     runtime,
                     storage,
                     task_id,
@@ -1737,7 +1743,7 @@ async def supervisor_tool(
                 )
                 logger.info(f"[supervisor_tool] 子任务委派完成，成功={sum(1 for d in delegated if d.get('ok'))}/{len(delegated)}")
             except Exception as exc:
-                logger.exception("start_execution: delegate_collab_subtasks_for_start_execution failed task_id=%s", task_id)
+                logger.exception("start_execution: run_steps failed task_id=%s", task_id)
                 _err_msg = f"delegation failed: {type(exc).__name__}: {exc}"
                 delegated = [{"subtaskId": sid, "ok": False, "error": _err_msg} for sid in to_run]
         else:
@@ -2123,14 +2129,14 @@ async def supervisor_tool(
         delegated: list[dict[str, Any]] = []
         if to_run:
             try:
-                delegated = await delegate_collab_subtasks_for_start_execution(
+                delegated = await run_steps(
                     runtime,
                     storage,
                     task_id,
                     to_run,
                 )
             except Exception as exc:
-                logger.exception("retry_subtask: delegate failed task_id=%s subtask_id=%s", task_id, subtask_id)
+                logger.exception("retry_subtask: run_steps failed task_id=%s subtask_id=%s", task_id, subtask_id)
                 delegated = [{"subtaskId": subtask_id, "ok": False, "error": f"delegation failed: {type(exc).__name__}: {exc}"}]
 
         return json.dumps(

@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A + B + C0–C4 done. Hardening track complete for the stuck-run class of bugs.
+Status: Phase A + B + C0–C5 done. Stuck-run hardening + leftover gap sweep complete.
 
 ## Diagnosis
 
@@ -65,6 +65,14 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 - `collab/step_runner.py` — claim/revert SSOT + `run_steps` entry (Workflow + Lead)
 - Outcome summary capped to `SUMMARY_MAX` (2400); path-first handoff already in sanitize
 - Lease metrics: `lease_metrics_snapshot()` counts light vs full issuances
+
+### Phase C5 — Gap sweep (done)
+
+- Lead `start_execution` / `retry_subtask` → `run_steps`; emit app_run on mark executing
+- `_persist_workflow_dispatch_outcome` emits app_run after save
+- `continue_subtask_session` uses SubtaskStateMachine (no terminal→in_progress)
+- Peer: no `schedule_peer_wake` for terminal receivers (completed+outcome still auto-replies)
+- GET `get_run_status`: skip active rollup when run already terminal (write-path primary)
 
 ## Architecture (current)
 
