@@ -127,6 +127,47 @@ def _feishu_account_open_id(config: dict[str, Any], account_id: str) -> str:
     return str(config.get("open_id") or "").strip()
 
 
+def resolve_feishu_ws_bootstrap_account_id(
+    *,
+    instance_account_id: str,
+    primary_app_id: str,
+    primary_app_secret: str,
+    accounts: dict[str, dict[str, Any]],
+) -> str:
+    """Decide which ``account_id`` tags the primary Feishu WebSocket.
+
+    ChannelManager routes inbound by ``metadata.account_id``:
+    empty → ``agent:main``; ``emp-…`` → that employee.
+
+    ChannelService expands per-employee bots and merges employee ``app_id`` /
+    ``app_secret`` into top-level config. Without this helper the WS would look
+    like an unlabeled Settings primary (``primary_from_config=True``,
+    ``dedicated_ws=0``) and chat after QR-bind still becomes 主智能体.
+    """
+    inst = str(instance_account_id or "").strip()
+    if inst:
+        return inst
+
+    aid = str(primary_app_id or "").strip()
+    secret = str(primary_app_secret or "").strip()
+    if not accounts:
+        return ""
+
+    if not aid or not secret:
+        # No Settings primary — first employee account owns the bootstrap WS.
+        return next(iter(accounts.keys()))
+
+    matches = [
+        account_id
+        for account_id, acc in accounts.items()
+        if str(acc.get("app_id") or "").strip() == aid
+        and str(acc.get("app_secret") or "").strip() == secret
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return ""
+
+
 def _feishu_group_requires_self_mention(
     *,
     chat_type: str,
@@ -779,8 +820,16 @@ class FeishuChannel(Channel):
         ``False`` = main group chat + one agent thread per ``chat_id``; ``True`` = 话题楼中楼.
     """
 
-    def __init__(self, bus: MessageBus, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        bus: MessageBus,
+        config: dict[str, Any],
+        account_id: str = "",
+    ) -> None:
         super().__init__(name="feishu", bus=bus, config=config)
+        # ChannelService per-employee instance key (``feishu:<agent_code>``).
+        # Empty = multiplexed / Settings primary channel.
+        self._instance_account_id = str(account_id or "").strip()
         rit = config.get("reply_in_thread", False)
         if isinstance(rit, str):
             self._reply_in_thread = rit.strip().lower() in ("1", "true", "yes", "on")
@@ -888,12 +937,15 @@ class FeishuChannel(Channel):
         app_secret = self.config.get("app_secret", "")
         accounts = self._normalized_accounts()
         primary_from_config = bool(str(app_id or "").strip() and str(app_secret or "").strip())
-        # When only employee accounts exist, REST/WS still need a credential pair.
-        # Tag that WS with the account_id so inbound routes to the employee agent.
-        bootstrap_account_id = ""
-        if not primary_from_config and accounts:
-            bootstrap_account_id = next(iter(accounts.keys()))
-            first = accounts[bootstrap_account_id]
+        # Tag the listening WS so Manager routes to the employee agent (not main).
+        bootstrap_account_id = resolve_feishu_ws_bootstrap_account_id(
+            instance_account_id=self._instance_account_id,
+            primary_app_id=str(app_id or ""),
+            primary_app_secret=str(app_secret or ""),
+            accounts=accounts,
+        )
+        if bootstrap_account_id and not primary_from_config:
+            first = accounts.get(bootstrap_account_id) or {}
             app_id = str(first.get("app_id") or "")
             app_secret = str(first.get("app_secret") or "")
 
@@ -911,7 +963,10 @@ class FeishuChannel(Channel):
         self._account_clients[""] = self._api_client
         if bootstrap_account_id:
             self._account_clients[bootstrap_account_id] = self._api_client
-        for account_id, acc in accounts.items():
+        # Dedicated ChannelService instance (account_id=emp-…) only serves that bot —
+        # do not spawn nested WS for sibling accounts still present on the merged config.
+        extra_accounts = {} if self._instance_account_id else accounts
+        for account_id, acc in extra_accounts.items():
             aid = str(acc.get("app_id") or "").strip()
             secret = str(acc.get("app_secret") or "").strip()
             if not aid or not secret:
@@ -925,23 +980,29 @@ class FeishuChannel(Channel):
         self._main_loop = asyncio.get_event_loop()
 
         self._running = True
-        # Feishu multiplexes multiple app accounts through one Channel instance
-        # via ``_account_clients``; the per-account routing lives in
-        # ``_resolve_outbound_account_id``. Subscribe with account_id="" so
-        # the bus has a stable slot to dispatch to; the instance then picks
-        # the right app credentials from msg.metadata["account_id"].
-        self.bus.subscribe_outbound(self._on_outbound, channel_name=self.name, account_id="")
+        # Multiplexed channel: subscribe account_id="" and pick creds from
+        # msg.metadata["account_id"]. Dedicated employee instance: subscribe the
+        # same slot ChannelService / Manager use for that agent_code.
+        outbound_slot = self._instance_account_id
+        self.bus.subscribe_outbound(
+            self._on_outbound, channel_name=self.name, account_id=outbound_slot
+        )
 
         if ws_enabled:
             # Dedicated thread: WS connect/retry must not block gateway lifespan.
+            ws_name = (
+                f"feishu-ws-{bootstrap_account_id[:24]}"
+                if bootstrap_account_id
+                else "feishu-ws-primary"
+            )
             self._thread = threading.Thread(
                 target=self._run_ws,
                 args=(app_id, app_secret, bootstrap_account_id),
                 daemon=True,
-                name="feishu-ws-primary",
+                name=ws_name,
             )
             self._thread.start()
-            for account_id, acc in accounts.items():
+            for account_id, acc in extra_accounts.items():
                 aid = str(acc.get("app_id") or "").strip()
                 secret = str(acc.get("app_secret") or "").strip()
                 if not aid or not secret:
@@ -962,7 +1023,7 @@ class FeishuChannel(Channel):
                 t.start()
             dedicated_ws = sum(
                 1
-                for account_id, acc in accounts.items()
+                for account_id, acc in extra_accounts.items()
                 if account_id != bootstrap_account_id
                 and str(acc.get("app_id") or "").strip()
                 and str(acc.get("app_secret") or "").strip()
@@ -970,9 +1031,10 @@ class FeishuChannel(Channel):
             )
             if bootstrap_account_id:
                 logger.info(
-                    "Feishu channel started (REST ready; WS in background; primary_from_config=%s bootstrap_account_id=%s dedicated_ws=%d accounts=%d) — primary WS is tagged as employee account (not unlabeled global primary)",
+                    "Feishu channel started (REST ready; WS in background; primary_from_config=%s bootstrap_account_id=%s instance_account_id=%s dedicated_ws=%d accounts=%d) — primary WS is tagged as employee account (not unlabeled global primary)",
                     primary_from_config,
                     bootstrap_account_id,
+                    self._instance_account_id or "-",
                     dedicated_ws,
                     len(accounts),
                 )
@@ -1182,7 +1244,9 @@ class FeishuChannel(Channel):
 
     async def stop(self) -> None:
         self._running = False
-        self.bus.unsubscribe_outbound(channel_name=self.name, account_id="")
+        self.bus.unsubscribe_outbound(
+            channel_name=self.name, account_id=self._instance_account_id
+        )
         for key in list(self._stream_state_ts):
             self._clear_stream_state(key)
         for task in list(self._background_tasks):
