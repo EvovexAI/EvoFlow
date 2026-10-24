@@ -7,6 +7,11 @@ import {
   stabilizeShellWorkspaceGroupOrder,
 } from '../lib/session-list/workspace-groups.js'
 import {
+  didPanelSettingsLoadFromServer,
+  getPanelSetting,
+  patchPanelSettings,
+} from '../../lib/panel-settings.js'
+import {
   loadWorkspaceGroupOrder,
   saveWorkspaceGroupOrder,
 } from '../lib/session-list/workspace-order-storage.js'
@@ -141,6 +146,21 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
   // reorder 后 bump 触发 shellListProps 重算（顺序已同步可用，无需异步 seed）
   const [workspaceOrderTick, bumpWorkspaceOrderTick] = useState(0)
 
+  // 工作区手动排序：SQLite panel.ui（shellWorkspaceGroupOrder）为事实源，
+  // localStorage 仅作冷启动首帧缓存。挂载后用户一旦拖过，本地即最新，
+  // 后端加载完成的回包不再反向覆盖。
+  const localOrderDirtyRef = useRef(false)
+
+  const persistWorkspaceOrderRemote = useCallback(
+    (order: string[]) => {
+      void patchPanelSettings(
+        { shellWorkspaceGroupOrder: order } as unknown as Record<string, unknown>,
+        { silent: true },
+      ).catch(() => undefined)
+    },
+    [],
+  )
+
   const reorderWorkspaceGroups = useCallback(
     (fromKey: string, toKey: string) => {
       const from = normalizeWorkspacePathKey(fromKey)
@@ -155,10 +175,42 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       next.splice(ti, 0, item)
       folderOrderWrapper.current = next
       saveWorkspaceGroupOrder(next)
+      localOrderDirtyRef.current = true
+      persistWorkspaceOrderRemote(next)
       bumpWorkspaceOrderTick((v) => v + 1)
     },
-    [folderOrderWrapper],
+    [folderOrderWrapper, persistWorkspaceOrderRemote],
   )
+
+  // 后端 panel.ui 加载完成后以服务端顺序为准（本地没拖过时）；远端为空则把本地顺序迁移上去
+  useEffect(() => {
+    let cancelled = false
+    const applyRemoteOrder = () => {
+      if (cancelled || localOrderDirtyRef.current) return
+      const remote = getPanelSetting('shellWorkspaceGroupOrder')
+      if (Array.isArray(remote) && remote.length > 0) {
+        const next = remote
+          .map((k) => String(k || '').trim())
+          .filter(Boolean)
+        if (
+          next.length > 0 &&
+          JSON.stringify(next) !== JSON.stringify(folderOrderWrapper.current)
+        ) {
+          folderOrderWrapper.current = next
+          saveWorkspaceGroupOrder(next)
+          bumpWorkspaceOrderTick((v) => v + 1)
+        }
+      } else if (folderOrderWrapper.current.length > 0) {
+        persistWorkspaceOrderRemote([...folderOrderWrapper.current])
+      }
+    }
+    if (didPanelSettingsLoadFromServer()) applyRemoteOrder()
+    window.addEventListener('evopanel:panel-settings-loaded', applyRemoteOrder)
+    return () => {
+      cancelled = true
+      window.removeEventListener('evopanel:panel-settings-loaded', applyRemoteOrder)
+    }
+  }, [folderOrderWrapper, persistWorkspaceOrderRemote])
 
   // Sync callback refs in a single effect to avoid react-hooks/refs violations
   useEffect(() => {
@@ -182,13 +234,18 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       ).trim()
       const key = normalizeWorkspacePathKey(raw) || raw
       if (!key) return
-      folderOrderWrapper.current = folderOrderWrapper.current.filter(
+      const next = folderOrderWrapper.current.filter(
         (k) => normalizeWorkspacePathKey(k) !== key,
       )
+      if (next.length === folderOrderWrapper.current.length) return
+      folderOrderWrapper.current = next
+      saveWorkspaceGroupOrder(next)
+      localOrderDirtyRef.current = true
+      persistWorkspaceOrderRemote(next)
     }
     window.addEventListener('evopanel:shell-workspace-removed', onWorkspaceRemoved)
     return () => window.removeEventListener('evopanel:shell-workspace-removed', onWorkspaceRemoved)
-  }, [folderOrderWrapper])
+  }, [folderOrderWrapper, persistWorkspaceOrderRemote])
 
   // 与 Composer 停止按钮 / selectedTurnBusy 同源：isSessionExecuting 依赖这些 epoch。
   // ShellSessionListHost 被 memo，父级 epoch 变化若未进 props 不会重绘；必须在此订阅，
