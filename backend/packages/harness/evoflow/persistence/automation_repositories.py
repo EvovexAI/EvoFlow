@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 from evoflow.persistence.db import get_db
@@ -394,6 +395,41 @@ def set_automation_scheduler_state(key: str, value: str) -> None:
         run_db_transaction(_do)
     except Exception:
         logger.debug("automation scheduler state write failed key=%s", k, exc_info=True)
+
+
+def list_automation_run_times(
+    task_id: str,
+    *,
+    since_iso: str = "",
+    limit: int = 500,
+) -> list[datetime]:
+    """Local-naive start times of recorded runs for one automation (newest first).
+
+    Used by catch-up so a slot that already ran — e.g. before the claim table
+    existed, or after the claim row was lost — is never fired a second time.
+    """
+    rows = (
+        get_db()
+        .execute(
+            "SELECT started_at FROM evoflow_automation_runs "
+            "WHERE task_id = ? AND started_at >= ? ORDER BY id DESC LIMIT ?",
+            (str(task_id or "").strip(), str(since_iso or ""), max(1, int(limit))),
+        )
+        .fetchall()
+    )
+    out: list[datetime] = []
+    for r in rows:
+        raw = str(r["started_at"] or "").strip()
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if dt.tzinfo:
+            dt = dt.astimezone().replace(tzinfo=None)
+        out.append(dt)
+    return out
 
 
 def append_automation_run(task_id: str, record: dict[str, Any]) -> None:

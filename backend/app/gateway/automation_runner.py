@@ -734,6 +734,27 @@ def _missed_cron_slots(
     return out
 
 
+def _recorded_run_slots(task_id: str, *, since: datetime) -> set[str]:
+    """Slot keys for which a run was already recorded (before/without a claim).
+
+    The slot-claim table only covers slots claimed after this feature shipped.
+    A run recorded earlier (or after a claim row was lost) must still count as
+    "already happened", otherwise catch-up would fire that minute a second
+    time — the duplicate push this fix exists to prevent.
+    """
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    try:
+        times = auto_repo.list_automation_run_times(
+            task_id,
+            since_iso=since.isoformat(timespec="seconds"),
+        )
+    except Exception:
+        logger.debug("automation_runner: could not read run history task_id=%s", task_id, exc_info=True)
+        return set()
+    return {_slot_key_for(t) for t in times}
+
+
 async def _run_catchup_missed_runs(
     active_pairs: list[tuple[str, dict[str, Any]]],
     service: Any,
@@ -786,12 +807,21 @@ async def _run_catchup_missed_runs(
         cron_expr = _effective_cron(task)
         if not cron_expr:
             continue
+        # Slots that already produced a recorded run must never be re-fired.
+        # The claim table only knows about slots claimed *after* this feature
+        # shipped; runs recorded before that (or before a claim row was lost)
+        # would otherwise be compensated a second time — precisely the
+        # duplicate push this whole fix is about.
+        already_ran_slots = _recorded_run_slots(task_id, since=since)
         missed = _missed_cron_slots(cron_expr, since=since, now=now, limit=max_runs)
         for when in missed:
             if not _within_valid_window(task, when):
                 reasons.append(f"{task_id}:catchup_outside_valid_window slot={_slot_key_for(when)}")
                 continue
             slot = _slot_key_for(when)
+            if slot in already_ran_slots:
+                reasons.append(f"{task_id}:catchup_already_ran slot={slot}")
+                continue
             claim = _claim_slot_for_task(task_id, slot, trigger_type="catchup")
             if not claim.get("claimed"):
                 reasons.append(
