@@ -148,6 +148,14 @@ export default defineConfig(({ mode }) => {
         return
       }
       fs.mkdirSync(destDir, { recursive: true })
+      // 内容未变就跳过，避免反复写 public/ 触发 Vite 全量 reload。
+      if (fs.existsSync(dest)) {
+        try {
+          if (fs.statSync(src).size === fs.statSync(dest).size) return
+        } catch {
+          /* fall through and copy */
+        }
+      }
       fs.copyFileSync(src, dest)
     }
     return {
@@ -229,6 +237,17 @@ export default defineConfig(({ mode }) => {
         'dayjs',
         // Include mermaid in pre-bundle so alias rewrites for fastdom-promised take effect
         'mermaid',
+        // Excel 预览：react-xlsx 本体 exclude（保 wasm URL），但其嵌套依赖必须预打包，
+        // 否则首次点开 xlsx 时 Vite 才发现它们 → 「new dependencies … reloading」整页刷新。
+        'fflate',
+        'regl',
+        'd3-geo',
+        'd3-hierarchy',
+        'd3-scale',
+        'd3-shape',
+        'topojson-client',
+        'us-atlas',
+        'world-atlas',
       ],
       // Mermaid brings ESM-only deps (e.g. @mermaid-js/parser) that can break esbuild pre-bundle
       // in some environments (Tauri beforeDevCommand on Windows). Now we pre-bundle mermaid itself
@@ -267,7 +286,13 @@ export default defineConfig(({ mode }) => {
       // Installer/build scripts also write under .build-temp (temp dirs rename/delete while
       // chokidar watches → EBUSY / UVException and beforeDevCommand exits non-zero).
       watch: {
-        ignored: ['**/src-tauri/**', '**/target/**', '**/.build-temp/**'],
+        // public/office WASM 由插件写入；监听它会在启动/同步时触发整页 reload。
+        ignored: [
+          '**/src-tauri/**',
+          '**/target/**',
+          '**/.build-temp/**',
+          '**/public/office/**',
+        ],
       },
       proxy: {
         // v4 conversation wire 帧流：长连 SSE，必须零超时（否则 15s 断连会触发
@@ -324,7 +349,12 @@ export default defineConfig(({ mode }) => {
         },
       },
       warmup: {
-        clientFiles: ['./src/react/ChatApp.tsx', './src/react/obs/ObsDashboardApp.tsx'],
+        clientFiles: [
+          './src/react/ChatApp.tsx',
+          './src/react/obs/ObsDashboardApp.tsx',
+          // 启动期暖 Excel 预览 chunk，避免首次点击才触发依赖发现 → 整页 reload。
+          './src/zcode-ui/previewPaneOfficeXlsxContent.tsx',
+        ],
       },
     },
     envPrefix: ['VITE_', 'TAURI_'],
