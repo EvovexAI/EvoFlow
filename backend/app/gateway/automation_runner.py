@@ -16,9 +16,10 @@ import asyncio
 import logging
 import os
 import secrets
+import socket
 import time
 import tomllib
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,9 @@ AUTOMATIONS_DIR = Path(os.getenv("EVOFLOW_AUTOMATIONS_DIR", "")).expanduser() if
 
 _automations_toml_import_done = False
 
+# In-process view of the persisted slot claims (diagnostics only — the
+# authoritative dedupe gate is the ``evoflow_automation_slot_claims`` table,
+# which is shared by every Gateway process on the same DB).
 _last_slot: dict[str, str] = {}
 # Populated every tick for ``GET /api/automation/scheduler/status`` and logs.
 _last_tick_info: dict[str, Any] = {}
@@ -37,6 +41,22 @@ _last_tick_info: dict[str, Any] = {}
 _warned_invalid_toml_paths: set[str] = set()
 _scheduler_loop_running: bool = False
 _langgraph_semaphore: asyncio.Semaphore | None = None
+
+# Scheduler state key holding the ISO timestamp of the last completed tick.
+_SCHEDULER_LAST_TICK_KEY = "scheduler_last_tick_at"
+# Catch-up (missed-run compensation) tuning.
+_CATCHUP_GAP_MINUTES_DEFAULT = 3
+_CATCHUP_LOOKBACK_MINUTES_DEFAULT = 1440
+_CATCHUP_MAX_RUNS_DEFAULT = 3
+
+
+def _scheduler_owner_id() -> str:
+    """Stable-ish identity of this scheduler process (host:pid)."""
+    try:
+        host = socket.gethostname()
+    except Exception:
+        host = "unknown-host"
+    return f"{host}:{os.getpid()}"
 
 
 def _langgraph_run_semaphore() -> asyncio.Semaphore:
@@ -504,26 +524,23 @@ def cron_matches_now(expr: str) -> bool:
 def _effective_cron(task: dict[str, Any]) -> str | None:
     """Resolve a 5-field cron for the runner tick.
 
-    Prefer ``schedule`` when it is already cron; otherwise derive from RRULE
-    stored in ``schedule`` or ``rrule`` (API enrich already does this for display,
-    but the runner historically skipped rrule-only rows).
+    Delegates to :func:`evoflow.admin.automation_schedule.resolve_effective_schedule`
+    — the single source of truth shared with the API card and the CLI preview.
+    Previously this function re-implemented the ``schedule`` vs ``rrule``
+    priority rule, which is how ``rrule`` silently became dead configuration
+    and why the runner and the UI could disagree about the effective cron.
     """
-    from evoflow.admin.automation_schedule import (
-        is_five_field_cron_or_keyword,
-        rrule_to_cron,
-    )
+    from evoflow.admin.automation_schedule import resolve_effective_schedule
 
-    sched = str(task.get("schedule") or "").strip()
-    if is_five_field_cron_or_keyword(sched):
-        return sched
-    rr = str(task.get("rrule") or "").strip()
-    if "FREQ=" in sched.upper():
-        rr = sched
-    if rr and "FREQ=" in rr.upper():
-        derived = rrule_to_cron(rr)
-        if is_five_field_cron_or_keyword(derived):
-            return derived
-    return None
+    cron = str(resolve_effective_schedule(task).get("cron") or "").strip()
+    return cron or None
+
+
+def _schedule_conflict(task: dict[str, Any]) -> dict[str, Any]:
+    """Conflict report for a task whose ``schedule`` and ``rrule`` disagree."""
+    from evoflow.admin.automation_schedule import resolve_effective_schedule
+
+    return resolve_effective_schedule(task)
 
 
 def _active_tasks_brief_for_log(active_pairs: list[tuple[str, dict[str, Any]]]) -> str:
