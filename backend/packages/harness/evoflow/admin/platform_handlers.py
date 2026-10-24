@@ -114,6 +114,7 @@ def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
 
 def knowledge_create(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import knowledge as kn
+    from evoflow.admin.assistant_guides import build_knowledge_create_assistant_guide
 
     name = _arg_str(args, "name", "title")
     if not name:
@@ -125,11 +126,13 @@ def knowledge_create(args: dict[str, Any]) -> dict[str, Any]:
         description=_arg_str(args, "description", "desc"),
         embedding_model_ref=_arg_str(args, "embeddingModelRef", "embedding_model_ref") or None,
     )
-    return {
+    out = {
         "ok": True,
         **data,
         "hint": "已创建平台自有知识库；写入内容用 knowledge.ingest（vaultId/kbId 均可）。",
     }
+    out["assistant_guide"] = build_knowledge_create_assistant_guide(out)
+    return out
 
 
 def knowledge_enable(args: dict[str, Any]) -> dict[str, Any]:
@@ -881,15 +884,21 @@ def employees_get(args: dict[str, Any]) -> dict[str, Any]:
 
 def employees_hire(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
+    from evoflow.admin.assistant_guides import build_employee_create_assistant_guide
 
-    return {"ok": True, **emp.hire(args)}
+    out = {"ok": True, **emp.hire(args)}
+    out["assistant_guide"] = build_employee_create_assistant_guide(out)
+    return out
 
 
 def employees_create(args: dict[str, Any]) -> dict[str, Any]:
     """One-step employee create (capability pack + duty contract)."""
     from evoflow.admin import employees as emp
+    from evoflow.admin.assistant_guides import build_employee_create_assistant_guide
 
-    return {"ok": True, **emp.create_employee(args)}
+    out = {"ok": True, **emp.create_employee(args)}
+    out["assistant_guide"] = build_employee_create_assistant_guide(out)
+    return out
 
 
 def employees_update(args: dict[str, Any]) -> dict[str, Any]:
@@ -1023,6 +1032,194 @@ def employees_migrate(args: dict[str, Any]) -> dict[str, Any]:
         "dry_run": dry,
         "name": code or "all",
     }
+
+
+_EMPLOYEE_BIND_CHANNELS = frozenset({"feishu", "wecom"})
+
+
+def _normalize_employee_bind_channel(raw: str) -> str:
+    ch = str(raw or "").strip().lower()
+    if ch in {"dingding"}:
+        ch = "dingtalk"
+    if ch in {"wechat"}:
+        ch = "weixin"
+    if ch not in _EMPLOYEE_BIND_CHANNELS:
+        raise ValidationError(
+            "channel must be feishu|wecom（岗位专属机器人扫码；钉钉/微信请用员工页绑定，"
+            "全局主机器人用 channels.registration_*）"
+        )
+    return ch
+
+
+def _employee_bind_role(agent_code: str) -> Any:
+    from evoflow.proactive.repositories import ProactiveRepository
+
+    code = str(agent_code or "").strip()
+    if not code:
+        raise ValidationError("agent_code is required")
+    role = ProactiveRepository.get_role(code)
+    if role is None:
+        raise ValidationError(f"员工「{code}」不存在；请先 employees.create / hire")
+    return role
+
+
+def employees_bind_channel_begin(args: dict[str, Any]) -> dict[str, Any]:
+    """Start per-employee IM QR binding (Feishu / WeCom PersonalAgent bot)."""
+    from evoflow.admin.assistant_guides import build_bind_channel_begin_assistant_guide
+
+    code = _arg_str(args, "agent_code", "agentCode", "code")
+    channel = _normalize_employee_bind_channel(_arg_str(args, "channel", "name", "platform") or "feishu")
+    role = _employee_bind_role(code)
+    role_name = str(getattr(role, "role_name", None) or code).strip() or code
+
+    client, _ch = _registration_client(channel)
+    try:
+        session = _run_coro_sync(client.begin())
+    except Exception as exc:
+        raise ValidationError(f"{channel} registration begin failed: {exc}") from exc
+
+    session_id = str(getattr(session, "session_id", None) or "").strip()
+    qr_url = str(getattr(session, "qr_url", None) or "").strip()
+    status = getattr(session, "status", None)
+    if not session_id:
+        raise ValidationError(f"{channel} registration begin returned empty session_id")
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "agent_code": code,
+        "role_name": role_name,
+        "channel": channel,
+        "session_id": session_id,
+        "qr_url": qr_url,
+        "status": status,
+        "hint": (
+            f"右侧平台面板会显示{('飞书' if channel == 'feishu' else '企微')}二维码；"
+            "用户扫码后由面板自动完成绑定。勿用 channels.registration_apply。"
+        ),
+    }
+    out["assistant_guide"] = build_bind_channel_begin_assistant_guide(
+        agent_code=code,
+        role_name=role_name,
+        channel=channel,
+        qr_url=qr_url,
+        session_id=session_id,
+    )
+    return out
+
+
+def employees_bind_channel_poll(args: dict[str, Any]) -> dict[str, Any]:
+    """Poll per-employee IM QR binding session."""
+    code = _arg_str(args, "agent_code", "agentCode", "code")
+    channel = _normalize_employee_bind_channel(_arg_str(args, "channel", "name", "platform") or "feishu")
+    session_id = _arg_str(args, "session_id", "sessionId")
+    if not session_id:
+        raise ValidationError("session_id is required")
+    if code:
+        _employee_bind_role(code)
+
+    client, _ch = _registration_client(channel)
+    try:
+        session = _run_coro_sync(client.poll(session_id))
+    except Exception as exc:
+        raise ValidationError(f"{channel} registration poll failed: {exc}") from exc
+
+    status = getattr(session, "status", None)
+    out: dict[str, Any] = {
+        "ok": True,
+        "agent_code": code or None,
+        "channel": channel,
+        "session_id": session_id,
+        "status": status,
+        "qr_url": str(getattr(session, "qr_url", None) or "").strip() or None,
+    }
+    if status == "completed":
+        out["hint"] = "扫码已完成；请 employees.bind_channel_apply（confirm=true）绑到该员工"
+        if channel == "feishu":
+            for key in ("app_id", "open_id"):
+                val = getattr(session, key, None)
+                if val:
+                    out[key] = val
+        elif channel == "wecom":
+            for key in ("bot_id",):
+                val = getattr(session, key, None)
+                if val:
+                    out[key] = val
+    if status in {"failed", "expired"}:
+        out["error"] = getattr(session, "error", None) or status
+        out["ok"] = False
+    return out
+
+
+def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
+    """Apply completed QR registration onto this employee's dedicated bot."""
+    code = _arg_str(args, "agent_code", "agentCode", "code")
+    channel = _normalize_employee_bind_channel(_arg_str(args, "channel", "name", "platform") or "feishu")
+    session_id = _arg_str(args, "session_id", "sessionId")
+    if not code:
+        raise ValidationError("agent_code is required")
+    if not session_id:
+        raise ValidationError("session_id is required")
+    role = _employee_bind_role(code)
+    role_name = str(getattr(role, "role_name", None) or code).strip() or code
+
+    client, _ch = _registration_client(channel)
+    session = client.get_session(session_id)
+    if session is None:
+        raise ValidationError("Registration session not found")
+    status = getattr(session, "status", None)
+    if status != "completed":
+        raise ValidationError(f"Registration is not complete (status={status})")
+
+    if channel == "feishu":
+        app_id = str(getattr(session, "app_id", None) or "").strip()
+        app_secret = str(getattr(session, "app_secret", None) or "").strip()
+        open_id = str(getattr(session, "open_id", None) or "").strip()
+        if not app_id or not app_secret:
+            raise ValidationError("Registration completed but Feishu credentials are missing")
+        from evoflow.proactive.feishu_binding import apply_registration_to_role
+
+        data = _run_coro_sync(
+            apply_registration_to_role(
+                code,
+                app_id=app_id,
+                app_secret=app_secret,
+                open_id=open_id,
+            )
+        )
+    else:
+        bot_id = str(getattr(session, "bot_id", None) or "").strip()
+        secret = str(getattr(session, "secret", None) or "").strip()
+        if not bot_id or not secret:
+            raise ValidationError("Registration completed but WeCom credentials are missing")
+        from evoflow.proactive.wecom_binding import apply_registration_to_role
+
+        data = _run_coro_sync(
+            apply_registration_to_role(
+                code,
+                bot_id=bot_id,
+                secret=secret,
+            )
+        )
+
+    out = {
+        "ok": True,
+        **(data if isinstance(data, dict) else {"result": data}),
+        "agent_code": code,
+        "role_name": role_name,
+        "channel": channel,
+        "session_id": session_id,
+        "hint": f"已绑定{('飞书' if channel == 'feishu' else '企微')}专属机器人；把机器人拉进群即可 @{role_name}",
+        "assistant_guide": {
+            "status": "bind_applied",
+            "say_to_user": (
+                f"「{role_name}」的{('飞书' if channel == 'feishu' else '企微')}专属机器人已绑好。"
+                f"把该机器人拉进同事所在群，@{role_name} 即可协作。"
+            ),
+            "next_steps": ["把 say_to_user 告诉用户", "可选：employees.get 确认 binding 状态"],
+            "instruction": "向用户复述 say_to_user。",
+        },
+    }
+    return out
 
 
 # ── tasks ──────────────────────────────────────────────────────────────────

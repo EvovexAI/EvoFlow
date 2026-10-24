@@ -77,6 +77,34 @@ describe('parsePlatformUiFeedback', () => {
     expect(shown[0]?.title).toBe('界面外观已更新')
   })
 
+  it('parses bind-channel QR fields from ui payload', () => {
+    const raw = JSON.stringify({
+      ok: true,
+      action: 'employees.bind_channel_begin',
+      agent_code: 'duty-ops',
+      qr_url: 'https://example.com/qr',
+      session_id: 'sess_1',
+      channel: 'feishu',
+      ui: {
+        kind: 'success',
+        title: '已为「运维值班」生成渠道绑定二维码',
+        domain: 'employees',
+        qrUrl: 'https://example.com/qr',
+        sessionId: 'sess_1',
+        channel: 'feishu',
+        agentCode: 'duty-ops',
+        bindStatus: 'pending',
+        action: 'employees.bind_channel_begin',
+      },
+    })
+    const ui = parsePlatformUiFeedback(raw)
+    expect(ui?.qrUrl).toBe('https://example.com/qr')
+    expect(ui?.sessionId).toBe('sess_1')
+    expect(ui?.channel).toBe('feishu')
+    expect(ui?.agentCode).toBe('duty-ops')
+    expect(ui?.bindStatus).toBe('pending')
+  })
+
   it('reads preserved platform_ui after output slimming', () => {
     const raw = JSON.stringify({
       ok: true,

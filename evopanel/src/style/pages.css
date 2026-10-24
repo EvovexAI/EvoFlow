@@ -3398,15 +3398,17 @@ html.dark .config-section-title {
   --td-card: var(--bg-card, #ffffff);
   --td-bg: var(--bg-secondary, #f7f8fa);
   --td-fill: #374151;
+  --td-stage-width: min(48vw, 560px);
   max-width: none !important;
   width: 100% !important;
   padding: 0 !important;
   min-height: calc(100vh - 64px);
+  height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   position: relative;
-  overflow-x: hidden;
+  overflow: hidden;
   background: var(--td-bg) !important;
 }
 
@@ -3414,12 +3416,102 @@ html.dark .config-section-title {
   content: none;
 }
 
+/*
+ * 双区壳（对齐对话 react-chat-main-body.is-right-stage-open）：
+ *   .td-split
+ *     ├── .td-detail-pane   任务详情整区
+ *     └── .td-stage-pane    侧栏整区（标签条 + 内容，RightStagePanel）
+ * 侧栏与详情平级，不是详情卡片内部嵌套。
+ */
+.task-detail-page .td-split {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.task-detail-page.td-with-right-stage .td-split {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.task-detail-page .td-detail-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.task-detail-page.td-with-right-stage .td-detail-pane {
+  flex: 1 1 52%;
+  border-right: none;
+}
+
+.task-detail-page .td-stage-pane {
+  display: none;
+  flex: 0 0 var(--td-stage-width);
+  width: var(--td-stage-width);
+  max-width: 56%;
+  min-width: 300px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary, var(--td-card, #fff));
+  border-left: 1px solid var(--td-border, var(--border-primary));
+}
+
+.task-detail-page.td-with-right-stage .td-stage-pane:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+
 .task-detail-page .td-shell {
   width: 100%;
-  max-width: 1180px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 12px 20px 28px;
+  padding: 16px 22px 36px;
   box-sizing: border-box;
+}
+
+.task-detail-page.td-with-right-stage .td-shell {
+  max-width: 920px;
+}
+
+.task-detail-page.td-mode--employee {
+  --td-mode-accent: #0d9488;
+  --td-mode-soft: color-mix(in srgb, #0d9488 12%, transparent);
+}
+
+.task-detail-page.td-mode--workflow {
+  --td-mode-accent: #2563eb;
+  --td-mode-soft: color-mix(in srgb, #2563eb 10%, transparent);
+}
+
+.task-detail-page .td-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.task-detail-page .td-mode-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--td-mode-accent, #2563eb);
+  background: var(--td-mode-soft, color-mix(in srgb, #2563eb 10%, transparent));
+  border: 1px solid color-mix(in srgb, var(--td-mode-accent, #2563eb) 28%, transparent);
 }
 
 /* ???????????????????????????????????????? */
@@ -3524,6 +3616,8 @@ html.dark .config-section-title {
   letter-spacing: -0.02em;
   color: var(--td-ink);
   word-break: break-word;
+  min-width: 0;
+  flex: 1;
 }
 
 .task-detail-page .td-meta-line {
@@ -3834,56 +3928,66 @@ html.dark .config-section-title {
   align-items: start;
 }
 
-/* 任务中心内嵌 V4 右侧面板：有侧栏内容时三列 */
-.task-detail-page .td-layout:has(.td-right-stage) {
-  grid-template-columns: minmax(0, 1.35fr) minmax(200px, 0.65fr) minmax(360px, 1.35fr);
-  align-items: stretch;
-}
-
-.task-detail-page .td-right-stage-slot {
-  min-width: 0;
-  min-height: 0;
-  display: contents;
-}
-
 .task-detail-page .td-right-stage-react-host {
-  display: contents;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .task-detail-page .td-right-stage {
+  flex: 1;
   min-width: 0;
   min-height: 0;
-  position: sticky;
-  top: 12px;
-  align-self: start;
-  height: calc(100vh - 88px);
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--td-border, var(--border-primary));
-  border-radius: 12px;
-  background: var(--td-card, var(--bg-card));
   overflow: hidden;
 }
 
-.task-detail-page .td-right-stage .react-chat-right-stage,
+/* 侧栏内的 RightStage：吃满 stage-pane，去掉对话里按 % 占宽的约束 */
+.task-detail-page .td-right-stage .react-chat-right-stage-panel,
 .task-detail-page .td-right-stage .react-chat-right-stage-shell {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
   height: 100%;
+  min-height: 0;
+  border: none !important;
+  border-left: none !important;
+  border-radius: 0;
+  align-self: stretch;
+  background: var(--bg-primary, var(--td-card, #fff));
 }
 
-@media (max-width: 1100px) {
-  .task-detail-page .td-layout:has(.td-right-stage) {
-    grid-template-columns: minmax(0, 1fr);
+.task-detail-page .td-right-stage .react-chat-right-stage-bodies {
+  min-height: 0;
+  flex: 1;
+}
+
+@media (max-width: 960px) {
+  .task-detail-page.td-with-right-stage .td-split {
+    flex-direction: column;
   }
 
-  .task-detail-page .td-layout:has(.td-right-stage) .td-aside {
+  .task-detail-page.td-with-right-stage .td-detail-pane {
+    flex: 1 1 48%;
+    max-height: 48%;
+  }
+
+  .task-detail-page .td-stage-pane {
+    flex: 1 1 52%;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    border-left: none;
+    border-top: 1px solid var(--td-border, var(--border-primary));
+  }
+
+  .task-detail-page.td-with-right-stage .td-aside {
     display: none;
-  }
-
-  .task-detail-page .td-right-stage {
-    position: static;
-    height: min(52vh, 560px);
   }
 }
 
@@ -3913,8 +4017,167 @@ html.dark .config-section-title {
   font-variant-numeric: tabular-nums;
 }
 
-.task-detail-page .task-obs-panel-body {
-  padding: 2px 8px 8px;
+.task-detail-page .task-obs-panel-body,
+.task-detail-page .td-stage-body {
+  padding: 0 16px 16px;
+}
+
+.task-detail-page .td-stage-card {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--td-border, var(--border-primary));
+  border-radius: 14px;
+  background: var(--td-card, var(--bg-card));
+  box-shadow: none;
+}
+
+.task-detail-page .td-stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 10px;
+}
+
+.task-detail-page .td-stage-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--td-ink, var(--text-primary));
+}
+
+.task-detail-page .td-stage-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--td-muted, var(--text-secondary));
+}
+
+.task-detail-page .td-stage-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--td-mode-accent, var(--td-muted, var(--text-tertiary)));
+}
+
+.task-detail-page .td-stage-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 14px;
+  border: 1px solid color-mix(in srgb, var(--td-mode-accent, #2563eb) 22%, var(--td-border, #e5e7eb));
+  border-radius: 12px;
+  background: var(--td-mode-soft, transparent);
+  color: var(--td-ink, var(--text-primary));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+
+.task-detail-page .td-stage-entry:hover {
+  border-color: var(--td-mode-accent, #2563eb);
+  background: color-mix(in srgb, var(--td-mode-accent, #2563eb) 14%, transparent);
+}
+
+.task-detail-page .td-stage-entry:active {
+  transform: translateY(1px);
+}
+
+.task-detail-page .td-stage-entry-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--td-mode-accent, #2563eb) 16%, #fff);
+  color: var(--td-mode-accent, #2563eb);
+  font-size: 16px;
+}
+
+.task-detail-page .td-stage-entry-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-detail-page .td-stage-entry-label {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.task-detail-page .td-stage-entry-hint {
+  font-size: 12px;
+  color: var(--td-muted, var(--text-secondary));
+}
+
+.task-detail-page .td-stage-entry-go {
+  flex-shrink: 0;
+  color: var(--td-mode-accent, var(--td-muted, var(--text-tertiary)));
+  font-size: 20px;
+  line-height: 1;
+}
+
+.task-detail-page .td-card--brief {
+  padding: 0;
+  overflow: hidden;
+}
+
+.task-detail-page .td-brief-fold {
+  margin: 0;
+}
+
+.task-detail-page .td-brief-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 18px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--td-ink, var(--text-primary));
+}
+
+.task-detail-page .td-brief-summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-detail-page .td-brief-fold[open] .td-brief-summary {
+  border-bottom: 1px solid var(--td-border, var(--border-secondary));
+}
+
+.task-detail-page .td-brief-fold .td-brief-body,
+.task-detail-page .td-brief-fold .td-brief-extra {
+  padding: 12px 18px 16px;
+}
+
+.task-detail-page .td-brief-fold .td-brief-extra {
+  padding-top: 0;
+}
+
+/* 兼容旧 class（若仍有引用） */
+.task-detail-page .td-workflow-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--td-border, var(--border-secondary));
+  border-radius: 10px;
+  background: transparent;
+  color: var(--td-ink, var(--text-primary));
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
 }
 
 .task-detail-page .td-main,

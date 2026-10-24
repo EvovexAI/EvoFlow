@@ -468,7 +468,11 @@ evoflow assets import ./pack.evoflow-pack
 
 1. 一次创建：`platform employees.create` + `capability_pack=duty`（或 research/writer/coding/none）
 2. 或分步：确认智能体存在 → [`examples/employees-hire.json`](examples/employees-hire.json) → `evoflow employees hire --file outputs/hire.json`
-3. `evoflow employees get <code>` 验证；需要改岗用 `employees update`
+3. **创建/雇佣成功后**：结果里有 `assistant_guide.say_to_user` —— **原话告诉用户**怎么用（对话 / 渠道 / 派发 / 自动上班），并问要不要绑飞书/企微
+4. 用户要绑渠道：`platform employees.bind_channel_begin`（`agent_code` + `channel=feishu|wecom`，`confirm=true`）。右侧平台面板出二维码，扫完自动绑定本岗机器人。**不要**用 `channels.registration_*`（那是全局主机器人）
+5. `evoflow employees get <code>` 验证；需要改岗用 `employees update`
+
+知识库 `knowledge.create` 同理：复述 `assistant_guide.say_to_user`，再按用户意图 `ingest` / 绑到员工。
 
 ### Enable a skill
 

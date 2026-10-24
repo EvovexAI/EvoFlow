@@ -191,10 +191,13 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "tasks.set_state": f"协作任务「{name}」状态已更新",
         "tasks.delete": f"已删除协作任务「{name}」",
         "employees.hire": f"已添加智能体员工「{name}」",
+        "employees.create": f"已创建智能体员工「{name}」",
         "employees.update": f"已更新员工「{name}」配置",
         "employees.pause": f"已暂停员工「{name}」值班",
         "employees.resume": f"已恢复员工「{name}」值班",
         "employees.stop": f"已停止员工「{name}」当前轮次",
+        "employees.bind_channel_begin": f"已为「{name}」生成渠道绑定二维码",
+        "employees.bind_channel_apply": f"已绑定「{name}」的渠道机器人",
         "agents.create": f"已创建智能体「{name}」",
         "agents.update": f"已更新智能体「{name}」配置",
         "agents.delete": f"已删除智能体「{name}」",
@@ -309,6 +312,16 @@ def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
         return "已记入任务中心 · 我的事项"
     if action.startswith("tasks."):
         return "已记入任务中心 · 协作任务"
+    if action == "employees.bind_channel_begin":
+        ch = _first_str(result.get("channel")).lower()
+        label = {"feishu": "飞书", "wecom": "企微"}.get(ch, "IM")
+        if _first_str(result.get("qr_url"), result.get("qrUrl")):
+            return f"请用{label} App 扫描下方二维码；扫完自动绑定本岗机器人"
+        return f"正在获取{label}二维码…"
+    if action == "employees.bind_channel_apply":
+        return "专属机器人已绑定；拉进群后即可 @ 该岗位"
+    if action in {"employees.create", "employees.hire"}:
+        return "可在对话里使唤他，或扫码绑定飞书/企微渠道"
     if action.startswith("employees."):
         return "可在智能体员工页查看"
     if action.startswith("workflow."):
@@ -429,7 +442,7 @@ def build_platform_ui_feedback(
     actions = _build_actions(action, domain, entity_id, result)
 
     kind = "warning" if entry.risk == "destructive" else "success"
-    return {
+    ui: dict[str, Any] = {
         "kind": kind,
         "verb": verb,
         "domain": domain,
@@ -443,6 +456,25 @@ def build_platform_ui_feedback(
         "actions": actions,
         "action": action,
     }
+    # Per-employee IM bind: surface QR + session so the reply panel can show code and auto-apply.
+    if action == "employees.bind_channel_begin":
+        qr = _first_str(result.get("qr_url"), result.get("qrUrl"))
+        session_id = _first_str(result.get("session_id"), result.get("sessionId"))
+        channel = _first_str(result.get("channel"), args.get("channel"), args.get("name")) or "feishu"
+        if qr:
+            ui["qrUrl"] = qr
+        if session_id:
+            ui["sessionId"] = session_id
+        ui["channel"] = channel.lower()
+        ui["bindStatus"] = "pending"
+        code = _first_str(result.get("agent_code"), result.get("agentCode"), entity_id, args.get("agent_code"))
+        if code:
+            ui["entityId"] = code
+            ui["agentCode"] = code
+    elif action == "employees.bind_channel_apply":
+        ui["bindStatus"] = "bound"
+        ui["channel"] = _first_str(result.get("channel"), args.get("channel")) or "feishu"
+    return ui
 
 
 def platform_ui_to_chat_artifact(

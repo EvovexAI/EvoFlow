@@ -2196,6 +2196,20 @@ class UiStreamNormalizer:
             if piece:
                 out.extend(self._emit_delta_raw(piece, delta_kind="append"))
             return out
+        if t == "model_error":
+            # 模型失败文案 → 正文 delta（V4 AI 回复）；勿映射成硬 RUN_ERROR
+            piece = str(chunk.get("text") or chunk.get("error") or "")
+            if piece:
+                out.extend(self._emit_delta_raw(piece, delta_kind="append"))
+                out.append(
+                    {
+                        "type": "activity",
+                        "kind": "model_error",
+                        "detail": piece,
+                        "ts": int(time.time() * 1000),
+                    }
+                )
+            return out
         if t == "model_fallback_switch":
             model_name = str(chunk.get("model_name") or "").strip()
             text = str(chunk.get("text") or "").strip()

@@ -348,6 +348,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           activityKindRaw === 'retrying' ||
           activityKindRaw === 'compacting' ||
           activityKindRaw === 'model_fallback' ||
+          activityKindRaw === 'model_error' ||
           activityKindRaw === 'pre_model'
         if (
           !isBackgroundThreadState &&
@@ -367,7 +368,9 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                   ? '正在压缩上下文…'
                   : activityKindRaw === 'model_fallback'
                     ? '已自动切换模型'
-                    : activityDetailRaw || '准备中…')
+                    : activityKindRaw === 'model_error'
+                      ? '模型调用失败'
+                      : activityDetailRaw || '准备中…')
           } else if (runningDetail) {
             panelActivityKind = 'tools'
             panelActivityDetail = runningDetail
@@ -403,6 +406,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                   : panelActivityKind === 'retrying' ||
                       panelActivityKind === 'compacting' ||
                       panelActivityKind === 'model_fallback' ||
+                      panelActivityKind === 'model_error' ||
                       panelActivityKind === 'pre_model'
                     ? panelActivityDetail
                     : '',
@@ -410,6 +414,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               panelActivityKind === 'retrying' ||
               panelActivityKind === 'compacting' ||
               panelActivityKind === 'model_fallback' ||
+              panelActivityKind === 'model_error' ||
               panelActivityKind === 'pre_model' ||
               panelActivityKind === 'tools' ||
               panelActivityKind === 'thinking'
@@ -930,9 +935,20 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           activityKindRaw === 'retrying' ||
           activityKindRaw === 'compacting' ||
           activityKindRaw === 'model_fallback' ||
+          activityKindRaw === 'model_error' ||
           activityKindRaw === 'pre_model' ||
           activityKindRaw === 'model'
-        if (stickySystemActivity && activityKindRaw === 'retrying') {
+        if (stickySystemActivity && activityKindRaw === 'model_error') {
+          const detail = payloadDetail || '模型调用失败'
+          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'model_error', ts: activityTs })
+          if (!isBackground) {
+            setThreadPanelState((prev) => ({
+              ...prev,
+              activityKind: 'model_error',
+              activityDetail: detail,
+            }))
+          }
+        } else if (stickySystemActivity && activityKindRaw === 'retrying') {
           const detail = payloadDetail || '系统重试中…'
           applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'retrying', ts: activityTs })
           if (!isBackground) {
@@ -1046,14 +1062,17 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                     ? '正在压缩上下文…'
                     : activityKindRaw === 'model_fallback'
                       ? '已自动切换模型'
-                      : '')
+                      : activityKindRaw === 'model_error'
+                        ? '模型调用失败'
+                        : '')
           : toolPreview ||
             (rowHasPendingApprovalTools(S.turn.tools as unknown[]) ? '等待工具授权…' : '') ||
             payloadDetail ||
             (activityKindRaw === 'pre_model' ? '准备中…' : '') ||
             (activityKindRaw === 'model' ? '生成中…' : '') ||
             (activityKindRaw === 'retrying' ? '系统重试中…' : '') ||
-            (activityKindRaw === 'model_fallback' ? '已自动切换模型' : '')
+            (activityKindRaw === 'model_fallback' ? '已自动切换模型' : '') ||
+            (activityKindRaw === 'model_error' ? '模型调用失败' : '')
         if (runtimeActivityDetail || runtimeActivityKind !== 'idle') {
           setSessionActivity(targetSk, runtimeActivityKind, runtimeActivityDetail)
         }

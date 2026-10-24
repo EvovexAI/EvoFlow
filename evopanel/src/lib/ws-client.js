@@ -4403,6 +4403,7 @@ function emitAgentActivityChat(self, key, runId, { kind, detail, toolName, toolC
     'retrying',
     'compacting',
     'model_fallback',
+    'model_error',
     'pre_model',
     'model',
   ])

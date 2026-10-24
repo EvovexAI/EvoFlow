@@ -1577,6 +1577,14 @@ export function useChatAppController() {
     mainBodyStageClasses,
     isOpen: rightStageShellOpen,
   } = useRightStageChatBridge()
+  // 派生值（非 Hook）：任务中心独占 tab 撑开 store 时，对话侧不占宽。
+  // 勿在此插入 useMemo/useState，否则会打乱后续 Hooks 序触发 invalid-hook-call。
+  const _visibleForOpen = filterRightStageTabsForSession(rightStageTabs, selectedSessionKey)
+  const rightStageOpen =
+    !!rightStageShellOpen &&
+    (_visibleForOpen.length > 0 ||
+      !(rightStageTabs || []).length ||
+      !(rightStageTabs || []).every((t) => isTaskCenterStageSessionKey(t.sessionKey)))
   const rightStageSessionKeyRef = useRef(String(selectedSessionKey || '').trim())
   // 切会话时冻结 / 恢复右栏 tabs（浏览器标签式缓存）
   useEffect(() => {
@@ -4971,15 +4979,6 @@ export function useChatAppController() {
     () => filterRightStageTabsForSession(rightStageTabs, selectedSessionKey),
     [rightStageTabs, selectedSessionKey],
   )
-  /**
-   * 对话布局占宽：任务中心独占 tab 撑开 store 时，对话侧不占宽、不渲染空壳。
-   * 仍允许本会话无可见 tab 时的「打开标签」首页（无 task-center 独占时）。
-   */
-  const rightStageOpen =
-    !!rightStageShellOpen &&
-    (visibleRightStageTabs.length > 0 ||
-      !(rightStageTabs || []).length ||
-      !(rightStageTabs || []).every((t) => isTaskCenterStageSessionKey(t.sessionKey)))
   const browserStageOpen = visibleRightStageTabs.some(
     (t) => normalizeRightStageKind(t.kind) === 'browser',
   )

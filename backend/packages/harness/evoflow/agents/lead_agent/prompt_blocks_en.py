@@ -107,6 +107,7 @@ SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
 PLATFORM_TOOL_BLOCK = """<platform_tool>
 Platform admin uses tool `platform` only: unsure → `catalog`/`help`, then `action=domain.op`; writes need user confirm then `confirm=true`.
 Do not confuse: `items`=memos (no auto-run); `tasks`=collab work; chat checklist=`todo`; `agents`=roles; `employees`=hired staff. Configure web-search via `settings.*`; one-off lookup via `web_search`. Errors → `diagnostics`. Speak results plainly — no JSON dumps.
+If the result has `assistant_guide.say_to_user` (e.g. employees.create / knowledge.create / employees.bind_channel_begin): tell the user that text. Bind an employee Feishu/WeCom bot with `employees.bind_channel_begin` (right panel shows QR and auto-applies); do not use `channels.registration_*` (global main bot).
 </platform_tool>
 """
 

@@ -17,6 +17,7 @@ import { normalizeRightStageKind, type RightStageSurface } from '../../lib/right
 import { useCollabSubtasksFromApi } from '../hooks/useCollabSubtasksFromApi.js'
 import { V4CollabSubtaskTranscriptPane } from '../chat-app/right-stage/v4-collab-subtask-transcript-pane.js'
 import { V4PreviewPane } from '../chat-app/right-stage/v4-preview-pane.js'
+import type { CodeViewerSource } from '@zcode/ui/lib/codeViewer.js'
 import type { AgentInfo } from '../chat-types.js'
 
 export type TaskDetailRightStageHostProps = {
@@ -62,13 +63,17 @@ export function TaskDetailRightStageHost({
 
   const open = visibleTabs.length > 0 && !collapsed
 
-  // 有本任务标签时自动展开；无标签时折叠宿主占位，并同步页级 class
+  // 有本任务标签时自动展开；同步「详情 | 侧栏」双区壳（与对话 main-body 对切同构）
   useEffect(() => {
     if (visibleTabs.length > 0 && collapsed) expand()
     const page = document.querySelector('.task-detail-page')
-    if (!page) return
-    if (visibleTabs.length > 0 && !collapsed) page.classList.add('td-with-right-stage')
-    else page.classList.remove('td-with-right-stage')
+    const stagePane = document.getElementById('td-right-stage-slot')
+    const open = visibleTabs.length > 0 && !collapsed
+    if (page) page.classList.toggle('td-with-right-stage', open)
+    if (stagePane) {
+      if (open) stagePane.removeAttribute('hidden')
+      else stagePane.setAttribute('hidden', '')
+    }
   }, [visibleTabs.length, collapsed, expand])
 
   const { subtasks: apiSubtasks, mainTask: apiMainTask } = useCollabSubtasksFromApi({
@@ -136,6 +141,7 @@ export function TaskDetailRightStageHost({
         return (
           <WorkspaceFilePreviewPanel
             embedded
+            workspaceRoot=""
             path={path}
             name={String(data.name || surface.title || '')}
             threadId={lead || undefined}
@@ -145,13 +151,15 @@ export function TaskDetailRightStageHost({
         )
       }
       if (kind === 'codeViewer') {
-        const source = data.source
-        if (!source) return null
+        const source = data.source as CodeViewerSource | undefined
+        if (!source || typeof source !== 'object') return null
+        const workspacePath =
+          'workspacePath' in source ? String((source as { workspacePath?: string }).workspacePath || '') : ''
         return (
           <V4PreviewPane
             source={source}
             threadId={lead}
-            workspacePath={String(source.workspacePath || '') || undefined}
+            workspacePath={workspacePath || undefined}
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
             onOpenCodeViewer={(nextSource) => {
               showRightStageCodeViewer(nextSource, {
@@ -170,7 +178,7 @@ export function TaskDetailRightStageHost({
   if (!tid || !open) return null
 
   return (
-    <aside className="td-right-stage" aria-label="任务侧栏">
+    <div className="td-right-stage">
       <RightStagePanel
         tabs={visibleTabs}
         activeKey={visibleActiveKey}
@@ -193,7 +201,7 @@ export function TaskDetailRightStageHost({
         launcherItems={[]}
         renderContent={renderContent}
       />
-    </aside>
+    </div>
   )
 }
 

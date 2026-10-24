@@ -1,5 +1,5 @@
 /**
- * 任务详情页 - 任务观测数据（工作流见 /workflow/:id；主控对话回主对话查看）
+ * 任务详情页 — 按「员工 / 工作流」两套模式展示；过程与节点输出在本页右侧 V4 侧栏。
  */
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
@@ -176,66 +176,76 @@ export function createTaskDetailView(taskId, opts = {}) {
     </div>` : ''
 
   page.innerHTML = `
-    <div class="td-shell">
-      <header class="td-topbar">
-        <div class="td-topbar-main">
-          <button class="btn btn-ghost task-detail-back" id="btn-back" type="button" title="${isEmbed ? '返回画布' : '返回任务列表'}" aria-label="${isEmbed ? '返回画布' : '返回任务列表'}">
-            <span>←</span>
-          </button>
-          <div class="td-title-block">
-            <h1 class="td-title" id="task-title">加载中...</h1>
-            <p class="td-meta-line" id="task-meta-line" hidden></p>
-            <p class="td-status-line" id="task-status-line"></p>
-          </div>
-        </div>
-        <div class="td-topbar-actions">
-          <button class="btn btn-warning btn-sm" id="btn-pause" type="button" style="display:none">暂停</button>
-          <button class="btn btn-secondary btn-sm" id="btn-cancel-task" type="button" style="display:none">取消</button>
-          <button class="btn btn-secondary btn-sm" id="btn-refresh" type="button">刷新</button>
-          <div class="td-more" id="td-more">
-            <button type="button" class="btn btn-secondary btn-sm td-more-btn" id="btn-td-more" aria-haspopup="menu" aria-expanded="false">⋯ 更多</button>
-            <div class="td-more-panel" id="td-more-panel" role="menu" hidden>
-              <button type="button" class="td-more-item" role="menuitem" data-more="resume-chat" id="btn-resume-employee-chat" hidden>续聊该任务</button>
-              <button type="button" class="td-more-item" role="menuitem" data-more="work-item" id="btn-open-work-item" hidden>打开员工工作项</button>
-              <button type="button" class="td-more-item td-more-item--danger" role="menuitem" data-more="delete" id="btn-delete-task">删除任务</button>
+    <div class="td-split" id="td-split">
+      <section class="td-detail-pane" aria-label="任务详情">
+        <div class="td-shell">
+          <header class="td-topbar">
+            <div class="td-topbar-main">
+              <button class="btn btn-ghost task-detail-back" id="btn-back" type="button" title="${isEmbed ? '返回画布' : '返回任务列表'}" aria-label="${isEmbed ? '返回画布' : '返回任务列表'}">
+                <span>←</span>
+              </button>
+              <div class="td-title-block">
+                <div class="td-title-row">
+                  <span class="td-mode-badge" id="td-mode-badge" data-mode="workflow">工作流</span>
+                  <h1 class="td-title" id="task-title">加载中...</h1>
+                </div>
+                <p class="td-meta-line" id="task-meta-line" hidden></p>
+                <p class="td-status-line" id="task-status-line"></p>
+              </div>
             </div>
+            <div class="td-topbar-actions">
+              <button class="btn btn-warning btn-sm" id="btn-pause" type="button" style="display:none">暂停</button>
+              <button class="btn btn-secondary btn-sm" id="btn-cancel-task" type="button" style="display:none">取消</button>
+              <button class="btn btn-secondary btn-sm" id="btn-refresh" type="button">刷新</button>
+              <div class="td-more" id="td-more">
+                <button type="button" class="btn btn-secondary btn-sm td-more-btn" id="btn-td-more" aria-haspopup="menu" aria-expanded="false">⋯ 更多</button>
+                <div class="td-more-panel" id="td-more-panel" role="menu" hidden>
+                  <button type="button" class="td-more-item" role="menuitem" data-more="resume-chat" id="btn-resume-employee-chat" hidden>续聊该任务</button>
+                  <button type="button" class="td-more-item" role="menuitem" data-more="work-item" id="btn-open-work-item" hidden>打开员工工作项</button>
+                  <button type="button" class="td-more-item td-more-item--danger" role="menuitem" data-more="delete" id="btn-delete-task">删除任务</button>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <div class="td-status-banner" id="task-status-banner" hidden role="status"></div>
+
+          <div class="td-progress" id="task-progress-wrap" hidden>
+            <div class="td-progress-head">
+              <span class="td-progress-label" id="task-progress-label">进行中</span>
+              <span class="td-progress-value" id="task-progress-value">0%</span>
+            </div>
+            <div class="td-progress-bar"><div class="td-progress-fill" id="task-progress-fill" style="width:0%"></div></div>
+            <div class="td-progress-sub" id="task-progress-sub" hidden></div>
+          </div>
+
+          <div class="td-layout" id="td-layout">
+            <main class="td-main">
+              <section class="task-decision-panel" id="task-decision-panel" hidden aria-label="待你处理"></section>
+              <section class="td-stage-card task-obs-panel" id="task-obs-panel" hidden aria-label="执行入口">
+                <header class="td-stage-head">
+                  <div class="td-stage-head-text">
+                    <h2 class="td-stage-title" id="task-obs-panel-title">执行</h2>
+                    <p class="td-stage-desc" id="task-obs-panel-desc"></p>
+                  </div>
+                  <span class="td-stage-count" id="task-obs-panel-count"></span>
+                </header>
+                <div class="td-stage-body" id="task-obs-strip"></div>
+              </section>
+              <section class="td-result" id="task-outcome-panel" hidden aria-label="任务结果"></section>
+              <section class="td-card td-card--brief" id="task-brief-panel" hidden aria-label="任务说明"></section>
+              <section class="td-exec-timeline" id="task-exec-timeline" hidden aria-label="执行步骤"></section>
+              ${conversationHtml}
+            </main>
+            <aside class="td-aside">
+              <section class="td-aside-card" id="task-info"></section>
+              <section class="td-aside-card td-aside-card--meta" id="task-meta" hidden></section>
+              <div class="task-detail-app-provenance" id="task-app-provenance" hidden></div>
+            </aside>
           </div>
         </div>
-      </header>
-
-      <div class="td-status-banner" id="task-status-banner" hidden role="status"></div>
-
-      <div class="td-progress" id="task-progress-wrap" hidden>
-        <div class="td-progress-head">
-          <span class="td-progress-label" id="task-progress-label">进行中</span>
-          <span class="td-progress-value" id="task-progress-value">0%</span>
-        </div>
-        <div class="td-progress-bar"><div class="td-progress-fill" id="task-progress-fill" style="width:0%"></div></div>
-        <div class="td-progress-sub" id="task-progress-sub" hidden></div>
-      </div>
-
-      <div class="td-layout" id="td-layout">
-        <main class="td-main">
-          <section class="task-decision-panel" id="task-decision-panel" hidden aria-label="待你处理"></section>
-          <section class="td-card" id="task-brief-panel" hidden aria-label="简要说明"></section>
-          <section class="td-exec-timeline" id="task-exec-timeline" hidden aria-label="执行步骤"></section>
-          <section class="td-result" id="task-outcome-panel" hidden aria-label="任务结果"></section>
-          <section class="task-obs-panel" id="task-obs-panel" hidden aria-label="任务节点">
-            <header class="task-obs-panel-header">
-              <h2 class="task-obs-panel-title" id="task-obs-panel-title">任务节点</h2>
-              <span class="task-obs-panel-count" id="task-obs-panel-count"></span>
-            </header>
-            <div class="task-obs-panel-body" id="task-obs-strip"></div>
-          </section>
-          ${conversationHtml}
-        </main>
-        <aside class="td-aside">
-          <section class="td-aside-card" id="task-info"></section>
-          <section class="td-aside-card td-aside-card--meta" id="task-meta" hidden></section>
-          <div class="task-detail-app-provenance" id="task-app-provenance" hidden></div>
-        </aside>
-        <div class="td-right-stage-slot" id="td-right-stage-slot" aria-label="任务侧栏"></div>
-      </div>
+      </section>
+      <aside class="td-stage-pane" id="td-right-stage-slot" aria-label="任务侧栏" hidden></aside>
     </div>
     <div id="task-plan-modal-host" hidden aria-hidden="true"></div>
   `
@@ -280,22 +290,25 @@ export function createTaskDetailView(taskId, opts = {}) {
   })
 
   const onObsActivate = (e) => {
+    const workflowBtn = e.target.closest('[data-act="open-workflow-stage"]')
+    if (workflowBtn) {
+      void openTaskCenterWorkflowStage(page, state)
+      return
+    }
     const roleNode = e.target.closest('[data-act="open-task-process"]')
     if (roleNode) {
       void openTaskWorkProcessPopup(page, state)
       return
     }
-    const row = e.target.closest('[data-subtask-id]')
-    if (!row) return
-    const sid = row.getAttribute('data-subtask-id')
-    if (sid) void showSubtaskDetail(page, state, sid)
   }
   const obsStrip = page.querySelector('#task-obs-strip')
   obsStrip?.addEventListener('click', onObsActivate)
   obsStrip?.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return
-    const row = e.target.closest('[data-subtask-id].is-clickable')
-    if (!row) return
+    const btn = e.target.closest(
+      '[data-act="open-workflow-stage"], [data-act="open-task-process"]',
+    )
+    if (!btn) return
     e.preventDefault()
     onObsActivate(e)
   })
@@ -465,6 +478,8 @@ export function createTaskDetailView(taskId, opts = {}) {
       }
       state.rightStageHost = null
     }
+    page.classList.remove('td-with-right-stage')
+    page.querySelector('#td-right-stage-slot')?.setAttribute('hidden', '')
   }
 
   const observer = new MutationObserver((mutations) => {
@@ -573,7 +588,8 @@ function renderTaskOutcomePanel(page, state) {
   const canResumeChat = sourceKey === 'role' && !!agentCode && !!state.taskId
 
   const cards = []
-  const workflow = isWorkflowAppTask(task)
+  const mode = resolveTaskDetailMode(task)
+  const workflow = mode === 'workflow'
   const { subtaskCount, completedCount } = taskProgressMeta(task, state.subtasks)
   const failedNodes = (state.subtasks || [])
     .filter((s) => toTaskStatusGroup(s?.status) === 'failed')
@@ -592,9 +608,12 @@ function renderTaskOutcomePanel(page, state) {
     if (outputs.length) bits.push(`共生成 ${outputs.length} 个产出`)
     if (inputRefs.length) bits.push(`${inputRefs.length} 项上游参考`)
     if (sections.findings.length) bits.push(`${sections.findings.length} 项发现`)
+    const resultTitle = workflow
+      ? '运行结果'
+      : (group === 'reviewed' ? '交工结果' : '完成结果')
     cards.push(`
       <section class="td-card td-card--result">
-        <h2 class="td-card-title">${workflow ? '运行结果' : (group === 'reviewed' ? '交工结果' : '完成结果')}</h2>
+        <h2 class="td-card-title">${resultTitle}</h2>
         <p class="td-card-lead">${escapeHtml(headline)}</p>
         ${bits.length ? `<p class="td-card-sub">${escapeHtml(bits.join(' · '))}</p>` : ''}
         <div class="td-card-actions">
@@ -652,13 +671,15 @@ function renderTaskOutcomePanel(page, state) {
     )
     cards.push(`
       <section class="td-card">
-        <h2 class="td-card-title">本岗交付物</h2>
-        <p class="td-card-sub">优先看带「最终交付」标记的文件；过程产物默认收起，可按节点来源核对。</p>
+        <h2 class="td-card-title">${workflow ? '产出文件' : '本岗交付物'}</h2>
+        <p class="td-card-sub">${workflow
+          ? '优先看最终交付；过程产物默认收起，可按节点核对。'
+          : '优先看带「最终交付」标记的文件；过程产物默认收起。'}</p>
         ${renderOutputItemCardsHtml(primary, escapeHtml, { enablePreview: true })}
         ${
           process.length
             ? `<details class="td-process-fold">
-                <summary class="td-process-summary">过程产物（${process.length}）· 中间节点产出</summary>
+                <summary class="td-process-summary">过程产物（${process.length}）</summary>
                 ${renderOutputItemCardsHtml(process, escapeHtml, { enablePreview: true })}
               </details>`
             : ''
@@ -864,9 +885,11 @@ function renderTaskHero(page, state) {
       bannerEl.hidden = true
       bannerEl.innerHTML = ''
     }
+    syncTaskDetailMode(page, null)
     return
   }
 
+  const mode = syncTaskDetailMode(page, task)
   const fullName = taskDetailDisplayName(task)
   const shortName = cleanTaskHeroTitle(fullName)
   if (titleEl) {
@@ -882,12 +905,20 @@ function renderTaskHero(page, state) {
   const toNames = handlers.map((h) => handlerDisplayName(h, roster)).filter(Boolean)
   const riskKey = String(task.risk_level || '').trim().toLowerCase()
   const riskZh = DETAIL_RISK_LABEL[riskKey] || ''
+  const appName = resolveSourceAppName(task) || resolveSourceAppId(task)
   const metaParts = []
   const handoffPending = Boolean(task.handlers_pending_approval) && statusKey !== 'reviewed'
   if (handoffPending) metaParts.push('转交审核')
-  if (fromRole && toNames.length) metaParts.push(`${fromRole} → ${toNames.join('、')}`)
-  else if (fromRole) metaParts.push(fromRole)
-  if (riskZh) metaParts.push(riskZh)
+  if (mode === 'employee') {
+    if (fromRole && toNames.length) metaParts.push(`${fromRole} → ${toNames.join('、')}`)
+    else if (fromRole) metaParts.push(fromRole)
+    if (riskZh) metaParts.push(riskZh)
+  } else {
+    if (appName) metaParts.push(appName)
+    const { completedCount, subtaskCount } = taskProgressMeta(task, state.subtasks)
+    if (subtaskCount > 0) metaParts.push(`${completedCount}/${subtaskCount} 节点`)
+    if (fromRole) metaParts.push(fromRole)
+  }
   if (metaEl) {
     if (metaParts.length) {
       metaEl.hidden = false
@@ -965,12 +996,25 @@ function renderTaskDecisionPanel(page, state) {
   if (waitingConfirm.has(statusKey)) {
     const handlers = taskHandlersOf(task)
     const roster = Object.values(state.rolesByCode || {})
+    const mode = resolveTaskDetailMode(task)
+    const copy =
+      mode === 'employee'
+        ? {
+            title: '员工已交工，等待你确认',
+            body: '确认完成后任务结案；要求修改将打回员工继续执行。',
+            notePh: '说明需要改什么，员工下一轮会看到',
+          }
+        : {
+            title: '工作流已跑完，等待你确认',
+            body: '确认完成后结案；要求修改将打回，相关节点会继续执行。',
+            notePh: '说明需要改什么，下一轮会按此调整',
+          }
     el.hidden = false
     el.className = 'task-decision-panel'
     el.innerHTML = `
       <div class="task-decision-copy">
-        <strong>执行已完成，等待确认</strong>
-        <p>员工侧运行已结束。确认完成后任务结案；要求修改将打回继续执行。</p>
+        <strong>${escapeHtml(copy.title)}</strong>
+        <p>${escapeHtml(copy.body)}</p>
       </div>
       ${handlers.length ? renderHandlersReadonlyHtml(handlers, escapeHtml, { open: true, roles: roster }) : ''}
       <div class="task-decision-actions">
@@ -979,7 +1023,7 @@ function renderTaskDecisionPanel(page, state) {
       </div>
       <div class="task-decision-note" data-review-note hidden>
         <label class="task-decision-note-label">修改说明（必填）</label>
-        <textarea class="form-input task-decision-note-input" rows="2" placeholder="说明需要改什么，员工下一轮会看到"></textarea>
+        <textarea class="form-input task-decision-note-input" rows="2" placeholder="${escapeHtml(copy.notePh)}"></textarea>
         <div class="task-decision-note-actions">
           <button type="button" class="btn btn-sm btn-primary" data-review-act="confirm-note">确认打回</button>
           <button type="button" class="btn btn-sm btn-ghost" data-review-act="cancel-note">取消</button>
@@ -990,18 +1034,19 @@ function renderTaskDecisionPanel(page, state) {
   }
 
   if (group === 'failed') {
-    const isChat = normalizeTaskSource(task.source) === 'chat'
+    const mode = resolveTaskDetailMode(task)
+    const showWorkflowBtn = mode === 'workflow' || (state.subtasks || []).length > 0
     el.hidden = false
     el.className = 'task-decision-panel task-decision-panel--fail'
     el.innerHTML = `
       <div class="task-decision-copy">
-        <strong>执行失败</strong>
-        <p>可重试失败步骤（仅补跑失败子任务，已完成的不动），或重新执行整个任务；删除请用右上角「更多」。</p>
+        <strong>${mode === 'workflow' ? '工作流执行失败' : '执行失败'}</strong>
+        <p>可重试失败步骤（仅补跑失败部分，已完成的不动），或重新执行整单；删除请用右上角「更多」。</p>
       </div>
       <div class="task-decision-actions">
         <button type="button" class="btn btn-primary" data-review-act="retry-failed">重试失败步骤</button>
         <button type="button" class="btn btn-secondary" data-review-act="restart">重新执行</button>
-        ${isChat ? '<button type="button" class="btn btn-secondary" id="btn-view-workflow-fail">查看工作流</button>' : ''}
+        ${showWorkflowBtn ? '<button type="button" class="btn btn-secondary" id="btn-view-workflow-fail">查看工作流详情</button>' : ''}
       </div>`
     el.querySelector('[data-review-act="retry-failed"]')?.addEventListener('click', () => {
       void handleRetryFailedTask(page, state)
@@ -1195,80 +1240,11 @@ function applyDetailTab(page, state) {
 }
 
 function renderExecTimeline(page, state) {
+  // 步骤明细改由顶部进度条 + 侧栏工作流/执行入口承接，主栏不再叠一层时间线。
   const el = page.querySelector('#task-exec-timeline')
   if (!el) return
-  const task = state.task
-  const subtasks = Array.isArray(state.subtasks) ? state.subtasks : []
-  const u = toUnifiedTaskStatus(task?.status)
-  const show = u === 'running' || u === 'planning' || u === 'queued' || normalizeTaskStatusKey(task?.status) === 'paused'
-  if (!task || !show) {
-    el.hidden = true
-    el.innerHTML = ''
-    return
-  }
-  el.hidden = false
-  const updated = formatDetailClock(task.updated_at || task.updatedAt) || '—'
-  const duration = formatRunningDuration(task) || '—'
-  const items = subtasks.length
-    ? subtasks.map((s) => {
-      const su = toUnifiedTaskStatus(s?.status)
-      let phase = 'waiting'
-      if (su === 'completed') phase = 'done'
-      else if (su === 'running' || su === 'planning') phase = 'current'
-      else if (su === 'failed') phase = 'failed'
-      else if (su === 'cancelled') phase = 'cancelled'
-      const label = {
-        done: '已完成',
-        current: '当前执行',
-        waiting: '等待',
-        failed: '异常',
-        cancelled: '已取消',
-      }[phase]
-      const name = String(s?.name || s?.id || '步骤').trim()
-      const step = phase === 'current' ? taskLiveStepText(s) : ''
-      return `<li class="td-timeline-item td-timeline-item--${phase}">
-        <span class="td-timeline-dot" aria-hidden="true"></span>
-        <div class="td-timeline-body">
-          <strong>${escapeHtml(name)}</strong>
-          <span>${escapeHtml(step || `${label} · ${formatUnifiedStatusZh(s?.status)}`)}</span>
-        </div>
-      </li>`
-    }).join('')
-    : `<li class="td-timeline-item td-timeline-item--${u === 'planning' ? 'current' : 'waiting'}">
-        <span class="td-timeline-dot" aria-hidden="true"></span>
-        <div class="td-timeline-body">
-          <strong>${u === 'planning' ? '正在规划' : (u === 'queued' ? '规划已完成，等待执行' : '等待步骤拆解')}</strong>
-          <span>${escapeHtml(formatUnifiedStatusZh(task.status))}</span>
-        </div>
-      </li>`
-
-  el.innerHTML = `
-    <header class="td-timeline-head">
-      <h2 class="td-card-title">执行步骤</h2>
-      <div class="td-timeline-meta">
-        <span>最近更新 ${escapeHtml(updated)}</span>
-        <span>已运行 ${escapeHtml(duration)}</span>
-      </div>
-    </header>
-    <ol class="td-timeline-list">${items}</ol>
-    <div class="td-timeline-actions">
-      ${isTaskPausableStatus(task.status) || normalizeTaskStatusKey(task.status) === 'paused'
-        ? `<button type="button" class="btn btn-sm btn-warning" data-timeline-act="pause">${normalizeTaskStatusKey(task.status) === 'paused' ? '恢复执行' : '暂停'}</button>`
-        : ''}
-      ${isTaskCancellableStatus(task.status)
-        ? '<button type="button" class="btn btn-sm btn-secondary" data-timeline-act="cancel">取消</button>'
-        : ''}
-    </div>`
-
-  if (!el._timelineBound) {
-    el._timelineBound = true
-    el.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-timeline-act]')
-      if (!btn) return
-      if (btn.dataset.timelineAct === 'pause') void handlePauseButton(page, state)
-      if (btn.dataset.timelineAct === 'cancel') void handleCancelTaskFromDetail(page, state)
-    })
-  }
+  el.hidden = true
+  el.innerHTML = ''
 }
 
 function renderTaskChangelog(page, state) {
@@ -1486,6 +1462,7 @@ function renderTaskDescription(page, task) {
     el.innerHTML = ''
     return
   }
+  const mode = resolveTaskDetailMode(task)
   const rationale = unescapeTaskText(task.rationale || '')
   const desc = unescapeTaskText(taskDescriptionForDisplay(task) || task.description || '')
   const goal = unescapeTaskText(task.plan_goal || task.goal || '')
@@ -1508,18 +1485,20 @@ function renderTaskDescription(page, task) {
 
   el.hidden = false
   el.innerHTML = `
-    <h2 class="td-card-title">简要说明</h2>
-    <div class="td-brief-body md-body">${body ? renderMarkdown(body) : '<p>（暂无说明）</p>'}</div>
-    ${
-      showExtraDesc
-        ? `<div class="td-brief-extra"><div class="td-aside-k">原始需求</div><div class="td-brief-body md-body">${renderMarkdown(desc)}</div></div>`
-        : ''
-    }
-    ${
-      expected && expected !== body
-        ? `<div class="td-brief-extra"><div class="td-aside-k">预期结果</div><div class="td-brief-body md-body"><p>${escapeHtml(expected)}</p></div></div>`
-        : ''
-    }
+    <details class="td-brief-fold" ${body.length < 220 && !showExtraDesc && !expected ? 'open' : ''}>
+      <summary class="td-brief-summary">${mode === 'employee' ? '任务说明' : '运行说明'}</summary>
+      <div class="td-brief-body md-body">${body ? renderMarkdown(body) : '<p>（暂无说明）</p>'}</div>
+      ${
+        showExtraDesc
+          ? `<div class="td-brief-extra"><div class="td-aside-k">原始需求</div><div class="td-brief-body md-body">${renderMarkdown(desc)}</div></div>`
+          : ''
+      }
+      ${
+        expected && expected !== body
+          ? `<div class="td-brief-extra"><div class="td-aside-k">预期结果</div><div class="td-brief-body md-body"><p>${escapeHtml(expected)}</p></div></div>`
+          : ''
+      }
+    </details>
   `
 }
 
@@ -2119,9 +2098,9 @@ function syncTaskHeroProgress(page, state) {
         subEl.textContent = activity
       } else if (meta.subtaskCount > 0 && u === 'running') {
         subEl.hidden = false
-        subEl.textContent = isWorkflowAppTask(t)
+        subEl.textContent = resolveTaskDetailMode(t) === 'workflow'
           ? nodeProgressLabel(meta.completedCount, meta.subtaskCount)
-          : `子任务 ${meta.completedCount}/${meta.subtaskCount} 已完成`
+          : `步骤 ${meta.completedCount}/${meta.subtaskCount} 已完成`
       } else {
         subEl.hidden = true
         subEl.textContent = ''
@@ -2251,7 +2230,8 @@ function renderTaskInfoChips(page, state) {
   const desc = unescapeTaskText(taskDescriptionForDisplay(task) || '')
   const goal = unescapeTaskText(task.plan_goal || '') || desc
   const expected = unescapeTaskText(task.expected_outcome || '')
-  const workflow = isWorkflowAppTask(task)
+  const mode = resolveTaskDetailMode(task)
+  const workflow = mode === 'workflow'
   const kindZh = runKindLabelZh(resolveTaskRunKind(task))
   const trigger = String(task.trigger_kind || task.triggerKind || 'manual').trim().toLowerCase()
   const triggerZh = trigger === 'api' ? 'API 触发'
@@ -2291,24 +2271,26 @@ function renderTaskInfoChips(page, state) {
     primary.push(['阶段', '规划中'])
   }
   if (workflow) {
-    primary.push(['任务类型', '工作流运行'])
+    primary.push(['类型', '工作流'])
     if (kindZh) more.push(['运行模式', kindZh])
     more.push(['触发方式', triggerZh])
-    if (appName) more.push(['来源工作流', appName])
-    if (subtaskCount > 0) primary.push(['节点进度', `${completedCount} / ${subtaskCount}`])
+    if (appName) primary.push(['来源', appName])
+    if (subtaskCount > 0) primary.push(['节点', `${completedCount} / ${subtaskCount}`])
+    if (roleLabel) more.push(['关联岗位', roleLabel])
   } else {
+    primary.push(['类型', '员工任务'])
     if (roleLabel) primary.push(['执行岗位', roleLabel])
     if (agentLabel && agentLabel !== roleLabel) primary.push(['智能体', agentLabel])
     if (raisedZh) primary.push(['提出人', raisedZh])
-    if (riskZh) primary.push(['风险', riskZh])
-    if (actionZh) more.push(['类型', actionZh])
+    if (riskZh) more.push(['风险', riskZh])
+    if (actionZh) more.push(['动作', actionZh])
     if (sourceLabel && sourceLabel !== '未标注') {
       more.push(['来源', channelZh ? `${sourceLabel} · ${channelZh}` : sourceLabel])
     } else if (channelZh) {
       more.push(['来源', channelZh])
     }
     if (wokenZh) more.push(['叫醒', wokenZh])
-    if (subtaskCount > 0) more.push(['子任务', `${completedCount}/${subtaskCount}`])
+    if (subtaskCount > 0) more.push(['步骤', `${completedCount}/${subtaskCount}`])
   }
   if (started) primary.push(['开始时间', started])
   if (finished) more.push(['完成时间', finished])
@@ -2330,11 +2312,8 @@ function renderTaskInfoChips(page, state) {
     const href = `#/proactive/${encodeURIComponent(agentCode)}/work/${encodeURIComponent(state.taskId)}`
     links += `<a class="td-aside-link td-aside-link--quiet" href="${href}">打开员工工作项</a>`
   }
-  if (sourceKey === 'chat') {
-    links += `<a class="td-aside-link td-aside-link--quiet" href="#/workflow/${encodeURIComponent(state.taskId)}">打开工作流</a>`
-  }
   if (workflow && resolveSourceAppId(task)) {
-    links += `<a class="td-aside-link td-aside-link--quiet" href="#/apps/${encodeURIComponent(resolveSourceAppId(task))}">打开工作流</a>`
+    links += `<a class="td-aside-link td-aside-link--quiet" href="#/apps/${encodeURIComponent(resolveSourceAppId(task))}">打开来源应用</a>`
   }
   if (parentId) {
     links += `<a class="td-aside-link td-aside-link--quiet" href="#/task/${encodeURIComponent(parentId)}">上游任务${parentName ? ` · ${escapeHtml(parentName.slice(0, 24))}` : ''}</a>`
@@ -2359,13 +2338,13 @@ function renderTaskInfoChips(page, state) {
       : ''
 
   el.innerHTML = `
-    <h3 class="td-aside-title">${workflow ? '运行信息' : '任务信息'}</h3>
+    <h3 class="td-aside-title">${workflow ? '运行信息' : '员工信息'}</h3>
     <dl class="td-aside-dl">
       ${rowHtml(primary)}
     </dl>
     ${
       more.length
-        ? `<details class="td-aside-more"><summary>更多信息</summary><dl class="td-aside-dl">${rowHtml(more)}</dl></details>`
+        ? `<details class="td-aside-more"><summary>更多</summary><dl class="td-aside-dl">${rowHtml(more)}</dl></details>`
         : ''
     }
     ${goalBlock}
@@ -2612,83 +2591,60 @@ async function openTaskWorkProcessPopup(page, state) {
   return true
 }
 
-async function renderRoleWorkProcessInline(page, state) {
-  const panel = page.querySelector('#task-obs-panel')
-  const strip = page.querySelector('#task-obs-strip')
-  const titleEl = page.querySelector('#task-obs-panel-title')
-  const countEl = page.querySelector('#task-obs-panel-count')
-  if (!strip) return
-
-  const task = state.task
-  const agentCode = String(task?.assigned_to || '').trim()
-  if (!agentCode) {
-    renderTaskLogsFallback(page, state)
-    return
-  }
-
-  if (titleEl) titleEl.textContent = '任务节点'
-  if (countEl) countEl.textContent = '1'
-  if (panel) panel.hidden = false
-
-  const name = String(task?.name || task?.title || '当前任务').trim() || '当前任务'
-  const status = String(task?.status || '').trim()
-  const g = toTaskStatusGroup(status)
-  const statusZh = formatTaskStatusZh(status, { fallback: '—' })
-  const liveStep = (g === 'executing' || g === 'planning') ? taskLiveStepText(task) : ''
-  const roleLabel = resolveDetailRoleLabel(task, state)
-  const metaBits = [statusZh, roleLabel].filter(Boolean)
-
-  strip.innerHTML = `
-    <ol class="td-flow-tree" role="list">
-      <li class="td-flow-item">
-        <button type="button" class="td-flow-node is-${escapeHtml(g)}${liveStep ? ' is-live' : ''}"
-          data-act="open-task-process"
-          title="${escapeHtml(liveStep ? `${name}\n${liveStep}` : `${name} · 查看进度`)}">
-          <span class="td-flow-rail" aria-hidden="true"><span class="td-flow-dot"></span></span>
-          <span class="td-flow-body">
-            <span class="td-flow-name">${escapeHtml(name)}</span>
-            ${liveStep ? `<span class="td-flow-step">${escapeHtml(liveStep)}</span>` : ''}
-            <span class="td-flow-meta">${escapeHtml(metaBits.join(' · '))}</span>
-          </span>
-          <span class="td-flow-go" aria-hidden="true">›</span>
-        </button>
-      </li>
-    </ol>`
-}
-
 function renderTaskLogsFallback(page, state) {
   const panel = page.querySelector('#task-obs-panel')
   const strip = page.querySelector('#task-obs-strip')
   const titleEl = page.querySelector('#task-obs-panel-title')
+  const descEl = page.querySelector('#task-obs-panel-desc')
   const countEl = page.querySelector('#task-obs-panel-count')
   if (!strip) return
 
-  if (titleEl) titleEl.textContent = '任务节点'
+  const mode = resolveTaskDetailMode(state?.task)
+  if (titleEl) titleEl.textContent = mode === 'employee' ? '执行过程' : '工作流'
+  if (descEl) {
+    descEl.textContent =
+      mode === 'employee' ? '员工开始执行后，可在此查看过程。' : '拆解出步骤后，可打开工作流与节点输出。'
+  }
   if (countEl) countEl.textContent = ''
   if (panel) panel.hidden = false
 
   strip.innerHTML = `
     <div class="td-logs-empty">
-      <p class="td-logs-empty-lead">暂无任务节点</p>
-      <p class="td-logs-empty-sub">拆解出步骤后会显示在这里，点击可在对话右侧查看工作流与节点进度。</p>
+      <p class="td-logs-empty-lead">${mode === 'employee' ? '暂无执行记录' : '暂无工作流节点'}</p>
     </div>`
 }
 
+/** 主入口卡：员工 → 执行过程；工作流 → 右侧 V4 侧栏（再点节点看输出）。 */
 function renderTaskObsSubtasks(page, state) {
   const panel = page.querySelector('#task-obs-panel')
   const strip = page.querySelector('#task-obs-strip')
   const titleEl = page.querySelector('#task-obs-panel-title')
+  const descEl = page.querySelector('#task-obs-panel-desc')
   const countEl = page.querySelector('#task-obs-panel-count')
   if (!strip) return
 
   const task = state.task
+  const mode = resolveTaskDetailMode(task)
   const agentCode = String(task?.assigned_to || '').trim()
-  const isRole = normalizeTaskSource(task?.source) === 'role' && !!agentCode
+  const isRole = mode === 'employee' && !!agentCode
   const subtasks = Array.isArray(state.subtasks) ? state.subtasks : []
 
-  // 员工任务且尚无子节点：整单作为一个可点节点，打开侧栏进度
+  if (countEl) countEl.textContent = ''
+
+  // 员工任务：执行过程弹层（无多节点图时）
   if (isRole && !subtasks.length) {
-    void renderRoleWorkProcessInline(page, state)
+    if (titleEl) titleEl.textContent = '执行过程'
+    if (descEl) descEl.textContent = '查看员工本轮怎么推进、产出了什么。'
+    if (panel) panel.hidden = false
+    strip.innerHTML = `
+      <button type="button" class="td-stage-entry" data-act="open-task-process">
+        <span class="td-stage-entry-icon" aria-hidden="true">◎</span>
+        <span class="td-stage-entry-copy">
+          <span class="td-stage-entry-label">查看执行详情</span>
+          <span class="td-stage-entry-hint">打开员工本轮过程</span>
+        </span>
+        <span class="td-stage-entry-go" aria-hidden="true">›</span>
+      </button>`
     return
   }
 
@@ -2698,106 +2654,26 @@ function renderTaskObsSubtasks(page, state) {
   }
 
   const { completedCount } = taskProgressMeta(state.task, subtasks)
-  if (titleEl) titleEl.textContent = '任务节点'
-  if (countEl) {
-    countEl.textContent = `${completedCount}/${subtasks.length}`
+  if (countEl) countEl.textContent = `${completedCount}/${subtasks.length}`
+  if (titleEl) titleEl.textContent = mode === 'employee' ? '协作步骤' : '工作流'
+  if (descEl) {
+    descEl.textContent =
+      mode === 'employee'
+        ? '打开侧栏看步骤图；点节点查看该步输出。'
+        : '打开侧栏看工作流；点节点进入该步输出面板。'
   }
-
-  const obs = state.observability
-  const obsById = new Map()
-  if (obs && obs.enabled !== false && Array.isArray(obs.subtasks)) {
-    for (const row of obs.subtasks) {
-      const id = String(row?.subtask_id || row?.subtaskId || '').trim()
-      if (id) obsById.set(id, row)
-    }
-  }
-
-  strip.innerHTML = renderWorkflowExecTreeHtml(subtasks, state, obsById)
   if (panel) panel.hidden = false
-}
 
-/** 按依赖关系缩进展示工作流节点（并行组同层） */
-function renderWorkflowExecTreeHtml(subtasks, state, obsById) {
-  const list = Array.isArray(subtasks) ? subtasks : []
-  const byId = new Map(list.map((s) => [String(s.id || ''), s]))
-  const depIdsOf = (sub) => {
-    const wp = sub?.worker_profile
-    const fromWp = Array.isArray(wp?.depends_on) ? wp.depends_on : []
-    const fromRoot = Array.isArray(sub?.dependencies) ? sub.dependencies : []
-    return [...new Set([...fromWp, ...fromRoot].map((id) => String(id || '').trim()).filter((id) => byId.has(id)))]
-  }
-  const depthMap = new Map()
-  const getDepth = (id, stack = new Set()) => {
-    if (depthMap.has(id)) return depthMap.get(id)
-    if (stack.has(id)) return 0
-    stack.add(id)
-    const deps = depIdsOf(byId.get(id) || {})
-    if (!deps.length) {
-      depthMap.set(id, 0)
-      return 0
-    }
-    const upstream = deps.map((d) => getDepth(d, stack))
-    const d = 1 + Math.max(...upstream)
-    depthMap.set(id, d)
-    return d
-  }
-  list.forEach((s) => getDepth(String(s.id || '')))
-
-  const groups = new Map()
-  for (const sub of list) {
-    const id = String(sub.id || '')
-    const deps = depIdsOf(sub)
-    const key = `${depthMap.get(id) || 0}|${[...deps].sort().join(',')}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(id)
-  }
-
-  const ordered = [...list].sort((a, b) => {
-    const da = depthMap.get(String(a.id || '')) || 0
-    const db = depthMap.get(String(b.id || '')) || 0
-    if (da !== db) return da - db
-    return 0
-  })
-
-  const items = ordered.map((sub) => {
-    const sid = String(sub?.id || '').trim()
-    const deps = depIdsOf(sub)
-    const key = `${depthMap.get(sid) || 0}|${[...deps].sort().join(',')}`
-    const group = groups.get(key) || [sid]
-    const name = String(sub?.name || sid || '节点')
-    const status = String(sub?.status || '').trim()
-    const statusZh = formatTaskStatusZh(status, { fallback: '—' })
-    const g = toTaskStatusGroup(status)
-    const assignee = String(sub?.assigned_to || '').trim()
-    const assigneeLabel = assignee
-      ? (resolveAssignedAgentDisplayName(assignee, state.agentCatalog || state.agents || []) || assignee)
-      : ''
-    const metrics = obsById?.get(sid) || null
-    const durMs = Number(metrics?.duration_ms)
-    const durText = Number.isFinite(durMs) && durMs > 0
-      ? `${formatDurationMs(durMs)}${metrics?.duration_running ? '+' : ''}`
-      : ''
-    const metaBits = [statusZh, assigneeLabel, durText].filter(Boolean)
-    const depth = depthMap.get(sid) || 0
-    const isParallel = group.length > 1
-    const liveStep = (g === 'executing' || g === 'planning') ? taskLiveStepText(sub) : ''
-    return `
-      <li class="td-flow-item" style="--flow-depth:${depth}">
-        <button type="button" class="td-flow-node is-${escapeHtml(g)}${isParallel ? ' is-parallel' : ''}${liveStep ? ' is-live' : ''}"
-          data-subtask-id="${escapeHtml(sid)}"
-          title="${escapeHtml(liveStep ? `${name}\n${liveStep}` : `${name} · 查看进度`)}">
-          <span class="td-flow-rail" aria-hidden="true"><span class="td-flow-dot"></span></span>
-          <span class="td-flow-body">
-            <span class="td-flow-name">${escapeHtml(name)}</span>
-            ${liveStep ? `<span class="td-flow-step">${escapeHtml(liveStep)}</span>` : ''}
-            <span class="td-flow-meta">${escapeHtml(metaBits.join(' · '))}</span>
-          </span>
-          <span class="td-flow-go" aria-hidden="true">›</span>
-        </button>
-      </li>`
-  }).join('')
-
-  return `<ol class="td-flow-tree" role="list">${items}</ol>`
+  strip.innerHTML = `
+    <button type="button" class="td-stage-entry" data-act="open-workflow-stage"
+      title="在右侧打开；点节点可看该步输出">
+      <span class="td-stage-entry-icon" aria-hidden="true">${mode === 'employee' ? '◎' : '⧉'}</span>
+      <span class="td-stage-entry-copy">
+        <span class="td-stage-entry-label">${mode === 'employee' ? '查看步骤详情' : '查看工作流详情'}</span>
+        <span class="td-stage-entry-hint">${completedCount}/${subtasks.length} 节点 · 点节点看输出</span>
+      </span>
+      <span class="td-stage-entry-go" aria-hidden="true">›</span>
+    </button>`
 }
 
 /* Supervisor 面板已隐藏
@@ -2890,6 +2766,31 @@ function isWorkflowAppTask(task) {
   if (!task) return false
   const src = normalizeTaskSource(task.source)
   return src === 'workflow' || !!resolveSourceAppId(task)
+}
+
+/**
+ * 详情页一级模式：员工 | 工作流。
+ * - 员工：岗位 / 值班 / 派发（role）
+ * - 工作流：应用跑次、对话协作拆解、其余带多节点图的任务
+ */
+function resolveTaskDetailMode(task) {
+  if (!task) return 'workflow'
+  if (isWorkflowAppTask(task)) return 'workflow'
+  if (normalizeTaskSource(task.source) === 'role') return 'employee'
+  return 'workflow'
+}
+
+function syncTaskDetailMode(page, task) {
+  const mode = resolveTaskDetailMode(task)
+  page.dataset.tdMode = mode
+  page.classList.toggle('td-mode--employee', mode === 'employee')
+  page.classList.toggle('td-mode--workflow', mode === 'workflow')
+  const badge = page.querySelector('#td-mode-badge')
+  if (badge) {
+    badge.textContent = mode === 'employee' ? '员工任务' : '工作流'
+    badge.dataset.mode = mode
+  }
+  return mode
 }
 
 function resolveTaskRunKind(task) {
@@ -3254,6 +3155,7 @@ async function openTaskCenterWorkflowStage(page, state) {
       data: { mainTaskId: tid, leadThreadId: threadId },
     })
     page.classList.add('td-with-right-stage')
+    page.querySelector('#td-right-stage-slot')?.removeAttribute('hidden')
   } catch (e) {
     console.warn('[task-detail] open workflow stage failed', e)
     toast('无法打开工作流面板', 'error')

@@ -9,6 +9,7 @@ const STICKY_STREAM_KINDS = new Set([
   'retrying',
   'compacting',
   'model_fallback',
+  'model_error',
   'pre_model',
   'model',
   'tool_approval',
@@ -67,6 +68,7 @@ function appendElapsedLabel(base: string, elapsedSec?: number): string {
 function fallbackBusyLabel(kind: string): string {
   if (kind === 'compacting') return '正在压缩上下文…'
   if (kind === 'retrying') return '系统重试中…'
+  if (kind === 'model_error') return '模型调用失败'
   if (kind === 'pre_model') return '准备中…'
   if (kind === 'model') return '生成中…'
   if (kind === 'tool_approval') return '等待工具授权…'
@@ -128,7 +130,8 @@ export function resolveLiveStreamActivity(
     (!detail || kind === 'idle') &&
     !streamAct &&
     kind !== 'compacting' &&
-    kind !== 'retrying'
+    kind !== 'retrying' &&
+    kind !== 'model_error'
 
   const rawElapsedSec =
     input.elapsedSec != null && Number.isFinite(input.elapsedSec) ? input.elapsedSec : undefined
@@ -161,13 +164,28 @@ export function resolveLiveStreamActivity(
     }
   }
 
+  if (kind === 'model_error') {
+    const errDock = detail || '模型调用失败'
+    const errCursor = normalizeStreamStatusLabel(errDock)
+    return {
+      kind,
+      detail,
+      cursorLabel: appendElapsedLabel(errCursor, input.elapsedSec),
+      dockLabel: appendElapsedLabel(errDock, input.elapsedSec),
+      runningPreview: errCursor,
+      runningToolSummary: '',
+      ...(rawElapsedSec != null ? { elapsedSec: rawElapsedSec } : {}),
+    }
+  }
+
   const showDetail =
     !!detail &&
     (kind === 'tools' ||
       kind === 'thinking' ||
       kind === 'pre_model' ||
       kind === 'tool_approval' ||
-      kind === 'retrying') &&
+      kind === 'retrying' ||
+      kind === 'model_error') &&
     !hideSupervisor
 
   const busyFallback = showBusyFallback ? SESSION_RUNNING_ACTIVITY_LABEL : fallbackBusyLabel(kind)

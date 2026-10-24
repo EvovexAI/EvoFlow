@@ -75,8 +75,13 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "employees": {
         "title": "智能体员工岗位",
-        "when": "雇佣/暂停/恢复/唤醒/删除员工、改心跳、看工作日志、迁移旧事项到 Task 时；新建优先 capability_pack=duty",
-        "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch；禁止 tools:null 灌全表",
+        "when": (
+            "雇佣/暂停/恢复/唤醒/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
+            "为岗位扫码绑飞书/企微专属机器人时；新建优先 capability_pack=duty。"
+            "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
+            "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
+        ),
+        "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch；禁止 tools:null 灌全表；全局主机器人用 channels",
     },
     "tasks": {
         "title": "协作任务台账（行政视角）",
@@ -487,6 +492,33 @@ def _build_registry() -> dict[str, PlatformAction]:
             "agent_code?, dry_run?",
             H.employees_migrate,
             "把旧事项迁成任务台账",
+        ),
+        _A(
+            "employees.bind_channel_begin",
+            "employees",
+            "为指定员工发起飞书/企微专属机器人扫码绑定（返回 qr_url；面板出码后自动 poll/apply）",
+            "write",
+            "agent_code, channel?=feishu|wecom",
+            H.employees_bind_channel_begin,
+            "给拆解岗出飞书二维码绑定",
+        ),
+        _A(
+            "employees.bind_channel_poll",
+            "employees",
+            "轮询员工渠道扫码状态（面板通常会自动轮询；仅兜底）",
+            "read",
+            "session_id, channel?, agent_code?",
+            H.employees_bind_channel_poll,
+            "飞书扫码好了没",
+        ),
+        _A(
+            "employees.bind_channel_apply",
+            "employees",
+            "把扫码凭证绑到该员工专属机器人（勿用 channels.registration_apply）",
+            "write",
+            "agent_code, session_id, channel?=feishu|wecom",
+            H.employees_bind_channel_apply,
+            "扫码完成，绑到拆解岗",
         ),
         # tasks（行政台账；值班推进优先专用工具 tasks）
         _A(

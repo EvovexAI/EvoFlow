@@ -369,12 +369,35 @@ async function createOperationsRedirectModule() {
 }
 
 async function resolveChatAppComponent() {
-  const mod = await import('./react/ChatApp.tsx')
-  const Comp = mod.default
-  if (typeof Comp === 'function') return Comp
-  throw new Error(
-    '[chat] ChatApp 默认导出无效（常见原因：Vite 热更新/缓存损坏）。请 Ctrl+Shift+R 强刷或重启 evopanel。',
-  )
+  // 用 .js 入口（与 pages/chat-react.js 一致）。Vite HMR / 缓存损坏时
+  // 动态 import *.tsx 会偶发 Failed to fetch —— 失败则打散缓存重试。
+  const isFetchFail = (e) =>
+    /Failed to fetch dynamically imported module|fetch|network|ERR_/i.test(
+      String(e?.message || e || ''),
+    )
+  let lastErr = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const mod =
+        attempt === 0
+          ? await import('./react/ChatApp.js')
+          : await import(`./react/ChatApp.js?recover=${Date.now()}`)
+      const Comp = mod?.default
+      if (typeof Comp === 'function') return Comp
+      throw new Error(
+        '[chat] ChatApp 默认导出无效（常见原因：Vite 热更新/缓存损坏）。请 Ctrl+Shift+R 强刷或重启 evopanel。',
+      )
+    } catch (e) {
+      lastErr = e
+      if (attempt >= 2 || !isFetchFail(e)) break
+      console.warn(
+        `[chat] ChatApp 动态导入失败，${400 * (attempt + 1)}ms 后打散缓存重试 (${attempt + 1}/3)`,
+        e,
+      )
+      await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+    }
+  }
+  throw lastErr
 }
 
 async function createChatRouteModule() {

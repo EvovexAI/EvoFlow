@@ -87,21 +87,25 @@ def _billing_user_message(exc: Exception) -> str:
 
 
 def _calc_backoff_seconds(attempt: int, error: Exception) -> float:
-    """Exponential backoff with jitter; honors Retry-After when present. *attempt* is 1-based."""
-    backoff_s = 2.0 * (2 ** (attempt - 1))
-    jitter_s = random.uniform(0, backoff_s * 0.2)
-    total_s = backoff_s + jitter_s
+    """Exponential backoff with jitter; honors Retry-After when present. *attempt* is 1-based.
 
+    对齐 zcode：provider 返回的 Retry-After 优先于本地退避曲线，上限 5 分钟
+    （旧版 60s 上限会把合法限流等待退化为本地短退避，导致重试风暴）。
+    """
     resp = getattr(error, "response", None)
     if resp is not None and hasattr(resp, "headers"):
         retry_after = resp.headers.get("Retry-After")
         if retry_after:
             try:
-                total_s = max(total_s, float(retry_after))
+                retry_after_s = float(retry_after)
+                if retry_after_s >= 0:
+                    return min(retry_after_s, 300.0)
             except (ValueError, TypeError):
                 pass
 
-    return min(total_s, _MAX_BACKOFF_SECONDS)
+    backoff_s = 2.0 * (2 ** (attempt - 1))
+    jitter_s = random.uniform(0, backoff_s * 0.2)
+    return min(backoff_s + jitter_s, _MAX_BACKOFF_SECONDS)
 
 
 def _user_friendly_message_for_error(exc: Exception) -> str:
@@ -803,13 +807,27 @@ def _schedule_http_inject_evf(thread_id: str, payload: dict[str, Any]) -> None:
 
 
 def _inject_user_notice_evf(thread_id: str, body: str) -> bool:
-    """Inject delta + error EVF frames into the live gateway SSE (middle layer / HTTP fallback)."""
+    """Inject assistant delta EVF so the notice shows as AI 回复正文（V4 assistantText）。
+
+    不发 ``type:"error"``：AG-UI 会映射成 RUN_ERROR，把回合掐成硬失败。
+    """
     tid = str(thread_id or "").strip()
     if not tid:
         return False
+    block_id = f"user-notice-{tid[-8:]}-{int(time.time() * 1000) % 1_000_000}"
     payloads = [
-        {"type": "delta", "text": body, "delta_kind": "append"},
-        {"type": "error", "error": body},
+        {
+            "type": "delta",
+            "text": body,
+            "delta_kind": "append",
+            "block_id": block_id,
+            "block_kind": "body_text",
+        },
+        {
+            "type": "block_close",
+            "block_id": block_id,
+            "block_kind": "body_text",
+        },
     ]
     injected = False
     try:
@@ -829,40 +847,50 @@ def _inject_user_notice_evf(thread_id: str, body: str) -> bool:
 
 
 def _inject_model_error_evf(thread_id: str, body: str, reason: str = "") -> bool:
-    """Inject **error-only** EVF frames into the live gateway SSE.
+    """Inject model-failure text as assistant **delta** so V4 AI 回复正文能显示。
 
-    对齐 zcode：模型失败是错误事件，不再伪装成 assistant delta 文本
-    （旧版 delta+error 双发，面板把报错渲染成一条正常 AI 回复气泡）。
-    面板收到 ``type:"error"`` 帧后走统一的错误分支：toast + 系统错误行 + 终态 fail。
+    重要：不要发 ``type:"error"`` EVF——AG-UI 会把它映射成 ``RUN_ERROR``，
+    回合被当成硬失败掐断，用户看不到报错正文。应走 delta → TEXT_MESSAGE →
+    V4 ``assistantText``。``reason`` 仅写入 block 元数据便于排查。
     """
     tid = str(thread_id or "").strip()
     if not tid:
         return False
-    payload = {"type": "error", "error": body}
-    if reason:
-        payload["code"] = str(reason)
+    block_id = f"model-error-{tid[-8:]}-{int(time.time() * 1000) % 1_000_000}"
+    payloads: list[dict[str, Any]] = [
+        {
+            "type": "delta",
+            "text": body,
+            "delta_kind": "append",
+            "block_id": block_id,
+            "block_kind": "body_text",
+            "model_error_reason": str(reason or "").strip(),
+        },
+        {
+            "type": "block_close",
+            "block_id": block_id,
+            "block_kind": "body_text",
+        },
+    ]
     injected = False
     try:
         from evoflow.runtime.ports import middle_layer_covers_thread, schedule_inject_evf_frame
 
         if middle_layer_covers_thread(tid):
-            schedule_inject_evf_frame(tid, payload)
+            for payload in payloads:
+                schedule_inject_evf_frame(tid, payload)
             injected = True
     except Exception:
         logger.debug("model error direct inject failed thread=%s", tid, exc_info=True)
     if not injected:
-        try:
-            from evoflow.agents.middlewares.model_fallback_middleware import _schedule_http_inject_evf
-
+        for payload in payloads:
             _schedule_http_inject_evf(tid, payload)
-            injected = True
-        except Exception:
-            logger.debug("model error http inject failed thread=%s", tid, exc_info=True)
+        injected = True
     return injected
 
 
 def _emit_model_error_notice_stream(text: str, runtime: Runtime | None = None, *, reason: str = "") -> bool:
-    """Push the model-failure notice as a structured error event (no fake assistant delta)."""
+    """把模型失败文案推到前端：V4 AI 回复正文（delta）+ 活动条提示。"""
     body = str(text or "").strip()
     if not body:
         return False
@@ -876,7 +904,8 @@ def _emit_model_error_notice_stream(text: str, runtime: Runtime | None = None, *
 
             writer = get_stream_writer()
             if writer:
-                writer({"type": "model_error", "reason": str(reason or ""), "text": body})
+                # empty_response_fallback → sse_ui_normalize 转成 delta 正文
+                writer({"type": "empty_response_fallback", "text": body})
                 emitted = True
         except Exception:
             logger.debug("model error stream emit failed", exc_info=True)
@@ -887,6 +916,12 @@ def _emit_model_error_notice_stream(text: str, runtime: Runtime | None = None, *
             emit_agent_activity(tid, kind="model_error", detail=body, force=True)
         except Exception:
             logger.debug("model_error activity emit failed thread=%s", tid, exc_info=True)
+    if not emitted:
+        logger.warning(
+            "model error notice not streamed (no inject/writer) thread=%s reason=%s",
+            tid,
+            reason,
+        )
     return emitted
 
 
@@ -1011,15 +1046,20 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
     state_schema = AgentState
 
     def _handle_model_error(self, exc: Exception, runtime: Runtime | None) -> AIMessage:
+        """任何模型 API 失败都回传可见 AIMessage，并注入 V4 AI 回复正文。
+
+        不再 ``raise`` 静默掐断：用户必须在对话里看到具体报错（限流/鉴权/过载等）。
+        supervisor 编排同样走可见失败文案，避免「莫名其妙停了」。
+        """
         _log_model_error(exc, runtime)
         classification = classify(exc)
-        # 限流必须把错误打到前端，即使在 supervisor/编排场景也不静默中断。
-        if (
-            classification.reason != FailoverReason.RATE_LIMIT
-            and _should_reraise_for_supervisor(runtime)
-        ):
-            logger.error("Model API failed during supervisor orchestration; re-raising (thread=%s)", _runtime_thread_id(runtime))
-            raise exc
+        if _should_reraise_for_supervisor(runtime):
+            logger.warning(
+                "Model API failed during supervisor orchestration; "
+                "returning visible error instead of re-raising (thread=%s reason=%s)",
+                _runtime_thread_id(runtime),
+                classification.reason.value,
+            )
         failed_name = _resolve_failed_model_name(exc, runtime)
         _mark_model_unavailable_for_error(failed_name, exc)
         message = _user_friendly_message_for_error(exc)
@@ -1035,15 +1075,14 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
                     emit_agent_activity(tid, kind="retrying", detail=message, force=True)
             except Exception:
                 logger.debug("rate-limit final activity emit failed", exc_info=True)
-        # 回合级失败登记：middle layer 在 run 收尾时取出 → 终态落 fail（对齐 zcode）
+        # 回合级失败登记：middle layer 在 run 收尾时取出 → 终态落 fail
         register_model_error_turn(
             _runtime_thread_id(runtime),
             reason=classification.reason.value,
             message=message,
         )
-        # 结构化错误事件（error 帧），不再伪装 assistant delta（对齐 zcode 错误语义）
+        # 实时注入 delta → V4 assistantText；checkpoint 里也落 AIMessage
         _emit_model_error_notice_stream(message, runtime, reason=classification.reason.value)
-        # 结构化元数据：transcript / checkpoint 里能区分「真回复」与「失败占位」
         return AIMessage(
             content=message,
             response_metadata={
