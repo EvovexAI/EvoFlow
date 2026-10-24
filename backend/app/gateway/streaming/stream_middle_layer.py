@@ -252,6 +252,8 @@ class StreamMiddleLayer:
         # ── Upstream heartbeat detection state ─────────────────────────
         self._last_upstream_data_time: float = time.monotonic()
         self._is_proactive_run: bool = self._detect_proactive_from_body(body)
+        # 本回合是否失败（对齐 zcode：失败回合终态必须是 fail，不能一律记 done/success）
+        self._upstream_error: bool = False
 
     @staticmethod
     def _detect_proactive_from_body(body: bytes) -> bool:
@@ -367,6 +369,7 @@ class StreamMiddleLayer:
             raise
         except Exception:
             logger.exception("middle layer upstream error thread=%s", self.thread_id)
+            self._upstream_error = True
             raise
         finally:
             await self._stop_upstream_send_pump()
@@ -972,13 +975,23 @@ class StreamMiddleLayer:
             logger.debug("LangGraph worker loop shutdown failed thread=%s", self.thread_id, exc_info=True)
         # R2-2: Persist completion status for frontend reconnection
         # This allows frontend to detect completed runs when returning from background
+        # 对齐 zcode：失败回合（上游异常 / 中间件登记的模型失败）落 failed，其余 success。
+        run_failed = self._upstream_error
+        try:
+            from evoflow.agents.middlewares.model_fallback_middleware import pop_model_error_turn
+
+            if pop_model_error_turn(self.thread_id):
+                run_failed = True
+        except Exception:
+            logger.debug("pop model error turn failed thread=%s", self.thread_id, exc_info=True)
         try:
             from evoflow.persistence.live_run_repositories import mark_run_completed
 
             mark_run_completed(
                 thread_id=self.thread_id,
                 run_id=self.run_id,
-                status="success",
+                # mark_run_completed 只认 success/error/cancelled → 失败用 "error"
+                status="error" if run_failed else "success",
             )
         except Exception:
             logger.debug("mark_run_completed failed thread=%s", self.thread_id, exc_info=True)
@@ -1001,7 +1014,8 @@ class StreamMiddleLayer:
                 session_key=self.session_key,
                 thread_id=self.thread_id,
                 source="middle_layer_finish",
-                reason="run_completed",
+                # 失败回合落 RUN_STATUS_FAIL（resolve_terminal_run_status 认 "error"）
+                reason="error" if run_failed else "run_completed",
             )
         except Exception:
             pass

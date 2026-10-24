@@ -16,6 +16,8 @@ export function mountAppStepTranscript(container) {
   const root = createRoot(host)
   /** @type {import('../react/components/AppStepTranscriptHost.tsx').AppStepTranscriptOpenRequest | null} */
   let request = null
+  /** @type {(() => void) | null} */
+  let onClosed = null
 
   function render() {
     root.render(
@@ -24,6 +26,11 @@ export function mountAppStepTranscript(container) {
         onClose: () => {
           request = null
           render()
+          try {
+            onClosed?.()
+          } catch {
+            /* ignore */
+          }
         },
       }),
     )
@@ -33,7 +40,7 @@ export function mountAppStepTranscript(container) {
 
   return {
     /**
-     * @param {import('../react/components/AppStepTranscriptHost.tsx').AppStepTranscriptOpenRequest} next
+     * @param {import('../react/components/AppStepTranscriptHost.tsx').AppStepTranscriptOpenRequest & { onClosed?: () => void }} next
      */
     open(next) {
       const mid = String(next?.mainTaskId || '').trim()
@@ -42,6 +49,7 @@ export function mountAppStepTranscript(container) {
       if (!mid || !sid) {
         throw new Error('缺少 task_id / subtask_id，无法打开节点会话')
       }
+      onClosed = typeof next.onClosed === 'function' ? next.onClosed : null
       request = {
         mainTaskId: mid,
         subtaskId: sid,
@@ -58,9 +66,18 @@ export function mountAppStepTranscript(container) {
       }
       render()
     },
+    /** @returns {boolean} */
+    isOpen() {
+      return !!(request?.mainTaskId && request?.subtaskId)
+    },
     close() {
       request = null
       render()
+      try {
+        onClosed?.()
+      } catch {
+        /* ignore */
+      }
     },
     destroy() {
       request = null

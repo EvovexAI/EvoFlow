@@ -29,6 +29,7 @@ export function resolveLiveStreamActivityForSession(
     activityKind: rt.activity.kind !== 'idle' ? rt.activity.kind : panel.activityKind,
     activityDetail: rt.activity.detail || panel.activityDetail,
     streamSystemActivity: streamTurn.systemActivity,
+    streamSystemActivityKind: streamTurn.systemActivityKind,
     elapsedSec,
     activeTurn: executing,
   })

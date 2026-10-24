@@ -8,6 +8,7 @@ import {
   type RightStageSurface,
 } from './right-stage-types.js'
 import { getCurrentRightStageSessionKey, resolveTabSessionKey, scopeOfKind } from './right-stage-scope.js'
+import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 
 export type RecentClosedRightStageTab = {
   /** 关闭前的 tab key（`${kind}:${id}`），用于 reopen。 */
@@ -155,15 +156,19 @@ export class RightStageStore {
     return {
       // workspace 级标签不参与会话冻结：它们由切会话时的 carry-over 传递，
       // 否则每个会话都存一份相同副本，40 条 LRU 很快被吃满。
+      // task-center:* 归属任务详情宿主，也不写入对话会话记忆，避免串台。
       tabs: this.tabs
         .filter((t) => scopeOfKind(t.kind) !== 'workspace')
+        .filter((t) => !isTaskCenterStageSessionKey(t.sessionKey))
         .map((t) => ({ ...t, data: { ...t.data } })),
       activeKey: this.activeKey,
       collapsed: this.collapsed,
-      recentClosed: this.recentClosed.map((e) => ({
-        ...e,
-        tab: { ...e.tab, data: { ...e.tab.data } },
-      })),
+      recentClosed: this.recentClosed
+        .filter((e) => !isTaskCenterStageSessionKey(e.tab?.sessionKey))
+        .map((e) => ({
+          ...e,
+          tab: { ...e.tab, data: { ...e.tab.data } },
+        })),
     }
   }
 

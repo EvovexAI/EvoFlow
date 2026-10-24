@@ -64,6 +64,7 @@ const FORCE_MOUNT_KINDS = new Set([
   'web-embed',
   'codeViewer',
   'subagentTranscript',
+  'collabSubtaskTranscript',
 ])
 
 export type RightStageLauncherItemId =

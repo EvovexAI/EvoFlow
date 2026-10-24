@@ -343,6 +343,12 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         const skipHeaderReplay = !isBackgroundThreadState && rtEvt.resumeCatchupReplay
         let panelActivityKind = activityKindRaw
         let panelActivityDetail = activityDetailRaw
+        // 限流/压缩等系统状态必须盖过工具预览，否则面板只显示工具卡、用户看不到「重试中」。
+        const stickySystemActivity =
+          activityKindRaw === 'retrying' ||
+          activityKindRaw === 'compacting' ||
+          activityKindRaw === 'model_fallback' ||
+          activityKindRaw === 'pre_model'
         if (
           !isBackgroundThreadState &&
           !skipHeaderReplay &&
@@ -351,7 +357,18 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           const runningDetail = formatActivityDetailFromRunningToolCalls(
             streamRef.current.turn.tools as unknown[],
           )
-          if (runningDetail) {
+          if (stickySystemActivity) {
+            panelActivityKind = activityKindRaw
+            panelActivityDetail =
+              activityDetailRaw ||
+              (activityKindRaw === 'retrying'
+                ? '系统重试中…'
+                : activityKindRaw === 'compacting'
+                  ? '正在压缩上下文…'
+                  : activityKindRaw === 'model_fallback'
+                    ? '已自动切换模型'
+                    : activityDetailRaw || '准备中…')
+          } else if (runningDetail) {
             panelActivityKind = 'tools'
             panelActivityDetail = runningDetail
           } else if (activityKindRaw === 'thinking') {
@@ -374,8 +391,6 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           !skipHeaderReplay &&
           panelActivityDetail &&
           panelActivityKind !== 'idle' &&
-          panelActivityKind !== 'compacting' &&
-          panelActivityKind !== 'retrying' &&
           turnBusyForSession(activeSk)
         ) {
           applyStreamTurnEvent(streamRef.current, {
@@ -385,7 +400,21 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                 ? panelActivityDetail
                 : panelActivityKind === 'thinking'
                   ? panelActivityDetail || getActivityHint('thinking') || '思考中… 🤔'
-                  : '',
+                  : panelActivityKind === 'retrying' ||
+                      panelActivityKind === 'compacting' ||
+                      panelActivityKind === 'model_fallback' ||
+                      panelActivityKind === 'pre_model'
+                    ? panelActivityDetail
+                    : '',
+            kind:
+              panelActivityKind === 'retrying' ||
+              panelActivityKind === 'compacting' ||
+              panelActivityKind === 'model_fallback' ||
+              panelActivityKind === 'pre_model' ||
+              panelActivityKind === 'tools' ||
+              panelActivityKind === 'thinking'
+                ? panelActivityKind
+                : undefined,
           })
           scheduleBump()
         } else if (
@@ -896,7 +925,64 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         const toolPreview = formatActivityDetailFromRunningToolCalls(S.turn.tools as unknown[])
         const payloadDetail = String((payload as { activityDetail?: string }).activityDetail || '').trim()
         const activityTs = Number((payload as { ts?: number }).ts) || Date.now()
-        if (toolPreview) {
+        // 限流重试/压缩等优先于工具预览，否则面板一直停在工具行，看不到「系统重试中」。
+        const stickySystemActivity =
+          activityKindRaw === 'retrying' ||
+          activityKindRaw === 'compacting' ||
+          activityKindRaw === 'model_fallback' ||
+          activityKindRaw === 'pre_model' ||
+          activityKindRaw === 'model'
+        if (stickySystemActivity && activityKindRaw === 'retrying') {
+          const detail = payloadDetail || '系统重试中…'
+          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'retrying', ts: activityTs })
+          if (!isBackground) {
+            setThreadPanelState((prev) => ({
+              ...prev,
+              activityKind: 'retrying',
+              activityDetail: detail,
+            }))
+          }
+        } else if (stickySystemActivity && activityKindRaw === 'compacting') {
+          const detail = payloadDetail || '正在压缩上下文…'
+          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'compacting', ts: activityTs })
+          if (!isBackground) {
+            setThreadPanelState((prev) => ({
+              ...prev,
+              activityKind: 'compacting',
+              activityDetail: detail,
+            }))
+          }
+        } else if (stickySystemActivity && activityKindRaw === 'model_fallback') {
+          const detail = payloadDetail || '已自动切换模型'
+          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'model_fallback', ts: activityTs })
+          if (!isBackground) {
+            setThreadPanelState((prev) => ({
+              ...prev,
+              activityKind: 'model_fallback',
+              activityDetail: detail,
+            }))
+          }
+        } else if (stickySystemActivity && activityKindRaw === 'pre_model') {
+          const detail = payloadDetail || '准备中…'
+          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'pre_model', ts: activityTs })
+          if (!isBackground) {
+            setThreadPanelState((prev) => ({
+              ...prev,
+              activityKind: 'pre_model',
+              activityDetail: detail,
+            }))
+          }
+        } else if (stickySystemActivity && activityKindRaw === 'model') {
+          const detail = payloadDetail || '生成中…'
+          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'model', ts: activityTs })
+          if (!isBackground) {
+            setThreadPanelState((prev) => ({
+              ...prev,
+              activityKind: 'model',
+              activityDetail: detail,
+            }))
+          }
+        } else if (toolPreview) {
           applyStreamTurnEvent(S, { type: 'system_activity', detail: toolPreview, kind: 'tools', ts: activityTs })
           if (!isBackground) {
             setThreadPanelState((prev) => ({
@@ -927,58 +1013,6 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               activityDetail: detail,
             }))
           }
-        } else if (activityKindRaw === 'pre_model') {
-          // before_model：尚未真正打模型 — 显示「准备中…」。「生成中…」仅在 kind=model。
-          const detail = payloadDetail || '准备中…'
-          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'pre_model', ts: activityTs })
-          if (!isBackground) {
-            setThreadPanelState((prev) => ({
-              ...prev,
-              activityKind: 'pre_model',
-              activityDetail: detail,
-            }))
-          }
-        } else if (activityKindRaw === 'model') {
-          // wrap_model_call：请求已打向厂商 — 才是「生成中…」
-          const detail = payloadDetail || '生成中…'
-          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'model', ts: activityTs })
-          if (!isBackground) {
-            setThreadPanelState((prev) => ({
-              ...prev,
-              activityKind: 'model',
-              activityDetail: detail,
-            }))
-          }
-        } else if (activityKindRaw === 'compacting') {
-          const detail = payloadDetail || '正在压缩上下文…'
-          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'compacting', ts: activityTs })
-          if (!isBackground) {
-            setThreadPanelState((prev) => ({
-              ...prev,
-              activityKind: 'compacting',
-              activityDetail: detail,
-            }))
-          }
-        } else if (activityKindRaw === 'retrying') {
-          const detail = payloadDetail || '系统重试中…'
-          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'retrying', ts: activityTs })
-          if (!isBackground) {
-            setThreadPanelState((prev) => ({
-              ...prev,
-              activityKind: 'retrying',
-              activityDetail: detail,
-            }))
-          }
-        } else if (activityKindRaw === 'model_fallback') {
-          const detail = payloadDetail || '已自动切换模型'
-          applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'model_fallback', ts: activityTs })
-          if (!isBackground) {
-            setThreadPanelState((prev) => ({
-              ...prev,
-              activityKind: 'model_fallback',
-              activityDetail: detail,
-            }))
-          }
         } else if (!payloadDetail) {
           return
         } else {
@@ -991,27 +1025,35 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             ts: activityTs,
           })
         }
-        const runtimeActivityKind = toolPreview
-          ? 'tools'
-          : rowHasPendingApprovalTools(S.turn.tools as unknown[])
-            ? 'tool_approval'
-            : activityKindRaw === 'thinking' || payloadDetail === '推理中'
-              ? 'thinking'
-              : activityKindRaw === 'pre_model'
-                ? 'pre_model'
+        const runtimeActivityKind = stickySystemActivity
+          ? activityKindRaw
+          : toolPreview
+            ? 'tools'
+            : rowHasPendingApprovalTools(S.turn.tools as unknown[])
+              ? 'tool_approval'
+              : activityKindRaw === 'thinking' || payloadDetail === '推理中'
+                ? 'thinking'
+                : activityKindRaw || 'system'
+        const runtimeActivityDetail = stickySystemActivity
+          ? payloadDetail ||
+            (activityKindRaw === 'pre_model'
+              ? '准备中…'
+              : activityKindRaw === 'model'
+                ? '生成中…'
                 : activityKindRaw === 'retrying'
-                  ? 'retrying'
-                  : activityKindRaw === 'model_fallback'
-                    ? 'model_fallback'
-                    : activityKindRaw || 'system'
-        const runtimeActivityDetail =
-          toolPreview
-            || (rowHasPendingApprovalTools(S.turn.tools as unknown[]) ? '等待工具授权…' : '')
-            || payloadDetail
-            || (activityKindRaw === 'pre_model' ? '准备中…' : '')
-            || (activityKindRaw === 'model' ? '生成中…' : '')
-            || (activityKindRaw === 'retrying' ? '系统重试中…' : '')
-            || (activityKindRaw === 'model_fallback' ? '已自动切换模型' : '')
+                  ? '系统重试中…'
+                  : activityKindRaw === 'compacting'
+                    ? '正在压缩上下文…'
+                    : activityKindRaw === 'model_fallback'
+                      ? '已自动切换模型'
+                      : '')
+          : toolPreview ||
+            (rowHasPendingApprovalTools(S.turn.tools as unknown[]) ? '等待工具授权…' : '') ||
+            payloadDetail ||
+            (activityKindRaw === 'pre_model' ? '准备中…' : '') ||
+            (activityKindRaw === 'model' ? '生成中…' : '') ||
+            (activityKindRaw === 'retrying' ? '系统重试中…' : '') ||
+            (activityKindRaw === 'model_fallback' ? '已自动切换模型' : '')
         if (runtimeActivityDetail || runtimeActivityKind !== 'idle') {
           setSessionActivity(targetSk, runtimeActivityKind, runtimeActivityDetail)
         }

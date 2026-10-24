@@ -732,7 +732,16 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               !threadPanelState.collabTask?.executionAuthorized
             }
             subtaskTranscriptModal={subtaskTranscriptModal}
-            onSubtaskTranscriptModalChange={setSubtaskTranscriptModal}
+            onSubtaskTranscriptModalChange={(next) => {
+              if (!next) {
+                setSubtaskTranscriptModal(null)
+                return
+              }
+              // 侧栏点节点：与工作流画布同口径 → V4 右侧独立进度 tab
+              void import('../../../lib/right-stage/open-collab-subtask-stage.js').then((m) => {
+                m.openCollabSubtaskInRightStage(next, { sessionKey: selectedSessionKey })
+              })
+            }}
             onOpenMessageFile={openMessageFilePreview}
             sessionStreamConnected={streamHealth !== 'disconnected'}
             onSubmitClarification={handleSubmitClarification}

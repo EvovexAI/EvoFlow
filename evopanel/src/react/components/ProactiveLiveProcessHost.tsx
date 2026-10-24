@@ -13,6 +13,10 @@ export type ProactiveLiveProcessHostProps = {
   roundId?: string
   taskId?: string
   pollMs?: number
+  /** 与主对话子任务同款：默认居中弹窗；任务中心节点用侧栏 drawer */
+  mode?: 'modal' | 'drawer'
+  /** drawer 模式下挂到指定容器（任务详情右侧槽） */
+  portalTarget?: HTMLElement | null
   onClose: () => void
 }
 
@@ -37,8 +41,8 @@ function rowsToPlainText(rows: any[]): string {
 }
 
 /**
- * 智能体员工 / 任务「执行过程」：与主对话子任务/自代理同款居中历史弹窗（SubtaskExecutionDrawer）。
- * 不再使用 rowTimeLeft 轨迹布局，避免每个工具返回单独显示时间。
+ * 智能体员工 / 任务节点进度：与主对话子任务同款历史面板（SubtaskExecutionDrawer）。
+ * 任务中心点节点时用 drawer 侧栏；其它入口可仍用居中 modal。
  */
 export function ProactiveLiveProcessHost({
   open,
@@ -49,6 +53,8 @@ export function ProactiveLiveProcessHost({
   roundId,
   taskId = '',
   pollMs = 1400,
+  mode = 'modal',
+  portalTarget = null,
   onClose,
 }: ProactiveLiveProcessHostProps) {
   const [rows, setRows] = useState<any[]>([])
@@ -147,7 +153,7 @@ export function ProactiveLiveProcessHost({
   }, [rows, loading, fetchError])
 
   const summaryAgent = String(resolvedRoleName || roleName || code).trim()
-  const shortTitle = String(title || '').trim() || (busy ? '执行过程 · 进行中' : '执行过程')
+  const shortTitle = String(title || '').trim() || (busy ? '任务进度 · 进行中' : '任务进度')
   const statusLabel = busy
     ? '执行中'
     : loading
@@ -160,13 +166,15 @@ export function ProactiveLiveProcessHost({
     : displayRows.length
       ? 'react-chat-subtask-status-light--ok'
       : 'react-chat-subtask-status-light--muted'
+  const drawerMode = mode === 'drawer' ? 'drawer' : 'modal'
 
   if (!open || !code) return null
 
   return (
     <SubtaskExecutionDrawer
       open
-      mode="modal"
+      mode={drawerMode}
+      portalTarget={drawerMode === 'drawer' ? portalTarget : null}
       subtaskId={String(tid || rid || code)}
       sessionKey={sessionKey}
       statusClass={statusClass}

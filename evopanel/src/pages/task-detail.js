@@ -160,7 +160,7 @@ export function createTaskDetailView(taskId, opts = {}) {
 
   // 整页不展示主控对话（内容在主对话里）；应用内嵌调试保留折叠面板
   const conversationHtml = isEmbed ? `
-    <div class="task-detail-content task-detail-content--single is-conversation-collapsed" id="task-conversation-section" data-td-panel="logs">
+    <div class="task-detail-content task-detail-content--single is-conversation-collapsed" id="task-conversation-section">
       <div class="task-output-panel task-output-panel--primary">
         <div class="output-header">
           <button type="button" class="task-conv-toggle" id="btn-toggle-conversation" aria-expanded="false">
@@ -214,31 +214,27 @@ export function createTaskDetailView(taskId, opts = {}) {
         <div class="td-progress-sub" id="task-progress-sub" hidden></div>
       </div>
 
-      <nav class="td-section-tabs" id="td-section-tabs" aria-label="详情分区">
-        <button type="button" class="td-section-tab is-active" data-td-tab="overview">概览</button>
-        <button type="button" class="td-section-tab" data-td-tab="logs">执行过程</button>
-      </nav>
-
-      <div class="td-layout">
+      <div class="td-layout" id="td-layout">
         <main class="td-main">
-          <section class="task-decision-panel" id="task-decision-panel" hidden aria-label="待你处理" data-td-panel="overview"></section>
-          <section class="td-card" id="task-brief-panel" hidden aria-label="简要说明" data-td-panel="overview"></section>
-          <section class="td-exec-timeline" id="task-exec-timeline" hidden aria-label="执行步骤" data-td-panel="overview logs"></section>
-          <section class="td-result" id="task-outcome-panel" hidden aria-label="任务结果" data-td-panel="overview"></section>
-          <section class="task-obs-panel" id="task-obs-panel" hidden aria-label="执行过程" data-td-panel="logs">
+          <section class="task-decision-panel" id="task-decision-panel" hidden aria-label="待你处理"></section>
+          <section class="td-card" id="task-brief-panel" hidden aria-label="简要说明"></section>
+          <section class="td-exec-timeline" id="task-exec-timeline" hidden aria-label="执行步骤"></section>
+          <section class="td-result" id="task-outcome-panel" hidden aria-label="任务结果"></section>
+          <section class="task-obs-panel" id="task-obs-panel" hidden aria-label="任务节点">
             <header class="task-obs-panel-header">
-              <h2 class="task-obs-panel-title" id="task-obs-panel-title">执行过程</h2>
+              <h2 class="task-obs-panel-title" id="task-obs-panel-title">任务节点</h2>
               <span class="task-obs-panel-count" id="task-obs-panel-count"></span>
             </header>
             <div class="task-obs-panel-body" id="task-obs-strip"></div>
           </section>
           ${conversationHtml}
         </main>
-        <aside class="td-aside" data-td-panel="overview">
+        <aside class="td-aside">
           <section class="td-aside-card" id="task-info"></section>
           <section class="td-aside-card td-aside-card--meta" id="task-meta" hidden></section>
           <div class="task-detail-app-provenance" id="task-app-provenance" hidden></div>
         </aside>
+        <div class="td-right-stage-slot" id="td-right-stage-slot" aria-label="任务侧栏"></div>
       </div>
     </div>
     <div id="task-plan-modal-host" hidden aria-hidden="true"></div>
@@ -263,6 +259,8 @@ export function createTaskDetailView(taskId, opts = {}) {
     detailTab: 'overview',
     /** @type {ReturnType<typeof import('../components/proactive-live-process.js').mountProactiveLiveProcess> | null} */
     workProcessLive: null,
+    /** @type {ReturnType<typeof import('../components/task-detail-right-stage.js').mountTaskDetailRightStage> | null} */
+    rightStageHost: null,
   }
 
   page.querySelector('#btn-back').addEventListener('click', () => {
@@ -281,22 +279,25 @@ export function createTaskDetailView(taskId, opts = {}) {
     void handleCancelTaskFromDetail(page, state)
   })
 
-  page.querySelector('#td-section-tabs')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-td-tab]')
-    if (!btn) return
-    const next = btn.dataset.tdTab || 'overview'
-    // 员工任务：点「执行过程」直接弹窗，不再切到整页日志区
-    if (next === 'logs' && canOpenTaskWorkProcessPopup(state.task)) {
+  const onObsActivate = (e) => {
+    const roleNode = e.target.closest('[data-act="open-task-process"]')
+    if (roleNode) {
       void openTaskWorkProcessPopup(page, state)
       return
     }
-    state.detailTab = next
-    applyDetailTab(page, state)
-  })
-
-  page.querySelector('#task-obs-strip')?.addEventListener('click', (e) => {
-    if (!e.target.closest('[data-act="open-work-process"]')) return
-    void openTaskWorkProcessPopup(page, state)
+    const row = e.target.closest('[data-subtask-id]')
+    if (!row) return
+    const sid = row.getAttribute('data-subtask-id')
+    if (sid) void showSubtaskDetail(page, state, sid)
+  }
+  const obsStrip = page.querySelector('#task-obs-strip')
+  obsStrip?.addEventListener('click', onObsActivate)
+  obsStrip?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const row = e.target.closest('[data-subtask-id].is-clickable')
+    if (!row) return
+    e.preventDefault()
+    onObsActivate(e)
   })
 
   page.querySelector('#btn-refresh').addEventListener('click', async () => {
@@ -415,6 +416,22 @@ export function createTaskDetailView(taskId, opts = {}) {
     })
   }
 
+  void (async () => {
+    try {
+      const { mountTaskDetailRightStage } = await import('../components/task-detail-right-stage.js')
+      const slot = page.querySelector('#td-right-stage-slot')
+      if (slot) {
+        state.rightStageHost = mountTaskDetailRightStage(slot, {
+          taskId,
+          threadId: '',
+          agents: state.agents || [],
+        })
+      }
+    } catch (e) {
+      console.warn('[task-detail] mount right stage failed', e)
+    }
+  })()
+
   void loadTaskDetail(page, state).catch((e) => {
     logTaskDetail('initialLoad:error', { taskId, error: String(e) })
   })
@@ -439,6 +456,14 @@ export function createTaskDetailView(taskId, opts = {}) {
         /* ignore */
       }
       state.workProcessLive = null
+    }
+    if (state.rightStageHost) {
+      try {
+        state.rightStageHost.destroy()
+      } catch {
+        /* ignore */
+      }
+      state.rightStageHost = null
     }
   }
 
@@ -985,7 +1010,7 @@ function renderTaskDecisionPanel(page, state) {
       void handleRestartTask(page, state)
     })
     el.querySelector('#btn-view-workflow-fail')?.addEventListener('click', () => {
-      window.location.hash = `#/workflow/${state.taskId}`
+      void openTaskCenterWorkflowStage(page, state)
     })
     return
   }
@@ -1161,29 +1186,12 @@ async function handleDeleteTaskFromDetail(page, state) {
 }
 
 function applyDetailTab(page, state) {
-  let tab = state.detailTab || 'overview'
-  // 旧 Tab 兼容：步骤→日志；产出/变更/配置并回概览
-  if (tab === 'steps') tab = 'logs'
-  if (tab === 'outputs' || tab === 'changelog' || tab === 'config') tab = 'overview'
-  if (!['overview', 'logs'].includes(tab)) tab = 'overview'
-  // 员工任务不切到日志页，一律弹窗看执行过程
-  if (tab === 'logs' && canOpenTaskWorkProcessPopup(state.task)) {
-    tab = 'overview'
-    state.detailTab = 'overview'
-    // 仅在用户主动点 Tab 时弹窗；避免轮询/刷新反复打开
-  }
-  state.detailTab = tab
-  page.dataset.tdTab = tab
-  page.classList.toggle('td-tab--logs', tab === 'logs')
-  page.classList.toggle('td-tab--overview', tab === 'overview')
-  page.classList.remove('td-tab--config')
-  page.querySelectorAll('#td-section-tabs [data-td-tab]').forEach((btn) => {
-    btn.classList.toggle('is-active', btn.dataset.tdTab === tab)
-  })
-  page.querySelectorAll('[data-td-panel]').forEach((el) => {
-    const panels = String(el.dataset.tdPanel || '').split(/\s+/).filter(Boolean)
-    el.classList.toggle('td-tab-hidden', !panels.includes(tab))
-  })
+  // 已去掉「执行过程」Tab：详情只保留单页概览；点节点进工作流页右侧独立进度区
+  state.detailTab = 'overview'
+  page.dataset.tdTab = 'overview'
+  page.classList.remove('td-tab--logs', 'td-tab--config')
+  page.classList.add('td-tab--overview')
+  page.querySelectorAll('.td-tab-hidden').forEach((el) => el.classList.remove('td-tab-hidden'))
 }
 
 function renderExecTimeline(page, state) {
@@ -1558,6 +1566,12 @@ async function loadTaskDetail(page, state) {
     renderTaskObsSubtasks(page, state)
     renderTaskOutcomePanel(page, state)
     renderTaskDecisionPanel(page, state)
+    state.rightStageHost?.update?.({
+      taskId: state.taskId,
+      threadId: String(task?.thread_id || state.currentThreadId || '').trim(),
+      agents: state.agentCatalog || state.agents || [],
+      bump: true,
+    })
 
     // 加载执行历史；主控对话仅内嵌调试展开时加载
     await loadExecutionHistory(page, state)
@@ -1643,6 +1657,25 @@ function setupOutputPolling(page, state) {
       renderTaskObsSubtasks(page, state)
       renderTaskOutcomePanel(page, state)
       renderTaskDecisionPanel(page, state)
+      state.rightStageHost?.update?.({
+        taskId: state.taskId,
+        threadId: String(t?.thread_id || state.currentThreadId || '').trim(),
+        agents: state.agentCatalog || state.agents || [],
+        bump: true,
+      })
+      if (state.workProcessLive?.isOpen?.()) {
+        const busy = toTaskStatusGroup(t.status) === 'executing'
+        try {
+          state.workProcessLive.setBusy?.(busy)
+          state.workProcessLive.update?.({
+            busy,
+            roundId: String(t?.round_id || t?.source_ref || '').trim() || null,
+            taskId: state.taskId,
+          })
+        } catch {
+          /* ignore */
+        }
+      }
       if (shouldLoadConversation(state)) {
         await loadTaskConversation(page, state)
       }
@@ -2548,15 +2581,15 @@ function renderTaskObservabilityMeta(el, obs) {
   el.innerHTML = `<h3 class="td-aside-title">运行观测</h3><div class="td-aside-chips">${chips.join('')}</div>`
 }
 
-function canOpenTaskWorkProcessPopup(task) {
-  return Boolean(String(task?.assigned_to || '').trim())
-}
-
+/**
+ * 员工整单节点：打开与主对话同款历史面板（居中浮层，不嵌在详情页里）。
+ * 有子节点时走工作流页右侧独立区域，不走这里。
+ */
 async function openTaskWorkProcessPopup(page, state) {
   const task = state.task
   const agentCode = String(task?.assigned_to || '').trim()
   if (!agentCode) {
-    toast('该任务没有关联员工，无法打开执行过程', 'warning')
+    toast('该任务没有关联员工，无法查看进度', 'warning')
     return false
   }
   if (!state.workProcessLive) {
@@ -2570,10 +2603,11 @@ async function openTaskWorkProcessPopup(page, state) {
     agentCode,
     roleName: resolveDetailRoleLabel(task, state),
     busy,
-    title: taskName || '执行过程',
+    title: taskName || '任务进度',
     roundId,
     taskId: state.taskId,
     pollMs: busy ? 1000 : 4000,
+    mode: 'modal',
   })
   return true
 }
@@ -2592,24 +2626,34 @@ async function renderRoleWorkProcessInline(page, state) {
     return
   }
 
-  if (titleEl) titleEl.textContent = '执行过程'
-  if (countEl) countEl.textContent = ''
+  if (titleEl) titleEl.textContent = '任务节点'
+  if (countEl) countEl.textContent = '1'
   if (panel) panel.hidden = false
 
-  if (!state.workProcessLive) {
-    const { mountProactiveLiveProcess } = await import('../components/proactive-live-process.js')
-    state.workProcessLive = mountProactiveLiveProcess(page)
-  }
+  const name = String(task?.name || task?.title || '当前任务').trim() || '当前任务'
+  const status = String(task?.status || '').trim()
+  const g = toTaskStatusGroup(status)
+  const statusZh = formatTaskStatusZh(status, { fallback: '—' })
+  const liveStep = (g === 'executing' || g === 'planning') ? taskLiveStepText(task) : ''
+  const roleLabel = resolveDetailRoleLabel(task, state)
+  const metaBits = [statusZh, roleLabel].filter(Boolean)
 
-  // 员工任务统一走 SubtaskExecutionDrawer 弹窗，不再内嵌「上班轨迹」事件列表
   strip.innerHTML = `
-    <div class="td-logs-empty">
-      <p class="td-logs-empty-lead">与主对话子任务弹窗同款，按轮次展示工具调用与模型回复。</p>
-      <p class="td-logs-empty-sub">点上方「执行过程」Tab 或下方按钮打开。</p>
-      <div class="td-logs-empty-actions">
-        <button type="button" class="btn btn-sm btn-primary" data-act="open-work-process">查看执行过程</button>
-      </div>
-    </div>`
+    <ol class="td-flow-tree" role="list">
+      <li class="td-flow-item">
+        <button type="button" class="td-flow-node is-${escapeHtml(g)}${liveStep ? ' is-live' : ''}"
+          data-act="open-task-process"
+          title="${escapeHtml(liveStep ? `${name}\n${liveStep}` : `${name} · 查看进度`)}">
+          <span class="td-flow-rail" aria-hidden="true"><span class="td-flow-dot"></span></span>
+          <span class="td-flow-body">
+            <span class="td-flow-name">${escapeHtml(name)}</span>
+            ${liveStep ? `<span class="td-flow-step">${escapeHtml(liveStep)}</span>` : ''}
+            <span class="td-flow-meta">${escapeHtml(metaBits.join(' · '))}</span>
+          </span>
+          <span class="td-flow-go" aria-hidden="true">›</span>
+        </button>
+      </li>
+    </ol>`
 }
 
 function renderTaskLogsFallback(page, state) {
@@ -2619,22 +2663,14 @@ function renderTaskLogsFallback(page, state) {
   const countEl = page.querySelector('#task-obs-panel-count')
   if (!strip) return
 
-  if (state.workProcessLive?.isOpen?.()) {
-    try {
-      state.workProcessLive.close()
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (titleEl) titleEl.textContent = '执行过程'
+  if (titleEl) titleEl.textContent = '任务节点'
   if (countEl) countEl.textContent = ''
   if (panel) panel.hidden = false
 
   strip.innerHTML = `
     <div class="td-logs-empty">
-      <p class="td-logs-empty-lead">暂无子任务执行记录。</p>
-      <p class="td-logs-empty-sub">任务拆成多个步骤后，会在这里显示进度、执行者与模型/工具调用统计。</p>
+      <p class="td-logs-empty-lead">暂无任务节点</p>
+      <p class="td-logs-empty-sub">拆解出步骤后会显示在这里，点击可在对话右侧查看工作流与节点进度。</p>
     </div>`
 }
 
@@ -2648,34 +2684,23 @@ function renderTaskObsSubtasks(page, state) {
   const task = state.task
   const agentCode = String(task?.assigned_to || '').trim()
   const isRole = normalizeTaskSource(task?.source) === 'role' && !!agentCode
-  // 员工任务：直接复用上班轨迹，不再空提示跳转
-  if (isRole) {
+  const subtasks = Array.isArray(state.subtasks) ? state.subtasks : []
+
+  // 员工任务且尚无子节点：整单作为一个可点节点，打开侧栏进度
+  if (isRole && !subtasks.length) {
     void renderRoleWorkProcessInline(page, state)
     return
   }
 
-  // 非员工任务：关闭可能残留的员工执行过程弹窗
-  if (state.workProcessLive?.isOpen?.()) {
-    try {
-      state.workProcessLive.close()
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const subtasks = Array.isArray(state.subtasks) ? state.subtasks : []
-  const workflow = isWorkflowAppTask(state.task)
   if (!subtasks.length) {
     renderTaskLogsFallback(page, state)
     return
   }
 
   const { completedCount } = taskProgressMeta(state.task, subtasks)
-  if (titleEl) titleEl.textContent = workflow ? '执行过程' : '子任务进度'
+  if (titleEl) titleEl.textContent = '任务节点'
   if (countEl) {
-    countEl.textContent = workflow
-      ? `${completedCount} / ${subtasks.length} 个节点`
-      : `${completedCount}/${subtasks.length} 完成`
+    countEl.textContent = `${completedCount}/${subtasks.length}`
   }
 
   const obs = state.observability
@@ -2687,82 +2712,7 @@ function renderTaskObsSubtasks(page, state) {
     }
   }
 
-  if (workflow) {
-    strip.innerHTML = renderWorkflowExecTreeHtml(subtasks, state, obsById)
-    if (panel) panel.hidden = false
-    strip.querySelectorAll('[data-subtask-id]').forEach((row) => {
-      row.addEventListener('click', () => {
-        const sid = row.getAttribute('data-subtask-id')
-        if (sid) showSubtaskDetail(page, state, sid)
-      })
-    })
-    return
-  }
-
-  const rowsHtml = subtasks.map((sub) => {
-    const sid = String(sub?.id || '').trim()
-    const name = String(sub?.name || sid || '子任务')
-    const status = String(sub?.status || '').trim()
-    const statusZh = formatTaskStatusZh(status, { fallback: '—' })
-    const statusClass = taskStatusTagClass(status)
-    const prog = Math.max(0, Math.min(100, parseInt(sub?.progress, 10) || 0))
-    const assignee = String(sub?.assigned_to || '').trim()
-    const assigneeLabel = assignee
-      ? (resolveAssignedAgentDisplayName(assignee, state.agentCatalog || state.agents || []) || assignee)
-      : ''
-    const metrics = obsById.get(sid) || null
-    const modelN = Number(metrics?.model_invocations) || 0
-    const toolN = Number(metrics?.tool_invocations) || 0
-    const tok = metrics?.tokens && typeof metrics.tokens === 'object' ? metrics.tokens : {}
-    const inTok = Number(tok.input) || 0
-    const outTok = Number(tok.output) || 0
-    const durMs = Number(metrics?.duration_ms)
-    const durText = Number.isFinite(durMs) && durMs > 0
-      ? `${formatDurationMs(durMs)}${metrics?.duration_running ? '+' : ''}`
-      : '—'
-    const tokenText = inTok > 0 || outTok > 0
-      ? `↓${formatCompactNum(inTok)} ↑${formatCompactNum(outTok)}`
-      : '—'
-    const hasMetrics = !!(metrics && (modelN || toolN || inTok || outTok || (Number.isFinite(durMs) && durMs > 0)))
-    const liveStep = (toUnifiedTaskStatus(status) === 'running' || toUnifiedTaskStatus(status) === 'planning')
-      ? taskLiveStepText(sub)
-      : ''
-
-    return `
-      <tr class="task-obs-table-row${hasMetrics ? '' : ' is-empty'}${liveStep ? ' is-live' : ''}" data-subtask-id="${escapeHtml(sid)}">
-        <td class="task-obs-table-name" title="${escapeHtml(liveStep || name)}">
-          ${escapeHtml(name)}
-          ${liveStep ? `<div class="task-obs-table-live">${escapeHtml(liveStep)}</div>` : ''}
-        </td>
-        <td class="task-obs-table-status"><span class="tag ${statusClass}" title="状态：${escapeHtml(statusZh)}">${escapeHtml(statusZh)}</span></td>
-        <td class="task-obs-table-num">${prog > 0 ? `${prog}%` : '—'}</td>
-        <td class="task-obs-table-agent" title="${escapeHtml(assigneeLabel)}">${assigneeLabel ? escapeHtml(assigneeLabel) : '—'}</td>
-        <td class="task-obs-table-num">${durText}</td>
-        <td class="task-obs-table-num">${modelN > 0 ? modelN : '—'}</td>
-        <td class="task-obs-table-num">${toolN > 0 ? toolN : '—'}</td>
-        <td class="task-obs-table-tokens">${tokenText}</td>
-      </tr>`
-  }).join('')
-
-  strip.innerHTML = `
-    <div class="task-obs-table-wrap">
-      <table class="task-obs-table">
-        <thead>
-          <tr>
-            <th>子任务</th>
-            <th>状态</th>
-            <th>进度</th>
-            <th>执行者</th>
-            <th title="子任务开始至结束的 wall-clock 耗时">耗时</th>
-            <th title="该子任务调用大模型 API 的次数">模型</th>
-            <th title="该子任务调用工具的次数">工具</th>
-            <th title="输入 ↓ / 输出 ↑ Token 用量">Token</th>
-          </tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>`
-
+  strip.innerHTML = renderWorkflowExecTreeHtml(subtasks, state, obsById)
   if (panel) panel.hidden = false
 }
 
@@ -2818,8 +2768,6 @@ function renderWorkflowExecTreeHtml(subtasks, state, obsById) {
     const status = String(sub?.status || '').trim()
     const statusZh = formatTaskStatusZh(status, { fallback: '—' })
     const g = toTaskStatusGroup(status)
-    const glyph = g === 'completed' || g === 'reviewed' ? '✓'
-      : (g === 'failed' ? '!' : (g === 'executing' || g === 'planning' ? '●' : '○'))
     const assignee = String(sub?.assigned_to || '').trim()
     const assigneeLabel = assignee
       ? (resolveAssignedAgentDisplayName(assignee, state.agentCatalog || state.agents || []) || assignee)
@@ -2834,19 +2782,22 @@ function renderWorkflowExecTreeHtml(subtasks, state, obsById) {
     const isParallel = group.length > 1
     const liveStep = (g === 'executing' || g === 'planning') ? taskLiveStepText(sub) : ''
     return `
-      <button type="button" class="td-flow-node is-${escapeHtml(g)}${isParallel ? ' is-parallel' : ''}${liveStep ? ' is-live' : ''}"
-        data-subtask-id="${escapeHtml(sid)}" style="--flow-depth:${depth}"
-        title="${escapeHtml(liveStep ? `${name}\n${liveStep}` : name)}">
-        <span class="td-flow-glyph" aria-hidden="true">${glyph}</span>
-        <span class="td-flow-body">
-          <span class="td-flow-name">${escapeHtml(name)}</span>
-          ${liveStep ? `<span class="td-flow-step">${escapeHtml(liveStep)}</span>` : ''}
-          <span class="td-flow-meta">${escapeHtml(metaBits.join(' · '))}</span>
-        </span>
-      </button>`
+      <li class="td-flow-item" style="--flow-depth:${depth}">
+        <button type="button" class="td-flow-node is-${escapeHtml(g)}${isParallel ? ' is-parallel' : ''}${liveStep ? ' is-live' : ''}"
+          data-subtask-id="${escapeHtml(sid)}"
+          title="${escapeHtml(liveStep ? `${name}\n${liveStep}` : `${name} · 查看进度`)}">
+          <span class="td-flow-rail" aria-hidden="true"><span class="td-flow-dot"></span></span>
+          <span class="td-flow-body">
+            <span class="td-flow-name">${escapeHtml(name)}</span>
+            ${liveStep ? `<span class="td-flow-step">${escapeHtml(liveStep)}</span>` : ''}
+            <span class="td-flow-meta">${escapeHtml(metaBits.join(' · '))}</span>
+          </span>
+          <span class="td-flow-go" aria-hidden="true">›</span>
+        </button>
+      </li>`
   }).join('')
 
-  return `<div class="td-flow-tree" role="list">${items}</div>`
+  return `<ol class="td-flow-tree" role="list">${items}</ol>`
 }
 
 /* Supervisor 面板已隐藏
@@ -3279,11 +3230,77 @@ async function showTaskPlanModal(page, state) {
   }
 }
 
+/** 仅打开任务中心侧栏「工作流」tab（不跳 #/workflow / #/chat） */
+async function openTaskCenterWorkflowStage(page, state) {
+  const tid = String(state.taskId || '').trim()
+  if (!tid) return
+  const task = state.task || {}
+  const threadId = String(task.thread_id || state.currentThreadId || '').trim()
+  try {
+    const { taskCenterStageSessionKey } = await import('../lib/right-stage/task-center-stage-key.js')
+    const { rightStageStore } = await import('../lib/right-stage/right-stage-store.js')
+    const stageSk = taskCenterStageSessionKey(tid)
+    state.rightStageHost?.update?.({
+      taskId: tid,
+      threadId,
+      agents: state.agentCatalog || state.agents || [],
+    })
+    rightStageStore.show({
+      kind: 'collab-workflow',
+      id: `workflow:${tid}`,
+      title: '工作流',
+      layout: 'half',
+      sessionKey: stageSk,
+      data: { mainTaskId: tid, leadThreadId: threadId },
+    })
+    page.classList.add('td-with-right-stage')
+  } catch (e) {
+    console.warn('[task-detail] open workflow stage failed', e)
+    toast('无法打开工作流面板', 'error')
+  }
+}
+
+/**
+ * 点击任务节点 → 留在任务中心，打开本页 V4 右侧面板：
+ * 1) collab-workflow（工作流图）
+ * 2) collabSubtaskTranscript（该节点独立进度 tab）
+ * 归属 task-center:{taskId}，不跳会话、不串对话侧栏。
+ */
 async function showSubtaskDetail(page, state, subtaskId) {
   const sid = String(subtaskId || '').trim()
   const tid = String(state.taskId || '').trim()
   if (!sid || !tid) return
-  window.location.hash = `#/workflow/${encodeURIComponent(tid)}?subtask=${encodeURIComponent(sid)}`
+
+  const task = state.task || {}
+  const sub = (state.subtasks || []).find((s) => String(s?.id || '') === sid) || null
+  const threadId = String(task.thread_id || state.currentThreadId || '').trim()
+  const title = String(sub?.name || sid).trim() || sid
+  const status = String(sub?.status || '').trim()
+  const assignedAgent = String(sub?.assigned_to || '').trim()
+
+  try {
+    const { openCollabSubtaskInRightStage } = await import(
+      '../lib/right-stage/open-collab-subtask-stage.js'
+    )
+    const { taskCenterStageSessionKey } = await import('../lib/right-stage/task-center-stage-key.js')
+    const stageSk = taskCenterStageSessionKey(tid)
+
+    await openTaskCenterWorkflowStage(page, state)
+    openCollabSubtaskInRightStage(
+      {
+        subtaskId: sid,
+        mainTaskId: tid,
+        leadThreadId: threadId,
+        title,
+        status,
+        assignedAgent,
+      },
+      { sessionKey: stageSk },
+    )
+  } catch (e) {
+    console.warn('[task-detail] open task-center right stage failed', e)
+    toast('无法打开节点进度面板', 'error')
+  }
 }
 
 /** 上游依赖名称（不含标题）：depends_on + dependencies 去重后解析为子任务名称，顿号分隔 */

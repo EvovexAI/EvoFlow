@@ -220,11 +220,13 @@ def classify(exception: Exception, context: dict | None = None) -> Classificatio
         )
 
     # ── Rate limit ───────────────────────────────────────────────────
+    # 限流只退避重试，不轮换凭证、不切模型（同账号换 key 通常仍 429）。
     if status_code == 429 or _matches(error_lower, _RATE_LIMIT_PATTERNS):
         return Classification(
             reason=FailoverReason.RATE_LIMIT,
             retryable=True,
-            should_rotate_credential=True,
+            should_rotate_credential=False,
+            should_fallback_provider=False,
             message=f"Rate limited: {error_msg[:200]}",
         )
 

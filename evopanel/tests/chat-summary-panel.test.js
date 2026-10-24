@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   buildProcessItems,
   buildProcessSummary,
+  buildVisibleSummaryPanelTabs,
+  detectSummaryActivityJump,
   PROCESS_STATE_LABEL,
+  resolveEffectiveSummaryPanelTab,
 } from '../src/react/lib/chat-summary-panel-model.ts'
 import {
   DEFAULT_CHAT_SUMMARY_SECTIONS,
@@ -221,5 +224,73 @@ describe('进程聚合', () => {
     for (const k of ['running', 'completed', 'failed', 'cancelled', 'pending']) {
       expect(PROCESS_STATE_LABEL[k]).toBeTruthy()
     }
+  })
+})
+
+describe('状态面板可见 tab / 活动跳转', () => {
+  it('空会话只挂智能体，不挂空的进程/产物/平台', () => {
+    expect(
+      buildVisibleSummaryPanelTabs({
+        processCount: 0,
+        artifactCount: 0,
+        platformCount: 0,
+      }).map((t) => t.id),
+    ).toEqual(['agent'])
+  })
+
+  it('有内容才出现对应 tab，并带计数', () => {
+    const tabs = buildVisibleSummaryPanelTabs({
+      processCount: 2,
+      artifactCount: 1,
+      platformCount: 3,
+      withCount: (n, label) => `${label} ${n}`,
+    })
+    expect(tabs.map((t) => t.id)).toEqual(['agent', 'process', 'artifacts', 'platform'])
+    expect(tabs.find((t) => t.id === 'platform')?.label).toBe('平台 3')
+  })
+
+  it('不可见 tab 回落到智能体', () => {
+    expect(resolveEffectiveSummaryPanelTab('platform', ['agent', 'process'])).toBe('agent')
+    expect(resolveEffectiveSummaryPanelTab('process', ['agent', 'process'])).toBe('process')
+  })
+
+  it('新平台 focus 跳到平台；随后产物 focus 抢最新', () => {
+    const a = detectSummaryActivityJump({
+      prev: { platformFocus: '', artifactFocus: '', processRunning: 0 },
+      platformFocusId: 'p1',
+      artifactFocusId: '',
+      processRunning: 0,
+    })
+    expect(a.tab).toBe('platform')
+
+    const b = detectSummaryActivityJump({
+      prev: a.nextPrev,
+      platformFocusId: 'p1',
+      artifactFocusId: 'a1',
+      processRunning: 0,
+    })
+    expect(b.tab).toBe('artifacts')
+  })
+
+  it('进程 0→>0 与同帧其它信号并存时优先进程', () => {
+    const r = detectSummaryActivityJump({
+      prev: { platformFocus: '', artifactFocus: '', processRunning: 0 },
+      platformFocusId: 'p1',
+      artifactFocusId: 'a1',
+      processRunning: 1,
+    })
+    expect(r.tab).toBe('process')
+  })
+
+  it('空 focus 只更新 prev、不跳转（切会话清 focus）', () => {
+    const r = detectSummaryActivityJump({
+      prev: { platformFocus: 'p1', artifactFocus: 'a1', processRunning: 0 },
+      platformFocusId: '',
+      artifactFocusId: '',
+      processRunning: 0,
+    })
+    expect(r.tab).toBeNull()
+    expect(r.nextPrev.platformFocus).toBe('')
+    expect(r.nextPrev.artifactFocus).toBe('')
   })
 })

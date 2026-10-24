@@ -192,6 +192,7 @@ import { hideRightStageIfKind, rightStageStore } from '../../lib/right-stage/rig
 import { closeSummaryStage } from '../../lib/right-stage/ensure-summary-stage.js'
 import { ensureTerminalStage } from '../../lib/right-stage/ensure-terminal-stage.js'
 import { filterRightStageTabsForSession } from '../../lib/right-stage/right-stage-session-visibility.js'
+import { isTaskCenterStageSessionKey } from '../../lib/right-stage/task-center-stage-key.js'
 import { isAutoWorkPreviewEnabled } from '../../lib/right-stage/write-stream-mode.js'
 import { applyDecideRightStage } from '../../lib/right-stage/apply-decide-right-stage.js'
 import { syncEmployeesRosterFromToolResult } from '../../lib/employees-roster-sync.js'
@@ -1574,8 +1575,23 @@ export function useChatAppController() {
     toggleCollapsed: toggleRightStageCollapsed,
     rightPanelLayoutKind: rightStageLayoutKind,
     mainBodyStageClasses,
-    isOpen: rightStageOpen,
+    isOpen: rightStageShellOpen,
   } = useRightStageChatBridge()
+  const visibleRightStageTabs = useMemo(
+    () => filterRightStageTabsForSession(rightStageTabs, selectedSessionKey),
+    [rightStageTabs, selectedSessionKey],
+  )
+  /**
+   * 对话布局占宽：任务中心独占 tab 撑开 store 时，对话侧不占宽、不渲染空壳。
+   * 仍允许本会话无可见 tab 时的「打开标签」首页（无 task-center 独占时）。
+   */
+  const rightStageOpen = useMemo(() => {
+    if (!rightStageShellOpen) return false
+    if (visibleRightStageTabs.length > 0) return true
+    const live = rightStageTabs || []
+    if (!live.length) return true
+    return !live.every((t) => isTaskCenterStageSessionKey(t.sessionKey))
+  }, [rightStageShellOpen, visibleRightStageTabs, rightStageTabs])
   const rightStageSessionKeyRef = useRef(String(selectedSessionKey || '').trim())
   // 切会话时冻结 / 恢复右栏 tabs（浏览器标签式缓存）
   useEffect(() => {
@@ -2002,7 +2018,8 @@ export function useChatAppController() {
     rightStageSessionKeyRef,
   })
 
-  useEffect(() => {
+  // layout：切会话先清空产物/平台 focus，避免状态面板首帧仍闪上一会话通知。
+  useLayoutEffect(() => {
     return runLoadSessionArtifactsEffect({
       selectedSessionKey,
       setSessionArtifacts,
@@ -4965,10 +4982,6 @@ export function useChatAppController() {
   
 
   // 浏览器面板头部开关：存在则激活，再点一次关掉这一页（不关整栏其它标签）
-  const visibleRightStageTabs = useMemo(
-    () => filterRightStageTabsForSession(rightStageTabs, selectedSessionKey),
-    [rightStageTabs, selectedSessionKey],
-  )
   const browserStageOpen = visibleRightStageTabs.some(
     (t) => normalizeRightStageKind(t.kind) === 'browser',
   )
@@ -5952,6 +5965,7 @@ export function useChatAppController() {
       handleNewSessionRef,
       handleOpenHomeRef,
       isChatOverlayDeferActive,
+      openCollabExecPanel,
       reviveAllTurnBusyIfLivePostOpen,
       scheduleBumpRef,
       selectSessionFromShellRef,

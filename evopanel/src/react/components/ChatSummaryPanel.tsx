@@ -40,10 +40,14 @@ import {
 import { normalizePlatformRunEntries, type PlatformRunEntry } from '../../lib/right-stage/platform-feedback.js'
 import {
   buildProcessSummary,
+  buildVisibleSummaryPanelTabs,
+  detectSummaryActivityJump,
   PROCESS_STATE_LABEL,
+  resolveEffectiveSummaryPanelTab,
   type ProcessItem,
   type ProcessState,
   type ProcessSummary,
+  type SummaryActivityPrev,
 } from '../lib/chat-summary-panel-model.js'
 import {
   loadChatSummaryPrefs,
@@ -60,6 +64,8 @@ type Props = {
 
   isRunning: boolean
   sessionTitle: string
+  /** 当前会话 key：切会话时重置活动 tab，避免串台 */
+  sessionKey?: string
 
   /** 进程区数据源 */
   terminalStreams?: Record<string, TerminalStreamTask> | null
@@ -362,6 +368,7 @@ function ChatSummaryPanelInner({
   onDisplayModeChange,
   isRunning,
   sessionTitle,
+  sessionKey = '',
   terminalStreams,
   subagentTasks,
   workflowSubtasks,
@@ -403,6 +410,14 @@ function ChatSummaryPanelInner({
   const [panelTab, setPanelTab] = useState<PanelTab>('agent')
   const policyRef = useRef<HTMLDivElement | null>(null)
   const hydrated = useRef(false)
+  const activityPrevRef = useRef<SummaryActivityPrev>({
+    platformFocus: '',
+    artifactFocus: '',
+    processRunning: 0,
+  })
+  /** 首帧只建基线不跳转，避免 key 重挂时把上一会话残留 focus 当成新通知 */
+  const activityArmedRef = useRef(false)
+  const sessionKeyRef = useRef(String(sessionKey || '').trim())
 
   // 展开策略在挂载时读一次偏好，之后由本组件持有并写回。
   // displayMode 由 ChatApp 侧 useState 初始化读同一份偏好，这里不再重复对齐。
@@ -455,7 +470,6 @@ function ChatSummaryPanelInner({
   // 初始跟 displayMode：收起后父级重挂气泡。
   // 若这里仍从 false 起步，auto-expand 会立刻把卡片又撑开。
   const [userCollapsed, setUserCollapsed] = useState(() => displayMode === 'capsule')
-  const prevRunningRef = useRef(summary.running)
 
   const goPanel = useCallback(() => {
     setUserCollapsed(false)
@@ -466,31 +480,48 @@ function ChatSummaryPanelInner({
     onDisplayModeChange('capsule')
   }, [onDisplayModeChange])
 
-  // 新进程启动时清除手动收起标记，恢复 auto-expand 自动展开语义
+  // 切会话：回到智能体 tab；用当帧 focus 做基线（父级清 focus 晚一拍），
+  // 吞掉上一会话残留，避免误跳到别人的平台/产物通知。
   useEffect(() => {
-    if (summary.running > 0 && prevRunningRef.current === 0) setUserCollapsed(false)
-    prevRunningRef.current = summary.running
-  }, [summary.running])
+    const sk = String(sessionKey || '').trim()
+    if (sk === sessionKeyRef.current) return
+    sessionKeyRef.current = sk
+    setPanelTab('agent')
+    setUserCollapsed(false)
+    activityPrevRef.current = {
+      platformFocus: String(platformFocusEntryId || '').trim(),
+      artifactFocus: String(artifactFocusId || '').trim(),
+      processRunning: summary.running,
+    }
+    // 仅 sessionKey 触发；focus/running 取切会话当帧快照作基线
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey])
 
-  // 实时跳转：平台条目 / 产物发布时（ChatApp 侧 publishPlatformEntries /
-  // publishArtifacts 会更新 focus id），面板自动切到对应 tab 并撑开。
-  const prevPlatformFocusRef = useRef('')
+  // 实时跳转：平台 / 产物 / 进程谁最新跟谁；空 focus 也会刷新 prev，避免跨会话同 id 卡死。
   useEffect(() => {
-    const focus = String(platformFocusEntryId || '').trim()
-    if (!focus || focus === prevPlatformFocusRef.current) return
-    prevPlatformFocusRef.current = focus
-    setPanelTab('platform')
+    if (!activityArmedRef.current) {
+      activityArmedRef.current = true
+      activityPrevRef.current = {
+        platformFocus: String(platformFocusEntryId || '').trim(),
+        artifactFocus: String(artifactFocusId || '').trim(),
+        processRunning: summary.running,
+      }
+      return
+    }
+    const { tab, nextPrev } = detectSummaryActivityJump({
+      prev: activityPrevRef.current,
+      platformFocusId: platformFocusEntryId,
+      artifactFocusId,
+      processRunning: summary.running,
+    })
+    const processStarted =
+      summary.running > 0 && activityPrevRef.current.processRunning === 0
+    activityPrevRef.current = nextPrev
+    if (processStarted) setUserCollapsed(false)
+    if (!tab) return
+    setPanelTab(tab)
     if (displayMode === 'capsule') goPanel()
-  }, [platformFocusEntryId, displayMode, goPanel])
-
-  const prevArtifactFocusRef = useRef('')
-  useEffect(() => {
-    const focus = String(artifactFocusId || '').trim()
-    if (!focus || focus === prevArtifactFocusRef.current) return
-    prevArtifactFocusRef.current = focus
-    setPanelTab('artifacts')
-    if (displayMode === 'capsule') goPanel()
-  }, [artifactFocusId, displayMode, goPanel])
+  }, [platformFocusEntryId, artifactFocusId, summary.running, displayMode, goPanel])
 
   // 展开策略：胶囊态 + 有进程在跑时自动撑成面板（用户手动收起后尊重选择）。
   // 仅会话 isRunning、尚无进程项时不撑开，避免「还没开终端」就弹出状态卡暗示终端调用。
@@ -509,10 +540,8 @@ function ChatSummaryPanelInner({
     onDisplayModeChange('panel')
   }, [displayMode, effectiveMode, onDisplayModeChange])
 
-  // 面板 tab：智能体/员工固定在最前，产物 / 平台带计数，
-  // 任务仅在员工会话且 pane 存在时出现，调试仅在观测开启时出现。
-  // 计数为 0 时不显示「0」：空 tab 条本身已经说明没有内容，
-  // 再挂个「产物 0」只会让人以为是加载失败。
+  // 面板 tab：智能体/员工固定；进程 / 产物 / 平台仅当前会话有内容时出现。
+  // 计数为 0 时不显示「0」：有内容才挂 tab，空会话不会残留空通知页。
   const withCount = useCallback(
     (n: number, label: string) => (n > 0 ? `${label} ${n}` : label),
     [],
@@ -522,33 +551,37 @@ function ChatSummaryPanelInner({
     [artifacts],
   )
   const panelTabs = useMemo<Array<{ id: PanelTab; label: string }>>(
-    () => {
-      const list: Array<{ id: PanelTab; label: string }> = [
-        // 员工会话：首 tab 用 EmployeePane（身份 + 职责），不再另挂「岗位」
-        { id: 'agent', label: isEmployeeSession ? '员工' : '智能体' },
-        { id: 'process', label: withCount(summary.items.length, '进程') },
-        { id: 'artifacts', label: withCount(visibleArtifacts.length, '产物') },
-        { id: 'platform', label: withCount(platformEntries.length, '平台') },
-      ]
-      if (isEmployeeSession && taskPane) {
-        list.splice(4, 0, { id: 'task', label: '任务' })
-      }
-      if (obsEnabled) list.push({ id: 'debug', label: '调试' })
-      return list
-    },
-    [withCount, summary.items.length, visibleArtifacts, platformEntries, isEmployeeSession, taskPane, obsEnabled],
+    () =>
+      buildVisibleSummaryPanelTabs({
+        isEmployeeSession,
+        processCount: summary.items.length,
+        artifactCount: visibleArtifacts.length,
+        platformCount: platformEntries.length,
+        showTask: Boolean(isEmployeeSession && taskPane),
+        showDebug: obsEnabled,
+        withCount,
+      }) as Array<{ id: PanelTab; label: string }>,
+    [
+      withCount,
+      summary.items.length,
+      visibleArtifacts.length,
+      platformEntries.length,
+      isEmployeeSession,
+      taskPane,
+      obsEnabled,
+    ],
   )
 
-  // tab 失效时回落：观测关闭 / 员工会话切走 / 旧「岗位」tab → 员工身份卡。
-  // 不用 effect 打 setState（会级联渲染），渲染期直接派生生效 tab。
-  const effectivePanelTab: PanelTab = useMemo(() => {
-    if (panelTab === 'debug' && !obsEnabled) return 'agent'
-    // 旧「岗位」已并入员工身份卡
-    if (panelTab === 'employee') return 'agent'
-    if (panelTab === 'task' && !isEmployeeSession) return 'agent'
-    return panelTab
-  }, [panelTab, obsEnabled, isEmployeeSession])
-
+  // tab 失效时回落：切会话清空 / 观测关闭 / 无内容 tab → 智能体。
+  const effectivePanelTab: PanelTab = useMemo(
+    () =>
+      resolveEffectiveSummaryPanelTab(
+        panelTab,
+        panelTabs.map((t) => t.id),
+        { obsEnabled, isEmployeeSession },
+      ) as PanelTab,
+    [panelTab, panelTabs, obsEnabled, isEmployeeSession],
+  )
   // 悬浮卡展开：先挂卡片 DOM（缩放起点），再下一帧加 is-open；
   // 收起：先去掉 is-open 播完缩放，再换成气泡。
   const wantExpanded = effectiveMode === 'panel'

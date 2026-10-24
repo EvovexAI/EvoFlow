@@ -4393,12 +4393,22 @@ function emitAgentActivityChat(self, key, runId, { kind, detail, toolName, toolC
     'retrying',
     'compacting',
     'pre_model',
+    'model',
     'tool_approval',
     'model_fallback',
     'system',
   ])
+  // 限流重试等系统态优先；勿因附带 toolName 被打成 tools 而盖住「系统重试中」。
+  const stickySystemKinds = new Set([
+    'retrying',
+    'compacting',
+    'model_fallback',
+    'pre_model',
+    'model',
+  ])
   let actKind = 'thinking'
-  if (actKindRaw === 'tools' || tool) actKind = 'tools'
+  if (stickySystemKinds.has(actKindRaw)) actKind = actKindRaw
+  else if (actKindRaw === 'tools' || tool) actKind = 'tools'
   else if (preservedKinds.has(actKindRaw)) actKind = actKindRaw
   self._emitEvent('thread_state', {
     sessionKey: key,

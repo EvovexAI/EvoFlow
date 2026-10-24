@@ -13,6 +13,7 @@ import {
   scopeOfKind,
   setCurrentRightStageSessionKey,
 } from './right-stage-scope.js'
+import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 import {
   RIGHT_STAGE_PERSIST_LIMITS,
   readPersistedSessionEntries,
@@ -190,13 +191,17 @@ export function saveRightStageSessionMemory(sessionKey: string | null | undefine
  */
 export function restoreRightStageSessionMemory(sessionKey: string | null | undefined) {
   const key = String(sessionKey || '').trim()
-  const carryTabs = rightStageStore
-    .getSnapshot()
-    .tabs.filter((t) => scopeOfKind(t.kind) === 'workspace')
-  // 目标会话从未打开过右栏时：有 workspace 级标签延续就展开，否则保持收起。
-  // （对齐 ZCode「有可见 tab 才展开、无则收起」，但不覆盖用户对目标会话的主动收起偏好
-  //   —— 有记忆时 collapsed 直接取自该会话记忆。）
-  const collapsedWhenNoMemory = carryTabs.length === 0
+  // workspace 级 + 任务中心独占标签：切对话会话时保留，不进会话记忆、也不被冲掉。
+  const carryTabs = rightStageStore.getSnapshot().tabs.filter(
+    (t) =>
+      scopeOfKind(t.kind) === 'workspace' || isTaskCenterStageSessionKey(t.sessionKey),
+  )
+  // 目标会话从未打开过右栏时：有「对话可见」的 workspace 级标签才展开；
+  // 仅有 task-center:* 时保持收起，避免对话壳被任务中心侧栏撑开。
+  const chatVisibleCarry = carryTabs.filter(
+    (t) => !isTaskCenterStageSessionKey(t.sessionKey),
+  )
+  const collapsedWhenNoMemory = chatVisibleCarry.length === 0
   if (!key) {
     rightStageStore.importSessionMemory(null, { carryTabs, collapsedWhenNoMemory })
     setCurrentRightStageSessionKey('')

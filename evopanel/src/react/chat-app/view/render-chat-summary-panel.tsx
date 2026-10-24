@@ -55,9 +55,11 @@ export function renderChatSummaryPanel(
   } = ctx
   return (
     <ChatSummaryPanel
+      key={String(selectedSessionKey || '')}
       displayMode={mode}
       onDisplayModeChange={setChatPanelDisplayMode}
       isRunning={selectedTurnBusy}
+      sessionKey={String(selectedSessionKey || '')}
       sessionTitle={getDisplayLabel(
         selectedSessionKey,
         sessions.find((s) => String(s.sessionKey || '') === String(selectedSessionKey || ''))?.title,

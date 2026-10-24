@@ -3,6 +3,7 @@
  * Extracted from ChatApp.tsx (P68).
  */
 import { dispatchSessionTurnEvent } from '../../lib/session-runtime-store.js'
+import { openCollabSubtaskInRightStage } from '../../../lib/right-stage/open-collab-subtask-stage.js'
 
 export type ApplyPendingShellSessionCtx = {
   processedTaskIdRef: { current: string | null }
@@ -40,6 +41,20 @@ export function applyPendingShellSession(ctx: ApplyPendingShellSessionCtx): void
 
     const pendingOpenWorkflow =
       sessionStorage.getItem('evopanel_pending_open_collab_workflow') === '1'
+    let pendingSubtask: {
+      subtaskId?: string
+      mainTaskId?: string
+      leadThreadId?: string
+      title?: string
+      status?: string
+      assignedAgent?: string
+    } | null = null
+    try {
+      const raw = sessionStorage.getItem('evopanel_pending_collab_subtask')
+      if (raw) pendingSubtask = JSON.parse(raw)
+    } catch {
+      pendingSubtask = null
+    }
 
     if (pendingSession) {
       if (
@@ -70,8 +85,24 @@ export function applyPendingShellSession(ctx: ApplyPendingShellSessionCtx): void
           })
       }
 
-      if (pendingOpenWorkflow) {
+      if (pendingOpenWorkflow || pendingSubtask?.subtaskId) {
         ctx.openCollabExecPanel({ clearDismiss: true })
+      }
+      if (pendingSubtask?.subtaskId) {
+        // 稍晚于工作流 tab，确保两侧栏都挂上：工作流 + 该节点独立进度
+        window.setTimeout(() => {
+          openCollabSubtaskInRightStage(
+            {
+              subtaskId: String(pendingSubtask?.subtaskId || ''),
+              mainTaskId: String(pendingSubtask?.mainTaskId || pendingTaskId || ''),
+              leadThreadId: String(pendingSubtask?.leadThreadId || pendingThread || ''),
+              title: String(pendingSubtask?.title || ''),
+              status: String(pendingSubtask?.status || ''),
+              assignedAgent: String(pendingSubtask?.assignedAgent || ''),
+            },
+            { sessionKey: pendingSession },
+          )
+        }, 80)
       }
 
       // 注意：useState 初始化时已经优先返回了 pendingSession
@@ -82,6 +113,7 @@ export function applyPendingShellSession(ctx: ApplyPendingShellSessionCtx): void
         sessionStorage.removeItem('evopanel_pending_shell_thread')
         sessionStorage.removeItem('evopanel_pending_shell_task_id')
         sessionStorage.removeItem('evopanel_pending_open_collab_workflow')
+        sessionStorage.removeItem('evopanel_pending_collab_subtask')
       }, 1000)
     }
 

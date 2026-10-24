@@ -8,7 +8,9 @@ import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { showRightStageCodeViewer } from '../../../lib/right-stage/open-right-stage-file.js'
 import { V4PreviewPane } from './v4-preview-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
+import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
+import { openCollabSubtaskInRightStage } from '../../../lib/right-stage/open-collab-subtask-stage.js'
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
@@ -40,7 +42,6 @@ export function renderRightStageBody(
     liveProcessSnapshot,
     openWorkspaceFilePreview,
     selectedSessionKey,
-    setSubtaskTranscriptModal,
     setWorkspaceBrowseFocusPath,
     setWorkspaceIndexWatchEnabledState,
     sharedCollabMainTask,
@@ -151,6 +152,28 @@ export function renderRightStageBody(
       <SidePanelBootShell title={surface.title || '子代理输出'} />
     )
   }
+  if (kind === 'collabSubtaskTranscript') {
+    const data = surface.data || {}
+    const subtaskId = String(data.subtaskId || '').trim()
+    const mainTaskId = String(data.mainTaskId || collabSubtasksTaskId || sidebarActiveTaskId || '').trim()
+    if (!subtaskId || !mainTaskId) return null
+    return sidePanelHeavyMount ? (
+      <V4CollabSubtaskTranscriptPane
+        mainTaskId={mainTaskId}
+        subtaskId={subtaskId}
+        leadThreadId={String(data.leadThreadId || chatThreadIdForSidebar || '').trim()}
+        title={String(surface.title || data.title || '节点进度')}
+        status={String(data.status || '').trim()}
+        assignedAgent={String(data.assignedAgent || '').trim()}
+        description={String(data.description || '').trim()}
+        subtaskThreadId={String(data.subtaskThreadId || '').trim()}
+        sessionKey={String(data.sessionKey || selectedSessionKey || '')}
+        onClose={() => rightStageStore.closeTab(surface.id)}
+      />
+    ) : (
+      <SidePanelBootShell title={surface.title || '节点进度'} />
+    )
+  }
   if (kind === 'codeViewer') {
     const data = surface.data || {}
     const source = data.source
@@ -247,7 +270,19 @@ export function renderRightStageBody(
           subagentTasks={threadPanelState.subagentTasks}
           agents={agents}
           onClose={closeCollabExecPanel}
-          onSubtaskTranscriptOpen={setSubtaskTranscriptModal}
+          onSubtaskTranscriptOpen={(payload) => {
+            // 点工作流节点 → 右侧再开一张独立进度 tab（不盖住工作流 tab、不用居中弹窗）
+            openCollabSubtaskInRightStage(
+              {
+                subtaskId: String(payload?.subtaskId || ''),
+                mainTaskId: String(payload?.mainTaskId || collabSubtasksTaskId || sidebarActiveTaskId || ''),
+                leadThreadId: String(payload?.leadThreadId || chatThreadIdForSidebar || ''),
+                title: String(payload?.title || ''),
+                status: String(payload?.status || ''),
+              },
+              { sessionKey: selectedSessionKey },
+            )
+          }}
           canvasFillContainer
         />
       ) : (

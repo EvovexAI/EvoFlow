@@ -359,6 +359,12 @@ export function TaskDetailWorkbench({
             onOpenDetail={() => transcript.setDetailOpen(true)}
             onComposeTextChange={transcript.setComposeText}
             onSend={() => void transcript.handleSend()}
+            onOpenMessageFile={(rawPath) => {
+              const path = String(rawPath || '').trim()
+              if (!path) return
+              // 工作流页不在 ChatApp RightStage 内：在资源管理器中定位文件
+              void api.revealPathInFileManager(path).catch(() => {})
+            }}
           />
         ) : null}
       </div>

@@ -10,6 +10,7 @@ export function runShellWindowListenersEffect(ctx: RunShellWindowListenersEffect
     handleNewSessionRef,
     handleOpenHomeRef,
     isChatOverlayDeferActive,
+    openCollabExecPanel,
     reviveAllTurnBusyIfLivePostOpen,
     scheduleBumpRef,
     selectSessionFromShellRef,
@@ -54,9 +55,47 @@ export function runShellWindowListenersEffect(ctx: RunShellWindowListenersEffect
       }
       try {
         const pending = sessionStorage.getItem('evopanel_pending_shell_session')
+        const pendingTaskId = sessionStorage.getItem('evopanel_pending_shell_task_id')
+        const pendingThread = sessionStorage.getItem('evopanel_pending_shell_thread')
+        const pendingOpenWorkflow =
+          sessionStorage.getItem('evopanel_pending_open_collab_workflow') === '1'
+        let pendingSubtask: Record<string, string> | null = null
+        try {
+          const raw = sessionStorage.getItem('evopanel_pending_collab_subtask')
+          if (raw) pendingSubtask = JSON.parse(raw)
+        } catch {
+          pendingSubtask = null
+        }
         if (pending) {
           sessionStorage.removeItem('evopanel_pending_shell_session')
           selectSessionFromShellRef.current(pending)
+        }
+        // ChatApp 已挂载时 mount effect 不会重跑：在此补开工作流 + 节点进度 tab
+        if (pendingOpenWorkflow || pendingSubtask?.subtaskId) {
+          sessionStorage.removeItem('evopanel_pending_open_collab_workflow')
+          sessionStorage.removeItem('evopanel_pending_collab_subtask')
+          try {
+            openCollabExecPanel?.({ clearDismiss: true })
+          } catch {
+            /* ignore */
+          }
+          if (pendingSubtask?.subtaskId) {
+            window.setTimeout(() => {
+              void import('../../../lib/right-stage/open-collab-subtask-stage.js').then((m) => {
+                m.openCollabSubtaskInRightStage(
+                  {
+                    subtaskId: String(pendingSubtask?.subtaskId || ''),
+                    mainTaskId: String(pendingSubtask?.mainTaskId || pendingTaskId || ''),
+                    leadThreadId: String(pendingSubtask?.leadThreadId || pendingThread || ''),
+                    title: String(pendingSubtask?.title || ''),
+                    status: String(pendingSubtask?.status || ''),
+                    assignedAgent: String(pendingSubtask?.assignedAgent || ''),
+                  },
+                  { sessionKey: pending || undefined },
+                )
+              })
+            }, 80)
+          }
         }
         if (sessionStorage.getItem('evopanel_pending_mobile_chat_list') === '1') {
           sessionStorage.removeItem('evopanel_pending_mobile_chat_list')

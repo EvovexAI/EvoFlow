@@ -2146,7 +2146,7 @@ function taskIdsForStopScope(tasks, scope) {
 function openTaskDetail(taskId, state = null, page = null) {
   const id = String(taskId || '').trim()
   if (!id) return
-  // 主路径：点行 / 决策按钮 → 任务详情；执行过程在详情「执行过程」Tab
+  // 主路径：点行 / 决策按钮 → 任务详情；节点进度在详情「任务节点」侧栏
   if (page && state) closeTaskDrawer(page, state)
   window.location.hash = `#/task/${encodeURIComponent(id)}`
 }
@@ -2488,7 +2488,7 @@ function renderStatusPrimaryActions(t) {
   if (u === 'pending' || u === 'planning' || u === 'queued' || normalizeTaskStatusKey(t.status) === 'paused') {
     return `<button type="button" class="btn btn-sm btn-primary" data-action="handle-pending" data-id="${id}">处理</button>`
   }
-  // running：看进度统一靠点行进入详情；员工执行过程在详情「执行过程」Tab
+  // running：看进度统一靠点行进入详情；节点进度在详情「任务节点」侧栏
   if (u === 'running') {
     return ''
   }
@@ -3209,7 +3209,7 @@ function openTaskMenu(btn, panel, wrap) {
 async function handleTaskPrimaryAction(page, state, action, taskId) {
   const id = String(taskId || '').trim()
   if (!id) return
-  // open-work-process / view-progress：列表侧统一进详情（执行过程在详情 Tab）
+  // open-work-process / view-progress：列表侧统一进详情（节点进度在详情侧栏）
   if (action === 'open-work-process' || action === 'view-progress') {
     openTaskDetail(id, state, page)
     return

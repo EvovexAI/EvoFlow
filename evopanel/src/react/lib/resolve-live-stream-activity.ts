@@ -5,10 +5,21 @@ import { formatTurnElapsedSuffix } from './turn-timing.js'
 /** 会话 executing 且无更细 activity 时的侧栏/预览文案 */
 export const SESSION_RUNNING_ACTIVITY_LABEL = '运行中'
 
+const STICKY_STREAM_KINDS = new Set([
+  'retrying',
+  'compacting',
+  'model_fallback',
+  'pre_model',
+  'model',
+  'tool_approval',
+])
+
 export type ResolveLiveStreamActivityInput = {
   activityKind?: string | null
   activityDetail?: string | null
   streamSystemActivity?: string | null
+  /** From stream turn ``systemActivityKind`` — sticky kinds beat stale panel tools. */
+  streamSystemActivityKind?: string | null
   toolName?: string
   toolCalls?: unknown[]
   /** Optional elapsed seconds suffix for composer dock copy */
@@ -70,10 +81,17 @@ export function resolveLiveStreamActivity(
   const panelKind = String(input.activityKind || 'idle').trim().toLowerCase()
   const panelDetailRaw = String(input.activityDetail || '').trim()
   const streamActRaw = String(input.streamSystemActivity || '').trim()
+  const streamKindRaw = String(input.streamSystemActivityKind || '').trim().toLowerCase()
+  const streamSticky = STICKY_STREAM_KINDS.has(streamKindRaw)
   const streamActIsToolLine =
     streamActRaw.startsWith('调用：') || /^calling:/i.test(streamActRaw)
+  // 限流重试文案即使面板仍停在 tools，也要显示；勿当「过期工具行」丢掉。
   const streamAct =
-    streamActIsToolLine && panelKind !== 'tools' ? '' : streamActRaw
+    streamSticky
+      ? streamActRaw
+      : streamActIsToolLine && panelKind !== 'tools'
+        ? ''
+        : streamActRaw
 
   const panelDetail =
     panelDetailRaw && panelKind !== 'idle'
@@ -84,15 +102,23 @@ export function resolveLiveStreamActivity(
       : panelDetailRaw
 
   // 实时 activity 事件（来自后端 _emit_content_activity / 中间件 agent_activity）
-  // 优先于 thread_state 的 panelDetail（后者基于累积 messages 推断，可能过时）
-  const detail =
-    streamAct ||
-    (panelKind !== 'idle' && panelDetail) ||
-    (panelKind === 'thinking' ? panelDetailRaw || '推理中' : panelDetail) ||
-    ''
+  // 优先于 thread_state 的 panelDetail（后者基于累积 messages 推断，可能过时）。
+  // sticky 流式态（限流重试等）不要回落面板残留的工具行文案。
+  const detail = streamSticky
+    ? streamAct || ''
+    : streamAct ||
+      (panelKind !== 'idle' && panelDetail) ||
+      (panelKind === 'thinking' ? panelDetailRaw || '推理中' : panelDetail) ||
+      ''
 
-  const kind =
-    panelKind !== 'idle' ? panelKind : streamAct || detail ? 'thinking' : 'idle'
+  // 流式 sticky kind（retrying 等）盖过面板残留的 tools，避免限流时面板「假死」。
+  const kind = streamSticky
+    ? streamKindRaw
+    : panelKind !== 'idle'
+      ? panelKind
+      : streamAct || detail
+        ? 'thinking'
+        : 'idle'
 
   const hideSupervisor = shouldHideGenericSupervisor(kind, detail)
 
@@ -195,6 +221,7 @@ export type ComposerDockActivityInput = {
   activityKind?: string | null
   activityDetail?: string | null
   streamSystemActivity?: string | null
+  streamSystemActivityKind?: string | null
   elapsedSec?: number
   /** 默认 true；为 false 时 idle 且无 detail 不展示「运行中」 */
   activeTurn?: boolean
@@ -208,6 +235,7 @@ export function resolveComposerDockActivity(
     activityKind: input.activityKind,
     activityDetail: input.activityDetail,
     streamSystemActivity: input.streamSystemActivity,
+    streamSystemActivityKind: input.streamSystemActivityKind,
     elapsedSec: input.elapsedSec,
     activeTurn: input.activeTurn ?? true,
   })
