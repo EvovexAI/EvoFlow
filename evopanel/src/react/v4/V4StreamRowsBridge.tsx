@@ -45,7 +45,7 @@ export type V4BridgePhase =
   | "no-thread"
   | "connecting"
   | "ready"
-  /** 投影 store 已 error 且无快照：应回落老面板，否则永远「连接中」。 */
+  /** 投影 store 已 error 且无快照：V4 失败态（不回落老面板；闸门放行 AG-UI 正文）。 */
   | "failed";
 
 const NOT_READY: StoreState | null = null;
@@ -244,14 +244,14 @@ export function V4StreamRowsBridge(props: {
       connectingSinceRef.current = null;
       connectingSessionRef.current = null;
       console.warn(
-        `%c[v4-path] V4 store=error 且无快照（session=${sessionId}）→ 回落老面板，放行 AG-UI 正文`,
+        `%c[v4-path] V4 store=error 且无快照（session=${sessionId}）→ 留在 V4 失败态，放行 AG-UI 正文`,
         "color:#dc2626;font-weight:bold",
       );
       logV4Life({
         event: "ui_render",
         threadId: sessionId,
         level: "warn",
-        zh: "V4 投影失败（store=error、无快照）：回落老 AG-UI 面板，避免永远「连接中」。",
+        zh: "V4 投影失败（store=error、无快照）：留在 V4 失败态；闸门放行 AG-UI 正文。",
         detail: { path: "v4-failed", storeStatus, lease: !!leaseForSession },
         skipDedupe: true,
       });
@@ -259,7 +259,7 @@ export function V4StreamRowsBridge(props: {
         event: "path",
         threadId: sessionId,
         level: "warn",
-        zh: "显示路径切回老链路（V4 store failed）。",
+        zh: "显示路径仍为 V4（failed 占位，不回落老面板）。",
         detail: { path: "v4-failed", storeStatus },
         skipDedupe: true,
       });
@@ -404,7 +404,7 @@ export function V4StreamRowsBridge(props: {
   if (!enabled || !sessionId) {
     return children(null, !enabled ? "disabled" : "no-thread");
   }
-  // 有快照 → ready；store error 无快照 → failed（回落老面板）；否则 connecting。
+  // 有快照 → ready；store error 无快照 → failed（留在 V4 失败态，不回落老面板）；否则 connecting。
   const phase: V4BridgePhase = payload
     ? "ready"
     : storeFailed

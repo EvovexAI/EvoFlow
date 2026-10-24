@@ -17,6 +17,7 @@ import {
   showRightStageFromFileLink,
 } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
+import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
@@ -42,24 +43,6 @@ import { TauriWindowControls } from '../../components/TauriWindowControls.js'
 import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.js'
 
 export type ChatAppViewCtx = Record<string, any>
-
-/** V4 window 是否已出现与本地尾部用户气泡同文的 userInput（用于乐观 hold，勿用 totalCount 比行数）。 */
-function v4WindowHasUserText(
-  snapshot: { rows?: { window?: ReadonlyArray<{ kind?: string; text?: string }> } } | null | undefined,
-  text: string,
-): boolean {
-  const needle = String(text || '').trim()
-  if (!needle || !snapshot?.rows?.window?.length) return false
-  const window = snapshot.rows.window
-  for (let i = window.length - 1; i >= 0; i--) {
-    const row = window[i]
-    if (String(row?.kind || '') !== 'userInput') continue
-    const t = String(row?.text || '').trim()
-    if (!t) return false
-    return t === needle || t.endsWith(needle) || needle.endsWith(t)
-  }
-  return false
-}
 
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   const {
@@ -551,8 +534,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               </div>
             ) : null}
             <div className="react-chat-messages-body">
-              {/* V4：对话用 ConversationTimeline；工作台首页仍走老面板 EvoFlowHomeDashboard。
-                  仅 ?chatV4=0 时全程老面板。 */}
+              {/* V4：对话恒用 ConversationTimeline。老面板仅工作台首页 / ?chatV4=0。 */}
               <V4StreamRowsBridge
                 enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
                 sessionId={
@@ -568,9 +550,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 }
               >
                 {(v4Payload, v4Phase) => {
-                  /* 老面板：显式回滚 / 工作台首页 / 本轮刚发出的用户气泡尚未进 V4。
-                     禁止再用 rows.length > totalCount：本地只是窗口，长会话 totalCount 更大，
-                     发送后永远判不成 ahead → 干等 V4 帧 2～3s 才出气泡。
+                  /* 发送瞬间：在 V4 时间线尾部注入乐观 userInput，绝不整树切老面板。
                      闲置切历史 turnLive=false，不会 hold，避免字墙。 */
                   const selectedThreadId = String(
                     sessions.find(
@@ -593,17 +573,18 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const awaitingV4UserEcho =
                     turnLive &&
                     !!lastLocalUserText &&
-                    !v4WindowHasUserText(v4Payload?.snapshot, lastLocalUserText)
+                    !v4WindowHasUserText(v4Payload?.snapshot?.rows?.window, lastLocalUserText)
                   const localOptimisticHold =
                     awaitingV4UserEcho &&
                     (v4Phase === 'ready'
                       ? v4SessionMatched
-                      : v4Phase === 'connecting' || v4Phase === 'no-thread')
+                      : v4Phase === 'connecting' ||
+                        v4Phase === 'no-thread' ||
+                        v4Phase === 'failed')
                   const localHasRows = Array.isArray(rows) && rows.length > 0
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
-                  /* 面板选择 + 草稿态判定（见 react/lib/chat-pane-mode.ts）：
-                     V4 开启时有历史也不回落老面板；connecting 用加载态，
-                     不能因为「当前窗口 0 行」就降级成居中草稿。 */
+                  const optimisticUserText = localOptimisticHold ? lastLocalUserText : null
+                  /* 面板选择 + 草稿态判定（见 react/lib/chat-pane-mode.ts）。 */
                   const { useLegacyPane, draftEmpty } = resolveChatPaneMode({
                     v4Phase,
                     localHasRows,
@@ -666,8 +647,14 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   ) : (
                     <V4ZCodeTimeline
                       payload={v4Payload}
-                      connecting={v4Phase === 'connecting' || v4Phase === 'no-thread'}
+                      connecting={
+                        v4Phase === 'connecting' ||
+                        v4Phase === 'no-thread' ||
+                        v4Phase === 'failed'
+                      }
+                      connectionFailed={v4Phase === 'failed'}
                       draftEmpty={draftEmpty}
+                      optimisticUserText={optimisticUserText}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenFileLink={(target) => {
                         // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）

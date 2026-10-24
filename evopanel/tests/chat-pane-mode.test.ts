@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { resolveChatPaneMode } from '../src/react/lib/chat-pane-mode.ts'
 import {
+  mergeOptimisticUserInputRow,
+  v4WindowHasUserText,
+} from '../src/react/v4/optimisticUserInput.ts'
+import {
   isV4DisplayAuthoritative,
   publishV4DisplayAuthority,
 } from '../src/react/v4/v4Gate.ts'
+import type { ConversationRow } from '@zcode/shared/zcode-protocol-v4'
 
 const base = {
   v4Phase: 'connecting' as const,
@@ -14,7 +19,7 @@ const base = {
   localOptimisticHold: false,
 }
 
-describe('resolveChatPaneMode — 坚持 V4，有历史不回落老面板', () => {
+describe('resolveChatPaneMode — V4 开启时对话不回落老面板', () => {
   it('打开历史会话、V4 还在 connecting：留在 V4，不显示草稿问候', () => {
     const mode = resolveChatPaneMode(base)
     expect(mode.draftEmpty).toBe(false)
@@ -91,22 +96,39 @@ describe('resolveChatPaneMode — 坚持 V4，有历史不回落老面板', () =
     expect(mode.draftEmpty).toBe(false)
   })
 
-  it('开关关闭 / 工作台首页 / 乐观气泡等待：才走老面板', () => {
+  it('仅开关关闭 / 工作台首页走老面板', () => {
     expect(resolveChatPaneMode({ ...base, v4Phase: 'disabled' }).useLegacyPane).toBe(true)
     expect(resolveChatPaneMode({ ...base, isHomeSurface: true }).useLegacyPane).toBe(true)
-    expect(
-      resolveChatPaneMode({ ...base, v4Phase: 'ready', localOptimisticHold: true }).useLegacyPane,
-    ).toBe(true)
   })
 
-  it('V4 store failed（无快照）：回落老面板，避免永远连接中', () => {
+  it('空窗首发乐观 / 有历史乐观：都不回落老面板', () => {
+    expect(
+      resolveChatPaneMode({
+        ...base,
+        v4Phase: 'ready',
+        localOptimisticHold: true,
+      }).useLegacyPane,
+    ).toBe(false)
+    expect(
+      resolveChatPaneMode({
+        ...base,
+        v4Phase: 'ready',
+        localHasRows: true,
+        historyLoading: false,
+        v4HasRows: true,
+        localOptimisticHold: true,
+      }).useLegacyPane,
+    ).toBe(false)
+  })
+
+  it('V4 store failed：仍留在 V4（失败态），不回落老面板', () => {
     const mode = resolveChatPaneMode({
       ...base,
       v4Phase: 'failed',
       localHasRows: true,
       historyLoading: false,
     })
-    expect(mode.useLegacyPane).toBe(true)
+    expect(mode.useLegacyPane).toBe(false)
     expect(mode.draftEmpty).toBe(false)
   })
 
@@ -118,6 +140,34 @@ describe('resolveChatPaneMode — 坚持 V4，有历史不回落老面板', () =
       localOptimisticHold: true,
     })
     expect(mode.draftEmpty).toBe(false)
+  })
+})
+
+describe('optimistic userInput（发送瞬间不切老面板）', () => {
+  function userRow(text: string, rowId = 1): ConversationRow {
+    return {
+      rowId,
+      turnId: `t-${rowId}`,
+      kind: 'userInput',
+      text,
+      origin: 'realUser',
+      createdAt: 1,
+      createdAtSeq: 0,
+    }
+  }
+
+  it('v4WindowHasUserText 只认窗口尾部 userInput', () => {
+    const rows = [userRow('hello'), userRow('world', 2)]
+    expect(v4WindowHasUserText(rows, 'world')).toBe(true)
+    expect(v4WindowHasUserText(rows, 'hello')).toBe(false)
+  })
+
+  it('mergeOptimisticUserInputRow 缺 echo 时追加，已有则复用原数组', () => {
+    const rows = [userRow('old')]
+    const next = mergeOptimisticUserInputRow(rows, 'new')
+    expect(next).toHaveLength(2)
+    expect(next[1]).toMatchObject({ kind: 'userInput', text: 'new' })
+    expect(mergeOptimisticUserInputRow(rows, 'old')).toBe(rows)
   })
 })
 

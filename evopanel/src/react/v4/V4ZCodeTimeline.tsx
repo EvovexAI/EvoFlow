@@ -31,16 +31,12 @@ import type { MessageFileLinkTarget } from "@zcode/ui/components/ai-elements/mes
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
 import { getPathLeaf } from "@zcode/ui/lib/path.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
-import {
-  describeV4NotRenderedYet,
-  describeV4Rendered,
-  logV4Life,
-} from "../lib/v4-lifecycle-log.js";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
+import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import {
   ToolApprovalPanel,
@@ -243,8 +239,10 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
 
 export function V4ZCodeTimeline(props: {
   payload: V4TimelinePayload | null;
-  /** 已有 threadId 但快照未到（订阅/构建中）。 */
+  /** 已有 threadId 但快照未到（订阅/构建中），或 store failed 占位。 */
   connecting?: boolean;
+  /** 投影 store 已 error 且无快照：留在 V4 显示失败态，不回落老面板。 */
+  connectionFailed?: boolean;
   /** EvoFlow 会话 key：stream-compare 落盘目录名（与 sse/v4-recv 同轮对账）。 */
   evoflowSessionKey?: string | null;
   /**
@@ -259,6 +257,11 @@ export function V4ZCodeTimeline(props: {
    * 再跳到中间。草稿问候语也由本组件提供，不依赖 ZCode 会话壳。
    */
   draftEmpty?: boolean;
+  /**
+   * 发送瞬间本地已有用户气泡、V4 投影尚未 echo：在窗口尾部补一行合成 userInput，
+   * 保持挂在 ConversationTimeline，避免切老面板闪历史。
+   */
+  optimisticUserText?: string | null;
   /**
    * EvoFlow 底部输入区：作为 ConversationTimeline sticky bottomDock 挂进同一滚动视口
    * （对齐 ZCode SessionPane），避免 messages 区单独滚动、下方空出「留给输入框」的空白。
@@ -303,10 +306,12 @@ export function V4ZCodeTimeline(props: {
   const {
     payload,
     connecting,
+    connectionFailed = false,
     bottomDock,
     evoflowSessionKey,
     embedded = false,
     draftEmpty = false,
+    optimisticUserText = null,
     onOpenCodeViewer,
     onOpenFileLink: onOpenFileLinkProp,
     onToolApproval,
@@ -355,7 +360,14 @@ export function V4ZCodeTimeline(props: {
 
   // connecting / 无快照时必须用稳定空数组，否则每 render 新 [] 会让
   // ConversationTimeline 依赖 rows 的 layout effect 空转（叠侧栏开合易触发 #185）。
-  const rows = snapshot?.rows.window ?? EMPTY_V4_ROWS;
+  const authoritativeRows = snapshot?.rows.window ?? EMPTY_V4_ROWS;
+  const rows = useMemo(
+    () => mergeOptimisticUserInputRow(authoritativeRows, optimisticUserText),
+    [authoritativeRows, optimisticUserText],
+  );
+  const optimisticRowInjected = rows.length > authoritativeRows.length;
+  const displayTotalCount =
+    (snapshot?.rows.totalCount ?? authoritativeRows.length) + (optimisticRowInjected ? 1 : 0);
 
   type PendingApprovalItem = {
     toolCallId: string;
@@ -684,56 +696,7 @@ export function V4ZCodeTimeline(props: {
     payload?.loadingOlder,
   ]);
 
-  // 给人看的中文：时间线组件实际画出了什么（加载中 / 空草稿 / 有历史）。
-  const lastPaintLogRef = useRef("");
-  useEffect(() => {
-    const total = snapshot?.rows.totalCount ?? rows.length;
-    const paint = connecting
-      ? "connecting"
-      : draftEmpty
-        ? "draft-empty"
-        : snapshot
-          ? `ready:${total}`
-          : "no-snapshot";
-    const key = `${evoflowSessionKey || ""}|${sessionId}|${paint}`;
-    if (lastPaintLogRef.current === key) return;
-    lastPaintLogRef.current = key;
-    const zh = connecting
-      ? describeV4NotRenderedYet({
-          path: "v4-connecting",
-          storeStatus: payload?.status ?? "connecting",
-          lease: true,
-          rowCount: 0,
-          hasSubscription: true,
-        }) + "（V4ZCodeTimeline 当前画的是「加载中…」占位。）"
-      : describeV4Rendered({
-          rowCount: total,
-          draftEmpty,
-          storeStatus: payload?.status ?? null,
-        }) + "（V4ZCodeTimeline 已挂载到对话区。）";
-    logV4Life({
-      event: "ui_render",
-      sessionKey: evoflowSessionKey || undefined,
-      threadId: sessionId || undefined,
-      zh,
-      detail: {
-        paint,
-        connecting: Boolean(connecting),
-        draftEmpty: Boolean(draftEmpty),
-        rowCount: total,
-        storeStatus: payload?.status ?? null,
-      },
-    });
-  }, [
-    connecting,
-    draftEmpty,
-    evoflowSessionKey,
-    sessionId,
-    snapshot,
-    rows.length,
-    snapshot?.rows.totalCount,
-    payload?.status,
-  ]);
+  // 行数增长不再打 [v4-life] ui_render：首帧/路径切换由 V4StreamRowsBridge 记一次即可。
 
   return (
     <ZCodeIntlProvider initialLocale="zh-CN">
@@ -768,7 +731,7 @@ export function V4ZCodeTimeline(props: {
         <ServiceProvider services={partialServices}>
         <ConversationTimeline
           rows={rows}
-          totalCount={snapshot?.rows.totalCount ?? 0}
+          totalCount={displayTotalCount}
           // 嵌入态用 evoflowSessionKey，避免 threadId 晚到时 sessionKey 从 draft→uuid 整树 remount
           sessionKey={
             embedded
@@ -791,6 +754,15 @@ export function V4ZCodeTimeline(props: {
             draftEmpty ? (
               <div data-testid="v4-draft-empty" className="w-full">
                 <V4DraftEmptyState />
+              </div>
+            ) : connectionFailed ? (
+              <div
+                data-testid="v4-connection-failed"
+                className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center text-ui-base text-foreground-subtlest"
+                role="alert"
+              >
+                <span>对话连接失败</span>
+                <span className="text-ui-sm">正在自动重试，也可切换会话后重开</span>
               </div>
             ) : connecting ? (
               // 有历史会话也会先 connecting：用安静加载态占位，避免整片空白，
