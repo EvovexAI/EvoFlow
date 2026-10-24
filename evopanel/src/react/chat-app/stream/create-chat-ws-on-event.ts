@@ -14,6 +14,8 @@ import {
   platformRunEntriesFromChatArtifacts,
   latestPlatformRunEntryId,
 } from '../../../lib/right-stage/platform-feedback.js'
+import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
+import { logPanelSet } from '../../../lib/right-stage/panel-set-debug-log.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -1143,11 +1145,36 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           if (fileItems.length) {
             setSessionArtifacts((prev) => mergeChatArtifacts(prev, fileItems))
             turnRunArtifactsRef.current = mergeChatArtifacts(turnRunArtifactsRef.current, fileItems)
-            const newCount = fileItems.filter((x) => x.status !== 'updated').length || fileItems.length
-            publishArtifacts({
-              focusId: fileItems[fileItems.length - 1]?.id || '',
-              hint: `本轮新增 ${newCount} 个产物`,
-            })
+            const focusItem =
+              [...fileItems].reverse().find((it) => String(it.path || '').trim()) ||
+              fileItems[fileItems.length - 1]
+            const focusId = String(focusItem?.id || fileItems[fileItems.length - 1]?.id || '')
+            const focusPath = String(focusItem?.path || '').trim()
+            // panel_set(artifacts) 主路径是 SSE chat_artifacts；V4 下 TOOL_CALL_RESULT
+            // 常未进 applyStageSet，必须在这里直接开右侧文件预览，否则右栏无反应。
+            if (focusPath) {
+              logPanelSet('⓪ chat_artifacts 有本地 path → 打开右侧文件预览', {
+                path: focusPath,
+                name: focusItem?.name || focusItem?.label,
+                sessionKey: targetSk || '(空)',
+              })
+              publishArtifacts({ focusId, force: false })
+              showRightStageFilePreview(focusPath, {
+                name: String(focusItem?.name || focusItem?.label || '').trim() || undefined,
+                sessionKey: targetSk || undefined,
+                layout: 'half',
+              })
+              if (rightStageUserPinnedRef) rightStageUserPinnedRef.current = 'file'
+            } else {
+              const newCount =
+                fileItems.filter((x) => x.status !== 'updated').length || fileItems.length
+              logPanelSet('⓪ chat_artifacts 无本地 path → 仅状态卡', { focusId })
+              publishArtifacts({
+                focusId,
+                hint: `本轮新增 ${newCount} 个产物`,
+                force: true,
+              })
+            }
           }
         }
         return
