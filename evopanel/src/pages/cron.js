@@ -6,6 +6,7 @@
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
+import { icon } from '../lib/icons.js'
 import { createSchedulePanel, cronToPlainZh, looksLikeCron as looksLikeCronShared } from '../lib/schedule-panel.js'
 import { mountCronSelects, unmountCronSelects } from '../react/components/cron-selects.tsx'
 import {
@@ -57,6 +58,11 @@ function pushTargetLabel(task, targets) {
 // ── 状态 ────────────────────────────────
 
 let _tasks = []
+// 员工上班节奏（heartbeat）也是调度的一种：与定时任务同表展示，靠 kind 区分。
+let _agents = []
+// 调度项类型筛选：全部 / 定时任务 / 员工上班。与顶层 tab（调度任务/运行记录）是两个维度。
+// 默认落在「定时任务」：员工动辄几十个，全量默认会把页面拉得很长；数量在筛选器上可见。
+let _kindFilter = 'task' // all | task | agent
 let _pushTargetsCache = []
 let _schedulerState = 'stopped' // running | stopped | error
 let _schedulerDiag = null
@@ -74,14 +80,45 @@ let _tasksPageSize = readStoredPageSize(CRON_TASKS_PAGE_SIZE_KEY)
 let _runsPage = 1
 let _runsPageSize = readStoredPageSize(CRON_RUNS_PAGE_SIZE_KEY)
 
-// ── 预设快捷 ───────────────────────────
+// ── 常见节奏（空态 / 任务很少时的起步入口）────────────
 
-const CRON_PRESETS = [
-  { label: '每小时', freq: 'hourly' },
-  { label: '每天 9:00', freq: 'daily', hour: 9 },
-  { label: '每天 18:00', freq: 'daily', hour: 18 },
-  { label: '周一至周五 9:00', freq: 'weekly', hour: 9, dow: [1, 2, 3, 4, 5] },
-  { label: '每周一 10:00', freq: 'weekly', dow: 1, hour: 10 },
+const CRON_IDEAS = [
+  {
+    key: 'daily-digest',
+    icon: 'file-text',
+    name: '每日进展简报',
+    desc: '每天早上汇总昨天做了什么、还差什么',
+    when: '每天 09:00',
+    cron: '0 9 * * *',
+    prompt: '汇总我昨天完成的工作、未完成的事项和今天的重点，控制在 5 条以内。',
+  },
+  {
+    key: 'weekday-plan',
+    icon: 'message-circle',
+    name: '工作日晨间计划',
+    desc: '工作日上班前整理当天待办优先级',
+    when: '工作日 09:00',
+    cron: '0 9 * * 1-5',
+    prompt: '整理今天的工作重点，按优先级列出 3 件事，并指出可能的阻塞。',
+  },
+  {
+    key: 'weekly-review',
+    icon: 'bar-chart',
+    name: '周一复盘',
+    desc: '每周一回顾上周产出与本周目标',
+    when: '每周一 10:00',
+    cron: '0 10 * * 1',
+    prompt: '回顾上周的产出、延期事项与经验，给出本周 3 个优先目标。',
+  },
+  {
+    key: 'hourly-watch',
+    icon: 'shield',
+    name: '每小时巡检',
+    desc: '定时检查服务与任务是否异常',
+    when: '每小时',
+    cron: '0 * * * *',
+    prompt: '检查当前服务健康度与失败任务，发现异常时说明原因和建议动作。',
+  },
 ]
 
 function q(sel) { return _pageEl ? _pageEl.querySelector(sel) : document.querySelector(sel) }
@@ -107,6 +144,8 @@ export async function render() {
   applyCronTabVisibility(page, boot.tab)
   bindPageEvents(page)
   bindCronTabs(page, boot)
+  bindKindFilter(page)
+  renderKindBar()
   // Paint shell first; data comes from hover warm (nav-panel-prefetch) or network.
   const listEl = page.querySelector('#cronList')
   if (listEl && boot.tab !== 'runs') {
@@ -167,6 +206,39 @@ function writeCronQueryToHash({ tab, date, task }) {
   window.location.hash = next
 }
 
+/** 类型筛选：带数量，让人一眼看出「定时任务几条、多少员工在自动上班」。 */
+function renderKindBar() {
+  const bar = q('#cronKindBar')
+  if (!bar) return
+  const items = [
+    ['all', '全部', _tasks.length + _agents.length],
+    ['task', '定时任务', _tasks.length],
+    ['agent', '员工上班', _agents.length],
+  ]
+  bar.innerHTML = items
+    .map(
+      ([key, label, count]) =>
+        `<button type="button" class="cron-kindbar-btn${_kindFilter === key ? ' is-active' : ''}" data-kind-filter="${key}">${label}<span class="cron-kindbar-count">${count}</span></button>`,
+    )
+    .join('')
+}
+
+function bindKindFilter(page) {
+  const bar = page.querySelector('#cronKindBar')
+  if (!bar || bar._bound) return
+  bar._bound = true
+  bar.addEventListener('click', (e) => {
+    const btn = e.target?.closest?.('[data-kind-filter]')
+    if (!btn) return
+    const next = String(btn.dataset.kindFilter || 'all')
+    if (next === _kindFilter) return
+    _kindFilter = next
+    _tasksPage = 1
+    renderKindBar()
+    renderList()
+  })
+}
+
 function bindCronTabs(page, boot) {
   page.querySelectorAll('[data-cron-tab]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -198,37 +270,37 @@ function renderPage(activeTab = 'tasks') {
   const tab = activeTab === 'runs' ? 'runs' : 'tasks'
   return `
       <div class="cron-header">
-        <div class="cron-title-group">
-          <div>
-            <h1 class="cron-title">自动化</h1>
-            <p class="cron-subtitle">自动化调度管理 \u2014 创建、监控和管理周期性 / 一次性任务</p>
-          </div>
+        <div class="cron-head-copy">
+          <h1 class="page-title cron-title">自动化</h1>
+          <p class="page-desc cron-subtitle">到点自动跑：定时任务、运行记录与结果推送都在这里。</p>
         </div>
         <div class="cron-toolbar">
-          <button class="cron-btn primary" data-action="create">\uFF0B 新建任务</button>
+          <button type="button" class="cron-icon-btn" id="cronRefreshBtn" data-action="refresh" aria-label="刷新任务列表" title="刷新">
+            ${icon('refresh-cw', 15)}
+          </button>
+          <button type="button" class="cron-btn primary" data-action="create">${icon('plus-circle', 15)} 新建任务</button>
         </div>
       </div>
 
-      <div class="cron-tabs" role="tablist" aria-label="自动化视图">
-        <button type="button" class="cron-tab${tab === 'tasks' ? ' is-active' : ''}" data-cron-tab="tasks" role="tab" aria-selected="${tab === 'tasks' ? 'true' : 'false'}">调度任务</button>
-        <button type="button" class="cron-tab${tab === 'runs' ? ' is-active' : ''}" data-cron-tab="runs" role="tab" aria-selected="${tab === 'runs' ? 'true' : 'false'}">运行记录</button>
-      </div>
-
-      <div class="cron-status-bar" id="cronStatusBar" ${tab === 'runs' ? 'hidden' : ''}>
-        <div class="cron-status-main">
-          <div class="cron-status-indicator">
-            <span class="cron-dot stopped" id="schedulerDot"></span>
-            <span id="schedulerLabel">调度器未启动</span>
-          </div>
+      <div class="cron-bar">
+        <div class="cron-tabs" role="tablist" aria-label="自动化视图">
+          <button type="button" class="cron-tab${tab === 'tasks' ? ' is-active' : ''}" data-cron-tab="tasks" role="tab" aria-selected="${tab === 'tasks' ? 'true' : 'false'}">调度任务</button>
+          <button type="button" class="cron-tab${tab === 'runs' ? ' is-active' : ''}" data-cron-tab="runs" role="tab" aria-selected="${tab === 'runs' ? 'true' : 'false'}">运行记录</button>
+        </div>
+        <div class="cron-kindbar" id="cronKindBar" ${tab === 'runs' ? 'hidden' : ''}></div>
+        <div class="cron-status" id="cronStatusBar" ${tab === 'runs' ? 'hidden' : ''}>
+          <span class="cron-dot stopped" id="schedulerDot"></span>
+          <span class="cron-status-label" id="schedulerLabel">调度器未启动</span>
           <p class="cron-status-hint" id="schedulerHint" hidden></p>
           <div class="cron-status-actions" id="schedulerActions" hidden>
             <button type="button" class="cron-btn sm primary" data-action="start-scheduler">启动调度器</button>
           </div>
-        </div>
-        <div class="cron-stats">
-          <span class="cron-stat">已启用 <strong id="statActive">0</strong></span>
-          <span class="cron-stat">已暂停 <strong id="statPaused">0</strong></span>
-          <span class="cron-stat">共 <strong id="statTotal">0</strong> 个</span>
+          <div class="cron-stats">
+            <span class="cron-stat">已启用 <strong id="statActive">0</strong></span>
+            <span class="cron-stat-sep" aria-hidden="true">·</span>
+            <span class="cron-stat">已暂停 <strong id="statPaused">0</strong></span>
+            <span class="cron-stat">共 <strong id="statTotal">0</strong> 个</span>
+          </div>
         </div>
       </div>
 
@@ -609,8 +681,19 @@ function bindPageEvents(root) {
 
       const btn = e.target.closest?.('[data-action]')
       if (!btn || !root.contains(btn)) {
-        const card = e.target.closest?.('.cron-card[data-task-id]')
-        if (card && root.contains(card) && !e.target.closest?.('button, a, input, .cron-card-actions, .cron-more')) {
+        const idea = e.target.closest?.('.cron-idea[data-idea]')
+        if (idea && root.contains(idea)) {
+          e.preventDefault()
+          await openIdea(idea.dataset.idea)
+          return
+        }
+        const agentRow = e.target.closest?.('.cron-row[data-agent-code]')
+        if (agentRow && root.contains(agentRow) && !e.target.closest?.('button, a, input, .cron-row-ops, .cron-more')) {
+          navigateToAgent(agentRow.dataset.agentCode)
+          return
+        }
+        const card = e.target.closest?.('.cron-row[data-task-id]')
+        if (card && root.contains(card) && !e.target.closest?.('button, a, input, .cron-row-ops, .cron-more')) {
           openRuleDrawer(card.dataset.taskId)
         }
         return
@@ -624,6 +707,18 @@ function bindPageEvents(root) {
       switch (action) {
         case 'create':
           await openCreateModal()
+          break
+        case 'refresh':
+          await handleRefresh(btn)
+          break
+        case 'open-agent':
+          navigateToAgent(taskId)
+          break
+        case 'pause-agent':
+          await setAgentPatrol(taskId, true)
+          break
+        case 'resume-agent':
+          await setAgentPatrol(taskId, false)
           break
         case 'edit':
           closeRuleDrawer()
@@ -739,17 +834,20 @@ async function refresh() {
     const warmList = takeNavWarm('cron:list')
     const warmPush = takeNavWarm('cron:feishu-push-default')
     const warmSched = takeNavWarm('cron:scheduler-status')
-    const [res, pushMeta, schedStatus] = await Promise.all([
+    const [res, pushMeta, schedStatus, agentRes] = await Promise.all([
       warmList || api.automationList(),
       warmPush || api.automationFeishuPushDefault().catch(() => ({ targets: [] })),
       warmSched != null
         ? Promise.resolve(warmSched)
         : api.automationSchedulerStatus().catch(() => null),
+      api.proactiveListRoles().catch(() => null),
     ])
     if (_loadSeq !== seq) return
     _tasks = res.automations || []
+    _agents = normalizeAgentSchedules(agentRes)
     _pushTargetsCache = Array.isArray(pushMeta?.targets) ? pushMeta.targets : []
     applySchedulerStatus(schedStatus)
+    renderKindBar()
     renderList()
     updateStats()
     if (_drawerTaskId) openRuleDrawer(_drawerTaskId, { silent: true })
@@ -777,6 +875,7 @@ function applySchedulerStatus(status) {
 }
 
 function updateSchedulerUI() {
+  const bar = q('#cronStatusBar')
   const dot = q('#schedulerDot')
   const label = q('#schedulerLabel')
   const hint = q('#schedulerHint')
@@ -784,37 +883,65 @@ function updateSchedulerUI() {
   if (!dot || !label) return
   const running = _schedulerState === 'running'
   const errored = _schedulerState === 'error'
-  dot.className = `cron-dot ${_schedulerState === 'running' ? 'running' : (_schedulerState === 'error' ? 'error' : 'stopped')}`
+  dot.className = `cron-dot ${running ? 'running' : errored ? 'error' : 'stopped'}`
+  if (bar) {
+    bar.classList.toggle('is-running', running)
+    bar.classList.toggle('is-error', errored)
+  }
   if (running) {
-    label.textContent = '调度服务正常'
+    label.textContent = '调度正常'
     if (hint) { hint.hidden = true; hint.textContent = '' }
     if (actions) actions.hidden = true
   } else if (errored) {
-    label.textContent = '调度服务异常'
+    label.textContent = '调度异常'
     if (hint) {
       hint.hidden = false
-      hint.textContent = '调度环境异常或已关闭；已启用规则不会按计划触发。'
+      hint.textContent = '调度环境异常或已关闭，已启用的规则不会触发。'
     }
     if (actions) actions.hidden = false
   } else {
     label.textContent = '调度器未启动'
     if (hint) {
       hint.hidden = false
-      hint.textContent = '已启用规则不会按计划触发。'
+      hint.textContent = '已启用的规则不会按计划触发。'
     }
     if (actions) actions.hidden = false
   }
 }
 
 function updateStats() {
-  const enabled = _tasks.filter((t) => ruleStatusOf(t) === 'enabled').length
-  const paused = _tasks.filter((t) => ruleStatusOf(t) === 'paused').length
-  setEl('statActive', enabled)
-  setEl('statPaused', paused)
-  setEl('statTotal', _tasks.length)
+  // 统计口径含员工上班节奏：两类都是「到点自己跑」的调度项。
+  const taskEnabled = _tasks.filter((t) => ruleStatusOf(t) === 'enabled').length
+  const taskPaused = _tasks.filter((t) => ruleStatusOf(t) === 'paused').length
+  const agentEnabled = _agents.filter((a) => !a.paused).length
+  const agentPaused = _agents.filter((a) => a.paused).length
+  setEl('statActive', taskEnabled + agentEnabled)
+  setEl('statPaused', taskPaused + agentPaused)
+  setEl('statTotal', _tasks.length + _agents.length)
   updateSchedulerUI()
 }
 function setEl(id, val) { const el = q(`#${id}`); if (el) el.textContent = val }
+
+/** 员工上班节奏不在本页编辑：跳员工详情页改排班。 */
+function navigateToAgent(code) {
+  const id = String(code || '').trim()
+  if (!id) return
+  window.location.hash = `#/proactive/${encodeURIComponent(id)}`
+}
+
+/** 员工巡检开关：suspended=true 表示暂停自动巡检（人还在岗，只是不再自己找活）。 */
+async function setAgentPatrol(code, suspended) {
+  const id = String(code || '').trim()
+  if (!id) return
+  try {
+    if (suspended) await api.proactivePauseRole(id)
+    else await api.proactiveResumeRole(id)
+    toast(suspended ? '已暂停巡检：不会再自动找活' : '已恢复巡检', 'success')
+    await refresh()
+  } catch (e) {
+    toast(`操作失败：${e?.message || e}`, 'error')
+  }
+}
 
 async function startScheduler() {
   try {
@@ -826,6 +953,38 @@ async function startScheduler() {
   } catch (e) {
     toast('启动失败：' + (e?.message || e), 'error')
   }
+}
+
+/** 顶栏刷新：只转按钮，不闪整页；失败给一条 toast。 */
+async function handleRefresh(btnEl) {
+  if (btnEl) {
+    btnEl.disabled = true
+    btnEl.classList.add('is-spinning')
+  }
+  try {
+    await refresh()
+  } catch (e) {
+    toast('刷新失败：' + (e?.message || e), 'error')
+  } finally {
+    if (btnEl) {
+      btnEl.disabled = false
+      btnEl.classList.remove('is-spinning')
+    }
+  }
+}
+
+/** 常见节奏 → 直接带预填内容打开新建表单。 */
+async function openIdea(key) {
+  const idea = CRON_IDEAS.find((item) => item.key === String(key || ''))
+  if (!idea) return
+  _editingId = null
+  _scheduleCtrl = createSchedulePanel({ schedule: idea.cron, tone: 'task' })
+  await showModalForm('新建定时任务', {
+    name: idea.name,
+    prompt: idea.prompt,
+    max_duration_minutes: 30,
+    schedule_type: 'recurring',
+  })
 }
 
 // ══════════════════════════════════════
@@ -919,110 +1078,277 @@ function renderList() {
   const list = q('#cronList')
   if (!list) return
   const pagerWrap = q('#cronListPager')
-  if (!_tasks.length) {
+  if (!_tasks.length && !_agents.length) {
     list.innerHTML = renderEmpty()
     if (pagerWrap) pagerWrap.innerHTML = ''
     return
   }
-  const paged = paginateItems(_tasks, _tasksPage, _tasksPageSize)
+  // 定时任务 + 员工上班节奏合成一张调度表：同构字段（计划 / 下次 / 上次），靠类型列区分。
+  const merged = _tasks
+    .map((t) => ({ ...t, kind: 'task' }))
+    .concat(_agents)
+    .filter((item) => _kindFilter === 'all' || item.kind === _kindFilter)
+  const paged = paginateItems(merged, _tasksPage, _tasksPageSize)
   _tasksPage = paged.page
   _tasksPageSize = paged.pageSize
-  list.innerHTML = paged.items.map((t) => renderCard(t)).join('')
+  // 任务少时下方补一栏「常见节奏」，用空白承载可执行入口，而不是留一整屏空白。
+  const ideas = paged.total <= 4 ? renderIdeas() : ''
+  list.innerHTML = `
+    <section class="cron-table">
+      <div class="cron-thead" aria-hidden="true">
+        <span class="cron-th cron-th--name">名称</span>
+        <span class="cron-th cron-th--kind">类型</span>
+        <span class="cron-th">执行计划</span>
+        <span class="cron-th">下次运行</span>
+        <span class="cron-th">上次结果</span>
+        <span class="cron-th cron-th--ops"></span>
+      </div>
+      ${paged.items.map((item) => (item.kind === 'agent' ? renderAgentRow(item) : renderRow(item))).join('')}
+    </section>
+    ${ideas}`
   if (pagerWrap) {
-    pagerWrap.innerHTML = renderListPagerHtml({
-      total: paged.total,
-      page: paged.page,
-      pageCount: paged.pageCount,
-      pageSize: paged.pageSize,
-      from: paged.from,
-      to: paged.to,
-      unit: '个',
-    })
-    bindListPager(pagerWrap, {
-      page: paged.page,
-      pageCount: paged.pageCount,
-      onPage: (next) => {
-        _tasksPage = next
-        renderList()
-      },
-      onPageSize: (nextSize) => {
-        _tasksPageSize = nextSize
-        _tasksPage = 1
-        writeStoredPageSize(CRON_TASKS_PAGE_SIZE_KEY, nextSize)
-        renderList()
-      },
-    })
+    // 单页时分页条只是噪音，直接不渲染。
+    if (paged.pageCount > 1) {
+      pagerWrap.innerHTML = renderListPagerHtml({
+        total: paged.total,
+        page: paged.page,
+        pageCount: paged.pageCount,
+        pageSize: paged.pageSize,
+        from: paged.from,
+        to: paged.to,
+        unit: '个',
+      })
+      bindListPager(pagerWrap, {
+        page: paged.page,
+        pageCount: paged.pageCount,
+        onPage: (next) => {
+          _tasksPage = next
+          renderList()
+        },
+        onPageSize: (nextSize) => {
+          _tasksPageSize = nextSize
+          _tasksPage = 1
+          writeStoredPageSize(CRON_TASKS_PAGE_SIZE_KEY, nextSize)
+          renderList()
+        },
+      })
+    } else {
+      pagerWrap.innerHTML = ''
+    }
   }
 }
 
+/** 空态：一句引导 + 可直接落地的常见节奏，避免大面积虚线框。 */
 function renderEmpty(msg) {
-  return `<div class="cron-empty"><h3>暂无自动化</h3><p>${msg || '点击「新建任务」创建你的第一个自动化调度任务'}</p></div>`
+  return `
+    <div class="cron-empty">
+      <div class="cron-empty-head">
+        <span class="cron-empty-icon" aria-hidden="true">${icon('clock', 18)}</span>
+        <div>
+          <h3>还没有自动化</h3>
+          <p>${esc(msg || '让重复的事自己跑：选一个下面的常见节奏，或新建一条自己的。')}</p>
+        </div>
+        <button type="button" class="cron-btn primary" data-action="create">${icon('plus-circle', 15)} 新建任务</button>
+      </div>
+      ${renderIdeas()}
+    </div>`
 }
 
-function renderCard(t) {
+/** 常见节奏卡片：点击后用该模板预填新建表单。 */
+function renderIdeas() {
+  return `
+    <section class="cron-ideas">
+      <h2 class="cron-section-title">常见节奏 <span>点一下就能按这个节奏建任务</span></h2>
+      <div class="cron-grid cron-grid--ideas">
+        ${CRON_IDEAS.map(
+          (idea) => `
+          <button type="button" class="cron-idea" data-idea="${esc(idea.key)}">
+            <span class="cron-idea-icon" aria-hidden="true">${icon(idea.icon, 15)}</span>
+            <span class="cron-idea-body">
+              <span class="cron-idea-name">${esc(idea.name)}</span>
+              <span class="cron-idea-desc">${esc(idea.desc)}</span>
+            </span>
+            <span class="cron-idea-when">${esc(idea.when)}</span>
+          </button>`,
+        ).join('')}
+      </div>
+    </section>`
+}
+
+/**
+ * 员工上班节奏 → 与定时任务同构的列表行。
+ * 只收录「有明确下次心跳」或「排班开启」的在岗员工，避免把没排班的员工塞进调度列表。
+ */
+function normalizeAgentSchedules(payload) {
+  const list = Array.isArray(payload) ? payload : payload?.roles || []
+  const rows = []
+  for (const role of list) {
+    const code = String(role?.agent_code || '').trim()
+    if (!code) continue
+    const cfg = role?.config || {}
+    const scheduleEnabled = cfg.work_schedule_enabled !== false
+    const nextAt = String(role?.next_heartbeat_at || '').trim()
+    if (!scheduleEnabled && !nextAt) continue
+    if (String(role?.status || '').toLowerCase() === 'archived') continue
+    const suspended = !!(role?.auto_patrol_suspended || cfg.auto_patrol_suspended)
+    rows.push({
+      kind: 'agent',
+      id: code,
+      name: String(role?.role_name || role?.agent_name || code).trim() || code,
+      desc: String(role?.agent_description || '').split(String.fromCharCode(10))[0].trim(),
+      department: String(role?.department || '').trim(),
+      scheduleText: String(role?.schedule_summary || '').trim() || workHoursText(cfg),
+      nextRunAt: nextAt,
+      lastRunAt: String(role?.last_heartbeat_at || '').trim(),
+      lastRunStatus: String(role?.last_run_status || '').trim(),
+      paused: suspended || String(role?.status || '').toLowerCase() === 'paused',
+      scheduleEnabled,
+      live: !!role?.within_work_hours,
+    })
+  }
+  // 未排班的员工排在末尾：它们是「没在自动化」的存量，不该抢占前排。
+  rows.sort((a, b) => Number(a.paused) - Number(b.paused))
+  return rows
+}
+
+function workHoursText(cfg) {
+  const start = Number(cfg?.work_start_hour)
+  const end = Number(cfg?.work_end_hour)
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return '未排班'
+  const pad = (n) => String(n).padStart(2, '0')
+  return `每天 ${pad(start)}:00–${pad(end)}:00`
+}
+
+function formatShortClock(raw) {
+  if (!raw) return ''
+  try {
+    const d = new Date(raw)
+    if (Number.isNaN(d.getTime())) return String(raw)
+    const now = new Date()
+    const sameYear = d.getFullYear() === now.getFullYear()
+    const md = `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    const day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const that0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+    const diffDays = Math.round((that0 - day0) / 86400000)
+    const dayText = diffDays === 0 ? '今天' : diffDays === 1 ? '明天' : diffDays === -1 ? '昨天' : md
+    return sameYear || diffDays >= -1 ? `${dayText} ${hm}` : `${d.getFullYear()}-${md} ${hm}`
+  } catch {
+    return String(raw)
+  }
+}
+
+/** 行式渲染：一容器多行、列对齐，操作 hover 浮出，信息密度优先。 */
+function renderRow(t) {
   const ruleSt = ruleStatusOf(t)
   const isPaused = ruleSt === 'paused'
+  const isError = ruleSt === 'config_error'
   const humanSchedule = humanScheduleForCard(t)
   const live = hasLiveRun(t)
-  const badgeClass = ruleSt === 'paused' ? 'badge-paused' : (ruleSt === 'config_error' ? 'badge-error' : 'badge-active')
+  const badgeClass = isPaused ? 'badge-paused' : isError ? 'badge-error' : 'badge-active'
   const badgeText = formatRuleStatusZh(t)
-  const lastResult = t.last_run_status ? formatRunStatusZh(t.last_run_status) : '—'
-  const lastDur = t.last_run_duration_seconds != null && t.last_run_at
-    ? formatDurationSec(t.last_run_duration_seconds)
-    : '—'
+  const lastResult = t.last_run_status ? formatRunStatusZh(t.last_run_status) : ''
+  const lastDur =
+    t.last_run_duration_seconds != null && t.last_run_at
+      ? formatDurationSec(t.last_run_duration_seconds)
+      : ''
+  const nextRun = nextRunLabel(t)
+  const nextRunShort = t.next_run_at && nextRun !== '—' && !/['未']['启']['动']/i.test(nextRun)
+    ? formatShortClock(t.next_run_at) || nextRun
+    : nextRun
+  const lastRunShort = t.last_run_at ? formatShortClock(t.last_run_at) : ''
   const id = esc(t.id)
   const busy = _runningTaskIds.has(String(t.id))
+  const contentText = t.app_id ? t.app_name || t.app_id : t.prompt || ''
+  const lastCell = t.last_run_at
+    ? `${lastRunShort} · <span class="cron-last-status cron-last-status--${esc(normalizeRunStatus(t.last_run_status))}">${esc(lastResult)}</span>${lastDur ? ` · ${esc(lastDur)}` : ''}`
+    : '<span class="cron-last-never">未运行过</span>'
 
   return `
-    <div class="cron-card ${isPaused ? 'paused' : ''}" data-task-id="${id}">
-      <div class="cron-card-header">
-        <div class="cron-card-left">
-          <div class="cron-card-name-wrap">
-            <h3 class="cron-card-name">${esc(t.name)}</h3>
-            ${live ? '<span class="cron-live-pill">运行中</span>' : ''}
-          </div>
+    <article class="cron-row${isPaused ? ' is-paused' : ''}${live ? ' is-live' : ''}" data-task-id="${id}">
+      <div class="cron-row-main">
+        <div class="cron-row-name-wrap">
+          <span class="cron-name-dot${isError ? ' is-error' : isPaused ? ' is-paused' : ' is-ok'}" aria-hidden="true"></span>
+          <h3 class="cron-row-name" title="${esc(t.name)}">${esc(t.name)}</h3>
+          ${live ? '<span class="cron-live-pill">运行中</span>' : ''}
+          ${ruleSt === 'enabled' ? '' : `<span class="cron-badge ${badgeClass}">${badgeText}</span>`}
+          ${t.feishu_push_enabled ? `<span class="cron-push-chip" title="${esc(pushTargetLabel(t, _pushTargetsCache))}">${icon('send', 11)} 推送</span>` : ''}
         </div>
-        <span class="cron-badge ${badgeClass}">${badgeText}</span>
+        ${contentText ? `<p class="cron-row-desc" title="${esc(contentText)}">${esc(contentText)}</p>` : ''}
       </div>
-      <div class="cron-card-body cron-card-body--meta">
-        <div>
-          <div class="cron-field-label">执行计划</div>
-          <div class="cron-field-value">${esc(humanSchedule)}</div>
-        </div>
-        <div>
-          <div class="cron-field-label">下次运行</div>
-          <div class="cron-field-value">${esc(nextRunLabel(t))}</div>
-        </div>
-        <div>
-          <div class="cron-field-label">上次运行</div>
-          <div class="cron-field-value">${esc(t.last_run_at ? formatClock(t.last_run_at) : '—')}</div>
-        </div>
-        <div>
-          <div class="cron-field-label">上次结果</div>
-          <div class="cron-field-value">${esc(lastResult)}${lastDur !== '—' ? ` · ${esc(lastDur)}` : ''}</div>
-        </div>
+      <div class="cron-cell cron-cell--kind"><span class="cron-kind cron-kind--task">${icon('clock', 11)} 定时任务</span></div>
+      <div class="cron-cell cron-cell--sched">
+        <span class="cron-cell-main">${icon('clock', 13)}<span title="${esc(humanSchedule)}">${esc(humanSchedule)}</span></span>
       </div>
-      <div style="margin-top:6px;">
-        <div class="cron-field-label">${t.app_id ? '绑定工作流' : '任务描述'}</div>
-        <div class="cron-prompt-preview">${esc(t.app_id ? (t.app_name || t.app_id) : (t.prompt || '—'))}</div>
+      <div class="cron-cell">
+        ${nextRunShort && nextRunShort !== '—' ? `<span class="cron-cell-main cron-next" title="${esc(nextRun)}">${esc(nextRunShort)}</span>` : '<span class="cron-cell-muted">—</span>'}
       </div>
-      ${t.feishu_push_enabled ? `<div style="margin-top:8px;font-size:12px;color:var(--accent, #3b82f6);">\u{1F4E8} ${esc(pushTargetLabel(t, _pushTargetsCache))}</div>` : ''}
-      ${t.agent_code ? `<div style="margin-top:4px;font-size:11px;color:var(--text-tertiary, #94a3b8);">\u{1F916} ${esc(t.agent_code)}${t.model_name ? ' · ' + esc(t.model_name) : ''}</div>` : ''}
-      <div class="cron-card-actions">
-        <button type="button" class="cron-btn sm primary" data-action="run" data-id="${id}" ${busy ? 'disabled' : ''}>${busy ? '提交中…' : '立即运行'}</button>
-        ${isPaused
-          ? `<button type="button" class="cron-btn sm success" data-action="resume" data-id="${id}">启用规则</button>`
-          : `<button type="button" class="cron-btn sm" data-action="pause" data-id="${id}">暂停规则</button>`}
-        <button type="button" class="cron-btn sm" data-action="runs" data-id="${id}">运行记录</button>
-        <button type="button" class="cron-btn sm" data-action="edit" data-id="${id}">编辑</button>
+      <div class="cron-cell cron-cell--last" title="${t.last_run_at ? `${esc(lastResult)}${lastDur ? ` · ${esc(lastDur)}` : ''}` : ''}">${lastCell}</div>
+      <div class="cron-row-ops">
+        <button type="button" class="cron-btn sm primary" data-action="run" data-id="${id}" ${busy ? 'disabled' : ''}>${busy ? '提交中…' : '运行'}</button>
         <div class="cron-more">
-          <button type="button" class="cron-btn sm" data-action="toggle-more" aria-haspopup="menu" aria-expanded="false">更多</button>
+          <button type="button" class="cron-icon-btn" data-action="toggle-more" aria-haspopup="menu" aria-expanded="false" aria-label="更多操作" title="更多">${icon('gear', 15)}</button>
           <div class="cron-more-panel" role="menu" hidden>
-            <button type="button" class="cron-more-item danger" role="menuitem" data-action="delete" data-id="${id}">删除规则</button>
+            <button type="button" class="cron-more-item" role="menuitem" data-action="edit" data-id="${id}">${icon('edit', 14)} 编辑规则</button>
+            <button type="button" class="cron-more-item" role="menuitem" data-action="runs" data-id="${id}">${icon('list', 14)} 运行记录</button>
+            ${
+              isPaused
+                ? `<button type="button" class="cron-more-item" role="menuitem" data-action="resume" data-id="${id}">${icon('play', 14)} 启用规则</button>`
+                : `<button type="button" class="cron-more-item" role="menuitem" data-action="pause" data-id="${id}">${icon('pause', 14)} 暂停规则</button>`
+            }
+            <button type="button" class="cron-more-item danger" role="menuitem" data-action="delete" data-id="${id}">${icon('trash', 14)} 删除规则</button>
           </div>
         </div>
       </div>
-    </div>`
+    </article>`
+}
+
+/** 员工上班行：与定时任务同列结构，操作跳转员工页（调度在其详情里配）。 */
+function renderAgentRow(a) {
+  const id = esc(a.id)
+  const nextText = a.nextRunAt ? formatShortClock(a.nextRunAt) : ''
+  const lastText = a.lastRunAt ? formatShortClock(a.lastRunAt) : ''
+  // 员工没有「成功/失败」的运行结果，这一列表达的是上次心跳 + 当前是否在岗。
+  const lastLabel = a.paused ? '已暂停' : a.live ? '上班中' : '上次心跳'
+  // 行内第二行只放调度相关上下文；角色说明属于员工页，不放这里。
+  const subLine = [a.department, a.scheduleEnabled ? '' : '未开启排班'].filter(Boolean).join(' · ')
+  const statusClass = a.paused ? '--queued' : a.live ? '--running' : '--idle'
+  return `
+    <article class="cron-row cron-row--agent${a.paused ? ' is-paused' : ''}${a.live ? ' is-live' : ''}" data-agent-code="${id}">
+      <div class="cron-row-main">
+        <div class="cron-row-name-wrap">
+          <span class="cron-name-dot${a.paused ? ' is-paused' : a.live ? ' is-ok' : ''}" aria-hidden="true"></span>
+          <h3 class="cron-row-name" title="${esc(a.name)}">${esc(a.name)}</h3>
+          ${a.paused ? '<span class="cron-badge badge-paused">已暂停</span>' : ''}
+          ${a.department ? `<span class="cron-push-chip">${esc(a.department)}</span>` : ''}
+        </div>
+        ${subLine ? `<p class="cron-row-desc" title="${esc(subLine)}">${esc(subLine)}</p>` : ''}
+      </div>
+      <div class="cron-cell cron-cell--kind"><span class="cron-kind cron-kind--agent">${icon('swords', 11)} 员工上班</span></div>
+      <div class="cron-cell cron-cell--sched">
+        <span class="cron-cell-main">${icon('clock', 13)}<span title="${esc(a.scheduleText)}">${esc(a.scheduleText)}</span></span>
+      </div>
+      <div class="cron-cell">
+        ${nextText ? `<span class="cron-cell-main cron-next">${esc(nextText)}</span>` : '<span class="cron-cell-muted">—</span>'}
+      </div>
+      <div class="cron-cell cron-cell--last" title="${esc(lastText)}">
+        ${lastText ? `${esc(lastText)} · <span class="cron-last-status${statusClass ? ` cron-last-status${statusClass}` : ''}">${esc(lastLabel)}</span>` : '<span class="cron-last-never">还没上过班</span>'}
+      </div>
+      <div class="cron-row-ops">
+        <button type="button" class="cron-btn sm" data-action="open-agent" data-id="${id}">排班</button>
+        <div class="cron-more">
+          <button type="button" class="cron-icon-btn" data-action="toggle-more" aria-haspopup="menu" aria-expanded="false" aria-label="更多操作" title="更多">${icon('gear', 15)}</button>
+          <div class="cron-more-panel" role="menu" hidden>
+            <button type="button" class="cron-more-item" role="menuitem" data-action="open-agent" data-id="${id}">${icon('edit', 14)} 打开员工页</button>
+            ${
+              a.paused
+                ? `<button type="button" class="cron-more-item" role="menuitem" data-action="resume-agent" data-id="${id}">${icon('play', 14)} 恢复巡检</button>`
+                : `<button type="button" class="cron-more-item" role="menuitem" data-action="pause-agent" data-id="${id}">${icon('pause', 14)} 暂停巡检</button>`
+            }
+          </div>
+        </div>
+      </div>
+    </article>`
 }
 
 /** 列表卡片：自然语言计划；从不展示 RRULE / 原始 cron */
@@ -1403,7 +1729,7 @@ async function showModalForm(title, existing = null) {
       </div>
       <div class="cron-modal-footer">
         <button class="cron-btn" id="modalCancelBtn">\u53D6\u6D88</button>
-        <button class="cron-btn primary" id="modalSaveBtn">${existing ? '\u4FDD\u5B58\u4FEE\u6539' : '\u521B\u5EFA\u4EFB\u52A1'}</button>
+        <button class="cron-btn primary" id="modalSaveBtn">${_editingId ? '\u4FDD\u5B58\u4FEE\u6539' : '\u521B\u5EFA\u4EFB\u52A1'}</button>
       </div>
     </div>
   `
