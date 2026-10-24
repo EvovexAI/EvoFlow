@@ -1676,6 +1676,26 @@ async def automation_tick() -> None:
         fired_ids.append(task_id)
         logger.info("automation_runner: fired done task_id=%s name=%r", task_id, task.get("name", ""))
 
+    # D3: compensate runs missed while the Gateway was down. The gap is
+    # measured against the persisted last-tick stamp, so closing the desktop
+    # app no longer silently drops scheduled runs.
+    catchup_fired: list[str] = []
+    catchup_reasons: list[str] = []
+    if active_pairs:
+        try:
+            catchup_fired, catchup_reasons = await _run_catchup_missed_runs(active_pairs, service, now=now)
+        except Exception:
+            logger.exception("automation_tick: catch-up check failed")
+            catchup_reasons = ["catchup:error"]
+        if catchup_fired:
+            fired_ids.extend(catchup_fired)
+            logger.warning(
+                "automation_runner: catch-up compensated %d missed run(s): %s",
+                len(catchup_fired),
+                ", ".join(catchup_fired),
+            )
+    skipped_reasons.extend(catchup_reasons)
+
     _last_tick_info = {
         "tick_iso": tick_iso,
         "slot": slot,
@@ -1685,7 +1705,11 @@ async def automation_tick() -> None:
         "channel_service_running": channel_ok,
         "skipped_reasons_sample": skipped_reasons[:12],
         "skipped_reasons_total": len(skipped_reasons),
+        "catchup_fired_task_ids": catchup_fired,
+        "schedule_conflicts": schedule_conflicts,
     }
+    # Persist the tick stamp so the next process start can detect the gap.
+    _record_scheduler_tick(now)
 
     logger.debug(
         "automation_tick end slot=%s files=%d active=%d fired=%s channel_ok=%s (HTTP GET /api/automation/scheduler/status → last_tick)",

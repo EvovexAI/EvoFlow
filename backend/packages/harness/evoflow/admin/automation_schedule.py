@@ -782,19 +782,14 @@ def rrule_human_summary(rrule_str: str) -> str:
 def enrich_automation_for_api(task: dict[str, Any], *, latest_run: dict[str, Any] | None = None) -> dict[str, Any]:
     """Attach schedule_summary / next_run / last_run fields for EvoPanel cards."""
     row = dict(task)
-    sched = str(row.get("schedule") or "").strip()
-    # Prefer 5-field cron; if schedule is RRULE-only, derive cron for display/runner hints
-    if not is_five_field_cron_or_keyword(sched):
-        rr = str(row.get("rrule") or "").strip()
-        if "FREQ=" in sched.upper():
-            rr = sched
-        derived = rrule_to_cron(rr) if rr else ""
-        if is_five_field_cron_or_keyword(derived):
-            row["schedule_cron"] = derived
-        else:
-            row["schedule_cron"] = ""
-    else:
-        row["schedule_cron"] = sched
+    # D2: use the shared resolver so the card shows exactly the cron the
+    # runner will fire on (previously this re-implemented the priority rule
+    # and could disagree with the runner).
+    resolved = resolve_effective_schedule(row)
+    row["schedule_cron"] = str(resolved.get("cron") or "")
+    row["schedule_source"] = str(resolved.get("source") or "none")
+    row["schedule_conflict"] = bool(resolved.get("conflict"))
+    row["schedule_conflict_detail"] = str(resolved.get("conflict_detail") or "")
 
     row["schedule_summary"] = schedule_summary_for_task(row)
 
