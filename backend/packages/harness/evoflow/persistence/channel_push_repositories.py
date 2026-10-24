@@ -332,15 +332,27 @@ def mirror_channel_push_to_chat(*, push_id: str = "", **kwargs: Any) -> None:
     Writes into ``proactive:{role}`` and, when a Feishu chat target is known,
     also ``agent:{bot}:feishu:{receive_id}`` so the IM session trail matches
     ordinary user/model dialogue storage.
+
+    Stream patches (``card_patched`` / partial ``im_message``) stay audit-only in
+    ``evoflow_channel_push_log``. Mirroring them produced a second Panel bubble
+    like ``[feishu·im_message]\\n我是`` before the real ChannelManager final reply.
     """
     direction = str(kwargs.get("direction") or "outbound").strip().lower() or "outbound"
     event = str(kwargs.get("event") or "").strip().lower()
-    # Skip noisy non-interaction rows
-    if event and event not in {"sent", "send_failed", "callback", "card_patched"}:
+    # Skip noisy non-interaction rows. card_patched is audited via record_push but
+    # must not become a chat bubble (partial stream text).
+    if event == "card_patched":
+        return
+    if event and event not in {"sent", "send_failed", "callback"}:
         return
 
     channel = str(kwargs.get("channel") or "feishu").strip() or "feishu"
     kind = str(kwargs.get("kind") or "").strip()
+    # Normal IM turns are already written by ChannelManager transcript hooks.
+    # Mirroring final stream cards again duplicates the assistant reply under a
+    # ``[feishu·im_message]`` / ``[feishu·stream_card]`` wrapper.
+    if direction == "outbound" and kind in {"im_message", "stream_card", "stream_empty"}:
+        return
     role_code = str(kwargs.get("role_agent_code") or "").strip()
     approval_id = str(kwargs.get("approval_id") or "").strip()
     receive_id = str(kwargs.get("receive_id") or "").strip()
