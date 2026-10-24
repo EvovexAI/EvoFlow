@@ -134,11 +134,38 @@ export default defineConfig(({ mode }) => {
     })
   }
 
+  /** 把 Excel WASM 同步到 public/office，供 PreviewPane 用稳定 URL 拉取（避免 /node_modules 404）。 */
+  function copyOfficeXlsxWasmPlugin() {
+    const src = path.resolve(
+      __dirname,
+      'node_modules/@extend-ai/react-xlsx/dist/duke_sheets_wasm_bg.wasm',
+    )
+    const destDir = path.resolve(__dirname, 'public/office')
+    const dest = path.join(destDir, 'duke_sheets_wasm_bg.wasm')
+    const sync = () => {
+      if (!fs.existsSync(src)) {
+        console.warn(`[vite] Excel WASM missing: ${src}`)
+        return
+      }
+      fs.mkdirSync(destDir, { recursive: true })
+      fs.copyFileSync(src, dest)
+    }
+    return {
+      name: 'copy-office-xlsx-wasm',
+      buildStart() {
+        sync()
+      },
+      configureServer() {
+        sync()
+      },
+    }
+  }
+
   return {
     // Keep Vite cache outside node_modules: on Windows, concurrent Tauri cargo build +
     // beforeDevCommand can lock node_modules/.vite/deps_temp_* (Access denied on *.map).
     cacheDir: path.resolve(__dirname, '.vite-cache'),
-    plugins: [react(), tailwindcss(), devApiPlugin()],
+    plugins: [react(), tailwindcss(), devApiPlugin(), copyOfficeXlsxWasmPlugin()],
     worker: {
       format: 'es',
     },
@@ -190,6 +217,8 @@ export default defineConfig(({ mode }) => {
         { find: /^dayjs\/plugin\/(.+?)(?:\.js)?$/, replacement: `${dayjsEsmDir}/plugin/$1/index.js` },
       ],
     },
+    // Office Excel WASM（@extend-ai/react-xlsx / @dukelib/sheets-wasm）需按静态资源处理。
+    assetsInclude: ['**/*.wasm'],
     optimizeDeps: {
       include: [
         'react',
@@ -204,7 +233,13 @@ export default defineConfig(({ mode }) => {
       // Mermaid brings ESM-only deps (e.g. @mermaid-js/parser) that can break esbuild pre-bundle
       // in some environments (Tauri beforeDevCommand on Windows). Now we pre-bundle mermaid itself
       // and exclude only its parser dep.
-      exclude: ['@mermaid-js/parser', 'dompurify'],
+      // Excel WASM：预打包会弄坏 worker/wasm URL（import.meta.url），交给 Vite 原生 ESM。
+      exclude: [
+        '@mermaid-js/parser',
+        'dompurify',
+        '@extend-ai/react-xlsx',
+        '@dukelib/sheets-wasm',
+      ],
       esbuildOptions: {
         // esbuild scans Mermaid's static import before Vite's resolve.alias plugins run.
         // Redirect the UMD-only fastdom extension to our ESM-compatible stub during pre-bundling.

@@ -19,6 +19,13 @@ import {
   isTaskCancellableStatus,
   countPausableByScope,
 } from '../lib/task-status-label.js'
+import {
+  asActiveSessionList,
+  buildActiveSessionIndex,
+  displayTaskStatusZh,
+  renderRuntimeHealthChip,
+  resolveTaskRuntimeHealth,
+} from '../lib/task-runtime-health.js'
 import { normalizeTaskSource, formatTaskSourceZh } from '../lib/task-source.js'
 import { resolveAssignedAgentDisplayName } from '../lib/tool-display.js'
 import { taskSummaryPreview } from '../lib/task-summary.js'
@@ -444,6 +451,8 @@ export async function render() {
     ledger: 'tasks', // tasks | items
     todoTab: false, // tab=todo 视图：只展示 pending/executing 未完成任务
     _itemsCtl: null,
+    /** @type {{ byThread: Map<string, any>, byTaskId: Map<string, any> } | null} */
+    runtimeIndex: null, // 活跃会话索引 → 在跑 / 已中断
   }
   const bootQuery = readTasksQueryFromHash()
   applyTasksQueryToState(state, bootQuery)
@@ -1458,7 +1467,10 @@ function renderRegisterDateCell(task) {
   return `<span class="tl-reg-stack"><span class="tl-reg-date">${escapeHtml(date)}</span><span class="tl-reg-time">${escapeHtml(time)}</span></span>`
 }
 
-function ledgerCompletionStatus(task) {
+function ledgerCompletionStatus(task, state = null) {
+  if (resolveTaskRuntimeHealth(task, state?.runtimeIndex) === 'interrupted') {
+    return { key: 'interrupted', label: '已中断', tone: 'interrupted' }
+  }
   const u = toUnifiedTaskStatus(task?.status)
   if (u === 'completed') return { key: 'done', label: '已完成', tone: 'done' }
   if (u === 'cancelled') return { key: 'cancelled', label: '已取消', tone: 'muted' }
@@ -1479,14 +1491,16 @@ function taskProgressPercent(task) {
   return 0
 }
 
-/** 与工作流节点相同的进度条：执行中走黄→紫冲击波扫描 */
-function renderProgressBar(task, { compact = false } = {}) {
+/** 与工作流节点相同的进度条：仅「在跑」才做冲击波；已中断静止 */
+function renderProgressBar(task, { compact = false, state = null } = {}) {
   const pct = taskProgressPercent(task)
   const u = toUnifiedTaskStatus(task?.status)
-  const buffering = u === 'running' && pct < 100
+  const health = resolveTaskRuntimeHealth(task, state?.runtimeIndex)
+  const buffering = health === 'live' && u === 'running' && pct < 100
   const mods = [
     compact ? 'tl-progbar--card' : '',
     buffering ? 'is-live' : '',
+    health === 'interrupted' ? 'is-interrupted' : '',
     u === 'completed' ? 'is-done' : '',
     u === 'failed' ? 'is-failed' : '',
     u === 'cancelled' ? 'is-muted' : '',
@@ -1497,8 +1511,8 @@ function renderProgressBar(task, { compact = false } = {}) {
   </div>`
 }
 
-function renderProgressText(task) {
-  return renderProgressBar(task)
+function renderProgressText(task, state = null) {
+  return renderProgressBar(task, { state })
 }
 
 function renderPriorityBadge(task) {
@@ -1659,7 +1673,7 @@ function renderAttentionTaskRow(t, state) {
   const title = String(t.name || t.title || t.id || '未命名').trim()
   return `
     <tr class="tl-row tl-row--clickable" data-action="open" data-id="${escapeHtml(t.id)}" title="${escapeHtml(title)}">
-      <td class="tl-col-status">${statusDot(t.status)}</td>
+      <td class="tl-col-status">${statusDot(t.status, t, state)}</td>
       <td class="tl-col-role" title="${escapeHtml(title)}">${escapeHtml(title.slice(0, 28))}${title.length > 28 ? '…' : ''}</td>
       <td class="tl-col-agent" title="${escapeHtml(agentLabel || roleLabel)}">${agentLabel || roleLabel ? escapeHtml(agentLabel || roleLabel) : '<span class="tl-empty">—</span>'}</td>
       <td class="tl-col-prog">${renderProgBlock(t)}</td>
@@ -2255,15 +2269,21 @@ async function loadTasks(page, state, opts = {}) {
     const mapsPromise = ensureDisplayMaps(state)
     const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
     const warmList = takeNavWarm('tasks:list')
-    const resp =
+    const [resp, sessionsRes] = await Promise.all([
       warmList ||
-      (await api.listAllTasks({
-        hide_noise: state.showPatrol ? 'false' : 'true',
-      }))
+        api.listAllTasks({
+          hide_noise: state.showPatrol ? 'false' : 'true',
+        }),
+      // null = probe failed → keep prior index (avoid marking everything 已中断)
+      api.getActiveSessions({}).catch(() => null),
+    ])
     await mapsPromise
     // API returns { success: true, data: { tasks: [...], total: n } }
     const tasks = Array.isArray(resp) ? resp : (resp.data?.tasks || [])
     state.tasks = tasks
+    if (sessionsRes != null) {
+      state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+    }
     updatePageView(page, state)
     void loadApprovals(page, state)
     void loadUpcomingAutomations(page, state)
@@ -2424,8 +2444,18 @@ function renderTaskTable(rowsHtml, state, opts = {}) {
   </table></div>`
 }
 
-/** 状态色点 + 文字（统一展示态） */
-function statusDot(status) {
+/** 运行时存活芯片（在跑 / 已中断）；非进行中任务不展示 */
+function runtimeChipHtml(task, state) {
+  const health = resolveTaskRuntimeHealth(task, state?.runtimeIndex)
+  return renderRuntimeHealthChip(health, escapeHtml)
+}
+
+/** 状态色点 + 文字（统一展示态）+ 可选「在跑」芯片；已中断提升为主文案 */
+function statusDot(status, task = null, state = null) {
+  const health = task ? resolveTaskRuntimeHealth(task, state?.runtimeIndex) : 'n/a'
+  if (health === 'interrupted') {
+    return `<span class="tl-status tl-status--interrupted" title="账本仍为执行中，但未检测到活跃会话"><span class="tl-dot"></span>${escapeHtml('已中断')}</span>`
+  }
   const u = toUnifiedTaskStatus(status)
   const tone = {
     inbox: 'planning',
@@ -2438,7 +2468,9 @@ function statusDot(status) {
     failed: 'failed',
     cancelled: 'cancelled',
   }[u] || 'pending'
-  return `<span class="tl-status tl-status--${tone}"><span class="tl-dot"></span>${escapeHtml(formatUnifiedStatusZh(status))}</span>`
+  const label = displayTaskStatusZh(task, state?.runtimeIndex, formatUnifiedStatusZh(status))
+  const chip = task ? runtimeChipHtml(task, state) : ''
+  return `<span class="tl-status tl-status--${tone}"><span class="tl-dot"></span>${escapeHtml(label)}${chip}</span>`
 }
 
 /** 按状态的主操作按钮 */
@@ -2549,12 +2581,12 @@ function renderTaskCard(t, state, rowMeta = null) {
       <div class="tasks-card-top">
         ${check}
         ${toggle}
-        ${statusDot(t.status)}
+        ${statusDot(t.status, t, state)}
         ${timeLabel ? `<span class="tasks-card-time">${escapeHtml(timeLabel)}</span>` : ''}
       </div>
       <button type="button" class="tasks-card-title" data-action="open" data-id="${t.id}">${escapeHtml(displayName)}</button>
       ${group === 'executing' || group === 'planning' || (taskProgressPercent(t) > 0 && group !== 'pending')
-        ? renderProgressBar(t, { compact: true })
+        ? renderProgressBar(t, { compact: true, state })
         : ''}
       ${progressNl ? `<p class="tasks-card-summary" title="${escapeHtml(progressNl)}">${escapeHtml(progressNl)}</p>` : ''}
       ${rollupHint ? `<p class="tasks-card-downstream">${escapeHtml(rollupHint)}</p>` : ''}
@@ -2590,7 +2622,7 @@ function renderTaskRow(t, state, rowMeta = null) {
     ? `<td class="tl-col-check"><input type="checkbox" data-task-id="${t.id}" ${isSelected ? 'checked' : ''}></td>`
     : ''
   const idx = rowMeta?.rowIndex != null ? String(rowMeta.rowIndex) : (depth > 0 ? '' : '—')
-  const st = ledgerCompletionStatus(t)
+  const st = ledgerCompletionStatus(t, state)
 
   return `
     <tr class="tl-row tl-row--clickable${isFailed ? ' tl-row--failed' : ''}${isSelected ? ' tl-row--selected' : ''}${workflow ? ' tl-row--workflow' : ''}${depth > 0 ? ` tl-row--child tl-row--depth-${depth}` : ''}" data-id="${t.id}" data-action="open" data-depth="${depth}">
@@ -2610,8 +2642,8 @@ function renderTaskRow(t, state, rowMeta = null) {
           ${rollupHint ? `<p class="tl-downstream">${escapeHtml(rollupHint)}</p>` : ''}
         </div>
       </td>
-      <td class="tl-col-prog">${renderProgressText(t)}</td>
-      <td class="tl-col-status"><span class="tl-ledger-status tl-ledger-status--${st.tone}">${escapeHtml(st.label)}</span></td>
+      <td class="tl-col-prog">${renderProgressText(t, state)}</td>
+      <td class="tl-col-status"><span class="tl-status-stack"><span class="tl-ledger-status tl-ledger-status--${st.tone}">${escapeHtml(st.label)}</span>${st.key === 'interrupted' ? '' : runtimeChipHtml(t, state)}</span></td>
       <td class="tl-col-ops">
         <div class="tl-ops">
           ${renderTaskRowActions(t, state)}

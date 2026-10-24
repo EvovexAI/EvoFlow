@@ -52,6 +52,24 @@ def write_file_hd(
 
     try:
         p = resolved
+        label = format_tool_path_label(p, runtime=runtime) or path
+
+        # zcode Edit guard: overwriting (or appending to) an existing file
+        # requires a current full Read on record. Creating a new file is exempt.
+        if p.exists():
+            from evoflow.tools.zcode_port.read_file_state import edit_guard_failure
+
+            guard_err = edit_guard_failure(str(p))
+            if guard_err:
+                emit_write_progress(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    path=label,
+                    phase="error",
+                    message=guard_err,
+                    stream_writer=stream_writer,
+                )
+                return guard_err
 
         # Auto-create parent directories
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -69,7 +87,6 @@ def write_file_hd(
         encoded = final_content.encode("utf-8")
         total_bytes = len(encoded)
         total_lines = count_lines(final_content)
-        label = format_tool_path_label(p, runtime=runtime) or path
 
         # Emit "writing started" event immediately so UI transitions from
         # "args-streaming" to "disk-writing" (bytes-only — content already streamed
@@ -114,6 +131,11 @@ def write_file_hd(
 
         action = "appended to" if append else "wrote"
         result = f"OK: {action} {total_bytes} bytes to {label}"
+
+        # Refresh read state so consecutive edits need no re-Read (zcode semantics).
+        from evoflow.tools.zcode_port.read_file_state import note_write
+
+        note_write(str(p), content=final_content)
 
         # Final "done" event (carries no content_delta; modal already has it from args stream).
         emit_write_progress(

@@ -22,9 +22,17 @@ export function isBridgeDark(scope?: Element | null): boolean {
   if (typeof document === "undefined") return false;
   const root = nearestBridgeRoot(scope) || document.querySelector(`.${BRIDGE_ROOT_CLASS}`);
   const target = root || document.documentElement;
-  return (
-    target.classList.contains("dark") || target.classList.contains("theme-zai-dark")
-  );
+  if (target.classList.contains("dark") || target.classList.contains("theme-zai-dark")) {
+    return true;
+  }
+  // 容器上没有任何主题类时回退到宿主实际主题。
+  // EvoFlow 用 <html data-theme="dark"> 管明暗、且不会往 <html> 写 dark 类，
+  // 所以只看 classList 会让右侧面板恒判 light：shiki 出 github-light 的代码配色，
+  // 而容器背景来自暗色 token —— 表现就是「代码发白、看得见但看不清」。
+  // data-theme 挂在 <html> 上，桥接容器是 div，这里必须显式看文档根。
+  const hostTheme = document.documentElement.dataset?.theme;
+  if (hostTheme) return hostTheme === "dark";
+  return (target as HTMLElement).dataset?.theme === "dark";
 }
 
 /**

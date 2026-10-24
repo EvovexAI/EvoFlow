@@ -64,8 +64,9 @@ def test_write_creates_file_with_parent_dirs_then_read_roundtrip(tmp_path):
     assert target.exists()
     assert target.read_text(encoding="utf-8") == "hello evo\n"  # create_line 补尾换行
 
+    # 写入后 readFileState 已记录（zcode file_unchanged 语义）：立即重读返回短路标记
     back = read_file_hd.invoke({"path": str(target), "runtime": rt})
-    assert back == "hello evo\n"
+    assert back.startswith("Wasted call"), back
 
 
 def test_write_overwrite_backup_and_append(tmp_path):
@@ -95,6 +96,9 @@ def test_replace_unique_string_updates_file(tmp_path):
     rt = _rt(tmp_path)
     target = _mk(tmp_path, "app.py", "def main():\n    return 'old'\n")
 
+    # zcode Edit guard：编辑前必须 Read
+    read_file_hd.invoke({"path": str(target), "runtime": rt})
+
     out = _invoke_injected(str_replace_hd, path=str(target), old_string="'old'", new_string="'new'", runtime=rt)
     assert out.startswith("OK:"), out
     assert "Replaced 1 occurrence" in out
@@ -107,6 +111,9 @@ def test_replace_multi_match_refuses_and_dry_run_leaves_file_intact(tmp_path):
     rt = _rt(tmp_path)
     target = _mk(tmp_path, "dup.txt", "same token\nsame token\n")
     before = target.read_text(encoding="utf-8")
+
+    # zcode Edit guard：编辑前必须 Read
+    read_file_hd.invoke({"path": str(target), "runtime": rt})
 
     out = _invoke_injected(str_replace_hd, path=str(target), old_string="same token", new_string="x", runtime=rt)
     assert out.startswith("Error:"), out

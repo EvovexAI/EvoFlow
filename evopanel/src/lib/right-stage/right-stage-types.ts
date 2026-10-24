@@ -88,11 +88,14 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
     case 'write':
     case 'artifacts':
       return 'workspace-write'
-    case 'file':
     case 'browser':
     case 'news-dashboard':
     case 'web-embed':
       return 'wide'
+    // 文件 / 代码预览默认半宽：侧栏可读，不把主对话挤成窄条
+    case 'file':
+    case 'codeViewer':
+      return 'half'
     default:
       return 'half'
   }

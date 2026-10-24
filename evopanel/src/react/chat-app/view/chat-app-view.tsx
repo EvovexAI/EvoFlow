@@ -11,6 +11,10 @@ import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js
 import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
+import {
+  showRightStageCodeViewer,
+  showRightStageCodeViewers,
+} from '../../../lib/right-stage/open-right-stage-file.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
 import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
@@ -665,18 +669,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       draftEmpty={draftEmpty}
                       evoflowSessionKey={selectedSessionKey}
                       onOpenCodeViewer={(source) => {
-                        // ZCode CodeViewerSource → 右侧 codeViewer 面板
-                        //（vendor CodeViewer 渲染 patch diff，对齐 ZCode 侧栏）。
-                        rightStageStore.show({
-                          kind: 'codeViewer',
-                          id: `codeViewer:${String(source.path || source.title || 'diff').replace(/\\/g, '/')}`,
-                          title: source.title || '代码对比',
-                          layout: 'wide',
-                          sessionKey: selectedSessionKey || undefined,
-                          data: {
-                            source,
-                            threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
-                          },
+                        // 正文路径 pill / 工具卡 / Preview Card → 右栏（半宽侧栏，非全屏 modal）
+                        showRightStageCodeViewer(source, {
+                          sessionKey: selectedSessionKey,
+                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
                         })
                       }}
                       onToolApproval={onToolApprovalStable}
@@ -700,27 +696,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         })
                       }}
                       onAutoOpenCodeViewers={(sources) => {
-                        // 对话中自动触发（对齐 ZCode handleOpenCodeViewers）：
-                        // 逐个 show 进右侧面板（同 sourceKey 复用 tab），
-                        // 最后激活第一张（ZCode 批量打开 activeIndex=0 语义）。
-                        if (!sources?.length) return
-                        let firstKey: string | null = null
-                        for (const s of sources) {
-                          const id = `codeViewer:${String(s.path || s.title || 'diff').replace(/\\/g, '/')}`
-                          rightStageStore.show({
-                            kind: 'codeViewer',
-                            id,
-                            title: s.title || '代码对比',
-                            layout: 'wide',
-                            sessionKey: selectedSessionKey || undefined,
-                            data: {
-                              source: s,
-                              threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
-                            },
-                          })
-                          if (!firstKey) firstKey = `codeViewer:${id}`
-                        }
-                        if (firstKey) rightStageStore.activateTab(firstKey)
+                        showRightStageCodeViewers(sources, {
+                          sessionKey: selectedSessionKey,
+                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                        })
                       }}
                       toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={

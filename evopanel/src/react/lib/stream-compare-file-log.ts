@@ -726,6 +726,48 @@ export function threadIdFromV4Topic(topic: string): string {
 }
 
 /**
+ * V4 生命周期（打开会话 / 订阅 / 等首帧 / 卡住）：一行 JSON 写入 v4-recv.log。
+ * 不依赖 RUN_STARTED——历史会话打开也会落到 `pending` 或当前 active run。
+ */
+export function logStreamCompareV4Lifecycle(opts: {
+  event: string
+  sessionKey?: string
+  threadId?: string
+  detail?: Record<string, unknown>
+}): void {
+  if (!isStreamCompareFileLogOn()) return
+  const raw = String(opts.threadId || '').trim()
+  // transport 侧常传 topic `conversation/<uuid>`；统一抽成 threadId 再映射 session。
+  const threadId = threadIdFromV4Topic(raw) || raw
+  const mapped = threadId ? sessionByThreadId.get(threadId) || '' : ''
+  const sessionLogId = resolveLogSessionId(opts.sessionKey || mapped || activeSessionLogId)
+  if (!sessionLogId) return
+  if (threadId && !mapped) sessionByThreadId.set(threadId, sessionLogId)
+  showEnableBannerOnce()
+  const active = activeRunBySession.get(sessionLogId) || ''
+  const runLogId = active || 'pending'
+  const body: Record<string, unknown> = {
+    kind: 'lifecycle',
+    event: String(opts.event || '').trim() || 'unknown',
+    at: new Date().toISOString(),
+  }
+  if (threadId) body.threadId = threadId
+  if (opts.detail && typeof opts.detail === 'object') {
+    for (const [k, v] of Object.entries(opts.detail)) {
+      if (v !== undefined) body[k] = v
+    }
+  }
+  let line = ''
+  try {
+    line = JSON.stringify(body)
+  } catch {
+    line = shrink(body, 2000)
+  }
+  if (!line) return
+  void appendFileLine(sessionLogId, runLogId, 'v4-recv', line.slice(0, MAX_LINE))
+}
+
+/**
  * V4 wire：每帧一行 JSON，写入与本轮 sse-recv 同目录的 v4-recv.log。
  * topic → threadId → session；落盘到该 session 当前 active run（与 AG-UI 同轮对账）。
  */

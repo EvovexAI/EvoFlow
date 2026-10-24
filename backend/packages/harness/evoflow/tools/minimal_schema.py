@@ -4,16 +4,20 @@ from __future__ import annotations
 
 # One-line purpose only — routing policy stays in the system prompt.
 READ_TOOL_DESCRIPTION = (
-    "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol. "
-    "Reads PDFs via the `pages` parameter (e.g. \"1-5\", \"3\", \"10-\"; max 20 pages/request; "
-    "required for PDFs over 10 pages). "
-    "Office documents (doc/docx/ppt/pptx/xls/xlsx) are converted to markdown automatically "
-    "(offset/limit paginate the converted text); binary files are rejected with an error. "
-    "Image refs (jpg/jpeg/png/webp local paths, http(s) image URLs, browser-snapshot refs) are loaded "
-    "visually instead; accepts a single ref or a list of image refs (up to 8) in one call."
+    "Read a file (workspace path or skill:<name>/relative/path); optional offset, limit, or symbol.\n"
+    "Format handling:\n"
+    "- Images (jpg/jpeg/png/webp local paths, http(s) image URLs, browser-snapshot refs): "
+    "loaded visually, not as text; a single ref or a list of up to 8 in one call.\n"
+    "- PDF: text extracted per page (scanned/image-only pages yield no text); "
+    'use `pages` (e.g. "1-5", "3", "10-"; max 20 pages/request; required for PDFs over 10 pages).\n'
+    "- Office (doc/docx/ppt/pptx/xls/xlsx): converted to markdown automatically "
+    "(xlsx → per-sheet tables; docx → paragraphs; pptx → per-slide text); "
+    "offset/limit paginate the converted text.\n"
+    "- Everything else: read as UTF-8 text by line. Binary files (zip, exe, …) "
+    "are rejected with an error instead of garbage."
 )
-WRITE_TOOL_DESCRIPTION = "Write or append file content. Put path before content in tool arguments. Split very large files across calls with append=True."
-REPLACE_TOOL_DESCRIPTION = "Replace text in a file. Put path before old_string/new_string in tool arguments; old_string must be unique unless regex=True (dry_run to preview)."
+WRITE_TOOL_DESCRIPTION = "Write or append file content. Put path before content in tool arguments. Split very large files across calls with append=True. Overwriting an existing file requires Read first, or the call fails; re-Read if it changed since your last Read."
+REPLACE_TOOL_DESCRIPTION = "Replace text in a file. Put path before old_string/new_string in tool arguments; old_string must be unique unless regex=True (dry_run to preview). You must Read the file in this conversation before editing, or the call will fail; re-Read if it changed since your last Read."
 DELETE_TOOL_DESCRIPTION = "Delete a single file (not directories; system paths blocked)."
 
 RG_TOOL_DESCRIPTION = "Search file contents with ripgrep in the bound workspace. Uses native rg only (no FTS/index redirect); pipe in pattern is not search_code_index synonyms."

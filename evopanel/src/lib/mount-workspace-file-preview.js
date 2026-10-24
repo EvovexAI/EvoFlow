@@ -1,39 +1,12 @@
 /**
- * Mount the shared chat WorkspaceFilePreviewModal from vanilla JS pages
- * (task detail / employee work items).
+ * Open workspace file preview from vanilla JS pages (task detail / employee work items).
+ *
+ * Chat 正式路径已迁到右栏 `file` 标签；这里统一走同一入口，避免再弹近全屏 modal。
  */
-import { createElement } from 'react'
-import { createRoot } from 'react-dom/client'
-import { WorkspaceFilePreviewModal } from '../react/components/WorkspaceFilePreviewModal.tsx'
-
-/** @type {import('react-dom/client').Root | null} */
-let previewRoot = null
-/** @type {HTMLElement | null} */
-let previewHost = null
-
-function ensureHost() {
-  if (previewHost && previewRoot) return { host: previewHost, root: previewRoot }
-  const host = document.createElement('div')
-  host.className = 'td-workspace-file-preview-host'
-  document.body.appendChild(host)
-  const root = createRoot(host)
-  previewHost = host
-  previewRoot = root
-  return { host, root }
-}
-
-function teardown() {
-  if (previewRoot) {
-    try {
-      previewRoot.render(null)
-    } catch {
-      /* ignore */
-    }
-  }
-}
+import { showRightStageFilePreview } from './right-stage/open-right-stage-file.js'
+import { getCurrentRightStageSessionKey } from './right-stage/right-stage-scope.js'
 
 /**
- * Open the full-size workspace file preview modal (same UI as chat).
  * @param {{
  *   workspaceRoot: string
  *   path: string
@@ -42,35 +15,24 @@ function teardown() {
  *   workspaceScopeOpts?: { configuredRoot?: string, useVirtualPaths?: boolean }
  *   onClose?: () => void
  * }} opts
- * @returns {() => void} close handle
+ * @returns {() => void} close handle（右栏关闭由用户点标签；此处仅兼容旧调用方）
  */
 export function openWorkspaceFilePreviewModal(opts) {
-  const workspaceRoot = String(opts?.workspaceRoot || '').trim()
   const path = String(opts?.path || '').trim()
-  if (!workspaceRoot || !path) {
-    throw new Error('workspaceRoot and path are required')
+  if (!path) {
+    throw new Error('path is required')
   }
 
-  const { root } = ensureHost()
-  const close = () => {
-    teardown()
+  showRightStageFilePreview(path, {
+    name: opts?.name || undefined,
+    sessionKey: getCurrentRightStageSessionKey(),
+  })
+
+  return () => {
     try {
       opts?.onClose?.()
     } catch {
       /* ignore */
     }
   }
-
-  root.render(
-    createElement(WorkspaceFilePreviewModal, {
-      workspaceRoot,
-      path,
-      name: opts?.name || undefined,
-      threadId: opts?.threadId || undefined,
-      workspaceScopeOpts: opts?.workspaceScopeOpts || { configuredRoot: workspaceRoot },
-      onClose: close,
-    }),
-  )
-
-  return close
 }

@@ -42,6 +42,7 @@ import type {
 import type { ConversationTransport } from "@zcode/ui/v4/transport.js";
 import { evoflowFetch, evoflowFetchStream } from "../../lib/ws-client.js";
 import { logStreamCompareV4Recv } from "../lib/stream-compare-file-log.js";
+import { logV4Life } from "../lib/v4-lifecycle-log.js";
 import { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
 
 export { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
@@ -155,6 +156,12 @@ export class EvoFlowV4Transport implements ConversationTransport {
     if (this.disposed) throw new Error("transport disposed");
     this.ensureSse();
     v4Log("v4-tx", `subscribe ${params.topic}`, { base: params.base ?? null });
+    logV4Life({
+      event: "subscribe",
+      threadId: params.topic,
+      zh: "开始订阅 V4 会话（等待服务端 ACK；首帧 snapshot 稍后经 frames SSE 下发）。",
+      detail: { connectionId: this.connectionId, base: params.base ?? null },
+    });
     const result = await postJson<{ ack: V4ConversationSubscribeResult["ack"] }>(
       "/api/v4/conversation/subscribe",
       {
@@ -170,24 +177,54 @@ export class EvoFlowV4Transport implements ConversationTransport {
     this.topicBySubscription.set(subscriptionId, params.topic);
     // 切勿覆盖已有 staging：SSE 首帧 snapshot 常比 HTTP ACK 先到（见 handleCandidate），
     // 若这里 set([]) 会把已暂存的 initial/recovery 快照抹掉 → 面板永停「V4 连接中…」。
+    const earlyStaged = this.stagedBySubscription.get(subscriptionId)?.length ?? 0;
     if (!this.stagedBySubscription.has(subscriptionId)) {
       this.stagedBySubscription.set(subscriptionId, []);
-    } else {
-      const n = this.stagedBySubscription.get(subscriptionId)?.length ?? 0;
-      if (n > 0) {
-        v4Log("v4-rx", `subscribe ACK keeps ${n} early-staged frames`, { subscriptionId });
-      }
+    } else if (earlyStaged > 0) {
+      v4Log("v4-rx", `subscribe ACK keeps ${earlyStaged} early-staged frames`, { subscriptionId });
     }
+    const openTiming = result.ack.openTiming;
+    logV4Life({
+      event: "subscribe_ack",
+      threadId: params.topic,
+      zh:
+        earlyStaged > 0
+          ? `订阅 ACK 已返回（mode=${result.ack.mode}），且 ACK 前已暂存 ${earlyStaged} 帧，即将 activate 释放。`
+          : `订阅 ACK 已返回（mode=${result.ack.mode}），正在等 frames SSE 的首帧 snapshot。`,
+      detail: {
+        subscriptionId,
+        connectionId: this.connectionId,
+        mode: result.ack.mode,
+        logEpoch: result.ack.logEpoch,
+        earlyStaged,
+        snapshotRowCount: openTiming?.snapshotRowCount ?? null,
+        sessionRuntimeState: openTiming?.sessionRuntimeState ?? null,
+      },
+    });
     return result;
   }
 
   activate(subscriptionId: string): void {
     this.activeSubscriptions.add(subscriptionId);
     const staged = this.stagedBySubscription.get(subscriptionId);
+    const topic = this.topicBySubscription.get(subscriptionId);
+    const n = staged?.length ?? 0;
+    logV4Life({
+      event: "activate",
+      threadId: topic,
+      zh:
+        n > 0
+          ? `激活订阅并释放 ${n} 帧暂存（含可能的首帧 snapshot），随后应能渲染历史。`
+          : "激活订阅；暂存为空，历史仍取决于后续 SSE 首帧是否到达。",
+      detail: { subscriptionId, staged: n },
+    });
     if (!staged || staged.length === 0) return;
     this.stagedBySubscription.delete(subscriptionId);
     v4Log("v4-rx", `activate releases ${staged.length} staged frames`, { subscriptionId });
     for (const item of staged) {
+      this.logFrameLife(topic, subscriptionId, item.frame, item.deliveryKind, {
+        via: "activate_release",
+      });
       this.dispatchFrame(item.frame, item.deliveryKind);
     }
   }
@@ -337,6 +374,10 @@ export class EvoFlowV4Transport implements ConversationTransport {
     this.sseLoopStarted = true;
     const path = `/api/v4/conversation/frames?connectionId=${encodeURIComponent(this.connectionId)}`;
     v4Log("v4-tx", `sse loop start connectionId=${this.connectionId}`);
+    logV4Life({
+      event: "sse_start",
+      detail: { connectionId: this.connectionId, path },
+    });
     void this.runFramesLoop(path);
   }
 
@@ -352,6 +393,11 @@ export class EvoFlowV4Transport implements ConversationTransport {
         if (!res?.ok || !res.body) {
           if (!this.disposed && !loggedWarn) {
             console.warn("[v4-tx] frames bad response", res?.status);
+            logV4Life({
+              event: "sse_bad_response",
+              level: "warn",
+              detail: { connectionId: this.connectionId, status: res?.status ?? null },
+            });
             loggedWarn = true;
           }
           await sleep(backoffMs);
@@ -360,9 +406,11 @@ export class EvoFlowV4Transport implements ConversationTransport {
         }
         backoffMs = 1000;
         loggedWarn = false;
-        if (v4DebugEnabled()) {
-          v4Log("v4-tx", `sse connected connectionId=${this.connectionId}`);
-        }
+        v4Log("v4-tx", `sse connected connectionId=${this.connectionId}`);
+        logV4Life({
+          event: "sse_connected",
+          detail: { connectionId: this.connectionId },
+        });
         reader = res.body.getReader();
         this.sseReader = reader;
         const dec = new TextDecoder();
@@ -381,10 +429,26 @@ export class EvoFlowV4Transport implements ConversationTransport {
               "[v4-tx] frames disconnected (will retry)",
               e instanceof Error ? e.message : e,
             );
+            logV4Life({
+              event: "sse_disconnected",
+              level: "warn",
+              detail: {
+                connectionId: this.connectionId,
+                error: e instanceof Error ? e.message : String(e),
+              },
+            });
             loggedWarn = true;
           }
         } else if (!this.disposed) {
           console.warn("[v4-tx] frames stream error", e);
+          logV4Life({
+            event: "sse_error",
+            level: "error",
+            detail: {
+              connectionId: this.connectionId,
+              error: e instanceof Error ? e.message : String(e),
+            },
+          });
         }
       } finally {
         this.sseReader = null;
@@ -405,6 +469,11 @@ export class EvoFlowV4Transport implements ConversationTransport {
       v4Log("v4-rx", "wire parse failed", {
         error: error instanceof Error ? error.message : String(error),
       });
+      logV4Life({
+        event: "wire_parse_failed",
+        level: "warn",
+        detail: { error: error instanceof Error ? error.message : String(error) },
+      });
       return;
     }
     // 不在读循环里同步跑 projection→React：侧栏开合/表格测宽的
@@ -417,6 +486,15 @@ export class EvoFlowV4Transport implements ConversationTransport {
       } catch (error) {
         v4Log("v4-rx", "frame dispatch failed", {
           error: error instanceof Error ? error.message : String(error),
+        });
+        logV4Life({
+          event: "dispatch_failed",
+          level: "error",
+          threadId: candidate?.topic,
+          detail: {
+            subscriptionId: candidate?.subscriptionId,
+            error: error instanceof Error ? error.message : String(error),
+          },
         });
       }
     });
@@ -452,12 +530,77 @@ export class EvoFlowV4Transport implements ConversationTransport {
           topic: candidate.topic,
         });
       }
+      this.logFrameLife(
+        candidate.topic,
+        candidate.subscriptionId,
+        candidate.frame,
+        deliveryKind,
+        { via: "early_stage", stagedIndex: staged.length },
+      );
       this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind);
       staged.push({ frame: candidate.frame, deliveryKind });
       return;
     }
+    this.logFrameLife(
+      candidate.topic,
+      candidate.subscriptionId,
+      candidate.frame,
+      deliveryKind,
+      { via: "live" },
+    );
     this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind);
     this.dispatchFrame(candidate.frame, deliveryKind);
+  }
+
+  /** 生命周期：snapshot 必记；deltas 默认跳过（避免刷盘，开 evoflow_v4_debug 才记）。 */
+  private logFrameLife(
+    topic: string | undefined,
+    subscriptionId: string,
+    frame: ConversationTopicFrame,
+    deliveryKind: TopicFrameDeliveryKind,
+    extra: Record<string, unknown>,
+  ): void {
+    const payload = frame.payload;
+    const isSnapshot = payload?.kind !== "deltas";
+    if (!isSnapshot && !v4DebugEnabled()) return;
+    let rowCount: number | null = null;
+    if (isSnapshot && payload && typeof payload === "object" && "snapshot" in payload) {
+      const rows = (payload as { snapshot?: { rows?: { totalCount?: number; window?: unknown[] } } })
+        .snapshot?.rows;
+      rowCount = rows?.totalCount ?? rows?.window?.length ?? null;
+    }
+    const via = String(extra.via || "");
+    const event =
+      via === "early_stage"
+        ? "frame_early_stage"
+        : isSnapshot
+          ? "frame_snapshot"
+          : "frame_deltas";
+    let zh: string | undefined;
+    if (via === "early_stage" && isSnapshot) {
+      zh = `首帧 snapshot 在 ACK 前到达并暂存（行数≈${rowCount ?? "?"}）；activate 后才会进投影并渲染历史。`;
+    } else if (via === "activate_release" && isSnapshot) {
+      zh = `activate 释放暂存 snapshot（行数≈${rowCount ?? "?"}）→ 此时应开始渲染历史时间线。`;
+    } else if (isSnapshot) {
+      zh = `收到 snapshot 帧（delivery=${deliveryKind}，行数≈${rowCount ?? "?"}）→ 投影替换，历史页应随之渲染。`;
+    }
+    logV4Life({
+      event,
+      threadId: topic,
+      ...(zh ? { zh } : {}),
+      detail: {
+        subscriptionId,
+        deliveryKind,
+        fromSeq: frame.fromSeq,
+        toSeq: frame.toSeq,
+        ...(isSnapshot
+          ? { rowCount }
+          : {
+              ops: payload && payload.kind === "deltas" ? payload.deltas.length : 0,
+            }),
+        ...extra,
+      },
+    });
   }
 
   private dispatchFrame(frame: ConversationTopicFrame, deliveryKind: TopicFrameDeliveryKind): void {

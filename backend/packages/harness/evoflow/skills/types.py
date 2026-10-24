@@ -18,6 +18,9 @@ class Skill:
     enabled: bool = False  # Whether this skill is enabled
     scope: SkillScope = SkillScope.PUBLIC
     source_root: Path | None = None
+    # zcode Skill alignment: optional frontmatter ``when_to_use`` hint shown in
+    # <available_skills> so the model can decide when to load the full SKILL.md.
+    when_to_use: str = ""
 
     @property
     def skill_path(self) -> str:

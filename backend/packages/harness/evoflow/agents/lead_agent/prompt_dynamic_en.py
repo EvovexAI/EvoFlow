@@ -81,6 +81,7 @@ SKILL_SYSTEM_INTRO = "You can use skills for specialized tasks. Each skill docum
 SKILL_PROGRESSIVE_HEADER = "**Progressive loading:**"
 SKILL_RULE_1 = (
     '``<location>`` is ``skill:<name>`` (preferred) or a sandbox virtual path; ``read("<location>")`` only when executing skill steps or metadata is insufficient. '
+    '**When a task matches a skill\'s description/``<when_to_use>``, read its SKILL.md first and follow it—do not assume skill contents from training data.** '
     '**Files only**: ``read("skill:<name>")`` for SKILL.md; **directories** via ``bash`` (e.g. ls / dir)—never ``read("skill:<name>/scripts")``. '
     "Other files in the same skill: ``skill:<name>/relative/path`` (forward slashes, must be a real file). "
     "For product self-intro / capability overview (evoflow-admin) when ``<available_skills>`` already has name+description, **do not read the full SKILL.md**—answer from description; read ``references/product-intro.md`` only for detail. "
@@ -95,6 +96,7 @@ SKILL_RULE_2 = (
 SKILL_RULE_3 = "Follow skill steps; conversation mode is UI-driven—do not call mode_set/scenario."
 SKILL_RULE_COMPACT = (
     "If `<skill_injection>` is present or `<available_skills>` description suffices, do not re-read SKILL.md. "
+    'When a task matches an uninjected skill, read ``skill:<name>`` first and follow it. '
     'Skills are **not** in the user workspace: read files via ``read("skill:<name>/path")``; '
     "run scripts with ``bash`` (command paths like ``skill:<name>/...`` or ``scripts/...``); "
     "long jobs use ``run_in_background=true`` + ``taskoutput`` / ``taskstop``. "

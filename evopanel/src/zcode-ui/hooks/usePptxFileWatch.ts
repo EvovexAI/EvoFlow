@@ -34,7 +34,8 @@ export function usePptxFileWatch({
   fileWatcherService,
 }: {
   filePath: string | null;
-  fileWatcherService: IFileWatcherService;
+  /** Web / 部分宿主可能没有文件监视；缺席时跳过监听，仍允许首次读预览。 */
+  fileWatcherService: IFileWatcherService | null | undefined;
 }): { ready: boolean; reloadGeneration: number } {
   const [snapshot, setSnapshot] = useState<PptxFileWatchSnapshot>({
     filePath: null,
@@ -50,11 +51,28 @@ export function usePptxFileWatch({
 
     setSnapshot({
       filePath,
-      fileWatcherService,
+      fileWatcherService: fileWatcherService ?? null,
       ready: false,
       reloadGeneration: 0,
     });
     if (!filePath) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // 无可用 watcher（EvoFlow Web / 残缺 stub）：直接 ready，不自动热刷新。
+    // onDynamicChange(id) 必须返回「订阅函数」；否则 watch 成功后仍会炸。
+    if (
+      !fileWatcherService?.watch ||
+      typeof fileWatcherService.onDynamicChange !== "function"
+    ) {
+      setSnapshot({
+        filePath,
+        fileWatcherService: fileWatcherService ?? null,
+        ready: true,
+        reloadGeneration: 0,
+      });
       return () => {
         cancelled = true;
       };

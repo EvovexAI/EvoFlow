@@ -1675,10 +1675,17 @@ def _build_skills_prompt_section(
 
     def _skills_list(*, with_descriptions: bool, capped: bool) -> str:
         if with_descriptions:
+            # zcode Skill alignment: when_to_use helps the model decide when to
+            # read the full SKILL.md; omitted on capped/compact degradation tiers.
             items = "\n".join(
                 f"    <skill>\n        <name>{skill.name}</name>\n"
                 f"        <description>{_skill_description(skill, capped=capped)}</description>\n"
-                f"        <location>{_skill_location(skill)}</location>\n    </skill>"
+                + (
+                    f"        <when_to_use>{skill.when_to_use}</when_to_use>\n"
+                    if (not capped and not compact and getattr(skill, "when_to_use", ""))
+                    else ""
+                )
+                + f"        <location>{_skill_location(skill)}</location>\n    </skill>"
                 for skill in skills
             )
         else:

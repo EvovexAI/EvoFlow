@@ -45,6 +45,15 @@ const RUNTIME_RECYCLE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
 const ACCEPTED_INPUT_PROJECTION_GRACE_MS = 2_000;
 const ACCEPTED_INPUT_COMMAND_TYPES = new Set(["sendText"]);
 
+/**
+ * subscribe ACK 后等待 initial snapshot 的宽限期。
+ *
+ * 现象：打开有历史的会话卡在「等首帧」；用户随便发一条消息后历史突然出现——
+ * 因为 send 触发的 online delta 在尚无 applied base 时走 requestRecovery → 全量
+ * recovery snapshot。根因是 initial 帧丢失/迟到，不应依赖用户发消息才自愈。
+ */
+const INITIAL_FRAME_WATCHDOG_MS = 2_500;
+
 /** 退避耗尽时展示给用户的 lastError（无底层 error 对象可引用的换代路径）。 */
 const RUNTIME_RECYCLED_ERROR = "ZCode agent runtime 已被回收，重连未成功";
 
@@ -294,6 +303,8 @@ export class ConversationProjectionStore {
    * 因为 notification 可在 ACK Promise resolve 后异步到达。
    */
   private awaitingInitial: { subscriptionId: string; mode: "snapshot" | "resume" } | null = null;
+  /** ACK 后等 initial：超时则 same-sub recovery（对齐「发消息才出历史」的自愈路径）。 */
+  private initialFrameWatchdog: ReturnType<typeof setTimeout> | null = null;
   /** 当前 subscription 是否已由旧 applied base 或本代 logical frame 证明水位有效。 */
   private subscriptionHasAppliedBase = false;
   private recovery: {
@@ -402,6 +413,7 @@ export class ConversationProjectionStore {
   ): Promise<void> {
     if (this.closed) return;
     const generation = ++this.generation;
+    this.clearInitialFrameWatchdog();
     this.discardRecovery();
     const snapshot = options.forceSnapshot ? null : this.state.snapshot;
     const connectStartedAt = options.rendererPrepareStartedAt ?? monotonicNow();
@@ -463,6 +475,10 @@ export class ConversationProjectionStore {
         mode: result.ack.mode,
       };
       this.transport.activate(result.ack.subscriptionId);
+      // resume 且已有 applied base 时不需要等 initial snapshot；否则臂装超时自愈。
+      if (!(this.subscriptionHasAppliedBase && result.ack.mode === "resume")) {
+        this.armInitialFrameWatchdog(result.ack.subscriptionId);
+      }
       logger.lifecycle.info("v4 conversation store connect completed", {
         durationMs: roundedDuration(subscribeStartedAt, monotonicNow()),
         event: "v4.conversation.store.connect.completed",
@@ -557,6 +573,7 @@ export class ConversationProjectionStore {
   private handleRuntimeUnavailable(): void {
     if (this.closed) return;
     this.clearRuntimeRecycleRetry();
+    this.clearInitialFrameWatchdog();
     this.discardRecovery();
     this.awaitingInitial = null;
     this.subscriptionHasAppliedBase = false;
@@ -670,6 +687,7 @@ export class ConversationProjectionStore {
         turnNavigatorDirectoryRevision: this.state.turnNavigatorDirectoryRevision + 1,
       });
       this.subscriptionHasAppliedBase = true;
+      this.clearInitialFrameWatchdog();
       this.reconcileOptimistic(frame.payload.snapshot);
       this.reconcileAcceptedInputProjection(frame.payload.snapshot);
       // initial 丢失时，publisher 允许完整 online snapshot 建立首个
@@ -798,6 +816,31 @@ export class ConversationProjectionStore {
       return;
     }
     this.requestRecovery(recoveryFault);
+  }
+
+  private clearInitialFrameWatchdog(): void {
+    if (this.initialFrameWatchdog === null) return;
+    clearTimeout(this.initialFrameWatchdog);
+    this.initialFrameWatchdog = null;
+  }
+
+  /**
+   * ACK 后若迟迟拿不到首帧：主动 same-sub recovery（force snapshot）。
+   * 与「用户发消息 → online delta → !appliedBase → requestRecovery」同路径，去掉人工触发。
+   */
+  private armInitialFrameWatchdog(subscriptionId: string): void {
+    this.clearInitialFrameWatchdog();
+    this.initialFrameWatchdog = setTimeout(() => {
+      this.initialFrameWatchdog = null;
+      if (this.closed) return;
+      if (this.state.subscriptionId !== subscriptionId) return;
+      if (this.state.snapshot) return;
+      if (!this.awaitingInitial || this.awaitingInitial.subscriptionId !== subscriptionId) return;
+      logger.warn(
+        `[v4-store] ${this.topic} initial frame timeout ${INITIAL_FRAME_WATCHDOG_MS}ms → recovery snapshot`,
+      );
+      this.requestRecovery();
+    }, INITIAL_FRAME_WATCHDOG_MS);
   }
 
   private requestRecovery(recoveryEvent = false, options: { contentFault?: boolean } = {}): void {
@@ -1347,6 +1390,7 @@ export class ConversationProjectionStore {
     this.offRuntimeRestart?.();
     this.offRuntimeLifecycle?.();
     this.clearRuntimeRecycleRetry();
+    this.clearInitialFrameWatchdog();
     for (const timer of this.acceptedInputProjectionTimers.values()) clearTimeout(timer);
     this.acceptedInputProjectionTimers.clear();
     this.modelTransitionListeners.clear();

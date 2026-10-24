@@ -12,6 +12,20 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _EXECUTING_LIKE = frozenset({"executing", "in_progress", "running", "active", "waiting_dispatch"})
+# Mid-run zombies (process dead, ledger still executing/planning) → pause so resume works.
+_DEAD_IN_FLIGHT = frozenset(
+    {
+        "executing",
+        "in_progress",
+        "running",
+        "active",
+        "waiting_dispatch",
+        "planning",
+        "planned",
+        "verifying",
+        "reflecting",
+    }
+)
 # Child must be fully closed — awaiting_close on a child means that subtree is still open.
 _CHILD_FULLY_CLOSED = frozenset({"completed", "reviewed", "failed", "error", "cancelled", "canceled", "deleted"})
 
@@ -73,12 +87,14 @@ def classify_zombie_reclaim(
     *,
     stuck_days: int = 3,
     awaiting_close_days: int = 3,
+    dead_days: int = 1,
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Return reclaim action dict or None if task is healthy.
 
     Actions:
       - stuck_executing_100 → target completed
+      - stuck_executing_dead → target paused (process gone, work incomplete)
       - awaiting_close_all_children_done → target completed
       - awaiting_close_orphan_stale (no children, stale) → target completed
     """
@@ -98,6 +114,19 @@ def classify_zombie_reclaim(
             "from_status": status,
             "to_status": "completed",
             "reason": "stuck_executing_100",
+            "progress": _progress(task),
+            "updated_at": task.get("updated_at") or task.get("created_at"),
+        }
+
+    # Ledger still "running" for days with no completion — treat as dead mid-run.
+    # Pause (not fail) so the user / resume path can continue.
+    if status in _DEAD_IN_FLIGHT and _is_stale(task, days=dead_days, now=ref):
+        return {
+            "task_id": tid,
+            "name": name,
+            "from_status": status,
+            "to_status": "paused",
+            "reason": "stuck_executing_dead",
             "progress": _progress(task),
             "updated_at": task.get("updated_at") or task.get("created_at"),
         }
@@ -134,6 +163,7 @@ def list_zombie_reclaim_candidates(
     *,
     stuck_days: int = 3,
     awaiting_close_days: int = 3,
+    dead_days: int = 1,
 ) -> list[dict[str, Any]]:
     from evoflow.collab.storage import get_project_storage
 
@@ -151,6 +181,7 @@ def list_zombie_reclaim_candidates(
                 task,
                 stuck_days=stuck_days,
                 awaiting_close_days=awaiting_close_days,
+                dead_days=dead_days,
                 now=now,
             )
             if action:
@@ -177,16 +208,22 @@ def _apply_reclaim_row(row: dict[str, Any]) -> None:
         return
     except ValidationError:
         now = utc_now_iso_z()
+        patch: dict[str, Any] = {
+            "status": target,
+            "summary": summary,
+            "updated_at": now,
+        }
+        if target == "completed":
+            patch["progress"] = 100
+            patch["completed_at"] = now
+        elif target == "paused":
+            patch["paused_at"] = now
+            if row.get("progress") is not None:
+                patch["progress"] = row.get("progress")
         ok = patch_collab_main_task_in_project_storage(
             get_project_storage(),
             tid,
-            {
-                "status": target,
-                "summary": summary,
-                "progress": 100 if target == "completed" else row.get("progress"),
-                "completed_at": now if target == "completed" else None,
-                "updated_at": now,
-            },
+            patch,
         )
         if not ok:
             raise ValidationError(f"failed to force-reclaim {tid}")
@@ -197,12 +234,14 @@ def reclaim_zombie_tasks(
     dry_run: bool = True,
     stuck_days: int = 3,
     awaiting_close_days: int = 3,
+    dead_days: int = 1,
     limit: int = 0,
 ) -> dict[str, Any]:
-    """Close stuck executing@100 and stale awaiting_close trees. Default dry-run."""
+    """Close stuck executing@100, pause dead mid-run, close stale awaiting_close. Default dry-run."""
     candidates = list_zombie_reclaim_candidates(
         stuck_days=stuck_days,
         awaiting_close_days=awaiting_close_days,
+        dead_days=dead_days,
     )
     if limit and limit > 0:
         candidates = candidates[: int(limit)]

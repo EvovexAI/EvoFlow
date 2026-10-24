@@ -8,8 +8,10 @@ import {
   CircleDot,
   Clock3,
   Database,
+  MessageSquare,
   Paperclip,
   PlayCircle,
+  RefreshCw,
   Send,
   Settings2,
   Sparkles,
@@ -68,6 +70,11 @@ import {
   type HomeSourceSlice,
   type HomeTrendPoint,
 } from '../hooks/useHomeDashboardData.js'
+import {
+  HOME_LIVE_KIND_ZH,
+  openHomeLiveItem,
+  type HomeLiveKind,
+} from '../lib/home-live-activity.js'
 import { AgentPickerModal } from './AgentPickerModal.js'
 import { ChartSizeGate } from './ChartSizeGate.js'
 import { ModelCatalogMenu } from './ModelCatalogMenu.js'
@@ -137,12 +144,20 @@ const KPI_ICONS: Record<string, typeof CheckCircle2> = {
 const MODULE_LABELS: Record<keyof HomeWorkbenchPrefs['modules'], string> = {
   composer: '顶部输入框',
   kpis: 'KPI 卡片',
+  live: '正在处理',
   trend: '任务趋势',
   source: '来源分布',
   todos: '待办',
   recent: '最近运行',
   quick: '快捷操作',
   apps: '我的工作流',
+}
+
+const LIVE_KIND_ICON: Record<HomeLiveKind, typeof MessageSquare> = {
+  chat: MessageSquare,
+  employee: Users,
+  automation: Clock3,
+  workflow: Workflow,
 }
 
 const TOP_ORDER_LABELS: Record<HomeWorkbenchPrefs['topOrder'][number], string> = {
@@ -1345,6 +1360,60 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
               )
             })}
           </section>
+        ) : null}
+
+        {prefs.modules.live !== false ? (
+          <SectionCard
+            title="正在处理"
+            className="evo-home-card--live"
+            action={
+              <div className="evo-home-live__actions">
+                <span className="evo-home-live__count">
+                  {(data.liveNow || []).length > 0 ? `${(data.liveNow || []).length} 项` : '空闲'}
+                </span>
+                <button
+                  type="button"
+                  className="evo-home-btn evo-home-btn--chip"
+                  title="刷新运行态"
+                  onClick={() => data.refresh()}
+                >
+                  <RefreshCw className="evo-home-ic" />
+                </button>
+              </div>
+            }
+          >
+            {(data.liveNow || []).length > 0 ? (
+              <div className="evo-home-list evo-home-list--live">
+                {(data.liveNow || []).slice(0, Math.max(prefs.listLimit, 8)).map((item) => {
+                  const Icon = LIVE_KIND_ICON[item.kind] || PlayCircle
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className="evo-home-list__item evo-home-live__item"
+                      onClick={() => openHomeLiveItem(item)}
+                    >
+                      <div className={`evo-home-list__icon evo-home-live__icon evo-home-live__icon--${item.kind}`}>
+                        <Icon className="evo-home-ic" />
+                      </div>
+                      <div className="evo-home-list__text">
+                        <div className="evo-home-list__title">{item.title}</div>
+                        <div className="evo-home-list__meta">{item.meta || HOME_LIVE_KIND_ZH[item.kind]}</div>
+                      </div>
+                      <StatusBadge tone={item.health === 'stale' ? 'warning' : 'default'}>
+                        {item.statusLabel}
+                      </StatusBadge>
+                      {item.time ? <span className="evo-home-list__time">{item.time}</span> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="evo-home-empty evo-home-empty--live">
+                {data.loading ? '加载中…' : '当前没有进行中的执行'}
+              </div>
+            )}
+          </SectionCard>
         ) : null}
 
         <section className="evo-home-row evo-home-row--top">

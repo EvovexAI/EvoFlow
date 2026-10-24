@@ -2273,6 +2273,7 @@ class ProactiveRunner:
                     dry_run=False,
                     stuck_days=3,
                     awaiting_close_days=3,
+                    dead_days=1,
                 )
             )
             n = len(out.get("reclaimed") or [])

@@ -60,6 +60,23 @@ def str_replace_hd(
             )
             return err
 
+        # zcode Edit guard: refuse edits without a current full Read on record.
+        # dry_run previews are read-only and skip the guard.
+        if not dry_run:
+            from evoflow.tools.zcode_port.read_file_state import edit_guard_failure
+
+            guard_err = edit_guard_failure(str(p))
+            if guard_err:
+                emit_write_progress(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    path=path,
+                    phase="error",
+                    message=guard_err,
+                    stream_writer=stream_writer,
+                )
+                return guard_err
+
         content = p.read_text(encoding="utf-8")
 
         if dry_run:
@@ -119,6 +136,11 @@ def str_replace_hd(
         )
 
         p.write_text(new_content, encoding="utf-8")
+
+        # Refresh read state so consecutive edits need no re-Read (zcode semantics).
+        from evoflow.tools.zcode_port.read_file_state import note_write
+
+        note_write(str(p), content=new_content)
 
         added = len(new_string) - len(old_string)
         match_pos = -1

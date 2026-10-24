@@ -5,6 +5,7 @@
 import { flushSync } from 'react-dom'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { skTail, ssLog } from '../../../lib/session-list-debug.js'
+import { logV4Life } from '../../lib/v4-lifecycle-log.js'
 
 export type SelectSessionFromShellCtx = {
   sessionRef: MutableRefObject<string>
@@ -23,7 +24,14 @@ export function selectSessionFromShell(
 ): void {
   const k = String(sessionKey || '').trim()
   if (!k) return
-  ssLog('shell.select', { key: skTail(k), from: skTail(ctx.sessionRef.current) })
+  const from = String(ctx.sessionRef.current || '').trim()
+  ssLog('shell.select', { key: skTail(k), from: skTail(from) })
+  logV4Life({
+    event: 'session_click',
+    sessionKey: k,
+    zh: `用户点击侧栏会话，开始打开历史。session=${k}${from && from !== k ? `（从 ${from} 切过来）` : ''}`,
+    detail: { from: from || null },
+  })
   ctx.setShellSelectRevision((r) => r + 1)
   try {
     sessionStorage.removeItem('evopanel_pending_shell_session')

@@ -4,6 +4,8 @@ export type HomeWorkbenchPrefs = {
   modules: {
     composer: boolean
     kpis: boolean
+    /** 此刻谁在跑：对话 / 员工 / 自动化 / 工作流 */
+    live: boolean
     trend: boolean
     source: boolean
     todos: boolean
@@ -22,6 +24,7 @@ export const DEFAULT_HOME_PREFS: HomeWorkbenchPrefs = {
   modules: {
     composer: true,
     kpis: true,
+    live: true,
     trend: true,
     source: true,
     todos: true,

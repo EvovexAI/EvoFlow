@@ -4,7 +4,7 @@ import { wsClient } from '../../lib/ws-client.js'
 import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
 import { V4StreamRowsBridge } from '../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../v4/V4ZCodeTimeline.js'
-import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
+import { showRightStageCodeViewer } from '../../lib/right-stage/open-right-stage-file.js'
 import { toast } from '../../components/toast.js'
 
 function readThreadId(sessionKey: string): string {
@@ -95,17 +95,11 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
   )
 
   const onOpenCodeViewer = useCallback(
-    (source: { path?: string; title?: string }) => {
-      rightStageStore.show({
-        kind: 'codeViewer',
-        id: `codeViewer:${String(source.path || source.title || 'diff').replace(/\\/g, '/')}`,
-        title: source.title || '代码对比',
-        layout: 'wide',
-        sessionKey: sk || undefined,
-        data: {
-          source,
-          threadId: readThreadId(sk),
-        },
+    (source: import('@zcode/ui/lib/codeViewer.js').CodeViewerSource) => {
+      // 与主对话同一入口：右栏半宽，不走全屏 modal
+      showRightStageCodeViewer(source, {
+        sessionKey: sk,
+        threadId: readThreadId(sk),
       })
     },
     [sk],

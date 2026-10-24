@@ -70,7 +70,7 @@ class ToolResultsConfig(BaseModel):
         default=True,
         description="native-style inline truncation on tool return (independent of disk persist / LLM summary)",
     )
-    enabled: bool = Field(default=False, description="Persist large tool results to disk")
+    enabled: bool = Field(default=True, description="Persist large tool results to disk (<persisted-output> envelope)")
     use_token_tiers: bool = Field(
         default=True,
         description="Tier by tiktoken (tier_small/medium_tokens); false uses char thresholds below",

@@ -22,6 +22,12 @@ import {
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import type { ConversationStoreState as StoreState } from "@zcode/ui/v4/conversationProjectionStore.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
+import {
+  describeV4NotRenderedYet,
+  describeV4Rendered,
+  logV4Life,
+} from "../lib/v4-lifecycle-log.js";
+import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
 
 export interface V4TimelinePayload {
   sessionId: string;
@@ -119,28 +125,130 @@ export function V4StreamRowsBridge(props: {
         ? "v4"
         : "v4-connecting";
   const lastPathLogRef = useRef("");
+  const connectingSinceRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const key = `${pathState}:${sessionId ?? ""}`;
     if (lastPathLogRef.current === key) return;
     lastPathLogRef.current = key;
+    const rowCount = snapshot?.rows?.totalCount ?? snapshot?.rows?.window?.length ?? 0;
+    const storeStatus = state?.status ?? null;
+    if (sessionId) {
+      try {
+        markStreamCompareSession(sessionId);
+      } catch {
+        /* ignore */
+      }
+    }
     if (pathState === "v4") {
+      connectingSinceRef.current = null;
       console.info(
         `%c[v4-path] ★ 显示数据源 = V4 帧管线 → ZCode ConversationTimeline（GET /api/v4/conversation/frames）sessionId=${sessionId}`,
         "color:#2563eb;font-weight:bold",
       );
+      const zhRender = describeV4Rendered({ rowCount, storeStatus });
+      logV4Life({
+        event: "ui_render",
+        threadId: sessionId,
+        zh: zhRender,
+        detail: { path: "v4", rowCount, storeStatus },
+      });
+      logV4Life({
+        event: "path",
+        threadId: sessionId,
+        zh: `显示路径切到 V4 时间线（首帧已到）。行数=${rowCount}`,
+        detail: { path: "v4", rowCount, storeStatus },
+      });
     } else if (pathState === "v4-connecting") {
+      connectingSinceRef.current = Date.now();
       console.info(
         `%c[v4-path] V4 已订阅，等首帧快照中（session=${sessionId}）——不回落老面板`,
         "color:#9333ea;font-weight:bold",
       );
+      const zhWait = describeV4NotRenderedYet({
+        path: "v4-connecting",
+        storeStatus,
+        lease: !!leaseForSession,
+        rowCount: 0,
+        hasSubscription: storeStatus === "live",
+      });
+      logV4Life({
+        event: "ui_render",
+        threadId: sessionId,
+        level: "info",
+        zh: zhWait,
+        detail: { path: "v4-connecting", storeStatus, lease: !!leaseForSession },
+      });
+      logV4Life({
+        event: "path",
+        threadId: sessionId,
+        zh: "点击会话后进入「等首帧」：页面此时只显示加载中，历史时间线尚未挂载。",
+        detail: { path: "v4-connecting", storeStatus, lease: !!leaseForSession },
+      });
     } else {
+      connectingSinceRef.current = null;
       const reason = !enabled ? "V4 开关关闭" : "会话尚无 threadId";
       console.info(
         `%c[v4-path] 显示数据源 = 老链路（AG-UI SSE）——${reason}`,
         "color:#ca8a04;font-weight:bold",
       );
+      const zhLegacy = describeV4NotRenderedYet({ path: pathState, reason });
+      logV4Life({
+        event: "ui_render",
+        threadId: sessionId,
+        zh: zhLegacy,
+        detail: { path: pathState, reason },
+      });
+      logV4Life({
+        event: "path",
+        threadId: sessionId,
+        zh: `未走 V4 时间线：${reason}`,
+        detail: { path: pathState, reason },
+      });
     }
-  }, [pathState, sessionId, enabled]);
+  }, [pathState, sessionId, enabled, snapshot, state?.status, leaseForSession]);
+
+  // 卡在 connecting 超过 5s：落盘 warn；若 store 已 live 仍无 snapshot，再踢一次 recovery
+  //（store 内 2.5s watchdog 通常已先跑；此处是兜底，对齐「发消息才出历史」路径）。
+  useLayoutEffect(() => {
+    if (pathState !== "v4-connecting" || !sessionId) return;
+    const started = connectingSinceRef.current || Date.now();
+    connectingSinceRef.current = started;
+    const t = window.setTimeout(() => {
+      if (lastPathLogRef.current !== `v4-connecting:${sessionId}`) return;
+      const st = store?.getState();
+      const waitedMs = Date.now() - started;
+      const storeStatus = st?.status ?? state?.status ?? null;
+      const hasSubscription = !!st?.subscriptionId;
+      const why = describeV4NotRenderedYet({
+        path: "v4-connecting",
+        storeStatus,
+        lease: !!leaseForSession,
+        rowCount: 0,
+        hasSubscription,
+      });
+      logV4Life({
+        event: "connecting_stuck",
+        level: "warn",
+        threadId: sessionId,
+        zh: `点击会话后已等待 ${Math.round(waitedMs / 1000)} 秒仍未渲染历史。${why} 将尝试主动 recovery（与发消息触发的自愈同路径）。`,
+        detail: {
+          waitedMs,
+          storeStatus,
+          lease: !!leaseForSession,
+          hasSubscription,
+          hint: "initial 丢失时发消息会走 delta→recovery；此处主动 recoverFromStaleAuthority",
+        },
+      });
+      try {
+        if (st?.subscriptionId && !st.snapshot) {
+          store?.recoverFromStaleAuthority();
+        }
+      } catch {
+        /* best-effort */
+      }
+    }, 5_000);
+    return () => window.clearTimeout(t);
+  }, [pathState, sessionId, state?.status, leaseForSession, store]);
 
   const status = state?.status ?? "connecting";
   const loadingOlder = state?.loadingOlder ?? false;

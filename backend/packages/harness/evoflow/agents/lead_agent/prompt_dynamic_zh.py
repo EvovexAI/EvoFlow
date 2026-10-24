@@ -87,6 +87,7 @@ SKILL_SYSTEM_INTRO = "你可以使用技能（skills）来执行特定任务。�
 SKILL_PROGRESSIVE_HEADER = "**渐进式加载：**"
 SKILL_RULE_1 = (
     '``<location>`` 为 ``skill:<技能名>``（推荐）或沙箱虚拟路径；要执行技能内具体步骤、或 metadata 不足以完成任务时再 ``read("<location>")``。'
+    '**任务与某技能的描述/``<when_to_use>`` 匹配时，先 ``read`` 其 SKILL.md 加载再执行，勿凭训练数据假设技能内容；**'
     '**只读文件**：``read("skill:<名>")`` 打开 SKILL.md；**目录**用 ``bash``（如 ``ls`` / ``dir``），禁止 ``read("skill:<名>/scripts")`` 等目录路径。'
     "同技能下其它文件用 ``skill:<技能名>/相对路径``（正斜杠，须为真实文件）。"
     "若用户只是产品自介绍/能力概览（evoflow-admin），且 ``<available_skills>`` 已有 name+description，**勿 read 整篇 SKILL.md**，直接按 description 作答；细则才读 ``references/product-intro.md``。"
@@ -100,6 +101,7 @@ SKILL_RULE_2 = (
 SKILL_RULE_3 = "使用技能按技能步骤调用工具；当前模式由界面决定，勿调用 mode_set/scenario。"
 SKILL_RULE_COMPACT = (
     "若本回合已注入 `<skill_injection>` 或 ``<available_skills>`` 描述已够，勿重复 read SKILL.md。"
+    "任务匹配某技能且未注入时，先 ``read(\"skill:<名>\")`` 加载再执行。"
     '技能**不在用户工作区**：读文件用 ``read("skill:<名>/路径")``；'
     "跑脚本用 ``bash``（命令含 ``skill:<名>/...`` 或 ``scripts/...``）；长任务 ``run_in_background=true`` + ``taskoutput`` / ``taskstop``。"
     "禁止在工作区 find/grep ``skills/`` 或 ``SKILL.md``。"

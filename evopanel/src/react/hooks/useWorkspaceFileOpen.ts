@@ -7,6 +7,7 @@ import { wsClient } from '../../lib/ws-client.js'
 import { toast } from '../../components/toast.js'
 import { toUserFacingError } from '../../lib/user-facing-error.js'
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
+import { showRightStageFilePreview } from '../../lib/right-stage/open-right-stage-file.js'
 import {
   resolveOpenableWorkspaceFile,
   resolveWorkspacePreviewTarget,
@@ -41,21 +42,13 @@ export function useWorkspaceFileOpen(opts: {
       if (!target?.path) return
       const fileId = String(target.path || '').replace(/\\/g, '/')
       const showFileTab = (path: string, name: string) => {
-        const id = String(path || '').replace(/\\/g, '/')
-        rightStageStore.show({
-          kind: 'file',
-          id,
-          title: name || id.split('/').filter(Boolean).pop() || '文件',
-          layout: 'wide',
-          sessionKey: rightStageSessionKeyRef.current || undefined,
-          data: {
-            path: id,
-            name: name || '',
-            poll: !!previewOpts?.poll,
-            focusLine: previewOpts?.focusLine,
-            focusEndLine: previewOpts?.focusEndLine,
-            focusAnnotation: previewOpts?.focusAnnotation || null,
-          },
+        showRightStageFilePreview(path, {
+          name,
+          sessionKey: rightStageSessionKeyRef.current,
+          poll: !!previewOpts?.poll,
+          focusLine: previewOpts?.focusLine,
+          focusEndLine: previewOpts?.focusEndLine,
+          focusAnnotation: previewOpts?.focusAnnotation || null,
         })
       }
       showFileTab(fileId, target.name)

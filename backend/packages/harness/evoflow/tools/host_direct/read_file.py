@@ -195,11 +195,11 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
     return target
 
 
-def _note_model_read(path: Path, *, full_read: bool = True) -> None:
+def _note_model_read(path: Path, *, full_read: bool = True, content_hash: str | None = None) -> None:
     try:
         from evoflow.tools.zcode_port.read_file_state import note_read
 
-        note_read(str(path), full_read=full_read)
+        note_read(str(path), full_read=full_read, content_hash=content_hash)
     except Exception:
         return
 
@@ -329,5 +329,12 @@ def read_file_hd(
             pass
     text = read_file_content(str(resolved), offset=offset, limit=limit, use_cache=True)
     if not str(text).startswith("Error:"):
-        _note_model_read(resolved, full_read=(offset is None and limit is None))
+        full_read = offset is None and limit is None
+        # Hash only meaningful for full views; partial views never qualify for edit.
+        content_hash = None
+        if full_read:
+            import hashlib
+
+            content_hash = hashlib.md5(str(text).encode("utf-8", errors="replace")).hexdigest()
+        _note_model_read(resolved, full_read=full_read, content_hash=content_hash)
     return text

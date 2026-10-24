@@ -13,6 +13,10 @@ import {
   normalizeTaskStatusKey,
   toTaskStatusGroup,
 } from '../../lib/task-status-label.js'
+import {
+  buildHomeLiveItems,
+  type HomeLiveItem,
+} from '../lib/home-live-activity.js'
 
 export type HomeTrendPoint = {
   date: string
@@ -108,8 +112,12 @@ export type HomeDashboardData = {
   recentRuns: HomeListItem[]
   apps: HomeAppItem[]
   autoStats: HomeAutoStats
+  /** 此刻在跑：对话 / 员工 / 自动化 / 工作流（runtime liveness） */
+  liveNow: HomeLiveItem[]
   refresh: () => void
 }
+
+export type { HomeLiveItem }
 
 /** 饼图固定色：紫 / 琥珀 / 绿 / 灰，避免两路都偏蓝 */
 const SOURCE_HEX: Record<string, string> = {
@@ -388,7 +396,10 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
   const [automations, setAutomations] = useState<any[]>(() => initialCache?.automations ?? [])
   const [appsRaw, setAppsRaw] = useState<any[]>(() => initialCache?.appsRaw ?? [])
   const [roles, setRoles] = useState<any[]>(() => initialCache?.roles ?? [])
+  const [activeSessions, setActiveSessions] = useState<any[]>([])
+  const [roleBusyByCode, setRoleBusyByCode] = useState<Record<string, any>>({})
   const [tick, setTick] = useState(0)
+  const [liveTick, setLiveTick] = useState(0)
 
   const refresh = useCallback(() => setTick((n) => n + 1), [])
 
@@ -490,6 +501,8 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
         if (fails.length && !soft) {
           setError(`部分接口失败：${fails.join('；')}`)
         }
+        // Kick live strip refresh after ledger load
+        setLiveTick((n) => n + 1)
       } catch (e) {
         if (!cancelled) {
           // Soft remount: keep stale KPIs if network fails.
@@ -507,6 +520,51 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
       cancelled = true
     }
   }, [tick])
+
+  // Runtime liveness: active sessions + employee busy (poll ~15s while home mounted)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const sessionsRes = await api.getActiveSessions({}).catch(() => ({ active_sessions: [] }))
+        if (cancelled) return
+        const sessions = Array.isArray(sessionsRes?.active_sessions)
+          ? sessionsRes.active_sessions
+          : asArray(sessionsRes)
+        setActiveSessions(sessions)
+
+        const codes = (roles || [])
+          .map((r: any) => String(r?.agent_code || r?.code || '').trim())
+          .filter((c: string) => c && c !== 'main')
+          .slice(0, 16)
+        if (!codes.length) {
+          setRoleBusyByCode({})
+          return
+        }
+        const busySettled = await Promise.allSettled(
+          codes.map((code: string) => api.proactiveRoleBusy(code)),
+        )
+        if (cancelled) return
+        const nextBusy: Record<string, any> = {}
+        busySettled.forEach((r, i) => {
+          if (r.status === 'fulfilled') nextBusy[codes[i]] = r.value
+        })
+        setRoleBusyByCode(nextBusy)
+      } catch {
+        if (!cancelled) {
+          /* keep last live snapshot */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [liveTick, roles])
+
+  useEffect(() => {
+    const id = window.setInterval(() => setLiveTick((n) => n + 1), 15_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   return useMemo(() => {
     const today0 = startOfToday()
@@ -807,7 +865,19 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
         }
       })
 
-    void roles
+    const liveNow = buildHomeLiveItems({
+      activeSessions,
+      roles,
+      roleBusyByCode,
+      automations,
+      tasks,
+      isTaskRunning: (status) =>
+        isTaskRunningStatus(status) || toTaskStatusGroup(status) === 'planning',
+      taskSourceKey: sourceKeyOf,
+      taskTitle,
+      taskHref,
+      formatTaskSourceZh,
+    })
 
     return {
       loading,
@@ -821,7 +891,20 @@ export function useHomeDashboardData(opts?: { rangeDays?: number }): HomeDashboa
       recentRuns,
       apps,
       autoStats,
+      liveNow,
       refresh,
     }
-  }, [appsRaw, automations, error, loading, rangeDays, refresh, roles, tasks, userItems])
+  }, [
+    activeSessions,
+    appsRaw,
+    automations,
+    error,
+    loading,
+    rangeDays,
+    refresh,
+    roleBusyByCode,
+    roles,
+    tasks,
+    userItems,
+  ])
 }

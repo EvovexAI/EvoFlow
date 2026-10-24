@@ -63,7 +63,21 @@ function getSystemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-export function resolveTheme(theme: Theme): ResolvedTheme {
+/**
+ * 解析主题偏好为实际明暗。
+ *
+ * 桥接宿主（EvoFlow）里必须跟随宿主 ``data-theme``，不能信 store 里的
+ * ``zcode-theme``：那份值是 zcode 独立应用自己的偏好（默认 ``zai-dark``），
+ * 与 EvoFlow 当前明暗无关。以前只看 store 值，导致右侧预览件在浅色站里
+ * 用暗色代码主题 —— 代码块底色和面板配色对不上，表现为「看得见但看不清」。
+ */
+export function resolveTheme(theme: Theme, hostResolved?: ResolvedTheme): ResolvedTheme {
+  // hostResolved 由 useHostResolvedTheme() 提供：桥接场景下它已经订阅了宿主主题变化，
+  // 这里直接用即可，省掉每帧 querySelector 判定。
+  if (hostResolved) return hostResolved;
+  if (isBridgeHost()) {
+    return hostResolvedTheme();
+  }
   if (theme === "system") {
     return getSystemTheme();
   }
@@ -186,4 +200,30 @@ export function useTheme() {
   }, [theme]);
 
   return { theme, setTheme } as const;
+}
+
+/**
+ * 跟随宿主 ``data-theme`` 的明暗值（桥接场景）。
+ *
+ * 独立的 zcode store 只在自己 setTheme 时重渲染；EvoFlow 切主题是改
+ * ``document.documentElement.dataset.theme``，zcode 组件收不到通知，
+ * 已挂载的代码块会停在旧配色。这里用 MutationObserver 监听宿主属性，
+ * 把变化转成一个可订阅的 hook，避免每个消费点各自观察。
+ */
+export function useHostResolvedTheme(): ResolvedTheme {
+  const [resolved, setResolved] = useState<ResolvedTheme>(() => hostResolvedTheme());
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const sync = () => setResolved(hostResolvedTheme());
+    sync();
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(sync);
+    // 只关心明暗相关属性：class（兼容 html.dark）与 data-theme（EvoFlow 主用）。
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => observer.disconnect();
+  }, []);
+
+  return resolved;
 }

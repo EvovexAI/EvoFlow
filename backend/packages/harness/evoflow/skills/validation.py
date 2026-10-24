@@ -28,6 +28,9 @@ ALLOWED_FRONTMATTER_PROPERTIES = {
     "repository",
     "source",
     "category",
+    # zcode AskUserQuestion/Skill alignment: tells the model when to load the skill
+    "when_to_use",
+    "whenToUse",
 }
 
 

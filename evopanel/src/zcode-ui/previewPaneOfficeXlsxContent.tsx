@@ -1,12 +1,64 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent } from "react";
-import { XlsxViewer, setWasmSource, type XlsxViewerController } from "@extend-ai/react-xlsx";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  XlsxViewer,
+  initWasm,
+  setWasmSource,
+  type XlsxViewerController,
+} from "@extend-ai/react-xlsx";
 import xlsxWasmUrl from "@extend-ai/react-xlsx/duke_sheets_wasm_bg.wasm?url";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { installDocumentLinkSafety } from "@/lib/officeFilePreview.js";
 import { logger } from "@/logger.js";
 
-setWasmSource(xlsxWasmUrl);
+/** public/office 下的稳定路径（Vite/Tauri 都能直接取到，不依赖 /node_modules/...）。 */
+const PUBLIC_XLSX_WASM_URL = `${String(import.meta.env.BASE_URL || "/").replace(/\/?$/u, "/")}office/duke_sheets_wasm_bg.wasm`;
+
+let xlsxWasmReady: Promise<void> | null = null;
+
+/**
+ * 把 WASM 拉成 ArrayBuffer 再 init：避免 fetch(URL) 拿到 SPA HTML、
+ * 或 Tauri 下 /node_modules 路径 404。
+ */
+function ensureXlsxWasm(): Promise<void> {
+  if (!xlsxWasmReady) {
+    xlsxWasmReady = (async () => {
+      const candidates = [PUBLIC_XLSX_WASM_URL, xlsxWasmUrl];
+      let lastError: unknown;
+      for (const candidate of candidates) {
+        try {
+          const response = await fetch(candidate);
+          if (!response.ok) {
+            throw new Error(`wasm HTTP ${response.status} (${candidate})`);
+          }
+          const bytes = await response.arrayBuffer();
+          // SPA fallback 常返回几 KB HTML；真 WASM 约 4MB。
+          if (bytes.byteLength < 50_000) {
+            throw new Error(
+              `wasm too small (${bytes.byteLength}B) — likely HTML fallback (${candidate})`,
+            );
+          }
+          setWasmSource(bytes);
+          await initWasm();
+          logger.debug("[PreviewPane] Excel WASM 已就绪", {
+            source: candidate,
+            bytes: bytes.byteLength,
+          });
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError instanceof Error
+        ? lastError
+        : new Error(`Excel WASM 加载失败: ${String(lastError)}`);
+    })().catch((error) => {
+      xlsxWasmReady = null;
+      throw error;
+    });
+  }
+  return xlsxWasmReady;
+}
 
 function getNextSheetTabIndex({
   currentIndex,
@@ -118,9 +170,18 @@ function XlsxPreviewError({
 
   return (
     <div className="p-3 text-sm text-destructive" role="alert">
-      {message}
+      <div>{message}</div>
+      {error.message ? (
+        <div className="mt-1 text-ui-sm text-foreground-subtle break-all">{error.message}</div>
+      ) : null}
     </div>
   );
+}
+
+function excelDisplayFileName(sourcePath: string): string {
+  const normalized = String(sourcePath || "").replace(/\\/g, "/");
+  const base = normalized.split("/").filter(Boolean).pop();
+  return base || "workbook.xlsx";
 }
 
 export function PreviewPaneOfficeXlsxContent({
@@ -139,6 +200,8 @@ export function PreviewPaneOfficeXlsxContent({
   const viewerRef = useRef<HTMLDivElement | null>(null);
   const { intl } = useZCodeIntl();
   const sheetTabsLabel = intl.formatMessage({ id: "codeViewer.excel.sheetTabs" });
+  const [wasmState, setWasmState] = useState<"loading" | "ready" | "error">("loading");
+  const [wasmError, setWasmError] = useState<Error | null>(null);
   // react-xlsx 的默认工具栏同时承载编辑动作和 sheet tabs。
   // 预览关闭默认工具栏后会丢失多表导航，因此只通过 toolbar render prop 补回只读 sheet tabs。
   const renderSheetTabs = useCallback(
@@ -147,10 +210,46 @@ export function PreviewPaneOfficeXlsxContent({
     ),
     [sheetTabsLabel],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    setWasmState("loading");
+    setWasmError(null);
+    void ensureXlsxWasm()
+      .then(() => {
+        if (!cancelled) setWasmState("ready");
+      })
+      .catch((error: unknown) => {
+        const next = error instanceof Error ? error : new Error(String(error));
+        logger.error("[PreviewPane] Excel WASM 加载失败", { error: next.message });
+        if (!cancelled) {
+          setWasmError(next);
+          setWasmState("error");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     const root = viewerRef.current;
     return root ? installDocumentLinkSafety(root, onOpenBrowserUrl) : undefined;
-  }, [onOpenBrowserUrl]);
+  }, [onOpenBrowserUrl, wasmState]);
+
+  if (wasmState === "loading") {
+    return (
+      <div
+        aria-busy="true"
+        className="h-full min-h-0 w-full bg-background"
+        data-office-preview-pending
+      />
+    );
+  }
+
+  if (wasmState === "error" && wasmError) {
+    return <XlsxPreviewError error={wasmError} message={errorMessage} sourcePath={sourcePath} />;
+  }
 
   return (
     <div
@@ -160,9 +259,13 @@ export function PreviewPaneOfficeXlsxContent({
     >
       <XlsxViewer
         file={buffer}
-        fileName={sourcePath}
+        fileName={excelDisplayFileName(sourcePath)}
         height="100%"
         isDark={isDark}
+        // readOnly 默认走 Worker；Vite/Tauri 下 worker URL 易挂且库几乎不回退主线程。
+        useWorker={false}
+        // WebView2/部分环境 WebGL 不稳定；DOM 表渲染对预览足够。
+        experimentalCanvas={false}
         readOnly
         rounded={false}
         showDefaultToolbar={false}

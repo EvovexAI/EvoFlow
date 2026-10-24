@@ -27,8 +27,15 @@ import {
 } from "@zcode/ui/v4/assistantPreviewPptxAutoOpen.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@zcode/ui/lib/assistantPreviewCards.js";
 import type { CodeViewerSource } from "@zcode/ui/lib/codeViewer.js";
+import type { MessageFileLinkTarget } from "@zcode/ui/components/ai-elements/message.js";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "@zcode/ui/lib/codePreviewSettings.js";
+import { getPathLeaf } from "@zcode/ui/lib/path.js";
 import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.js";
+import {
+  describeV4NotRenderedYet,
+  describeV4Rendered,
+  logV4Life,
+} from "../lib/v4-lifecycle-log.js";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
@@ -58,30 +65,46 @@ const EMPTY_V4_ROWS: NonNullable<ConversationSnapshot["rows"]["window"]> = [];
 /**
  * 部分服务访问器：fileService / mediaPreviewService 全部走 EvoFlow 沙箱文件通道
  * （GET /api/workspaces/serve-file，按当前会话 thread 解析相对路径）。
- * PreviewPane 需要 fileService.stat / readTextFile / readFileRange / readMediaPreview
- * 与 mediaPreviewService.prepare —— ZCode 桌面端这些是 host RPC，这里用 HTTP Range
- * 请求等价实现（FileResponse 原生支持 Range）。
+ * PreviewPane 需要 fileService.stat / readTextFile / readFileRange /
+ * readMediaPreview / readBinaryPreview（Office）、fileWatcherService（PPTX 热刷新，
+ * Web 上为 no-op）与 mediaPreviewService.prepare —— ZCode 桌面端是 host RPC，
+ * 这里用 HTTP Range / 整档 fetch 等价实现。
  * 挂进 ServiceProvider 后 useWorkspaceServices 返回本访问器。
  * 右侧 PreviewPane（V4PreviewPane）复用同一访问器。
  */
+/** 对齐 ZCode fileService：Office 预览硬上限 25MB（ZIP/OLE 需整档）。 */
+const EVO_BINARY_PREVIEW_MAX_BYTES = 25 * 1024 * 1024;
+
 export function createEvoflowPartialServices(sessionId: string): IServiceAccessor {
   const serveFileUrl = (path: string): string => {
     const q = new URLSearchParams({ path });
     if (sessionId) q.set("thread_id", sessionId);
     return `/api/workspaces/serve-file?${q.toString()}`;
   };
-  // stat：1 字节 Range 探测，从 Content-Range 读总大小；服务端不支持 Range 时退 blob.size。
-  const statFile = async (path: string): Promise<{ path: string; exists: boolean; isFile: boolean; size?: number }> => {
+  // IFileService.stat({ path }) —— PreviewPane 传对象；兼容误传裸字符串。
+  // Range 探测：从 Content-Range 取总大小；服务端不支持 Range 时退 blob.size。
+  const resolveStatPath = (input: string | { path?: string } | null | undefined): string => {
+    if (typeof input === "string") return input.trim();
+    if (input && typeof input === "object" && typeof input.path === "string") {
+      return input.path.trim();
+    }
+    return "";
+  };
+  const statFile = async (
+    input: string | { path?: string },
+  ): Promise<{ path: string; type: "file" | "directory"; size?: number }> => {
+    const path = resolveStatPath(input);
+    if (!path) throw new Error("file not found: (empty path)");
     const resp = await fetch(serveFileUrl(path), { headers: { Range: "bytes=0-0" } });
     if (resp.status === 404) throw new Error(`file not found: ${path}`);
     if (!resp.ok) throw new Error(`stat failed: HTTP ${resp.status}`);
     const contentRange = resp.headers.get("content-range");
     if (resp.status === 206 && contentRange) {
       const total = Number.parseInt(contentRange.split("/")[1] ?? "", 10);
-      if (Number.isFinite(total)) return { path, exists: true, isFile: true, size: total };
+      if (Number.isFinite(total)) return { path, type: "file", size: total };
     }
     const blob = await resp.blob();
-    return { path, exists: true, isFile: true, size: blob.size };
+    return { path, type: "file", size: blob.size };
   };
   // Range 读块；200（无 Range 支持）时整档读回后切片。
   const readFileRange = async (params: { path: string; offset: number; length: number }): Promise<Uint8Array> => {
@@ -97,21 +120,49 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
     const whole = new Uint8Array(buf);
     return whole.slice(offset, offset + length);
   };
+  const blobToBase64 = async (blob: Blob): Promise<string> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("binary read failed"));
+      reader.readAsDataURL(blob);
+    });
+    return dataUrl.split(",")[1] ?? "";
+  };
   const readMediaPreview = async (params: { path: string; maxBytes?: number }) => {
     const resp = await fetch(serveFileUrl(params.path));
     if (resp.status === 404) throw new Error(`file not found: ${params.path}`);
     if (!resp.ok) throw new Error(`media preview failed: HTTP ${resp.status}`);
     const blob = await resp.blob();
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(new Error("media read failed"));
-      reader.readAsDataURL(blob);
-    });
     return {
       path: params.path,
       mediaType: blob.type || "application/octet-stream",
-      dataBase64: dataUrl.split(",")[1] ?? "",
+      dataBase64: await blobToBase64(blob),
+      totalBytes: blob.size,
+    };
+  };
+  // Office 解析器要完整 ZIP/OLE 字节，不能复用文本分块；先做 25MB 上限再整档 base64。
+  const readBinaryPreview = async (params: { path: string; maxBytes?: number }) => {
+    const maxBytes = Math.min(
+      Math.max(1, Math.trunc(params.maxBytes ?? EVO_BINARY_PREVIEW_MAX_BYTES)),
+      EVO_BINARY_PREVIEW_MAX_BYTES,
+    );
+    const path = String(params.path || "").trim();
+    const stat = await statFile({ path });
+    const size = typeof stat.size === "number" ? stat.size : undefined;
+    if (size != null && size > maxBytes) {
+      throw new Error(`File is too large to preview: ${path}`);
+    }
+    const resp = await fetch(serveFileUrl(path));
+    if (resp.status === 404) throw new Error(`file not found: ${path}`);
+    if (!resp.ok) throw new Error(`binary preview failed: HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    if (blob.size > maxBytes) {
+      throw new Error(`File is too large to preview: ${path}`);
+    }
+    return {
+      path,
+      dataBase64: await blobToBase64(blob),
       totalBytes: blob.size,
     };
   };
@@ -134,9 +185,13 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
         );
         return results;
       },
-      stat: statFile,
+      // PreviewPane 调 fileService.stat({ path })，必须吃对象形参。
+      async stat(params: { path: string }) {
+        return statFile(params);
+      },
       readFileRange,
       readMediaPreview,
+      readBinaryPreview,
       async readTextFile(params: { path: string; offset: number; length: number }) {
         const bytes = await readFileRange(params);
         // NUL 字节启发式判二进制（UTF-8 合法文本不会含 NUL）。
@@ -148,7 +203,7 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
           }
         }
         const content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-        const stat = await statFile(params.path);
+        const stat = await statFile({ path: params.path });
         const totalBytes = stat.size ?? params.offset + bytes.length;
         return {
           path: params.path,
@@ -167,6 +222,18 @@ export function createEvoflowPartialServices(sessionId: string): IServiceAccesso
         return { url: serveFileUrl(params.path) };
       },
       async release() {},
+    },
+    // Web/EvoFlow 无本机 fs.watch：no-op。
+    // onDynamicChange(id) 返回「订阅函数」，订阅后再返回 disposable（ZCode Event 形态）。
+    fileWatcherService: {
+      async watch() {
+        return { id: `evo-noop-${Date.now()}` };
+      },
+      async unwatch() {},
+      disposeAll() {},
+      onDynamicChange(_id: string) {
+        return (_listener: (event: unknown) => void) => ({ dispose() {} });
+      },
     },
     async readMediaPreview(params: { path: string; maxBytes?: number }) {
       return readMediaPreview(params);
@@ -199,6 +266,11 @@ export function V4ZCodeTimeline(props: {
   bottomDock?: ReactNode;
   /** 工具卡/文件 chip 点击 → EvoFlow 右侧面板文件预览（ZCode CodeViewerSource 语义）。 */
   onOpenCodeViewer?: (source: import("@zcode/ui/lib/codeViewer.js").CodeViewerSource) => void;
+  /**
+   * Markdown 文件链接点击。未传时回落到 onOpenCodeViewer（type:file），
+   * 保证正文里的路径 pill 与工具卡走同一右栏，而不是全屏 modal。
+   */
+  onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   /** 复用老授权模块：onToolApprovalStable（approve/deny → wsClient.postToolApproval，
    * 批准后的执行结果经镜像回流成 V4 行）。 */
   onToolApproval?: (
@@ -236,6 +308,7 @@ export function V4ZCodeTimeline(props: {
     embedded = false,
     draftEmpty = false,
     onOpenCodeViewer,
+    onOpenFileLink: onOpenFileLinkProp,
     onToolApproval,
     toolApprovalUiDisabled = false,
     workspacePath,
@@ -243,6 +316,28 @@ export function V4ZCodeTimeline(props: {
     onOpenSubagentTranscript,
     onAutoOpenCodeViewers,
   } = props;
+
+  // Markdown 路径 pill：优先显式 onOpenFileLink；否则转成 CodeViewerSource 走右栏。
+  const onOpenFileLink = useCallback(
+    (target: MessageFileLinkTarget) => {
+      if (onOpenFileLinkProp) {
+        onOpenFileLinkProp(target);
+        return;
+      }
+      if (!onOpenCodeViewer) return;
+      onOpenCodeViewer({
+        type: "file",
+        title: getPathLeaf(target.path) || target.label || "文件",
+        path: target.path,
+        ...(target.workspacePath ? { workspacePath: target.workspacePath } : {}),
+        ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
+        ...(target.workspaceRemoteSessionId
+          ? { workspaceRemoteSessionId: target.workspaceRemoteSessionId }
+          : {}),
+      });
+    },
+    [onOpenFileLinkProp, onOpenCodeViewer],
+  );
   const sessionId = payload?.sessionId ?? "";
   const snapshot: ConversationSnapshot | null = payload?.snapshot ?? null;
 
@@ -550,6 +645,8 @@ export function V4ZCodeTimeline(props: {
       codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
       sessionId: sessionId || null,
       onOpenCodeViewer,
+      // 与 onOpenCodeViewer 一并注入：正文 Markdown 路径 pill / Preview Card 共用右栏。
+      onOpenFileLink: onOpenCodeViewer || onOpenFileLinkProp ? onOpenFileLink : undefined,
       fetchFileChanges: sessionId ? fetchFileChanges : undefined,
       // 贴在对应 bash/工具卡下方，不用底部浮层
       renderToolCallApproval,
@@ -560,11 +657,11 @@ export function V4ZCodeTimeline(props: {
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
     // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
+    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。
-  // 依赖 snapshot.seq + windowCount：流式每帧 seq 变就会落盘；sig 去重避免同内容刷盘。
+  // 依赖 snapshot.seq + totalCount：流式每帧 seq 变就会落盘；sig 去重避免同内容刷盘。
   useEffect(() => {
     logStreamCompareV4PanelDisplay({
       sessionKey: evoflowSessionKey ? String(evoflowSessionKey) : undefined,
@@ -584,6 +681,57 @@ export function V4ZCodeTimeline(props: {
     snapshot?.rows.totalCount,
     rows,
     payload?.loadingOlder,
+  ]);
+
+  // 给人看的中文：时间线组件实际画出了什么（加载中 / 空草稿 / 有历史）。
+  const lastPaintLogRef = useRef("");
+  useEffect(() => {
+    const total = snapshot?.rows.totalCount ?? rows.length;
+    const paint = connecting
+      ? "connecting"
+      : draftEmpty
+        ? "draft-empty"
+        : snapshot
+          ? `ready:${total}`
+          : "no-snapshot";
+    const key = `${evoflowSessionKey || ""}|${sessionId}|${paint}`;
+    if (lastPaintLogRef.current === key) return;
+    lastPaintLogRef.current = key;
+    const zh = connecting
+      ? describeV4NotRenderedYet({
+          path: "v4-connecting",
+          storeStatus: payload?.status ?? "connecting",
+          lease: true,
+          rowCount: 0,
+          hasSubscription: true,
+        }) + "（V4ZCodeTimeline 当前画的是「加载中…」占位。）"
+      : describeV4Rendered({
+          rowCount: total,
+          draftEmpty,
+          storeStatus: payload?.status ?? null,
+        }) + "（V4ZCodeTimeline 已挂载到对话区。）";
+    logV4Life({
+      event: "ui_render",
+      sessionKey: evoflowSessionKey || undefined,
+      threadId: sessionId || undefined,
+      zh,
+      detail: {
+        paint,
+        connecting: Boolean(connecting),
+        draftEmpty: Boolean(draftEmpty),
+        rowCount: total,
+        storeStatus: payload?.status ?? null,
+      },
+    });
+  }, [
+    connecting,
+    draftEmpty,
+    evoflowSessionKey,
+    sessionId,
+    snapshot,
+    rows.length,
+    snapshot?.rows.totalCount,
+    payload?.status,
   ]);
 
   return (

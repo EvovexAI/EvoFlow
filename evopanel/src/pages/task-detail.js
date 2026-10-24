@@ -19,6 +19,13 @@ import {
   isTaskCancellableStatus,
   taskStatusTagClass,
 } from '../lib/task-status-label.js'
+import {
+  asActiveSessionList,
+  buildActiveSessionIndex,
+  formatTaskStatusWithRuntime,
+  resolveTaskRuntimeHealth,
+  runtimeHealthStatusSuffix,
+} from '../lib/task-runtime-health.js'
 import { formatCompactNum, formatDurationMs, formatSubtaskObsLine } from '../lib/task-observability-format.js'
 import { showModal, showConfirm } from '../components/modal.js'
 import { promptSaveTaskAsApp } from '../lib/save-task-as-app.js'
@@ -1529,9 +1536,16 @@ function textLooksSimilar(a, b) {
 
 async function loadTaskDetail(page, state) {
   try {
-    state.task = await api.getTask(state.taskId)
+    const [task, sessionsRes] = await Promise.all([
+      api.getTask(state.taskId),
+      api.getActiveSessions({}).catch(() => null),
+    ])
+    state.task = task
     state.projectId = state.taskId
     state.subtasks = state.task.subtasks || []
+    if (sessionsRes != null) {
+      state.runtimeIndex = buildActiveSessionIndex(asActiveSessionList(sessionsRes))
+    }
 
     await ensureTaskDetailMaps(state)
     renderTaskHero(page, state)
@@ -2336,7 +2350,7 @@ function renderTaskStatusLine(page, state) {
     return
   }
   const u = toUnifiedTaskStatus(task.status)
-  const statusZh = formatUnifiedStatusZh(task.status)
+  const statusZh = formatTaskStatusWithRuntime(task, state.runtimeIndex, formatUnifiedStatusZh)
   const started = formatDetailClock(task.started_at || task.startedAt || task.created_at)
   const finished = formatDetailClock(task.completed_at || task.completedAt || task.updated_at || task.updatedAt)
   const updated = formatDetailClock(task.updated_at || task.updatedAt)
@@ -2349,19 +2363,27 @@ function renderTaskStatusLine(page, state) {
   const workflow = isWorkflowAppTask(task)
   const kindZh = runKindLabelZh(resolveTaskRunKind(task))
 
+  const health = resolveTaskRuntimeHealth(task, state.runtimeIndex)
+  const live = health === 'live'
+
   if (workflow) {
     const parts = []
     if (kindZh) parts.push(kindZh)
     parts.push(statusZh)
-    if (started && finished && u !== 'running' && u !== 'planning') {
+    // statusZh already says 已中断 / 执行中·在跑 — only append suffix when still raw lifecycle
+    if (health === 'live' && !String(statusZh).includes('在跑')) {
+      const runtimeSuffix = runtimeHealthStatusSuffix(health)
+      if (runtimeSuffix) parts.push(runtimeSuffix)
+    }
+    if (started && finished && !live) {
       parts.push(`${started} → ${finished}`)
     } else if (started) {
       parts.push(`${started} 开始`)
     } else if (finished) {
       parts.push(finished)
     }
-    if (dur) parts.push(`耗时 ${dur}`)
-    if (updated && u === 'running') parts.push(`最近更新 ${updated}`)
+    if (dur) parts.push(live ? `已运行 ${dur}` : `耗时 ${dur}`)
+    if (updated && live) parts.push(`最近更新 ${updated}`)
     if (subtaskCount > 0) {
       const ok = u === 'completed'
       parts.push(ok
@@ -2370,20 +2392,23 @@ function renderTaskStatusLine(page, state) {
     }
     el.textContent = parts.join(' · ')
     el.dataset.group = toTaskStatusGroup(task.status)
+    el.dataset.runtime = health
     return
   }
 
   const icon = u === 'completed'
     ? '✓'
-    : (u === 'failed' ? '✕' : (u === 'cancelled' ? '—' : '●'))
+    : (u === 'failed' ? '✕' : (u === 'cancelled' ? '—' : (health === 'interrupted' ? '⏸' : '●')))
   const parts = [`${icon} ${statusZh}`]
-  if (u === 'running' && updated) parts.push(`最近更新 ${updated}`)
-  if (u === 'running' && dur) parts.push(`已运行 ${dur}`)
+  if (live && updated) parts.push(`最近更新 ${updated}`)
+  if (live && dur) parts.push(`已运行 ${dur}`)
+  else if (health === 'interrupted' && dur) parts.push(`曾运行 ${dur}`)
   else if (finished) parts.push(finished)
   else if (dur) parts.push(`耗时 ${dur}`)
   // 取消原因已在顶部 Banner 展示，状态行保持短句
   el.textContent = parts.join(' · ')
   el.dataset.group = toTaskStatusGroup(task.status)
+  el.dataset.runtime = health
 }
 
 function formatRunningDuration(task) {
