@@ -116,11 +116,25 @@ async def emit_followup_wave_needed(
     runtime: ToolRuntime[ContextT, dict] | None,
     main_task_id: str,
 ) -> None:
-    """Signal that a follow-up delegation wave should be evaluated."""
+    """Signal that a follow-up delegation wave should be evaluated.
+
+    App workflow tasks route through :mod:`workflow_scheduler` (DAG SSOT + app_run push).
+    Lead collab keeps the registered supervisor follow-up handler.
+    """
     from evoflow.collab.dag_trace import dag_info, dag_warning
 
     mid = str(main_task_id or "").strip()
     dag_info("bridge_followup_emit main=%s caller_runtime=%s handler=%s", mid, runtime is not None, _followup_handler_ref is not None)
+
+    try:
+        from evoflow.collab.workflow_scheduler import advance_followup_if_workflow
+
+        if await advance_followup_if_workflow(runtime, mid):
+            dag_info("bridge_followup_via_scheduler main=%s", mid)
+            return
+    except Exception:
+        logger.exception("collab_bridge: workflow_scheduler followup failed task=%s; falling back", mid)
+
     if _followup_handler_ref is None:
         dag_warning("bridge_followup_skip main=%s reason=handler_not_registered", mid)
         return

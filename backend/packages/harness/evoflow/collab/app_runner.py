@@ -80,8 +80,8 @@ async def dispatch_workflow_task_now(
         if not ok:
             return {"success": False, "error": f"authorize_failed:{msg}", "taskId": tid}
 
-    from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
     from evoflow.collab.plan_subtasks_sync import ensure_subtasks_synced_before_start_execution
+    from evoflow.collab.workflow_scheduler import advance_dag
 
     try:
         ensure_subtasks_synced_before_start_execution(tid, storage=storage)
@@ -89,14 +89,28 @@ async def dispatch_workflow_task_now(
         logger.warning("dispatch_workflow_task_now: subtasks pre-sync failed task_id=%s: %s", tid, sync_exc)
         return {"success": False, "error": f"subtasks_sync_failed:{sync_exc}", "taskId": tid}
 
-    parsed = await dispatch_authorized_main_task_execution(
+    # Sole DAG push entry for App workflow (wave-1).
+    scheduled = await advance_dag(
         tid,
-        thread_id=None,
+        reason="initial",
         authorized_by=authorized_by,
+        thread_id=None,
     )
+    parsed = scheduled.get("dispatch") if isinstance(scheduled, dict) else None
+    if not isinstance(parsed, dict):
+        parsed = {
+            "success": bool(scheduled.get("ok")) if isinstance(scheduled, dict) else False,
+            "error": (scheduled or {}).get("error") if isinstance(scheduled, dict) else "dispatch_failed",
+            "taskId": tid,
+        }
     err: str | None = None
     if not _dispatch_result_ok(parsed):
-        err = str((parsed or {}).get("error") or (parsed or {}).get("message") or "dispatch_failed")
+        err = str(
+            (parsed or {}).get("error")
+            or (scheduled or {}).get("error")
+            or (parsed or {}).get("message")
+            or "dispatch_failed"
+        )
         logger.warning(
             "dispatch_workflow_task_now: incomplete task_id=%s err=%s raw=%s",
             tid,
