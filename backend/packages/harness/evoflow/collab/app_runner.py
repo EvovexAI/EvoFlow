@@ -215,13 +215,6 @@ def _persist_workflow_dispatch_outcome(
         emit_app_run_from_main_task(task, reason="persist_workflow_dispatch_outcome")
     except Exception:
         logger.debug("app_runner: emit_app_run after dispatch failed task_id=%s", tid, exc_info=True)
-        return
-    try:
-        from evoflow.collab.app_run_events import emit_app_run_from_main_task
-
-        emit_app_run_from_main_task(task, reason="workflow_dispatch_outcome")
-    except Exception:
-        logger.debug("app_runner: emit_app_run after dispatch failed task_id=%s", tid, exc_info=True)
 
 
 def _schedule_unattended_queue_advance(task_id: str) -> None:
@@ -262,7 +255,7 @@ def _schedule_unattended_queue_advance(task_id: str) -> None:
 
 
 def _schedule_workflow_dispatch(task_id: str, run_id: str) -> None:
-    """Dispatch authorized execution on the persistent poll loop (reliable async context)."""
+    """Retry App DAG wave-1 via WorkflowRuntime on the persistent poll loop."""
     tid = str(task_id or "").strip()
     if not tid:
         return
@@ -274,13 +267,23 @@ def _schedule_workflow_dispatch(task_id: str, run_id: str) -> None:
         parsed: dict[str, Any] | None = None
         err: str | None = None
         try:
-            from evoflow.collab.dispatch_authorized_execution import (
-                dispatch_authorized_main_task_execution,
-            )
+            from evoflow.collab.workflow_runtime import start as workflow_runtime_start
 
-            parsed = await dispatch_authorized_main_task_execution(tid, thread_id=None, authorized_by="api")
+            scheduled = await workflow_runtime_start(tid, authorized_by="api", thread_id=None)
+            parsed = scheduled.get("dispatch") if isinstance(scheduled, dict) else None
+            if not isinstance(parsed, dict):
+                parsed = {
+                    "success": bool(scheduled.get("ok")) if isinstance(scheduled, dict) else False,
+                    "error": (scheduled or {}).get("error") if isinstance(scheduled, dict) else "dispatch_failed",
+                    "taskId": tid,
+                }
             if not _dispatch_result_ok(parsed):
-                err = str((parsed or {}).get("error") or (parsed or {}).get("message") or "dispatch_failed")
+                err = str(
+                    (parsed or {}).get("error")
+                    or (scheduled or {}).get("error")
+                    or (parsed or {}).get("message")
+                    or "dispatch_failed"
+                )
                 logger.warning(
                     "app_runner: workflow dispatch incomplete task_id=%s err=%s parsed=%s",
                     tid,
@@ -292,10 +295,14 @@ def _schedule_workflow_dispatch(task_id: str, run_id: str) -> None:
             logger.exception("app_runner: workflow dispatch failed task_id=%s", tid)
         finally:
             _persist_workflow_dispatch_outcome(tid, parsed, error=err)
-            if run_id:
+            # Do not stamp run as executing on failure — emit already mirrored task status.
+            if run_id and err and not _dispatch_result_ok(parsed):
                 try:
-                    if err and not _dispatch_result_ok(parsed):
-                        app_repositories.update_run_status(run_id, "executing", error=f"Dispatch error: {err[:500]}")
+                    app_repositories.update_run_status(
+                        run_id,
+                        str((app_repositories.load_run(run_id) or {}).get("status") or "planned"),
+                        error=f"Dispatch error: {err[:500]}",
+                    )
                 except Exception:
                     pass
             if not _dispatch_result_ok(parsed):
@@ -1380,7 +1387,7 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
 
 
 def resume_run(run_id: str) -> bool:
-    """Resume a paused application run and re-dispatch in-flight subtasks."""
+    """Resume a paused application run and re-dispatch via WorkflowRuntime."""
     run = app_repositories.load_run(run_id)
     if run is None:
         return False
@@ -1393,50 +1400,59 @@ def resume_run(run_id: str) -> bool:
     from evoflow.persistence.task_repositories import load_task_bundle, save_task_bundle
 
     task_id = run.get("task_id")
+    main_task: dict[str, Any] | None = None
     if task_id:
         try:
             bundle = load_task_bundle(task_id)
             if bundle and bundle.get("tasks"):
                 main_task = bundle["tasks"][0]
                 main_task["status"] = "executing"
-                # Reset paused subtasks to pending; DAG dispatch (below) starts only
-                # those whose depends_on are satisfied — never mark Step2 executing
-                # while Step1 is still incomplete.
+                # Reset paused → pending only (not terminal). DAG dispatch starts
+                # runnable steps whose depends_on are satisfied.
                 subtasks = main_task.get("subtasks") or []
-                for st in subtasks:
-                    if isinstance(st, dict):
-                        if str(st.get("status") or "").strip().lower() == "paused":
-                            st["status"] = "pending"
+                for row in subtasks:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("status") or "").strip().lower() != "paused":
+                        continue
+                    from evoflow.collab.subtask_state_machine import advance_subtask_row_status
+
+                    ok_adv, _ = advance_subtask_row_status(
+                        row,
+                        "pending",
+                        allow_terminal_downgrade=False,
+                    )
+                    if not ok_adv:
+                        row["status"] = "pending"
                 save_task_bundle(task_id, bundle)
+                try:
+                    from evoflow.collab.app_run_events import emit_app_run_from_main_task
+
+                    emit_app_run_from_main_task(main_task, reason="resume_run")
+                except Exception:
+                    logger.debug("resume_run: emit_app_run failed run_id=%s", run_id, exc_info=True)
         except Exception:
             pass
 
     app_repositories.update_run_status(run_id, "running")
 
-    # Re-dispatch in background to resume DAG execution immediately
-    # (don't wait for task_queue_runner poller to pick it up)
+    # Re-enter App DAG via WorkflowRuntime (not Lead dispatch_authorized directly).
     if task_id:
+        tid = str(task_id).strip()
+
+        async def _resume() -> None:
+            try:
+                from evoflow.collab.workflow_runtime import start as workflow_runtime_start
+
+                await workflow_runtime_start(tid, authorized_by="api", thread_id=None)
+            except Exception:
+                logger.debug("resume_run: workflow_runtime.start failed task_id=%s", tid, exc_info=True)
+
         try:
-            import threading
+            from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
 
-            def _resume_dispatch() -> None:
-                import asyncio as _aio
-
-                from evoflow.collab.dispatch_authorized_execution import (
-                    dispatch_authorized_main_task_execution,
-                )
-
-                loop = _aio.new_event_loop()
-                try:
-                    loop.run_until_complete(dispatch_authorized_main_task_execution(task_id, thread_id=None, authorized_by="api"))
-                except Exception:
-                    pass  # task_queue_runner will handle on next tick
-                finally:
-                    loop.close()
-
-            t = threading.Thread(target=_resume_dispatch, daemon=True)
-            t.start()
+            schedule_detached_poll(_resume(), name=f"workflow-resume-{tid[:12]}")
         except Exception:
-            pass  # Non-fatal: poller will pick it up
+            logger.debug("resume_run: schedule failed task_id=%s", tid, exc_info=True)
 
     return True

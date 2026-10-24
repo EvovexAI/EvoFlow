@@ -91,13 +91,78 @@ async def advance_dag(
         authorized_by,
     )
 
-    # followup / retry: runnable dependents after terminal (or requeue→pending).
+    # followup / retry: resolve + run_steps (no Lead auto_delegate import).
     if reason in ("followup", "retry"):
-        from evoflow.tools.builtins.supervisor.execution import auto_delegate_collab_followup_wave
+        from evoflow.collab.storage import find_main_task, get_project_storage
+        from evoflow.collab.step_runner import advance_runnable_wave
+        from evoflow.tools.builtins.supervisor.execution import (
+            _followup_lock_for_task,
+            _resolve_collab_followup_runtime,
+            _verify_upstream_artifacts_before_followup,
+        )
 
-        await auto_delegate_collab_followup_wave(runtime, tid)
+        storage = get_project_storage()
+        rt = _resolve_collab_followup_runtime(runtime, tid)
+        if rt is None:
+            logger.warning(
+                "workflow_scheduler: followup skip task_id=%s reason=no_runtime",
+                tid,
+            )
+            _push_app_run(tid, reason=f"dag_{reason}_no_runtime")
+            return {
+                "ok": False,
+                "taskId": tid,
+                "reason": reason,
+                "action": "followup_wave",
+                "error": "no_runtime",
+            }
+
+        async with _followup_lock_for_task(tid):
+            _verify_upstream_artifacts_before_followup(storage, tid)
+            row = find_main_task(storage, tid)
+            if not row:
+                _push_app_run(tid, reason=f"dag_{reason}_missing")
+                return {
+                    "ok": False,
+                    "taskId": tid,
+                    "reason": reason,
+                    "error": "task_not_found",
+                }
+            _proj, main_task = row
+            if not bool(main_task.get("execution_authorized")):
+                _push_app_run(tid, reason=f"dag_{reason}_unauthorized")
+                return {
+                    "ok": False,
+                    "taskId": tid,
+                    "reason": reason,
+                    "error": "not_execution_authorized",
+                }
+            delegated = await advance_runnable_wave(rt, storage, tid)
+            if delegated and any(bool(d.get("detached")) for d in delegated):
+                try:
+                    from evoflow.tools.builtins.supervisor.monitor import _ensure_background_task_monitor
+                    from evoflow.tools.builtins.supervisor.utils import _runtime_thread_id
+
+                    _ensure_background_task_monitor(
+                        storage,
+                        tid,
+                        runtime_thread_id=_runtime_thread_id(rt),
+                    )
+                except Exception:
+                    logger.debug(
+                        "workflow_scheduler: background monitor failed task_id=%s",
+                        tid,
+                        exc_info=True,
+                    )
+
         _push_app_run(tid, reason=f"dag_{reason}")
-        return {"ok": True, "taskId": tid, "reason": reason, "action": "followup_wave"}
+        return {
+            "ok": True,
+            "taskId": tid,
+            "reason": reason,
+            "action": "followup_wave",
+            "delegated": delegated if isinstance(delegated, list) else [],
+        }
 
     from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
 

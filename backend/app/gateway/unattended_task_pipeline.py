@@ -44,6 +44,21 @@ DEFAULT_LANGGRAPH_URL = "http://127.0.0.1:8070/api/langgraph"
 DEFAULT_ASSISTANT_ID = "lead_agent"
 
 
+# Pipeline historically wrote run statuses directly; map them onto main-task
+# status so ``emit_app_run_from_main_task`` / ``_TASK_STATUS_TO_RUN`` stay SSOT.
+_RUN_STATUS_TO_TASK = {
+    "running": "pending",
+    "executing": "executing",
+    "completed": "completed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
+    "paused": "paused",
+    "planned": "planned",
+    "plan_ready": "plan_ready",
+}
+
+
 def _sync_linked_app_run(
     task: dict[str, Any],
     *,
@@ -51,27 +66,33 @@ def _sync_linked_app_run(
     progress: int | None = None,
     error: str | None = ...,
 ) -> None:
-    """Keep evoflow_app_runs aligned when the unattended pipeline mutates main-task status.
+    """Keep evoflow_app_runs aligned via app_run_events write-path SSOT.
 
-    ``source_run_id`` lives on the main task (extra_json / top-level). Without this,
-    ``_requeue`` can reset the task to pending/0% while the run row stays executing/98%.
+    ``source_run_id`` lives on the main task. Without this, ``_requeue`` can reset
+    the task to pending/0% while the run row stays executing/98%.
     """
     try:
+        from evoflow.collab.app_run_events import emit_app_run_from_main_task
         from evoflow.persistence import app_repositories
 
-        run_id = str(task.get("source_run_id") or "").strip()
-        task_id = str(task.get("id") or "").strip()
-        if not run_id and task_id:
-            run = app_repositories.load_run_by_task_id(task_id)
-            run_id = str((run or {}).get("id") or "").strip()
-        if not run_id:
-            return
-        fields: dict[str, Any] = {}
+        view = dict(task) if isinstance(task, dict) else {}
+        run_st = str(status or "").strip().lower()
+        view["status"] = _RUN_STATUS_TO_TASK.get(run_st, run_st or str(view.get("status") or "pending"))
         if progress is not None:
-            fields["progress"] = int(progress)
+            view["progress"] = int(progress)
+        emit_app_run_from_main_task(view, reason="unattended_pipeline")
+        # Error (and explicit progress clear) is not always covered by emit — patch when given.
         if error is not ...:
-            fields["error"] = error
-        app_repositories.update_run_status(run_id, status, **fields)
+            run_id = str(view.get("source_run_id") or "").strip()
+            task_id = str(view.get("id") or "").strip()
+            if not run_id and task_id:
+                run = app_repositories.load_run_by_task_id(task_id)
+                run_id = str((run or {}).get("id") or "").strip()
+            if run_id:
+                fields: dict[str, Any] = {"error": error}
+                if progress is not None:
+                    fields["progress"] = int(progress)
+                app_repositories.update_run_status(run_id, run_st or "running", **fields)
     except Exception:
         logger.debug(
             "unattended_pipeline: sync linked app_run failed task_id=%s status=%s",
@@ -723,6 +744,7 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
             return {"task_id": task_id, "ok": False, "error": "not_found_after_heal"}
         _project, task = row
         status = "pending"
+        _sync_linked_app_run(task, status="running", progress=0, error=None)
 
     finalized = _finalize_executing_task(task_id)
     if finalized is not None:
@@ -879,6 +901,15 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
             return t
 
         _patch_task(task_id, _fail)
+        row_after = find_main_task(storage, task_id)
+        if row_after:
+            _proj_f, task_f = row_after
+            run_st = "failed" if str(task_f.get("status") or "").lower() == "failed" else "planned"
+            _sync_linked_app_run(
+                task_f if isinstance(task_f, dict) else task,
+                status=run_st,
+                error=err[:500],
+            )
         return {"task_id": task_id, "ok": False, "error": err, "dispatch": parsed}
 
     try:

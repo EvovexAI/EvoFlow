@@ -61,19 +61,51 @@ async def test_advance_dag_initial_dispatches_and_pushes(monkeypatch: pytest.Mon
 @pytest.mark.asyncio
 async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.MonkeyPatch):
     pushes: list[tuple] = []
-    called: list[tuple] = []
+    waved: list[tuple] = []
 
     monkeypatch.setattr(
         "evoflow.collab.workflow_scheduler._load_main_task",
-        lambda _tid: {"id": "wf1", "source_app_id": "App_x"},
+        lambda _tid: {"id": "wf1", "source_app_id": "App_x", "execution_authorized": True},
+    )
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.supervisor.execution._resolve_collab_followup_runtime",
+        lambda runtime, tid: runtime or MagicMock(),
     )
 
-    async def _followup(runtime, tid):
-        called.append((runtime, tid))
+    class _Lock:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
 
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution.auto_delegate_collab_followup_wave",
-        _followup,
+        "evoflow.tools.builtins.supervisor.execution._followup_lock_for_task",
+        lambda _tid: _Lock(),
+    )
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.supervisor.execution._verify_upstream_artifacts_before_followup",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "evoflow.collab.storage.find_main_task",
+        lambda *_a, **_k: (
+            {},
+            {"id": "wf1", "source_app_id": "App_x", "execution_authorized": True},
+        ),
+    )
+    monkeypatch.setattr(
+        "evoflow.collab.storage.get_project_storage",
+        lambda: MagicMock(),
+    )
+
+    async def _wave(runtime, storage, tid, wait_for_completion=False):
+        waved.append((runtime, tid))
+        return [{"subtaskId": "s2", "ok": True, "detached": False}]
+
+    monkeypatch.setattr(
+        "evoflow.collab.step_runner.advance_runnable_wave",
+        _wave,
     )
     monkeypatch.setattr(
         "evoflow.collab.workflow_scheduler._push_app_run",
@@ -84,24 +116,56 @@ async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.Mon
     out = await advance_dag("wf1", reason="followup", runtime=rt)
     assert out["ok"] is True
     assert out["action"] == "followup_wave"
-    assert called == [(rt, "wf1")]
+    assert waved and waved[0][1] == "wf1"
     assert pushes == [("wf1", "dag_followup")]
 
 
 @pytest.mark.asyncio
 async def test_advance_dag_retry_uses_followup_path(monkeypatch: pytest.MonkeyPatch):
-    called: list[str] = []
+    waved: list[str] = []
     monkeypatch.setattr(
         "evoflow.collab.workflow_scheduler._load_main_task",
-        lambda _tid: {"id": "wf1", "source_app_id": "App_x"},
+        lambda _tid: {"id": "wf1", "source_app_id": "App_x", "execution_authorized": True},
+    )
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.supervisor.execution._resolve_collab_followup_runtime",
+        lambda runtime, tid: MagicMock(),
     )
 
-    async def _followup(runtime, tid):
-        called.append(tid)
+    class _Lock:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
 
     monkeypatch.setattr(
-        "evoflow.tools.builtins.supervisor.execution.auto_delegate_collab_followup_wave",
-        _followup,
+        "evoflow.tools.builtins.supervisor.execution._followup_lock_for_task",
+        lambda _tid: _Lock(),
+    )
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.supervisor.execution._verify_upstream_artifacts_before_followup",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "evoflow.collab.storage.find_main_task",
+        lambda *_a, **_k: (
+            {},
+            {"id": "wf1", "source_app_id": "App_x", "execution_authorized": True},
+        ),
+    )
+    monkeypatch.setattr(
+        "evoflow.collab.storage.get_project_storage",
+        lambda: MagicMock(),
+    )
+
+    async def _wave(runtime, storage, tid, wait_for_completion=False):
+        waved.append(tid)
+        return []
+
+    monkeypatch.setattr(
+        "evoflow.collab.step_runner.advance_runnable_wave",
+        _wave,
     )
     monkeypatch.setattr(
         "evoflow.collab.workflow_scheduler._push_app_run",
@@ -110,7 +174,7 @@ async def test_advance_dag_retry_uses_followup_path(monkeypatch: pytest.MonkeyPa
     out = await advance_dag("wf1", reason="retry")
     assert out["ok"] is True
     assert out["reason"] == "retry"
-    assert called == ["wf1"]
+    assert waved == ["wf1"]
 
 
 @pytest.mark.asyncio

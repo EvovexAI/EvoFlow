@@ -168,8 +168,37 @@ async def run_steps(
     )
 
 
+async def advance_runnable_wave(
+    runtime: Any | None,
+    storage: Any,
+    main_task_id: str,
+    *,
+    wait_for_completion: bool = False,
+) -> list[dict[str, Any]]:
+    """Resolve currently runnable subtasks and ``run_steps`` them.
+
+    Shared by WorkflowScheduler followup/retry and Lead ``auto_delegate`` body.
+    """
+    from evoflow.tools.builtins.supervisor.dependency import _resolve_subtasks_for_start_execution
+
+    tid = str(main_task_id or "").strip()
+    if not tid:
+        return []
+    to_run, _blocked = _resolve_subtasks_for_start_execution(storage, tid, None)
+    if not to_run:
+        return []
+    return await run_steps(
+        runtime,
+        storage,
+        tid,
+        to_run,
+        wait_for_completion=wait_for_completion,
+    )
+
+
 __all__ = [
     "CLAIMABLE_SUBTASK_STATUSES",
+    "advance_runnable_wave",
     "claim_subtasks_for_delegation",
     "revert_claimed_subtasks_to_pending",
     "run_steps",

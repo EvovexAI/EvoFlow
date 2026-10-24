@@ -2521,6 +2521,24 @@ async def retry_task(http_request: Request, task_id: str, request: RetrySubtaskR
         project["tasks"] = tasks_list
         if not storage.save_project(project):
             raise_task_error(ErrorCode.SAVE_FAILED, "保存任务失败")
+        if str(task.get("source_app_id") or "").strip():
+            try:
+                from evoflow.collab.app_run_events import emit_app_run_from_main_task
+
+                emit_app_run_from_main_task(task, reason="retry_task_subtasks")
+            except Exception:
+                logger.debug("retry_task: emit_app_run failed task_id=%s", mid, exc_info=True)
+            if retried:
+                try:
+                    from evoflow.collab.workflow_runtime import retry_wave
+                    from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
+
+                    schedule_detached_poll(
+                        retry_wave(mid, authorized_by="api"),
+                        name=f"retry-task-{mid[:12]}",
+                    )
+                except Exception:
+                    logger.debug("retry_task: schedule retry_wave failed task_id=%s", mid, exc_info=True)
         return {
             "success": True,
             "data": {
@@ -2555,6 +2573,13 @@ async def retry_task(http_request: Request, task_id: str, request: RetrySubtaskR
         # Refresh for kick payload
         task = {**task, **{k: v for k, v in updates.items() if v is not None}}
         task["status"] = "pending"
+        if str(task.get("source_app_id") or "").strip():
+            try:
+                from evoflow.collab.app_run_events import emit_app_run_from_main_task
+
+                emit_app_run_from_main_task(task, reason="retry_task_main")
+            except Exception:
+                logger.debug("retry_task: emit_app_run main failed task_id=%s", mid, exc_info=True)
         _kick_work_item_retry(mid, task)
         return {
             "success": True,
@@ -2833,6 +2858,9 @@ async def get_subagent_task_transcript(http_request: Request, task_id: str) -> d
         }
 
     messages = list(result.stream_messages or [])
+    result_thread = str(getattr(result, "thread_id", None) or "").strip() or None
+    if not thread_id and result_thread:
+        thread_id = result_thread
     # Claude Code 等工作常把正文写在 result 字段，stream_messages 仅有薄包装 tool 行；
     # 弹窗若只吃 messages 会空白，这里用 result/error 合成一条可展示 AI 消息。
     if not messages:

@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A + B + C0–C5 done. Stuck-run hardening + leftover gap sweep complete.
+Status: Phase A + B + C0–C6 done. App re-entry + write-path SSOT aligned.
 
 ## Diagnosis
 
@@ -74,20 +74,25 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 - Peer: no `schedule_peer_wake` for terminal receivers (completed+outcome still auto-replies)
 - GET `get_run_status`: skip active rollup when run already terminal (write-path primary)
 
+### Phase C6 — App re-entry + SSOT (done)
+
+- `resume_run` / `_schedule_workflow_dispatch` → `workflow_runtime.start` (not Lead dispatch)
+- Unattended `_heal` / dispatch `_fail` emit via `_sync_linked_app_run` → `app_run_events`
+- `retry_task` (app-sourced) emit + `retry_wave`
+- Scheduler followup/retry → `advance_runnable_wave` (no Lead `auto_delegate` import)
+
 ## Architecture (current)
 
 ```
-App dispatch ──► workflow_runtime.start ──► workflow_scheduler.advance_dag
-                                              │
-followup/retry ───────────────────────────────┤
-                                              ▼
-                                    step_runner.run_steps
-                                              │
-                         claim (state machine) + delegate (task_tool)
-                                              ▼
-                                    app_run_events.emit ──► evoflow_app_runs
+App dispatch/resume/retry ──► workflow_runtime ──► workflow_scheduler.advance_dag
+                                                         │
+                              initial → authorized start_execution → run_steps
+                              followup/retry → advance_runnable_wave → run_steps
+                                                         ▼
+                                              app_run_events.emit ──► evoflow_app_runs
 
 Lead chat ──► supervisor_tool(start_execution) ──► same step_runner
+              auto_delegate ──► advance_runnable_wave
 ```
 
 ## Acceptance (regression)

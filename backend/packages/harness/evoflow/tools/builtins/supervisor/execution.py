@@ -959,14 +959,14 @@ async def auto_delegate_collab_followup_wave(
 
         _verify_upstream_artifacts_before_followup(storage, tid)
 
-        to_run, blocked = _resolve_subtasks_for_start_execution(storage, tid, None)
+        to_run_peek, blocked = _resolve_subtasks_for_start_execution(storage, tid, None)
         dag_info(
             "followup_resolve main=%s runnable=%s blocked=%s",
             tid,
-            to_run,
+            to_run_peek,
             blocked[:16],
         )
-        if not to_run:
+        if not to_run_peek:
             dag_info("followup_skip main=%s reason=no_runnable", tid)
             return
         row = find_main_task(storage, tid)
@@ -984,18 +984,17 @@ async def auto_delegate_collab_followup_wave(
             logger.exception("auto_delegate_collab_followup_wave: advance_collab_phase failed task_id=%s", tid)
 
         try:
-            from evoflow.collab.step_runner import run_steps
+            from evoflow.collab.step_runner import advance_runnable_wave
 
-            delegated = await run_steps(
+            delegated = await advance_runnable_wave(
                 runtime,
                 storage,
                 tid,
-                to_run,
                 wait_for_completion=False,
             )
         except Exception:
             logger.exception("auto_delegate_collab_followup_wave: delegate failed task_id=%s", tid)
-            dag_warning("followup_delegate_exception main=%s subs=%s", tid, to_run)
+            dag_warning("followup_delegate_exception main=%s subs=%s", tid, to_run_peek)
             return
 
         if delegated and any(bool(d.get("detached")) for d in delegated):
@@ -1011,8 +1010,8 @@ async def auto_delegate_collab_followup_wave(
         dag_info(
             "followup_done main=%s started=%d subs=%s subtasks_after=%s",
             tid,
-            len(to_run),
-            to_run,
+            len(to_run_peek),
+            to_run_peek,
             _subtask_status_snapshot(storage, tid),
         )
 
