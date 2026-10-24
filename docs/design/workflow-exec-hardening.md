@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A + B done. Phase C0 (write-path sync + light lease) done. Full Runtime split still open.
+Status: Phase A + B + C0 + C1 (SubtaskStateMachine) done. Full Runtime split still open.
 
 ## Diagnosis
 
@@ -38,21 +38,19 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 | Event-ish sync | `push_app_run_from_main_task` on `sync_main_task_from_subtasks` when app-sourced |
 | Light lease | workflow light lease 120–300s (full stays 300–900s) |
 
+### Phase C1 — SubtaskStateMachine (done)
+
+- Module: `collab/subtask_state_machine.py`
+- `can_advance_subtask_status` / `filter_status_from_updates` / `advance_subtask_row_status`
+- Wired into: `patch_collab_subtask_in_project_storage`, `task_tool` start, DAG `_claim_subtasks_for_delegation`
+- Retry / requeue: pass `allow_terminal_status_downgrade=True` or mutate via `save_project`
+
 ## Still open (Phase C — larger)
 
-Do **not** mix into hotfix PRs; plan as a dedicated milestone:
-
-1. **`WorkflowScheduler` + `StepStateMachine`**  
-   Single advance API; illegal transitions raise; retry is the only downgrade path.
-
-2. **True Runtime split**  
-   Workflow vs Collab share Step Runner only; workflow has no peer/checklist surface by construction.
-
-3. **AppRun as external SSOT**  
-   Event bus on every step terminal → run update (replace remaining GET heal reliance).
-
-4. **Optional later**  
-   File-path-only handoff for huge artifacts; further lease/watchdog tuning with metrics.
+1. **`WorkflowScheduler`** (DAG waves owned outside Lead supervisor)  
+2. **True Runtime split** — Workflow vs Collab share Step Runner only  
+3. **AppRun event bus SSOT** — replace remaining GET heal reliance  
+4. **Optional** — file-path-only huge artifacts; lease metrics
 
 ## Acceptance (regression)
 

@@ -450,26 +450,6 @@ def find_subtask_by_ids(
     return None
 
 
-# Terminal → active (e.g. completed→executing) must go through explicit retry paths
-# (supervisor retry_subtask / monitor requeue), not opportunistic patches like task_tool start.
-_TERMINAL_SUBTASK_FOR_PATCH = frozenset(
-    {"completed", "failed", "cancelled", "canceled", "timed_out", "done", "success"}
-)
-_ACTIVE_SUBTASK_FOR_PATCH = frozenset(
-    {
-        "pending",
-        "planned",
-        "executing",
-        "running",
-        "in_progress",
-        "active",
-        "waiting_dispatch",
-        "planning",
-        "paused",
-    }
-)
-
-
 def patch_collab_subtask_in_project_storage(
     storage: ProjectStorage,
     main_task_id: str,
@@ -484,6 +464,8 @@ def patch_collab_subtask_in_project_storage(
     classic peer-wake / late task_start bug). Explicit retries should mutate via
     ``save_project`` or pass ``allow_terminal_status_downgrade=True``.
     """
+    from evoflow.collab.subtask_state_machine import filter_status_from_updates
+
     mid = str(main_task_id or "").strip()
     with main_task_mutation_lock(mid):
         found = find_main_task(storage, mid, bypass_cache=True)
@@ -501,24 +483,14 @@ def patch_collab_subtask_in_project_storage(
             return False
         prev_row = subs[idx]
         old_status = str(prev_row.get("status") or "").strip().lower() if isinstance(prev_row, dict) else ""
-        applied = dict(updates)
-        if (
-            not allow_terminal_status_downgrade
-            and "status" in applied
-            and old_status in _TERMINAL_SUBTASK_FOR_PATCH
-        ):
-            new_status = str(applied.get("status") or "").strip().lower()
-            if new_status in _ACTIVE_SUBTASK_FOR_PATCH:
-                logger.warning(
-                    "refusing terminal→active subtask status patch main=%s sub=%s %s→%s",
-                    mid,
-                    subtask_id,
-                    old_status,
-                    new_status,
-                )
-                applied = {k: v for k, v in applied.items() if k != "status"}
-                if not applied:
-                    return True
+        applied = filter_status_from_updates(
+            old_status,
+            updates,
+            allow_terminal_downgrade=allow_terminal_status_downgrade,
+            log_context=f"main={mid} sub={subtask_id}",
+        )
+        if not applied:
+            return True
         row = dict(prev_row)
         row.update(applied)
         row["updated_at"] = now

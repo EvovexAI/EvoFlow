@@ -1369,10 +1369,12 @@ async def task_tool(
                 except (TypeError, ValueError):
                     prev_p = 0
                 st0_status = str(st0.get("status") or "").strip().lower()
-            # If already terminal (peer consultation wake / late start / race), never
-            # downgrade status back to executing — that left subtasks permanently stuck.
+            # State machine: terminal must not roll back to executing (peer wake / late start).
             # Still bind background_task_id so finalize is not treated as superseded.
-            if st0_status in {"completed", "failed", "cancelled", "timed_out"}:
+            from evoflow.collab.subtask_state_machine import can_advance_subtask_status
+
+            can_exec, _reason = can_advance_subtask_status(st0_status, "executing")
+            if not can_exec:
                 patch_collab_subtask_in_project_storage(
                     pst,
                     resolved_collab,

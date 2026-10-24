@@ -194,7 +194,12 @@ def _claim_subtasks_for_delegation(
             if status not in _CLAIMABLE_SUBTASK_STATUSES:
                 skipped.append({"subtaskId": sid, "status": status, "reason": "not_claimable"})
                 continue
-            st["status"] = "executing"
+            from evoflow.collab.subtask_state_machine import advance_subtask_row_status
+
+            ok_adv, adv_reason = advance_subtask_row_status(st, "executing")
+            if not ok_adv:
+                skipped.append({"subtaskId": sid, "status": status, "reason": adv_reason})
+                continue
             st["started_at"] = st.get("started_at") or now
             st["updated_at"] = now
             claimed.append(sid)
