@@ -13,7 +13,7 @@ import {
   coalesceSubtaskTranscriptRows,
 } from '../../../lib/subtask-transcript-seed.js'
 import {
-  showRightStageCodeViewer,
+  openRightStageForCodeViewerSource,
   showRightStageFilePreview,
 } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isTaskRunningStatus, isTaskPlanningStatus } from '../../../lib/task-status-label.js'
@@ -179,7 +179,7 @@ export function V4CollabSubtaskTranscriptPane(props: V4CollabSubtaskTranscriptPa
           lower,
         )
       if (looksCode) {
-        showRightStageCodeViewer(
+        openRightStageForCodeViewerSource(
           { type: 'file', path, title: name || undefined },
           { sessionKey, threadId: leadThreadId },
         )

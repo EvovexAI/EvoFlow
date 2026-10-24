@@ -317,7 +317,8 @@ export function V4ZCodeTimeline(props: {
     onAutoOpenCodeViewers,
   } = props;
 
-  // Markdown 路径 pill：优先显式 onOpenFileLink；否则转成 CodeViewerSource 走右栏。
+  // Markdown 路径 pill：优先 onOpenFileLink（宿主应打开右侧「文件」区）；
+  // 未传时回落 onOpenCodeViewer(type:file)——宿主 openRightStageForCodeViewerSource 会再分流到 file。
   const onOpenFileLink = useCallback(
     (target: MessageFileLinkTarget) => {
       if (onOpenFileLinkProp) {

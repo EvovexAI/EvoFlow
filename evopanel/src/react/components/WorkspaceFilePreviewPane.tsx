@@ -72,7 +72,7 @@ type Props = {
   preview: WorkspacePreviewState | null
   onClose?: () => void
   compact?: boolean
-  /** 嵌在右栏时：无页内 × / 无缩放条，关闭走标签条。 */
+  /** 嵌在右栏时：无缩放条；有 onClose 时仍显示 ×（标签条悬停才出现，易找不到关法）。 */
   embedded?: boolean
   /** 弹窗内正文缩放（0.75–2，默认 1） */
   contentZoom?: number
@@ -560,7 +560,7 @@ export function WorkspaceFilePreviewPane({
               </svg>
             </button>
           ) : null}
-          {!embedded && onClose ? (
+          {onClose ? (
             <button
               type="button"
               className="react-chat-workspace-preview-pane-close"

@@ -15,7 +15,7 @@ import {
   openCollabSubtaskInRightStage,
   type CollabSubtaskStageOutcome,
 } from '../../lib/right-stage/open-collab-subtask-stage.js'
-import { showRightStageCodeViewer } from '../../lib/right-stage/open-right-stage-file.js'
+import { openRightStageForCodeViewerSource } from '../../lib/right-stage/open-right-stage-file.js'
 import { normalizeRightStageKind, type RightStageSurface } from '../../lib/right-stage/right-stage-types.js'
 import { useCollabSubtasksFromApi } from '../hooks/useCollabSubtasksFromApi.js'
 import { V4CollabSubtaskTranscriptPane } from '../chat-app/right-stage/v4-collab-subtask-transcript-pane.js'
@@ -203,7 +203,7 @@ export function TaskDetailRightStageHost({
             workspacePath={workspacePath || undefined}
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
             onOpenCodeViewer={(nextSource) => {
-              showRightStageCodeViewer(nextSource, {
+              openRightStageForCodeViewerSource(nextSource, {
                 sessionKey: stageSk,
                 threadId: lead,
               })

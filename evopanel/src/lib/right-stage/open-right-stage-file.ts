@@ -3,6 +3,10 @@
  *
  * 不要走 WorkspaceFilePreviewModal / FileEditDiffModal：那些是近全屏遮罩，
  * 会盖住主对话。主对话、小V、工具卡、产出卡共用本入口。
+ *
+ * 分流：
+ * - 话术 Markdown 路径 pill / 普通文件 → `file`（WorkspaceFilePreviewPanel）
+ * - patch / diff / pptx / pdf / 多媒体 → `codeViewer`（PreviewPane）
  */
 import { rightStageStore } from './right-stage-store.js'
 
@@ -56,7 +60,8 @@ export function showRightStageCodeViewer(
   opts?: OpenRightStageCodeViewerOpts,
 ): string {
   const pathOrTitle = String(source.path || source.title || 'diff').trim()
-  const id = `codeViewer:${normalizePathId(pathOrTitle)}`
+  // id 不含 kind 前缀：tabKey = `${kind}:${id}` = `codeViewer:<path>`
+  const id = normalizePathId(pathOrTitle) || 'diff'
   const key = `codeViewer:${id}`
   rightStageStore.show({
     kind: 'codeViewer',
@@ -73,6 +78,27 @@ export function showRightStageCodeViewer(
   return key
 }
 
+/**
+ * CodeViewerSource 统一入口：普通文件走右侧「文件」区，其余类型走 PreviewPane。
+ * 避免话术路径 pill / 工具卡 type:file 占满 codeViewer 且关不掉。
+ */
+export function openRightStageForCodeViewerSource(
+  source: RightStageCodeViewerSourceInput,
+  opts?: OpenRightStageCodeViewerOpts & { name?: string },
+): string {
+  if (source?.type === 'file') {
+    const path = String(source.path || '').trim()
+    if (path) {
+      return showRightStageFilePreview(path, {
+        name: String(opts?.name || source.title || '').trim() || undefined,
+        sessionKey: opts?.sessionKey,
+        layout: opts?.layout,
+      })
+    }
+  }
+  return showRightStageCodeViewer(source, opts)
+}
+
 /** 批量打开；激活第一张（对齐 ZCode openCodeViewerSidePanes activeIndex=0）。 */
 export function showRightStageCodeViewers(
   sources: readonly RightStageCodeViewerSourceInput[],
@@ -81,7 +107,7 @@ export function showRightStageCodeViewers(
   if (!sources?.length) return
   let firstKey: string | null = null
   for (const source of sources) {
-    const key = showRightStageCodeViewer(source, opts)
+    const key = openRightStageForCodeViewerSource(source, opts)
     if (!firstKey) firstKey = key
   }
   if (firstKey) rightStageStore.activateTab(firstKey)
@@ -124,8 +150,8 @@ export function showRightStageFilePreview(
 }
 
 /**
- * Markdown 文件链接 / 目录提示 → 右栏。
- * 目录仍按文件预览打开（PreviewPane/stat 会给出可读错误）；调用方若要树浏览可另分流。
+ * Markdown 文件链接 / 目录提示 → 右栏「文件」预览区（非 codeViewer / 非全屏 modal）。
+ * 目录仍按文件预览打开（stat 失败时面板会给出可读错误）；调用方若要树浏览可另分流。
  */
 export function showRightStageFromFileLink(
   target: {
@@ -138,17 +164,9 @@ export function showRightStageFromFileLink(
   opts?: OpenRightStageCodeViewerOpts,
 ): string {
   const path = String(target.path || '').trim()
-  return showRightStageCodeViewer(
-    {
-      type: 'file',
-      title: String(target.label || '').trim() || basename(path),
-      path,
-      ...(target.workspacePath ? { workspacePath: target.workspacePath } : {}),
-      ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
-      ...(target.workspaceRemoteSessionId
-        ? { workspaceRemoteSessionId: target.workspaceRemoteSessionId }
-        : {}),
-    },
-    opts,
-  )
+  return showRightStageFilePreview(path, {
+    name: String(target.label || '').trim() || basename(path),
+    sessionKey: opts?.sessionKey,
+    layout: opts?.layout,
+  })
 }

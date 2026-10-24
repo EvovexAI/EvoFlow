@@ -3,9 +3,16 @@
  * Right-stage surface body renderer. Extracted from ChatApp.tsx (P83).
  */
 import type { ReactNode } from 'react'
-import type { RightStageSurface } from '../../../lib/right-stage/right-stage-types.js'
+import {
+  normalizeRightStageKind,
+  type RightStageSurface,
+} from '../../../lib/right-stage/right-stage-types.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
-import { showRightStageCodeViewer } from '../../../lib/right-stage/open-right-stage-file.js'
+import { openRightStageForCodeViewerSource } from '../../../lib/right-stage/open-right-stage-file.js'
+
+function tabKeyOf(surface: RightStageSurface): string {
+  return `${normalizeRightStageKind(surface.kind)}:${surface.id}`
+}
 import { V4PreviewPane } from './v4-preview-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
@@ -118,21 +125,21 @@ export function renderRightStageBody(
         focusLine={typeof data.focusLine === 'number' ? data.focusLine : undefined}
         focusEndLine={typeof data.focusEndLine === 'number' ? data.focusEndLine : undefined}
         focusAnnotation={focusAnnotation}
-        onClose={() => {
-          rightStageStore.closeTab(`file:${path.replace(/\\/g, '/')}`)
-        }}
+        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (
       <SidePanelBootShell title={name || '文件预览'} className="react-chat-workspace-preview-stage" />
     )
   }
   if (kind === 'v4Session') {
+    const data = surface.data || {}
     const childSessionId = String(data.childSessionId || '').trim()
     if (!childSessionId) return null
     return sidePanelHeavyMount ? (
       <V4SessionPaneBridge
         sessionId={childSessionId}
         connecting={!!data.connecting}
+        sessionKey={String(surface.sessionKey || selectedSessionKey || '') || undefined}
       />
     ) : (
       <SidePanelBootShell title={surface.title || '子会话'} />
@@ -149,7 +156,7 @@ export function renderRightStageBody(
         sessionKey={String(data.sessionKey || selectedSessionKey || '')}
         fallbackText={typeof data.fallbackText === 'string' ? data.fallbackText : undefined}
         fallbackStatus={typeof data.fallbackStatus === 'string' ? data.fallbackStatus : undefined}
-        onClose={() => rightStageStore.closeTab(surface.id)}
+        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (
       <SidePanelBootShell title={surface.title || '子代理输出'} />
@@ -177,7 +184,7 @@ export function renderRightStageBody(
             ? (data.outcome as CollabSubtaskStageOutcome)
             : null
         }
-        onClose={() => rightStageStore.closeTab(surface.id)}
+        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
       />
     ) : (
       <SidePanelBootShell title={surface.title || '节点进度'} />
@@ -187,16 +194,16 @@ export function renderRightStageBody(
     const data = surface.data || {}
     const source = data.source
     if (!source) return null
-    // ZCode 正式预览件（PreviewPane）：file/patch/code-review/text/image/media/
-    // pdf/pptx/multi-file-diff 全类型支持，数据加载在组件内经沙箱文件服务完成。
+    // ZCode 正式预览件（PreviewPane）：patch/code-review/text/image/media/
+    // pdf/pptx/multi-file-diff；普通 file 已在打开时分流到 file 标签。
     return sidePanelHeavyMount ? (
       <V4PreviewPane
         source={source}
         threadId={String(data.threadId || '')}
         workspacePath={String(source.workspacePath || effectiveWorkspaceRoot || '') || undefined}
-        onClose={() => rightStageStore.closeTab(surface.id)}
+        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
         onOpenCodeViewer={(nextSource) => {
-          showRightStageCodeViewer(nextSource, {
+          openRightStageForCodeViewerSource(nextSource, {
             sessionKey: surface.sessionKey,
             threadId: String(data.threadId || ''),
           })

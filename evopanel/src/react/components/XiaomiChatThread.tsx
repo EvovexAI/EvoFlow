@@ -4,7 +4,10 @@ import { wsClient } from '../../lib/ws-client.js'
 import { isEvoflowChatV4Enabled } from '../v4/v4Gate.js'
 import { V4StreamRowsBridge } from '../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../v4/V4ZCodeTimeline.js'
-import { showRightStageCodeViewer } from '../../lib/right-stage/open-right-stage-file.js'
+import {
+  openRightStageForCodeViewerSource,
+  showRightStageFromFileLink,
+} from '../../lib/right-stage/open-right-stage-file.js'
 import { toast } from '../../components/toast.js'
 
 function readThreadId(sessionKey: string): string {
@@ -94,10 +97,20 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
     [sk],
   )
 
+  const onOpenFileLink = useCallback(
+    (target: import('@zcode/ui/components/ai-elements/message.js').MessageFileLinkTarget) => {
+      showRightStageFromFileLink(target, {
+        sessionKey: sk,
+        threadId: readThreadId(sk),
+      })
+    },
+    [sk],
+  )
+
   const onOpenCodeViewer = useCallback(
     (source: import('@zcode/ui/lib/codeViewer.js').CodeViewerSource) => {
-      // 与主对话同一入口：右栏半宽，不走全屏 modal
-      showRightStageCodeViewer(source, {
+      // 与主对话同一入口：文件 → 文件区；diff/媒体 → PreviewPane
+      openRightStageForCodeViewerSource(source, {
         sessionKey: sk,
         threadId: readThreadId(sk),
       })
@@ -129,6 +142,7 @@ export function XiaomiChatThread({ sessionKey = '' }: { sessionKey?: string }) {
               embedded
               onToolApproval={onToolApproval}
               workspacePath={workspacePath || undefined}
+              onOpenFileLink={onOpenFileLink}
               onOpenCodeViewer={onOpenCodeViewer}
             />
           )

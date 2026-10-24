@@ -12,8 +12,9 @@ import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import {
-  showRightStageCodeViewer,
+  openRightStageForCodeViewerSource,
   showRightStageCodeViewers,
+  showRightStageFromFileLink,
 } from '../../../lib/right-stage/open-right-stage-file.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
@@ -668,9 +669,16 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       connecting={v4Phase === 'connecting' || v4Phase === 'no-thread'}
                       draftEmpty={draftEmpty}
                       evoflowSessionKey={selectedSessionKey}
+                      onOpenFileLink={(target) => {
+                        // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）
+                        showRightStageFromFileLink(target, {
+                          sessionKey: selectedSessionKey,
+                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
+                        })
+                      }}
                       onOpenCodeViewer={(source) => {
-                        // 正文路径 pill / 工具卡 / Preview Card → 右栏（半宽侧栏，非全屏 modal）
-                        showRightStageCodeViewer(source, {
+                        // type:file → 文件区；patch/pptx/pdf 等 → PreviewPane
+                        openRightStageForCodeViewerSource(source, {
                           sessionKey: selectedSessionKey,
                           threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
                         })
