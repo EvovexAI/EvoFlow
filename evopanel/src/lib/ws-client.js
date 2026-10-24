@@ -241,6 +241,19 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
       }
     } else if (name === 'right_stage' || name === 'right_stage_stream') {
       try {
+        console.log('[右栏·panel_set]', '⓪ AG-UI CUSTOM 收到', {
+          name,
+          action: value && typeof value === 'object' ? value.action : undefined,
+          kind:
+            value && typeof value === 'object' && value.surface
+              ? value.surface.kind
+              : undefined,
+          sessionKey: key || '(空)',
+        })
+      } catch {
+        /* ignore */
+      }
+      try {
         // key 是事件所属会话：后台会话的面板写入只能落到它自己的冻结记忆。
         applyRightStageAgUiCustom(name, value, { sessionKey: key })
       } catch (err) {
@@ -4971,6 +4984,44 @@ function dispatchLangGraphCustomStreamChunk(self, key, runId, chunk) {
       items: Array.isArray(chunk.items) ? chunk.items : [],
       threadId: String(chunk.threadId || chunk.thread_id || '').trim(),
     })
+    return
+  }
+  // panel_set(web-embed/write/…) 走 stream_writer({ type: 'right_stage' })。
+  // 以前只在 AG-UI CUSTOM(name=right_stage) 分支处理；custom 流原样落下时被静默丢掉，
+  // 表现为「产物能开、开百度没反应」。与 chat_artifacts 同层补齐。
+  if (t === 'right_stage' || t === 'right_stage_stream') {
+    try {
+      console.log('[右栏·panel_set]', '⓪ LangGraph custom 流收到', {
+        type: t,
+        action: chunk.action,
+        kind: chunk.surface?.kind || (chunk.path ? 'stream' : undefined),
+        title: chunk.surface?.title || chunk.title,
+        url: chunk.surface?.data?.url,
+        sessionKey: key || '(空)',
+      })
+    } catch {
+      /* ignore */
+    }
+    try {
+      applyRightStageAgUiCustom(
+        t,
+        t === 'right_stage'
+          ? { action: chunk.action, surface: chunk.surface }
+          : {
+              action: chunk.action,
+              streamId: chunk.streamId || chunk.stream_id,
+              text: chunk.text,
+              newline: chunk.newline,
+              level: chunk.level,
+              format: chunk.format,
+              path: chunk.path,
+              title: chunk.title,
+            },
+        { sessionKey: key },
+      )
+    } catch (err) {
+      console.warn('[evoflow] right_stage custom-stream failed', err)
+    }
     return
   }
   if (t === 'trae_stream_error') {
