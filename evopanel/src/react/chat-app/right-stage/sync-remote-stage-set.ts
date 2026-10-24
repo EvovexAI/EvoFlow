@@ -3,10 +3,11 @@
  * Extracted from ChatApp.tsx (P19).
  */
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
-import { hideRightStageIfKind } from '../../../lib/right-stage/right-stage-store.js'
+import { hideRightStageIfKind, rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import type { StageSetPayload } from '../../../lib/right-stage/right-stage-agui.js'
 import type { RightStageKind, RightStageLayout } from '../../../lib/right-stage/right-stage-types.js'
 import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
+import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
 import { getCurrentRightStageSessionKey } from '../../../lib/right-stage/right-stage-scope.js'
 import {
   clearAllRightStageOverlayDefer,
@@ -104,25 +105,38 @@ export function syncRemoteStageSet(ctx: SyncRemoteStageSetCtx, detail: StageSetP
           getCurrentRightStageSessionKey() ||
           undefined
         const layout = coerceFileLayout(detail.surface?.layout) || 'half'
-        logPanelSet('② 有本地 path → 调用 showRightStageFilePreview', {
-          path: focusFile.path,
-          name: focusFile.name || focusFile.label,
-          sessionKey: sk || '(空)',
-          layout,
-        })
-        // 先落列表（不 force 开状态卡，避免 collapseRightStage 打掉刚开的文件签）
-        ctx.publishArtifactsRef.current({
-          focusId,
-          force: false,
-        })
-        const tabKey = showRightStageFilePreview(String(focusFile.path).trim(), {
-          name: String(focusFile.name || focusFile.label || '').trim() || undefined,
-          sessionKey: sk,
-          layout,
-        })
-        logPanelSet('② showRightStageFilePreview 已返回', { tabKey })
-        ctx.rightStageUserPinnedRef.current = 'file'
-        ctx.scheduleBumpRef.current?.({ immediate: true })
+        // 进度面板优先：只落产物列表，不抢工作流/节点/员工过程
+        const currentKind = String(rightStageStore.currentKind || '').trim()
+        const pinnedKind = String(ctx.rightStageUserPinnedRef.current || '').trim()
+        if (isProgressStageKind(currentKind) || isProgressStageKind(pinnedKind)) {
+          logPanelSet('② artifacts 有 path 但进度面板优先 → 只写列表不抢焦', {
+            path: focusFile.path,
+            currentKind,
+            pinnedKind,
+          })
+          ctx.publishArtifactsRef.current({ focusId, force: false })
+          ctx.scheduleBumpRef.current?.({ immediate: true })
+        } else {
+          logPanelSet('② 有本地 path → 调用 showRightStageFilePreview', {
+            path: focusFile.path,
+            name: focusFile.name || focusFile.label,
+            sessionKey: sk || '(空)',
+            layout,
+          })
+          // 先落列表（不 force 开状态卡，避免 collapseRightStage 打掉刚开的文件签）
+          ctx.publishArtifactsRef.current({
+            focusId,
+            force: false,
+          })
+          const tabKey = showRightStageFilePreview(String(focusFile.path).trim(), {
+            name: String(focusFile.name || focusFile.label || '').trim() || undefined,
+            sessionKey: sk,
+            layout,
+          })
+          logPanelSet('② showRightStageFilePreview 已返回', { tabKey })
+          ctx.rightStageUserPinnedRef.current = 'file'
+          ctx.scheduleBumpRef.current?.({ immediate: true })
+        }
       } else {
         logPanelSet('② 无本地 path → force 打开状态卡产物 tab', { focusId, titleHint })
         // 无本地 path（纯 url/文案）：仍 force 打开状态卡产物 tab

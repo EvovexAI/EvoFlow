@@ -46,6 +46,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   codeViewer: '代码对比',
   subagentTranscript: '子代理输出',
   collabSubtaskTranscript: '节点进度',
+  v4Session: '子会话',
   employeeProcess: '执行过程',
   summary: '摘要',
   terminal: '终端',

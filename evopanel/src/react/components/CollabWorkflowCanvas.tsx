@@ -6,7 +6,6 @@ import type {
   SubagentStreamTaskMap,
   SubtaskTranscriptModalPayload,
 } from '../chat-types.js'
-import { fetchSubtaskConversationHistory } from '../../lib/subtask-conversation-history.js'
 import { layoutSubtaskDagCanvas, subtaskDagEdgePath, buildSubtaskDagIndex } from '../../lib/collab-subtask-dag.js'
 import { collabDagDebug } from '../../lib/collab-dag-debug.js'
 import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
@@ -134,7 +133,8 @@ function WorkflowNode({
     const sid = String(s.subtaskId || '').trim()
     const lead = String(leadThreadId || '').trim()
     const subThread = String(s.subtaskThreadId || '').trim()
-    const base = {
+    // V4 pane resolves thread/outcome itself — do not prefetch modal rows.
+    onOpen({
       subtaskId: sid,
       mainTaskId: mid,
       leadThreadId: lead,
@@ -143,30 +143,7 @@ function WorkflowNode({
       description: String(s.description || '').trim() || undefined,
       title: fullTitle,
       status: displayStatus,
-    }
-    if (!mid || !sid) {
-      onOpen({ ...base, rows: [] })
-      return
-    }
-    void fetchSubtaskConversationHistory({
-      mainTaskId: mid,
-      subtaskId: sid,
-      leadThreadId: lead,
-      storedSubtaskThreadId: subThread,
-      subtaskSnapshot: s as unknown as Record<string, unknown>,
     })
-      .then((resp) => {
-        onOpen({
-          ...base,
-          initialText: '',
-          rows: resp.rows,
-          emptyConversation: resp.emptyConversation,
-          outcome: resp.outcome,
-        })
-      })
-      .catch(() => {
-        onOpen({ ...base, rows: [] })
-      })
   }
 
   return (

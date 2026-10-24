@@ -15,7 +15,9 @@ import {
   latestPlatformRunEntryId,
 } from '../../../lib/right-stage/platform-feedback.js'
 import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
+import { isProgressStageKind } from '../../../lib/right-stage/open-progress-from-panel-set.js'
 import { logPanelSet } from '../../../lib/right-stage/panel-set-debug-log.js'
+import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -1153,18 +1155,31 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             // panel_set(artifacts) 主路径是 SSE chat_artifacts；V4 下 TOOL_CALL_RESULT
             // 常未进 applyStageSet，必须在这里直接开右侧文件预览，否则右栏无反应。
             if (focusPath) {
-              logPanelSet('⓪ chat_artifacts 有本地 path → 打开右侧文件预览', {
-                path: focusPath,
-                name: focusItem?.name || focusItem?.label,
-                sessionKey: targetSk || '(空)',
-              })
-              publishArtifacts({ focusId, force: false })
-              showRightStageFilePreview(focusPath, {
-                name: String(focusItem?.name || focusItem?.label || '').trim() || undefined,
-                sessionKey: targetSk || undefined,
-                layout: 'half',
-              })
-              if (rightStageUserPinnedRef) rightStageUserPinnedRef.current = 'file'
+              // 工作流/节点/员工进度正开着时勿抢焦：只进产物列表，否则会表现为
+              // 「platform ui.show 工作流过一会儿被文件签顶掉 + 高亮 chunk 崩栏」。
+              const currentKind = String(rightStageStore.currentKind || '').trim()
+              const pinnedKind = String(rightStageUserPinnedRef?.current || '').trim()
+              if (isProgressStageKind(currentKind) || isProgressStageKind(pinnedKind)) {
+                logPanelSet('⓪ chat_artifacts 有 path 但进度面板优先 → 只写产物列表不抢焦', {
+                  path: focusPath,
+                  currentKind,
+                  pinnedKind,
+                })
+                publishArtifacts({ focusId, force: false })
+              } else {
+                logPanelSet('⓪ chat_artifacts 有本地 path → 打开右侧文件预览', {
+                  path: focusPath,
+                  name: focusItem?.name || focusItem?.label,
+                  sessionKey: targetSk || '(空)',
+                })
+                publishArtifacts({ focusId, force: false })
+                showRightStageFilePreview(focusPath, {
+                  name: String(focusItem?.name || focusItem?.label || '').trim() || undefined,
+                  sessionKey: targetSk || undefined,
+                  layout: 'half',
+                })
+                if (rightStageUserPinnedRef) rightStageUserPinnedRef.current = 'file'
+              }
             } else {
               const newCount =
                 fileItems.filter((x) => x.status !== 'updated').length || fileItems.length

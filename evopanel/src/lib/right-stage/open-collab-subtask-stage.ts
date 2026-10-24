@@ -3,11 +3,10 @@
  * 与 collab-workflow 画布 tab 并存：先看图，再点节点看输出。
  *
  * 关联链路：
- *   节点 click → fetchSubtaskConversationHistory(mainTaskId, subtaskId, storedSubtaskThreadId?)
- *     → 优先 GET by-thread/{thread_id}/messages（与主聊同一表）
- *     → conversation-history 仅作 task/subtask → thread + outcome 解析
- *   → 本函数把 rows/outcome 写入 tab.data（勿丢弃，否则侧栏会空）
- *   → V4CollabSubtaskTranscriptPane 种子渲染 + 轮询刷新
+ *   节点 click → 解析 subtaskThreadId / outcome，写入 tab.data
+ *   → V4CollabSubtaskTranscriptPane：对话体 = V4SessionPaneBridge
+ *     （与主聊同一套 V4ZCodeTimeline）；结案摘要单独 aside
+ *   旧 modal-rows / SubtaskModalMessageRow 已退役，不再预取 rows。
  */
 import { rightStageStore } from './right-stage-store.js'
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
@@ -36,10 +35,6 @@ export type CollabSubtaskStagePayload = {
   assignedAgent?: string
   description?: string
   subtaskThreadId?: string
-  /** 节点点击时已预取的展示行，打开 tab 立刻可见 */
-  rows?: unknown[]
-  emptyConversation?: boolean
-  initialText?: string
   outcome?: CollabSubtaskStageOutcome
 }
 
@@ -66,7 +61,6 @@ export function openCollabSubtaskInRightStage(
   const sk = String(opts?.sessionKey || '').trim() || undefined
   const title = String(payload.title || sid).trim() || '节点进度'
   const id = collabSubtaskStageTabId(sid, sk)
-  const rows = Array.isArray(payload.rows) ? payload.rows : undefined
   rightStageStore.show({
     kind: 'collabSubtaskTranscript',
     id,
@@ -82,9 +76,6 @@ export function openCollabSubtaskInRightStage(
       assignedAgent: String(payload.assignedAgent || '').trim(),
       description: String(payload.description || '').trim(),
       subtaskThreadId: String(payload.subtaskThreadId || '').trim(),
-      ...(rows ? { rows } : {}),
-      ...(payload.emptyConversation != null ? { emptyConversation: !!payload.emptyConversation } : {}),
-      ...(payload.initialText != null ? { initialText: String(payload.initialText || '') } : {}),
       ...(payload.outcome && typeof payload.outcome === 'object' ? { outcome: payload.outcome } : {}),
     },
   })

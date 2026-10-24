@@ -9,7 +9,7 @@ import { SubtaskDetailModal } from './SubtaskDetailModal.js'
 import { SubtaskExecutionDrawer } from './SubtaskExecutionDrawer.js'
 import { LeadConversationPanel } from './LeadConversationPanel.js'
 import { subtaskObsMapFromResponse } from '../../lib/task-observability-format.js'
-import { fetchSubtaskConversationHistory } from '../../lib/subtask-conversation-history.js'
+import { fetchSubtaskTranscriptMeta } from '../../lib/subtask-conversation-history.js'
 import { normalizeTaskStatusKey, isTaskRunningStatus, isTaskPlanningStatus, toUnifiedTaskStatus } from '../../lib/task-status-label.js'
 
 function mapTaskToCollabSnapshot(task: Record<string, unknown> | null): CollabTaskSnapshot | null {
@@ -233,7 +233,7 @@ export function TaskDetailWorkbench({
     const hit = apiSubtasks.find((s) => s.subtaskId === sid)
     if (!hit) return
     initialSubtaskOpenedRef.current = true
-    void fetchSubtaskConversationHistory({
+    void fetchSubtaskTranscriptMeta({
       mainTaskId: tid,
       subtaskId: sid,
       leadThreadId: threadId || '',
@@ -241,14 +241,16 @@ export function TaskDetailWorkbench({
       subtaskSnapshot: hit,
     })
       .then((resp) => {
+        const subThread = String(resp?.thread_id || hit.subtaskThreadId || '').trim()
         setSubtaskModal({
           subtaskId: sid,
           mainTaskId: tid,
           leadThreadId: threadId || '',
+          subtaskThreadId: subThread || undefined,
           title: String(hit.name || hit.description || sid),
           status: String(hit.status || 'pending'),
-          rows: resp.rows,
-          emptyConversation: resp.emptyConversation,
+          rows: [],
+          emptyConversation: !subThread,
           outcome: resp.outcome,
         })
         setManualPanels((prev) => {
@@ -345,11 +347,12 @@ export function TaskDetailWorkbench({
             open
             mode="drawer"
             subtaskId={subtaskModal.subtaskId}
+            v4SessionId={transcript.v4SessionId}
             statusClass={transcript.statusClass}
             statusLabel={transcript.statusLabel}
             summaryAgent={transcript.modalSummaryAgent}
             shortTitle={transcript.modalShortTitle}
-            rows={transcript.modalRowsForDisplay}
+            rows={transcript.v4SessionId ? [] : transcript.modalRowsForDisplay}
             streamActive={transcript.modalIsStreaming}
             sending={transcript.sending}
             canCompose={transcript.modalCanCompose}

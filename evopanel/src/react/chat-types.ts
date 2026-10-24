@@ -358,11 +358,11 @@ export interface CollabSubtaskSnapshot {
   outputSummary?: string
   /** 任务存储中的执行结果全文（刷新后无流式快照时弹窗以此兜底） */
   result?: string | null
-  /** subtask_outcome_report / 工具落库的任务汇报 */
+  /** done / 工具落库的任务汇报 */
   taskReport?: string | null
   /** 后端监控落库：子任务最近工具调用（含输入输出） */
   observedToolCalls?: unknown[]
-  /** 子任务 worker 通过 subtask_work_checklist 工具维护的执行步骤 */
+  /** 子任务 worker 通过 checklist 工具维护的执行步骤 */
   workChecklist?: WorkChecklistItem[]
   /** 落库 worker thread_id（查 conversation-history 用） */
   subtaskThreadId?: string
@@ -385,7 +385,7 @@ export interface SubtaskTranscriptModalPayload {
   rows?: unknown[]
   /** 会话拉取成功且 messages 为空：勿用 result/卡片预览冒充会话正文 */
   emptyConversation?: boolean
-  /** 官方终态汇报（subtask_outcome_report），非 task memory / 会话摘要 */
+  /** 官方终态汇报（done），非 task memory / 会话摘要 */
   outcome?: {
     reported?: boolean
     status?: string

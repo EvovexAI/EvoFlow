@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchSubtaskConversationHistory } from '../../lib/subtask-conversation-history.js'
+import { fetchSubtaskTranscriptMeta } from '../../lib/subtask-conversation-history.js'
 import type { CollabSubtaskSnapshot, SubtaskTranscriptModalPayload } from '../chat-types.js'
 import { useSubtaskTranscriptModal } from '../hooks/useSubtaskTranscriptModal.js'
 import { SubtaskDetailModal } from './SubtaskDetailModal.js'
@@ -87,7 +87,7 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
       subtask_thread_id: String(request.subtaskThreadId || ''),
       subtaskThreadId: String(request.subtaskThreadId || ''),
     }
-    void fetchSubtaskConversationHistory({
+    void fetchSubtaskTranscriptMeta({
       mainTaskId: mid,
       subtaskId: sid,
       leadThreadId: lead,
@@ -96,14 +96,16 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
     })
       .then((resp) => {
         if (cancelled) return
+        const threadId = String(resp?.thread_id || request.subtaskThreadId || '').trim()
         setPayload({
           subtaskId: sid,
           mainTaskId: mid,
           leadThreadId: lead,
+          subtaskThreadId: threadId || undefined,
           title,
           status,
-          rows: resp.rows,
-          emptyConversation: resp.emptyConversation,
+          rows: [],
+          emptyConversation: !threadId,
           outcome: resp.outcome,
         })
       })
@@ -113,10 +115,11 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
           subtaskId: sid,
           mainTaskId: mid,
           leadThreadId: lead,
+          subtaskThreadId: String(request.subtaskThreadId || '').trim() || undefined,
           title,
           status,
           rows: [],
-          emptyConversation: true,
+          emptyConversation: !String(request.subtaskThreadId || '').trim(),
         })
       })
       .finally(() => {
@@ -161,11 +164,18 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
         mode={mode}
         portalTarget={portalTarget}
         subtaskId={payload.subtaskId}
+        v4SessionId={
+          transcript.v4SessionId || String(request?.subtaskThreadId || payload.subtaskThreadId || '')
+        }
         statusClass={transcript.statusClass}
         statusLabel={loading ? '加载中' : transcript.statusLabel}
         summaryAgent={readOnly ? '' : transcript.modalSummaryAgent}
         shortTitle={readOnly ? '执行记录' : transcript.modalShortTitle}
-        rows={transcript.modalRowsForDisplay}
+        rows={
+          transcript.v4SessionId || request?.subtaskThreadId || payload.subtaskThreadId
+            ? []
+            : transcript.modalRowsForDisplay
+        }
         streamActive={transcript.modalIsStreaming}
         sending={transcript.sending}
         canCompose={transcript.modalCanCompose}

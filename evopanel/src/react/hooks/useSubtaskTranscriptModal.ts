@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { tasksAPI } from '../../lib/api-client.js'
-import { fetchSubtaskConversationHistory } from '../../lib/subtask-conversation-history.js'
+import { fetchSubtaskTranscriptMeta } from '../../lib/subtask-conversation-history.js'
 import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
 import {
   buildSubtaskModalRowsForDisplay,
@@ -59,28 +59,30 @@ export function useSubtaskTranscriptModal(options: {
   const refreshHistory = useCallback(async () => {
     if (!payload || !modalMainTaskId) return
     const effectiveLeadThreadId = String(payload.leadThreadId || leadThreadId || '').trim()
-    const resp = await fetchSubtaskConversationHistory({
+    const stored =
+      String(
+        (modalSubtask as { subtaskThreadId?: string } | null)?.subtaskThreadId ||
+          payload.subtaskThreadId ||
+          '',
+      ).trim() || undefined
+    const resp = await fetchSubtaskTranscriptMeta({
       mainTaskId: modalMainTaskId,
       subtaskId: payload.subtaskId,
       leadThreadId: effectiveLeadThreadId,
-      storedSubtaskThreadId: String(
-        (modalSubtask as { subtaskThreadId?: string } | null)?.subtaskThreadId ||
-          (payload as { subtaskThreadId?: string }).subtaskThreadId ||
-          '',
-      ).trim() || undefined,
+      storedSubtaskThreadId: stored,
       subtaskSnapshot: modalSubtask,
     })
-    const msgArr = Array.isArray(resp?.messages) ? resp.messages : []
-    const rows = Array.isArray(resp?.rows) ? resp.rows : []
     const outcome =
       resp?.outcome && typeof resp.outcome === 'object' ? resp.outcome : payload.outcome
+    const threadId = String(resp?.thread_id || stored || '').trim()
     onPayloadChange({
       ...payload,
       mainTaskId: modalMainTaskId,
       leadThreadId: effectiveLeadThreadId || payload.leadThreadId,
-      rows,
-      emptyConversation: msgArr.length === 0,
-      initialText: msgArr.length === 0 ? payload.initialText || '' : '',
+      subtaskThreadId: threadId || payload.subtaskThreadId,
+      rows: [],
+      emptyConversation: !threadId,
+      initialText: '',
       outcome,
     })
   }, [payload, modalMainTaskId, leadThreadId, modalSubtask, onPayloadChange])
@@ -213,6 +215,8 @@ export function useSubtaskTranscriptModal(options: {
     return isSubtaskRunning(modalStatus)
   }, [payload, sending, modalStreamTask?.phase, modalStatus])
 
+  const v4SessionId = String(payload?.subtaskThreadId || '').trim()
+
   return {
     modalMainTaskId,
     modalStatus,
@@ -222,6 +226,8 @@ export function useSubtaskTranscriptModal(options: {
     modalIsStreaming,
     modalCopyPlainText,
     modalCanCompose,
+    /** Prefer this over modalRowsForDisplay — same V4 timeline as main chat. */
+    v4SessionId,
     composeText,
     setComposeText,
     sending,

@@ -96,6 +96,7 @@ class SubagentResult:
         completed_at: When execution completed.
         ai_messages: List of complete AI messages (as dicts) generated during execution.
         stream_messages: AI + Tool 消息按对话顺序（供 task_running 推送，含工具返回）。
+        thread_id: Executor / LangGraph thread used for this run (V4 pane subscribe key).
     """
 
     task_id: str
@@ -107,6 +108,7 @@ class SubagentResult:
     completed_at: datetime | None = None
     ai_messages: list[dict[str, Any]] | None = None
     stream_messages: list[dict[str, Any]] | None = None
+    thread_id: str | None = None
 
     def __post_init__(self):
         """Initialize mutable defaults."""
@@ -753,6 +755,7 @@ class SubagentExecutor:
             task_id=task_id,
             trace_id=self.trace_id,
             status=SubagentStatus.PENDING,
+            thread_id=str(self.thread_id or "").strip() or None,
         )
 
         logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution, task_id={task_id}, timeout={self.config.timeout_seconds}s")

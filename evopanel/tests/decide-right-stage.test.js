@@ -127,6 +127,19 @@ describe('decideRightStage', () => {
     expect(r.reason).toBe('browser-keep-on-finish')
   })
 
+  it('run-finished keeps progress panels open (workflow / node / employee)', () => {
+    for (const kind of ['collab-workflow', 'collabSubtaskTranscript', 'employeeProcess']) {
+      const r = decideRightStage({
+        ...base,
+        intent: 'run-finished',
+        hasArtifacts: false,
+        currentKind: kind,
+      })
+      expect(r.action).toBe('noop')
+      expect(r.reason).toBe('progress-keep-on-finish')
+    }
+  })
+
   it('run-finished with browser current still hides other kinds', () => {
     const r = decideRightStage({
       ...base,

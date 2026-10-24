@@ -3212,26 +3212,7 @@ async function showSubtaskDetail(page, state, subtaskId) {
     const subThread = String(
       sub?.subtask_thread_id || sub?.subtaskThreadId || sub?.external_session_id || '',
     ).trim()
-    let seedRows
-    let seedOutcome
-    let emptyConversation
-    try {
-      const { fetchSubtaskConversationHistory } = await import(
-        '../lib/subtask-conversation-history.js'
-      )
-      const resp = await fetchSubtaskConversationHistory({
-        mainTaskId: tid,
-        subtaskId: sid,
-        leadThreadId: threadId,
-        storedSubtaskThreadId: subThread,
-        subtaskSnapshot: sub,
-      })
-      seedRows = resp?.rows
-      seedOutcome = resp?.outcome
-      emptyConversation = resp?.emptyConversation
-    } catch (e) {
-      console.warn('[task-detail] prefetch subtask history failed', e)
-    }
+    // V4 pane hydrates from executor thread — no modal-row prefetch.
     openCollabSubtaskInRightStage(
       {
         subtaskId: sid,
@@ -3242,9 +3223,6 @@ async function showSubtaskDetail(page, state, subtaskId) {
         status,
         assignedAgent,
         description: String(sub?.description || '').trim(),
-        rows: seedRows,
-        outcome: seedOutcome,
-        emptyConversation,
       },
       { sessionKey: stageSk },
     )

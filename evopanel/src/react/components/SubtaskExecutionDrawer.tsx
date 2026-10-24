@@ -12,6 +12,7 @@ import { expandRowsToTrailTurns } from '../../lib/subtask-modal-rows.js'
 import { useModalEscapeClose } from '../hooks/useModalEscapeClose.js'
 import { SubtaskModalMessageRow } from './SubtaskModalMessageRow.js'
 import AgentAvatar from './AgentAvatar.js'
+import { V4SessionPaneBridge } from '../v4/V4SessionPaneBridge.js'
 
 const SCROLL_EDGE_PX = 48
 
@@ -57,10 +58,17 @@ export type SubtaskExecutionDrawerProps = {
   portalTarget?: HTMLElement | null
   /** 用于工具详情懒加载 /tool-results（如 proactive:{code}） */
   sessionKey?: string
+  /**
+   * Executor / chat thread id. When set, body uses V4SessionPaneBridge
+   * (same as main chat). Legacy ``rows`` + SubtaskModalMessageRow is retired
+   * for this path.
+   */
+  v4SessionId?: string
   statusClass: string
   statusLabel: string
   summaryAgent: string
   shortTitle: string
+  /** @deprecated Prefer ``v4SessionId``; ignored when v4SessionId is set. */
   rows: any[]
   streamActive?: boolean
   sending: boolean
@@ -89,6 +97,7 @@ function lastStreamableRowIndex(rows: any[]): number {
 function DrawerBody({
   subtaskId,
   sessionKey,
+  v4SessionId = '',
   rows,
   streamActive = false,
   sending,
@@ -103,6 +112,7 @@ function DrawerBody({
   SubtaskExecutionDrawerProps,
   | 'subtaskId'
   | 'sessionKey'
+  | 'v4SessionId'
   | 'rows'
   | 'streamActive'
   | 'sending'
@@ -114,6 +124,7 @@ function DrawerBody({
   | 'onSend'
   | 'onOpenMessageFile'
 >) {
+  const v4Tid = String(v4SessionId || '').trim()
   const streamingRowIndex = streamActive ? lastStreamableRowIndex(rows) : -1
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const stickBottomRef = useRef(true)
@@ -184,6 +195,52 @@ function DrawerBody({
     for (const child of el.children) ro.observe(child)
     return () => ro.disconnect()
   }, [scrollToBottom, syncScrollJumpButtons])
+
+  const composeFooter = canCompose ? (
+    <footer className="react-chat-subtask-modal-composer">
+      {composeError ? (
+        <p className="react-chat-subtask-modal-compose-error" role="alert">
+          {composeError}
+        </p>
+      ) : null}
+      <div className="react-chat-subtask-modal-compose-row">
+        <textarea
+          className="react-chat-subtask-modal-compose-input"
+          rows={2}
+          placeholder="继续向该子任务说明修改意见…"
+          value={composeText}
+          disabled={sending}
+          onChange={(e) => onComposeTextChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              onSend()
+            }
+          }}
+        />
+        <button
+          type="button"
+          className="react-chat-modal-btn react-chat-modal-btn--primary"
+          disabled={sending || !composeText.trim()}
+          onClick={onSend}
+        >
+          {sending ? '发送中…' : '发送'}
+        </button>
+      </div>
+    </footer>
+  ) : null
+
+  // Preferred path: same V4 timeline as main chat (no SubtaskModalMessageRow).
+  if (v4Tid) {
+    return (
+      <div className="react-chat-modal-body react-chat-subtask-modal-body flex min-h-0 flex-col">
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <V4SessionPaneBridge sessionId={v4Tid} sessionKey={sessionKey || undefined} />
+        </div>
+        {composeFooter}
+      </div>
+    )
+  }
 
   const showScrollJumpBtns =
     (rows.length > 0 || sending) && (showScrollTopBtn || showScrollBottomBtn)
@@ -293,39 +350,7 @@ function DrawerBody({
           </div>
         </div>
       </div>
-      {canCompose ? (
-        <footer className="react-chat-subtask-modal-composer">
-          {composeError ? (
-            <p className="react-chat-subtask-modal-compose-error" role="alert">
-              {composeError}
-            </p>
-          ) : null}
-          <div className="react-chat-subtask-modal-compose-row">
-            <textarea
-              className="react-chat-subtask-modal-compose-input"
-              rows={2}
-              placeholder="继续向该子任务说明修改意见…"
-              value={composeText}
-              disabled={sending}
-              onChange={(e) => onComposeTextChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  onSend()
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="react-chat-modal-btn react-chat-modal-btn--primary"
-              disabled={sending || !composeText.trim()}
-              onClick={onSend}
-            >
-              {sending ? '发送中…' : '发送'}
-            </button>
-          </div>
-        </footer>
-      ) : null}
+      {composeFooter}
     </div>
   )
 }
@@ -337,6 +362,7 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
     mode = 'modal',
     portalTarget = null,
     sessionKey,
+    v4SessionId = '',
     statusClass,
     statusLabel,
     summaryAgent,
@@ -417,6 +443,7 @@ export function SubtaskExecutionDrawer(props: SubtaskExecutionDrawerProps) {
     <DrawerBody
       subtaskId={subtaskId}
       sessionKey={sessionKey}
+      v4SessionId={v4SessionId}
       rows={rows}
       streamActive={streamActive}
       sending={sending}

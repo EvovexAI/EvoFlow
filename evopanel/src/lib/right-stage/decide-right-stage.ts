@@ -81,6 +81,15 @@ export function decideRightStage(input: RightStageDecideInput): RightStageDecide
     if (current === 'browser') {
       return { action: 'noop', reason: 'browser-keep-on-finish' }
     }
+    // 工作流 / 节点 / 员工过程：用户（或 platform ui.show）主动盯进度，
+    // 跑完还要复盘图/节点；RUN_FINISHED 收栏会表现为「过一会儿自己没了」。
+    if (
+      current === 'collab-workflow' ||
+      current === 'collabSubtaskTranscript' ||
+      current === 'employeeProcess'
+    ) {
+      return { action: 'noop', reason: 'progress-keep-on-finish' }
+    }
     if (pinned) {
       return { action: 'noop', reason: 'pinned-keep-on-idle-finish' }
     }

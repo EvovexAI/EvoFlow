@@ -41,8 +41,8 @@ function rowsToPlainText(rows: any[]): string {
 }
 
 /**
- * 智能体员工 / 任务节点进度：与主对话子任务同款历史面板（SubtaskExecutionDrawer）。
- * 任务中心点节点时用 drawer 侧栏；其它入口可仍用居中 modal。
+ * 智能体员工执行过程（proactive session_key，暂未统一到 V4 thread subscribe）。
+ * 协作节点进度请走 openCollabSubtaskInRightStage → V4SessionPaneBridge。
  */
 export function ProactiveLiveProcessHost({
   open,

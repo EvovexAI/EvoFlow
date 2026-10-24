@@ -1,10 +1,10 @@
-// V4SubagentTranscriptPane — 右侧面板的子代理流式输出查看器（对齐 ZCode"点开子代理看全量"）。
-// 数据：轮询 GET /api/tasks/subagent/{task_id}/transcript（SubagentExecutor 内存快照），
-// 空 transcript 时用流式 liveOutput 兜底；行渲染复用 SubtaskModalMessageRow。
+/**
+ * 子代理输出：对话体只走主聊同一套 V4（V4SessionPaneBridge）。
+ * 旧 SubtaskModalMessageRow / memory-poll 行渲染已退役。
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SubtaskModalMessageRow } from "../../components/SubtaskModalMessageRow.js";
-import { messagesToSubtaskModalRows } from "../../../lib/subtask-modal-rows.js";
 import { fetchSubagentTaskTranscript } from "../../../lib/fetch-subagent-transcript.js";
+import { V4SessionPaneBridge } from "../../v4/V4SessionPaneBridge.js";
 
 const POLL_INTERVAL_MS = 2000;
 const TERMINAL_STATUSES = new Set(["completed", "failed", "error", "cancelled", "timed_out"]);
@@ -12,41 +12,34 @@ const TERMINAL_STATUSES = new Set(["completed", "failed", "error", "cancelled", 
 export function V4SubagentTranscriptPane(props: {
   taskId: string;
   title?: string;
-  /** Lead chat session —— 嵌套工具详情懒加载 /tool-results 用。 */
   sessionKey?: string;
-  /** transcript 拉不到时（跨进程/已清理）用流式 liveOutput 兜底。 */
+  /** 解析出 thread 前的文案兜底（不画成假对话行） */
   fallbackText?: string;
   fallbackStatus?: string;
   onClose?: () => void;
 }): React.JSX.Element {
   const { taskId, title, sessionKey, fallbackText, fallbackStatus, onClose } = props;
 
-  const [rows, setRows] = useState<unknown[]>([]);
   const [status, setStatus] = useState<string>(fallbackStatus || "");
+  const [threadId, setThreadId] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [asideNote, setAsideNote] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const lastRowCountRef = useRef(0);
 
   const fetchOnce = useCallback(async () => {
     try {
       const data = await fetchSubagentTaskTranscript(taskId);
-      const list = Array.isArray(data?.messages) ? data.messages : [];
-      const status = String(data?.status || fallbackStatus || "");
-      setStatus(status);
-      if (list.length > 0) {
-        setRows(messagesToSubtaskModalRows(list));
-        setLoaded(true);
-        return;
-      }
-      // 空 transcript：流式 liveOutput 兜底（跨进程/已清理时唯一数据源）
-      const body = String(fallbackText || "").trim();
-      if (body) {
-        setRows(
-          messagesToSubtaskModalRows([
-            { type: "ai", role: "assistant", content: body },
-          ]),
-        );
+      const nextStatus = String(data?.status || fallbackStatus || "");
+      setStatus(nextStatus);
+      const tid = String(data?.thread_id || "").trim();
+      if (tid) {
+        setThreadId(tid);
+        setAsideNote("");
+      } else {
+        const body = String(fallbackText || data?.result || "").trim();
+        if (body && !(Array.isArray(data?.messages) && data.messages.length > 0)) {
+          setAsideNote(body);
+        }
       }
       setLoaded(true);
     } catch {
@@ -60,7 +53,7 @@ export function V4SubagentTranscriptPane(props: {
     pollRef.current = setInterval(() => {
       if (disposed) return;
       const terminal = TERMINAL_STATUSES.has(status.toLowerCase());
-      if (terminal && loaded) {
+      if (terminal && loaded && threadId) {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;
         return;
@@ -72,15 +65,7 @@ export function V4SubagentTranscriptPane(props: {
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = null;
     };
-  }, [fetchOnce, status, loaded]);
-
-  // 新行到达自动贴底（流式跟读）
-  useEffect(() => {
-    if (rows.length === lastRowCountRef.current) return;
-    lastRowCountRef.current = rows.length;
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [rows]);
+  }, [fetchOnce, status, loaded, threadId]);
 
   const running = !TERMINAL_STATUSES.has(status.toLowerCase());
 
@@ -112,25 +97,28 @@ export function V4SubagentTranscriptPane(props: {
           </button>
         ) : null}
       </div>
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {rows.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {rows.map((row, index) => (
-              <SubtaskModalMessageRow
-                key={index}
-                row={row as Parameters<typeof SubtaskModalMessageRow>[0]["row"]}
-                sessionKey={sessionKey}
-                isStreaming={running && index === rows.length - 1}
-              />
-            ))}
-          </div>
-        ) : loaded ? (
-          <div className="flex h-full items-center justify-center text-ui-sm text-foreground-subtlest">
-            （暂无输出内容）
-          </div>
+
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {threadId ? (
+          <V4SessionPaneBridge
+            sessionId={threadId}
+            connecting={!loaded}
+            sessionKey={sessionKey || undefined}
+          />
         ) : (
-          <div className="flex h-full items-center justify-center text-ui-sm text-foreground-subtlest">
-            正在加载子代理输出…
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-ui-sm text-foreground-subtlest">
+            <span>
+              {!loaded
+                ? "正在解析子代理会话…"
+                : running
+                  ? "执行中，等待会话 thread…"
+                  : "暂无子代理会话 thread"}
+            </span>
+            {asideNote ? (
+              <pre className="max-h-48 w-full max-w-lg overflow-y-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/40 p-3 text-left text-foreground">
+                {asideNote}
+              </pre>
+            ) : null}
           </div>
         )}
       </div>

@@ -64,9 +64,6 @@ export function openProgressFromPanelSet(
         assignedAgent: firstStr(data.assignedAgent, data.assigned_to),
         description: firstStr(data.description),
         subtaskThreadId: firstStr(data.subtaskThreadId, data.subtask_thread_id),
-        rows: Array.isArray(data.rows) ? data.rows : undefined,
-        emptyConversation: data.emptyConversation === true,
-        initialText: typeof data.initialText === 'string' ? data.initialText : undefined,
         outcome:
           data.outcome && typeof data.outcome === 'object'
             ? (data.outcome as import('./open-collab-subtask-stage.js').CollabSubtaskStageOutcome)

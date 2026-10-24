@@ -24,6 +24,7 @@ import {
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
+import { RightStageTabErrorBoundary } from './right-stage-tab-error-boundary.js'
 import { SidePanelBootShell } from '../../components/SidePanelBootShell.js'
 import { WorkspaceFileTree } from '../../components/WorkspaceFileTree.js'
 import { KnowledgeMapPanel } from '../../components/KnowledgeMapPanel.js'
@@ -99,9 +100,6 @@ function CollabWorkflowStageBody({
           assignedAgent: String(payload?.assignedAgent || ''),
           description: String(payload?.description || ''),
           subtaskThreadId: String(payload?.subtaskThreadId || ''),
-          rows: Array.isArray(payload?.rows) ? payload.rows : undefined,
-          emptyConversation: payload?.emptyConversation,
-          initialText: payload?.initialText,
           outcome: payload?.outcome,
         })
       }}
@@ -188,24 +186,26 @@ export function renderRightStageBody(
     const scope = workspaceOpenScopeRef.current
     const root = String(scope.root || effectiveWorkspaceRoot || '').trim()
     return sidePanelHeavyMount ? (
-      <WorkspaceFilePreviewPanel
-        embedded
-        workspaceRoot={root}
-        threadId={
-          root ? undefined : wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
-        }
-        workspaceScopeOpts={{
-          configuredRoot: scope.configuredRoot,
-          useVirtualPaths: scope.useVirtualPaths,
-        }}
-        path={path}
-        name={name}
-        poll={!!data.poll}
-        focusLine={typeof data.focusLine === 'number' ? data.focusLine : undefined}
-        focusEndLine={typeof data.focusEndLine === 'number' ? data.focusEndLine : undefined}
-        focusAnnotation={focusAnnotation}
-        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
-      />
+      <RightStageTabErrorBoundary title={name || '文件预览'}>
+        <WorkspaceFilePreviewPanel
+          embedded
+          workspaceRoot={root}
+          threadId={
+            root ? undefined : wsClient.getSessionThreadId(selectedSessionKey || '') || undefined
+          }
+          workspaceScopeOpts={{
+            configuredRoot: scope.configuredRoot,
+            useVirtualPaths: scope.useVirtualPaths,
+          }}
+          path={path}
+          name={name}
+          poll={!!data.poll}
+          focusLine={typeof data.focusLine === 'number' ? data.focusLine : undefined}
+          focusEndLine={typeof data.focusEndLine === 'number' ? data.focusEndLine : undefined}
+          focusAnnotation={focusAnnotation}
+          onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+        />
+      </RightStageTabErrorBoundary>
     ) : (
       <SidePanelBootShell title={name || '文件预览'} className="react-chat-workspace-preview-stage" />
     )
@@ -257,7 +257,6 @@ export function renderRightStageBody(
         description={String(data.description || '').trim()}
         subtaskThreadId={String(data.subtaskThreadId || '').trim()}
         sessionKey={String(data.sessionKey || selectedSessionKey || '')}
-        initialRows={Array.isArray(data.rows) ? data.rows : undefined}
         initialOutcome={
           data.outcome && typeof data.outcome === 'object'
             ? (data.outcome as CollabSubtaskStageOutcome)

@@ -119,9 +119,6 @@ export function TaskDetailRightStageHost({
                   assignedAgent: String(payload?.assignedAgent || ''),
                   description: String(payload?.description || ''),
                   subtaskThreadId: String(payload?.subtaskThreadId || ''),
-                  rows: Array.isArray(payload?.rows) ? payload.rows : undefined,
-                  emptyConversation: payload?.emptyConversation,
-                  initialText: payload?.initialText,
                   outcome: payload?.outcome,
                 },
                 { sessionKey: stageSk },
@@ -166,7 +163,6 @@ export function TaskDetailRightStageHost({
             description={String(data.description || '').trim()}
             subtaskThreadId={String(data.subtaskThreadId || '').trim()}
             sessionKey={stageSk}
-            initialRows={Array.isArray(data.rows) ? data.rows : undefined}
             initialOutcome={
               data.outcome && typeof data.outcome === 'object'
                 ? (data.outcome as CollabSubtaskStageOutcome)

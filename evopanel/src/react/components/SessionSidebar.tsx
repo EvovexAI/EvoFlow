@@ -1,6 +1,6 @@
 ﻿import { Fragment, memo, useEffect, useMemo } from 'react'
 import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
-import { fetchSubtaskConversationHistory } from '../../lib/subtask-conversation-history.js'
+import { fetchSubtaskTranscriptMeta } from '../../lib/subtask-conversation-history.js'
 import { resolveSubtaskLivePreview } from '../../lib/subtask-preview-text.js'
 import { SubtaskLiveTicker } from './SubtaskLiveTicker.js'
 import { HoverBubble } from './HoverBubble.js'
@@ -238,7 +238,7 @@ export function SubtaskCard({
             onOpen({ subtaskId: s.subtaskId, mainTaskId: mid, leadThreadId: lead, title: fullTitle, status, progress, initialText: fallbackText, rows: [] })
           return
         }
-        void fetchSubtaskConversationHistory({
+        void fetchSubtaskTranscriptMeta({
           mainTaskId: mid,
           subtaskId: sid,
           leadThreadId: lead,
@@ -246,32 +246,34 @@ export function SubtaskCard({
           subtaskSnapshot: s,
         })
           .then((resp) => {
-            const emptyConversation = resp.emptyConversation
+            const threadId = String(resp?.thread_id || s.subtaskThreadId || '').trim()
             onOpen({
               subtaskId: s.subtaskId,
               mainTaskId: mid,
               leadThreadId: lead,
+              subtaskThreadId: threadId || undefined,
               title: fullTitle,
               status,
               progress,
-              initialText: emptyConversation ? '' : resp.rows.length ? '' : fallbackText,
-              rows: resp.rows,
-              emptyConversation,
+              initialText: '',
+              rows: [],
+              emptyConversation: !threadId,
               outcome: resp.outcome,
             })
           })
           .catch(() => {
-            // Fallback to current live text when conversation history unavailable.
+            const threadId = String(s.subtaskThreadId || '').trim()
             onOpen({
               subtaskId: s.subtaskId,
               mainTaskId: mid,
               leadThreadId: lead,
+              subtaskThreadId: threadId || undefined,
               title: fullTitle,
               status,
               progress,
-              initialText: fallbackText,
+              initialText: '',
               rows: [],
-              emptyConversation: false,
+              emptyConversation: !threadId,
             })
           })
       }}
@@ -414,11 +416,12 @@ function SessionSidebarInner({
       open
       mode="modal"
       subtaskId={subtaskTranscriptModal.subtaskId}
+      v4SessionId={transcript.v4SessionId}
       statusClass={transcript.statusClass}
       statusLabel={transcript.statusLabel}
       summaryAgent={transcript.modalSummaryAgent}
       shortTitle={transcript.modalShortTitle}
-      rows={transcript.modalRowsForDisplay}
+      rows={transcript.v4SessionId ? [] : transcript.modalRowsForDisplay}
       streamActive={transcript.modalIsStreaming}
       sending={transcript.sending}
       canCompose={transcript.modalCanCompose}
