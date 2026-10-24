@@ -47,6 +47,7 @@ _UPDATE_KEYS = frozenset(
         "model_name",
         "app_id",
         "app_parameters",
+        "output_path",
     }
 )
 

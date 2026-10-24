@@ -591,23 +591,106 @@ def preview_schedule(
 
 
 def schedule_summary_for_task(task: dict[str, Any]) -> str:
-    """Card/list summary for a stored automation row — never expose raw RRULE."""
+    """Card/list summary for a stored automation row — never expose raw RRULE.
+
+    Uses the shared resolver so the summary always describes the cron the
+    runner will actually fire on (previously this re-implemented the
+    schedule/rrule priority rule and could disagree with the runner).
+    """
     st = str(task.get("schedule_type") or "").strip().lower()
     sat = str(task.get("scheduled_at") or "").strip()
     sched = str(task.get("schedule") or "").strip()
+
+    resolved = resolve_effective_schedule(task)
+    cron = str(resolved.get("cron") or "")
     if st == "once" or (sat and not is_five_field_cron_or_keyword(sched)):
         return f"一次性: {sat or sched or '?'}"
-    if is_five_field_cron_or_keyword(sched):
-        return cron_human_summary(sched)
-    rr = str(task.get("rrule") or "").strip()
-    if "FREQ=" in sched.upper():
-        rr = sched
+    if cron:
+        return cron_human_summary(cron)
+    rr = str(resolved.get("rrule_raw") or "").strip()
     if rr and "FREQ=" in rr.upper():
-        cron = rrule_to_cron(rr)
-        if is_five_field_cron_or_keyword(cron):
-            return cron_human_summary(cron)
         return rrule_human_summary(rr)
     return cron_human_summary(sched) if sched else "未知"
+
+
+def resolve_effective_schedule(task: dict[str, Any]) -> dict[str, Any]:
+    """Single source of truth for "what cron does this automation actually run on".
+
+    Historically ``schedule`` and ``rrule`` were two independent fields and
+    three different call sites each re-implemented the priority rule, so the
+    runner, the API card and the CLI preview could disagree — and the
+    ``rrule`` value silently became dead configuration.
+
+    Priority (documented contract, applied everywhere):
+
+    1. ``schedule_type == "once"`` → ``scheduled_at`` (not a cron at all).
+    2. ``schedule`` holding a 5-field cron / ``@keyword`` → **that** cron wins.
+    3. ``schedule`` holding an RRULE (``FREQ=…``) → derive cron from it.
+    4. otherwise ``rrule`` field → derive cron from it.
+
+    When both ``schedule`` and ``rrule`` are set and they resolve to
+    *different* crons the result carries ``conflict=True`` so callers can
+    surface a warning instead of silently ignoring one of them.
+
+    Returns a dict::
+
+        {
+          "cron": str,              # effective 5-field cron ("" when none)
+          "source": str,            # schedule | rrule | scheduled_at | none
+          "schedule_raw": str,
+          "rrule_raw": str,
+          "conflict": bool,
+          "conflict_detail": str,   # human-readable, "" when no conflict
+          "ignored_source": str,    # which side was ignored (conflict only)
+        }
+    """
+    st = str(task.get("schedule_type") or "").strip().lower()
+    sat = str(task.get("scheduled_at") or "").strip()
+    sched = str(task.get("schedule") or "").strip()
+    rr = str(task.get("rrule") or "").strip()
+
+    out: dict[str, Any] = {
+        "cron": "",
+        "source": "none",
+        "schedule_raw": sched,
+        "rrule_raw": rr,
+        "conflict": False,
+        "conflict_detail": "",
+        "ignored_source": "",
+    }
+
+    if st == "once":
+        out["source"] = "scheduled_at"
+        return out
+
+    sched_is_cron = is_five_field_cron_or_keyword(sched)
+    sched_is_rrule = "FREQ=" in sched.upper()
+    rr_is_rrule = "FREQ=" in rr.upper()
+
+    # Resolve each side independently so we can detect a conflict.
+    sched_cron = sched if sched_is_cron else (rrule_to_cron(sched) if sched_is_rrule else "")
+    rr_cron = rrule_to_cron(rr) if rr_is_rrule else ""
+
+    if sched_is_cron:
+        out["cron"] = sched
+        out["source"] = "schedule"
+    elif sched_is_rrule and sched_cron:
+        out["cron"] = sched_cron
+        out["source"] = "schedule"
+    elif rr_cron:
+        out["cron"] = rr_cron
+        out["source"] = "rrule"
+
+    # Conflict: both sides carry a schedule and they do not agree.
+    if sched_cron and rr_cron and sched_cron != rr_cron:
+        out["conflict"] = True
+        out["ignored_source"] = "rrule" if out["source"] == "schedule" else "schedule"
+        out["conflict_detail"] = (
+            f"schedule 与 rrule 冲突：schedule 生效为 {sched_cron!r}，"
+            f"rrule 换算为 {rr_cron!r}；已按优先级采用 {out['source']!r}，"
+            f"忽略 {out['ignored_source']!r}。"
+        )
+    return out
 
 
 def rrule_to_cron(rrule_str: str) -> str:
@@ -644,6 +727,13 @@ def rrule_to_cron(rrule_str: str) -> str:
     dow_map = {"SU": "0", "MO": "1", "TU": "2", "WE": "3", "TH": "4", "FR": "5", "SA": "6"}
     if freq == "HOURLY":
         return f"{minute} */{interval} * * *" if interval > 1 else f"{minute} * * * *"
+    if freq == "MINUTELY":
+        # ``FREQ=MINUTELY;INTERVAL=10`` → ``*/10 * * * *``.
+        # This branch was missing, so every MINUTELY rrule derived to "" and
+        # the runner silently skipped the automation ("rrule dead config").
+        if minute:
+            return f"{minute} */{interval} * * *" if interval > 1 else f"{minute} * * * *"
+        return f"*/{interval} * * * *" if interval > 1 else "* * * * *"
     if freq == "DAILY":
         if byday:
             nums = ",".join(dow_map.get(d.strip(), "?") for d in byday.split(",") if d.strip())
@@ -695,19 +785,14 @@ def rrule_human_summary(rrule_str: str) -> str:
 def enrich_automation_for_api(task: dict[str, Any], *, latest_run: dict[str, Any] | None = None) -> dict[str, Any]:
     """Attach schedule_summary / next_run / last_run fields for EvoPanel cards."""
     row = dict(task)
-    sched = str(row.get("schedule") or "").strip()
-    # Prefer 5-field cron; if schedule is RRULE-only, derive cron for display/runner hints
-    if not is_five_field_cron_or_keyword(sched):
-        rr = str(row.get("rrule") or "").strip()
-        if "FREQ=" in sched.upper():
-            rr = sched
-        derived = rrule_to_cron(rr) if rr else ""
-        if is_five_field_cron_or_keyword(derived):
-            row["schedule_cron"] = derived
-        else:
-            row["schedule_cron"] = ""
-    else:
-        row["schedule_cron"] = sched
+    # D2: use the shared resolver so the card shows exactly the cron the
+    # runner will fire on (previously this re-implemented the priority rule
+    # and could disagree with the runner).
+    resolved = resolve_effective_schedule(row)
+    row["schedule_cron"] = str(resolved.get("cron") or "")
+    row["schedule_source"] = str(resolved.get("source") or "none")
+    row["schedule_conflict"] = bool(resolved.get("conflict"))
+    row["schedule_conflict_detail"] = str(resolved.get("conflict_detail") or "")
 
     row["schedule_summary"] = schedule_summary_for_task(row)
 

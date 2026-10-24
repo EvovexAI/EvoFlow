@@ -16,9 +16,10 @@ import asyncio
 import logging
 import os
 import secrets
+import socket
 import time
 import tomllib
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,13 +31,36 @@ AUTOMATIONS_DIR = Path(os.getenv("EVOFLOW_AUTOMATIONS_DIR", "")).expanduser() if
 
 _automations_toml_import_done = False
 
+# In-process view of the persisted slot claims (diagnostics only — the
+# authoritative dedupe gate is the ``evoflow_automation_slot_claims`` table,
+# which is shared by every Gateway process on the same DB).
 _last_slot: dict[str, str] = {}
 # Populated every tick for ``GET /api/automation/scheduler/status`` and logs.
 _last_tick_info: dict[str, Any] = {}
 # Avoid spamming gateway.log every tick for the same broken ``*.toml``.
 _warned_invalid_toml_paths: set[str] = set()
+# Same idea for schedule/rrule conflicts: warn once per task instead of on
+# every 60s tick, otherwise a permanently misconfigured automation floods
+# the log and buries everything else.
+_warned_schedule_conflicts: set[str] = set()
 _scheduler_loop_running: bool = False
 _langgraph_semaphore: asyncio.Semaphore | None = None
+
+# Scheduler state key holding the ISO timestamp of the last completed tick.
+_SCHEDULER_LAST_TICK_KEY = "scheduler_last_tick_at"
+# Catch-up (missed-run compensation) tuning.
+_CATCHUP_GAP_MINUTES_DEFAULT = 3
+_CATCHUP_LOOKBACK_MINUTES_DEFAULT = 1440
+_CATCHUP_MAX_RUNS_DEFAULT = 3
+
+
+def _scheduler_owner_id() -> str:
+    """Stable-ish identity of this scheduler process (host:pid)."""
+    try:
+        host = socket.gethostname()
+    except Exception:
+        host = "unknown-host"
+    return f"{host}:{os.getpid()}"
 
 
 def _langgraph_run_semaphore() -> asyncio.Semaphore:
@@ -504,26 +528,23 @@ def cron_matches_now(expr: str) -> bool:
 def _effective_cron(task: dict[str, Any]) -> str | None:
     """Resolve a 5-field cron for the runner tick.
 
-    Prefer ``schedule`` when it is already cron; otherwise derive from RRULE
-    stored in ``schedule`` or ``rrule`` (API enrich already does this for display,
-    but the runner historically skipped rrule-only rows).
+    Delegates to :func:`evoflow.admin.automation_schedule.resolve_effective_schedule`
+    — the single source of truth shared with the API card and the CLI preview.
+    Previously this function re-implemented the ``schedule`` vs ``rrule``
+    priority rule, which is how ``rrule`` silently became dead configuration
+    and why the runner and the UI could disagree about the effective cron.
     """
-    from evoflow.admin.automation_schedule import (
-        is_five_field_cron_or_keyword,
-        rrule_to_cron,
-    )
+    from evoflow.admin.automation_schedule import resolve_effective_schedule
 
-    sched = str(task.get("schedule") or "").strip()
-    if is_five_field_cron_or_keyword(sched):
-        return sched
-    rr = str(task.get("rrule") or "").strip()
-    if "FREQ=" in sched.upper():
-        rr = sched
-    if rr and "FREQ=" in rr.upper():
-        derived = rrule_to_cron(rr)
-        if is_five_field_cron_or_keyword(derived):
-            return derived
-    return None
+    cron = str(resolve_effective_schedule(task).get("cron") or "").strip()
+    return cron or None
+
+
+def _schedule_conflict(task: dict[str, Any]) -> dict[str, Any]:
+    """Conflict report for a task whose ``schedule`` and ``rrule`` disagree."""
+    from evoflow.admin.automation_schedule import resolve_effective_schedule
+
+    return resolve_effective_schedule(task)
 
 
 def _active_tasks_brief_for_log(active_pairs: list[tuple[str, dict[str, Any]]]) -> str:
@@ -565,6 +586,268 @@ def load_automation_toml(task_id: str) -> dict[str, Any] | None:
 def _slot_key() -> str:
     d = datetime.now()
     return f"{d.year}-{d.month}-{d.day}_{d.hour}_{d.minute}"
+
+
+def _slot_key_for(when: datetime) -> str:
+    """Slot key for an arbitrary moment (same format as :func:`_slot_key`).
+
+    Used by catch-up to check whether a missed cron slot was already claimed.
+    """
+    return f"{when.year}-{when.month}-{when.day}_{when.hour}_{when.minute}"
+
+
+def _claim_slot_for_task(task_id: str, slot: str, *, trigger_type: str) -> dict[str, Any]:
+    """Claim ``(task_id, slot)`` in SQLite — the cross-process dedupe gate.
+
+    Fails closed: if the claim cannot be persisted we do **not** run, because
+    running without a claim is exactly how two processes double-fire.
+    """
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    try:
+        return auto_repo.claim_automation_slot(
+            task_id,
+            slot,
+            run_id=secrets.token_hex(6),
+            trigger_type=trigger_type,
+            owner=_scheduler_owner_id(),
+        )
+    except Exception:
+        logger.exception("automation_runner: slot claim failed task_id=%s slot=%s", task_id, slot)
+        return {"claimed": False, "reason": "error", "state": "", "attempts": 0}
+
+
+def _complete_slot_for_task(task_id: str, slot: str, *, status: str = "done") -> None:
+    """Mark a claimed slot as finished."""
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    try:
+        auto_repo.complete_automation_slot(task_id, slot, status=status)
+    except Exception:
+        logger.debug("automation_runner: slot completion failed task_id=%s slot=%s", task_id, slot, exc_info=True)
+
+
+# --- Catch-up (missed-run compensation, D3) ---
+
+# A run that was missed while the Gateway was down is compensated on the next
+# start. Tunables (env) so operators can widen/narrow the window.
+_CATCHUP_LOOKBACK_MINUTES = 1440  # 24h — how far back a missed run may be compensated
+_CATCHUP_MAX_RUNS_PER_TICK = 1  # newest missed slot first; backlog drains over ticks
+_CATCHUP_MIN_GAP_MINUTES = 3  # ignore slots closer than this to "now" (tick jitter)
+
+
+def _catchup_enabled() -> bool:
+    v = os.getenv("EVOFLOW_AUTOMATION_CATCHUP", "").strip().lower()
+    if not v:
+        return True
+    return v not in ("0", "false", "no", "off", "disabled")
+
+
+def _catchup_lookback_minutes() -> int:
+    try:
+        return max(0, int(os.getenv("EVOFLOW_AUTOMATION_CATCHUP_LOOKBACK_MINUTES", str(_CATCHUP_LOOKBACK_MINUTES))))
+    except (TypeError, ValueError):
+        return _CATCHUP_LOOKBACK_MINUTES
+
+
+def _catchup_max_runs() -> int:
+    try:
+        return max(0, int(os.getenv("EVOFLOW_AUTOMATION_CATCHUP_MAX_RUNS", str(_CATCHUP_MAX_RUNS_PER_TICK))))
+    except (TypeError, ValueError):
+        return _CATCHUP_MAX_RUNS_PER_TICK
+
+
+def _last_scheduler_tick_at() -> datetime | None:
+    """Last completed tick time (persisted, survives restarts)."""
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    raw = str(auto_repo.get_automation_scheduler_state(_SCHEDULER_LAST_TICK_KEY) or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt
+
+
+def _record_scheduler_tick(now: datetime) -> None:
+    """Persist the tick time so the next start can detect the gap."""
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    try:
+        auto_repo.set_automation_scheduler_state(_SCHEDULER_LAST_TICK_KEY, now.isoformat(timespec="seconds"))
+    except Exception:
+        logger.debug("automation_runner: could not persist scheduler tick time", exc_info=True)
+
+
+def _within_valid_window(task: dict[str, Any], when: datetime) -> bool:
+    """Whether ``when`` falls inside the automation's valid_from/valid_until window."""
+    vf = str(task.get("valid_from") or "").strip()
+    vu = str(task.get("valid_until") or "").strip()
+    if vf:
+        try:
+            d = datetime.fromisoformat(vf.replace("Z", "+00:00"))
+            if d.tzinfo:
+                d = d.astimezone().replace(tzinfo=None)
+            if when < d:
+                return False
+        except ValueError:
+            pass
+    if vu:
+        try:
+            d = datetime.fromisoformat(vu.replace("Z", "+00:00"))
+            if d.tzinfo:
+                d = d.astimezone().replace(tzinfo=None)
+            if when > d:
+                return False
+        except ValueError:
+            pass
+    return True
+
+
+def _missed_cron_slots(
+    cron_expr: str,
+    *,
+    since: datetime,
+    now: datetime,
+    limit: int,
+) -> list[datetime]:
+    """Cron slots in ``(since, now)`` that match ``cron_expr`` — newest first.
+
+    Scans backwards minute by minute; the window is bounded by the caller
+    (lookback minutes), so the scan stays cheap.
+    """
+    from evoflow.admin.automation_schedule import cron_matches_at
+
+    if limit <= 0:
+        return []
+    floor = since.replace(second=0, microsecond=0)
+    cursor = now.replace(second=0, microsecond=0) - timedelta(minutes=1)
+    out: list[datetime] = []
+    while cursor > floor and len(out) < limit:
+        if cron_matches_at(cron_expr, cursor):
+            out.append(cursor)
+        cursor -= timedelta(minutes=1)
+    return out
+
+
+def _recorded_run_slots(task_id: str, *, since: datetime) -> set[str]:
+    """Slot keys for which a run was already recorded (before/without a claim).
+
+    The slot-claim table only covers slots claimed after this feature shipped.
+    A run recorded earlier (or after a claim row was lost) must still count as
+    "already happened", otherwise catch-up would fire that minute a second
+    time — the duplicate push this fix exists to prevent.
+    """
+    from evoflow.persistence import automation_repositories as auto_repo
+
+    try:
+        times = auto_repo.list_automation_run_times(
+            task_id,
+            since_iso=since.isoformat(timespec="seconds"),
+        )
+    except Exception:
+        logger.debug("automation_runner: could not read run history task_id=%s", task_id, exc_info=True)
+        return set()
+    return {_slot_key_for(t) for t in times}
+
+
+async def _run_catchup_missed_runs(
+    active_pairs: list[tuple[str, dict[str, Any]]],
+    service: Any,
+    *,
+    now: datetime,
+) -> tuple[list[str], list[str]]:
+    """Compensate runs missed while the Gateway was down (defect 3).
+
+    The scheduler used to live inside the Gateway process, so closing the
+    desktop app silently dropped every scheduled run in between. This
+    compensates them: for each active cron automation we look for slots
+    between the last recorded tick and now that have **no** slot claim, and
+    run the newest ones.
+
+    The slot claim table is the same gate used by the normal path, so a
+    catch-up run can never double-fire a slot another process already ran.
+
+    Returns ``(fired_task_ids, skip_reasons)``.
+    """
+    fired: list[str] = []
+    reasons: list[str] = []
+    if not _catchup_enabled():
+        return fired, reasons
+    max_runs = _catchup_max_runs()
+    if max_runs <= 0:
+        return fired, reasons
+
+    last_tick = _last_scheduler_tick_at()
+    if last_tick is None:
+        reasons.append("catchup:no_last_tick_state")
+        return fired, reasons
+
+    lookback = timedelta(minutes=_catchup_lookback_minutes())
+    since = max(last_tick, now - lookback)
+    gap_minutes = int((now - since).total_seconds() // 60)
+    if gap_minutes < _CATCHUP_MIN_GAP_MINUTES:
+        reasons.append(f"catchup:gap_too_small gap_minutes={gap_minutes}")
+        return fired, reasons
+
+    logger.info(
+        "automation_runner: catch-up check gap_minutes=%s since=%s lookback_minutes=%s",
+        gap_minutes,
+        since.isoformat(timespec="seconds"),
+        _catchup_lookback_minutes(),
+    )
+
+    for task_id, task in active_pairs:
+        if str(task.get("schedule_type") or "").lower() == "once":
+            continue
+        cron_expr = _effective_cron(task)
+        if not cron_expr:
+            continue
+        # Slots that already produced a recorded run must never be re-fired.
+        # The claim table only knows about slots claimed *after* this feature
+        # shipped; runs recorded before that (or before a claim row was lost)
+        # would otherwise be compensated a second time — precisely the
+        # duplicate push this whole fix is about.
+        already_ran_slots = _recorded_run_slots(task_id, since=since)
+        missed = _missed_cron_slots(cron_expr, since=since, now=now, limit=max_runs)
+        for when in missed:
+            if not _within_valid_window(task, when):
+                reasons.append(f"{task_id}:catchup_outside_valid_window slot={_slot_key_for(when)}")
+                continue
+            slot = _slot_key_for(when)
+            if slot in already_ran_slots:
+                reasons.append(f"{task_id}:catchup_already_ran slot={slot}")
+                continue
+            claim = _claim_slot_for_task(task_id, slot, trigger_type="catchup")
+            if not claim.get("claimed"):
+                reasons.append(
+                    f"{task_id}:catchup_slot_taken slot={slot} reason={claim.get('reason') or 'duplicate'}"
+                )
+                continue
+            logger.warning(
+                "automation_runner: catch-up firing missed slot task_id=%s name=%r slot=%s cron=%r missed_at=%s",
+                task_id,
+                task.get("name", ""),
+                slot,
+                cron_expr,
+                when.isoformat(timespec="seconds"),
+            )
+            try:
+                await _run_one_task(task_id, task, service, trigger_type="catchup")
+            except Exception:
+                logger.exception("automation_runner: catch-up run failed task_id=%s slot=%s", task_id, slot)
+                _complete_slot_for_task(task_id, slot, status="failed")
+                reasons.append(f"{task_id}:catchup_run_failed slot={slot}")
+                continue
+            _complete_slot_for_task(task_id, slot, status="done")
+            fired.append(task_id)
+            break  # one catch-up run per task per tick
+
+    return fired, reasons
 
 
 def _automation_via_task_center(task: dict[str, Any] | None = None) -> bool:
@@ -789,7 +1072,8 @@ def _run_bound_app_for_automation(
         }
 
     params = _coerce_app_parameters(task.get("app_parameters") or task.get("parameters"))
-    trigger_kind = "schedule" if str(trigger_type or "").strip().lower() == "schedule" else "manual"
+    # ``catchup`` is a schedule-triggered compensation run, not a manual run.
+    trigger_kind = "schedule" if str(trigger_type or "").strip().lower() in ("schedule", "catchup") else "manual"
     try:
         result = run_app(
             app_id,
@@ -1282,6 +1566,8 @@ async def automation_tick() -> None:
 
     skipped_reasons: list[str] = []
     fired_ids: list[str] = []
+    # D2: schedule vs rrule conflicts detected this tick (surfaced in status).
+    schedule_conflicts: dict[str, str] = {}
 
     log_tick = logger.info if active_pairs else logger.debug
     log_tick(
@@ -1373,13 +1659,39 @@ async def automation_tick() -> None:
                     task.get("name", ""),
                 )
                 continue
+            # D2: schedule vs rrule conflict — surface it instead of silently
+            # ignoring one side (this is what made `rrule` a dead config).
+            sched_info = _schedule_conflict(task)
+            if sched_info.get("conflict"):
+                detail = str(sched_info.get("conflict_detail") or "")
+                skipped_reasons.append(f"{task_id}:schedule_rrule_conflict {detail}")
+                # Warn once per task: this block runs on every 60s tick, so a
+                # permanently misconfigured automation would otherwise flood
+                # gateway.log and bury everything else.
+                _warn_key = f"{task_id}:{detail}"
+                if _warn_key not in _warned_schedule_conflicts:
+                    _warned_schedule_conflicts.add(_warn_key)
+                    logger.warning(
+                        "automation task %s (%s): schedule/rrule conflict — %s",
+                        task_id,
+                        task.get("name", ""),
+                        detail,
+                    )
+                schedule_conflicts[task_id] = detail
             should = bool(cron_matches_now(cron_expr))
             if not should:
                 skipped_reasons.append(f"{task_id}:cron_no_match_now expr={cron_expr!r} slot={slot}")
                 continue
         # Direct LangGraph and task-center enqueue both run without IM channel; push is best-effort.
-        if _last_slot.get(task_id) == slot:
-            skipped_reasons.append(f"{task_id}:dedupe_same_minute")
+        # Cross-process dedupe: the slot claim lives in SQLite, so two Gateway
+        # processes (desktop sidecar + dev gateway) ticking in the same minute
+        # cannot both fire — exactly one wins the atomic claim.
+        claim = _claim_slot_for_task(task_id, slot, trigger_type="schedule")
+        if not claim.get("claimed"):
+            skipped_reasons.append(
+                f"{task_id}:dedupe_same_minute reason={claim.get('reason') or 'duplicate'} "
+                f"state={claim.get('state') or '-'}"
+            )
             continue
         _last_slot[task_id] = slot
         cron_expr = _effective_cron(task) if str(task.get("schedule_type") or "") != "once" else None
@@ -1394,9 +1706,35 @@ async def automation_tick() -> None:
             _automation_via_task_center(task),
             channel_ok,
         )
-        await _run_one_task(task_id, task, service)
+        try:
+            await _run_one_task(task_id, task, service)
+        except Exception:
+            logger.exception("automation_runner: run failed task_id=%s slot=%s", task_id, slot)
+            _complete_slot_for_task(task_id, slot, status="failed")
+            raise
+        _complete_slot_for_task(task_id, slot, status="done")
         fired_ids.append(task_id)
         logger.info("automation_runner: fired done task_id=%s name=%r", task_id, task.get("name", ""))
+
+    # D3: compensate runs missed while the Gateway was down. The gap is
+    # measured against the persisted last-tick stamp, so closing the desktop
+    # app no longer silently drops scheduled runs.
+    catchup_fired: list[str] = []
+    catchup_reasons: list[str] = []
+    if active_pairs:
+        try:
+            catchup_fired, catchup_reasons = await _run_catchup_missed_runs(active_pairs, service, now=now)
+        except Exception:
+            logger.exception("automation_tick: catch-up check failed")
+            catchup_reasons = ["catchup:error"]
+        if catchup_fired:
+            fired_ids.extend(catchup_fired)
+            logger.warning(
+                "automation_runner: catch-up compensated %d missed run(s): %s",
+                len(catchup_fired),
+                ", ".join(catchup_fired),
+            )
+    skipped_reasons.extend(catchup_reasons)
 
     _last_tick_info = {
         "tick_iso": tick_iso,
@@ -1407,7 +1745,11 @@ async def automation_tick() -> None:
         "channel_service_running": channel_ok,
         "skipped_reasons_sample": skipped_reasons[:12],
         "skipped_reasons_total": len(skipped_reasons),
+        "catchup_fired_task_ids": catchup_fired,
+        "schedule_conflicts": schedule_conflicts,
     }
+    # Persist the tick stamp so the next process start can detect the gap.
+    _record_scheduler_tick(now)
 
     logger.debug(
         "automation_tick end slot=%s files=%d active=%d fired=%s channel_ok=%s (HTTP GET /api/automation/scheduler/status → last_tick)",
