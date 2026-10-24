@@ -591,21 +591,24 @@ def preview_schedule(
 
 
 def schedule_summary_for_task(task: dict[str, Any]) -> str:
-    """Card/list summary for a stored automation row — never expose raw RRULE."""
+    """Card/list summary for a stored automation row — never expose raw RRULE.
+
+    Uses the shared resolver so the summary always describes the cron the
+    runner will actually fire on (previously this re-implemented the
+    schedule/rrule priority rule and could disagree with the runner).
+    """
     st = str(task.get("schedule_type") or "").strip().lower()
     sat = str(task.get("scheduled_at") or "").strip()
     sched = str(task.get("schedule") or "").strip()
+
+    resolved = resolve_effective_schedule(task)
+    cron = str(resolved.get("cron") or "")
     if st == "once" or (sat and not is_five_field_cron_or_keyword(sched)):
         return f"一次性: {sat or sched or '?'}"
-    if is_five_field_cron_or_keyword(sched):
-        return cron_human_summary(sched)
-    rr = str(task.get("rrule") or "").strip()
-    if "FREQ=" in sched.upper():
-        rr = sched
+    if cron:
+        return cron_human_summary(cron)
+    rr = str(resolved.get("rrule_raw") or "").strip()
     if rr and "FREQ=" in rr.upper():
-        cron = rrule_to_cron(rr)
-        if is_five_field_cron_or_keyword(cron):
-            return cron_human_summary(cron)
         return rrule_human_summary(rr)
     return cron_human_summary(sched) if sched else "未知"
 

@@ -39,6 +39,10 @@ _last_slot: dict[str, str] = {}
 _last_tick_info: dict[str, Any] = {}
 # Avoid spamming gateway.log every tick for the same broken ``*.toml``.
 _warned_invalid_toml_paths: set[str] = set()
+# Same idea for schedule/rrule conflicts: warn once per task instead of on
+# every 60s tick, otherwise a permanently misconfigured automation floods
+# the log and buries everything else.
+_warned_schedule_conflicts: set[str] = set()
 _scheduler_loop_running: bool = False
 _langgraph_semaphore: asyncio.Semaphore | None = None
 
@@ -1631,12 +1635,18 @@ async def automation_tick() -> None:
             if sched_info.get("conflict"):
                 detail = str(sched_info.get("conflict_detail") or "")
                 skipped_reasons.append(f"{task_id}:schedule_rrule_conflict {detail}")
-                logger.warning(
-                    "automation task %s (%s): schedule/rrule conflict — %s",
-                    task_id,
-                    task.get("name", ""),
-                    detail,
-                )
+                # Warn once per task: this block runs on every 60s tick, so a
+                # permanently misconfigured automation would otherwise flood
+                # gateway.log and bury everything else.
+                _warn_key = f"{task_id}:{detail}"
+                if _warn_key not in _warned_schedule_conflicts:
+                    _warned_schedule_conflicts.add(_warn_key)
+                    logger.warning(
+                        "automation task %s (%s): schedule/rrule conflict — %s",
+                        task_id,
+                        task.get("name", ""),
+                        detail,
+                    )
                 schedule_conflicts[task_id] = detail
             should = bool(cron_matches_now(cron_expr))
             if not should:
