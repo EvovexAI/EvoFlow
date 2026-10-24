@@ -3335,6 +3335,7 @@ class FeishuChannel(Channel):
                 text=text,
                 msg_type=msg_type,
                 thread_ts=reply_anchor_message_id,
+                account_id=account_id,
                 metadata={
                     "message_id": msg_id,
                     "root_id": root_id,

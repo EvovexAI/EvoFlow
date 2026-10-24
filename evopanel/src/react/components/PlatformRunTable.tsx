@@ -36,6 +36,44 @@ function partitionPlatformEntries(
   return { recentIds, existing, turnItems, latestItem, latestId }
 }
 
+function PlatformRunStatusIcon({ status }: { status: 'success' | 'warning' | 'error' }) {
+  if (status === 'error') {
+    return (
+      <span className="react-chat-platform-run-icon is-error" aria-hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+          <circle cx="8" cy="8" r="7" fill="currentColor" />
+          <path d="M5.4 5.4l5.2 5.2M10.6 5.4l-5.2 5.2" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </span>
+    )
+  }
+  if (status === 'warning') {
+    return (
+      <span className="react-chat-platform-run-icon is-warning" aria-hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+          <circle cx="8" cy="8" r="7" fill="currentColor" />
+          <path d="M8 4.6v4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="8" cy="11.2" r="0.85" fill="#fff" />
+        </svg>
+      </span>
+    )
+  }
+  return (
+    <span className="react-chat-platform-run-icon is-success" aria-hidden>
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
+        <circle cx="8" cy="8" r="7" fill="currentColor" />
+        <path
+          d="M4.8 8.2l2.2 2.2 4.2-4.4"
+          stroke="#fff"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  )
+}
+
 function PlatformRunCard({
   entry,
   scope,
@@ -49,6 +87,8 @@ function PlatformRunCard({
   const status = entry.kind === 'warning' ? 'warning' : entry.kind === 'error' ? 'error' : 'success'
   const domain = platformDomainLabel(entry.domain)
   const timeStr = formatInfoRailTime(entry.appliedAt)
+  const canOpen = Boolean(primaryAction?.route)
+  const actionLabel = primaryAction?.label || '查看'
 
   const openEntry = () => {
     const route = primaryAction?.route
@@ -58,34 +98,45 @@ function PlatformRunCard({
   return (
     <li
       className={`react-chat-platform-run-card react-chat-platform-run-card--${status}${
-        active ? ' is-active' : ''
-      }`}
+        scope === 'latest' ? ' is-latest' : ''
+      }${active ? ' is-active' : ''}${canOpen ? ' is-clickable' : ''}`}
+      onClick={canOpen ? openEntry : undefined}
     >
-      <div className="react-chat-platform-run-card-head">
-        <span className="react-chat-platform-run-domain" title={domain}>
-          {domain}
-        </span>
-        <div className="react-chat-platform-run-card-head-right">
+      <PlatformRunStatusIcon status={status} />
+      <div className="react-chat-platform-run-body">
+        <div className="react-chat-platform-run-card-head">
+          <span className="react-chat-platform-run-domain" title={domain}>
+            {domain}
+          </span>
           {timeStr ? (
             <span className="react-chat-platform-run-time" title={timeStr}>
               {timeStr}
             </span>
           ) : null}
-          {primaryAction?.route ? (
-            <button type="button" className="react-chat-platform-run-action" onClick={openEntry}>
-              {primaryAction.label || '查看'}
+        </div>
+        <div className="react-chat-platform-run-title" title={entry.title}>
+          {entry.title}
+        </div>
+        {entry.subtitle ? (
+          <div className="react-chat-platform-run-subtitle" title={entry.subtitle}>
+            {entry.subtitle}
+          </div>
+        ) : null}
+        {canOpen ? (
+          <div className="react-chat-platform-run-footer">
+            <button
+              type="button"
+              className="react-chat-platform-run-action"
+              onClick={(e) => {
+                e.stopPropagation()
+                openEntry()
+              }}
+            >
+              {actionLabel}
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
-      <div className="react-chat-platform-run-title" title={entry.title}>
-        {entry.title}
-      </div>
-      {entry.subtitle ? (
-        <div className="react-chat-platform-run-subtitle" title={entry.subtitle}>
-          {entry.subtitle}
-        </div>
-      ) : null}
     </li>
   )
 }

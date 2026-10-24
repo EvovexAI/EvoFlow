@@ -1268,7 +1268,7 @@ class ChannelManager:
         bus: MessageBus,
         store: ChannelStore,
         *,
-        max_concurrency: int = 5,
+        max_concurrency: int = 64,
         langgraph_url: str = DEFAULT_LANGGRAPH_URL,
         gateway_url: str = DEFAULT_GATEWAY_URL,
         assistant_id: str = DEFAULT_ASSISTANT_ID,
@@ -1451,13 +1451,12 @@ class ChannelManager:
 
     @staticmethod
     def _outbound_metadata_from_inbound(msg: InboundMessage) -> dict[str, Any]:
-        meta = dict(msg.metadata or {}) if isinstance(msg.metadata, dict) else {}
         # Always stamp account_id (may be "") so Feishu primary is not confused with
         # "missing" and must not fall back to another bot's chat_account mapping.
-        out: dict[str, Any] = {
-            "account_id": str(meta.get("account_id") or "").strip(),
+        # Prefer top-level inbound.account_id (WeCom / fixed Feishu) over metadata-only.
+        return {
+            "account_id": ChannelManager._inbound_account_id(msg),
         }
-        return out
 
     @staticmethod
     def _im_routing_key(msg: InboundMessage) -> str:
@@ -2167,7 +2166,7 @@ class ChannelManager:
                     thread_ts=msg.thread_ts or None,
                     # Echo account_id back to the bus so the reply lands on
                     # the same channel instance that received the inbound.
-                    account_id=msg.account_id or "",
+                    account_id=self._inbound_account_id(msg),
                 ))
                 setattr(msg, "_fallback_engine_busy_logged", True)
             except Exception:
@@ -2211,7 +2210,7 @@ class ChannelManager:
             metadata=self._outbound_metadata_from_inbound(msg),
             # Echo account_id back to the bus so the reply lands on the
             # same channel instance that received the inbound.
-            account_id=msg.account_id or "",
+            account_id=self._inbound_account_id(msg),
         )
         if self.bus is None:
             _mgr_diag("publish_skipped_no_bus", channel=msg.channel_name, chat_id=msg.chat_id)
@@ -2381,7 +2380,7 @@ class ChannelManager:
                             thread_ts=msg.thread_ts,
                             topic_id=msg.topic_id,
                             metadata=self._im_run_control_meta(msg, active_thread_id),
-                            account_id=msg.account_id or "",
+                            account_id=self._inbound_account_id(msg),
                         )
                     )
                     last_published_text = latest_text
@@ -2527,7 +2526,7 @@ class ChannelManager:
                 thread_ts=msg.thread_ts,
                 topic_id=msg.topic_id,
                 metadata=self._outbound_metadata_from_inbound(msg),
-                account_id=msg.account_id or "",
+                account_id=self._inbound_account_id(msg),
             )
         )
         _finalize_channel_transcript_turn(sk, active_thread_id)
@@ -2601,7 +2600,7 @@ class ChannelManager:
                             thread_ts=msg.thread_ts,
                             topic_id=msg.topic_id,
                             metadata=self._outbound_metadata_from_inbound(msg),
-                            account_id=msg.account_id or "",
+                            account_id=self._inbound_account_id(msg),
                         )
                     )
                     return
@@ -2670,7 +2669,7 @@ class ChannelManager:
             thread_ts=msg.thread_ts,
             topic_id=msg.topic_id,
             metadata=self._outbound_metadata_from_inbound(msg),
-            account_id=msg.account_id or "",
+            account_id=self._inbound_account_id(msg),
         )
         await self.bus.publish_outbound(outbound)
 
@@ -2707,6 +2706,6 @@ class ChannelManager:
             thread_ts=msg.thread_ts,
             topic_id=msg.topic_id,
             metadata=self._outbound_metadata_from_inbound(msg),
-            account_id=msg.account_id or "",
+            account_id=self._inbound_account_id(msg),
         )
         await self.bus.publish_outbound(outbound)

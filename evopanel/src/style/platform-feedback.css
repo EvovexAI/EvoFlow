@@ -205,35 +205,73 @@
 
 .react-chat-platform-run-card {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 9px;
-  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 88%, transparent);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle, #ecedef);
   border-radius: 10px;
-  background: var(--bg-card, #fff);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  background: var(--bg-app, #f7f8fa);
+  box-shadow: none;
+  outline: none;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
-.react-chat-platform-run-card--success {
-  border-left: 3px solid var(--success, #16a34a);
-  border-left-color: var(--success, #16a34a);
+.react-chat-platform-run-card.is-clickable {
+  cursor: pointer;
 }
 
-.react-chat-platform-run-card--warning {
-  border-left: 3px solid var(--warning, #d97706);
-  border-left-color: var(--warning, #d97706);
+.react-chat-platform-run-card.is-clickable:hover,
+.react-chat-platform-run-card.is-clickable:focus-visible {
+  background: var(--bg-active, #f0f1f4);
+  border-color: color-mix(in srgb, var(--border-default, #e6e8ec) 80%, var(--text-tertiary, #9297a0));
 }
 
-.react-chat-platform-run-card--error {
-  border-left: 3px solid var(--error, #dc2626);
-  border-left-color: var(--error, #dc2626);
+.react-chat-platform-run-card.is-latest {
+  background: var(--bg-surface, #fff);
+  border-color: color-mix(in srgb, var(--accent, #635bff) 18%, var(--border-subtle, #ecedef));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.react-chat-platform-run-card.is-latest.is-clickable:hover,
+.react-chat-platform-run-card.is-latest.is-clickable:focus-visible {
+  background: color-mix(in srgb, var(--accent, #635bff) 3%, var(--bg-surface, #fff));
+  border-color: color-mix(in srgb, var(--accent, #635bff) 28%, var(--border-subtle, #ecedef));
 }
 
 .react-chat-platform-run-card.is-active {
-  background: color-mix(in srgb, var(--accent, #5b5fef) 5%, var(--bg-card, #fff));
-  border-top-color: color-mix(in srgb, var(--accent, #5b5fef) 28%, var(--border, #e5e7eb));
-  border-right-color: color-mix(in srgb, var(--accent, #5b5fef) 28%, var(--border, #e5e7eb));
-  border-bottom-color: color-mix(in srgb, var(--accent, #5b5fef) 28%, var(--border, #e5e7eb));
+  background: color-mix(in srgb, var(--accent, #635bff) 6%, var(--bg-surface, #fff));
+  border-color: color-mix(in srgb, var(--accent, #635bff) 32%, var(--border-subtle, #ecedef));
+}
+
+.react-chat-platform-run-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--success, #26875a);
+}
+
+.react-chat-platform-run-icon.is-success {
+  color: var(--success, #26875a);
+}
+
+.react-chat-platform-run-icon.is-warning {
+  color: var(--warning, #b7791f);
+}
+
+.react-chat-platform-run-icon.is-error {
+  color: var(--danger, #c94a4a);
+}
+
+.react-chat-platform-run-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .react-chat-platform-run-card-head {
@@ -244,73 +282,79 @@
   min-width: 0;
 }
 
-.react-chat-platform-run-card-head-right {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
 .react-chat-platform-run-time {
   flex-shrink: 0;
-  font-size: var(--ef-text-xs) ;
-  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  color: var(--text-tertiary, #9297a0);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: 0.01em;
 }
 
 .react-chat-platform-run-domain {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--bg-secondary, #f1f5f9);
-  color: var(--text-secondary, #64748b);
+  min-width: 0;
+  max-width: 70%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-tertiary, #9297a0);
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 0 1 auto;
-  min-width: 0;
+  letter-spacing: 0.02em;
 }
 
 .react-chat-platform-run-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary, #0f172a);
-  line-height: 1.45;
+  color: var(--text-primary, #202124);
+  line-height: 1.4;
   word-break: break-word;
+  letter-spacing: -0.01em;
 }
 
 .react-chat-platform-run-subtitle {
-  font-size: 11px;
-  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  color: var(--text-secondary, #656b73);
   line-height: 1.45;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.react-chat-platform-run-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
 }
 
 .react-chat-platform-run-action {
   appearance: none;
   flex-shrink: 0;
-  border: 1px solid color-mix(in srgb, var(--accent, #5b5fef) 24%, var(--border, #e5e7eb));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent, #5b5fef) 8%, transparent);
-  color: var(--accent-hover, #4f53dd);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-default, #e6e8ec);
+  border-radius: 7px;
+  background: var(--bg-surface, #fff);
+  color: var(--text-secondary, #656b73);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  padding: 4px 10px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 
 .react-chat-platform-run-action:hover {
-  background: color-mix(in srgb, var(--accent, #5b5fef) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent, #5b5fef) 36%, var(--border, #e5e7eb));
+  background: var(--bg-hover, #f4f5f7);
+  color: var(--text-primary, #202124);
+  border-color: color-mix(in srgb, var(--border-default, #e6e8ec) 70%, var(--text-tertiary, #9297a0));
 }
 
 /* ========== 深色模式 ========== */
@@ -328,29 +372,25 @@ html[data-theme='dark'] .react-chat-platform-feedback-card {
 
 html[data-theme='dark'] .react-chat-platform-run-card {
   background: var(--bg-tertiary);
-  border-top-color: var(--border-primary);
-  border-right-color: var(--border-primary);
-  border-bottom-color: var(--border-primary);
+  border-color: var(--border-primary);
   box-shadow: none;
 }
 
-html[data-theme='dark'] .react-chat-platform-run-card--success {
-  border-left-color: var(--success, #16a34a);
+html[data-theme='dark'] .react-chat-platform-run-card.is-clickable:hover,
+html[data-theme='dark'] .react-chat-platform-run-card.is-clickable:focus-visible {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, var(--border-primary) 70%, var(--text-tertiary));
 }
 
-html[data-theme='dark'] .react-chat-platform-run-card--warning {
-  border-left-color: var(--warning, #d97706);
-}
-
-html[data-theme='dark'] .react-chat-platform-run-card--error {
-  border-left-color: var(--error, #dc2626);
+html[data-theme='dark'] .react-chat-platform-run-card.is-latest {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-primary));
+  box-shadow: none;
 }
 
 html[data-theme='dark'] .react-chat-platform-run-card.is-active {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
-  border-top-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
-  border-right-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
-  border-bottom-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-primary));
 }
 
 html[data-theme='dark'] .react-chat-run-outcomes-tabs {
@@ -379,9 +419,25 @@ html[data-theme='dark'] .react-chat-platform-feedback-action--muted {
   border-color: var(--border-primary);
 }
 
-html[data-theme='dark'] .react-chat-platform-feedback-details li,
-html[data-theme='dark'] .react-chat-platform-run-domain {
+html[data-theme='dark'] .react-chat-platform-feedback-details li {
   background: var(--bg-secondary);
+}
+
+html[data-theme='dark'] .react-chat-platform-run-domain,
+html[data-theme='dark'] .react-chat-platform-run-time {
+  color: var(--text-tertiary);
+}
+
+html[data-theme='dark'] .react-chat-platform-run-action {
+  background: var(--bg-secondary);
+  border-color: var(--border-primary);
+  color: var(--text-secondary);
+}
+
+html[data-theme='dark'] .react-chat-platform-run-action:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 60%, var(--bg-secondary));
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--border-primary) 70%, var(--text-tertiary));
 }
 
 html[data-theme='dark'] .react-chat-info-rail-panel-title {
@@ -398,7 +454,6 @@ html[data-theme='dark'][data-translucent-ui='1'] .react-chat-artifacts-panel.rea
 }
 
 html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-card,
-html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card,
 html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-body,
 html[data-theme='dark'][data-translucent-ui='1'] .react-chat-info-rail-body {
   background: transparent !important;
@@ -409,4 +464,12 @@ html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-feedback-c
 html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card {
   background: color-mix(in srgb, var(--bg-tertiary) 68%, transparent) !important;
   border-color: var(--border-primary) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card.is-clickable:hover,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card.is-clickable:focus-visible,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card.is-latest,
+html[data-theme='dark'][data-translucent-ui='1'] .react-chat-platform-run-card.is-active {
+  background: color-mix(in srgb, var(--bg-tertiary) 82%, transparent) !important;
 }

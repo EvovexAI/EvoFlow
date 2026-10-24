@@ -166,11 +166,19 @@ class ChannelService:
         )
         default_session = config.pop("session", None)
         channel_sessions = {name: channel_config.get("session") for name, channel_config in config.items() if isinstance(channel_config, dict)}
+        # IM fan-out: many employee bots chat in parallel. Default 64; override with
+        # EVOFLOW_CHANNELS_MAX_CONCURRENCY (clamp 1..512). Per-chat locks still serialize
+        # the same conversation; this only caps distinct chats running together.
+        max_concurrency = 64
+        raw_conc = str(os.environ.get("EVOFLOW_CHANNELS_MAX_CONCURRENCY") or "").strip()
+        if raw_conc.isdigit():
+            max_concurrency = max(1, min(int(raw_conc), 512))
         self.manager = ChannelManager(
             bus=self.bus,
             store=self.store,
             langgraph_url=langgraph_url,
             gateway_url=gateway_url,
+            max_concurrency=max_concurrency,
             default_session=default_session if isinstance(default_session, dict) else None,
             channel_sessions=channel_sessions,
         )

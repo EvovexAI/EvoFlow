@@ -125,8 +125,18 @@ class Channel(ABC):
         thread_ts: str | None = None,
         files: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
+        account_id: str = "",
     ) -> InboundMessage:
-        """Convenience factory for creating InboundMessage instances."""
+        """Convenience factory for creating InboundMessage instances.
+
+        ``account_id`` must be set on the top-level field (not only metadata) so
+        ChannelManager can echo it onto OutboundMessage and MessageBus can route
+        the reply to the same per-employee channel instance.
+        """
+        meta = dict(metadata or {})
+        aid = str(account_id or meta.get("account_id") or "").strip()
+        if aid:
+            meta.setdefault("account_id", aid)
         return InboundMessage(
             channel_name=self.name,
             chat_id=chat_id,
@@ -135,7 +145,8 @@ class Channel(ABC):
             msg_type=msg_type,
             thread_ts=thread_ts,
             files=files or [],
-            metadata=metadata or {},
+            metadata=meta,
+            account_id=aid,
         )
 
     async def _on_outbound(self, msg: OutboundMessage) -> None:

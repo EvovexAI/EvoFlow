@@ -270,26 +270,38 @@ class MessageBus:
         # channel instance that received the inbound. Empty account_id means
         # "primary bot" and is its own slot — it no longer catches replies
         # meant for per-employee bots.
-        key = (msg.channel_name, msg.account_id or "")
+        # Prefer top-level account_id; fall back to metadata for older publishers
+        # that only stamped the employee code in metadata.
+        aid = str(msg.account_id or "").strip()
+        if not aid and isinstance(msg.metadata, dict):
+            aid = str(msg.metadata.get("account_id") or "").strip()
+            if aid:
+                msg.account_id = aid
+        key = (msg.channel_name, aid)
         channel_cb = self._outbound_by_account.get(key)
         listener_count = (1 if channel_cb else 0) + len(self._outbound_listeners)
         logger.info(
             "[Bus] outbound dispatching: channel=%s account_id=%s chat_id=%s listeners=%d text_len=%d",
             msg.channel_name,
-            msg.account_id or "",
+            aid,
             msg.chat_id,
             listener_count,
             len(msg.text),
         )
         if channel_cb is not None:
-            logger.info("[Bus] invoking channel callback for %s/%s", msg.channel_name, msg.account_id or "-")
+            logger.info("[Bus] invoking channel callback for %s/%s", msg.channel_name, aid or "-")
             await self._invoke_outbound_callback(channel_cb, msg)
-            logger.info("[Bus] channel callback completed for %s/%s (text_len=%d)", msg.channel_name, msg.account_id or "-", len(msg.text))
+            logger.info(
+                "[Bus] channel callback completed for %s/%s (text_len=%d)",
+                msg.channel_name,
+                aid or "-",
+                len(msg.text),
+            )
         else:
             logger.warning(
                 "[Bus] no outbound callback registered for channel=%s account_id=%s — message dropped",
                 msg.channel_name,
-                msg.account_id or "",
+                aid,
             )
         for callback in self._outbound_listeners:
             await self._invoke_outbound_callback(callback, msg)

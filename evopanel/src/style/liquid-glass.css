@@ -1054,34 +1054,20 @@ html[data-translucent-ui='1'] .react-chat-platform-feedback-card {
 
 html[data-translucent-ui='1'] .react-chat-platform-run-card {
   background: var(--ef-glass-surface-strong) !important;
-  border-top-color: var(--ef-glass-border) !important;
-  border-right-color: var(--ef-glass-border) !important;
-  border-bottom-color: var(--ef-glass-border) !important;
+  border-color: var(--ef-glass-border) !important;
   box-shadow: none !important;
 }
 
-html[data-translucent-ui='1'] .react-chat-platform-run-card--success {
-  border-left-color: var(--success, #16a34a) !important;
-}
-
-html[data-translucent-ui='1'] .react-chat-platform-run-card--warning {
-  border-left-color: var(--warning, #d97706) !important;
-}
-
-html[data-translucent-ui='1'] .react-chat-platform-run-card--error {
-  border-left-color: var(--error, #dc2626) !important;
-}
-
+html[data-translucent-ui='1'] .react-chat-platform-run-card.is-clickable:hover,
+html[data-translucent-ui='1'] .react-chat-platform-run-card.is-clickable:focus-visible,
+html[data-translucent-ui='1'] .react-chat-platform-run-card.is-latest,
 html[data-translucent-ui='1'] .react-chat-platform-run-card.is-active {
-  background: color-mix(in srgb, var(--accent) 8%, var(--ef-glass-surface-strong)) !important;
-  border-top-color: color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
-  border-right-color: color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
-  border-bottom-color: color-mix(in srgb, var(--accent) 24%, var(--ef-glass-border)) !important;
+  background: color-mix(in srgb, var(--accent) 6%, var(--ef-glass-surface-strong)) !important;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--ef-glass-border)) !important;
 }
 
 html[data-translucent-ui='1'] .react-chat-platform-feedback-action--muted,
 html[data-translucent-ui='1'] .react-chat-platform-feedback-details li,
-html[data-translucent-ui='1'] .react-chat-platform-run-domain,
 html[data-translucent-ui='1'] .react-chat-run-outcomes-tabs {
   background: color-mix(in srgb, var(--bg-tertiary) 42%, transparent) !important;
 }
