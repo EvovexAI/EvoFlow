@@ -8,6 +8,9 @@ import path from 'path'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const reactSrcDir = path.resolve(__dirname, 'src/react')
+// Absolute React paths: avoid dual copies with @xyflow/react (Invalid hook call on apps canvas).
+const reactPkg = path.resolve(__dirname, 'node_modules/react')
+const reactDomPkg = path.resolve(__dirname, 'node_modules/react-dom')
 const sanitizeUrlShim = path.resolve(__dirname, 'src/lib/shims/sanitize-url.mjs')
 // Vendored ZCode frontend trees (see scripts/vendor-zcode.cjs for provenance).
 const zcodeUiDir = path.resolve(__dirname, 'src/zcode-ui')
@@ -178,9 +181,16 @@ export default defineConfig(({ mode }) => {
       format: 'es',
     },
     resolve: {
+      // One React for app + prebundled @xyflow/react (apps-detail AppWorkflowCanvas).
+      dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
       alias: [
-        // ZCode ui 包内别名 `@/...`（EvoFlow 自有代码不使用 @/）。必须放在裸包名规则之前。
-        { find: '@', replacement: zcodeUiDir },
+        { find: /^react$/, replacement: reactPkg },
+        { find: /^react-dom$/, replacement: reactDomPkg },
+        { find: /^react-dom\/client$/, replacement: path.join(reactDomPkg, 'client.js') },
+        { find: /^react\/jsx-runtime$/, replacement: path.join(reactPkg, 'jsx-runtime.js') },
+        { find: /^react\/jsx-dev-runtime$/, replacement: path.join(reactPkg, 'jsx-dev-runtime.js') },
+        // ZCode ui 包内别名 `@/...`（仅 `@/`，勿用裸 `@` 以免误伤 @xyflow 等 scoped 包）。
+        { find: /^@\//, replacement: `${zcodeUiDir}/` },
         // Vendored @zcode workspace 包：根导入指到各自 index，子路径按目录解析。
         { find: /^@zcode\/ui$/, replacement: path.join(zcodeUiDir, 'index.ts') },
         { find: /^@zcode\/ui\/(.*)$/, replacement: path.join(zcodeUiDir, '$1') },
@@ -233,6 +243,9 @@ export default defineConfig(({ mode }) => {
         'react-dom',
         'react-dom/client',
         'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        // Pre-bundle with the same React as the app (prevents Invalid hook call).
+        '@xyflow/react',
         '@tanstack/react-virtual',
         'dayjs',
         // Include mermaid in pre-bundle so alias rewrites for fastdom-promised take effect

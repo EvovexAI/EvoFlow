@@ -18,13 +18,17 @@ import {
   MiniMap,
   Panel,
   addEdge,
-  useNodesState,
-  useEdgesState,
+  applyEdgeChanges,
+  applyNodeChanges,
   useReactFlow,
   type Connection,
   type Edge,
+  type EdgeChange,
   type IsValidConnection,
   type Node,
+  type NodeChange,
+  type OnEdgesChange,
+  type OnNodesChange,
   type OnMove,
   type Viewport,
 } from '@xyflow/react'
@@ -254,15 +258,15 @@ function FlowInner({
 }: {
   nodes: Node<StepNodeData>[]
   edges: Edge[]
-  onNodesChange: ReturnType<typeof useNodesState<Node<StepNodeData>>>[2]
-  onEdgesChange: ReturnType<typeof useEdgesState>[2]
+  onNodesChange: OnNodesChange<Node<StepNodeData>>
+  onEdgesChange: OnEdgesChange
   onConnect: (conn: Connection) => void
   isValidConnection?: IsValidConnection<Edge>
   onNodeClick: (e: React.MouseEvent, node: Node<StepNodeData>) => void
   onPaneClick: () => void
   onMoveEnd: OnMove
   markDirty: () => void
-  setEdges: ReturnType<typeof useEdgesState>[1]
+  setEdges: React.Dispatch<React.SetStateAction<Edge[]>>
   seedViewport?: Viewport
   onViewportPersist: (vp: Viewport) => void
   fitViewOnInit: boolean
@@ -489,8 +493,16 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
   )
 
   const [goal, setGoal] = useState(initialGoal || '')
-  const [nodes, setNodes, onNodesChange] = useNodesState(seed.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(seed.edges)
+  // Own useState (not xyflow useNodesState) so hooks always bind the app's React —
+  // dual React copies with prebundled @xyflow caused Invalid hook call on apps-detail.
+  const [nodes, setNodes] = useState<Node<StepNodeData>[]>(seed.nodes)
+  const [edges, setEdges] = useState<Edge[]>(seed.edges)
+  const onNodesChange: OnNodesChange<Node<StepNodeData>> = useCallback((changes: NodeChange<Node<StepNodeData>>[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds))
+  }, [])
+  const onEdgesChange: OnEdgesChange = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds))
+  }, [])
   const [viewport, setViewportState] = useState<Viewport | null>(seed.viewport || null)
   const [dirty, setDirty] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)

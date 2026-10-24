@@ -239,14 +239,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     # Same rule: register on the event loop, not a worker thread.
                     register_extended_routers(app)
                     await asyncio.sleep(0)
-                    # H1 demo: v4 protocol projection endpoints (dev only).
-                    from app.gateway.router_registry import register_v4_demo_router
-
-                    register_v4_demo_router(app)
-                    # V4 conversation wire 协议路由（生产主聊天流式订阅面）。
-                    from app.gateway.router_registry import register_v4_conversation_router
-
-                    register_v4_conversation_router(app)
                     _st_log("extended routers registered")
                 except Exception:
                     # Still clear the loading_extended gate: register_extended_routers
@@ -254,6 +246,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     # Leaving the flag unset permanently 503s employee/apps/automation.
                     logger.exception("Extended router registration failed (non-fatal)")
                 finally:
+                    # V4 conversation must not depend on extended success — chat SSE
+                    # (/api/v4/conversation/frames) 404s if this is skipped after a throw.
+                    try:
+                        from app.gateway.router_registry import (
+                            register_v4_conversation_router,
+                            register_v4_demo_router,
+                        )
+
+                        register_v4_demo_router(app)
+                        register_v4_conversation_router(app)
+                        _st_log("v4 conversation routers registered")
+                    except Exception:
+                        logger.exception("V4 conversation router registration failed (non-fatal)")
                     app.state.extended_routers_registered = True
                     app.state.startup_phase = "ready"
 
