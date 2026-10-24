@@ -11,8 +11,8 @@
  */
 
 export interface ChatPaneModeInput {
-  /** V4 桥接阶段：disabled / no-thread / connecting / ready。 */
-  v4Phase: 'disabled' | 'no-thread' | 'connecting' | 'ready'
+  /** V4 桥接阶段：disabled / no-thread / connecting / ready / failed。 */
+  v4Phase: 'disabled' | 'no-thread' | 'connecting' | 'ready' | 'failed'
   /** 本地 AG-UI 行是否已有内容（仅用于 draftEmpty，不驱动回落老面板）。 */
   localHasRows: boolean
   /** 历史接口是否仍在加载——加载中不能断言「这是空会话」。 */
@@ -42,13 +42,16 @@ export function resolveChatPaneMode(input: ChatPaneModeInput): ChatPaneMode {
     localOptimisticHold,
   } = input
 
-  // 默认坚持 V4。仅开关关闭 / 工作台首页 / 发送瞬间乐观气泡 才走老面板。
-  // 有本地历史也不回落——connecting 期间由 V4 加载态承接，首帧到了直接亮时间线。
+  // 默认坚持 V4。开关关闭 / 工作台首页 / 乐观气泡 / store 失败 才走老面板。
+  // connecting 仍不回落（加载态）；failed=投影 store 已 error 且无快照，必须回落否则永远「连接中」。
   const useLegacyPane =
-    v4Phase === 'disabled' || isHomeSurface || localOptimisticHold
+    v4Phase === 'disabled' ||
+    v4Phase === 'failed' ||
+    isHomeSurface ||
+    localOptimisticHold
 
   // 只有「确认无本地行 + 历史已加载完 + V4 已给出结论（ready/no-thread）」才是真草稿。
-  // connecting / historyLoading 一律不算——那是「还没拿到数据」，不是「确认空」。
+  // connecting / historyLoading / failed 一律不算——failed 走老面板展示本地行。
   const draftEmpty =
     !localOptimisticHold &&
     !localHasRows &&

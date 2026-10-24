@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { resolveChatPaneMode } from '../src/react/lib/chat-pane-mode.ts'
+import {
+  isV4DisplayAuthoritative,
+  publishV4DisplayAuthority,
+} from '../src/react/v4/v4Gate.ts'
 
 const base = {
   v4Phase: 'connecting' as const,
@@ -95,6 +99,17 @@ describe('resolveChatPaneMode — 坚持 V4，有历史不回落老面板', () =
     ).toBe(true)
   })
 
+  it('V4 store failed（无快照）：回落老面板，避免永远连接中', () => {
+    const mode = resolveChatPaneMode({
+      ...base,
+      v4Phase: 'failed',
+      localHasRows: true,
+      historyLoading: false,
+    })
+    expect(mode.useLegacyPane).toBe(true)
+    expect(mode.draftEmpty).toBe(false)
+  })
+
   it('乐观等待期间绝不出草稿问候', () => {
     const mode = resolveChatPaneMode({
       ...base,
@@ -103,5 +118,21 @@ describe('resolveChatPaneMode — 坚持 V4，有历史不回落老面板', () =
       localOptimisticHold: true,
     })
     expect(mode.draftEmpty).toBe(false)
+  })
+})
+
+describe('V4 display authority（闸门）', () => {
+  beforeEach(() => {
+    publishV4DisplayAuthority({ threadId: null, live: false })
+  })
+
+  it('未发布 live 时不权威，避免错误闸掉 TEXT_*', () => {
+    expect(isV4DisplayAuthoritative('t1')).toBe(false)
+  })
+
+  it('仅对已 live 的 thread 权威', () => {
+    publishV4DisplayAuthority({ threadId: 't1', live: true })
+    expect(isV4DisplayAuthoritative('t1')).toBe(true)
+    expect(isV4DisplayAuthoritative('t2')).toBe(false)
   })
 })

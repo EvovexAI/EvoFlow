@@ -2194,13 +2194,27 @@ class UiStreamNormalizer:
         if t == "empty_response_fallback":
             piece = str(chunk.get("text") or "")
             if piece:
-                out.extend(self._emit_delta_raw(piece, delta_kind="append"))
+                # 强制 body_text：默认 pre-tools 会落成 plan_text，前端当规划块且
+                # V4 闸门下老面板看不到，用户只剩空回合提示。
+                out.extend(
+                    self._emit_delta_raw(
+                        piece, delta_kind="append", content_phase="post_tools"
+                    )
+                )
             return out
         if t == "model_error":
-            # 模型失败文案 → 正文 delta（V4 AI 回复）；勿映射成硬 RUN_ERROR
+            # 模型失败文案 → 正文 delta（V4 AI 回复）；勿映射成硬 RUN_ERROR。
+            # 必须立刻 block_close：否则 TEXT_MESSAGE_END 会拖到 RUN_FINISHED
+            #（实日志曾差 ~25s），面板一直「生成中」且停止钮与 busy 错乱。
             piece = str(chunk.get("text") or chunk.get("error") or "")
             if piece:
-                out.extend(self._emit_delta_raw(piece, delta_kind="append"))
+                out.extend(
+                    self._emit_delta_raw(
+                        piece, delta_kind="append", content_phase="post_tools"
+                    )
+                )
+                self.block_ledger._close_open_text()
+                self._extend_block_close_frames(out)
                 out.append(
                     {
                         "type": "activity",

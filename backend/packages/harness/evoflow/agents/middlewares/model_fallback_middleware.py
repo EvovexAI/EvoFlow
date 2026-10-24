@@ -890,26 +890,42 @@ def _inject_model_error_evf(thread_id: str, body: str, reason: str = "") -> bool
 
 
 def _emit_model_error_notice_stream(text: str, runtime: Runtime | None = None, *, reason: str = "") -> bool:
-    """把模型失败文案推到前端：V4 AI 回复正文（delta）+ 活动条提示。"""
+    """把模型失败文案推到前端：V4 AI 回复正文（delta）+ 活动条提示。
+
+    必须优先走 ``get_stream_writer``（与 ``emit_agent_activity`` 同路）。
+    wrap_model_call 里 inject 队列的 ``schedule_inject_evf_frame`` 常因无
+    running loop 被静默跳过，却仍被当成成功，导致 SSE 只有 model_error 活动条、
+    没有 TEXT_MESSAGE → AG-UI / V4 面板都看不到报错正文。
+    """
     body = str(text or "").strip()
     if not body:
         return False
     tid = _runtime_thread_id(runtime)
     emitted = False
-    if tid:
-        emitted = _inject_model_error_evf(tid, body, reason=reason)
-    if not emitted:
-        try:
-            from langgraph.config import get_stream_writer
+    via_writer = False
+    # 1) stream writer 优先：custom model_error → sse_ui_normalize → delta + activity
+    try:
+        from langgraph.config import get_stream_writer
 
-            writer = get_stream_writer()
-            if writer:
-                # empty_response_fallback → sse_ui_normalize 转成 delta 正文
-                writer({"type": "empty_response_fallback", "text": body})
-                emitted = True
-        except Exception:
-            logger.debug("model error stream emit failed", exc_info=True)
-    if tid:
+        writer = get_stream_writer()
+        if writer:
+            writer(
+                {
+                    "type": "model_error",
+                    "text": body,
+                    "error": body,
+                    "reason": str(reason or "").strip(),
+                }
+            )
+            emitted = True
+            via_writer = True
+    except Exception:
+        logger.debug("model error stream_writer failed", exc_info=True)
+    # 2) inject 仅作无 writer 时的兜底（勿在 writer 已成功时再抢成功标记）
+    if tid and not emitted:
+        emitted = _inject_model_error_evf(tid, body, reason=reason)
+    # writer 的 model_error 已带 activity；inject-only 路径再补活动条
+    if tid and not via_writer:
         try:
             from evoflow.observability.agent_activity_stream import emit_agent_activity
 
@@ -1666,7 +1682,9 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             if retry_result is not None:
                 return retry_result
             # 限流：同模型最多重试 3 次；耗尽后直接回传错误，不轮换密钥/切模型。
-            if classify(exc).reason == FailoverReason.RATE_LIMIT:
+            # 额度用尽：立刻回传，禁止轮换/切模（否则「生成中」空转几十秒，面板停不了）。
+            fail_reason = classify(exc).reason
+            if fail_reason in (FailoverReason.RATE_LIMIT, FailoverReason.BILLING):
                 return self._handle_model_error(exc, request.runtime)
             retry_result = self._try_server_error_retry(
                 request,
@@ -1749,7 +1767,9 @@ class ModelFallbackMiddleware(AgentMiddleware[AgentState]):
             if retry_result is not None:
                 return retry_result
             # 限流：同模型最多重试 3 次；耗尽后直接回传错误，不轮换密钥/切模型。
-            if classify(exc).reason == FailoverReason.RATE_LIMIT:
+            # 额度用尽：立刻回传，禁止轮换/切模（否则「生成中」空转几十秒，面板停不了）。
+            fail_reason = classify(exc).reason
+            if fail_reason in (FailoverReason.RATE_LIMIT, FailoverReason.BILLING):
                 return self._handle_model_error(exc, request.runtime)
             retry_result = await self._try_server_error_retry_async(
                 request,

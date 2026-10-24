@@ -4,7 +4,11 @@
  */
 import { EventType } from '@ag-ui/core'
 import type { ChatWsPayload } from '../../chat-types.js'
-import { isEvoflowChatV4Enabled, isV4GatedAgUiEvent } from '../../v4/v4Gate.js'
+import {
+  isEvoflowChatV4Enabled,
+  isV4DisplayAuthoritative,
+  isV4GatedAgUiEvent,
+} from '../../v4/v4Gate.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
 
@@ -948,6 +952,21 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               activityDetail: detail,
             }))
           }
+          // 额度/鉴权等终态失败：正文已到但 RUN_FINISHED 可能再拖十几秒。
+          // 立刻结束 busy（保留 model_error 活动文案），否则一直「生成中」转圈。
+          if (rt && isTurnBusy(rt) && targetSk) {
+            logStreamStop({
+              sessionKey: targetSk,
+              runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
+              trigger: 'activity_model_error',
+              hasEndMarker: false,
+              detail: { activityDetail: detail.slice(0, 120) },
+            })
+            if (rt.streamWireSource === 'run') {
+              dispatchSessionTurnEvent(targetSk, { type: 'WIRE_SOURCE', source: null })
+            }
+            dispatchSessionTurnEvent(targetSk, { type: 'TURN_IDLE' })
+          }
         } else if (stickySystemActivity && activityKindRaw === 'retrying') {
           const detail = payloadDetail || '系统重试中…'
           applyStreamTurnEvent(S, { type: 'system_activity', detail, kind: 'retrying', ts: activityTs })
@@ -1481,11 +1500,17 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         const aguiEvent = (payload as { aguiEvent?: AGUIEvent }).aguiEvent
         if (!aguiEvent) return
 
-        // V4 双轨闸门：flag 开启时，逐 token 的显示事件（文本/推理/工具参数流）
-        // 不再进老显示管线（streamRef / rt.rows / bump —— 60fps × O(rows) 的来源），
-        // 显示由 V4 帧管线渲染。业务事件（TOOL_CALL_START/END/RESULT、RUN_*、平台
-        // 事件）保持放行：审批检测 / 工件 / plan / 协作逻辑依赖它们。
-        if (isEvoflowChatV4Enabled() && isV4GatedAgUiEvent(aguiEvent)) {
+        // V4 双轨闸门：仅当 V4 时间线已真正接管（有快照）时，才丢掉 TEXT_* 热路径。
+        // store=error / 永 connecting 时若仍闸门，模型报错正文进不了老面板，用户只看到加载中。
+        // 业务事件（TOOL_CALL_*、RUN_*、平台）始终放行。
+        const v4ThreadId =
+          String(wsClient.getSessionThreadId?.(targetSk) || '').trim() ||
+          String((aguiEvent as { threadId?: string }).threadId || '').trim()
+        if (
+          isEvoflowChatV4Enabled() &&
+          isV4DisplayAuthoritative(v4ThreadId) &&
+          isV4GatedAgUiEvent(aguiEvent)
+        ) {
           return
         }
 
@@ -1893,6 +1918,8 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           }
           // 运行态收尾：
           // - RUN_ERROR：立刻 TURN_IDLE
+          // - 本轮已是 model_error（额度用尽等）：立刻 idle。这类失败不会再进工具循环，
+          //   若因 livePostOpen 拖着 busy，面板会一直「生成中」转圈且停止钮与 busy 不同步。
           // - RUN_FINISHED：若 live POST /runs/stream 仍开着（streamWireSource==='run'），
           //   勿 idle。工具循环中间的 RUN_FINISHED 若提前 idle，侧栏/停止/「运行中」会灭，
           //   但 agui_event 仍豁免写入 → holdStreamResidue 继续流式渲染（切去任务中心再回来尤甚）。
@@ -1900,10 +1927,21 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           if (rt && isTurnBusy(rt) && targetSk) {
             const isRunError = String(aguiEvent.type) === 'RUN_ERROR'
             const livePostOpen = rt.streamWireSource === 'run'
-            if (!isRunError && livePostOpen) {
+            const terminalModelError =
+              String(S.turn?.systemActivityKind || '').toLowerCase() === 'model_error' ||
+              String(
+                (S.aguiTurn as { activity?: string | null } | null | undefined)?.activity || '',
+              )
+                .toLowerCase()
+                .includes('model_error')
+            if (!isRunError && livePostOpen && !terminalModelError) {
               dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: Date.now() })
             } else {
-              const endTrigger = isRunError ? 'agui_run_error' : 'agui_run_finished'
+              const endTrigger = isRunError
+                ? 'agui_run_error'
+                : terminalModelError
+                  ? 'agui_model_error_finished'
+                  : 'agui_run_finished'
               logStreamStop({
                 sessionKey: targetSk,
                 runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
@@ -1913,8 +1951,27 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                   aguiType: String(aguiEvent.type || ''),
                   wasBusy: true,
                   livePostOpen,
+                  terminalModelError,
                 },
               })
+              if (terminalModelError) {
+                applyStreamTurnEvent(S, {
+                  type: 'system_activity',
+                  detail: '',
+                  kind: 'idle',
+                  ts: Date.now(),
+                })
+                if (!isBackground) {
+                  setThreadPanelState((prev) => ({
+                    ...prev,
+                    activityKind: 'idle',
+                    activityDetail: '',
+                  }))
+                }
+                if (rt.streamWireSource === 'run') {
+                  dispatchSessionTurnEvent(targetSk, { type: 'WIRE_SOURCE', source: null })
+                }
+              }
               dispatchSessionTurnEvent(targetSk, { type: 'TURN_IDLE' })
             }
           }

@@ -30,6 +30,7 @@ import {
   v4OpenSinceClickMs,
 } from "../lib/v4-lifecycle-log.js";
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
+import { publishV4DisplayAuthority } from "./v4Gate.js";
 
 export interface V4TimelinePayload {
   sessionId: string;
@@ -43,7 +44,9 @@ export type V4BridgePhase =
   | "disabled"
   | "no-thread"
   | "connecting"
-  | "ready";
+  | "ready"
+  /** 投影 store 已 error 且无快照：应回落老面板，否则永远「连接中」。 */
+  | "failed";
 
 const NOT_READY: StoreState | null = null;
 
@@ -158,16 +161,29 @@ export function V4StreamRowsBridge(props: {
   );
 
   const snapshot: ConversationSnapshot | null = state?.snapshot ?? null;
+  const storeFailed = !!sessionId && !snapshot && state?.status === "error";
   const pathState = !enabled
     ? "legacy:off"
     : !sessionId
       ? "legacy:no-thread"
       : snapshot
         ? "v4"
-        : "v4-connecting";
+        : storeFailed
+          ? "v4-failed"
+          : "v4-connecting";
   const lastPathLogRef = useRef("");
   const connectingSinceRef = useRef<number | null>(null);
   const connectingSessionRef = useRef<string | null>(null);
+
+  // 闸门权威：仅 ready（有快照）时闸 AG-UI TEXT_*；failed/connecting 必须放行正文。
+  useLayoutEffect(() => {
+    const live = enabled && !!sessionId && !!snapshot;
+    publishV4DisplayAuthority({ threadId: live ? sessionId : null, live });
+    return () => {
+      publishV4DisplayAuthority({ threadId: null, live: false });
+    };
+  }, [enabled, sessionId, snapshot]);
+
   useLayoutEffect(() => {
     const key = `${pathState}:${sessionId ?? ""}`;
     if (lastPathLogRef.current === key) return;
@@ -222,6 +238,29 @@ export function V4StreamRowsBridge(props: {
           connectingWaitedMs: waitedMs,
           openKind: leaseForSession?.openKind ?? null,
         },
+        skipDedupe: true,
+      });
+    } else if (pathState === "v4-failed") {
+      connectingSinceRef.current = null;
+      connectingSessionRef.current = null;
+      console.warn(
+        `%c[v4-path] V4 store=error 且无快照（session=${sessionId}）→ 回落老面板，放行 AG-UI 正文`,
+        "color:#dc2626;font-weight:bold",
+      );
+      logV4Life({
+        event: "ui_render",
+        threadId: sessionId,
+        level: "warn",
+        zh: "V4 投影失败（store=error、无快照）：回落老 AG-UI 面板，避免永远「连接中」。",
+        detail: { path: "v4-failed", storeStatus, lease: !!leaseForSession },
+        skipDedupe: true,
+      });
+      logV4Life({
+        event: "path",
+        threadId: sessionId,
+        level: "warn",
+        zh: "显示路径切回老链路（V4 store failed）。",
+        detail: { path: "v4-failed", storeStatus },
         skipDedupe: true,
       });
     } else if (pathState === "v4-connecting") {
@@ -331,8 +370,13 @@ export function V4StreamRowsBridge(props: {
         skipDedupe: true,
       });
       try {
-        if (st?.subscriptionId && !st.snapshot) {
-          store?.recoverFromStaleAuthority();
+        if (!st?.snapshot) {
+          if (st?.subscriptionId) {
+            store?.recoverFromStaleAuthority();
+          } else if (sessionId) {
+            // store=error 且无 subscription：re-acquire 走 keep-warm 再试一次
+            warmEvoflowV4Session(sessionId);
+          }
         }
       } catch {
         /* best-effort */
@@ -360,6 +404,11 @@ export function V4StreamRowsBridge(props: {
   if (!enabled || !sessionId) {
     return children(null, !enabled ? "disabled" : "no-thread");
   }
-  // 有 threadId 即锁定 V4；租约未对齐或尚无快照 → connecting（调用方勿回落字墙老面板）。
-  return children(payload, payload ? "ready" : "connecting");
+  // 有快照 → ready；store error 无快照 → failed（回落老面板）；否则 connecting。
+  const phase: V4BridgePhase = payload
+    ? "ready"
+    : storeFailed
+      ? "failed"
+      : "connecting";
+  return children(payload, phase);
 }

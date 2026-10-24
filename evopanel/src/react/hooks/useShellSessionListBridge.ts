@@ -130,17 +130,16 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
   const ensureWorkspaceExpandedRef = useRef(ensureWorkspaceExpanded)
   const loadMoreWorkspaceSessionsRef = useRef(loadMoreWorkspaceSessions)
   const loadMoreGlobalRecentSessionsRef = useRef(loadMoreGlobalRecentSessions)
-  const folderOrderWrapper = useMemo(() => ({ current: [] as string[] }), [])
+  // 工作区手动排序：创建时同步从 localStorage 恢复（不能用 effect 恢复——
+  // effect 晚于首帧渲染，stabilize 会先用默认顺序填充 wrapper，随后 memo 的
+  // 持久化把这份默认顺序写回 localStorage，覆盖用户拖拽保存的顺序）。
+  const folderOrderWrapper = useMemo(
+    () => ({ current: loadWorkspaceGroupOrder() }),
+    [],
+  )
 
-  // 工作区手动排序：启动时恢复上次拖拽保存的顺序（localStorage，仅本机偏好）
+  // reorder 后 bump 触发 shellListProps 重算（顺序已同步可用，无需异步 seed）
   const [workspaceOrderTick, bumpWorkspaceOrderTick] = useState(0)
-  useEffect(() => {
-    const saved = loadWorkspaceGroupOrder()
-    if (saved.length > 0) {
-      folderOrderWrapper.current = saved
-      bumpWorkspaceOrderTick((v) => v + 1)
-    }
-  }, [folderOrderWrapper])
 
   const reorderWorkspaceGroups = useCallback(
     (fromKey: string, toKey: string) => {
@@ -223,8 +222,8 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       workspaceSummaries.length > 0 || !listLoading
         ? stabilizeShellWorkspaceGroupOrder(built, folderOrderWrapper)
         : built
-    // 新注册工作区出现在 stabilize 顺序里后同步持久化（幂等写；空顺序不写，
-    // 避免启动首帧把 localStorage 里已保存的顺序清掉——seed 在 effect 阶段才执行）
+    // 新注册工作区已被 stabilize 追加进顺序，同步持久化（幂等写；
+    // wrapper 在创建时已同步恢复，此处写入的始终是用户意图的顺序）
     if (folderOrderWrapper.current.length > 0) {
       saveWorkspaceGroupOrder(folderOrderWrapper.current)
     }

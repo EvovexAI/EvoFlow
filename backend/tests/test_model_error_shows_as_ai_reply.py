@@ -84,7 +84,8 @@ def test_handle_model_error_returns_aimessage_even_for_supervisor():
     emit.assert_called_once()
 
 
-def test_emit_notice_falls_back_to_empty_response_writer():
+def test_emit_notice_prefers_stream_writer_model_error():
+    """wrap_model_call 内必须走 writer；inject 假成功会导致只有活动条、无正文。"""
     written: list[dict] = []
 
     class _W:
@@ -94,16 +95,79 @@ def test_emit_notice_falls_back_to_empty_response_writer():
     with (
         patch(
             "evoflow.agents.middlewares.model_fallback_middleware._runtime_thread_id",
-            return_value=None,
+            return_value="thread-live",
         ),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._inject_model_error_evf",
+            return_value=True,
+        ) as inject,
         patch("langgraph.config.get_stream_writer", return_value=_W()),
     ):
         ok = _emit_model_error_notice_stream("限流失败文案", runtime=None, reason="rate_limit")
     assert ok is True
-    assert written and written[0].get("type") == "empty_response_fallback"
+    assert written and written[0].get("type") == "model_error"
     assert written[0].get("text") == "限流失败文案"
+    inject.assert_not_called()
+
+
+def test_emit_notice_falls_back_to_inject_when_no_writer():
+    with (
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._runtime_thread_id",
+            return_value="thread-live",
+        ),
+        patch("langgraph.config.get_stream_writer", return_value=None),
+        patch(
+            "evoflow.agents.middlewares.model_fallback_middleware._inject_model_error_evf",
+            return_value=True,
+        ) as inject,
+        patch(
+            "evoflow.observability.agent_activity_stream.emit_agent_activity",
+        ) as activity,
+    ):
+        ok = _emit_model_error_notice_stream("鉴权失败文案", runtime=None, reason="auth")
+    assert ok is True
+    inject.assert_called_once()
+    activity.assert_called_once()
 
 
 def test_auth_classify_reason():
     c = classify(AuthenticationError())
     assert c.reason == FailoverReason.AUTH
+
+
+def test_model_error_custom_emits_body_text_not_plan_text():
+    """writer model_error 必须落 body_text，避免被标成 plan_text 后前端当规划块丢掉。"""
+    from app.gateway.sse_ui_normalize import UiStreamNormalizer
+
+    norm = UiStreamNormalizer(thread_id="thread-test", anchored=True)
+    out = norm._on_custom(
+        {
+            "type": "model_error",
+            "text": "当前模型 API 额度已用尽",
+            "error": "当前模型 API 额度已用尽",
+            "reason": "billing",
+        }
+    )
+    deltas = [x for x in out if isinstance(x, dict) and x.get("type") == "delta"]
+    assert deltas, out
+    assert deltas[0].get("block_kind") == "body_text"
+    assert "额度" in str(deltas[0].get("text") or "")
+    acts = [x for x in out if isinstance(x, dict) and x.get("type") == "activity"]
+    assert any(a.get("kind") == "model_error" for a in acts)
+    # 失败正文必须立刻 block_close，否则 TEXT_MESSAGE_END 拖到 RUN_FINISHED
+    closes = [x for x in out if isinstance(x, dict) and x.get("type") == "block_close"]
+    assert closes, out
+
+
+def test_billing_quota_does_not_rotate_or_fallback():
+    """月度额度用尽不得轮换密钥/切模型（否则空转重试，面板假死）。"""
+    exc = Exception(
+        "当前模型 API 月度额度已用尽，无法继续生成回复。"
+        " We recommend upgrading your plan for more quota"
+    )
+    c = classify(exc)
+    assert c.reason == FailoverReason.BILLING
+    assert c.retryable is False
+    assert c.should_rotate_credential is False
+    assert c.should_fallback_provider is False

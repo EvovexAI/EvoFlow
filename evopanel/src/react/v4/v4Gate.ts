@@ -20,6 +20,31 @@ export function isEvoflowChatV4Enabled(): boolean {
 }
 
 /**
+ * V4 时间线是否已真正接管显示（有快照可画）。
+ * 仅在此为 true 时才闸掉 AG-UI TEXT_*：若 store=error / 永连不上，
+ * 闸门会把模型报错正文丢掉，面板只剩「V4 连接中」。
+ */
+let _v4DisplayLiveThreadId: string | null = null;
+let _v4DisplayLive = false;
+
+export function publishV4DisplayAuthority(opts: {
+  threadId: string | null;
+  live: boolean;
+}): void {
+  const tid = String(opts.threadId || "").trim() || null;
+  _v4DisplayLiveThreadId = tid;
+  _v4DisplayLive = !!opts.live && !!tid;
+}
+
+/** V4 已对当前 thread 权威显示时才为 true（可安全闸 AG-UI 正文热路径）。 */
+export function isV4DisplayAuthoritative(threadId?: string | null): boolean {
+  if (!_v4DisplayLive || !_v4DisplayLiveThreadId) return false;
+  const want = String(threadId || "").trim();
+  if (want && want !== _v4DisplayLiveThreadId) return false;
+  return true;
+}
+
+/**
  * flag 开启时，这些 AG-UI 事件不再进老显示管线（streamRef / rt.rows / bump）——
  * 它们是逐 token 热路径（60fps × O(rows) 的来源），显示由 V4 帧管线接管。
  * TOOL_CALL_START/END/RESULT 与 RUN_*、CUSTOM、平台事件保持放行：审批检测 /
