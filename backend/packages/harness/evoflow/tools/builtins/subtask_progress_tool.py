@@ -1,4 +1,4 @@
-"""Worker tool: report subtask execution progress (0–100) during collab runs."""
+"""Worker tool: progress — short name ``progress`` (legacy ``subtask_progress_report``)."""
 
 from __future__ import annotations
 
@@ -8,31 +8,20 @@ from typing import Annotated
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langgraph.typing import ContextT
 
+from evoflow.collab.collab_tool_names import PROGRESS
 from evoflow.collab.task_progress import apply_subtask_progress_report
 from evoflow.tools.builtins.subtask_work_checklist_tool import _resolve_collab_ids
 
 
-@tool("subtask_progress_report", parse_docstring=True)
-async def subtask_progress_report_tool(
+async def _apply_progress(
     runtime: ToolRuntime[ContextT, dict],
     progress: int,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    main_task_id: str | None = None,
-    subtask_id: str | None = None,
-    current_step: str | None = None,
-    status: str | None = None,
+    tool_call_id: str,
+    main_task_id: str | None,
+    subtask_id: str | None,
+    current_step: str | None,
+    status: str | None,
 ) -> str:
-    """Report this subtask's execution progress (0–100) to collab storage for sidebar / workflow UI.
-
-    **Call repeatedly while working** — chat text alone does not update progress bars or status lights.
-
-    Args:
-        progress: Integer 0–100 for **this subtask only** (monotonic increase recommended).
-        main_task_id: Main collab task id (optional if runtime has ``collab_task_id``).
-        subtask_id: Subtask id (optional if runtime has ``collab_subtask_id``).
-        current_step: Short description of what you are doing now (shown to Lead / UI).
-        status: Optional ``in_progress`` while running; terminal states use ``subtask_outcome_report``.
-    """
     ctx_main, ctx_sub = _resolve_collab_ids(runtime)
     mid = str(main_task_id or ctx_main or "").strip()
     sid = str(subtask_id or ctx_sub or "").strip()
@@ -54,3 +43,42 @@ async def subtask_progress_report_tool(
         reported_by="worker",
     )
     return json.dumps(res, ensure_ascii=False)
+
+
+@tool(PROGRESS, parse_docstring=True)
+async def progress_tool(
+    runtime: ToolRuntime[ContextT, dict],
+    progress: int,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    main_task_id: str | None = None,
+    subtask_id: str | None = None,
+    current_step: str | None = None,
+    status: str | None = None,
+) -> str:
+    """Update this subtask's progress bar (0–100). Call while working.
+
+    Args:
+        progress: Integer 0–100 for this subtask.
+        main_task_id: Optional if runtime has collab ids.
+        subtask_id: Optional if runtime has collab ids.
+        current_step: Short what-you-are-doing now.
+        status: Optional ``in_progress``; finish with ``done``.
+    """
+    return await _apply_progress(
+        runtime, progress, tool_call_id, main_task_id, subtask_id, current_step, status
+    )
+
+
+@tool("subtask_progress_report", description="Alias of progress (legacy). Prefer progress.")
+async def subtask_progress_report_tool(
+    runtime: ToolRuntime[ContextT, dict],
+    progress: int,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    main_task_id: str | None = None,
+    subtask_id: str | None = None,
+    current_step: str | None = None,
+    status: str | None = None,
+) -> str:
+    return await _apply_progress(
+        runtime, progress, tool_call_id, main_task_id, subtask_id, current_step, status
+    )

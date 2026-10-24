@@ -7,6 +7,9 @@ from .collab_peer_tools import (
     collab_peer_read_tool,
     collab_peer_reply_tool,
     collab_peer_send_tool,
+    peer_read_tool,
+    peer_reply_tool,
+    peer_send_tool,
 )
 from .create_agent_tool import create_agent_tool
 from .goal_report_tool import goal_report_tool  # noqa: F401 — retained for DB compat; no longer bound to LLM
@@ -25,9 +28,9 @@ from .skill_manager_tool import skill_manager_tool
 
 # scenario_activation (mode_set/scenario) — import submodule directly; avoids circular import at startup
 from .stage_tool import panel_set_tool, stage_set_tool
-from .subtask_outcome_report_tool import subtask_outcome_report_tool
-from .subtask_progress_tool import subtask_progress_report_tool
-from .subtask_work_checklist_tool import subtask_work_checklist_tool
+from .subtask_outcome_report_tool import done_tool, subtask_outcome_report_tool
+from .subtask_progress_tool import progress_tool, subtask_progress_report_tool
+from .subtask_work_checklist_tool import checklist_tool, subtask_work_checklist_tool
 from .supervisor_tool import supervisor_tool
 from .task_tool import task_tool
 from .tasks_tool import tasks_tool
@@ -45,6 +48,12 @@ __all__ = [
     "task_tool",
     "tasks_tool",
     "supervisor_tool",
+    "done_tool",
+    "progress_tool",
+    "checklist_tool",
+    "peer_send_tool",
+    "peer_read_tool",
+    "peer_reply_tool",
     "subtask_work_checklist_tool",
     "subtask_outcome_report_tool",
     "subtask_progress_report_tool",

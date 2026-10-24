@@ -228,7 +228,7 @@ async def continue_subtask_session(
     advance_subtask_row_status(target_subtask, "in_progress")
     target_subtask["progress"] = max(0, min(99, int(target_subtask.get("progress") or 0) or 10))
     if not keep_session_open:
-        target_subtask["current_step"] = "ACP 本轮已结束（会话可关），待 Lead 验收或 subtask_outcome_report"
+        target_subtask["current_step"] = "ACP 本轮已结束（会话可关），待 Lead 验收或 done"
     storage.save_project(project)
     rollup_root_task_progress_from_subtasks(storage, task_id)
 

@@ -78,6 +78,14 @@ GOAL_MODE_SYSTEM_TOOL_NAMES: frozenset[str] = frozenset(
 # Plan-phase collaboration helpers (not in NON_CORE_TOOL_GROUPS).
 _PLAN_COLLAB_TOOL_NAMES: frozenset[str] = frozenset(
     {
+        # Short canonical
+        "done",
+        "progress",
+        "checklist",
+        "peer_send",
+        "peer_read",
+        "peer_reply",
+        # Legacy aliases
         "collab_peer_send",
         "collab_peer_read",
         "collab_peer_reply",

@@ -24,6 +24,11 @@ from evoflow.agents.thread_state import ThreadState
 from evoflow.claude_subagent_type import (
     collab_executor_allows_auto_outcome_without_report,
 )
+from evoflow.collab.collab_tool_names import (
+    MANDATORY_FULL,
+    MANDATORY_LIGHT,
+    expand_tool_name_aliases,
+)
 from evoflow.collab.id_format import make_trace_id
 from evoflow.collab.models import CollabPhase, WorkerProfile
 from evoflow.collab.storage import (
@@ -65,16 +70,9 @@ _SUBAGENT_FORBIDDEN_TOOLS = frozenset({"scenario", "plan", "supervisor", "ask_cl
 # (see ``evoflow.collab.worker_tool_allowlist``) — never the raw global catalog.
 #
 # ``full`` = Lead collab (checklist + progress + peer + outcome).
-# ``light`` = App workflow / rollup — only outcome is mandatory (ceremony slim-down).
-_COLLAB_SUBTASK_MANDATORY_TOOLS_FULL = (
-    "subtask_work_checklist",
-    "subtask_progress_report",
-    "subtask_outcome_report",
-    "collab_peer_send",
-    "collab_peer_read",
-    "collab_peer_reply",
-)
-_COLLAB_SUBTASK_MANDATORY_TOOLS_LIGHT = ("subtask_outcome_report",)
+# ``light`` = App workflow / rollup — only ``done`` is mandatory (ceremony slim-down).
+_COLLAB_SUBTASK_MANDATORY_TOOLS_FULL = MANDATORY_FULL
+_COLLAB_SUBTASK_MANDATORY_TOOLS_LIGHT = MANDATORY_LIGHT
 # Back-compat alias (tests / callers that still import the full set name).
 _COLLAB_SUBTASK_MANDATORY_TOOLS = _COLLAB_SUBTASK_MANDATORY_TOOLS_FULL
 
@@ -104,8 +102,18 @@ def _merge_collab_subtask_tool_allowlist(
         return None
     merged = list(base)
     for tool_name in _collab_mandatory_tools_for_mode(reporting_mode):
-        if tool_name in allowed_tool_names and tool_name not in merged:
-            merged.append(tool_name)
+        aliases = expand_tool_name_aliases(tool_name)
+        # Prefer short canonical; fall back to legacy if only that is registered.
+        pick = None
+        if tool_name in allowed_tool_names:
+            pick = tool_name
+        else:
+            for alt in aliases:
+                if alt in allowed_tool_names:
+                    pick = alt
+                    break
+        if pick and pick not in merged:
+            merged.append(pick)
     return merged
 
 
@@ -113,21 +121,21 @@ def _strip_collab_tool_disallow(config_overrides: dict, *, reporting_mode: str =
     """Collab subtask workers MUST be able to report lifecycle state.
 
     A role whose ``disallowed_tools`` bans any mandatory collab tool (e.g.
-    ``subtask_outcome_report``) would make task_tool inject the "you must call
-    subtask_outcome_report" mandate into the system prompt while the tool itself
-    is filtered out by SubagentExecutor._filter_tools — the worker can never
-    comply and the subtask falls back to auto-completion without a proper
-    outcome report. Strip such bans here: allowlist intent stays untouched, we
-    only guarantee the mandatory collab surface exists.
+    ``done`` / legacy ``subtask_outcome_report``) would make task_tool inject the
+    "you must call done" mandate while the tool itself is filtered out. Strip
+    such bans here (canonical + legacy spellings).
     """
     disallowed = config_overrides.get("disallowed_tools")
     if not disallowed:
         return config_overrides
     mandatory = _collab_mandatory_tools_for_mode(reporting_mode)
-    banned_mandatory = [t for t in disallowed if t in mandatory]
+    protected: set[str] = set()
+    for name in mandatory:
+        protected |= set(expand_tool_name_aliases(name))
+    banned_mandatory = [t for t in disallowed if t in protected]
     if not banned_mandatory:
         return config_overrides
-    config_overrides["disallowed_tools"] = [t for t in disallowed if t not in mandatory]
+    config_overrides["disallowed_tools"] = [t for t in disallowed if t not in protected]
     logger.warning(
         "task_tool: stripped banned mandatory collab tools from subtask disallowed_tools: %s",
         banned_mandatory,
@@ -491,7 +499,7 @@ async def _finalize_collab_subtask_terminal(
                     )
                 )
             # Follow-up already scheduled when subtask_outcome_report succeeded; do not wait for post-report chat.
-            return "completed", f"Task Succeeded (subtask_outcome_report). Result: {body[:4000]}"
+            return "completed", f"Task Succeeded (done). Result: {body[:4000]}"
         if status == "timed_out":
             if writer:
                 writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err or body}))
@@ -548,7 +556,7 @@ async def _finalize_collab_subtask_terminal(
             subtask_id=resolved_subtask,
             outcome="failed",
             summary=draft or "子智能体回合结束",
-            error="未调用 subtask_outcome_report；模型返回结束不能视为子任务完成。",
+            error="未调用 done；模型返回结束不能视为子任务完成。",
         )
         if writer:
             writer(
@@ -557,13 +565,13 @@ async def _finalize_collab_subtask_terminal(
                         "type": "task_failed",
                         "task_id": stream_task_id,
                         "collab_subtask_id": resolved_subtask,
-                        "error": "未调用 subtask_outcome_report",
+                        "error": "未调用 done",
                     }
                 )
             )
         return (
             "failed",
-            "Task failed. Subagent finished its turn without calling subtask_outcome_report. You must call subtask_outcome_report(completed|failed, summary=...) before ending.",
+            "Task failed. Subagent finished its turn without calling done. You must call done(outcome=completed|failed, summary=...) before ending.",
         )
 
     sys_outcome = ex if ex in {"failed", "timed_out", "cancelled", "blocked"} else "failed"
@@ -1089,7 +1097,7 @@ async def task_tool(
         system_prompt = (
             system_prompt
             + f"\n\n<collab_scope>\nmain_task_id: {resolved_collab}\nsubtask_id: {resolved_subtask}\n"
-            + "调用 `subtask_progress_report` / `subtask_outcome_report` / `subtask_work_checklist` 时通常无需再传 ID（运行时已注入）；若仍报错请显式传入上述 ID。\n"
+            + "调用 `progress` / `done` / `checklist` 时通常无需再传 ID（运行时已注入）；若仍报错请显式传入上述 ID。\n"
             + "</collab_scope>"
         )
 
@@ -1215,7 +1223,7 @@ async def task_tool(
                 resolved_subtask,
                 status="in_progress",
                 progress=max(5, min(95, int((collab_sub_row or {}).get("progress") or 0) or 10)),
-                current_step="Subagent executing (await subtask_outcome_report)",
+                current_step="Subagent executing (await done)",
             )
         except Exception:
             logger.debug("task_tool: mark subtask in_progress failed", exc_info=True)

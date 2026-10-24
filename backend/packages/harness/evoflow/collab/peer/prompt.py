@@ -60,9 +60,9 @@ def format_peer_wake_prompt_block(
     if mode == "consultation":
         mode_block = (
             "**咨询模式**：你本 subtask 已正式完成。仅根据既有 `task_report`、工作区与问题作答；\n"
-            "**不要**修改代码、不要再次调用 `subtask_outcome_report`、不要发起 `collab_peer_send`。\n"
+            "**不要**修改代码、不要再次调用 `done`、不要发起 `peer_send`。\n"
             "若对方需要实质性改动，在回复中说明需 Lead 对责任 subtask 执行 `retry_subtask`。"
         )
     else:
-        mode_block = "**协作模式**：对方也在执行中。请用 `collab_peer_reply` 回答；可继续本 subtask 工作。\n不要替对方 subtask 调用 `subtask_outcome_report`。"
+        mode_block = "**协作模式**：对方也在执行中。请用 `peer_reply` 回答；可继续本 subtask 工作。\n不要替对方 subtask 调用 `done`。"
     return f"## 私线协作（本轮触发）\n\n线程 `{thread_key}`，来自 **{from_label}**。\n{mode_block}\n\n### 本线程消息（仅此私线）\n{thread_body}"

@@ -1,4 +1,4 @@
-"""Worker tool: mandatory terminal status + task report for collaboration subtasks."""
+"""Worker tool: terminal outcome — short name ``done`` (legacy ``subtask_outcome_report``)."""
 
 from __future__ import annotations
 
@@ -8,41 +8,23 @@ from typing import Annotated, Any
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langgraph.typing import ContextT
 
+from evoflow.collab.collab_tool_names import DONE
 from evoflow.collab.subtask_outcome import apply_subtask_outcome_report
 from evoflow.tools.builtins.subtask_work_checklist_tool import _resolve_collab_ids
 
 
-@tool("subtask_outcome_report", parse_docstring=True)
-async def subtask_outcome_report_tool(
+async def _apply_done(
     runtime: ToolRuntime[ContextT, dict],
     outcome: str,
     summary: str,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    main_task_id: str | None = None,
-    subtask_id: str | None = None,
-    error: str | None = None,
-    evidence_paths: Any = None,
-    outputs: Any = None,
-    structured_output: Any = None,
+    tool_call_id: str,
+    main_task_id: str | None,
+    subtask_id: str | None,
+    error: str | None,
+    evidence_paths: Any,
+    outputs: Any,
+    structured_output: Any,
 ) -> str:
-    """Report final subtask outcome (success / failure / blocked / cancelled) to the collab task store.
-
-    **You must call this once before ending your turn.** Chat text alone does not update the sidebar.
-
-    Args:
-        outcome: ``completed`` | ``failed`` | ``blocked`` | ``cancelled`` (aliases: done, fail, cancel).
-        summary: Subtask completion report for Lead/collab sidebar (not agent memory - required).
-        main_task_id: Main task id (optional if runtime has ``collab_task_id``).
-        subtask_id: Subtask id (optional if runtime has ``collab_subtask_id``).
-        error: Failure reason (recommended when outcome is failed/blocked).
-        evidence_paths: Optional list of output file paths (legacy; prefer ``outputs``).
-        outputs: Optional structured deliverables
-            ``[{type,key,value,label?}]`` where type is ``file|url|text|other``.
-        structured_output: Optional JSON object or JSON string conforming to the step's
-            ``output_schema``. If provided, validated and stored as the step's
-            structured output for downstream ``input_bindings`` resolution.
-            If not provided, the system will attempt to extract JSON from the summary.
-    """
     ctx_main, ctx_sub = _resolve_collab_ids(runtime)
     mid = str(main_task_id or ctx_main or "").strip()
     sid = str(subtask_id or ctx_sub or "").strip()
@@ -76,3 +58,69 @@ async def subtask_outcome_report_tool(
         tool_call_id=str(tool_call_id or "").strip() or None,
     )
     return json.dumps(res, ensure_ascii=False)
+
+
+@tool(DONE, parse_docstring=True)
+async def done_tool(
+    runtime: ToolRuntime[ContextT, dict],
+    outcome: str,
+    summary: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    main_task_id: str | None = None,
+    subtask_id: str | None = None,
+    error: str | None = None,
+    evidence_paths: Any = None,
+    outputs: Any = None,
+    structured_output: Any = None,
+) -> str:
+    """Finish this subtask (required once before ending).
+
+    Args:
+        outcome: ``completed`` | ``failed`` | ``blocked`` | ``cancelled`` (aliases: done, fail, cancel).
+        summary: Short result for Lead / downstream (required).
+        main_task_id: Optional if runtime has collab ids.
+        subtask_id: Optional if runtime has collab ids.
+        error: Failure reason when failed/blocked.
+        evidence_paths: Optional file paths (prefer ``outputs``).
+        outputs: Optional ``[{type,key,value,label?}]``.
+        structured_output: Optional JSON for step ``output_schema``.
+    """
+    return await _apply_done(
+        runtime,
+        outcome,
+        summary,
+        tool_call_id,
+        main_task_id,
+        subtask_id,
+        error,
+        evidence_paths,
+        outputs,
+        structured_output,
+    )
+
+
+@tool("subtask_outcome_report", description="Alias of done (legacy). Prefer done.")
+async def subtask_outcome_report_tool(
+    runtime: ToolRuntime[ContextT, dict],
+    outcome: str,
+    summary: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    main_task_id: str | None = None,
+    subtask_id: str | None = None,
+    error: str | None = None,
+    evidence_paths: Any = None,
+    outputs: Any = None,
+    structured_output: Any = None,
+) -> str:
+    return await _apply_done(
+        runtime,
+        outcome,
+        summary,
+        tool_call_id,
+        main_task_id,
+        subtask_id,
+        error,
+        evidence_paths,
+        outputs,
+        structured_output,
+    )

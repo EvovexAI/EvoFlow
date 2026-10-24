@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langgraph.typing import ContextT
 
+from evoflow.collab.collab_tool_names import CHECKLIST
 from evoflow.collab.storage import get_project_storage
 from evoflow.collab.work_checklist import (
     broadcast_checklist_progress,
@@ -40,38 +41,17 @@ def _resolve_collab_ids(runtime: ToolRuntime[ContextT, dict] | None) -> tuple[st
     return main_id, sub_id
 
 
-@tool("subtask_work_checklist", parse_docstring=True)
-async def subtask_work_checklist_tool(
+async def _apply_checklist(
     runtime: ToolRuntime[ContextT, dict],
     action: str,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-    main_task_id: str | None = None,
-    subtask_id: str | None = None,
-    item_id: str | None = None,
-    status: str | None = None,
-    result: str | None = None,
-    content: str | None = None,
-    items: Any = None,
+    main_task_id: str | None,
+    subtask_id: str | None,
+    item_id: str | None,
+    status: str | None,
+    result: str | None,
+    content: str | None,
+    items: Any,
 ) -> str:
-    """Persist and update this subtask's execution steps (content, status, result).
-
-    **Worker-owned**: after you understand the subtask goal, call ``set`` with your step list
-    before heavy work; call ``update`` as you progress. Lead dispatches and validates; does not
-    maintain this list for you.
-
-    Checklist updates automatically sync subtask ``progress`` (0–100). Also call
-    ``subtask_progress_report`` at phase boundaries with ``current_step``.
-
-    Args:
-        action: ``list`` | ``set`` | ``update``
-        main_task_id: Main collab task id (optional if runtime context has collab_task_id).
-        subtask_id: Subtask id (optional if runtime context has collab_subtask_id).
-        item_id: For ``update``: row id from ``list`` **or** 1-based table ``#`` (e.g. ``"2"`` for row 2).
-        status: ``pending`` | ``in_progress`` | ``completed`` | ``cancelled`` (for ``update``).
-        result: Outcome summary for the row (for ``update`` when completing).
-        content: Replace row content (optional ``update``).
-        items: For ``set``: list of ``{{content, status?, result?}}`` objects (replaces checklist).
-    """
     act = str(action or "").strip().lower()
     ctx_main, ctx_sub = _resolve_collab_ids(runtime)
     mid = str(main_task_id or ctx_main or "").strip()
@@ -150,4 +130,52 @@ async def subtask_work_checklist_tool(
     return json.dumps(
         {"ok": False, "error": f"Unknown action '{action}'. Use list, set, or update."},
         ensure_ascii=False,
+    )
+
+
+@tool(CHECKLIST, parse_docstring=True)
+async def checklist_tool(
+    runtime: ToolRuntime[ContextT, dict],
+    action: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    main_task_id: str | None = None,
+    subtask_id: str | None = None,
+    item_id: str | None = None,
+    status: str | None = None,
+    result: str | None = None,
+    content: str | None = None,
+    items: Any = None,
+) -> str:
+    """Step checklist for this subtask (``list`` / ``set`` / ``update``).
+
+    Args:
+        action: ``list`` | ``set`` | ``update``
+        main_task_id: Optional if runtime has collab ids.
+        subtask_id: Optional if runtime has collab ids.
+        item_id: For ``update``: row id or 1-based ``#``.
+        status: ``pending`` | ``in_progress`` | ``completed`` | ``cancelled``.
+        result: Row outcome when completing.
+        content: Optional replace row text.
+        items: For ``set``: ``[{content, status?, result?}]``.
+    """
+    return await _apply_checklist(
+        runtime, action, main_task_id, subtask_id, item_id, status, result, content, items
+    )
+
+
+@tool("subtask_work_checklist", description="Alias of checklist (legacy). Prefer checklist.")
+async def subtask_work_checklist_tool(
+    runtime: ToolRuntime[ContextT, dict],
+    action: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+    main_task_id: str | None = None,
+    subtask_id: str | None = None,
+    item_id: str | None = None,
+    status: str | None = None,
+    result: str | None = None,
+    content: str | None = None,
+    items: Any = None,
+) -> str:
+    return await _apply_checklist(
+        runtime, action, main_task_id, subtask_id, item_id, status, result, content, items
     )

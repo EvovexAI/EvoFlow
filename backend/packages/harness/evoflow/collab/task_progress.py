@@ -385,7 +385,7 @@ async def apply_subtask_progress_report(
     if prev_status in _TERMINAL_SUCCESS | _TERMINAL_FAIL:
         return {
             "ok": False,
-            "error": f"subtask already terminal ({prev_status}); use subtask_outcome_report to change outcome",
+            "error": f"subtask already terminal ({prev_status}); use done to change outcome",
             "status": prev_status,
             "progress": clamp_task_progress(st.get("progress")),
         }
@@ -448,7 +448,7 @@ def format_lead_main_progress_mandate_block() -> str:
     """Short block for lead executing phase (may be merged into collab middleware)."""
     return """**主任务（整体）进度**
 - 执行期：每次 monitor 后后端按子任务平均更新**主任务** `progress`（自动上限 99%，不会把主任务标为 `completed`）。
-- **子任务**仍由各 worker 自行上报至 100% 并用 `subtask_outcome_report` 完成；这与主任务关单无关。
+- **子任务**仍由各 worker 自行上报至 100% 并用 `done` 完成；这与主任务关单无关。
 - 终态：全部子任务 completed 且 Plan 验收通过后，Lead 必须 `update_progress(..., progress=100, status=completed)` 或 `set_task_state(status=completed)` 关闭**主任务**。"""
 
 
