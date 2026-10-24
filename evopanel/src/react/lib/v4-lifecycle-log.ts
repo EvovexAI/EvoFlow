@@ -16,7 +16,7 @@
 import { logStreamCompareV4Lifecycle } from './stream-compare-file-log.js'
 
 const PREFIX = '[v4-life]'
-const RING_MAX = 120
+const RING_MAX = 200
 const LS_RING_KEY = 'EVOFLOW_V4_LIFE_RING'
 const LS_ENABLE_KEY = 'EVOFLOW_V4_LIFE_LOG'
 const DEDUPE_MS = 2_500

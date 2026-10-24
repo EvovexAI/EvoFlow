@@ -167,6 +167,7 @@ export function V4StreamRowsBridge(props: {
         : "v4-connecting";
   const lastPathLogRef = useRef("");
   const connectingSinceRef = useRef<number | null>(null);
+  const connectingSessionRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const key = `${pathState}:${sessionId ?? ""}`;
     if (lastPathLogRef.current === key) return;
@@ -181,7 +182,13 @@ export function V4StreamRowsBridge(props: {
       }
     }
     if (pathState === "v4") {
+      const waitedMs =
+        connectingSinceRef.current != null && connectingSessionRef.current === sessionId
+          ? Date.now() - connectingSinceRef.current
+          : null;
       connectingSinceRef.current = null;
+      connectingSessionRef.current = null;
+      const sinceClick = v4OpenSinceClickMs({ threadId: sessionId });
       console.info(
         `%c[v4-path] ★ 显示数据源 = V4 帧管线 → ZCode ConversationTimeline（GET /api/v4/conversation/frames）sessionId=${sessionId}`,
         "color:#2563eb;font-weight:bold",
@@ -192,15 +199,34 @@ export function V4StreamRowsBridge(props: {
         threadId: sessionId,
         zh: zhRender,
         detail: { path: "v4", rowCount, storeStatus },
+        skipDedupe: true,
       });
       logV4Life({
         event: "path",
         threadId: sessionId,
         zh: `显示路径切到 V4 时间线（首帧已到）。行数=${rowCount}`,
         detail: { path: "v4", rowCount, storeStatus },
+        skipDedupe: true,
+      });
+      logV4Life({
+        event: "open_ready",
+        threadId: sessionId,
+        level: sinceClick != null && sinceClick >= 1500 ? "warn" : "info",
+        zh:
+          sinceClick != null
+            ? `【上屏耗时】距点击 ${sinceClick}ms 历史已可显示（行数=${rowCount}${waitedMs != null ? `，本段 connecting ${waitedMs}ms` : ""}）。${sinceClick >= 1500 ? "偏慢：对照同会话 open_acquire/subscribe_ack/frame_snapshot/sse_frame_assemble。" : "正常。"}`
+            : `历史已可显示（行数=${rowCount}）；无点击计时锚点（可能来自预热/非侧栏打开）。`,
+        detail: {
+          rowCount,
+          storeStatus,
+          connectingWaitedMs: waitedMs,
+          openKind: leaseForSession?.openKind ?? null,
+        },
+        skipDedupe: true,
       });
     } else if (pathState === "v4-connecting") {
       connectingSinceRef.current = Date.now();
+      connectingSessionRef.current = sessionId;
       console.info(
         `%c[v4-path] V4 已订阅，等首帧快照中（session=${sessionId}）——不回落老面板`,
         "color:#9333ea;font-weight:bold",
@@ -227,6 +253,7 @@ export function V4StreamRowsBridge(props: {
       });
     } else {
       connectingSinceRef.current = null;
+      connectingSessionRef.current = null;
       const reason = !enabled ? "V4 开关关闭" : "会话尚无 threadId";
       console.info(
         `%c[v4-path] 显示数据源 = 老链路（AG-UI SSE）——${reason}`,
@@ -248,13 +275,35 @@ export function V4StreamRowsBridge(props: {
     }
   }, [pathState, sessionId, enabled, snapshot, state?.status, leaseForSession]);
 
-  // 卡在 connecting 超过 5s：落盘 warn；若 store 已 live 仍无 snapshot，再踢一次 recovery
-  //（store 内 2.5s watchdog 通常已先跑；此处是兜底，对齐「发消息才出历史」路径）。
+  // connecting 每秒打进度；满 5s 再 warn + recovery（与发消息触发的自愈同路径）。
   useLayoutEffect(() => {
     if (pathState !== "v4-connecting" || !sessionId) return;
     const started = connectingSinceRef.current || Date.now();
     connectingSinceRef.current = started;
-    const t = window.setTimeout(() => {
+    const tick = window.setInterval(() => {
+      if (lastPathLogRef.current !== `v4-connecting:${sessionId}`) return;
+      const st = store?.getState();
+      const waitedMs = Date.now() - started;
+      const storeStatus = st?.status ?? state?.status ?? null;
+      const hasSubscription = !!st?.subscriptionId;
+      const hasSnap = Boolean(st?.snapshot);
+      logV4Life({
+        event: "connecting_tick",
+        level: waitedMs >= 3000 ? "warn" : "info",
+        threadId: sessionId,
+        zh: `仍在等 V4 首帧：已 ${Math.round(waitedMs / 1000)}s（store=${storeStatus || "?"} sub=${hasSubscription ? "有" : "无"} snap=${hasSnap ? "有" : "无"}）。`,
+        detail: {
+          waitedMs,
+          storeStatus,
+          lease: !!leaseForSession,
+          hasSubscription,
+          hasSnapshot: hasSnap,
+          openKind: leaseForSession?.openKind ?? null,
+        },
+        skipDedupe: true,
+      });
+    }, 1_000);
+    const stuck = window.setTimeout(() => {
       if (lastPathLogRef.current !== `v4-connecting:${sessionId}`) return;
       const st = store?.getState();
       const waitedMs = Date.now() - started;
@@ -279,6 +328,7 @@ export function V4StreamRowsBridge(props: {
           hasSubscription,
           hint: "initial 丢失时发消息会走 delta→recovery；此处主动 recoverFromStaleAuthority",
         },
+        skipDedupe: true,
       });
       try {
         if (st?.subscriptionId && !st.snapshot) {
@@ -288,7 +338,10 @@ export function V4StreamRowsBridge(props: {
         /* best-effort */
       }
     }, 5_000);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(stuck);
+    };
   }, [pathState, sessionId, state?.status, leaseForSession, store]);
 
   const status = state?.status ?? "connecting";
