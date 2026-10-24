@@ -81,7 +81,7 @@ async def dispatch_workflow_task_now(
             return {"success": False, "error": f"authorize_failed:{msg}", "taskId": tid}
 
     from evoflow.collab.plan_subtasks_sync import ensure_subtasks_synced_before_start_execution
-    from evoflow.collab.workflow_scheduler import advance_dag
+    from evoflow.collab.workflow_runtime import start as workflow_runtime_start
 
     try:
         ensure_subtasks_synced_before_start_execution(tid, storage=storage)
@@ -89,10 +89,9 @@ async def dispatch_workflow_task_now(
         logger.warning("dispatch_workflow_task_now: subtasks pre-sync failed task_id=%s: %s", tid, sync_exc)
         return {"success": False, "error": f"subtasks_sync_failed:{sync_exc}", "taskId": tid}
 
-    # Sole DAG push entry for App workflow (wave-1).
-    scheduled = await advance_dag(
+    # App Workflow Runtime owns wave-1 (not Lead supervisor_tool).
+    scheduled = await workflow_runtime_start(
         tid,
-        reason="initial",
         authorized_by=authorized_by,
         thread_id=None,
     )

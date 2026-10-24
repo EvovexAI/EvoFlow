@@ -212,17 +212,29 @@ async def _requeue_and_redispatch_timed_out_subtasks_once(
 
     delegated_ids: list[str] = []
     try:
+        from evoflow.collab.workflow_runtime import is_workflow_scheduler_task, retry_wave
+
         resolved_runtime = _resolve_collab_followup_runtime(runtime, key)
-        to_run, _blocked = _resolve_subtasks_for_start_execution(storage, key, None)
-        if to_run:
-            delegated = await delegate_collab_subtasks_for_start_execution(
-                resolved_runtime,
-                storage,
-                key,
-                to_run,
-                wait_for_completion=False,
-            )
-            delegated_ids = [str(d.get("subtaskId") or "") for d in delegated if bool(d.get("ok")) and str(d.get("subtaskId") or "").strip()]
+        # App workflow: re-enter DAG via WorkflowRuntime (app_run push included).
+        if is_workflow_scheduler_task(task if isinstance(task, dict) else None):
+            to_run, _blocked = _resolve_subtasks_for_start_execution(storage, key, None)
+            await retry_wave(key, runtime=resolved_runtime, authorized_by="monitor")
+            delegated_ids = list(to_run or [])
+        else:
+            to_run, _blocked = _resolve_subtasks_for_start_execution(storage, key, None)
+            if to_run:
+                delegated = await delegate_collab_subtasks_for_start_execution(
+                    resolved_runtime,
+                    storage,
+                    key,
+                    to_run,
+                    wait_for_completion=False,
+                )
+                delegated_ids = [
+                    str(d.get("subtaskId") or "")
+                    for d in delegated
+                    if bool(d.get("ok")) and str(d.get("subtaskId") or "").strip()
+                ]
     except Exception:
         logger.debug(
             "requeue_and_redispatch timed_out: delegation failed task_id=%s",

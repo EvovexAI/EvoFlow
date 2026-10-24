@@ -1,6 +1,6 @@
 # Workflow execution hardening
 
-Status: Phase A + B + C0 + C1 + C2 (`WorkflowScheduler`) done. True Runtime split still open.
+Status: Phase A + B + C0–C3 done (Scheduler + Runtime boundary + AppRun events). Optional polish remains.
 
 ## Diagnosis
 
@@ -48,17 +48,22 @@ App workflow has no dedicated runtime. It reuses Lead-oriented collab
 ### Phase C2 — WorkflowScheduler (done)
 
 - Module: `collab/workflow_scheduler.py`
-- `advance_dag(reason=initial|followup|…)` is the App workflow DAG push entry
-- Wave-1: `dispatch_workflow_task_now` → `advance_dag(initial)` → authorized start_execution
+- `advance_dag(reason=initial|followup|retry|…)` is the App workflow DAG push entry
+- Wave-1: `dispatch_workflow_task_now` → `workflow_runtime.start` → authorized start_execution
 - Wave-2+: `emit_followup_wave_needed` routes `source_app_id` / workflow-bound via scheduler;
   Lead collab keeps the registered supervisor follow-up handler
-- Each advance pushes `evoflow_app_runs` (write-path)
+- Monitor requeue for workflow → `workflow_runtime.retry_wave`
 
-## Still open (Phase C — larger)
+### Phase C3 — Runtime boundary + AppRun events (done)
 
-1. **True Runtime split** — Workflow vs Collab share Step Runner only (scheduler is the boundary seed)
-2. **AppRun event bus SSOT** — replace remaining GET heal reliance
-3. **Optional** — file-path-only huge artifacts; lease metrics
+- `collab/workflow_runtime.py` — public App Workflow API (`start` / `continue_after_step` / `retry_wave`)
+- `collab/app_run_events.py` — write-path SSOT (`emit_app_run_from_main_task`); GET heal is safety net only
+- Lead collab still uses supervisor; both share claim + delegate (Step Runner)
+
+## Still open (optional)
+
+1. Further extract Step Runner module from `supervisor/execution.py` (shared import only)
+2. File-path-only huge artifacts; lease metrics
 
 ## Acceptance (regression)
 

@@ -45,13 +45,11 @@ def _load_main_task(task_id: str) -> dict[str, Any] | None:
     return task if isinstance(task, dict) else None
 
 
-def _push_app_run(task_id: str) -> None:
+def _push_app_run(task_id: str, *, reason: str) -> None:
     try:
-        from evoflow.collab.app_runner import push_app_run_from_main_task
+        from evoflow.collab.app_run_events import emit_app_run_for_task_id
 
-        task = _load_main_task(task_id)
-        if task:
-            push_app_run_from_main_task(task)
+        emit_app_run_for_task_id(task_id, reason=reason)
     except Exception:
         logger.debug("workflow_scheduler: push_app_run failed task_id=%s", task_id, exc_info=True)
 
@@ -93,11 +91,12 @@ async def advance_dag(
         authorized_by,
     )
 
-    if reason == "followup":
+    # followup / retry: runnable dependents after terminal (or requeue→pending).
+    if reason in ("followup", "retry"):
         from evoflow.tools.builtins.supervisor.execution import auto_delegate_collab_followup_wave
 
         await auto_delegate_collab_followup_wave(runtime, tid)
-        _push_app_run(tid)
+        _push_app_run(tid, reason=f"dag_{reason}")
         return {"ok": True, "taskId": tid, "reason": reason, "action": "followup_wave"}
 
     from evoflow.collab.dispatch_authorized_execution import dispatch_authorized_main_task_execution
@@ -107,7 +106,7 @@ async def advance_dag(
         thread_id=thread_id,
         authorized_by=str(authorized_by or "api").strip() or "api",
     )
-    _push_app_run(tid)
+    _push_app_run(tid, reason=f"dag_{reason}")
     ok = bool(isinstance(parsed, dict) and (parsed.get("success") or parsed.get("delegatedSubtasks")))
     out: dict[str, Any] = {
         "ok": ok,

@@ -48,19 +48,19 @@ async def test_advance_dag_initial_dispatches_and_pushes(monkeypatch: pytest.Mon
     )
     monkeypatch.setattr(
         "evoflow.collab.workflow_scheduler._push_app_run",
-        lambda tid: pushes.append(tid),
+        lambda tid, reason="": pushes.append((tid, reason)),
     )
 
     out = await advance_dag("wf1", reason="initial", authorized_by="api")
     assert out["ok"] is True
     assert out["action"] == "start_execution"
     assert out["dispatch"]["delegatedSubtasks"] == ["s1"]
-    assert pushes == ["wf1"]
+    assert pushes == [("wf1", "dag_initial")]
 
 
 @pytest.mark.asyncio
 async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.MonkeyPatch):
-    pushes: list[str] = []
+    pushes: list[tuple] = []
     called: list[tuple] = []
 
     monkeypatch.setattr(
@@ -77,7 +77,7 @@ async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.Mon
     )
     monkeypatch.setattr(
         "evoflow.collab.workflow_scheduler._push_app_run",
-        lambda tid: pushes.append(tid),
+        lambda tid, reason="": pushes.append((tid, reason)),
     )
 
     rt = MagicMock()
@@ -85,7 +85,32 @@ async def test_advance_dag_followup_delegates_and_pushes(monkeypatch: pytest.Mon
     assert out["ok"] is True
     assert out["action"] == "followup_wave"
     assert called == [(rt, "wf1")]
-    assert pushes == ["wf1"]
+    assert pushes == [("wf1", "dag_followup")]
+
+
+@pytest.mark.asyncio
+async def test_advance_dag_retry_uses_followup_path(monkeypatch: pytest.MonkeyPatch):
+    called: list[str] = []
+    monkeypatch.setattr(
+        "evoflow.collab.workflow_scheduler._load_main_task",
+        lambda _tid: {"id": "wf1", "source_app_id": "App_x"},
+    )
+
+    async def _followup(runtime, tid):
+        called.append(tid)
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.supervisor.execution.auto_delegate_collab_followup_wave",
+        _followup,
+    )
+    monkeypatch.setattr(
+        "evoflow.collab.workflow_scheduler._push_app_run",
+        lambda tid, reason="": None,
+    )
+    out = await advance_dag("wf1", reason="retry")
+    assert out["ok"] is True
+    assert out["reason"] == "retry"
+    assert called == ["wf1"]
 
 
 @pytest.mark.asyncio

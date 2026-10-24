@@ -282,14 +282,14 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str) -> dic
         if int(task.get("progress") or 0) != 100:
             task["progress"] = 100
 
-    # Write-path: keep evoflow_app_runs aligned without waiting for GET run status.
+    # Write-path SSOT: keep evoflow_app_runs aligned without waiting for GET heal.
     if app_sourced:
         try:
-            from evoflow.collab.app_runner import push_app_run_from_main_task
+            from evoflow.collab.app_run_events import emit_app_run_from_main_task
 
-            push_app_run_from_main_task(task)
+            emit_app_run_from_main_task(task, reason="sync_main_task_from_subtasks")
         except Exception:
-            logger.debug("push_app_run_from_main_task failed task_id=%s", mid, exc_info=True)
+            logger.debug("emit_app_run_from_main_task failed task_id=%s", mid, exc_info=True)
 
     _schedule_main_task_broadcast(
         mid,
